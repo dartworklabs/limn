@@ -460,7 +460,10 @@ async function savePageVerdict(page,key,kb,ctx0){const ctx=ctx0||pvSaveCtx(page)
     if(!(t&&t.dataset&&t.dataset.act==='pv-save'&&t.dataset.key===key&&t.dataset.page===String(page)))away=true;};
   document.addEventListener('focusin',moved);
   const before=pvCurOn(ctx.doc,page),prev=before?before.id:0,top=pvTopId();   // the verdict a save replaces: a draft kept for it moves on
-  PV_BUSY.set(slot,key); drawPageVerdicts();
+  // A new verdict on the line ends the line's offer of a take-back's [되돌리기] (the status line keeps its own): the line
+  // is about the new verdict now, and while the offer lasted its [이유 추가] stepped out (components.css) - the focus a key
+  // save hands it went nowhere, and PageDown no longer scrolled.
+  PV_LINE_UNDO.delete(slot); PV_BUSY.set(slot,key); drawPageVerdicts();
   try{const d=(await api('/api/pick',{method:'POST',body:{page,x0:0,y0:0,x1:ctx.w,y1:ctx.h,frac:WHOLE_PAGE.slice(),pdf_build:ctx.build||undefined,doc:ctx.doc||undefined},
       what:'판정 저장',silent:true})).data;
     if(d.error){failed(errText(d)); if(d.pdf_build_gone&&here())refreshDoc().catch(()=>{}); return;}
@@ -487,7 +490,8 @@ async function savePageVerdict(page,key,kb,ctx0){const ctx=ctx0||pvSaveCtx(page)
     pvReasonSettle(slot,saved?got:0,key);   // one moved away from meanwhile: written on this verdict wherever the person is now
     drawPageVerdicts();
     if(currentVisit(visit)&&kb&&!away){const c=/** @type {HTMLElement|null} */(document.querySelector('#doc .pv[data-page="'+page+'"] [data-act="pv-reason-open"]'));
-      if(c&&saved)c.focus({preventScroll:true}); else pvRefocus(page,key);}
+      if(c&&saved)c.focus({preventScroll:true}); else pvRefocus(page,key);
+      if(saved&&document.activeElement===document.body)pvFocusLine(page);}   // never left on nothing: the line's own control
     const nx=PV_NEXT.get(slot); PV_NEXT.delete(slot);
     if(nx){const cur=pvCurOn(ctx.doc,page);   // the last press made meanwhile, on the document it was made on
       if(!(cur&&verdictOf(cur)===nx.key)){const fresh=here()?pvSaveCtx(page):null; savePageVerdict(page,nx.key,!!nx.how,fresh||ctx);}}}}
@@ -879,15 +883,15 @@ function pvStick(){const lines=$$('#doc .pv'); if(!lines.length)return; const L=
   else if(PV_REASON&&PV_REASON.seen)pvReasonLeave();   // the reading page left the field's page: moving on
   // A key's armed confirm word belongs to the page it was read on: another reading page lets it go.
   if(VD_ARM&&VD_ARM.kbd&&VD_ARM.where===VD_WHERE.PAGE&&VD_ARM.page!==r)disarmVerdict(false,true);
+  // The new reading page stays where it is on screen without a scroll: a stacked line keeps the row of the figure's name it
+  // shows while it is the reading line (components.css), so the line the reading page leaves keeps its height. Scrolling the
+  // area by what a line's change moved a page ended a jump's smooth scroll where it was (an outline jump from page 4 to 40
+  // stopped on page 5), and on a phone a slow scroll down then never passed a page's end: the page above came back under the
+  // reading line, the reading page flipped back and the line grew again, 466 times in 14 drags.
   if(r!==PV_READ||k!==PV_KEYS){const was=[PV_READ,PV_KEYS]; PV_READ=r; PV_KEYS=k; const map=pageVerdictPins(),v=pageVerdictsOn();
-    // The new reading page stays where it is on screen. A stacked line gives the reading figure's name a row of its own, so
-    // the line the reading page leaves loses that row: the one above the new reading page shrank by it (23px on a phone)
-    // and pulled that page - the one under the reader's eyes or fingers, a two-finger zoom's anchor - up by as much.
-    const pin=r?document.getElementById('p'+r):null,y0=pin?pin.getBoundingClientRect().top:0;
     const re=/** @type {HTMLElement[]} */([]);
     if(v)new Set([...was,r,k]).forEach(n=>{const e=/** @type {HTMLElement|null} */(n?document.querySelector('#doc .pv[data-page="'+n+'"]'):null); if(e){fillPv(e,n,map.get(n),v); re.push(e);}});
     if(re.length)pvFit(re);   // the reading line names its figure: its row is measured again
-    if(pin){const dy=pin.getBoundingClientRect().top-y0; if(Math.abs(dy)>=0.5)L.scrollTop+=dy;}
     pvFocusOffPage(r,was[0]);}
   lines.forEach(l=>{const pg=/** @type {HTMLElement|null} */(l.previousElementSibling); if(!pg)return; const b=l.getBoundingClientRect();
     const stuck=l.classList.contains('reading')&&b.bottom>lr.top&&b.top<lr.bottom&&b.top<pg.getBoundingClientRect().bottom+4;   // in its own place it stands 8px under the page
@@ -986,7 +990,13 @@ function verdictKey(e){if(e.defaultPrevented||e.repeat||e.isComposing||e.ctrlKey
   if(!pageTakesVerdict(at)){e.preventDefault(); lineNote('이 쪽은 판정을 받지 않습니다',NOTICE_KIND.INFO,null,{source:'verdict-key',life:NOTICE_LIFE.TIMER}); return;}
   if(VD_ARM&&VD_ARM.kbd&&VD_ARM.where===VD_WHERE.PAGE&&VD_ARM.page!==at)disarmVerdict(true,true);
   const b=/** @type {HTMLElement|null} */(document.querySelector('#doc .pv[data-page="'+at+'"] button[data-act="pv-save"][data-key="'+CSS.escape(c.key)+'"]'));
-  if(!b)return; e.preventDefault(); verdictPress(b,'key');}
+  if(!b)return; e.preventDefault();
+  // A digit pressed with the focus outside the pages (an outline entry, the page list's or the section strip's button, a
+  // document tab, a card) brings the focus to the PDF area at once, as the save's end brings it to the line: left on that
+  // control while the save was out, the Enter typed after the digit pressed it again - the outline jumped, the page field
+  // opened and took the reason's text - instead of opening the reason.
+  const a=document.activeElement,L=$('#left'); if(a&&a!==document.body&&a!==L&&!L.contains(a))searchToPage();
+  verdictPress(b,'key');}
 addEventListener('keydown',verdictKey);
 // Whether the pages are gliding where a jump sent them (the outline, the page list, a card's [보기]): the PDF area is scrolling
 // - from a scroll event to its scrollend (where the browser has none, 160ms after the last scroll) - and no wheel, touch,

@@ -2873,9 +2873,10 @@ class RcLayoutFixes2(VerdictBase):
 
     def test_the_new_reading_page_stays_put_when_the_line_above_loses_its_name(self):
         """390x844: the lines are stacked and the reading line's figure name has a row of its own. The pages scroll so page 2
-        becomes the reading page: page 1's line, above it, loses that row - and page 2, under the reader's eyes, stays where
-        it was on screen (it moved up by the row, 23px; a two-finger zoom over page 2 then missed its anchor,
-        ActualSize.test_each_page_keeps_its_own_line_badge_and_zoom_anchor failing 4 runs in 15)."""
+        becomes the reading page: page 1's line, above it, keeps that row's place (empty) - and page 2, under the reader's
+        eyes, stays where it was on screen with no scroll of the area (the line lost the row, 23px, and moved page 2 up by
+        as much; a two-finger zoom over page 2 then missed its anchor, ActualSize.test_each_page_keeps_its_own_line_badge_
+        and_zoom_anchor failing 4 runs in 15 - and a scroll making up for it trapped a slow scroll at the page's end)."""
         page = self.on("fig", viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
         page.evaluate("setSide(false)")
         page.evaluate(
@@ -2888,11 +2889,12 @@ class RcLayoutFixes2(VerdictBase):
         got = page.evaluate(
             """()=>{const L=document.querySelector('#left'),p2=document.getElementById('p2'),l1=document.querySelector('#doc .pv[data-page="1"]');
               L.scrollTop+=p2.getBoundingClientRect().top-(L.getBoundingClientRect().top+20); const y=p2.getBoundingClientRect().top,h=l1.getBoundingClientRect().height;
-              pvStick(); return {read:PV_READ,stack:l1.classList.contains('pv-stack'),shrank:h-l1.getBoundingClientRect().height,moved:p2.getBoundingClientRect().top-y};}"""
+              const st=L.scrollTop; pvStick(); return {read:PV_READ,stack:l1.classList.contains('pv-stack'),shrank:h-l1.getBoundingClientRect().height,moved:p2.getBoundingClientRect().top-y,scrolled:L.scrollTop-st};}"""
         )
         self.assertEqual((got["read"], got["stack"]), (2, True), got)
-        self.assertGreater(got["shrank"], 10, got)  # the name's row went from the line above
-        self.assertLess(abs(got["moved"]), 1, got)
+        self.assertLess(abs(got["shrank"]), 0.5, got)  # the name's row keeps its place on the line above
+        self.assertLess(abs(got["moved"]), 0.5, got)
+        self.assertEqual(got["scrolled"], 0, got)
 
 
 class LateFont(VerdictBase):
@@ -5853,3 +5855,98 @@ class RcRound3(VerdictBase):
         settle(page)
         self.assertIsNone(page.evaluate(POP, 1))
         self.assertEqual(page.evaluate(FOCUS_AT)[0], 1)
+
+
+class RcRound4(VerdictBase):
+    """The RC's fourth round: no scroll of the area when the reading page changes (a jump glides to its page, a slow scroll
+    passes a page's end on a phone), a key save after a digit take-back keeps the focus on its line, and a digit pressed from
+    the section strip then Enter opens the reason."""
+
+    PHONE = {"viewport": {"width": 390, "height": 844}, "is_mobile": True, "has_touch": True}
+
+    def tall(self, page):
+        """Page 1 zoomed to more than two screens on the phone, the pages at their top, the lines stacked."""
+        page.evaluate("setSide(false)")
+        page.evaluate("()=>{setK(K*2.5,false); ZOOMED=true; document.querySelector('#left').scrollTop=0;}")
+        settle(page)
+        page.evaluate("pvStick()")
+        settle(page)
+        self.assertEqual(page.evaluate("PV_READ"), 1)
+        self.assertTrue(page.evaluate("document.querySelector('#doc .pv[data-page=\"1\"]').classList.contains('pv-stack')"))
+
+    def test_a_jump_glides_to_its_page_on_a_phone(self):
+        """390x844: a smooth jump to page 2 crosses the reading line's change from page 1 to page 2 on the way and ends with
+        page 2 at the area's top, as an instant jump puts it (a scroll making up for page 1's line losing its name row ended
+        the glide where it was: an outline jump from page 4 to 40 stopped on page 5)."""
+        page = self.on("fig", **self.PHONE)
+        self.tall(page)
+        page.evaluate("goPage(2)")
+        page.wait_for_function(
+            "()=>{const L=document.querySelector('#left'),t=L.scrollTop; if(window.__t===t){window.__n=(window.__n||0)+1;} else {window.__n=0; window.__t=t;} return window.__n>=10;}",
+            polling=50,
+            timeout=10000,
+        )
+        settle(page)
+        got = page.evaluate(
+            "()=>{const L=document.querySelector('#left'),a=L.scrollTop; document.getElementById('p2').scrollIntoView({behavior:'instant'}); const b=L.scrollTop; L.scrollTop=a; return {read:PV_READ,off:a-b};}"
+        )
+        self.assertEqual(got["read"], 2, got)
+        self.assertLess(abs(got["off"]), 2, got)
+
+    def test_a_slow_scroll_passes_the_pages_end_on_a_phone(self):
+        """390x844: the pages scrolled 4px a frame down past page 1's end and back up: the reading page changes once each way
+        and never flips back, the area never scrolls against the person, and the lines keep their heights (with a scroll
+        making up for the line above, the reading page flipped between two pages 466 times in 14 slow drags and the pages
+        never passed the end)."""
+        page = self.on("fig", **self.PHONE)
+        self.tall(page)
+        page.evaluate(
+            "()=>{const L=document.querySelector('#left'),p=document.getElementById('p2'); L.scrollTop+=p.getBoundingClientRect().top-L.getBoundingClientRect().top-L.clientHeight;}"
+        )
+        settle(page)
+        walk = """async dir=>{const L=document.querySelector('#left'),l1=document.querySelector('#doc .pv[data-page="1"]'); const seq=[PV_READ],hs=new Set(); let back=0,prev=L.scrollTop;
+          for(let i=0;i<300;i++){L.scrollTop+=4*dir; await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+            if((L.scrollTop-prev)*dir<-0.5)back++; prev=L.scrollTop; if(PV_READ!==seq[seq.length-1])seq.push(PV_READ); hs.add(Math.round(l1.getBoundingClientRect().height));}
+          return {seq,back,heights:[...hs]};}"""
+        down = page.evaluate(walk, 1)
+        self.assertEqual((down["seq"], down["back"], len(down["heights"])), ([1, 2], 0, 1), down)
+        up = page.evaluate(walk, -1)
+        self.assertEqual((up["seq"], up["back"], len(up["heights"])), ([2, 1], 0, 1), up)
+
+    def test_a_key_save_after_a_digit_take_back_keeps_the_focus_on_its_line(self):
+        """1 saves 채택, 1 takes it back (the focus on the line's [되돌리기]), 2 saves 보류: the line no longer offers the
+        take-back's [되돌리기] and the focus is on the line's way to the reason - not on nothing, where PageDown no longer
+        scrolled ([이유 추가] had stepped out beside the offer and took no focus)."""
+        page = self.on("fig")
+        page.keyboard.press("1")
+        page.wait_for_function("OPEN_ALL.length===1")
+        settle(page)
+        page.keyboard.press("1")
+        page.wait_for_function("OPEN_ALL.length===0")
+        settle(page)
+        self.assertEqual(page.evaluate(FOCUS_AT), [1, "pv-undo"])
+        page.keyboard.press("2")
+        page.wait_for_function("OPEN_ALL.length===1&&!PV_BUSY.size")
+        settle(page)
+        self.assertEqual(page.evaluate(FOCUS_AT), [1, "pv-reason-open"])
+        self.assertFalse(page.evaluate("!!document.querySelector('#doc .pv[data-page=\"1\"] .pv-undo')"))
+
+    def test_a_digit_from_the_section_strip_then_enter_opens_the_reason(self):
+        """The focus on the section strip's page button (where a press on the page list leaves it), 1 with its save held,
+        Enter, '패널 값' typed: the Enter opened the reason popover - not the page list - and the text is that verdict's
+        note once the save answers (the Enter pressed the button again and the text went into the page field)."""
+        page = self.on("fig")
+        page.focus("#section-page")
+        self.held = []
+        page.keyboard.press("1")
+        page.wait_for_function("PV_BUSY.size===1")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "left")
+        page.keyboard.press("Enter")
+        page.keyboard.type("패널 값")
+        self.assertTrue(page.evaluate("document.querySelector('#page-pop').hidden"))
+        self.release()
+        page.keyboard.press("Enter")
+        page.wait_for_function("OPEN_ALL.some(p=>p.note==='패널 값')", timeout=10000)
+        settle(page)
+        self.assertEqual([(p["verdict"], p["note"]) for p in self.pins().values()], [("채택", "패널 값")])
+
