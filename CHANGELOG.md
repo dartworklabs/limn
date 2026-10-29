@@ -89,6 +89,9 @@ was; the viewer still counts the verdict order itself, and a browser test holds 
 - **The save chip stands in the line**, just left of the words, never over the plot, the figure's identifier or the
   current verdict and its state: where its words would reach them it folds to [되돌리기]. The line does not move for it.
   A confirm word waiting for its second press has no description box (it covered the figure's name).
+- **The page being read stays put when the reading page changes.** A stacked line (a phone) gives the reading figure's
+  name a row of its own; the line above the new reading page lost that row and pulled the page up 23px under the reader's
+  eyes - a two-finger zoom over it then missed its anchor. The new reading page now keeps its place on screen.
 - **A line starts where its page does.** With the panel closed at 1280 x 800 the status box at the bottom right pushed the
   line 36px left of its page; the line now ends before the box instead.
 - **Foldable in portrait (and tablets).** With the pin sheet open the line floats on the sheet's top edge instead of going

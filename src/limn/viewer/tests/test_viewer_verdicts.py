@@ -2751,7 +2751,7 @@ WORDS_AT = """n=>[...document.querySelectorAll('#doc .pv[data-page="'+n+'"] .vd-
 
 class RcLayoutFixes2(VerdictBase):
     """The RC retest's layout findings: touch areas along both edges, a line's first save moving no word (a phone's line in
-    its place, a narrow desktop line), a sheet's banner clear of the tool bar."""
+    its place, a narrow desktop line), a sheet's banner clear of the tool bar, the new reading page kept in place."""
 
     def test_touch_areas_answer_44px_along_both_edges(self):
         """Phone and fold portrait, the status line up with a save's [되돌리기] and the floating line over it: a column
@@ -2870,6 +2870,29 @@ class RcLayoutFixes2(VerdictBase):
               return {below:r.top>=bar.bottom,top:!!h&&n.contains(h)};}"""
         )
         self.assertEqual(got, {"below": True, "top": True})
+
+    def test_the_new_reading_page_stays_put_when_the_line_above_loses_its_name(self):
+        """390x844: the lines are stacked and the reading line's figure name has a row of its own. The pages scroll so page 2
+        becomes the reading page: page 1's line, above it, loses that row - and page 2, under the reader's eyes, stays where
+        it was on screen (it moved up by the row, 23px; a two-finger zoom over page 2 then missed its anchor,
+        ActualSize.test_each_page_keeps_its_own_line_badge_and_zoom_anchor failing 4 runs in 15)."""
+        page = self.on("fig", viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+        page.evaluate("setSide(false)")
+        page.evaluate(
+            "()=>{setK(K*2.5,false); ZOOMED=true; document.querySelector('#left').scrollTop=0;}"
+        )  # page 1 taller than the reading depth
+        settle(page)
+        page.evaluate("pvStick()")
+        settle(page)
+        self.assertEqual(page.evaluate("PV_READ"), 1)
+        got = page.evaluate(
+            """()=>{const L=document.querySelector('#left'),p2=document.getElementById('p2'),l1=document.querySelector('#doc .pv[data-page="1"]');
+              L.scrollTop+=p2.getBoundingClientRect().top-(L.getBoundingClientRect().top+20); const y=p2.getBoundingClientRect().top,h=l1.getBoundingClientRect().height;
+              pvStick(); return {read:PV_READ,stack:l1.classList.contains('pv-stack'),shrank:h-l1.getBoundingClientRect().height,moved:p2.getBoundingClientRect().top-y};}"""
+        )
+        self.assertEqual((got["read"], got["stack"]), (2, True), got)
+        self.assertGreater(got["shrank"], 10, got)  # the name's row went from the line above
+        self.assertLess(abs(got["moved"]), 1, got)
 
 
 class LateFont(VerdictBase):

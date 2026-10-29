@@ -880,10 +880,15 @@ function pvStick(){const lines=$$('#doc .pv'); if(!lines.length)return; const L=
   // A key's armed confirm word belongs to the page it was read on: another reading page lets it go.
   if(VD_ARM&&VD_ARM.kbd&&VD_ARM.where===VD_WHERE.PAGE&&VD_ARM.page!==r)disarmVerdict(false,true);
   if(r!==PV_READ||k!==PV_KEYS){const was=[PV_READ,PV_KEYS]; PV_READ=r; PV_KEYS=k; const map=pageVerdictPins(),v=pageVerdictsOn();
+    // The new reading page stays where it is on screen. A stacked line gives the reading figure's name a row of its own, so
+    // the line the reading page leaves loses that row: the one above the new reading page shrank by it (23px on a phone)
+    // and pulled that page - the one under the reader's eyes or fingers, a two-finger zoom's anchor - up by as much.
+    const pin=r?document.getElementById('p'+r):null,y0=pin?pin.getBoundingClientRect().top:0;
     const re=/** @type {HTMLElement[]} */([]);
     if(v)new Set([...was,r,k]).forEach(n=>{const e=/** @type {HTMLElement|null} */(n?document.querySelector('#doc .pv[data-page="'+n+'"]'):null); if(e){fillPv(e,n,map.get(n),v); re.push(e);}});
-    if(re.length)pvFit(re);
-    pvFocusOffPage(r,was[0]);}   // the reading line names its figure: its row is measured again
+    if(re.length)pvFit(re);   // the reading line names its figure: its row is measured again
+    if(pin){const dy=pin.getBoundingClientRect().top-y0; if(Math.abs(dy)>=0.5)L.scrollTop+=dy;}
+    pvFocusOffPage(r,was[0]);}
   lines.forEach(l=>{const pg=/** @type {HTMLElement|null} */(l.previousElementSibling); if(!pg)return; const b=l.getBoundingClientRect();
     const stuck=l.classList.contains('reading')&&b.bottom>lr.top&&b.top<lr.bottom&&b.top<pg.getBoundingClientRect().bottom+4;   // in its own place it stands 8px under the page
     l.classList.toggle('stuck',stuck); pvLean(l,pg,b,stuck,L,lr);});
