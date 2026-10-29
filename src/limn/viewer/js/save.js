@@ -101,7 +101,7 @@ async function savePin(verdict){
       if(ok&&(cleared||restored)&&DOC===visit.doc&&!COMPOSE.current&&!COMPOSE.box&&!COMPOSE.picking&&!$('#note').value)restoreSelection(snap);
       return ok;};
     const vw=verdict?verdictLabel(verdict):'',fr=verdict?figureVerdictRoot(d):null;   // a figure's verdict names the figure
-    const said=fr?tl('#{id} 저장됨 · {word} 판정 · {target}',{id,word:vw,target:figureShort(d.page,fr)}):tl('#{id} 저장됨 · {word} 판정',{id,word:vw});
+    const said=fr?tl('#{id} {word} 판정 저장됨 · {target} — 되돌리면 판정을 거둡니다',{id,word:vw,target:figureShort(d.page,fr)}):tl('#{id} 저장됨 · {word} 판정',{id,word:vw});
     const chip=verdict?undoNote(NOTICE_PLACE.CHIP,said,{label:'되돌리기',wait:true,fn:undo},{pin:id,pending:true,label:tl('#{id} 저장됨 · {word}',{id,word:verdictLabel(verdict)})})
       :undoNote(NOTICE_PLACE.CHIP,tl(question?'질문 #{id} 저장됨 · pins.md 갱신':'핀 #{id} 저장됨 · pins.md 갱신',{id}),
       {label:'되돌리기',wait:true,fn:undo},{pin:id,pending:true,label:tr('저장됨')});

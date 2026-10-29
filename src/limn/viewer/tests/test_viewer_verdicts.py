@@ -604,7 +604,7 @@ class ReviewFixes(VerdictBase):
 
     def test_a_keyboard_save_on_the_line_gives_the_focus_back(self):
         """Enter on a page line's word saves it; the button was redrawn while the request ran, and the focus goes on to the
-        line's reason field - Esc there gives it back to the button - unless the person moved it meanwhile."""
+        line's reason field - Esc there gives it to the PDF area, not to a word - unless the person moved it meanwhile."""
         page = self.on("fig")
         btn = '#doc .pv[data-page="1"] button[data-key="채택"]'
         page.focus(btn)
@@ -614,7 +614,8 @@ class ReviewFixes(VerdictBase):
         self.assertTrue(page.evaluate("()=>document.activeElement.classList.contains('pv-reason')"))
         page.keyboard.press("Escape")
         settle(page)
-        self.assertTrue(page.evaluate("s=>document.activeElement===document.querySelector(s)", btn))
+        self.assertEqual(page.evaluate("document.activeElement.id"), "left")
+        page.focus(btn)
         self.held = []
         page.keyboard.press("Enter")
         page.wait_for_function("PV_BUSY.size===1")
@@ -2183,7 +2184,7 @@ class LineDetails(VerdictBase):
 
     def test_only_the_newest_save_chip_shows(self):
         """채택 on page 1's line, then 보류 on page 2's: one chip on the pages, on page 2's line; page 1's undo went to the
-        status line, still offered, and names the figure ('#N 저장됨 · 채택 판정 · Deployment calendar')."""
+        status line, still offered, and names the figure in its title ('#N 채택 판정 저장됨 · Deployment calendar')."""
         page = self.on("fig")
         one = self.press_page(page, 1, "채택")
         self.press_page(page, 2, "보류")
@@ -2191,12 +2192,10 @@ class LineDetails(VerdictBase):
             page.evaluate("[...document.querySelectorAll('#doc .nt-chip')].map(c=>c.parentElement.dataset.page)"), ["2"]
         )
         self.assertTrue(page.evaluate("id=>LINE.some(n=>n.undo&&!!n.act&&n.title.includes('#'+id))", one))
-        # ...naming the figure the verdict is about
+        # ...naming the figure in its title, which the folded line shows ('#N 채택 판정 저장됨 · Deployment calendar +1')
         self.assertTrue(
-            page.evaluate(
-                "id=>LINE.some(n=>n.title.includes('#'+id)&&noticeText(n).endsWith('채택 판정 · Deployment calendar'))",
-                one,
-            )
+            page.evaluate("id=>LINE.some(n=>n.title==='#'+id+' 채택 판정 저장됨 · Deployment calendar')", one),
+            page.evaluate("LINE.map(n=>n.title)"),
         )
 
     def test_a_failed_save_is_said_under_the_line_that_was_pressed(self):
@@ -2323,7 +2322,7 @@ class Reason(VerdictBase):
         self.assertEqual((pin["verdict"], pin["note"]), ("보류", "3번 패널 범례"))
 
     def test_esc_skips_the_reason(self):
-        """1 then Esc: the field goes, the focus is back on 채택, the pin has no note."""
+        """1 then Esc: the field goes, the focus is on the PDF area (a Space there saves nothing), the pin has no note."""
         page = self.on("fig")
         page.keyboard.press("1")
         page.wait_for_function("OPEN_ALL.length>=1")
@@ -2332,7 +2331,9 @@ class Reason(VerdictBase):
         page.keyboard.press("Escape")
         settle(page)
         self.assertIsNone(page.evaluate(REASON, 1))
-        self.assertEqual(page.evaluate("document.activeElement.dataset.key"), "채택")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "left")
+        page.keyboard.press(" ")
+        settle(page)
         (pin,) = self.pins().values()
         self.assertEqual(pin["note"], "")
 
@@ -2378,6 +2379,124 @@ class Reason(VerdictBase):
         self.assertTrue(page.evaluate(REASON, 2)["focused"])
         self.assertTrue(page.evaluate(ON_TOP, '#doc .pv[data-page="2"] .pv-reason'))
         self.assertTrue(page.evaluate(ON_TOP, '#doc .pv[data-page="2"] button[data-key="보류"]'))
+
+    def test_a_second_save_keeps_the_first_reason_with_the_first_pin(self):
+        """'첫째 이유' typed for 채택 (no Enter), then 보류 on the same line: the first text is saved as the first pin's note
+        - said on the status line '이유 저장됨 · Deployment calendar' - and the field, now the second pin's, is empty; '둘째'
+        and Enter go to the second pin only."""
+        page = self.on("fig")
+        one = self.press_page(page, 1, "채택")
+        page.click('#doc .pv[data-page="1"] .pv-reason')
+        page.keyboard.type("첫째 이유")
+        two = self.press_page(page, 1, "보류")
+        page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id&&p.note)", arg=one)
+        settle(page)
+        self.assertEqual(page.evaluate(REASON, 1)["value"], "")
+        self.assertEqual(
+            page.evaluate("""()=>document.querySelector('#doc .pv[data-page="1"] .pv-reason').dataset.id"""), str(two)
+        )
+        self.assertTrue(page.evaluate("LINE.some(n=>n.title==='이유 저장됨 · Deployment calendar')"))
+        page.click('#doc .pv[data-page="1"] .pv-reason')
+        page.keyboard.type("둘째")
+        page.keyboard.press("Enter")
+        page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id&&p.note)", arg=two)
+        settle(page)
+        self.assertEqual((self.note(one), self.note(two)), ("첫째 이유", "둘째"))
+
+    def test_reading_another_page_closes_the_field_and_keeps_its_text(self):
+        """2 on page 2 and '범례' typed: no line shows key marks while the field has the focus. Scrolled so page 1 is read:
+        the field closes, '범례' is page 2's pin's note ('이유 저장됨 · Review flow'), the focus is on the PDF area and page 1's
+        line has the keys."""
+        page = self.on("fig")
+        page.evaluate("setK(PT_PX*1.5,false)")
+        page.evaluate(SCROLL, [2, "top"])
+        settle(page)
+        page.keyboard.press("2")
+        page.wait_for_function("OPEN_ALL.length>=1")
+        settle(page)
+        page.keyboard.type("범례")
+        settle(page)
+        self.assertEqual(page.evaluate("document.querySelectorAll('#doc .pv button[data-kn]').length"), 0)
+        page.evaluate(SCROLL, [1, "top"])
+        page.wait_for_function("OPEN_ALL.some(p=>p.note)")
+        settle(page)
+        (pin,) = self.pins().values()
+        self.assertEqual(pin["note"], "범례")
+        self.assertIsNone(page.evaluate(REASON, 2))
+        self.assertTrue(page.evaluate("LINE.some(n=>n.title==='이유 저장됨 · Review flow')"))
+        self.assertEqual(page.evaluate("document.activeElement.id"), "left")
+        self.assertEqual(
+            page.evaluate("document.querySelectorAll('#doc .pv[data-page=\"1\"] button[data-kn]').length"), 3
+        )
+
+    def test_another_document_closes_the_field_and_coming_back_does_not_reopen_it(self):
+        """'다른 문서로' typed (no Enter), then the PDF document and back: the text is the pin's note, and the figure's
+        page 1 line has no field."""
+        page = self.on("fig")
+        pid = self.press_page(page, 1, "채택")
+        page.click('#doc .pv[data-page="1"] .pv-reason')
+        page.keyboard.type("다른 문서로")
+        page.evaluate("k=>switchDoc(k)", "rv")
+        page.wait_for_function("DOC==='rv'&&META&&META.doc==='rv'")
+        settle(page)
+        page.evaluate("k=>switchDoc(k)", "fig")
+        page.wait_for_function("DOC==='fig'&&META&&META.doc==='fig'&&document.querySelector('#p1')")
+        settle(page)
+        self.assertEqual(self.note(pid), "다른 문서로")
+        self.assertIsNone(page.evaluate(REASON, 1))
+
+    def test_a_rebuild_keeps_the_field_and_its_text(self):
+        """A reason being typed when a new build of the figure comes: the field and its text stay; Enter saves it."""
+        page = self.on("fig")
+        pid = self.press_page(page, 1, "채택")
+        page.click('#doc .pv[data-page="1"] .pv-reason')
+        page.keyboard.type("새 빌드 전")
+        helpers_figure.viewer_build(self.fig, helpers_figure.BUILD2, helpers_figure.viewer_map())
+        page.evaluate("refreshDoc()")
+        page.wait_for_function("b=>META.pages_build===b", arg=helpers_figure.BUILD2)
+        settle(page)
+        self.assertEqual(page.evaluate(REASON, 1)["value"], "새 빌드 전")
+        page.click('#doc .pv[data-page="1"] .pv-reason')
+        page.keyboard.press("End")
+        page.keyboard.press("Enter")
+        page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id&&p.note)", arg=pid)
+        self.assertEqual(self.note(pid), "새 빌드 전")
+
+    def test_where_the_keyboard_is_measured_the_line_is_not_raised_twice(self):
+        """A phone browser that measures the keyboard (visualViewport: --kb 300px, the page 300px shorter) instead of
+        resizing the layout: the floating line stands 4px over the sheet's bar, which rides on the keyboard, and wholly
+        above the keyboard."""
+        page = self.on("fig", viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+        page.evaluate("setSide(false)")
+        page.evaluate("setK(PT_PX*1.2,false)")
+        page.evaluate(SCROLL, [2, "top"])
+        settle(page)
+        page.evaluate(
+            "()=>{const R=document.documentElement.style,h=document.documentElement.clientHeight; R.setProperty('--kb','300px'); R.setProperty('--vvh',(h-300)+'px');}"
+        )
+        page.evaluate(SCROLL, [2, "mid"])
+        settle(page)
+        got = page.evaluate(FLOAT, 2)
+        cover = page.evaluate(
+            """()=>Math.min(...[document.querySelector('#right'),document.querySelector('#status-dock')].filter(e=>e&&e.getClientRects().length&&getComputedStyle(e).position==='fixed').map(e=>e.getBoundingClientRect().top))"""
+        )
+        self.assertTrue(got["stuck"], got)
+        self.assertAlmostEqual(got["line"]["bottom"], cover - 4, delta=1)
+        self.assertLessEqual(got["line"]["bottom"], 844 - 300)
+
+    def test_the_floating_edge_shows_in_the_light_theme(self):
+        """The floating line's 1px separator is the strong border, not the PDF area's own grey."""
+        page = self.on("fig")
+        page.evaluate("setK(PT_PX*1.5,false)")
+        page.evaluate(SCROLL, [2, "mid"])
+        settle(page)
+        got = page.evaluate(
+            """()=>{const l=document.querySelector('#doc .pv.stuck'), cs=getComputedStyle(document.documentElement);
+              const probe=document.createElement('i'); probe.style.color='var(--border-strong)'; document.body.appendChild(probe);
+              const c=getComputedStyle(probe).color; probe.remove(); return {shadow:getComputedStyle(l).boxShadow, strong:c, bg:getComputedStyle(document.body).backgroundColor};}"""
+        )
+        self.assertIn(got["strong"], got["shadow"])
+        self.assertNotEqual(got["strong"], got["bg"])
 
 
 class ReasonAgentRole(VerdictBase):

@@ -380,7 +380,9 @@ function settleChip(n){if(!n||!NOTICES.has(n.n)||n.place!==NOTICE_PLACE.CHIP)ret
 // and goes when the request is answered (noticeAct); the place it left was its own doing (a save's chip and its mark).
 /** @param {Notice} n */
 function offerToLine(n){if(n.busy)return; const act=n.act,gone=n.gone; n.gone=null; endNotice(n,true); if(!act)return;
-  const m=lineNote(noticeText(n),NOTICE_KIND.OK,act,{life:n.life,gone,literal:true,undo:true});
+  // Its title and description stay as they were split: joined back with ' · ' a title that holds one ('#6 채택 판정 저장됨 · PL16')
+  // was cut at it on the line.
+  const m=lineNote(n.desc?n.title+' — '+n.desc:n.title,NOTICE_KIND.OK,act,{life:n.life,gone,literal:true,undo:true});
   DEFERRED.forEach(d=>{if(d.note===n)d.note=m;});}   // an early send takes the moved undo away
 
 // Trash rows: an undo in the place of the row it took away (after the row drawn before it, or first). drawTrash calls this.
