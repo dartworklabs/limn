@@ -5,14 +5,31 @@ verdict. A whole-page target is a figure pin whose element is its page's figure 
 document, or a region pin over the whole page (each frac value within 1e-6 of [0, 0, 1, 1]) on a view-only PDF -
 never a LaTeX pin (docs/superpowers/specs/2026-10-26-verdict-pins.md §핀 레코드).
 
+superseded_by (ADR-0023) orders the live verdict pins of one target - a figure (el.path[0], mixed element and root
+verdicts alike, ADR-0022 D1), a view-only PDF page, the same lines of a LaTeX file - and names, for each pin that a newer
+one overtakes, the target's current verdict: the newest pin, whoever made it and in whatever state, the pin in the Trash
+excepted because it is not among the live pins.
+
 Run: uv run pytest -q src/limn/pins/tests/test_verdict.py
 """
 
+import time
 import unittest
 
 from hypothesis import given, strategies as st
 
-from limn.pins.verdict import PAGE_EPSILON, verdict_of, whole_figure, whole_page_target
+from limn.pins.model import parse_pin
+from limn.pins.verdict import (
+    PAGE_EPSILON,
+    Placement,
+    figure_root,
+    order_target,
+    same_lines,
+    superseded_by,
+    verdict_of,
+    whole_figure,
+    whole_page_target,
+)
 
 FIGURE_ROOT = {"file": "/ms/figs/src/B2.py", "lo": 12, "hi": 140, "page": 1, "el": {"id": "B2", "path": ["B2"]}}
 FIGURE_PANEL = {**FIGURE_ROOT, "el": {"id": "B2/calendar", "path": ["B2", "B2/calendar"]}}
@@ -77,3 +94,322 @@ class WholePage(unittest.TestCase):
         its page."""
         self.assertFalse(whole_page_target(PDF_PAGE, True, False))
         self.assertFalse(whole_page_target({**FIGURE_ROOT, "frac": [0.1, 0.1, 0.2, 0.2]}, False, True))
+
+
+ANCHOR = {"head": "Intro text.", "tail": "More text.", "head_off": 0, "tail_off": 0}
+FIG_DOC = Placement("fig", "figure")
+RV_DOC = Placement("rv", "pdf")
+
+
+def pin(pid, record, **state):
+    """The stored pin pid made of record: open unless state says done and review."""
+    return parse_pin({"id": pid, "verdict": "채택", **record, **state})
+
+
+def figure(pid, path=("B2",), **state):
+    """A figure document's verdict pin on the element at the end of path."""
+    el = {"id": path[-1], "path": list(path)}
+    return pin(pid, {"file": "/ms/figs/B2.py", "lo": 12, "hi": 140, "page": 1, "el": el, "doc": "fig"}, **state)
+
+
+def latex(pid, lo=4, hi=5, anchor=ANCHOR, **state):
+    """A LaTeX document's verdict pin on lines lo..hi of main.tex, with its anchor."""
+    record = {"file": "/ms/main.tex", "lo": lo, "hi": hi, "page": 1, "doc": "ms"}
+    if anchor is not None:
+        record["anchor"] = anchor
+    return pin(pid, record, **state)
+
+
+def pdf_page(pid, page=3, frac=(0, 0, 1, 1), **state):
+    """A view-only PDF's verdict pin over frac of page."""
+    return pin(
+        pid,
+        {"pdf": "/ms/review.pdf", "name": "review.pdf", "kind": "region", "page": page, "frac": list(frac)},
+        **state,
+    )
+
+
+def placed(pins, where=None):
+    """superseded_by over pins, each placed by where (pin id -> Placement) or by the LaTeX document ms."""
+    where = where or {}
+    return superseded_by(pins, lambda p: where.get(p.core.pid, Placement("ms", "tex", file="/ms/main.tex")))
+
+
+DONE = {"done": True}
+REVIEW = {"done": True, "review": True}
+
+
+class Supersession(unittest.TestCase):
+    """superseded_by on figure targets: the current verdict is the newest live pin of the figure."""
+
+    def figures(self, *pins):
+        """The supersession of pins, all on the figure document fig."""
+        return superseded_by(list(pins), lambda p: FIG_DOC)
+
+    def test_a_newer_verdict_supersedes_an_older_one_and_names_the_current_one(self):
+        """With three verdicts on a figure, the older two both name the newest, not the next newer one."""
+        got = self.figures(figure(1), figure(2), figure(3))
+        self.assertEqual(got, {1: 3, 2: 3})
+
+    def test_the_order_is_the_number_not_the_listing_order(self):
+        """Pins handed in any order give the same answer: the largest number is current."""
+        self.assertEqual(self.figures(figure(3), figure(1), figure(2)), {1: 3, 2: 3})
+
+    def test_state_does_not_matter_and_a_closed_newer_verdict_supersedes(self):
+        """A verdict awaiting review or done is still the target's current verdict (ADR-0021 D4): an open older one
+        is superseded by it. An open newer one supersedes a closed older one just the same."""
+        self.assertEqual(self.figures(figure(1), figure(2, **REVIEW)), {1: 2})
+        self.assertEqual(self.figures(figure(1), figure(2, **DONE)), {1: 2})
+        self.assertEqual(self.figures(figure(1, **DONE), figure(2)), {1: 2})
+
+    def test_a_verdict_on_the_figure_and_one_on_a_panel_of_it_are_one_target(self):
+        """ADR-0022 D1: the target is el.path[0], whatever element of the figure the pin names."""
+        root, panel, leaf = figure(1), figure(2, ("B2", "B2/calendar")), figure(3, ("B2", "B2/calendar", "B2/mark"))
+        self.assertEqual(self.figures(root, panel), {1: 2})
+        self.assertEqual(self.figures(panel, root), {1: 2})
+        self.assertEqual(self.figures(root, panel, leaf), {1: 3, 2: 3})
+
+    def test_another_figure_is_another_target(self):
+        """Verdicts on B2 and on B3 do not meet, nor do the same root id on two documents."""
+        self.assertEqual(self.figures(figure(1), figure(2, ("B3",))), {})
+        both = superseded_by(
+            [figure(1), figure(2)],
+            lambda p: Placement("fig", "figure") if p.core.pid == 1 else Placement("fig2", "figure"),
+        )
+        self.assertEqual(both, {})
+
+    def test_whoever_made_the_newer_verdict_it_supersedes(self):
+        """The author is not part of the order: Bob's newer verdict overtakes Alice's, and the other way round."""
+        alice = {"author": {"login": "alice@example.com", "name": "Alice"}}
+        bob = {"author": {"login": "bob@example.com", "name": "Bob"}}
+        self.assertEqual(self.figures(figure(1, **alice), figure(2, **bob)), {1: 2})
+        self.assertEqual(self.figures(figure(1, **bob), figure(2, **alice)), {1: 2})
+
+    def test_a_pin_without_a_verdict_or_a_target_is_left_out(self):
+        """An ordinary pin, a stored value that is no key, and a figure pin with no element path neither supersede
+        nor are superseded."""
+        plain = parse_pin(
+            {"id": 2, "file": "/ms/figs/B2.py", "lo": 1, "hi": 2, "page": 1, "el": {"id": "B2", "path": ["B2"]}}
+        )
+        no_key = pin(3, {"el": {"id": "B2", "path": ["B2"]}, "verdict": 7})
+        no_el = pin(4, {"file": "/ms/figs/B2.py", "lo": 1, "hi": 2, "page": 1})
+        empty = pin(5, {"file": "/ms/figs/B2.py", "lo": 1, "hi": 2, "page": 1, "el": {"id": "B2", "path": []}})
+        self.assertEqual(self.figures(figure(1), plain, no_key, no_el, empty), {})
+
+    def test_the_figure_root_is_the_first_id_of_the_path(self):
+        """figure_root reads el.path[0] and nothing from a missing, empty or malformed el."""
+        self.assertEqual(figure_root({"el": {"id": "B2/x", "path": ["B2", "B2/x"]}}), "B2")
+        for record in (
+            {},
+            {"el": None},
+            {"el": {"id": "B2", "path": []}},
+            {"el": {"id": "B2", "path": [""]}},
+            {"el": 3},
+        ):
+            with self.subTest(record=record):
+                self.assertIsNone(figure_root(record))
+
+    def test_a_pin_left_out_of_the_live_pins_supersedes_nothing(self):
+        """The Trash is not among the live pins: with the newest verdict deleted, the one before it is current again;
+        restored, it overtakes it again."""
+        three = [figure(1), figure(2), figure(3)]
+        self.assertEqual(self.figures(*three), {1: 3, 2: 3})
+        self.assertEqual(self.figures(*three[:2]), {1: 2})
+        self.assertEqual(self.figures(*three[:1], three[2]), {1: 3})
+        self.assertEqual(self.figures(*three), {1: 3, 2: 3})
+
+    def test_only_verdict_pins_are_placed(self):
+        """placement_of is asked for verdict pins only, so a pin list without one reads nothing."""
+        asked = []
+        pins = [parse_pin({"id": 1, "file": "/ms/main.tex", "lo": 1, "hi": 1, "page": 1}), figure(2)]
+        superseded_by(pins, lambda p: asked.append(p.core.pid) or FIG_DOC)
+        self.assertEqual(asked, [2])
+
+    def test_a_document_the_instance_does_not_serve_has_no_target(self):
+        """placement_of answers None for such a pin: it is left out, and nothing is superseded by it."""
+        pins = [figure(1), figure(2)]
+        self.assertEqual(superseded_by(pins, lambda p: None if p.core.pid == 2 else FIG_DOC), {})
+
+    @given(st.lists(st.integers(min_value=1, max_value=5), min_size=1, max_size=12, unique=True))
+    def test_every_verdict_but_the_newest_of_a_figure_names_the_newest(self, ids):
+        """For any ids, the pins of one figure that are not the largest each name the largest, and it names none."""
+        got = self.figures(*(figure(i, ("B2",) if i % 2 else ("B2", "B2/x")) for i in ids))
+        newest = max(ids)
+        self.assertEqual(got, {i: newest for i in ids if i != newest})
+
+
+class ViewOnlyPage(unittest.TestCase):
+    """superseded_by on a view-only PDF: the target is the whole page, and only a mark that is not an estimate."""
+
+    def pages(self, *pins, estimated=()):
+        """The supersession of pins on the view-only document rv; the ids in estimated have an estimated mark."""
+        return superseded_by(list(pins), lambda p: Placement("rv", "pdf", estimated=p.core.pid in estimated))
+
+    def test_a_newer_verdict_on_the_same_page_supersedes(self):
+        """The same page supersedes; another page does not."""
+        self.assertEqual(self.pages(pdf_page(1), pdf_page(2)), {1: 2})
+        self.assertEqual(self.pages(pdf_page(1), pdf_page(2, page=4)), {})
+
+    def test_a_region_smaller_than_the_page_is_no_target(self):
+        """A verdict over part of a page has no target, so it neither supersedes nor is superseded."""
+        self.assertEqual(self.pages(pdf_page(1), pdf_page(2, frac=(0, 0, 1, 0.5))), {})
+
+    def test_a_mark_that_is_only_an_estimate_is_no_target(self):
+        """A pin whose mark is only an estimate on the PDF on screen (est) is left out, as the viewer leaves it out."""
+        self.assertEqual(self.pages(pdf_page(1), pdf_page(2), estimated={1}), {})
+        self.assertEqual(self.pages(pdf_page(1), pdf_page(2), estimated={2}), {})
+        self.assertEqual(self.pages(pdf_page(1), pdf_page(2), pdf_page(3), estimated={2}), {1: 3})
+
+
+class LinesOfLatex(unittest.TestCase):
+    """superseded_by on a LaTeX document: exactly the same lines of the same file, and the same text."""
+
+    def test_two_open_verdicts_on_the_same_lines_supersede(self):
+        """Open pins' lines are matched to the text now, so the newer open one supersedes the older open one."""
+        self.assertEqual(placed([latex(1), latex(2, anchor=None)]), {1: 2})
+
+    def test_a_closed_older_verdict_needs_the_same_text(self):
+        """A closed pin's numbers may be from an older text: it is superseded by a newer pin only when both carry one
+        anchor, and a newer open pin with another anchor leaves it current."""
+        older = {"head": "Old text.", "tail": "More text.", "head_off": 0, "tail_off": 0}
+        self.assertEqual(placed([latex(1, **REVIEW), latex(2)]), {1: 2})
+        self.assertEqual(placed([latex(1, anchor=older, **DONE), latex(2)]), {})
+        self.assertEqual(placed([latex(1, anchor=None, **DONE), latex(2)]), {})
+        self.assertEqual(placed([latex(1, **DONE), latex(2, **DONE)]), {1: 2})
+        self.assertEqual(placed([latex(1, anchor=older, **DONE), latex(2, **DONE)]), {})
+
+    def test_the_current_verdict_is_the_newest_about_the_same_text(self):
+        """With a closed #1, an open #2 on another text and a closed #3 on #1's text, #1 names #3 and #2 stays current."""
+        other = {"head": "Other.", "tail": "Other end.", "head_off": 0, "tail_off": 0}
+        got = placed([latex(1, **DONE), latex(2, anchor=other), latex(3, **DONE)])
+        self.assertEqual(got, {1: 3})
+
+    def test_other_lines_or_files_are_other_targets(self):
+        """A different range or a different file does not supersede."""
+        self.assertEqual(placed([latex(1), latex(2, lo=4, hi=6)]), {})
+        by_file = {2: Placement("ms", "tex", file="/ms/sections/other.tex")}
+        self.assertEqual(placed([latex(1), latex(2)], by_file), {})
+
+    def test_a_pin_that_lost_its_anchor_or_is_a_region_has_no_target(self):
+        """A stale pin and a region pin are left out."""
+        stale = latex(2, stale=True)
+        self.assertEqual(placed([latex(1), stale]), {})
+        self.assertIsNone(order_target(stale, Placement("ms", "tex", file="/ms/main.tex")))
+        self.assertEqual(placed([latex(1), pdf_page(2)]), {})
+        self.assertIsNone(order_target(latex(1), Placement("ms", "tex")))
+
+    def test_same_lines_is_true_for_any_target_but_lines(self):
+        """The anchor and the open state decide only between two pins about lines."""
+        figure_target = order_target(figure(1), FIG_DOC)
+        self.assertTrue(same_lines(figure_target, figure_target))
+
+
+def legacy(pid, word="채택", **extra):
+    """A pin of the older form on the figure B2: no `verdict` field, the first word of its memo is a verdict word."""
+    el = {"id": "B2", "path": ["B2"]}
+    return parse_pin(
+        {
+            "id": pid,
+            "file": "/ms/figs/B2.py",
+            "lo": 12,
+            "hi": 140,
+            "page": 1,
+            "el": el,
+            "doc": "fig",
+            "note": word + " 본문으로",
+            **extra,
+        }
+    )
+
+
+class FirstWordVerdicts(unittest.TestCase):
+    """A memo whose first word is a verdict word is an older verdict pin by the repository's convention. The server does not
+    read memos (ADR-0021 D1), so superseded_by names explicit verdicts only - and says so, because a repository's
+    agent counts both forms together."""
+
+    def figures(self, *pins):
+        """The supersession of pins, all on the figure document fig."""
+        return superseded_by(list(pins), lambda p: FIG_DOC)
+
+    def test_a_newer_first_word_pin_supersedes_nothing_for_the_server(self):
+        """Explicit #1 and #2 and a first-word #3: the server answers {1: 2}, though the agent's rule, which counts #3,
+        makes #3 the current verdict. #3 has no entry."""
+        self.assertEqual(self.figures(figure(1), figure(2), legacy(3)), {1: 2})
+
+    def test_an_older_first_word_pin_is_not_superseded_either(self):
+        """The server cannot say a first-word verdict was overtaken, so it has no entry, whatever follows it."""
+        self.assertEqual(self.figures(legacy(1), figure(2), figure(3)), {2: 3})
+        self.assertEqual(self.figures(legacy(1, "보류"), figure(2)), {})
+
+    def test_a_stored_value_that_is_no_key_is_no_verdict_even_with_a_verdict_word_memo(self):
+        """A `verdict` of the wrong kind does not count, and the memo is not read in its place."""
+        odd = parse_pin({**legacy(3).record, "verdict": 7})
+        self.assertEqual(self.figures(figure(1), figure(2), odd), {1: 2})
+
+
+def reference(pins, targets):
+    """What superseded_by answers, by the definition: a pin's current verdict is the newest pin of its target that is itself
+    or, on lines, about the same text - both open, or one shared anchor - found by scanning every newer pin."""
+    out = {}
+    entries = sorted(((p.core.pid, targets[p.core.pid]) for p in pins), key=lambda e: -e[0])
+    for i, (pid, a) in enumerate(entries):
+        for newer, b in entries[:i]:
+            if b.key == a.key and (
+                not a.on_lines or (a.open and b.open) or (a.anchor is not None and a.anchor == b.anchor)
+            ):
+                out[pid] = newer
+                break
+    return out
+
+
+class LargeHistories(unittest.TestCase):
+    """superseded_by reads a long history in one linear pass, and agrees with the definition on any mix."""
+
+    ANCHORS = [None] + [
+        {"head": "Head %d." % i, "tail": "Tail %d." % i, "head_off": 0, "tail_off": 0} for i in range(3)
+    ]
+
+    @given(
+        st.lists(
+            st.tuples(st.sampled_from([False, True]), st.sampled_from(range(4)), st.sampled_from([4, 8])),
+            min_size=1,
+            max_size=14,
+        )
+    )
+    def test_the_index_agrees_with_scanning_every_newer_pin(self, spec):
+        """Open or closed, with one of three anchors or none, on one of two ranges: the answer equals the scan."""
+        pins = [
+            latex(i, lo=lo, hi=lo + 1, anchor=self.ANCHORS[a], **({} if is_open else DONE))
+            for i, (is_open, a, lo) in enumerate(spec, 1)
+        ]
+        where = Placement("ms", "tex", file="/ms/main.tex")
+        targets = {p.core.pid: order_target(p, where) for p in pins}
+        self.assertEqual(superseded_by(pins, lambda p: where), reference(pins, targets))
+
+    def test_closed_lines_with_a_different_anchor_each_take_linear_time(self):
+        """20,000 closed verdicts on one range, no two on the same text (the case that made every pin scan all the
+        newer ones: 11 s before the index) answer in well under the 2 s a quadratic scan could not keep to, and so do
+        20,000 on one figure."""
+        n = 20_000
+        lines = [
+            latex(i, anchor={"head": "h%d" % i, "tail": "t%d" % i, "head_off": 0, "tail_off": 0}, **DONE)
+            for i in range(1, n + 1)
+        ]
+        figures = [figure(i) for i in range(1, n + 1)]
+        for pins, where, want in (
+            (lines, Placement("ms", "tex", file="/ms/main.tex"), 0),
+            (figures, FIG_DOC, n - 1),
+        ):
+            started = time.perf_counter()
+            got = superseded_by(pins, lambda p, where=where: where)
+            took = time.perf_counter() - started
+            self.assertEqual(len(got), want)
+            self.assertLess(took, 2.0, "%d pins took %.2f s" % (n, took))
+
+    def test_a_hand_edited_anchor_offset_never_breaks_the_index(self):
+        """An offset that is a list or an object is still comparable and hashable: two pins that store the same one are
+        about the same text, and a different one is not."""
+        odd = {"head": "H.", "tail": "T.", "head_off": [0, {"a": 1}], "tail_off": {"x": None}}
+        other = {**odd, "head_off": [0, {"a": 2}]}
+        self.assertEqual(placed([latex(1, anchor=odd, **DONE), latex(2, anchor=odd, **DONE)]), {1: 2})
+        self.assertEqual(placed([latex(1, anchor=odd, **DONE), latex(2, anchor=other, **DONE)]), {})

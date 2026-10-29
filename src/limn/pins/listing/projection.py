@@ -4,7 +4,9 @@ GET /api/pins returns each stored record plus fields computed on every read and 
 the pin's state type), `rel` (its overlaps with other open line pins), `est` (whether its mark is only an estimate on
 the PDF on screen), `doc`, `addressed` and `fyi` (who it is handed to or tags for reference), and for a claim written
 before claim_ts existed the claim's start epoch - and, for a figure pin with an element, `mark`, `mark_page` and
-`el_sync` on its document's current map (docs/handbook/api.md §그림 문서의 pick·핀). A pin with a suggested edit
+`el_sync` on its document's current map (docs/handbook/api.md §그림 문서의 pick·핀). A verdict pin that a newer
+verdict pin about the same target supersedes also gets `superseded_by`, that pin's number (limn.pins.verdict.superseded_by,
+ADR-0023): it follows `fyi` and is never stored. A pin with a suggested edit
 also gets `suggest_state` (suggest_view), last, here and in every change response's `pin` (public_record).
 GET /api/pins/dropped returns the Trash with `expires_ts`. Both answers are the agent contract: field names, order
 and values must not change.
@@ -139,16 +141,27 @@ def element_marks(r: Row, fmap: FollowElement | None) -> Json:
 
 
 def pin_view(
-    r: Row, shown: Json, rel: list[Json], est: bool, doc: str, now: float, fmap: FollowElement | None = None
+    r: Row,
+    shown: Json,
+    rel: list[Json],
+    est: bool,
+    doc: str,
+    now: float,
+    fmap: FollowElement | None = None,
+    superseded_by: int | None = None,
 ) -> Json:
     """One GET /api/pins record: shown (r as the API shows it) followed by rel, est, doc, state, addressed and fyi, in
-    that order, then - for a figure pin with an element on fmap, its document's current map - mark, mark_page and
-    el_sync (element_marks). A claim that holds at epoch now but was written before claim_ts existed also gets
-    claim_ts, its start epoch read from claimed_at (the viewer's "since 20:02 (23 min in)"); none when claimed_at is
-    not a readable time. A suggest_state that shown carries (public_record) moves to the very end, so it is the last
-    field here as in a change response's pin. Never changes r or shown."""
+    that order, then superseded_by - only when a newer verdict pin supersedes this one, the number of the pin that is
+    its target's current verdict (limn.pins.verdict.superseded_by) - then, for a figure pin with an element on fmap,
+    its document's current map, mark, mark_page and el_sync (element_marks). A claim that holds at epoch now but was
+    written before claim_ts existed also gets claim_ts, its start epoch read from claimed_at (the viewer's "since
+    20:02 (23 min in)"); none when claimed_at is not a readable time. A suggest_state that shown carries
+    (public_record) moves to the very end, so it is the last field here as in a change response's pin. Never changes r
+    or shown."""
     pin = parse_pin(r)
     rec = dict(shown, rel=rel, est=est, doc=doc, state=pin.state, addressed=addressed_to(pin), fyi=fyi_mentions_to(pin))
+    if superseded_by is not None:
+        rec["superseded_by"] = superseded_by
     rec.update(element_marks(r, fmap))
     if claim_holds(r, now) and not is_num(r.get("claim_ts")):
         ts = epoch(r.get("claimed_at"))
@@ -168,10 +181,13 @@ def pins_payload(
     est_context: Callable[[str], EstContext | None],
     now: float,
     figure_map: Callable[[str], FollowElement | None] = no_figure_maps,
+    superseded: Mapping[int, int] | None = None,
 ) -> list[Json]:
     """GET /api/pins: the open pins of rows in row order (every pin when allp), each as pin_view() gives it.
 
     rel is the overlaps of all rows (limn.pins.location.position.overlaps_by_id; a listed pin without an entry has []).
+    superseded is the supersession of all rows (limn.pins.verdict.superseded_by: {pin id: current verdict's id}), so
+    an open verdict pin is told it is superseded by a closed newer one that the default list does not show.
     doc_of names a pin's document and est_context gives the estimation facts of a document by key, or None when the
     instance no longer serves it - then est is True (placed on a PDF that is not on screen). est_context is asked
     once per document, and only for documents with a listed pin, since it reads that document's build history.
@@ -193,7 +209,7 @@ def pins_payload(
                 maps[k] = figure_map(k)
             fmap = maps[k]
         est = pin_est(r, ctx) if ctx is not None else True
-        out.append(pin_view(r, show(r), rel.get(r["id"], []), est, k, now, fmap))
+        out.append(pin_view(r, show(r), rel.get(r["id"], []), est, k, now, fmap, (superseded or {}).get(r["id"])))
     return out
 
 

@@ -50,6 +50,10 @@ class MarkdownDeps(Protocol):
         """The overlap relationships for the full live set."""
         ...
 
+    def superseded_by_id(self, pins: Sequence[Pin]) -> dict[int, int]:
+        """Which verdict pins a newer verdict pin supersedes, computed over all live pins."""
+        ...
+
     def pin_location(self, r: Record, root: Path, state: Path) -> PinLocation | None:
         """Where this pin's source file lives under the manuscript root now."""
         ...
@@ -92,13 +96,15 @@ class PinMarkdown:
         placed under as text.
 
         An open pin with a suggested edit is measured against its lines now (suggest_view), so its marker and its
-        `## 제안 문안` block say whether the text may go in.
+        `## 제안 문안` block say whether the text may go in. An open verdict pin that a newer verdict pin supersedes
+        (deps.superseded_by_id over every live pin, closed ones included) is given that pin's number, so its row says so.
 
         Reads files (people.json, the build stamps, whether the token file exists, the source file of each open
         one-line pin that carries a quote and of each open pin that carries a suggestion - each file read at most
         once per call - and each figure document's current map) but writes nothing."""
         rows = [pin.record for pin in pins]
         rel = self.deps.overlaps_by_id(pins)
+        superseded = self.deps.superseded_by_id(pins)
         by_id = {r["id"]: r for r in rows}
         sources: dict[Path, list[str]] = {}
         maps: dict[str, FollowElement | None] = {}
@@ -122,6 +128,7 @@ class PinMarkdown:
                 el_sync=el_sync,
                 impl_scope=impl_scope,
                 suggest_state=self._suggest_state(pin, sources),
+                superseded_by=superseded.get(r["id"]),
             )
         docs = tuple(
             DocHeading(
