@@ -81,7 +81,9 @@ async function savePin(verdict){
   const out=assignOutcome(composeAsk(SAVE_MODE.NEW)); body.kind_req=out.kind; body.assignee=out.assignee;
   const mh=mentionHints($('#note')); if(mh.length)body.mentions=mh;
   const sg=isRegion(d)||verdict?null:suggestForSave(SG,suggestOff(d,META?META.kind:undefined)); if(sg)body.suggest=sg;
-  if(verdict){body.verdict=verdict; body.kind_req=KIND_REQ.FIX;}
+  if(verdict){body.verdict=verdict; body.kind_req=KIND_REQ.FIX;
+    // On a figure document the verdict is the figure's, whatever element the selection names (verdict.js figureVerdictBody).
+    const fb=figureVerdictBody(d); if(fb)body=Object.assign(fb,{note,doc:body.doc,kind_req:KIND_REQ.FIX,assignee:body.assignee},mh.length?{mentions:mh}:{},{verdict});}
   const snap=selectionSnapshot(),fields=composeFields();   // [되돌리기] takes the pin back and hands this selection and note back for another try
   const draft=savedDraftSnapshot();
   const question=out.kind===KIND_REQ.QUESTION;
@@ -98,7 +100,9 @@ async function savePin(verdict){
     const undo=verdict?verdictUndo(id):async()=>{const ok=await dropPin(id,true,undo);
       if(ok&&(cleared||restored)&&DOC===visit.doc&&!COMPOSE.current&&!COMPOSE.box&&!COMPOSE.picking&&!$('#note').value)restoreSelection(snap);
       return ok;};
-    const chip=verdict?undoNote(NOTICE_PLACE.CHIP,tl('#{id} 저장됨 · {word} 판정',{id,word:verdictLabel(verdict)}),{label:'되돌리기',wait:true,fn:undo},{pin:id,pending:true,label:tl('#{id} 저장됨 · {word}',{id,word:verdictLabel(verdict)})})
+    const vw=verdict?verdictLabel(verdict):'',fr=verdict?figureVerdictRoot(d):null;   // a figure's verdict names the figure
+    const said=fr?tl('#{id} {word} 판정 저장됨 · {target} — 되돌리면 판정을 거둡니다',{id,word:vw,target:figureShort(d.page,fr)}):tl('#{id} 저장됨 · {word} 판정',{id,word:vw});
+    const chip=verdict?undoNote(NOTICE_PLACE.CHIP,said,{label:'되돌리기',wait:true,fn:undo},{pin:id,pending:true,label:tl('#{id} 저장됨 · {word}',{id,word:verdictLabel(verdict)})})
       :undoNote(NOTICE_PLACE.CHIP,tl(question?'질문 #{id} 저장됨 · pins.md 갱신':'핀 #{id} 저장됨 · pins.md 갱신',{id}),
       {label:'되돌리기',wait:true,fn:undo},{pin:id,pending:true,label:tr('저장됨')});
     await loadPins(); settleChip(chip);

@@ -1253,7 +1253,7 @@ class FrontendMobileLogic(unittest.TestCase):
             let SHOW_ALL=false, DOCS=[], DOC='main', DEFAULT_DOC='main'; function docInfo(){return null;}
             let LAYOUT='mid', REPLY=null, META=null; const THREAD_OPEN=new Set(), MQ_COARSE={matches:true};
             function suggestBadge(){return null;} function suggestView(){return null;}   // these pins carry no suggested edit (suggest.js)
-            function verdictOf(){return null;} function verdictBadge(){return null;} function pvQuietRel(p){return p;} function verdictOldMarker(){return null;}   // ...and no verdict (verdict.js)
+            function verdictOf(){return null;} function verdictBadge(){return null;} function pvQuietRel(p){return p;} function verdictOldMarker(){return null;} function verdictTarget(){return null;}   // ...and no verdict (verdict.js)
             """,
                 extract_js_fn("rng"),
                 extract_js_fn("multiDoc"),
@@ -3491,7 +3491,7 @@ class FrontendArchive(unittest.TestCase):
                 extract_js_fn("docChip"),
                 "const ARC_OPEN=new Set(); let LAYOUT='wide', REPLY=null, META=null; const THREAD_OPEN=new Set(); function avatar(){return '';}",
                 "function suggestView(){return null;}",  # these pins carry no suggested edit (suggest.js)
-                "function verdictBadge(){return null;} function verdictOldMarker(){return null;} function verdictOf(){return null;}",  # ...and no verdict (verdict.js)
+                "function verdictBadge(){return null;} function verdictOldMarker(){return null;} function verdictTarget(){return null;} function verdictOf(){return null;}",  # ...and no verdict (verdict.js)
                 extract_js_fn("arcTime"),
                 extract_js_fn("arcLoc"),
                 extract_js_fn("arcLine"),
@@ -4413,7 +4413,7 @@ class FrontendReview(unittest.TestCase):
             let SHOW_ALL=false, DOCS=[], DOC='main', DEFAULT_DOC='main', LAYOUT='wide', REPLY=null; function docInfo(){return null;}
             const THREAD_OPEN=new Set(), MQ_COARSE={matches:false};
             function suggestBadge(){return null;} function suggestView(){return null;}   // these pins carry no suggested edit (suggest.js)
-            function verdictOf(){return null;} function verdictBadge(){return null;} function pvQuietRel(p){return p;} function verdictOldMarker(){return null;}   // ...and no verdict (verdict.js)
+            function verdictOf(){return null;} function verdictBadge(){return null;} function pvQuietRel(p){return p;} function verdictOldMarker(){return null;} function verdictTarget(){return null;}   // ...and no verdict (verdict.js)
             """,
                 extract_js_fn("rng"),
                 extract_js_fn("multiDoc"),

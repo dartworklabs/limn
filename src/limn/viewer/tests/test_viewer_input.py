@@ -5336,15 +5336,17 @@ class PageList(ViewerBase):
         page.wait_for_function("!document.querySelector('#nav-sheet').open&&topAnchor().page===2")
 
     def test_figure_names_pages_by_its_outline_and_a_view_only_pdf_lists_numbers_only(self):
-        """A figure names each page by the outline entry that points at it (the deepest; a page's title from meta comes
-        first - test_viewer_outline_cap.FigurePageList), a view-only PDF lists its pages without names even with an
-        outline loaded, and the manuscript keeps its section names."""
+        """A figure names each page by the outline entry that points at it (the deepest) when meta has no title for it - the
+        server's map titles, which come first, are taken out here (they are test_viewer_outline_cap.FigurePageList's) -
+        a view-only PDF lists its pages without names even with an outline loaded, and the manuscript keeps its section
+        names."""
         page = self.docs_view(DESK)
         for key, names in (("fig", ["1.1 연구 배경", "2 방법"]), ("rv", ["", ""]), ("ms", ["1 서론", "2 방법"])):
             with self.subTest(doc=key):
                 page.evaluate("async k=>await switchDoc(k)", key)
                 page.wait_for_function("k=>DOC===k&&document.querySelectorAll('#doc .pg').length===2", arg=key)
                 settle(page)
+                page.evaluate("()=>{(META.pages||[]).forEach(p=>{delete p.title;});}")
                 page.evaluate(OUTLINE3)
                 self.open_list(page)
                 rows = page.evaluate(PAGE_ROWS, "#page-pop")

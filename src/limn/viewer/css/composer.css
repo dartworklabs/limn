@@ -141,4 +141,12 @@ button.vd-confirm.armed{background:color-mix(in srgb,var(--destructive) 10%,tran
 /* Touch: drawn at the kind row's 36px track, so each word's 44px hit (.hit) reaches 4px past it - with the composer's 8px gap
    it ends where the kind row's segment hits begin. */
 @media (pointer:coarse){.vd-l{font-size:var(--text-base)}
-  .vd-btns button{min-height:0;height:var(--control-h-lg);padding:0 var(--space-2);font-size:var(--text-base)}}
+  .vd-btns button{min-height:0;height:var(--control-h-lg);padding:0 var(--space-2);font-size:var(--text-base)}
+  /* A phone draws each word at its whole 44px hit - the composer's row and every page line: a verdict is pressed with the
+     thumb, often one-handed, and a 36px box read smaller than what it answered. */
+  body.band-phone .vd-btns button{height:var(--hit)}}
+/* On a figure document the lead names the figure whose verdict it is, whatever element is selected ('· [후보] PL35 · … 전체',
+   verdict.js): the name gives way (ellipsis) before the lead leaves the panel. */
+#c-verdict-row:has(.vd-fig) .vd-l{display:inline-flex;align-items:baseline;flex:0 1 auto;min-width:0;max-width:100%;white-space:nowrap}
+.vd-scope{display:inline-flex;align-items:baseline;min-width:0;white-space:pre}
+.vd-fig{min-width:0;max-width:16em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--foreground)}

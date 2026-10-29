@@ -18,12 +18,15 @@ function commonWidth(ws){const n=new Map(); let best=0,most=0;
 function ptCommon(){const c=META&&META.pages?commonWidth(META.pages.map(p=>p.pt_w)):0; return c>0?c:ptMax();}
 // A page box's CSS width for a page pt_w points wide at scale k: whole px, at least 1. Pure.
 function pageWidth(ptw,k){return Math.max(1,Math.round(ptw*k));}
+// Every page box sits in a block of its own (.pgw) that a page verdict line (verdict.js) joins under it: the line is sticky
+// to the bottom of the PDF area within that block, so it floats while its page is in view and settles under the page at its
+// end - in one block with every page it would float over the next pages' lines.
 function buildDoc(){
   const doc=$('#doc'); doc.replaceChildren(); COMPOSE.box=null;
   META.pages.forEach((p,i)=>{const d=document.createElement('div'); d.className='pg'; d.id='p'+(i+1); d.dataset.page=String(i+1);
     d.dataset.ptw=String(p.pt_w); d.style.width=pageWidth(p.pt_w,K)+'px'; d.style.aspectRatio=p.pt_w+' / '+p.pt_h;
     setHtml(d,html`<span class="no">${i+1}</span><img loading="lazy" draggable="false" alt="${tl('{page}쪽',{page:i+1})}" src="${pageSrc(p)}">`);
-    doc.appendChild(d);});
+    const w=document.createElement('div'); w.className='pgw'; w.dataset.page=String(i+1); w.appendChild(d); doc.appendChild(w);});
   marks(); vecObserve(); drawZoom();
 }
 // save=false is auto-fit - never saved. If a width fit for a narrow first window persisted into a wider window, the pages would look too small.

@@ -2,11 +2,50 @@
 
 ## Unreleased
 
-Two viewer changes for long figure documents (a figure per page, a page list and an outline that run to hundreds of
-entries). The agent contract and `pins.md` are unchanged, and so is every HTTP route: the viewer reads what
-`/api/meta` and the PDF already give.
+Verdicts on figure documents (ADR-0022), and an outline and page list for long figure documents. The agent contract
+grows by addition only: `GET /api/meta`'s `pages[i]` carries a figure document's map facts, and `limn-figure-map/1` takes
+an optional page key `verdict`. `pins.md` and every route are unchanged.
+
+### Added
+
+- **The reading page's verdict line floats.** Each page and its line are one block, and the line of the page under the
+  reading line (the page the section strip names) is sticky to the PDF area's bottom within it: it floats above the
+  bottom (an edge, a 1px separator and the area's own background set it off the page) and settles under the page at its
+  end. Every other line stays in its place, so a figure not yet in view never shows a second line and the buttons under
+  a resting mouse or thumb change only with the reading page. The floating line names what it decides (`7쪽 · [후보]
+  PL18 · …`). At 1440x900 only 18 of the 88 figure pages of one paper showed their header and their line on one screen.
+  It stays under save chips and over the page's marks, rises above a phone's sheet bar (and keyboard), keeps left of an
+  overlay panel, does not float over a selection being written or an open phone sheet, and a focused button in it no
+  longer scrolls the area. Compact screens keep the 44px words with a tighter edge and a smaller shadow.
+- **Keys 1-5 press the verdict words** on the reading page's line, in the word file's order; a confirm word takes its key
+  twice, as its button does. The page is read when the key is pressed, and a key's armed word lets go when the reading
+  page changes. Not in a text field, a dialog or a popover, while a selection is being written or with Ctrl, Alt or
+  Meta; on a page that takes no verdict a key says so on the status line. The line the keys reach shows each word's key
+  on a mouse screen, and the buttons say it (`aria-keyshortcuts`, `단축키 1`); the help lists them.
+- **A reason with a verdict, in place.** A save from a page line opens a one-line `이유 (선택)` field on that line - with
+  the focus after a key, waiting after a click or a tap. Enter saves the text as the pin's note (the note edit a verdict
+  pin takes; `pins.md` then marks the pin `수정됨`); Esc skips it; either sends the focus to the PDF area. Moving on - the
+  reading page leaving the field's page, another save, another document - saves what was typed and says so
+  (`이유 저장됨 · PL16`); an empty field just closes. The field and its text survive a rebuild; the undo takes them with
+  the pin. The reason shows on the line and the card.
+- **A verdict card names its figure** - the page's title from the map (`[후보] PL26 · …`), else `그림 <id>` - so the figure
+  just put on hold is easy to find in the list.
+- **`"verdict": false` on a figure map's page** (`limn-figure-map/1`, optional, additive): that page - a list, a question
+  or a removed-figure page - has no verdict line and no verdict words in the composer. Any other value is as if absent.
+- **`GET /api/meta`'s `pages[i]`** gains, on a figure document whose map loads, `figure` (the root id), `title` (when the
+  map has one) and `verdict: false` (only when set), after `name`, `pt_w` and `pt_h`.
 
 ### Changed
+
+- **On a figure document a verdict is the figure's.** The composer's verdict on any element saves a whole-page verdict
+  about its figure (`el.path[0]`) with the note, as a press on the page line does - the line used to ignore it while the
+  repository's agent ran it. Its lead names the figure (`판정 바로 저장 · [후보] PL35 · … 전체`). The page line, the
+  `이전 판정` marker, the page-size marks and [보기] count an older element verdict as its figure's too (newest number
+  first, as before). The server's `(쪽 전체)` is unchanged.
+- **One save chip at a time.** A new save's chip moves an earlier one, with its [되돌리기], to the status line, whose
+  title - all the folded line shows - names the verdict's figure.
+- **A failed page-line save is said under that line** as well as on the status line.
+- **A phone draws every verdict word 44px tall** (was 36px with a 44px hit).
 
 - **The outline is read and drawn whole up to 2,000 entries, and says what it did not read.** The viewer stopped
   reading a PDF's outline at 180 entries (and at five levels) without a word, so a figure document whose outline runs to

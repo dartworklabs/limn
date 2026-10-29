@@ -165,11 +165,16 @@ interface RevisionRow {
   parents: string[];
 }
 
-// One page image of the current build (meta `pages`), with its size in PDF points.
+// One page image of the current build (meta `pages`), with its size in PDF points. On a figure document whose map loads,
+// what the map says of the page: its figure (root element id), its title when the map has one, and verdict - always
+// false - when the page takes no verdict.
 interface PageImage {
   name: string;
   pt_w: number;
   pt_h: number;
+  figure?: string;
+  title?: string;
+  verdict?: boolean;
 }
 
 // A figure document's two builds in GET /api/revisions (`overlay`): the build on screen and the build before it, with their

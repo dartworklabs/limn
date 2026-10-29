@@ -1298,5 +1298,20 @@
  "이전 판정 · {ref}{p} 대체됨": "Earlier verdict · replaced by {ref}",
  "메모 있음": "has note",
  "같은 대상에 더 새 판정 #{id}{p} 있습니다 — 에이전트는 가장 새 판정만 실행합니다": "A newer verdict #{id} is about the same target — the agent runs only the newest verdict",
- "지금 판정 #{id} 카드로 갑니다": "Goes to the current verdict #{id}'s card"
+ "지금 판정 #{id} 카드로 갑니다": "Goes to the current verdict #{id}'s card",
+ "판정 낱말이 있는 그림 문서·보기 전용 PDF에서, 읽는 자리의 쪽에 그 순서의 판정 핀을 저장합니다. 두 번 눌러야 하는 낱말은 한 번 더 누릅니다 (입력 칸 밖, 작성 중이 아닐 때)": "On a figure document or a view-only PDF with verdict words, saves the verdict in that place on the page you are reading. A word that takes two presses takes the key twice (outside a text field, while not writing a pin)",
+ "그림 전체": "whole figure",
+ "누르면 메모와 함께 이 그림 전체({target})의 {word} 판정 핀으로 바로 저장합니다": "Saves a {word} verdict pin for this whole figure ({target}) with the note now",
+ "단축키 {key}": "Key {key}",
+ "단축키 {key} (두 번)": "Key {key} (twice)",
+ "그림 {id}": "Figure {id}",
+ "판정 대상 그림 · {id}": "Figure this verdict is about · {id}",
+ "{name} 전체": "whole {name}",
+ "이 쪽은 판정을 받지 않습니다": "This page takes no verdict",
+ "이유 (선택) — Enter 저장 · Esc 건너뜀": "Reason (optional) — Enter saves · Esc skips",
+ "판정 #{id} 이유 (선택) — Enter 저장, Esc 건너뜀": "Reason for verdict #{id} (optional) — Enter saves, Esc skips",
+ "이유 저장": "Saving the reason",
+ "판정 #{id} 이유를 저장했습니다": "Saved the reason for verdict #{id}",
+ "#{id} {word} 판정 저장됨 · {target} — 되돌리면 판정을 거둡니다": "#{id} verdict {word} saved · {target} — undo withdraws the verdict",
+ "이유 저장됨 · {target} — 판정 #{id}": "Reason saved · {target} — verdict #{id}"
 }

@@ -144,8 +144,11 @@ class MetaTitled:
         return getattr(self._route, name)
 
     def fulfill(self, status, headers, body):
-        """Fulfil the route with the handler's JSON answer, the titles merged into its pages."""
+        """Fulfil the route with the handler's JSON answer, its pages' own titles (the server's, from a figure map) taken
+        out and the given titles put in - so a test decides every title the viewer sees."""
         data = json.loads(body)
+        for page in data.get("pages", []):
+            page.pop("title", None)
         for page, title in self._titles.items():
             if 0 < page <= len(data.get("pages", [])):
                 data["pages"][page - 1]["title"] = title
@@ -450,10 +453,11 @@ class FigurePageList(BrowserBase):
     view-only PDF's lists are what they were."""
 
     WHO = ALICE
-    TITLES: dict[str, dict[int, object]] = {}
+    TITLES: dict[str, dict[int, object]] | None = {}
 
     def setUp(self):
-        """viewer_docs' three documents; no page has a title in meta yet."""
+        """viewer_docs' three documents; no page has a title in meta (the server's map titles are taken out) unless a test
+        sets TITLES for its document, or sets TITLES to None to see what the server sends."""
         super().setUp()
         self.ms, self.fig, self.rv = helpers_figure.viewer_docs(ps.APP, ps.APP.C.src)
         self.addCleanup(ps.APP.set_docs, None)
@@ -463,10 +467,9 @@ class FigurePageList(BrowserBase):
     def route(self, route):
         """The meta of a document named in self.TITLES gets those titles in its pages."""
         u = urlparse(route.request.url)
-        if u.path == "/api/meta":
+        if u.path == "/api/meta" and self.TITLES is not None:
             key = (parse_qs(u.query).get("doc") or ["ms"])[0]
-            if self.TITLES.get(key):
-                return self.forward(MetaTitled(route, self.TITLES[key]))
+            return self.forward(MetaTitled(route, self.TITLES.get(key) or {}))
         if u.path == "/pdf" and self.hold_pdf:  # a PDF still on its way: the outline of the document is not read yet
             self.held.append(route)
             return None
@@ -552,6 +555,16 @@ class FigurePageList(BrowserBase):
         page.evaluate("META.pages[1].title = '메타 제목'; META.pages[0].title = '메타가 이긴다'")
         rows = page.evaluate(self.ROWS, self.open_list(page, DESKTOP))
         self.assertEqual([r["s"] for r in rows], ["메타가 이긴다", "메타 제목"])
+
+    def test_the_servers_map_titles_name_the_pages(self):
+        """With nothing stubbed the server's own `pages[i].title` - the figure map's page title (ADR-0022) - names each
+        page of a figure document's list."""
+        self.TITLES = None
+        page = self.on("fig")
+        titles = page.evaluate("META.pages.map(p => p.title || '')")
+        self.assertTrue(all(titles), titles)
+        rows = page.evaluate(self.ROWS, self.open_list(page, DESKTOP))
+        self.assertEqual([r["s"] for r in rows], titles)
 
     def test_a_bad_title_is_no_title(self):
         """A title that is not text or is blank (a server answering something else) falls back to the entry or the number
