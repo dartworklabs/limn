@@ -201,6 +201,8 @@ was; the viewer still counts the verdict order itself, and a browser test holds 
 - **Touch areas along both edges.** The status line's [x] reaches right, not over the right 6px of [되돌리기], and its
   buttons' areas cover their 1px borders: [되돌리기], [x] and the line's `#N` answer 44px at their left edge, middle and
   right edge on a phone and a folded-open foldable.
+- **A web font that arrives late is measured again.** The width a fresh verdict's state takes, kept from the fallback face,
+  is taken again and every line refitted when a font load is done and when the fonts are ready after boot.
 - **A sheet's banner is scrolled clear of the stuck tool bar**: a card's [수정] conflict on a phone hid its first line.
 
 ### Internal

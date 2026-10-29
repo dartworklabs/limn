@@ -2872,6 +2872,54 @@ class RcLayoutFixes2(VerdictBase):
         self.assertEqual(got, {"below": True, "top": True})
 
 
+class LateFont(VerdictBase):
+    """A web font arriving after the lines were measured (Codex review of the RC: the bundled interface font after the
+    fallback face): the width of a fresh verdict's state is measured again and the lines fit themselves again."""
+
+    def setUp(self):
+        super().setUp()
+        self.held_font: list | None = None  # a late face's file, held unanswered while a list
+
+    def route(self, route):
+        """Hold the late face's file (a slice of the bundled font asked for again under '?late') until release_font()."""
+        rq = urlparse(route.request.url)
+        if self.held_font is not None and rq.path.endswith(".woff2") and "late" in rq.query:
+            self.held_font.append(route)
+            return None
+        return super().route(route)
+
+    def release_font(self):
+        held, self.held_font = self.held_font or [], None
+        for r in held:
+            super().route(r)
+
+    def test_a_font_that_comes_late_measures_the_state_again(self):
+        """The lines take a face whose file is still on its way: the fallback measures the state first; once the face is
+        in, the kept width is the face's and every line is fitted to it. Kept from the fallback, a line near the threshold
+        kept the fallback's rows, so the first save could still move its words."""
+        page = self.on("fig")
+        self.held_font = []
+        page.evaluate(
+            r"""()=>{const f=performance.getEntriesByType('resource').map(e=>e.name).find(n=>/\/vendor\/pretendard\/.*\.woff2/.test(n));
+              const s=document.createElement('style'); s.textContent="@font-face{font-family:'Late Face';src:url('"+f+(f.includes('?')?'&':'?')+"late') format('woff2')}"+
+                "#doc .pv{font-family:'Late Face',monospace}"; document.head.appendChild(s);}"""
+        )
+        page.wait_for_function("()=>document.fonts.status==='loading'")
+        page.evaluate("sizePv()")
+        before = page.evaluate("""()=>pvStateNeed(document.querySelector('#doc .pv[data-page="1"]'))""")
+        self.release_font()
+        page.wait_for_function(
+            "()=>document.fonts.status==='loaded'&&[...document.fonts].some(f=>f.family.includes('Late Face')&&f.status==='loaded')"
+        )
+        settle(page)
+        got = page.evaluate(
+            """()=>{const l=document.querySelector('#doc .pv[data-page="1"]'),kept=PV_NEED.w,rows=[...document.querySelectorAll('#doc .pv')].map(x=>x.className).join();
+              PV_NEED={key:'',w:0}; const fresh=pvStateNeed(l); sizePv(); return {kept,fresh,same:rows===[...document.querySelectorAll('#doc .pv')].map(x=>x.className).join()};}"""
+        )
+        self.assertNotEqual(before, got["fresh"])  # the fallback and the face set the state at different widths
+        self.assertEqual((got["kept"], got["same"]), (got["fresh"], True))
+
+
 class Keys(VerdictBase):
     """1-5 press the words on the line of the page under the reading line: a confirm word twice; never in a text field, a
     dialog or while a selection is being written."""
