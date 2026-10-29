@@ -1,5 +1,39 @@
 # Changelog
 
+## Unreleased
+
+Verdicts on figure documents (ADR-0022, proposed). The agent contract grows by addition only: `GET /api/meta`'s
+`pages[i]` carries a figure document's map facts, and `limn-figure-map/1` takes an optional page key `verdict`. `pins.md`
+is unchanged.
+
+### Added
+
+- **The page verdict line floats while its page is in view.** Each page and its line are one block, and the line is
+  sticky to the PDF area's bottom within it: it floats 8px above the bottom (an edge and the area's own background set it
+  off the page) and settles under the page at its end. At 1440x900 only 18 of the 88 figure pages of one paper showed
+  their header and their line on one screen. It stays under save chips and over the page's marks, rises above a phone's
+  sheet bar, and does not float over a selection being written or an open phone sheet.
+- **Keys 1-5 press the verdict words** on the line of the page under the reading line, in the word file's order; a
+  confirm word takes its key twice, as its button does. Not in a text field, a dialog or a popover, while a selection is
+  being written or with Ctrl, Alt or Meta. The line the keys reach shows each word's key on a mouse screen, and the
+  buttons say it (`aria-keyshortcuts`, `단축키 1`); the help lists them.
+- **A verdict card names its figure** - the page's title from the map (`[후보] PL26 · …`), else `그림 <id>` - so the figure
+  just put on hold is easy to find in the list.
+- **`"verdict": false` on a figure map's page** (`limn-figure-map/1`, optional, additive): that page - a list, a question
+  or a removed-figure page - has no verdict line and no verdict words in the composer. Any other value is as if absent.
+- **`GET /api/meta`'s `pages[i]`** gains, on a figure document whose map loads, `figure` (the root id), `title` (when the
+  map has one) and `verdict: false` (only when set), after `name`, `pt_w` and `pt_h`.
+
+### Changed
+
+- **On a figure document a verdict is the figure's.** The composer's verdict on any element saves a whole-page verdict
+  about its figure (`el.path[0]`) with the note, as a press on the page line does - the line used to ignore it while the
+  repository's agent ran it. The page line, the `이전 판정` marker, the page-size marks and [보기] count an older element
+  verdict as its figure's too (newest number first, as before). The server's `(쪽 전체)` is unchanged.
+- **One save chip at a time.** A new save's chip moves an earlier one, with its [되돌리기], to the status line.
+- **A failed page-line save is said under that line** as well as on the status line.
+- **A phone draws every verdict word 44px tall** (was 36px with a 44px hit).
+
 ## 0.4.31 — 2026-10-29
 
 Follow-ups: small secondary text at 4.5:1 in both themes, `limn update` that reports a failed restart, and two fixes to
