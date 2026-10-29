@@ -2012,6 +2012,22 @@ class FloatingLine(VerdictBase):
 # page does beside what lies over the area's right; on the folded-open foldable in portrait the line floats on the open
 # sheet's top edge and typing the reason folds the figure's name, the save chip and the status line; a folded verdict card
 # shows its badge and figure; no description box while a confirm word waits.
+def open_reason(page, n, tap=False):
+    """Page n's reason field after a save on its line, pressed (or tapped) so it has the focus: the line's own field, or -
+    where the reason sits in a popover over the line - the one its [이유 추가] opens."""
+    line = '#doc .pv[data-page="%d"]' % n
+    page.wait_for_function(
+        "l=>!!document.querySelector(l+' .pv-reason')||!!document.querySelector(l+' button.pv-add')", arg=line
+    )
+    if not page.locator(line + " .pv-reason").count():
+        add = page.locator(line + " button.pv-add")
+        add.tap() if tap else add.click()
+        page.wait_for_selector(line + " .pv-reason")
+    field = page.locator(line + " .pv-reason")
+    field.tap() if tap else field.click()
+    return field
+
+
 FOLD_PORTRAIT = {"viewport": {"width": 882, "height": 1104}, "is_mobile": True, "has_touch": True}
 # Page n's line: its box, its classes, its words' boxes, [판정 취소], the '#N' link and its area (::after), the figure's
 # name, and whether its buttons share the state's row.
@@ -2055,8 +2071,9 @@ class LineLayout(VerdictBase):
         page = self.on("fig")
         self.press_page(page, 1, "보류")
         self.press_page(page, 1, "채택")
-        page.locator('#doc .pv[data-page="1"] .pv-reason').fill("범례가 막대를 가려 보류 쪽으로 기울지만 일단 채택")
-        page.locator('#doc .pv[data-page="1"] .pv-reason').press("Enter")
+        field = open_reason(page, 1)
+        field.fill("범례가 막대를 가려 보류 쪽으로 기울지만 일단 채택")
+        field.press("Enter")
         page.wait_for_function(
             "()=>!document.querySelector('#doc .pv .pv-reason')&&!!document.querySelector('#doc .pv[data-page=\"1\"] .pv-note')"
         )
@@ -2166,7 +2183,7 @@ class LineLayout(VerdictBase):
         page.evaluate(END_CHIPS)
         page.evaluate(
             """()=>{META.pages[0].title='[후보] PL17 · 다섯 비교 쌍의 월별 효과 — 쌍마다 한 칸 그리고 아주 긴 설명이 이어진다';
-              PV_REASON=null; drawPageVerdicts(); const l=document.querySelector('#doc .pv[data-page="1"]'); l.style.width='520px'; pvFit([l]);}"""
+              PV_REASON=null; drawPageVerdicts(); const l=document.querySelector('#doc .pv[data-page="1"]'); l.style.width='640px'; pvFit([l]);}"""
         )
         got = page.evaluate(
             """()=>{const l=document.querySelector('#doc .pv[data-page="1"]'),id=l.querySelector('.pv-fig-id'),t=l.querySelector('.pv-fig-t'),s=l.querySelector('.pv-t');
@@ -2260,7 +2277,6 @@ class FoldablePortrait(VerdictBase):
         page.evaluate("lineNote('a message on the status line',NOTICE_KIND.INFO)")
         settle(page)
         page.locator('#doc .pv[data-page="2"] button[data-key="보류"]').tap()
-        page.wait_for_selector('#doc .pv[data-page="2"] .pv-reason')
         page.wait_for_selector('#doc .pv[data-page="2"]>.nt-chip')
         shown = """()=>{const l=document.querySelector('#doc .pv[data-page="2"]'),v=e=>!!e&&e.getClientRects().length>0;
           return {typing:document.body.classList.contains('pv-typing'),name:v(l.querySelector('.pv-fig')),chipWords:v(l.querySelector('.nt-chip .nt-t')),
@@ -2268,7 +2284,7 @@ class FoldablePortrait(VerdictBase):
         self.assertEqual(
             page.evaluate(shown), {"typing": False, "name": True, "chipWords": True, "undo": True, "dock": True}
         )
-        page.locator('#doc .pv[data-page="2"] .pv-reason').tap()
+        open_reason(page, 2, tap=True)
         page.keyboard.type("폴더블에서 친 이유")
         settle(page)
         self.assertEqual(
@@ -2289,7 +2305,7 @@ class FoldablePortrait(VerdictBase):
         page.evaluate("lineNote('a message on the status line',NOTICE_KIND.INFO)")
         new = self.press_page(page, 2, "보류")
         page.evaluate(END_CHIPS)
-        page.locator('#doc .pv[data-page="2"] .pv-reason').tap()
+        open_reason(page, 2, tap=True)
         page.keyboard.type("곧 사라질 이유")
         settle(page)
         self.assertTrue(page.evaluate("document.body.classList.contains('pv-typing')"))
@@ -2313,8 +2329,7 @@ class FoldablePortrait(VerdictBase):
         page.evaluate("setSide(false)")
         settle(page)
         page.locator('#doc .pv[data-page="1"] button[data-key="채택"]').tap()
-        page.wait_for_selector('#doc .pv[data-page="1"] .pv-reason')
-        page.locator('#doc .pv[data-page="1"] .pv-reason').tap()
+        open_reason(page, 1, tap=True)
         page.keyboard.type("범례가 막대를 가린다")
         page.keyboard.press("Enter")
         page.wait_for_function("()=>OPEN_ALL.some(p=>p.note==='범례가 막대를 가린다')")
