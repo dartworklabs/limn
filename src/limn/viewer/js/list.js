@@ -124,7 +124,7 @@ function drawPins(){dropStaleReview();
   const rta=REPLY&&replyNote(REPLY),rfocus=rta&&document.activeElement===rta?[rta.selectionStart,rta.selectionEnd]:null;
   // The edit card's note or suggested-edit field keeps its focus and selection the same way.
   const ef=EDITOR.current&&document.activeElement&&EDITOR.current.el.contains(document.activeElement)&&document.activeElement.matches('.e-note,.e-sg-text')?/** @type {HTMLTextAreaElement} */(document.activeElement):null;
-  const eta=ef,efocus=eta?[eta.selectionStart,eta.selectionEnd]:null;
+  const eta=ef,efocus=eta?[eta.selectionStart,eta.selectionEnd]:null,cfocus=cardFocusKeep();
   secHead('open',tr(MENTION_ONLY?'나를 부른 열린 핀':SHOW_ALL&&multiDoc()?'모든 문서의 열린 핀':'열린 핀'),SHOWN.map(p=>p.id),OPEN_ALL.map(p=>p.id));
   const ab=$('#all-docs'); ab.setAttribute('aria-pressed',String(SHOW_ALL)); setHtml(ab,html`${SHOW_ALL?ic('check'):''}${tr('모든 문서')}`);
   $('#side-n').textContent=PINS.length; applySide();
@@ -148,9 +148,22 @@ function drawPins(){dropStaleReview();
   if($('#trash').open)drawTrash();
   if(REPLY){const slot=document.querySelector('#list .reply-slot'); if(slot)slot.replaceWith(REPLY.el); renderReplyOutcome();   // the pin may have changed state meanwhile
     if(rfocus&&rta&&document.contains(rta)){rta.focus(); try{rta.setSelectionRange(rfocus[0],rfocus[1]);}catch(e){}}}
-  drawOffers(nfocus); drawBanners();
+  drawOffers(nfocus); drawBanners(); cardFocusBack(cfocus);
   if(REV.target)revTargetActs();
 }
+// A focus on a card's control (its number, a button) goes back to the same control of the same card once the lists are drawn
+// again (a poll, someone's change, the list read after a [지우기] whose focus went to the card beside): drawn anew, it fell
+// to the page and the next Tab started over. Text fields keep theirs above; a card gone leaves the focus where it fell, and a
+// focus that is somewhere again (a notice's, drawOffers) stays there.
+/** @returns {{el:HTMLElement,id:string,act:string,i:number}|null} */
+function cardFocusKeep(){const a=/** @type {HTMLElement|null} */(document.activeElement),c=a&&a.closest?/** @type {HTMLElement|null} */(a.closest('#list .pin[data-id]')):null;
+  const act=a&&a.dataset?a.dataset.act||'':''; if(!a||!c||!act||a.matches('textarea,input'))return null;
+  return {el:a,id:c.dataset.id||'',act,i:[...c.querySelectorAll('[data-act="'+CSS.escape(act)+'"]')].indexOf(a)};}
+/** @param {{el:HTMLElement,id:string,act:string,i:number}|null} k */
+function cardFocusBack(k){const a=document.activeElement; if(!k||(a&&a!==document.body))return;
+  if(document.contains(k.el)){k.el.focus({preventScroll:true}); return;}   // the edit card or the reply, put back in its slot
+  const c=document.querySelector('#list .pin[data-id="'+CSS.escape(k.id)+'"]'),same=c?c.querySelectorAll('[data-act="'+CSS.escape(k.act)+'"]'):null;
+  const b=/** @type {HTMLElement|null} */(same&&(same[Math.max(0,k.i)]||same[0])); if(b)b.focus({preventScroll:true});}
 // Location estimation (.est, dashed) is judged by the server and carried as est in /api/pins (pin_est - comparing the
 // manuscript fingerprint of the build the pin was placed on with the current build). Back when the viewer judged this by
 // wall clock, it was wrong across the board with browser timezone, a note-only edited_at, and a pin placed on a stale
@@ -239,14 +252,24 @@ function jumpToCard(id){if(secOpenFor(id))drawPins();
   el._curT=setTimeout(()=>el.classList.remove('cur','flash'),1200);
 }
 // A '#12' link in text: expands and scrolls to that pin's card/archive row, then flashes it. If it's on another document, '모든 문서' is turned on.
-function gotoPinRef(id){const p=findAnyPin(id); if(!p){if(DROPPED.some(x=>x.id===id))openTrash(id); return;}
+/** @param {number} id @param {boolean} [focus] - by keyboard: the focus goes to the card (its number) */
+function gotoPinRef(id,focus){const p=findAnyPin(id); if(!p){if(DROPPED.some(x=>x.id===id))openTrash(id); return;}
   const st=pinState(p);
   if(multiDoc()&&DOC&&pdoc(p)!==DOC)SHOW_ALL=true;
   if(st===PIN_STATE.DONE)SEC.done=true; else{OPEN_CARDS.add(id); SEC[st===PIN_STATE.REVIEW?'review':'open']=true;} savePrefs({sec:SEC});
   setSide(true); drawPins();
   requestAnimationFrame(()=>{const el=/** @type {HTMLElement} */(document.querySelector('.pin[data-id="'+id+'"],.arc-row[data-id="'+id+'"]')); if(!el)return;
     el.scrollIntoView({behavior:SMOOTH,block:'nearest'}); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
-    clearTimeout(el._flT); el._flT=setTimeout(()=>el.classList.remove('flash'),1200);});}
+    clearTimeout(el._flT); el._flT=setTimeout(()=>el.classList.remove('flash'),1200);
+    if(focus)focusCard(id);});}
+// The pin id beside the card that holds control a - the next card in its section, else the one before - or null: where the
+// focus goes when that card leaves by a keyboard press ([삭제], [지우기]).
+/** @param {HTMLElement} a @returns {number|null} */
+function cardNeighbour(a){const c=a.closest('.pin.card'); if(!c)return null; let n=c.nextElementSibling; while(n&&!n.matches('.pin.card'))n=n.nextElementSibling;
+  let b=c.previousElementSibling; while(b&&!b.matches('.pin.card'))b=b.previousElementSibling; const t=/** @type {HTMLElement|null} */(n||b); return t?Number(t.dataset.id):null;}
+// Puts the focus on pin id's card - its number (a button) - when it is drawn.
+/** @param {number} id */
+function focusCard(id){const n=/** @type {HTMLElement|null} */(document.querySelector('.pin[data-id="'+id+'"] .n.go,.arc-row[data-id="'+id+'"] .n')); if(n)n.focus({preventScroll:true});}
 // Scrolls the mark of pin id into view and flashes it (switching to the pin's document first); a pin whose mark is not drawn
 // scrolls to the page the mark would be on.
 function jumpPin(id){if(viaDoc(id,jumpPin))return; const p=PINS.find(x=>x.id===id)||REVIEW_ALL.find(x=>x.id===id&&pdoc(x)===DOC);

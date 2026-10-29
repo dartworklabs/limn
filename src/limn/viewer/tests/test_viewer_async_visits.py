@@ -130,6 +130,7 @@ class VisitLocalContinuations(unittest.TestCase):
                 extract_js_fn("composeFields"),
                 extract_js_fn("syncComposeSaveButtons"),
                 "function renderVerdictRow(){}",  # no verdict words here (verdict.js)
+                "function pvTopId(){return 0;}",  # the mark a lost answer is looked for above (verdict.js)
                 extract_js_fn("savePin"),
                 """
                 let DOC='a',SWITCHSEQ=1; const COMPOSE={current:{doc:'a',file:'a.tex',page:1,lo:1,hi:1},box:{remove(){removes++;}},saving:false,picking:false};
@@ -279,6 +280,7 @@ class VisitLocalContinuations(unittest.TestCase):
                 let fail,draws=0,marksCount=0,loads=0;
                 function pdoc(p){return p.doc;}
                 function drawPins(){draws++;}function marks(){marksCount++;}function $(){return {};}function drawnBefore(){return null;}
+                function markMine(){}function findAnyPin(){return null;}function sourceOk(){}const DROPPED=[];
                 function api(){return new Promise((resolve,reject)=>{fail=reject;});}
                 function loadPins(){loads++;return Promise.resolve(false);}
                 (async()=>{
@@ -301,7 +303,7 @@ class VisitLocalContinuations(unittest.TestCase):
                 let OPEN_ALL=[{id:1,doc:'a'},{id:2,doc:'a'},{id:3,doc:'a'}],PINS=OPEN_ALL; const EDITOR={current:null,saving:false};
                 const pending={};let loads=0;
                 function pdoc(p){return p.doc;}
-                function drawPins(){}function marks(){}function markMine(){}
+                function drawPins(){}function marks(){}function markMine(){}function findAnyPin(){return null;}function sourceOk(){}const DROPPED=[];
                 function tl(s){return s;}function undoNote(){}function quietNote(){}function restorePin(){}function $(){return {};}function drawnBefore(){return null;}
                 function api(url){const id=Number(url.split('/')[3]);return new Promise((resolve,reject)=>{pending[id]={resolve,reject};});}
                 function loadPins(){loads++;return Promise.resolve(false);}
@@ -368,7 +370,7 @@ class VisitLocalContinuations(unittest.TestCase):
                 function viewerBlocked(){return false;}
                 function suggestForEdit(){return undefined;} function suggestOff(){return null;} function editDocKind(){return undefined;}
                 function suggestOfPin(){return {on:false,text:'',base:null,had:null};}   // no suggested edit (suggest.js)
-                function mentionHints(){return [];}function quietNote(){said++;}function bannerNote(){said++;}
+                function mentionHints(){return [];}function quietNote(){said++;}function bannerNote(){said++;}function editTheirs(){said++;}
                 function loadPins(){loads++;return Promise.resolve();}
                 function assigneeOf(){return 'agent';}function editSnip(){snips++;}
                 function api(){return new Promise(resolve=>{finish=resolve;});}

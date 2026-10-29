@@ -319,6 +319,16 @@ NOT_WALKED: dict[str, tuple[float | None, str]] = {
     ".ov-no": (TEXT, "the figure overlay's page number: needs a figure with two builds in the changes view"),
     ".ov-none": (TEXT, "the figure overlay's missing page: needs a figure with two builds in the changes view"),
     ".sg-text[readonly]": (TEXT, "a closed pin's suggested edit in its edit card: the walk edits no closed pin"),
+    ".pv button.pv-note .ic-pencil": (
+        ICON,
+        "an editable saved reason's pencil on a page line: the walk saves no reason",
+    ),
+    ".pv .pv-busy": (
+        TEXT,
+        "a page line's '보류 저장 중…': shown only while its save is out, which the walk does not hold",
+    ),
+    ".pv .pv-pop-f": (TEXT, "the reason popover's row: open only after a page-line save, which the walk does not make"),
+    ".pv .pv-pop-from": (TEXT, "the reason popover's '#15 채택에서 옮김': only after a draft moved to a new verdict"),
 }
 
 # The elements that may carry what READ cannot composite (a background image, a gradient, a mask, a filter, a blend) under

@@ -2,13 +2,12 @@
 
 ## Unreleased
 
-The page verdict line from the 0.4.33 review of a figure document (`pl`): one row on a desktop, targets a mouse can hit,
-the line on a foldable's open sheet. The agent contract, `pins.md` and every route are unchanged.
-
-Agents are told which verdicts were superseded (ADR-0023). The agent contract only grows: one optional pin
-field and one `pins.md` marker, nothing renamed or removed, and nothing stored - a 0.4.33 server or an older agent reads
-the same records as before. The viewer is unchanged; it still counts the order itself, and a browser test holds the two
-counts together.
+The page verdict line from an owner-requested UX review of 0.4.33 on a figure document (`pl`), and agents told which
+verdicts were superseded. On the line its words become a toggle, a verdict's reason is never lost without a word, and the
+line stays one row on a desktop, with targets a mouse can hit and the line on a foldable's open sheet. For agents
+(ADR-0023) the contract only grows: one optional pin field and one `pins.md` marker, nothing renamed or
+removed, and nothing stored - a 0.4.33 server or an older agent reads the same records as before. Every route stays as it
+was; the viewer still counts the verdict order itself, and a browser test holds its count and the server's together.
 
 ### Added
 
@@ -38,6 +37,45 @@ counts together.
 
 ### Changed
 
+- **The line's words are a toggle.** The current verdict's word is pressed (`aria-pressed="true"`, filled: the primary
+  colour, a confirm word such as 삭제 the destructive colour). Pressing the pressed word takes the verdict back - the
+  same as `판정 취소`, with the status line's [되돌리기] - when it is the person's own open verdict; pressing the current
+  word never saves a second pin of that word. Someone else's verdict, or one already handled (검토 대기, 처리됨), is pressed
+  too but stays: the status line says why (`지금 판정 #4 채택 그대로 · 다른 사람의 판정은 여기서 거두지 않습니다`). Any other
+  word saves that verdict as before (a confirm word on its second press). The keys 1-5 do the same as the buttons. Right
+  after a word was taken back, the same word waits 0.8 s, so a double press takes one verdict back and does not save it
+  again. `판정 취소` on the line and [지우기] on the card stay.
+- **Presses during a save are kept.** While a save on a line is out, the line says what it saves (`· 보류 저장 중…`) with
+  that word pressed, and the buttons take presses: the last one wins and is applied when the save is done - a word that
+  is current by then does nothing. Pressing 채택, 보류, 채택 150 ms apart ends on one 채택 pin (0.4.33 made two and ended on
+  보류).
+- **The reason is written in a popover over the line.** It never pushes the plot down or makes the floating line taller.
+  No save opens it: a click save leaves `이유 추가` on the line (the reading line and the last-saved line); a key save
+  leaves `Enter 이유 쓰기` there with the focus on it, and Enter - there, on the PDF area or a page - opens it with the
+  focus. The popover names whose reason it is (`판정 #16 보류 이유`), marks a draft
+  `저장 안 됨` and a written reason 체크 표시와 `저장됨`, says the keys, and has [닫기] and [저장] (and [지우기] for a saved
+  reason). The field grows to five lines; Enter saves, Shift+Enter is a new line.
+- **A saved reason is changed or cleared from the line.** The line shows it as a check and `<first line>`; on the person's own
+  open verdict it opens the popover with the reason. Enter writes the changed text over it (the whole note, against its
+  revision; if someone changed the note meanwhile it is not written over and the draft is kept), [지우기] clears it with
+  [되돌리기], and Enter on an empty field keeps it.
+- **Changing the verdict while typing moves the draft.** The draft goes to the new verdict - never to the one it
+  replaces - and the popover says so (`판정 #16 보류 이유 · #15 채택에서 옮김`); once written, the status line says where
+  (`이유 저장됨 · 판정 #16 보류 — <대상>`). A draft kept after a failed write moves the same way and is marked on the new
+  verdict.
+- **Digits in the reason field are always text.** Before the popover opens, 1-5 are the line's verdict keys (1 then 2
+  saves 보류); once it is open every digit typed is text - a data plot's reason often starts with one (`12월 값이 튐`,
+  `33개 건물에서 손해`). A digit an input method is composing is text too.
+- **Taking a verdict back is found without a hover.** The pressed word carries a check, and a short line -
+  `지금 삭제 판정 · 다시 누르면 판정 취소` - is its description (`aria-describedby`) and shows over the word group (never in
+  the line's flow) on hover, on keyboard focus and for 4 s after a press made it the verdict, touch included.
+- **Fold a reason away while writing.** [접기] folds the popover without writing, so the plot shows again; the draft is
+  kept and the line marks it `초안 있음`, which opens it again. An editable saved reason shows a pencil and is named
+  `저장된 이유 수정`.
+- **The popover keeps the focus inside.** It is a labelled non-modal group that stays open while the focus is anywhere
+  in it (Tab from the field to its buttons); a close gives the focus back to what opened it.
+- **Status-line messages put the result first** (P3-12, shared with the line layout work): `판정 #17 채택 취소 · 지금 판정
+  #12 보류 — <대상>` (or `· 남은 판정 없음`), `이유 저장 실패 · <까닭> — <대상>`, `판정 저장 실패 · <까닭> — <대상>`.
 - **The page verdict line stays one row on a desktop, and stacking is decided per line.** One line with an earlier
   verdict or a reason used to put every page's buttons on a row of their own - at 1440 x 900 each line grew to 79-88px
   over the plot. Now each line is one row unless its own state and buttons cannot share it: the figure's title gives way
@@ -51,6 +89,17 @@ counts together.
 - **The save chip stands in the line**, just left of the words, never over the plot, the figure's identifier or the
   current verdict and its state: where its words would reach them it folds to [되돌리기]. The line does not move for it.
   A confirm word waiting for its second press has no description box (it covered the figure's name).
+- **The page being read stays put when the reading page changes.** A stacked line (a phone) gives the reading figure's
+  name a row of its own; the line above the new reading page lost that row and pulled the page up 23px under the reader's
+  eyes - a two-finger zoom over it then missed its anchor. Every other stacked line now keeps that row's place empty, and
+  every line is fitted as the reading line it may become (its identifier and its keys' digits counted), so no line
+  changes its rows or height with the reading page and nothing is scrolled to make up for it (a scroll doing so ended
+  outline and page-list jumps part-way and trapped a slow phone scroll at a page's end).
+- **The focus after a key save is never lost.** A new verdict saved right after a digit took one back left the focus on
+  nothing (the line still offered the take-back's [되돌리기] and its [이유 추가] had stepped out); the new verdict now ends
+  that offer on its line. A digit pressed with the focus on the outline, the page list, a document tab or a card brings the
+  focus to the pages at once, so an Enter typed straight after it opens the reason instead of pressing that control again.
+  While a card's editor or reply is open and has the focus, digits are its own and make no verdict.
 - **A line starts where its page does.** With the panel closed at 1280 x 800 the status box at the bottom right pushed the
   line 36px left of its page; the line now ends before the box instead.
 - **Foldable in portrait (and tablets).** With the pin sheet open the line floats on the sheet's top edge instead of going
@@ -60,7 +109,123 @@ counts together.
 - **A folded verdict card shows what it is.** Its preview leads with the `판정 채택` badge and the figure's name, the
   reason on a line under them (a reason used to take the whole preview).
 
-### Tests
+### Fixed
+
+- **A changed saved reason never overwrites a note changed elsewhere.** The change and [지우기] are written against the
+  revision the popover opened at - not the newer one a poll brought - so another tab's, person's or agent's change gets
+  the server's 409: nothing is written, the draft is kept, and the popover shows the newer note with [메모 보기] and
+  [그 위에 쓰기].
+- **[지우기] keeps the popover and its draft until it succeeds**: a lost request or a conflict leaves both, and the
+  status line says so (`이유 지우기 실패 · <까닭> — <대상>`, [다시 시도] when the server was not reached or failed - 5xx).
+- **A page line's pending save belongs to its document.** A save held on one document's page no longer queues or
+  swallows a press on the same page number of another document.
+- **A key typed into the reason field after a key save no longer becomes the reason** (P1-1): 1, then 2 in the field,
+  then Enter saved the note `2` on 채택 and made no 보류. Typing right after a key save no longer lands nowhere either.
+- **The focus stays on its page.** Closing the popover (Enter, Esc, [닫기], [접기]) leaves the focus on the same page's
+  line - its reason control, else the pressed word - not the PDF area, from which Tab went to the first page's line and
+  scrolled ~39,000 px; Tab from the PDF area now goes to the reading page's line; Tab past the popover's last control
+  comes back to its line instead of the next page's (which moved the reading page and closed the popover). A take-back
+  by keyboard leaves the focus on the line's own [되돌리기], which the line offers while the status line does. Enter on a
+  line's `#N` moves the focus to its card; a card deleted by keyboard hands it to its neighbour (a verdict card too), and
+  a redrawn list (the list read after it, a poll) gives a card control's focus back to the same control. Tab after a
+  press on a page or its margin goes to the reading page's line too; Shift+Tab from a line's first control while its
+  popover is open goes to the popover's last instead of the page before. A take-back by a digit key leaves the focus on
+  the line's [되돌리기].
+- **Enter after a key save always opens the reason** (RC retest, P1-A). Pressed while the save was still out - a fast
+  typist's 1 then Enter - it was ignored, and the digits typed next (`12월 값이 튐`) saved other verdicts. It now opens
+  the popover for the verdict being saved (`채택 판정 이유 · 판정 저장 중`) with the focus in the field, binds it when the
+  save lands - keeping the focus and caret while the line changes shape around it - and writes an Enter pressed before
+  that as soon as it is bound. A save that fails keeps the text as the page's draft and says so.
+- **Keys never act on a page scrolled out of view** (RC retest, P1-B). A focus left on another page's line control (the
+  saved reason's pencil) when the reading page changes goes to the PDF area, and Enter or Space read on such a control
+  before it moved does not act there: Enter goes to the reading page's reason, Space is only said. The wheel to the next
+  page then Enter no longer opened the page before's reason off-screen and appended the text to its note.
+- **A reason typed while its verdict's save is out is never lost or turned into verdicts** (RC round 3). When that save
+  fails, the text is the page's draft and, if the field had the focus, the focus goes to the line's `초안 있음` and the
+  digits typed on are not verdict keys; a focus elsewhere (search, composer) stays. Moving to another page or document
+  before the save answers keeps the popover with that save: once it answers, the text is written on the verdict it made,
+  on the document it was typed on.
+- **The focus leaves the page the person left** even while its line still shows (after a PageDown), and Space or Enter
+  read before that frame does not act on it. A digit take-back moves the focus to the line's [되돌리기] from anywhere (the
+  outline), Tab into the pages from the outline or the section strip goes to the reading page's line, and Esc on the
+  popover's buttons acts as in its field.
+- **While a reason is written** its field and group no longer point at an empty description, and a [다시 시도] that finds
+  a lost answer written clears the earlier `이유 저장 실패` notice, for an added and a changed reason alike.
+- **No verdict key acts on a page a jump is gliding past.** While the pages scroll where the outline, the page list or
+  a card sent them, 1-5 and Enter are not taken (the status line says so) until the scroll ends.
+- **A press queued during a save is never dropped.** A save runs on the document, build and page it was pressed on:
+  switching documents (A→B, or A→B→A) no longer drops it or the press queued meanwhile - both complete, the undo on the
+  status line if the document is not on screen.
+- **A verdict taken back elsewhere while its reason is typed** (another tab or person) no longer loses the text or turns
+  the next digit into a verdict: the text becomes the page's draft (`초안 있음`, moved to the next verdict saved there),
+  the status line says so, and the keys typed on are not verdict keys until a press or Esc.
+- **A folded draft stays folded** after a reload and is never written by merely scrolling past.
+- **Lost answers are read before they are called failures.** A page-line verdict, a composer save, a take-back and a
+  [지우기] whose answer the network lost are checked against the list (or the note) first: a save that landed is a
+  save - no `실패` left, no duplicate from a second press, no `#21 을 Alice 가 삭제함` for one's own take-back, no false
+  `(빈 메모)` conflict.
+- **A conflict shows the whole note**, scrolled, refreshed at every 409, and the line shows it too; [그 위에 쓰기] is a
+  replace against the rev it read - also over an empty note - and a new reason reads the pin before writing (a stale
+  list put `(추가 hh:mm)` into an emptied note).
+- **A restored verdict superseded meanwhile says so** (`판정 #21 채택 되살림 · 지금 판정은 Bob의 #34 보류`) and opens no
+  popover over the other person's line.
+- **The card's edit no longer writes over a rival's note**: a 409 shows the note now, and only
+  [내 메모로 덮어쓰기] replaces it.
+- **Quieter and clearer for screen readers.** A save chip's undo moved to the status line is not read out again with the
+  next save; the outline filter says `찾은 장·절이 없습니다.` once, not at every keystroke; drafts restored by a reload are
+  announced; names hold their visible words (`초안 있음 — …`, `판정 취소 — …`); no `aria-describedby` points at nothing
+  and no inert [접기] shows while a reason is being written. A name's particle follows its sound (`Bob이`, `Alice가`).
+- **An unsaved reason is never lost without a word** (P1-2). Drafts are kept per pin in the tab (sessionStorage); a
+  reload opens none by itself - each waits on its line as `초안 있음`, and the status line says how many with [보기], which
+  brings the first one's line into view with the focus on it - and leaving the page with one asks first (beforeunload). With text,
+  Esc takes two presses: the first only lets the focus out of the field while the popover stays open with its text - the
+  keys then change the verdict and the draft follows - and says the next one drops it; the second drops it. On touch
+  [닫기] does the same. Once the popover closes - Esc, Enter, [닫기], [접기] - the focus stays on that page's line: its reason
+  control, else the pressed word (never the PDF area, from which Tab went to the first page's line). [되돌리기] of `판정 취소` (or of pressing the
+  word again) and of the save chip bring the verdict back with its draft. Every failed write keeps the draft - lost on
+  the network, refused (4xx) or too long - and the line marks it `초안 있음`; a reason that could only be added
+  to someone's note (2,000 characters at most) and is longer says so instead of being sent.
+- **An armed confirm word says how long it waits, and stops saying so** (P3-13). The line shows `4초 안에 한 번 더 누르면
+  저장` beside it and a screen reader hears `삭제 — 4초 안에 한 번 더 누르면 저장합니다`; when it lets go - its time, Esc or a
+  press elsewhere - that is replaced by `삭제 확정을 풀었습니다`, and after its saving press it is cleared.
+
+- **The popover's buttons take the first tap with the keyboard up** (RC review). A tap on [저장], [접기] or [지우기] took the
+  focus out of the field, the status line came back and a phone's line stacked again, so the button moved 24-85px between
+  the touch and its click and the first tap fell on the popover. The fold the field makes holds until that click has run.
+- **The save chip never moves the line or covers a control.** It is laid over the line, out of its flow - on a phone it
+  added a row (131 -> 251px) and a tap on the old 삭제 spot undid the save - in room nothing takes: before the words, after
+  the state's last row, or over the figure's title after its identifier; it folds to [되돌리기], and where even that has no
+  room the undo is on the status line. It covered [이유 추가] (25 of 32 pages) and [판정 취소]; a click aimed at them under
+  automation scrolled the document 583-1358px. A mouse resting on it holds it at most 4 seconds past its window (30).
+- **A line too narrow for a verdict's state stacks whatever it shows**, and a line whose confirm word waits or whose save is
+  out keeps its rows: a press no longer restacks a phone's line under the finger. On a desktop row that is tight, the earlier link
+  steps out while a press's extra - `Enter 이유 쓰기` after a key save, the line's [되돌리기] of a take-back - is on the
+  line, and while the line offers that [되돌리기] its [이유 추가] steps out on every row (as for an armed word's wait), the
+  focus on it moving to the [되돌리기]: beside them the extras ran 7 and 25px past a 620px row (1280 x 800, panel open)
+  and stacked it.
+- **The reason popover opens below a line near the top** (under the section strip it showed one line of five) and is
+  never taller than its room; **a keyboard laid over the page** (iPad Safari) no longer hides the floating line and the
+  popover; on touch the floating line stands clear of the status line's [x], whose 44px took taps on the words' bottom.
+- **Contrast and spacing.** The armed `삭제 확정` and `4초 안에 한 번 더 누르면 저장` read 6.3 and 5.8:1 in the light theme (3.6,
+  4.2); the wait is said in full while armed (the reason, the earlier link, [이유 추가] and [판정 취소] give way); the reason
+  field's edge reads 4.4:1 (1.5); a long reason is cut before its pencil; [판정 취소] stands 16px from the reason's button and
+  the popover's [지우기] 16px from [닫기] with a divider.
+- **No layout read per scroll for chips.** The select bar's check runs once a frame and reads nothing while no chip is up
+  (seconds of long tasks over a first scroll through a hundred pins).
+
+- **A first save moves no word of a narrow line** (RC retest). A line narrower than the state a press brings - measured
+  once in a hidden line, not guessed - is stacked from the start on every band (on the wide band the rule was skipped:
+  at 1280 x 800 zoomed to 66% and less a one-row line went to three rows, 91px, the words 59px down); a stacked line's state
+  row and a touch row are as tall from the start as a text action makes them (a phone's line in its place dropped its
+  words 25px).
+- **Touch areas along both edges.** The status line's [x] reaches right, not over the right 6px of [되돌리기], and its
+  buttons' areas cover their 1px borders: [되돌리기], [x] and the line's `#N` answer 44px at their left edge, middle and
+  right edge on a phone and a folded-open foldable.
+- **A web font that arrives late is measured again.** The width a fresh verdict's state takes, kept from the fallback face,
+  is taken again and every line refitted when a font load is done and when the fonts are ready after boot.
+- **A sheet's banner is scrolled clear of the stuck tool bar**: a card's [수정] conflict on a phone hid its first line.
+
+### Internal
 
 - The verdict contract snapshot gains a newer verdict on a panel of the figure and a newer one on the closed pin's lines;
   `test_viewer_supersession_parity.py` runs one flow of verdicts (a figure's root and panel, LaTeX lines, PDF pages, a
@@ -68,7 +233,6 @@ counts together.
   viewer's own order. A mixed explicit/older-form scenario, a check of the index against scanning every newer pin on random
   mixes, and a 20,000-pin history with a time bound cover the reading; the particle is tested for numbers read with a
   unit name (만, 억, 조, 경, ...).
-
 
 ## 0.4.33 — 2026-10-29
 

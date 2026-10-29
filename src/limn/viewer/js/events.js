@@ -38,8 +38,10 @@ document.addEventListener('click',e=>{const target=/** @type {HTMLElement} */(e.
     case 'theme':setTheme(a.dataset.theme); break; case 'lang':switchLang(a.dataset.lang);break; case 'notify-toggle':notifyToggle();break; case 'help':openHelp();break; case 'help-close':$('#help').close();break;
     case 'save':case 'pop-save':if(!viewerBlocked())savePin();break; case 'cancel':discardSelection();break;
     case 'verdict-save':case 'pv-save':verdictPress(a,e.detail===0?'kb':undefined);break;   // a verdict word's button: the composer's row or a page verdict line (verdict.js)
-    case 'pv-earlier':gotoPinRef(Number(a.dataset.ref));break;
+    case 'pv-earlier':gotoPinRef(Number(a.dataset.ref),e.detail===0);break;
     case 'pv-cancel':pvCancel(a);break;   // a page line's [판정 취소] on the person's own open verdict (verdict.js)
+    case 'pv-reason-open':case 'pv-reason-save':case 'pv-reason-clear':case 'pv-reason-close':case 'pv-reason-fold':case 'pv-reason-reapply':case 'pv-reason-see':pvReasonAct(a);break;
+    case 'pv-undo':pvLineUndo(a);break;   // a take-back's [되돌리기] on its line (verdict.js)   // a page line's reason and its popover (verdict-reason.js)
     case 'pop-more':selPopMore();break;   // the note popover by the box hands over to the composer in the panel
     case 'overlap-append':{const text=$('#note').value.trim();
       if(!text){bannerNote(NOTICE_HOST.COMPOSER,'메모를 먼저 써야 덧붙일 수 있습니다',NOTICE_KIND.WARN);break;}
@@ -78,7 +80,7 @@ document.addEventListener('click',e=>{const target=/** @type {HTMLElement} */(e.
     case 'all-docs':SHOW_ALL=!SHOW_ALL;drawPins();break;
     case 'mention-filter':MENTION_ONLY=!MENTION_ONLY;drawPins();break;
     case 'mention-pick':mentionApply(Number(a.dataset.i));break;
-    case 'pin-ref':gotoPinRef(Number(a.dataset.ref));break;
+    case 'pin-ref':gotoPinRef(Number(a.dataset.ref),e.detail===0);break;   // by keyboard the focus goes to the card
     case 'assign-new':ASSIGN_NEW.v=a.dataset.v||'agent'; ASSIGN_NEW.touched=true; renderAssignNew(); saveDraftSoon(); break;
     case 'assign-edit':if(EDITOR.current){EDITOR.current.assignee=a.dataset.v||'agent'; renderAssignEdit();} break;
     case 'msg-more':{const k=a.dataset.key; if(!k)break; if(MSG_OPEN.has(k))MSG_OPEN.delete(k); else MSG_OPEN.add(k); drawPins(); break;}
@@ -86,7 +88,7 @@ document.addEventListener('click',e=>{const target=/** @type {HTMLElement} */(e.
     case 'revision-zoom':revisionZoom(a.dataset.zoom);break;
     case 'revision-whole':setRevisionWhole(!REV_SCOPE.whole);break;
     case 'mark-jump':revealCard(id);jumpToCard(id);break;
-    case 'close':closePin(id);break; case 'drop':dropPin(id,false);break;
+    case 'close':closePin(id);break; case 'drop':{const nb=e.detail===0?cardNeighbour(a):null; dropPin(id,false); if(nb!==null)focusCard(nb); break;}   // by keyboard the focus goes to the card beside
     case 'restore':restorePin(id);break; case 'purge':if(id!=null)purgePin(id);break; case 'unclaim':unclaimPin(id);break;
     case 'kind':{const fromHint=!!a.closest('#c-qhint'); setKind(a.dataset.kind);
       // [질문으로 보내기] hides itself (qHint), which would drop focus to <body> and make Ctrl+Enter do nothing - back to the memo.

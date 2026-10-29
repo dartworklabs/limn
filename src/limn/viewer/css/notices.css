@@ -35,7 +35,7 @@
 @media (pointer:coarse){#c-actions .nt-acts button{font-size:var(--text-base)}}
 #sec-review>.nt-banner{margin-top:0}
 #trash>.nt-banner{margin:0 0 var(--space-2)}
-.nt-banner{scroll-margin:var(--space-6) 0 72px}   /* scrolled into view clear of a stuck section head and the save row */
+.nt-banner{scroll-margin:calc(var(--stick-top,0px) + var(--space-6)) 0 72px}   /* scrolled into view clear of the stuck tool bar (a sheet's: --stick-top), a stuck section head and the save row */
 
 /* An undo in a card's place (closed, deleted, confirmed) and in the Trash in a row's place: a dashed row of a card's size. */
 .nt-row{min-height:var(--hit);margin:0 0 var(--space-2);padding:var(--space-1) var(--space-1) var(--space-1) var(--space-3);
@@ -59,19 +59,16 @@
 :is(.mark,.pv)>.nt-chip .nt-t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 @media (pointer:coarse){.mark>.nt-chip{height:var(--ctl-touch);padding:0 var(--space-1) 0 var(--space-3)}
   .mark>.nt-chip .nt-acts button{height:calc(var(--ctl-touch) - 2 * var(--space-1))}}
-/* A page verdict's save (verdict.js): the same chip inside its line - over the line it lay on the figure's name and on the
-   plot above. On a row it stands over the state's end, just left of the words and on their middle (verdict.js pvFit
-   measures --pv-btns-w and --pv-btns-mid), so it moves nothing for its 6 seconds; on a stacked line it ends the buttons'
-   row (or takes the next one). Its words give way before [되돌리기]. */
-.pv>.nt-chip{flex:0 1 auto;min-width:0;box-sizing:border-box;height:calc(var(--control-h-sm) + 2 * var(--space-1));
-  width:max-content;max-width:min(320px,100%);padding:0 var(--space-1) 0 var(--space-2);gap:var(--space-1);border-radius:var(--radius-lg);background:var(--popover);
+/* A page verdict's save (verdict.js): the same chip laid over its line - never in its flow (it added a row on a phone and moved
+   the words under a waiting finger) and never over any part of it (pvChipPlace finds the room; --pv-chip-r, --pv-chip-y).
+   Its words fold where the room is short (.pv-chip-short), then its icon (.pv-chip-bare); with no room for [되돌리기] the undo
+   is on the status line instead. */
+.pv>.nt-chip{position:absolute;right:var(--pv-chip-r,0px);top:var(--pv-chip-y,50%);z-index:1;transform:translateY(-50%);box-sizing:border-box;
+  height:calc(var(--control-h-sm) + 2 * var(--space-1));width:max-content;max-width:none;padding:0 var(--space-1) 0 var(--space-2);gap:var(--space-1);
+  border-radius:var(--radius-lg);background:var(--popover);
   color:var(--popover-foreground);border:1px solid color-mix(in srgb,var(--success) 45%,var(--border));box-shadow:var(--shadow-sm);font-size:var(--text-sm);line-height:16px;white-space:nowrap}
-.pv:not(.pv-stack)>.nt-chip{position:absolute;top:var(--pv-btns-mid,50%);right:calc(var(--pv-btns-w,0px) + var(--space-2));z-index:1;transform:translateY(-50%);
-  max-width:min(320px,calc(100% - var(--pv-btns-w,0px) - var(--space-2)))}
-/* Where its words would reach the figure's identifier or the current verdict and its state, the chip folds to its icon and
-   [되돌리기] (verdict.js pvFit: .pv-chip-short), and where even that would, to [되돌리기] alone (.pv-chip-bare). */
-.pv.pv-chip-short:not(.pv-stack)>.nt-chip .nt-t,.pv.pv-chip-bare:not(.pv-stack)>.nt-chip .nt-ic{display:none}
-.pv.pv-stack>.nt-chip{order:3;margin-left:auto}
+.pv.pv-chip-short>.nt-chip .nt-t,.pv.pv-chip-bare>.nt-chip .nt-ic{display:none}
+.pv.pv-chip-wait>.nt-chip{visibility:hidden}   /* no room while its line is about to change: placed once it settles (verdict.js pvChipPlace) */
 .pv>.nt-chip .nt-ic{height:16px}
 .pv>.nt-chip .nt-ti{font-weight:600}
 @media (pointer:coarse){.pv>.nt-chip{height:var(--ctl-touch);padding:0 var(--space-1) 0 var(--space-3)}
