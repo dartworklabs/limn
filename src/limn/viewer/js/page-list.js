@@ -29,16 +29,18 @@ function pageTitles(pages,entries,n,byOutline){
     if(typeof t==='string'&&t.trim())return t.trim();
     const e=named.get(i+1); return e?name(e):'';});}
 // The names the page list shows for pages 1..n: a LaTeX manuscript's sections, a figure document's page titles, else none.
+// A figure's pages are named by the outline only while it is the one read for the build on screen (outlineOnScreen): while another
+// document's or build's is still being read, a page without a title shows its number, and the list is drawn again when it arrives.
 function pageNames(n){if(pageListNamed())return pageSections(OUTLINE_ENTRIES,n);
-  const d=docInfo(DOC); return pageTitles(META&&META.pages,OUTLINE_ENTRIES,n,!!d&&isFigureKind(d.kind));}
+  const d=docInfo(DOC),fig=!!d&&isFigureKind(d.kind); return pageTitles(META&&META.pages,fig&&outlineOnScreen()?OUTLINE_ENTRIES:[],n,fig);}
 // The number of pages of the build on screen; 0 before /api/meta has answered.
 function pageCount(){return META&&META.pages?META.pages.length:0;}
 // The rows for pages 1..n: the page on screen (cur) is the selected option, carries the check and is the list's one tab stop.
 // The section names are the manuscript's words (translate="no"); the page number is UI.
 // A page whose page verdict line shows a verdict carries it at the row's end, before the check ('#42 채택'): the verdicts at a glance.
-function pageRowsHtml(n,cur){const names=pageNames(n),titled=!pageListNamed(),pv=pageVerdictsOn()?pageVerdictPins():null;
+function pageRowsHtml(n,cur){const names=pageNames(n),pv=pageVerdictsOn()?pageVerdictPins():null;
   return html`${Array.from({length:n},(_,i)=>{const p=i+1,on=p===cur,vp=pv&&(pv.get(p)||[])[0],vk=vp&&verdictOf(vp);
-    return html`<button class="pl-row${on?' on':''}" role="option" aria-selected="${on}" tabindex="${on?0:-1}" data-act="page-go" data-page="${p}" data-close="1"><span class="pl-n">${tl('{page}쪽',{page:p})}</span>${titled&&names[i]?html`<span class="pl-s" translate="no" title="${names[i]}">${names[i]}</span>`:html`<span class="pl-s" translate="no">${names[i]||''}</span>`}${vp&&vk?html`<span class="pl-v">#${vp.id} <span translate="no">${verdictLabel(vk)}</span></span>`:''}${on?ic('check'):''}</button>`;})}`;}
+    return html`<button class="pl-row${on?' on':''}" role="option" aria-selected="${on}" tabindex="${on?0:-1}" data-act="page-go" data-page="${p}" data-close="1"><span class="pl-n">${tl('{page}쪽',{page:p})}</span><span class="pl-s" translate="no">${names[i]||''}</span>${vp&&vk?html`<span class="pl-v">#${vp.id} <span translate="no">${verdictLabel(vk)}</span></span>`:''}${on?ic('check'):''}</button>`;})}`;}
 // Scrolls list so that its selected row sits in the middle of the list's box (as far as the list can scroll).
 function revealPageRow(list){const r=/** @type {HTMLElement|null} */(list.querySelector('[aria-selected=true]')); if(!r)return;
   list.scrollTop=r.offsetTop-(list.clientHeight-r.offsetHeight)/2;}
@@ -48,11 +50,27 @@ let PAGE_LIST_FROM=/** @type {HTMLElement|null} */(null);   // the page count th
 // page field focused, so typing a number still works at once; touch gets the current row focused, so no keyboard comes up.
 function openPageList(from){const pop=$('#page-pop'),list=$('#page-pop-list'),f=$('#page-pop-in'),n=pageCount();
   hideTip(); PAGE_LIST_FROM=from; from.setAttribute('aria-expanded','true');
-  setHtml(list,pageRowsHtml(n,OUTLINE_ACTIVE_PAGE||1)); f.value=''; f.placeholder='1–'+n;
-  pop.classList.toggle('pl-titled',!!list.querySelector('.pl-s[title]'));   // a figure document's titles get a wider list
-  pop.hidden=false; placePageList(); revealPageRow(list);
+  f.value=''; f.placeholder='1–'+n; pop.hidden=false; drawPopRows(); revealPageRow(list);
   const row=/** @type {HTMLElement|null} */(list.querySelector('[aria-selected=true]'));
   (MQ_COARSE.matches&&row?row:f).focus({preventScroll:true});}
+// Draws the popover's rows - for the page on screen, the names and titles as they are now - and what depends on them: the wider list
+// that titles need (a figure's), its place under the page count, and the full title of each row that cuts its title short. Keeps
+// the focus on the row it was on, so a list redrawn under the finger or the keys (the outline arrived) is the one they were in.
+function drawPopRows(){const pop=$('#page-pop'),list=$('#page-pop-list'); keepRowFocus(list,()=>setHtml(list,pageRowsHtml(pageCount(),OUTLINE_ACTIVE_PAGE||1)));
+  pop.classList.toggle('pl-titled',!pageListNamed()&&[...list.querySelectorAll('.pl-s')].some(s=>s.textContent));
+  placePageList(); tipCutTitles(list);}
+// Runs draw (which replaces the rows of list) and gives the focus back to the row of the same page if it was in the list.
+function keepRowFocus(list,draw){const a=document.activeElement,row=a&&list.contains(a)?a.closest('.pl-row'):null,page=row&&/** @type {HTMLElement} */(row).dataset.page;
+  draw(); const again=page?/** @type {HTMLElement|null} */(list.querySelector('.pl-row[data-page="'+page+'"]')):null; if(again)again.focus({preventScroll:true});}
+// A figure document's row whose title the row cuts short (an ellipsis) carries the whole title as its description: hovering shows it,
+// and so does a long press on touch, which has no native tooltip to rely on (the click after a long press is swallowed - a tap still goes
+// to the page). A title that fits carries none. Needs the rows laid out.
+function tipCutTitles(list){if(pageListNamed())return;
+  for(const s of /** @type {NodeListOf<HTMLElement>} */(list.querySelectorAll('.pl-s'))){const row=/** @type {HTMLElement} */(s.closest('.pl-row'));
+    if(s.scrollWidth>s.clientWidth+0.5)row.dataset.tip=s.textContent||''; else delete row.dataset.tip;}}
+// Draws the page lists that are open again (the outline of the document on screen has been read): the popover and the navigation sheet's.
+function refreshPageLists(){hideTip(); if(!$('#page-pop').hidden)drawPopRows();
+  if($('#nav-sheet').open){keepRowFocus($('#ns-pages'),drawSheetPages); tipCutTitles($('#ns-pages'));}}
 // Puts the open popover under its page count, its right edge on the count's and inside the window by 8px, and lets it grow
 // only down to 8px above the window's bottom (--pl-room; 480px at most); its list scrolls inside that. A count that is no longer shown shuts it.
 function placePageList(){const pop=$('#page-pop'),from=PAGE_LIST_FROM; if(pop.hidden||!from)return;

@@ -8,10 +8,10 @@ function drawDocsMenu(){$('#ns-docs').hidden=!multiDoc();
 // page rows under it (drawSheetPages, scrolled to the current page) and the outline, each a destination - picking one goes there and closes the sheet. The focus is the sheet itself (showSheet) and
 // the outline's current section shows (navSheetReveal) without hiding the current document's row (else the chosen view); the
 // page field gets no focus, so no keyboard covers the sheet.
-function openNavSheet(){const d=$('#nav-sheet'); if(d.open)return; hideTip(); drawDocsMenu(); drawNavView(); renderOutline();
+function openNavSheet(){const d=$('#nav-sheet'); if(d.open)return; hideTip(); drawDocsMenu(); drawNavView(); markOutline();   // its rows are drawn already (renderOutline when the outline was read): only the mark moves
   const n=META&&META.pages?META.pages.length:0,f=$('#ns-page-in');
   f.value=''; f.placeholder=String(OUTLINE_ACTIVE_PAGE||1); $('#ns-page-n').textContent=tl('/ {n}쪽',{n}); drawSheetPages();
-  showSheet(d); d.scrollTop=0; revealPageRow($('#ns-pages')); const on=(multiDoc()&&d.querySelector('.dm-item.on'))||d.querySelector('#ns-view [aria-checked=true]');
+  showSheet(d); d.scrollTop=0; revealPageRow($('#ns-pages')); tipCutTitles($('#ns-pages')); const on=(multiDoc()&&d.querySelector('.dm-item.on'))||d.querySelector('#ns-view [aria-checked=true]');
   navSheetReveal(d,on);}
 // The outline's current section in the open sheet d: left where it is when it is already in view under the sticky head, else
 // the sheet scrolls it towards the middle of that space - but never so far that the current row (keep: the document's or

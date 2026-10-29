@@ -37,6 +37,7 @@ async function vecOpen(){
   if(!VEC.lib||!META)return;
   const gen=++VEC.gen, build=META.pages_build||'', n=META.pages.length, key=vecCacheKey(DOC,build); let doc=VEC.cache.get(key);
   vecCancel(); searchClear();   // another document or build: its search starts empty (search.js)
+  outlineForget();   // and the outline and page names of the document left behind are not the new one's (outline.js)
   if(!doc){
     // The old document (a different document/old build) is never used for the new page DOM - PNG is shown while fetching.
     const prev=VEC.doc; VEC.doc=null; VEC.build=null; if(prev&&!vecCached(prev))vecClose(prev);

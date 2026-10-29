@@ -1,4 +1,4 @@
-#tip{position:fixed;z-index:100;max-width:300px;background:var(--tooltip);color:var(--tooltip-foreground);font-size:var(--text-sm);line-height:1.5;
+#tip{position:fixed;inset:auto;margin:0;border:0;overflow:visible;z-index:100;max-width:300px;background:var(--tooltip);color:var(--tooltip-foreground);font-size:var(--text-sm);line-height:1.5;
   padding:var(--space-1) var(--space-2);border-radius:var(--radius);pointer-events:none;box-shadow:var(--shadow);left:0;top:0}
 dialog{background:var(--popover);color:var(--popover-foreground);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);max-width:680px;
   width:92vw;padding:var(--space-4) var(--space-6);max-height:88vh}

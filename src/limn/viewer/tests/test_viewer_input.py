@@ -4451,6 +4451,7 @@ SWITCH_OFF = """() => {const b = document.getElementById('m-notify'); b.disabled
 # An outline of three headings over the fixture's two pages (its PDFs carry none), drawn into both outline lists.
 OUTLINE3 = """() => {OUTLINE_ENTRIES = [{title: '서론', page: 1, depth: 0, frac: 0, number: '1', pageLabel: '1'},
   {title: '연구 배경', page: 1, depth: 1, frac: 0.5, number: '1.1', pageLabel: '1'}, {title: '방법', page: 2, depth: 0, frac: 0, number: '2', pageLabel: '2'}];
+  OUTLINE_DOC = DOC; OUTLINE_BUILD = (META && META.pages_build) || '';   // read for the document and build on screen
   renderOutline();}"""
 # [본문 3/25 ▾] as drawn: the document name's text, the pages' text and whether the name shows.
 POS = "[document.querySelector('#btn-pos-n').textContent, document.querySelector('#btn-pos-p').textContent, document.querySelector('#btn-pos-n').getClientRects().length>0]"

@@ -16,7 +16,7 @@ from urllib.parse import parse_qs, urlparse
 import helpers_figure
 from helpers import extract_js_fn, ps, run_node
 from helpers_access import ALICE
-from helpers_browser import BrowserBase, settle
+from helpers_browser import BrowserBase, nothing_follows, settle
 from helpers_notices import node_or_skip
 from helpers_outline import chain_tree, grouped_tree, outline_pdf
 
@@ -69,6 +69,67 @@ class OutlineLogic(unittest.TestCase):
                 ["From map", ""],
             ],
         )
+
+    REFERENCE = """function referenceIndexAt(entries,page,frac){
+      const at=e=>e.frac||0,deep=e=>e.depth||0,above=e=>e.page<page||(e.page===page&&at(e)<=frac+1e-6);
+      const x=e=>typeof e.x==='number'?e.x:null,sameX=(a,b)=>x(a)===null||x(b)===null?x(a)===x(b):Math.abs(x(a)-x(b))<=1e-3;
+      const same=(a,b)=>Math.abs(at(a)-at(b))<=1e-6&&sameX(a,b);
+      let top=0; for(const e of entries)if(above(e)&&e.page>top)top=e.page;
+      if(!top){let first=-1; entries.forEach((e,i)=>{if(first<0||e.page<entries[first].page)first=i;}); return first;}
+      const on=[]; entries.forEach((e,i)=>{if(e.page===top&&above(e))on.push(i);});
+      const outranked=i=>on.some(j=>{const a=entries[i],b=entries[j];
+        return j!==i&&same(a,b)&&(deep(b)>deep(a)||(deep(b)===deep(a)&&j<i));});
+      let sel=-1; for(const i of on)if(!outranked(i))sel=i;
+      return sel;}"""
+
+    def test_the_lookup_gives_the_answer_of_the_pairwise_rule(self):
+        """outlineIndexAt against the rule it replaced (every entry on the page compared with every other, as 0.4.30 wrote it):
+        the same entry for 4000 random outlines whose spots collide exactly, within 1e-6 of one another, and not at all, with
+        left edges that are absent, equal, within 1e-3 and apart, over pages out of order and at every depth."""
+        got = self.run_js(
+            ["outlineIndexAt"],
+            "(()=>{"
+            + self.REFERENCE
+            + """
+            let seed = 12345; const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+            const pick = a => a[Math.floor(rnd() * a.length)];
+            const FR = [0, 0.1, 0.1 + 5e-7, 0.1 + 2e-6, 0.3, 0.3 + 9e-7, 0.5, 0.9], XS = [null, null, 10, 10.0005, 10.002, 300];
+            let bad = [], n = 0;
+            for (let c = 0; c < 4000; c++) {
+              const entries = Array.from({length: 1 + Math.floor(rnd() * 40)}, () => ({page: 1 + Math.floor(rnd() * 4), depth: Math.floor(rnd() * 4),
+                frac: pick(FR), x: pick(XS)}));
+              for (let q = 0; q < 6; q++) {const page = 1 + Math.floor(rnd() * 5), frac = pick([0, 0.05, 0.1, 0.1 + 1e-6, 0.4, 0.95]);
+                n++; const a = outlineIndexAt(entries, page, frac), b = referenceIndexAt(entries, page, frac);
+                if (a !== b && bad.length < 3) bad.push({entries, page, frac, a, b});}}
+            return {n, bad};})()""",
+        )
+        self.assertEqual(got["bad"], [])
+        self.assertEqual(got["n"], 24000)
+
+    def test_the_lookup_stays_fast_where_many_entries_share_a_page(self):
+        """The cost of one lookup at 2,000 entries: all distinct spots on one page (the pairwise rule took ~26 ms), all at one
+        spot, forty to a spot, and fifty pages of forty. Each under 5 ms (measured under 1) and equal to the old answer."""
+        got = self.run_js(
+            ["outlineIndexAt"],
+            "(()=>{"
+            + self.REFERENCE
+            + """
+            const mk = f => Array.from({length: 2000}, (_, i) => f(i));
+            const cases = {
+              distinct: [mk(i => ({page: 1, depth: i % 4, frac: i / 2001, x: null})), 1, 0.99],
+              one_spot: [mk(i => ({page: 1, depth: i % 5, frac: 0.3, x: null})), 1, 0.9],
+              forty_a_spot: [mk(i => ({page: 1, depth: i % 4, frac: Math.floor(i / 40) / 50, x: i % 3 ? null : 12})), 1, 0.99],
+              fifty_pages: [mk(i => ({page: 1 + Math.floor(i / 40), depth: i % 3, frac: (i % 40) / 41, x: null})), 30, 0.7],
+            };
+            const out = {};
+            for (const [k, [E, page, frac]] of Object.entries(cases)) {
+              const t0 = performance.now(); let a; for (let r = 0; r < 20; r++) a = outlineIndexAt(E, page, frac);
+              out[k] = {ms: (performance.now() - t0) / 20, same: a === referenceIndexAt(E, page, frac)};}
+            return out;})()""",
+        )
+        for name, row in got.items():
+            self.assertTrue(row["same"], name)
+            self.assertLess(row["ms"], 5, (name, got))
 
 
 class MetaTitled:
@@ -188,11 +249,11 @@ class LongOutline(BrowserBase):
         page.fill("#outline-search", "S3.4")
         got = page.evaluate(LISTS)["#outline-items"]
         self.assertGreaterEqual(got["rows"], 1)
-        self.assertEqual(got["note"], "생략한 목차 항목 40개는 찾지 못했습니다 — 읽는 한도는 2,000개, 5단계입니다")
+        self.assertEqual(got["note"], "생략한 목차 항목 40개는 검색하지 않았습니다 — 읽는 한도는 2,000개, 5단계입니다")
         page.fill("#outline-search", "no such section")
         self.assertEqual(
             page.evaluate("document.querySelector('#outline-items').textContent"),
-            "찾은 장·절이 없습니다.생략한 목차 항목 40개는 찾지 못했습니다 — 읽는 한도는 2,000개, 5단계입니다",
+            "찾은 장·절이 없습니다.생략한 목차 항목 40개는 검색하지 않았습니다 — 읽는 한도는 2,000개, 5단계입니다",
         )
         self.assertEqual(page.evaluate("document.querySelector('#outline-items').className"), "outline-empty")
         page.fill("#outline-search", "")
@@ -212,6 +273,81 @@ class LongOutline(BrowserBase):
         phone.wait_for_function("document.querySelector('#nav-sheet').open")
         phone.fill("#ns-outline-search", "S3.4")
         self.assertTrue(phone.evaluate(LISTS)["#ns-outline-items"]["note"].startswith("생략한 목차 항목 40개는"))
+
+    def test_one_broken_destination_leaves_out_that_entry_only(self):
+        """A destination PDF.js cannot resolve (a named destination that rejects, a page reference that throws) left out the
+        whole outline when the siblings were resolved together: a root with 1,999 good descendants and a broken sibling was
+        read as nothing. Now the good ones are drawn and only the broken ones are not."""
+        page = self.on("fig")
+        got = page.evaluate(
+            """async () => {
+              const kids = Array.from({length: 1998}, (_, i) => ({title: 'k' + i, dest: [i % 2], items: []}));
+              const rows = [{title: 'root', dest: [0], items: kids}, {title: 'broken name', dest: 'nowhere', items: []},
+                {title: 'broken ref', dest: [{num: 9, gen: 0}], items: []}, {title: 'after', dest: [1], items: []}];
+              const doc = {numPages: 2, getOutline: async () => rows,
+                getDestination: async () => {throw new Error('no such destination');},
+                getPageIndex: async () => {throw new Error('no such page');}};
+              VEC.doc = doc; await loadOutline(doc, ++VEC.gen);
+              return [OUTLINE_ENTRIES.length, OUTLINE_CUT, OUTLINE_ENTRIES[0].title, OUTLINE_ENTRIES.at(-1).title];}"""
+        )
+        self.assertEqual(got, [CAP, 0, "root", "after"])
+
+    def test_a_newer_open_stops_the_reading_between_batches(self):
+        """The document left behind does not go on asking the PDF worker: a switch on the first destination had all 2,000
+        destinations asked for. Now only the batch in flight (100) is."""
+        page = self.on("fig")
+        got = page.evaluate(
+            """async () => {
+              let asked = 0;
+              const rows = Array.from({length: 2000}, (_, i) => ({title: 't' + i, dest: [{num: i, gen: 0}], items: []}));
+              const doc = {numPages: 2, getOutline: async () => rows, getDestination: async () => null,
+                getPageIndex: async () => {if (++asked === 1) VEC.gen++; return 0;}};
+              const before = [OUTLINE_ENTRIES, OUTLINE_CUT];
+              VEC.doc = doc; await loadOutline(doc, ++VEC.gen);
+              return {asked, kept: OUTLINE_ENTRIES === before[0] && OUTLINE_CUT === before[1]};}"""
+        )
+        self.assertEqual(got, {"asked": 100, "kept": True})
+
+    def test_an_outline_cut_to_nothing_still_says_so(self):
+        """Entries deeper than the limit under ancestors that name no place leave no entry at all, but they are counted: both
+        lists say so, the sheet keeps its outline section, and the 'no outline' sentence is not what they claim."""
+        page = self.on("fig", **PHONE)
+        got = page.evaluate(
+            """async () => {
+              let n = {title: 'deep', dest: [0], items: []};
+              for (let d = 0; d < 6; d++) n = {title: 'group' + d, dest: null, items: [n]};
+              const doc = {numPages: 2, getOutline: async () => [n], getDestination: async () => null, getPageIndex: async () => 0};
+              VEC.doc = doc; await loadOutline(doc, ++VEC.gen);
+              return [OUTLINE_ENTRIES.length, OUTLINE_CUT, document.querySelector('#ns-outline').hidden];}"""
+        )
+        self.assertEqual(got, [0, 1, False])
+        for box in ("#outline-items", "#ns-outline-items"):
+            self.assertEqual(
+                page.evaluate("s => document.querySelector(s).textContent", box),
+                "목차 항목 1개를 생략했습니다 — 읽는 한도는 2,000개, 5단계입니다",
+            )
+        page.click("#btn-pos")
+        page.wait_for_function("document.querySelector('#nav-sheet').open")
+        self.assertTrue(page.is_visible("#ns-outline"))
+
+    def test_picking_an_entry_and_opening_the_sheet_move_the_mark_without_drawing_the_lists_again(self):
+        """Choosing an outline entry and opening the phone's sheet drew both lists again (50-70 ms at the cap, 200-300 ms on a
+        phone). The rows stay the elements they were; only the mark moves, to the entry chosen."""
+        page = self.on("fig", **PHONE)
+        self.load(page, grouped_tree(CAP, 2))
+        page.evaluate(
+            "document.querySelectorAll('#outline-items button, #ns-outline-items button').forEach((b, i) => {b.dataset.kept = i;})"
+        )
+        page.evaluate("pickOutline(1500)")
+        marks = """() => ['#outline-items', '#ns-outline-items'].map(s => [...document.querySelectorAll(s + ' .ol-active')].map(b => +b.dataset.index))"""
+        self.assertEqual(page.evaluate(marks), [[1500], [1500]])
+        page.click("#btn-pos")
+        page.wait_for_function("document.querySelector('#nav-sheet').open")
+        self.assertEqual(page.evaluate(marks), [[1500], [1500]])
+        kept = page.evaluate(
+            "[...document.querySelectorAll('#outline-items button, #ns-outline-items button')].every((b, i) => b.dataset.kept === String(i))"
+        )
+        self.assertTrue(kept, "the rows were drawn again")
 
     def test_a_real_pdf_outline_is_read_through_pdfjs_with_its_cap(self):
         """The bytes of a PDF with CAP + 300 bookmarks, opened as a view-only document: the viewer draws CAP rows and
@@ -322,6 +458,7 @@ class FigurePageList(BrowserBase):
         self.ms, self.fig, self.rv = helpers_figure.viewer_docs(ps.APP, ps.APP.C.src)
         self.addCleanup(ps.APP.set_docs, None)
         self.TITLES = {}
+        self.hold_pdf, self.held = False, []
 
     def route(self, route):
         """The meta of a document named in self.TITLES gets those titles in its pages."""
@@ -330,6 +467,9 @@ class FigurePageList(BrowserBase):
             key = (parse_qs(u.query).get("doc") or ["ms"])[0]
             if self.TITLES.get(key):
                 return self.forward(MetaTitled(route, self.TITLES[key]))
+        if u.path == "/pdf" and self.hold_pdf:  # a PDF still on its way: the outline of the document is not read yet
+            self.held.append(route)
+            return None
         return super().route(route)
 
     def on(self, doc, **device):
@@ -342,24 +482,27 @@ class FigurePageList(BrowserBase):
         return page
 
     ROWS = """sel => [...document.querySelectorAll(sel + ' .pl-row')].map(r => {const s = r.querySelector('.pl-s');
-      return {n: r.querySelector('.pl-n').textContent, s: s.textContent, tip: s.getAttribute('title'), h: r.getBoundingClientRect().height,
+      return {n: r.querySelector('.pl-n').textContent, s: s.textContent, tip: r.dataset.tip || null, h: r.getBoundingClientRect().height,
         cut: s.scrollWidth > s.clientWidth, overflow: getComputedStyle(s).textOverflow, on: r.getAttribute('aria-selected')};})"""
 
-    def open_list(self, page, device):
-        """Open the page list the way the device does and return the selector of its rows' box."""
+    def open_list(self, page, device, quiet=True):
+        """Open the page list the way the device does and return the selector of its rows' box. quiet: wait for the page to
+        settle (not while a request is held)."""
         if device is PHONE:
             page.click("#btn-pos")
             page.wait_for_function("document.querySelector('#nav-sheet').open")
+            box = "#ns-pages"
+        else:
+            page.click("#section-page" if device is DESKTOP else "#nav-page")
+            page.wait_for_function("!document.querySelector('#page-pop').hidden")
+            box = "#page-pop"
+        if quiet:
             settle(page)
-            return "#ns-pages"
-        page.click("#section-page" if device is DESKTOP else "#nav-page")
-        page.wait_for_function("!document.querySelector('#page-pop').hidden")
-        settle(page)
-        return "#page-pop"
+        return box
 
     def test_each_page_shows_its_title_on_every_band(self):
         """With titles in meta the rows read '1쪽' + title on a desktop (the popover), a foldable and a phone (the sheet);
-        touch rows keep their 44px; a row's title is also its tooltip."""
+        touch rows keep their 44px; a title that fits carries no tooltip."""
         self.TITLES = {"fig": {1: "[후보] PL26 · 핵심 그림", 2: "검토 흐름"}}
         for name, device in (("desktop", DESKTOP), ("fold", FOLD), ("phone", PHONE)):
             with self.subTest(band=name):
@@ -368,7 +511,7 @@ class FigurePageList(BrowserBase):
                 rows = page.evaluate(self.ROWS, box)
                 self.assertEqual(
                     [(r["n"], r["s"], r["tip"]) for r in rows],
-                    [("1쪽", "[후보] PL26 · 핵심 그림", "[후보] PL26 · 핵심 그림"), ("2쪽", "검토 흐름", "검토 흐름")],
+                    [("1쪽", "[후보] PL26 · 핵심 그림", None), ("2쪽", "검토 흐름", None)],
                 )
                 if device is not DESKTOP:
                     self.assertEqual({r["h"] for r in rows}, {44})
@@ -379,7 +522,8 @@ class FigurePageList(BrowserBase):
 
     def test_a_long_title_ends_in_an_ellipsis(self):
         """A title that does not fit its row is cut with an ellipsis on one line, and the row stays one line high; its full
-        text is the tooltip and the row's text."""
+        text is the row's text and - for a hover, and for a long press on touch - its description (data-tip), which a title
+        that fits does not carry."""
         long = "[후보] PL99 · " + "아주 긴 그림 제목 " * 12
         self.TITLES = {"fig": {1: long, 2: "짧은 제목"}}
         for name, device in (("desktop", DESKTOP), ("phone", PHONE)):
@@ -398,7 +542,8 @@ class FigurePageList(BrowserBase):
         page = self.on("fig")
         page.evaluate(
             """() => {OUTLINE_ENTRIES = [{title: '묶음', page: 1, depth: 0, frac: 0, number: ''},
-              {title: 'PL1 · 첫 그림', page: 1, depth: 1, frac: 0, number: ''}]; renderOutline();}"""
+              {title: 'PL1 · 첫 그림', page: 1, depth: 1, frac: 0, number: ''}];
+              OUTLINE_DOC = DOC; OUTLINE_BUILD = META.pages_build; renderOutline();}"""
         )
         rows = page.evaluate(self.ROWS, self.open_list(page, DESKTOP))
         self.assertEqual([(r["n"], r["s"]) for r in rows], [("1쪽", "PL1 · 첫 그림"), ("2쪽", "")])
@@ -435,6 +580,64 @@ class FigurePageList(BrowserBase):
         rows = pdf.evaluate(self.ROWS, self.open_list(pdf, DESKTOP))
         self.assertEqual([r["s"] for r in rows], [""] * len(rows))
         self.assertFalse(pdf.evaluate("document.querySelector('#page-pop').classList.contains('pl-titled')"))
+
+    def test_a_list_opened_while_the_outline_is_read_names_nothing_from_the_old_document(self):
+        """On a switch the document, meta and page list move at once and the outline arrives later. A list opened in between
+        named a figure's pages by the manuscript's outline (and stayed so); now it shows numbers until the outline of the
+        figure is read, is drawn again then - still open, its focus on the row it was on - and the sheet's outline section
+        does not show the old document's rows meanwhile."""
+        fig_pdf = outline_pdf(2, [("그림 하나", 0, []), ("그림 둘", 1, [])])
+        for name, device in (("desktop", DESKTOP), ("phone", PHONE)):
+            with self.subTest(band=name):
+                self.hold_pdf, self.held = False, []
+                page = self.on("ms", **device)
+                page.evaluate(
+                    """() => {OUTLINE_ENTRIES = [{title: '옛 서론', page: 1, depth: 0, frac: 0, number: '1'},
+                      {title: '옛 방법', page: 2, depth: 0, frac: 0, number: '2'}];
+                      OUTLINE_DOC = DOC; OUTLINE_BUILD = META.pages_build; renderOutline();}"""
+                )
+                self.hold_pdf = True
+                page.evaluate("k => {switchDoc(k);}", "fig")
+                page.wait_for_function("OUTLINE_DOC === 'fig' && DOC === 'fig' && META.doc === 'fig'")
+                self.assertEqual(page.evaluate("OUTLINE_ENTRIES.length"), 0)
+                box = self.open_list(page, device, quiet=False)
+                self.assertEqual([r["s"] for r in page.evaluate(self.ROWS, box)], ["", ""])
+                if device is PHONE:
+                    self.assertFalse(page.is_visible("#ns-outline"))
+                page.focus("%s .pl-row[data-page='2']" % box)
+                self.held[0].fulfill(status=200, headers={"content-type": "application/pdf"}, body=fig_pdf)
+                page.wait_for_function("OUTLINE_ENTRIES.length === 2", timeout=15000)
+                self.hold_pdf = False
+                settle(page)
+                self.assertEqual([r["s"] for r in page.evaluate(self.ROWS, box)], ["그림 하나", "그림 둘"])
+                self.assertEqual(page.evaluate("document.activeElement.dataset.page"), "2")
+                self.assertTrue(page.is_visible(box))
+
+    def test_a_long_press_on_a_cut_title_shows_the_whole_title_and_a_tap_still_goes_to_the_page(self):
+        """Touch has no native tooltip: a row whose title is cut carries it as its description, and holding a finger on the row
+        shows it - over the sheet too, which is in the top layer - without going to the page; a tap goes to the page."""
+        long = "[후보] PL99 · " + "아주 긴 그림 제목 " * 12
+        self.TITLES = {"fig": {1: long, 2: "짧은 제목"}}
+        for name, device in (("fold", FOLD), ("phone", PHONE)):
+            with self.subTest(band=name):
+                page = self.on("fig", **device)
+                box = self.open_list(page, device)
+                row = "%s .pl-row[data-page='%d']" % (box, 1)
+                cdp = page.context.new_cdp_session(page)
+                b = page.locator(row).bounding_box()
+                point = {"x": b["x"] + b["width"] / 2, "y": b["y"] + b["height"] / 2, "id": 0}
+                cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [point]})
+                page.wait_for_function("!document.querySelector('#tip').hidden", timeout=8000)
+                shown = page.evaluate(
+                    "() => {const t = document.querySelector('#tip'); return [t.textContent, t.matches(':popover-open')];}"
+                )
+                self.assertEqual(shown, [long.strip(), True])
+                cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+                nothing_follows(page)
+                self.assertTrue(page.is_visible(box), "the long press went to the page")
+                self.assertIsNone(page.get_attribute("%s .pl-row[data-page='2']" % box, "data-tip"))
+                page.tap("%s .pl-row[data-page='2']" % box)
+                page.wait_for_function("OUTLINE_ACTIVE_PAGE === 2 || topAnchor().page === 2", timeout=8000)
 
     def test_choosing_a_titled_row_still_goes_to_its_page(self):
         """A row with a title is the row it was: choosing it goes to the page at once and closes the list."""

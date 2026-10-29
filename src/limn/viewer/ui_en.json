@@ -983,7 +983,7 @@
  "고칠 곳이 이 범위에 들어 있는지 확인하세요.": "Check that the spot to fix is inside this range.",
  "찾은 장·절이 없습니다.": "No chapters or sections found.",
  "목차 항목 {n}개를 생략했습니다 — 읽는 한도는 {max}개, {depth}단계입니다": "{n} outline entries are not shown — the viewer reads at most {max} entries and {depth} levels",
- "생략한 목차 항목 {n}개는 찾지 못했습니다 — 읽는 한도는 {max}개, {depth}단계입니다": "The {n} outline entries that are not shown could not be searched — the viewer reads at most {max} entries and {depth} levels",
+ "생략한 목차 항목 {n}개는 검색하지 않았습니다 — 읽는 한도는 {max}개, {depth}단계입니다": "The {n} outline entries that are not shown were not searched — the viewer reads at most {max} entries and {depth} levels",
  "처리 중": "In progress",
  "처리 중 ·": "In progress ·",
  "처리 중 · 20:02부터 (23분째)": "In progress · since 20:02 (23 min so far)",
