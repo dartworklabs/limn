@@ -31,7 +31,7 @@ END_CHIPS = "()=>NOTICES.forEach(n=>{if(n.place==='chip')endNotice(n,false);})"
 # buttons' words, the [판정 취소] it offers
 # (the pin it takes back, or null), and whether its line is there at all.
 LINE = """n => {const l = document.querySelector('#doc .pv[data-page="' + n + '"]'); if (!l) return null;
-  const t = [...l.querySelector('.pv-t').childNodes].filter(n => !(n.classList && (n.classList.contains('pv-cn') || n.classList.contains('pv-ra')))).map(n => n.textContent).join(' ');
+  const t = [...l.querySelector('.pv-t').childNodes].filter(n => !(n.classList && (n.classList.contains('pv-cn') || n.classList.contains('pv-un') || n.classList.contains('pv-ra')))).map(n => n.textContent).join(' ');
   const c = l.querySelector('button.pv-cancel');
   return {text: t.replace(/·/g, ' · ').replace(/\\s+/g, ' ').trim(), pin: l.dataset.pin || null, cancel: c ? Number(c.dataset.ref) : null,
     words: [...l.querySelectorAll('button.vd-b')].map(b => b.textContent), tips: [...l.querySelectorAll('button.vd-b')].map(b => b.dataset.tip)};}"""
@@ -620,18 +620,21 @@ class ReviewFixes(VerdictBase):
         self.assertEqual(page.evaluate(off), [False, False, False])
 
     def test_a_keyboard_save_on_the_line_gives_the_focus_back(self):
-        """Enter on a page line's word saves it; the button was redrawn while the request ran, and the focus goes on to the
-        line's reason field - Esc there gives it to the PDF area, not to a word - unless the person moved it meanwhile."""
+        """Enter on a page line's word saves it, opening no popover; the focus goes to the line's way to the reason ('Enter 이유
+        쓰기' - Enter on the now pressed word would take it back), and Enter there opens it - unless the person moved the
+        focus meanwhile."""
         page = self.on("fig")
         btn = '#doc .pv[data-page="1"] button[data-key="채택"]'
         page.focus(btn)
         page.keyboard.press("Enter")
         page.wait_for_function("OPEN_ALL.length===1")
         settle(page)
-        self.assertTrue(page.evaluate("()=>document.activeElement.classList.contains('pv-reason')"))
+        self.assertIsNone(page.evaluate(REASON, 1))
+        self.assertEqual(page.evaluate(FOCUS_AT), [1, "pv-reason-open"])
+        page.keyboard.press("Enter")
+        page.wait_for_selector('#doc .pv[data-page="1"] .pv-pop .pv-reason')
         page.keyboard.press("Escape")
         settle(page)
-        self.assertEqual(page.evaluate("document.activeElement.id"), "left")
         page.focus('#doc .pv[data-page="1"] button[data-key="보류"]')  # 채택 is pressed now: Enter there takes it back
         self.held = []
         page.keyboard.press("Enter")
@@ -2965,6 +2968,12 @@ REASON = """n=>{const f=document.querySelector('#doc .pv[data-page="'+n+'"] .pv-
   return f?{focused: document.activeElement===f, value: f.value, placeholder: f.placeholder}:null;}"""
 
 
+# The words of page n's [이유 추가] / 'Enter 이유 쓰기' button, spaces folded.
+ADD_TEXT = """n=>{const b=document.querySelector('#doc .pv[data-page="'+n+'"] button.pv-add'); return b?b.textContent.replace(/\\s+/g,' ').trim():null;}"""
+# Where the focus is: the page of the line that holds it (0 for none) and its control's data-act.
+FOCUS_AT = """()=>{const a=document.activeElement,l=a&&a.closest&&a.closest('#doc .pv'); return [l?Number(l.dataset.page):0, a&&a.dataset?a.dataset.act||null:null];}"""
+
+
 def open_reason(page, n, tap=False):
     """Press (or tap, on a touch screen) the reason of page n's line - [이유 추가], its saved reason or its kept draft - and
     wait for the popover; returns its field, which has the focus."""
@@ -3011,9 +3020,9 @@ class Reason(VerdictBase):
             page.evaluate("id=>document.querySelector('#list .pin.card[data-id=\"'+id+'\"] .note').textContent", pid),
         )
 
-    def test_after_a_key_the_field_has_the_focus_and_digits_typed_are_text(self):
-        """2 on the reading page: the field has the focus; '범례 3번 패널' typed there is text - once the field holds text a
-        digit is no verdict key - and Enter saves it as the new pin's note."""
+    def test_after_a_key_enter_opens_the_field_and_digits_typed_are_text(self):
+        """2 on the reading page saves 보류 and opens nothing - the line offers 'Enter 이유 쓰기'. Enter opens the popover with
+        the focus; '3번 패널 범례' typed there is text, its leading digit too, and Enter saves it as the new pin's note."""
         page = self.on("fig")
         page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
         page.evaluate(SCROLL, [2, "top"])
@@ -3021,39 +3030,47 @@ class Reason(VerdictBase):
         page.keyboard.press("2")
         page.wait_for_function("OPEN_ALL.length>=1")
         settle(page)
+        self.assertIsNone(page.evaluate(REASON, 2))
+        self.assertEqual(page.evaluate(ADD_TEXT, 2), "Enter 이유 쓰기")
+        page.keyboard.press("Enter")
+        page.wait_for_selector('#doc .pv[data-page="2"] .pv-pop .pv-reason')
         self.assertTrue(page.evaluate(REASON, 2)["focused"])
-        page.keyboard.type("범례 3번 패널")
+        page.keyboard.type("3번 패널 범례")
         page.keyboard.press("Enter")
         page.wait_for_function("OPEN_ALL.some(p=>p.note)")
         settle(page)
         (pin,) = self.pins().values()
-        self.assertEqual((pin["verdict"], pin["note"]), ("보류", "범례 3번 패널"))
+        self.assertEqual((pin["verdict"], pin["note"]), ("보류", "3번 패널 범례"))
 
     def test_esc_skips_the_reason(self):
-        """1 then Esc: the field goes, the focus is on the PDF area (a Space there saves nothing), the pin has no note."""
+        """1, Enter, then Esc: the popover goes and the focus stays on its own page - on the line's 'Enter 이유 쓰기', not the
+        PDF area (from which Tab went to the first page's line) - and the pin has no note."""
         page = self.on("fig")
         page.keyboard.press("1")
         page.wait_for_function("OPEN_ALL.length>=1")
         settle(page)
+        page.keyboard.press("Enter")
+        page.wait_for_selector('#doc .pv[data-page="1"] .pv-pop .pv-reason')
         self.assertTrue(page.evaluate(REASON, 1)["focused"])
         page.keyboard.press("Escape")
         settle(page)
         self.assertIsNone(page.evaluate(REASON, 1))
-        self.assertEqual(page.evaluate("document.activeElement.id"), "left")
-        page.keyboard.press(" ")
-        settle(page)
+        self.assertEqual(page.evaluate(FOCUS_AT), [1, "pv-reason-open"])
         (pin,) = self.pins().values()
         self.assertEqual(pin["note"], "")
 
-    def test_a_confirm_word_offers_the_field_after_its_second_press(self):
-        """3 arms 삭제 - no field yet; 3 again saves, and the field has the focus."""
+    def test_a_confirm_word_saves_on_its_second_press_and_enter_opens_the_field(self):
+        """3 arms 삭제 - nothing saved; 3 again saves, opening nothing; Enter opens the field with the focus."""
         page = self.on("fig")
         page.keyboard.press("3")
         settle(page)
-        self.assertIsNone(page.evaluate(REASON, 1))
+        self.assertEqual(len(self.pins()), 0)
         page.keyboard.press("3")
         page.wait_for_function("OPEN_ALL.length>=1")
         settle(page)
+        self.assertIsNone(page.evaluate(REASON, 1))
+        page.keyboard.press("Enter")
+        page.wait_for_selector('#doc .pv[data-page="1"] .pv-pop .pv-reason')
         self.assertTrue(page.evaluate(REASON, 1)["focused"])
 
     def test_the_undo_takes_the_field_with_the_pin(self):
@@ -3129,6 +3146,8 @@ class Reason(VerdictBase):
         page.keyboard.press("2")
         page.wait_for_function("OPEN_ALL.length>=1")
         settle(page)
+        page.keyboard.press("Enter")
+        page.wait_for_selector('#doc .pv[data-page="2"] .pv-pop .pv-reason')
         page.keyboard.type("범례")
         settle(page)
         self.assertEqual(page.evaluate("document.querySelectorAll('#doc .pv button[data-kn]').length"), 0)
@@ -3871,45 +3890,47 @@ KEY_MARKS = "n=>document.querySelectorAll('#doc .pv[data-page=\"'+n+'\"] button[
 
 
 class ReasonKeys(VerdictBase):
-    """The reason field and the keys 1-5 (0.4.34 P1-1): while the field is empty the keys are verdict keys - the line's
-    buttons carry them and a key changes the verdict, the field staying open for the new one; once it holds text the digits
-    are text and the field says how to change the verdict (Esc first). A digit an input method is still composing is text."""
+    """The keys and the reason (the 0.4.34 RC's rule): no save opens the popover. Before it opens, 1-5 are the line's verdict
+    keys (1 then 2 saves 보류); the line offers 'Enter 이유 쓰기' and Enter opens it with the focus; once open, every digit
+    typed is text ('12월 값이 튐'), also one an input method composes."""
 
-    def test_an_empty_field_takes_the_keys_and_one_with_text_types_them(self):
-        """1 saves 채택 and the empty field has the focus, the line's words still carrying 1-3. 2 there saves 보류 - the
-        채택 pin keeps no note - and the field, open for 보류, keeps the focus. Once it holds text a digit is text ('범례 3번 패널'):
-        the marks go and the field says 'Esc 뒤 숫자로 판정 바꾸기'; Enter saves it as 보류's note."""
+    def test_digits_before_enter_change_the_verdict_and_after_it_are_text(self):
+        """1 saves 채택 and opens nothing; 2 saves 보류 (the 채택 pin keeps no note); Enter opens 보류's popover with the focus,
+        the line's words carrying no key marks; '12월 값이 튐' is typed whole - no verdict is made - and Enter saves it."""
         page = self.on("fig")
         page.keyboard.press("1")
         page.wait_for_function("OPEN_ALL.length>=1")
         settle(page)
-        self.assertTrue(page.evaluate(REASON, 1)["focused"])
-        self.assertEqual(page.evaluate(KEY_MARKS, 1), 3)
+        self.assertIsNone(page.evaluate(REASON, 1))
+        self.assertEqual(page.evaluate(ADD_TEXT, 1), "Enter 이유 쓰기")
         page.keyboard.press("2")
+        page.wait_for_function("OPEN_ALL.length>=2")
         settle(page)
         pins = sorted(self.pins().values(), key=lambda p: p["id"])
         self.assertEqual([(p["verdict"], p["note"]) for p in pins], [("채택", ""), ("보류", "")])
-        got = page.evaluate(REASON, 1)
-        self.assertEqual((got["focused"], got["value"]), (True, ""))
-        page.keyboard.type("범례")
-        settle(page)
+        page.keyboard.press("Enter")
+        page.wait_for_selector('#doc .pv[data-page="1"] .pv-pop .pv-reason')
+        self.assertTrue(page.evaluate(REASON, 1)["focused"])
         self.assertEqual(page.evaluate(KEY_MARKS, 1), 0)
-        page.keyboard.type(" 3번 패널")
+        page.keyboard.type("12월 값이 튐")
         settle(page)
         self.assertEqual(len(self.pins()), 2)
-        self.assertIn("Esc 뒤 숫자로 판정 바꾸기", page.evaluate(POP, 1)["hint"])
+        self.assertEqual(page.evaluate(REASON, 1)["value"], "12월 값이 튐")
+        self.assertNotIn("숫자", page.evaluate(POP, 1)["hint"])
         page.keyboard.press("Enter")
         page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id&&p.note)", arg=pins[1]["id"])
         settle(page)
-        self.assertEqual({p["verdict"]: p["note"] for p in self.pins().values()}, {"채택": "", "보류": "범례 3번 패널"})
+        self.assertEqual({p["verdict"]: p["note"] for p in self.pins().values()}, {"채택": "", "보류": "12월 값이 튐"})
 
     def test_esc_then_a_digit_changes_the_verdict_and_the_draft_follows(self):
-        """1 and '옮길 이유' typed; Esc lets the focus go (the draft stays) and 2 then saves 보류: the 채택 pin gets nothing
-        and the popover, now for 보류, holds the draft and says where it came from."""
+        """1, Enter and '옮길 이유' typed; Esc lets the focus go (the draft stays) and 2 then saves 보류: the 채택 pin gets
+        nothing and the popover, now for 보류, holds the draft and says where it came from."""
         page = self.on("fig")
         page.keyboard.press("1")
         page.wait_for_function("OPEN_ALL.length>=1")
         settle(page)
+        page.keyboard.press("Enter")
+        page.wait_for_selector('#doc .pv[data-page="1"] .pv-pop .pv-reason')
         page.keyboard.type("옮길 이유")
         page.keyboard.press("Escape")
         settle(page)
@@ -3925,18 +3946,22 @@ class ReasonKeys(VerdictBase):
         self.assertEqual(page.evaluate(DRAFTS), {"fig:%d" % two: "옮길 이유"})
         self.assertEqual(self.pins()[one]["note"], "")
 
-    def test_a_digit_while_composing_is_text(self):
-        """A keydown of 2 that an input method is composing (isComposing) in the empty field changes no verdict."""
+    def test_a_digit_in_an_empty_field_is_text_and_one_composed_too(self):
+        """1 and Enter: in the empty field 2 is text (no verdict is made), and a keydown of 3 an input method is composing
+        changes nothing either."""
         page = self.on("fig")
         page.keyboard.press("1")
         page.wait_for_function("OPEN_ALL.length>=1")
         settle(page)
+        page.keyboard.press("Enter")
+        page.wait_for_selector('#doc .pv[data-page="1"] .pv-pop .pv-reason')
+        page.keyboard.press("2")
         page.evaluate(
-            """()=>document.querySelector('#doc .pv-reason').dispatchEvent(new KeyboardEvent('keydown',{key:'2',bubbles:true,cancelable:true,isComposing:true}))"""
+            """()=>document.querySelector('#doc .pv-reason').dispatchEvent(new KeyboardEvent('keydown',{key:'3',bubbles:true,cancelable:true,isComposing:true}))"""
         )
         settle(page)
         self.assertEqual([p["verdict"] for p in self.pins().values()], ["채택"])
-        self.assertTrue(page.evaluate(REASON, 1)["focused"])
+        self.assertEqual(page.evaluate(REASON, 1), {"focused": True, "value": "2", "placeholder": "이유 (선택)"})
 
 
 class ReasonDrafts(VerdictBase):
@@ -3963,11 +3988,13 @@ class ReasonDrafts(VerdictBase):
         return super().route(route)
 
     def keyed(self, page, text):
-        """1 on page 1 (채택) and text typed into the reason field that has the focus; the pin's id."""
+        """1 on page 1 (채택), Enter to open its reason popover, and text typed into its field; the pin's id."""
         page.keyboard.press("1")
         page.wait_for_function("OPEN_ALL.length>=1")
         settle(page)
         (pid,) = self.pins()
+        page.keyboard.press("Enter")
+        page.wait_for_selector('#doc .pv[data-page="1"] .pv-pop .pv-reason')
         page.keyboard.type(text)
         settle(page)
         return pid
@@ -4186,17 +4213,16 @@ class OnOff(VerdictBase):
         self.assertEqual(self.pins(), {})
 
     def test_a_key_on_the_current_word_takes_it_back(self):
-        """1 saves 채택 and its empty reason field has the focus; 1 again there takes the verdict back and the focus goes to
-        the PDF area."""
+        """1 saves 채택 (no popover opens); 1 again takes the verdict back."""
         page = self.on("fig")
         page.keyboard.press("1")
         page.wait_for_function("OPEN_ALL.length===1")
         settle(page)
+        self.assertIsNone(page.evaluate(REASON, 1))
         page.keyboard.press("1")
         page.wait_for_function("OPEN_ALL.length===0")
         settle(page)
         self.assertEqual(self.pins(), {})
-        self.assertEqual(page.evaluate("document.activeElement.id"), "left")
 
     def test_a_double_press_on_the_pressed_word_takes_back_one(self):
         """Two 채택 verdicts of Alice's on page 1 (saved before 0.4.34): a double click on the pressed 채택 takes back the
@@ -4607,5 +4633,417 @@ class ReviewRound(VerdictBase):
               return {pencil: !!b.querySelector('.ic-pencil'), name: b.getAttribute('aria-label'), tip: b.dataset.tip};}"""
         )
         self.assertEqual(
-            got, {"pencil": True, "name": "저장된 이유 수정 — 판정 #1 · 연필 이유", "tip": "저장된 이유 수정"}
+            got, {"pencil": True, "name": "연필 이유 — 저장된 이유 수정, 판정 #1", "tip": "저장된 이유 수정"}
+        )
+
+
+class RcFixes(VerdictBase):
+    """The 0.4.34 RC's test round, the line's logic and reasons: keys and Enter (each item's number in its name's docstring),
+    focus that stays on its page, a jump still gliding, queued presses across documents, a verdict taken back while its
+    reason is typed, folded drafts, lost answers, conflicts shown whole, rev-guarded replaces, a restored but superseded
+    verdict, the card's rival note, Tab around the popover, a card's neighbour, quiet moved undos, names that hold their
+    words, the line's own [되돌리기], announced drafts and #N to its card."""
+
+    def setUp(self):
+        super().setUp()
+        self.edits: list = []  # every POST /api/pins/N/edit body the viewer sent
+        self.swallow: set = (
+            set()
+        )  # request kinds ('pin', 'edit', 'drop') whose next answer is lost after the server wrote
+        self.lose: set = set()  # request kinds lost on the network before the server sees them
+        self.held_doc: str | None = None  # hold POST /api/pin of this document only (self.held collects them)
+
+    def route(self, route):
+        rq = route.request
+        path = urlparse(rq.url).path
+        kind = (
+            "pin"
+            if path == "/api/pin"
+            else "edit"
+            if path.endswith("/edit")
+            else "drop"
+            if path.endswith("/drop")
+            else None
+        )
+        if rq.method == "POST" and kind:
+            if kind == "edit":
+                self.edits.append(json.loads(rq.post_data or "{}"))
+            if kind == "pin" and self.held_doc and json.loads(rq.post_data or "{}").get("doc") == self.held_doc:
+                self.held = self.held or []
+                self.held.append(route)
+                return None
+            if kind in self.lose:
+                self.lose.discard(kind)
+                return route.abort()
+            if kind in self.swallow:
+                self.swallow.discard(kind)
+                self.forward(_Swallowed(route))
+                return route.abort()
+        return super().route(route)
+
+    def keyed_open(self, page, n=1, key="1"):
+        """Key `key` on page n (the reading page) saves a verdict; Enter opens its reason popover with the focus; the pin's id."""
+        before = set(self.pins())
+        page.keyboard.press(key)
+        page.wait_for_function("n=>OPEN_ALL.length>=n", arg=len(before) + 1)
+        settle(page)
+        (pid,) = set(self.pins()) - before
+        page.keyboard.press("Enter")
+        page.wait_for_selector('#doc .pv[data-page="%d"] .pv-pop .pv-reason' % n)
+        return pid
+
+    def saved_reason(self, page, text):
+        pid = self.press_page(page, 1, "채택")
+        open_reason(page, 1)
+        page.keyboard.type(text)
+        page.keyboard.press("Enter")
+        page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id&&p.note)", arg=pid)
+        settle(page)
+        return pid
+
+    def bob_note(self, pid, note):
+        rev = self.pins()[pid]["rev"]
+        self.assertEqual(self.call("POST", "/api/pins/%d/edit" % pid, {"note": note, "base_rev": rev}, BOB)[0], 200)
+
+    def test_2_tab_from_the_pdf_area_goes_to_the_reading_line(self):
+        """(2) Page 2 read (zoomed, taller than the area), the focus on the PDF area: Tab goes to page 2's line, and the
+        pages do not scroll."""
+        page = self.on("fig")
+        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        page.evaluate(SCROLL, [2, "top"])
+        settle(page)
+        page.evaluate("searchToPage()")
+        top = page.evaluate("document.querySelector('#left').scrollTop")
+        page.keyboard.press("Tab")
+        self.assertEqual(page.evaluate(FOCUS_AT)[0], 2)
+        self.assertEqual(page.evaluate("document.querySelector('#left').scrollTop"), top)
+
+    def test_3_a_key_while_a_jump_glides_is_not_taken(self):
+        """(3) A smooth jump from page 1 to page 2 under way: 2 is not taken (nothing saved, the status line says why);
+        once the pages rest, 2 saves 보류 on page 2."""
+        page = self.on("fig")
+        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        settle(page)
+        page.evaluate(
+            "()=>{const L=document.querySelector('#left'),r=document.getElementById('p2').getBoundingClientRect(),lr=L.getBoundingClientRect(); L.scrollTo({top:L.scrollTop+r.top-lr.top,behavior:'smooth'});}"
+        )
+        page.wait_for_function("()=>PV_GLIDE")
+        page.keyboard.press("2")
+        page.wait_for_timeout(50)
+        self.assertEqual(self.pins(), {})
+        self.assertTrue(page.evaluate("()=>LINE.some(n=>n.title==='쪽으로 가는 중이라 판정 키를 받지 않았습니다')"))
+        page.wait_for_function("()=>!pvAutoScrolling()", timeout=5000)
+        settle(page)
+        page.keyboard.press("2")
+        page.wait_for_function("OPEN_ALL.length===1")
+        settle(page)
+        (pin,) = self.pins().values()
+        self.assertEqual((pin["verdict"], page.evaluate(LINE, 2)["pin"]), ("보류", str(pin["id"])))
+
+    def test_4_a_press_queued_on_one_document_is_saved_after_a_switch_away_and_back(self):
+        """(4) 채택 on the figure's page 1 held; 보류 pressed meanwhile (queued); the PDF opened and the figure again; then
+        the held save answers: 채택 and then 보류 are both saved on the figure, 보류 current - nothing dropped silently."""
+        page = self.on("fig")
+        self.held_doc = "fig"
+        page.locator(WORD % (1, "채택")).click()
+        for _ in range(200):
+            if self.held:
+                break
+            page.wait_for_timeout(25)
+        page.locator(WORD % (1, "보류")).click()
+        self.assertEqual(page.evaluate("()=>[...PV_NEXT.values()].map(x=>x.key)"), ["보류"])
+        page.evaluate("k=>switchDoc(k)", "rv")
+        page.wait_for_function("DOC==='rv'&&META&&META.doc==='rv'")
+        page.evaluate("k=>switchDoc(k)", "fig")
+        page.wait_for_function(
+            "DOC==='fig'&&META&&META.doc==='fig'&&document.querySelector('#doc .pv[data-page=\"1\"]')"
+        )
+        self.held_doc = None
+        self.release()
+        page.wait_for_function("()=>OPEN_ALL.filter(p=>p.doc==='fig').length===2&&PV_BUSY.size===0", timeout=10000)
+        settle(page)
+        got = sorted((p["id"], p["verdict"]) for p in self.pins().values())
+        self.assertEqual([v for _, v in got], ["채택", "보류"])
+        self.assertEqual(page.evaluate(LINE, 1)["pin"], str(got[1][0]))
+
+    def test_5_a_verdict_taken_back_elsewhere_keeps_the_reason_and_the_keys_typed_after(self):
+        """(5) A reason being typed when the verdict is taken back in another tab: after the list is read the popover goes,
+        the text is the page's draft ('초안 있음'), the status line says so, the focus is on the mark, and a 2 typed on
+        makes no verdict; the next verdict saved there takes the draft."""
+        page = self.on("fig")
+        pid = self.keyed_open(page)
+        page.keyboard.type("33개 건물에서 손해")
+        self.assertEqual(self.call("POST", "/api/pins/%d/drop" % pid, {})[0], 200)
+        self.reload(page)
+        self.assertIsNone(page.evaluate(POP, 1))
+        self.assertEqual(page.evaluate(DRAFTS), {"fig:p1": "33개 건물에서 손해"})
+        self.assertTrue(
+            page.evaluate(
+                "id=>LINE.some(n=>n.title==='판정 #'+id+'이 다른 곳에서 거둬졌습니다 · 쓰던 이유는 이 쪽의 초안으로 남겼습니다')",
+                pid,
+            )
+        )
+        self.assertEqual(page.evaluate("()=>document.activeElement.textContent"), "초안 있음")
+        page.keyboard.press("2")
+        settle(page)
+        self.assertEqual(self.pins(), {})
+        page.mouse.move(1, 1)
+        page.mouse.down()
+        page.mouse.up()
+        two = self.press_page(page, 1, "보류")
+        self.assertEqual(page.evaluate(DRAFTS), {"fig:%d" % two: "33개 건물에서 손해"})
+
+    def test_6_a_folded_draft_stays_folded_after_a_reload_and_is_never_written_by_moving_on(self):
+        """(6) A draft folded with [접기], then a reload: the popover does not open - the line says '초안 있음' - and reading
+        another page and back sends nothing."""
+        page = self.on("fig")
+        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        settle(page)
+        pid = self.press_page(page, 1, "채택")
+        open_reason(page, 1)
+        page.keyboard.type("접어 둔 이유")
+        page.locator('#doc .pv[data-page="1"] [data-act="pv-reason-fold"]').click()
+        settle(page)
+        page.on("dialog", lambda d: d.accept())
+        page.reload()
+        page.wait_for_function(booted(1), timeout=20000)
+        page.evaluate("k=>switchDoc(k)", "fig")
+        page.wait_for_function("DOC==='fig'&&META&&META.doc==='fig'&&document.querySelector('#p1')")
+        settle(page)
+        self.assertIsNone(page.evaluate(POP, 1))
+        self.assertEqual(page.locator('#doc .pv[data-page="1"] button.pv-draft').inner_text(), "초안 있음")
+        self.assertIn(
+            "저장 안 된 이유 초안 1건을 되살렸습니다", page.evaluate("document.querySelector('#sr-news').textContent")
+        )
+        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        page.evaluate(SCROLL, [2, "top"])
+        settle(page)
+        page.evaluate(SCROLL, [1, "top"])
+        settle(page)
+        self.assertEqual(self.edits, [])
+        self.assertEqual(self.pins()[pid]["note"], "")
+
+    def test_7_a_clear_whose_answer_was_lost_is_done_on_retry(self):
+        """(7) [지우기] written but its answer lost: [다시 시도] reads the note, finds it empty and calls the clear done - no
+        false conflict, and no [그 위에 쓰기] that would bring the reason back."""
+        page = self.on("fig")
+        pid = self.saved_reason(page, "지울 이유")
+        open_reason(page, 1)
+        self.swallow.add("edit")
+        page.locator('#doc .pv[data-page="1"] [data-act="pv-reason-clear"]').click()
+        page.wait_for_function("()=>LINE.some(n=>n.title.startsWith('이유 지우기 실패'))")
+        settle(page)
+        self.assertEqual(self.pins()[pid]["note"], "")
+        page.locator("#status [data-act=notice-act]").filter(has_text="다시 시도").click()
+        page.wait_for_function("id=>!document.querySelector('#doc .pv-pop')", arg=pid)
+        settle(page)
+        self.assertIsNone(page.evaluate(POP, 1))
+        self.assertFalse(page.evaluate("()=>LINE.some(n=>n.title.startsWith('이유 저장 안 함'))"))
+        self.assertTrue(page.evaluate("id=>LINE.some(n=>n.title==='판정 #'+id+' 채택 이유 지움')", pid))
+
+    def test_8_9_20_a_conflict_shows_the_whole_note_and_a_replace_keeps_its_rev(self):
+        """(8, 20) The saved reason changed while Bob writes a two-line note: Enter shows his whole note (both lines) and the
+        line shows his note too. (9) He then empties it; [그 위에 쓰기] writes the text as the whole note against the rev it
+        read - never an append - and a 409 meanwhile shows the newer note again."""
+        page = self.on("fig")
+        pid = self.saved_reason(page, "처음 이유")
+        open_reason(page, 1)
+        page.keyboard.press("ControlOrMeta+a")
+        page.keyboard.type("내 이유")
+        self.bob_note(pid, "에이전트 메모\n에이전트 덧붙임 2")
+        page.keyboard.press("Enter")
+        page.wait_for_selector('#doc .pv[data-page="1"] .pv-pop-cf')
+        settle(page)
+        box = page.locator('#doc .pv[data-page="1"] .pv-pop-cf-note').inner_text()
+        self.assertIn("에이전트 덧붙임 2", box)
+        self.assertEqual(page.locator('#doc .pv[data-page="1"] .pv-note').inner_text(), "에이전트 메모")
+        self.bob_note(pid, "")
+        self.edits = []
+        page.locator('#doc .pv[data-page="1"] [data-act="pv-reason-reapply"]').click()  # read: his two lines; now empty
+        page.wait_for_function(
+            "()=>document.querySelector('#doc .pv-pop-cf-note')&&document.querySelector('#doc .pv-pop-cf-note').textContent==='(빈 메모)'"
+        )
+        self.assertEqual(self.pins()[pid]["note"], "")
+        self.assertTrue(all("note_append" not in b for b in self.edits), self.edits)
+        page.locator('#doc .pv[data-page="1"] [data-act="pv-reason-reapply"]').click()
+        page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id&&p.note==='내 이유')", arg=pid)
+        self.assertEqual(self.pins()[pid]["note"], "내 이유")
+        self.assertTrue(all("note_append" not in b and "base_rev" in b for b in self.edits), self.edits)
+
+    def test_9_a_new_reason_reads_the_note_before_it_writes(self):
+        """(9) A new reason for a verdict whose note Bob had written and then emptied - the list still holding his note: the
+        write reads the pin first and puts the reason into the empty note, with no '(추가 hh:mm)' stamp."""
+        page = self.on("fig")
+        pid = self.press_page(page, 1, "채택")
+        self.bob_note(pid, "밥의 메모")
+        self.reload(page)
+        self.bob_note(pid, "")
+        page.evaluate("p=>pvReasonOpen(p,true)", 1)
+        page.wait_for_selector('#doc .pv[data-page="1"] .pv-pop .pv-reason')
+        page.keyboard.press("ControlOrMeta+a")
+        page.keyboard.type("새 이유")
+        page.evaluate(
+            "()=>{PV_REASON.base=''; PV_REASON.mode='add'; PV_REASON.rev=-1;}"
+        )  # a new reason, as the list read it
+        page.keyboard.press("Enter")
+        page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id&&p.note==='새 이유')", arg=pid)
+        self.assertEqual(self.pins()[pid]["note"], "새 이유")
+
+    def test_10_a_restored_verdict_superseded_meanwhile_says_so_and_opens_no_popover(self):
+        """(10) Alice's 채택 with a reason being typed, taken back; Bob then saves 보류 there; her [되돌리기] restores 채택, but
+        the status line says Bob's #N 보류 is current and no popover opens over his line."""
+        page = self.on("fig")
+        a = self.press_page(page, 1, "채택")
+        open_reason(page, 1)
+        page.keyboard.type("취소 뒤 되살릴 이유")
+        page.locator(CANCEL % 1).click()
+        page.wait_for_function("id=>!OPEN_ALL.some(p=>p.id===id)", arg=a)
+        settle(page)
+        b = verdict_as(self, BOB, 1, "보류")
+        self.reload(page)
+        page.locator("#status [data-act=notice-act]").filter(has_text="되돌리기").first.click()
+        page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id)", arg=a)
+        settle(page)
+        self.assertIsNone(page.evaluate(POP, 1))
+        self.assertTrue(
+            page.evaluate(
+                "([a,b])=>LINE.some(n=>n.title==='판정 #'+a+' 채택 되살림 · 지금 판정은 Bob Park의 #'+b+' 보류')",
+                [a, b],
+            )
+        )
+
+    def test_11_the_cards_edit_shows_a_rival_note_and_needs_an_explicit_overwrite(self):
+        """(11) A verdict card's edit with a changed note; meanwhile an agent adds to the note: [저장] writes nothing - the
+        banner shows the note now, the agent's line included - and a second [저장] neither; [내 메모로 덮어쓰기] does."""
+        page = self.on("fig")
+        pid = self.saved_reason(page, "처음")
+        page.evaluate("id=>openEdit(id)", pid)
+        page.wait_for_selector(".pin.editing .e-note")
+        page.fill(".pin.editing .e-note", "카드에서 고친 메모")
+        code, _ = self.call("POST", "/api/pins/%d/edit" % pid, {"note_append": "에이전트 덧붙임"}, AGENT)
+        self.assertEqual(code, 200)
+        theirs = self.pins()[pid]["note"]
+        for _ in range(2):
+            page.evaluate("saveEdit()")
+            settle(page)
+            self.assertEqual(self.pins()[pid]["note"], theirs)
+        self.assertIn(
+            "에이전트 덧붙임", page.evaluate("()=>[...BANNERS.values()].map(n=>n.title+' — '+n.desc).join('\\n')")
+        )
+        page.locator("[data-act=notice-act]").filter(has_text="내 메모로 덮어쓰기").click()
+        page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id&&p.note==='카드에서 고친 메모')", arg=pid)
+
+    def test_12_tab_past_the_popover_comes_back_to_its_line(self):
+        """(12) Tab from the popover's last control goes to its line's first control, not the next page's line; the
+        popover stays open with its draft."""
+        page = self.on("fig")
+        self.press_page(page, 1, "채택")
+        open_reason(page, 1)
+        page.keyboard.type("탭 순서")
+        page.evaluate(END_CHIPS)  # no save chip in the row: the next stop after the popover is the next page's line
+        settle(page)
+        page.locator('#doc .pv[data-page="1"] [data-act="pv-reason-save"]').focus()
+        page.keyboard.press("Tab")
+        self.assertEqual(page.evaluate(FOCUS_AT), [1, "pin-ref"])
+        self.assertEqual(page.evaluate(POP, 1)["value"], "탭 순서")
+
+    def test_13_a_cards_delete_by_keyboard_hands_the_focus_to_its_neighbour(self):
+        """(13) Two verdict cards; [지우기] pressed with the keyboard on one: the focus goes to the other card's number."""
+        page = self.on("fig")
+        a = self.press_page(page, 1, "채택")
+        b = self.press_page(page, 2, "보류")
+        page.evaluate(END_CHIPS)
+        settle(page)
+        page.focus('.pin.card[data-id="%d"] [data-act="drop"]' % a)
+        page.keyboard.press("Enter")
+        page.wait_for_function("id=>!OPEN_ALL.some(p=>p.id===id)", arg=a)
+        self.assertEqual(page.evaluate("()=>Number(document.activeElement.closest('.pin').dataset.id)"), b)
+
+    def test_14_a_moved_undo_is_not_read_out_again(self):
+        """(14) A second save while the first's chip stands: the first's undo moves to the status line quietly - the line's
+        live text never says the first save again - and the news says the second."""
+        page = self.on("fig")
+        a = self.press_page(page, 1, "채택")
+        b = self.press_page(page, 2, "보류")
+        self.assertNotIn("#%d" % a, page.evaluate("document.querySelector('#status .st-sr').textContent"))
+        self.assertIn("#%d" % b, page.evaluate("document.querySelector('#sr-news').textContent"))
+
+    def test_15_a_verdict_whose_answer_was_lost_is_a_save_not_a_failure(self):
+        """(15) The page line's verdict written but its answer lost: the list is read, the verdict is there - no
+        '판정 저장 실패', one pin, its save chip - so a second press is not needed and makes no duplicate."""
+        page = self.on("fig")
+        self.swallow.add("pin")
+        page.locator(WORD % (1, "채택")).click()
+        page.wait_for_function("OPEN_ALL.length===1")
+        settle(page)
+        self.assertEqual([p["verdict"] for p in self.pins().values()], ["채택"])
+        self.assertFalse(page.evaluate("()=>LINE.some(n=>n.title.startsWith('판정 저장 실패'))"))
+        self.assertEqual(page.evaluate(PRESSED, 1), ["true", "false", "false"])
+
+    def test_15_a_composer_verdict_whose_answer_was_lost_is_a_save(self):
+        """(15) The composer's 채택 written but its answer lost: no failure banner and no [다시 저장] to duplicate it."""
+        page = self.on("ms")
+        self.open_composer(page)
+        self.swallow.add("pin")
+        page.locator('#c-verdict-row button[data-key="채택"]').click()
+        page.wait_for_function("OPEN_ALL.length===1")
+        settle(page)
+        self.assertEqual(len(self.pins()), 1)
+        self.assertFalse(page.evaluate("()=>[...BANNERS.values()].some(n=>n.save)"))
+
+    def test_16_a_cancel_whose_answer_was_lost_is_done_and_not_reported_as_someone_elses(self):
+        """(16) [판정 취소] written but its answer lost: the take-back is said as done (no '판정 취소 실패' left), and the next
+        list does not say someone deleted it. A name's particle follows its sound."""
+        page = self.on("fig")
+        a = self.press_page(page, 1, "채택")
+        self.swallow.add("drop")
+        page.locator(CANCEL % 1).click()
+        page.wait_for_function("id=>LINE.some(n=>n.title.startsWith('판정 #'+id+' 채택 취소'))", arg=a)
+        self.reload(page)
+        titles = [n["title"] for n in page.evaluate(STATUS)]
+        self.assertFalse([t for t in titles if t.startswith("판정 취소 실패") or "삭제함" in t], titles)
+        self.assertEqual(
+            page.evaluate(
+                "()=>['Bob','Alice','Agent B','Team L','김민수','박준','Kim 2'].map(n=>josaName(n,'이','가'))"
+            ),
+            ["이", "가", "가", "이", "가", "이", "가"],
+        )
+
+    def test_17_18_19_while_saving_and_the_names(self):
+        """(17) While a reason is being written there is no inert [접기], and every aria-describedby in the lines points at
+        something. (18) The draft mark's and [판정 취소]'s names hold their words. (19) A keyboard take-back leaves the focus
+        on the line's own [되돌리기], which brings the verdict back."""
+        page = self.on("fig")
+        a = self.press_page(page, 1, "채택")
+        open_reason(page, 1)
+        page.keyboard.type("쓰는 중")
+        page.evaluate(
+            "()=>{const f=document.querySelector('#doc .pv-reason'); PV_REASON.writing=new Promise(()=>{}); pvRefill(1);}"
+        )
+        self.assertEqual(page.locator('#doc .pv[data-page="1"] [data-act="pv-reason-fold"]').count(), 0)
+        dangling = """()=>[...document.querySelectorAll('#doc .pv [aria-describedby]')].flatMap(e=>e.getAttribute('aria-describedby').split(' ')).filter(id=>!document.getElementById(id))"""
+        self.assertEqual(page.evaluate(dangling), [])
+        page.evaluate("()=>{PV_REASON.writing=null; pvReasonFold();}")
+        settle(page)
+        self.assertTrue(
+            page.locator('#doc .pv[data-page="1"] button.pv-draft').get_attribute("aria-label").startswith("초안 있음")
+        )
+        self.assertIn("판정 취소", page.locator(CANCEL % 1).get_attribute("aria-label"))
+        page.focus(CANCEL % 1)
+        page.keyboard.press("Enter")
+        page.wait_for_function("id=>!OPEN_ALL.some(p=>p.id===id)", arg=a)
+        settle(page)
+        self.assertEqual(page.evaluate(FOCUS_AT), [1, "pv-undo"])
+        page.keyboard.press("Enter")
+        page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id)", arg=a)
+
+    def test_19_the_line_number_by_keyboard_goes_to_its_card(self):
+        """(19) Enter on the line's #N moves the focus to that pin's card."""
+        page = self.on("fig")
+        a = self.press_page(page, 1, "채택")
+        page.focus('#doc .pv[data-page="1"] .pv-ref')
+        page.keyboard.press("Enter")
+        page.wait_for_function(
+            "id=>{const a=document.activeElement; return !!a&&!!a.closest&&!!a.closest('.pin[data-id=\"'+id+'\"]');}",
+            arg=a,
         )

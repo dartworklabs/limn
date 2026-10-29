@@ -27,6 +27,8 @@ interface EditCard {
   quote: string;
   kind_req: string;
   sg: SuggestDraft;
+  theirs?: string | null; // the note a rival edit wrote meanwhile (a 409): the card's note is not saved over it unless overwrite
+  overwrite?: boolean; // the person chose [내 메모로 덮어쓰기] after seeing theirs
 }
 
 // A suggested edit being written (suggest.js; the composer's SG, an edit card's sg): whether its editor is on, the text it
@@ -95,6 +97,7 @@ interface NoticeAct {
 // held (held), and what runs when it leaves (gone). el is made once and moved.
 interface Notice {
   n: number;
+  quiet: boolean; // said when it came (a save chip's undo moved to the line): not read out again
   place: string;
   host: string;
   pin: number | null;

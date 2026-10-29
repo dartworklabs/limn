@@ -66,4 +66,11 @@
 /* The newer note a write found (a conflict): a row over the field, the warning colour's edge. */
 .pv .pv-pop-cf{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2);padding:var(--space-1) var(--space-2);border-radius:var(--radius-sm);
   border:1px solid var(--warning);font-size:var(--text-xs);color:var(--foreground)}
-.pv .pv-pop-cf q{font-weight:600}
+/* 'Enter 이유 쓰기': the key the line takes, set off as a key (the words' own key marks' size). */
+.pv .pv-kbd{font:inherit;font-size:var(--text-xs);padding:0 var(--space-1);border:1px solid var(--border-strong);border-radius:var(--radius-sm);color:var(--foreground)}
+/* The newer note a write found, whole: its own lines, scrolling past six. */
+.pv .pv-pop-cf-note{flex:1 1 100%;max-height:7.5em;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-weight:600}
+/* A take-back's [되돌리기] on its line (while the status line offers it): a text action in the line's link look. */
+.pv button.pv-undo{color:var(--primary);padding-inline:var(--space-1);font-weight:inherit;text-decoration:none;text-underline-offset:3px}
+.pv button.pv-undo:focus-visible{background:transparent;text-decoration:underline}
+@media (hover:hover){.pv button.pv-undo:hover{background:transparent;color:var(--primary);text-decoration:underline}}

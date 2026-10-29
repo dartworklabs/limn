@@ -20,6 +20,16 @@ function authorTip(p){let s=tl('작성: {name} · {at}',{name:p.author?who(p.aut
 // The badge wording is phrased to be self-explanatory: '#20과 같은 범위' > '#20 범위 안' > '#20과 일부 겹침'. Same-range is distinguished using p's (this pin's) lo/hi.
 function josa(n,c,v){const d=String(n).slice(-1); return d==='0'||'13678'.includes(d)?c:v;}
 // '로' or '으로' after a number read in Korean: '으로' after a final consonant other than ㄹ (영/십·백·천, 삼, 육), else '로'.
+// The particle after a name: c after a final consonant, v after a vowel. A Hangul name by its last syllable's final; a Latin
+// one by how its end is read - a vowel letter (and a silent e) reads as a vowel, a consonant as one ('Bob이', 'Alice가'),
+// a lone capital as its letter's Korean name ('Agent B가', 'Team L이'); a digit as its Korean reading (josa). Pure.
+/** @param {string} name @param {string} c @param {string} v */
+function josaName(name,c,v){const s=String(name||'').trim(),ch=s.slice(-1); if(!ch)return v; const code=ch.charCodeAt(0);
+  if(code>=0xAC00&&code<=0xD7A3)return (code-0xAC00)%28?c:v;
+  if(/[0-9]/.test(ch))return josa(ch,c,v);
+  if(/[A-Z]/.test(ch)&&!/[A-Za-z]/.test(s.slice(-2,-1)))return 'LMNR'.includes(ch)?c:v;
+  if(/[a-zA-Z]/.test(ch))return /[aeiouyAEIOUY]/.test(ch)?v:c;
+  return v;}
 function josaRo(n){return '036'.includes(String(n).slice(-1))?'으로':'로';}
 function relBadge(rel,p){
   if(!rel||!rel.length)return null;

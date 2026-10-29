@@ -87,7 +87,14 @@ async function savePin(verdict){
   const snap=selectionSnapshot(),fields=composeFields();   // [되돌리기] takes the pin back and hands this selection and note back for another try
   const draft=savedDraftSnapshot();
   const question=out.kind===KIND_REQ.QUESTION;
-  try{const {status,data}=await api('/api/pin',{method:'POST',body,what:verdict?'판정 저장':'핀 저장',where:NOTICE_HOST.COMPOSER,save:true,expect:sg?[409]:[]});
+  const top=pvTopId();   // a save whose answer is lost is looked for above it before it is called a failure
+  try{let status=0,data=/** @type {any} */(null);
+    try{({status,data}=await api('/api/pin',{method:'POST',body,what:verdict?'판정 저장':'핀 저장',where:NOTICE_HOST.COMPOSER,save:true,expect:sg?[409]:[]}));}
+    catch(e){const x=/** @type {ApiError} */(e); if(x&&x.status)throw e;
+      // No answer: the pin may be on the server - this person's, on this document and page, this note and verdict, newer than
+      // any before the press. Then it is a save (its failure banner goes below), not a failure whose [다시 저장] would make it twice.
+      await loadPins(); const got=OPEN_ALL.find(p=>p.id>top&&isMe(p.author)&&pdoc(p)===(body.doc||DEFAULT_DOC)&&p.page===d.page&&String(p.note||'')===note&&(verdictOf(p)||'')===(verdict||''));
+      if(!got)throw e; status=200; data={id:got.id}; sourceOk('POST /api/pin');}
     if(status===409){suggestSaveRefused(d,data); return;}
     const id=data.id,failed=BANNERS.get(NOTICE_HOST.COMPOSER);
     if(failed&&failed.save)endNotice(failed,false);   // this save went through: its earlier failure is over

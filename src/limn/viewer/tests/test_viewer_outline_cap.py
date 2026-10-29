@@ -756,6 +756,23 @@ class OutlineFilter(OutlineBase):
         self.assertEqual(phone.evaluate("document.getElementById('outline-sr').textContent"), "")
         self.assertFalse(phone.evaluate("getComputedStyle(document.getElementById('outline-hint')).display !== 'none'"))
 
+    def test_the_status_says_a_state_once_not_at_every_keystroke(self):
+        """'no such' typed key by key finds nothing from its first letter on: the polite status is written once
+        ('찾은 장·절이 없습니다.'), not again at every keystroke - each write was read out again (0.4.34 RC test)."""
+        page = self.on("fig")
+        self.assertEqual(self.load(page, GROUPED), [8, 0])
+        page.evaluate(
+            """()=>{const sr=document.getElementById('outline-sr'); window.__srWrites=0;
+              new MutationObserver(r=>{window.__srWrites+=r.length;}).observe(sr,{childList:true,characterData:true,subtree:true});}"""
+        )
+        page.focus("#outline-search")
+        page.keyboard.type("qqqq")
+        page.wait_for_timeout(100)
+        self.assertEqual(page.evaluate("document.getElementById('outline-sr').textContent"), "찾은 장·절이 없습니다.")
+        self.assertLessEqual(
+            page.evaluate("window.__srWrites"), 2
+        )  # set once (a text change may be one or two records)
+
     def test_a_key_that_an_input_method_or_a_modifier_owns_is_not_ours(self):
         """Korean typing commits its last syllable with Enter (isComposing), and Ctrl+Enter or Shift+↓ are not the filter's:
         none of them chooses or moves."""
