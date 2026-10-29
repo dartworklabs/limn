@@ -55,7 +55,8 @@
   --edge:var(--space-4);
   --ic-bearing:2.67px;   /* a 16px Lucide glyph's ink starts 4/24 in (2px stroke): the optical corrections at a row's ends */
   --grabber:color-mix(in srgb,var(--foreground) 50%,transparent);
-  --control-h-sm:24px;--control-h:28px;--control-h-lg:36px;--control-h-touch:44px;--hit:44px;--ctl-touch-sm:36px;--ctl-touch:40px;
+  --control-h-sm:24px;--control-h:28px;--control-h-md:32px;--control-h-lg:36px;--control-h-touch:44px;--hit:44px;--ctl-touch-sm:36px;--ctl-touch:40px;
+  /* --control-h-md: a mouse target that floats over the page (the page verdict line's words and links) - pressed on the move, over the plot */
   --line-label:round(1.4em,2px);   /* a control label's line box: 1.4 of its text to the nearest even px, so a control's height is whole px and its label's box starts on one */
   --line-field:round(1.55em,2px);   /* a one-line text field's line box: the body's 1.55 to the nearest even px, so the field and what follows it stand on whole px */
   --row-h:48px;--row-h-touch:56px;   /* a two-line list row (the changes view's commit list): subject + author line, a touch row taller */
