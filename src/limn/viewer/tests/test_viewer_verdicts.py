@@ -6020,3 +6020,25 @@ class ChipFontWait(VerdictBase):
         page = self.saved_then_squeezed()
         page.wait_for_timeout(3300)
         self.assertEqual(page.evaluate(self.STATE, None), [False, False, True])
+
+
+class DebugCIChipRoom(VerdictBase):
+    """Temporary CI diagnostic (not to be merged): the save chip's room on CI."""
+
+    DUMP = """n=>{const l=document.querySelector('#doc .pv[data-page="'+n+'"]'),c=l.querySelector(':scope>.nt-chip'),R=e=>{const r=e.getBoundingClientRect(); return [Math.round(r.left),Math.round(r.top),Math.round(r.right),Math.round(r.bottom)];};
+      const parts=[...l.querySelectorAll(':scope>.pv-fig>.pv-fig-id,:scope>.pv-fig-sep,:scope>.pv-t *,:scope>.vd-btns>*')].filter(e=>e.getClientRects().length).map(e=>[e.className.toString().slice(0,24),(e.textContent||'').slice(0,24),...R(e)]);
+      const cs=getComputedStyle(l.querySelector('.pv-t')); return {cls:l.className,lw:R(l),chip:c?[c.className,R(c),c.textContent]:null,line:LINE.map(x=>x.title),fs:document.fonts.status,
+        lang:navigator.language,doclang:document.documentElement.lang,dpr:devicePixelRatio,font:cs.fontFamily.slice(0,80),fsz:cs.fontSize,need:pvStateNeed(l),read:PV_READ,keys:PV_KEYS,parts,
+        faces:[...document.fonts].filter(f=>f.status==='loaded').length+'/'+[...document.fonts].length,vw:innerWidth,vh:innerHeight};}"""
+
+    def test_dbg_chip_room(self):
+        out = []
+        page = self.on("fig")
+        page.evaluate("setK(PT_PX*2,false); ZOOMED=true")
+        settle(page)
+        self.press_page(page, 1, "채택")
+        self.press_page(page, 2, "보류")
+        out.append(page.evaluate(self.DUMP, 2))
+        page.wait_for_timeout(1500)
+        out.append(page.evaluate(self.DUMP, 2))
+        self.fail("DBGJSON " + json.dumps(out, ensure_ascii=False))

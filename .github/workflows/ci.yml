@@ -114,7 +114,7 @@ jobs:
         timeout-minutes: 10
         run: uv run playwright install --with-deps chromium firefox webkit
       - name: Python tests
-        run: uv run pytest -q -rs -n ${{ matrix.suite.workers }} -m "${{ matrix.suite.markers }}" -o faulthandler_timeout=600
+        run: uv run pytest -q -rs -n 1 -k DebugCIChipRoom src/limn/viewer/tests/test_viewer_verdicts.py -o faulthandler_timeout=600
 
   macos:
     # macOS semantics for tests that need no TeX or Chromium: BSD
