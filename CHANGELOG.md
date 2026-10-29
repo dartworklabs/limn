@@ -5,7 +5,7 @@
 The page verdict line from an owner-requested UX review of 0.4.33 on a figure document (`pl`), and agents told which
 verdicts were superseded. On the line its words become a toggle, a verdict's reason is never lost without a word, and the
 line stays one row on a desktop, with targets a mouse can hit and the line on a foldable's open sheet. For agents
-(ADR-0023, proposed) the contract only grows: one optional pin field and one `pins.md` marker, nothing renamed or
+(ADR-0023) the contract only grows: one optional pin field and one `pins.md` marker, nothing renamed or
 removed, and nothing stored - a 0.4.33 server or an older agent reads the same records as before. Every route stays as it
 was; the viewer still counts the verdict order itself, and a browser test holds its count and the server's together.
 
