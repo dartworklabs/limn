@@ -319,6 +319,10 @@ NOT_WALKED: dict[str, tuple[float | None, str]] = {
     ".ov-no": (TEXT, "the figure overlay's page number: needs a figure with two builds in the changes view"),
     ".ov-none": (TEXT, "the figure overlay's missing page: needs a figure with two builds in the changes view"),
     ".sg-text[readonly]": (TEXT, "a closed pin's suggested edit in its edit card: the walk edits no closed pin"),
+    ".pv button.pv-note .ic-pencil": (
+        ICON,
+        "an editable saved reason's pencil on a page line: the walk saves no reason",
+    ),
     ".pv .pv-busy": (
         TEXT,
         "a page line's '보류 저장 중…': shown only while its save is out, which the walk does not hold",

@@ -48,3 +48,18 @@
 @media (pointer:coarse){#doc .pv .pv-pop .pv-reason{min-height:var(--hit);font-size:var(--text-xl)}   /* 16px: a phone does not zoom into it */
   .pv .pv-pop-f{font-size:var(--text-sm)}
   .pv .pv-pop-acts button{min-height:var(--ctl-touch-sm)}}
+/* The pressed word's check (a selected mark besides the fill) and its context: '지금 삭제 판정 · 다시 누르면 판정 취소' over the
+   word group, out of the line's flow (the line keeps its height), while the pressed word is hovered or has the keyboard's
+   focus and for a few seconds after a press made it the verdict (.pv-onshow); always its description (aria-describedby). */
+.pv .vd-b[aria-pressed=true] .ic{width:1em;height:1em;margin-right:var(--space-1)}
+.pv .pv-onhint{display:none}
+.pv>.pv-onhint{position:absolute;right:0;bottom:calc(100% + var(--space-1));z-index:5;padding:var(--space-1) var(--space-2);border-radius:var(--radius-sm);
+  background:var(--popover);color:var(--popover-foreground);border:1px solid var(--border-strong);font-size:var(--text-xs);white-space:nowrap;box-shadow:var(--shadow-sm);pointer-events:none}
+.pv:is(.pv-onshow,:has(.vd-b[aria-pressed=true]:focus-visible)):not(.pv-pop-open)>.pv-onhint{display:block}
+@media (hover:hover){.pv:has(.vd-b[aria-pressed=true]:hover):not(.pv-pop-open)>.pv-onhint{display:block}}
+/* A saved reason the person may change: its pencil after the text. */
+.pv button.pv-note .ic-pencil{width:1em;height:1em;margin-left:var(--space-1);vertical-align:calc(.5cap - .5em);color:var(--muted-foreground)}
+/* The newer note a write found (a conflict): a row over the field, the warning colour's edge. */
+.pv .pv-pop-cf{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2);padding:var(--space-1) var(--space-2);border-radius:var(--radius-sm);
+  border:1px solid var(--warning);font-size:var(--text-xs);color:var(--foreground)}
+.pv .pv-pop-cf q{font-weight:600}

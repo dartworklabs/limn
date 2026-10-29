@@ -37,10 +37,27 @@ UX audit of 0.4.33 on a figure document, items P1-1, P1-2, P2-3 to P2-7 and P3-1
   their key marks) and the field stays open for the new verdict; once it holds text the digits are text and the popover
   says `Esc 뒤 숫자로 판정 바꾸기`. A digit an input method is composing is text. A reason that starts with a digit is
   typed after another character.
+- **Taking a verdict back is found without a hover.** The pressed word carries a check, and a short line -
+  `지금 삭제 판정 · 다시 누르면 판정 취소` - is its description (`aria-describedby`) and shows over the word group (never in
+  the line's flow) on hover, on keyboard focus and for 4 s after a press made it the verdict, touch included.
+- **Fold a reason away while writing.** [접기] folds the popover without writing, so the plot shows again; the draft is
+  kept and the line marks it `초안 있음`, which opens it again. An editable saved reason shows a pencil and is named
+  `저장된 이유 수정`.
+- **The popover keeps the focus inside.** It is a labelled non-modal group that stays open while the focus is anywhere
+  in it (Tab from the field to its buttons); a close gives the focus back to what opened it.
 - **Status-line messages put the result first** (P3-12, shared with the line layout work): `판정 #17 채택 취소 · 지금 판정
   #12 보류 — <대상>` (or `· 남은 판정 없음`), `이유 저장 실패 · <까닭> — <대상>`, `판정 저장 실패 · <까닭> — <대상>`.
 
 ### Fixed
+
+- **A changed saved reason never overwrites a note changed elsewhere.** The change and [지우기] are written against the
+  revision the popover opened at - not the newer one a poll brought - so another tab's, person's or agent's change gets
+  the server's 409: nothing is written, the draft is kept, and the popover shows the newer note with [메모 보기] and
+  [그 위에 쓰기].
+- **[지우기] keeps the popover and its draft until it succeeds**: a lost request or a conflict leaves both, and the
+  status line says so (`이유 지우기 실패 · <까닭> — <대상>`, [다시 시도] when the server was not reached).
+- **A page line's pending save belongs to its document.** A save held on one document's page no longer queues or
+  swallows a press on the same page number of another document.
 
 - **A key typed into the reason field after a key save no longer becomes the reason** (P1-1): 1, then 2 in the field,
   then Enter saved the note `2` on 채택 and made no 보류.
@@ -49,7 +66,7 @@ UX audit of 0.4.33 on a figure document, items P1-1, P1-2, P2-3 to P2-7 and P3-1
   Esc takes two presses: the first lets the focus go to the PDF area - the keys then change the verdict and the draft
   follows - and says the next one drops it; on touch [닫기] does the same. [되돌리기] of `판정 취소` (or of pressing the
   word again) and of the save chip bring the verdict back with its draft. Every failed write keeps the draft - lost on
-  the network, refused (4xx) or too long - and the line marks it `이유 · 저장 안 됨`; a reason that could only be added
+  the network, refused (4xx) or too long - and the line marks it `초안 있음`; a reason that could only be added
   to someone's note (2,000 characters at most) and is longer says so instead of being sent.
 - **An armed confirm word says how long it waits, and stops saying so** (P3-13). The line shows `4초 안에 한 번 더 누르면
   저장` beside it and a screen reader hears `삭제 — 4초 안에 한 번 더 누르면 저장합니다`; when it lets go - its time, Esc or a

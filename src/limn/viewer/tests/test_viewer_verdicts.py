@@ -3426,7 +3426,7 @@ class ReasonDrafts(VerdictBase):
         self.back_to_fig(page)
         two = self.press_page(page, 1, "보류")
         self.assertEqual(page.evaluate(DRAFTS), {"fig:%d" % two: "따라갈 이유"})
-        self.assertEqual(page.locator('#doc .pv[data-page="1"] button.pv-draft').inner_text(), "이유 · 저장 안 됨")
+        self.assertEqual(page.locator('#doc .pv[data-page="1"] button.pv-draft').inner_text(), "초안 있음")
         self.assertEqual(self.pins()[one]["note"], "")
 
     def test_a_too_long_reason_says_so_and_keeps_it(self):
@@ -3724,3 +3724,221 @@ class ArmWait(VerdictBase):
         page.wait_for_function("OPEN_ALL.length===1")
         settle(page)
         self.assertNotIn("한 번 더 누르면", page.evaluate(news))
+
+
+class ReviewRound(VerdictBase):
+    """The review of PR #304: a change of a saved reason is written against the rev it was opened at (a note changed
+    elsewhere is never written over - Enter or [지우기]); [지우기] keeps the popover and its draft until it succeeds; a
+    page line's pending save is scoped to its document; Tab inside the popover keeps it open and a close gives the focus
+    back to what opened it; the pressed word carries a check and its context; [접기] keeps the draft behind '초안 있음';
+    an editable saved reason carries a pencil and is named '저장된 이유 수정'."""
+
+    def setUp(self):
+        super().setUp()
+        self.lose_edit = 0  # how many POST /api/pins/N/edit to lose on the network
+        self.held_doc: str | None = None  # hold POST /api/pin of this document only (self.held collects them)
+
+    def route(self, route):
+        rq = route.request
+        path = urlparse(rq.url).path
+        if rq.method == "POST" and path.startswith("/api/pins/") and path.endswith("/edit") and self.lose_edit:
+            self.lose_edit -= 1
+            return route.abort()
+        if rq.method == "POST" and path == "/api/pin" and self.held_doc:
+            if json.loads(rq.post_data or "{}").get("doc") != self.held_doc:
+                return self.forward(route)  # another document's save goes through at once
+            self.held = self.held or []
+            self.held.append(route)
+            return None
+        return super().route(route)
+
+    def saved(self, page, text):
+        """채택 on page 1 with text written as its reason; the pin's id."""
+        pid = self.press_page(page, 1, "채택")
+        open_reason(page, 1)
+        page.keyboard.type(text)
+        page.keyboard.press("Enter")
+        page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id&&p.note)", arg=pid)
+        settle(page)
+        return pid
+
+    def bob_writes(self, pid, note):
+        rev = self.pins()[pid]["rev"]
+        self.assertEqual(self.call("POST", "/api/pins/%d/edit" % pid, {"note": note, "base_rev": rev}, BOB)[0], 200)
+
+    def test_a_change_never_writes_over_a_note_changed_since_it_opened(self):
+        """The saved reason opened and changed; meanwhile Bob changes the note and the list is read again (the viewer
+        knows the newer rev). Enter writes nothing over Bob's note: the draft is kept, the popover shows his note with
+        [그 위에 쓰기], and the status line says so. [그 위에 쓰기] then writes the text over it."""
+        page = self.on("fig")
+        pid = self.saved(page, "처음 이유")
+        open_reason(page, 1)
+        page.keyboard.press("ControlOrMeta+a")
+        page.keyboard.type("고친 이유")
+        self.bob_writes(pid, "밥이 바꾼 메모")
+        self.reload(page)
+        page.locator('#doc .pv[data-page="1"] .pv-reason').focus()
+        page.keyboard.press("Enter")
+        page.wait_for_selector('#doc .pv[data-page="1"] .pv-pop-cf')
+        settle(page)
+        self.assertEqual(self.pins()[pid]["note"], "밥이 바꾼 메모")
+        self.assertEqual(page.evaluate(POP, 1)["value"], "고친 이유")
+        self.assertIn("밥이 바꾼 메모", page.locator('#doc .pv[data-page="1"] .pv-pop-cf').inner_text())
+        self.assertEqual(page.evaluate(DRAFTS), {"fig:%d" % pid: "고친 이유"})
+        self.assertTrue(
+            page.evaluate("()=>LINE.some(n=>n.title==='이유 저장 안 함 · 그사이 다른 곳에서 메모가 바뀌었습니다')")
+        )
+        page.locator('#doc .pv[data-page="1"] [data-act="pv-reason-reapply"]').click()
+        page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id&&p.note==='고친 이유')", arg=pid)
+        settle(page)
+        self.assertEqual(self.pins()[pid]["note"], "고친 이유")
+        self.assertIsNone(page.evaluate(POP, 1))
+
+    def test_clear_never_clears_a_note_changed_since_it_opened(self):
+        """The saved reason opened; Bob changes the note and the list is read again; [지우기] clears nothing - Bob's note
+        stays and the popover shows it."""
+        page = self.on("fig")
+        pid = self.saved(page, "지울 이유")
+        open_reason(page, 1)
+        self.bob_writes(pid, "밥의 새 메모")
+        self.reload(page)
+        page.locator('#doc .pv[data-page="1"] [data-act="pv-reason-clear"]').click()
+        page.wait_for_selector('#doc .pv[data-page="1"] .pv-pop-cf')
+        settle(page)
+        self.assertEqual(self.pins()[pid]["note"], "밥의 새 메모")
+
+    def test_a_failed_clear_keeps_the_popover_and_its_draft(self):
+        """The saved reason opened and edited, then [지우기] lost on the network: the note is unchanged, the popover is
+        still open with the edited text and the draft is kept; the status line says the clear failed with [다시 시도],
+        which clears it once the network is back."""
+        page = self.on("fig")
+        pid = self.saved(page, "남을 이유")
+        open_reason(page, 1)
+        page.keyboard.press("ControlOrMeta+a")
+        page.keyboard.type("편집 중")
+        self.lose_edit = 1
+        page.locator('#doc .pv[data-page="1"] [data-act="pv-reason-clear"]').click()
+        page.wait_for_function("()=>LINE.some(n=>n.title.startsWith('이유 지우기 실패'))")
+        settle(page)
+        self.assertEqual(self.pins()[pid]["note"], "남을 이유")
+        self.assertEqual(page.evaluate(POP, 1)["value"], "편집 중")
+        self.assertEqual(page.evaluate(DRAFTS), {"fig:%d" % pid: "편집 중"})
+        page.locator("#status [data-act=notice-act]").filter(has_text="다시 시도").click()
+        page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id&&!p.note)", arg=pid)
+        settle(page)
+        self.assertEqual(self.pins()[pid]["note"], "")
+        self.assertIsNone(page.evaluate(POP, 1))
+
+    def test_a_held_save_on_one_document_does_not_hold_another_documents_line(self):
+        """채택 on the figure's page 1 held unanswered; the PDF opened and 보류 pressed on its page 1: it saves at once,
+        not queued behind the figure's save; released, the figure's save ends without taking the PDF's away."""
+        page = self.on("fig")
+        self.held_doc = "fig"
+        page.locator(WORD % (1, "채택")).click()
+        page.wait_for_function("()=>PV_BUSY.size===1")
+        for _ in range(
+            200
+        ):  # the figure's pin request itself is held (a save whose pick answers after a switch saves nothing)
+            if self.held:
+                break
+            page.wait_for_timeout(25)
+        self.assertEqual(len(self.held or []), 1)
+        page.evaluate("k=>switchDoc(k)", "rv")
+        page.wait_for_function(
+            "DOC==='rv'&&META&&META.doc==='rv'&&document.querySelector('#doc .pv[data-page=\"1\"] button[data-key]:not([aria-disabled])')"
+        )
+        page.wait_for_timeout(300)  # the figure's save is still held: the network never idles (no settle)
+        page.locator(WORD % (1, "보류")).click()
+        page.wait_for_function("()=>OPEN_ALL.some(p=>p.doc==='rv'&&p.verdict==='보류')", timeout=10000)
+        self.held_doc = None
+        self.release()
+        page.wait_for_function("()=>PV_BUSY.size===0", timeout=10000)
+        settle(page)
+        self.assertEqual(
+            sorted((p["doc"], p["verdict"]) for p in self.pins().values()), [("fig", "채택"), ("rv", "보류")]
+        )
+
+    def test_tab_stays_inside_and_a_close_gives_the_focus_back(self):
+        """[이유 추가] opens an empty popover with the focus; Tab moves to its buttons and it stays open (a labelled group).
+        [닫기] closes it and the focus is back on the line's [이유 추가]."""
+        page = self.on("fig")
+        self.press_page(page, 1, "채택")
+        open_reason(page, 1)
+        page.keyboard.press("Tab")
+        settle(page)
+        self.assertIsNotNone(page.evaluate(POP, 1))
+        self.assertTrue(page.evaluate("()=>!!document.activeElement.closest('#doc .pv-pop')"))
+        self.assertEqual(
+            page.evaluate(
+                "()=>{const p=document.querySelector('#doc .pv-pop'); return [p.getAttribute('role'), document.getElementById(p.getAttribute('aria-labelledby')).textContent];}"
+            ),
+            ["group", "판정 #1 채택 이유"],
+        )
+        page.locator('#doc .pv[data-page="1"] [data-act="pv-reason-close"]').focus()
+        page.keyboard.press("Enter")
+        settle(page)
+        self.assertIsNone(page.evaluate(POP, 1))
+        self.assertTrue(page.evaluate("()=>document.activeElement.classList.contains('pv-add')"))
+
+    def test_the_pressed_word_has_a_check_and_says_how_to_take_it_back(self):
+        """채택 saved: its word carries a check, is described by '지금 채택 판정 · 다시 누르면 판정 취소', which shows over the
+        words right after the press and on the keyboard's focus - the line's height does not change."""
+        page = self.on("fig")
+        self.press_page(page, 1, "채택")
+        page.evaluate(END_CHIPS)
+        settle(page)
+        b = WORD % (1, "채택")
+        got = page.evaluate(
+            """s=>{const b=document.querySelector(s), d=document.getElementById(b.getAttribute('aria-describedby'));
+              return {check: !!b.querySelector('.ic-check'), desc: d && d.textContent};}""",
+            b,
+        )
+        self.assertEqual(got, {"check": True, "desc": "지금 채택 판정 · 다시 누르면 판정 취소"})
+        hint = "()=>{const h=document.querySelector('#doc .pv[data-page=\"1\"] .pv-onhint'); return getComputedStyle(h).display!=='none';}"
+        h0 = page.evaluate("()=>document.querySelector('#doc .pv[data-page=\"1\"]').getBoundingClientRect().height")
+        self.assertTrue(page.evaluate(hint))  # right after the press
+        page.wait_for_function(
+            "()=>!document.querySelector('#doc .pv[data-page=\"1\"]').classList.contains('pv-onshow')", timeout=6000
+        )
+        page.mouse.move(1, 1)
+        self.assertFalse(page.evaluate(hint))
+        page.focus(b)
+        page.keyboard.press("Shift+Tab")
+        page.keyboard.press("Tab")
+        self.assertTrue(page.evaluate(hint))
+        self.assertEqual(
+            page.evaluate("()=>document.querySelector('#doc .pv[data-page=\"1\"]').getBoundingClientRect().height"), h0
+        )
+
+    def test_fold_keeps_the_draft_behind_a_mark_that_opens_it(self):
+        """'접어 둘 이유' typed, [접기]: the popover goes, nothing is written, the draft is kept and the line shows '초안 있음'
+        with the focus; pressed, the popover is back with the text."""
+        page = self.on("fig")
+        pid = self.press_page(page, 1, "채택")
+        open_reason(page, 1)
+        page.keyboard.type("접어 둘 이유")
+        page.locator('#doc .pv[data-page="1"] [data-act="pv-reason-fold"]').click()
+        settle(page)
+        self.assertIsNone(page.evaluate(POP, 1))
+        self.assertEqual(self.pins()[pid]["note"], "")
+        self.assertEqual(page.evaluate(DRAFTS), {"fig:%d" % pid: "접어 둘 이유"})
+        self.assertEqual(
+            page.evaluate(
+                "()=>[document.activeElement.className.includes('pv-draft'), document.activeElement.textContent]"
+            ),
+            [True, "초안 있음"],
+        )
+        page.keyboard.press("Enter")
+        page.wait_for_selector('#doc .pv[data-page="1"] .pv-pop .pv-reason')
+        self.assertEqual(page.evaluate(POP, 1)["value"], "접어 둘 이유")
+
+    def test_an_editable_saved_reason_has_a_pencil_and_its_name(self):
+        page = self.on("fig")
+        self.saved(page, "연필 이유")
+        got = page.evaluate(
+            """()=>{const b=document.querySelector('#doc .pv[data-page="1"] button.pv-note');
+              return {pencil: !!b.querySelector('.ic-pencil'), name: b.getAttribute('aria-label'), tip: b.dataset.tip};}"""
+        )
+        self.assertEqual(
+            got, {"pencil": True, "name": "저장된 이유 수정 — 판정 #1 · 연필 이유", "tip": "저장된 이유 수정"}
+        )
