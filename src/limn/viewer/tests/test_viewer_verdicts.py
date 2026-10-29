@@ -2720,6 +2720,97 @@ class Cancel(VerdictBase):
         got = phone.evaluate(drop, v)
         self.assertEqual((got["name"], got["shown"]), ("지우기", False))
 
+    def test_a_phones_floating_line_holds_the_cancel_back_and_the_in_place_line_offers_it(self):
+        """390x844 touch, page 2 taller than the area and Alice's verdict on it: while its line floats it has no
+        [판정 취소] (the line is no taller than without it); scrolled until the line stands in its place under the page, it
+        offers it with its 44px. Near that point the line does not flip between the two. At 1400 the floating line keeps
+        it."""
+        cancel_shown = """n=>{const c=document.querySelector('#doc .pv[data-page="'+n+'"] .pv-cancel'); if(!c)return null;
+          const b=c.getBoundingClientRect(); return c.getClientRects().length?{h:b.height}:false;}"""
+        phone = self.on("fig", viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+        phone.evaluate("setSide(false)")
+        phone.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        phone.evaluate(SCROLL, [2, "top"])
+        settle(phone)
+        self.press_page(phone, 2, "채택")
+        phone.evaluate(END_CHIPS)
+        phone.evaluate("()=>{PV_REASON=null; drawPageVerdicts();}")  # the reason field closed: the line as it rests
+        phone.evaluate(SCROLL, [2, "mid"])
+        settle(phone)
+        self.assertTrue(phone.evaluate(FLOAT, 2)["stuck"])
+        self.assertIs(phone.evaluate(cancel_shown, 2), False)
+        # in its place: page 2's end 300px under the area's top
+        phone.evaluate(
+            """()=>{const L=document.querySelector('#left'),r=document.getElementById('p2').getBoundingClientRect();
+              L.scrollTop+=r.bottom-(L.getBoundingClientRect().top+300);}"""
+        )
+        settle(phone)
+        self.assertFalse(phone.evaluate(FLOAT, 2)["stuck"])
+        got = phone.evaluate(cancel_shown, 2)
+        self.assertTrue(got and got["h"] >= 44, got)
+        # Scrolled back through the page's end in 8px steps: one more pass settles it (no flip-flop), and whether the
+        # cancel shows never flips back at one position (only whether the shorter line still floats may follow).
+        states = phone.evaluate(
+            """()=>{const L=document.querySelector('#left'),l=document.querySelector('#doc .pv[data-page="2"]'),out=[];
+              const st=()=>[l.classList.contains('stuck'),l.classList.contains('pv-lean')];
+              for(let i=0;i<120;i++){L.scrollTop-=8; pvStick(); const a=st(); pvStick(); const b=st(); pvStick(); out.push([a,b,st()]);}
+              return out;}"""
+        )
+        self.assertTrue(all(b == c and a[1] == c[1] for a, b, c in states), states)
+        self.assertEqual(states[-1][2], [True, True])
+        desk = self.on("fig", n_open=1)
+        desk.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        desk.evaluate(SCROLL, [2, "mid"])
+        settle(desk)
+        self.assertTrue(desk.evaluate(FLOAT, 2)["stuck"])
+        self.assertTrue(desk.evaluate(cancel_shown, 2))
+
+    def test_the_cancel_reads_as_a_muted_destructive_action_not_a_link(self):
+        """[판정 취소] is neither the blue of the '#N' link and the earlier link nor bolder than the line's text; its colour
+        leans to the danger hue and holds 4.5:1 on the line in both themes; it underlines only on hover."""
+        page = self.on("fig")
+        self.press_page(page, 1, "보류")
+        self.press_page(page, 1, "채택")
+        page.evaluate(END_CHIPS)
+        settle(page)
+        look = """()=>{const l=document.querySelector('#doc .pv[data-page="1"]'),c=l.querySelector('.pv-cancel'),cs=e=>getComputedStyle(e);
+          const rgb=s=>{const v=s.match(/[\\d.]+/g).slice(0,3).map(Number); return s.startsWith('color(')?v.map(x=>x*255):v;}, lum=a=>{const f=v=>{v/=255; return v<=0.03928?v/12.92:Math.pow((v+0.055)/1.055,2.4);};
+            const [r,g,b]=a.map(f); return 0.2126*r+0.7152*g+0.0722*b;};
+          let bg=l; while(bg&&cs(bg).backgroundColor.replace(/\\s/g,'').match(/rgba\\(.*,0\\)$|transparent/))bg=bg.parentElement;
+          const fg=rgb(cs(c).color),bk=rgb(cs(bg).backgroundColor),L1=lum(fg),L2=lum(bk);
+          return {color:cs(c).color, ref:cs(l.querySelector('.pv-ref')).color, early:cs(l.querySelector('.pv-early')).color,
+            weight:cs(c).fontWeight, text:cs(l.querySelector('.pv-st')).fontWeight, line:cs(c).textDecorationLine,
+            red:fg[0]>fg[2], ratio:(Math.max(L1,L2)+0.05)/(Math.min(L1,L2)+0.05)};}"""
+        for theme in ("light", "dark"):
+            with self.subTest(theme=theme):
+                page.evaluate("t=>setTheme(t)", theme)
+                settle(page)
+                got = page.evaluate(look)
+                self.assertNotEqual(got["color"], got["ref"])
+                self.assertNotEqual(got["color"], got["early"])
+                self.assertEqual(got["weight"], got["text"])
+                self.assertTrue(got["red"], got)
+                self.assertGreaterEqual(got["ratio"], 4.5, got)
+                self.assertEqual(got["line"], "none")
+        page.hover('#doc .pv[data-page="1"] .pv-cancel')
+        self.assertEqual(
+            page.evaluate(
+                "getComputedStyle(document.querySelector('#doc .pv[data-page=\"1\"] .pv-cancel')).textDecorationLine"
+            ),
+            "underline",
+        )
+
+    def test_the_cancels_description_waits_for_the_save_chip_too(self):
+        """Right after a save the line's [판정 취소] has no description either (its box stood over the chip); it has one
+        again once the chip goes."""
+        page = self.on("fig")
+        self.press_page(page, 1, "채택")
+        tip = "()=>document.querySelector('#doc .pv[data-page=\"1\"] .pv-cancel').getAttribute('data-tip')"
+        self.assertIsNone(page.evaluate(tip))
+        page.evaluate(END_CHIPS)
+        settle(page)
+        self.assertTrue(page.evaluate(tip))
+
 
 class CancelAgentRole(VerdictBase):
     """A person whose role is now agent has no [판정 취소], even on a verdict they made before (D16: the server refuses an
@@ -2774,24 +2865,44 @@ class TipAfterSave(VerdictBase):
         page.wait_for_function("()=>!document.querySelector('#tip').hidden")
 
 
+class _Swallowed:
+    """A route whose answer the browser never gets: forward() writes through the handler, then the test aborts it."""
+
+    def __init__(self, route):
+        self.request = route.request
+
+    def fulfill(self, **_):
+        return None
+
+
 class ReasonRaces(VerdictBase):
-    """The reason field's rare orders (#294): a document with no page lines, moving on while Enter's write is out, and a
-    write that fails on moving on."""
+    """The reason field's rare orders (#294, and the review of PR #298): a document with no page lines, moving on while
+    Enter's write is out, a write that fails on moving on, an answer lost after the server wrote it, a corrected draft
+    after a failed Enter, and a cancel while the reason is unsent or on its way."""
 
     def setUp(self):
         super().setUp()
         self.edits: list = []  # every POST /api/pins/N/edit body the viewer sent
         self.held_edit: list | None = None  # those held unanswered while not None
-        self.lose_edit = 0  # how many to lose on the network
+        self.lose_edit = 0  # how many to lose on the network before the server sees them
+        self.lose_answer = 0  # how many the server writes whose answer is lost on the way back
         self.refuse_edit = 0  # how many to answer 400
+        self.lose_drop = 0  # how many POST /api/pins/N/drop to lose on the network
 
     def route(self, route):
         rq = route.request
         path = urlparse(rq.url).path
+        if rq.method == "POST" and path.startswith("/api/pins/") and path.endswith("/drop") and self.lose_drop:
+            self.lose_drop -= 1
+            return route.abort()
         if rq.method == "POST" and path.startswith("/api/pins/") and path.endswith("/edit"):
             self.edits.append(json.loads(rq.post_data or "{}"))
             if self.lose_edit:
                 self.lose_edit -= 1
+                return route.abort()
+            if self.lose_answer:
+                self.lose_answer -= 1
+                self.forward(_Swallowed(route))
                 return route.abort()
             if self.refuse_edit:
                 self.refuse_edit -= 1
@@ -2917,3 +3028,118 @@ class ReasonRaces(VerdictBase):
         settle(page)
         self.assertEqual(self.note(pid), "엔터 실패")
         self.assertIsNone(page.evaluate(REASON, 1))
+
+    def retry(self, page):
+        """Press the status line's [다시 시도]."""
+        page.locator("#status [data-act=notice-act]").filter(has_text="다시 시도").click()
+
+    def test_an_answer_lost_after_the_server_wrote_the_reason_is_not_written_twice(self):
+        """The reason written on moving on, its answer lost: the status line offers [다시 시도]; pressed, the pin is read
+        again, holds the reason already, and nothing is sent - the note is the reason once, and it is said as saved."""
+        page = self.on("fig")
+        pid = self.typed(page, 1, "한 번 쓴 이유")
+        self.lose_answer = 1
+        page.evaluate("k=>switchDoc(k)", "ms")
+        page.wait_for_function("()=>LINE.some(n=>n.title.startsWith('이유 저장 실패'))")
+        settle(page)
+        self.assertEqual(self.note(pid), "한 번 쓴 이유")  # the server has it
+        self.retry(page)
+        page.wait_for_function("id=>LINE.some(n=>n.title==='이유 저장됨 · #'+id)", arg=pid)
+        settle(page)
+        self.assertEqual(len(self.edits), 1, self.edits)
+        self.assertEqual(self.note(pid), "한 번 쓴 이유")
+
+    def test_a_lost_answer_under_someones_note_and_a_rev_conflict_append_nothing_twice(self):
+        """Bob's note on the pin first, then the reason appended on moving on with its answer lost, then Bob edits again (a
+        new rev): [다시 시도] finds '(추가 HH:MM) 이유' already there and sends nothing."""
+        page = self.on("fig")
+        pid = self.typed(page, 1, "덧붙인 이유")
+        rev = self.pins()[pid]["rev"]
+        self.assertEqual(
+            self.call("POST", "/api/pins/%d/edit" % pid, {"note": "밥의 메모", "base_rev": rev}, BOB)[0], 200
+        )
+        self.reload(page)  # the viewer knows Bob's note: the reason goes under it (note_append)
+        self.lose_answer = 1
+        page.evaluate("k=>switchDoc(k)", "ms")
+        page.wait_for_function("()=>LINE.some(n=>n.title.startsWith('이유 저장 실패'))")
+        settle(page)
+        self.assertEqual(self.call("POST", "/api/pins/%d/edit" % pid, {"note_append": "밥이 또"}, BOB)[0], 200)
+        self.retry(page)
+        page.wait_for_function("id=>LINE.some(n=>n.title==='이유 저장됨 · #'+id)", arg=pid)
+        settle(page)
+        note = self.note(pid)
+        self.assertEqual(note.count("덧붙인 이유"), 1, note)
+        self.assertEqual(len(self.edits), 1, self.edits)
+
+    def test_after_a_failed_enter_the_retry_saves_the_corrected_draft(self):
+        """Enter lost on the network; the field stays, and the person corrects it. The status line's [다시 시도] writes the
+        draft as it is now - the field waits (disabled) while it does - and the field closes with that text saved."""
+        page = self.on("fig")
+        pid = self.typed(page, 1, "첫 글")
+        self.lose_edit = 1
+        page.keyboard.press("Enter")
+        page.wait_for_function("()=>LINE.some(n=>n.title.startsWith('이유 저장 실패'))")
+        settle(page)
+        page.fill('#doc .pv[data-page="1"] .pv-reason', "고친 글")
+        self.held_edit = []
+        self.retry(page)
+        page.wait_for_function(
+            "()=>document.querySelector('#doc .pv-reason')&&document.querySelector('#doc .pv-reason').disabled"
+        )
+        page.wait_for_timeout(200)
+        held, self.held_edit = self.held_edit, None
+        for r in held:
+            self.forward(r)
+        settle(page)
+        self.assertEqual(self.note(pid), "고친 글")
+        self.assertIsNone(page.evaluate(REASON, 1))
+
+    def test_a_corrected_draft_replaces_the_first_one_whose_answer_was_lost(self):
+        """Enter written but its answer lost; the field stays and is corrected; Enter again: the pin is read, its note is
+        the first draft from this session, and the corrected one takes its place - one reason, not two."""
+        page = self.on("fig")
+        pid = self.typed(page, 1, "오타 있는 글")
+        self.lose_answer = 1
+        page.keyboard.press("Enter")
+        page.wait_for_function("()=>LINE.some(n=>n.title.startsWith('이유 저장 실패'))")
+        settle(page)
+        self.assertEqual(self.note(pid), "오타 있는 글")
+        page.fill('#doc .pv[data-page="1"] .pv-reason', "고친 글")
+        page.keyboard.press("Enter")
+        page.wait_for_function("()=>!document.querySelector('#doc .pv-reason')")
+        settle(page)
+        self.assertEqual(self.note(pid), "고친 글")
+
+    def test_a_failed_cancel_brings_back_the_unsent_reason(self):
+        """'보내지 않은 이유' typed (no Enter), then [판정 취소] lost on the network: the verdict is back on the line and so is
+        its field, with the text."""
+        page = self.on("fig")
+        pid = self.typed(page, 1, "보내지 않은 이유")
+        self.lose_drop = 1
+        page.locator(CANCEL % 1).click()
+        page.wait_for_function("()=>LINE.some(n=>n.title==='판정 취소 실패')")
+        settle(page)
+        self.assertEqual(page.evaluate(LINE, 1)["pin"], str(pid))
+        self.assertEqual(page.evaluate(REASON, 1)["value"], "보내지 않은 이유")
+        self.assertEqual(self.edits, [])
+
+    def test_cancelling_while_the_reason_is_on_its_way_says_nothing_of_it(self):
+        """Enter, and [판정 취소] before the edit reaches the server: the edit then finds the pin gone, and the status line
+        says the cancel only - no '이유 저장 실패'."""
+        page = self.on("fig")
+        pid = self.typed(page, 1, "가는 중")
+        self.held_edit = []
+        page.keyboard.press("Enter")
+        page.wait_for_function(
+            "()=>document.querySelector('#doc .pv-reason')&&document.querySelector('#doc .pv-reason').disabled"
+        )
+        page.locator(CANCEL % 1).click()
+        page.wait_for_function("id=>!OPEN_ALL.some(p=>p.id===id)", arg=pid)
+        page.wait_for_timeout(200)
+        held, self.held_edit = self.held_edit, None
+        for r in held:
+            self.forward(r)
+        settle(page)
+        titles = [n["title"] for n in page.evaluate(STATUS)]
+        self.assertFalse([t for t in titles if t.startswith("이유 저장 실패") or "지워졌습니다" in t], titles)
+        self.assertIn("판정 #%d 채택 취소됨 · Deployment calendar" % pid, titles)

@@ -189,11 +189,19 @@ body.lay-narrow.has-status:not(.typing){--pv-inset:calc(var(--sheet-h,0px) + 24p
 .pv .vd-w{color:var(--foreground);font-weight:600}
 .pv .pv-st{color:var(--foreground)}
 .pv .vd-btns{flex:0 1 auto}
-/* The earlier verdicts' link and [판정 취소] (a text action in the row): the viewer's link look - primary text, no underline
-   at rest, a solid one on hover and :focus-visible (cards.css §One unified link style). */
-.pv button:is(.pv-early,.pv-cancel){color:var(--primary);padding-inline:var(--space-1);text-decoration:none;text-underline-offset:3px}
-.pv button:is(.pv-early,.pv-cancel):focus-visible{background:transparent;text-decoration:underline}
-@media (hover:hover){.pv button:is(.pv-early,.pv-cancel):hover{background:transparent;color:var(--primary);text-decoration:underline}}
+/* The earlier verdicts' link: the viewer's link look - primary text, no underline at rest, a solid one on hover and
+   :focus-visible (cards.css §One unified link style). */
+.pv button.pv-early{color:var(--primary);padding-inline:var(--space-1);text-decoration:none;text-underline-offset:3px}
+.pv button.pv-early:focus-visible{background:transparent;text-decoration:underline}
+@media (hover:hover){.pv button.pv-early:hover{background:transparent;color:var(--primary);text-decoration:underline}}
+/* [판정 취소]: a text action that takes a verdict back, not a way to somewhere - muted destructive text (the danger hue
+   leaning to the line's own text, so it never outshouts the state or reads as the blue links), the line's weight, and the
+   link's underline only on hover and :focus-visible. A phone's floating line holds it back (.pv-lean, verdict.js pvLean). */
+.pv button.pv-cancel{--pv-cancel-fg:color-mix(in srgb,var(--destructive) 78%,var(--foreground));color:var(--pv-cancel-fg);font-weight:inherit;
+  padding-inline:var(--space-1);text-decoration:none;text-underline-offset:3px}
+.pv button.pv-cancel:focus-visible{background:transparent;text-decoration:underline}
+@media (hover:hover){.pv button.pv-cancel:hover{background:transparent;color:var(--pv-cancel-fg);text-decoration:underline}}
+body.band-phone .pv.pv-lean .pv-cn{display:none}
 /* When any page's line cannot hold its words and buttons on one row, every line puts the buttons on a row of their own, at
    its start (sizePv sets #doc.pv-stack) - one rhythm on every page. */
 #doc.pv-stack .pv .vd-btns{flex-basis:100%}
