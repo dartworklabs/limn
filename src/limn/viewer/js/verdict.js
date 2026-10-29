@@ -784,7 +784,7 @@ function pvChipPlace(lines){const chips=lines.map(l=>/** @type {HTMLElement|null
     const lr=l.getBoundingClientRect(),R=(/** @type {Element} */e)=>e.getBoundingClientRect(),shown=(/** @type {Element} */e)=>e.getClientRects().length>0;
     const words=[...l.querySelectorAll(':scope>.vd-btns>*')].filter(shown).map(R);
     const parts=[...l.querySelectorAll(':scope>.pv-fig>.pv-fig-id,:scope>.pv-fig-sep,:scope>.pv-t *,:scope>.pv-err')].filter(e=>shown(e)&&!e.closest('.pv-pop')).map(R);
-    const pop=l.querySelector(':scope>.pv-pop'),keep=parts.concat(words,pop&&shown(pop)?[R(pop)]:[]),ch=R(c),w=(/** @type {string} */q)=>{const e=c.querySelector(q); return e&&shown(e)?R(e).width+8:0;};   // a part and its 8px gap
+    const pop=l.querySelector(':scope>.pv-pop'),keep=parts.concat(words,pop&&shown(pop)?[R(pop)]:[]),ch=R(c),gap=parseFloat(getComputedStyle(c).columnGap)||0,w=(/** @type {string} */q)=>{const e=c.querySelector(q); return e&&shown(e)?R(e).width+gap:0;};   // a part and the chip's own gap beside it (4px): taken as 8px, the folded chip came out 8px wider than measured and stood 2px from the identifier
     const sizes=[ch.width,ch.width-w('.nt-t'),ch.width-w('.nt-t')-w('.nt-ic')];
     // A room on the row through y (a box's middle) from left to right: the room less 8px off every part in that row's height.
     /** @param {number} y @param {number} left @param {number} right */

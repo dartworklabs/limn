@@ -2225,7 +2225,7 @@ class LineLayout(VerdictBase):
             .filter(e=>{const r=b(e); return r.left<cb.right+4&&r.right>cb.left-4&&r.top<cb.bottom&&r.bottom>cb.top;}).map(e=>e.className.toString());
           return {chip:true,covers:hit,short:l.classList.contains('pv-chip-short'),words:v(c.querySelector('.nt-t')),undo:v(c.querySelector('[data-act="notice-act"]'))};}"""
         seen = set()
-        for w in [0] + list(range(1400, 280, -40)):
+        for w in [0] + list(range(1400, 280, -2)):  # every 2px: a folded chip 8px wider than measured covered the identifier at 744-760px only
             got = page.evaluate(geom, w)
             if got["chip"]:
                 self.assertEqual(got["covers"], [], (w, got))
