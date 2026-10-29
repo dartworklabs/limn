@@ -172,39 +172,41 @@ body.lay-narrow.has-status:not(.typing,.pv-typing){--pv-inset:calc(var(--sheet-h
 /* One row or stacked, decided per line (sizePv sets .pv-stack on a line whose words and buttons cannot share one row). A
    row (most lines, and every line on a wide screen) keeps its buttons on the row's end and gives way from the start: the
    figure's title (.pv-fig-t) is cut first, down to the identifier before it ('7쪽 · PL18', .pv-fig-id, never cut), and
-   grows last; then the reason (.pv-note) and the earlier verdicts' link (.pv-early) shrink, cut to fit; the state's own
-   words, [판정 취소] and the buttons never do. The failure line and the reason field
-   are rows of their own under it (a save chip's place: notices.css). What
-   gives way is clipped across only (overflow-x: clip): the '#N' link's and the earlier link's areas reach over and under. */
+   grows last; then the reason (.pv-note, also as the button that opens its popover), a save's or an armed word's words
+   (.pv-busy, .pv-arm) and the earlier verdicts' link (.pv-early) shrink, cut to fit; the state's own words, [이유 추가],
+   [판정 취소] and the buttons never do. The failure line is a row of its own under it (a save chip's place: notices.css;
+   the reason popover's: verdict-reason.css, above the line). What gives way is clipped across only (overflow-x: clip):
+   the '#N' link's and the text actions' areas reach over and under. The reason's and [이유 추가]'s own spans are
+   display: contents (verdict-reason.css), so their parts are the row's items too. */
 .pv:not(.pv-stack)>.pv-fig{flex:1 1 0;min-width:var(--pv-fig-min,0px);max-width:max-content;overflow:hidden}
-.pv.pv-tight:not(.pv-stack)>.pv-t>.pv-note{min-width:0}   /* the wide band's last cuts before a second row (pvFit) */
-.pv.pv-tight:not(.pv-stack)>.pv-t>.pv-early{min-width:2em}
+.pv.pv-tight:not(.pv-stack)>.pv-t :is(.pv-note,.pv-busy,.pv-arm){min-width:0}   /* the wide band's last cuts before a second row (pvFit) */
+.pv.pv-tight:not(.pv-stack)>.pv-t .pv-early{min-width:2em}
 .pv:not(.pv-stack)>.pv-t{flex:1000 1 0;min-width:0;max-width:max-content;flex-wrap:nowrap;overflow-x:clip;overflow-y:visible}
-.pv:not(.pv-stack)>.pv-t>*{flex:none;white-space:nowrap}
-.pv:not(.pv-stack)>.pv-t>.pv-note{flex:0 100 auto;min-width:3em;max-width:none}
-.pv:not(.pv-stack)>.pv-t>.pv-early{flex:0 10 auto;min-width:5em;overflow-x:clip;overflow-y:visible;text-overflow:ellipsis}
+.pv:not(.pv-stack)>.pv-t>*,.pv:not(.pv-stack)>.pv-t>:is(.pv-rn,.pv-ra)>*{flex:none;white-space:nowrap}
+.pv:not(.pv-stack)>.pv-t .pv-note{flex:0 100 auto;min-width:3em;max-width:none}
+.pv:not(.pv-stack)>.pv-t :is(.pv-busy,.pv-arm){flex:0 50 auto;min-width:6em;overflow-x:clip;overflow-y:visible;text-overflow:ellipsis}
+.pv:not(.pv-stack)>.pv-t .pv-early{flex:0 10 auto;min-width:5em;overflow-x:clip;overflow-y:visible;text-overflow:ellipsis}
 .pv:not(.pv-stack)>.pv-t{margin-right:auto}
 .pv:not(.pv-stack)>.vd-btns{flex:none}
 .pv>.vd-btns{order:2}
-.pv>:is(.pv-err,.pv-reason){order:4}
+.pv>.pv-err{order:4}
 /* The floating line names the figure its words decide before its state: its identifier ('7쪽 · PL18', never cut) and its
    title ('[후보] 다섯 쌍의 …', cut to fit) - verdict.js pvFigParts; on a row its least width is that identifier's
    (--pv-fig-min, pvFit). A verdict's reason (its note's first line) ends the state, cut to fit too. */
 .pv .pv-fig{display:flex;flex:0 1 auto;max-width:min(45%,28em);white-space:nowrap;color:var(--foreground);font-weight:600}
 .pv .pv-fig-id{flex:none}
 .pv .pv-fig-t{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:pre}
-.pv .pv-note{min-width:0;max-width:min(40%,24em);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--foreground)}
-/* The reason field after a save on this line (PV_REASON): a row of its own under the words, the field's own text selectable
-   inside the line that is not. */
-.pv .pv-reason{flex:1 1 100%;min-width:0;height:var(--control-h);padding-block:0;font-size:var(--text-sm);user-select:text;-webkit-user-select:text}
-@media (pointer:coarse){.pv .pv-reason{height:var(--hit);font-size:var(--text-xl)}}   /* 16px: a phone does not zoom into it */
+.pv .pv-note{min-width:0;max-width:min(40%,24em);overflow-x:clip;overflow-y:visible;text-overflow:ellipsis;white-space:nowrap;color:var(--foreground)}
+/* The inline reason field this line still draws until the reason popover (verdict-reason.css) replaces it: a row of its own
+   under the words. Only the line's own input - the popover's field is not this rule's; it goes with the inline field. */
+.pv>input.pv-reason{order:4;flex:1 1 100%;min-width:0;height:var(--control-h);padding-block:0;font-size:var(--text-sm);user-select:text;-webkit-user-select:text}
+@media (pointer:coarse){.pv>input.pv-reason{height:var(--hit);font-size:var(--text-xl)}}
 /* Where the buttons stand on a row of their own (.pv-stack: a phone, a folded cover), the figure's name does too, close
-   over the state (4px; the touch rows' 20px is for the '#N' link's 44px hit and the buttons under it), and the reason field
-   8px under the buttons - the floating line is as short as its 44px targets allow. */
+   over the state (4px; the touch rows' 20px is for the '#N' link's 44px hit and the buttons under it) - the floating line is
+   as short as its 44px targets allow. */
 .pv.pv-stack .pv-fig{flex-basis:100%;max-width:100%}
 .pv.pv-stack .pv-fig-sep{display:none}
-@media (pointer:coarse){.pv.pv-stack .pv-fig{margin-bottom:calc(var(--space-1) - var(--space-5))}
-  .pv.pv-stack .pv-reason{margin-top:calc(var(--space-2) - var(--space-5))}}
+@media (pointer:coarse){.pv.pv-stack .pv-fig{margin-bottom:calc(var(--space-1) - var(--space-5))}}
 /* While the reason is typed on a touch screen (body.pv-typing: a text field in a page line has the focus, verdict.js) the
    keyboard leaves little of the page: the line drops its figure's name and its save chip folds to its [되돌리기] - and the
    status line over the sheet steps aside as it does for a panel field (responsive.css) - so the plot keeps what is left. */

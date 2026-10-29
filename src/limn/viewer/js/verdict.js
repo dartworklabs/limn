@@ -660,9 +660,10 @@ function pvFit(lines){lines.forEach(l=>l.classList.remove('pv-stack','pv-tight',
   // The figure's least width is its identifier's (--pv-fig-min): its title's own text would otherwise count in it.
   const ids=lines.map(l=>{const e=l.querySelector(':scope>.pv-fig>.pv-fig-id'); return e&&e.getClientRects().length?Math.ceil(e.getBoundingClientRect().width):0;});
   lines.forEach((l,i)=>l.style.setProperty('--pv-fig-min',ids[i]+'px'));
-  // Whether line l's row does not hold: the state runs past its share, or the buttons went to a row of their own.
+  // Whether line l's row does not hold: the state runs past its share (its parts, also those inside a display: contents span -
+// the reason and [이유 추가]), or the buttons went to a row of their own.
   const tight=(/** @type {HTMLElement} */l)=>{const t=l.querySelector(':scope>.pv-t'),g=l.querySelector(':scope>.vd-btns'); if(!t)return false;
-    const tr=t.getBoundingClientRect(); return [...t.children].some(c=>c.getClientRects().length>0&&c.getBoundingClientRect().right>tr.right+1)
+    const tr=t.getBoundingClientRect(); return [...t.querySelectorAll(':scope>*,:scope>*>*')].some(c=>c.getClientRects().length>0&&c.getBoundingClientRect().right>tr.right+1)
       ||(!!g&&g.getClientRects().length>0&&g.getBoundingClientRect().top>=tr.bottom-1);};
   let over=lines.map(tight);
   if(LAYOUT===LAYOUT_MODE.WIDE&&over.some(o=>o)){lines.forEach((l,i)=>{if(over[i])l.classList.add('pv-tight');}); over=lines.map((l,i)=>over[i]&&tight(l));}
@@ -672,7 +673,7 @@ function pvFit(lines){lines.forEach(l=>l.classList.remove('pv-stack','pv-tight',
     const lr=l.getBoundingClientRect(),gr=g&&g.getClientRects().length?g.getBoundingClientRect():null;
     // The room a row's chip has: from the end of what it must not cover - the figure's identifier, the current verdict and its
     // state ('판정 #4 채택 · 처리 대기', who and when) - to the buttons, less a gap on each side.
-    let room=-1,cw=0; if(c&&gr&&!over[i]){const keep=[...l.querySelectorAll(':scope>.pv-fig>.pv-fig-id,:scope>.pv-t>:is(.pv-s,.pv-st,.pv-au,.pv-at)')]
+    let room=-1,cw=0; if(c&&gr&&!over[i]){const keep=[...l.querySelectorAll(':scope>.pv-fig>.pv-fig-id,:scope>.pv-t>:is(.pv-s,.pv-st,.pv-au,.pv-at,.pv-arm)')]
         .filter(e=>e.getClientRects().length>0).reduce((r,e)=>Math.max(r,e.getBoundingClientRect().right),lr.left);
       room=Math.floor(gr.left-keep-16); cw=Math.ceil(c.getBoundingClientRect().width);}
     const w=(/** @type {string} */q)=>{const e=c&&c.querySelector(q); return e&&e.getClientRects().length?e.getBoundingClientRect().width+8:0;};   // a part and its 8px gap
