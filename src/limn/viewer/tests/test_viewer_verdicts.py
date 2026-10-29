@@ -678,19 +678,32 @@ class ReviewFixes(VerdictBase):
                 page.hover(link)
                 self.assertEqual(page.evaluate(deco, link), "underline")
 
-    def test_on_a_phone_every_line_puts_its_buttons_on_a_row_of_their_own(self):
-        """390x844: a line too long for one row (an earlier verdict) puts its buttons on the next row, at its start, and so
-        does every other page's short line - one rhythm; the desktop keeps them at the end of the row."""
+    def test_on_a_phone_each_line_decides_its_own_rows(self):
+        """390x844: a line too long for one row (page 2's, an earlier verdict on a narrow page) puts its buttons on the next
+        row, at its start (.pv-stack on that line), and page 1's short line ('판정 없음') keeps its one row - per line (P2-7
+        of the 0.4.33 review: one long line stacked every page's, 88px over the plot at 1440). The desktop keeps the same
+        long state on one row on its wide page, and the short line too."""
         rows = """()=>[...document.querySelectorAll('#doc .pv')].map(l=>{const t=l.querySelector('.pv-t').getBoundingClientRect(),
           b=l.querySelector('.vd-btns').getBoundingClientRect(),L=l.getBoundingClientRect();
-          return {below: b.top>=t.bottom-1, start: Math.abs(b.left-L.left)<=1};})"""
+          return {below: b.top>=t.bottom-1, start: Math.abs(b.left-L.left)<=1, stack: l.classList.contains('pv-stack'), h: L.height};})"""
         page = self.on("fig", viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+        self.press_page(page, 2, "보류")
+        self.press_page(page, 2, "채택")
+        got = page.evaluate(rows)
+        self.assertEqual(
+            {k: got[1][k] for k in ("below", "start", "stack")}, {"below": True, "start": True, "stack": True}
+        )
+        self.assertEqual((got[0]["below"], got[0]["stack"]), (False, False))
+        self.assertFalse(page.evaluate("document.querySelector('#doc').classList.contains('pv-stack')"))
+        page = self.on("fig", n_open=2)
         self.press_page(page, 1, "보류")
         self.press_page(page, 1, "채택")
-        self.assertEqual(page.evaluate(rows), [{"below": True, "start": True}] * 2)
-        self.assertTrue(page.evaluate("document.querySelector('#doc').classList.contains('pv-stack')"))
-        page = self.on("fig", n_open=2)
-        self.assertEqual([r["below"] for r in page.evaluate(rows)], [False, False])
+        page.evaluate(END_CHIPS)
+        page.evaluate("()=>{PV_REASON=null; drawPageVerdicts();}")  # no reason field under it: the row alone
+        settle(page)
+        one = page.evaluate(rows)[0]
+        self.assertEqual((one["below"], one["stack"]), (False, False))
+        self.assertLessEqual(one["h"], 40)
 
     def test_two_verdicts_about_one_page_target_show_no_overlap_badge(self):
         """Two page verdicts on the figure's page 1 resolve to the same target: their cards carry no '#N와 같은 범위' (the
@@ -1016,7 +1029,8 @@ class SupersededMarker(VerdictBase):
 
     def test_a_folded_older_verdict_with_a_note_previews_its_badges(self):
         """A superseded verdict with a note: folded, its preview is its badge, the marker and the words '메모 있음' (the note
-        shows when opened); without a note there are no such words; the current verdict's preview is still its note."""
+        shows when opened); without a note there are no such words; the current verdict's preview leads with its badge and
+        then its note (P2-9 of the 0.4.33 review: a note took the whole preview and hid which verdict it was)."""
         page = self.on("ms")
         made = []
         for key, note in (("보류", "옛 판단"), ("채택", "새 판단")):
@@ -1037,7 +1051,7 @@ class SupersededMarker(VerdictBase):
             [a, b],
         )
         self.assertEqual(sums[0], {"text": "판정 보류" + replaced(b) + "메모 있음", "marker": True, "shown": True})
-        self.assertEqual(sums[1], {"text": "새 판단", "marker": False, "shown": True})
+        self.assertEqual(sums[1], {"text": "판정 채택새 판단", "marker": False, "shown": True})
 
     def test_a_done_row_with_the_marker_keeps_its_facts_on_two_lines(self):
         """A superseded verdict's done row at 320, 344 and 390 px (touch), in the ~300 px panel at 841 x 673 and at 1400 px:
@@ -1359,7 +1373,11 @@ class FunctionalUiFixes(VerdictBase):
                 page.evaluate("s=>document.querySelector(s).scrollIntoView({block:'center'})", ref)
                 settle(page)
                 if w == 390:
-                    self.assertTrue(page.evaluate("document.querySelector('#doc').classList.contains('pv-stack')"))
+                    self.assertTrue(
+                        page.evaluate(
+                            "document.querySelector('#doc .pv[data-page=\"1\"]').classList.contains('pv-stack')"
+                        )
+                    )
                 self.assertEqual(page.evaluate(MISSES_44, ref), [])
                 self.assertEqual(page.evaluate(MISSES_44, '#doc .pv[data-page="1"] button.vd-b'), [])
                 name = page.evaluate("s=>document.querySelector(s).getAttribute('aria-label')", ref)
@@ -1837,9 +1855,10 @@ class FloatingLine(VerdictBase):
         self.assertAlmostEqual(one["line"]["top"], one["page"]["bottom"] + 8, delta=1)
 
     def test_the_floating_line_is_under_save_chips_and_over_marks(self):
-        """A save from the floating line puts its chip above the line, pressable; a pin's mark lying under the floating
-        line does not take its buttons; the save chip on that mark - drawn where the line floats - stays pressable over the
-        line."""
+        """A save from the floating line puts its chip in the line's row, pressable: as high as the words, just before the
+        first one and after the figure's name - above the line it covered the name and the plot (P3-14 of the 0.4.33
+        review); a pin's mark lying under the floating line does not take its buttons; the save chip on that mark - drawn
+        where the line floats - stays pressable over the line."""
         helpers_figure.viewer_build(
             self.fig, helpers_figure.BUILD2, helpers_figure.viewer_map(july=(0.47, 0.70, 0.07, 0.12))
         )
@@ -1850,10 +1869,15 @@ class FloatingLine(VerdictBase):
         line = page.evaluate(FLOAT, 2)
         self.assertTrue(line["stuck"], line)
         chip = page.evaluate(
-            """()=>{const c=document.querySelector('#doc .pv[data-page="2"]>.nt-chip'); return c?(b=>({top:b.top,bottom:b.bottom}))(c.getBoundingClientRect()):null;}"""
+            """()=>{const l=document.querySelector('#doc .pv[data-page="2"]'),c=l.querySelector(':scope>.nt-chip'),R=e=>e.getBoundingClientRect();
+              if(!c)return null; const w=R(l.querySelector('.vd-b')),f=R(l.querySelector('.pv-fig'));
+              return {top:R(c).top,bottom:R(c).bottom,left:R(c).left,right:R(c).right,wordsTop:w.top,wordsBottom:w.bottom,words:w.left,name:f.right};}"""
         )
         self.assertIsNotNone(chip)
-        self.assertLessEqual(chip["bottom"], line["line"]["top"])
+        self.assertGreaterEqual(chip["top"], chip["wordsTop"] - 1, chip)
+        self.assertLessEqual(chip["bottom"], chip["wordsBottom"] + 1, chip)
+        self.assertLessEqual(chip["right"], chip["words"] - 8 + 1, chip)
+        self.assertGreaterEqual(chip["left"], chip["name"], chip)
         self.assertTrue(page.evaluate(ON_TOP, '#doc .pv[data-page="2"]>.nt-chip [data-act="notice-act"]'))
         # the July cell (drawn low on page 1 in this build) pinned from the composer at three times the print size - page 1
         # then taller than the area - its mark scrolled 30px under the floating line's top: the mark's save chip, drawn
@@ -1980,6 +2004,345 @@ class FloatingLine(VerdictBase):
         settle(page)
         self.assertEqual(page.evaluate("document.querySelector('#left').scrollTop"), top)
         self.assertTrue(page.evaluate(FLOAT, 2)["stuck"])
+
+
+# ---- The line's layout (the 0.4.33 review of the figure document `pl`): one row on a wide screen even with an earlier
+# verdict and a reason, stacking decided per line; the words, [판정 취소] and the '#N' link answer 32px with a mouse, 8px
+# apart, the confirm word 16px and a divider apart; the words' outline reads 3:1 in both themes; a line starts where its
+# page does beside what lies over the area's right; on the folded-open foldable in portrait the line floats on the open
+# sheet's top edge and typing the reason folds the figure's name, the save chip and the status line; a folded verdict card
+# shows its badge and figure; no description box while a confirm word waits.
+def open_reason(page, n, tap=False):
+    """Page n's reason field after a save on its line, pressed (or tapped) so it has the focus: the line's own field, or -
+    where the reason sits in a popover over the line - the one its [이유 추가] opens."""
+    line = '#doc .pv[data-page="%d"]' % n
+    page.wait_for_function(
+        "l=>!!document.querySelector(l+' .pv-reason')||!!document.querySelector(l+' button.pv-add')", arg=line
+    )
+    if not page.locator(line + " .pv-reason").count():
+        add = page.locator(line + " button.pv-add")
+        add.tap() if tap else add.click()
+        page.wait_for_selector(line + " .pv-reason")
+    field = page.locator(line + " .pv-reason")
+    field.tap() if tap else field.click()
+    return field
+
+
+FOLD_PORTRAIT = {"viewport": {"width": 882, "height": 1104}, "is_mobile": True, "has_touch": True}
+# Page n's line: its box, its classes, its words' boxes, [판정 취소], the '#N' link and its area (::after), the figure's
+# name, and whether its buttons share the state's row.
+GEOM = """n => {const l = document.querySelector('#doc .pv[data-page="' + n + '"]'), R = e => e && e.getClientRects().length ?
+    (b => ({left: b.left, top: b.top, right: b.right, bottom: b.bottom, width: b.width, height: b.height}))(e.getBoundingClientRect()) : null;
+  const t = l.querySelector(':scope>.pv-t'), g = l.querySelector(':scope>.vd-btns'), ref = l.querySelector('.pv-ref'), a = ref ? getComputedStyle(ref, '::after') : null;
+  const conf = l.querySelector('.vd-b.vd-confirm'), div = conf ? getComputedStyle(conf, '::before') : null;
+  return {line: R(l), cls: l.className, page: R(document.getElementById('p' + n)), words: [...l.querySelectorAll('.vd-b')].map(R),
+    cancel: R(l.querySelector('.pv-cancel')), early: R(l.querySelector('.pv-early')), ref: R(ref),
+    refArea: a && a.content !== 'none' ? [parseFloat(a.width), parseFloat(a.height)] : null,
+    divider: div && div.content !== 'none' ? parseFloat(div.width) : null, fig: R(l.querySelector(':scope>.pv-fig')),
+    oneRow: !!g && g.getBoundingClientRect().top < t.getBoundingClientRect().bottom - 1};}"""
+# The words' outline against the button's own fill and against the line's ground (the PDF area), as drawn: colours from
+# getComputedStyle composited over what is under them - the contrast ratio of each pair.
+BORDER = """() => {const b = document.querySelector('#doc .pv .vd-b');
+  const probe = (prop, el) => {const c = document.createElement('canvas').getContext('2d'); c.fillStyle = '#000'; c.fillStyle = getComputedStyle(el)[prop];
+    c.fillRect(0, 0, 1, 1); const d = c.getImageData(0, 0, 1, 1).data; return [d[0], d[1], d[2], d[3] / 255];};
+  const over = (f, g) => [0, 1, 2].map(i => f[i] * f[3] + g[i] * (1 - f[3]));
+  const lum = c => {const l = c.map(v => {v /= 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);}); return 0.2126 * l[0] + 0.7152 * l[1] + 0.0722 * l[2];};
+  const cr = (a, b) => {const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);};
+  let ground = [255, 255, 255]; const up = []; for (let e = b.parentElement; e; e = e.parentElement) up.push(e);
+  up.reverse().forEach(e => {ground = over(probe('backgroundColor', e), ground);});   // what the page paints under the button, root first
+  const fill = over(probe('backgroundColor', b), ground), edge = over(probe('borderTopColor', b), fill);
+  return {fill: cr(edge, fill), ground: cr(edge, ground)};}"""
+
+
+class LineLayout(VerdictBase):
+    """The line's row, its targets and its outline."""
+
+    def tall(self, page):
+        """Page 2 drawn taller than the PDF area (150% of the print size), its top in view: its line floats."""
+        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        settle(page)
+        page.evaluate(SCROLL, [2, "top"])
+        settle(page)
+
+    def test_a_wide_line_with_an_earlier_verdict_and_a_reason_stays_one_row(self):
+        """1440 x 900: page 1's line with an earlier verdict, [판정 취소] and a saved reason is one row no taller than 40px,
+        its buttons at the row's end; the floating line cuts its figure's name and keeps it; no line stacks (P2-7: one such
+        line stacked every page's, 88px over the plot)."""
+        page = self.on("fig")
+        self.press_page(page, 1, "보류")
+        self.press_page(page, 1, "채택")
+        field = open_reason(page, 1)
+        field.fill("범례가 막대를 가려 보류 쪽으로 기울지만 일단 채택")
+        field.press("Enter")
+        page.wait_for_function(
+            "()=>!document.querySelector('#doc .pv .pv-reason')&&!!document.querySelector('#doc .pv[data-page=\"1\"] .pv-note')"
+        )
+        page.evaluate(END_CHIPS)
+        page.evaluate("document.querySelector('#left').scrollTop=0")
+        settle(page)
+        got = page.evaluate(GEOM, 1)
+        self.assertTrue(got["oneRow"], got)
+        self.assertNotIn("pv-stack", got["cls"])
+        self.assertLessEqual(got["line"]["height"], 40)
+        self.assertIsNotNone(got["early"])
+        self.assertIsNotNone(got["cancel"])
+        self.assertTrue(  # the title is cut, its identifier ('1쪽') is not
+            page.evaluate(
+                """()=>{const f=document.querySelector('#doc .pv[data-page="1"] .pv-fig'),i=f.querySelector('.pv-fig-id');
+                  return i.getBoundingClientRect().width>0&&f.getBoundingClientRect().width>=i.getBoundingClientRect().width-0.5;}"""
+            )
+        )
+        self.assertAlmostEqual(got["words"][-1]["right"], got["line"]["right"], delta=1)
+        self.assertEqual(page.evaluate("[...document.querySelectorAll('#doc .pv.pv-stack')].length"), 0)
+
+    def test_mouse_targets_answer_32px_8px_apart_and_the_confirm_word_stands_apart(self):
+        """With a mouse the words, [판정 취소] and the earlier link are 32px tall and the '#N' link answers 32 x 32 px (they
+        were 28, 24 and 14px); the words stand 8px apart and the confirm word 16px, with a divider in the gap (P2-8)."""
+        page = self.on("fig")
+        self.press_page(page, 1, "보류")
+        self.press_page(page, 1, "채택")
+        page.evaluate(END_CHIPS)
+        settle(page)
+        got = page.evaluate(GEOM, 1)
+        self.assertEqual([round(w["height"]) for w in got["words"]], [32, 32, 32])
+        self.assertEqual(round(got["cancel"]["height"]), 32)
+        self.assertEqual(round(got["early"]["height"]), 32)
+        self.assertEqual(got["refArea"], [32.0, 32.0])
+        gaps = [round(b["left"] - a["right"]) for a, b in zip(got["words"], got["words"][1:], strict=False)]
+        self.assertEqual(gaps, [8, 16])
+        self.assertEqual(got["divider"], 1.0)
+        # the '#N' link answers 12px over and under its words
+        hit = page.evaluate(
+            """()=>{const r=document.querySelector('#doc .pv[data-page="1"] .pv-ref'),b=r.getBoundingClientRect(),x=b.left+b.width/2;
+              return [b.top+b.height/2-14,b.top+b.height/2+14].map(y=>{const h=document.elementFromPoint(x,y); return !!h&&(h===r||r.contains(h));});}"""
+        )
+        self.assertEqual(hit, [True, True])
+
+    def test_on_a_foldable_the_confirm_words_area_keeps_16px_from_its_neighbours(self):
+        """882 x 1104 touch: every word answers 44px and the confirm word's 44px area stands 16px clear of the word before
+        it (their areas nearly met)."""
+        page = self.on("fig", **FOLD_PORTRAIT)
+        page.evaluate("setSide(false)")
+        settle(page)
+        self.assertEqual(page.evaluate(MISSES_44, '#doc .pv[data-page="1"] button.vd-b'), [])
+        got = page.evaluate(GEOM, 1)
+        hits = [
+            (w["left"] + w["width"] / 2 - max(w["width"], 44) / 2, w["left"] + w["width"] / 2 + max(w["width"], 44) / 2)
+            for w in got["words"]
+        ]
+        self.assertGreaterEqual(round(hits[2][0] - hits[1][1]), 16)
+        self.assertEqual(got["divider"], 1.0)
+
+    def test_the_words_outline_reads_3_to_1_in_both_themes(self):
+        """The words' outline against the button's fill and against the line's ground, light and dark: 3:1 and more (the
+        --input border read 1.5:1 on white; P3-15)."""
+        page = self.on("fig")
+        for theme in ("light", "dark"):
+            with self.subTest(theme=theme):
+                page.evaluate("t=>setTheme(t)", theme)
+                settle(page)
+                got = page.evaluate(BORDER)
+                self.assertGreaterEqual(got["fill"], 3, got)
+                self.assertGreaterEqual(got["ground"], 3, got)
+
+    def test_a_line_starts_where_its_page_does_beside_what_lies_over_the_right(self):
+        """1280 x 800, the panel closed: whatever lies over the PDF area's right side (pvInsetR - the closed panel's status
+        box here, put there when the test's instance shows none), the line starts at its page's left edge and ends before
+        it (it started 36px left of the page, P3-11)."""
+        page = self.on("fig", viewport={"width": 1280, "height": 800})
+        page.evaluate("setSide(false)")
+        settle(page)
+        # make the room on the right narrower than the page: the line is cut on its right, not pushed left
+        page.evaluate(
+            "()=>{window.__ir=pvInsetR; const L=document.querySelector('#left'),p=document.getElementById('p1').getBoundingClientRect(),lr=L.getBoundingClientRect();"
+            "const edge=lr.left+L.clientWidth-parseFloat(getComputedStyle(L).paddingRight); const want=Math.round(edge-(p.right-40)); pvInsetR=()=>want; sizePv(); pvStick();}"
+        )
+        settle(page)
+        got = page.evaluate(GEOM, 1)
+        self.assertAlmostEqual(got["line"]["left"], got["page"]["left"], delta=1)
+        self.assertAlmostEqual(got["line"]["right"], got["page"]["right"] - 40, delta=1.5)
+        self.assertTrue(page.evaluate(ON_TOP, '#doc .pv[data-page="1"] button[data-key="삭제"]'))
+        page.evaluate("()=>{pvInsetR=window.__ir; sizePv();}")
+
+    def test_the_figure_keeps_its_identifier_and_its_title_gives_way(self):
+        """The reading line names its figure by an identifier that is never cut - the page and the code that heads the map
+        title ('1쪽 · PL17', a leading tag such as '[후보]' moved to the title), else the figure id - and the rest of the
+        title, cut first: next to the buttons '6쪽 · …' no longer said which figure a press decides (review of #302)."""
+        page = self.on("fig")
+        parts = """t=>{const was=META.pages[0].title; META.pages[0].title=t; const p=pvFigParts(1); META.pages[0].title=was; return [p.id,p.rest];}"""
+        fig = page.evaluate("META.pages[0].figure")
+        self.assertEqual(
+            page.evaluate(parts, "[후보] PL17 · 다섯 비교 쌍의 월별 효과"),
+            ["1쪽 · PL17", "[후보] 다섯 비교 쌍의 월별 효과"],
+        )
+        self.assertEqual(page.evaluate(parts, "PL5 · 비교"), ["1쪽 · PL5", "비교"])
+        self.assertEqual(page.evaluate(parts, "Deployment calendar"), ["1쪽", "Deployment calendar"])
+        self.assertEqual(page.evaluate(parts, ""), ["1쪽 · " + fig, ""])
+        self.press_page(page, 1, "보류")
+        self.press_page(page, 1, "채택")
+        page.evaluate(END_CHIPS)
+        page.evaluate(
+            """()=>{META.pages[0].title='[후보] PL17 · 다섯 비교 쌍의 월별 효과 — 쌍마다 한 칸 그리고 아주 긴 설명이 이어진다';
+              PV_REASON=null; drawPageVerdicts(); const l=document.querySelector('#doc .pv[data-page="1"]'); l.style.width='640px'; pvFit([l]);}"""
+        )
+        got = page.evaluate(
+            """()=>{const l=document.querySelector('#doc .pv[data-page="1"]'),id=l.querySelector('.pv-fig-id'),t=l.querySelector('.pv-fig-t'),s=l.querySelector('.pv-t');
+              return {stack:l.classList.contains('pv-stack'),id:id.textContent,idWhole:id.scrollWidth<=id.clientWidth+1&&id.getBoundingClientRect().right<=s.getBoundingClientRect().left,
+                cut:t.scrollWidth>t.clientWidth+1};}"""
+        )
+        self.assertEqual(got, {"stack": False, "id": "1쪽 · PL17", "idWhole": True, "cut": True})
+
+    def test_the_save_chip_never_covers_the_current_verdict(self):
+        """A row's save chip stands just left of the buttons over the state's end; where its words would reach the figure's
+        identifier or the current verdict and its state it folds to [되돌리기] (with its icon while that fits) and still
+        covers none of them (review of #302: the opaque chip hid the current verdict for 6 seconds)."""
+        page = self.on("fig")
+        self.press_page(page, 1, "보류")
+        self.press_page(page, 1, "채택")
+        geom = """w=>{const l=document.querySelector('#doc .pv[data-page="1"]'); if(w){l.style.width=w+'px'; pvFit([l]);}
+          const c=l.querySelector(':scope>.nt-chip'),b=e=>e.getBoundingClientRect(),v=e=>!!e&&e.getClientRects().length>0;
+          const keep=[...l.querySelectorAll('.pv-fig-id,.pv-t>.pv-s,.pv-t>.pv-st')].filter(v).reduce((r,e)=>Math.max(r,b(e).right),0);
+          return {short:l.classList.contains('pv-chip-short'),words:v(c.querySelector('.nt-t')),undo:v(c.querySelector('[data-act="notice-act"]')),
+            clear:b(c).left>=keep,beside:Math.round(l.querySelector('.vd-b').getBoundingClientRect().left-b(c).right),stack:l.classList.contains('pv-stack')};}"""
+        wide = page.evaluate(geom, 0)
+        self.assertEqual(
+            (wide["short"], wide["words"], wide["undo"], wide["clear"], wide["beside"]), (False, True, True, True, 8)
+        )
+        # narrower and narrower rows: the chip never reaches the state; where its words would, it folds
+        folded = None
+        for w in range(560, 300, -20):
+            got = page.evaluate(geom, w)
+            if got["stack"]:
+                break
+            self.assertTrue(got["clear"], (w, got))
+            if got["short"]:
+                folded = got
+                break
+        self.assertIsNotNone(folded)
+        self.assertEqual((folded["words"], folded["undo"]), (False, True))
+        self.assertTrue(page.evaluate(ON_TOP, '#doc .pv[data-page="1"]>.nt-chip [data-act="notice-act"]'))
+
+    def test_no_description_box_while_a_confirm_word_waits(self):
+        """A confirm word's first press: the armed word ('삭제 확정') draws no description and the box that was up goes - it
+        covered the line's figure name (P3-14); Esc gives the description back."""
+        page = self.on("fig")
+        btn = '#doc .pv[data-page="1"] button[data-key="삭제"]'
+        page.hover(btn)
+        page.wait_for_function("()=>!document.querySelector('#tip').hidden")
+        page.locator(btn).click()
+        nothing_follows(page, 500)
+        self.assertEqual(page.locator(btn).text_content(), "삭제 확정")
+        self.assertIsNone(page.get_attribute(btn, "data-tip"))
+        self.assertTrue(page.evaluate("document.querySelector('#tip').hidden"))
+        page.keyboard.press("Escape")
+        settle(page)
+        self.assertIsNotNone(page.get_attribute(btn, "data-tip"))
+
+
+class FoldablePortrait(VerdictBase):
+    """882 x 1104 touch (the folded-open foldable in portrait, the tablet sheet band)."""
+
+    def tall(self, page):
+        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        settle(page)
+        page.evaluate(SCROLL, [2, "top"])
+        settle(page)
+
+    def test_the_line_floats_on_the_open_sheets_top_edge(self):
+        """With the pin sheet open the reading line floats on its top edge (the status line over it when one shows), every
+        word pressable - it went under its page and the sheet covered it (P2-9). The phone still does not float over its
+        open sheet (FloatingLine)."""
+        page = self.on("fig", **FOLD_PORTRAIT)
+        page.evaluate("setSide(false)")
+        self.tall(page)
+        page.evaluate("setSide(true)")
+        settle(page)
+        self.assertIn("band-tablet-sheet", page.evaluate("document.body.className"))
+        got = page.evaluate(FLOAT, 2)
+        cover = page.evaluate(
+            """()=>Math.min(...[document.querySelector('#right'),document.querySelector('#status-dock')].filter(e=>e&&e.getClientRects().length&&getComputedStyle(e).position==='fixed').map(e=>e.getBoundingClientRect().top))"""
+        )
+        self.assertTrue(got["stuck"], got)
+        self.assertAlmostEqual(got["line"]["bottom"], cover - 4, delta=1)
+        for key in ("채택", "보류", "삭제"):
+            self.assertTrue(page.evaluate(ON_TOP, '#doc .pv[data-page="2"] button[data-key="%s"]' % key))
+
+    def test_typing_the_reason_folds_the_name_the_chip_and_the_status_line(self):
+        """A tap saves 보류 and the reason field waits; while it is typed in (body.pv-typing) the line drops its figure's
+        name, its save chip shows only [되돌리기] and the status line over the sheet steps aside - line, field, chip and
+        sheet took the 55% the keyboard leaves (P2-9). Leaving the field brings them back."""
+        page = self.on("fig", **FOLD_PORTRAIT)
+        page.evaluate("setSide(false)")
+        self.tall(page)
+        page.evaluate("lineNote('a message on the status line',NOTICE_KIND.INFO)")
+        settle(page)
+        page.locator('#doc .pv[data-page="2"] button[data-key="보류"]').tap()
+        page.wait_for_selector('#doc .pv[data-page="2"]>.nt-chip')
+        shown = """()=>{const l=document.querySelector('#doc .pv[data-page="2"]'),v=e=>!!e&&e.getClientRects().length>0;
+          return {typing:document.body.classList.contains('pv-typing'),name:v(l.querySelector('.pv-fig')),chipWords:v(l.querySelector('.nt-chip .nt-t')),
+            undo:v(l.querySelector('.nt-chip [data-act="notice-act"]')),dock:v(document.querySelector('#status-dock'))};}"""
+        self.assertEqual(
+            page.evaluate(shown), {"typing": False, "name": True, "chipWords": True, "undo": True, "dock": True}
+        )
+        open_reason(page, 2, tap=True)
+        page.keyboard.type("폴더블에서 친 이유")
+        settle(page)
+        self.assertEqual(
+            page.evaluate(shown), {"typing": True, "name": False, "chipWords": False, "undo": True, "dock": False}
+        )
+        page.keyboard.press("Escape")
+        settle(page)
+        got = page.evaluate(shown)
+        self.assertEqual((got["typing"], got["name"]), (False, True))
+
+    def test_a_reason_field_taken_away_while_typed_in_lets_the_fold_go(self):
+        """The pin is deleted elsewhere while its reason is typed: the next list takes the field out of the page with no
+        focus event of its own (Chromium sends no focusout for a removed element), and the line and the status line come
+        back - body.pv-typing is read again after every drawing of the lines (review of #302)."""
+        page = self.on("fig", **FOLD_PORTRAIT)
+        page.evaluate("setSide(false)")
+        self.tall(page)
+        page.evaluate("lineNote('a message on the status line',NOTICE_KIND.INFO)")
+        new = self.press_page(page, 2, "보류")
+        page.evaluate(END_CHIPS)
+        open_reason(page, 2, tap=True)
+        page.keyboard.type("곧 사라질 이유")
+        settle(page)
+        self.assertTrue(page.evaluate("document.body.classList.contains('pv-typing')"))
+        # whatever this browser sends when a focused element leaves the page, nothing reaches the viewer's own listeners: the
+        # drawing of the lines alone has to let the fold go
+        page.evaluate("window.addEventListener('focusout',e=>e.stopImmediatePropagation(),true)")
+        self.assertEqual(self.call("POST", "/api/pins/%d/drop" % new, {})[0], 200)
+        page.evaluate("loadPins()")
+        page.wait_for_function("()=>!document.querySelector('#doc .pv .pv-reason')")
+        settle(page)
+        got = page.evaluate(
+            """()=>({typing:document.body.classList.contains('pv-typing'),dock:document.querySelector('#status-dock').getClientRects().length>0,
+              name:document.querySelector('#doc .pv[data-page="2"] .pv-fig').getClientRects().length>0})"""
+        )
+        self.assertEqual(got, {"typing": False, "dock": True, "name": True})
+
+    def test_a_folded_verdict_card_shows_its_badge_and_figure_before_its_reason(self):
+        """The sheet's folded card of a verdict with a reason leads with '판정 채택' and the figure's name, the reason on a
+        line under them - the reason took the whole preview (P2-9)."""
+        page = self.on("fig", **FOLD_PORTRAIT)
+        page.evaluate("setSide(false)")
+        settle(page)
+        page.locator('#doc .pv[data-page="1"] button[data-key="채택"]').tap()
+        open_reason(page, 1, tap=True)
+        page.keyboard.type("범례가 막대를 가린다")
+        page.keyboard.press("Enter")
+        page.wait_for_function("()=>OPEN_ALL.some(p=>p.note==='범례가 막대를 가린다')")
+        page.evaluate("setSide(true)")
+        settle(page)
+        got = page.evaluate(
+            """()=>{const s=document.querySelector('#pins .pin .sum'),v=e=>!!e&&e.getClientRects().length>0,n=s.querySelector('.sum-note');
+              return {badge:v(s.querySelector('.badge-verdict')),target:v(s.querySelector('.vd-target'))?s.querySelector('.vd-target').textContent:null,
+                note:v(n)?n.textContent:null,below:v(n)&&n.getBoundingClientRect().top>=s.querySelector('.badge-verdict').getBoundingClientRect().bottom-1};}"""
+        )
+        self.assertEqual(
+            got, {"badge": True, "target": "Deployment calendar", "note": "범례가 막대를 가린다", "below": True}
+        )
 
 
 class Keys(VerdictBase):
