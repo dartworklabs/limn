@@ -1,5 +1,34 @@
 # Changelog
 
+## Unreleased
+
+The page verdict line from the 0.4.33 review of a figure document (`pl`): one row on a desktop, targets a mouse can hit,
+the line on a foldable's open sheet. The agent contract, `pins.md` and every route are unchanged.
+
+### Changed
+
+- **The page verdict line stays one row on a desktop, and stacking is decided per line.** One line with an earlier
+  verdict or a reason used to put every page's buttons on a row of their own - at 1440 x 900 each line grew to 79-88px
+  over the plot. Now each line is one row unless its own state and buttons cannot share it: the figure's title gives way
+  first, down to a short identifier that is never cut (`6쪽 · PL17`, the code heading the map title), then the reason and
+  the earlier verdicts' link, cut to fit; the state, [판정 취소] and the buttons never shrink. At 1440 the floating line is
+  32px.
+- **Targets a mouse can hit.** The words, [판정 취소] and the earlier link are 32px tall and the `#N` link answers
+  32 x 32px (they were 28, 24 and 14px); the words stand 8px apart and the confirm word (`삭제`) 16px with a divider - on
+  a foldable its 44px touch area no longer meets its neighbour's. The words' outline reads 3:1 and more on the button and
+  the line's ground in both themes (it was 1.5:1).
+- **The save chip stands in the line**, just left of the words, never over the plot, the figure's identifier or the
+  current verdict and its state: where its words would reach them it folds to [되돌리기]. The line does not move for it.
+  A confirm word waiting for its second press has no description box (it covered the figure's name).
+- **A line starts where its page does.** With the panel closed at 1280 x 800 the status box at the bottom right pushed the
+  line 36px left of its page; the line now ends before the box instead.
+- **Foldable in portrait (and tablets).** With the pin sheet open the line floats on the sheet's top edge instead of going
+  under it; while the reason is typed the line folds the figure's name, the chip shows only [되돌리기] and the status
+  line over the sheet steps aside, so the plot keeps the room the keyboard leaves. A phone's open sheet still keeps the
+  line in its place.
+- **A folded verdict card shows what it is.** Its preview leads with the `판정 채택` badge and the figure's name, the
+  reason on a line under them (a reason used to take the whole preview).
+
 ## 0.4.33 — 2026-10-29
 
 Verdicts taken back where they were given, the page line's reason field in its rare orders, the outline filter, the
