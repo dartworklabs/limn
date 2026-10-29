@@ -6016,6 +6016,25 @@ class ChipFontWait(VerdictBase):
         page.wait_for_timeout(100)
         self.assertEqual(page.evaluate(self.STATE, None), [True, False, False])
 
+    def test_a_chip_with_no_room_while_its_save_is_out_is_placed_when_the_save_ends(self):
+        """The chip is placed while its save is still out (the list read again redraws the line before the save's end): the
+        line shows the new verdict and still '· 보류 저장 중…', and on CI it had 69px for a 72px chip that had 146px a moment
+        later - it went to the status line for good. Squeezed to no room while the save is out: it waits; the save's end
+        redraws the lines and it is on its line."""
+        page = self.on("fig")
+        page.evaluate("setK(PT_PX*2,false); ZOOMED=true")
+        settle(page)
+        self.press_page(page, 2, "보류")
+        self.assertEqual(page.evaluate(self.STATE, None), [True, False, False])
+        w = page.evaluate(
+            """()=>{PV_BUSY.set(pvSlot(2),'보류'); const l=document.querySelector('#doc .pv[data-page="2"]');
+              for(let w=400;w>=100;w-=10){l.style.width=w+'px'; pvFit([l]); if(l.classList.contains('pv-chip-wait'))return w;} return 0;}"""
+        )
+        self.assertGreater(w, 0)
+        self.assertEqual(page.evaluate(self.STATE, None), [True, True, False])
+        page.evaluate("()=>{PV_BUSY.delete(pvSlot(2)); drawPageVerdicts();}")  # as the save's end does
+        self.assertEqual(page.evaluate(self.STATE, None), [True, False, False])
+
     def test_a_chip_whose_fonts_never_load_goes_to_the_status_line_after_3_seconds(self):
         page = self.saved_then_squeezed()
         page.wait_for_timeout(3300)
