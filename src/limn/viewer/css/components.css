@@ -136,8 +136,30 @@ pre.nowrap{white-space:pre}
    than the PDF area, so a zoomed page's line has its whole width to stick in - with a mouse too (a column kept at the
    fitted width let the line scroll away with it). */
 #doc{width:fit-content;min-width:100%}
-.pv{position:sticky;left:0;right:0;display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2);
+/* Each page and its line are one block (.pgw, pages.js), the line sticky to the PDF area's bottom within it: it floats at the
+   bottom while its page is in view and settles 8px under the page at its end; a block of its own keeps one page's floating
+   line off the next pages'. A sticky box keeps clear of its scroller's padding, and the PDF area's end padding (60vh, room
+   to scroll the last page up) is no part of what shows: --pv-pad-b, measured by sizePv, takes it back. --pv-inset is what
+   covers the PDF area's bottom (the phone's sheet bar and the status line over it); the line floats 8px above it. Above the page's marks, under a save
+   chip on a mark (z-index 4) and every panel, sheet and bar; --pv-inset-r keeps it left of a panel laid over the area
+   (sizePv makes it no wider than that room). */
+.pv{position:sticky;left:0;right:var(--pv-inset-r,0px);bottom:calc(var(--pv-inset,0px) + var(--space-2) - var(--pv-pad-b,0px));z-index:3;display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2);
   margin:calc(-1 * var(--space-2)) auto var(--space-4);min-height:var(--control-h);font-size:var(--text-sm);color:var(--muted-foreground);user-select:none}
+/* Floating over its page (.stuck, verdict.js pvStick): the PDF area's own background, carried 8px past the line on every side
+   by a spread shadow (the line's box and the place of its words do not move), and a soft edge above it. */
+.pv.stuck{background:var(--background);box-shadow:0 0 0 var(--space-2) var(--background),0 calc(-1 * var(--space-1)) 12px var(--space-2) var(--shadow-color)}
+/* Not floating while a selection is being written - the composer has its own verdict row, and on a phone or a foldable the
+   line would sit on the selection or the sheet - nor over an open phone or tablet sheet. */
+body:is(.composing,.lay-narrow.side-open) .pv{bottom:auto}
+body.lay-narrow{--pv-inset:var(--sheet-h,0px)}
+body.lay-narrow.has-status:not(.typing){--pv-inset:calc(var(--sheet-h,0px) + 24px)}
+/* Scrolling something into view (a focused control, a search hit) leaves it above a floating line, not under it. */
+#left:has(#doc .pv){scroll-padding-bottom:calc(var(--pv-inset,0px) + var(--pv-h,0px) + var(--space-2))}
+/* The key a word answers on the line the keys act on (data-kn, verdict.js): after the word in the button's own colour, set off
+   by weight and size as a button's shortcut is (.kh); a mouse screen only. */
+@media (hover:hover) and (pointer:fine){.pv .vd-b[data-kn]::after{content:attr(data-kn);margin-left:var(--space-1);font-weight:400;font-size:var(--text-xs)}}
+/* A failed save of this line, said under it (PV_ERR) as well as on the status line. */
+.pv .pv-err{flex-basis:100%;color:var(--destructive);font-size:var(--text-sm)}
 .pv-t{display:flex;flex-wrap:wrap;align-items:center;gap:0 var(--space-1);flex:1 1 auto;min-width:0}
 /* One order for every state: '판정 #4 채택 · 처리 대기'. The number is the viewer's link (.pin-ref, cards.css), the word bold. */
 .pv .pv-s{color:var(--foreground)}

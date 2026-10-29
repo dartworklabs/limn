@@ -250,6 +250,9 @@ button.th-more{align-self:flex-start;color:var(--muted-foreground)}
 /* A superseded verdict's marker ('이전 판정 · #4로 대체됨', verdict.js): a neutral badge - no colour of its own, the words carry it;
    the number is the viewer's link (.pin-ref). */
 .vd-old .vd-old-ref{font-weight:600}
+/* What a figure document's verdict is about, by name ('[후보] PL26 · …', verdict.js verdictTarget): plain words after the
+   badges, one line cut with an ellipsis (its tip names the figure's id). */
+.vd-target{min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;align-self:center;font-size:var(--text-sm);color:var(--foreground)}
 /* A verdict pin's edit card keeps its verdict and target (D3): the note and the assignee only. */
 .edit.verdict :is(.e-kind,.e-qhint,.e-sg-row,.e-sg,.e-sg-ro,.e-levels,.e-xp,.b-repick){display:none!important}
 .edit.verdict .e-acts{grid-template-columns:1fr 1fr}

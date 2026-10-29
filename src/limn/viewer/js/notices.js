@@ -151,6 +151,9 @@ function undoNote(place,msg,act,o){const a={tip:T.undo,...act},life=o.life||NOTI
   if(!offerSeen(place,{sideOpen:SIDE_OPEN,secOpen:!o.sec||!!SEC[o.sec],trashOpen:$('#trash').open}))
     return /** @type {Notice} */(lineNote(msg,NOTICE_KIND.OK,a,{...o,life,undo:true}));   // no keys: never suppressed
   const n=makeNotice({...o,life,undo:true,msg:trMsg(msg),kind:NOTICE_KIND.OK,act:a,place});
+  // One save chip on the pages at a time, the newest: an earlier one takes its undo to the status line (offerToLine), as a
+  // chip whose mark went does - several pages each showing a chip read as several things to answer.
+  if(place===NOTICE_PLACE.CHIP)[...NOTICES.values()].filter(x=>x!==n&&x.place===NOTICE_PLACE.CHIP).forEach(offerToLine);
   armNotice(n); drawOffer(n); announce(noticeText(n)); return n;}
 
 // Whether an undo row stands in list section sec ('open', 'review'): drawPins keeps that section shown while one does.

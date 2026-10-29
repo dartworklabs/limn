@@ -81,7 +81,9 @@ async function savePin(verdict){
   const out=assignOutcome(composeAsk(SAVE_MODE.NEW)); body.kind_req=out.kind; body.assignee=out.assignee;
   const mh=mentionHints($('#note')); if(mh.length)body.mentions=mh;
   const sg=isRegion(d)||verdict?null:suggestForSave(SG,suggestOff(d,META?META.kind:undefined)); if(sg)body.suggest=sg;
-  if(verdict){body.verdict=verdict; body.kind_req=KIND_REQ.FIX;}
+  if(verdict){body.verdict=verdict; body.kind_req=KIND_REQ.FIX;
+    // On a figure document the verdict is the figure's, whatever element the selection names (verdict.js figureVerdictBody).
+    const fb=figureVerdictBody(d); if(fb)body=Object.assign(fb,{note,doc:body.doc,kind_req:KIND_REQ.FIX,assignee:body.assignee},mh.length?{mentions:mh}:{},{verdict});}
   const snap=selectionSnapshot(),fields=composeFields();   // [되돌리기] takes the pin back and hands this selection and note back for another try
   const draft=savedDraftSnapshot();
   const question=out.kind===KIND_REQ.QUESTION;

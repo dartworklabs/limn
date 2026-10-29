@@ -141,4 +141,9 @@ button.vd-confirm.armed{background:color-mix(in srgb,var(--destructive) 10%,tran
 /* Touch: drawn at the kind row's 36px track, so each word's 44px hit (.hit) reaches 4px past it - with the composer's 8px gap
    it ends where the kind row's segment hits begin. */
 @media (pointer:coarse){.vd-l{font-size:var(--text-base)}
-  .vd-btns button{min-height:0;height:var(--control-h-lg);padding:0 var(--space-2);font-size:var(--text-base)}}
+  .vd-btns button{min-height:0;height:var(--control-h-lg);padding:0 var(--space-2);font-size:var(--text-base)}
+  /* A phone draws each word at its whole 44px hit - the composer's row and every page line: a verdict is pressed with the
+     thumb, often one-handed, and a 36px box read smaller than what it answered. */
+  body.band-phone .vd-btns button{height:var(--hit)}}
+/* On a figure document the lead says the verdict is the figure's, whatever element is selected (verdict.js). */
+.vd-scope{white-space:nowrap}
