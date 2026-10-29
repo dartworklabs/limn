@@ -648,7 +648,9 @@ body.lay-narrow.has-status:not(.typing,.pv-typing) #right{border-top-color:trans
 #bar1 #status .st-act.btn-default{background:var(--primary);color:var(--primary-foreground);font-weight:600}
 #bar1 #status .st-act.btn-secondary{background:var(--secondary);color:var(--secondary-foreground)}
 #status-dock #status button{min-height:0;height:var(--control-h-sm);padding:0 var(--space-2);font-size:var(--text-sm);position:relative;overflow:visible}
-#status-dock #status button::after{content:'';position:absolute;left:50%;bottom:0;width:max(100%,var(--hit));height:var(--hit);transform:translateX(-50%)}
+#status-dock #status button::after{content:'';position:absolute;left:50%;bottom:0;width:max(calc(100% + 2px),var(--hit));height:var(--hit);transform:translateX(-50%)}   /* + its 1px borders: the edges answer 44px too */
+/* [x] ends the line: its 44px reaches right, not left over the action before it - centred, it took the right 6px of [되돌리기]. */
+#status-dock #status button.nt-x::after{left:0;transform:none}
 /* The 2px progress bar on the line's lower edge: filled to its share when the build counts its work, else a 30% band that crosses
    in 1.2s - the last build's time is a reference, not a forecast, so it never fills the bar. Reduced motion: the faint track only. */
 #status .st-bar{position:absolute;left:0;right:0;bottom:0;height:2px;background:var(--muted);overflow:hidden;pointer-events:none}

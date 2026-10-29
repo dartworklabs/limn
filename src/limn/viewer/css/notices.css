@@ -35,7 +35,7 @@
 @media (pointer:coarse){#c-actions .nt-acts button{font-size:var(--text-base)}}
 #sec-review>.nt-banner{margin-top:0}
 #trash>.nt-banner{margin:0 0 var(--space-2)}
-.nt-banner{scroll-margin:var(--space-6) 0 72px}   /* scrolled into view clear of a stuck section head and the save row */
+.nt-banner{scroll-margin:calc(var(--stick-top,0px) + var(--space-6)) 0 72px}   /* scrolled into view clear of the stuck tool bar (a sheet's: --stick-top), a stuck section head and the save row */
 
 /* An undo in a card's place (closed, deleted, confirmed) and in the Trash in a row's place: a dashed row of a card's size. */
 .nt-row{min-height:var(--hit);margin:0 0 var(--space-2);padding:var(--space-1) var(--space-1) var(--space-1) var(--space-3);

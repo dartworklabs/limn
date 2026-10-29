@@ -177,6 +177,16 @@ was; the viewer still counts the verdict order itself, and a browser test holds 
 - **No layout read per scroll for chips.** The select bar's check runs once a frame and reads nothing while no chip is up
   (seconds of long tasks over a first scroll through a hundred pins).
 
+- **A first save moves no word of a narrow line** (RC retest). A line narrower than the state a press brings - measured
+  once in a hidden line, not guessed - is stacked from the start on every band (on the wide band the rule was skipped:
+  at 1280 x 800 zoomed to 66% and less a one-row line went to three rows, 91px, the words 59px down); a stacked line's state
+  row and a touch row are as tall from the start as a text action makes them (a phone's line in its place dropped its
+  words 25px).
+- **Touch areas along both edges.** The status line's [x] reaches right, not over the right 6px of [되돌리기], and its
+  buttons' areas cover their 1px borders: [되돌리기], [x] and the line's `#N` answer 44px at their left edge, middle and
+  right edge on a phone and a folded-open foldable.
+- **A sheet's banner is scrolled clear of the stuck tool bar**: a card's [수정] conflict on a phone hid its first line.
+
 ### Internal
 
 - The verdict contract snapshot gains a newer verdict on a panel of the figure and a newer one on the closed pin's lines;
