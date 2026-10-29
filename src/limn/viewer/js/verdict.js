@@ -557,7 +557,11 @@ async function pvCancelPin(id,page,had){const p=OPEN_ALL.find(x=>x.id===id);
     const n=lineNote(tl('판정 #{id} {word} 취소 · {rest} — {target}',{id,word:verdictLabel(key),rest,target}),NOTICE_KIND.OK,
       {label:'되돌리기',tip:T.undo,wait:true,fn:async()=>{PV_WITHDRAWN.delete(id); const ok=await restorePin(id); if(ok)pvAfterRestore(id); return ok;}},
       {life:NOTICE_LIFE.TIMER,undo:true,literal:true});
-    if(n){PV_LINE_UNDO.set(pvSlot(page),{id,n:n.n}); drawPageVerdicts(); setTimeout(()=>drawPageVerdicts(),NOTICE_MS+NOTICE_HOLD_MAX+50);}};
+    // [이유 추가] steps out while the line offers the undo (components.css): a focus on it goes to the [되돌리기] beside it.
+    const f=/** @type {HTMLElement|null} */(document.activeElement),onAdd=!!f&&!!f.closest&&!!f.closest('#doc .pv[data-page="'+page+'"] .pv-ra>.pv-add');
+    if(n){PV_LINE_UNDO.set(pvSlot(page),{id,n:n.n}); drawPageVerdicts(); setTimeout(()=>drawPageVerdicts(),NOTICE_MS+NOTICE_HOLD_MAX+50);
+      const a=document.activeElement,u=/** @type {HTMLElement|null} */(document.querySelector('#doc .pv[data-page="'+page+'"] [data-act="pv-undo"]'));
+      if(onAdd&&u&&(a===f||a===document.body||!a))u.focus({preventScroll:true});}};
   hideTip();
   const again=()=>{PV_CANCEL_HOLD.delete(pvSlot(page)); drawPageVerdicts(); pvCancelPin(id,page,false);};   // [다시 시도] is a new press: no hold
   const ok=await dropPin(id,false,again,

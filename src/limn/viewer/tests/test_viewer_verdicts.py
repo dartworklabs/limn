@@ -2668,44 +2668,70 @@ class RcLayoutFixes(VerdictBase):
         self.assertEqual(got["reads"], 0)
 
     def test_what_a_press_adds_gives_way_on_a_tight_row(self):
-        """Tight rows on the wide band (a page at 1280 x 800 with the panel open is 620px): the earlier link gives its place
+        """A tight row on the wide band (a page at 1280 x 800 with the panel open is 620px): the earlier link gives its place
         to what a press adds. A 560px line, key saves of 보류 then 채택: the state, 'Enter 이유 쓰기' (its key mark whole) and
-        [판정 취소] hold one row, the earlier link out. A 580px line, a key take-back of a third verdict, whose [되돌리기] the
-        line offers: one row, the earlier link out, and back when the offer ends. Beside the earlier link each line stacked
-        under the press (the RC's merge of its layout and logic fixes)."""
+        [판정 취소] hold one row, the earlier link out. Beside the earlier link the line stacked under the press (the RC's
+        merge of its layout and logic fixes). The take-back's [되돌리기] is test_reason_add_yields_to_the_lines_undo_..."""
         page = self.on("fig")
         page.evaluate("w=>{setK(w/META.pages[1].pt_w,false); ZOOMED=true}", 560)
         settle(page)
         page.evaluate(SCROLL, [2, "top"])
         settle(page)
         row = """n=>{const l=document.querySelector('#doc .pv[data-page="'+n+'"]'),k=l.querySelector('.pv-kbd'),e=l.querySelector('.pv-early'),v=x=>!!x&&x.getClientRects().length>0;
-          return {stack:l.classList.contains('pv-stack'),h:Math.round(l.getBoundingClientRect().height),key:v(k)?k.textContent:null,
-            early:v(e),undo:v(l.querySelector('.pv-undo'))};}"""
+          return {stack:l.classList.contains('pv-stack'),h:Math.round(l.getBoundingClientRect().height),key:v(k)?k.textContent:null,early:v(e)};}"""
+        for i, key in enumerate("21"):
+            page.keyboard.press(key)
+            page.wait_for_function("n=>OPEN_ALL.length>=n", arg=i + 1)
+            settle(page)
+            page.evaluate(END_CHIPS)
+            settle(page)
+            page.wait_for_timeout(900)
+        got = page.evaluate(row, 2)
+        self.assertEqual((got["stack"], got["early"], got["key"]), (False, False, "Enter"), got)
+        self.assertLessEqual(got["h"], 40)
+
+    def test_reason_add_yields_to_the_lines_undo_at_1280_with_a_three_digit_pin(self):
+        """1280 x 800, panel open, a page as wide as the pl document's there (620px), pin numbers past 100. Key saves of 보류,
+        채택, 보류, then 보류 again takes the third back: while the line offers its [되돌리기], [이유 추가] steps out (as for an
+        armed word's wait) - one row, the earlier link kept where it still fits, and the focus the key save left on 'Enter 이유 쓰기' is on the
+        [되돌리기]. When the offer ends [이유 추가] and the link are back, still one row. With [이유 추가] beside the undo the
+        row was within 2px of stacking."""
+        (ps.APP.C.state / "pins.seq").write_text("99\n", encoding="utf-8")
+        page = self.on("fig", viewport={"width": 1280, "height": 800})
+        page.evaluate("setSide(true)")
+        page.evaluate("w=>{setK(w/META.pages[1].pt_w,false); ZOOMED=true}", 620)
+        settle(page)
+        page.evaluate(SCROLL, [2, "top"])
+        settle(page)
+        row = """n=>{const l=document.querySelector('#doc .pv[data-page="'+n+'"]'),v=x=>!!x&&x.getClientRects().length>0,a=document.activeElement;
+          return {stack:l.classList.contains('pv-stack'),h:Math.round(l.getBoundingClientRect().height),add:v(l.querySelector('.pv-add')),
+            undo:v(l.querySelector('.pv-undo')),early:v(l.querySelector('.pv-early')),focus:a&&a.dataset?a.dataset.act||a.className:null,
+            ref:l.querySelector('.pv-ref').textContent};}"""
         for i, key in enumerate("212"):
             page.keyboard.press(key)
             page.wait_for_function("n=>OPEN_ALL.length>=n", arg=i + 1)
             settle(page)
             page.evaluate(END_CHIPS)
             settle(page)
-            if i == 1:
-                got = page.evaluate(row, 2)
-                self.assertEqual((got["stack"], got["early"], got["key"]), (False, False, "Enter"), got)
-                self.assertLessEqual(got["h"], 40)
-            page.wait_for_timeout(900)  # the next word is another one: no toggle hold, but let the line settle
-        page.evaluate("w=>{setK(w/META.pages[1].pt_w,false); ZOOMED=true}", 580)
-        settle(page)
-        page.evaluate(SCROLL, [2, "top"])
-        settle(page)
-        page.keyboard.press("2")  # the current word (보류, the third verdict): taken back, the line offers [되돌리기]
+            page.wait_for_timeout(900)
+        self.assertEqual(page.evaluate(row, 2)["focus"], "pv-reason-open")  # 'Enter 이유 쓰기' after the key save
+        page.keyboard.press("2")  # the current word: the third verdict is taken back, the line offers [되돌리기]
         page.wait_for_function("()=>!!document.querySelector('#doc .pv[data-page=\"2\"] .pv-undo')")
         settle(page)
         got = page.evaluate(row, 2)
-        self.assertEqual((got["stack"], got["undo"], got["early"]), (False, True, False), got)
+        self.assertGreaterEqual(int(got["ref"].lstrip("#")), 100, got)
+        self.assertEqual(
+            {k: got[k] for k in ("stack", "add", "undo", "focus")},
+            {"stack": False, "add": False, "undo": True, "focus": "pv-undo"},
+        )
         self.assertLessEqual(got["h"], 40)
         page.evaluate("()=>{NOTICES.forEach(n=>endNotice(n,false)); drawPageVerdicts();}")  # the offer ends
         settle(page)
         got = page.evaluate(row, 2)
-        self.assertEqual((got["stack"], got["undo"], got["early"]), (False, False, True), got)
+        self.assertEqual(
+            {k: got[k] for k in ("stack", "add", "undo")}, {"stack": False, "add": True, "undo": False}, got
+        )
+        self.assertLessEqual(got["h"], 40)
 
 
 class Keys(VerdictBase):

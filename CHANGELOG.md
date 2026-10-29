@@ -142,8 +142,10 @@ was; the viewer still counts the verdict order itself, and a browser test holds 
   and no inert [접기] shows while a reason is being written. A name's particle follows its sound (`Bob이`, `Alice가`).
 - **An unsaved reason is never lost without a word** (P1-2). Drafts are kept per pin in the tab (sessionStorage); a
   reload brings the newest one back in its popover, and leaving the page with one asks first (beforeunload). With text,
-  Esc takes two presses: the first lets the focus go to the PDF area - the keys then change the verdict and the draft
-  follows - and says the next one drops it; on touch [닫기] does the same. [되돌리기] of `판정 취소` (or of pressing the
+  Esc takes two presses: the first only lets the focus out of the field while the popover stays open with its text - the
+  keys then change the verdict and the draft follows - and says the next one drops it; the second drops it. On touch
+  [닫기] does the same. Once the popover closes - Esc, Enter, [닫기], [접기] - the focus stays on that page's line: its reason
+  control, else the pressed word (never the PDF area, from which Tab went to the first page's line). [되돌리기] of `판정 취소` (or of pressing the
   word again) and of the save chip bring the verdict back with its draft. Every failed write keeps the draft - lost on
   the network, refused (4xx) or too long - and the line marks it `초안 있음`; a reason that could only be added
   to someone's note (2,000 characters at most) and is longer says so instead of being sent.
@@ -162,7 +164,9 @@ was; the viewer still counts the verdict order itself, and a browser test holds 
 - **A line too narrow for a verdict's state stacks whatever it shows**, and a line whose confirm word waits or whose save is
   out keeps its rows: a press no longer restacks a phone's line under the finger. On a desktop row that is tight, the earlier link
   steps out while a press's extra - `Enter 이유 쓰기` after a key save, the line's [되돌리기] of a take-back - is on the
-  line: beside it they ran 7 and 25px past a 620px row (1280 x 800, panel open) and stacked it.
+  line, and while the line offers that [되돌리기] its [이유 추가] steps out on every row (as for an armed word's wait), the
+  focus on it moving to the [되돌리기]: beside them the extras ran 7 and 25px past a 620px row (1280 x 800, panel open)
+  and stacked it.
 - **The reason popover opens below a line near the top** (under the section strip it showed one line of five) and is
   never taller than its room; **a keyboard laid over the page** (iPad Safari) no longer hides the floating line and the
   popover; on touch the floating line stands clear of the status line's [x], whose 44px took taps on the words' bottom.

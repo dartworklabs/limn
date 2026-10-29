@@ -188,6 +188,11 @@ body.lay-narrow.has-status:not(.typing,.pv-typing){--pv-inset:calc(var(--sheet-h
    the earlier link's place there: it steps out while either is on the line and is back when it goes. Beside it, a 620px
    line (1280 x 800, panel open) ran 7 and 25px past its row and stacked under the press. */
 .pv.pv-tight:not(.pv-stack)>.pv-t:has(>.pv-undo,.pv-kbd) .pv-early{display:none}
+/* While the line offers a take-back's [되돌리기] (verdict.js PV_LINE_UNDO), [이유 추가] steps out on every row - as it does for an
+   armed confirm word's wait - and is back when the offer ends (a kept draft's '초안 있음' stays). Beside it a 620px row with
+   three-digit pin numbers was still within 2px of stacking for the offer's few seconds. A focus on it moves to the
+   [되돌리기] (pvCancelPin). */
+.pv:has(>.pv-t>.pv-undo)>.pv-t .pv-ra:has(>.pv-add){display:none}
 .pv:not(.pv-stack)>.pv-t{flex:1000 1 0;min-width:0;max-width:max-content;flex-wrap:nowrap;overflow-x:clip;overflow-y:visible}
 .pv:not(.pv-stack)>.pv-t>*,.pv:not(.pv-stack)>.pv-t>:is(.pv-rn,.pv-ra)>*{flex:none;white-space:nowrap}
 .pv:not(.pv-stack)>.pv-t .pv-note{flex:0 100 auto;min-width:3em;max-width:none}
