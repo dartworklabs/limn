@@ -38,6 +38,8 @@ ADD_FIELDS = (
     "kind",
     "via",
     "score",
+    "fill",
+    "rival",
     "frac",
     "note",
     "scope",

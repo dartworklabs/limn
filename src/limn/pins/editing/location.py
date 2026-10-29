@@ -37,6 +37,8 @@ class LineLoc:
     kind: str | None = None
     via: Via | None = None
     score: float | None = None
+    fill: float | None = None
+    rival: bool | None = None
     frac: Frac | None = None
     scope: Scope | None = None
     quote: str | None = None
@@ -53,6 +55,8 @@ class LineLoc:
             ("kind", self.kind),
             ("via", self.via),
             ("score", self.score),
+            ("fill", self.fill),
+            ("rival", self.rival),
             ("frac", None if self.frac is None else list(self.frac)),
             ("scope", self.scope),
             ("quote", self.quote),
@@ -176,7 +180,7 @@ def parse_loc(d: Json, facts: DocumentFacts) -> LineLoc | InputRejected:
 
     file must be a file inside the manuscript tree and 1 <= lo <= hi <= its line count, so this reads that file's
     lines (facts.lines) before checking the range. page defaults to 1; raw_lo, raw_hi, kind, via (one of
-    mapping.VIAS), score, frac, scope (one of edit.SCOPES), quote (truncated to 60 characters) and pdf_build (a page
+    mapping.VIAS), score, fill, rival (a figure map pick's, a boolean), frac, scope (one of edit.SCOPES), quote (truncated to 60 characters) and pdf_build (a page
     directory name) are checked in that order when sent (a null counts as not sent), then el on a figure document
     (parse_el; on any other document it is dropped like an unknown field). The checked location is constructed only
     after every field has passed.
@@ -216,6 +220,14 @@ def parse_loc(d: Json, facts: DocumentFacts) -> LineLoc | InputRejected:
         score = num_field(score, "score")
         if isinstance(score, InputRejected):
             return score
+    fill = d.get("fill")
+    if fill is not None:
+        fill = num_field(fill, "fill")
+        if isinstance(fill, InputRejected):
+            return fill
+    rival = d.get("rival")
+    if rival is not None and not isinstance(rival, bool):
+        return InputRejected("rival 은 true 나 false 입니다.", "bad_rival")
     frac = d.get("frac")
     if frac is not None:
         frac = _frac4(frac, InputRejected("frac 은 숫자 4개 목록입니다.", "bad_frac"))
@@ -249,6 +261,8 @@ def parse_loc(d: Json, facts: DocumentFacts) -> LineLoc | InputRejected:
         kind=kind,
         via=via,
         score=score,
+        fill=fill,
+        rival=rival,
         frac=frac,
         scope=scope,
         quote=quote,

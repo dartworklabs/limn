@@ -19,6 +19,8 @@ from limn.builds.figure_map import (
     FILL_MIN,
     FOLLOW_EPS,
     LADDER_MAX,
+    RIVAL_FILL,
+    RIVAL_GAP,
     ElementFollow,
     FigureMap,
     MapElement,
@@ -216,32 +218,89 @@ class Pick(unittest.TestCase):
 class Ladder(unittest.TestCase):
     """The ladder: the chosen element, its ancestors nearest first up to LADDER_MAX rungs, then the root."""
 
-    def test_the_ladder_climbs_from_the_element_to_the_root(self):
-        """A click on the July cell gives the cell, the strip and the figure, named el, el2 and fig."""
-        got = pick_element(CAL_PAGE, (0.3, 0.3, 0.0, 0.0))
-        self.assertEqual([e.id for e in got.ladder], ["F/cal/m07", "F/cal", "F"])
-        self.assertEqual(ladder_scopes(got.ladder), ("el", "el2", "fig"))
+    def test_a_loose_box_round_a_leaf_covers_all_of_it_and_has_no_rival(self):
+        """fill is how much of the element the drag covers, the other direction from score: a box with a margin round the
+        July cell holds all of it (fill 1.0) while the cell is 0.44 of the box (score); no other candidate is near."""
+        got = pick_element(CAL_PAGE, (0.15, 0.15, 0.3, 0.3))
+        self.assertAlmostEqual(got.fill, 1.0)
+        self.assertFalse(got.rival)
 
-    def test_a_deep_chain_keeps_the_nearest_rungs_up_to_the_cap_then_the_root(self):
-        """Twelve nested elements: the ladder keeps the chosen one and its seven nearest ancestors, then the root."""
-        chain, parent = [], "F"
-        for i in range(12):
-            side = 0.8 - 0.05 * i
-            e = el("F/%d" % i, parent, (0.1, 0.1, side, side))
-            chain.append(e)
-            parent = e.id
-        got = pick_element(page(*chain), (0.12, 0.12, 0.0, 0.0))
-        self.assertEqual(got.chosen.id, "F/11")
-        self.assertEqual([e.id for e in got.ladder], ["F/%d" % i for i in range(11, 3, -1)] + ["F"])
-        self.assertEqual(len(got.ladder), LADDER_MAX + 1)
-        self.assertEqual(ladder_scopes(got.ladder), ("el", "el2", "el3", "el4", "el5", "el6", "el7", "el8", "fig"))
+    def test_a_box_inside_a_big_element_covers_little_of_it(self):
+        """A box wholly inside the July cell is all of the box (score 1.0) and a part of the cell (fill 0.25); a point
+        covers none of anything (fill 0.0)."""
+        got = pick_element(CAL_PAGE, (0.25, 0.25, 0.1, 0.1))
+        self.assertEqual((got.chosen.id, round(got.score, 2), round(got.fill, 2)), ("F/cal/m07", 1.0, 0.25))
+        self.assertEqual(pick_element(CAL_PAGE, (0.3, 0.3, 0.0, 0.0)).fill, 0.0)
 
-    def test_scopes_refuse_a_ladder_no_pick_makes(self):
-        """An empty ladder, or one with more than LADDER_MAX element rungs, is a defect (ValueError)."""
-        with self.assertRaises(ValueError):
-            ladder_scopes(())
-        with self.assertRaises(ValueError):
-            ladder_scopes((ROOT,) * (LADDER_MAX + 2))
+    def test_a_box_straddling_two_cells_has_a_rival_and_one_holding_one_cell_has_none(self):
+        """Each cell holds half of a box across both: the first wins and the other, its sibling at the same cover, is its
+        rival. The same box moved to end where the August cell begins leaves it nothing, so there is no
+        other candidate and no rival."""
+        both = pick_element(CAL_PAGE, (0.3, 0.2, 0.2, 0.2))
+        self.assertEqual((both.chosen.id, both.rival), ("F/cal/m07", True))
+        near = pick_element(CAL_PAGE, (0.14, 0.2, 0.26, 0.2))
+        self.assertEqual((near.chosen.id, near.rival), ("F/cal/m07", False))
+
+    def test_overlapping_siblings_that_each_hold_the_drag_are_rivals_and_a_better_candidate_is_one_too(self):
+        """Two boxes that overlap without either holding the other: a drag inside both is all of it for each - the first in
+        map order wins silently and the other is its rival. A drag where the winner holds 0.5 and the other, a better
+        candidate that lost on map order, holds all of it is a rival as well (it is above the winner's score)."""
+        a = el("F/a", "F", (0.1, 0.1, 0.3, 0.3), src=(10, 20))
+        b = el("F/b", "F", (0.2, 0.1, 0.3, 0.3), src=(30, 40))
+        both = pick_element(page(a, b), (0.2, 0.1, 0.2, 0.3))
+        self.assertEqual((both.chosen.id, both.score, both.rival), ("F/a", 1.0, True))
+        better = pick_element(page(a, b), (0.3, 0.1, 0.2, 0.3))
+        self.assertEqual((better.chosen.id, round(better.score, 2), better.rival), ("F/a", 0.5, True))
+
+    def test_a_candidate_further_below_the_winner_than_the_gap_is_no_rival(self):
+        """The calendar's cells hold 0.59 and 0.41 of a box across both: both are candidates, the July cell wins, and the
+        August cell is 0.18 below it - over RIVAL_GAP, so the winner is not in doubt; at 0.5 and 0.5 it is."""
+        got = pick_element(CAL_PAGE, (0.2, 0.2, 0.339, 0.2))
+        self.assertEqual((got.chosen.id, round(got.score, 2), got.rival), ("F/cal/m07", 0.59, False))
+        self.assertEqual(pick_element(CAL_PAGE, (0.3, 0.2, 0.2, 0.2)).rival, True)
+        self.assertAlmostEqual(RIVAL_GAP, 0.1)
+
+    def test_an_element_the_drag_holds_whole_is_a_rival_though_it_is_no_candidate(self):
+        """A drag drawn round a label inside a box (the box beside it, not its parent): the box holds all of the drag and
+        wins, the label holds 0.31 of it - under COVER_MIN, no candidate - but the drag covers all of the label, so it is
+        a rival (RIVAL_FILL). A drag that covers only half of the label leaves the box with no rival."""
+        box = el("F/box", "F", (0.1, 0.1, 0.3, 0.1), src=(10, 20))
+        label = el("F/label", "F", (0.15, 0.12, 0.1, 0.03), src=(30, 40))
+        got = pick_element(page(box, label), (0.13, 0.1, 0.14, 0.07))
+        self.assertEqual((got.chosen.id, round(got.score, 2), got.rival), ("F/box", 1.0, True))
+        self.assertEqual(RIVAL_FILL, 0.9)
+        part = pick_element(page(box, label), (0.1, 0.1, 0.1, 0.07))  # holds half of the label
+        self.assertEqual((part.chosen.id, part.rival), ("F/box", False))
+
+    def test_a_generous_drag_round_a_small_element_picks_the_big_box_behind_it_and_says_it_has_a_rival(self):
+        """The case a pick's share alone cannot tell from a right pick: a drag drawn well round a small legend, hanging out of the
+        panel behind it. The legend holds 9% of the drag - no candidate - so the panel, a sibling in the map, is chosen at 64% of
+        the drag while the drag covers 9% of the panel (fill) and all of the legend, which therefore rivals the choice
+        (RIVAL_FILL). Nothing in score alone says the legend was meant."""
+        panel = el("F/panel", "F", (0.1, 0.1, 0.5, 0.5), src=(10, 20), part="Zone")
+        legend = el("F/legend", "F", (0.2, 0.12, 0.1, 0.03), src=(30, 40), part="Legend")
+        got = pick_element(page(panel, legend), (0.15, 0.05, 0.25, 0.14))
+        self.assertEqual(got.chosen.id, "F/panel")
+        self.assertEqual((round(got.score, 2), round(got.fill, 2), got.rival), (0.64, 0.09, True))
+
+    def test_an_ancestor_and_a_descendant_of_the_winner_are_not_its_rivals(self):
+        """The strip holding the July cell and the cell's own children cover the drag too, and none of them is a rival: a
+        parent and its child are one place, found by the ladder, not two."""
+        child = el("F/cal/m07/t", "F/cal/m07", (0.22, 0.22, 0.05, 0.05), src=(90, 91), part="Text")
+        pg = page(CAL, JUL, AUG, child)
+        got = pick_element(pg, (0.15, 0.15, 0.3, 0.3))
+        self.assertEqual((got.chosen.id, got.rival), ("F/cal/m07", False))
+
+    def test_a_padded_thin_candidate_that_wins_has_the_big_box_it_beat_as_its_rival(self):
+        """A drag along a thin line inside a big box admits the line through its padded selection box (the box holds the whole
+        drag, so the padding is not needed for it): the line wins with its tiny actual score, and the big box, which holds all
+        of the drag, is a rival - what the badge must not hide."""
+        big = el("F/big", "F", (0.0, 0.0, 0.9, 0.9), src=(10, 20))
+        thin = el("F/thin", "F", (0.3, 0.1, 0.0002, 0.3), src=(30, 40))
+        got = pick_element(page(big, thin), (0.295, 0.1, 0.01, 0.3))
+        self.assertEqual(got.chosen.id, "F/thin")
+        self.assertLess(got.score, 0.05)
+        self.assertTrue(got.rival)
 
 
 class Kind(unittest.TestCase):

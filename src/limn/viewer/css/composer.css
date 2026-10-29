@@ -4,6 +4,8 @@
 .c-loc-main{flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2)}
 .c-loc-main .loc{font-weight:600}
 #c-path{color:var(--muted-foreground);font-size:var(--text-sm);overflow-wrap:anywhere}   /* a figure element's path before its code lines */
+#c-path:focus-visible{color:var(--foreground);text-decoration:underline}   /* it answers a pointer: the element's box on the page is drawn stronger (figure.js) */
+@media (hover:hover){#c-path:hover{color:var(--foreground);text-decoration:underline}}
 #c-page{color:var(--muted-foreground);font-size:var(--text-sm)}
 /* The PDF text a drag chose (#c-quote under the location line, a card's .quote above its note, issue #185): an icon and one
    muted line cut with an ellipsis, the whole text in the tooltip; pressed (.open) it wraps in full. The row is its 4px padding

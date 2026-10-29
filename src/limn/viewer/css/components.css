@@ -90,6 +90,8 @@ input.n{width:58px;text-align:center}
   padding:1px var(--space-2);border-radius:var(--radius-sm);box-shadow:var(--shadow-sm);line-height:1.5}
 .sel{position:absolute;border:2px solid var(--primary);background:color-mix(in srgb,var(--primary) 13%,transparent);pointer-events:none}
 .sel.pending{border-style:dashed}
+.sel.hi{border-width:3px;box-shadow:0 0 0 3px color-mix(in srgb,var(--primary) 35%,transparent)}   /* the composer's element path is pointed at: the box it names (showElementHi) */
+.sel.flash{animation:flash .6s ease-in-out 2}   /* ...and pressed (showElementBox) */
 /* The pending box's '+' badge (pendingBadge): a saved mark's number badge in the primary colour, outside the box's left edge
    at its top - the old name tag sat over the line above the box - or in its top-left corner when there is no room (.in). */
 .sel i{position:absolute;top:-2px;left:-24px;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;

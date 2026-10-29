@@ -61,7 +61,7 @@ def public_record(r: Row, place: tuple[str, str] | None, suggest: SuggestState |
     behind. The API never carries a NaN, an Infinity or an integer no float holds (the store keeps them in a
     hand-edited or legacy line): a `frac` or `el.frac` with any such entry is None as a whole (a mark drawn from the
     finite entries would sit at a made-up position; limn.pins.element.element_of and the viewer skip such a frac
-    too), and every other stored number - synced_at, score, claim_until, claim_ts, eta_ts, and any number inside an
+    too), and every other stored number - synced_at, score, fill, claim_until, claim_ts, eta_ts, and any number inside an
     anchor, a thread entry or a field this version does not know - is None. The stored line is not touched. Never
     changes r."""
     out = dict(r)

@@ -103,7 +103,12 @@ def select_element(fmap: FigureMap | None, page_no: int, frac: Frac) -> ElementS
         (level, _element(page, el)) for level, el in zip(ladder_scopes(pick.ladder), pick.ladder, strict=True)
     )
     return ElementSelection(
-        _element(page, chosen), element_kind(chosen, chosen.id == page.root().id), pick.score, ladder
+        _element(page, chosen),
+        element_kind(chosen, chosen.id == page.root().id),
+        pick.score,
+        ladder,
+        pick.fill,
+        pick.rival,
     )
 
 

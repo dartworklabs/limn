@@ -110,7 +110,7 @@ function notePinChanges(prev,d,dropped){
     if(!was.stale&&p.stale){lineNote(tl('#{id} 위치를 잃었습니다',{id:p.id}),NOTICE_KIND.WARN,null,{dot:NOTICE_DOT.SIDE});return;}
     if(was.el_sync!==EL_SYNC.LOST&&p.el_sync===EL_SYNC.LOST){lineNote(tl('#{id} 요소를 잃었습니다',{id:p.id}),NOTICE_KIND.WARN,null,{dot:NOTICE_DOT.SIDE});return;}   // a re-render lost a figure pin's element
     const m=/^moved ([+-]\d+)$/.exec(p.sync||''),wm=/^moved ([+-]\d+)$/.exec(was.sync||'');
-    if(m&&(!wm||wm[1]!==m[1]))lineNote(tl('#{id} 줄 {delta} 이동',{id:p.id,delta:m[1]}),NOTICE_KIND.OK,null,{life:NOTICE_LIFE.TIMER});});
+    if(m&&p.el_sync!==EL_SYNC.OK&&(!wm||wm[1]!==m[1]))lineNote(tl('#{id} 줄 {delta} 이동',{id:p.id,delta:m[1]}),NOTICE_KIND.OK,null,{life:NOTICE_LIFE.TIMER});});
 }
 
 // Says on the status line when a pin that was awaiting review gets confirmed (done; passing news) or reopened (until [x], with

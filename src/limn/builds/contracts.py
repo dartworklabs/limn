@@ -87,6 +87,8 @@ class ElementSelection:
     kind: str
     score: float
     ladder: tuple[tuple[str, ElementFact], ...]
+    fill: float = 0.0
+    rival: bool = False
 
 
 @dataclass(frozen=True)

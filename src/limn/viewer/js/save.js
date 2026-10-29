@@ -69,7 +69,7 @@ async function savePin(verdict){
   // else is a plain pin's save. A change made while the failed request was still out leaves no retry at all (the catch).
   const gen=COMPOSE.intent,rv=COMPOSE.retryVerdict; COMPOSE.retryVerdict=null;
   if(verdict===undefined&&rv&&rv.gen===gen&&rv.sel===d&&KIND_NEW===KIND_REQ.FIX&&!SG.on)verdict=rv.key;
-  let body=/** @type {Record<string, unknown>} */({file:d.file,name:d.name,page:d.page,lo:d.lo,hi:d.hi,raw_lo:d.raw_lo,raw_hi:d.raw_hi,via:d.via,score:d.score,
+  let body=/** @type {Record<string, unknown>} */({file:d.file,name:d.name,page:d.page,lo:d.lo,hi:d.hi,raw_lo:d.raw_lo,raw_hi:d.raw_hi,via:d.via,score:d.score,fill:d.fill,rival:d.rival,
     frac:d.frac,note:note,quote:d.quote,pdf_build:d.pdf_build||undefined});
   if(d.scope){body.scope=d.scope; body.kind=kindFor(d.scope,d.env);} else body.kind=d.kind;
   if(isRegion(d))body={page:d.page,frac:d.frac,note:note,quote:d.quote,pdf_build:d.pdf_build||undefined};   // view-only: page/region only

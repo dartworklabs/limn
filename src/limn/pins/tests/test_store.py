@@ -492,6 +492,28 @@ class Store(Base):
         self.assertNotIn("via", p)
         self.assertNotIn("score", p)
 
+    def test_a_pin_keeps_a_map_picks_fill_and_rival_until_its_range_moves(self):
+        """fill and rival are stored with the score and come back on the pin; a lines edit that moves the range forgets them
+        with via and score, as the range is no longer what the pick found."""
+        pid = add_pin(
+            {
+                "file": str(self.main),
+                "lo": 4,
+                "hi": 5,
+                "page": 1,
+                "via": "map",
+                "score": 0.8,
+                "fill": 0.97,
+                "rival": False,
+            },
+            dict(LOCAL_ACTOR),
+        ).record["id"]
+        pin = next(r for r in records(ps.APP.snapshot_pins()) if r["id"] == pid)
+        self.assertEqual((pin["score"], pin["fill"], pin["rival"]), (0.8, 0.97, False))
+        p = record_of(edit_pin(pid, {"lo": 4, "hi": 6, "scope": "lines", "base_rev": 0}, dict(LOCAL_ACTOR)))
+        for gone in ("via", "score", "fill", "rival"):
+            self.assertNotIn(gone, p)
+
     def test_stale_term_in_pins_md(self):
         pid = self.add(8, 9)
         self.main.write_text(

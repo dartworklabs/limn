@@ -48,19 +48,25 @@ document.addEventListener('focusin',e=>{const t=/** @type {HTMLElement} */(e.tar
   armTip(t.closest?t.closest('[data-tip]'):null);});
 // Long-press tooltip (touch/pen): holding for 500ms shows the description, and the one click after release is swallowed (so the button doesn't fire).
 // Over a page image, quick selection (long-press = that paragraph) takes priority, so only badges (.mark [data-act=mark-jump]) apply. Input fields keep their paste menu.
-let PRESS=/** @type {{el:HTMLElement,x:number,y:number,t:ReturnType<typeof setTimeout>,shown?:boolean}|null} */(null),SWALLOW_CLICK=0;
+let PRESS=/** @type {{el:HTMLElement,x:number,y:number,t:ReturnType<typeof setTimeout>,shown?:boolean}|null} */(null),SWALLOW_CLICK=0,TIP_HOLD=0;   // TIP_HOLD: the SWALLOW_CLICK a long press's release armed (0 for none)
 /** Find a touch tooltip target while preserving native input menus and paragraph selection outside pin badges. */
 function pressTarget(t){const el=t&&t.closest?t.closest('[data-tip]'):null; if(!el)return null;
   if(el.tagName==='TEXTAREA'||el.tagName==='INPUT')return null;
   if(el.closest('.pg')&&!el.closest('.mark [data-act=mark-jump]'))return null; return el;}
-document.addEventListener('pointerdown',e=>{if(e.pointerType==='mouse')return; if(!TIP.hidden)hideTip();
+document.addEventListener('pointerdown',e=>{if(SWALLOW_CLICK===TIP_HOLD)SWALLOW_CLICK=0; TIP_HOLD=0;   // the click a long press's release held off comes before the next press: one that never came (a cancelled press) must not take this tap's
+  if(e.pointerType==='mouse')return; if(!TIP.hidden)hideTip();
   const el=pressTarget(e.target); if(!el)return;
-  PRESS={el,x:e.clientX,y:e.clientY,t:setTimeout(()=>{showTip(el); if(PRESS)PRESS.shown=true; SWALLOW_CLICK=Date.now()+900;
+  PRESS={el,x:e.clientX,y:e.clientY,t:setTimeout(()=>{showTip(el); if(PRESS)PRESS.shown=true; SWALLOW_CLICK=TIP_HOLD=Date.now()+900;
     setTimeout(()=>{if(!TIP.hidden&&TIP.textContent===el.dataset.tip)hideTip();},4000);},500)};},true);
 function endPress(){if(PRESS){clearTimeout(PRESS.t); PRESS=null;}}
 document.addEventListener('pointermove',e=>{if(PRESS&&Math.hypot(e.clientX-PRESS.x,e.clientY-PRESS.y)>10)endPress();},true);
-document.addEventListener('pointerup',endPress,true);
-document.addEventListener('pointercancel',endPress,true);
+// The release of the press that opened the description is when the click it ends with is swallowed: the window set when the box
+// opened (900ms) is over for a finger held longer (1.6s), and its release went through to the button. Re-armed at the release, the
+// swallowing is as long as the press. (A cancelled press ends without a click, so it re-arms nothing.)
+document.addEventListener('pointerup',()=>{if(PRESS&&PRESS.shown)SWALLOW_CLICK=TIP_HOLD=Date.now()+900; endPress();},true);
+// A cancelled press (the browser took the touch for a scroll or a gesture) ends without a click: the hold its description armed goes
+// with it, or a tap in the next 900ms would be the one swallowed.
+document.addEventListener('pointercancel',()=>{if(SWALLOW_CLICK===TIP_HOLD)SWALLOW_CLICK=0; TIP_HOLD=0; endPress();},true);
 document.addEventListener('click',e=>{if(Date.now()<SWALLOW_CLICK){SWALLOW_CLICK=0;e.preventDefault();e.stopImmediatePropagation();}},true);
 // Inside that window a touch's compatibility mousedown must not move focus either: after a quick pick opened the sheet under
 // the finger it focused the note field and raised the virtual keyboard (input review 2026-09-26, s12_seltap).

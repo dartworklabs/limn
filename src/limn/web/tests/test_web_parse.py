@@ -603,6 +603,29 @@ class Locations(Tree):
             InputRejected("frac 은 숫자 4개 목록입니다.", "bad_frac"),
         )
 
+    def test_a_map_picks_fill_and_rival_are_stored_after_the_score(self):
+        """fill (a finite number) and rival (a boolean) follow score in the record and are checked when sent: a string,
+        NaN or a number for rival is refused with its own reason."""
+        loc = editing_location.parse_loc(
+            {"file": "main.tex", "lo": 2, "hi": 3, "via": "map", "score": 0.7, "fill": 0.97, "rival": False}, self.facts
+        )
+        self.assertIsInstance(loc, editing_location.LineLoc)
+        record = loc.to_record()
+        self.assertEqual(list(record)[-4:], ["via", "score", "fill", "rival"])
+        self.assertEqual((record["fill"], record["rival"]), (0.97, False))
+        for bad, want in (
+            ({"fill": "x"}, InputRejected("fill 는 유한한 숫자여야 합니다.", "not_number")),
+            ({"fill": float("nan")}, InputRejected("fill 는 유한한 숫자여야 합니다.", "not_number")),
+            ({"rival": 1}, InputRejected("rival 은 true 나 false 입니다.", "bad_rival")),
+            ({"rival": "no"}, InputRejected("rival 은 true 나 false 입니다.", "bad_rival")),
+        ):
+            with self.subTest(bad=bad):
+                self.assertEqual(
+                    editing_location.parse_loc({"file": "main.tex", "lo": 1, "hi": 1, **bad}, self.facts), want
+                )
+        plain = editing_location.parse_loc({"file": "main.tex", "lo": 1, "hi": 1}, self.facts)
+        self.assertNotIn("fill", plain.to_record())
+
     def test_region_location_is_typed_and_stored_in_the_old_key_order(self):
         """parse_region gives a RegionLoc; its record is pdf, name, kind region, page, frac, then quote and pdf_build
         only when present."""

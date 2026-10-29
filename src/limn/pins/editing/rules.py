@@ -37,6 +37,8 @@ LOC_FIELDS = (
     "kind",
     "via",
     "score",
+    "fill",
+    "rival",
     "frac",
     "scope",
     "quote",
@@ -159,6 +161,10 @@ class LinePlace:
             raise ValueError("line place via must name a location method")
         if "score" in fields and not is_finite_num(fields["score"]):
             raise ValueError("line place score must be a finite number")
+        if "fill" in fields and not is_finite_num(fields["fill"]):
+            raise ValueError("line place fill must be a finite number")
+        if "rival" in fields and not isinstance(fields["rival"], bool):
+            raise ValueError("line place rival must be true or false")
         if "frac" in fields:
             frac = fields["frac"]
             if not (isinstance(frac, list) and len(frac) == 4 and all(is_finite_num(x) for x in frac)):
@@ -726,7 +732,7 @@ def evolve_edit(
     A region re-placement sets page, frac, quote and el (each dropped if not sent) and pdf_build. A line re-placement
     replaces every location field, el included (a figure pin's element that the new place does not name is dropped),
     keeping page and frac the request did not name; kind defaults to the request's kind or "lines", scope comes from
-    the request when the place has none. A lo/hi edit writes the range and, if it moved, forgets via/score (the range
+    the request when the place has none. A lo/hi edit writes the range and, if it moved, forgets via/score/fill/rival (the range
     is no longer a matching result); it, and every edit without a place, leaves a stored el as it is, byte for byte.
     scope and kind are set directly when nothing is re-placed. Then the facts the shell read: where the file is now
     (file, file_rel), and - given only when the range changed and the file is located - the new anchor and synced_at,
@@ -762,6 +768,8 @@ def evolve_edit(
         if event.range_changed:
             record.pop("via", None)
             record.pop("score", None)
+            record.pop("fill", None)
+            record.pop("rival", None)
     if place is None:
         if event.scope is not None:
             record["scope"] = event.scope

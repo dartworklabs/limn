@@ -58,7 +58,8 @@ class PickedElement:
     the element's cover of the drag (score), the ladder rungs (the chosen element's own first - the default), the quote
     (the element's label or ""), the element as a pin records it, the stored open pins the default rung overlaps, the
     page directory it was traced in, whether the pages are being redrawn now, and the name the map gives each element of
-    the element's path (FigureElement.names: label, else part, else "")."""
+    the element's path (FigureElement.names: label, else part, else ""), how much of the element the drag covers (fill) and
+    whether another candidate rivals the choice (rival, ElementChoice.rival)."""
 
     file: Path
     n_lines: int
@@ -73,6 +74,8 @@ class PickedElement:
     pdf_build: str
     redrawing: bool
     path_names: tuple[str, ...] = ()
+    fill: float = 0.0
+    rival: bool = False
 
 
 def drag_frac(box: tuple[float, float, float, float], size: tuple[float, float]) -> tuple[float, float, float, float]:
@@ -181,4 +184,6 @@ def pick_figure(
         pdf_build=pdir.name,
         redrawing=redrawing,
         path_names=chosen.names,
+        fill=pick.fill,
+        rival=pick.rival,
     )

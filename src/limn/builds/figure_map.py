@@ -455,6 +455,8 @@ def _tree_rejection(elements: tuple[MapElement, ...], where: str) -> MapRejected
 COVER_MIN = 0.4  # an element holding at least this share of the drag is a candidate (step 1)
 FILL_MIN = 0.5  # an element the drag covers at least this share of joins the common-ancestor step (step 2)
 PICK_MIN_SIDE = 0.012  # selection-only minimum axis length, in page fractions; actual geometry remains unchanged
+RIVAL_GAP = 0.1  # a candidate that is not kin to the winner and covers the drag within this much of it is a rival
+RIVAL_FILL = 0.9  # so is an element not kin to the winner that the drag covers at least this share of
 LADDER_MAX = 8  # element rungs below the root: "el", "el2", ..., "el8"; the root rung is "fig"
 FOLLOW_EPS = 1e-4  # a box component moved by no more than this is where it was
 KIND_PART_MAX = 77  # "el:" + part stays within a pin kind's 80 characters
@@ -466,11 +468,14 @@ ElSync: TypeAlias = Literal["ok", "moved", "lost"]
 class ElementPick:
     """What a drag on a figure page chose (pick_element): the element; its range ladder - the element, then its
     ancestors nearest first, at most LADDER_MAX element rungs, then the page root (just the root when the root was
-    chosen); and the element's cover of the drag, 0..1."""
+    chosen); the element's cover of the drag, 0..1 (score, |E∩D| / |D|); how much of the element the drag covers, 0..1
+    (fill, |E∩D| / |E|); and whether another candidate rivals it (rival, see pick_element)."""
 
     chosen: MapElement
     ladder: tuple[MapElement, ...]
     score: float
+    fill: float
+    rival: bool
 
 
 def _area(box: Frac) -> float:
@@ -547,7 +552,12 @@ def pick_element(page: MapPage, drag: Frac) -> ElementPick:
     2. else the nearest common ancestor of the elements the drag fills to at least FILL_MIN (_fill) - a drag across
        siblings (a drag without area fills nothing);
     3. else the root, the whole figure.
-    score is the chosen element's cover."""
+    score is the chosen element's cover and fill is how much of it the drag covers. rival is whether the choice has a
+    competitor: an element that is neither the winner's ancestor nor its descendant and either (a) is a candidate - one
+    of the elements step 1 weighed, a padded one counted by its selection-only box - covering the drag within RIVAL_GAP
+    of the winner's score (two overlapping siblings that each hold most of a drag, one of which wins silently), or (b) is
+    covered by the drag to at least RIVAL_FILL, however little of the drag it is (a label inside a drag drawn round it
+    and the box beside it that won)."""
     root = page.root()
     others = [e for e in page.elements if e.id != root.id]
     order = {e.id: i for i, e in enumerate(page.elements)}
@@ -567,7 +577,24 @@ def pick_element(page: MapPage, drag: Frac) -> ElementPick:
     else:
         filled = [e for e in others if _fill(e.frac, drag) >= FILL_MIN]
         chosen = _common_ancestor(page, filled) if filled else root
-    return ElementPick(chosen, _ladder(page, chosen), _cover(chosen.frac, drag))
+    score = _cover(chosen.frac, drag)
+    return ElementPick(
+        chosen, _ladder(page, chosen), score, _fill(chosen.frac, drag), _has_rival(page, chosen, covering, drag, score)
+    )
+
+
+def _has_rival(page: MapPage, chosen: MapElement, covering: Sequence[MapElement], drag: Frac, score: float) -> bool:
+    """Whether another element competes with chosen for drag (pick_element describes the two kinds). The cheap box tests
+    come first; kinship is asked only of an element that passes one."""
+    kin = {a.id for a in page.ancestors(chosen)} | {chosen.id}
+    candidates = {e.id for e in covering}
+    for e in page.elements[1:]:
+        if e.id in kin:
+            continue
+        near = e.id in candidates and _cover(_selection_box(e.frac), drag) >= score - RIVAL_GAP
+        if (near or _fill(e.frac, drag) >= RIVAL_FILL) and chosen.id not in {a.id for a in page.ancestors(e)}:
+            return True
+    return False
 
 
 def ladder_scopes(ladder: tuple[MapElement, ...]) -> tuple[str, ...]:

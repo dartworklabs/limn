@@ -81,6 +81,8 @@ interface Pin {
   scope?: string;
   via?: string;
   score?: number;
+  fill?: number;
+  rival?: boolean;
   quote?: string;
   pdf_build?: string;
   el?: PinElement;
@@ -384,6 +386,8 @@ interface PickAnswer {
   kind: string;
   via?: string;
   score?: number;
+  fill?: number;
+  rival?: boolean;
   warn: string;
   n_lines?: number;
   snippet?: string;

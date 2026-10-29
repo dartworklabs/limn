@@ -283,7 +283,7 @@ def _is_thread(value: object) -> TypeGuard[list[Record]]:
 class LineSpan:
     """Where a line pin points: its .tex file (the absolute path as stored) and the lines lo..hi (1-based, inclusive).
 
-    How it was placed there - name, the PDF page and frac it was dragged on, raw_lo/raw_hi, kind, via, score, scope,
+    How it was placed there - name, the PDF page and frac it was dragged on, raw_lo/raw_hi, kind, via, score, fill, rival, scope,
     the build of its mark, file_rel - is lifted on the pin's core (PinCore); its quote is kept among the pin's fields.
     """
 
@@ -342,7 +342,8 @@ class PinCore:
     fix); assignee; mentions, the note's @-tags; thread; the line-matching state - anchor (the head/tail text a line
     pin follows, kept as stored for limn.pins.location.mapping), synced_at (epoch seconds), stale and sync; how the pin was placed -
     name (the file's name, or the PDF's), kind and scope (the rung of the range ladder), via and score (the path and
-    score of the pick), raw_lo/raw_hi (the dragged lines before the ladder), a line pin's PDF mark (page and frac,
+    score of the pick), fill and rival (a figure map pick's: how much of the element the drag covers, and whether
+    another element rivals the choice), raw_lo/raw_hi (the dragged lines before the ladder), a line pin's PDF mark (page and frac,
     the page and box it was dragged on - a region pin's are its place), pdf_build and the legacy frac_build (the build
     those coordinates belong to), file_rel (the file relative to the manuscript root, ADR-0006); and the edit marker
     (edited_at, edited_by). Each is lifted only when stored with its kind - mentions a list of strings, thread a list
@@ -371,6 +372,8 @@ class PinCore:
     scope: str | None = None
     via: str | None = None
     score: float | None = None
+    fill: float | None = None
+    rival: bool | None = None
     raw_lo: int | None = None
     raw_hi: int | None = None
     page: int | None = None
@@ -436,6 +439,8 @@ CORE_SHAPES: Shapes = {
     "scope": ("scope", _is_text),
     "via": ("via", _is_text),
     "score": ("score", is_num),
+    "fill": ("fill", is_num),
+    "rival": ("rival", _is_bool),
     "raw_lo": ("raw_lo", is_int),
     "raw_hi": ("raw_hi", is_int),
     "page": ("page", is_int),
