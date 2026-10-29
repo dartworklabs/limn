@@ -5334,11 +5334,12 @@ class PageList(ViewerBase):
         self.tap(self.cdp(page), *self.center(page, "#ns-pages [role=option] >> nth=1"))
         page.wait_for_function("!document.querySelector('#nav-sheet').open&&topAnchor().page===2")
 
-    def test_figure_and_view_only_documents_list_page_numbers_only(self):
-        """A figure and a view-only PDF list their pages without section names, even with an outline loaded; the
-        manuscript keeps its names."""
+    def test_figure_names_pages_by_its_outline_and_a_view_only_pdf_lists_numbers_only(self):
+        """A figure names each page by the outline entry that points at it (the deepest; a page's title from meta comes
+        first - test_viewer_outline_cap.FigurePageList), a view-only PDF lists its pages without names even with an
+        outline loaded, and the manuscript keeps its section names."""
         page = self.docs_view(DESK)
-        for key, names in (("fig", ["", ""]), ("rv", ["", ""]), ("ms", ["1 서론", "2 방법"])):
+        for key, names in (("fig", ["1.1 연구 배경", "2 방법"]), ("rv", ["", ""]), ("ms", ["1 서론", "2 방법"])):
             with self.subTest(doc=key):
                 page.evaluate("async k=>await switchDoc(k)", key)
                 page.wait_for_function("k=>DOC===k&&document.querySelectorAll('#doc .pg').length===2", arg=key)

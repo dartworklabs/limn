@@ -14,17 +14,31 @@ function pageSections(entries,n){
     if(on.length){out.push(on.map(name).join(' · ')); last=name(on[on.length-1]);}
     else out.push(last?'… '+last:'');}
   return out;}
-// Whether the document on screen names sections in its page list: a LaTeX manuscript does; a figure document and a view-only
-// PDF list page numbers only.
+// Whether the document on screen names sections in its page list: a LaTeX manuscript does; a figure document names its pages
+// by their titles instead (pageTitles) and a view-only PDF lists page numbers only.
 function pageListNamed(){const d=docInfo(DOC); return !d||buildsFromSource(d.kind);}
+// The title each of n pages shows in the page list of a document that is not a LaTeX manuscript, index 0 for page 1: the title the
+// build's meta gives the page (pages[i].title - a figure's title from its element map), else - when byOutline, as in a figure
+// document, whose pages are its figures - the entry of the outline that points at the page (the deepest of them, of equally deep
+// ones the first the outline lists, as outlineIndexAt picks among entries that start at one spot), else ''. pages is META.pages
+// (or null), entries the outline in document order. Pure.
+function pageTitles(pages,entries,n,byOutline){
+  const name=e=>(e.number?e.number+' ':'')+e.title,named=new Map();
+  if(byOutline)entries.forEach(e=>{const best=named.get(e.page); if(!best||(e.depth||0)>(best.depth||0))named.set(e.page,e);});
+  return Array.from({length:n},(_,i)=>{const t=pages&&pages[i]?pages[i].title:null;
+    if(typeof t==='string'&&t.trim())return t.trim();
+    const e=named.get(i+1); return e?name(e):'';});}
+// The names the page list shows for pages 1..n: a LaTeX manuscript's sections, a figure document's page titles, else none.
+function pageNames(n){if(pageListNamed())return pageSections(OUTLINE_ENTRIES,n);
+  const d=docInfo(DOC); return pageTitles(META&&META.pages,OUTLINE_ENTRIES,n,!!d&&isFigureKind(d.kind));}
 // The number of pages of the build on screen; 0 before /api/meta has answered.
 function pageCount(){return META&&META.pages?META.pages.length:0;}
 // The rows for pages 1..n: the page on screen (cur) is the selected option, carries the check and is the list's one tab stop.
 // The section names are the manuscript's words (translate="no"); the page number is UI.
 // A page whose page verdict line shows a verdict carries it at the row's end, before the check ('#42 채택'): the verdicts at a glance.
-function pageRowsHtml(n,cur){const names=pageListNamed()?pageSections(OUTLINE_ENTRIES,n):[],pv=pageVerdictsOn()?pageVerdictPins():null;
+function pageRowsHtml(n,cur){const names=pageNames(n),titled=!pageListNamed(),pv=pageVerdictsOn()?pageVerdictPins():null;
   return html`${Array.from({length:n},(_,i)=>{const p=i+1,on=p===cur,vp=pv&&(pv.get(p)||[])[0],vk=vp&&verdictOf(vp);
-    return html`<button class="pl-row${on?' on':''}" role="option" aria-selected="${on}" tabindex="${on?0:-1}" data-act="page-go" data-page="${p}" data-close="1"><span class="pl-n">${tl('{page}쪽',{page:p})}</span><span class="pl-s" translate="no">${names[i]||''}</span>${vp&&vk?html`<span class="pl-v">#${vp.id} <span translate="no">${verdictLabel(vk)}</span></span>`:''}${on?ic('check'):''}</button>`;})}`;}
+    return html`<button class="pl-row${on?' on':''}" role="option" aria-selected="${on}" tabindex="${on?0:-1}" data-act="page-go" data-page="${p}" data-close="1"><span class="pl-n">${tl('{page}쪽',{page:p})}</span>${titled&&names[i]?html`<span class="pl-s" translate="no" title="${names[i]}">${names[i]}</span>`:html`<span class="pl-s" translate="no">${names[i]||''}</span>`}${vp&&vk?html`<span class="pl-v">#${vp.id} <span translate="no">${verdictLabel(vk)}</span></span>`:''}${on?ic('check'):''}</button>`;})}`;}
 // Scrolls list so that its selected row sits in the middle of the list's box (as far as the list can scroll).
 function revealPageRow(list){const r=/** @type {HTMLElement|null} */(list.querySelector('[aria-selected=true]')); if(!r)return;
   list.scrollTop=r.offsetTop-(list.clientHeight-r.offsetHeight)/2;}
@@ -35,6 +49,7 @@ let PAGE_LIST_FROM=/** @type {HTMLElement|null} */(null);   // the page count th
 function openPageList(from){const pop=$('#page-pop'),list=$('#page-pop-list'),f=$('#page-pop-in'),n=pageCount();
   hideTip(); PAGE_LIST_FROM=from; from.setAttribute('aria-expanded','true');
   setHtml(list,pageRowsHtml(n,OUTLINE_ACTIVE_PAGE||1)); f.value=''; f.placeholder='1–'+n;
+  pop.classList.toggle('pl-titled',!!list.querySelector('.pl-s[title]'));   // a figure document's titles get a wider list
   pop.hidden=false; placePageList(); revealPageRow(list);
   const row=/** @type {HTMLElement|null} */(list.querySelector('[aria-selected=true]'));
   (MQ_COARSE.matches&&row?row:f).focus({preventScroll:true});}

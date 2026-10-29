@@ -1,5 +1,33 @@
 # Changelog
 
+## Unreleased
+
+Two viewer changes for long figure documents (a figure per page, a page list and an outline that run to hundreds of
+entries). The agent contract and `pins.md` are unchanged, and so is every HTTP route: the viewer reads what
+`/api/meta` and the PDF already give.
+
+### Changed
+
+- **The outline is read and drawn whole up to 2,000 entries, and says what it did not read.** The viewer stopped
+  reading a PDF's outline at 180 entries (and at five levels) without a word, so a figure document whose outline runs to
+  170 entries today was one page of figures from losing its tail unseen. The first 2,000 entries are read now - about
+  twelve times today's figure document, about 0.18 s to read and draw at the limit, a section change costing 0.2 ms - and
+  entries beyond that count or deeper than five levels are counted (only those with a destination) and said on the last
+  line of the outline, the navigation sheet's list and the filter's results: `목차 항목 408개를 생략했습니다 — 읽는
+  한도는 2,000개, 5단계입니다` (under a filter: `생략한 목차 항목 408개는 찾지 못했습니다 — …`, also under `찾은
+  장·절이 없습니다.`). The line is quiet text, not a row. With nothing left unread no line appears, so an ordinary LaTeX
+  outline is drawn exactly as before.
+- **The section strip no longer redraws the outline.** Scrolling a long document changes the current section at every
+  page, and each change rebuilt every row of both outline lists. It moves the highlight (`ol-active`, `aria-current`)
+  on the rows already drawn, so the cost no longer grows with the outline; a filter keystroke redraws its own list only.
+  Destinations are resolved 100 siblings at a time instead of one by one.
+- **A figure document's page list shows each figure's title.** The page jump (`3 / 91쪽 ⌄`, the foldable and tablet
+  page count, and the phone's navigation sheet) listed page numbers only for a figure document. Each row now carries the
+  page's title - `/api/meta`'s `pages[i].title` when the server gives one (the figure map's page title, e.g.
+  `[후보] PL26 · 제목`), else the outline entry that points at the page (the deepest, first listed), else the number
+  alone. A long title ends in an ellipsis and is the row's tooltip; a list with titles opens 380px wide instead of 300px.
+  A LaTeX manuscript's list and a view-only PDF's are unchanged.
+
 ## 0.4.31 — 2026-10-29
 
 Follow-ups: small secondary text at 4.5:1 in both themes, `limn update` that reports a failed restart, and two fixes to

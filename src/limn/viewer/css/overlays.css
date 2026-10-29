@@ -27,6 +27,7 @@ dialog .help-legend .st-dot{display:inline-block;vertical-align:middle;margin:0 
 #page-pop{position:fixed;z-index:60;display:flex;flex-direction:column;width:300px;max-width:calc(100vw - 16px);max-height:min(480px,var(--pl-room,480px));padding:var(--space-2);
   background:var(--popover);color:var(--popover-foreground);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);
   font-size:var(--text-sm)}
+#page-pop.pl-titled{width:380px}   /* page titles (a figure document) need more than section numbers */
 #page-pop .pl-head{display:flex;align-items:center;gap:var(--space-2);flex:none;padding:0 0 var(--space-2) var(--space-2);margin-bottom:var(--space-1);
   border-bottom:1px solid var(--border);font-weight:600}
 #page-pop-in{width:72px;height:var(--control-h);padding:0 var(--space-2);font-size:var(--text-sm)}
