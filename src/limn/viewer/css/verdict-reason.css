@@ -10,13 +10,15 @@
   .pv .vd-b.vd-confirm[aria-pressed=true]:hover{background:color-mix(in srgb,var(--destructive) 88%,var(--foreground));color:var(--destructive-foreground)}}
 /* What a save on the line is doing ('보류 저장 중…') and how long an armed confirm word waits ('4초 안에 한 번 더 누르면 저장'). */
 .pv .pv-busy{color:var(--muted-foreground)}
-.pv .pv-arm{color:var(--destructive);font-weight:600}
+.pv .pv-arm{color:color-mix(in srgb,var(--destructive) 80%,var(--foreground));font-weight:600}   /* 4.5:1 and more on the line's grey (the danger hue alone read 4.2:1) */
 
 /* The reason on the line, after the state: its saved text (a check and its first line, a button on the person's own open verdict that opens the
    popover to change it), a kept draft ('이유 · 저장 안 됨') or [이유 추가] - text actions in the line's own look, no fill. */
 .pv :is(.pv-rn,.pv-ra){display:contents}
 .pv button.pv-note,.pv button.pv-add,.pv button.pv-draft{padding-inline:var(--space-1);font-weight:inherit;text-decoration:none;text-underline-offset:3px}
-.pv button.pv-note{color:var(--foreground);display:inline-block;align-content:center;text-align:start}   /* a block box: its long text is cut at its end (ellipsis), not on both sides */
+.pv button.pv-note{color:var(--foreground);display:inline-flex;align-items:center;overflow:visible;text-align:start}   /* its text is cut at its end (ellipsis, .pv-note-t), the pencil after it never */
+.pv button.pv-note>.pv-note-t{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pv button.pv-note>.ic{flex:none}
 .pv button.pv-add{color:var(--primary)}
 .pv button.pv-draft{color:var(--warning);font-weight:600}
 .pv :is(button.pv-note,button.pv-add,button.pv-draft):focus-visible{background:transparent;text-decoration:underline}
@@ -35,7 +37,7 @@
   background:var(--popover);color:var(--popover-foreground);box-shadow:var(--shadow);user-select:text;-webkit-user-select:text;cursor:auto}
 #doc .pv .pv-pop .pv-reason{flex:none;display:block;box-sizing:border-box;width:100%;min-height:var(--control-h);height:auto;max-height:9em;margin:0;
   padding:var(--space-1) var(--space-2);resize:none;overflow-y:auto;font:inherit;font-size:var(--text-sm);line-height:var(--line-field);
-  background:var(--field);color:var(--foreground);border:1px solid var(--input);border-radius:var(--radius-sm)}
+  background:var(--field);color:var(--foreground);border:1px solid color-mix(in srgb,var(--foreground) 55%,transparent);border-radius:var(--radius-sm)}   /* 3:1 and more on the field and the popover (--input read 1.5:1) */
 .pv .pv-pop-f{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2);font-size:var(--text-xs);color:var(--muted-foreground)}
 .pv .pv-pop-to{color:var(--foreground);font-weight:600}
 .pv .pv-pop-from{font-weight:400;color:var(--muted-foreground)}
@@ -44,7 +46,9 @@
 .pv .pv-pop-h:empty,.pv .pv-pop-st:empty{display:none}
 .pv .pv-pop-acts{display:flex;gap:var(--space-1);margin-left:auto}
 .pv .pv-pop-acts button{min-height:var(--control-h-sm)}
-.pv .pv-pop-acts .pv-pop-clear{color:var(--destructive)}
+.pv .pv-pop-acts .pv-pop-clear{color:var(--destructive);position:relative;margin-right:var(--space-3)}
+/* The destructive [지우기] stands 16px from [접기]/[닫기] with a divider in the gap, as the confirm word does on the line. */
+.pv .pv-pop-acts .pv-pop-clear::before{content:'';position:absolute;top:var(--space-1);bottom:var(--space-1);right:calc(-1 * var(--space-2) - 1px);width:1px;background:var(--border-strong);pointer-events:none}
 @media (pointer:coarse){#doc .pv .pv-pop .pv-reason{min-height:var(--hit);font-size:var(--text-xl)}   /* 16px: a phone does not zoom into it */
   .pv .pv-pop-f{font-size:var(--text-sm)}
   .pv .pv-pop-acts button{min-height:var(--ctl-touch-sm)}}

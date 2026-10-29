@@ -150,8 +150,8 @@ pre.nowrap{white-space:pre}
    --control-h-md) and stand 8px apart, so the row is 32px and never a target row of 24-28px. */
 .pv{position:sticky;left:0;right:var(--pv-inset-r,0px);z-index:3;display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2);
   margin:calc(-1 * var(--space-2)) auto var(--space-4);min-height:var(--pv-ctl);font-size:var(--text-sm);color:var(--muted-foreground);user-select:none;
-  --pv-ctl:var(--control-h-md);--pv-ring:var(--space-2);--pv-gap:var(--space-2);--pv-blur:8px}
-.pv.reading{bottom:calc(var(--pv-inset,0px) + var(--pv-gap) - var(--pv-pad-b,0px))}
+  --pv-ctl:var(--control-h-md);--pv-ring:var(--space-2);--pv-gap:var(--space-2);--pv-blur:8px;overflow-anchor:none}
+.pv.reading{bottom:calc(var(--pv-inset,0px) + var(--pv-gap) - var(--pv-pad-b,0px) + var(--pv-kb-over,0px))}   /* --pv-kb-over: a keyboard over the page, pvStick */
 /* Floating over its page (.stuck, verdict.js pvStick): the PDF area's own background carried --pv-ring past the line on every
    side by a spread shadow (the line's box and the place of its words do not move), a 1px separator on its top edge (the
    strong border: --border is the PDF area's own grey in the light theme) and a
@@ -169,6 +169,9 @@ body:is(.composing,.band-phone.lay-narrow.side-open) .pv.reading{bottom:auto}
    --sheet-h is the sheet's height, folded to its bar or open (status.js). */
 body.lay-narrow{--pv-inset:var(--sheet-h,0px)}
 body.lay-narrow.has-status:not(.typing,.pv-typing){--pv-inset:calc(var(--sheet-h,0px) + 24px)}
+/* On touch the status line's [x] and its action answer 44px up from the sheet's top edge, over the PDF (responsive.css): the
+   floating line stands over that whole reach, so a tap on the bottom of its words never lands on them instead. */
+@media (pointer:coarse){body.lay-narrow.has-status:not(.typing,.pv-typing){--pv-inset:calc(var(--sheet-h,0px) + var(--hit))}}
 /* One row or stacked, decided per line (sizePv sets .pv-stack on a line whose words and buttons cannot share one row). A
    row (most lines, and every line on a wide screen) keeps its buttons on the row's end and gives way from the start: the
    figure's title (.pv-fig-t) is cut first, down to the identifier before it ('7쪽 · PL18', .pv-fig-id, never cut), and
@@ -179,13 +182,19 @@ body.lay-narrow.has-status:not(.typing,.pv-typing){--pv-inset:calc(var(--sheet-h
    the '#N' link's and the text actions' areas reach over and under. The reason's and [이유 추가]'s own spans are
    display: contents (verdict-reason.css), so their parts are the row's items too. */
 .pv:not(.pv-stack)>.pv-fig{flex:1 1 0;min-width:var(--pv-fig-min,0px);max-width:max-content;overflow:hidden}
-.pv.pv-tight:not(.pv-stack)>.pv-t :is(.pv-note,.pv-busy,.pv-arm){min-width:0}   /* the wide band's last cuts before a second row (pvFit) */
+.pv.pv-tight:not(.pv-stack)>.pv-t :is(.pv-note,.pv-busy){min-width:0}   /* the wide band's last cuts before a second row (pvFit) */
 .pv.pv-tight:not(.pv-stack)>.pv-t .pv-early{min-width:2em}
 .pv:not(.pv-stack)>.pv-t{flex:1000 1 0;min-width:0;max-width:max-content;flex-wrap:nowrap;overflow-x:clip;overflow-y:visible}
 .pv:not(.pv-stack)>.pv-t>*,.pv:not(.pv-stack)>.pv-t>:is(.pv-rn,.pv-ra)>*{flex:none;white-space:nowrap}
 .pv:not(.pv-stack)>.pv-t .pv-note{flex:0 100 auto;min-width:3em;max-width:none}
-.pv:not(.pv-stack)>.pv-t :is(.pv-busy,.pv-arm){flex:0 50 auto;min-width:6em;overflow-x:clip;overflow-y:visible;text-overflow:ellipsis}
-.pv:not(.pv-stack)>.pv-t .pv-early{flex:0 10 auto;min-width:5em;overflow-x:clip;overflow-y:visible;text-overflow:ellipsis}
+.pv:not(.pv-stack)>.pv-t .pv-busy{flex:0 50 auto;min-width:6em;overflow-x:clip;overflow-y:visible;text-overflow:ellipsis}
+.pv:not(.pv-stack)>.pv-t .pv-early{flex:0 50 auto;min-width:5em;overflow-x:clip;overflow-y:visible;text-overflow:ellipsis}
+/* While a confirm word waits for its second press its line says how long ('4초 안에 한 번 더 누르면 저장', .pv-arm) in full: what
+   does not bear on that press gives way to it - the reason and the earlier link to nothing, [이유 추가] and [판정 취소] step
+   out - and it is cut last. The words stay where they are (the line keeps its rows, verdict.js pvRowsHeld). */
+.pv:not(.pv-stack)>.pv-t .pv-arm{flex:0 1 auto;min-width:6em;overflow-x:clip;overflow-y:visible;text-overflow:ellipsis}
+.pv:has(>.pv-t .pv-arm)>.pv-t :is(.pv-note,.pv-early){min-width:0}
+.pv:has(>.pv-t .pv-arm)>.pv-t :is(.pv-ra,.pv-cn){display:none}
 .pv:not(.pv-stack)>.pv-t{margin-right:auto}
 .pv:not(.pv-stack)>.vd-btns{flex:none}
 .pv>.vd-btns{order:2}
@@ -206,6 +215,11 @@ body.lay-narrow.has-status:not(.typing,.pv-typing){--pv-inset:calc(var(--sheet-h
 /* While the reason is typed on a touch screen (body.pv-typing: a text field in a page line has the focus, verdict.js) the
    keyboard leaves little of the page: the line drops its figure's name and its save chip folds to its [되돌리기] - and the
    status line over the sheet steps aside as it does for a panel field (responsive.css) - so the plot keeps what is left. */
+/* The reason popover's side (verdict.js pvPopPlace): under its line where the room above is too short and the room below holds
+   it, and never taller than the room it has (it scrolls). Never a scroll anchor: a line is sticky, and an anchor that moves
+   with the scroll turns a change inside it into a jump of the page. */
+.pv.pv-pop-below>.pv-pop{top:calc(100% + var(--space-2));bottom:auto}
+.pv>.pv-pop{max-height:var(--pv-pop-max,none);overflow-y:auto}
 @media (pointer:coarse){body.pv-typing .pv.reading>:is(.pv-fig,.pv-fig-sep){display:none}
   body.pv-typing .pv>.nt-chip :is(.nt-ic,.nt-t){display:none}}
 /* The key a word answers on the line the keys act on (data-kn, verdict.js): after the word in the button's own colour, set off
@@ -227,7 +241,9 @@ body.lay-narrow.has-status:not(.typing,.pv-typing){--pv-inset:calc(var(--sheet-h
 .pv .vd-btns{gap:var(--space-2);--pv-edge:color-mix(in srgb,var(--foreground) 55%,transparent)}
 .pv .vd-b{position:relative;border-color:var(--pv-edge)}
 .pv .vd-b.vd-confirm{border-color:color-mix(in srgb,var(--destructive) 70%,var(--pv-edge))}
-.pv .vd-b.vd-confirm.armed{border-color:var(--destructive)}
+/* The armed confirm word reads 4.5:1 and more on the line in both themes: the danger hue leaning to the text colour, on a
+   light danger tint over the button's own fill (the danger text on a see-through tint over the grey ground read 3.6:1). */
+.pv .vd-b.vd-confirm.armed{border-color:var(--destructive);background:color-mix(in srgb,var(--destructive) 8%,var(--card));color:color-mix(in srgb,var(--destructive) 80%,var(--foreground))}
 .pv .vd-b.vd-confirm:not(:first-child){margin-left:var(--space-2)}
 .pv .vd-b.vd-confirm:not(:first-child)::before{content:'';position:absolute;top:var(--space-1);bottom:var(--space-1);left:calc(-1 * var(--space-2) - 1px);width:1px;background:var(--border-strong);pointer-events:none}
 @media not all and (pointer:coarse){.pv .vd-btns button{height:var(--pv-ctl);min-height:var(--pv-ctl)}}
@@ -244,6 +260,8 @@ body.lay-narrow.has-status:not(.typing,.pv-typing){--pv-inset:calc(var(--sheet-h
 /* [판정 취소]: a text action that takes a verdict back, not a way to somewhere - muted destructive text (the danger hue
    leaning to the line's own text, so it never outshouts the state or reads as the blue links), the line's weight, and the
    link's underline only on hover and :focus-visible. A phone's floating line holds it back (.pv-lean, verdict.js pvLean). */
+/* The dot before [판정 취소] stands 4px further off on each side: [판정 취소] 16px and more from the reason's button before it. */
+.pv .pv-t>.pv-sep.pv-cn{margin-inline:var(--space-1)}
 .pv button.pv-cancel{--pv-cancel-fg:color-mix(in srgb,var(--destructive) 78%,var(--foreground));color:var(--pv-cancel-fg);font-weight:inherit;
   padding-inline:var(--space-1);text-decoration:none;text-underline-offset:3px}
 .pv button.pv-cancel:focus-visible{background:transparent;text-decoration:underline}

@@ -403,10 +403,19 @@ document.addEventListener('focusin',()=>pvStickSoon()); document.addEventListene
 // line's row is measured again. Read on every focus move and after every drawing of the lines (drawPageVerdicts): a rebuild
 // or a pin deleted elsewhere takes the focused field out of the page, and Chromium sends no focusout for that - the class
 // stayed and hid the status line.
-function pvTypingSync(){const a=/** @type {HTMLElement|null} */(document.activeElement),l=a&&a.closest?/** @type {HTMLElement|null} */(a.closest('#doc .pv')):null;
-  const on=!!l&&typingNow(),b=document.body; if(b.classList.contains('pv-typing')===on)return; b.classList.toggle('pv-typing',on);
+// Once on, it stays while the reason popover is being used - the focus on one of its buttons, or a press that started in it
+// until that press's click has run (PV_POP_PRESS): a tap on [저장], [접기] or [지우기] took the focus out of the field, the
+// status line came back (24px) and on a phone the line stacked again, so between the touch and its click the button moved
+// 24-85px and the click fell on the popover itself - the first tap was lost.
+let PV_POP_PRESS=false;
+function pvTypingSync(){const a=/** @type {HTMLElement|null} */(document.activeElement),l=a&&a.closest?/** @type {HTMLElement|null} */(a.closest('#doc .pv')):null,b=document.body;
+  const pop=!!a&&!!a.closest&&!!a.closest('#doc .pv>.pv-pop'),on=(!!l&&typingNow())||(b.classList.contains('pv-typing')&&(pop||PV_POP_PRESS));
+  if(b.classList.contains('pv-typing')===on)return; b.classList.toggle('pv-typing',on);
   const r=l||/** @type {HTMLElement|null} */(document.querySelector('#doc .pv.reading')); if(r)pvFit([r]);}
 document.addEventListener('focusin',pvTypingSync); document.addEventListener('focusout',()=>setTimeout(pvTypingSync,0));
+document.addEventListener('pointerdown',e=>{const t=/** @type {HTMLElement|null} */(e.target); if(!(t&&t.closest&&t.closest('#doc .pv>.pv-pop')))return;
+  PV_POP_PRESS=true; let done=false; const end=()=>{if(done)return; done=true; window.removeEventListener('click',late); setTimeout(()=>{PV_POP_PRESS=false; pvTypingSync();},0);};
+  const late=()=>end(); window.addEventListener('click',late); setTimeout(end,500);},true);   // after the press's own click (window, bubbling: after the viewer's handlers), or 500ms
 // Saves word key as a verdict about page `page`'s whole target: a pick of the whole page on the build on screen, the body
 // pageVerdictBody makes of it, with no note, saved as a fix request for the agent. The composer's selection and draft stay as
 // they are. The word becomes the page's current verdict - a new pin (the agent runs the newest, D4 and D5); pressing the
@@ -628,43 +637,89 @@ function sizePv(){const ir=pvInsetR(),L=$('#left'),lines=$$('#doc .pv');
 // One row or stacked, decided per line (.pv-stack; P2-7 of the 0.4.33 review: one line with an earlier verdict or a reason
 // stacked every line of the document, 88px over the plot at 1440). Each line is laid out as one row - the figure's title cut
 // first, down to its identifier ('6쪽 · PL17', pvFigParts; --pv-fig-min), then the reason and the earlier link
-// (components.css) - and
-// stacks only when its state's own words, [판정 취소] and its buttons still cannot share the row: the state runs past its
-// share, or the buttons went to a row of their own (a narrow page). On the wide band a line that does not fit first lets
-// the reason and the earlier link go further (.pv-tight): a desktop keeps one row, a second row covered the plot.
-// A row's save chip stands over the state's end, just left of the buttons and on their middle (--pv-btns-w,
-// --pv-btns-mid): it takes no room of its own, so it never stacks a line for its 6 seconds. It may lie over the reason, the
-// text actions and the earlier link, never over the identifier or the current verdict and its state: where its words would
-// reach them it folds to its icon and [되돌리기] (.pv-chip-short), and where even that would, to [되돌리기] alone
-// (.pv-chip-bare). Read and written in batches.
+// (components.css) - and stacks only when its state's own words, [판정 취소] and its buttons still cannot share the row: the
+// state runs past its share, or the buttons went to a row of their own (a narrow page). On the wide band a line that does not
+// fit first lets the reason and the earlier link go further (.pv-tight): a desktop keeps one row, a second row covered the
+// plot. A line narrower than a verdict's state beside its words stacks whatever it shows, so a press never stacks it. A line whose confirm word waits for its second press, or whose save is out, keeps the rows it has (pvRowsHeld): its
+// words moving between the two presses sent the second one elsewhere. The save chip is placed after (pvChipPlace).
+// Read and written in batches.
 /** @param {HTMLElement[]} lines */
-function pvFit(lines){lines.forEach(l=>l.classList.remove('pv-stack','pv-tight','pv-chip-short','pv-chip-bare'));
+function pvFit(lines){const held=lines.map(pvRowsHeld);
+  lines.forEach((l,i)=>{if(!held[i]){l.classList.toggle('pv-stack',false); l.classList.toggle('pv-tight',false);}});
   // The figure's least width is its identifier's (--pv-fig-min): its title's own text would otherwise count in it.
   const ids=lines.map(l=>{const e=l.querySelector(':scope>.pv-fig>.pv-fig-id'); return e&&e.getClientRects().length?Math.ceil(e.getBoundingClientRect().width):0;});
-  lines.forEach((l,i)=>l.style.setProperty('--pv-fig-min',ids[i]+'px'));
+  lines.forEach((l,i)=>{const v=ids[i]+'px'; if(l.style.getPropertyValue('--pv-fig-min')!==v)l.style.setProperty('--pv-fig-min',v);});
   // Whether line l's row does not hold: the state runs past its share (its parts, also those inside a display: contents span -
-// the reason and [이유 추가]), or the buttons went to a row of their own.
+  // the reason and [이유 추가]), or the buttons went to a row of their own.
   const tight=(/** @type {HTMLElement} */l)=>{const t=l.querySelector(':scope>.pv-t'),g=l.querySelector(':scope>.vd-btns'); if(!t)return false;
     const tr=t.getBoundingClientRect(); return [...t.querySelectorAll(':scope>*,:scope>*>*')].some(c=>c.getClientRects().length>0&&c.getBoundingClientRect().right>tr.right+1)
       ||(!!g&&g.getClientRects().length>0&&g.getBoundingClientRect().top>=tr.bottom-1);};
-  let over=lines.map(tight);
+  // A line too narrow for a verdict's state beside its words stacks whatever it shows now: a press that turned '판정 없음' into
+  // '판정 #26 보류 · 처리 대기 · 이유 추가 · 판정 취소' stacked it then and moved every word under the finger (a phone, a page at
+  // a small zoom). PV_STATE_EM is about that state's width in the line's text.
+  const narrow=(/** @type {HTMLElement} */l)=>{const g=l.querySelector(':scope>.vd-btns'),f=l.querySelector(':scope>.pv-fig>.pv-fig-id'); if(!g||!g.getClientRects().length)return false;
+    const em=parseFloat(getComputedStyle(l).fontSize)||12; return l.getBoundingClientRect().width<g.getBoundingClientRect().width+(f&&f.getClientRects().length?f.getBoundingClientRect().width+8:0)+PV_STATE_EM*em+16;};
+  let over=lines.map((l,i)=>!held[i]&&(narrow(l)||tight(l)));
   if(LAYOUT===LAYOUT_MODE.WIDE&&over.some(o=>o)){lines.forEach((l,i)=>{if(over[i])l.classList.add('pv-tight');}); over=lines.map((l,i)=>over[i]&&tight(l));}
   lines.forEach((l,i)=>{if(over[i])l.classList.add('pv-stack');});
-  const got=lines.map((l,i)=>{const t=l.querySelector(':scope>.pv-t'),g=l.querySelector(':scope>.vd-btns'),c=/** @type {HTMLElement|null} */(l.querySelector(':scope>.nt-chip'));
-    if(!t)return {bw:0,mid:0,room:-1,cw:0,words:0,icon:0};
-    const lr=l.getBoundingClientRect(),gr=g&&g.getClientRects().length?g.getBoundingClientRect():null;
-    // The room a row's chip has: from the end of what it must not cover - the figure's identifier, the current verdict and its
-    // state ('판정 #4 채택 · 처리 대기', who and when) - to the buttons, less a gap on each side.
-    let room=-1,cw=0; if(c&&gr&&!over[i]){const keep=[...l.querySelectorAll(':scope>.pv-fig>.pv-fig-id,:scope>.pv-t>:is(.pv-s,.pv-st,.pv-au,.pv-at,.pv-arm)')]
-        .filter(e=>e.getClientRects().length>0).reduce((r,e)=>Math.max(r,e.getBoundingClientRect().right),lr.left);
-      room=Math.floor(gr.left-keep-16); cw=Math.ceil(c.getBoundingClientRect().width);}
-    const w=(/** @type {string} */q)=>{const e=c&&c.querySelector(q); return e&&e.getClientRects().length?e.getBoundingClientRect().width+8:0;};   // a part and its 8px gap
-    return {bw:gr?Math.ceil(gr.width):0,mid:gr?Math.round(gr.top+gr.height/2-lr.top):0,room,cw,words:w('.nt-t'),icon:w('.nt-ic')};});
-  lines.forEach((l,i)=>{const g=got[i]; l.style.setProperty('--pv-btns-w',g.bw+'px'); l.style.setProperty('--pv-btns-mid',g.mid+'px');
-    if(g.room>=0&&g.cw>g.room){l.classList.add('pv-chip-short'); if(g.cw-g.words>g.room)l.classList.add('pv-chip-bare');}});
+  pvChipPlace(lines);
   // A word group that wraps keeps every button at its own width (vdWrapFit), read for every line before any is written.
   const groups=lines.map(l=>l.querySelector('.vd-btns')),wrap=groups.map(g=>!!g&&new Set([...g.children].map(b=>Math.round(b.getBoundingClientRect().top))).size>1);
   groups.forEach((g,i)=>{if(g)g.classList.toggle('wrapped',wrap[i]);});}
+const PV_STATE_EM=24;   // the room an own verdict's state takes on the line (pvFit), in the line's em
+// Whether line l keeps the rows it has now: its confirm word waits for the second press, or its save is out.
+/** @param {HTMLElement} l */
+function pvRowsHeld(l){const p=Number(l.dataset.page)||0; return (!!VD_ARM&&VD_ARM.where===VD_WHERE.PAGE&&VD_ARM.page===p)||PV_BUSY.has(pvSlot(p));}
+// The save chip on a line ('#42 저장됨 · 채택 [되돌리기]') never changes the line: it is laid over it (notices.css), in room no
+// control or state word of the line takes - never over the figure's identifier, the state, a text action, a word or a focus
+// ring (8px clear of each), nor over the reason popover. The first room that holds it: in a row, between everything before the words and the words; in
+// a stacked line, after the end of the state's last row; then over the figure's title after its identifier (its own row
+// on a stacked line) - words that only describe; its words shown where any room holds them. Its words fold first (.pv-chip-short: its icon and [되돌리기]), then its
+// icon (.pv-chip-bare); where not even [되돌리기] fits anywhere, the undo goes to the status line (chipAway). In the line's
+// flow the chip added a row on a phone (131 -> 251px) and moved the words under a waiting finger, and laid over them it
+// took presses meant for [이유 추가] and [판정 취소]. --pv-chip-r and --pv-chip-y place it from the line's right edge and top.
+/** @param {HTMLElement[]} lines */
+function pvChipPlace(lines){const chips=lines.map(l=>/** @type {HTMLElement|null} */(l.querySelector(':scope>.nt-chip')));
+  lines.forEach((l,i)=>{if(chips[i]){l.classList.toggle('pv-chip-short',false); l.classList.toggle('pv-chip-bare',false);}});
+  const got=lines.map((l,i)=>{const c=chips[i]; if(!c)return null;
+    const lr=l.getBoundingClientRect(),R=(/** @type {Element} */e)=>e.getBoundingClientRect(),shown=(/** @type {Element} */e)=>e.getClientRects().length>0;
+    const words=[...l.querySelectorAll(':scope>.vd-btns>*')].filter(shown).map(R);
+    const parts=[...l.querySelectorAll(':scope>.pv-fig>.pv-fig-id,:scope>.pv-fig-sep,:scope>.pv-t *,:scope>.pv-err')].filter(e=>shown(e)&&!e.closest('.pv-pop')).map(R);
+    const pop=l.querySelector(':scope>.pv-pop'),keep=parts.concat(words,pop&&shown(pop)?[R(pop)]:[]),ch=R(c),w=(/** @type {string} */q)=>{const e=c.querySelector(q); return e&&shown(e)?R(e).width+8:0;};   // a part and its 8px gap
+    const sizes=[ch.width,ch.width-w('.nt-t'),ch.width-w('.nt-t')-w('.nt-ic')];
+    // A room on the row through y (a box's middle) from left to right: the room less 8px off every part in that row's height.
+    /** @param {number} y @param {number} left @param {number} right */
+    const room=(y,left,right)=>{const top=y-ch.height/2,bot=y+ch.height/2; let a=left,z=right;
+      keep.filter(b=>b.top<bot&&b.bottom>top).forEach(b=>{if(b.right<=(a+z)/2)a=Math.max(a,b.right+8); else z=Math.min(z,b.left-8);}); return {a,z,y};};
+    const rooms=[]; const stack=l.classList.contains('pv-stack');
+    if(!stack&&words.length){const y=(Math.min(...words.map(b=>b.top))+Math.max(...words.map(b=>b.bottom)))/2;
+      rooms.push(room(y,parts.filter(b=>b.top<y&&b.bottom>y).reduce((m,b)=>Math.max(m,b.right),lr.left)+8,Math.min(...words.map(b=>b.left))-8));}
+    else{const t=[...l.querySelectorAll(':scope>.pv-t *')].filter(e=>shown(e)&&!e.closest('.pv-pop')).map(R).filter(b=>b.height>0);
+      if(t.length){const last=Math.max(...t.map(b=>b.top)),row=t.filter(b=>b.bottom>last+1),y=(Math.min(...row.map(b=>b.top))+Math.max(...row.map(b=>b.bottom)))/2;
+        rooms.push(room(y,row.reduce((m,b)=>Math.max(m,b.right),lr.left)+8,lr.right));}}
+    const id=l.querySelector(':scope>.pv-fig>.pv-fig-id'),ft=l.querySelector(':scope>.pv-fig>.pv-fig-t');
+    if(id&&ft&&shown(ft)){const ir=R(id); rooms.push(room((ir.top+ir.bottom)/2,ir.right+8,stack?lr.right:R(ft).right));}
+    for(let k=0;k<3;k++)for(const r of rooms)if(sizes[k]<=r.z-r.a)return {r:Math.round(lr.right-r.z),y:Math.round(r.y-lr.top),short:k>0,bare:k>1};   // its words where any room holds them
+    return {away:true};});
+  lines.forEach((l,i)=>{const g=got[i],c=chips[i]; if(!g||!c)return;
+    if(g.away){chipAway(c); return;}
+    l.style.setProperty('--pv-chip-r',g.r+'px'); l.style.setProperty('--pv-chip-y',g.y+'px');
+    l.classList.toggle('pv-chip-short',!!g.short); l.classList.toggle('pv-chip-bare',!!g.bare);});}
+// The reason popover's side (pvPopPlace): above its line, as drawn - unless the room above inside what the PDF area shows
+// (under the section strip) is too short for it while the room below holds it: then under the line (.pv-pop-below). Where
+// neither holds it, the larger side, the popover no taller than that (--pv-pop-max; it scrolls). Near the top an in-place
+// line's popover opened under the strip and the top bar, a five-line reason showing only its last line.
+function pvPopPlace(){const pop=/** @type {HTMLElement|null} */(document.querySelector('#doc .pv>.pv-pop'));
+  $$('#doc .pv.pv-pop-below').forEach(l=>{if(!pop||l!==pop.parentElement)l.classList.remove('pv-pop-below');});
+  if(!pop)return; const l=/** @type {HTMLElement} */(pop.parentElement),L=$('#left'),lr=L.getBoundingClientRect();
+  let top=Math.max(lr.top,0); const s=document.getElementById('section-strip');
+  if(s&&s.getClientRects().length){const sr=s.getBoundingClientRect(); if(sr.bottom>top&&sr.top<=top+1)top=sr.bottom;}
+  const cover=(parseFloat(getComputedStyle(document.body).getPropertyValue('--pv-inset'))||0)+(parseFloat(L.style.getPropertyValue('--pv-kb-over'))||0);
+  const bottom=lr.top+L.clientHeight-cover;
+  if(l.style.getPropertyValue('--pv-pop-max'))l.style.removeProperty('--pv-pop-max');
+  const b=l.getBoundingClientRect(),h=pop.offsetHeight,above=b.top-8-top,below=bottom-(b.bottom+8);
+  const under=h>above&&(h<=below||below>above); l.classList.toggle('pv-pop-below',under);
+  if(h>Math.max(above,below))l.style.setProperty('--pv-pop-max',Math.max(0,Math.floor(under?below:above))+'px');}
 // No description box over a line's save chip (#295). The chip ('#42 저장됨 · 채택 [되돌리기]') stands at the line's end above it,
 // where a word's box stands too: the press's own focus armed the box again (tooltip.js armTip), and a resting hand's
 // slight move brought it back after anything had hidden it. While a chip is on a line (drawChips puts it there, its
@@ -723,6 +778,10 @@ function jumpPv(id){if(!PV_SHOWN.has(id))return false; const p=PINS.find(x=>x.id
 function pvStick(){const lines=$$('#doc .pv'); if(!lines.length)return; const L=$('#left'),lr=L.getBoundingClientRect();
   if(!lr.height)return;
   const pad=getComputedStyle(L).paddingBottom; if(L.style.getPropertyValue('--pv-pad-b')!==pad)L.style.setProperty('--pv-pad-b',pad);   // the end padding a sticky line keeps clear of (components.css)
+  // A keyboard laid over the page without the layout giving way (the visual viewport shorter than the PDF area reaches - an
+  // iPad's Safari, or a band whose PDF area does not follow --kb): the floating line and its popover rise by what it hides.
+  const vv=window.visualViewport,kb=vv&&MQ_COARSE.matches?Math.max(0,Math.round(lr.top+L.clientHeight-(vv.offsetTop+vv.height))):0;
+  if(L.style.getPropertyValue('--pv-kb-over')!==kb+'px')L.style.setProperty('--pv-kb-over',kb+'px');
   if(pvInsetR()!==PV_INSET_R)sizePv();   // a panel came over the area, went, or changed its width
   const r=pvReadingPage(),k=pvKeysPage(r);
   if(PV_REASON&&PV_REASON.page===r)PV_REASON.seen=true;
@@ -735,7 +794,8 @@ function pvStick(){const lines=$$('#doc .pv'); if(!lines.length)return; const L=
     if(re.length)pvFit(re);}   // the reading line names its figure: its row is measured again
   lines.forEach(l=>{const pg=/** @type {HTMLElement|null} */(l.previousElementSibling); if(!pg)return; const b=l.getBoundingClientRect();
     const stuck=l.classList.contains('reading')&&b.bottom>lr.top&&b.top<lr.bottom&&b.top<pg.getBoundingClientRect().bottom+4;   // in its own place it stands 8px under the page
-    l.classList.toggle('stuck',stuck); pvLean(l,pg,b,stuck,L,lr);});}
+    l.classList.toggle('stuck',stuck); pvLean(l,pg,b,stuck,L,lr);});
+  pvPopPlace();}
 // A phone's floating line holds [판정 취소] back (.pv-lean, components.css): on 390px it put a row of its own on the line that
 // already floats over the figure (one verdict 105 -> 131px, with an earlier one 131 -> 191px). The in-place line and the
 // card still offer it, with its 44px. Hysteresis keeps the line from flipping at a page's end: shown, it leans once the
@@ -780,6 +840,8 @@ let PV_FRAME=0;
 function pvStickSoon(){if(!PV_FRAME)PV_FRAME=requestAnimationFrame(()=>{PV_FRAME=0; pvStick();});}
 $('#left').addEventListener('scroll',pvStickSoon,{passive:true});
 addEventListener('resize',pvStickSoon);
+{const vv=window.visualViewport; if(vv){vv.addEventListener('resize',pvStickSoon); vv.addEventListener('scroll',pvStickSoon);}}   // a keyboard over the page
+$('#doc').addEventListener('input',e=>{const t=/** @type {HTMLElement} */(e.target); if(t.closest&&t.closest('.pv-pop'))pvStickSoon();});   // the reason field grows: its side again
 new MutationObserver(pvStickSoon).observe(document.body,{attributes:true,attributeFilter:['class']});   // composing, the sheet, the band
 if(typeof ResizeObserver!=='undefined'){const R=document.getElementById('right'); if(R)new ResizeObserver(pvStickSoon).observe(R);}   // the panel's width
 // The keys: 1-5 press the document's verdict words in file order on the line of the page under the reading line, as a press
