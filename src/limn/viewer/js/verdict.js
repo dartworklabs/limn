@@ -748,6 +748,12 @@ function pvStateNeed(l){const v=pageVerdictsOn(); if(!v)return 0;
 <span class="pv-sep pv-cn">·</span><button type="button" class="btn-ghost btn-sm pv-cancel pv-cn hit" tabindex="-1">${tr('판정 취소')}</button></span>`);
   $('#doc').appendChild(probe); const w=Math.ceil(/** @type {HTMLElement} */(probe.firstElementChild).getBoundingClientRect().width); probe.remove();
   PV_NEED={key,w}; return w;}
+// A web font that arrives after the lines were measured - the bundled Pretendard after the fallback face - changes every
+// width: the state's width is measured again and every line fits itself again (sizePv), once each font load is done and
+// when the fonts are ready after boot. Kept from the fallback face, a width near the stacking threshold let the first save
+// still move the words.
+function pvFontsChanged(){PV_NEED={key:'',w:0}; if($$('#doc .pv').length)sizePv();}
+if(document.fonts){document.fonts.addEventListener('loadingdone',pvFontsChanged); document.fonts.ready.then(pvFontsChanged);}
 // Whether line l keeps the rows it has now: its confirm word waits for the second press, or its save is out.
 /** @param {HTMLElement} l */
 function pvRowsHeld(l){const p=Number(l.dataset.page)||0; return (!!VD_ARM&&VD_ARM.where===VD_WHERE.PAGE&&VD_ARM.page===p)||PV_BUSY.has(pvSlot(p));}
