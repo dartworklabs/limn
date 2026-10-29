@@ -4451,6 +4451,7 @@ SWITCH_OFF = """() => {const b = document.getElementById('m-notify'); b.disabled
 # An outline of three headings over the fixture's two pages (its PDFs carry none), drawn into both outline lists.
 OUTLINE3 = """() => {OUTLINE_ENTRIES = [{title: '서론', page: 1, depth: 0, frac: 0, number: '1', pageLabel: '1'},
   {title: '연구 배경', page: 1, depth: 1, frac: 0.5, number: '1.1', pageLabel: '1'}, {title: '방법', page: 2, depth: 0, frac: 0, number: '2', pageLabel: '2'}];
+  OUTLINE_DOC = DOC; OUTLINE_BUILD = (META && META.pages_build) || '';   // read for the document and build on screen
   renderOutline();}"""
 # [본문 3/25 ▾] as drawn: the document name's text, the pages' text and whether the name shows.
 POS = "[document.querySelector('#btn-pos-n').textContent, document.querySelector('#btn-pos-p').textContent, document.querySelector('#btn-pos-n').getClientRects().length>0]"
@@ -5334,11 +5335,12 @@ class PageList(ViewerBase):
         self.tap(self.cdp(page), *self.center(page, "#ns-pages [role=option] >> nth=1"))
         page.wait_for_function("!document.querySelector('#nav-sheet').open&&topAnchor().page===2")
 
-    def test_figure_and_view_only_documents_list_page_numbers_only(self):
-        """A figure and a view-only PDF list their pages without section names, even with an outline loaded; the
-        manuscript keeps its names."""
+    def test_figure_names_pages_by_its_outline_and_a_view_only_pdf_lists_numbers_only(self):
+        """A figure names each page by the outline entry that points at it (the deepest; a page's title from meta comes
+        first - test_viewer_outline_cap.FigurePageList), a view-only PDF lists its pages without names even with an
+        outline loaded, and the manuscript keeps its section names."""
         page = self.docs_view(DESK)
-        for key, names in (("fig", ["", ""]), ("rv", ["", ""]), ("ms", ["1 서론", "2 방법"])):
+        for key, names in (("fig", ["1.1 연구 배경", "2 방법"]), ("rv", ["", ""]), ("ms", ["1 서론", "2 방법"])):
             with self.subTest(doc=key):
                 page.evaluate("async k=>await switchDoc(k)", key)
                 page.wait_for_function("k=>DOC===k&&document.querySelectorAll('#doc .pg').length===2", arg=key)

@@ -290,6 +290,10 @@ NOT_WALKED: dict[str, tuple[float | None, str]] = {
     "#c-actions)": (INACTIVE, "the panel fading while a drag is about to collapse it"),
     # a container's default colour that no text takes: each part inside sets its own
     "#outline-items button": (TEXT, "an outline entry's default: its title, number and page set their own colours"),
+    ":is(#outline-items, #ns-outline-items) .ol-more": (
+        TEXT,
+        "the outline's note on entries it did not read: shown only for an outline over the cap, which the walk's has none of",
+    ),
     "#section-strip": (TEXT, "the section strip's default: its section and page set their own colours"),
     ".msg.ev": (TEXT, "a state record's default: its head sets its own colour, and the walk's records carry no note"),
     # text in a state the walk's fixture does not reach

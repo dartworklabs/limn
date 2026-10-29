@@ -120,6 +120,8 @@ body.outline-collapsed #outline-items,body.outline-collapsed #outline-search,bod
 /* The page label is smaller than the title: its box is its own em, so on the title's baseline it stays inside the title's line
    and adds nothing to the row's height (as a line box of the title's height it hung 0.3px under it). */
 :is(#outline-items,#ns-outline-items) .ol-page{grid-column:6;justify-self:end;white-space:nowrap;line-height:1}
+/* The last line of an outline that has more entries than the viewer reads (outlineCutNote): quiet text across the rows' columns. */
+:is(#outline-items,#ns-outline-items) .ol-more{grid-column:1/-1;margin:0;padding:var(--space-2) var(--space-1);color:var(--muted-foreground);font-size:var(--text-xs);line-height:var(--line-label);word-break:keep-all;text-wrap:pretty}   /* Korean breaks between words, not inside one */
 #outline-items button{min-height:var(--control-h-sm);color:var(--muted-foreground);padding:var(--space-1);font-size:var(--text-sm)}
 #outline-items button.ol-depth-0 .ol-name,#outline-items button.ol-depth-0 .ol-no{font-weight:600;color:var(--foreground)}
 #outline-items button .ol-page{color:var(--subtle-foreground);font-size:var(--text-xs)}
