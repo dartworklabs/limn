@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-Agents are told which verdicts were superseded (ADR-0023, proposed). The agent contract only grows: one optional pin
+Agents are told which verdicts were superseded (ADR-0023). The agent contract only grows: one optional pin
 field and one `pins.md` marker, nothing renamed or removed, and nothing stored - a 0.4.33 server or an older agent reads
 the same records as before. The viewer is unchanged; it still counts the order itself, and a browser test holds the two
 counts together.
