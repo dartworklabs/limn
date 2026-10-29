@@ -129,6 +129,15 @@ was; the viewer still counts the verdict order itself, and a browser test holds 
   saved reason's pencil) when the reading page changes goes to the PDF area, and Enter or Space read on such a control
   before it moved does not act there: Enter goes to the reading page's reason, Space is only said. The wheel to the next
   page then Enter no longer opened the page before's reason off-screen and appended the text to its note.
+- **A reason typed while its verdict's save is out is never lost or turned into verdicts** (RC round 3). When that save
+  fails, the text is the page's draft and, if the field had the focus, the focus goes to the line's `초안 있음` and the
+  digits typed on are not verdict keys; a focus elsewhere (search, composer) stays. Moving to another page or document
+  before the save answers keeps the popover with that save: once it answers, the text is written on the verdict it made,
+  on the document it was typed on.
+- **The focus leaves the page the person left** even while its line still shows (after a PageDown), and Space or Enter
+  read before that frame does not act on it. A digit take-back moves the focus to the line's [되돌리기] from anywhere (the
+  outline), Tab into the pages from the outline or the section strip goes to the reading page's line, and Esc on the
+  popover's buttons acts as in its field.
 - **While a reason is written** its field and group no longer point at an empty description, and a [다시 시도] that finds
   a lost answer written clears the earlier `이유 저장 실패` notice, for an added and a changed reason alike.
 - **No verdict key acts on a page a jump is gliding past.** While the pages scroll where the outline, the page list or

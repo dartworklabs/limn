@@ -258,7 +258,7 @@ function pvPress(c,page,how){const key=c.key,where=VD_WHERE.PAGE,armed=vdArmedHe
   const cur=(pageVerdictPins().get(page)||[])[0];
   if(cur&&verdictOf(cur)===key){const h=PV_TOGGLE_HOLD.get(pvSlot(page)); if(h&&h.key===key&&h.until>Date.now())return;
     disarmVerdict(false); hideTip();
-    if(pvCanCancel(cur)){PV_TOGGLE_HOLD.set(pvSlot(page),{key,until:Date.now()+PV_CANCEL_MS}); setTimeout(()=>drawPageVerdicts(),PV_CANCEL_MS+20); pvCancelPin(cur.id,page,!!how); return;}   // by a key: the focus goes to the line's [되돌리기]
+    if(pvCanCancel(cur)){PV_TOGGLE_HOLD.set(pvSlot(page),{key,until:Date.now()+PV_CANCEL_MS}); setTimeout(()=>drawPageVerdicts(),PV_CANCEL_MS+20); pvCancelPin(cur.id,page,!!how,how==='key'); return;}   // by a key: the focus goes to the line's [되돌리기]
     lineNote(tl('지금 판정 #{id} {word} 그대로 · {why} — {target}',{id:cur.id,word:c.label,target:pageTargetShort(page),
       why:pvPressOf(cur)===PV_PRESS.HANDLED?tr('처리된 판정은 카드의 [지우기]로 거둡니다'):tr('다른 사람의 판정은 여기서 거두지 않습니다')}),
       NOTICE_KIND.INFO,null,{source:'pv-press',life:NOTICE_LIFE.TIMER,literal:true});
@@ -484,6 +484,7 @@ async function savePageVerdict(page,key,kb,ctx0){const ctx=ctx0||pvSaveCtx(page)
     // list still being read), else, the save failed, its text kept as the page's draft.
     const un=here()&&PV_REASON&&!PV_REASON.id&&PV_REASON.page===page&&PV_REASON.doc===ctx.doc;
     if(un&&saved)pvReasonAfterSave(page,got,key,!!kb,prev); else if(!saved&&here())pvReasonUnbound(page);
+    pvReasonSettle(slot,saved?got:0,key);   // one moved away from meanwhile: written on this verdict wherever the person is now
     drawPageVerdicts();
     if(currentVisit(visit)&&kb&&!away){const c=/** @type {HTMLElement|null} */(document.querySelector('#doc .pv[data-page="'+page+'"] [data-act="pv-reason-open"]'));
       if(c&&saved)c.focus({preventScroll:true}); else pvRefocus(page,key);}
@@ -545,7 +546,8 @@ function pvLineUndo(a){const line=a.closest('.pv'),page=Number(line&&line.getAtt
 function pvCancel(b){const id=Number(b.dataset.ref),page=Number((b.closest('.pv')||b).getAttribute('data-page'))||0;
   if(b.getAttribute('aria-disabled')==='true')return; pvCancelPin(id,page,document.activeElement===b);}
 /** @param {number} id @param {number} page @param {boolean} had - the focus was on what was pressed */
-async function pvCancelPin(id,page,had){const p=OPEN_ALL.find(x=>x.id===id);
+/** @param {number} id @param {number} page @param {boolean} had @param {boolean} [byKey] - a digit key: the focus goes to the line from wherever it was */
+async function pvCancelPin(id,page,had,byKey){const p=OPEN_ALL.find(x=>x.id===id),from=document.activeElement;
   if(!p||!pvCanCancel(p)||viewerBlocked())return;
   const key=/** @type {string} */(verdictOf(p)),claimed=claimActive(p),target=pageTargetShort(page);
   const inField=pvIsReasonField(document.activeElement)&&!!PV_REASON&&PV_REASON.id===id;
@@ -573,8 +575,9 @@ async function pvCancelPin(id,page,had){const p=OPEN_ALL.find(x=>x.id===id);
     {say,where:NOTICE_HOST.LINE,what:'판정 취소'});
   if(!ok){PV_WITHDRAWN.delete(id); if(kept&&!PV_REASON&&kept.doc===DOC&&currentVisit(kept.visit)){PV_REASON=kept; drawPageVerdicts();}}
   // A keyboard press stays on its own page: the line's [되돌리기], else its line (never the PDF area, from which Tab went to the
-  // first page's line).
-  const at=/** @type {HTMLElement|null} */(document.activeElement),lost=!at||at===document.body||at===$('#left')||!!(at.closest&&at.closest('#doc .pv[data-page="'+page+'"]'));
+  // first page's line). A digit key's take-back takes the focus there from wherever it was - the outline, a card - as a key
+  // save does, unless the person moved it meanwhile: left in the outline, Enter pressed the outline again instead of undoing.
+  const at=/** @type {HTMLElement|null} */(document.activeElement),lost=!at||at===document.body||at===$('#left')||!!(at.closest&&at.closest('#doc .pv[data-page="'+page+'"]'))||(!!byKey&&at===from);
   if((had||inField)&&lost){
     const u=/** @type {HTMLElement|null} */(document.querySelector('#doc .pv[data-page="'+page+'"] [data-act="pv-undo"]')); if(u)u.focus({preventScroll:true}); else if(!pvFocusLine(page))searchToPage();}
   if(ok&&claimed)lineNote('처리 중이던 판정이라 이미 실행됐을 수 있습니다',NOTICE_KIND.WARN);}
@@ -874,7 +877,7 @@ function pvStick(){const lines=$$('#doc .pv'); if(!lines.length)return; const L=
     const re=/** @type {HTMLElement[]} */([]);
     if(v)new Set([...was,r,k]).forEach(n=>{const e=/** @type {HTMLElement|null} */(n?document.querySelector('#doc .pv[data-page="'+n+'"]'):null); if(e){fillPv(e,n,map.get(n),v); re.push(e);}});
     if(re.length)pvFit(re);
-    pvFocusOffPage(r);}   // the reading line names its figure: its row is measured again
+    pvFocusOffPage(r,was[0]);}   // the reading line names its figure: its row is measured again
   lines.forEach(l=>{const pg=/** @type {HTMLElement|null} */(l.previousElementSibling); if(!pg)return; const b=l.getBoundingClientRect();
     const stuck=l.classList.contains('reading')&&b.bottom>lr.top&&b.top<lr.bottom&&b.top<pg.getBoundingClientRect().bottom+4;   // in its own place it stands 8px under the page
     l.classList.toggle('stuck',stuck); pvLean(l,pg,b,stuck,L,lr);});
@@ -920,20 +923,28 @@ let PV_FRAME=0;
 // Whether element e shows in the PDF area now (any part of it).
 /** @param {Element} e */
 function pvInView(e){const L=$('#left'),lr=L.getBoundingClientRect(),b=e.getBoundingClientRect(); return b.bottom>lr.top&&b.top<lr.top+L.clientHeight&&b.right>lr.left&&b.left<lr.right;}
-// The reading page moved to page r while the focus stays on a control of another page's line that is now out of view (the
-// saved reason's pencil, a word): the focus goes to the PDF area, where Enter opens the reading page's reason and Tab goes to
-// its line. Left there, the next Enter or Space acted on the page out of sight - its reason opened off-screen and the text
-// meant for this page went into that page's note.
-/** @param {number} r */
-function pvFocusOffPage(r){const a=/** @type {HTMLElement|null} */(document.activeElement),l=a&&a.closest?a.closest('#doc .pv'):null;
-  if(!a||!l||Number(/** @type {HTMLElement} */(l).dataset.page)===r||(a.closest&&a.closest('.pv-pop'))||pvInView(a))return; searchToPage();}
-// Enter or Space on a control of a line that is not the reading page's and is out of view does not act there (a press read
-// before the focus moved, pvFocusOffPage): the focus goes to the PDF area, and Enter is taken as on the pages - the reading
-// page's reason (pvReasonEnterKey) - while Space is only said.
+// The reading page moved from page was to page r while the focus stays on a control of another page's line - was's own line
+// (still in view after a PageDown) or one now out of view (the saved reason's pencil, a word): the focus goes to the PDF area,
+// where Enter opens the reading page's reason and Tab goes to its line. Left there, the next Enter or Space acted on the page
+// the person had left - its reason opened (off-screen) and the text meant for this page went into that page's note. A focus
+// put on a third page's line in view stays: the person went there.
+/** @param {number} r @param {number} was */
+function pvFocusOffPage(r,was){const a=/** @type {HTMLElement|null} */(document.activeElement),l=a&&a.closest?a.closest('#doc .pv'):null;
+  if(!a||!l||(a.closest&&a.closest('.pv-pop')))return; const n=Number(/** @type {HTMLElement} */(l).dataset.page);
+  if(n!==r&&(n===was||!pvInView(a)))searchToPage();}
+// The line control the focus went to and the reading page then: one focused on the reading page's line that is no longer it
+// is the page the person left (pvOffPageKey), even before the frame that moves the focus (pvFocusOffPage).
+let PV_LINE_FOCUS=/** @type {{el:Element,read:number}|null} */(null);
+document.addEventListener('focusin',e=>{const t=/** @type {HTMLElement|null} */(e.target); PV_LINE_FOCUS=t&&t.closest&&t.closest('#doc .pv')?{el:t,read:PV_READ}:null;});
+// Enter or Space on a control of a line that is not the reading page's - out of view, or the line of the page the person
+// left (focused while it was the reading page) - does not act there (a press read before the focus moved, pvFocusOffPage):
+// the focus goes to the PDF area, and Enter is taken as on the pages - the reading page's reason (pvReasonEnterKey) - while
+// Space is only said.
 /** @param {KeyboardEvent} e */
 function pvOffPageKey(e){if((e.key!=='Enter'&&e.key!==' ')||e.ctrlKey||e.metaKey||e.altKey||e.isComposing)return; const t=/** @type {HTMLElement|null} */(e.target);
   const l=t&&t.closest?t.closest('#doc .pv'):null; if(!t||!l||(t.closest&&t.closest('.pv-pop'))||typingNow())return;
-  const r=pvReadingAt(); if(!r||Number(/** @type {HTMLElement} */(l).dataset.page)===r||pvInView(t))return;
+  const r=pvReadingAt(),n=Number(/** @type {HTMLElement} */(l).dataset.page),left=!!PV_LINE_FOCUS&&PV_LINE_FOCUS.el===t&&PV_LINE_FOCUS.read===n;
+  if(!r||n===r||(pvInView(t)&&!left))return;
   e.preventDefault(); e.stopImmediatePropagation(); searchToPage();
   if(e.type!=='keydown')return;
   if(e.key==='Enter'){pvReasonEnterPages(e); return;}
@@ -994,3 +1005,15 @@ addEventListener('keydown',e=>{const a=document.activeElement; if(e.key!=='Tab'|
   const r=pvReadingPage(),l=r?document.querySelector('#doc .pv[data-page="'+r+'"]'):null; if(!l)return;
   const c=/** @type {HTMLElement|undefined} */([...l.querySelectorAll('a,button,[tabindex="0"]')].find(x=>x instanceof HTMLElement&&x.getClientRects().length>0&&!(/** @type {HTMLButtonElement} */(x).disabled)));
   if(c){e.preventDefault(); c.focus({preventScroll:true});}});
+// Tab into the pages from outside them - the outline, the section strip, the panel by Shift+Tab - goes to the reading page's
+// line too (its first control; its last by Shift+Tab), else to the PDF area: the DOM's next stop is the first page's line (or
+// the last page's), whose focus scrolled the document there.
+const PV_TABBABLE='a[href],button,input,select,textarea,summary,[tabindex]';
+addEventListener('keydown',e=>{const a=/** @type {HTMLElement|null} */(document.activeElement);
+  if(e.key!=='Tab'||e.ctrlKey||e.metaKey||e.altKey||e.defaultPrevented||!a||a===document.body||!a.closest||a.closest('#left'))return;
+  const ok=(/** @type {Element} */x)=>x instanceof HTMLElement&&(x===a||(x.tabIndex>=0&&!(/** @type {HTMLButtonElement} */(x).disabled)&&x.getClientRects().length>0&&!x.closest('[inert],[hidden]')));
+  const all=[...document.querySelectorAll(PV_TABBABLE)].filter(ok),i=all.indexOf(a); if(i<0)return;
+  const next=all[e.shiftKey?i-1:i+1]; if(!next||!next.closest('#doc .pv'))return;
+  const r=pvReadingPage(),l=r?document.querySelector('#doc .pv[data-page="'+r+'"]'):null;
+  const cs=l?[...l.querySelectorAll('a,button,textarea,[tabindex="0"]')].filter(x=>ok(x)&&x!==a):[];
+  e.preventDefault(); const c=/** @type {HTMLElement|undefined} */(e.shiftKey?cs[cs.length-1]:cs[0]); if(c)c.focus({preventScroll:true}); else searchToPage();});

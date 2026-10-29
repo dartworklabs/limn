@@ -72,6 +72,9 @@ function rdMove(doc,from,id){const x=rdGet(doc,from); if(!x)return null; rdDrop(
 /** @typedef {{sid:number,page:number,id:number,key:string,doc:string|null,visit:any,text:string,base:string,mode:string,rev:number,conflict:{note:string,rev:number}|null,from:number,seen:boolean,listed:boolean,writing:Promise<boolean>|null,saved:string|null,tried:string[],clearTried:boolean,escArm:string,saveWhenBound?:boolean}} ReasonSession */
 let PV_REASON=/** @type {ReasonSession|null} */(null);
 let PV_RSEQ=0;
+// The popovers moved away from (another page, another document, another popover) before their verdict's save answered, by
+// line (pvSlot of the document they were typed on): each stays bound to that save, not to the screen.
+const PV_DETACHED=/** @type {Map<string,ReasonSession>} */(new Map());
 let PV_LAST_SAVE=0;   // the verdict pin the last save on a page line made: its line offers the way to its reason wherever it is
 let PV_KEY_SAVE=0;   // ...when that save was a key's: its line says 'Enter 이유 쓰기'
 // The pins this person withdrew (the save's undo, [판정 취소], a pressed word pressed again) while a reason for them may still
@@ -163,12 +166,25 @@ function pvFocusLine(page){const l=document.querySelector('#doc .pv[data-page="'
   const c=/** @type {HTMLElement|null} */(l.querySelector('[data-act="pv-reason-open"]')||l.querySelector('.vd-b[aria-pressed="true"]')||l.querySelector('.vd-b'));
   if(!c)return false; c.focus({preventScroll:true}); return true;}
 // Moving on: the popover closes and what was typed is written as Enter would, said in one line; nothing unsaved just closes.
-function pvReasonLeave(){const r=PV_REASON; if(!r)return; pvReasonEnd(false); if(r.id&&pvReasonDirty(r))pvReasonCommit(r,r.text.trim(),true);}   // unbound: its text is the page's draft
+// One still waiting for its verdict's number (opened by Enter while the save was out) is kept with that save (PV_DETACHED):
+// its text waits as its page's draft, and the save, when it answers, writes it on the verdict it made (pvReasonSettle).
+function pvReasonLeave(){const r=PV_REASON; if(!r)return; pvReasonEnd(false);
+  if(!r.id){const s=pvSlot(r.page,r.doc); if(r.text.trim()&&PV_BUSY.has(s)){r.escArm=''; rdKeep(r,true); PV_DETACHED.set(s,r);} return;}
+  if(pvReasonDirty(r))pvReasonCommit(r,r.text.trim(),true);}
+// The save on line `slot` answered - verdict pin id, or 0 when it failed: a popover moved away from while it was out is
+// bound to that verdict and its text written there, on the document it was typed on, as moving on writes (said in one line);
+// a failed save leaves the text as the page's draft ('초안 있음'), said.
+/** @param {string} slot @param {number} id @param {string} key */
+function pvReasonSettle(slot,id,key){const r=PV_DETACHED.get(slot); if(!r)return; PV_DETACHED.delete(slot);
+  if(!id){lineNote(tl('판정 저장 실패 · 쓰던 이유는 이 쪽의 초안으로 남겼습니다 — {target}',{target:pvReasonName(r)}),NOTICE_KIND.WARN,null,{literal:true}); return;}
+  rdMove(r.doc,'p'+r.page,id); Object.assign(r,{id,key,base:'',mode:'add',rev:-1,saveWhenBound:false,listed:false});
+  pvReasonCommit(r,r.text.trim(),true);}
 // Opens the popover on page `page`'s line for its current verdict - the person's own open one ([이유 추가], Enter, its saved
 // reason, its kept draft): with that draft (unfolded), else the page's draft (moved to this verdict), else the saved reason
 // to change. Another popover moves on first. A page's draft with no verdict of the person's to take it says so.
 /** @param {number} page @param {boolean} focus */
 function pvReasonOpen(page,focus){const cur=pvCurOf(page); if(viewerBlocked())return;
+  if(PV_DETACHED.has(pvSlot(page))){pvReasonOpenPending(page); return;}   // its verdict's save is still out: that popover again
   if(!cur||!pvCanCancel(cur)){if(rdGet(DOC,'p'+page))lineNote(tl('이유를 붙일 내 판정이 없습니다 · 판정을 누르면 이 초안이 그 판정으로 갑니다 — {target}',{target:pageTargetShort(page)}),NOTICE_KIND.INFO,null,{literal:true,life:NOTICE_LIFE.TIMER}); return;}
   if(!(PV_REASON&&PV_REASON.id===cur.id&&pvReasonOn(page))){pvReasonLeave();
     if(!rdGet(DOC,cur.id))rdMove(DOC,'p'+page,cur.id);   // a page's draft goes to the verdict it now has
@@ -181,15 +197,20 @@ function pvReasonOpen(page,focus){const cur=pvCurOf(page); if(viewerBlocked())re
 // digits included, never a verdict key - and takes the verdict's number when the save answers (pvReasonAfterSave). A save
 // that fails leaves the text as the page's draft (pvReasonUnbound).
 /** @param {number} page */
-function pvReasonOpenPending(page){const key=PV_BUSY.get(pvSlot(page))||''; if(PV_REASON&&pvReasonOn(page)){pvReasonFocus(); return;}
-  pvReasonLeave(); const d=rdGet(DOC,'p'+page),r=pvReasonNew(page,0,key,d?d.text:'','',-1,'add'); PV_REASON=r; PV_KEY_GUARD=false; hideTip(); drawPageVerdicts(); pvReasonFocus();}
+function pvReasonOpenPending(page){const s=pvSlot(page),key=PV_BUSY.get(s)||''; if(PV_REASON&&pvReasonOn(page)){pvReasonFocus(); return;}
+  pvReasonLeave(); const det=PV_DETACHED.get(s); PV_DETACHED.delete(s);   // moved away from earlier: the same popover, with its Enter
+  const d=rdGet(DOC,'p'+page),r=det?Object.assign(det,{visit:captureVisit(),seen:pvReadingPage()===page}):pvReasonNew(page,0,key,d?d.text:'','',-1,'add');
+  PV_REASON=r; PV_KEY_GUARD=false; hideTip(); drawPageVerdicts(); pvReasonFocus();}
 // Page `page`'s save failed while a popover waited for its number: what was typed stays as the page's draft ('초안 있음'),
-// said in one line, and the popover closes onto its line.
+// said in one line, and the popover closes. As when a verdict is taken back while its reason is typed (pvReasonLost): when
+// the field had the focus its line's draft mark takes it and the keys pressed next are not verdict keys (PV_KEY_GUARD) -
+// a digit typed on would have saved a verdict; a focus elsewhere (the search, the composer) stays where it is.
 /** @param {number} page */
-function pvReasonUnbound(page){const r=PV_REASON; if(!r||r.id||r.page!==page||r.doc!==DOC)return; PV_REASON=null;
-  if(r.text.trim())rdPut(r.doc,'p'+page,r.text,'',-1,{mode:'add',folded:true});
-  if(r.text.trim())lineNote(tl('판정 저장 실패 · 쓰던 이유는 이 쪽의 초안으로 남겼습니다 — {target}',{target:pageTargetShort(page)}),NOTICE_KIND.WARN,null,{literal:true});
-  drawPageVerdicts(); if(!pvFocusLine(page))searchToPage();}
+function pvReasonUnbound(page){const r=PV_REASON; if(!r||r.id||r.page!==page||r.doc!==DOC)return;
+  const pop=document.querySelector('#doc .pv-pop'),had=!!pop&&pop.contains(document.activeElement); PV_REASON=null;
+  if(r.text.trim()){rdPut(r.doc,'p'+page,r.text,'',-1,{mode:'add',folded:true});
+    lineNote(tl('판정 저장 실패 · 쓰던 이유는 이 쪽의 초안으로 남겼습니다 — {target}',{target:pageTargetShort(page)}),NOTICE_KIND.WARN,null,{literal:true});}
+  drawPageVerdicts(); if(!had)return; PV_KEY_GUARD=true; if(!pvFocusLine(page))searchToPage();}
 // Puts the focus in the open field, its caret at the end.
 function pvReasonFocus(){const f=pvReasonField(); if(!f||f.disabled)return; f.focus({preventScroll:true}); const n=f.value.length; f.setSelectionRange(n,n);}
 // A save on page `page`'s line made verdict pin id (savePageVerdict) in place of verdict pin prev (the line's current one
@@ -205,6 +226,7 @@ function pvReasonAfterSave(page,id,key,kb,prev){const r=PV_REASON; PV_LAST_SAVE=
     Object.assign(r,{id,key,base:'',mode:'add',rev:-1,conflict:null,from:dirty?from:0,saved:null,tried:[],clearTried:false,listed:false,escArm:''});
     if(r.saveWhenBound){r.saveWhenBound=false; const f=pvReasonField(); if(f)setTimeout(()=>pvReasonSave(f),0);}   // its Enter came before the number
     return;}
+  if(PV_DETACHED.has(pvSlot(page)))return;   // its popover was moved away from: pvReasonSettle writes it; the open one stays
   if(!(prev&&rdMove(DOC,prev,id)))rdMove(DOC,'p'+page,id);
   pvReasonLeave();}
 // [되돌리기] brought verdict pin id back (a cancel's, the save chip's): its kept draft opens again on its line, without the
@@ -292,7 +314,7 @@ async function pvReasonWrite(r,text,said){if(viewerBlocked())return false;
 // What a reason session's verdict is about, by a short name for the status line: its page's target while its document is on
 // screen ('PL16'), else its document's name.
 /** @param {ReasonSession} r */
-function pvReasonName(r){if(r.doc===DOC)return pageTargetShort(r.page); const d=r.doc?docInfo(r.doc):null; return d&&d.name||'#'+r.id;}
+function pvReasonName(r){if(r.doc===DOC)return pageTargetShort(r.page); const d=r.doc?docInfo(r.doc):null; return d&&d.name||(r.id?'#'+r.id:tl('{page}쪽',{page:r.page}));}
 // A reason that could not be written, said on the status line result first ('이유 저장 실패 · 서버에 닿지 않습니다 — PL16') in
 // place of api()'s line, keyed by the request as api() keys it (a later answer from it clears it). The draft is kept
 // whatever failed (rdPut) and the line marks it; unless the server refused it (a 4xx would refuse again) or it is too long
@@ -478,7 +500,10 @@ $('#doc').addEventListener('compositionend',e=>{if(pvIsReasonField(e.target))PV_
 $('#doc').addEventListener('input',e=>{const f=e.target; if(!pvIsReasonField(f))return; const r=PV_REASON; if(!r||f.dataset.id!=='s'+r.sid)return;
   r.text=f.value; r.escArm=''; rdKeep(r); pvReasonGrow(f); pvRefill(r.page);});
 // Keys in the field: Enter saves (Shift+Enter is a new line), Esc closes or takes two presses with text. Every other key is
-// the field's own - digits included. Nothing while an input method composes.
+// the field's own - digits included. Nothing while an input method composes. Esc on the popover's buttons ([접기], [닫기],
+// [저장], [지우기]) is the field's Esc: it did nothing there.
+$('#doc').addEventListener('keydown',e=>{const t=/** @type {HTMLElement} */(e.target);
+  if(e.key==='Escape'&&!pvIsReasonField(t)&&PV_REASON&&t&&t.closest&&t.closest('#doc .pv-pop')&&!e.ctrlKey&&!e.metaKey&&!e.altKey){e.preventDefault(); e.stopPropagation(); hideTip(); pvReasonEsc('key'); return;}});
 $('#doc').addEventListener('keydown',e=>{const f=e.target; if(!pvIsReasonField(f)||e.isComposing||e.keyCode===229)return;
   if(e.key==='Enter'&&!e.shiftKey&&!e.ctrlKey&&!e.metaKey&&!e.altKey){e.preventDefault(); e.stopPropagation(); pvReasonSave(f); return;}
   if(e.key==='Escape'){e.preventDefault(); e.stopPropagation(); pvReasonEsc('key');}});
