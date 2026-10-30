@@ -22,6 +22,9 @@ button.sec-tg{display:inline-flex;align-items:center;gap:var(--space-1);min-widt
 .sec-head button:not(.sec-tg){background:transparent;border-color:transparent;color:var(--muted-foreground);white-space:nowrap}
 @media (hover:hover){.sec-head button:not(.sec-tg):hover{background:var(--accent);color:var(--foreground)}}
 .sec-head button:not(.sec-tg)[aria-pressed=true]{background:var(--accent);border-color:transparent;color:var(--foreground)}
+/* A card far from the list's view is not laid out or painted until it comes near it (list.js lazyCards, issue #305). It stands
+   at the height it had when it went (--card-h), or at the one it was last drawn at (auto). */
+#list .pin.card.lazy{content-visibility:auto;contain-intrinsic-block-size:auto var(--card-h)}
 .arc-n,.dcnt{flex:none;justify-content:center;min-width:20px;padding:0 var(--space-1);border-radius:var(--radius-lg);line-height:18px}
 .arc-list{padding:var(--space-2) 0 var(--space-1)}
 .arc-list>.dim{padding:var(--space-1) 0}

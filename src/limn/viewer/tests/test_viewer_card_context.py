@@ -107,8 +107,15 @@ class CardFixture(BrowserBase):
         return page.locator('#right .pin[data-id="%d"]' % pid)
 
     def facts(self, page, pid):
-        """FACTS of the card of pin pid."""
-        return self.card(page, pid).evaluate(FACTS)
+        """FACTS of the card of pin pid, read where it is drawn: the browser skips a card far from the list's view
+        (docs/handbook/viewer.md §목록 구획), and the innerText of what it skips is empty."""
+        card = self.card(page, pid)
+        card.scroll_into_view_if_needed()
+        page.wait_for_function(
+            "s => document.querySelector(s).firstElementChild.checkVisibility({contentVisibilityAuto: true})",
+            arg='#right .pin[data-id="%d"]' % pid,
+        )
+        return card.evaluate(FACTS)
 
 
 class CardContextBrowser(CardFixture):

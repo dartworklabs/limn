@@ -2,8 +2,13 @@
 
 ## Unreleased
 
-Follow-ups to the reviews of 0.4.34. The agent contract is unchanged: the server writes integer anchor offsets, and
-those read as before.
+Follow-ups to the reviews of 0.4.34, nearly all on the page verdict line: Shift+Tab leaves the reading line the way
+Tab came in and the PDF area has a name; English lines stay one row on a desktop and every English take-back says
+`Retract`; a resting stacked line names its page; a reason is judged saved by the pin's rev, not by its text, ends on
+one verdict and survives a failed take-back; the status line's `+N` list opens where its rows can be pressed, and a
+touch screen no longer names verdict keys. Scrolling the PDF with hundreds of pins in the open panel no longer stalls.
+The agent contract is unchanged: `superseded_by` compares anchors as JSON values, as the viewer now does too; the
+server writes integer anchor offsets, and those read as before.
 
 ### Changed
 
@@ -128,6 +133,23 @@ those read as before.
   the description and as `aria-keyshortcuts` - only where its mark is drawn after the word, a mouse screen
   (`(hover:hover) and (pointer:fine)`, the condition of the mark's CSS); the lines are drawn again when that changes.
   Touch screens keep the description without the key; the desktop is unchanged (#315).
+- **Scrolling the PDF with hundreds of pins in the open panel no longer stalls** (#305). Each page PDF.js draws for the
+  first time adds its embedded fonts to `document.fonts`, and every font added makes the browser lay out all the text in
+  the page again - every card in the open panel with it. On a 91-page figure document (`pl`) with 127 pins the first wheel
+  scroll had 77-84 long tasks (4.4-4.9 s); with the panel folded, none. Cards more than a view's height above or below the
+  list's view are now left for the browser to skip (`content-visibility: auto`), so a font added lays out the cards near
+  the view only. With 200 pins on the same document (1400 x 850, the same wheel scroll from the top to the end) the long
+  tasks went from 106-120 (7.2-8.3 s) to 8-9 (0.4-0.5 s), frames over 50 ms from 78-92 to 2-4, and the layout after a
+  font from 19,674 laid-out objects to 7,403; what is left is the pages' verdict lines and the outline.
+  Nothing looks different. A card in view or near it is never skipped (skipping contains a card, which snaps its text to
+  whole pixels and clips focus rings and touch targets), and a skipped card's markup is always current. It stands at the
+  height it had when it went; every card is drawn once more and sorted again when the list's width changes, when it is
+  shown (the panel or the sheet opened) and when a slice of the list's font arrives, so the list does not move under a
+  person scrolled down it and a jump to a card is aimed by real heights. A redraw also puts a card in view back where it
+  stood, as the browser's scroll anchoring would - the first one still in its section, so a top card whose pin a poll
+  moved to 검토 대기 or deleted hands over to the next instead of dragging the view after it - and a card above that
+  someone else made longer no longer pushes the list. The card being edited or holding the reply box is never skipped. A browser test bounds the
+  layout per font added with 300 pins by a count from a Chrome trace, not a duration.
 
 ## 0.4.34 — 2026-10-30
 
