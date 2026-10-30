@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.36 — 2026-10-30
 
 Follow-ups to the reviews of 0.4.35, nearly all on the page verdict line: a long press, a tap while the reason is
 typed and a save in a pinch-zoomed view do what they show on a phone, a phone's floating line keeps its rows, and the
