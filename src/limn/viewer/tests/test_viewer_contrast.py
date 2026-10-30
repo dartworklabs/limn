@@ -14,7 +14,7 @@ pseudo-element, the placeholder's too - as the browser paints them, and holds sm
 3:1, in the light and the dark theme, on a desktop with a mouse, a phone and an unfolded foldable. A text inside a
 disabled control is not held (WCAG 1.4.3 exempts inactive controls). A text drawn in or over what this compositing
 cannot paint - a background image or gradient, a mask, a filter or a blend on its pseudo-element or on any element under
-it, an SVG gradient fill or stroke, a colour in a colour space it does not read - is a failure unless UNPAINTED names
+it, an SVG gradient fill or any stroke, a colour in a colour space it does not read - is a failure unless UNPAINTED names
 every element that carries one and why; and an element UNPAINTED names must carry one under text the walk reads.
 
 Every style rule that sets text in the muted or subtle colour (directly or through a custom property that leads to
@@ -183,8 +183,10 @@ READ = (
     : rgba(c.backgroundColor) ? '' : 'background-color ' + (c.backgroundColor || '(none)');
   // Whether e matches a selector of unpainted; the selectors that excused anything come back in `excused`.
   const excusedBy = new Set(), excused = e => { const s = unpainted.find(x => hits(e, x)); if (s) excusedBy.add(s); return !!s; };
-  // The paint an SVG text is drawn with: its fill, else its stroke (which this compositing cannot paint), else none (null).
-  const svgInk = c => c.fill !== 'none' ? c.fill : c.stroke !== 'none' ? 'stroke ' + c.stroke : null;
+  // The paint an SVG text is drawn with: its fill alone, or null with neither a fill nor a stroke. A stroke - with a fill or
+  // without - draws outlines this compositing cannot paint, so the paint is then named with it, which rgba() does not read.
+  const svgInk = c => c.stroke === 'none' ? (c.fill === 'none' ? null : c.fill)
+    : (c.fill === 'none' ? '' : 'fill ' + c.fill + ' and ') + 'stroke ' + c.stroke;
   // One pixel under the text (text: its colour) or beside it (text: null): a pseudo-element's background and the text in
   // it, then each element paints its background under what is inside it, and its opacity fades the lot; the canvas is white.
   const paint = (chain, text, pseudo) => { let g = null;
@@ -922,9 +924,9 @@ class WalkCatchesDimmedText(ContrastWalk):
         self.assertIn("#zz-scope span", self.used)
 
     # What the compositing cannot paint, in the places #289 found it unasked - each was skipped or passed: a pseudo-element's
-    # own gradient, an SVG text's gradient fill, a background and a text colour in a colour space rgba() does not read, and a
-    # gradient further up than an element UNPAINTED excuses (whose excuse covers its own filter, not the gradient); with a
-    # placeholder faded by its own opacity, which the compositing left out.
+    # own gradient, an SVG text's gradient fill and a filled text's gradient stroke, a background and a text colour in a
+    # colour space rgba() does not read, and a gradient further up than an element UNPAINTED excuses (whose excuse covers
+    # its own filter, not the gradient); with a placeholder faded by its own opacity, which the compositing left out.
     UNPAINTED_CASES = """<style>
       #zz-blind{position:fixed;left:0;top:0;z-index:99999;width:320px;padding:8px;background:#fff;color:#000;font-size:12px}
       #zz-pseudo::before{content:'pseudo text';color:#000;background-image:linear-gradient(#fff,#fff)}
@@ -934,8 +936,9 @@ class WalkCatchesDimmedText(ContrastWalk):
       #zz-fade{display:block;color:#000;background:#fff;border:1px solid #000;font-size:12px}
       #zz-fade::placeholder{color:#000;opacity:.1}
     </style><div id="zz-blind"><p id="zz-pseudo"></p>
-      <svg id="zz-fill" width="200" height="20"><defs><linearGradient id="zz-g"><stop offset="0" stop-color="#000"/>
-        <stop offset="1" stop-color="#000"/></linearGradient></defs><text x="0" y="14" fill="url(#zz-g)">gradient fill</text></svg>
+      <svg id="zz-fill" width="200" height="40"><defs><linearGradient id="zz-g"><stop offset="0" stop-color="#000"/>
+        <stop offset="1" stop-color="#000"/></linearGradient></defs><text x="0" y="14" fill="url(#zz-g)">gradient fill</text>
+        <text x="0" y="34" fill="#000" stroke="url(#zz-g)">stroked text</text></svg>
       <p id="zz-space">space text</p><p id="zz-ink">ink text</p>
       <div id="zz-outer"><div id="zz-inner"><p>nested text</p></div></div>
       <input id="zz-fade" placeholder="faded placeholder"></div>"""
@@ -954,6 +957,7 @@ class WalkCatchesDimmedText(ContrastWalk):
         for what, mark in (
             ("a pseudo-element's gradient", "p#zz-pseudo::before 'pseudo text' over ::before background-image"),
             ("an svg gradient fill", "'gradient fill' drawn in url("),
+            ("an svg gradient stroke over a fill", "'stroked text' drawn in fill rgb(0, 0, 0) and stroke url("),
             ("a background colour it cannot read", "'space text' over background-color oklch("),
             ("a text colour it cannot read", "'ink text' drawn in oklch("),
             ("a gradient above an excused element", "'nested text' over background-image on div#zz-outer"),
