@@ -372,7 +372,7 @@ function verdictDropped(){const b=BANNERS.get(NOTICE_HOST.COMPOSER); if(!b||!b.s
 // quiet as before - pressing the word again is the same.
 function verdictUndo(id){const undo=async()=>{let was=null;
     try{was=(await api('/api/pins/'+id,{what:'핀 읽기',silent:true})).data.pin;}catch(e){}
-    const r=PV_REASON&&PV_REASON.id===id?PV_REASON:null; if(r&&pvReasonDirty(r))rdPut(r.doc,id,r.text,r.base,r.rev,{mode:r.mode,tried:r.tried});
+    const r=PV_REASON&&PV_REASON.id===id?PV_REASON:null; if(r&&pvReasonDirty(r))rdPut(r.doc,id,r.text,r.base,r.rev,{mode:r.mode,tried:r.tried,from:r.via});
     PV_WITHDRAWN.add(id); const ok=await dropPin(id,true,undo); if(!ok)PV_WITHDRAWN.delete(id);
     if(ok&&PV_REASON&&PV_REASON.id===id){PV_REASON=null; drawPageVerdicts();}   // a withdrawn verdict takes no reason
     const d=ok?rdGet(DOC,id):null,k=was&&verdictOf(was),t=was?pageTargetOf(was,META?META.kind:undefined):null;
@@ -585,7 +585,7 @@ async function pvCancelPin(id,page,had,byKey){const p=OPEN_ALL.find(x=>x.id===id
   // Its reason popover leaves with the line's verdict, but the session is kept until the server answers: a failed cancel
   // brings the verdict back and its unsent reason with it, or keeps that as a draft its line marks when something took its
   // place (pvReasonUncancel); a done one drops it - its draft stays kept (rdPut) for the [되돌리기].
-  const kept=PV_REASON&&PV_REASON.id===id?PV_REASON:null; if(kept){PV_REASON=null; if(pvReasonDirty(kept))rdPut(kept.doc,id,kept.text,kept.base,kept.rev,{mode:kept.mode,tried:kept.tried});}
+  const kept=PV_REASON&&PV_REASON.id===id?PV_REASON:null; if(kept){PV_REASON=null; if(pvReasonDirty(kept))rdPut(kept.doc,id,kept.text,kept.base,kept.rev,{mode:kept.mode,tried:kept.tried,from:kept.via});}
   PV_WITHDRAWN.add(id);
   // The take-back is said on the status line with its [되돌리기], which the line itself also offers for as long (PV_LINE_UNDO):
   // the status line is far away by Tab.
