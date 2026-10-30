@@ -1654,6 +1654,13 @@ LIST_OVER_LINE = (
     "document.querySelector('#status-list').getBoundingClientRect().bottom"
     "<=document.querySelector('#status').getBoundingClientRect().top"
 )
+# A pinch zoom panned over the page: window.__setVv({offsetTop, height, scale}) makes the visual viewport that part of the
+# window (the layout as it was), and a scroll event follows; null gives the real one back.
+VV_PANNED = """window.__vv = null;
+(() => {const vv = window.visualViewport; if (!vv) return; const P = Object.getPrototypeOf(vv);
+  for (const k of ['offsetTop', 'height', 'scale']) {const real = Object.getOwnPropertyDescriptor(P, k);
+    Object.defineProperty(vv, k, {configurable: true, get() {return window.__vv ? window.__vv[k] : real.get.call(vv);}});}
+  window.__setVv = o => {window.__vv = o; vv.dispatchEvent(new Event('scroll'));};})();"""
 # Each row of the open '+N' list, its action scrolled into the list's view: whether that action lies whole inside the
 # visible part of the window (visualViewport) and is what a press at its centre hits.
 SEEN_ROWS = """()=>{const v=window.visualViewport,t=v?v.offsetTop:0,H=v?v.height:innerHeight;
@@ -1713,6 +1720,25 @@ class StatusListRoom(ViewerBase):
         settle(page)
         rows = page.evaluate(LIST_ROWS)
         self.assertEqual([(r["inside"], r["hit"]) for r in rows], [(True, True)] * 4, rows)
+
+    def test_a_zoom_panned_away_from_the_line_keeps_the_list_in_the_visible_part(self):
+        """A pinch zoom panned so that the status line is outside the visible part (visualViewport offsetTop > 0): the
+        desktop showing y 300-600 (the line at 114-138 is above it), the phone showing y 200-500 (its line at 768-791 is
+        below it). The list opens at that part's edge, not at the line: each row's [되돌리기], scrolled into the list's
+        view, is inside the visible part and takes a press there. Anchored to the line it opened at y 142 on the desktop
+        and over 578-764 on the phone, all of it or most of its rows out of the visible part."""
+        for name, device, part in (("desktop", DESK, (300, 300)), ("phone", PHONE_390, (200, 300))):
+            with self.subTest(screen=name):
+                page = self.view(device, init=VV_PANNED)
+                page.evaluate(FOUR_UNDOS)
+                settle(page)
+                page.evaluate("toggleStatusList()")
+                page.wait_for_selector("#status-list[open]")
+                top, height = part
+                page.evaluate("([t,h])=>window.__setVv({offsetTop:t,height:h,scale:innerHeight/h})", [top, height])
+                settle(page)
+                rows = page.evaluate(SEEN_ROWS)
+                self.assertEqual([(r["inside"], r["hit"]) for r in rows], [(True, True)] * 4, rows)
 
     def test_a_visible_part_smaller_than_the_window_keeps_every_row_reachable(self):
         """A keyboard or a zoom that shrinks only the visible part of the window (visualViewport), the layout as it was:

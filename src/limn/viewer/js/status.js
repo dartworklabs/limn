@@ -179,18 +179,20 @@ function statusListUp(h,above,below,under){if(h<=(under?below:above))return !und
 // visible part's edge on that side (--sl-room); its rows scroll inside that. The list always opened over the line: on a
 // desktop the line sits under the status chips, about 114px from the top, and four rows over it put the first two above
 // the window (top -76px at 1400x850) with their [되돌리기] out of reach (#314). The room is counted in the part of the
-// window a person sees (visualViewport: a keyboard that does not resize the layout, a pinch zoom), not the whole window,
-// under which the lower rows stood behind such a keyboard; a line outside that part still gets the list at least a row
-// tall. The list's full height is its content's (scrollHeight, with its border), read without undoing the cut, so a list
-// scrolled down stays where it was. Placed again while it is open when its rows change (drawStatus: a new message, one
-// that leaves - a list opened over the line with two rows got more and kept scrolling in that room), when the window or
-// its visible part changes size or moves; a band change folds it (placeStatus).
+// window a person sees (visualViewport: a keyboard that does not resize the layout, a pinch zoom), not the whole
+// window, under which the lower rows stood behind such a keyboard. A line outside that part (a zoom panned away from
+// it) has the list at the part's near edge instead of beside it, where its rows were out of sight too, and at least a
+// row tall. The list's full height is its content's (scrollHeight, with its border), read without undoing the cut, so a
+// list scrolled down stays where it was. Placed again while it is open when its rows change (drawStatus: a new message,
+// one that leaves - a list opened over the line with two rows got more and kept scrolling in that room), when the
+// window or its visible part changes size or moves; a band change folds it (placeStatus).
 function placeStatusList(){const d=$('#status-list'); if(!d.open)return;
   const vv=window.visualViewport,vt=vv?vv.offsetTop:0,vb=vv?vt+vv.height:innerHeight,r=$('#status').getBoundingClientRect();
-  const above=Math.min(r.top,vb)-vt-4-8,below=vb-Math.max(r.bottom,vt)-4-8,h=d.scrollHeight+d.offsetHeight-d.clientHeight;
+  const at=Math.min(Math.max(r.top,vt),vb),ab=Math.min(Math.max(r.bottom,vt),vb);   // the line's edges, held inside the visible part
+  const above=at-vt-4-8,below=vb-ab-4-8,h=d.scrollHeight+d.offsetHeight-d.clientHeight;
   const row=/** @type {HTMLElement|null} */(d.querySelector('.st-row')),one=h-$('#status-list-rows').offsetHeight+(row?row.offsetHeight:0);   // a row, its padding, border
   const up=statusListUp(h,above,below,BAND===LAYOUT_BAND.SHORT); d.style.setProperty('--sl-room',Math.floor(Math.max(up?above:below,one))+'px');
-  d.style.top=up?'auto':Math.round(r.bottom+4)+'px'; d.style.bottom=up?Math.round(innerHeight-r.top+4)+'px':'auto';}
+  d.style.top=up?'auto':Math.round(ab+4)+'px'; d.style.bottom=up?Math.round(innerHeight-at+4)+'px':'auto';}
 // placeStatusList at the next frame, once for all the changes before it: the line is drawn by then.
 let STATUS_LIST_PLACE=0;
 function placeStatusListSoon(){if(!STATUS_LIST_PLACE)STATUS_LIST_PLACE=requestAnimationFrame(()=>{STATUS_LIST_PLACE=0; placeStatusList();});}
