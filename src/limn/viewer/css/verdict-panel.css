@@ -46,11 +46,16 @@ body.pv-beside #doc .pgw:not(:has(>.pv-sum))>.pg{margin-bottom:var(--space-6)}  
 #doc #pv-panel>.pv-onhint{top:calc(100% + var(--space-1));bottom:auto;right:0;white-space:normal;max-width:100%}
 /* The summary under each page: its identifier and verdict in the line's muted text, one row of one height whatever it says;
    the reading page's (.on: the page the panel shows) bold in the text colour - a weight, never a height. A press brings that
-   page to the panel (pvSumGo). Far from the view it is skipped as a far line is (.pv-far; its height is fixed). */
-#doc .pv-sum{grid-column:2;grid-row:2;justify-self:start;display:flex;align-items:center;gap:var(--space-1);box-sizing:border-box;height:var(--control-h-sm);
+   page to the panel (pvSumGo). It is exactly as wide as its page and adds no width of its own (width 0, min-width 100%): the
+   middle track is its content's, so a summary wider than a small page set the track, and a save or '초안 있음' moved the page
+   and took the panel's margin, which the bar does not count. Its state is cut at its end; the identifier never is. Far from
+   the view it is skipped as a far line is (.pv-far; its height is fixed). */
+#doc .pv-sum{grid-column:2;grid-row:2;display:flex;align-items:center;gap:var(--space-1);box-sizing:border-box;width:0;min-width:100%;height:var(--control-h-sm);
   margin:0 0 var(--space-5);padding:0 var(--space-1);border:0;border-radius:var(--radius-sm);background:transparent;color:var(--muted-foreground);
-  font-size:var(--text-sm);font-weight:400;white-space:nowrap;cursor:pointer;overflow-anchor:none}
-#doc .pv-sum .pv-sum-s{display:inline-flex;align-items:center;gap:var(--space-1)}
+  font-size:var(--text-sm);font-weight:400;white-space:nowrap;overflow:hidden;cursor:pointer;overflow-anchor:none}
+#doc .pv-sum>:is(.pv-sum-id,.pv-sep){flex:none}
+#doc .pv-sum .pv-sum-s{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+#doc .pv-sum .pv-sum-s>.pv-sep{margin-inline:var(--space-1)}
 #doc .pv-sum .pv-sum-id,#doc .pv-sum .vd-w{color:var(--foreground);font-weight:600}
 #doc .pv-sum .pv-sum-draft{color:var(--warning);font-weight:600}
 #doc .pv-sum.on{color:var(--foreground);font-weight:600}

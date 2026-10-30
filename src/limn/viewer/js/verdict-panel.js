@@ -62,14 +62,24 @@ function pvPanelGone(){const p=document.getElementById('pv-panel'); if(p)p.remov
 // so, without words. A save chip on the panel for a pin of another page goes to the status line with its undo (chipAway),
 // as a chip whose mark is not drawn does: the panel no longer shows the verdict it undoes.
 /** @param {Map<number,Pin[]>} map @param {DocVerdicts} v */
-function pvPanelFill(map,v){const p=pvPanel(),r=PV_READ,list=r?map.get(r)||[]:[];
+function pvPanelFill(map,v){const p=pvPanel(),r=PV_READ,at=pvReadingAt(),list=r?map.get(r)||[]:[]; pvPanelLeave(p,at);
   const chip=/** @type {HTMLElement|null} */(p.querySelector(':scope>.nt-chip')); if(chip&&!list.some(x=>x.id===pvChipPin(chip)))chipAway(chip);
   if(r){p.classList.remove('pv-quiet'); fillPv(p,r,map.get(r),v); pvPanelPlace(); return;}
-  const at=pvReadingAt(); PV_TEXT.delete(p); p.classList.add('pv-quiet'); p.classList.remove('reading'); p.dataset.page=String(at||0); delete p.dataset.pin;
+  PV_TEXT.delete(p); p.classList.add('pv-quiet'); p.classList.remove('reading'); p.dataset.page=String(at||0); delete p.dataset.pin;
   p.setAttribute('role','group'); p.setAttribute('aria-label',at?tl('{page}쪽 판정',{page:at}):tr('판정'));
   setHtml(p,html`<span class="pv-fig" translate="no"><span class="pv-fig-id">${at?pvFigParts(at).id:''}</span>${isFigureKind(META?META.kind:undefined)?html`<span class="pv-fig-t"></span>`:''}</span>\
 <span class="pv-t"><span class="pv-s pv-none">${tr('이 쪽은 판정을 받지 않습니다')}</span></span>`);
   pvPanelPlace();}
+// Whether the panel shows another page than the one under the reading line (at, verdict or none). Under the pages: never.
+/** @param {number} at */
+function pvPanelStale(at){const p=document.getElementById('pv-panel'); return PV_SIDE&&!!p&&p.dataset.page!==String(at);}
+// The panel is about to show another page than p's: what the person has on it stays with the page they left. An open reason is
+// moved on from as the reading page leaves it (pvReasonLeave), and a focus on a control goes to the PDF area, as one on a left
+// line's does (pvFocusOffPage). This must come before the filling: the morph keeps the element and hands it to the new
+// page, so Enter or Space on '채택' pressed the next page's word, and a control that goes left the focus on nothing.
+/** @param {HTMLElement} p @param {number} at */
+function pvPanelLeave(p,at){if(p.dataset.page===String(at))return; if(PV_REASON&&PV_REASON.seen&&PV_REASON.page!==at)pvReasonLeave();
+  const a=document.activeElement; if(!!a&&p.contains(a))searchToPage();}
 // The pin save chip e is for (its notice's), 0 for none.
 /** @param {HTMLElement} e @returns {number} */
 function pvChipPin(e){let pin=0; NOTICES.forEach(n=>{if(n.el===e)pin=n.pin||0;}); return pin;}

@@ -1132,7 +1132,7 @@ function pvStick(){if(pageVerdictsOn()&&pvSideCheck())return;   // the room cros
   const vv=window.visualViewport,kb=vv&&MQ_COARSE.matches?Math.max(0,Math.round(lr.top+L.clientHeight-(vv.offsetTop+vv.height))):0;
   if(L.style.getPropertyValue('--pv-kb-over')!==kb+'px')L.style.setProperty('--pv-kb-over',kb+'px');
   if(pvInsetR()!==PV_INSET_R)sizePv();   // a panel came over the area, went, or changed its width
-  const r=pvReadingPage(),k=pvKeysPage(r);
+  const at=pvReadingAt(),r=at&&pageTakesVerdict(at)?at:0,k=pvKeysPage(r);
   if(PV_REASON&&PV_REASON.page===r)PV_REASON.seen=true;
   else if(PV_REASON&&PV_REASON.seen)pvReasonLeave();   // the reading page left the field's page: moving on
   // A key's armed confirm word belongs to the page it was read on: another reading page lets it go.
@@ -1142,7 +1142,8 @@ function pvStick(){if(pageVerdictsOn()&&pvSideCheck())return;   // the room cros
   // area by what a line's change moved a page ended a jump's smooth scroll where it was (an outline jump from page 4 to 40
   // stopped on page 5), and on a phone a slow scroll down then never passed a page's end: the page above came back under the
   // reading line, the reading page flipped back and the line grew again, 466 times in 14 drags.
-  if(r!==PV_READ||k!==PV_KEYS){const was=[PV_READ,PV_KEYS]; PV_READ=r; PV_KEYS=k; const map=pageVerdictPins(),v=pageVerdictsOn();
+  // Two pages in a row that take no verdict read 0 here, one after the other: the panel names the page, so it asks too.
+  if(r!==PV_READ||k!==PV_KEYS||pvPanelStale(at)){const was=[PV_READ,PV_KEYS]; PV_READ=r; PV_KEYS=k; const map=pageVerdictPins(),v=pageVerdictsOn();
     const re=/** @type {HTMLElement[]} */([]);
     if(v&&PV_SIDE){pvPanelFill(map,v); re.push(pvPanel());}   // the panel shows the new reading page
     else if(v)new Set([...was,r,k]).forEach(n=>{const e=/** @type {HTMLElement|null} */(n?document.querySelector('#doc .pv[data-page="'+n+'"]'):null); if(e){fillPv(e,n,map.get(n),v); re.push(e);}});

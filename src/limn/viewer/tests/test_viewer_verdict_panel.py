@@ -2,8 +2,8 @@
 
 On a wide desktop whose PDF area leaves room right of the pages, the page verdict line is one panel in that margin - the
 reading page's line, the page under the 160px reading line the section strip and the keys name - and under each page a
-one-row summary. A figure document of six portrait pages (612 x 792 pt, 816px at print size; the sixth a list page that
-takes no verdict) on a 1920 x 1080 desktop: with the pin panel open the room beside the pages is 444px, so the panel is on;
+one-row summary. A figure document of seven portrait pages (612 x 792 pt, 816px at print size; the last two list pages that
+take no verdict) on a 1920 x 1080 desktop: with the pin panel open the room beside the pages is 444px, so the panel is on;
 1680 with the pin panel open leaves 204px, so the lines are under the pages as in 0.4.36. CI's 1400 x 850 desktop never
 takes the panel, so every test here sets its own viewport.
 
@@ -22,7 +22,8 @@ from helpers_access import ALICE, BOB, member_add, talk_to
 from helpers_browser import VIEWPORTS, BrowserBase, nothing_follows, settle
 
 WORDS = {"format": "limn-verdicts/1", "verdicts": [{"key": "채택"}, {"key": "보류"}, {"key": "삭제", "confirm": True}]}
-N_PAGES = 6  # the sixth is a list page: no verdict, no summary
+N_PAGES = 7  # the last two are list pages: no verdict, no summary
+TAKING = 5  # the pages that take a verdict
 CAROL_VIEWER = {"Tailscale-User-Login": "carol@example.com", "Tailscale-User-Name": "Carol Lee"}
 WIDE = {"viewport": {"width": 1920, "height": 1080}}
 # The panel as it stands: its page and pin, its rows' text, its words, where its first word stands, and what it holds.
@@ -59,7 +60,7 @@ CONTRAST = """sel => {const rgb = s => (s.match(/[\\d.]+/g) || []).map(Number), 
 
 class PanelBase(BrowserBase):
     """The three documents of helpers_figure.viewer_docs with their word files (page: true on the figure and the PDF), the
-    figure rebuilt as six portrait one-figure pages; picks on the figure and the PDF reach the real handler. A new pin's
+    figure rebuilt as seven portrait one-figure pages; picks on the figure and the PDF reach the real handler. A new pin's
     POST may be lost (fail_pin) or answered 500 (pin_500)."""
 
     def setUp(self):
@@ -85,19 +86,13 @@ class PanelBase(BrowserBase):
                     }
                 ],
             }
-            for i in range(1, N_PAGES)
+            for i in range(1, TAKING + 1)
         ]
-        pages.append(
-            {
-                "page": N_PAGES,
-                "figure": "LIST",
-                "title": "목록",
-                "verdict": False,
-                "elements": [{"id": "LIST", "frac": [0, 0, 1, 1]}],
-            }
-        )
+        for i, (fig, title) in enumerate((("LIST", "목록"), ("ASK", "연구 질문")), TAKING + 1):
+            root = {"id": fig, "frac": [0, 0, 1, 1]}
+            pages.append({"page": i, "figure": fig, "title": title, "verdict": False, "elements": [root]})
         fmap = {"format": "limn-figure-map/1", "pdf": "figures.pdf", "pdf_sha256": "0" * 64, "pages": pages}
-        d = helpers_figure.write_build(self.fig, helpers_figure.BUILD2, fmap, pages=N_PAGES)
+        d = self.pages_dir = helpers_figure.write_build(self.fig, helpers_figure.BUILD2, fmap, pages=N_PAGES)
         for i in range(1, N_PAGES + 1):
             (d / ("page-%d.png" % i)).write_bytes(blank_png(1275, 1650))
         self.fail_pin = 0
@@ -188,15 +183,15 @@ class Panel(PanelBase):
         page = self.on()
         self.assertGreaterEqual(page.evaluate(ROOM), 360)
         self.assertEqual(
-            page.evaluate(SHAPE), {"beside": True, "panel": True, "lines": 0, "sums": N_PAGES - 1, "side": True}
+            page.evaluate(SHAPE), {"beside": True, "panel": True, "lines": 0, "sums": TAKING, "side": True}
         )
         for room, beside in ((340, True), (320, False), (340, False), (370, True)):
             with self.subTest(room=room):
                 self.resize(page, room)
                 got = page.evaluate(SHAPE)
                 self.assertEqual(got["beside"], beside, got)
-                self.assertEqual(got["lines"], 0 if beside else N_PAGES - 1, got)
-                self.assertEqual((got["panel"], got["sums"]), (beside, N_PAGES - 1 if beside else 0), got)
+                self.assertEqual(got["lines"], 0 if beside else TAKING, got)
+                self.assertEqual((got["panel"], got["sums"]), (beside, TAKING if beside else 0), got)
         page.set_viewport_size({"width": 1680, "height": 1050})
         settle(page)
         self.assertFalse(page.evaluate(SHAPE)["beside"], "1680 with the pin panel open has 204px of room")
@@ -496,7 +491,7 @@ class Panel(PanelBase):
                 settle(page)
                 got = page.evaluate(SHAPE)
                 self.assertEqual((got["panel"], got["beside"], got["lines"]), (panel, panel, 0), got)
-                self.assertEqual(got["sums"], (N_PAGES - 1 if doc == "fig" else 2) if panel else 0, got)
+                self.assertEqual(got["sums"], (TAKING if doc == "fig" else 2) if panel else 0, got)
         self.assertEqual(page.evaluate(PANEL)["page"], page.evaluate("pvReadingPage()"))
 
     def test_text_in_the_panel_and_the_summaries_reads_four_and_a_half_to_one_in_both_themes(self):
@@ -552,20 +547,79 @@ class PanelEdges(PanelBase):
     only the reading page is shown, and every line goes and comes when the room crosses its bar."""
 
     def test_a_page_that_takes_no_verdict_says_so_and_a_key_saves_nothing(self):
-        """The list page read: the panel names it and says it takes no verdict, without words; its block has no summary
-        and keeps the pages' gap; a key saves nothing. Page 5 read again: the words are back."""
+        """A list page read: the panel names it and says it takes no verdict, without words, its block has no summary, and
+        a key saves nothing. The next list page read: the panel names that one, as the section strip does (both read no
+        verdict page, and the panel kept the first one's name). A page with a verdict read: the words are back."""
         page = self.on()
-        self.to(page, N_PAGES)
-        got = page.evaluate(PANEL)
-        self.assertEqual((got["page"], got["words"]), (N_PAGES, []), got)
-        self.assertIn("이 쪽은 판정을 받지 않습니다", got["text"])
+        for n in (TAKING + 1, N_PAGES):
+            with self.subTest(page=n):
+                self.to(page, n)
+                got = page.evaluate(PANEL)
+                self.assertEqual((got["page"], got["words"]), (n, []), got)
+                self.assertTrue(got["text"].startswith("%d쪽" % n), got)
+                self.assertIn("이 쪽은 판정을 받지 않습니다", got["text"])
+                self.assertTrue(page.locator("#section-page-t").inner_text().startswith("%d " % n))
         page.evaluate("searchToPage()")
         page.keyboard.press("1")
         settle(page)
         self.assertEqual(self.pins(), {})
-        self.to(page, N_PAGES - 1)
+        self.to(page, TAKING)
         got = page.evaluate(PANEL)
-        self.assertEqual((got["page"], len(got["words"])), (N_PAGES - 1, 3), got)
+        self.assertEqual((got["page"], len(got["words"])), (TAKING, 3), got)
+
+    def test_a_focus_on_the_panel_stays_with_its_page_when_the_reading_page_changes(self):
+        """The focus on a word of page 1, page 3 (Alice's 채택) read: the focus is on the PDF area, and Space does not take
+        page 3's verdict back. On page 3's word, page 4 read: Enter saves nothing. On page 3's [판정 취소], which page 4 does
+        not have: the focus is on the PDF area, not on nothing. The same when a redraw shows the new page before the frame."""
+        mine = self.verdict(3, "채택")
+        page = self.on(n_open=1)
+        cases = (
+            (1, 3, '#pv-panel button[data-key="채택"]', "Space"),
+            (3, 4, '#pv-panel button[data-key="보류"]', "Enter"),
+            (3, 4, "#pv-panel button.pv-cancel", None),
+        )
+        for was, now, control, key in cases:
+            with self.subTest(control=control):
+                self.to(page, was)
+                page.locator(control).focus()
+                self.to(page, now)
+                got = page.evaluate(FOCUS)
+                self.assertEqual((got or {}).get("id"), "left", got)
+                if key:
+                    page.keyboard.press(key)
+                    settle(page)
+                self.assertEqual(page.evaluate("OPEN_ALL.map(p=>p.id)"), [mine])
+        self.to(page, 3)
+        page.locator("#pv-panel button.pv-cancel").focus()
+        page.evaluate(
+            """() => {PV_HAND(); const L = document.querySelector('#left'); L.scrollTop += document.getElementById('p4').getBoundingClientRect().top - L.getBoundingClientRect().top - 16;
+              drawPageVerdicts();}"""
+        )
+        self.assertEqual((page.evaluate(FOCUS) or {}).get("id"), "left")
+
+    def test_a_summary_wider_than_a_small_page_never_moves_it_or_the_panel(self):
+        """Page 3 a small figure (144pt, 192px at print size), narrower than what its summary says: the summary is as wide
+        as the page and cut, the page stands where a page of that width stands, and neither a verdict nor a kept draft
+        moves it or the panel."""
+        (self.pages_dir / "page-3.png").write_bytes(blank_png(300, 1650))
+        page = self.on()
+        self.to(page, 3)
+        read = """() => {const p = document.getElementById('p3').getBoundingClientRect(), s = document.querySelector('#doc .pv-sum[data-page="3"]'), t = s.querySelector('.pv-sum-s');
+          return {left: Math.round(p.left), panel: Math.round(document.getElementById('pv-panel').getBoundingClientRect().left), w: Math.round(s.getBoundingClientRect().width), page: Math.round(p.width), cut: t.scrollWidth > t.clientWidth};}"""
+        before = page.evaluate(read)
+        self.assertEqual(before["w"], before["page"], before)
+        self.assertEqual(before["page"], 192, before)
+        page.locator('#pv-panel button[data-key="보류"]').click()
+        page.wait_for_function("OPEN_ALL.length===1")
+        settle(page)
+        page.locator('#pv-panel [data-act="pv-reason-open"]').click()
+        page.keyboard.type("작은 쪽의 초안")
+        page.locator('#pv-panel [data-act="pv-reason-fold"]').click()
+        settle(page)
+        after = page.evaluate(read)
+        self.assertTrue(after.pop("cut"), "the summary fits: it proves nothing")
+        before.pop("cut")
+        self.assertEqual(after, before)
 
     def test_a_confirm_word_armed_on_one_page_is_not_confirmed_on_the_next_at_the_same_place(self):
         """삭제 pressed once on page 2, page 3 read, the same place on the screen pressed: the button there is page 3's, so
@@ -733,7 +787,7 @@ class Fallback(PanelBase):
         self.verdict(2, "채택")
         narrow = self.on(n_open=1, viewport={"width": 1400, "height": 850})
         self.assertEqual(
-            narrow.evaluate(SHAPE), {"beside": False, "panel": False, "lines": N_PAGES - 1, "sums": 0, "side": False}
+            narrow.evaluate(SHAPE), {"beside": False, "panel": False, "lines": TAKING, "sums": 0, "side": False}
         )
         want = narrow.evaluate(self.LINES)
         wide = self.on(n_open=1)
@@ -743,7 +797,7 @@ class Fallback(PanelBase):
         wide.evaluate("()=>{document.querySelector('#left').scrollTop=0;}")
         settle(wide)
         self.assertEqual(
-            wide.evaluate(SHAPE), {"beside": False, "panel": False, "lines": N_PAGES - 1, "sums": 0, "side": False}
+            wide.evaluate(SHAPE), {"beside": False, "panel": False, "lines": TAKING, "sums": 0, "side": False}
         )
         self.assertEqual(wide.evaluate(self.LINES), want)
 
@@ -754,4 +808,4 @@ class Fallback(PanelBase):
                 page = self.on(**VIEWPORTS[name])
                 got = page.evaluate(SHAPE)
                 self.assertEqual((got["panel"], got["beside"], got["sums"]), (False, False, 0), got)
-                self.assertEqual(got["lines"], N_PAGES - 1, got)
+                self.assertEqual(got["lines"], TAKING, got)
