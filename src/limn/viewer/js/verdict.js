@@ -433,7 +433,8 @@ document.addEventListener('focusin',()=>pvStickSoon()); document.addEventListene
 // long press keeps it as long as it is held, so the words stay under the finger while its description shows. Only the press
 // that holds the fold lets it go (PV_PRESS_HOLD): a new press on the line takes it over and the earlier one's wait goes - a
 // long press's swallowed click left its 500ms wait running, which let the fold go under the next press, between that press's
-// focus and its click.
+// focus and its click. A press whose window loses the focus or is hidden (another app, a tab switch) lets it go at once: let
+// go outside the window, it has no pointerup or pointercancel here, and the fold stayed.
 let PV_POP_PRESS=false;
 let PV_PRESS_HOLD=/** @type {(()=>void)|null} */(null);   // the press holding the fold: drops its own wait without letting go
 function pvTypingSync(){const a=/** @type {HTMLElement|null} */(document.activeElement),l=a&&a.closest?/** @type {HTMLElement|null} */(a.closest('#doc .pv')):null,b=document.body;
@@ -446,10 +447,12 @@ document.addEventListener('pointerdown',e=>{const t=/** @type {HTMLElement|null}
   if(PV_PRESS_HOLD)PV_PRESS_HOLD();   // an earlier press still waiting: this one holds the fold now
   PV_POP_PRESS=true; let timer=/** @type {ReturnType<typeof setTimeout>|undefined} */(undefined);
   const drop=()=>{clearTimeout(timer); window.removeEventListener('click',late); window.removeEventListener('pointercancel',late);
-    window.removeEventListener('pointerup',up,true); if(PV_PRESS_HOLD===drop)PV_PRESS_HOLD=null;};
+    window.removeEventListener('pointerup',up,true); window.removeEventListener('blur',late); document.removeEventListener('visibilitychange',hid);
+    if(PV_PRESS_HOLD===drop)PV_PRESS_HOLD=null;};
   const end=()=>{if(PV_PRESS_HOLD!==drop)return; drop(); setTimeout(()=>{if(PV_PRESS_HOLD)return; PV_POP_PRESS=false; pvTypingSync();},0);};
-  const late=()=>end(),up=()=>{clearTimeout(timer); timer=setTimeout(end,500);};   // late: after the press's own click (window, bubbling: after the viewer's handlers)
-  PV_PRESS_HOLD=drop; window.addEventListener('click',late); window.addEventListener('pointercancel',late); window.addEventListener('pointerup',up,true);},true);
+  const late=()=>end(),up=()=>{clearTimeout(timer); timer=setTimeout(end,500);},hid=()=>{if(document.visibilityState==='hidden')end();};   // late: after the press's own click (window, bubbling: after the viewer's handlers)
+  PV_PRESS_HOLD=drop; window.addEventListener('click',late); window.addEventListener('pointercancel',late); window.addEventListener('pointerup',up,true);
+  window.addEventListener('blur',late); document.addEventListener('visibilitychange',hid);},true);
 // What a press on page `page` of the document on screen saves against: its document, kind, build and page size and its
 // target's name, with the visit it was made in. A save runs on these - not on the document on screen when it runs - so a
 // press made before switching documents is saved, and one queued meanwhile is too (pvPress, savePageVerdict). null when the

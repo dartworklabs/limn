@@ -7297,3 +7297,34 @@ class TouchDetails(VerdictBase):
           return [threw,L.style.getPropertyValue('overflow-anchor'),document.querySelector('#doc').classList.contains('pv-measure')];}"""
         self.assertEqual(page.evaluate(after, ""), [True, "", False])
         self.assertEqual(page.evaluate(after, "auto"), [True, "auto", False])
+
+    def test_a_press_whose_window_loses_the_focus_lets_the_fold_go(self):
+        """390x844, the reason typed on page 2's line (the fold on): a press held on the line's word while the focus moves
+        to the word, then the window loses the focus (or is hidden) and the press is let go outside it - no pointerup or
+        pointercancel comes. The fold goes at once (body.pv-typing off, the figure name back); it stayed for good."""
+        for how, key in (
+            ("blur", "보류"),
+            ("hidden", "채택"),
+        ):  # a word per run: the line keeps the first run's verdict
+            with self.subTest(how=how):
+                page = self.phone(in_place=True)
+                self.press_page(page, 2, key)
+                page.evaluate(END_CHIPS)
+                settle(page)
+                open_reason(page, 2, tap=True)
+                page.keyboard.type("창을 떠난 누름")
+                settle(page)
+                word = WORD % (2, key)
+                x, y = page.evaluate(CENTRE, word)
+                page.mouse.move(x, y)
+                page.mouse.down()  # the focus moves to the word; the fold holds for the press
+                settle(page)
+                self.assertTrue(page.evaluate("document.body.classList.contains('pv-typing')"))
+                if how == "blur":
+                    page.evaluate("()=>window.dispatchEvent(new Event('blur'))")
+                else:
+                    page.evaluate(
+                        """()=>{Object.defineProperty(document,'visibilityState',{get:()=>'hidden',configurable:true});
+                          document.dispatchEvent(new Event('visibilitychange'));}"""
+                    )
+                page.wait_for_function("()=>!document.body.classList.contains('pv-typing')", timeout=3000)
