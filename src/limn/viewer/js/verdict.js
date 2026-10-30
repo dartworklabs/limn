@@ -356,7 +356,7 @@ function verdictDropped(){const b=BANNERS.get(NOTICE_HOST.COMPOSER); if(!b||!b.s
 // quiet as before - pressing the word again is the same.
 function verdictUndo(id){const undo=async()=>{let was=null;
     try{was=(await api('/api/pins/'+id,{what:'핀 읽기',silent:true})).data.pin;}catch(e){}
-    const r=PV_REASON&&PV_REASON.id===id?PV_REASON:null; if(r&&pvReasonDirty(r))rdPut(r.doc,id,r.text,r.base,r.rev,{mode:r.mode});
+    const r=PV_REASON&&PV_REASON.id===id?PV_REASON:null; if(r&&pvReasonDirty(r))rdPut(r.doc,id,r.text,r.base,r.rev,{mode:r.mode,tried:r.tried});
     PV_WITHDRAWN.add(id); const ok=await dropPin(id,true,undo); if(!ok)PV_WITHDRAWN.delete(id);
     if(ok&&PV_REASON&&PV_REASON.id===id){PV_REASON=null; drawPageVerdicts();}   // a withdrawn verdict takes no reason
     const d=ok?rdGet(DOC,id):null,k=was&&verdictOf(was),t=was?pageTargetOf(was,META?META.kind:undefined):null;
@@ -494,7 +494,8 @@ async function savePageVerdict(page,key,kb,ctx0){const ctx=ctx0||pvSaveCtx(page)
       if(saved&&document.activeElement===document.body)pvFocusLine(page);}   // never left on nothing: the line's own control
     const nx=PV_NEXT.get(slot); PV_NEXT.delete(slot);
     if(nx){const cur=pvCurOn(ctx.doc,page);   // the last press made meanwhile, on the document it was made on
-      if(!(cur&&verdictOf(cur)===nx.key)){const fresh=here()?pvSaveCtx(page):null; savePageVerdict(page,nx.key,!!nx.how,fresh||ctx);}}}}
+      if(!(cur&&verdictOf(cur)===nx.key)){const fresh=here()?pvSaveCtx(page):null; savePageVerdict(page,nx.key,!!nx.how,fresh||ctx);}}
+    pvReasonUncancelSettle(slot);}}   // a failed take-back's draft that waited for this save (a next save started just now waits on)
 // The reading line's name for page `page`, in two parts: a short identifier that is never cut - the page and the figure's code,
 // '6쪽 · PL17' (the map title's head before its first ' · ', a leading tag such as '[후보]' moved to the rest; else the figure
 // id) - and the rest of the title, cut first ('[후보] 다섯 비교 쌍의 월별 효과 — …'). Next to the buttons a cut down to '6쪽 · …'
@@ -560,7 +561,7 @@ async function pvCancelPin(id,page,had,byKey){const p=OPEN_ALL.find(x=>x.id===id
   // Its reason popover leaves with the line's verdict, but the session is kept until the server answers: a failed cancel
   // brings the verdict back and its unsent reason with it, or keeps that as a draft its line marks when something took its
   // place (pvReasonUncancel); a done one drops it - its draft stays kept (rdPut) for the [되돌리기].
-  const kept=PV_REASON&&PV_REASON.id===id?PV_REASON:null; if(kept){PV_REASON=null; if(pvReasonDirty(kept))rdPut(kept.doc,id,kept.text,kept.base,kept.rev,{mode:kept.mode});}
+  const kept=PV_REASON&&PV_REASON.id===id?PV_REASON:null; if(kept){PV_REASON=null; if(pvReasonDirty(kept))rdPut(kept.doc,id,kept.text,kept.base,kept.rev,{mode:kept.mode,tried:kept.tried});}
   PV_WITHDRAWN.add(id);
   // The take-back is said on the status line with its [되돌리기], which the line itself also offers for as long (PV_LINE_UNDO):
   // the status line is far away by Tab.

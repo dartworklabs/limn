@@ -11,12 +11,16 @@
   that rev; a lost write is kept with that rev and the note it would have made. The next write reads the pin: the same
   rev means it never landed and it is sent again; a later rev means it landed only when the note is exactly what it made
   (later lines under it allowed) and, when that was the only change since, the change was this person's (`edited_by`).
-  A 409 rebuilds the write from the pin it brings, up to three times. No API change.
+  A 409 rebuilds the write from the pin it brings, up to three times. The lost writes are kept with the draft too, so a
+  folded, reopened or reloaded draft still knows them, and a line added under the reason after a CRLF counts like one
+  after an LF. No API change.
 - **A failed take-back no longer drops the reason it took away (#299).** When [판정 취소] (or pressing the pressed word)
   failed after something took the reason popover's place - another popover, another document or visit, a newer verdict
   saved on the line meanwhile - the typed reason came back nowhere, and with a newer verdict on its line it could not be
   reached at all. It is now kept as a draft its line marks ('초안 있음'): the verdict's own when it is current again, else
-  the page's, which goes to the verdict it is opened on. The status line says so after the failure, with [보기], which
+  the page's, which goes to the verdict it is opened on - decided once that verdict's own reason write and a newer save
+  on its line (one whose popover still waits for its number included) have answered, and a page's copy that the old
+  verdict's [다시 시도] then writes goes with it. The status line says so after the failure, with [보기], which
   brings that line into view with the focus on the mark. A newer popover keeps its text and the focus, also on the same
   line, where the focus used to go to the line and the next digit was a verdict key.
 - **How a phone's floating line takes a verdict back is documented (#299).** It holds [판정 취소] back for its height;
