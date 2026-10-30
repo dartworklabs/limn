@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **The outline panel keeps the current section in view (#330).** The panel marked the current section but never scrolled
+  to it, so in a long outline (a figure document lists every figure, under its status and again under the manuscript
+  figure that holds it) the mark sat out of sight. The current row now keeps 48px from the panel's edges: when the mark
+  moves to a row inside that margin or out of view the list moves just enough, gliding unless reduced motion is asked for or
+  the way is longer than the panel is high, where it jumps. A row clear of the margin moves nothing, the panel starts at the
+  current row when it opens, and only the panel moves - the pages, the window
+  and the focus stay where they are. The list stays where the person has it while the mouse is over it, while its width
+  grip is dragged, for 3 seconds after a wheel, press, touch or key in it or on the grip, while the keyboard is on a row,
+  and while the filter has text; a move of the mark meanwhile is caught up when they let go. The filter and its hint now
+  stay at the top of the panel, with the rows passing under them, so a panel opened at a row far down keeps its filter in
+  reach; the margin counts from under them. The overlay of the mid bands is the same panel and does the same. The phone's
+  navigation sheet keeps its own rule.
+
 ## 0.4.36 — 2026-10-30
 
 Follow-ups to the reviews of 0.4.35, nearly all on the page verdict line: a long press, a tap while the reason is
