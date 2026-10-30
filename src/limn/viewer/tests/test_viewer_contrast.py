@@ -348,6 +348,11 @@ NOT_WALKED: dict[str, tuple[float | None, str]] = {
     ),
     ".pv .pv-pop-f": (TEXT, "the reason popover's row: open only after a page-line save, which the walk does not make"),
     ".pv .pv-pop-from": (TEXT, "the reason popover's '#15 채택에서 옮김': only after a draft moved to a new verdict"),
+    "#doc #pv-panel .pv-fig-t": (
+        TEXT,
+        "the verdict panel's figure title: the walk's panel is the view-only PDF's, whose pages have no title; the figure"
+        " panel's title is held at 4.5:1 in both themes by test_viewer_verdict_panel",
+    ),
 }
 
 # The elements that may carry what READ cannot composite (a background image, a gradient, a mask, a filter, a blend, a
@@ -736,13 +741,25 @@ class ContrastWalk(BrowserBase):
         page.context.close()
 
     def scene_documents(self):
-        """The reviewer's PDF: its page verdict lines (a hovered word) and a composer on an area of it, where a suggestion cannot go; the figure with a
+        """The reviewer's PDF: its page verdict lines (a hovered word) - on the desktop also its verdict panel and summaries
+        in a 1920 window - and a composer on an area of it, where a suggestion cannot go; the figure with a
         composer on one of its elements (the element's path)."""
         page = self.open(2, **DEVICES[self.device])
         self.show_doc(page, "rv")
         page.wait_for_selector("#doc .pv")
         self.look(page, "page verdict lines", "#doc")
         self.hover(page, "#doc .pv button", "page verdict word")
+        if (
+            self.device == "desktop"
+        ):  # a wide desktop's room beside the pages: the verdict panel and the summaries (§판정 패널)
+            size = page.viewport_size
+            page.set_viewport_size({"width": 1920, "height": 1080})
+            page.wait_for_selector("#pv-panel")
+            settle(page)
+            self.look(page, "page verdict panel and summaries", "#doc")
+            page.set_viewport_size(size)
+            page.wait_for_selector("#doc .pgw>.pv")
+            settle(page)
         ptr = "mouse" if self.device == "desktop" else "touch"
         page.evaluate(
             "p=>{LAST_PTR=p; pick({doc:'rv',page:1,pdf_build:META.pages_build,x0:60,y0:60,x1:300,y1:120,frac:[0.1,0.08,0.4,0.08]});}",

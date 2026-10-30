@@ -6779,16 +6779,17 @@ class RcRound4(VerdictBase):
         """1280x900 and 390x844, page widths 260-760px in 12px steps: page 1's line has the same rows and height while page 1
         is read and while page 2 is - the identifier the reading line shows counts in the choice for every line (a line that
         stacked only as the reading line, at a zoom near its threshold, shrank when the reading page left and moved the pages
-        under it)."""
+        under it). Where a small page leaves room for the verdict panel beside the pages (1280, §판정 패널) page 1 has no line
+        under it, and its block keeps its height instead."""
         for dev in ({"viewport": {"width": 1280, "height": 900}}, self.PHONE):
             with self.subTest(dev=dev["viewport"]["width"]):
                 page = self.on("fig", **dev)
                 page.evaluate("setSide(false)")
                 bad = page.evaluate(
-                    """async()=>{const L=document.querySelector('#left'),l1=()=>document.querySelector('#doc .pv[data-page="1"]'),out=[];
+                    """async()=>{const L=document.querySelector('#left'),l1=()=>document.querySelector('#doc .pgw>.pv[data-page="1"]'),b1=()=>document.querySelector('#doc .pgw[data-page="1"]'),out=[];
                       const frame=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
                       const read=async n=>{const p=document.getElementById('p'+n); L.scrollTop+=p.getBoundingClientRect().top-L.getBoundingClientRect().top-(n===1?0:2);
-                        await frame(); pvStick(); await frame(); return [PV_READ,l1().classList.contains('pv-stack'),Math.round(l1().getBoundingClientRect().height)];};
+                        await frame(); pvStick(); await frame(); const l=l1(); return [PV_READ,!!l&&l.classList.contains('pv-stack'),Math.round((l||b1()).getBoundingClientRect().height)];};
                       for(let w=260;w<=760;w+=12){setK(w/META.pages[0].pt_w,false); ZOOMED=true; await frame();
                         const a=await read(1),b=await read(2); if(a[0]!==1||b[0]!==2)continue; if(a[1]!==b[1]||a[2]!==b[2])out.push([w,a,b]);}
                       return out;}"""
