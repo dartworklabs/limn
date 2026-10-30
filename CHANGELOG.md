@@ -9,10 +9,10 @@
   figure that holds it) the mark sat out of sight. When the mark moves to another entry the row now comes into the panel's
   view from the nearest side, with 48px of the list beyond it, gliding unless reduced motion is asked for; a row that shows
   whole moves nothing, the panel starts at the current row when it opens, and only the panel moves - the pages, the window
-  and the focus stay where they are. The list stays where the person has it while the mouse is over it, for 3 seconds
-  after a wheel, press, touch or key in it, while the keyboard is on a row, and while the filter has the focus or any text;
-  a move of the mark meanwhile is caught up when they let go. The overlay of the mid bands is the same panel and does the
-  same. The phone's navigation sheet keeps its own rule.
+  and the focus stay where they are. The list stays where the person has it while the mouse is over it, while its width
+  grip is dragged, for 3 seconds after a wheel, press, touch or key in it or on the grip, while the keyboard is on a row,
+  and while the filter has the focus or any text; a move of the mark meanwhile is caught up when they let go. The overlay
+  of the mid bands is the same panel and does the same. The phone's navigation sheet keeps its own rule.
 
 ## 0.4.36 — 2026-10-30
 

@@ -712,6 +712,119 @@ class OutlineFollow(OutlineBase):
         page.wait_for_function(SHOWN, timeout=3000)
         self.assertEqual(page.evaluate("document.activeElement.dataset.index"), "3")
 
+    def test_a_press_that_leaves_the_focus_on_a_row_ends_the_keyboards_hold(self):
+        """A press on the pages takes no focus, so the row keeps it and no focusout comes, but the keyboard is no longer the
+        input: the follow owed since is made then, with the focus left where it is."""
+        page = self.long()
+        page.focus("#outline-search")
+        page.keyboard.press("ArrowDown")
+        self.read_to(page, 2)
+        page.evaluate(
+            "OUTLINE_HANDLED = -Infinity; outlineCatchUp()"
+        )  # the timed hold over: only the keyboard's is left
+        nothing_follows(page)
+        self.assertEqual(page.evaluate("[OUTLINE_FOLLOW_DUE, document.querySelector('#outline').scrollTop]"), [True, 0])
+        self.over_pages(page)
+        page.mouse.down()
+        page.mouse.up()
+        page.wait_for_function(SHOWN, timeout=3000)
+        self.assertEqual(page.evaluate("document.activeElement.dataset.index"), "0")
+
+    def test_a_press_in_the_panel_holds_before_the_keyboards_hold_is_let_go(self):
+        """The press that ends the keyboard's hold may be in the panel, and one on the panel never moves the list under it:
+        the press's own hold comes first, and the owed follow is made when that is over."""
+        page = self.long()
+        page.focus("#outline-search")
+        page.keyboard.press("ArrowDown")
+        self.read_to(page, 2)
+        page.evaluate("OUTLINE_HANDLED = -Infinity; outlineCatchUp()")
+        page.evaluate(
+            "document.querySelector('.outline-title').dispatchEvent(new PointerEvent('pointerdown', {bubbles: true}))"
+        )
+        nothing_follows(page)
+        self.assertEqual(page.evaluate(FOLLOW)["top"], 0)
+        page.wait_for_function(SHOWN, timeout=6000)
+
+    def test_the_width_grip_holds_the_list_for_a_whole_drag_and_lets_go_after_it(self):
+        """The grip stands beside the panel, and a hand on it is a hand on the panel: a drag holds the list however long it
+        lasts, past the timed hold too, and the owed follow is made after its release or its cancel."""
+        for end in ("release", "cancel"):
+            with self.subTest(end=end):
+                page = self.long()
+                grip = page.locator("#outline-grip").bounding_box()
+                page.mouse.move(grip["x"] + grip["width"] / 2, grip["y"] + 300)
+                page.mouse.down()
+                self.read_to(page, 2)
+                nothing_follows(page)
+                page.evaluate("OUTLINE_HANDLED = -Infinity; outlineCatchUp()")  # a drag longer than the timed hold
+                nothing_follows(page)
+                self.assertEqual(page.evaluate(FOLLOW)["top"], 0)
+                if end == "release":
+                    page.mouse.up()
+                else:
+                    page.evaluate(
+                        """() => document.querySelector('#outline-grip').dispatchEvent(
+                          new PointerEvent('pointercancel', {pointerId: 1, bubbles: true}))"""
+                    )
+                page.wait_for_function(SHOWN, timeout=6000)
+                if end == "cancel":
+                    page.mouse.up()
+
+    def test_a_key_on_the_width_grip_holds_the_list_for_a_few_seconds(self):
+        """The grip's keys count as its press does: the list waits, then the row comes in."""
+        page = self.long()
+        page.focus("#outline-grip")
+        page.keyboard.press("ArrowRight")
+        self.read_to(page, 2)
+        nothing_follows(page)
+        self.assertEqual(page.evaluate(FOLLOW)["top"], 0)
+        page.wait_for_function(SHOWN, timeout=6000)
+
+    def test_a_jump_reckons_from_where_the_list_is(self):
+        """A glide leaves where it is heading for a while, and that is no place to reckon a jump from: reopened before a glide
+        got there, the panel would take the row for shown and stay where it is, the row out of sight."""
+        page = self.long()
+        page.evaluate(
+            """async () => {const box = document.querySelector('#outline'), frame = () => new Promise(requestAnimationFrame);
+              document.getElementById('p2').scrollIntoView();
+              while (OUTLINE_ACTIVE_PAGE !== 2) await frame();   // the glide has set out...
+              box.scrollTo({top: 0, behavior: 'auto'});   // ...and has got nowhere
+              toggleOutline(); await frame(); await frame(); toggleOutline();}"""
+        )
+        page.wait_for_function(SHOWN, timeout=3000)
+        page = self.long()
+        self.read_to(page, 2)
+        page.wait_for_function(SHOWN, timeout=3000)
+        page.evaluate(STILL)
+        got = page.evaluate(
+            """() => {const box = document.querySelector('#outline'), top = box.scrollTop; box.scrollTop = 0;
+              OUTLINE_AIM = {top, at: performance.now()}; outlineFollow(true); return box.scrollTop;}"""
+        )
+        self.assertGreater(got, 0)
+        self.assertTrue(page.evaluate(SHOWN))
+
+    def test_nothing_is_left_heading_anywhere_when_a_glide_is_over(self):
+        """Where a glide is heading goes with the glide: when it ends, when a hand on the panel stops it, when the filter draws
+        the list again, when the panel closes and when another document comes on screen."""
+        page = self.long()
+        self.read_to(page, 2)
+        page.wait_for_function("OUTLINE_AIM === null", timeout=3000)
+        heading = "OUTLINE_AIM = {top: 500, at: performance.now()}"
+        for name, act in (
+            ("wheel", "document.querySelector('#outline').dispatchEvent(new Event('wheel'))"),
+            ("press", "document.querySelector('#outline').dispatchEvent(new Event('pointerdown'))"),
+            ("filter", "document.querySelector('#outline-search').dispatchEvent(new Event('input'))"),
+        ):
+            with self.subTest(by=name):
+                self.assertIsNone(page.evaluate("() => {%s; %s; return OUTLINE_AIM;}" % (heading, act)))
+        page.evaluate(heading)
+        page.evaluate("toggleOutline()")
+        page.wait_for_function("OUTLINE_AIM === null", timeout=3000)
+        page.evaluate("toggleOutline()")
+        page.evaluate(heading)
+        page.evaluate("switchDoc('fig')")
+        page.wait_for_function("DOC === 'fig' && OUTLINE_AIM === null", timeout=8000)
+
     def test_the_panel_opens_at_the_current_row(self):
         """Opened while a page far down is read, the panel starts there, at once: nobody has the list in hand yet."""
         page = self.long()
