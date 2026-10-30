@@ -3770,6 +3770,58 @@ class Cancel(VerdictBase):
         self.assertTrue(desk.evaluate(FLOAT, 2)["stuck"])
         self.assertTrue(desk.evaluate(cancel_shown, 2))
 
+    def test_a_phones_floating_line_takes_the_verdict_back_by_its_pressed_word(self):
+        """390x844 touch, page 2's line floating without [판정 취소] (#299 3): its pressed word is the way, and it says so.
+        Its description is '지금 채택 판정 · 다시 누르면 판정 취소' (shown over the words for a few seconds after the press
+        that made it); a long press on it shows its description box, which says a press takes it back, and presses
+        nothing; a tap then takes the verdict back - '판정 없음' and [되돌리기] on the line, which brings it back. The
+        floating line keeps its height throughout."""
+        phone = self.on("fig", viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+        phone.evaluate("setSide(false)")
+        phone.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        phone.evaluate(SCROLL, [2, "top"])
+        settle(phone)
+        a = self.press_page(phone, 2, "채택")
+        phone.evaluate(END_CHIPS)
+        phone.evaluate("()=>{PV_REASON=null; drawPageVerdicts();}")  # the reason field closed: the line as it rests
+        phone.evaluate(SCROLL, [2, "mid"])
+        settle(phone)
+        word = WORD % (2, "채택")
+        state = """s=>{const b=document.querySelector(s), l=b.closest('.pv'), d=document.getElementById(b.getAttribute('aria-describedby')||'');
+          const c=l.querySelector('.pv-cancel'), u=l.querySelector('.pv-undo');
+          return {stuck: l.classList.contains('stuck'), cancel: !!c&&c.getClientRects().length>0, undo: !!u&&u.getClientRects().length>0,
+            pressed: b.getAttribute('aria-pressed'), desc: d&&d.textContent, h: Math.round(l.getBoundingClientRect().height)};}"""
+        rest = phone.evaluate(state, word)
+        self.assertEqual(
+            {k: rest[k] for k in ("stuck", "cancel", "pressed", "desc")},
+            {"stuck": True, "cancel": False, "pressed": "true", "desc": "지금 채택 판정 · 다시 누르면 판정 취소"},
+        )
+        cdp = phone.context.new_cdp_session(phone)
+        b = phone.locator(word).bounding_box()
+        x, y = b["x"] + b["width"] / 2, b["y"] + b["height"] / 2
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": x, "y": y}]})
+        phone.wait_for_function("()=>!document.getElementById('tip').hidden", timeout=5000)
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+        self.assertIn(
+            "다시 누르면 이 판정을 거둡니다(판정 취소)", phone.evaluate("document.getElementById('tip').textContent")
+        )
+        settle(phone)
+        self.assertEqual(set(self.pins()), {a})  # the long press pressed nothing
+        phone.wait_for_timeout(1000)  # the finger's pause: past the click a long press's release swallows (900ms)
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": x, "y": y}]})
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+        phone.wait_for_function("id=>!OPEN_ALL.some(p=>p.id===id)", arg=a)
+        settle(phone)
+        self.assertEqual(self.pins(), {})
+        line = phone.evaluate(LINE, 2)
+        got = phone.evaluate(state, word)
+        self.assertEqual((line["text"], got["undo"], got["pressed"], got["h"]), ("판정 없음", True, "false", rest["h"]))
+        phone.locator('#doc .pv[data-page="2"] .pv-undo').tap()
+        phone.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id)", arg=a)
+        settle(phone)
+        got = phone.evaluate(state, word)
+        self.assertEqual((got["pressed"], got["h"]), ("true", rest["h"]))
+
     def test_the_cancel_reads_as_a_muted_destructive_action_not_a_link(self):
         """[판정 취소] is neither the blue of the '#N' link and the earlier link nor bolder than the line's text; its colour
         leans to the danger hue and holds 4.5:1 on the line in both themes; it underlines only on hover."""
@@ -3896,6 +3948,7 @@ class ReasonRaces(VerdictBase):
         self.lose_answer = 0  # how many the server writes whose answer is lost on the way back
         self.refuse_edit = 0  # how many to answer 400
         self.lose_drop = 0  # how many POST /api/pins/N/drop to lose on the network
+        self.held_drop: list | None = None  # POST /api/pins/N/drop routes held unanswered while not None
 
     def route(self, route):
         rq = route.request
@@ -3903,6 +3956,9 @@ class ReasonRaces(VerdictBase):
         if rq.method == "POST" and path.startswith("/api/pins/") and path.endswith("/drop") and self.lose_drop:
             self.lose_drop -= 1
             return route.abort()
+        if rq.method == "POST" and path.endswith("/drop") and self.held_drop is not None:
+            self.held_drop.append(route)
+            return None
         if rq.method == "POST" and path.startswith("/api/pins/") and path.endswith("/edit"):
             self.edits.append(json.loads(rq.post_data or "{}"))
             if self.lose_edit:
@@ -4119,6 +4175,122 @@ class ReasonRaces(VerdictBase):
         page.wait_for_function("()=>!document.querySelector('#doc .pv-reason')")
         settle(page)
         self.assertEqual(self.note(pid), "고친 글")
+
+    def test_a_reason_the_note_holds_already_is_added_again_when_its_lost_write_never_landed(self):
+        """Bob's note on the verdict reads '같은 이유' and Alice's new reason is the same text; her Enter is lost on the network
+        before the server sees it (#299 1). Enter again - with nothing else changed meanwhile, or after an agent's claim (a
+        new rev, the note as it was): the lost write never landed - the pin's rev is the one it was sent against, or the
+        note is not what it would have made - so her reason goes under Bob's: the note holds it twice and two edits were
+        sent. The same text in the note is no sign of the lost write (before, it was taken for it and nothing was sent)."""
+        for case in ("nothing else", "a claim"):
+            with self.subTest(case=case):
+                for p in list(self.pins()):
+                    self.call("POST", "/api/pins/%d/drop" % p, {})
+                self.edits = []
+                page = self.on("fig")
+                pid = self.typed(page, 1, "같은 이유")
+                rev = self.pins()[pid]["rev"]
+                code, _ = self.call("POST", "/api/pins/%d/edit" % pid, {"note": "같은 이유", "base_rev": rev}, BOB)
+                self.assertEqual(code, 200)
+                self.lose_edit = 1
+                page.keyboard.press("Enter")
+                page.wait_for_function("()=>LINE.some(n=>n.title.startsWith('이유 저장 실패'))")
+                settle(page)
+                self.assertEqual(self.note(pid), "같은 이유")
+                if case == "a claim":
+                    self.assertEqual(self.call("POST", "/api/pins/%d/claim" % pid, {}, AGENT)[0], 200)
+                page.keyboard.press("Enter")  # the field keeps the focus after a failed Enter
+                page.wait_for_function("()=>!document.querySelector('#doc .pv-reason')")
+                settle(page)
+                self.assertRegex(self.note(pid), r"^같은 이유\n\(추가 \d{1,2}:\d{2}\) 같은 이유$")
+                self.assertEqual(len(self.edits), 2, self.edits)
+
+    def test_a_corrected_draft_never_takes_the_place_of_someones_same_text(self):
+        """Alice's new reason '첫 글' is lost on the network before the server sees it, and Bob then writes the note '첫 글'.
+        She corrects her draft to '고친 글' and presses Enter: the one change since the rev her lost write was sent against
+        is Bob's (edited_by), so the note is not hers - Bob's note stays and her reason goes under it (#299 1; before, his
+        note was taken for her first draft and replaced)."""
+        page = self.on("fig")
+        pid = self.typed(page, 1, "첫 글")
+        self.lose_edit = 1
+        page.keyboard.press("Enter")
+        page.wait_for_function("()=>LINE.some(n=>n.title.startsWith('이유 저장 실패'))")
+        settle(page)
+        rev = self.pins()[pid]["rev"]
+        self.assertEqual(self.call("POST", "/api/pins/%d/edit" % pid, {"note": "첫 글", "base_rev": rev}, BOB)[0], 200)
+        page.fill('#doc .pv[data-page="1"] .pv-reason', "고친 글")
+        page.keyboard.press("Enter")
+        page.wait_for_function("()=>!document.querySelector('#doc .pv-reason')")
+        settle(page)
+        self.assertRegex(self.note(pid), r"^첫 글\n\(추가 \d{1,2}:\d{2}\) 고친 글$")
+
+    def test_a_failed_cancel_keeps_the_reason_where_its_line_offers_it(self):
+        """'옛 이유' typed for verdict a (no Enter), then [판정 취소], whose request the network loses only after the person
+        went on (#299 2):
+        - to another page's verdict, typing its reason: a is back as its line's verdict and the text waits as its draft
+          there ('초안 있음');
+        - to a new verdict b on the same line, typing its reason or not: a is back but earlier than b - no line marks its
+          draft - so the text becomes the page's draft, which the line marks; no popover opens for a over b's line.
+        A newer popover keeps its text and the focus. The status line says where the reason is with [보기] (after the
+        take-back's own failure), and [보기], then the line's '초안 있음', open it with the text."""
+        status = "()=>LINE.filter(n=>n.title.includes('이유는')).map(n=>({title:n.title,desc:n.desc,act:n.act?n.act.label:null,kind:n.kind}))"
+        mark = '#doc .pv[data-page="1"] .pv-ra [data-act="pv-reason-open"]'
+        for case in ("another page", "a new verdict and its reason", "a new verdict"):
+            with self.subTest(case=case):
+                for p in list(self.pins()):
+                    self.call("POST", "/api/pins/%d/drop" % p, {})
+                page = self.on("fig")
+                a = self.typed(page, 1, "옛 이유")
+                self.held_drop = []
+                page.locator(CANCEL % 1).click()
+                page.wait_for_function("id=>!OPEN_ALL.some(p=>p.id===id)", arg=a)
+                # The newer verdict, pressed while the take-back is out (the page never settles meanwhile: no press_page).
+                newer = 2 if case == "another page" else 1
+                word = "채택" if newer == 2 else "보류"
+                page.locator('#doc .pv[data-page="%d"] button[data-key="%s"]' % (newer, word)).click()
+                b = page.wait_for_function(
+                    "([id,k])=>{const p=OPEN_ALL.find(p=>p.id>id&&p.verdict===k); return p&&p.id;}", arg=[a, word]
+                ).json_value()
+                if case != "a new verdict":
+                    open_reason(page, newer)
+                    page.keyboard.type("새 이유")
+                held, self.held_drop = self.held_drop, None
+                self.assertEqual(len(held), 1)
+                for r in held:
+                    r.abort()
+                page.wait_for_function("()=>LINE.some(n=>n.title==='판정 취소 실패')")
+                settle(page)
+                drafts = page.evaluate(DRAFTS)
+                if case == "another page":
+                    self.assertEqual(page.evaluate(LINE, 1)["pin"], str(a))
+                    self.assertEqual(drafts.get("fig:%d" % a), "옛 이유", drafts)
+                    title, to = "판정 #%d 이유는 초안으로 남겼습니다 · 줄의 [초안 있음]이 엽니다" % a, a
+                else:
+                    self.assertEqual(page.evaluate(LINE, 1)["pin"], str(b))
+                    self.assertEqual((drafts.get("fig:p1"), drafts.get("fig:%d" % a)), ("옛 이유", None), drafts)
+                    title, to = "판정 #%d 이유는 이 쪽의 초안으로 남겼습니다 · 줄의 [초안 있음]이 엽니다" % a, b
+                self.assertEqual(
+                    page.evaluate(status),
+                    [{"title": title, "desc": "Deployment calendar", "act": "보기", "kind": "warn"}],
+                )
+                if case == "a new verdict":
+                    self.assertIsNone(page.evaluate(REASON, 1))
+                else:
+                    got = page.evaluate(REASON, newer)
+                    self.assertEqual((got["value"], got["focused"]), ("새 이유", True))
+                    page.keyboard.press("Enter")  # the newer reason saved: its popover closes
+                    page.wait_for_function("()=>!document.querySelector('#doc .pv-reason')")
+                    settle(page)
+                self.assertTrue(page.locator(mark).is_visible())
+                # The take-back's failure stands first on the status line (its [다시 시도]); its [x], and this one is there.
+                page.locator("#status", has_text="판정 취소 실패").locator("[data-act=notice-x]").click()
+                page.locator("#status", has_text=title).locator("[data-act=notice-act]").click()
+                page.wait_for_function("s=>document.activeElement===document.querySelector(s)", arg=mark)
+                page.keyboard.press("Enter")
+                page.wait_for_function("()=>document.querySelector('#doc .pv[data-page=\"1\"] .pv-reason')")
+                settle(page)
+                self.assertEqual(page.evaluate(REASON, 1)["value"], "옛 이유")
+                self.assertTrue(page.evaluate(POP, 1)["to"].startswith("판정 #%d " % to), page.evaluate(POP, 1))
 
     def test_a_failed_cancel_brings_back_the_unsent_reason(self):
         """'보내지 않은 이유' typed (no Enter), then [판정 취소] lost on the network: the verdict is back on the line and so is

@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **A retried reason is judged by the pin's rev, not by its text (#299).** A reason write whose answer was lost was taken
+  as saved when the note already held the same text, so a write that never reached the server reported a repeated
+  reason as saved without adding it, and a corrected draft could replace someone else's identical text. Every new reason
+  is now sent against the rev it read (`base_rev`, a `note_append` too), so it can only land as the change right after
+  that rev; a lost write is kept with that rev and the note it would have made. The next write reads the pin: the same
+  rev means it never landed and it is sent again; a later rev means it landed only when the note is exactly what it made
+  (later lines under it allowed) and, when that was the only change since, the change was this person's (`edited_by`).
+  A 409 rebuilds the write from the pin it brings, up to three times. No API change.
+- **A failed take-back no longer drops the reason it took away (#299).** When [판정 취소] (or pressing the pressed word)
+  failed after something took the reason popover's place - another popover, another document or visit, a newer verdict
+  saved on the line meanwhile - the typed reason came back nowhere, and with a newer verdict on its line it could not be
+  reached at all. It is now kept as a draft its line marks ('초안 있음'): the verdict's own when it is current again, else
+  the page's, which goes to the verdict it is opened on. The status line says so after the failure, with [보기], which
+  brings that line into view with the focus on the mark. A newer popover keeps its text and the focus, also on the same
+  line, where the focus used to go to the line and the next digit was a verdict key.
+- **How a phone's floating line takes a verdict back is documented (#299).** It holds [판정 취소] back for its height;
+  its pressed word does the same (since 0.4.34) and says so - over the words for four seconds after the press, and in
+  its long-press description - and its [되돌리기] comes on the line. A test holds it at 390x844.
+
 ## 0.4.34 — 2026-10-30
 
 The page verdict line from an owner-requested UX review of 0.4.33 on a figure document (`pl`), and agents told which
