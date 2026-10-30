@@ -972,13 +972,21 @@ function pvFarHold(lines){if(typeof IntersectionObserver==='undefined')return; l
 function pvFarLetGo(lines){if(typeof IntersectionObserver==='undefined')return; const h=lines.map(l=>l.getBoundingClientRect().height),at=performance.now();
   const L=$('#left'),vh=L.clientHeight;
   lines.forEach((l,i)=>{if(h[i]){l.style.setProperty('--pv-h',h[i]+'px'); PV_FIT_AT.set(l,at);} l.classList.remove('pv-fitting');});
-  // The observer's margin is the PDF area's height now, in px above and below its view (a percentage would be of its width):
-  // it is made again, watching every line, when that height changes.
+  pvFarWatch(lines,vh);}
+// Watches lines (new ones; one no longer in the page is let go) with an observer whose margin is the PDF area's height vh, in
+// px above and below its view (a percentage would be of its width): it is made again, watching every line, when that height
+// changes.
+/** @param {HTMLElement[]} lines @param {number} vh */
+function pvFarWatch(lines,vh){
   if(!PV_FAR_IO||PV_FAR_H!==vh){if(PV_FAR_IO)PV_FAR_IO.disconnect(); PV_FAR_SEEN.clear(); PV_FAR_H=vh;
-    PV_FAR_IO=new IntersectionObserver(pvFarSort,{root:L,rootMargin:vh+'px 0px'}); lines=$$('#doc .pv');}
+    PV_FAR_IO=new IntersectionObserver(pvFarSort,{root:$('#left'),rootMargin:vh+'px 0px'}); lines=$$('#doc .pv');}
   const io=PV_FAR_IO;
   PV_FAR_SEEN.forEach(l=>{if(!l.isConnected){io.unobserve(l); PV_FAR_SEEN.delete(l);}});
   lines.forEach(l=>{if(!PV_FAR_SEEN.has(l)&&l.isConnected){io.observe(l); PV_FAR_SEEN.add(l);}});}
+// The PDF area's height can change with no line fitted again - a window made only shorter while a scale is saved keeps that
+// scale (autoW), so sizePv does not run: the margin follows it here, so far still means a view's height away.
+if(window.ResizeObserver&&window.IntersectionObserver)new ResizeObserver(()=>{const vh=$('#left').clientHeight;
+  if(PV_FAR_IO&&vh&&vh!==PV_FAR_H)pvFarWatch([],vh);}).observe($('#left'));
 // The observer's reports: a line that came within a view's height of the PDF area's view is drawn as it is; one that went
 // further is skipped, at the height the observer saw when that is later than pvFit's - not one not laid out (no height to
 // stand at) or no longer in the page.

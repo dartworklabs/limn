@@ -234,3 +234,20 @@ class ManyLinesWhileThePdfScrolls(BrowserBase):
         self.assertIn("#%d" % made, page.evaluate("s => document.querySelector(s + ' .pv-ref').textContent", line))
         self.assertEqual(page.evaluate(HELD_IN_VIEW), [], "lines in view or reading that the browser may skip")
         self.assertEqual(page.evaluate(HEIGHTS), [], "lines that stand at another height than they are drawn at")
+
+    def test_a_window_made_only_shorter_keeps_far_a_views_height_away(self):
+        """A desktop with a saved scale made 300px shorter: the scale stays (autoW), so no line is fitted again, and the
+        observer's margin still follows the PDF area's new height - a line is far a view's height away, not the old
+        one's."""
+        page = self.on_fig()
+        page.evaluate("setK(K, true)")  # a saved scale: a new window size keeps it
+        settle(page)
+        self.assertIsNotNone(page.evaluate("savedK()"))
+        margin = "() => [document.querySelector('#left').clientHeight, PV_FAR_IO.rootMargin]"
+        h, m = page.evaluate(margin)
+        self.assertEqual(m, "%dpx 0px %dpx 0px" % (h, h))
+        page.set_viewport_size({"width": 1400, "height": 550})
+        settle(page)
+        h2, m = page.evaluate(margin)
+        self.assertLess(h2, h - 200)
+        self.assertEqual(m, "%dpx 0px %dpx 0px" % (h2, h2), "the observer's margin kept the old height")
