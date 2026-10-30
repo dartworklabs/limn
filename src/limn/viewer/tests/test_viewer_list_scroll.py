@@ -11,16 +11,22 @@ Chrome trace (the Layout event's dirtyObjects), against the nodes the cards hold
 FontFace from bytes, a family no text uses) while it scrolls the PDF area, so it needs no PDF with embedded fonts. The
 long tasks are only reported. What skipping must not change is held too: no card in view is skipped (it would be drawn
 on whole pixels and clipped), every card stands at its drawn height (on the phone too, whose sheet opens after the first
-draw), the list stays where it stands across a redraw that changed a card above the view, and a card changed while out
-of view shows what it holds now when it comes in.
+draw), the view stays where it stands across a redraw that changed a card above it or took the card at its top to
+another section or away, and a card changed while out of view shows what it holds now when it comes in.
 
 Run: uv run pytest -q src/limn/viewer/tests/test_viewer_list_scroll.py
 """
 
+import base64
 import json
+import time
 
-from helpers import add_pin, edit_pin, record_of
+from limn.pins.lifecycle.rules import CloseRequest
+from limn.security.access import LOCAL_ACTOR
+
+from helpers import add_pin, edit_pin, ps, record_of
 from helpers_access import ALICE, actor
+from helpers_authority import post_authority
 from helpers_browser import BrowserBase, settle
 
 DESKTOP = {"viewport": {"width": 1400, "height": 850}}
@@ -28,6 +34,7 @@ PHONE = {"viewport": {"width": 390, "height": 844}, "is_mobile": True, "has_touc
 NO_COACH = "try{localStorage.setItem('pinPrefs',JSON.stringify({coach:{touch:1,mouse:1,sel:1}}))}catch(e){}"
 
 N_PINS = 300  # "hundreds of pins": more than twice the 127 the issue measured
+TRACE_FLUSH_S = 30
 NOTES = (
     "문단을 줄입니다",
     "이 식의 번호가 본문과 다릅니다. 앞 절의 정의를 따라 다시 매깁니다",
@@ -53,11 +60,18 @@ SCROLL_ADDING_FONTS = """async (steps) => {
 # The DOM nodes (elements and text) the cards hold: the layout objects a layout of every card walks, near enough.
 CARD_NODES = """() => {let n = 0; for (const c of document.querySelectorAll('#list .pin.card')) {
   const w = document.createTreeWalker(c); while (w.nextNode()) n++;} return n;}"""
-# The card at the middle of the list's view: its id, its top and whether it is drawn (not skipped). After a jump the browser
+# The card at the middle of the list's view: its id, its top in that view and whether it is drawn (not skipped). After a jump the browser
 # draws the cards it brought into view a frame or two later; till then they stand at their guessed height.
 AT_READING_POINT = """() => {const r = listScroller().getBoundingClientRect(), mid = (Math.max(r.top, 0) + Math.min(r.bottom, innerHeight)) / 2;
   const c = [...document.querySelectorAll('#list .pin.card')].find(c => c.getBoundingClientRect().bottom > mid);
-  return [c.dataset.id, c.getBoundingClientRect().top, c.firstElementChild.checkVisibility({contentVisibilityAuto: true})];}"""
+  return [c.dataset.id, c.getBoundingClientRect().top - r.top, c.firstElementChild.checkVisibility({contentVisibilityAuto: true})];}"""
+# Where the card of pin id stands in the list's view: its top less the scroller's (a chip the poll brings to the tool bar
+# moves the whole panel, not the list in it).
+IN_VIEW_TOP = """id => document.querySelector('#list .pin[data-id="' + id + '"]').getBoundingClientRect().top
+  - listScroller().getBoundingClientRect().top"""
+# The id of the first card whose bottom is below the top of the list's view.
+TOP_CARD = """() => {const t = listScroller().getBoundingClientRect().top;
+  return +[...document.querySelectorAll('#list .pin.card')].find(c => c.getBoundingClientRect().bottom > t).dataset.id;}"""
 # How many cards the browser skips now: their content is not drawn.
 SKIPPED = """() => [...document.querySelectorAll('#list .pin.card')]
   .filter(c => !c.firstElementChild.checkVisibility({contentVisibilityAuto: true})).length"""
@@ -83,15 +97,16 @@ def traced(page, script, arg):
     done = []
     cdp.on("Tracing.tracingComplete", lambda e: done.append(e))
     cdp.send("Tracing.end")
-    for _ in range(1000):  # each round trip lets the session's events in
-        if done:
-            break
+    # Wait for tracingComplete - the trace flushed to its stream - up to TRACE_FLUSH_S. The sync session delivers an event
+    # only while it waits on a command, so it waits on cheap ones until the event has come or the time is out.
+    until = time.monotonic() + TRACE_FLUSH_S
+    while not done and time.monotonic() < until:
         cdp.send("Runtime.evaluate", {"expression": "0"})
-    assert done, "the trace never completed"
+    assert done, "Tracing.tracingComplete did not come within %ds" % TRACE_FLUSH_S
     chunks = []
     while True:
         part = cdp.send("IO.read", {"handle": done[0]["stream"], "size": 1 << 20})
-        chunks.append(part["data"])
+        chunks.append(base64.b64decode(part["data"]).decode() if part.get("base64Encoded") else part["data"])
         if part.get("eof"):
             break
     cdp.send("IO.close", {"handle": done[0]["stream"]})
@@ -122,6 +137,16 @@ class ManyCardsWhileThePdfScrolls(BrowserBase):
             ).record
             for i in range(N_PINS)
         ]
+
+    def skipping(self, page, cond, msg):
+        """Wait until cond holds: the browser skips a card a frame after the observer's report that marks it, itself a
+        task after the frame that drew it, so a draw's skipping can still be on its way once the page has settled."""
+        from playwright.sync_api import TimeoutError as PlaywrightTimeout  # the module loads without Playwright
+
+        try:
+            page.wait_for_function(cond, timeout=8000)
+        except PlaywrightTimeout:
+            self.fail(msg)
 
     def test_a_font_added_while_the_pdf_scrolls_lays_out_the_cards_in_view_only(self):
         """Eight fonts added as the PDF area scrolls: no layout walks more than a third of what the cards hold. Before the
@@ -154,7 +179,7 @@ class ManyCardsWhileThePdfScrolls(BrowserBase):
                 page = self.open(N_PINS, init=NO_COACH, **device)
                 page.evaluate("setSide(true)")
                 settle(page)
-                self.assertGreater(page.evaluate(SKIPPED), N_PINS // 2, "the cards out of view are drawn")
+                self.skipping(page, "(%s)() > %d" % (SKIPPED, N_PINS // 2), "the cards out of view are drawn")
                 self.assertEqual(page.evaluate(HELD_IN_VIEW), [], "cards in view that the browser may skip")
                 self.assertEqual(
                     page.evaluate(HEIGHTS), [], "cards that stand at another height than they are drawn at"
@@ -173,10 +198,7 @@ class ManyCardsWhileThePdfScrolls(BrowserBase):
                 self.assertTrue(page.evaluate("loadPins()"))
                 settle(page)
                 self.assertEqual(
-                    page.evaluate(
-                        "id => document.querySelector('#list .pin[data-id=\"' + id + '\"]').getBoundingClientRect().top",
-                        pid,
-                    ),
+                    page.evaluate(IN_VIEW_TOP, pid),
                     top,
                     "the list moved under the reading point at a redraw",
                 )
@@ -184,6 +206,36 @@ class ManyCardsWhileThePdfScrolls(BrowserBase):
                     page.evaluate(HEIGHTS), [], "cards that stand at another height than they are drawn at"
                 )
                 self.assertEqual(page.evaluate(HELD_IN_VIEW), [], "cards in view that the browser may skip")
+
+    def test_a_poll_that_takes_the_top_card_away_leaves_the_view_where_it_stands(self):
+        """Down the list, the card at the top of the view leaves it with a poll - first an agent closes its pin, which goes
+        to 검토 대기 below every open card, then the next top card's pin is deleted. Each time the view stays where it
+        stood, held by the next card in view of the same section: followed into 검토 대기, it jumped past every open card."""
+        page = self.open(N_PINS, init=NO_COACH, **DESKTOP)
+        page.evaluate("() => {const S = listScroller(); S.scrollTop = S.scrollHeight * 0.6;}")
+        page.wait_for_function("(%s)()[2]" % AT_READING_POINT, timeout=8000)
+        settle(page)
+        for how in ("closed by an agent", "deleted"):
+            with self.subTest(how=how):
+                pid, top, _ = page.evaluate(AT_READING_POINT)
+                first = page.evaluate(TOP_CARD)
+                self.assertNotEqual(first, int(pid))
+                if how == "deleted":
+                    ps.APP.pin_trash.drop_pin(
+                        first, post_authority(ps.APP.pin_trash.context().store, actor(ALICE), "drop", first)
+                    )
+                else:
+                    store = ps.APP.pin_lifecycle.context().store
+                    ps.APP.pin_lifecycle.close_pin(
+                        first, post_authority(store, dict(LOCAL_ACTOR), "close", first), CloseRequest(reply="고침")
+                    )
+                self.assertTrue(page.evaluate("loadPins()"))
+                settle(page)
+                self.assertEqual(
+                    page.evaluate(IN_VIEW_TOP, pid),
+                    top,
+                    "the view moved when the card at its top was %s" % how,
+                )
 
     def test_a_card_changed_out_of_view_comes_in_with_what_it_holds_now(self):
         """A card near the end of the list, out of view and skipped, gets a note twelve times as long from someone else; the
@@ -199,8 +251,12 @@ class ManyCardsWhileThePdfScrolls(BrowserBase):
         settle(page)
         self.assertEqual(page.evaluate(HEIGHTS), [], "cards that stand at another height than they are drawn at")
         card = "#list .pin[data-id='%d']" % far
-        skipped = "s => !document.querySelector(s).firstElementChild.checkVisibility({contentVisibilityAuto: true})"
-        self.assertTrue(page.evaluate(skipped, card), "the card out of view is drawn: cards are not skipped")
+        self.skipping(
+            page,
+            "!document.querySelector(%s).firstElementChild.checkVisibility({contentVisibilityAuto: true})"
+            % json.dumps(card),
+            "the card out of view is drawn: cards are not skipped",
+        )
         page.evaluate("s => document.querySelector(s).scrollIntoView({block: 'center'})", card)
         settle(page)
         drawn = page.evaluate(

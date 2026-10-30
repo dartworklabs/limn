@@ -16,9 +16,10 @@
   whole pixels and clips focus rings and touch targets), and a skipped card's markup is always current. It stands at the
   height it had when it went; every card is drawn once more and sorted again when the list's width changes, when it is
   shown (the panel or the sheet opened) and when a slice of the list's font arrives, so the list does not move under a
-  person scrolled down it and a jump to a card is aimed by real heights. A redraw also puts the card at the top of the
-  view back where it stood, as the browser's scroll anchoring would, so a card above it that someone else made longer no
-  longer pushes the list. The card being edited or holding the reply box is never skipped. A browser test bounds the
+  person scrolled down it and a jump to a card is aimed by real heights. A redraw also puts a card in view back where it
+  stood, as the browser's scroll anchoring would - the first one still in its section, so a top card whose pin a poll
+  moved to 검토 대기 or deleted hands over to the next instead of dragging the view after it - and a card above that
+  someone else made longer no longer pushes the list. The card being edited or holding the reply box is never skipped. A browser test bounds the
   layout per font added with 300 pins by a count from a Chrome trace, not a duration.
 
 ## 0.4.34 — 2026-10-30
