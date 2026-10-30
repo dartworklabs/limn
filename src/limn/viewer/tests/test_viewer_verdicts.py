@@ -4623,32 +4623,44 @@ class ReasonRaces(VerdictBase):
 
     def test_a_changed_saved_reason_moves_only_the_persons_own_text(self):
         """'내 이유' saved, Bob adds '밥의 덧붙임' under it; the saved reason opened and its own line changed to '내 이유 고침',
-        then 보류 pressed on the line: the popover follows the new verdict with '내 이유 고침' only - Bob's line stays on the
-        old verdict and is not copied as the person's reason (decision on the RC failure test)."""
-        page = self.on("fig")
-        a = self.typed(page, 1, "내 이유")
-        page.keyboard.press("Enter")
-        page.wait_for_function("()=>!document.querySelector('#doc .pv-reason')")
-        settle(page)
-        self.assertEqual(self.call("POST", "/api/pins/%d/edit" % a, {"note_append": "밥의 덧붙임"}, BOB)[0], 200)
-        self.reload(page)
-        field = open_reason(page, 1)
-        before = field.input_value()
-        self.assertRegex(before, r"^내 이유\n\(추가 \d{1,2}:\d{2}\) 밥의 덧붙임$")
-        page.fill('#doc .pv[data-page="1"] .pv-reason', before.replace("내 이유", "내 이유 고침", 1))
-        page.locator('#doc .pv[data-page="1"] button[data-key="보류"]').click()
-        b = page.wait_for_function(
-            "id=>{const p=OPEN_ALL.find(p=>p.id>id&&p.verdict==='보류'); return p&&p.id;}", arg=a
-        ).json_value()
-        settle(page)
-        self.assertEqual(page.evaluate(POP, 1)["value"], "내 이유 고침")
-        self.assertEqual(page.evaluate(DRAFTS), {"fig:%d" % b: "내 이유 고침"})
-        page.locator('#doc .pv[data-page="1"] .pv-reason').focus()
-        page.keyboard.press("Enter")
-        page.wait_for_function("()=>!document.querySelector('#doc .pv-reason')")
-        settle(page)
-        self.assertEqual(self.note(b), "내 이유 고침")
-        self.assertEqual(self.note(a), before)
+        then - with the popover open, or folded ([접기]) - 보류 pressed on the line: the new verdict's draft is '내 이유 고침'
+        only - Bob's line stays on the old verdict and is not copied as the person's reason (decision on the RC failure
+        test; the folded draft carried it until the 0.4.36 RC failure test) - and Enter writes that on the new verdict."""
+        field = '#doc .pv[data-page="1"] .pv-reason'
+        for case in ("open", "folded"):
+            with self.subTest(case=case):
+                self.drop_all()
+                page = self.on("fig")
+                a = self.typed(page, 1, "내 이유")
+                page.keyboard.press("Enter")
+                page.wait_for_function("()=>!document.querySelector('#doc .pv-reason')")
+                settle(page)
+                self.assertEqual(
+                    self.call("POST", "/api/pins/%d/edit" % a, {"note_append": "밥의 덧붙임"}, BOB)[0], 200
+                )
+                self.reload(page)
+                before = open_reason(page, 1).input_value()
+                self.assertRegex(before, r"^내 이유\n\(추가 \d{1,2}:\d{2}\) 밥의 덧붙임$")
+                page.fill(field, before.replace("내 이유", "내 이유 고침", 1))
+                if case == "folded":
+                    page.locator('#doc .pv[data-page="1"] [data-act="pv-reason-fold"]').click()
+                    page.wait_for_function("()=>!document.querySelector('#doc .pv-pop')")
+                page.locator('#doc .pv[data-page="1"] button[data-key="보류"]').click()
+                b = page.wait_for_function(
+                    "id=>{const p=OPEN_ALL.find(p=>p.id>id&&p.verdict==='보류'); return p&&p.id;}", arg=a
+                ).json_value()
+                settle(page)
+                self.assertEqual(page.evaluate(DRAFTS), {"fig:%d" % b: "내 이유 고침"})
+                if case == "open":
+                    self.assertEqual(page.evaluate(POP, 1)["value"], "내 이유 고침")
+                    page.locator(field).focus()
+                else:
+                    open_reason(page, 1)
+                page.keyboard.press("Enter")
+                page.wait_for_function("()=>!document.querySelector('#doc .pv-reason')")
+                settle(page)
+                self.assertEqual(self.note(b), "내 이유 고침")
+                self.assertEqual(self.note(a), before)
 
     def test_a_failed_cancel_brings_back_the_unsent_reason(self):
         """'보내지 않은 이유' typed (no Enter), then [판정 취소] lost on the network: the verdict is back on the line and so is
@@ -4866,6 +4878,42 @@ class ReasonRaces(VerdictBase):
         settle(page)
         self.assertEqual(self.note(a), "같은 문장")
         self.assertEqual(page.evaluate(REASON, 1)["value"], "다른 줄\n새 줄\n같은 문장")
+
+    def test_text_typed_next_to_a_moved_sentence_moves_the_sentence_whole(self):
+        """'문장 끝' for verdict a, its Enter written by the server but its answer lost; the field stays open and 보류 (b) is
+        pressed - the popover follows to b. Typed on the same line next to the moved sentence, then Enter (RC failure test
+        of 0.4.36: the sentence was taken out as a's, and only the fragment was written on b, without a word):
+        - ' 더함' at its end, or '앞말 ' at its start: the edited sentence is a new one, written whole on b;
+        - only spaces at its end: it is still a's sentence, so nothing is written on b."""
+        text = "문장 끝"
+        field = '#doc .pv[data-page="1"] .pv-reason'
+        for case, keys, want in (
+            ("end", ("Control+End", " 더함"), "문장 끝 더함"),
+            ("start", ("Control+Home", "앞말 "), "앞말 문장 끝"),
+            ("spaces", ("Control+End", "   "), ""),
+        ):
+            with self.subTest(case=case):
+                self.drop_all()
+                page = self.on("fig")
+                a = self.typed(page, 1, text)
+                self.lose_answer = 1
+                page.keyboard.press("Enter")
+                page.wait_for_function("()=>LINE.some(n=>n.title.startsWith('이유 저장 실패'))")
+                settle(page)
+                page.locator('#doc .pv[data-page="1"] button[data-key="보류"]').click()
+                b = page.wait_for_function(
+                    "id=>{const p=OPEN_ALL.find(p=>p.id>id&&p.verdict==='보류'); return p&&p.id;}", arg=a
+                ).json_value()
+                settle(page)
+                self.assertEqual(page.evaluate(POP, 1)["value"], text)
+                page.locator(field).focus()
+                page.keyboard.press(keys[0])
+                page.keyboard.type(keys[1])
+                page.keyboard.press("Enter")
+                page.wait_for_function("()=>!document.querySelector('#doc .pv-reason')", timeout=10000)
+                settle(page)
+                self.assertEqual((self.note(a), self.note(b)), (text, want))
+                self.assertEqual(page.evaluate(DRAFTS), {})
 
     def test_a_moved_part_with_spaces_after_it_leaves_too(self):
         """'공백 뒤 이유' typed with two spaces after it for verdict a - its write sends it trimmed -, its Enter lost and

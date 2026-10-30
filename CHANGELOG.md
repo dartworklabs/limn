@@ -10,14 +10,17 @@
   on the newer verdict too. It now remembers every verdict it moved off, as the place of the moved text in the draft -
   followed through every edit - with that verdict's lost writes. A write of that text on one of them takes that place
   out of the copy with the line break that set it apart, keeping lines typed around it, a draft joined to it and the same
-  sentence typed again; trailing spaces or a CRLF no longer hide it. A popover open on the copy follows: with nothing left
+  sentence typed again; trailing spaces or a CRLF no longer hide it. Text typed next to the moved sentence on its line
+  (at either end) makes it a new sentence, written whole on the newer verdict, where only the fragment used to be. A popover open on the copy follows: with nothing left
   it closes, the status line says the reason was saved on the earlier verdict, and the line's reason control takes the
   focus with the next digit not taken as a verdict key - also when its Enter was waiting; with something left it keeps
   that and says the rest went. Before the copy is written, a write out on the earlier verdict answers first and a write
   there that lost its answer is settled from the pin's rev - also after the draft moved on or the page was reloaded;
   landed, nothing is written twice; when the pin cannot be read nothing is written, the draft stays and the status line
   says the save failed, with [다시 시도]. The other order holds too: once the copy is written the earlier verdict's
-  failure and its [다시 시도] go, and that [다시 시도] pressed while the copy's write is out waits for it.
+  failure and its [다시 시도] go, and that [다시 시도] pressed while the copy's write is out waits for it. A folded or
+  kept change of a saved reason that moves to a new verdict takes only the person's own text, as an open one did, not
+  the lines others added under it.
 
 ## 0.4.35 — 2026-10-30
 

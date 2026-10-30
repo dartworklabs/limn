@@ -70,21 +70,31 @@ function rdNorm(t){return t.replace(/\r\n?/g,'\n').trim();}
 function rdShift(parts,ds,de,n){const d=n-(de-ds); return parts.flatMap(p=>p.e<=ds?[p]:p.s>=de?[{...p,s:p.s+d,e:p.e+d}]:[]);}
 // Parts of text `was` in `now`, the field's text after one input, the caret at `caret` (the end of what was typed or pasted,
 // or where a deletion was): what changed is what lies between their longest common start and end - the end no further
-// than the caret, so a letter typed before the same letter is placed where it was typed.
+// than the caret, so a letter typed before the same letter is placed where it was typed. (Text typed next to it on its own
+// line keeps its place too: whether that changed its sentence is judged when it would leave, rdLined - a line typed above
+// it is typed before its line break.)
 /** @param {ReasonPart[]} parts @param {string} was @param {string} now @param {number} caret @returns {ReasonPart[]} */
 function rdEdit(parts,was,now,caret){if(!parts.length||was===now)return parts; let suf=0,pre=0;
   const ms=Math.min(was.length,now.length-Math.min(Math.max(caret,0),now.length)); while(suf<ms&&was[was.length-1-suf]===now[now.length-1-suf])suf++;
   const mp=Math.min(was.length,now.length)-suf; while(pre<mp&&was[pre]===now[pre])pre++;
   return rdShift(parts,pre,was.length-suf,now.length-suf-pre);}
+// Whether part p of text t still has its lines to itself: nothing but spaces between each end and a line break or the
+// text's end. Text typed next to it on its line, at either end, or a line break beside it taken away, made its sentence a
+// new one - as an edit inside it does -, which stays whole (RC failure test of 0.4.36: ' 더함' typed after a moved
+// '문장 끝' left only '더함' to be written, without a word, once '문장 끝' was found on the earlier verdict). Spaces typed
+// after it change no sentence.
+/** @param {string} t @param {ReasonPart} p */
+function rdLined(t,p){return /(^|\n)[ \t]*$/.test(t.slice(0,p.s))&&/^[ \t]*(\r?\n|$)/.test(t.slice(p.e));}
 // Draft x (text and parts) joined under draft pd's on a new line - pd null: x as it is.
 /** @param {{text:string,from:ReasonPart[]}|null} pd @param {{text:string,from:ReasonPart[]}} x @returns {{text:string,from:ReasonPart[]}} */
 function rdJoin(pd,x){if(!pd)return {text:x.text,from:x.from}; const o=pd.text.length+1;
   return {text:pd.text+'\n'+x.text,from:[...pd.from,...x.from.map(p=>({...p,s:p.s+o,e:p.e+o}))]};}
-// Text t (with its parts) less every part moved off pin key k whose text is `written` (rdNorm) - with the line break that
-// set it apart, the rest kept as it is - or null when none is.
+// Text t (with its parts) less every part moved off pin key k whose text is `written` (rdNorm) and that still has its lines
+// to itself (rdLined) - with the line break that set it apart, the rest kept as it is - or null when none is.
 /** @param {string} t @param {ReasonPart[]} parts @param {string} k @param {string} written @returns {{text:string,from:ReasonPart[]}|null} */
 function rdCut(t,parts,k,written){const n=rdNorm(written); if(!n)return null; let ps=parts,hit=false;
-  for(let p=ps.find(q=>q.k===k&&rdNorm(t.slice(q.s,q.e))===n);p;p=ps.find(q=>q.k===k&&rdNorm(t.slice(q.s,q.e))===n)){hit=true; let s=p.s,e=p.e;
+  const at=(/** @type {ReasonPart} */q)=>q.k===k&&rdNorm(t.slice(q.s,q.e))===n&&rdLined(t,q);
+  for(let p=ps.find(at);p;p=ps.find(at)){hit=true; let s=p.s,e=p.e;
     const after=/^[ \t]*\r?\n/.exec(t.slice(e)),before=after?null:/\r?\n[ \t]*$/.exec(t.slice(0,s)); if(after)e+=after[0].length; else if(before)s-=before[0].length;
     const q=p; t=t.slice(0,s)+t.slice(e); ps=rdShift(ps.filter(x=>x!==q),s,e,0);}
   return hit?{text:t,from:ps}:null;}
@@ -109,12 +119,23 @@ function rdDrop(doc,id){const d=rdAll(),k=rdName(doc,id); if(k in d){delete d[k]
 // The part a draft (text, lost writes) becomes when it is moved off pin key k: all of it, with k's lost writes.
 /** @param {string} k @param {{text:string,tried:ReasonTry[]}} x @returns {ReasonPart} */
 function rdPart(k,x){return {k,s:0,e:x.text.length,tried:x.tried};}
+// The text of a draft that is the person's own: as typed, less - when it changes a saved reason (mode 'replace') - the
+// stamped lines others added under it ('(추가 HH:MM) …') as that saved note (base) held them.
+/** @param {string} mode @param {string} text @param {string} base */
+function rdOwn(mode,text,base){if(mode!=='replace')return text; const st=/^\(추가 \d{1,2}:\d{2}\) /,theirs=new Set(base.split(/\r?\n/).filter(l=>st.test(l)));
+  return text.split('\n').filter(l=>!(st.test(l.replace(/\r$/,''))&&theirs.has(l.replace(/\r$/,'')))).join('\n');}
+// What draft x becomes moved off key k (a pin's, or '' for none) to another verdict, as a new reason: its own text only
+// (rdOwn: the lines others added under a saved reason being changed stay on the verdict they were written on), with the
+// parts it came with (while that text is all of it) and, k a pin, all of it as a part moved off k with k's lost writes.
+/** @param {string} k @param {{text:string,base:string,mode:string,tried:ReasonTry[],from:ReasonPart[]}} x @returns {{text:string,from:ReasonPart[]}} */
+function rdOff(k,x){const own=rdOwn(x.mode,x.text,x.base); return {text:own,from:[...(own===x.text?x.from:[]),...(k?[rdPart(k,{text:own,tried:x.tried})]:[])]};}
 // Moves the draft under from (a pin or a page) to verdict pin id, as a new reason - it was never written on the other -
-// remembering where it came from: all of it is a part moved off from, when that is a pin, with from's lost writes (they
-// may have put it there), and the parts it came with stay (rdMovedOff).
+// remembering where it came from (rdOff, rdMovedOff). The same whether a popover held it or it was folded or kept: a
+// folded change of a saved reason used to carry others' lines into the new verdict's reason (RC failure test of 0.4.36).
+// A draft with nothing of the person's own stays where it is.
 /** @param {string|null} doc @param {number|string} from @param {number} id @returns {ReasonDraft|null} */
-function rdMove(doc,from,id){const x=rdGet(doc,from); if(!x)return null; rdDrop(doc,from);
-  rdPut(doc,id,x.text,'',-1,{mode:'add',folded:x.folded,from:[...x.from,...(typeof from==='number'?[rdPart(rdName(doc,from),x)]:[])]}); return x;}
+function rdMove(doc,from,id){const x=rdGet(doc,from); if(!x)return null; const m=rdOff(typeof from==='number'?rdName(doc,from):'',x); if(!m.text.trim())return null;
+  rdDrop(doc,from); rdPut(doc,id,m.text,'',-1,{mode:'add',folded:x.folded,from:m.from}); return x;}
 // The drafts moved off pin id's key on document doc (rdMove, pvReasonUncancelDraft) while its reason may still be written
 // there, by key.
 /** @param {string|null} doc @param {number} id @returns {string[]} */
@@ -229,7 +250,7 @@ function pvReasonRestore(){const doc=DOC||''; if(PV_RESTORED.has(doc)||!META)ret
     const pk=pre+'p'+t.page,pd=rdRead(d[pk]); delete d[k]; ch=true;
     // It becomes a part moved off its verdict, with that verdict's lost writes: one may have landed (#317: a reload let them
     // go, and the page's draft, opened on the newer verdict, wrote a reason already on the earlier one).
-    const j=rdJoin(pd,{text:x.text,from:[...x.from,rdPart(k,x)]});
+    const m=rdOff(k,x); if(!m.text.trim())continue; const j=rdJoin(pd,m);
     d[pk]={...x,text:j.text,base:'',rev:-1,mode:'add',folded:true,tried:[],from:j.from};}
   if(ch)rdSave(d);
   const shown=[...pages].filter(n=>n>0).sort((a,b)=>a-b); if(!shown.length)return; const first=shown[0];
@@ -345,8 +366,7 @@ function pvReasonAfterSave(page,id,key,kb,prev){const r=PV_REASON; PV_LAST_SAVE=
 // stamped lines others added under it ('(추가 HH:MM) …') as the saved note held them. (A new reason's text is the field's,
 // as typed.)
 /** @param {ReasonSession} r */
-function pvReasonOwn(r){if(!pvReasonEdits(r))return r.text; const st=/^\(추가 \d{1,2}:\d{2}\) /,theirs=new Set(r.base.split(/\r?\n/).filter(l=>st.test(l)));
-  return r.text.split('\n').filter(l=>!(st.test(l.replace(/\r$/,''))&&theirs.has(l.replace(/\r$/,'')))).join('\n');}
+function pvReasonOwn(r){return rdOwn(r.mode,r.text,r.base);}
 // The write of reason session r, out while its line's verdict changed to r.onto (pvReasonAfterSave), settled - ok: it was
 // written. Its reason ends on one verdict. Written - or, its answer lost or a 5xx, found landed when the pin is read again
 // (pvReasonLanded) - it stays on r's verdict, now an earlier one, and the status line says so ('이유는 이전 판정 #15 채택에
@@ -368,7 +388,8 @@ async function pvReasonOnto(r,ok,page){const to=r.onto,doc=r.doc,src='POST /api/
   const got=p&&!p.dropped_at?[...r.tried].reverse().find(a=>pvReasonLanded(a,/** @type {Pin} */(p))):null;
   PV_RETRY.delete(r);   // its [다시 시도] goes either way (sourceOk)
   if(got){r.saved=got.text; r.tried=[]; rdDrop(doc,r.id); sourceOk(src); pvReasonWrittenOff(doc,r.id,r.key,got.text,r); saved(); if(doc===DOC)loadPins().catch(()=>{}); return;}
-  r.onto=0; r.tried=[]; sourceOk(src); const d=rdGet(doc,r.id),text=d?d.text:r.text,via=d?d.from:r.via; rdDrop(doc,r.id); if(!text.trim())return;
+  r.onto=0; r.tried=[]; sourceOk(src); const m=rdOff('',rdGet(doc,r.id)||{text:r.text,base:r.base,mode:r.mode,tried:[],from:r.via}),text=m.text,via=m.from;
+  rdDrop(doc,r.id); if(!text.trim())return;
   const open=!!PV_REASON&&PV_REASON.doc===doc&&PV_REASON.page===page,cur=pvCurOn(doc,page);   // it moves with the pins it came from
   if(cur&&cur.id===to&&!open&&!rdGet(doc,to))rdPut(doc,to,text,'',-1,{mode:'add',folded:true,from:via});
   else{const j=rdJoin(rdGet(doc,'p'+page),{text,from:via}); rdPut(doc,'p'+page,j.text,'',-1,{mode:'add',folded:true,from:j.from});}
@@ -408,7 +429,7 @@ function pvReasonUncancelDraft(id,page,doc,shown){const o=PV_WRITES.get(rdName(d
   const s=pvSlot(page,doc); if(PV_BUSY.has(s)){const u=PV_UNCANCEL.get(s); PV_UNCANCEL.set(s,{id,page,doc,shown:shown||(!!u&&u.id===id&&u.shown)}); return;}
   if(PV_REASON&&PV_REASON.id===id)return;
   const cur=pvCurOn(doc,page),back=!!cur&&cur.id===id,d=rdGet(doc,id); if(!d||(back&&!shown))return;
-  if(!back){const j=rdJoin(rdGet(doc,'p'+page),{text:d.text,from:[...d.from,rdPart(rdName(doc,id),d)]}); rdDrop(doc,id); rdPut(doc,'p'+page,j.text,'',-1,{mode:'add',folded:true,from:j.from});}
+  if(!back){const m=rdOff(rdName(doc,id),d); rdDrop(doc,id); if(!m.text.trim())return; const j=rdJoin(rdGet(doc,'p'+page),m); rdPut(doc,'p'+page,j.text,'',-1,{mode:'add',folded:true,from:j.from});}
   const target=pvNameOn(doc,page,id);
   lineNote(back?tl('판정 #{id} 이유는 초안으로 남겼습니다 · 줄의 [초안 있음]이 엽니다 — {target}',{id,target})
     :tl('판정 #{id} 이유는 이 쪽의 초안으로 남겼습니다 · 줄의 [초안 있음]이 엽니다 — {target}',{id,target}),
