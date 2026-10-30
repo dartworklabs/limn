@@ -1322,6 +1322,36 @@ class TakeBackOut(PanelBase):
                 page.keyboard.press("2")
                 page.wait_for_function("n=>(pageVerdictPins().get(n)||[]).length===1", arg=n + 1)
 
+    def test_a_take_back_that_does_not_answer_lets_the_line_go_and_its_late_answer_acts_once(self):
+        """The drop held past its bound: the status line says so and Enter works on the line again, on the verdict it shows.
+        The answer then comes: that one drop, its [되돌리기] offered, the earlier verdict current, the popover and its
+        focus left alone."""
+        earlier = self.verdict(2, "보류")
+        mine = self.verdict(2, "채택")
+        page = self.on(n_open=2)
+        self.to(page, 2)
+        page.evaluate("PV_DROP_WAIT=150")
+        page.evaluate("searchToPage()")
+        self.held_drop = []
+        page.keyboard.press("1")
+        page.wait_for_function("()=>PV_DROP_OUT.size===1")
+        page.wait_for_function("()=>PV_DROP_OUT.size===0")
+        self.assertTrue(page.evaluate("()=>LINE.some(n=>n.title.startsWith('판정 취소의 답이 늦습니다'))"))
+        self.assertIsNotNone(page.evaluate(FOCUS))
+        page.locator(LINE_ACT % (2, "pv-reason-open")).first.focus()
+        page.keyboard.press("Enter")
+        page.wait_for_selector(FIELD)
+        page.keyboard.type("앞 판정의 이유")
+        held, self.held_drop = self.held_drop, None
+        self.assertEqual(len(held), 1)
+        self.release(held)
+        page.wait_for_function("id=>!OPEN_ALL.some(p=>p.id===id)&&DROPPED.some(p=>p.id===id)", arg=mine)
+        settle(page)
+        self.assertEqual(sorted(self.pins()), [earlier])
+        self.assertTrue(page.evaluate("()=>pvIsReasonField(document.activeElement)"), "the late answer took the focus")
+        self.assertEqual(page.locator(FIELD).input_value(), "앞 판정의 이유")
+        self.assertEqual(page.evaluate("()=>LINE.filter(n=>!!n.act&&n.title.includes('취소')).length"), 1)
+
     def test_a_guard_on_the_digits_ends_when_the_reading_page_changes(self):
         """The guard after a field went from under the typing: on another page the person is not typing on. A digit there saves."""
         page = self.on()

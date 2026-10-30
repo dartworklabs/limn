@@ -570,8 +570,11 @@ function pvCanCancel(p){return !!verdictOf(p)&&canVerdict()&&isMe(p.author)&&pin
 const PV_CANCEL_MS=800;   // after a cancel on a page, how long that page's next [판정 취소] waits (a double press never takes two)
 const PV_CANCEL_HOLD=/** @type {Map<string,number>} */(new Map());   // line (pvSlot) -> until when its [판정 취소] waits
 // The lines whose take-back is out: Enter and Space on them do nothing until it answers (pvOffPageKey). What the focus rests on is
-// what the line shows meanwhile, the verdict before it: Enter there opened a reason for it, or took that one back too.
-const PV_DROP_OUT=/** @type {Set<string>} */(new Set());
+// what the line shows meanwhile, the verdict before it: Enter there opened a reason for it, or took that one back too. An answer
+// that does not come must not leave the line deaf: past PV_DROP_WAIT the keys are back and the status line says so; the late
+// answer is still taken (its message, its [되돌리기]), but the focus has moved on by then and stays. The value says whose wait it is.
+const PV_DROP_OUT=/** @type {Map<string,number>} */(new Map());
+let PV_DROP_WAIT=8000;
 // A verdict a [되돌리기] brought back (a take-back's, the save chip's): when it is its line's current verdict again its kept reason
 // draft opens (pvReasonRevive); when a newer verdict came meanwhile - someone else's - it is restored but superseded, the
 // status line says so ('판정 #21 채택 되살림 · 지금 판정은 Bob의 #34 보류 — <대상>') and no popover opens over that line - its
@@ -630,8 +633,10 @@ async function pvCancelPin(id,page,had,byKey){const p=OPEN_ALL.find(x=>x.id===id
       if(onAdd&&u&&(a===f||a===document.body||!a))u.focus({preventScroll:true});}};
   hideTip();
   const again=()=>{PV_CANCEL_HOLD.delete(pvSlot(page)); drawPageVerdicts(); pvCancelPin(id,page,false);};   // [다시 시도] is a new press: no hold
-  const out=pvSlot(page); PV_DROP_OUT.add(out); let ok=false;
-  try{ok=await dropPin(id,false,again,{say,where:NOTICE_HOST.LINE,what:'판정 취소'});}finally{PV_DROP_OUT.delete(out);}
+  const out=pvSlot(page); PV_DROP_OUT.set(out,id); let ok=false,slow=false;
+  const wait=setTimeout(()=>{slow=true; if(PV_DROP_OUT.get(out)===id)PV_DROP_OUT.delete(out);
+    lineNote('판정 취소의 답이 늦습니다 — 이 줄의 키를 다시 받습니다',NOTICE_KIND.WARN,null,{source:'pv-drop-wait',life:NOTICE_LIFE.TIMER});},PV_DROP_WAIT);
+  try{ok=await dropPin(id,false,again,{say,where:NOTICE_HOST.LINE,what:'판정 취소'});}finally{clearTimeout(wait); if(PV_DROP_OUT.get(out)===id)PV_DROP_OUT.delete(out);}
   if(!ok){PV_WITHDRAWN.delete(id); pvReasonUncancel(id,page,kept?kept.doc:doc,kept);}
   // A keyboard press stays on its own page: the line's [되돌리기], else its line (never the PDF area, from which Tab went to the
   // first page's line). A digit key's take-back takes the focus there from wherever it was - the outline, a card - as a key
@@ -640,7 +645,7 @@ async function pvCancelPin(id,page,had,byKey){const p=OPEN_ALL.find(x=>x.id===id
   // (a new verdict's, saved while the take-back was out), where the focus went to the line and the next digit was a verdict key.
   const at=/** @type {HTMLElement|null} */(document.activeElement),pop=!!at&&!!at.closest&&!!at.closest('#doc .pv-pop');
   const lost=!pop&&(!at||at===document.body||at===$('#left')||!!(at.closest&&at.closest('#doc .pv[data-page="'+page+'"]'))||(!!byKey&&at===from));
-  if((had||inField)&&lost){
+  if((had||inField)&&lost&&!slow){
     const u=/** @type {HTMLElement|null} */(document.querySelector('#doc .pv[data-page="'+page+'"] [data-act="pv-undo"]')); if(u)u.focus({preventScroll:true}); else if(!pvFocusLine(page))searchToPage();}
   if(ok&&claimed)lineNote('처리 중이던 판정이라 이미 실행됐을 수 있습니다',NOTICE_KIND.WARN);}
 // One page's line: its state - '판정 없음', or the newest verdict pin about its target with its state, its number and word,
