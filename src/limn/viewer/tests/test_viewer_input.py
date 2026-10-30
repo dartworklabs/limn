@@ -1654,6 +1654,10 @@ UNDER_LINE = """()=>{const R=s=>document.querySelector(s).getBoundingClientRect(
   return {acts:q('[data-act=notice-act]').map(b=>Math.round(la-b.getBoundingClientRect().right)),
     xs:q('[data-act=notice-x]').map(b=>Math.round(lx-b.getBoundingClientRect().right)),
     inside:l.left>=0&&l.top>=0&&l.right<=innerWidth&&l.bottom<=innerHeight};}"""
+# The visual viewport's offset and scale, and whether the open '+N' list is whole inside it.
+VIEW = """()=>{const v=visualViewport,r=document.querySelector('#status-list').getBoundingClientRect();
+  return {l:v.offsetLeft,t:v.offsetTop,s:v.scale,list:[r.left,r.right,r.top,r.bottom].map(Math.round),
+    inside:r.left>=v.offsetLeft&&r.right<=v.offsetLeft+v.width&&r.top>=v.offsetTop&&r.bottom<=v.offsetTop+v.height};}"""
 # Two undos on the status line, as FOUR_UNDOS.
 TWO_UNDOS = FOUR_UNDOS.replace("i<=4", "i<=2")
 # Whether the open '+N' list stands over the status line.
@@ -1785,6 +1789,31 @@ class StatusListRoom(ViewerBase):
                 settle(page)
                 rows = page.evaluate(SEEN_ROWS)
                 self.assertEqual([(r["inside"], r["hit"]) for r in rows], [(True, True)] * 4, rows)
+
+    def test_a_view_zoomed_in_stays_put_and_holds_the_whole_list(self):
+        """A real 2x zoom (the page scale, its view on the window's top left): the phone with its sheet open (the line in
+        view) and folded (the line under the view), the desktop. Opening '+N' (its press's handler) leaves the view where
+        it was, and the list is whole inside it, across too. Shown before it was placed, the focus on its first row moved
+        the view to where the row stood - 181px across on the phone, 596px on the desktop - and the list ran past both
+        sides of the view."""
+        screens = (("phone, sheet open", PHONE_390, True), ("phone", PHONE_390, False), ("desktop", DESK, True))
+        for name, device, side in screens:
+            with self.subTest(screen=name):
+                page = self.view(device)
+                page.evaluate("s=>setSide(s)", side)
+                settle(page)
+                page.evaluate(FOUR_UNDOS)
+                settle(page)
+                self.cdp(page).send("Emulation.setPageScaleFactor", {"pageScaleFactor": 2})
+                settle(page)
+                before = page.evaluate(VIEW)
+                self.assertEqual(before["s"], 2)
+                page.evaluate("toggleStatusList()")
+                page.wait_for_selector("#status-list[open]")
+                settle(page)
+                after = page.evaluate(VIEW)
+                self.assertEqual((after["l"], after["t"]), (before["l"], before["t"]))
+                self.assertTrue(after["inside"], after)
 
     def test_a_visible_part_smaller_than_the_window_keeps_every_row_reachable(self):
         """A keyboard or a zoom that shrinks only the visible part of the window (visualViewport), the layout as it was:

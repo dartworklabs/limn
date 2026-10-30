@@ -167,8 +167,12 @@ function syncWhyText(s){const r=s&&s.reason||''; return tr('main 동기화 막�
 /** @param {HTMLElement} btn */
 function statusWhy(btn){const text=syncWhyText(STATUS_SYNC); showTipText(btn.getClientRects().length?btn:$('#status'),text); announce(text);}
 // Opens the '+N' list beside the status line (placeStatusList), or folds it on a second press.
+// It is placed before it is shown: drawn (open) but not yet modal, so it can be measured, then shown as a modal there.
+// Shown first, the focus showModal gives its first row came where the list stood before it was placed, and on a phone
+// zoomed in on the line the view moved to that row - the line went out of sight.
 function toggleStatusList(){const d=$('#status-list'); if(d.open){d.close(); return;}
-  drawStatusList(statusShown(statusList(statusInput()),LAYOUT===LAYOUT_MODE.WIDE)); hideTip(); d.showModal(); placeStatusList(); holdLine();}
+  drawStatusList(statusShown(statusList(statusInput()),LAYOUT===LAYOUT_MODE.WIDE)); hideTip();
+  d.setAttribute('open',''); placeStatusList(); d.removeAttribute('open'); d.showModal(); holdLine();}
 // The list folded (Esc, an outside press, the back gesture, a row's action) and the focus is still in it, or nowhere: the
 // browser gives the focus back to the button that had it, '+N', but a message that came while the list was open drew the
 // line again and that button with it - the focus stayed on the folded list's row and fell to the page as it went from
@@ -196,12 +200,14 @@ function statusListUp(h,above,below,under){if(h<=(under?below:above))return !und
 function placeStatusList(){const d=$('#status-list'); if(!d.open)return;
   const vv=window.visualViewport,vt=vv?vv.offsetTop:0,vb=vv?vt+vv.height:innerHeight,r=$('#status').getBoundingClientRect();
   // On the desktop the list's right edge follows the line's - its rows' [되돌리기] and [x] under the line's own - and it
-  // reaches left from there, held 8px inside the visible part: centred in the window it stood about 350px left of the
-  // line, over the PDF. Elsewhere the line spans the bar and the list is centred over it (responsive.css).
-  if(LAYOUT===LAYOUT_MODE.WIDE){const cs=getComputedStyle(d),vl=vv?vv.offsetLeft:0,vr=vv?vl+vv.width:innerWidth;
-    const R=Math.min(r.right+parseFloat(cs.paddingRight)+parseFloat(cs.borderRightWidth),vr-8),L=Math.max(vl+8,R-parseFloat(cs.maxWidth));
-    d.style.left=Math.round(L)+'px'; d.style.right=Math.round(innerWidth-R)+'px';}
-  else{d.style.left=''; d.style.right='';}
+  // reaches left from there: centred in the window it stood about 350px left of the line, over the PDF. Elsewhere the line
+  // spans the bar and the list is centred over it (responsive.css). Either box is then held 8px inside the visible part,
+  // narrowed to it where it is narrower: a phone zoomed in had the list run past both sides of what it showed.
+  const vl=vv?vv.offsetLeft:0,vr=vv?vl+vv.width:innerWidth; d.style.left=''; d.style.right=''; const cs=getComputedStyle(d),max=parseFloat(cs.maxWidth);
+  let L0,R0; if(LAYOUT===LAYOUT_MODE.WIDE){R0=r.right+parseFloat(cs.paddingRight)+parseFloat(cs.borderRightWidth); L0=Math.max(8,R0-max);}
+  else{const bl=parseFloat(cs.left),br=innerWidth-parseFloat(cs.right),bw=Math.min(max,br-bl); L0=bl+(br-bl-bw)/2; R0=L0+bw;}
+  const w=Math.min(R0-L0,vr-vl-16),L=Math.min(Math.max(L0,vl+8),vr-8-w);
+  d.style.left=Math.round(L)+'px'; d.style.right=Math.round(innerWidth-L-w)+'px';
   const at=Math.min(Math.max(r.top,vt),vb),ab=Math.min(Math.max(r.bottom,vt),vb);   // the line's edges, held inside the visible part
   const above=at-vt-4-8,below=vb-ab-4-8,h=d.scrollHeight+d.offsetHeight-d.clientHeight;
   const row=/** @type {HTMLElement|null} */(d.querySelector('.st-row')),one=h-$('#status-list-rows').offsetHeight+(row?row.offsetHeight:0);   // a row, its padding, border
