@@ -2979,6 +2979,24 @@ class Keys(VerdictBase):
         pin = self.pins()[new]
         self.assertEqual((pin["verdict"], pin["page"], pin["el"]["path"]), ("보류", 2, ["B3"]))
 
+    def test_a_touch_screen_neither_draws_nor_says_the_keys(self):
+        """A 390x844 touch screen, page 2 under the reading line: its words still answer 1-3 (data-kn), but no key mark is
+        drawn after them, no description ends in '단축키 N' and no button carries aria-keyshortcuts - a long press on a
+        phone read '… · 단축키 1' for a key it has none of (#315). The test above holds the desktop's."""
+        page = self.on("fig", viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        self.reading(page, 2)
+        got = page.evaluate(
+            """()=>[...document.querySelectorAll('#doc .pv[data-page="2"] button.vd-b')].map(b=>[b.dataset.kn||null,
+              b.getAttribute('aria-keyshortcuts'),b.dataset.tip||'',getComputedStyle(b,'::after').content])"""
+        )
+        self.assertEqual([k[0] for k in got], ["1", "2", "3"])
+        self.assertEqual([k[1] for k in got], [None] * 3)
+        self.assertTrue(all(k[2] for k in got))  # each has its description, only without the key
+        self.assertEqual([k[2] for k in got if "단축키" in k[2]], [])
+        # No key mark: the button's ::after is its 44px hit box (content ''), not the key.
+        self.assertEqual([k[3] for k in got if k[0] in k[3]], [])
+
     def test_a_confirm_word_takes_its_key_twice(self):
         """3 (삭제, a confirm word) arms the button - '삭제 확정' - and saves nothing; 3 again saves 삭제."""
         page = self.on("fig")

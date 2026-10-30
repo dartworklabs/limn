@@ -199,23 +199,31 @@ function vdWhereOf(b){return b.dataset.act==='verdict-save'?VD_WHERE.COMPOSER:VD
 // and right after its word was taken back (PV_TOGGLE_HOLD) - it keeps the focus a keyboard press left on it, which a
 // disabled button would drop to the page.
 // kn: on the line of the page the keys act on (PV_KEYS), the word's key 1-5 - drawn after the word as a key hint (data-kn,
-// generated text on a mouse screen only, so the button's text stays the word), said in its description and as
-// aria-keyshortcuts; 0 elsewhere. quiet: drawn without its description (data-tip) - a page line whose save chip stands
-// (pvLineHtml) - so no description box comes over the chip; the name and the keys are still said. A page line's armed word
-// ('삭제 확정') has no description either: its box covered the line's figure name while the word waited for its second press,
-// the button already reads what the box said, and the line says how long it waits beside it (.pv-arm).
+// generated text on a mouse screen only, so the button's text stays the word) and, on that screen only (PV_KEY_MARKS),
+// said in its description and as aria-keyshortcuts; 0 elsewhere. quiet: drawn without its description (data-tip) - a page
+// line whose save chip stands (pvLineHtml) - so no description box comes over the chip; the name and the keys are still
+// said. A page line's armed word ('삭제 확정') has no description either: its box covered the line's figure name while the
+// word waited for its second press, the button already reads what the box said, and the line says how long it waits
+// beside it (.pv-arm).
+// The screen that draws the key marks (components.css .vd-b[data-kn]::after): a mouse's. Only there does a word's description
+// end in '단축키 1' and its button carry aria-keyshortcuts - a phone's long press read '… · 단축키 1' for a key it has none of
+// (#315). The lines are drawn again when that changes (a tablet's keyboard cover with its touchpad taken off), so the
+// description follows the marks.
+const PV_KEY_MARKS=matchMedia('(hover:hover) and (pointer:fine)');
+PV_KEY_MARKS.addEventListener('change',()=>{if(META)drawPageVerdicts();});
 /** @param {VerdictChoice} c @param {string} where @param {number} page @param {string} target @param {boolean} off @param {number} [kn] @param {boolean} [quiet] @param {number} [pr] */
 function vdButton(c,where,page,target,off,kn,quiet,pr){const armed=vdArmedHere(c.key,where,page),line=where!==VD_WHERE.COMPOSER,on=line&&!!pr&&!armed;
+  const said=!!kn&&PV_KEY_MARKS.matches;   // the key said as well as drawn
   const name=armed?tl('{word} 확정 — {sec}초 안에 한 번 더 누르면 저장합니다',{word:c.label,sec:VD_ARM_MS/1000}):line?tl('{word} 판정 — {target}',{word:c.label,target})
     :tl('{word} 판정으로 저장 — {target}',{word:c.label,target});
   const fig=where===VD_WHERE.COMPOSER&&!!figureVerdictRoot(COMPOSE.current);
   let tip=armed?name:fig?tl('누르면 메모와 함께 이 그림 전체({target})의 {word} 판정 핀으로 바로 저장합니다',{word:c.label,target}):where===VD_WHERE.COMPOSER?tl('누르면 지금 선택과 메모를 {word} 판정 핀으로 바로 저장합니다',{word:c.label})
     :pr===PV_PRESS.MINE?tr('지금 판정입니다 · 다시 누르면 이 판정을 거둡니다(판정 취소)'):pr===PV_PRESS.OTHER?tr('지금 판정입니다 · 다른 사람의 판정이라 여기서 거두지 않습니다')
     :pr===PV_PRESS.HANDLED?tr('지금 판정입니다 · 처리된 판정이라 카드의 [지우기]로 거둡니다'):pr===PV_PRESS.SAVING?tr('이 판정을 저장하는 중입니다'):tr('누르면 이 쪽의 판정으로 저장합니다 · 다시 누르면 거둡니다');
-  if(kn)tip+=' · '+tl(c.confirm?'단축키 {key} (두 번)':'단축키 {key}',{key:kn});
+  if(said)tip+=' · '+tl(c.confirm?'단축키 {key} (두 번)':'단축키 {key}',{key:kn});
   return html`<button type="button" class="vd-b hit${c.confirm?' vd-confirm':''}${armed?' armed':''}" translate="no" data-act="${where===VD_WHERE.COMPOSER?'verdict-save':'pv-save'}" \
 data-key="${c.key}" data-page="${page}" aria-label="${name}"${line?html` aria-pressed="${on?'true':'false'}"`:''}${on&&pr!==PV_PRESS.SAVING?html` aria-describedby="pv-on-${page}"`:''}\
-${quiet||(armed&&line)?'':html` data-tip="${tip}"`}${kn?html` data-kn="${kn}" aria-keyshortcuts="${kn}"`:''}${off?line?html` aria-disabled="true"`:html` disabled`:''}>\
+${quiet||(armed&&line)?'':html` data-tip="${tip}"`}${kn?html` data-kn="${kn}"`:''}${said?html` aria-keyshortcuts="${kn}"`:''}${off?line?html` aria-disabled="true"`:html` disabled`:''}>\
 ${on?ic('check'):''}<span class="lbl">${armed?tl('{word} 확정',{word:c.label}):c.label}</span></button>`;}
 // A page line's word state (vdButton pr): not pressed, or pressed as the person's own open verdict (a press takes it back),
 // someone else's, a handled one (neither is taken back from the line), or the word a save on the line is for (SAVING). A

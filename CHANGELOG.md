@@ -11,6 +11,11 @@
   side with more room, cut to it with its rows scrolling inside; it is placed again when the window changes size while
   it is open. Desktop 1400 x 850, an unfolded foldable 882 x 1104 and a phone 390 x 844 (sheet folded or open): every
   row's action is on screen and takes a press (#314).
+- **No `단축키 1` on a touch screen.** A page verdict word's description ended in `· 단축키 1` (`· 단축키 3 (두 번)`
+  for a confirm word) on every screen, so a long press on a phone named a key it has none of. The key is now said - in
+  the description and as `aria-keyshortcuts` - only where its mark is drawn after the word, a mouse screen
+  (`(hover:hover) and (pointer:fine)`, the condition of the mark's CSS); the lines are drawn again when that changes.
+  Touch screens keep the description without the key; the desktop is unchanged (#315).
 
 ## 0.4.34 — 2026-10-30
 
