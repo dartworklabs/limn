@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **A resting stacked line names its page.** A page verdict line that stacks (a phone, a folded cover, a page at a small
+  zoom) and is not the reading line now shows its identifier (`6쪽 · PL17`) in the row the reading line's name takes, in
+  the line's muted text at weight 400; the reading line still names its figure in full, the foreground at 600. The row
+  was kept empty since 0.4.34 so that the reading page never changes a line's height, and on a 390px phone it left
+  about 44px between a page and the state under it - the line looked loose, as far from its page as from the next. The
+  row's height, the line's height and its words' places are unchanged whichever page is read (#308).
+- **English: `Retract` for 판정 취소, `Enter reason` after a key save.** The line's take-back reads `Retract` (was
+  `Cancel verdict`), with the same verb in its description, its name, the pressed word's hint and the status line
+  (`Verdict #17 채택 retracted · …`); after a digit-key save the way to the reason reads `Enter reason` (was
+  `Enter write a reason`). Both are the line's own words, sized for one row beside the words on a 620px line.
+
+### Fixed
+
+- **English lines stay one row on a desktop.** At 1280 x 900 with the panel open (a 620px line) a third of the 88
+  resting lines of a 91-page figure document stacked into three rows, and a digit-key save stacked the rest. A line now
+  stacks before any press only when the row the press brings does not fit, summed from what is measured: the words as
+  drawn, plus the check a press puts on a word (21px) where none is pressed yet; the identifier and the dot after it;
+  the fresh verdict's state (`pvStateNeed`); and the row's gaps. The 8px and 24px allowances it replaces counted the dot
+  (3px) as 8px and the check as nothing, so a line within 21px of the bar also stacked under its first press, in
+  Korean too. English at 1280, 1366, 1400 (the test default), 1440, 1536 and 1920 with the panel open: no line stacks;
+  Korean: none, as before.
+
 ## 0.4.34 — 2026-10-30
 
 The page verdict line from an owner-requested UX review of 0.4.33 on a figure document (`pl`), and agents told which
