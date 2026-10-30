@@ -123,7 +123,9 @@ server writes integer anchor offsets, and those read as before.
   sees (a keyboard that does not resize the layout, a pinch zoom), and the list is placed again while it is open when
   its rows change (a list opened over the line with two rows kept scrolling in that room as more came) or the window or
   its visible part changes. On a desktop the list now stands under the line's own buttons - its right edge follows the
-  line's and it reaches left - where it floated centred in the window, about 350px left of the line. Desktop 1400 x 850, an unfolded foldable 882 x 1104 and a phone 390 x 844 (sheet folded or
+  line's and it reaches left - where it floated centred in the window, about 350px left of the line. Zoomed in, the list
+  is held inside the visible part across too, and it is placed before it is shown, so opening it no longer moves the
+  view to where its first row stood (a phone zoomed in on the line lost the line from view). Desktop 1400 x 850, an unfolded foldable 882 x 1104 and a phone 390 x 844 (sheet folded or
   open): every row's action is on screen and takes a press (#314).
 - **Folding the `+N` list gives the focus back to `+N`.** A message that came while the list was open drew the line
   and its `+N` again, so Esc (or an outside press) left the focus on the page and the next Tab started from the top. It
