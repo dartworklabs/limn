@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **The page verdict line beside the pages on a wide desktop (#329).** Where the PDF area leaves room right of the pages
+  (its inner width less the page's is 360px or more; back under the pages below 328px), the page verdict line is one
+  panel in that margin - the reading page's line, the page the section strip and the keys name - with the page's name,
+  its words, its state, the reason, [판정 취소], the earlier verdicts' link and the save chip in rows down it, and under
+  each page a one-row summary (`6쪽 · PL17 · 판정 #7 채택 · 처리 대기`, the reading page's in bold) that brings its page to
+  the panel. The words stand at one place on the screen for every page; the page stays centred while the margin holds
+  the panel and moves left only by what it lacks. Keys 1-5, Enter and Esc act as on the reading line; Tab from the
+  pages goes to the panel, Shift+Tab from its first control goes back where it came from, and Tab from its last goes to
+  the pin panel. 1920 takes it with the pin panel open, 1680 with it closed; narrower windows, a zoom past the bar, the
+  unfolded foldable and phones keep the line under each page as before.
+
 ## 0.4.36 — 2026-10-30
 
 Follow-ups to the reviews of 0.4.35, nearly all on the page verdict line: a long press, a tap while the reason is

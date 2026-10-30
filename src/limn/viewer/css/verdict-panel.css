@@ -1,0 +1,53 @@
+/* ---------------- The page verdict panel beside the pages (verdict-panel.js; docs/handbook/viewer.md §판정 패널, #329). On
+   a wide desktop whose PDF area leaves room right of the pages (body.pv-beside) the page verdict line is one panel there
+   (#pv-panel, the reading page's line) and a one-row summary under each page (.pv-sum) instead of a line under every page.
+   The line's own parts, words and states are components.css's and verdict-reason.css's. */
+body{--pv-panel-w:280px;--pv-panel-gap:24px;--pv-panel-pad:var(--space-3)}
+/* The side column: every page block is [margin | page | margin], the right margin at least the panel and its gap. The page
+   stays centred while both margins hold that, and moves left only by what the right one lacks (verdict-panel.js keeps the
+   left one at PV_SIDE_LEFT or more, with hysteresis). The summary is the block's second row, under the page. */
+body.pv-beside #doc .pgw{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(calc(var(--pv-panel-w) + var(--pv-panel-gap)),1fr);align-items:start}
+body.pv-beside #doc .pgw>.pg{grid-column:2;grid-row:1;margin:0 0 var(--space-1)}
+/* The panel: fixed beside the reading page (pvPanelPlace sets left, top and max-height; it scrolls inside when taller), the
+   popover's ground with a strong edge and a soft shadow - no stripe - and its parts in rows down it (.pv-stack): the name,
+   the words, the state, the reason, a failure, then a save chip and the reason popover in its flow. Never a scroll anchor
+   (the line's own rule). Its left, top and max-height are set in px; the reading line's sticky bottom and the line's right
+   inset do not apply. */
+#doc #pv-panel{position:fixed;right:auto;bottom:auto;z-index:3;box-sizing:border-box;width:var(--pv-panel-w);margin:0;padding:var(--pv-panel-pad);overflow-y:auto;overscroll-behavior:contain;
+  border:1px solid var(--border-strong);border-radius:var(--radius);background:var(--popover);box-shadow:var(--shadow-sm);
+  row-gap:var(--space-2);align-items:center;align-content:flex-start}
+/* The name: the identifier ('6쪽 · PL17') on its row, the title under it on two rows at most - two rows kept even when it is
+   shorter, so the words below stand at one height for every page. */
+#doc #pv-panel>.pv-fig{flex:1 1 100%;max-width:100%;flex-wrap:wrap;row-gap:var(--space-1);white-space:normal;font-size:var(--text-base)}
+#doc #pv-panel .pv-fig-id{flex:1 1 100%}
+#doc #pv-panel .pv-fig-t{flex:1 1 100%;min-height:2lh;white-space:normal;font-weight:400;font-size:var(--text-sm);color:var(--muted-foreground);
+  display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+#doc #pv-panel>.pv-fig-sep{display:none}
+/* The words right under the name, sharing their row (three words with their keys take about 210px of the 254px). */
+#doc #pv-panel>.vd-btns{order:0;flex:1 1 100%}
+/* The state under the words, set off by a hairline: '판정 #7 채택 · 처리 대기'; the reason - or [이유 추가], a kept draft - on a
+   row of its own; then the text actions ([판정 취소], the earlier link, a take-back's [되돌리기]) - wrapping in the panel's
+   width, nothing cut but the reason's line. A row's first part has no dot before it. */
+#doc #pv-panel>.pv-t{order:0;flex:1 1 100%;min-height:0;flex-wrap:wrap;row-gap:0;padding-top:var(--space-2);border-top:1px solid var(--border)}
+#doc #pv-panel>.pv-t>*{white-space:nowrap}
+#doc #pv-panel .pv-t>:is(.pv-rn,.pv-ra){display:flex;flex:1 1 100%;min-width:0}
+#doc #pv-panel .pv-t>:is(.pv-rn,.pv-ra)>.pv-sep,#doc #pv-panel .pv-t>:is(.pv-rn,.pv-ra)+.pv-sep{display:none}
+#doc #pv-panel .pv-note{max-width:100%;min-width:0}
+#doc #pv-panel.pv-quiet>.pv-t{border-top:0}
+/* The reason popover and a save chip stand in the panel's flow, under the state: the words above them never move, and the
+   chip never lies over a control. */
+#doc #pv-panel>.pv-pop{position:static;order:5;flex:1 1 100%;width:auto;max-height:none;box-shadow:none}
+#doc #pv-panel>.nt-chip{position:static;order:6;transform:none;max-width:100%;align-self:flex-start}
+/* The pressed word's context opens under the panel, not over its name. */
+#doc #pv-panel>.pv-onhint{top:calc(100% + var(--space-1));bottom:auto;right:0;white-space:normal;max-width:100%}
+/* The summary under each page: its identifier and verdict in the line's muted text, one row of one height whatever it says;
+   the reading page's (.on: the page the panel shows) bold in the text colour - a weight, never a height. A press brings that
+   page to the panel (pvSumGo). Far from the view it is skipped as a far line is (.pv-far; its height is fixed). */
+#doc .pv-sum{grid-column:2;grid-row:2;justify-self:start;display:flex;align-items:center;gap:var(--space-1);box-sizing:border-box;height:var(--control-h-sm);
+  margin:0 0 var(--space-5);padding:0 var(--space-1);border:0;border-radius:var(--radius-sm);background:transparent;color:var(--muted-foreground);
+  font-size:var(--text-sm);font-weight:400;white-space:nowrap;cursor:pointer;overflow-anchor:none}
+#doc .pv-sum .pv-sum-s{display:inline-flex;align-items:center;gap:var(--space-1)}
+#doc .pv-sum .pv-sum-id,#doc .pv-sum .vd-w{color:var(--foreground);font-weight:600}
+#doc .pv-sum.on{color:var(--foreground);font-weight:600}
+@media (hover:hover){#doc .pv-sum:hover{background:transparent;color:var(--foreground);text-decoration:underline;text-underline-offset:3px}}
+#doc .pv-sum.pv-far:not(:focus){content-visibility:auto;contain-intrinsic-block-size:var(--control-h-sm)}

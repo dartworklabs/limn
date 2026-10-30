@@ -63,9 +63,8 @@ SCROLL_TO = "f => {const L = document.querySelector('#left'); L.scrollTop = (L.s
 DRAWN = "n => document.querySelector('#doc .pv[data-page=\"' + n + '\"]>.pv-t').checkVisibility({contentVisibilityAuto: true})"
 
 
-class ManyLinesWhileThePdfScrolls(BrowserBase):
-    """A figure document of sixty pages, each a figure with its page verdict line, every other one with Alice's verdict,
-    on a 1400x850 desktop with the pin panel open."""
+class SixtyFigurePages(BrowserBase):
+    """A figure document of sixty pages, each a figure with its page verdict line, every other one with Alice's verdict."""
 
     WHO = ALICE
 
@@ -127,6 +126,10 @@ class ManyLinesWhileThePdfScrolls(BrowserBase):
         code, made = self.call("POST", "/api/pin", body)
         self.assertEqual(code, 200, made)
         return made["id"]
+
+
+class ManyLinesWhileThePdfScrolls(SixtyFigurePages):
+    """The sixty pages on a 1400x850 desktop with the pin panel open: a line under every page."""
 
     def on_fig(self, must_skip=True):
         """The viewer showing the figure document from its top, settled, once most lines are skipped - or, unless
@@ -251,3 +254,50 @@ class ManyLinesWhileThePdfScrolls(BrowserBase):
         h2, m = page.evaluate(margin)
         self.assertLess(h2, h - 200)
         self.assertEqual(m, "%dpx 0px %dpx 0px" % (h2, h2), "the observer's margin kept the old height")
+
+
+# The summaries under the pages the browser skips now (beside the pages: verdict-panel.js), the pages of those in the PDF
+# area's view that it may skip, and whether the panel may be skipped.
+SUMS_SKIPPED = """() => [...document.querySelectorAll('#doc .pv-sum')].filter(s => !s.querySelector('.pv-sum-id').checkVisibility({contentVisibilityAuto: true})).length"""
+SUMS_HELD_IN_VIEW = """() => {const r = document.querySelector('#left').getBoundingClientRect();
+  return [...document.querySelectorAll('#doc .pv-sum')].filter(s => {const b = s.getBoundingClientRect(); return b.bottom > r.top && b.top < r.bottom && getComputedStyle(s).contentVisibility !== 'visible';})
+    .map(s => +s.dataset.page);}"""
+
+
+class ManySummariesWhileThePdfScrolls(SixtyFigurePages):
+    """The sixty pages on a 1920x1080 desktop with the pin panel closed: the page verdict panel beside the pages
+    (docs/handbook/viewer.md §판정 패널) and a one-row summary under each page, which the browser skips far from the view
+    as it skips a far line."""
+
+    def test_far_summaries_are_skipped_and_none_in_view_nor_the_panel_and_no_page_moves(self):
+        """From the top to the end in steps: at each, most summaries are skipped, none in the view is, the panel is drawn,
+        and every page stands where it stood at the top."""
+        page = self.open(len(self.verdicts), viewport={"width": 1920, "height": 1080})
+        page.evaluate("setSide(false)")
+        page.evaluate("k=>switchDoc(k)", "fig")
+        page.wait_for_function(
+            "META&&META.doc==='fig'&&document.getElementById('pv-panel')&&document.querySelectorAll('#doc .pv-sum').length===%d"
+            % N_PAGES
+        )
+        settle(page)
+        page.wait_for_function("(%s)() > %d" % (SUMS_SKIPPED, N_PAGES // 2), timeout=8000)
+        tops = page.evaluate(PAGE_TOPS)
+        for at in (0, 0.2, 0.45, 0.7, 1):
+            with self.subTest(at=at):
+                page.evaluate(SCROLL_TO, at)
+                settle(page)
+                self.assertGreater(
+                    page.evaluate(SUMS_SKIPPED), N_PAGES // 2, "the summaries far from the view are drawn"
+                )
+                self.assertEqual(page.evaluate(SUMS_HELD_IN_VIEW), [], "summaries in view that the browser may skip")
+                self.assertEqual(
+                    page.evaluate("()=>getComputedStyle(document.getElementById('pv-panel')).contentVisibility"),
+                    "visible",
+                )
+                self.assertEqual(page.evaluate("()=>document.querySelectorAll('#doc .pgw>.pv').length"), 0)
+                moved = [
+                    (i + 1, a, b)
+                    for i, (a, b) in enumerate(zip(tops, page.evaluate(PAGE_TOPS), strict=True))
+                    if abs(a - b) > 0.01
+                ]
+                self.assertEqual(moved, [], "pages that moved")

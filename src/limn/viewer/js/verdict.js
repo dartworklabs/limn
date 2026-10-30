@@ -641,8 +641,8 @@ async function pvCancelPin(id,page,had,byKey){const p=OPEN_ALL.find(x=>x.id===id
 // 판정으로 대체됨'), and, for a person who may make one, a button per word. The current verdict's word is pressed (a toggle,
 // pvPress); while a save on the line is out, the word it saves - or the last one pressed meanwhile (PV_NEXT) - is pressed
 // instead and the state says '보류 저장 중…'. The reason popover (pvReasonPop) is the line's last child, laid above it.
-/** @param {number} page @param {Pin[]|undefined} list @param {DocVerdicts} v @param {boolean} [chip] - the line holds a save chip or its reason popover: it draws no descriptions */
-function pvLineHtml(page,list,v,chip){const cur=list&&list[0],earlier=list?list.slice(1).filter(p=>pinState(p)===PIN_STATE.OPEN):[];
+/** @param {number} page @param {Pin[]|undefined} list @param {DocVerdicts} v @param {boolean} [chip] - the line holds a save chip or its reason popover: it draws no descriptions @param {boolean} [panel] - the panel beside the pages (verdict-panel.js) */
+function pvLineHtml(page,list,v,chip,panel){const cur=list&&list[0],earlier=list?list.slice(1).filter(p=>pinState(p)===PIN_STATE.OPEN):[];
   // Before the first pin list is applied (PINS_APPLIED_SEQ) the line knows no verdict yet: '판정 읽는 중…', buttons waiting.
   const loading=!PINS_APPLIED_SEQ;
   const k=cur&&verdictOf(cur),other=!!cur&&!!cur.author&&!isMe(cur.author);
@@ -681,8 +681,11 @@ ${pvTipAttr(!!chip,eName+' — '+tr('이 쪽의 더 새 판정으로 대체되�
   // Its two spans are on every line, hidden but on the reading one: the line's children keep their places when the reading
   // page moves, so the morph (pvMorph) never takes a focused button out of the page. A hidden one holds the identifier, so
   // every line is fitted as the reading line it may become (pvFit).
-  const rd=PV_READ===page,nm=rd?pvFigParts(page):{id:pvFigParts(page).id,rest:''};
-  const name=html`<span class="pv-fig" translate="no"${rd?'':html` hidden`}><span class="pv-fig-id">${nm.id}</span>${nm.rest?html`<span class="pv-fig-t">${' · '+nm.rest}</span>`:''}</span><span class="pv-sep pv-fig-sep" aria-hidden="true"${rd?'':html` hidden`}>·</span>`;
+  // The panel beside the pages (verdict-panel.js) names its page and figure whole: the title on rows of its own under the
+  // identifier, kept even when empty, so the words below stand at one height for every page.
+  const rd=PV_READ===page||!!panel,nm=rd?pvFigParts(page):{id:pvFigParts(page).id,rest:''};
+  const name=panel?html`<span class="pv-fig" translate="no"><span class="pv-fig-id">${nm.id}</span><span class="pv-fig-t">${nm.rest}</span></span><span class="pv-sep pv-fig-sep" aria-hidden="true">·</span>`
+    :html`<span class="pv-fig" translate="no"${rd?'':html` hidden`}><span class="pv-fig-id">${nm.id}</span>${nm.rest?html`<span class="pv-fig-t">${' · '+nm.rest}</span>`:''}</span><span class="pv-sep pv-fig-sep" aria-hidden="true"${rd?'':html` hidden`}>·</span>`;
   const keys=PV_KEYS===page,target=tl('{page}쪽',{page}),held=PV_TOGGLE_HOLD.get(slot),hold=held&&held.until>Date.now()?held.key:null;
   const pr=(/** @type {string} */key)=>key!==want?PV_PRESS.NONE:nx||sv!==undefined?PV_PRESS.SAVING:cur?pvPressOf(cur):PV_PRESS.NONE;
   const btns=canVerdict()?html`<span class="vd-btns">${v.choices.map((c,i)=>vdButton(c,VD_WHERE.PAGE,page,target,loading||c.key===hold,keys?i+1:0,!!chip,pr(c.key)))}</span>`:'';
@@ -693,7 +696,11 @@ ${pvTipAttr(!!chip,eName+' — '+tr('이 쪽의 더 새 판정으로 대체되�
   const lu=PV_LINE_UNDO.get(slot),undo=lu&&NOTICES.has(lu.n)&&canVerdict()?html`<span class="pv-sep pv-un" aria-hidden="true">·</span><button type="button" class="btn-ghost btn-sm pv-undo pv-un hit" \
 data-act="pv-undo" data-id="u${lu.id}" aria-label="${tl('되돌리기 — 거둔 판정 #{id}',{id:lu.id})}">${tr('되돌리기')}</button>`:'';
   if(lu&&!undo)PV_LINE_UNDO.delete(slot);
-  return html`${name}<span class="pv-t">${text}${saving}${armSay}${cancel}${undo}${early}</span>${btns}${err}${pvOnHint(page,v,want,nx||sv!==undefined?PV_PRESS.SAVING:cur?pvPressOf(cur):PV_PRESS.NONE)}${pvReasonPop(page)}`;}
+  const hint=pvOnHint(page,v,want,nx||sv!==undefined?PV_PRESS.SAVING:cur?pvPressOf(cur):PV_PRESS.NONE);
+  // In the panel the words come right under the name - one place on the screen for every page, whatever the state under
+  // them says - and the Tab order follows the rows: the words, then the state's links and actions.
+  if(panel)return html`${name}${btns}<span class="pv-t">${text}${saving}${armSay}${cancel}${undo}${early}</span>${err}${hint}${pvReasonPop(page)}`;
+  return html`${name}<span class="pv-t">${text}${saving}${armSay}${cancel}${undo}${early}</span>${btns}${err}${hint}${pvReasonPop(page)}`;}
 // A line control's description: data-tip, or - on a line that holds a save chip or its reason popover (pvLineHtml chip) -
 // data-tip-press, which only a long press shows (tooltip.js): no box over either, and a long press still presses nothing.
 /** @param {boolean} quiet @param {string} tip */
@@ -727,7 +734,7 @@ function fillPv(el,page,list,v){el.dataset.page=String(page); el.classList.toggl
   el.setAttribute('role','group'); el.setAttribute('aria-label',tl('{page}쪽 판정',{page}));
   const chip=el.querySelector(':scope>.nt-chip');   // a save's undo chip (drawChips) stays on its line; drawChips moves it if it is another pin's
   // While its save chip stands or its reason popover is open the line draws no descriptions: no box over either.
-  const m=pvLineHtml(page,list,v,!!chip||pvReasonOn(page)); if(PV_TEXT.get(el)===m.text)return; PV_TEXT.set(el,m.text);
+  const m=pvLineHtml(page,list,v,!!chip||pvReasonOn(page),el.id==='pv-panel'); if(PV_TEXT.get(el)===m.text)return; PV_TEXT.set(el,m.text);
   // The focused reason field keeps the focus and the caret when the line around it changes shape (its verdict's save landing
   // while it is typed in: a morph by place can replace it), so what is typed next stays text - never a verdict key.
   const a=document.activeElement,f=pvIsReasonField(a)&&el.contains(a)?/** @type {HTMLTextAreaElement} */(a):null,sel=f?[f.selectionStart,f.selectionEnd]:null;
@@ -760,6 +767,8 @@ const PV_MIN_W=320;   // a cut line narrower than this keeps its page's width an
 function sizePv(){const ir=pvInsetR(),L=$('#left'),lines=$$('#doc .pv');
   L.style.setProperty('--pv-inset-r',ir+'px'); PV_INSET_R=ir; $('#doc').classList.remove('pv-stack');
   if(!lines.length||!lines[0].getClientRects().length)return;
+  if(pvSideCheck())return;   // a zoom or a new width took the room across its bar: drawn again beside or under the pages (verdict-panel.js)
+  if(PV_SIDE){pvFit(lines); return;}   // the panel keeps its own width
   const room=innerW()-ir,lr=L.getBoundingClientRect(),fitted=L.scrollWidth<=L.clientWidth+1;
   const end=lr.left+L.clientLeft+L.clientWidth-parseFloat(getComputedStyle(L).paddingRight)-ir;   // the room's right edge on screen
   const at=lines.map(e=>{const pg=document.getElementById('p'+e.dataset.page),blk=e.parentElement; if(!pg||!blk)return null;
@@ -786,7 +795,9 @@ const PV_KEY_SAVED=/** @type {Set<number>} */(new Set());
 // the area is the page's root scroller there - into the zoomed view, which went from where it was to the page's top
 // (422 -> 0 at 2x) at every drawing of the lines: a save, a take-back (#320).
 /** @param {HTMLElement[]} lines */
-function pvFit(lines){const held=lines.map(pvRowsHeld),D=$('#doc'),hold=pvHoldView(true); try{
+function pvFit(lines){const panel=lines.find(l=>l.id==='pv-panel');
+  if(panel){pvPanelFit(panel); lines=lines.filter(l=>l!==panel); if(!lines.length)return;}   // the panel: rows down it, never one row (verdict-panel.js)
+  const held=lines.map(pvRowsHeld),D=$('#doc'),hold=pvHoldView(true); try{
   pvFarHold(lines);   // a line skipped far from the view is laid out to be measured, and keeps its height after (pvFarLetGo)
   if(PV_KEY_SAVE)PV_KEY_SAVED.add(PV_KEY_SAVE);
   lines.forEach((l,i)=>{l.classList.toggle('pv-kw',PV_KEY_SAVED.has(Number(l.dataset.pin)));
@@ -981,6 +992,7 @@ function pvChipPlace(lines){const chips=lines.map(l=>/** @type {HTMLElement|null
 function pvPopPlace(){const pop=/** @type {HTMLElement|null} */(document.querySelector('#doc .pv>.pv-pop'));
   $$('#doc .pv.pv-pop-below').forEach(l=>{if(!pop||l!==pop.parentElement)l.classList.remove('pv-pop-below');});
   if(!pop)return; const l=/** @type {HTMLElement} */(pop.parentElement),L=$('#left'),lr=L.getBoundingClientRect();
+  if(l.id==='pv-panel'){l.classList.remove('pv-pop-below'); l.style.removeProperty('--pv-pop-max'); return;}   // in the panel's flow, under its state
   let top=Math.max(lr.top,0); const s=document.getElementById('section-strip');
   if(s&&s.getClientRects().length){const sr=s.getBoundingClientRect(); if(sr.bottom>top&&sr.top<=top+1)top=sr.bottom;}
   const cover=(parseFloat(getComputedStyle(document.body).getPropertyValue('--pv-inset'))||0)+(parseFloat(L.style.getPropertyValue('--pv-kb-over'))||0);
@@ -1011,12 +1023,17 @@ function drawPageVerdicts(){const v=pageVerdictsOn(),f=/** @type {HTMLElement|nu
   PV_SHOWN=new Set();
   // A document with no page lines has no reason field either: a session left from the one before (or from this one before
   // its words went) closes here, its text saved - pvReasonSync, after this, is never reached for it.
-  if(!v||!META){if(PV_REASON)pvReasonLeave(); $$('#doc .pv').forEach(e=>e.remove()); pvTypingSync(); return;}
+  if(!v||!META){if(PV_REASON)pvReasonLeave(); $$('#doc .pv,#doc .pv-sum').forEach(e=>e.remove()); if(PV_SIDE)pvSideApply(false); pvTypingSync(); return;}
+  pvSideSync();   // beside the pages or under them (verdict-panel.js)
   pvReasonSync(); const map=pageVerdictPins(); PV_READ=pvReadingPage(); PV_KEYS=pvKeysPage(PV_READ);
-  $$('#doc .pg').forEach(pg=>{const page=+pg.dataset.page; let line=/** @type {HTMLElement|null} */(pg.nextElementSibling);
-    if(!pageTakesVerdict(page)){if(line&&line.classList.contains('pv'))line.remove(); return;}   // the map says this page takes none
-    if(!line||!line.classList.contains('pv')){line=document.createElement('div'); line.className='pv'; pg.after(line); if(PV_CHIP_WATCH)PV_CHIP_WATCH.observe(line,{childList:true});}
-    fillPv(line,page,map.get(page),v);});
+  // Beside the pages: one panel for the reading page, and every page's verdicts are its - none draws a page-size mark.
+  if(PV_SIDE){$$('#doc .pgw>.pv').forEach(e=>e.remove()); map.forEach(list=>list.forEach(p=>PV_SHOWN.add(p.id))); pvPanelFill(map,v);}
+  else{pvPanelGone();
+    $$('#doc .pg').forEach(pg=>{const page=+pg.dataset.page; let line=/** @type {HTMLElement|null} */(pg.nextElementSibling);
+      if(!pageTakesVerdict(page)){if(line&&line.classList.contains('pv'))line.remove(); return;}   // the map says this page takes none
+      if(!line||!line.classList.contains('pv')){line=document.createElement('div'); line.className='pv'; pg.after(line); if(PV_CHIP_WATCH)PV_CHIP_WATCH.observe(line,{childList:true});}
+      fillPv(line,page,map.get(page),v);});}
+  pvSums(map);
   sizePv(); pvStick();
   if(had)vdRefocus(f);
   pvReasonAfterLines();   // a reason field that went from under the focus hands it to its line
@@ -1032,6 +1049,7 @@ function jumpPv(id){if(!PV_SHOWN.has(id))return false; const p=PINS.find(x=>x.id
   const t=p&&pageTargetOf(p,META?META.kind:undefined); if(!t)return false;
   if(LAYOUT===LAYOUT_MODE.NARROW)setSide(false);
   const flash=el=>{el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); clearTimeout(el._flT); el._flT=setTimeout(()=>el.classList.remove('flash'),1200);};
+  if(PV_SIDE){if(!document.getElementById('p'+t.page))return false; pvBring(t.page,true); flash(pvPanel()); return true;}   // the panel follows the page to the reading place
   const line=/** @type {HTMLElement|null} */(document.querySelector('#doc .pv[data-page="'+t.page+'"]')); if(!line)return false;
   const block=/** @type {HTMLElement} */(line.parentElement),L=$('#left');
   block.scrollIntoView({behavior:SMOOTH,block:block.getBoundingClientRect().height<=L.clientHeight?'center':'start'}); flash(line); return true;}
@@ -1076,7 +1094,7 @@ function pvFarLetGo(lines){if(typeof IntersectionObserver==='undefined')return; 
 /** @param {HTMLElement[]} lines @param {number} vh */
 function pvFarWatch(lines,vh){
   if(!PV_FAR_IO||PV_FAR_H!==vh){if(PV_FAR_IO)PV_FAR_IO.disconnect(); PV_FAR_SEEN.clear(); PV_FAR_H=vh;
-    PV_FAR_IO=new IntersectionObserver(pvFarSort,{root:$('#left'),rootMargin:vh+'px 0px'}); lines=$$('#doc .pv');}
+    PV_FAR_IO=new IntersectionObserver(pvFarSort,{root:$('#left'),rootMargin:vh+'px 0px'}); lines=$$('#doc .pgw>.pv,#doc .pv-sum');}   // a line or a summary under a page; never the panel
   const io=PV_FAR_IO;
   PV_FAR_SEEN.forEach(l=>{if(!l.isConnected){io.unobserve(l); PV_FAR_SEEN.delete(l);}});
   lines.forEach(l=>{if(!PV_FAR_SEEN.has(l)&&l.isConnected){io.observe(l); PV_FAR_SEEN.add(l);}});}
@@ -1104,7 +1122,8 @@ function pvFarSort(es){for(const e of es){const l=/** @type {HTMLElement} */(e.t
 // another figure's buttons under a resting mouse or thumb. It does not float while a selection is being written (the
 // composer has its own verdict row, and the line would cover the selection - or on a phone the sheet) nor over an open
 // phone sheet (CSS). pvStick follows the reading page and marks the floating line; run once a frame while the area scrolls.
-function pvStick(){const lines=$$('#doc .pv'); if(!lines.length)return; const L=$('#left'),lr=L.getBoundingClientRect();
+function pvStick(){if(pageVerdictsOn()&&pvSideCheck())return;   // the room crossed its bar: drawn again beside or under the pages (verdict-panel.js), which ran this
+  const lines=$$('#doc .pv'); if(!lines.length)return; const L=$('#left'),lr=L.getBoundingClientRect();
   if(!lr.height)return;
   const pad=getComputedStyle(L).paddingBottom; if(L.style.getPropertyValue('--pv-pad-b')!==pad)L.style.setProperty('--pv-pad-b',pad);   // the end padding a sticky line keeps clear of (components.css)
   // A keyboard laid over the page without the layout giving way (the visual viewport shorter than the PDF area reaches - an
@@ -1124,10 +1143,13 @@ function pvStick(){const lines=$$('#doc .pv'); if(!lines.length)return; const L=
   // reading line, the reading page flipped back and the line grew again, 466 times in 14 drags.
   if(r!==PV_READ||k!==PV_KEYS){const was=[PV_READ,PV_KEYS]; PV_READ=r; PV_KEYS=k; const map=pageVerdictPins(),v=pageVerdictsOn();
     const re=/** @type {HTMLElement[]} */([]);
-    if(v)new Set([...was,r,k]).forEach(n=>{const e=/** @type {HTMLElement|null} */(n?document.querySelector('#doc .pv[data-page="'+n+'"]'):null); if(e){fillPv(e,n,map.get(n),v); re.push(e);}});
+    if(v&&PV_SIDE){pvPanelFill(map,v); re.push(pvPanel());}   // the panel shows the new reading page
+    else if(v)new Set([...was,r,k]).forEach(n=>{const e=/** @type {HTMLElement|null} */(n?document.querySelector('#doc .pv[data-page="'+n+'"]'):null); if(e){fillPv(e,n,map.get(n),v); re.push(e);}});
     if(re.length)pvFit(re);   // the reading line names its figure: its row is measured again
     pvFocusOffPage(r,was[0]);}
-  lines.forEach(l=>{const pg=/** @type {HTMLElement|null} */(l.previousElementSibling); if(!pg)return; const b=l.getBoundingClientRect();
+  pvPanelPlace(); pvSumOn();
+  lines.forEach(l=>{if(l.id==='pv-panel')return;   // the panel stands fixed beside the pages: it never floats
+    const pg=/** @type {HTMLElement|null} */(l.previousElementSibling); if(!pg)return; const b=l.getBoundingClientRect();
     const stuck=l.classList.contains('reading')&&b.bottom>lr.top&&b.top<lr.bottom&&b.top<pg.getBoundingClientRect().bottom+4;   // in its own place it stands 8px under the page
     l.classList.toggle('stuck',stuck); pvLean(l,pg,b,stuck,L,lr);});
   pvPopPlace();}
@@ -1228,6 +1250,8 @@ function verdictKey(e){if(e.defaultPrevented||e.repeat||e.isComposing||e.ctrlKey
   if(pvAutoScrolling()){e.preventDefault(); pvSayGliding(); return;}   // a jump still gliding: the reading page is not yet the one asked for
   if(!pageTakesVerdict(at)){e.preventDefault(); lineNote('이 쪽은 판정을 받지 않습니다',NOTICE_KIND.INFO,null,{source:'verdict-key',life:NOTICE_LIFE.TIMER}); return;}
   if(VD_ARM&&VD_ARM.kbd&&VD_ARM.where===VD_WHERE.PAGE&&VD_ARM.page!==at)disarmVerdict(true,true);
+  // The panel shows the page under the reading line at the key, also before the frame that would show it (verdict-panel.js).
+  if(PV_SIDE&&pvPanel().dataset.page!==String(at))pvStick();
   const b=/** @type {HTMLElement|null} */(document.querySelector('#doc .pv[data-page="'+at+'"] button[data-act="pv-save"][data-key="'+CSS.escape(c.key)+'"]'));
   if(!b)return; e.preventDefault();
   // A digit pressed with the focus outside the pages (an outline entry, the page list's or the section strip's button, a
@@ -1362,7 +1386,9 @@ addEventListener('keydown',e=>{const a=/** @type {HTMLElement|null} */(document.
 // or mark is left to the DOM's order - but for the stop Tab from the PDF area went to in view while the reading page had no
 // line (PV_IN_VIEW), which leaves the same way.
 addEventListener('keydown',e=>{if(e.key!=='Tab'||!e.shiftKey||e.ctrlKey||e.metaKey||e.altKey||e.defaultPrevented)return;
-  const a=/** @type {HTMLElement|null} */(document.activeElement),blk=a&&a.closest?a.closest('#doc .pgw'):null,l=blk&&blk.querySelector(':scope>.pv');
+  // The panel beside the pages is the reading line and its own block (verdict-panel.js).
+  const a=/** @type {HTMLElement|null} */(document.activeElement),panel=a&&a.closest?a.closest('#pv-panel'):null;
+  const blk=panel||(a&&a.closest?a.closest('#doc .pgw'):null),l=panel||(blk&&blk.querySelector(':scope>.pv'));
   const iv=PV_IN_VIEW; if(iv&&!(currentVisit(iv.visit)&&iv.build===((META&&META.pages_build)||'')))PV_IN_VIEW=null;
   if(!(a&&PV_IN_VIEW&&PV_IN_VIEW.el===a)){   // the stop Tab went to in view (above), on a page with a line or none
     if(!a||!blk||!l||Number(/** @type {HTMLElement} */(l).dataset.page)!==pvReadingPage())return;

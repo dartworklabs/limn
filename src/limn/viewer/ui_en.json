@@ -1277,6 +1277,7 @@
  "판정 저장": "Saving the verdict",
  "{page}쪽 영역": "p. {page}, region",
  "{page}쪽 판정": "Verdict for p. {page}",
+ "{page}쪽 판정 패널로": "Show p. {page} in the verdict panel",
  "{word} 판정으로 저장 — {target}": "Save as {word} — {target}",
  "{word} 확정": "Confirm {word}",
  "#{id} 저장됨 · {word} 판정": "#{id} saved · verdict {word}",
