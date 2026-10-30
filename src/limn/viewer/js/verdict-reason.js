@@ -457,8 +457,11 @@ ${pvReasonDirty(r)&&!r.writing&&r.id?html`<button type="button" class="btn-ghost
 // write, a reload's other drafts, a page's draft whose verdict went) on any line, or the way to write one for the person's
 // own open verdict without a reason - on the reading line and on the line of the last save (PV_LAST_SAVE): after a key save,
 // while the keys act on the line (a mouse screen), 'Enter 이유 쓰기' (Enter opens it, pvReasonEnterKey); else [이유 추가] - a
-// click save's, as before. The other lines
-// keep their length. Every name holds the words the button shows. Nothing for the reason the open popover holds.
+// click save's, as before. Every other line with such a verdict holds that [이유 추가] hidden (the identifier's way, hidden:
+// never shown, focused or heard), which pvFit lays out unseen (#doc.pv-measure, components.css): every line is fitted as the
+// reading line it may become, so becoming it or leaving it never stacks or unstacks a line (#308 review: a line with an
+// earlier link stacked only while read). Every name holds the words the button shows. Nothing for the reason the open
+// popover holds.
 /** @param {number} page @param {Pin|undefined} cur */
 function pvReasonInline(page,cur){const open=pvReasonOn(page)&&!!PV_REASON&&(!cur||PV_REASON.id===cur.id||!PV_REASON.id),pd=open?null:rdGet(DOC,'p'+page);
   const sep=html`<span class="pv-sep" aria-hidden="true">·</span>`;
@@ -476,7 +479,8 @@ aria-label="${tl('{note} — 저장된 이유 수정, 판정 #{id}',{id:cur.id,n
     ?keys?html`<span class="pv-ra">${sep}<button type="button" class="btn-ghost btn-sm pv-add hit" data-act="pv-reason-open" aria-keyshortcuts="Enter" \
 data-tip="${tr('이 판정의 이유를 씁니다. 메모로 붙습니다')}"><kbd class="pv-kbd">Enter</kbd> ${tr('이유 쓰기')}</button></span>`
       :html`<span class="pv-ra">${sep}<button type="button" class="btn-ghost btn-sm pv-add hit" data-act="pv-reason-open" \
-data-tip="${tr('이 판정의 이유를 씁니다. 메모로 붙습니다')}">${tr('이유 추가')}</button></span>`:'';
+data-tip="${tr('이 판정의 이유를 씁니다. 메모로 붙습니다')}">${tr('이유 추가')}</button></span>`
+    :html`<span class="pv-ra" hidden>${sep}<button type="button" class="btn-ghost btn-sm pv-add hit" tabindex="-1">${tr('이유 추가')}</button></span>`;   // no data-act: no focus or press finds it
   return html`${saved}${act}`;}
 // After a line is drawn (fillPv): the open field holds the session's text - put in only when it differs and no input method
 // is composing - and its height follows its lines.

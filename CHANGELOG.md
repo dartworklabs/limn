@@ -5,6 +5,21 @@
 Follow-ups to the reviews of 0.4.34. The agent contract is unchanged: the server writes integer anchor offsets, and
 those read as before.
 
+### Changed
+
+- **A resting stacked line names its page.** A page verdict line that stacks (a phone, a folded cover, a page at a small
+  zoom) and is not the reading line now shows its identifier (`6쪽 · PL17`) in the row the reading line's name takes, in
+  the line's muted text at weight 400; the reading line still names its figure in full, the foreground at 600. The row
+  was kept empty since 0.4.34 so that the reading page never changes a line's height, and on a 390px phone it left
+  about 44px between a page and the state under it - the line looked loose, as far from its page as from the next. The
+  row's height, the line's height and its words' places are unchanged whichever page is read (#308).
+- **English: `Retract` for 판정 취소, `Enter reason` after a key save.** The line's take-back reads `Retract` (was
+  `Cancel verdict`), with the same verb in its description, its name, the pressed word's hint and the status line
+  (`Verdict #17 채택 retracted · …`), and every English take-back wording says retract (the keys' help, the save's undo,
+  the card's [Erase], `Undo — retracted verdict #17`, `… was retracted elsewhere`); after a digit-key save the way to the
+  reason reads `Enter reason` (was
+  `Enter write a reason`). Both are the line's own words, sized for one row beside the words on a 620px line.
+
 ### Fixed
 
 - **`superseded_by` compares two verdicts' anchors as JSON values** (#303). Two closed verdict pins on the same lines
@@ -39,6 +54,28 @@ those read as before.
   found by walking out from the area, past parts that are not drawn. Each Tab outside the pages read all focusable
   elements of the document and their boxes (678 on 91 pages, about 1.3 ms a press; now about 0.04 ms). Tab from the
   section strip also goes to the reading line when page 1 has a pin mark before its line.
+- **English lines stay one row on a desktop.** At 1280 x 900 with the panel open (a 620px line) a third of the 88
+  resting lines of a 91-page figure document stacked into three rows, and a digit-key save stacked the rest. A line now
+  stacks before any press only when the row the press brings does not fit, summed from what is measured: the words as
+  drawn, plus the check a press puts on a word (21px) where none is pressed yet; the identifier and the dot after it;
+  the fresh verdict's state (`pvStateNeed`: the wider of the state after a click and, on a mouse screen, after a key
+  save with `Enter 이유 쓰기`, the pin number drawn with the next pin's digits, plus one gap for a save's words); and the
+  row's gaps. The 8px and 24px allowances it replaces counted the dot (3px) as 8px and the check as nothing, so a line
+  within 21px of the bar also stacked under its first press, in Korean too; measured on the click state alone, a line at
+  the bar stacked right after a key save. While a save is out its words (`· 보류 저장 중…`) give way down to nothing,
+  with the reason, and the earlier link steps out: the line's rows are held then, and at their 6em the words of a second
+  save pushed `판정 취소` past the row's end, where it was clipped. English at 1280, 1366, 1400 (the test default), 1440, 1536 and 1920 with the panel open: no line stacks;
+  Korean: none, as before.
+- **A line with an earlier verdict keeps its rows whichever page is read.** `이유 추가` shows only on the reading line and
+  the last save's, so a line with the person's own open verdict, no reason and an earlier verdict's link stacked near
+  its bar only while it was read, and a stacked one grew a row (91 -> 123px at 420px) - breaking 0.4.34's rule that the
+  reading page never changes a line's height. Such a line now holds that `이유 추가` hidden (never shown, focused or read
+  aloud), and the fit lays it out unseen, as it does the identifier and the key digits; a stacked line keeps the reading
+  line's state height as its least (`--pv-t-h`), its state rows at the top under the identifier and the room kept below.
+- **No description box over the pressed word's description after a key save.** The focus a digit-key save moves to
+  `Enter 이유 쓰기` no longer raises that control's description box; on a one-row English line at 1280 it overlapped the
+  pressed word's description (`Current verdict: … press again to retract it`) by 39px. A focus the person moves raises
+  it as before.
 
 ## 0.4.34 — 2026-10-30
 

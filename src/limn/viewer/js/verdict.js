@@ -499,7 +499,11 @@ async function savePageVerdict(page,key,kb,ctx0){const ctx=ctx0||pvSaveCtx(page)
     drawPageVerdicts();
     if(currentVisit(visit)&&kb&&!away){const c=/** @type {HTMLElement|null} */(document.querySelector('#doc .pv[data-page="'+page+'"] [data-act="pv-reason-open"]'));
       if(c&&saved)c.focus({preventScroll:true}); else pvRefocus(page,key);
-      if(saved&&document.activeElement===document.body)pvFocusLine(page);}   // never left on nothing: the line's own control
+      if(saved&&document.activeElement===document.body)pvFocusLine(page);   // never left on nothing: the line's own control
+      // The focus the save moved there raises no description box: the press's own description of the pressed word stands
+      // over the words for a few seconds (pvOnShow), and on a one-row line at 1280 the two boxes overlapped by 39px (#308
+      // review). A focus the person moves raises it as before.
+      if(saved)hideTip();}
     const nx=PV_NEXT.get(slot); PV_NEXT.delete(slot);
     if(nx){const cur=pvCurOn(ctx.doc,page);   // the last press made meanwhile, on the document it was made on
       if(!(cur&&verdictOf(cur)===nx.key)){const fresh=here()?pvSaveCtx(page):null; savePageVerdict(page,nx.key,!!nx.how,fresh||ctx);}}}}
@@ -727,7 +731,7 @@ function sizePv(){const ir=pvInsetR(),L=$('#left'),lines=$$('#doc .pv');
 // Read and written in batches.
 /** @param {HTMLElement[]} lines */
 function pvFit(lines){const held=lines.map(pvRowsHeld),D=$('#doc');
-  lines.forEach((l,i)=>{if(!held[i]){l.classList.toggle('pv-stack',false); l.classList.toggle('pv-tight',false);}});
+  lines.forEach((l,i)=>{if(!held[i]){l.classList.toggle('pv-stack',false); l.classList.toggle('pv-tight',false); l.style.removeProperty('--pv-t-h');}});
   // Every line is measured as the reading line (#doc.pv-measure shows each hidden identifier, components.css): a line that
   // stacked only while it was read shrank when the reading page left (91 -> 32px on a 260px page) and moved the pages.
   D.classList.add('pv-measure');
@@ -741,38 +745,67 @@ function pvFit(lines){const held=lines.map(pvRowsHeld),D=$('#doc');
       ||(!!g&&g.getClientRects().length>0&&g.getBoundingClientRect().top>=tr.bottom-1);};
   // A line too narrow for the state a press brings beside its words stacks whatever it shows now: a press that turned '판정 없음'
   // into '판정 #26 보류 · 처리 대기 · 이유 추가 · 판정 취소' stacked it then and moved every word under the finger (a phone, a page at
-  // a small zoom: 3 rows, 91px, the words 59px down). That state's width is measured, not guessed (pvStateNeed).
-  const need=lines.length?pvStateNeed(lines[0]):0;
-  const narrow=lines.map((l,i)=>{if(held[i])return false; const g=l.querySelector(':scope>.vd-btns'),f=l.querySelector(':scope>.pv-fig>.pv-fig-id'); if(!g||!g.getClientRects().length)return false;
-    return l.getBoundingClientRect().width<g.getBoundingClientRect().width+(f&&f.getClientRects().length?f.getBoundingClientRect().width+8:0)+need+24;});
+  // a small zoom: 3 rows, 91px, the words 59px down). That state's width is measured, not guessed (pvStateNeed), and so is
+  // all that shares its row: the words as they are drawn, with the check a press puts on one of them (PV_NEED.check) where
+  // none is pressed yet; the identifier and the dot after it; and the row's gaps between the four (its column gap). The sum
+  // is the row the press brings, to the subpixel. An 8px and a 24px allowance in its place counted the dot (3px) as 8 and
+  // the check as nothing - 5px too much for a resting line, 21px too little for a press: a line within 21px of the bar
+  // stacked under its first press, a Korean one too (#308; the English words are sized for a 620px line, ui_en.json).
+  const need=lines.length?pvStateNeed(lines[0]):0,gap=lines.length?parseFloat(getComputedStyle(lines[0]).columnGap)||0:0;
+  const W=(/** @type {Element|null} */e)=>e&&e.getClientRects().length?e.getBoundingClientRect().width:0;
+  const narrow=lines.map((l,i)=>{if(held[i])return false; const g=l.querySelector(':scope>.vd-btns'),f=W(l.querySelector(':scope>.pv-fig>.pv-fig-id')); if(!g||!g.getClientRects().length)return false;
+    const press=g.querySelector(':scope>.vd-b[aria-pressed="true"]')?0:PV_NEED.check,id=f?f+W(l.querySelector(':scope>.pv-fig-sep'))+2*gap:0;
+    return l.getBoundingClientRect().width<W(g)+press+id+gap+need;});
   let over=lines.map((l,i)=>!held[i]&&(narrow[i]||tight(l)));
   if(LAYOUT===LAYOUT_MODE.WIDE&&over.some(o=>o)){lines.forEach((l,i)=>{if(over[i])l.classList.add('pv-tight');}); over=lines.map((l,i)=>over[i]&&(narrow[i]||tight(l)));}
   lines.forEach((l,i)=>{if(over[i])l.classList.add('pv-stack');});
+  // A stacked line's state rows are the reading line's too: their height, measured here with what only the reading line shows
+  // ([이유 추가], laid out unseen), is the least the state takes (--pv-t-h, components.css). Beside an earlier link a 420px
+  // line's state wrapped to a second row only while it was read, and the line grew by it (91 -> 123px, #308 review).
+  // Where that is more than the state takes now (.pv-t-kept), its rows stand at the top and the room is kept under them: centred
+  // in it, a resting line's state stood 40-65px off its identifier's row (#308 review).
+  const th=lines.map((l,i)=>{const t=over[i]?l.querySelector(':scope>.pv-t'):null; return t?t.getBoundingClientRect().height:0;});
   D.classList.remove('pv-measure');
+  const nat=lines.map((l,i)=>th[i]?/** @type {HTMLElement} */(l.querySelector(':scope>.pv-t')).getBoundingClientRect().height:0);
+  lines.forEach((l,i)=>{if(held[i])return; const k=th[i]>nat[i]+0.5; l.classList.toggle('pv-t-kept',k); if(k)l.style.setProperty('--pv-t-h',th[i]+'px');});
   pvChipPlace(lines);
   // A word group that wraps keeps every button at its own width (vdWrapFit), read for every line before any is written.
   const groups=lines.map(l=>l.querySelector('.vd-btns')),wrap=groups.map(g=>!!g&&new Set([...g.children].map(b=>Math.round(b.getBoundingClientRect().top))).size>1);
   groups.forEach((g,i)=>{if(g)g.classList.toggle('wrapped',wrap[i]);});}
-// The width the state of a person's fresh verdict takes on a line in a row - '판정 #000 <the longest word> · 처리 대기 ·
-// 이유 추가 · 판정 취소' - drawn once in a hidden line like line l (its text size, the screen's language and pointer) and kept
-// until those change. A line narrower than it beside its words and identifier is stacked before any press (pvFit).
-let PV_NEED={key:'',w:0};
+// The width the state of a person's fresh verdict takes on a line in a row, drawn in a hidden line like line l (its text size,
+// the screen's language and pointer) and kept until those or the next pin number's digits change. Two states follow a
+// press: after a click '판정 #0 <the longest word> · 처리 대기 · 이유 추가 · 판정 취소', and on a mouse screen after a key
+// 'Enter 이유 쓰기' in place of [이유 추가] - the wider of the two is the need, with one more gap of the state's row for a
+// save's words ('· 보류 저장 중…', .pv-busy), which give way down to nothing while the save is out (components.css). The pin
+// number is drawn with as many digits as the next pin's (pvTopId), each a 0. A line narrower than that beside its words
+// and identifier is stacked before any press (pvFit). Measuring the click state alone, a key save near the bar stacked
+// the line under the press, and a second save's words pushed [판정 취소] out of the held row (#308). The probe then draws
+// the longest word pressed and not (its check before it, its weight; one key mark on both): what a press adds to the
+// words, kept as PV_NEED.check - 21px, which a line with no pressed word did not count and lost to its first press.
+let PV_NEED={key:'',w:0,check:0};
 /** @param {HTMLElement} l */
 function pvStateNeed(l){const v=pageVerdictsOn(); if(!v)return 0;
-  const word=v.choices.map(c=>c.label).reduce((a,b)=>b.length>a.length?b:a,''),key=[getComputedStyle(l).fontSize,tr('판정'),word,MQ_COARSE.matches].join('|');
+  const word=v.choices.map(c=>c.label).reduce((a,b)=>b.length>a.length?b:a,''),fine=matchMedia('(pointer:fine)').matches,num='#'+'0'.repeat(String(pvTopId()+1).length);
+  const key=[getComputedStyle(l).fontSize,tr('판정'),word,MQ_COARSE.matches,fine,num].join('|');
   if(PV_NEED.key===key)return PV_NEED.w;
   const probe=document.createElement('div'); probe.className='pv'; probe.setAttribute('aria-hidden','true');
   probe.style.cssText='position:absolute;left:0;top:0;width:max-content;visibility:hidden;pointer-events:none';
-  setHtml(probe,html`<span class="pv-t"><span class="pv-s">${tr('판정')} <span class="pin-ref pv-ref hit">#000</span> <b class="vd-w">${word}</b></span><span class="pv-sep">·</span>\
-<span class="pv-st">${tr('처리 대기')}</span><span class="pv-ra"><span class="pv-sep">·</span><button type="button" class="btn-ghost btn-sm pv-add hit" tabindex="-1">${tr('이유 추가')}</button></span>\
+  $('#doc').appendChild(probe);
+  const state=(/** @type {boolean} */kb)=>{setHtml(probe,html`<span class="pv-t"><span class="pv-s">${tr('판정')} <span class="pin-ref pv-ref hit">${num}</span> <b class="vd-w">${word}</b></span><span class="pv-sep">·</span>\
+<span class="pv-st">${tr('처리 대기')}</span><span class="pv-ra"><span class="pv-sep">·</span><button type="button" class="btn-ghost btn-sm pv-add hit" tabindex="-1">\
+${kb?html`<kbd class="pv-kbd">Enter</kbd> ${tr('이유 쓰기')}`:tr('이유 추가')}</button></span>\
 <span class="pv-sep pv-cn">·</span><button type="button" class="btn-ghost btn-sm pv-cancel pv-cn hit" tabindex="-1">${tr('판정 취소')}</button></span>`);
-  $('#doc').appendChild(probe); const w=Math.ceil(/** @type {HTMLElement} */(probe.firstElementChild).getBoundingClientRect().width); probe.remove();
-  PV_NEED={key,w}; return w;}
+    const t=/** @type {HTMLElement} */(probe.firstElementChild); return t.getBoundingClientRect().width+(parseFloat(getComputedStyle(t).columnGap)||0);};
+  const w=Math.ceil(Math.max(state(false),fine?state(true):0));
+  setHtml(probe,html`<span class="vd-btns"><button type="button" class="vd-b" aria-pressed="true" data-kn="1" tabindex="-1">${ic('check')}<span class="lbl">${word}</span></button>\
+<button type="button" class="vd-b" aria-pressed="false" data-kn="1" tabindex="-1"><span class="lbl">${word}</span></button></span>`);
+  const b=[...probe.querySelectorAll('.vd-b')].map(x=>x.getBoundingClientRect().width),check=Math.max(0,b[0]-b[1]); probe.remove();
+  PV_NEED={key,w,check}; return w;}
 // A web font that arrives after the lines were measured - the bundled Pretendard after the fallback face - changes every
 // width: the state's width is measured again and every line fits itself again (sizePv), once each font load is done and
 // when the fonts are ready after boot. Kept from the fallback face, a width near the stacking threshold let the first save
 // still move the words.
-function pvFontsChanged(){PV_NEED={key:'',w:0}; if($$('#doc .pv').length)sizePv();}
+function pvFontsChanged(){PV_NEED={key:'',w:0,check:0}; if($$('#doc .pv').length)sizePv();}
 if(document.fonts){document.fonts.addEventListener('loadingdone',pvFontsChanged); document.fonts.addEventListener('loadingerror',pvFontsChanged); document.fonts.ready.then(pvFontsChanged);}
 // Whether line l keeps the rows it has now: its confirm word waits for the second press, or its save is out.
 /** @param {HTMLElement} l */
