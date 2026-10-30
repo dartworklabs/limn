@@ -430,8 +430,12 @@ document.addEventListener('focusin',()=>pvStickSoon()); document.addEventListene
 // the field folds it: a tap on a word took the focus, the figure's name came back over the words and moved them 22px down
 // under the finger, and the click fell on the line - the word took no first tap (#320). The fold goes once that press is
 // done: its click has run, the browser took it for a scroll (pointercancel), or 500ms after it let go without a click - a
-// long press keeps it as long as it is held, so the words stay under the finger while its description shows.
+// long press keeps it as long as it is held, so the words stay under the finger while its description shows. Only the press
+// that holds the fold lets it go (PV_PRESS_HOLD): a new press on the line takes it over and the earlier one's wait goes - a
+// long press's swallowed click left its 500ms wait running, which let the fold go under the next press, between that press's
+// focus and its click.
 let PV_POP_PRESS=false;
+let PV_PRESS_HOLD=/** @type {(()=>void)|null} */(null);   // the press holding the fold: drops its own wait without letting go
 function pvTypingSync(){const a=/** @type {HTMLElement|null} */(document.activeElement),l=a&&a.closest?/** @type {HTMLElement|null} */(a.closest('#doc .pv')):null,b=document.body;
   const pop=!!a&&!!a.closest&&!!a.closest('#doc .pv>.pv-pop'),on=(!!l&&typingNow())||(b.classList.contains('pv-typing')&&(pop||PV_POP_PRESS));
   if(b.classList.contains('pv-typing')===on)return; b.classList.toggle('pv-typing',on);
@@ -439,10 +443,13 @@ function pvTypingSync(){const a=/** @type {HTMLElement|null} */(document.activeE
 document.addEventListener('focusin',pvTypingSync); document.addEventListener('focusout',()=>setTimeout(pvTypingSync,0));
 document.addEventListener('pointerdown',e=>{const t=/** @type {HTMLElement|null} */(e.target);
   if(!(t&&t.closest&&(t.closest('#doc .pv>.pv-pop')||(document.body.classList.contains('pv-typing')&&t.closest('#doc .pv')))))return;
-  PV_POP_PRESS=true; let done=false; const end=()=>{if(done)return; done=true; window.removeEventListener('click',late); window.removeEventListener('pointercancel',late);
-    window.removeEventListener('pointerup',up,true); setTimeout(()=>{PV_POP_PRESS=false; pvTypingSync();},0);};
-  const late=()=>end(),up=()=>setTimeout(end,500);   // after the press's own click (window, bubbling: after the viewer's handlers)
-  window.addEventListener('click',late); window.addEventListener('pointercancel',late); window.addEventListener('pointerup',up,true);},true);
+  if(PV_PRESS_HOLD)PV_PRESS_HOLD();   // an earlier press still waiting: this one holds the fold now
+  PV_POP_PRESS=true; let timer=/** @type {ReturnType<typeof setTimeout>|undefined} */(undefined);
+  const drop=()=>{clearTimeout(timer); window.removeEventListener('click',late); window.removeEventListener('pointercancel',late);
+    window.removeEventListener('pointerup',up,true); if(PV_PRESS_HOLD===drop)PV_PRESS_HOLD=null;};
+  const end=()=>{if(PV_PRESS_HOLD!==drop)return; drop(); setTimeout(()=>{if(PV_PRESS_HOLD)return; PV_POP_PRESS=false; pvTypingSync();},0);};
+  const late=()=>end(),up=()=>{clearTimeout(timer); timer=setTimeout(end,500);};   // late: after the press's own click (window, bubbling: after the viewer's handlers)
+  PV_PRESS_HOLD=drop; window.addEventListener('click',late); window.addEventListener('pointercancel',late); window.addEventListener('pointerup',up,true);},true);
 // What a press on page `page` of the document on screen saves against: its document, kind, build and page size and its
 // target's name, with the visit it was made in. A save runs on these - not on the document on screen when it runs - so a
 // press made before switching documents is saved, and one queued meanwhile is too (pvPress, savePageVerdict). null when the
@@ -766,7 +773,7 @@ function sizePv(){const ir=pvInsetR(),L=$('#left'),lines=$$('#doc .pv');
 // the area is the page's root scroller there - into the zoomed view, which went from where it was to the page's top
 // (422 -> 0 at 2x) at every drawing of the lines: a save, a take-back (#320).
 /** @param {HTMLElement[]} lines */
-function pvFit(lines){const held=lines.map(pvRowsHeld),D=$('#doc'),still=pvHoldView(true);
+function pvFit(lines){const held=lines.map(pvRowsHeld),D=$('#doc'),hold=pvHoldView(true); try{
   lines.forEach((l,i)=>{if(!held[i]){l.classList.toggle('pv-stack',false); l.classList.toggle('pv-tight',false); l.style.removeProperty('--pv-t-h');}});
   // Every line is measured as the reading line (#doc.pv-measure shows each hidden identifier, components.css): a line that
   // stacked only while it was read shrank when the reading page left (91 -> 32px on a 260px page) and moved the pages.
@@ -807,15 +814,17 @@ function pvFit(lines){const held=lines.map(pvRowsHeld),D=$('#doc'),still=pvHoldV
   pvChipPlace(lines);
   // A word group that wraps keeps every button at its own width (vdWrapFit), read for every line before any is written.
   const groups=lines.map(l=>l.querySelector('.vd-btns')),wrap=groups.map(g=>!!g&&new Set([...g.children].map(b=>Math.round(b.getBoundingClientRect().top))).size>1);
-  groups.forEach((g,i)=>{if(g)g.classList.toggle('wrapped',wrap[i]);}); if(still)pvHoldView(false);}
-// Holds a pinch-zoomed view where it is across pvFit's pass (on) and lets go after it (off); returns whether it holds: the PDF
+  groups.forEach((g,i)=>{if(g)g.classList.toggle('wrapped',wrap[i]);});}
+  finally{D.classList.remove('pv-measure'); pvHoldView(false,hold);}}   // also when a step throws: never left measuring, nor unanchored
+// Holds a pinch-zoomed view where it is across pvFit's pass (on) and lets go after it (off, given what on returned): the PDF
 // area does not anchor its scroll (overflow-anchor), and its layout is brought up to date before it anchors again, so the
-// anchor it then takes is where the pass left the pages - never a measure's grown lines. At no zoom it does nothing: the
-// view cannot move there, and the area's anchoring stays as it is (no scroll of its own, ever).
-/** @param {boolean} on */
-function pvHoldView(on){const L=$('#left'),vv=window.visualViewport;
-  if(!on){void L.offsetHeight; L.style.removeProperty('overflow-anchor'); return false;}
-  if(!vv||vv.scale<=1)return false; L.style.setProperty('overflow-anchor','none'); return true;}
+// anchor it then takes is where the pass left the pages - never a measure's grown lines. On returns the area's own value it
+// replaced, which off puts back (a pass inside a pass leaves the outer one's hold), or null where it held nothing. At no zoom
+// it does nothing: the view cannot move there, and the area's anchoring stays as it is (no scroll of its own, ever).
+/** @param {boolean} on @param {string|null} [was] @returns {string|null} */
+function pvHoldView(on,was){const L=$('#left'),vv=window.visualViewport;
+  if(!on){if(typeof was!=='string')return null; void L.offsetHeight; if(was)L.style.setProperty('overflow-anchor',was); else L.style.removeProperty('overflow-anchor'); return null;}
+  if(!vv||vv.scale<=1)return null; const prev=L.style.getPropertyValue('overflow-anchor'); L.style.setProperty('overflow-anchor','none'); return prev;}
 // The width the state of a person's fresh verdict takes on a line in a row, drawn in a hidden line like line l (its text size,
 // the screen's language and pointer) and kept until those or the next pin number's digits change. Two states follow a
 // press: after a click '판정 #0 <the longest word> · 처리 대기 · 이유 추가 · 판정 취소', and on a mouse screen after a key

@@ -7246,3 +7246,54 @@ class TouchDetails(VerdictBase):
         page.wait_for_function("()=>OPEN_ALL.some(p=>verdictOf(p)==='채택')", timeout=5000)
         settle(page)
         self.assertEqual(page.evaluate(VVIEW), before)
+
+    def test_a_press_right_after_a_long_press_keeps_the_fold_until_its_own_click(self):
+        """390x844, the reason typed on page 2's line in its place (the fold on): a long press on the pressed word, then
+        within its 500ms wait a second press held 700ms on the same word (a pen or a mouse: its focus moves at the press,
+        its click comes at the release). The word stays where the press came down until its click is handled, and the
+        click takes the verdict back. The long press's swallowed click left its wait running, which let the fold go under
+        the second press - the name came back, the word moved 22px and the click fell on the line."""
+        page = self.phone(in_place=True)
+        a = self.press_page(page, 2, "보류")
+        page.evaluate(END_CHIPS)
+        settle(page)
+        open_reason(page, 2, tap=True)
+        page.keyboard.type("길게 누른 뒤 누름")
+        settle(page)
+        word = WORD % (2, "보류")
+        x, y = page.evaluate(CENTRE, word)
+        top = "s=>Math.round(document.querySelector(s).getBoundingClientRect().top)"
+        page.evaluate(
+            """s=>{window.__at={}; document.addEventListener('click',e=>{window.__at.click=Math.round(document.querySelector(s).getBoundingClientRect().top);
+              window.__at.on=!!e.target.closest&&!!e.target.closest(s);},true);}""",
+            word,
+        )
+        cdp = page.context.new_cdp_session(page)
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": x, "y": y}]})
+        page.wait_for_timeout(800)
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+        page.wait_for_timeout(100)
+        self.assertEqual(set(self.pins()), {a})  # the long press pressed nothing
+        down = page.evaluate(top, word)
+        page.mouse.move(x, y)
+        page.mouse.down()
+        page.wait_for_timeout(700)  # past the long press's 500ms wait
+        held = page.evaluate(top, word)
+        page.mouse.up()
+        page.wait_for_function("id=>!OPEN_ALL.some(p=>p.id===id)", arg=a, timeout=5000)
+        at = page.evaluate("window.__at")
+        self.assertEqual((held, at["click"], at["on"]), (down, down, True), at)
+
+    def test_a_pass_that_throws_in_a_zoomed_view_gives_the_anchoring_back(self):
+        """At page scale 2 the measure pass holds the PDF area's anchoring off (overflow-anchor: none). A step that throws
+        inside the pass still gives it back, and the pages are not left measuring (#doc.pv-measure); an area that had a
+        value of its own gets that value back. Restored only on the pass's normal end, it stayed off for good."""
+        page = self.phone()
+        page.context.new_cdp_session(page).send("Emulation.setPageScaleFactor", {"pageScaleFactor": 2})
+        settle(page)
+        after = """v=>{const L=document.querySelector('#left'); L.style.removeProperty('overflow-anchor'); if(v)L.style.setProperty('overflow-anchor',v);
+          const need=window.pvStateNeed; let threw=false; window.pvStateNeed=()=>{throw new Error('a step that throws');};
+          try{pvFit([...document.querySelectorAll('#doc .pv')]);}catch(e){threw=true;} finally{window.pvStateNeed=need;}
+          return [threw,L.style.getPropertyValue('overflow-anchor'),document.querySelector('#doc').classList.contains('pv-measure')];}"""
+        self.assertEqual(page.evaluate(after, ""), [True, "", False])
+        self.assertEqual(page.evaluate(after, "auto"), [True, "auto", False])
