@@ -4680,6 +4680,150 @@ class ReasonRaces(VerdictBase):
         self.assertFalse([t for t in titles if t.startswith("이유 저장 실패") or "지워졌습니다" in t], titles)
         self.assertIn("판정 #%d 채택 취소 · 남은 판정 없음" % pid, titles)
 
+    def lost_and_folded(self, page, text):
+        """Verdict a on page 1 with text typed as its reason and Enter lost on the network before the server saw it - the
+        status line offers a's [다시 시도] - then the popover folded ([접기]): the draft waits on a. Returns a."""
+        a = self.typed(page, 1, text)
+        self.lose_edit = 1
+        page.keyboard.press("Enter")
+        page.wait_for_function("()=>LINE.some(n=>n.title.startsWith('이유 저장 실패'))")
+        settle(page)
+        page.locator('#doc .pv[data-page="1"] [data-act="pv-reason-fold"]').click()
+        page.wait_for_function("()=>!document.querySelector('#doc .pv-pop')")
+        return a
+
+    def retry_reason(self, page):
+        """Press the [다시 시도] of the reason's failure (as its status-line action: the line may show another first)."""
+        page.evaluate(
+            "()=>{const n=[...NOTICES.values()].find(n=>n.title.startsWith('이유 저장 실패')); noticeAct(n.n);}"
+        )
+
+    def test_a_draft_moved_twice_goes_when_the_old_verdicts_write_lands(self):
+        """'두 번 옮긴 이유' for verdict a, its Enter lost and folded, then moved twice before a's [다시 시도] is pressed (#317 1):
+        - a → b → c: 보류 (b), then 채택 (c) on the line, each save moving it to the new verdict;
+        - a → 쪽 → c: [판정 취소] of a fails after 보류 (b) was saved meanwhile - it is the page's draft -, then 채택 (c).
+        a's [다시 시도] writes it on a, and the copy on c goes with it: nothing is kept and the line marks no draft. (It
+        remembered only the key it was last moved off, b's or the page's, so it stayed to be written on c too.)"""
+        text = "두 번 옮긴 이유"
+        for case in ("a → b → c", "a → 쪽 → c"):
+            with self.subTest(case=case):
+                self.drop_all()
+                page = self.on("fig")
+                a = self.lost_and_folded(page, text)
+                if case == "a → b → c":
+                    self.press_page(page, 1, "보류")
+                else:
+                    self.held_drop = []
+                    page.locator(CANCEL % 1).click()
+                    page.wait_for_function("id=>!OPEN_ALL.some(p=>p.id===id)", arg=a)
+                    page.locator('#doc .pv[data-page="1"] button[data-key="보류"]').click()
+                    page.wait_for_function("id=>OPEN_ALL.some(p=>p.id>id&&p.verdict==='보류')", arg=a)
+                    held, self.held_drop = self.held_drop, None
+                    for r in held:
+                        r.abort()
+                    page.wait_for_function("()=>LINE.some(n=>n.title==='판정 취소 실패')")
+                    settle(page)
+                    self.assertEqual(page.evaluate(DRAFTS), {"fig:p1": text})
+                c = self.press_page(page, 1, "채택")
+                self.assertEqual(page.evaluate(DRAFTS), {"fig:%d" % c: text})
+                self.retry_reason(page)
+                page.wait_for_function("id=>LINE.some(n=>n.title==='이유 저장됨 · 판정 #'+id+' 채택')", arg=a)
+                settle(page)
+                self.assertEqual((self.note(a), self.note(c)), (text, ""))
+                self.assertEqual(page.evaluate(DRAFTS), {})
+                self.assertEqual(page.locator('#doc .pv[data-page="1"] .pv-draft').count(), 0)
+
+    def test_a_moved_draft_open_when_the_old_verdicts_write_lands_lets_it_go(self):
+        """'옮긴 이유' for verdict a, its Enter lost and folded, then 보류 (b) on the line - the draft moves to b - and b's
+        '초안 있음' opened before a's [다시 시도] is pressed (#317 2). That write lands:
+        - the popover untouched: it closes - the reason is a's, and the status line says so ('이유는 이전 판정 #a 채택에
+          저장됨 · 지금 판정은 #b 보류') -, the focus is on the line's reason control, a digit typed on makes no verdict, and
+          moving on writes nothing on b (the popover kept the text, and its Enter or moving on wrote it on b too);
+        - a line typed under it: the popover keeps that line only and says the rest went; Enter writes it on b;
+        - Enter pressed in it while a's write is out: it waits - no second edit goes out - then closes the same way."""
+        text = "옮긴 이유"
+        for case in ("untouched", "typed on", "enter first"):
+            with self.subTest(case=case):
+                self.drop_all()
+                self.edits = []
+                page = self.on("fig")
+                a = self.lost_and_folded(page, text)
+                b = self.press_page(page, 1, "보류")
+                self.assertEqual(page.evaluate(DRAFTS), {"fig:%d" % b: text})
+                open_reason(page, 1)
+                if case == "typed on":
+                    page.keyboard.press("Shift+Enter")
+                    page.keyboard.type("더 쓴 줄")
+                if case == "enter first":
+                    self.held_edit = []
+                self.retry_reason(page)
+                if case == "enter first":
+                    self.wait_held_edit(page)
+                    page.keyboard.press("Enter")  # the focus stayed in the field
+                    page.wait_for_timeout(300)  # anything it would send has been sent (held)
+                    held, self.held_edit = self.held_edit, None
+                    self.assertEqual(len(held), 1, self.edits)
+                    for r in held:
+                        self.forward(r)
+                page.wait_for_function("id=>LINE.some(n=>n.title==='이유 저장됨 · 판정 #'+id+' 채택')", arg=a)
+                settle(page)
+                titles = page.evaluate("()=>LINE.map(n=>n.title)")
+                if case == "typed on":
+                    got = page.evaluate(REASON, 1)
+                    self.assertEqual((got["value"], got["focused"]), ("더 쓴 줄", True))
+                    self.assertIn("이유 일부는 이전 판정 #%d 채택에 저장됨 · 초안에는 나머지를 남겼습니다" % a, titles)
+                    page.keyboard.press("Enter")
+                    page.wait_for_function("()=>!document.querySelector('#doc .pv-reason')")
+                    settle(page)
+                    self.assertEqual((self.note(a), self.note(b)), (text, "더 쓴 줄"))
+                    continue
+                self.assertIsNone(page.evaluate(POP, 1))
+                self.assertEqual(page.evaluate(DRAFTS), {})
+                self.assertIn("이유는 이전 판정 #%d 채택에 저장됨 · 지금 판정은 #%d 보류" % (a, b), titles)
+                self.assertEqual(page.evaluate(FOCUS_AT), [1, "pv-reason-open"])
+                if case == "untouched":
+                    page.keyboard.press("2")
+                    settle(page)
+                    self.assertEqual(sorted(self.pins()), [a, b])
+                page.evaluate("k=>switchDoc(k)", "ms")
+                page.wait_for_function("DOC==='ms'&&META&&META.doc==='ms'")
+                settle(page)
+                self.assertEqual((self.note(a), self.note(b)), (text, ""))
+                self.assertEqual(len(self.edits), 2, self.edits)  # the lost Enter and a's [다시 시도]
+
+    def test_a_moved_draft_written_on_its_new_verdict_takes_the_old_retry_away(self):
+        """'옮겨 쓴 이유' for verdict a, its Enter lost and folded, then 보류 (b) on the line - the draft moves to b - and written
+        there from b's '초안 있음' (#317, the other order):
+        - a's failure and its [다시 시도] go once b has the reason (pressed, it wrote the reason on a too);
+        - a's [다시 시도] pressed while b's write is out waits for it, and sends nothing once b has the reason.
+        The reason is b's only."""
+        text = "옮겨 쓴 이유"
+        for case in ("after", "while out"):
+            with self.subTest(case=case):
+                self.drop_all()
+                self.edits = []
+                page = self.on("fig")
+                a = self.lost_and_folded(page, text)
+                b = self.press_page(page, 1, "보류")
+                open_reason(page, 1)
+                if case == "while out":
+                    self.held_edit = []
+                page.keyboard.press("Enter")
+                if case == "while out":
+                    self.wait_held_edit(page)
+                    self.retry_reason(page)
+                    page.wait_for_timeout(300)  # anything it would send has been sent (held)
+                    held, self.held_edit = self.held_edit, None
+                    self.assertEqual(len(held), 1, self.edits)
+                    for r in held:
+                        self.forward(r)
+                page.wait_for_function("()=>!document.querySelector('#doc .pv-reason')")
+                settle(page)
+                titles = page.evaluate("()=>LINE.map(n=>n.title)")
+                self.assertFalse([t for t in titles if t.startswith("이유 저장 실패")], titles)
+                self.assertEqual((self.note(a), self.note(b)), ("", text))
+                self.assertEqual(len(self.edits), 2, self.edits)  # the lost Enter and b's
+
 
 # The open reason popover of page n's line: its field's text and focus, what it says of the draft (pv-pop-st) and of the keys
 # (pv-pop-h), whom it is for (pv-pop-to), and its box against the line's - or null when none is open.

@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **A reason draft moved more than once still ends on one verdict (#317).** A draft that moved off a verdict whose reason
+  write could still land there (a write out, or its [다시 시도]) remembered only the last key it moved off: moved again
+  (`a → 쪽 → b`, `a → b → c`), a write that then landed on a left the copy, which was written on the newer verdict too.
+  It now remembers every verdict it moved off, and a write of the same text on one of them takes that text out of the
+  copy, keeping the lines typed under it or another draft joined to it. A popover open on the copy follows: with nothing
+  left it closes, the status line says the reason was saved on the earlier verdict, and when its field had the focus the
+  line's reason control takes it and the next digit is not a verdict key; with something left it keeps that and says the
+  rest went (it used to keep the whole text, which its Enter or moving on wrote on the newer verdict). The other order
+  holds too: once the copy is written on its verdict the earlier verdict's failure and its [다시 시도] go, and a write of
+  either kind started while the other is out waits for its answer and writes only what is left.
+
 ## 0.4.35 — 2026-10-30
 
 Follow-ups to the reviews of 0.4.34, nearly all on the page verdict line: Shift+Tab leaves the reading line the way
