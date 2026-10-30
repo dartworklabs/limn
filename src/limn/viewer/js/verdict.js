@@ -1023,8 +1023,10 @@ function verdictKey(e){if(e.defaultPrevented||e.repeat||e.isComposing||e.ctrlKey
   // A digit pressed with the focus outside the pages (an outline entry, the page list's or the section strip's button, a
   // document tab, a card) brings the focus to the PDF area at once, as the save's end brings it to the line: left on that
   // control while the save was out, the Enter typed after the digit pressed it again - the outline jumped, the page field
-  // opened and took the reason's text - instead of opening the reason.
-  const a=document.activeElement,L=$('#left'); if(a&&a!==document.body&&a!==L&&!L.contains(a))searchToPage();
+  // opened and took the reason's text - instead of opening the reason. The area is a named region (index.html), so a screen
+  // reader says 'PDF 쪽' for the moment it has the focus, not every page's text one after the other. Where the focus came
+  // from is kept: Shift+Tab from the line goes back there (PV_CAME).
+  const a=/** @type {HTMLElement|null} */(document.activeElement),L=$('#left'); if(a&&a!==document.body&&a!==L&&!L.contains(a)){pvCame(a); searchToPage();}
   verdictPress(b,'key');}
 addEventListener('keydown',verdictKey);
 // Whether the pages are gliding where a jump sent them (the outline, the page list, a card's [보기]): the PDF area is scrolling
@@ -1036,7 +1038,15 @@ let PV_SCROLL_AT=0,PV_SCROLL_HAND=0,PV_GLIDE=false;
 const PV_HAND=()=>{PV_SCROLL_HAND=performance.now(); PV_GLIDE=false;};   // the person takes the pages over
 for(const t of ['wheel','touchstart','touchmove','pointerdown'])$('#left').addEventListener(t,PV_HAND,{passive:true,capture:true});
 $('#left').addEventListener('pointermove',e=>{if(e.buttons)PV_HAND();},{passive:true,capture:true});   // a scroll bar dragged
-addEventListener('keydown',e=>{if(SCROLL_KEYS.has(e.key))PV_HAND();},true);
+// A scrolling key is the person's hand on the pages only where it scrolls them: on the PDF area, on a control in it (a
+// line's word lets the arrows through) or on nothing - not in a text field, and not Space on a button, which it presses.
+// ↓ in the outline's filter or list moves to a result, and the Enter after it started a jump the guard then took for the
+// person's own scroll: a digit pressed while it glided saved on a page passed (PL83 from page 60: 보류 on page 71).
+addEventListener('keydown',e=>{if(!SCROLL_KEYS.has(e.key))return; const t=e.target;
+  if(!(t===document.body||t===document.documentElement||(t instanceof Element&&!!t.closest('#left'))))return;
+  if(t instanceof HTMLElement&&(t.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)))return;
+  if(e.key===' '&&t instanceof Element&&t.closest('button,[role=button],summary'))return;
+  PV_HAND();},true);
 const PV_SCROLLEND='onscrollend' in window;
 $('#left').addEventListener('scroll',()=>{const t=performance.now(); if(t-PV_SCROLL_AT>200)PV_GLIDE=t-PV_SCROLL_HAND>500; PV_SCROLL_AT=t;},{passive:true});   // a new run of scrolling decides
 $('#left').addEventListener('scrollend',()=>{PV_GLIDE=false;});
@@ -1057,13 +1067,60 @@ addEventListener('keydown',e=>{const a=document.activeElement; if(e.key!=='Tab'|
   if(c){e.preventDefault(); c.focus({preventScroll:true});}});
 // Tab into the pages from outside them - the outline, the section strip, the panel by Shift+Tab - goes to the reading page's
 // line too (its first control; its last by Shift+Tab), else to the PDF area: the DOM's next stop is the first page's line (or
-// the last page's), whose focus scrolled the document there.
+// the last page's), whose focus scrolled the document there. Only a Tab across the pages' edge is taken - from the last stop
+// before the PDF area (the section strip's page button, where it shows) or, by Shift+Tab, from the first after it (the
+// panel's) - and that stop is found by walking out from the area to the nearest one (pvEdgeStop), a few elements: every Tab
+// outside the pages read every focusable element of the document and whether it showed (678 on a 91-page figure document).
 const PV_TABBABLE='a[href],button,input,select,textarea,summary,[tabindex]';
-addEventListener('keydown',e=>{const a=/** @type {HTMLElement|null} */(document.activeElement);
+// Whether x is a stop of the Tab order now: focusable by Tab, enabled, drawn, not hidden and not in an inert or hidden part.
+/** @param {Element|null} x @returns {x is HTMLElement} */
+function pvTabStop(x){return x instanceof HTMLElement&&x.matches(PV_TABBABLE)&&x.tabIndex>=0&&!(/** @type {HTMLButtonElement} */(x).disabled)&&x.getClientRects().length>0
+  &&!x.closest('[inert],[hidden]')&&getComputedStyle(x).visibility!=='hidden';}
+// The nearest Tab stop outside the PDF area on one side of it - the last before it, or (after) the first after it - or null.
+// Walks out from the area element by element and passes a part that is not drawn (display: none, hidden, inert) whole.
+/** @param {boolean} after @returns {HTMLElement|null} */
+function pvEdgeStop(after){const w=document.createTreeWalker(document.body,NodeFilter.SHOW_ELEMENT,{acceptNode:n=>{const x=/** @type {Element} */(n);
+    if(x.hasAttribute('hidden')||x.hasAttribute('inert')||(!x.getClientRects().length&&getComputedStyle(x).display==='none'))return NodeFilter.FILTER_REJECT;
+    return pvTabStop(x)?NodeFilter.FILTER_ACCEPT:NodeFilter.FILTER_SKIP;}});
+  let n=/** @type {Node} */($('#left')); if(after)while(n.lastChild)n=n.lastChild;   // from the area's last node the next one is past the area
+  w.currentNode=n; return /** @type {HTMLElement|null} */(after?w.nextNode():w.previousNode());}
+// Where the focus came into the pages from, while it is in them: the stop a Tab into the pages was pressed on, or the control a
+// digit key was pressed on (verdictKey) - an outline entry, a document tab, the section strip, the phone's tool bar - with
+// the visit (captureVisit: the document and its switch) and build it was pressed on: a switch - also away and back - or a
+// new build lets it go (pvOutStop), as any focus outside the pages does. Shift+Tab from the reading line goes back there
+// (below).
+let PV_CAME=/** @type {{el:HTMLElement,visit:{doc:string|null,seq:number},build:string}|null} */(null);
+/** @param {HTMLElement} el */
+function pvCame(el){PV_CAME={el,visit:captureVisit(),build:(META&&META.pages_build)||''};}
+document.addEventListener('focusin',e=>{const t=e.target; if(t instanceof Element&&!t.closest('#left'))PV_CAME=null;});
+// Where Shift+Tab leaves the pages to: where the focus came from (PV_CAME) while it is still a stop of this document and build
+// before the pages - or, where nothing comes before them (a phone: the nav bar, the outline and the section strip are not
+// drawn), one in the tool bar over the sheet (#bar1) -, else the last stop before the pages (pvEdgeStop: the section strip's
+// or the nav bar's page button), else the phone's position button (#btn-pos, which opens its pages as those do). null for
+// none.
+function pvOutStop(){const k=PV_CAME; if(k&&!(currentVisit(k.visit)&&k.build===((META&&META.pages_build)||'')))PV_CAME=null;
+  const L=$('#left'),edge=pvEdgeStop(false),c=PV_CAME?PV_CAME.el:null;
+  if(c&&c.isConnected&&!L.contains(c)&&pvTabStop(c)&&((c.compareDocumentPosition(L)&Node.DOCUMENT_POSITION_FOLLOWING)||(!edge&&c.closest('#bar1'))))return c;
+  const p=$('#btn-pos'); return edge||(pvTabStop(p)?p:null);}
+addEventListener('keydown',e=>{const a=/** @type {HTMLElement|null} */(document.activeElement),L=$('#left');
   if(e.key!=='Tab'||e.ctrlKey||e.metaKey||e.altKey||e.defaultPrevented||!a||a===document.body||!a.closest||a.closest('#left'))return;
-  const ok=(/** @type {Element} */x)=>x instanceof HTMLElement&&(x===a||(x.tabIndex>=0&&!(/** @type {HTMLButtonElement} */(x).disabled)&&x.getClientRects().length>0&&!x.closest('[inert],[hidden]')));
-  const all=[...document.querySelectorAll(PV_TABBABLE)].filter(ok),i=all.indexOf(a); if(i<0)return;
-  const next=all[e.shiftKey?i-1:i+1]; if(!next||!next.closest('#doc .pv'))return;
-  const r=pvReadingPage(),l=r?document.querySelector('#doc .pv[data-page="'+r+'"]'):null;
-  const cs=l?[...l.querySelectorAll('a,button,textarea,[tabindex="0"]')].filter(x=>ok(x)&&x!==a):[];
-  e.preventDefault(); const c=/** @type {HTMLElement|undefined} */(e.shiftKey?cs[cs.length-1]:cs[0]); if(c)c.focus({preventScroll:true}); else searchToPage();});
+  // The focus on the side of the area this Tab leaves from, the area shown with page lines, and the focus on the edge's stop.
+  if(!(a.compareDocumentPosition(L)&(e.shiftKey?Node.DOCUMENT_POSITION_PRECEDING:Node.DOCUMENT_POSITION_FOLLOWING))||!L.getClientRects().length
+    ||!document.querySelector('#doc .pv')||pvEdgeStop(e.shiftKey)!==a)return;
+  const r=pvReadingPage(),l=r?document.querySelector('#doc .pv[data-page="'+r+'"]'):null,cs=l?[...l.querySelectorAll('a,button,textarea,[tabindex="0"]')].filter(pvTabStop):[];
+  e.preventDefault(); const c=e.shiftKey?cs[cs.length-1]:cs[0]; pvCame(a); if(c)c.focus({preventScroll:true}); else searchToPage();});
+// Shift+Tab from the reading page's first stop leaves the pages the way the focus came in (pvOutStop): back to where it came
+// from while that is still a stop before the pages - the outline entry or the document tab a digit key was pressed on, the
+// section strip's page button Tab came from - else to the last stop before them, the section strip's page button (a
+// phone's position button). The pages do not move. The reading page's first stop is its line's first control, or - when pins are marked on
+// that page - its first mark's badge, which Shift+Tab from the line reaches first in the DOM's order. The DOM's stop before
+// it is the page before's line: each Shift+Tab scrolled the document a page up, and 80 of them on a 91-page figure
+// document never reached the outline. The earlier pages' lines are reached by PageUp, which makes each the reading page in
+// turn. A line with its reason popover open keeps Tab to itself first (verdict-reason.js, on #doc), and another page's line
+// or mark is left to the DOM's order.
+addEventListener('keydown',e=>{if(e.key!=='Tab'||!e.shiftKey||e.ctrlKey||e.metaKey||e.altKey||e.defaultPrevented)return;
+  const a=/** @type {HTMLElement|null} */(document.activeElement),blk=a&&a.closest?a.closest('#doc .pgw'):null,l=blk&&blk.querySelector(':scope>.pv');
+  if(!a||!blk||!l||Number(/** @type {HTMLElement} */(l).dataset.page)!==pvReadingPage())return;
+  const first=[...blk.querySelectorAll(PV_TABBABLE)].find(pvTabStop); if(first!==a)return;
+  const to=pvOutStop(); if(!to)return; e.preventDefault(); to.focus({preventScroll:true});
+  if(to.closest('#outline'))to.scrollIntoView({block:'nearest'});});   // an outline entry comes into the outline's view; the pages stay
