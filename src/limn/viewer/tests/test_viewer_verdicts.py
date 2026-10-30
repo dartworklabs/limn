@@ -5995,6 +5995,156 @@ class RcRound4(VerdictBase):
         self.assertEqual([(p["verdict"], p["note"]) for p in self.pins().values()], [("채택", "패널 값")])
 
 
+def ax_of(page, expr):
+    """The role and name Chromium's accessibility tree gives the element expr evaluates to - what a screen reader says."""
+    cdp = page.context.new_cdp_session(page)
+    try:
+        obj = cdp.send("Runtime.evaluate", {"expression": expr})["result"]
+        node = cdp.send("DOM.describeNode", {"objectId": obj["objectId"]})["node"]
+        cdp.send("DOM.getDocument", {"depth": 0})
+        ax = cdp.send(
+            "Accessibility.getPartialAXTree", {"backendNodeId": node["backendNodeId"], "fetchRelatives": False}
+        )
+        n = ax["nodes"][0]
+        return n.get("role", {}).get("value"), n.get("name", {}).get("value")
+    finally:
+        cdp.detach()
+
+
+# A Tab keydown (Shift+Tab with shift) sent from the element sel - every keydown listener of the viewer runs, the browser's
+# own move of the focus does not -, with how many times it read the box of an element in the pages (inside #left) and
+# whether the focus stayed on sel.
+TAB_READS = """([sel, shift]) => {const L = document.querySelector('#left'), t = document.querySelector(sel), f = Element.prototype.getClientRects;
+  t.focus({preventScroll: true}); let n = 0;
+  Element.prototype.getClientRects = function () {if (this !== L && L.contains(this)) n++; return f.call(this);};
+  try {t.dispatchEvent(new KeyboardEvent('keydown', {key: 'Tab', shiftKey: shift, bubbles: true, cancelable: true}));}
+  finally {Element.prototype.getClientRects = f;}
+  return [n, document.activeElement === t];}"""
+
+
+class EdgeKeys(VerdictBase):
+    """The 0.4.34 RC's keyboard follow-ups: Shift+Tab from the reading line leaves the pages the way Tab came in (#306), the
+    PDF area the focus waits on during a key's save is a named region (#307), and a Tab outside the pages does not read
+    the pages' controls (#308)."""
+
+    def test_shift_tab_from_the_reading_lines_first_control_goes_back_to_the_section_strip(self):
+        """Page 2 zoomed and read; Tab from the section strip's page button goes to page 2's line, and Shift+Tab from its
+        first control goes back to that button - not to page 1's line, which scrolled the pages there (80 of them on 91
+        pages never reached the outline) - and the pages do not move. Shift+Tab from a later control stays on the line."""
+        page = self.on("fig")
+        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        settle(page)
+        page.evaluate(SCROLL, [2, "top"])
+        settle(page)
+        page.focus("#section-page")
+        top = page.evaluate("document.querySelector('#left').scrollTop")
+        page.keyboard.press("Tab")
+        first = page.evaluate(FOCUS_AT)
+        self.assertEqual(first[0], 2)
+        page.keyboard.press("Tab")
+        self.assertEqual(page.evaluate(FOCUS_AT)[0], 2)
+        page.keyboard.press("Shift+Tab")
+        self.assertEqual(page.evaluate(FOCUS_AT), first)
+        page.keyboard.press("Shift+Tab")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "section-page")
+        self.assertEqual(page.evaluate("[document.querySelector('#left').scrollTop, PV_READ]"), [top, 2])
+
+    def test_shift_tab_reaches_the_reading_pages_marks_before_it_leaves(self):
+        """A pin marked on page 2 of the view-only PDF, page 2 zoomed and read: Tab from the section strip goes to page 2's
+        line, Shift+Tab to that page's mark badge - the DOM's order on the page - and Shift+Tab from the badge back to the
+        section strip, not to page 1's line; the pages do not move."""
+        build = self.on("rv").evaluate("META.pages_build")
+        body = {"doc": "rv", "page": 2, "frac": [0.1, 0.1, 0.4, 0.3], "pdf_build": build, "note": "표시"}
+        code, made = self.call("POST", "/api/pin", {**body, "kind_req": "fix", "assignee": "agent"})
+        self.assertEqual(code, 200, made)
+        page = self.on("rv", n_open=1)
+        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        settle(page)
+        page.evaluate(SCROLL, [2, "top"])
+        settle(page)
+        badge = '.mark[data-pin="%d"] .mark-jump' % made["id"]
+        page.focus("#section-page")
+        top = page.evaluate("document.querySelector('#left').scrollTop")
+        page.keyboard.press("Tab")
+        self.assertEqual(page.evaluate(FOCUS_AT)[0], 2)
+        page.keyboard.press("Shift+Tab")
+        self.assertTrue(page.evaluate("s=>document.activeElement===document.querySelector(s)", badge))
+        page.keyboard.press("Shift+Tab")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "section-page")
+        self.assertEqual(page.evaluate("[document.querySelector('#left').scrollTop, PV_READ]"), [top, 2])
+
+    def test_shift_tab_goes_back_to_where_a_digit_was_pressed_before_the_pages(self):
+        """1 pressed on a document tab saves 채택 with the focus then on page 1's line: Shift+Tab from its first control goes
+        back to that tab. 2 pressed on the verdict's card (after the pages in the Tab order) saves 보류: Shift+Tab from the
+        line's first control goes to the section strip's page button, the stop before the pages - Enter on the line's
+        '#N' is the way back to the card."""
+        page = self.on("fig")
+        tab = page.evaluate(
+            """()=>{const b=[...document.querySelectorAll('#doc-links button')].find(x=>x.getClientRects().length&&x.tabIndex>=0);
+              b.id=b.id||'vd-test-tab'; return '#'+b.id;}"""
+        )
+        top = page.evaluate("document.querySelector('#left').scrollTop")
+        page.focus(tab)
+        page.keyboard.press("1")
+        page.wait_for_function("OPEN_ALL.length===1&&!PV_BUSY.size")
+        settle(page)
+        self.assertEqual(page.evaluate(FOCUS_AT), [1, "pv-reason-open"])
+        page.focus('#doc .pv[data-page="1"] .pv-ref')
+        page.keyboard.press("Shift+Tab")
+        self.assertTrue(page.evaluate("s=>document.activeElement===document.querySelector(s)", tab))
+        pid = page.evaluate("OPEN_ALL[0].id")
+        page.evaluate(END_CHIPS)
+        page.evaluate(
+            "id=>[...document.querySelectorAll('.pin.card[data-id=\"'+id+'\"] button')].find(b=>b.getClientRects().length>0).focus()",
+            pid,
+        )
+        page.keyboard.press("2")
+        page.wait_for_function("OPEN_ALL.some(p=>p.verdict==='보류')&&!PV_BUSY.size")
+        settle(page)
+        page.focus('#doc .pv[data-page="1"] .pv-ref')
+        page.keyboard.press("Shift+Tab")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "section-page")
+        self.assertEqual(page.evaluate("document.querySelector('#left').scrollTop"), top)
+
+    def test_the_pdf_area_is_a_named_region(self):
+        """A digit pressed on the section strip with its save held leaves the focus on the PDF area: a region named 'PDF 쪽'
+        ('PDF pages' in English), which a screen reader says - with no role and no name it read every page's text one
+        after the other. The save's end still takes the focus to the line's way to the reason."""
+        page = self.on("fig")
+        page.focus("#section-page")
+        self.held = []
+        page.keyboard.press("1")
+        page.wait_for_function("PV_BUSY.size===1")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "left")
+        self.assertEqual(ax_of(page, "document.activeElement"), ("region", "PDF 쪽"))
+        self.release()
+        page.wait_for_function("OPEN_ALL.length===1&&!PV_BUSY.size", timeout=10000)
+        settle(page)
+        self.assertEqual(page.evaluate(FOCUS_AT), [1, "pv-reason-open"])
+        en = self.open(0, lang="en")
+        self.assertEqual(ax_of(en, "document.querySelector('#left')"), ("region", "PDF pages"))
+
+    def test_a_tab_away_from_the_pages_edge_reads_nothing_in_the_pages(self):
+        """Tab and Shift+Tab from a stop before the pages that is not the last one (the nav bar's first control) and from
+        one after them that is not the first (the panel's last): no page line control is read - the Tab is not across the
+        pages' edge - and the focus is left to the browser (each such Tab read every control of every line). The stop at
+        the edge still takes the Tab to the reading line."""
+        page = self.on("fig")
+        before, after = page.evaluate(
+            """()=>{const v=x=>x.getClientRects().length>0&&x.tabIndex>=0&&!x.disabled;
+              const a=[...document.querySelectorAll('#doc-nav button')].find(v),b=[...document.querySelectorAll('#right button')].filter(v).pop();
+              a.id=a.id||'vd-test-before'; b.id=b.id||'vd-test-after'; return ['#'+a.id,'#'+b.id];}"""
+        )
+        self.assertGreater(page.evaluate("document.querySelectorAll('#doc .pv button').length"), 3)
+        for sel in (before, after):
+            for shift in (False, True):
+                with self.subTest(sel=sel, shift=shift):
+                    self.assertEqual(page.evaluate(TAB_READS, [sel, shift]), [0, True])
+        page.focus("#section-page")
+        page.keyboard.press("Tab")
+        self.assertEqual(page.evaluate(FOCUS_AT)[0], 1)
+
+
 class ChipFontWait(VerdictBase):
     """A save chip with no room on its line while a web font loads waits unseen instead of sending its undo to the status
     line for good: on CI under load a fresh state's new characters were drawn in a fallback face while their Pretendard

@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **Shift+Tab leaves the reading page's line the way Tab came in** (#306). From the reading page's first stop - its
+  line's first control, or the badge of the first pin marked on that page, which Shift+Tab from the line passes first -
+  it goes back to where the focus came into the pages: the stop a Tab into them was pressed on, or the outline entry or
+  document tab a digit key was pressed on; otherwise (a card, which is after the pages, or a stop no longer shown) to
+  the stop right before them, the section strip's page button. The pages do not move. It went to the page before's line
+  and scrolled the document a page up; 80 presses on a 91-page figure document never reached the outline. The earlier
+  pages' lines are reached by PageUp; Enter on the line's `#N` still goes back to a card.
+- **The PDF area is a named region** (`role="region"`, `PDF 쪽` / `PDF pages`, #307). A digit key pressed outside the
+  pages puts the focus on it while the save is out, so that Enter opens the reason; with no role and no name a screen
+  reader started reading every page's text run together (`1 1쪽 2 2쪽 …`). Every other path that leaves the focus on the
+  PDF area (Esc in the reason field, a search closed, the reading page moving away from a focused line) says the
+  same name.
+- **A Tab outside the pages no longer reads every control of every line** (#308, item 3). Only a Tab across the pages'
+  edge is taken - from the last stop before the PDF area, or by Shift+Tab from the first after it - and that stop is
+  found by walking out from the area, past parts that are not drawn. Each Tab outside the pages read all focusable
+  elements of the document and their boxes (678 on 91 pages, about 1.3 ms a press; now about 0.04 ms). Tab from the
+  section strip also goes to the reading line when page 1 has a pin mark before its line.
+
 ## 0.4.34 — 2026-10-30
 
 The page verdict line from an owner-requested UX review of 0.4.33 on a figure document (`pl`), and agents told which

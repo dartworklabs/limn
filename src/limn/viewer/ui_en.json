@@ -93,6 +93,7 @@
  "PDF 재빌드 완료": "PDF rebuilt",
  "PDF 재빌드 완료 ·": "PDF rebuild complete ·",
  "PDF 좌표(SyncTeX)로 찾은 위치입니다.": "Found from the PDF coordinates (SyncTeX).",
+ "PDF 쪽": "PDF pages",
  "PDF 쪽 수(": "PDF page count (",
  "PDF 쪽 수({pdf})가 화면({view})과 다릅니다": "The PDF's page count ({pdf}) differs from the view ({view})",
  "PDF 쪽만 축소합니다 (Ctrl/⌘ −, PDF 위에서 Ctrl/⌘+휠). 패널은 그대로입니다": "Zooms out the PDF page only (Ctrl/⌘ −, or Ctrl/⌘+wheel on the PDF). The panel stays put",
