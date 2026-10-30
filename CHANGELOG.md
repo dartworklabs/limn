@@ -76,6 +76,40 @@ those read as before.
   `Enter 이유 쓰기` no longer raises that control's description box; on a one-row English line at 1280 it overlapped the
   pressed word's description (`Current verdict: … press again to retract it`) by 39px. A focus the person moves raises
   it as before.
+- **A retried reason is judged by the pin's rev, not by its text (#299).** A reason write whose answer was lost was taken
+  as saved when the note already held the same text, so a write that never reached the server reported a repeated
+  reason as saved without adding it, and a corrected draft could replace someone else's identical text. Every new reason
+  is now sent against the rev it read (`base_rev`, a `note_append` too), so it can only land as the change right after
+  that rev; a lost write is kept with that rev and the note it would have made. The next write reads the pin: the same
+  rev means it never landed and it is sent again; a later rev means it landed only when the note is exactly what it made
+  (later lines under it allowed) and, when that was the only change since, the change was this person's (`edited_by`).
+  A 409 rebuilds the write from the pin it brings, up to three times. The lost writes are kept with the draft too, so a
+  folded, reopened or reloaded draft still knows them, and a line added under the reason after a CRLF counts like one
+  after an LF. No API change.
+- **A failed take-back no longer drops the reason it took away (#299).** When [판정 취소] (or pressing the pressed word)
+  failed after something took the reason popover's place - another popover, another document or visit, a newer verdict
+  saved on the line meanwhile - the typed reason came back nowhere, and with a newer verdict on its line it could not be
+  reached at all. It is now kept as a draft its line marks ('초안 있음'): the verdict's own when it is current again, else
+  the page's, which goes to the verdict it is opened on - decided once that verdict's own reason write and a newer save
+  on its line (one whose popover still waits for its number included) have answered, and a page's copy that the old
+  verdict's [다시 시도] then writes goes with it. The status line says so after the failure, with [보기], which
+  brings that line into view with the focus on the mark. A newer popover keeps its text and the focus, also on the same
+  line, where the focus used to go to the line and the next digit was a verdict key.
+- **A reason ends on one verdict when the line's verdict changes while its write is out.** The draft no longer moves to
+  the new verdict before that write answers: written, or found landed after a lost answer or a 5xx, it stays on the
+  earlier verdict and the status line says so; not landed, it moves to the new verdict and the earlier verdict's
+  [다시 시도] goes. Three of four orders put the reason on both verdicts. A changed saved reason that follows the new
+  verdict moves only the person's own text, not the lines others added under it.
+- **A verdict restored under a newer one gives its draft to the line**, as the page's draft with a status-line word, and a
+  reload does the same for any draft on a verdict that is not the line's current one - so the reload's '줄의 [초안 있음]이
+  엽니다' is true and leaving asks first.
+- **One's own landed change of a saved reason is not a conflict.** A change whose answer was lost but whose write landed
+  is taken as the note it changes; it is not shown back as a note changed elsewhere.
+- **A verdict written before a 500 is the line's verdict.** A 5xx on the save is checked against the list like a lost
+  answer, so the next press does not make a second verdict.
+- **How a phone's floating line takes a verdict back is documented (#299).** It holds [판정 취소] back for its height;
+  its pressed word does the same (since 0.4.34) and says so - over the words for four seconds after the press, and in
+  its long-press description - and its [되돌리기] comes on the line. A test holds it at 390x844.
 
 ## 0.4.34 — 2026-10-30
 

@@ -1393,5 +1393,9 @@
  "{word} 판정 이유 · 판정 저장 중": "Reason for the {word} verdict · the verdict is being saved",
  "저장 안 된 이유 초안 {n}건 · 줄의 [초안 있음]이 엽니다 — {target}": {"one": "{n} unsaved reason draft · [Draft] on its line opens it — {target}", "other": "{n} unsaved reason drafts · [Draft] on their lines opens them — {target}"},
  "판정 저장 실패 · 쓰던 이유는 이 쪽의 초안으로 남겼습니다 — {target}": "Verdict not saved · the reason you were typing is kept as this page's draft — {target}",
+ "판정 #{id} 이유는 초안으로 남겼습니다 · 줄의 [초안 있음]이 엽니다 — {target}": "The reason for verdict #{id} is kept as a draft · [Draft] on its line opens it — {target}",
+ "판정 #{id} 이유는 이 쪽의 초안으로 남겼습니다 · 줄의 [초안 있음]이 엽니다 — {target}": "The reason for verdict #{id} is kept as this page's draft · [Draft] on its line opens it — {target}",
+ "이유는 이전 판정 #{id} {word}에 저장됨 · 지금 판정은 #{cur} {now} — {target}": "Reason saved on the earlier verdict #{id} {word} · the current verdict is #{cur} {now} — {target}",
+ "판정 #{id} 이유는 저장되지 않아 지금 판정의 초안으로 옮겼습니다 · 줄의 [초안 있음]이 엽니다 — {target}": "The reason for verdict #{id} was not saved and is now the current verdict's draft · [Draft] on its line opens it — {target}",
  "보이지 않는 쪽의 단추라 누르지 않았습니다 — 읽는 쪽에서 다시 누릅니다": "That button is on a page out of view, so it was not pressed — press it again on the page you are reading"
 }
