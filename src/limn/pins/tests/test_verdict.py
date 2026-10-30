@@ -13,7 +13,7 @@ excepted because it is not among the live pins.
 Run: uv run pytest -q src/limn/pins/tests/test_verdict.py
 """
 
-import json
+import math
 import time
 import unittest
 
@@ -348,23 +348,52 @@ class FirstWordVerdicts(unittest.TestCase):
         self.assertEqual(self.figures(figure(1), figure(2), odd), {1: 2})
 
 
-def written(pin):
-    """A pin's stored anchor as the definition compares it: its texts and offsets written as JSON with sorted keys, as the
-    viewer's anchorKey writes them - so one JSON value written in another key order is one anchor, while a list is never
-    the string that reads like it, nor true the number 1. A missing offset is written null."""
-    a = pin.record["anchor"]
-    return json.dumps([a["head"], a["tail"], a.get("head_off"), a.get("tail_off")], sort_keys=True)
+def same_json(x, y):
+    """Are x and y one JSON value as the viewer reads them, compared item by item: a number as the IEEE double it parses
+    to (2**53 + 1 is 2**53, 10**21 is 1e21, -0.0 is 0), and one no double holds as the null JSON.stringify writes for it;
+    true and false never a number; a list item by item, an object key by key in any order; never a value of another
+    type (the list [0] is not the string "[0]")."""
+
+    def double(v):
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            return v
+        try:
+            f = float(v)
+        except OverflowError:
+            return None
+        return f if math.isfinite(f) else None
+
+    x, y = double(x), double(y)
+    for kind in (type(None), bool, float, str, list, dict):
+        if isinstance(x, kind) or isinstance(y, kind):
+            if not (isinstance(x, kind) and isinstance(y, kind)):
+                return False
+            if kind is list:
+                return len(x) == len(y) and all(same_json(a, b) for a, b in zip(x, y, strict=True))
+            if kind is dict:
+                return x.keys() == y.keys() and all(same_json(x[k], y[k]) for k in x)
+            return x == y
+    return False
+
+
+def one_anchor(p, q):
+    """Do two pins that both have an anchor share it, by the definition: the same head and tail texts and the same JSON
+    values as offsets (same_json), a missing offset read as null."""
+    a, b = p.record["anchor"], q.record["anchor"]
+    return (a["head"], a["tail"]) == (b["head"], b["tail"]) and all(
+        same_json(a.get(k), b.get(k)) for k in ("head_off", "tail_off")
+    )
 
 
 def reference(pins, targets):
     """What superseded_by answers, by the definition: a pin's current verdict is the newest pin of its target that is itself
-    or, on lines, about the same text - both open, or both with an anchor and the two written alike (written) - found by
+    or, on lines, about the same text - both open, or both with an anchor and the two one anchor (one_anchor) - found by
     scanning every newer pin."""
     out = {}
     entries = sorted(((p, targets[p.core.pid]) for p in pins), key=lambda e: -e[0].core.pid)
     for i, (p, a) in enumerate(entries):
         for q, b in entries[:i]:
-            shared = a.anchor is not None and b.anchor is not None and written(p) == written(q)
+            shared = a.anchor is not None and b.anchor is not None and one_anchor(p, q)
             if b.key == a.key and (not a.on_lines or (a.open and b.open) or shared):
                 out[p.core.pid] = q.core.pid
                 break
@@ -374,18 +403,35 @@ def reference(pins, targets):
 class LargeHistories(unittest.TestCase):
     """superseded_by reads a long history in one linear pass, and agrees with the definition on any mix."""
 
-    # A hand-edited offset may be any JSON value. Beside the numbers the server writes, the odd ones pair up: a list and the
-    # string that reads like it, an object written in two key orders, true beside 1, null beside no offset at all - each
-    # pair one anchor or two exactly as the definition says (#303: the index once took [0] for "[0]" and true for 1, and
-    # an object's key order for another anchor).
-    ODD = [[0], "[0]", {"a": 0, "b": [1]}, {"b": [1], "a": 0}, True, 1, None]
+    # A hand-edited offset may be any JSON value. Beside the numbers the server writes, the odd ones pair up (#303): a list
+    # and the string that reads like it, an object written in two key orders, true beside 1, null beside no offset at
+    # all; and numbers the viewer reads as one double - 1 and 1.0, 0 (Head 0.'s own offset) and -0.0, 2**53 and 2**53 + 1
+    # (alone and in a list), 10**21 and 1e21 - and a literal past any double (1e400, read as inf), which it writes null.
+    ODD = [
+        ("list", [0]),
+        ("string", "[0]"),
+        ("ab", {"a": 0, "b": [1]}),
+        ("ba", {"b": [1], "a": 0}),
+        ("true", True),
+        ("one", 1),
+        ("null", None),
+        ("one_float", 1.0),
+        ("minus_zero", -0.0),
+        ("two53", 2**53),
+        ("two53_1", 2**53 + 1),
+        ("two53_list", [2**53]),
+        ("two53_1_list", [2**53 + 1]),
+        ("e21_int", 10**21),
+        ("e21", 1e21),
+        ("past_double", math.inf),
+    ]
     ANCHORS = (
         [None]
         + [{"head": "Head %d." % i, "tail": "Tail %d." % i, "head_off": 0, "tail_off": 0} for i in range(3)]
-        + [{"head": "Head 0.", "tail": "Tail 0.", "head_off": v, "tail_off": 0} for v in ODD]
+        + [{"head": "Head 0.", "tail": "Tail 0.", "head_off": v, "tail_off": 0} for _, v in ODD]
         + [{"head": "Head 0.", "tail": "Tail 0.", "tail_off": 0}]
     )
-    LIST, STRING, AB, BA, TRUE, ONE, NULL, MISSING = range(4, 12)  # ANCHORS' odd ones, by index
+    AT = {name: 4 + i for i, (name, _) in enumerate(ODD)} | {"zero": 1, "missing": len(ANCHORS) - 1}  # by index
 
     @given(
         st.lists(
@@ -394,10 +440,17 @@ class LargeHistories(unittest.TestCase):
             max_size=14,
         )
     )
-    @example([(False, LIST, 4), (False, STRING, 4)])
-    @example([(False, AB, 4), (False, BA, 4)])
-    @example([(False, TRUE, 4), (False, ONE, 4)])
-    @example([(False, NULL, 4), (False, MISSING, 4)])
+    @example([(False, AT["list"], 4), (False, AT["string"], 4)])
+    @example([(False, AT["ab"], 4), (False, AT["ba"], 4)])
+    @example([(False, AT["true"], 4), (False, AT["one"], 4)])
+    @example([(False, AT["null"], 4), (False, AT["missing"], 4)])
+    @example([(False, AT["one"], 4), (False, AT["one_float"], 4)])
+    @example([(False, AT["zero"], 4), (False, AT["minus_zero"], 4)])
+    @example([(False, AT["two53"], 4), (False, AT["two53_1"], 4)])
+    @example([(False, AT["two53_list"], 4), (False, AT["two53_1_list"], 4)])
+    @example([(False, AT["e21_int"], 4), (False, AT["e21"], 4)])
+    @example([(False, AT["past_double"], 4), (False, AT["null"], 4)])
+    @example([(False, AT["past_double"], 4), (False, AT["missing"], 4)])
     def test_the_index_agrees_with_scanning_every_newer_pin(self, spec):
         """Open or closed, with one of the anchors or none - three plain ones and the odd offsets' pairs - on one of two
         ranges: the answer equals the scan."""
@@ -439,14 +492,21 @@ class LargeHistories(unittest.TestCase):
 
     def test_an_offset_is_compared_as_the_json_value_it_is(self):
         """Two offsets are one when they are the same JSON value, as the viewer's anchorKey reads them (#303): an object
-        whatever order its keys were written in, 1 and 1.0 (JSON has one kind of number); never a list and the string
-        that reads like it, true and 1, or 0 and null."""
+        whatever order its keys were written in, numbers that are one double (1 and 1.0, 0 and -0.0, 2**53 and 2**53 + 1,
+        10**21 and 1e21), a number past any double and null; never a list and the string that reads like it, true and 1,
+        or 0 and null."""
         for older, newer, same in (
             ([0], "[0]", False),
             ({"a": 0, "b": [1]}, {"b": [1], "a": 0}, True),
             ([{"x": 1, "y": 2}], [{"y": 2, "x": 1}], True),
             (True, 1, False),
             (1, 1.0, True),
+            (0, -0.0, True),
+            ([2**53], [2**53 + 1], True),
+            ({"n": 10**21}, {"n": 1e21}, True),
+            (math.inf, None, True),
+            (10**400, None, True),
+            (2**53, 2**53 + 2, False),
             (0, None, False),
         ):
             with self.subTest(older=older, newer=newer):

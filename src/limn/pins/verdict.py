@@ -22,6 +22,7 @@ stored field - how a stored value is read back - and the place's meaning:
 Pure.
 """
 
+import math
 import re
 from collections.abc import Callable, Hashable, Mapping, Sequence
 from dataclasses import dataclass
@@ -125,19 +126,33 @@ def figure_root(record: Mapping[str, Any]) -> str | None:
     return el.path[0] if el is not None and el.path and el.path[0] else None
 
 
+def _json_number(v: float) -> float | None:
+    """A JSON number as the viewer holds it once parsed and written back: the nearest IEEE double (2**53 + 1 is 2**53,
+    10**21 is 1e21, -0.0 is 0), or None - JSON.stringify's null - for one no double holds (a literal past 1.8e308) or
+    a value that is not finite."""
+    try:
+        f = float(v)
+    except OverflowError:
+        return None
+    return f if math.isfinite(f) else None
+
+
 def _json_key(v: object) -> Hashable:
-    """v as a value that is equal to another's, and hashes alike, exactly when the two are the same JSON value: its JSON
-    type beside what it holds. A number by its value (JSON has one kind: 1 and 1.0 are one number, as the viewer reads
-    them), true and false never a number, a list item by item, an object by its keys and values whatever order they
-    were written in. A hand-edited offset can be a list or an object, and must never make the anchor unhashable nor
-    meet a value of another type: the list [0] is not the string "[0]", true is not 1 (#303). The viewer's anchorKey
-    writes the anchor as JSON with sorted keys, which tells the same values apart."""
-    if v is None:
-        return ("null",)
+    """v as a value that is equal to another's, and hashes alike, exactly when the two are the same JSON value as the
+    viewer reads it: its JSON type beside what it holds. A number by the double it is (_json_number; JSON has one kind
+    of number: 1 and 1.0 are one), and one no double holds is null as the viewer writes it; true and false never a
+    number; a list item by item; an object by its keys and values whatever order they were written in. A hand-edited
+    offset can be a list or an object, and must never make the anchor unhashable nor meet a value of another type: the
+    list [0] is not the string "[0]", true is not 1 (#303). The viewer's anchorKey writes the anchor as JSON with sorted
+    keys, which tells the same values apart."""
     if isinstance(v, bool):
         return ("bool", v)
     if isinstance(v, (int, float)):
-        return ("number", v)
+        v = _json_number(v)
+        if v is not None:
+            return ("number", v)
+    if v is None:
+        return ("null",)
     if isinstance(v, str):
         return ("string", v)
     if isinstance(v, (list, tuple)):

@@ -127,34 +127,52 @@ class SupersessionParity(BrowserBase):
 
 class AnchorParity(unittest.TestCase):
     """The viewer's anchorKey (verdict.js, under node) and the server's anchor_key (limn.pins.verdict) on the same stored
-    anchors: one anchor to the one exactly when one to the other, and both as the definition says - the same JSON value."""
+    anchors: one anchor to the one exactly when one to the other, and both as the definition says - the same JSON value,
+    a number as the double the viewer parses it to."""
 
-    # (older anchor, newer anchor, one anchor?): the offsets a hand-edited anchor may hold (#303) - a list and the string
-    # that reads like it, an object in two key orders (also inside a list), true beside 1, 1 beside 1.0 (JSON has one
-    # kind of number), null beside a missing offset and beside 0 - and an anchor without a tail text, which is none.
+    # (older offset, newer offset, one anchor?) as the text a hand-edited pin file holds (#303), None for no offset. Both
+    # sides read the same text: the server with json.loads, node as a literal - which parses numbers as JSON.parse does.
+    # A list and the string that reads like it, an object in two key orders (also inside a list), true beside 1, null
+    # beside a missing offset and beside 0; numbers that are one double, alone and nested - 1 and 1.0, 0 and -0.0,
+    # 2^53 and 2^53 + 1, 10^21 and 1e21 - against two that are not, and a literal past any double, which the viewer
+    # writes as null.
     PAIRS = [
-        ({"head_off": [0]}, {"head_off": "[0]"}, False),
-        ({"head_off": {"a": 0, "b": [1]}}, {"head_off": {"b": [1], "a": 0}}, True),
-        ({"tail_off": [{"x": 1, "y": 2}]}, {"tail_off": [{"y": 2, "x": 1}]}, True),
-        ({"head_off": True}, {"head_off": 1}, False),
-        ({"head_off": 1}, {"head_off": 1.0}, True),
-        ({"head_off": None}, {}, True),
-        ({"head_off": 0}, {"head_off": None}, False),
-        ({"head_off": 0, "tail_off": 0}, {"tail_off": 0, "head_off": 0}, True),
+        ("[0]", '"[0]"', False),
+        ('{"a": 0, "b": [1]}', '{"b": [1], "a": 0}', True),
+        ('[{"x": 1, "y": 2}]', '[{"y": 2, "x": 1}]', True),
+        ("true", "1", False),
+        ("null", None, True),
+        ("0", "null", False),
+        ("1", "1.0", True),
+        ('{"n": [1]}', '{"n": [1.0]}', True),
+        ("0", "-0.0", True),
+        ("[0]", "[-0.0]", True),
+        ("9007199254740992", "9007199254740993", True),
+        ('{"n": [9007199254740992]}', '{"n": [9007199254740993]}', True),
+        ("9007199254740992", "9007199254740994", False),
+        ("1000000000000000000000", "1e21", True),
+        ('[{"n": 1000000000000000000000}]', '[{"n": 1e21}]', True),
+        ("1e400", "null", True),
+        ("1e400", None, True),
+        ('{"n": [-1e400]}', '{"n": [null]}', True),
+        ("1e400", "0", False),
     ]
 
     def test_the_viewer_and_the_server_tell_the_same_anchors_apart(self):
         """Every pair: the viewer's anchorKey strings are equal exactly when the server's anchor_key values are, and that
         is the pair's answer. A pin whose anchor has no tail text has none to either."""
-        pairs = [
-            ({"head": "H.", "tail": "T.", **a}, {"head": "H.", "tail": "T.", **b}, same) for a, b, same in self.PAIRS
+
+        def anchor(off):
+            return '{"head": "H.", "tail": "T."%s}' % ("" if off is None else ', "head_off": ' + off)
+
+        pairs = [(anchor(a), anchor(b), same) for a, b, same in self.PAIRS] + [
+            ('{"head": "H."}', '{"head": "H."}', None)
         ]
-        pairs.append(({"head": "H."}, {"head": "H."}, None))
         js = "\n".join(
             [
                 extract_js_fn("jsonSortedKeys"),
                 extract_js_fn("anchorKey"),
-                "const pairs=%s;" % json.dumps([[a, b] for a, b, _ in pairs]),
+                "const pairs=[%s];" % ",".join("[%s,%s]" % (a, b) for a, b, _ in pairs),
                 "console.log(JSON.stringify(pairs.map(([a,b])=>{const x=anchorKey({anchor:a}),y=anchorKey({anchor:b});"
                 " return x===null||y===null?null:x===y;})));",
             ]
@@ -162,9 +180,9 @@ class AnchorParity(unittest.TestCase):
         out = run_node(js)
         if out is None:
             self.skipTest("node not available")
-        server = [
-            None if anchor_key({"anchor": a}) is None else anchor_key({"anchor": a}) == anchor_key({"anchor": b})
-            for a, b, _ in pairs
-        ]
+        server = []
+        for a, b, _ in pairs:
+            x, y = anchor_key({"anchor": json.loads(a)}), anchor_key({"anchor": json.loads(b)})
+            server.append(None if x is None or y is None else x == y)
         self.assertEqual(json.loads(out), server)
         self.assertEqual(server, [same for _, _, same in pairs])
