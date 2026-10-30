@@ -26,16 +26,23 @@
 // reason); rev: the pin's rev when a saved reason was opened (a change is written against that rev, never a later one); mode:
 // 'replace' (the whole note, against rev) or 'add' (into an empty note, or under someone's); folded: put away with [접기] - it
 // never opens by itself; tried: the session's writes whose answer was lost (ReasonTry) - a folded, reopened or reloaded
-// draft still knows them, or its next write would add a reason that had landed again; from: the keys of the pins it was
-// moved off while their reason may still be written there (a write out, or a [다시 시도]) - every one of them, however often
-// it moved on ('a → 쪽 → b', 'a → b → c'; a page's draft is no pin and adds none). Kept as the last key alone, a write that
-// landed on a afterwards left the copy, which was then written again (#317). Once one of those writes lands its text leaves
-// the copy (pvReasonWrittenOff), its failure does not make the old key again (pvReasonFailed), and a write of the copy waits
-// for one that is out (pvReasonCommit). An older viewer kept one key, as a string. Written on every input; taken out
+// draft still knows them, or its next write would add a reason that had landed again; from: the parts of its text that
+// were moved off a pin whose reason may still be written there (a write out, a [다시 시도], a write that lost its answer)
+// - every such pin, however often the draft moved on ('a → 쪽 → b', 'a → b → c'; a page's draft is no pin and adds none),
+// each part with its place in the text and that pin's lost writes (ReasonPart). Kept as the last key alone, a write that
+// landed on a afterwards left the copy, which was then written again (#317). A part is a place, not a string: a sentence
+// the person typed again elsewhere in the draft is not it, and the place follows every edit (rdEdit) - an edit inside
+// it makes it no longer that text, and it is let go. Once one of those pins' writes lands with the part's text, the part
+// leaves the copy (pvReasonWrittenOff), its failure does not make the old key again (pvReasonFailed), and a write of the
+// copy waits for one that is out (pvReasonKin) and first settles the lost ones from that pin (pvReasonCheck). An older
+// viewer kept one key, as a string: the whole text. Written on every input; taken out
 // once written, dropped (Esc twice, [지우기]), moved to a new verdict, or when its pin is found gone from the lists
 // (pvReasonRestore).
 const RD_V=1;
-/** @typedef {{text:string,base:string,rev:number,mode:string,folded:boolean,at:number,tried:ReasonTry[],from:string[]}} ReasonDraft */
+/** @typedef {{text:string,base:string,rev:number,mode:string,folded:boolean,at:number,tried:ReasonTry[],from:ReasonPart[]}} ReasonDraft */
+// A part of a draft's text moved off pin key k: text[s, e) is what k's reason write may put on k, and tried are k's writes
+// whose answer was lost - the evidence that one may have put it there already.
+/** @typedef {{k:string,s:number,e:number,tried:ReasonTry[]}} ReasonPart */
 function rdKey(){return 'limnReason:'+encodeURIComponent(META&&META.label||'');}
 /** @returns {Record<string,ReasonDraft>} */
 function rdAll(){try{const o=JSON.parse(sessionStorage.getItem(rdKey())||'null'); return o&&o.v===RD_V&&o.d&&typeof o.d==='object'?o.d:{};}catch(e){return {};}}
@@ -47,53 +54,83 @@ function rdName(doc,id){return (doc||'')+':'+id;}
 /** @param {any} x @returns {ReasonDraft|null} */
 function rdRead(x){return x&&typeof x.text==='string'&&x.text.trim()?{text:x.text,base:typeof x.base==='string'?x.base:'',rev:typeof x.rev==='number'?x.rev:-1,
   mode:x.mode==='replace'||(x.mode!=='add'&&typeof x.base==='string'&&!!x.base.trim())?'replace':'add',folded:!!x.folded,at:Number(x.at)||0,
-  tried:Array.isArray(x.tried)?x.tried.filter(rdTry):[],from:rdFromOf(x.from)}:null;}
-// A kept draft's from as a list of keys (an older viewer kept one, as a string).
-/** @param {unknown} x @returns {string[]} */
-function rdFromOf(x){return Array.isArray(x)?x.filter(k=>typeof k==='string'&&!!k):typeof x==='string'&&x?[x]:[];}
-// The keys of lists a, b, ... once each.
-/** @param {...string[]} a @returns {string[]} */
-function rdJoinFrom(...a){return [...new Set(a.flat())];}
+  tried:Array.isArray(x.tried)?x.tried.filter(rdTry):[],from:rdFromOf(x.from,x.text)}:null;}
+// A kept draft's from as its parts that still fit its text (an older viewer kept one key, as a string: the whole text).
+/** @param {unknown} x @param {string} text @returns {ReasonPart[]} */
+function rdFromOf(x,text){if(typeof x==='string')return x?[{k:x,s:0,e:text.length,tried:[]}]:[];
+  if(!Array.isArray(x))return [];
+  return x.filter(p=>!!p&&typeof p.k==='string'&&!!p.k&&Number.isInteger(p.s)&&Number.isInteger(p.e)&&p.s>=0&&p.s<p.e&&p.e<=text.length)
+    .map(p=>({k:p.k,s:p.s,e:p.e,tried:Array.isArray(p.tried)?p.tried.filter(rdTry):[]}));}
+// Text compared as a reason is written: line breaks as '\n', no space around it (a write sends the draft trimmed).
+/** @param {string} t */
+function rdNorm(t){return t.replace(/\r\n?/g,'\n').trim();}
+// Parts after their text's [ds, de) became n other characters: one before or after it keeps its text (moved by the
+// difference); one it touched inside - typed into, cut, taken away - is no longer that text and goes.
+/** @param {ReasonPart[]} parts @param {number} ds @param {number} de @param {number} n @returns {ReasonPart[]} */
+function rdShift(parts,ds,de,n){const d=n-(de-ds); return parts.flatMap(p=>p.e<=ds?[p]:p.s>=de?[{...p,s:p.s+d,e:p.e+d}]:[]);}
+// Parts of text `was` in `now`, the field's text after one input, the caret at `caret` (the end of what was typed or pasted,
+// or where a deletion was): what changed is what lies between their longest common start and end - the end no further
+// than the caret, so a letter typed before the same letter is placed where it was typed.
+/** @param {ReasonPart[]} parts @param {string} was @param {string} now @param {number} caret @returns {ReasonPart[]} */
+function rdEdit(parts,was,now,caret){if(!parts.length||was===now)return parts; let suf=0,pre=0;
+  const ms=Math.min(was.length,now.length-Math.min(Math.max(caret,0),now.length)); while(suf<ms&&was[was.length-1-suf]===now[now.length-1-suf])suf++;
+  const mp=Math.min(was.length,now.length)-suf; while(pre<mp&&was[pre]===now[pre])pre++;
+  return rdShift(parts,pre,was.length-suf,now.length-suf-pre);}
+// Draft x (text and parts) joined under draft pd's on a new line - pd null: x as it is.
+/** @param {{text:string,from:ReasonPart[]}|null} pd @param {{text:string,from:ReasonPart[]}} x @returns {{text:string,from:ReasonPart[]}} */
+function rdJoin(pd,x){if(!pd)return {text:x.text,from:x.from}; const o=pd.text.length+1;
+  return {text:pd.text+'\n'+x.text,from:[...pd.from,...x.from.map(p=>({...p,s:p.s+o,e:p.e+o}))]};}
+// Text t (with its parts) less every part moved off pin key k whose text is `written` (rdNorm) - with the line break that
+// set it apart, the rest kept as it is - or null when none is.
+/** @param {string} t @param {ReasonPart[]} parts @param {string} k @param {string} written @returns {{text:string,from:ReasonPart[]}|null} */
+function rdCut(t,parts,k,written){const n=rdNorm(written); if(!n)return null; let ps=parts,hit=false;
+  for(let p=ps.find(q=>q.k===k&&rdNorm(t.slice(q.s,q.e))===n);p;p=ps.find(q=>q.k===k&&rdNorm(t.slice(q.s,q.e))===n)){hit=true; let s=p.s,e=p.e;
+    const after=/^[ \t]*\r?\n/.exec(t.slice(e)),before=after?null:/\r?\n[ \t]*$/.exec(t.slice(0,s)); if(after)e+=after[0].length; else if(before)s-=before[0].length;
+    const q=p; t=t.slice(0,s)+t.slice(e); ps=rdShift(ps.filter(x=>x!==q),s,e,0);}
+  return hit?{text:t,from:ps}:null;}
 // Whether a stored lost write is one (ReasonTry).
 /** @param {any} a @returns {a is ReasonTry} */
 function rdTry(a){return !!a&&typeof a.text==='string'&&typeof a.rev==='number'&&typeof a.pre==='string'&&typeof a.stamp==='boolean'&&typeof a.post==='string';}
 // The draft kept under id (a pin number, or 'p<page>') on document doc, or null.
 /** @param {string|null} doc @param {number|string} id @returns {ReasonDraft|null} */
 function rdGet(doc,id){return rdRead(rdAll()[rdName(doc,id)]);}
-// Keeps text under id - or drops it when nothing is unsaved (empty, or the reason as it is saved). The from the draft there
-// had stays unless o names one; a draft never counts its own key.
-/** @param {string|null} doc @param {number|string} id @param {string} text @param {string} base @param {number} [rev] @param {{mode?:string,folded?:boolean,tried?:ReasonTry[],from?:string[]}} [o] */
+// Keeps text under id - or drops it when nothing is unsaved (empty, or the reason as it is saved). The parts the draft there
+// had stay unless o names others (and its text is the same); a draft never counts its own key.
+/** @param {string|null} doc @param {number|string} id @param {string} text @param {string} base @param {number} [rev] @param {{mode?:string,folded?:boolean,tried?:ReasonTry[],from?:ReasonPart[]}} [o] */
 function rdPut(doc,id,text,base,rev,o){const d=rdAll(),k=rdName(doc,id),mode=o&&o.mode||(base.trim()?'replace':'add'),was=rdRead(d[k]);
-  const from=(o&&o.from!==undefined?o.from:was?was.from:[]).filter(f=>f!==k);
+  const from=rdFromOf(o&&o.from!==undefined?o.from:was&&was.text===text?was.from:[],text).filter(p=>p.k!==k);
   if(text.trim()&&text.trim()!==base.trim())d[k]={text,base,rev:rev===undefined?-1:rev,mode,folded:!!(o&&o.folded),at:Date.now(),tried:o&&o.tried||[],from};
   else delete d[k]; rdSave(d);}
-// Keeps reason session r's text as its pin's draft (open, not folded), with its lost writes and the pins it came from.
+// Keeps reason session r's text as its pin's draft (open, not folded), with its lost writes and the parts it came from.
 /** @param {ReasonSession} r @param {boolean} [folded] */
 function rdKeep(r,folded){rdPut(r.doc,r.id||'p'+r.page,r.text,r.base,r.rev,{mode:r.mode,folded:!!folded,tried:r.tried,from:r.via});}   // not bound yet: the page's
 /** @param {string|null} doc @param {number|string} id */
 function rdDrop(doc,id){const d=rdAll(),k=rdName(doc,id); if(k in d){delete d[k]; rdSave(d);}}
-// Moves the draft under from (a pin or a page) to verdict pin id, as a new reason - it was never written on the other (its
-// lost writes stay behind: they were the other pin's), remembering every pin it came from: from, when it is one, and those
-// the draft came from before (rdMovedOff).
+// The part a draft (text, lost writes) becomes when it is moved off pin key k: all of it, with k's lost writes.
+/** @param {string} k @param {{text:string,tried:ReasonTry[]}} x @returns {ReasonPart} */
+function rdPart(k,x){return {k,s:0,e:x.text.length,tried:x.tried};}
+// Moves the draft under from (a pin or a page) to verdict pin id, as a new reason - it was never written on the other -
+// remembering where it came from: all of it is a part moved off from, when that is a pin, with from's lost writes (they
+// may have put it there), and the parts it came with stay (rdMovedOff).
 /** @param {string|null} doc @param {number|string} from @param {number} id @returns {ReasonDraft|null} */
 function rdMove(doc,from,id){const x=rdGet(doc,from); if(!x)return null; rdDrop(doc,from);
-  rdPut(doc,id,x.text,'',-1,{mode:'add',folded:x.folded,from:rdJoinFrom(x.from,typeof from==='number'?[rdName(doc,from)]:[])}); return x;}
+  rdPut(doc,id,x.text,'',-1,{mode:'add',folded:x.folded,from:[...x.from,...(typeof from==='number'?[rdPart(rdName(doc,from),x)]:[])]}); return x;}
 // The drafts moved off pin id's key on document doc (rdMove, pvReasonUncancelDraft) while its reason may still be written
 // there, by key.
 /** @param {string|null} doc @param {number} id @returns {string[]} */
-function rdMovedOff(doc,id){const d=rdAll(),k=rdName(doc,id); return Object.keys(d).filter(x=>{const r=rdRead(d[x]); return !!r&&r.from.includes(k);});}
-// Text t less p, where p is all of t or one of the parts it is joined of by line breaks (a draft joined under another, lines
-// typed under it): what is left ('' when nothing is), or null when p is no such part of t.
-/** @param {string} t @param {string} p @returns {string|null} */
-function rdLess(t,p){if(!p)return null; if(t===p)return ''; if(t.startsWith(p+'\n'))return t.slice(p.length+1); if(t.endsWith('\n'+p))return t.slice(0,t.length-p.length-1);
-  const i=t.indexOf('\n'+p+'\n'); return i<0?null:t.slice(0,i)+t.slice(i+p.length+1);}
-// Pin id's reason text was written there: the drafts moved off its key lose it - the whole draft, or the part of it that it
-// is (rdLess) - and no longer count that key.
+function rdMovedOff(doc,id){const d=rdAll(),k=rdName(doc,id); return Object.keys(d).filter(x=>{const r=rdRead(d[x]); return !!r&&r.from.some(p=>p.k===k);});}
+// Pin id's reason text was written there: the drafts moved off its key lose the parts that are that text (rdCut).
 /** @param {string|null} doc @param {number} id @param {string} text */
 function rdWrittenOff(doc,id,text){const d=rdAll(),k=rdName(doc,id); let ch=false;
-  for(const x of Object.keys(d)){const r=rdRead(d[x]); if(!r||!r.from.includes(k))continue; const left=rdLess(r.text.trim(),text); if(left===null)continue;
-    if(left)d[x]={...r,text:left,from:r.from.filter(f=>f!==k)}; else delete d[x]; ch=true;}
+  for(const x of Object.keys(d)){const r=rdRead(d[x]),c=r?rdCut(r.text,r.from,k,text):null; if(!r||!c)continue;
+    if(c.text.trim())d[x]={...r,text:c.text,from:c.from}; else delete d[x]; ch=true;}
   if(ch)rdSave(d);}
+// Pin key k's write lost its answer (lost write a): every part moved off k keeps it as evidence, stored and in a session.
+/** @param {string|null} doc @param {number} id @param {ReasonTry} a */
+function rdTriedOff(doc,id,a){const d=rdAll(),k=rdName(doc,id),add=(/** @type {ReasonPart[]} */ps)=>ps.map(p=>p.k===k?{...p,tried:[...p.tried,a]}:p); let ch=false;
+  for(const x of Object.keys(d)){const r=rdRead(d[x]); if(r&&r.from.some(p=>p.k===k)){d[x]={...r,from:add(r.from)}; ch=true;}}
+  if(ch)rdSave(d);
+  for(const s of pvReasonLive())if(s.id!==id||s.doc!==doc)s.via=add(s.via);}
 
 // ---------------- The session
 // sid: the popover's own number - its field stays the same element while its draft moves to another verdict, so the focus
@@ -109,10 +146,10 @@ function rdWrittenOff(doc,id,text){const d=rdAll(),k=rdName(doc,id); let ch=fals
 // [지우기] whose answer was lost (the next one reads the note first). id 0: the popover was opened by Enter
 // while its verdict's save was still out (pvReasonOpenPending) - the text waits for the verdict's number (pvReasonAfterSave
 // binds it), and an Enter in it meanwhile saves once it has one (saveWhenBound). onto: the verdict its line changed to while
-// its write was out - that write's outcome is said and settled by pvReasonOnto. via: the keys of the pins its text was moved
-// off while their reason may still be written there (its draft's from, kept with it by rdKeep): a write of the same text
-// there takes it out of this one (pvReasonWrittenOff).
-/** @typedef {{sid:number,page:number,id:number,key:string,doc:string|null,visit:any,text:string,base:string,mode:string,rev:number,conflict:{note:string,rev:number}|null,from:number,via:string[],seen:boolean,listed:boolean,writing:Promise<boolean>|null,saved:string|null,tried:ReasonTry[],clearTried:boolean,escArm:string,saveWhenBound?:boolean,onto?:number}} ReasonSession */
+// its write was out - that write's outcome is said and settled by pvReasonOnto. via: the parts of its text moved off pins
+// whose reason may still be written there (its draft's from, kept with it by rdKeep and placed again on every input,
+// rdEdit): a write of a part's text there takes that part out of this one (pvReasonWrittenOff).
+/** @typedef {{sid:number,page:number,id:number,key:string,doc:string|null,visit:any,text:string,base:string,mode:string,rev:number,conflict:{note:string,rev:number}|null,from:number,via:ReasonPart[],seen:boolean,listed:boolean,writing:Promise<boolean>|null,saved:string|null,tried:ReasonTry[],clearTried:boolean,escArm:string,saveWhenBound?:boolean,onto?:number}} ReasonSession */
 // A new reason's write whose answer was lost: text, sent against the pin's rev `rev`, would have made the note pre, then the
 // stamp a note_append puts first when stamp ('(추가 12:30) ', the time the server's), then text, then post.
 /** @typedef {{text:string,rev:number,pre:string,stamp:boolean,post:string}} ReasonTry */
@@ -190,7 +227,10 @@ function pvReasonRestore(){const doc=DOC||''; if(PV_RESTORED.has(doc)||!META)ret
     // Not its line's current verdict of the person's (a newer one came, or it was handled): no line marks it - the page's
     // draft does, so what this says is true.
     const pk=pre+'p'+t.page,pd=rdRead(d[pk]); delete d[k]; ch=true;
-    d[pk]={...x,text:pd?pd.text+'\n'+x.text:x.text,base:'',rev:-1,mode:'add',folded:true,tried:[],from:rdJoinFrom(pd?pd.from:[],x.from)};}
+    // It becomes a part moved off its verdict, with that verdict's lost writes: one may have landed (#317: a reload let them
+    // go, and the page's draft, opened on the newer verdict, wrote a reason already on the earlier one).
+    const j=rdJoin(pd,{text:x.text,from:[...x.from,rdPart(k,x)]});
+    d[pk]={...x,text:j.text,base:'',rev:-1,mode:'add',folded:true,tried:[],from:j.from};}
   if(ch)rdSave(d);
   const shown=[...pages].filter(n=>n>0).sort((a,b)=>a-b); if(!shown.length)return; const first=shown[0];
   lineNote(tl('저장 안 된 이유 초안 {n}건 · 줄의 [초안 있음]이 엽니다 — {target}',{n:shown.length,target:pageTargetShort(first)}),NOTICE_KIND.INFO,
@@ -266,7 +306,7 @@ function pvReasonOpenPending(page){const s=pvSlot(page),key=PV_BUSY.get(s)||''; 
 /** @param {number} page */
 function pvReasonUnbound(page){const r=PV_REASON; if(!r||r.id||r.page!==page||r.doc!==DOC)return;
   const pop=document.querySelector('#doc .pv-pop'),had=!!pop&&pop.contains(document.activeElement); PV_REASON=null;
-  if(r.text.trim()){rdPut(r.doc,'p'+page,r.text,'',-1,{mode:'add',folded:true});
+  if(r.text.trim()){rdPut(r.doc,'p'+page,r.text,'',-1,{mode:'add',folded:true,from:r.via});
     lineNote(tl('판정 저장 실패 · 쓰던 이유는 이 쪽의 초안으로 남겼습니다 — {target}',{target:pageTargetShort(page)}),NOTICE_KIND.WARN,null,{literal:true});}
   drawPageVerdicts(); if(!had)return; PV_KEY_GUARD=true; if(!pvFocusLine(page))searchToPage();}
 // Puts the focus in the open field, its caret at the end.
@@ -287,9 +327,10 @@ function pvReasonFocus(){const f=pvReasonField(); if(!f||f.disabled)return; f.fo
 /** @param {number} page @param {number} id @param {string} key @param {boolean} kb @param {number} prev */
 function pvReasonAfterSave(page,id,key,kb,prev){const r=PV_REASON; PV_LAST_SAVE=id; PV_KEY_SAVE=kb?id:0;
   if(r&&pvReasonOn(page)&&!r.writing){const own=pvReasonOwn(r),dirty=pvReasonDirty(r)&&!!own.trim(),from=r.id;
-    // The draft it moves remembers the verdict it leaves, as rdMove does - another session's write of it may still land there
-    // (moving on, then the draft opened again on that verdict and moved here) - and the pins it came from before.
-    if(dirty){const k0=from||'p'+page,was=rdGet(r.doc,k0); r.text=own; r.via=rdJoinFrom(r.via,was?was.from:[],from?[rdName(r.doc,from)]:[]);
+    // The draft it moves is a part moved off the verdict it leaves, with that verdict's lost writes, as rdMove makes it -
+    // another session's write of it may still land there (moving on, then the draft opened again on that verdict and moved
+    // here) - and keeps the parts it came with (not when others' lines were left out of it: their places changed).
+    if(dirty){const k0=from||'p'+page; r.via=[...(own===r.text?r.via:[]),...(from?[rdPart(rdName(r.doc,from),{text:own,tried:r.tried})]:[])]; r.text=own;
       rdDrop(r.doc,k0); rdPut(DOC,id,own,'',-1,{mode:'add',from:r.via});}
     else if(from){r.text=''; r.via=[];}   // an unbound popover keeps what is typed
     Object.assign(r,{id,key,base:'',mode:'add',rev:-1,conflict:null,from:dirty?from:0,saved:null,tried:[],clearTried:false,listed:false,escArm:''});
@@ -317,7 +358,7 @@ function pvReasonOwn(r){if(!pvReasonEdits(r))return r.text; const st=/^\(추가 
 /** @param {ReasonSession} r @param {boolean} ok @param {number} page */
 async function pvReasonOnto(r,ok,page){const to=r.onto,doc=r.doc,src='POST /api/pins/'+r.id+'/edit reason'; if(!to)return;
   const target=pvNameOn(doc,page,r.id),saved=()=>{r.onto=0; pvReasonSaidOn(doc,page,r.id,r.key);};
-  if(ok){if(r.text.trim())saved(); else r.onto=0; return;}   // nothing of it was left to write: a write it waited for had it (pvReasonCommit)
+  if(ok){if(r.text.trim())saved(); else r.onto=0; return;}   // nothing of it was left to write: a pin it came from had it (pvReasonCommit)
   let p=/** @type {Pin|null|undefined} */(undefined);
   try{p=(await api('/api/pins/'+r.id,{what:'핀 읽기',silent:true})).data.pin;}
   catch(e){const x=/** @type {ApiError} */(e); if(!x||!x.status||x.status>=500){
@@ -326,11 +367,11 @@ async function pvReasonOnto(r,ok,page){const to=r.onto,doc=r.doc,src='POST /api/
     p=null;}
   const got=p&&!p.dropped_at?[...r.tried].reverse().find(a=>pvReasonLanded(a,/** @type {Pin} */(p))):null;
   PV_RETRY.delete(r);   // its [다시 시도] goes either way (sourceOk)
-  if(got){r.saved=got.text; r.tried=[]; rdDrop(doc,r.id); sourceOk(src); pvReasonWrittenOff(r,got.text); saved(); if(doc===DOC)loadPins().catch(()=>{}); return;}
+  if(got){r.saved=got.text; r.tried=[]; rdDrop(doc,r.id); sourceOk(src); pvReasonWrittenOff(doc,r.id,r.key,got.text,r); saved(); if(doc===DOC)loadPins().catch(()=>{}); return;}
   r.onto=0; r.tried=[]; sourceOk(src); const d=rdGet(doc,r.id),text=d?d.text:r.text,via=d?d.from:r.via; rdDrop(doc,r.id); if(!text.trim())return;
   const open=!!PV_REASON&&PV_REASON.doc===doc&&PV_REASON.page===page,cur=pvCurOn(doc,page);   // it moves with the pins it came from
   if(cur&&cur.id===to&&!open&&!rdGet(doc,to))rdPut(doc,to,text,'',-1,{mode:'add',folded:true,from:via});
-  else{const pd=rdGet(doc,'p'+page); rdPut(doc,'p'+page,pd?pd.text+'\n'+text:text,'',-1,{mode:'add',folded:true,from:rdJoinFrom(pd?pd.from:[],via)});}
+  else{const j=rdJoin(rdGet(doc,'p'+page),{text,from:via}); rdPut(doc,'p'+page,j.text,'',-1,{mode:'add',folded:true,from:j.from});}
   lineNote(tl('판정 #{id} 이유는 저장되지 않아 지금 판정의 초안으로 옮겼습니다 · 줄의 [초안 있음]이 엽니다 — {target}',{id:r.id,target}),NOTICE_KIND.WARN,
     doc===DOC?{label:'보기',fn:()=>pvShowLine(page)}:null,{literal:true,source:'reason-onto'});
   if(doc===DOC)drawPageVerdicts();}
@@ -353,8 +394,9 @@ function pvReasonUncancel(id,page,doc,kept){const cur=pvCurOn(doc,page),back=!!c
 // its line's current one). When the verdict is its line's current one it waits there as its draft; when a newer verdict
 // was saved on the line it would wait on no line (a line marks its current verdict's draft only), so it becomes the page's
 // draft, which goes to the verdict it is opened on (pvReasonOpen; joined under a page's draft waiting there already), and
-// remembers its key with the keys it came from before (from): a [다시 시도] of the old write that lands later takes it away,
-// also after it moved on again (pvReasonWrittenOff). Either way the line
+// remembers that all of it was moved off that verdict, with the verdict's lost writes, and the parts it came with (from):
+// a [다시 시도] of the old write that lands later takes it away, also after it moved on again (pvReasonWrittenOff), and a
+// write of it elsewhere first settles those lost writes (pvReasonCheck). Either way the line
 // marks it '초안 있음' and the status line says so with [보기] (its line in view, the focus on the mark, pvShowLine) - a
 // warning after the take-back's own failure, which stands first with its [다시 시도]. shown: a popover was displaced. A draft
 // kept for the verdict without one (folded, or a failed write) moves the same way and is said too; one that stays on its
@@ -366,7 +408,7 @@ function pvReasonUncancelDraft(id,page,doc,shown){const o=PV_WRITES.get(rdName(d
   const s=pvSlot(page,doc); if(PV_BUSY.has(s)){const u=PV_UNCANCEL.get(s); PV_UNCANCEL.set(s,{id,page,doc,shown:shown||(!!u&&u.id===id&&u.shown)}); return;}
   if(PV_REASON&&PV_REASON.id===id)return;
   const cur=pvCurOn(doc,page),back=!!cur&&cur.id===id,d=rdGet(doc,id); if(!d||(back&&!shown))return;
-  if(!back){const pd=rdGet(doc,'p'+page); rdDrop(doc,id); rdPut(doc,'p'+page,pd?pd.text+'\n'+d.text:d.text,'',-1,{mode:'add',folded:true,from:rdJoinFrom(pd?pd.from:[],d.from,[rdName(doc,id)])});}
+  if(!back){const j=rdJoin(rdGet(doc,'p'+page),{text:d.text,from:[...d.from,rdPart(rdName(doc,id),d)]}); rdDrop(doc,id); rdPut(doc,'p'+page,j.text,'',-1,{mode:'add',folded:true,from:j.from});}
   const target=pvNameOn(doc,page,id);
   lineNote(back?tl('판정 #{id} 이유는 초안으로 남겼습니다 · 줄의 [초안 있음]이 엽니다 — {target}',{id,target})
     :tl('판정 #{id} 이유는 이 쪽의 초안으로 남겼습니다 · 줄의 [초안 있음]이 엽니다 — {target}',{id,target}),
@@ -388,12 +430,15 @@ function pvReasonRevive(id){const d=rdGet(DOC,id),p=pvReasonPin(id); if(!d||!p||
 // and then moving on, another save or another document before the answer start no second one - and text the session has
 // written is not written again. A failed write may be tried again. Resolves with whether the reason is written; once it
 // is, its kept draft goes (unless more was typed meanwhile), so does every other place the text waits to be written - a
-// copy moved off the pin's key, the pins it was moved off (pvReasonWrittenOff) - and its lost writes are settled. The write
+// part moved off the pin's key, the pins it was moved off (pvReasonWrittenOff) - and its lost writes are settled. The write
 // is listed while it is out (PV_WRITES, with its session): a draft is not moved off the key it may still be written for
-// (pvReasonUncancelDraft, pvReasonAfterSave). A reason ends on one verdict, so a write that may put the same text on another
-// verdict - of a pin the draft was moved off (r.via), or of a copy moved off this pin - answers first (pvReasonKin): what it
-// wrote leaves this session's text (pvReasonWrittenOff) and only what is left is written, nothing when nothing is. Both out
-// at once, each landed (#317: the moved copy opened, and Enter pressed, before the old verdict's [다시 시도] answered).
+// (pvReasonUncancelDraft, pvReasonAfterSave). A reason ends on one verdict, so before text moved off other pins is written
+// here, whatever may still put it there is settled first: a write out from one of those pins, or from a copy moved off
+// this one, answers first (pvReasonKin), and the lost writes of those pins are read from the server (pvReasonCheck) - what
+// landed leaves this text (pvReasonWrittenOff) and only what is left is written, nothing when nothing is. A pin that cannot
+// be read leaves it unsure: nothing is written, the draft stays and the status line says the write failed, with
+// [다시 시도]. (#317: the moved copy opened, and Enter pressed, before the old verdict's [다시 시도] answered - or its answer
+// was lost after it landed, or a reload let its evidence go - and the reason landed on both verdicts.)
 const PV_WRITES=/** @type {Map<string,{r:ReasonSession,w:Promise<boolean>}>} */(new Map());
 // The sessions whose failure the status line offers [다시 시도] for (pvReasonFailed), with that message: a write elsewhere of
 // their text takes it out of them and the message goes (pvReasonWrittenOff) - the [다시 시도] would write it a second time.
@@ -401,9 +446,12 @@ const PV_RETRY=/** @type {Map<ReasonSession,Notice>} */(new Map());
 /** @param {ReasonSession} r @param {string} text @param {boolean} said @returns {Promise<boolean>} */
 function pvReasonCommit(r,text,said){if(r.saved===text)return Promise.resolve(true);
   if(!r.writing){const k=rdName(r.doc,r.id),kin=pvReasonKin(r); let sent=text;
-    const go=kin?kin.then(()=>{sent=r.text.trim(); return sent?pvReasonWrite(r,sent,said):true;}):pvReasonWrite(r,text,said);
+    const go=kin||r.via.some(p=>p.tried.length)?(kin||Promise.resolve()).then(()=>pvReasonCheck(r)).then(sure=>{sent=r.text.trim(); if(!sent)return true;
+        if(!sure){pvReasonFailed(r,sent,null); return false;}   // whether it is on a pin it came from is not known: kept, not written
+        return pvReasonWrite(r,sent,said);})
+      :pvReasonWrite(r,text,said);
     const w=go.then(ok=>{r.writing=null; const o=PV_WRITES.get(k); if(o&&o.w===w)PV_WRITES.delete(k);
-      if(ok&&sent){r.saved=sent; r.tried=[]; PV_RETRY.delete(r); const d=rdGet(r.doc,r.id); if(d&&d.text.trim()===sent)rdDrop(r.doc,r.id); pvReasonWrittenOff(r,sent);}
+      if(ok&&sent){r.saved=sent; r.tried=[]; PV_RETRY.delete(r); const d=rdGet(r.doc,r.id); if(d&&d.text.trim()===sent)rdDrop(r.doc,r.id); pvReasonWrittenOff(r.doc,r.id,r.key,sent,r);}
       return ok;});
     r.writing=w; PV_WRITES.set(k,{r,w});}
   return r.writing;}
@@ -411,39 +459,59 @@ function pvReasonCommit(r,text,said){if(r.saved===text)return Promise.resolve(tr
 // (r.via) and of the copies moved off its own pin -, all answered (failed ones too), or null when none is out.
 /** @param {ReasonSession} r @returns {Promise<unknown>|null} */
 function pvReasonKin(r){const k=rdName(r.doc,r.id);
-  const ws=[...PV_WRITES].filter(([x,o])=>o.r!==r&&(r.via.includes(x)||o.r.via.includes(k))).map(([,o])=>o.w.catch(()=>false));
+  const ws=[...PV_WRITES].filter(([x,o])=>o.r!==r&&(r.via.some(p=>p.k===x)||o.r.via.some(p=>p.k===k))).map(([,o])=>o.w.catch(()=>false));
   return ws.length?Promise.all(ws):null;}
-// Session w wrote text on its pin. A reason ends on one verdict, so the text leaves every other place it waits to be
-// written: the drafts moved off w's pin (rdWrittenOff) and the sessions holding one - the open popover, a write waiting for
-// w's (pvReasonCommit), a popover moved away from while its save is out (PV_DETACHED), a failure's [다시 시도] (PV_RETRY) -
-// each keeping what else it holds (rdLess: lines typed under it, a draft joined to it); and, w's text being a copy moved off
-// other pins (w.via), the sessions of those pins whose text it holds - a [다시 시도] there, or a write waiting for w's. A
-// session left with nothing has nothing to write: its [다시 시도] goes, and the open popover closes (pvReasonTaken).
-/** @param {ReasonSession} w @param {string} text */
-function pvReasonWrittenOff(w,text){const k=rdName(w.doc,w.id); rdWrittenOff(w.doc,w.id,text);
-  const all=new Set([PV_REASON,...PV_DETACHED.values(),...[...PV_WRITES.values()].map(o=>o.r),...PV_RETRY.keys()]);
-  for(const s of all){if(!s||s===w)continue; const t=s.text.trim();
-    const left=s.via.includes(k)?rdLess(t,text):s!==PV_REASON&&s.id&&w.via.includes(rdName(s.doc,s.id))&&rdLess(text,t)!==null?'':null;   // a copy of w's text, or what w's was a copy of
-    if(left===null)continue;
-    s.text=left; s.via=s.via.filter(f=>f!==k); const n=PV_RETRY.get(s); if(!left&&n){PV_RETRY.delete(s); endNotice(n,true);}
-    if(s===PV_REASON)pvReasonTaken(s,w,!!left);}}
-// The open popover s held a reason that session w has just written on a verdict s's draft was moved off
-// (pvReasonWrittenOff). With something left - lines typed under it, a draft joined to it - it stays with that, and the
-// status line says the rest went. With nothing left it closes, and the status line says where the reason is, as when a
-// write out at a verdict change lands ('이유는 이전 판정 #15 채택에 저장됨 · 지금 판정은 #16 보류', pvReasonSaidOn): left open,
-// its Enter or moving on wrote the reason on this verdict as well. When its field had the focus the line's reason control
-// takes it and the keys pressed next are not verdict keys (PV_KEY_GUARD) - the person was typing text; one waiting on its
-// Enter (the field disabled, the focus nowhere) has the focus put on its line, as a written Enter does.
-/** @param {ReasonSession} s @param {ReasonSession} w @param {boolean} part */
-function pvReasonTaken(s,w,part){
+// Before session r writes text moved off other pins: each of those pins whose writes lost their answer (its parts' tried)
+// is read as the server has it now, and every such write is judged by the pin's rev (pvReasonLanded). One that landed with
+// a part's very text put it on that pin: the part leaves r and every other copy, and its failure goes (pvReasonWrittenOff);
+// one the pin's rev is past and that did not land never will, and is let go. Resolves false when a pin could not be read
+// (no answer, a 5xx): nothing is decided for it.
+/** @param {ReasonSession} r @returns {Promise<boolean>} */
+async function pvReasonCheck(r){let sure=true;
+  for(const k of new Set(r.via.filter(p=>p.tried.length).map(p=>p.k))){const id=Number(k.slice(k.lastIndexOf(':')+1)); let p=/** @type {Pin|null} */(null);
+    try{p=(await api('/api/pins/'+id,{what:'핀 읽기',silent:true})).data.pin||null;}
+    catch(e){const x=/** @type {ApiError} */(e); if(!x||!x.status||x.status>=500){sure=false; continue;}}
+    const pin=p&&!p.dropped_at?p:null,rev=pin&&typeof pin.rev==='number'?pin.rev:Infinity;
+    for(;;){const q=pin?r.via.find(q=>q.k===k&&q.tried.some(a=>rdNorm(a.text)===rdNorm(r.text.slice(q.s,q.e))&&pvReasonLanded(a,pin))):null; if(!q||!pin)break;
+      const a=/** @type {ReasonTry} */(q.tried.find(a=>rdNorm(a.text)===rdNorm(r.text.slice(q.s,q.e))&&pvReasonLanded(a,pin)));
+      pvReasonWrittenOff(r.doc,id,verdictOf(pin)||'',a.text,null);
+      if(r.via.includes(q))break;}   // not taken out (cannot be): stop
+    r.via=r.via.map(q=>q.k===k?{...q,tried:q.tried.filter(a=>a.rev>=rev)}:q);}
+  return sure;}
+// The sessions that may still write: the open popover, those moved away from while their save is out, those writing, and
+// those whose failure offers [다시 시도].
+function pvReasonLive(){return /** @type {Set<ReasonSession>} */(new Set([PV_REASON,...PV_DETACHED.values(),...[...PV_WRITES.values()].map(o=>o.r),...PV_RETRY.keys()].filter(Boolean)));}
+// Pin id (verdict word `word`) of document doc has text as its reason now - session w wrote it, or (w null) a write that lost
+// its answer is found landed. A reason ends on one verdict, so the text leaves every other place it waits to be written:
+// the parts moved off that pin with that text (rdCut) - in the drafts kept (rdWrittenOff) and in the sessions holding one
+// (pvReasonLive), each keeping what else it holds: lines typed around it, another draft joined to it, the same sentence
+// typed again -; and, w's text holding parts moved off other pins (w.via), the sessions of those pins whose text is such a
+// part. The sessions of pin id with that text have it saved. A session left with nothing has nothing to write: its
+// [다시 시도] goes, and the open popover closes (pvReasonTaken).
+/** @param {string|null} doc @param {number} id @param {string} word @param {string} text @param {ReasonSession|null} w */
+function pvReasonWrittenOff(doc,id,word,text,w){const k=rdName(doc,id),n=rdNorm(text); rdWrittenOff(doc,id,text);
+  const gone=(/** @type {ReasonSession} */s)=>{s.text=''; s.via=[]; const m=PV_RETRY.get(s); PV_RETRY.delete(s); if(m)endNotice(m,true);};
+  for(const s of pvReasonLive()){if(s===w)continue; const c=rdCut(s.text,s.via,k,text);
+    if(c){s.text=c.text.trim()?c.text:''; s.via=s.text?c.from:[]; if(!s.text)gone(s); if(s===PV_REASON)pvReasonTaken(s,doc,id,word,!!s.text); continue;}
+    if(s===PV_REASON||!s.id||!s.text.trim())continue; const sk=rdName(s.doc,s.id),t=rdNorm(s.text);
+    if(sk===k&&t===n){s.saved=s.text.trim(); s.tried=[]; gone(s);}   // its own lost write, found landed
+    else if(w&&w.via.some(p=>p.k===sk&&rdNorm(w.text.slice(p.s,p.e))===t))gone(s);}}   // what w's copy came from
+// The open popover s held a reason that pin id (verdict word `word`) of document doc has just been given, on a verdict s's
+// draft was moved off (pvReasonWrittenOff). With something left - lines typed around it, a draft joined to it - it stays
+// with that, and the status line says the rest went. With nothing left it closes, and the status line says where the
+// reason is, as when a write out at a verdict change lands ('이유는 이전 판정 #15 채택에 저장됨 · 지금 판정은 #16 보류',
+// pvReasonSaidOn): left open, its Enter or moving on wrote the reason on this verdict as well. When the popover had the
+// focus - typed in, or waiting on its Enter (the field disabled, the focus nowhere) - the line's reason control takes it and
+// the keys pressed next are not verdict keys (PV_KEY_GUARD): the person was typing text, or about to.
+/** @param {ReasonSession} s @param {string|null} doc @param {number} id @param {string} word @param {boolean} part */
+function pvReasonTaken(s,doc,id,word,part){
   if(part){pvRefill(s.page); const l=/** @type {HTMLElement|null} */(document.querySelector('#doc .pv[data-page="'+s.page+'"]')); if(l)pvReasonAfterDraw(l);
-    lineNote(tl('이유 일부는 이전 판정 #{id} {word}에 저장됨 · 초안에는 나머지를 남겼습니다 — {target}',{id:w.id,word:verdictLabel(w.key,w.doc),target:pvReasonName(s)}),
+    lineNote(tl('이유 일부는 이전 판정 #{id} {word}에 저장됨 · 초안에는 나머지를 남겼습니다 — {target}',{id,word:verdictLabel(word,doc),target:pvReasonName(s)}),
       NOTICE_KIND.INFO,null,{literal:true,life:NOTICE_LIFE.TIMER});
     return;}
-  const a=document.activeElement,pop=document.querySelector('#doc .pv-pop'),typing=pvIsReasonField(a)&&!a.disabled&&!!pop&&pop.contains(a);
-  const had=!!pop&&!!a&&pop.contains(a)||(!!s.writing&&(!a||a===document.body));
-  PV_REASON=null; drawPageVerdicts(); if(had){if(typing)PV_KEY_GUARD=true; if(!pvFocusLine(s.page))searchToPage();}
-  pvReasonSaidOn(s.doc,s.page,w.id,w.key);}
+  const a=document.activeElement,pop=document.querySelector('#doc .pv-pop'),had=!!pop&&!!a&&pop.contains(a)||(!!s.writing&&(!a||a===document.body));
+  PV_REASON=null; drawPageVerdicts(); if(had){PV_KEY_GUARD=true; if(!pvFocusLine(s.page))searchToPage();}
+  pvReasonSaidOn(doc,s.page,id,word);}
 // Says that pin id's reason (verdict word key) was saved, about page `page` of document doc - on an earlier verdict when the
 // line's current verdict is another one now.
 /** @param {string|null} doc @param {number} page @param {number} id @param {string} key */
@@ -535,7 +603,7 @@ async function pvReasonWrite(r,text,said){if(viewerBlocked())return false;
       if(pvReasonEdits(r)){pvReasonRebase(r,q); if(String(q.note||'').trim()!==r.base.trim()){pvReasonConflict(r,text,q); return false;}
         r.rev=typeof q.rev==='number'?q.rev:r.rev;}   // only something else changed (a claim, the assignee): the note is the one it was read at
       p=q;}
-  }catch(e){const x=/** @type {ApiError} */(e); if(sent&&(!x||!x.status||x.status>=500))r.tried.push(sent);   // it may have landed
+  }catch(e){const x=/** @type {ApiError} */(e); if(sent&&(!x||!x.status||x.status>=500)){r.tried.push(sent); rdTriedOff(r.doc,r.id,sent);}   // it may have landed - so may the copies moved off it know
     pvReasonFailed(r,text,x); return false;}
   r.conflict=null; sourceOk('POST /api/pins/'+r.id+'/edit reason');   // a failure this write answers goes (also when nothing had to be sent)
   if(r.onto){/* its line's verdict changed meanwhile: pvReasonOnto says where it is */}
@@ -737,9 +805,10 @@ function pvRefill(page){const v=pageVerdictsOn(),e=/** @type {HTMLElement|null} 
 let PV_COMPOSING=false;   // an input method is composing in the reason field: its value is not put back
 $('#doc').addEventListener('compositionstart',e=>{if(pvIsReasonField(e.target))PV_COMPOSING=true;});
 $('#doc').addEventListener('compositionend',e=>{if(pvIsReasonField(e.target))PV_COMPOSING=false;});
-// Every input keeps the draft (rdPut) and lets a first Esc go; the line follows its emptiness (the state).
+// Every input keeps the draft (rdPut), with the parts moved into it placed where they are now (rdEdit), and lets a first Esc
+// go; the line follows its emptiness (the state).
 $('#doc').addEventListener('input',e=>{const f=e.target; if(!pvIsReasonField(f))return; const r=PV_REASON; if(!r||f.dataset.id!=='s'+r.sid)return;
-  r.text=f.value; r.escArm=''; rdKeep(r); pvReasonGrow(f); pvRefill(r.page);});
+  const was=r.text; r.text=f.value; r.via=rdEdit(r.via,was,r.text,f.selectionEnd); r.escArm=''; rdKeep(r); pvReasonGrow(f); pvRefill(r.page);});
 // Keys in the field: Enter saves (Shift+Enter is a new line), Esc closes or takes two presses with text. Every other key is
 // the field's own - digits included. Nothing while an input method composes. Esc on the popover's buttons ([접기], [닫기],
 // [저장], [지우기]) is the field's Esc: it did nothing there.

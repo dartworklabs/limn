@@ -3968,10 +3968,14 @@ class ReasonRaces(VerdictBase):
         self.lose_drop = 0  # how many POST /api/pins/N/drop to lose on the network
         self.held_drop: list | None = None  # POST /api/pins/N/drop routes held unanswered while not None
         self.pin_500 = 0  # how many POST /api/pin the server writes and then answers 500
+        self.lose_read = 0  # a pin whose next read (GET /api/pins/N) is lost on the network
 
     def route(self, route):
         rq = route.request
         path = urlparse(rq.url).path
+        if rq.method == "GET" and self.lose_read and path == "/api/pins/%d" % self.lose_read:
+            self.lose_read = 0
+            return route.abort()
         if rq.method == "POST" and path == "/api/pin" and self.pin_500:
             self.pin_500 -= 1
             self.forward(_Swallowed(route))
@@ -4781,15 +4785,149 @@ class ReasonRaces(VerdictBase):
                 self.assertEqual(page.evaluate(DRAFTS), {})
                 self.assertIn("이유는 이전 판정 #%d 채택에 저장됨 · 지금 판정은 #%d 보류" % (a, b), titles)
                 self.assertEqual(page.evaluate(FOCUS_AT), [1, "pv-reason-open"])
-                if case == "untouched":
-                    page.keyboard.press("2")
-                    settle(page)
-                    self.assertEqual(sorted(self.pins()), [a, b])
+                # A digit typed on makes no verdict - also after an Enter that waited, whose field was disabled (review
+                # of #323: only a field typed in guarded the keys, and 2 took b back).
+                page.keyboard.press("2")
+                settle(page)
+                self.assertEqual(sorted(self.pins()), [a, b])
                 page.evaluate("k=>switchDoc(k)", "ms")
                 page.wait_for_function("DOC==='ms'&&META&&META.doc==='ms'")
                 settle(page)
                 self.assertEqual((self.note(a), self.note(b)), (text, ""))
                 self.assertEqual(len(self.edits), 2, self.edits)  # the lost Enter and a's [다시 시도]
+
+    def test_a_copys_write_waits_out_an_old_write_whose_answer_is_lost(self):
+        """'답을 잃은 이유' for verdict a, its Enter lost and folded, then 보류 (b): the draft moves to b, b's '초안 있음' is
+        opened, a's [다시 시도] is pressed and held, and Enter is pressed in the copy, which waits for it. a's write lands
+        but its answer is lost (review of #323, 1: the copy went on after that failure and the reason landed on both):
+        - a is read: the reason is on a, so nothing is written on b - the popover closes, nothing is kept, and a's failure
+          goes;
+        - that read is lost too: whether it landed is not known, so nothing is written either - the text stays in the
+          field and as b's draft, and the status line says the save failed; Enter again reads a and closes."""
+        text = "답을 잃은 이유"
+        for case in ("read", "read lost"):
+            with self.subTest(case=case):
+                self.drop_all()
+                self.edits = []
+                page = self.on("fig")
+                a = self.lost_and_folded(page, text)
+                b = self.press_page(page, 1, "보류")
+                open_reason(page, 1)
+                self.held_edit = []
+                self.retry_reason(page)
+                self.wait_held_edit(page)
+                page.keyboard.press("Enter")  # the focus stayed in the field: it waits for a's write
+                page.wait_for_timeout(300)  # anything it would send has been sent (held)
+                held, self.held_edit = self.held_edit, None
+                self.assertEqual(len(held), 1, self.edits)
+                if case == "read lost":
+                    self.lose_read = a
+                for r in held:
+                    self.forward(_Swallowed(r))
+                    r.abort()
+                if case == "read lost":
+                    page.wait_for_function(
+                        "id=>LINE.some(n=>n.source==='POST /api/pins/'+id+'/edit reason')", arg=b, timeout=10000
+                    )
+                    settle(page)
+                    self.assertEqual((self.note(a), self.note(b)), (text, ""))
+                    got = page.evaluate(REASON, 1)
+                    self.assertEqual((got["value"], got["focused"]), (text, True))
+                    self.assertEqual(page.evaluate(DRAFTS), {"fig:%d" % b: text})
+                    page.keyboard.press("Enter")
+                page.wait_for_function("()=>!document.querySelector('#doc .pv-reason')", timeout=10000)
+                settle(page)
+                self.assertEqual((self.note(a), self.note(b)), (text, ""))
+                self.assertEqual(page.evaluate(DRAFTS), {})
+                titles = page.evaluate("()=>LINE.map(n=>n.title)")
+                self.assertFalse([t for t in titles if t.startswith("이유 저장 실패")], titles)
+                self.assertIn("이유는 이전 판정 #%d 채택에 저장됨 · 지금 판정은 #%d 보류" % (a, b), titles)
+                self.assertEqual(len(self.edits), 2, self.edits)  # the lost Enter and a's [다시 시도]
+
+    def test_a_moved_part_leaves_by_its_place_not_by_its_words(self):
+        """'같은 문장' for verdict a, its Enter lost and folded, then 보류 (b); b's '초안 있음' opened, a line typed above it and
+        two under it, the last one '같은 문장' again, typed on purpose. a's [다시 시도] lands: the moved sentence leaves -
+        the one typed again stays (review of #323, 2: the text was matched by its words, and the last one went)."""
+        page = self.on("fig")
+        a = self.lost_and_folded(page, "같은 문장")
+        self.press_page(page, 1, "보류")
+        open_reason(page, 1)
+        page.keyboard.press("Control+Home")
+        page.keyboard.type("다른 줄")
+        page.keyboard.press("Shift+Enter")
+        page.keyboard.press("Control+End")
+        page.keyboard.press("Shift+Enter")
+        page.keyboard.type("새 줄")
+        page.keyboard.press("Shift+Enter")
+        page.keyboard.type("같은 문장")
+        self.assertEqual(page.evaluate(REASON, 1)["value"], "다른 줄\n같은 문장\n새 줄\n같은 문장")
+        self.retry_reason(page)
+        page.wait_for_function("id=>LINE.some(n=>n.title==='이유 저장됨 · 판정 #'+id+' 채택')", arg=a)
+        settle(page)
+        self.assertEqual(self.note(a), "같은 문장")
+        self.assertEqual(page.evaluate(REASON, 1)["value"], "다른 줄\n새 줄\n같은 문장")
+
+    def test_a_moved_part_with_spaces_after_it_leaves_too(self):
+        """'공백 뒤 이유' typed with two spaces after it for verdict a - its write sends it trimmed -, its Enter lost and
+        folded, then 보류 (b); b's '초안 있음' opened and a line typed under it. a's [다시 시도] lands: the moved line leaves,
+        spaces and all, and the typed line stays (review of #323, 3: the spaces, or a CRLF, kept it from being found, and
+        it was written on b too). A part followed by a CRLF leaves with it."""
+        page = self.on("fig")
+        a = self.lost_and_folded(page, "공백 뒤 이유  ")
+        self.press_page(page, 1, "보류")
+        open_reason(page, 1)
+        page.keyboard.press("Control+End")
+        page.keyboard.press("Shift+Enter")
+        page.keyboard.type("더 쓴 줄")
+        self.retry_reason(page)
+        page.wait_for_function("id=>LINE.some(n=>n.title==='이유 저장됨 · 판정 #'+id+' 채택')", arg=a)
+        settle(page)
+        self.assertEqual(self.note(a), "공백 뒤 이유")
+        self.assertEqual(page.evaluate(REASON, 1)["value"], "더 쓴 줄")
+        cut = page.evaluate("()=>rdCut('옛 이유\\r\\n새 이유',[{k:'fig:9',s:0,e:4,tried:[]}],'fig:9','옛 이유')")
+        self.assertEqual(cut, {"text": "새 이유", "from": []})
+
+    def test_a_draft_whose_write_may_have_landed_is_checked_before_it_is_written_elsewhere(self):
+        """'들어갔을 이유' for verdict a, its Enter written by the server but its answer lost, and folded; then a newer verdict
+        b on the line - saved here (the draft moves to b), or in another tab and then a reload (the draft, on a verdict that
+        is not current, becomes the page's draft). Opened on b and Enter: a is read first - the reason is on a - so nothing
+        is written on b, the popover closes and says where the reason is (review of #323, 4: the lost write was let go with
+        the move, and the reason was written on b too)."""
+        text = "들어갔을 이유"
+        for case in ("here", "another tab and a reload"):
+            with self.subTest(case=case):
+                self.drop_all()
+                self.edits = []
+                page = self.on("fig")
+                page.on("dialog", lambda d: d.accept())
+                a = self.typed(page, 1, text)
+                self.lose_answer = 1
+                page.keyboard.press("Enter")
+                page.wait_for_function("()=>LINE.some(n=>n.title.startsWith('이유 저장 실패'))")
+                settle(page)
+                self.assertEqual(self.note(a), text)  # the server has it
+                page.locator('#doc .pv[data-page="1"] [data-act="pv-reason-fold"]').click()
+                page.wait_for_function("()=>!document.querySelector('#doc .pv-pop')")
+                if case == "here":
+                    b = self.press_page(page, 1, "보류")
+                else:
+                    b = self.press_page(self.on("fig"), 1, "보류")
+                    page.reload()
+                    page.wait_for_function(booted(2), timeout=20000)
+                    page.evaluate("k=>switchDoc(k)", "fig")
+                    page.wait_for_function("DOC==='fig'&&META&&META.doc==='fig'&&document.querySelector('#p1')")
+                    settle(page)
+                    self.assertEqual(page.evaluate(DRAFTS), {"fig:p1": text})
+                open_reason(page, 1)
+                self.assertEqual(page.evaluate(REASON, 1)["value"], text)
+                page.keyboard.press("Enter")
+                page.wait_for_function("()=>!document.querySelector('#doc .pv-reason')", timeout=10000)
+                settle(page)
+                self.assertEqual((self.note(a), self.note(b)), (text, ""))
+                self.assertEqual(page.evaluate(DRAFTS), {})
+                titles = page.evaluate("()=>LINE.map(n=>n.title)")
+                self.assertIn("이유는 이전 판정 #%d 채택에 저장됨 · 지금 판정은 #%d 보류" % (a, b), titles)
+                self.assertEqual(len(self.edits), 1, self.edits)  # a's, whose answer was lost
 
     def test_a_moved_draft_written_on_its_new_verdict_takes_the_old_retry_away(self):
         """'옮겨 쓴 이유' for verdict a, its Enter lost and folded, then 보류 (b) on the line - the draft moves to b - and written

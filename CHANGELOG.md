@@ -5,15 +5,19 @@
 ### Fixed
 
 - **A reason draft moved more than once still ends on one verdict (#317).** A draft that moved off a verdict whose reason
-  write could still land there (a write out, or its [다시 시도]) remembered only the last key it moved off: moved again
-  (`a → 쪽 → b`, `a → b → c`), a write that then landed on a left the copy, which was written on the newer verdict too.
-  It now remembers every verdict it moved off, and a write of the same text on one of them takes that text out of the
-  copy, keeping the lines typed under it or another draft joined to it. A popover open on the copy follows: with nothing
-  left it closes, the status line says the reason was saved on the earlier verdict, and when its field had the focus the
-  line's reason control takes it and the next digit is not a verdict key; with something left it keeps that and says the
-  rest went (it used to keep the whole text, which its Enter or moving on wrote on the newer verdict). The other order
-  holds too: once the copy is written on its verdict the earlier verdict's failure and its [다시 시도] go, and a write of
-  either kind started while the other is out waits for its answer and writes only what is left.
+  write could still land there (a write out, its [다시 시도], a write whose answer was lost) remembered only the last key
+  it moved off: moved again (`a → 쪽 → b`, `a → b → c`), a write that then landed on a left the copy, which was written
+  on the newer verdict too. It now remembers every verdict it moved off, as the place of the moved text in the draft -
+  followed through every edit - with that verdict's lost writes. A write of that text on one of them takes that place
+  out of the copy with the line break that set it apart, keeping lines typed around it, a draft joined to it and the same
+  sentence typed again; trailing spaces or a CRLF no longer hide it. A popover open on the copy follows: with nothing left
+  it closes, the status line says the reason was saved on the earlier verdict, and the line's reason control takes the
+  focus with the next digit not taken as a verdict key - also when its Enter was waiting; with something left it keeps
+  that and says the rest went. Before the copy is written, a write out on the earlier verdict answers first and a write
+  there that lost its answer is settled from the pin's rev - also after the draft moved on or the page was reloaded;
+  landed, nothing is written twice; when the pin cannot be read nothing is written, the draft stays and the status line
+  says the save failed, with [다시 시도]. The other order holds too: once the copy is written the earlier verdict's
+  failure and its [다시 시도] go, and that [다시 시도] pressed while the copy's write is out waits for it.
 
 ## 0.4.35 — 2026-10-30
 
