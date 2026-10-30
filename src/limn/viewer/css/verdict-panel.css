@@ -67,8 +67,8 @@ body.pv-beside #doc .pgw:not(:has(>.pv-sum))>.pg{margin-bottom:var(--space-6)}  
 @media (hover:hover){#doc .pv-sum:hover{background:transparent;color:var(--foreground);text-decoration:underline;text-underline-offset:3px}}
 #doc .pv-sum.pv-far:not(:focus){content-visibility:auto;contain-intrinsic-block-size:var(--control-h-sm)}
 /* A touch screen wide enough for the panel: the rows stand far enough apart that the '#N' link and what is under it each answer
-   44px, and a summary answers 44px and shows it is pressed (a long press shows its words, tooltip.js data-tip-press). */
+   44px, and a summary answers 44px; it shows a press as every button does (components.css) and a long press shows its words
+   (tooltip.js data-tip-press). */
 @media (pointer:coarse){#doc #pv-panel>.pv-t{row-gap:var(--space-6);padding-top:var(--space-4)}
   #doc .pv-sum{height:var(--hit);margin-bottom:var(--space-2)}
-  #doc .pv-sum.pv-far:not(:focus){contain-intrinsic-block-size:var(--hit)}
-  #doc .pv-sum:active{background:color-mix(in srgb,var(--foreground) 10%,transparent)}}
+  #doc .pv-sum.pv-far:not(:focus){contain-intrinsic-block-size:var(--hit)}}

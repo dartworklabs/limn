@@ -1110,6 +1110,33 @@ class FastKeys(PanelBase):
                 got = {p["verdict"]: p["note"] for p in self.pins().values() if p["page"] == n}
                 self.assertEqual(got, {"보류": "", "삭제": text})
 
+    def test_a_press_on_the_way_to_the_reason_right_after_a_click_save_waits_for_the_new_verdict(self):
+        """The same with the mouse, where no digit's save stands for it: 보류 pressed, then 채택 with the list not read again yet.
+        [이유 추가], still 보류's on screen, opens the reason for 채택."""
+        page = self.on()
+        self.to(page, 2)
+        page.locator(WORD % (2, "보류")).click()
+        page.wait_for_function("n=>(pageVerdictPins().get(n)||[]).length===1", arg=2)
+        settle(page)
+        self.held_list = []
+        page.locator(WORD % (2, "채택")).click()
+        for _ in range(300):
+            if len(self.pins()) == 2 and self.held_list:
+                break
+            page.wait_for_timeout(10)
+        self.assertEqual(len(self.pins()), 2, "the save did not land")
+        page.locator(LINE_ACT % (2, "pv-reason-open")).first.click()
+        page.wait_for_selector(FIELD)
+        page.keyboard.type("마우스의 이유")
+        held, self.held_list = self.held_list, None
+        self.release(held)
+        page.wait_for_function("n=>(pageVerdictPins().get(n)||[]).length===2", arg=2)
+        settle(page)
+        page.keyboard.press("Enter")
+        page.wait_for_function("OPEN_ALL.some(p=>p.note==='마우스의 이유')")
+        got = {p["verdict"]: p["note"] for p in self.pins().values()}
+        self.assertEqual(got, {"보류": "", "채택": "마우스의 이유"})
+
     def test_the_field_keeps_the_focus_while_its_write_is_out_and_after_a_failure(self):
         """Enter with the write held: the focus stays in the field, which waits; a digit is no verdict. Answered 500: the text
         and the focus are there. Enter again held, and the page left: the focus is on the PDF area, never on nothing."""
@@ -1415,7 +1442,7 @@ class WideTouch(PanelBase):
         x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
         page.mouse.move(x, y)
         page.mouse.down()
-        self.assertNotEqual(s.evaluate("e=>getComputedStyle(e).backgroundColor"), "rgba(0, 0, 0, 0)")
+        self.assertIn("inset", s.evaluate("e=>getComputedStyle(e).boxShadow"))
         page.mouse.move(x, y + 200)
         page.mouse.up()
         top = page.evaluate(TOP)
