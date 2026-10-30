@@ -250,6 +250,23 @@ class Panel(PanelBase):
         settle(page)
         self.assertTrue(page.evaluate(SHAPE)["beside"], "back at 100% the panel did not come back")
 
+    def test_a_page_wider_than_the_area_takes_the_panel_away_and_an_area_not_drawn_keeps_it(self):
+        """One zoom past the area's width, 160%: the room is below nothing, and the panel goes (it stayed on, read as an area
+        not drawn yet, over the page's right side). 100% brings it back. An area that really is not drawn (the changes
+        view) has no room to read: the lines stay as they are."""
+        page = self.on()
+        self.assertTrue(page.evaluate(SHAPE)["beside"])
+        page.evaluate("zoomTo(K*1.6)")
+        settle(page)
+        self.assertLess(page.evaluate(ROOM), 0)
+        got = page.evaluate(SHAPE)
+        self.assertEqual((got["beside"], got["panel"], got["lines"]), (False, False, TAKING), got)
+        page.evaluate("actualSize()")
+        settle(page)
+        self.assertTrue(page.evaluate(SHAPE)["beside"])
+        hidden = """()=>{const b=document.body; b.classList.add('revision-open'); const r=[pvSideRoom(),pvSideWant()]; b.classList.remove('revision-open'); return r;}"""
+        self.assertEqual(page.evaluate(hidden), [None, True])
+
     def test_the_page_stays_centred_while_the_margin_holds_the_panel_and_moves_left_by_what_it_lacks(self):
         """1920 with the pin panel closed: the page is centred and the panel stands 24px right of it. With the pin panel
         open the right margin is exactly the panel and its gap (304px), and the page moved left by what it lacked."""

@@ -20,14 +20,15 @@ const PV_SIDE_W=280,PV_SIDE_GAP=24,PV_SIDE_LEFT=24,PV_SIDE_HYST=32;
 const PV_SIDE_EXIT=PV_SIDE_W+PV_SIDE_GAP+PV_SIDE_LEFT,PV_SIDE_ENTER=PV_SIDE_EXIT+PV_SIDE_HYST;
 let PV_SIDE=false;   // the lines stand beside the pages now: one panel, a summary under each page
 // The room the PDF area leaves beside the pages: its inner width less the common page's width at the scale on screen (a
-// figure document's pages are one width; a wider outlier scrolls sideways as it does under the line), -1 while the area is
-// not drawn (the changes view): the lines then stay as they are.
-function pvSideRoom(){const L=$('#left'); if(!META||!Array.isArray(META.pages)||!META.pages.length||!L.getClientRects().length)return -1;
+// figure document's pages are one width; a wider outlier scrolls sideways as it does under the line) - below 0 for a page wider
+// than the area - or null while the area is not drawn (the changes view): the lines then stay as they are.
+/** @returns {number|null} */
+function pvSideRoom(){const L=$('#left'); if(!META||!Array.isArray(META.pages)||!META.pages.length||!L.getClientRects().length)return null;
   return innerW()-pageWidth(ptCommon(),K);}
 // Whether the lines should stand beside the pages: the wide band, a document with page lines, and the room - with
 // hysteresis around the bar.
 function pvSideWant(){if(LAYOUT!==LAYOUT_MODE.WIDE||!pageVerdictsOn())return false;
-  const r=pvSideRoom(); if(r<0)return PV_SIDE; return PV_SIDE?r>=PV_SIDE_EXIT:r>=PV_SIDE_ENTER;}
+  const r=pvSideRoom(); if(r===null)return PV_SIDE; return PV_SIDE?r>=PV_SIDE_EXIT:r>=PV_SIDE_ENTER;}
 // Sets PV_SIDE and the body's class for it (body.pv-beside). No drawing.
 /** @param {boolean} on */
 function pvSideApply(on){PV_SIDE=on; document.body.classList.toggle('pv-beside',on);}
