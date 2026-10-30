@@ -93,8 +93,16 @@ function verdictTargetOf(p,kind){const t=pageTargetOf(p,kind); if(t)return {key:
     return {key:'lines '+p.file+':'+p.lo+'-'+p.hi,whole:false,page:p.page,lines:{open:pinState(p)===PIN_STATE.OPEN,anchor:anchorKey(p)}};
   return null;}
 // A line pin's anchor - the text of its first and last lines when it was saved or last re-matched - as one string, or null.
+// It is JSON with every object's keys in one order (jsonSortedKeys), so two anchors are one string exactly when they are the
+// same JSON value, as the server's anchor_key compares them (limn.pins.verdict, #303): a hand-edited offset that is an object
+// is one whatever order its keys were written in, and the list [0] and the string "[0]", or true and 1, stay apart.
 /** @param {Pin} p @returns {string|null} */
-function anchorKey(p){const a=p.anchor; return a&&typeof a.head==='string'&&typeof a.tail==='string'?JSON.stringify([a.head,a.tail,a.head_off,a.tail_off]):null;}
+function anchorKey(p){const a=p.anchor; return a&&typeof a.head==='string'&&typeof a.tail==='string'?JSON.stringify([a.head,a.tail,a.head_off,a.tail_off],jsonSortedKeys):null;}
+// A JSON.stringify replacer that writes each object with its keys sorted - after the integer-like keys, which a JavaScript
+// object always puts first in their numeric order - and an array or any other value as it is.
+/** @param {string} _k @param {unknown} v @returns {unknown} */
+function jsonSortedKeys(_k,v){if(!v||typeof v!=='object'||Array.isArray(v))return v; const o=/** @type {Record<string,unknown>} */(v);
+  return Object.fromEntries(Object.keys(o).sort().map(k=>[k,o[k]]));}
 // Whether two pins on the same file and line numbers are about the same lines: both open (their lines are matched to the text
 // now), or both saved on the same text (one anchor). A closed pin's numbers may be from an older text; without a shared
 // anchor it is only its own target - never superseded, never another pin's current verdict.

@@ -6,14 +6,19 @@ two implementations of one rule, so a disagreement shows a card that says a verd
 skip it. One flow of verdicts runs through the real handler in all three kinds of document - a figure's root and panel, a
 LaTeX file's lines (an open one and a closed one), a view-only PDF's pages, a region and a verdict taken back to the Trash and
 restored - and every verdict pin's `superseded_by` must equal the number the viewer names as its superseding verdict.
+Two pins on the same lines are one target only with one anchor, so the viewer's anchorKey (run under node) and the server's
+anchor_key must also tell the same anchors apart, whatever JSON value a hand-edited offset holds (#303).
 
 Run: uv run pytest -q src/limn/viewer/tests/test_viewer_supersession_parity.py
 """
 
 import json
+import unittest
+
+from limn.pins.verdict import anchor_key
 
 import helpers_figure
-from helpers import ps, split_resp
+from helpers import extract_js_fn, ps, run_node, split_resp
 from helpers_access import ALICE, BOB, talk_to
 from helpers_browser import BrowserBase, settle
 
@@ -118,3 +123,66 @@ class SupersessionParity(BrowserBase):
         page = self.open_viewer(listed)
         self.assertEqual(page.evaluate(VIEWER_ORDER), self.server_order(), "the verdict restored")
         self.assertEqual(dict(self.server_order())[made[0]], newest)
+
+
+class AnchorParity(unittest.TestCase):
+    """The viewer's anchorKey (verdict.js, under node) and the server's anchor_key (limn.pins.verdict) on the same stored
+    anchors: one anchor to the one exactly when one to the other, and both as the definition says - the same JSON value,
+    a number as the double the viewer parses it to."""
+
+    # (older offset, newer offset, one anchor?) as the text a hand-edited pin file holds (#303), None for no offset. Both
+    # sides read the same text: the server with json.loads, node as a literal - which parses numbers as JSON.parse does.
+    # A list and the string that reads like it, an object in two key orders (also inside a list), true beside 1, null
+    # beside a missing offset and beside 0; numbers that are one double, alone and nested - 1 and 1.0, 0 and -0.0,
+    # 2^53 and 2^53 + 1, 10^21 and 1e21 - against two that are not, and a literal past any double, which the viewer
+    # writes as null.
+    PAIRS = [
+        ("[0]", '"[0]"', False),
+        ('{"a": 0, "b": [1]}', '{"b": [1], "a": 0}', True),
+        ('[{"x": 1, "y": 2}]', '[{"y": 2, "x": 1}]', True),
+        ("true", "1", False),
+        ("null", None, True),
+        ("0", "null", False),
+        ("1", "1.0", True),
+        ('{"n": [1]}', '{"n": [1.0]}', True),
+        ("0", "-0.0", True),
+        ("[0]", "[-0.0]", True),
+        ("9007199254740992", "9007199254740993", True),
+        ('{"n": [9007199254740992]}', '{"n": [9007199254740993]}', True),
+        ("9007199254740992", "9007199254740994", False),
+        ("1000000000000000000000", "1e21", True),
+        ('[{"n": 1000000000000000000000}]', '[{"n": 1e21}]', True),
+        ("1e400", "null", True),
+        ("1e400", None, True),
+        ('{"n": [-1e400]}', '{"n": [null]}', True),
+        ("1e400", "0", False),
+    ]
+
+    def test_the_viewer_and_the_server_tell_the_same_anchors_apart(self):
+        """Every pair: the viewer's anchorKey strings are equal exactly when the server's anchor_key values are, and that
+        is the pair's answer. A pin whose anchor has no tail text has none to either."""
+
+        def anchor(off):
+            return '{"head": "H.", "tail": "T."%s}' % ("" if off is None else ', "head_off": ' + off)
+
+        pairs = [(anchor(a), anchor(b), same) for a, b, same in self.PAIRS] + [
+            ('{"head": "H."}', '{"head": "H."}', None)
+        ]
+        js = "\n".join(
+            [
+                extract_js_fn("jsonSortedKeys"),
+                extract_js_fn("anchorKey"),
+                "const pairs=[%s];" % ",".join("[%s,%s]" % (a, b) for a, b, _ in pairs),
+                "console.log(JSON.stringify(pairs.map(([a,b])=>{const x=anchorKey({anchor:a}),y=anchorKey({anchor:b});"
+                " return x===null||y===null?null:x===y;})));",
+            ]
+        )
+        out = run_node(js)
+        if out is None:
+            self.skipTest("node not available")
+        server = []
+        for a, b, _ in pairs:
+            x, y = anchor_key({"anchor": json.loads(a)}), anchor_key({"anchor": json.loads(b)})
+            server.append(None if x is None or y is None else x == y)
+        self.assertEqual(json.loads(out), server)
+        self.assertEqual(server, [same for _, _, same in pairs])

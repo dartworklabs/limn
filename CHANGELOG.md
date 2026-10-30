@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+Follow-ups to the reviews of 0.4.34. The agent contract is unchanged: the server writes integer anchor offsets, and
+those read as before.
+
+### Fixed
+
+- **`superseded_by` compares two verdicts' anchors as JSON values** (#303). Two closed verdict pins on the same lines
+  count together only when they share one `anchor`. The server compared an offset hand-edited into a list or an object
+  by its printed form, so the list `[0]` and the string `"[0]"` were one anchor to it (and so were `true` and `1`) - a
+  false `superseded_by` the viewer's card did not show - and one object written with its keys in another order was two,
+  to the viewer as well. The server and the viewer's verdict order now both compare offsets as JSON values: an object's
+  keys in any order, never a value of another type, and a number as the double the viewer reads it as - `1` and `1.0`,
+  `2^53` and `2^53+1`, `10^21` and `1e21` are one number, and one no double holds (`1e400`) is `null`.
+
 ## 0.4.34 — 2026-10-30
 
 The page verdict line from an owner-requested UX review of 0.4.33 on a figure document (`pl`), and agents told which
