@@ -17,9 +17,7 @@ another section or away, and a card changed while out of view shows what it hold
 Run: uv run pytest -q src/limn/viewer/tests/test_viewer_list_scroll.py
 """
 
-import base64
 import json
-import time
 
 from limn.pins.lifecycle.rules import CloseRequest
 from limn.security.access import LOCAL_ACTOR
@@ -28,35 +26,19 @@ from helpers import add_pin, edit_pin, ps, record_of
 from helpers_access import ALICE, actor
 from helpers_authority import post_authority
 from helpers_browser import BrowserBase, settle
+from helpers_trace import SCROLL_ADDING_FONTS, laid_out, traced
 
 DESKTOP = {"viewport": {"width": 1400, "height": 850}}
 PHONE = {"viewport": {"width": 390, "height": 844}, "is_mobile": True, "has_touch": True}
 NO_COACH = "try{localStorage.setItem('pinPrefs',JSON.stringify({coach:{touch:1,mouse:1,sel:1}}))}catch(e){}"
 
 N_PINS = 300  # "hundreds of pins": more than twice the 127 the issue measured
-TRACE_FLUSH_S = 30
 NOTES = (
     "문단을 줄입니다",
     "이 식의 번호가 본문과 다릅니다. 앞 절의 정의를 따라 다시 매깁니다",
     "그림 3의 축 이름이 표와 다릅니다. 단위도 함께 적어 주세요. 범례는 아래로 내립니다",
     "오타",
 )
-# Scrolls the PDF area in steps and, at each, adds one font the way PDF.js does for a page it draws first (a FontFace from
-# the font file's bytes under a name of its own, added to document.fonts), waits for it and for two frames. Returns the
-# long tasks' durations (ms) seen meanwhile.
-SCROLL_ADDING_FONTS = """async (steps) => {
-  const L = document.querySelector('#left'), frames = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
-  const bytes = await (await fetch('/vendor/pretendard/PretendardVariable.subset.0.woff2')).arrayBuffer();
-  const long = [], po = new PerformanceObserver(l => { for (const e of l.getEntries()) long.push(Math.round(e.duration)); });
-  po.observe({type: 'longtask'});
-  for (let i = 0; i < steps; i++) {
-    L.scrollTop += 120;
-    const f = new FontFace('limn-test-pdf-font-' + i, bytes.slice(0)); document.fonts.add(f); await f.loaded;
-    await frames();
-  }
-  po.disconnect();
-  return long;
-}"""
 # The DOM nodes (elements and text) the cards hold: the layout objects a layout of every card walks, near enough.
 CARD_NODES = """() => {let n = 0; for (const c of document.querySelectorAll('#list .pin.card')) {
   const w = document.createTreeWalker(c); while (w.nextNode()) n++;} return n;}"""
@@ -86,33 +68,6 @@ HEIGHTS = """() => {const cs = [...document.querySelectorAll('#list .pin.card')]
   cs.forEach(c => { c.style.contentVisibility = 'visible'; }); const drawn = cs.map(c => c.getBoundingClientRect().height);
   cs.forEach(c => { c.style.contentVisibility = ''; });
   return cs.map((c, i) => [c.dataset.id, at[i], drawn[i]]).filter(r => Math.abs(r[1] - r[2]) > 0.01);}"""
-
-
-def traced(page, script, arg):
-    """Run the async page function script(arg) under a Chrome trace of the devtools timeline; return its value and the
-    trace's events."""
-    cdp = page.context.new_cdp_session(page)
-    cdp.send("Tracing.start", {"categories": "devtools.timeline", "transferMode": "ReturnAsStream"})
-    value = page.evaluate(script, arg)
-    done = []
-    cdp.on("Tracing.tracingComplete", lambda e: done.append(e))
-    cdp.send("Tracing.end")
-    # Wait for tracingComplete - the trace flushed to its stream - up to TRACE_FLUSH_S. The sync session delivers an event
-    # only while it waits on a command, so it waits on cheap ones until the event has come or the time is out.
-    until = time.monotonic() + TRACE_FLUSH_S
-    while not done and time.monotonic() < until:
-        cdp.send("Runtime.evaluate", {"expression": "0"})
-    assert done, "Tracing.tracingComplete did not come within %ds" % TRACE_FLUSH_S
-    chunks = []
-    while True:
-        part = cdp.send("IO.read", {"handle": done[0]["stream"], "size": 1 << 20})
-        chunks.append(base64.b64decode(part["data"]).decode() if part.get("base64Encoded") else part["data"])
-        if part.get("eof"):
-            break
-    cdp.send("IO.close", {"handle": done[0]["stream"]})
-    cdp.detach()
-    data = json.loads("".join(chunks))
-    return value, data["traceEvents"] if isinstance(data, dict) else data
 
 
 class ManyCardsWhileThePdfScrolls(BrowserBase):
@@ -155,11 +110,7 @@ class ManyCardsWhileThePdfScrolls(BrowserBase):
         self.assertEqual(page.evaluate("document.querySelectorAll('#list .pin.card').length"), N_PINS)
         nodes = page.evaluate(CARD_NODES)
         long, events = traced(page, SCROLL_ADDING_FONTS, 8)
-        laid = [
-            e["args"]["beginData"]["dirtyObjects"]
-            for e in events
-            if e.get("name") == "Layout" and "beginData" in e.get("args", {})
-        ]
+        laid = laid_out(events)
         self.assertTrue(laid, "no layout in the trace")
         self.assertLess(
             max(laid),

@@ -787,6 +787,7 @@ const PV_KEY_SAVED=/** @type {Set<number>} */(new Set());
 // (422 -> 0 at 2x) at every drawing of the lines: a save, a take-back (#320).
 /** @param {HTMLElement[]} lines */
 function pvFit(lines){const held=lines.map(pvRowsHeld),D=$('#doc'),hold=pvHoldView(true); try{
+  pvFarHold(lines);   // a line skipped far from the view is laid out to be measured, and keeps its height after (pvFarLetGo)
   if(PV_KEY_SAVE)PV_KEY_SAVED.add(PV_KEY_SAVE);
   lines.forEach((l,i)=>{l.classList.toggle('pv-kw',PV_KEY_SAVED.has(Number(l.dataset.pin)));
     if(!held[i]){l.classList.remove('pv-stack','pv-tight','pv-early-out'); l.style.removeProperty('--pv-t-h');}});
@@ -846,7 +847,9 @@ function pvFit(lines){const held=lines.map(pvRowsHeld),D=$('#doc'),hold=pvHoldVi
   const groups=lines.map(l=>l.querySelector('.vd-btns')),wrap=groups.map(g=>!!g&&new Set([...g.children].map(b=>Math.round(b.getBoundingClientRect().top))).size>1);
   groups.forEach((g,i)=>{if(g)g.classList.toggle('wrapped',wrap[i]);});
   pvFocusStays(lines);}
-  finally{D.classList.remove('pv-measure'); pvHoldView(false,hold);}}   // also when a step throws: never left measuring, nor unanchored
+  // Also when a step throws: never left measuring, every line keeps the height it is drawn at and may be skipped again
+  // (pvFarLetGo, read once the measure is gone), and the view anchors again only after that - whatever pvFarLetGo does.
+  finally{D.classList.remove('pv-measure'); try{pvFarLetGo(lines);}finally{pvHoldView(false,hold);}}}
 // Holds a pinch-zoomed view where it is across pvFit's pass (on) and lets go after it (off, given what on returned): the PDF
 // area does not anchor its scroll (overflow-anchor), and its layout is brought up to date before it anchors again, so the
 // anchor it then takes is where the pass left the pages - never a measure's grown lines. On returns the area's own value it
@@ -1032,6 +1035,65 @@ function jumpPv(id){if(!PV_SHOWN.has(id))return false; const p=PINS.find(x=>x.id
   const line=/** @type {HTMLElement|null} */(document.querySelector('#doc .pv[data-page="'+t.page+'"]')); if(!line)return false;
   const block=/** @type {HTMLElement} */(line.parentElement),L=$('#left');
   block.scrollIntoView({behavior:SMOOTH,block:block.getBoundingClientRect().height<=L.clientHeight?'center':'start'}); flash(line); return true;}
+
+// ---------------- Lines far from the view (docs/handbook/viewer.md §판정 핀)
+// A line more than a view's height above or below what the PDF area shows is left for the browser to skip (.pv-far:
+// content-visibility:auto, components.css): it is not laid out or painted until it comes near. Each page PDF.js draws for
+// the first time adds its embedded fonts to document.fonts, and every font added makes the browser lay out all the text in
+// the page again: with the far cards already skipped (list.js lazyCards, #305) the 88 lines of a 91-page figure document
+// were about 4,300 of the 7,400 objects laid out at each, and the first wheel scroll through it still had 8-9 long tasks
+// (#322). A skipped line breaks none of the line's rules, because it is never another size than the one it is drawn at:
+// - It stands at its drawn height: --pv-h (the contain-intrinsic-block-size; the line has no padding or border, so its box
+//   is its content box), or the size the browser last drew it at (content-visibility:auto keeps it: contain-intrinsic-size
+//   auto), which is the same. Whatever changes what a line shows or its width fits it again (fillPv, sizePv: pvFit), and
+//   pvFit lays out every line it measures - a skipped one too (pvFarHold) - and keeps its height as it lets go of it
+//   (pvFarLetGo); a line that goes far keeps the height the observer saw instead, where that is the later one. So a skip
+//   never moves the pages and nothing scrolls to make up for one; and every line is still measured as the reading line
+//   (#doc.pv-measure).
+// - Skipping contains a line (paint containment): it draws its parts on whole pixels and clips what reaches past its box (a
+//   focus ring, the pressed word's hint, the reason popover, a save chip). So no line in or near the view is skipped (the
+//   observer's margin), and - whatever the observer said last - neither is the reading line, which floats, a line holding
+//   the focus, its reason popover or a save chip, or a line pvFit is measuring (components.css). A script's measure inside a
+//   skipped line lays it out for the answer (the keys' Tab stops), but the innerText of what is skipped is empty.
+// Without IntersectionObserver no line is skipped.
+let PV_FAR_IO=/** @type {IntersectionObserver|null} */(null),PV_FAR_H=-1;
+const PV_FAR_SEEN=/** @type {Set<HTMLElement>} */(new Set());   // the lines the observer watches
+const PV_FIT_AT=/** @type {WeakMap<HTMLElement,number>} */(new WeakMap());   // when pvFit last kept each line's height (performance.now())
+// The lines pvFit is about to measure are laid out, skipped or not (.pv-fitting).
+/** @param {HTMLElement[]} lines */
+function pvFarHold(lines){if(typeof IntersectionObserver==='undefined')return; lines.forEach(l=>l.classList.add('pv-fitting'));}
+// pvFit is done with lines: each keeps the height it is drawn at now (one not laid out - the changes view - keeps the one it
+// had), may be skipped again, and is watched - a new line too; a line no longer in the page (another document, a rebuild)
+// is no longer watched. Read before any is written.
+/** @param {HTMLElement[]} lines */
+function pvFarLetGo(lines){if(typeof IntersectionObserver==='undefined')return; const h=lines.map(l=>l.getBoundingClientRect().height),at=performance.now();
+  const L=$('#left'),vh=L.clientHeight;
+  lines.forEach((l,i)=>{if(h[i]){l.style.setProperty('--pv-h',h[i]+'px'); PV_FIT_AT.set(l,at);} l.classList.remove('pv-fitting');});
+  pvFarWatch(lines,vh);}
+// Watches lines (new ones; one no longer in the page is let go) with an observer whose margin is the PDF area's height vh, in
+// px above and below its view (a percentage would be of its width): it is made again, watching every line, when that height
+// changes.
+/** @param {HTMLElement[]} lines @param {number} vh */
+function pvFarWatch(lines,vh){
+  if(!PV_FAR_IO||PV_FAR_H!==vh){if(PV_FAR_IO)PV_FAR_IO.disconnect(); PV_FAR_SEEN.clear(); PV_FAR_H=vh;
+    PV_FAR_IO=new IntersectionObserver(pvFarSort,{root:$('#left'),rootMargin:vh+'px 0px'}); lines=$$('#doc .pv');}
+  const io=PV_FAR_IO;
+  PV_FAR_SEEN.forEach(l=>{if(!l.isConnected){io.unobserve(l); PV_FAR_SEEN.delete(l);}});
+  lines.forEach(l=>{if(!PV_FAR_SEEN.has(l)&&l.isConnected){io.observe(l); PV_FAR_SEEN.add(l);}});}
+// The PDF area's height can change with no line fitted again - a window made only shorter while a scale is saved keeps that
+// scale (autoW), so sizePv does not run: the margin follows it here, so far still means a view's height away.
+if(window.ResizeObserver&&window.IntersectionObserver)new ResizeObserver(()=>{const vh=$('#left').clientHeight;
+  if(PV_FAR_IO&&vh&&vh!==PV_FAR_H)pvFarWatch([],vh);}).observe($('#left'));
+// The observer's reports: a line that came within a view's height of the PDF area's view is drawn as it is; one that went
+// further is skipped, at the height the observer saw when that is later than pvFit's - not one not laid out (no height to
+// stand at) or no longer in the page.
+/** @param {IntersectionObserverEntry[]} es */
+function pvFarSort(es){for(const e of es){const l=/** @type {HTMLElement} */(e.target);
+  if(!l.isConnected)continue;
+  if(e.isIntersecting){l.classList.remove('pv-far'); continue;}
+  if(l.classList.contains('pv-far')||!e.boundingClientRect.height)continue;
+  if(e.time>(PV_FIT_AT.get(l)||-1))l.style.setProperty('--pv-h',e.boundingClientRect.height+'px');
+  l.classList.add('pv-far');}}
 
 // ---------------- The line that floats, and the keys (docs/handbook/viewer.md §판정 핀)
 // Only the reading page's line floats: the page under the reading line, the one the section strip names and the keys act

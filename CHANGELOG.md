@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+Follow-ups to the reviews of 0.4.35, nearly all on the page verdict line: a long press, a tap while the reason is
+typed and a save in a pinch-zoomed view do what they show on a phone, a phone's floating line keeps its rows, and the
+status line's `+N` list reads there; Tab from a page without a line keeps the pages where they are, a line saved by a
+key keeps its rows and the earlier link is short and never cut; a reason draft moved more than once ends on one verdict.
+The lines far from the view are left for the browser to skip, so the first scroll through a long figure document no
+longer stalls. The agent contract is unchanged.
+
 ### Changed
 
 - **The earlier verdicts' link is short and never cut.** A page verdict line's link to the open verdicts a newer one
@@ -72,6 +79,19 @@
   a tight row. It was fitted on the look it showed, so near its threshold it stacked, or its stacked state took a second
   row (91 to 123px), only while it was read, or only at rest. It is now fitted at the wider of the two looks and states,
   as the hidden identifier and key digits are (#322).
+- **The first scroll through a long figure document no longer stalls on its page verdict lines** (#322, item 4). Each
+  page PDF.js draws for the first time adds its embedded fonts to `document.fonts`, and every font added makes the
+  browser lay out all the text in the page again. Since 0.4.35 skips the far pin cards (#305), what was left was the
+  pages' verdict lines: on the 91-page figure document (`pl`, 200 pins, panel open, 1400 x 850, a wheel scroll from the
+  top to the end) the 88 lines were 4,300 of the 7,378 objects laid out after each font, and the scroll had 3-9 long tasks
+  (0.16-0.51 s; 8-9 on a busier machine). A line more than a view's height above or below what the PDF area shows is now
+  left for the browser to skip (`content-visibility: auto`): 3,243 objects per font, no long task in three runs, frame
+  p95 33 -> 17 ms. Nothing looks or moves differently. A skipped line stands at the height it is drawn at, and every line
+  is still measured drawn - as the reading line - whenever what it shows or its width changes, so no line's rows or
+  height and no page's place change, and nothing scrolls to make up for one. The reading line (which floats), a line in
+  or near the view and a line holding the focus, its reason popover or a save chip are never skipped (skipping contains
+  a line, which snaps its parts to whole pixels and clips what reaches past it). The outline is not skipped: its rows
+  share one grid's columns, which a skipped row would leave.
 
 ## 0.4.35 — 2026-10-30
 

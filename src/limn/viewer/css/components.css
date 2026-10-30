@@ -335,3 +335,8 @@ body.band-phone .pv.pv-lean .pv-cn{visibility:hidden}   /* its place kept: the l
    took the lower 13px of the link's. */
 @media (pointer:coarse){.pv.pv-stack{row-gap:var(--space-5)} .pv .pv-t{row-gap:var(--space-4)}}
 .pv.flash{animation:pinflash 1.2s ease-in-out 1}
+/* A line far from the view is left for the browser to skip (.pv-far, verdict.js pvFarSort; #322): not laid out or painted
+   until it comes near, at the height it is drawn at (--pv-h: the line has no padding or border, so its box is its content
+   box). Skipping contains a line - its parts drawn on whole pixels, what reaches past its box clipped - so never the
+   reading line, which floats, a line holding the focus, its reason popover or a save chip, nor one pvFit is measuring. */
+#doc .pv.pv-far:not(.reading,.pv-fitting,.pv-pop-open,:focus-within,:has(>.nt-chip)){content-visibility:auto;contain-intrinsic-block-size:var(--pv-h)}
