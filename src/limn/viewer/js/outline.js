@@ -137,22 +137,25 @@ function markOutline(){for(const box of [$('#outline-items'),$('#ns-outline-item
 // The outline panel keeps the current section in view (docs/handbook/viewer.md §모바일 레이아웃, 목차가 지금 절을 따라간다). The panel (#outline:
 // the wide layout's panel, the overlay of mid and the tablet sheet) is its own scroller and a figure document's list is many times
 // taller than it, so the mark alone moved out of sight. Only #outline scrolls - Element.scrollIntoView moves every scrolling ancestor
-// too, the pages among them - and the focus stays where it is. A row that shows whole moves nothing. The phone has no panel: its
+// too, the pages among them - and the focus stays where it is. A row clear of the margin moves nothing. The phone has no panel: its
 // sheet is modal, so nothing moves under it, and it brings its own row up as it opens (navSheetReveal).
 const OUTLINE_FOLLOW_HOLD_MS=3000;   // the list stays put this long after the person's own wheel, press, key or scroll in it
-const OUTLINE_FOLLOW_MARGIN=48;      // px of the list kept beyond a row brought into view: two rows of a mouse screen
+const OUTLINE_FOLLOW_MARGIN=48;      // px of the list kept between the current row and the panel's edges: two rows of a mouse screen
 const OUTLINE_FOLLOW_FLIGHT_MS=600;  // how long a smooth follow can still be under way: a next one reckons from where it is heading
 let OUTLINE_MARKED=-1,OUTLINE_SNAP=true,   // the entry last marked; the next follow jumps (a new document's list), it does not glide
   OUTLINE_FOLLOW_DUE=false,OUTLINE_FOLLOW_TIMER=0,   // a follow the person held back (or a list the filter drew again) is owed when they let go
   OUTLINE_OVER=false,OUTLINE_HANDLED=-Infinity,OUTLINE_SHOWN=false,   // the mouse is over the panel; when they last handled it; the panel is on screen
   OUTLINE_AIM=/** @type {{top:number,at:number}|null} */(null);   // where a smooth follow is heading, and since when
 // Where the list (scrollTop st, view height h, content height sh) scrolls to bring a row at [top, bottom] of its content into view:
-// null when the row shows whole - else the nearest place that has m px of the list beyond it (less on a view too short for that, and
-// a row taller than the view by its top). Going up, the very top where only part of the panel's head would be left over the row
-// (head: where the rows start): a cut head hides the filter for nothing. Within what the list can scroll. Pure.
+// null when the row stands m px clear of both edges - else the nearest place where it does (less on a view too short for that, and a
+// row taller than the view by its top). The margin holds from the moment a row enters it: following only once a row has left the
+// view brought it in with the margin, let the next rows use it up and then moved the list by all of it at once. Going up, the very
+// top where only part of the panel's head would be left over the row (head: where the rows start): a cut head hides the filter for
+// nothing. Within what the list can scroll, so the list's two ends are as near as a row gets. Pure.
 function outlineRevealTop(st,h,sh,top,bottom,m,head){
-  if(top>=st-.5&&bottom<=st+h+.5)return null;
-  const room=Math.max(0,Math.min(m,(h-(bottom-top))/2)),up=top<st||bottom-top>h,want=up?top-room:bottom-h+room;
+  const room=Math.max(0,Math.min(m,(h-(bottom-top))/2));
+  if(top>=st+room-.5&&bottom<=st+h-room+.5)return null;
+  const up=top<st+room||bottom-top>h,want=up?top-room:bottom-h+room;
   const to=Math.round(Math.max(0,Math.min(sh-h,up&&want<=head?0:want)));
   return to===Math.round(st)?null:to;}
 // Whether the filter is narrowing the list: its rows are the results, not the outline, and the current row is likely not among them.
@@ -165,9 +168,10 @@ function outlineHeld(){const a=/** @type {HTMLElement|null} */(document.activeEl
   const inside=!!a&&!!a.closest&&!!a.closest('#outline'),key=document.documentElement.dataset.input==='key';
   return outlineFiltered()||OUTLINE_OVER||$('#outline-grip').classList.contains('on')||performance.now()-OUTLINE_HANDLED<OUTLINE_FOLLOW_HOLD_MS
     ||(inside&&(a.id==='outline-search'||key));}
-/** Brings the current row into the panel's view (outlineRevealTop), gliding unless the reader asked for reduced motion or the list is
- * new; one read of the row's place, at a move of the mark. A glide reckons from where a glide under way is heading (OUTLINE_AIM); a
- * jump lands at once, so it reckons from where the list is. Held back (outlineHeld), it is owed until they let go. A panel closed or
+/** Brings the current row into the panel's view (outlineRevealTop), gliding unless the reader asked for reduced motion, the list is
+ * new or the way is longer than the panel is high - an outline out of page order sends a row a thousand px off, and rows racing past
+ * read as noise. One read of the row's place, at a move of the mark. A glide reckons from where a glide under way is heading
+ * (OUTLINE_AIM); a jump lands at once, so it reckons from where the list is. Held back (outlineHeld), it is owed until they let go. A panel closed or
  * absent has nothing to show: it starts at the current row when it opens.
  * @param {boolean} [open] the panel has just come on screen: nobody has the list in hand yet, whatever the pointer rests on */
 function outlineFollow(open){if(document.body.classList.contains('outline-collapsed')||BAND===LAYOUT_BAND.PHONE)return;
@@ -176,9 +180,10 @@ function outlineFollow(open){if(document.body.classList.contains('outline-collap
   const jump=!!open||OUTLINE_SNAP||MQ_REDUCED.matches; OUTLINE_FOLLOW_DUE=false; OUTLINE_SNAP=false;
   const box=$('#outline'),o=box.getBoundingClientRect(),r=row.getBoundingClientRect(),now=performance.now(),st=box.scrollTop;
   const from=o.top+box.clientTop-st,at=!jump&&OUTLINE_AIM&&now-OUTLINE_AIM.at<OUTLINE_FOLLOW_FLIGHT_MS?OUTLINE_AIM.top:st;
-  const to=outlineRevealTop(at,box.clientHeight,box.scrollHeight,r.top-from,r.bottom-from,OUTLINE_FOLLOW_MARGIN,list.getBoundingClientRect().top-from);
+  const h=box.clientHeight,to=outlineRevealTop(at,h,box.scrollHeight,r.top-from,r.bottom-from,OUTLINE_FOLLOW_MARGIN,list.getBoundingClientRect().top-from);
   if(to===null)return;
-  OUTLINE_AIM=jump?null:{top:to,at:now}; box.scrollTo({top:to,behavior:jump?'auto':'smooth'});}
+  const land=jump||Math.abs(to-st)>h;
+  OUTLINE_AIM=land?null:{top:to,at:now}; box.scrollTo({top:to,behavior:land?'auto':'smooth'});}
 // When a timed hold is over: the owed follow is made then. A hover, a focus and a filter end with an event of their own.
 function outlineFollowLater(){clearTimeout(OUTLINE_FOLLOW_TIMER); const left=OUTLINE_HANDLED+OUTLINE_FOLLOW_HOLD_MS-performance.now();
   if(left>0)OUTLINE_FOLLOW_TIMER=setTimeout(outlineCatchUp,left+16);}

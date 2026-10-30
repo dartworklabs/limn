@@ -96,14 +96,16 @@ class OutlineLogic(unittest.TestCase):
         self.assertEqual(got["bare"], [])
 
     def test_a_row_comes_in_from_the_nearest_side_with_room_beyond_it(self):
-        """outlineRevealTop(st, h, sh, top, bottom, m, head): a row that shows whole moves nothing, even at the very edge;
-        any other comes in from its nearest side with m px of the list beyond it - on a short view half of what is left, by
-        the top when it is taller than the view - and stops where the list ends. Where only the head would stay over it the
-        list goes to the very top, and a list that cannot get any nearer has nowhere to go."""
+        """outlineRevealTop(st, h, sh, top, bottom, m, head): a row m px clear of both edges moves nothing; one that has
+        entered that margin, or left the view, comes to the margin's edge on its nearest side - on a short view half of what is
+        left, by the top when it is taller than the view - and stops where the list ends. Where only the head would stay over
+        it the list goes to the very top, and a list that cannot get any nearer has nowhere to go."""
         got = self.run_js(
             ["outlineRevealTop"],
-            """[outlineRevealTop(0,800,5000,100,124,48,100),outlineRevealTop(0,800,5000,776,800,48,100),
-            outlineRevealTop(2000,800,5000,2000,2024,48,100),
+            """[outlineRevealTop(0,800,5000,100,124,48,100),outlineRevealTop(0,800,5000,728,752,48,100),
+            outlineRevealTop(1000,800,5000,1048,1072,48,100),
+            outlineRevealTop(0,800,5000,729,753,48,100),outlineRevealTop(1000,800,5000,1047,1071,48,100),
+            outlineRevealTop(0,800,5000,776,800,48,100),outlineRevealTop(2000,800,5000,2000,2024,48,100),
             outlineRevealTop(0,800,5000,790,814,48,100),outlineRevealTop(0,800,5000,3000,3024,48,100),
             outlineRevealTop(2000,800,5000,1900,1924,48,100),outlineRevealTop(2000,800,5000,1990,2014,48,100),
             outlineRevealTop(4000,800,4900,4880,4900,48,100),outlineRevealTop(0,100,5000,300,380,48,100),
@@ -114,7 +116,7 @@ class OutlineLogic(unittest.TestCase):
         )
         self.assertEqual(
             got,
-            [None, None, None, 62, 2272, 1852, 1942, 4100, 290, 300, 300, 0, 0, 252, None],
+            [None, None, None, 1, 999, 48, 1952, 62, 2272, 1852, 1942, 4100, 290, 300, 300, 0, 0, 252, None],
         )
 
     REFERENCE = """function referenceIndexAt(entries,page,frac){
@@ -593,27 +595,51 @@ class OutlineFollow(OutlineBase):
         self.assertEqual((got["index"], got["top"]), (1, 0), got)  # the deepest of the entries at the page's top
         self.assertEqual((got["pages"], got["window"], got["focus"]), (pages, 0, "BODY"), got)
 
-    def test_a_row_that_shows_whole_moves_nothing(self):
-        """A mark that moves within what the panel shows - even onto the last whole row - leaves the list where it is."""
+    def test_a_row_clear_of_the_margin_moves_nothing_and_the_margin_holds(self):
+        """A mark that moves within what stands clear of the margin leaves the list where it is. From the row that enters the
+        margin on, every row keeps it: the list goes one row at a time, rather than letting the next rows use the margin up
+        and then moving by all of it at once."""
         page = self.long()
         page.evaluate(SCROLLS)
         last = page.evaluate(
             """() => {const box = document.querySelector('#outline').getBoundingClientRect();
               return Math.max(...[...document.querySelectorAll('#outline-items button')]
-                .filter(b => b.getBoundingClientRect().bottom <= box.bottom).map(b => +b.dataset.index));}"""
+                .filter(b => b.getBoundingClientRect().bottom <= box.bottom - 48).map(b => +b.dataset.index));}"""
         )
         for i in (5, last, 0):
             page.evaluate("i => {OUTLINE_SELECTED = i; markOutline();}", i)
             self.assertEqual(page.evaluate("SCROLLS"), [])
         self.assertEqual(page.evaluate(FOLLOW)["top"], 0)
+        for i in range(last + 1, last + 7):
+            with self.subTest(row=i):
+                page.evaluate("i => {OUTLINE_SELECTED = i; markOutline();}", i)
+                page.evaluate(STILL)
+                self.assertAlmostEqual(page.evaluate(FOLLOW)["over"], 48, delta=1)
+        self.assertEqual(len(page.evaluate("SCROLLS")), 6)
 
-    def test_it_glides_and_reduced_motion_jumps(self):
-        """The follow is smooth; with reduced motion it is done before the call returns, so nothing moves on screen."""
+    def test_it_glides_a_short_way_and_jumps_a_long_one(self):
+        """Within the panel's height the follow is smooth. A longer way - an outline out of page order sends a row a thousand
+        px off - lands at once, and leaves nothing heading anywhere."""
         page = self.long()
         page.evaluate(SCROLLS)
-        self.read_to(page, 2)
+        near = page.evaluate(
+            """() => {const box = document.querySelector('#outline'), o = box.getBoundingClientRect();
+              return Math.max(...[...document.querySelectorAll('#outline-items button')].filter(b =>
+                b.getBoundingClientRect().bottom - o.bottom + 48 <= box.clientHeight).map(b => +b.dataset.index));}"""
+        )
+        page.evaluate("i => {OUTLINE_SELECTED = i; markOutline();}", near)
         page.wait_for_function(SHOWN, timeout=3000)
         self.assertEqual(page.evaluate("SCROLLS.map(o => o.behavior)"), ["smooth"])
+        page.evaluate(STILL)
+        page.evaluate("document.querySelector('#outline').scrollTop = 0; SCROLLS.length = 0")
+        page.wait_for_function("OUTLINE_AIM === null", timeout=3000)
+        page.evaluate("i => {OUTLINE_SELECTED = i; markOutline();}", near + 1)
+        self.assertEqual(page.evaluate("SCROLLS.map(o => o.behavior)"), ["auto"])
+        self.assertTrue(page.evaluate(SHOWN))
+        self.assertIsNone(page.evaluate("OUTLINE_AIM"))
+
+    def test_reduced_motion_jumps(self):
+        """With reduced motion the follow is done before the call returns, so nothing moves on screen."""
         page = self.long(reduced_motion="reduce", **DESKTOP)
         page.evaluate(SCROLLS)
         top = page.evaluate(

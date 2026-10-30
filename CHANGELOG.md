@@ -6,9 +6,10 @@
 
 - **The outline panel keeps the current section in view (#330).** The panel marked the current section but never scrolled
   to it, so in a long outline (a figure document lists every figure, under its status and again under the manuscript
-  figure that holds it) the mark sat out of sight. When the mark moves to another entry the row now comes into the panel's
-  view from the nearest side, with 48px of the list beyond it, gliding unless reduced motion is asked for; a row that shows
-  whole moves nothing, the panel starts at the current row when it opens, and only the panel moves - the pages, the window
+  figure that holds it) the mark sat out of sight. The current row now keeps 48px from the panel's edges: when the mark
+  moves to a row inside that margin or out of view the list moves just enough, gliding unless reduced motion is asked for or
+  the way is longer than the panel is high, where it jumps. A row clear of the margin moves nothing, the panel starts at the
+  current row when it opens, and only the panel moves - the pages, the window
   and the focus stay where they are. The list stays where the person has it while the mouse is over it, while its width
   grip is dragged, for 3 seconds after a wheel, press, touch or key in it or on the grip, while the keyboard is on a row,
   and while the filter has the focus or any text; a move of the mark meanwhile is caught up when they let go. The overlay
