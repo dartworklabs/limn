@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.35 — 2026-10-30
 
 Follow-ups to the reviews of 0.4.34, nearly all on the page verdict line: Shift+Tab leaves the reading line the way
 Tab came in and the PDF area has a name; English lines stay one row on a desktop and every English take-back says
