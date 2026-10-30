@@ -298,7 +298,7 @@ class PageLine(VerdictBase):
         """On the figure, a selection with a note open: 채택 on page 1's line saves a verdict about the page's figure
         (el.path == [el.id]) with no note, and the selection and its note stay. The line says it, its page-size mark is not
         drawn and [보기] goes to the line; another word is a new pin, which the line now shows, with the earlier one as
-        '이전 판정 1건 · 새 판정으로 대체됨' and no page-size mark either - the line accounts for both. Page 2 has none. The line
+        '이전 1건' (named '이전 판정 1건 · 새 판정으로 대체됨') and no page-size mark either - the line accounts for both. Page 2 has none. The line
         reads '판정 #N 채택 · 처리 대기'; its current word is pressed and says a press takes it back, the others that a press
         saves them as the page's verdict."""
         page = self.on("fig")
@@ -340,7 +340,11 @@ class PageLine(VerdictBase):
         second = self.press_page(page, 1, "보류")
         line = page.evaluate(LINE, 1)
         self.assertEqual(line["pin"], str(second))
-        self.assertEqual(line["text"], "판정 #%d 보류 · 처리 대기 이전 판정 1건 · 새 판정으로 대체됨" % second)
+        self.assertEqual(line["text"], "판정 #%d 보류 · 처리 대기 · 이전 1건" % second)
+        self.assertEqual(
+            page.evaluate("document.querySelector('#doc .pv[data-page=\"1\"] .pv-early').getAttribute('aria-label')"),
+            "이전 판정 1건 · 새 판정으로 대체됨",
+        )
         self.assertEqual(page.locator('.mark[data-pin="%d"]' % first).count(), 0)
         self.assertEqual(page.locator('.mark[data-pin="%d"]' % second).count(), 0)
         page.evaluate("id=>jumpPin(id)", second)
@@ -387,9 +391,7 @@ class PageLine(VerdictBase):
         self.reload(page)
         line = page.evaluate(LINE, 2)
         self.assertEqual(line["pin"], str(made["id"]))
-        self.assertRegex(
-            line["text"], r"^판정 #%d 채택 · 처리됨 · Bob .+ 이전 판정 1건 · 새 판정으로 대체됨$" % made["id"]
-        )
+        self.assertRegex(line["text"], r"^판정 #%d 채택 · 처리됨 · Bob .+ 이전 1건$" % made["id"])
         page.locator('#doc .pv[data-page="2"] .pv-early').click()
         page.wait_for_function("id=>document.querySelector('.pin[data-id=\"'+id+'\"].flash')", arg=older)
 
@@ -3142,7 +3144,7 @@ class FigureTarget(VerdictBase):
 
     def test_the_line_counts_an_element_verdict_as_its_figures(self):
         """An older element verdict on the July cell is page 1's verdict on its line; a newer 채택 from the line supersedes
-        it - the line shows the new one with '이전 판정 1건', the element verdict's card reads '이전 판정 · #N로 대체됨'."""
+        it - the line shows the new one with '이전 1건', the element verdict's card reads '이전 판정 · #N로 대체됨'."""
         old = self.element_verdict("보류")
         page = self.on("fig", n_open=1)
         self.assertEqual(page.evaluate(LINE, 1)["pin"], str(old))
@@ -3150,7 +3152,7 @@ class FigureTarget(VerdictBase):
         new = self.press_page(page, 1, "채택")
         line = page.evaluate(LINE, 1)
         self.assertEqual(line["pin"], str(new))
-        self.assertIn("이전 판정 1건", line["text"])
+        self.assertIn("이전 1건", line["text"])
         self.assertIn(
             "#%d" % new,
             page.evaluate("id=>document.querySelector('#list .pin.card[data-id=\"'+id+'\"] .vd-old').textContent", old),
@@ -3565,16 +3567,16 @@ class ReasonAgentRole(VerdictBase):
         self.assertEqual(len(self.pins()), 1)
 
 
-def verdict_as(case, who, page_n, key, doc="fig"):
-    """A verdict pin on figure page page_n's whole figure, made by who through the API (the page line's pick and body);
-    its id."""
+def verdict_as(case, who, page_n, key, doc="fig", note=""):
+    """A verdict pin on figure page page_n's whole figure, made by who through the API (the page line's pick and body),
+    with note as its reason; its id."""
     meta = case.call("GET", "/api/meta?doc=%s" % doc)[1]
     pg = meta["pages"][page_n - 1]
     pick = {"doc": doc, "page": page_n, "x0": 0, "y0": 0, "x1": pg["pt_w"], "y1": pg["pt_h"], "frac": [0, 0, 1, 1]}
     code, d = case.call("POST", "/api/pick", {**pick, "pdf_build": meta["pages_build"]}, who)
     case.assertEqual(code, 200, d)
     body = {k: d[k] for k in helpers_figure.SAVE_LINE if d.get(k) is not None}
-    body.update(scope=d["default_level"], doc=doc, note="", kind_req="fix", assignee="agent", verdict=key)
+    body.update(scope=d["default_level"], doc=doc, note=note, kind_req="fix", assignee="agent", verdict=key)
     code, made = case.call("POST", "/api/pin", body, who)
     case.assertEqual(code, 200, made)
     return made["id"]
@@ -3744,12 +3746,12 @@ class Cancel(VerdictBase):
         self.assertEqual((got["name"], got["shown"]), ("지우기", False))
 
     def test_a_phones_floating_line_holds_the_cancel_back_and_the_in_place_line_offers_it(self):
-        """390x844 touch, page 2 taller than the area and Alice's verdict on it: while its line floats it has no
-        [판정 취소] (the line is no taller than without it); scrolled until the line stands in its place under the page, it
-        offers it with its 44px. Near that point the line does not flip between the two. At 1400 the floating line keeps
-        it."""
+        """390x844 touch, page 2 taller than the area and Alice's verdict on it: while its line floats its [판정 취소] is not
+        shown - nor pressed, focused or heard - but keeps its place (#322: the line's rows are the same floating and in
+        place); scrolled until the line stands in its place under the page, it offers it with its 44px. Near that point
+        the line does not flip between the two. At 1400 the floating line keeps it."""
         cancel_shown = """n=>{const c=document.querySelector('#doc .pv[data-page="'+n+'"] .pv-cancel'); if(!c)return null;
-          const b=c.getBoundingClientRect(); return c.getClientRects().length?{h:b.height}:false;}"""
+          const b=c.getBoundingClientRect(); return c.getClientRects().length&&getComputedStyle(c).visibility!=='hidden'?{h:b.height}:false;}"""
         phone = self.on("fig", viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
         phone.evaluate("setSide(false)")
         phone.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
@@ -3807,7 +3809,7 @@ class Cancel(VerdictBase):
         word = WORD % (2, "채택")
         state = """s=>{const b=document.querySelector(s), l=b.closest('.pv'), d=document.getElementById(b.getAttribute('aria-describedby')||'');
           const c=l.querySelector('.pv-cancel'), u=l.querySelector('.pv-undo');
-          return {stuck: l.classList.contains('stuck'), cancel: !!c&&c.getClientRects().length>0, undo: !!u&&u.getClientRects().length>0,
+          return {stuck: l.classList.contains('stuck'), cancel: !!c&&c.getClientRects().length>0&&getComputedStyle(c).visibility!=='hidden', undo: !!u&&u.getClientRects().length>0,
             pressed: b.getAttribute('aria-pressed'), desc: d&&d.textContent, h: Math.round(l.getBoundingClientRect().height)};}"""
         rest = phone.evaluate(state, word)
         self.assertEqual(
@@ -7119,6 +7121,152 @@ class EdgeKeys(VerdictBase):
         page.keyboard.press("Tab")
         self.assertEqual(page.evaluate(FOCUS_AT)[0], 1)
 
+    def test_tab_from_a_page_without_a_line_keeps_the_pages_where_they_are(self):
+        """The map says page 1 takes no verdict (a figure document's list page) and page 1 is read, drawn taller than the
+        area: Tab from the PDF area - focused, or nothing focused after a press on the page - goes past the pages to the
+        first stop after them (pvEdgeStop) and the pages do not move. Left to the DOM's order it went to page 2's line and
+        scrolled the pages there (page 4 of 91 from page 1, also on first open, #322). Shift+Tab from that stop comes back to
+        the area, the pages still. Zoomed out so page 2's line shows whole while page 1 is read, Tab goes to that line, with
+        no scroll either."""
+        fmap = helpers_figure.viewer_map()
+        fmap["pages"][0]["verdict"] = False
+        helpers_figure.viewer_build(self.fig, helpers_figure.BUILD2, fmap)
+        page = self.on("fig")
+        self.assertIsNone(page.evaluate(LINE, 1))
+        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        settle(page)
+        page.evaluate(SCROLL, [1, "top"])
+        settle(page)
+        top = page.evaluate("document.querySelector('#left').scrollTop")
+        edge = page.evaluate("(pvEdgeStop(true)||{}).id||null")
+        self.assertTrue(edge)
+        on = """()=>{const a=document.activeElement,L=document.querySelector('#left');
+          return [a===L?'left':a===document.body?'body':a.id||a.tagName,!!a&&!!a.closest&&!!a.closest('#doc .pv'),Math.round(L.scrollTop),pvReadingAt()];}"""
+        page.focus("#left")
+        page.keyboard.press("Tab")
+        self.assertEqual(page.evaluate(on), [edge, False, round(top), 1])
+        page.keyboard.press("Shift+Tab")
+        self.assertEqual(page.evaluate(on), ["left", False, round(top), 1])
+        # A press on page 1 leaves nothing focused: Tab from there keeps the pages too.
+        page.evaluate("document.activeElement.blur()")
+        area = page.locator("#left").bounding_box()
+        page.mouse.click(area["x"] + area["width"] / 2, area["y"] + area["height"] / 3)  # page 1 fills the area
+        settle(page)
+        self.assertEqual(page.evaluate(on)[0], "body")
+        page.keyboard.press("Tab")
+        self.assertEqual(page.evaluate(on), [edge, False, round(top), 1])
+        # Page 1 (landscape) a fifth of the area tall, read, and page 2 (portrait) with its line whole under it: Tab goes to
+        # that line, and nothing moves.
+        page.evaluate(
+            "()=>{setK(0.22*document.querySelector('#left').clientHeight/META.pages[0].pt_h,false); ZOOMED=true; document.querySelector('#left').scrollTop=0;}"
+        )
+        settle(page)
+        self.assertEqual(page.evaluate("pvReadingAt()"), 1)
+        self.assertTrue(page.evaluate(ON_TOP, '#doc .pv[data-page="2"] .vd-b'))
+        top = page.evaluate("document.querySelector('#left').scrollTop")
+        page.focus("#left")
+        page.keyboard.press("Tab")
+        self.assertEqual(page.evaluate(FOCUS_AT)[0], 2)
+        self.assertEqual(page.evaluate("[document.querySelector('#left').scrollTop, pvReadingAt()]"), [top, 1])
+
+    def test_a_phones_first_tab_keeps_the_pages_where_they_are(self):
+        """390x844, just opened, nothing focused: no stop is drawn before the pages on a phone (no nav bar, outline or
+        section strip), so its first Tab from a keyboard fell to the first line in the pages - page 4's on the 91-page
+        figure document, scrolled 0 -> 2067px (0.4.36 RC). Page 1 takes no verdict and is read, the pages zoomed in all
+        the way so page 2's line is far below: the first Tab goes past the pages, not into a line, and the pages stay
+        where they are."""
+        fmap = helpers_figure.viewer_map()
+        fmap["pages"][0]["verdict"] = False
+        helpers_figure.viewer_build(self.fig, helpers_figure.BUILD2, fmap)
+        page = self.on("fig", viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+        page.evaluate("()=>{setK(K*5,false); ZOOMED=true; document.querySelector('#left').scrollTop=0;}")
+        settle(page)
+        page.evaluate("pvStick()")
+        settle(page)
+        page.evaluate("document.activeElement&&document.activeElement.blur()")
+        self.assertEqual(
+            page.evaluate("[document.activeElement===document.body, pvEdgeStop(false), pvReadingAt()]"), [True, None, 1]
+        )
+        self.assertFalse(page.evaluate(ON_TOP, '#doc .pv[data-page="2"] .vd-b'))
+        top = page.evaluate("document.querySelector('#left').scrollTop")
+        page.keyboard.press("Tab")
+        got = page.evaluate(
+            "()=>{const a=document.activeElement; return [a===document.body,!!a.closest&&!!a.closest('#doc .pv'),Math.round(document.querySelector('#left').scrollTop)];}"
+        )
+        self.assertEqual(got, [False, False, round(top)])
+
+    # Page 1 (landscape) f of the area tall at the top, read, page 2 (portrait) and its line under it.
+    SMALL = """f=>{setK(f*document.querySelector('#left').clientHeight/META.pages[0].pt_h,false); ZOOMED=true; document.querySelector('#left').scrollTop=0;}"""
+    # A box over part of page 2's line's first control - its bottom or right 30% (sides), never its middle - or none.
+    COVER = """side=>{let c=document.getElementById('vd-test-cover'); if(c)c.remove(); if(!side)return;
+      const b=document.querySelector('#doc .pv[data-page="2"] .vd-b').getBoundingClientRect(); c=document.createElement('div'); c.id='vd-test-cover';
+      const r=side==='bottom'?[b.left,b.bottom-b.height*0.3,b.width,b.height*0.3+2]:[b.right-b.width*0.3,b.top,b.width*0.3+2,b.height];
+      c.style.cssText='position:fixed;z-index:2147483647;background:rgba(0,0,0,.25);left:'+r[0]+'px;top:'+r[1]+'px;width:'+r[2]+'px;height:'+r[3]+'px';
+      document.body.appendChild(c);}"""
+
+    def test_tab_from_a_page_without_a_line_passes_a_line_partly_covered(self):
+        """Page 1 takes no verdict and is read, page 2's line whole under it, at three zooms: with a box laid over the bottom
+        or the right 30% of that line's first control (as the status line or a sheet over the area's bottom, or a panel over
+        its side, would lie) - its middle still clear - Tab from the PDF area goes past the pages, not to that line; with
+        nothing over it, to the line. The pages never move. Hit-tested at its middle alone, the line half under the box was
+        taken and the focus went under it."""
+        fmap = helpers_figure.viewer_map()
+        fmap["pages"][0]["verdict"] = False
+        helpers_figure.viewer_build(self.fig, helpers_figure.BUILD2, fmap)
+        page = self.on("fig")
+        edge = page.evaluate("(pvEdgeStop(true)||{}).id||null")
+        self.assertTrue(edge)
+        for f in (0.2, 0.22, 0.25):
+            page.evaluate(self.SMALL, f)
+            settle(page)
+            self.assertEqual(page.evaluate("pvReadingAt()"), 1, f)
+            top = page.evaluate("document.querySelector('#left').scrollTop")
+            for side in ("bottom", "right", None):
+                with self.subTest(f=f, side=side):
+                    page.evaluate(self.COVER, side)
+                    page.focus("#left")
+                    page.keyboard.press("Tab")
+                    got = page.evaluate(
+                        "()=>[document.activeElement.id||'',(document.activeElement.closest('#doc .pv')||{dataset:{}}).dataset.page||null]"
+                    )
+                    self.assertEqual(got, ["", "2"] if side is None else [edge, None], (f, side))
+                    self.assertEqual(page.evaluate("document.querySelector('#left').scrollTop"), top)
+            page.evaluate(self.COVER, None)
+
+    def test_shift_tab_from_a_stop_tab_went_to_in_view_leaves_the_way_it_came(self):
+        """Page 2 takes no verdict, holds a pin's mark and is read, page 1's line off the screen above it: Tab from the
+        section strip goes to the PDF area, Tab from there to page 2's mark (in view), and Shift+Tab from the mark back to
+        the section strip - not to page 1's line, which scrolled the pages up to it. The pages never move."""
+        fmap = helpers_figure.viewer_map()
+        fmap["pages"][1]["verdict"] = False
+        helpers_figure.viewer_build(self.fig, helpers_figure.BUILD2, fmap)
+        meta = self.call("GET", "/api/meta?doc=fig")[1]
+        pg = meta["pages"][1]
+        pick = {"doc": "fig", "page": 2, "x0": pg["pt_w"] * 0.3, "y0": pg["pt_h"] * 0.3, "x1": pg["pt_w"] * 0.6,
+                "y1": pg["pt_h"] * 0.5, "frac": [0.3, 0.3, 0.3, 0.2]}  # fmt: skip
+        code, d = self.call("POST", "/api/pick", {**pick, "pdf_build": meta["pages_build"]})
+        self.assertEqual(code, 200, d)
+        body = {k: d[k] for k in helpers_figure.SAVE_LINE if d.get(k) is not None}
+        body.update(scope=d["default_level"], doc="fig", note="표시", kind_req="fix", assignee="agent")
+        code, made = self.call("POST", "/api/pin", body)
+        self.assertEqual(code, 200, made)
+        page = self.on("fig", n_open=1)
+        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        settle(page)
+        page.evaluate(SCROLL, [2, "top"])
+        settle(page)
+        self.assertEqual(page.evaluate("[pvReadingAt(), pvReadingPage()]"), [2, 0])
+        badge = '.mark[data-pin="%d"] .mark-jump' % made["id"]
+        top = page.evaluate("document.querySelector('#left').scrollTop")
+        page.focus("#section-page")
+        page.keyboard.press("Tab")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "left")
+        page.keyboard.press("Tab")
+        self.assertTrue(page.evaluate("s=>document.activeElement===document.querySelector(s)", badge))
+        page.keyboard.press("Shift+Tab")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "section-page")
+        self.assertEqual(page.evaluate("[document.querySelector('#left').scrollTop, pvReadingAt()]"), [top, 2])
+
 
 # One row's parts on page n's line as drawn: the figure's name, the dot after it, each part of the state (a display:
 # contents span's own children in its place) and each word - with whether each shows, its box, and the line's box.
@@ -7311,6 +7459,219 @@ class LinePolish(VerdictBase):
                     got = page.evaluate(SWEEP_READ)
                     self.assertEqual((got["bad"], sorted(got["seen"])), ([], [False, True]), got)
                     page.context.close()
+
+    def test_a_key_saved_line_keeps_its_rows_whichever_page_is_read(self):
+        """#322 item 2: page 2 with an earlier verdict made elsewhere and the person's own saved here by its key, no reason -
+        its line says 'Enter 이유 쓰기' while it is read and [이유 추가] at rest, 40px narrower in Korean, 15px in English, where
+        a tight line shows the earlier link beside it. Page 2's width swept across its bar 8px at a time, Korean and English,
+        on the wide band and the side-panel band (1000 x 800): the line's rows, its height and where its state stands in it
+        are the same while page 1 is read and while page 2 is, and the sweep crosses the bar. Fitted on the look it showed,
+        the line stacked or took a second row of its state only while it was read (123 against 91px), or only at rest."""
+        verdict_as(self, self.WHO, 2, "보류")
+        bands = ({"width": 1400, "height": 850}, {"width": 1000, "height": 800})
+        for i, (lang, vp) in enumerate((lang, vp) for lang in ("ko", "en") for vp in bands):
+            with self.subTest(lang=lang, viewport=vp["width"]):
+                page = self.on("fig", n_open=1 + i, lang=lang, viewport=vp)
+                page.evaluate("setSide(false)")
+                page.evaluate(SCROLL, [2, "top"])
+                settle(page)
+                self.assertEqual(page.evaluate("PV_READ"), 2)
+                page.keyboard.press("12"[i % 2])  # 채택, 보류, ...: each a new verdict over the one before
+                page.wait_for_function("n=>OPEN_ALL.length===n&&!PV_BUSY.size", arg=2 + i)
+                settle(page)
+                page.evaluate(END_CHIPS)
+                settle(page)
+                self.assertIn("Enter", page.evaluate(ADD_TEXT, 2))
+                got = page.evaluate(SWEEP_READ)
+                self.assertEqual((got["bad"], sorted(got["seen"])), ([], [False, True]), got)
+                page.context.close()
+
+    def test_the_earlier_link_is_whole_or_its_count_alone_on_an_english_desktop(self):
+        """#322 item 3: English, the panel open, the pages as wide as the room, a figure code as wide as the pl document's
+        widest, page 2 with an earlier verdict and the person's own saved by a click: at 1280 x 800 (a 620px line), 1400 x
+        850 (CI's) and 1440 x 900 the line is one row with nothing over another part, and its earlier link reads whole -
+        '+1 earlier' - or, on a tight line, its count alone - '+1' -, never cut: 0.4.35 cut it to '1 ea…' at 1280. At 1440
+        it is whole. A dot sets it off from what is before it, so '+1' never reads as a count of a button's. Its name says
+        it all ('1 earlier verdict · replaced'), and its tooltip begins with that."""
+        verdict_as(self, self.WHO, 2, "보류")
+        link = """()=>{const l=document.querySelector('#doc .pv[data-page="2"]'),e=l.querySelector('.pv-early'),w=e.querySelector('.pv-early-w'),b=getComputedStyle(e,'::before').content;
+          const words=!!w&&w.getClientRects().length>0,d=e.previousElementSibling,dr=d&&d.getClientRects().length?d.getBoundingClientRect():null;
+          const cut=e.getBoundingClientRect().right>l.querySelector(':scope>.pv-t').getBoundingClientRect().right+1;   // past the state's clip (pvFit's 1px)
+          return {shown:(words?w.textContent:'')+(b&&b!=='none'?b.replace(/"/g,''):''),cut,tight:l.classList.contains('pv-tight'),
+            name:e.getAttribute('aria-label'),tip:e.dataset.tip||'',dot:!!dr&&d.textContent==='·'&&dr.right<=e.getBoundingClientRect().left};}"""
+        for n, (w, h) in enumerate(((1280, 800), (1400, 850), (1440, 900))):
+            with self.subTest(viewport=(w, h)):
+                page = self.on("fig", n_open=1 + min(n, 1), lang="en", viewport={"width": w, "height": h})
+                page.evaluate("setSide(true)")
+                settle(page)
+                page.evaluate("()=>{setK((innerW()-pvInsetR())/META.pages[1].pt_w,false); ZOOMED=true;}")
+                page.evaluate(self.TITLES, self.LONG)
+                settle(page)
+                if not n:
+                    self.press_page(page, 2, "채택")
+                    page.evaluate(END_CHIPS)
+                    settle(page)
+                page.evaluate(SCROLL, [2, "top"])
+                settle(page)
+                row = page.evaluate(ROW_PARTS, 2)
+                self.assertEqual((row["stack"], row_overlaps(row)), (False, []), row)
+                got = page.evaluate(link)
+                self.assertEqual(got["shown"], "+1" if got["tight"] else "+1 earlier", got)
+                self.assertTrue(
+                    got["dot"], got
+                )  # set off by a dot, as the state's parts are: never read as a button's count
+                self.assertFalse(got["cut"], got)
+                self.assertEqual(got["name"], "1 earlier verdict · replaced")
+                self.assertTrue(got["tip"].startswith("1 earlier verdict · replaced — "), got)
+                if w == 1440:
+                    self.assertEqual((got["shown"], got["tight"]), ("+1 earlier", False), got)
+                page.context.close()
+
+    def test_a_focused_earlier_link_that_steps_out_hands_the_focus_to_its_line(self):
+        """English, the panel open, page 2 with an earlier verdict and the person's own: page 2's width brought down 1px at a
+        time to where its line keeps one row only without the earlier link (.pv-early-out). With the keyboard's focus on the
+        link at a width that shows it, a zoom to that width moves the focus to the control before it on the line
+        ([Retract]), with no scroll, and Tab and Shift+Tab go on from there. Hidden with
+        the focus on it, the link took the focus away to nothing."""
+        verdict_as(self, self.WHO, 2, "보류")
+        page = self.on("fig", n_open=1, lang="en", viewport={"width": 1280, "height": 800})
+        page.evaluate("setSide(true)")
+        settle(page)
+        self.press_page(page, 2, "채택")
+        page.evaluate(END_CHIPS)
+        settle(page)
+        widths = page.evaluate(
+            """async()=>{const frame=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+              const l=()=>document.querySelector('#doc .pv[data-page="2"]'),pt=META.pages[1].pt_w; let shown=0;
+              for(let w=760;w>300;w-=1){setK(w/pt,false); ZOOMED=true; await frame(); sizePv();
+                const c=l().classList; if(c.contains('pv-stack'))return [shown,0];
+                if(c.contains('pv-early-out'))return [shown,w]; shown=w;}
+              return [shown,0];}"""
+        )
+        self.assertTrue(widths[0] and widths[1], widths)
+        zoom = "w=>{setK(w/META.pages[1].pt_w,false); ZOOMED=true; sizePv();}"
+        page.evaluate(zoom, widths[0])
+        settle(page)
+        page.evaluate(SCROLL, [2, "top"])
+        settle(page)
+        page.focus('#doc .pv[data-page="2"] .pv-early')
+        page.evaluate(zoom, widths[1])
+        page.evaluate("()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))")
+        on = """()=>{const a=document.activeElement,l=a&&a.closest?a.closest('#doc .pv'):null;
+          return [l?l.dataset.page:null,a&&a.dataset?a.dataset.act||null:null,document.querySelector('#doc .pv[data-page="2"]').classList.contains('pv-early-out')];}"""
+        self.assertEqual(page.evaluate(on), ["2", "pv-cancel", True])
+        page.keyboard.press("Tab")
+        self.assertEqual(page.evaluate(on)[0], "2")
+        page.keyboard.press("Shift+Tab")
+        self.assertEqual(page.evaluate(on), ["2", "pv-cancel", True])
+
+    # Page 2's line: whether its earlier link is drawn, whether it says 'Enter reason', whether it is stacked, and where the
+    # focus is (its line's page, its data-act).
+    EARLY_STATE = """()=>{const l=document.querySelector('#doc .pv[data-page="2"]'),e=l.querySelector('.pv-early'),a=document.activeElement,f=a&&a.closest?a.closest('#doc .pv'):null;
+      return {hidden:!e.getClientRects().length,kbd:!!l.querySelector('.pv-kbd'),stack:l.classList.contains('pv-stack'),
+        page:f?f.dataset.page:null,act:a&&a.dataset?a.dataset.act||null:null,read:PV_READ};}"""
+
+    def key_saved_over_an_earlier_one(self, width):
+        """English, width x 1000, the panel open: page 2 with an earlier verdict and the person's own saved by its key, read,
+        its save chip gone - its line says 'Enter reason' and '+1 earlier' on a row that is not tight."""
+        verdict_as(self, self.WHO, 2, "보류")
+        page = self.on("fig", n_open=1, lang="en", viewport={"width": width, "height": 1000})
+        page.evaluate("setSide(true)")
+        page.evaluate(SCROLL, [2, "top"])
+        settle(page)
+        page.keyboard.press("1")
+        page.wait_for_function("()=>OPEN_ALL.length===2&&!PV_BUSY.size")
+        settle(page)
+        page.evaluate(END_CHIPS)
+        settle(page)
+        st = page.evaluate(self.EARLY_STATE)
+        self.assertEqual((st["hidden"], st["kbd"], st["stack"], st["read"]), (False, True, False, 2), st)
+        return page
+
+    def test_a_focused_earlier_link_beside_enter_reason_keeps_the_focus_on_its_line_as_the_pages_zoom(self):
+        """The line of key_saved_over_an_earlier_one at 1920, the pages zoomed down 2px at a time with the keyboard's focus
+        on '+1 earlier': where the row turns tight the link steps out beside 'Enter reason' (components.css), and the
+        focus moves to [Retract] on the same line - not to nothing, as it did by Ctrl+- in the 0.4.36 RC."""
+        page = self.key_saved_over_an_earlier_one(1920)
+        got = page.evaluate(
+            """async()=>{const frame=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+              const L=document.querySelector('#left'),l=()=>document.querySelector('#doc .pv[data-page="2"]'),pt=META.pages[1].pt_w;
+              for(let w=Math.round(document.getElementById('p2').getBoundingClientRect().width);w>300;w-=2){
+                const e=l().querySelector('.pv-early'); e.focus({preventScroll:true}); setK(w/pt,false); ZOOMED=true; await frame();
+                const p=document.getElementById('p2'); L.scrollTop+=p.getBoundingClientRect().top-L.getBoundingClientRect().top; pvStick(); await frame(); await frame();
+                if(l().classList.contains('pv-stack')||!e.getClientRects().length)return {w,kbd:!!l().querySelector('.pv-kbd'),tight:l().classList.contains('pv-tight'),
+                  stack:l().classList.contains('pv-stack'),focus:document.activeElement===document.body?'body':(document.activeElement.dataset||{}).act||null,
+                  page:(document.activeElement.closest&&document.activeElement.closest('#doc .pv')||{dataset:{}}).dataset.page||null};}
+              return null;}"""
+        )
+        self.assertIsNotNone(got)
+        self.assertEqual(
+            (got["kbd"], got["tight"], got["stack"], got["page"], got["focus"]),
+            (True, True, False, "2", "pv-cancel"),
+            got,
+        )
+
+    def test_a_focused_earlier_link_beside_enter_reason_keeps_the_focus_on_its_line_as_the_window_narrows(self):
+        """The line of key_saved_over_an_earlier_one at 1920, the window narrowed 20px at a time with the keyboard's focus on
+        '+1 earlier' (the pages fitted to it): where the row turns tight the link steps out beside 'Enter reason', and the
+        focus moves to [Retract] on the same line - not to nothing, as it did from 1920 to 1320 in the 0.4.36 RC."""
+        page = self.key_saved_over_an_earlier_one(1920)
+        for w in range(1900, 1000, -20):
+            page.focus('#doc .pv[data-page="2"] .pv-early')
+            page.set_viewport_size({"width": w, "height": 1000})
+            settle(page)
+            st = page.evaluate(self.EARLY_STATE)
+            self.assertFalse(st["stack"], (w, st))
+            if st["hidden"] and st["kbd"]:
+                self.assertEqual((st["page"], st["act"]), ("2", "pv-cancel"), (w, st))
+                break
+            if not st["kbd"]:  # the window's change moved the reading page: page 2 read again
+                page.evaluate(SCROLL, [2, "top"])
+                settle(page)
+        else:
+            self.fail("the link never stepped out beside 'Enter reason'")
+
+    def test_a_phone_line_keeps_its_rows_floating_and_in_place(self):
+        """390x844, Korean and English: page 1 with the person's own open verdict, its reason, and an earlier verdict, page
+        1 zoomed to two and a half screens. Its line is as tall floating over page 1 (where it holds [판정 취소] back,
+        .pv-lean) as standing in its place under it, and a slow scroll across page 1's end, 6px at a time, moves page 2
+        by the scroll and nothing more. Taken out of the floating line, [판정 취소] let '이전 1건' rise into its row: 131
+        against 191px, and page 2 jumped 60px under the finger as the line crossed the page's end (0.4.36 RC)."""
+        verdict_as(self, self.WHO, 1, "보류")
+        verdict_as(self, self.WHO, 1, "채택", note="보류: 색 재검토")
+        for lang in ("ko", "en"):
+            with self.subTest(lang=lang):
+                page = self.on("fig", n_open=2, lang=lang, **self.PHONE)
+                page.evaluate("setSide(false)")
+                page.evaluate(  # page 1 (landscape) two and a half areas tall
+                    "()=>{const L=document.querySelector('#left'); setK(2.5*L.clientHeight/META.pages[0].pt_h,false); ZOOMED=true; L.scrollTop=0;}"
+                )
+                settle(page)
+                page.evaluate("pvStick()")
+                settle(page)
+                self.assertEqual(
+                    page.evaluate(
+                        "[PV_READ, document.querySelector('#doc .pv[data-page=\"1\"]').classList.contains('pv-stack')]"
+                    ),
+                    [1, True],
+                )
+                got = page.evaluate(
+                    """async()=>{const frame=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+                      const L=document.querySelector('#left'),l=document.querySelector('#doc .pv[data-page="1"]'),p1=document.getElementById('p1'),p2=document.getElementById('p2');
+                      const h=()=>Math.round(l.getBoundingClientRect().height*10)/10; pvStick(); await frame();
+                      const floating=[h(),l.classList.contains('stuck'),l.classList.contains('pv-lean'),!!l.querySelector('.pv-early')];
+                      const end=L.scrollTop+p1.getBoundingClientRect().bottom-(L.getBoundingClientRect().top+L.clientHeight);   // page 1's end at the area's bottom
+                      let worst=0,prev=null;
+                      for(let t=end-200;t<=end+400;t+=6){L.scrollTop=t; await frame(); pvStick(); await frame();
+                        const at=L.scrollTop+p2.getBoundingClientRect().top; if(prev!==null)worst=Math.max(worst,Math.abs(at-prev)); prev=at;}
+                      const p=p1.getBoundingClientRect(),b=l.getBoundingClientRect();
+                      return {floating,inPlace:[h(),l.classList.contains('stuck'),l.classList.contains('pv-lean'),b.top>=p.bottom],worst:Math.round(worst*10)/10};}"""
+                )
+                self.assertEqual(got["floating"][1:], [True, True, True], got)
+                self.assertEqual(got["inPlace"][1:], [False, False, True], got)
+                self.assertEqual(got["floating"][0], got["inPlace"][0], got)
+                self.assertLessEqual(got["worst"], 1, got)
+                page.context.close()
 
     def test_a_key_saves_focus_raises_no_box_over_the_pressed_words_description(self):
         """English, the panel open, at 1280 x 800 and 1440 x 900, page 2 as wide as the room and read: a digit saves a verdict

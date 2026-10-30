@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Changed
+
+- **The earlier verdicts' link is short and never cut.** A page verdict line's link to the open verdicts a newer one
+  replaced reads `이전 2건` (`+2 earlier`), and on a line that is short of room on the wide band its count alone, `+2`;
+  its accessible name and its tooltip still say `이전 판정 2건 · 새 판정으로 대체됨` in full. The whole words were cut to
+  fit: on a 620px English line (1280 x 800, panel open, three-digit pin numbers) the link read `1 ea…`, and kept at 5em
+  that line stacked. A dot sets it off from the state before it (a bare `+2` after [판정 취소] or a button's key digit
+  read as that button's count). Where not even the count fits beside the rest, the link steps out rather than stack the
+  line. Whenever fitting a line hides its earlier link - stepped out, or beside `Enter 이유 쓰기` on a row that a resize or
+  a zoom made tight - a focus on it moves to the control before it on the line instead of being lost (#322).
+
 ### Fixed
 
 - **A reason draft moved more than once still ends on one verdict (#317).** A draft that moved off a verdict whose reason
@@ -44,6 +55,23 @@
   least a row tall - ran 418-639px above the window, the focus on its first row pulling the zoomed view after it. A row's
   buttons now go under its text when the text would get less than 6em, and the list is never taller than the visible
   part nor past it.
+- **Tab from the PDF area on a page without a line keeps the pages where they are.** When the reading page takes no
+  verdict (a figure document's list pages) or its line has no control to stop on, Tab from the PDF area - or from
+  nothing after a press on a page - goes to the next stop in the pages only while it shows whole in the area's view
+  with nothing over any of it (the next page's line on a small zoom; Shift+Tab from there leaves the way it came in),
+  else past the pages (the panel's grip, the status line's action). It went to the first line after the pages' start
+  and scrolled there: from page 1 of a 91-page figure document to page 4, also on first open, since 0.4.34. So does the
+  first Tab with nothing focused where no stop is drawn before the pages (a phone, just opened: page 4's line, scrolled
+  0 to 2067px). Tab into the pages from the outline or the section strip, and Shift+Tab back out, are unchanged (#322).
+- **A phone's floating line keeps its rows.** A floating line on a phone holds [판정 취소] back unseen but keeps its
+  place, so the line is as tall floating as in its place. Taken out of the row, it let the short earlier link rise into
+  it: a line with a reason and an earlier verdict was 131px floating and 191px in place, and the next page jumped 60px
+  under the finger as the line crossed its page's end (#322).
+- **A line saved by a key keeps its rows whichever page is read.** Such a line says `Enter 이유 쓰기` (`Enter reason`)
+  while it is read and [이유 추가] at rest - 40px narrower in Korean, 15px in English, with the earlier link beside it on
+  a tight row. It was fitted on the look it showed, so near its threshold it stacked, or its stacked state took a second
+  row (91 to 123px), only while it was read, or only at rest. It is now fitted at the wider of the two looks and states,
+  as the hidden identifier and key digits are (#322).
 
 ## 0.4.35 — 2026-10-30
 
