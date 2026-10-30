@@ -220,13 +220,19 @@ body.lay-narrow.has-status:not(.typing,.pv-typing){--pv-inset:calc(var(--sheet-h
    as short as its 44px targets allow. */
 .pv.pv-stack .pv-fig{flex-basis:100%;max-width:100%}
 .pv.pv-stack .pv-fig-sep{display:none}
-/* Every other stacked line keeps that row empty (the name is hidden, not gone): the reading line's name came and went with the
-   reading page, so the line a reading page left shrank by the row (131 -> 108px on a phone) and moved the page being read -
-   and the scroll that made up for it ended a jump's glide and trapped a slow scroll at a page's end (verdict.js pvStick). A
-   row line has no such row: the name stands in it. pvFit measures every line as the reading line (#doc.pv-measure: the
-   hidden identifier and its separator take their room), so a line stacks or not whichever page is read. */
-#doc.pv-measure .pv>:is(.pv-fig,.pv-fig-sep)[hidden],
-.pv.pv-stack>.pv-fig[hidden]{display:flex!important;visibility:hidden;min-height:1lh}   /* over frame.css [hidden]; one text line high */
+/* Every other stacked line keeps that row too, and names its page there quietly: its identifier alone ('6쪽 · PL17', the head
+   of the reading line's name, which a resting line's hidden name holds), in the line's muted text at the text's own weight -
+   the reading line's name is the foreground at 600, its title after it. The row is kept because the reading line's name came
+   and went with the reading page: the line a reading page left shrank by the row (131 -> 108px on a phone) and moved the page
+   being read - and the scroll that made up for it ended a jump's glide and trapped a slow scroll at a page's end (verdict.js
+   pvStick). Kept empty, it stood 44px between a phone's page and the state under it and the line looked loose, as far from
+   its own page as from the next (#308); laid after the words instead, the state and the words moved a row whenever the
+   reading page changed. Same font size, same row: the line's height and its words' places are the reading line's whichever
+   page is read. A row line has no such row: the name stands in it on the reading line and nowhere else. pvFit measures
+   every line as the reading line (#doc.pv-measure: the hidden identifier and its separator take their room, unseen), so a
+   line stacks or not whichever page is read. */
+#doc.pv-measure .pv>:is(.pv-fig,.pv-fig-sep)[hidden]{display:flex!important;visibility:hidden;min-height:1lh}   /* over frame.css [hidden]; one text line high */
+.pv.pv-stack>.pv-fig[hidden]{display:flex!important;min-height:1lh;color:var(--muted-foreground);font-weight:400}
 @media (pointer:coarse){.pv.pv-stack .pv-fig{margin-bottom:calc(var(--space-1) - var(--space-5))}}
 /* While the reason is typed on a touch screen (body.pv-typing: a text field in a page line has the focus, verdict.js) the
    keyboard leaves little of the page: the line drops its figure's name and its save chip folds to its [되돌리기] - and the

@@ -733,10 +733,17 @@ function pvFit(lines){const held=lines.map(pvRowsHeld),D=$('#doc');
       ||(!!g&&g.getClientRects().length>0&&g.getBoundingClientRect().top>=tr.bottom-1);};
   // A line too narrow for the state a press brings beside its words stacks whatever it shows now: a press that turned '판정 없음'
   // into '판정 #26 보류 · 처리 대기 · 이유 추가 · 판정 취소' stacked it then and moved every word under the finger (a phone, a page at
-  // a small zoom: 3 rows, 91px, the words 59px down). That state's width is measured, not guessed (pvStateNeed).
-  const need=lines.length?pvStateNeed(lines[0]):0;
-  const narrow=lines.map((l,i)=>{if(held[i])return false; const g=l.querySelector(':scope>.vd-btns'),f=l.querySelector(':scope>.pv-fig>.pv-fig-id'); if(!g||!g.getClientRects().length)return false;
-    return l.getBoundingClientRect().width<g.getBoundingClientRect().width+(f&&f.getClientRects().length?f.getBoundingClientRect().width+8:0)+need+24;});
+  // a small zoom: 3 rows, 91px, the words 59px down). That state's width is measured, not guessed (pvStateNeed), and so is
+  // all that shares its row: the words as they are drawn, with the check a press puts on one of them (PV_NEED.check) where
+  // none is pressed yet; the identifier and the dot after it; and the row's gaps between the four (its column gap). The sum
+  // is the row the press brings, to the subpixel. An 8px and a 24px allowance in its place counted the dot (3px) as 8 and
+  // the check as nothing - 5px too much for a resting line, 21px too little for a press: a line within 21px of the bar
+  // stacked under its first press, a Korean one too (#308; the English words are sized for a 620px line, ui_en.json).
+  const need=lines.length?pvStateNeed(lines[0]):0,gap=lines.length?parseFloat(getComputedStyle(lines[0]).columnGap)||0:0;
+  const W=(/** @type {Element|null} */e)=>e&&e.getClientRects().length?e.getBoundingClientRect().width:0;
+  const narrow=lines.map((l,i)=>{if(held[i])return false; const g=l.querySelector(':scope>.vd-btns'),f=W(l.querySelector(':scope>.pv-fig>.pv-fig-id')); if(!g||!g.getClientRects().length)return false;
+    const press=g.querySelector(':scope>.vd-b[aria-pressed="true"]')?0:PV_NEED.check,id=f?f+W(l.querySelector(':scope>.pv-fig-sep'))+2*gap:0;
+    return l.getBoundingClientRect().width<W(g)+press+id+gap+need;});
   let over=lines.map((l,i)=>!held[i]&&(narrow[i]||tight(l)));
   if(LAYOUT===LAYOUT_MODE.WIDE&&over.some(o=>o)){lines.forEach((l,i)=>{if(over[i])l.classList.add('pv-tight');}); over=lines.map((l,i)=>over[i]&&(narrow[i]||tight(l)));}
   lines.forEach((l,i)=>{if(over[i])l.classList.add('pv-stack');});
@@ -747,8 +754,10 @@ function pvFit(lines){const held=lines.map(pvRowsHeld),D=$('#doc');
   groups.forEach((g,i)=>{if(g)g.classList.toggle('wrapped',wrap[i]);});}
 // The width the state of a person's fresh verdict takes on a line in a row - '판정 #000 <the longest word> · 처리 대기 ·
 // 이유 추가 · 판정 취소' - drawn once in a hidden line like line l (its text size, the screen's language and pointer) and kept
-// until those change. A line narrower than it beside its words and identifier is stacked before any press (pvFit).
-let PV_NEED={key:'',w:0};
+// until those change. A line narrower than it beside its words and identifier is stacked before any press (pvFit). The
+// probe then draws the longest word pressed and not (its check before it, its weight; one key mark on both): what a press adds
+// to the words, kept as PV_NEED.check - 21px, which a line with no pressed word did not count and lost to its first press.
+let PV_NEED={key:'',w:0,check:0};
 /** @param {HTMLElement} l */
 function pvStateNeed(l){const v=pageVerdictsOn(); if(!v)return 0;
   const word=v.choices.map(c=>c.label).reduce((a,b)=>b.length>a.length?b:a,''),key=[getComputedStyle(l).fontSize,tr('판정'),word,MQ_COARSE.matches].join('|');
@@ -758,13 +767,16 @@ function pvStateNeed(l){const v=pageVerdictsOn(); if(!v)return 0;
   setHtml(probe,html`<span class="pv-t"><span class="pv-s">${tr('판정')} <span class="pin-ref pv-ref hit">#000</span> <b class="vd-w">${word}</b></span><span class="pv-sep">·</span>\
 <span class="pv-st">${tr('처리 대기')}</span><span class="pv-ra"><span class="pv-sep">·</span><button type="button" class="btn-ghost btn-sm pv-add hit" tabindex="-1">${tr('이유 추가')}</button></span>\
 <span class="pv-sep pv-cn">·</span><button type="button" class="btn-ghost btn-sm pv-cancel pv-cn hit" tabindex="-1">${tr('판정 취소')}</button></span>`);
-  $('#doc').appendChild(probe); const w=Math.ceil(/** @type {HTMLElement} */(probe.firstElementChild).getBoundingClientRect().width); probe.remove();
-  PV_NEED={key,w}; return w;}
+  $('#doc').appendChild(probe); const w=Math.ceil(/** @type {HTMLElement} */(probe.firstElementChild).getBoundingClientRect().width);
+  setHtml(probe,html`<span class="vd-btns"><button type="button" class="vd-b" aria-pressed="true" data-kn="1" tabindex="-1">${ic('check')}<span class="lbl">${word}</span></button>\
+<button type="button" class="vd-b" aria-pressed="false" data-kn="1" tabindex="-1"><span class="lbl">${word}</span></button></span>`);
+  const b=[...probe.querySelectorAll('.vd-b')].map(x=>x.getBoundingClientRect().width),check=Math.max(0,b[0]-b[1]); probe.remove();
+  PV_NEED={key,w,check}; return w;}
 // A web font that arrives after the lines were measured - the bundled Pretendard after the fallback face - changes every
 // width: the state's width is measured again and every line fits itself again (sizePv), once each font load is done and
 // when the fonts are ready after boot. Kept from the fallback face, a width near the stacking threshold let the first save
 // still move the words.
-function pvFontsChanged(){PV_NEED={key:'',w:0}; if($$('#doc .pv').length)sizePv();}
+function pvFontsChanged(){PV_NEED={key:'',w:0,check:0}; if($$('#doc .pv').length)sizePv();}
 if(document.fonts){document.fonts.addEventListener('loadingdone',pvFontsChanged); document.fonts.addEventListener('loadingerror',pvFontsChanged); document.fonts.ready.then(pvFontsChanged);}
 // Whether line l keeps the rows it has now: its confirm word waits for the second press, or its save is out.
 /** @param {HTMLElement} l */

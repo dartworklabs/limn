@@ -5995,6 +5995,136 @@ class RcRound4(VerdictBase):
         self.assertEqual([(p["verdict"], p["note"]) for p in self.pins().values()], [("채택", "패널 값")])
 
 
+# One row's parts on page n's line as drawn: the figure's name, the dot after it, each part of the state (a display:
+# contents span's own children in its place) and each word - with whether each shows, its box, and the line's box.
+ROW_PARTS = """n=>{const l=document.querySelector('#doc .pv[data-page="'+n+'"]'),R=e=>{const b=e.getBoundingClientRect(); return {l:b.left,r:b.right,t:b.top,b:b.bottom};};
+  const shown=e=>e.getClientRects().length>0&&e.getBoundingClientRect().width>0&&getComputedStyle(e).visibility!=='hidden';
+  const t=l.querySelector(':scope>.pv-t'),kids=[...t.children].flatMap(c=>getComputedStyle(c).display==='contents'?[...c.children]:[c]);
+  const parts=[l.querySelector(':scope>.pv-fig'),l.querySelector(':scope>.pv-fig-sep'),...kids,...l.querySelectorAll(':scope>.vd-btns>.vd-b')].filter(e=>e&&shown(e));
+  const id=l.querySelector(':scope>.pv-fig>.pv-fig-id');
+  return {stack:l.classList.contains('pv-stack'),line:R(l),h:Math.round(l.getBoundingClientRect().height),idWhole:!!id&&id.scrollWidth<=id.clientWidth+1,
+    parts:parts.map(e=>({c:String(e.className),...R(e)})).sort((a,b)=>a.l-b.l)};}"""
+
+
+def row_overlaps(row):
+    """The parts of a line drawn by ROW_PARTS that overlap the part after them or leave the line's box: [] when every
+    part stands clear of the next and inside the line."""
+    out, ps, line = [], row["parts"], row["line"]
+    for a in ps:
+        if a["l"] < line["l"] - 0.5 or a["r"] > line["r"] + 0.5:
+            out.append(("outside", a["c"]))
+    for a, b in zip(ps, ps[1:], strict=False):
+        if a["r"] > b["l"] + 0.5:
+            out.append((a["c"], b["c"], round(a["r"] - b["l"], 1)))
+    return out
+
+
+class LinePolish(VerdictBase):
+    """#308 items 1-2: a resting stacked line names its page in the row it keeps, and English lines hold one row on a
+    desktop."""
+
+    PHONE = {"viewport": {"width": 390, "height": 844}, "is_mobile": True, "has_touch": True}
+    TITLES = """t=>{META.pages[0].title=t[0]; META.pages[1].title=t[1]; drawPageVerdicts();}"""
+    # A figure code as wide as the widest of the pl document (91 pages: 'p. 46 · PL44', 66.8px in English).
+    LONG = [
+        "[후보] PL444 · A candidate whose long title is cut first",
+        "[후보] PL445 · Another candidate with a long title",
+    ]
+
+    def test_a_resting_stacked_line_names_its_page_in_the_row_it_keeps(self):
+        """390x844 and a desktop whose lines are 360px (a page at a small zoom), both lines stacked, page 1 read: page 2's
+        line shows '2쪽 · PL18' in the row the reading line's name takes - shown, clear of the state under it, in the line's
+        muted text at weight 400 (the reading line's name is the foreground at 600), 4.5:1 and more in both themes, as tall
+        as that row so both lines are one height. The row stood empty: 44px between a phone's page and its state (#308
+        item 1)."""
+        for dev in (self.PHONE, {}):
+            with self.subTest(dev=dev.get("viewport")):
+                page = self.on("fig", **dev)
+                page.evaluate("setSide(false)")
+                if dev:
+                    page.evaluate("()=>{setK(K*2.5,false); ZOOMED=true;}")
+                page.evaluate(
+                    self.TITLES, ["[후보] PL17 · 다섯 비교 쌍의 월별 효과", "[후보] PL18 · 다섯 쌍의 월별 중앙값"]
+                )
+                page.evaluate("document.querySelector('#left').scrollTop=0")
+                settle(page)
+                page.evaluate("pvStick()")
+                settle(page)
+                if not dev:  # the desktop's least zoom leaves page 1 wider than this
+                    page.evaluate(
+                        "()=>{const ls=[...document.querySelectorAll('#doc .pv')]; ls.forEach(l=>{l.style.width='360px';}); pvFit(ls);}"
+                    )
+                got = page.evaluate(
+                    """()=>{const l=n=>document.querySelector('#doc .pv[data-page="'+n+'"]'),f=n=>l(n).querySelector(':scope>.pv-fig'),i=f(2).querySelector('.pv-fig-id');
+                      const b=i.getBoundingClientRect(),t=l(2).querySelector(':scope>.pv-t').getBoundingClientRect(),cs=getComputedStyle(f(2));
+                      return {read:PV_READ,stack:[l(1).classList.contains('pv-stack'),l(2).classList.contains('pv-stack')],text:f(2).textContent,
+                        shown:cs.visibility==='visible'&&cs.opacity==='1'&&b.width>0&&b.bottom<=t.top+0.5,muted:cs.color===getComputedStyle(l(2)).color,weights:[getComputedStyle(f(1)).fontWeight,cs.fontWeight],
+                        rows:[Math.round(f(1).getBoundingClientRect().height),Math.round(f(2).getBoundingClientRect().height)],
+                        heights:[Math.round(l(1).getBoundingClientRect().height),Math.round(l(2).getBoundingClientRect().height)]};}"""
+                )
+                self.assertEqual((got["read"], got["stack"], got["text"]), (1, [True, True], "2쪽 · PL18"), got)
+                self.assertTrue(got["shown"] and got["muted"], got)
+                self.assertEqual(got["weights"], ["600", "400"], got)
+                self.assertEqual(got["rows"][0], got["rows"][1], got)
+                self.assertEqual(got["heights"][0], got["heights"][1], got)
+                for theme in ("light", "dark"):
+                    page.evaluate("t=>setTheme(t)", theme)
+                    settle(page)
+                    cr = page.evaluate(CONTRAST, '#doc .pv[data-page="2"] .pv-fig-id')["text"]
+                    self.assertGreaterEqual(cr, 4.5, (theme, cr))
+                page.context.close()
+
+    def test_english_lines_hold_one_row_on_a_desktop_and_nothing_overlaps(self):
+        """The English UI (CI's 1400x850 among them), the panel open, the pages as wide as the room (620px at 1280: the pl
+        document's), a figure code as wide as its widest: no line stacks, and on each line the name, the dot, every part of
+        the state and every word stand clear of one another inside the line. At 1280 a click save, then two key saves
+        keep page 2's line one row with nothing overlapping - the save chip over no part, its words where they were. A
+        third of the pl document's resting lines stacked there (the allowance counted the dot as 8px and the press's check
+        as nothing), and a key save stacked the rest ('Enter write a reason · Cancel verdict', #308 item 2)."""
+        for w, h in ((1280, 800), (1400, 850), (1440, 900)):
+            with self.subTest(viewport=(w, h)):
+                page = self.on("fig", lang="en", viewport={"width": w, "height": h})
+                page.evaluate("setSide(true)")
+                settle(page)
+                page.evaluate("()=>{setK((innerW()-pvInsetR())/META.pages[1].pt_w,false); ZOOMED=true;}")
+                page.evaluate(self.TITLES, self.LONG)
+                settle(page)
+                if w == 1280:
+                    self.assertLessEqual(
+                        page.evaluate(ROW_PARTS, 2)["line"]["r"] - page.evaluate(ROW_PARTS, 2)["line"]["l"], 621
+                    )
+                for n in (1, 2):
+                    row = page.evaluate(ROW_PARTS, n)
+                    self.assertEqual((row["stack"], row["idWhole"], row_overlaps(row)), (False, True, []), (n, row))
+                if w != 1280:
+                    page.context.close()
+                    continue
+                page.evaluate(SCROLL, [2, "top"])
+                settle(page)
+                before = page.evaluate(WORDS_AT, 2)
+                self.press_page(page, 2, "보류")
+                self.assertIn(page.evaluate(CHIP_OVER, 2), (None, []))
+                row = page.evaluate(ROW_PARTS, 2)
+                self.assertEqual((row["stack"], row_overlaps(row)), (False, []), row)
+                after = page.evaluate(WORDS_AT, 2)
+                self.assertEqual([y for _, y in after], [y for _, y in before])
+                page.evaluate(END_CHIPS)
+                settle(page)
+                for i, key in enumerate(
+                    "12"
+                ):  # 채택, then 보류 again: each a new verdict (the current word takes back)
+                    page.keyboard.press(key)
+                    page.wait_for_function("n=>OPEN_ALL.length>=n", arg=i + 2)
+                    settle(page)
+                    page.evaluate(END_CHIPS)
+                    settle(page)
+                    row = page.evaluate(ROW_PARTS, 2)
+                    self.assertEqual((row["stack"], row_overlaps(row)), (False, []), (key, row))
+                    self.assertLessEqual(row["h"], 40, row)
+                self.assertEqual(page.evaluate(ADD_TEXT, 2), "Enter reason")
+                page.context.close()
+
+
 class ChipFontWait(VerdictBase):
     """A save chip with no room on its line while a web font loads waits unseen instead of sending its undo to the status
     line for good: on CI under load a fresh state's new characters were drawn in a fallback face while their Pretendard
