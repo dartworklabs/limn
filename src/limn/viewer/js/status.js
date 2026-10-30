@@ -193,8 +193,11 @@ function statusListUp(h,above,below,under){if(h<=(under?below:above))return !und
 // window a person sees (visualViewport: a keyboard that does not resize the layout, a pinch zoom), not the whole
 // window, under which the lower rows stood behind such a keyboard. A line outside that part (a zoom panned away from
 // it) has the list at the part's near edge instead of beside it, where its rows were out of sight too, and at least a
-// row tall. The list's full height is its content's (scrollHeight, with its border), read without undoing the cut, so a
-// list scrolled down stays where it was. Placed again while it is open when its rows change (drawStatus: a new message,
+// row tall - but never taller than the visible part, and never past it: where a row is taller than the room on its side,
+// the list comes in from that edge over the line. A phone zoomed in to 2x with its sheet open opened a list one row
+// (695-916px) tall over a line 280px from the top, which ran 418-639px above the window, and the focus showModal gives its
+// first row moved the zoomed view to it (#322). The list's full height is its content's (scrollHeight, with its border),
+// read without undoing the cut, so a list scrolled down stays where it was. Placed again while it is open when its rows change (drawStatus: a new message,
 // one that leaves - a list opened over the line with two rows got more and kept scrolling in that room), when the
 // window or its visible part changes size or moves; a band change folds it (placeStatus).
 function placeStatusList(){const d=$('#status-list'); if(!d.open)return;
@@ -211,8 +214,9 @@ function placeStatusList(){const d=$('#status-list'); if(!d.open)return;
   const at=Math.min(Math.max(r.top,vt),vb),ab=Math.min(Math.max(r.bottom,vt),vb);   // the line's edges, held inside the visible part
   const above=at-vt-4-8,below=vb-ab-4-8,h=d.scrollHeight+d.offsetHeight-d.clientHeight;
   const row=/** @type {HTMLElement|null} */(d.querySelector('.st-row')),one=h-$('#status-list-rows').offsetHeight+(row?row.offsetHeight:0);   // a row, its padding, border
-  const up=statusListUp(h,above,below,BAND===LAYOUT_BAND.SHORT); d.style.setProperty('--sl-room',Math.floor(Math.max(up?above:below,one))+'px');
-  d.style.top=up?'auto':Math.round(ab+4)+'px'; d.style.bottom=up?Math.round(innerHeight-at+4)+'px':'auto';}
+  const up=statusListUp(h,above,below,BAND===LAYOUT_BAND.SHORT),room=Math.floor(Math.min(Math.max(up?above:below,one),vb-vt-16));
+  d.style.setProperty('--sl-room',room+'px');
+  d.style.top=up?'auto':Math.round(Math.min(ab+4,vb-8-room))+'px'; d.style.bottom=up?Math.round(innerHeight-Math.max(at-4,vt+8+room))+'px':'auto';}
 // placeStatusList at the next frame, once for all the changes before it: the line is drawn by then.
 let STATUS_LIST_PLACE=0;
 function placeStatusListSoon(){if(!STATUS_LIST_PLACE)STATUS_LIST_PLACE=requestAnimationFrame(()=>{STATUS_LIST_PLACE=0; placeStatusList();});}
