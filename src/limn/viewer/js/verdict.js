@@ -1070,18 +1070,20 @@ function pvEdgeStop(after){const w=document.createTreeWalker(document.body,NodeF
   w.currentNode=n; return /** @type {HTMLElement|null} */(after?w.nextNode():w.previousNode());}
 // Where the focus came into the pages from, while it is in them: the stop a Tab into the pages was pressed on, or the control a
 // digit key was pressed on (verdictKey) - an outline entry, a document tab, the section strip, the phone's tool bar - with
-// the document and build it was pressed on: another document or a new build lets it go (pvOutStop), as any focus outside
-// the pages does. Shift+Tab from the reading line goes back there (below).
-let PV_CAME=/** @type {{el:HTMLElement,doc:string|null,build:string}|null} */(null);
+// the visit (captureVisit: the document and its switch) and build it was pressed on: a switch - also away and back - or a
+// new build lets it go (pvOutStop), as any focus outside the pages does. Shift+Tab from the reading line goes back there
+// (below).
+let PV_CAME=/** @type {{el:HTMLElement,visit:{doc:string|null,seq:number},build:string}|null} */(null);
 /** @param {HTMLElement} el */
-function pvCame(el){PV_CAME={el,doc:DOC,build:(META&&META.pages_build)||''};}
+function pvCame(el){PV_CAME={el,visit:captureVisit(),build:(META&&META.pages_build)||''};}
 document.addEventListener('focusin',e=>{const t=e.target; if(t instanceof Element&&!t.closest('#left'))PV_CAME=null;});
 // Where Shift+Tab leaves the pages to: where the focus came from (PV_CAME) while it is still a stop of this document and build
 // before the pages - or, where nothing comes before them (a phone: the nav bar, the outline and the section strip are not
 // drawn), one in the tool bar over the sheet (#bar1) -, else the last stop before the pages (pvEdgeStop: the section strip's
 // or the nav bar's page button), else the phone's position button (#btn-pos, which opens its pages as those do). null for
 // none.
-function pvOutStop(){const L=$('#left'),edge=pvEdgeStop(false),k=PV_CAME,c=k&&k.doc===DOC&&k.build===((META&&META.pages_build)||'')?k.el:null;
+function pvOutStop(){const k=PV_CAME; if(k&&!(currentVisit(k.visit)&&k.build===((META&&META.pages_build)||'')))PV_CAME=null;
+  const L=$('#left'),edge=pvEdgeStop(false),c=PV_CAME?PV_CAME.el:null;
   if(c&&c.isConnected&&!L.contains(c)&&pvTabStop(c)&&((c.compareDocumentPosition(L)&Node.DOCUMENT_POSITION_FOLLOWING)||(!edge&&c.closest('#bar1'))))return c;
   const p=$('#btn-pos'); return edge||(pvTabStop(p)?p:null);}
 addEventListener('keydown',e=>{const a=/** @type {HTMLElement|null} */(document.activeElement),L=$('#left');

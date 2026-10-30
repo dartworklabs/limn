@@ -6139,8 +6139,10 @@ class EdgeKeys(VerdictBase):
 
     def test_an_origin_in_another_document_is_not_gone_back_to(self):
         """1 pressed on a document tab of the figure document; the focus, left in the pages, moves on to the view-only PDF
-        (a switch made with the focus on the line) and Tab from the PDF area takes it to that document's reading line: Shift+Tab goes to the section strip's
-        page button, not to the tab the first document's digit was pressed on."""
+        (a switch made with the focus on the line) and Tab from the PDF area takes it to that document's reading line:
+        Shift+Tab goes to the section strip's page button, not to the tab the first document's digit was pressed on. The
+        same after 2 pressed on the tab in the PDF and a switch to the figure document and back (the PDF's origin was
+        only refused while another document showed, and came back with it)."""
         page = self.on("fig")
         tab = page.evaluate(
             """()=>{const b=[...document.querySelectorAll('#doc-links button')].find(x=>x.getClientRects().length&&x.tabIndex>=0);
@@ -6155,6 +6157,21 @@ class EdgeKeys(VerdictBase):
         page.wait_for_function("DOC==='rv'&&META&&META.doc==='rv'&&!!document.querySelector('#doc .pv')")
         settle(page)
         page.evaluate("searchToPage()")
+        page.keyboard.press("Tab")
+        self.assertEqual(page.evaluate(FOCUS_AT)[0], 1)
+        self.assertTrue(page.evaluate(self.FIRST_STOP, 1))
+        page.keyboard.press("Shift+Tab")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "section-page")
+        # Away and back with the focus in the pages all along: the origin stays forgotten.
+        page.focus(tab)
+        page.keyboard.press("2")
+        page.wait_for_function("OPEN_ALL.some(p=>p.doc==='rv'&&p.verdict==='보류')&&!PV_BUSY.size")
+        settle(page)
+        for doc in ("fig", "rv"):
+            page.evaluate("k=>switchDoc(k)", doc)
+            page.wait_for_function("k=>DOC===k&&META&&META.doc===k&&!!document.querySelector('#doc .pv')", arg=doc)
+            settle(page)
+            page.evaluate("searchToPage()")
         page.keyboard.press("Tab")
         self.assertEqual(page.evaluate(FOCUS_AT)[0], 1)
         self.assertTrue(page.evaluate(self.FIRST_STOP, 1))
