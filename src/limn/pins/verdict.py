@@ -125,21 +125,37 @@ def figure_root(record: Mapping[str, Any]) -> str | None:
     return el.path[0] if el is not None and el.path and el.path[0] else None
 
 
-def _hashable(v: object) -> Hashable:
-    """v as a value that compares and hashes by what it holds: itself for a JSON scalar, its repr for a list or an
-    object (a hand-edited offset can be one; it must never make the anchor unhashable). Like the viewer's JSON
-    stringify of the anchor, two such offsets are the same only when they are written alike."""
-    return v if v is None or isinstance(v, (str, int, float)) else repr(v)
+def _json_key(v: object) -> Hashable:
+    """v as a value that is equal to another's, and hashes alike, exactly when the two are the same JSON value: its JSON
+    type beside what it holds. A number by its value (JSON has one kind: 1 and 1.0 are one number, as the viewer reads
+    them), true and false never a number, a list item by item, an object by its keys and values whatever order they
+    were written in. A hand-edited offset can be a list or an object, and must never make the anchor unhashable nor
+    meet a value of another type: the list [0] is not the string "[0]", true is not 1 (#303). The viewer's anchorKey
+    writes the anchor as JSON with sorted keys, which tells the same values apart."""
+    if v is None:
+        return ("null",)
+    if isinstance(v, bool):
+        return ("bool", v)
+    if isinstance(v, (int, float)):
+        return ("number", v)
+    if isinstance(v, str):
+        return ("string", v)
+    if isinstance(v, (list, tuple)):
+        return ("array", tuple(_json_key(x) for x in v))
+    if isinstance(v, Mapping):
+        return ("object", frozenset((k, _json_key(x)) for k, x in v.items()))
+    return ("other", type(v).__name__, repr(v))  # nothing a JSON record holds
 
 
 def anchor_key(record: Mapping[str, Any]) -> tuple[Hashable, ...] | None:
     """A line pin's anchor - the text of its first and last lines when it was saved or last re-matched, with their
     distances from lo and hi - as one comparable, hashable value, or None when it has no anchor with a head and a tail
-    text."""
+    text. Two anchors are one when their texts are and their offsets are the same JSON value (_json_key); a missing
+    offset is null, as in the viewer's."""
     a = record.get("anchor")
     if not (isinstance(a, Mapping) and isinstance(a.get("head"), str) and isinstance(a.get("tail"), str)):
         return None
-    return (a["head"], a["tail"], _hashable(a.get("head_off")), _hashable(a.get("tail_off")))
+    return (a["head"], a["tail"], _json_key(a.get("head_off")), _json_key(a.get("tail_off")))
 
 
 def order_target(pin: Pin, placed: Placement) -> OrderTarget | None:

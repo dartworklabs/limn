@@ -13,10 +13,11 @@ excepted because it is not among the live pins.
 Run: uv run pytest -q src/limn/pins/tests/test_verdict.py
 """
 
+import json
 import time
 import unittest
 
-from hypothesis import given, strategies as st
+from hypothesis import example, given, strategies as st
 
 from limn.pins.model import parse_pin
 from limn.pins.verdict import (
@@ -347,17 +348,25 @@ class FirstWordVerdicts(unittest.TestCase):
         self.assertEqual(self.figures(figure(1), figure(2), odd), {1: 2})
 
 
+def written(pin):
+    """A pin's stored anchor as the definition compares it: its texts and offsets written as JSON with sorted keys, as the
+    viewer's anchorKey writes them - so one JSON value written in another key order is one anchor, while a list is never
+    the string that reads like it, nor true the number 1. A missing offset is written null."""
+    a = pin.record["anchor"]
+    return json.dumps([a["head"], a["tail"], a.get("head_off"), a.get("tail_off")], sort_keys=True)
+
+
 def reference(pins, targets):
     """What superseded_by answers, by the definition: a pin's current verdict is the newest pin of its target that is itself
-    or, on lines, about the same text - both open, or one shared anchor - found by scanning every newer pin."""
+    or, on lines, about the same text - both open, or both with an anchor and the two written alike (written) - found by
+    scanning every newer pin."""
     out = {}
-    entries = sorted(((p.core.pid, targets[p.core.pid]) for p in pins), key=lambda e: -e[0])
-    for i, (pid, a) in enumerate(entries):
-        for newer, b in entries[:i]:
-            if b.key == a.key and (
-                not a.on_lines or (a.open and b.open) or (a.anchor is not None and a.anchor == b.anchor)
-            ):
-                out[pid] = newer
+    entries = sorted(((p, targets[p.core.pid]) for p in pins), key=lambda e: -e[0].core.pid)
+    for i, (p, a) in enumerate(entries):
+        for q, b in entries[:i]:
+            shared = a.anchor is not None and b.anchor is not None and written(p) == written(q)
+            if b.key == a.key and (not a.on_lines or (a.open and b.open) or shared):
+                out[p.core.pid] = q.core.pid
                 break
     return out
 
@@ -365,19 +374,33 @@ def reference(pins, targets):
 class LargeHistories(unittest.TestCase):
     """superseded_by reads a long history in one linear pass, and agrees with the definition on any mix."""
 
-    ANCHORS = [None] + [
-        {"head": "Head %d." % i, "tail": "Tail %d." % i, "head_off": 0, "tail_off": 0} for i in range(3)
-    ]
+    # A hand-edited offset may be any JSON value. Beside the numbers the server writes, the odd ones pair up: a list and the
+    # string that reads like it, an object written in two key orders, true beside 1, null beside no offset at all - each
+    # pair one anchor or two exactly as the definition says (#303: the index once took [0] for "[0]" and true for 1, and
+    # an object's key order for another anchor).
+    ODD = [[0], "[0]", {"a": 0, "b": [1]}, {"b": [1], "a": 0}, True, 1, None]
+    ANCHORS = (
+        [None]
+        + [{"head": "Head %d." % i, "tail": "Tail %d." % i, "head_off": 0, "tail_off": 0} for i in range(3)]
+        + [{"head": "Head 0.", "tail": "Tail 0.", "head_off": v, "tail_off": 0} for v in ODD]
+        + [{"head": "Head 0.", "tail": "Tail 0.", "tail_off": 0}]
+    )
+    LIST, STRING, AB, BA, TRUE, ONE, NULL, MISSING = range(4, 12)  # ANCHORS' odd ones, by index
 
     @given(
         st.lists(
-            st.tuples(st.sampled_from([False, True]), st.sampled_from(range(4)), st.sampled_from([4, 8])),
+            st.tuples(st.sampled_from([False, True]), st.sampled_from(range(len(ANCHORS))), st.sampled_from([4, 8])),
             min_size=1,
             max_size=14,
         )
     )
+    @example([(False, LIST, 4), (False, STRING, 4)])
+    @example([(False, AB, 4), (False, BA, 4)])
+    @example([(False, TRUE, 4), (False, ONE, 4)])
+    @example([(False, NULL, 4), (False, MISSING, 4)])
     def test_the_index_agrees_with_scanning_every_newer_pin(self, spec):
-        """Open or closed, with one of three anchors or none, on one of two ranges: the answer equals the scan."""
+        """Open or closed, with one of the anchors or none - three plain ones and the odd offsets' pairs - on one of two
+        ranges: the answer equals the scan."""
         pins = [
             latex(i, lo=lo, hi=lo + 1, anchor=self.ANCHORS[a], **({} if is_open else DONE))
             for i, (is_open, a, lo) in enumerate(spec, 1)
@@ -413,3 +436,22 @@ class LargeHistories(unittest.TestCase):
         other = {**odd, "head_off": [0, {"a": 2}]}
         self.assertEqual(placed([latex(1, anchor=odd, **DONE), latex(2, anchor=odd, **DONE)]), {1: 2})
         self.assertEqual(placed([latex(1, anchor=odd, **DONE), latex(2, anchor=other, **DONE)]), {})
+
+    def test_an_offset_is_compared_as_the_json_value_it_is(self):
+        """Two offsets are one when they are the same JSON value, as the viewer's anchorKey reads them (#303): an object
+        whatever order its keys were written in, 1 and 1.0 (JSON has one kind of number); never a list and the string
+        that reads like it, true and 1, or 0 and null."""
+        for older, newer, same in (
+            ([0], "[0]", False),
+            ({"a": 0, "b": [1]}, {"b": [1], "a": 0}, True),
+            ([{"x": 1, "y": 2}], [{"y": 2, "x": 1}], True),
+            (True, 1, False),
+            (1, 1.0, True),
+            (0, None, False),
+        ):
+            with self.subTest(older=older, newer=newer):
+                pins = [
+                    latex(1, anchor={"head": "H.", "tail": "T.", "head_off": older, "tail_off": 0}, **DONE),
+                    latex(2, anchor={"head": "H.", "tail": "T.", "head_off": newer, "tail_off": 0}, **DONE),
+                ]
+                self.assertEqual(placed(pins), {1: 2} if same else {})

@@ -6,14 +6,19 @@ two implementations of one rule, so a disagreement shows a card that says a verd
 skip it. One flow of verdicts runs through the real handler in all three kinds of document - a figure's root and panel, a
 LaTeX file's lines (an open one and a closed one), a view-only PDF's pages, a region and a verdict taken back to the Trash and
 restored - and every verdict pin's `superseded_by` must equal the number the viewer names as its superseding verdict.
+Two pins on the same lines are one target only with one anchor, so the viewer's anchorKey (run under node) and the server's
+anchor_key must also tell the same anchors apart, whatever JSON value a hand-edited offset holds (#303).
 
 Run: uv run pytest -q src/limn/viewer/tests/test_viewer_supersession_parity.py
 """
 
 import json
+import unittest
+
+from limn.pins.verdict import anchor_key
 
 import helpers_figure
-from helpers import ps, split_resp
+from helpers import extract_js_fn, ps, run_node, split_resp
 from helpers_access import ALICE, BOB, talk_to
 from helpers_browser import BrowserBase, settle
 
@@ -118,3 +123,48 @@ class SupersessionParity(BrowserBase):
         page = self.open_viewer(listed)
         self.assertEqual(page.evaluate(VIEWER_ORDER), self.server_order(), "the verdict restored")
         self.assertEqual(dict(self.server_order())[made[0]], newest)
+
+
+class AnchorParity(unittest.TestCase):
+    """The viewer's anchorKey (verdict.js, under node) and the server's anchor_key (limn.pins.verdict) on the same stored
+    anchors: one anchor to the one exactly when one to the other, and both as the definition says - the same JSON value."""
+
+    # (older anchor, newer anchor, one anchor?): the offsets a hand-edited anchor may hold (#303) - a list and the string
+    # that reads like it, an object in two key orders (also inside a list), true beside 1, 1 beside 1.0 (JSON has one
+    # kind of number), null beside a missing offset and beside 0 - and an anchor without a tail text, which is none.
+    PAIRS = [
+        ({"head_off": [0]}, {"head_off": "[0]"}, False),
+        ({"head_off": {"a": 0, "b": [1]}}, {"head_off": {"b": [1], "a": 0}}, True),
+        ({"tail_off": [{"x": 1, "y": 2}]}, {"tail_off": [{"y": 2, "x": 1}]}, True),
+        ({"head_off": True}, {"head_off": 1}, False),
+        ({"head_off": 1}, {"head_off": 1.0}, True),
+        ({"head_off": None}, {}, True),
+        ({"head_off": 0}, {"head_off": None}, False),
+        ({"head_off": 0, "tail_off": 0}, {"tail_off": 0, "head_off": 0}, True),
+    ]
+
+    def test_the_viewer_and_the_server_tell_the_same_anchors_apart(self):
+        """Every pair: the viewer's anchorKey strings are equal exactly when the server's anchor_key values are, and that
+        is the pair's answer. A pin whose anchor has no tail text has none to either."""
+        pairs = [
+            ({"head": "H.", "tail": "T.", **a}, {"head": "H.", "tail": "T.", **b}, same) for a, b, same in self.PAIRS
+        ]
+        pairs.append(({"head": "H."}, {"head": "H."}, None))
+        js = "\n".join(
+            [
+                extract_js_fn("jsonSortedKeys"),
+                extract_js_fn("anchorKey"),
+                "const pairs=%s;" % json.dumps([[a, b] for a, b, _ in pairs]),
+                "console.log(JSON.stringify(pairs.map(([a,b])=>{const x=anchorKey({anchor:a}),y=anchorKey({anchor:b});"
+                " return x===null||y===null?null:x===y;})));",
+            ]
+        )
+        out = run_node(js)
+        if out is None:
+            self.skipTest("node not available")
+        server = [
+            None if anchor_key({"anchor": a}) is None else anchor_key({"anchor": a}) == anchor_key({"anchor": b})
+            for a, b, _ in pairs
+        ]
+        self.assertEqual(json.loads(out), server)
+        self.assertEqual(server, [same for _, _, same in pairs])
