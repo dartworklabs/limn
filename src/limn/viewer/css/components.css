@@ -214,11 +214,12 @@ body.lay-narrow.has-status:not(.typing,.pv-typing){--pv-inset:calc(var(--sheet-h
    pushed [판정 취소] past the row's end, where it was clipped (#308). */
 .pv:has(>.pv-t>.pv-busy)>.pv-t .pv-early{display:none}
 /* While a confirm word waits for its second press its line says how long ('4초 안에 한 번 더 누르면 저장', .pv-arm) in full: what
-   does not bear on that press gives way to it - the reason to nothing, the earlier link, [이유 추가] and [판정 취소] step
-   out - and it is cut last. The words stay where they are (the line keeps its rows, verdict.js pvRowsHeld). */
+   does not bear on that press gives way to it - the reason and the earlier link to nothing (it keeps a focus it has), [이유
+   추가] and [판정 취소] step out - and it is cut last. The words stay where they are (the line keeps its rows, verdict.js pvRowsHeld). */
 .pv:not(.pv-stack)>.pv-t .pv-arm{flex:0 1 auto;min-width:6em;overflow-x:clip;overflow-y:visible;text-overflow:ellipsis}
 .pv:has(>.pv-t :is(.pv-arm,.pv-busy))>.pv-t .pv-note{min-width:0}
-.pv:has(>.pv-t .pv-arm)>.pv-t :is(.pv-ra,.pv-cn,.pv-early){display:none}
+.pv:not(.pv-stack):has(>.pv-t .pv-arm)>.pv-t .pv-early{flex:0 50 auto;min-width:0;overflow-x:clip;overflow-y:visible;text-overflow:clip}
+.pv:has(>.pv-t .pv-arm)>.pv-t :is(.pv-ra,.pv-cn){display:none}
 .pv:not(.pv-stack)>.pv-t{margin-right:auto}
 .pv:not(.pv-stack)>.vd-btns{flex:none}
 .pv>.vd-btns{order:2}

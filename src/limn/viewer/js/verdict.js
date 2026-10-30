@@ -799,7 +799,7 @@ function pvFit(lines){const held=lines.map(pvRowsHeld),D=$('#doc');
   if(LAYOUT===LAYOUT_MODE.WIDE&&over.some(o=>o)){lines.forEach((l,i)=>{if(over[i])l.classList.add('pv-tight');});
     over=lines.map((l,i)=>{if(!over[i]||narrow[i])return over[i]; const p=past(l); if(p<=1)return false;
       const t=/** @type {HTMLElement} */(l.querySelector(':scope>.pv-t')); out[i]=p-pvEarlyRoom(t)+pvAddCut(l,t,addD)<=1; return !out[i];});
-    lines.forEach((l,i)=>{if(out[i])l.classList.add('pv-early-out');});}
+    lines.forEach((l,i)=>{if(out[i]){pvEarlyFocusOut(l); l.classList.add('pv-early-out');}});}
   lines.forEach((l,i)=>{if(over[i])l.classList.add('pv-stack');});
   // A stacked line's state rows are the reading line's too: their height, measured here with what only the reading line shows
   // ([이유 추가], laid out unseen), is the least the state takes (--pv-t-h, components.css). Beside an earlier link a 420px
@@ -860,6 +860,13 @@ if(document.fonts){document.fonts.addEventListener('loadingdone',pvFontsChanged)
 /** @param {HTMLElement} l @param {Element} t @param {number} d @returns {number} */
 function pvAddCut(l,t,d){if(!d||!l.classList.contains('pv-kw')||!l.classList.contains('pv-tight')||!t.querySelector(':scope>.pv-ra>.pv-add'))return 0;
   const e=pvEarlyRoom(t); return e?Math.min(d,e):0;}
+// Line l's earlier link is about to step out (.pv-early-out, pvFit): a focus on it moves first, without a scroll, to the
+// control before it on the line - [판정 취소], [이유 추가], the '#N' link -, else to the line's first control. Hidden with the
+// focus on it, it took the focus away (a resize or a zoom across the line's bar), and the next Tab started from the top.
+/** @param {HTMLElement} l */
+function pvEarlyFocusOut(l){const e=l.querySelector(':scope>.pv-t>.pv-early'); if(!e||document.activeElement!==e)return;
+  const cs=[...l.querySelectorAll(PV_TABBABLE)].filter(pvTabStop).filter(x=>x!==e),before=cs.filter(x=>!!(x.compareDocumentPosition(e)&Node.DOCUMENT_POSITION_FOLLOWING));
+  const to=before.length?before[before.length-1]:cs[0]; if(to)to.focus({preventScroll:true});}
 // The room state t's earlier link takes in its row as drawn - its width and the gap before it - or 0 where it shows none.
 /** @param {Element} t @returns {number} */
 function pvEarlyRoom(t){const e=t.querySelector(':scope>.pv-early'); if(!e||!e.getClientRects().length)return 0;
@@ -1161,18 +1168,28 @@ addEventListener('keydown',e=>{const a=document.activeElement; if(e.key!=='Tab'|
   const at=pvReadingAt(); if(!at)return;   // no page lines, or the pages are not shown: the DOM's order scrolls nothing to a line
   const r=pvReadingPage(),l=r?document.querySelector('#doc .pv[data-page="'+r+'"]'):null;
   const c=/** @type {HTMLElement|undefined} */(l?[...l.querySelectorAll('a,button,[tabindex="0"]')].find(x=>x instanceof HTMLElement&&x.getClientRects().length>0&&!(/** @type {HTMLButtonElement} */(x).disabled)):undefined);
-  e.preventDefault(); const to=c||pvStopInView(at)||pvEdgeStop(true); if(to)to.focus({preventScroll:true});});
+  e.preventDefault(); const v=c?null:pvStopInView(at),to=c||v||pvEdgeStop(true);
+  PV_IN_VIEW=v?{el:v,visit:captureVisit(),build:(META&&META.pages_build)||''}:null; if(to)to.focus({preventScroll:true});});
+// The stop in the pages that Tab from the PDF area went to in view, while the reading page had no line to go to (above): a
+// mark, or a later page's line. Shift+Tab from it leaves the pages the way the reading line's first stop does (pvOutStop,
+// below) - the DOM's stop before it is a page above, off the screen, and the focus scrolled the pages there. Let go when the
+// focus leaves the pages, on another document or build, and by the next Tab from the area.
+let PV_IN_VIEW=/** @type {{el:HTMLElement,visit:{doc:string|null,seq:number},build:string}|null} */(null);
 // The first Tab stop in the pages from page `at` on - its own marks, then the next pages' marks and lines in the DOM's
-// order - when that stop shows whole in the PDF area's view and nothing lies over it (the status line or the sheet over the
-// area's bottom: what its middle hits is it), else null. Reads the page blocks from `at` down to the area's bottom only.
+// order - when that stop shows whole in the PDF area's view (its client box, within the window) and nothing lies over any of
+// it (the status line or the sheet over the area's bottom, a panel laid over its side: what its middle and four points 4px in
+// from its corners hit is it), else null. Hit at its middle alone, a line half under the status line was taken. Reads the
+// page blocks from `at` down to the area's bottom only.
 /** @param {number} at @returns {HTMLElement|null} */
-function pvStopInView(at){const L=$('#left'),v=L.getBoundingClientRect(),top=v.top+L.clientTop,left=v.left+L.clientLeft,bot=top+L.clientHeight,right=left+L.clientWidth;
+function pvStopInView(at){const L=$('#left'),v=L.getBoundingClientRect(),top=Math.max(0,v.top+L.clientTop),left=Math.max(0,v.left+L.clientLeft);
+  const bot=Math.min(innerHeight,v.top+L.clientTop+L.clientHeight),right=Math.min(innerWidth,v.left+L.clientLeft+L.clientWidth);
   for(let n=at,b=document.querySelector('#doc .pgw[data-page="'+n+'"]');b;b=document.querySelector('#doc .pgw[data-page="'+(++n)+'"]')){
     if(b.getBoundingClientRect().top>=bot)return null;
     const x=[...b.querySelectorAll(PV_TABBABLE)].find(pvTabStop); if(!x)continue;
     const s=x.getBoundingClientRect(); if(s.top<top||s.bottom>bot||s.left<left||s.right>right)return null;
-    const h=document.elementFromPoint((s.left+s.right)/2,(s.top+s.bottom)/2);
-    return !!h&&(h===x||(!!h.closest&&h.closest(PV_TABBABLE)===x))?x:null;}
+    const ix=Math.min(4,s.width/4),iy=Math.min(4,s.height/4),xs=[s.left+ix,(s.left+s.right)/2,s.right-ix],ys=[s.top+iy,(s.top+s.bottom)/2,s.bottom-iy];
+    const pts=[[xs[1],ys[1]],[xs[0],ys[0]],[xs[2],ys[0]],[xs[0],ys[2]],[xs[2],ys[2]]];
+    return pts.every(([px,py])=>{const h=document.elementFromPoint(px,py); return !!h&&(h===x||(!!h.closest&&h.closest(PV_TABBABLE)===x));})?x:null;}
   return null;}
 // Tab into the pages from outside them - the outline, the section strip, the panel by Shift+Tab - goes to the reading page's
 // line too (its first control; its last by Shift+Tab), else to the PDF area: the DOM's next stop is the first page's line (or
@@ -1201,7 +1218,7 @@ function pvEdgeStop(after){const w=document.createTreeWalker(document.body,NodeF
 let PV_CAME=/** @type {{el:HTMLElement,visit:{doc:string|null,seq:number},build:string}|null} */(null);
 /** @param {HTMLElement} el */
 function pvCame(el){PV_CAME={el,visit:captureVisit(),build:(META&&META.pages_build)||''};}
-document.addEventListener('focusin',e=>{const t=e.target; if(t instanceof Element&&!t.closest('#left'))PV_CAME=null;});
+document.addEventListener('focusin',e=>{const t=e.target; if(t instanceof Element&&!t.closest('#left')){PV_CAME=null; PV_IN_VIEW=null;}});
 // Where Shift+Tab leaves the pages to: where the focus came from (PV_CAME) while it is still a stop of this document and build
 // before the pages - or, where nothing comes before them (a phone: the nav bar, the outline and the section strip are not
 // drawn), one in the tool bar over the sheet (#bar1) -, else the last stop before the pages (pvEdgeStop: the section strip's
@@ -1226,10 +1243,13 @@ addEventListener('keydown',e=>{const a=/** @type {HTMLElement|null} */(document.
 // it is the page before's line: each Shift+Tab scrolled the document a page up, and 80 of them on a 91-page figure
 // document never reached the outline. The earlier pages' lines are reached by PageUp, which makes each the reading page in
 // turn. A line with its reason popover open keeps Tab to itself first (verdict-reason.js, on #doc), and another page's line
-// or mark is left to the DOM's order.
+// or mark is left to the DOM's order - but for the stop Tab from the PDF area went to in view while the reading page had no
+// line (PV_IN_VIEW), which leaves the same way.
 addEventListener('keydown',e=>{if(e.key!=='Tab'||!e.shiftKey||e.ctrlKey||e.metaKey||e.altKey||e.defaultPrevented)return;
   const a=/** @type {HTMLElement|null} */(document.activeElement),blk=a&&a.closest?a.closest('#doc .pgw'):null,l=blk&&blk.querySelector(':scope>.pv');
-  if(!a||!blk||!l||Number(/** @type {HTMLElement} */(l).dataset.page)!==pvReadingPage())return;
-  const first=[...blk.querySelectorAll(PV_TABBABLE)].find(pvTabStop); if(first!==a)return;
+  const iv=PV_IN_VIEW; if(iv&&!(currentVisit(iv.visit)&&iv.build===((META&&META.pages_build)||'')))PV_IN_VIEW=null;
+  if(!(a&&PV_IN_VIEW&&PV_IN_VIEW.el===a)){   // the stop Tab went to in view (above), on a page with a line or none
+    if(!a||!blk||!l||Number(/** @type {HTMLElement} */(l).dataset.page)!==pvReadingPage())return;
+    const first=[...blk.querySelectorAll(PV_TABBABLE)].find(pvTabStop); if(first!==a)return;}
   const to=pvOutStop(); if(!to)return; e.preventDefault(); to.focus({preventScroll:true});
   if(to.closest('#outline'))to.scrollIntoView({block:'nearest'});});   // an outline entry comes into the outline's view; the pages stay

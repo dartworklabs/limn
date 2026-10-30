@@ -6839,6 +6839,78 @@ class EdgeKeys(VerdictBase):
         self.assertEqual(page.evaluate(FOCUS_AT)[0], 2)
         self.assertEqual(page.evaluate("[document.querySelector('#left').scrollTop, pvReadingAt()]"), [top, 1])
 
+    # Page 1 (landscape) f of the area tall at the top, read, page 2 (portrait) and its line under it.
+    SMALL = """f=>{setK(f*document.querySelector('#left').clientHeight/META.pages[0].pt_h,false); ZOOMED=true; document.querySelector('#left').scrollTop=0;}"""
+    # A box over part of page 2's line's first control - its bottom or right 30% (sides), never its middle - or none.
+    COVER = """side=>{let c=document.getElementById('vd-test-cover'); if(c)c.remove(); if(!side)return;
+      const b=document.querySelector('#doc .pv[data-page="2"] .vd-b').getBoundingClientRect(); c=document.createElement('div'); c.id='vd-test-cover';
+      const r=side==='bottom'?[b.left,b.bottom-b.height*0.3,b.width,b.height*0.3+2]:[b.right-b.width*0.3,b.top,b.width*0.3+2,b.height];
+      c.style.cssText='position:fixed;z-index:2147483647;background:rgba(0,0,0,.25);left:'+r[0]+'px;top:'+r[1]+'px;width:'+r[2]+'px;height:'+r[3]+'px';
+      document.body.appendChild(c);}"""
+
+    def test_tab_from_a_page_without_a_line_passes_a_line_partly_covered(self):
+        """Page 1 takes no verdict and is read, page 2's line whole under it, at three zooms: with a box laid over the bottom
+        or the right 30% of that line's first control (as the status line or a sheet over the area's bottom, or a panel over
+        its side, would lie) - its middle still clear - Tab from the PDF area goes past the pages, not to that line; with
+        nothing over it, to the line. The pages never move. Hit-tested at its middle alone, the line half under the box was
+        taken and the focus went under it."""
+        fmap = helpers_figure.viewer_map()
+        fmap["pages"][0]["verdict"] = False
+        helpers_figure.viewer_build(self.fig, helpers_figure.BUILD2, fmap)
+        page = self.on("fig")
+        edge = page.evaluate("(pvEdgeStop(true)||{}).id||null")
+        self.assertTrue(edge)
+        for f in (0.2, 0.22, 0.25):
+            page.evaluate(self.SMALL, f)
+            settle(page)
+            self.assertEqual(page.evaluate("pvReadingAt()"), 1, f)
+            top = page.evaluate("document.querySelector('#left').scrollTop")
+            for side in ("bottom", "right", None):
+                with self.subTest(f=f, side=side):
+                    page.evaluate(self.COVER, side)
+                    page.focus("#left")
+                    page.keyboard.press("Tab")
+                    got = page.evaluate(
+                        "()=>[document.activeElement.id||'',(document.activeElement.closest('#doc .pv')||{dataset:{}}).dataset.page||null]"
+                    )
+                    self.assertEqual(got, ["", "2"] if side is None else [edge, None], (f, side))
+                    self.assertEqual(page.evaluate("document.querySelector('#left').scrollTop"), top)
+            page.evaluate(self.COVER, None)
+
+    def test_shift_tab_from_a_stop_tab_went_to_in_view_leaves_the_way_it_came(self):
+        """Page 2 takes no verdict, holds a pin's mark and is read, page 1's line off the screen above it: Tab from the
+        section strip goes to the PDF area, Tab from there to page 2's mark (in view), and Shift+Tab from the mark back to
+        the section strip - not to page 1's line, which scrolled the pages up to it. The pages never move."""
+        fmap = helpers_figure.viewer_map()
+        fmap["pages"][1]["verdict"] = False
+        helpers_figure.viewer_build(self.fig, helpers_figure.BUILD2, fmap)
+        meta = self.call("GET", "/api/meta?doc=fig")[1]
+        pg = meta["pages"][1]
+        pick = {"doc": "fig", "page": 2, "x0": pg["pt_w"] * 0.3, "y0": pg["pt_h"] * 0.3, "x1": pg["pt_w"] * 0.6,
+                "y1": pg["pt_h"] * 0.5, "frac": [0.3, 0.3, 0.3, 0.2]}  # fmt: skip
+        code, d = self.call("POST", "/api/pick", {**pick, "pdf_build": meta["pages_build"]})
+        self.assertEqual(code, 200, d)
+        body = {k: d[k] for k in helpers_figure.SAVE_LINE if d.get(k) is not None}
+        body.update(scope=d["default_level"], doc="fig", note="표시", kind_req="fix", assignee="agent")
+        code, made = self.call("POST", "/api/pin", body)
+        self.assertEqual(code, 200, made)
+        page = self.on("fig", n_open=1)
+        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        settle(page)
+        page.evaluate(SCROLL, [2, "top"])
+        settle(page)
+        self.assertEqual(page.evaluate("[pvReadingAt(), pvReadingPage()]"), [2, 0])
+        badge = '.mark[data-pin="%d"] .mark-jump' % made["id"]
+        top = page.evaluate("document.querySelector('#left').scrollTop")
+        page.focus("#section-page")
+        page.keyboard.press("Tab")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "left")
+        page.keyboard.press("Tab")
+        self.assertTrue(page.evaluate("s=>document.activeElement===document.querySelector(s)", badge))
+        page.keyboard.press("Shift+Tab")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "section-page")
+        self.assertEqual(page.evaluate("[document.querySelector('#left').scrollTop, pvReadingAt()]"), [top, 2])
+
 
 # One row's parts on page n's line as drawn: the figure's name, the dot after it, each part of the state (a display:
 # contents span's own children in its place) and each word - with whether each shows, its box, and the line's box.
@@ -7093,6 +7165,44 @@ class LinePolish(VerdictBase):
                 if w == 1440:
                     self.assertEqual((got["shown"], got["tight"]), ("+1 earlier", False), got)
                 page.context.close()
+
+    def test_a_focused_earlier_link_that_steps_out_hands_the_focus_to_its_line(self):
+        """English, the panel open, page 2 with an earlier verdict and the person's own: page 2's width brought down 1px at a
+        time to where its line keeps one row only without the earlier link (.pv-early-out). With the keyboard's focus on the
+        link at a width that shows it, a zoom to that width moves the focus to the control before it on the line
+        ([Retract]), with no scroll, and Tab and Shift+Tab go on from there. Hidden with
+        the focus on it, the link took the focus away to nothing."""
+        verdict_as(self, self.WHO, 2, "보류")
+        page = self.on("fig", n_open=1, lang="en", viewport={"width": 1280, "height": 800})
+        page.evaluate("setSide(true)")
+        settle(page)
+        self.press_page(page, 2, "채택")
+        page.evaluate(END_CHIPS)
+        settle(page)
+        widths = page.evaluate(
+            """async()=>{const frame=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+              const l=()=>document.querySelector('#doc .pv[data-page="2"]'),pt=META.pages[1].pt_w; let shown=0;
+              for(let w=760;w>300;w-=1){setK(w/pt,false); ZOOMED=true; await frame(); sizePv();
+                const c=l().classList; if(c.contains('pv-stack'))return [shown,0];
+                if(c.contains('pv-early-out'))return [shown,w]; shown=w;}
+              return [shown,0];}"""
+        )
+        self.assertTrue(widths[0] and widths[1], widths)
+        zoom = "w=>{setK(w/META.pages[1].pt_w,false); ZOOMED=true; sizePv();}"
+        page.evaluate(zoom, widths[0])
+        settle(page)
+        page.evaluate(SCROLL, [2, "top"])
+        settle(page)
+        page.focus('#doc .pv[data-page="2"] .pv-early')
+        page.evaluate(zoom, widths[1])
+        page.evaluate("()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))")
+        on = """()=>{const a=document.activeElement,l=a&&a.closest?a.closest('#doc .pv'):null;
+          return [l?l.dataset.page:null,a&&a.dataset?a.dataset.act||null:null,document.querySelector('#doc .pv[data-page="2"]').classList.contains('pv-early-out')];}"""
+        self.assertEqual(page.evaluate(on), ["2", "pv-cancel", True])
+        page.keyboard.press("Tab")
+        self.assertEqual(page.evaluate(on)[0], "2")
+        page.keyboard.press("Shift+Tab")
+        self.assertEqual(page.evaluate(on), ["2", "pv-cancel", True])
 
     def test_a_key_saves_focus_raises_no_box_over_the_pressed_words_description(self):
         """English, the panel open, at 1280 x 800 and 1440 x 900, page 2 as wide as the room and read: a digit saves a verdict

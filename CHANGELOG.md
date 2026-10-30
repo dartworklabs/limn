@@ -8,18 +8,18 @@
   replaced reads `이전 2건` (`+2 earlier`), and on a line that is short of room on the wide band its count alone, `+2`;
   its accessible name and its tooltip still say `이전 판정 2건 · 새 판정으로 대체됨` in full. The whole words were cut to
   fit: on a 620px English line (1280 x 800, panel open, three-digit pin numbers) the link read `1 ea…`, and kept at 5em
-  that line stacked. Where not even the count fits beside the rest, the link steps out rather than stack the line
-  (#322).
+  that line stacked. Where not even the count fits beside the rest, the link steps out rather than stack the line, and
+  a focus on it moves to the control before it on the line (#322).
 
 ### Fixed
 
 - **Tab from the PDF area on a page without a line keeps the pages where they are.** When the reading page takes no
   verdict (a figure document's list pages) or its line has no control to stop on, Tab from the PDF area - or from
   nothing after a press on a page - goes to the next stop in the pages only while it shows whole in the area's view
-  (the next page's line on a small zoom), else past the pages (the panel's grip, the status line's action). It went to
-  the first line after the pages' start and scrolled there: from page 1 of a 91-page figure document to page 4, also on
-  first open, since 0.4.34. Tab into the pages from the outline or the section strip, and Shift+Tab back out, are
-  unchanged (#322).
+  with nothing over any of it (the next page's line on a small zoom; Shift+Tab from there leaves the way it came in),
+  else past the pages (the panel's grip, the status line's action). It went to the first line after the pages' start
+  and scrolled there: from page 1 of a 91-page figure document to page 4, also on first open, since 0.4.34. Tab into the
+  pages from the outline or the section strip, and Shift+Tab back out, are unchanged (#322).
 - **A line saved by a key keeps its rows whichever page is read.** Such a line says `Enter 이유 쓰기` (`Enter reason`)
   while it is read and [이유 추가] at rest - 40px narrower in Korean, 15px in English, with the earlier link beside it on
   a tight row. It was fitted on the look it showed, so near its threshold it stacked, or its stacked state took a second
