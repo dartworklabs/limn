@@ -124,7 +124,7 @@ function drawStatus(){const box=$('#status'),sr=box.querySelector('.st-sr'),body
   const top=list[0]; STATUS_TOP=top&&top.notice?top.notice.n:0;
   const m=$('#m-rebuild'); if(m){m.disabled=running; const tail=m.querySelector('.m-tail'); if(tail)tail.hidden=!running;}
   document.body.classList.toggle('has-status',!!top); box.hidden=!top;
-  if($('#status-list').open)drawStatusList(list);
+  if($('#status-list').open){drawStatusList(list); placeStatusListSoon();}   // its rows changed: placed again once the line is drawn
   if(!top){if(STATUS_SIG){body.replaceChildren(); STATUS_SIG='';} sr.textContent=''; lineVisible(false); return;}   // hidden: it holds nothing
   const sig=top.kind+'|'+(top.act||'')+'|'+list.length+'|'+(top.state||'')+'|'+(top.notice?top.notice.n:'');
   if(sig!==STATUS_SIG){STATUS_SIG=sig;
@@ -166,11 +166,52 @@ function syncWhyText(s){const r=s&&s.reason||''; return tr('main 동기화 막�
 // pressed in the '+N' list, which has just folded, at the line - and read out.
 /** @param {HTMLElement} btn */
 function statusWhy(btn){const text=syncWhyText(STATUS_SYNC); showTipText(btn.getClientRects().length?btn:$('#status'),text); announce(text);}
-// Opens the '+N' list just over the status line (under it in the short band's top row), or folds it on a second press.
+// Opens the '+N' list beside the status line (placeStatusList), or folds it on a second press.
 function toggleStatusList(){const d=$('#status-list'); if(d.open){d.close(); return;}
-  drawStatusList(statusShown(statusList(statusInput()),LAYOUT===LAYOUT_MODE.WIDE)); const r=$('#status').getBoundingClientRect(),short=BAND===LAYOUT_BAND.SHORT;
-  d.style.top=short?Math.round(r.bottom+4)+'px':'auto'; d.style.bottom=short?'auto':Math.round(innerHeight-r.top+4)+'px';
-  hideTip(); d.showModal(); holdLine();}
+  drawStatusList(statusShown(statusList(statusInput()),LAYOUT===LAYOUT_MODE.WIDE)); hideTip(); d.showModal(); placeStatusList(); holdLine();}
+// The list folded (Esc, an outside press, the back gesture, a row's action) and the focus is still in it, or nowhere: the
+// browser gives the focus back to the button that had it, '+N', but a message that came while the list was open drew the
+// line again and that button with it - the focus stayed on the folded list's row and fell to the page as it went from
+// view, and the next Tab started from the top. It goes to the line's '+N' now, else to the line's first control; a focus
+// the row's action put elsewhere stays.
+$('#status-list').addEventListener('close',()=>{const a=document.activeElement,s=$('#status'); if(a&&a!==document.body&&!$('#status-list').contains(a))return;
+  const b=/** @type {HTMLElement|null} */(s.querySelector('[data-act="status-more"]')||s.querySelector('button')); if(b)b.focus({preventScroll:true});});
+// Which side of the status line the '+N' list opens on, for a list h px tall with room px free above and below the line
+// (to 8px off the edge of the window's visible part): its own side - over the line, or under it when the line is the short band's top row
+// (under) - where the whole list fits there, else the other side where it fits, else the side with more room, where the list
+// is cut to that room and scrolls. True for over the line. Pure.
+/** @param {number} h @param {number} above @param {number} below @param {boolean} under */
+function statusListUp(h,above,below,under){if(h<=(under?below:above))return !under; if(h<=(under?above:below))return under; return above>=below;}
+// Puts the open '+N' list 4px off the status line on the side statusListUp picks, and lets it grow only to 8px off the
+// visible part's edge on that side (--sl-room); its rows scroll inside that. The list always opened over the line: on a
+// desktop the line sits under the status chips, about 114px from the top, and four rows over it put the first two above
+// the window (top -76px at 1400x850) with their [되돌리기] out of reach (#314). The room is counted in the part of the
+// window a person sees (visualViewport: a keyboard that does not resize the layout, a pinch zoom), not the whole
+// window, under which the lower rows stood behind such a keyboard. A line outside that part (a zoom panned away from
+// it) has the list at the part's near edge instead of beside it, where its rows were out of sight too, and at least a
+// row tall. The list's full height is its content's (scrollHeight, with its border), read without undoing the cut, so a
+// list scrolled down stays where it was. Placed again while it is open when its rows change (drawStatus: a new message,
+// one that leaves - a list opened over the line with two rows got more and kept scrolling in that room), when the
+// window or its visible part changes size or moves; a band change folds it (placeStatus).
+function placeStatusList(){const d=$('#status-list'); if(!d.open)return;
+  const vv=window.visualViewport,vt=vv?vv.offsetTop:0,vb=vv?vt+vv.height:innerHeight,r=$('#status').getBoundingClientRect();
+  // On the desktop the list's right edge follows the line's - its rows' [되돌리기] and [x] under the line's own - and it
+  // reaches left from there, held 8px inside the visible part: centred in the window it stood about 350px left of the
+  // line, over the PDF. Elsewhere the line spans the bar and the list is centred over it (responsive.css).
+  if(LAYOUT===LAYOUT_MODE.WIDE){const cs=getComputedStyle(d),vl=vv?vv.offsetLeft:0,vr=vv?vl+vv.width:innerWidth;
+    const R=Math.min(r.right+parseFloat(cs.paddingRight)+parseFloat(cs.borderRightWidth),vr-8),L=Math.max(vl+8,R-parseFloat(cs.maxWidth));
+    d.style.left=Math.round(L)+'px'; d.style.right=Math.round(innerWidth-R)+'px';}
+  else{d.style.left=''; d.style.right='';}
+  const at=Math.min(Math.max(r.top,vt),vb),ab=Math.min(Math.max(r.bottom,vt),vb);   // the line's edges, held inside the visible part
+  const above=at-vt-4-8,below=vb-ab-4-8,h=d.scrollHeight+d.offsetHeight-d.clientHeight;
+  const row=/** @type {HTMLElement|null} */(d.querySelector('.st-row')),one=h-$('#status-list-rows').offsetHeight+(row?row.offsetHeight:0);   // a row, its padding, border
+  const up=statusListUp(h,above,below,BAND===LAYOUT_BAND.SHORT); d.style.setProperty('--sl-room',Math.floor(Math.max(up?above:below,one))+'px');
+  d.style.top=up?'auto':Math.round(ab+4)+'px'; d.style.bottom=up?Math.round(innerHeight-at+4)+'px':'auto';}
+// placeStatusList at the next frame, once for all the changes before it: the line is drawn by then.
+let STATUS_LIST_PLACE=0;
+function placeStatusListSoon(){if(!STATUS_LIST_PLACE)STATUS_LIST_PLACE=requestAnimationFrame(()=>{STATUS_LIST_PLACE=0; placeStatusList();});}
+addEventListener('resize',placeStatusListSoon);
+{const vv=window.visualViewport; if(vv){vv.addEventListener('resize',placeStatusListSoon); vv.addEventListener('scroll',placeStatusListSoon);}}
 
 // Moves #status to the band's place - the dock over the sheet (phone, tablet sheet), the short band's top row after the view
 // switch, the mid action row's middle, the desktop's line under its status chips (#status-wide) - keeping a focus that was

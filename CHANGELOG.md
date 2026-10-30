@@ -110,6 +110,24 @@ those read as before.
 - **How a phone's floating line takes a verdict back is documented (#299).** It holds [판정 취소] back for its height;
   its pressed word does the same (since 0.4.34) and says so - over the words for four seconds after the press, and in
   its long-press description - and its [되돌리기] comes on the line. A test holds it at 390x844.
+- **The status line's `+N` list opens where its rows can be pressed.** It always opened over the line, and on a desktop
+  the line sits under the status chips, about 114px from the top: four stacked messages put the list's top at -76px at
+  1400 x 850, its first two rows and their [되돌리기] above the window. The list now opens over the line where the whole
+  list fits there (under it in the short band's top row, as before), else on the other side where it fits, else on the
+  side with more room, cut to it with its rows scrolling inside. The room is counted in the part of the window a person
+  sees (a keyboard that does not resize the layout, a pinch zoom), and the list is placed again while it is open when
+  its rows change (a list opened over the line with two rows kept scrolling in that room as more came) or the window or
+  its visible part changes. On a desktop the list now stands under the line's own buttons - its right edge follows the
+  line's and it reaches left - where it floated centred in the window, about 350px left of the line. Desktop 1400 x 850, an unfolded foldable 882 x 1104 and a phone 390 x 844 (sheet folded or
+  open): every row's action is on screen and takes a press (#314).
+- **Folding the `+N` list gives the focus back to `+N`.** A message that came while the list was open drew the line
+  and its `+N` again, so Esc (or an outside press) left the focus on the page and the next Tab started from the top. It
+  now goes to the line's `+N`, else to the line's first control; a focus a row's action put elsewhere stays.
+- **No `단축키 1` on a touch screen.** A page verdict word's description ended in `· 단축키 1` (`· 단축키 3 (두 번)`
+  for a confirm word) on every screen, so a long press on a phone named a key it has none of. The key is now said - in
+  the description and as `aria-keyshortcuts` - only where its mark is drawn after the word, a mouse screen
+  (`(hover:hover) and (pointer:fine)`, the condition of the mark's CSS); the lines are drawn again when that changes.
+  Touch screens keep the description without the key; the desktop is unchanged (#315).
 
 ## 0.4.34 — 2026-10-30
 
