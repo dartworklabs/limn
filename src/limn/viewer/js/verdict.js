@@ -438,8 +438,9 @@ function pvLanded(doc,page,key,top,kind){return OPEN_ALL.find(p=>p.id>top&&pdoc(
 // stay as they are. The word becomes the page's current verdict - a new pin (the agent runs the newest, D4 and D5); pressing
 // the current word takes it back instead (pvPress). It runs on its press's context (pvSaveCtx): leaving the document while
 // it runs does not drop it - it completes, and its undo is offered on the status line. Saved: '#42 저장됨 [되돌리기]' on the
-// line for NOTICE_MS. An answer lost on the network is checked against the list before anything is said (pvLanded): a
-// verdict that landed is a save, not a failure a second press would duplicate. A refusal or a failure is said on the status
+// line for NOTICE_MS. An answer lost on the network - or a 5xx, which a server may send after writing - is checked against
+// the list before anything is said (pvLanded): a verdict that landed is a save, not a failure a second press would
+// duplicate (a 500 after the write left the line without the verdict, and the next press made a second one). A refusal or a failure is said on the status
 // line, result first ('판정 저장 실패 · <까닭> — <대상>'), and under the pressed line. While it is out the line says what it
 // saves ('보류 저장 중…') and presses wait in PV_NEXT; the last of them is applied after it - also after a switch away and
 // back, on the document it was pressed on - unless that word is the page's verdict by then. No save opens the reason
@@ -472,7 +473,7 @@ async function savePageVerdict(page,key,kb,ctx0){const ctx=ctx0||pvSaveCtx(page)
     Object.assign(body,{note:'',doc:ctx.doc||undefined,kind_req:KIND_REQ.FIX,assignee:ASSIGNEE_AGENT,verdict:key});
     let id=0;
     try{id=(await api('/api/pin',{method:'POST',body,what:'판정 저장',silent:true})).data.id;}
-    catch(e){const x=/** @type {ApiError} */(e); if(x&&x.status)throw e;   // no answer: the list says whether it landed
+    catch(e){const x=/** @type {ApiError} */(e); if(x&&x.status&&x.status<500)throw e;   // no answer, or a 5xx (it may have been written first): the list says whether it landed
       await loadPins(); const got=pvLanded(ctx.doc,page,key,top,ctx.kind); if(!got)throw e; id=got.id;}
     saved=true; got=id; sourceOk('page-verdict');
     if(SEC_SEEN.open)SEC_SEEN.open.add(id);   // my own new pin is never 'new' on a collapsed header
@@ -524,12 +525,15 @@ const PV_CANCEL_MS=800;   // after a cancel on a page, how long that page's next
 const PV_CANCEL_HOLD=/** @type {Map<string,number>} */(new Map());   // line (pvSlot) -> until when its [판정 취소] waits
 // A verdict a [되돌리기] brought back (a take-back's, the save chip's): when it is its line's current verdict again its kept reason
 // draft opens (pvReasonRevive); when a newer verdict came meanwhile - someone else's - it is restored but superseded, the
-// status line says so ('판정 #21 채택 되살림 · 지금 판정은 Bob의 #34 보류 — <대상>') and no popover opens over that line.
+// status line says so ('판정 #21 채택 되살림 · 지금 판정은 Bob의 #34 보류 — <대상>') and no popover opens over that line - its
+// kept draft, which no line would mark on a verdict that is not current, becomes the page's draft, said with [보기]
+// (pvReasonUncancelDraft).
 /** @param {number} id */
 function pvAfterRestore(id){const p=findAnyPin(id),t=p?pageTargetOf(p,META?META.kind:undefined):null,cur=t?(pageVerdictPins().get(t.page)||[])[0]:null;
   if(p&&t&&cur&&cur.id!==id){const ck=verdictOf(cur)||'',k=verdictOf(p)||'';
     lineNote(tl('판정 #{id} {word} 되살림 · 지금 판정은 {owner} #{cur} {now} — {target}',{id,word:verdictLabel(k),owner:isMe(cur.author)?tr('내'):tl('{name}의',{name:who(cur.author)}),
-      cur:cur.id,now:verdictLabel(ck),target:pageTargetShort(t.page)}),NOTICE_KIND.INFO,null,{literal:true,life:NOTICE_LIFE.TIMER}); return;}
+      cur:cur.id,now:verdictLabel(ck),target:pageTargetShort(t.page)}),NOTICE_KIND.INFO,null,{literal:true,life:NOTICE_LIFE.TIMER});
+    pvReasonUncancelDraft(id,t.page,DOC,true); return;}
   pvReasonRevive(id);}
 // The take-backs whose [되돌리기] the line offers too, by line (pvSlot): the pin and its status-line message - the offer lasts
 // as long as that message (its window, or its action).

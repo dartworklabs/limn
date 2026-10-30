@@ -23,6 +23,18 @@
   verdict's [다시 시도] then writes goes with it. The status line says so after the failure, with [보기], which
   brings that line into view with the focus on the mark. A newer popover keeps its text and the focus, also on the same
   line, where the focus used to go to the line and the next digit was a verdict key.
+- **A reason ends on one verdict when the line's verdict changes while its write is out.** The draft no longer moves to
+  the new verdict before that write answers: written, or found landed after a lost answer or a 5xx, it stays on the
+  earlier verdict and the status line says so; not landed, it moves to the new verdict and the earlier verdict's
+  [다시 시도] goes. Three of four orders put the reason on both verdicts. A changed saved reason that follows the new
+  verdict moves only the person's own text, not the lines others added under it.
+- **A verdict restored under a newer one gives its draft to the line**, as the page's draft with a status-line word, and a
+  reload does the same for any draft on a verdict that is not the line's current one - so the reload's '줄의 [초안 있음]이
+  엽니다' is true and leaving asks first.
+- **One's own landed change of a saved reason is not a conflict.** A change whose answer was lost but whose write landed
+  is taken as the note it changes; it is not shown back as a note changed elsewhere.
+- **A verdict written before a 500 is the line's verdict.** A 5xx on the save is checked against the list like a lost
+  answer, so the next press does not make a second verdict.
 - **How a phone's floating line takes a verdict back is documented (#299).** It holds [판정 취소] back for its height;
   its pressed word does the same (since 0.4.34) and says so - over the words for four seconds after the press, and in
   its long-press description - and its [되돌리기] comes on the line. A test holds it at 390x844.
