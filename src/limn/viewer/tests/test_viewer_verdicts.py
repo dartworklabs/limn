@@ -6002,8 +6002,8 @@ ROW_PARTS = """n=>{const l=document.querySelector('#doc .pv[data-page="'+n+'"]')
   const t=l.querySelector(':scope>.pv-t'),kids=[...t.children].flatMap(c=>getComputedStyle(c).display==='contents'?[...c.children]:[c]);
   const parts=[l.querySelector(':scope>.pv-fig'),l.querySelector(':scope>.pv-fig-sep'),...kids,...l.querySelectorAll(':scope>.vd-btns>.vd-b')].filter(e=>e&&shown(e));
   const id=l.querySelector(':scope>.pv-fig>.pv-fig-id');
-  return {stack:l.classList.contains('pv-stack'),line:R(l),h:Math.round(l.getBoundingClientRect().height),idWhole:!!id&&id.scrollWidth<=id.clientWidth+1,
-    parts:parts.map(e=>({c:String(e.className),...R(e)})).sort((a,b)=>a.l-b.l)};}"""
+  return {stack:l.classList.contains('pv-stack'),line:R(l),t:R(t),h:Math.round(l.getBoundingClientRect().height),idWhole:!!id&&id.scrollWidth<=id.clientWidth+1,
+    parts:parts.map(e=>({c:String(e.className),inT:t.contains(e),cut:e.scrollWidth>e.clientWidth+1,...R(e)})).sort((a,b)=>a.l-b.l)};}"""
 
 
 def row_overlaps(row):
@@ -6017,6 +6017,26 @@ def row_overlaps(row):
         if a["r"] > b["l"] + 0.5:
             out.append((a["c"], b["c"], round(a["r"] - b["l"], 1)))
     return out
+
+
+def row_clipped(row):
+    """The parts of the state drawn by ROW_PARTS that are cut or reach past the state's end - what is meant to give way
+    (the reason, the earlier link, a save's words) left out: [] when the state's words and actions are all whole."""
+    keep = ("pv-note", "pv-early", "pv-busy")
+    return [
+        (a["c"], a["cut"], round(a["r"] - row["t"]["r"], 1))
+        for a in row["parts"]
+        if a["inT"] and not any(k in a["c"] for k in keep) and (a["cut"] or a["r"] > row["t"]["r"] + 0.5)
+    ]
+
+
+# The least width at which page n's line is one row (pages zoomed 10px at a time down to the first stacked width, then up
+# 1px at a time), and the line's width there.
+BAR = """async n=>{const frame=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+  const l=()=>document.querySelector('#doc .pv[data-page="'+n+'"]'),pt=META.pages[n-1].pt_w;
+  const stacked=async w=>{setK(w/pt,false); ZOOMED=true; await frame(); sizePv(); return l().classList.contains('pv-stack');};
+  let w=760; while(w>300&&!(await stacked(w)))w-=10; while(await stacked(w))w+=1;
+  return {w,line:l().getBoundingClientRect().width};}"""
 
 
 class LinePolish(VerdictBase):
@@ -6123,6 +6143,51 @@ class LinePolish(VerdictBase):
                     self.assertLessEqual(row["h"], 40, row)
                 self.assertEqual(page.evaluate(ADD_TEXT, 2), "Enter reason")
                 page.context.close()
+
+    def test_a_line_at_its_bar_keeps_one_row_through_held_key_saves(self):
+        """Korean: page 2's line as narrow as one row allows (its bar, found 1px at a time) and page 2 read: a key save held
+        unanswered, its answer, then a second key save held and answered. Throughout - '· 보류 저장 중…' beside the state,
+        'Enter 이유 쓰기' after it - the line is one row with its words where they were, and no word or action of the state is
+        cut, over another or past the state's end. With the bar measured on '[이유 추가]' alone a key save stacked the line
+        under the press, and a held save's words (6em) pushed [판정 취소] out of the row (#308, review)."""
+        self.held_key_saves_at_the_bar("ko")
+
+    def test_an_english_line_at_its_bar_keeps_one_row_through_held_key_saves(self):
+        """The same in English ('· Saving 보류…', 'Enter reason')."""
+        self.held_key_saves_at_the_bar("en")
+
+    def held_key_saves_at_the_bar(self, lang):
+        page = self.on("fig", lang=lang)
+        page.evaluate(self.TITLES, self.LONG)
+        settle(page)
+        bar = page.evaluate(BAR, 2)
+        settle(page)
+        page.evaluate(SCROLL, [2, "top"])
+        settle(page)
+        self.assertEqual(page.evaluate("PV_READ"), 2)
+        words = [y for _, y in page.evaluate(WORDS_AT, 2)]
+
+        def holds(when):
+            row = page.evaluate(ROW_PARTS, 2)
+            got = (row["stack"], row_overlaps(row), row_clipped(row), [y for _, y in page.evaluate(WORDS_AT, 2)])
+            self.assertEqual(got, (False, [], [], words), (when, bar, row))
+
+        holds("before")
+        for n, key in enumerate("21", start=1):  # 보류, then 채택: two verdicts, each saved by its key
+            self.held = []
+            page.keyboard.press(key)
+            page.wait_for_function(
+                "()=>PV_BUSY.size===1&&!!document.querySelector('#doc .pv[data-page=\"2\"] .pv-busy')"
+            )
+            page.evaluate("()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))")
+            holds("saving %s" % key)
+            self.release()
+            page.wait_for_function("n=>OPEN_ALL.length===n&&!PV_BUSY.size", arg=n)
+            settle(page)
+            page.evaluate(END_CHIPS)
+            settle(page)
+            holds("saved %s" % key)
+            self.assertIn("Enter", page.evaluate(ADD_TEXT, 2))
 
 
 class ChipFontWait(VerdictBase):

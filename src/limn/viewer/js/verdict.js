@@ -752,22 +752,31 @@ function pvFit(lines){const held=lines.map(pvRowsHeld),D=$('#doc');
   // A word group that wraps keeps every button at its own width (vdWrapFit), read for every line before any is written.
   const groups=lines.map(l=>l.querySelector('.vd-btns')),wrap=groups.map(g=>!!g&&new Set([...g.children].map(b=>Math.round(b.getBoundingClientRect().top))).size>1);
   groups.forEach((g,i)=>{if(g)g.classList.toggle('wrapped',wrap[i]);});}
-// The width the state of a person's fresh verdict takes on a line in a row - '판정 #000 <the longest word> · 처리 대기 ·
-// 이유 추가 · 판정 취소' - drawn once in a hidden line like line l (its text size, the screen's language and pointer) and kept
-// until those change. A line narrower than it beside its words and identifier is stacked before any press (pvFit). The
-// probe then draws the longest word pressed and not (its check before it, its weight; one key mark on both): what a press adds
-// to the words, kept as PV_NEED.check - 21px, which a line with no pressed word did not count and lost to its first press.
+// The width the state of a person's fresh verdict takes on a line in a row, drawn in a hidden line like line l (its text size,
+// the screen's language and pointer) and kept until those or the next pin number's digits change. Two states follow a
+// press: after a click '판정 #0 <the longest word> · 처리 대기 · 이유 추가 · 판정 취소', and on a mouse screen after a key
+// 'Enter 이유 쓰기' in place of [이유 추가] - the wider of the two is the need, with one more gap of the state's row for a
+// save's words ('· 보류 저장 중…', .pv-busy), which give way down to nothing while the save is out (components.css). The pin
+// number is drawn with as many digits as the next pin's (pvTopId), each a 0. A line narrower than that beside its words
+// and identifier is stacked before any press (pvFit). Measuring the click state alone, a key save near the bar stacked
+// the line under the press, and a second save's words pushed [판정 취소] out of the held row (#308). The probe then draws
+// the longest word pressed and not (its check before it, its weight; one key mark on both): what a press adds to the
+// words, kept as PV_NEED.check - 21px, which a line with no pressed word did not count and lost to its first press.
 let PV_NEED={key:'',w:0,check:0};
 /** @param {HTMLElement} l */
 function pvStateNeed(l){const v=pageVerdictsOn(); if(!v)return 0;
-  const word=v.choices.map(c=>c.label).reduce((a,b)=>b.length>a.length?b:a,''),key=[getComputedStyle(l).fontSize,tr('판정'),word,MQ_COARSE.matches].join('|');
+  const word=v.choices.map(c=>c.label).reduce((a,b)=>b.length>a.length?b:a,''),fine=matchMedia('(pointer:fine)').matches,num='#'+'0'.repeat(String(pvTopId()+1).length);
+  const key=[getComputedStyle(l).fontSize,tr('판정'),word,MQ_COARSE.matches,fine,num].join('|');
   if(PV_NEED.key===key)return PV_NEED.w;
   const probe=document.createElement('div'); probe.className='pv'; probe.setAttribute('aria-hidden','true');
   probe.style.cssText='position:absolute;left:0;top:0;width:max-content;visibility:hidden;pointer-events:none';
-  setHtml(probe,html`<span class="pv-t"><span class="pv-s">${tr('판정')} <span class="pin-ref pv-ref hit">#000</span> <b class="vd-w">${word}</b></span><span class="pv-sep">·</span>\
-<span class="pv-st">${tr('처리 대기')}</span><span class="pv-ra"><span class="pv-sep">·</span><button type="button" class="btn-ghost btn-sm pv-add hit" tabindex="-1">${tr('이유 추가')}</button></span>\
+  $('#doc').appendChild(probe);
+  const state=(/** @type {boolean} */kb)=>{setHtml(probe,html`<span class="pv-t"><span class="pv-s">${tr('판정')} <span class="pin-ref pv-ref hit">${num}</span> <b class="vd-w">${word}</b></span><span class="pv-sep">·</span>\
+<span class="pv-st">${tr('처리 대기')}</span><span class="pv-ra"><span class="pv-sep">·</span><button type="button" class="btn-ghost btn-sm pv-add hit" tabindex="-1">\
+${kb?html`<kbd class="pv-kbd">Enter</kbd> ${tr('이유 쓰기')}`:tr('이유 추가')}</button></span>\
 <span class="pv-sep pv-cn">·</span><button type="button" class="btn-ghost btn-sm pv-cancel pv-cn hit" tabindex="-1">${tr('판정 취소')}</button></span>`);
-  $('#doc').appendChild(probe); const w=Math.ceil(/** @type {HTMLElement} */(probe.firstElementChild).getBoundingClientRect().width);
+    const t=/** @type {HTMLElement} */(probe.firstElementChild); return t.getBoundingClientRect().width+(parseFloat(getComputedStyle(t).columnGap)||0);};
+  const w=Math.ceil(Math.max(state(false),fine?state(true):0));
   setHtml(probe,html`<span class="vd-btns"><button type="button" class="vd-b" aria-pressed="true" data-kn="1" tabindex="-1">${ic('check')}<span class="lbl">${word}</span></button>\
 <button type="button" class="vd-b" aria-pressed="false" data-kn="1" tabindex="-1"><span class="lbl">${word}</span></button></span>`);
   const b=[...probe.querySelectorAll('.vd-b')].map(x=>x.getBoundingClientRect().width),check=Math.max(0,b[0]-b[1]); probe.remove();

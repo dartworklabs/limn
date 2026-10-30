@@ -21,9 +21,13 @@
   resting lines of a 91-page figure document stacked into three rows, and a digit-key save stacked the rest. A line now
   stacks before any press only when the row the press brings does not fit, summed from what is measured: the words as
   drawn, plus the check a press puts on a word (21px) where none is pressed yet; the identifier and the dot after it;
-  the fresh verdict's state (`pvStateNeed`); and the row's gaps. The 8px and 24px allowances it replaces counted the dot
-  (3px) as 8px and the check as nothing, so a line within 21px of the bar also stacked under its first press, in
-  Korean too. English at 1280, 1366, 1400 (the test default), 1440, 1536 and 1920 with the panel open: no line stacks;
+  the fresh verdict's state (`pvStateNeed`: the wider of the state after a click and, on a mouse screen, after a key
+  save with `Enter 이유 쓰기`, the pin number drawn with the next pin's digits, plus one gap for a save's words); and the
+  row's gaps. The 8px and 24px allowances it replaces counted the dot (3px) as 8px and the check as nothing, so a line
+  within 21px of the bar also stacked under its first press, in Korean too; measured on the click state alone, a line at
+  the bar stacked right after a key save. While a save is out its words (`· 보류 저장 중…`) give way down to nothing,
+  with the reason, and the earlier link steps out: the line's rows are held then, and at their 6em the words of a second
+  save pushed `판정 취소` past the row's end, where it was clipped. English at 1280, 1366, 1400 (the test default), 1440, 1536 and 1920 with the panel open: no line stacks;
   Korean: none, as before.
 
 ## 0.4.34 — 2026-10-30
