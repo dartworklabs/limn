@@ -14,6 +14,9 @@
   its visible part changes. On a desktop the list now stands under the line's own buttons - its right edge follows the
   line's and it reaches left - where it floated centred in the window, about 350px left of the line. Desktop 1400 x 850, an unfolded foldable 882 x 1104 and a phone 390 x 844 (sheet folded or
   open): every row's action is on screen and takes a press (#314).
+- **Folding the `+N` list gives the focus back to `+N`.** A message that came while the list was open drew the line
+  and its `+N` again, so Esc (or an outside press) left the focus on the page and the next Tab started from the top. It
+  now goes to the line's `+N`, else to the line's first control; a focus a row's action put elsewhere stays.
 - **No `단축키 1` on a touch screen.** A page verdict word's description ended in `· 단축키 1` (`· 단축키 3 (두 번)`
   for a confirm word) on every screen, so a long press on a phone named a key it has none of. The key is now said - in
   the description and as `aria-keyshortcuts` - only where its mark is drawn after the word, a mouse screen

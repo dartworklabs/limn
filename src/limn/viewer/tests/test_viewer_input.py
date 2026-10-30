@@ -1729,6 +1729,25 @@ class StatusListRoom(ViewerBase):
                 self.assertTrue(all(0 <= d <= 10 for d in got["acts"] + got["xs"]), got)
                 self.assertTrue(got["inside"], got)
 
+    def test_esc_after_a_new_notice_gives_the_focus_back_to_plus_n(self):
+        """Desktop 1400x850: the list opened from '+N' by the keyboard, a message comes while it is open (the line is drawn
+        again, its '+N' button with it), Esc folds the list: the focus is on the line's '+N' - the button now there - and
+        not on the page, where the next Tab started from the top. With nothing new it was already back there."""
+        page = self.view(DESK)
+        page.evaluate(FOUR_UNDOS)
+        settle(page)
+        page.focus("#status .st-more")
+        page.keyboard.press("Enter")
+        page.wait_for_selector("#status-list[open]")
+        settle(page)
+        page.evaluate("()=>lineNote('새 알림',NOTICE_KIND.INFO,null,{life:NOTICE_LIFE.STICKY,literal:true})")
+        settle(page)
+        page.keyboard.press("Escape")
+        page.wait_for_function("!document.querySelector('#status-list').open")
+        settle(page)
+        self.assertTrue(page.evaluate("document.activeElement===document.querySelector('#status .st-more')"))
+        self.assertEqual(page.inner_text("#status .st-more"), "+4")
+
     def test_notices_that_come_while_it_is_open_place_it_again(self):
         """Desktop 1400x850: two undos open the list over the line, where two rows fit; two more come while it is open.
         It is placed again - under the line, where four fit - so every row's [되돌리기] is shown and takes a press there

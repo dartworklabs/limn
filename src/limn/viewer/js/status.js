@@ -169,6 +169,13 @@ function statusWhy(btn){const text=syncWhyText(STATUS_SYNC); showTipText(btn.get
 // Opens the '+N' list beside the status line (placeStatusList), or folds it on a second press.
 function toggleStatusList(){const d=$('#status-list'); if(d.open){d.close(); return;}
   drawStatusList(statusShown(statusList(statusInput()),LAYOUT===LAYOUT_MODE.WIDE)); hideTip(); d.showModal(); placeStatusList(); holdLine();}
+// The list folded (Esc, an outside press, the back gesture, a row's action) and the focus is still in it, or nowhere: the
+// browser gives the focus back to the button that had it, '+N', but a message that came while the list was open drew the
+// line again and that button with it - the focus stayed on the folded list's row and fell to the page as it went from
+// view, and the next Tab started from the top. It goes to the line's '+N' now, else to the line's first control; a focus
+// the row's action put elsewhere stays.
+$('#status-list').addEventListener('close',()=>{const a=document.activeElement,s=$('#status'); if(a&&a!==document.body&&!$('#status-list').contains(a))return;
+  const b=/** @type {HTMLElement|null} */(s.querySelector('[data-act="status-more"]')||s.querySelector('button')); if(b)b.focus({preventScroll:true});});
 // Which side of the status line the '+N' list opens on, for a list h px tall with room px free above and below the line
 // (to 8px off the edge of the window's visible part): its own side - over the line, or under it when the line is the short band's top row
 // (under) - where the whole list fits there, else the other side where it fits, else the side with more room, where the list
