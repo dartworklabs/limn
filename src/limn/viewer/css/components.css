@@ -187,12 +187,18 @@ body.lay-narrow.has-status:not(.typing,.pv-typing){--pv-inset:calc(var(--sheet-h
    and its tooltip say it whole (verdict.js pvLineHtml). Cut to fit instead (2em at least), it read '1 ea…' on a 620px
    English line (1280 x 800, panel open, three-digit pin numbers), and at 5em that line stacked. The count has no padding
    of its own there - the dot before it (.pv-ea) takes that room, and the row's gaps keep it 11px from [판정 취소] and 8px
-   from the words -, and its press area stays 24 x 32px (.hit, --pv-ctl). */
+   from the words. Its press area is 24 x 32px all the same, from its own right edge back over that room (::after, a mouse;
+   --pv-ctl tall): centred on the 15-17px count, the area's right part lay past the state's clip (overflow-x: clip) and
+   answered 20-21px. */
 .pv.pv-tight:not(.pv-stack)>.pv-t .pv-early>.pv-early-w{display:none}
 .pv.pv-tight:not(.pv-stack)>.pv-t .pv-early{min-width:0;padding-inline:0}
 .pv.pv-tight:not(.pv-stack)>.pv-t .pv-early::before{content:'+' attr(data-n)}
+@media not all and (pointer:coarse){.pv.pv-tight:not(.pv-stack)>.pv-t .pv-early::after{content:'';position:absolute;top:50%;left:auto;right:0;
+  width:max(100%,var(--control-h-sm));height:var(--pv-ctl);transform:translateY(-50%)}}
 /* Where even that does not fit beside the rest, the link and its dot step out (.pv-early-out, pvFit) rather than stack the
-   line. Whatever takes the link out takes its dot (.pv-ea) with it, here and below. */
+   line. Whatever takes the link out takes its dot (.pv-ea) with it, here and below. A stacked line (a phone) has no dot:
+   its state wraps, and the dot stood alone at the end of the row above the link. */
+.pv.pv-stack>.pv-t>.pv-ea{display:none}
 .pv.pv-early-out:not(.pv-stack)>.pv-t :is(.pv-early,.pv-ea){display:none}
 /* The extras a press puts in a row (verdict-reason.js 'Enter 이유 쓰기', verdict.js the line's [되돌리기] of a take-back) take
    the earlier link's place there: it steps out while either is on the line and is back when it goes. Beside it, a 620px
