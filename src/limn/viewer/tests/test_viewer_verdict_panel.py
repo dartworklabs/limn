@@ -43,6 +43,8 @@ TO = """([n, off]) => {PV_HAND(); const L = document.querySelector('#left'); L.s
 # Whether the pages have rested for ten frames (a jump's smooth scroll is over).
 RESTING = """() => {const L = document.querySelector('#left'), w = window.__rest || (window.__rest = {top: -1, n: 0});
   if (L.scrollTop === w.top) w.n++; else {w.top = L.scrollTop; w.n = 0;} if (w.n < 10) return false; window.__rest = null; return true;}"""
+# How far the PDF area is scrolled.
+TOP = "()=>Math.round(document.querySelector('#left').scrollTop)"
 # The room the PDF area leaves beside the common page now.
 ROOM = "() => pvSideRoom()"
 # The focused element: its action, its line's page, whether it is in the panel, the pin panel or the PDF area itself.
@@ -432,6 +434,8 @@ class Panel(PanelBase):
         sums = """() => [...document.querySelectorAll('#doc .pv-sum')].map(s => [+s.dataset.page, s.getBoundingClientRect().height, getComputedStyle(s).fontWeight, s.textContent.replace(/\\s+/g, ' ')])"""
         got = page.evaluate(sums)
         self.assertEqual([s[0] for s in got], [1, 2, 3, 4, 5])
+        at = "()=>{const s=document.querySelector('#doc .pv-sum[data-page=\"1\"] .pv-sum-id').getBoundingClientRect(),p=document.getElementById('p1').getBoundingClientRect();return s.left-p.left;}"
+        self.assertLess(abs(page.evaluate(at) - 4), 1.5, "the summary does not start at its page's left edge")
         self.assertEqual(len({s[1] for s in got}), 1, got)
         self.assertEqual([s[2] for s in got], ["600", "400", "400", "400", "400"])
         self.assertIn("판정 #%d 채택" % pid, got[3][3])
@@ -596,6 +600,118 @@ class PanelEdges(PanelBase):
               drawPageVerdicts();}"""
         )
         self.assertEqual((page.evaluate(FOCUS) or {}).get("id"), "left")
+
+    def scroll_keys(self, page, n, keys):
+        """Page n read, a key save on it: what each of keys moves the PDF area by, in order, with the focus after it. The
+        pages are put back at page n's top before each key, and the saved verdict stays."""
+        self.to(page, n)
+        page.evaluate("searchToPage()")
+        page.keyboard.press("1")
+        page.wait_for_function("n=>!PV_BUSY.has(pvSlot(n))", arg=n)
+        settle(page)
+        out = []
+        for key in keys:
+            self.to(page, n)
+            page.locator('#doc .pv[data-page="%d"] [data-act="pv-reason-open"]' % n).focus()
+            top = page.evaluate(TOP)
+            page.keyboard.press(key)
+            page.wait_for_function(RESTING, polling="raf", timeout=10000)
+            settle(page)
+            out.append(page.evaluate(TOP) - top)
+            self.assertIsNotNone(page.evaluate(FOCUS), "%s left the focus on nothing" % key)
+        return out
+
+    def test_scroll_keys_on_the_panel_move_the_pages_as_they_do_on_a_line(self):
+        """1680 x 1050 has the same PDF area with the pin panel open (lines under the pages) and closed (the panel): with the
+        focus on 'Enter 이유 쓰기' after a key save, PageDown, PageUp, the arrows and End move the pages by the same distance
+        in either. Home goes back to the top. The panel stood out of the area's scroll chain and they moved nothing."""
+        page = self.on(viewport={"width": 1680, "height": 1050})
+        self.assertFalse(page.evaluate(SHAPE)["beside"])
+        keys = ("PageDown", "ArrowDown", "PageUp", "ArrowUp", "End")
+        under = self.scroll_keys(page, 2, keys)
+        page.evaluate("setSide(false)")
+        settle(page)
+        self.assertTrue(page.evaluate(SHAPE)["beside"])
+        beside = self.scroll_keys(page, 3, keys)
+        self.assertEqual(beside[:2], under[:2])
+        self.assertEqual(beside[2:4], under[2:4])
+        self.assertGreater(beside[0], 400, beside)
+        self.assertGreater(beside[1], 0, beside)
+        self.assertLess(beside[2], -400, beside)
+        self.assertGreater(beside[4], 0, beside)
+        self.to(page, 3)
+        page.locator('#pv-panel [data-act="pv-reason-open"]').focus()
+        page.keyboard.press("Home")
+        page.wait_for_function(RESTING, polling="raf", timeout=10000)
+        self.assertEqual(page.evaluate(TOP), 0)
+
+    def test_after_a_key_save_page_down_reaches_the_next_page_and_the_next_digit_lands_there(self):
+        """A keyboard pass: digit, PageDown until the next page is read, digit - each verdict on its own page, the focus never
+        on nothing, handed to the PDF area when the reading page changes. It piled every verdict on one page."""
+        page = self.on(viewport={"width": 1680, "height": 1050})
+        page.evaluate("setSide(false)")
+        settle(page)
+        self.to(page, 2)
+        page.evaluate("searchToPage()")
+        for n, digit in ((2, "1"), (3, "2"), (4, "1")):
+            with self.subTest(page=n):
+                self.assertEqual(page.evaluate("pvReadingPage()"), n)
+                page.keyboard.press(digit)
+                page.wait_for_function("n=>!PV_BUSY.has(pvSlot(n))", arg=n)
+                settle(page)
+                for _ in range(4):
+                    if page.evaluate("pvReadingPage()") != n:
+                        break
+                    page.keyboard.press("PageDown")
+                    page.wait_for_function(RESTING, polling="raf", timeout=10000)
+                    settle(page)
+                    self.assertIsNotNone(page.evaluate(FOCUS), "PageDown left the focus on nothing")
+                self.assertEqual(page.evaluate("pvReadingPage()"), n + 1)
+        got = sorted((p["page"], p["verdict"]) for p in self.pins().values())
+        self.assertEqual(got, [(2, "채택"), (3, "보류"), (4, "채택")])
+
+    def test_a_wheel_over_the_panel_and_a_key_after_pressing_its_text_move_the_pages(self):
+        """The wheel with the pointer on the panel moves the pages; so does PageDown after a press on its plain text, which
+        leaves the focus on nothing."""
+        page = self.on()
+        self.to(page, 2)
+        box = page.locator("#pv-panel .pv-fig-id").bounding_box()
+        page.mouse.move(box["x"] + 4, box["y"] + 4)
+        top = page.evaluate(TOP)
+        page.mouse.wheel(0, 300)
+        page.wait_for_function(RESTING, polling="raf", timeout=10000)
+        self.assertEqual(page.evaluate(TOP) - top, 300)
+        page.mouse.click(box["x"] + 4, box["y"] + 4)
+        top = page.evaluate(TOP)
+        page.keyboard.press("PageDown")
+        page.wait_for_function(RESTING, polling="raf", timeout=10000)
+        self.assertGreater(page.evaluate(TOP) - top, 400)
+
+    def test_the_reason_field_keeps_its_own_keys_and_space_presses_a_word(self):
+        """In the reason field Home, End and the arrows move the caret and Space is a space: the pages stay. Space on a word
+        of the panel presses it (the word's rule), and the pages stay."""
+        page = self.on()
+        self.to(page, 2)
+        page.locator('#pv-panel button[data-key="채택"]').click()
+        page.wait_for_function("OPEN_ALL.length===1")
+        settle(page)
+        page.locator('#pv-panel [data-act="pv-reason-open"]').click()
+        top = page.evaluate(TOP)
+        page.keyboard.type("가나")
+        for key in ("Home", "End", "ArrowLeft", "Space"):
+            page.keyboard.press(key)
+        page.wait_for_function(RESTING, polling="raf", timeout=10000)
+        self.assertEqual(page.locator("#pv-panel .pv-reason").input_value(), "가 나")
+        self.assertEqual(page.evaluate(TOP), top)
+        self.assertTrue(page.evaluate("()=>pvIsReasonField(document.activeElement)"))
+        page.locator('#pv-panel [data-act="pv-reason-close"]').click()
+        page.locator('#pv-panel [data-act="pv-reason-close"]').click()
+        settle(page)
+        page.locator('#pv-panel button[data-key="보류"]').focus()
+        page.keyboard.press("Space")
+        page.wait_for_function("OPEN_ALL.some(p=>p.verdict==='보류')")
+        settle(page)
+        self.assertEqual(page.evaluate(TOP), top)
 
     def test_a_summary_wider_than_a_small_page_never_moves_it_or_the_panel(self):
         """Page 3 a small figure (144pt, 192px at print size), narrower than what its summary says: the summary is as wide

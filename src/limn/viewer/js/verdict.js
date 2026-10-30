@@ -1023,7 +1023,7 @@ function drawPageVerdicts(){const v=pageVerdictsOn(),f=/** @type {HTMLElement|nu
   PV_SHOWN=new Set();
   // A document with no page lines has no reason field either: a session left from the one before (or from this one before
   // its words went) closes here, its text saved - pvReasonSync, after this, is never reached for it.
-  if(!v||!META){if(PV_REASON)pvReasonLeave(); $$('#doc .pv,#doc .pv-sum').forEach(e=>e.remove()); if(PV_SIDE)pvSideApply(false); pvTypingSync(); return;}
+  if(!v||!META){if(PV_REASON)pvReasonLeave(); $$('#doc .pv,#doc .pv-sum').forEach(e=>e.remove()); pvPanelGone(); if(PV_SIDE)pvSideApply(false); pvTypingSync(); return;}
   const turn=pvSideTurn();   // beside the pages or under them (verdict-panel.js)
   pvReasonSync(); const map=pageVerdictPins(); PV_READ=pvReadingPage(); PV_KEYS=pvKeysPage(PV_READ);
   // Beside the pages: one panel for the reading page, and every page's verdicts are its - none draws a page-size mark.
@@ -1150,7 +1150,7 @@ function pvStick(){if(pageVerdictsOn()&&pvSideCheck())return;   // the room cros
     if(re.length)pvFit(re);   // the reading line names its figure: its row is measured again
     pvFocusOffPage(r,was[0]);}
   pvPanelPlace(); pvSumOn();
-  lines.forEach(l=>{if(l.id==='pv-panel')return;   // the panel stands fixed beside the pages: it never floats
+  lines.forEach(l=>{if(l.id==='pv-panel')return;   // the panel stands sticky beside the pages: it never floats at their foot
     const pg=/** @type {HTMLElement|null} */(l.previousElementSibling); if(!pg)return; const b=l.getBoundingClientRect();
     const stuck=l.classList.contains('reading')&&b.bottom>lr.top&&b.top<lr.bottom&&b.top<pg.getBoundingClientRect().bottom+4;   // in its own place it stands 8px under the page
     l.classList.toggle('stuck',stuck); pvLean(l,pg,b,stuck,L,lr);});

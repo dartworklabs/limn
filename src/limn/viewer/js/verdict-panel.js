@@ -50,14 +50,18 @@ function pvSideTurned(k){restoreAnchor(k.spot); drawChips(); const g=k.caret?pvR
   const a=document.activeElement; if(k.inLine&&(!a||a===document.body))searchToPage();}
 
 // ---------------- The panel
-// The panel (#pv-panel): a page verdict line of its own, the last child of the pages' column - so every '#doc .pv[data-page]'
-// look-up of the reading page's line finds it, the DOM's Tab from its last control leaves the pages (to the pin panel),
-// and a rebuild of the column (buildDoc) takes it away with the pages.
+// The panel (#pv-panel): a page verdict line of its own, in the last child of the pages' column (#pv-panel-at) - so every
+// '#doc .pv[data-page]' look-up of the reading page's line finds it, the DOM's Tab from its last control leaves the pages (to
+// the pin panel), and a rebuild of the column (buildDoc) takes it away with the pages. #pv-panel-at has no height and is
+// sticky to the PDF area's top, so the panel stays in view while it stays in the area's scroll chain: PageDown, the arrows,
+// Home and End on one of its controls and a wheel over it move the pages, by the browser's own steps, as on a line under a
+// page. Fixed to the window it was out of that chain: after a key save the keys and the wheel moved nothing, and the next
+// digit changed the same page's verdict.
 function pvPanel(){let p=/** @type {HTMLElement|null} */(document.getElementById('pv-panel'));
-  if(!p){p=document.createElement('div'); p.id='pv-panel'; p.className='pv pv-panel pv-stack'; $('#doc').appendChild(p);
-    if(PV_CHIP_WATCH)PV_CHIP_WATCH.observe(p,{childList:true});}
+  if(!p){const at=document.createElement('div'); at.id='pv-panel-at'; p=document.createElement('div'); p.id='pv-panel'; p.className='pv pv-panel pv-stack';
+    at.appendChild(p); $('#doc').appendChild(at); if(PV_CHIP_WATCH)PV_CHIP_WATCH.observe(p,{childList:true});}
   return p;}
-function pvPanelGone(){const p=document.getElementById('pv-panel'); if(p)p.remove();}
+function pvPanelGone(){const at=document.getElementById('pv-panel-at'); if(at)at.remove();}
 // Fills the panel with the reading page's line (PV_READ). A page that takes no verdict (a list page) names itself and says
 // so, without words. A save chip on the panel for a pin of another page goes to the status line with its undo (chipAway),
 // as a chip whose mark is not drawn does: the panel no longer shows the verdict it undoes.
@@ -84,14 +88,16 @@ function pvPanelLeave(p,at){if(p.dataset.page===String(at))return; if(PV_REASON&
 /** @param {HTMLElement} e @returns {number} */
 function pvChipPin(e){let pin=0; NOTICES.forEach(n=>{if(n.el===e)pin=n.pin||0;}); return pin;}
 // The panel's place: --pv-panel-gap right of the reading page (page 1 before there is one), its top at the PDF area's top
-// padding; fixed, so it never scrolls. Taller than the area shows (a short window, a long conflict note in the popover) it
-// scrolls inside (.pv-tall). Only then: a scroller clips what stands outside it, the pressed word's context under the panel,
-// and that context's box would bring a scroll bar with it. Once a frame with pvStick.
-function pvPanelPlace(){const p=document.getElementById('pv-panel'); if(!p||!PV_SIDE)return; const L=$('#left'),lr=L.getBoundingClientRect();
+// padding, where #pv-panel-at sticks: it stands at the column's end, and the inset from the bottom of what a sticky box may
+// use (the area less its padding) to that top pulls it up, so its height stays nothing. Taller than the area shows (a short
+// window, a long conflict note in the popover) the panel scrolls inside (.pv-tall). Only then: a scroller clips what stands
+// outside it, the pressed word's context under the panel, and that context's box would bring a scroll bar with it. Once a
+// frame with pvStick.
+function pvPanelPlace(){const p=document.getElementById('pv-panel'),at=document.getElementById('pv-panel-at'); if(!p||!at||!PV_SIDE)return; const L=$('#left'),lr=L.getBoundingClientRect(),cs=getComputedStyle(L);
   const n=Number(p.dataset.page)||pvReadingAt()||1,pg=document.getElementById('p'+n)||document.getElementById('p1'); if(!pg)return;
-  const x=Math.round(Math.min(pg.getBoundingClientRect().right+PV_SIDE_GAP,lr.left+L.clientWidth-PV_SIDE_W)),y=Math.round(lr.top+parseFloat(getComputedStyle(L).paddingTop));
-  if(p.style.left!==x+'px')p.style.left=x+'px'; if(p.style.top!==y+'px')p.style.top=y+'px';
-  const room=Math.max(0,Math.floor(lr.top+L.clientHeight-y-PV_SIDE_GAP)),was=p.classList.contains('pv-tall'),tall=(was?p.scrollHeight+2:p.offsetHeight)>room,h=tall?room+'px':'';
+  const pt=parseFloat(cs.paddingTop),inset=Math.max(0,L.clientHeight-pt-parseFloat(cs.paddingBottom))+'px'; if(at.style.bottom!==inset)at.style.bottom=inset;
+  const x=Math.round(Math.min(pg.getBoundingClientRect().right+PV_SIDE_GAP,lr.left+L.clientWidth-PV_SIDE_W)-at.getBoundingClientRect().left)+'px'; if(p.style.left!==x)p.style.left=x;
+  const room=Math.max(0,Math.floor(L.clientHeight-pt-PV_SIDE_GAP)),was=p.classList.contains('pv-tall'),tall=(was?p.scrollHeight+2:p.offsetHeight)>room,h=tall?room+'px':'';
   if(tall!==was)p.classList.toggle('pv-tall',tall); if(p.style.maxHeight!==h)p.style.maxHeight=h;}
 // The panel's line is laid out in rows (.pv-stack: the name, the words, the state, the reason) and never measured for one row:
 // there is room for each part's whole width, so nothing gives way. Its save chip and the reason popover stand in its flow

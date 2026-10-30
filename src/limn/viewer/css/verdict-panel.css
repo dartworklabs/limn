@@ -9,16 +9,18 @@ body{--pv-panel-w:280px;--pv-panel-gap:24px;--pv-panel-pad:var(--space-3)}
 body.pv-beside #doc .pgw{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(calc(var(--pv-panel-w) + var(--pv-panel-gap)),1fr);align-items:start}
 body.pv-beside #doc .pgw>.pg{grid-column:2;grid-row:1;margin:0 0 var(--space-1)}
 body.pv-beside #doc .pgw:not(:has(>.pv-sum))>.pg{margin-bottom:var(--space-6)}   /* a page with no summary (it takes no verdict) keeps the pages' gap */
-/* The panel: fixed beside the reading page (pvPanelPlace sets left and top), the
-   popover's ground with a strong edge and a soft shadow - no stripe - and its parts in rows down it (.pv-stack): the name,
-   the words, the state, the reason, a failure, then a save chip and the reason popover in its flow. Never a scroll anchor
-   (the line's own rule). Its left, top and max-height are set in px; the reading line's sticky bottom and the line's right
-   inset do not apply. */
-#doc #pv-panel{position:fixed;right:auto;bottom:auto;z-index:3;box-sizing:border-box;width:var(--pv-panel-w);margin:0;padding:var(--pv-panel-pad);
+/* The panel: beside the reading page, in #pv-panel-at - the column's last child, no height, sticky to the PDF area's top (its
+   bottom inset, set with the panel's left by pvPanelPlace, pulls it up from the column's end). So the panel stays in the
+   area's scroll chain: the browser's scroll keys on its controls and a wheel over it move the pages, as on a line. Fixed
+   to the window it was out of that chain. The popover's ground with a strong edge and a soft shadow - no stripe - and its
+   parts in rows down it (.pv-stack): the name, the words, the state, the reason, a failure, then a save chip and the reason
+   popover in its flow. Never a scroll anchor (the line's own rule); the reading line's sticky insets do not apply. */
+#doc #pv-panel-at{position:sticky;z-index:3;height:0;overflow-anchor:none}
+#doc #pv-panel{position:absolute;top:0;right:auto;bottom:auto;box-sizing:border-box;width:var(--pv-panel-w);margin:0;padding:var(--pv-panel-pad);
   border:1px solid var(--border-strong);border-radius:var(--radius);background:var(--popover);box-shadow:var(--shadow-sm);
   row-gap:var(--space-2);align-items:center;align-content:flex-start}
 /* Taller than the PDF area shows, it scrolls inside (pvPanelPlace). Only then: a scroller clips what stands outside it. */
-#doc #pv-panel.pv-tall{overflow-y:auto;overscroll-behavior:contain}
+#doc #pv-panel.pv-tall{overflow-y:auto}
 #doc #pv-panel.pv-tall>.pv-onhint{display:none}
 /* The name: the identifier ('6쪽 · PL17') on its row, the title under it on two rows at most - two rows kept even when it is
    shorter, so the words below stand at one height for every page. */
@@ -50,7 +52,7 @@ body.pv-beside #doc .pgw:not(:has(>.pv-sum))>.pg{margin-bottom:var(--space-6)}  
    middle track is its content's, so a summary wider than a small page set the track, and a save or '초안 있음' moved the page
    and took the panel's margin, which the bar does not count. Its state is cut at its end; the identifier never is. Far from
    the view it is skipped as a far line is (.pv-far; its height is fixed). */
-#doc .pv-sum{grid-column:2;grid-row:2;display:flex;align-items:center;gap:var(--space-1);box-sizing:border-box;width:0;min-width:100%;height:var(--control-h-sm);
+#doc .pv-sum{grid-column:2;grid-row:2;display:flex;align-items:center;justify-content:flex-start;gap:var(--space-1);box-sizing:border-box;width:0;min-width:100%;height:var(--control-h-sm);
   margin:0 0 var(--space-5);padding:0 var(--space-1);border:0;border-radius:var(--radius-sm);background:transparent;color:var(--muted-foreground);
   font-size:var(--text-sm);font-weight:400;white-space:nowrap;overflow:hidden;cursor:pointer;overflow-anchor:none}
 #doc .pv-sum>:is(.pv-sum-id,.pv-sep){flex:none}
