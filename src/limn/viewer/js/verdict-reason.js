@@ -262,7 +262,8 @@ function pvReasonRestore(){const doc=DOC||''; if(PV_RESTORED.has(doc)||!META)ret
 function pvShowLine(page){if(PV_SIDE){pvBring(page); pvStick();}   // beside the pages the panel is the line, once the page is read (verdict-panel.js)
   const l=/** @type {HTMLElement|null} */(document.querySelector('#doc .pv[data-page="'+page+'"]')); if(!l)return;
   if(!PV_SIDE){const blk=/** @type {HTMLElement} */(l.parentElement||l); blk.scrollIntoView({block:blk.getBoundingClientRect().height<=$('#left').clientHeight?'center':'end'});}
-  requestAnimationFrame(()=>{const m=/** @type {HTMLElement|null} */(document.querySelector('#doc .pv[data-page="'+page+'"] .pv-draft'));
+  requestAnimationFrame(()=>{if(pvIsReasonField(document.activeElement))return;   // the mark was already pressed: its field keeps the focus
+    const m=/** @type {HTMLElement|null} */(document.querySelector('#doc .pv[data-page="'+page+'"] .pv-draft'));
     if(m)m.focus({preventScroll:true}); else if(!pvFocusLine(page))searchToPage();});}
 // A draft that changes a saved reason, opened again after its pin's note changed elsewhere: it knows the newer note at once
 // - unless that note is its own lost write, landed (pvReasonRebase).
