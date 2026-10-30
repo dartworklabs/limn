@@ -8,9 +8,11 @@
   line's first control, or the badge of the first pin marked on that page, which Shift+Tab from the line passes first -
   it goes back to where the focus came into the pages: the stop a Tab into them was pressed on, or the outline entry or
   document tab a digit key was pressed on; otherwise (a card, which is after the pages, or a stop no longer shown) to
-  the stop right before them, the section strip's page button. The pages do not move. It went to the page before's line
-  and scrolled the document a page up; 80 presses on a 91-page figure document never reached the outline. The earlier
-  pages' lines are reached by PageUp; Enter on the line's `#N` still goes back to a card.
+  the stop right before them, the section strip's page button. A phone draws nothing before the pages: there it goes
+  back to a tool-bar origin, else to the position button (`#btn-pos`). An origin is forgotten when the document or its
+  build changes. The pages do not move. It went to the page before's line and scrolled the document a page up; 80
+  presses on a 91-page figure document never reached the outline. The earlier pages' lines are reached by PageUp;
+  Enter on the line's `#N` still goes back to a card.
 - **The PDF area is a named region** (`role="region"`, `PDF 쪽` / `PDF pages`, #307). A digit key pressed outside the
   pages puts the focus on it while the save is out, so that Enter opens the reason; with no role and no name a screen
   reader started reading every page's text run together (`1 1쪽 2 2쪽 …`). Every other path that leaves the focus on the
