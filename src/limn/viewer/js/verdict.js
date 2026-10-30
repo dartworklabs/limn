@@ -188,8 +188,10 @@ function disarmVerdict(redraw,say){const a=VD_ARM; if(!a)return; clearTimeout(a.
   else{const r=$('#sr-news'); if(r&&r.textContent===vdArmSaid(a.label))r.textContent='';}}
 /** @param {string} where */
 function vdRedraw(where){if(where===VD_WHERE.COMPOSER)renderVerdictRow(); else drawPageVerdicts();}
-// A press anywhere but on the armed button lets it go; Esc does too, and does nothing else.
-window.addEventListener('click',e=>{if(!VD_ARM)return; const b=/** @type {HTMLElement|null} */(/** @type {HTMLElement} */(e.target).closest('[data-act="verdict-save"],[data-act="pv-save"]'));
+// A press anywhere but on the armed button lets it go; Esc does too, and does nothing else. The click a long press's release
+// ends with is no press (tooltip.js swallows it after this, on the document): it lets nothing go, nor closes the description
+// the long press showed.
+window.addEventListener('click',e=>{if(!VD_ARM||Date.now()<SWALLOW_CLICK)return; const b=/** @type {HTMLElement|null} */(/** @type {HTMLElement} */(e.target).closest('[data-act="verdict-save"],[data-act="pv-save"]'));
   if(!(b&&vdArmedHere(b.dataset.key||'',vdWhereOf(b),Number(b.dataset.page)||0)))disarmVerdict(true,true);},true);
 window.addEventListener('keydown',e=>{if(e.key!=='Escape'||!VD_ARM)return; e.preventDefault(); e.stopImmediatePropagation(); disarmVerdict(true,true);},true);
 /** @param {HTMLElement} b */
@@ -212,7 +214,9 @@ function vdWhereOf(b){return b.dataset.act==='verdict-save'?VD_WHERE.COMPOSER:VD
 // line whose save chip stands (pvLineHtml) - so no description box comes over the chip; the name and the keys are still
 // said. A page line's armed word ('삭제 확정') has no description either: its box covered the line's figure name while the
 // word waited for its second press, the button already reads what the box said, and the line says how long it waits
-// beside it (.pv-arm).
+// beside it (.pv-arm). Either keeps it for a long press (data-tip-press, tooltip.js): hover and focus raise no box, but a
+// long press shows it and its release presses nothing, as on a word at rest - a long press on the pressed word took the
+// verdict back while a chip or the reason popover was up, and one on the armed word saved it (#320).
 // The screen that draws the key marks (components.css .vd-b[data-kn]::after): a mouse's. Only there does a word's description
 // end in '단축키 1' and its button carry aria-keyshortcuts - a phone's long press read '… · 단축키 1' for a key it has none of
 // (#315). The lines are drawn again when that changes (a tablet's keyboard cover with its touchpad taken off), so the
@@ -231,7 +235,7 @@ function vdButton(c,where,page,target,off,kn,quiet,pr){const armed=vdArmedHere(c
   if(said)tip+=' · '+tl(c.confirm?'단축키 {key} (두 번)':'단축키 {key}',{key:kn});
   return html`<button type="button" class="vd-b hit${c.confirm?' vd-confirm':''}${armed?' armed':''}" translate="no" data-act="${where===VD_WHERE.COMPOSER?'verdict-save':'pv-save'}" \
 data-key="${c.key}" data-page="${page}" aria-label="${name}"${line?html` aria-pressed="${on?'true':'false'}"`:''}${on&&pr!==PV_PRESS.SAVING?html` aria-describedby="pv-on-${page}"`:''}\
-${quiet||(armed&&line)?'':html` data-tip="${tip}"`}${kn?html` data-kn="${kn}"`:''}${said?html` aria-keyshortcuts="${kn}"`:''}${off?line?html` aria-disabled="true"`:html` disabled`:''}>\
+${quiet||(armed&&line)?html` data-tip-press="${tip}"`:html` data-tip="${tip}"`}${kn?html` data-kn="${kn}"`:''}${said?html` aria-keyshortcuts="${kn}"`:''}${off?line?html` aria-disabled="true"`:html` disabled`:''}>\
 ${on?ic('check'):''}<span class="lbl">${armed?tl('{word} 확정',{word:c.label}):c.label}</span></button>`;}
 // A page line's word state (vdButton pr): not pressed, or pressed as the person's own open verdict (a press takes it back),
 // someone else's, a handled one (neither is taken back from the line), or the word a save on the line is for (SAVING). A
@@ -372,7 +376,7 @@ function verdictDropped(){const b=BANNERS.get(NOTICE_HOST.COMPOSER); if(!b||!b.s
 // quiet as before - pressing the word again is the same.
 function verdictUndo(id){const undo=async()=>{let was=null;
     try{was=(await api('/api/pins/'+id,{what:'핀 읽기',silent:true})).data.pin;}catch(e){}
-    const r=PV_REASON&&PV_REASON.id===id?PV_REASON:null; if(r&&pvReasonDirty(r))rdPut(r.doc,id,r.text,r.base,r.rev,{mode:r.mode,tried:r.tried});
+    const r=PV_REASON&&PV_REASON.id===id?PV_REASON:null; if(r&&pvReasonDirty(r))rdPut(r.doc,id,r.text,r.base,r.rev,{mode:r.mode,tried:r.tried,from:r.via});
     PV_WITHDRAWN.add(id); const ok=await dropPin(id,true,undo); if(!ok)PV_WITHDRAWN.delete(id);
     if(ok&&PV_REASON&&PV_REASON.id===id){PV_REASON=null; drawPageVerdicts();}   // a withdrawn verdict takes no reason
     const d=ok?rdGet(DOC,id):null,k=was&&verdictOf(was),t=was?pageTargetOf(was,META?META.kind:undefined):null;
@@ -422,16 +426,33 @@ document.addEventListener('focusin',()=>pvStickSoon()); document.addEventListene
 // Once on, it stays while the reason popover is being used - the focus on one of its buttons, or a press that started in it
 // until that press's click has run (PV_POP_PRESS): a tap on [저장], [접기] or [지우기] took the focus out of the field, the
 // status line came back (24px) and on a phone the line stacked again, so between the touch and its click the button moved
-// 24-85px and the click fell on the popover itself - the first tap was lost.
+// 24-85px and the click fell on the popover itself - the first tap was lost. So does a press on the rest of the line while
+// the field folds it: a tap on a word took the focus, the figure's name came back over the words and moved them 22px down
+// under the finger, and the click fell on the line - the word took no first tap (#320). The fold goes once that press is
+// done: its click has run, the browser took it for a scroll (pointercancel), or 500ms after it let go without a click - a
+// long press keeps it as long as it is held, so the words stay under the finger while its description shows. Only the press
+// that holds the fold lets it go (PV_PRESS_HOLD): a new press on the line takes it over and the earlier one's wait goes - a
+// long press's swallowed click left its 500ms wait running, which let the fold go under the next press, between that press's
+// focus and its click. A press whose window loses the focus or is hidden (another app, a tab switch) lets it go at once: let
+// go outside the window, it has no pointerup or pointercancel here, and the fold stayed.
 let PV_POP_PRESS=false;
+let PV_PRESS_HOLD=/** @type {(()=>void)|null} */(null);   // the press holding the fold: drops its own wait without letting go
 function pvTypingSync(){const a=/** @type {HTMLElement|null} */(document.activeElement),l=a&&a.closest?/** @type {HTMLElement|null} */(a.closest('#doc .pv')):null,b=document.body;
   const pop=!!a&&!!a.closest&&!!a.closest('#doc .pv>.pv-pop'),on=(!!l&&typingNow())||(b.classList.contains('pv-typing')&&(pop||PV_POP_PRESS));
   if(b.classList.contains('pv-typing')===on)return; b.classList.toggle('pv-typing',on);
   const r=l||/** @type {HTMLElement|null} */(document.querySelector('#doc .pv.reading')); if(r)pvFit([r]);}
 document.addEventListener('focusin',pvTypingSync); document.addEventListener('focusout',()=>setTimeout(pvTypingSync,0));
-document.addEventListener('pointerdown',e=>{const t=/** @type {HTMLElement|null} */(e.target); if(!(t&&t.closest&&t.closest('#doc .pv>.pv-pop')))return;
-  PV_POP_PRESS=true; let done=false; const end=()=>{if(done)return; done=true; window.removeEventListener('click',late); setTimeout(()=>{PV_POP_PRESS=false; pvTypingSync();},0);};
-  const late=()=>end(); window.addEventListener('click',late); setTimeout(end,500);},true);   // after the press's own click (window, bubbling: after the viewer's handlers), or 500ms
+document.addEventListener('pointerdown',e=>{const t=/** @type {HTMLElement|null} */(e.target);
+  if(!(t&&t.closest&&(t.closest('#doc .pv>.pv-pop')||(document.body.classList.contains('pv-typing')&&t.closest('#doc .pv')))))return;
+  if(PV_PRESS_HOLD)PV_PRESS_HOLD();   // an earlier press still waiting: this one holds the fold now
+  PV_POP_PRESS=true; let timer=/** @type {ReturnType<typeof setTimeout>|undefined} */(undefined);
+  const drop=()=>{clearTimeout(timer); window.removeEventListener('click',late); window.removeEventListener('pointercancel',late);
+    window.removeEventListener('pointerup',up,true); window.removeEventListener('blur',late); document.removeEventListener('visibilitychange',hid);
+    if(PV_PRESS_HOLD===drop)PV_PRESS_HOLD=null;};
+  const end=()=>{if(PV_PRESS_HOLD!==drop)return; drop(); setTimeout(()=>{if(PV_PRESS_HOLD)return; PV_POP_PRESS=false; pvTypingSync();},0);};
+  const late=()=>end(),up=()=>{clearTimeout(timer); timer=setTimeout(end,500);},hid=()=>{if(document.visibilityState==='hidden')end();};   // late: after the press's own click (window, bubbling: after the viewer's handlers)
+  PV_PRESS_HOLD=drop; window.addEventListener('click',late); window.addEventListener('pointercancel',late); window.addEventListener('pointerup',up,true);
+  window.addEventListener('blur',late); document.addEventListener('visibilitychange',hid);},true);
 // What a press on page `page` of the document on screen saves against: its document, kind, build and page size and its
 // target's name, with the visit it was made in. A save runs on these - not on the document on screen when it runs - so a
 // press made before switching documents is saved, and one queued meanwhile is too (pvPress, savePageVerdict). null when the
@@ -585,7 +606,7 @@ async function pvCancelPin(id,page,had,byKey){const p=OPEN_ALL.find(x=>x.id===id
   // Its reason popover leaves with the line's verdict, but the session is kept until the server answers: a failed cancel
   // brings the verdict back and its unsent reason with it, or keeps that as a draft its line marks when something took its
   // place (pvReasonUncancel); a done one drops it - its draft stays kept (rdPut) for the [되돌리기].
-  const kept=PV_REASON&&PV_REASON.id===id?PV_REASON:null; if(kept){PV_REASON=null; if(pvReasonDirty(kept))rdPut(kept.doc,id,kept.text,kept.base,kept.rev,{mode:kept.mode,tried:kept.tried});}
+  const kept=PV_REASON&&PV_REASON.id===id?PV_REASON:null; if(kept){PV_REASON=null; if(pvReasonDirty(kept))rdPut(kept.doc,id,kept.text,kept.base,kept.rev,{mode:kept.mode,tried:kept.tried,from:kept.via});}
   PV_WITHDRAWN.add(id);
   // The take-back is said on the status line with its [되돌리기], which the line itself also offers for as long (PV_LINE_UNDO):
   // the status line is far away by Tab.
@@ -647,9 +668,15 @@ ${pvReasonInline(page,cur)}`
   const cn=!!cur&&pvCanCancel(cur),cw=PV_BUSY.has(slot)||loading||(PV_CANCEL_HOLD.get(slot)||0)>Date.now();
   const cancel=cn&&cur?html`<span class="pv-sep pv-cn" aria-hidden="true">·</span><button type="button" class="btn-ghost btn-sm pv-cancel pv-cn hit" data-act="pv-cancel" \
 data-ref="${cur.id}" data-id="${cur.id}" aria-label="${tl('판정 취소 — 내 판정 #{id}',{id:cur.id})}" \
-${chip?'':html`data-tip="${tr('이 판정을 거둡니다. 핀은 휴지통으로 가고, 같은 대상에 앞선 판정이 있으면 그 판정이 다시 지금 판정이 됩니다. 상태 줄의 [되돌리기]가 되살립니다')}"`}${cw?html` aria-disabled="true"`:''}>${tr('판정 취소')}</button>`:'';
-  const early=earlier.length?html`<button type="button" class="btn-ghost btn-sm pv-early hit" data-act="pv-earlier" data-ref="${earlier[0].id}" \
-${chip?'':html`data-tip="${tr('이 쪽의 더 새 판정으로 대체되어 실행하지 않는 열린 판정 핀입니다. 누르면 그 카드로 갑니다')}"`}>${tl('이전 판정 {n}건 · 새 판정으로 대체됨',{n:earlier.length})}</button>`:'';
+${pvTipAttr(!!chip,tr('이 판정을 거둡니다. 핀은 휴지통으로 가고, 같은 대상에 앞선 판정이 있으면 그 판정이 다시 지금 판정이 됩니다. 상태 줄의 [되돌리기]가 되살립니다'))}${cw?html` aria-disabled="true"`:''}>${tr('판정 취소')}</button>`:'';
+  // The earlier link is short - '이전 2건' ('+2 earlier') - and never cut: where its line is tight (.pv-tight, pvFit) it is
+  // its count alone, '+2' (data-n, components.css). Its name says it whole ('이전 판정 2건 · 새 판정으로 대체됨'), and so does
+  // its tooltip before what it is. The whole words stood in the row and were cut to fit: '1 ea…' on a 620px English line.
+  // A dot sets it off from what comes before it, as the state's other parts are (.pv-ea, gone whenever the link is): right
+  // after [✓ 채택 1]'s key digit on a stacked line, or after [판정 취소], a bare '+2' read as a count of that button's.
+  const ne=earlier.length,eName=tl('이전 판정 {n}건 · 새 판정으로 대체됨',{n:ne});
+  const early=ne?html`<span class="pv-sep pv-ea" aria-hidden="true">·</span><button type="button" class="btn-ghost btn-sm pv-early hit" data-act="pv-earlier" data-ref="${earlier[0].id}" data-n="${ne}" aria-label="${eName}" \
+${pvTipAttr(!!chip,eName+' — '+tr('이 쪽의 더 새 판정으로 대체되어 실행하지 않는 열린 판정 핀입니다. 누르면 그 카드로 갑니다'))}><span class="pv-early-w">${tl('이전 {n}건',{n:ne})}</span></button>`:'';
   // The reading page's line - the one that floats - names what it decides: '7쪽 · [후보] PL18 · …' (figureName), cut to fit.
   // Its two spans are on every line, hidden but on the reading one: the line's children keep their places when the reading
   // page moves, so the morph (pvMorph) never takes a focused button out of the page. A hidden one holds the identifier, so
@@ -667,6 +694,10 @@ ${chip?'':html`data-tip="${tr('이 쪽의 더 새 판정으로 대체되어 실�
 data-act="pv-undo" data-id="u${lu.id}" aria-label="${tl('되돌리기 — 거둔 판정 #{id}',{id:lu.id})}">${tr('되돌리기')}</button>`:'';
   if(lu&&!undo)PV_LINE_UNDO.delete(slot);
   return html`${name}<span class="pv-t">${text}${saving}${armSay}${cancel}${undo}${early}</span>${btns}${err}${pvOnHint(page,v,want,nx||sv!==undefined?PV_PRESS.SAVING:cur?pvPressOf(cur):PV_PRESS.NONE)}${pvReasonPop(page)}`;}
+// A line control's description: data-tip, or - on a line that holds a save chip or its reason popover (pvLineHtml chip) -
+// data-tip-press, which only a long press shows (tooltip.js): no box over either, and a long press still presses nothing.
+/** @param {boolean} quiet @param {string} tip */
+function pvTipAttr(quiet,tip){return quiet?html`data-tip-press="${tip}"`:html`data-tip="${tip}"`;}
 // The pressed word's context (P2-3: taking a verdict back by pressing its word again must be found without a hover - a
 // line holding a save chip or a popover draws no descriptions, and touch has none): one short sentence, the pressed word's
 // description for assistive technology (aria-describedby="pv-on-<page>") and shown over the word group - never in the
@@ -737,29 +768,44 @@ function sizePv(){const ir=pvInsetR(),L=$('#left'),lines=$$('#doc .pv');
     if(a&&fitted&&end-a.left<w&&end-a.left>=PV_MIN_W){w=end-a.left; ml=Math.round(a.off)+'px';}
     e.style.width=Math.round(w)+'px'; e.style.marginLeft=ml;});
   pvFit(lines);}
+// The verdict pins saved by a key on this screen (PV_KEY_SAVE, each in turn): their lines (.pv-kw) are fitted at either look of
+// the way to the reason (pvFit). The last key save's alone says 'Enter 이유 쓰기', but one that stopped being it and was
+// fitted again on [이유 추가] alone moved the pages under the next key save.
+const PV_KEY_SAVED=/** @type {Set<number>} */(new Set());
 // One row or stacked, decided per line (.pv-stack; P2-7 of the 0.4.33 review: one line with an earlier verdict or a reason
 // stacked every line of the document, 88px over the plot at 1440). Each line is laid out as one row - the figure's title cut
 // first, down to its identifier ('6쪽 · PL17', pvFigParts; --pv-fig-min), then the reason and the earlier link
 // (components.css) - and stacks only when its state's own words, [판정 취소] and its buttons still cannot share the row: the
 // state runs past its share, or the buttons went to a row of their own (a narrow page). On the wide band a line that does not
-// fit first lets the reason and the earlier link go further (.pv-tight): a desktop keeps one row, a second row covered the
-// plot. A line narrower than a verdict's state beside its words stacks whatever it shows, so a press never stacks it. A line whose confirm word waits for its second press, or whose save is out, keeps the rows it has (pvRowsHeld): its
+// fit first lets the reason go further and the earlier link say its count alone (.pv-tight): a desktop keeps one row, a
+// second row covered the plot. A line narrower than a verdict's state beside its words stacks whatever it shows, so a press never stacks it. A line whose confirm word waits for its second press, or whose save is out, keeps the rows it has (pvRowsHeld): its
 // words moving between the two presses sent the second one elsewhere. The save chip is placed after (pvChipPlace).
 // Read and written in batches.
+// While the page is pinch-zoomed the PDF area does not anchor its scroll for the pass (pvHoldView): the pass grows every
+// line above the reading page and shrinks it back (#doc.pv-measure), and Chromium carried the anchoring of that shrink -
+// the area is the page's root scroller there - into the zoomed view, which went from where it was to the page's top
+// (422 -> 0 at 2x) at every drawing of the lines: a save, a take-back (#320).
 /** @param {HTMLElement[]} lines */
-function pvFit(lines){const held=lines.map(pvRowsHeld),D=$('#doc');
-  lines.forEach((l,i)=>{if(!held[i]){l.classList.toggle('pv-stack',false); l.classList.toggle('pv-tight',false); l.style.removeProperty('--pv-t-h');}});
+function pvFit(lines){const held=lines.map(pvRowsHeld),D=$('#doc'),hold=pvHoldView(true); try{
+  pvFarHold(lines);   // a line skipped far from the view is laid out to be measured, and keeps its height after (pvFarLetGo)
+  if(PV_KEY_SAVE)PV_KEY_SAVED.add(PV_KEY_SAVE);
+  lines.forEach((l,i)=>{l.classList.toggle('pv-kw',PV_KEY_SAVED.has(Number(l.dataset.pin)));
+    if(!held[i]){l.classList.remove('pv-stack','pv-tight','pv-early-out'); l.style.removeProperty('--pv-t-h');}});
   // Every line is measured as the reading line (#doc.pv-measure shows each hidden identifier, components.css): a line that
   // stacked only while it was read shrank when the reading page left (91 -> 32px on a 260px page) and moved the pages.
   D.classList.add('pv-measure');
   // The figure's least width is its identifier's (--pv-fig-min): its title's own text would otherwise count in it.
   const ids=lines.map(l=>{const e=l.querySelector(':scope>.pv-fig>.pv-fig-id'); return e&&e.getClientRects().length?Math.ceil(e.getBoundingClientRect().width):0;});
   lines.forEach((l,i)=>{const v=ids[i]+'px'; if(l.style.getPropertyValue('--pv-fig-min')!==v)l.style.setProperty('--pv-fig-min',v);});
-  // Whether line l's row does not hold: the state runs past its share (its parts, also those inside a display: contents span -
-  // the reason and [이유 추가]), or the buttons went to a row of their own.
-  const tight=(/** @type {HTMLElement} */l)=>{const t=l.querySelector(':scope>.pv-t'),g=l.querySelector(':scope>.vd-btns'); if(!t)return false;
-    const tr=t.getBoundingClientRect(); return [...t.querySelectorAll(':scope>*,:scope>*>*')].some(c=>c.getClientRects().length>0&&c.getBoundingClientRect().right>tr.right+1)
-      ||(!!g&&g.getClientRects().length>0&&g.getBoundingClientRect().top>=tr.bottom-1);};
+  // How far line l's state runs past its share, in px (its parts, also those inside a display: contents span - the reason and
+  // [이유 추가]; 0 or less where it holds), less pvAddCut - a key save's way to the reason is drawn at the wider of its two
+  // looks (--pv-add-w, set below) with the earlier link beside it, which it never shows at once -, or Infinity where the
+  // buttons went to a row of their own. Its row does not hold (tight) past 1px.
+  const past=(/** @type {HTMLElement} */l)=>{const t=l.querySelector(':scope>.pv-t'),g=l.querySelector(':scope>.vd-btns'); if(!t)return -Infinity;
+    const tr=t.getBoundingClientRect(); if(g&&g.getClientRects().length>0&&g.getBoundingClientRect().top>=tr.bottom-1)return Infinity;
+    const r=[...t.querySelectorAll(':scope>*,:scope>*>*')].reduce((m,c)=>c.getClientRects().length>0?Math.max(m,c.getBoundingClientRect().right):m,-Infinity);
+    return r-tr.right-pvAddCut(l,t,addD);};
+  const tight=(/** @type {HTMLElement} */l)=>past(l)>1;
   // A line too narrow for the state a press brings beside its words stacks whatever it shows now: a press that turned '판정 없음'
   // into '판정 #26 보류 · 처리 대기 · 이유 추가 · 판정 취소' stacked it then and moved every word under the finger (a phone, a page at
   // a small zoom: 3 rows, 91px, the words 59px down). That state's width is measured, not guessed (pvStateNeed), and so is
@@ -769,12 +815,23 @@ function pvFit(lines){const held=lines.map(pvRowsHeld),D=$('#doc');
   // the check as nothing - 5px too much for a resting line, 21px too little for a press: a line within 21px of the bar
   // stacked under its first press, a Korean one too (#308; the English words are sized for a 620px line, ui_en.json).
   const need=lines.length?pvStateNeed(lines[0]):0,gap=lines.length?parseFloat(getComputedStyle(lines[0]).columnGap)||0:0;
+  // A key save's line - read, it says 'Enter 이유 쓰기'; at rest, [이유 추가] - lays its way to the reason out at the wider of
+  // the two (the probe's, PV_NEED.add; .pv-kw, components.css #doc.pv-measure), so it is fitted the same whichever page is
+  // read. Fitted on the look it showed, a line within the 40px between them (Korean) stacked only while it was read.
+  const aw=PV_NEED.add,addD=Math.max(0,aw[1]-aw[0]),addW=Math.max(aw[0],aw[1])+'px'; if(D.style.getPropertyValue('--pv-add-w')!==addW)D.style.setProperty('--pv-add-w',addW);
   const W=(/** @type {Element|null} */e)=>e&&e.getClientRects().length?e.getBoundingClientRect().width:0;
   const narrow=lines.map((l,i)=>{if(held[i])return false; const g=l.querySelector(':scope>.vd-btns'),f=W(l.querySelector(':scope>.pv-fig>.pv-fig-id')); if(!g||!g.getClientRects().length)return false;
     const press=g.querySelector(':scope>.vd-b[aria-pressed="true"]')?0:PV_NEED.check,id=f?f+W(l.querySelector(':scope>.pv-fig-sep'))+2*gap:0;
     return l.getBoundingClientRect().width<W(g)+press+id+gap+need;});
   let over=lines.map((l,i)=>!held[i]&&(narrow[i]||tight(l)));
-  if(LAYOUT===LAYOUT_MODE.WIDE&&over.some(o=>o)){lines.forEach((l,i)=>{if(over[i])l.classList.add('pv-tight');}); over=lines.map((l,i)=>over[i]&&(narrow[i]||tight(l)));}
+  // A tight line whose row holds all but its earlier link's count lets that step out too (.pv-early-out) rather than stack:
+  // the last thing a desktop row gives way, at its bar - a line the person saved by a key over an earlier verdict there
+  // ('+1' beside [이유 추가] at rest, which 'Enter 이유 쓰기' takes the place of while it is read: components.css).
+  const out=lines.map(()=>false);
+  if(LAYOUT===LAYOUT_MODE.WIDE&&over.some(o=>o)){lines.forEach((l,i)=>{if(over[i])l.classList.add('pv-tight');});
+    over=lines.map((l,i)=>{if(!over[i]||narrow[i])return over[i]; const p=past(l); if(p<=1)return false;
+      const t=/** @type {HTMLElement} */(l.querySelector(':scope>.pv-t')); out[i]=p-pvEarlyRoom(t)+pvAddCut(l,t,addD)<=1; return !out[i];});
+    lines.forEach((l,i)=>{if(out[i])l.classList.add('pv-early-out');});}
   lines.forEach((l,i)=>{if(over[i])l.classList.add('pv-stack');});
   // A stacked line's state rows are the reading line's too: their height, measured here with what only the reading line shows
   // ([이유 추가], laid out unseen), is the least the state takes (--pv-t-h, components.css). Beside an earlier link a 420px
@@ -788,7 +845,20 @@ function pvFit(lines){const held=lines.map(pvRowsHeld),D=$('#doc');
   pvChipPlace(lines);
   // A word group that wraps keeps every button at its own width (vdWrapFit), read for every line before any is written.
   const groups=lines.map(l=>l.querySelector('.vd-btns')),wrap=groups.map(g=>!!g&&new Set([...g.children].map(b=>Math.round(b.getBoundingClientRect().top))).size>1);
-  groups.forEach((g,i)=>{if(g)g.classList.toggle('wrapped',wrap[i]);});}
+  groups.forEach((g,i)=>{if(g)g.classList.toggle('wrapped',wrap[i]);});
+  pvFocusStays(lines);}
+  // Also when a step throws: never left measuring, every line keeps the height it is drawn at and may be skipped again
+  // (pvFarLetGo, read once the measure is gone), and the view anchors again only after that - whatever pvFarLetGo does.
+  finally{D.classList.remove('pv-measure'); try{pvFarLetGo(lines);}finally{pvHoldView(false,hold);}}}
+// Holds a pinch-zoomed view where it is across pvFit's pass (on) and lets go after it (off, given what on returned): the PDF
+// area does not anchor its scroll (overflow-anchor), and its layout is brought up to date before it anchors again, so the
+// anchor it then takes is where the pass left the pages - never a measure's grown lines. On returns the area's own value it
+// replaced, which off puts back (a pass inside a pass leaves the outer one's hold), or null where it held nothing. At no zoom
+// it does nothing: the view cannot move there, and the area's anchoring stays as it is (no scroll of its own, ever).
+/** @param {boolean} on @param {string|null} [was] @returns {string|null} */
+function pvHoldView(on,was){const L=$('#left'),vv=window.visualViewport;
+  if(!on){if(typeof was!=='string')return null; void L.offsetHeight; if(was)L.style.setProperty('overflow-anchor',was); else L.style.removeProperty('overflow-anchor'); return null;}
+  if(!vv||vv.scale<=1)return null; const prev=L.style.getPropertyValue('overflow-anchor'); L.style.setProperty('overflow-anchor','none'); return prev;}
 // The width the state of a person's fresh verdict takes on a line in a row, drawn in a hidden line like line l (its text size,
 // the screen's language and pointer) and kept until those or the next pin number's digits change. Two states follow a
 // press: after a click '판정 #0 <the longest word> · 처리 대기 · 이유 추가 · 판정 취소', and on a mouse screen after a key
@@ -799,31 +869,60 @@ function pvFit(lines){const held=lines.map(pvRowsHeld),D=$('#doc');
 // the line under the press, and a second save's words pushed [판정 취소] out of the held row (#308). The probe then draws
 // the longest word pressed and not (its check before it, its weight; one key mark on both): what a press adds to the
 // words, kept as PV_NEED.check - 21px, which a line with no pressed word did not count and lost to its first press.
-let PV_NEED={key:'',w:0,check:0};
+// PV_NEED.add: the way to the reason's own width as [이유 추가] and as 'Enter 이유 쓰기' (a mouse screen's; [이유 추가]'s
+// again on a touch one), which every line is fitted at the wider of (pvFit).
+let PV_NEED={key:'',w:0,check:0,add:[0,0]};
 /** @param {HTMLElement} l */
 function pvStateNeed(l){const v=pageVerdictsOn(); if(!v)return 0;
   const word=v.choices.map(c=>c.label).reduce((a,b)=>b.length>a.length?b:a,''),fine=matchMedia('(pointer:fine)').matches,num='#'+'0'.repeat(String(pvTopId()+1).length);
   const key=[getComputedStyle(l).fontSize,tr('판정'),word,MQ_COARSE.matches,fine,num].join('|');
   if(PV_NEED.key===key)return PV_NEED.w;
   const probe=document.createElement('div'); probe.className='pv'; probe.setAttribute('aria-hidden','true');
-  probe.style.cssText='position:absolute;left:0;top:0;width:max-content;visibility:hidden;pointer-events:none';
+  probe.style.cssText='position:absolute;left:0;top:0;width:max-content;visibility:hidden;pointer-events:none;--pv-add-w:0px';   // its own width, not the lines' (pvFit)
   $('#doc').appendChild(probe);
   const state=(/** @type {boolean} */kb)=>{setHtml(probe,html`<span class="pv-t"><span class="pv-s">${tr('판정')} <span class="pin-ref pv-ref hit">${num}</span> <b class="vd-w">${word}</b></span><span class="pv-sep">·</span>\
 <span class="pv-st">${tr('처리 대기')}</span><span class="pv-ra"><span class="pv-sep">·</span><button type="button" class="btn-ghost btn-sm pv-add hit" tabindex="-1">\
 ${kb?html`<kbd class="pv-kbd">Enter</kbd> ${tr('이유 쓰기')}`:tr('이유 추가')}</button></span>\
 <span class="pv-sep pv-cn">·</span><button type="button" class="btn-ghost btn-sm pv-cancel pv-cn hit" tabindex="-1">${tr('판정 취소')}</button></span>`);
-    const t=/** @type {HTMLElement} */(probe.firstElementChild); return t.getBoundingClientRect().width+(parseFloat(getComputedStyle(t).columnGap)||0);};
-  const w=Math.ceil(Math.max(state(false),fine?state(true):0));
+    const t=/** @type {HTMLElement} */(probe.firstElementChild),a=/** @type {HTMLElement} */(t.querySelector('.pv-add'));
+    return [t.getBoundingClientRect().width+(parseFloat(getComputedStyle(t).columnGap)||0),a.getBoundingClientRect().width];};
+  const sc=state(false),sk=fine?state(true):sc,w=Math.ceil(Math.max(sc[0],sk[0]));
   setHtml(probe,html`<span class="vd-btns"><button type="button" class="vd-b" aria-pressed="true" data-kn="1" tabindex="-1">${ic('check')}<span class="lbl">${word}</span></button>\
 <button type="button" class="vd-b" aria-pressed="false" data-kn="1" tabindex="-1"><span class="lbl">${word}</span></button></span>`);
   const b=[...probe.querySelectorAll('.vd-b')].map(x=>x.getBoundingClientRect().width),check=Math.max(0,b[0]-b[1]); probe.remove();
-  PV_NEED={key,w,check}; return w;}
+  PV_NEED={key,w,check,add:[sc[1],sk[1]]}; return w;}
 // A web font that arrives after the lines were measured - the bundled Pretendard after the fallback face - changes every
 // width: the state's width is measured again and every line fits itself again (sizePv), once each font load is done and
 // when the fonts are ready after boot. Kept from the fallback face, a width near the stacking threshold let the first save
 // still move the words.
-function pvFontsChanged(){PV_NEED={key:'',w:0,check:0}; if($$('#doc .pv').length)sizePv();}
+function pvFontsChanged(){PV_NEED={key:'',w:0,check:0,add:[0,0]}; if($$('#doc .pv').length)sizePv();}
 if(document.fonts){document.fonts.addEventListener('loadingdone',pvFontsChanged); document.fonts.addEventListener('loadingerror',pvFontsChanged); document.fonts.ready.then(pvFontsChanged);}
+// How much less than drawn a key save's line l's state (t) takes at most in a row, while it is fitted (pvFit): with its way to
+// the reason drawn at the wider of its looks (d px more than [이유 추가]: 'Enter 이유 쓰기') and the earlier link beside it -
+// which a tight line shows beside [이유 추가] but not beside 'Enter 이유 쓰기' (components.css) - the more of the two looks
+// takes d less, or the link and its gap less, whichever is less. 0 for any other line, and for one that is not tight: it
+// shows the link beside both.
+/** @param {HTMLElement} l @param {Element} t @param {number} d @returns {number} */
+function pvAddCut(l,t,d){if(!d||!l.classList.contains('pv-kw')||!l.classList.contains('pv-tight')||!t.querySelector(':scope>.pv-ra>.pv-add'))return 0;
+  const e=pvEarlyRoom(t); return e?Math.min(d,e):0;}
+// A focus on a control of one of these lines that its fitting just took out - the earlier link stepping out at a tight row's
+// bar (.pv-early-out), or beside 'Enter 이유 쓰기' or [되돌리기] on a row that turned tight (components.css), after a resize, a
+// zoom of the browser or of the pages, or a redraw - moves at once, without a scroll, to the control before it on its line
+// ([판정 취소], 'Enter 이유 쓰기', the '#N' link), else to the line's first. Hidden with the focus on it, the link took the
+// focus away to nothing and the next Tab started from the top (Chromium lets a hidden focus go a moment later: the move is
+// made before that). Every way the fitting hides a control comes through here, and so does a phone's floating line holding
+// [판정 취소] back (pvLean).
+/** @param {HTMLElement[]} lines */
+function pvFocusStays(lines){const a=/** @type {HTMLElement|null} */(document.activeElement),l=a&&a.closest?/** @type {HTMLElement|null} */(a.closest('#doc .pv')):null;
+  if(!a||!l||!lines.includes(l)||(a.getClientRects().length&&getComputedStyle(a).visibility!=='hidden'))return;
+  const cs=[...l.querySelectorAll(PV_TABBABLE)].filter(pvTabStop),before=cs.filter(x=>!!(x.compareDocumentPosition(a)&Node.DOCUMENT_POSITION_FOLLOWING));
+  const to=before.length?before[before.length-1]:cs[0]; if(to)to.focus({preventScroll:true});}
+// The room state t's earlier link takes in its row as drawn - its width, the dot before it and the gap before each - or 0
+// where it shows none.
+/** @param {Element} t @returns {number} */
+function pvEarlyRoom(t){const e=t.querySelector(':scope>.pv-early'); if(!e||!e.getClientRects().length)return 0;
+  const g=parseFloat(getComputedStyle(t).columnGap)||0,d=e.previousElementSibling,dw=d&&d.classList.contains('pv-ea')&&d.getClientRects().length?d.getBoundingClientRect().width+g:0;
+  return e.getBoundingClientRect().width+g+dw;}
 // Whether line l keeps the rows it has now: its confirm word waits for the second press, or its save is out.
 /** @param {HTMLElement} l */
 function pvRowsHeld(l){const p=Number(l.dataset.page)||0; return (!!VD_ARM&&VD_ARM.where===VD_WHERE.PAGE&&VD_ARM.page===p)||PV_BUSY.has(pvSlot(p));}
@@ -937,6 +1036,65 @@ function jumpPv(id){if(!PV_SHOWN.has(id))return false; const p=PINS.find(x=>x.id
   const block=/** @type {HTMLElement} */(line.parentElement),L=$('#left');
   block.scrollIntoView({behavior:SMOOTH,block:block.getBoundingClientRect().height<=L.clientHeight?'center':'start'}); flash(line); return true;}
 
+// ---------------- Lines far from the view (docs/handbook/viewer.md §판정 핀)
+// A line more than a view's height above or below what the PDF area shows is left for the browser to skip (.pv-far:
+// content-visibility:auto, components.css): it is not laid out or painted until it comes near. Each page PDF.js draws for
+// the first time adds its embedded fonts to document.fonts, and every font added makes the browser lay out all the text in
+// the page again: with the far cards already skipped (list.js lazyCards, #305) the 88 lines of a 91-page figure document
+// were about 4,300 of the 7,400 objects laid out at each, and the first wheel scroll through it still had 8-9 long tasks
+// (#322). A skipped line breaks none of the line's rules, because it is never another size than the one it is drawn at:
+// - It stands at its drawn height: --pv-h (the contain-intrinsic-block-size; the line has no padding or border, so its box
+//   is its content box), or the size the browser last drew it at (content-visibility:auto keeps it: contain-intrinsic-size
+//   auto), which is the same. Whatever changes what a line shows or its width fits it again (fillPv, sizePv: pvFit), and
+//   pvFit lays out every line it measures - a skipped one too (pvFarHold) - and keeps its height as it lets go of it
+//   (pvFarLetGo); a line that goes far keeps the height the observer saw instead, where that is the later one. So a skip
+//   never moves the pages and nothing scrolls to make up for one; and every line is still measured as the reading line
+//   (#doc.pv-measure).
+// - Skipping contains a line (paint containment): it draws its parts on whole pixels and clips what reaches past its box (a
+//   focus ring, the pressed word's hint, the reason popover, a save chip). So no line in or near the view is skipped (the
+//   observer's margin), and - whatever the observer said last - neither is the reading line, which floats, a line holding
+//   the focus, its reason popover or a save chip, or a line pvFit is measuring (components.css). A script's measure inside a
+//   skipped line lays it out for the answer (the keys' Tab stops), but the innerText of what is skipped is empty.
+// Without IntersectionObserver no line is skipped.
+let PV_FAR_IO=/** @type {IntersectionObserver|null} */(null),PV_FAR_H=-1;
+const PV_FAR_SEEN=/** @type {Set<HTMLElement>} */(new Set());   // the lines the observer watches
+const PV_FIT_AT=/** @type {WeakMap<HTMLElement,number>} */(new WeakMap());   // when pvFit last kept each line's height (performance.now())
+// The lines pvFit is about to measure are laid out, skipped or not (.pv-fitting).
+/** @param {HTMLElement[]} lines */
+function pvFarHold(lines){if(typeof IntersectionObserver==='undefined')return; lines.forEach(l=>l.classList.add('pv-fitting'));}
+// pvFit is done with lines: each keeps the height it is drawn at now (one not laid out - the changes view - keeps the one it
+// had), may be skipped again, and is watched - a new line too; a line no longer in the page (another document, a rebuild)
+// is no longer watched. Read before any is written.
+/** @param {HTMLElement[]} lines */
+function pvFarLetGo(lines){if(typeof IntersectionObserver==='undefined')return; const h=lines.map(l=>l.getBoundingClientRect().height),at=performance.now();
+  const L=$('#left'),vh=L.clientHeight;
+  lines.forEach((l,i)=>{if(h[i]){l.style.setProperty('--pv-h',h[i]+'px'); PV_FIT_AT.set(l,at);} l.classList.remove('pv-fitting');});
+  pvFarWatch(lines,vh);}
+// Watches lines (new ones; one no longer in the page is let go) with an observer whose margin is the PDF area's height vh, in
+// px above and below its view (a percentage would be of its width): it is made again, watching every line, when that height
+// changes.
+/** @param {HTMLElement[]} lines @param {number} vh */
+function pvFarWatch(lines,vh){
+  if(!PV_FAR_IO||PV_FAR_H!==vh){if(PV_FAR_IO)PV_FAR_IO.disconnect(); PV_FAR_SEEN.clear(); PV_FAR_H=vh;
+    PV_FAR_IO=new IntersectionObserver(pvFarSort,{root:$('#left'),rootMargin:vh+'px 0px'}); lines=$$('#doc .pv');}
+  const io=PV_FAR_IO;
+  PV_FAR_SEEN.forEach(l=>{if(!l.isConnected){io.unobserve(l); PV_FAR_SEEN.delete(l);}});
+  lines.forEach(l=>{if(!PV_FAR_SEEN.has(l)&&l.isConnected){io.observe(l); PV_FAR_SEEN.add(l);}});}
+// The PDF area's height can change with no line fitted again - a window made only shorter while a scale is saved keeps that
+// scale (autoW), so sizePv does not run: the margin follows it here, so far still means a view's height away.
+if(window.ResizeObserver&&window.IntersectionObserver)new ResizeObserver(()=>{const vh=$('#left').clientHeight;
+  if(PV_FAR_IO&&vh&&vh!==PV_FAR_H)pvFarWatch([],vh);}).observe($('#left'));
+// The observer's reports: a line that came within a view's height of the PDF area's view is drawn as it is; one that went
+// further is skipped, at the height the observer saw when that is later than pvFit's - not one not laid out (no height to
+// stand at) or no longer in the page.
+/** @param {IntersectionObserverEntry[]} es */
+function pvFarSort(es){for(const e of es){const l=/** @type {HTMLElement} */(e.target);
+  if(!l.isConnected)continue;
+  if(e.isIntersecting){l.classList.remove('pv-far'); continue;}
+  if(l.classList.contains('pv-far')||!e.boundingClientRect.height)continue;
+  if(e.time>(PV_FIT_AT.get(l)||-1))l.style.setProperty('--pv-h',e.boundingClientRect.height+'px');
+  l.classList.add('pv-far');}}
+
 // ---------------- The line that floats, and the keys (docs/handbook/viewer.md §판정 핀)
 // Only the reading page's line floats: the page under the reading line, the one the section strip names and the keys act
 // on (PV_READ). Its line (.reading) is sticky to the PDF area's bottom within its page's block (.pgw, pages.js buildDoc):
@@ -973,18 +1131,20 @@ function pvStick(){const lines=$$('#doc .pv'); if(!lines.length)return; const L=
     const stuck=l.classList.contains('reading')&&b.bottom>lr.top&&b.top<lr.bottom&&b.top<pg.getBoundingClientRect().bottom+4;   // in its own place it stands 8px under the page
     l.classList.toggle('stuck',stuck); pvLean(l,pg,b,stuck,L,lr);});
   pvPopPlace();}
-// A phone's floating line holds [판정 취소] back (.pv-lean, components.css): on 390px it put a row of its own on the line that
-// already floats over the figure (one verdict 105 -> 131px, with an earlier one 131 -> 191px). The in-place line and the
-// card still offer it, with its 44px. Hysteresis keeps the line from flipping at a page's end: shown, it leans once the
-// line floats; leaning, it is shown again only when the line with it (its full height, measured when it was last shown)
-// fits in its place under the page - showing it never makes the line float again. Desktop and every other band: never.
+// A phone's floating line holds [판정 취소] back (.pv-lean, components.css): unseen, not pressed, focused or heard - and in
+// its place, so the line keeps its rows whether it floats or stands in its place. Taken out of the row, it let the short
+// earlier link ('이전 1건') rise into its row while the line floated: 131 against 191px in place, and the next page jumped
+// 60px under the finger as the line crossed its page's end. The in-place line and the card still offer it, with its 44px.
+// Hysteresis keeps it from flipping at a page's end: shown, it leans once the line floats; leaning, it is shown again only
+// when the line (its full height, measured when it was last shown) fits in its place under the page. Desktop and every
+// other band: never.
 const PV_FULL_H=/** @type {WeakMap<HTMLElement,{h:number,gap:number}>} */(new WeakMap());
 /** @param {HTMLElement} l @param {HTMLElement} pg @param {DOMRect} b @param {boolean} stuck @param {HTMLElement} L @param {DOMRect} lr */
 function pvLean(l,pg,b,stuck,L,lr){
   if(!document.body.classList.contains('band-phone')||!l.classList.contains('reading')||!l.querySelector('.pv-cancel')){l.classList.remove('pv-lean'); return;}
   const m=PV_FULL_H.get(l)||{h:0,gap:8},pb=pg.getBoundingClientRect().bottom; PV_FULL_H.set(l,m);
   if(!stuck)m.gap=Math.max(0,b.top-pb);
-  if(!l.classList.contains('pv-lean')){m.h=b.height; if(stuck)l.classList.add('pv-lean'); return;}
+  if(!l.classList.contains('pv-lean')){m.h=b.height; if(stuck){l.classList.add('pv-lean'); pvFocusStays([l]);} return;}
   // Where a floating line's bottom stands: the area's bottom less its end padding and the line's sticky inset.
   const cs=getComputedStyle(L),limit=lr.top+L.clientHeight-parseFloat(cs.paddingBottom)-(parseFloat(getComputedStyle(l).bottom)||0);
   if(pb+m.gap+(m.h||b.height+64)<=limit)l.classList.remove('pv-lean');}
@@ -1108,13 +1268,45 @@ function pvSayGliding(){lineNote('쪽으로 가는 중이라 판정 키를 받�
 // The focus on nothing (body) counts as on the PDF area after a press there: a press on a page leaves the focus where it was,
 // and Chromium's next Tab starts from the pressed node - which a redrawn canvas had taken away, so it started from the
 // document's first line (page 4 of 91).
+// A reading page with no line (a figure document's list pages, which take no verdict - pageTakesVerdict) or with none of its
+// controls to stop on (a viewer who may not make a verdict, '판정 없음') keeps the pages where they are as well: the Tab goes
+// to the next stop in the pages from that page on - a mark, the next page's line - while it shows whole in the area's view,
+// else on past the pages (pvEdgeStop: the status line's action, the panel's grip), else nowhere (the focus stays). Left to
+// the DOM's order it went to the first line after the pages' start and scrolled them there: from page 1 of a 91-page figure
+// document to page 4, also on first open (#322).
 let PV_PTR_PAGES=false;
 addEventListener('pointerdown',e=>{const t=/** @type {HTMLElement|null} */(e.target); PV_PTR_PAGES=!!t&&!!t.closest&&!!t.closest('#left')&&!t.closest('#doc .pv');},true);
 document.addEventListener('focusin',e=>{const t=/** @type {HTMLElement|null} */(e.target); if(t&&t!==$('#left'))PV_PTR_PAGES=false;});
-addEventListener('keydown',e=>{const a=document.activeElement; if(e.key!=='Tab'||e.shiftKey||e.ctrlKey||e.metaKey||e.altKey||e.defaultPrevented||!(a===$('#left')||((!a||a===document.body)&&PV_PTR_PAGES)))return;
-  const r=pvReadingPage(),l=r?document.querySelector('#doc .pv[data-page="'+r+'"]'):null; if(!l)return;
-  const c=/** @type {HTMLElement|undefined} */([...l.querySelectorAll('a,button,[tabindex="0"]')].find(x=>x instanceof HTMLElement&&x.getClientRects().length>0&&!(/** @type {HTMLButtonElement} */(x).disabled)));
-  if(c){e.preventDefault(); c.focus({preventScroll:true});}});
+// So does Tab with nothing focused where no stop is drawn before the pages - a phone, whose nav bar, outline and section strip
+// are not: its first Tab after opening went to page 4's line and scrolled there (0 -> 2067px).
+addEventListener('keydown',e=>{const a=document.activeElement; if(e.key!=='Tab'||e.shiftKey||e.ctrlKey||e.metaKey||e.altKey||e.defaultPrevented)return;
+  if(!(a===$('#left')||((!a||a===document.body)&&(PV_PTR_PAGES||!pvEdgeStop(false)))))return;
+  const at=pvReadingAt(); if(!at)return;   // no page lines, or the pages are not shown: the DOM's order scrolls nothing to a line
+  const r=pvReadingPage(),l=r?document.querySelector('#doc .pv[data-page="'+r+'"]'):null;
+  const c=/** @type {HTMLElement|undefined} */(l?[...l.querySelectorAll('a,button,[tabindex="0"]')].find(x=>x instanceof HTMLElement&&x.getClientRects().length>0&&!(/** @type {HTMLButtonElement} */(x).disabled)):undefined);
+  e.preventDefault(); const v=c?null:pvStopInView(at),to=c||v||pvEdgeStop(true);
+  PV_IN_VIEW=v?{el:v,visit:captureVisit(),build:(META&&META.pages_build)||''}:null; if(to)to.focus({preventScroll:true});});
+// The stop in the pages that Tab from the PDF area went to in view, while the reading page had no line to go to (above): a
+// mark, or a later page's line. Shift+Tab from it leaves the pages the way the reading line's first stop does (pvOutStop,
+// below) - the DOM's stop before it is a page above, off the screen, and the focus scrolled the pages there. Let go when the
+// focus leaves the pages, on another document or build, and by the next Tab from the area.
+let PV_IN_VIEW=/** @type {{el:HTMLElement,visit:{doc:string|null,seq:number},build:string}|null} */(null);
+// The first Tab stop in the pages from page `at` on - its own marks, then the next pages' marks and lines in the DOM's
+// order - when that stop shows whole in the PDF area's view (its client box, within the window) and nothing lies over any of
+// it (the status line or the sheet over the area's bottom, a panel laid over its side: what its middle and four points 4px in
+// from its corners hit is it), else null. Hit at its middle alone, a line half under the status line was taken. Reads the
+// page blocks from `at` down to the area's bottom only.
+/** @param {number} at @returns {HTMLElement|null} */
+function pvStopInView(at){const L=$('#left'),v=L.getBoundingClientRect(),top=Math.max(0,v.top+L.clientTop),left=Math.max(0,v.left+L.clientLeft);
+  const bot=Math.min(innerHeight,v.top+L.clientTop+L.clientHeight),right=Math.min(innerWidth,v.left+L.clientLeft+L.clientWidth);
+  for(let n=at,b=document.querySelector('#doc .pgw[data-page="'+n+'"]');b;b=document.querySelector('#doc .pgw[data-page="'+(++n)+'"]')){
+    if(b.getBoundingClientRect().top>=bot)return null;
+    const x=[...b.querySelectorAll(PV_TABBABLE)].find(pvTabStop); if(!x)continue;
+    const s=x.getBoundingClientRect(); if(s.top<top||s.bottom>bot||s.left<left||s.right>right)return null;
+    const ix=Math.min(4,s.width/4),iy=Math.min(4,s.height/4),xs=[s.left+ix,(s.left+s.right)/2,s.right-ix],ys=[s.top+iy,(s.top+s.bottom)/2,s.bottom-iy];
+    const pts=[[xs[1],ys[1]],[xs[0],ys[0]],[xs[2],ys[0]],[xs[0],ys[2]],[xs[2],ys[2]]];
+    return pts.every(([px,py])=>{const h=document.elementFromPoint(px,py); return !!h&&(h===x||(!!h.closest&&h.closest(PV_TABBABLE)===x));})?x:null;}
+  return null;}
 // Tab into the pages from outside them - the outline, the section strip, the panel by Shift+Tab - goes to the reading page's
 // line too (its first control; its last by Shift+Tab), else to the PDF area: the DOM's next stop is the first page's line (or
 // the last page's), whose focus scrolled the document there. Only a Tab across the pages' edge is taken - from the last stop
@@ -1142,7 +1334,7 @@ function pvEdgeStop(after){const w=document.createTreeWalker(document.body,NodeF
 let PV_CAME=/** @type {{el:HTMLElement,visit:{doc:string|null,seq:number},build:string}|null} */(null);
 /** @param {HTMLElement} el */
 function pvCame(el){PV_CAME={el,visit:captureVisit(),build:(META&&META.pages_build)||''};}
-document.addEventListener('focusin',e=>{const t=e.target; if(t instanceof Element&&!t.closest('#left'))PV_CAME=null;});
+document.addEventListener('focusin',e=>{const t=e.target; if(t instanceof Element&&!t.closest('#left')){PV_CAME=null; PV_IN_VIEW=null;}});
 // Where Shift+Tab leaves the pages to: where the focus came from (PV_CAME) while it is still a stop of this document and build
 // before the pages - or, where nothing comes before them (a phone: the nav bar, the outline and the section strip are not
 // drawn), one in the tool bar over the sheet (#bar1) -, else the last stop before the pages (pvEdgeStop: the section strip's
@@ -1167,10 +1359,13 @@ addEventListener('keydown',e=>{const a=/** @type {HTMLElement|null} */(document.
 // it is the page before's line: each Shift+Tab scrolled the document a page up, and 80 of them on a 91-page figure
 // document never reached the outline. The earlier pages' lines are reached by PageUp, which makes each the reading page in
 // turn. A line with its reason popover open keeps Tab to itself first (verdict-reason.js, on #doc), and another page's line
-// or mark is left to the DOM's order.
+// or mark is left to the DOM's order - but for the stop Tab from the PDF area went to in view while the reading page had no
+// line (PV_IN_VIEW), which leaves the same way.
 addEventListener('keydown',e=>{if(e.key!=='Tab'||!e.shiftKey||e.ctrlKey||e.metaKey||e.altKey||e.defaultPrevented)return;
   const a=/** @type {HTMLElement|null} */(document.activeElement),blk=a&&a.closest?a.closest('#doc .pgw'):null,l=blk&&blk.querySelector(':scope>.pv');
-  if(!a||!blk||!l||Number(/** @type {HTMLElement} */(l).dataset.page)!==pvReadingPage())return;
-  const first=[...blk.querySelectorAll(PV_TABBABLE)].find(pvTabStop); if(first!==a)return;
+  const iv=PV_IN_VIEW; if(iv&&!(currentVisit(iv.visit)&&iv.build===((META&&META.pages_build)||'')))PV_IN_VIEW=null;
+  if(!(a&&PV_IN_VIEW&&PV_IN_VIEW.el===a)){   // the stop Tab went to in view (above), on a page with a line or none
+    if(!a||!blk||!l||Number(/** @type {HTMLElement} */(l).dataset.page)!==pvReadingPage())return;
+    const first=[...blk.querySelectorAll(PV_TABBABLE)].find(pvTabStop); if(first!==a)return;}
   const to=pvOutStop(); if(!to)return; e.preventDefault(); to.focus({preventScroll:true});
   if(to.closest('#outline'))to.scrollIntoView({block:'nearest'});});   // an outline entry comes into the outline's view; the pages stay

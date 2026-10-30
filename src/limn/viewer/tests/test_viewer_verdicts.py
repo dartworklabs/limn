@@ -298,7 +298,7 @@ class PageLine(VerdictBase):
         """On the figure, a selection with a note open: 채택 on page 1's line saves a verdict about the page's figure
         (el.path == [el.id]) with no note, and the selection and its note stay. The line says it, its page-size mark is not
         drawn and [보기] goes to the line; another word is a new pin, which the line now shows, with the earlier one as
-        '이전 판정 1건 · 새 판정으로 대체됨' and no page-size mark either - the line accounts for both. Page 2 has none. The line
+        '이전 1건' (named '이전 판정 1건 · 새 판정으로 대체됨') and no page-size mark either - the line accounts for both. Page 2 has none. The line
         reads '판정 #N 채택 · 처리 대기'; its current word is pressed and says a press takes it back, the others that a press
         saves them as the page's verdict."""
         page = self.on("fig")
@@ -340,7 +340,11 @@ class PageLine(VerdictBase):
         second = self.press_page(page, 1, "보류")
         line = page.evaluate(LINE, 1)
         self.assertEqual(line["pin"], str(second))
-        self.assertEqual(line["text"], "판정 #%d 보류 · 처리 대기 이전 판정 1건 · 새 판정으로 대체됨" % second)
+        self.assertEqual(line["text"], "판정 #%d 보류 · 처리 대기 · 이전 1건" % second)
+        self.assertEqual(
+            page.evaluate("document.querySelector('#doc .pv[data-page=\"1\"] .pv-early').getAttribute('aria-label')"),
+            "이전 판정 1건 · 새 판정으로 대체됨",
+        )
         self.assertEqual(page.locator('.mark[data-pin="%d"]' % first).count(), 0)
         self.assertEqual(page.locator('.mark[data-pin="%d"]' % second).count(), 0)
         page.evaluate("id=>jumpPin(id)", second)
@@ -387,9 +391,7 @@ class PageLine(VerdictBase):
         self.reload(page)
         line = page.evaluate(LINE, 2)
         self.assertEqual(line["pin"], str(made["id"]))
-        self.assertRegex(
-            line["text"], r"^판정 #%d 채택 · 처리됨 · Bob .+ 이전 판정 1건 · 새 판정으로 대체됨$" % made["id"]
-        )
+        self.assertRegex(line["text"], r"^판정 #%d 채택 · 처리됨 · Bob .+ 이전 1건$" % made["id"])
         page.locator('#doc .pv[data-page="2"] .pv-early').click()
         page.wait_for_function("id=>document.querySelector('.pin[data-id=\"'+id+'\"].flash')", arg=older)
 
@@ -3142,7 +3144,7 @@ class FigureTarget(VerdictBase):
 
     def test_the_line_counts_an_element_verdict_as_its_figures(self):
         """An older element verdict on the July cell is page 1's verdict on its line; a newer 채택 from the line supersedes
-        it - the line shows the new one with '이전 판정 1건', the element verdict's card reads '이전 판정 · #N로 대체됨'."""
+        it - the line shows the new one with '이전 1건', the element verdict's card reads '이전 판정 · #N로 대체됨'."""
         old = self.element_verdict("보류")
         page = self.on("fig", n_open=1)
         self.assertEqual(page.evaluate(LINE, 1)["pin"], str(old))
@@ -3150,7 +3152,7 @@ class FigureTarget(VerdictBase):
         new = self.press_page(page, 1, "채택")
         line = page.evaluate(LINE, 1)
         self.assertEqual(line["pin"], str(new))
-        self.assertIn("이전 판정 1건", line["text"])
+        self.assertIn("이전 1건", line["text"])
         self.assertIn(
             "#%d" % new,
             page.evaluate("id=>document.querySelector('#list .pin.card[data-id=\"'+id+'\"] .vd-old').textContent", old),
@@ -3565,16 +3567,16 @@ class ReasonAgentRole(VerdictBase):
         self.assertEqual(len(self.pins()), 1)
 
 
-def verdict_as(case, who, page_n, key, doc="fig"):
-    """A verdict pin on figure page page_n's whole figure, made by who through the API (the page line's pick and body);
-    its id."""
+def verdict_as(case, who, page_n, key, doc="fig", note=""):
+    """A verdict pin on figure page page_n's whole figure, made by who through the API (the page line's pick and body),
+    with note as its reason; its id."""
     meta = case.call("GET", "/api/meta?doc=%s" % doc)[1]
     pg = meta["pages"][page_n - 1]
     pick = {"doc": doc, "page": page_n, "x0": 0, "y0": 0, "x1": pg["pt_w"], "y1": pg["pt_h"], "frac": [0, 0, 1, 1]}
     code, d = case.call("POST", "/api/pick", {**pick, "pdf_build": meta["pages_build"]}, who)
     case.assertEqual(code, 200, d)
     body = {k: d[k] for k in helpers_figure.SAVE_LINE if d.get(k) is not None}
-    body.update(scope=d["default_level"], doc=doc, note="", kind_req="fix", assignee="agent", verdict=key)
+    body.update(scope=d["default_level"], doc=doc, note=note, kind_req="fix", assignee="agent", verdict=key)
     code, made = case.call("POST", "/api/pin", body, who)
     case.assertEqual(code, 200, made)
     return made["id"]
@@ -3744,12 +3746,12 @@ class Cancel(VerdictBase):
         self.assertEqual((got["name"], got["shown"]), ("지우기", False))
 
     def test_a_phones_floating_line_holds_the_cancel_back_and_the_in_place_line_offers_it(self):
-        """390x844 touch, page 2 taller than the area and Alice's verdict on it: while its line floats it has no
-        [판정 취소] (the line is no taller than without it); scrolled until the line stands in its place under the page, it
-        offers it with its 44px. Near that point the line does not flip between the two. At 1400 the floating line keeps
-        it."""
+        """390x844 touch, page 2 taller than the area and Alice's verdict on it: while its line floats its [판정 취소] is not
+        shown - nor pressed, focused or heard - but keeps its place (#322: the line's rows are the same floating and in
+        place); scrolled until the line stands in its place under the page, it offers it with its 44px. Near that point
+        the line does not flip between the two. At 1400 the floating line keeps it."""
         cancel_shown = """n=>{const c=document.querySelector('#doc .pv[data-page="'+n+'"] .pv-cancel'); if(!c)return null;
-          const b=c.getBoundingClientRect(); return c.getClientRects().length?{h:b.height}:false;}"""
+          const b=c.getBoundingClientRect(); return c.getClientRects().length&&getComputedStyle(c).visibility!=='hidden'?{h:b.height}:false;}"""
         phone = self.on("fig", viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
         phone.evaluate("setSide(false)")
         phone.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
@@ -3807,7 +3809,7 @@ class Cancel(VerdictBase):
         word = WORD % (2, "채택")
         state = """s=>{const b=document.querySelector(s), l=b.closest('.pv'), d=document.getElementById(b.getAttribute('aria-describedby')||'');
           const c=l.querySelector('.pv-cancel'), u=l.querySelector('.pv-undo');
-          return {stuck: l.classList.contains('stuck'), cancel: !!c&&c.getClientRects().length>0, undo: !!u&&u.getClientRects().length>0,
+          return {stuck: l.classList.contains('stuck'), cancel: !!c&&c.getClientRects().length>0&&getComputedStyle(c).visibility!=='hidden', undo: !!u&&u.getClientRects().length>0,
             pressed: b.getAttribute('aria-pressed'), desc: d&&d.textContent, h: Math.round(l.getBoundingClientRect().height)};}"""
         rest = phone.evaluate(state, word)
         self.assertEqual(
@@ -3968,10 +3970,14 @@ class ReasonRaces(VerdictBase):
         self.lose_drop = 0  # how many POST /api/pins/N/drop to lose on the network
         self.held_drop: list | None = None  # POST /api/pins/N/drop routes held unanswered while not None
         self.pin_500 = 0  # how many POST /api/pin the server writes and then answers 500
+        self.lose_read = 0  # a pin whose next read (GET /api/pins/N) is lost on the network
 
     def route(self, route):
         rq = route.request
         path = urlparse(rq.url).path
+        if rq.method == "GET" and self.lose_read and path == "/api/pins/%d" % self.lose_read:
+            self.lose_read = 0
+            return route.abort()
         if rq.method == "POST" and path == "/api/pin" and self.pin_500:
             self.pin_500 -= 1
             self.forward(_Swallowed(route))
@@ -4619,32 +4625,44 @@ class ReasonRaces(VerdictBase):
 
     def test_a_changed_saved_reason_moves_only_the_persons_own_text(self):
         """'내 이유' saved, Bob adds '밥의 덧붙임' under it; the saved reason opened and its own line changed to '내 이유 고침',
-        then 보류 pressed on the line: the popover follows the new verdict with '내 이유 고침' only - Bob's line stays on the
-        old verdict and is not copied as the person's reason (decision on the RC failure test)."""
-        page = self.on("fig")
-        a = self.typed(page, 1, "내 이유")
-        page.keyboard.press("Enter")
-        page.wait_for_function("()=>!document.querySelector('#doc .pv-reason')")
-        settle(page)
-        self.assertEqual(self.call("POST", "/api/pins/%d/edit" % a, {"note_append": "밥의 덧붙임"}, BOB)[0], 200)
-        self.reload(page)
-        field = open_reason(page, 1)
-        before = field.input_value()
-        self.assertRegex(before, r"^내 이유\n\(추가 \d{1,2}:\d{2}\) 밥의 덧붙임$")
-        page.fill('#doc .pv[data-page="1"] .pv-reason', before.replace("내 이유", "내 이유 고침", 1))
-        page.locator('#doc .pv[data-page="1"] button[data-key="보류"]').click()
-        b = page.wait_for_function(
-            "id=>{const p=OPEN_ALL.find(p=>p.id>id&&p.verdict==='보류'); return p&&p.id;}", arg=a
-        ).json_value()
-        settle(page)
-        self.assertEqual(page.evaluate(POP, 1)["value"], "내 이유 고침")
-        self.assertEqual(page.evaluate(DRAFTS), {"fig:%d" % b: "내 이유 고침"})
-        page.locator('#doc .pv[data-page="1"] .pv-reason').focus()
-        page.keyboard.press("Enter")
-        page.wait_for_function("()=>!document.querySelector('#doc .pv-reason')")
-        settle(page)
-        self.assertEqual(self.note(b), "내 이유 고침")
-        self.assertEqual(self.note(a), before)
+        then - with the popover open, or folded ([접기]) - 보류 pressed on the line: the new verdict's draft is '내 이유 고침'
+        only - Bob's line stays on the old verdict and is not copied as the person's reason (decision on the RC failure
+        test; the folded draft carried it until the 0.4.36 RC failure test) - and Enter writes that on the new verdict."""
+        field = '#doc .pv[data-page="1"] .pv-reason'
+        for case in ("open", "folded"):
+            with self.subTest(case=case):
+                self.drop_all()
+                page = self.on("fig")
+                a = self.typed(page, 1, "내 이유")
+                page.keyboard.press("Enter")
+                page.wait_for_function("()=>!document.querySelector('#doc .pv-reason')")
+                settle(page)
+                self.assertEqual(
+                    self.call("POST", "/api/pins/%d/edit" % a, {"note_append": "밥의 덧붙임"}, BOB)[0], 200
+                )
+                self.reload(page)
+                before = open_reason(page, 1).input_value()
+                self.assertRegex(before, r"^내 이유\n\(추가 \d{1,2}:\d{2}\) 밥의 덧붙임$")
+                page.fill(field, before.replace("내 이유", "내 이유 고침", 1))
+                if case == "folded":
+                    page.locator('#doc .pv[data-page="1"] [data-act="pv-reason-fold"]').click()
+                    page.wait_for_function("()=>!document.querySelector('#doc .pv-pop')")
+                page.locator('#doc .pv[data-page="1"] button[data-key="보류"]').click()
+                b = page.wait_for_function(
+                    "id=>{const p=OPEN_ALL.find(p=>p.id>id&&p.verdict==='보류'); return p&&p.id;}", arg=a
+                ).json_value()
+                settle(page)
+                self.assertEqual(page.evaluate(DRAFTS), {"fig:%d" % b: "내 이유 고침"})
+                if case == "open":
+                    self.assertEqual(page.evaluate(POP, 1)["value"], "내 이유 고침")
+                    page.locator(field).focus()
+                else:
+                    open_reason(page, 1)
+                page.keyboard.press("Enter")
+                page.wait_for_function("()=>!document.querySelector('#doc .pv-reason')")
+                settle(page)
+                self.assertEqual(self.note(b), "내 이유 고침")
+                self.assertEqual(self.note(a), before)
 
     def test_a_failed_cancel_brings_back_the_unsent_reason(self):
         """'보내지 않은 이유' typed (no Enter), then [판정 취소] lost on the network: the verdict is back on the line and so is
@@ -4679,6 +4697,320 @@ class ReasonRaces(VerdictBase):
         titles = [n["title"] for n in page.evaluate(STATUS)]
         self.assertFalse([t for t in titles if t.startswith("이유 저장 실패") or "지워졌습니다" in t], titles)
         self.assertIn("판정 #%d 채택 취소 · 남은 판정 없음" % pid, titles)
+
+    def lost_and_folded(self, page, text):
+        """Verdict a on page 1 with text typed as its reason and Enter lost on the network before the server saw it - the
+        status line offers a's [다시 시도] - then the popover folded ([접기]): the draft waits on a. Returns a."""
+        a = self.typed(page, 1, text)
+        self.lose_edit = 1
+        page.keyboard.press("Enter")
+        page.wait_for_function("()=>LINE.some(n=>n.title.startsWith('이유 저장 실패'))")
+        settle(page)
+        page.locator('#doc .pv[data-page="1"] [data-act="pv-reason-fold"]').click()
+        page.wait_for_function("()=>!document.querySelector('#doc .pv-pop')")
+        return a
+
+    def retry_reason(self, page):
+        """Press the [다시 시도] of the reason's failure (as its status-line action: the line may show another first)."""
+        page.evaluate(
+            "()=>{const n=[...NOTICES.values()].find(n=>n.title.startsWith('이유 저장 실패')); noticeAct(n.n);}"
+        )
+
+    def test_a_draft_moved_twice_goes_when_the_old_verdicts_write_lands(self):
+        """'두 번 옮긴 이유' for verdict a, its Enter lost and folded, then moved twice before a's [다시 시도] is pressed (#317 1):
+        - a → b → c: 보류 (b), then 채택 (c) on the line, each save moving it to the new verdict;
+        - a → 쪽 → c: [판정 취소] of a fails after 보류 (b) was saved meanwhile - it is the page's draft -, then 채택 (c).
+        a's [다시 시도] writes it on a, and the copy on c goes with it: nothing is kept and the line marks no draft. (It
+        remembered only the key it was last moved off, b's or the page's, so it stayed to be written on c too.)"""
+        text = "두 번 옮긴 이유"
+        for case in ("a → b → c", "a → 쪽 → c"):
+            with self.subTest(case=case):
+                self.drop_all()
+                page = self.on("fig")
+                a = self.lost_and_folded(page, text)
+                if case == "a → b → c":
+                    self.press_page(page, 1, "보류")
+                else:
+                    self.held_drop = []
+                    page.locator(CANCEL % 1).click()
+                    page.wait_for_function("id=>!OPEN_ALL.some(p=>p.id===id)", arg=a)
+                    page.locator('#doc .pv[data-page="1"] button[data-key="보류"]').click()
+                    page.wait_for_function("id=>OPEN_ALL.some(p=>p.id>id&&p.verdict==='보류')", arg=a)
+                    held, self.held_drop = self.held_drop, None
+                    for r in held:
+                        r.abort()
+                    page.wait_for_function("()=>LINE.some(n=>n.title==='판정 취소 실패')")
+                    settle(page)
+                    self.assertEqual(page.evaluate(DRAFTS), {"fig:p1": text})
+                c = self.press_page(page, 1, "채택")
+                self.assertEqual(page.evaluate(DRAFTS), {"fig:%d" % c: text})
+                self.retry_reason(page)
+                page.wait_for_function("id=>LINE.some(n=>n.title==='이유 저장됨 · 판정 #'+id+' 채택')", arg=a)
+                settle(page)
+                self.assertEqual((self.note(a), self.note(c)), (text, ""))
+                self.assertEqual(page.evaluate(DRAFTS), {})
+                self.assertEqual(page.locator('#doc .pv[data-page="1"] .pv-draft').count(), 0)
+
+    def test_a_moved_draft_open_when_the_old_verdicts_write_lands_lets_it_go(self):
+        """'옮긴 이유' for verdict a, its Enter lost and folded, then 보류 (b) on the line - the draft moves to b - and b's
+        '초안 있음' opened before a's [다시 시도] is pressed (#317 2). That write lands:
+        - the popover untouched: it closes - the reason is a's, and the status line says so ('이유는 이전 판정 #a 채택에
+          저장됨 · 지금 판정은 #b 보류') -, the focus is on the line's reason control, a digit typed on makes no verdict, and
+          moving on writes nothing on b (the popover kept the text, and its Enter or moving on wrote it on b too);
+        - a line typed under it: the popover keeps that line only and says the rest went; Enter writes it on b;
+        - Enter pressed in it while a's write is out: it waits - no second edit goes out - then closes the same way."""
+        text = "옮긴 이유"
+        for case in ("untouched", "typed on", "enter first"):
+            with self.subTest(case=case):
+                self.drop_all()
+                self.edits = []
+                page = self.on("fig")
+                a = self.lost_and_folded(page, text)
+                b = self.press_page(page, 1, "보류")
+                self.assertEqual(page.evaluate(DRAFTS), {"fig:%d" % b: text})
+                open_reason(page, 1)
+                if case == "typed on":
+                    page.keyboard.press("Shift+Enter")
+                    page.keyboard.type("더 쓴 줄")
+                if case == "enter first":
+                    self.held_edit = []
+                self.retry_reason(page)
+                if case == "enter first":
+                    self.wait_held_edit(page)
+                    page.keyboard.press("Enter")  # the focus stayed in the field
+                    page.wait_for_timeout(300)  # anything it would send has been sent (held)
+                    held, self.held_edit = self.held_edit, None
+                    self.assertEqual(len(held), 1, self.edits)
+                    for r in held:
+                        self.forward(r)
+                page.wait_for_function("id=>LINE.some(n=>n.title==='이유 저장됨 · 판정 #'+id+' 채택')", arg=a)
+                settle(page)
+                titles = page.evaluate("()=>LINE.map(n=>n.title)")
+                if case == "typed on":
+                    got = page.evaluate(REASON, 1)
+                    self.assertEqual((got["value"], got["focused"]), ("더 쓴 줄", True))
+                    self.assertIn("이유 일부는 이전 판정 #%d 채택에 저장됨 · 초안에는 나머지를 남겼습니다" % a, titles)
+                    page.keyboard.press("Enter")
+                    page.wait_for_function("()=>!document.querySelector('#doc .pv-reason')")
+                    settle(page)
+                    self.assertEqual((self.note(a), self.note(b)), (text, "더 쓴 줄"))
+                    continue
+                self.assertIsNone(page.evaluate(POP, 1))
+                self.assertEqual(page.evaluate(DRAFTS), {})
+                self.assertIn("이유는 이전 판정 #%d 채택에 저장됨 · 지금 판정은 #%d 보류" % (a, b), titles)
+                self.assertEqual(page.evaluate(FOCUS_AT), [1, "pv-reason-open"])
+                # A digit typed on makes no verdict - also after an Enter that waited, whose field was disabled (review
+                # of #323: only a field typed in guarded the keys, and 2 took b back).
+                page.keyboard.press("2")
+                settle(page)
+                self.assertEqual(sorted(self.pins()), [a, b])
+                page.evaluate("k=>switchDoc(k)", "ms")
+                page.wait_for_function("DOC==='ms'&&META&&META.doc==='ms'")
+                settle(page)
+                self.assertEqual((self.note(a), self.note(b)), (text, ""))
+                self.assertEqual(len(self.edits), 2, self.edits)  # the lost Enter and a's [다시 시도]
+
+    def test_a_copys_write_waits_out_an_old_write_whose_answer_is_lost(self):
+        """'답을 잃은 이유' for verdict a, its Enter lost and folded, then 보류 (b): the draft moves to b, b's '초안 있음' is
+        opened, a's [다시 시도] is pressed and held, and Enter is pressed in the copy, which waits for it. a's write lands
+        but its answer is lost (review of #323, 1: the copy went on after that failure and the reason landed on both):
+        - a is read: the reason is on a, so nothing is written on b - the popover closes, nothing is kept, and a's failure
+          goes;
+        - that read is lost too: whether it landed is not known, so nothing is written either - the text stays in the
+          field and as b's draft, and the status line says the save failed; Enter again reads a and closes."""
+        text = "답을 잃은 이유"
+        for case in ("read", "read lost"):
+            with self.subTest(case=case):
+                self.drop_all()
+                self.edits = []
+                page = self.on("fig")
+                a = self.lost_and_folded(page, text)
+                b = self.press_page(page, 1, "보류")
+                open_reason(page, 1)
+                self.held_edit = []
+                self.retry_reason(page)
+                self.wait_held_edit(page)
+                page.keyboard.press("Enter")  # the focus stayed in the field: it waits for a's write
+                page.wait_for_timeout(300)  # anything it would send has been sent (held)
+                held, self.held_edit = self.held_edit, None
+                self.assertEqual(len(held), 1, self.edits)
+                if case == "read lost":
+                    self.lose_read = a
+                for r in held:
+                    self.forward(_Swallowed(r))
+                    r.abort()
+                if case == "read lost":
+                    page.wait_for_function(
+                        "id=>LINE.some(n=>n.source==='POST /api/pins/'+id+'/edit reason')", arg=b, timeout=10000
+                    )
+                    settle(page)
+                    self.assertEqual((self.note(a), self.note(b)), (text, ""))
+                    got = page.evaluate(REASON, 1)
+                    self.assertEqual((got["value"], got["focused"]), (text, True))
+                    self.assertEqual(page.evaluate(DRAFTS), {"fig:%d" % b: text})
+                    page.keyboard.press("Enter")
+                page.wait_for_function("()=>!document.querySelector('#doc .pv-reason')", timeout=10000)
+                settle(page)
+                self.assertEqual((self.note(a), self.note(b)), (text, ""))
+                self.assertEqual(page.evaluate(DRAFTS), {})
+                titles = page.evaluate("()=>LINE.map(n=>n.title)")
+                self.assertFalse([t for t in titles if t.startswith("이유 저장 실패")], titles)
+                self.assertIn("이유는 이전 판정 #%d 채택에 저장됨 · 지금 판정은 #%d 보류" % (a, b), titles)
+                self.assertEqual(len(self.edits), 2, self.edits)  # the lost Enter and a's [다시 시도]
+
+    def test_a_moved_part_leaves_by_its_place_not_by_its_words(self):
+        """'같은 문장' for verdict a, its Enter lost and folded, then 보류 (b); b's '초안 있음' opened, a line typed above it and
+        two under it, the last one '같은 문장' again, typed on purpose. a's [다시 시도] lands: the moved sentence leaves -
+        the one typed again stays (review of #323, 2: the text was matched by its words, and the last one went)."""
+        page = self.on("fig")
+        a = self.lost_and_folded(page, "같은 문장")
+        self.press_page(page, 1, "보류")
+        open_reason(page, 1)
+        page.keyboard.press("Control+Home")
+        page.keyboard.type("다른 줄")
+        page.keyboard.press("Shift+Enter")
+        page.keyboard.press("Control+End")
+        page.keyboard.press("Shift+Enter")
+        page.keyboard.type("새 줄")
+        page.keyboard.press("Shift+Enter")
+        page.keyboard.type("같은 문장")
+        self.assertEqual(page.evaluate(REASON, 1)["value"], "다른 줄\n같은 문장\n새 줄\n같은 문장")
+        self.retry_reason(page)
+        page.wait_for_function("id=>LINE.some(n=>n.title==='이유 저장됨 · 판정 #'+id+' 채택')", arg=a)
+        settle(page)
+        self.assertEqual(self.note(a), "같은 문장")
+        self.assertEqual(page.evaluate(REASON, 1)["value"], "다른 줄\n새 줄\n같은 문장")
+
+    def test_text_typed_next_to_a_moved_sentence_moves_the_sentence_whole(self):
+        """'문장 끝' for verdict a, its Enter written by the server but its answer lost; the field stays open and 보류 (b) is
+        pressed - the popover follows to b. Typed on the same line next to the moved sentence, then Enter (RC failure test
+        of 0.4.36: the sentence was taken out as a's, and only the fragment was written on b, without a word):
+        - ' 더함' at its end, or '앞말 ' at its start: the edited sentence is a new one, written whole on b;
+        - only spaces at its end: it is still a's sentence, so nothing is written on b."""
+        text = "문장 끝"
+        field = '#doc .pv[data-page="1"] .pv-reason'
+        for case, keys, want in (
+            ("end", ("Control+End", " 더함"), "문장 끝 더함"),
+            ("start", ("Control+Home", "앞말 "), "앞말 문장 끝"),
+            ("spaces", ("Control+End", "   "), ""),
+        ):
+            with self.subTest(case=case):
+                self.drop_all()
+                page = self.on("fig")
+                a = self.typed(page, 1, text)
+                self.lose_answer = 1
+                page.keyboard.press("Enter")
+                page.wait_for_function("()=>LINE.some(n=>n.title.startsWith('이유 저장 실패'))")
+                settle(page)
+                page.locator('#doc .pv[data-page="1"] button[data-key="보류"]').click()
+                b = page.wait_for_function(
+                    "id=>{const p=OPEN_ALL.find(p=>p.id>id&&p.verdict==='보류'); return p&&p.id;}", arg=a
+                ).json_value()
+                settle(page)
+                self.assertEqual(page.evaluate(POP, 1)["value"], text)
+                page.locator(field).focus()
+                page.keyboard.press(keys[0])
+                page.keyboard.type(keys[1])
+                page.keyboard.press("Enter")
+                page.wait_for_function("()=>!document.querySelector('#doc .pv-reason')", timeout=10000)
+                settle(page)
+                self.assertEqual((self.note(a), self.note(b)), (text, want))
+                self.assertEqual(page.evaluate(DRAFTS), {})
+
+    def test_a_moved_part_with_spaces_after_it_leaves_too(self):
+        """'공백 뒤 이유' typed with two spaces after it for verdict a - its write sends it trimmed -, its Enter lost and
+        folded, then 보류 (b); b's '초안 있음' opened and a line typed under it. a's [다시 시도] lands: the moved line leaves,
+        spaces and all, and the typed line stays (review of #323, 3: the spaces, or a CRLF, kept it from being found, and
+        it was written on b too). A part followed by a CRLF leaves with it."""
+        page = self.on("fig")
+        a = self.lost_and_folded(page, "공백 뒤 이유  ")
+        self.press_page(page, 1, "보류")
+        open_reason(page, 1)
+        page.keyboard.press("Control+End")
+        page.keyboard.press("Shift+Enter")
+        page.keyboard.type("더 쓴 줄")
+        self.retry_reason(page)
+        page.wait_for_function("id=>LINE.some(n=>n.title==='이유 저장됨 · 판정 #'+id+' 채택')", arg=a)
+        settle(page)
+        self.assertEqual(self.note(a), "공백 뒤 이유")
+        self.assertEqual(page.evaluate(REASON, 1)["value"], "더 쓴 줄")
+        cut = page.evaluate("()=>rdCut('옛 이유\\r\\n새 이유',[{k:'fig:9',s:0,e:4,tried:[]}],'fig:9','옛 이유')")
+        self.assertEqual(cut, {"text": "새 이유", "from": []})
+
+    def test_a_draft_whose_write_may_have_landed_is_checked_before_it_is_written_elsewhere(self):
+        """'들어갔을 이유' for verdict a, its Enter written by the server but its answer lost, and folded; then a newer verdict
+        b on the line - saved here (the draft moves to b), or in another tab and then a reload (the draft, on a verdict that
+        is not current, becomes the page's draft). Opened on b and Enter: a is read first - the reason is on a - so nothing
+        is written on b, the popover closes and says where the reason is (review of #323, 4: the lost write was let go with
+        the move, and the reason was written on b too)."""
+        text = "들어갔을 이유"
+        for case in ("here", "another tab and a reload"):
+            with self.subTest(case=case):
+                self.drop_all()
+                self.edits = []
+                page = self.on("fig")
+                page.on("dialog", lambda d: d.accept())
+                a = self.typed(page, 1, text)
+                self.lose_answer = 1
+                page.keyboard.press("Enter")
+                page.wait_for_function("()=>LINE.some(n=>n.title.startsWith('이유 저장 실패'))")
+                settle(page)
+                self.assertEqual(self.note(a), text)  # the server has it
+                page.locator('#doc .pv[data-page="1"] [data-act="pv-reason-fold"]').click()
+                page.wait_for_function("()=>!document.querySelector('#doc .pv-pop')")
+                if case == "here":
+                    b = self.press_page(page, 1, "보류")
+                else:
+                    b = self.press_page(self.on("fig"), 1, "보류")
+                    page.reload()
+                    page.wait_for_function(booted(2), timeout=20000)
+                    page.evaluate("k=>switchDoc(k)", "fig")
+                    page.wait_for_function("DOC==='fig'&&META&&META.doc==='fig'&&document.querySelector('#p1')")
+                    settle(page)
+                    self.assertEqual(page.evaluate(DRAFTS), {"fig:p1": text})
+                open_reason(page, 1)
+                self.assertEqual(page.evaluate(REASON, 1)["value"], text)
+                page.keyboard.press("Enter")
+                page.wait_for_function("()=>!document.querySelector('#doc .pv-reason')", timeout=10000)
+                settle(page)
+                self.assertEqual((self.note(a), self.note(b)), (text, ""))
+                self.assertEqual(page.evaluate(DRAFTS), {})
+                titles = page.evaluate("()=>LINE.map(n=>n.title)")
+                self.assertIn("이유는 이전 판정 #%d 채택에 저장됨 · 지금 판정은 #%d 보류" % (a, b), titles)
+                self.assertEqual(len(self.edits), 1, self.edits)  # a's, whose answer was lost
+
+    def test_a_moved_draft_written_on_its_new_verdict_takes_the_old_retry_away(self):
+        """'옮겨 쓴 이유' for verdict a, its Enter lost and folded, then 보류 (b) on the line - the draft moves to b - and written
+        there from b's '초안 있음' (#317, the other order):
+        - a's failure and its [다시 시도] go once b has the reason (pressed, it wrote the reason on a too);
+        - a's [다시 시도] pressed while b's write is out waits for it, and sends nothing once b has the reason.
+        The reason is b's only."""
+        text = "옮겨 쓴 이유"
+        for case in ("after", "while out"):
+            with self.subTest(case=case):
+                self.drop_all()
+                self.edits = []
+                page = self.on("fig")
+                a = self.lost_and_folded(page, text)
+                b = self.press_page(page, 1, "보류")
+                open_reason(page, 1)
+                if case == "while out":
+                    self.held_edit = []
+                page.keyboard.press("Enter")
+                if case == "while out":
+                    self.wait_held_edit(page)
+                    self.retry_reason(page)
+                    page.wait_for_timeout(300)  # anything it would send has been sent (held)
+                    held, self.held_edit = self.held_edit, None
+                    self.assertEqual(len(held), 1, self.edits)
+                    for r in held:
+                        self.forward(r)
+                page.wait_for_function("()=>!document.querySelector('#doc .pv-reason')")
+                settle(page)
+                titles = page.evaluate("()=>LINE.map(n=>n.title)")
+                self.assertFalse([t for t in titles if t.startswith("이유 저장 실패")], titles)
+                self.assertEqual((self.note(a), self.note(b)), ("", text))
+                self.assertEqual(len(self.edits), 2, self.edits)  # the lost Enter and b's
 
 
 # The open reason popover of page n's line: its field's text and focus, what it says of the draft (pv-pop-st) and of the keys
@@ -6789,6 +7121,152 @@ class EdgeKeys(VerdictBase):
         page.keyboard.press("Tab")
         self.assertEqual(page.evaluate(FOCUS_AT)[0], 1)
 
+    def test_tab_from_a_page_without_a_line_keeps_the_pages_where_they_are(self):
+        """The map says page 1 takes no verdict (a figure document's list page) and page 1 is read, drawn taller than the
+        area: Tab from the PDF area - focused, or nothing focused after a press on the page - goes past the pages to the
+        first stop after them (pvEdgeStop) and the pages do not move. Left to the DOM's order it went to page 2's line and
+        scrolled the pages there (page 4 of 91 from page 1, also on first open, #322). Shift+Tab from that stop comes back to
+        the area, the pages still. Zoomed out so page 2's line shows whole while page 1 is read, Tab goes to that line, with
+        no scroll either."""
+        fmap = helpers_figure.viewer_map()
+        fmap["pages"][0]["verdict"] = False
+        helpers_figure.viewer_build(self.fig, helpers_figure.BUILD2, fmap)
+        page = self.on("fig")
+        self.assertIsNone(page.evaluate(LINE, 1))
+        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        settle(page)
+        page.evaluate(SCROLL, [1, "top"])
+        settle(page)
+        top = page.evaluate("document.querySelector('#left').scrollTop")
+        edge = page.evaluate("(pvEdgeStop(true)||{}).id||null")
+        self.assertTrue(edge)
+        on = """()=>{const a=document.activeElement,L=document.querySelector('#left');
+          return [a===L?'left':a===document.body?'body':a.id||a.tagName,!!a&&!!a.closest&&!!a.closest('#doc .pv'),Math.round(L.scrollTop),pvReadingAt()];}"""
+        page.focus("#left")
+        page.keyboard.press("Tab")
+        self.assertEqual(page.evaluate(on), [edge, False, round(top), 1])
+        page.keyboard.press("Shift+Tab")
+        self.assertEqual(page.evaluate(on), ["left", False, round(top), 1])
+        # A press on page 1 leaves nothing focused: Tab from there keeps the pages too.
+        page.evaluate("document.activeElement.blur()")
+        area = page.locator("#left").bounding_box()
+        page.mouse.click(area["x"] + area["width"] / 2, area["y"] + area["height"] / 3)  # page 1 fills the area
+        settle(page)
+        self.assertEqual(page.evaluate(on)[0], "body")
+        page.keyboard.press("Tab")
+        self.assertEqual(page.evaluate(on), [edge, False, round(top), 1])
+        # Page 1 (landscape) a fifth of the area tall, read, and page 2 (portrait) with its line whole under it: Tab goes to
+        # that line, and nothing moves.
+        page.evaluate(
+            "()=>{setK(0.22*document.querySelector('#left').clientHeight/META.pages[0].pt_h,false); ZOOMED=true; document.querySelector('#left').scrollTop=0;}"
+        )
+        settle(page)
+        self.assertEqual(page.evaluate("pvReadingAt()"), 1)
+        self.assertTrue(page.evaluate(ON_TOP, '#doc .pv[data-page="2"] .vd-b'))
+        top = page.evaluate("document.querySelector('#left').scrollTop")
+        page.focus("#left")
+        page.keyboard.press("Tab")
+        self.assertEqual(page.evaluate(FOCUS_AT)[0], 2)
+        self.assertEqual(page.evaluate("[document.querySelector('#left').scrollTop, pvReadingAt()]"), [top, 1])
+
+    def test_a_phones_first_tab_keeps_the_pages_where_they_are(self):
+        """390x844, just opened, nothing focused: no stop is drawn before the pages on a phone (no nav bar, outline or
+        section strip), so its first Tab from a keyboard fell to the first line in the pages - page 4's on the 91-page
+        figure document, scrolled 0 -> 2067px (0.4.36 RC). Page 1 takes no verdict and is read, the pages zoomed in all
+        the way so page 2's line is far below: the first Tab goes past the pages, not into a line, and the pages stay
+        where they are."""
+        fmap = helpers_figure.viewer_map()
+        fmap["pages"][0]["verdict"] = False
+        helpers_figure.viewer_build(self.fig, helpers_figure.BUILD2, fmap)
+        page = self.on("fig", viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+        page.evaluate("()=>{setK(K*5,false); ZOOMED=true; document.querySelector('#left').scrollTop=0;}")
+        settle(page)
+        page.evaluate("pvStick()")
+        settle(page)
+        page.evaluate("document.activeElement&&document.activeElement.blur()")
+        self.assertEqual(
+            page.evaluate("[document.activeElement===document.body, pvEdgeStop(false), pvReadingAt()]"), [True, None, 1]
+        )
+        self.assertFalse(page.evaluate(ON_TOP, '#doc .pv[data-page="2"] .vd-b'))
+        top = page.evaluate("document.querySelector('#left').scrollTop")
+        page.keyboard.press("Tab")
+        got = page.evaluate(
+            "()=>{const a=document.activeElement; return [a===document.body,!!a.closest&&!!a.closest('#doc .pv'),Math.round(document.querySelector('#left').scrollTop)];}"
+        )
+        self.assertEqual(got, [False, False, round(top)])
+
+    # Page 1 (landscape) f of the area tall at the top, read, page 2 (portrait) and its line under it.
+    SMALL = """f=>{setK(f*document.querySelector('#left').clientHeight/META.pages[0].pt_h,false); ZOOMED=true; document.querySelector('#left').scrollTop=0;}"""
+    # A box over part of page 2's line's first control - its bottom or right 30% (sides), never its middle - or none.
+    COVER = """side=>{let c=document.getElementById('vd-test-cover'); if(c)c.remove(); if(!side)return;
+      const b=document.querySelector('#doc .pv[data-page="2"] .vd-b').getBoundingClientRect(); c=document.createElement('div'); c.id='vd-test-cover';
+      const r=side==='bottom'?[b.left,b.bottom-b.height*0.3,b.width,b.height*0.3+2]:[b.right-b.width*0.3,b.top,b.width*0.3+2,b.height];
+      c.style.cssText='position:fixed;z-index:2147483647;background:rgba(0,0,0,.25);left:'+r[0]+'px;top:'+r[1]+'px;width:'+r[2]+'px;height:'+r[3]+'px';
+      document.body.appendChild(c);}"""
+
+    def test_tab_from_a_page_without_a_line_passes_a_line_partly_covered(self):
+        """Page 1 takes no verdict and is read, page 2's line whole under it, at three zooms: with a box laid over the bottom
+        or the right 30% of that line's first control (as the status line or a sheet over the area's bottom, or a panel over
+        its side, would lie) - its middle still clear - Tab from the PDF area goes past the pages, not to that line; with
+        nothing over it, to the line. The pages never move. Hit-tested at its middle alone, the line half under the box was
+        taken and the focus went under it."""
+        fmap = helpers_figure.viewer_map()
+        fmap["pages"][0]["verdict"] = False
+        helpers_figure.viewer_build(self.fig, helpers_figure.BUILD2, fmap)
+        page = self.on("fig")
+        edge = page.evaluate("(pvEdgeStop(true)||{}).id||null")
+        self.assertTrue(edge)
+        for f in (0.2, 0.22, 0.25):
+            page.evaluate(self.SMALL, f)
+            settle(page)
+            self.assertEqual(page.evaluate("pvReadingAt()"), 1, f)
+            top = page.evaluate("document.querySelector('#left').scrollTop")
+            for side in ("bottom", "right", None):
+                with self.subTest(f=f, side=side):
+                    page.evaluate(self.COVER, side)
+                    page.focus("#left")
+                    page.keyboard.press("Tab")
+                    got = page.evaluate(
+                        "()=>[document.activeElement.id||'',(document.activeElement.closest('#doc .pv')||{dataset:{}}).dataset.page||null]"
+                    )
+                    self.assertEqual(got, ["", "2"] if side is None else [edge, None], (f, side))
+                    self.assertEqual(page.evaluate("document.querySelector('#left').scrollTop"), top)
+            page.evaluate(self.COVER, None)
+
+    def test_shift_tab_from_a_stop_tab_went_to_in_view_leaves_the_way_it_came(self):
+        """Page 2 takes no verdict, holds a pin's mark and is read, page 1's line off the screen above it: Tab from the
+        section strip goes to the PDF area, Tab from there to page 2's mark (in view), and Shift+Tab from the mark back to
+        the section strip - not to page 1's line, which scrolled the pages up to it. The pages never move."""
+        fmap = helpers_figure.viewer_map()
+        fmap["pages"][1]["verdict"] = False
+        helpers_figure.viewer_build(self.fig, helpers_figure.BUILD2, fmap)
+        meta = self.call("GET", "/api/meta?doc=fig")[1]
+        pg = meta["pages"][1]
+        pick = {"doc": "fig", "page": 2, "x0": pg["pt_w"] * 0.3, "y0": pg["pt_h"] * 0.3, "x1": pg["pt_w"] * 0.6,
+                "y1": pg["pt_h"] * 0.5, "frac": [0.3, 0.3, 0.3, 0.2]}  # fmt: skip
+        code, d = self.call("POST", "/api/pick", {**pick, "pdf_build": meta["pages_build"]})
+        self.assertEqual(code, 200, d)
+        body = {k: d[k] for k in helpers_figure.SAVE_LINE if d.get(k) is not None}
+        body.update(scope=d["default_level"], doc="fig", note="표시", kind_req="fix", assignee="agent")
+        code, made = self.call("POST", "/api/pin", body)
+        self.assertEqual(code, 200, made)
+        page = self.on("fig", n_open=1)
+        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        settle(page)
+        page.evaluate(SCROLL, [2, "top"])
+        settle(page)
+        self.assertEqual(page.evaluate("[pvReadingAt(), pvReadingPage()]"), [2, 0])
+        badge = '.mark[data-pin="%d"] .mark-jump' % made["id"]
+        top = page.evaluate("document.querySelector('#left').scrollTop")
+        page.focus("#section-page")
+        page.keyboard.press("Tab")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "left")
+        page.keyboard.press("Tab")
+        self.assertTrue(page.evaluate("s=>document.activeElement===document.querySelector(s)", badge))
+        page.keyboard.press("Shift+Tab")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "section-page")
+        self.assertEqual(page.evaluate("[document.querySelector('#left').scrollTop, pvReadingAt()]"), [top, 2])
+
 
 # One row's parts on page n's line as drawn: the figure's name, the dot after it, each part of the state (a display:
 # contents span's own children in its place) and each word - with whether each shows, its box, and the line's box.
@@ -6982,6 +7460,229 @@ class LinePolish(VerdictBase):
                     self.assertEqual((got["bad"], sorted(got["seen"])), ([], [False, True]), got)
                     page.context.close()
 
+    def test_a_key_saved_line_keeps_its_rows_whichever_page_is_read(self):
+        """#322 item 2: page 2 with an earlier verdict made elsewhere and the person's own saved here by its key, no reason -
+        its line says 'Enter 이유 쓰기' while it is read and [이유 추가] at rest, 40px narrower in Korean, 15px in English, where
+        a tight line shows the earlier link beside it. Page 2's width swept across its bar 8px at a time, Korean and English,
+        on the wide band and the side-panel band (1000 x 800): the line's rows, its height and where its state stands in it
+        are the same while page 1 is read and while page 2 is, and the sweep crosses the bar. Fitted on the look it showed,
+        the line stacked or took a second row of its state only while it was read (123 against 91px), or only at rest."""
+        verdict_as(self, self.WHO, 2, "보류")
+        bands = ({"width": 1400, "height": 850}, {"width": 1000, "height": 800})
+        for i, (lang, vp) in enumerate((lang, vp) for lang in ("ko", "en") for vp in bands):
+            with self.subTest(lang=lang, viewport=vp["width"]):
+                page = self.on("fig", n_open=1 + i, lang=lang, viewport=vp)
+                page.evaluate("setSide(false)")
+                page.evaluate(SCROLL, [2, "top"])
+                settle(page)
+                self.assertEqual(page.evaluate("PV_READ"), 2)
+                page.keyboard.press("12"[i % 2])  # 채택, 보류, ...: each a new verdict over the one before
+                page.wait_for_function("n=>OPEN_ALL.length===n&&!PV_BUSY.size", arg=2 + i)
+                settle(page)
+                page.evaluate(END_CHIPS)
+                settle(page)
+                self.assertIn("Enter", page.evaluate(ADD_TEXT, 2))
+                got = page.evaluate(SWEEP_READ)
+                self.assertEqual((got["bad"], sorted(got["seen"])), ([], [False, True]), got)
+                page.context.close()
+
+    def test_the_earlier_link_is_whole_or_its_count_alone_on_an_english_desktop(self):
+        """#322 item 3: English, the panel open, the pages as wide as the room, a figure code as wide as the pl document's
+        widest, page 2 with an earlier verdict and the person's own saved by a click: at 1280 x 800 (a 620px line), 1400 x
+        850 (CI's) and 1440 x 900 the line is one row with nothing over another part, and its earlier link reads whole -
+        '+1 earlier' - or, on a tight line, its count alone - '+1' -, never cut: 0.4.35 cut it to '1 ea…' at 1280. At 1440
+        it is whole. A dot sets it off from what is before it, so '+1' never reads as a count of a button's. Its name says
+        it all ('1 earlier verdict · replaced'), and its tooltip begins with that. Its press area holds a 24px square
+        from its right edge back, and nothing of it lies past its box (scrollWidth): centred on the 15-17px count, the
+        area's right part lay past the state's clip and answered 20-21px wide."""
+        verdict_as(self, self.WHO, 2, "보류")
+        link = """()=>{const l=document.querySelector('#doc .pv[data-page="2"]'),e=l.querySelector('.pv-early'),w=e.querySelector('.pv-early-w'),b=getComputedStyle(e,'::before').content;
+          const words=!!w&&w.getClientRects().length>0,d=e.previousElementSibling,dr=d&&d.getClientRects().length?d.getBoundingClientRect():null;
+          const cut=e.getBoundingClientRect().right>l.querySelector(':scope>.pv-t').getBoundingClientRect().right+1;   // past the state's clip (pvFit's 1px)
+          return {shown:(words?w.textContent:'')+(b&&b!=='none'?b.replace(/"/g,''):''),cut,tight:l.classList.contains('pv-tight'),
+            name:e.getAttribute('aria-label'),tip:e.dataset.tip||'',dot:!!dr&&d.textContent==='·'&&dr.right<=e.getBoundingClientRect().left,over:e.scrollWidth-e.clientWidth};}"""
+        # Points of a 24 x 24px square from the link's right edge back, every 2px, that do not hit the link.
+        area = """()=>{const e=document.querySelector('#doc .pv[data-page="2"] .pv-early'),r=e.getBoundingClientRect(),cy=(r.top+r.bottom)/2,miss=[];
+          for(let x=r.right-24;x<=r.right-1;x+=2)for(let y=cy-12;y<=cy+12;y+=2){const h=document.elementFromPoint(x,y); if(!(h&&(h===e||e.contains(h))))miss.push([Math.round(x-r.right),Math.round(y-cy)]);}
+          return miss;}"""
+        for n, (w, h) in enumerate(((1280, 800), (1400, 850), (1440, 900))):
+            with self.subTest(viewport=(w, h)):
+                page = self.on("fig", n_open=1 + min(n, 1), lang="en", viewport={"width": w, "height": h})
+                page.evaluate("setSide(true)")
+                settle(page)
+                page.evaluate("()=>{setK((innerW()-pvInsetR())/META.pages[1].pt_w,false); ZOOMED=true;}")
+                page.evaluate(self.TITLES, self.LONG)
+                settle(page)
+                if not n:
+                    self.press_page(page, 2, "채택")
+                    page.evaluate(END_CHIPS)
+                    settle(page)
+                page.evaluate(SCROLL, [2, "top"])
+                settle(page)
+                row = page.evaluate(ROW_PARTS, 2)
+                self.assertEqual((row["stack"], row_overlaps(row)), (False, []), row)
+                got = page.evaluate(link)
+                self.assertEqual(got["shown"], "+1" if got["tight"] else "+1 earlier", got)
+                self.assertTrue(
+                    got["dot"], got
+                )  # set off by a dot, as the state's parts are: never read as a button's count
+                self.assertFalse(got["cut"], got)
+                self.assertLessEqual(got["over"], 1, got)
+                self.assertEqual(page.evaluate(area), [])
+                self.assertEqual(got["name"], "1 earlier verdict · replaced")
+                self.assertTrue(got["tip"].startswith("1 earlier verdict · replaced — "), got)
+                if w == 1440:
+                    self.assertEqual((got["shown"], got["tight"]), ("+1 earlier", False), got)
+                page.context.close()
+
+    def test_a_focused_earlier_link_that_steps_out_hands_the_focus_to_its_line(self):
+        """English, the panel open, page 2 with an earlier verdict and the person's own: page 2's width brought down 1px at a
+        time to where its line keeps one row only without the earlier link (.pv-early-out). With the keyboard's focus on the
+        link at a width that shows it, a zoom to that width moves the focus to the control before it on the line
+        ([Retract]), with no scroll, and Tab and Shift+Tab go on from there. Hidden with
+        the focus on it, the link took the focus away to nothing."""
+        verdict_as(self, self.WHO, 2, "보류")
+        page = self.on("fig", n_open=1, lang="en", viewport={"width": 1280, "height": 800})
+        page.evaluate("setSide(true)")
+        settle(page)
+        self.press_page(page, 2, "채택")
+        page.evaluate(END_CHIPS)
+        settle(page)
+        widths = page.evaluate(
+            """async()=>{const frame=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+              const l=()=>document.querySelector('#doc .pv[data-page="2"]'),pt=META.pages[1].pt_w; let shown=0;
+              for(let w=760;w>300;w-=1){setK(w/pt,false); ZOOMED=true; await frame(); sizePv();
+                const c=l().classList; if(c.contains('pv-stack'))return [shown,0];
+                if(c.contains('pv-early-out'))return [shown,w]; shown=w;}
+              return [shown,0];}"""
+        )
+        self.assertTrue(widths[0] and widths[1], widths)
+        zoom = "w=>{setK(w/META.pages[1].pt_w,false); ZOOMED=true; sizePv();}"
+        page.evaluate(zoom, widths[0])
+        settle(page)
+        page.evaluate(SCROLL, [2, "top"])
+        settle(page)
+        page.focus('#doc .pv[data-page="2"] .pv-early')
+        page.evaluate(zoom, widths[1])
+        page.evaluate("()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))")
+        on = """()=>{const a=document.activeElement,l=a&&a.closest?a.closest('#doc .pv'):null;
+          return [l?l.dataset.page:null,a&&a.dataset?a.dataset.act||null:null,document.querySelector('#doc .pv[data-page="2"]').classList.contains('pv-early-out')];}"""
+        self.assertEqual(page.evaluate(on), ["2", "pv-cancel", True])
+        page.keyboard.press("Tab")
+        self.assertEqual(page.evaluate(on)[0], "2")
+        page.keyboard.press("Shift+Tab")
+        self.assertEqual(page.evaluate(on), ["2", "pv-cancel", True])
+
+    # Page 2's line: whether its earlier link is drawn, whether it says 'Enter reason', whether it is stacked, and where the
+    # focus is (its line's page, its data-act).
+    EARLY_STATE = """()=>{const l=document.querySelector('#doc .pv[data-page="2"]'),e=l.querySelector('.pv-early'),a=document.activeElement,f=a&&a.closest?a.closest('#doc .pv'):null;
+      return {hidden:!e.getClientRects().length,kbd:!!l.querySelector('.pv-kbd'),stack:l.classList.contains('pv-stack'),
+        page:f?f.dataset.page:null,act:a&&a.dataset?a.dataset.act||null:null,read:PV_READ};}"""
+
+    def key_saved_over_an_earlier_one(self, width):
+        """English, width x 1000, the panel open: page 2 with an earlier verdict and the person's own saved by its key, read,
+        its save chip gone - its line says 'Enter reason' and '+1 earlier' on a row that is not tight."""
+        verdict_as(self, self.WHO, 2, "보류")
+        page = self.on("fig", n_open=1, lang="en", viewport={"width": width, "height": 1000})
+        page.evaluate("setSide(true)")
+        page.evaluate(SCROLL, [2, "top"])
+        settle(page)
+        page.keyboard.press("1")
+        page.wait_for_function("()=>OPEN_ALL.length===2&&!PV_BUSY.size")
+        settle(page)
+        page.evaluate(END_CHIPS)
+        settle(page)
+        st = page.evaluate(self.EARLY_STATE)
+        self.assertEqual((st["hidden"], st["kbd"], st["stack"], st["read"]), (False, True, False, 2), st)
+        return page
+
+    def test_a_focused_earlier_link_beside_enter_reason_keeps_the_focus_on_its_line_as_the_pages_zoom(self):
+        """The line of key_saved_over_an_earlier_one at 1920, the pages zoomed down 2px at a time with the keyboard's focus
+        on '+1 earlier': where the row turns tight the link steps out beside 'Enter reason' (components.css), and the
+        focus moves to [Retract] on the same line - not to nothing, as it did by Ctrl+- in the 0.4.36 RC."""
+        page = self.key_saved_over_an_earlier_one(1920)
+        got = page.evaluate(
+            """async()=>{const frame=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+              const L=document.querySelector('#left'),l=()=>document.querySelector('#doc .pv[data-page="2"]'),pt=META.pages[1].pt_w;
+              for(let w=Math.round(document.getElementById('p2').getBoundingClientRect().width);w>300;w-=2){
+                const e=l().querySelector('.pv-early'); e.focus({preventScroll:true}); setK(w/pt,false); ZOOMED=true; await frame();
+                const p=document.getElementById('p2'); L.scrollTop+=p.getBoundingClientRect().top-L.getBoundingClientRect().top; pvStick(); await frame(); await frame();
+                if(l().classList.contains('pv-stack')||!e.getClientRects().length)return {w,kbd:!!l().querySelector('.pv-kbd'),tight:l().classList.contains('pv-tight'),
+                  stack:l().classList.contains('pv-stack'),focus:document.activeElement===document.body?'body':(document.activeElement.dataset||{}).act||null,
+                  page:(document.activeElement.closest&&document.activeElement.closest('#doc .pv')||{dataset:{}}).dataset.page||null};}
+              return null;}"""
+        )
+        self.assertIsNotNone(got)
+        self.assertEqual(
+            (got["kbd"], got["tight"], got["stack"], got["page"], got["focus"]),
+            (True, True, False, "2", "pv-cancel"),
+            got,
+        )
+
+    def test_a_focused_earlier_link_beside_enter_reason_keeps_the_focus_on_its_line_as_the_window_narrows(self):
+        """The line of key_saved_over_an_earlier_one at 1920, the window narrowed 20px at a time with the keyboard's focus on
+        '+1 earlier' (the pages fitted to it): where the row turns tight the link steps out beside 'Enter reason', and the
+        focus moves to [Retract] on the same line - not to nothing, as it did from 1920 to 1320 in the 0.4.36 RC."""
+        page = self.key_saved_over_an_earlier_one(1920)
+        for w in range(1900, 1000, -20):
+            page.focus('#doc .pv[data-page="2"] .pv-early')
+            page.set_viewport_size({"width": w, "height": 1000})
+            settle(page)
+            st = page.evaluate(self.EARLY_STATE)
+            self.assertFalse(st["stack"], (w, st))
+            if st["hidden"] and st["kbd"]:
+                self.assertEqual((st["page"], st["act"]), ("2", "pv-cancel"), (w, st))
+                break
+            if not st["kbd"]:  # the window's change moved the reading page: page 2 read again
+                page.evaluate(SCROLL, [2, "top"])
+                settle(page)
+        else:
+            self.fail("the link never stepped out beside 'Enter reason'")
+
+    def test_a_phone_line_keeps_its_rows_floating_and_in_place(self):
+        """390x844, Korean and English: page 1 with the person's own open verdict, its reason, and an earlier verdict, page
+        1 zoomed to two and a half screens. Its line is as tall floating over page 1 (where it holds [판정 취소] back,
+        .pv-lean) as standing in its place under it, and a slow scroll across page 1's end, 6px at a time, moves page 2
+        by the scroll and nothing more. Taken out of the floating line, [판정 취소] let '이전 1건' rise into its row: 131
+        against 191px, and page 2 jumped 60px under the finger as the line crossed the page's end (0.4.36 RC). The stacked
+        line shows no dot before the link in either state: its state wraps, and the dot stood alone at a row's end."""
+        verdict_as(self, self.WHO, 1, "보류")
+        verdict_as(self, self.WHO, 1, "채택", note="보류: 색 재검토")
+        for lang in ("ko", "en"):
+            with self.subTest(lang=lang):
+                page = self.on("fig", n_open=2, lang=lang, **self.PHONE)
+                page.evaluate("setSide(false)")
+                page.evaluate(  # page 1 (landscape) two and a half areas tall
+                    "()=>{const L=document.querySelector('#left'); setK(2.5*L.clientHeight/META.pages[0].pt_h,false); ZOOMED=true; L.scrollTop=0;}"
+                )
+                settle(page)
+                page.evaluate("pvStick()")
+                settle(page)
+                self.assertEqual(
+                    page.evaluate(
+                        "[PV_READ, document.querySelector('#doc .pv[data-page=\"1\"]').classList.contains('pv-stack')]"
+                    ),
+                    [1, True],
+                )
+                got = page.evaluate(
+                    """async()=>{const frame=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+                      const L=document.querySelector('#left'),l=document.querySelector('#doc .pv[data-page="1"]'),p1=document.getElementById('p1'),p2=document.getElementById('p2');
+                      const h=()=>Math.round(l.getBoundingClientRect().height*10)/10; pvStick(); await frame();
+                      const dot=()=>{const d=l.querySelector('.pv-ea'); return !!d&&d.getClientRects().length>0;};   // a stacked line has none
+                      const floating=[h(),l.classList.contains('stuck'),l.classList.contains('pv-lean'),!!l.querySelector('.pv-early'),dot()];
+                      const end=L.scrollTop+p1.getBoundingClientRect().bottom-(L.getBoundingClientRect().top+L.clientHeight);   // page 1's end at the area's bottom
+                      let worst=0,prev=null;
+                      for(let t=end-200;t<=end+400;t+=6){L.scrollTop=t; await frame(); pvStick(); await frame();
+                        const at=L.scrollTop+p2.getBoundingClientRect().top; if(prev!==null)worst=Math.max(worst,Math.abs(at-prev)); prev=at;}
+                      const p=p1.getBoundingClientRect(),b=l.getBoundingClientRect();
+                      return {floating,inPlace:[h(),l.classList.contains('stuck'),l.classList.contains('pv-lean'),b.top>=p.bottom,dot()],worst:Math.round(worst*10)/10};}"""
+                )
+                self.assertEqual(got["floating"][1:], [True, True, True, False], got)
+                self.assertEqual(got["inPlace"][1:], [False, False, True, False], got)
+                self.assertEqual(got["floating"][0], got["inPlace"][0], got)
+                self.assertLessEqual(got["worst"], 1, got)
+                page.context.close()
+
     def test_a_key_saves_focus_raises_no_box_over_the_pressed_words_description(self):
         """English, the panel open, at 1280 x 800 and 1440 x 900, page 2 as wide as the room and read: a digit saves a verdict
         and its focus goes to 'Enter reason'. That focus raises no description box ('Write why for this verdict…'), so nothing lies
@@ -7103,3 +7804,254 @@ class ChipFontWait(VerdictBase):
         page = self.saved_then_squeezed()
         page.wait_for_timeout(3300)
         self.assertEqual(page.evaluate(self.STATE, None), [False, False, True])
+
+
+PHONE = {"viewport": {"width": 390, "height": 844}, "is_mobile": True, "has_touch": True}
+# Scroll the PDF area so page n's end stands at the area's middle: its line in its place under it.
+MIDDLE_END = """n=>{const L=document.querySelector('#left'),lr=L.getBoundingClientRect(),r=document.getElementById('p'+n).getBoundingClientRect();
+  L.scrollTop+=r.bottom-(lr.top+L.clientHeight/2);}"""
+# The centre of selector sel's first match, in the layout's px.
+CENTRE = "s=>{const b=document.querySelector(s).getBoundingClientRect(); return [b.left+b.width/2,b.top+b.height/2];}"
+# The visual viewport's offset (a pinch zoom's view on the window) and its scale.
+VVIEW = "()=>({l:Math.round(visualViewport.offsetLeft),t:Math.round(visualViewport.offsetTop),s:visualViewport.scale})"
+
+
+class TouchDetails(VerdictBase):
+    """A phone's line under touch (#320): a long press is the same in every state of the line, a tap on a word while the
+    reason is typed takes that word, and a save in a pinch-zoomed view leaves the view where it is."""
+
+    def phone(self, n=2, in_place=False):
+        """The figure document on a phone, its sheet folded, the pages 1.5x: page n's top at the area's top (its line
+        floats), or its end at the area's middle (its line in its place under it)."""
+        page = self.on("fig", **PHONE)
+        page.evaluate("setSide(false)")
+        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        settle(page)
+        if in_place:
+            page.evaluate(MIDDLE_END, n)
+        else:
+            page.evaluate(SCROLL, [n, "top"])
+        settle(page)
+        return page
+
+    def hold_finger(self, page, sel, after=None, during=None):
+        """A finger held 800ms on sel's centre and lifted, then a pause past the click its release may swallow: the text
+        of the description box while it was held, or None - with, given a script `after` (or `during`), its value 200ms after
+        the lift (or while it was held)."""
+        cdp = page.context.new_cdp_session(page)
+        x, y = page.evaluate(CENTRE, sel)
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": x, "y": y}]})
+        page.wait_for_timeout(800)
+        tip = page.evaluate("()=>{const t=document.getElementById('tip'); return t.hidden?null:t.textContent;}")
+        seen = page.evaluate(during) if during else None
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+        page.wait_for_timeout(200)
+        got = page.evaluate(after) if after else None
+        page.wait_for_timeout(800)
+        settle(page)
+        return (tip, got) if after else (tip, seen) if during else tip
+
+    def test_a_long_press_shows_the_description_and_presses_nothing_whatever_the_line_holds(self):
+        """390x844 touch. With the save chip on the line, a long press on the pressed word shows its description ('… 다시
+        누르면 이 판정을 거둡니다') and takes nothing back; so with the reason popover open and typed in (the text stays);
+        and a long press on an armed confirm word shows '삭제 확정 — …' and saves nothing. The line drew those words without
+        a description (no box over the chip or the popover), so a long press found none, nothing swallowed its release, and
+        the click took the verdict back - or saved the armed word."""
+        page = self.phone()
+        word = WORD % (2, "채택")
+        a = self.press_page(page, 2, "채택")
+        self.assertTrue(page.evaluate("()=>!!document.querySelector('#doc .pv[data-page=\"2\"]>.nt-chip')"))
+        hint = "()=>{const h=document.querySelector('#doc .pv[data-page=\"2\"]>.pv-onhint'); return h&&h.getClientRects().length>0;}"
+        self.assertTrue(page.evaluate(hint))  # the press's context stands over the words for a few seconds
+        tip, shown = self.hold_finger(page, word, during=hint)
+        self.assertIn("다시 누르면 이 판정을 거둡니다", tip or "")
+        self.assertFalse(shown)  # the description says it: the context steps aside, not two boxes saying one thing
+        self.assertEqual(set(self.pins()), {a})
+        open_reason(page, 2, tap=True)
+        page.keyboard.type("길게 눌러도 남는 이유")
+        settle(page)
+        self.assertIn("다시 누르면 이 판정을 거둡니다", self.hold_finger(page, word) or "")
+        self.assertEqual(set(self.pins()), {a})
+        self.assertEqual(page.input_value('#doc .pv[data-page="2"] .pv-pop .pv-reason'), "길게 눌러도 남는 이유")
+        page.keyboard.press("Escape")
+        settle(page)
+        page.evaluate(END_CHIPS)
+        settle(page)
+        confirm = WORD % (2, "삭제")
+        page.locator(confirm).tap()
+        page.wait_for_function("()=>!!VD_ARM")
+        # another word held while 삭제 waits: its description, and the wait holds - the release is no press elsewhere
+        tip, armed = self.hold_finger(page, WORD % (2, "보류"), after="()=>!!VD_ARM")
+        self.assertEqual(("누르면 이 쪽의 판정으로 저장합니다" in (tip or ""), armed), (True, True), tip)
+        page.keyboard.press("Escape")
+        page.wait_for_function("()=>!VD_ARM")
+        page.locator(confirm).tap()
+        page.wait_for_function("()=>!!VD_ARM")
+        self.assertIn("삭제 확정", self.hold_finger(page, confirm) or "")
+        self.assertEqual(set(self.pins()), {a})
+
+    def test_a_tap_on_a_word_while_the_reason_is_typed_takes_the_first_tap(self):
+        """390x844 touch, page 2's line in its place under the page with its own verdict: the reason typed in its popover
+        folds the line's figure name (body.pv-typing). A tap on the pressed word takes the verdict back at once - the fold
+        holds until the tap's click has run, so the word is where the finger came down. The focus the tap moved to the word
+        let the name come back first, the words went 22px down and the click fell on the line."""
+        page = self.phone(in_place=True)
+        a = self.press_page(page, 2, "보류")
+        page.evaluate(END_CHIPS)
+        settle(page)
+        self.assertFalse(
+            page.evaluate("()=>document.querySelector('#doc .pv[data-page=\"2\"]').classList.contains('stuck')")
+        )
+        open_reason(page, 2, tap=True)
+        page.keyboard.type("쓰던 이유")
+        settle(page)
+        self.assertTrue(page.evaluate("document.body.classList.contains('pv-typing')"))
+        word = WORD % (2, "보류")
+        page.evaluate(
+            """s=>{window.__at={}; const y=()=>Math.round(document.querySelector(s).getBoundingClientRect().top);
+              document.addEventListener('pointerdown',()=>{window.__at.down=y();},true);
+              document.addEventListener('click',e=>{window.__at.click=y(); window.__at.on=!!e.target.closest&&!!e.target.closest(s);},true);}""",
+            word,
+        )
+        b = page.locator(word).bounding_box()
+        page.touchscreen.tap(b["x"] + b["width"] / 2, b["y"] + b["height"] / 2)
+        page.wait_for_function("id=>!OPEN_ALL.some(p=>p.id===id)", arg=a, timeout=5000)
+        at = page.evaluate("window.__at")
+        self.assertEqual((at["down"], at["on"]), (at["click"], True), at)
+        settle(page)
+        self.assertFalse(page.evaluate("document.body.classList.contains('pv-typing')"))  # let go after the click
+
+    def test_a_save_in_a_pinch_zoomed_view_leaves_the_view_where_it_was(self):
+        """390x844 touch at page scale 2, the view moved down to the floating line (visualViewport offsetTop > 0): a tap on a
+        word saves it and the view stays where it was. Every drawing of the lines measures them with the page above's line
+        grown and shrinks it back (#doc.pv-measure); Chromium carried the scroll anchoring of that shrink into the zoomed
+        view, which went to the top (422 -> 0 on a 91-page document). Here the measure grows page 1's line by 400px, as the
+        identifiers of a long document's lines above the reading page do together."""
+        page = self.phone()
+        page.add_style_tag(content="#doc.pv-measure .pv[data-page='1']{padding-bottom:400px}")
+        page.context.new_cdp_session(page).send("Emulation.setPageScaleFactor", {"pageScaleFactor": 2})
+        settle(page)
+        page.evaluate(
+            "()=>document.querySelector('#btn-side').scrollIntoView({block:'end',inline:'start'})"
+        )  # a pan down
+        settle(page)
+        before = page.evaluate(VVIEW)
+        self.assertEqual(before["s"], 2)
+        self.assertGreater(before["t"], 100, before)
+        word = WORD % (2, "채택")
+        x, y = page.evaluate(CENTRE, word)  # in the layout's px (a locator's box is the zoomed view's)
+        seen = page.evaluate(
+            "()=>[visualViewport.offsetLeft,visualViewport.offsetTop,visualViewport.width,visualViewport.height]"
+        )
+        self.assertTrue(seen[0] <= x <= seen[0] + seen[2] and seen[1] <= y <= seen[1] + seen[3], (x, y, seen))
+        cdp = page.context.new_cdp_session(page)
+        # a touch point is in CSS px from the visual viewport's top left here (the view's own offset taken off)
+        cdp.send(
+            "Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": x - seen[0], "y": y - seen[1]}]}
+        )
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+        page.wait_for_function("()=>OPEN_ALL.some(p=>verdictOf(p)==='채택')", timeout=5000)
+        settle(page)
+        self.assertEqual(page.evaluate(VVIEW), before)
+
+    def test_a_press_right_after_a_long_press_keeps_the_fold_until_its_own_click(self):
+        """390x844, the reason typed on page 2's line in its place (the fold on): a long press on the pressed word, then
+        within its 500ms wait a second press held 700ms on the same word (a pen or a mouse: its focus moves at the press,
+        its click comes at the release). The word stays where the press came down until its click is handled, and the
+        click takes the verdict back. The long press's swallowed click left its wait running, which let the fold go under
+        the second press - the name came back, the word moved 22px and the click fell on the line."""
+        page = self.phone(in_place=True)
+        a = self.press_page(page, 2, "보류")
+        page.evaluate(END_CHIPS)
+        settle(page)
+        open_reason(page, 2, tap=True)
+        page.keyboard.type("길게 누른 뒤 누름")
+        settle(page)
+        word = WORD % (2, "보류")
+        x, y = page.evaluate(CENTRE, word)
+        top = "s=>Math.round(document.querySelector(s).getBoundingClientRect().top)"
+        page.evaluate(
+            """s=>{window.__at={}; document.addEventListener('click',e=>{window.__at.click=Math.round(document.querySelector(s).getBoundingClientRect().top);
+              window.__at.on=!!e.target.closest&&!!e.target.closest(s);},true);}""",
+            word,
+        )
+        cdp = page.context.new_cdp_session(page)
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": x, "y": y}]})
+        page.wait_for_timeout(800)
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+        page.wait_for_timeout(100)
+        self.assertEqual(set(self.pins()), {a})  # the long press pressed nothing
+        down = page.evaluate(top, word)
+        page.mouse.move(x, y)
+        page.mouse.down()
+        page.wait_for_timeout(700)  # past the long press's 500ms wait
+        held = page.evaluate(top, word)
+        page.mouse.up()
+        page.wait_for_function("id=>!OPEN_ALL.some(p=>p.id===id)", arg=a, timeout=5000)
+        at = page.evaluate("window.__at")
+        self.assertEqual((held, at["click"], at["on"]), (down, down, True), at)
+
+    def test_a_pass_that_throws_in_a_zoomed_view_gives_the_anchoring_back(self):
+        """At page scale 2 the measure pass holds the PDF area's anchoring off (overflow-anchor: none). A step that throws
+        inside the pass still gives it back, and the pages are not left measuring (#doc.pv-measure); an area that had a
+        value of its own gets that value back. Restored only on the pass's normal end, it stayed off for good."""
+        page = self.phone()
+        page.context.new_cdp_session(page).send("Emulation.setPageScaleFactor", {"pageScaleFactor": 2})
+        settle(page)
+        after = """v=>{const L=document.querySelector('#left'); L.style.removeProperty('overflow-anchor'); if(v)L.style.setProperty('overflow-anchor',v);
+          const need=window.pvStateNeed; let threw=false; window.pvStateNeed=()=>{throw new Error('a step that throws');};
+          try{pvFit([...document.querySelectorAll('#doc .pv')]);}catch(e){threw=true;} finally{window.pvStateNeed=need;}
+          return [threw,L.style.getPropertyValue('overflow-anchor'),document.querySelector('#doc').classList.contains('pv-measure')];}"""
+        self.assertEqual(page.evaluate(after, ""), [True, "", False])
+        self.assertEqual(page.evaluate(after, "auto"), [True, "auto", False])
+
+    def test_a_press_whose_window_loses_the_focus_lets_the_fold_go(self):
+        """390x844, the reason typed on page 2's line (the fold on): a press held on the line's word while the focus moves
+        to the word, then the window loses the focus (or is hidden) and the press is let go outside it - no pointerup or
+        pointercancel comes. The fold goes at once (body.pv-typing off, the figure name back); it stayed for good."""
+        for how, key in (
+            ("blur", "보류"),
+            ("hidden", "채택"),
+        ):  # a word per run: the line keeps the first run's verdict
+            with self.subTest(how=how):
+                page = self.phone(in_place=True)
+                self.press_page(page, 2, key)
+                page.evaluate(END_CHIPS)
+                settle(page)
+                open_reason(page, 2, tap=True)
+                page.keyboard.type("창을 떠난 누름")
+                settle(page)
+                word = WORD % (2, key)
+                x, y = page.evaluate(CENTRE, word)
+                page.mouse.move(x, y)
+                page.mouse.down()  # the focus moves to the word; the fold holds for the press
+                settle(page)
+                self.assertTrue(page.evaluate("document.body.classList.contains('pv-typing')"))
+                if how == "blur":
+                    page.evaluate("()=>window.dispatchEvent(new Event('blur'))")
+                else:
+                    page.evaluate(
+                        """()=>{Object.defineProperty(document,'visibilityState',{get:()=>'hidden',configurable:true});
+                          document.dispatchEvent(new Event('visibilitychange'));}"""
+                    )
+                page.wait_for_function("()=>!document.body.classList.contains('pv-typing')", timeout=3000)
+
+    def test_a_description_wraps_between_korean_words_and_breaks_only_a_token_too_long_for_it(self):
+        """390x844: the pressed word's description in Korean wraps between words, never inside one ('판정 취/소)' broke a
+        word), at every width the box may have; an English token wider than the box still breaks inside the box rather
+        than running past it."""
+        page = self.phone()
+        # every pair of Hangul syllables side by side stays on one row, at each width the box may have from 120 to 300px
+        split = """t=>{const tip=document.getElementById('tip'),el=document.querySelector('#doc .pv .vd-b'),H=/[가-힣]/; let bad=null;
+          for(let w=120;w<=300&&!bad;w+=4){tip.style.maxWidth=w+'px'; showTipText(el,t); const n=tip.firstChild,rows=new Set();
+            const top=i=>{const r=document.createRange(); r.setStart(n,i); r.setEnd(n,i+1); const y=Math.round(r.getBoundingClientRect().top); rows.add(y); return y;};
+            for(let i=0;i+1<t.length&&!bad;i++)if(H.test(t[i])&&H.test(t[i+1])&&top(i)!==top(i+1))bad={w,at:t.slice(Math.max(0,i-2),i+3)};
+            if(!bad&&rows.size<2&&w<200)bad={w,rows:rows.size};}
+          tip.style.maxWidth=''; hideTip(); return bad;}"""
+        ko = "지금 판정입니다 · 다시 누르면 이 판정을 거둡니다(판정 취소) · 처리된 판정은 카드의 [지우기]로 거둡니다"
+        self.assertIsNone(page.evaluate(split, ko))
+        long = """t=>{const tip=document.getElementById('tip'); showTipText(document.querySelector('#doc .pv .vd-b'),t); const b=tip.getBoundingClientRect();
+          const r=document.createRange(); r.selectNodeContents(tip.firstChild); const rows=new Set([...r.getClientRects()].map(x=>Math.round(x.top))).size;
+          return {inside:tip.scrollWidth<=tip.clientWidth+1&&b.right<=innerWidth, rows};}"""
+        got = page.evaluate(long, "pins/" + "x" * 90 + ".json")
+        self.assertTrue(got["inside"] and got["rows"] > 1, got)

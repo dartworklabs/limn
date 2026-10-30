@@ -4,7 +4,7 @@ const TIP=$('#tip'); let tipT=/** @type {ReturnType<typeof setTimeout>|undefined
 document.addEventListener('mousemove',e=>{TIPXY=[e.clientX,e.clientY];},{passive:true});
 // The tooltip box is a manual popover, so it is drawn in the top layer: a modal sheet (the navigation sheet, [더보기]) is in the top
 // layer too and would cover a box that only has a z-index. A browser without popovers draws it as it always did.
-function tipShown(on){TIP.hidden=!on; if(typeof TIP.showPopover!=='function')return;
+function tipShown(on){TIP.hidden=!on; if(!on)document.documentElement.classList.remove('tip-press'); if(typeof TIP.showPopover!=='function')return;
   try{const open=TIP.matches(':popover-open'); if(on&&!open)TIP.showPopover(); else if(!on&&open)TIP.hidePopover();}catch(e){}}
 function hideTip(){clearTimeout(tipT);tipT=undefined;tipEl=null;tipShown(false);}
 // Shows el's description over it. The box is translate="no": a description is already in the UI language (the translator
@@ -48,16 +48,22 @@ document.addEventListener('focusin',e=>{const t=/** @type {HTMLElement} */(e.tar
   armTip(t.closest?t.closest('[data-tip]'):null);});
 // Long-press tooltip (touch/pen): holding for 500ms shows the description, and the one click after release is swallowed (so the button doesn't fire).
 // Over a page image, quick selection (long-press = that paragraph) takes priority, so only badges (.mark [data-act=mark-jump]) apply. Input fields keep their paste menu.
+// A control that holds its hover and focus box back for a while - a page verdict line's words, [판정 취소] and earlier link
+// while its save chip stands or its reason popover is open, its armed word (verdict.js) - carries the same description as
+// data-tip-press, which only a long press shows. Without it a long press there found no description, so nothing swallowed its
+// release: the click went through and took the line's verdict back (#320). A long press is the same press in every state.
+// While a long press's description is up the page is html.tip-press: a verdict line's context over its words, which says the
+// same, steps aside for it (verdict-reason.css).
 let PRESS=/** @type {{el:HTMLElement,x:number,y:number,t:ReturnType<typeof setTimeout>,shown?:boolean}|null} */(null),SWALLOW_CLICK=0,TIP_HOLD=0;   // TIP_HOLD: the SWALLOW_CLICK a long press's release armed (0 for none)
 /** Find a touch tooltip target while preserving native input menus and paragraph selection outside pin badges. */
-function pressTarget(t){const el=t&&t.closest?t.closest('[data-tip]'):null; if(!el)return null;
+function pressTarget(t){const el=t&&t.closest?t.closest('[data-tip],[data-tip-press]'):null; if(!el)return null;
   if(el.tagName==='TEXTAREA'||el.tagName==='INPUT')return null;
   if(el.closest('.pg')&&!el.closest('.mark [data-act=mark-jump]'))return null; return el;}
 document.addEventListener('pointerdown',e=>{if(SWALLOW_CLICK===TIP_HOLD)SWALLOW_CLICK=0; TIP_HOLD=0;   // the click a long press's release held off comes before the next press: one that never came (a cancelled press) must not take this tap's
   if(e.pointerType==='mouse')return; if(!TIP.hidden)hideTip();
   const el=pressTarget(e.target); if(!el)return;
-  PRESS={el,x:e.clientX,y:e.clientY,t:setTimeout(()=>{showTip(el); if(PRESS)PRESS.shown=true; SWALLOW_CLICK=TIP_HOLD=Date.now()+900;
-    setTimeout(()=>{if(!TIP.hidden&&TIP.textContent===el.dataset.tip)hideTip();},4000);},500)};},true);
+  PRESS={el,x:e.clientX,y:e.clientY,t:setTimeout(()=>{const txt=el.dataset.tip||el.dataset.tipPress||''; showTipText(el,txt); if(!TIP.hidden)document.documentElement.classList.add('tip-press'); if(PRESS)PRESS.shown=true; SWALLOW_CLICK=TIP_HOLD=Date.now()+900;
+    setTimeout(()=>{if(!TIP.hidden&&TIP.textContent===txt)hideTip();},4000);},500)};},true);
 function endPress(){if(PRESS){clearTimeout(PRESS.t); PRESS=null;}}
 document.addEventListener('pointermove',e=>{if(PRESS&&Math.hypot(e.clientX-PRESS.x,e.clientY-PRESS.y)>10)endPress();},true);
 // The release of the press that opened the description is when the click it ends with is swallowed: the window set when the box

@@ -61,6 +61,8 @@
   background:var(--popover);color:var(--popover-foreground);border:1px solid var(--border-strong);font-size:var(--text-xs);white-space:nowrap;box-shadow:var(--shadow-sm);pointer-events:none}
 .pv:is(.pv-onshow,:has(.vd-b[aria-pressed=true]:focus-visible)):not(.pv-pop-open)>.pv-onhint{display:block}
 @media (hover:hover){.pv:has(.vd-b[aria-pressed=true]:hover):not(.pv-pop-open)>.pv-onhint{display:block}}
+/* A long press's description box is up (html.tip-press, tooltip.js): it says what the context says, so the context steps aside. */
+html.tip-press #doc .pv>.pv-onhint{display:none}
 /* A saved reason the person may change: its pencil after the text. */
 .pv button.pv-note .ic-pencil{width:1em;height:1em;margin-left:var(--space-1);vertical-align:calc(.5cap - .5em);color:var(--muted-foreground)}
 /* The newer note a write found (a conflict): a row over the field, the warning colour's edge. */

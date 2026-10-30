@@ -1,5 +1,98 @@
 # Changelog
 
+## 0.4.36 — 2026-10-30
+
+Follow-ups to the reviews of 0.4.35, nearly all on the page verdict line: a long press, a tap while the reason is
+typed and a save in a pinch-zoomed view do what they show on a phone, a phone's floating line keeps its rows, and the
+status line's `+N` list reads there; Tab from a page without a line keeps the pages where they are, a line saved by a
+key keeps its rows and the earlier link is short and never cut; a reason draft moved more than once ends on one verdict.
+The lines far from the view are left for the browser to skip, so the first scroll through a long figure document no
+longer stalls. The agent contract is unchanged.
+
+### Changed
+
+- **The earlier verdicts' link is short and never cut.** A page verdict line's link to the open verdicts a newer one
+  replaced reads `이전 2건` (`+2 earlier`), and on a line that is short of room on the wide band its count alone, `+2`;
+  its accessible name and its tooltip still say `이전 판정 2건 · 새 판정으로 대체됨` in full. The whole words were cut to
+  fit: on a 620px English line (1280 x 800, panel open, three-digit pin numbers) the link read `1 ea…`, and kept at 5em
+  that line stacked. On a row a dot sets it off from the state before it (a bare `+2` after [판정 취소] or a button's
+  key digit read as that button's count), and the count's press area is 24 x 32px; a stacked line (a phone) has no dot. Where not even the count fits beside the rest, the link steps out rather than stack the
+  line. Whenever fitting a line hides its earlier link - stepped out, or beside `Enter 이유 쓰기` on a row that a resize or
+  a zoom made tight - a focus on it moves to the control before it on the line instead of being lost (#322).
+
+### Fixed
+
+- **A reason draft moved more than once still ends on one verdict (#317).** A draft that moved off a verdict whose reason
+  write could still land there (a write out, its [다시 시도], a write whose answer was lost) remembered only the last key
+  it moved off: moved again (`a → 쪽 → b`, `a → b → c`), a write that then landed on a left the copy, which was written
+  on the newer verdict too. It now remembers every verdict it moved off, as the place of the moved text in the draft -
+  followed through every edit - with that verdict's lost writes. A write of that text on one of them takes that place
+  out of the copy with the line break that set it apart, keeping lines typed around it, a draft joined to it and the same
+  sentence typed again; trailing spaces or a CRLF no longer hide it. Text typed next to the moved sentence on its line
+  (at either end) makes it a new sentence, written whole on the newer verdict, where only the fragment used to be. A popover open on the copy follows: with nothing left
+  it closes, the status line says the reason was saved on the earlier verdict, and the line's reason control takes the
+  focus with the next digit not taken as a verdict key - also when its Enter was waiting; with something left it keeps
+  that and says the rest went. Before the copy is written, a write out on the earlier verdict answers first and a write
+  there that lost its answer is settled from the pin's rev - also after the draft moved on or the page was reloaded;
+  landed, nothing is written twice; when the pin cannot be read nothing is written, the draft stays and the status line
+  says the save failed, with [다시 시도]. The other order holds too: once the copy is written the earlier verdict's
+  failure and its [다시 시도] go, and that [다시 시도] pressed while the copy's write is out waits for it. A folded or
+  kept change of a saved reason that moves to a new verdict takes only the person's own text, as an open one did, not
+  the lines others added under it.
+- **A long press on a page verdict line is the same press whatever the line holds** (#320). While a save chip stood on
+  the line or its reason popover was open, the line's words, [판정 취소] and earlier link were drawn without their
+  description (no box over the chip or the popover), and so was a confirm word waiting for its second press; a long press
+  then found no description, nothing swallowed its release, and the click took the pressed word's verdict back - or saved
+  the armed word. They now keep the description for a long press only (`data-tip-press`): hover and focus still raise no
+  box, a long press shows it and its release presses nothing, and it does not let an armed word go either. While that
+  description is up, the line's own context over the words ('지금 채택 판정 · 다시 누르면 판정 취소'), which says the same,
+  steps aside.
+- **Descriptions wrap Korean between words** (`#tip{word-break:keep-all}`): '판정 취소)' broke as '판정 취/소)'. A token
+  wider than the box still breaks inside it.
+- **A tap on a word while the reason is typed takes the first tap** (#320). On a phone the reason field folds the line's
+  figure name; the tap's focus brought it back before the click, the words moved 22px down under the finger and the click
+  fell on the line. The fold now holds until a press on the line has been handled, as it already did for the popover's
+  own buttons.
+- **Saving a verdict in a pinch-zoomed view leaves the view where it is** (#320). Every drawing of the lines measures
+  them as the reading line (`#doc.pv-measure`), which grows the lines above the reading page and shrinks them back;
+  Chromium carried the scroll anchoring of that shrink into the zoomed view, which jumped to the top (422 -> 0 at 2x).
+  While the page is zoomed the PDF area no longer anchors during that measure.
+- **The status line's `+N` list reads and stays in view on a phone zoomed in** (#322 item 5). Held inside the 2x view
+  (179px), a row's [되돌리기] and [x] left its text no width: one character a line, 685-806px a row, and the list - at
+  least a row tall - ran 418-639px above the window, the focus on its first row pulling the zoomed view after it. A row's
+  buttons now go under its text when the text would get less than 6em, and the list is never taller than the visible
+  part nor past it.
+- **Tab from the PDF area on a page without a line keeps the pages where they are.** When the reading page takes no
+  verdict (a figure document's list pages) or its line has no control to stop on, Tab from the PDF area - or from
+  nothing after a press on a page - goes to the next stop in the pages only while it shows whole in the area's view
+  with nothing over any of it (the next page's line on a small zoom; Shift+Tab from there leaves the way it came in),
+  else past the pages (the panel's grip, the status line's action). It went to the first line after the pages' start
+  and scrolled there: from page 1 of a 91-page figure document to page 4, also on first open, since 0.4.34. So does the
+  first Tab with nothing focused where no stop is drawn before the pages (a phone, just opened: page 4's line, scrolled
+  0 to 2067px). Tab into the pages from the outline or the section strip, and Shift+Tab back out, are unchanged (#322).
+- **A phone's floating line keeps its rows.** A floating line on a phone holds [판정 취소] back unseen but keeps its
+  place, so the line is as tall floating as in its place. Taken out of the row, it let the short earlier link rise into
+  it: a line with a reason and an earlier verdict was 131px floating and 191px in place, and the next page jumped 60px
+  under the finger as the line crossed its page's end (#322).
+- **A line saved by a key keeps its rows whichever page is read.** Such a line says `Enter 이유 쓰기` (`Enter reason`)
+  while it is read and [이유 추가] at rest - 40px narrower in Korean, 15px in English, with the earlier link beside it on
+  a tight row. It was fitted on the look it showed, so near its threshold it stacked, or its stacked state took a second
+  row (91 to 123px), only while it was read, or only at rest. It is now fitted at the wider of the two looks and states,
+  as the hidden identifier and key digits are (#322).
+- **The first scroll through a long figure document no longer stalls on its page verdict lines** (#322, item 4). Each
+  page PDF.js draws for the first time adds its embedded fonts to `document.fonts`, and every font added makes the
+  browser lay out all the text in the page again. Since 0.4.35 skips the far pin cards (#305), what was left was the
+  pages' verdict lines: on the 91-page figure document (`pl`, 200 pins, panel open, 1400 x 850, a wheel scroll from the
+  top to the end) the 88 lines were 4,300 of the 7,378 objects laid out after each font, and the scroll had 3-9 long tasks
+  (0.16-0.51 s; 8-9 on a busier machine). A line more than a view's height above or below what the PDF area shows is now
+  left for the browser to skip (`content-visibility: auto`): 3,243 objects per font, no long task in three runs, frame
+  p95 33 -> 17 ms. Nothing looks or moves differently. A skipped line stands at the height it is drawn at, and every line
+  is still measured drawn - as the reading line - whenever what it shows or its width changes, so no line's rows or
+  height and no page's place change, and nothing scrolls to make up for one. The reading line (which floats), a line in
+  or near the view and a line holding the focus, its reason popover or a save chip are never skipped (skipping contains
+  a line, which snaps its parts to whole pixels and clips what reaches past it). The outline is not skipped: its rows
+  share one grid's columns, which a skipped row would leave.
+
 ## 0.4.35 — 2026-10-30
 
 Follow-ups to the reviews of 0.4.34, nearly all on the page verdict line: Shift+Tab leaves the reading line the way
