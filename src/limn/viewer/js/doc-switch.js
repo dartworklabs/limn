@@ -62,7 +62,7 @@ addEventListener('pagehide',saveView);
 // and from nothing (body) the next Tab went to the first page's line and scrolled there.
 async function switchDoc(k){
   if(!k||k===DOC||!docInfo(k))return; const seq=++SWITCHSEQ; searchLeave();   // the search belongs to the document left (search.js)
-  const inPages=$('#left').contains(document.activeElement);
+  const a=document.activeElement,inPages=!!a&&!!a.closest&&!!a.closest('#left');
   if(document.body.classList.contains('revision-open'))setViewMode(VIEW_MODE.MANUSCRIPT);
   saveView(); parkDraft(); cancelRepick(); if(COMPOSE.current||!$('#composer').hidden)cancelSelection(false);
   if(EDITOR.current&&!editDirty())cancelEdit();
