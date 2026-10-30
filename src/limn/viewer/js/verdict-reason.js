@@ -259,8 +259,9 @@ function pvReasonRestore(){const doc=DOC||''; if(PV_RESTORED.has(doc)||!META)ret
 // Brings page `page`'s line into view and puts the focus on its draft's mark ('초안 있음') - before the saved reason, which
 // comes first on the line and opens the popover too - else its reason control (pvFocusLine).
 /** @param {number} page */
-function pvShowLine(page){const l=/** @type {HTMLElement|null} */(document.querySelector('#doc .pv[data-page="'+page+'"]')); if(!l)return;
-  const blk=/** @type {HTMLElement} */(l.parentElement||l); blk.scrollIntoView({block:blk.getBoundingClientRect().height<=$('#left').clientHeight?'center':'end'});
+function pvShowLine(page){if(PV_SIDE){pvBring(page); pvStick();}   // beside the pages the panel is the line, once the page is read (verdict-panel.js)
+  const l=/** @type {HTMLElement|null} */(document.querySelector('#doc .pv[data-page="'+page+'"]')); if(!l)return;
+  if(!PV_SIDE){const blk=/** @type {HTMLElement} */(l.parentElement||l); blk.scrollIntoView({block:blk.getBoundingClientRect().height<=$('#left').clientHeight?'center':'end'});}
   requestAnimationFrame(()=>{const m=/** @type {HTMLElement|null} */(document.querySelector('#doc .pv[data-page="'+page+'"] .pv-draft'));
     if(m)m.focus({preventScroll:true}); else if(!pvFocusLine(page))searchToPage();});}
 // A draft that changes a saved reason, opened again after its pin's note changed elsewhere: it knows the newer note at once

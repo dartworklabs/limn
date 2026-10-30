@@ -682,9 +682,9 @@ ${pvTipAttr(!!chip,eName+' — '+tr('이 쪽의 더 새 판정으로 대체되�
   // page moves, so the morph (pvMorph) never takes a focused button out of the page. A hidden one holds the identifier, so
   // every line is fitted as the reading line it may become (pvFit).
   // The panel beside the pages (verdict-panel.js) names its page and figure whole: the title on rows of its own under the
-  // identifier, kept even when empty, so the words below stand at one height for every page.
+  // identifier, kept even when empty, so the words below stand at one height for every page. A view-only PDF has no titles.
   const rd=PV_READ===page||!!panel,nm=rd?pvFigParts(page):{id:pvFigParts(page).id,rest:''};
-  const name=panel?html`<span class="pv-fig" translate="no"><span class="pv-fig-id">${nm.id}</span><span class="pv-fig-t">${nm.rest}</span></span><span class="pv-sep pv-fig-sep" aria-hidden="true">·</span>`
+  const name=panel?html`<span class="pv-fig" translate="no"><span class="pv-fig-id">${nm.id}</span>${isFigureKind(META?META.kind:undefined)?html`<span class="pv-fig-t">${nm.rest}</span>`:''}</span><span class="pv-sep pv-fig-sep" aria-hidden="true">·</span>`
     :html`<span class="pv-fig" translate="no"${rd?'':html` hidden`}><span class="pv-fig-id">${nm.id}</span>${nm.rest?html`<span class="pv-fig-t">${' · '+nm.rest}</span>`:''}</span><span class="pv-sep pv-fig-sep" aria-hidden="true"${rd?'':html` hidden`}>·</span>`;
   const keys=PV_KEYS===page,target=tl('{page}쪽',{page}),held=PV_TOGGLE_HOLD.get(slot),hold=held&&held.until>Date.now()?held.key:null;
   const pr=(/** @type {string} */key)=>key!==want?PV_PRESS.NONE:nx||sv!==undefined?PV_PRESS.SAVING:cur?pvPressOf(cur):PV_PRESS.NONE;
@@ -1024,7 +1024,7 @@ function drawPageVerdicts(){const v=pageVerdictsOn(),f=/** @type {HTMLElement|nu
   // A document with no page lines has no reason field either: a session left from the one before (or from this one before
   // its words went) closes here, its text saved - pvReasonSync, after this, is never reached for it.
   if(!v||!META){if(PV_REASON)pvReasonLeave(); $$('#doc .pv,#doc .pv-sum').forEach(e=>e.remove()); if(PV_SIDE)pvSideApply(false); pvTypingSync(); return;}
-  pvSideSync();   // beside the pages or under them (verdict-panel.js)
+  const turn=pvSideTurn();   // beside the pages or under them (verdict-panel.js)
   pvReasonSync(); const map=pageVerdictPins(); PV_READ=pvReadingPage(); PV_KEYS=pvKeysPage(PV_READ);
   // Beside the pages: one panel for the reading page, and every page's verdicts are its - none draws a page-size mark.
   if(PV_SIDE){$$('#doc .pgw>.pv').forEach(e=>e.remove()); map.forEach(list=>list.forEach(p=>PV_SHOWN.add(p.id))); pvPanelFill(map,v);}
@@ -1037,6 +1037,7 @@ function drawPageVerdicts(){const v=pageVerdictsOn(),f=/** @type {HTMLElement|nu
   sizePv(); pvStick();
   if(had)vdRefocus(f);
   pvReasonAfterLines();   // a reason field that went from under the focus hands it to its line
+  if(turn)pvSideTurned(turn);   // the lines moved: the reading spot, a save chip and the focus come along
   pvTypingSync();}   // a redraw or a rebuild can take the focused reason field away without a focusout
 // Whether pin p's page verdict line shows it, so its page-size mark is not drawn (marks).
 /** @param {Pin} p */

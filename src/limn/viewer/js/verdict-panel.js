@@ -31,11 +31,23 @@ function pvSideWant(){if(LAYOUT!==LAYOUT_MODE.WIDE||!pageVerdictsOn())return fal
 // Sets PV_SIDE and the body's class for it (body.pv-beside). No drawing.
 /** @param {boolean} on */
 function pvSideApply(on){PV_SIDE=on; document.body.classList.toggle('pv-beside',on);}
-// Before the lines are drawn (drawPageVerdicts): follows the room - the caller draws next.
-function pvSideSync(){const on=pvSideWant(); if(on!==PV_SIDE)pvSideApply(on);}
-// When the room crossed its bar (pvStick, sizePv: a resize, the pin panel, a zoom), the lines move beside or under the pages
-// and the reading spot is kept - the blocks' heights change with them. Whether it did.
-function pvSideCheck(){const on=pvSideWant(); if(on===PV_SIDE)return false; const a=topAnchor(); pvSideApply(on); drawPageVerdicts(); restoreAnchor(a); return true;}
+// Whether the room crossed its bar since the lines were drawn (pvStick, sizePv: a resize, the pin panel, a zoom): they are drawn
+// again, beside or under the pages. Whether it did.
+function pvSideCheck(){if(pvSideWant()===PV_SIDE)return false; drawPageVerdicts(); return true;}
+// Before the lines are drawn (drawPageVerdicts): follows the room. When it crossed its bar every line goes and new ones come,
+// so what the person has must be carried over (pvSideTurned): the reading spot - the blocks' heights change with them - and
+// the focus. Null when the lines stay where they are.
+function pvSideTurn(){const on=pvSideWant(); if(on===PV_SIDE)return null;
+  const L=$('#left'),a=/** @type {HTMLElement|null} */(document.activeElement),f=pvIsReasonField(a)?/** @type {HTMLTextAreaElement} */(a):null;
+  const keep={spot:L.scrollTop>0?topAnchor():null,inLine:!!a&&!!a.closest&&!!a.closest('#doc .pv'),caret:f?[f.selectionStart,f.selectionEnd]:null};
+  pvSideApply(on); return keep;}
+// After the lines moved: the reading spot is back, a save chip stands on its pin's new line (drawChips, else its undo goes to the
+// status line), and the reason field that had the focus has it again with its caret - what is typed next stays text, never
+// a verdict key. A focus on another page's line, which the panel does not show, goes to the PDF area, not to nothing.
+/** @param {NonNullable<ReturnType<typeof pvSideTurn>>} k */
+function pvSideTurned(k){restoreAnchor(k.spot); drawChips(); const g=k.caret?pvReasonField():null;
+  if(g&&k.caret){g.focus({preventScroll:true}); g.setSelectionRange(k.caret[0],k.caret[1]); return;}
+  const a=document.activeElement; if(k.inLine&&(!a||a===document.body))searchToPage();}
 
 // ---------------- The panel
 // The panel (#pv-panel): a page verdict line of its own, the last child of the pages' column - so every '#doc .pv[data-page]'
@@ -55,19 +67,22 @@ function pvPanelFill(map,v){const p=pvPanel(),r=PV_READ,list=r?map.get(r)||[]:[]
   if(r){p.classList.remove('pv-quiet'); fillPv(p,r,map.get(r),v); pvPanelPlace(); return;}
   const at=pvReadingAt(); PV_TEXT.delete(p); p.classList.add('pv-quiet'); p.classList.remove('reading'); p.dataset.page=String(at||0); delete p.dataset.pin;
   p.setAttribute('role','group'); p.setAttribute('aria-label',at?tl('{page}쪽 판정',{page:at}):tr('판정'));
-  setHtml(p,html`<span class="pv-fig" translate="no"><span class="pv-fig-id">${at?pvFigParts(at).id:''}</span><span class="pv-fig-t"></span></span>\
+  setHtml(p,html`<span class="pv-fig" translate="no"><span class="pv-fig-id">${at?pvFigParts(at).id:''}</span>${isFigureKind(META?META.kind:undefined)?html`<span class="pv-fig-t"></span>`:''}</span>\
 <span class="pv-t"><span class="pv-s pv-none">${tr('이 쪽은 판정을 받지 않습니다')}</span></span>`);
   pvPanelPlace();}
 // The pin save chip e is for (its notice's), 0 for none.
 /** @param {HTMLElement} e @returns {number} */
 function pvChipPin(e){let pin=0; NOTICES.forEach(n=>{if(n.el===e)pin=n.pin||0;}); return pin;}
 // The panel's place: --pv-panel-gap right of the reading page (page 1 before there is one), its top at the PDF area's top
-// padding, no taller than the area shows; fixed, so it never scrolls. Once a frame with pvStick.
+// padding; fixed, so it never scrolls. Taller than the area shows (a short window, a long conflict note in the popover) it
+// scrolls inside (.pv-tall). Only then: a scroller clips what stands outside it, the pressed word's context under the panel,
+// and that context's box would bring a scroll bar with it. Once a frame with pvStick.
 function pvPanelPlace(){const p=document.getElementById('pv-panel'); if(!p||!PV_SIDE)return; const L=$('#left'),lr=L.getBoundingClientRect();
   const n=Number(p.dataset.page)||pvReadingAt()||1,pg=document.getElementById('p'+n)||document.getElementById('p1'); if(!pg)return;
   const x=Math.round(Math.min(pg.getBoundingClientRect().right+PV_SIDE_GAP,lr.left+L.clientWidth-PV_SIDE_W)),y=Math.round(lr.top+parseFloat(getComputedStyle(L).paddingTop));
-  const h=Math.max(0,Math.floor(lr.top+L.clientHeight-y-PV_SIDE_GAP))+'px';
-  if(p.style.left!==x+'px')p.style.left=x+'px'; if(p.style.top!==y+'px')p.style.top=y+'px'; if(p.style.maxHeight!==h)p.style.maxHeight=h;}
+  if(p.style.left!==x+'px')p.style.left=x+'px'; if(p.style.top!==y+'px')p.style.top=y+'px';
+  const room=Math.max(0,Math.floor(lr.top+L.clientHeight-y-PV_SIDE_GAP)),was=p.classList.contains('pv-tall'),tall=(was?p.scrollHeight+2:p.offsetHeight)>room,h=tall?room+'px':'';
+  if(tall!==was)p.classList.toggle('pv-tall',tall); if(p.style.maxHeight!==h)p.style.maxHeight=h;}
 // The panel's line is laid out in rows (.pv-stack: the name, the words, the state, the reason) and never measured for one row:
 // there is room for each part's whole width, so nothing gives way. Its save chip and the reason popover stand in its flow
 // under the state (verdict-panel.css): the words above never move.
@@ -84,15 +99,15 @@ function pvBring(page,smooth){const L=$('#left'),pg=document.getElementById('p'+
   if(smooth)L.scrollBy({top:by,behavior:SMOOTH}); else L.scrollTop+=by;}
 
 // ---------------- The summary under each page
-// '6쪽 · PL17 · 판정 #7 채택 · 처리 대기' (or '판정 없음') under every page that takes a verdict: one row of one height whatever
+// '6쪽 · PL17 · 판정 #7 채택 · 처리 대기' (or '판정 없음') under every page that takes a verdict, and '초안 있음' where a reason
+// draft waits for that page - a line would mark it, and the panel shows only the reading page: one row of one height whatever
 // it says, so neither a verdict changing it nor the reading page changing moves the pages. A press brings that page to the
-// panel (pvSumGo). Not a Tab stop - the keyboard has the panel, and PageDown brings the next page to it - and quiet for a
-// screen reader beyond its name: the panel says the same.
+// panel (pvSumGo). Not a Tab stop - the keyboard has the panel, and PageDown brings the next page to it.
 /** @param {number} page @param {Pin[]|undefined} list */
-function pvSumHtml(page,list){const cur=list&&list[0],k=cur&&verdictOf(cur);
-  const st=cur&&k?html`${tr('판정')} #${cur.id} <b class="vd-w" translate="no">${verdictLabel(k)}</b><span class="pv-sep" aria-hidden="true">·</span>${pvStateWord(cur)}`
-    :html`<span class="pv-none">${tr('판정 없음')}</span>`;
-  return html`<span class="pv-sum-id" translate="no">${pvFigParts(page).id}</span><span class="pv-sep" aria-hidden="true">·</span><span class="pv-sum-s">${st}</span>`;}
+function pvSumHtml(page,list){const cur=list&&list[0],k=cur&&verdictOf(cur),sep=html`<span class="pv-sep" aria-hidden="true">·</span>`;
+  const st=cur&&k?html`${tr('판정')} #${cur.id} <b class="vd-w" translate="no">${verdictLabel(k)}</b>${sep}${pvStateWord(cur)}`:html`<span class="pv-none">${tr('판정 없음')}</span>`;
+  const d=cur&&pvCanCancel(cur)?rdGet(DOC,cur.id):null,draft=!!rdGet(DOC,'p'+page)||(!!d&&!!cur&&d.text.trim()!==String(cur.note||'').trim());
+  return html`<span class="pv-sum-id" translate="no">${pvFigParts(page).id}</span>${sep}<span class="pv-sum-s">${st}${draft?html`${sep}<span class="pv-sum-draft">${tr('초안 있음')}</span>`:''}</span>`;}
 // Draws (beside the pages) or takes away (under them) every page's summary, after its page. New rows are watched for being
 // far from the view (pvFarWatch: a far row is skipped like a far line).
 /** @param {Map<number,Pin[]>} map */

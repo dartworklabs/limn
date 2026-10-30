@@ -12,8 +12,10 @@
   the panel. The words stand at one place on the screen for every page; the page stays centred while the margin holds
   the panel and moves left only by what it lacks. Keys 1-5, Enter and Esc act as on the reading line; Tab from the
   pages goes to the panel, Shift+Tab from its first control goes back where it came from, and Tab from its last goes to
-  the pin panel. 1920 takes it with the pin panel open, 1680 with it closed; narrower windows, a zoom past the bar, the
-  unfolded foldable and phones keep the line under each page as before.
+  the pin panel. A kept reason draft on another page shows on that page's summary. When the room crosses its bar the
+  reading spot, a save chip and the reason field's focus and caret carry over. 1920 takes it with the pin panel open,
+  1680 with it closed; narrower windows, a zoom past the bar, the unfolded foldable and phones keep the line under each
+  page as before.
 
 ## 0.4.36 — 2026-10-30
 
