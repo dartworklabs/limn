@@ -7433,3 +7433,254 @@ class ChipFontWait(VerdictBase):
         page = self.saved_then_squeezed()
         page.wait_for_timeout(3300)
         self.assertEqual(page.evaluate(self.STATE, None), [False, False, True])
+
+
+PHONE = {"viewport": {"width": 390, "height": 844}, "is_mobile": True, "has_touch": True}
+# Scroll the PDF area so page n's end stands at the area's middle: its line in its place under it.
+MIDDLE_END = """n=>{const L=document.querySelector('#left'),lr=L.getBoundingClientRect(),r=document.getElementById('p'+n).getBoundingClientRect();
+  L.scrollTop+=r.bottom-(lr.top+L.clientHeight/2);}"""
+# The centre of selector sel's first match, in the layout's px.
+CENTRE = "s=>{const b=document.querySelector(s).getBoundingClientRect(); return [b.left+b.width/2,b.top+b.height/2];}"
+# The visual viewport's offset (a pinch zoom's view on the window) and its scale.
+VVIEW = "()=>({l:Math.round(visualViewport.offsetLeft),t:Math.round(visualViewport.offsetTop),s:visualViewport.scale})"
+
+
+class TouchDetails(VerdictBase):
+    """A phone's line under touch (#320): a long press is the same in every state of the line, a tap on a word while the
+    reason is typed takes that word, and a save in a pinch-zoomed view leaves the view where it is."""
+
+    def phone(self, n=2, in_place=False):
+        """The figure document on a phone, its sheet folded, the pages 1.5x: page n's top at the area's top (its line
+        floats), or its end at the area's middle (its line in its place under it)."""
+        page = self.on("fig", **PHONE)
+        page.evaluate("setSide(false)")
+        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        settle(page)
+        if in_place:
+            page.evaluate(MIDDLE_END, n)
+        else:
+            page.evaluate(SCROLL, [n, "top"])
+        settle(page)
+        return page
+
+    def hold_finger(self, page, sel, after=None, during=None):
+        """A finger held 800ms on sel's centre and lifted, then a pause past the click its release may swallow: the text
+        of the description box while it was held, or None - with, given a script `after` (or `during`), its value 200ms after
+        the lift (or while it was held)."""
+        cdp = page.context.new_cdp_session(page)
+        x, y = page.evaluate(CENTRE, sel)
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": x, "y": y}]})
+        page.wait_for_timeout(800)
+        tip = page.evaluate("()=>{const t=document.getElementById('tip'); return t.hidden?null:t.textContent;}")
+        seen = page.evaluate(during) if during else None
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+        page.wait_for_timeout(200)
+        got = page.evaluate(after) if after else None
+        page.wait_for_timeout(800)
+        settle(page)
+        return (tip, got) if after else (tip, seen) if during else tip
+
+    def test_a_long_press_shows_the_description_and_presses_nothing_whatever_the_line_holds(self):
+        """390x844 touch. With the save chip on the line, a long press on the pressed word shows its description ('… 다시
+        누르면 이 판정을 거둡니다') and takes nothing back; so with the reason popover open and typed in (the text stays);
+        and a long press on an armed confirm word shows '삭제 확정 — …' and saves nothing. The line drew those words without
+        a description (no box over the chip or the popover), so a long press found none, nothing swallowed its release, and
+        the click took the verdict back - or saved the armed word."""
+        page = self.phone()
+        word = WORD % (2, "채택")
+        a = self.press_page(page, 2, "채택")
+        self.assertTrue(page.evaluate("()=>!!document.querySelector('#doc .pv[data-page=\"2\"]>.nt-chip')"))
+        hint = "()=>{const h=document.querySelector('#doc .pv[data-page=\"2\"]>.pv-onhint'); return h&&h.getClientRects().length>0;}"
+        self.assertTrue(page.evaluate(hint))  # the press's context stands over the words for a few seconds
+        tip, shown = self.hold_finger(page, word, during=hint)
+        self.assertIn("다시 누르면 이 판정을 거둡니다", tip or "")
+        self.assertFalse(shown)  # the description says it: the context steps aside, not two boxes saying one thing
+        self.assertEqual(set(self.pins()), {a})
+        open_reason(page, 2, tap=True)
+        page.keyboard.type("길게 눌러도 남는 이유")
+        settle(page)
+        self.assertIn("다시 누르면 이 판정을 거둡니다", self.hold_finger(page, word) or "")
+        self.assertEqual(set(self.pins()), {a})
+        self.assertEqual(page.input_value('#doc .pv[data-page="2"] .pv-pop .pv-reason'), "길게 눌러도 남는 이유")
+        page.keyboard.press("Escape")
+        settle(page)
+        page.evaluate(END_CHIPS)
+        settle(page)
+        confirm = WORD % (2, "삭제")
+        page.locator(confirm).tap()
+        page.wait_for_function("()=>!!VD_ARM")
+        # another word held while 삭제 waits: its description, and the wait holds - the release is no press elsewhere
+        tip, armed = self.hold_finger(page, WORD % (2, "보류"), after="()=>!!VD_ARM")
+        self.assertEqual(("누르면 이 쪽의 판정으로 저장합니다" in (tip or ""), armed), (True, True), tip)
+        page.keyboard.press("Escape")
+        page.wait_for_function("()=>!VD_ARM")
+        page.locator(confirm).tap()
+        page.wait_for_function("()=>!!VD_ARM")
+        self.assertIn("삭제 확정", self.hold_finger(page, confirm) or "")
+        self.assertEqual(set(self.pins()), {a})
+
+    def test_a_tap_on_a_word_while_the_reason_is_typed_takes_the_first_tap(self):
+        """390x844 touch, page 2's line in its place under the page with its own verdict: the reason typed in its popover
+        folds the line's figure name (body.pv-typing). A tap on the pressed word takes the verdict back at once - the fold
+        holds until the tap's click has run, so the word is where the finger came down. The focus the tap moved to the word
+        let the name come back first, the words went 22px down and the click fell on the line."""
+        page = self.phone(in_place=True)
+        a = self.press_page(page, 2, "보류")
+        page.evaluate(END_CHIPS)
+        settle(page)
+        self.assertFalse(
+            page.evaluate("()=>document.querySelector('#doc .pv[data-page=\"2\"]').classList.contains('stuck')")
+        )
+        open_reason(page, 2, tap=True)
+        page.keyboard.type("쓰던 이유")
+        settle(page)
+        self.assertTrue(page.evaluate("document.body.classList.contains('pv-typing')"))
+        word = WORD % (2, "보류")
+        page.evaluate(
+            """s=>{window.__at={}; const y=()=>Math.round(document.querySelector(s).getBoundingClientRect().top);
+              document.addEventListener('pointerdown',()=>{window.__at.down=y();},true);
+              document.addEventListener('click',e=>{window.__at.click=y(); window.__at.on=!!e.target.closest&&!!e.target.closest(s);},true);}""",
+            word,
+        )
+        b = page.locator(word).bounding_box()
+        page.touchscreen.tap(b["x"] + b["width"] / 2, b["y"] + b["height"] / 2)
+        page.wait_for_function("id=>!OPEN_ALL.some(p=>p.id===id)", arg=a, timeout=5000)
+        at = page.evaluate("window.__at")
+        self.assertEqual((at["down"], at["on"]), (at["click"], True), at)
+        settle(page)
+        self.assertFalse(page.evaluate("document.body.classList.contains('pv-typing')"))  # let go after the click
+
+    def test_a_save_in_a_pinch_zoomed_view_leaves_the_view_where_it_was(self):
+        """390x844 touch at page scale 2, the view moved down to the floating line (visualViewport offsetTop > 0): a tap on a
+        word saves it and the view stays where it was. Every drawing of the lines measures them with the page above's line
+        grown and shrinks it back (#doc.pv-measure); Chromium carried the scroll anchoring of that shrink into the zoomed
+        view, which went to the top (422 -> 0 on a 91-page document). Here the measure grows page 1's line by 400px, as the
+        identifiers of a long document's lines above the reading page do together."""
+        page = self.phone()
+        page.add_style_tag(content="#doc.pv-measure .pv[data-page='1']{padding-bottom:400px}")
+        page.context.new_cdp_session(page).send("Emulation.setPageScaleFactor", {"pageScaleFactor": 2})
+        settle(page)
+        page.evaluate(
+            "()=>document.querySelector('#btn-side').scrollIntoView({block:'end',inline:'start'})"
+        )  # a pan down
+        settle(page)
+        before = page.evaluate(VVIEW)
+        self.assertEqual(before["s"], 2)
+        self.assertGreater(before["t"], 100, before)
+        word = WORD % (2, "채택")
+        x, y = page.evaluate(CENTRE, word)  # in the layout's px (a locator's box is the zoomed view's)
+        seen = page.evaluate(
+            "()=>[visualViewport.offsetLeft,visualViewport.offsetTop,visualViewport.width,visualViewport.height]"
+        )
+        self.assertTrue(seen[0] <= x <= seen[0] + seen[2] and seen[1] <= y <= seen[1] + seen[3], (x, y, seen))
+        cdp = page.context.new_cdp_session(page)
+        # a touch point is in CSS px from the visual viewport's top left here (the view's own offset taken off)
+        cdp.send(
+            "Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": x - seen[0], "y": y - seen[1]}]}
+        )
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+        page.wait_for_function("()=>OPEN_ALL.some(p=>verdictOf(p)==='채택')", timeout=5000)
+        settle(page)
+        self.assertEqual(page.evaluate(VVIEW), before)
+
+    def test_a_press_right_after_a_long_press_keeps_the_fold_until_its_own_click(self):
+        """390x844, the reason typed on page 2's line in its place (the fold on): a long press on the pressed word, then
+        within its 500ms wait a second press held 700ms on the same word (a pen or a mouse: its focus moves at the press,
+        its click comes at the release). The word stays where the press came down until its click is handled, and the
+        click takes the verdict back. The long press's swallowed click left its wait running, which let the fold go under
+        the second press - the name came back, the word moved 22px and the click fell on the line."""
+        page = self.phone(in_place=True)
+        a = self.press_page(page, 2, "보류")
+        page.evaluate(END_CHIPS)
+        settle(page)
+        open_reason(page, 2, tap=True)
+        page.keyboard.type("길게 누른 뒤 누름")
+        settle(page)
+        word = WORD % (2, "보류")
+        x, y = page.evaluate(CENTRE, word)
+        top = "s=>Math.round(document.querySelector(s).getBoundingClientRect().top)"
+        page.evaluate(
+            """s=>{window.__at={}; document.addEventListener('click',e=>{window.__at.click=Math.round(document.querySelector(s).getBoundingClientRect().top);
+              window.__at.on=!!e.target.closest&&!!e.target.closest(s);},true);}""",
+            word,
+        )
+        cdp = page.context.new_cdp_session(page)
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": x, "y": y}]})
+        page.wait_for_timeout(800)
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+        page.wait_for_timeout(100)
+        self.assertEqual(set(self.pins()), {a})  # the long press pressed nothing
+        down = page.evaluate(top, word)
+        page.mouse.move(x, y)
+        page.mouse.down()
+        page.wait_for_timeout(700)  # past the long press's 500ms wait
+        held = page.evaluate(top, word)
+        page.mouse.up()
+        page.wait_for_function("id=>!OPEN_ALL.some(p=>p.id===id)", arg=a, timeout=5000)
+        at = page.evaluate("window.__at")
+        self.assertEqual((held, at["click"], at["on"]), (down, down, True), at)
+
+    def test_a_pass_that_throws_in_a_zoomed_view_gives_the_anchoring_back(self):
+        """At page scale 2 the measure pass holds the PDF area's anchoring off (overflow-anchor: none). A step that throws
+        inside the pass still gives it back, and the pages are not left measuring (#doc.pv-measure); an area that had a
+        value of its own gets that value back. Restored only on the pass's normal end, it stayed off for good."""
+        page = self.phone()
+        page.context.new_cdp_session(page).send("Emulation.setPageScaleFactor", {"pageScaleFactor": 2})
+        settle(page)
+        after = """v=>{const L=document.querySelector('#left'); L.style.removeProperty('overflow-anchor'); if(v)L.style.setProperty('overflow-anchor',v);
+          const need=window.pvStateNeed; let threw=false; window.pvStateNeed=()=>{throw new Error('a step that throws');};
+          try{pvFit([...document.querySelectorAll('#doc .pv')]);}catch(e){threw=true;} finally{window.pvStateNeed=need;}
+          return [threw,L.style.getPropertyValue('overflow-anchor'),document.querySelector('#doc').classList.contains('pv-measure')];}"""
+        self.assertEqual(page.evaluate(after, ""), [True, "", False])
+        self.assertEqual(page.evaluate(after, "auto"), [True, "auto", False])
+
+    def test_a_press_whose_window_loses_the_focus_lets_the_fold_go(self):
+        """390x844, the reason typed on page 2's line (the fold on): a press held on the line's word while the focus moves
+        to the word, then the window loses the focus (or is hidden) and the press is let go outside it - no pointerup or
+        pointercancel comes. The fold goes at once (body.pv-typing off, the figure name back); it stayed for good."""
+        for how, key in (
+            ("blur", "보류"),
+            ("hidden", "채택"),
+        ):  # a word per run: the line keeps the first run's verdict
+            with self.subTest(how=how):
+                page = self.phone(in_place=True)
+                self.press_page(page, 2, key)
+                page.evaluate(END_CHIPS)
+                settle(page)
+                open_reason(page, 2, tap=True)
+                page.keyboard.type("창을 떠난 누름")
+                settle(page)
+                word = WORD % (2, key)
+                x, y = page.evaluate(CENTRE, word)
+                page.mouse.move(x, y)
+                page.mouse.down()  # the focus moves to the word; the fold holds for the press
+                settle(page)
+                self.assertTrue(page.evaluate("document.body.classList.contains('pv-typing')"))
+                if how == "blur":
+                    page.evaluate("()=>window.dispatchEvent(new Event('blur'))")
+                else:
+                    page.evaluate(
+                        """()=>{Object.defineProperty(document,'visibilityState',{get:()=>'hidden',configurable:true});
+                          document.dispatchEvent(new Event('visibilitychange'));}"""
+                    )
+                page.wait_for_function("()=>!document.body.classList.contains('pv-typing')", timeout=3000)
+
+    def test_a_description_wraps_between_korean_words_and_breaks_only_a_token_too_long_for_it(self):
+        """390x844: the pressed word's description in Korean wraps between words, never inside one ('판정 취/소)' broke a
+        word), at every width the box may have; an English token wider than the box still breaks inside the box rather
+        than running past it."""
+        page = self.phone()
+        # every pair of Hangul syllables side by side stays on one row, at each width the box may have from 120 to 300px
+        split = """t=>{const tip=document.getElementById('tip'),el=document.querySelector('#doc .pv .vd-b'),H=/[가-힣]/; let bad=null;
+          for(let w=120;w<=300&&!bad;w+=4){tip.style.maxWidth=w+'px'; showTipText(el,t); const n=tip.firstChild,rows=new Set();
+            const top=i=>{const r=document.createRange(); r.setStart(n,i); r.setEnd(n,i+1); const y=Math.round(r.getBoundingClientRect().top); rows.add(y); return y;};
+            for(let i=0;i+1<t.length&&!bad;i++)if(H.test(t[i])&&H.test(t[i+1])&&top(i)!==top(i+1))bad={w,at:t.slice(Math.max(0,i-2),i+3)};
+            if(!bad&&rows.size<2&&w<200)bad={w,rows:rows.size};}
+          tip.style.maxWidth=''; hideTip(); return bad;}"""
+        ko = "지금 판정입니다 · 다시 누르면 이 판정을 거둡니다(판정 취소) · 처리된 판정은 카드의 [지우기]로 거둡니다"
+        self.assertIsNone(page.evaluate(split, ko))
+        long = """t=>{const tip=document.getElementById('tip'); showTipText(document.querySelector('#doc .pv .vd-b'),t); const b=tip.getBoundingClientRect();
+          const r=document.createRange(); r.selectNodeContents(tip.firstChild); const rows=new Set([...r.getClientRects()].map(x=>Math.round(x.top))).size;
+          return {inside:tip.scrollWidth<=tip.clientWidth+1&&b.right<=innerWidth, rows};}"""
+        got = page.evaluate(long, "pins/" + "x" * 90 + ".json")
+        self.assertTrue(got["inside"] and got["rows"] > 1, got)

@@ -1815,6 +1815,62 @@ class StatusListRoom(ViewerBase):
                 self.assertEqual((after["l"], after["t"]), (before["l"], before["t"]))
                 self.assertTrue(after["inside"], after)
 
+    def test_a_phone_zoomed_in_reads_long_rows_inside_its_view(self):
+        """390x844 with the sheet open, page scale 2 (the list is held inside the view, 179px wide): four undos that say
+        what a take-back says. Each row's text keeps a width to read in - its buttons go under it - and the list is whole
+        inside the view, every row's [되돌리기] there and taking a press. Beside [되돌리기] and [x] the text had no width
+        left, a row stood one character a line (685-806px), and the list, at least a row tall, ran 418-639px above the
+        window (#322)."""
+        page = self.view(PHONE_390)
+        page.evaluate("setSide(true)")
+        settle(page)
+        page.evaluate(
+            """()=>{window.RAN=[]; for(let i=1;i<=4;i++)lineNote('판정 #'+(40+i)+' 채택 취소 · 남은 판정 없음 · [후보] PL52 · 같은 달력 달의 2009년과 2010년 전이 이득',
+              NOTICE_KIND.OK,{label:'되돌리기',fn:()=>window.RAN.push(i)},{life:NOTICE_LIFE.STICKY,undo:true,literal:true});}"""
+        )
+        settle(page)
+        self.cdp(page).send("Emulation.setPageScaleFactor", {"pageScaleFactor": 2})
+        settle(page)
+        page.evaluate("toggleStatusList()")
+        page.wait_for_selector("#status-list[open]")
+        settle(page)
+        got = page.evaluate(VIEW)
+        self.assertTrue(got["inside"], got)
+        widths = page.evaluate(
+            "()=>[...document.querySelectorAll('#status-list .st-row-t')].map(t=>Math.round(t.getBoundingClientRect().width))"
+        )
+        self.assertGreaterEqual(min(widths), 80, widths)
+        rows = page.evaluate(SEEN_ROWS)
+        self.assertEqual([(r["inside"], r["hit"]) for r in rows], [(True, True)] * 4, rows)
+
+    def test_a_row_taller_than_the_room_beside_the_line_keeps_the_list_inside_the_view(self):
+        """The same zoomed phone, the newest message so long that its row is taller than the room over the line: the list is held
+        inside the view - it comes in from the view's edge over the line - and that row's [되돌리기] is there and takes a
+        press. At least a row tall, the list ran past the view's top."""
+        page = self.view(PHONE_390)
+        page.evaluate("setSide(true)")
+        settle(page)
+        page.evaluate(
+            """()=>{window.RAN=[]; lineNote('판정 #41 저장됨',NOTICE_KIND.OK,{label:'되돌리기',fn:()=>window.RAN.push(1)},{life:NOTICE_LIFE.STICKY,undo:true,literal:true});
+              lineNote('판정 #42 채택 취소 · '+'같은 달력 달의 2009년과 2010년 전이 이득 · '.repeat(8),NOTICE_KIND.OK,
+              {label:'되돌리기',fn:()=>window.RAN.push(2)},{life:NOTICE_LIFE.STICKY,undo:true,literal:true});}"""
+        )
+        settle(page)
+        self.cdp(page).send("Emulation.setPageScaleFactor", {"pageScaleFactor": 2})
+        settle(page)
+        page.evaluate("toggleStatusList()")
+        page.wait_for_selector("#status-list[open]")
+        settle(page)
+        tall = page.evaluate(
+            """()=>{const r=[...document.querySelectorAll('#status-list .st-row')],s=document.querySelector('#status').getBoundingClientRect();
+              return Math.max(...r.map(x=>x.getBoundingClientRect().height))>s.top-visualViewport.offsetTop;}"""
+        )
+        self.assertTrue(tall)  # the long row is taller than the room over the line
+        got = page.evaluate(VIEW)
+        self.assertTrue(got["inside"], got)
+        rows = page.evaluate(SEEN_ROWS)
+        self.assertEqual([(r["inside"], r["hit"]) for r in rows], [(True, True)] * 2, rows)
+
     def test_a_visible_part_smaller_than_the_window_keeps_every_row_reachable(self):
         """A keyboard or a zoom that shrinks only the visible part of the window (visualViewport), the layout as it was:
         a landscape phone's short band with a 200px keyboard, the desktop zoomed to its top 250px. Raised after the list

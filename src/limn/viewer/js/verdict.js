@@ -188,8 +188,10 @@ function disarmVerdict(redraw,say){const a=VD_ARM; if(!a)return; clearTimeout(a.
   else{const r=$('#sr-news'); if(r&&r.textContent===vdArmSaid(a.label))r.textContent='';}}
 /** @param {string} where */
 function vdRedraw(where){if(where===VD_WHERE.COMPOSER)renderVerdictRow(); else drawPageVerdicts();}
-// A press anywhere but on the armed button lets it go; Esc does too, and does nothing else.
-window.addEventListener('click',e=>{if(!VD_ARM)return; const b=/** @type {HTMLElement|null} */(/** @type {HTMLElement} */(e.target).closest('[data-act="verdict-save"],[data-act="pv-save"]'));
+// A press anywhere but on the armed button lets it go; Esc does too, and does nothing else. The click a long press's release
+// ends with is no press (tooltip.js swallows it after this, on the document): it lets nothing go, nor closes the description
+// the long press showed.
+window.addEventListener('click',e=>{if(!VD_ARM||Date.now()<SWALLOW_CLICK)return; const b=/** @type {HTMLElement|null} */(/** @type {HTMLElement} */(e.target).closest('[data-act="verdict-save"],[data-act="pv-save"]'));
   if(!(b&&vdArmedHere(b.dataset.key||'',vdWhereOf(b),Number(b.dataset.page)||0)))disarmVerdict(true,true);},true);
 window.addEventListener('keydown',e=>{if(e.key!=='Escape'||!VD_ARM)return; e.preventDefault(); e.stopImmediatePropagation(); disarmVerdict(true,true);},true);
 /** @param {HTMLElement} b */
@@ -212,7 +214,9 @@ function vdWhereOf(b){return b.dataset.act==='verdict-save'?VD_WHERE.COMPOSER:VD
 // line whose save chip stands (pvLineHtml) - so no description box comes over the chip; the name and the keys are still
 // said. A page line's armed word ('삭제 확정') has no description either: its box covered the line's figure name while the
 // word waited for its second press, the button already reads what the box said, and the line says how long it waits
-// beside it (.pv-arm).
+// beside it (.pv-arm). Either keeps it for a long press (data-tip-press, tooltip.js): hover and focus raise no box, but a
+// long press shows it and its release presses nothing, as on a word at rest - a long press on the pressed word took the
+// verdict back while a chip or the reason popover was up, and one on the armed word saved it (#320).
 // The screen that draws the key marks (components.css .vd-b[data-kn]::after): a mouse's. Only there does a word's description
 // end in '단축키 1' and its button carry aria-keyshortcuts - a phone's long press read '… · 단축키 1' for a key it has none of
 // (#315). The lines are drawn again when that changes (a tablet's keyboard cover with its touchpad taken off), so the
@@ -231,7 +235,7 @@ function vdButton(c,where,page,target,off,kn,quiet,pr){const armed=vdArmedHere(c
   if(said)tip+=' · '+tl(c.confirm?'단축키 {key} (두 번)':'단축키 {key}',{key:kn});
   return html`<button type="button" class="vd-b hit${c.confirm?' vd-confirm':''}${armed?' armed':''}" translate="no" data-act="${where===VD_WHERE.COMPOSER?'verdict-save':'pv-save'}" \
 data-key="${c.key}" data-page="${page}" aria-label="${name}"${line?html` aria-pressed="${on?'true':'false'}"`:''}${on&&pr!==PV_PRESS.SAVING?html` aria-describedby="pv-on-${page}"`:''}\
-${quiet||(armed&&line)?'':html` data-tip="${tip}"`}${kn?html` data-kn="${kn}"`:''}${said?html` aria-keyshortcuts="${kn}"`:''}${off?line?html` aria-disabled="true"`:html` disabled`:''}>\
+${quiet||(armed&&line)?html` data-tip-press="${tip}"`:html` data-tip="${tip}"`}${kn?html` data-kn="${kn}"`:''}${said?html` aria-keyshortcuts="${kn}"`:''}${off?line?html` aria-disabled="true"`:html` disabled`:''}>\
 ${on?ic('check'):''}<span class="lbl">${armed?tl('{word} 확정',{word:c.label}):c.label}</span></button>`;}
 // A page line's word state (vdButton pr): not pressed, or pressed as the person's own open verdict (a press takes it back),
 // someone else's, a handled one (neither is taken back from the line), or the word a save on the line is for (SAVING). A
@@ -422,16 +426,33 @@ document.addEventListener('focusin',()=>pvStickSoon()); document.addEventListene
 // Once on, it stays while the reason popover is being used - the focus on one of its buttons, or a press that started in it
 // until that press's click has run (PV_POP_PRESS): a tap on [저장], [접기] or [지우기] took the focus out of the field, the
 // status line came back (24px) and on a phone the line stacked again, so between the touch and its click the button moved
-// 24-85px and the click fell on the popover itself - the first tap was lost.
+// 24-85px and the click fell on the popover itself - the first tap was lost. So does a press on the rest of the line while
+// the field folds it: a tap on a word took the focus, the figure's name came back over the words and moved them 22px down
+// under the finger, and the click fell on the line - the word took no first tap (#320). The fold goes once that press is
+// done: its click has run, the browser took it for a scroll (pointercancel), or 500ms after it let go without a click - a
+// long press keeps it as long as it is held, so the words stay under the finger while its description shows. Only the press
+// that holds the fold lets it go (PV_PRESS_HOLD): a new press on the line takes it over and the earlier one's wait goes - a
+// long press's swallowed click left its 500ms wait running, which let the fold go under the next press, between that press's
+// focus and its click. A press whose window loses the focus or is hidden (another app, a tab switch) lets it go at once: let
+// go outside the window, it has no pointerup or pointercancel here, and the fold stayed.
 let PV_POP_PRESS=false;
+let PV_PRESS_HOLD=/** @type {(()=>void)|null} */(null);   // the press holding the fold: drops its own wait without letting go
 function pvTypingSync(){const a=/** @type {HTMLElement|null} */(document.activeElement),l=a&&a.closest?/** @type {HTMLElement|null} */(a.closest('#doc .pv')):null,b=document.body;
   const pop=!!a&&!!a.closest&&!!a.closest('#doc .pv>.pv-pop'),on=(!!l&&typingNow())||(b.classList.contains('pv-typing')&&(pop||PV_POP_PRESS));
   if(b.classList.contains('pv-typing')===on)return; b.classList.toggle('pv-typing',on);
   const r=l||/** @type {HTMLElement|null} */(document.querySelector('#doc .pv.reading')); if(r)pvFit([r]);}
 document.addEventListener('focusin',pvTypingSync); document.addEventListener('focusout',()=>setTimeout(pvTypingSync,0));
-document.addEventListener('pointerdown',e=>{const t=/** @type {HTMLElement|null} */(e.target); if(!(t&&t.closest&&t.closest('#doc .pv>.pv-pop')))return;
-  PV_POP_PRESS=true; let done=false; const end=()=>{if(done)return; done=true; window.removeEventListener('click',late); setTimeout(()=>{PV_POP_PRESS=false; pvTypingSync();},0);};
-  const late=()=>end(); window.addEventListener('click',late); setTimeout(end,500);},true);   // after the press's own click (window, bubbling: after the viewer's handlers), or 500ms
+document.addEventListener('pointerdown',e=>{const t=/** @type {HTMLElement|null} */(e.target);
+  if(!(t&&t.closest&&(t.closest('#doc .pv>.pv-pop')||(document.body.classList.contains('pv-typing')&&t.closest('#doc .pv')))))return;
+  if(PV_PRESS_HOLD)PV_PRESS_HOLD();   // an earlier press still waiting: this one holds the fold now
+  PV_POP_PRESS=true; let timer=/** @type {ReturnType<typeof setTimeout>|undefined} */(undefined);
+  const drop=()=>{clearTimeout(timer); window.removeEventListener('click',late); window.removeEventListener('pointercancel',late);
+    window.removeEventListener('pointerup',up,true); window.removeEventListener('blur',late); document.removeEventListener('visibilitychange',hid);
+    if(PV_PRESS_HOLD===drop)PV_PRESS_HOLD=null;};
+  const end=()=>{if(PV_PRESS_HOLD!==drop)return; drop(); setTimeout(()=>{if(PV_PRESS_HOLD)return; PV_POP_PRESS=false; pvTypingSync();},0);};
+  const late=()=>end(),up=()=>{clearTimeout(timer); timer=setTimeout(end,500);},hid=()=>{if(document.visibilityState==='hidden')end();};   // late: after the press's own click (window, bubbling: after the viewer's handlers)
+  PV_PRESS_HOLD=drop; window.addEventListener('click',late); window.addEventListener('pointercancel',late); window.addEventListener('pointerup',up,true);
+  window.addEventListener('blur',late); document.addEventListener('visibilitychange',hid);},true);
 // What a press on page `page` of the document on screen saves against: its document, kind, build and page size and its
 // target's name, with the visit it was made in. A save runs on these - not on the document on screen when it runs - so a
 // press made before switching documents is saved, and one queued meanwhile is too (pvPress, savePageVerdict). null when the
@@ -647,9 +668,9 @@ ${pvReasonInline(page,cur)}`
   const cn=!!cur&&pvCanCancel(cur),cw=PV_BUSY.has(slot)||loading||(PV_CANCEL_HOLD.get(slot)||0)>Date.now();
   const cancel=cn&&cur?html`<span class="pv-sep pv-cn" aria-hidden="true">·</span><button type="button" class="btn-ghost btn-sm pv-cancel pv-cn hit" data-act="pv-cancel" \
 data-ref="${cur.id}" data-id="${cur.id}" aria-label="${tl('판정 취소 — 내 판정 #{id}',{id:cur.id})}" \
-${chip?'':html`data-tip="${tr('이 판정을 거둡니다. 핀은 휴지통으로 가고, 같은 대상에 앞선 판정이 있으면 그 판정이 다시 지금 판정이 됩니다. 상태 줄의 [되돌리기]가 되살립니다')}"`}${cw?html` aria-disabled="true"`:''}>${tr('판정 취소')}</button>`:'';
+${pvTipAttr(!!chip,tr('이 판정을 거둡니다. 핀은 휴지통으로 가고, 같은 대상에 앞선 판정이 있으면 그 판정이 다시 지금 판정이 됩니다. 상태 줄의 [되돌리기]가 되살립니다'))}${cw?html` aria-disabled="true"`:''}>${tr('판정 취소')}</button>`:'';
   const early=earlier.length?html`<button type="button" class="btn-ghost btn-sm pv-early hit" data-act="pv-earlier" data-ref="${earlier[0].id}" \
-${chip?'':html`data-tip="${tr('이 쪽의 더 새 판정으로 대체되어 실행하지 않는 열린 판정 핀입니다. 누르면 그 카드로 갑니다')}"`}>${tl('이전 판정 {n}건 · 새 판정으로 대체됨',{n:earlier.length})}</button>`:'';
+${pvTipAttr(!!chip,tr('이 쪽의 더 새 판정으로 대체되어 실행하지 않는 열린 판정 핀입니다. 누르면 그 카드로 갑니다'))}>${tl('이전 판정 {n}건 · 새 판정으로 대체됨',{n:earlier.length})}</button>`:'';
   // The reading page's line - the one that floats - names what it decides: '7쪽 · [후보] PL18 · …' (figureName), cut to fit.
   // Its two spans are on every line, hidden but on the reading one: the line's children keep their places when the reading
   // page moves, so the morph (pvMorph) never takes a focused button out of the page. A hidden one holds the identifier, so
@@ -667,6 +688,10 @@ ${chip?'':html`data-tip="${tr('이 쪽의 더 새 판정으로 대체되어 실�
 data-act="pv-undo" data-id="u${lu.id}" aria-label="${tl('되돌리기 — 거둔 판정 #{id}',{id:lu.id})}">${tr('되돌리기')}</button>`:'';
   if(lu&&!undo)PV_LINE_UNDO.delete(slot);
   return html`${name}<span class="pv-t">${text}${saving}${armSay}${cancel}${undo}${early}</span>${btns}${err}${pvOnHint(page,v,want,nx||sv!==undefined?PV_PRESS.SAVING:cur?pvPressOf(cur):PV_PRESS.NONE)}${pvReasonPop(page)}`;}
+// A line control's description: data-tip, or - on a line that holds a save chip or its reason popover (pvLineHtml chip) -
+// data-tip-press, which only a long press shows (tooltip.js): no box over either, and a long press still presses nothing.
+/** @param {boolean} quiet @param {string} tip */
+function pvTipAttr(quiet,tip){return quiet?html`data-tip-press="${tip}"`:html`data-tip="${tip}"`;}
 // The pressed word's context (P2-3: taking a verdict back by pressing its word again must be found without a hover - a
 // line holding a save chip or a popover draws no descriptions, and touch has none): one short sentence, the pressed word's
 // description for assistive technology (aria-describedby="pv-on-<page>") and shown over the word group - never in the
@@ -746,8 +771,12 @@ function sizePv(){const ir=pvInsetR(),L=$('#left'),lines=$$('#doc .pv');
 // plot. A line narrower than a verdict's state beside its words stacks whatever it shows, so a press never stacks it. A line whose confirm word waits for its second press, or whose save is out, keeps the rows it has (pvRowsHeld): its
 // words moving between the two presses sent the second one elsewhere. The save chip is placed after (pvChipPlace).
 // Read and written in batches.
+// While the page is pinch-zoomed the PDF area does not anchor its scroll for the pass (pvHoldView): the pass grows every
+// line above the reading page and shrinks it back (#doc.pv-measure), and Chromium carried the anchoring of that shrink -
+// the area is the page's root scroller there - into the zoomed view, which went from where it was to the page's top
+// (422 -> 0 at 2x) at every drawing of the lines: a save, a take-back (#320).
 /** @param {HTMLElement[]} lines */
-function pvFit(lines){const held=lines.map(pvRowsHeld),D=$('#doc');
+function pvFit(lines){const held=lines.map(pvRowsHeld),D=$('#doc'),hold=pvHoldView(true); try{
   lines.forEach((l,i)=>{if(!held[i]){l.classList.toggle('pv-stack',false); l.classList.toggle('pv-tight',false); l.style.removeProperty('--pv-t-h');}});
   // Every line is measured as the reading line (#doc.pv-measure shows each hidden identifier, components.css): a line that
   // stacked only while it was read shrank when the reading page left (91 -> 32px on a 260px page) and moved the pages.
@@ -789,6 +818,16 @@ function pvFit(lines){const held=lines.map(pvRowsHeld),D=$('#doc');
   // A word group that wraps keeps every button at its own width (vdWrapFit), read for every line before any is written.
   const groups=lines.map(l=>l.querySelector('.vd-btns')),wrap=groups.map(g=>!!g&&new Set([...g.children].map(b=>Math.round(b.getBoundingClientRect().top))).size>1);
   groups.forEach((g,i)=>{if(g)g.classList.toggle('wrapped',wrap[i]);});}
+  finally{D.classList.remove('pv-measure'); pvHoldView(false,hold);}}   // also when a step throws: never left measuring, nor unanchored
+// Holds a pinch-zoomed view where it is across pvFit's pass (on) and lets go after it (off, given what on returned): the PDF
+// area does not anchor its scroll (overflow-anchor), and its layout is brought up to date before it anchors again, so the
+// anchor it then takes is where the pass left the pages - never a measure's grown lines. On returns the area's own value it
+// replaced, which off puts back (a pass inside a pass leaves the outer one's hold), or null where it held nothing. At no zoom
+// it does nothing: the view cannot move there, and the area's anchoring stays as it is (no scroll of its own, ever).
+/** @param {boolean} on @param {string|null} [was] @returns {string|null} */
+function pvHoldView(on,was){const L=$('#left'),vv=window.visualViewport;
+  if(!on){if(typeof was!=='string')return null; void L.offsetHeight; if(was)L.style.setProperty('overflow-anchor',was); else L.style.removeProperty('overflow-anchor'); return null;}
+  if(!vv||vv.scale<=1)return null; const prev=L.style.getPropertyValue('overflow-anchor'); L.style.setProperty('overflow-anchor','none'); return prev;}
 // The width the state of a person's fresh verdict takes on a line in a row, drawn in a hidden line like line l (its text size,
 // the screen's language and pointer) and kept until those or the next pin number's digits change. Two states follow a
 // press: after a click '판정 #0 <the longest word> · 처리 대기 · 이유 추가 · 판정 취소', and on a mouse screen after a key
