@@ -5,14 +5,17 @@ on a surface nobody listed, or dim it with an opacity, and pass: the excerpt's c
 text at 70% (3.4:1 in light, 4.0:1 under a dark hover) and the light subtle text sat on a hover's --accent at 3.8:1.
 This walks the page as Chromium draws it instead. In each state - cards, done rows, the Trash, notices, the outline,
 the documents bar, its popover and the navigation sheet, the composer's excerpt, verdict row and suggestion switch on
-the manuscript, the reviewer's PDF and the figure, the page verdict lines, the changes view's commit list and diffs,
-with a real mouse on rows and keyboard focus - it reads what the page draws as text: every text node (an SVG text's
-fill), the generated text of ::before and ::after, a field's value and its placeholder. It composites each one's colour
-with the backgrounds and opacities of the elements under it as the browser paints them, and holds small text to 4.5:1
-and large text to 3:1, in the light and the dark theme, on a desktop with a mouse, a phone and an unfolded foldable.
-A text inside a disabled control is not held (WCAG 1.4.3 exempts inactive controls). A text over a background image, a
-gradient, a mask, a filter or a blend - which this compositing cannot paint - is a failure unless UNPAINTED names the
-element that carries it and why.
+the manuscript (its editor before and after its first read, a note that may join an overlapped pin and tags one of two
+people with one name), the reviewer's PDF and the figure, the page verdict lines, the changes view's commit list and
+diffs, an instance with no pins, with a real mouse on rows and keyboard focus - it reads what the page draws as text:
+every text node (an SVG text's fill), the generated text of ::before and ::after, a field's value and its placeholder.
+It composites each one's colour with the backgrounds and opacities of the elements under it - and of its own
+pseudo-element, the placeholder's too - as the browser paints them, and holds small text to 4.5:1 and large text to
+3:1, in the light and the dark theme, on a desktop with a mouse, a phone and an unfolded foldable. A text inside a
+disabled control is not held (WCAG 1.4.3 exempts inactive controls). A text drawn in or over what this compositing
+cannot paint - a background image or gradient, a mask, a filter or a blend on its pseudo-element or on any element under
+it, an SVG gradient fill or stroke, a colour in a colour space it does not read - is a failure unless UNPAINTED names
+every element that carries one and why; and an element UNPAINTED names must carry one under text the walk reads.
 
 Every style rule that sets text in the muted or subtle colour (directly or through a custom property that leads to
 them), or sets an opacity, is either reached by the walk - it set the colour of, or dimmed, text the walk held - or
@@ -29,7 +32,7 @@ import subprocess
 import time
 from pathlib import Path
 from unittest import mock
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from limn.administration import serve_documents as startup_documents
 from limn.pins.lifecycle.rules import CloseRequest
@@ -61,6 +64,9 @@ EXTRA_DOCS = [
     "da=Appendix A data:da.pdf",
     "db=부록 B 유도:db.pdf",
 ]
+# Two people with one name: wherever one of them is named for a choice, the login stands beside the name (.ml).
+SAM1 = {"Tailscale-User-Login": "sam1@example.com", "Tailscale-User-Name": "Sam Jung"}
+SAM2 = {"Tailscale-User-Login": "sam2@example.com", "Tailscale-User-Name": "Sam Jung"}
 WORDS = {"format": "limn-verdicts/1", "verdicts": [{"key": "채택"}, {"key": "보류"}, {"key": "삭제", "confirm": True}]}
 OUTLINE = [("Introduction", 1), ("Methods", 1), ("Results", 2)]  # the manuscript PDF's outline: (title, page)
 # An outline in which one name is under two groups, put in the page by a script (the filter then says each result's group), and the
@@ -148,11 +154,12 @@ PRELUDE = r"""
 # the colour beside it as painted - each ancestor's background stacked from the page up, a pseudo-element's own background
 # on top, every element's opacity fading its own paint and all inside it as a group, as the browser composites them -
 # their WCAG ratio and the ratio it needs (4.5, or 3 for large text: 24px, or 18.66px at weight 700). A text with a
-# background image, a gradient, a mask, a filter or a blend on an element under it is not composited: unless that element
-# matches a selector of unpainted, it comes back in `blind`. With them, the keys of the dimming rules (PRELUDE) and of
-# those this text used: among the rules setting the colour of the pseudo-element (::before, ::after, ::placeholder) or
-# else of the nearest element that has one, those whose colour, resolved there, is the one drawn; and every rule setting
-# an opacity under 1 on what is under the text.
+# background image, a gradient, a mask, a filter, a blend or a background colour rgba() cannot read on its pseudo-element
+# or an element under it, or drawn in a paint rgba() cannot read (an SVG gradient fill), is not composited: each such
+# element that matches no selector of unpainted comes back in `blind`, and the selectors that matched one in `excused`.
+# With them, the keys of the dimming rules (PRELUDE) and of those this text used: among the rules setting the colour of
+# the pseudo-element (::before, ::after, ::placeholder) or else of the nearest element that has one, those whose colour,
+# resolved there, is the one drawn; and every rule setting an opacity under 1 on what is under the text.
 READ = (
     "([root, unpainted]) => {"
     + PRELUDE
@@ -168,10 +175,16 @@ READ = (
     return out.concat(s.trim()); };
   const hitsPseudo = (e, sel, p) => parts(sel).some(x => { const k = x.replace(/:?(:before|:after|:placeholder)$/, m => m.replace(/^::?/, '::'));
     return k.endsWith(p) && hits(e, k.slice(0, -p.length) || '*'); });
-  const flat = e => { const c = style(e); return c.backgroundImage !== 'none' ? 'background-image'
+  // What a computed style c (an element's or a pseudo-element's) paints that this compositing cannot, or '': a background
+  // image (a gradient too), a mask, a filter, a blend, or a background colour rgba() cannot read (another colour space).
+  const flat = c => c.backgroundImage !== 'none' ? 'background-image'
     : (c.maskImage && c.maskImage !== 'none') || (c.webkitMaskImage && c.webkitMaskImage !== 'none') ? 'mask'
-    : c.filter !== 'none' ? 'filter' : c.mixBlendMode !== 'normal' ? 'mix-blend-mode' : ''; };
-  const excused = e => unpainted.some(s => hits(e, s));
+    : c.filter !== 'none' ? 'filter' : c.mixBlendMode !== 'normal' ? 'mix-blend-mode'
+    : rgba(c.backgroundColor) ? '' : 'background-color ' + (c.backgroundColor || '(none)');
+  // Whether e matches a selector of unpainted; the selectors that excused anything come back in `excused`.
+  const excusedBy = new Set(), excused = e => { const s = unpainted.find(x => hits(e, x)); if (s) excusedBy.add(s); return !!s; };
+  // The paint an SVG text is drawn with: its fill, else its stroke (which this compositing cannot paint), else none (null).
+  const svgInk = c => c.fill !== 'none' ? c.fill : c.stroke !== 'none' ? 'stroke ' + c.stroke : null;
   // One pixel under the text (text: its colour) or beside it (text: null): a pseudo-element's background and the text in
   // it, then each element paints its background under what is inside it, and its opacity fades the lot; the canvas is white.
   const paint = (chain, text, pseudo) => { let g = null;
@@ -185,16 +198,22 @@ READ = (
     if (p.id || p.classList.length) out.unshift(name(p)); return out.join(' > '); };
   const shown = e => e.getClientRects().length > 0 && style(e).visibility === 'visible';
   const texts = [], blind = [], used = new Set();
-  // read(el, words, p, colourOf): one drawn text in element el (in its pseudo-element p, or '' for el's own text).
-  const read = (el, words, p, colour) => {
-    if (!colour || el.closest('.sr-only,:disabled,[aria-disabled=true]')) return;
+  // read(el, words, p, ink): one drawn text in element el (in its pseudo-element p - '::before', '::after' or '::placeholder' -
+  // or '' for el's own text), drawn in ink: a computed colour, or a paint this compositing cannot read (an SVG gradient fill,
+  // a colour in another colour space); null draws nothing.
+  const read = (el, words, p, ink) => {
+    if (!ink || el.closest('.sr-only,:disabled,[aria-disabled=true]')) return;
     const chain = []; for (let e = el; e; e = e.parentElement) chain.push(e);
-    const ps = p && p !== '::placeholder' ? style(el, p) : null;
-    if (colour[3] * (ps ? Number(ps.opacity) : 1) * chain.reduce((o, e) => o * Number(style(e).opacity), 1) === 0) return;
+    const ps = p ? style(el, p) : null, colour = rgba(ink);
+    if ((colour ? colour[3] : 1) * (ps ? Number(ps.opacity) : 1) * chain.reduce((o, e) => o * Number(style(e).opacity), 1) === 0) return;
     const at = where(el) + (p || '');
-    const odd = chain.find(e => flat(e));
-    if (odd) { if (!excused(odd)) blind.push(at + " '" + words + "' over " + flat(odd) + ' on ' + where(odd)); return; }
-    const cs = ps || style(el, p === '::placeholder' ? p : null);
+    // Everything about this text the compositing cannot paint - its ink when that is no colour, its pseudo-element's paint and
+    // each element's under it - leaves it uncomposited, and each is a blind spot unless the element carrying it (el for the
+    // ink and the pseudo-element) matches a selector of unpainted. Every one is asked, not only the nearest.
+    const odd = (colour ? [] : [[el, 'drawn in ' + ink]]).concat(ps && flat(ps) ? [[el, 'over ' + p + ' ' + flat(ps)]] : [],
+      chain.filter(e => flat(style(e))).map(e => [e, 'over ' + flat(style(e))]));
+    if (odd.length) { for (const [e, what] of odd) if (!excused(e)) blind.push(at + " '" + words + "' " + what + ' on ' + where(e)); return; }
+    const cs = ps || style(el);
     const fg = paint(chain, colour, ps), bg = paint(chain, null, ps);
     const size = parseFloat(cs.fontSize), large = size >= 24 || (size >= 18.66 && Number(cs.fontWeight) >= 700);
     texts.push({text: words, where: at, ratio: ratio(fg, bg), need: large ? 3 : 4.5, fg: hex(fg), bg: hex(bg)});
@@ -213,19 +232,19 @@ READ = (
     if (!words || !el || el.closest('script,style,template,textarea,title')) continue;
     const range = document.createRange(); range.selectNodeContents(t);
     if (![...range.getClientRects()].some(b => b.width >= 1 && b.height >= 1) || style(el).visibility !== 'visible') continue;
-    read(el, words.slice(0, 40), '', rgba(el instanceof SVGElement ? style(el).fill : style(el).color));
+    read(el, words.slice(0, 40), '', el instanceof SVGElement ? svgInk(style(el)) : style(el).color);
   }
   for (const el of [root, ...root.querySelectorAll('*')]) {
     if (!shown(el)) continue;
     for (const p of ['::before', '::after']) { const c = style(el, p), words = String(c.content).replace(/"([^"]*)"/g, '$1');
       if (c.content === 'none' || c.content === 'normal' || /url\(/.test(c.content) || !words.trim() || c.display === 'none' || c.visibility !== 'visible') continue;
-      read(el, words.trim().slice(0, 40), p, rgba(c.color)); }
+      read(el, words.trim().slice(0, 40), p, c.color); }
     if (el.matches('textarea,input:not([type]),input[type=text],input[type=search],input[type=email],input[type=url],input[type=number],input[type=tel],input[type=password]')) {
-      if (el.value.trim()) read(el, el.value.trim().slice(0, 40), '', rgba(style(el).color));
-      else if (el.placeholder.trim()) read(el, el.placeholder.trim().slice(0, 40), '::placeholder', rgba(style(el, '::placeholder').color)); }
+      if (el.value.trim()) read(el, el.value.trim().slice(0, 40), '', style(el).color);
+      else if (el.placeholder.trim()) read(el, el.placeholder.trim().slice(0, 40), '::placeholder', style(el, '::placeholder').color); }
   }
   probe.remove();
-  return {texts, blind, used: [...used], rules: [...new Set(rules.filter(r => r.dims).map(r => r.key))]};
+  return {texts, blind, used: [...used], rules: [...new Set(rules.filter(r => r.dims).map(r => r.key))], excused: [...excusedBy]};
 }"""
 )
 
@@ -295,30 +314,28 @@ NOT_WALKED: dict[str, tuple[float | None, str]] = {
     ),
     "body.lay-wide.side-snap-collapse #bar1, body.side-snap-collapse :is(#bar2, #build-err, #banner, #composer, #list, "
     "#c-actions)": (INACTIVE, "the panel fading while a drag is about to collapse it"),
-    # a container's default colour that no text takes: each part inside sets its own
+    # a colour no drawn text takes: a container's default that each part inside sets for itself, or a field's colour while
+    # it is empty
     ":is(#outline-items, #ns-outline-items) .ol-more": (
         TEXT,
         "the outline's note on entries it did not read: shown only for an outline over the cap, which the walk's has none of",
     ),
     "#section-strip": (TEXT, "the section strip's default: its section and page set their own colours"),
-    ".msg.ev": (TEXT, "a state record's default: its head sets its own colour, and the walk's records carry no note"),
+    ".msg.ev": (
+        TEXT,
+        "a state record's default: its head and its note set their own colours (the review's close has one)",
+    ),
+    ".sg-text[readonly]": (
+        TEXT,
+        "the suggestion editor before its first fill, read-only and empty: the walk reads its placeholder (textarea's)",
+    ),
     # text in a state the walk's fixture does not reach
     "#doc-select-wrap label": (TEXT, "the documents select's label: no rule shows #doc-select-wrap in any band"),
     ".rv-close": (TEXT, "a review card's closing line: no script draws it"),
     "#more .m-l small": (TEXT, "[더보기]'s '지금 밝게' under the system theme: the walk sets the theme"),
     "#revision-more": (TEXT, "the commit list's [더 보기]: needs more commits than one page of the list"),
-    ".hint": (TEXT, "the empty pin list's hint: needs an instance with no pins at all"),
-    ".m-preview .m-sep": (
-        TEXT,
-        "the reply preview's separator before an assignee change: the walk changes no assignee",
-    ),
-    ":is(.as-seg, .m-preview, .card-meta) .ml": (
-        TEXT,
-        "the login beside a name two people share: the walk's names differ",
-    ),
     ".ov-no": (TEXT, "the figure overlay's page number: needs a figure with two builds in the changes view"),
     ".ov-none": (TEXT, "the figure overlay's missing page: needs a figure with two builds in the changes view"),
-    ".sg-text[readonly]": (TEXT, "a closed pin's suggested edit in its edit card: the walk edits no closed pin"),
     ".pv button.pv-note .ic-pencil": (
         ICON,
         "an editable saved reason's pencil on a page line: the walk saves no reason",
@@ -331,8 +348,9 @@ NOT_WALKED: dict[str, tuple[float | None, str]] = {
     ".pv .pv-pop-from": (TEXT, "the reason popover's '#15 채택에서 옮김': only after a draft moved to a new verdict"),
 }
 
-# The elements that may carry what READ cannot composite (a background image, a gradient, a mask, a filter, a blend) under
-# text, as selectors, and why the text there needs no compositing.
+# The elements that may carry what READ cannot composite (a background image, a gradient, a mask, a filter, a blend, a
+# colour it cannot read) under or in text, as selectors, and why the text there needs no compositing. Each must carry one
+# under text the walk reads, so the list stays true.
 UNPAINTED: dict[str, str] = {}  # none today: the walk found no text over one
 
 
@@ -347,11 +365,14 @@ class ContrastWalk(BrowserBase):
     view-only PDFs; the manuscript's build carries a PDF with an outline, and the manuscript and the reviewer's PDF have
     verdict words (the PDF's on its pages). The pins draw every list row: an open request assigned to Bob with a thread,
     an open question, a pin an agent closed (awaiting review) whose range is a changed line and the unchanged line above
-    it, a done pin and a dropped one. Holds the walk's scenes, none of its tests; the comparison build is faked, and the
-    figure's and the PDF's picks go to the real handler."""
+    it, a done pin and a dropped one. Two more people share the name Sam Jung. Holds the walk's scenes, none of its tests;
+    the comparison build is faked, and the figure's and the PDF's picks go to the real handler."""
 
     WHO = ALICE
     maxDiff = None  # every short text in the report, not the first
+    # While no_pins, the pin lists answer as an instance without pins does; while unread, reading a range's exact lines for
+    # a suggestion fails as for a range outside its file.
+    no_pins = unread = False
 
     def setUp(self):
         """Serve the documents, commit the manuscript three times, seed the pins, and fake the comparison build."""
@@ -367,8 +388,8 @@ class ContrastWalk(BrowserBase):
         patch.start()
         self.addCleanup(patch.stop)
         A, B = actor(ALICE), actor(BOB)
-        ps.APP.people_directory.record(A)
-        ps.APP.people_directory.record(B)
+        for person in (A, B, actor(SAM1), actor(SAM2)):
+            ps.APP.people_directory.record(person)
         self.repo = self.main.parent.parent
         self.git("init", "--quiet")
         self.commit(REPO_OLD, "Bob Park", "첫 원고")
@@ -454,10 +475,23 @@ class ContrastWalk(BrowserBase):
         super().tearDown()
 
     def route(self, route):
-        """A pick on the figure or the reviewer's PDF goes to the handler; the manuscript's gets BrowserBase's answer."""
+        """A pick on the figure or the reviewer's PDF goes to the handler; the manuscript's gets BrowserBase's answer. While
+        no_pins, the pin lists and the Trash are empty; while unread, a suggestion's read of its lines is refused."""
         rq = route.request
-        if urlparse(rq.url).path == "/api/pick" and json.loads(rq.post_data or "{}").get("doc") in ("fig", "rv"):
+        u = urlparse(rq.url)
+        if u.path == "/api/pick" and json.loads(rq.post_data or "{}").get("doc") in ("fig", "rv"):
             return self.forward(route)
+        if self.no_pins and u.path in ("/api/pins", "/api/pins/dropped"):
+            body = [] if u.path == "/api/pins" else {"dropped": []}
+            return route.fulfill(status=200, headers={"content-type": "application/json"}, body=json.dumps(body))
+        q = parse_qs(u.query)
+        if self.unread and u.path == "/api/snippet" and q.get("text") == ["1"]:
+            n = len(self.main.read_text(encoding="utf-8").splitlines())
+            refused = {
+                "error": "줄 범위가 파일(%d줄) 밖입니다: L%s-L%s" % (n, q["lo"][0], q["hi"][0]),
+                "reason": "range_outside_file",
+            }
+            return route.fulfill(status=400, headers={"content-type": "application/json"}, body=json.dumps(refused))
         return super().route(route)
 
     def git(self, *args):
@@ -476,7 +510,8 @@ class ContrastWalk(BrowserBase):
     # ------------------------------------------------------------ reading
     def look(self, page, state, root=None):
         """READ root (a selector, or the whole page) in the light and the dark theme, after the switch has settled;
-        each text under its ratio or not composited goes to self.short and each rule a held text used to self.used."""
+        each text under its ratio or not composited goes to self.short, each rule a held text used to self.used and each
+        selector of UNPAINTED that excused something to self.excused."""
         for theme in THEMES:
             page.evaluate("t=>setTheme(t)", theme)
             settle(page)
@@ -487,6 +522,7 @@ class ContrastWalk(BrowserBase):
             out = page.evaluate(READ, [handle, list(UNPAINTED)])
             self.rules.update(out["rules"])
             self.used.update(out["used"])
+            self.excused.update(out["excused"])
             self.short.extend("%s %s %s: cannot composite %s" % (theme, self.device, state, b) for b in out["blind"])
             self.short.extend(
                 "%s %s %s: %s '%s' %.2f < %s (%s on %s)"
@@ -637,8 +673,9 @@ class ContrastWalk(BrowserBase):
     def scene_composer(self):
         """A picked line's composer: on the desktop the selection popover of a real drag first; the excerpt's band and its
         dimmed neighbours, a hovered and a focused neighbour, the hovered [핀 저장] with its shortcut; the verdict row and
-        its reason with the kind a question and with [제안 수정] on, and the suggestion's editor; a band widened until it
-        folds."""
+        its reason with the kind a question and with [제안 수정] on, and the suggestion's editor - read-only and empty while
+        its first read of the lines fails, then filled; a band widened until it folds and overlaps the thread's pin, and a
+        note tagging one of the two Sam Jungs, whose preview line says what joining that pin and a separate save each do."""
         page = self.open(2, **DEVICES[self.device])
         if self.device == "desktop":
             box = page.locator("#p1").bounding_box()
@@ -665,8 +702,14 @@ class ContrastWalk(BrowserBase):
         settle(page)
         self.look(page, "question's verdict row", "#composer")
         page.click('#c-kind button[data-kind="fix"]')
+        self.unread = True  # the editor's first read fails: it stays empty and read-only, its line says why
         page.click("#c-sg-tg")
-        page.wait_for_selector("#c-sg:not([hidden]) #c-sg-text")
+        page.wait_for_selector("#c-sg-text[readonly] + #c-sg-note:not([hidden]) button")
+        settle(page)
+        self.look(page, "suggestion not read", "#composer")
+        self.unread = False
+        page.click("#c-sg-note button")  # [원문 다시 읽기]
+        page.wait_for_selector("#c-sg:not([hidden]) #c-sg-text:not([readonly])")
         settle(page)
         self.look(page, "suggestion on", "#composer")
         page.click("#c-sg-tg")
@@ -678,6 +721,16 @@ class ContrastWalk(BrowserBase):
             settle(page)
         page.wait_for_selector("#c-xp .xp-fold")
         self.look(page, "folded excerpt", "#composer")
+        # The band now overlaps the thread's pin: a note may join it. One Sam Jung picked from the @-list is told by joining
+        # and has a separate save - the preview's two groups, apart (.m-sep), each name with its login (.ml).
+        page.wait_for_selector("#c-overlap:not([hidden])")
+        page.fill("#note", "@Sam")
+        page.wait_for_selector("#mention-pop:not([hidden]) [data-act=mention-pick]")
+        at = page.evaluate("l=>MENTION.items.findIndex(p=>p.login===l)", SAM1["Tailscale-User-Login"])
+        page.click('#mention-pop [data-act=mention-pick][data-i="%d"]' % at)
+        page.wait_for_selector("#note-mentions .m-sep")
+        settle(page)
+        self.look(page, "note that may join a pin", "#composer")
         page.context.close()
 
     def scene_documents(self):
@@ -743,10 +796,23 @@ class ContrastWalk(BrowserBase):
         self.look(page, "pin's comparison", "#revision-controls")
         page.context.close()
 
+    def scene_empty(self):
+        """An instance with no pins at all, as its pin lists answer (no_pins): the panel's hint on how to make one."""
+        self.no_pins = True
+        try:
+            page = self.open(0, **DEVICES[self.device])
+            page.evaluate("setSide(true)")
+            page.wait_for_selector("#empty:not([hidden])")
+            settle(page)
+            self.look(page, "no pins")
+            page.context.close()
+        finally:
+            self.no_pins = False
+
     def walk(self):
-        """Run every scene on the desktop and the phone, and the list on the foldable, collecting self.short, self.used and
-        self.rules."""
-        self.short, self.used, self.rules = [], set(), set()
+        """Run every scene on the desktop and the phone, and the list on the foldable, collecting self.short, self.used,
+        self.rules and self.excused."""
+        self.short, self.used, self.rules, self.excused = [], set(), set(), set()
         for self.device in DEVICES:
             self.scene_list()
             if self.device == "fold":
@@ -754,6 +820,7 @@ class ContrastWalk(BrowserBase):
             self.scene_composer()
             self.scene_documents()
             self.scene_changes()
+            self.scene_empty()
 
 
 class RenderedSecondaryContrast(ContrastWalk):
@@ -763,7 +830,8 @@ class RenderedSecondaryContrast(ContrastWalk):
         """No text the walk reads is under its ratio or over what it cannot composite; every rule that sets text in the
         muted or subtle colour or sets an opacity was used by text the walk held, or is in NOT_WALKED - which names only
         rules the page has and the walk does not reach, and whose colour, faded by its selector's opacity, reads at 4.5:1
-        (an icon's 3:1) on every one of SURFACES in both themes."""
+        (an icon's 3:1) on every one of SURFACES in both themes; and every selector of UNPAINTED excused what is under
+        text the walk read."""
         self.walk()
         with self.subTest("contrast as drawn"):
             self.assertEqual(self.short, [])
@@ -773,6 +841,10 @@ class RenderedSecondaryContrast(ContrastWalk):
                 sorted(unwalked - set(NOT_WALKED)), [], "walk these rules' text, or excuse them in NOT_WALKED"
             )
             self.assertEqual(sorted(set(NOT_WALKED) - unwalked), [], "excused, but missing from the page or walked")
+        with self.subTest("every element UNPAINTED names is under text the walk reads"):
+            self.assertEqual(
+                sorted(set(UNPAINTED) - self.excused), [], "in UNPAINTED, but under no text the walk reads"
+            )
         with self.subTest("excused rules on the plain surfaces"):
             page = self.open(2)
             named = [[key, need] for key, (need, _) in NOT_WALKED.items() if need]
@@ -818,7 +890,7 @@ class WalkCatchesDimmedText(ContrastWalk):
 
     def test_a_painted_hover_and_a_faded_line_number_fail_the_walk(self):
         """With BROKEN applied, the desktop walk reports the hovered commit rows' text and the dimmed line numbers."""
-        self.short, self.used, self.rules = [], set(), set()
+        self.short, self.used, self.rules, self.excused = [], set(), set(), set()
         self.device = "desktop"
         self.scene_composer()
         self.scene_changes()
@@ -830,7 +902,7 @@ class WalkCatchesDimmedText(ContrastWalk):
         """CASES on the page: the gradient's and the mask's text are reported as not composited; the generated text, the
         value, the placeholder and the SVG text as under 4.5:1; the aliased rule counts as dimming, and the rule whose
         custom property an ancestor sets counts as used where it draws."""
-        self.short, self.used, self.rules = [], set(), set()
+        self.short, self.used, self.rules, self.excused = [], set(), set(), set()
         self.device = "desktop"
         page = self.open(2)
         page.evaluate("h=>document.body.insertAdjacentHTML('beforeend',h)", self.CASES)
@@ -848,3 +920,46 @@ class WalkCatchesDimmedText(ContrastWalk):
                 self.assertTrue(any(mark in s for s in light), light)
         self.assertIn("#zz-alias span", self.rules)
         self.assertIn("#zz-scope span", self.used)
+
+    # What the compositing cannot paint, in the places #289 found it unasked - each was skipped or passed: a pseudo-element's
+    # own gradient, an SVG text's gradient fill, a background and a text colour in a colour space rgba() does not read, and a
+    # gradient further up than an element UNPAINTED excuses (whose excuse covers its own filter, not the gradient); with a
+    # placeholder faded by its own opacity, which the compositing left out.
+    UNPAINTED_CASES = """<style>
+      #zz-blind{position:fixed;left:0;top:0;z-index:99999;width:320px;padding:8px;background:#fff;color:#000;font-size:12px}
+      #zz-pseudo::before{content:'pseudo text';color:#000;background-image:linear-gradient(#fff,#fff)}
+      #zz-fill text{font-size:12px}
+      #zz-space{background-color:oklch(1 0 0)} #zz-ink{color:oklch(0 0 0)}
+      #zz-outer{background-image:linear-gradient(#fff,#fff)} #zz-inner{filter:brightness(1)}
+      #zz-fade{display:block;color:#000;background:#fff;border:1px solid #000;font-size:12px}
+      #zz-fade::placeholder{color:#000;opacity:.1}
+    </style><div id="zz-blind"><p id="zz-pseudo"></p>
+      <svg id="zz-fill" width="200" height="20"><defs><linearGradient id="zz-g"><stop offset="0" stop-color="#000"/>
+        <stop offset="1" stop-color="#000"/></linearGradient></defs><text x="0" y="14" fill="url(#zz-g)">gradient fill</text></svg>
+      <p id="zz-space">space text</p><p id="zz-ink">ink text</p>
+      <div id="zz-outer"><div id="zz-inner"><p>nested text</p></div></div>
+      <input id="zz-fade" placeholder="faded placeholder"></div>"""
+
+    def test_what_cannot_be_composited_is_reported_wherever_it_is(self):
+        """UNPAINTED_CASES on the page with #zz-inner excused: every text drawn in or over a paint the compositing cannot
+        read is reported as not composited - the gradient above the excused element too, the excused filter not - and
+        the faded placeholder is under 4.5:1. The excuse is counted as used."""
+        self.short, self.used, self.rules, self.excused = [], set(), set(), set()
+        self.device = "desktop"
+        page = self.open(2)
+        page.evaluate("h=>document.body.insertAdjacentHTML('beforeend',h)", self.UNPAINTED_CASES)
+        with mock.patch.dict(UNPAINTED, {"#zz-inner": "a synthetic excuse"}):
+            self.look(page, "cases", "#zz-blind")
+        light = [s for s in self.short if s.startswith("light ")]
+        for what, mark in (
+            ("a pseudo-element's gradient", "p#zz-pseudo::before 'pseudo text' over ::before background-image"),
+            ("an svg gradient fill", "'gradient fill' drawn in url("),
+            ("a background colour it cannot read", "'space text' over background-color oklch("),
+            ("a text colour it cannot read", "'ink text' drawn in oklch("),
+            ("a gradient above an excused element", "'nested text' over background-image on div#zz-outer"),
+            ("a placeholder's opacity", "input#zz-fade::placeholder 'faded placeholder'"),
+        ):
+            with self.subTest(what):
+                self.assertTrue(any(mark in s for s in light), light)
+        self.assertFalse(any("on div#zz-inner" in s for s in light), light)
+        self.assertEqual(self.excused, {"#zz-inner"})
