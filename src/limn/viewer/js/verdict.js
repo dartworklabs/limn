@@ -569,6 +569,9 @@ function pvRefocus(page,key){const a=document.activeElement; if(a&&a!==document.
 function pvCanCancel(p){return !!verdictOf(p)&&canVerdict()&&isMe(p.author)&&pinState(p)===PIN_STATE.OPEN&&!CONFIRMING.has(p.id);}
 const PV_CANCEL_MS=800;   // after a cancel on a page, how long that page's next [판정 취소] waits (a double press never takes two)
 const PV_CANCEL_HOLD=/** @type {Map<string,number>} */(new Map());   // line (pvSlot) -> until when its [판정 취소] waits
+// The lines whose take-back is out: Enter and Space on them do nothing until it answers (pvOffPageKey). What the focus rests on is
+// what the line shows meanwhile, the verdict before it: Enter there opened a reason for it, or took that one back too.
+const PV_DROP_OUT=/** @type {Set<string>} */(new Set());
 // A verdict a [되돌리기] brought back (a take-back's, the save chip's): when it is its line's current verdict again its kept reason
 // draft opens (pvReasonRevive); when a newer verdict came meanwhile - someone else's - it is restored but superseded, the
 // status line says so ('판정 #21 채택 되살림 · 지금 판정은 Bob의 #34 보류 — <대상>') and no popover opens over that line - its
@@ -627,8 +630,8 @@ async function pvCancelPin(id,page,had,byKey){const p=OPEN_ALL.find(x=>x.id===id
       if(onAdd&&u&&(a===f||a===document.body||!a))u.focus({preventScroll:true});}};
   hideTip();
   const again=()=>{PV_CANCEL_HOLD.delete(pvSlot(page)); drawPageVerdicts(); pvCancelPin(id,page,false);};   // [다시 시도] is a new press: no hold
-  const ok=await dropPin(id,false,again,
-    {say,where:NOTICE_HOST.LINE,what:'판정 취소'});
+  const out=pvSlot(page); PV_DROP_OUT.add(out); let ok=false;
+  try{ok=await dropPin(id,false,again,{say,where:NOTICE_HOST.LINE,what:'판정 취소'});}finally{PV_DROP_OUT.delete(out);}
   if(!ok){PV_WITHDRAWN.delete(id); pvReasonUncancel(id,page,kept?kept.doc:doc,kept);}
   // A keyboard press stays on its own page: the line's [되돌리기], else its line (never the PDF area, from which Tab went to the
   // first page's line). A digit key's take-back takes the focus there from wherever it was - the outline, a card - as a key
@@ -1025,7 +1028,7 @@ const PV_CHIP_WATCH=typeof MutationObserver!=='undefined'?new MutationObserver(r
 // Draws the page verdict line under every page after the pages, the pin lists or the build change. Without page verdicts
 // every line goes and the marks draw every pin as before.
 function drawPageVerdicts(){const v=pageVerdictsOn(),f=/** @type {HTMLElement|null} */(document.activeElement);
-  const had=!!f&&!!f.closest&&!!f.closest('.pv');
+  const on=!!f&&!!f.closest?/** @type {HTMLElement|null} */(f.closest('.pv')):null,had=!!on,onPage=on?Number(on.dataset.page)||0:0;
   if(VD_ARM&&VD_ARM.where===VD_WHERE.PAGE&&(!v||!vdArmStill(VD_ARM)))disarmVerdict(false);
   PV_SHOWN=new Set();
   // A document with no page lines has no reason field either: a session left from the one before (or from this one before
@@ -1047,6 +1050,8 @@ function drawPageVerdicts(){const v=pageVerdictsOn(),f=/** @type {HTMLElement|nu
   if(had)vdRefocus(f);
   pvReasonAfterLines();   // a reason field that went from under the focus hands it to its line
   if(turn)pvSideTurned(turn);   // the lines moved: the reading spot, a save chip and the focus come along
+  // The control the focus was on went with this drawing (a take-back shows the verdict before it): its line's, never nothing.
+  if(had){const a=document.activeElement; if((!a||a===document.body)&&!pvFocusLine(onPage))searchToPage();}
   pvTypingSync();}   // a redraw or a rebuild can take the focused reason field away without a focusout
 // Whether pin p's page verdict line shows it, so its page-size mark is not drawn (marks).
 /** @param {Pin} p */
@@ -1152,7 +1157,8 @@ function pvStick(){if(pageVerdictsOn()&&pvSideCheck())return;   // the room cros
   // stopped on page 5), and on a phone a slow scroll down then never passed a page's end: the page above came back under the
   // reading line, the reading page flipped back and the line grew again, 466 times in 14 drags.
   // Two pages in a row that take no verdict read 0 here, one after the other: the panel names the page, so it asks too.
-  if(r!==PV_READ||k!==PV_KEYS||pvPanelStale(at)){const was=[PV_READ,PV_KEYS]; PV_READ=r; PV_KEYS=k; const map=pageVerdictPins(),v=pageVerdictsOn();
+  if(r!==PV_READ||k!==PV_KEYS||pvPanelStale(at)){if(r!==PV_READ)PV_KEY_GUARD=false;   // the person moved on: they are not typing on into a field that went
+    const was=[PV_READ,PV_KEYS]; PV_READ=r; PV_KEYS=k; const map=pageVerdictPins(),v=pageVerdictsOn();
     const re=/** @type {HTMLElement[]} */([]);
     if(v&&PV_SIDE){pvPanelFill(map,v); re.push(pvPanel());}   // the panel shows the new reading page
     else if(v)new Set([...was,r,k]).forEach(n=>{const e=/** @type {HTMLElement|null} */(n?document.querySelector('#doc .pv[data-page="'+n+'"]'):null); if(e){fillPv(e,n,map.get(n),v); re.push(e);}});
@@ -1229,6 +1235,7 @@ document.addEventListener('focusin',e=>{const t=/** @type {HTMLElement|null} */(
 function pvOffPageKey(e){if((e.key!=='Enter'&&e.key!==' ')||e.ctrlKey||e.metaKey||e.altKey||e.isComposing)return; const t=/** @type {HTMLElement|null} */(e.target);
   const l=t&&t.closest?t.closest('#doc .pv'):null; if(!t||!l||(t.closest&&t.closest('.pv-pop'))||typingNow())return;
   const r=pvReadingAt(),n=Number(/** @type {HTMLElement} */(l).dataset.page),left=!!PV_LINE_FOCUS&&PV_LINE_FOCUS.el===t&&PV_LINE_FOCUS.read===n;
+  if(PV_DROP_OUT.has(pvSlot(n))){e.preventDefault(); e.stopImmediatePropagation(); return;}   // its take-back is out
   if(!r||n===r||(pvInView(t)&&!left))return;
   e.preventDefault(); e.stopImmediatePropagation(); searchToPage();
   if(e.type!=='keydown')return;

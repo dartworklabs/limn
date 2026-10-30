@@ -102,6 +102,7 @@ class PanelBase(BrowserBase):
         self.held_pin: list | None = None  # POST /api/pin routes held unanswered while not None
         self.held_edit: list | None = None  # POST /api/pins/N/edit routes held unanswered while not None
         self.held_list: list | None = None  # GET /api/pins (the pin list) held unanswered while not None
+        self.held_drop: list | None = None  # POST /api/pins/N/drop routes held unanswered while not None
         patch = mock.patch.object(pick_source, "region_text", return_value="")  # pdftotext answers no text
         patch.start()
         self.addCleanup(patch.stop)
@@ -111,6 +112,9 @@ class PanelBase(BrowserBase):
         path = urlparse(rq.url).path
         if path == "/api/pins" and rq.method == "GET" and self.held_list is not None:
             self.held_list.append(route)
+            return None
+        if rq.method == "POST" and path.endswith("/drop") and self.held_drop is not None:
+            self.held_drop.append(route)
             return None
         if rq.method == "POST" and path.endswith("/edit") and self.held_edit is not None:
             self.held_edit.append(route)
@@ -1266,6 +1270,120 @@ class FastKeys(PanelBase):
         self.assertEqual([(p["page"], p["verdict"]) for p in self.pins().values()], [(4, "보류")])
         page.evaluate("()=>{const L=document.querySelector('#left'); pvGlideArm(L.scrollTop);}")
         self.assertEqual((page.evaluate("PV_JUMP"), page.evaluate("pvAutoScrolling()")), (None, False))
+
+
+class TakeBackOut(PanelBase):
+    """A digit that takes a verdict back, its answer held: in the panel and under the pages alike."""
+
+    def test_the_focus_stays_on_the_line_and_enter_does_nothing_until_it_answers(self):
+        """The reason saved, the focus on its control, the verdict's own digit with the drop held: the line shows no verdict,
+        the focus is on a control of that line. Enter and Space then do nothing - no popover, no other verdict taken back or
+        saved. The answer puts the focus on [되돌리기], and the next page's digit saves there. Enter opened a popover for the
+        verdict before it, whose loss left digits refused and Enter on the next pages taking their verdicts back."""
+        for name, device in LAYOUTS:
+            with self.subTest(layout=name):
+                page = self.on(**device)
+                n = 2 if name == "beside" else 4
+                earlier = self.verdict(n, "보류")
+                page.evaluate("loadPins()")
+                settle(page)
+                self.to(page, n)
+                page.evaluate("searchToPage()")
+                page.keyboard.press("1")
+                page.wait_for_function("n=>(pageVerdictPins().get(n)||[]).length===2", arg=n)
+                settle(page)
+                page.keyboard.press("Enter")
+                page.wait_for_selector(FIELD)
+                page.keyboard.type("거둘 이유")
+                page.keyboard.press("Enter")
+                page.wait_for_function("()=>!document.querySelector('#doc .pv-reason')")
+                settle(page)
+                self.assertEqual(page.evaluate(FOCUS)["act"], "pv-reason-open")
+                pins = len(self.pins())
+                self.held_drop = []
+                page.keyboard.press("1")
+                page.wait_for_function("n=>(pageVerdictPins().get(n)||[]).length===1", arg=n)
+                got = page.evaluate(FOCUS)
+                self.assertTrue(got and got["page"] == n, "the take-back left the focus on %s" % got)
+                for key in ("Enter", "Space"):
+                    page.keyboard.press(key)
+                    self.assertEqual(page.locator(FIELD).count(), 0, key + " opened a reason during the take-back")
+                self.assertEqual(
+                    page.evaluate("n=>(pageVerdictPins().get(n)||[])[0].id", n), earlier, "Enter took another back"
+                )
+                held, self.held_drop = self.held_drop, None
+                self.release(held, page=page)
+                page.wait_for_selector(LINE_ACT % (n, "pv-undo"))
+                settle(page)
+                self.assertEqual(page.evaluate(FOCUS)["act"], "pv-undo")
+                self.assertEqual(len(self.pins()), pins - 1)
+                self.to(page, n + 1)
+                page.evaluate("searchToPage()")
+                page.keyboard.press("2")
+                page.wait_for_function("n=>(pageVerdictPins().get(n)||[]).length===1", arg=n + 1)
+
+    def test_a_guard_on_the_digits_ends_when_the_reading_page_changes(self):
+        """The guard after a field went from under the typing: on another page the person is not typing on. A digit there saves."""
+        page = self.on()
+        self.to(page, 2)
+        page.evaluate("PV_KEY_GUARD=true")
+        self.to(page, 3)
+        page.evaluate("searchToPage()")
+        page.keyboard.press("2")
+        page.wait_for_function("OPEN_ALL.length===1")
+        settle(page)
+        self.assertEqual([(p["page"], p["verdict"]) for p in self.pins().values()], [(3, "보류")])
+
+
+class StatusLineAction(PanelBase):
+    """A status line's [되돌리기] goes with its message: the focus does not."""
+
+    def test_its_key_press_leaves_the_focus_on_the_reading_pages_line(self):
+        """A chip's undo on the status line (its page left), pressed by key: the verdict goes, the focus is on the panel."""
+        page = self.on()
+        self.to(page, 2)
+        page.evaluate("searchToPage()")
+        page.keyboard.press("1")
+        page.wait_for_selector("#pv-panel>.nt-chip")
+        settle(page)
+        self.to(page, 3)
+        button = page.locator('#status [data-act="notice-act"]').first
+        button.focus()
+        page.keyboard.press("Enter")
+        page.wait_for_function("OPEN_ALL.length===0")
+        settle(page)
+        got = page.evaluate(FOCUS)
+        self.assertTrue(got and got["panel"], "the undo left the focus on %s" % got)
+
+    def test_a_press_with_a_reason_being_typed_keeps_the_field(self):
+        """A take-back on page 2, a reason typed on page 3, the status line's [되돌리기] pressed with the mouse: the focus stays in
+        the field and the text goes on."""
+        page = self.on()
+        self.to(page, 2)
+        page.locator(WORD % (2, "채택")).click()
+        page.wait_for_function("OPEN_ALL.length===1")
+        settle(page)
+        page.evaluate("()=>NOTICES.forEach(n=>{if(n.place==='chip')endNotice(n,false);})")
+        settle(page)
+        page.locator(LINE_ACT % (2, "pv-cancel")).click()
+        page.wait_for_function("OPEN_ALL.length===0")
+        settle(page)
+        self.to(page, 3)
+        page.locator(WORD % (3, "보류")).click()
+        page.wait_for_function("OPEN_ALL.length===1")
+        settle(page)
+        page.evaluate("()=>NOTICES.forEach(n=>{if(n.place==='chip')endNotice(n,false);})")
+        settle(page)
+        page.locator(LINE_ACT % (3, "pv-reason-open")).click()
+        page.keyboard.type("쓰던 글")
+        page.locator('#status [data-act="notice-act"]').first.click()
+        page.wait_for_function("OPEN_ALL.length===2")
+        settle(page)
+        self.assertTrue(
+            page.evaluate("()=>pvIsReasonField(document.activeElement)"), "the press took the focus from the field"
+        )
+        page.keyboard.type("7")
+        self.assertEqual(page.locator(FIELD).input_value(), "쓰던 글7")
 
 
 class Undo(PanelBase):

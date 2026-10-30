@@ -30,8 +30,11 @@
 - **The reading line is exact at a page's end.** Within its last pixel the strip and the keys already named the next page.
 - **A jump is a jump from its first frame.** Every smooth jump of the pages (the page list, an outline entry, a card's [보기])
   counts from before its first scroll event, also right after a wheel; a digit there acted on the page being left.
-- **A save chip's [되돌리기] pressed by key leaves the focus on the line,** and a digit on a take-back's [되돌리기] on the word
-  being saved, not on nothing.
+- **A save chip's or the status line's [되돌리기] pressed by key leaves the focus on the line,** a press with a reason being
+  typed leaves it in the field, and a digit on a take-back's [되돌리기] leaves it on the word being saved, not on nothing.
+- **While a digit's take-back is out the focus stays on its line and Enter and Space wait.** The line shows the verdict before
+  it meanwhile, and Enter opened a reason for that one or took it back too. A guard on the digits after a field went
+  ends when the reading page changes.
 
 ## 0.4.36 — 2026-10-30
 
