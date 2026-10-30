@@ -1446,6 +1446,32 @@ class Look(PanelBase):
         )
         self.assertEqual(got, ["0px", "none", "0px"])
 
+    def test_the_reason_fields_focus_ring_is_whole_and_a_long_reason_scrolls_in_the_field(self):
+        """The field in the panel, focused: its ring (the outline past its edge) lies inside every box between it and the
+        panel that clips, so none cuts it. Eight lines scroll in the field; the popover does not scroll."""
+        page = self.on()
+        self.to(page, 2)
+        page.locator(WORD % (2, "채택")).click()
+        page.wait_for_function("OPEN_ALL.length===1")
+        settle(page)
+        page.locator(LINE_ACT % (2, "pv-reason-open")).click()
+        settle(page)
+        cut = """()=>{const f=document.querySelector('#pv-panel .pv-reason'),c=getComputedStyle(f),out=parseFloat(c.outlineWidth)+parseFloat(c.outlineOffset),r=f.getBoundingClientRect(),hit=[];
+          if(!(out>0))return ['no ring'];
+          for(let e=f.parentElement;e&&e.id!=='pv-panel';e=e.parentElement){const s=getComputedStyle(e); if(s.overflowX==='visible'&&s.overflowY==='visible')continue;
+            const b=e.getBoundingClientRect(); if(r.left-out<b.left||r.right+out>b.right||r.top-out<b.top||r.bottom+out>b.bottom)hit.push(e.className);}
+          return hit;}"""
+        self.assertEqual(page.evaluate(cut), [], "a box cuts the field's focus ring")
+        for i in range(8):
+            page.keyboard.type("줄 %d" % i)
+            page.keyboard.press("Shift+Enter")
+        settle(page)
+        got = page.evaluate(
+            """()=>{const f=document.querySelector('#pv-panel .pv-reason'),p=document.querySelector('#pv-panel>.pv-pop');
+              return {field:f.scrollHeight>f.clientHeight,pop:getComputedStyle(p).overflowY,panel:document.getElementById('pv-panel').getBoundingClientRect().bottom<=document.querySelector('#left').getBoundingClientRect().bottom};}"""
+        )
+        self.assertEqual(got, {"field": True, "pop": "visible", "panel": True})
+
     def test_a_page_with_no_verdict_keeps_no_room_for_a_title(self):
         """A list page: its notice stands right under its name."""
         page = self.on()
