@@ -7103,3 +7103,146 @@ class ChipFontWait(VerdictBase):
         page = self.saved_then_squeezed()
         page.wait_for_timeout(3300)
         self.assertEqual(page.evaluate(self.STATE, None), [False, False, True])
+
+
+PHONE = {"viewport": {"width": 390, "height": 844}, "is_mobile": True, "has_touch": True}
+# Scroll the PDF area so page n's end stands at the area's middle: its line in its place under it.
+MIDDLE_END = """n=>{const L=document.querySelector('#left'),lr=L.getBoundingClientRect(),r=document.getElementById('p'+n).getBoundingClientRect();
+  L.scrollTop+=r.bottom-(lr.top+L.clientHeight/2);}"""
+# The centre of selector sel's first match, in the layout's px.
+CENTRE = "s=>{const b=document.querySelector(s).getBoundingClientRect(); return [b.left+b.width/2,b.top+b.height/2];}"
+# The visual viewport's offset (a pinch zoom's view on the window) and its scale.
+VVIEW = "()=>({l:Math.round(visualViewport.offsetLeft),t:Math.round(visualViewport.offsetTop),s:visualViewport.scale})"
+
+
+class TouchDetails(VerdictBase):
+    """A phone's line under touch (#320): a long press is the same in every state of the line, a tap on a word while the
+    reason is typed takes that word, and a save in a pinch-zoomed view leaves the view where it is."""
+
+    def phone(self, n=2, in_place=False):
+        """The figure document on a phone, its sheet folded, the pages 1.5x: page n's top at the area's top (its line
+        floats), or its end at the area's middle (its line in its place under it)."""
+        page = self.on("fig", **PHONE)
+        page.evaluate("setSide(false)")
+        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        settle(page)
+        if in_place:
+            page.evaluate(MIDDLE_END, n)
+        else:
+            page.evaluate(SCROLL, [n, "top"])
+        settle(page)
+        return page
+
+    def hold_finger(self, page, sel, after=None):
+        """A finger held 800ms on sel's centre and lifted, then a pause past the click its release may swallow: the text
+        of the description box while it was held, or None - with, given a script `after`, its value 200ms after the lift."""
+        cdp = page.context.new_cdp_session(page)
+        x, y = page.evaluate(CENTRE, sel)
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": x, "y": y}]})
+        page.wait_for_timeout(800)
+        tip = page.evaluate("()=>{const t=document.getElementById('tip'); return t.hidden?null:t.textContent;}")
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+        page.wait_for_timeout(200)
+        got = page.evaluate(after) if after else None
+        page.wait_for_timeout(800)
+        settle(page)
+        return (tip, got) if after else tip
+
+    def test_a_long_press_shows_the_description_and_presses_nothing_whatever_the_line_holds(self):
+        """390x844 touch. With the save chip on the line, a long press on the pressed word shows its description ('… 다시
+        누르면 이 판정을 거둡니다') and takes nothing back; so with the reason popover open and typed in (the text stays);
+        and a long press on an armed confirm word shows '삭제 확정 — …' and saves nothing. The line drew those words without
+        a description (no box over the chip or the popover), so a long press found none, nothing swallowed its release, and
+        the click took the verdict back - or saved the armed word."""
+        page = self.phone()
+        word = WORD % (2, "채택")
+        a = self.press_page(page, 2, "채택")
+        self.assertTrue(page.evaluate("()=>!!document.querySelector('#doc .pv[data-page=\"2\"]>.nt-chip')"))
+        self.assertIn("다시 누르면 이 판정을 거둡니다", self.hold_finger(page, word) or "")
+        self.assertEqual(set(self.pins()), {a})
+        open_reason(page, 2, tap=True)
+        page.keyboard.type("길게 눌러도 남는 이유")
+        settle(page)
+        self.assertIn("다시 누르면 이 판정을 거둡니다", self.hold_finger(page, word) or "")
+        self.assertEqual(set(self.pins()), {a})
+        self.assertEqual(page.input_value('#doc .pv[data-page="2"] .pv-pop .pv-reason'), "길게 눌러도 남는 이유")
+        page.keyboard.press("Escape")
+        settle(page)
+        page.evaluate(END_CHIPS)
+        settle(page)
+        confirm = WORD % (2, "삭제")
+        page.locator(confirm).tap()
+        page.wait_for_function("()=>!!VD_ARM")
+        # another word held while 삭제 waits: its description, and the wait holds - the release is no press elsewhere
+        tip, armed = self.hold_finger(page, WORD % (2, "보류"), after="()=>!!VD_ARM")
+        self.assertEqual(("누르면 이 쪽의 판정으로 저장합니다" in (tip or ""), armed), (True, True), tip)
+        page.keyboard.press("Escape")
+        page.wait_for_function("()=>!VD_ARM")
+        page.locator(confirm).tap()
+        page.wait_for_function("()=>!!VD_ARM")
+        self.assertIn("삭제 확정", self.hold_finger(page, confirm) or "")
+        self.assertEqual(set(self.pins()), {a})
+
+    def test_a_tap_on_a_word_while_the_reason_is_typed_takes_the_first_tap(self):
+        """390x844 touch, page 2's line in its place under the page with its own verdict: the reason typed in its popover
+        folds the line's figure name (body.pv-typing). A tap on the pressed word takes the verdict back at once - the fold
+        holds until the tap's click has run, so the word is where the finger came down. The focus the tap moved to the word
+        let the name come back first, the words went 22px down and the click fell on the line."""
+        page = self.phone(in_place=True)
+        a = self.press_page(page, 2, "보류")
+        page.evaluate(END_CHIPS)
+        settle(page)
+        self.assertFalse(
+            page.evaluate("()=>document.querySelector('#doc .pv[data-page=\"2\"]').classList.contains('stuck')")
+        )
+        open_reason(page, 2, tap=True)
+        page.keyboard.type("쓰던 이유")
+        settle(page)
+        self.assertTrue(page.evaluate("document.body.classList.contains('pv-typing')"))
+        word = WORD % (2, "보류")
+        page.evaluate(
+            """s=>{window.__at={}; const y=()=>Math.round(document.querySelector(s).getBoundingClientRect().top);
+              document.addEventListener('pointerdown',()=>{window.__at.down=y();},true);
+              document.addEventListener('click',e=>{window.__at.click=y(); window.__at.on=!!e.target.closest&&!!e.target.closest(s);},true);}""",
+            word,
+        )
+        b = page.locator(word).bounding_box()
+        page.touchscreen.tap(b["x"] + b["width"] / 2, b["y"] + b["height"] / 2)
+        page.wait_for_function("id=>!OPEN_ALL.some(p=>p.id===id)", arg=a, timeout=5000)
+        at = page.evaluate("window.__at")
+        self.assertEqual((at["down"], at["on"]), (at["click"], True), at)
+        settle(page)
+        self.assertFalse(page.evaluate("document.body.classList.contains('pv-typing')"))  # let go after the click
+
+    def test_a_save_in_a_pinch_zoomed_view_leaves_the_view_where_it_was(self):
+        """390x844 touch at page scale 2, the view moved down to the floating line (visualViewport offsetTop > 0): a tap on a
+        word saves it and the view stays where it was. Every drawing of the lines measures them with the page above's line
+        grown and shrinks it back (#doc.pv-measure); Chromium carried the scroll anchoring of that shrink into the zoomed
+        view, which went to the top (422 -> 0 on a 91-page document). Here the measure grows page 1's line by 400px, as the
+        identifiers of a long document's lines above the reading page do together."""
+        page = self.phone()
+        page.add_style_tag(content="#doc.pv-measure .pv[data-page='1']{padding-bottom:400px}")
+        page.context.new_cdp_session(page).send("Emulation.setPageScaleFactor", {"pageScaleFactor": 2})
+        settle(page)
+        page.evaluate(
+            "()=>document.querySelector('#btn-side').scrollIntoView({block:'end',inline:'start'})"
+        )  # a pan down
+        settle(page)
+        before = page.evaluate(VVIEW)
+        self.assertEqual(before["s"], 2)
+        self.assertGreater(before["t"], 100, before)
+        word = WORD % (2, "채택")
+        x, y = page.evaluate(CENTRE, word)  # in the layout's px (a locator's box is the zoomed view's)
+        seen = page.evaluate(
+            "()=>[visualViewport.offsetLeft,visualViewport.offsetTop,visualViewport.width,visualViewport.height]"
+        )
+        self.assertTrue(seen[0] <= x <= seen[0] + seen[2] and seen[1] <= y <= seen[1] + seen[3], (x, y, seen))
+        cdp = page.context.new_cdp_session(page)
+        # a touch point is in CSS px from the visual viewport's top left here (the view's own offset taken off)
+        cdp.send(
+            "Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": x - seen[0], "y": y - seen[1]}]}
+        )
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+        page.wait_for_function("()=>OPEN_ALL.some(p=>verdictOf(p)==='채택')", timeout=5000)
+        settle(page)
+        self.assertEqual(page.evaluate(VVIEW), before)
