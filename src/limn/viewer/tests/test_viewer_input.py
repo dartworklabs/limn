@@ -497,6 +497,22 @@ class StatusLogic(unittest.TestCase):
         self.assertEqual(out["en"]["same"], [["No changes", ""], ["No changes", ""]])
         self.assertFalse(any(HANGUL.search(a + b) for pair in out["en"].values() for a, b in pair))
 
+    def test_the_plus_n_list_opens_on_the_side_with_room(self):
+        """statusListUp(h, above, below, under): a 186px list (four rows) opens over the line where it fits there - a
+        phone's line over its sheet (574px above) - and under it where only that side has the room: the desktop's line
+        under its status chips, 102px from the top (#314: it opened over the line and its first two rows went above the
+        window). The short band's top row (under) opens under it first and over it only where that side has the room.
+        Neither side: the side with more room, where the list is cut and scrolls (a tie goes over)."""
+        cases = [[186, 574, 41, False], [186, 102, 700, False], [186, 800, 20, True], [186, 20, 800, True]]
+        cases += [[600, 300, 200, False], [600, 200, 300, False], [600, 250, 250, True]]
+        js = "\n".join(
+            [
+                extract_js_fn("statusListUp"),
+                "console.log(JSON.stringify(%s.map(c=>statusListUp(...c))));" % json.dumps(cases),
+            ]
+        )
+        self.assertEqual(node_or_skip(self, js), [True, False, True, False, True, False, True])
+
 
 class MarkBadgeLogic(unittest.TestCase):
     """Where a mark's number badge goes (docs/handbook/viewer.md §모바일 레이아웃, UX audit R4): outside the mark's left
@@ -1619,6 +1635,52 @@ class PhoneSheet(ViewerBase):
         self.tap(self.cdp(page), *self.center(page, "#status .st-more"))
         page.wait_for_selector("#status-list[open]")
         self.assertEqual(page.locator("#status-list .st-row [data-act=notice-x]").count(), 5)
+
+
+# The '+N' list's screens (#314): the desktop of CI, an unfolded foldable held upright, a phone.
+FOLD_UPRIGHT = {"viewport": {"width": 882, "height": 1104}, "is_mobile": True, "has_touch": True}
+PHONE_390 = {"viewport": {"width": 390, "height": 844}, "is_mobile": True, "has_touch": True}
+# Four undos stacked on the status line, each with its [되돌리기], which records its number in window.RAN when pressed.
+FOUR_UNDOS = """()=>{window.RAN=[]; for(let i=1;i<=4;i++)lineNote('판정 #'+(40+i)+' 저장됨',NOTICE_KIND.OK,
+  {label:'되돌리기',fn:()=>window.RAN.push(i)},{life:NOTICE_LIFE.STICKY,undo:true});}"""
+# Each row of the open '+N' list: whether its action lies whole inside the window and is what a press at its centre hits.
+LIST_ROWS = """()=>[...document.querySelectorAll('#status-list .st-row [data-act=notice-act]')].map(b=>{const r=b.getBoundingClientRect(),
+  h=document.elementFromPoint((r.left+r.right)/2,(r.top+r.bottom)/2);
+  return {top:Math.round(r.top),inside:r.top>=0&&r.left>=0&&r.bottom<=innerHeight&&r.right<=innerWidth,hit:!!h&&b.contains(h)};})"""
+
+
+class StatusListRoom(ViewerBase):
+    """The '+N' list opens on the side of the status line with room for it (docs/handbook/viewer.md §상태는 한 줄이다)."""
+
+    def test_four_stacked_undos_each_keep_a_pressable_action(self):
+        """Four undos on the line, '+N' pressed: every row's [되돌리기] is inside the window and takes a press there, and a
+        press on the first row's runs that undo - on the desktop (the line under the status chips: the list went to
+        top -76px, its first two rows out of reach, #314), the foldable and the phone with its sheet folded or open."""
+        screens = (("desktop", DESK), ("fold", FOLD_UPRIGHT), ("phone", PHONE_390), ("phone, sheet open", PHONE_390))
+        for name, device in screens:
+            with self.subTest(screen=name):
+                page = self.view(device)
+                if name == "phone, sheet open":
+                    page.evaluate("setSide(true)")
+                    settle(page)
+                page.evaluate(FOUR_UNDOS)
+                settle(page)
+                touch = device.get("has_touch")
+                if touch:
+                    self.tap(self.cdp(page), *self.center(page, "#status .st-more"))
+                else:
+                    page.locator("#status .st-more").click()
+                page.wait_for_selector("#status-list[open]")
+                settle(page)
+                rows = page.evaluate(LIST_ROWS)
+                self.assertEqual([(r["inside"], r["hit"]) for r in rows], [(True, True)] * 4, rows)
+                x, y = self.center(page, "#status-list .st-row [data-act=notice-act]")
+                if touch:
+                    self.tap(self.cdp(page), x, y)
+                else:
+                    page.mouse.click(x, y)
+                page.wait_for_function("window.RAN.length>0")
+                self.assertEqual(page.evaluate("window.RAN"), [4])
 
 
 # A mouse window in the mid layout, and a wide desktop window.

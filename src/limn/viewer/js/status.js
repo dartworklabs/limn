@@ -166,11 +166,28 @@ function syncWhyText(s){const r=s&&s.reason||''; return tr('main 동기화 막�
 // pressed in the '+N' list, which has just folded, at the line - and read out.
 /** @param {HTMLElement} btn */
 function statusWhy(btn){const text=syncWhyText(STATUS_SYNC); showTipText(btn.getClientRects().length?btn:$('#status'),text); announce(text);}
-// Opens the '+N' list just over the status line (under it in the short band's top row), or folds it on a second press.
+// Opens the '+N' list beside the status line (placeStatusList), or folds it on a second press.
 function toggleStatusList(){const d=$('#status-list'); if(d.open){d.close(); return;}
-  drawStatusList(statusShown(statusList(statusInput()),LAYOUT===LAYOUT_MODE.WIDE)); const r=$('#status').getBoundingClientRect(),short=BAND===LAYOUT_BAND.SHORT;
-  d.style.top=short?Math.round(r.bottom+4)+'px':'auto'; d.style.bottom=short?'auto':Math.round(innerHeight-r.top+4)+'px';
-  hideTip(); d.showModal(); holdLine();}
+  drawStatusList(statusShown(statusList(statusInput()),LAYOUT===LAYOUT_MODE.WIDE)); hideTip(); d.showModal(); placeStatusList(); holdLine();}
+// Which side of the status line the '+N' list opens on, for a list h px tall with room px free above and below the line
+// (to 8px off the window's edge): its own side - over the line, or under it when the line is the short band's top row
+// (under) - where the whole list fits there, else the other side where it fits, else the side with more room, where the list
+// is cut to that room and scrolls. True for over the line. Pure.
+/** @param {number} h @param {number} above @param {number} below @param {boolean} under */
+function statusListUp(h,above,below,under){if(h<=(under?below:above))return !under; if(h<=(under?above:below))return under; return above>=below;}
+// Puts the open '+N' list 4px off the status line on the side statusListUp picks, and lets it grow only to 8px off the
+// window's edge on that side (--sl-room); its rows scroll inside that. The list always opened over the line: on a desktop
+// the line sits under the status chips, about 114px from the top, and four rows over it put the first two above the window
+// (top -76px at 1400x850) with their [되돌리기] out of reach (#314). Measured with no cut first, so a list that fits is
+// never cut. A window that changes size while it is open (a phone's toolbar, a rotation within the band) places it again;
+// a band change folds it (placeStatus).
+function placeStatusList(){const d=$('#status-list'); if(!d.open)return;
+  const r=$('#status').getBoundingClientRect(),above=r.top-4-8,below=innerHeight-r.bottom-4-8;
+  d.style.setProperty('--sl-room','none'); d.style.top='0px'; d.style.bottom='auto';
+  const up=statusListUp(d.offsetHeight,above,below,BAND===LAYOUT_BAND.SHORT);
+  d.style.setProperty('--sl-room',Math.max(0,Math.floor(up?above:below))+'px');
+  d.style.top=up?'auto':Math.round(r.bottom+4)+'px'; d.style.bottom=up?Math.round(innerHeight-r.top+4)+'px':'auto';}
+addEventListener('resize',placeStatusList);
 
 // Moves #status to the band's place - the dock over the sheet (phone, tablet sheet), the short band's top row after the view
 // switch, the mid action row's middle, the desktop's line under its status chips (#status-wide) - keeping a focus that was

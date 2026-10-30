@@ -669,9 +669,11 @@ body.band-short #doc-nav #status{flex:none;position:relative;align-self:stretch}
 #status.st-words-off .st-tx{display:none}   /* gives way last, once the document row is down to its icon (docFit): its words whole or not at all; the icon, the action and the spoken label stay */
 @media (pointer:coarse){body.band-short #doc-nav #status button{min-height:0;height:var(--ctl-touch);position:relative;overflow:visible}
   body.band-short #doc-nav #status button::after{content:'';position:absolute;left:50%;top:50%;width:max(100%,var(--hit));height:var(--hit);transform:translate(-50%,-50%)}}
-/* The '+N' list: every state as a 44px row with its action, a modal sheet over the line (under the top row in the short band). */
+/* The '+N' list: every state as a 44px row with its action, a modal sheet beside the line - over it, under it where the room
+   is there (the desktop's line under its chips, the short band's top row) - cut to the room on its side (--sl-room,
+   status.js placeStatusList), its rows scrolling inside. */
 #status-list{position:fixed;margin:0;left:max(var(--edge),env(safe-area-inset-left));right:max(var(--edge),env(safe-area-inset-right));width:auto;max-width:640px;
-  margin-inline:auto;padding:var(--space-1) var(--space-3)}
+  margin-inline:auto;padding:var(--space-1) var(--space-3);max-height:var(--sl-room,88vh);overflow-y:auto;overscroll-behavior:contain}
 #status-list .st-row{display:flex;align-items:center;gap:var(--space-2);min-height:var(--hit);font-size:var(--text-base)}
 #status-list .st-row-t{flex:1;min-width:0}
 #status-list .st-row button{flex:none}

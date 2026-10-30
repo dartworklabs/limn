@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **The status line's `+N` list opens where its rows can be pressed.** It always opened over the line, and on a desktop
+  the line sits under the status chips, about 114px from the top: four stacked messages put the list's top at -76px at
+  1400 x 850, its first two rows and their [되돌리기] above the window. The list now opens over the line where the whole
+  list fits there (under it in the short band's top row, as before), else on the other side where it fits, else on the
+  side with more room, cut to it with its rows scrolling inside; it is placed again when the window changes size while
+  it is open. Desktop 1400 x 850, an unfolded foldable 882 x 1104 and a phone 390 x 844 (sheet folded or open): every
+  row's action is on screen and takes a press (#314).
+
 ## 0.4.34 — 2026-10-30
 
 The page verdict line from an owner-requested UX review of 0.4.33 on a figure document (`pl`), and agents told which
