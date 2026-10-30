@@ -57,7 +57,7 @@ async function loadOutline(doc,gen){
 // section strip would otherwise name its pages by the old document's headings until the new outline is read. The same document's
 // new build keeps the old build's entries until its own are read - a rebuilt manuscript's strip does not blank meanwhile.
 function outlineForget(){if(OUTLINE_DOC===DOC)return;
-  OUTLINE_ENTRIES=[];OUTLINE_CUT=0;OUTLINE_DOC=DOC;OUTLINE_BUILD='';OUTLINE_SELECTED=-1;OUTLINE_ACTIVE_PAGE=0;OUTLINE_PINNED=null;
+  OUTLINE_ENTRIES=[];OUTLINE_CUT=0;OUTLINE_DOC=DOC;OUTLINE_BUILD='';OUTLINE_SELECTED=-1;OUTLINE_ACTIVE_PAGE=0;OUTLINE_PINNED=null;OUTLINE_MARKED=-1;OUTLINE_SNAP=true;
   $('#ns-outline').hidden=true;}   // the sheet's outline rows are the old document's
 // Whether OUTLINE_ENTRIES were read for the build on screen.
 function outlineOnScreen(){return OUTLINE_DOC===DOC&&OUTLINE_BUILD===((META&&META.pages_build)||'');}
@@ -126,11 +126,60 @@ function outlineCutNote(filtered){if(!OUTLINE_CUT)return '';
     :tl('목차 항목 {n}개를 생략했습니다 — 읽는 한도는 {max}개, {depth}단계입니다',p)}</p>`;}
 // Moves the current-section mark to OUTLINE_SELECTED in both lists without drawing them again. The section strip follows the
 // reading line, so scrolling through a long document changes the section at every page, and redrawing thousands of rows each
-// time is what a long outline cannot afford. A row is found by its data-index; one the filter hides has no row to mark.
+// time is what a long outline cannot afford. A row is found by its data-index; one the filter hides has no row to mark. The panel
+// follows the mark when it moves to another entry (outlineFollow) - not at every page of one entry, and not when a new build's list
+// comes with the same entry current: then nothing has moved, and a list the person left somewhere stays there.
 function markOutline(){for(const box of [$('#outline-items'),$('#ns-outline-items')]){
     for(const b of box.querySelectorAll('.ol-active')){b.classList.remove('ol-active'); b.setAttribute('aria-current','false');}
     const on=OUTLINE_SELECTED>=0?box.querySelector('[data-index="'+OUTLINE_SELECTED+'"]'):null;
-    if(on){on.classList.add('ol-active'); on.setAttribute('aria-current','location');}}}
+    if(on){on.classList.add('ol-active'); on.setAttribute('aria-current','location');}}
+  if(OUTLINE_SELECTED!==OUTLINE_MARKED){OUTLINE_MARKED=OUTLINE_SELECTED; outlineFollow();}}
+// The outline panel keeps the current section in view (docs/handbook/viewer.md §모바일 레이아웃, 목차가 지금 절을 따라간다). The panel (#outline:
+// the wide layout's panel, the overlay of mid and the tablet sheet) is its own scroller and a figure document's list is many times
+// taller than it, so the mark alone moved out of sight. Only #outline scrolls - Element.scrollIntoView moves every scrolling ancestor
+// too, the pages among them - and the focus stays where it is. A row that shows whole moves nothing. The phone has no panel: its
+// sheet is modal, so nothing moves under it, and it brings its own row up as it opens (navSheetReveal).
+const OUTLINE_FOLLOW_HOLD_MS=3000;   // the list stays put this long after the person's own wheel, press, key or scroll in it
+const OUTLINE_FOLLOW_MARGIN=48;      // px of the list kept beyond a row brought into view: two rows of a mouse screen
+const OUTLINE_FOLLOW_FLIGHT_MS=600;  // how long a smooth follow can still be under way: a next one reckons from where it is heading
+let OUTLINE_MARKED=-1,OUTLINE_SNAP=true,   // the entry last marked; the next follow jumps (a new document's list), it does not glide
+  OUTLINE_FOLLOW_DUE=false,OUTLINE_FOLLOW_TIMER=0,   // a follow the person held back (or a list the filter drew again) is owed when they let go
+  OUTLINE_OVER=false,OUTLINE_HANDLED=-Infinity,OUTLINE_SHOWN=false,   // the mouse is over the panel; when they last handled it; the panel is on screen
+  OUTLINE_AIM=/** @type {{top:number,at:number}|null} */(null);   // where a smooth follow is heading, and since when
+// Where the list (scrollTop st, view height h, content height sh) scrolls to bring a row at [top, bottom] of its content into view:
+// null when the row shows whole - else the nearest place that has m px of the list beyond it (less on a view too short for that, and
+// a row taller than the view by its top). Going up, the very top where only part of the panel's head would be left over the row
+// (head: where the rows start): a cut head hides the filter for nothing. Within what the list can scroll. Pure.
+function outlineRevealTop(st,h,sh,top,bottom,m,head){
+  if(top>=st-.5&&bottom<=st+h+.5)return null;
+  const room=Math.max(0,Math.min(m,(h-(bottom-top))/2)),up=top<st||bottom-top>h,want=up?top-room:bottom-h+room;
+  const to=Math.round(Math.max(0,Math.min(sh-h,up&&want<=head?0:want)));
+  return to===Math.round(st)?null:to;}
+// Whether the filter is narrowing the list: its rows are the results, not the outline, and the current row is likely not among them.
+function outlineFiltered(){return !!$('#outline-search').value.trim();}
+// Whether the person has the list in hand, so it stays where they put it: the filter is in use (typed in, or its field has the focus),
+// the mouse is over the panel, they wheeled, pressed, touched or scrolled it in the last OUTLINE_FOLLOW_HOLD_MS, or the keyboard is on
+// a row. A row a mouse pressed keeps the focus after its pick, which holds nothing: reading on must not leave the outline behind.
+function outlineHeld(){const a=/** @type {HTMLElement|null} */(document.activeElement);
+  const inside=!!a&&!!a.closest&&!!a.closest('#outline'),key=document.documentElement.dataset.input==='key';
+  return outlineFiltered()||OUTLINE_OVER||performance.now()-OUTLINE_HANDLED<OUTLINE_FOLLOW_HOLD_MS||(inside&&(a.id==='outline-search'||key));}
+/** Brings the current row into the panel's view (outlineRevealTop), gliding unless the reader asked for reduced motion or the list is
+ * new; one read of the row's place, at a move of the mark. Held back (outlineHeld), it is owed until they let go. A panel closed or
+ * absent has nothing to show: it starts at the current row when it opens.
+ * @param {boolean} [open] the panel has just come on screen: nobody has the list in hand yet, whatever the pointer rests on */
+function outlineFollow(open){if(document.body.classList.contains('outline-collapsed')||BAND===LAYOUT_BAND.PHONE)return;
+  if(open?outlineFiltered():outlineHeld()){OUTLINE_FOLLOW_DUE=true; outlineFollowLater(); return;}
+  const list=$('#outline-items'),row=list.querySelector('.ol-active'); if(!row)return;
+  const jump=!!open||OUTLINE_SNAP||MQ_REDUCED.matches; OUTLINE_FOLLOW_DUE=false; OUTLINE_SNAP=false;
+  const box=$('#outline'),o=box.getBoundingClientRect(),r=row.getBoundingClientRect(),now=performance.now(),st=box.scrollTop;
+  const from=o.top+box.clientTop-st,at=OUTLINE_AIM&&now-OUTLINE_AIM.at<OUTLINE_FOLLOW_FLIGHT_MS?OUTLINE_AIM.top:st;
+  const to=outlineRevealTop(at,box.clientHeight,box.scrollHeight,r.top-from,r.bottom-from,OUTLINE_FOLLOW_MARGIN,list.getBoundingClientRect().top-from);
+  if(to===null)return;
+  OUTLINE_AIM=jump?null:{top:to,at:now}; box.scrollTo({top:to,behavior:jump?'auto':'smooth'});}
+// When a timed hold is over: the owed follow is made then. A hover, a focus and a filter end with an event of their own.
+function outlineFollowLater(){clearTimeout(OUTLINE_FOLLOW_TIMER); const left=OUTLINE_HANDLED+OUTLINE_FOLLOW_HOLD_MS-performance.now();
+  if(left>0)OUTLINE_FOLLOW_TIMER=setTimeout(outlineCatchUp,left+16);}
+function outlineCatchUp(){if(OUTLINE_FOLLOW_DUE)outlineFollow();}
 // Where a PDF outline destination sits on its page, as a fraction from the top (0 = top). An XYZ destination carries
 // the top edge in PDF points from the bottom; anything else (Fit, no top) counts as the top of the page.
 function destFrac(dest,ptH){const top=Array.isArray(dest)&&dest[1]&&dest[1].name==='XYZ'?dest[3]:null;
@@ -253,6 +302,18 @@ function outlineFilter(field,box,sr){
 function outlineSay(box,q,sr){const n=outlineRows(box).length,t=!String(q||'').trim()?'':n?tl('결과 {n}개',{n}):tr('찾은 장·절이 없습니다.');
   if(sr.textContent!==t)sr.textContent=t;}   // the same words again are not set again: a live region read '없습니다' at every keystroke
 outlineFilter($('#outline-search'),$('#outline-items'),$('#outline-sr')); outlineFilter($('#ns-outline-search'),$('#ns-outline-items'),$('#ns-outline-sr'));   // each filter works on its own list only
+// The person's hand on the panel (outlineHeld). A scroll inside a hold is theirs going on - a fling, a smooth wheel - and extends it;
+// a follow never runs inside one, so its own scroll does not hold anything.
+(function(){const box=$('#outline'),handled=()=>{OUTLINE_HANDLED=performance.now();};
+  for(const t of ['wheel','pointerdown','touchstart','touchmove','keydown'])box.addEventListener(t,handled,{passive:true});
+  box.addEventListener('scroll',()=>{if(performance.now()-OUTLINE_HANDLED<OUTLINE_FOLLOW_HOLD_MS)handled();},{passive:true});
+  box.addEventListener('pointerenter',e=>{if(e.pointerType!=='touch')OUTLINE_OVER=true;});
+  box.addEventListener('pointerleave',e=>{if(e.pointerType!=='touch'){OUTLINE_OVER=false; outlineCatchUp();}});
+  box.addEventListener('focusout',()=>{setTimeout(outlineCatchUp,0);});   // by then the focus has landed: it may be on another row
+  $('#outline-search').addEventListener('input',()=>{OUTLINE_FOLLOW_DUE=true;});   // the list was drawn again: its row is owed when the filter is let go
+  // Display none to shown: a panel opening, here and not in its toggle, so that a band change that brings it back counts too.
+  if(window.ResizeObserver)new ResizeObserver(([e])=>{const shown=e.contentRect.height>0; if(!shown)OUTLINE_OVER=false;
+    if(shown&&!OUTLINE_SHOWN)outlineFollow(true); OUTLINE_SHOWN=shown;}).observe(box);})();
 $('#left').addEventListener('scroll',()=>{if(OUTLINE_PINNED&&!OUTLINE_PINNED.reached)outlinePickWait();
   if(!document.body.classList.contains('revision-open'))requestAnimationFrame(updateSectionStrip);},{passive:true});
 // The reader taking over the pages lets go of a pick still on its way (dropOutlinePick); so does a new size of the window.
