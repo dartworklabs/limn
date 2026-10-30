@@ -7133,20 +7133,22 @@ class TouchDetails(VerdictBase):
         settle(page)
         return page
 
-    def hold_finger(self, page, sel, after=None):
+    def hold_finger(self, page, sel, after=None, during=None):
         """A finger held 800ms on sel's centre and lifted, then a pause past the click its release may swallow: the text
-        of the description box while it was held, or None - with, given a script `after`, its value 200ms after the lift."""
+        of the description box while it was held, or None - with, given a script `after` (or `during`), its value 200ms after
+        the lift (or while it was held)."""
         cdp = page.context.new_cdp_session(page)
         x, y = page.evaluate(CENTRE, sel)
         cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": x, "y": y}]})
         page.wait_for_timeout(800)
         tip = page.evaluate("()=>{const t=document.getElementById('tip'); return t.hidden?null:t.textContent;}")
+        seen = page.evaluate(during) if during else None
         cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
         page.wait_for_timeout(200)
         got = page.evaluate(after) if after else None
         page.wait_for_timeout(800)
         settle(page)
-        return (tip, got) if after else tip
+        return (tip, got) if after else (tip, seen) if during else tip
 
     def test_a_long_press_shows_the_description_and_presses_nothing_whatever_the_line_holds(self):
         """390x844 touch. With the save chip on the line, a long press on the pressed word shows its description ('… 다시
@@ -7158,7 +7160,11 @@ class TouchDetails(VerdictBase):
         word = WORD % (2, "채택")
         a = self.press_page(page, 2, "채택")
         self.assertTrue(page.evaluate("()=>!!document.querySelector('#doc .pv[data-page=\"2\"]>.nt-chip')"))
-        self.assertIn("다시 누르면 이 판정을 거둡니다", self.hold_finger(page, word) or "")
+        hint = "()=>{const h=document.querySelector('#doc .pv[data-page=\"2\"]>.pv-onhint'); return h&&h.getClientRects().length>0;}"
+        self.assertTrue(page.evaluate(hint))  # the press's context stands over the words for a few seconds
+        tip, shown = self.hold_finger(page, word, during=hint)
+        self.assertIn("다시 누르면 이 판정을 거둡니다", tip or "")
+        self.assertFalse(shown)  # the description says it: the context steps aside, not two boxes saying one thing
         self.assertEqual(set(self.pins()), {a})
         open_reason(page, 2, tap=True)
         page.keyboard.type("길게 눌러도 남는 이유")
@@ -7328,3 +7334,23 @@ class TouchDetails(VerdictBase):
                           document.dispatchEvent(new Event('visibilitychange'));}"""
                     )
                 page.wait_for_function("()=>!document.body.classList.contains('pv-typing')", timeout=3000)
+
+    def test_a_description_wraps_between_korean_words_and_breaks_only_a_token_too_long_for_it(self):
+        """390x844: the pressed word's description in Korean wraps between words, never inside one ('판정 취/소)' broke a
+        word), at every width the box may have; an English token wider than the box still breaks inside the box rather
+        than running past it."""
+        page = self.phone()
+        # every pair of Hangul syllables side by side stays on one row, at each width the box may have from 120 to 300px
+        split = """t=>{const tip=document.getElementById('tip'),el=document.querySelector('#doc .pv .vd-b'),H=/[가-힣]/; let bad=null;
+          for(let w=120;w<=300&&!bad;w+=4){tip.style.maxWidth=w+'px'; showTipText(el,t); const n=tip.firstChild,rows=new Set();
+            const top=i=>{const r=document.createRange(); r.setStart(n,i); r.setEnd(n,i+1); const y=Math.round(r.getBoundingClientRect().top); rows.add(y); return y;};
+            for(let i=0;i+1<t.length&&!bad;i++)if(H.test(t[i])&&H.test(t[i+1])&&top(i)!==top(i+1))bad={w,at:t.slice(Math.max(0,i-2),i+3)};
+            if(!bad&&rows.size<2&&w<200)bad={w,rows:rows.size};}
+          tip.style.maxWidth=''; hideTip(); return bad;}"""
+        ko = "지금 판정입니다 · 다시 누르면 이 판정을 거둡니다(판정 취소) · 처리된 판정은 카드의 [지우기]로 거둡니다"
+        self.assertIsNone(page.evaluate(split, ko))
+        long = """t=>{const tip=document.getElementById('tip'); showTipText(document.querySelector('#doc .pv .vd-b'),t); const b=tip.getBoundingClientRect();
+          const r=document.createRange(); r.selectNodeContents(tip.firstChild); const rows=new Set([...r.getClientRects()].map(x=>Math.round(x.top))).size;
+          return {inside:tip.scrollWidth<=tip.clientWidth+1&&b.right<=innerWidth, rows};}"""
+        got = page.evaluate(long, "pins/" + "x" * 90 + ".json")
+        self.assertTrue(got["inside"] and got["rows"] > 1, got)

@@ -9,7 +9,11 @@
   description (no box over the chip or the popover), and so was a confirm word waiting for its second press; a long press
   then found no description, nothing swallowed its release, and the click took the pressed word's verdict back - or saved
   the armed word. They now keep the description for a long press only (`data-tip-press`): hover and focus still raise no
-  box, a long press shows it and its release presses nothing, and it does not let an armed word go either.
+  box, a long press shows it and its release presses nothing, and it does not let an armed word go either. While that
+  description is up, the line's own context over the words ('지금 채택 판정 · 다시 누르면 판정 취소'), which says the same,
+  steps aside.
+- **Descriptions wrap Korean between words** (`#tip{word-break:keep-all}`): '판정 취소)' broke as '판정 취/소)'. A token
+  wider than the box still breaks inside it.
 - **A tap on a word while the reason is typed takes the first tap** (#320). On a phone the reason field folds the line's
   figure name; the tap's focus brought it back before the click, the words moved 22px down under the finger and the click
   fell on the line. The fold now holds until a press on the line has been handled, as it already did for the popover's
