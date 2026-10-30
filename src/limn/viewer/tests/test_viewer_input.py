@@ -497,6 +497,22 @@ class StatusLogic(unittest.TestCase):
         self.assertEqual(out["en"]["same"], [["No changes", ""], ["No changes", ""]])
         self.assertFalse(any(HANGUL.search(a + b) for pair in out["en"].values() for a, b in pair))
 
+    def test_the_plus_n_list_opens_on_the_side_with_room(self):
+        """statusListUp(h, above, below, under): a 186px list (four rows) opens over the line where it fits there - a
+        phone's line over its sheet (574px above) - and under it where only that side has the room: the desktop's line
+        under its status chips, 102px from the top (#314: it opened over the line and its first two rows went above the
+        window). The short band's top row (under) opens under it first and over it only where that side has the room.
+        Neither side: the side with more room, where the list is cut and scrolls (a tie goes over)."""
+        cases = [[186, 574, 41, False], [186, 102, 700, False], [186, 800, 20, True], [186, 20, 800, True]]
+        cases += [[600, 300, 200, False], [600, 200, 300, False], [600, 250, 250, True]]
+        js = "\n".join(
+            [
+                extract_js_fn("statusListUp"),
+                "console.log(JSON.stringify(%s.map(c=>statusListUp(...c))));" % json.dumps(cases),
+            ]
+        )
+        self.assertEqual(node_or_skip(self, js), [True, False, True, False, True, False, True])
+
 
 class MarkBadgeLogic(unittest.TestCase):
     """Where a mark's number badge goes (docs/handbook/viewer.md §모바일 레이아웃, UX audit R4): outside the mark's left
@@ -1619,6 +1635,212 @@ class PhoneSheet(ViewerBase):
         self.tap(self.cdp(page), *self.center(page, "#status .st-more"))
         page.wait_for_selector("#status-list[open]")
         self.assertEqual(page.locator("#status-list .st-row [data-act=notice-x]").count(), 5)
+
+
+# The '+N' list's screens (#314): the desktop of CI, an unfolded foldable held upright, a phone.
+FOLD_UPRIGHT = {"viewport": {"width": 882, "height": 1104}, "is_mobile": True, "has_touch": True}
+PHONE_390 = {"viewport": {"width": 390, "height": 844}, "is_mobile": True, "has_touch": True}
+# Four undos stacked on the status line, each with its [되돌리기], which records its number in window.RAN when pressed.
+FOUR_UNDOS = """()=>{window.RAN=[]; for(let i=1;i<=4;i++)lineNote('판정 #'+(40+i)+' 저장됨',NOTICE_KIND.OK,
+  {label:'되돌리기',fn:()=>window.RAN.push(i)},{life:NOTICE_LIFE.STICKY,undo:true});}"""
+# Each row of the open '+N' list: whether its action lies whole inside the window and is what a press at its centre hits.
+LIST_ROWS = """()=>[...document.querySelectorAll('#status-list .st-row [data-act=notice-act]')].map(b=>{const r=b.getBoundingClientRect(),
+  h=document.elementFromPoint((r.left+r.right)/2,(r.top+r.bottom)/2);
+  return {top:Math.round(r.top),inside:r.top>=0&&r.left>=0&&r.bottom<=innerHeight&&r.right<=innerWidth,hit:!!h&&b.contains(h)};})"""
+# How far left of the status line's [되돌리기] and [x] each row's of the open '+N' list stands (px, right edges), and
+# whether the list is whole inside the window.
+UNDER_LINE = """()=>{const R=s=>document.querySelector(s).getBoundingClientRect(),la=R('#status [data-act=notice-act]').right,
+  lx=R('#status [data-act=notice-x]').right,l=R('#status-list'),q=s=>[...document.querySelectorAll('#status-list .st-row '+s)];
+  return {acts:q('[data-act=notice-act]').map(b=>Math.round(la-b.getBoundingClientRect().right)),
+    xs:q('[data-act=notice-x]').map(b=>Math.round(lx-b.getBoundingClientRect().right)),
+    inside:l.left>=0&&l.top>=0&&l.right<=innerWidth&&l.bottom<=innerHeight};}"""
+# The visual viewport's offset and scale, and whether the open '+N' list is whole inside it.
+VIEW = """()=>{const v=visualViewport,r=document.querySelector('#status-list').getBoundingClientRect();
+  return {l:v.offsetLeft,t:v.offsetTop,s:v.scale,list:[r.left,r.right,r.top,r.bottom].map(Math.round),
+    inside:r.left>=v.offsetLeft&&r.right<=v.offsetLeft+v.width&&r.top>=v.offsetTop&&r.bottom<=v.offsetTop+v.height};}"""
+# Two undos on the status line, as FOUR_UNDOS.
+TWO_UNDOS = FOUR_UNDOS.replace("i<=4", "i<=2")
+# Whether the open '+N' list stands over the status line.
+LIST_OVER_LINE = (
+    "document.querySelector('#status-list').getBoundingClientRect().bottom"
+    "<=document.querySelector('#status').getBoundingClientRect().top"
+)
+# A pinch zoom panned over the page: window.__setVv({offsetTop, height, scale}) makes the visual viewport that part of the
+# window (the layout as it was), and a scroll event follows; null gives the real one back.
+VV_PANNED = """window.__vv = null;
+(() => {const vv = window.visualViewport; if (!vv) return; const P = Object.getPrototypeOf(vv);
+  for (const k of ['offsetTop', 'height', 'scale']) {const real = Object.getOwnPropertyDescriptor(P, k);
+    Object.defineProperty(vv, k, {configurable: true, get() {return window.__vv ? window.__vv[k] : real.get.call(vv);}});}
+  window.__setVv = o => {window.__vv = o; vv.dispatchEvent(new Event('scroll'));};})();"""
+# Each row of the open '+N' list, its action scrolled into the list's view: whether that action lies whole inside the
+# visible part of the window (visualViewport) and is what a press at its centre hits.
+SEEN_ROWS = """()=>{const v=window.visualViewport,t=v?v.offsetTop:0,H=v?v.height:innerHeight;
+  return [...document.querySelectorAll('#status-list .st-row [data-act=notice-act]')].map(b=>{b.scrollIntoView({block:'nearest'});
+    const r=b.getBoundingClientRect(),h=document.elementFromPoint((r.left+r.right)/2,(r.top+r.bottom)/2);
+    return {top:Math.round(r.top),inside:r.top>=t&&r.bottom<=t+H,hit:!!h&&b.contains(h)};});}"""
+
+
+class StatusListRoom(ViewerBase):
+    """The '+N' list opens on the side of the status line with room for it (docs/handbook/viewer.md §상태는 한 줄이다)."""
+
+    def test_four_stacked_undos_each_keep_a_pressable_action(self):
+        """Four undos on the line, '+N' pressed: every row's [되돌리기] is inside the window and takes a press there, and a
+        press on the first row's runs that undo - on the desktop (the line under the status chips: the list went to
+        top -76px, its first two rows out of reach, #314), the foldable and the phone with its sheet folded or open."""
+        screens = (("desktop", DESK), ("fold", FOLD_UPRIGHT), ("phone", PHONE_390), ("phone, sheet open", PHONE_390))
+        for name, device in screens:
+            with self.subTest(screen=name):
+                page = self.view(device)
+                if name == "phone, sheet open":
+                    page.evaluate("setSide(true)")
+                    settle(page)
+                page.evaluate(FOUR_UNDOS)
+                settle(page)
+                touch = device.get("has_touch")
+                if touch:
+                    self.tap(self.cdp(page), *self.center(page, "#status .st-more"))
+                else:
+                    page.locator("#status .st-more").click()
+                page.wait_for_selector("#status-list[open]")
+                settle(page)
+                rows = page.evaluate(LIST_ROWS)
+                self.assertEqual([(r["inside"], r["hit"]) for r in rows], [(True, True)] * 4, rows)
+                x, y = self.center(page, "#status-list .st-row [data-act=notice-act]")
+                if touch:
+                    self.tap(self.cdp(page), x, y)
+                else:
+                    page.mouse.click(x, y)
+                page.wait_for_function("window.RAN.length>0")
+                self.assertEqual(page.evaluate("window.RAN"), [4])
+
+    def test_on_the_desktop_the_list_stands_under_the_line_s_own_buttons(self):
+        """Desktop 1400x850 and 1920x1080, the panel open (the line in it) and at 1400 closed (the line over the PDF area's
+        bottom right): the list's right edge follows the line's and the list reaches left from there, so each row's
+        [되돌리기] stands under the line's [되돌리기] - at most 10px left of it, where the window's 8px edge holds the
+        list in - and the whole list is inside the window. Centred in the window (at most 640px wide), its buttons stood
+        about 350px left of the line's, over the PDF."""
+        for w, h, side in ((1400, 850, True), (1920, 1080, True), (1400, 850, False)):
+            with self.subTest(size="%dx%d" % (w, h), panel="open" if side else "closed"):
+                page = self.view({"viewport": {"width": w, "height": h}})
+                page.evaluate("s=>setSide(s)", side)
+                settle(page)
+                page.evaluate(FOUR_UNDOS)
+                settle(page)
+                page.locator("#status .st-more").click()
+                page.wait_for_selector("#status-list[open]")
+                settle(page)
+                got = page.evaluate(UNDER_LINE)
+                self.assertTrue(all(0 <= d <= 10 for d in got["acts"] + got["xs"]), got)
+                self.assertTrue(got["inside"], got)
+
+    def test_esc_after_a_new_notice_gives_the_focus_back_to_plus_n(self):
+        """Desktop 1400x850: the list opened from '+N' by the keyboard, a message comes while it is open (the line is drawn
+        again, its '+N' button with it), Esc folds the list: the focus is on the line's '+N' - the button now there - and
+        not on the page, where the next Tab started from the top. With nothing new it was already back there."""
+        page = self.view(DESK)
+        page.evaluate(FOUR_UNDOS)
+        settle(page)
+        page.focus("#status .st-more")
+        page.keyboard.press("Enter")
+        page.wait_for_selector("#status-list[open]")
+        settle(page)
+        page.evaluate("()=>lineNote('새 알림',NOTICE_KIND.INFO,null,{life:NOTICE_LIFE.STICKY,literal:true})")
+        settle(page)
+        page.keyboard.press("Escape")
+        page.wait_for_function("!document.querySelector('#status-list').open")
+        settle(page)
+        self.assertTrue(page.evaluate("document.activeElement===document.querySelector('#status .st-more')"))
+        self.assertEqual(page.inner_text("#status .st-more"), "+4")
+
+    def test_notices_that_come_while_it_is_open_place_it_again(self):
+        """Desktop 1400x850: two undos open the list over the line, where two rows fit; two more come while it is open.
+        It is placed again - under the line, where four fit - so every row's [되돌리기] is shown and takes a press there
+        without scrolling. It kept the room it opened in (102px over the line) and scrolled its four rows inside it."""
+        page = self.view(DESK)
+        page.evaluate(TWO_UNDOS)
+        settle(page)
+        page.locator("#status .st-more").click()
+        page.wait_for_selector("#status-list[open]")
+        settle(page)
+        self.assertTrue(page.evaluate(LIST_OVER_LINE))
+        page.evaluate(
+            "()=>{for(let i=3;i<=4;i++)lineNote('판정 #'+(40+i)+' 저장됨',NOTICE_KIND.OK,"
+            "{label:'되돌리기',fn:()=>window.RAN.push(i)},{life:NOTICE_LIFE.STICKY,undo:true});}"
+        )
+        settle(page)
+        rows = page.evaluate(LIST_ROWS)
+        self.assertEqual([(r["inside"], r["hit"]) for r in rows], [(True, True)] * 4, rows)
+
+    def test_a_zoom_panned_away_from_the_line_keeps_the_list_in_the_visible_part(self):
+        """A pinch zoom panned so that the status line is outside the visible part (visualViewport offsetTop > 0): the
+        desktop showing y 300-600 (the line at 114-138 is above it), the phone showing y 200-500 (its line at 768-791 is
+        below it). The list opens at that part's edge, not at the line: each row's [되돌리기], scrolled into the list's
+        view, is inside the visible part and takes a press there. Anchored to the line it opened at y 142 on the desktop
+        and over 578-764 on the phone, all of it or most of its rows out of the visible part."""
+        for name, device, part in (("desktop", DESK, (300, 300)), ("phone", PHONE_390, (200, 300))):
+            with self.subTest(screen=name):
+                page = self.view(device, init=VV_PANNED)
+                page.evaluate(FOUR_UNDOS)
+                settle(page)
+                page.evaluate("toggleStatusList()")
+                page.wait_for_selector("#status-list[open]")
+                top, height = part
+                page.evaluate("([t,h])=>window.__setVv({offsetTop:t,height:h,scale:innerHeight/h})", [top, height])
+                settle(page)
+                rows = page.evaluate(SEEN_ROWS)
+                self.assertEqual([(r["inside"], r["hit"]) for r in rows], [(True, True)] * 4, rows)
+
+    def test_a_view_zoomed_in_stays_put_and_holds_the_whole_list(self):
+        """A real 2x zoom (the page scale, its view on the window's top left): the phone with its sheet open (the line in
+        view) and folded (the line under the view), the desktop. Opening '+N' (its press's handler) leaves the view where
+        it was, and the list is whole inside it, across too. Shown before it was placed, the focus on its first row moved
+        the view to where the row stood - 181px across on the phone, 596px on the desktop - and the list ran past both
+        sides of the view."""
+        screens = (("phone, sheet open", PHONE_390, True), ("phone", PHONE_390, False), ("desktop", DESK, True))
+        for name, device, side in screens:
+            with self.subTest(screen=name):
+                page = self.view(device)
+                page.evaluate("s=>setSide(s)", side)
+                settle(page)
+                page.evaluate(FOUR_UNDOS)
+                settle(page)
+                self.cdp(page).send("Emulation.setPageScaleFactor", {"pageScaleFactor": 2})
+                settle(page)
+                before = page.evaluate(VIEW)
+                self.assertEqual(before["s"], 2)
+                page.evaluate("toggleStatusList()")
+                page.wait_for_selector("#status-list[open]")
+                settle(page)
+                after = page.evaluate(VIEW)
+                self.assertEqual((after["l"], after["t"]), (before["l"], before["t"]))
+                self.assertTrue(after["inside"], after)
+
+    def test_a_visible_part_smaller_than_the_window_keeps_every_row_reachable(self):
+        """A keyboard or a zoom that shrinks only the visible part of the window (visualViewport), the layout as it was:
+        a landscape phone's short band with a 200px keyboard, the desktop zoomed to its top 250px. Raised after the list
+        opened (it is placed again) and before (it opens in that part): each row's [되돌리기], scrolled into the list's
+        view, is inside the visible part and takes a press there. The list was placed by the window: its lower rows
+        stood behind the keyboard or under the visible part."""
+        screens = (
+            ("short band", {"viewport": {"width": 844, "height": 390}, "is_mobile": True, "has_touch": True}, 200),
+            ("desktop", DESK, 600),
+        )
+        for name, device, kb in screens:
+            for when in ("after it opened", "before it opened"):
+                with self.subTest(screen=name, keyboard=when):
+                    page = self.view(device, init=KB_VISUAL_ONLY)
+                    page.evaluate(FOUR_UNDOS)
+                    settle(page)
+                    if when == "before it opened":
+                        page.evaluate("n=>window.__setKb(n)", kb)
+                        settle(page)
+                    page.evaluate("toggleStatusList()")
+                    page.wait_for_selector("#status-list[open]")
+                    if when == "after it opened":
+                        page.evaluate("n=>window.__setKb(n)", kb)
+                    settle(page)
+                    rows = page.evaluate(SEEN_ROWS)
+                    self.assertEqual([(r["inside"], r["hit"]) for r in rows], [(True, True)] * 4, rows)
 
 
 # A mouse window in the mid layout, and a wide desktop window.

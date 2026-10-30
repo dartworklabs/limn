@@ -175,14 +175,14 @@ body.lay-narrow.has-status:not(.typing,.pv-typing){--pv-inset:calc(var(--sheet-h
 /* One row or stacked, decided per line (sizePv sets .pv-stack on a line whose words and buttons cannot share one row). A
    row (most lines, and every line on a wide screen) keeps its buttons on the row's end and gives way from the start: the
    figure's title (.pv-fig-t) is cut first, down to the identifier before it ('7쪽 · PL18', .pv-fig-id, never cut), and
-   grows last; then the reason (.pv-note, also as the button that opens its popover), a save's or an armed word's words
-   (.pv-busy, .pv-arm) and the earlier verdicts' link (.pv-early) shrink, cut to fit; the state's own words, [이유 추가],
-   [판정 취소] and the buttons never do. The failure line is a row of its own under it (a save chip's place: notices.css;
+   grows last; then the reason (.pv-note, also as the button that opens its popover), an armed word's words (.pv-arm),
+   the earlier verdicts' link (.pv-early) and a save's words (.pv-busy, down to nothing: below) shrink, cut to fit; the
+   state's own words, [이유 추가], [판정 취소] and the buttons never do. The failure line is a row of its own under it (a save chip's place: notices.css;
    the reason popover's: verdict-reason.css, above the line). What gives way is clipped across only (overflow-x: clip):
    the '#N' link's and the text actions' areas reach over and under. The reason's and [이유 추가]'s own spans are
    display: contents (verdict-reason.css), so their parts are the row's items too. */
 .pv:not(.pv-stack)>.pv-fig{flex:1 1 0;min-width:var(--pv-fig-min,0px);max-width:max-content;overflow:hidden}
-.pv.pv-tight:not(.pv-stack)>.pv-t :is(.pv-note,.pv-busy){min-width:0}   /* the wide band's last cuts before a second row (pvFit) */
+.pv.pv-tight:not(.pv-stack)>.pv-t .pv-note{min-width:0}   /* the wide band's last cuts before a second row (pvFit) */
 .pv.pv-tight:not(.pv-stack)>.pv-t .pv-early{min-width:2em}
 /* The extras a press puts in a row (verdict-reason.js 'Enter 이유 쓰기', verdict.js the line's [되돌리기] of a take-back) take
    the earlier link's place there: it steps out while either is on the line and is back when it goes. Beside it, a 620px
@@ -196,13 +196,20 @@ body.lay-narrow.has-status:not(.typing,.pv-typing){--pv-inset:calc(var(--sheet-h
 .pv:not(.pv-stack)>.pv-t{flex:1000 1 0;min-width:0;max-width:max-content;flex-wrap:nowrap;overflow-x:clip;overflow-y:visible}
 .pv:not(.pv-stack)>.pv-t>*,.pv:not(.pv-stack)>.pv-t>:is(.pv-rn,.pv-ra)>*{flex:none;white-space:nowrap}
 .pv:not(.pv-stack)>.pv-t .pv-note{flex:0 100 auto;min-width:3em;max-width:none}
-.pv:not(.pv-stack)>.pv-t .pv-busy{flex:0 50 auto;min-width:6em;overflow-x:clip;overflow-y:visible;text-overflow:ellipsis}
+.pv:not(.pv-stack)>.pv-t .pv-busy{flex:0 50 auto;min-width:0;overflow-x:clip;overflow-y:visible;text-overflow:ellipsis}
 .pv:not(.pv-stack)>.pv-t .pv-early{flex:0 50 auto;min-width:5em;overflow-x:clip;overflow-y:visible;text-overflow:ellipsis}
+/* While a save on the line is out its rows are held (verdict.js pvRowsHeld) and nothing fits the line again, so what the
+   save adds gives way instead of pushing the row's end out of it: its words ('· 보류 저장 중…') are cut down to nothing
+   where the row is short - the pressed word's check already says what is saved, and a screen reader hears the words
+   (role=status) - the reason is cut as for an armed word, and the earlier link steps out until the save is done. pvFit
+   keeps the gap the words take in every row it lets stand (pvStateNeed). Held at 6em beside the next save's state, they
+   pushed [판정 취소] past the row's end, where it was clipped (#308). */
+.pv:has(>.pv-t>.pv-busy)>.pv-t .pv-early{display:none}
 /* While a confirm word waits for its second press its line says how long ('4초 안에 한 번 더 누르면 저장', .pv-arm) in full: what
    does not bear on that press gives way to it - the reason and the earlier link to nothing, [이유 추가] and [판정 취소] step
    out - and it is cut last. The words stay where they are (the line keeps its rows, verdict.js pvRowsHeld). */
 .pv:not(.pv-stack)>.pv-t .pv-arm{flex:0 1 auto;min-width:6em;overflow-x:clip;overflow-y:visible;text-overflow:ellipsis}
-.pv:has(>.pv-t .pv-arm)>.pv-t :is(.pv-note,.pv-early){min-width:0}
+.pv:has(>.pv-t :is(.pv-arm,.pv-busy))>.pv-t :is(.pv-note,.pv-early){min-width:0}
 .pv:has(>.pv-t .pv-arm)>.pv-t :is(.pv-ra,.pv-cn){display:none}
 .pv:not(.pv-stack)>.pv-t{margin-right:auto}
 .pv:not(.pv-stack)>.vd-btns{flex:none}
@@ -220,13 +227,23 @@ body.lay-narrow.has-status:not(.typing,.pv-typing){--pv-inset:calc(var(--sheet-h
    as short as its 44px targets allow. */
 .pv.pv-stack .pv-fig{flex-basis:100%;max-width:100%}
 .pv.pv-stack .pv-fig-sep{display:none}
-/* Every other stacked line keeps that row empty (the name is hidden, not gone): the reading line's name came and went with the
-   reading page, so the line a reading page left shrank by the row (131 -> 108px on a phone) and moved the page being read -
-   and the scroll that made up for it ended a jump's glide and trapped a slow scroll at a page's end (verdict.js pvStick). A
-   row line has no such row: the name stands in it. pvFit measures every line as the reading line (#doc.pv-measure: the
-   hidden identifier and its separator take their room), so a line stacks or not whichever page is read. */
-#doc.pv-measure .pv>:is(.pv-fig,.pv-fig-sep)[hidden],
-.pv.pv-stack>.pv-fig[hidden]{display:flex!important;visibility:hidden;min-height:1lh}   /* over frame.css [hidden]; one text line high */
+/* Every other stacked line keeps that row too, and names its page there quietly: its identifier alone ('6쪽 · PL17', the head
+   of the reading line's name, which a resting line's hidden name holds), in the line's muted text at the text's own weight -
+   the reading line's name is the foreground at 600, its title after it. The row is kept because the reading line's name came
+   and went with the reading page: the line a reading page left shrank by the row (131 -> 108px on a phone) and moved the page
+   being read - and the scroll that made up for it ended a jump's glide and trapped a slow scroll at a page's end (verdict.js
+   pvStick). Kept empty, it stood 44px between a phone's page and the state under it and the line looked loose, as far from
+   its own page as from the next (#308); laid after the words instead, the state and the words moved a row whenever the
+   reading page changed. Same font size, same row: the line's height and its words' places are the reading line's whichever
+   page is read. A row line has no such row: the name stands in it on the reading line and nowhere else. pvFit measures
+   every line as the reading line (#doc.pv-measure: the hidden identifier and its separator take their room, unseen), so a
+   line stacks or not whichever page is read. */
+#doc.pv-measure .pv>:is(.pv-fig,.pv-fig-sep)[hidden]{display:flex!important;visibility:hidden;min-height:1lh}   /* over frame.css [hidden]; one text line high */
+/* So does the [이유 추가] a line with the person's own open verdict and no reason holds hidden while it is neither the reading
+   line nor the last save's (verdict-reason.js pvReasonInline): the reading line shows it, and a line with an earlier link
+   near its bar stacked only while it was read. Not where the line steps it out anyway (a take-back's [되돌리기]). */
+#doc.pv-measure .pv:not(:has(>.pv-t>.pv-undo))>.pv-t>.pv-ra[hidden]{display:contents!important;visibility:hidden}
+.pv.pv-stack>.pv-fig[hidden]{display:flex!important;min-height:1lh;color:var(--muted-foreground);font-weight:400}
 @media (pointer:coarse){.pv.pv-stack .pv-fig{margin-bottom:calc(var(--space-1) - var(--space-5))}}
 /* While the reason is typed on a touch screen (body.pv-typing: a text field in a page line has the focus, verdict.js) the
    keyboard leaves little of the page: the line drops its figure's name and its save chip folds to its [되돌리기] - and the
@@ -289,10 +306,11 @@ body.lay-narrow.has-status:not(.typing,.pv-typing){--pv-inset:calc(var(--sheet-h
 body.band-phone .pv.pv-lean .pv-cn{display:none}
 /* A stacked line puts its state on a row of its own and its buttons on the next, at its start, filling the row - or sharing
    it with a save chip at its end (notices.css). */
-.pv.pv-stack>.pv-t{flex-basis:100%;min-height:var(--pv-ctl)}
+.pv.pv-stack>.pv-t{flex-basis:100%;min-height:max(var(--pv-ctl),var(--pv-t-h,0px))}   /* --pv-t-h: the reading line's state rows (verdict.js pvFit) */
+.pv.pv-stack.pv-t-kept>.pv-t{align-content:flex-start}   /* kept taller than its state: the rows at the top, under the identifier */
 /* The state's row is as tall from the start as a text action makes it ([이유 추가], [판정 취소]: 32px with a mouse, 44px on
    touch): a line in its place grows downward, and a phone's first verdict moved its words 25px down under the finger. */
-@media (pointer:coarse){.pv.pv-stack>.pv-t{min-height:var(--hit)}
+@media (pointer:coarse){.pv.pv-stack>.pv-t{min-height:max(var(--hit),var(--pv-t-h,0px))}
   .pv{min-height:var(--hit)}}   /* a row too: the words (36px) sat 4px higher before a press brought a 44px text action */
 .pv.pv-stack>.vd-btns{flex:1 1 auto}
 /* On touch the words' row and the buttons' row stand 20px apart, and the earlier link wrapped under the words 16px, so

@@ -1,5 +1,158 @@
 # Changelog
 
+## 0.4.35 — 2026-10-30
+
+Follow-ups to the reviews of 0.4.34, nearly all on the page verdict line: Shift+Tab leaves the reading line the way
+Tab came in and the PDF area has a name; English lines stay one row on a desktop and every English take-back says
+`Retract`; a resting stacked line names its page; a reason is judged saved by the pin's rev, not by its text, ends on
+one verdict and survives a failed take-back; the status line's `+N` list opens where its rows can be pressed, and a
+touch screen no longer names verdict keys. Scrolling the PDF with hundreds of pins in the open panel no longer stalls.
+The agent contract is unchanged: `superseded_by` compares anchors as JSON values, as the viewer now does too; the
+server writes integer anchor offsets, and those read as before.
+
+### Changed
+
+- **A resting stacked line names its page.** A page verdict line that stacks (a phone, a folded cover, a page at a small
+  zoom) and is not the reading line now shows its identifier (`6쪽 · PL17`) in the row the reading line's name takes, in
+  the line's muted text at weight 400; the reading line still names its figure in full, the foreground at 600. The row
+  was kept empty since 0.4.34 so that the reading page never changes a line's height, and on a 390px phone it left
+  about 44px between a page and the state under it - the line looked loose, as far from its page as from the next. The
+  row's height, the line's height and its words' places are unchanged whichever page is read (#308).
+- **English: `Retract` for 판정 취소, `Enter reason` after a key save.** The line's take-back reads `Retract` (was
+  `Cancel verdict`), with the same verb in its description, its name, the pressed word's hint and the status line
+  (`Verdict #17 채택 retracted · …`), and every English take-back wording says retract (the keys' help, the save's undo,
+  the card's [Erase], `Undo — retracted verdict #17`, `… was retracted elsewhere`); after a digit-key save the way to the
+  reason reads `Enter reason` (was
+  `Enter write a reason`). Both are the line's own words, sized for one row beside the words on a 620px line.
+
+### Fixed
+
+- **`superseded_by` compares two verdicts' anchors as JSON values** (#303). Two closed verdict pins on the same lines
+  count together only when they share one `anchor`. The server compared an offset hand-edited into a list or an object
+  by its printed form, so the list `[0]` and the string `"[0]"` were one anchor to it (and so were `true` and `1`) - a
+  false `superseded_by` the viewer's card did not show - and one object written with its keys in another order was two,
+  to the viewer as well. The server and the viewer's verdict order now both compare offsets as JSON values: an object's
+  keys in any order, never a value of another type, and a number as the double the viewer reads it as - `1` and `1.0`,
+  `2^53` and `2^53+1`, `10^21` and `1e21` are one number, and one no double holds (`1e400`) is `null`.
+- **Shift+Tab leaves the reading page's line the way Tab came in** (#306). From the reading page's first stop - its
+  line's first control, or the badge of the first pin marked on that page, which Shift+Tab from the line passes first -
+  it goes back to where the focus came into the pages: the stop a Tab into them was pressed on, or the outline entry or
+  document tab a digit key was pressed on; otherwise (a card, which is after the pages, or a stop no longer shown) to
+  the stop right before them, the section strip's page button. A phone draws nothing before the pages: there it goes
+  back to a tool-bar origin, else to the position button (`#btn-pos`). An origin is forgotten when the document or its
+  build changes. The pages do not move. It went to the page before's line and scrolled the document a page up; 80
+  presses on a 91-page figure document never reached the outline. The earlier pages' lines are reached by PageUp;
+  Enter on the line's `#N` still goes back to a card.
+- **The PDF area is a named region** (`role="region"`, `PDF 쪽` / `PDF pages`, #307). A digit key pressed outside the
+  pages puts the focus on it while the save is out, so that Enter opens the reason; with no role and no name a screen
+  reader started reading every page's text run together (`1 1쪽 2 2쪽 …`). Every other path that leaves the focus on the
+  PDF area (Esc in the reason field, a search closed, the reading page moving away from a focused line) says the
+  same name.
+- **A digit during an outline jump's glide no longer saves on a page passed.** ↓ in the outline's filter or on its
+  list counted as the person scrolling the pages and turned the glide guard off, so `PL83` from page 60, ↓, Enter and 2
+  saved 보류 on page 71 while the view landed on page 85. A scrolling key counts only where it scrolls the pages: on the
+  PDF area, a control in it or nothing, not in a text field and not Space on a button.
+- **Alt+digit with the focus in the pages keeps it on the PDF area.** The new document's pages took the focused element
+  away, the focus fell to nothing, and the next Tab went to the first page's line and scrolled there.
+- **A Tab outside the pages no longer reads every control of every line** (#308, item 3). Only a Tab across the pages'
+  edge is taken - from the last stop before the PDF area, or by Shift+Tab from the first after it - and that stop is
+  found by walking out from the area, past parts that are not drawn. Each Tab outside the pages read all focusable
+  elements of the document and their boxes (678 on 91 pages, about 1.3 ms a press; now about 0.04 ms). Tab from the
+  section strip also goes to the reading line when page 1 has a pin mark before its line.
+- **English lines stay one row on a desktop.** At 1280 x 900 with the panel open (a 620px line) a third of the 88
+  resting lines of a 91-page figure document stacked into three rows, and a digit-key save stacked the rest. A line now
+  stacks before any press only when the row the press brings does not fit, summed from what is measured: the words as
+  drawn, plus the check a press puts on a word (21px) where none is pressed yet; the identifier and the dot after it;
+  the fresh verdict's state (`pvStateNeed`: the wider of the state after a click and, on a mouse screen, after a key
+  save with `Enter 이유 쓰기`, the pin number drawn with the next pin's digits, plus one gap for a save's words); and the
+  row's gaps. The 8px and 24px allowances it replaces counted the dot (3px) as 8px and the check as nothing, so a line
+  within 21px of the bar also stacked under its first press, in Korean too; measured on the click state alone, a line at
+  the bar stacked right after a key save. While a save is out its words (`· 보류 저장 중…`) give way down to nothing,
+  with the reason, and the earlier link steps out: the line's rows are held then, and at their 6em the words of a second
+  save pushed `판정 취소` past the row's end, where it was clipped. English at 1280, 1366, 1400 (the test default), 1440, 1536 and 1920 with the panel open: no line stacks;
+  Korean: none, as before.
+- **A line with an earlier verdict keeps its rows whichever page is read.** `이유 추가` shows only on the reading line and
+  the last save's, so a line with the person's own open verdict, no reason and an earlier verdict's link stacked near
+  its bar only while it was read, and a stacked one grew a row (91 -> 123px at 420px) - breaking 0.4.34's rule that the
+  reading page never changes a line's height. Such a line now holds that `이유 추가` hidden (never shown, focused or read
+  aloud), and the fit lays it out unseen, as it does the identifier and the key digits; a stacked line keeps the reading
+  line's state height as its least (`--pv-t-h`), its state rows at the top under the identifier and the room kept below.
+- **No description box over the pressed word's description after a key save.** The focus a digit-key save moves to
+  `Enter 이유 쓰기` no longer raises that control's description box; on a one-row English line at 1280 it overlapped the
+  pressed word's description (`Current verdict: … press again to retract it`) by 39px. A focus the person moves raises
+  it as before.
+- **A retried reason is judged by the pin's rev, not by its text (#299).** A reason write whose answer was lost was taken
+  as saved when the note already held the same text, so a write that never reached the server reported a repeated
+  reason as saved without adding it, and a corrected draft could replace someone else's identical text. Every new reason
+  is now sent against the rev it read (`base_rev`, a `note_append` too), so it can only land as the change right after
+  that rev; a lost write is kept with that rev and the note it would have made. The next write reads the pin: the same
+  rev means it never landed and it is sent again; a later rev means it landed only when the note is exactly what it made
+  (later lines under it allowed) and, when that was the only change since, the change was this person's (`edited_by`).
+  A 409 rebuilds the write from the pin it brings, up to three times. The lost writes are kept with the draft too, so a
+  folded, reopened or reloaded draft still knows them, and a line added under the reason after a CRLF counts like one
+  after an LF. No API change.
+- **A failed take-back no longer drops the reason it took away (#299).** When [판정 취소] (or pressing the pressed word)
+  failed after something took the reason popover's place - another popover, another document or visit, a newer verdict
+  saved on the line meanwhile - the typed reason came back nowhere, and with a newer verdict on its line it could not be
+  reached at all. It is now kept as a draft its line marks ('초안 있음'): the verdict's own when it is current again, else
+  the page's, which goes to the verdict it is opened on - decided once that verdict's own reason write and a newer save
+  on its line (one whose popover still waits for its number included) have answered, and a page's copy that the old
+  verdict's [다시 시도] then writes goes with it. The status line says so after the failure, with [보기], which
+  brings that line into view with the focus on the mark. A newer popover keeps its text and the focus, also on the same
+  line, where the focus used to go to the line and the next digit was a verdict key.
+- **A reason ends on one verdict when the line's verdict changes while its write is out.** The draft no longer moves to
+  the new verdict before that write answers: written, or found landed after a lost answer or a 5xx, it stays on the
+  earlier verdict and the status line says so; not landed, it moves to the new verdict and the earlier verdict's
+  [다시 시도] goes. Three of four orders put the reason on both verdicts. A changed saved reason that follows the new
+  verdict moves only the person's own text, not the lines others added under it.
+- **A verdict restored under a newer one gives its draft to the line**, as the page's draft with a status-line word, and a
+  reload does the same for any draft on a verdict that is not the line's current one - so the reload's '줄의 [초안 있음]이
+  엽니다' is true and leaving asks first.
+- **One's own landed change of a saved reason is not a conflict.** A change whose answer was lost but whose write landed
+  is taken as the note it changes; it is not shown back as a note changed elsewhere.
+- **A verdict written before a 500 is the line's verdict.** A 5xx on the save is checked against the list like a lost
+  answer, so the next press does not make a second verdict.
+- **How a phone's floating line takes a verdict back is documented (#299).** It holds [판정 취소] back for its height;
+  its pressed word does the same (since 0.4.34) and says so - over the words for four seconds after the press, and in
+  its long-press description - and its [되돌리기] comes on the line. A test holds it at 390x844.
+- **The status line's `+N` list opens where its rows can be pressed.** It always opened over the line, and on a desktop
+  the line sits under the status chips, about 114px from the top: four stacked messages put the list's top at -76px at
+  1400 x 850, its first two rows and their [되돌리기] above the window. The list now opens over the line where the whole
+  list fits there (under it in the short band's top row, as before), else on the other side where it fits, else on the
+  side with more room, cut to it with its rows scrolling inside. The room is counted in the part of the window a person
+  sees (a keyboard that does not resize the layout, a pinch zoom), and the list is placed again while it is open when
+  its rows change (a list opened over the line with two rows kept scrolling in that room as more came) or the window or
+  its visible part changes. On a desktop the list now stands under the line's own buttons - its right edge follows the
+  line's and it reaches left - where it floated centred in the window, about 350px left of the line. Zoomed in, the list
+  is held inside the visible part across too, and it is placed before it is shown, so opening it no longer moves the
+  view to where its first row stood (a phone zoomed in on the line lost the line from view). Desktop 1400 x 850, an unfolded foldable 882 x 1104 and a phone 390 x 844 (sheet folded or
+  open): every row's action is on screen and takes a press (#314).
+- **Folding the `+N` list gives the focus back to `+N`.** A message that came while the list was open drew the line
+  and its `+N` again, so Esc (or an outside press) left the focus on the page and the next Tab started from the top. It
+  now goes to the line's `+N`, else to the line's first control; a focus a row's action put elsewhere stays.
+- **No `단축키 1` on a touch screen.** A page verdict word's description ended in `· 단축키 1` (`· 단축키 3 (두 번)`
+  for a confirm word) on every screen, so a long press on a phone named a key it has none of. The key is now said - in
+  the description and as `aria-keyshortcuts` - only where its mark is drawn after the word, a mouse screen
+  (`(hover:hover) and (pointer:fine)`, the condition of the mark's CSS); the lines are drawn again when that changes.
+  Touch screens keep the description without the key; the desktop is unchanged (#315).
+- **Scrolling the PDF with hundreds of pins in the open panel no longer stalls** (#305). Each page PDF.js draws for the
+  first time adds its embedded fonts to `document.fonts`, and every font added makes the browser lay out all the text in
+  the page again - every card in the open panel with it. On a 91-page figure document (`pl`) with 127 pins the first wheel
+  scroll had 77-84 long tasks (4.4-4.9 s); with the panel folded, none. Cards more than a view's height above or below the
+  list's view are now left for the browser to skip (`content-visibility: auto`), so a font added lays out the cards near
+  the view only. With 200 pins on the same document (1400 x 850, the same wheel scroll from the top to the end) the long
+  tasks went from 106-120 (7.2-8.3 s) to 8-9 (0.4-0.5 s), frames over 50 ms from 78-92 to 2-4, and the layout after a
+  font from 19,674 laid-out objects to 7,403; what is left is the pages' verdict lines and the outline.
+  Nothing looks different. A card in view or near it is never skipped (skipping contains a card, which snaps its text to
+  whole pixels and clips focus rings and touch targets), and a skipped card's markup is always current. It stands at the
+  height it had when it went; every card is drawn once more and sorted again when the list's width changes, when it is
+  shown (the panel or the sheet opened) and when a slice of the list's font arrives, so the list does not move under a
+  person scrolled down it and a jump to a card is aimed by real heights. A redraw also puts a card in view back where it
+  stood, as the browser's scroll anchoring would - the first one still in its section, so a top card whose pin a poll
+  moved to 검토 대기 or deleted hands over to the next instead of dragging the view after it - and a card above that
+  someone else made longer no longer pushes the list. The card being edited or holding the reply box is never skipped. A browser test bounds the
+  layout per font added with 300 pins by a count from a Chrome trace, not a duration.
+
 ## 0.4.34 — 2026-10-30
 
 The page verdict line from an owner-requested UX review of 0.4.33 on a figure document (`pl`), and agents told which
