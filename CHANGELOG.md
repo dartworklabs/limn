@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **A long press on a page verdict line is the same press whatever the line holds** (#320). While a save chip stood on
+  the line or its reason popover was open, the line's words, [판정 취소] and earlier link were drawn without their
+  description (no box over the chip or the popover), and so was a confirm word waiting for its second press; a long press
+  then found no description, nothing swallowed its release, and the click took the pressed word's verdict back - or saved
+  the armed word. They now keep the description for a long press only (`data-tip-press`): hover and focus still raise no
+  box, a long press shows it and its release presses nothing, and it does not let an armed word go either.
+- **A tap on a word while the reason is typed takes the first tap** (#320). On a phone the reason field folds the line's
+  figure name; the tap's focus brought it back before the click, the words moved 22px down under the finger and the click
+  fell on the line. The fold now holds until a press on the line has been handled, as it already did for the popover's
+  own buttons.
+- **Saving a verdict in a pinch-zoomed view leaves the view where it is** (#320). Every drawing of the lines measures
+  them as the reading line (`#doc.pv-measure`), which grows the lines above the reading page and shrinks them back;
+  Chromium carried the scroll anchoring of that shrink into the zoomed view, which jumped to the top (422 -> 0 at 2x).
+  While the page is zoomed the PDF area no longer anchors during that measure.
+- **The status line's `+N` list reads and stays in view on a phone zoomed in** (#322 item 5). Held inside the 2x view
+  (179px), a row's [되돌리기] and [x] left its text no width: one character a line, 685-806px a row, and the list - at
+  least a row tall - ran 418-639px above the window, the focus on its first row pulling the zoomed view after it. A row's
+  buttons now go under its text when the text would get less than 6em, and the list is never taller than the visible
+  part nor past it.
+
 ## 0.4.35 — 2026-10-30
 
 Follow-ups to the reviews of 0.4.34, nearly all on the page verdict line: Shift+Tab leaves the reading line the way
