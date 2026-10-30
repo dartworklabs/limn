@@ -298,7 +298,7 @@ class PageLine(VerdictBase):
         """On the figure, a selection with a note open: 채택 on page 1's line saves a verdict about the page's figure
         (el.path == [el.id]) with no note, and the selection and its note stay. The line says it, its page-size mark is not
         drawn and [보기] goes to the line; another word is a new pin, which the line now shows, with the earlier one as
-        '이전 판정 1건 · 새 판정으로 대체됨' and no page-size mark either - the line accounts for both. Page 2 has none. The line
+        '이전 1건' (named '이전 판정 1건 · 새 판정으로 대체됨') and no page-size mark either - the line accounts for both. Page 2 has none. The line
         reads '판정 #N 채택 · 처리 대기'; its current word is pressed and says a press takes it back, the others that a press
         saves them as the page's verdict."""
         page = self.on("fig")
@@ -340,7 +340,11 @@ class PageLine(VerdictBase):
         second = self.press_page(page, 1, "보류")
         line = page.evaluate(LINE, 1)
         self.assertEqual(line["pin"], str(second))
-        self.assertEqual(line["text"], "판정 #%d 보류 · 처리 대기 이전 판정 1건 · 새 판정으로 대체됨" % second)
+        self.assertEqual(line["text"], "판정 #%d 보류 · 처리 대기 이전 1건" % second)
+        self.assertEqual(
+            page.evaluate("document.querySelector('#doc .pv[data-page=\"1\"] .pv-early').getAttribute('aria-label')"),
+            "이전 판정 1건 · 새 판정으로 대체됨",
+        )
         self.assertEqual(page.locator('.mark[data-pin="%d"]' % first).count(), 0)
         self.assertEqual(page.locator('.mark[data-pin="%d"]' % second).count(), 0)
         page.evaluate("id=>jumpPin(id)", second)
@@ -387,9 +391,7 @@ class PageLine(VerdictBase):
         self.reload(page)
         line = page.evaluate(LINE, 2)
         self.assertEqual(line["pin"], str(made["id"]))
-        self.assertRegex(
-            line["text"], r"^판정 #%d 채택 · 처리됨 · Bob .+ 이전 판정 1건 · 새 판정으로 대체됨$" % made["id"]
-        )
+        self.assertRegex(line["text"], r"^판정 #%d 채택 · 처리됨 · Bob .+ 이전 1건$" % made["id"])
         page.locator('#doc .pv[data-page="2"] .pv-early').click()
         page.wait_for_function("id=>document.querySelector('.pin[data-id=\"'+id+'\"].flash')", arg=older)
 
@@ -3142,7 +3144,7 @@ class FigureTarget(VerdictBase):
 
     def test_the_line_counts_an_element_verdict_as_its_figures(self):
         """An older element verdict on the July cell is page 1's verdict on its line; a newer 채택 from the line supersedes
-        it - the line shows the new one with '이전 판정 1건', the element verdict's card reads '이전 판정 · #N로 대체됨'."""
+        it - the line shows the new one with '이전 1건', the element verdict's card reads '이전 판정 · #N로 대체됨'."""
         old = self.element_verdict("보류")
         page = self.on("fig", n_open=1)
         self.assertEqual(page.evaluate(LINE, 1)["pin"], str(old))
@@ -3150,7 +3152,7 @@ class FigureTarget(VerdictBase):
         new = self.press_page(page, 1, "채택")
         line = page.evaluate(LINE, 1)
         self.assertEqual(line["pin"], str(new))
-        self.assertIn("이전 판정 1건", line["text"])
+        self.assertIn("이전 1건", line["text"])
         self.assertIn(
             "#%d" % new,
             page.evaluate("id=>document.querySelector('#list .pin.card[data-id=\"'+id+'\"] .vd-old').textContent", old),
@@ -7029,6 +7031,68 @@ class LinePolish(VerdictBase):
                     got = page.evaluate(SWEEP_READ)
                     self.assertEqual((got["bad"], sorted(got["seen"])), ([], [False, True]), got)
                     page.context.close()
+
+    def test_a_key_saved_line_keeps_its_rows_whichever_page_is_read(self):
+        """#322 item 2: page 2 with an earlier verdict made elsewhere and the person's own saved here by its key, no reason -
+        its line says 'Enter 이유 쓰기' while it is read and [이유 추가] at rest, 40px narrower in Korean, 15px in English, where
+        a tight line shows the earlier link beside it. Page 2's width swept across its bar 8px at a time, Korean and English,
+        on the wide band and the side-panel band (1000 x 800): the line's rows, its height and where its state stands in it
+        are the same while page 1 is read and while page 2 is, and the sweep crosses the bar. Fitted on the look it showed,
+        the line stacked or took a second row of its state only while it was read (123 against 91px), or only at rest."""
+        verdict_as(self, self.WHO, 2, "보류")
+        bands = ({"width": 1400, "height": 850}, {"width": 1000, "height": 800})
+        for i, (lang, vp) in enumerate((lang, vp) for lang in ("ko", "en") for vp in bands):
+            with self.subTest(lang=lang, viewport=vp["width"]):
+                page = self.on("fig", n_open=1 + i, lang=lang, viewport=vp)
+                page.evaluate("setSide(false)")
+                page.evaluate(SCROLL, [2, "top"])
+                settle(page)
+                self.assertEqual(page.evaluate("PV_READ"), 2)
+                page.keyboard.press("12"[i % 2])  # 채택, 보류, ...: each a new verdict over the one before
+                page.wait_for_function("n=>OPEN_ALL.length===n&&!PV_BUSY.size", arg=2 + i)
+                settle(page)
+                page.evaluate(END_CHIPS)
+                settle(page)
+                self.assertIn("Enter", page.evaluate(ADD_TEXT, 2))
+                got = page.evaluate(SWEEP_READ)
+                self.assertEqual((got["bad"], sorted(got["seen"])), ([], [False, True]), got)
+                page.context.close()
+
+    def test_the_earlier_link_is_whole_or_its_count_alone_on_an_english_desktop(self):
+        """#322 item 3: English, the panel open, the pages as wide as the room, a figure code as wide as the pl document's
+        widest, page 2 with an earlier verdict and the person's own saved by a click: at 1280 x 800 (a 620px line), 1400 x
+        850 (CI's) and 1440 x 900 the line is one row with nothing over another part, and its earlier link reads whole -
+        '+1 earlier' - or, on a tight line, its count alone - '+1' -, never cut: 0.4.35 cut it to '1 ea…' at 1280. At 1440
+        it is whole. Its name says it all ('1 earlier verdict · replaced'), and its tooltip begins with that."""
+        verdict_as(self, self.WHO, 2, "보류")
+        link = """()=>{const l=document.querySelector('#doc .pv[data-page="2"]'),e=l.querySelector('.pv-early'),w=e.querySelector('.pv-early-w'),b=getComputedStyle(e,'::before').content;
+          const words=!!w&&w.getClientRects().length>0;
+          return {shown:(words?w.textContent:'')+(b&&b!=='none'?b.replace(/"/g,''):''),cut:e.scrollWidth>e.clientWidth+1,tight:l.classList.contains('pv-tight'),
+            name:e.getAttribute('aria-label'),tip:e.dataset.tip||''};}"""
+        for n, (w, h) in enumerate(((1280, 800), (1400, 850), (1440, 900))):
+            with self.subTest(viewport=(w, h)):
+                page = self.on("fig", n_open=1 + min(n, 1), lang="en", viewport={"width": w, "height": h})
+                page.evaluate("setSide(true)")
+                settle(page)
+                page.evaluate("()=>{setK((innerW()-pvInsetR())/META.pages[1].pt_w,false); ZOOMED=true;}")
+                page.evaluate(self.TITLES, self.LONG)
+                settle(page)
+                if not n:
+                    self.press_page(page, 2, "채택")
+                    page.evaluate(END_CHIPS)
+                    settle(page)
+                page.evaluate(SCROLL, [2, "top"])
+                settle(page)
+                row = page.evaluate(ROW_PARTS, 2)
+                self.assertEqual((row["stack"], row_overlaps(row)), (False, []), row)
+                got = page.evaluate(link)
+                self.assertEqual(got["shown"], "+1" if got["tight"] else "+1 earlier", got)
+                self.assertFalse(got["cut"], got)
+                self.assertEqual(got["name"], "1 earlier verdict · replaced")
+                self.assertTrue(got["tip"].startswith("1 earlier verdict · replaced — "), got)
+                if w == 1440:
+                    self.assertEqual((got["shown"], got["tight"]), ("+1 earlier", False), got)
+                page.context.close()
 
     def test_a_key_saves_focus_raises_no_box_over_the_pressed_words_description(self):
         """English, the panel open, at 1280 x 800 and 1440 x 900, page 2 as wide as the room and read: a digit saves a verdict

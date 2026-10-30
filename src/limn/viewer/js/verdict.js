@@ -648,8 +648,12 @@ ${pvReasonInline(page,cur)}`
   const cancel=cn&&cur?html`<span class="pv-sep pv-cn" aria-hidden="true">·</span><button type="button" class="btn-ghost btn-sm pv-cancel pv-cn hit" data-act="pv-cancel" \
 data-ref="${cur.id}" data-id="${cur.id}" aria-label="${tl('판정 취소 — 내 판정 #{id}',{id:cur.id})}" \
 ${chip?'':html`data-tip="${tr('이 판정을 거둡니다. 핀은 휴지통으로 가고, 같은 대상에 앞선 판정이 있으면 그 판정이 다시 지금 판정이 됩니다. 상태 줄의 [되돌리기]가 되살립니다')}"`}${cw?html` aria-disabled="true"`:''}>${tr('판정 취소')}</button>`:'';
-  const early=earlier.length?html`<button type="button" class="btn-ghost btn-sm pv-early hit" data-act="pv-earlier" data-ref="${earlier[0].id}" \
-${chip?'':html`data-tip="${tr('이 쪽의 더 새 판정으로 대체되어 실행하지 않는 열린 판정 핀입니다. 누르면 그 카드로 갑니다')}"`}>${tl('이전 판정 {n}건 · 새 판정으로 대체됨',{n:earlier.length})}</button>`:'';
+  // The earlier link is short - '이전 2건' ('+2 earlier') - and never cut: where its line is tight (.pv-tight, pvFit) it is
+  // its count alone, '+2' (data-n, components.css). Its name says it whole ('이전 판정 2건 · 새 판정으로 대체됨'), and so does
+  // its tooltip before what it is. The whole words stood in the row and were cut to fit: '1 ea…' on a 620px English line.
+  const ne=earlier.length,eName=tl('이전 판정 {n}건 · 새 판정으로 대체됨',{n:ne});
+  const early=ne?html`<button type="button" class="btn-ghost btn-sm pv-early hit" data-act="pv-earlier" data-ref="${earlier[0].id}" data-n="${ne}" aria-label="${eName}" \
+${chip?'':html`data-tip="${eName+' — '+tr('이 쪽의 더 새 판정으로 대체되어 실행하지 않는 열린 판정 핀입니다. 누르면 그 카드로 갑니다')}"`}><span class="pv-early-w">${tl('이전 {n}건',{n:ne})}</span></button>`:'';
   // The reading page's line - the one that floats - names what it decides: '7쪽 · [후보] PL18 · …' (figureName), cut to fit.
   // Its two spans are on every line, hidden but on the reading one: the line's children keep their places when the reading
   // page moves, so the morph (pvMorph) never takes a focused button out of the page. A hidden one holds the identifier, so
@@ -737,29 +741,39 @@ function sizePv(){const ir=pvInsetR(),L=$('#left'),lines=$$('#doc .pv');
     if(a&&fitted&&end-a.left<w&&end-a.left>=PV_MIN_W){w=end-a.left; ml=Math.round(a.off)+'px';}
     e.style.width=Math.round(w)+'px'; e.style.marginLeft=ml;});
   pvFit(lines);}
+// The verdict pins saved by a key on this screen (PV_KEY_SAVE, each in turn): their lines (.pv-kw) are fitted at either look of
+// the way to the reason (pvFit). The last key save's alone says 'Enter 이유 쓰기', but one that stopped being it and was
+// fitted again on [이유 추가] alone moved the pages under the next key save.
+const PV_KEY_SAVED=/** @type {Set<number>} */(new Set());
 // One row or stacked, decided per line (.pv-stack; P2-7 of the 0.4.33 review: one line with an earlier verdict or a reason
 // stacked every line of the document, 88px over the plot at 1440). Each line is laid out as one row - the figure's title cut
 // first, down to its identifier ('6쪽 · PL17', pvFigParts; --pv-fig-min), then the reason and the earlier link
 // (components.css) - and stacks only when its state's own words, [판정 취소] and its buttons still cannot share the row: the
 // state runs past its share, or the buttons went to a row of their own (a narrow page). On the wide band a line that does not
-// fit first lets the reason and the earlier link go further (.pv-tight): a desktop keeps one row, a second row covered the
-// plot. A line narrower than a verdict's state beside its words stacks whatever it shows, so a press never stacks it. A line whose confirm word waits for its second press, or whose save is out, keeps the rows it has (pvRowsHeld): its
+// fit first lets the reason go further and the earlier link say its count alone (.pv-tight): a desktop keeps one row, a
+// second row covered the plot. A line narrower than a verdict's state beside its words stacks whatever it shows, so a press never stacks it. A line whose confirm word waits for its second press, or whose save is out, keeps the rows it has (pvRowsHeld): its
 // words moving between the two presses sent the second one elsewhere. The save chip is placed after (pvChipPlace).
 // Read and written in batches.
 /** @param {HTMLElement[]} lines */
 function pvFit(lines){const held=lines.map(pvRowsHeld),D=$('#doc');
-  lines.forEach((l,i)=>{if(!held[i]){l.classList.toggle('pv-stack',false); l.classList.toggle('pv-tight',false); l.style.removeProperty('--pv-t-h');}});
+  if(PV_KEY_SAVE)PV_KEY_SAVED.add(PV_KEY_SAVE);
+  lines.forEach((l,i)=>{l.classList.toggle('pv-kw',PV_KEY_SAVED.has(Number(l.dataset.pin)));
+    if(!held[i]){l.classList.remove('pv-stack','pv-tight','pv-early-out'); l.style.removeProperty('--pv-t-h');}});
   // Every line is measured as the reading line (#doc.pv-measure shows each hidden identifier, components.css): a line that
   // stacked only while it was read shrank when the reading page left (91 -> 32px on a 260px page) and moved the pages.
   D.classList.add('pv-measure');
   // The figure's least width is its identifier's (--pv-fig-min): its title's own text would otherwise count in it.
   const ids=lines.map(l=>{const e=l.querySelector(':scope>.pv-fig>.pv-fig-id'); return e&&e.getClientRects().length?Math.ceil(e.getBoundingClientRect().width):0;});
   lines.forEach((l,i)=>{const v=ids[i]+'px'; if(l.style.getPropertyValue('--pv-fig-min')!==v)l.style.setProperty('--pv-fig-min',v);});
-  // Whether line l's row does not hold: the state runs past its share (its parts, also those inside a display: contents span -
-  // the reason and [이유 추가]), or the buttons went to a row of their own.
-  const tight=(/** @type {HTMLElement} */l)=>{const t=l.querySelector(':scope>.pv-t'),g=l.querySelector(':scope>.vd-btns'); if(!t)return false;
-    const tr=t.getBoundingClientRect(); return [...t.querySelectorAll(':scope>*,:scope>*>*')].some(c=>c.getClientRects().length>0&&c.getBoundingClientRect().right>tr.right+1)
-      ||(!!g&&g.getClientRects().length>0&&g.getBoundingClientRect().top>=tr.bottom-1);};
+  // How far line l's state runs past its share, in px (its parts, also those inside a display: contents span - the reason and
+  // [이유 추가]; 0 or less where it holds), less pvAddCut - a key save's way to the reason is drawn at the wider of its two
+  // looks (--pv-add-w, set below) with the earlier link beside it, which it never shows at once -, or Infinity where the
+  // buttons went to a row of their own. Its row does not hold (tight) past 1px.
+  const past=(/** @type {HTMLElement} */l)=>{const t=l.querySelector(':scope>.pv-t'),g=l.querySelector(':scope>.vd-btns'); if(!t)return -Infinity;
+    const tr=t.getBoundingClientRect(); if(g&&g.getClientRects().length>0&&g.getBoundingClientRect().top>=tr.bottom-1)return Infinity;
+    const r=[...t.querySelectorAll(':scope>*,:scope>*>*')].reduce((m,c)=>c.getClientRects().length>0?Math.max(m,c.getBoundingClientRect().right):m,-Infinity);
+    return r-tr.right-pvAddCut(l,t,addD);};
+  const tight=(/** @type {HTMLElement} */l)=>past(l)>1;
   // A line too narrow for the state a press brings beside its words stacks whatever it shows now: a press that turned '판정 없음'
   // into '판정 #26 보류 · 처리 대기 · 이유 추가 · 판정 취소' stacked it then and moved every word under the finger (a phone, a page at
   // a small zoom: 3 rows, 91px, the words 59px down). That state's width is measured, not guessed (pvStateNeed), and so is
@@ -769,12 +783,23 @@ function pvFit(lines){const held=lines.map(pvRowsHeld),D=$('#doc');
   // the check as nothing - 5px too much for a resting line, 21px too little for a press: a line within 21px of the bar
   // stacked under its first press, a Korean one too (#308; the English words are sized for a 620px line, ui_en.json).
   const need=lines.length?pvStateNeed(lines[0]):0,gap=lines.length?parseFloat(getComputedStyle(lines[0]).columnGap)||0:0;
+  // A key save's line - read, it says 'Enter 이유 쓰기'; at rest, [이유 추가] - lays its way to the reason out at the wider of
+  // the two (the probe's, PV_NEED.add; .pv-kw, components.css #doc.pv-measure), so it is fitted the same whichever page is
+  // read. Fitted on the look it showed, a line within the 40px between them (Korean) stacked only while it was read.
+  const aw=PV_NEED.add,addD=Math.max(0,aw[1]-aw[0]),addW=Math.max(aw[0],aw[1])+'px'; if(D.style.getPropertyValue('--pv-add-w')!==addW)D.style.setProperty('--pv-add-w',addW);
   const W=(/** @type {Element|null} */e)=>e&&e.getClientRects().length?e.getBoundingClientRect().width:0;
   const narrow=lines.map((l,i)=>{if(held[i])return false; const g=l.querySelector(':scope>.vd-btns'),f=W(l.querySelector(':scope>.pv-fig>.pv-fig-id')); if(!g||!g.getClientRects().length)return false;
     const press=g.querySelector(':scope>.vd-b[aria-pressed="true"]')?0:PV_NEED.check,id=f?f+W(l.querySelector(':scope>.pv-fig-sep'))+2*gap:0;
     return l.getBoundingClientRect().width<W(g)+press+id+gap+need;});
   let over=lines.map((l,i)=>!held[i]&&(narrow[i]||tight(l)));
-  if(LAYOUT===LAYOUT_MODE.WIDE&&over.some(o=>o)){lines.forEach((l,i)=>{if(over[i])l.classList.add('pv-tight');}); over=lines.map((l,i)=>over[i]&&(narrow[i]||tight(l)));}
+  // A tight line whose row holds all but its earlier link's count lets that step out too (.pv-early-out) rather than stack:
+  // the last thing a desktop row gives way, at its bar - a line the person saved by a key over an earlier verdict there
+  // ('+1' beside [이유 추가] at rest, which 'Enter 이유 쓰기' takes the place of while it is read: components.css).
+  const out=lines.map(()=>false);
+  if(LAYOUT===LAYOUT_MODE.WIDE&&over.some(o=>o)){lines.forEach((l,i)=>{if(over[i])l.classList.add('pv-tight');});
+    over=lines.map((l,i)=>{if(!over[i]||narrow[i])return over[i]; const p=past(l); if(p<=1)return false;
+      const t=/** @type {HTMLElement} */(l.querySelector(':scope>.pv-t')); out[i]=p-pvEarlyRoom(t)+pvAddCut(l,t,addD)<=1; return !out[i];});
+    lines.forEach((l,i)=>{if(out[i])l.classList.add('pv-early-out');});}
   lines.forEach((l,i)=>{if(over[i])l.classList.add('pv-stack');});
   // A stacked line's state rows are the reading line's too: their height, measured here with what only the reading line shows
   // ([이유 추가], laid out unseen), is the least the state takes (--pv-t-h, components.css). Beside an earlier link a 420px
@@ -799,31 +824,46 @@ function pvFit(lines){const held=lines.map(pvRowsHeld),D=$('#doc');
 // the line under the press, and a second save's words pushed [판정 취소] out of the held row (#308). The probe then draws
 // the longest word pressed and not (its check before it, its weight; one key mark on both): what a press adds to the
 // words, kept as PV_NEED.check - 21px, which a line with no pressed word did not count and lost to its first press.
-let PV_NEED={key:'',w:0,check:0};
+// PV_NEED.add: the way to the reason's own width as [이유 추가] and as 'Enter 이유 쓰기' (a mouse screen's; [이유 추가]'s
+// again on a touch one), which every line is fitted at the wider of (pvFit).
+let PV_NEED={key:'',w:0,check:0,add:[0,0]};
 /** @param {HTMLElement} l */
 function pvStateNeed(l){const v=pageVerdictsOn(); if(!v)return 0;
   const word=v.choices.map(c=>c.label).reduce((a,b)=>b.length>a.length?b:a,''),fine=matchMedia('(pointer:fine)').matches,num='#'+'0'.repeat(String(pvTopId()+1).length);
   const key=[getComputedStyle(l).fontSize,tr('판정'),word,MQ_COARSE.matches,fine,num].join('|');
   if(PV_NEED.key===key)return PV_NEED.w;
   const probe=document.createElement('div'); probe.className='pv'; probe.setAttribute('aria-hidden','true');
-  probe.style.cssText='position:absolute;left:0;top:0;width:max-content;visibility:hidden;pointer-events:none';
+  probe.style.cssText='position:absolute;left:0;top:0;width:max-content;visibility:hidden;pointer-events:none;--pv-add-w:0px';   // its own width, not the lines' (pvFit)
   $('#doc').appendChild(probe);
   const state=(/** @type {boolean} */kb)=>{setHtml(probe,html`<span class="pv-t"><span class="pv-s">${tr('판정')} <span class="pin-ref pv-ref hit">${num}</span> <b class="vd-w">${word}</b></span><span class="pv-sep">·</span>\
 <span class="pv-st">${tr('처리 대기')}</span><span class="pv-ra"><span class="pv-sep">·</span><button type="button" class="btn-ghost btn-sm pv-add hit" tabindex="-1">\
 ${kb?html`<kbd class="pv-kbd">Enter</kbd> ${tr('이유 쓰기')}`:tr('이유 추가')}</button></span>\
 <span class="pv-sep pv-cn">·</span><button type="button" class="btn-ghost btn-sm pv-cancel pv-cn hit" tabindex="-1">${tr('판정 취소')}</button></span>`);
-    const t=/** @type {HTMLElement} */(probe.firstElementChild); return t.getBoundingClientRect().width+(parseFloat(getComputedStyle(t).columnGap)||0);};
-  const w=Math.ceil(Math.max(state(false),fine?state(true):0));
+    const t=/** @type {HTMLElement} */(probe.firstElementChild),a=/** @type {HTMLElement} */(t.querySelector('.pv-add'));
+    return [t.getBoundingClientRect().width+(parseFloat(getComputedStyle(t).columnGap)||0),a.getBoundingClientRect().width];};
+  const sc=state(false),sk=fine?state(true):sc,w=Math.ceil(Math.max(sc[0],sk[0]));
   setHtml(probe,html`<span class="vd-btns"><button type="button" class="vd-b" aria-pressed="true" data-kn="1" tabindex="-1">${ic('check')}<span class="lbl">${word}</span></button>\
 <button type="button" class="vd-b" aria-pressed="false" data-kn="1" tabindex="-1"><span class="lbl">${word}</span></button></span>`);
   const b=[...probe.querySelectorAll('.vd-b')].map(x=>x.getBoundingClientRect().width),check=Math.max(0,b[0]-b[1]); probe.remove();
-  PV_NEED={key,w,check}; return w;}
+  PV_NEED={key,w,check,add:[sc[1],sk[1]]}; return w;}
 // A web font that arrives after the lines were measured - the bundled Pretendard after the fallback face - changes every
 // width: the state's width is measured again and every line fits itself again (sizePv), once each font load is done and
 // when the fonts are ready after boot. Kept from the fallback face, a width near the stacking threshold let the first save
 // still move the words.
-function pvFontsChanged(){PV_NEED={key:'',w:0,check:0}; if($$('#doc .pv').length)sizePv();}
+function pvFontsChanged(){PV_NEED={key:'',w:0,check:0,add:[0,0]}; if($$('#doc .pv').length)sizePv();}
 if(document.fonts){document.fonts.addEventListener('loadingdone',pvFontsChanged); document.fonts.addEventListener('loadingerror',pvFontsChanged); document.fonts.ready.then(pvFontsChanged);}
+// How much less than drawn a key save's line l's state (t) takes at most in a row, while it is fitted (pvFit): with its way to
+// the reason drawn at the wider of its looks (d px more than [이유 추가]: 'Enter 이유 쓰기') and the earlier link beside it -
+// which a tight line shows beside [이유 추가] but not beside 'Enter 이유 쓰기' (components.css) - the more of the two looks
+// takes d less, or the link and its gap less, whichever is less. 0 for any other line, and for one that is not tight: it
+// shows the link beside both.
+/** @param {HTMLElement} l @param {Element} t @param {number} d @returns {number} */
+function pvAddCut(l,t,d){if(!d||!l.classList.contains('pv-kw')||!l.classList.contains('pv-tight')||!t.querySelector(':scope>.pv-ra>.pv-add'))return 0;
+  const e=pvEarlyRoom(t); return e?Math.min(d,e):0;}
+// The room state t's earlier link takes in its row as drawn - its width and the gap before it - or 0 where it shows none.
+/** @param {Element} t @returns {number} */
+function pvEarlyRoom(t){const e=t.querySelector(':scope>.pv-early'); if(!e||!e.getClientRects().length)return 0;
+  return e.getBoundingClientRect().width+(parseFloat(getComputedStyle(t).columnGap)||0);}
 // Whether line l keeps the rows it has now: its confirm word waits for the second press, or its save is out.
 /** @param {HTMLElement} l */
 function pvRowsHeld(l){const p=Number(l.dataset.page)||0; return (!!VD_ARM&&VD_ARM.where===VD_WHERE.PAGE&&VD_ARM.page===p)||PV_BUSY.has(pvSlot(p));}

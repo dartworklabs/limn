@@ -1293,6 +1293,7 @@
  "판정 바로 저장": "Save verdict now",
  "처리 대기": "Waiting",
  "이전 판정 {n}건 · 새 판정으로 대체됨": {"one": "{n} earlier verdict · replaced", "other": "{n} earlier verdicts · replaced"},
+ "이전 {n}건": "+{n} earlier",
  "누르면 지금 선택과 메모를 {word} 판정 핀으로 바로 저장합니다": "Saves the selection and note as a {word} verdict pin now",
  "질문에는 판정을 붙이지 않습니다 — 아래에서 [수정 요청]을 고릅니다": "A question takes no verdict — choose [Edit request] below",
  "판정을 저장하려면 [제안 수정]을 끕니다": "To save a verdict, turn [Suggested edit] off",
