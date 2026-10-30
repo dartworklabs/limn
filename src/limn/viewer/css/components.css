@@ -320,7 +320,7 @@ body.lay-narrow.has-status:not(.typing,.pv-typing){--pv-inset:calc(var(--sheet-h
   padding-inline:var(--space-1);text-decoration:none;text-underline-offset:3px}
 .pv button.pv-cancel:focus-visible{background:transparent;text-decoration:underline}
 @media (hover:hover){.pv button.pv-cancel:hover{background:transparent;color:var(--pv-cancel-fg);text-decoration:underline}}
-body.band-phone .pv.pv-lean .pv-cn{display:none}
+body.band-phone .pv.pv-lean .pv-cn{visibility:hidden}   /* its place kept: the line's rows are the same floating or in place */
 /* A stacked line puts its state on a row of its own and its buttons on the next, at its start, filling the row - or sharing
    it with a save chip at its end (notices.css). */
 .pv.pv-stack>.pv-t{flex-basis:100%;min-height:max(var(--pv-ctl),var(--pv-t-h,0px))}   /* --pv-t-h: the reading line's state rows (verdict.js pvFit) */

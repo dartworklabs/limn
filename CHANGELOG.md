@@ -20,8 +20,13 @@
   nothing after a press on a page - goes to the next stop in the pages only while it shows whole in the area's view
   with nothing over any of it (the next page's line on a small zoom; Shift+Tab from there leaves the way it came in),
   else past the pages (the panel's grip, the status line's action). It went to the first line after the pages' start
-  and scrolled there: from page 1 of a 91-page figure document to page 4, also on first open, since 0.4.34. Tab into the
-  pages from the outline or the section strip, and Shift+Tab back out, are unchanged (#322).
+  and scrolled there: from page 1 of a 91-page figure document to page 4, also on first open, since 0.4.34. So does the
+  first Tab with nothing focused where no stop is drawn before the pages (a phone, just opened: page 4's line, scrolled
+  0 to 2067px). Tab into the pages from the outline or the section strip, and Shift+Tab back out, are unchanged (#322).
+- **A phone's floating line keeps its rows.** A floating line on a phone holds [판정 취소] back unseen but keeps its
+  place, so the line is as tall floating as in its place. Taken out of the row, it let the short earlier link rise into
+  it: a line with a reason and an earlier verdict was 131px floating and 191px in place, and the next page jumped 60px
+  under the finger as the line crossed its page's end (#322).
 - **A line saved by a key keeps its rows whichever page is read.** Such a line says `Enter 이유 쓰기` (`Enter reason`)
   while it is read and [이유 추가] at rest - 40px narrower in Korean, 15px in English, with the earlier link beside it on
   a tight row. It was fitted on the look it showed, so near its threshold it stacked, or its stacked state took a second

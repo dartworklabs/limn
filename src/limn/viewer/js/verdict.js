@@ -868,10 +868,11 @@ function pvAddCut(l,t,d){if(!d||!l.classList.contains('pv-kw')||!l.classList.con
 // zoom of the browser or of the pages, or a redraw - moves at once, without a scroll, to the control before it on its line
 // ([판정 취소], 'Enter 이유 쓰기', the '#N' link), else to the line's first. Hidden with the focus on it, the link took the
 // focus away to nothing and the next Tab started from the top (Chromium lets a hidden focus go a moment later: the move is
-// made before that). Every way the fitting hides a control comes through here.
+// made before that). Every way the fitting hides a control comes through here, and so does a phone's floating line holding
+// [판정 취소] back (pvLean).
 /** @param {HTMLElement[]} lines */
 function pvFocusStays(lines){const a=/** @type {HTMLElement|null} */(document.activeElement),l=a&&a.closest?/** @type {HTMLElement|null} */(a.closest('#doc .pv')):null;
-  if(!a||!l||!lines.includes(l)||a.getClientRects().length)return;
+  if(!a||!l||!lines.includes(l)||(a.getClientRects().length&&getComputedStyle(a).visibility!=='hidden'))return;
   const cs=[...l.querySelectorAll(PV_TABBABLE)].filter(pvTabStop),before=cs.filter(x=>!!(x.compareDocumentPosition(a)&Node.DOCUMENT_POSITION_FOLLOWING));
   const to=before.length?before[before.length-1]:cs[0]; if(to)to.focus({preventScroll:true});}
 // The room state t's earlier link takes in its row as drawn - its width, the dot before it and the gap before each - or 0
@@ -1029,18 +1030,20 @@ function pvStick(){const lines=$$('#doc .pv'); if(!lines.length)return; const L=
     const stuck=l.classList.contains('reading')&&b.bottom>lr.top&&b.top<lr.bottom&&b.top<pg.getBoundingClientRect().bottom+4;   // in its own place it stands 8px under the page
     l.classList.toggle('stuck',stuck); pvLean(l,pg,b,stuck,L,lr);});
   pvPopPlace();}
-// A phone's floating line holds [판정 취소] back (.pv-lean, components.css): on 390px it put a row of its own on the line that
-// already floats over the figure (one verdict 105 -> 131px, with an earlier one 131 -> 191px). The in-place line and the
-// card still offer it, with its 44px. Hysteresis keeps the line from flipping at a page's end: shown, it leans once the
-// line floats; leaning, it is shown again only when the line with it (its full height, measured when it was last shown)
-// fits in its place under the page - showing it never makes the line float again. Desktop and every other band: never.
+// A phone's floating line holds [판정 취소] back (.pv-lean, components.css): unseen, not pressed, focused or heard - and in
+// its place, so the line keeps its rows whether it floats or stands in its place. Taken out of the row, it let the short
+// earlier link ('이전 1건') rise into its row while the line floated: 131 against 191px in place, and the next page jumped
+// 60px under the finger as the line crossed its page's end. The in-place line and the card still offer it, with its 44px.
+// Hysteresis keeps it from flipping at a page's end: shown, it leans once the line floats; leaning, it is shown again only
+// when the line (its full height, measured when it was last shown) fits in its place under the page. Desktop and every
+// other band: never.
 const PV_FULL_H=/** @type {WeakMap<HTMLElement,{h:number,gap:number}>} */(new WeakMap());
 /** @param {HTMLElement} l @param {HTMLElement} pg @param {DOMRect} b @param {boolean} stuck @param {HTMLElement} L @param {DOMRect} lr */
 function pvLean(l,pg,b,stuck,L,lr){
   if(!document.body.classList.contains('band-phone')||!l.classList.contains('reading')||!l.querySelector('.pv-cancel')){l.classList.remove('pv-lean'); return;}
   const m=PV_FULL_H.get(l)||{h:0,gap:8},pb=pg.getBoundingClientRect().bottom; PV_FULL_H.set(l,m);
   if(!stuck)m.gap=Math.max(0,b.top-pb);
-  if(!l.classList.contains('pv-lean')){m.h=b.height; if(stuck)l.classList.add('pv-lean'); return;}
+  if(!l.classList.contains('pv-lean')){m.h=b.height; if(stuck){l.classList.add('pv-lean'); pvFocusStays([l]);} return;}
   // Where a floating line's bottom stands: the area's bottom less its end padding and the line's sticky inset.
   const cs=getComputedStyle(L),limit=lr.top+L.clientHeight-parseFloat(cs.paddingBottom)-(parseFloat(getComputedStyle(l).bottom)||0);
   if(pb+m.gap+(m.h||b.height+64)<=limit)l.classList.remove('pv-lean');}
@@ -1173,7 +1176,10 @@ function pvSayGliding(){lineNote('쪽으로 가는 중이라 판정 키를 받�
 let PV_PTR_PAGES=false;
 addEventListener('pointerdown',e=>{const t=/** @type {HTMLElement|null} */(e.target); PV_PTR_PAGES=!!t&&!!t.closest&&!!t.closest('#left')&&!t.closest('#doc .pv');},true);
 document.addEventListener('focusin',e=>{const t=/** @type {HTMLElement|null} */(e.target); if(t&&t!==$('#left'))PV_PTR_PAGES=false;});
-addEventListener('keydown',e=>{const a=document.activeElement; if(e.key!=='Tab'||e.shiftKey||e.ctrlKey||e.metaKey||e.altKey||e.defaultPrevented||!(a===$('#left')||((!a||a===document.body)&&PV_PTR_PAGES)))return;
+// So does Tab with nothing focused where no stop is drawn before the pages - a phone, whose nav bar, outline and section strip
+// are not: its first Tab after opening went to page 4's line and scrolled there (0 -> 2067px).
+addEventListener('keydown',e=>{const a=document.activeElement; if(e.key!=='Tab'||e.shiftKey||e.ctrlKey||e.metaKey||e.altKey||e.defaultPrevented)return;
+  if(!(a===$('#left')||((!a||a===document.body)&&(PV_PTR_PAGES||!pvEdgeStop(false)))))return;
   const at=pvReadingAt(); if(!at)return;   // no page lines, or the pages are not shown: the DOM's order scrolls nothing to a line
   const r=pvReadingPage(),l=r?document.querySelector('#doc .pv[data-page="'+r+'"]'):null;
   const c=/** @type {HTMLElement|undefined} */(l?[...l.querySelectorAll('a,button,[tabindex="0"]')].find(x=>x instanceof HTMLElement&&x.getClientRects().length>0&&!(/** @type {HTMLButtonElement} */(x).disabled)):undefined);

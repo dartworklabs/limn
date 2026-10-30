@@ -3567,16 +3567,16 @@ class ReasonAgentRole(VerdictBase):
         self.assertEqual(len(self.pins()), 1)
 
 
-def verdict_as(case, who, page_n, key, doc="fig"):
-    """A verdict pin on figure page page_n's whole figure, made by who through the API (the page line's pick and body);
-    its id."""
+def verdict_as(case, who, page_n, key, doc="fig", note=""):
+    """A verdict pin on figure page page_n's whole figure, made by who through the API (the page line's pick and body),
+    with note as its reason; its id."""
     meta = case.call("GET", "/api/meta?doc=%s" % doc)[1]
     pg = meta["pages"][page_n - 1]
     pick = {"doc": doc, "page": page_n, "x0": 0, "y0": 0, "x1": pg["pt_w"], "y1": pg["pt_h"], "frac": [0, 0, 1, 1]}
     code, d = case.call("POST", "/api/pick", {**pick, "pdf_build": meta["pages_build"]}, who)
     case.assertEqual(code, 200, d)
     body = {k: d[k] for k in helpers_figure.SAVE_LINE if d.get(k) is not None}
-    body.update(scope=d["default_level"], doc=doc, note="", kind_req="fix", assignee="agent", verdict=key)
+    body.update(scope=d["default_level"], doc=doc, note=note, kind_req="fix", assignee="agent", verdict=key)
     code, made = case.call("POST", "/api/pin", body, who)
     case.assertEqual(code, 200, made)
     return made["id"]
@@ -3746,12 +3746,12 @@ class Cancel(VerdictBase):
         self.assertEqual((got["name"], got["shown"]), ("지우기", False))
 
     def test_a_phones_floating_line_holds_the_cancel_back_and_the_in_place_line_offers_it(self):
-        """390x844 touch, page 2 taller than the area and Alice's verdict on it: while its line floats it has no
-        [판정 취소] (the line is no taller than without it); scrolled until the line stands in its place under the page, it
-        offers it with its 44px. Near that point the line does not flip between the two. At 1400 the floating line keeps
-        it."""
+        """390x844 touch, page 2 taller than the area and Alice's verdict on it: while its line floats its [판정 취소] is not
+        shown - nor pressed, focused or heard - but keeps its place (#322: the line's rows are the same floating and in
+        place); scrolled until the line stands in its place under the page, it offers it with its 44px. Near that point
+        the line does not flip between the two. At 1400 the floating line keeps it."""
         cancel_shown = """n=>{const c=document.querySelector('#doc .pv[data-page="'+n+'"] .pv-cancel'); if(!c)return null;
-          const b=c.getBoundingClientRect(); return c.getClientRects().length?{h:b.height}:false;}"""
+          const b=c.getBoundingClientRect(); return c.getClientRects().length&&getComputedStyle(c).visibility!=='hidden'?{h:b.height}:false;}"""
         phone = self.on("fig", viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
         phone.evaluate("setSide(false)")
         phone.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
@@ -3809,7 +3809,7 @@ class Cancel(VerdictBase):
         word = WORD % (2, "채택")
         state = """s=>{const b=document.querySelector(s), l=b.closest('.pv'), d=document.getElementById(b.getAttribute('aria-describedby')||'');
           const c=l.querySelector('.pv-cancel'), u=l.querySelector('.pv-undo');
-          return {stuck: l.classList.contains('stuck'), cancel: !!c&&c.getClientRects().length>0, undo: !!u&&u.getClientRects().length>0,
+          return {stuck: l.classList.contains('stuck'), cancel: !!c&&c.getClientRects().length>0&&getComputedStyle(c).visibility!=='hidden', undo: !!u&&u.getClientRects().length>0,
             pressed: b.getAttribute('aria-pressed'), desc: d&&d.textContent, h: Math.round(l.getBoundingClientRect().height)};}"""
         rest = phone.evaluate(state, word)
         self.assertEqual(
@@ -6839,6 +6839,32 @@ class EdgeKeys(VerdictBase):
         self.assertEqual(page.evaluate(FOCUS_AT)[0], 2)
         self.assertEqual(page.evaluate("[document.querySelector('#left').scrollTop, pvReadingAt()]"), [top, 1])
 
+    def test_a_phones_first_tab_keeps_the_pages_where_they_are(self):
+        """390x844, just opened, nothing focused: no stop is drawn before the pages on a phone (no nav bar, outline or
+        section strip), so its first Tab from a keyboard fell to the first line in the pages - page 4's on the 91-page
+        figure document, scrolled 0 -> 2067px (0.4.36 RC). Page 1 takes no verdict and is read, the pages zoomed in all
+        the way so page 2's line is far below: the first Tab goes past the pages, not into a line, and the pages stay
+        where they are."""
+        fmap = helpers_figure.viewer_map()
+        fmap["pages"][0]["verdict"] = False
+        helpers_figure.viewer_build(self.fig, helpers_figure.BUILD2, fmap)
+        page = self.on("fig", viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+        page.evaluate("()=>{setK(K*5,false); ZOOMED=true; document.querySelector('#left').scrollTop=0;}")
+        settle(page)
+        page.evaluate("pvStick()")
+        settle(page)
+        page.evaluate("document.activeElement&&document.activeElement.blur()")
+        self.assertEqual(
+            page.evaluate("[document.activeElement===document.body, pvEdgeStop(false), pvReadingAt()]"), [True, None, 1]
+        )
+        self.assertFalse(page.evaluate(ON_TOP, '#doc .pv[data-page="2"] .vd-b'))
+        top = page.evaluate("document.querySelector('#left').scrollTop")
+        page.keyboard.press("Tab")
+        got = page.evaluate(
+            "()=>{const a=document.activeElement; return [a===document.body,!!a.closest&&!!a.closest('#doc .pv'),Math.round(document.querySelector('#left').scrollTop)];}"
+        )
+        self.assertEqual(got, [False, False, round(top)])
+
     # Page 1 (landscape) f of the area tall at the top, read, page 2 (portrait) and its line under it.
     SMALL = """f=>{setK(f*document.querySelector('#left').clientHeight/META.pages[0].pt_h,false); ZOOMED=true; document.querySelector('#left').scrollTop=0;}"""
     # A box over part of page 2's line's first control - its bottom or right 30% (sides), never its middle - or none.
@@ -7274,6 +7300,48 @@ class LinePolish(VerdictBase):
                 settle(page)
         else:
             self.fail("the link never stepped out beside 'Enter reason'")
+
+    def test_a_phone_line_keeps_its_rows_floating_and_in_place(self):
+        """390x844, Korean and English: page 1 with the person's own open verdict, its reason, and an earlier verdict, page
+        1 zoomed to two and a half screens. Its line is as tall floating over page 1 (where it holds [판정 취소] back,
+        .pv-lean) as standing in its place under it, and a slow scroll across page 1's end, 6px at a time, moves page 2
+        by the scroll and nothing more. Taken out of the floating line, [판정 취소] let '이전 1건' rise into its row: 131
+        against 191px, and page 2 jumped 60px under the finger as the line crossed the page's end (0.4.36 RC)."""
+        verdict_as(self, self.WHO, 1, "보류")
+        verdict_as(self, self.WHO, 1, "채택", note="보류: 색 재검토")
+        for lang in ("ko", "en"):
+            with self.subTest(lang=lang):
+                page = self.on("fig", n_open=2, lang=lang, **self.PHONE)
+                page.evaluate("setSide(false)")
+                page.evaluate(  # page 1 (landscape) two and a half areas tall
+                    "()=>{const L=document.querySelector('#left'); setK(2.5*L.clientHeight/META.pages[0].pt_h,false); ZOOMED=true; L.scrollTop=0;}"
+                )
+                settle(page)
+                page.evaluate("pvStick()")
+                settle(page)
+                self.assertEqual(
+                    page.evaluate(
+                        "[PV_READ, document.querySelector('#doc .pv[data-page=\"1\"]').classList.contains('pv-stack')]"
+                    ),
+                    [1, True],
+                )
+                got = page.evaluate(
+                    """async()=>{const frame=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+                      const L=document.querySelector('#left'),l=document.querySelector('#doc .pv[data-page="1"]'),p1=document.getElementById('p1'),p2=document.getElementById('p2');
+                      const h=()=>Math.round(l.getBoundingClientRect().height*10)/10; pvStick(); await frame();
+                      const floating=[h(),l.classList.contains('stuck'),l.classList.contains('pv-lean'),!!l.querySelector('.pv-early')];
+                      const end=L.scrollTop+p1.getBoundingClientRect().bottom-(L.getBoundingClientRect().top+L.clientHeight);   // page 1's end at the area's bottom
+                      let worst=0,prev=null;
+                      for(let t=end-200;t<=end+400;t+=6){L.scrollTop=t; await frame(); pvStick(); await frame();
+                        const at=L.scrollTop+p2.getBoundingClientRect().top; if(prev!==null)worst=Math.max(worst,Math.abs(at-prev)); prev=at;}
+                      const p=p1.getBoundingClientRect(),b=l.getBoundingClientRect();
+                      return {floating,inPlace:[h(),l.classList.contains('stuck'),l.classList.contains('pv-lean'),b.top>=p.bottom],worst:Math.round(worst*10)/10};}"""
+                )
+                self.assertEqual(got["floating"][1:], [True, True, True], got)
+                self.assertEqual(got["inPlace"][1:], [False, False, True], got)
+                self.assertEqual(got["floating"][0], got["inPlace"][0], got)
+                self.assertLessEqual(got["worst"], 1, got)
+                page.context.close()
 
     def test_a_key_saves_focus_raises_no_box_over_the_pressed_words_description(self):
         """English, the panel open, at 1280 x 800 and 1440 x 900, page 2 as wide as the room and read: a digit saves a verdict
