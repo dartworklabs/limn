@@ -29,6 +29,12 @@
   with the reason, and the earlier link steps out: the line's rows are held then, and at their 6em the words of a second
   save pushed `판정 취소` past the row's end, where it was clipped. English at 1280, 1366, 1400 (the test default), 1440, 1536 and 1920 with the panel open: no line stacks;
   Korean: none, as before.
+- **A line with an earlier verdict keeps its rows whichever page is read.** `이유 추가` shows only on the reading line and
+  the last save's, so a line with the person's own open verdict, no reason and an earlier verdict's link stacked near
+  its bar only while it was read, and a stacked one grew a row (91 -> 123px at 420px) - breaking 0.4.34's rule that the
+  reading page never changes a line's height. Such a line now holds that `이유 추가` hidden (never shown, focused or read
+  aloud), and the fit lays it out unseen, as it does the identifier and the key digits; a stacked line keeps the reading
+  line's state height as its least (`--pv-t-h`).
 
 ## 0.4.34 — 2026-10-30
 

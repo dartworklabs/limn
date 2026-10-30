@@ -719,7 +719,7 @@ function sizePv(){const ir=pvInsetR(),L=$('#left'),lines=$$('#doc .pv');
 // Read and written in batches.
 /** @param {HTMLElement[]} lines */
 function pvFit(lines){const held=lines.map(pvRowsHeld),D=$('#doc');
-  lines.forEach((l,i)=>{if(!held[i]){l.classList.toggle('pv-stack',false); l.classList.toggle('pv-tight',false);}});
+  lines.forEach((l,i)=>{if(!held[i]){l.classList.toggle('pv-stack',false); l.classList.toggle('pv-tight',false); l.style.removeProperty('--pv-t-h');}});
   // Every line is measured as the reading line (#doc.pv-measure shows each hidden identifier, components.css): a line that
   // stacked only while it was read shrank when the reading page left (91 -> 32px on a 260px page) and moved the pages.
   D.classList.add('pv-measure');
@@ -747,6 +747,11 @@ function pvFit(lines){const held=lines.map(pvRowsHeld),D=$('#doc');
   let over=lines.map((l,i)=>!held[i]&&(narrow[i]||tight(l)));
   if(LAYOUT===LAYOUT_MODE.WIDE&&over.some(o=>o)){lines.forEach((l,i)=>{if(over[i])l.classList.add('pv-tight');}); over=lines.map((l,i)=>over[i]&&(narrow[i]||tight(l)));}
   lines.forEach((l,i)=>{if(over[i])l.classList.add('pv-stack');});
+  // A stacked line's state rows are the reading line's too: their height, measured here with what only the reading line shows
+  // ([이유 추가], laid out unseen), is the least the state takes (--pv-t-h, components.css). Beside an earlier link a 420px
+  // line's state wrapped to a second row only while it was read, and the line grew by it (91 -> 123px, #308 review).
+  const th=lines.map((l,i)=>{const t=over[i]?l.querySelector(':scope>.pv-t'):null; return t?t.getBoundingClientRect().height:0;});
+  lines.forEach((l,i)=>{if(th[i])l.style.setProperty('--pv-t-h',th[i]+'px');});
   D.classList.remove('pv-measure');
   pvChipPlace(lines);
   // A word group that wraps keeps every button at its own width (vdWrapFit), read for every line before any is written.

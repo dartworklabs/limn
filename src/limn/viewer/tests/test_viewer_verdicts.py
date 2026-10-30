@@ -6039,6 +6039,17 @@ BAR = """async n=>{const frame=()=>new Promise(r=>requestAnimationFrame(()=>requ
   return {w,line:l().getBoundingClientRect().width};}"""
 
 
+# Page 2's width swept 8px at a time (400-720px): for each, page 2's line (its stacking, height and width) while page 1 is read and while
+# page 2 is - the widths where the two differ (bad) and the stackings seen.
+SWEEP_READ = """async()=>{const L=document.querySelector('#left'),l2=()=>document.querySelector('#doc .pv[data-page="2"]'),bad=[],seen=new Set();
+  const frame=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+  const read=async n=>{const p=document.getElementById('p'+n); L.scrollTop+=p.getBoundingClientRect().top-L.getBoundingClientRect().top-(n===1?0:2);
+    await frame(); pvStick(); await frame(); const b=l2().getBoundingClientRect(); return [PV_READ,l2().classList.contains('pv-stack'),Math.round(b.height),Math.round(b.width)];};
+  for(let w=400;w<=720;w+=8){setK(w/META.pages[1].pt_w,false); ZOOMED=true; await frame();
+    const a=await read(1),b=await read(2); if(a[0]!==1||b[0]!==2)continue; seen.add(a[1]); if(a[1]!==b[1]||a[2]!==b[2])bad.push([w,a,b]);}
+  return {bad,seen:[...seen]};}"""
+
+
 class LinePolish(VerdictBase):
     """#308 items 1-2: a resting stacked line names its page in the row it keeps, and English lines hold one row on a
     desktop."""
@@ -6155,6 +6166,24 @@ class LinePolish(VerdictBase):
     def test_an_english_line_at_its_bar_keeps_one_row_through_held_key_saves(self):
         """The same in English ('· Saving 보류…', 'Enter reason')."""
         self.held_key_saves_at_the_bar("en")
+
+    def test_a_line_with_an_earlier_verdict_keeps_its_rows_whichever_page_is_read(self):
+        """Page 2 with the person's own open verdict, no reason, and an earlier one (its link), both made elsewhere - no save
+        on this screen, so its line shows [이유 추가] only while it is read. Page 2's width swept across its bar 8px at a time,
+        Korean and English, on the wide band and the side-panel band (1000 x 800): the line's rows and height are the same
+        while page 1 is read and while page 2 is, and the sweep crosses the bar. Fitted with [이유 추가] only where it
+        showed, the line stacked only while it was read (#308 review)."""
+        verdict_as(self, self.WHO, 2, "보류")
+        verdict_as(self, self.WHO, 2, "채택")
+        for lang in ("ko", "en"):
+            for vp in ({"width": 1400, "height": 850}, {"width": 1000, "height": 800}):
+                with self.subTest(lang=lang, viewport=vp["width"]):
+                    page = self.on("fig", n_open=2, lang=lang, viewport=vp)
+                    page.evaluate("setSide(false)")
+                    settle(page)
+                    got = page.evaluate(SWEEP_READ)
+                    self.assertEqual((got["bad"], sorted(got["seen"])), ([], [False, True]), got)
+                    page.context.close()
 
     def held_key_saves_at_the_bar(self, lang):
         page = self.on("fig", lang=lang)

@@ -239,6 +239,10 @@ body.lay-narrow.has-status:not(.typing,.pv-typing){--pv-inset:calc(var(--sheet-h
    every line as the reading line (#doc.pv-measure: the hidden identifier and its separator take their room, unseen), so a
    line stacks or not whichever page is read. */
 #doc.pv-measure .pv>:is(.pv-fig,.pv-fig-sep)[hidden]{display:flex!important;visibility:hidden;min-height:1lh}   /* over frame.css [hidden]; one text line high */
+/* So does the [이유 추가] a line with the person's own open verdict and no reason holds hidden while it is neither the reading
+   line nor the last save's (verdict-reason.js pvReasonInline): the reading line shows it, and a line with an earlier link
+   near its bar stacked only while it was read. Not where the line steps it out anyway (a take-back's [되돌리기]). */
+#doc.pv-measure .pv:not(:has(>.pv-t>.pv-undo))>.pv-t>.pv-ra[hidden]{display:contents!important;visibility:hidden}
 .pv.pv-stack>.pv-fig[hidden]{display:flex!important;min-height:1lh;color:var(--muted-foreground);font-weight:400}
 @media (pointer:coarse){.pv.pv-stack .pv-fig{margin-bottom:calc(var(--space-1) - var(--space-5))}}
 /* While the reason is typed on a touch screen (body.pv-typing: a text field in a page line has the focus, verdict.js) the
@@ -302,10 +306,10 @@ body.lay-narrow.has-status:not(.typing,.pv-typing){--pv-inset:calc(var(--sheet-h
 body.band-phone .pv.pv-lean .pv-cn{display:none}
 /* A stacked line puts its state on a row of its own and its buttons on the next, at its start, filling the row - or sharing
    it with a save chip at its end (notices.css). */
-.pv.pv-stack>.pv-t{flex-basis:100%;min-height:var(--pv-ctl)}
+.pv.pv-stack>.pv-t{flex-basis:100%;min-height:max(var(--pv-ctl),var(--pv-t-h,0px))}   /* --pv-t-h: the reading line's state rows (verdict.js pvFit) */
 /* The state's row is as tall from the start as a text action makes it ([이유 추가], [판정 취소]: 32px with a mouse, 44px on
    touch): a line in its place grows downward, and a phone's first verdict moved its words 25px down under the finger. */
-@media (pointer:coarse){.pv.pv-stack>.pv-t{min-height:var(--hit)}
+@media (pointer:coarse){.pv.pv-stack>.pv-t{min-height:max(var(--hit),var(--pv-t-h,0px))}
   .pv{min-height:var(--hit)}}   /* a row too: the words (36px) sat 4px higher before a press brought a 44px text action */
 .pv.pv-stack>.vd-btns{flex:1 1 auto}
 /* On touch the words' row and the buttons' row stand 20px apart, and the earlier link wrapped under the words 16px, so
