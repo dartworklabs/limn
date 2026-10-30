@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+On a wide desktop the page verdict line becomes one panel beside the pages, with a one-row summary under each page, and
+keys pressed around a save or a reason land on the verdict they show. The outline panel keeps the current section in
+view as the reading moves, with its filter in reach at the top. The agent contract is unchanged.
+
+### Added
+
+- **The page verdict line beside the pages on a wide desktop (#329).** Where the PDF area leaves room right of the pages
+  (its inner width less the page's is 360px or more; back under the pages below 328px), the page verdict line is one
+  panel in that margin - the reading page's line, the page the section strip and the keys name - with the page's name,
+  its words, its state, the reason, [판정 취소], the earlier verdicts' link and the save chip in rows down it, and under
+  each page a one-row summary (`6쪽 · PL17 · 판정 #7 채택 · 처리 대기`, the reading page's in bold) that brings its page to
+  the panel. The words stand at one place on the screen for every page; the page stays centred while the margin holds
+  the panel and moves left only by what it lacks. Keys 1-5, Enter and Esc act as on the reading line; Tab from the
+  pages goes to the panel, Shift+Tab from its first control goes back where it came from, and Tab from its last goes to
+  the pin panel; PageDown, the arrows, Home, End and the wheel on the panel move the pages. A kept reason draft on another
+  page shows on that page's summary. When the room crosses its bar the page in view, a save chip and an open reason - its
+  text, caret, focus, and a save or a write it waits for - carry over, and nothing is written. 1920 takes it with the pin
+  panel open, 1680 with it closed; narrower windows, a zoom past the bar, the unfolded foldable and phones keep the line
+  under each page as before.
+
 ### Fixed
 
 - **The outline panel keeps the current section in view (#330).** The panel marked the current section but never scrolled
@@ -16,6 +36,21 @@
   stay at the top of the panel, with the rows passing under them, so a panel opened at a row far down keeps its filter in
   reach; the margin counts from under them. The overlay of the mid bands is the same panel and does the same. The phone's
   navigation sheet keeps its own rule.
+- **Enter while a digit's save is out is the reason, wherever the focus rests on the line.** On a word it pressed that word:
+  a second verdict over the one being saved. `Enter 이유 쓰기` and [이유 추가] on a line whose save is out wait for the new
+  verdict: before the list was read again, the reason went on the verdict it replaced.
+- **The reason field keeps the focus while its write is out.** Disabled, it dropped the focus to nothing, and the next
+  digit was a verdict key. It waits read-only; a failure leaves the text and the focus there.
+- **Restoring a take-back leaves the reason being written on another page alone.** It wrote that page's half text and
+  closed its field. The restored verdict's draft stays its own, marked on its line.
+- **The reading line is exact at a page's end.** Within its last pixel the strip and the keys already named the next page.
+- **A jump is a jump from its first frame.** Every smooth jump of the pages (the page list, an outline entry, a card's [보기])
+  counts from before its first scroll event, also right after a wheel; a digit there acted on the page being left.
+- **A save chip's or the status line's [되돌리기] pressed by key leaves the focus on the line,** a press with a reason being
+  typed leaves it in the field, and a digit on a take-back's [되돌리기] leaves it on the word being saved, not on nothing.
+- **While a digit's take-back is out the focus stays on its line and Enter and Space wait.** The line shows the verdict before
+  it meanwhile, and Enter opened a reason for that one or took it back too. A guard on the digits after a field went
+  ends when the reading page changes.
 
 ## 0.4.36 — 2026-10-30
 

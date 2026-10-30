@@ -239,10 +239,19 @@ function endNotice(n,acted,seen){if(!NOTICES.has(n.n))return; NOTICES.delete(n.n
 // until the request is answered (rule 1: not cleared as if it had worked) - a failure then says itself where it can be seen.
 /** @param {number} num */
 function noticeAct(num){const n=NOTICES.get(num); if(!n||n.busy)return; const a=n.act;
-  if(!a||!a.wait){endNotice(n,true); if(a)a.fn(); return;}
+  // An action whose button had the focus goes with its message: on a document with page lines the focus goes to the line of the page
+  // it was on (a chip's) or the reading page's, else the pages - never nothing. A press with a reason being typed leaves the focus
+  // in its field (below).
+  const f=/** @type {HTMLElement|null} */(document.activeElement),own=!!f&&!!f.closest&&!!f.closest('[data-act="notice-act"][data-n="'+n.n+'"]');
+  const l=own&&f?/** @type {HTMLElement|null} */(f.closest('#doc .pv')):null,page=l?Number(l.dataset.page)||0:0;
+  const back=()=>{const g=document.activeElement; if(!own||!pageVerdictsOn()||(g&&g!==document.body))return; if(!pvFocusLine(page||PV_READ))searchToPage();};
+  if(!a||!a.wait){endNotice(n,true); if(a)a.fn(); back(); return;}
   n.busy=true; clearTimeout(n.timer); n.timer=undefined; n.held=false;
   document.querySelectorAll('[data-act="notice-act"][data-n="'+n.n+'"]').forEach(b=>b.setAttribute('aria-busy','true'));
-  Promise.resolve(a.fn()).catch(()=>false).then(()=>endNotice(n,true));}
+  Promise.resolve(a.fn()).catch(()=>false).then(()=>{endNotice(n,true); back();});}
+// A press on a message's action does not take the focus from the reason field being typed in: its button goes with the message, and
+// the keys typed next would be verdict keys.
+document.addEventListener('mousedown',e=>{const t=/** @type {HTMLElement|null} */(e.target); if(!!t&&!!t.closest&&!!t.closest('[data-act="notice-act"]')&&pvIsReasonField(document.activeElement))e.preventDefault();},true);
 // [x] on message num: it goes as read (with its dot), and what it held runs (gone: a deferred send goes now).
 /** @param {number} num */
 function noticeClose(num){const n=NOTICES.get(num); if(n)endNotice(n,false,true);}

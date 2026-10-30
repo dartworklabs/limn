@@ -19,6 +19,7 @@ css/side-panel.css      # the pin panel's handle, collapse and slide, and the to
 css/components.css      # buttons, icons, badges, fields; pages, marks and the selection box; the panel's boxes
 css/composer.css        # the composer: location line, range ladder, source, note, action row
 css/verdict-reason.css  # the page verdict line's pressed word, a verdict's reason on the line and its popover
+css/verdict-panel.css   # the page verdict panel beside the pages on a wide desktop: the side column, the panel, the summary under each page
 css/cards.css           # pin cards: status, links, thread, @-tags, question hint, Trash, @-list, reply outcome
 css/suggest.css         # suggested edits: the kind row's switch, the editor and its line, a card's line diff
 css/list.css            # list sections and the archive rows
@@ -64,6 +65,7 @@ js/draft.js             # the composer draft kept per tab (sessionStorage)
 js/save.js              # saving a pin, appending to one, the queued save
 js/verdict.js           # verdict pins: the composer's verdict row, the page verdict line, a confirm word's two presses, the card badge
 js/verdict-reason.js    # a page verdict's reason: its popover over the line, drafts kept per pin (sessionStorage), its writes
+js/verdict-panel.js     # the page verdict panel beside the pages on a wide desktop: when (room, hysteresis), the panel, the summaries
 js/sel-popover.js       # the note popover by the selection box (mouse layouts)
 js/card-parts.js        # what a card is built from: people, badges, claims, @-tags and #refs in text, the thread
 js/cards.js             # the open and review card, archive and Trash rows, the Trash dialog
