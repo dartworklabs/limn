@@ -1030,7 +1030,15 @@ let PV_SCROLL_AT=0,PV_SCROLL_HAND=0,PV_GLIDE=false;
 const PV_HAND=()=>{PV_SCROLL_HAND=performance.now(); PV_GLIDE=false;};   // the person takes the pages over
 for(const t of ['wheel','touchstart','touchmove','pointerdown'])$('#left').addEventListener(t,PV_HAND,{passive:true,capture:true});
 $('#left').addEventListener('pointermove',e=>{if(e.buttons)PV_HAND();},{passive:true,capture:true});   // a scroll bar dragged
-addEventListener('keydown',e=>{if(SCROLL_KEYS.has(e.key))PV_HAND();},true);
+// A scrolling key is the person's hand on the pages only where it scrolls them: on the PDF area, on a control in it (a
+// line's word lets the arrows through) or on nothing - not in a text field, and not Space on a button, which it presses.
+// ↓ in the outline's filter or list moves to a result, and the Enter after it started a jump the guard then took for the
+// person's own scroll: a digit pressed while it glided saved on a page passed (PL83 from page 60: 보류 on page 71).
+addEventListener('keydown',e=>{if(!SCROLL_KEYS.has(e.key))return; const t=e.target;
+  if(!(t===document.body||t===document.documentElement||(t instanceof Element&&!!t.closest('#left'))))return;
+  if(t instanceof HTMLElement&&(t.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)))return;
+  if(e.key===' '&&t instanceof Element&&t.closest('button,[role=button],summary'))return;
+  PV_HAND();},true);
 const PV_SCROLLEND='onscrollend' in window;
 $('#left').addEventListener('scroll',()=>{const t=performance.now(); if(t-PV_SCROLL_AT>200)PV_GLIDE=t-PV_SCROLL_HAND>500; PV_SCROLL_AT=t;},{passive:true});   // a new run of scrolling decides
 $('#left').addEventListener('scrollend',()=>{PV_GLIDE=false;});

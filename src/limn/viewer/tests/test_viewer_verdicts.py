@@ -6178,6 +6178,53 @@ class EdgeKeys(VerdictBase):
         page.keyboard.press("Shift+Tab")
         self.assertEqual(page.evaluate("document.activeElement.id"), "section-page")
 
+    def test_a_scrolling_key_outside_the_pages_leaves_the_glide_guard_on(self):
+        """↓ in the outline's filter and on a control outside the pages just before a jump is not the person's hand on the
+        pages, so the jump's glide still holds the keys: 2 while it glides saves nothing and says why (↓ there turned the
+        guard off, and 2 saved 보류 on a page the jump passed). A real PageDown on the PDF area still is the person's
+        scroll."""
+        page = self.on("fig")
+        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        settle(page)
+        hand = page.evaluate("PV_SCROLL_HAND")
+        page.focus("#outline-search")
+        page.keyboard.press("ArrowDown")
+        page.focus("#section-page")  # where an outline or page-list jump leaves a keyboard focus outside the pages
+        page.keyboard.press("ArrowDown")
+        self.assertEqual(page.evaluate("PV_SCROLL_HAND"), hand)
+        at = page.evaluate("PV_SCROLL_AT")
+        page.evaluate(
+            "()=>{const L=document.querySelector('#left'),r=document.getElementById('p2').getBoundingClientRect(),lr=L.getBoundingClientRect(); L.scrollTo({top:L.scrollTop+r.top-lr.top,behavior:'smooth'});}"
+        )
+        page.wait_for_function("t=>PV_SCROLL_AT>t", arg=at)
+        self.assertTrue(page.evaluate("PV_GLIDE"))
+        page.keyboard.press("2")
+        page.wait_for_timeout(50)
+        self.assertEqual(self.pins(), {})
+        self.assertTrue(page.evaluate("()=>LINE.some(n=>n.title==='쪽으로 가는 중이라 판정 키를 받지 않았습니다')"))
+        page.wait_for_function("()=>!pvAutoScrolling()", timeout=5000)
+        settle(page)
+        page.evaluate("searchToPage()")
+        hand = page.evaluate("PV_SCROLL_HAND")
+        page.keyboard.press("PageDown")
+        self.assertGreater(page.evaluate("PV_SCROLL_HAND"), hand)
+
+    def test_a_document_switch_by_alt_digit_keeps_the_focus_on_the_pdf_area(self):
+        """The focus on a word of the figure document's line; Alt+<n> opens the view-only PDF: the focus is on its PDF area,
+        not on nothing, and Tab goes to its reading line without moving the pages (from nothing the next Tab went to the
+        first page's line and scrolled there)."""
+        page = self.on("fig")
+        page.focus(WORD % (1, "채택"))
+        n = page.evaluate("DOCS.findIndex(d=>d.key==='rv')+1")
+        page.keyboard.press("Alt+Digit%d" % n)
+        page.wait_for_function("DOC==='rv'&&META&&META.doc==='rv'&&!!document.querySelector('#doc .pv')")
+        settle(page)
+        self.assertEqual(page.evaluate("document.activeElement.id"), "left")
+        top = page.evaluate("document.querySelector('#left').scrollTop")
+        page.keyboard.press("Tab")
+        self.assertEqual(page.evaluate(FOCUS_AT)[0], page.evaluate("PV_READ"))
+        self.assertEqual(page.evaluate("document.querySelector('#left').scrollTop"), top)
+
     def test_the_pdf_area_is_a_named_region(self):
         """A digit pressed on the section strip with its save held leaves the focus on the PDF area: a region named 'PDF 쪽'
         ('PDF pages' in English), which a screen reader says - with no role and no name it read every page's text one

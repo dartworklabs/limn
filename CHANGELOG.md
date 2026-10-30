@@ -18,6 +18,12 @@
   reader started reading every page's text run together (`1 1쪽 2 2쪽 …`). Every other path that leaves the focus on the
   PDF area (Esc in the reason field, a search closed, the reading page moving away from a focused line) says the
   same name.
+- **A digit during an outline jump's glide no longer saves on a page passed.** ↓ in the outline's filter or on its
+  list counted as the person scrolling the pages and turned the glide guard off, so `PL83` from page 60, ↓, Enter and 2
+  saved 보류 on page 71 while the view landed on page 85. A scrolling key counts only where it scrolls the pages: on the
+  PDF area, a control in it or nothing, not in a text field and not Space on a button.
+- **Alt+digit with the focus in the pages keeps it on the PDF area.** The new document's pages took the focused element
+  away, the focus fell to nothing, and the next Tab went to the first page's line and scrolled there.
 - **A Tab outside the pages no longer reads every control of every line** (#308, item 3). Only a Tab across the pages'
   edge is taken - from the last stop before the PDF area, or by Shift+Tab from the first after it - and that stop is
   found by walking out from the area, past parts that are not drawn. Each Tab outside the pages read all focusable

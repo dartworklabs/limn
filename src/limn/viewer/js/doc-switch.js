@@ -58,8 +58,11 @@ addEventListener('pagehide',saveView);
 // Switches documents. Remembers the current view and draft, then opens only the destination document's draft.
 // If a meta cache exists, that document is drawn immediately without waiting, then the latest meta is fetched in the background, and pages are swapped only if the build changed.
 // A document that cannot be opened says so on the status line, with [다시 시도] when the server could not be reached.
+// A focus in the pages (a line's control, the PDF area) stays on the PDF area: the new pages take the focused element away,
+// and from nothing (body) the next Tab went to the first page's line and scrolled there.
 async function switchDoc(k){
   if(!k||k===DOC||!docInfo(k))return; const seq=++SWITCHSEQ; searchLeave();   // the search belongs to the document left (search.js)
+  const inPages=$('#left').contains(document.activeElement);
   if(document.body.classList.contains('revision-open'))setViewMode(VIEW_MODE.MANUSCRIPT);
   saveView(); parkDraft(); cancelRepick(); if(COMPOSE.current||!$('#composer').hidden)cancelSelection(false);
   if(EDITOR.current&&!editDirty())cancelEdit();
@@ -67,6 +70,7 @@ async function switchDoc(k){
   if(!m){try{m=(await api(dq('/api/meta',k),{what:'문서 열기',where:NOTICE_HOST.LINE,retry:()=>{switchDoc(k);}})).data;}catch(e){if(seq===SWITCHSEQ)restoreDraft(); return;} if(seq!==SWITCHSEQ)return;}
   DOC=k; META=m; META_BY.set(k,m); savePrefs({lastDoc:k}); setHash(k);
   hideTip(); showDoc(VIEW_BY.get(k)); openDraftDoc();
+  if(inPages&&(!document.activeElement||document.activeElement===document.body))searchToPage();
   if(cached){try{const f=(await api(dq('/api/meta',k),{what:'문서 열기',silent:true})).data;
     if(seq===SWITCHSEQ&&DOC===k){const changed=f.pages_build!==META.pages_build||f.pages.length!==META.pages.length;
       META_BY.set(k,f); if(changed)await refreshDoc(f); else{META=f; drawMeta();}}}catch(e){}}
