@@ -491,7 +491,11 @@ async function savePageVerdict(page,key,kb,ctx0){const ctx=ctx0||pvSaveCtx(page)
     drawPageVerdicts();
     if(currentVisit(visit)&&kb&&!away){const c=/** @type {HTMLElement|null} */(document.querySelector('#doc .pv[data-page="'+page+'"] [data-act="pv-reason-open"]'));
       if(c&&saved)c.focus({preventScroll:true}); else pvRefocus(page,key);
-      if(saved&&document.activeElement===document.body)pvFocusLine(page);}   // never left on nothing: the line's own control
+      if(saved&&document.activeElement===document.body)pvFocusLine(page);   // never left on nothing: the line's own control
+      // The focus the save moved there raises no description box: the press's own description of the pressed word stands
+      // over the words for a few seconds (pvOnShow), and on a one-row line at 1280 the two boxes overlapped by 39px (#308
+      // review). A focus the person moves raises it as before.
+      if(saved)hideTip();}
     const nx=PV_NEXT.get(slot); PV_NEXT.delete(slot);
     if(nx){const cur=pvCurOn(ctx.doc,page);   // the last press made meanwhile, on the document it was made on
       if(!(cur&&verdictOf(cur)===nx.key)){const fresh=here()?pvSaveCtx(page):null; savePageVerdict(page,nx.key,!!nx.how,fresh||ctx);}}}}
@@ -750,9 +754,12 @@ function pvFit(lines){const held=lines.map(pvRowsHeld),D=$('#doc');
   // A stacked line's state rows are the reading line's too: their height, measured here with what only the reading line shows
   // ([이유 추가], laid out unseen), is the least the state takes (--pv-t-h, components.css). Beside an earlier link a 420px
   // line's state wrapped to a second row only while it was read, and the line grew by it (91 -> 123px, #308 review).
+  // Where that is more than the state takes now (.pv-t-kept), its rows stand at the top and the room is kept under them: centred
+  // in it, a resting line's state stood 40-65px off its identifier's row (#308 review).
   const th=lines.map((l,i)=>{const t=over[i]?l.querySelector(':scope>.pv-t'):null; return t?t.getBoundingClientRect().height:0;});
-  lines.forEach((l,i)=>{if(th[i])l.style.setProperty('--pv-t-h',th[i]+'px');});
   D.classList.remove('pv-measure');
+  const nat=lines.map((l,i)=>th[i]?/** @type {HTMLElement} */(l.querySelector(':scope>.pv-t')).getBoundingClientRect().height:0);
+  lines.forEach((l,i)=>{if(held[i])return; const k=th[i]>nat[i]+0.5; l.classList.toggle('pv-t-kept',k); if(k)l.style.setProperty('--pv-t-h',th[i]+'px');});
   pvChipPlace(lines);
   // A word group that wraps keeps every button at its own width (vdWrapFit), read for every line before any is written.
   const groups=lines.map(l=>l.querySelector('.vd-btns')),wrap=groups.map(g=>!!g&&new Set([...g.children].map(b=>Math.round(b.getBoundingClientRect().top))).size>1);

@@ -6039,14 +6039,15 @@ BAR = """async n=>{const frame=()=>new Promise(r=>requestAnimationFrame(()=>requ
   return {w,line:l().getBoundingClientRect().width};}"""
 
 
-# Page 2's width swept 8px at a time (400-720px): for each, page 2's line (its stacking, height and width) while page 1 is read and while
-# page 2 is - the widths where the two differ (bad) and the stackings seen.
+# Page 2's width swept 8px at a time (400-720px): for each, page 2's line (its stacking, height, width and how far its state
+# stands under its top) while page 1 is read and while page 2 is - the widths where the two differ (bad) and the stackings seen.
 SWEEP_READ = """async()=>{const L=document.querySelector('#left'),l2=()=>document.querySelector('#doc .pv[data-page="2"]'),bad=[],seen=new Set();
   const frame=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
   const read=async n=>{const p=document.getElementById('p'+n); L.scrollTop+=p.getBoundingClientRect().top-L.getBoundingClientRect().top-(n===1?0:2);
-    await frame(); pvStick(); await frame(); const b=l2().getBoundingClientRect(); return [PV_READ,l2().classList.contains('pv-stack'),Math.round(b.height),Math.round(b.width)];};
+    await frame(); pvStick(); await frame(); const b=l2().getBoundingClientRect(),s=l2().querySelector('.pv-s').getBoundingClientRect();
+    return [PV_READ,l2().classList.contains('pv-stack'),Math.round(b.height),Math.round(b.width),Math.round(s.top-b.top)];};
   for(let w=400;w<=720;w+=8){setK(w/META.pages[1].pt_w,false); ZOOMED=true; await frame();
-    const a=await read(1),b=await read(2); if(a[0]!==1||b[0]!==2)continue; seen.add(a[1]); if(a[1]!==b[1]||a[2]!==b[2])bad.push([w,a,b]);}
+    const a=await read(1),b=await read(2); if(a[0]!==1||b[0]!==2)continue; seen.add(a[1]); if(a.slice(1).join()!==b.slice(1).join())bad.push([w,a,b]);}
   return {bad,seen:[...seen]};}"""
 
 
@@ -6170,9 +6171,10 @@ class LinePolish(VerdictBase):
     def test_a_line_with_an_earlier_verdict_keeps_its_rows_whichever_page_is_read(self):
         """Page 2 with the person's own open verdict, no reason, and an earlier one (its link), both made elsewhere - no save
         on this screen, so its line shows [이유 추가] only while it is read. Page 2's width swept across its bar 8px at a time,
-        Korean and English, on the wide band and the side-panel band (1000 x 800): the line's rows and height are the same
-        while page 1 is read and while page 2 is, and the sweep crosses the bar. Fitted with [이유 추가] only where it
-        showed, the line stacked only while it was read (#308 review)."""
+        Korean and English, on the wide band and the side-panel band (1000 x 800): the line's rows, its height and where its
+        state stands in it are the same while page 1 is read and while page 2 is, and the sweep crosses the bar. Fitted with
+        [이유 추가] only where it showed, the line stacked only while it was read; kept as tall as the reading line's, a
+        resting line's state stood centred in the room, 40-65px off its identifier (#308 review)."""
         verdict_as(self, self.WHO, 2, "보류")
         verdict_as(self, self.WHO, 2, "채택")
         for lang in ("ko", "en"):
@@ -6184,6 +6186,37 @@ class LinePolish(VerdictBase):
                     got = page.evaluate(SWEEP_READ)
                     self.assertEqual((got["bad"], sorted(got["seen"])), ([], [False, True]), got)
                     page.context.close()
+
+    def test_a_key_saves_focus_raises_no_box_over_the_pressed_words_description(self):
+        """English, the panel open, at 1280 x 800 and 1440 x 900, page 2 as wide as the room and read: a digit saves a verdict
+        and its focus goes to 'Enter reason'. That focus raises no description box ('Write why for this verdict…'), so nothing lies
+        over the pressed word's own description shown over the words ('Current verdict: 보류 · press again to retract it'):
+        at 1280 the two boxes overlapped by 39px (#308 review)."""
+        for n, (w, h, key) in enumerate(((1280, 800, "2"), (1440, 900, "1")), start=1):  # a new verdict each time
+            with self.subTest(viewport=(w, h)):
+                page = self.on("fig", lang="en", viewport={"width": w, "height": h})
+                page.evaluate("setSide(true)")
+                settle(page)
+                page.evaluate("()=>{setK((innerW()-pvInsetR())/META.pages[1].pt_w,false); ZOOMED=true;}")
+                page.evaluate(self.TITLES, self.LONG)
+                settle(page)
+                page.evaluate(SCROLL, [2, "top"])
+                settle(page)
+                page.mouse.move(1, 1)
+                page.keyboard.press(key)
+                page.wait_for_function("n=>OPEN_ALL.length===n&&!PV_BUSY.size", arg=n)
+                settle(page)
+                page.wait_for_timeout(400)  # past the 300ms a focus waits before its box
+                got = page.evaluate(
+                    """()=>{const t=document.querySelector('#tip'),h=document.querySelector('#doc .pv[data-page="2"] .pv-onhint'),a=document.activeElement;
+                      const box=e=>e&&!e.hidden&&e.getClientRects().length?e.getBoundingClientRect():null,T=box(t),H=box(h);
+                      return {focus:a&&a.dataset?a.dataset.act:null,hint:!!H,tip:T?t.textContent:null,
+                        overlap:T&&H?Math.max(0,Math.min(T.right,H.right)-Math.max(T.left,H.left))*Math.max(0,Math.min(T.bottom,H.bottom)-Math.max(T.top,H.top)):0};}"""
+                )
+                self.assertEqual(
+                    (got["focus"], got["hint"], got["tip"], got["overlap"]), ("pv-reason-open", True, None, 0), got
+                )
+                page.context.close()
 
     def held_key_saves_at_the_bar(self, lang):
         page = self.on("fig", lang=lang)

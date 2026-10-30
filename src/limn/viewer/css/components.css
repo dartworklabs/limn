@@ -307,6 +307,7 @@ body.band-phone .pv.pv-lean .pv-cn{display:none}
 /* A stacked line puts its state on a row of its own and its buttons on the next, at its start, filling the row - or sharing
    it with a save chip at its end (notices.css). */
 .pv.pv-stack>.pv-t{flex-basis:100%;min-height:max(var(--pv-ctl),var(--pv-t-h,0px))}   /* --pv-t-h: the reading line's state rows (verdict.js pvFit) */
+.pv.pv-stack.pv-t-kept>.pv-t{align-content:flex-start}   /* kept taller than its state: the rows at the top, under the identifier */
 /* The state's row is as tall from the start as a text action makes it ([이유 추가], [판정 취소]: 32px with a mouse, 44px on
    touch): a line in its place grows downward, and a phone's first verdict moved its words 25px down under the finger. */
 @media (pointer:coarse){.pv.pv-stack>.pv-t{min-height:max(var(--hit),var(--pv-t-h,0px))}

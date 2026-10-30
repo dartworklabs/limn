@@ -12,7 +12,9 @@
   row's height, the line's height and its words' places are unchanged whichever page is read (#308).
 - **English: `Retract` for 판정 취소, `Enter reason` after a key save.** The line's take-back reads `Retract` (was
   `Cancel verdict`), with the same verb in its description, its name, the pressed word's hint and the status line
-  (`Verdict #17 채택 retracted · …`); after a digit-key save the way to the reason reads `Enter reason` (was
+  (`Verdict #17 채택 retracted · …`), and every English take-back wording says retract (the keys' help, the save's undo,
+  the card's [Erase], `Undo — retracted verdict #17`, `… was retracted elsewhere`); after a digit-key save the way to the
+  reason reads `Enter reason` (was
   `Enter write a reason`). Both are the line's own words, sized for one row beside the words on a 620px line.
 
 ### Fixed
@@ -34,7 +36,11 @@
   its bar only while it was read, and a stacked one grew a row (91 -> 123px at 420px) - breaking 0.4.34's rule that the
   reading page never changes a line's height. Such a line now holds that `이유 추가` hidden (never shown, focused or read
   aloud), and the fit lays it out unseen, as it does the identifier and the key digits; a stacked line keeps the reading
-  line's state height as its least (`--pv-t-h`).
+  line's state height as its least (`--pv-t-h`), its state rows at the top under the identifier and the room kept below.
+- **No description box over the pressed word's description after a key save.** The focus a digit-key save moves to
+  `Enter 이유 쓰기` no longer raises that control's description box; on a one-row English line at 1280 it overlapped the
+  pressed word's description (`Current verdict: … press again to retract it`) by 39px. A focus the person moves raises
+  it as before.
 
 ## 0.4.34 — 2026-10-30
 
