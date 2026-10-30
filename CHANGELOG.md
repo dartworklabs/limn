@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **Scrolling the PDF with hundreds of pins in the open panel no longer stalls** (#305). Each page PDF.js draws for the
+  first time adds its embedded fonts to `document.fonts`, and every font added makes the browser lay out all the text in
+  the page again - every card in the open panel with it. On a 91-page figure document (`pl`) with 127 pins the first wheel
+  scroll had 77-84 long tasks (4.4-4.9 s); with the panel folded, none. Cards more than a view's height above or below the
+  list's view are now left for the browser to skip (`content-visibility: auto`), so a font added lays out the cards near
+  the view only. With 200 pins on the same document (1400 x 850, the same wheel scroll from the top to the end) the long
+  tasks went from 106-120 (7.2-8.3 s) to 8-9 (0.4-0.5 s), frames over 50 ms from 78-92 to 2-4, and the layout after a
+  font from 19,674 laid-out objects to 7,403; what is left is the pages' verdict lines and the outline.
+  Nothing looks different. A card in view or near it is never skipped (skipping contains a card, which snaps its text to
+  whole pixels and clips focus rings and touch targets), and a skipped card's markup is always current. It stands at the
+  height it had when it went; every card is drawn once more and sorted again when the list's width changes, when it is
+  shown (the panel or the sheet opened) and when a slice of the list's font arrives, so the list does not move under a
+  person scrolled down it and a jump to a card is aimed by real heights. A redraw also puts the card at the top of the
+  view back where it stood, as the browser's scroll anchoring would, so a card above it that someone else made longer no
+  longer pushes the list. The card being edited or holding the reply box is never skipped. A browser test bounds the
+  layout per font added with 300 pins by a count from a Chrome trace, not a duration.
+
 ## 0.4.34 — 2026-10-30
 
 The page verdict line from an owner-requested UX review of 0.4.33 on a figure document (`pl`), and agents told which

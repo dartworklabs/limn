@@ -112,6 +112,7 @@ function toggleSec(key,force){if(!(key in SEC_DEFAULT))return; SEC[key]=force===
 // those whose pins left it go, with [검토 M]'s dot (dropStaleReview).
 /** Redraw active lists and retain the live editor, even when a rival close moved its pin out of the open list. */
 function drawPins(){dropStaleReview();
+  const keep=listKeep();   // the row at the top of the list's view, put back where it stood once the cards are drawn (lazyCards)
   const LIST=listOpen(),LDONE=listDone(),LDROP=listDropped();
   const nfocus=noticeFocus();   // a focus in an undo row or note, given back once they are drawn again (drawOffers)
   // The '나를 부른 핀' filter: only the open/awaiting-review pins across every document that @-tagged me (a cross-document inbox).
@@ -148,9 +149,65 @@ function drawPins(){dropStaleReview();
   if($('#trash').open)drawTrash();
   if(REPLY){const slot=document.querySelector('#list .reply-slot'); if(slot)slot.replaceWith(REPLY.el); renderReplyOutcome();   // the pin may have changed state meanwhile
     if(rfocus&&rta&&document.contains(rta)){rta.focus(); try{rta.setSelectionRange(rfocus[0],rfocus[1]);}catch(e){}}}
-  drawOffers(nfocus); drawBanners(); cardFocusBack(cfocus);
+  drawOffers(nfocus); drawBanners(); lazyCards(keep); cardFocusBack(cfocus);
   if(REV.target)revTargetActs();
 }
+// Cards far from the list's view are left for the browser to skip (.lazy: content-visibility:auto, list.css): it does not
+// lay them out or paint them until they come near the view. Their markup stays whole and current all the while - a card
+// coming back is drawn from what it holds then - and a focus, a find or a selection reaching into one draws it at once; a
+// script's measure inside one lays it out for the answer, but the innerText of what is skipped is empty.
+// What it saves: each page PDF.js draws for the first time adds its embedded fonts to document.fonts, and every font added
+// makes the browser lay out all the text in the page again - every card in the open panel with it. 127 cards made the first
+// wheel scroll through a 91-page figure document 77-84 long tasks (4.4-4.9s), none with the panel folded (issue #305).
+// Only a card more than a view's height above or below the list's view is skipped (LAZY_IO): skipping contains a card
+// (paint containment), which draws its parts on whole pixels and clips what reaches past its edge (a focus ring, a 44px
+// touch target's hit area), so a card in view, or scrolled to, is never held and draws as it always did. A card being
+// edited or holding the reply box is never skipped: containment would hold the fixed action row (compact) inside the card.
+// A skipped card stands at the height it had when it went (--card-h, from the observer's own measure: no extra layout).
+// With a guessed height instead the list moved under a person scrolled down it at every draw, by the guess's error over
+// every card above, and a jump to a card (a mark's badge, [검토 M]) would aim by guesses. The height goes stale when the
+// list's width or its font changes, so then every card is drawn again and sorted anew (lazyAgain), as at each draw - which
+// makes new cards, all drawn once. A height that goes stale otherwise (a card changed in place while skipped) comes right
+// as the card comes near: the browser's scroll anchoring keeps the view where it stands as it grows or shrinks. A draw
+// makes new elements, which that anchoring cannot hold, so the row at the top of the view before it (listKeep) is put back
+// where it stood: its cards may stand at other heights than the ones they replace.
+let LAZY_IO=/** @type {IntersectionObserver|null} */(null),LAZY_ROOT=/** @type {HTMLElement|null} */(null),LAZY_W=0;
+/** @param {{sel:string,top:number}|null} keep */
+function lazyCards(keep){const k=keep&&/** @type {HTMLElement|null} */(document.querySelector(keep.sel)),S=listScroller();
+  if(k&&k.getClientRects().length){const moved=k.getBoundingClientRect().top-keep.top; if(Math.abs(moved)>=0.5)S.scrollTop+=moved;}
+  const L=$('#list'); LAZY_W=L.getClientRects().length?L.clientWidth:0;
+  if(!window.IntersectionObserver)return;
+  if(!LAZY_IO||LAZY_ROOT!==S){if(LAZY_IO)LAZY_IO.disconnect(); LAZY_ROOT=S; LAZY_IO=new IntersectionObserver(lazySort,{root:S,rootMargin:'100% 0px'});}
+  else LAZY_IO.disconnect();   // the cards of the last draw are gone: each card is sorted from its first report
+  for(const c of $$('#list .pin.card'))LAZY_IO.observe(c);}
+// The observer's reports: a card that came within a view's height of the list's view is drawn as it is; one that went
+// further is skipped at the height it has now - not a card that is not laid out (the panel folded: no height to stand at),
+// being edited or holding the reply box.
+/** @param {IntersectionObserverEntry[]} es */
+function lazySort(es){for(const e of es){const c=/** @type {HTMLElement} */(e.target);
+  if(e.isIntersecting){c.classList.remove('lazy'); continue;}
+  if(c.classList.contains('lazy')||!e.boundingClientRect.height||c.classList.contains('editing')||c.querySelector('.reply-box'))continue;
+  const s=getComputedStyle(c);   // the content box: what contain-intrinsic-size sets
+  c.style.setProperty('--card-h',e.boundingClientRect.height-parseFloat(s.paddingTop)-parseFloat(s.paddingBottom)-parseFloat(s.borderTopWidth)-parseFloat(s.borderBottomWidth)+'px');
+  c.classList.add('lazy');}}
+// Every card drawn once more and sorted anew, the row at the top of the view kept in place: the skipped cards' heights are
+// stale. So they are when the list's width changes or it is shown (a card not laid out was not skipped), and when a font the
+// list is set in comes in (a slice of the bundled Pretendard for letters not drawn before): their heights were read in the
+// fallback face. The fonts PDF.js adds are not the list's, and fire no loadingdone besides.
+function lazyAgain(){const keep=listKeep(); $$('#list .pin.card.lazy').forEach(c=>c.classList.remove('lazy')); lazyCards(keep);}
+if(window.ResizeObserver)new ResizeObserver(()=>{const L=$('#list'),w=L.getClientRects().length?L.clientWidth:0; if(w&&w!==LAZY_W)lazyAgain();}).observe($('#list'));
+document.fonts.addEventListener('loadingdone',e=>{if(!$$('#list .pin.card.lazy').length)return; const ff=getComputedStyle($('#list')).fontFamily;
+  if(/** @type {FontFaceSetLoadEvent} */(e).fontfaces.some(f=>ff.includes(f.family.replace(/^["']|["']$/g,''))))lazyAgain();});
+// The box the list scrolls in: the list itself, or in compact the panel (#right), which holds the tool bar above it.
+function listScroller(){return document.body.classList.contains('compact')?$('#right'):$('#list');}
+// The first card or archive row whose bottom is below the top of the list's view, and its top: the row lazyCards puts back.
+// None while the list is at its top (the browser does not anchor there either: what a draw adds above it shows) or is not
+// laid out.
+/** @returns {{sel:string,top:number}|null} */
+function listKeep(){const S=listScroller(); if(!S.scrollTop||!S.getClientRects().length)return null; const top=S.getBoundingClientRect().top;
+  for(const r of /** @type {HTMLElement[]} */($$('#list .pin[data-id],#list .arc-row[data-id]'))){if(!r.getClientRects().length)continue; const b=r.getBoundingClientRect();
+    if(b.bottom>top)return {sel:'#list '+(r.classList.contains('arc-row')?'.arc-row':'.pin')+'[data-id="'+CSS.escape(r.dataset.id||'')+'"]',top:b.top};}
+  return null;}
 // A focus on a card's control (its number, a button) goes back to the same control of the same card once the lists are drawn
 // again (a poll, someone's change, the list read after a [지우기] whose focus went to the card beside): drawn anew, it fell
 // to the page and the next Tab started over. Text fields keep theirs above; a card gone leaves the focus where it fell, and a
