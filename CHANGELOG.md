@@ -8,9 +8,11 @@
   the line sits under the status chips, about 114px from the top: four stacked messages put the list's top at -76px at
   1400 x 850, its first two rows and their [되돌리기] above the window. The list now opens over the line where the whole
   list fits there (under it in the short band's top row, as before), else on the other side where it fits, else on the
-  side with more room, cut to it with its rows scrolling inside; it is placed again when the window changes size while
-  it is open. Desktop 1400 x 850, an unfolded foldable 882 x 1104 and a phone 390 x 844 (sheet folded or open): every
-  row's action is on screen and takes a press (#314).
+  side with more room, cut to it with its rows scrolling inside. The room is counted in the part of the window a person
+  sees (a keyboard that does not resize the layout, a pinch zoom), and the list is placed again while it is open when
+  its rows change (a list opened over the line with two rows kept scrolling in that room as more came) or the window or
+  its visible part changes. Desktop 1400 x 850, an unfolded foldable 882 x 1104 and a phone 390 x 844 (sheet folded or
+  open): every row's action is on screen and takes a press (#314).
 - **No `단축키 1` on a touch screen.** A page verdict word's description ended in `· 단축키 1` (`· 단축키 3 (두 번)`
   for a confirm word) on every screen, so a long press on a phone named a key it has none of. The key is now said - in
   the description and as `aria-keyshortcuts` - only where its mark is drawn after the word, a mouse screen

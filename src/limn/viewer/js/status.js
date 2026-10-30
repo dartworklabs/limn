@@ -124,7 +124,7 @@ function drawStatus(){const box=$('#status'),sr=box.querySelector('.st-sr'),body
   const top=list[0]; STATUS_TOP=top&&top.notice?top.notice.n:0;
   const m=$('#m-rebuild'); if(m){m.disabled=running; const tail=m.querySelector('.m-tail'); if(tail)tail.hidden=!running;}
   document.body.classList.toggle('has-status',!!top); box.hidden=!top;
-  if($('#status-list').open)drawStatusList(list);
+  if($('#status-list').open){drawStatusList(list); placeStatusListSoon();}   // its rows changed: placed again once the line is drawn
   if(!top){if(STATUS_SIG){body.replaceChildren(); STATUS_SIG='';} sr.textContent=''; lineVisible(false); return;}   // hidden: it holds nothing
   const sig=top.kind+'|'+(top.act||'')+'|'+list.length+'|'+(top.state||'')+'|'+(top.notice?top.notice.n:'');
   if(sig!==STATUS_SIG){STATUS_SIG=sig;
@@ -170,24 +170,32 @@ function statusWhy(btn){const text=syncWhyText(STATUS_SYNC); showTipText(btn.get
 function toggleStatusList(){const d=$('#status-list'); if(d.open){d.close(); return;}
   drawStatusList(statusShown(statusList(statusInput()),LAYOUT===LAYOUT_MODE.WIDE)); hideTip(); d.showModal(); placeStatusList(); holdLine();}
 // Which side of the status line the '+N' list opens on, for a list h px tall with room px free above and below the line
-// (to 8px off the window's edge): its own side - over the line, or under it when the line is the short band's top row
+// (to 8px off the edge of the window's visible part): its own side - over the line, or under it when the line is the short band's top row
 // (under) - where the whole list fits there, else the other side where it fits, else the side with more room, where the list
 // is cut to that room and scrolls. True for over the line. Pure.
 /** @param {number} h @param {number} above @param {number} below @param {boolean} under */
 function statusListUp(h,above,below,under){if(h<=(under?below:above))return !under; if(h<=(under?above:below))return under; return above>=below;}
 // Puts the open '+N' list 4px off the status line on the side statusListUp picks, and lets it grow only to 8px off the
-// window's edge on that side (--sl-room); its rows scroll inside that. The list always opened over the line: on a desktop
-// the line sits under the status chips, about 114px from the top, and four rows over it put the first two above the window
-// (top -76px at 1400x850) with their [되돌리기] out of reach (#314). Measured with no cut first, so a list that fits is
-// never cut. A window that changes size while it is open (a phone's toolbar, a rotation within the band) places it again;
-// a band change folds it (placeStatus).
+// visible part's edge on that side (--sl-room); its rows scroll inside that. The list always opened over the line: on a
+// desktop the line sits under the status chips, about 114px from the top, and four rows over it put the first two above
+// the window (top -76px at 1400x850) with their [되돌리기] out of reach (#314). The room is counted in the part of the
+// window a person sees (visualViewport: a keyboard that does not resize the layout, a pinch zoom), not the whole window,
+// under which the lower rows stood behind such a keyboard; a line outside that part still gets the list at least a row
+// tall. The list's full height is its content's (scrollHeight, with its border), read without undoing the cut, so a list
+// scrolled down stays where it was. Placed again while it is open when its rows change (drawStatus: a new message, one
+// that leaves - a list opened over the line with two rows got more and kept scrolling in that room), when the window or
+// its visible part changes size or moves; a band change folds it (placeStatus).
 function placeStatusList(){const d=$('#status-list'); if(!d.open)return;
-  const r=$('#status').getBoundingClientRect(),above=r.top-4-8,below=innerHeight-r.bottom-4-8;
-  d.style.setProperty('--sl-room','none'); d.style.top='0px'; d.style.bottom='auto';
-  const up=statusListUp(d.offsetHeight,above,below,BAND===LAYOUT_BAND.SHORT);
-  d.style.setProperty('--sl-room',Math.max(0,Math.floor(up?above:below))+'px');
+  const vv=window.visualViewport,vt=vv?vv.offsetTop:0,vb=vv?vt+vv.height:innerHeight,r=$('#status').getBoundingClientRect();
+  const above=Math.min(r.top,vb)-vt-4-8,below=vb-Math.max(r.bottom,vt)-4-8,h=d.scrollHeight+d.offsetHeight-d.clientHeight;
+  const row=/** @type {HTMLElement|null} */(d.querySelector('.st-row')),one=h-$('#status-list-rows').offsetHeight+(row?row.offsetHeight:0);   // a row, its padding, border
+  const up=statusListUp(h,above,below,BAND===LAYOUT_BAND.SHORT); d.style.setProperty('--sl-room',Math.floor(Math.max(up?above:below,one))+'px');
   d.style.top=up?'auto':Math.round(r.bottom+4)+'px'; d.style.bottom=up?Math.round(innerHeight-r.top+4)+'px':'auto';}
-addEventListener('resize',placeStatusList);
+// placeStatusList at the next frame, once for all the changes before it: the line is drawn by then.
+let STATUS_LIST_PLACE=0;
+function placeStatusListSoon(){if(!STATUS_LIST_PLACE)STATUS_LIST_PLACE=requestAnimationFrame(()=>{STATUS_LIST_PLACE=0; placeStatusList();});}
+addEventListener('resize',placeStatusListSoon);
+{const vv=window.visualViewport; if(vv){vv.addEventListener('resize',placeStatusListSoon); vv.addEventListener('scroll',placeStatusListSoon);}}
 
 // Moves #status to the band's place - the dock over the sheet (phone, tablet sheet), the short band's top row after the view
 // switch, the mid action row's middle, the desktop's line under its status chips (#status-wide) - keeping a focus that was

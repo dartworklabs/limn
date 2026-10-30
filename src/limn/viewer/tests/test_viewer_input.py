@@ -1647,6 +1647,19 @@ FOUR_UNDOS = """()=>{window.RAN=[]; for(let i=1;i<=4;i++)lineNote('판정 #'+(40
 LIST_ROWS = """()=>[...document.querySelectorAll('#status-list .st-row [data-act=notice-act]')].map(b=>{const r=b.getBoundingClientRect(),
   h=document.elementFromPoint((r.left+r.right)/2,(r.top+r.bottom)/2);
   return {top:Math.round(r.top),inside:r.top>=0&&r.left>=0&&r.bottom<=innerHeight&&r.right<=innerWidth,hit:!!h&&b.contains(h)};})"""
+# Two undos on the status line, as FOUR_UNDOS.
+TWO_UNDOS = FOUR_UNDOS.replace("i<=4", "i<=2")
+# Whether the open '+N' list stands over the status line.
+LIST_OVER_LINE = (
+    "document.querySelector('#status-list').getBoundingClientRect().bottom"
+    "<=document.querySelector('#status').getBoundingClientRect().top"
+)
+# Each row of the open '+N' list, its action scrolled into the list's view: whether that action lies whole inside the
+# visible part of the window (visualViewport) and is what a press at its centre hits.
+SEEN_ROWS = """()=>{const v=window.visualViewport,t=v?v.offsetTop:0,H=v?v.height:innerHeight;
+  return [...document.querySelectorAll('#status-list .st-row [data-act=notice-act]')].map(b=>{b.scrollIntoView({block:'nearest'});
+    const r=b.getBoundingClientRect(),h=document.elementFromPoint((r.left+r.right)/2,(r.top+r.bottom)/2);
+    return {top:Math.round(r.top),inside:r.top>=t&&r.bottom<=t+H,hit:!!h&&b.contains(h)};});}"""
 
 
 class StatusListRoom(ViewerBase):
@@ -1681,6 +1694,52 @@ class StatusListRoom(ViewerBase):
                     page.mouse.click(x, y)
                 page.wait_for_function("window.RAN.length>0")
                 self.assertEqual(page.evaluate("window.RAN"), [4])
+
+    def test_notices_that_come_while_it_is_open_place_it_again(self):
+        """Desktop 1400x850: two undos open the list over the line, where two rows fit; two more come while it is open.
+        It is placed again - under the line, where four fit - so every row's [되돌리기] is shown and takes a press there
+        without scrolling. It kept the room it opened in (102px over the line) and scrolled its four rows inside it."""
+        page = self.view(DESK)
+        page.evaluate(TWO_UNDOS)
+        settle(page)
+        page.locator("#status .st-more").click()
+        page.wait_for_selector("#status-list[open]")
+        settle(page)
+        self.assertTrue(page.evaluate(LIST_OVER_LINE))
+        page.evaluate(
+            "()=>{for(let i=3;i<=4;i++)lineNote('판정 #'+(40+i)+' 저장됨',NOTICE_KIND.OK,"
+            "{label:'되돌리기',fn:()=>window.RAN.push(i)},{life:NOTICE_LIFE.STICKY,undo:true});}"
+        )
+        settle(page)
+        rows = page.evaluate(LIST_ROWS)
+        self.assertEqual([(r["inside"], r["hit"]) for r in rows], [(True, True)] * 4, rows)
+
+    def test_a_visible_part_smaller_than_the_window_keeps_every_row_reachable(self):
+        """A keyboard or a zoom that shrinks only the visible part of the window (visualViewport), the layout as it was:
+        a landscape phone's short band with a 200px keyboard, the desktop zoomed to its top 250px. Raised after the list
+        opened (it is placed again) and before (it opens in that part): each row's [되돌리기], scrolled into the list's
+        view, is inside the visible part and takes a press there. The list was placed by the window: its lower rows
+        stood behind the keyboard or under the visible part."""
+        screens = (
+            ("short band", {"viewport": {"width": 844, "height": 390}, "is_mobile": True, "has_touch": True}, 200),
+            ("desktop", DESK, 600),
+        )
+        for name, device, kb in screens:
+            for when in ("after it opened", "before it opened"):
+                with self.subTest(screen=name, keyboard=when):
+                    page = self.view(device, init=KB_VISUAL_ONLY)
+                    page.evaluate(FOUR_UNDOS)
+                    settle(page)
+                    if when == "before it opened":
+                        page.evaluate("n=>window.__setKb(n)", kb)
+                        settle(page)
+                    page.evaluate("toggleStatusList()")
+                    page.wait_for_selector("#status-list[open]")
+                    if when == "after it opened":
+                        page.evaluate("n=>window.__setKb(n)", kb)
+                    settle(page)
+                    rows = page.evaluate(SEEN_ROWS)
+                    self.assertEqual([(r["inside"], r["hit"]) for r in rows], [(True, True)] * 4, rows)
 
 
 # A mouse window in the mid layout, and a wide desktop window.
