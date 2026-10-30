@@ -124,7 +124,7 @@ function pvPanelFit(l){l.classList.remove('pv-tight','pv-early-out','pv-t-kept',
 function pvBring(page,smooth){const L=$('#left'),pg=document.getElementById('p'+page); if(!pg)return;
   const lr=L.getBoundingClientRect(),r=pg.getBoundingClientRect(),pad=parseFloat(getComputedStyle(L).paddingTop),d=readingDepth(L);
   const top=r.height>d-pad+24?pad:d-r.height/2,by=r.top-lr.top-top;
-  if(smooth)L.scrollBy({top:by,behavior:SMOOTH}); else L.scrollTop+=by;}
+  if(smooth)pvGlideTo(L.scrollTop+by); else L.scrollTop+=by;}
 
 // ---------------- The summary under each page
 // The summary's words: what its row says, for its name.

@@ -1062,7 +1062,7 @@ function jumpPv(id){if(!PV_SHOWN.has(id))return false; const p=PINS.find(x=>x.id
   if(PV_SIDE){if(!document.getElementById('p'+t.page))return false; pvBring(t.page,true); flash(pvPanel()); return true;}   // the panel follows the page to the reading place
   const line=/** @type {HTMLElement|null} */(document.querySelector('#doc .pv[data-page="'+t.page+'"]')); if(!line)return false;
   const block=/** @type {HTMLElement} */(line.parentElement),L=$('#left');
-  block.scrollIntoView({behavior:SMOOTH,block:block.getBoundingClientRect().height<=L.clientHeight?'center':'start'}); flash(line); return true;}
+  pvGlideInto(block,block.getBoundingClientRect().height<=L.clientHeight?'center':'start'); flash(line); return true;}
 
 // ---------------- Lines far from the view (docs/handbook/viewer.md §판정 핀)
 // A line more than a view's height above or below what the PDF area shows is left for the browser to skip (.pv-far:
@@ -1280,8 +1280,8 @@ addEventListener('keydown',verdictKey);
 // press or scrolling key of the person's came in the 500ms before it began. While it glides the page under the reading line
 // is one it passes, not the one asked for: a verdict key or Enter then would act on a page scrolled past (an outline jump
 // to page 64 saved 보류 on page 12). A scroll the person makes goes on acting at once; an instant jump ends at once.
-let PV_SCROLL_AT=0,PV_SCROLL_HAND=0,PV_GLIDE=false;
-const PV_HAND=()=>{PV_SCROLL_HAND=performance.now(); PV_GLIDE=false;};   // the person takes the pages over
+let PV_SCROLL_AT=0,PV_SCROLL_HAND=0,PV_GLIDE=false,PV_JUMP=/** @type {number|null} */(null);   // PV_JUMP: the scrollTop a jump is going to
+const PV_HAND=()=>{PV_SCROLL_HAND=performance.now(); PV_GLIDE=false; PV_JUMP=null;};   // the person takes the pages over
 for(const t of ['wheel','touchstart','touchmove','pointerdown'])$('#left').addEventListener(t,PV_HAND,{passive:true,capture:true});
 $('#left').addEventListener('pointermove',e=>{if(e.buttons)PV_HAND();},{passive:true,capture:true});   // a scroll bar dragged
 // A scrolling key is the person's hand on the pages only where it scrolls them: on the PDF area, on a control in it (a
@@ -1294,13 +1294,23 @@ addEventListener('keydown',e=>{if(!SCROLL_KEYS.has(e.key))return; const t=e.targ
   if(e.key===' '&&t instanceof Element&&t.closest('button,[role=button],summary'))return;
   PV_HAND();},true);
 const PV_SCROLLEND='onscrollend' in window;
-$('#left').addEventListener('scroll',()=>{const t=performance.now(); if(t-PV_SCROLL_AT>200)PV_GLIDE=t-PV_SCROLL_HAND>500; PV_SCROLL_AT=t;},{passive:true});   // a new run of scrolling decides
-$('#left').addEventListener('scrollend',()=>{PV_GLIDE=false;});
+$('#left').addEventListener('scroll',()=>{const t=performance.now(); if(PV_JUMP!==null&&t-PV_SCROLL_AT>1000)PV_JUMP=null;   // a jump that never got there
+  if(PV_JUMP===null&&t-PV_SCROLL_AT>200)PV_GLIDE=t-PV_SCROLL_HAND>500; PV_SCROLL_AT=t;},{passive:true});   // a new run of scrolling decides, unless a jump said what it is
+// The end of a jump is at its place: a manual scroll's own end, coming after the jump began, ended the guard in its first frames.
+$('#left').addEventListener('scrollend',()=>{if(PV_JUMP!==null&&Math.abs($('#left').scrollTop-PV_JUMP)>2)return; PV_JUMP=null; PV_GLIDE=false;});
 function pvAutoScrolling(){return PV_GLIDE&&performance.now()-PV_SCROLL_AT<(PV_SCROLLEND?1000:160);}
-// A jump to element el is about to glide there: from now, not from its first scroll event a frame later, in which a digit acted on
-// the page being left.
-/** @param {Element} el */
-function pvGlideSoon(el){if(SMOOTH==='smooth'&&Math.abs(el.getBoundingClientRect().top-$('#left').getBoundingClientRect().top)>1){PV_GLIDE=true; PV_SCROLL_AT=performance.now();}}
+// Every smooth jump of the PDF area starts here (a page, an outline entry's place, a card's [보기]): it is a glide from now, not
+// from its first scroll event a frame later, in which a digit acted on the page being left, and whatever the hand did just
+// before - a recent wheel made the guard take the jump for the person's own scroll. Nothing to glide (reduced motion, or
+// already there): no guard, no scroll event would end it.
+/** @param {number} to - the scrollTop it goes to */
+function pvGlideArm(to){const L=$('#left'),top=Math.max(0,Math.min(L.scrollHeight-L.clientHeight,to));
+  if(SMOOTH==='smooth'&&Math.abs(top-L.scrollTop)>1){PV_JUMP=top; PV_GLIDE=true; PV_SCROLL_AT=performance.now();}}
+/** @param {number} top */
+function pvGlideTo(top){pvGlideArm(top); $('#left').scrollTo({top,behavior:SMOOTH});}
+/** @param {Element} el @param {'start'|'center'} [block] */
+function pvGlideInto(el,block){const L=$('#left'),r=el.getBoundingClientRect(),lr=L.getBoundingClientRect();
+  pvGlideArm(L.scrollTop+(block==='center'?r.top+r.height/2-(lr.top+L.clientTop+L.clientHeight/2):r.top-lr.top-L.clientTop)); el.scrollIntoView({behavior:SMOOTH,block:block||'start'});}
 // Said once while the pages glide: the key was not taken, press it again once they rest.
 function pvSayGliding(){lineNote('쪽으로 가는 중이라 판정 키를 받지 않았습니다 — 멈춘 뒤 다시 누릅니다',NOTICE_KIND.INFO,null,{source:'verdict-key',life:NOTICE_LIFE.TIMER});}
 // Tab from the PDF area (where Esc, a moved-on popover or a search leaves the focus) goes to the reading page's line - its

@@ -28,7 +28,8 @@
 - **Restoring a take-back leaves the reason being written on another page alone.** It wrote that page's half text and
   closed its field. The restored verdict's draft stays its own, marked on its line.
 - **The reading line is exact at a page's end.** Within its last pixel the strip and the keys already named the next page.
-- **A jump's first frame is a jump.** A digit before its first scroll event acted on the page being left.
+- **A jump is a jump from its first frame.** Every smooth jump of the pages (the page list, an outline entry, a card's [보기])
+  counts from before its first scroll event, also right after a wheel; a digit there acted on the page being left.
 - **A save chip's [되돌리기] pressed by key leaves the focus on the line,** and a digit on a take-back's [되돌리기] on the word
   being saved, not on nothing.
 

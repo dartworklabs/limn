@@ -1179,18 +1179,76 @@ class FastKeys(PanelBase):
                 page.wait_for_function("t=>OPEN_ALL.some(p=>p.note===t)", arg=text)
                 self.assertIsNotNone(page.evaluate(FOCUS), "the focus is on nothing")
 
-    def test_a_digit_before_a_jumps_first_scroll_acts_on_no_page(self):
-        """An outline jump to page 5 and a digit in the same task, before the first scroll event: the glide guard says so on
-        the status line and nothing is saved on the page being left."""
+    def refused(self, page, jump):
+        """Script jump run, then a digit in the same task, before the jump's first scroll event: the glide guard says so on
+        the status line and nothing is saved on the page being left. The pages go on to where the jump goes; their page."""
+        before = len(self.pins())
+        page.evaluate(
+            "j=>{(0,eval)(j); document.body.dispatchEvent(new KeyboardEvent('keydown',{key:'1',bubbles:true}));}", jump
+        )
+        self.assertEqual(len(self.pins()), before, "the digit acted before the jump's first scroll")
+        settle(page)
+        self.assertEqual(len(self.pins()), before, "the digit saved a verdict on the page being left")
+        self.assertTrue(page.evaluate("()=>LINE.some(n=>n.title.includes('쪽으로 가는 중'))"))
+        page.wait_for_function(RESTING, polling="raf", timeout=10000)
+        settle(page)
+        return page.evaluate("pvReadingPage()")
+
+    def test_a_digit_before_the_first_scroll_of_an_outline_or_page_list_jump_acts_on_no_page(self):
+        """An entry that names a page, and the page list's jump."""
+        for jump, n in (("OUTLINE_ENTRIES=[{page:5,frac:0,title:'F05',level:0}]; pickOutline(0)", 5), ("goPage(4)", 4)):
+            with self.subTest(jump=jump):
+                page = self.on()
+                self.to(page, 2)
+                self.assertEqual(self.refused(page, jump), n)
+
+    def test_a_digit_before_the_first_scroll_to_a_positioned_outline_entry_acts_on_no_page(self):
+        """An entry with a place on its page, on a view-only PDF (a figure document's entries name whole pages): it scrolls by
+        itself, not through a page's jump."""
+        page = self.on("rv")
+        self.assertTrue(page.evaluate(SHAPE)["beside"])
+        got = self.refused(page, "OUTLINE_ENTRIES=[{page:2,frac:0.3,title:'B',level:0}]; pickOutline(0)")
+        self.assertEqual(got, 2)
+
+    def test_a_digit_before_the_first_scroll_of_a_cards_view_acts_on_no_page(self):
+        """A verdict card's [보기] with the panel and with the line under the page."""
+        pid = self.verdict(4, "채택")
+        for name, device in LAYOUTS:
+            with self.subTest(layout=name):
+                page = self.on(n_open=1, **device)
+                self.to(page, 2)
+                self.assertEqual(self.refused(page, "jumpPin(%d)" % pid), 4)
+
+    def test_a_jump_right_after_a_manual_scroll_is_a_jump(self):
+        """The wheel a moment ago, and that scroll's own end arriving after the jump began: the guard stands. The hand on the
+        pages during the jump lets it go."""
         page = self.on()
         self.to(page, 2)
-        page.evaluate(
-            """()=>{OUTLINE_ENTRIES=[{page:5,frac:0,title:'F05',level:0}]; pickOutline(0);
-              document.body.dispatchEvent(new KeyboardEvent('keydown',{key:'1',bubbles:true}));}"""
+        got = self.refused(
+            page, "PV_HAND(); goPage(5); document.querySelector('#left').dispatchEvent(new Event('scrollend'))"
         )
+        self.assertEqual(got, 5)
+        self.to(page, 2)
+        page.evaluate("()=>{goPage(5); PV_HAND();}")
+        self.assertFalse(page.evaluate("pvAutoScrolling()"))
+        self.assertIsNone(page.evaluate("PV_JUMP"))
+
+    def test_a_jump_that_ends_leaves_no_guard(self):
+        """Landed, the next digit saves on that page: the guard ended at the jump's place, and a jump to where the pages are
+        arms nothing."""
+        page = self.on()
+        self.to(page, 2)
+        page.evaluate("goPage(4)")
+        page.wait_for_function(RESTING, polling="raf", timeout=10000)
         settle(page)
-        self.assertEqual(self.pins(), {})
-        self.assertTrue(page.evaluate("()=>LINE.some(n=>n.title.includes('쪽으로 가는 중'))"))
+        self.assertEqual((page.evaluate("PV_JUMP"), page.evaluate("pvAutoScrolling()")), (None, False))
+        page.evaluate("searchToPage()")
+        page.keyboard.press("2")
+        page.wait_for_function("OPEN_ALL.length===1")
+        settle(page)
+        self.assertEqual([(p["page"], p["verdict"]) for p in self.pins().values()], [(4, "보류")])
+        page.evaluate("()=>{const L=document.querySelector('#left'); pvGlideArm(L.scrollTop);}")
+        self.assertEqual((page.evaluate("PV_JUMP"), page.evaluate("pvAutoScrolling()")), (None, False))
 
 
 class Undo(PanelBase):

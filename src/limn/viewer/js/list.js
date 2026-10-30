@@ -353,7 +353,7 @@ function jumpPin(id){if(viaDoc(id,jumpPin))return; const p=PINS.find(x=>x.id===i
     L.scrollTop+=(mr.top-(lr.top+lr.height*0.30));
     m.classList.remove('flash');void m.offsetWidth;m.classList.add('flash');
   } else {
-    const el=document.getElementById('p'+pinPlace(p).page); if(el)el.scrollIntoView({behavior:SMOOTH});
+    const el=document.getElementById('p'+pinPlace(p).page); if(el)pvGlideInto(el);
   }
 }
 // Hovering a card highlights its mark, along with any overlapping counterpart marks.
