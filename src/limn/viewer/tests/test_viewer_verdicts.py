@@ -7162,13 +7162,19 @@ class LinePolish(VerdictBase):
         850 (CI's) and 1440 x 900 the line is one row with nothing over another part, and its earlier link reads whole -
         '+1 earlier' - or, on a tight line, its count alone - '+1' -, never cut: 0.4.35 cut it to '1 ea…' at 1280. At 1440
         it is whole. A dot sets it off from what is before it, so '+1' never reads as a count of a button's. Its name says
-        it all ('1 earlier verdict · replaced'), and its tooltip begins with that."""
+        it all ('1 earlier verdict · replaced'), and its tooltip begins with that. Its press area holds a 24px square
+        from its right edge back, and nothing of it lies past its box (scrollWidth): centred on the 15-17px count, the
+        area's right part lay past the state's clip and answered 20-21px wide."""
         verdict_as(self, self.WHO, 2, "보류")
         link = """()=>{const l=document.querySelector('#doc .pv[data-page="2"]'),e=l.querySelector('.pv-early'),w=e.querySelector('.pv-early-w'),b=getComputedStyle(e,'::before').content;
           const words=!!w&&w.getClientRects().length>0,d=e.previousElementSibling,dr=d&&d.getClientRects().length?d.getBoundingClientRect():null;
           const cut=e.getBoundingClientRect().right>l.querySelector(':scope>.pv-t').getBoundingClientRect().right+1;   // past the state's clip (pvFit's 1px)
           return {shown:(words?w.textContent:'')+(b&&b!=='none'?b.replace(/"/g,''):''),cut,tight:l.classList.contains('pv-tight'),
-            name:e.getAttribute('aria-label'),tip:e.dataset.tip||'',dot:!!dr&&d.textContent==='·'&&dr.right<=e.getBoundingClientRect().left};}"""
+            name:e.getAttribute('aria-label'),tip:e.dataset.tip||'',dot:!!dr&&d.textContent==='·'&&dr.right<=e.getBoundingClientRect().left,over:e.scrollWidth-e.clientWidth};}"""
+        # Points of a 24 x 24px square from the link's right edge back, every 2px, that do not hit the link.
+        area = """()=>{const e=document.querySelector('#doc .pv[data-page="2"] .pv-early'),r=e.getBoundingClientRect(),cy=(r.top+r.bottom)/2,miss=[];
+          for(let x=r.right-24;x<=r.right-1;x+=2)for(let y=cy-12;y<=cy+12;y+=2){const h=document.elementFromPoint(x,y); if(!(h&&(h===e||e.contains(h))))miss.push([Math.round(x-r.right),Math.round(y-cy)]);}
+          return miss;}"""
         for n, (w, h) in enumerate(((1280, 800), (1400, 850), (1440, 900))):
             with self.subTest(viewport=(w, h)):
                 page = self.on("fig", n_open=1 + min(n, 1), lang="en", viewport={"width": w, "height": h})
@@ -7191,6 +7197,8 @@ class LinePolish(VerdictBase):
                     got["dot"], got
                 )  # set off by a dot, as the state's parts are: never read as a button's count
                 self.assertFalse(got["cut"], got)
+                self.assertLessEqual(got["over"], 1, got)
+                self.assertEqual(page.evaluate(area), [])
                 self.assertEqual(got["name"], "1 earlier verdict · replaced")
                 self.assertTrue(got["tip"].startswith("1 earlier verdict · replaced — "), got)
                 if w == 1440:
@@ -7306,7 +7314,8 @@ class LinePolish(VerdictBase):
         1 zoomed to two and a half screens. Its line is as tall floating over page 1 (where it holds [판정 취소] back,
         .pv-lean) as standing in its place under it, and a slow scroll across page 1's end, 6px at a time, moves page 2
         by the scroll and nothing more. Taken out of the floating line, [판정 취소] let '이전 1건' rise into its row: 131
-        against 191px, and page 2 jumped 60px under the finger as the line crossed the page's end (0.4.36 RC)."""
+        against 191px, and page 2 jumped 60px under the finger as the line crossed the page's end (0.4.36 RC). The stacked
+        line shows no dot before the link in either state: its state wraps, and the dot stood alone at a row's end."""
         verdict_as(self, self.WHO, 1, "보류")
         verdict_as(self, self.WHO, 1, "채택", note="보류: 색 재검토")
         for lang in ("ko", "en"):
@@ -7329,16 +7338,17 @@ class LinePolish(VerdictBase):
                     """async()=>{const frame=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
                       const L=document.querySelector('#left'),l=document.querySelector('#doc .pv[data-page="1"]'),p1=document.getElementById('p1'),p2=document.getElementById('p2');
                       const h=()=>Math.round(l.getBoundingClientRect().height*10)/10; pvStick(); await frame();
-                      const floating=[h(),l.classList.contains('stuck'),l.classList.contains('pv-lean'),!!l.querySelector('.pv-early')];
+                      const dot=()=>{const d=l.querySelector('.pv-ea'); return !!d&&d.getClientRects().length>0;};   // a stacked line has none
+                      const floating=[h(),l.classList.contains('stuck'),l.classList.contains('pv-lean'),!!l.querySelector('.pv-early'),dot()];
                       const end=L.scrollTop+p1.getBoundingClientRect().bottom-(L.getBoundingClientRect().top+L.clientHeight);   // page 1's end at the area's bottom
                       let worst=0,prev=null;
                       for(let t=end-200;t<=end+400;t+=6){L.scrollTop=t; await frame(); pvStick(); await frame();
                         const at=L.scrollTop+p2.getBoundingClientRect().top; if(prev!==null)worst=Math.max(worst,Math.abs(at-prev)); prev=at;}
                       const p=p1.getBoundingClientRect(),b=l.getBoundingClientRect();
-                      return {floating,inPlace:[h(),l.classList.contains('stuck'),l.classList.contains('pv-lean'),b.top>=p.bottom],worst:Math.round(worst*10)/10};}"""
+                      return {floating,inPlace:[h(),l.classList.contains('stuck'),l.classList.contains('pv-lean'),b.top>=p.bottom,dot()],worst:Math.round(worst*10)/10};}"""
                 )
-                self.assertEqual(got["floating"][1:], [True, True, True], got)
-                self.assertEqual(got["inPlace"][1:], [False, False, True], got)
+                self.assertEqual(got["floating"][1:], [True, True, True, False], got)
+                self.assertEqual(got["inPlace"][1:], [False, False, True, False], got)
                 self.assertEqual(got["floating"][0], got["inPlace"][0], got)
                 self.assertLessEqual(got["worst"], 1, got)
                 page.context.close()
