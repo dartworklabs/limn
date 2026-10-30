@@ -12,8 +12,10 @@
   current row when it opens, and only the panel moves - the pages, the window
   and the focus stay where they are. The list stays where the person has it while the mouse is over it, while its width
   grip is dragged, for 3 seconds after a wheel, press, touch or key in it or on the grip, while the keyboard is on a row,
-  and while the filter has the focus or any text; a move of the mark meanwhile is caught up when they let go. The overlay
-  of the mid bands is the same panel and does the same. The phone's navigation sheet keeps its own rule.
+  and while the filter has text; a move of the mark meanwhile is caught up when they let go. The filter and its hint now
+  stay at the top of the panel, with the rows passing under them, so a panel opened at a row far down keeps its filter in
+  reach; the margin counts from under them. The overlay of the mid bands is the same panel and does the same. The phone's
+  navigation sheet keeps its own rule.
 
 ## 0.4.36 — 2026-10-30
 

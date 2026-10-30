@@ -148,26 +148,27 @@ let OUTLINE_MARKED=-1,OUTLINE_SNAP=true,   // the entry last marked; the next fo
   OUTLINE_AIM=/** @type {{top:number,at:number}|null} */(null);   // where a smooth follow is heading, and since when
 // Where the list (scrollTop st, view height h, content height sh) scrolls to bring a row at [top, bottom] of its content into view:
 // null when the row stands m px clear of both edges - else the nearest place where it does (less on a view too short for that, and a
-// row taller than the view by its top). The margin holds from the moment a row enters it: following only once a row has left the
-// view brought it in with the margin, let the next rows use it up and then moved the list by all of it at once. Going up, the very
-// top where only part of the panel's head would be left over the row (head: where the rows start): a cut head hides the filter for
-// nothing. Within what the list can scroll, so the list's two ends are as near as a row gets. Pure.
-function outlineRevealTop(st,h,sh,top,bottom,m,head){
-  const room=Math.max(0,Math.min(m,(h-(bottom-top))/2));
-  if(top>=st+room-.5&&bottom<=st+h-room+.5)return null;
-  const up=top<st+room||bottom-top>h,want=up?top-room:bottom-h+room;
+// row taller than the view by its top). The view's top edge is cover px down: the filter's band stays there, so a row is only in
+// view below it. The margin holds from the moment a row enters it: following only once a row has left the view brought it in with
+// the margin, let the next rows use it up and then moved the list by all of it at once. Going up, the very top where only part of
+// the panel's head would be left over the row (head: where the rows start). Within what the list can scroll, so the list's two ends
+// are as near as a row gets. Pure.
+function outlineRevealTop(st,h,sh,top,bottom,m,head,cover=0){
+  const room=Math.max(0,Math.min(m,(h-cover-(bottom-top))/2)),edge=st+cover;
+  if(top>=edge+room-.5&&bottom<=st+h-room+.5)return null;
+  const up=top<edge+room||bottom-top>h-cover,want=up?top-cover-room:bottom-h+room;
   const to=Math.round(Math.max(0,Math.min(sh-h,up&&want<=head?0:want)));
   return to===Math.round(st)?null:to;}
 // Whether the filter is narrowing the list: its rows are the results, not the outline, and the current row is likely not among them.
 function outlineFiltered(){return !!$('#outline-search').value.trim();}
-// Whether the person has the list in hand, so it stays where they put it: the filter is in use (typed in, or its field has the focus),
-// the mouse is over the panel, its width grip is being dragged, they wheeled, pressed, touched or scrolled it in the last
-// OUTLINE_FOLLOW_HOLD_MS, or the keyboard is on a row. A row a mouse pressed keeps the focus after its pick, which holds nothing:
-// reading on must not leave the outline behind.
+// Whether the person has the list in hand, so it stays where they put it: the filter has text, the mouse is over the panel, its width
+// grip is being dragged, they wheeled, pressed, touched, scrolled or typed in it in the last OUTLINE_FOLLOW_HOLD_MS, or the keyboard is
+// on a row. Neither a focus left in an empty filter holds anything - a tap on the pages does not take it away, so the outline would
+// wait for good - nor a row a mouse pressed, which keeps the focus after its pick: reading on must not leave the outline behind.
 function outlineHeld(){const a=/** @type {HTMLElement|null} */(document.activeElement);
-  const inside=!!a&&!!a.closest&&!!a.closest('#outline'),key=document.documentElement.dataset.input==='key';
+  const onRow=!!a&&!!a.closest&&!!a.closest('#outline-items');
   return outlineFiltered()||OUTLINE_OVER||$('#outline-grip').classList.contains('on')||performance.now()-OUTLINE_HANDLED<OUTLINE_FOLLOW_HOLD_MS
-    ||(inside&&(a.id==='outline-search'||key));}
+    ||(onRow&&document.documentElement.dataset.input==='key');}
 /** Brings the current row into the panel's view (outlineRevealTop), gliding unless the reader asked for reduced motion, the list is
  * new or the way is longer than the panel is high - an outline out of page order sends a row a thousand px off, and rows racing past
  * read as noise. One read of the row's place, at a move of the mark. A glide reckons from where a glide under way is heading
@@ -180,11 +181,11 @@ function outlineFollow(open){if(document.body.classList.contains('outline-collap
   const jump=!!open||OUTLINE_SNAP||MQ_REDUCED.matches; OUTLINE_FOLLOW_DUE=false; OUTLINE_SNAP=false;
   const box=$('#outline'),o=box.getBoundingClientRect(),r=row.getBoundingClientRect(),now=performance.now(),st=box.scrollTop;
   const from=o.top+box.clientTop-st,at=!jump&&OUTLINE_AIM&&now-OUTLINE_AIM.at<OUTLINE_FOLLOW_FLIGHT_MS?OUTLINE_AIM.top:st;
-  const h=box.clientHeight,to=outlineRevealTop(at,h,box.scrollHeight,r.top-from,r.bottom-from,OUTLINE_FOLLOW_MARGIN,list.getBoundingClientRect().top-from);
+  const h=box.clientHeight,to=outlineRevealTop(at,h,box.scrollHeight,r.top-from,r.bottom-from,OUTLINE_FOLLOW_MARGIN,list.getBoundingClientRect().top-from,$('#outline-find').offsetHeight);
   if(to===null)return;
   const land=jump||Math.abs(to-st)>h;
   OUTLINE_AIM=land?null:{top:to,at:now}; box.scrollTo({top:to,behavior:land?'auto':'smooth'});}
-// When a timed hold is over: the owed follow is made then. A hover, a focus and a filter end with an event of their own.
+// When a timed hold is over: the owed follow is made then. A hover, a keyboard's focus and a grip's drag end with an event of their own.
 function outlineFollowLater(){clearTimeout(OUTLINE_FOLLOW_TIMER); const left=OUTLINE_HANDLED+OUTLINE_FOLLOW_HOLD_MS-performance.now();
   if(left>0)OUTLINE_FOLLOW_TIMER=setTimeout(outlineCatchUp,left+16);}
 function outlineCatchUp(){if(OUTLINE_FOLLOW_DUE)outlineFollow();}
@@ -326,10 +327,14 @@ outlineFilter($('#outline-search'),$('#outline-items'),$('#outline-sr')); outlin
   // A press ends the keyboard's hold (html[data-input], tooltip.js) without a focusout when it lands where a press takes no focus: the
   // pages leave it on the row. Not at once: this runs first of all, and a press in the panel or on its grip must hold before it looks.
   document.addEventListener('pointerdown',()=>{if(OUTLINE_FOLLOW_DUE)setTimeout(outlineCatchUp,0);},true);
-  $('#outline-search').addEventListener('input',()=>{OUTLINE_FOLLOW_DUE=true; OUTLINE_AIM=null;});   // the list was drawn again: its row is owed when the filter is let go
+  // Typing is a hand on the panel, and the list drawn again owes its row. Emptied, the filter ends with no event of its own: it is
+  // made when this hold is over, with the focus left in the field.
+  $('#outline-search').addEventListener('input',()=>{handled(); OUTLINE_FOLLOW_DUE=true; outlineFollowLater();});
   // Display none to shown: a panel opening, here and not in its toggle, so that a band change that brings it back counts too.
   if(window.ResizeObserver)new ResizeObserver(([e])=>{const shown=e.contentRect.height>0; if(!shown){OUTLINE_OVER=false; OUTLINE_AIM=null;}
-    if(shown&&!OUTLINE_SHOWN)outlineFollow(true); OUTLINE_SHOWN=shown;}).observe(box);})();
+    if(shown&&!OUTLINE_SHOWN)outlineFollow(true); OUTLINE_SHOWN=shown;}).observe(box);
+  // A row the keyboard walks to stops below the filter's band (frame.css), which the hint makes taller while it shows.
+  if(window.ResizeObserver){const find=$('#outline-find'); new ResizeObserver(()=>{box.style.scrollPaddingTop=find.offsetHeight+'px';}).observe(find);}})();
 $('#left').addEventListener('scroll',()=>{if(OUTLINE_PINNED&&!OUTLINE_PINNED.reached)outlinePickWait();
   if(!document.body.classList.contains('revision-open'))requestAnimationFrame(updateSectionStrip);},{passive:true});
 // The reader taking over the pages lets go of a pick still on its way (dropOutlinePick); so does a new size of the window.
