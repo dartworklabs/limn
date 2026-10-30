@@ -1647,6 +1647,13 @@ FOUR_UNDOS = """()=>{window.RAN=[]; for(let i=1;i<=4;i++)lineNote('판정 #'+(40
 LIST_ROWS = """()=>[...document.querySelectorAll('#status-list .st-row [data-act=notice-act]')].map(b=>{const r=b.getBoundingClientRect(),
   h=document.elementFromPoint((r.left+r.right)/2,(r.top+r.bottom)/2);
   return {top:Math.round(r.top),inside:r.top>=0&&r.left>=0&&r.bottom<=innerHeight&&r.right<=innerWidth,hit:!!h&&b.contains(h)};})"""
+# How far left of the status line's [되돌리기] and [x] each row's of the open '+N' list stands (px, right edges), and
+# whether the list is whole inside the window.
+UNDER_LINE = """()=>{const R=s=>document.querySelector(s).getBoundingClientRect(),la=R('#status [data-act=notice-act]').right,
+  lx=R('#status [data-act=notice-x]').right,l=R('#status-list'),q=s=>[...document.querySelectorAll('#status-list .st-row '+s)];
+  return {acts:q('[data-act=notice-act]').map(b=>Math.round(la-b.getBoundingClientRect().right)),
+    xs:q('[data-act=notice-x]').map(b=>Math.round(lx-b.getBoundingClientRect().right)),
+    inside:l.left>=0&&l.top>=0&&l.right<=innerWidth&&l.bottom<=innerHeight};}"""
 # Two undos on the status line, as FOUR_UNDOS.
 TWO_UNDOS = FOUR_UNDOS.replace("i<=4", "i<=2")
 # Whether the open '+N' list stands over the status line.
@@ -1701,6 +1708,26 @@ class StatusListRoom(ViewerBase):
                     page.mouse.click(x, y)
                 page.wait_for_function("window.RAN.length>0")
                 self.assertEqual(page.evaluate("window.RAN"), [4])
+
+    def test_on_the_desktop_the_list_stands_under_the_line_s_own_buttons(self):
+        """Desktop 1400x850 and 1920x1080, the panel open (the line in it) and at 1400 closed (the line over the PDF area's
+        bottom right): the list's right edge follows the line's and the list reaches left from there, so each row's
+        [되돌리기] stands under the line's [되돌리기] - at most 10px left of it, where the window's 8px edge holds the
+        list in - and the whole list is inside the window. Centred in the window (at most 640px wide), its buttons stood
+        about 350px left of the line's, over the PDF."""
+        for w, h, side in ((1400, 850, True), (1920, 1080, True), (1400, 850, False)):
+            with self.subTest(size="%dx%d" % (w, h), panel="open" if side else "closed"):
+                page = self.view({"viewport": {"width": w, "height": h}})
+                page.evaluate("s=>setSide(s)", side)
+                settle(page)
+                page.evaluate(FOUR_UNDOS)
+                settle(page)
+                page.locator("#status .st-more").click()
+                page.wait_for_selector("#status-list[open]")
+                settle(page)
+                got = page.evaluate(UNDER_LINE)
+                self.assertTrue(all(0 <= d <= 10 for d in got["acts"] + got["xs"]), got)
+                self.assertTrue(got["inside"], got)
 
     def test_notices_that_come_while_it_is_open_place_it_again(self):
         """Desktop 1400x850: two undos open the list over the line, where two rows fit; two more come while it is open.

@@ -188,6 +188,13 @@ function statusListUp(h,above,below,under){if(h<=(under?below:above))return !und
 // window or its visible part changes size or moves; a band change folds it (placeStatus).
 function placeStatusList(){const d=$('#status-list'); if(!d.open)return;
   const vv=window.visualViewport,vt=vv?vv.offsetTop:0,vb=vv?vt+vv.height:innerHeight,r=$('#status').getBoundingClientRect();
+  // On the desktop the list's right edge follows the line's - its rows' [되돌리기] and [x] under the line's own - and it
+  // reaches left from there, held 8px inside the visible part: centred in the window it stood about 350px left of the
+  // line, over the PDF. Elsewhere the line spans the bar and the list is centred over it (responsive.css).
+  if(LAYOUT===LAYOUT_MODE.WIDE){const cs=getComputedStyle(d),vl=vv?vv.offsetLeft:0,vr=vv?vl+vv.width:innerWidth;
+    const R=Math.min(r.right+parseFloat(cs.paddingRight)+parseFloat(cs.borderRightWidth),vr-8),L=Math.max(vl+8,R-parseFloat(cs.maxWidth));
+    d.style.left=Math.round(L)+'px'; d.style.right=Math.round(innerWidth-R)+'px';}
+  else{d.style.left=''; d.style.right='';}
   const at=Math.min(Math.max(r.top,vt),vb),ab=Math.min(Math.max(r.bottom,vt),vb);   // the line's edges, held inside the visible part
   const above=at-vt-4-8,below=vb-ab-4-8,h=d.scrollHeight+d.offsetHeight-d.clientHeight;
   const row=/** @type {HTMLElement|null} */(d.querySelector('.st-row')),one=h-$('#status-list-rows').offsetHeight+(row?row.offsetHeight:0);   // a row, its padding, border

@@ -11,7 +11,8 @@
   side with more room, cut to it with its rows scrolling inside. The room is counted in the part of the window a person
   sees (a keyboard that does not resize the layout, a pinch zoom), and the list is placed again while it is open when
   its rows change (a list opened over the line with two rows kept scrolling in that room as more came) or the window or
-  its visible part changes. Desktop 1400 x 850, an unfolded foldable 882 x 1104 and a phone 390 x 844 (sheet folded or
+  its visible part changes. On a desktop the list now stands under the line's own buttons - its right edge follows the
+  line's and it reaches left - where it floated centred in the window, about 350px left of the line. Desktop 1400 x 850, an unfolded foldable 882 x 1104 and a phone 390 x 844 (sheet folded or
   open): every row's action is on screen and takes a press (#314).
 - **No `단축키 1` on a touch screen.** A page verdict word's description ended in `· 단축키 1` (`· 단축키 3 (두 번)`
   for a confirm word) on every screen, so a long press on a phone named a key it has none of. The key is now said - in
