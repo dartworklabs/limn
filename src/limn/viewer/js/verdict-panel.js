@@ -31,22 +31,34 @@ function pvSideWant(){if(LAYOUT!==LAYOUT_MODE.WIDE||!pageVerdictsOn())return fal
 // Sets PV_SIDE and the body's class for it (body.pv-beside). No drawing.
 /** @param {boolean} on */
 function pvSideApply(on){PV_SIDE=on; document.body.classList.toggle('pv-beside',on);}
-// Whether the room crossed its bar since the lines were drawn (pvStick, sizePv: a resize, the pin panel, a zoom): they are drawn
-// again, beside or under the pages. Whether it did.
+// Whether the room crossed its bar since the lines were drawn (pvStick: a resize, the pin panel, a zoom, the frame after it): they
+// are drawn again, beside or under the pages. Whether it did.
 function pvSideCheck(){if(pvSideWant()===PV_SIDE)return false; drawPageVerdicts(); return true;}
-// Before the lines are drawn (drawPageVerdicts): follows the room. When it crossed its bar every line goes and new ones come,
-// so what the person has must be carried over (pvSideTurned): the reading spot - the blocks' heights change with them - and
-// the focus. Null when the lines stay where they are.
+// The reading page held while the lines move (pvSideTurn to pvSideSettle), 0 otherwise: read from the layout between the two it
+// was another page - the blocks change their height, by 4px a page, and only the settling puts the spot back - and a reason
+// being typed moved on: its half text was written and the digits after it were verdict keys. A var: pvReadingAt reads it.
+var PV_AT_HELD=0;
+// Before the lines are drawn (drawPageVerdicts): follows the room. When it crossed its bar every line goes and new ones come, so
+// what the person has must be carried over: the reading page, the point of it under the reading line, and the focus. Null
+// when the lines stay where they are. A composition cannot cross: its field goes, and with it its end.
 function pvSideTurn(){const on=pvSideWant(); if(on===PV_SIDE)return null;
-  const L=$('#left'),a=/** @type {HTMLElement|null} */(document.activeElement),f=pvIsReasonField(a)?/** @type {HTMLTextAreaElement} */(a):null;
-  const keep={spot:L.scrollTop>0?topAnchor():null,inLine:!!a&&!!a.closest&&!!a.closest('#doc .pv'),caret:f?[f.selectionStart,f.selectionEnd]:null};
-  pvSideApply(on); return keep;}
-// After the lines moved: the reading spot is back, a save chip stands on its pin's new line (drawChips, else its undo goes to the
-// status line), and the reason field that had the focus has it again with its caret - what is typed next stays text, never
-// a verdict key. A focus on another page's line, which the panel does not show, goes to the PDF area, not to nothing.
+  const L=$('#left'),a=/** @type {HTMLElement|null} */(document.activeElement),f=pvIsReasonField(a)?/** @type {HTMLTextAreaElement} */(a):null,at=pvReadingAt();
+  const keep={spot:L.scrollTop>0?topAnchor(readingDepth(L)):null,inLine:!!a&&!!a.closest&&!!a.closest('#doc .pv'),caret:f?[f.selectionStart,f.selectionEnd]:null,
+    popAct:!!a&&!!a.closest&&!!a.closest('#doc .pv-pop')&&!f&&a.dataset.act||''};
+  if(f)PV_COMPOSING=false; PV_AT_HELD=at; pvSideApply(on); return keep;}
+// The lines have moved and are fitted: the point that was under the reading line is there again, so the page in view does not
+// shift and the reading page is the one held (a rounded scroll position may fall a pixel off a page's edge: taken back).
 /** @param {NonNullable<ReturnType<typeof pvSideTurn>>} k */
-function pvSideTurned(k){restoreAnchor(k.spot); drawChips(); const g=k.caret?pvReasonField():null;
+function pvSideSettle(k){PV_AT_HELD=0; const a=k.spot,pg=a?document.getElementById('p'+a.page):null; if(!a||!pg)return;
+  const L=$('#left'),y=()=>L.getBoundingClientRect().top+readingDepth(L),r=pg.getBoundingClientRect(); L.scrollTop+=r.top+a.frac*r.height-y();
+  const b=pg.getBoundingClientRect(); if(b.bottom<=y())L.scrollTop-=2; else if(b.top>y())L.scrollTop+=2;}
+// After the lines moved: a save chip stands on its pin's new line (drawChips, else its undo goes to the status line), and the reason
+// field that had the focus has it again with its caret, or the popover's button its focus - what is typed next stays text,
+// never a verdict key. A focus on another page's line, which the panel does not show, goes to the PDF area, not to nothing.
+/** @param {NonNullable<ReturnType<typeof pvSideTurn>>} k */
+function pvSideTurned(k){drawChips(); const g=k.caret?pvReasonField():null;
   if(g&&k.caret){g.focus({preventScroll:true}); g.setSelectionRange(k.caret[0],k.caret[1]); return;}
+  const b=/** @type {HTMLElement|null} */(k.popAct?document.querySelector('#doc .pv-pop [data-act="'+k.popAct+'"]'):null); if(b){b.focus({preventScroll:true}); return;}
   const a=document.activeElement; if(k.inLine&&(!a||a===document.body))searchToPage();}
 
 // ---------------- The panel
@@ -115,6 +127,10 @@ function pvBring(page,smooth){const L=$('#left'),pg=document.getElementById('p'+
   if(smooth)L.scrollBy({top:by,behavior:SMOOTH}); else L.scrollTop+=by;}
 
 // ---------------- The summary under each page
+// The summary's words: what its row says, for its name.
+/** @param {number} page @param {Pin[]|undefined} list */
+function pvSumSay(page,list){const cur=list&&list[0],k=cur&&verdictOf(cur);
+  return pvFigParts(page).id+' · '+(cur&&k?tr('판정')+' #'+cur.id+' '+verdictLabel(k)+' · '+pvStateWord(cur):tr('판정 없음'));}
 // '6쪽 · PL17 · 판정 #7 채택 · 처리 대기' (or '판정 없음') under every page that takes a verdict, and '초안 있음' where a reason
 // draft waits for that page - a line would mark it, and the panel shows only the reading page: one row of one height whatever
 // it says, so neither a verdict changing it nor the reading page changing moves the pages. A press brings that page to the
@@ -132,7 +148,7 @@ function pvSums(map){const made=/** @type {HTMLElement[]} */([]);
     if(!PV_SIDE||!pageTakesVerdict(page)){if(s)s.remove(); return;}
     if(!s){s=document.createElement('button'); s.setAttribute('type','button'); s.className='pv-sum'; s.tabIndex=-1; s.dataset.act='pv-sum'; s.dataset.page=String(page); b.appendChild(s); made.push(s);}
     const m=pvSumHtml(page,map.get(page)); if(s.dataset.t!==m.text){s.dataset.t=m.text; setHtml(s,m);}
-    s.setAttribute('aria-label',tl('{page}쪽 판정 패널로',{page}));});
+    const say=tl('{state} · 판정 패널로',{state:pvSumSay(page,map.get(page))}); s.setAttribute('aria-label',say); s.dataset.tipPress=say;});
   if(made.length&&typeof IntersectionObserver!=='undefined')pvFarWatch(made,$('#left').clientHeight);
   pvSumOn();}
 // The reading page's summary is bold (.on): the page the panel shows - a weight, never a height.
@@ -143,7 +159,20 @@ function pvSumOn(){const r=String(PV_SIDE?PV_READ||0:0);
 // panel's pressed word, else its first (pvFocusLine); the panel flashes.
 /** @param {HTMLElement} a */
 function pvSumGo(a){const page=Number(a.dataset.page)||0; if(!document.getElementById('p'+page))return;
-  pvBring(page); pvStick(); const p=document.getElementById('pv-panel'); if(!p||p.dataset.page!==String(page))return;
+  pvCame(a); pvBring(page); pvStick(); const p=document.getElementById('pv-panel'); if(!p||p.dataset.page!==String(page))return;
   pvFocusLine(page); p.classList.remove('flash'); void p.offsetWidth; p.classList.add('flash'); clearTimeout(p._flT); p._flT=setTimeout(()=>p.classList.remove('flash'),1200);}
+// ---------------- Keys the panel needs of its own
+// The panel stands after the pages in the DOM, so what stands on the reading page comes by hand. Its Tab stops: its marks.
+/** @param {number} page @returns {HTMLElement[]} */
+function pvMarkStops(page){const b=document.querySelector('#doc .pgw[data-page="'+page+'"]'); return b?/** @type {HTMLElement[]} */([...b.querySelectorAll(PV_TABBABLE)].filter(pvTabStop)):[];}
+// Tab from the reading page's last mark, or from a summary a person went back to, goes to the panel: the DOM's next stop is a later
+// page's mark, whose focus scrolled the pages there.
+addEventListener('keydown',e=>{if(e.key!=='Tab'||e.shiftKey||e.ctrlKey||e.metaKey||e.altKey||e.defaultPrevented||!PV_SIDE)return;
+  const a=/** @type {HTMLElement|null} */(document.activeElement),r=pvReadingPage(),m=r?pvMarkStops(r):[]; if(!a||!(a===m[m.length-1]||a.classList.contains('pv-sum')))return;
+  const f=/** @type {HTMLElement|undefined} */([...pvPanel().querySelectorAll(PV_TABBABLE)].find(pvTabStop)); if(f){e.preventDefault(); f.focus({preventScroll:true});}});
+// Esc on a control of the panel hands the focus to the PDF area: from there the page keys and Tab work as anywhere on the pages.
+// A confirm word's Esc lets it go first, and the reason popover's Esc is its own.
+addEventListener('keydown',e=>{if(e.key!=='Escape'||e.defaultPrevented||!PV_SIDE)return; const a=document.activeElement;
+  if(!a||!a.closest||!a.closest('#pv-panel')||a.closest('.pv-pop'))return; e.preventDefault(); searchToPage();});
 // The PDF area's width changes with no window resize (the outline folded or dragged): the room is read again.
 if(typeof ResizeObserver!=='undefined')new ResizeObserver(()=>{if(LAYOUT===LAYOUT_MODE.WIDE&&pageVerdictsOn())pvStickSoon();}).observe($('#left'));

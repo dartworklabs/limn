@@ -242,7 +242,10 @@ function noticeAct(num){const n=NOTICES.get(num); if(!n||n.busy)return; const a=
   if(!a||!a.wait){endNotice(n,true); if(a)a.fn(); return;}
   n.busy=true; clearTimeout(n.timer); n.timer=undefined; n.held=false;
   document.querySelectorAll('[data-act="notice-act"][data-n="'+n.n+'"]').forEach(b=>b.setAttribute('aria-busy','true'));
-  Promise.resolve(a.fn()).catch(()=>false).then(()=>endNotice(n,true));}
+  // A save chip's [되돌리기] pressed with the focus on it goes with its chip: the focus stays on that page's line, else the pages.
+  const f=document.activeElement,e=n.el,l=!!e&&!!f&&e.contains(f)&&!!e.closest?/** @type {HTMLElement|null} */(e.closest('#doc .pv')):null,page=l?Number(l.dataset.page)||0:0;
+  Promise.resolve(a.fn()).catch(()=>false).then(()=>{endNotice(n,true); const g=document.activeElement;
+    if(l&&(!g||g===document.body)&&!pvFocusLine(page))searchToPage();});}
 // [x] on message num: it goes as read (with its dot), and what it held runs (gone: a deferred send goes now).
 /** @param {number} num */
 function noticeClose(num){const n=NOTICES.get(num); if(n)endNotice(n,false,true);}

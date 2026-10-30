@@ -4051,7 +4051,7 @@ class ReasonRaces(VerdictBase):
                 self.held_edit = []
                 page.keyboard.press("Enter")
                 page.wait_for_function(
-                    "()=>window.__limnIdle&&document.querySelector('#doc .pv-reason')&&document.querySelector('#doc .pv-reason').disabled"
+                    "()=>window.__limnIdle&&document.querySelector('#doc .pv-reason')&&document.querySelector('#doc .pv-reason').readOnly"
                 )
                 if case == "another document":
                     page.evaluate("k=>switchDoc(k)", "rv")
@@ -4119,7 +4119,7 @@ class ReasonRaces(VerdictBase):
         settle(page)
         got = page.evaluate(REASON, 1)
         self.assertEqual((got["value"], got["focused"]), ("엔터 실패", True))
-        self.assertFalse(page.evaluate("document.querySelector('#doc .pv-reason').disabled"))
+        self.assertFalse(page.evaluate("document.querySelector('#doc .pv-reason').readOnly"))
         page.keyboard.press("Enter")
         page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id&&p.note)", arg=pid)
         settle(page)
@@ -4170,7 +4170,7 @@ class ReasonRaces(VerdictBase):
 
     def test_after_a_failed_enter_the_retry_saves_the_corrected_draft(self):
         """Enter lost on the network; the field stays, and the person corrects it. The status line's [다시 시도] writes the
-        draft as it is now - the field waits (disabled) while it does - and the field closes with that text saved."""
+        draft as it is now - the field waits (read-only) while it does - and the field closes with that text saved."""
         page = self.on("fig")
         pid = self.typed(page, 1, "첫 글")
         self.lose_edit = 1
@@ -4181,7 +4181,7 @@ class ReasonRaces(VerdictBase):
         self.held_edit = []
         self.retry(page)
         page.wait_for_function(
-            "()=>document.querySelector('#doc .pv-reason')&&document.querySelector('#doc .pv-reason').disabled"
+            "()=>document.querySelector('#doc .pv-reason')&&document.querySelector('#doc .pv-reason').readOnly"
         )
         page.wait_for_timeout(200)
         held, self.held_edit = self.held_edit, None
@@ -4432,7 +4432,7 @@ class ReasonRaces(VerdictBase):
                 self.held_edit = []
                 page.keyboard.press("Enter")
                 page.wait_for_function(
-                    "()=>document.querySelector('#doc .pv-reason')&&document.querySelector('#doc .pv-reason').disabled"
+                    "()=>document.querySelector('#doc .pv-reason')&&document.querySelector('#doc .pv-reason').readOnly"
                 )
                 for _ in range(500):  # the edit is out (held), not just the pin read before it
                     if self.held_edit:
@@ -4685,7 +4685,7 @@ class ReasonRaces(VerdictBase):
         self.held_edit = []
         page.keyboard.press("Enter")
         page.wait_for_function(
-            "()=>document.querySelector('#doc .pv-reason')&&document.querySelector('#doc .pv-reason').disabled"
+            "()=>document.querySelector('#doc .pv-reason')&&document.querySelector('#doc .pv-reason').readOnly"
         )
         page.locator(CANCEL % 1).click()
         page.wait_for_function("id=>!OPEN_ALL.some(p=>p.id===id)", arg=pid)

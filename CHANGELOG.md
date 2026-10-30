@@ -12,10 +12,25 @@
   the panel. The words stand at one place on the screen for every page; the page stays centred while the margin holds
   the panel and moves left only by what it lacks. Keys 1-5, Enter and Esc act as on the reading line; Tab from the
   pages goes to the panel, Shift+Tab from its first control goes back where it came from, and Tab from its last goes to
-  the pin panel. A kept reason draft on another page shows on that page's summary. When the room crosses its bar the
-  reading spot, a save chip and the reason field's focus and caret carry over. 1920 takes it with the pin panel open,
-  1680 with it closed; narrower windows, a zoom past the bar, the unfolded foldable and phones keep the line under each
-  page as before.
+  the pin panel; PageDown, the arrows, Home, End and the wheel on the panel move the pages. A kept reason draft on another
+  page shows on that page's summary. When the room crosses its bar the page in view, a save chip and an open reason - its
+  text, caret, focus, and a save or a write it waits for - carry over, and nothing is written. 1920 takes it with the pin
+  panel open, 1680 with it closed; narrower windows, a zoom past the bar, the unfolded foldable and phones keep the line
+  under each page as before.
+
+### Fixed
+
+- **Enter while a digit's save is out is the reason, wherever the focus rests on the line.** On a word it pressed that word:
+  a second verdict over the one being saved. `Enter 이유 쓰기` and [이유 추가] on a line whose save is out wait for the new
+  verdict: before the list was read again, the reason went on the verdict it replaced.
+- **The reason field keeps the focus while its write is out.** Disabled, it dropped the focus to nothing, and the next
+  digit was a verdict key. It waits read-only; a failure leaves the text and the focus there.
+- **Restoring a take-back leaves the reason being written on another page alone.** It wrote that page's half text and
+  closed its field. The restored verdict's draft stays its own, marked on its line.
+- **The reading line is exact at a page's end.** Within its last pixel the strip and the keys already named the next page.
+- **A jump's first frame is a jump.** A digit before its first scroll event acted on the page being left.
+- **A save chip's [되돌리기] pressed by key leaves the focus on the line,** and a digit on a take-back's [되돌리기] on the word
+  being saved, not on nothing.
 
 ## 0.4.36 — 2026-10-30
 
