@@ -651,8 +651,10 @@ ${chip?'':html`data-tip="${tr('이 판정을 거둡니다. 핀은 휴지통으�
   // The earlier link is short - '이전 2건' ('+2 earlier') - and never cut: where its line is tight (.pv-tight, pvFit) it is
   // its count alone, '+2' (data-n, components.css). Its name says it whole ('이전 판정 2건 · 새 판정으로 대체됨'), and so does
   // its tooltip before what it is. The whole words stood in the row and were cut to fit: '1 ea…' on a 620px English line.
+  // A dot sets it off from what comes before it, as the state's other parts are (.pv-ea, gone whenever the link is): right
+  // after [✓ 채택 1]'s key digit on a stacked line, or after [판정 취소], a bare '+2' read as a count of that button's.
   const ne=earlier.length,eName=tl('이전 판정 {n}건 · 새 판정으로 대체됨',{n:ne});
-  const early=ne?html`<button type="button" class="btn-ghost btn-sm pv-early hit" data-act="pv-earlier" data-ref="${earlier[0].id}" data-n="${ne}" aria-label="${eName}" \
+  const early=ne?html`<span class="pv-sep pv-ea" aria-hidden="true">·</span><button type="button" class="btn-ghost btn-sm pv-early hit" data-act="pv-earlier" data-ref="${earlier[0].id}" data-n="${ne}" aria-label="${eName}" \
 ${chip?'':html`data-tip="${eName+' — '+tr('이 쪽의 더 새 판정으로 대체되어 실행하지 않는 열린 판정 핀입니다. 누르면 그 카드로 갑니다')}"`}><span class="pv-early-w">${tl('이전 {n}건',{n:ne})}</span></button>`:'';
   // The reading page's line - the one that floats - names what it decides: '7쪽 · [후보] PL18 · …' (figureName), cut to fit.
   // Its two spans are on every line, hidden but on the reading one: the line's children keep their places when the reading
@@ -799,7 +801,7 @@ function pvFit(lines){const held=lines.map(pvRowsHeld),D=$('#doc');
   if(LAYOUT===LAYOUT_MODE.WIDE&&over.some(o=>o)){lines.forEach((l,i)=>{if(over[i])l.classList.add('pv-tight');});
     over=lines.map((l,i)=>{if(!over[i]||narrow[i])return over[i]; const p=past(l); if(p<=1)return false;
       const t=/** @type {HTMLElement} */(l.querySelector(':scope>.pv-t')); out[i]=p-pvEarlyRoom(t)+pvAddCut(l,t,addD)<=1; return !out[i];});
-    lines.forEach((l,i)=>{if(out[i]){pvEarlyFocusOut(l); l.classList.add('pv-early-out');}});}
+    lines.forEach((l,i)=>{if(out[i])l.classList.add('pv-early-out');});}
   lines.forEach((l,i)=>{if(over[i])l.classList.add('pv-stack');});
   // A stacked line's state rows are the reading line's too: their height, measured here with what only the reading line shows
   // ([이유 추가], laid out unseen), is the least the state takes (--pv-t-h, components.css). Beside an earlier link a 420px
@@ -813,7 +815,8 @@ function pvFit(lines){const held=lines.map(pvRowsHeld),D=$('#doc');
   pvChipPlace(lines);
   // A word group that wraps keeps every button at its own width (vdWrapFit), read for every line before any is written.
   const groups=lines.map(l=>l.querySelector('.vd-btns')),wrap=groups.map(g=>!!g&&new Set([...g.children].map(b=>Math.round(b.getBoundingClientRect().top))).size>1);
-  groups.forEach((g,i)=>{if(g)g.classList.toggle('wrapped',wrap[i]);});}
+  groups.forEach((g,i)=>{if(g)g.classList.toggle('wrapped',wrap[i]);});
+  pvFocusStays(lines);}
 // The width the state of a person's fresh verdict takes on a line in a row, drawn in a hidden line like line l (its text size,
 // the screen's language and pointer) and kept until those or the next pin number's digits change. Two states follow a
 // press: after a click '판정 #0 <the longest word> · 처리 대기 · 이유 추가 · 판정 취소', and on a mouse screen after a key
@@ -860,17 +863,23 @@ if(document.fonts){document.fonts.addEventListener('loadingdone',pvFontsChanged)
 /** @param {HTMLElement} l @param {Element} t @param {number} d @returns {number} */
 function pvAddCut(l,t,d){if(!d||!l.classList.contains('pv-kw')||!l.classList.contains('pv-tight')||!t.querySelector(':scope>.pv-ra>.pv-add'))return 0;
   const e=pvEarlyRoom(t); return e?Math.min(d,e):0;}
-// Line l's earlier link is about to step out (.pv-early-out, pvFit): a focus on it moves first, without a scroll, to the
-// control before it on the line - [판정 취소], [이유 추가], the '#N' link -, else to the line's first control. Hidden with the
-// focus on it, it took the focus away (a resize or a zoom across the line's bar), and the next Tab started from the top.
-/** @param {HTMLElement} l */
-function pvEarlyFocusOut(l){const e=l.querySelector(':scope>.pv-t>.pv-early'); if(!e||document.activeElement!==e)return;
-  const cs=[...l.querySelectorAll(PV_TABBABLE)].filter(pvTabStop).filter(x=>x!==e),before=cs.filter(x=>!!(x.compareDocumentPosition(e)&Node.DOCUMENT_POSITION_FOLLOWING));
+// A focus on a control of one of these lines that its fitting just took out - the earlier link stepping out at a tight row's
+// bar (.pv-early-out), or beside 'Enter 이유 쓰기' or [되돌리기] on a row that turned tight (components.css), after a resize, a
+// zoom of the browser or of the pages, or a redraw - moves at once, without a scroll, to the control before it on its line
+// ([판정 취소], 'Enter 이유 쓰기', the '#N' link), else to the line's first. Hidden with the focus on it, the link took the
+// focus away to nothing and the next Tab started from the top (Chromium lets a hidden focus go a moment later: the move is
+// made before that). Every way the fitting hides a control comes through here.
+/** @param {HTMLElement[]} lines */
+function pvFocusStays(lines){const a=/** @type {HTMLElement|null} */(document.activeElement),l=a&&a.closest?/** @type {HTMLElement|null} */(a.closest('#doc .pv')):null;
+  if(!a||!l||!lines.includes(l)||a.getClientRects().length)return;
+  const cs=[...l.querySelectorAll(PV_TABBABLE)].filter(pvTabStop),before=cs.filter(x=>!!(x.compareDocumentPosition(a)&Node.DOCUMENT_POSITION_FOLLOWING));
   const to=before.length?before[before.length-1]:cs[0]; if(to)to.focus({preventScroll:true});}
-// The room state t's earlier link takes in its row as drawn - its width and the gap before it - or 0 where it shows none.
+// The room state t's earlier link takes in its row as drawn - its width, the dot before it and the gap before each - or 0
+// where it shows none.
 /** @param {Element} t @returns {number} */
 function pvEarlyRoom(t){const e=t.querySelector(':scope>.pv-early'); if(!e||!e.getClientRects().length)return 0;
-  return e.getBoundingClientRect().width+(parseFloat(getComputedStyle(t).columnGap)||0);}
+  const g=parseFloat(getComputedStyle(t).columnGap)||0,d=e.previousElementSibling,dw=d&&d.classList.contains('pv-ea')&&d.getClientRects().length?d.getBoundingClientRect().width+g:0;
+  return e.getBoundingClientRect().width+g+dw;}
 // Whether line l keeps the rows it has now: its confirm word waits for the second press, or its save is out.
 /** @param {HTMLElement} l */
 function pvRowsHeld(l){const p=Number(l.dataset.page)||0; return (!!VD_ARM&&VD_ARM.where===VD_WHERE.PAGE&&VD_ARM.page===p)||PV_BUSY.has(pvSlot(p));}

@@ -340,7 +340,7 @@ class PageLine(VerdictBase):
         second = self.press_page(page, 1, "보류")
         line = page.evaluate(LINE, 1)
         self.assertEqual(line["pin"], str(second))
-        self.assertEqual(line["text"], "판정 #%d 보류 · 처리 대기 이전 1건" % second)
+        self.assertEqual(line["text"], "판정 #%d 보류 · 처리 대기 · 이전 1건" % second)
         self.assertEqual(
             page.evaluate("document.querySelector('#doc .pv[data-page=\"1\"] .pv-early').getAttribute('aria-label')"),
             "이전 판정 1건 · 새 판정으로 대체됨",
@@ -7135,12 +7135,14 @@ class LinePolish(VerdictBase):
         widest, page 2 with an earlier verdict and the person's own saved by a click: at 1280 x 800 (a 620px line), 1400 x
         850 (CI's) and 1440 x 900 the line is one row with nothing over another part, and its earlier link reads whole -
         '+1 earlier' - or, on a tight line, its count alone - '+1' -, never cut: 0.4.35 cut it to '1 ea…' at 1280. At 1440
-        it is whole. Its name says it all ('1 earlier verdict · replaced'), and its tooltip begins with that."""
+        it is whole. A dot sets it off from what is before it, so '+1' never reads as a count of a button's. Its name says
+        it all ('1 earlier verdict · replaced'), and its tooltip begins with that."""
         verdict_as(self, self.WHO, 2, "보류")
         link = """()=>{const l=document.querySelector('#doc .pv[data-page="2"]'),e=l.querySelector('.pv-early'),w=e.querySelector('.pv-early-w'),b=getComputedStyle(e,'::before').content;
-          const words=!!w&&w.getClientRects().length>0;
-          return {shown:(words?w.textContent:'')+(b&&b!=='none'?b.replace(/"/g,''):''),cut:e.scrollWidth>e.clientWidth+1,tight:l.classList.contains('pv-tight'),
-            name:e.getAttribute('aria-label'),tip:e.dataset.tip||''};}"""
+          const words=!!w&&w.getClientRects().length>0,d=e.previousElementSibling,dr=d&&d.getClientRects().length?d.getBoundingClientRect():null;
+          const cut=e.getBoundingClientRect().right>l.querySelector(':scope>.pv-t').getBoundingClientRect().right+1;   // past the state's clip (pvFit's 1px)
+          return {shown:(words?w.textContent:'')+(b&&b!=='none'?b.replace(/"/g,''):''),cut,tight:l.classList.contains('pv-tight'),
+            name:e.getAttribute('aria-label'),tip:e.dataset.tip||'',dot:!!dr&&d.textContent==='·'&&dr.right<=e.getBoundingClientRect().left};}"""
         for n, (w, h) in enumerate(((1280, 800), (1400, 850), (1440, 900))):
             with self.subTest(viewport=(w, h)):
                 page = self.on("fig", n_open=1 + min(n, 1), lang="en", viewport={"width": w, "height": h})
@@ -7159,6 +7161,9 @@ class LinePolish(VerdictBase):
                 self.assertEqual((row["stack"], row_overlaps(row)), (False, []), row)
                 got = page.evaluate(link)
                 self.assertEqual(got["shown"], "+1" if got["tight"] else "+1 earlier", got)
+                self.assertTrue(
+                    got["dot"], got
+                )  # set off by a dot, as the state's parts are: never read as a button's count
                 self.assertFalse(got["cut"], got)
                 self.assertEqual(got["name"], "1 earlier verdict · replaced")
                 self.assertTrue(got["tip"].startswith("1 earlier verdict · replaced — "), got)
@@ -7203,6 +7208,72 @@ class LinePolish(VerdictBase):
         self.assertEqual(page.evaluate(on)[0], "2")
         page.keyboard.press("Shift+Tab")
         self.assertEqual(page.evaluate(on), ["2", "pv-cancel", True])
+
+    # Page 2's line: whether its earlier link is drawn, whether it says 'Enter reason', whether it is stacked, and where the
+    # focus is (its line's page, its data-act).
+    EARLY_STATE = """()=>{const l=document.querySelector('#doc .pv[data-page="2"]'),e=l.querySelector('.pv-early'),a=document.activeElement,f=a&&a.closest?a.closest('#doc .pv'):null;
+      return {hidden:!e.getClientRects().length,kbd:!!l.querySelector('.pv-kbd'),stack:l.classList.contains('pv-stack'),
+        page:f?f.dataset.page:null,act:a&&a.dataset?a.dataset.act||null:null,read:PV_READ};}"""
+
+    def key_saved_over_an_earlier_one(self, width):
+        """English, width x 1000, the panel open: page 2 with an earlier verdict and the person's own saved by its key, read,
+        its save chip gone - its line says 'Enter reason' and '+1 earlier' on a row that is not tight."""
+        verdict_as(self, self.WHO, 2, "보류")
+        page = self.on("fig", n_open=1, lang="en", viewport={"width": width, "height": 1000})
+        page.evaluate("setSide(true)")
+        page.evaluate(SCROLL, [2, "top"])
+        settle(page)
+        page.keyboard.press("1")
+        page.wait_for_function("()=>OPEN_ALL.length===2&&!PV_BUSY.size")
+        settle(page)
+        page.evaluate(END_CHIPS)
+        settle(page)
+        st = page.evaluate(self.EARLY_STATE)
+        self.assertEqual((st["hidden"], st["kbd"], st["stack"], st["read"]), (False, True, False, 2), st)
+        return page
+
+    def test_a_focused_earlier_link_beside_enter_reason_keeps_the_focus_on_its_line_as_the_pages_zoom(self):
+        """The line of key_saved_over_an_earlier_one at 1920, the pages zoomed down 2px at a time with the keyboard's focus
+        on '+1 earlier': where the row turns tight the link steps out beside 'Enter reason' (components.css), and the
+        focus moves to [Retract] on the same line - not to nothing, as it did by Ctrl+- in the 0.4.36 RC."""
+        page = self.key_saved_over_an_earlier_one(1920)
+        got = page.evaluate(
+            """async()=>{const frame=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+              const L=document.querySelector('#left'),l=()=>document.querySelector('#doc .pv[data-page="2"]'),pt=META.pages[1].pt_w;
+              for(let w=Math.round(document.getElementById('p2').getBoundingClientRect().width);w>300;w-=2){
+                const e=l().querySelector('.pv-early'); e.focus({preventScroll:true}); setK(w/pt,false); ZOOMED=true; await frame();
+                const p=document.getElementById('p2'); L.scrollTop+=p.getBoundingClientRect().top-L.getBoundingClientRect().top; pvStick(); await frame(); await frame();
+                if(l().classList.contains('pv-stack')||!e.getClientRects().length)return {w,kbd:!!l().querySelector('.pv-kbd'),tight:l().classList.contains('pv-tight'),
+                  stack:l().classList.contains('pv-stack'),focus:document.activeElement===document.body?'body':(document.activeElement.dataset||{}).act||null,
+                  page:(document.activeElement.closest&&document.activeElement.closest('#doc .pv')||{dataset:{}}).dataset.page||null};}
+              return null;}"""
+        )
+        self.assertIsNotNone(got)
+        self.assertEqual(
+            (got["kbd"], got["tight"], got["stack"], got["page"], got["focus"]),
+            (True, True, False, "2", "pv-cancel"),
+            got,
+        )
+
+    def test_a_focused_earlier_link_beside_enter_reason_keeps_the_focus_on_its_line_as_the_window_narrows(self):
+        """The line of key_saved_over_an_earlier_one at 1920, the window narrowed 20px at a time with the keyboard's focus on
+        '+1 earlier' (the pages fitted to it): where the row turns tight the link steps out beside 'Enter reason', and the
+        focus moves to [Retract] on the same line - not to nothing, as it did from 1920 to 1320 in the 0.4.36 RC."""
+        page = self.key_saved_over_an_earlier_one(1920)
+        for w in range(1900, 1000, -20):
+            page.focus('#doc .pv[data-page="2"] .pv-early')
+            page.set_viewport_size({"width": w, "height": 1000})
+            settle(page)
+            st = page.evaluate(self.EARLY_STATE)
+            self.assertFalse(st["stack"], (w, st))
+            if st["hidden"] and st["kbd"]:
+                self.assertEqual((st["page"], st["act"]), ("2", "pv-cancel"), (w, st))
+                break
+            if not st["kbd"]:  # the window's change moved the reading page: page 2 read again
+                page.evaluate(SCROLL, [2, "top"])
+                settle(page)
+        else:
+            self.fail("the link never stepped out beside 'Enter reason'")
 
     def test_a_key_saves_focus_raises_no_box_over_the_pressed_words_description(self):
         """English, the panel open, at 1280 x 800 and 1440 x 900, page 2 as wide as the room and read: a digit saves a verdict

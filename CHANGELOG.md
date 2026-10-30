@@ -8,8 +8,10 @@
   replaced reads `이전 2건` (`+2 earlier`), and on a line that is short of room on the wide band its count alone, `+2`;
   its accessible name and its tooltip still say `이전 판정 2건 · 새 판정으로 대체됨` in full. The whole words were cut to
   fit: on a 620px English line (1280 x 800, panel open, three-digit pin numbers) the link read `1 ea…`, and kept at 5em
-  that line stacked. Where not even the count fits beside the rest, the link steps out rather than stack the line, and
-  a focus on it moves to the control before it on the line (#322).
+  that line stacked. A dot sets it off from the state before it (a bare `+2` after [판정 취소] or a button's key digit
+  read as that button's count). Where not even the count fits beside the rest, the link steps out rather than stack the
+  line. Whenever fitting a line hides its earlier link - stepped out, or beside `Enter 이유 쓰기` on a row that a resize or
+  a zoom made tight - a focus on it moves to the control before it on the line instead of being lost (#322).
 
 ### Fixed
 

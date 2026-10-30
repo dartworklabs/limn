@@ -183,19 +183,23 @@ body.lay-narrow.has-status:not(.typing,.pv-typing){--pv-inset:calc(var(--sheet-h
    display: contents (verdict-reason.css), so their parts are the row's items too. */
 .pv:not(.pv-stack)>.pv-fig{flex:1 1 0;min-width:var(--pv-fig-min,0px);max-width:max-content;overflow:hidden}
 .pv.pv-tight:not(.pv-stack)>.pv-t .pv-note{min-width:0}   /* the wide band's last cuts before a second row (pvFit) */
-/* The earlier link on a tight line is its count alone, '+2' (data-n), at least 24px wide: its words ('이전 2건', '+2 earlier')
-   step out - its name and its tooltip say it whole (verdict.js pvLineHtml). Cut to fit instead (2em at least), it read
-   '1 ea…' on a 620px English line (1280 x 800, panel open, three-digit pin numbers), and at 5em that line stacked. */
+/* The earlier link on a tight line is its count alone, '+2' (data-n): its words ('이전 2건', '+2 earlier') step out - its name
+   and its tooltip say it whole (verdict.js pvLineHtml). Cut to fit instead (2em at least), it read '1 ea…' on a 620px
+   English line (1280 x 800, panel open, three-digit pin numbers), and at 5em that line stacked. The count has no padding
+   of its own there - the dot before it (.pv-ea) takes that room, and the row's gaps keep it 11px from [판정 취소] and 8px
+   from the words -, and its press area stays 24 x 32px (.hit, --pv-ctl). */
 .pv.pv-tight:not(.pv-stack)>.pv-t .pv-early>.pv-early-w{display:none}
+.pv.pv-tight:not(.pv-stack)>.pv-t .pv-early{min-width:0;padding-inline:0}
 .pv.pv-tight:not(.pv-stack)>.pv-t .pv-early::before{content:'+' attr(data-n)}
-/* Where even that does not fit beside the rest, the link steps out (.pv-early-out, pvFit) rather than stack the line. */
-.pv.pv-early-out:not(.pv-stack)>.pv-t .pv-early{display:none}
+/* Where even that does not fit beside the rest, the link and its dot step out (.pv-early-out, pvFit) rather than stack the
+   line. Whatever takes the link out takes its dot (.pv-ea) with it, here and below. */
+.pv.pv-early-out:not(.pv-stack)>.pv-t :is(.pv-early,.pv-ea){display:none}
 /* The extras a press puts in a row (verdict-reason.js 'Enter 이유 쓰기', verdict.js the line's [되돌리기] of a take-back) take
    the earlier link's place there: it steps out while either is on the line and is back when it goes. Beside it, a 620px
    line (1280 x 800, panel open) ran 7 and 25px past its row and stacked under the press. Every line is fitted as the
    reading line (#doc.pv-measure) with the link in beside 'Enter 이유 쓰기' too, and pvFit counts the wider of the two states
    a key save's line takes - 'Enter 이유 쓰기' without the link while it is read, [이유 추가] with it at rest (pvAddCut). */
-.pv.pv-tight:not(.pv-stack)>.pv-t:has(>.pv-undo) .pv-early,#doc:not(.pv-measure) .pv.pv-tight:not(.pv-stack)>.pv-t:has(.pv-kbd) .pv-early{display:none}
+.pv.pv-tight:not(.pv-stack)>.pv-t:has(>.pv-undo) :is(.pv-early,.pv-ea),#doc:not(.pv-measure) .pv.pv-tight:not(.pv-stack)>.pv-t:has(.pv-kbd) :is(.pv-early,.pv-ea){display:none}
 /* While the line offers a take-back's [되돌리기] (verdict.js PV_LINE_UNDO), [이유 추가] steps out on every row - as it does for an
    armed confirm word's wait - and is back when the offer ends (a kept draft's '초안 있음' stays). Beside it a 620px row with
    three-digit pin numbers was still within 2px of stacking for the offer's few seconds. A focus on it moves to the
@@ -212,14 +216,14 @@ body.lay-narrow.has-status:not(.typing,.pv-typing){--pv-inset:calc(var(--sheet-h
    (role=status) - the reason is cut as for an armed word, and the earlier link steps out until the save is done. pvFit
    keeps the gap the words take in every row it lets stand (pvStateNeed). Held at 6em beside the next save's state, they
    pushed [판정 취소] past the row's end, where it was clipped (#308). */
-.pv:has(>.pv-t>.pv-busy)>.pv-t .pv-early{display:none}
+.pv:has(>.pv-t>.pv-busy)>.pv-t :is(.pv-early,.pv-ea){display:none}
 /* While a confirm word waits for its second press its line says how long ('4초 안에 한 번 더 누르면 저장', .pv-arm) in full: what
    does not bear on that press gives way to it - the reason and the earlier link to nothing (it keeps a focus it has), [이유
    추가] and [판정 취소] step out - and it is cut last. The words stay where they are (the line keeps its rows, verdict.js pvRowsHeld). */
 .pv:not(.pv-stack)>.pv-t .pv-arm{flex:0 1 auto;min-width:6em;overflow-x:clip;overflow-y:visible;text-overflow:ellipsis}
 .pv:has(>.pv-t :is(.pv-arm,.pv-busy))>.pv-t .pv-note{min-width:0}
 .pv:not(.pv-stack):has(>.pv-t .pv-arm)>.pv-t .pv-early{flex:0 50 auto;min-width:0;overflow-x:clip;overflow-y:visible;text-overflow:clip}
-.pv:has(>.pv-t .pv-arm)>.pv-t :is(.pv-ra,.pv-cn){display:none}
+.pv:has(>.pv-t .pv-arm)>.pv-t :is(.pv-ra,.pv-cn,.pv-ea){display:none}
 .pv:not(.pv-stack)>.pv-t{margin-right:auto}
 .pv:not(.pv-stack)>.vd-btns{flex:none}
 .pv>.vd-btns{order:2}
