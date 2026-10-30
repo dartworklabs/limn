@@ -6789,6 +6789,54 @@ class EdgeKeys(VerdictBase):
         page.keyboard.press("Tab")
         self.assertEqual(page.evaluate(FOCUS_AT)[0], 1)
 
+    def test_tab_from_a_page_without_a_line_keeps_the_pages_where_they_are(self):
+        """The map says page 1 takes no verdict (a figure document's list page) and page 1 is read, drawn taller than the
+        area: Tab from the PDF area - focused, or nothing focused after a press on the page - goes past the pages to the
+        first stop after them (pvEdgeStop) and the pages do not move. Left to the DOM's order it went to page 2's line and
+        scrolled the pages there (page 4 of 91 from page 1, also on first open, #322). Shift+Tab from that stop comes back to
+        the area, the pages still. Zoomed out so page 2's line shows whole while page 1 is read, Tab goes to that line, with
+        no scroll either."""
+        fmap = helpers_figure.viewer_map()
+        fmap["pages"][0]["verdict"] = False
+        helpers_figure.viewer_build(self.fig, helpers_figure.BUILD2, fmap)
+        page = self.on("fig")
+        self.assertIsNone(page.evaluate(LINE, 1))
+        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        settle(page)
+        page.evaluate(SCROLL, [1, "top"])
+        settle(page)
+        top = page.evaluate("document.querySelector('#left').scrollTop")
+        edge = page.evaluate("(pvEdgeStop(true)||{}).id||null")
+        self.assertTrue(edge)
+        on = """()=>{const a=document.activeElement,L=document.querySelector('#left');
+          return [a===L?'left':a===document.body?'body':a.id||a.tagName,!!a&&!!a.closest&&!!a.closest('#doc .pv'),Math.round(L.scrollTop),pvReadingAt()];}"""
+        page.focus("#left")
+        page.keyboard.press("Tab")
+        self.assertEqual(page.evaluate(on), [edge, False, round(top), 1])
+        page.keyboard.press("Shift+Tab")
+        self.assertEqual(page.evaluate(on), ["left", False, round(top), 1])
+        # A press on page 1 leaves nothing focused: Tab from there keeps the pages too.
+        page.evaluate("document.activeElement.blur()")
+        area = page.locator("#left").bounding_box()
+        page.mouse.click(area["x"] + area["width"] / 2, area["y"] + area["height"] / 3)  # page 1 fills the area
+        settle(page)
+        self.assertEqual(page.evaluate(on)[0], "body")
+        page.keyboard.press("Tab")
+        self.assertEqual(page.evaluate(on), [edge, False, round(top), 1])
+        # Page 1 (landscape) a fifth of the area tall, read, and page 2 (portrait) with its line whole under it: Tab goes to
+        # that line, and nothing moves.
+        page.evaluate(
+            "()=>{setK(0.22*document.querySelector('#left').clientHeight/META.pages[0].pt_h,false); ZOOMED=true; document.querySelector('#left').scrollTop=0;}"
+        )
+        settle(page)
+        self.assertEqual(page.evaluate("pvReadingAt()"), 1)
+        self.assertTrue(page.evaluate(ON_TOP, '#doc .pv[data-page="2"] .vd-b'))
+        top = page.evaluate("document.querySelector('#left').scrollTop")
+        page.focus("#left")
+        page.keyboard.press("Tab")
+        self.assertEqual(page.evaluate(FOCUS_AT)[0], 2)
+        self.assertEqual(page.evaluate("[document.querySelector('#left').scrollTop, pvReadingAt()]"), [top, 1])
+
 
 # One row's parts on page n's line as drawn: the figure's name, the dot after it, each part of the state (a display:
 # contents span's own children in its place) and each word - with whether each shows, its box, and the line's box.

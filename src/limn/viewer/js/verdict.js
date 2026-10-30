@@ -1108,13 +1108,32 @@ function pvSayGliding(){lineNote('쪽으로 가는 중이라 판정 키를 받�
 // The focus on nothing (body) counts as on the PDF area after a press there: a press on a page leaves the focus where it was,
 // and Chromium's next Tab starts from the pressed node - which a redrawn canvas had taken away, so it started from the
 // document's first line (page 4 of 91).
+// A reading page with no line (a figure document's list pages, which take no verdict - pageTakesVerdict) or with none of its
+// controls to stop on (a viewer who may not make a verdict, '판정 없음') keeps the pages where they are as well: the Tab goes
+// to the next stop in the pages from that page on - a mark, the next page's line - while it shows whole in the area's view,
+// else on past the pages (pvEdgeStop: the status line's action, the panel's grip), else nowhere (the focus stays). Left to
+// the DOM's order it went to the first line after the pages' start and scrolled them there: from page 1 of a 91-page figure
+// document to page 4, also on first open (#322).
 let PV_PTR_PAGES=false;
 addEventListener('pointerdown',e=>{const t=/** @type {HTMLElement|null} */(e.target); PV_PTR_PAGES=!!t&&!!t.closest&&!!t.closest('#left')&&!t.closest('#doc .pv');},true);
 document.addEventListener('focusin',e=>{const t=/** @type {HTMLElement|null} */(e.target); if(t&&t!==$('#left'))PV_PTR_PAGES=false;});
 addEventListener('keydown',e=>{const a=document.activeElement; if(e.key!=='Tab'||e.shiftKey||e.ctrlKey||e.metaKey||e.altKey||e.defaultPrevented||!(a===$('#left')||((!a||a===document.body)&&PV_PTR_PAGES)))return;
-  const r=pvReadingPage(),l=r?document.querySelector('#doc .pv[data-page="'+r+'"]'):null; if(!l)return;
-  const c=/** @type {HTMLElement|undefined} */([...l.querySelectorAll('a,button,[tabindex="0"]')].find(x=>x instanceof HTMLElement&&x.getClientRects().length>0&&!(/** @type {HTMLButtonElement} */(x).disabled)));
-  if(c){e.preventDefault(); c.focus({preventScroll:true});}});
+  const at=pvReadingAt(); if(!at)return;   // no page lines, or the pages are not shown: the DOM's order scrolls nothing to a line
+  const r=pvReadingPage(),l=r?document.querySelector('#doc .pv[data-page="'+r+'"]'):null;
+  const c=/** @type {HTMLElement|undefined} */(l?[...l.querySelectorAll('a,button,[tabindex="0"]')].find(x=>x instanceof HTMLElement&&x.getClientRects().length>0&&!(/** @type {HTMLButtonElement} */(x).disabled)):undefined);
+  e.preventDefault(); const to=c||pvStopInView(at)||pvEdgeStop(true); if(to)to.focus({preventScroll:true});});
+// The first Tab stop in the pages from page `at` on - its own marks, then the next pages' marks and lines in the DOM's
+// order - when that stop shows whole in the PDF area's view and nothing lies over it (the status line or the sheet over the
+// area's bottom: what its middle hits is it), else null. Reads the page blocks from `at` down to the area's bottom only.
+/** @param {number} at @returns {HTMLElement|null} */
+function pvStopInView(at){const L=$('#left'),v=L.getBoundingClientRect(),top=v.top+L.clientTop,left=v.left+L.clientLeft,bot=top+L.clientHeight,right=left+L.clientWidth;
+  for(let n=at,b=document.querySelector('#doc .pgw[data-page="'+n+'"]');b;b=document.querySelector('#doc .pgw[data-page="'+(++n)+'"]')){
+    if(b.getBoundingClientRect().top>=bot)return null;
+    const x=[...b.querySelectorAll(PV_TABBABLE)].find(pvTabStop); if(!x)continue;
+    const s=x.getBoundingClientRect(); if(s.top<top||s.bottom>bot||s.left<left||s.right>right)return null;
+    const h=document.elementFromPoint((s.left+s.right)/2,(s.top+s.bottom)/2);
+    return !!h&&(h===x||(!!h.closest&&h.closest(PV_TABBABLE)===x))?x:null;}
+  return null;}
 // Tab into the pages from outside them - the outline, the section strip, the panel by Shift+Tab - goes to the reading page's
 // line too (its first control; its last by Shift+Tab), else to the PDF area: the DOM's next stop is the first page's line (or
 // the last page's), whose focus scrolled the document there. Only a Tab across the pages' edge is taken - from the last stop
