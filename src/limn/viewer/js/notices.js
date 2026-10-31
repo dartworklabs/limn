@@ -231,7 +231,7 @@ function endNotice(n,acted,seen){if(!NOTICES.has(n.n))return; NOTICES.delete(n.n
   if(n.place===NOTICE_PLACE.BANNER&&BANNERS.get(n.host)===n)BANNERS.delete(n.host);
   if(n.el)n.el.remove();
   if((acted||seen)&&n.dot&&!LINE.some(x=>x.dot===n.dot))document.body.classList.remove('dot-'+n.dot);
-  if(n.place===NOTICE_PLACE.LINE)drawStatus(); if(n.place===NOTICE_PLACE.BANNER)syncSaveBtn();
+  if(n.place===NOTICE_PLACE.LINE)drawStatus(); if(n.place===NOTICE_PLACE.BANNER){syncSaveBtn(); tipFollow();}   // what was under it moved up
   if(!acted&&n.gone){const g=n.gone; n.gone=null; g();}}
 
 // How long an action's request may go unanswered before its message says so (noticeLate) - the bound a page line's
@@ -352,7 +352,7 @@ function drawBanners(){BANNERS.forEach((n,host)=>{const e=noticeEl(n,'nt-banner'
   const p=host===NOTICE_HOST.COMPOSER?$('#c-actions'):host===NOTICE_HOST.TRASH?$('#trash'):rv?$('#sec-review'):$('#list');
   const before=host===NOTICE_HOST.TRASH?$('#trash-list'):rv?$('#review-pins'):p.firstElementChild;
   if(e.parentNode!==p||(before!==e&&e.nextElementSibling!==before))p.insertBefore(e,before===e?e.nextElementSibling:before);});
-  syncSaveBtn();}
+  syncSaveBtn(); tipFollow();}   // what is under a banner moved down
 // The composer's [핀 저장] reads [다시 저장] while its banner is a failed save (saveBtnLabel), and goes back after.
 function syncSaveBtn(){const b=$('#btn-save'); if(!b||b.dataset.pending)return; const n=BANNERS.get(NOTICE_HOST.COMPOSER),retry=!!(n&&n.save);
   if((b.dataset.retry==='1')!==retry){if(retry)b.dataset.retry='1'; else delete b.dataset.retry; setHtml(b,saveBtnLabel());}}

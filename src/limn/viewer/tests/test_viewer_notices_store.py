@@ -487,6 +487,40 @@ class TrashRestore(NoticePage, BrowserBase):
         )
         self.assertEqual(got, {"others": 0, "own": 0, "inside": True})
 
+    def test_a_showing_tooltip_does_not_stay_over_the_row_before_when_a_banner_moves_the_list(self):
+        """The middle row's [되살리기] has the keyboard focus and its box shows (as after a restore moved the focus there);
+        another row's restore, held past the bound, puts its late notice over the list and pushes it down. The box goes:
+        left where it was, it covered the row before's note line. The answer takes the notice away and the list comes back
+        up, and a box shown meanwhile does not stay over the row after either."""
+        page, (a, b, c) = self.trash(3)
+        held = []
+        page.route("**/api/pins/%d/restore" % c, lambda route: held.append(route))
+        page.evaluate("NOTICE_ACT_WAIT=150")
+        middle = '#trash-list .arc-row[data-id="%d"]' % b
+        clear = """sel => {if (TIP.hidden) return true; const R = e => e.getBoundingClientRect(), t = R(TIP), me = document.querySelector(sel);
+          return [...document.querySelectorAll('#trash-list .arc-row')].every(r => {const x = R(r);
+            return r === me || !(t.left < x.right && x.left < t.right && t.top < x.bottom && x.top < t.bottom);});}"""
+        top = "sel=>Math.round(document.querySelector(sel).getBoundingClientRect().top)"
+        page.mouse.move(2, 2)
+        page.keyboard.press("Shift")  # the keyboard is the input (data-input)
+        page.locator(middle + ' [data-act="restore"]').focus()
+        page.wait_for_function("()=>!TIP.hidden")
+        self.assertTrue(page.evaluate(clear, middle))
+        was = page.evaluate(top, middle)
+        page.evaluate("id=>{trashRestore(id);}", c)
+        page.wait_for_function(RESTORE_LATE, arg=c)
+        self.assertGreater(page.evaluate(top, middle), was, "the banner did not push the list down")
+        self.assertTrue(page.evaluate(clear, middle), "the box stayed over the row before")
+        page.evaluate("sel=>showTip(document.querySelector(sel+' [data-act=restore]'))", middle)
+        self.assertTrue(page.evaluate(clear, middle))
+        page.evaluate(
+            "()=>{const n=[...NOTICES.values()].find(n=>n.place==='banner'&&n.host==='trash'); endNotice(n,false,true);}"
+        )
+        self.assertEqual(page.evaluate(top, middle), was)
+        self.assertTrue(page.evaluate(clear, middle), "the box stayed over the row after once the banner went")
+        self.route(held[0])
+        page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id)", arg=c)
+
     def test_a_failed_restore_keeps_the_focus_on_its_row_and_a_moved_one_is_left_alone(self):
         """The restore answered 500: the row is drawn again and the focus is back on its [되살리기]. Then a restore held
         while the person moves to another row's [되살리기]: the answer leaves the focus there."""

@@ -2,11 +2,17 @@
 const TIP=$('#tip'); let tipT=/** @type {ReturnType<typeof setTimeout>|undefined} */(undefined),tipEl=/** @type {HTMLElement|null} */(null),
   TIPXY=/** @type {number[]|null} */(null);
 document.addEventListener('mousemove',e=>{TIPXY=[e.clientX,e.clientY];},{passive:true});
+// The element the showing box was placed on and where it stood then (showTipText), for tipFollow.
+let TIP_AT=/** @type {{el:Element,x:number,y:number}|null} */(null);
 // The tooltip box is a manual popover, so it is drawn in the top layer: a modal sheet (the navigation sheet, [더보기]) is in the top
 // layer too and would cover a box that only has a z-index. A browser without popovers draws it as it always did.
 function tipShown(on){TIP.hidden=!on; if(!on)document.documentElement.classList.remove('tip-press'); if(typeof TIP.showPopover!=='function')return;
   try{const open=TIP.matches(':popover-open'); if(on&&!open)TIP.showPopover(); else if(!on&&open)TIP.hidePopover();}catch(e){}}
-function hideTip(){clearTimeout(tipT);tipT=undefined;tipEl=null;tipShown(false);}
+function hideTip(){clearTimeout(tipT);tipT=undefined;tipEl=null;TIP_AT=null;tipShown(false);}
+// Content came or went above a showing box's element (a banner over the Trash's list - its late notice, a failure - or the
+// list drawn again): a box whose element moved or left the page goes. Left where it was, it stood over the row before.
+function tipFollow(){if(TIP.hidden||!TIP_AT)return; const e=TIP_AT.el; if(!e.isConnected){hideTip(); return;}
+  const r=e.getBoundingClientRect(); if(Math.abs(r.left-TIP_AT.x)>0.5||Math.abs(r.top-TIP_AT.y)>0.5)hideTip();}
 // Shows el's description over it. The box is translate="no": a description is already in the UI language (the translator
 // rewrote the attribute, or the code drew it with tr()), and one that quotes a note ('#38 · 완료') must not be rewritten again.
 function showTip(el){showTipText(el,el.dataset.tip||'');}
@@ -15,7 +21,7 @@ function showTip(el){showTipText(el,el.dataset.tip||'');}
 /** @param {HTMLElement} el @param {string} txt */
 function showTipText(el,txt){if(!txt||!document.contains(el))return;
   TIP.textContent=txt; tipShown(true);
-  const r=el.getBoundingClientRect(),tw=TIP.offsetWidth,th=TIP.offsetHeight;
+  const r=el.getBoundingClientRect(),tw=TIP.offsetWidth,th=TIP.offsetHeight; TIP_AT={el,x:r.left,y:r.top};
   let top=r.top-th-8, cx=r.left+r.width/2;
   // A control in a Trash row has its box beside the row's controls, inside that row: over it the box covered the row
   // before's note line and buttons (under it, the next row's). Where the row leaves it no room, it goes over as anywhere.

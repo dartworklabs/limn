@@ -186,7 +186,8 @@ function drawTrash(){const L=TRASH_ALL?DROPPED:listDropped(),box=$('#trash-list'
   $('#trash-note').textContent=tl('삭제한 핀은 {n}일 동안 여기 있다가 저절로 지워집니다. 되살리면 같은 번호로 돌아옵니다',{n:TRASH_DAYS});
   setHtml(box,L.length?html`${L.slice().reverse().filter(p=>!PURGING.has(p.id)).map(droppedCard)}`:html`<div class="dim">${tr('휴지통이 비어 있습니다')}</div>`);
   drawTrashOffers();
-  if(a&&spot&&!box.contains(document.activeElement))trashRefocus(box,spot,a);}
+  if(a&&spot&&!box.contains(document.activeElement))trashRefocus(box,spot,a);
+  tipFollow();}   // a box over a row drawn anew stands over nothing
 // Where focused element a stands in the Trash's list before a redraw: its row's pin (null in an undo row), its action, and the
 // rows' pins in order with its row's place among them.
 /** @param {HTMLElement} box @param {HTMLElement} a @returns {{id:number|null,act:string,ids:number[],at:number}} */
