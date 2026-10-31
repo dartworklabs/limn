@@ -1695,8 +1695,9 @@ class Look(PanelBase):
 
     def test_the_pressed_words_description_is_its_context_under_the_panel_and_no_box_over_its_name(self):
         """The pressed word hovered and focused in the panel: no description box comes up over the panel's name - the context
-        under the panel says it, and a long press still shows the description. A word not pressed keeps its box. Under a
-        page (1400) the pressed word keeps its box as before."""
+        under the panel says it, and a long press still shows the description. A word not pressed and the '#1' link keep
+        their boxes, left of the panel: over neither its name nor its controls. Under a page (1400) the pressed word keeps
+        its box, over the word, as before."""
         self.verdict(1, "채택")
         page = self.on(n_open=1)
         pressed, other = '#pv-panel button[data-key="채택"]', '#pv-panel button[data-key="보류"]'
@@ -1710,9 +1711,17 @@ class Look(PanelBase):
               return {box:!t.hidden,hint:h.height>0&&h.top>=p.getBoundingClientRect().bottom};}"""
         )
         self.assertEqual(got, {"box": False, "hint": True})
-        page.locator(other).hover()
-        settle(page)
-        self.assertTrue(page.evaluate("()=>!document.getElementById('tip').hidden"), "a word not pressed lost its box")
+        # Every other description in the panel stands left of it, level with its control: over neither the name nor a control.
+        clear = """()=>{const t=document.getElementById('tip'),b=t.getBoundingClientRect(),p=document.getElementById('pv-panel').getBoundingClientRect(),
+            f=document.querySelector('#pv-panel .pv-fig').getBoundingClientRect(),cut=r=>b.left<r.right&&r.left<b.right&&b.top<r.bottom&&r.top<b.bottom;
+          return {shown:!t.hidden,name:cut(f),panel:cut(p),text:t.textContent.length>0};}"""
+        for sel in (other, '#pv-panel [data-act="pin-ref"]'):
+            with self.subTest(control=sel):
+                page.mouse.move(5, 500)
+                settle(page)
+                page.locator(sel).hover()
+                settle(page)
+                self.assertEqual(page.evaluate(clear), {"shown": True, "name": False, "panel": False, "text": True})
         page.mouse.move(5, 500)
         page.locator(pressed).focus()
         page.evaluate("document.documentElement.dataset.input='key'")
@@ -1724,6 +1733,13 @@ class Look(PanelBase):
         self.to(under, 1, 200)
         got = under.evaluate(tips, WORD % (1, "채택"))
         self.assertTrue(got[0] and not got[1], got)
+        under.locator(WORD % (1, "보류")).hover()
+        settle(under)
+        got = under.evaluate(
+            """s=>{const t=document.getElementById('tip').getBoundingClientRect(),b=document.querySelector(s).getBoundingClientRect(); return t.bottom<=b.top;}""",
+            WORD % (1, "보류"),
+        )
+        self.assertTrue(got, "the line's description no longer stands over its word")
 
 
 class WideTouch(PanelBase):

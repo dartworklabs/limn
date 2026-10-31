@@ -11,11 +11,15 @@ function hideTip(){clearTimeout(tipT);tipT=undefined;tipEl=null;tipShown(false);
 // rewrote the attribute, or the code drew it with tr()), and one that quotes a note ('#38 · 완료') must not be rewritten again.
 function showTip(el){showTipText(el,el.dataset.tip||'');}
 // Shows txt over el as its description box (showTip's drawing; statusWhy shows [이유]'s sentence at the line this way). Nothing
-// without a text or for an element no longer in the page.
+// without a text or for an element no longer in the page. Inside a box marked data-tip-at="left" (the page verdict panel) the
+// description stands left of that box, level with el, so it covers none of the box's own rows - over a word it covered the
+// panel's name above it, and under it the controls - unless there is no room there.
 /** @param {HTMLElement} el @param {string} txt */
 function showTipText(el,txt){if(!txt||!document.contains(el))return;
   TIP.textContent=txt; tipShown(true);
   const r=el.getBoundingClientRect(),tw=TIP.offsetWidth,th=TIP.offsetHeight;
+  const box=/** @type {HTMLElement|null} */(el.closest('[data-tip-at="left"]')),bl=box?box.getBoundingClientRect().left-tw-8:-1;
+  if(box&&bl>=4){TIP.style.left=bl+'px'; TIP.style.top=Math.max(4,Math.min(r.top+r.height/2-th/2,innerHeight-th-4))+'px'; return;}
   let top=r.top-th-8, cx=r.left+r.width/2;
   if(top<4) top=r.bottom+8;
   if(top>innerHeight-th-4 && TIPXY){top=TIPXY[1]+18; cx=TIPXY[0];}   // an element taller than the window (#grip/a long card) anchors to the pointer instead

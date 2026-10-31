@@ -73,7 +73,7 @@ function pvSideTurned(k){drawChips(); const g=k.caret?pvReasonField():null;
 // page. Fixed to the window it was out of that chain: after a key save the keys and the wheel moved nothing, and the next
 // digit changed the same page's verdict.
 function pvPanel(){let p=/** @type {HTMLElement|null} */(document.getElementById('pv-panel'));
-  if(!p){const at=document.createElement('div'); at.id='pv-panel-at'; p=document.createElement('div'); p.id='pv-panel'; p.className='pv pv-panel pv-stack';
+  if(!p){const at=document.createElement('div'); at.id='pv-panel-at'; p=document.createElement('div'); p.id='pv-panel'; p.className='pv pv-panel pv-stack'; p.dataset.tipAt='left';   // its descriptions stand left of it (tooltip.js)
     at.appendChild(p); $('#doc').appendChild(at); if(PV_CHIP_WATCH)PV_CHIP_WATCH.observe(p,{childList:true});}
   return p;}
 function pvPanelGone(){const at=document.getElementById('pv-panel-at'); if(at)at.remove();}
