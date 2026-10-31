@@ -1832,6 +1832,18 @@ class FarJump(PanelBase):
         self.landed(page, 5)
         self.assertEqual(page.evaluate("window.__shown"), {"pages": ["1", "5"], "flash": ["5"]})
 
+    def test_a_list_read_again_during_the_glide_keeps_the_panel_held(self):
+        """The pin list read again while the pages glide past page 3 (drawPageVerdicts): the panel still shows the page it
+        left, and fills once where the jump lands."""
+        page = self.on()
+        page.evaluate(self.WATCH)
+        page.evaluate("goPage(5)")
+        page.wait_for_function("()=>pvAutoScrolling()&&pvReadingAt()>=3", polling="raf")
+        page.evaluate("drawPageVerdicts()")
+        self.assertEqual(page.evaluate(PANEL)["page"], 1)
+        self.landed(page, 5)
+        self.assertEqual(page.evaluate("window.__shown.pages"), ["1", "5"])
+
     def test_a_hand_on_the_pages_during_the_glide_lets_the_panel_follow_at_once(self):
         """The wheel during a jump's glide takes the pages over: the panel follows the reading page from the next frame."""
         page = self.on()

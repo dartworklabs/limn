@@ -84,7 +84,7 @@ function pvPanelGone(){const at=document.getElementById('pv-panel-at'); if(at)at
 // panel for a pin of another page goes to the status line with its undo (chipAway), as a chip whose mark is not drawn does:
 // the panel no longer shows the verdict it undoes.
 /** @param {Map<number,Pin[]>} map @param {DocVerdicts} v */
-function pvPanelFill(map,v){const p=pvPanel(),r=PV_READ,at=pvReadingAt(),list=r?map.get(r)||[]:[]; pvPanelLeave(p,at);
+function pvPanelFill(map,v){const p=pvPanel(),r=PV_READ,at=pvPanelHeld()||pvReadingAt(),list=r?map.get(r)||[]:[]; pvPanelLeave(p,at);
   const chip=/** @type {HTMLElement|null} */(p.querySelector(':scope>.nt-chip')); if(chip&&!list.some(x=>x.id===pvChipPin(chip)))chipAway(chip);
   if(r){p.classList.remove('pv-quiet'); fillPv(p,r,map.get(r),v); pvPanelPlace(); pvPanelArrived(r); return;}
   PV_TEXT.delete(p); p.classList.add('pv-quiet'); p.classList.remove('reading'); p.dataset.page=String(at||0); delete p.dataset.pin;
@@ -184,15 +184,23 @@ let PV_HOLD_T=/** @type {ReturnType<typeof setTimeout>|undefined} */(undefined);
 function pvPanelHeld(){if(!PV_SIDE||!pvAutoScrolling())return 0; const p=document.getElementById('pv-panel'),n=p?Number(p.dataset.page)||0:0; if(!n)return 0;
   clearTimeout(PV_HOLD_T); PV_HOLD_T=setTimeout(pvStickSoon,Math.min(1000,Math.max(0,(PV_SCROLLEND?1000:160)-(performance.now()-PV_SCROLL_AT))+16)); return n;}
 $('#left').addEventListener('scrollend',()=>{if(PV_SIDE)pvStickSoon();});   // after verdict.js's, which ends the guard
-// The panel flashes (a card's [보기], a summary's press) once it shows page `page`: at once when it does, else when a glide lands
-// and fills it (pvPanelArrived) - flashed as the glide began, it lit the page being left and was over before the landing.
-let PV_FLASH_AT=0;
+// The reading page with a line as the lines are drawn (drawPageVerdicts): the held one while a glide holds the panel - a list
+// read again on the way filled it with a page passed - else the page under the reading line (pvReadingPage).
+function pvHeldReadingPage(){const h=pvPanelHeld(); return h?(pageTakesVerdict(h)?h:0):pvReadingPage();}
+// The panel flashes for a card's [보기] once it shows page `page`: at once when it does, else when a glide lands and fills it
+// (pvPanelArrived) - flashed as the glide began, it lit the page being left and was over before the landing. The wait is
+// bounded (PV_FLASH_WAIT_MS): a hand that takes the pages over and stays on the page shown fills nothing, and a later visit
+// to the card's page must not flash.
+let PV_FLASH_AT={page:0,until:0};
+const PV_FLASH_WAIT_MS=3000;
 /** @param {number} page */
-function pvFlashOn(page){const p=document.getElementById('pv-panel'); if(p&&p.dataset.page===String(page)){PV_FLASH_AT=0; pvFlash(p); return;} PV_FLASH_AT=page;}
+function pvFlashOn(page){const p=document.getElementById('pv-panel'); PV_FLASH_AT={page:0,until:0}; if(p&&p.dataset.page===String(page)){pvFlash(p); return;}
+  PV_FLASH_AT={page,until:performance.now()+PV_FLASH_WAIT_MS};}
 // The panel was filled with page `page` (pvPanelFill): the first filling at rest after a flash was asked for ends the wait, and
 // flashes if it is that page (a hand that took the pages elsewhere lands on another).
 /** @param {number} page */
-function pvPanelArrived(page){if(!PV_FLASH_AT||pvAutoScrolling())return; const go=PV_FLASH_AT===page; PV_FLASH_AT=0; const p=document.getElementById('pv-panel'); if(go&&p)pvFlash(p);}
+function pvPanelArrived(page){const w=PV_FLASH_AT; if(!w.page||pvAutoScrolling())return; PV_FLASH_AT={page:0,until:0};
+  const p=document.getElementById('pv-panel'); if(w.page===page&&performance.now()<w.until&&p)pvFlash(p);}
 /** @param {HTMLElement} p */
 function pvFlash(p){p.classList.remove('flash'); void p.offsetWidth; p.classList.add('flash'); clearTimeout(p._flT); p._flT=setTimeout(()=>p.classList.remove('flash'),1200);}
 // ---------------- Keys the panel needs of its own
@@ -211,9 +219,10 @@ addEventListener('keydown',e=>{if(e.key!=='Escape'||e.defaultPrevented||!PV_SIDE
 // A tall panel (.pv-tall) scrolls inside. A control the keyboard focuses there comes whole into its view, focus ring and all:
 // the reason popover's Tab loop focuses without scrolling (verdict-reason.js), so its first word and last control stayed out of
 // sight; the browser's own Tab scrolls only the control's edge to the panel's, which cut the ring; and the popover's rows
-// change as the focus moves (the field's keys row), after the browser scrolled. A press is left where it is: it is in view.
+// change as the focus moves (the field's keys row), after the browser scrolled. A press is left where it is: it is in view, and
+// moving the panel under the pointer put the caret of a click in the field somewhere else.
 function pvPanelReveal(){const p=document.getElementById('pv-panel'),a=document.activeElement;
-  if(!p||!PV_SIDE||!p.classList.contains('pv-tall')||!(a instanceof HTMLElement)||!p.contains(a)||!a.matches(':focus-visible'))return;
+  if(!p||!PV_SIDE||!p.classList.contains('pv-tall')||!(a instanceof HTMLElement)||!p.contains(a)||!a.matches(':focus-visible')||document.documentElement.dataset.input==='pointer')return;
   const c=getComputedStyle(a),m=(parseFloat(c.outlineWidth)||0)+Math.max(0,parseFloat(c.outlineOffset)||0)+PV_RING_ROOM,b=p.getBoundingClientRect(),r=a.getBoundingClientRect();
   const top=b.top+p.clientTop,bottom=top+p.clientHeight;
   if(r.top-m<top||r.height+2*m>p.clientHeight)p.scrollTop-=top-(r.top-m); else if(r.bottom+m>bottom)p.scrollTop+=r.bottom+m-bottom;}

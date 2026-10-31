@@ -1043,7 +1043,7 @@ function drawPageVerdicts(){const v=pageVerdictsOn(),f=/** @type {HTMLElement|nu
   // its words went) closes here, its text saved - pvReasonSync, after this, is never reached for it.
   if(!v||!META){if(PV_REASON)pvReasonLeave(); $$('#doc .pv,#doc .pv-sum').forEach(e=>e.remove()); pvPanelGone(); if(PV_SIDE)pvSideApply(false); pvTypingSync(); return;}
   const turn=pvSideTurn();   // beside the pages or under them (verdict-panel.js): the reading page holds until the spot is back
-  try{pvReasonSync(); const map=pageVerdictPins(); PV_READ=pvReadingPage(); PV_KEYS=pvKeysPage(PV_READ);
+  try{pvReasonSync(); const map=pageVerdictPins(); PV_READ=pvHeldReadingPage(); PV_KEYS=pvKeysPage(PV_READ);
     // Beside the pages: one panel for the reading page, and every page's verdicts are its - none draws a page-size mark.
     if(PV_SIDE){$$('#doc .pgw>.pv').forEach(e=>e.remove()); map.forEach(list=>list.forEach(p=>PV_SHOWN.add(p.id))); pvPanelFill(map,v);}
     else{pvPanelGone();
