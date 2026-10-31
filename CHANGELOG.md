@@ -12,6 +12,12 @@
   place, the line floats over the gap, and while it lies over the next page's head it has an edge and a shadow under it
   as over it, so it does not read as part of that page. The side panel's popover, beside the page, is unchanged. The
   agent contract is unchanged.
+- **Opening or closing a reason no longer scrolls the pages (#345, also in 0.4.38).** Each drawing of the page lines
+  measures every line in the document as the reading line for a moment, and the lines above the reading page that it
+  does not hold grew and shrank back; the PDF area's scroll anchoring kept part of that. With the pin panel closed on a
+  1440 figure document, the pages went 46px down when a reason opened (by Enter or a click) and again when it closed,
+  and 39px on a phone when it opened. The measure now never anchors the scroll at any zoom, as it already did while
+  pinch-zoomed.
 
 ## 0.4.38 — 2026-10-31
 

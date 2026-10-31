@@ -3634,6 +3634,68 @@ class ReasonRoom(VerdictBase):
         self.assertTrue(page.evaluate(ROOM_AT, 1)["stuck"])
         self.assertEqual(page.evaluate(EDGE_BELOW, 1), [], "floating over its own page")
 
+    def key_save(self, page, key):
+        """Key `key` on the reading page: a new verdict saved, the list read again."""
+        want = len([p for p in self.pins().values() if p.get("state") == "open"]) + 1
+        page.keyboard.press(key)
+        page.wait_for_function("n=>OPEN_ALL.length>=n", arg=want)
+        settle(page)
+
+    def test_opening_and_closing_by_key_or_click_scroll_nothing(self):
+        """The pin panel closed (the line under each page), page 2 drawn by pdf.js, 560px wide and taller than the area: a
+        digit saves 보류 over an earlier 채택 on page 2 (its line stacked), its end is scrolled to 65px above the area's
+        bottom, and the reason is opened - by Enter, then by a click - and closed with Esc. The pages do not scroll, and
+        every line pass of those steps (pvFit) measures with the area's scroll anchoring held off. Each pass lays every line
+        in the document out as the reading line for a moment (#doc.pv-measure) - those it does not hold too, the stacked
+        lines above a figure page a row taller - and on a real figure document the anchoring kept part of that: the pages
+        went 46px down on the open and again on the close at 1440x900 (also on 0.4.38). The fixture's words do not wrap
+        that way, so the hold is read where the pass measures."""
+        for how in ("enter", "click"):
+            with self.subTest(how=how):
+                page = self.on("fig", viewport={"width": 1440, "height": 700})
+                page.evaluate("setSide(false)")
+                page.evaluate("setK(560/META.pages[1].pt_w,false); ZOOMED=true")
+                settle(page)
+                # Each page as pdf.js draws it: the PNG under the canvas hidden (.drawn, §벡터 렌더링), so nothing inside a
+                # page is a scroll anchor candidate (the canvas is out of the flow) and the area anchors on a page's block.
+                page.evaluate("()=>document.querySelectorAll('#doc .pg').forEach(p=>p.classList.add('drawn'))")
+                page.evaluate(SCROLL, [2, "top"])
+                settle(page)
+                page.locator("#left").focus()
+                self.key_save(page, "1")
+                self.key_save(page, "2")
+                page.evaluate(END_CHIPS)
+                page.evaluate(
+                    """()=>{const L=document.querySelector('#left'),lr=L.getBoundingClientRect(),r=document.getElementById('p2').getBoundingClientRect();
+                      L.scrollTop+=r.bottom-(lr.top+L.clientHeight-65);}"""
+                )
+                settle(page)
+                self.assertEqual(page.evaluate("PV_READ"), 2)
+                self.assertIn("pv-stack", page.evaluate("()=>document.querySelector('#doc .pv.reading').className"))
+                # The area's overflow-anchor at every start of a measure from here on.
+                page.evaluate(
+                    """()=>{window.__anchorAtMeasure=[];const D=document.querySelector('#doc'),add=DOMTokenList.prototype.add;
+                      DOMTokenList.prototype.add=function(...a){if(this===D.classList&&a.includes('pv-measure'))
+                        window.__anchorAtMeasure.push(getComputedStyle(document.querySelector('#left')).overflowAnchor); return add.apply(this,a);};}"""
+                )
+                at = "()=>[document.querySelector('#left').scrollTop,document.getElementById('p2').getBoundingClientRect().top]"
+                before = page.evaluate(at)
+                if how == "enter":
+                    page.keyboard.press("Enter")
+                    page.locator('#doc .pv[data-page="2"] .pv-pop .pv-reason').wait_for()
+                else:
+                    open_reason(page, 2)
+                settle(page)
+                self.assertEqual(page.evaluate(at), before, "opened")
+                page.keyboard.press("Escape")
+                settle(page)
+                self.assertIsNone(page.evaluate(REASON, 2))
+                self.assertEqual(page.evaluate(at), before, "closed")
+                held = page.evaluate("window.__anchorAtMeasure")
+                self.assertTrue(held)
+                self.assertEqual(set(held), {"none"}, held)
+                page.context.close()
+
     def test_a_floating_lines_popover_clears_the_pages_end(self):
         """The line floating at the area's bottom over page 1, its end below the area: the popover opens with nothing moving, and scrolled down
         until the page's end comes up to the popover's top, the line and the popover still stand where they floated."""

@@ -808,10 +808,11 @@ const PV_KEY_SAVED=/** @type {Set<number>} */(new Set());
 // second row covered the plot. A line narrower than a verdict's state beside its words stacks whatever it shows, so a press never stacks it. A line whose confirm word waits for its second press, or whose save is out, keeps the rows it has (pvRowsHeld): its
 // words moving between the two presses sent the second one elsewhere. The save chip is placed after (pvChipPlace).
 // Read and written in batches.
-// While the page is pinch-zoomed the PDF area does not anchor its scroll for the pass (pvHoldView): the pass grows every
-// line above the reading page and shrinks it back (#doc.pv-measure), and Chromium carried the anchoring of that shrink -
-// the area is the page's root scroller there - into the zoomed view, which went from where it was to the page's top
-// (422 -> 0 at 2x) at every drawing of the lines: a save, a take-back (#320). The pass moves nothing below a line it measures
+// The PDF area does not anchor its scroll for the pass (pvHoldView): the pass grows every line above the reading page and
+// shrinks it back (#doc.pv-measure), and the anchoring followed part of that - the pages went 46px down when a reason
+// opened (#345), and while pinch-zoomed Chromium carried the anchoring of that shrink - the area is the page's root
+// scroller there - into the zoomed view, which went from where it was to the page's top (422 -> 0 at 2x) at every
+// drawing of the lines: a save, a take-back (#320). The pass moves nothing below a line it measures
 // either (pvKeepBlocks): WebKit anchored the growth on the next page's block and not the shrink, so a key save on a phone
 // moved the pages 39px.
 /** @param {HTMLElement[]} lines */
@@ -907,16 +908,21 @@ function pvLetBlocks(kept){if(!kept.length)return; const L=$('#left'),a=L.getCli
   kept.forEach(([b,h,m])=>{b.style.height=h; b.style.marginBottom=m;}); kept.length=0;
   if(!pg||!a)return; const d=pg.getBoundingClientRect().top-y; if(Math.abs(d)>0.5&&!a.atTop)L.scrollTop+=d;   // a touch screen's top stays the top (restoreAnchor)
   void L.offsetHeight; if(was)L.style.setProperty('overflow-anchor',was); else L.style.removeProperty('overflow-anchor');}
-// Holds a pinch-zoomed view where it is across pvFit's pass (on) and lets go after it (off, given what on returned): the PDF
-// area does not anchor its scroll (overflow-anchor), and its layout is brought up to date before it anchors again, so the
-// anchor it then takes is where the pass left the pages - never a measure's grown lines. On returns the area's own value it
-// replaced, which off puts back (a pass inside a pass leaves the outer one's hold), or null where it held nothing. At no zoom
-// it does nothing: the pass moves no block there (pvKeepBlocks), and the area's anchoring stays as it is (no scroll of its own,
-// ever).
+// Holds the view where it is across pvFit's pass (on) and lets go after it (off, given what on returned): the PDF area does
+// not anchor its scroll (overflow-anchor), and its layout is brought up to date before it anchors again, so the anchor it
+// then takes is where the pass left the pages - never a measure's grown lines. The pass holds the blocks of the lines it
+// measures (pvKeepBlocks), but #doc.pv-measure lays out every line in the document as the reading line, those it does not
+// hold too: a stacked line above the reading page measured a row taller (the key marks on its words) and pushed the reading
+// page down and back within the pass. The anchoring followed part of that - on a 1440 figure document with the pin panel
+// closed, the pages went 46px down when a reason opened and again when it closed, and on a phone 39px (#345) - and while
+// the page is pinch-zoomed Chromium carried a shrink's anchoring into the zoomed view (#320). Nothing the pass does is to
+// move the pages: what moves after it is the lines' fitted heights, which pvLetBlocks lets go with the reading page kept
+// where it stood. On returns the area's own value it replaced, which off puts back (a pass inside a pass leaves the outer
+// one's hold), or null where it held nothing (no PDF area). No scroll of its own, ever.
 /** @param {boolean} on @param {string|null} [was] @returns {string|null} */
-function pvHoldView(on,was){const L=$('#left'),vv=window.visualViewport;
+function pvHoldView(on,was){const L=$('#left');
   if(!on){if(typeof was!=='string')return null; void L.offsetHeight; if(was)L.style.setProperty('overflow-anchor',was); else L.style.removeProperty('overflow-anchor'); return null;}
-  if(!vv||vv.scale<=1)return null; const prev=L.style.getPropertyValue('overflow-anchor'); L.style.setProperty('overflow-anchor','none'); return prev;}
+  if(!L)return null; const prev=L.style.getPropertyValue('overflow-anchor'); L.style.setProperty('overflow-anchor','none'); return prev;}
 // The width the state of a person's fresh verdict takes on a line in a row, drawn in a hidden line like line l (its text size,
 // the screen's language and pointer) and kept until those or the next pin number's digits change. Two states follow a
 // press: after a click '판정 #0 <the longest word> · 처리 대기 · 이유 추가 · 판정 취소', and on a mouse screen after a key
