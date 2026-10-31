@@ -3696,6 +3696,38 @@ class ReasonRoom(VerdictBase):
                 self.assertEqual(set(held), {"none"}, held)
                 page.context.close()
 
+    def test_a_line_pass_keeps_the_reading_page_under_a_line_with_kept_rows(self):
+        """A stacked line above the reading page keeps rows its state only takes as the reading line (.pv-t-kept,
+        --pv-t-h): a full line pass (sizePv) takes them off, measures, and keeps them again. The reading page stays where it
+        was: the held blocks are let go only after the rows are kept again, so the hand correction is made against the
+        final heights - let go before, with the area not anchoring for the pass, the reading page went down by the rows.
+        The kept rows are made here by a measure-only padding on the line's state, as the fixture's words wrap otherwise."""
+        page = self.on("fig", viewport={"width": 800, "height": 700})  # under the pages: no room for the panel
+        page.evaluate("setSide(false)")
+        page.add_style_tag(content="#doc.pv-measure .pv:not(.reading)>.pv-t{padding-top:23px}")
+        page.evaluate("setK(420/META.pages[0].pt_w,false); ZOOMED=true")  # page 1 420px wide: its line stacks
+        settle(page)
+        page.evaluate(
+            """()=>{const L=document.querySelector('#left'),lr=L.getBoundingClientRect(),r=document.getElementById('p2').getBoundingClientRect();
+              L.scrollTop+=r.top-(lr.top+40);}"""
+        )
+        settle(page)
+        self.assertEqual(page.evaluate("PV_READ"), 2)
+        one = '#doc .pv[data-page="1"]'
+        self.assertEqual(
+            page.evaluate(
+                "s=>{const l=document.querySelector(s);return [l.classList.contains('pv-stack'),l.classList.contains('pv-t-kept')]}",
+                one,
+            ),
+            [True, True],
+        )
+        self.assertGreater(page.evaluate("()=>document.querySelector('#left').scrollTop"), 0)
+        at = "()=>[document.querySelector('#left').scrollTop,document.getElementById('p2').getBoundingClientRect().top]"
+        before = page.evaluate(at)
+        page.evaluate("sizePv()")
+        settle(page)
+        self.assertEqual(page.evaluate(at), before)
+
     def test_a_floating_lines_popover_clears_the_pages_end(self):
         """The line floating at the area's bottom over page 1, its end below the area: the popover opens with nothing moving, and scrolled down
         until the page's end comes up to the popover's top, the line and the popover still stand where they floated."""

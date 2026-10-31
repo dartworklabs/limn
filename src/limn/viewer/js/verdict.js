@@ -871,9 +871,13 @@ function pvFit(lines){const panel=lines.find(l=>l.id==='pv-panel');
   // Where that is more than the state takes now (.pv-t-kept), its rows stand at the top and the room is kept under them: centred
   // in it, a resting line's state stood 40-65px off its identifier's row (#308 review).
   const th=lines.map((l,i)=>{const t=over[i]?l.querySelector(':scope>.pv-t'):null; return t?t.getBoundingClientRect().height:0;});
-  D.classList.remove('pv-measure'); pvLetBlocks(kept);   // the lines' fitted heights: what moves now is real, and anchors as ever
+  D.classList.remove('pv-measure');
   const nat=lines.map((l,i)=>th[i]?/** @type {HTMLElement} */(l.querySelector(':scope>.pv-t')).getBoundingClientRect().height:0);
   lines.forEach((l,i)=>{if(held[i])return; const k=th[i]>nat[i]+0.5; l.classList.toggle('pv-t-kept',k); if(k)l.style.setProperty('--pv-t-h',th[i]+'px');});
+  // The lines' fitted heights, their kept rows included: what moves now is real, and pvLetBlocks keeps the reading page where
+  // it stood. Let go before the rows were kept again, a stacked line above the reading page shrank there and grew back after
+  // the correction, and with the area not anchoring for the pass (pvHoldView) the reading page went down by the rows.
+  pvLetBlocks(kept);
   pvChipPlace(lines);
   // A word group that wraps keeps every button at its own width (vdWrapFit), read for every line before any is written.
   const groups=lines.map(l=>l.querySelector('.vd-btns')),wrap=groups.map(g=>!!g&&new Set([...g.children].map(b=>Math.round(b.getBoundingClientRect().top))).size>1);
