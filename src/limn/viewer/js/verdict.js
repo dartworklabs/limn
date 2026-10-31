@@ -1293,7 +1293,14 @@ addEventListener('keydown',verdictKey);
 // is one it passes, not the one asked for: a verdict key or Enter then would act on a page scrolled past (an outline jump
 // to page 64 saved 보류 on page 12). A scroll the person makes goes on acting at once; an instant jump ends at once.
 let PV_SCROLL_AT=0,PV_SCROLL_HAND=0,PV_GLIDE=false,PV_JUMP=/** @type {number|null} */(null);   // PV_JUMP: the scrollTop a jump is going to
-const PV_HAND=()=>{PV_SCROLL_HAND=performance.now(); PV_GLIDE=false; PV_JUMP=null;};   // the person takes the pages over
+const PV_HAND=()=>{PV_SCROLL_HAND=performance.now(); PV_GLIDE=false; pvJumpSet(null);};   // the person takes the pages over
+// Sets where a jump is going (PV_JUMP, null when none), and while it goes holds the PDF area's scroll anchoring off (#left.pv-glide,
+// frame.css). WebKit ends a smooth scroll at any anchoring adjustment of its scroller, and on the way the lines are drawn again
+// as each page passes under the reading line: on a phone a jump from page 1 to page 105 of a figure document rested at page 89,
+// to page 105 of a generated one at page 4 (#343). The glide's place is reckoned at its start and nothing above it changes size on
+// the way (the lines keep their heights, a far one its drawn one), so there is nothing for anchoring to keep in the meantime.
+/** @param {number|null} v */
+function pvJumpSet(v){PV_JUMP=v; $('#left').classList.toggle('pv-glide',v!==null);}
 for(const t of ['wheel','touchstart','touchmove','pointerdown'])$('#left').addEventListener(t,PV_HAND,{passive:true,capture:true});
 $('#left').addEventListener('pointermove',e=>{if(e.buttons)PV_HAND();},{passive:true,capture:true});   // a scroll bar dragged
 // A scrolling key is the person's hand on the pages only where it scrolls them: on the PDF area, on a control in it (a
@@ -1306,10 +1313,10 @@ addEventListener('keydown',e=>{if(!SCROLL_KEYS.has(e.key))return; const t=e.targ
   if(e.key===' '&&t instanceof Element&&t.closest('button,[role=button],summary'))return;
   PV_HAND();},true);
 const PV_SCROLLEND='onscrollend' in window;
-$('#left').addEventListener('scroll',()=>{const t=performance.now(); if(PV_JUMP!==null&&t-PV_SCROLL_AT>1000)PV_JUMP=null;   // a jump that never got there
+$('#left').addEventListener('scroll',()=>{const t=performance.now(); if(PV_JUMP!==null&&t-PV_SCROLL_AT>1000)pvJumpSet(null);   // a jump that never got there
   if(PV_JUMP===null&&t-PV_SCROLL_AT>200)PV_GLIDE=t-PV_SCROLL_HAND>500; PV_SCROLL_AT=t;},{passive:true});   // a new run of scrolling decides, unless a jump said what it is
 // The end of a jump is at its place: a manual scroll's own end, coming after the jump began, ended the guard in its first frames.
-$('#left').addEventListener('scrollend',()=>{if(PV_JUMP!==null&&Math.abs($('#left').scrollTop-PV_JUMP)>2)return; PV_JUMP=null; PV_GLIDE=false;});
+$('#left').addEventListener('scrollend',()=>{if(PV_JUMP!==null&&Math.abs($('#left').scrollTop-PV_JUMP)>2)return; pvJumpSet(null); PV_GLIDE=false;});
 function pvAutoScrolling(){return PV_GLIDE&&performance.now()-PV_SCROLL_AT<(PV_SCROLLEND?1000:160);}
 // Every smooth jump of the PDF area starts here (a page, an outline entry's place, a card's [보기]): it is a glide from now, not
 // from its first scroll event a frame later, in which a digit acted on the page being left, and whatever the hand did just
@@ -1317,7 +1324,7 @@ function pvAutoScrolling(){return PV_GLIDE&&performance.now()-PV_SCROLL_AT<(PV_S
 // already there): no guard, no scroll event would end it.
 /** @param {number} to - the scrollTop it goes to */
 function pvGlideArm(to){const L=$('#left'),top=Math.max(0,Math.min(L.scrollHeight-L.clientHeight,to));
-  if(SMOOTH==='smooth'&&Math.abs(top-L.scrollTop)>1){PV_JUMP=top; PV_GLIDE=true; PV_SCROLL_AT=performance.now();}}
+  if(SMOOTH==='smooth'&&Math.abs(top-L.scrollTop)>1){pvJumpSet(top); PV_GLIDE=true; PV_SCROLL_AT=performance.now();}}
 /** @param {number} top */
 function pvGlideTo(top){pvGlideArm(top); $('#left').scrollTo({top,behavior:SMOOTH});}
 /** @param {Element} el @param {'start'|'center'} [block] */

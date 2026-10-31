@@ -16,6 +16,7 @@ html,body{overscroll-behavior-x:none}
 /* #main = document navigation + PDF area. #right's edit/pin screen is kept independent. */
 #main{flex:1;display:flex;flex-direction:column;min-width:240px;min-height:0;position:relative}
 #left{flex:1;overflow:auto;padding:var(--space-4) var(--space-4) 60vh var(--hit);min-width:240px;min-height:0;touch-action:pan-x pan-y}
+#left.pv-glide{overflow-anchor:none}   /* while a jump glides (verdict.js pvJumpSet): WebKit ends a smooth scroll at any anchoring adjustment */
 #pdf-body{flex:1;display:flex;min-height:0;min-width:0}
 #pdf-center{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0;position:relative}   /* holds the select mode's frame and bar (#sel-mode) */
 #doc-nav{display:none;flex:none;align-items:center;gap:var(--space-3);height:var(--doc-nav-h);padding:0 var(--space-4);

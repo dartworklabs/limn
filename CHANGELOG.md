@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **A far jump reaches its page in WebKit (#343).** A jump to a page (the page field, the phone's position sheet, the
+  outline, a card's [보기]) glides there; WebKit ended the glide at the scroll anchoring adjustment that came with the lines
+  drawn again as pages passed under the reading line, so on a phone a jump to page 105 of a 105-page figure document
+  rested at page 89. The PDF area no longer anchors its scroll while a jump glides.
+
 ## 0.4.37 — 2026-10-31
 
 On a wide desktop the page verdict line becomes one panel beside the pages, with a one-row summary under each page, and
