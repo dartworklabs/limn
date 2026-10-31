@@ -275,6 +275,10 @@ body.lay-narrow.has-status:not(.typing,.pv-typing){--pv-inset:calc(var(--sheet-h
    it, and never taller than the room it has (it scrolls). Never a scroll anchor: a line is sticky, and an anchor that moves
    with the scroll turns a change inside it into a jump of the page. */
 .pv.pv-pop-below>.pv-pop{top:calc(100% + var(--space-2));bottom:auto}
+/* Room to read a page's end under its open reason popover (verdict.js pvRoomPlace, #345): an empty box after the line, as tall
+   as what the popover covers of the page, that a sticky line may come down into; its negative margin gives the height back,
+   so no page moves when it comes or goes. The line's top edge is sticky where it stood (its inline top). */
+#doc .pgw.pv-roomy::after{content:'';display:block;height:var(--pv-room,0px);margin-bottom:calc(-1 * var(--pv-room,0px))}
 .pv>.pv-pop{max-height:var(--pv-pop-max,none);overflow-y:auto}
 @media (pointer:coarse){body.pv-typing .pv.reading>:is(.pv-fig,.pv-fig-sep){display:none}
   body.pv-typing .pv>.nt-chip :is(.nt-ic,.nt-t){display:none}}

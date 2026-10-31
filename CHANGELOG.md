@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **The page's end scrolls clear of an open reason (#345 item 1).** The reason popover stands above its page line, so at
+  a page's end it covered the page's last lines - a figure's caption - and no scroll uncovered them: the line and the
+  popover came up with the page. While the popover is open, the line and the popover now stay where they are as the
+  pages scroll on, until the page's end has come up from under them by what they covered, then go on with the page.
+  Opening and closing it moves nothing, no page moves in the flow and nothing scrolls by itself; held lower than its
+  place, the line floats over the gap. The side panel's popover, beside the page, is unchanged. The agent contract is
+  unchanged.
+
 ## 0.4.38 — 2026-10-31
 
 ### Fixed
