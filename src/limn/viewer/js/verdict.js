@@ -574,7 +574,7 @@ const PV_CANCEL_HOLD=/** @type {Map<string,number>} */(new Map());   // line (pv
 // that does not come must not leave the line deaf: past PV_DROP_WAIT the keys are back and the status line says so; the late
 // answer is still taken (its message, its [되돌리기]), but the focus has moved on by then and stays. The value says whose wait it is.
 const PV_DROP_OUT=/** @type {Map<string,number>} */(new Map());
-let PV_DROP_WAIT=8000;
+let PV_DROP_WAIT=NOTICE_ACT_WAIT;   // the bound a status-line action's request has (notices.js noticeAct)
 // A verdict a [되돌리기] brought back (a take-back's, the save chip's): when it is its line's current verdict again its kept reason
 // draft opens (pvReasonRevive); when a newer verdict came meanwhile - someone else's - it is restored but superseded, the
 // status line says so ('판정 #21 채택 되살림 · 지금 판정은 Bob의 #34 보류 — <대상>') and no popover opens over that line - its

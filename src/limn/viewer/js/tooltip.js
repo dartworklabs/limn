@@ -17,6 +17,11 @@ function showTipText(el,txt){if(!txt||!document.contains(el))return;
   TIP.textContent=txt; tipShown(true);
   const r=el.getBoundingClientRect(),tw=TIP.offsetWidth,th=TIP.offsetHeight;
   let top=r.top-th-8, cx=r.left+r.width/2;
+  // A control in a Trash row has its box beside the row's controls, inside that row: over it the box covered the row
+  // before's note line and buttons (under it, the next row's). Where the row leaves it no room, it goes over as anywhere.
+  const row=/** @type {HTMLElement|null} */(el.closest('#trash-list .arc-row')),acts=row&&row.querySelector('.arc-acts');
+  if(row&&acts){const w=row.getBoundingClientRect(),x=acts.getBoundingClientRect().left-tw-8;
+    if(x>=w.left&&th<=w.height){TIP.style.left=x+'px'; TIP.style.top=Math.max(w.top,Math.min(r.top+r.height/2-th/2,w.bottom-th))+'px'; return;}}
   if(top<4) top=r.bottom+8;
   if(top>innerHeight-th-4 && TIPXY){top=TIPXY[1]+18; cx=TIPXY[0];}   // an element taller than the window (#grip/a long card) anchors to the pointer instead
   top=Math.max(4,Math.min(top,innerHeight-th-4));

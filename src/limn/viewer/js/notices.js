@@ -234,9 +234,17 @@ function endNotice(n,acted,seen){if(!NOTICES.has(n.n))return; NOTICES.delete(n.n
   if(n.place===NOTICE_PLACE.LINE)drawStatus(); if(n.place===NOTICE_PLACE.BANNER)syncSaveBtn();
   if(!acted&&n.gone){const g=n.gone; n.gone=null; g();}}
 
+// How long an action's request may go unanswered before its message says so (noticeLate) - the bound a page line's
+// take-back has too (verdict.js PV_DROP_WAIT). A let: the tests shorten it.
+let NOTICE_ACT_WAIT=8000;
 // [되돌리기], [다시 시도], [보기]… on message num: the message goes and its action runs. An action that sends a request
 // (act.wait: restoring, undoing a close, a delete, a save or an append) keeps its message, busy and with its window stopped,
 // until the request is answered (rule 1: not cleared as if it had worked) - a failure then says itself where it can be seen.
+// Past NOTICE_ACT_WAIT without an answer the message says the answer is late (noticeLate); the answer, whenever it comes,
+// is still taken once. A late one leaves the focus the person has put somewhere since the press (a focusin anywhere but the
+// message's own button: a redraw giving the focus back to that button, or the focus falling to nothing as the button goes -
+// the action's own redraw may take it away before its answer resolves - is not a move): then back() does not run, and the
+// action is told (run.away(), save.js) so that it takes no focus either.
 /** @param {number} num */
 function noticeAct(num){const n=NOTICES.get(num); if(!n||n.busy)return; const a=n.act;
   // An action whose button had the focus goes with its message: on a document with page lines the focus goes to the line of the page
@@ -248,7 +256,36 @@ function noticeAct(num){const n=NOTICES.get(num); if(!n||n.busy)return; const a=
   if(!a||!a.wait){endNotice(n,true); if(a)a.fn(); back(); return;}
   n.busy=true; clearTimeout(n.timer); n.timer=undefined; n.held=false;
   document.querySelectorAll('[data-act="notice-act"][data-n="'+n.n+'"]').forEach(b=>b.setAttribute('aria-busy','true'));
-  Promise.resolve(a.fn()).catch(()=>false).then(()=>{endNotice(n,true); back();});}
+  let late=false,moved=false; const wait=setTimeout(()=>{late=true; noticeLate(n,a);},NOTICE_ACT_WAIT);
+  const seen=(/** @type {FocusEvent} */e)=>{const t=/** @type {HTMLElement|null} */(e.target); if(!t||!t.closest||!t.closest('[data-act="notice-act"][data-n="'+n.n+'"]'))moved=true;};
+  document.addEventListener('focusin',seen,true);
+  /** @type {NoticeRun} */ const run={away:()=>late&&moved};
+  Promise.resolve(a.fn(run)).catch(()=>false).then(()=>{clearTimeout(wait); document.removeEventListener('focusin',seen,true);
+    endNotice(n,true); sourceOk(NOTICE_LATE_SRC+n.n); if(!run.away())back();});}
+// noticeAct's question for an action run without its watch - a failure's [다시 시도], which is no waiting action, running an
+// undo again (save.js): away() = its answer is late (NOTICE_ACT_WAIT) and the person has put the focus somewhere since. The
+// watch starts once the press's own work is done (its message going, back()), so the focus that work moves is not counted.
+/** @returns {NoticeRun&{stop:()=>void}} */
+function focusRun(){const at=Date.now(); let moved=false,on=true; const seen=()=>{moved=true;};
+  queueMicrotask(()=>{if(on)document.addEventListener('focusin',seen,true);});
+  return {away:()=>moved&&Date.now()-at>=NOTICE_ACT_WAIT,stop:()=>{on=false; document.removeEventListener('focusin',seen,true);}};}
+// The source of the status line's message that says message n's answer is late, when n is not on the line (noticeLate).
+const NOTICE_LATE_SRC='notice-late:';
+// Message n's action a has sent a request that is not answered after NOTICE_ACT_WAIT: '되돌리기의 답이 늦습니다' (a 되살리기's
+// says so) goes before all the message said ('되돌리기의 답이 늦습니다 · #12 채택 판정 저장됨 · …'). It is one title with no
+// description: a line too narrow for a long text shows a message's title alone (drawStatus), which as the late words alone
+// lost what was being undone and drew the line narrower; whole, the target follows the late words and only the end is
+// cut. On the status line the message itself says it, first on the line again (newest) and as a warning: a message whose
+// busy button has the focus keeps the line (drawStatus), so a message of its own would wait behind '+N'. Elsewhere - a
+// chip, a row, the Trash, or the message gone by its [x] - the status line says it in one message of its own
+// (NOTICE_LATE_SRC), which goes with the answer as the message does (noticeAct). Either way one message per action:
+// nothing is said twice. The line is not locked meanwhile, so there is nothing to give back.
+/** @param {Notice} n @param {NoticeAct} a */
+function noticeLate(n,a){const what=tr(a.label==='되살리기'?'되살리기의 답이 늦습니다':'되돌리기의 답이 늦습니다')+' · '+noticeText(n);   // every action that waits is one of the two
+  const i=n.place===NOTICE_PLACE.LINE&&NOTICES.has(n.n)?LINE.indexOf(n):-1;
+  if(i<0){const m=lineNote(what,NOTICE_KIND.WARN,null,{literal:true,source:NOTICE_LATE_SRC+n.n}); if(m){m.title=what; m.desc=''; drawStatus();} return;}   // lineNote cuts at ' · '
+  n.title=what; n.desc=''; n.kind=NOTICE_KIND.WARN; n.quiet=false; LINE.splice(i,1); LINE.unshift(n);
+  drawStatus(); if(n.alert)announce(noticeText(n),true); else if(STATUS_TOP!==n.n)announce(noticeText(n));}   // as lineNote reads one out
 // A press on a message's action does not take the focus from the reason field being typed in: its button goes with the message, and
 // the keys typed next would be verdict keys.
 document.addEventListener('mousedown',e=>{const t=/** @type {HTMLElement|null} */(e.target); if(!!t&&!!t.closest&&!!t.closest('[data-act="notice-act"]')&&pvIsReasonField(document.activeElement))e.preventDefault();},true);

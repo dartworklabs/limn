@@ -221,8 +221,9 @@ function selectionSnapshot(){if(!COMPOSE.current&&!COMPOSE.picking&&$('#composer
 // Brings a snapshot back - the undo of a discard or of a save: the note, kind, assignee and suggested edit always; the selection, its box and the
 // composer when they still belong to the pages on screen (same document and build; the box if its page is still there). Never over
 // a newer selection - that one wins. When only the note can come back (the PDF changed), the status line says so.
-// Returns whether anything came back.
-function restoreSelection(snap){if(!snap||COMPOSE.current||COMPOSE.picking||REPICK||!$('#composer').hidden)return false;
+// Returns whether anything came back. focus false: the note field does not take the focus (a late undo's answer, save.js).
+/** @param {boolean} [focus] */
+function restoreSelection(snap,focus){if(!snap||COMPOSE.current||COMPOSE.picking||REPICK||!$('#composer').hidden)return false;
   const n=$('#note'); if(n.value)return false;   // a note-only draft also belongs to the current document
   n.value=snap.note; n._mentions=snap.mentions; setKind(snap.kind); Object.assign(ASSIGN_NEW,snap.assign); Object.assign(SG,suggestCopy(snap.sg||suggestDraft()));
   renderAssignNew(); autoGrow(n);
@@ -230,7 +231,7 @@ function restoreSelection(snap){if(!snap||COMPOSE.current||COMPOSE.picking||REPI
   if(COMPOSE.box)COMPOSE.box.remove(); COMPOSE.box=null;
   if(snap.box&&snap.page&&document.contains(snap.page)){COMPOSE.box=snap.box; snap.page.appendChild(snap.box);}
   COMPOSE.current=snap.cur; COMPOSE.intent++; recomputeOverlap(); SNIP_OPEN=false; $('#c-err').hidden=true; $('#c-body').hidden=false; $('#composer').hidden=false;
-  renderComposer(); setSide(true); applySide(); if(LAYOUT!==LAYOUT_MODE.WIDE)revealBox(COMPOSE.box); if(LAST_PTR==='mouse')n.focus({preventScroll:true});
+  renderComposer(); setSide(true); applySide(); if(LAYOUT!==LAYOUT_MODE.WIDE)revealBox(COMPOSE.box); if(LAST_PTR==='mouse'&&focus!==false)n.focus({preventScroll:true});
   return true;}
 // Esc and [취소] on a selection (docs/handbook/viewer.md §패널 정리): it goes at once, and when its note had text or its suggested edit
 // an edited text the status line offers [되돌리기] for NOTICE_MS, which no other press ends (its place, the composer, is gone),

@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **An undo whose request does not answer says so (#334).** A message's [되돌리기] or [되살리기] that sends a request -
+  the status line's undo of a key-saved verdict (its drop) or of a taken-back one (its restore), and every other such
+  undo: a save's or an append's chip, a done or deleted card's row, a deleted pin's [되살리기] - kept saying what it had
+  done (`#N 채택 판정 저장됨 … 되돌리기`) for as long as the answer took. Past 8 seconds, the bound a page line's take-back
+  already has, the message now says `되돌리기의 답이 늦습니다` (`Undo: no answer yet`; `되살리기의 답이 늦습니다`, `Restore:
+  no answer yet`) before what it undoes, as one text whose end a narrow line cuts (`되돌리기의 답이 늦습니다 · #12 채택…`),
+  so the target stays readable and the line keeps its width: on the status line the message itself does, as a warning
+  and first on the line - also while the focus on its busy button holds the line - and for an undo elsewhere the status
+  line says it in one message of its own. The late answer, a success or a failure, is taken once and the lateness goes
+  with it. A focus the person has moved meanwhile stays where it is - a save's undo answered late, or its failure's
+  [다시 시도], then brings the composer back without taking the focus into the note - and one left alone goes to the
+  reading page's line as with an answer in time. Nothing was locked, so nothing else changes.
+- **The Trash keeps the keyboard focus and says a late restore (#336).** A row's [되살리기] pressed by key took its row
+  away with the answer and left the focus on nothing (also in 0.4.37), so Tab and Esc started again from the page's top.
+  A redraw of the Trash now puts the focus on the next row's [되살리기], else the one before's, else [닫기] - back on the
+  row's own when the restore failed - unless the person moved it out of the list meanwhile. The row's restore also has
+  the 8-second bound: past it the Trash (or, closed, the list) says `되살리기의 답이 늦습니다 · 핀 #N` until the answer.
+  Tab no longer leaves the open Trash (Tab from [닫기] after the last restore left the focus on nothing), and a row's
+  [되살리기] or [영구 삭제] shows its description beside the row's buttons instead of over the row before it.
+
 ## 0.4.37 — 2026-10-31
 
 On a wide desktop the page verdict line becomes one panel beside the pages, with a one-row summary under each page, and
