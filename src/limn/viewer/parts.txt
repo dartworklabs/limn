@@ -26,6 +26,7 @@ css/list.css            # list sections and the archive rows
 css/overlays.css        # tooltip, dialogs, the page list
 css/responsive.css      # mobile/touch, the mid and narrow layouts, reduced motion, the label chip
 css/search.css          # in-document search: the nav bar's field, its folded magnifier, the phone's row, hit boxes
+css/poc-arrival.css     # PoC (issue #345 item 2, not for merge): the pill, the chip and the aids
 css/notices.css         # messages in context: banners, undo rows, notes and chips, the status line's messages, dots
 
 __APP_JS__
@@ -76,4 +77,5 @@ js/reply.js             # the reply box and its outcome line
 js/edit.js              # the edit card
 js/repick.js            # re-placing a pin's location
 js/rebuild.js           # view anchors, refreshing the document, the build error panel, rebuild
+js/poc-arrival.js       # PoC (issue #345 item 2, not for merge): where a figure page is arrived at, its pill and aids
 js/events.js            # help dialog, the click and key dispatch, and the call to boot()

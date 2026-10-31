@@ -193,6 +193,24 @@ class BuildQueries:
             if found is None:
                 continue
             entry["figure"] = found.figure
+            # PoC (issue #345 item 2, not for merge): the boxes of the page's figure and caption elements, so the viewer
+            # can arrive at the figure's top edge and measure how much of it the first screen shows.
+            for key, suffix in (("figure_box", "/@figure"), ("caption_box", "/@caption")):
+                el = found.by_id(found.figure + suffix)
+                if el is not None:
+                    entry[key] = list(el.frac)
+            fig = found.by_id(found.figure + "/@figure")
+            if fig is not None:
+                # The lowest bottom edge above the figure among the page's other elements: the figure's own label line
+                # (no element of its own) sits between it and the figure's top.
+                top, own = fig.frac[1], fig.id + "/"
+                above = [
+                    e.frac[1] + e.frac[3]
+                    for e in found.elements[1:]
+                    if e.id != fig.id and not e.id.startswith(own) and e.frac[1] + e.frac[3] <= top + 1e-4
+                ]
+                if above:
+                    entry["figure_above"] = max(above)
             if found.title is not None:
                 entry["title"] = found.title
             if not found.takes_verdict:

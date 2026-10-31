@@ -127,7 +127,8 @@ function actualSize(){zoomTo(PT_PX);}
 // Fit width (fitK): keeps the viewed page/position (anchored at the top) and resets horizontal scroll to the start.
 function fitW(){const a=topAnchor(),L=$('#left');
   setK(fitK(),LAYOUT===LAYOUT_MODE.WIDE); markZoomed(); restoreAnchor(a); L.scrollLeft=0;}
-function goPage(v){const el=document.getElementById('p'+parseInt(v===undefined?$('#jump').value:v,10)); if(el)pvGlideInto(el);}
+// PoC (issue #345 item 2): the arrival is pocGoPage's (poc-arrival.js) - the page's top, or on a figure page the figure's top.
+function goPage(v){const n=parseInt(v===undefined?$('#jump').value:v,10),el=document.getElementById('p'+n); if(el)pocGoPage(n,el);}
 $('#jump').addEventListener('keydown',e=>{if(e.key==='Enter')goPage();});
 // The page a typed entry v goes to in a document of n pages: a whole number clamped to 1..n; null for an empty or non-number
 // entry, which goes nowhere. Pure.
