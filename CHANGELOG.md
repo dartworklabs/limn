@@ -8,7 +8,8 @@
   48px - a row and a half - under the filter, so from a section's second entry on its head (`비교판 · 14`) was out of
   sight. The list now keeps two whole rows over the row on the way up, and where the row's section fits in the panel
   with it, its head and the two rows above that: the list moves once as the reading comes up into a section and not
-  again until it reaches the head. Only where it lands changes: whether it moves is still the 48px margin's, so a row
+  again until it reaches the head; near the outline's top it goes to the very top only while the row keeps its margin
+  there, so on the tablet sheet it never lands under the folded sheet's bar. Only where it lands changes: whether it moves is still the 48px margin's, so a row
   already clear stays put and two neighbouring rows cannot send a low panel back and forth. Going down nothing changes;
   the pages and the focus never move.
 - **The phone's navigation sheet opens at the current section, and its top stays put (#335).** The sheet kept the current

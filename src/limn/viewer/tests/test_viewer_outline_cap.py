@@ -135,7 +135,8 @@ class OutlineLogic(unittest.TestCase):
         margin under it, and on to group (its section's head and two rows above that) where that fits too; to the very top
         where only the panel's head would be left. Whether the list moves at all is still the margin's: a row 48px under the
         band moves nothing, nor one clear of near with its head out of sight, and going down, on a view too short for near
-        and with fewer rows than the margin above nothing changes."""
+        and with fewer rows than the margin above nothing changes. The very top is taken only while the row keeps the margin
+        over the view's foot there (a row 604px down in a 600px view stays where the section's head put it)."""
         got = self.run_js(
             ["outlineRevealTop"],
             """[outlineRevealTop(1000,800,5000,1100,1124,48,100,52,1044,800),outlineRevealTop(1000,800,5000,1090,1114,48,100,52),
@@ -143,9 +144,10 @@ class OutlineLogic(unittest.TestCase):
             outlineRevealTop(1000,800,5000,1090,1114,48,100,52,1034,300),outlineRevealTop(1000,800,5000,500,524,48,100,52,444,200),
             outlineRevealTop(1000,800,5000,210,234,48,100,52,154),outlineRevealTop(1000,800,5000,210,234,48,100,52,154,100),
             outlineRevealTop(1000,800,5000,1300,1324,48,100,52,1244,800),outlineRevealTop(1000,800,5000,1790,1814,48,100,52,1734,800),
-            outlineRevealTop(1000,152,5000,1000,1024,48,100,52,944,600),outlineRevealTop(1000,800,5000,1060,1084,48,100,52,1040,1040)]""",
+            outlineRevealTop(1000,152,5000,1000,1024,48,100,52,944,600),outlineRevealTop(1000,800,5000,1060,1084,48,100,52,1040,1040),
+            outlineRevealTop(1000,600,5000,560,604,48,100,52,504,120),outlineRevealTop(1000,600,5000,200,244,48,100,52,144,100)]""",
         )
-        self.assertEqual(got, [None, 990, 982, 748, 982, 148, 102, 0, None, 1062, 910, 960])
+        self.assertEqual(got, [None, 990, 982, 748, 982, 148, 102, 0, None, 1062, 910, 960, 68, 0])
 
     def test_two_rows_next_to_each_other_do_not_send_a_short_panel_back_and_forth(self):
         """A panel 152px high under the band, the mark going back and forth between two neighbouring rows: the lower one moves
@@ -1183,6 +1185,52 @@ class OutlineFollow(OutlineBase):
                 self.assertGreaterEqual(got["gap"], 0, got)  # above the bar and the status line, not under them
                 self.assertTrue(got["reached"], got)
                 self.assertEqual((got["pages"], got["focus"]), (pages, "nav-toc-toggle"), got)
+
+    def test_coming_up_on_the_tablet_sheet_keeps_the_row_above_the_bar(self):
+        """768x1024 touch (the tablet sheet), a long section right after three single entries: a row of it coming up lands where
+        its section's head shows, which is within the panel's head - where the list goes to its very top instead. That top must
+        not take the row under the folded sheet's bar (#340: on page 17 the row came to rest with 33 of its 44px under the bar,
+        out of reach). Of the rows the very top would put under the bar, each is brought in from just under the filter."""
+        page = self.on("ms", **{**FOLD, "viewport": {"width": 768, "height": 1024}})
+        self.load(
+            page, [("E%d" % j, 0, []) for j in range(3)] + [("D", 0, [("D.%d" % j, j % 2, []) for j in range(1, 41)])]
+        )
+        self.assertEqual(page.evaluate("BAND"), "tablet-sheet")
+        page.evaluate("() => {updateSectionStrip = () => {}; OUTLINE_SELECTED = 43; markOutline();}")
+        page.tap("#nav-toc-toggle")
+        page.wait_for_timeout(300)
+        page.evaluate(STILL)
+        bar = """() => Math.min(...['#right', '#status-dock'].map(s => document.querySelector(s)).filter(e => e.getClientRects().length)
+          .map(e => e.getBoundingClientRect().top))"""
+        # the rows whose bottom lies under the bar with the list at its top, though within reach of the section's head
+        under = page.evaluate(
+            """bar => {const box = document.querySelector('#outline'), o = box.getBoundingClientRect(), from = o.top + box.clientTop - box.scrollTop;
+              return [...document.querySelectorAll('#outline-items button')].filter(b => +b.dataset.index > 3 && +b.dataset.index < 30)
+                .filter(b => {const r = b.getBoundingClientRect(); return r.bottom - from > bar - o.top - box.clientTop;}).map(b => +b.dataset.index);}""",
+            page.evaluate(bar),
+        )
+        self.assertTrue(
+            under, "no row of the section reaches under the bar from the list's top: the test shows nothing"
+        )
+        for i in under[:4]:
+            with self.subTest(index=i):
+                page.evaluate(
+                    """i => {const box = document.querySelector('#outline'), o = box.getBoundingClientRect(), from = o.top + box.clientTop - box.scrollTop;
+                      const r = document.querySelector('#outline-items [data-index="' + i + '"]').getBoundingClientRect();
+                      box.scrollTop = r.top - from - document.querySelector('#outline-find').offsetHeight - 10;   // just under the filter: inside the margin
+                      OUTLINE_HANDLED = -Infinity; OUTLINE_AIM = null; OUTLINE_SELECTED = i; markOutline();}""",
+                    i,
+                )
+                page.evaluate(STILL)
+                got = page.evaluate(
+                    """() => {const row = document.querySelector('#outline-items .ol-active'), r = row.getBoundingClientRect(),
+                      bar = Math.min(...['#right', '#status-dock'].map(s => document.querySelector(s)).filter(e => e.getClientRects().length).map(e => e.getBoundingClientRect().top)),
+                      hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+                      return {index: +row.dataset.index, gap: bar - r.bottom, reached: !!hit && !!hit.closest && hit.closest('button') === row};}"""
+                )
+                self.assertEqual(got["index"], i, got)
+                self.assertGreaterEqual(got["gap"], 0, got)
+                self.assertTrue(got["reached"], got)
 
     def test_a_banner_over_a_mouse_overlay_is_not_taken_for_a_bar(self):
         """800x700 with a mouse (the mid overlay): the collapsed pin panel is a transparent frame, and the relocation banner it
