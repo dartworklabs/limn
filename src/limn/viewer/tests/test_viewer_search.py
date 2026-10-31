@@ -40,6 +40,7 @@ from limn.viewer.tests import search_corpus
 import helpers_figure
 from helpers import blank_png, extract_js_fn, minimal_pdf, needs_tex, needs_tex_files, ps, run_node
 from helpers_browser import MISSES_44, VIEWPORTS, BrowserBase, booted, fonts_ready, search_shortcut, settle, watch_idle
+from helpers_outline import SHEET_ROWS
 
 NBSP, SHY, FI, LSQ, RSQ, EN_DASH = chr(0xA0), chr(0xAD), chr(0xFB01), chr(0x2018), chr(0x2019), chr(0x2013)
 
@@ -2505,29 +2506,28 @@ class SearchPhoneSheetRow(FiveDocsBase):
                     for state in (opened, scrolled):
                         self.assertEqual((state["h"], state["shown"], state["reaches"]), (44, 44, True), (n, state))
 
-    def test_the_sheet_turns_to_the_current_section_under_the_search_row_and_cuts_no_row(self):
-        """On page 12 the sheet opens with the outline's current section (the twelfth) whole in view under its head - under
-        the search row, not behind it - and the search row still in the head. With five documents above the outline the
-        current document's row cannot show with that section; it goes wholly under the head and is never left cut by the
-        head or the search row. (Until #335 the sheet stopped where that row stood flush under the head, and on this page
-        the section, and every outline row, stayed below the screen.)"""
+    def test_the_sheet_turns_to_the_current_section_and_keeps_the_current_document_in_view(self):
+        """Five documents, page 12, 390x844: the outline's current section (the twelfth) shows whole in the outline's own list,
+        the search row stays in the head, and the current document's row shows whole on top under it - with five documents the
+        sheet must scroll as well, by whole rows, and that row stays pinned under the head over the row the step brought there.
+        No row is cut by the head, the search row, the outline's filter or the sheet's bottom. (Before #335 the sheet held the
+        document's row and left every outline row below the screen; then it turned to the section and the document's row went
+        under the head.)"""
         page = self.view(PHONES["phone 390x844"])
         page.evaluate("document.getElementById('p12').scrollIntoView()")
         settle(page)
         page.tap("#btn-pos")
         page.wait_for_selector("#nav-sheet[open]")
         settle(page)
-        got = page.evaluate(
-            """() => {const d = document.querySelector('#nav-sheet'), R = s => d.querySelector(s).getBoundingClientRect(), head = R('.ns-head'), row = R('#ns-search'),
-                on = R('.dm-item.on'), sec = d.querySelector('#ns-outline-items .ol-active'), c = sec.getBoundingClientRect(), D = d.getBoundingClientRect();
-              return {shown: c.top >= head.bottom - 0.5 && c.bottom <= D.bottom + 0.5, cut: on.top < head.bottom - 0.5 && on.bottom > head.bottom + 0.5,
-                rowInHead: row.bottom <= head.bottom, scrolled: d.scrollTop, section: sec.textContent};}"""
+        got = page.evaluate(SHEET_ROWS)
+        head = page.evaluate(
+            """() => {const d = document.querySelector('#nav-sheet'), R = s => d.querySelector(s).getBoundingClientRect(), head = R('.ns-head'), row = R('#ns-search');
+              return {rowInHead: row.top >= head.top - 0.5 && row.bottom <= head.bottom + 0.5, section: d.querySelector('#ns-outline-items .ol-active').textContent};}"""
         )
-        self.assertTrue(got["shown"], got)
-        self.assertFalse(got["cut"], got)
-        self.assertTrue(got["rowInHead"], got)
-        self.assertGreater(got["scrolled"], 0, got)
-        self.assertIn("Section 12", got["section"])
+        self.assertEqual((got["cut"], got["doc"], got["focus"]), ([], "whole", "nav-sheet"), got)
+        self.assertTrue(got["current"], got)
+        self.assertTrue(head["rowInHead"], head)
+        self.assertIn("Section 12", head["section"])
 
 
 class SearchBarGeometry(SearchBase):

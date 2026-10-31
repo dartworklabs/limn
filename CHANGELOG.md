@@ -11,11 +11,14 @@
   again until it reaches the head. Only where it lands changes: whether it moves is still the 48px margin's, so a row
   already clear stays put and two neighbouring rows cannot send a low panel back and forth. Going down nothing changes;
   the pages and the focus never move.
-- **The phone's navigation sheet opens at the current section (#335).** The sheet kept the current document's row (or the
-  view's) under its head and so stopped at the top of a long outline, the current section thousands of px below. It now
-  brings that section to the middle of the space under the head; the document's row stays whole above it where both fit,
-  and otherwise goes wholly under the head, never cut off - where a short outline ends the sheet too soon for that, the
-  outline gets the missing room below it. The pages do not move and the focus stays on the sheet.
+- **The phone's navigation sheet opens at the current section, and only the outline moves (#335).** The sheet kept the
+  current document's row (or the view's) under its head and so stopped at the top of a long outline, the current section
+  thousands of px below. Now the open sheet is a column: the head with the search, the documents, the view, the page
+  field and its list keep their place, and the outline's rows take the height left and scroll on their own to the current
+  section, whole rows around it and the list exactly as tall as they are, so no row is cut under the outline's filter or
+  at the foot. Where the part above leaves the outline too little (several documents on a small phone) the sheet scrolls
+  too, by whole rows only, with the current document's row pinned under the head - or wholly under the head where the
+  whole document list must go (320x720 with three documents). The pages do not move and the focus stays on the sheet.
 - **The tablet sheet's outline overlay brings the current row above the bottom bar (#335).** On an upright tablet or an
   unfolded foldable (882x1104) the overlay runs to the screen's bottom under the collapsed sheet and the status line on
   it, and it opened and followed with the current row under them, out of sight and out of reach. The follow now counts

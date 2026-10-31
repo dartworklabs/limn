@@ -6,34 +6,49 @@ function drawDocsMenu(){$('#ns-docs').hidden=!multiDoc();
     return html`<button class="dm-item${on?' on':''}" role="option" aria-selected="${on}" data-act="doc" data-doc="${d.key}" data-close="1"><span class="tx"><span class="nm" translate="no">${d.name}${on?ic('check'):''}</span><span class="ph" translate="no">${d.path}</span></span>${docBadge(d)}</button>`;})}`);}
 // The phone's navigation sheet (docs/handbook/viewer.md §모바일 레이아웃): documents, [원고 | 변경사항], the page field with the
 // page rows under it (drawSheetPages, scrolled to the current page) and the outline, each a destination - picking one goes there and closes the sheet. The focus is the sheet itself (showSheet) and
-// the outline's current section shows (navSheetReveal), with the current document's row (else the chosen view) whole above it
-// where both fit; the page field gets no focus, so no keyboard covers the sheet.
+// the outline's current section shows in the outline's own scroll while the rest keeps its place (navSheetReveal); the page field
+// gets no focus, so no keyboard covers the sheet.
 function openNavSheet(){const d=$('#nav-sheet'); if(d.open)return; hideTip(); drawDocsMenu(); drawNavView(); markOutline();   // its rows are drawn already (renderOutline when the outline was read): only the mark moves
   const n=META&&META.pages?META.pages.length:0,f=$('#ns-page-in');
   f.value=''; f.placeholder=String(OUTLINE_ACTIVE_PAGE||1); $('#ns-page-n').textContent=tl('/ {n}쪽',{n}); drawSheetPages();
-  showSheet(d); d.scrollTop=0; revealPageRow($('#ns-pages')); tipCutTitles($('#ns-pages')); const on=(multiDoc()&&d.querySelector('.dm-item.on'))||d.querySelector('#ns-view [aria-checked=true]');
-  navSheetReveal(d,on);}
-// The outline's current section in the open sheet d, brought into view under the sticky head (navSheetBy). The whole sheet scrolls
-// (its scrollTop, so nothing else moves), the documents above the outline with it, and the focus stays on the sheet. Where the sheet
-// ends too soon to take the current row of the documents or the view wholly under the head, the outline's section gets the room
-// that is missing under it, so that row is not left cut off; a later open measures without it.
-function navSheetReveal(d,keep){const cur=d.querySelector('#ns-outline-items .ol-active'),tail=/** @type {HTMLElement} */($('#ns-outline'));
-  tail.style.paddingBottom=''; if(!cur)return;
-  const max=d.scrollHeight-d.clientHeight-d.scrollTop,by=navSheetBy(d.querySelector('.ns-head').getBoundingClientRect().bottom,
-    d.getBoundingClientRect().bottom,cur.getBoundingClientRect(),keep?keep.getBoundingClientRect():null,max);
-  if(by>max)tail.style.paddingBottom=(parseFloat(getComputedStyle(tail).paddingBottom)+by-max)+'px';   // padding: a margin collapses through the sheet's end
-  d.scrollTop+=by;}
-/** How far the sheet scrolls down to show the outline's current row c in the space between the head's bottom edge (head) and the
- * sheet's (bottom), the sheet able to scroll max px further: none when c shows there whole, else towards the middle of that space as
- * far as the sheet goes. The current row of the documents or the view (k) stays whole above it as long as c then shows: only as far
- * as k reaches the head, if that is far enough. Further down - a long outline puts c thousands of px under k - c wins and k goes
- * wholly under the head, never cut off by it: past the middle if the middle alone would cut it, and past max if the sheet ends
- * before that (more than max: the caller adds the room), in whole px since the sheet scrolls in them. Pure.
- * @param {number} head @param {number} bottom @param {{top:number,bottom:number}} c @param {{top:number,bottom:number}|null} k
- * @param {number} [max] */
-function navSheetBy(head,bottom,c,k,max=Infinity){if(c.top>=head&&c.bottom<=bottom)return 0;
-  const want=Math.min((c.top+c.bottom)/2-(head+bottom)/2,max),room=k?k.top-head:Infinity;
-  return Math.max(0,!k||want<=room||c.bottom-room<=bottom?Math.min(want,room):Math.max(want,Math.ceil(k.bottom-head)));}
+  showSheet(d); revealPageRow($('#ns-pages')); tipCutTitles($('#ns-pages')); navSheetReveal(d);}
+// The outline's current section in the open sheet d (docs/handbook/viewer.md §모바일 레이아웃). The open sheet is a column whose top
+// part - the head with the search, the documents, the view, the page field and its list - keeps its place, and the outline's rows
+// take what is left and scroll on their own (responsive.css). They show whole rows around the current one (navSheetWindow), and the
+// list is made exactly as tall as those rows, so no row is cut under the outline's filter or at the list's foot. Only where the top
+// part leaves less than the current row and one row on each side (five documents on a small phone) does the sheet scroll too, by
+// whole parts (navSheetStep), so the head cuts none of them, and the current document's row stays pinned under the head
+// (responsive.css); the outline's foot gets the room the last step needs. Nothing but the sheet and its list scroll, and the focus
+// stays on the sheet.
+function navSheetReveal(d){const list=/** @type {HTMLElement} */($('#ns-outline-items')),sec=/** @type {HTMLElement} */($('#ns-outline'));
+  list.style.maxHeight=list.style.minHeight=sec.style.flex=sec.style.paddingBottom=''; d.scrollTop=0;
+  d.style.setProperty('--ns-head-h',/** @type {HTMLElement} */(d.querySelector('.ns-head')).offsetHeight+'px');
+  const rows=/** @type {HTMLElement[]} */([...list.querySelectorAll(':scope>button')]); if(sec.hidden||!rows.length)return;
+  const cur=list.querySelector(':scope>.ol-active'),c=Math.max(0,cur?rows.indexOf(/** @type {HTMLElement} */(cur)):0),room=list.clientHeight;
+  // the rows a window can reach (each is a touch row, at least 44px), measured in the list's content
+  const k=Math.ceil(room/44)+2,from=Math.max(0,c-k),o=list.getBoundingClientRect().top-list.scrollTop;
+  const geo=rows.slice(from,c+k+1).map(r=>{const b=r.getBoundingClientRect(); return {top:b.top-o,bottom:b.bottom-o};}),i=c-from;
+  const least=/** @type {[number,number]} */([Math.max(0,i-1),Math.min(geo.length-1,i+1)]),tall=(/** @type {[number,number]} */w)=>geo[w[1]].bottom-geo[w[0]].top;
+  const short=room<tall(least),w=short?least:navSheetWindow(geo,i,room),h=tall(w);
+  list.style.maxHeight=h+'px'; list.scrollTop=geo[w[0]].top;
+  if(!short)return;
+  list.style.minHeight=h+'px'; sec.style.flex='none';
+  const need=d.scrollHeight-d.clientHeight; if(need<=0)return;
+  const head=/** @type {HTMLElement} */(d.querySelector('.ns-head')).getBoundingClientRect().bottom;
+  const parts=[...d.querySelectorAll('#ns-docs,#ns-docs .dm-item,#ns-view,#ns-page,#ns-pages,#ns-outline')].filter(e=>e.getClientRects().length)
+    .map(e=>e.getBoundingClientRect().top-head).sort((x,y)=>x-y),by=navSheetStep(parts,need);
+  if(by>need)sec.style.paddingBottom=(parseFloat(getComputedStyle(sec).paddingBottom)+by-need)+'px';   // padding: a margin collapses through the sheet's end
+  d.scrollTop=by;}
+/** The outline rows the sheet shows (rows: their tops and bottoms in the list, in order; c: the current one): the most whole rows
+ * around c that fit in room, taken one at a time on the side that has fewer, so c stands near the middle; c alone when no more fit.
+ * Pure. @param {{top:number,bottom:number}[]} rows @param {number} c @param {number} room @returns {[number,number]} */
+function navSheetWindow(rows,c,room){let a=c,b=c;
+  for(;;){const up=a>0&&rows[b].bottom-rows[a-1].top<=room,down=b<rows.length-1&&rows[b+1].bottom-rows[a].top<=room;
+    if(!up&&!down)return [a,b]; if(down&&(!up||b-c<c-a))b++; else a--;}}
+/** How far the sheet scrolls when its top part leaves the outline too little: to the first part (tops under the head, ascending) at
+ * or past need, so the head cuts none of them - in whole px, since the sheet scrolls in them - or to the last part when none is.
+ * Pure. @param {number[]} parts @param {number} need */
+function navSheetStep(parts,need){for(const t of parts)if(t>=need-.5)return Math.ceil(t); return Math.ceil(parts.length?parts[parts.length-1]:0);}
 // The navigation sheet's view switch: the view on screen is the checked radio.
 function drawNavView(){const rev=document.body.classList.contains('revision-open');
   for(const b of $$('#ns-view [role=radio]')){const on=(b.dataset.mode===VIEW_MODE.REVISIONS)===rev; b.setAttribute('aria-checked',String(on)); b.classList.toggle('on',on);}}
