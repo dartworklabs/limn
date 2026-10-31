@@ -2505,10 +2505,12 @@ class SearchPhoneSheetRow(FiveDocsBase):
                     for state in (opened, scrolled):
                         self.assertEqual((state["h"], state["shown"], state["reaches"]), (44, 44, True), (n, state))
 
-    def test_the_sheet_still_turns_to_the_current_section_as_far_as_the_current_document_allows(self):
-        """On page 12 the sheet opens scrolled towards the outline's current section, as far as it goes without hiding
-        the current document's row: that row is whole and flush under the head - under the search row, not behind
-        it - and the outline's current section is the twelfth."""
+    def test_the_sheet_turns_to_the_current_section_under_the_search_row_and_cuts_no_row(self):
+        """On page 12 the sheet opens with the outline's current section (the twelfth) whole in view under its head - under
+        the search row, not behind it - and the search row still in the head. With five documents above the outline the
+        current document's row cannot show with that section; it goes wholly under the head and is never left cut by the
+        head or the search row. (Until #335 the sheet stopped where that row stood flush under the head, and on this page
+        the section, and every outline row, stayed below the screen.)"""
         page = self.view(PHONES["phone 390x844"])
         page.evaluate("document.getElementById('p12').scrollIntoView()")
         settle(page)
@@ -2516,12 +2518,15 @@ class SearchPhoneSheetRow(FiveDocsBase):
         page.wait_for_selector("#nav-sheet[open]")
         settle(page)
         got = page.evaluate(
-            """() => {const d = document.querySelector('#nav-sheet'), R = s => d.querySelector(s).getBoundingClientRect(), head = R('.ns-head'), row = R('#ns-search'), on = R('.dm-item.on');
-              return {under: on.top - head.bottom, rowInHead: row.bottom <= head.bottom, scrolled: d.scrollTop, section: d.querySelector('#ns-outline-items .ol-active').textContent};}"""
+            """() => {const d = document.querySelector('#nav-sheet'), R = s => d.querySelector(s).getBoundingClientRect(), head = R('.ns-head'), row = R('#ns-search'),
+                on = R('.dm-item.on'), sec = d.querySelector('#ns-outline-items .ol-active'), c = sec.getBoundingClientRect(), D = d.getBoundingClientRect();
+              return {shown: c.top >= head.bottom - 0.5 && c.bottom <= D.bottom + 0.5, cut: on.top < head.bottom - 0.5 && on.bottom > head.bottom + 0.5,
+                rowInHead: row.bottom <= head.bottom, scrolled: d.scrollTop, section: sec.textContent};}"""
         )
-        self.assertAlmostEqual(got["under"], 0, delta=1)
-        self.assertTrue(got["rowInHead"])
-        self.assertGreater(got["scrolled"], 0)
+        self.assertTrue(got["shown"], got)
+        self.assertFalse(got["cut"], got)
+        self.assertTrue(got["rowInHead"], got)
+        self.assertGreater(got["scrolled"], 0, got)
         self.assertIn("Section 12", got["section"])
 
 
