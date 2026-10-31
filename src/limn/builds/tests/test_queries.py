@@ -100,6 +100,40 @@ def test_page_facts_add_what_the_map_says_of_each_page(tmp_path):
     assert ask(latex, BUILD1, images()) == images()
 
 
+def test_page_facts_say_where_a_figure_body_is_arrived_at(tmp_path):
+    """A page whose map names its figure body (<figure>/@figure) carries the body's top edge (figure_top) and the lowest
+    bottom edge of the page's elements that end at or above it (figure_above): not an element beside the body starting
+    with it, nor one inside it. A body with nothing above it carries no figure_above; a page without a body neither."""
+    paths = RunPaths(tmp_path / "paper", tmp_path / "paper" / "main.tex", tmp_path / "state")
+    doc = figure_doc(tmp_path / "paper", paths)
+
+    def el(eid, parent, frac):
+        return {"id": eid, "parent": parent, "frac": frac}
+
+    one = [
+        {"id": "B2", "frac": [0, 0, 1, 1]},
+        el("B2/@head", "B2", [0.05, 0.05, 0.9, 0.1]),
+        el("B2/@text", "B2", [0.05, 0.2, 0.9, 0.25]),
+        el("B2/@ref", "B2", [0.05, 0.5, 0.4, 0.3]),
+        el("B2/@figure", "B2", [0.5, 0.5, 0.45, 0.3]),
+        el("B2/@figure/axis", "B2/@figure", [0.55, 0.55, 0.3, 0.1]),
+        el("B2/@caption", "B2", [0.05, 0.85, 0.9, 0.1]),
+    ]
+    two = [{"id": "B3", "frac": [0, 0, 1, 1]}, el("B3/@figure", "B3", [0.1, 0.1, 0.8, 0.5])]
+    three = [{"id": "B4", "frac": [0, 0, 1, 1]}, el("B4/@head", "B4", [0.05, 0.05, 0.9, 0.1])]
+    fmap = {"format": "limn-figure-map/1", "pdf": "figures.pdf", "pdf_sha256": "0" * 64, "pages": []}
+    fmap["pages"] = [{"page": n, "figure": e[0]["id"], "elements": e} for n, e in enumerate((one, two, three), 1)]
+    write_build(doc, BUILD1, fmap, pages=3)
+    got = queries().page_facts(
+        doc, BUILD1, [{"name": "page-%d.png" % n, "pt_w": 600.0, "pt_h": 800.0} for n in (1, 2, 3)]
+    )
+    assert [{k: v for k, v in p.items() if k.startswith("figure_")} for p in got] == [
+        {"figure_top": 0.5, "figure_above": 0.45},
+        {"figure_top": 0.1},
+        {},
+    ]
+
+
 def test_missing_markers_are_interpreted_by_owner(tmp_path):
     """Absent stamps retain light-poll defaults and an empty outline."""
     doc = figure_doc(
