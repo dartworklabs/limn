@@ -80,6 +80,10 @@
   it, and it opened and followed with the current row under them, out of sight and out of reach. The follow now counts
   what they cover as out of view, and the overlay's foot is padded by their height so the list's last rows come up too.
   The bars and the overlay stay where they are.
+- **A far jump reaches its page in WebKit (#343).** A jump to a page (the page field, the phone's position sheet, the
+  outline, a card's [보기]) glides there; WebKit ended the glide at the scroll anchoring adjustment that came with the lines
+  drawn again as pages passed under the reading line, so on a phone a jump to page 105 of a 105-page figure document
+  rested at page 89. The PDF area no longer anchors its scroll while a jump glides.
 
 ## 0.4.37 — 2026-10-31
 
