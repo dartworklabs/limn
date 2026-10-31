@@ -343,7 +343,7 @@ class StoreFlows(NoticePage, BrowserBase):
         page.route("**/api/pins/%d/drop" % pid, lambda route: held.append(route))
         page.evaluate("NOTICE_ACT_WAIT=150")
         page.locator(".mark .nt-chip [data-act=notice-act]").click()
-        late = "()=>[...NOTICES.values()].filter(n=>n.title==='되돌리기의 답이 늦습니다').length"
+        late = "()=>[...NOTICES.values()].filter(n=>n.title.startsWith('되돌리기의 답이 늦습니다 · 핀 #')).length"
         page.wait_for_function(late + "===1")
         self.assertEqual(len(held), 1)
         self.assertTrue(self.line_has(page, "핀 #%d 저장됨" % pid))

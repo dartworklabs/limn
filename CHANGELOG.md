@@ -8,8 +8,9 @@
   the status line's undo of a key-saved verdict (its drop) or of a taken-back one (its restore), and every other such
   undo: a save's or an append's chip, a done or deleted card's row, a deleted pin's [되살리기] - kept saying what it had
   done (`#N 채택 판정 저장됨 … 되돌리기`) for as long as the answer took. Past 8 seconds, the bound a page line's take-back
-  already has, the message now says `되돌리기의 답이 늦습니다` (`The undo has not answered yet`; `되살리기의 답이 늦습니다`,
-  `The restore has not answered yet`) before what it undoes: on the status line the message itself does, as a warning
+  already has, the message now says `되돌리기의 답이 늦습니다` (`Undo: no answer yet`; `되살리기의 답이 늦습니다`, `Restore:
+  no answer yet`) before what it undoes, as one text whose end a narrow line cuts (`되돌리기의 답이 늦습니다 · #12 채택…`),
+  so the target stays readable and the line keeps its width: on the status line the message itself does, as a warning
   and first on the line - also while the focus on its busy button holds the line - and for an undo elsewhere the status
   line says it in one message of its own. The late answer, a success or a failure, is taken once and the lateness goes
   with it. A focus the person has moved meanwhile stays where it is - a save's undo answered late, or its failure's

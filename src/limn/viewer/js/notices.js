@@ -272,16 +272,19 @@ function focusRun(){const at=Date.now(); let moved=false,on=true; const seen=()=
 // The source of the status line's message that says message n's answer is late, when n is not on the line (noticeLate).
 const NOTICE_LATE_SRC='notice-late:';
 // Message n's action a has sent a request that is not answered after NOTICE_ACT_WAIT: '되돌리기의 답이 늦습니다' (a 되살리기's
-// says so) goes before what the message said. On the status line the message itself says it, first on the line again
-// (newest) and as a warning: a message whose busy button has the focus keeps the line (drawStatus), so a message of its
-// own would wait behind '+N'. Elsewhere - a chip, a row, the Trash, or the message gone by its [x] - the status line says
-// it in one message of its own (NOTICE_LATE_SRC), which goes with the answer as the message does (noticeAct). Either way
-// one message per action: nothing is said twice. The line is not locked meanwhile, so there is nothing to give back.
+// says so) goes before all the message said ('되돌리기의 답이 늦습니다 · #12 채택 판정 저장됨 · …'). It is one title with no
+// description: a line too narrow for a long text shows a message's title alone (drawStatus), which as the late words alone
+// lost what was being undone and drew the line narrower; whole, the target follows the late words and only the end is
+// cut. On the status line the message itself says it, first on the line again (newest) and as a warning: a message whose
+// busy button has the focus keeps the line (drawStatus), so a message of its own would wait behind '+N'. Elsewhere - a
+// chip, a row, the Trash, or the message gone by its [x] - the status line says it in one message of its own
+// (NOTICE_LATE_SRC), which goes with the answer as the message does (noticeAct). Either way one message per action:
+// nothing is said twice. The line is not locked meanwhile, so there is nothing to give back.
 /** @param {Notice} n @param {NoticeAct} a */
-function noticeLate(n,a){const what=tr(a.label==='되살리기'?'되살리기의 답이 늦습니다':'되돌리기의 답이 늦습니다');   // every action that waits is one of the two
+function noticeLate(n,a){const what=tr(a.label==='되살리기'?'되살리기의 답이 늦습니다':'되돌리기의 답이 늦습니다')+' · '+noticeText(n);   // every action that waits is one of the two
   const i=n.place===NOTICE_PLACE.LINE&&NOTICES.has(n.n)?LINE.indexOf(n):-1;
-  if(i<0){lineNote(what+' — '+n.title,NOTICE_KIND.WARN,null,{literal:true,source:NOTICE_LATE_SRC+n.n}); return;}
-  n.desc=n.title; n.title=what; n.kind=NOTICE_KIND.WARN; n.quiet=false; LINE.splice(i,1); LINE.unshift(n);
+  if(i<0){const m=lineNote(what,NOTICE_KIND.WARN,null,{literal:true,source:NOTICE_LATE_SRC+n.n}); if(m){m.title=what; m.desc=''; drawStatus();} return;}   // lineNote cuts at ' · '
+  n.title=what; n.desc=''; n.kind=NOTICE_KIND.WARN; n.quiet=false; LINE.splice(i,1); LINE.unshift(n);
   drawStatus(); if(n.alert)announce(noticeText(n),true); else if(STATUS_TOP!==n.n)announce(noticeText(n));}   // as lineNote reads one out
 // A press on a message's action does not take the focus from the reason field being typed in: its button goes with the message, and
 // the keys typed next would be verdict keys.

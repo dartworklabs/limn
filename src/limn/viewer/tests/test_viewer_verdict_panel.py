@@ -1423,8 +1423,15 @@ class StatusLineAction(PanelBase):
 
 LINE_TEXT = "()=>{const s=document.querySelector('#status'),t=s&&s.querySelector('.st-tx'); return s&&!s.hidden&&t?t.textContent:'';}"
 # The messages that say an answer is late (one of an action's, notices.js noticeLate), and the failures said, anywhere.
-LATE = "()=>[...NOTICES.values()].filter(n=>/의 답이 늦습니다|has not answered yet/.test(n.title)).map(n=>n.title+' · '+n.desc)"
+LATE = "()=>[...NOTICES.values()].filter(n=>/의 답이 늦습니다|: no answer yet/.test(n.title)).map(n=>n.title+(n.desc?' · '+n.desc:''))"
 ERRORS = "()=>[...NOTICES.values()].filter(n=>n.kind===NOTICE_KIND.ERR).length"
+# The status line's width, and how far left of the text box's visible end (less an ellipsis) the text's first p characters
+# end - null unless the text starts with p.
+WIDTH = "()=>{const s=document.querySelector('#status'); return s&&!s.hidden?s.getBoundingClientRect().width:0;}"
+CUT = "()=>{const t=document.querySelector('#status .st-tx'); return !!t&&t.scrollWidth>t.clientWidth;}"  # the text is cut
+SHOWN = """p=>{const t=document.querySelector('#status .st-tx'),x=t&&t.firstChild; if(!x||!t.textContent.startsWith(p))return null;
+  const r=document.createRange(); r.setStart(x,0); r.setEnd(x,p.length); const cut=t.scrollWidth>t.clientWidth?16:0;
+  return Math.round(t.getBoundingClientRect().right-cut-r.getBoundingClientRect().right);}"""
 
 
 class LateAnswer(PanelBase):
@@ -1445,14 +1452,16 @@ class LateAnswer(PanelBase):
         page.wait_for_selector('#status [data-act="notice-act"]')
         return mine
 
-    def late(self, page, words):
-        """Waits for the one message saying an answer is late and checks it says words first, on the status line too."""
+    def late(self, page, words, shown, width):
+        """Waits for the one message saying an answer is late and checks it says words first; the status line shows its
+        start, shown - the late words and what is undone - uncut, and is no narrower than width (before the press)."""
         page.wait_for_function(LATE + ".length>0")
         said = page.evaluate(LATE)
         self.assertEqual(len(said), 1, said)
         self.assertTrue(said[0].startswith(words), said)
-        text = page.evaluate(LINE_TEXT)
-        self.assertTrue(text.startswith(words.split(" · ")[0]), text)
+        room = page.evaluate(SHOWN, shown)
+        self.assertTrue(room is not None and room >= 0, "%r cut (%s) in %r" % (shown, room, page.evaluate(LINE_TEXT)))
+        self.assertGreaterEqual(page.evaluate(WIDTH), width - 0.5, "the late line is narrower")
         return said[0]
 
     def meanwhile(self, page):
@@ -1493,8 +1502,14 @@ class LateAnswer(PanelBase):
         page.evaluate("NOTICE_ACT_WAIT=150")
         self.held_drop = []
         page.locator('#status [data-act="notice-act"]').first.focus()
+        width = page.evaluate(WIDTH)
         page.keyboard.press("Enter")
-        self.late(page, "되돌리기의 답이 늦습니다 · #%d 채택 판정 저장됨" % mine)
+        self.late(
+            page,
+            "되돌리기의 답이 늦습니다 · #%d 채택 판정 저장됨" % mine,
+            "되돌리기의 답이 늦습니다",
+            width,
+        )
         self.assertEqual(
             page.evaluate(
                 "()=>document.activeElement.dataset.act+' '+document.activeElement.getAttribute('aria-busy')"
@@ -1528,8 +1543,9 @@ class LateAnswer(PanelBase):
         settle(page)
         page.evaluate("NOTICE_ACT_WAIT=150")
         self.held_restore = []
+        width = page.evaluate(WIDTH)
         page.locator('#status [data-act="notice-act"]').first.click()
-        self.late(page, "되돌리기의 답이 늦습니다 · 판정 #%d 채택 취소" % mine)
+        self.late(page, "되돌리기의 답이 늦습니다 · 판정 #%d 채택 취소" % mine, "되돌리기의 답이 늦습니다", width)
         new = self.meanwhile(page)
         held, self.held_restore = self.held_restore, None
         done = "()=>(%s)()===1" % ERRORS if status else "()=>OPEN_ALL.some(p=>p.id===%d)" % mine
@@ -1557,7 +1573,7 @@ class LateAnswer(PanelBase):
         self.held_restore = []
         page.locator(row).focus()
         page.keyboard.press("Enter")
-        self.late(page, "되돌리기의 답이 늦습니다 · 핀 #%d 삭제됨" % mine)
+        self.late(page, "되돌리기의 답이 늦습니다 · 핀 #%d 삭제됨" % mine, "되돌리기의 답이 늦습니다", 0)
         held, self.held_restore = self.held_restore, None
         self.assertEqual(len(held), 1)
         self.release(held)
@@ -1567,8 +1583,60 @@ class LateAnswer(PanelBase):
         got = page.evaluate(FOCUS)
         self.assertTrue(got and got["panel"], "the late answer left the focus on %s" % got)
 
+    def test_in_the_floating_line_a_late_undo_keeps_its_target_readable_and_the_line_as_wide(self):
+        """The pin panel closed, so the status line is the floating card at most 420px wide, and a verdict's save undo on it
+        too long for the line (cut at its end): late, it reads '되돌리기의 답이 늦습니다 · #N 채택…' ('Undo: no answer yet ·
+        #N verdict 채택…') with the target uncut, and the card is no narrower. The late words alone, as the title the line
+        falls back to, drew it from 394 to 244px and lost the target."""
+        for lang, late in (
+            ("ko", "되돌리기의 답이 늦습니다 · #%d 채택"),
+            ("en", "Undo: no answer yet · #%d verdict 채택"),
+        ):
+            with self.subTest(lang=lang):
+                self.tearDown()
+                self.setUp()
+                page = self.on(lang=lang)
+                page.evaluate("setSide(false)")
+                settle(page)
+                mine = self.saved_to_line(page)
+                self.assertTrue(page.evaluate(CUT))
+                width = page.evaluate(WIDTH)
+                page.evaluate("NOTICE_ACT_WAIT=150")
+                self.held_drop = []
+                page.locator('#status [data-act="notice-act"]').first.focus()
+                page.keyboard.press("Enter")
+                self.late(page, late % mine, late % mine, width)
+                held, self.held_drop = self.held_drop, None
+                self.release(held)
+                page.wait_for_function("id=>DROPPED.some(p=>p.id===id)", arg=mine)
+                page.wait_for_function(LATE + ".length===0")
+
+    def test_a_late_restore_keeps_what_it_restores_readable_and_the_line_as_wide_in_both_languages(self):
+        """A [되살리기] on the floating status line whose message is too long for it: late, the line says '되살리기의 답이
+        늦습니다 · #5 …' ('Restore: no answer yet · #5 …') with the pin readable and is no narrower; the answer takes it away."""
+        for lang, words in (
+            ("ko", "되살리기의 답이 늦습니다 · #5 을 Bob"),
+            ("en", "Restore: no answer yet · #5 을 Bob"),
+        ):
+            with self.subTest(lang=lang):
+                page = self.on(lang=lang)
+                page.evaluate("setSide(false)")
+                page.evaluate("NOTICE_ACT_WAIT=150")
+                n = page.evaluate(
+                    "()=>lineNote('#5 을 Bob 이 삭제함 · [후보] PL44 · NoTL-Cum-More 다섯 비교 쌍의 월별 효과 그림 — 휴지통에서 봅니다',"
+                    "NOTICE_KIND.WARN,{label:'되살리기',wait:true,fn:()=>new Promise(r=>{window.__restored=r;})},{literal:true}).n"
+                )
+                settle(page)
+                self.assertTrue(page.evaluate(CUT))
+                width = page.evaluate(WIDTH)
+                page.locator('#status [data-act="notice-act"][data-n="%d"]' % n).click()
+                self.late(page, words, words, width)
+                page.evaluate("()=>window.__restored(true)")
+                page.wait_for_function(LATE + ".length===0")
+                self.assertFalse(page.evaluate("n=>NOTICES.has(n)", n))
+
     def test_an_undo_off_the_status_line_has_the_line_say_it_in_english_and_that_goes_with_the_answer(self):
-        """The save chip's own [되돌리기] in the panel, in English: the status line says 'The undo has not answered yet' and
+        """The save chip's own [되돌리기] in the panel, in English: the status line says 'Undo: no answer yet' and
         what it undoes, in one message of its own, while the chip waits; the answer takes both away and the verdict is gone."""
         page = self.on(lang="en")
         self.to(page, 2)
@@ -1580,7 +1648,7 @@ class LateAnswer(PanelBase):
         page.evaluate("NOTICE_ACT_WAIT=150")
         self.held_drop = []
         page.locator('#pv-panel>.nt-chip [data-act="notice-act"]').click()
-        said = self.late(page, "The undo has not answered yet · #%d verdict" % mine)
+        said = self.late(page, "Undo: no answer yet · #%d verdict 채택" % mine, "Undo: no answer yet", 0)
         self.assertNotIn("늦습니다", said + page.evaluate(LINE_TEXT))  # the words and the target are the document's own
         self.assertEqual(page.locator('#pv-panel>.nt-chip [data-act="notice-act"][aria-busy="true"]').count(), 1)
         held, self.held_drop = self.held_drop, None
