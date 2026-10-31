@@ -151,17 +151,18 @@ let OUTLINE_MARKED=-1,OUTLINE_SNAP=true,   // the entry last marked; the next fo
 // null when the row stands m px clear of both edges - else the nearest place where it does (less on a view too short for that, and a
 // row taller than the view by its top). The view's top edge is cover px down: the filter's band stays there, so a row is only in
 // view below it. The margin holds from the moment a row enters it: following only once a row has left the view brought it in with
-// the margin, let the next rows use it up and then moved the list by all of it at once. Over the row the list keeps what starts at
-// near (the rows just above it) when that is more than m and fits in the view with the row and the margin under it: the row's
-// section head is above them, and 48px covered it from the second row of a section on. Coming up into a section, the list goes as
-// far as group (its head and the rows above that) where that fits too, so the head shows and the rows up to it then move nothing.
-// Going up, the very top where only part of the panel's head would be left over the row (head: where the rows start). Within what
-// the list can scroll, so the list's two ends are as near as a row gets. Pure.
+// the margin, let the next rows use it up and then moved the list by all of it at once. Coming up, the list goes further than the
+// margin: to what starts at near (the rows just above the row) where that fits with the row and the margin under it - 48px left the
+// row a row and a half under the band, and from a section's second entry on its head out of sight - and to group (the row's section
+// head and the rows above that) where that fits too, so the head shows and the rows up to it then move nothing. Only the landing
+// changes: whether the list moves at all is the margin's alone, so two rows next to each other cannot send a short panel back and
+// forth. Going up, the very top where only part of the panel's head would be left over the row (head: where the rows start). Within
+// what the list can scroll, so the list's two ends are as near as a row gets. Pure.
 function outlineRevealTop(st,h,sh,top,bottom,m,head,cover=0,near=top,group=top){
   const room=Math.max(0,Math.min(m,(h-cover-(bottom-top))/2)),edge=st+cover;
-  const fits=(/** @type {number} */l)=>l<top-room&&bottom+room-l<=h-cover,lead=fits(near)?near:top-room;
-  if(lead>=edge-.5&&bottom<=st+h-room+.5)return null;
-  const up=lead<edge||bottom-top>h-cover,want=up?Math.min(lead,fits(group)?group:lead)-cover:bottom-h+room;
+  if(top>=edge+room-.5&&bottom<=st+h-room+.5)return null;
+  const fits=(/** @type {number} */l)=>l<top-room&&bottom+room-l<=h-cover;
+  const up=top<edge+room||bottom-top>h-cover,want=up?Math.min(top-room,fits(near)?near:top,fits(group)?group:top)-cover:bottom-h+room;
   const to=Math.round(Math.max(0,Math.min(sh-h,up&&want<=head?0:want)));
   return to===Math.round(st)?null:to;}
 // Whether the filter is narrowing the list: its rows are the results, not the outline, and the current row is likely not among them.

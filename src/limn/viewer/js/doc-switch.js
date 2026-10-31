@@ -14,18 +14,26 @@ function openNavSheet(){const d=$('#nav-sheet'); if(d.open)return; hideTip(); dr
   showSheet(d); d.scrollTop=0; revealPageRow($('#ns-pages')); tipCutTitles($('#ns-pages')); const on=(multiDoc()&&d.querySelector('.dm-item.on'))||d.querySelector('#ns-view [aria-checked=true]');
   navSheetReveal(d,on);}
 // The outline's current section in the open sheet d, brought into view under the sticky head (navSheetBy). The whole sheet scrolls
-// (its scrollTop, so nothing else moves), the documents above the outline with it, and the focus stays on the sheet.
-function navSheetReveal(d,keep){const cur=d.querySelector('#ns-outline-items .ol-active'); if(!cur)return;
-  d.scrollTop+=navSheetBy(d.querySelector('.ns-head').getBoundingClientRect().bottom,d.getBoundingClientRect().bottom,
-    cur.getBoundingClientRect(),keep?keep.getBoundingClientRect():null);}
+// (its scrollTop, so nothing else moves), the documents above the outline with it, and the focus stays on the sheet. Where the sheet
+// ends too soon to take the current row of the documents or the view wholly under the head, the outline's section gets the room
+// that is missing under it, so that row is not left cut off; a later open measures without it.
+function navSheetReveal(d,keep){const cur=d.querySelector('#ns-outline-items .ol-active'),tail=/** @type {HTMLElement} */($('#ns-outline'));
+  tail.style.paddingBottom=''; if(!cur)return;
+  const max=d.scrollHeight-d.clientHeight-d.scrollTop,by=navSheetBy(d.querySelector('.ns-head').getBoundingClientRect().bottom,
+    d.getBoundingClientRect().bottom,cur.getBoundingClientRect(),keep?keep.getBoundingClientRect():null,max);
+  if(by>max)tail.style.paddingBottom=(parseFloat(getComputedStyle(tail).paddingBottom)+by-max)+'px';   // padding: a margin collapses through the sheet's end
+  d.scrollTop+=by;}
 /** How far the sheet scrolls down to show the outline's current row c in the space between the head's bottom edge (head) and the
- * sheet's (bottom): none when it shows there whole, else towards the middle of that space. The current row of the documents or the
- * view (k) stays whole above it as long as c then shows: only as far as k reaches the head, if that is far enough. Further down - a
- * long outline puts c thousands of px under k - c wins and k goes wholly under the head, never cut off by it. Pure.
- * @param {number} head @param {number} bottom @param {{top:number,bottom:number}} c @param {{top:number,bottom:number}|null} k */
-function navSheetBy(head,bottom,c,k){if(c.top>=head&&c.bottom<=bottom)return 0;
-  const want=(c.top+c.bottom)/2-(head+bottom)/2,room=k?k.top-head:Infinity;
-  return Math.max(0,!k||want<=room||c.bottom-room<=bottom?Math.min(want,room):Math.max(want,k.bottom-head));}
+ * sheet's (bottom), the sheet able to scroll max px further: none when c shows there whole, else towards the middle of that space as
+ * far as the sheet goes. The current row of the documents or the view (k) stays whole above it as long as c then shows: only as far
+ * as k reaches the head, if that is far enough. Further down - a long outline puts c thousands of px under k - c wins and k goes
+ * wholly under the head, never cut off by it: past the middle if the middle alone would cut it, and past max if the sheet ends
+ * before that (more than max: the caller adds the room), in whole px since the sheet scrolls in them. Pure.
+ * @param {number} head @param {number} bottom @param {{top:number,bottom:number}} c @param {{top:number,bottom:number}|null} k
+ * @param {number} [max] */
+function navSheetBy(head,bottom,c,k,max=Infinity){if(c.top>=head&&c.bottom<=bottom)return 0;
+  const want=Math.min((c.top+c.bottom)/2-(head+bottom)/2,max),room=k?k.top-head:Infinity;
+  return Math.max(0,!k||want<=room||c.bottom-room<=bottom?Math.min(want,room):Math.max(want,Math.ceil(k.bottom-head)));}
 // The navigation sheet's view switch: the view on screen is the checked radio.
 function drawNavView(){const rev=document.body.classList.contains('revision-open');
   for(const b of $$('#ns-view [role=radio]')){const on=(b.dataset.mode===VIEW_MODE.REVISIONS)===rev; b.setAttribute('aria-checked',String(on)); b.classList.toggle('on',on);}}

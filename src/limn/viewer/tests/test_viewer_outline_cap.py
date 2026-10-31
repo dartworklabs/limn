@@ -125,35 +125,51 @@ class OutlineLogic(unittest.TestCase):
         )
 
     def test_going_up_the_rows_above_and_the_sections_head_show_where_they_fit(self):
-        """outlineRevealTop(..., cover, near, group): over a row the list keeps what starts at near (the two rows above it)
-        when that is more than the margin and fits with the row and the margin under it - so a row 48px under the band, clear
-        before, now moves. Coming up, the list goes on to group (its section's head and two rows above that) where that fits
-        too, and to the very top where only the panel's head would be left. A row clear of near moves nothing even when its
-        head is out of sight; going down, on a view too short for near and with fewer rows than the margin above, nothing
-        changes."""
+        """outlineRevealTop(..., cover, near, group): a row that enters the top margin, or is above the view, comes up further
+        than the margin - to near (the two rows above it) when that is more than the margin and fits with the row and the
+        margin under it, and on to group (its section's head and two rows above that) where that fits too; to the very top
+        where only the panel's head would be left. Whether the list moves at all is still the margin's: a row 48px under the
+        band moves nothing, nor one clear of near with its head out of sight, and going down, on a view too short for near
+        and with fewer rows than the margin above nothing changes."""
         got = self.run_js(
             ["outlineRevealTop"],
-            """[outlineRevealTop(1000,800,5000,1100,1124,48,100,52),outlineRevealTop(1000,800,5000,1100,1124,48,100,52,1044),
-            outlineRevealTop(1000,800,5000,1110,1134,48,100,52,1054),
-            outlineRevealTop(1000,800,5000,1100,1124,48,100,52,1044,800),outlineRevealTop(1000,800,5000,1100,1124,48,100,52,1044,300),
-            outlineRevealTop(1000,800,5000,500,524,48,100,52,444,200),outlineRevealTop(1000,800,5000,210,234,48,100,52,154),
-            outlineRevealTop(1000,800,5000,210,234,48,100,52,154,100),
+            """[outlineRevealTop(1000,800,5000,1100,1124,48,100,52,1044,800),outlineRevealTop(1000,800,5000,1090,1114,48,100,52),
+            outlineRevealTop(1000,800,5000,1090,1114,48,100,52,1034),outlineRevealTop(1000,800,5000,1090,1114,48,100,52,1034,800),
+            outlineRevealTop(1000,800,5000,1090,1114,48,100,52,1034,300),outlineRevealTop(1000,800,5000,500,524,48,100,52,444,200),
+            outlineRevealTop(1000,800,5000,210,234,48,100,52,154),outlineRevealTop(1000,800,5000,210,234,48,100,52,154,100),
             outlineRevealTop(1000,800,5000,1300,1324,48,100,52,1244,800),outlineRevealTop(1000,800,5000,1790,1814,48,100,52,1734,800),
             outlineRevealTop(1000,152,5000,1000,1024,48,100,52,944,600),outlineRevealTop(1000,800,5000,1060,1084,48,100,52,1040,1040)]""",
         )
-        self.assertEqual(got, [None, 992, None, 748, 992, 148, 102, 0, None, 1062, 910, 960])
+        self.assertEqual(got, [None, 990, 982, 748, 982, 148, 102, 0, None, 1062, 910, 960])
+
+    def test_two_rows_next_to_each_other_do_not_send_a_short_panel_back_and_forth(self):
+        """A panel 152px high under the band, the mark going back and forth between two neighbouring rows: the lower one moves
+        the list once and then neither moves it - the two rows kept over a row coming up are where it lands, not a margin a
+        row must keep, which here would push the upper one down and the lower one up again at every move (review of #335)."""
+        got = self.run_js(
+            ["outlineRevealTop"],
+            """(()=>{let st=1000; const seen=[];
+              for(let i=0;i<6;i++){const [t,b,n]=i%2?[1136,1160,1080]:[1108,1132,1052];
+                const to=outlineRevealTop(st,204,5000,t,b,48,100,52,n); seen.push(to); if(to!==null)st=to;}
+              return seen;})()""",
+        )
+        self.assertEqual(got, [None, 1004, None, None, None, None])
 
     def test_the_sheet_shows_the_current_section_and_never_cuts_the_current_row_above_it(self):
-        """navSheetBy(head, bottom, c, k): a section in view moves nothing; one below comes towards the middle, as far as the
-        current row of the documents or the view (k) stays whole if that shows it - and when that is not far enough (a long
-        outline) on to the middle, k going wholly under the head, past it if the middle alone would cut it. No k, the middle."""
+        """navSheetBy(head, bottom, c, k, max): a section in view moves nothing; one below comes towards the middle, as far as
+        the current row of the documents or the view (k) stays whole if that shows it - and when that is not far enough (a long
+        outline) on to the middle, k going wholly under the head, past it if the middle alone would cut it. No k, the middle.
+        The middle goes no further than the sheet scrolls (max); hiding k may ask for more, which the caller adds as room
+        (review of #335: a sheet that ended early left k cut by the head)."""
         got = self.run_js(
             ["navSheetBy"],
             """[navSheetBy(100,800,{top:300,bottom:344},{top:120,bottom:164}),navSheetBy(100,800,{top:820,bottom:864},{top:600,bottom:644}),
             navSheetBy(100,800,{top:900,bottom:944},{top:400,bottom:444}),navSheetBy(100,800,{top:3000,bottom:3044},{top:132,bottom:176}),
-            navSheetBy(100,180,{top:190,bottom:234},{top:110,bottom:186}),navSheetBy(100,800,{top:3000,bottom:3044},null)]""",
+            navSheetBy(100,180,{top:190,bottom:234},{top:110,bottom:186}),navSheetBy(100,800,{top:3000,bottom:3044},null),
+            navSheetBy(100,600,{top:620,bottom:664},{top:120,bottom:184},80),navSheetBy(100,800,{top:3000,bottom:3044},{top:132,bottom:176},2400),
+            navSheetBy(100,800,{top:820,bottom:864},{top:600,bottom:644},64)]""",
         )
-        self.assertEqual(got, [0, 392, 300, 2572, 86, 2572])
+        self.assertEqual(got, [0, 392, 300, 2572, 86, 2572, 84, 2400, 64])
 
     REFERENCE = """function referenceIndexAt(entries,page,frac){
       const at=e=>e.frac||0,deep=e=>e.depth||0,above=e=>e.page<page||(e.page===page&&at(e)<=frac+1e-6);
@@ -1132,6 +1148,33 @@ class OutlineFollow(OutlineBase):
         self.assertFalse(got["cut"], got)
         self.assertGreater(got["scrolled"], 0, got)
         self.assertEqual((got["pages"], got["focus"]), (pages, "nav-sheet"), got)
+
+    def test_a_sheet_that_ends_soon_still_shows_the_row_and_does_not_cut_the_documents_row(self):
+        """390x844, short outlines with their last entry current: where the sheet scrolls less than it takes to put the
+        current document's row wholly under the head, the outline gets the missing room under it rather than the row being
+        left cut off by the head (review of #335). Whatever the length, the current row shows whole and the documents' row is
+        whole or wholly under the head; at least one length needs the room."""
+        roomed = 0
+        for n in range(3, 11):
+            with self.subTest(entries=n):
+                phone = self.on("ms", **PHONE)
+                self.load(phone, grouped_tree(n, 2))
+                phone.evaluate("n => {updateSectionStrip = () => {}; OUTLINE_SELECTED = n - 1; markOutline();}", n)
+                phone.tap("#btn-pos")
+                phone.wait_for_function("document.querySelector('#nav-sheet').open")
+                settle(phone)
+                got = phone.evaluate(
+                    """() => {const d = document.querySelector('#nav-sheet'), h = d.querySelector('.ns-head').getBoundingClientRect().bottom,
+                      D = d.getBoundingClientRect(), r = d.querySelector('#ns-outline-items .ol-active').getBoundingClientRect(),
+                      doc = d.querySelector('.dm-item.on').getBoundingClientRect();
+                      return {whole: r.top >= h - 0.5 && r.bottom <= D.bottom + 0.5, cut: doc.top < h - 0.5 && doc.bottom > h + 0.5,
+                        room: document.querySelector('#ns-outline').style.paddingBottom ? 1 : 0, focus: document.activeElement.id};}"""
+                )
+                self.assertTrue(got["whole"], got)
+                self.assertFalse(got["cut"], got)
+                self.assertEqual(got["focus"], "nav-sheet", got)
+                roomed += got["room"] > 0
+        self.assertGreater(roomed, 0)
 
 
 def flatten(tree):

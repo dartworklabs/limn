@@ -8,12 +8,14 @@
   48px - a row and a half - under the filter, so from a section's second entry on its head (`비교판 · 14`) was out of
   sight. The list now keeps two whole rows over the row on the way up, and where the row's section fits in the panel
   with it, its head and the two rows above that: the list moves once as the reading comes up into a section and not
-  again until it reaches the head. Going down, and a row already clear, nothing changes; the pages and the focus never
-  move.
+  again until it reaches the head. Only where it lands changes: whether it moves is still the 48px margin's, so a row
+  already clear stays put and two neighbouring rows cannot send a low panel back and forth. Going down nothing changes;
+  the pages and the focus never move.
 - **The phone's navigation sheet opens at the current section (#335).** The sheet kept the current document's row (or the
   view's) under its head and so stopped at the top of a long outline, the current section thousands of px below. It now
   brings that section to the middle of the space under the head; the document's row stays whole above it where both fit,
-  and otherwise goes wholly under the head, never cut off. The pages do not move and the focus stays on the sheet.
+  and otherwise goes wholly under the head, never cut off - where a short outline ends the sheet too soon for that, the
+  outline gets the missing room below it. The pages do not move and the focus stays on the sheet.
 
 ## 0.4.37 — 2026-10-31
 
