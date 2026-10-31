@@ -357,6 +357,52 @@ class StoreFlows(NoticePage, BrowserBase):
         self.assertEqual(page.evaluate("document.activeElement.id"), "btn-zoom-in")
         self.assertEqual(len(held), 1)
 
+    def test_10_a_save_undos_retry_answered_late_follows_the_same_focus_rule(self):
+        """Desktop: the save chip's [되돌리기] cannot reach the server, so its failure offers [다시 시도] - no waiting action,
+        so noticeAct's watch is not there. The retry's delete is held past the bound, then goes through: the composer is
+        back with the note. With the focus moved to a tool button meanwhile it stays there; left alone, the note takes it as
+        with an answer in time."""
+        drops = []  # the delete requests: the first is lost on the way, the next held until the test lets it through
+
+        def drop(route):
+            """POST /api/pins/<pid>/drop: the first is lost, the rest are held."""
+            drops.append(route)
+            if len(drops) == 1:
+                route.abort()
+
+        for moved in (True, False):
+            with self.subTest(moved=moved):
+                self.tearDown()
+                self.setUp()
+                drops.clear()
+                page = self.view("desktop")
+                self.compose(page, "되돌릴 메모")
+                page.click("#btn-save")
+                page.wait_for_selector(".mark .nt-chip")
+                pid = page.evaluate("+document.querySelector('.mark:has(.nt-chip)').dataset.pin")
+                page.route("**/api/pins/%d/drop" % pid, drop)
+                page.locator(".mark .nt-chip [data-act=notice-act]").click()
+                retry = "()=>([...NOTICES.values()].find(n=>!!n.act&&n.act.label==='다시 시도')||{n:0}).n"
+                page.wait_for_function(retry)
+                settle(page)
+                page.evaluate("NOTICE_ACT_WAIT=150")
+                page.locator('[data-act="notice-act"][data-n="%d"]' % page.evaluate(retry)).first.click()
+                for _ in range(100):
+                    if len(drops) == 2:
+                        break
+                    page.wait_for_timeout(20)
+                self.assertEqual(len(drops), 2)
+                if moved:
+                    page.focus("#btn-zoom-in")
+                page.wait_for_timeout(300)  # past the bound
+                self.route(drops[1])  # the retried delete reaches the server now
+                page.wait_for_selector("#composer:not([hidden])")
+                settle(page)
+                self.assertIsNone(self.state(pid))
+                self.assertEqual(page.input_value("#note"), "되돌릴 메모")
+                self.assertEqual(page.evaluate("document.activeElement.id"), "btn-zoom-in" if moved else "note")
+                self.assertEqual(len(drops), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -262,6 +262,13 @@ function noticeAct(num){const n=NOTICES.get(num); if(!n||n.busy)return; const a=
   /** @type {NoticeRun} */ const run={away:()=>late&&moved};
   Promise.resolve(a.fn(run)).catch(()=>false).then(()=>{clearTimeout(wait); document.removeEventListener('focusin',seen,true);
     endNotice(n,true); sourceOk(NOTICE_LATE_SRC+n.n); if(!run.away())back();});}
+// noticeAct's question for an action run without its watch - a failure's [다시 시도], which is no waiting action, running an
+// undo again (save.js): away() = its answer is late (NOTICE_ACT_WAIT) and the person has put the focus somewhere since. The
+// watch starts once the press's own work is done (its message going, back()), so the focus that work moves is not counted.
+/** @returns {NoticeRun&{stop:()=>void}} */
+function focusRun(){const at=Date.now(); let moved=false,on=true; const seen=()=>{moved=true;};
+  queueMicrotask(()=>{if(on)document.addEventListener('focusin',seen,true);});
+  return {away:()=>moved&&Date.now()-at>=NOTICE_ACT_WAIT,stop:()=>{on=false; document.removeEventListener('focusin',seen,true);}};}
 // The source of the status line's message that says message n's answer is late, when n is not on the line (noticeLate).
 const NOTICE_LATE_SRC='notice-late:';
 // Message n's action a has sent a request that is not answered after NOTICE_ACT_WAIT: '되돌리기의 답이 늦습니다' (a 되살리기's

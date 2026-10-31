@@ -12,9 +12,9 @@
   `The restore has not answered yet`) before what it undoes: on the status line the message itself does, as a warning
   and first on the line - also while the focus on its busy button holds the line - and for an undo elsewhere the status
   line says it in one message of its own. The late answer, a success or a failure, is taken once and the lateness goes
-  with it. A focus the person has moved meanwhile stays where it is - a save's undo answered late then brings the
-  composer back without taking the focus into the note - and one left alone goes to the reading page's line as with an
-  answer in time. Nothing was locked, so nothing else changes.
+  with it. A focus the person has moved meanwhile stays where it is - a save's undo answered late, or its failure's
+  [다시 시도], then brings the composer back without taking the focus into the note - and one left alone goes to the
+  reading page's line as with an answer in time. Nothing was locked, so nothing else changes.
 
 ## 0.4.37 — 2026-10-31
 

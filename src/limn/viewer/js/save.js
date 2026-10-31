@@ -104,9 +104,11 @@ async function savePin(verdict){
     else clearSavedDraft(draft);
     if(SEC_SEEN.open)SEC_SEEN.open.add(id);   // my own new pin is never 'new' on a collapsed header
     /** @type {(run?:NoticeRun)=>Promise<boolean>} */
-    const undo=verdict?verdictUndo(id):async run=>{const ok=await dropPin(id,true,undo);
-      // A late answer whose person has moved on (noticeAct, run.away) brings the composer back without the focus.
-      if(ok&&(cleared||restored)&&DOC===visit.doc&&!COMPOSE.current&&!COMPOSE.box&&!COMPOSE.picking&&!$('#note').value)restoreSelection(snap,!run||!run.away());
+    const undo=verdict?verdictUndo(id):async run=>{const mine=run?null:focusRun(),ok=await dropPin(id,true,undo); if(mine)mine.stop();
+      // A late answer whose person has moved on brings the composer back without the focus: noticeAct's run for the chip's
+      // [되돌리기], this run's own watch for a failure's [다시 시도].
+      const away=run?run.away():!!mine&&mine.away();
+      if(ok&&(cleared||restored)&&DOC===visit.doc&&!COMPOSE.current&&!COMPOSE.box&&!COMPOSE.picking&&!$('#note').value)restoreSelection(snap,!away);
       return ok;};
     const vw=verdict?verdictLabel(verdict):'',fr=verdict?figureVerdictRoot(d):null;   // a figure's verdict names the figure
     const said=fr?tl('#{id} {word} 판정 저장됨 · {target} — 되돌리면 판정을 거둡니다',{id,word:vw,target:figureShort(d.page,fr)}):tl('#{id} 저장됨 · {word} 판정',{id,word:vw});
