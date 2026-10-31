@@ -24,6 +24,9 @@ from helpers_browser import MISSES_44, VIEWPORTS, BrowserBase, nothing_follows, 
 WORDS = {"format": "limn-verdicts/1", "verdicts": [{"key": "채택"}, {"key": "보류"}, {"key": "삭제", "confirm": True}]}
 N_PAGES = 7  # the last two are list pages: no verdict, no summary
 TAKING = 5  # the pages that take a verdict
+BOARD_TITLE = (
+    "비교판 · 다섯 쌍"  # the last page's title: a comparison board's, with the ' · ' a figure's code is cut at
+)
 CAROL_VIEWER = {"Tailscale-User-Login": "carol@example.com", "Tailscale-User-Name": "Carol Lee"}
 WIDE = {"viewport": {"width": 1920, "height": 1080}}
 # The panel as it stands: its page and pin, its rows' text, its words, where its first word stands, and what it holds.
@@ -90,7 +93,7 @@ class PanelBase(BrowserBase):
             }
             for i in range(1, TAKING + 1)
         ]
-        for i, (fig, title) in enumerate((("LIST", "목록"), ("ASK", "연구 질문")), TAKING + 1):
+        for i, (fig, title) in enumerate((("LIST", "목록"), ("BOARD", BOARD_TITLE)), TAKING + 1):
             root = {"id": fig, "frac": [0, 0, 1, 1]}
             pages.append({"page": i, "figure": fig, "title": title, "verdict": False, "elements": [root]})
         fmap = {"format": "limn-figure-map/1", "pdf": "figures.pdf", "pdf_sha256": "0" * 64, "pages": pages}
@@ -103,6 +106,7 @@ class PanelBase(BrowserBase):
         self.held_edit: list | None = None  # POST /api/pins/N/edit routes held unanswered while not None
         self.held_list: list | None = None  # GET /api/pins (the pin list) held unanswered while not None
         self.held_drop: list | None = None  # POST /api/pins/N/drop routes held unanswered while not None
+        self.held_restore: list | None = None  # POST /api/pins/N/restore routes held unanswered while not None
         patch = mock.patch.object(pick_source, "region_text", return_value="")  # pdftotext answers no text
         patch.start()
         self.addCleanup(patch.stop)
@@ -115,6 +119,9 @@ class PanelBase(BrowserBase):
             return None
         if rq.method == "POST" and path.endswith("/drop") and self.held_drop is not None:
             self.held_drop.append(route)
+            return None
+        if rq.method == "POST" and path.endswith("/restore") and self.held_restore is not None:
+            self.held_restore.append(route)
             return None
         if rq.method == "POST" and path.endswith("/edit") and self.held_edit is not None:
             self.held_edit.append(route)
@@ -884,12 +891,13 @@ class PanelEdges(PanelBase):
         self.assertEqual(page.evaluate("()=>document.activeElement.classList.contains('pv-draft')"), True)
 
     def test_the_pressed_words_context_stands_under_the_panel_and_brings_no_scroll_bar(self):
-        """The pressed word hovered: its context shows under the panel, whole, and the panel keeps its size and does not
-        scroll: a scroller clipped it there and a scroll bar narrowed the rows."""
+        """The pressed word with the keyboard's focus: its context shows under the panel, whole, and the panel keeps its size
+        and does not scroll: a scroller clipped it there and a scroll bar narrowed the rows."""
         self.verdict(1, "채택")
         page = self.on(n_open=1)
         page.evaluate("()=>{const p=document.getElementById('pv-panel'); window.__w=p.clientWidth;}")
-        page.locator('#pv-panel button[data-key="채택"]').hover()
+        page.locator('#pv-panel button[data-key="보류"]').focus()
+        page.keyboard.press("Shift+Tab")
         settle(page)
         got = page.evaluate(
             """()=>{const p=document.getElementById('pv-panel'),h=p.querySelector('.pv-onhint'),r=p.getBoundingClientRect(),b=h.getBoundingClientRect(),m=document.elementFromPoint(b.left+b.width/2,b.top+b.height/2);
@@ -980,6 +988,128 @@ class TheLinesMove(PanelBase):
         self.assertEqual(page.locator(FIELD).input_value(), text)
         self.assertEqual(page.evaluate("pvReadingPage()"), n)
         self.assertEqual(self.pins()[pid]["note"], "", "the half text was written")
+
+    def test_a_quick_round_trip_after_a_saved_reason_keeps_the_reading_page_where_it_stands(self):
+        """A digit's 채택 on page 5 and its reason saved by Enter (the focus on 'Enter 이유 쓰기'), then the window narrowed past
+        the bar and widened again 100ms later: at every step page 5 is the reading page and stands where it stood (±2px), and
+        the focus stays on page 5's reason control, in the panel again, as with a slow resize (#338). Releasing the blocks
+        pvFit had held changed the reading page's own block, which stopped the area's scroll anchoring, so the lines above
+        moved the view (75 read 70 in a real document)."""
+        page = self.on()
+        page.evaluate("setSide(false)")
+        settle(page)
+        page.evaluate(TO, [5, 150])
+        settle(page)
+        page.evaluate("searchToPage()")
+        page.keyboard.press("1")
+        page.wait_for_function("()=>document.activeElement.dataset.act==='pv-reason-open'")
+        settle(page)
+        page.keyboard.press("Enter")
+        page.wait_for_selector(FIELD)
+        page.keyboard.type("빠른 왕복")
+        page.keyboard.press("Enter")
+        page.wait_for_function("OPEN_ALL.some(p=>p.note==='빠른 왕복')")
+        settle(page)
+        top = page.evaluate("()=>document.getElementById('p5').getBoundingClientRect().top")
+        seen = []
+        for width in (1400, 1920):
+            page.set_viewport_size({"width": width, "height": 1080})
+            page.wait_for_timeout(100)
+            seen.append(
+                (
+                    page.evaluate("pvReadingPage()"),
+                    page.evaluate("()=>document.getElementById('p5').getBoundingClientRect().top"),
+                )
+            )
+        settle(page)
+        seen.append(
+            (
+                page.evaluate("pvReadingPage()"),
+                page.evaluate("()=>document.getElementById('p5').getBoundingClientRect().top"),
+            )
+        )
+        for n, y in seen:
+            self.assertEqual(n, 5, seen)
+            self.assertLess(abs(y - top), 2.5, seen)
+        self.assertEqual(page.evaluate(SHAPE)["beside"], True)
+        focus = page.evaluate(FOCUS) or {}
+        self.assertEqual((focus.get("act"), focus.get("page"), focus.get("panel")), ("pv-reason-open", 5, True), focus)
+
+    def test_lines_above_that_change_height_across_a_fitting_pass_leave_the_reading_page_where_it_stands(self):
+        """Under the pages (1400), page 5 read: the lines of pages 1-3 are skipped far above with a stale drawn height
+        (--pv-h 300px), and every line is fitted again (pvFit). The pass lays them out at their real height; page 5 stands
+        where it stood. The pass held every block, the reading page's included, and letting that block go stopped the area's
+        scroll anchoring just as the lines above shrank: the view moved by what they lost."""
+        page = self.on(viewport={"width": 1400, "height": 850})
+        page.evaluate(TO, [5, 150])
+        settle(page)
+        far = "()=>[1,2,3].map(n=>document.querySelector('#doc .pv[data-page=\"'+n+'\"]').classList.contains('pv-far'))"
+        page.wait_for_function(far + ".every(Boolean)")
+        page.evaluate(
+            "()=>[1,2,3].forEach(n=>document.querySelector('#doc .pv[data-page=\"'+n+'\"]').style.setProperty('--pv-h','300px'))"
+        )
+        settle(page)
+        top = page.evaluate("()=>document.getElementById('p5').getBoundingClientRect().top")
+        page.evaluate("()=>pvFit($$('#doc .pgw>.pv'))")
+        got = page.evaluate("()=>[document.getElementById('p5').getBoundingClientRect().top, pvReadingPage()]")
+        self.assertLess(abs(got[0] - top), 2.5, (top, got))
+        self.assertEqual(got[1], 5)
+
+    def test_letting_held_blocks_go_at_a_touch_screens_top_keeps_the_top(self):
+        """A touch screen at the very top (scrollTop 0), page 1 a short strip above the reading line, so page 2 is the page
+        read: page 1's line grows while its block is held (pvKeepBlocks), and letting it go (pvLetBlocks) leaves the area at
+        its top, as restoreAnchor keeps a touch screen's top. Kept by page 2's place, it scrolled 50px off the top."""
+        (self.pages_dir / "page-1.png").write_bytes(blank_png(1275, 150))
+        page = self.on(viewport={"width": 1400, "height": 850}, is_mobile=True, has_touch=True, device_scale_factor=1)
+        page.evaluate("()=>{document.querySelector('#left').scrollTop=0;}")
+        settle(page)
+        self.assertEqual(
+            page.evaluate("()=>[MQ_COARSE.matches, topAnchor(readingDepth(document.querySelector('#left'))).page]"),
+            [True, 2],
+        )
+        got = page.evaluate(
+            """()=>{const L=document.querySelector('#left'),l=document.querySelector('#doc .pv[data-page="1"]'),kept=pvKeepBlocks([l]);
+              l.style.minHeight=(l.getBoundingClientRect().height+50)+'px'; pvLetBlocks(kept); return [L.scrollTop, kept.length];}"""
+        )
+        self.assertEqual(got, [0, 0])
+
+    def test_a_focused_control_lands_on_the_same_control_of_the_moved_line_both_ways(self):
+        """Page 5's 채택 saved by a press, the focus on [이유 추가], the word 보류, [판정 취소] or '#N' in the panel: the window
+        narrowed past the bar and widened again, once resting between and once 100ms apart. At each resting step the focus
+        is on the same control of page 5's line - under the page, then in the panel again - never on the PDF area, where
+        it went before and Enter there no longer meant that control."""
+        page = self.on()
+        page.evaluate(TO, [5, 150])
+        settle(page)
+        page.locator(WORD % (5, "채택")).click()
+        page.wait_for_function("OPEN_ALL.length===1")
+        settle(page)
+        page.evaluate("()=>NOTICES.forEach(n=>{if(n.place==='chip')endNotice(n,false);})")
+        settle(page)
+        where = """()=>{const a=document.activeElement,l=a&&a.closest?a.closest('#doc .pv'):null;
+          return l?[a.dataset.act,a.dataset.key||'',+l.dataset.page,!!a.closest('#pv-panel')]:[a?a.id||a.tagName:null];}"""
+        for act, key, sel in (
+            ("pv-reason-open", "", LINE_ACT % (5, "pv-reason-open")),
+            ("pv-save", "보류", WORD % (5, "보류")),
+            ("pv-cancel", "", LINE_ACT % (5, "pv-cancel")),
+            ("pin-ref", "", LINE_ACT % (5, "pin-ref")),
+        ):
+            for quick in (False, True):
+                with self.subTest(control=act, quick=quick):
+                    page.locator(sel).focus()
+                    self.assertEqual(page.evaluate(where), [act, key, 5, True])
+                    for width, beside in ((1400, False), (1920, True)):
+                        page.set_viewport_size({"width": width, "height": 1080})
+                        if quick:
+                            page.wait_for_timeout(100)
+                            continue
+                        settle(page)
+                        self.assertEqual(page.evaluate(SHAPE)["beside"], beside)
+                        self.assertEqual(page.evaluate(where), [act, key, 5, beside])
+                    settle(page)
+                    self.assertEqual(page.evaluate(SHAPE)["beside"], True)
+                    self.assertEqual(page.evaluate(where), [act, key, 5, True])
+        self.assertEqual(len(self.pins()), 1)
 
     def test_a_resize_keeps_the_reason_and_the_page_where_it_stands_both_ways(self):
         """Across the bar and back: the field, its text and caret, nothing written, digits stay text, and page 5 does not move
@@ -1417,6 +1547,247 @@ class StatusLineAction(PanelBase):
         self.assertEqual(page.locator(FIELD).input_value(), "쓰던 글7")
 
 
+LINE_TEXT = "()=>{const s=document.querySelector('#status'),t=s&&s.querySelector('.st-tx'); return s&&!s.hidden&&t?t.textContent:'';}"
+# The messages that say an answer is late (one of an action's, notices.js noticeLate), and the failures said, anywhere.
+LATE = "()=>[...NOTICES.values()].filter(n=>/의 답이 늦습니다|: no answer yet/.test(n.title)).map(n=>n.title+(n.desc?' · '+n.desc:''))"
+ERRORS = "()=>[...NOTICES.values()].filter(n=>n.kind===NOTICE_KIND.ERR).length"
+# The status line's width, and how far left of the text box's visible end (less an ellipsis) the text's first p characters
+# end - null unless the text starts with p.
+WIDTH = "()=>{const s=document.querySelector('#status'); return s&&!s.hidden?s.getBoundingClientRect().width:0;}"
+CUT = "()=>{const t=document.querySelector('#status .st-tx'); return !!t&&t.scrollWidth>t.clientWidth;}"  # the text is cut
+SHOWN = """p=>{const t=document.querySelector('#status .st-tx'),x=t&&t.firstChild; if(!x||!t.textContent.startsWith(p))return null;
+  const r=document.createRange(); r.setStart(x,0); r.setEnd(x,p.length); const cut=t.scrollWidth>t.clientWidth?16:0;
+  return Math.round(t.getBoundingClientRect().right-cut-r.getBoundingClientRect().right);}"""
+
+
+class LateAnswer(PanelBase):
+    """A message's [되돌리기] whose request does not answer (#334): past the bound (NOTICE_ACT_WAIT, the take-back's too) the
+    status line says the answer is late, also while the focus on its busy button holds the line - one message, never two.
+    The late answer, a success or a failure, is taken once: the message and the lateness go, nothing is sent again, the focus
+    stays where the person put it, and a verdict saved meanwhile with its reason is kept."""
+
+    def saved_to_line(self, page):
+        """A verdict saved by key on page 2, its chip taken to the status line by reading page 3; the pin's id."""
+        self.to(page, 2)
+        page.evaluate("searchToPage()")
+        page.keyboard.press("1")
+        page.wait_for_selector("#pv-panel>.nt-chip")
+        settle(page)
+        mine = page.evaluate("()=>(pageVerdictPins().get(2)||[])[0].id")
+        self.to(page, 3)
+        page.wait_for_selector('#status [data-act="notice-act"]')
+        return mine
+
+    def late(self, page, words, shown, width):
+        """Waits for the one message saying an answer is late and checks it says words first; the status line shows its
+        start, shown - the late words and what is undone - uncut, and is no narrower than width (before the press)."""
+        page.wait_for_function(LATE + ".length>0")
+        said = page.evaluate(LATE)
+        self.assertEqual(len(said), 1, said)
+        self.assertTrue(said[0].startswith(words), said)
+        room = page.evaluate(SHOWN, shown)
+        self.assertTrue(room is not None and room >= 0, "%r cut (%s) in %r" % (shown, room, page.evaluate(LINE_TEXT)))
+        self.assertGreaterEqual(page.evaluate(WIDTH), width - 0.5, "the late line is narrower")
+        return said[0]
+
+    def meanwhile(self, page):
+        """While the request is held: a verdict saved by key on page 3 and a reason typed for it. Its pin's id once listed."""
+        page.evaluate(TO, [3, 16])  # not settle(): it would wait for the held request
+        page.wait_for_function("()=>PV_READ===3")
+        page.evaluate("searchToPage()")
+        page.keyboard.press("2")
+        page.wait_for_function("()=>(pageVerdictPins().get(3)||[]).length===1")
+        page.keyboard.press("Enter")
+        page.wait_for_selector(FIELD)
+        page.keyboard.type("새 판정의 이유")
+        return page.evaluate("()=>(pageVerdictPins().get(3)||[])[0].id")
+
+    def answered(self, page, held, status, done):
+        """The answer to the held request - the handler's (status None) or a failure - after the bound: done (JS) holds, the
+        lateness is gone, one failure is said for a failure and none for a success, one request was sent, and the reason
+        field typed in meanwhile keeps the focus and its text."""
+        self.assertEqual(len(page.evaluate(LATE)), 1)
+        self.assertEqual(len(held), 1)
+        before = page.evaluate(FOCUS)
+        self.assertTrue(page.evaluate("()=>pvIsReasonField(document.activeElement)"), before)
+        self.release(held, status)
+        page.wait_for_function(done)
+        page.wait_for_function(LATE + ".length===0")
+        settle(page)
+        self.assertEqual(len(held), 1)
+        self.assertEqual(page.evaluate(ERRORS), 1 if status else 0)
+        self.assertEqual(page.evaluate(FOCUS), before, "the late answer moved the focus")
+        self.assertEqual(page.locator(FIELD).input_value(), "새 판정의 이유")
+        self.assertNotIn("답이 늦습니다", page.evaluate(LINE_TEXT))
+
+    def late_drop(self, status):
+        """The save's undo on the status line, pressed by key: its line, held by the focus on its busy button, says the
+        undo is late and what it undoes. The new verdict on page 3 stays whatever the answer."""
+        page = self.on()
+        mine = self.saved_to_line(page)
+        page.evaluate("NOTICE_ACT_WAIT=150")
+        self.held_drop = []
+        page.locator('#status [data-act="notice-act"]').first.focus()
+        width = page.evaluate(WIDTH)
+        page.keyboard.press("Enter")
+        self.late(
+            page,
+            "되돌리기의 답이 늦습니다 · #%d 채택 판정 저장됨" % mine,
+            "되돌리기의 답이 늦습니다",
+            width,
+        )
+        self.assertEqual(
+            page.evaluate(
+                "()=>document.activeElement.dataset.act+' '+document.activeElement.getAttribute('aria-busy')"
+            ),
+            "notice-act true",
+        )
+        new = self.meanwhile(page)
+        held, self.held_drop = self.held_drop, None
+        done = (
+            "()=>OPEN_ALL.some(p=>p.id===%d)&&(%s)()===1" % (mine, ERRORS)
+            if status
+            else "()=>DROPPED.some(p=>p.id===%d)" % mine
+        )
+        self.answered(page, held, status, done)
+        self.assertEqual(sorted(self.pins()), sorted([mine, new] if status else [new]))
+
+    def test_a_save_undo_on_the_status_line_says_its_drop_is_late_and_takes_the_late_success_once(self):
+        self.late_drop(None)
+
+    def test_a_save_undo_on_the_status_line_says_its_drop_is_late_and_takes_the_late_failure_once(self):
+        self.late_drop(500)
+
+    def late_restore(self, status):
+        """A take-back's [되돌리기] on the status line, pressed with the mouse: the same for its restore."""
+        mine = self.verdict(2, "채택")
+        page = self.on(n_open=1)
+        self.to(page, 2)
+        page.evaluate("searchToPage()")
+        page.keyboard.press("1")
+        page.wait_for_function("id=>DROPPED.some(p=>p.id===id)", arg=mine)
+        settle(page)
+        page.evaluate("NOTICE_ACT_WAIT=150")
+        self.held_restore = []
+        width = page.evaluate(WIDTH)
+        page.locator('#status [data-act="notice-act"]').first.click()
+        self.late(page, "되돌리기의 답이 늦습니다 · 판정 #%d 채택 취소" % mine, "되돌리기의 답이 늦습니다", width)
+        new = self.meanwhile(page)
+        held, self.held_restore = self.held_restore, None
+        done = "()=>(%s)()===1" % ERRORS if status else "()=>OPEN_ALL.some(p=>p.id===%d)" % mine
+        self.answered(page, held, status, done)
+        self.assertEqual(sorted(self.pins()), sorted([new] if status else [mine, new]))
+
+    def test_a_take_backs_undo_on_the_status_line_says_its_restore_is_late_and_takes_the_late_success_once(self):
+        self.late_restore(None)
+
+    def test_a_take_backs_undo_on_the_status_line_says_its_restore_is_late_and_takes_the_late_failure_once(self):
+        self.late_restore(500)
+
+    def test_a_late_answer_with_the_focus_left_alone_still_brings_it_to_the_reading_line(self):
+        """A deleted card's row [되돌리기] pressed by key, its restore held past the bound and the focus left on it: the late
+        answer brings the card back, whose redraw takes the row - and its focused button - away before the message ends.
+        The person moved nothing, so the focus goes to the reading page's line as with an answer in time, not to nothing."""
+        mine = self.verdict(2, "채택")
+        page = self.on(n_open=1)
+        self.to(page, 2)
+        page.evaluate("id=>dropPin(id,false)", mine)
+        row = '#pins .nt-row [data-act="notice-act"]'
+        page.wait_for_selector(row)
+        settle(page)
+        page.evaluate("NOTICE_ACT_WAIT=150")
+        self.held_restore = []
+        page.locator(row).focus()
+        page.keyboard.press("Enter")
+        self.late(page, "되돌리기의 답이 늦습니다 · 핀 #%d 삭제됨" % mine, "되돌리기의 답이 늦습니다", 0)
+        held, self.held_restore = self.held_restore, None
+        self.assertEqual(len(held), 1)
+        self.release(held)
+        page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id)", arg=mine)
+        page.wait_for_function(LATE + ".length===0")
+        settle(page)
+        got = page.evaluate(FOCUS)
+        self.assertTrue(got and got["panel"], "the late answer left the focus on %s" % got)
+
+    def test_in_the_floating_line_a_late_undo_keeps_its_target_readable_and_the_line_as_wide(self):
+        """The pin panel closed, so the status line is the floating card at most 420px wide, and a verdict's save undo on it
+        too long for the line (cut at its end): late, it reads '되돌리기의 답이 늦습니다 · #N 채택…' ('Undo: no answer yet ·
+        #N verdict 채택…') with the target uncut, and the card is no narrower. The late words alone, as the title the line
+        falls back to, drew it from 394 to 244px and lost the target."""
+        for lang, late in (
+            ("ko", "되돌리기의 답이 늦습니다 · #%d 채택"),
+            ("en", "Undo: no answer yet · #%d verdict 채택"),
+        ):
+            with self.subTest(lang=lang):
+                self.tearDown()
+                self.setUp()
+                page = self.on(lang=lang)
+                page.evaluate("setSide(false)")
+                settle(page)
+                mine = self.saved_to_line(page)
+                self.assertTrue(page.evaluate(CUT))
+                width = page.evaluate(WIDTH)
+                page.evaluate("NOTICE_ACT_WAIT=150")
+                self.held_drop = []
+                page.locator('#status [data-act="notice-act"]').first.focus()
+                page.keyboard.press("Enter")
+                self.late(page, late % mine, late % mine, width)
+                held, self.held_drop = self.held_drop, None
+                self.release(held)
+                page.wait_for_function("id=>DROPPED.some(p=>p.id===id)", arg=mine)
+                page.wait_for_function(LATE + ".length===0")
+
+    def test_a_late_restore_keeps_what_it_restores_readable_and_the_line_as_wide_in_both_languages(self):
+        """A [되살리기] on the floating status line whose message is too long for it: late, the line says '되살리기의 답이
+        늦습니다 · #5 …' ('Restore: no answer yet · #5 …') with the pin readable and is no narrower; the answer takes it away."""
+        for lang, words in (
+            ("ko", "되살리기의 답이 늦습니다 · #5 을 Bob"),
+            ("en", "Restore: no answer yet · #5 을 Bob"),
+        ):
+            with self.subTest(lang=lang):
+                page = self.on(lang=lang)
+                page.evaluate("setSide(false)")
+                page.evaluate("NOTICE_ACT_WAIT=150")
+                n = page.evaluate(
+                    "()=>lineNote('#5 을 Bob 이 삭제함 · [후보] PL44 · NoTL-Cum-More 다섯 비교 쌍의 월별 효과 그림 — 휴지통에서 봅니다',"
+                    "NOTICE_KIND.WARN,{label:'되살리기',wait:true,fn:()=>new Promise(r=>{window.__restored=r;})},{literal:true}).n"
+                )
+                settle(page)
+                self.assertTrue(page.evaluate(CUT))
+                width = page.evaluate(WIDTH)
+                page.locator('#status [data-act="notice-act"][data-n="%d"]' % n).click()
+                self.late(page, words, words, width)
+                page.evaluate("()=>window.__restored(true)")
+                page.wait_for_function(LATE + ".length===0")
+                self.assertFalse(page.evaluate("n=>NOTICES.has(n)", n))
+
+    def test_an_undo_off_the_status_line_has_the_line_say_it_in_english_and_that_goes_with_the_answer(self):
+        """The save chip's own [되돌리기] in the panel, in English: the status line says 'Undo: no answer yet' and
+        what it undoes, in one message of its own, while the chip waits; the answer takes both away and the verdict is gone."""
+        page = self.on(lang="en")
+        self.to(page, 2)
+        page.evaluate("searchToPage()")
+        page.keyboard.press("1")
+        page.wait_for_selector("#pv-panel>.nt-chip")
+        settle(page)
+        mine = page.evaluate("()=>(pageVerdictPins().get(2)||[])[0].id")
+        page.evaluate("NOTICE_ACT_WAIT=150")
+        self.held_drop = []
+        page.locator('#pv-panel>.nt-chip [data-act="notice-act"]').click()
+        said = self.late(page, "Undo: no answer yet · #%d verdict 채택" % mine, "Undo: no answer yet", 0)
+        self.assertNotIn("늦습니다", said + page.evaluate(LINE_TEXT))  # the words and the target are the document's own
+        self.assertEqual(page.locator('#pv-panel>.nt-chip [data-act="notice-act"][aria-busy="true"]').count(), 1)
+        held, self.held_drop = self.held_drop, None
+        self.release(held)
+        page.wait_for_function("id=>DROPPED.some(p=>p.id===id)", arg=mine)
+        page.wait_for_function(LATE + ".length===0")
+        settle(page)
+        self.assertEqual(len(held), 1)
+        self.assertEqual(page.locator("#pv-panel>.nt-chip").count(), 0)
+        self.assertEqual(sorted(self.pins()), [])
+        self.assertEqual(page.evaluate(ERRORS), 0)
+
+
 class Undo(PanelBase):
     """The [되돌리기] of a take-back on another page than the one being read."""
 
@@ -1563,6 +1934,35 @@ class Reach(PanelBase):
         held, self.held_pin = self.held_pin, None
         self.release(held, page=page)
 
+    def test_a_chips_undo_by_mouse_never_leaves_the_focus_on_nothing(self):
+        """[되돌리기] of a save chip pressed with the mouse while the drop's answer is held: at every frame and every focus
+        change the focus is on a control, never on nothing, and it ends where the keyboard puts it - the panel's word."""
+        page = self.on()
+        self.to(page, 2)
+        page.locator(WORD % (2, "채택")).click()
+        page.wait_for_selector("#pv-panel>.nt-chip")
+        settle(page)
+        page.evaluate(
+            """()=>{const w=window.__body={n:0,on:true},look=()=>{if(document.activeElement===document.body||!document.activeElement)w.n++;};
+              document.addEventListener('focusout',e=>{if(!e.relatedTarget)queueMicrotask(look);},true); const tick=()=>{look(); if(w.on)requestAnimationFrame(tick);}; requestAnimationFrame(tick);}"""
+        )
+        self.held_drop = []
+        page.locator('#pv-panel>.nt-chip [data-act="notice-act"]').click()
+        page.wait_for_function("()=>OPEN_ALL.length===0")
+        for _ in range(200):
+            if self.held_drop:
+                break
+            page.wait_for_timeout(10)
+        page.wait_for_function("()=>{const w=window.__f||(window.__f={n:0}); return ++w.n>=12;}", polling="raf")
+        held, self.held_drop = self.held_drop, None
+        self.assertEqual(len(held), 1)
+        self.release(held)
+        settle(page)
+        self.assertEqual(page.evaluate("()=>{window.__body.on=false; return window.__body.n;}"), 0)
+        got = page.evaluate(FOCUS)
+        self.assertEqual((got or {}).get("act"), "pv-save", got)
+        self.assertTrue(got["panel"], got)
+
     def test_the_reading_line_is_exact_at_a_pages_end(self):
         """Page 2's last pixels 0.64px under the reading line: the page read is page 2, for the strip, the panel and the keys."""
         (self.pages_dir / "page-2.png").write_bytes(blank_png(1275, 1651))
@@ -1638,15 +2038,99 @@ class Look(PanelBase):
         )
         self.assertEqual(got, {"field": True, "pop": "visible", "panel": True})
 
-    def test_a_page_with_no_verdict_keeps_no_room_for_a_title(self):
-        """A list page: its notice stands right under its name."""
+    def test_a_page_with_no_verdict_names_itself_in_one_form(self):
+        """A list page ('목록') and a comparison board ('비교판 · 다섯 쌍', which a verdict page's name would cut at its ' · '):
+        both name their page alone on the name's row and their whole title on the title's row, one row high, the notice
+        right under it. A page with no title keeps no room for one: the notice stands right under its name."""
         page = self.on()
-        self.to(page, N_PAGES)
+        name = """()=>{const p=document.getElementById('pv-panel'),t=p.querySelector('.pv-fig-t'),id=p.querySelector('.pv-fig-id').getBoundingClientRect();
+          return {id:p.querySelector('.pv-fig-id').textContent,title:t?t.textContent:null,h:t?Math.round(t.getBoundingClientRect().height):0,
+            gap:Math.round(p.querySelector('.pv-s').getBoundingClientRect().top-(t?t.getBoundingClientRect().bottom:id.bottom))};}"""
+        forms = []
+        for n, title in ((TAKING + 1, "목록"), (N_PAGES, BOARD_TITLE)):
+            with self.subTest(page=n):
+                self.to(page, n)
+                got = page.evaluate(name)
+                self.assertEqual((got["id"], got["title"]), ("%d쪽" % n, title), got)
+                self.assertLess(got["gap"], 32, got)
+                forms.append((got["h"], got["gap"]))
+        self.assertEqual(forms[0], forms[1], "the two pages' names differ in form")
+        page.evaluate("()=>{META.pages[%d].title=''; drawPageVerdicts();}" % (N_PAGES - 1))
+        settle(page)
+        got = page.evaluate(name)
+        self.assertEqual((got["id"], got["title"]), ("%d쪽" % N_PAGES, None), got)
+        self.assertLess(got["gap"], 32, got)
+
+    def test_the_pressed_words_description_is_its_context_under_the_panel_and_no_box_over_its_name(self):
+        """The pressed word in the panel: a mouse's hover brings up neither a description box over the panel's name nor its
+        context under the panel - a long press shows the description (data-tip-press), the keyboard's focus the context. A
+        word not pressed and the '#1' link keep their boxes, left of the panel: over neither its name nor its controls.
+        Under a page (1400) the pressed word keeps its box, over the word, and its context on a hover, as before."""
+        self.verdict(1, "채택")
+        page = self.on(n_open=1)
+        pressed, other = '#pv-panel button[data-key="채택"]', '#pv-panel button[data-key="보류"]'
+        tips = "s=>{const b=document.querySelector(s);return [b.dataset.tip||null,!!b.dataset.tipPress];}"
+        self.assertEqual(page.evaluate(tips, pressed)[0], None)
+        self.assertTrue(page.evaluate(tips, pressed)[1])
+        page.locator(pressed).hover()
+        settle(page)
         got = page.evaluate(
-            "()=>{const p=document.getElementById('pv-panel');return [getComputedStyle(p.querySelector('.pv-fig-t')).display, p.querySelector('.pv-s').getBoundingClientRect().top-p.querySelector('.pv-fig-id').getBoundingClientRect().bottom];}"
+            """()=>{const t=document.getElementById('tip'),p=document.getElementById('pv-panel'),h=p.querySelector('.pv-onhint').getBoundingClientRect();
+              return {box:!t.hidden,hint:h.height>0&&h.top>=p.getBoundingClientRect().bottom};}"""
         )
-        self.assertEqual(got[0], "none")
-        self.assertLess(got[1], 32, got)
+        self.assertEqual(got, {"box": False, "hint": False})
+        # Every other description in the panel stands left of it, level with its control: over neither the name nor a control.
+        clear = """()=>{const t=document.getElementById('tip'),b=t.getBoundingClientRect(),p=document.getElementById('pv-panel').getBoundingClientRect(),
+            f=document.querySelector('#pv-panel .pv-fig').getBoundingClientRect(),cut=r=>b.left<r.right&&r.left<b.right&&b.top<r.bottom&&r.top<b.bottom;
+          return {shown:!t.hidden,name:cut(f),panel:cut(p),text:t.textContent.length>0};}"""
+        for sel in (other, '#pv-panel [data-act="pin-ref"]'):
+            with self.subTest(control=sel):
+                page.mouse.move(5, 500)
+                settle(page)
+                page.locator(sel).hover()
+                settle(page)
+                self.assertEqual(page.evaluate(clear), {"shown": True, "name": False, "panel": False, "text": True})
+        # Over the page beside the panel it reads as a floating box in both themes: an edge unlike its ground, and a shadow.
+        edge = """()=>{const c=getComputedStyle(document.getElementById('tip'));
+          return {beside:document.getElementById('tip').classList.contains('tip-beside'),edge:parseFloat(c.borderTopWidth)>=1&&c.borderTopColor!==c.backgroundColor,shadow:c.boxShadow!=='none'};}"""
+        for theme in ("light", "dark"):
+            with self.subTest(theme=theme):
+                page.evaluate("t=>setTheme(t)", theme)
+                page.mouse.move(5, 500)
+                settle(page)
+                page.locator(other).hover()
+                settle(page)
+                self.assertEqual(page.evaluate(edge), {"beside": True, "edge": True, "shadow": True})
+        page.mouse.move(5, 500)
+        page.locator(other).focus()
+        page.keyboard.press("Shift+Tab")
+        settle(page)
+        self.assertEqual(page.evaluate("()=>document.activeElement.dataset.key"), "채택")
+        got = page.evaluate(
+            """()=>{const t=document.getElementById('tip'),p=document.getElementById('pv-panel'),h=p.querySelector('.pv-onhint').getBoundingClientRect();
+              return {box:!t.hidden,hint:h.height>0&&h.top>=p.getBoundingClientRect().bottom};}"""
+        )
+        self.assertEqual(got, {"box": False, "hint": True}, "the keyboard's focus shows the context, and no box")
+        under = self.on(n_open=1, viewport={"width": 1400, "height": 850})
+        self.to(under, 1, 200)
+        got = under.evaluate(tips, WORD % (1, "채택"))
+        self.assertTrue(got[0] and not got[1], got)
+        under.locator(WORD % (1, "보류")).hover()
+        settle(under)
+        got = under.evaluate(
+            """s=>{const t=document.getElementById('tip').getBoundingClientRect(),b=document.querySelector(s).getBoundingClientRect(); return t.bottom<=b.top;}""",
+            WORD % (1, "보류"),
+        )
+        self.assertTrue(got, "the line's description no longer stands over its word")
+        under.locator(WORD % (1, "채택")).hover()
+        settle(under)
+        self.assertTrue(
+            under.evaluate(
+                "()=>document.querySelector('#doc .pv[data-page=\"1\"]>.pv-onhint').getBoundingClientRect().height>0"
+            ),
+            "the line's context no longer shows on a hover",
+        )
+        self.assertFalse(under.evaluate("()=>document.getElementById('tip').classList.contains('tip-beside')"))
 
 
 class WideTouch(PanelBase):
@@ -1703,6 +2187,301 @@ class WideTouch(PanelBase):
         cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
         nothing_follows(page)
         self.assertEqual(page.evaluate(TOP), top, "the long press's release brought the page")
+
+
+class FarJump(PanelBase):
+    """A jump to a far page glides past every page between: the panel is filled once, where it lands."""
+
+    # Records every page the panel shows from now on (its data-page, at each change and each frame) and the page it shows
+    # whenever it flashes.
+    WATCH = """() => {const p = document.getElementById('pv-panel'), w = window.__shown = {pages: [p.dataset.page], flash: []};
+      const note = () => {const n = p.dataset.page; if (w.pages[w.pages.length - 1] !== n) w.pages.push(n); if (p.classList.contains('flash') && !w.flash.includes(n)) w.flash.push(n);};
+      new MutationObserver(note).observe(p, {attributes: true, attributeFilter: ['data-page', 'class']});
+      const tick = () => {note(); requestAnimationFrame(tick);}; requestAnimationFrame(tick);}"""
+
+    def landed(self, page, n):
+        page.wait_for_function(RESTING, polling="raf", timeout=10000)
+        settle(page)
+        got = (
+            page.evaluate("pvReadingPage()"),
+            page.evaluate(PANEL)["page"],
+            page.evaluate("()=>document.querySelector('#doc .pv-sum.on').dataset.page"),
+        )
+        self.assertEqual(got, (n, n, str(n)), got)
+        self.assertTrue(page.locator("#section-page-t").inner_text().startswith("%d " % n))
+
+    def test_the_panel_is_filled_once_where_an_outline_or_page_list_jump_lands(self):
+        """From page 1 to page 5 by the page list's jump, and back to page 1 by an outline entry: the panel shows the page it
+        left until the glide lands, then that page - never one passed (2, 3, 4). At rest the panel, the bold summary, the
+        section strip and the keys name the page landed on: a digit saves there."""
+        page = self.on()
+        page.evaluate(self.WATCH)
+        page.evaluate("goPage(5)")
+        self.landed(page, 5)
+        self.assertEqual(page.evaluate("window.__shown.pages"), ["1", "5"])
+        page.evaluate(self.WATCH)
+        page.evaluate("()=>{OUTLINE_ENTRIES=[{page:1,frac:0,title:'F01',level:0}]; pickOutline(0);}")
+        self.landed(page, 1)
+        self.assertEqual(page.evaluate("window.__shown.pages"), ["5", "1"])
+        page.evaluate("searchToPage()")
+        page.keyboard.press("2")
+        page.wait_for_function("OPEN_ALL.length===1")
+        settle(page)
+        self.assertEqual([(p["page"], p["verdict"]) for p in self.pins().values()], [(1, "보류")])
+
+    def test_a_cards_view_flashes_the_panel_when_it_shows_the_cards_page(self):
+        """A verdict card's [보기] for page 5 from page 1: the panel flashes once it shows page 5, not while it still shows
+        page 1."""
+        pid = self.verdict(5, "채택")
+        page = self.on(n_open=1)
+        page.evaluate(self.WATCH)
+        page.locator('#list .pin.card[data-id="%d"] button.b-view' % pid).click()
+        self.landed(page, 5)
+        self.assertEqual(page.evaluate("window.__shown"), {"pages": ["1", "5"], "flash": ["5"]})
+
+    def test_a_list_read_again_during_the_glide_keeps_the_panel_held(self):
+        """The pin list read again while the pages glide past page 3 (drawPageVerdicts): the panel still shows the page it
+        left, and fills once where the jump lands."""
+        page = self.on()
+        page.evaluate(self.WATCH)
+        page.evaluate("goPage(5)")
+        page.wait_for_function("()=>pvAutoScrolling()&&pvReadingAt()>=3", polling="raf")
+        page.evaluate("drawPageVerdicts()")
+        self.assertEqual(page.evaluate(PANEL)["page"], 1)
+        self.landed(page, 5)
+        self.assertEqual(page.evaluate("window.__shown.pages"), ["1", "5"])
+
+    def test_a_hand_on_the_pages_during_the_glide_lets_the_panel_follow_at_once(self):
+        """The wheel during a jump's glide takes the pages over: the panel follows the reading page from the next frame."""
+        page = self.on()
+        page.evaluate("goPage(5)")
+        page.wait_for_function("()=>pvAutoScrolling()&&pvReadingAt()>1", polling="raf")
+        page.evaluate("PV_HAND()")
+        page.wait_for_function(
+            "()=>document.getElementById('pv-panel').dataset.page===String(pvReadingAt())", polling="raf"
+        )
+
+
+class MixedWidths(PanelBase):
+    """A figure document whose pages differ in width (612, 396, 792, 612, 504 pt; the list pages 612): the widest page decides
+    the room, so scrolling never turns the panel on or off, every page stands on one axis beside it, and none lies under it or
+    scrolls sideways."""
+
+    WIDTHS = (1275, 825, 1650, 1275, 1050, 1275, 1275)  # page images at 150 dpi: 612, 396, 792, 612, 504, 612, 612 pt
+
+    def setUp(self):
+        super().setUp()
+        for i, w in enumerate(self.WIDTHS, 1):
+            (self.pages_dir / ("page-%d.png" % i)).write_bytes(blank_png(w, 1650))
+
+    # Scrolled from the top to the end in steps of `step` px, two frames apart, by the hand: at every step the shape, the
+    # in-view pages' centres and right edges, the panel's left edge, the page it shows and whether the area scrolls sideways.
+    SWEEP = """async step => {const L = document.querySelector('#left'), frame = () => new Promise(r => requestAnimationFrame(() => r())), out = [];
+      L.scrollTop = 0; await frame(); await frame();
+      for (;;) {const lr = L.getBoundingClientRect(), p = document.getElementById('pv-panel'), pr = p ? p.getBoundingClientRect() : null;
+        const pages = [...document.querySelectorAll('#doc .pg')].map(g => g.getBoundingClientRect()).filter(r => r.bottom > lr.top && r.top < lr.bottom);
+        out.push({side: PV_SIDE, centres: pages.map(r => Math.round(r.left + r.width / 2)), rights: pages.map(r => r.right), panel: pr ? Math.round(pr.left) : null,
+          shows: p ? +p.dataset.page : 0, read: pvReadingAt(), sideways: L.scrollWidth > L.clientWidth});
+        if (L.scrollTop >= L.scrollHeight - L.clientHeight - 1) break;
+        PV_HAND(); L.scrollTop += step; await frame(); await frame();}
+      return out;}"""
+
+    def test_the_widest_page_decides_and_scrolling_across_widths_near_the_bar_moves_nothing_sideways(self):
+        """With the pin panel closed, the room beside the widest page (1056px at print size) made 361, 340 (between the bars,
+        coming from above) and 329px: through the whole document in 90px steps the panel stays on, every page's centre is
+        one, the panel stands at one place 24px or more right of every page in view and shows the reading page, and nothing
+        scrolls sideways. 320px: the lines are under the pages, for every page. The pin panel opened at 1920 leaves the
+        common page 444px but the widest 204px: the lines are under the pages - the common page's room put the panel on and
+        the widest page's block took the column past the area, every page moving right under the panel."""
+        page = self.on()
+        self.assertEqual(page.evaluate("META.pages.map(p=>Math.round(p.pt_w))"), [612, 396, 792, 612, 504, 612, 612])
+        self.assertGreaterEqual(page.evaluate("innerW()-pageWidth(ptCommon(),K)"), 360)
+        self.assertLess(page.evaluate(ROOM), 328)
+        self.assertFalse(page.evaluate(SHAPE)["beside"])
+        page.evaluate("setSide(false)")
+        settle(page)
+        for room in (361, 340, 329):
+            with self.subTest(room=room):
+                self.resize(page, room)
+                steps = page.evaluate(self.SWEEP, 90)
+                self.assertGreater(len(steps), 40)
+                self.assertEqual({s["side"] for s in steps}, {True})
+                self.assertEqual({s["sideways"] for s in steps}, {False})
+                self.assertLessEqual(max(max(s["centres"]) - min(s["centres"]) for s in steps), 1, "pages off one axis")
+                self.assertLessEqual(len({s["panel"] for s in steps}), 1, "the panel moved sideways")
+                self.assertGreaterEqual(min(s["panel"] - max(s["rights"]) for s in steps), 23, "a page under the panel")
+                self.assertEqual([s for s in steps if s["shows"] != s["read"]], [])
+        self.resize(page, 320)
+        steps = page.evaluate(self.SWEEP, 90)
+        self.assertEqual({s["side"] for s in steps}, {False})
+        self.assertEqual(page.evaluate(SHAPE)["lines"], TAKING)
+
+
+class TallPanel(PanelBase):
+    """A long reason being written in a short window (1920 x 400): the panel is taller than the PDF area shows and scrolls
+    inside (.pv-tall)."""
+
+    # The focused control: what it is, and by how much its focus ring (its outline past its edge) stays inside the panel's
+    # view on each side (negative: cut), or its place outside the panel.
+    RING = """() => {const a = document.activeElement, p = document.getElementById('pv-panel'); if (!a || !p.contains(a)) return {act: a ? (a.dataset.act || a.id || a.tagName) : null, inside: null};
+      const c = getComputedStyle(a), out = (parseFloat(c.outlineWidth) || 0) + Math.max(0, parseFloat(c.outlineOffset) || 0), r = a.getBoundingClientRect(), b = p.getBoundingClientRect();
+      const top = b.top + p.clientTop, left = b.left + p.clientLeft;
+      return {act: a.dataset.act || a.className, ring: out > 0, inside: Math.round(Math.min(r.top - out - top, top + p.clientHeight - r.bottom - out, r.left - out - left, left + p.clientWidth - r.right - out))};}"""
+    # Both scrollers rest: the PDF area and the panel stood still for ten frames.
+    STILL = """() => {const L = document.querySelector('#left'), P = document.getElementById('pv-panel'), w = window.__still || (window.__still = {a: -1, b: -1, n: 0});
+      if (L.scrollTop === w.a && P.scrollTop === w.b) w.n++; else {w.a = L.scrollTop; w.b = P.scrollTop; w.n = 0;} if (w.n < 10) return false; window.__still = null; return true;}"""
+    TOPS = "()=>[document.getElementById('pv-panel').scrollTop, document.querySelector('#left').scrollTop]"
+
+    def writing(self):
+        page = self.on(viewport={"width": 1920, "height": 400})
+        self.to(page, 2)
+        page.locator(WORD % (2, "채택")).click()
+        page.wait_for_function("OPEN_ALL.length===1")
+        settle(page)
+        page.locator(LINE_ACT % (2, "pv-reason-open")).click()
+        settle(page)
+        for i in range(10):
+            page.keyboard.type("긴 이유의 줄 %d 입니다 " % i * 3)
+            page.keyboard.press("Shift+Enter")
+        settle(page)
+        self.assertTrue(page.evaluate("()=>document.getElementById('pv-panel').classList.contains('pv-tall')"))
+        return page
+
+    def still(self, page):
+        page.wait_for_function(self.STILL, polling="raf", timeout=10000)
+        settle(page)
+        return page.evaluate(self.TOPS)
+
+    def test_tab_and_shift_tab_round_the_popover_show_every_control_whole_with_its_ring(self):
+        """Tab twice round the popover and its line (the field, [접기], [닫기], [저장], the chip's [되돌리기], the words, '#1',
+        [판정 취소]) and Shift+Tab back: every control is whole in the panel's view with its focus ring. The popover's loop
+        focused without scrolling, which left the first word and the chip out of view, and the browser's Tab cut the ring
+        at the panel's edge. The page does not move."""
+        page = self.writing()
+        top = page.evaluate(TOP)
+        seen = []
+        for key in ["Tab"] * 18 + ["Shift+Tab"] * 18:
+            page.keyboard.press(key)
+            settle(page)
+            got = page.evaluate(self.RING)
+            seen.append(got["act"])
+            self.assertGreaterEqual(got["inside"], 0, (key, got))
+        self.assertGreaterEqual(len(set(seen)), 8, seen)
+        self.assertIn("pv-save", seen)
+        self.assertIn("notice-act", seen)
+        self.assertEqual(page.evaluate(TOP), top)
+
+    def test_a_press_on_a_control_half_in_view_leaves_the_panel_where_it_is(self):
+        """The panel scrolled to its top, the field half out of view below and the focus on a word: a press on the field's
+        visible part focuses it without scrolling the panel under the pointer (a press is no keyboard focus to reveal)."""
+        page = self.writing()
+        page.locator(WORD % (2, "보류")).focus()
+        page.evaluate("()=>{document.getElementById('pv-panel').scrollTop=0;}")
+        settle(page)
+        box = page.evaluate(
+            """()=>{const p=document.getElementById('pv-panel').getBoundingClientRect(),f=document.querySelector('#pv-panel .pv-reason').getBoundingClientRect();
+              return f.bottom>p.bottom&&f.top<p.bottom-20?[f.left+20,f.top+10]:null;}"""
+        )
+        self.assertIsNotNone(box, "the field is not half in view")
+        page.mouse.click(*box)
+        settle(page)
+        self.assertEqual(page.evaluate(self.TOPS)[0], 0)
+        self.assertEqual(page.evaluate("()=>document.activeElement.classList.contains('pv-reason')"), True)
+
+    def test_with_the_pin_panel_closed_the_panel_keeps_above_the_cards_at_the_areas_foot(self):
+        """The pin panel closed: its tool bar and the status line's hint float as cards at the PDF area's bottom right, under
+        the panel. The tall panel ends above them, and the reason field, focused by Tab, is whole with its focus ring above
+        them too: the hint covered its last line and ring."""
+        page = self.on(viewport={"width": 1920, "height": 400})
+        page.evaluate("setSide(false)")
+        settle(page)
+        self.to(page, 2)
+        page.locator(WORD % (2, "채택")).click()
+        page.wait_for_function("OPEN_ALL.length===1")
+        settle(page)
+        page.locator(LINE_ACT % (2, "pv-reason-open")).click()
+        page.locator(FIELD).fill("\n".join("긴 이유 %d 12345" % i for i in range(50)))
+        settle(page)
+        page.locator(WORD % (2, "보류")).focus()
+        for _ in range(10):
+            page.keyboard.press("Tab")
+            settle(page)
+            if page.evaluate("()=>pvIsReasonField(document.activeElement)"):
+                break
+        got = page.evaluate(
+            """()=>{const p=document.getElementById('pv-panel'),f=document.activeElement,c=getComputedStyle(f),out=parseFloat(c.outlineWidth)+Math.max(0,parseFloat(c.outlineOffset)),
+                pr=p.getBoundingClientRect(),fr=f.getBoundingClientRect(),cards=['bar2','banner','status-wide'].map(i=>document.getElementById(i)).filter(e=>e&&e.getClientRects().length).map(e=>e.getBoundingClientRect())
+                  .filter(r=>r.height&&r.left<pr.right&&r.right>pr.left);
+              return {tall:p.classList.contains('pv-tall'),field:pvIsReasonField(f),cards:cards.length,
+                panel:cards.every(r=>pr.bottom<=r.top),ring:cards.every(r=>fr.bottom+out<=r.top)&&fr.bottom+out<=pr.bottom};}"""
+        )
+        self.assertEqual(got, {"tall": True, "field": True, "cards": got["cards"], "panel": True, "ring": True})
+        self.assertGreater(got["cards"], 0, "no card under the panel to keep clear of")
+
+    def test_the_popover_lets_the_keyboard_out_and_tab_leaves_the_panel(self):
+        """No trap: [접기] by key closes the popover and keeps the draft, and from there Tab reaches the panel's last control
+        and leaves for the pin panel; Shift+Tab comes back into the panel."""
+        page = self.writing()
+        for _ in range(12):
+            if page.evaluate("()=>document.activeElement.dataset.act") == "pv-reason-fold":
+                break
+            page.keyboard.press("Tab")
+            settle(page)
+        page.keyboard.press("Enter")
+        settle(page)
+        self.assertFalse(page.evaluate("()=>!!document.querySelector('#pv-panel>.pv-pop')"))
+        out = None
+        for _ in range(12):
+            page.keyboard.press("Tab")
+            settle(page)
+            got = page.evaluate(FOCUS)
+            if got and not got["panel"]:
+                out = got
+                break
+        self.assertTrue(out and out["id"] == "grip", out)
+        page.keyboard.press("Shift+Tab")
+        settle(page)
+        self.assertTrue(page.evaluate(FOCUS)["panel"])
+
+    def test_the_wheel_and_the_keys_scroll_the_panel_then_the_pages(self):
+        """The wheel over the panel scrolls it to its end before the pages move, and back up; the scroll keys on a control in
+        it do the same (↓ inside, PageDown at its end moves the pages). The reading page and the popover stay."""
+        page = self.writing()
+        page.evaluate("()=>{document.getElementById('pv-panel').scrollTop=0;}")
+        start = self.still(page)
+        box = page.evaluate(
+            "()=>{const r=document.getElementById('pv-panel').getBoundingClientRect(); return [r.left+r.width/2, r.top+40];}"
+        )
+        page.mouse.move(*box)
+        end = page.evaluate("()=>{const p=document.getElementById('pv-panel'); return p.scrollHeight-p.clientHeight;}")
+        self.assertGreater(end, 40)
+        page.mouse.wheel(0, 40)
+        got = self.still(page)
+        self.assertEqual((got[0] > start[0], got[1]), (True, start[1]), got)
+        for _ in range(5):
+            page.mouse.wheel(0, 120)
+        got = self.still(page)
+        self.assertEqual(got[0], end)
+        self.assertGreater(got[1], start[1], "the wheel never reached the pages")
+        page.mouse.wheel(0, -60)
+        self.assertLess(self.still(page)[0], end)
+        page.locator(LINE_ACT % (2, "pv-cancel")).focus()
+        page.evaluate("()=>{document.getElementById('pv-panel').scrollTop=0;}")
+        start = self.still(page)
+        page.keyboard.press("ArrowDown")
+        got = self.still(page)
+        self.assertEqual((got[0] > 0, got[1]), (True, start[1]), got)
+        for _ in range(4):
+            page.keyboard.press("PageDown")
+            got = self.still(page)
+            if got[0] == end:
+                break
+        self.assertEqual(got, [end, start[1]], "PageDown moved the pages before the panel's end")
+        page.keyboard.press("PageDown")
+        got = self.still(page)
+        self.assertGreater(got[1], start[1], "the keys never reached the pages")
+        self.assertEqual(page.evaluate("PV_READ"), 2)
+        self.assertTrue(page.evaluate("()=>!!document.querySelector('#pv-panel>.pv-pop')"))
 
 
 class Fallback(PanelBase):

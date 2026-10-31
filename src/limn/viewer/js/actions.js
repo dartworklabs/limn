@@ -91,10 +91,27 @@ function purgePin(id){const prev=drawnBefore($('#trash-list'),'.arc-row',id); PU
   deferredNote(d,NOTICE_PLACE.TRASH,tl('핀 #{id} 영구 삭제',{id}),{pin:id,prev});}
 // [되살리기] (the Trash, a deleted pin's row, a background message): the pin is back as it was. Silent - its card is there.
 // Resolves with whether it was restored: a message whose action this is stays until then (noticeAct); a failure says itself
-// where it can be seen (bannerNote: the status line while the panel is closed).
-/** @param {number|null} id @returns {Promise<boolean>} */
-async function restorePin(id){let ok=false; try{await api('/api/pins/'+id+'/restore',{method:'POST',what:'되살리기',where:NOTICE_HOST.LIST,retry:()=>{restorePin(id);}});
-  ok=true; markMine(id); quietNote(tl('핀 #{id} 되살림',{id}));}catch(e){} await loadPins(); return ok;}
+// where it can be seen (bannerNote: the status line while the panel is closed). settled runs once the request is answered,
+// before the list reload (trashRestore's bound is the request's).
+/** @param {number|null} id @param {()=>void} [settled] @returns {Promise<boolean>} */
+async function restorePin(id,settled){let ok=false; try{await api('/api/pins/'+id+'/restore',{method:'POST',what:'되살리기',where:NOTICE_HOST.LIST,retry:()=>{restorePin(id);}});
+  ok=true; markMine(id); quietNote(tl('핀 #{id} 되살림',{id}));}catch(e){} if(settled)settled(); await loadPins(); return ok;}
+// [되살리기] on a Trash row: restorePin with the bound an undo's request has (noticeAct, NOTICE_ACT_WAIT). Past it without an
+// answer '되살리기의 답이 늦습니다 · 핀 #N' is said where a failure of it would be (bannerNote: the Trash while it is open, else
+// the list, else the status line - one title there, as noticeLate's), once per pin (its source). Closing the Trash takes it
+// out to where it can be seen, as the Trash's undo rows go to the status line. It goes when the request is answered - not
+// after the list reload, so a failure's banner, which takes its place, is never taken with it - and a focus on it (its [x])
+// goes to the row's [되살리기] (the reload then moves it on, trashRefocus), else into the Trash, else to the pages.
+/** @param {number|null} id */
+async function trashRestore(id){const src=NOTICE_LATE_SRC+'restore:'+id,trash=/** @type {HTMLDialogElement} */($('#trash'));
+  const say=()=>{const t=tr('되살리기의 답이 늦습니다')+' · '+tl('핀 #{id}',{id});
+    const m=bannerNote(NOTICE_HOST.LIST,t,NOTICE_KIND.WARN,null,{literal:true,source:src}); if(m&&m.place===NOTICE_PLACE.LINE){m.title=t; m.desc=''; drawStatus();}};
+  const out=()=>{const n=sourceEntry(src); if(n&&n.place===NOTICE_PLACE.BANNER&&n.host===NOTICE_HOST.TRASH){endNotice(n,true); say();}};
+  const wait=setTimeout(say,NOTICE_ACT_WAIT); trash.addEventListener('close',out);
+  await restorePin(id,()=>{clearTimeout(wait); trash.removeEventListener('close',out);
+    const n=sourceEntry(src),had=!!n&&!!n.el&&n.el.contains(document.activeElement); sourceOk(src); if(!had)return;
+    const L=$('#trash-list'),b=trash.open?/** @type {HTMLElement|null} */(L.querySelector('.arc-row[data-id="'+id+'"] [data-act="restore"]')||L.querySelector('[data-act="restore"]')||trash.querySelector('[data-act="trash-close"]')):null;
+    if(b)b.focus(); else searchToPage();});}
 // [풀기]: the in-progress mark goes. Silent - the badge goes with it.
 async function unclaimPin(id){try{await api('/api/pins/'+id+'/unclaim',{method:'POST',what:'처리 중 풀기',where:NOTICE_HOST.LIST,retry:()=>unclaimPin(id)});
   markMine(id); quietNote(tl('핀 #{id} 처리 중 표시를 풀었습니다',{id}));}catch(e){} await loadPins();}

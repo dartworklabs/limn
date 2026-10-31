@@ -574,7 +574,7 @@ const PV_CANCEL_HOLD=/** @type {Map<string,number>} */(new Map());   // line (pv
 // that does not come must not leave the line deaf: past PV_DROP_WAIT the keys are back and the status line says so; the late
 // answer is still taken (its message, its [되돌리기]), but the focus has moved on by then and stays. The value says whose wait it is.
 const PV_DROP_OUT=/** @type {Map<string,number>} */(new Map());
-let PV_DROP_WAIT=8000;
+let PV_DROP_WAIT=NOTICE_ACT_WAIT;   // the bound a status-line action's request has (notices.js noticeAct)
 // A verdict a [되돌리기] brought back (a take-back's, the save chip's): when it is its line's current verdict again its kept reason
 // draft opens (pvReasonRevive); when a newer verdict came meanwhile - someone else's - it is restored but superseded, the
 // status line says so ('판정 #21 채택 되살림 · 지금 판정은 Bob의 #34 보류 — <대상>') and no popover opens over that line - its
@@ -701,7 +701,10 @@ ${pvTipAttr(!!chip,eName+' — '+tr('이 쪽의 더 새 판정으로 대체되�
     :html`<span class="pv-fig" translate="no"${rd?'':html` hidden`}><span class="pv-fig-id">${nm.id}</span>${nm.rest?html`<span class="pv-fig-t">${' · '+nm.rest}</span>`:''}</span><span class="pv-sep pv-fig-sep" aria-hidden="true"${rd?'':html` hidden`}>·</span>`;
   const keys=PV_KEYS===page,target=tl('{page}쪽',{page}),held=PV_TOGGLE_HOLD.get(slot),hold=held&&held.until>Date.now()?held.key:null;
   const pr=(/** @type {string} */key)=>key!==want?PV_PRESS.NONE:nx||sv!==undefined?PV_PRESS.SAVING:cur?pvPressOf(cur):PV_PRESS.NONE;
-  const btns=canVerdict()?html`<span class="vd-btns">${v.choices.map((c,i)=>vdButton(c,VD_WHERE.PAGE,page,target,loading||c.key===hold,keys?i+1:0,!!chip,pr(c.key)))}</span>`:'';
+  // In the panel the pressed word's description is its context under the panel (pvOnHint): a hover box over it as well
+  // covered the page's name above the words and said the same again. Only a long press shows it (vdButton quiet).
+  const said=(/** @type {string} */key)=>!!panel&&pr(key)!==PV_PRESS.NONE&&pr(key)!==PV_PRESS.SAVING;
+  const btns=canVerdict()?html`<span class="vd-btns">${v.choices.map((c,i)=>vdButton(c,VD_WHERE.PAGE,page,target,loading||c.key===hold,keys?i+1:0,!!chip||said(c.key),pr(c.key)))}</span>`:'';
   // The line's last failed save, said where it was pressed (PV_ERR) - for the document and build on screen only.
   const e=PV_ERR.get(page),eo=!!e&&e.doc===DOC&&!!META&&e.build===(META.pages_build||'');
   const err=html`<span class="pv-err"${eo?'':html` hidden`}>${eo&&e?e.text:''}</span>`;   // always there, so the reason field after it keeps its place
@@ -808,11 +811,13 @@ const PV_KEY_SAVED=/** @type {Set<number>} */(new Set());
 // While the page is pinch-zoomed the PDF area does not anchor its scroll for the pass (pvHoldView): the pass grows every
 // line above the reading page and shrinks it back (#doc.pv-measure), and Chromium carried the anchoring of that shrink -
 // the area is the page's root scroller there - into the zoomed view, which went from where it was to the page's top
-// (422 -> 0 at 2x) at every drawing of the lines: a save, a take-back (#320).
+// (422 -> 0 at 2x) at every drawing of the lines: a save, a take-back (#320). The pass moves nothing below a line it measures
+// either (pvKeepBlocks): WebKit anchored the growth on the next page's block and not the shrink, so a key save on a phone
+// moved the pages 39px.
 /** @param {HTMLElement[]} lines */
 function pvFit(lines){const panel=lines.find(l=>l.id==='pv-panel');
   if(panel){pvPanelFit(panel); lines=lines.filter(l=>l!==panel); if(!lines.length)return;}   // the panel: rows down it, never one row (verdict-panel.js)
-  const held=lines.map(pvRowsHeld),D=$('#doc'),hold=pvHoldView(true); try{
+  const held=lines.map(pvRowsHeld),D=$('#doc'),hold=pvHoldView(true),kept=pvKeepBlocks(lines); try{
   pvFarHold(lines);   // a line skipped far from the view is laid out to be measured, and keeps its height after (pvFarLetGo)
   if(PV_KEY_SAVE)PV_KEY_SAVED.add(PV_KEY_SAVE);
   lines.forEach((l,i)=>{l.classList.toggle('pv-kw',PV_KEY_SAVED.has(Number(l.dataset.pin)));
@@ -865,7 +870,7 @@ function pvFit(lines){const panel=lines.find(l=>l.id==='pv-panel');
   // Where that is more than the state takes now (.pv-t-kept), its rows stand at the top and the room is kept under them: centred
   // in it, a resting line's state stood 40-65px off its identifier's row (#308 review).
   const th=lines.map((l,i)=>{const t=over[i]?l.querySelector(':scope>.pv-t'):null; return t?t.getBoundingClientRect().height:0;});
-  D.classList.remove('pv-measure');
+  D.classList.remove('pv-measure'); pvLetBlocks(kept);   // the lines' fitted heights: what moves now is real, and anchors as ever
   const nat=lines.map((l,i)=>th[i]?/** @type {HTMLElement} */(l.querySelector(':scope>.pv-t')).getBoundingClientRect().height:0);
   lines.forEach((l,i)=>{if(held[i])return; const k=th[i]>nat[i]+0.5; l.classList.toggle('pv-t-kept',k); if(k)l.style.setProperty('--pv-t-h',th[i]+'px');});
   pvChipPlace(lines);
@@ -875,12 +880,39 @@ function pvFit(lines){const panel=lines.find(l=>l.id==='pv-panel');
   pvFocusStays(lines);}
   // Also when a step throws: never left measuring, every line keeps the height it is drawn at and may be skipped again
   // (pvFarLetGo, read once the measure is gone), and the view anchors again only after that - whatever pvFarLetGo does.
-  finally{D.classList.remove('pv-measure'); try{pvFarLetGo(lines);}finally{pvHoldView(false,hold);}}}
+  finally{D.classList.remove('pv-measure'); pvLetBlocks(kept); try{pvFarLetGo(lines);}finally{pvHoldView(false,hold);}}}
+// Keeps the block of each line pvFit is about to measure at the height it is drawn at, until pvLetBlocks: the pass takes a line's
+// rows off and measures it as the reading line (#doc.pv-measure), and the line may grow inside its block, but the block, and the
+// pages after it, stand still. So the area's scroll anchoring - WebKit's too, which carried the growth and not the shrink - has
+// nothing to follow, while a line whose fitted height does change moves the pages after the pass as it always did. A block's
+// height set, its last line's bottom margin no longer collapses through it: the block carries the space to the next block
+// itself. The last block, with nothing after it, is left alone. Read before any is written; what each had inline is put back.
+/** @param {HTMLElement[]} lines @returns {[HTMLElement,string,string][]} */
+function pvKeepBlocks(lines){/** @type {Set<HTMLElement>} */ const set=new Set();
+  lines.forEach(l=>{const b=l.parentElement; if(b&&b.classList.contains('pgw')&&b.nextElementSibling)set.add(b);});
+  const bs=[...set],at=bs.map(b=>{const r=b.getBoundingClientRect(),n=/** @type {Element} */(b.nextElementSibling); return [r.height,n.getBoundingClientRect().top-r.bottom];});
+  /** @type {[HTMLElement,string,string][]} */ const kept=[];
+  bs.forEach((b,i)=>{const [h,g]=at[i]; if(!h)return; kept.push([b,b.style.height,b.style.marginBottom]); b.style.height=h+'px'; b.style.marginBottom=g+'px';});
+  return kept;}
+// Lets the blocks pvKeepBlocks held go to their lines' fitted heights, keeping the view by hand: the page under the reading line
+// stands where it stood. A block's height on the anchor's path - the reading page's own block is held too - suppresses the PDF
+// area's scroll anchoring, so every line above that changed its height moved the view with nothing to follow: after a save, a
+// window narrowed under the panel's bar and widened again within a moment read page 70 instead of 75. The area's own anchoring
+// is off for the step, so it adds no correction of its own, and is put back as it was (a pinch-zoom hold's included). A touch
+// screen at its very top stays there, as restoreAnchor keeps it: the space above page 1 is not scrolled away.
+/** @param {[HTMLElement,string,string][]} kept */
+function pvLetBlocks(kept){if(!kept.length)return; const L=$('#left'),a=L.getClientRects().length?topAnchor(readingDepth(L)):null;
+  const pg=a?document.getElementById('p'+a.page):null,y=pg?pg.getBoundingClientRect().top:0,was=L.style.getPropertyValue('overflow-anchor');
+  if(pg)L.style.setProperty('overflow-anchor','none');
+  kept.forEach(([b,h,m])=>{b.style.height=h; b.style.marginBottom=m;}); kept.length=0;
+  if(!pg||!a)return; const d=pg.getBoundingClientRect().top-y; if(Math.abs(d)>0.5&&!a.atTop)L.scrollTop+=d;   // a touch screen's top stays the top (restoreAnchor)
+  void L.offsetHeight; if(was)L.style.setProperty('overflow-anchor',was); else L.style.removeProperty('overflow-anchor');}
 // Holds a pinch-zoomed view where it is across pvFit's pass (on) and lets go after it (off, given what on returned): the PDF
 // area does not anchor its scroll (overflow-anchor), and its layout is brought up to date before it anchors again, so the
 // anchor it then takes is where the pass left the pages - never a measure's grown lines. On returns the area's own value it
 // replaced, which off puts back (a pass inside a pass leaves the outer one's hold), or null where it held nothing. At no zoom
-// it does nothing: the view cannot move there, and the area's anchoring stays as it is (no scroll of its own, ever).
+// it does nothing: the pass moves no block there (pvKeepBlocks), and the area's anchoring stays as it is (no scroll of its own,
+// ever).
 /** @param {boolean} on @param {string|null} [was] @returns {string|null} */
 function pvHoldView(on,was){const L=$('#left'),vv=window.visualViewport;
   if(!on){if(typeof was!=='string')return null; void L.offsetHeight; if(was)L.style.setProperty('overflow-anchor',was); else L.style.removeProperty('overflow-anchor'); return null;}
@@ -1040,7 +1072,7 @@ function drawPageVerdicts(){const v=pageVerdictsOn(),f=/** @type {HTMLElement|nu
   // its words went) closes here, its text saved - pvReasonSync, after this, is never reached for it.
   if(!v||!META){if(PV_REASON)pvReasonLeave(); $$('#doc .pv,#doc .pv-sum').forEach(e=>e.remove()); pvPanelGone(); if(PV_SIDE)pvSideApply(false); pvTypingSync(); return;}
   const turn=pvSideTurn();   // beside the pages or under them (verdict-panel.js): the reading page holds until the spot is back
-  try{pvReasonSync(); const map=pageVerdictPins(); PV_READ=pvReadingPage(); PV_KEYS=pvKeysPage(PV_READ);
+  try{pvReasonSync(); const map=pageVerdictPins(); PV_READ=pvHeldReadingPage(); PV_KEYS=pvKeysPage(PV_READ);
     // Beside the pages: one panel for the reading page, and every page's verdicts are its - none draws a page-size mark.
     if(PV_SIDE){$$('#doc .pgw>.pv').forEach(e=>e.remove()); map.forEach(list=>list.forEach(p=>PV_SHOWN.add(p.id))); pvPanelFill(map,v);}
     else{pvPanelGone();
@@ -1069,7 +1101,7 @@ function jumpPv(id){if(!PV_SHOWN.has(id))return false; const p=PINS.find(x=>x.id
   const t=p&&pageTargetOf(p,META?META.kind:undefined); if(!t)return false;
   if(LAYOUT===LAYOUT_MODE.NARROW)setSide(false);
   const flash=el=>{el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); clearTimeout(el._flT); el._flT=setTimeout(()=>el.classList.remove('flash'),1200);};
-  if(PV_SIDE){if(!document.getElementById('p'+t.page))return false; pvBring(t.page,true); flash(pvPanel()); return true;}   // the panel follows the page to the reading place
+  if(PV_SIDE){if(!document.getElementById('p'+t.page))return false; pvBring(t.page,true); pvFlashOn(t.page); return true;}   // the panel flashes where the page lands (verdict-panel.js)
   const line=/** @type {HTMLElement|null} */(document.querySelector('#doc .pv[data-page="'+t.page+'"]')); if(!line)return false;
   const block=/** @type {HTMLElement} */(line.parentElement),L=$('#left');
   pvGlideInto(block,block.getBoundingClientRect().height<=L.clientHeight?'center':'start'); flash(line); return true;}
@@ -1151,7 +1183,7 @@ function pvStick(){if(pageVerdictsOn()&&pvSideCheck())return;   // the room cros
   const vv=window.visualViewport,kb=vv&&MQ_COARSE.matches?Math.max(0,Math.round(lr.top+L.clientHeight-(vv.offsetTop+vv.height))):0;
   if(L.style.getPropertyValue('--pv-kb-over')!==kb+'px')L.style.setProperty('--pv-kb-over',kb+'px');
   if(pvInsetR()!==PV_INSET_R)sizePv();   // a panel came over the area, went, or changed its width
-  const at=pvReadingAt(),r=at&&pageTakesVerdict(at)?at:0,k=pvKeysPage(r);
+  const at=pvPanelHeld()||pvReadingAt(),r=at&&pageTakesVerdict(at)?at:0,k=pvKeysPage(r);   // a jump's glide: the panel's page held (verdict-panel.js)
   if(PV_REASON&&PV_REASON.page===r)PV_REASON.seen=true;
   else if(PV_REASON&&PV_REASON.seen)pvReasonLeave();   // the reading page left the field's page: moving on
   // A key's armed confirm word belongs to the page it was read on: another reading page lets it go.
@@ -1293,7 +1325,20 @@ addEventListener('keydown',verdictKey);
 // is one it passes, not the one asked for: a verdict key or Enter then would act on a page scrolled past (an outline jump
 // to page 64 saved 보류 on page 12). A scroll the person makes goes on acting at once; an instant jump ends at once.
 let PV_SCROLL_AT=0,PV_SCROLL_HAND=0,PV_GLIDE=false,PV_JUMP=/** @type {number|null} */(null);   // PV_JUMP: the scrollTop a jump is going to
-const PV_HAND=()=>{PV_SCROLL_HAND=performance.now(); PV_GLIDE=false; PV_JUMP=null;};   // the person takes the pages over
+const PV_HAND=()=>{PV_SCROLL_HAND=performance.now(); PV_GLIDE=false; pvJumpSet(null);};   // the person takes the pages over
+// Sets where a jump is going (PV_JUMP, null when none), and while it goes holds the PDF area's scroll anchoring off (#left.pv-glide,
+// frame.css). WebKit ends a smooth scroll at any anchoring adjustment of its scroller, and on the way the lines are drawn again
+// as each page passes under the reading line: on a phone a jump from page 1 to page 105 of a figure document rested at page 89,
+// to page 105 of a generated one at page 4 (#343). The glide's place is reckoned at its start and nothing above it changes size on
+// the way (the lines keep their heights, a far one its drawn one), so there is nothing for anchoring to keep in the meantime.
+// A jump that does not end at its place - the browser stopped it short, a document switch or a rebuild took the pages over, a
+// late scroll end of an earlier scroll came instead of its own - is let go once the pages have been still for a second, as the
+// guard lets it go (pvAutoScrolling): the hold is never left on, which would take anchoring from a line changing height
+// above the view. Checked past settle()'s timer window (IDLE_TIMER_MS) so that a test waiting for quiet does not wait it out.
+let PV_JUMP_TIMER=0;
+/** @param {number|null} v */
+function pvJumpSet(v){PV_JUMP=v; $('#left').classList.toggle('pv-glide',v!==null); clearTimeout(PV_JUMP_TIMER); if(v!==null)PV_JUMP_TIMER=setTimeout(pvJumpLapse,1100);}
+function pvJumpLapse(){if(PV_JUMP===null)return; if(performance.now()-PV_SCROLL_AT>=1000)pvJumpSet(null); else PV_JUMP_TIMER=setTimeout(pvJumpLapse,1100);}
 for(const t of ['wheel','touchstart','touchmove','pointerdown'])$('#left').addEventListener(t,PV_HAND,{passive:true,capture:true});
 $('#left').addEventListener('pointermove',e=>{if(e.buttons)PV_HAND();},{passive:true,capture:true});   // a scroll bar dragged
 // A scrolling key is the person's hand on the pages only where it scrolls them: on the PDF area, on a control in it (a
@@ -1306,10 +1351,10 @@ addEventListener('keydown',e=>{if(!SCROLL_KEYS.has(e.key))return; const t=e.targ
   if(e.key===' '&&t instanceof Element&&t.closest('button,[role=button],summary'))return;
   PV_HAND();},true);
 const PV_SCROLLEND='onscrollend' in window;
-$('#left').addEventListener('scroll',()=>{const t=performance.now(); if(PV_JUMP!==null&&t-PV_SCROLL_AT>1000)PV_JUMP=null;   // a jump that never got there
+$('#left').addEventListener('scroll',()=>{const t=performance.now(); if(PV_JUMP!==null&&t-PV_SCROLL_AT>1000)pvJumpSet(null);   // a jump that never got there
   if(PV_JUMP===null&&t-PV_SCROLL_AT>200)PV_GLIDE=t-PV_SCROLL_HAND>500; PV_SCROLL_AT=t;},{passive:true});   // a new run of scrolling decides, unless a jump said what it is
 // The end of a jump is at its place: a manual scroll's own end, coming after the jump began, ended the guard in its first frames.
-$('#left').addEventListener('scrollend',()=>{if(PV_JUMP!==null&&Math.abs($('#left').scrollTop-PV_JUMP)>2)return; PV_JUMP=null; PV_GLIDE=false;});
+$('#left').addEventListener('scrollend',()=>{if(PV_JUMP!==null&&Math.abs($('#left').scrollTop-PV_JUMP)>2)return; pvJumpSet(null); PV_GLIDE=false;});
 function pvAutoScrolling(){return PV_GLIDE&&performance.now()-PV_SCROLL_AT<(PV_SCROLLEND?1000:160);}
 // Every smooth jump of the PDF area starts here (a page, an outline entry's place, a card's [보기]): it is a glide from now, not
 // from its first scroll event a frame later, in which a digit acted on the page being left, and whatever the hand did just
@@ -1317,7 +1362,7 @@ function pvAutoScrolling(){return PV_GLIDE&&performance.now()-PV_SCROLL_AT<(PV_S
 // already there): no guard, no scroll event would end it.
 /** @param {number} to - the scrollTop it goes to */
 function pvGlideArm(to){const L=$('#left'),top=Math.max(0,Math.min(L.scrollHeight-L.clientHeight,to));
-  if(SMOOTH==='smooth'&&Math.abs(top-L.scrollTop)>1){PV_JUMP=top; PV_GLIDE=true; PV_SCROLL_AT=performance.now();}}
+  if(SMOOTH==='smooth'&&Math.abs(top-L.scrollTop)>1){pvJumpSet(top); PV_GLIDE=true; PV_SCROLL_AT=performance.now();}}
 /** @param {number} top */
 function pvGlideTo(top){pvGlideArm(top); $('#left').scrollTo({top,behavior:SMOOTH});}
 /** @param {Element} el @param {'start'|'center'} [block] */

@@ -1,5 +1,92 @@
 # Changelog
 
+## 0.4.38 — 2026-10-31
+
+### Fixed
+
+- **An undo whose request does not answer says so (#334).** A message's [되돌리기] or [되살리기] that sends a request -
+  the status line's undo of a key-saved verdict (its drop) or of a taken-back one (its restore), and every other such
+  undo: a save's or an append's chip, a done or deleted card's row, a deleted pin's [되살리기] - kept saying what it had
+  done (`#N 채택 판정 저장됨 … 되돌리기`) for as long as the answer took. Past 8 seconds, the bound a page line's take-back
+  already has, the message now says `되돌리기의 답이 늦습니다` (`Undo: no answer yet`; `되살리기의 답이 늦습니다`, `Restore:
+  no answer yet`) before what it undoes, as one text whose end a narrow line cuts (`되돌리기의 답이 늦습니다 · #12 채택…`),
+  so the target stays readable and the line keeps its width: on the status line the message itself does, as a warning
+  and first on the line - also while the focus on its busy button holds the line - and for an undo elsewhere the status
+  line says it in one message of its own. The late answer, a success or a failure, is taken once and the lateness goes
+  with it. A focus the person has moved meanwhile stays where it is - a save's undo answered late, or its failure's
+  [다시 시도], then brings the composer back without taking the focus into the note - and one left alone goes to the
+  reading page's line as with an answer in time. Nothing was locked, so nothing else changes.
+- **The Trash keeps the keyboard focus and says a late restore (#336).** A row's [되살리기] pressed by key took its row
+  away with the answer and left the focus on nothing (also in 0.4.37), so Tab and Esc started again from the page's top.
+  A redraw of the Trash now puts the focus on the next row's [되살리기], else the one before's, else [닫기] - back on the
+  row's own when the restore failed - unless the person moved it out of the list meanwhile. The row's restore also has
+  the 8-second bound: past it the Trash (or, closed, the list) says `되살리기의 답이 늦습니다 · 핀 #N` until the answer.
+  Tab no longer leaves the open Trash (Tab from [닫기] after the last restore left the focus on nothing), and a row's
+  [되살리기] or [영구 삭제] shows its description beside the row's buttons instead of over the row before it; a description
+  showing when a banner pushes the list down (or the list is drawn again) goes rather than stay over another row.
+- **A key save on a phone no longer moves the pages in WebKit.** Fitting the page lines measures each as the reading line,
+  which grew a line above the reading page for the length of the pass; WebKit's scroll anchoring followed the growth and
+  not the shrink, and the pages moved 39px. The measured lines' page blocks now keep their size during the pass. Letting
+  them go keeps the page under the reading line where it stood: a window narrowed past the panel's bar and widened again
+  right after a save no longer moves the reading page.
+- **The page verdict panel, polished (#335 items 1, 2, 4, and pages of mixed widths).** A page that takes no verdict
+  names itself in one form - its page on the name's row, the map's whole title under it - whether it is a list page or a
+  comparison board. A far jump (the outline, the page list, a card's [보기]) fills the panel once where it lands instead
+  of for every page passed, and a card's [보기] flashes the panel when it shows that page. The pressed word in the panel
+  no longer shows a description box over the page's name - a long press shows it, and its context under the panel stands
+  after a press and on the keyboard's focus, not on a hover - and every other description in the panel stands left of it,
+  over neither the name nor a control, with an edge over the page. The widest page now
+  decides the room beside the pages, so a document whose pages differ in width keeps every page on one axis beside the
+  panel, never under it, and scrolling never turns the panel on or off. A panel tall enough to scroll inside brings the
+  control the keyboard focuses whole into view with its focus ring, and ends above the cards that float at the PDF area's
+  bottom right while the pin panel is closed. When the line moves between the panel and under its page, a control that had
+  the focus on it has the focus on the moved line too, not the PDF area. The agent contract is unchanged.
+- **A reason moved to a newer verdict lands on one verdict even when the earlier verdict's write is still on its way
+  (#327).** A reason write whose answer was lost may still reach the server later. When the draft had moved to a newer
+  verdict, a read of the earlier one found its rev unchanged, the copy was written on the new verdict, and the old request
+  then landed too: the reason was on both. Before the copy is written, the viewer now fences such a write off with the
+  edit contract as it is: the earlier verdict's note written back unchanged against the rev that write was sent against.
+  Accepted, the rev moves on and the old request is refused (409) when it arrives; refused, something landed first and
+  the pin in the answer is judged again (the old write found there leaves the copy). A fence without an answer writes
+  nothing and keeps the draft, with [다시 시도]. The earlier verdict's pin gets an `edited_at` (`수정됨` in `pins.md`) with
+  its note unchanged. A draft moved when a write that was out at the verdict change lost its answer carries that write
+  along, so its copy is fenced the same way. A copy's own write that loses its answer now takes the earlier verdict's
+  failure and its [다시 시도] away: pressed, it wrote the reason there while the copy's request could still land.
+- **Undo keeps where a moved reason came from (#327).** An edit inside the part of a draft moved off an earlier verdict
+  lets the part go; Ctrl+Z (or a paste taken back, an input method's composition given up) brought the text back without
+  it, so the earlier verdict's [다시 시도] landing no longer took it out of the copy, which was written twice. A text the
+  field held before now comes back with the parts it had then, redo included, however much was typed meanwhile; a part
+  brought back after its text landed on the earlier verdict leaves at once, as it would have had it been there. No
+  server or agent contract change.
+- **Going up, the outline shows the section the current row is in (#335).** Reading back, the current row came to rest
+  48px - a row and a half - under the filter, so from a section's second entry on its head (`비교판 · 14`) was out of
+  sight. The list now keeps two whole rows over the row on the way up, and where the row's section fits in the panel
+  with it, its head and the two rows above that: the list moves once as the reading comes up into a section and not
+  again until it reaches the head; near the outline's top it goes to the very top only while the row keeps its margin
+  there, so on the tablet sheet it never lands under the folded sheet's bar. Only where it lands changes: whether it moves is still the 48px margin's, so a row
+  already clear stays put and two neighbouring rows cannot send a low panel back and forth. Going down nothing changes;
+  the pages and the focus never move.
+- **The phone's navigation sheet opens at the current section, and its top stays put (#335).** The sheet kept the current
+  document's row (or the view's) under its head and so stopped at the top of a long outline, the current section
+  thousands of px below. Now the open sheet is a column: the head with the search, the documents, the view and the page
+  field keep their place, and the page list and the outline's rows share the height left, each showing whole rows around
+  its current one in a box exactly as tall - five page rows while the outline has three, then fewer, down to the current
+  page's, then one outline row, then no page list - so no row is cut at a list's edge, under the outline's filter or at the
+  foot, and the sheet itself does not scroll. Its top stands at one height on any page and while a filter shows fewer
+  results or none; emptying the filter brings the current section back, and the keyboard coming or going fits it again. Only where
+  not even one outline row fits (many documents on a tiny screen) does the sheet scroll, by whole parts, with the current
+  document's row (with one document, the view) pinned under the head. The pages do not move and the focus stays where it
+  was.
+- **The tablet sheet's outline overlay brings the current row above the bottom bar (#335).** On an upright tablet or an
+  unfolded foldable (882x1104) the overlay runs to the screen's bottom under the collapsed sheet and the status line on
+  it, and it opened and followed with the current row under them, out of sight and out of reach. The follow now counts
+  what they cover as out of view, and the overlay's foot is padded by their height so the list's last rows come up too.
+  The bars and the overlay stay where they are.
+- **A far jump reaches its page in WebKit (#343).** A jump to a page (the page field, the phone's position sheet, the
+  outline, a card's [보기]) glides there; WebKit ended the glide at the scroll anchoring adjustment that came with the lines
+  drawn again as pages passed under the reading line, so on a phone a jump to page 105 of a 105-page figure document
+  rested at page 89. The PDF area no longer anchors its scroll while a jump glides.
+
 ## 0.4.37 — 2026-10-31
 
 On a wide desktop the page verdict line becomes one panel beside the pages, with a one-row summary under each page, and

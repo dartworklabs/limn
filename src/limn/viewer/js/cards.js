@@ -180,16 +180,47 @@ ${relSpan(p.dropped_at,'arc-t',tl('삭제한 사람 {name} · 삭제한 시각',
 </div><div class="arc-l2">${line}</div><span class="arc-acts">${restore}${purge}</span></div>`;}
 let TRASH_ALL=false;   // the Trash shows every document while open for another document's pin - the list's own filter (SHOW_ALL) is untouched
 // Draws the Trash's rows, newest first (all documents with TRASH_ALL), leaving out a row whose permanent delete waits, whose
-// undo row (notices.js) goes in its place.
+// undo row (notices.js) goes in its place. A focus on a control in the list stays in it (trashRefocus).
 function drawTrash(){const L=TRASH_ALL?DROPPED:listDropped(),box=$('#trash-list'); if(!box)return;
+  const a=/** @type {HTMLElement|null} */(document.activeElement),spot=a&&a!==box&&box.contains(a)?trashSpot(box,a):null;
   $('#trash-note').textContent=tl('삭제한 핀은 {n}일 동안 여기 있다가 저절로 지워집니다. 되살리면 같은 번호로 돌아옵니다',{n:TRASH_DAYS});
   setHtml(box,L.length?html`${L.slice().reverse().filter(p=>!PURGING.has(p.id)).map(droppedCard)}`:html`<div class="dim">${tr('휴지통이 비어 있습니다')}</div>`);
-  drawTrashOffers();}
+  drawTrashOffers();
+  if(a&&spot&&!box.contains(document.activeElement))trashRefocus(box,spot,a);
+  tipFollow();}   // a box over a row drawn anew stands over nothing
+// Where focused element a stands in the Trash's list before a redraw: its row's pin (null in an undo row), its action, and the
+// rows' pins in order with its row's place among them.
+/** @param {HTMLElement} box @param {HTMLElement} a @returns {{id:number|null,act:string,ids:number[],at:number}} */
+function trashSpot(box,a){const row=/** @type {HTMLElement|null} */(a.closest('.arc-row[data-id]')),id=row?Number(row.dataset.id):null;
+  const ids=[...box.querySelectorAll('.arc-row[data-id]')].map(r=>Number(/** @type {HTMLElement} */(r).dataset.id));
+  return {id,act:a.dataset.act||'',ids,at:id==null?-1:ids.indexOf(id)};}
+// A redraw took the focus out of the Trash's list (setHtml; restorePin's list reload after its answer): it comes back - to
+// the element itself when it is drawn again (an undo row is moved, not made anew), to the same control of its row when the
+// row is still there (a [되살리기] that failed), else, the row gone (restored, purged, gone elsewhere), to the undo row in its
+// place, the next row's [되살리기], the one before's, and last the Trash's [닫기] - never to nothing, which left Tab and
+// Esc to start from the page's top. A focus the person moved out of the list meanwhile is not here to come back (drawTrash).
+/** @param {HTMLElement} box @param {{id:number|null,act:string,ids:number[],at:number}} k @param {HTMLElement} a */
+function trashRefocus(box,k,a){
+  const btn=(/** @type {number} */id,/** @type {string} */act)=>{const r=box.querySelector('.arc-row[data-id="'+id+'"]');
+    return /** @type {HTMLElement|null} */(r&&(r.querySelector('[data-act="'+act+'"]')||r.querySelector('[data-act="restore"]')));};
+  let t=a.isConnected?a:null;
+  if(!t&&k.id!=null){const id=k.id; t=btn(id,k.act);
+    if(!t){const u=[...NOTICES.values()].find(n=>n.place===NOTICE_PLACE.TRASH&&n.pin===id&&!!n.el&&box.contains(n.el)); t=u&&u.el?u.el.querySelector('[data-act="notice-act"]'):null;}
+    for(const o of [...k.ids.slice(k.at+1),...k.ids.slice(0,Math.max(0,k.at)).reverse()]){if(t)break; t=btn(o,'restore');}}
+  if(!t)t=/** @type {HTMLElement|null} */($('#trash').querySelector('[data-act="trash-close"]'));
+  if(t)t.focus();}
 function openTrash(flashId){const d=$('#trash');
   if(flashId!=null&&!listDropped().some(p=>p.id===flashId)&&DROPPED.some(p=>p.id===flashId))TRASH_ALL=true;   // another document's pin
   drawTrash(); if(!d.open){hideTip(); showSheet(d);}
   if(flashId!=null)requestAnimationFrame(()=>{const el=/** @type {HTMLElement} */(document.querySelector('#trash .arc-row[data-id="'+flashId+'"]')); if(!el)return;
     el.scrollIntoView({block:'nearest'}); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');});}
 $('#trash').addEventListener('close',()=>{TRASH_ALL=false;});
+// Tab stays in the open Trash, a modal dialog: from its last control it comes back to its first, and Shift+Tab from its first
+// (or from the dialog itself) goes to its last. The browser took it out to its own toolbar instead, and the page's focus fell
+// to <body> while the Trash stayed open - Tab from [닫기] once the last row was restored did.
+$('#trash').addEventListener('keydown',e=>{if(e.key!=='Tab'||e.ctrlKey||e.metaKey||e.altKey||e.defaultPrevented)return; const d=$('#trash');
+  const all=/** @type {HTMLElement[]} */([...d.querySelectorAll(PV_TABBABLE)].filter(pvTabStop)),a=document.activeElement,i=all.indexOf(/** @type {HTMLElement} */(a));
+  const to=!all.length?null:e.shiftKey?(i===0||a===d?all[all.length-1]:null):(i===all.length-1?all[0]:null);
+  if(to){e.preventDefault(); to.focus();}});
 $('#trash').addEventListener('click',e=>{const d=$('#trash'); if(e.target!==d)return; const r=d.getBoundingClientRect();
   if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)d.close();});

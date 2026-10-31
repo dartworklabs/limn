@@ -92,3 +92,32 @@ def outline_pdf(pages: int, tree: list[Node]) -> bytes:
     out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objs) + 1) + b"".join(b"%010d 00000 n \n" % o for o in offsets)
     out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(objs) + 1, xref)
     return bytes(out)
+
+
+# The open navigation sheet against every edge a row can be cut at (docs/handbook/viewer.md §모바일 레이아웃): the head's bottom (the
+# search row is in the head) - or, while the current row of the documents (with one document, the view) is pinned under the head,
+# that row's bottom, rows wholly above it being hidden - and the sheet's bottom, for the documents, the view, the page field and the
+# outline's filter row; and for the rows of
+# the page list and of the outline - each a list that scrolls on its own - that list's top and bottom as well. `cut` names the rows an
+# edge runs through; `current` whether the outline's current row shows whole in its list; `doc` where the current row of the
+# documents (else the view) is: 'whole' and drawn on top, 'under' the head wholly, or 'cut'; the sheet's and the outline list's
+# scrollTop; the focus.
+SHEET_ROWS = """() => {const d = document.querySelector('#nav-sheet'), R = e => e.getBoundingClientRect(), vis = e => !!e && e.getClientRects().length > 0;
+  const head = R(d.querySelector('.ns-head')).bottom, D = R(d), list = d.querySelector('#ns-outline-items'), L = R(list), pages = d.querySelector('#ns-pages'), P = R(pages);
+  const keep = vis(d.querySelector('#ns-docs')) ? d.querySelector('#ns-docs .dm-item.on') : d.querySelector('#ns-view'), K = R(keep);
+  // what covers the sheet's top: the head, and the pinned row under it while it is pinned - a row wholly under that is hidden, not cut
+  const pinned = Math.abs(K.top - head) <= 0.5 && K.height > 0, top = pinned ? K.bottom : head, edges = [top, D.bottom];
+  const cut = [], check = (e, name, more) => {const r = R(e);
+    if (e === keep || r.height === 0 || r.bottom <= top + 0.5) return;
+    for (const y of edges.concat(more || [])) if (r.top < y - 0.5 && r.bottom > y + 0.5) cut.push(name + '@' + Math.round(y));};
+  d.querySelectorAll('#ns-docs .dm-item').forEach((e, i) => vis(e) && check(e, 'doc' + i));
+  for (const s of ['#ns-view', '#ns-page', '#ns-outline .ns-oh']) {const e = d.querySelector(s); if (vis(e)) check(e, s);}
+  const inside = (e, B) => {const r = R(e); return vis(e) && r.bottom > B.top && r.top < B.bottom;};
+  [...pages.children].forEach((e, i) => inside(e, P) && check(e, 'page' + i, [P.top, P.bottom]));
+  [...list.querySelectorAll(':scope>button')].forEach(e => inside(e, L) && check(e, 'row' + e.dataset.index, [L.top, L.bottom]));
+  const c = list.querySelector('.ol-active'), C = c ? R(c) : null, at = document.elementFromPoint(K.left + 8, (K.top + K.bottom) / 2);
+  const doc = K.bottom <= head + 0.5 ? 'under' : K.top >= head - 0.5 && K.bottom <= D.bottom + 0.5 && !!at && keep.contains(at) ? 'whole' : 'cut';
+  const a = document.activeElement;
+  return {cut, index: c ? +c.dataset.index : null, doc, sheet: d.scrollTop, list: list.scrollTop, focus: a.id || a.tagName,
+    current: !!C && C.top >= Math.max(head, L.top) - 0.5 && C.bottom <= Math.min(D.bottom, L.bottom) + 0.5,
+    middle: C ? Math.abs((C.top + C.bottom) / 2 - (L.top + L.bottom) / 2) : null, rowH: C ? C.height : null};}"""

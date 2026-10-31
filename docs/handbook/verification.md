@@ -57,7 +57,7 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 | 적용 조건 | 파이썬 코드, 뷰어 파일, 에이전트 계약, 테스트를 바꿀 때. PR 전과 CI에서 항상 돈다 |
 | 실행 | `uv run pytest -q -rs` (기본 4개 worker). 빠른 일반 검사: `uv run pytest -q -rs -m "not browser and not tex"`. 병렬 옵션의 정본은 `pyproject.toml`의 `addopts` |
 | 합격 기준 | 실패나 에러가 0건이어야 한다. 수집된 테스트가 0건인 실행(pytest 종료 코드 5)은 통과가 아니라 실패다. 건너뛴 테스트(`s`)가 있으면 그 이유가 합당해야 한다(예: TeX Live가 없는 로컬 환경에서 TeX 테스트 스킵). CI는 도구 부재를 건너뜀이 아니라 실패로 바꾼다. 브라우저·TeX 작업은 `LIMN_TEST_REQUIRE_BROWSER=1`·`LIMN_TEST_REQUIRE_TEX=1`, 모든 테스트 작업은 `LIMN_TEST_REQUIRE_NODE=1`을 둔다 |
-| 보장 범위 | 단위와 통합 수준의 동작 회귀를 막는다. 브라우저 표식의 테스트는 지정된 Chromium 동작·레이아웃과 Firefox·WebKit의 핵심 핀 생성·편집·덧붙임·되돌리기 흐름, 세 엔진의 검색 안내 안쪽 간격(§검색 안내의 안쪽 간격)을 확인한다. 실제 iOS 기기, 모든 엔진의 전체 화면과 실제 tailnet 환경은 보장하지 않는다(§5, §6) |
+| 보장 범위 | 단위와 통합 수준의 동작 회귀를 막는다. 브라우저 표식의 테스트는 지정된 Chromium 동작·레이아웃과 Firefox·WebKit의 핵심 핀 생성·편집·덧붙임·되돌리기 흐름, 판정 패널과 목차 따라가기의 핵심 흐름(§판정 패널과 목차의 엔진 검사), 세 엔진의 검색 안내 안쪽 간격(§검색 안내의 안쪽 간격)을 확인한다. 실제 iOS 기기, 모든 엔진의 전체 화면과 실제 tailnet 환경은 보장하지 않는다(§5, §6) |
 
 ### 선택형 연결 입장과 실패 종료
 
@@ -71,7 +71,7 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 
 ### 브라우저 테스트의 기다림
 
-브라우저가 닿는 테스트(`src/limn/viewer/tests/test_viewer_browser.py`, `src/limn/viewer/tests/test_viewer.py`의 `Frontend*` 가드)는 **임의의 시간(`sleep`, `wait_for_timeout`)을 기다리지 않는다.** 이벤트·DOM 상태·통신 완료를 가리키는 술어(`expect(...)`, `wait_for_selector`, `wait_for_function`)를 기다린다. 공용 대기 `settle()`(`tests/support/helpers_browser.py`)은 짧은 타이머·`fetch`·CSS 애니메이션과 함께 웹 글꼴 로딩(`document.fonts.status`)이 끝나기를 기다린다. 담은 글꼴의 조각은 그 글자가 처음 화면에 나올 때 받아서, 그 전에 잰 글은 폴백 글꼴의 값이기 때문이다([viewer.md](viewer.md) §글꼴). 시간으로 기다리면 빠른 머신에서는 시간을 낭비하고 느린 CI에서는 무작위로 깨진다.
+브라우저가 닿는 테스트(`src/limn/viewer/tests/test_viewer_browser.py`, `src/limn/viewer/tests/test_viewer.py`의 `Frontend*` 가드)는 **임의의 시간(`sleep`, `wait_for_timeout`)을 기다리지 않는다.** 이벤트·DOM 상태·통신 완료를 가리키는 술어(`expect(...)`, `wait_for_selector`, `wait_for_function`)를 기다린다. 공용 대기 `settle()`(`tests/support/helpers_browser.py`)은 짧은 타이머·`fetch`·CSS 애니메이션과 함께 웹 글꼴 로딩(`document.fonts.status`)이 끝나기를 기다린다. 담은 글꼴의 조각은 그 글자가 처음 화면에 나올 때 받아서, 그 전에 잰 글은 폴백 글꼴의 값이기 때문이다([viewer.md](viewer.md) §글꼴). 시간으로 기다리면 빠른 머신에서는 시간을 낭비하고 느린 CI에서는 무작위로 깨진다. 브라우저가 건너뛰는 요소(화면에서 먼 `content-visibility: auto` 안, 예를 들어 먼 쪽 판정 줄)의 애니메이션은 기다리지 않는다. Firefox는 그 요소를 다시 그릴 때까지 애니메이션을 첫 프레임에 멈춘 채 실행 중으로 두어, 기다리면 끝나지 않는다.
 
 뷰어 화면의 시간 의존 동작(폴링 간격, 알림 배지 깜빡임, 날짜 포맷)을 테스트할 때는 브라우저의 시계를 얼린다(`clock.set_fixed_time()`).
 
@@ -93,6 +93,12 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 
 `SearchBarGeometry`의 기존 안내 검사는 이 관찰값에 8px와 `0.01px` 허용 오차를 적용한다. `SearchHintInsetChromium`·`SearchHintInsetFirefox`·`SearchHintInsetWebKit`은 같은 관찰과 판정으로 DPR 1·1.25·1.5·2를 확인한다. 이 12개 조건은 기본 pytest의 `browser` 표식으로 수집되며, Linux CI의 브라우저 작업이 세 엔진을 설치해 실행하는 게이트다. native 단축키, 담은 글꼴, 밝은 테마에서의 안쪽 간격만 보장한다. 더 넓은 글꼴·테마·플랫폼 조합의 외부 실측은 정보 검사이며, 실제 Safari 앱과 실기기 증거를 대신하지 않는다.
 
+
+### 판정 패널과 목차의 엔진 검사
+
+[`test_viewer_cross_browser_panel.py`](../../src/limn/viewer/tests/test_viewer_cross_browser_panel.py)는 판정 패널([viewer.md](viewer.md) §판정 패널)과 목차 따라가기 가운데 엔진마다 다를 수 있는 흐름을 번들 Firefox와 WebKit에서 한 번씩 돌린다. 패널이 문턱에서 켜지고 꺼지며 그 사이에 쪽 아래 줄이 키를 받는지, 스크롤하는 동안 패널·구획 띠·굵은 요약이 같은 쪽을 말하고 패널이 PDF 영역 위 여백에 붙어 쪽 오른쪽 24px에 서는지(`position: sticky`), 먼 요약이 건너뛰어졌다 다시 그려지는지, 키 판정·Enter 이유·Esc 두 번·같은 숫자로 거두기와 [되돌리기], Tab·Shift+Tab과 초점 고리, 패널 위 휠과 컨트롤의 PageDown, 목차가 쪽과 초점을 움직이지 않고 따라가며 마우스·휠·폭 손잡이 끌기 동안 멈추는지를 본다. Chromium의 같은 흐름은 `test_viewer_verdict_panel.py`와 `test_viewer_outline_cap.py`의 `OutlineFollow`가 맡으므로 이 파일은 Chromium을 다시 돌리지 않는다. 기존 Chromium 검사를 다른 엔진으로 옮길 때 고친 가정(마우스의 `pointerId`, 휠과 목차의 부드러운 스크롤, WebKit의 더 짧은 PageDown 보폭, 초점을 받은 입력 칸을 다음 렌더링에 드러내는 WebKit, 늦게 오는 Firefox의 교차 보고)은 이 파일의 시험이 상태를 기다려 흡수한다.
+
+Firefox는 초점도 선택도 없으면 키보드 스크롤을 창에 보낸다. 그래서 선택할 수 없는 글(패널의 이름, 쪽 아래 줄, 쪽)을 누른 뒤의 PageDown은 PDF 영역을 움직이지 않으며, 이 시험 하나는 Firefox에서 이유를 밝히고 건너뛴다([viewer.md](viewer.md) §알려진 제약). 넓은 터치 화면의 패널(`WideTouch`)은 다른 엔진에서 돌리지 않는다. 길게 누르기가 CDP 터치를 쓰고, Firefox에서는 44px 탐침이 상자 끝의 판정 차이로 1px 작게 잰다. 이 검사는 실제 Safari 앱, iOS 기기, 실제 터치를 대신하지 않는다.
 ### 불안정한 테스트
 
 같은 코드에서 통과와 실패를 오가는 테스트는 원인을 찾아 고친다. 원인은 공유 상태, 시간, 실행 순서, 동시성, 자원 수명, 환경, 실제와 다른 대역 가운데 하나다. 시계를 주입하고, 상태를 격리하고, 실제 조건을 기다리는 식으로 그 원인을 없앤다. 재시도, 더 긴 타임아웃, `sleep`, 격리 실행은 영향을 줄일 뿐 고치지 않는다. 녹색이 나올 때까지 다시 돌리지 않는다. 바로 고칠 수 없으면 추적 이슈를 남기고 그 이유와 함께 게이트에서 뺀다. 재실행 플러그인을 두지 않는 것도 같은 이유다.

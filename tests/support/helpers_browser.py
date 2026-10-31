@@ -69,12 +69,15 @@ IDLE_WATCH = (
 # settle()'s check, run on every animation frame: nothing pending (IDLE_WATCH), no web font loading (the bundled
 # Pretendard's slices load as their characters first show, and the text swaps from a fallback when they arrive -
 # docs/handbook/viewer.md §글꼴) and no finite CSS animation or transition running (an infinite one - a spinner - never
-# ends), on two frames in a row, so that a requestAnimationFrame callback queued behind the first check has run too.
+# ends), on two frames in a row, so that a requestAnimationFrame callback queued behind the first check has run too. An
+# animation on an element the browser skips (inside content-visibility: auto far from the view, as a far page line) is
+# not waited for: Firefox keeps it running at its first frame until the element is drawn again.
 QUIET = """() => {
   const idle = window.__limnIdle;
   if (!idle) throw new Error('settle(): this page has no idle watch - add it to the context with watch_idle()');
+  const drawn = t => !t || !t.checkVisibility || t.checkVisibility({contentVisibilityAuto: true});
   const moving = document.getAnimations().some(a => a.playState === 'running' && a.effect
-    && a.effect.getComputedTiming().iterations !== Infinity);
+    && a.effect.getComputedTiming().iterations !== Infinity && drawn(a.effect.target));
   const fonts = document.fonts.status === 'loaded';
   idle.quiet = idle.timers.size === 0 && idle.fetches === 0 && fonts && !moving ? idle.quiet + 1 : 0;
   return idle.quiet >= 2;

@@ -552,6 +552,10 @@ body.docs-multi:is(.lay-mid,.band-tablet-sheet) #view-switch{padding-left:var(--
 body:is(.lay-mid,.band-tablet-sheet) #doc-nav button{white-space:nowrap}
 /* At mid width, the outline overlays on top of the document (#main already starts below the nav bar). On a narrow tablet, pins overlay too, preserving the body's width. */
 body:is(.lay-mid,.band-tablet-sheet) #outline{position:absolute;left:0;top:0;bottom:0;z-index:18;border-right:1px solid var(--border-seam);box-shadow:var(--shadow)}
+/* The tablet sheet's overlay runs under the collapsed sheet and the status line on it (both fixed above it): its foot is padded by
+   their height (--sheet-h, and the status line's 24px), so the list's last rows can come up above them (outlineFoot). */
+body.band-tablet-sheet #outline{padding-bottom:calc(var(--space-3) + var(--sheet-h,0px))}
+body.band-tablet-sheet.has-status:not(.typing,.pv-typing) #outline{padding-bottom:calc(var(--space-3) + var(--sheet-h,0px) + var(--space-6))}
 body.lay-mid #outline-grip{display:none}
 @keyframes mid-panel-in{from{right:calc(-1 * var(--side-w,330px))}}
 @keyframes mid-grip-in{from{opacity:0}}
@@ -709,6 +713,18 @@ body:not(.compact) :is(#help,#trash,#more) .ns-grab{display:none}
 #nav-sheet .ns-head .row,body.compact :is(#help,#trash) .ns-head .row{flex-wrap:nowrap;min-height:var(--hit)}
 #nav-sheet-h{margin:0;font-size:var(--text-xl)}
 #nav-sheet>:is(section,#ns-page){border-top:1px solid var(--border);margin:0;padding:var(--space-2) 0}
+/* Open, the sheet is a column: what stands above the outline keeps its size, and the outline's rows take what is left and scroll on
+   their own (navSheetReveal makes the list whole rows tall), so turning to the current section moves nothing above them. */
+#nav-sheet[open]{display:flex;flex-direction:column}
+#nav-sheet[open]>*{flex:none}
+#nav-sheet[open]>#ns-outline:not([hidden]){flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
+#nav-sheet[open] #ns-outline>.ns-oh{flex:none}
+#nav-sheet[open] #ns-outline-items{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;align-content:start;grid-auto-rows:max-content}   /* rows as tall as their content: sized by the column, a clamped name (overflow hidden) would let a row shrink to 44px and clip its lines */
+/* Where the sheet must scroll as well (navSheetFit), it steps by whole rows, and the current document's row - with one document, the
+   view, which then stands for it - stays pinned under the head over what the step brought there (--ns-head-h: the head's height,
+   the search row with it). */
+#nav-sheet[open] #ns-docs .dm-item.on,#nav-sheet[open] #ns-docs[hidden]~#ns-view{position:sticky;top:var(--ns-head-h,0px);z-index:1}   /* over what it is pinned on, the positioned page list included */
+#nav-sheet[open] .ns-head{z-index:2}   /* and under the head when its list pushes it up */
 #nav-sheet>#ns-view{margin:var(--space-2) 0}   /* its own 4px inset: the sections' padding took its sides, and the thumb ran into the edge */
 #nav-sheet .ns-h{margin:0 0 var(--space-1);font-size:var(--text-sm);font-weight:600;color:var(--muted-foreground)}
 #nav-sheet .dm-list{display:flex;flex-direction:column;gap:var(--space-1)}

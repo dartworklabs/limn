@@ -5,8 +5,10 @@
 body{--pv-panel-w:280px;--pv-panel-gap:24px;--pv-panel-pad:var(--space-3)}
 /* The side column: every page block is [margin | page | margin], the right margin at least the panel and its gap. The page
    stays centred while both margins hold that, and moves left only by what the right one lacks (verdict-panel.js keeps the
-   left one at PV_SIDE_LEFT or more, with hysteresis). The summary is the block's second row, under the page. */
-body.pv-beside #doc .pgw{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(calc(var(--pv-panel-w) + var(--pv-panel-gap)),1fr);align-items:start}
+   left one at PV_SIDE_LEFT or more, with hysteresis). A page narrower than the widest (--pg-w, --pg-max: pages.js) keeps
+   half the difference more on its right, so every page stands on the widest one's axis and the panel beside all of them
+   at one place. The summary is the block's second row, under the page. */
+body.pv-beside #doc .pgw{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(calc(var(--pv-panel-w) + var(--pv-panel-gap) + (var(--pg-max,0px) - var(--pg-w,0px)) / 2),1fr);align-items:start}
 body.pv-beside #doc .pgw>.pg{grid-column:2;grid-row:1;margin:0 0 var(--space-1)}
 body.pv-beside #doc .pgw:not(:has(>.pv-sum))>.pg{margin-bottom:var(--space-6)}   /* a page with no summary (it takes no verdict) keeps the pages' gap */
 /* The panel: beside the reading page, in #pv-panel-at - the column's last child, no height, sticky to the PDF area's top (its
@@ -20,7 +22,7 @@ body.pv-beside #doc .pgw:not(:has(>.pv-sum))>.pg{margin-bottom:var(--space-6)}  
   border:1px solid var(--border-strong);border-radius:var(--radius);background:var(--popover);box-shadow:var(--shadow-sm);
   row-gap:var(--space-2);align-items:center;align-content:flex-start}
 /* Taller than the PDF area shows, it scrolls inside (pvPanelPlace). Only then: a scroller clips what stands outside it. */
-#doc #pv-panel.pv-tall{overflow-y:auto}
+#doc #pv-panel.pv-tall{overflow-y:auto;scroll-padding-block:var(--space-2)}   /* the browser's Tab brings a control in with its focus ring (pvPanelReveal for the rest) */
 #doc #pv-panel.pv-tall>.pv-onhint{display:none}
 /* The name: the identifier ('6쪽 · PL17') on its row, the title under it on two rows at most - two rows kept even when it is
    shorter, so the words below stand at one height for every page. */
@@ -42,13 +44,16 @@ body.pv-beside #doc .pgw:not(:has(>.pv-sum))>.pg{margin-bottom:var(--space-6)}  
 #doc #pv-panel .pv-note{max-width:100%;min-width:0}
 #doc #pv-panel .pv-t>:is(.pv-rn,.pv-ra)>button,#doc #pv-panel .pv-t>button{padding-inline-start:0;border-inline-start-width:0}   /* every row starts at the state's left edge */
 #doc #pv-panel.pv-quiet>.pv-t{border-top:0}
-#doc #pv-panel.pv-quiet .pv-fig-t{display:none}   /* no words to keep in place: the notice stands under the name */
+#doc #pv-panel.pv-quiet .pv-fig-t{min-height:0}   /* no words to keep in place: the title, if any, then the notice under the name */
 /* The reason popover and a save chip stand in the panel's flow, under the state: the words above them never move, and the
    chip never lies over a control. */
 #doc #pv-panel>.pv-pop{position:static;order:5;flex:1 1 100%;width:auto;max-height:none;padding:0;border:0;background:transparent;box-shadow:none;overflow:visible}   /* the panel is its box: the field's is the only frame inside. Not a scroller: with no padding one clipped the field's focus ring, and a long reason scrolls in the field */
 #doc #pv-panel>.nt-chip{position:static;order:6;transform:none;max-width:100%;align-self:flex-start}
-/* The pressed word's context opens under the panel, not over its name. */
+/* The pressed word's context opens under the panel, not over its name - for a few seconds after a press made it the verdict
+   (.pv-onshow) and while the word has the keyboard's focus, not on a mouse's hover: the word explains itself in a box only
+   on a long press (its data-tip-press), as it draws no hover box in the panel. */
 #doc #pv-panel>.pv-onhint{top:calc(100% + var(--space-1));bottom:auto;right:0;white-space:normal;max-width:100%}
+@media (hover:hover){#doc #pv-panel:not(.pv-onshow,:has(.vd-b[aria-pressed=true]:focus-visible))>.pv-onhint{display:none}}
 /* The summary under each page: its identifier and verdict in the line's muted text, one row of one height whatever it says;
    the reading page's (.on: the page the panel shows) bold in the text colour - a weight, never a height. A press brings that
    page to the panel (pvSumGo). It is exactly as wide as its page and adds no width of its own (width 0, min-width 100%): the
