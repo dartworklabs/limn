@@ -120,14 +120,63 @@ function zoomAnchor(cx,cy){const L=$('#left'),lr=L.getBoundingClientRect();
 // Restores the anchor's in-page fractional position back to screen coordinates (cx,cy) - so the text under the pointer stays put even after zooming.
 function zoomRestore(a,cx,cy){if(!a)return; const L=$('#left'),r=a.pg.getBoundingClientRect();
   L.scrollLeft+=r.left+a.fx*r.width-(cx==null?a.cx:cx); L.scrollTop+=r.top+a.fy*r.height-(cy==null?a.cy:cy);}
-function zoomTo(k,cx,cy){const a=zoomAnchor(cx,cy); setK(k); markZoomed(); zoomRestore(a);}
+function zoomTo(k,cx,cy){arrivalLetGo(); const a=zoomAnchor(cx,cy); setK(k); markZoomed(); zoomRestore(a);}   // a zoom keeps its own anchor: no arrival pulls it back
 function zoom(n){zoomTo(K*Math.pow(ZOOM_STEP,n));}
 // [100%]: the print size, around the middle of the PDF area as the zoom buttons.
 function actualSize(){zoomTo(PT_PX);}
 // Fit width (fitK): keeps the viewed page/position (anchored at the top) and resets horizontal scroll to the start.
 function fitW(){const a=topAnchor(),L=$('#left');
   setK(fitK(),LAYOUT===LAYOUT_MODE.WIDE); markZoomed(); restoreAnchor(a); L.scrollLeft=0;}
-function goPage(v){const el=document.getElementById('p'+parseInt(v===undefined?$('#jump').value:v,10)); if(el)pvGlideInto(el);}
+// Arriving at page n - from the outline, a page field or the page list (goPage) and from a card's [보기] (jumpPin, jumpPv): a
+// figure page, one whose map names its figure body (meta figure_top), at its figure (figureTop); any other page at its top.
+// The same arrival again while the pages rest on that figure goes to the page's top, and once more to the figure
+// (docs/handbook/viewer.md §그림 쪽 도착). Each is a glide (pvGlideTo, pvGlideInto), so the keys wait for it to end.
+/** @param {number} n */
+function arrivePage(n){const el=document.getElementById('p'+n); if(!el)return; const to=figureTop(n),L=$('#left');
+  if(to===null){arrivalLetGo(); pvGlideInto(el); return;}
+  const top=!pvAutoScrolling()&&Math.abs(L.scrollTop-to)<=FIGURE_REST_PX;
+  if(top)pvGlideInto(el); else pvGlideTo(to);
+  arrivalWatch(n,!top);}
+const FIGURE_ROOM_PT=24;   // of the page kept above an arrived figure at most: its label line ('PL18 · 지금 판') has no element
+const FIGURE_REST_PX=2;   // the pages rest on a figure's arrival within this (a glide ends on or next to its pixel)
+// A figure page's arrival (its figure, or its top on the press again) lands where it says once the pages rest. The glide's
+// place is reckoned at its start, and the layout can still move under it: a save's list reload redraws hundreds of lines and
+// stalls the glide past its guard (PV_JUMP lapses after a second), which gives scroll anchoring back, and the anchoring's
+// adjustment left the figure 30-300px off (#345). So each time the pages come to rest - after ARRIVAL_REST_MS without a
+// scroll, the glide guard down - it measures the place again and glides the rest (pvGlideTo: the guard and the held anchoring
+// again), until ARRIVAL_SETTLE_MS after the first rest, at most ARRIVAL_FIXES times. It only settles what nobody asked
+// for: anything the person does meanwhile - a press, a key, a wheel or a touch anywhere, a window resize - lets it go
+// (arrivalLetGo), for that starts a move of its own (a card's mark, a search hit, a zoom, another page) the watch must not
+// undo; so do the person's scroll (PV_HAND), another document and the pages not shown. A new arrival replaces it.
+const ARRIVAL_REST_MS=120,ARRIVAL_SETTLE_MS=2000,ARRIVAL_FIXES=3;
+let ARRIVAL=/** @type {{n:number,figure:boolean,hand:number,doc:string|null,fixes:number,until:number}|null} */(null),ARRIVAL_TIMER=0;
+/** @param {number} n @param {boolean} figure */
+function arrivalWatch(n,figure){ARRIVAL={n,figure,hand:PV_SCROLL_HAND,doc:DOC,fixes:0,until:0}; arrivalSoon();}
+function arrivalSoon(){clearTimeout(ARRIVAL_TIMER); ARRIVAL_TIMER=setTimeout(arrivalSettle,ARRIVAL_REST_MS);}
+function arrivalLetGo(){if(!ARRIVAL)return; ARRIVAL=null; clearTimeout(ARRIVAL_TIMER);}
+for(const t of ['pointerdown','keydown','wheel','touchstart','gesturestart'])addEventListener(t,arrivalLetGo,{capture:true,passive:true});   // gesturestart: Safari's trackpad pinch
+addEventListener('resize',arrivalLetGo);
+function arrivalSettle(){const a=ARRIVAL,L=$('#left'),el=a?document.getElementById('p'+a.n):null; if(!a)return;
+  if(!el||a.hand!==PV_SCROLL_HAND||a.doc!==DOC||!L.getClientRects().length){ARRIVAL=null; return;}
+  if(PV_JUMP!==null||pvAutoScrolling()){arrivalSoon(); return;}   // still on its way
+  const now=performance.now(); if(!a.until)a.until=now+ARRIVAL_SETTLE_MS; else if(now>a.until){ARRIVAL=null; return;}
+  const to=a.figure?figureTop(a.n):Math.max(0,Math.min(L.scrollHeight-L.clientHeight,L.scrollTop+el.getBoundingClientRect().top-L.getBoundingClientRect().top-L.clientTop));
+  if(to===null){ARRIVAL=null; return;}
+  if(Math.abs(L.scrollTop-to)>FIGURE_REST_PX){if(a.fixes>=ARRIVAL_FIXES){ARRIVAL=null; return;} a.fixes++; pvGlideTo(to); arrivalSoon();}}
+// A scroll while it watches - the glide's own, an anchoring adjustment, a correction - waits for the next rest; a person's
+// scroll (PV_HAND) lets it go at that rest.
+$('#left').addEventListener('scroll',()=>{if(ARRIVAL)arrivalSoon();},{passive:true});
+// #left's scrollTop of page n's figure arrival - its figure's top edge under the free PDF area's top (spotTop) with up to
+// FIGURE_ROOM_PT of the page above it, down to the element above (figure_above) or else the page's top, and at least
+// OUTLINE_PICK_GAP px - or null for a page without a figure body. In page points, so the room is the label line's at every
+// zoom. Room past the page's top would stand the page below the reading line at a large zoom: the line would read the page
+// before it.
+/** @param {number} n */
+function figureTop(n){const pg=document.getElementById('p'+n),m=META&&META.pages?META.pages[n-1]:null;
+  if(!pg||!m||typeof m.figure_top!=='number'||!(m.pt_h>0))return null;
+  const h=pg.getBoundingClientRect().height,free=(m.figure_top-(typeof m.figure_above==='number'?m.figure_above:0))*h;
+  return spotTop(pg,m.figure_top,Math.max(OUTLINE_PICK_GAP,Math.min(FIGURE_ROOM_PT*h/m.pt_h,free)));}
+function goPage(v){arrivePage(parseInt(v===undefined?$('#jump').value:v,10));}
 $('#jump').addEventListener('keydown',e=>{if(e.key==='Enter')goPage();});
 // The page a typed entry v goes to in a document of n pages: a whole number clamped to 1..n; null for an empty or non-number
 // entry, which goes nowhere. Pure.

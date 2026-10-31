@@ -29,6 +29,7 @@ from limn.builds.figure_map import (
     MapElement,
     MapPage,
     element_kind,
+    figure_arrival,
     follow_element,
     ladder_scopes,
     map_source_files,
@@ -179,10 +180,11 @@ class BuildQueries:
 
     def page_facts(self, doc: Doc, build: str, pages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Meta's pages of build `build` with, on a figure document whose map for that build loads, what its map says of
-        each page (in map order, after name and sizes): `figure` (the root element's id), `title` when the map has one
-        and `verdict: false` when the page takes no verdict. Pages the map does not name, and every page of any other
-        document or of a map that does not load, keep {name, pt_w, pt_h}. Reads the map copy through the run's cache,
-        and no file the map names."""
+        each page (in map order, after name and sizes): `figure` (the root element's id), `title` when the map has one,
+        `verdict: false` when the page takes no verdict, and where the viewer arrives on a page with a figure body
+        (figure_arrival): `figure_top`, and `figure_above` when an element ends above it. Pages the map does not name,
+        and every page of any other document or of a map that does not load, keep {name, pt_w, pt_h}. Reads the map
+        copy through the run's cache, and no file the map names."""
         if not doc.has_element_map:
             return pages
         fmap = self.maps().get(doc, build)
@@ -197,6 +199,11 @@ class BuildQueries:
                 entry["title"] = found.title
             if not found.takes_verdict:
                 entry["verdict"] = False
+            arrival = figure_arrival(found)
+            if arrival is not None:
+                entry["figure_top"] = arrival.top
+                if arrival.above is not None:
+                    entry["figure_above"] = arrival.above
         return pages
 
     def publication(self, doc: Doc, name: str, state: Path) -> Publication:
