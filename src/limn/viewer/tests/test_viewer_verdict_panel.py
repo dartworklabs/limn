@@ -1964,6 +1964,23 @@ class TallPanel(PanelBase):
         self.assertIn("notice-act", seen)
         self.assertEqual(page.evaluate(TOP), top)
 
+    def test_a_press_on_a_control_half_in_view_leaves_the_panel_where_it_is(self):
+        """The panel scrolled to its top, the field half out of view below and the focus on a word: a press on the field's
+        visible part focuses it without scrolling the panel under the pointer (a press is no keyboard focus to reveal)."""
+        page = self.writing()
+        page.locator(WORD % (2, "보류")).focus()
+        page.evaluate("()=>{document.getElementById('pv-panel').scrollTop=0;}")
+        settle(page)
+        box = page.evaluate(
+            """()=>{const p=document.getElementById('pv-panel').getBoundingClientRect(),f=document.querySelector('#pv-panel .pv-reason').getBoundingClientRect();
+              return f.bottom>p.bottom&&f.top<p.bottom-20?[f.left+20,f.top+10]:null;}"""
+        )
+        self.assertIsNotNone(box, "the field is not half in view")
+        page.mouse.click(*box)
+        settle(page)
+        self.assertEqual(page.evaluate(self.TOPS)[0], 0)
+        self.assertEqual(page.evaluate("()=>document.activeElement.classList.contains('pv-reason')"), True)
+
     def test_the_popover_lets_the_keyboard_out_and_tab_leaves_the_panel(self):
         """No trap: [접기] by key closes the popover and keeps the draft, and from there Tab reaches the panel's last control
         and leaves for the pin panel; Shift+Tab comes back into the panel."""
