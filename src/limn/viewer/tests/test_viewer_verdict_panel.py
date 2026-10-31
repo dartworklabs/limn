@@ -103,6 +103,7 @@ class PanelBase(BrowserBase):
         self.held_edit: list | None = None  # POST /api/pins/N/edit routes held unanswered while not None
         self.held_list: list | None = None  # GET /api/pins (the pin list) held unanswered while not None
         self.held_drop: list | None = None  # POST /api/pins/N/drop routes held unanswered while not None
+        self.held_restore: list | None = None  # POST /api/pins/N/restore routes held unanswered while not None
         patch = mock.patch.object(pick_source, "region_text", return_value="")  # pdftotext answers no text
         patch.start()
         self.addCleanup(patch.stop)
@@ -115,6 +116,9 @@ class PanelBase(BrowserBase):
             return None
         if rq.method == "POST" and path.endswith("/drop") and self.held_drop is not None:
             self.held_drop.append(route)
+            return None
+        if rq.method == "POST" and path.endswith("/restore") and self.held_restore is not None:
+            self.held_restore.append(route)
             return None
         if rq.method == "POST" and path.endswith("/edit") and self.held_edit is not None:
             self.held_edit.append(route)
@@ -1415,6 +1419,154 @@ class StatusLineAction(PanelBase):
         )
         page.keyboard.type("7")
         self.assertEqual(page.locator(FIELD).input_value(), "쓰던 글7")
+
+
+LINE_TEXT = "()=>{const s=document.querySelector('#status'),t=s&&s.querySelector('.st-tx'); return s&&!s.hidden&&t?t.textContent:'';}"
+# The messages that say an answer is late (one of an action's, notices.js noticeLate), and the failures said, anywhere.
+LATE = "()=>[...NOTICES.values()].filter(n=>/의 답이 늦습니다|has not answered yet/.test(n.title)).map(n=>n.title+' · '+n.desc)"
+ERRORS = "()=>[...NOTICES.values()].filter(n=>n.kind===NOTICE_KIND.ERR).length"
+
+
+class LateAnswer(PanelBase):
+    """A message's [되돌리기] whose request does not answer (#334): past the bound (NOTICE_ACT_WAIT, the take-back's too) the
+    status line says the answer is late, also while the focus on its busy button holds the line - one message, never two.
+    The late answer, a success or a failure, is taken once: the message and the lateness go, nothing is sent again, the focus
+    stays where the person put it, and a verdict saved meanwhile with its reason is kept."""
+
+    def saved_to_line(self, page):
+        """A verdict saved by key on page 2, its chip taken to the status line by reading page 3; the pin's id."""
+        self.to(page, 2)
+        page.evaluate("searchToPage()")
+        page.keyboard.press("1")
+        page.wait_for_selector("#pv-panel>.nt-chip")
+        settle(page)
+        mine = page.evaluate("()=>(pageVerdictPins().get(2)||[])[0].id")
+        self.to(page, 3)
+        page.wait_for_selector('#status [data-act="notice-act"]')
+        return mine
+
+    def late(self, page, words):
+        """Waits for the one message saying an answer is late and checks it says words first, on the status line too."""
+        page.wait_for_function(LATE + ".length>0")
+        said = page.evaluate(LATE)
+        self.assertEqual(len(said), 1, said)
+        self.assertTrue(said[0].startswith(words), said)
+        text = page.evaluate(LINE_TEXT)
+        self.assertTrue(text.startswith(words.split(" · ")[0]), text)
+        return said[0]
+
+    def meanwhile(self, page):
+        """While the request is held: a verdict saved by key on page 3 and a reason typed for it. Its pin's id once listed."""
+        page.evaluate(TO, [3, 16])  # not settle(): it would wait for the held request
+        page.wait_for_function("()=>PV_READ===3")
+        page.evaluate("searchToPage()")
+        page.keyboard.press("2")
+        page.wait_for_function("()=>(pageVerdictPins().get(3)||[]).length===1")
+        page.keyboard.press("Enter")
+        page.wait_for_selector(FIELD)
+        page.keyboard.type("새 판정의 이유")
+        return page.evaluate("()=>(pageVerdictPins().get(3)||[])[0].id")
+
+    def answered(self, page, held, status, done):
+        """The answer to the held request - the handler's (status None) or a failure - after the bound: done (JS) holds, the
+        lateness is gone, one failure is said for a failure and none for a success, one request was sent, and the reason
+        field typed in meanwhile keeps the focus and its text."""
+        self.assertEqual(len(page.evaluate(LATE)), 1)
+        self.assertEqual(len(held), 1)
+        before = page.evaluate(FOCUS)
+        self.assertTrue(page.evaluate("()=>pvIsReasonField(document.activeElement)"), before)
+        self.release(held, status)
+        page.wait_for_function(done)
+        page.wait_for_function(LATE + ".length===0")
+        settle(page)
+        self.assertEqual(len(held), 1)
+        self.assertEqual(page.evaluate(ERRORS), 1 if status else 0)
+        self.assertEqual(page.evaluate(FOCUS), before, "the late answer moved the focus")
+        self.assertEqual(page.locator(FIELD).input_value(), "새 판정의 이유")
+        self.assertNotIn("답이 늦습니다", page.evaluate(LINE_TEXT))
+
+    def late_drop(self, status):
+        """The save's undo on the status line, pressed by key: its line, held by the focus on its busy button, says the
+        undo is late and what it undoes. The new verdict on page 3 stays whatever the answer."""
+        page = self.on()
+        mine = self.saved_to_line(page)
+        page.evaluate("NOTICE_ACT_WAIT=150")
+        self.held_drop = []
+        page.locator('#status [data-act="notice-act"]').first.focus()
+        page.keyboard.press("Enter")
+        self.late(page, "되돌리기의 답이 늦습니다 · #%d 채택 판정 저장됨" % mine)
+        self.assertEqual(
+            page.evaluate(
+                "()=>document.activeElement.dataset.act+' '+document.activeElement.getAttribute('aria-busy')"
+            ),
+            "notice-act true",
+        )
+        new = self.meanwhile(page)
+        held, self.held_drop = self.held_drop, None
+        done = (
+            "()=>OPEN_ALL.some(p=>p.id===%d)&&(%s)()===1" % (mine, ERRORS)
+            if status
+            else "()=>DROPPED.some(p=>p.id===%d)" % mine
+        )
+        self.answered(page, held, status, done)
+        self.assertEqual(sorted(self.pins()), sorted([mine, new] if status else [new]))
+
+    def test_a_save_undo_on_the_status_line_says_its_drop_is_late_and_takes_the_late_success_once(self):
+        self.late_drop(None)
+
+    def test_a_save_undo_on_the_status_line_says_its_drop_is_late_and_takes_the_late_failure_once(self):
+        self.late_drop(500)
+
+    def late_restore(self, status):
+        """A take-back's [되돌리기] on the status line, pressed with the mouse: the same for its restore."""
+        mine = self.verdict(2, "채택")
+        page = self.on(n_open=1)
+        self.to(page, 2)
+        page.evaluate("searchToPage()")
+        page.keyboard.press("1")
+        page.wait_for_function("id=>DROPPED.some(p=>p.id===id)", arg=mine)
+        settle(page)
+        page.evaluate("NOTICE_ACT_WAIT=150")
+        self.held_restore = []
+        page.locator('#status [data-act="notice-act"]').first.click()
+        self.late(page, "되돌리기의 답이 늦습니다 · 판정 #%d 채택 취소" % mine)
+        new = self.meanwhile(page)
+        held, self.held_restore = self.held_restore, None
+        done = "()=>(%s)()===1" % ERRORS if status else "()=>OPEN_ALL.some(p=>p.id===%d)" % mine
+        self.answered(page, held, status, done)
+        self.assertEqual(sorted(self.pins()), sorted([new] if status else [mine, new]))
+
+    def test_a_take_backs_undo_on_the_status_line_says_its_restore_is_late_and_takes_the_late_success_once(self):
+        self.late_restore(None)
+
+    def test_a_take_backs_undo_on_the_status_line_says_its_restore_is_late_and_takes_the_late_failure_once(self):
+        self.late_restore(500)
+
+    def test_an_undo_off_the_status_line_has_the_line_say_it_in_english_and_that_goes_with_the_answer(self):
+        """The save chip's own [되돌리기] in the panel, in English: the status line says 'The undo has not answered yet' and
+        what it undoes, in one message of its own, while the chip waits; the answer takes both away and the verdict is gone."""
+        page = self.on(lang="en")
+        self.to(page, 2)
+        page.evaluate("searchToPage()")
+        page.keyboard.press("1")
+        page.wait_for_selector("#pv-panel>.nt-chip")
+        settle(page)
+        mine = page.evaluate("()=>(pageVerdictPins().get(2)||[])[0].id")
+        page.evaluate("NOTICE_ACT_WAIT=150")
+        self.held_drop = []
+        page.locator('#pv-panel>.nt-chip [data-act="notice-act"]').click()
+        said = self.late(page, "The undo has not answered yet · #%d verdict" % mine)
+        self.assertNotIn("늦습니다", said + page.evaluate(LINE_TEXT))  # the words and the target are the document's own
+        self.assertEqual(page.locator('#pv-panel>.nt-chip [data-act="notice-act"][aria-busy="true"]').count(), 1)
+        held, self.held_drop = self.held_drop, None
+        self.release(held)
+        page.wait_for_function("id=>DROPPED.some(p=>p.id===id)", arg=mine)
+        page.wait_for_function(LATE + ".length===0")
+        settle(page)
+        self.assertEqual(len(held), 1)
+        self.assertEqual(page.locator("#pv-panel>.nt-chip").count(), 0)
+        self.assertEqual(sorted(self.pins()), [])
+        self.assertEqual(page.evaluate(ERRORS), 0)
 
 
 class Undo(PanelBase):

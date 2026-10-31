@@ -329,6 +329,34 @@ class StoreFlows(NoticePage, BrowserBase):
         settle(page)
         self.assertFalse(self.line_has(page, "메모 덧붙이기 실패"))
 
+    def test_9_a_save_undo_answered_late_brings_the_composer_back_without_the_focus(self):
+        """Desktop: the save chip's [되돌리기] pressed with the mouse, its delete held past the bound (#334): the status line
+        says the undo is late, once. The person moves on to a tool button; the delete then goes through: the pin is gone,
+        the composer is back with the note, the lateness is gone - and the focus is still on that button, which the note
+        field took."""
+        held = []  # the delete request, caught and held until the test lets it through
+        page = self.view("desktop")
+        self.compose(page, "되돌릴 메모")
+        page.click("#btn-save")
+        page.wait_for_selector(".mark .nt-chip")
+        pid = page.evaluate("+document.querySelector('.mark:has(.nt-chip)').dataset.pin")
+        page.route("**/api/pins/%d/drop" % pid, lambda route: held.append(route))
+        page.evaluate("NOTICE_ACT_WAIT=150")
+        page.locator(".mark .nt-chip [data-act=notice-act]").click()
+        late = "()=>[...NOTICES.values()].filter(n=>n.title==='되돌리기의 답이 늦습니다').length"
+        page.wait_for_function(late + "===1")
+        self.assertEqual(len(held), 1)
+        self.assertTrue(self.line_has(page, "핀 #%d 저장됨" % pid))
+        page.focus("#btn-zoom-in")
+        self.route(held[0])  # the delete reaches the server now
+        page.wait_for_selector("#composer:not([hidden])")
+        page.wait_for_function(late + "===0")
+        settle(page)
+        self.assertIsNone(self.state(pid))
+        self.assertEqual(page.input_value("#note"), "되돌릴 메모")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "btn-zoom-in")
+        self.assertEqual(len(held), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

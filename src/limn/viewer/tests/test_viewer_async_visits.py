@@ -148,6 +148,7 @@ class VisitLocalContinuations(unittest.TestCase):
                 function savedDraftSnapshot(){return null;} function restoredDraftOwns(){return false;} function clearSavedDraft(){}
                 function restoreSelection(){restores++;}
                 function dropPin(){drops++;}
+                const NOTICE_ACT_WAIT=8000;   // past it an undo's answer is late (notices.js)
                 function tl(s){return s;}function tr(s){return s;}const BANNERS=new Map();function endNotice(){}
                 function undoNote(place,msg,act){undo=act.fn;return null;}function settleChip(){}
                 function loadPins(){loads++;return Promise.resolve();}

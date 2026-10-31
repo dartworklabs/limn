@@ -126,7 +126,7 @@ function drawStatus(){const box=$('#status'),sr=box.querySelector('.st-sr'),body
   document.body.classList.toggle('has-status',!!top); box.hidden=!top;
   if($('#status-list').open){drawStatusList(list); placeStatusListSoon();}   // its rows changed: placed again once the line is drawn
   if(!top){if(STATUS_SIG){body.replaceChildren(); STATUS_SIG='';} sr.textContent=''; lineVisible(false); return;}   // hidden: it holds nothing
-  const sig=top.kind+'|'+(top.act||'')+'|'+list.length+'|'+(top.state||'')+'|'+(top.notice?top.notice.n:'');
+  const sig=top.kind+'|'+(top.act||'')+'|'+list.length+'|'+(top.state||'')+'|'+(top.notice?top.notice.n+'|'+top.notice.kind:'');   // a message turned into a warning (noticeLate) takes its icon
   if(sig!==STATUS_SIG){STATUS_SIG=sig;
     const more=list.length>1?html`<button class="btn-sm btn-ghost st-more" data-act="status-more" aria-haspopup="dialog" aria-label="${tl('상태 {n}건 더 보기',{n:list.length-1})}"><span class="lbl">${tl('+{n}',{n:list.length-1})}</span></button>`:'';
     const bar=running?html`<span class="st-bar" role="progressbar" aria-label="${tr('빌드 진행')}"><i></i></span>`:'';

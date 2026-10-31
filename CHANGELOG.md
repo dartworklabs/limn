@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **An undo whose request does not answer says so (#334).** A message's [되돌리기] or [되살리기] that sends a request -
+  the status line's undo of a key-saved verdict (its drop) or of a taken-back one (its restore), and every other such
+  undo: a save's or an append's chip, a done or deleted card's row, a deleted pin's [되살리기] - kept saying what it had
+  done (`#N 채택 판정 저장됨 … 되돌리기`) for as long as the answer took. Past 8 seconds, the bound a page line's take-back
+  already has, the message now says `되돌리기의 답이 늦습니다` (`The undo has not answered yet`; `되살리기의 답이 늦습니다`,
+  `The restore has not answered yet`) before what it undoes: on the status line the message itself does, as a warning
+  and first on the line - also while the focus on its busy button holds the line - and for an undo elsewhere the status
+  line says it in one message of its own. The late answer, a success or a failure, is taken once and the lateness goes
+  with it; the focus stays where the person put it meanwhile, and a save's undo answered late brings the composer back
+  without taking the focus into the note. Nothing was locked, so nothing else changes.
+
 ## 0.4.37 — 2026-10-31
 
 On a wide desktop the page verdict line becomes one panel beside the pages, with a one-row summary under each page, and
