@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **Going up, the outline shows the section the current row is in (#335).** Reading back, the current row came to rest
+  48px - a row and a half - under the filter, so from a section's second entry on its head (`비교판 · 14`) was out of
+  sight. The list now keeps two whole rows over the row on the way up, and where the row's section fits in the panel
+  with it, its head and the two rows above that: the list moves once as the reading comes up into a section and not
+  again until it reaches the head. Going down, and a row already clear, nothing changes; the pages and the focus never
+  move.
+
 ## 0.4.37 — 2026-10-31
 
 On a wide desktop the page verdict line becomes one panel beside the pages, with a one-row summary under each page, and

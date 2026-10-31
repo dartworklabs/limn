@@ -124,6 +124,25 @@ class OutlineLogic(unittest.TestCase):
             + [None, 999, 800, 1048, 910, 1448],
         )
 
+    def test_going_up_the_rows_above_and_the_sections_head_show_where_they_fit(self):
+        """outlineRevealTop(..., cover, near, group): over a row the list keeps what starts at near (the two rows above it)
+        when that is more than the margin and fits with the row and the margin under it - so a row 48px under the band, clear
+        before, now moves. Coming up, the list goes on to group (its section's head and two rows above that) where that fits
+        too, and to the very top where only the panel's head would be left. A row clear of near moves nothing even when its
+        head is out of sight; going down, on a view too short for near and with fewer rows than the margin above, nothing
+        changes."""
+        got = self.run_js(
+            ["outlineRevealTop"],
+            """[outlineRevealTop(1000,800,5000,1100,1124,48,100,52),outlineRevealTop(1000,800,5000,1100,1124,48,100,52,1044),
+            outlineRevealTop(1000,800,5000,1110,1134,48,100,52,1054),
+            outlineRevealTop(1000,800,5000,1100,1124,48,100,52,1044,800),outlineRevealTop(1000,800,5000,1100,1124,48,100,52,1044,300),
+            outlineRevealTop(1000,800,5000,500,524,48,100,52,444,200),outlineRevealTop(1000,800,5000,210,234,48,100,52,154),
+            outlineRevealTop(1000,800,5000,210,234,48,100,52,154,100),
+            outlineRevealTop(1000,800,5000,1300,1324,48,100,52,1244,800),outlineRevealTop(1000,800,5000,1790,1814,48,100,52,1734,800),
+            outlineRevealTop(1000,152,5000,1000,1024,48,100,52,944,600),outlineRevealTop(1000,800,5000,1060,1084,48,100,52,1040,1040)]""",
+        )
+        self.assertEqual(got, [None, 992, None, 748, 992, 148, 102, 0, None, 1062, 910, 960])
+
     REFERENCE = """function referenceIndexAt(entries,page,frac){
       const at=e=>e.frac||0,deep=e=>e.depth||0,above=e=>e.page<page||(e.page===page&&at(e)<=frac+1e-6);
       const x=e=>typeof e.x==='number'?e.x:null,sameX=(a,b)=>x(a)===null||x(b)===null?x(a)===x(b):Math.abs(x(a)-x(b))<=1e-3;
@@ -541,6 +560,19 @@ FOLLOW = (
     under: r ? r.top - edge : null, over: r ? o.bottom - r.bottom : null, top: box.scrollTop,
     pages: document.querySelector('#left').scrollTop, window: scrollY, focus: a.id || a.tagName};}"""
 )
+# The marked row going up against the band: its entry, whether it shows whole, how far under the band stand the top of the row two
+# above it (null when there is none), of its section's head (null at the top level) and of what the follow keeps over it - two rows
+# above that head, else above the row - and the pages' scroll and the focus.
+UP = (
+    """() => {"""
+    + VIEW
+    + """ const row = document.querySelector('#outline-items .ol-active'), r = row.getBoundingClientRect(), e = OUTLINE_ENTRIES[+row.dataset.index];
+  const two = b => b.previousElementSibling && b.previousElementSibling.previousElementSibling,
+    head = e.up >= 0 ? document.querySelector('#outline-items [data-index="' + e.up + '"]') : null, lead = two(head || row), a = document.activeElement;
+  return {index: +row.dataset.index, whole: r.top >= edge - 0.5 && r.bottom <= o.bottom + 0.5,
+    two: two(row) ? two(row).getBoundingClientRect().top - edge : null, head: head ? head.getBoundingClientRect().top - edge : null,
+    lead: lead ? lead.getBoundingClientRect().top - edge : null, pages: document.querySelector('#left').scrollTop, focus: a.id || a.tagName};}"""
+)
 # Whether the marked row shows whole in the panel: what a follow ends in, so a test waits on it (and fails at the wait without one).
 SHOWN = (
     """() => {"""
@@ -783,7 +815,8 @@ class OutlineFollow(OutlineBase):
         )
 
     def test_the_margin_counts_from_under_the_filter(self):
-        """Going up, a row stops 48px under the band and not under the band itself, on a list that is far down."""
+        """Going up, what the list keeps over a row - here its section's head and the two rows above that - starts right under
+        the band, not under the panel's top, on a list that is far down."""
         page = self.long()
         self.read_to(page, 2)
         page.wait_for_function(SHOWN, timeout=3000)
@@ -793,14 +826,63 @@ class OutlineFollow(OutlineBase):
             """top => {const box = document.querySelector('#outline'), o = box.getBoundingClientRect();
               box.scrollTop = top + 600;
               return Math.min(...[...document.querySelectorAll('#outline-items button')]
-                .filter(b => b.getBoundingClientRect().top >= o.top + 60).map(b => +b.dataset.index));}""",
+                .filter(b => b.getBoundingClientRect().top >= o.top + 60 && OUTLINE_ENTRIES[+b.dataset.index].up >= 0)
+                .map(b => +b.dataset.index));}""",
             top,
         )
         page.evaluate("i => {OUTLINE_SELECTED = i; markOutline();}", row)
         page.evaluate(STILL)
-        got = page.evaluate(FOLLOW)
+        got = page.evaluate(UP)
         self.assertEqual(got["index"], row, got)
-        self.assertAlmostEqual(got["under"], 48, delta=1, msg=got)
+        self.assertTrue(got["whole"], got)
+        self.assertAlmostEqual(got["lead"], 0, delta=1, msg=got)
+
+    def walk_up(self, page, start, stop):
+        """Mark start, then each entry above it down to stop as reading back a page at a time does; what UP read at each,
+        and how many times the panel was asked to scroll on the way."""
+        page.evaluate("i => {OUTLINE_SELECTED = i; markOutline();}", start)
+        page.evaluate(STILL)
+        page.evaluate(SCROLLS)
+        pages = page.evaluate("document.querySelector('#left').scrollTop")
+        seen = []
+        for i in range(start - 1, stop - 1, -1):
+            page.evaluate("i => {OUTLINE_SELECTED = i; markOutline();}", i)
+            page.evaluate(STILL)
+            got = page.evaluate(UP)
+            self.assertEqual((got["index"], got["pages"], got["focus"]), (i, pages, "BODY"), got)
+            seen.append(got)
+        return seen, len(page.evaluate("SCROLLS"))
+
+    def test_coming_up_into_a_section_shows_its_head_and_the_rows_up_to_it_move_nothing(self):
+        """Reading back, the marked row has two whole rows over it, and where its section fits in the panel with it, the head
+        it belongs to shows too (#335: 48px kept the row a row and a half under the filter, the head out of sight). The list
+        moves once as the reading comes up into a section and not again until it leaves it - never more often than before -
+        and the pages and the focus stay where they are."""
+        page = self.long()
+        seen, moves = self.walk_up(page, 110, 40)
+        for got in seen:
+            with self.subTest(index=got["index"]):
+                self.assertTrue(got["whole"], got)
+                self.assertGreaterEqual(got["two"], -0.5, got)  # two whole rows over it
+                if got["head"] is not None:
+                    self.assertGreaterEqual(got["head"], -0.5, got)  # and the head of its section
+        self.assertGreater(moves, 0)
+        self.assertLessEqual(moves, 7)  # into each of the seven sections the walk passes through, at most once
+
+    def test_a_section_taller_than_the_panel_keeps_two_rows_over_the_row(self):
+        """A section whose head cannot show with the row is followed a row at a time, with the two rows above it right under
+        the filter's band: no more moves than one per row."""
+        page = self.on("ms")
+        self.assertEqual(self.load(page, grouped_tree(LONG, 2, LONG)), [LONG, 0])  # one head and all the rest under it
+        seen, moves = self.walk_up(page, 100, 60)
+        for got in seen:
+            with self.subTest(index=got["index"]):
+                self.assertTrue(got["whole"], got)
+                self.assertGreaterEqual(got["two"], -0.5, got)
+                self.assertLess(got["head"], 0, got)  # the head is too far above to show
+        self.assertGreater(moves, 0)
+        self.assertLessEqual(moves, len(seen))
+        self.assertAlmostEqual(seen[-1]["two"], 0, delta=1, msg=seen[-1])
 
     def test_a_row_the_keyboard_walks_to_does_not_stop_under_the_filter(self):
         """The browser scrolls a focused row into view without knowing the band: the panel's scroll padding tells it, or a row
