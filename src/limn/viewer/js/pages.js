@@ -164,8 +164,11 @@ function arrivalSettle(){const a=ARRIVAL,L=$('#left'),el=a?document.getElementBy
   if(to===null){ARRIVAL=null; return;}
   if(Math.abs(L.scrollTop-to)>FIGURE_REST_PX){if(a.fixes>=ARRIVAL_FIXES){ARRIVAL=null; return;} a.fixes++; pvGlideTo(to); arrivalSoon();}}
 // A scroll while it watches - the glide's own, an anchoring adjustment, a correction - waits for the next rest; a person's
-// scroll (PV_HAND) lets it go at that rest.
+// scroll (PV_HAND) lets it go at that rest. So does a change of the pages' column's height, with no scroll at all: a line
+// pass that holds anchoring off (pvHoldView) or a far line drawn at its new height moves what is below it and says nothing
+// to the scroller - the settling must not hang on anchoring to notice.
 $('#left').addEventListener('scroll',()=>{if(ARRIVAL)arrivalSoon();},{passive:true});
+new ResizeObserver(()=>{if(ARRIVAL)arrivalSoon();}).observe($('#doc'));
 // #left's scrollTop of page n's figure arrival - its figure's top edge under the free PDF area's top (spotTop) with up to
 // FIGURE_ROOM_PT of the page above it, down to the element above (figure_above) or else the page's top, and at least
 // OUTLINE_PICK_GAP px - or null for a page without a figure body. In page points, so the room is the label line's at every

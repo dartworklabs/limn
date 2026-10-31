@@ -298,6 +298,18 @@ class FigureArrival(FigurePages):
                     self.at_figure(page.evaluate(WHERE, 4), 4)
                 page.context.close()
 
+    def test_a_line_above_that_grows_after_the_rest_with_anchoring_held_off_is_followed(self):
+        """Page 4's figure reached and at rest; then the line of page 2 grows by 60px with scroll anchoring held off on the
+        PDF area, as a line pass does (pvHoldView) - nothing scrolls. The arrival notices the column's height change and
+        settles on the figure again; it does not hang on an anchoring scroll to notice."""
+        page = self.on(SIZES["desktop 1440x900"])
+        self.page_list(page, 4)
+        self.at_figure(page.evaluate(WHERE, 4), 4)
+        page.evaluate("""() => {document.querySelector('#left').style.overflowAnchor = 'none';
+          document.querySelector('#doc .pv[data-page="2"]').style.paddingBottom = '60px';}""")
+        self.landed(page)
+        self.at_figure(page.evaluate(WHERE, 4), 4)
+
     def test_a_person_who_scrolls_while_it_glides_is_not_pulled_back(self):
         """The layout above moves as the arrival glides and the person scrolls the pages themselves on the way: once they
         rest the arrival lets go and leaves them where the person put them."""
