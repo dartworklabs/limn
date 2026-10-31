@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **The page verdict panel, polished (#335 items 1, 2, 4, and pages of mixed widths).** A page that takes no verdict
+  names itself in one form - its page on the name's row, the map's whole title under it - whether it is a list page or a
+  comparison board. A far jump (the outline, the page list, a card's [보기]) fills the panel once where it lands instead
+  of for every page passed, and a card's [보기] flashes the panel when it shows that page. The pressed word in the panel
+  no longer shows a description box over the page's name; its context under the panel says it. The widest page now
+  decides the room beside the pages, so a document whose pages differ in width keeps every page on one axis beside the
+  panel, never under it, and scrolling never turns the panel on or off. A panel tall enough to scroll inside brings the
+  control the keyboard focuses whole into view with its focus ring. The agent contract is unchanged.
+
 ## 0.4.37 — 2026-10-31
 
 On a wide desktop the page verdict line becomes one panel beside the pages, with a one-row summary under each page, and
