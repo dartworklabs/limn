@@ -40,6 +40,23 @@
   control the keyboard focuses whole into view with its focus ring, and ends above the cards that float at the PDF area's
   bottom right while the pin panel is closed. When the line moves between the panel and under its page, a control that had
   the focus on it has the focus on the moved line too, not the PDF area. The agent contract is unchanged.
+- **A reason moved to a newer verdict lands on one verdict even when the earlier verdict's write is still on its way
+  (#327).** A reason write whose answer was lost may still reach the server later. When the draft had moved to a newer
+  verdict, a read of the earlier one found its rev unchanged, the copy was written on the new verdict, and the old request
+  then landed too: the reason was on both. Before the copy is written, the viewer now fences such a write off with the
+  edit contract as it is: the earlier verdict's note written back unchanged against the rev that write was sent against.
+  Accepted, the rev moves on and the old request is refused (409) when it arrives; refused, something landed first and
+  the pin in the answer is judged again (the old write found there leaves the copy). A fence without an answer writes
+  nothing and keeps the draft, with [다시 시도]. The earlier verdict's pin gets an `edited_at` (`수정됨` in `pins.md`) with
+  its note unchanged. A draft moved when a write that was out at the verdict change lost its answer carries that write
+  along, so its copy is fenced the same way. A copy's own write that loses its answer now takes the earlier verdict's
+  failure and its [다시 시도] away: pressed, it wrote the reason there while the copy's request could still land.
+- **Undo keeps where a moved reason came from (#327).** An edit inside the part of a draft moved off an earlier verdict
+  lets the part go; Ctrl+Z (or a paste taken back, an input method's composition given up) brought the text back without
+  it, so the earlier verdict's [다시 시도] landing no longer took it out of the copy, which was written twice. A text the
+  field held before now comes back with the parts it had then, redo included, however much was typed meanwhile; a part
+  brought back after its text landed on the earlier verdict leaves at once, as it would have had it been there. No
+  server or agent contract change.
 
 ## 0.4.37 — 2026-10-31
 
