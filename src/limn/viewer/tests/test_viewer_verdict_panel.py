@@ -1045,6 +1045,24 @@ class TheLinesMove(PanelBase):
         self.assertLess(abs(got[0] - top), 2.5, (top, got))
         self.assertEqual(got[1], 5)
 
+    def test_letting_held_blocks_go_at_a_touch_screens_top_keeps_the_top(self):
+        """A touch screen at the very top (scrollTop 0), page 1 a short strip above the reading line, so page 2 is the page
+        read: page 1's line grows while its block is held (pvKeepBlocks), and letting it go (pvLetBlocks) leaves the area at
+        its top, as restoreAnchor keeps a touch screen's top. Kept by page 2's place, it scrolled 50px off the top."""
+        (self.pages_dir / "page-1.png").write_bytes(blank_png(1275, 150))
+        page = self.on(viewport={"width": 1400, "height": 850}, is_mobile=True, has_touch=True, device_scale_factor=1)
+        page.evaluate("()=>{document.querySelector('#left').scrollTop=0;}")
+        settle(page)
+        self.assertEqual(
+            page.evaluate("()=>[MQ_COARSE.matches, topAnchor(readingDepth(document.querySelector('#left'))).page]"),
+            [True, 2],
+        )
+        got = page.evaluate(
+            """()=>{const L=document.querySelector('#left'),l=document.querySelector('#doc .pv[data-page="1"]'),kept=pvKeepBlocks([l]);
+              l.style.minHeight=(l.getBoundingClientRect().height+50)+'px'; pvLetBlocks(kept); return [L.scrollTop, kept.length];}"""
+        )
+        self.assertEqual(got, [0, 0])
+
     def test_a_resize_keeps_the_reason_and_the_page_where_it_stands_both_ways(self):
         """Across the bar and back: the field, its text and caret, nothing written, digits stay text, and page 5 does not move
         on the screen (it moved by 40px with the anchor at the area's top)."""

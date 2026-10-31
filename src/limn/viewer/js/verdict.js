@@ -895,13 +895,14 @@ function pvKeepBlocks(lines){/** @type {Set<HTMLElement>} */ const set=new Set()
 // stands where it stood. A block's height on the anchor's path - the reading page's own block is held too - suppresses the PDF
 // area's scroll anchoring, so every line above that changed its height moved the view with nothing to follow: after a save, a
 // window narrowed under the panel's bar and widened again within a moment read page 70 instead of 75. The area's own anchoring
-// is off for the step, so it adds no correction of its own, and is put back as it was (a pinch-zoom hold's included).
+// is off for the step, so it adds no correction of its own, and is put back as it was (a pinch-zoom hold's included). A touch
+// screen at its very top stays there, as restoreAnchor keeps it: the space above page 1 is not scrolled away.
 /** @param {[HTMLElement,string,string][]} kept */
 function pvLetBlocks(kept){if(!kept.length)return; const L=$('#left'),a=L.getClientRects().length?topAnchor(readingDepth(L)):null;
   const pg=a?document.getElementById('p'+a.page):null,y=pg?pg.getBoundingClientRect().top:0,was=L.style.getPropertyValue('overflow-anchor');
   if(pg)L.style.setProperty('overflow-anchor','none');
   kept.forEach(([b,h,m])=>{b.style.height=h; b.style.marginBottom=m;}); kept.length=0;
-  if(!pg)return; const d=pg.getBoundingClientRect().top-y; if(Math.abs(d)>0.5)L.scrollTop+=d;
+  if(!pg||!a)return; const d=pg.getBoundingClientRect().top-y; if(Math.abs(d)>0.5&&!a.atTop)L.scrollTop+=d;   // a touch screen's top stays the top (restoreAnchor)
   void L.offsetHeight; if(was)L.style.setProperty('overflow-anchor',was); else L.style.removeProperty('overflow-anchor');}
 // Holds a pinch-zoomed view where it is across pvFit's pass (on) and lets go after it (off, given what on returned): the PDF
 // area does not anchor its scroll (overflow-anchor), and its layout is brought up to date before it anchors again, so the
