@@ -808,10 +808,11 @@ const PV_KEY_SAVED=/** @type {Set<number>} */(new Set());
 // second row covered the plot. A line narrower than a verdict's state beside its words stacks whatever it shows, so a press never stacks it. A line whose confirm word waits for its second press, or whose save is out, keeps the rows it has (pvRowsHeld): its
 // words moving between the two presses sent the second one elsewhere. The save chip is placed after (pvChipPlace).
 // Read and written in batches.
-// While the page is pinch-zoomed the PDF area does not anchor its scroll for the pass (pvHoldView): the pass grows every
-// line above the reading page and shrinks it back (#doc.pv-measure), and Chromium carried the anchoring of that shrink -
-// the area is the page's root scroller there - into the zoomed view, which went from where it was to the page's top
-// (422 -> 0 at 2x) at every drawing of the lines: a save, a take-back (#320). The pass moves nothing below a line it measures
+// The PDF area does not anchor its scroll for the pass (pvHoldView): the pass grows every line above the reading page and
+// shrinks it back (#doc.pv-measure), and the anchoring followed part of that - the pages went 46px down when a reason
+// opened (#345), and while pinch-zoomed Chromium carried the anchoring of that shrink - the area is the page's root
+// scroller there - into the zoomed view, which went from where it was to the page's top (422 -> 0 at 2x) at every
+// drawing of the lines: a save, a take-back (#320). The pass moves nothing below a line it measures
 // either (pvKeepBlocks): WebKit anchored the growth on the next page's block and not the shrink, so a key save on a phone
 // moved the pages 39px.
 /** @param {HTMLElement[]} lines */
@@ -870,9 +871,13 @@ function pvFit(lines){const panel=lines.find(l=>l.id==='pv-panel');
   // Where that is more than the state takes now (.pv-t-kept), its rows stand at the top and the room is kept under them: centred
   // in it, a resting line's state stood 40-65px off its identifier's row (#308 review).
   const th=lines.map((l,i)=>{const t=over[i]?l.querySelector(':scope>.pv-t'):null; return t?t.getBoundingClientRect().height:0;});
-  D.classList.remove('pv-measure'); pvLetBlocks(kept);   // the lines' fitted heights: what moves now is real, and anchors as ever
+  D.classList.remove('pv-measure');
   const nat=lines.map((l,i)=>th[i]?/** @type {HTMLElement} */(l.querySelector(':scope>.pv-t')).getBoundingClientRect().height:0);
   lines.forEach((l,i)=>{if(held[i])return; const k=th[i]>nat[i]+0.5; l.classList.toggle('pv-t-kept',k); if(k)l.style.setProperty('--pv-t-h',th[i]+'px');});
+  // The lines' fitted heights, their kept rows included: what moves now is real, and pvLetBlocks keeps the reading page where
+  // it stood. Let go before the rows were kept again, a stacked line above the reading page shrank there and grew back after
+  // the correction, and with the area not anchoring for the pass (pvHoldView) the reading page went down by the rows.
+  pvLetBlocks(kept);
   pvChipPlace(lines);
   // A word group that wraps keeps every button at its own width (vdWrapFit), read for every line before any is written.
   const groups=lines.map(l=>l.querySelector('.vd-btns')),wrap=groups.map(g=>!!g&&new Set([...g.children].map(b=>Math.round(b.getBoundingClientRect().top))).size>1);
@@ -907,16 +912,21 @@ function pvLetBlocks(kept){if(!kept.length)return; const L=$('#left'),a=L.getCli
   kept.forEach(([b,h,m])=>{b.style.height=h; b.style.marginBottom=m;}); kept.length=0;
   if(!pg||!a)return; const d=pg.getBoundingClientRect().top-y; if(Math.abs(d)>0.5&&!a.atTop)L.scrollTop+=d;   // a touch screen's top stays the top (restoreAnchor)
   void L.offsetHeight; if(was)L.style.setProperty('overflow-anchor',was); else L.style.removeProperty('overflow-anchor');}
-// Holds a pinch-zoomed view where it is across pvFit's pass (on) and lets go after it (off, given what on returned): the PDF
-// area does not anchor its scroll (overflow-anchor), and its layout is brought up to date before it anchors again, so the
-// anchor it then takes is where the pass left the pages - never a measure's grown lines. On returns the area's own value it
-// replaced, which off puts back (a pass inside a pass leaves the outer one's hold), or null where it held nothing. At no zoom
-// it does nothing: the pass moves no block there (pvKeepBlocks), and the area's anchoring stays as it is (no scroll of its own,
-// ever).
+// Holds the view where it is across pvFit's pass (on) and lets go after it (off, given what on returned): the PDF area does
+// not anchor its scroll (overflow-anchor), and its layout is brought up to date before it anchors again, so the anchor it
+// then takes is where the pass left the pages - never a measure's grown lines. The pass holds the blocks of the lines it
+// measures (pvKeepBlocks), but #doc.pv-measure lays out every line in the document as the reading line, those it does not
+// hold too: a stacked line above the reading page measured a row taller (the key marks on its words) and pushed the reading
+// page down and back within the pass. The anchoring followed part of that - on a 1440 figure document with the pin panel
+// closed, the pages went 46px down when a reason opened and again when it closed, and on a phone 39px (#345) - and while
+// the page is pinch-zoomed Chromium carried a shrink's anchoring into the zoomed view (#320). Nothing the pass does is to
+// move the pages: what moves after it is the lines' fitted heights, which pvLetBlocks lets go with the reading page kept
+// where it stood. On returns the area's own value it replaced, which off puts back (a pass inside a pass leaves the outer
+// one's hold), or null where it held nothing (no PDF area). No scroll of its own, ever.
 /** @param {boolean} on @param {string|null} [was] @returns {string|null} */
-function pvHoldView(on,was){const L=$('#left'),vv=window.visualViewport;
+function pvHoldView(on,was){const L=$('#left');
   if(!on){if(typeof was!=='string')return null; void L.offsetHeight; if(was)L.style.setProperty('overflow-anchor',was); else L.style.removeProperty('overflow-anchor'); return null;}
-  if(!vv||vv.scale<=1)return null; const prev=L.style.getPropertyValue('overflow-anchor'); L.style.setProperty('overflow-anchor','none'); return prev;}
+  if(!L)return null; const prev=L.style.getPropertyValue('overflow-anchor'); L.style.setProperty('overflow-anchor','none'); return prev;}
 // The width the state of a person's fresh verdict takes on a line in a row, drawn in a hidden line like line l (its text size,
 // the screen's language and pointer) and kept until those or the next pin number's digits change. Two states follow a
 // press: after a click '판정 #0 <the longest word> · 처리 대기 · 이유 추가 · 판정 취소', and on a mouse screen after a key
@@ -1203,10 +1213,64 @@ function pvStick(){if(pageVerdictsOn()&&pvSideCheck())return;   // the room cros
     pvFocusOffPage(r,was[0]);}
   pvPanelPlace(); pvSumOn();
   lines.forEach(l=>{if(l.id==='pv-panel')return;   // the panel stands sticky beside the pages: it never floats at their foot
-    const pg=/** @type {HTMLElement|null} */(l.previousElementSibling); if(!pg)return; const b=l.getBoundingClientRect();
-    const stuck=l.classList.contains('reading')&&b.bottom>lr.top&&b.top<lr.bottom&&b.top<pg.getBoundingClientRect().bottom+4;   // in its own place it stands 8px under the page
-    l.classList.toggle('stuck',stuck); pvLean(l,pg,b,stuck,L,lr);});
-  pvPopPlace();}
+    const pg=/** @type {HTMLElement|null} */(l.previousElementSibling); if(!pg)return; const b=l.getBoundingClientRect(),pb=pg.getBoundingClientRect().bottom;
+    // In its own place it stands 8px under the page; held lower by a reason's room (pvRoomPlace) it floats over the gap and
+    // the next page's top, and is set off as a floating line is - with an edge under it too while it lies over that page
+    // (.pv-over): its band read as the next page's head.
+    const low=pvRoomLow(l,pg,b.top,pb),stuck=(l.classList.contains('reading')&&b.bottom>lr.top&&b.top<lr.bottom&&b.top<pb+4)||low;
+    l.classList.toggle('stuck',stuck); l.classList.toggle('pv-over',low&&pvOverNext(l,b)); pvLean(l,pg,b,stuck,L,lr);});
+  pvPopPlace(); if(pvRoomPlace(L,lr))pvPopPlace();}   // a held line its floating place lifted: the popover's side again
+// Room to read a page's end under its open reason popover (#345). The popover stands above its line, so where the line stands
+// in its place under the page the popover covers the page's end - a figure's caption, written under the plot - and no scroll
+// uncovered it: the line and the popover with it went on with the page. While a popover is open above a line in the pages,
+// that line's block holds a room as tall as what the popover covers there (.pv-roomy, --pv-room: an empty box after the line
+// whose negative margin gives its height back, so no page and no block moves), and the line's top edge is sticky where it
+// stands (its own top). Scrolling on, the line and the popover stay while the page's end comes up from under them by the
+// room, then go on with the page. The line only ever stands lower than its own place, never higher; scrolled back, it goes
+// down with the page as before, and wherever it then stands unheld - lower, or floating - is where it holds next (also when
+// the field's focus folds the line and the page moves on a phone). Held lower it floats over the gap and the next page's
+// top, set off as a floating line is (pvRoomLow). A sticky top wins over the floating bottom, so the top is never lower than
+// the floating place (a keyboard laid over the page raises that). Opening and closing move nothing and nothing scrolls:
+// closed, the room stays while the line stands lower than its place in view - dropping it would lift the line under the
+// eye - and goes once the line is back in its place or out of view. The panel's popover is in the panel's flow, beside
+// the page: it covers nothing.
+const PV_ROOM=/** @type {Map<HTMLElement,{room:number,blk:HTMLElement}>} */(new Map());   // line -> the room its block holds (px) and that block
+// The gap between a page and its line in its own place: the page's bottom margin and the line's top margin, collapsed.
+/** @param {HTMLElement} l @param {HTMLElement} pg */
+function pvOwnGap(l,pg){const a=parseFloat(getComputedStyle(pg).marginBottom)||0,b=parseFloat(getComputedStyle(l).marginTop)||0;
+  return Math.max(a,b,0)+Math.min(a,b,0);}
+// Whether line l (top edge at t, its page's bottom at pb) stands lower than its own place, held there by a reason's room.
+/** @param {HTMLElement} l @param {HTMLElement} pg @param {number} t @param {number} pb */
+function pvRoomLow(l,pg,t,pb){return PV_ROOM.has(l)&&t>pb+pvOwnGap(l,pg)+0.5;}
+// Whether line l (its box b), with the ring its floating look paints around it, reaches over the next page's top.
+/** @param {HTMLElement} l @param {DOMRect} b */
+function pvOverNext(l,b){const blk=l.parentElement,nx=blk&&blk.nextElementSibling,np=nx&&nx.querySelector(':scope>.pg'); if(!np)return false;
+  return np.getBoundingClientRect().top<b.bottom+(parseFloat(getComputedStyle(l).getPropertyValue('--pv-ring'))||0);}
+/** @param {HTMLElement} l */
+function pvRoomDrop(l){const r=PV_ROOM.get(l); PV_ROOM.delete(l); l.style.removeProperty('top'); l.classList.remove('pv-over');
+  if(r){r.blk.classList.remove('pv-roomy'); r.blk.style.removeProperty('--pv-room');}}   // its block, also once the line is gone from it (the side panel took it)
+// Whether it lifted a held line (its floating place rose above it): the popover's side is chosen again then (pvStick).
+/** @param {HTMLElement} L @param {DOMRect} lr @returns {boolean} */
+function pvRoomPlace(L,lr){const pop=/** @type {HTMLElement|null} */(document.querySelector('#doc .pv>.pv-pop'));
+  const open=pop&&pop.parentElement&&pop.parentElement.id!=='pv-panel'?/** @type {HTMLElement} */(pop.parentElement):null;
+  if(!open&&!PV_ROOM.size)return false;
+  const cs=getComputedStyle(L),top0=lr.top+L.clientTop+(parseFloat(cs.paddingTop)||0),end=lr.top+L.clientTop+L.clientHeight-(parseFloat(cs.paddingBottom)||0);   // what a sticky line keeps within
+  PV_ROOM.forEach((r,l)=>{if(l===open)return; const pg=/** @type {HTMLElement|null} */(l.previousElementSibling);
+    if(!l.isConnected||!pg||l.parentElement!==r.blk){pvRoomDrop(l); return;}
+    const b=l.getBoundingClientRect(); if(!pvRoomLow(l,pg,b.top,pg.getBoundingClientRect().bottom)||b.bottom<=lr.top||b.top>=lr.top+L.clientHeight)pvRoomDrop(l);});
+  if(open){const pg=/** @type {HTMLElement|null} */(open.previousElementSibling),blk=open.parentElement;
+    const want=pop&&pg&&blk&&blk.classList.contains('pgw')?Math.ceil(-pop.offsetTop-pvOwnGap(open,pg)):0;   // under its line: 0 or less
+    let had=PV_ROOM.get(open); if(had&&had.blk!==blk){pvRoomDrop(open); had=undefined;}
+    if(!had&&want>0&&blk){had={room:0,blk}; PV_ROOM.set(open,had); blk.classList.add('pv-roomy');}
+    if(had&&pg){if(want>had.room){had.room=want; had.blk.style.setProperty('--pv-room',want+'px');}   // a taller popover: more room, never less while it is open
+      // Its top is sticky where it stands - and lower where it comes to stand without being held (the page moved down: a
+      // scroll back, or the line growing or shrinking as the field takes the focus), so the room is under it wherever the
+      // person turns to read on.
+      const b=open.getBoundingClientRect(),t=b.top-top0; if(!pvRoomLow(open,pg,b.top,pg.getBoundingClientRect().bottom)&&!(parseFloat(open.style.top)>=t))open.style.top=t+'px';}}
+  let lifted=false;
+  PV_ROOM.forEach((_,l)=>{const bt=getComputedStyle(l).bottom; if(bt==='auto')return;   // a floating line: its top stays above where it floats
+    const most=end-(parseFloat(bt)||0)-l.getBoundingClientRect().height-top0; if((parseFloat(l.style.top)||0)>most){l.style.top=most+'px'; lifted=true;}});
+  return lifted;}
 // A phone's floating line holds [판정 취소] back (.pv-lean, components.css): unseen, not pressed, focused or heard - and in
 // its place, so the line keeps its rows whether it floats or stands in its place. Taken out of the row, it let the short
 // earlier link ('이전 1건') rise into its row while the line floated: 131 against 191px in place, and the next page jumped

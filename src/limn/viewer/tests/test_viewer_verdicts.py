@@ -3533,6 +3533,276 @@ class Reason(VerdictBase):
         self.assertNotEqual(got["strong"], got["bg"])
 
 
+# Page n's bottom, its line's top and its open popover's top on screen, where the next page lies in the pages' flow
+# (scrollTop added), whether the line floats, and the room its block holds (#345).
+ROOM_AT = """n => {const L=document.querySelector('#left'),T=L.scrollTop,lr=L.getBoundingClientRect(),pg=document.getElementById('p'+n),
+  nx=document.getElementById('p'+(n+1)),l=document.querySelector('#doc .pv[data-page="'+n+'"]'),pop=l.querySelector(':scope>.pv-pop'),
+  R=e=>e.getBoundingClientRect();
+  const st=document.getElementById('section-strip'),sr=st&&st.getClientRects().length?R(st):null;
+  return {page:R(pg).bottom, line:R(l).top, lineBottom:R(l).bottom, pop:pop?R(pop).top:null, popBottom:pop?R(pop).bottom:null,
+    next:nx?R(nx).top+T:null, area:lr.top+L.clientHeight, shows:sr&&sr.top<=lr.top+1?Math.max(lr.top,sr.bottom):lr.top,
+    stuck:l.classList.contains('stuck'), roomy:l.parentElement.classList.contains('pv-roomy'), top:l.style.top};}"""
+FOLD_INNER = {"viewport": {"width": 673, "height": 841}, "is_mobile": True, "has_touch": True}
+# The layers of page n's line's box-shadow that lie under it (a positive y offset): [colour, y] each.
+EDGE_BELOW = """n => {const l=document.querySelector('#doc .pv[data-page="'+n+'"]'),v=getComputedStyle(l).boxShadow; if(v==='none')return [];
+  return v.split(/,(?![^(]*\\))/).map(x=>x.trim()).map(x=>{const c=(x.match(/^(rgba?\\([^)]*\\)|#[0-9a-f]+|[a-z]+)/i)||[''])[0],
+    n=x.slice(c.length).trim().split(/\\s+/).map(parseFloat); return [c,n[1]];}).filter(([,y])=>y>0);}"""
+# The strong border token's colour as a computed box-shadow colour.
+BORDER_STRONG = """()=>{const e=document.createElement('div'); e.style.boxShadow='0 1px 0 var(--border-strong)'; document.body.appendChild(e);
+  const v=getComputedStyle(e).boxShadow; e.remove(); return (v.match(/^(rgba?\\([^)]*\\)|#[0-9a-f]+)/i)||[''])[0];}"""
+
+
+class ReasonRoom(VerdictBase):
+    """The page's end scrolls clear of an open reason popover (#345): the popover stands above its line, and at the page's
+    end it covered the page's last lines - a figure's caption - however far the pages scrolled. While it is open, the
+    line and the popover stay where they are as the page's end comes up from under them by what they cover; opening and
+    closing move nothing, and no page moves in the flow."""
+
+    def scroll(self, page, dy):
+        page.evaluate("d=>{document.querySelector('#left').scrollTop+=d}", dy)
+        settle(page)
+        return page.evaluate(ROOM_AT, 1)
+
+    def at_end(self, page, tap=False):
+        """Page 1 at 150% of the print size, its end 300px above the area's bottom (the line in its place under it, clear
+        of a touch screen's sheet bar), 보류 saved and the reason popover open; what ROOM_AT read just before and just
+        after it opened."""
+        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        settle(page)
+        page.evaluate(SCROLL, [1, "end"])
+        self.scroll(page, 200)
+        self.press_page(page, 1, "보류")
+        page.evaluate(END_CHIPS)  # the save chip's window over: the line at the height it keeps
+        settle(page)
+        before = page.evaluate(ROOM_AT, 1)
+        self.assertFalse(before["stuck"], before)
+        open_reason(page, 1, tap=tap)
+        settle(page)
+        return before, page.evaluate(ROOM_AT, 1)
+
+    def test_at_the_pages_end_the_page_scrolls_clear_and_nothing_moves(self):
+        """The line in its place under page 1: the opened popover covers the page's end, and nothing moves as it opens.
+        Scrolled on by what it covers, the page's end is clear above it while the line and the popover stay - floating
+        over the gap - and page 2 has not moved in the flow. Esc closes it with nothing moving; scrolled back, the line is
+        in its place under the page again and the room is gone."""
+        page = self.on("fig")
+        before, opened = self.at_end(page)
+        for k in ("page", "line", "next"):
+            self.assertAlmostEqual(opened[k], before[k], delta=0.5, msg=k)
+        covered = opened["page"] - opened["pop"]
+        self.assertGreater(covered, 20, opened)
+        clear = self.scroll(page, round(covered))
+        self.assertLessEqual(clear["page"], clear["pop"] + 0.5, clear)
+        self.assertAlmostEqual(clear["line"], opened["line"], delta=1, msg=clear)
+        self.assertTrue(clear["stuck"], clear)
+        self.assertAlmostEqual(clear["next"], opened["next"], delta=0.5)
+        page.keyboard.press("Escape")
+        settle(page)
+        self.assertIsNone(page.evaluate(REASON, 1))
+        closed = page.evaluate(ROOM_AT, 1)
+        for k in ("page", "line", "next"):
+            self.assertAlmostEqual(closed[k], clear[k], delta=0.5, msg=k)
+        back = self.scroll(page, -round(covered) - 40)
+        self.assertAlmostEqual(back["line"], back["page"] + 8, delta=1, msg=back)
+        self.assertFalse(back["stuck"], back)
+        self.assertEqual((back["roomy"], back["top"]), (False, ""), back)
+        self.assertAlmostEqual(back["next"], opened["next"], delta=0.5)
+
+    def test_a_line_held_over_the_next_page_has_an_edge_under_it_too(self):
+        """Held lower and lying over page 2's head, the line has a 1px edge and a shadow under it as over it, in both
+        themes - with an edge only above, its grey band read as page 2's head. In its place under page 1, and floating
+        over its own page, it has none under it."""
+        page = self.on("fig")
+        _, opened = self.at_end(page)
+        self.assertEqual(page.evaluate(EDGE_BELOW, 1), [], "in its place")
+        clear = self.scroll(page, round(opened["page"] - opened["pop"]))
+        self.assertGreater(
+            clear["lineBottom"] + 8, page.evaluate("()=>document.getElementById('p2').getBoundingClientRect().top")
+        )
+        for theme in ("light", "dark"):
+            with self.subTest(theme=theme):
+                page.evaluate("t=>{document.documentElement.dataset.theme=t}", theme)
+                settle(page)
+                below = page.evaluate(EDGE_BELOW, 1)
+                self.assertEqual(len(below), 2, below)  # the 1px edge and the shadow
+                self.assertIn(page.evaluate(BORDER_STRONG), [c for c, _ in below])
+        page.keyboard.press("Escape")
+        settle(page)
+        self.scroll(page, -round(opened["page"] - opened["pop"]) - 40)
+        self.assertEqual(page.evaluate(EDGE_BELOW, 1), [], "back in its place")
+        self.scroll(page, -300)  # floating over its own page
+        self.assertTrue(page.evaluate(ROOM_AT, 1)["stuck"])
+        self.assertEqual(page.evaluate(EDGE_BELOW, 1), [], "floating over its own page")
+
+    def key_save(self, page, key):
+        """Key `key` on the reading page: a new verdict saved, the list read again."""
+        want = len([p for p in self.pins().values() if p.get("state") == "open"]) + 1
+        page.keyboard.press(key)
+        page.wait_for_function("n=>OPEN_ALL.length>=n", arg=want)
+        settle(page)
+
+    def test_opening_and_closing_by_key_or_click_scroll_nothing(self):
+        """The pin panel closed (the line under each page), page 2 drawn by pdf.js, 560px wide and taller than the area: a
+        digit saves 보류 over an earlier 채택 on page 2 (its line stacked), its end is scrolled to 65px above the area's
+        bottom, and the reason is opened - by Enter, then by a click - and closed with Esc. The pages do not scroll, and
+        every line pass of those steps (pvFit) measures with the area's scroll anchoring held off. Each pass lays every line
+        in the document out as the reading line for a moment (#doc.pv-measure) - those it does not hold too, the stacked
+        lines above a figure page a row taller - and on a real figure document the anchoring kept part of that: the pages
+        went 46px down on the open and again on the close at 1440x900 (also on 0.4.38). The fixture's words do not wrap
+        that way, so the hold is read where the pass measures."""
+        for how in ("enter", "click"):
+            with self.subTest(how=how):
+                page = self.on("fig", viewport={"width": 1440, "height": 700})
+                page.evaluate("setSide(false)")
+                page.evaluate("setK(560/META.pages[1].pt_w,false); ZOOMED=true")
+                settle(page)
+                # Each page as pdf.js draws it: the PNG under the canvas hidden (.drawn, §벡터 렌더링), so nothing inside a
+                # page is a scroll anchor candidate (the canvas is out of the flow) and the area anchors on a page's block.
+                page.evaluate("()=>document.querySelectorAll('#doc .pg').forEach(p=>p.classList.add('drawn'))")
+                page.evaluate(SCROLL, [2, "top"])
+                settle(page)
+                page.locator("#left").focus()
+                self.key_save(page, "1")
+                self.key_save(page, "2")
+                page.evaluate(END_CHIPS)
+                page.evaluate(
+                    """()=>{const L=document.querySelector('#left'),lr=L.getBoundingClientRect(),r=document.getElementById('p2').getBoundingClientRect();
+                      L.scrollTop+=r.bottom-(lr.top+L.clientHeight-65);}"""
+                )
+                settle(page)
+                self.assertEqual(page.evaluate("PV_READ"), 2)
+                self.assertIn("pv-stack", page.evaluate("()=>document.querySelector('#doc .pv.reading').className"))
+                # The area's overflow-anchor at every start of a measure from here on.
+                page.evaluate(
+                    """()=>{window.__anchorAtMeasure=[];const D=document.querySelector('#doc'),add=DOMTokenList.prototype.add;
+                      DOMTokenList.prototype.add=function(...a){if(this===D.classList&&a.includes('pv-measure'))
+                        window.__anchorAtMeasure.push(getComputedStyle(document.querySelector('#left')).overflowAnchor); return add.apply(this,a);};}"""
+                )
+                at = "()=>[document.querySelector('#left').scrollTop,document.getElementById('p2').getBoundingClientRect().top]"
+                before = page.evaluate(at)
+                if how == "enter":
+                    page.keyboard.press("Enter")
+                    page.locator('#doc .pv[data-page="2"] .pv-pop .pv-reason').wait_for()
+                else:
+                    open_reason(page, 2)
+                settle(page)
+                self.assertEqual(page.evaluate(at), before, "opened")
+                page.keyboard.press("Escape")
+                settle(page)
+                self.assertIsNone(page.evaluate(REASON, 2))
+                self.assertEqual(page.evaluate(at), before, "closed")
+                held = page.evaluate("window.__anchorAtMeasure")
+                self.assertTrue(held)
+                self.assertEqual(set(held), {"none"}, held)
+                page.context.close()
+
+    def test_a_line_pass_keeps_the_reading_page_under_a_line_with_kept_rows(self):
+        """A stacked line above the reading page keeps rows its state only takes as the reading line (.pv-t-kept,
+        --pv-t-h): a full line pass (sizePv) takes them off, measures, and keeps them again. The reading page stays where it
+        was: the held blocks are let go only after the rows are kept again, so the hand correction is made against the
+        final heights - let go before, with the area not anchoring for the pass, the reading page went down by the rows.
+        The kept rows are made here by a measure-only padding on the line's state, as the fixture's words wrap otherwise."""
+        page = self.on("fig", viewport={"width": 800, "height": 700})  # under the pages: no room for the panel
+        page.evaluate("setSide(false)")
+        page.add_style_tag(content="#doc.pv-measure .pv:not(.reading)>.pv-t{padding-top:23px}")
+        page.evaluate("setK(420/META.pages[0].pt_w,false); ZOOMED=true")  # page 1 420px wide: its line stacks
+        settle(page)
+        page.evaluate(
+            """()=>{const L=document.querySelector('#left'),lr=L.getBoundingClientRect(),r=document.getElementById('p2').getBoundingClientRect();
+              L.scrollTop+=r.top-(lr.top+40);}"""
+        )
+        settle(page)
+        self.assertEqual(page.evaluate("PV_READ"), 2)
+        one = '#doc .pv[data-page="1"]'
+        self.assertEqual(
+            page.evaluate(
+                "s=>{const l=document.querySelector(s);return [l.classList.contains('pv-stack'),l.classList.contains('pv-t-kept')]}",
+                one,
+            ),
+            [True, True],
+        )
+        self.assertGreater(page.evaluate("()=>document.querySelector('#left').scrollTop"), 0)
+        at = "()=>[document.querySelector('#left').scrollTop,document.getElementById('p2').getBoundingClientRect().top]"
+        before = page.evaluate(at)
+        page.evaluate("sizePv()")
+        settle(page)
+        self.assertEqual(page.evaluate(at), before)
+
+    def test_a_floating_lines_popover_clears_the_pages_end(self):
+        """The line floating at the area's bottom over page 1, its end below the area: the popover opens with nothing moving, and scrolled down
+        until the page's end comes up to the popover's top, the line and the popover still stand where they floated."""
+        page = self.on("fig")
+        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        settle(page)
+        page.evaluate(SCROLL, [1, "end"])
+        self.scroll(page, -250)  # the page's end 150px under the area's bottom
+        self.press_page(page, 1, "보류")
+        page.evaluate(END_CHIPS)
+        settle(page)
+        before = page.evaluate(ROOM_AT, 1)
+        self.assertTrue(before["stuck"], before)
+        open_reason(page, 1)
+        settle(page)
+        opened = page.evaluate(ROOM_AT, 1)
+        for k in ("line", "next"):
+            self.assertAlmostEqual(opened[k], before[k], delta=0.5, msg=k)
+        # scrolled down until the page's end stands where the popover's top is, the popover has not moved
+        got = self.scroll(page, round(opened["page"] - opened["pop"]))
+        self.assertLessEqual(got["page"], got["pop"] + 0.5, got)
+        self.assertAlmostEqual(got["line"], before["line"], delta=1, msg=got)
+        self.assertAlmostEqual(got["next"], opened["next"], delta=0.5)
+
+    def test_the_held_line_never_stands_below_where_it_floats(self):
+        """Held where it stood, the line still rises with its floating place (a keyboard laid over the page raises it): a
+        sticky top would otherwise win over the floating bottom and leave the line under the keyboard. Lifted near the
+        area's top, its popover turns to the side that shows it whole, in the same frame."""
+        page = self.on("fig")
+        _, opened = self.at_end(page)
+        clear = self.scroll(page, round(opened["page"] - opened["pop"]))
+        lift = clear["area"] - 8 - clear["lineBottom"] + 60  # the floating place 60px above where the line is held
+        page.evaluate("v=>{document.body.style.setProperty('--pv-inset',v+'px'); pvStick();}", lift)
+        settle(page)
+        got = page.evaluate(ROOM_AT, 1)
+        self.assertAlmostEqual(got["lineBottom"], clear["lineBottom"] - 60, delta=1, msg=got)
+        h = got["lineBottom"] - got["line"]
+        lift = got["area"] - 8 - (got["shows"] + 40 + h)  # the line's top 40px under what the area shows: no room above
+        page.evaluate("v=>{document.body.style.setProperty('--pv-inset',v+'px'); pvStick();}", lift)
+        got = page.evaluate(ROOM_AT, 1)
+        self.assertAlmostEqual(got["line"], got["shows"] + 40, delta=1, msg=got)
+        self.assertGreaterEqual(got["pop"], got["shows"] - 0.5, got)
+        self.assertLessEqual(got["popBottom"], got["area"] - lift + 0.5, got)
+
+    def test_the_room_goes_when_the_line_moves_beside_the_pages(self):
+        """Held lower with its popover open, the line moves into the side panel as a wider window gives the room beside the
+        pages (§판정 패널): its block keeps no room - beside the pages the blocks are grids, where the empty box would be a
+        cell."""
+        page = self.on("fig")
+        _, opened = self.at_end(page)
+        self.scroll(page, round(opened["page"] - opened["pop"]))
+        self.assertTrue(page.evaluate("()=>!!document.querySelector('#doc .pgw.pv-roomy')"))
+        room = page.evaluate(
+            "()=>innerW()-pageWidth(ptMax(),K)"
+        )  # the room beside the pages (verdict-panel.js pvSideRoom)
+        size = page.viewport_size
+        page.set_viewport_size({"width": int(size["width"] + 420 - room), "height": size["height"]})
+        settle(page)
+        self.assertTrue(page.evaluate("()=>document.body.classList.contains('pv-beside')"))
+        self.assertFalse(
+            page.evaluate("()=>!!document.querySelector('#doc .pgw.pv-roomy,#doc .pgw[style*=\"--pv-room\"]')")
+        )
+
+    def test_on_a_touch_screen_the_page_scrolls_clear(self):
+        """The unfolded foldable (673x841, touch): a tap opens the popover at the page's end, and scrolled on by what it
+        covers, the page's end is clear above it with the line where it stood."""
+        page = self.on("fig", **FOLD_INNER)
+        _, opened = self.at_end(page, tap=True)
+        covered = opened["page"] - opened["pop"]
+        self.assertGreater(covered, 20, opened)
+        clear = self.scroll(page, round(covered))
+        self.assertLessEqual(clear["page"], clear["pop"] + 0.5, clear)
+        self.assertAlmostEqual(clear["line"], opened["line"], delta=1, msg=clear)
+
+
 class ReasonAgentRole(VerdictBase):
     """A person with the agent role makes no verdict, so no reason field either."""
 
