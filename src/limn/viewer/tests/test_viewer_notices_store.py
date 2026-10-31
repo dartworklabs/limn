@@ -404,5 +404,112 @@ class StoreFlows(NoticePage, BrowserBase):
                 self.assertEqual(len(drops), 2)
 
 
+# The focused control's action (or tag) and its Trash row's pin.
+TRASH_FOCUS = """() => {const a = document.activeElement, r = a && a.closest && a.closest('#trash-list .arc-row[data-id]');
+  return [a ? a.dataset.act || a.tagName : '', r ? +r.dataset.id : null];}"""
+# The message saying the Trash's [되살리기] of a pin is late, as [place, host, its text], or null.
+RESTORE_LATE = """id => {const n = [...NOTICES.values()].find(n => n.source === NOTICE_LATE_SRC + 'restore:' + id);
+  return n ? [n.place, n.host, n.title + (n.desc ? ' · ' + n.desc : '')] : null;}"""
+
+
+class TrashRestore(NoticePage, BrowserBase):
+    """[되살리기] on a Trash row (#336). By keyboard its row goes with the answer: the focus goes on in the Trash - the next
+    row's [되살리기], else the one before's, else [닫기] - or stays on the row's when it failed; never to nothing, and a
+    focus the person moved meanwhile is theirs. Its request has the bound an undo's has: past it the Trash (or, closed, the
+    list) says the answer is late, and that goes with the answer."""
+
+    def trash(self, n):
+        """n pins deleted, the Trash open on the desktop; the page and the pins in the Trash's order."""
+        ids = [self.pin(6 + 2 * i, "지울 핀 %d" % i) for i in range(n)]
+        page = self.view("desktop", n_open=n)
+        for pid in ids:
+            page.evaluate("id=>dropPin(id,false)", pid)
+        settle(page)
+        page.evaluate("openTrash()")
+        settle(page)
+        order = page.evaluate(
+            "()=>[...document.querySelectorAll('#trash-list .arc-row[data-id]')].map(r=>+r.dataset.id)"
+        )
+        self.assertEqual(sorted(order), sorted(ids))
+        return page, order
+
+    def press(self, page, pid):
+        """Enter on pin pid's [되살리기] in the Trash."""
+        page.locator('#trash-list .arc-row[data-id="%d"] [data-act="restore"]' % pid).focus()
+        page.keyboard.press("Enter")
+
+    def test_the_focus_goes_on_to_the_next_row_then_the_one_before_then_close(self):
+        """Three rows a, b, c: b restored by key puts the focus on c's [되살리기]; c, the last, on a's; a, the only one, on
+        [닫기]. The Trash stays open and every pin is back."""
+        page, (a, b, c) = self.trash(3)
+        for pid, then in ((b, ["restore", c]), (c, ["restore", a]), (a, ["trash-close", None])):
+            self.press(page, pid)
+            page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id)", arg=pid)
+            settle(page)
+            self.assertEqual(page.evaluate(TRASH_FOCUS), then, "after #%d" % pid)
+            self.assertTrue(page.evaluate("()=>$('#trash').open"))
+        self.assertEqual([self.state(x) for x in (a, b, c)], ["open"] * 3)
+
+    def test_a_failed_restore_keeps_the_focus_on_its_row_and_a_moved_one_is_left_alone(self):
+        """The restore answered 500: the row is drawn again and the focus is back on its [되살리기]. Then a restore held
+        while the person moves to another row's [되살리기]: the answer leaves the focus there."""
+        page, (a, b, c) = self.trash(3)
+        held = []
+        page.route("**/api/pins/%d/restore" % a, lambda route: held.append(route))
+        self.press(page, a)
+        for _ in range(100):
+            if held:
+                break
+            page.wait_for_timeout(20)
+        held[0].fulfill(status=500, headers={"content-type": "application/json"}, body='{"error": "서버 오류"}')
+        page.wait_for_function("()=>[...NOTICES.values()].some(n=>n.kind===NOTICE_KIND.ERR)")
+        settle(page)
+        self.assertEqual(page.evaluate(TRASH_FOCUS), ["restore", a])
+        self.assertFalse(page.evaluate("id=>OPEN_ALL.some(p=>p.id===id)", a))
+        held.clear()
+        self.press(page, a)
+        for _ in range(100):
+            if held:
+                break
+            page.wait_for_timeout(20)
+        page.locator('#trash-list .arc-row[data-id="%d"] [data-act="restore"]' % c).focus()
+        self.route(held[0])
+        page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id)", arg=a)
+        settle(page)
+        self.assertEqual(page.evaluate(TRASH_FOCUS), ["restore", c])
+
+    def test_a_restore_that_does_not_answer_says_so_in_the_trash_or_where_it_is_closed_to(self):
+        """The restore held past the bound: with the Trash open its banner says '되살리기의 답이 늦습니다 · 핀 #N'; with
+        the Trash closed first the list (or the line) says it. Once, and gone with the answer; one request, the pin back."""
+        held = []  # the restore request, caught and held until the test lets it through
+        for closed in (False, True):
+            with self.subTest(closed=closed):
+                self.tearDown()
+                self.setUp()
+                held.clear()
+                page, (a,) = self.trash(1)
+                page.route("**/api/pins/%d/restore" % a, lambda route: held.append(route))
+                page.evaluate("NOTICE_ACT_WAIT=150")
+                self.press(page, a)
+                if closed:
+                    page.keyboard.press("Escape")
+                    page.wait_for_function("()=>!$('#trash').open")
+                page.wait_for_function(RESTORE_LATE, arg=a)
+                place, host, text = page.evaluate(RESTORE_LATE, a)
+                self.assertEqual(text, "되살리기의 답이 늦습니다 · 핀 #%d" % a)
+                if not closed:
+                    self.assertEqual((place, host), ("banner", "trash"))
+                    self.assertIn("되살리기의 답이 늦습니다", page.locator("#trash").inner_text())
+                else:
+                    self.assertNotEqual(host, "trash")
+                self.assertEqual(len(held), 1)
+                self.route(held[0])
+                page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id)", arg=a)
+                page.wait_for_function("id=>!(" + RESTORE_LATE + ")(id)", arg=a)
+                settle(page)
+                self.assertEqual(self.state(a), "open")
+                self.assertEqual(len(held), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

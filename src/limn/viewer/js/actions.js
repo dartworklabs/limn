@@ -95,6 +95,14 @@ function purgePin(id){const prev=drawnBefore($('#trash-list'),'.arc-row',id); PU
 /** @param {number|null} id @returns {Promise<boolean>} */
 async function restorePin(id){let ok=false; try{await api('/api/pins/'+id+'/restore',{method:'POST',what:'되살리기',where:NOTICE_HOST.LIST,retry:()=>{restorePin(id);}});
   ok=true; markMine(id); quietNote(tl('핀 #{id} 되살림',{id}));}catch(e){} await loadPins(); return ok;}
+// [되살리기] on a Trash row: restorePin with the bound an undo's request has (noticeAct, NOTICE_ACT_WAIT). Past it without an
+// answer '되살리기의 답이 늦습니다 · 핀 #N' is said where a failure of it would be (bannerNote: the Trash while it is open, else
+// the list, else the status line - one title there, as noticeLate's), once per pin (its source), and it goes with the answer.
+/** @param {number|null} id */
+async function trashRestore(id){const src=NOTICE_LATE_SRC+'restore:'+id;
+  const wait=setTimeout(()=>{const t=tr('되살리기의 답이 늦습니다')+' · '+tl('핀 #{id}',{id});
+    const m=bannerNote(NOTICE_HOST.LIST,t,NOTICE_KIND.WARN,null,{literal:true,source:src}); if(m&&m.place===NOTICE_PLACE.LINE){m.title=t; m.desc=''; drawStatus();}},NOTICE_ACT_WAIT);
+  try{await restorePin(id);}finally{clearTimeout(wait); sourceOk(src);}}
 // [풀기]: the in-progress mark goes. Silent - the badge goes with it.
 async function unclaimPin(id){try{await api('/api/pins/'+id+'/unclaim',{method:'POST',what:'처리 중 풀기',where:NOTICE_HOST.LIST,retry:()=>unclaimPin(id)});
   markMine(id); quietNote(tl('핀 #{id} 처리 중 표시를 풀었습니다',{id}));}catch(e){} await loadPins();}
