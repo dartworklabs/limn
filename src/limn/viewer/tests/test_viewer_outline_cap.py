@@ -143,6 +143,18 @@ class OutlineLogic(unittest.TestCase):
         )
         self.assertEqual(got, [None, 992, None, 748, 992, 148, 102, 0, None, 1062, 910, 960])
 
+    def test_the_sheet_shows_the_current_section_and_never_cuts_the_current_row_above_it(self):
+        """navSheetBy(head, bottom, c, k): a section in view moves nothing; one below comes towards the middle, as far as the
+        current row of the documents or the view (k) stays whole if that shows it - and when that is not far enough (a long
+        outline) on to the middle, k going wholly under the head, past it if the middle alone would cut it. No k, the middle."""
+        got = self.run_js(
+            ["navSheetBy"],
+            """[navSheetBy(100,800,{top:300,bottom:344},{top:120,bottom:164}),navSheetBy(100,800,{top:820,bottom:864},{top:600,bottom:644}),
+            navSheetBy(100,800,{top:900,bottom:944},{top:400,bottom:444}),navSheetBy(100,800,{top:3000,bottom:3044},{top:132,bottom:176}),
+            navSheetBy(100,180,{top:190,bottom:234},{top:110,bottom:186}),navSheetBy(100,800,{top:3000,bottom:3044},null)]""",
+        )
+        self.assertEqual(got, [0, 392, 300, 2572, 86, 2572])
+
     REFERENCE = """function referenceIndexAt(entries,page,frac){
       const at=e=>e.frac||0,deep=e=>e.depth||0,above=e=>e.page<page||(e.page===page&&at(e)<=frac+1e-6);
       const x=e=>typeof e.x==='number'?e.x:null,sameX=(a,b)=>x(a)===null||x(b)===null?x(a)===x(b):Math.abs(x(a)-x(b))<=1e-3;
@@ -1088,26 +1100,38 @@ class OutlineFollow(OutlineBase):
         )
         self.assertEqual(got, {"still": 0, "samePage": 0, "moved": 1})
 
-    def test_the_overlay_opens_at_the_current_row_and_the_phones_sheet_keeps_its_rule(self):
-        """The overlay of a folded-out phone is the same panel: it opens at the current row, and the focus stays on the toggle.
-        The phone's sheet is another list and keeps its own rule (navSheetReveal, SheetFocus): the sheet does not scroll
-        past the view switch to reach it."""
+    def test_the_overlay_opens_at_the_current_row(self):
+        """The overlay of a folded-out phone is the same panel: it opens at the current row, and the focus stays on the toggle."""
         page = self.long(**FOLD)
         self.read_to(page, 2)
         self.assertEqual(page.evaluate(FOLLOW)["top"], 0)
         page.tap("#nav-toc-toggle")
         page.wait_for_function(SHOWN, timeout=3000)
         self.assertEqual(page.evaluate(FOLLOW)["focus"], "nav-toc-toggle")
+
+    def test_the_phones_sheet_opens_at_the_current_row(self):
+        """390x844: the sheet's current row lay thousands of px below the documents' row, which held the sheet at its top (#335).
+        It opens with that row whole in the middle of the space under its head; the current document's row goes wholly under
+        the head, not cut by it; the pages do not move and the focus is the sheet's (SheetFocus)."""
         phone = self.long(**PHONE)
-        self.read_to(phone, 2)
+        pages = self.read_to(phone, 2)
         phone.tap("#btn-pos")
         phone.wait_for_function("document.querySelector('#nav-sheet').open")
         settle(phone)
         got = phone.evaluate(
-            """() => {const d = document.querySelector('#nav-sheet'), view = d.querySelector('#ns-view [aria-checked=true]');
-              return view.getBoundingClientRect().top - d.querySelector('.ns-head').getBoundingClientRect().bottom;}"""
+            """() => {const d = document.querySelector('#nav-sheet'), h = d.querySelector('.ns-head').getBoundingClientRect().bottom,
+              D = d.getBoundingClientRect(), row = d.querySelector('#ns-outline-items .ol-active'), r = row.getBoundingClientRect(),
+              doc = d.querySelector('.dm-item.on').getBoundingClientRect();
+              return {index: +row.dataset.index, whole: r.top >= h - 0.5 && r.bottom <= D.bottom + 0.5,
+                middle: (r.top + r.bottom) / 2 - (h + D.bottom) / 2, cut: doc.top < h - 0.5 && doc.bottom > h + 0.5,
+                scrolled: d.scrollTop, pages: document.querySelector('#left').scrollTop, focus: document.activeElement.id};}"""
         )
-        self.assertGreaterEqual(got, 0)
+        self.assertEqual(got["index"], FIRST_ON_2, got)
+        self.assertTrue(got["whole"], got)
+        self.assertAlmostEqual(got["middle"], 0, delta=1, msg=got)
+        self.assertFalse(got["cut"], got)
+        self.assertGreater(got["scrolled"], 0, got)
+        self.assertEqual((got["pages"], got["focus"]), (pages, "nav-sheet"), got)
 
 
 def flatten(tree):

@@ -10,6 +10,10 @@
   with it, its head and the two rows above that: the list moves once as the reading comes up into a section and not
   again until it reaches the head. Going down, and a row already clear, nothing changes; the pages and the focus never
   move.
+- **The phone's navigation sheet opens at the current section (#335).** The sheet kept the current document's row (or the
+  view's) under its head and so stopped at the top of a long outline, the current section thousands of px below. It now
+  brings that section to the middle of the space under the head; the document's row stays whole above it where both fit,
+  and otherwise goes wholly under the head, never cut off. The pages do not move and the focus stays on the sheet.
 
 ## 0.4.37 — 2026-10-31
 

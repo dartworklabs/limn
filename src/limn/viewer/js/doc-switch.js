@@ -6,21 +6,26 @@ function drawDocsMenu(){$('#ns-docs').hidden=!multiDoc();
     return html`<button class="dm-item${on?' on':''}" role="option" aria-selected="${on}" data-act="doc" data-doc="${d.key}" data-close="1"><span class="tx"><span class="nm" translate="no">${d.name}${on?ic('check'):''}</span><span class="ph" translate="no">${d.path}</span></span>${docBadge(d)}</button>`;})}`);}
 // The phone's navigation sheet (docs/handbook/viewer.md §모바일 레이아웃): documents, [원고 | 변경사항], the page field with the
 // page rows under it (drawSheetPages, scrolled to the current page) and the outline, each a destination - picking one goes there and closes the sheet. The focus is the sheet itself (showSheet) and
-// the outline's current section shows (navSheetReveal) without hiding the current document's row (else the chosen view); the
-// page field gets no focus, so no keyboard covers the sheet.
+// the outline's current section shows (navSheetReveal), with the current document's row (else the chosen view) whole above it
+// where both fit; the page field gets no focus, so no keyboard covers the sheet.
 function openNavSheet(){const d=$('#nav-sheet'); if(d.open)return; hideTip(); drawDocsMenu(); drawNavView(); markOutline();   // its rows are drawn already (renderOutline when the outline was read): only the mark moves
   const n=META&&META.pages?META.pages.length:0,f=$('#ns-page-in');
   f.value=''; f.placeholder=String(OUTLINE_ACTIVE_PAGE||1); $('#ns-page-n').textContent=tl('/ {n}쪽',{n}); drawSheetPages();
   showSheet(d); d.scrollTop=0; revealPageRow($('#ns-pages')); tipCutTitles($('#ns-pages')); const on=(multiDoc()&&d.querySelector('.dm-item.on'))||d.querySelector('#ns-view [aria-checked=true]');
   navSheetReveal(d,on);}
-// The outline's current section in the open sheet d: left where it is when it is already in view under the sticky head, else
-// the sheet scrolls it towards the middle of that space - but never so far that the current row (keep: the document's or
-// the view's) goes under the head, where it would show cut off. The whole sheet scrolls, so the documents above it move too.
+// The outline's current section in the open sheet d, brought into view under the sticky head (navSheetBy). The whole sheet scrolls
+// (its scrollTop, so nothing else moves), the documents above the outline with it, and the focus stays on the sheet.
 function navSheetReveal(d,keep){const cur=d.querySelector('#ns-outline-items .ol-active'); if(!cur)return;
-  const head=d.querySelector('.ns-head').getBoundingClientRect().bottom,box=d.getBoundingClientRect(),c=cur.getBoundingClientRect();
-  if(c.top>=head&&c.bottom<=box.bottom)return;
-  const want=c.top+c.height/2-(head+box.bottom)/2,room=keep?keep.getBoundingClientRect().top-head:Infinity;
-  d.scrollTop+=Math.max(0,Math.min(want,room));}
+  d.scrollTop+=navSheetBy(d.querySelector('.ns-head').getBoundingClientRect().bottom,d.getBoundingClientRect().bottom,
+    cur.getBoundingClientRect(),keep?keep.getBoundingClientRect():null);}
+/** How far the sheet scrolls down to show the outline's current row c in the space between the head's bottom edge (head) and the
+ * sheet's (bottom): none when it shows there whole, else towards the middle of that space. The current row of the documents or the
+ * view (k) stays whole above it as long as c then shows: only as far as k reaches the head, if that is far enough. Further down - a
+ * long outline puts c thousands of px under k - c wins and k goes wholly under the head, never cut off by it. Pure.
+ * @param {number} head @param {number} bottom @param {{top:number,bottom:number}} c @param {{top:number,bottom:number}|null} k */
+function navSheetBy(head,bottom,c,k){if(c.top>=head&&c.bottom<=bottom)return 0;
+  const want=(c.top+c.bottom)/2-(head+bottom)/2,room=k?k.top-head:Infinity;
+  return Math.max(0,!k||want<=room||c.bottom-room<=bottom?Math.min(want,room):Math.max(want,k.bottom-head));}
 // The navigation sheet's view switch: the view on screen is the checked radio.
 function drawNavView(){const rev=document.body.classList.contains('revision-open');
   for(const b of $$('#ns-view [role=radio]')){const on=(b.dataset.mode===VIEW_MODE.REVISIONS)===rev; b.setAttribute('aria-checked',String(on)); b.classList.toggle('on',on);}}

@@ -5233,10 +5233,11 @@ class BarAndSheets(ViewerBase):
                 self.assertEqual((got["focus"], got["current"]), ("nav-sheet", "ms"))
                 self.assertEqual(page.evaluate(MISSES_44, "#nav-sheet button,#nav-sheet input"), [])
 
-    def test_the_current_section_scrolls_up_only_as_far_as_the_focused_row_stays_under_the_head(self):
-        """The sheet brings the outline's current section towards the middle of the space under its sticky head, but never
-        so far that the current document's row goes under the head (the evidence run at 411 found the row 37px under it, a
-        cut-off highlighted row). A section already in view stays where it is; a deep one comes as close as that allows."""
+    def test_the_current_section_shows_and_the_current_documents_row_is_never_cut_by_the_head(self):
+        """The sheet brings the outline's current section towards the middle of the space under its sticky head. A section
+        already in view stays where it is; a deep one shows whole, and the current document's row above it is never cut off
+        by the head (the evidence run at 411 found it 37px under it): whole under the head, or - when keeping it there would
+        leave the section out of sight - wholly under the head. The focus stays on the sheet."""
         for selected in (2, 25):
             with self.subTest(selected=selected):
                 page = self.docs_view(BAR_PHONES[0])
@@ -5251,16 +5252,18 @@ class BarAndSheets(ViewerBase):
                     "(()=>{const d=document.getElementById('nav-sheet'),h=d.querySelector('.ns-head').getBoundingClientRect(),"
                     "f=d.querySelector('.dm-item.on').getBoundingClientRect(),a=d.querySelector('#ns-outline-items .ol-active')"
                     ".getBoundingClientRect(),D=d.getBoundingClientRect();"
-                    "return {gap:Math.round(f.top-h.bottom),st:d.scrollTop,active:[Math.round(a.top),Math.round(a.bottom)],"
-                    "head:Math.round(h.bottom),bottom:Math.round(D.bottom),focus:d.querySelector('.dm-item.on').dataset.doc};})()"
+                    "return {gap:Math.round(f.top-h.bottom),under:Math.round(h.bottom-f.bottom),st:d.scrollTop,"
+                    "active:[Math.round(a.top),Math.round(a.bottom)],head:Math.round(h.bottom),bottom:Math.round(D.bottom),"
+                    "current:d.querySelector('.dm-item.on').dataset.doc,focus:document.activeElement.id};})()"
                 )
-                self.assertEqual(got["focus"], "ms", got)
-                self.assertGreaterEqual(got["gap"], 0, got)  # the current row is whole, under the head
+                self.assertEqual((got["current"], got["focus"]), ("ms", "nav-sheet"), got)
+                self.assertGreaterEqual(got["active"][0], got["head"], got)  # the section shows whole under the head
+                self.assertLessEqual(got["active"][1], got["bottom"], got)
+                self.assertTrue(got["gap"] >= 0 or got["under"] >= 0, got)  # the document's row is not cut by the head
                 if selected == 2:
                     self.assertEqual(got["st"], 0, got)  # in view already: the sheet opens at its top
                 else:
-                    self.assertGreater(got["st"], 0, got)  # a deep section: the sheet scrolls towards it
-                    self.assertEqual(got["gap"], 0, got)  # ...exactly as far as the current row allows
+                    self.assertGreater(got["st"], 0, got)  # a deep section: the sheet scrolls to it
 
     def test_every_choice_goes_there_and_closes_the_sheet(self):
         """Picking is going: [변경사항] opens the changes view (the button then reads 변경사항), a page past the end goes to
