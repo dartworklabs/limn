@@ -19,11 +19,16 @@ from helpers import extract_js_fn, ps, run_node
 from helpers_access import ALICE
 from helpers_browser import BrowserBase, nothing_follows, settle
 from helpers_notices import node_or_skip
-from helpers_outline import chain_tree, grouped_tree, outline_pdf
+from helpers_outline import SHEET_ROWS, chain_tree, grouped_tree, outline_pdf
 
 DESKTOP = {"viewport": {"width": 1400, "height": 850}}
 FOLD = {"viewport": {"width": 841, "height": 673}, "is_mobile": True, "has_touch": True}
 PHONE = {"viewport": {"width": 390, "height": 844}, "is_mobile": True, "has_touch": True}
+TABLET_SHEET = {
+    "viewport": {"width": 882, "height": 1104},
+    "is_mobile": True,
+    "has_touch": True,
+}  # the unfolded foldable, upright
 NO_COACH = "try{localStorage.setItem('pinPrefs',JSON.stringify({coach:{touch:1,mouse:1,sel:1}}))}catch(e){}"
 CAP = 2000  # OUTLINE_MAX_ENTRIES
 LEVELS = 5  # OUTLINE_MAX_DEPTH + 1
@@ -122,6 +127,81 @@ class OutlineLogic(unittest.TestCase):
             got,
             [None, None, None, 1, 999, 48, 1952, 62, 2272, 1852, 1942, 4100, 290, 300, 300, 0, 0, 252, None]
             + [None, 999, 800, 1048, 910, 1448],
+        )
+
+    def test_going_up_the_rows_above_and_the_sections_head_show_where_they_fit(self):
+        """outlineRevealTop(..., cover, near, group): a row that enters the top margin, or is above the view, comes up further
+        than the margin - to near (the two rows above it) when that is more than the margin and fits with the row and the
+        margin under it, and on to group (its section's head and two rows above that) where that fits too; to the very top
+        where only the panel's head would be left. Whether the list moves at all is still the margin's: a row 48px under the
+        band moves nothing, nor one clear of near with its head out of sight, and going down, on a view too short for near
+        and with fewer rows than the margin above nothing changes."""
+        got = self.run_js(
+            ["outlineRevealTop"],
+            """[outlineRevealTop(1000,800,5000,1100,1124,48,100,52,1044,800),outlineRevealTop(1000,800,5000,1090,1114,48,100,52),
+            outlineRevealTop(1000,800,5000,1090,1114,48,100,52,1034),outlineRevealTop(1000,800,5000,1090,1114,48,100,52,1034,800),
+            outlineRevealTop(1000,800,5000,1090,1114,48,100,52,1034,300),outlineRevealTop(1000,800,5000,500,524,48,100,52,444,200),
+            outlineRevealTop(1000,800,5000,210,234,48,100,52,154),outlineRevealTop(1000,800,5000,210,234,48,100,52,154,100),
+            outlineRevealTop(1000,800,5000,1300,1324,48,100,52,1244,800),outlineRevealTop(1000,800,5000,1790,1814,48,100,52,1734,800),
+            outlineRevealTop(1000,152,5000,1000,1024,48,100,52,944,600),outlineRevealTop(1000,800,5000,1060,1084,48,100,52,1040,1040)]""",
+        )
+        self.assertEqual(got, [None, 990, 982, 748, 982, 148, 102, 0, None, 1062, 910, 960])
+
+    def test_two_rows_next_to_each_other_do_not_send_a_short_panel_back_and_forth(self):
+        """A panel 152px high under the band, the mark going back and forth between two neighbouring rows: the lower one moves
+        the list once and then neither moves it - the two rows kept over a row coming up are where it lands, not a margin a
+        row must keep, which here would push the upper one down and the lower one up again at every move (review of #335)."""
+        got = self.run_js(
+            ["outlineRevealTop"],
+            """(()=>{let st=1000; const seen=[];
+              for(let i=0;i<6;i++){const [t,b,n]=i%2?[1136,1160,1080]:[1108,1132,1052];
+                const to=outlineRevealTop(st,204,5000,t,b,48,100,52,n); seen.push(to); if(to!==null)st=to;}
+              return seen;})()""",
+        )
+        self.assertEqual(got, [None, 1004, None, None, None, None])
+
+    def test_the_sheet_shows_whole_outline_rows_around_the_current_one(self):
+        """navSheetWindow(rows, c, room): the most whole rows around c that fit in room, one at a time on the side with fewer -
+        five of ten 44px rows around the sixth, the first five at the top, the last five at the end, c alone in less than a row,
+        no part row from what is left over, all of a short list, rows of two heights - and, down, from c on (above only at the
+        end). navSheetStep(parts, need, pin): where the sheet stops when it must scroll too - the first part's top at or past
+        need, the last when none is; with a row pinned under the head, where a part starts right under that row (the documents'
+        row of 62px, the one document's view of 44px), on a part's top before it is pinned and again once its list has gone."""
+        got = self.run_js(
+            ["navSheetWindow", "navSheetStep"],
+            """(()=>{const even=n=>Array.from({length:n},(_,i)=>({top:48*i,bottom:48*i+44}));
+              const mixed=[{top:0,bottom:44},{top:48,bottom:112},{top:116,bottom:160},{top:164,bottom:228},{top:232,bottom:276},{top:280,bottom:324}];
+              return [navSheetWindow(even(10),5,236),navSheetWindow(even(10),0,236),navSheetWindow(even(10),9,236),navSheetWindow(even(10),5,30),
+                navSheetWindow(even(10),5,239),navSheetWindow(even(3),1,1000),navSheetWindow(mixed,2,200),
+                navSheetStep([0,30,96,162,230],98),navSheetStep([0,30,96,162,230],96),navSheetStep([0,30,96,162,230],95.6),
+                navSheetStep([0,30,96,162,230],300),navSheetStep([],10),
+                navSheetWindow(even(10),2,236,true),navSheetWindow(even(10),8,236,true),
+                navSheetStep([0,30,96,162,230],98,{top:30,height:62,end:226}),navSheetStep([10,62,124,184,414],60,{top:10,height:44,end:Infinity}),
+                navSheetStep([0,30,96,162,230,282],240,{top:30,height:62,end:226}),navSheetStep([0,30,96,162,230],20,{top:30,height:62,end:226})];})()""",
+        )
+        self.assertEqual(
+            got,
+            [[3, 7], [0, 4], [5, 9], [5, 5], [3, 7], [0, 2], [1, 3], 162, 96, 96, 230, 0]
+            + [[2, 6], [5, 9], 100, 80, 282, 30],
+        )
+
+    def test_the_page_list_and_the_outline_share_the_room_in_whole_rows(self):
+        """navSheetShare(room, pagesOf, most, three, one): the most page rows (44px, up to five) that leave the outline three
+        rows (148px); short of that the current page's row and one outline row (52px), then no page row; nothing when not even
+        an outline row fits; a document without a page list gives it all to the outline. navSheetSpan(rows, c, m): m rows
+        around c, as near the middle as the list's ends allow - the last five at the end, the first five at the start."""
+        got = self.run_js(
+            ["navSheetShare", "navSheetSpan"],
+            """(()=>{const pg=m=>44*m, even=n=>Array.from({length:n},(_,i)=>({top:44*i,bottom:44*i+44}));
+              return [navSheetShare(400,pg,5,148,52),navSheetShare(300,pg,5,148,52),navSheetShare(196,pg,5,148,52),navSheetShare(120,pg,5,148,52),
+                navSheetShare(60,pg,5,148,52),navSheetShare(40,pg,5,148,52),navSheetShare(400,pg,2,148,52),navSheetShare(100,pg,0,148,52),
+                navSheetSpan(even(14),13,5),navSheetSpan(even(14),0,5),navSheetSpan(even(14),6,5),navSheetSpan(even(3),1,5),
+                navSheetSpan(even(14),6,0),navSheetSpan([],0,3)];})()""",
+        )
+        self.assertEqual(
+            got,
+            [{"pages": 5}, {"pages": 3}, {"pages": 1}, {"pages": 1}, {"pages": 0}, None, {"pages": 2}, {"pages": 0}]
+            + [[9, 13], [0, 4], [4, 8], [0, 2], None, None],
         )
 
     REFERENCE = """function referenceIndexAt(entries,page,frac){
@@ -541,6 +621,19 @@ FOLLOW = (
     under: r ? r.top - edge : null, over: r ? o.bottom - r.bottom : null, top: box.scrollTop,
     pages: document.querySelector('#left').scrollTop, window: scrollY, focus: a.id || a.tagName};}"""
 )
+# The marked row going up against the band: its entry, whether it shows whole, how far under the band stand the top of the row two
+# above it (null when there is none), of its section's head (null at the top level) and of what the follow keeps over it - two rows
+# above that head, else above the row - and the pages' scroll and the focus.
+UP = (
+    """() => {"""
+    + VIEW
+    + """ const row = document.querySelector('#outline-items .ol-active'), r = row.getBoundingClientRect(), e = OUTLINE_ENTRIES[+row.dataset.index];
+  const two = b => b.previousElementSibling && b.previousElementSibling.previousElementSibling,
+    head = e.up >= 0 ? document.querySelector('#outline-items [data-index="' + e.up + '"]') : null, lead = two(head || row), a = document.activeElement;
+  return {index: +row.dataset.index, whole: r.top >= edge - 0.5 && r.bottom <= o.bottom + 0.5,
+    two: two(row) ? two(row).getBoundingClientRect().top - edge : null, head: head ? head.getBoundingClientRect().top - edge : null,
+    lead: lead ? lead.getBoundingClientRect().top - edge : null, pages: document.querySelector('#left').scrollTop, focus: a.id || a.tagName};}"""
+)
 # Whether the marked row shows whole in the panel: what a follow ends in, so a test waits on it (and fails at the wait without one).
 SHOWN = (
     """() => {"""
@@ -783,7 +876,8 @@ class OutlineFollow(OutlineBase):
         )
 
     def test_the_margin_counts_from_under_the_filter(self):
-        """Going up, a row stops 48px under the band and not under the band itself, on a list that is far down."""
+        """Going up, what the list keeps over a row - here its section's head and the two rows above that - starts right under
+        the band, not under the panel's top, on a list that is far down."""
         page = self.long()
         self.read_to(page, 2)
         page.wait_for_function(SHOWN, timeout=3000)
@@ -793,14 +887,63 @@ class OutlineFollow(OutlineBase):
             """top => {const box = document.querySelector('#outline'), o = box.getBoundingClientRect();
               box.scrollTop = top + 600;
               return Math.min(...[...document.querySelectorAll('#outline-items button')]
-                .filter(b => b.getBoundingClientRect().top >= o.top + 60).map(b => +b.dataset.index));}""",
+                .filter(b => b.getBoundingClientRect().top >= o.top + 60 && OUTLINE_ENTRIES[+b.dataset.index].up >= 0)
+                .map(b => +b.dataset.index));}""",
             top,
         )
         page.evaluate("i => {OUTLINE_SELECTED = i; markOutline();}", row)
         page.evaluate(STILL)
-        got = page.evaluate(FOLLOW)
+        got = page.evaluate(UP)
         self.assertEqual(got["index"], row, got)
-        self.assertAlmostEqual(got["under"], 48, delta=1, msg=got)
+        self.assertTrue(got["whole"], got)
+        self.assertAlmostEqual(got["lead"], 0, delta=1, msg=got)
+
+    def walk_up(self, page, start, stop):
+        """Mark start, then each entry above it down to stop as reading back a page at a time does; what UP read at each,
+        and how many times the panel was asked to scroll on the way."""
+        page.evaluate("i => {OUTLINE_SELECTED = i; markOutline();}", start)
+        page.evaluate(STILL)
+        page.evaluate(SCROLLS)
+        pages = page.evaluate("document.querySelector('#left').scrollTop")
+        seen = []
+        for i in range(start - 1, stop - 1, -1):
+            page.evaluate("i => {OUTLINE_SELECTED = i; markOutline();}", i)
+            page.evaluate(STILL)
+            got = page.evaluate(UP)
+            self.assertEqual((got["index"], got["pages"], got["focus"]), (i, pages, "BODY"), got)
+            seen.append(got)
+        return seen, len(page.evaluate("SCROLLS"))
+
+    def test_coming_up_into_a_section_shows_its_head_and_the_rows_up_to_it_move_nothing(self):
+        """Reading back, the marked row has two whole rows over it, and where its section fits in the panel with it, the head
+        it belongs to shows too (#335: 48px kept the row a row and a half under the filter, the head out of sight). The list
+        moves once as the reading comes up into a section and not again until it leaves it - never more often than before -
+        and the pages and the focus stay where they are."""
+        page = self.long()
+        seen, moves = self.walk_up(page, 110, 40)
+        for got in seen:
+            with self.subTest(index=got["index"]):
+                self.assertTrue(got["whole"], got)
+                self.assertGreaterEqual(got["two"], -0.5, got)  # two whole rows over it
+                if got["head"] is not None:
+                    self.assertGreaterEqual(got["head"], -0.5, got)  # and the head of its section
+        self.assertGreater(moves, 0)
+        self.assertLessEqual(moves, 7)  # into each of the seven sections the walk passes through, at most once
+
+    def test_a_section_taller_than_the_panel_keeps_two_rows_over_the_row(self):
+        """A section whose head cannot show with the row is followed a row at a time, with the two rows above it right under
+        the filter's band: no more moves than one per row."""
+        page = self.on("ms")
+        self.assertEqual(self.load(page, grouped_tree(LONG, 2, LONG)), [LONG, 0])  # one head and all the rest under it
+        seen, moves = self.walk_up(page, 100, 60)
+        for got in seen:
+            with self.subTest(index=got["index"]):
+                self.assertTrue(got["whole"], got)
+                self.assertGreaterEqual(got["two"], -0.5, got)
+                self.assertLess(got["head"], 0, got)  # the head is too far above to show
+        self.assertGreater(moves, 0)
+        self.assertLessEqual(moves, len(seen))
+        self.assertAlmostEqual(seen[-1]["two"], 0, delta=1, msg=seen[-1])
 
     def test_a_row_the_keyboard_walks_to_does_not_stop_under_the_filter(self):
         """The browser scrolls a focused row into view without knowing the band: the panel's scroll padding tells it, or a row
@@ -1006,26 +1149,150 @@ class OutlineFollow(OutlineBase):
         )
         self.assertEqual(got, {"still": 0, "samePage": 0, "moved": 1})
 
-    def test_the_overlay_opens_at_the_current_row_and_the_phones_sheet_keeps_its_rule(self):
-        """The overlay of a folded-out phone is the same panel: it opens at the current row, and the focus stays on the toggle.
-        The phone's sheet is another list and keeps its own rule (navSheetReveal, SheetFocus): the sheet does not scroll
-        past the view switch to reach it."""
+    def test_the_overlay_opens_at_the_current_row(self):
+        """The overlay of a folded-out phone is the same panel: it opens at the current row, and the focus stays on the toggle."""
         page = self.long(**FOLD)
         self.read_to(page, 2)
         self.assertEqual(page.evaluate(FOLLOW)["top"], 0)
         page.tap("#nav-toc-toggle")
         page.wait_for_function(SHOWN, timeout=3000)
         self.assertEqual(page.evaluate(FOLLOW)["focus"], "nav-toc-toggle")
-        phone = self.long(**PHONE)
-        self.read_to(phone, 2)
+
+    def test_the_tablet_sheets_overlay_brings_the_row_above_the_bottom_bar(self):
+        """882x1104 touch (the tablet sheet): the outline overlay runs to the screen's bottom under the collapsed sheet and the
+        status line on it, and opened at the current row it left that row under them (#335). Opening, following and the
+        list's last row all bring the marked row whole above them, where a press reaches it; the pages and the focus stay."""
+        page = self.long(**TABLET_SHEET)
+        self.assertEqual(page.evaluate("BAND"), "tablet-sheet")
+        pages = self.read_to(page, 2)
+        page.tap("#nav-toc-toggle")
+        clear = """() => {const row = document.querySelector('#outline-items .ol-active'), r = row.getBoundingClientRect();
+          const bar = Math.min(...['#right', '#status-dock'].map(s => document.querySelector(s)).filter(e => e.getClientRects().length)
+            .map(e => e.getBoundingClientRect().top));
+          const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2), a = document.activeElement;
+          return {index: +row.dataset.index, gap: bar - r.bottom, reached: !!hit && !!hit.closest && hit.closest('button') === row,
+            pages: document.querySelector('#left').scrollTop, focus: a.id || a.tagName};}"""
+        for step, mark in (("open", None), ("follow", 100), ("last", LONG - 1)):
+            with self.subTest(step=step):
+                if mark is not None:
+                    page.evaluate("i => {OUTLINE_SELECTED = i; markOutline();}", mark)
+                page.wait_for_timeout(100)
+                page.evaluate(STILL)
+                got = page.evaluate(clear)
+                self.assertEqual(got["index"], FIRST_ON_2 if mark is None else mark, got)
+                self.assertGreaterEqual(got["gap"], 0, got)  # above the bar and the status line, not under them
+                self.assertTrue(got["reached"], got)
+                self.assertEqual((got["pages"], got["focus"]), (pages, "nav-toc-toggle"), got)
+
+    def test_a_banner_over_a_mouse_overlay_is_not_taken_for_a_bar(self):
+        """800x700 with a mouse (the mid overlay): the collapsed pin panel is a transparent frame, and the relocation banner it
+        floats reaches across the outline's foot without covering the list below it. Only the tablet sheet's bar and status
+        line count as covered (outlineFoot), so here a row comes in 48px over the panel's bottom as in 0.4.37."""
+        page = self.long(viewport={"width": 800, "height": 700})
+        self.assertEqual(page.evaluate("BAND"), "mid-overlay")
+        page.click("#nav-toc-toggle")
+        page.wait_for_function(SHOWN, timeout=3000)
+        crossed = page.evaluate(
+            """() => {const b = document.querySelector('#banner'); b.hidden = false; b.textContent = '위치 다시 잡기 · '.repeat(8);
+              const r = document.querySelector('#right').getBoundingClientRect(), o = document.querySelector('#outline').getBoundingClientRect();
+              return r.left < o.right && r.top < o.bottom && r.bottom > o.top;}"""
+        )
+        self.assertTrue(crossed)  # the frame does reach across the panel's foot
+        self.over_pages(page)
+        page.evaluate("i => {OUTLINE_SELECTED = i; markOutline();}", 100)
+        page.evaluate(STILL)
+        got = page.evaluate(FOLLOW)
+        self.assertEqual(got["index"], 100, got)
+        self.assertAlmostEqual(got["over"], 48, delta=1, msg=got)
+
+    def open_sheet(self, phone):
+        """Tap [본문 3/25 ▾] and read the open sheet (SHEET_ROWS)."""
         phone.tap("#btn-pos")
         phone.wait_for_function("document.querySelector('#nav-sheet').open")
         settle(phone)
-        got = phone.evaluate(
-            """() => {const d = document.querySelector('#nav-sheet'), view = d.querySelector('#ns-view [aria-checked=true]');
-              return view.getBoundingClientRect().top - d.querySelector('.ns-head').getBoundingClientRect().bottom;}"""
+        return phone.evaluate(SHEET_ROWS)
+
+    def test_the_phones_sheet_opens_at_the_current_row(self):
+        """390x844, three documents of two pages: the sheet's top part - the head and its search row, the documents, the view,
+        the page field and its list - keeps its place, and the outline's own list turns to the current section, whole near its
+        middle (#335: the sheet scrolled the top part 1,000px and more away under the head and left a row cut under the
+        filter). No row is cut at any edge; the pages do not move and the focus is the sheet's (SheetFocus)."""
+        phone = self.long(**PHONE)
+        pages = self.read_to(phone, 2)
+        got = self.open_sheet(phone)
+        self.assertEqual((got["index"], got["cut"], got["sheet"], got["doc"]), (FIRST_ON_2, [], 0, "whole"), got)
+        self.assertTrue(got["current"], got)
+        self.assertGreater(got["list"], 0, got)
+        self.assertLessEqual(got["middle"], got["rowH"], got)
+        self.assertEqual(
+            (phone.evaluate("document.querySelector('#left').scrollTop"), got["focus"]), (pages, "nav-sheet"), got
         )
-        self.assertGreaterEqual(got, 0)
+
+    def test_no_row_of_the_phones_sheet_is_cut(self):
+        """Two phones, short and long outlines with a late entry current: no row is cut by the head, the outline's filter, the
+        page list's edges or the sheet's bottom; the current row shows whole; the current document's row shows whole on top
+        where the screen has room for it, and goes wholly under the head where it has not (320x720 with three documents), never
+        cut. Where the top part leaves the outline too little the sheet steps by whole rows."""
+        for name, device in (("390x844", PHONE), ("320x720", {**PHONE, "viewport": {"width": 320, "height": 720}})):
+            for n in (4, 9, LONG):
+                with self.subTest(phone=name, entries=n):
+                    phone = self.on("ms", **device)
+                    self.load(phone, grouped_tree(n, 2))
+                    phone.evaluate(
+                        "n => {updateSectionStrip = () => {}; OUTLINE_SELECTED = Math.floor(n * 0.6); markOutline();}",
+                        n,
+                    )
+                    got = self.open_sheet(phone)
+                    self.assertEqual(got["cut"], [], got)
+                    self.assertTrue(got["current"], got)
+                    self.assertIn(got["doc"], ("whole", "under") if name == "320x720" else ("whole",), got)
+                    self.assertEqual(got["focus"], "nav-sheet", got)
+
+    def test_a_filter_in_the_sheet_leaves_no_result_cut(self):
+        """390x844: the sheet's filter draws its list again with taller rows (a group's line over a name found under two
+        groups); the list is fitted to them from the first result, so none is cut at the filter or the foot, and the focus stays
+        in the field (review of #335: the window sized at opening cut the results)."""
+        phone = self.on("ms", **PHONE)
+        twice = [(g, 0, [("PL%d · 그림" % j, j % 2, []) for j in range(1, 21)]) for g in ("채택", "본문 그림 3")]
+        self.load(phone, twice)
+        phone.evaluate("() => {updateSectionStrip = () => {}; OUTLINE_SELECTED = 30; markOutline();}")
+        self.assertEqual(self.open_sheet(phone)["cut"], [])
+        phone.fill("#ns-outline-search", "PL1")
+        phone.wait_for_function("document.querySelector('#ns-outline-items .ol-grp')")
+        got = phone.evaluate(SHEET_ROWS)
+        self.assertEqual((got["cut"], got["list"], got["focus"]), ([], 0, "ns-outline-search"), got)
+
+    def test_the_sheet_is_fitted_again_when_its_height_changes(self):
+        """390x844, three documents: the keyboard coming up (the screen 520px high) leaves the top part less than three outline
+        rows, so the sheet steps by whole rows, the document's row pinned under the head (or wholly under it, never cut); going
+        down again, the top part is back in place with that row whole. No row is cut at either height, and the
+        focus stays where it was (review of #335)."""
+        phone = self.long(**PHONE)
+        self.read_to(phone, 2)
+        self.assertEqual(self.open_sheet(phone)["cut"], [])
+        for height, stepped in ((520, True), (844, False)):
+            with self.subTest(height=height):
+                phone.set_viewport_size({"width": 390, "height": height})
+                phone.wait_for_timeout(200)
+                settle(phone)
+                got = phone.evaluate(SHEET_ROWS)
+                self.assertEqual((got["cut"], got["focus"]), ([], "nav-sheet"), got)
+                self.assertIn(got["doc"], ("whole", "under") if stepped else ("whole",), got)
+                self.assertTrue(got["current"] or got["index"] is None, got)
+                self.assertEqual(got["sheet"] > 0, stepped, got)
+
+    def test_with_one_document_the_view_is_pinned_where_the_sheet_steps(self):
+        """One document on a 320x300 screen: the fixed part leaves not even one outline row, so the sheet steps; the view,
+        which stands for the current document, stays pinned whole under the head, and the part after it starts right under it -
+        no row cut, none half behind it (review of #335)."""
+        ps.APP.set_docs([self.ms])
+        phone = self.on("ms", **{**PHONE, "viewport": {"width": 320, "height": 300}})
+        self.load(phone, grouped_tree(LONG, 2))
+        phone.evaluate("() => {updateSectionStrip = () => {}; OUTLINE_SELECTED = 70; markOutline();}")
+        got = self.open_sheet(phone)
+        self.assertEqual((got["cut"], got["doc"], got["focus"]), ([], "whole", "nav-sheet"), got)
+        self.assertGreater(got["sheet"], 0, got)
+        self.assertTrue(got["current"], got)
 
 
 def flatten(tree):

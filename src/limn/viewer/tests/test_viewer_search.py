@@ -40,6 +40,7 @@ from limn.viewer.tests import search_corpus
 import helpers_figure
 from helpers import blank_png, extract_js_fn, minimal_pdf, needs_tex, needs_tex_files, ps, run_node
 from helpers_browser import MISSES_44, VIEWPORTS, BrowserBase, booted, fonts_ready, search_shortcut, settle, watch_idle
+from helpers_outline import SHEET_ROWS
 
 NBSP, SHY, FI, LSQ, RSQ, EN_DASH = chr(0xA0), chr(0xAD), chr(0xFB01), chr(0x2018), chr(0x2019), chr(0x2013)
 
@@ -2485,7 +2486,9 @@ class SearchPhoneSheetRow(FiveDocsBase):
     def test_the_row_shows_whole_with_five_documents_on_any_page(self):
         """Five documents, pages 1, 5, 12 and 14, on the three phones: the row is 44px high, all of it shows and a tap
         at its centre reaches it when the sheet opens - and still when the sheet is scrolled to its end, because the
-        row is part of the sheet's head."""
+        row is part of the sheet's head. Where the lists fit under the documents the sheet does not scroll at all (#340);
+        the smallest phone still makes it scroll, so the head is tried scrolled."""
+        moved = []
         for name, dev in PHONES.items():
             with self.subTest(viewport=name):
                 for n, (opened, scrolled) in self.rows(dev, (1, 5, 12, 14)).items():
@@ -2494,7 +2497,8 @@ class SearchPhoneSheetRow(FiveDocsBase):
                             (state["docs"], state["h"], state["shown"], state["reaches"]), (5, 44, 44, True), (n, state)
                         )
                     self.assertEqual(opened["top"], scrolled["top"], n)
-                    self.assertGreater(scrolled["scrolled"], 0, n)
+                    moved.append(scrolled["scrolled"] > 0)
+        self.assertTrue(any(moved), moved)
 
     def test_the_row_shows_whole_with_one_document_on_any_page(self):
         """The same with the manuscript alone (no document list in the sheet)."""
@@ -2505,24 +2509,145 @@ class SearchPhoneSheetRow(FiveDocsBase):
                     for state in (opened, scrolled):
                         self.assertEqual((state["h"], state["shown"], state["reaches"]), (44, 44, True), (n, state))
 
-    def test_the_sheet_still_turns_to_the_current_section_as_far_as_the_current_document_allows(self):
-        """On page 12 the sheet opens scrolled towards the outline's current section, as far as it goes without hiding
-        the current document's row: that row is whole and flush under the head - under the search row, not behind
-        it - and the outline's current section is the twelfth."""
+    def test_the_sheet_turns_to_the_current_section_and_keeps_the_current_document_in_view(self):
+        """Five documents, page 12, 390x844: the outline's current section (the twelfth) shows whole in the outline's own list,
+        the search row stays in the head, and the current document's row shows whole on top under it - with five documents the
+        sheet must scroll as well, by whole rows, and that row stays pinned under the head over the row the step brought there.
+        No row is cut by the head, the search row, the outline's filter or the sheet's bottom. (Before #335 the sheet held the
+        document's row and left every outline row below the screen; then it turned to the section and the document's row went
+        under the head.)"""
         page = self.view(PHONES["phone 390x844"])
         page.evaluate("document.getElementById('p12').scrollIntoView()")
         settle(page)
         page.tap("#btn-pos")
         page.wait_for_selector("#nav-sheet[open]")
         settle(page)
-        got = page.evaluate(
-            """() => {const d = document.querySelector('#nav-sheet'), R = s => d.querySelector(s).getBoundingClientRect(), head = R('.ns-head'), row = R('#ns-search'), on = R('.dm-item.on');
-              return {under: on.top - head.bottom, rowInHead: row.bottom <= head.bottom, scrolled: d.scrollTop, section: d.querySelector('#ns-outline-items .ol-active').textContent};}"""
+        got = page.evaluate(SHEET_ROWS)
+        head = page.evaluate(
+            """() => {const d = document.querySelector('#nav-sheet'), R = s => d.querySelector(s).getBoundingClientRect(), head = R('.ns-head'), row = R('#ns-search');
+              return {rowInHead: row.top >= head.top - 0.5 && row.bottom <= head.bottom + 0.5, section: d.querySelector('#ns-outline-items .ol-active').textContent};}"""
         )
-        self.assertAlmostEqual(got["under"], 0, delta=1)
-        self.assertTrue(got["rowInHead"])
-        self.assertGreater(got["scrolled"], 0)
-        self.assertIn("Section 12", got["section"])
+        self.assertEqual((got["cut"], got["doc"], got["focus"]), ([], "whole", "nav-sheet"), got)
+        self.assertTrue(got["current"], got)
+        self.assertTrue(head["rowInHead"], head)
+        self.assertIn("Section 12", head["section"])
+
+
+class SearchPhoneSheetStill(FiveDocsBase):
+    """The phone's navigation sheet keeps its fixed part still (docs/handbook/viewer.md §모바일 레이아웃): only the page list and
+    the outline's rows give up rows and scroll, through a filter, a keyboard's height and a reopening, and no row is cut."""
+
+    def sheet_on(self, page, n):
+        """Read page n and open the navigation sheet; what SHEET_ROWS reads."""
+        page.evaluate("n=>document.getElementById('p'+n).scrollIntoView()", n)
+        settle(page)
+        page.tap("#btn-pos")
+        page.wait_for_selector("#nav-sheet[open]")
+        settle(page)
+        return page.evaluate(SHEET_ROWS)
+
+    def still(self, page, name, got):
+        """The sheet's fixed part in place - the sheet itself not scrolled, the page field whole under the head and reached by a
+        press - and no row cut anywhere (SHEET_ROWS)."""
+        field = page.evaluate(
+            """() => {const d = document.querySelector('#nav-sheet'), h = d.querySelector('.ns-head').getBoundingClientRect().bottom,
+              f = document.querySelector('#ns-page-in'), r = f.getBoundingClientRect(), at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+              return {under: r.top - h, reached: at === f};}"""
+        )
+        self.assertEqual((got["cut"], got["sheet"]), ([], 0), (name, got))
+        self.assertTrue(field["under"] >= -0.5 and field["reached"], (name, field))
+
+    def test_only_the_outline_scrolls_through_a_filter_a_keyboard_and_a_reopening(self):
+        """One document, its last page (14), on a phone; the outline filtered, the screen made as short as a keyboard leaves it,
+        the filter emptied, the sheet closed and opened again short, the screen restored: at every step the sheet's fixed part
+        stays put - the sheet itself never scrolls, the page field stays whole and reachable - only the page list and the
+        outline's rows give up rows, and no row is cut, the page list's first included (review of #340: the sheet scrolled 297px,
+        the field went 79px under the head, and a page row was cut 8px at its list's top). Emptied, the filter brings the current
+        section back into view."""
+        ps.APP.set_docs([self.docs[0]])
+        for name, (w, h, short) in {"390x844": (390, 844, 534), "320x720": (320, 720, 410)}.items():
+            with self.subTest(phone=name):
+                dev = {**PHONES["phone 390x844"], "viewport": {"width": w, "height": h}}
+                page = self.view(dev)
+                got = self.sheet_on(page, 14)
+                self.still(page, "open", got)
+                self.assertTrue(got["current"], got)
+                page.locator("#ns-outline-search").press_sequentially("Section 1", delay=20)
+                settle(page)
+                self.still(page, "typed", page.evaluate(SHEET_ROWS))
+                page.set_viewport_size({"width": w, "height": short})
+                page.wait_for_timeout(200)
+                settle(page)
+                self.still(page, "short", page.evaluate(SHEET_ROWS))
+                page.fill("#ns-outline-search", "")
+                settle(page)
+                got = page.evaluate(SHEET_ROWS)
+                self.still(page, "emptied", got)
+                self.assertEqual(
+                    (got["index"], got["current"]), (13, True), got
+                )  # Section 14, the current one, in view again
+                page.tap("#nav-sheet [data-act=nav-sheet-close]")
+                page.wait_for_function("!document.querySelector('#nav-sheet').open")
+                page.tap("#btn-pos")
+                page.wait_for_selector("#nav-sheet[open]")
+                settle(page)
+                self.still(page, "reopened", page.evaluate(SHEET_ROWS))
+                page.set_viewport_size({"width": w, "height": h})
+                page.wait_for_timeout(200)
+                settle(page)
+                self.still(page, "restored", page.evaluate(SHEET_ROWS))
+
+    def test_the_sheets_top_stands_still_from_page_to_page_and_the_page_field_shows(self):
+        """One document at 320x720: the sheet opens with its top at one height on every page, and a filter's fewer results
+        keep it there; the page field is never covered by the view above it (review of #340: the top moved 48-100px between
+        pages, and on page 30 of a long document the field lay under the 원고/변경사항 row)."""
+        ps.APP.set_docs([self.docs[0]])
+        page = self.view({**PHONES["phone 390x844"], "viewport": {"width": 320, "height": 720}})
+        tops = []
+        for n in (1, 7, 14):
+            got = self.sheet_on(page, n)
+            self.still(page, "page %d" % n, got)
+            tops.append(page.evaluate("document.querySelector('#nav-sheet').getBoundingClientRect().top"))
+            if n == 14:
+                page.locator("#ns-outline-search").press_sequentially("Section 1", delay=20)
+                settle(page)
+                tops.append(page.evaluate("document.querySelector('#nav-sheet').getBoundingClientRect().top"))
+            page.tap("#nav-sheet [data-act=nav-sheet-close]")
+            page.wait_for_function("!document.querySelector('#nav-sheet').open")
+        self.assertLessEqual(max(tops) - min(tops), 1, tops)
+
+    def test_a_filter_that_finds_nothing_keeps_the_sheet_still(self):
+        """One document at 390x844 on page 14: a filter that finds something, then nothing, then something again, a keyboard's
+        height while it finds nothing, and the filter emptied - the sheet's top stays at one height, the sheet itself never
+        scrolls and no row is cut, and emptied, the current section is back (review of #340: with no result the sheet lost the
+        height it kept and its top moved)."""
+        ps.APP.set_docs([self.docs[0]])
+        page = self.view({**PHONES["phone 390x844"], "viewport": {"width": 390, "height": 844}})
+        self.still(page, "open", self.sheet_on(page, 14))
+        top = "document.querySelector('#nav-sheet').getBoundingClientRect().top"
+        tops = [page.evaluate(top)]
+        for name, typed in (("some", "Section 1"), ("none", "Section 1zz"), ("again", "Section 1")):
+            page.fill("#ns-outline-search", typed)
+            settle(page)
+            self.still(page, name, page.evaluate(SHEET_ROWS))
+            tops.append(page.evaluate(top))
+        self.assertLessEqual(max(tops) - min(tops), 1, tops)
+        page.fill("#ns-outline-search", "Section 1zz")
+        page.set_viewport_size({"width": 390, "height": 534})
+        page.wait_for_timeout(200)
+        settle(page)
+        self.still(page, "none, short", page.evaluate(SHEET_ROWS))
+        page.fill("#ns-outline-search", "")
+        settle(page)
+        got = page.evaluate(SHEET_ROWS)
+        self.still(page, "emptied", got)
+        self.assertEqual((got["index"], got["current"]), (13, True), got)
+
+
+class SearchPhoneSheetStillWebKit(SearchPhoneSheetStill):
+    """The same in WebKit, the engine of a phone's Safari (an emulated phone, not a device)."""
+
+    BROWSER_ENGINE = "webkit"
 
 
 class SearchBarGeometry(SearchBase):

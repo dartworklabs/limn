@@ -57,6 +57,29 @@
   field held before now comes back with the parts it had then, redo included, however much was typed meanwhile; a part
   brought back after its text landed on the earlier verdict leaves at once, as it would have had it been there. No
   server or agent contract change.
+- **Going up, the outline shows the section the current row is in (#335).** Reading back, the current row came to rest
+  48px - a row and a half - under the filter, so from a section's second entry on its head (`비교판 · 14`) was out of
+  sight. The list now keeps two whole rows over the row on the way up, and where the row's section fits in the panel
+  with it, its head and the two rows above that: the list moves once as the reading comes up into a section and not
+  again until it reaches the head. Only where it lands changes: whether it moves is still the 48px margin's, so a row
+  already clear stays put and two neighbouring rows cannot send a low panel back and forth. Going down nothing changes;
+  the pages and the focus never move.
+- **The phone's navigation sheet opens at the current section, and its top stays put (#335).** The sheet kept the current
+  document's row (or the view's) under its head and so stopped at the top of a long outline, the current section
+  thousands of px below. Now the open sheet is a column: the head with the search, the documents, the view and the page
+  field keep their place, and the page list and the outline's rows share the height left, each showing whole rows around
+  its current one in a box exactly as tall - five page rows while the outline has three, then fewer, down to the current
+  page's, then one outline row, then no page list - so no row is cut at a list's edge, under the outline's filter or at the
+  foot, and the sheet itself does not scroll. Its top stands at one height on any page and while a filter shows fewer
+  results or none; emptying the filter brings the current section back, and the keyboard coming or going fits it again. Only where
+  not even one outline row fits (many documents on a tiny screen) does the sheet scroll, by whole parts, with the current
+  document's row (with one document, the view) pinned under the head. The pages do not move and the focus stays where it
+  was.
+- **The tablet sheet's outline overlay brings the current row above the bottom bar (#335).** On an upright tablet or an
+  unfolded foldable (882x1104) the overlay runs to the screen's bottom under the collapsed sheet and the status line on
+  it, and it opened and followed with the current row under them, out of sight and out of reach. The follow now counts
+  what they cover as out of view, and the overlay's foot is padded by their height so the list's last rows come up too.
+  The bars and the overlay stay where they are.
 
 ## 0.4.37 — 2026-10-31
 

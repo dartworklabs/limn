@@ -140,7 +140,8 @@ function markOutline(){for(const box of [$('#outline-items'),$('#ns-outline-item
 // too, the pages among them - and the focus stays where it is. A row clear of the margin moves nothing. The phone has no panel: its
 // sheet is modal, so nothing moves under it, and it brings its own row up as it opens (navSheetReveal).
 const OUTLINE_FOLLOW_HOLD_MS=3000;   // the list stays put this long after the person's own wheel, press, key or scroll in it
-const OUTLINE_FOLLOW_MARGIN=48;      // px of the list kept between the current row and the panel's edges: two rows of a mouse screen
+const OUTLINE_FOLLOW_MARGIN=48;      // px of the list kept between the current row and the panel's edges, at the least
+const OUTLINE_FOLLOW_ROWS_UP=2;      // whole rows kept over the current row on the way up - and over its section's head where that fits
 const OUTLINE_FOLLOW_FLIGHT_MS=600;  // how long a smooth follow can still be under way: a next one reckons from where it is heading
 let OUTLINE_MARKED=-1,OUTLINE_SNAP=true,   // the entry last marked; the next follow jumps (a new document's list), it does not glide
   OUTLINE_FOLLOW_DUE=false,OUTLINE_FOLLOW_TIMER=0,   // a follow the person held back (or a list the filter drew again) is owed when they let go
@@ -150,13 +151,18 @@ let OUTLINE_MARKED=-1,OUTLINE_SNAP=true,   // the entry last marked; the next fo
 // null when the row stands m px clear of both edges - else the nearest place where it does (less on a view too short for that, and a
 // row taller than the view by its top). The view's top edge is cover px down: the filter's band stays there, so a row is only in
 // view below it. The margin holds from the moment a row enters it: following only once a row has left the view brought it in with
-// the margin, let the next rows use it up and then moved the list by all of it at once. Going up, the very top where only part of
-// the panel's head would be left over the row (head: where the rows start). Within what the list can scroll, so the list's two ends
-// are as near as a row gets. Pure.
-function outlineRevealTop(st,h,sh,top,bottom,m,head,cover=0){
+// the margin, let the next rows use it up and then moved the list by all of it at once. Coming up, the list goes further than the
+// margin: to what starts at near (the rows just above the row) where that fits with the row and the margin under it - 48px left the
+// row a row and a half under the band, and from a section's second entry on its head out of sight - and to group (the row's section
+// head and the rows above that) where that fits too, so the head shows and the rows up to it then move nothing. Only the landing
+// changes: whether the list moves at all is the margin's alone, so two rows next to each other cannot send a short panel back and
+// forth. Going up, the very top where only part of the panel's head would be left over the row (head: where the rows start). Within
+// what the list can scroll, so the list's two ends are as near as a row gets. Pure.
+function outlineRevealTop(st,h,sh,top,bottom,m,head,cover=0,near=top,group=top){
   const room=Math.max(0,Math.min(m,(h-cover-(bottom-top))/2)),edge=st+cover;
   if(top>=edge+room-.5&&bottom<=st+h-room+.5)return null;
-  const up=top<edge+room||bottom-top>h-cover,want=up?top-cover-room:bottom-h+room;
+  const fits=(/** @type {number} */l)=>l<top-room&&bottom+room-l<=h-cover;
+  const up=top<edge+room||bottom-top>h-cover,want=up?Math.min(top-room,fits(near)?near:top,fits(group)?group:top)-cover:bottom-h+room;
   const to=Math.round(Math.max(0,Math.min(sh-h,up&&want<=head?0:want)));
   return to===Math.round(st)?null:to;}
 // Whether the filter is narrowing the list: its rows are the results, not the outline, and the current row is likely not among them.
@@ -181,10 +187,26 @@ function outlineFollow(open){if(document.body.classList.contains('outline-collap
   const jump=!!open||OUTLINE_SNAP||MQ_REDUCED.matches; OUTLINE_FOLLOW_DUE=false; OUTLINE_SNAP=false;
   const box=$('#outline'),o=box.getBoundingClientRect(),r=row.getBoundingClientRect(),now=performance.now(),st=box.scrollTop;
   const from=o.top+box.clientTop-st,at=!jump&&OUTLINE_AIM&&now-OUTLINE_AIM.at<OUTLINE_FOLLOW_FLIGHT_MS?OUTLINE_AIM.top:st;
-  const h=box.clientHeight,to=outlineRevealTop(at,h,box.scrollHeight,r.top-from,r.bottom-from,OUTLINE_FOLLOW_MARGIN,list.getBoundingClientRect().top-from,$('#outline-find').offsetHeight);
+  // Where the rows OUTLINE_FOLLOW_ROWS_UP above a row start (the first row's top when there are fewer), and the section head of the
+  // current row (its entry's up): read in the same pass as the row, so no further layout.
+  const over=(/** @type {Element} */b)=>{for(let k=0;k<OUTLINE_FOLLOW_ROWS_UP&&b.previousElementSibling;k++)b=b.previousElementSibling; return b.getBoundingClientRect().top-from;};
+  const e=OUTLINE_ENTRIES[Number(/** @type {HTMLElement} */(row).dataset.index)],sec=e&&e.up>=0?list.querySelector('[data-index="'+e.up+'"]'):null;
+  // The tablet sheet's bar and the status line on it stand over the overlay's foot (frame.css: the overlay runs to the screen's
+  // bottom): what they cover is out of view, so the view is that much shorter and so is what the list can scroll to bring a row up.
+  const foot=outlineFoot(o),h=box.clientHeight,to=outlineRevealTop(at,h-foot,box.scrollHeight-foot,r.top-from,r.bottom-from,OUTLINE_FOLLOW_MARGIN,
+    list.getBoundingClientRect().top-from,$('#outline-find').offsetHeight,over(row),sec?over(sec):undefined);
   if(to===null)return;
   const land=jump||Math.abs(to-st)>h;
   OUTLINE_AIM=land?null:{top:to,at:now}; box.scrollTo({top:to,behavior:land?'auto':'smooth'});}
+// How many px at the foot of the panel (its box o) the bottom chrome covers: the collapsed sheet (#right) and the status line over
+// it (#status-dock) where they are drawn across the panel. Only the tablet sheet's overlay has them there, and only it pads its
+// foot to match (responsive.css). Elsewhere it is 0: a collapsed #right in mid or short is a transparent frame whose floating
+// banner can reach across the panel without covering what lies below it, and nothing there pads the list for it.
+/** @param {DOMRect} o */
+function outlineFoot(o){if(BAND!==LAYOUT_BAND.TABLET_SHEET)return 0; let foot=0;
+  for(const el of [$('#right'),$('#status-dock')]){if(!el||!el.getClientRects().length)continue; const b=el.getBoundingClientRect();
+    if(b.height>0&&b.left<o.right&&b.right>o.left&&b.top<o.bottom&&b.bottom>o.top)foot=Math.max(foot,o.bottom-b.top);}
+  return foot;}
 // When a timed hold is over: the owed follow is made then. A hover, a keyboard's focus and a grip's drag end with an event of their own.
 function outlineFollowLater(){clearTimeout(OUTLINE_FOLLOW_TIMER); const left=OUTLINE_HANDLED+OUTLINE_FOLLOW_HOLD_MS-performance.now();
   if(left>0)OUTLINE_FOLLOW_TIMER=setTimeout(outlineCatchUp,left+16);}
@@ -311,6 +333,9 @@ function outlineFilter(field,box,sr){
 function outlineSay(box,q,sr){const n=outlineRows(box).length,t=!String(q||'').trim()?'':n?tl('결과 {n}개',{n}):tr('찾은 장·절이 없습니다.');
   if(sr.textContent!==t)sr.textContent=t;}   // the same words again are not set again: a live region read '없습니다' at every keystroke
 outlineFilter($('#outline-search'),$('#outline-items'),$('#outline-sr')); outlineFilter($('#ns-outline-search'),$('#ns-outline-items'),$('#ns-outline-sr'));   // each filter works on its own list only
+// The sheet's filter draws its list again with rows of other heights (a group's line): the open sheet is fitted to them (navSheetFiltered),
+// so none is left cut. After the filter's own drawing, which was set up just above.
+$('#ns-outline-search').addEventListener('input',()=>{navSheetFiltered();});
 // The person's hand on the panel (outlineHeld). A scroll inside a hold is theirs going on - a fling, a smooth wheel - and extends it;
 // a follow never runs inside one, so its own scroll does not hold anything. A hand on the panel stops a glide, so nothing is heading
 // anywhere any more (OUTLINE_AIM), and so do its end, a filter's new list, a panel closing and another document (outlineForget).
