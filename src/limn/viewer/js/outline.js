@@ -191,11 +191,20 @@ function outlineFollow(open){if(document.body.classList.contains('outline-collap
   // current row (its entry's up): read in the same pass as the row, so no further layout.
   const over=(/** @type {Element} */b)=>{for(let k=0;k<OUTLINE_FOLLOW_ROWS_UP&&b.previousElementSibling;k++)b=b.previousElementSibling; return b.getBoundingClientRect().top-from;};
   const e=OUTLINE_ENTRIES[Number(/** @type {HTMLElement} */(row).dataset.index)],sec=e&&e.up>=0?list.querySelector('[data-index="'+e.up+'"]'):null;
-  const h=box.clientHeight,to=outlineRevealTop(at,h,box.scrollHeight,r.top-from,r.bottom-from,OUTLINE_FOLLOW_MARGIN,list.getBoundingClientRect().top-from,
-    $('#outline-find').offsetHeight,over(row),sec?over(sec):undefined);
+  // The tablet sheet's bar and the status line on it stand over the overlay's foot (frame.css: the overlay runs to the screen's
+  // bottom): what they cover is out of view, so the view is that much shorter and so is what the list can scroll to bring a row up.
+  const foot=outlineFoot(o),h=box.clientHeight,to=outlineRevealTop(at,h-foot,box.scrollHeight-foot,r.top-from,r.bottom-from,OUTLINE_FOLLOW_MARGIN,
+    list.getBoundingClientRect().top-from,$('#outline-find').offsetHeight,over(row),sec?over(sec):undefined);
   if(to===null)return;
   const land=jump||Math.abs(to-st)>h;
   OUTLINE_AIM=land?null:{top:to,at:now}; box.scrollTo({top:to,behavior:land?'auto':'smooth'});}
+// How many px at the foot of the panel (its box o) the bottom chrome covers: the collapsed sheet (#right) and the status line over
+// it (#status-dock) where they are drawn across the panel - the tablet sheet's overlay; 0 elsewhere.
+/** @param {DOMRect} o */
+function outlineFoot(o){let foot=0;
+  for(const el of [$('#right'),$('#status-dock')]){if(!el||!el.getClientRects().length)continue; const b=el.getBoundingClientRect();
+    if(b.height>0&&b.left<o.right&&b.right>o.left&&b.top<o.bottom&&b.bottom>o.top)foot=Math.max(foot,o.bottom-b.top);}
+  return foot;}
 // When a timed hold is over: the owed follow is made then. A hover, a keyboard's focus and a grip's drag end with an event of their own.
 function outlineFollowLater(){clearTimeout(OUTLINE_FOLLOW_TIMER); const left=OUTLINE_HANDLED+OUTLINE_FOLLOW_HOLD_MS-performance.now();
   if(left>0)OUTLINE_FOLLOW_TIMER=setTimeout(outlineCatchUp,left+16);}

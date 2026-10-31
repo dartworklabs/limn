@@ -16,6 +16,11 @@
   brings that section to the middle of the space under the head; the document's row stays whole above it where both fit,
   and otherwise goes wholly under the head, never cut off - where a short outline ends the sheet too soon for that, the
   outline gets the missing room below it. The pages do not move and the focus stays on the sheet.
+- **The tablet sheet's outline overlay brings the current row above the bottom bar (#335).** On an upright tablet or an
+  unfolded foldable (882x1104) the overlay runs to the screen's bottom under the collapsed sheet and the status line on
+  it, and it opened and followed with the current row under them, out of sight and out of reach. The follow now counts
+  what they cover as out of view, and the overlay's foot is padded by their height so the list's last rows come up too.
+  The bars and the overlay stay where they are.
 
 ## 0.4.37 — 2026-10-31
 

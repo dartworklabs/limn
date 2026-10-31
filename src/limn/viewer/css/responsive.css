@@ -552,6 +552,10 @@ body.docs-multi:is(.lay-mid,.band-tablet-sheet) #view-switch{padding-left:var(--
 body:is(.lay-mid,.band-tablet-sheet) #doc-nav button{white-space:nowrap}
 /* At mid width, the outline overlays on top of the document (#main already starts below the nav bar). On a narrow tablet, pins overlay too, preserving the body's width. */
 body:is(.lay-mid,.band-tablet-sheet) #outline{position:absolute;left:0;top:0;bottom:0;z-index:18;border-right:1px solid var(--border-seam);box-shadow:var(--shadow)}
+/* The tablet sheet's overlay runs under the collapsed sheet and the status line on it (both fixed above it): its foot is padded by
+   their height (--sheet-h, and the status line's 24px), so the list's last rows can come up above them (outlineFoot). */
+body.band-tablet-sheet #outline{padding-bottom:calc(var(--space-3) + var(--sheet-h,0px))}
+body.band-tablet-sheet.has-status:not(.typing,.pv-typing) #outline{padding-bottom:calc(var(--space-3) + var(--sheet-h,0px) + var(--space-6))}
 body.lay-mid #outline-grip{display:none}
 @keyframes mid-panel-in{from{right:calc(-1 * var(--side-w,330px))}}
 @keyframes mid-grip-in{from{opacity:0}}

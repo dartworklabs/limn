@@ -24,6 +24,11 @@ from helpers_outline import chain_tree, grouped_tree, outline_pdf
 DESKTOP = {"viewport": {"width": 1400, "height": 850}}
 FOLD = {"viewport": {"width": 841, "height": 673}, "is_mobile": True, "has_touch": True}
 PHONE = {"viewport": {"width": 390, "height": 844}, "is_mobile": True, "has_touch": True}
+TABLET_SHEET = {
+    "viewport": {"width": 882, "height": 1104},
+    "is_mobile": True,
+    "has_touch": True,
+}  # the unfolded foldable, upright
 NO_COACH = "try{localStorage.setItem('pinPrefs',JSON.stringify({coach:{touch:1,mouse:1,sel:1}}))}catch(e){}"
 CAP = 2000  # OUTLINE_MAX_ENTRIES
 LEVELS = 5  # OUTLINE_MAX_DEPTH + 1
@@ -1124,6 +1129,32 @@ class OutlineFollow(OutlineBase):
         page.tap("#nav-toc-toggle")
         page.wait_for_function(SHOWN, timeout=3000)
         self.assertEqual(page.evaluate(FOLLOW)["focus"], "nav-toc-toggle")
+
+    def test_the_tablet_sheets_overlay_brings_the_row_above_the_bottom_bar(self):
+        """882x1104 touch (the tablet sheet): the outline overlay runs to the screen's bottom under the collapsed sheet and the
+        status line on it, and opened at the current row it left that row under them (#335). Opening, following and the
+        list's last row all bring the marked row whole above them, where a press reaches it; the pages and the focus stay."""
+        page = self.long(**TABLET_SHEET)
+        self.assertEqual(page.evaluate("BAND"), "tablet-sheet")
+        pages = self.read_to(page, 2)
+        page.tap("#nav-toc-toggle")
+        clear = """() => {const row = document.querySelector('#outline-items .ol-active'), r = row.getBoundingClientRect();
+          const bar = Math.min(...['#right', '#status-dock'].map(s => document.querySelector(s)).filter(e => e.getClientRects().length)
+            .map(e => e.getBoundingClientRect().top));
+          const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2), a = document.activeElement;
+          return {index: +row.dataset.index, gap: bar - r.bottom, reached: !!hit && !!hit.closest && hit.closest('button') === row,
+            pages: document.querySelector('#left').scrollTop, focus: a.id || a.tagName};}"""
+        for step, mark in (("open", None), ("follow", 100), ("last", LONG - 1)):
+            with self.subTest(step=step):
+                if mark is not None:
+                    page.evaluate("i => {OUTLINE_SELECTED = i; markOutline();}", mark)
+                page.wait_for_timeout(100)
+                page.evaluate(STILL)
+                got = page.evaluate(clear)
+                self.assertEqual(got["index"], FIRST_ON_2 if mark is None else mark, got)
+                self.assertGreaterEqual(got["gap"], 0, got)  # above the bar and the status line, not under them
+                self.assertTrue(got["reached"], got)
+                self.assertEqual((got["pages"], got["focus"]), (pages, "nav-toc-toggle"), got)
 
     def test_the_phones_sheet_opens_at_the_current_row(self):
         """390x844: the sheet's current row lay thousands of px below the documents' row, which held the sheet at its top (#335).
