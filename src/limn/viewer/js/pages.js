@@ -27,7 +27,7 @@ function buildDoc(){
     d.dataset.ptw=String(p.pt_w); d.style.width=pageWidth(p.pt_w,K)+'px'; d.style.aspectRatio=p.pt_w+' / '+p.pt_h;
     setHtml(d,html`<span class="no">${i+1}</span><img loading="lazy" draggable="false" alt="${tl('{page}쪽',{page:i+1})}" src="${pageSrc(p)}">`);
     const w=document.createElement('div'); w.className='pgw'; w.dataset.page=String(i+1); w.appendChild(d); doc.appendChild(w);});
-  marks(); vecObserve(); drawZoom();
+  pageWidthVars(); marks(); vecObserve(); drawZoom();
 }
 // save=false is auto-fit - never saved. If a width fit for a narrow first window persisted into a wider window, the pages would look too small.
 // The scale is never saved in compact (mid/narrow) - so a width fit for a folded screen never overrides the spread/desktop setting.
@@ -46,7 +46,11 @@ function fitK(){return fitWidth()/ptMax();}
 function setK(k,save){const m=ptMax(),b=wBounds(fitWidth(),m*PT_PX); K=Math.min(b[1],Math.max(b[0],k*m))/m; K_UNBOUND=false;
   sizePages(); markBadgeSides(); sizePv(); placeChips(); if(save!==false&&LAYOUT===LAYOUT_MODE.WIDE)saveK(); vecInvalidate(); drawZoom();}
 // Gives every page box its width at the scale K, bounded or not (setK bounds the scale first).
-function sizePages(){const m=ptMax(); $$('.pg').forEach(e=>{e.style.width=pageWidth(+e.dataset.ptw||m,K)+'px';});}
+function sizePages(){const m=ptMax(); $$('.pg').forEach(e=>{e.style.width=pageWidth(+e.dataset.ptw||m,K)+'px';}); pageWidthVars();}
+// The page widths as the side column of the page verdict panel lays the blocks out (verdict-panel.css): each block's page
+// width (--pg-w) and the widest page's (--pg-max, on #doc), so that pages of different widths stand on one axis.
+function pageWidthVars(){const m=ptMax(); $('#doc').style.setProperty('--pg-max',pageWidth(m,K)+'px');
+  $$('#doc .pgw>.pg').forEach(e=>{/** @type {HTMLElement} */(e.parentElement).style.setProperty('--pg-w',/** @type {HTMLElement} */(e).style.width);});}
 // Whether the pages stand at a scale K that no PDF-area width has bounded since their sizes changed (reapplyK). Only the changes
 // view brings it about: it hides the PDF area, and a scroller that is not drawn measures 0 wide, so bounding the scale by that
 // width cut a 1800px page to the least it allows (816px, the print size of a letter page).

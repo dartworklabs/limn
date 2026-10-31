@@ -701,7 +701,10 @@ ${pvTipAttr(!!chip,eName+' — '+tr('이 쪽의 더 새 판정으로 대체되�
     :html`<span class="pv-fig" translate="no"${rd?'':html` hidden`}><span class="pv-fig-id">${nm.id}</span>${nm.rest?html`<span class="pv-fig-t">${' · '+nm.rest}</span>`:''}</span><span class="pv-sep pv-fig-sep" aria-hidden="true"${rd?'':html` hidden`}>·</span>`;
   const keys=PV_KEYS===page,target=tl('{page}쪽',{page}),held=PV_TOGGLE_HOLD.get(slot),hold=held&&held.until>Date.now()?held.key:null;
   const pr=(/** @type {string} */key)=>key!==want?PV_PRESS.NONE:nx||sv!==undefined?PV_PRESS.SAVING:cur?pvPressOf(cur):PV_PRESS.NONE;
-  const btns=canVerdict()?html`<span class="vd-btns">${v.choices.map((c,i)=>vdButton(c,VD_WHERE.PAGE,page,target,loading||c.key===hold,keys?i+1:0,!!chip,pr(c.key)))}</span>`:'';
+  // In the panel the pressed word's description is its context under the panel (pvOnHint): a hover box over it as well
+  // covered the page's name above the words and said the same again. Only a long press shows it (vdButton quiet).
+  const said=(/** @type {string} */key)=>!!panel&&pr(key)!==PV_PRESS.NONE&&pr(key)!==PV_PRESS.SAVING;
+  const btns=canVerdict()?html`<span class="vd-btns">${v.choices.map((c,i)=>vdButton(c,VD_WHERE.PAGE,page,target,loading||c.key===hold,keys?i+1:0,!!chip||said(c.key),pr(c.key)))}</span>`:'';
   // The line's last failed save, said where it was pressed (PV_ERR) - for the document and build on screen only.
   const e=PV_ERR.get(page),eo=!!e&&e.doc===DOC&&!!META&&e.build===(META.pages_build||'');
   const err=html`<span class="pv-err"${eo?'':html` hidden`}>${eo&&e?e.text:''}</span>`;   // always there, so the reason field after it keeps its place
@@ -1069,7 +1072,7 @@ function drawPageVerdicts(){const v=pageVerdictsOn(),f=/** @type {HTMLElement|nu
   // its words went) closes here, its text saved - pvReasonSync, after this, is never reached for it.
   if(!v||!META){if(PV_REASON)pvReasonLeave(); $$('#doc .pv,#doc .pv-sum').forEach(e=>e.remove()); pvPanelGone(); if(PV_SIDE)pvSideApply(false); pvTypingSync(); return;}
   const turn=pvSideTurn();   // beside the pages or under them (verdict-panel.js): the reading page holds until the spot is back
-  try{pvReasonSync(); const map=pageVerdictPins(); PV_READ=pvReadingPage(); PV_KEYS=pvKeysPage(PV_READ);
+  try{pvReasonSync(); const map=pageVerdictPins(); PV_READ=pvHeldReadingPage(); PV_KEYS=pvKeysPage(PV_READ);
     // Beside the pages: one panel for the reading page, and every page's verdicts are its - none draws a page-size mark.
     if(PV_SIDE){$$('#doc .pgw>.pv').forEach(e=>e.remove()); map.forEach(list=>list.forEach(p=>PV_SHOWN.add(p.id))); pvPanelFill(map,v);}
     else{pvPanelGone();
@@ -1098,7 +1101,7 @@ function jumpPv(id){if(!PV_SHOWN.has(id))return false; const p=PINS.find(x=>x.id
   const t=p&&pageTargetOf(p,META?META.kind:undefined); if(!t)return false;
   if(LAYOUT===LAYOUT_MODE.NARROW)setSide(false);
   const flash=el=>{el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); clearTimeout(el._flT); el._flT=setTimeout(()=>el.classList.remove('flash'),1200);};
-  if(PV_SIDE){if(!document.getElementById('p'+t.page))return false; pvBring(t.page,true); flash(pvPanel()); return true;}   // the panel follows the page to the reading place
+  if(PV_SIDE){if(!document.getElementById('p'+t.page))return false; pvBring(t.page,true); pvFlashOn(t.page); return true;}   // the panel flashes where the page lands (verdict-panel.js)
   const line=/** @type {HTMLElement|null} */(document.querySelector('#doc .pv[data-page="'+t.page+'"]')); if(!line)return false;
   const block=/** @type {HTMLElement} */(line.parentElement),L=$('#left');
   pvGlideInto(block,block.getBoundingClientRect().height<=L.clientHeight?'center':'start'); flash(line); return true;}
@@ -1180,7 +1183,7 @@ function pvStick(){if(pageVerdictsOn()&&pvSideCheck())return;   // the room cros
   const vv=window.visualViewport,kb=vv&&MQ_COARSE.matches?Math.max(0,Math.round(lr.top+L.clientHeight-(vv.offsetTop+vv.height))):0;
   if(L.style.getPropertyValue('--pv-kb-over')!==kb+'px')L.style.setProperty('--pv-kb-over',kb+'px');
   if(pvInsetR()!==PV_INSET_R)sizePv();   // a panel came over the area, went, or changed its width
-  const at=pvReadingAt(),r=at&&pageTakesVerdict(at)?at:0,k=pvKeysPage(r);
+  const at=pvPanelHeld()||pvReadingAt(),r=at&&pageTakesVerdict(at)?at:0,k=pvKeysPage(r);   // a jump's glide: the panel's page held (verdict-panel.js)
   if(PV_REASON&&PV_REASON.page===r)PV_REASON.seen=true;
   else if(PV_REASON&&PV_REASON.seen)pvReasonLeave();   // the reading page left the field's page: moving on
   // A key's armed confirm word belongs to the page it was read on: another reading page lets it go.
