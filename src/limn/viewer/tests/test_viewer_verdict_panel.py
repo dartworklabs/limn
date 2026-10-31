@@ -887,12 +887,13 @@ class PanelEdges(PanelBase):
         self.assertEqual(page.evaluate("()=>document.activeElement.classList.contains('pv-draft')"), True)
 
     def test_the_pressed_words_context_stands_under_the_panel_and_brings_no_scroll_bar(self):
-        """The pressed word hovered: its context shows under the panel, whole, and the panel keeps its size and does not
-        scroll: a scroller clipped it there and a scroll bar narrowed the rows."""
+        """The pressed word with the keyboard's focus: its context shows under the panel, whole, and the panel keeps its size
+        and does not scroll: a scroller clipped it there and a scroll bar narrowed the rows."""
         self.verdict(1, "채택")
         page = self.on(n_open=1)
         page.evaluate("()=>{const p=document.getElementById('pv-panel'); window.__w=p.clientWidth;}")
-        page.locator('#pv-panel button[data-key="채택"]').hover()
+        page.locator('#pv-panel button[data-key="보류"]').focus()
+        page.keyboard.press("Shift+Tab")
         settle(page)
         got = page.evaluate(
             """()=>{const p=document.getElementById('pv-panel'),h=p.querySelector('.pv-onhint'),r=p.getBoundingClientRect(),b=h.getBoundingClientRect(),m=document.elementFromPoint(b.left+b.width/2,b.top+b.height/2);
@@ -1694,10 +1695,10 @@ class Look(PanelBase):
         self.assertLess(got["gap"], 32, got)
 
     def test_the_pressed_words_description_is_its_context_under_the_panel_and_no_box_over_its_name(self):
-        """The pressed word hovered and focused in the panel: no description box comes up over the panel's name - the context
-        under the panel says it, and a long press still shows the description. A word not pressed and the '#1' link keep
-        their boxes, left of the panel: over neither its name nor its controls. Under a page (1400) the pressed word keeps
-        its box, over the word, as before."""
+        """The pressed word in the panel: a mouse's hover brings up neither a description box over the panel's name nor its
+        context under the panel - a long press shows the description (data-tip-press), the keyboard's focus the context. A
+        word not pressed and the '#1' link keep their boxes, left of the panel: over neither its name nor its controls.
+        Under a page (1400) the pressed word keeps its box, over the word, and its context on a hover, as before."""
         self.verdict(1, "채택")
         page = self.on(n_open=1)
         pressed, other = '#pv-panel button[data-key="채택"]', '#pv-panel button[data-key="보류"]'
@@ -1710,7 +1711,7 @@ class Look(PanelBase):
             """()=>{const t=document.getElementById('tip'),p=document.getElementById('pv-panel'),h=p.querySelector('.pv-onhint').getBoundingClientRect();
               return {box:!t.hidden,hint:h.height>0&&h.top>=p.getBoundingClientRect().bottom};}"""
         )
-        self.assertEqual(got, {"box": False, "hint": True})
+        self.assertEqual(got, {"box": False, "hint": False})
         # Every other description in the panel stands left of it, level with its control: over neither the name nor a control.
         clear = """()=>{const t=document.getElementById('tip'),b=t.getBoundingClientRect(),p=document.getElementById('pv-panel').getBoundingClientRect(),
             f=document.querySelector('#pv-panel .pv-fig').getBoundingClientRect(),cut=r=>b.left<r.right&&r.left<b.right&&b.top<r.bottom&&r.top<b.bottom;
@@ -1734,12 +1735,15 @@ class Look(PanelBase):
                 settle(page)
                 self.assertEqual(page.evaluate(edge), {"beside": True, "edge": True, "shadow": True})
         page.mouse.move(5, 500)
-        page.locator(pressed).focus()
-        page.evaluate("document.documentElement.dataset.input='key'")
+        page.locator(other).focus()
+        page.keyboard.press("Shift+Tab")
         settle(page)
-        self.assertFalse(
-            page.evaluate("()=>!document.getElementById('tip').hidden"), "a box over the name on the focus"
+        self.assertEqual(page.evaluate("()=>document.activeElement.dataset.key"), "채택")
+        got = page.evaluate(
+            """()=>{const t=document.getElementById('tip'),p=document.getElementById('pv-panel'),h=p.querySelector('.pv-onhint').getBoundingClientRect();
+              return {box:!t.hidden,hint:h.height>0&&h.top>=p.getBoundingClientRect().bottom};}"""
         )
+        self.assertEqual(got, {"box": False, "hint": True}, "the keyboard's focus shows the context, and no box")
         under = self.on(n_open=1, viewport={"width": 1400, "height": 850})
         self.to(under, 1, 200)
         got = under.evaluate(tips, WORD % (1, "채택"))
@@ -1751,6 +1755,14 @@ class Look(PanelBase):
             WORD % (1, "보류"),
         )
         self.assertTrue(got, "the line's description no longer stands over its word")
+        under.locator(WORD % (1, "채택")).hover()
+        settle(under)
+        self.assertTrue(
+            under.evaluate(
+                "()=>document.querySelector('#doc .pv[data-page=\"1\"]>.pv-onhint').getBoundingClientRect().height>0"
+            ),
+            "the line's context no longer shows on a hover",
+        )
         self.assertFalse(under.evaluate("()=>document.getElementById('tip').classList.contains('tip-beside')"))
 
 
@@ -2008,6 +2020,36 @@ class TallPanel(PanelBase):
         settle(page)
         self.assertEqual(page.evaluate(self.TOPS)[0], 0)
         self.assertEqual(page.evaluate("()=>document.activeElement.classList.contains('pv-reason')"), True)
+
+    def test_with_the_pin_panel_closed_the_panel_keeps_above_the_cards_at_the_areas_foot(self):
+        """The pin panel closed: its tool bar and the status line's hint float as cards at the PDF area's bottom right, under
+        the panel. The tall panel ends above them, and the reason field, focused by Tab, is whole with its focus ring above
+        them too: the hint covered its last line and ring."""
+        page = self.on(viewport={"width": 1920, "height": 400})
+        page.evaluate("setSide(false)")
+        settle(page)
+        self.to(page, 2)
+        page.locator(WORD % (2, "채택")).click()
+        page.wait_for_function("OPEN_ALL.length===1")
+        settle(page)
+        page.locator(LINE_ACT % (2, "pv-reason-open")).click()
+        page.locator(FIELD).fill("\n".join("긴 이유 %d 12345" % i for i in range(50)))
+        settle(page)
+        page.locator(WORD % (2, "보류")).focus()
+        for _ in range(10):
+            page.keyboard.press("Tab")
+            settle(page)
+            if page.evaluate("()=>pvIsReasonField(document.activeElement)"):
+                break
+        got = page.evaluate(
+            """()=>{const p=document.getElementById('pv-panel'),f=document.activeElement,c=getComputedStyle(f),out=parseFloat(c.outlineWidth)+Math.max(0,parseFloat(c.outlineOffset)),
+                pr=p.getBoundingClientRect(),fr=f.getBoundingClientRect(),cards=['bar2','banner','status-wide'].map(i=>document.getElementById(i)).filter(e=>e&&e.getClientRects().length).map(e=>e.getBoundingClientRect())
+                  .filter(r=>r.height&&r.left<pr.right&&r.right>pr.left);
+              return {tall:p.classList.contains('pv-tall'),field:pvIsReasonField(f),cards:cards.length,
+                panel:cards.every(r=>pr.bottom<=r.top),ring:cards.every(r=>fr.bottom+out<=r.top)&&fr.bottom+out<=pr.bottom};}"""
+        )
+        self.assertEqual(got, {"tall": True, "field": True, "cards": got["cards"], "panel": True, "ring": True})
+        self.assertGreater(got["cards"], 0, "no card under the panel to keep clear of")
 
     def test_the_popover_lets_the_keyboard_out_and_tab_leaves_the_panel(self):
         """No trap: [접기] by key closes the popover and keeps the draft, and from there Tab reaches the panel's last control

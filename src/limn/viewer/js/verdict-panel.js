@@ -113,7 +113,8 @@ function pvChipPin(e){let pin=0; NOTICES.forEach(n=>{if(n.el===e)pin=n.pin||0;})
 // place for pages of every width - its top at the PDF area's top
 // padding, where #pv-panel-at sticks: it stands at the column's end, and the inset from the bottom of what a sticky box may
 // use (the area less its padding) to that top pulls it up, so its height stays nothing. Taller than the area shows (a short
-// window, a long conflict note in the popover) the panel scrolls inside (.pv-tall). Only then: a scroller clips what stands
+// window, a long conflict note in the popover) - or reaching down to a card over the area (pvPanelFoot) - the panel scrolls
+// inside (.pv-tall). Only then: a scroller clips what stands
 // outside it, the pressed word's context under the panel, and that context's box would bring a scroll bar with it. Once a
 // frame with pvStick.
 function pvPanelPlace(){const p=document.getElementById('pv-panel'),at=document.getElementById('pv-panel-at'); if(!p||!at||!PV_SIDE)return; const L=$('#left'),lr=L.getBoundingClientRect(),cs=getComputedStyle(L);
@@ -121,8 +122,19 @@ function pvPanelPlace(){const p=document.getElementById('pv-panel'),at=document.
   const pt=parseFloat(cs.paddingTop),inset=Math.max(0,L.clientHeight-pt-parseFloat(cs.paddingBottom))+'px'; if(at.style.bottom!==inset)at.style.bottom=inset;
   const g=pg.getBoundingClientRect(),right=g.left+(g.width+pageWidth(ptMax(),K))/2;
   const x=Math.round(Math.min(right+PV_SIDE_GAP,lr.left+L.clientWidth-PV_SIDE_W)-at.getBoundingClientRect().left)+'px'; if(p.style.left!==x)p.style.left=x;
-  const room=Math.max(0,Math.floor(L.clientHeight-pt-PV_SIDE_GAP)),was=p.classList.contains('pv-tall'),tall=(was?p.scrollHeight+2:p.offsetHeight)>room,h=tall?room+'px':'';
+  const foot=pvPanelFoot(lr.top+pt,lr.top+L.clientHeight,at.getBoundingClientRect().left+parseFloat(x));
+  const room=Math.max(0,Math.floor(foot-lr.top-pt-PV_SIDE_GAP)),was=p.classList.contains('pv-tall'),tall=(was?p.scrollHeight+2:p.offsetHeight)>room,h=tall?room+'px':'';
   if(tall!==was)p.classList.toggle('pv-tall',tall); if(p.style.maxHeight!==h)p.style.maxHeight=h;}
+// How far down the panel may reach, in the window's px: the PDF area's bottom (bottom), or the top of a card laid over the area's
+// right side under the panel - with the pin panel closed its tool bar, a banner and the status line float at the area's
+// bottom right (side-panel.css) - whichever is higher, so a tall panel scrolls above them. Over its bottom, the status
+// line's hint covered the reason field's last line and its focus ring. top: the panel's top; left: its left edge.
+const PV_OVER_AREA=['bar2','banner','status-wide'];
+/** @param {number} top @param {number} bottom @param {number} left @returns {number} */
+function pvPanelFoot(top,bottom,left){let foot=bottom;
+  for(const id of PV_OVER_AREA){const e=document.getElementById(id); if(!e||!e.getClientRects().length)continue; const r=e.getBoundingClientRect();
+    if(r.height&&r.left<left+PV_SIDE_W&&r.right>left&&r.top>top&&r.top<foot)foot=r.top;}
+  return foot;}
 // The panel's line is laid out in rows (.pv-stack: the name, the words, the state, the reason) and never measured for one row:
 // there is room for each part's whole width, so nothing gives way. Its save chip and the reason popover stand in its flow
 // under the state (verdict-panel.css): the words above never move.

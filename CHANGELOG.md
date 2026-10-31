@@ -8,11 +8,13 @@
   names itself in one form - its page on the name's row, the map's whole title under it - whether it is a list page or a
   comparison board. A far jump (the outline, the page list, a card's [보기]) fills the panel once where it lands instead
   of for every page passed, and a card's [보기] flashes the panel when it shows that page. The pressed word in the panel
-  no longer shows a description box over the page's name; its context under the panel says it, and every other
-  description in the panel stands left of it, over neither the name nor a control. The widest page now
+  no longer shows a description box over the page's name - a long press shows it, and its context under the panel stands
+  after a press and on the keyboard's focus, not on a hover - and every other description in the panel stands left of it,
+  over neither the name nor a control, with an edge over the page. The widest page now
   decides the room beside the pages, so a document whose pages differ in width keeps every page on one axis beside the
   panel, never under it, and scrolling never turns the panel on or off. A panel tall enough to scroll inside brings the
-  control the keyboard focuses whole into view with its focus ring. The agent contract is unchanged.
+  control the keyboard focuses whole into view with its focus ring, and ends above the cards that float at the PDF area's
+  bottom right while the pin panel is closed. The agent contract is unchanged.
 
 ## 0.4.37 — 2026-10-31
 
