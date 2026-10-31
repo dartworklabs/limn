@@ -86,7 +86,8 @@ class JumpBase(BrowserBase):
 
 
 class JumpFlows:
-    """A far jump lands on its page, with the digits refused on the way, on a phone and on a desktop."""
+    """A far jump lands on its page, with the digits refused on the way, on a phone and on a desktop; one stopped short lets
+    the anchoring hold go."""
 
     def check(self, device):
         page = self.on(device)
@@ -99,6 +100,16 @@ class JumpFlows:
         page.keyboard.press("1")
         page.wait_for_function("OPEN_ALL.length===1&&!PV_BUSY.size", timeout=10000)
         self.assertEqual(page.evaluate("OPEN_ALL[0].page"), 1)
+        # A jump a script's scroll stops short of its place (as a document switch or a rebuild does) lets the hold go once the
+        # pages are still: anchoring comes back.
+        page.evaluate(
+            "()=>{goPage(30); requestAnimationFrame(()=>requestAnimationFrame(()=>{const L=document.querySelector('#left'); L.scrollTop=L.scrollTop+1;}));}"
+        )
+        page.evaluate(RESTED)
+        page.wait_for_function(
+            "()=>PV_JUMP===null&&getComputedStyle(document.querySelector('#left')).overflowAnchor==='auto'",
+            timeout=4000,
+        )
 
     def test_a_far_jump_on_a_phone_lands_on_its_page(self):
         """390 x 844: pages 105, 60 and 1 in turn, each from the last."""

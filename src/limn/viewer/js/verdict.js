@@ -1299,8 +1299,14 @@ const PV_HAND=()=>{PV_SCROLL_HAND=performance.now(); PV_GLIDE=false; pvJumpSet(n
 // as each page passes under the reading line: on a phone a jump from page 1 to page 105 of a figure document rested at page 89,
 // to page 105 of a generated one at page 4 (#343). The glide's place is reckoned at its start and nothing above it changes size on
 // the way (the lines keep their heights, a far one its drawn one), so there is nothing for anchoring to keep in the meantime.
+// A jump that does not end at its place - the browser stopped it short, a document switch or a rebuild took the pages over, a
+// late scroll end of an earlier scroll came instead of its own - is let go once the pages have been still for a second, as the
+// guard lets it go (pvAutoScrolling): the hold is never left on, which would take anchoring from a line changing height
+// above the view. Checked past settle()'s timer window (IDLE_TIMER_MS) so that a test waiting for quiet does not wait it out.
+let PV_JUMP_TIMER=0;
 /** @param {number|null} v */
-function pvJumpSet(v){PV_JUMP=v; $('#left').classList.toggle('pv-glide',v!==null);}
+function pvJumpSet(v){PV_JUMP=v; $('#left').classList.toggle('pv-glide',v!==null); clearTimeout(PV_JUMP_TIMER); if(v!==null)PV_JUMP_TIMER=setTimeout(pvJumpLapse,1100);}
+function pvJumpLapse(){if(PV_JUMP===null)return; if(performance.now()-PV_SCROLL_AT>=1000)pvJumpSet(null); else PV_JUMP_TIMER=setTimeout(pvJumpLapse,1100);}
 for(const t of ['wheel','touchstart','touchmove','pointerdown'])$('#left').addEventListener(t,PV_HAND,{passive:true,capture:true});
 $('#left').addEventListener('pointermove',e=>{if(e.buttons)PV_HAND();},{passive:true,capture:true});   // a scroll bar dragged
 // A scrolling key is the person's hand on the pages only where it scrolls them: on the PDF area, on a control in it (a
