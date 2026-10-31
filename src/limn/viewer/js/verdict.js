@@ -1203,10 +1203,59 @@ function pvStick(){if(pageVerdictsOn()&&pvSideCheck())return;   // the room cros
     pvFocusOffPage(r,was[0]);}
   pvPanelPlace(); pvSumOn();
   lines.forEach(l=>{if(l.id==='pv-panel')return;   // the panel stands sticky beside the pages: it never floats at their foot
-    const pg=/** @type {HTMLElement|null} */(l.previousElementSibling); if(!pg)return; const b=l.getBoundingClientRect();
-    const stuck=l.classList.contains('reading')&&b.bottom>lr.top&&b.top<lr.bottom&&b.top<pg.getBoundingClientRect().bottom+4;   // in its own place it stands 8px under the page
+    const pg=/** @type {HTMLElement|null} */(l.previousElementSibling); if(!pg)return; const b=l.getBoundingClientRect(),pb=pg.getBoundingClientRect().bottom;
+    // In its own place it stands 8px under the page; held lower by a reason's room (pvRoomPlace) it floats over the gap and
+    // the next page's top, and is set off as a floating line is.
+    const stuck=(l.classList.contains('reading')&&b.bottom>lr.top&&b.top<lr.bottom&&b.top<pb+4)||pvRoomLow(l,pg,b.top,pb);
     l.classList.toggle('stuck',stuck); pvLean(l,pg,b,stuck,L,lr);});
-  pvPopPlace();}
+  pvPopPlace(); if(pvRoomPlace(L,lr))pvPopPlace();}   // a held line its floating place lifted: the popover's side again
+// Room to read a page's end under its open reason popover (#345). The popover stands above its line, so where the line stands
+// in its place under the page the popover covers the page's end - a figure's caption, written under the plot - and no scroll
+// uncovered it: the line and the popover with it went on with the page. While a popover is open above a line in the pages,
+// that line's block holds a room as tall as what the popover covers there (.pv-roomy, --pv-room: an empty box after the line
+// whose negative margin gives its height back, so no page and no block moves), and the line's top edge is sticky where it
+// stands (its own top). Scrolling on, the line and the popover stay while the page's end comes up from under them by the
+// room, then go on with the page. The line only ever stands lower than its own place, never higher; scrolled back, it goes
+// down with the page as before, and wherever it then stands unheld - lower, or floating - is where it holds next (also when
+// the field's focus folds the line and the page moves on a phone). Held lower it floats over the gap and the next page's
+// top, set off as a floating line is (pvRoomLow). A sticky top wins over the floating bottom, so the top is never lower than
+// the floating place (a keyboard laid over the page raises that). Opening and closing move nothing and nothing scrolls:
+// closed, the room stays while the line stands lower than its place in view - dropping it would lift the line under the
+// eye - and goes once the line is back in its place or out of view. The panel's popover is in the panel's flow, beside
+// the page: it covers nothing.
+const PV_ROOM=/** @type {Map<HTMLElement,{room:number,blk:HTMLElement}>} */(new Map());   // line -> the room its block holds (px) and that block
+// The gap between a page and its line in its own place: the page's bottom margin and the line's top margin, collapsed.
+/** @param {HTMLElement} l @param {HTMLElement} pg */
+function pvOwnGap(l,pg){const a=parseFloat(getComputedStyle(pg).marginBottom)||0,b=parseFloat(getComputedStyle(l).marginTop)||0;
+  return Math.max(a,b,0)+Math.min(a,b,0);}
+// Whether line l (top edge at t, its page's bottom at pb) stands lower than its own place, held there by a reason's room.
+/** @param {HTMLElement} l @param {HTMLElement} pg @param {number} t @param {number} pb */
+function pvRoomLow(l,pg,t,pb){return PV_ROOM.has(l)&&t>pb+pvOwnGap(l,pg)+0.5;}
+/** @param {HTMLElement} l */
+function pvRoomDrop(l){const r=PV_ROOM.get(l); PV_ROOM.delete(l); l.style.removeProperty('top');
+  if(r){r.blk.classList.remove('pv-roomy'); r.blk.style.removeProperty('--pv-room');}}   // its block, also once the line is gone from it (the side panel took it)
+// Whether it lifted a held line (its floating place rose above it): the popover's side is chosen again then (pvStick).
+/** @param {HTMLElement} L @param {DOMRect} lr @returns {boolean} */
+function pvRoomPlace(L,lr){const pop=/** @type {HTMLElement|null} */(document.querySelector('#doc .pv>.pv-pop'));
+  const open=pop&&pop.parentElement&&pop.parentElement.id!=='pv-panel'?/** @type {HTMLElement} */(pop.parentElement):null;
+  if(!open&&!PV_ROOM.size)return false;
+  const cs=getComputedStyle(L),top0=lr.top+L.clientTop+(parseFloat(cs.paddingTop)||0),end=lr.top+L.clientTop+L.clientHeight-(parseFloat(cs.paddingBottom)||0);   // what a sticky line keeps within
+  PV_ROOM.forEach((r,l)=>{if(l===open)return; const pg=/** @type {HTMLElement|null} */(l.previousElementSibling);
+    if(!l.isConnected||!pg||l.parentElement!==r.blk){pvRoomDrop(l); return;}
+    const b=l.getBoundingClientRect(); if(!pvRoomLow(l,pg,b.top,pg.getBoundingClientRect().bottom)||b.bottom<=lr.top||b.top>=lr.top+L.clientHeight)pvRoomDrop(l);});
+  if(open){const pg=/** @type {HTMLElement|null} */(open.previousElementSibling),blk=open.parentElement;
+    const want=pop&&pg&&blk&&blk.classList.contains('pgw')?Math.ceil(-pop.offsetTop-pvOwnGap(open,pg)):0;   // under its line: 0 or less
+    let had=PV_ROOM.get(open); if(had&&had.blk!==blk){pvRoomDrop(open); had=undefined;}
+    if(!had&&want>0&&blk){had={room:0,blk}; PV_ROOM.set(open,had); blk.classList.add('pv-roomy');}
+    if(had&&pg){if(want>had.room){had.room=want; had.blk.style.setProperty('--pv-room',want+'px');}   // a taller popover: more room, never less while it is open
+      // Its top is sticky where it stands - and lower where it comes to stand without being held (the page moved down: a
+      // scroll back, or the line growing or shrinking as the field takes the focus), so the room is under it wherever the
+      // person turns to read on.
+      const b=open.getBoundingClientRect(),t=b.top-top0; if(!pvRoomLow(open,pg,b.top,pg.getBoundingClientRect().bottom)&&!(parseFloat(open.style.top)>=t))open.style.top=t+'px';}}
+  let lifted=false;
+  PV_ROOM.forEach((_,l)=>{const bt=getComputedStyle(l).bottom; if(bt==='auto')return;   // a floating line: its top stays above where it floats
+    const most=end-(parseFloat(bt)||0)-l.getBoundingClientRect().height-top0; if((parseFloat(l.style.top)||0)>most){l.style.top=most+'px'; lifted=true;}});
+  return lifted;}
 // A phone's floating line holds [판정 취소] back (.pv-lean, components.css): unseen, not pressed, focused or heard - and in
 // its place, so the line keeps its rows whether it floats or stands in its place. Taken out of the row, it let the short
 // earlier link ('이전 1건') rise into its row while the line floated: 131 against 191px in place, and the next page jumped
