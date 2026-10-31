@@ -8,8 +8,9 @@ on the figure goes to the page's top, and once more to the figure. A page withou
 as before. Arriving at the figure puts the 160 px reading line inside it, so the section strip, the page count, the keys
 1-5 and the verdict panel name the arrived page, and the keys wait for the glide as they do for every jump.
 
-The document: six tall portrait pages (612 x 1152 pt). Pages 1-4 have a head and a text box above a figure body at 55% of
-the page and a caption under it; page 5 is a figure page whose map names no body; page 6 is a list page (no verdict).
+The document: seven tall portrait pages (612 x 1152 pt). Pages 1-4 have a head and a text box above a figure body at 55%
+of the page and a caption under it; page 5's body starts at the page's top, with nothing above it; page 6 is a figure page
+whose map names no body; page 7 is a list page (no verdict).
 
 Run: uv run pytest -q src/limn/viewer/tests/test_viewer_figure_arrival.py
 """
@@ -29,8 +30,9 @@ WORDS = {
     "page": True,
     "verdicts": [{"key": "채택"}, {"key": "보류"}, {"key": "삭제", "confirm": True}],
 }
-N_PAGES = 6
-BODY_PAGES = (1, 2, 3, 4)  # the pages whose map names a figure body
+N_PAGES = 7
+BODY_PAGES = (1, 2, 3, 4)  # the pages whose map names a figure body under a head and a text box
+TOP_BODY = 5  # the page whose figure body starts at its top, nothing above it
 PAGE_PNG = (1275, 2400)  # 612 x 1152 pt at 150 dpi: taller than every screen here
 HEAD, TEXT, BODY, CAPTION = (
     (0.04, 0.04, 0.92, 0.05),
@@ -62,7 +64,7 @@ WHERE = """n => {const L = document.querySelector('#left'), pg = document.getEle
 
 
 class FigurePages(BrowserBase):
-    """The three viewer documents of helpers_figure.viewer_docs, the figure rebuilt as six tall pages (module docstring),
+    """The three viewer documents of helpers_figure.viewer_docs, the figure rebuilt as seven tall pages (module docstring),
     its word file asking for page lines; picks on the figure reach the real handler."""
 
     def setUp(self):
@@ -84,6 +86,8 @@ class FigurePages(BrowserBase):
             parts = [("@head", HEAD), ("@text", TEXT), ("@caption", CAPTION)] + (
                 [("@figure", BODY)] if i in BODY_PAGES else []
             )
+            if i == TOP_BODY:
+                parts = [("@figure", (0.04, 0.0, 0.8, 0.3)), ("@caption", CAPTION)]
             kids = [{"id": fid + "/" + k, "parent": fid, "frac": list(f)} for k, f in parts]
             return {"page": i, "figure": fid, "title": "[후보] PL%d · 월별 효과" % (10 + i), "elements": [root, *kids]}
 
@@ -224,11 +228,11 @@ class FigureArrival(FigurePages):
         self.at_top(page.evaluate(WHERE, 3), 3)
 
     def test_a_page_without_a_figure_body_arrives_at_its_top_as_before(self):
-        """Page 5 (a figure page whose map names no body) and page 6 (a list page) arrive at their tops, from the page list
+        """Page 6 (a figure page whose map names no body) and page 7 (a list page) arrive at their tops, from the page list
         and the outline, and stay there when pressed again; their meta has no figure_top."""
         page = self.on(SIZES["tablet 1024x768"])
-        self.assertEqual(page.evaluate("()=>[5,6].map(n=>'figure_top' in META.pages[n-1])"), [False, False])
-        for n in (5, 6):
+        self.assertEqual(page.evaluate("()=>[6,7].map(n=>'figure_top' in META.pages[n-1])"), [False, False])
+        for n in (6, 7):
             with self.subTest(page=n):
                 self.page_list(page, n)
                 self.at_top(page.evaluate(WHERE, n), n)
@@ -236,6 +240,20 @@ class FigureArrival(FigurePages):
                 self.at_top(page.evaluate(WHERE, n), n)
                 self.outline(page, n)
                 self.at_top(page.evaluate(WHERE, n), n)
+
+    def test_a_body_at_the_page_s_top_keeps_no_room_above_the_page_at_a_large_zoom(self):
+        """Page 5's body starts at its top, nothing above it: zoomed in as far as it goes on the short foldable, its
+        arrival keeps no more room than the page has above the body, so the page's top stays under the free area's top
+        and the reading line, the page count and the keys are on page 5, not on page 4 above it."""
+        page = self.on(SIZES["fold inner 841x673"])
+        page.evaluate("()=>zoomTo(K*10)")
+        settle(page)
+        self.page_list(page, TOP_BODY)
+        where = page.evaluate(WHERE, TOP_BODY)
+        self.assertLessEqual(abs(where["top"] - where["arrive"]), 2, where)
+        self.assertLessEqual(where["page"], 8 + 2, where)
+        self.assertEqual((where["reading"], where["keys"]), (TOP_BODY, TOP_BODY), where)
+        self.assertTrue(where["count"].startswith("%d " % TOP_BODY), where)
 
     def test_a_key_waits_for_the_glide_then_judges_the_arrived_page(self):
         """A digit pressed in the same task as the page list's jump to page 3's figure, before its first scroll, saves

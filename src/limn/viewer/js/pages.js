@@ -137,12 +137,14 @@ function arrivePage(n){const el=document.getElementById('p'+n); if(!el)return; c
 const FIGURE_ROOM_PT=24;   // of the page kept above an arrived figure at most: its label line ('PL18 · 지금 판') has no element
 const FIGURE_REST_PX=2;   // the pages rest on a figure's arrival within this (a glide ends on or next to its pixel)
 // #left's scrollTop of page n's figure arrival - its figure's top edge under the free PDF area's top (spotTop) with up to
-// FIGURE_ROOM_PT of the page above it, down to the element above (figure_above), and at least OUTLINE_PICK_GAP px - or null
-// for a page without a figure body. In page points, so the room is the label line's at every zoom.
+// FIGURE_ROOM_PT of the page above it, down to the element above (figure_above) or else the page's top, and at least
+// OUTLINE_PICK_GAP px - or null for a page without a figure body. In page points, so the room is the label line's at every
+// zoom. Room past the page's top would stand the page below the reading line at a large zoom: the line would read the page
+// before it.
 /** @param {number} n */
 function figureTop(n){const pg=document.getElementById('p'+n),m=META&&META.pages?META.pages[n-1]:null;
   if(!pg||!m||typeof m.figure_top!=='number'||!(m.pt_h>0))return null;
-  const h=pg.getBoundingClientRect().height,free=typeof m.figure_above==='number'?(m.figure_top-m.figure_above)*h:Infinity;
+  const h=pg.getBoundingClientRect().height,free=(m.figure_top-(typeof m.figure_above==='number'?m.figure_above:0))*h;
   return spotTop(pg,m.figure_top,Math.max(OUTLINE_PICK_GAP,Math.min(FIGURE_ROOM_PT*h/m.pt_h,free)));}
 function goPage(v){arrivePage(parseInt(v===undefined?$('#jump').value:v,10));}
 $('#jump').addEventListener('keydown',e=>{if(e.key==='Enter')goPage();});
