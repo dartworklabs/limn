@@ -143,6 +143,18 @@ class FigurePages(BrowserBase):
         page.wait_for_function(RESTING, polling="raf", timeout=10000)
         settle(page)
 
+    def landed(self, page):
+        """The pages at rest after an arrival and its settling (pages.js arrivalSettle): rested, then rested again once
+        any correction it started has run."""
+        self.rest(page)
+        page.wait_for_timeout(300)
+        self.rest(page)
+
+    def to_top(self, page):
+        """The pages at the document's top, as a hand puts them (no arrival watching)."""
+        page.evaluate("()=>{PV_HAND(); document.querySelector('#left').scrollTop = 0;}")
+        self.rest(page)
+
     def page_list(self, page, n):
         """Page n's row of the page list, opened from the page count that shows (the section strip's or the nav bar's)."""
         count = (
@@ -254,6 +266,54 @@ class FigureArrival(FigurePages):
         self.assertLessEqual(where["page"], 8 + 2, where)
         self.assertEqual((where["reading"], where["keys"]), (TOP_BODY, TOP_BODY), where)
         self.assertTrue(where["count"].startswith("%d " % TOP_BODY), where)
+
+    def test_a_forward_far_arrival_lands_on_the_figure_though_the_layout_above_moves_on_the_way(self):
+        """Many verdicts, a digit saved on page 1, then forward to page 4 by its card's [보기], by the page list and by a
+        page field - each while the line of a page between grows by 60px as the glide starts, as a save's list reload
+        redraws hundreds of lines (and, past a second's stall, gives scroll anchoring back): the glide reckoned its place
+        before, so it rested 60px off. Once the pages rest the arrival measures again and glides the rest (#345). On the
+        short foldable and a desktop."""
+        for n in range(1, 6):
+            for key in ("채택", "보류", "삭제"):
+                self.verdict(n, key)
+        pid = self.verdict(4, "보류")
+        grow = """([go, n]) => {(0, eval)(go); const l = document.querySelector('#doc .pv[data-page="' + n + '"]');
+          l.style.paddingBottom = (parseFloat(l.style.paddingBottom || '0') + 60) + 'px';}"""
+        view = "jumpPin(%d)" % pid
+        for name in ("fold inner 841x673", "desktop 1440x900"):
+            with self.subTest(device=name):
+                page = self.on(SIZES[name], n_open=16)
+                had = page.evaluate("()=>OPEN_ALL.length")
+                key = page.evaluate(
+                    "()=>{const a=(pageVerdictPins().get(1)||[])[0]; return a&&verdictOf(a)==='채택'?'2':'1';}"
+                )
+                page.locator("#left").focus()
+                page.keyboard.press(key)  # a new verdict, not the press that takes the current one back
+                page.wait_for_function("n=>OPEN_ALL.length===n+1", arg=had)
+                settle(page)
+                for i, go in enumerate((view, "goPage(4)", "$('#jump').value='4'; goPage()")):
+                    self.to_top(page)
+                    page.evaluate(grow, [go, 2 + i % 2])
+                    self.landed(page)
+                    self.at_figure(page.evaluate(WHERE, 4), 4)
+                page.context.close()
+
+    def test_a_person_who_scrolls_while_it_glides_is_not_pulled_back(self):
+        """The layout above moves as the arrival glides and the person scrolls the pages themselves on the way: once they
+        rest the arrival lets go and leaves them where the person put them."""
+        page = self.on(SIZES["desktop 1440x900"])
+        page.evaluate(
+            """() => {goPage(4); const l = document.querySelector('#doc .pv[data-page="2"]'); l.style.paddingBottom = '60px';}"""
+        )
+        page.wait_for_function("()=>document.querySelector('#left').scrollTop>1500")
+        page.mouse.move(700, 500)
+        page.mouse.wheel(0, -400)
+        self.landed(page)
+        still = page.evaluate("()=>document.querySelector('#left').scrollTop")
+        page.wait_for_timeout(600)
+        settle(page)
+        self.assertEqual(page.evaluate("()=>[document.querySelector('#left').scrollTop, ARRIVAL]"), [still, None])
+        self.assertGreater(abs(still - page.evaluate("()=>figureTop(4)")), 50)
 
     def test_a_key_waits_for_the_glide_then_judges_the_arrived_page(self):
         """A digit pressed in the same task as the page list's jump to page 3's figure, before its first scroll, saves

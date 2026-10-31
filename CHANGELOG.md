@@ -9,9 +9,10 @@
   edge under the PDF area's top, keeping up to 24 pt above it for the figure's label line, instead of the page's top:
   the page's head and text box no longer push the figure below the first screen (at 1440 x 900 the whole figure showed on
   26 of 88 pages of a 1.6.0 gallery, now on all 88). The same entry again while the pages rest on the figure goes to the
-  page's top, and once more back to the figure. The reading line falls inside the figure, so the section strip, the page
-  count, the keys 1-5 and the verdict panel name the arrived page. Pages without a figure body, and every LaTeX or
-  view-only page, arrive at their top as before. `GET /api/meta` adds `figure_top` and `figure_above` to such a page's
+  page's top, and once more back to the figure. It lands there once the pages rest, even when the layout above moves
+  on the way (a save's list reload, scroll anchoring after a stall); a person's own scroll is left alone. The reading
+  line falls inside the figure, so the section strip, the page count, the keys 1-5 and the verdict panel name the
+  arrived page. Pages without a figure body, and every LaTeX or view-only page, arrive at their top as before. `GET /api/meta` adds `figure_top` and `figure_above` to such a page's
   facts; the agent contract is otherwise unchanged.
 
 ## 0.4.38 — 2026-10-31

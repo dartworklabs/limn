@@ -133,9 +133,34 @@ function fitW(){const a=topAnchor(),L=$('#left');
 // (docs/handbook/viewer.md §그림 쪽 도착). Each is a glide (pvGlideTo, pvGlideInto), so the keys wait for it to end.
 /** @param {number} n */
 function arrivePage(n){const el=document.getElementById('p'+n); if(!el)return; const to=figureTop(n),L=$('#left');
-  if(to===null||(!pvAutoScrolling()&&Math.abs(L.scrollTop-to)<=FIGURE_REST_PX))pvGlideInto(el); else pvGlideTo(to);}
+  if(to===null){pvGlideInto(el); return;}
+  const top=!pvAutoScrolling()&&Math.abs(L.scrollTop-to)<=FIGURE_REST_PX;
+  if(top)pvGlideInto(el); else pvGlideTo(to);
+  arrivalWatch(n,!top);}
 const FIGURE_ROOM_PT=24;   // of the page kept above an arrived figure at most: its label line ('PL18 · 지금 판') has no element
 const FIGURE_REST_PX=2;   // the pages rest on a figure's arrival within this (a glide ends on or next to its pixel)
+// A figure page's arrival (its figure, or its top on the press again) lands where it says once the pages rest. The glide's
+// place is reckoned at its start, and the layout can still move under it: a save's list reload redraws hundreds of lines and
+// stalls the glide past its guard (PV_JUMP lapses after a second), which gives scroll anchoring back, and the anchoring's
+// adjustment left the figure 30-300px off (#345). So each time the pages come to rest - after ARRIVAL_REST_MS without a
+// scroll, the glide guard down - it measures the place again and glides the rest (pvGlideTo: the guard and the held anchoring
+// again), until ARRIVAL_SETTLE_MS after the first rest, at most ARRIVAL_FIXES times. Never once the person has scrolled
+// (PV_HAND), on another document, or with the pages not shown; a new arrival replaces it.
+const ARRIVAL_REST_MS=120,ARRIVAL_SETTLE_MS=2000,ARRIVAL_FIXES=3;
+let ARRIVAL=/** @type {{n:number,figure:boolean,hand:number,doc:string|null,fixes:number,until:number}|null} */(null),ARRIVAL_TIMER=0;
+/** @param {number} n @param {boolean} figure */
+function arrivalWatch(n,figure){ARRIVAL={n,figure,hand:PV_SCROLL_HAND,doc:DOC,fixes:0,until:0}; arrivalSoon();}
+function arrivalSoon(){clearTimeout(ARRIVAL_TIMER); ARRIVAL_TIMER=setTimeout(arrivalSettle,ARRIVAL_REST_MS);}
+function arrivalSettle(){const a=ARRIVAL,L=$('#left'),el=a?document.getElementById('p'+a.n):null; if(!a)return;
+  if(!el||a.hand!==PV_SCROLL_HAND||a.doc!==DOC||!L.getClientRects().length){ARRIVAL=null; return;}
+  if(PV_JUMP!==null||pvAutoScrolling()){arrivalSoon(); return;}   // still on its way
+  const now=performance.now(); if(!a.until)a.until=now+ARRIVAL_SETTLE_MS; else if(now>a.until){ARRIVAL=null; return;}
+  const to=a.figure?figureTop(a.n):Math.max(0,Math.min(L.scrollHeight-L.clientHeight,L.scrollTop+el.getBoundingClientRect().top-L.getBoundingClientRect().top-L.clientTop));
+  if(to===null){ARRIVAL=null; return;}
+  if(Math.abs(L.scrollTop-to)>FIGURE_REST_PX){if(a.fixes>=ARRIVAL_FIXES){ARRIVAL=null; return;} a.fixes++; pvGlideTo(to); arrivalSoon();}}
+// A scroll while it watches - the glide's own, an anchoring adjustment, a correction - waits for the next rest; a person's
+// scroll (PV_HAND) lets it go at that rest.
+$('#left').addEventListener('scroll',()=>{if(ARRIVAL)arrivalSoon();},{passive:true});
 // #left's scrollTop of page n's figure arrival - its figure's top edge under the free PDF area's top (spotTop) with up to
 // FIGURE_ROOM_PT of the page above it, down to the element above (figure_above) or else the page's top, and at least
 // OUTLINE_PICK_GAP px - or null for a page without a figure body. In page points, so the room is the label line's at every
