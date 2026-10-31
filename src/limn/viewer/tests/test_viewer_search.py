@@ -2616,6 +2616,33 @@ class SearchPhoneSheetStill(FiveDocsBase):
             page.wait_for_function("!document.querySelector('#nav-sheet').open")
         self.assertLessEqual(max(tops) - min(tops), 1, tops)
 
+    def test_a_filter_that_finds_nothing_keeps_the_sheet_still(self):
+        """One document at 390x844 on page 14: a filter that finds something, then nothing, then something again, a keyboard's
+        height while it finds nothing, and the filter emptied - the sheet's top stays at one height, the sheet itself never
+        scrolls and no row is cut, and emptied, the current section is back (review of #340: with no result the sheet lost the
+        height it kept and its top moved)."""
+        ps.APP.set_docs([self.docs[0]])
+        page = self.view({**PHONES["phone 390x844"], "viewport": {"width": 390, "height": 844}})
+        self.still(page, "open", self.sheet_on(page, 14))
+        top = "document.querySelector('#nav-sheet').getBoundingClientRect().top"
+        tops = [page.evaluate(top)]
+        for name, typed in (("some", "Section 1"), ("none", "Section 1zz"), ("again", "Section 1")):
+            page.fill("#ns-outline-search", typed)
+            settle(page)
+            self.still(page, name, page.evaluate(SHEET_ROWS))
+            tops.append(page.evaluate(top))
+        self.assertLessEqual(max(tops) - min(tops), 1, tops)
+        page.fill("#ns-outline-search", "Section 1zz")
+        page.set_viewport_size({"width": 390, "height": 534})
+        page.wait_for_timeout(200)
+        settle(page)
+        self.still(page, "none, short", page.evaluate(SHEET_ROWS))
+        page.fill("#ns-outline-search", "")
+        settle(page)
+        got = page.evaluate(SHEET_ROWS)
+        self.still(page, "emptied", got)
+        self.assertEqual((got["index"], got["current"]), (13, True), got)
+
 
 class SearchPhoneSheetStillWebKit(SearchPhoneSheetStill):
     """The same in WebKit, the engine of a phone's Safari (an emulated phone, not a device)."""

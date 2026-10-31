@@ -40,20 +40,22 @@ function navSheetFit(d,at,centre,refit=false){const list=/** @type {HTMLElement}
   const pc=Math.max(0,pageRows.findIndex(r=>r.getAttribute('aria-selected')==='true')),maxH=parseFloat(getComputedStyle(d).maxHeight)||Infinity;
   const rows=navSheetRows(),show=!sec.hidden&&rows.length>0,c=Math.min(rows.length-1,Math.max(0,at));
   const k=Math.ceil(maxH/44)+3,from=Math.max(0,c-k),geo=show?geoOf(list,rows.slice(from,c+k+1)):[],i=c-from,n=geo.length-1;
+  const note=sec.hidden||show?0:list.offsetHeight;   // no row to show - a filter found nothing: its note takes the outline's place
   // what the fixed part takes: the sheet with both lists folded away
   list.style.maxHeight='0px'; pages.style.display='none'; const room=maxH-d.offsetHeight;
   list.style.maxHeight=pages.style.display='';
   const span=(/** @type {[number,number]|null} */w,/** @type {{top:number,bottom:number}[]} */g)=>w?g[w[1]].bottom-g[w[0]].top:0;
   const least=(/** @type {number} */m)=>/** @type {[number,number]} */(centre?[Math.max(0,i-Math.floor((m-1)/2)),Math.min(n,i+Math.ceil((m-1)/2))]:[i,Math.min(n,i+m-1)]);
-  const plan=show?navSheetShare(room,m=>span(navSheetSpan(pgeo,pc,m),pgeo),Math.min(5,pageRows.length),span(least(3),geo),span(least(1),geo)):null;
+  const pagesOf=(/** @type {number} */m)=>span(navSheetSpan(pgeo,pc,m),pgeo),most=Math.min(5,pageRows.length);
+  const plan=show?navSheetShare(room,pagesOf,most,span(least(3),geo),span(least(1),geo)):navSheetShare(room,pagesOf,most,note,note);
   if(plan){const pw=navSheetSpan(pgeo,pc,plan.pages);
     if(pw){pages.style.maxHeight=span(pw,pgeo)+'px'; pages.scrollTop=pgeo[pw[0]].top;} else if(pageRows.length)pages.style.display='none';
-    const left=room-span(pw,pgeo),w=navSheetWindow(geo,i,left,!centre),h=span(w,geo);
-    list.style.maxHeight=h+'px'; list.scrollTop=geo[w[0]].top;
-    if(from>0||w[0]>0||from+w[1]<rows.length-1)sec.style.paddingBottom=(parseFloat(getComputedStyle(sec).paddingBottom)+Math.max(0,left-h))+'px';   // cut short: the sheet keeps its height
+    if(show){const left=room-span(pw,pgeo),w=navSheetWindow(geo,i,left,!centre),h=span(w,geo);
+      list.style.maxHeight=h+'px'; list.scrollTop=geo[w[0]].top;
+      if(from>0||w[0]>0||from+w[1]<rows.length-1)sec.style.paddingBottom=(parseFloat(getComputedStyle(sec).paddingBottom)+Math.max(0,left-h))+'px';}   // cut short: the sheet keeps its height
     if(refit&&NAV_SHEET_H)d.style.minHeight=Math.min(NAV_SHEET_H,maxH)+'px'; else NAV_SHEET_H=d.offsetHeight;
     return;}
-  NAV_SHEET_H=0; if(!show)return;
+  if(!refit)NAV_SHEET_H=0; if(!show)return;
   // not even one outline row fits under the fixed part: the sheet scrolls as well, by whole parts, keeping the current page's row and
   // the current outline row
   const pw=navSheetSpan(pgeo,pc,1); if(pw){pages.style.maxHeight=span(pw,pgeo)+'px'; pages.scrollTop=pgeo[pw[0]].top;}

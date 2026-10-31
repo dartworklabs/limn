@@ -17,8 +17,8 @@
   field keep their place, and the page list and the outline's rows share the height left, each showing whole rows around
   its current one in a box exactly as tall - five page rows while the outline has three, then fewer, down to the current
   page's, then one outline row, then no page list - so no row is cut at a list's edge, under the outline's filter or at the
-  foot, and the sheet itself does not scroll. Its top stands at one height on any page and while a filter's fewer results
-  show; emptying the filter brings the current section back, and the keyboard coming or going fits it again. Only where
+  foot, and the sheet itself does not scroll. Its top stands at one height on any page and while a filter shows fewer
+  results or none; emptying the filter brings the current section back, and the keyboard coming or going fits it again. Only where
   not even one outline row fits (many documents on a tiny screen) does the sheet scroll, by whole parts, with the current
   document's row (with one document, the view) pinned under the head. The pages do not move and the focus stays where it
   was.
