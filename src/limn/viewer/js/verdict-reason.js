@@ -172,7 +172,9 @@ function rdTriedOff(doc,id,a){const d=rdAll(),k=rdName(doc,id),add=(/** @type {R
 // whose reason may still be written there (its draft's from, kept with it by rdKeep and placed again on every input,
 // pvReasonPlace): a write of a part's text there takes that part out of this one (pvReasonWrittenOff). hist: the texts its
 // field held since its text or parts were last set from elsewhere, with their parts (pvReasonPlace).
-/** @typedef {{sid:number,page:number,id:number,key:string,doc:string|null,visit:any,text:string,base:string,mode:string,rev:number,conflict:{note:string,rev:number}|null,from:number,via:ReasonPart[],seen:boolean,listed:boolean,writing:Promise<boolean>|null,saved:string|null,tried:ReasonTry[],clearTried:boolean,escArm:string,saveWhenBound?:boolean,onto?:number,hist?:{text:string,via:ReasonPart[]}[]}} ReasonSession */
+/** @typedef {{sid:number,page:number,id:number,key:string,doc:string|null,visit:any,text:string,base:string,mode:string,rev:number,conflict:{note:string,rev:number}|null,from:number,via:ReasonPart[],seen:boolean,listed:boolean,writing:Promise<boolean>|null,saved:string|null,tried:ReasonTry[],clearTried:boolean,escArm:string,saveWhenBound?:boolean,onto?:number,hist?:ReasonHist}} ReasonSession */
+// What a session's field held, for its undo and redo (pvReasonPlace).
+/** @typedef {{last:{text:string,via:ReasonPart[]},seen:Map<string,ReasonPart[]>,size:number,landed:{doc:string|null,id:number,word:string,text:string}[]}} ReasonHist */
 // A new reason's write whose answer was lost: text, sent against the pin's rev `rev`, would have made the note pre, then the
 // stamp a note_append puts first when stamp ('(추가 12:30) ', the time the server's), then text, then post.
 /** @typedef {{text:string,rev:number,pre:string,stamp:boolean,post:string}} ReasonTry */
@@ -542,7 +544,7 @@ async function pvReasonFence(id,p){
 // texts its field may come back to (hist, pvReasonPlace).
 /** @param {ReasonSession} s @param {string} k @param {(t:ReasonTry[])=>ReasonTry[]} fn */
 function pvReasonEvidence(s,k,fn){const m=(/** @type {ReasonPart[]} */ps)=>ps.map(p=>p.k===k?{...p,tried:fn(p.tried)}:p);
-  s.via=m(s.via); if(s.hist)s.hist=s.hist.map(h=>({text:h.text,via:m(h.via)}));}
+  s.via=m(s.via); const h=s.hist; if(!h)return; h.last={text:h.last.text,via:m(h.last.via)}; for(const [t,v] of h.seen)h.seen.set(t,m(v));}
 // The sessions that may still write: the open popover, those moved away from while their save is out, those writing, and
 // those whose failure offers [다시 시도].
 function pvReasonLive(){return /** @type {Set<ReasonSession>} */(new Set([PV_REASON,...PV_DETACHED.values(),...[...PV_WRITES.values()].map(o=>o.r),...PV_RETRY.keys()].filter(Boolean)));}
@@ -555,7 +557,8 @@ function pvReasonLive(){return /** @type {Set<ReasonSession>} */(new Set([PV_REA
 // [다시 시도] goes, and the open popover closes (pvReasonTaken).
 /** @param {string|null} doc @param {number} id @param {string} word @param {string} text @param {ReasonSession|null} w */
 function pvReasonWrittenOff(doc,id,word,text,w){const k=rdName(doc,id),n=rdNorm(text); rdWrittenOff(doc,id,text);
-  for(const s of pvReasonLive()){if(s===w)continue; const c=rdCut(s.text,s.via,k,text);
+  for(const s of pvReasonLive()){if(s===w)continue; if(s.hist)s.hist.landed.push({doc,id,word,text});   // an undo may bring such a part back (pvReasonFollow)
+    const c=rdCut(s.text,s.via,k,text);
     if(c){s.text=c.text.trim()?c.text:''; s.via=s.text?c.from:[]; if(!s.text)pvReasonGone(s); if(s===PV_REASON)pvReasonTaken(s,doc,id,word,!!s.text); continue;}
     if(s===PV_REASON||!s.id||!s.text.trim())continue;
     if(rdName(s.doc,s.id)===k&&rdNorm(s.text)===n){s.saved=s.text.trim(); s.tried=[]; pvReasonGone(s);}   // its own lost write, found landed
@@ -884,25 +887,42 @@ function pvRefill(page){const v=pageVerdictsOn(),e=/** @type {HTMLElement|null} 
 let PV_COMPOSING=false;   // an input method is composing in the reason field: its value is not put back
 $('#doc').addEventListener('compositionstart',e=>{if(pvIsReasonField(e.target))PV_COMPOSING=true;});
 $('#doc').addEventListener('compositionend',e=>{if(pvIsReasonField(e.target))PV_COMPOSING=false;});
-// Every input keeps the draft (rdPut), with the parts moved into it placed where they are now (pvReasonPlace), and lets a
-// first Esc go; the line follows its emptiness (the state).
+// Every input keeps the draft (rdPut), with the parts moved into it placed where they are now (pvReasonPlace) - a part
+// brought back whose text has landed on its pin meanwhile leaves at once (pvReasonFollow) - and lets a first Esc go; the
+// line follows its emptiness (the state).
 $('#doc').addEventListener('input',e=>{const f=e.target; if(!pvIsReasonField(f))return; const r=PV_REASON; if(!r||f.dataset.id!=='s'+r.sid)return;
-  const was=r.text; r.text=f.value; r.via=pvReasonPlace(r,was,f.selectionEnd); r.escArm=''; rdKeep(r); pvReasonGrow(f); pvRefill(r.page);});
+  const was=r.text; r.text=f.value; r.via=pvReasonPlace(r,was,f.selectionEnd); r.escArm=''; pvReasonFollow(r); rdKeep(r); pvReasonGrow(f); pvRefill(r.page);});
 // The parts of session r's text once an input made it r.text from `was`, the caret at `caret`. A text the field held before
 // - back by an undo or a redo, a paste or a typed letter taken back, a composition given up - has the parts it had then: an
 // edit inside a part lets it go (rdEdit), and the undo that put the text back left it with none, so the text was no longer
 // known as moved off its pin, and a write that landed there left it in the copy, to be written twice (#327). The undo
-// and redo records are the texts kept (hist, the newest PV_HIST), each with its parts - its lost writes kept up to date
-// (pvReasonEvidence) -, since its text or parts were last set from elsewhere: opened, moved to a new verdict, a part taken
-// out. What the field held before that is not this session's to come back to with those parts - a part taken out because
-// its text landed on its pin and typed back is a new reason, as it is when it is typed again. Any other text is placed by
-// rdEdit.
-const PV_HIST=200;
+// and redo records are the texts kept (hist.seen, the newest parts for each text), with their parts - their lost writes
+// kept up to date (pvReasonEvidence) and the writes that landed meanwhile on the pins they came from (hist.landed,
+// pvReasonFollow) -, since the session's text or parts were last set from elsewhere: opened, moved to a new verdict, a part
+// taken out. What the field held before that is not this session's to come back to with those parts - a part taken out
+// because its text landed on its pin and typed back is a new reason, as it is when it is typed again (and the browser lets
+// the field's own undo records go when its text is set). Any other text is placed by rdEdit. Texts with parts are kept
+// until then, however many: one let go, the undo past it brought the text back without its part again. Texts without
+// one go oldest first past PV_HIST_CHARS characters - one missed is placed by rdEdit, which may keep a part the text had
+// meanwhile, never invents one.
+const PV_HIST_CHARS=200000;
 /** @param {ReasonSession} r @param {string} was @param {number} caret @returns {ReasonPart[]} */
 function pvReasonPlace(r,was,caret){const same=(/** @type {ReasonPart[]} */x,/** @type {ReasonPart[]} */y)=>x.length===y.length&&x.every((p,i)=>p.k===y[i].k&&p.s===y[i].s&&p.e===y[i].e);
-  let h=r.hist||[]; const last=h[h.length-1]; if(!last||last.text!==was||!same(last.via,r.via))h=[{text:was,via:r.via}];
-  const back=[...h].reverse().find(x=>x.text===r.text),via=back?back.via:rdEdit(r.via,was,r.text,caret);
-  h.push({text:r.text,via}); r.hist=h.slice(-PV_HIST); return via;}
+  let h=r.hist; if(!h||h.last.text!==was||!same(h.last.via,r.via)){h={last:{text:was,via:r.via},seen:new Map(),size:0,landed:[]}; pvHistKeep(h,was,r.via);}
+  const back=h.seen.get(r.text),via=back!==undefined?back:rdEdit(r.via,was,r.text,caret);
+  pvHistKeep(h,r.text,via); h.last={text:r.text,via}; r.hist=h; return via;}
+// Record h keeps text with its parts, as the newest; past PV_HIST_CHARS it lets the oldest texts without a part go.
+/** @param {ReasonHist} h @param {string} text @param {ReasonPart[]} via */
+function pvHistKeep(h,text,via){if(h.seen.has(text)){h.size-=text.length; h.seen.delete(text);} h.seen.set(text,via); h.size+=text.length;
+  for(const [t,v] of h.seen){if(h.size<=PV_HIST_CHARS)break; if(v.length||t===text)continue; h.seen.delete(t); h.size-=t.length;}}
+// After an input, session r's text holds a part whose very text landed on the pin it was moved off while the part was not
+// in the text (an edit inside it had let it go, and an undo brought it back, pvReasonPlace): the part leaves now, as it
+// would have then (pvReasonWrittenOff) - with something left the popover keeps that and says the rest went, with nothing
+// left it closes and says where the reason is (pvReasonTaken). Left in, Enter wrote it on this verdict as well.
+/** @param {ReasonSession} r */
+function pvReasonFollow(r){const h=r.hist; if(!h||!h.landed.length)return;
+  for(const L of h.landed){const c=rdCut(r.text,r.via,rdName(L.doc,L.id),L.text); if(!c)continue;
+    r.text=c.text.trim()?c.text:''; r.via=r.text?c.from:[]; if(!r.text)pvReasonGone(r); if(r===PV_REASON)pvReasonTaken(r,L.doc,L.id,L.word,!!r.text); return;}}
 // Keys in the field: Enter saves (Shift+Enter is a new line), Esc closes or takes two presses with text. Every other key is
 // the field's own - digits included. Nothing while an input method composes. Esc on the popover's buttons ([접기], [닫기],
 // [저장], [지우기]) is the field's Esc: it did nothing there.

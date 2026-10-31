@@ -5157,6 +5157,79 @@ class ReasonRaces(VerdictBase):
         self.assertEqual(page.evaluate(failed), [])
         self.assertEqual(page.evaluate(DRAFTS), {})
 
+    def test_a_moved_part_brought_back_after_its_old_verdict_has_it_leaves(self):
+        """'숨은 이유' for verdict a: its Enter fails before anything is sent (the pin's read is lost, so no write of it may
+        land), and is folded; then 보류 (b), b's '초안 있음' opened and a letter typed inside the moved sentence - the part
+        goes with it - and a's [다시 시도] writes the sentence on a. Ctrl+Z then brings the sentence back with its part, and
+        the part leaves at once, as it would have had it been there (review of #327's fix: it came back as it was, and Enter
+        wrote the sentence on b too):
+        - alone in the field: the popover closes and says where the reason is; nothing is written on b;
+        - with a line typed under it: the field keeps that line and says the rest went; Enter writes it on b."""
+        text = "숨은 이유"
+        for case in ("alone", "with a line"):
+            with self.subTest(case=case):
+                self.drop_all()
+                page = self.on("fig")
+                a = self.typed(page, 1, text)
+                self.lose_read = a
+                page.keyboard.press("Enter")
+                page.wait_for_function("()=>LINE.some(n=>n.title.startsWith('이유 저장 실패'))")
+                settle(page)
+                page.locator('#doc .pv[data-page="1"] [data-act="pv-reason-fold"]').click()
+                page.wait_for_function("()=>!document.querySelector('#doc .pv-pop')")
+                b = self.press_page(page, 1, "보류")
+                open_reason(page, 1)
+                if case == "with a line":
+                    for key in ("Control+End", "Shift+Enter"):
+                        page.keyboard.press(key)
+                    page.keyboard.type("더 쓴 줄")
+                page.keyboard.press("Control+Home")
+                page.keyboard.press("ArrowRight")
+                page.keyboard.type("X")  # inside the moved sentence: it is a new one now
+                self.retry_reason(page, a)
+                page.wait_for_function("id=>LINE.some(n=>n.title==='이유 저장됨 · 판정 #'+id+' 채택')", arg=a)
+                settle(page)
+                self.assertEqual(self.note(a), text)
+                self.assertEqual(page.evaluate(REASON, 1)["focused"], True)
+                page.keyboard.press("Control+z")
+                settle(page)
+                titles = page.evaluate("()=>LINE.map(n=>n.title)")
+                if case == "alone":
+                    self.assertIsNone(page.evaluate(REASON, 1))
+                    self.assertIn("이유는 이전 판정 #%d 채택에 저장됨 · 지금 판정은 #%d 보류" % (a, b), titles)
+                    self.assertEqual((self.note(a), self.note(b)), (text, ""))
+                    self.assertEqual(page.evaluate(DRAFTS), {})
+                    continue
+                self.assertEqual(self.typed_value(page), "더 쓴 줄")
+                self.assertIn("이유 일부는 이전 판정 #%d 채택에 저장됨 · 초안에는 나머지를 남겼습니다" % a, titles)
+                page.locator('#doc .pv[data-page="1"] .pv-reason').focus()
+                page.keyboard.press("Enter")
+                page.wait_for_function("()=>!document.querySelector('#doc .pv-reason')", timeout=10000)
+                settle(page)
+                self.assertEqual((self.note(a), self.note(b)), (text, "더 쓴 줄"))
+
+    def test_the_undo_record_keeps_every_text_with_a_part(self):
+        """The undo record on its own (pvReasonPlace): '옮긴 이유' all a part moved off pin 9, a letter typed inside it, then
+        many more inputs - 250 letters, more than a count of records would keep -, then the field back at '옮긴 이유' at
+        once (one undo of grouped typing): the part comes back (review of #327's fix: a record of the newest 200 let it
+        go). Past its budget of characters the record lets the texts without a part go, oldest first, and keeps those
+        with one."""
+        page = self.on("fig")
+        got = page.evaluate(
+            """()=>{const r={text:'옮긴 이유',via:[{k:'fig:9',s:0,e:5,tried:[]}]};
+              const step=(t,c)=>{const was=r.text; r.text=t; r.via=pvReasonPlace(r,was,c);};
+              step('옮X긴 이유',2); const lost=r.via.length; let t='옮X긴 이유';
+              for(let i=0;i<250;i++){t+='x'; step(t,t.length);}
+              step('옮긴 이유',1); const back=r.via;
+              for(let i=0;i<600;i++)step('y'.repeat(500)+i,501);   // 300,000 characters without a part
+              const kept=r.hist.seen.has('옮긴 이유'),size=r.hist.size; step('옮긴 이유',1);
+              return {lost,back,kept,size,again:r.via};}"""
+        )
+        part = [{"k": "fig:9", "s": 0, "e": 5, "tried": []}]
+        self.assertEqual((got["lost"], got["back"], got["again"]), (0, part, part))
+        self.assertTrue(got["kept"])
+        self.assertLessEqual(got["size"], 200000)
+
     def test_an_edit_inside_a_moved_part_taken_back_keeps_where_it_came_from(self):
         """'되돌린 이유' for verdict a, its Enter lost and folded, then 보류 (b) and b's '초안 있음' opened. Inside the moved
         sentence something is changed and taken back: the part goes with the change and comes back with the text (#327 2:

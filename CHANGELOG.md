@@ -18,7 +18,9 @@
 - **Undo keeps where a moved reason came from (#327).** An edit inside the part of a draft moved off an earlier verdict
   lets the part go; Ctrl+Z (or a paste taken back, an input method's composition given up) brought the text back without
   it, so the earlier verdict's [다시 시도] landing no longer took it out of the copy, which was written twice. A text the
-  field held before now comes back with the parts it had then, redo included. No server or agent contract change.
+  field held before now comes back with the parts it had then, redo included, however much was typed meanwhile; a part
+  brought back after its text landed on the earlier verdict leaves at once, as it would have had it been there. No
+  server or agent contract change.
 
 ## 0.4.37 — 2026-10-31
 
