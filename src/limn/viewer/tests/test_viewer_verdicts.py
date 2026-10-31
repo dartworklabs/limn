@@ -12,6 +12,7 @@ Run: uv run pytest -q src/limn/viewer/tests/test_viewer_verdicts.py
 """
 
 import json
+from types import SimpleNamespace
 from unittest import mock
 from urllib.parse import urlparse
 
@@ -3955,6 +3956,20 @@ class _Swallowed:
         return None
 
 
+class _Late:
+    """A request whose answer the browser has given up on (its route aborted) that reaches the server only later, when the
+    test forwards it: what it asks is copied while the route is live."""
+
+    def __init__(self, route):
+        rq = route.request
+        self.request = SimpleNamespace(
+            url=rq.url, method=rq.method, post_data_buffer=rq.post_data_buffer, headers=dict(rq.headers)
+        )
+
+    def fulfill(self, **_):
+        return None
+
+
 class ReasonRaces(VerdictBase):
     """The reason field's rare orders (#294, and the review of PR #298): a document with no page lines, moving on while
     Enter's write is out, a write that fails on moving on, an answer lost after the server wrote it, a corrected draft
@@ -3971,6 +3986,9 @@ class ReasonRaces(VerdictBase):
         self.held_drop: list | None = None  # POST /api/pins/N/drop routes held unanswered while not None
         self.pin_500 = 0  # how many POST /api/pin the server writes and then answers 500
         self.lose_read = 0  # a pin whose next read (GET /api/pins/N) is lost on the network
+        self.lose_edit_on = 0  # a pin whose next edit is lost on the network
+        self.late_edit = 0  # how many edits lose their answer at once and reach the server only when forwarded (late)
+        self.late: list = []  # those edits (_Late), in the order sent
 
     def route(self, route):
         rq = route.request
@@ -3992,6 +4010,13 @@ class ReasonRaces(VerdictBase):
             return None
         if rq.method == "POST" and path.startswith("/api/pins/") and path.endswith("/edit"):
             self.edits.append(json.loads(rq.post_data or "{}"))
+            if self.lose_edit_on and path == "/api/pins/%d/edit" % self.lose_edit_on:
+                self.lose_edit_on = 0
+                return route.abort()
+            if self.late_edit:
+                self.late_edit -= 1
+                self.late.append(_Late(route))
+                return route.abort()
             if self.lose_edit:
                 self.lose_edit -= 1
                 return route.abort()
@@ -4710,10 +4735,17 @@ class ReasonRaces(VerdictBase):
         page.wait_for_function("()=>!document.querySelector('#doc .pv-pop')")
         return a
 
-    def retry_reason(self, page):
-        """Press the [다시 시도] of the reason's failure (as its status-line action: the line may show another first)."""
+    def typed_value(self, page):
+        """The text of page 1's open reason field."""
+        return page.evaluate(REASON, 1)["value"]
+
+    def retry_reason(self, page, pid=0):
+        """Press the [다시 시도] of the reason's failure - of pin pid's, when given - (as its status-line action: the line may
+        show another first)."""
         page.evaluate(
-            "()=>{const n=[...NOTICES.values()].find(n=>n.title.startsWith('이유 저장 실패')); noticeAct(n.n);}"
+            "id=>{const n=[...NOTICES.values()].find(n=>n.title.startsWith('이유 저장 실패')&&"
+            "(!id||n.source==='POST /api/pins/'+id+'/edit reason')); noticeAct(n.n);}",
+            pid,
         )
 
     def test_a_draft_moved_twice_goes_when_the_old_verdicts_write_lands(self):
@@ -4984,7 +5016,8 @@ class ReasonRaces(VerdictBase):
         there from b's '초안 있음' (#317, the other order):
         - a's failure and its [다시 시도] go once b has the reason (pressed, it wrote the reason on a too);
         - a's [다시 시도] pressed while b's write is out waits for it, and sends nothing once b has the reason.
-        The reason is b's only."""
+        The reason is b's only. Before it is written on b, a's lost write - it may still be on its way - is fenced off: a's
+        note written back as it is, against the rev that write was sent against (#327); that is the edit held here."""
         text = "옮겨 쓴 이유"
         for case in ("after", "while out"):
             with self.subTest(case=case):
@@ -5010,7 +5043,183 @@ class ReasonRaces(VerdictBase):
                 titles = page.evaluate("()=>LINE.map(n=>n.title)")
                 self.assertFalse([t for t in titles if t.startswith("이유 저장 실패")], titles)
                 self.assertEqual((self.note(a), self.note(b)), ("", text))
-                self.assertEqual(len(self.edits), 2, self.edits)  # the lost Enter and b's
+                # the lost Enter, the fence on a and b's
+                self.assertEqual(
+                    self.edits,
+                    [{"note": text, "base_rev": 0}, {"note": "", "base_rev": 0}, {"note": text, "base_rev": 0}],
+                )
+
+    def test_an_old_write_still_on_its_way_is_fenced_off_before_the_copy_is_written(self):
+        """'아직 오는 이유' for verdict a: its Enter loses its answer at once, but the request reaches the server only later -
+        it was still on its way -, and the draft moves to 보류 (b) and is written there from b's '초안 있음' (#327 1: a read of
+        a found its rev unchanged, so the copy was written on b, and the old request landed on a after it). Before b is
+        written, a's note is written back as it is against the rev that request was sent against - a fence:
+        - the fence first: b has the reason, and the old request, arriving, is refused (409): a has none;
+        - the old request first, between the read and the fence: the fence is refused, and its answer shows the reason on
+          a, so nothing is written on b - the popover closes and the status line says where the reason is;
+        - Enter's write out when the verdict changed (보류 before its answer), then its answer lost: the draft moved to b
+          keeps a's request as one that may still land, and its write on b is fenced the same way;
+        - the fence's own answer lost (it landed): nothing is known, so nothing is written on b - the draft stays and b's
+          failure offers [다시 시도]; the old request is refused, and the retry finds a's one change since its rev was the
+          fence (the note is not exactly what the old request made), so it writes b."""
+        text = "아직 오는 이유"
+        fence = {"note": "", "base_rev": 0}
+        for case in ("fence first", "old first", "out at the change", "fence lost"):
+            with self.subTest(case=case):
+                self.drop_all()
+                self.edits, self.late = [], []
+                page = self.on("fig")
+                a = self.typed(page, 1, text)
+                if case == "out at the change":
+                    self.held_edit = []
+                    page.keyboard.press("Enter")
+                    self.wait_held_edit(page)
+                    page.locator('#doc .pv[data-page="1"] button[data-key="보류"]').click()
+                    b = page.wait_for_function(
+                        "id=>{const p=OPEN_ALL.find(p=>p.id>id&&p.verdict==='보류'); return p&&p.id;}", arg=a
+                    ).json_value()
+                    page.wait_for_timeout(200)  # the save's end has run (the line's verdict is b)
+                    (held,), self.held_edit = self.held_edit, None
+                    self.late.append(_Late(held))
+                    held.abort()
+                    page.wait_for_function("()=>LINE.some(n=>n.source==='reason-onto')")
+                    settle(page)
+                    self.assertEqual(page.evaluate(DRAFTS), {"fig:%d" % b: text})
+                else:
+                    self.late_edit = 1
+                    page.keyboard.press("Enter")
+                    page.wait_for_function("()=>LINE.some(n=>n.title.startsWith('이유 저장 실패'))")
+                    settle(page)
+                    page.locator('#doc .pv[data-page="1"] [data-act="pv-reason-fold"]').click()
+                    page.wait_for_function("()=>!document.querySelector('#doc .pv-pop')")
+                    b = self.press_page(page, 1, "보류")
+                self.assertEqual((self.note(a), len(self.late)), ("", 1))  # the old request has not arrived
+                open_reason(page, 1)
+                if case == "old first":
+                    self.held_edit = []
+                if case == "fence lost":
+                    self.lose_answer = 1
+                page.keyboard.press("Enter")
+                if case == "old first":
+                    self.wait_held_edit(page)
+                    self.assertEqual(self.edits[-1], fence)
+                    self.forward(self.late.pop())  # the old request lands
+                    held, self.held_edit = self.held_edit, None
+                    for r in held:
+                        self.forward(r)  # the fence, refused
+                if case == "fence lost":
+                    page.wait_for_function("id=>LINE.some(n=>n.source==='POST /api/pins/'+id+'/edit reason')", arg=b)
+                    settle(page)
+                    self.assertEqual((self.note(b), page.evaluate(DRAFTS)), ("", {"fig:%d" % b: text}))
+                    self.forward(self.late.pop())  # the old request arrives: refused, the fence has landed
+                    pin = self.pins()[a]
+                    self.assertEqual((pin["note"], pin["rev"]), ("", 1))
+                    # one change since a's rev: it was a's write only when the note is exactly what that write made
+                    landed = "([p,note,rev])=>pvReasonLanded({text:'옛 줄',rev:0,pre:'',stamp:false,post:''},{...p,note,rev})"
+                    self.assertFalse(page.evaluate(landed, [pin, "옛 줄\n다음 줄", 1]))
+                    self.assertTrue(page.evaluate(landed, [pin, "옛 줄\n다음 줄", 2]))
+                    self.assertTrue(page.evaluate(landed, [pin, "옛 줄", 1]))
+                    self.retry_reason(page, b)
+                page.wait_for_function("()=>!document.querySelector('#doc .pv-reason')", timeout=10000)
+                settle(page)
+                self.assertEqual(page.evaluate(DRAFTS), {})
+                self.assertIn(fence, self.edits)
+                if case == "old first":
+                    self.assertEqual((self.note(a), self.note(b)), (text, ""))
+                    titles = page.evaluate("()=>LINE.map(n=>n.title)")
+                    self.assertIn("이유는 이전 판정 #%d 채택에 저장됨 · 지금 판정은 #%d 보류" % (a, b), titles)
+                    continue
+                self.assertEqual((self.note(a), self.note(b)), ("", text))
+                for r in self.late:
+                    self.forward(r)  # the old request arrives now
+                self.assertEqual((self.note(a), self.pins()[a]["rev"]), ("", 1))  # refused: the fence moved the rev
+
+    def test_a_copys_lost_write_takes_the_old_verdicts_retry_away(self):
+        """'넘겨준 이유' for verdict a, its Enter lost and folded, then 보류 (b) and the copy written there from b's '초안 있음',
+        a's lost write fenced off first - and b's write loses its answer on the network. It may have landed on b, so a's
+        failure and its [다시 시도] go (#327, the other order: pressed, it wrote the reason on a, and b's request could land
+        as well); b's stays, and its [다시 시도] writes the reason on b."""
+        text = "넘겨준 이유"
+        page = self.on("fig")
+        a = self.lost_and_folded(page, text)
+        b = self.press_page(page, 1, "보류")
+        open_reason(page, 1)
+        self.lose_edit_on = b
+        page.keyboard.press("Enter")
+        failed = "()=>[...NOTICES.values()].filter(n=>n.title.startsWith('이유 저장 실패')).map(n=>n.source)"
+        page.wait_for_function("id=>LINE.some(n=>n.source==='POST /api/pins/'+id+'/edit reason')", arg=b)
+        settle(page)
+        self.assertEqual(page.evaluate(failed), ["POST /api/pins/%d/edit reason" % b])
+        self.retry_reason(page)
+        page.wait_for_function("id=>LINE.some(n=>n.title==='이유 저장됨 · 판정 #'+id+' 보류')", arg=b, timeout=10000)
+        settle(page)
+        self.assertEqual((self.note(a), self.note(b)), ("", text))
+        self.assertEqual(page.evaluate(failed), [])
+        self.assertEqual(page.evaluate(DRAFTS), {})
+
+    def test_an_edit_inside_a_moved_part_taken_back_keeps_where_it_came_from(self):
+        """'되돌린 이유' for verdict a, its Enter lost and folded, then 보류 (b) and b's '초안 있음' opened. Inside the moved
+        sentence something is changed and taken back: the part goes with the change and comes back with the text (#327 2:
+        the undo brought the text back without it, so a's [다시 시도] landing left the copy, to be written on b too):
+        - a letter typed, then undone (Ctrl+Z);
+        - that, redone (the change again, without the part) and undone again;
+        - a paste, then undone;
+        - an input method's composition given up;
+        - a composition committed, then undone.
+        a's [다시 시도] lands: the copy goes - the popover closes and nothing is kept. A letter typed and left there makes
+        a new sentence, which stays and is written on b."""
+        text = "되돌린 이유"
+        for case in ("undo", "redo", "paste", "composition given up", "composition undone", "kept"):
+            with self.subTest(case=case):
+                self.drop_all()
+                page = self.on("fig")
+                a = self.lost_and_folded(page, text)
+                b = self.press_page(page, 1, "보류")
+                open_reason(page, 1)
+                page.keyboard.press("Control+Home")
+                page.keyboard.press("ArrowRight")  # inside the moved sentence, after its first letter
+                if case in ("undo", "redo", "kept"):
+                    page.keyboard.type("X")
+                    self.assertEqual(self.typed_value(page), "되X돌린 이유")
+                    if case != "kept":
+                        page.keyboard.press("Control+z")
+                    if case == "redo":
+                        page.keyboard.press("Control+Shift+z")
+                        self.assertEqual(self.typed_value(page), "되X돌린 이유")
+                        page.keyboard.press("Control+z")
+                elif case == "paste":  # its last word copied, and pasted inside it
+                    for key in ("Control+End", "Shift+ArrowLeft", "Shift+ArrowLeft", "Control+c"):
+                        page.keyboard.press(key)
+                    for key in ("Control+Home", "ArrowRight", "Control+v"):
+                        page.keyboard.press(key)
+                    self.assertEqual(self.typed_value(page), "되이유돌린 이유")
+                    page.keyboard.press("Control+z")
+                else:
+                    cdp = page.context.new_cdp_session(page)
+                    cdp.send("Input.imeSetComposition", {"text": "가", "selectionStart": 1, "selectionEnd": 1})
+                    self.assertEqual(self.typed_value(page), "되가돌린 이유")
+                    if case == "composition given up":
+                        cdp.send("Input.imeSetComposition", {"text": "", "selectionStart": 0, "selectionEnd": 0})
+                    else:
+                        cdp.send("Input.insertText", {"text": "가"})
+                        self.assertEqual(self.typed_value(page), "되가돌린 이유")
+                        page.keyboard.press("Control+z")
+                if case == "kept":
+                    self.retry_reason(page)
+                    page.wait_for_function("id=>LINE.some(n=>n.title==='이유 저장됨 · 판정 #'+id+' 채택')", arg=a)
+                    settle(page)
+                    self.assertEqual(self.typed_value(page), "되X돌린 이유")
+                    page.keyboard.press("Enter")
+                    page.wait_for_function("()=>!document.querySelector('#doc .pv-reason')", timeout=10000)
+                    settle(page)
+                    self.assertEqual((self.note(a), self.note(b)), (text, "되X돌린 이유"))
+                    continue
+                self.assertEqual(self.typed_value(page), text)
+                self.retry_reason(page)
+                page.wait_for_function("()=>!document.querySelector('#doc .pv-reason')", timeout=10000)
+                settle(page)
+                self.assertEqual((self.note(a), self.note(b)), (text, ""))
+                self.assertEqual(page.evaluate(DRAFTS), {})
 
 
 # The open reason popover of page n's line: its field's text and focus, what it says of the draft (pv-pop-st) and of the keys

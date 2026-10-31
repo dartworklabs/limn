@@ -146,12 +146,13 @@ function rdWrittenOff(doc,id,text){const d=rdAll(),k=rdName(doc,id); let ch=fals
   for(const x of Object.keys(d)){const r=rdRead(d[x]),c=r?rdCut(r.text,r.from,k,text):null; if(!r||!c)continue;
     if(c.text.trim())d[x]={...r,text:c.text,from:c.from}; else delete d[x]; ch=true;}
   if(ch)rdSave(d);}
-// Pin key k's write lost its answer (lost write a): every part moved off k keeps it as evidence, stored and in a session.
+// Pin key k's write lost its answer (lost write a): every part moved off k keeps it as evidence, stored and in a session -
+// also in the texts a session's field may come back to (pvReasonEvidence).
 /** @param {string|null} doc @param {number} id @param {ReasonTry} a */
 function rdTriedOff(doc,id,a){const d=rdAll(),k=rdName(doc,id),add=(/** @type {ReasonPart[]} */ps)=>ps.map(p=>p.k===k?{...p,tried:[...p.tried,a]}:p); let ch=false;
   for(const x of Object.keys(d)){const r=rdRead(d[x]); if(r&&r.from.some(p=>p.k===k)){d[x]={...r,from:add(r.from)}; ch=true;}}
   if(ch)rdSave(d);
-  for(const s of pvReasonLive())if(s.id!==id||s.doc!==doc)s.via=add(s.via);}
+  for(const s of pvReasonLive())if(s.id!==id||s.doc!==doc)pvReasonEvidence(s,k,t=>[...t,a]);}
 
 // ---------------- The session
 // sid: the popover's own number - its field stays the same element while its draft moves to another verdict, so the focus
@@ -169,8 +170,9 @@ function rdTriedOff(doc,id,a){const d=rdAll(),k=rdName(doc,id),add=(/** @type {R
 // binds it), and an Enter in it meanwhile saves once it has one (saveWhenBound). onto: the verdict its line changed to while
 // its write was out - that write's outcome is said and settled by pvReasonOnto. via: the parts of its text moved off pins
 // whose reason may still be written there (its draft's from, kept with it by rdKeep and placed again on every input,
-// rdEdit): a write of a part's text there takes that part out of this one (pvReasonWrittenOff).
-/** @typedef {{sid:number,page:number,id:number,key:string,doc:string|null,visit:any,text:string,base:string,mode:string,rev:number,conflict:{note:string,rev:number}|null,from:number,via:ReasonPart[],seen:boolean,listed:boolean,writing:Promise<boolean>|null,saved:string|null,tried:ReasonTry[],clearTried:boolean,escArm:string,saveWhenBound?:boolean,onto?:number}} ReasonSession */
+// pvReasonPlace): a write of a part's text there takes that part out of this one (pvReasonWrittenOff). hist: the texts its
+// field held since its text or parts were last set from elsewhere, with their parts (pvReasonPlace).
+/** @typedef {{sid:number,page:number,id:number,key:string,doc:string|null,visit:any,text:string,base:string,mode:string,rev:number,conflict:{note:string,rev:number}|null,from:number,via:ReasonPart[],seen:boolean,listed:boolean,writing:Promise<boolean>|null,saved:string|null,tried:ReasonTry[],clearTried:boolean,escArm:string,saveWhenBound?:boolean,onto?:number,hist?:{text:string,via:ReasonPart[]}[]}} ReasonSession */
 // A new reason's write whose answer was lost: text, sent against the pin's rev `rev`, would have made the note pre, then the
 // stamp a note_append puts first when stamp ('(추가 12:30) ', the time the server's), then text, then post.
 /** @typedef {{text:string,rev:number,pre:string,stamp:boolean,post:string}} ReasonTry */
@@ -377,8 +379,8 @@ function pvReasonOwn(r){return rdOwn(r.mode,r.text,r.base);}
 // 저장됨 · 지금 판정은 #16 보류'). Not landed (also refused, or the pin gone), its draft moves to the new verdict - or to the
 // page's draft, when that verdict is no longer the line's or already has a draft or a popover - its failure and that
 // [다시 시도] go, and the status line says where it went with [보기] - remembering the pins the draft came from before
-// (from), as every move does. A read that fails decides nothing: the status line
-// says so with [다시 시도], which reads again. (pvReasonWrite and pvReasonFailed say nothing of such a write themselves.)
+// (from), as every move does, and this verdict while its write may land yet. A read that fails decides nothing: the
+// status line says so with [다시 시도], which reads again. (pvReasonWrite and pvReasonFailed say nothing of such a write themselves.)
 /** @param {ReasonSession} r @param {boolean} ok @param {number} page */
 async function pvReasonOnto(r,ok,page){const to=r.onto,doc=r.doc,src='POST /api/pins/'+r.id+'/edit reason'; if(!to)return;
   const target=pvNameOn(doc,page,r.id),saved=()=>{r.onto=0; pvReasonSaidOn(doc,page,r.id,r.key);};
@@ -392,7 +394,11 @@ async function pvReasonOnto(r,ok,page){const to=r.onto,doc=r.doc,src='POST /api/
   const got=p&&!p.dropped_at?[...r.tried].reverse().find(a=>pvReasonLanded(a,/** @type {Pin} */(p))):null;
   PV_RETRY.delete(r);   // its [다시 시도] goes either way (sourceOk)
   if(got){r.saved=got.text; r.tried=[]; rdDrop(doc,r.id); sourceOk(src); pvReasonWrittenOff(doc,r.id,r.key,got.text,r); saved(); if(doc===DOC)loadPins().catch(()=>{}); return;}
-  r.onto=0; r.tried=[]; sourceOk(src); const m=rdOff('',rdGet(doc,r.id)||{text:r.text,base:r.base,mode:r.mode,tried:[],from:r.via}),text=m.text,via=m.from;
+  // Not landed - yet: one sent against the rev the pin still has may still be on its way. The draft keeps it as a part moved
+  // off this verdict with that evidence, so a write of it on the new verdict fences it off first (pvReasonCheck, #327).
+  const can=p&&!p.dropped_at?r.tried.filter(a=>a.rev>=(typeof p.rev==='number'?p.rev:0)):[];
+  r.onto=0; r.tried=[]; sourceOk(src); const x=rdGet(doc,r.id)||{text:r.text,base:r.base,mode:r.mode,tried:[],from:r.via};
+  const m=rdOff(can.length?rdName(doc,r.id):'',{...x,tried:can}),text=m.text,via=m.from;
   rdDrop(doc,r.id); if(!text.trim())return;
   const open=!!PV_REASON&&PV_REASON.doc===doc&&PV_REASON.page===page,cur=pvCurOn(doc,page);   // it moves with the pins it came from
   if(cur&&cur.id===to&&!open&&!rdGet(doc,to))rdPut(doc,to,text,'',-1,{mode:'add',folded:true,from:via});
@@ -465,10 +471,11 @@ function pvReasonRevive(id){const d=rdGet(DOC,id),p=pvReasonPin(id); if(!d||!p||
 // (pvReasonUncancelDraft, pvReasonAfterSave). A reason ends on one verdict, so before text moved off other pins is written
 // here, whatever may still put it there is settled first: a write out from one of those pins, or from a copy moved off
 // this one, answers first (pvReasonKin), and the lost writes of those pins are read from the server (pvReasonCheck) - what
-// landed leaves this text (pvReasonWrittenOff) and only what is left is written, nothing when nothing is. A pin that cannot
-// be read leaves it unsure: nothing is written, the draft stays and the status line says the write failed, with
-// [다시 시도]. (#317: the moved copy opened, and Enter pressed, before the old verdict's [다시 시도] answered - or its answer
-// was lost after it landed, or a reload let its evidence go - and the reason landed on both verdicts.)
+// landed leaves this text (pvReasonWrittenOff), what may still land is fenced off (pvReasonFence), and only what is left is
+// written, nothing when nothing is. A pin that cannot be read or fenced leaves it unsure: nothing is written, the draft
+// stays and the status line says the write failed, with [다시 시도]. (#317: the moved copy opened, and Enter pressed,
+// before the old verdict's [다시 시도] answered - or its answer was lost after it landed, or a reload let its evidence go -
+// and the reason landed on both verdicts.)
 const PV_WRITES=/** @type {Map<string,{r:ReasonSession,w:Promise<boolean>}>} */(new Map());
 // The sessions whose failure the status line offers [다시 시도] for (pvReasonFailed), with that message: a write elsewhere of
 // their text takes it out of them and the message goes (pvReasonWrittenOff) - the [다시 시도] would write it a second time.
@@ -477,7 +484,7 @@ const PV_RETRY=/** @type {Map<ReasonSession,Notice>} */(new Map());
 function pvReasonCommit(r,text,said){if(r.saved===text)return Promise.resolve(true);
   if(!r.writing){const k=rdName(r.doc,r.id),kin=pvReasonKin(r); let sent=text;
     const go=kin||r.via.some(p=>p.tried.length)?(kin||Promise.resolve()).then(()=>pvReasonCheck(r)).then(sure=>{sent=r.text.trim(); if(!sent)return true;
-        if(!sure){pvReasonFailed(r,sent,null); return false;}   // whether it is on a pin it came from is not known: kept, not written
+        if(sure!==true){pvReasonFailed(r,sent,sure); return false;}   // whether it is, or will be, on a pin it came from is not known: kept, not written
         return pvReasonWrite(r,sent,said);})
       :pvReasonWrite(r,text,said);
     const w=go.then(ok=>{r.writing=null; const o=PV_WRITES.get(k); if(o&&o.w===w)PV_WRITES.delete(k);
@@ -494,20 +501,48 @@ function pvReasonKin(r){const k=rdName(r.doc,r.id);
 // Before session r writes text moved off other pins: each of those pins whose writes lost their answer (its parts' tried)
 // is read as the server has it now, and every such write is judged by the pin's rev (pvReasonLanded). One that landed with
 // a part's very text put it on that pin: the part leaves r and every other copy, and its failure goes (pvReasonWrittenOff);
-// one the pin's rev is past and that did not land never will, and is let go. Resolves false when a pin could not be read
-// (no answer, a 5xx): nothing is decided for it.
-/** @param {ReasonSession} r @returns {Promise<boolean>} */
-async function pvReasonCheck(r){let sure=true;
+// one the pin's rev is past and that did not land never will, and is let go. One sent against the rev the pin still has
+// may land yet - a request that lost its answer may still be on its way to the server -, so it is fenced off first
+// (pvReasonFence): then it never lands, or it landed first and is judged so, and only then is the copy written (#327: the
+// copy was written, and the old request landed after it). Resolves true when every pin is settled, else with what left one
+// unknown - a read or a fence without an answer, a 5xx, a refusal (null: no answer at all): nothing is decided for it.
+/** @param {ReasonSession} r @returns {Promise<true|ApiError|null>} */
+async function pvReasonCheck(r){let sure=/** @type {true|ApiError|null} */(true);
   for(const k of new Set(r.via.filter(p=>p.tried.length).map(p=>p.k))){const id=Number(k.slice(k.lastIndexOf(':')+1)); let p=/** @type {Pin|null} */(null);
     try{p=(await api('/api/pins/'+id,{what:'핀 읽기',silent:true})).data.pin||null;}
-    catch(e){const x=/** @type {ApiError} */(e); if(!x||!x.status||x.status>=500){sure=false; continue;}}
-    const pin=p&&!p.dropped_at?p:null,rev=pin&&typeof pin.rev==='number'?pin.rev:Infinity;
-    for(;;){const q=pin?r.via.find(q=>q.k===k&&q.tried.some(a=>rdNorm(a.text)===rdNorm(r.text.slice(q.s,q.e))&&pvReasonLanded(a,pin))):null; if(!q||!pin)break;
-      const a=/** @type {ReasonTry} */(q.tried.find(a=>rdNorm(a.text)===rdNorm(r.text.slice(q.s,q.e))&&pvReasonLanded(a,pin)));
-      pvReasonWrittenOff(r.doc,id,verdictOf(pin)||'',a.text,null);
-      if(r.via.includes(q))break;}   // not taken out (cannot be): stop
-    r.via=r.via.map(q=>q.k===k?{...q,tried:q.tried.filter(a=>a.rev>=rev)}:q);}
+    catch(e){const x=/** @type {ApiError} */(e); if(!x||!x.status||x.status>=500){sure=x||null; continue;}}
+    for(let fenced=false;;fenced=true){const pin=p&&!p.dropped_at?p:null,rev=pin&&typeof pin.rev==='number'?pin.rev:Infinity;
+      for(;;){const q=pin?r.via.find(q=>q.k===k&&q.tried.some(a=>rdNorm(a.text)===rdNorm(r.text.slice(q.s,q.e))&&pvReasonLanded(a,pin))):null; if(!q||!pin)break;
+        const a=/** @type {ReasonTry} */(q.tried.find(a=>rdNorm(a.text)===rdNorm(r.text.slice(q.s,q.e))&&pvReasonLanded(a,pin)));
+        pvReasonWrittenOff(r.doc,id,verdictOf(pin)||'',a.text,null);
+        if(r.via.includes(q))break;}   // not taken out (cannot be): stop
+      pvReasonEvidence(r,k,t=>t.filter(a=>a.rev>=rev));
+      if(!pin||!r.via.some(q=>q.k===k&&q.tried.length))break;   // none may land now
+      if(fenced){sure=null; break;}   // a fence's 409 brings a newer pin, past them all: never here
+      const f=await pvReasonFence(id,pin);
+      if('fenced' in f){pvReasonEvidence(r,k,()=>[]); break;}   // none landed, and none can now
+      if('unknown' in f){sure=f.unknown; break;}
+      p=f.pin;}}   // something changed the pin first - one of them landing, perhaps: judged again on the pin as it is
   return sure;}
+// Fences off what may still land on pin id - read just now as p - of the reason writes that lost their answer: those sent
+// against the rev p has. Its note is written back as it is, against that rev. Accepted, the pin's rev is past every such
+// write, so its request is refused with a 409 when it arrives (an edit's base_rev, docs/handbook/api.md), and none had
+// landed (the rev would not have been p's). Refused with a 409, something changed the pin first - perhaps one of them,
+// landing -, and the answer brings the pin as it is. A pin gone takes none of them. Anything else - no answer, a 5xx,
+// another refusal - decides nothing; a fence whose answer was lost may land later, and is then no lost write's landing
+// unless the note is exactly what that write made (pvReasonLanded). Nothing of the note changes: the pin's edited_at and
+// rev do.
+/** @param {number} id @param {Pin} p @returns {Promise<{fenced:true}|{pin:Pin|null}|{unknown:ApiError|null}>} */
+async function pvReasonFence(id,p){
+  try{const {status,data}=await api('/api/pins/'+id+'/edit',{method:'POST',intent:'reason-fence',silent:true,expect:[409],
+      body:{note:String(p.note||''),base_rev:typeof p.rev==='number'?p.rev:0}});
+    if(status!==409)return {fenced:true}; const q=data&&data.pin; return q?{pin:q}:{unknown:null};}
+  catch(e){const x=/** @type {ApiError} */(e); return x&&x.status===404?{pin:null}:{unknown:x||null};}}
+// Session s's evidence of pin key k's lost writes (ReasonPart.tried) made fn(tried): in its text's parts and in those of the
+// texts its field may come back to (hist, pvReasonPlace).
+/** @param {ReasonSession} s @param {string} k @param {(t:ReasonTry[])=>ReasonTry[]} fn */
+function pvReasonEvidence(s,k,fn){const m=(/** @type {ReasonPart[]} */ps)=>ps.map(p=>p.k===k?{...p,tried:fn(p.tried)}:p);
+  s.via=m(s.via); if(s.hist)s.hist=s.hist.map(h=>({text:h.text,via:m(h.via)}));}
 // The sessions that may still write: the open popover, those moved away from while their save is out, those writing, and
 // those whose failure offers [다시 시도].
 function pvReasonLive(){return /** @type {Set<ReasonSession>} */(new Set([PV_REASON,...PV_DETACHED.values(),...[...PV_WRITES.values()].map(o=>o.r),...PV_RETRY.keys()].filter(Boolean)));}
@@ -520,12 +555,24 @@ function pvReasonLive(){return /** @type {Set<ReasonSession>} */(new Set([PV_REA
 // [다시 시도] goes, and the open popover closes (pvReasonTaken).
 /** @param {string|null} doc @param {number} id @param {string} word @param {string} text @param {ReasonSession|null} w */
 function pvReasonWrittenOff(doc,id,word,text,w){const k=rdName(doc,id),n=rdNorm(text); rdWrittenOff(doc,id,text);
-  const gone=(/** @type {ReasonSession} */s)=>{s.text=''; s.via=[]; const m=PV_RETRY.get(s); PV_RETRY.delete(s); if(m)endNotice(m,true);};
   for(const s of pvReasonLive()){if(s===w)continue; const c=rdCut(s.text,s.via,k,text);
-    if(c){s.text=c.text.trim()?c.text:''; s.via=s.text?c.from:[]; if(!s.text)gone(s); if(s===PV_REASON)pvReasonTaken(s,doc,id,word,!!s.text); continue;}
-    if(s===PV_REASON||!s.id||!s.text.trim())continue; const sk=rdName(s.doc,s.id),t=rdNorm(s.text);
-    if(sk===k&&t===n){s.saved=s.text.trim(); s.tried=[]; gone(s);}   // its own lost write, found landed
-    else if(w&&w.via.some(p=>p.k===sk&&rdNorm(w.text.slice(p.s,p.e))===t))gone(s);}}   // what w's copy came from
+    if(c){s.text=c.text.trim()?c.text:''; s.via=s.text?c.from:[]; if(!s.text)pvReasonGone(s); if(s===PV_REASON)pvReasonTaken(s,doc,id,word,!!s.text); continue;}
+    if(s===PV_REASON||!s.id||!s.text.trim())continue;
+    if(rdName(s.doc,s.id)===k&&rdNorm(s.text)===n){s.saved=s.text.trim(); s.tried=[]; pvReasonGone(s);}   // its own lost write, found landed
+    else if(w&&pvReasonCameFrom(w,s))pvReasonGone(s);}}
+// Session s, left with nothing to write: its text goes and so does its [다시 시도].
+/** @param {ReasonSession} s */
+function pvReasonGone(s){s.text=''; s.via=[]; const m=PV_RETRY.get(s); PV_RETRY.delete(s); if(m)endNotice(m,true);}
+// Whether session s - a verdict's, with text - holds what session w's copy came from: a part of w's text moved off s's pin
+// is s's very text.
+/** @param {ReasonSession} w @param {ReasonSession} s */
+function pvReasonCameFrom(w,s){const sk=rdName(s.doc,s.id),t=rdNorm(s.text); return w.via.some(p=>p.k===sk&&rdNorm(w.text.slice(p.s,p.e))===t);}
+// The write of copy session w lost its answer (or met a 5xx): it may have landed on w's verdict, and its [다시 시도] or a
+// later write there settles that (pvReasonBody). The sessions its copy came from have nothing left to write: their
+// [다시 시도] goes - pressed, it put the reason on their verdict too, and w's request landed as well (#327, the order after
+// the fence: w's write is the one that may still land). The open popover is never such a session.
+/** @param {ReasonSession} w */
+function pvReasonHandedOn(w){for(const s of pvReasonLive())if(s!==w&&s!==PV_REASON&&s.id&&s.text.trim()&&pvReasonCameFrom(w,s))pvReasonGone(s);}
 // The open popover s held a reason that pin id (verdict word `word`) of document doc has just been given, on a verdict s's
 // draft was moved off (pvReasonWrittenOff). With something left - lines typed around it, a draft joined to it - it stays
 // with that, and the status line says the rest went. With nothing left it closes, and the status line says where the
@@ -557,23 +604,24 @@ function pvReasonRetry(r){const text=r.text.trim(); if(!text||r.writing)return;
   w.then(ok=>{if(PV_REASON!==r)return; if(ok&&r.text.trim()===r.saved)pvReasonEnd(false); else drawPageVerdicts();});}
 // Where lost write a's text sits in note when the note is what a made of the one it was sent against - its pre, its stamp,
 // its text, its post - with nothing after but lines added under it since (a later note_append's '\n(추가 …', or an agent's
-// '\r\n' one): the text's [start, end], else null.
-/** @param {ReasonTry} a @param {string} note @returns {number[]|null} */
-function pvReasonTryAt(a,note){if(!note.startsWith(a.pre))return null; let i=a.pre.length;
+// '\r\n' one), or nothing at all when `exact` (no change came after it): the text's [start, end], else null.
+/** @param {ReasonTry} a @param {string} note @param {boolean} [exact] @returns {number[]|null} */
+function pvReasonTryAt(a,note,exact){if(!note.startsWith(a.pre))return null; let i=a.pre.length;
   if(a.stamp){const m=/^\(추가 \d{1,2}:\d{2}\) /.exec(note.slice(i)); if(!m)return null; i+=m[0].length;}
   const end=i+a.text.length; if(note.slice(i,end)!==a.text||note.slice(end,end+a.post.length)!==a.post)return null;
-  const rest=note.slice(end+a.post.length); return !rest||/^\r?\n/.test(rest)?[i,end]:null;}
+  const rest=note.slice(end+a.post.length); return !rest||(!exact&&/^\r?\n/.test(rest))?[i,end]:null;}
 // Whether lost write a landed, from pin p as the server reads now. Every reason write is sent against the rev it read
 // (base_rev), so a write lands only as the change right after that rev, or never - a copy still on its way meets a 409 once
 // anything else changed the pin. So: p's rev not past a.rev - it has not landed (a write to try again, against that same rev:
 // one of the two lands at most); past it, it landed when the note is what it made (pvReasonTryAt) and, when that was the only
-// change since, the change was this person's (edited_by) - someone's note that happens to read the same is not this write.
-// Text the note held already - someone's, or the person's own earlier line - is no sign of it: a reason repeated is a new
-// one. (Two or more changes since leave the note to say it: someone writing the very same text under the same note in that
-// window would read as this write.)
+// change since, the change was this person's (edited_by) and the note is exactly what it made, with no line under it - that
+// change was it, or another one: someone's note that happens to read the same, or a fence that wrote the note back as it was
+// (pvReasonFence), is not this write. Text the note held already - someone's, or the person's own earlier line - is no sign
+// of it: a reason repeated is a new one. (Two or more changes since leave the note to say it: someone writing the very same
+// text under the same note in that window would read as this write.)
 /** @param {ReasonTry} a @param {Pin} p */
-function pvReasonLanded(a,p){const rev=typeof p.rev==='number'?p.rev:0;
-  return rev>a.rev&&!!pvReasonTryAt(a,String(p.note||''))&&(rev>a.rev+1||isMe(p.edited_by));}
+function pvReasonLanded(a,p){const rev=typeof p.rev==='number'?p.rev:0,one=rev===a.rev+1;
+  return rev>a.rev&&!!pvReasonTryAt(a,String(p.note||''),one)&&(!one||isMe(p.edited_by));}
 // The edit that writes text into pin p's note for session r, with what it makes of the note (kept as a lost write when its
 // answer is lost) - or null when p holds it already; p read from the server just before. Replace mode is the whole note
 // against the rev it was read at (r.rev) - never p's later one, which would write over a note changed meanwhile without the
@@ -633,7 +681,7 @@ async function pvReasonWrite(r,text,said){if(viewerBlocked())return false;
       if(pvReasonEdits(r)){pvReasonRebase(r,q); if(String(q.note||'').trim()!==r.base.trim()){pvReasonConflict(r,text,q); return false;}
         r.rev=typeof q.rev==='number'?q.rev:r.rev;}   // only something else changed (a claim, the assignee): the note is the one it was read at
       p=q;}
-  }catch(e){const x=/** @type {ApiError} */(e); if(sent&&(!x||!x.status||x.status>=500)){r.tried.push(sent); rdTriedOff(r.doc,r.id,sent);}   // it may have landed - so may the copies moved off it know
+  }catch(e){const x=/** @type {ApiError} */(e); if(sent&&(!x||!x.status||x.status>=500)){r.tried.push(sent); rdTriedOff(r.doc,r.id,sent); pvReasonHandedOn(r);}   // it may have landed - so may the copies moved off it know, and what it was copied from lets it be
     pvReasonFailed(r,text,x); return false;}
   r.conflict=null; sourceOk('POST /api/pins/'+r.id+'/edit reason');   // a failure this write answers goes (also when nothing had to be sent)
   if(r.onto){/* its line's verdict changed meanwhile: pvReasonOnto says where it is */}
@@ -836,10 +884,25 @@ function pvRefill(page){const v=pageVerdictsOn(),e=/** @type {HTMLElement|null} 
 let PV_COMPOSING=false;   // an input method is composing in the reason field: its value is not put back
 $('#doc').addEventListener('compositionstart',e=>{if(pvIsReasonField(e.target))PV_COMPOSING=true;});
 $('#doc').addEventListener('compositionend',e=>{if(pvIsReasonField(e.target))PV_COMPOSING=false;});
-// Every input keeps the draft (rdPut), with the parts moved into it placed where they are now (rdEdit), and lets a first Esc
-// go; the line follows its emptiness (the state).
+// Every input keeps the draft (rdPut), with the parts moved into it placed where they are now (pvReasonPlace), and lets a
+// first Esc go; the line follows its emptiness (the state).
 $('#doc').addEventListener('input',e=>{const f=e.target; if(!pvIsReasonField(f))return; const r=PV_REASON; if(!r||f.dataset.id!=='s'+r.sid)return;
-  const was=r.text; r.text=f.value; r.via=rdEdit(r.via,was,r.text,f.selectionEnd); r.escArm=''; rdKeep(r); pvReasonGrow(f); pvRefill(r.page);});
+  const was=r.text; r.text=f.value; r.via=pvReasonPlace(r,was,f.selectionEnd); r.escArm=''; rdKeep(r); pvReasonGrow(f); pvRefill(r.page);});
+// The parts of session r's text once an input made it r.text from `was`, the caret at `caret`. A text the field held before
+// - back by an undo or a redo, a paste or a typed letter taken back, a composition given up - has the parts it had then: an
+// edit inside a part lets it go (rdEdit), and the undo that put the text back left it with none, so the text was no longer
+// known as moved off its pin, and a write that landed there left it in the copy, to be written twice (#327). The undo
+// and redo records are the texts kept (hist, the newest PV_HIST), each with its parts - its lost writes kept up to date
+// (pvReasonEvidence) -, since its text or parts were last set from elsewhere: opened, moved to a new verdict, a part taken
+// out. What the field held before that is not this session's to come back to with those parts - a part taken out because
+// its text landed on its pin and typed back is a new reason, as it is when it is typed again. Any other text is placed by
+// rdEdit.
+const PV_HIST=200;
+/** @param {ReasonSession} r @param {string} was @param {number} caret @returns {ReasonPart[]} */
+function pvReasonPlace(r,was,caret){const same=(/** @type {ReasonPart[]} */x,/** @type {ReasonPart[]} */y)=>x.length===y.length&&x.every((p,i)=>p.k===y[i].k&&p.s===y[i].s&&p.e===y[i].e);
+  let h=r.hist||[]; const last=h[h.length-1]; if(!last||last.text!==was||!same(last.via,r.via))h=[{text:was,via:r.via}];
+  const back=[...h].reverse().find(x=>x.text===r.text),via=back?back.via:rdEdit(r.via,was,r.text,caret);
+  h.push({text:r.text,via}); r.hist=h.slice(-PV_HIST); return via;}
 // Keys in the field: Enter saves (Shift+Enter is a new line), Esc closes or takes two presses with text. Every other key is
 // the field's own - digits included. Nothing while an input method composes. Esc on the popover's buttons ([접기], [닫기],
 // [저장], [지우기]) is the field's Esc: it did nothing there.
