@@ -241,8 +241,10 @@ let NOTICE_ACT_WAIT=8000;
 // (act.wait: restoring, undoing a close, a delete, a save or an append) keeps its message, busy and with its window stopped,
 // until the request is answered (rule 1: not cleared as if it had worked) - a failure then says itself where it can be seen.
 // Past NOTICE_ACT_WAIT without an answer the message says the answer is late (noticeLate); the answer, whenever it comes,
-// is still taken once, and a late one leaves the focus where it is - it goes to the reading page's line only from the
-// message's own button, which goes with it (back).
+// is still taken once. A late one leaves the focus the person has put somewhere since the press (a focusin anywhere but the
+// message's own button: a redraw giving the focus back to that button, or the focus falling to nothing as the button goes -
+// the action's own redraw may take it away before its answer resolves - is not a move): then back() does not run, and the
+// action is told (run.away(), save.js) so that it takes no focus either.
 /** @param {number} num */
 function noticeAct(num){const n=NOTICES.get(num); if(!n||n.busy)return; const a=n.act;
   // An action whose button had the focus goes with its message: on a document with page lines the focus goes to the line of the page
@@ -254,10 +256,12 @@ function noticeAct(num){const n=NOTICES.get(num); if(!n||n.busy)return; const a=
   if(!a||!a.wait){endNotice(n,true); if(a)a.fn(); back(); return;}
   n.busy=true; clearTimeout(n.timer); n.timer=undefined; n.held=false;
   document.querySelectorAll('[data-act="notice-act"][data-n="'+n.n+'"]').forEach(b=>b.setAttribute('aria-busy','true'));
-  let late=false; const wait=setTimeout(()=>{late=true; noticeLate(n,a);},NOTICE_ACT_WAIT);
-  Promise.resolve(a.fn()).catch(()=>false).then(()=>{clearTimeout(wait);
-    const g=/** @type {HTMLElement|null} */(document.activeElement),onIt=!!g&&!!g.closest&&!!g.closest('[data-act="notice-act"][data-n="'+n.n+'"]');
-    endNotice(n,true); sourceOk(NOTICE_LATE_SRC+n.n); if(!late||onIt)back();});}
+  let late=false,moved=false; const wait=setTimeout(()=>{late=true; noticeLate(n,a);},NOTICE_ACT_WAIT);
+  const seen=(/** @type {FocusEvent} */e)=>{const t=/** @type {HTMLElement|null} */(e.target); if(!t||!t.closest||!t.closest('[data-act="notice-act"][data-n="'+n.n+'"]'))moved=true;};
+  document.addEventListener('focusin',seen,true);
+  /** @type {NoticeRun} */ const run={away:()=>late&&moved};
+  Promise.resolve(a.fn(run)).catch(()=>false).then(()=>{clearTimeout(wait); document.removeEventListener('focusin',seen,true);
+    endNotice(n,true); sourceOk(NOTICE_LATE_SRC+n.n); if(!run.away())back();});}
 // The source of the status line's message that says message n's answer is late, when n is not on the line (noticeLate).
 const NOTICE_LATE_SRC='notice-late:';
 // Message n's action a has sent a request that is not answered after NOTICE_ACT_WAIT: '되돌리기의 답이 늦습니다' (a 되살리기's

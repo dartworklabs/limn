@@ -103,11 +103,10 @@ async function savePin(verdict){
     else if(restored){cancelSelection(true); syncDraft();}
     else clearSavedDraft(draft);
     if(SEC_SEEN.open)SEC_SEEN.open.add(id);   // my own new pin is never 'new' on a collapsed header
-    /** @type {()=>Promise<boolean>} */
-    const undo=verdict?verdictUndo(id):async()=>{const from=document.activeElement,at=Date.now(); const ok=await dropPin(id,true,undo);
-      // An answer past the bound (noticeAct) brings the composer back without the focus, unless that is still where the undo was pressed.
-      const focus=Date.now()-at<NOTICE_ACT_WAIT||document.activeElement===from;
-      if(ok&&(cleared||restored)&&DOC===visit.doc&&!COMPOSE.current&&!COMPOSE.box&&!COMPOSE.picking&&!$('#note').value)restoreSelection(snap,focus);
+    /** @type {(run?:NoticeRun)=>Promise<boolean>} */
+    const undo=verdict?verdictUndo(id):async run=>{const ok=await dropPin(id,true,undo);
+      // A late answer whose person has moved on (noticeAct, run.away) brings the composer back without the focus.
+      if(ok&&(cleared||restored)&&DOC===visit.doc&&!COMPOSE.current&&!COMPOSE.box&&!COMPOSE.picking&&!$('#note').value)restoreSelection(snap,!run||!run.away());
       return ok;};
     const vw=verdict?verdictLabel(verdict):'',fr=verdict?figureVerdictRoot(d):null;   // a figure's verdict names the figure
     const said=fr?tl('#{id} {word} 판정 저장됨 · {target} — 되돌리면 판정을 거둡니다',{id,word:vw,target:figureShort(d.page,fr)}):tl('#{id} 저장됨 · {word} 판정',{id,word:vw});

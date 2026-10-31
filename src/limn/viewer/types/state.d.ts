@@ -86,7 +86,13 @@ interface NoticeAct {
   label: string;
   tip?: string;
   wait?: boolean;
-  fn: () => unknown;
+  fn: (run?: NoticeRun) => unknown;
+}
+
+// What noticeAct tells an action that waits while it runs: away() = its answer is late (NOTICE_ACT_WAIT) and the person has
+// put the focus somewhere since the press - the action then takes no focus.
+interface NoticeRun {
+  away(): boolean;
 }
 
 // A message in context (notices.js, docs/handbook/viewer.md §알림 자리): what it says and how (a chip shows its short label),

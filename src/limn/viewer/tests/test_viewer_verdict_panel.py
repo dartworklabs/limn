@@ -1542,6 +1542,31 @@ class LateAnswer(PanelBase):
     def test_a_take_backs_undo_on_the_status_line_says_its_restore_is_late_and_takes_the_late_failure_once(self):
         self.late_restore(500)
 
+    def test_a_late_answer_with_the_focus_left_alone_still_brings_it_to_the_reading_line(self):
+        """A deleted card's row [되돌리기] pressed by key, its restore held past the bound and the focus left on it: the late
+        answer brings the card back, whose redraw takes the row - and its focused button - away before the message ends.
+        The person moved nothing, so the focus goes to the reading page's line as with an answer in time, not to nothing."""
+        mine = self.verdict(2, "채택")
+        page = self.on(n_open=1)
+        self.to(page, 2)
+        page.evaluate("id=>dropPin(id,false)", mine)
+        row = '#pins .nt-row [data-act="notice-act"]'
+        page.wait_for_selector(row)
+        settle(page)
+        page.evaluate("NOTICE_ACT_WAIT=150")
+        self.held_restore = []
+        page.locator(row).focus()
+        page.keyboard.press("Enter")
+        self.late(page, "되돌리기의 답이 늦습니다 · 핀 #%d 삭제됨" % mine)
+        held, self.held_restore = self.held_restore, None
+        self.assertEqual(len(held), 1)
+        self.release(held)
+        page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id)", arg=mine)
+        page.wait_for_function(LATE + ".length===0")
+        settle(page)
+        got = page.evaluate(FOCUS)
+        self.assertTrue(got and got["panel"], "the late answer left the focus on %s" % got)
+
     def test_an_undo_off_the_status_line_has_the_line_say_it_in_english_and_that_goes_with_the_answer(self):
         """The save chip's own [되돌리기] in the panel, in English: the status line says 'The undo has not answered yet' and
         what it undoes, in one message of its own, while the chip waits; the answer takes both away and the verdict is gone."""
