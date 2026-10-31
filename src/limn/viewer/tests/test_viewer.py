@@ -556,7 +556,8 @@ class FrontendStructure(unittest.TestCase):
         self.assertNotIn('id="dropped-toggle"', HTML)
         self.assertIn("function droppedCard(", HTML)
         self.assertIn('data-act="restore"', HTML)
-        self.assertIn("case 'restore':restorePin(id)", HTML)
+        self.assertIn("case 'restore':trashRestore(id)", HTML)  # restorePin with the bound an undo has (#336)
+        self.assertIn("await restorePin(id,()=>{clearTimeout(wait);", HTML)
 
     def test_load_pins_fetches_dropped_list_for_diff_and_panel(self):
         """loadPins reads the Trash too, and applyPinLists hands it to the list comparison that tells a drop from a

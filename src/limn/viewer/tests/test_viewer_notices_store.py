@@ -478,37 +478,89 @@ class TrashRestore(NoticePage, BrowserBase):
         settle(page)
         self.assertEqual(page.evaluate(TRASH_FOCUS), ["restore", c])
 
-    def test_a_restore_that_does_not_answer_says_so_in_the_trash_or_where_it_is_closed_to(self):
-        """The restore held past the bound: with the Trash open its banner says '되살리기의 답이 늦습니다 · 핀 #N'; with
-        the Trash closed first the list (or the line) says it. Once, and gone with the answer; one request, the pin back."""
-        held = []  # the restore request, caught and held until the test lets it through
-        for closed in (False, True):
-            with self.subTest(closed=closed):
-                self.tearDown()
-                self.setUp()
-                held.clear()
-                page, (a,) = self.trash(1)
-                page.route("**/api/pins/%d/restore" % a, lambda route: held.append(route))
-                page.evaluate("NOTICE_ACT_WAIT=150")
-                self.press(page, a)
-                if closed:
-                    page.keyboard.press("Escape")
-                    page.wait_for_function("()=>!$('#trash').open")
-                page.wait_for_function(RESTORE_LATE, arg=a)
-                place, host, text = page.evaluate(RESTORE_LATE, a)
-                self.assertEqual(text, "되살리기의 답이 늦습니다 · 핀 #%d" % a)
-                if not closed:
-                    self.assertEqual((place, host), ("banner", "trash"))
-                    self.assertIn("되살리기의 답이 늦습니다", page.locator("#trash").inner_text())
-                else:
-                    self.assertNotEqual(host, "trash")
-                self.assertEqual(len(held), 1)
-                self.route(held[0])
-                page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id)", arg=a)
-                page.wait_for_function("id=>!(" + RESTORE_LATE + ")(id)", arg=a)
-                settle(page)
-                self.assertEqual(self.state(a), "open")
-                self.assertEqual(len(held), 1)
+    def late(self, n, kept=None):
+        """n rows in the open Trash, the last one's restore pressed by key and held past the bound until its warning is in
+        the Trash; the page, that pin and the held request. kept: the requests caught (kept[0] is held)."""
+        held = [] if kept is None else kept
+        page, order = self.trash(n)
+        a = order[-1]
+        page.route("**/api/pins/%d/restore" % a, lambda route: held.append(route))
+        page.evaluate("NOTICE_ACT_WAIT=150")
+        self.press(page, a)
+        page.wait_for_function(RESTORE_LATE, arg=a)
+        self.assertEqual(page.evaluate(RESTORE_LATE, a), ["banner", "trash", "되살리기의 답이 늦습니다 · 핀 #%d" % a])
+        self.assertIn("되살리기의 답이 늦습니다", page.locator("#trash").inner_text())
+        self.assertEqual(len(held), 1)
+        return page, a, held
+
+    def answered(self, page, a, held):
+        """The held restore reaches the server: the warning goes with it, one request, the pin back."""
+        self.route(held[0])
+        page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id)", arg=a)
+        page.wait_for_function("id=>!(" + RESTORE_LATE + ")(id)", arg=a)
+        settle(page)
+        self.assertEqual(self.state(a), "open")
+        self.assertEqual(len(held), 1)
+
+    def test_a_restore_that_does_not_answer_says_so_in_the_trash_and_where_it_is_closed_to(self):
+        """The restore held past the bound: the Trash's banner says '되살리기의 답이 늦습니다 · 핀 #N', once, and goes with the
+        answer. Closed while it waits, the Trash takes it out to the list or the line, which still says it, once."""
+        held = []
+        page, a, _ = self.late(1, held)
+        self.answered(page, a, held)
+        self.tearDown()
+        self.setUp()
+        held.clear()
+        page, a, _ = self.late(1, held)
+        page.keyboard.press("Escape")
+        page.wait_for_function("()=>!$('#trash').open")
+        page.wait_for_function(
+            "id=>{const l=(" + RESTORE_LATE + ")(id); return !!l&&l[1]!=='trash';}", arg=a
+        )  # on 'close'
+        place, host, text = page.evaluate(RESTORE_LATE, a)
+        self.assertEqual(text, "되살리기의 답이 늦습니다 · 핀 #%d" % a)
+        self.assertNotEqual(host, "trash")
+        self.assertEqual(
+            page.evaluate(
+                "()=>[...NOTICES.values()].filter(n=>(n.title+n.desc).includes('되살리기의 답이 늦습니다')).length"
+            ),
+            1,
+        )
+        self.answered(page, a, held)
+
+    def test_a_focus_on_the_late_banner_stays_in_the_trash_when_it_goes(self):
+        """The late banner's [x] has the focus when the restore answers: the banner goes, and the focus does not fall to
+        nothing - the row is gone too, so it ends on the Trash's [닫기]."""
+        held = []
+        page, a, _ = self.late(1, held)
+        page.locator("#trash .nt-banner [data-act=notice-x]").focus()
+        self.answered(page, a, held)
+        self.assertEqual(page.evaluate(TRASH_FOCUS), ["trash-close", None])
+
+    def test_a_failure_answered_in_time_keeps_its_banner_while_the_reload_is_slow(self):
+        """The restore answers 500 at once and the list reload after it is held past the bound: the failure's banner
+        stays, and no lateness is said - the bound is the request's."""
+        page, (a,) = self.trash(1)
+        reloads = []
+        page.route(
+            "**/api/pins/%d/restore" % a,
+            lambda route: route.fulfill(
+                status=500, headers={"content-type": "application/json"}, body='{"error": "서버 오류"}'
+            ),
+        )
+        page.evaluate("NOTICE_ACT_WAIT=150")
+        page.route(lambda url: "/api/pins?" in url or url.endswith("/api/pins"), lambda route: reloads.append(route))
+        self.press(page, a)
+        page.wait_for_function("()=>[...NOTICES.values()].some(n=>n.kind===NOTICE_KIND.ERR)")
+        page.wait_for_timeout(500)  # past the bound, the reload still held
+        self.assertTrue(reloads)
+        self.assertIsNone(page.evaluate(RESTORE_LATE, a))
+        self.assertEqual(page.evaluate("()=>[...NOTICES.values()].filter(n=>n.kind===NOTICE_KIND.ERR).length"), 1)
+        page.unroute(lambda url: "/api/pins?" in url or url.endswith("/api/pins"))
+        for r in reloads:
+            self.route(r)
+        settle(page)
+        self.assertEqual(page.evaluate("()=>[...NOTICES.values()].filter(n=>n.kind===NOTICE_KIND.ERR).length"), 1)
 
 
 if __name__ == "__main__":
