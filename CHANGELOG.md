@@ -11,16 +11,17 @@
   again until it reaches the head. Only where it lands changes: whether it moves is still the 48px margin's, so a row
   already clear stays put and two neighbouring rows cannot send a low panel back and forth. Going down nothing changes;
   the pages and the focus never move.
-- **The phone's navigation sheet opens at the current section, and only the outline moves (#335).** The sheet kept the
-  current document's row (or the view's) under its head and so stopped at the top of a long outline, the current section
-  thousands of px below. Now the open sheet is a column: the head with the search, the documents, the view, the page
-  field and its list keep their place, and the outline's rows take the height left and scroll on their own to the current
-  section, whole rows around it and the list exactly as tall as they are, so no row is cut under the outline's filter or
-  at the foot. Where the part above leaves the outline too little (several documents on a small phone) the sheet scrolls
-  too, by whole rows only, with the current document's row (with one document, the view) pinned under the head and the
-  next part starting right under it - or wholly under the head where the whole document list must go (320x720 with three
-  documents, or the keyboard up). The list is fitted again to a filter's results and when the keyboard comes or goes. The
-  pages do not move and the focus stays where it was.
+- **The phone's navigation sheet opens at the current section, and its top stays put (#335).** The sheet kept the current
+  document's row (or the view's) under its head and so stopped at the top of a long outline, the current section
+  thousands of px below. Now the open sheet is a column: the head with the search, the documents, the view and the page
+  field keep their place, and the page list and the outline's rows share the height left, each showing whole rows around
+  its current one in a box exactly as tall - five page rows while the outline has three, then fewer, down to the current
+  page's, then one outline row, then no page list - so no row is cut at a list's edge, under the outline's filter or at the
+  foot, and the sheet itself does not scroll. Its top stands at one height on any page and while a filter's fewer results
+  show; emptying the filter brings the current section back, and the keyboard coming or going fits it again. Only where
+  not even one outline row fits (many documents on a tiny screen) does the sheet scroll, by whole parts, with the current
+  document's row (with one document, the view) pinned under the head. The pages do not move and the focus stays where it
+  was.
 - **The tablet sheet's outline overlay brings the current row above the bottom bar (#335).** On an upright tablet or an
   unfolded foldable (882x1104) the overlay runs to the screen's bottom under the collapsed sheet and the status line on
   it, and it opened and followed with the current row under them, out of sight and out of reach. The follow now counts

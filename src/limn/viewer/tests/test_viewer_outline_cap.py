@@ -185,6 +185,25 @@ class OutlineLogic(unittest.TestCase):
             + [[2, 6], [5, 9], 100, 80, 282, 30],
         )
 
+    def test_the_page_list_and_the_outline_share_the_room_in_whole_rows(self):
+        """navSheetShare(room, pagesOf, most, three, one): the most page rows (44px, up to five) that leave the outline three
+        rows (148px); short of that the current page's row and one outline row (52px), then no page row; nothing when not even
+        an outline row fits; a document without a page list gives it all to the outline. navSheetSpan(rows, c, m): m rows
+        around c, as near the middle as the list's ends allow - the last five at the end, the first five at the start."""
+        got = self.run_js(
+            ["navSheetShare", "navSheetSpan"],
+            """(()=>{const pg=m=>44*m, even=n=>Array.from({length:n},(_,i)=>({top:44*i,bottom:44*i+44}));
+              return [navSheetShare(400,pg,5,148,52),navSheetShare(300,pg,5,148,52),navSheetShare(196,pg,5,148,52),navSheetShare(120,pg,5,148,52),
+                navSheetShare(60,pg,5,148,52),navSheetShare(40,pg,5,148,52),navSheetShare(400,pg,2,148,52),navSheetShare(100,pg,0,148,52),
+                navSheetSpan(even(14),13,5),navSheetSpan(even(14),0,5),navSheetSpan(even(14),6,5),navSheetSpan(even(3),1,5),
+                navSheetSpan(even(14),6,0),navSheetSpan([],0,3)];})()""",
+        )
+        self.assertEqual(
+            got,
+            [{"pages": 5}, {"pages": 3}, {"pages": 1}, {"pages": 1}, {"pages": 0}, None, {"pages": 2}, {"pages": 0}]
+            + [[9, 13], [0, 4], [4, 8], [0, 2], None, None],
+        )
+
     REFERENCE = """function referenceIndexAt(entries,page,frac){
       const at=e=>e.frac||0,deep=e=>e.depth||0,above=e=>e.page<page||(e.page===page&&at(e)<=frac+1e-6);
       const x=e=>typeof e.x==='number'?e.x:null,sameX=(a,b)=>x(a)===null||x(b)===null?x(a)===x(b):Math.abs(x(a)-x(b))<=1e-3;
@@ -1245,8 +1264,8 @@ class OutlineFollow(OutlineBase):
 
     def test_the_sheet_is_fitted_again_when_its_height_changes(self):
         """390x844, three documents: the keyboard coming up (the screen 520px high) leaves the top part less than three outline
-        rows, so the sheet steps by whole rows - here past the whole document list, which takes the document's row wholly under
-        the head; going down again, the top part is back in place with that row whole. No row is cut at either height, and the
+        rows, so the sheet steps by whole rows, the document's row pinned under the head (or wholly under it, never cut); going
+        down again, the top part is back in place with that row whole. No row is cut at either height, and the
         focus stays where it was (review of #335)."""
         phone = self.long(**PHONE)
         self.read_to(phone, 2)
@@ -1257,18 +1276,17 @@ class OutlineFollow(OutlineBase):
                 phone.wait_for_timeout(200)
                 settle(phone)
                 got = phone.evaluate(SHEET_ROWS)
-                self.assertEqual(
-                    (got["cut"], got["doc"], got["focus"]), ([], "under" if stepped else "whole", "nav-sheet"), got
-                )
+                self.assertEqual((got["cut"], got["focus"]), ([], "nav-sheet"), got)
+                self.assertIn(got["doc"], ("whole", "under") if stepped else ("whole",), got)
                 self.assertTrue(got["current"] or got["index"] is None, got)
                 self.assertEqual(got["sheet"] > 0, stepped, got)
 
     def test_with_one_document_the_view_is_pinned_where_the_sheet_steps(self):
-        """One document on a 320x480 phone: the top part leaves the outline less than three rows, so the sheet steps; the view,
+        """One document on a 320x300 screen: the fixed part leaves not even one outline row, so the sheet steps; the view,
         which stands for the current document, stays pinned whole under the head, and the part after it starts right under it -
         no row cut, none half behind it (review of #335)."""
         ps.APP.set_docs([self.ms])
-        phone = self.on("ms", **{**PHONE, "viewport": {"width": 320, "height": 480}})
+        phone = self.on("ms", **{**PHONE, "viewport": {"width": 320, "height": 300}})
         self.load(phone, grouped_tree(LONG, 2))
         phone.evaluate("() => {updateSectionStrip = () => {}; OUTLINE_SELECTED = 70; markOutline();}")
         got = self.open_sheet(phone)

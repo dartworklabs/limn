@@ -333,9 +333,9 @@ function outlineFilter(field,box,sr){
 function outlineSay(box,q,sr){const n=outlineRows(box).length,t=!String(q||'').trim()?'':n?tl('결과 {n}개',{n}):tr('찾은 장·절이 없습니다.');
   if(sr.textContent!==t)sr.textContent=t;}   // the same words again are not set again: a live region read '없습니다' at every keystroke
 outlineFilter($('#outline-search'),$('#outline-items'),$('#outline-sr')); outlineFilter($('#ns-outline-search'),$('#ns-outline-items'),$('#ns-outline-sr'));   // each filter works on its own list only
-// The sheet's filter draws its list again with rows of other heights (a group's line): the open sheet is fitted to them from the first
-// result (navSheetFit), so none is left cut. After the filter's own drawing, which was set up just above.
-$('#ns-outline-search').addEventListener('input',()=>{const d=/** @type {HTMLDialogElement} */($('#nav-sheet')); if(d.open)navSheetFit(d,0,false);});
+// The sheet's filter draws its list again with rows of other heights (a group's line): the open sheet is fitted to them (navSheetFiltered),
+// so none is left cut. After the filter's own drawing, which was set up just above.
+$('#ns-outline-search').addEventListener('input',()=>{navSheetFiltered();});
 // The person's hand on the panel (outlineHeld). A scroll inside a hold is theirs going on - a fling, a smooth wheel - and extends it;
 // a follow never runs inside one, so its own scroll does not hold anything. A hand on the panel stops a glide, so nothing is heading
 // anywhere any more (OUTLINE_AIM), and so do its end, a filter's new list, a panel closing and another document (outlineForget).
