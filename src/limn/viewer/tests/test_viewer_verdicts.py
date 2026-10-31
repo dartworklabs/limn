@@ -3538,8 +3538,10 @@ class Reason(VerdictBase):
 ROOM_AT = """n => {const L=document.querySelector('#left'),T=L.scrollTop,lr=L.getBoundingClientRect(),pg=document.getElementById('p'+n),
   nx=document.getElementById('p'+(n+1)),l=document.querySelector('#doc .pv[data-page="'+n+'"]'),pop=l.querySelector(':scope>.pv-pop'),
   R=e=>e.getBoundingClientRect();
-  return {page:R(pg).bottom, line:R(l).top, lineBottom:R(l).bottom, pop:pop?R(pop).top:null, next:nx?R(nx).top+T:null,
-    area:lr.top+L.clientHeight, stuck:l.classList.contains('stuck'), roomy:l.parentElement.classList.contains('pv-roomy'), top:l.style.top};}"""
+  const st=document.getElementById('section-strip'),sr=st&&st.getClientRects().length?R(st):null;
+  return {page:R(pg).bottom, line:R(l).top, lineBottom:R(l).bottom, pop:pop?R(pop).top:null, popBottom:pop?R(pop).bottom:null,
+    next:nx?R(nx).top+T:null, area:lr.top+L.clientHeight, shows:sr&&sr.top<=lr.top+1?Math.max(lr.top,sr.bottom):lr.top,
+    stuck:l.classList.contains('stuck'), roomy:l.parentElement.classList.contains('pv-roomy'), top:l.style.top};}"""
 FOLD_INNER = {"viewport": {"width": 673, "height": 841}, "is_mobile": True, "has_touch": True}
 
 
@@ -3625,7 +3627,8 @@ class ReasonRoom(VerdictBase):
 
     def test_the_held_line_never_stands_below_where_it_floats(self):
         """Held where it stood, the line still rises with its floating place (a keyboard laid over the page raises it): a
-        sticky top would otherwise win over the floating bottom and leave the line under the keyboard."""
+        sticky top would otherwise win over the floating bottom and leave the line under the keyboard. Lifted near the
+        area's top, its popover turns to the side that shows it whole, in the same frame."""
         page = self.on("fig")
         _, opened = self.at_end(page)
         clear = self.scroll(page, round(opened["page"] - opened["pop"]))
@@ -3634,6 +3637,32 @@ class ReasonRoom(VerdictBase):
         settle(page)
         got = page.evaluate(ROOM_AT, 1)
         self.assertAlmostEqual(got["lineBottom"], clear["lineBottom"] - 60, delta=1, msg=got)
+        h = got["lineBottom"] - got["line"]
+        lift = got["area"] - 8 - (got["shows"] + 40 + h)  # the line's top 40px under what the area shows: no room above
+        page.evaluate("v=>{document.body.style.setProperty('--pv-inset',v+'px'); pvStick();}", lift)
+        got = page.evaluate(ROOM_AT, 1)
+        self.assertAlmostEqual(got["line"], got["shows"] + 40, delta=1, msg=got)
+        self.assertGreaterEqual(got["pop"], got["shows"] - 0.5, got)
+        self.assertLessEqual(got["popBottom"], got["area"] - lift + 0.5, got)
+
+    def test_the_room_goes_when_the_line_moves_beside_the_pages(self):
+        """Held lower with its popover open, the line moves into the side panel as a wider window gives the room beside the
+        pages (§판정 패널): its block keeps no room - beside the pages the blocks are grids, where the empty box would be a
+        cell."""
+        page = self.on("fig")
+        _, opened = self.at_end(page)
+        self.scroll(page, round(opened["page"] - opened["pop"]))
+        self.assertTrue(page.evaluate("()=>!!document.querySelector('#doc .pgw.pv-roomy')"))
+        room = page.evaluate(
+            "()=>innerW()-pageWidth(ptMax(),K)"
+        )  # the room beside the pages (verdict-panel.js pvSideRoom)
+        size = page.viewport_size
+        page.set_viewport_size({"width": int(size["width"] + 420 - room), "height": size["height"]})
+        settle(page)
+        self.assertTrue(page.evaluate("()=>document.body.classList.contains('pv-beside')"))
+        self.assertFalse(
+            page.evaluate("()=>!!document.querySelector('#doc .pgw.pv-roomy,#doc .pgw[style*=\"--pv-room\"]')")
+        )
 
     def test_on_a_touch_screen_the_page_scrolls_clear(self):
         """The unfolded foldable (673x841, touch): a tap opens the popover at the page's end, and scrolled on by what it
