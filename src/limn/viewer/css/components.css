@@ -158,6 +158,11 @@ pre.nowrap{white-space:pre}
    soft shadow above it. Compact screens keep the 44px words and tighten the rest - a 4px ring, 4px off the bottom, a
    smaller shadow - since every px there is plot. */
 .pv.stuck{background:var(--background);box-shadow:0 0 0 var(--pv-ring) var(--background),0 -1px 0 var(--pv-ring) var(--border-strong),0 -2px var(--pv-blur) var(--pv-ring) var(--shadow-color)}
+/* Held under its own page by an open reason's room and lying over the next page's head (.pv-over, verdict.js pvRoomPlace):
+   the same edge and shadow under it as over it, so the band is set off from the page it covers instead of reading as that
+   page's head. */
+.pv.stuck.pv-over{box-shadow:0 0 0 var(--pv-ring) var(--background),0 -1px 0 var(--pv-ring) var(--border-strong),0 1px 0 var(--pv-ring) var(--border-strong),
+  0 -2px var(--pv-blur) var(--pv-ring) var(--shadow-color),0 2px var(--pv-blur) var(--pv-ring) var(--shadow-color)}
 body.compact .pv{--pv-ring:var(--space-1);--pv-gap:var(--space-1);--pv-blur:4px}
 /* Not floating while a selection is being written - the composer has its own verdict row, and on a phone or a foldable the
    line would sit on the selection or the sheet - nor over a phone's open sheet, which leaves too little of the page. Over a

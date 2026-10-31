@@ -9,8 +9,9 @@
   popover came up with the page. While the popover is open, the line and the popover now stay where they are as the
   pages scroll on, until the page's end has come up from under them by what they covered, then go on with the page.
   Opening and closing it moves nothing, no page moves in the flow and nothing scrolls by itself; held lower than its
-  place, the line floats over the gap. The side panel's popover, beside the page, is unchanged. The agent contract is
-  unchanged.
+  place, the line floats over the gap, and while it lies over the next page's head it has an edge and a shadow under it
+  as over it, so it does not read as part of that page. The side panel's popover, beside the page, is unchanged. The
+  agent contract is unchanged.
 
 ## 0.4.38 — 2026-10-31
 

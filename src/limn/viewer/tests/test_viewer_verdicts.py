@@ -3543,6 +3543,13 @@ ROOM_AT = """n => {const L=document.querySelector('#left'),T=L.scrollTop,lr=L.ge
     next:nx?R(nx).top+T:null, area:lr.top+L.clientHeight, shows:sr&&sr.top<=lr.top+1?Math.max(lr.top,sr.bottom):lr.top,
     stuck:l.classList.contains('stuck'), roomy:l.parentElement.classList.contains('pv-roomy'), top:l.style.top};}"""
 FOLD_INNER = {"viewport": {"width": 673, "height": 841}, "is_mobile": True, "has_touch": True}
+# The layers of page n's line's box-shadow that lie under it (a positive y offset): [colour, y] each.
+EDGE_BELOW = """n => {const l=document.querySelector('#doc .pv[data-page="'+n+'"]'),v=getComputedStyle(l).boxShadow; if(v==='none')return [];
+  return v.split(/,(?![^(]*\\))/).map(x=>x.trim()).map(x=>{const c=(x.match(/^(rgba?\\([^)]*\\)|#[0-9a-f]+|[a-z]+)/i)||[''])[0],
+    n=x.slice(c.length).trim().split(/\\s+/).map(parseFloat); return [c,n[1]];}).filter(([,y])=>y>0);}"""
+# The strong border token's colour as a computed box-shadow colour.
+BORDER_STRONG = """()=>{const e=document.createElement('div'); e.style.boxShadow='0 1px 0 var(--border-strong)'; document.body.appendChild(e);
+  const v=getComputedStyle(e).boxShadow; e.remove(); return (v.match(/^(rgba?\\([^)]*\\)|#[0-9a-f]+)/i)||[''])[0];}"""
 
 
 class ReasonRoom(VerdictBase):
@@ -3600,6 +3607,32 @@ class ReasonRoom(VerdictBase):
         self.assertFalse(back["stuck"], back)
         self.assertEqual((back["roomy"], back["top"]), (False, ""), back)
         self.assertAlmostEqual(back["next"], opened["next"], delta=0.5)
+
+    def test_a_line_held_over_the_next_page_has_an_edge_under_it_too(self):
+        """Held lower and lying over page 2's head, the line has a 1px edge and a shadow under it as over it, in both
+        themes - with an edge only above, its grey band read as page 2's head. In its place under page 1, and floating
+        over its own page, it has none under it."""
+        page = self.on("fig")
+        _, opened = self.at_end(page)
+        self.assertEqual(page.evaluate(EDGE_BELOW, 1), [], "in its place")
+        clear = self.scroll(page, round(opened["page"] - opened["pop"]))
+        self.assertGreater(
+            clear["lineBottom"] + 8, page.evaluate("()=>document.getElementById('p2').getBoundingClientRect().top")
+        )
+        for theme in ("light", "dark"):
+            with self.subTest(theme=theme):
+                page.evaluate("t=>{document.documentElement.dataset.theme=t}", theme)
+                settle(page)
+                below = page.evaluate(EDGE_BELOW, 1)
+                self.assertEqual(len(below), 2, below)  # the 1px edge and the shadow
+                self.assertIn(page.evaluate(BORDER_STRONG), [c for c, _ in below])
+        page.keyboard.press("Escape")
+        settle(page)
+        self.scroll(page, -round(opened["page"] - opened["pop"]) - 40)
+        self.assertEqual(page.evaluate(EDGE_BELOW, 1), [], "back in its place")
+        self.scroll(page, -300)  # floating over its own page
+        self.assertTrue(page.evaluate(ROOM_AT, 1)["stuck"])
+        self.assertEqual(page.evaluate(EDGE_BELOW, 1), [], "floating over its own page")
 
     def test_a_floating_lines_popover_clears_the_pages_end(self):
         """The line floating at the area's bottom over page 1, its end below the area: the popover opens with nothing moving, and scrolled down

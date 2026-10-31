@@ -1205,9 +1205,10 @@ function pvStick(){if(pageVerdictsOn()&&pvSideCheck())return;   // the room cros
   lines.forEach(l=>{if(l.id==='pv-panel')return;   // the panel stands sticky beside the pages: it never floats at their foot
     const pg=/** @type {HTMLElement|null} */(l.previousElementSibling); if(!pg)return; const b=l.getBoundingClientRect(),pb=pg.getBoundingClientRect().bottom;
     // In its own place it stands 8px under the page; held lower by a reason's room (pvRoomPlace) it floats over the gap and
-    // the next page's top, and is set off as a floating line is.
-    const stuck=(l.classList.contains('reading')&&b.bottom>lr.top&&b.top<lr.bottom&&b.top<pb+4)||pvRoomLow(l,pg,b.top,pb);
-    l.classList.toggle('stuck',stuck); pvLean(l,pg,b,stuck,L,lr);});
+    // the next page's top, and is set off as a floating line is - with an edge under it too while it lies over that page
+    // (.pv-over): its band read as the next page's head.
+    const low=pvRoomLow(l,pg,b.top,pb),stuck=(l.classList.contains('reading')&&b.bottom>lr.top&&b.top<lr.bottom&&b.top<pb+4)||low;
+    l.classList.toggle('stuck',stuck); l.classList.toggle('pv-over',low&&pvOverNext(l,b)); pvLean(l,pg,b,stuck,L,lr);});
   pvPopPlace(); if(pvRoomPlace(L,lr))pvPopPlace();}   // a held line its floating place lifted: the popover's side again
 // Room to read a page's end under its open reason popover (#345). The popover stands above its line, so where the line stands
 // in its place under the page the popover covers the page's end - a figure's caption, written under the plot - and no scroll
@@ -1231,8 +1232,12 @@ function pvOwnGap(l,pg){const a=parseFloat(getComputedStyle(pg).marginBottom)||0
 // Whether line l (top edge at t, its page's bottom at pb) stands lower than its own place, held there by a reason's room.
 /** @param {HTMLElement} l @param {HTMLElement} pg @param {number} t @param {number} pb */
 function pvRoomLow(l,pg,t,pb){return PV_ROOM.has(l)&&t>pb+pvOwnGap(l,pg)+0.5;}
+// Whether line l (its box b), with the ring its floating look paints around it, reaches over the next page's top.
+/** @param {HTMLElement} l @param {DOMRect} b */
+function pvOverNext(l,b){const blk=l.parentElement,nx=blk&&blk.nextElementSibling,np=nx&&nx.querySelector(':scope>.pg'); if(!np)return false;
+  return np.getBoundingClientRect().top<b.bottom+(parseFloat(getComputedStyle(l).getPropertyValue('--pv-ring'))||0);}
 /** @param {HTMLElement} l */
-function pvRoomDrop(l){const r=PV_ROOM.get(l); PV_ROOM.delete(l); l.style.removeProperty('top');
+function pvRoomDrop(l){const r=PV_ROOM.get(l); PV_ROOM.delete(l); l.style.removeProperty('top'); l.classList.remove('pv-over');
   if(r){r.blk.classList.remove('pv-roomy'); r.blk.style.removeProperty('--pv-room');}}   // its block, also once the line is gone from it (the side panel took it)
 // Whether it lifted a held line (its floating place rose above it): the popover's side is chosen again then (pvStick).
 /** @param {HTMLElement} L @param {DOMRect} lr @returns {boolean} */
