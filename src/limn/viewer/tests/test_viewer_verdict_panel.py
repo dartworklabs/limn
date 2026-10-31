@@ -1722,6 +1722,17 @@ class Look(PanelBase):
                 page.locator(sel).hover()
                 settle(page)
                 self.assertEqual(page.evaluate(clear), {"shown": True, "name": False, "panel": False, "text": True})
+        # Over the page beside the panel it reads as a floating box in both themes: an edge unlike its ground, and a shadow.
+        edge = """()=>{const c=getComputedStyle(document.getElementById('tip'));
+          return {beside:document.getElementById('tip').classList.contains('tip-beside'),edge:parseFloat(c.borderTopWidth)>=1&&c.borderTopColor!==c.backgroundColor,shadow:c.boxShadow!=='none'};}"""
+        for theme in ("light", "dark"):
+            with self.subTest(theme=theme):
+                page.evaluate("t=>setTheme(t)", theme)
+                page.mouse.move(5, 500)
+                settle(page)
+                page.locator(other).hover()
+                settle(page)
+                self.assertEqual(page.evaluate(edge), {"beside": True, "edge": True, "shadow": True})
         page.mouse.move(5, 500)
         page.locator(pressed).focus()
         page.evaluate("document.documentElement.dataset.input='key'")
@@ -1740,6 +1751,7 @@ class Look(PanelBase):
             WORD % (1, "보류"),
         )
         self.assertTrue(got, "the line's description no longer stands over its word")
+        self.assertFalse(under.evaluate("()=>document.getElementById('tip').classList.contains('tip-beside')"))
 
 
 class WideTouch(PanelBase):

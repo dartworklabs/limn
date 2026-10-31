@@ -1,6 +1,9 @@
 #tip{position:fixed;inset:auto;margin:0;border:0;overflow:visible;z-index:100;max-width:300px;background:var(--tooltip);color:var(--tooltip-foreground);font-size:var(--text-sm);line-height:1.5;
   padding:var(--space-1) var(--space-2);border-radius:var(--radius);pointer-events:none;box-shadow:var(--shadow);left:0;top:0;
   word-break:keep-all;overflow-wrap:break-word}   /* Korean wraps between words ('판정 취/소)' broke one), a token wider than the box still breaks */
+/* A description standing beside the box it belongs to, over the page (tooltip.js, the page verdict panel's): an edge and a
+   deeper shadow, so it reads as a box floating over the page, not one cut off at the page's edge. */
+#tip.tip-beside{border:1px solid var(--border-strong);box-shadow:var(--shadow-lg)}
 dialog{background:var(--popover);color:var(--popover-foreground);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);max-width:680px;
   width:92vw;padding:var(--space-4) var(--space-6);max-height:88vh}
 dialog[tabindex="-1"]:focus{outline:none}   /* the sheet itself is the first focus (showSheet), with no ring; Tab goes on to [닫기] */
