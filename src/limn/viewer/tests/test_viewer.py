@@ -3052,7 +3052,7 @@ class FrontendFigure(unittest.TestCase):
         self.assertEqual(c.count("p.stale||elLost(p)?CARD_DOT.LOST"), 1)  # one status dot for both cards
         self.assertIn("const lostEl=elLostTag(p); if(lostEl)tags.push(lostEl);", c)
         self.assertIn("figRegionBadge(p.el,isFigureKind((docInfo(pdoc(p))||{}).kind))", c)
-        self.assertIn("document.getElementById('p'+pinPlace(p).page)", extract_js_fn("jumpPin"))
+        self.assertIn("arrivePage(pinPlace(p).page)", extract_js_fn("jumpPin"))  # its page now, by its figure
         self.assertIn("p.el_sync===EL_SYNC.LOST", extract_js_fn("notePinChanges"))
 
     def test_a_pin_of_an_unknown_via_gets_a_neutral_hint_not_the_synctex_one(self):
