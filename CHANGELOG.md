@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **A key save on a phone no longer moves the pages in WebKit.** Fitting the page lines measures each as the reading line,
+  which grew a line above the reading page for the length of the pass; WebKit's scroll anchoring followed the growth and
+  not the shrink, and the pages moved 39px. The measured lines' page blocks now keep their size during the pass.
+
 ## 0.4.37 — 2026-10-31
 
 On a wide desktop the page verdict line becomes one panel beside the pages, with a one-row summary under each page, and

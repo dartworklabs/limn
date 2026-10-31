@@ -808,11 +808,13 @@ const PV_KEY_SAVED=/** @type {Set<number>} */(new Set());
 // While the page is pinch-zoomed the PDF area does not anchor its scroll for the pass (pvHoldView): the pass grows every
 // line above the reading page and shrinks it back (#doc.pv-measure), and Chromium carried the anchoring of that shrink -
 // the area is the page's root scroller there - into the zoomed view, which went from where it was to the page's top
-// (422 -> 0 at 2x) at every drawing of the lines: a save, a take-back (#320).
+// (422 -> 0 at 2x) at every drawing of the lines: a save, a take-back (#320). The pass moves nothing below a line it measures
+// either (pvKeepBlocks): WebKit anchored the growth on the next page's block and not the shrink, so a key save on a phone
+// moved the pages 39px.
 /** @param {HTMLElement[]} lines */
 function pvFit(lines){const panel=lines.find(l=>l.id==='pv-panel');
   if(panel){pvPanelFit(panel); lines=lines.filter(l=>l!==panel); if(!lines.length)return;}   // the panel: rows down it, never one row (verdict-panel.js)
-  const held=lines.map(pvRowsHeld),D=$('#doc'),hold=pvHoldView(true); try{
+  const held=lines.map(pvRowsHeld),D=$('#doc'),hold=pvHoldView(true),kept=pvKeepBlocks(lines); try{
   pvFarHold(lines);   // a line skipped far from the view is laid out to be measured, and keeps its height after (pvFarLetGo)
   if(PV_KEY_SAVE)PV_KEY_SAVED.add(PV_KEY_SAVE);
   lines.forEach((l,i)=>{l.classList.toggle('pv-kw',PV_KEY_SAVED.has(Number(l.dataset.pin)));
@@ -865,7 +867,7 @@ function pvFit(lines){const panel=lines.find(l=>l.id==='pv-panel');
   // Where that is more than the state takes now (.pv-t-kept), its rows stand at the top and the room is kept under them: centred
   // in it, a resting line's state stood 40-65px off its identifier's row (#308 review).
   const th=lines.map((l,i)=>{const t=over[i]?l.querySelector(':scope>.pv-t'):null; return t?t.getBoundingClientRect().height:0;});
-  D.classList.remove('pv-measure');
+  D.classList.remove('pv-measure'); pvLetBlocks(kept);   // the lines' fitted heights: what moves now is real, and anchors as ever
   const nat=lines.map((l,i)=>th[i]?/** @type {HTMLElement} */(l.querySelector(':scope>.pv-t')).getBoundingClientRect().height:0);
   lines.forEach((l,i)=>{if(held[i])return; const k=th[i]>nat[i]+0.5; l.classList.toggle('pv-t-kept',k); if(k)l.style.setProperty('--pv-t-h',th[i]+'px');});
   pvChipPlace(lines);
@@ -875,12 +877,28 @@ function pvFit(lines){const panel=lines.find(l=>l.id==='pv-panel');
   pvFocusStays(lines);}
   // Also when a step throws: never left measuring, every line keeps the height it is drawn at and may be skipped again
   // (pvFarLetGo, read once the measure is gone), and the view anchors again only after that - whatever pvFarLetGo does.
-  finally{D.classList.remove('pv-measure'); try{pvFarLetGo(lines);}finally{pvHoldView(false,hold);}}}
+  finally{D.classList.remove('pv-measure'); pvLetBlocks(kept); try{pvFarLetGo(lines);}finally{pvHoldView(false,hold);}}}
+// Keeps the block of each line pvFit is about to measure at the height it is drawn at, until pvLetBlocks: the pass takes a line's
+// rows off and measures it as the reading line (#doc.pv-measure), and the line may grow inside its block, but the block, and the
+// pages after it, stand still. So the area's scroll anchoring - WebKit's too, which carried the growth and not the shrink - has
+// nothing to follow, while a line whose fitted height does change moves the pages after the pass as it always did. A block's
+// height set, its last line's bottom margin no longer collapses through it: the block carries the space to the next block
+// itself. The last block, with nothing after it, is left alone. Read before any is written; what each had inline is put back.
+/** @param {HTMLElement[]} lines @returns {[HTMLElement,string,string][]} */
+function pvKeepBlocks(lines){/** @type {Set<HTMLElement>} */ const set=new Set();
+  lines.forEach(l=>{const b=l.parentElement; if(b&&b.classList.contains('pgw')&&b.nextElementSibling)set.add(b);});
+  const bs=[...set],at=bs.map(b=>{const r=b.getBoundingClientRect(),n=/** @type {Element} */(b.nextElementSibling); return [r.height,n.getBoundingClientRect().top-r.bottom];});
+  /** @type {[HTMLElement,string,string][]} */ const kept=[];
+  bs.forEach((b,i)=>{const [h,g]=at[i]; if(!h)return; kept.push([b,b.style.height,b.style.marginBottom]); b.style.height=h+'px'; b.style.marginBottom=g+'px';});
+  return kept;}
+/** @param {[HTMLElement,string,string][]} kept */
+function pvLetBlocks(kept){kept.forEach(([b,h,m])=>{b.style.height=h; b.style.marginBottom=m;}); kept.length=0;}
 // Holds a pinch-zoomed view where it is across pvFit's pass (on) and lets go after it (off, given what on returned): the PDF
 // area does not anchor its scroll (overflow-anchor), and its layout is brought up to date before it anchors again, so the
 // anchor it then takes is where the pass left the pages - never a measure's grown lines. On returns the area's own value it
 // replaced, which off puts back (a pass inside a pass leaves the outer one's hold), or null where it held nothing. At no zoom
-// it does nothing: the view cannot move there, and the area's anchoring stays as it is (no scroll of its own, ever).
+// it does nothing: the pass moves no block there (pvKeepBlocks), and the area's anchoring stays as it is (no scroll of its own,
+// ever).
 /** @param {boolean} on @param {string|null} [was] @returns {string|null} */
 function pvHoldView(on,was){const L=$('#left'),vv=window.visualViewport;
   if(!on){if(typeof was!=='string')return null; void L.offsetHeight; if(was)L.style.setProperty('overflow-anchor',was); else L.style.removeProperty('overflow-anchor'); return null;}
