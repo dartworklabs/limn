@@ -23,6 +23,11 @@
   the 8-second bound: past it the Trash (or, closed, the list) says `되살리기의 답이 늦습니다 · 핀 #N` until the answer.
   Tab no longer leaves the open Trash (Tab from [닫기] after the last restore left the focus on nothing), and a row's
   [되살리기] or [영구 삭제] shows its description beside the row's buttons instead of over the row before it.
+- **A key save on a phone no longer moves the pages in WebKit.** Fitting the page lines measures each as the reading line,
+  which grew a line above the reading page for the length of the pass; WebKit's scroll anchoring followed the growth and
+  not the shrink, and the pages moved 39px. The measured lines' page blocks now keep their size during the pass. Letting
+  them go keeps the page under the reading line where it stood: a window narrowed past the panel's bar and widened again
+  right after a save no longer moves the reading page.
 
 ## 0.4.37 — 2026-10-31
 
