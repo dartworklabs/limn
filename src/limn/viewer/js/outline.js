@@ -156,14 +156,16 @@ let OUTLINE_MARKED=-1,OUTLINE_SNAP=true,   // the entry last marked; the next fo
 // row a row and a half under the band, and from a section's second entry on its head out of sight - and to group (the row's section
 // head and the rows above that) where that fits too, so the head shows and the rows up to it then move nothing. Only the landing
 // changes: whether the list moves at all is the margin's alone, so two rows next to each other cannot send a short panel back and
-// forth. Going up, the very top where only part of the panel's head would be left over the row (head: where the rows start). Within
-// what the list can scroll, so the list's two ends are as near as a row gets. Pure.
+// forth. Going up, the very top where only part of the panel's head would be left over the row (head: where the rows start), as long
+// as the row keeps the margin over the view's foot there: from the section's head the very top lies lower, and on the tablet sheet
+// it took the row under the folded sheet's bar. Within what the list can scroll, so the list's two ends are as near as a row gets.
+// Pure.
 function outlineRevealTop(st,h,sh,top,bottom,m,head,cover=0,near=top,group=top){
   const room=Math.max(0,Math.min(m,(h-cover-(bottom-top))/2)),edge=st+cover;
   if(top>=edge+room-.5&&bottom<=st+h-room+.5)return null;
   const fits=(/** @type {number} */l)=>l<top-room&&bottom+room-l<=h-cover;
   const up=top<edge+room||bottom-top>h-cover,want=up?Math.min(top-room,fits(near)?near:top,fits(group)?group:top)-cover:bottom-h+room;
-  const to=Math.round(Math.max(0,Math.min(sh-h,up&&want<=head?0:want)));
+  const to=Math.round(Math.max(0,Math.min(sh-h,up&&want<=head&&bottom+room<=h+.5?0:want)));
   return to===Math.round(st)?null:to;}
 // Whether the filter is narrowing the list: its rows are the results, not the outline, and the current row is likely not among them.
 function outlineFiltered(){return !!$('#outline-search').value.trim();}
