@@ -6,7 +6,9 @@
 
 - **A key save on a phone no longer moves the pages in WebKit.** Fitting the page lines measures each as the reading line,
   which grew a line above the reading page for the length of the pass; WebKit's scroll anchoring followed the growth and
-  not the shrink, and the pages moved 39px. The measured lines' page blocks now keep their size during the pass.
+  not the shrink, and the pages moved 39px. The measured lines' page blocks now keep their size during the pass. Letting
+  them go keeps the page under the reading line where it stood: a window narrowed past the panel's bar and widened again
+  right after a save no longer moves the reading page.
 
 ## 0.4.37 — 2026-10-31
 

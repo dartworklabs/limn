@@ -891,8 +891,18 @@ function pvKeepBlocks(lines){/** @type {Set<HTMLElement>} */ const set=new Set()
   /** @type {[HTMLElement,string,string][]} */ const kept=[];
   bs.forEach((b,i)=>{const [h,g]=at[i]; if(!h)return; kept.push([b,b.style.height,b.style.marginBottom]); b.style.height=h+'px'; b.style.marginBottom=g+'px';});
   return kept;}
+// Lets the blocks pvKeepBlocks held go to their lines' fitted heights, keeping the view by hand: the page under the reading line
+// stands where it stood. A block's height on the anchor's path - the reading page's own block is held too - suppresses the PDF
+// area's scroll anchoring, so every line above that changed its height moved the view with nothing to follow: after a save, a
+// window narrowed under the panel's bar and widened again within a moment read page 70 instead of 75. The area's own anchoring
+// is off for the step, so it adds no correction of its own, and is put back as it was (a pinch-zoom hold's included).
 /** @param {[HTMLElement,string,string][]} kept */
-function pvLetBlocks(kept){kept.forEach(([b,h,m])=>{b.style.height=h; b.style.marginBottom=m;}); kept.length=0;}
+function pvLetBlocks(kept){if(!kept.length)return; const L=$('#left'),a=L.getClientRects().length?topAnchor(readingDepth(L)):null;
+  const pg=a?document.getElementById('p'+a.page):null,y=pg?pg.getBoundingClientRect().top:0,was=L.style.getPropertyValue('overflow-anchor');
+  if(pg)L.style.setProperty('overflow-anchor','none');
+  kept.forEach(([b,h,m])=>{b.style.height=h; b.style.marginBottom=m;}); kept.length=0;
+  if(!pg)return; const d=pg.getBoundingClientRect().top-y; if(Math.abs(d)>0.5)L.scrollTop+=d;
+  void L.offsetHeight; if(was)L.style.setProperty('overflow-anchor',was); else L.style.removeProperty('overflow-anchor');}
 // Holds a pinch-zoomed view where it is across pvFit's pass (on) and lets go after it (off, given what on returned): the PDF
 // area does not anchor its scroll (overflow-anchor), and its layout is brought up to date before it anchors again, so the
 // anchor it then takes is where the pass left the pages - never a measure's grown lines. On returns the area's own value it

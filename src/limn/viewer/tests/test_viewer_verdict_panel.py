@@ -981,6 +981,70 @@ class TheLinesMove(PanelBase):
         self.assertEqual(page.evaluate("pvReadingPage()"), n)
         self.assertEqual(self.pins()[pid]["note"], "", "the half text was written")
 
+    def test_a_quick_round_trip_after_a_saved_reason_keeps_the_reading_page_where_it_stands(self):
+        """A digit's 채택 on page 5 and its reason saved by Enter (the focus on 'Enter 이유 쓰기'), then the window narrowed past
+        the bar and widened again 100ms later: at every step page 5 is the reading page and stands where it stood (±2px), and
+        the focus is on the PDF area, as with a slow resize. Releasing the blocks pvFit had held changed the reading page's own
+        block, which stopped the area's scroll anchoring, so the lines above moved the view (75 read 70 in a real document)."""
+        page = self.on()
+        page.evaluate("setSide(false)")
+        settle(page)
+        page.evaluate(TO, [5, 150])
+        settle(page)
+        page.evaluate("searchToPage()")
+        page.keyboard.press("1")
+        page.wait_for_function("()=>document.activeElement.dataset.act==='pv-reason-open'")
+        settle(page)
+        page.keyboard.press("Enter")
+        page.wait_for_selector(FIELD)
+        page.keyboard.type("빠른 왕복")
+        page.keyboard.press("Enter")
+        page.wait_for_function("OPEN_ALL.some(p=>p.note==='빠른 왕복')")
+        settle(page)
+        top = page.evaluate("()=>document.getElementById('p5').getBoundingClientRect().top")
+        seen = []
+        for width in (1400, 1920):
+            page.set_viewport_size({"width": width, "height": 1080})
+            page.wait_for_timeout(100)
+            seen.append(
+                (
+                    page.evaluate("pvReadingPage()"),
+                    page.evaluate("()=>document.getElementById('p5').getBoundingClientRect().top"),
+                )
+            )
+        settle(page)
+        seen.append(
+            (
+                page.evaluate("pvReadingPage()"),
+                page.evaluate("()=>document.getElementById('p5').getBoundingClientRect().top"),
+            )
+        )
+        for n, y in seen:
+            self.assertEqual(n, 5, seen)
+            self.assertLess(abs(y - top), 2.5, seen)
+        self.assertEqual(page.evaluate(SHAPE)["beside"], True)
+        self.assertEqual((page.evaluate(FOCUS) or {}).get("id"), "left")
+
+    def test_lines_above_that_change_height_across_a_fitting_pass_leave_the_reading_page_where_it_stands(self):
+        """Under the pages (1400), page 5 read: the lines of pages 1-3 are skipped far above with a stale drawn height
+        (--pv-h 300px), and every line is fitted again (pvFit). The pass lays them out at their real height; page 5 stands
+        where it stood. The pass held every block, the reading page's included, and letting that block go stopped the area's
+        scroll anchoring just as the lines above shrank: the view moved by what they lost."""
+        page = self.on(viewport={"width": 1400, "height": 850})
+        page.evaluate(TO, [5, 150])
+        settle(page)
+        far = "()=>[1,2,3].map(n=>document.querySelector('#doc .pv[data-page=\"'+n+'\"]').classList.contains('pv-far'))"
+        page.wait_for_function(far + ".every(Boolean)")
+        page.evaluate(
+            "()=>[1,2,3].forEach(n=>document.querySelector('#doc .pv[data-page=\"'+n+'\"]').style.setProperty('--pv-h','300px'))"
+        )
+        settle(page)
+        top = page.evaluate("()=>document.getElementById('p5').getBoundingClientRect().top")
+        page.evaluate("()=>pvFit($$('#doc .pgw>.pv'))")
+        got = page.evaluate("()=>[document.getElementById('p5').getBoundingClientRect().top, pvReadingPage()]")
+        self.assertLess(abs(got[0] - top), 2.5, (top, got))
+        self.assertEqual(got[1], 5)
+
     def test_a_resize_keeps_the_reason_and_the_page_where_it_stands_both_ways(self):
         """Across the bar and back: the field, its text and caret, nothing written, digits stay text, and page 5 does not move
         on the screen (it moved by 40px with the anchor at the area's top)."""
