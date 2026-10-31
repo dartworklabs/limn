@@ -14,7 +14,8 @@
   decides the room beside the pages, so a document whose pages differ in width keeps every page on one axis beside the
   panel, never under it, and scrolling never turns the panel on or off. A panel tall enough to scroll inside brings the
   control the keyboard focuses whole into view with its focus ring, and ends above the cards that float at the PDF area's
-  bottom right while the pin panel is closed. The agent contract is unchanged.
+  bottom right while the pin panel is closed. When the line moves between the panel and under its page, a control that had
+  the focus on it has the focus on the moved line too, not the PDF area. The agent contract is unchanged.
 
 ## 0.4.37 — 2026-10-31
 

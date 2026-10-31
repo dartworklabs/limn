@@ -47,7 +47,7 @@ var PV_AT_HELD=0;
 function pvSideTurn(){const on=pvSideWant(); if(on===PV_SIDE)return null;
   const L=$('#left'),a=/** @type {HTMLElement|null} */(document.activeElement),f=pvIsReasonField(a)?/** @type {HTMLTextAreaElement} */(a):null,at=pvReadingAt();
   const keep={spot:L.scrollTop>0?topAnchor(readingDepth(L)):null,inLine:!!a&&!!a.closest&&!!a.closest('#doc .pv'),caret:f?[f.selectionStart,f.selectionEnd]:null,
-    popAct:!!a&&!!a.closest&&!!a.closest('#doc .pv-pop')&&!f&&a.dataset.act||''};
+    popAct:!!a&&!!a.closest&&!!a.closest('#doc .pv-pop')&&!f&&a.dataset.act||'',ctl:pvControlOf(a)};
   if(f)PV_COMPOSING=false; PV_AT_HELD=at; pvSideApply(on); return keep;}
 // The lines have moved and are fitted: the point that was under the reading line is there again, so the page in view does not
 // shift and the reading page is the one held (a rounded scroll position may fall a pixel off a page's edge: taken back).
@@ -57,12 +57,28 @@ function pvSideSettle(k){PV_AT_HELD=0; const a=k.spot,pg=a?document.getElementBy
   const b=pg.getBoundingClientRect(); if(b.bottom<=y())L.scrollTop-=2; else if(b.top>y())L.scrollTop+=2;}
 // After the lines moved: a save chip stands on its pin's new line (drawChips, else its undo goes to the status line), and the reason
 // field that had the focus has it again with its caret, or the popover's button its focus - what is typed next stays text,
-// never a verdict key. A focus on another page's line, which the panel does not show, goes to the PDF area, not to nothing.
+// never a verdict key. Any other control focused on a line has the focus on the same control of its moved line (pvControlAgain).
+// A focus on another page's line, which the panel does not show, goes to the PDF area, not to nothing.
 /** @param {NonNullable<ReturnType<typeof pvSideTurn>>} k */
 function pvSideTurned(k){drawChips(); const g=k.caret?pvReasonField():null;
   if(g&&k.caret){g.focus({preventScroll:true}); g.setSelectionRange(k.caret[0],k.caret[1]); return;}
   const b=/** @type {HTMLElement|null} */(k.popAct?document.querySelector('#doc .pv-pop [data-act="'+k.popAct+'"]'):null); if(b){b.focus({preventScroll:true}); return;}
-  const a=document.activeElement; if(k.inLine&&(!a||a===document.body))searchToPage();}
+  const a=document.activeElement; if(!k.inLine||(a&&a!==document.body))return;
+  const c=pvControlAgain(k.ctl); if(c){c.focus({preventScroll:true}); return;}
+  searchToPage();}
+// A control focused on a line, as the lines move (pvSideTurn): its line's page and what names it among that line's controls -
+// its action and, where several share one, its word (data-key), the pin it leads to (data-ref), its id or its message (a save
+// chip's button, data-n). null for none, the reason field and the popover's buttons (carried on their own).
+/** @param {Element|null} a @returns {{page:string,act:string,key:string,ref:string,id:string,n:string}|null} */
+function pvControlOf(a){if(!(a instanceof HTMLElement)||!a.closest||a.closest('.pv-pop')||pvIsReasonField(a))return null;
+  const l=/** @type {HTMLElement|null} */(a.closest('#doc .pv')); const act=a.dataset.act||''; if(!l||!act)return null;
+  return {page:l.dataset.page||'',act,key:a.dataset.key||'',ref:a.dataset.ref||'',id:a.dataset.id||'',n:a.dataset.n||''};}
+// The same control on the moved line of that page - beside the pages or under one - shown, or null (the panel shows another
+// page now). The focus lands there: on the PDF area it lost its place, and Enter on [이유 추가] no longer wrote the reason.
+/** @param {ReturnType<typeof pvControlOf>} c @returns {HTMLElement|null} */
+function pvControlAgain(c){const l=c?document.querySelector('#doc .pv[data-page="'+CSS.escape(c.page)+'"]'):null; if(!c||!l)return null;
+  return /** @type {HTMLElement|undefined} */([...l.querySelectorAll('[data-act="'+CSS.escape(c.act)+'"]')].find(e=>e instanceof HTMLElement&&
+    (e.dataset.key||'')===c.key&&(e.dataset.ref||'')===c.ref&&(e.dataset.id||'')===c.id&&(e.dataset.n||'')===c.n&&e.getClientRects().length>0))||null;}
 
 // ---------------- The panel
 // The panel (#pv-panel): a page verdict line of its own, in the last child of the pages' column (#pv-panel-at) - so every

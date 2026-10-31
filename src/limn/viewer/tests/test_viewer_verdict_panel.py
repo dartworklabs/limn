@@ -985,6 +985,44 @@ class TheLinesMove(PanelBase):
         self.assertEqual(page.evaluate("pvReadingPage()"), n)
         self.assertEqual(self.pins()[pid]["note"], "", "the half text was written")
 
+    def test_a_focused_control_lands_on_the_same_control_of_the_moved_line_both_ways(self):
+        """Page 5's 채택 saved by a press, the focus on [이유 추가], the word 보류, [판정 취소] or '#N' in the panel: the window
+        narrowed past the bar and widened again, once resting between and once 100ms apart. At each resting step the focus
+        is on the same control of page 5's line - under the page, then in the panel again - never on the PDF area, where
+        it went before and Enter there no longer meant that control."""
+        page = self.on()
+        page.evaluate(TO, [5, 150])
+        settle(page)
+        page.locator(WORD % (5, "채택")).click()
+        page.wait_for_function("OPEN_ALL.length===1")
+        settle(page)
+        page.evaluate("()=>NOTICES.forEach(n=>{if(n.place==='chip')endNotice(n,false);})")
+        settle(page)
+        where = """()=>{const a=document.activeElement,l=a&&a.closest?a.closest('#doc .pv'):null;
+          return l?[a.dataset.act,a.dataset.key||'',+l.dataset.page,!!a.closest('#pv-panel')]:[a?a.id||a.tagName:null];}"""
+        for act, key, sel in (
+            ("pv-reason-open", "", LINE_ACT % (5, "pv-reason-open")),
+            ("pv-save", "보류", WORD % (5, "보류")),
+            ("pv-cancel", "", LINE_ACT % (5, "pv-cancel")),
+            ("pin-ref", "", LINE_ACT % (5, "pin-ref")),
+        ):
+            for quick in (False, True):
+                with self.subTest(control=act, quick=quick):
+                    page.locator(sel).focus()
+                    self.assertEqual(page.evaluate(where), [act, key, 5, True])
+                    for width, beside in ((1400, False), (1920, True)):
+                        page.set_viewport_size({"width": width, "height": 1080})
+                        if quick:
+                            page.wait_for_timeout(100)
+                            continue
+                        settle(page)
+                        self.assertEqual(page.evaluate(SHAPE)["beside"], beside)
+                        self.assertEqual(page.evaluate(where), [act, key, 5, beside])
+                    settle(page)
+                    self.assertEqual(page.evaluate(SHAPE)["beside"], True)
+                    self.assertEqual(page.evaluate(where), [act, key, 5, True])
+        self.assertEqual(len(self.pins()), 1)
+
     def test_a_resize_keeps_the_reason_and_the_page_where_it_stands_both_ways(self):
         """Across the bar and back: the field, its text and caret, nothing written, digits stay text, and page 5 does not move
         on the screen (it moved by 40px with the anchor at the area's top)."""
