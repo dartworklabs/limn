@@ -133,7 +133,7 @@ function fitW(){const a=topAnchor(),L=$('#left');
 // (docs/handbook/viewer.md §그림 쪽 도착). Each is a glide (pvGlideTo, pvGlideInto), so the keys wait for it to end.
 /** @param {number} n */
 function arrivePage(n){const el=document.getElementById('p'+n); if(!el)return; const to=figureTop(n),L=$('#left');
-  if(to===null){pvGlideInto(el); return;}
+  if(to===null){arrivalLetGo(); pvGlideInto(el); return;}
   const top=!pvAutoScrolling()&&Math.abs(L.scrollTop-to)<=FIGURE_REST_PX;
   if(top)pvGlideInto(el); else pvGlideTo(to);
   arrivalWatch(n,!top);}
@@ -144,13 +144,18 @@ const FIGURE_REST_PX=2;   // the pages rest on a figure's arrival within this (a
 // stalls the glide past its guard (PV_JUMP lapses after a second), which gives scroll anchoring back, and the anchoring's
 // adjustment left the figure 30-300px off (#345). So each time the pages come to rest - after ARRIVAL_REST_MS without a
 // scroll, the glide guard down - it measures the place again and glides the rest (pvGlideTo: the guard and the held anchoring
-// again), until ARRIVAL_SETTLE_MS after the first rest, at most ARRIVAL_FIXES times. Never once the person has scrolled
-// (PV_HAND), on another document, or with the pages not shown; a new arrival replaces it.
+// again), until ARRIVAL_SETTLE_MS after the first rest, at most ARRIVAL_FIXES times. It only settles what nobody asked
+// for: anything the person does meanwhile - a press, a key, a wheel or a touch anywhere, a window resize - lets it go
+// (arrivalLetGo), for that starts a move of its own (a card's mark, a search hit, a zoom, another page) the watch must not
+// undo; so do the person's scroll (PV_HAND), another document and the pages not shown. A new arrival replaces it.
 const ARRIVAL_REST_MS=120,ARRIVAL_SETTLE_MS=2000,ARRIVAL_FIXES=3;
 let ARRIVAL=/** @type {{n:number,figure:boolean,hand:number,doc:string|null,fixes:number,until:number}|null} */(null),ARRIVAL_TIMER=0;
 /** @param {number} n @param {boolean} figure */
 function arrivalWatch(n,figure){ARRIVAL={n,figure,hand:PV_SCROLL_HAND,doc:DOC,fixes:0,until:0}; arrivalSoon();}
 function arrivalSoon(){clearTimeout(ARRIVAL_TIMER); ARRIVAL_TIMER=setTimeout(arrivalSettle,ARRIVAL_REST_MS);}
+function arrivalLetGo(){if(!ARRIVAL)return; ARRIVAL=null; clearTimeout(ARRIVAL_TIMER);}
+for(const t of ['pointerdown','keydown','wheel','touchstart'])addEventListener(t,arrivalLetGo,{capture:true,passive:true});
+addEventListener('resize',arrivalLetGo);
 function arrivalSettle(){const a=ARRIVAL,L=$('#left'),el=a?document.getElementById('p'+a.n):null; if(!a)return;
   if(!el||a.hand!==PV_SCROLL_HAND||a.doc!==DOC||!L.getClientRects().length){ARRIVAL=null; return;}
   if(PV_JUMP!==null||pvAutoScrolling()){arrivalSoon(); return;}   // still on its way

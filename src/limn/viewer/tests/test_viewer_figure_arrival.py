@@ -315,6 +315,33 @@ class FigureArrival(FigurePages):
         self.assertEqual(page.evaluate("()=>[document.querySelector('#left').scrollTop, ARRIVAL]"), [still, None])
         self.assertGreater(abs(still - page.evaluate("()=>figureTop(4)")), 50)
 
+    def test_what_the_person_does_next_is_not_undone_by_a_settling_arrival(self):
+        """An arrival at page 4's figure is on its way while the layout above it grows (so it would settle once it rests),
+        and the person moves on before it rests - the page list's page 6 (no figure body), a zoom, a key on the page: each
+        lets the arrival go, and once the pages rest they stay where that move left them, not pulled back to page 4."""
+        page = self.on(SIZES["desktop 1440x900"])
+        start = """() => {goPage(4); const l = document.querySelector('#doc .pv[data-page="2"]');
+          l.style.paddingBottom = (parseFloat(l.style.paddingBottom || '0') + 60) + 'px';}"""
+        moves = {
+            "page list 6": lambda: self.page_list(page, 6),
+            "zoom in": lambda: page.locator("#btn-zoom-in").click(),
+            "a key": lambda: page.keyboard.press("Shift"),
+        }
+        for name, move in moves.items():
+            with self.subTest(move=name):
+                self.to_top(page)
+                page.evaluate(start)
+                move()
+                self.landed(page)
+                still = page.evaluate("()=>document.querySelector('#left').scrollTop")
+                page.wait_for_timeout(600)
+                settle(page)
+                self.assertEqual(
+                    page.evaluate("()=>[document.querySelector('#left').scrollTop, ARRIVAL]"), [still, None]
+                )
+                if name == "page list 6":
+                    self.at_top(page.evaluate(WHERE, 6), 6)
+
     def test_a_key_waits_for_the_glide_then_judges_the_arrived_page(self):
         """A digit pressed in the same task as the page list's jump to page 3's figure, before its first scroll, saves
         nothing and the status line says the pages are on their way; pressed once they rest, it saves its verdict on page
