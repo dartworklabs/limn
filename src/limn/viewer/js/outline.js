@@ -199,9 +199,11 @@ function outlineFollow(open){if(document.body.classList.contains('outline-collap
   const land=jump||Math.abs(to-st)>h;
   OUTLINE_AIM=land?null:{top:to,at:now}; box.scrollTo({top:to,behavior:land?'auto':'smooth'});}
 // How many px at the foot of the panel (its box o) the bottom chrome covers: the collapsed sheet (#right) and the status line over
-// it (#status-dock) where they are drawn across the panel - the tablet sheet's overlay; 0 elsewhere.
+// it (#status-dock) where they are drawn across the panel. Only the tablet sheet's overlay has them there, and only it pads its
+// foot to match (responsive.css). Elsewhere it is 0: a collapsed #right in mid or short is a transparent frame whose floating
+// banner can reach across the panel without covering what lies below it, and nothing there pads the list for it.
 /** @param {DOMRect} o */
-function outlineFoot(o){let foot=0;
+function outlineFoot(o){if(BAND!==LAYOUT_BAND.TABLET_SHEET)return 0; let foot=0;
   for(const el of [$('#right'),$('#status-dock')]){if(!el||!el.getClientRects().length)continue; const b=el.getBoundingClientRect();
     if(b.height>0&&b.left<o.right&&b.right>o.left&&b.top<o.bottom&&b.bottom>o.top)foot=Math.max(foot,o.bottom-b.top);}
   return foot;}

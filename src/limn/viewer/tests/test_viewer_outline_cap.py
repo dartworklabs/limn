@@ -1156,6 +1156,27 @@ class OutlineFollow(OutlineBase):
                 self.assertTrue(got["reached"], got)
                 self.assertEqual((got["pages"], got["focus"]), (pages, "nav-toc-toggle"), got)
 
+    def test_a_banner_over_a_mouse_overlay_is_not_taken_for_a_bar(self):
+        """800x700 with a mouse (the mid overlay): the collapsed pin panel is a transparent frame, and the relocation banner it
+        floats reaches across the outline's foot without covering the list below it. Only the tablet sheet's bar and status
+        line count as covered (outlineFoot), so here a row comes in 48px over the panel's bottom as in 0.4.37."""
+        page = self.long(viewport={"width": 800, "height": 700})
+        self.assertEqual(page.evaluate("BAND"), "mid-overlay")
+        page.click("#nav-toc-toggle")
+        page.wait_for_function(SHOWN, timeout=3000)
+        crossed = page.evaluate(
+            """() => {const b = document.querySelector('#banner'); b.hidden = false; b.textContent = '위치 다시 잡기 · '.repeat(8);
+              const r = document.querySelector('#right').getBoundingClientRect(), o = document.querySelector('#outline').getBoundingClientRect();
+              return r.left < o.right && r.top < o.bottom && r.bottom > o.top;}"""
+        )
+        self.assertTrue(crossed)  # the frame does reach across the panel's foot
+        self.over_pages(page)
+        page.evaluate("i => {OUTLINE_SELECTED = i; markOutline();}", 100)
+        page.evaluate(STILL)
+        got = page.evaluate(FOLLOW)
+        self.assertEqual(got["index"], 100, got)
+        self.assertAlmostEqual(got["over"], 48, delta=1, msg=got)
+
     def test_the_phones_sheet_opens_at_the_current_row(self):
         """390x844: the sheet's current row lay thousands of px below the documents' row, which held the sheet at its top (#335).
         It opens with that row whole in the middle of the space under its head; the current document's row goes wholly under
