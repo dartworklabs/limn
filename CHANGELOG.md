@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.37 — 2026-10-31
 
 On a wide desktop the page verdict line becomes one panel beside the pages, with a one-row summary under each page, and
 keys pressed around a save or a reason land on the verdict they show. The outline panel keeps the current section in
