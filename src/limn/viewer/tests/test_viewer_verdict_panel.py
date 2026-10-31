@@ -875,8 +875,9 @@ class PanelEdges(PanelBase):
         page.locator('#pv-panel [data-act="pv-reason-fold"]').click()
         settle(page)
         self.to(page, 1)
-        self.assertIn("초안 있음", page.locator('#doc .pv-sum[data-page="3"]').inner_text())
-        self.assertNotIn("초안 있음", page.locator('#doc .pv-sum[data-page="2"]').inner_text())
+        # Its text, not its rendering: a row more than a view away is skipped (.pv-far), and a skipped row's innerText is ''.
+        self.assertIn("초안 있음", page.locator('#doc .pv-sum[data-page="3"]').text_content())
+        self.assertNotIn("초안 있음", page.locator('#doc .pv-sum[data-page="2"]').text_content())
         page.evaluate("pvShowLine(3)")
         settle(page)
         self.assertEqual(page.evaluate(PANEL)["page"], 3)
@@ -1451,7 +1452,7 @@ class Undo(PanelBase):
         page.keyboard.type("7")
         self.assertEqual(page.locator(FIELD).input_value(), "이 쪽의 글7")
         self.assertEqual({p["page"]: p["note"] for p in self.pins().values()}, {2: "", 3: ""})
-        self.assertIn("초안 있음", page.locator('#doc .pv-sum[data-page="2"]').inner_text())
+        self.assertIn("초안 있음", page.locator('#doc .pv-sum[data-page="2"]').text_content())
 
     def test_with_no_field_open_the_draft_stays_its_own_and_the_next_verdict_does_not_take_it(self):
         """A's take-back undone on B with no field open: no invisible session for A; a verdict on B then writes nothing on A,
@@ -1467,7 +1468,7 @@ class Undo(PanelBase):
         page.wait_for_function("n=>(pageVerdictPins().get(n)||[]).length===1", arg=3)
         settle(page)
         self.assertEqual({p["page"]: p["note"] for p in self.pins().values()}, {2: "", 3: ""})
-        self.assertIn("초안 있음", page.locator('#doc .pv-sum[data-page="2"]').inner_text())
+        self.assertIn("초안 있음", page.locator('#doc .pv-sum[data-page="2"]').text_content())
         self.to(page, 2)
         page.locator("#pv-panel button.pv-draft").click()
         self.assertEqual(page.locator(FIELD).input_value(), "앞 쪽의 초안")
