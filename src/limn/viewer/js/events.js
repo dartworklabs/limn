@@ -41,6 +41,7 @@ document.addEventListener('click',e=>{const target=/** @type {HTMLElement} */(e.
     case 'pv-earlier':gotoPinRef(Number(a.dataset.ref),e.detail===0);break;
     case 'pv-cancel':pvCancel(a);break;   // a page line's [판정 취소] on the person's own open verdict (verdict.js)
     case 'pv-reason-open':case 'pv-reason-save':case 'pv-reason-clear':case 'pv-reason-close':case 'pv-reason-fold':case 'pv-reason-reapply':case 'pv-reason-see':pvReasonAct(a);break;
+    case 'pv-sum':pvSumGo(a);break;   // a page's summary beside the verdict panel brings that page to it (verdict-panel.js)
     case 'pv-undo':pvLineUndo(a);break;   // a take-back's [되돌리기] on its line (verdict.js)   // a page line's reason and its popover (verdict-reason.js)
     case 'pop-more':selPopMore();break;   // the note popover by the box hands over to the composer in the panel
     case 'overlap-append':{const text=$('#note').value.trim();

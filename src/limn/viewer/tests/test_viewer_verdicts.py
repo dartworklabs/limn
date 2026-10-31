@@ -4051,7 +4051,7 @@ class ReasonRaces(VerdictBase):
                 self.held_edit = []
                 page.keyboard.press("Enter")
                 page.wait_for_function(
-                    "()=>window.__limnIdle&&document.querySelector('#doc .pv-reason')&&document.querySelector('#doc .pv-reason').disabled"
+                    "()=>window.__limnIdle&&document.querySelector('#doc .pv-reason')&&document.querySelector('#doc .pv-reason').readOnly"
                 )
                 if case == "another document":
                     page.evaluate("k=>switchDoc(k)", "rv")
@@ -4119,7 +4119,7 @@ class ReasonRaces(VerdictBase):
         settle(page)
         got = page.evaluate(REASON, 1)
         self.assertEqual((got["value"], got["focused"]), ("엔터 실패", True))
-        self.assertFalse(page.evaluate("document.querySelector('#doc .pv-reason').disabled"))
+        self.assertFalse(page.evaluate("document.querySelector('#doc .pv-reason').readOnly"))
         page.keyboard.press("Enter")
         page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id&&p.note)", arg=pid)
         settle(page)
@@ -4170,7 +4170,7 @@ class ReasonRaces(VerdictBase):
 
     def test_after_a_failed_enter_the_retry_saves_the_corrected_draft(self):
         """Enter lost on the network; the field stays, and the person corrects it. The status line's [다시 시도] writes the
-        draft as it is now - the field waits (disabled) while it does - and the field closes with that text saved."""
+        draft as it is now - the field waits (read-only) while it does - and the field closes with that text saved."""
         page = self.on("fig")
         pid = self.typed(page, 1, "첫 글")
         self.lose_edit = 1
@@ -4181,7 +4181,7 @@ class ReasonRaces(VerdictBase):
         self.held_edit = []
         self.retry(page)
         page.wait_for_function(
-            "()=>document.querySelector('#doc .pv-reason')&&document.querySelector('#doc .pv-reason').disabled"
+            "()=>document.querySelector('#doc .pv-reason')&&document.querySelector('#doc .pv-reason').readOnly"
         )
         page.wait_for_timeout(200)
         held, self.held_edit = self.held_edit, None
@@ -4432,7 +4432,7 @@ class ReasonRaces(VerdictBase):
                 self.held_edit = []
                 page.keyboard.press("Enter")
                 page.wait_for_function(
-                    "()=>document.querySelector('#doc .pv-reason')&&document.querySelector('#doc .pv-reason').disabled"
+                    "()=>document.querySelector('#doc .pv-reason')&&document.querySelector('#doc .pv-reason').readOnly"
                 )
                 for _ in range(500):  # the edit is out (held), not just the pin read before it
                     if self.held_edit:
@@ -4685,7 +4685,7 @@ class ReasonRaces(VerdictBase):
         self.held_edit = []
         page.keyboard.press("Enter")
         page.wait_for_function(
-            "()=>document.querySelector('#doc .pv-reason')&&document.querySelector('#doc .pv-reason').disabled"
+            "()=>document.querySelector('#doc .pv-reason')&&document.querySelector('#doc .pv-reason').readOnly"
         )
         page.locator(CANCEL % 1).click()
         page.wait_for_function("id=>!OPEN_ALL.some(p=>p.id===id)", arg=pid)
@@ -6779,16 +6779,17 @@ class RcRound4(VerdictBase):
         """1280x900 and 390x844, page widths 260-760px in 12px steps: page 1's line has the same rows and height while page 1
         is read and while page 2 is - the identifier the reading line shows counts in the choice for every line (a line that
         stacked only as the reading line, at a zoom near its threshold, shrank when the reading page left and moved the pages
-        under it)."""
+        under it). Where a small page leaves room for the verdict panel beside the pages (1280, §판정 패널) page 1 has no line
+        under it, and its block keeps its height instead."""
         for dev in ({"viewport": {"width": 1280, "height": 900}}, self.PHONE):
             with self.subTest(dev=dev["viewport"]["width"]):
                 page = self.on("fig", **dev)
                 page.evaluate("setSide(false)")
                 bad = page.evaluate(
-                    """async()=>{const L=document.querySelector('#left'),l1=()=>document.querySelector('#doc .pv[data-page="1"]'),out=[];
+                    """async()=>{const L=document.querySelector('#left'),l1=()=>document.querySelector('#doc .pgw>.pv[data-page="1"]'),b1=()=>document.querySelector('#doc .pgw[data-page="1"]'),out=[];
                       const frame=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
                       const read=async n=>{const p=document.getElementById('p'+n); L.scrollTop+=p.getBoundingClientRect().top-L.getBoundingClientRect().top-(n===1?0:2);
-                        await frame(); pvStick(); await frame(); return [PV_READ,l1().classList.contains('pv-stack'),Math.round(l1().getBoundingClientRect().height)];};
+                        await frame(); pvStick(); await frame(); const l=l1(); return [PV_READ,!!l&&l.classList.contains('pv-stack'),Math.round((l||b1()).getBoundingClientRect().height)];};
                       for(let w=260;w<=760;w+=12){setK(w/META.pages[0].pt_w,false); ZOOMED=true; await frame();
                         const a=await read(1),b=await read(2); if(a[0]!==1||b[0]!==2)continue; if(a[1]!==b[1]||a[2]!==b[2])out.push([w,a,b]);}
                       return out;}"""

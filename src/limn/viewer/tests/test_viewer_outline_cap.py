@@ -1,7 +1,8 @@
 """A long outline and a figure document's page list (docs/handbook/viewer.md §모바일 레이아웃, §쪽 목록).
 
 The viewer reads the first OUTLINE_MAX_ENTRIES entries of a PDF's outline, down to five levels, and says at the end of the
-outline - and of its filter's results - how many entries it left unread; a figure document's page list shows each page's
+outline - and of its filter's results - how many entries it left unread; the outline panel keeps the current section in view
+unless the person has it in hand; a figure document's page list shows each page's
 title. The pure decisions run under node, the rest in the real viewer against helpers_figure.viewer_docs' three documents
 (a LaTeX manuscript, a figure document and a view-only PDF), the long outlines read from real PDF bytes (helpers_outline)
 or, where only the count matters, from a stand-in for PDF.js's document.
@@ -93,6 +94,35 @@ class OutlineLogic(unittest.TestCase):
         self.assertTrue(got["fresh"])
         self.assertEqual(got["name"], ["2 Methods", "채택", ""])
         self.assertEqual(got["bare"], [])
+
+    def test_a_row_comes_in_from_the_nearest_side_with_room_beyond_it(self):
+        """outlineRevealTop(st, h, sh, top, bottom, m, head): a row m px clear of both edges moves nothing; one that has
+        entered that margin, or left the view, comes to the margin's edge on its nearest side - on a short view half of what is
+        left, by the top when it is taller than the view - and stops where the list ends. Where only the head would stay over
+        it the list goes to the very top, and a list that cannot get any nearer has nowhere to go. The view starts `cover` px
+        down (the filter's band): the margin counts from there, and the room left on a short view is what is left under it."""
+        got = self.run_js(
+            ["outlineRevealTop"],
+            """[outlineRevealTop(0,800,5000,100,124,48,100),outlineRevealTop(0,800,5000,728,752,48,100),
+            outlineRevealTop(1000,800,5000,1048,1072,48,100),
+            outlineRevealTop(0,800,5000,729,753,48,100),outlineRevealTop(1000,800,5000,1047,1071,48,100),
+            outlineRevealTop(0,800,5000,776,800,48,100),outlineRevealTop(2000,800,5000,2000,2024,48,100),
+            outlineRevealTop(0,800,5000,790,814,48,100),outlineRevealTop(0,800,5000,3000,3024,48,100),
+            outlineRevealTop(2000,800,5000,1900,1924,48,100),outlineRevealTop(2000,800,5000,1990,2014,48,100),
+            outlineRevealTop(4000,800,4900,4880,4900,48,100),outlineRevealTop(0,100,5000,300,380,48,100),
+            outlineRevealTop(0,100,5000,300,500,48,100),outlineRevealTop(1000,100,5000,300,500,48,100),
+            outlineRevealTop(1000,800,5000,130,154,48,100),outlineRevealTop(1000,800,5000,100,124,48,100),
+            outlineRevealTop(1000,800,5000,300,324,48,100),
+            outlineRevealTop(4100,800,4900,4880,4950,48,100),
+            outlineRevealTop(1000,800,5000,1100,1124,48,100,52),outlineRevealTop(1000,800,5000,1099,1123,48,100,52),
+            outlineRevealTop(1000,800,5000,900,924,48,100,52),outlineRevealTop(1000,800,5000,1776,1800,48,100,52),
+            outlineRevealTop(1000,152,5000,1000,1024,48,100,52),outlineRevealTop(1000,100,5000,1500,1600,48,100,52)]""",
+        )
+        self.assertEqual(
+            got,
+            [None, None, None, 1, 999, 48, 1952, 62, 2272, 1852, 1942, 4100, 290, 300, 300, 0, 0, 252, None]
+            + [None, 999, 800, 1048, 910, 1448],
+        )
 
     REFERENCE = """function referenceIndexAt(entries,page,frac){
       const at=e=>e.frac||0,deep=e=>e.depth||0,above=e=>e.page<page||(e.page===page&&at(e)<=frac+1e-6);
@@ -494,6 +524,508 @@ class LongOutline(OutlineBase):
             ),
         )
         self.assertEqual(got["kids"], ["ol-no", "ol-name", "ol-page"])
+
+
+# Where a row can be seen: from under the filter's band to the panel's bottom.
+VIEW = """const box = document.querySelector('#outline'), o = box.getBoundingClientRect(),
+  edge = document.querySelector('#outline-find').getBoundingClientRect().bottom;"""
+# The marked row against the panel it scrolls in, and what must stay as it was: the marked entry, whether its row shows whole,
+# how far it stands under the filter's band and over the panel's bottom, the panel's scroll, the pages' and the window's, and the
+# focus.
+FOLLOW = (
+    """() => {"""
+    + VIEW
+    + """ const row = document.querySelector('#outline-items .ol-active'), r = row ? row.getBoundingClientRect() : null,
+  a = document.activeElement;
+  return {index: row ? +row.dataset.index : null, whole: !!r && r.top >= edge - 0.5 && r.bottom <= o.bottom + 0.5,
+    under: r ? r.top - edge : null, over: r ? o.bottom - r.bottom : null, top: box.scrollTop,
+    pages: document.querySelector('#left').scrollTop, window: scrollY, focus: a.id || a.tagName};}"""
+)
+# Whether the marked row shows whole in the panel: what a follow ends in, so a test waits on it (and fails at the wait without one).
+SHOWN = (
+    """() => {"""
+    + VIEW
+    + """ const row = document.querySelector('#outline-items .ol-active');
+  if (!row) return false; const r = row.getBoundingClientRect();
+  return r.top >= edge - 0.5 && r.bottom <= o.bottom + 0.5;}"""
+)
+# Resolves when the panel has not scrolled for five frames in a row: a smooth follow is over.
+STILL = """() => new Promise(done => {const box = document.querySelector('#outline'); let last = -1, same = 0;
+  const look = () => {same = box.scrollTop === last ? same + 1 : 0; last = box.scrollTop; if (same >= 5) done(); else requestAnimationFrame(look);};
+  look();})"""
+# Puts page n's top at the top of the pages and waits until the viewer has read it; #left's scrollTop as that left it.
+READ_TO = """n => new Promise(done => {const L = document.querySelector('#left');
+  document.getElementById('p' + n).scrollIntoView();
+  const top = L.scrollTop, look = () => {if (OUTLINE_ACTIVE_PAGE === n) done(top); else requestAnimationFrame(look);}; look();})"""
+# Records in window.SCROLLS what the panel is asked to scroll to, leaving it to scroll.
+SCROLLS = """() => {const box = document.querySelector('#outline'), to = box.scrollTo; window.SCROLLS = [];
+  box.scrollTo = function (o) {window.SCROLLS.push(o); return to.call(this, o);};}"""
+LONG = 120  # rows, over the two pages: page 2 opens at entry 60, well below the fold of an 850px window
+FIRST_ON_2 = 60  # that entry: the deepest of those at the page's top, the first listed of them
+
+
+class OutlineFollow(OutlineBase):
+    """The outline panel keeps the current section in view (docs/handbook/viewer.md §모바일 레이아웃): only the panel
+    moves, it glides unless reduced motion, it starts at the current row when it opens, and it leaves the list alone while the
+    person has it in hand."""
+
+    def long(self, **device):
+        """The manuscript's two pages with a LONG-row outline, reading page 1."""
+        page = self.on("ms", **device)
+        self.assertEqual(self.load(page, grouped_tree(LONG, 2)), [LONG, 0])
+        return page
+
+    def read_to(self, page, n):
+        """Read page n; the scrollTop of the pages as that left them."""
+        return page.evaluate(READ_TO, n)
+
+    def over_outline(self, page):
+        """Rest the mouse on the panel, away from its filter."""
+        box = page.locator("#outline").bounding_box()
+        page.mouse.move(box["x"] + 100, box["y"] + box["height"] / 2)
+
+    def over_pages(self, page):
+        """Rest the mouse on the pages."""
+        box = page.locator("#left").bounding_box()
+        page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+
+    def test_reading_on_brings_the_row_into_view_and_nothing_else_moves(self):
+        """The row of the page read lay below the panel's fold: it comes into view from the nearest side with room beyond it,
+        and the pages, the window and the focus stay exactly where they were. Reading back, it comes in from the other side
+        and at the first row the panel's head shows whole."""
+        page = self.long()
+        fold = page.evaluate("document.querySelector('#outline').getBoundingClientRect().bottom")
+        row = page.locator('#outline-items button[data-index="%d"]' % FIRST_ON_2).bounding_box()
+        self.assertGreater(row["y"], fold, "the row is in view already, so this would show nothing")
+        pages = self.read_to(page, 2)
+        page.wait_for_function(SHOWN, timeout=3000)
+        page.evaluate(STILL)
+        got = page.evaluate(FOLLOW)
+        self.assertEqual(got["index"], FIRST_ON_2, got)
+        self.assertGreater(got["top"], 0, got)
+        self.assertEqual((got["pages"], got["window"], got["focus"]), (pages, 0, "BODY"), got)
+        self.assertAlmostEqual(got["over"], 48, delta=1, msg=got)
+        pages = self.read_to(page, 1)
+        page.wait_for_function(SHOWN, timeout=3000)
+        page.evaluate(STILL)
+        got = page.evaluate(FOLLOW)
+        self.assertEqual((got["index"], got["top"]), (1, 0), got)  # the deepest of the entries at the page's top
+        self.assertEqual((got["pages"], got["window"], got["focus"]), (pages, 0, "BODY"), got)
+
+    def test_a_row_clear_of_the_margin_moves_nothing_and_the_margin_holds(self):
+        """A mark that moves within what stands clear of the margin leaves the list where it is. From the row that enters the
+        margin on, every row keeps it: the list goes one row at a time, rather than letting the next rows use the margin up
+        and then moving by all of it at once."""
+        page = self.long()
+        page.evaluate(SCROLLS)
+        last = page.evaluate(
+            """() => {const box = document.querySelector('#outline').getBoundingClientRect();
+              return Math.max(...[...document.querySelectorAll('#outline-items button')]
+                .filter(b => b.getBoundingClientRect().bottom <= box.bottom - 48).map(b => +b.dataset.index));}"""
+        )
+        for i in (5, last, 0):
+            page.evaluate("i => {OUTLINE_SELECTED = i; markOutline();}", i)
+            self.assertEqual(page.evaluate("SCROLLS"), [])
+        self.assertEqual(page.evaluate(FOLLOW)["top"], 0)
+        for i in range(last + 1, last + 7):
+            with self.subTest(row=i):
+                page.evaluate("i => {OUTLINE_SELECTED = i; markOutline();}", i)
+                page.evaluate(STILL)
+                self.assertAlmostEqual(page.evaluate(FOLLOW)["over"], 48, delta=1)
+        self.assertEqual(len(page.evaluate("SCROLLS")), 6)
+
+    def test_it_glides_a_short_way_and_jumps_a_long_one(self):
+        """Within the panel's height the follow is smooth. A longer way - an outline out of page order sends a row a thousand
+        px off - lands at once, and leaves nothing heading anywhere."""
+        page = self.long()
+        page.evaluate(SCROLLS)
+        near = page.evaluate(
+            """() => {const box = document.querySelector('#outline'), o = box.getBoundingClientRect();
+              return Math.max(...[...document.querySelectorAll('#outline-items button')].filter(b =>
+                b.getBoundingClientRect().bottom - o.bottom + 48 <= box.clientHeight).map(b => +b.dataset.index));}"""
+        )
+        page.evaluate("i => {OUTLINE_SELECTED = i; markOutline();}", near)
+        page.wait_for_function(SHOWN, timeout=3000)
+        self.assertEqual(page.evaluate("SCROLLS.map(o => o.behavior)"), ["smooth"])
+        page.evaluate(STILL)
+        page.evaluate("document.querySelector('#outline').scrollTop = 0; SCROLLS.length = 0")
+        page.wait_for_function("OUTLINE_AIM === null", timeout=3000)
+        page.evaluate("i => {OUTLINE_SELECTED = i; markOutline();}", near + 1)
+        self.assertEqual(page.evaluate("SCROLLS.map(o => o.behavior)"), ["auto"])
+        self.assertTrue(page.evaluate(SHOWN))
+        self.assertIsNone(page.evaluate("OUTLINE_AIM"))
+
+    def test_reduced_motion_jumps(self):
+        """With reduced motion the follow is done before the call returns, so nothing moves on screen."""
+        page = self.long(reduced_motion="reduce", **DESKTOP)
+        page.evaluate(SCROLLS)
+        top = page.evaluate(
+            """() => {OUTLINE_SELECTED = 60; markOutline(); return document.querySelector('#outline').scrollTop;}"""
+        )
+        self.assertGreater(top, 0)
+        self.assertTrue(page.evaluate(SHOWN))
+        self.assertEqual(page.evaluate("SCROLLS.map(o => o.behavior)"), ["auto"])
+
+    def test_a_pointer_over_the_panel_holds_the_list_until_it_leaves(self):
+        """While the mouse rests on the panel the list stays, whatever the pages do; when it leaves the row comes in."""
+        page = self.long()
+        self.over_outline(page)
+        self.read_to(page, 2)
+        nothing_follows(page)
+        got = page.evaluate(FOLLOW)
+        self.assertEqual((got["index"], got["top"], got["whole"]), (FIRST_ON_2, 0, False), got)
+        self.over_pages(page)
+        page.wait_for_function(SHOWN, timeout=3000)
+
+    def test_a_wheel_in_the_panel_holds_the_list_for_a_few_seconds(self):
+        """The person's own scroll wins: the mouse gone from the panel, the list stays where the wheel left it for the
+        hold, and then the row comes in - without a further move of the mark."""
+        page = self.long()
+        self.over_outline(page)
+        page.mouse.wheel(0, 300)
+        page.wait_for_function("document.querySelector('#outline').scrollTop > 0")
+        page.evaluate(STILL)
+        top = page.evaluate(FOLLOW)["top"]
+        self.over_pages(page)
+        self.read_to(page, 2)
+        nothing_follows(page)
+        self.assertEqual(page.evaluate(FOLLOW)["top"], top)
+        page.wait_for_function(SHOWN, timeout=6000)
+
+    def test_a_scrollbar_press_or_a_touch_on_the_panel_holds_the_list_too(self):
+        """A press (the scroll bar's, a row's) and a touch count as the wheel does: the list waits, then the row comes in."""
+        for event in ("pointerdown", "touchstart"):
+            with self.subTest(event=event):
+                page = self.long()
+                page.evaluate("t => document.querySelector('#outline').dispatchEvent(new Event(t))", event)
+                self.read_to(page, 2)
+                nothing_follows(page)
+                self.assertEqual(page.evaluate(FOLLOW)["top"], 0)
+                page.wait_for_function(SHOWN, timeout=6000)
+
+    def test_the_hold_goes_on_with_the_persons_own_scroll(self):
+        """A scroll that goes on inside a hold (a fling, a smooth wheel) extends it; one outside a hold is a follow's own or a
+        script's and holds nothing."""
+        page = self.long()
+        got = page.evaluate(
+            """async () => {const box = document.querySelector('#outline'), tick = () => new Promise(r => box.addEventListener('scroll', r, {once: true}));
+              const outside = (box.scrollTop = 30, await tick(), OUTLINE_HANDLED);
+              OUTLINE_HANDLED = performance.now() - 2000; const was = OUTLINE_HANDLED;
+              box.scrollTop = 60; await tick();
+              return {outside: outside === -Infinity, extended: OUTLINE_HANDLED > was};}"""
+        )
+        self.assertEqual(got, {"outside": True, "extended": True})
+
+    def test_the_filter_holds_the_list_while_it_has_text(self):
+        """Typed in, the filter's field holds the list even without the focus: its rows are the results. Emptied, it holds
+        nothing: the typing's own hold over, the current row comes in under the list drawn again, with the focus left in the
+        field and no event to say the filter was let go - a tap on the pages does not take the focus away."""
+        page = self.long()
+        page.fill("#outline-search", "S")  # every row matches: the list stays as long, and a follow could show
+        page.evaluate("document.activeElement.blur()")
+        self.read_to(page, 2)
+        nothing_follows(page)
+        got = page.evaluate(FOLLOW)
+        self.assertEqual((got["index"], got["top"], got["whole"]), (FIRST_ON_2, 0, False), got)
+        page.fill("#outline-search", "")  # by the Delete key: a key in the panel is its own hold
+        nothing_follows(page)
+        self.assertEqual(page.evaluate(FOLLOW)["top"], 0)
+        page.wait_for_function(SHOWN, timeout=6000)
+        self.assertEqual(page.evaluate(FOLLOW)["focus"], "outline-search")
+
+    def test_a_focus_in_the_empty_filter_holds_nothing(self):
+        """A field with the focus and no text is not in use: reading on brings the row in, and the field keeps the focus."""
+        page = self.long()
+        page.focus("#outline-search")
+        self.read_to(page, 2)
+        page.wait_for_function(SHOWN, timeout=3000)
+        self.assertEqual(page.evaluate(FOLLOW)["focus"], "outline-search")
+
+    def test_the_filter_stays_in_reach_above_the_list(self):
+        """However far the list is, the filter and its hint stay at the top of the panel, on every band that has it, and rows
+        pass under them: a press on the field reaches the field. With the list at its top it stands where it always stood."""
+        for name, device in (("desktop", DESKTOP), ("fold", FOLD)):
+            with self.subTest(device=name):
+                page = self.long(**device)
+                self.read_to(page, 2)
+                if device is FOLD:
+                    page.tap("#nav-toc-toggle")
+                page.wait_for_function(SHOWN, timeout=3000)
+                page.evaluate(STILL)
+                got = page.evaluate(
+                    """() => {const box = document.querySelector('#outline'), o = box.getBoundingClientRect(),
+                      f = document.querySelector('#outline-search'), r = f.getBoundingClientRect(),
+                      band = document.querySelector('#outline-find'), b = band.getBoundingClientRect(),
+                      above = document.elementFromPoint(r.left + r.width / 2, o.top + 2);
+                      return {scrolled: box.scrollTop, band: b.top - o.top, field: r.top - o.top,
+                        hit: document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) === f,
+                        rowAbove: !!above && !!above.closest('#outline-items')};}"""
+                )
+                self.assertGreater(got["scrolled"], 0, got)
+                self.assertEqual(got["band"], 0, got)  # flush with the panel's top: no row shows above it
+                self.assertFalse(got["rowAbove"], got)
+                self.assertGreater(got["field"], 0, got)
+                self.assertTrue(got["hit"], got)
+        page = self.long()
+        self.read_to(page, 2)
+        page.wait_for_function(SHOWN, timeout=3000)
+        page.evaluate(STILL)
+        page.focus("#outline-search")
+        hint = page.locator("#outline-hint").bounding_box()
+        band = page.locator("#outline-find").bounding_box()
+        self.assertGreater(hint["height"], 0)
+        self.assertLessEqual(hint["y"] + hint["height"], band["y"] + band["height"])
+        self.assertEqual(
+            page.evaluate("document.elementFromPoint(%f, %f).id" % (hint["x"] + 20, hint["y"] + 4)), "outline-hint"
+        )
+        self.assertEqual(
+            page.evaluate("parseFloat(document.querySelector('#outline').style.scrollPaddingTop)"), band["height"]
+        )
+
+    def test_the_margin_counts_from_under_the_filter(self):
+        """Going up, a row stops 48px under the band and not under the band itself, on a list that is far down."""
+        page = self.long()
+        self.read_to(page, 2)
+        page.wait_for_function(SHOWN, timeout=3000)
+        page.evaluate(STILL)
+        top = page.evaluate("document.querySelector('#outline').scrollTop")
+        row = page.evaluate(
+            """top => {const box = document.querySelector('#outline'), o = box.getBoundingClientRect();
+              box.scrollTop = top + 600;
+              return Math.min(...[...document.querySelectorAll('#outline-items button')]
+                .filter(b => b.getBoundingClientRect().top >= o.top + 60).map(b => +b.dataset.index));}""",
+            top,
+        )
+        page.evaluate("i => {OUTLINE_SELECTED = i; markOutline();}", row)
+        page.evaluate(STILL)
+        got = page.evaluate(FOLLOW)
+        self.assertEqual(got["index"], row, got)
+        self.assertAlmostEqual(got["under"], 48, delta=1, msg=got)
+
+    def test_a_row_the_keyboard_walks_to_does_not_stop_under_the_filter(self):
+        """The browser scrolls a focused row into view without knowing the band: the panel's scroll padding tells it, or a row
+        reached by the arrow keys would have the focus and be covered."""
+        page = self.long()
+        self.read_to(page, 2)
+        page.wait_for_function(SHOWN, timeout=3000)
+        page.evaluate(STILL)
+        page.focus('#outline-items button[data-index="%d"]' % FIRST_ON_2)
+        page.evaluate("document.documentElement.dataset.input = 'key'")
+        for _ in range(45):
+            page.keyboard.press("ArrowUp")
+            got = page.evaluate(
+                "() => {"
+                + VIEW
+                + " const a = document.activeElement.getBoundingClientRect(); return {under: a.top - edge, i: document.activeElement.dataset.index};}"
+            )
+            self.assertGreaterEqual(got["under"], -0.5, got)
+
+    def test_the_keyboard_on_a_row_holds_the_list_and_a_pressed_row_does_not(self):
+        """With the keyboard on the rows the list is theirs. A row a mouse pressed keeps the focus after its pick, and that
+        holds nothing once the press's own hold is over: reading on must not leave the outline behind."""
+        page = self.long()
+        page.focus("#outline-search")
+        page.keyboard.press("ArrowDown")
+        self.assertEqual(page.evaluate("document.activeElement.dataset.index"), "0")
+        self.read_to(page, 2)
+        nothing_follows(page)
+        self.assertEqual(page.evaluate(FOLLOW)["top"], 0)
+        page.evaluate("document.activeElement.blur()")
+        page.wait_for_function(SHOWN, timeout=3000)
+
+        page = self.long()
+        page.click('#outline-items button[data-index="3"]')
+        settle(page)
+        self.assertEqual(page.evaluate("document.activeElement.dataset.index"), "3")
+        self.over_pages(page)
+        page.evaluate("OUTLINE_HANDLED = -Infinity")  # the press's own hold, over
+        self.read_to(page, 2)
+        page.wait_for_function(SHOWN, timeout=3000)
+        self.assertEqual(page.evaluate("document.activeElement.dataset.index"), "3")
+
+    def test_a_press_that_leaves_the_focus_on_a_row_ends_the_keyboards_hold(self):
+        """A press on the pages takes no focus, so the row keeps it and no focusout comes, but the keyboard is no longer the
+        input: the follow owed since is made then, with the focus left where it is."""
+        page = self.long()
+        page.focus("#outline-search")
+        page.keyboard.press("ArrowDown")
+        self.read_to(page, 2)
+        page.evaluate(
+            "OUTLINE_HANDLED = -Infinity; outlineCatchUp()"
+        )  # the timed hold over: only the keyboard's is left
+        nothing_follows(page)
+        self.assertEqual(page.evaluate("[OUTLINE_FOLLOW_DUE, document.querySelector('#outline').scrollTop]"), [True, 0])
+        self.over_pages(page)
+        page.mouse.down()
+        page.mouse.up()
+        page.wait_for_function(SHOWN, timeout=3000)
+        self.assertEqual(page.evaluate("document.activeElement.dataset.index"), "0")
+
+    def test_a_press_in_the_panel_holds_before_the_keyboards_hold_is_let_go(self):
+        """The press that ends the keyboard's hold may be in the panel, and one on the panel never moves the list under it:
+        the press's own hold comes first, and the owed follow is made when that is over."""
+        page = self.long()
+        page.focus("#outline-search")
+        page.keyboard.press("ArrowDown")
+        self.read_to(page, 2)
+        page.evaluate("OUTLINE_HANDLED = -Infinity; outlineCatchUp()")
+        page.evaluate(
+            "document.querySelector('.outline-title').dispatchEvent(new PointerEvent('pointerdown', {bubbles: true}))"
+        )
+        nothing_follows(page)
+        self.assertEqual(page.evaluate(FOLLOW)["top"], 0)
+        page.wait_for_function(SHOWN, timeout=6000)
+
+    def test_the_width_grip_holds_the_list_for_a_whole_drag_and_lets_go_after_it(self):
+        """The grip stands beside the panel, and a hand on it is a hand on the panel: a drag holds the list however long it
+        lasts, past the timed hold too, and the owed follow is made after its release or its cancel."""
+        for end in ("release", "cancel"):
+            with self.subTest(end=end):
+                page = self.long()
+                grip = page.locator("#outline-grip").bounding_box()
+                page.mouse.move(grip["x"] + grip["width"] / 2, grip["y"] + 300)
+                page.mouse.down()
+                self.read_to(page, 2)
+                nothing_follows(page)
+                page.evaluate("OUTLINE_HANDLED = -Infinity; outlineCatchUp()")  # a drag longer than the timed hold
+                nothing_follows(page)
+                self.assertEqual(page.evaluate(FOLLOW)["top"], 0)
+                if end == "release":
+                    page.mouse.up()
+                else:
+                    page.evaluate(
+                        """() => document.querySelector('#outline-grip').dispatchEvent(
+                          new PointerEvent('pointercancel', {pointerId: 1, bubbles: true}))"""
+                    )
+                page.wait_for_function(SHOWN, timeout=6000)
+                if end == "cancel":
+                    page.mouse.up()
+
+    def test_a_key_on_the_width_grip_holds_the_list_for_a_few_seconds(self):
+        """The grip's keys count as its press does: the list waits, then the row comes in."""
+        page = self.long()
+        page.focus("#outline-grip")
+        page.keyboard.press("ArrowRight")
+        self.read_to(page, 2)
+        nothing_follows(page)
+        self.assertEqual(page.evaluate(FOLLOW)["top"], 0)
+        page.wait_for_function(SHOWN, timeout=6000)
+
+    def test_a_jump_reckons_from_where_the_list_is(self):
+        """A glide leaves where it is heading for a while, and that is no place to reckon a jump from: reopened before a glide
+        got there, the panel would take the row for shown and stay where it is, the row out of sight."""
+        page = self.long()
+        page.evaluate(
+            """async () => {const box = document.querySelector('#outline'), frame = () => new Promise(requestAnimationFrame);
+              document.getElementById('p2').scrollIntoView();
+              while (OUTLINE_ACTIVE_PAGE !== 2) await frame();   // the glide has set out...
+              box.scrollTo({top: 0, behavior: 'auto'});   // ...and has got nowhere
+              toggleOutline(); await frame(); await frame(); toggleOutline();}"""
+        )
+        page.wait_for_function(SHOWN, timeout=3000)
+        page = self.long()
+        self.read_to(page, 2)
+        page.wait_for_function(SHOWN, timeout=3000)
+        page.evaluate(STILL)
+        got = page.evaluate(
+            """() => {const box = document.querySelector('#outline'), top = box.scrollTop; box.scrollTop = 0;
+              OUTLINE_AIM = {top, at: performance.now()}; outlineFollow(true); return box.scrollTop;}"""
+        )
+        self.assertGreater(got, 0)
+        self.assertTrue(page.evaluate(SHOWN))
+
+    def test_nothing_is_left_heading_anywhere_when_a_glide_is_over(self):
+        """Where a glide is heading goes with the glide: when it ends, when a hand on the panel stops it, when the filter draws
+        the list again, when the panel closes and when another document comes on screen."""
+        page = self.long()
+        self.read_to(page, 2)
+        page.wait_for_function("OUTLINE_AIM === null", timeout=3000)
+        heading = "OUTLINE_AIM = {top: 500, at: performance.now()}"
+        for name, act in (
+            ("wheel", "document.querySelector('#outline').dispatchEvent(new Event('wheel'))"),
+            ("press", "document.querySelector('#outline').dispatchEvent(new Event('pointerdown'))"),
+            ("filter", "document.querySelector('#outline-search').dispatchEvent(new Event('input'))"),
+        ):
+            with self.subTest(by=name):
+                self.assertIsNone(page.evaluate("() => {%s; %s; return OUTLINE_AIM;}" % (heading, act)))
+        page.evaluate(heading)
+        page.evaluate("toggleOutline()")
+        page.wait_for_function("OUTLINE_AIM === null", timeout=3000)
+        page.evaluate("toggleOutline()")
+        page.evaluate(heading)
+        page.evaluate("switchDoc('fig')")
+        page.wait_for_function("DOC === 'fig' && OUTLINE_AIM === null", timeout=8000)
+
+    def test_the_panel_opens_at_the_current_row(self):
+        """Opened while a page far down is read, the panel starts there, at once: nobody has the list in hand yet."""
+        page = self.long()
+        page.evaluate("toggleOutline()")
+        self.read_to(page, 2)
+        page.evaluate(SCROLLS)
+        self.over_pages(page)
+        page.click("#nav-toc-toggle")
+        page.wait_for_function(SHOWN, timeout=3000)
+        self.assertEqual(page.evaluate("SCROLLS.map(o => o.behavior)"), ["auto"])
+
+    def test_a_new_list_starts_at_the_current_row_and_a_new_build_stays_where_it_is(self):
+        """The first list of a document jumps to the current row. A new build's list with the same entry current has nothing
+        to bring in: a list the person left somewhere stays there."""
+        page = self.on("ms")
+        self.read_to(page, 2)
+        page.evaluate(SCROLLS)
+        self.load(page, grouped_tree(LONG, 2))
+        page.wait_for_function(SHOWN, timeout=3000)
+        self.assertEqual(page.evaluate("SCROLLS.map(o => o.behavior)"), ["auto"])
+        page.evaluate("document.querySelector('#outline').scrollTop = 0")
+        page.evaluate(STILL)
+        self.load(page, grouped_tree(LONG, 2))
+        self.assertEqual(page.evaluate(FOLLOW)["top"], 0)
+
+    def test_a_panel_off_screen_is_left_alone_and_only_a_move_of_the_mark_reads_it(self):
+        """No panel is asked to scroll while it is closed or on the phone. At a page with the same current entry, and at a
+        frame with nothing new, the panel's place is not read at all (a read is a forced layout): only a move of the mark does."""
+        page = self.long()
+        page.evaluate("toggleOutline()")
+        page.evaluate(SCROLLS)
+        self.read_to(page, 2)
+        nothing_follows(page)
+        self.assertEqual(page.evaluate("SCROLLS"), [])
+        phone = self.long(**PHONE)
+        phone.evaluate(SCROLLS)
+        self.read_to(phone, 2)
+        nothing_follows(phone)
+        self.assertEqual(phone.evaluate("SCROLLS"), [])
+        page = self.long()
+        got = page.evaluate(
+            """() => {const box = document.querySelector('#outline'), read = box.getBoundingClientRect; let n = 0;
+              box.getBoundingClientRect = function () {n++; return read.call(this);};
+              for (let i = 0; i < 50; i++) updateSectionStrip();
+              const still = n; OUTLINE_ACTIVE_PAGE = -1; updateSectionStrip();
+              const samePage = n; OUTLINE_SELECTED = 60; markOutline();
+              return {still, samePage, moved: n};}"""
+        )
+        self.assertEqual(got, {"still": 0, "samePage": 0, "moved": 1})
+
+    def test_the_overlay_opens_at_the_current_row_and_the_phones_sheet_keeps_its_rule(self):
+        """The overlay of a folded-out phone is the same panel: it opens at the current row, and the focus stays on the toggle.
+        The phone's sheet is another list and keeps its own rule (navSheetReveal, SheetFocus): the sheet does not scroll
+        past the view switch to reach it."""
+        page = self.long(**FOLD)
+        self.read_to(page, 2)
+        self.assertEqual(page.evaluate(FOLLOW)["top"], 0)
+        page.tap("#nav-toc-toggle")
+        page.wait_for_function(SHOWN, timeout=3000)
+        self.assertEqual(page.evaluate(FOLLOW)["focus"], "nav-toc-toggle")
+        phone = self.long(**PHONE)
+        self.read_to(phone, 2)
+        phone.tap("#btn-pos")
+        phone.wait_for_function("document.querySelector('#nav-sheet').open")
+        settle(phone)
+        got = phone.evaluate(
+            """() => {const d = document.querySelector('#nav-sheet'), view = d.querySelector('#ns-view [aria-checked=true]');
+              return view.getBoundingClientRect().top - d.querySelector('.ns-head').getBoundingClientRect().bottom;}"""
+        )
+        self.assertGreaterEqual(got, 0)
 
 
 def flatten(tree):

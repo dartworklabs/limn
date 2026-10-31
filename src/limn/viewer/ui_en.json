@@ -1277,6 +1277,8 @@
  "판정 저장": "Saving the verdict",
  "{page}쪽 영역": "p. {page}, region",
  "{page}쪽 판정": "Verdict for p. {page}",
+ "{state} · 판정 패널로": "{state} · show in the verdict panel",
+ "판정 취소의 답이 늦습니다 — 이 줄의 키를 다시 받습니다": "The take-back has not answered yet — this line takes keys again",
  "{word} 판정으로 저장 — {target}": "Save as {word} — {target}",
  "{word} 확정": "Confirm {word}",
  "#{id} 저장됨 · {word} 판정": "#{id} saved · verdict {word}",

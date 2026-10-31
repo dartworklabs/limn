@@ -1,8 +1,10 @@
 // ------------------------------------------------ PDF rebuild
 // The reading spot: the page at the PDF scroller's top edge (or off px below it) and how far down that page the edge is
-// (frac, 0-1), with whether the scroller is at its very top on a touch screen (atTop); null with no pages.
-function topAnchor(off){const L=$('#left'),top=L.getBoundingClientRect().top+(off||0),atTop=MQ_COARSE.matches&&L.scrollTop<=0;
-  for(const pg of $$('.pg')){const r=pg.getBoundingClientRect(); if(r.bottom>top+1)return {page:+pg.dataset.page,frac:Math.max(0,(top-r.top)/r.height),atTop};}
+// (frac, 0-1), with whether the scroller is at its very top on a touch screen (atTop); null with no pages. At the top edge a
+// page's last pixel does not count; a line below it (off: the reading line) is exact, so the strip, the keys and the panel
+// name the page that line is on while any of it is.
+function topAnchor(off){const L=$('#left'),top=L.getBoundingClientRect().top+(off||0),atTop=MQ_COARSE.matches&&L.scrollTop<=0,edge=off?0:1;
+  for(const pg of $$('.pg')){const r=pg.getBoundingClientRect(); if(r.bottom>top+edge)return {page:+pg.dataset.page,frac:Math.max(0,(top-r.top)/r.height),atTop};}
   return null;}
 // Scrolls the PDF back to a reading spot from topAnchor() after a re-fit. On a touch screen - where the select mode lives - a
 // spot taken at the very top stays at the top, so the space above page 1 (its margin, or the select mode's reserve that keeps
