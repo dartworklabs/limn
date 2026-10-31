@@ -2,11 +2,17 @@
 const TIP=$('#tip'); let tipT=/** @type {ReturnType<typeof setTimeout>|undefined} */(undefined),tipEl=/** @type {HTMLElement|null} */(null),
   TIPXY=/** @type {number[]|null} */(null);
 document.addEventListener('mousemove',e=>{TIPXY=[e.clientX,e.clientY];},{passive:true});
+// The element the showing box was placed on and where it stood then (showTipText), for tipFollow.
+let TIP_AT=/** @type {{el:Element,x:number,y:number}|null} */(null);
 // The tooltip box is a manual popover, so it is drawn in the top layer: a modal sheet (the navigation sheet, [더보기]) is in the top
 // layer too and would cover a box that only has a z-index. A browser without popovers draws it as it always did.
 function tipShown(on){TIP.hidden=!on; if(!on)document.documentElement.classList.remove('tip-press'); if(typeof TIP.showPopover!=='function')return;
   try{const open=TIP.matches(':popover-open'); if(on&&!open)TIP.showPopover(); else if(!on&&open)TIP.hidePopover();}catch(e){}}
-function hideTip(){clearTimeout(tipT);tipT=undefined;tipEl=null;tipShown(false);}
+function hideTip(){clearTimeout(tipT);tipT=undefined;tipEl=null;TIP_AT=null;tipShown(false);}
+// Content came or went above a showing box's element (a banner over the Trash's list - its late notice, a failure - or the
+// list drawn again): a box whose element moved or left the page goes. Left where it was, it stood over the row before.
+function tipFollow(){if(TIP.hidden||!TIP_AT)return; const e=TIP_AT.el; if(!e.isConnected){hideTip(); return;}
+  const r=e.getBoundingClientRect(); if(Math.abs(r.left-TIP_AT.x)>0.5||Math.abs(r.top-TIP_AT.y)>0.5)hideTip();}
 // Shows el's description over it. The box is translate="no": a description is already in the UI language (the translator
 // rewrote the attribute, or the code drew it with tr()), and one that quotes a note ('#38 · 완료') must not be rewritten again.
 function showTip(el){showTipText(el,el.dataset.tip||'');}
@@ -21,6 +27,7 @@ function showTipText(el,txt){if(!txt||!document.contains(el))return;
   const box=/** @type {HTMLElement|null} */(el.closest('[data-tip-at="left"]'));
   TIP.textContent=txt; TIP.classList.toggle('tip-beside',!!box); tipShown(true);   // measured with its edge
   const r=el.getBoundingClientRect(),tw=TIP.offsetWidth,th=TIP.offsetHeight,bl=box?box.getBoundingClientRect().left-tw-8:-1;
+  TIP_AT={el,x:r.left,y:r.top};   // where el stood, for tipFollow - the box beside the panel too
   if(box&&bl>=4){TIP.style.left=bl+'px'; TIP.style.top=Math.max(4,Math.min(r.top+r.height/2-th/2,innerHeight-th-4))+'px'; return;}
   TIP.classList.remove('tip-beside');
   let top=r.top-th-8, cx=r.left+r.width/2;
