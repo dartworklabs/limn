@@ -21,6 +21,8 @@
   A redraw of the Trash now puts the focus on the next row's [되살리기], else the one before's, else [닫기] - back on the
   row's own when the restore failed - unless the person moved it out of the list meanwhile. The row's restore also has
   the 8-second bound: past it the Trash (or, closed, the list) says `되살리기의 답이 늦습니다 · 핀 #N` until the answer.
+  Tab no longer leaves the open Trash (Tab from [닫기] after the last restore left the focus on nothing), and a row's
+  [되살리기] or [영구 삭제] shows its description beside the row's buttons instead of over the row before it.
 
 ## 0.4.37 — 2026-10-31
 

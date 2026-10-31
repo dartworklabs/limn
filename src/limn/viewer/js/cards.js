@@ -214,5 +214,12 @@ function openTrash(flashId){const d=$('#trash');
   if(flashId!=null)requestAnimationFrame(()=>{const el=/** @type {HTMLElement} */(document.querySelector('#trash .arc-row[data-id="'+flashId+'"]')); if(!el)return;
     el.scrollIntoView({block:'nearest'}); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');});}
 $('#trash').addEventListener('close',()=>{TRASH_ALL=false;});
+// Tab stays in the open Trash, a modal dialog: from its last control it comes back to its first, and Shift+Tab from its first
+// (or from the dialog itself) goes to its last. The browser took it out to its own toolbar instead, and the page's focus fell
+// to <body> while the Trash stayed open - Tab from [닫기] once the last row was restored did.
+$('#trash').addEventListener('keydown',e=>{if(e.key!=='Tab'||e.ctrlKey||e.metaKey||e.altKey||e.defaultPrevented)return; const d=$('#trash');
+  const all=/** @type {HTMLElement[]} */([...d.querySelectorAll(PV_TABBABLE)].filter(pvTabStop)),a=document.activeElement,i=all.indexOf(/** @type {HTMLElement} */(a));
+  const to=!all.length?null:e.shiftKey?(i===0||a===d?all[all.length-1]:null):(i===all.length-1?all[0]:null);
+  if(to){e.preventDefault(); to.focus();}});
 $('#trash').addEventListener('click',e=>{const d=$('#trash'); if(e.target!==d)return; const r=d.getBoundingClientRect();
   if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)d.close();});

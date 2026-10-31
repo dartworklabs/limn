@@ -450,6 +450,43 @@ class TrashRestore(NoticePage, BrowserBase):
             self.assertTrue(page.evaluate("()=>$('#trash').open"))
         self.assertEqual([self.state(x) for x in (a, b, c)], ["open"] * 3)
 
+    def test_tab_stays_in_the_open_trash(self):
+        """The only row restored by key leaves the focus on [닫기]; Tab and Shift+Tab keep it there, the one control, and
+        not on <body> with the Trash open. With rows, Tab from the last row's [되살리기] comes back to [닫기], the first, and
+        Shift+Tab from [닫기] goes to that last one."""
+        page, (a, b) = self.trash(2)
+        last = '#trash-list .arc-row[data-id="%d"] [data-act="restore"]' % b
+        page.locator(last).focus()
+        page.keyboard.press("Tab")
+        self.assertEqual(page.evaluate(TRASH_FOCUS), ["trash-close", None])
+        page.keyboard.press("Shift+Tab")
+        self.assertEqual(page.evaluate(TRASH_FOCUS), ["restore", b])
+        for pid in (a, b):
+            self.press(page, pid)
+            page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id)", arg=pid)
+            settle(page)
+        self.assertEqual(page.evaluate(TRASH_FOCUS), ["trash-close", None])
+        for key in ("Tab", "Shift+Tab", "Tab"):
+            page.keyboard.press(key)
+            self.assertEqual(page.evaluate(TRASH_FOCUS), ["trash-close", None], key)
+        self.assertTrue(page.evaluate("()=>$('#trash').open"))
+
+    def test_a_rows_restore_tooltip_covers_no_other_row(self):
+        """The mouse on the middle row's [되살리기]: its description box stands beside the row's buttons, inside that row -
+        over it, it covered the row before's note line - and over none of the row's own buttons."""
+        page, order = self.trash(3)
+        middle = '#trash-list .arc-row[data-id="%d"]' % order[1]
+        page.locator(middle + ' [data-act="restore"]').hover()
+        page.wait_for_function("()=>!TIP.hidden")
+        got = page.evaluate(
+            """sel => {const R = e => e.getBoundingClientRect(), t = R(TIP), me = document.querySelector(sel);
+              const hit = r => t.left < r.right && r.left < t.right && t.top < r.bottom && r.top < t.bottom;
+              return {others: [...document.querySelectorAll('#trash-list .arc-row')].filter(r => r !== me && hit(R(r))).length,
+                own: [...me.querySelectorAll('button')].filter(b => hit(R(b))).length, inside: t.top >= R(me).top - 0.5 && t.bottom <= R(me).bottom + 0.5};}""",
+            middle,
+        )
+        self.assertEqual(got, {"others": 0, "own": 0, "inside": True})
+
     def test_a_failed_restore_keeps_the_focus_on_its_row_and_a_moved_one_is_left_alone(self):
         """The restore answered 500: the row is drawn again and the focus is back on its [되살리기]. Then a restore held
         while the person moves to another row's [되살리기]: the answer leaves the focus there."""
