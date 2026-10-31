@@ -120,7 +120,7 @@ function zoomAnchor(cx,cy){const L=$('#left'),lr=L.getBoundingClientRect();
 // Restores the anchor's in-page fractional position back to screen coordinates (cx,cy) - so the text under the pointer stays put even after zooming.
 function zoomRestore(a,cx,cy){if(!a)return; const L=$('#left'),r=a.pg.getBoundingClientRect();
   L.scrollLeft+=r.left+a.fx*r.width-(cx==null?a.cx:cx); L.scrollTop+=r.top+a.fy*r.height-(cy==null?a.cy:cy);}
-function zoomTo(k,cx,cy){const a=zoomAnchor(cx,cy); setK(k); markZoomed(); zoomRestore(a);}
+function zoomTo(k,cx,cy){arrivalLetGo(); const a=zoomAnchor(cx,cy); setK(k); markZoomed(); zoomRestore(a);}   // a zoom keeps its own anchor: no arrival pulls it back
 function zoom(n){zoomTo(K*Math.pow(ZOOM_STEP,n));}
 // [100%]: the print size, around the middle of the PDF area as the zoom buttons.
 function actualSize(){zoomTo(PT_PX);}
@@ -154,7 +154,7 @@ let ARRIVAL=/** @type {{n:number,figure:boolean,hand:number,doc:string|null,fixe
 function arrivalWatch(n,figure){ARRIVAL={n,figure,hand:PV_SCROLL_HAND,doc:DOC,fixes:0,until:0}; arrivalSoon();}
 function arrivalSoon(){clearTimeout(ARRIVAL_TIMER); ARRIVAL_TIMER=setTimeout(arrivalSettle,ARRIVAL_REST_MS);}
 function arrivalLetGo(){if(!ARRIVAL)return; ARRIVAL=null; clearTimeout(ARRIVAL_TIMER);}
-for(const t of ['pointerdown','keydown','wheel','touchstart'])addEventListener(t,arrivalLetGo,{capture:true,passive:true});
+for(const t of ['pointerdown','keydown','wheel','touchstart','gesturestart'])addEventListener(t,arrivalLetGo,{capture:true,passive:true});   // gesturestart: Safari's trackpad pinch
 addEventListener('resize',arrivalLetGo);
 function arrivalSettle(){const a=ARRIVAL,L=$('#left'),el=a?document.getElementById('p'+a.n):null; if(!a)return;
   if(!el||a.hand!==PV_SCROLL_HAND||a.doc!==DOC||!L.getClientRects().length){ARRIVAL=null; return;}
