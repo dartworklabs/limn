@@ -886,12 +886,14 @@ function pvRefill(page){const v=pageVerdictsOn(),e=/** @type {HTMLElement|null} 
 // ---------------- Input
 let PV_COMPOSING=false;   // an input method is composing in the reason field: its value is not put back
 $('#doc').addEventListener('compositionstart',e=>{if(pvIsReasonField(e.target))PV_COMPOSING=true;});
-$('#doc').addEventListener('compositionend',e=>{if(pvIsReasonField(e.target))PV_COMPOSING=false;});
+// The composition's end settles what it brought back (pvReasonFollow, which waits for it).
+$('#doc').addEventListener('compositionend',e=>{const f=e.target; if(!pvIsReasonField(f))return; PV_COMPOSING=false;
+  const r=PV_REASON; if(r&&f.dataset.id==='s'+r.sid){pvReasonFollow(r); if(PV_REASON===r)rdKeep(r);}});
 // Every input keeps the draft (rdPut), with the parts moved into it placed where they are now (pvReasonPlace) - a part
-// brought back whose text has landed on its pin meanwhile leaves at once (pvReasonFollow) - and lets a first Esc go; the
-// line follows its emptiness (the state).
+// brought back whose text has landed on its pin meanwhile leaves at once (pvReasonFollow), or once an input method's
+// composition ends - and lets a first Esc go; the line follows its emptiness (the state).
 $('#doc').addEventListener('input',e=>{const f=e.target; if(!pvIsReasonField(f))return; const r=PV_REASON; if(!r||f.dataset.id!=='s'+r.sid)return;
-  const was=r.text; r.text=f.value; r.via=pvReasonPlace(r,was,f.selectionEnd); r.escArm=''; pvReasonFollow(r); rdKeep(r); pvReasonGrow(f); pvRefill(r.page);});
+  const was=r.text; r.text=f.value; r.via=pvReasonPlace(r,was,f.selectionEnd); r.escArm=''; if(!PV_COMPOSING)pvReasonFollow(r); rdKeep(r); pvReasonGrow(f); pvRefill(r.page);});
 // The parts of session r's text once an input made it r.text from `was`, the caret at `caret`. A text the field held before
 // - back by an undo or a redo, a paste or a typed letter taken back, a composition given up - has the parts it had then: an
 // edit inside a part lets it go (rdEdit), and the undo that put the text back left it with none, so the text was no longer
@@ -918,7 +920,9 @@ function pvHistKeep(h,text,via){if(h.seen.has(text)){h.size-=text.length; h.seen
 // After an input, session r's text holds a part whose very text landed on the pin it was moved off while the part was not
 // in the text (an edit inside it had let it go, and an undo brought it back, pvReasonPlace): the part leaves now, as it
 // would have then (pvReasonWrittenOff) - with something left the popover keeps that and says the rest went, with nothing
-// left it closes and says where the reason is (pvReasonTaken). Left in, Enter wrote it on this verdict as well.
+// left it closes and says where the reason is (pvReasonTaken). Left in, Enter wrote it on this verdict as well. Never while
+// an input method composes (its composition passing through that text closed the popover under it): at its end, on the
+// text it committed.
 /** @param {ReasonSession} r */
 function pvReasonFollow(r){const h=r.hist; if(!h||!h.landed.length)return;
   for(const L of h.landed){const c=rdCut(r.text,r.via,rdName(L.doc,L.id),L.text); if(!c)continue;

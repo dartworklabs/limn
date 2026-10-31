@@ -5164,9 +5164,11 @@ class ReasonRaces(VerdictBase):
         the part leaves at once, as it would have had it been there (review of #327's fix: it came back as it was, and Enter
         wrote the sentence on b too):
         - alone in the field: the popover closes and says where the reason is; nothing is written on b;
-        - with a line typed under it: the field keeps that line and says the rest went; Enter writes it on b."""
+        - with a line typed under it: the field keeps that line and says the rest went; Enter writes it on b;
+        - not while an input method composes (Codex confirmation): its last letter replaced by a composition that passes
+          through '유' again on its way to '율' leaves the popover open, and the committed '숨은 이율' is written on b."""
         text = "숨은 이유"
-        for case in ("alone", "with a line"):
+        for case in ("alone", "with a line", "composing"):
             with self.subTest(case=case):
                 self.drop_all()
                 page = self.on("fig")
@@ -5183,14 +5185,34 @@ class ReasonRaces(VerdictBase):
                     for key in ("Control+End", "Shift+Enter"):
                         page.keyboard.press(key)
                     page.keyboard.type("더 쓴 줄")
-                page.keyboard.press("Control+Home")
-                page.keyboard.press("ArrowRight")
-                page.keyboard.type("X")  # inside the moved sentence: it is a new one now
+                if case == "composing":
+                    ime = page.context.new_cdp_session(page)
+                    page.keyboard.press("Control+End")
+                    page.keyboard.press("Shift+ArrowLeft")
+                    ime.send("Input.imeSetComposition", {"text": "ㅇ", "selectionStart": 1, "selectionEnd": 1})
+                    self.assertEqual(self.typed_value(page), "숨은 이ㅇ")
+                else:
+                    page.keyboard.press("Control+Home")
+                    page.keyboard.press("ArrowRight")
+                    page.keyboard.type("X")  # inside the moved sentence: it is a new one now
                 self.retry_reason(page, a)
                 page.wait_for_function("id=>LINE.some(n=>n.title==='이유 저장됨 · 판정 #'+id+' 채택')", arg=a)
                 settle(page)
                 self.assertEqual(self.note(a), text)
                 self.assertEqual(page.evaluate(REASON, 1)["focused"], True)
+                if case == "composing":
+                    ime.send("Input.imeSetComposition", {"text": "유", "selectionStart": 1, "selectionEnd": 1})
+                    settle(page)
+                    self.assertEqual(self.typed_value(page), text)  # composing still: the popover stays
+                    ime.send("Input.imeSetComposition", {"text": "율", "selectionStart": 1, "selectionEnd": 1})
+                    ime.send("Input.insertText", {"text": "율"})
+                    settle(page)
+                    self.assertEqual(self.typed_value(page), "숨은 이율")
+                    page.keyboard.press("Enter")
+                    page.wait_for_function("()=>!document.querySelector('#doc .pv-reason')", timeout=10000)
+                    settle(page)
+                    self.assertEqual((self.note(a), self.note(b)), (text, "숨은 이율"))
+                    continue
                 page.keyboard.press("Control+z")
                 settle(page)
                 titles = page.evaluate("()=>LINE.map(n=>n.title)")
