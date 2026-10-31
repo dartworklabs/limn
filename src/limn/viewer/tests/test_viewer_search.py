@@ -3323,6 +3323,29 @@ class OutlinePickFigure(SearchBase):
                 self.assertAlmostEqual(page.evaluate(UNDER_TOP, [n, 792])["under"], 0, delta=1)
                 self.assertEqual(page.evaluate(STRIP)[0], title)
 
+    def test_a_pick_of_a_page_with_a_figure_body_lands_on_its_figure_then_on_its_top(self):
+        """Page 1's map names its figure body 60% down the page (docs/handbook/viewer.md §그림 쪽 도착): its entry
+        arrives at the figure (figureTop), picked again at the page's top, and once more at the figure; the strip
+        names it each time."""
+        copy = Path(ps.APP.docs[1].dir) / helpers_figure.BUILD1 / helpers_figure.FIGMAP_NAME
+        fmap = json.loads(copy.read_text("utf-8"))
+        fmap["pages"][0]["elements"].append({"id": "B2/@figure", "parent": "B2", "frac": [0.06, 0.6, 0.88, 0.3]})
+        copy.write_text(json.dumps(fmap, ensure_ascii=False), "utf-8")
+        page = self.view(hash_="#doc=fig")
+        page.wait_for_function("DOC==='fig'&&OUTLINE_ENTRIES.length===2")
+        settle(page)
+        for want in ("figure", "top", "figure"):
+            with self.subTest(press=want):
+                page.click('#outline-items button[data-index="0"]')
+                page.wait_for_function(SCROLL_STILL)
+                settle(page)
+                if want == "top":
+                    self.assertAlmostEqual(page.evaluate(UNDER_TOP, [1, 792])["under"], 0, delta=1)
+                else:
+                    got = page.evaluate("()=>[document.querySelector('#left').scrollTop, figureTop(1)]")
+                    self.assertLessEqual(abs(got[0] - got[1]), 2, got)
+                self.assertEqual(page.evaluate(STRIP), ["B2 calendar", "1 / 2쪽"])
+
 
 if __name__ == "__main__":
     unittest.main()

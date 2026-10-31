@@ -1093,18 +1093,20 @@ function drawPageVerdicts(){const v=pageVerdictsOn(),f=/** @type {HTMLElement|nu
 // Whether pin p's page verdict line shows it, so its page-size mark is not drawn (marks).
 /** @param {Pin} p */
 function pvShows(p){return PV_SHOWN.has(p.id);}
-// A card's [보기] for a pin a line shows: its page comes into view with the line and the line flashes. The page and its line
-// are one block (.pgw): centred when it fits the PDF area, else from the page's top - the line then floats at the area's
-// bottom (scrolling to the sticky line itself would follow where it floats, not where it is). Returns whether it did.
+// A card's [보기] for a pin a line shows: its page comes into view with the line and the line flashes. A figure page arrives at
+// its figure (arrivePage, §그림 쪽 도착). Any other page and its line are one block (.pgw): centred when it fits the PDF area,
+// else from the page's top - the line then floats at the area's bottom (scrolling to the sticky line itself would follow
+// where it floats, not where it is). Returns whether it did.
 /** @param {number} id */
 function jumpPv(id){if(!PV_SHOWN.has(id))return false; const p=PINS.find(x=>x.id===id)||REVIEW_ALL.find(x=>x.id===id)||DONE.find(x=>x.id===id);
   const t=p&&pageTargetOf(p,META?META.kind:undefined); if(!t)return false;
   if(LAYOUT===LAYOUT_MODE.NARROW)setSide(false);
   const flash=el=>{el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); clearTimeout(el._flT); el._flT=setTimeout(()=>el.classList.remove('flash'),1200);};
-  if(PV_SIDE){if(!document.getElementById('p'+t.page))return false; pvBring(t.page,true); pvFlashOn(t.page); return true;}   // the panel flashes where the page lands (verdict-panel.js)
+  const fig=figureTop(t.page)!==null;
+  if(PV_SIDE){if(!document.getElementById('p'+t.page))return false; if(fig)arrivePage(t.page); else pvBring(t.page,true); pvFlashOn(t.page); return true;}   // the panel flashes where the page lands (verdict-panel.js)
   const line=/** @type {HTMLElement|null} */(document.querySelector('#doc .pv[data-page="'+t.page+'"]')); if(!line)return false;
   const block=/** @type {HTMLElement} */(line.parentElement),L=$('#left');
-  pvGlideInto(block,block.getBoundingClientRect().height<=L.clientHeight?'center':'start'); flash(line); return true;}
+  if(fig)arrivePage(t.page); else pvGlideInto(block,block.getBoundingClientRect().height<=L.clientHeight?'center':'start'); flash(line); return true;}
 
 // ---------------- Lines far from the view (docs/handbook/viewer.md §판정 핀)
 // A line more than a view's height above or below what the PDF area shows is left for the browser to skip (.pv-far:

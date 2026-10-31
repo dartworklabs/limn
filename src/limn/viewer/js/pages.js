@@ -127,7 +127,24 @@ function actualSize(){zoomTo(PT_PX);}
 // Fit width (fitK): keeps the viewed page/position (anchored at the top) and resets horizontal scroll to the start.
 function fitW(){const a=topAnchor(),L=$('#left');
   setK(fitK(),LAYOUT===LAYOUT_MODE.WIDE); markZoomed(); restoreAnchor(a); L.scrollLeft=0;}
-function goPage(v){const el=document.getElementById('p'+parseInt(v===undefined?$('#jump').value:v,10)); if(el)pvGlideInto(el);}
+// Arriving at page n - from the outline, a page field or the page list (goPage) and from a card's [보기] (jumpPin, jumpPv): a
+// figure page, one whose map names its figure body (meta figure_top), at its figure (figureTop); any other page at its top.
+// The same arrival again while the pages rest on that figure goes to the page's top, and once more to the figure
+// (docs/handbook/viewer.md §그림 쪽 도착). Each is a glide (pvGlideTo, pvGlideInto), so the keys wait for it to end.
+/** @param {number} n */
+function arrivePage(n){const el=document.getElementById('p'+n); if(!el)return; const to=figureTop(n),L=$('#left');
+  if(to===null||(!pvAutoScrolling()&&Math.abs(L.scrollTop-to)<=FIGURE_REST_PX))pvGlideInto(el); else pvGlideTo(to);}
+const FIGURE_ROOM_PT=24;   // of the page kept above an arrived figure at most: its label line ('PL18 · 지금 판') has no element
+const FIGURE_REST_PX=2;   // the pages rest on a figure's arrival within this (a glide ends on or next to its pixel)
+// #left's scrollTop of page n's figure arrival - its figure's top edge under the free PDF area's top (spotTop) with up to
+// FIGURE_ROOM_PT of the page above it, down to the element above (figure_above), and at least OUTLINE_PICK_GAP px - or null
+// for a page without a figure body. In page points, so the room is the label line's at every zoom.
+/** @param {number} n */
+function figureTop(n){const pg=document.getElementById('p'+n),m=META&&META.pages?META.pages[n-1]:null;
+  if(!pg||!m||typeof m.figure_top!=='number'||!(m.pt_h>0))return null;
+  const h=pg.getBoundingClientRect().height,free=typeof m.figure_above==='number'?(m.figure_top-m.figure_above)*h:Infinity;
+  return spotTop(pg,m.figure_top,Math.max(OUTLINE_PICK_GAP,Math.min(FIGURE_ROOM_PT*h/m.pt_h,free)));}
+function goPage(v){arrivePage(parseInt(v===undefined?$('#jump').value:v,10));}
 $('#jump').addEventListener('keydown',e=>{if(e.key==='Enter')goPage();});
 // The page a typed entry v goes to in a document of n pages: a whole number clamped to 1..n; null for an empty or non-number
 // entry, which goes nowhere. Pure.
