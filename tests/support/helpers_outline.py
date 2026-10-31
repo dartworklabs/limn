@@ -95,24 +95,28 @@ def outline_pdf(pages: int, tree: list[Node]) -> bytes:
 
 
 # The open navigation sheet against every edge a row can be cut at (docs/handbook/viewer.md §모바일 레이아웃): the head's bottom (the
-# search row is in the head) and the sheet's bottom for the documents, the view, the page field and the outline's filter row, and for
-# the rows of the page list and of the outline - each a list that scrolls on its own - that list's top and bottom as well. `cut` names
-# the rows an edge runs through; `current` whether the outline's current row shows whole in its list; `doc` where the current
-# document's row is: 'whole' and drawn on top (pinned over a row a step of the sheet brought under it), 'under' the head wholly,
-# 'cut', or 'none' with one document; the sheet's and the outline list's scrollTop; the focus.
+# search row is in the head) - or, while the current row of the documents (with one document, the view) is pinned under the head,
+# that row's bottom, rows wholly above it being hidden - and the sheet's bottom, for the documents, the view, the page field and the
+# outline's filter row; and for the rows of
+# the page list and of the outline - each a list that scrolls on its own - that list's top and bottom as well. `cut` names the rows an
+# edge runs through; `current` whether the outline's current row shows whole in its list; `doc` where the current row of the
+# documents (else the view) is: 'whole' and drawn on top, 'under' the head wholly, or 'cut'; the sheet's and the outline list's
+# scrollTop; the focus.
 SHEET_ROWS = """() => {const d = document.querySelector('#nav-sheet'), R = e => e.getBoundingClientRect(), vis = e => !!e && e.getClientRects().length > 0;
   const head = R(d.querySelector('.ns-head')).bottom, D = R(d), list = d.querySelector('#ns-outline-items'), L = R(list), pages = d.querySelector('#ns-pages'), P = R(pages);
-  const cut = [], check = (e, name, edges) => {const r = R(e);
-    if (r.height > 0) for (const y of edges) if (r.top < y - 0.5 && r.bottom > y + 0.5) cut.push(name + '@' + Math.round(y));};
-  d.querySelectorAll('#ns-docs .dm-item').forEach((e, i) => vis(e) && check(e, 'doc' + i, [head, D.bottom]));
-  for (const s of ['#ns-view', '#ns-page', '#ns-outline .ns-oh']) {const e = d.querySelector(s); if (vis(e)) check(e, s, [head, D.bottom]);}
+  const keep = vis(d.querySelector('#ns-docs')) ? d.querySelector('#ns-docs .dm-item.on') : d.querySelector('#ns-view'), K = R(keep);
+  // what covers the sheet's top: the head, and the pinned row under it while it is pinned - a row wholly under that is hidden, not cut
+  const pinned = Math.abs(K.top - head) <= 0.5 && K.height > 0, top = pinned ? K.bottom : head, edges = [top, D.bottom];
+  const cut = [], check = (e, name, more) => {const r = R(e);
+    if (e === keep || r.height === 0 || r.bottom <= top + 0.5) return;
+    for (const y of edges.concat(more || [])) if (r.top < y - 0.5 && r.bottom > y + 0.5) cut.push(name + '@' + Math.round(y));};
+  d.querySelectorAll('#ns-docs .dm-item').forEach((e, i) => vis(e) && check(e, 'doc' + i));
+  for (const s of ['#ns-view', '#ns-page', '#ns-outline .ns-oh']) {const e = d.querySelector(s); if (vis(e)) check(e, s);}
   const inside = (e, B) => {const r = R(e); return vis(e) && r.bottom > B.top && r.top < B.bottom;};
-  [...pages.children].forEach((e, i) => inside(e, P) && check(e, 'page' + i, [head, D.bottom, P.top, P.bottom]));
-  [...list.querySelectorAll(':scope>button')].forEach(e => inside(e, L) && check(e, 'row' + e.dataset.index, [head, D.bottom, L.top, L.bottom]));
-  const c = list.querySelector('.ol-active'), C = c ? R(c) : null, on = d.querySelector('.dm-item.on');
-  let doc = 'none';
-  if (vis(on)) {const O = R(on), at = document.elementFromPoint(O.left + 8, (O.top + O.bottom) / 2);
-    doc = O.bottom <= head + 0.5 ? 'under' : O.top >= head - 0.5 && O.bottom <= D.bottom + 0.5 && !!at && at.closest('.dm-item') === on ? 'whole' : 'cut';}
+  [...pages.children].forEach((e, i) => inside(e, P) && check(e, 'page' + i, [P.top, P.bottom]));
+  [...list.querySelectorAll(':scope>button')].forEach(e => inside(e, L) && check(e, 'row' + e.dataset.index, [L.top, L.bottom]));
+  const c = list.querySelector('.ol-active'), C = c ? R(c) : null, at = document.elementFromPoint(K.left + 8, (K.top + K.bottom) / 2);
+  const doc = K.bottom <= head + 0.5 ? 'under' : K.top >= head - 0.5 && K.bottom <= D.bottom + 0.5 && !!at && keep.contains(at) ? 'whole' : 'cut';
   const a = document.activeElement;
   return {cut, index: c ? +c.dataset.index : null, doc, sheet: d.scrollTop, list: list.scrollTop, focus: a.id || a.tagName,
     current: !!C && C.top >= Math.max(head, L.top) - 0.5 && C.bottom <= Math.min(D.bottom, L.bottom) + 0.5,

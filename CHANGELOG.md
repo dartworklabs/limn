@@ -17,8 +17,10 @@
   field and its list keep their place, and the outline's rows take the height left and scroll on their own to the current
   section, whole rows around it and the list exactly as tall as they are, so no row is cut under the outline's filter or
   at the foot. Where the part above leaves the outline too little (several documents on a small phone) the sheet scrolls
-  too, by whole rows only, with the current document's row pinned under the head - or wholly under the head where the
-  whole document list must go (320x720 with three documents). The pages do not move and the focus stays on the sheet.
+  too, by whole rows only, with the current document's row (with one document, the view) pinned under the head and the
+  next part starting right under it - or wholly under the head where the whole document list must go (320x720 with three
+  documents, or the keyboard up). The list is fitted again to a filter's results and when the keyboard comes or goes. The
+  pages do not move and the focus stays where it was.
 - **The tablet sheet's outline overlay brings the current row above the bottom bar (#335).** On an upright tablet or an
   unfolded foldable (882x1104) the overlay runs to the screen's bottom under the collapsed sheet and the status line on
   it, and it opened and followed with the current row under them, out of sight and out of reach. The follow now counts

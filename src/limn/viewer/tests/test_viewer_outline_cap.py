@@ -163,8 +163,10 @@ class OutlineLogic(unittest.TestCase):
     def test_the_sheet_shows_whole_outline_rows_around_the_current_one(self):
         """navSheetWindow(rows, c, room): the most whole rows around c that fit in room, one at a time on the side with fewer -
         five of ten 44px rows around the sixth, the first five at the top, the last five at the end, c alone in less than a row,
-        no part row from what is left over, all of a short list - and with rows of two heights. navSheetStep(parts, need): where
-        the sheet stops when it must scroll too - the first part's top at or past need, the last when none is."""
+        no part row from what is left over, all of a short list, rows of two heights - and, down, from c on (above only at the
+        end). navSheetStep(parts, need, pin): where the sheet stops when it must scroll too - the first part's top at or past
+        need, the last when none is; with a row pinned under the head, where a part starts right under that row (the documents'
+        row of 62px, the one document's view of 44px), on a part's top before it is pinned and again once its list has gone."""
         got = self.run_js(
             ["navSheetWindow", "navSheetStep"],
             """(()=>{const even=n=>Array.from({length:n},(_,i)=>({top:48*i,bottom:48*i+44}));
@@ -172,9 +174,16 @@ class OutlineLogic(unittest.TestCase):
               return [navSheetWindow(even(10),5,236),navSheetWindow(even(10),0,236),navSheetWindow(even(10),9,236),navSheetWindow(even(10),5,30),
                 navSheetWindow(even(10),5,239),navSheetWindow(even(3),1,1000),navSheetWindow(mixed,2,200),
                 navSheetStep([0,30,96,162,230],98),navSheetStep([0,30,96,162,230],96),navSheetStep([0,30,96,162,230],95.6),
-                navSheetStep([0,30,96,162,230],300),navSheetStep([],10)];})()""",
+                navSheetStep([0,30,96,162,230],300),navSheetStep([],10),
+                navSheetWindow(even(10),2,236,true),navSheetWindow(even(10),8,236,true),
+                navSheetStep([0,30,96,162,230],98,{top:30,height:62,end:226}),navSheetStep([10,62,124,184,414],60,{top:10,height:44,end:Infinity}),
+                navSheetStep([0,30,96,162,230,282],240,{top:30,height:62,end:226}),navSheetStep([0,30,96,162,230],20,{top:30,height:62,end:226})];})()""",
         )
-        self.assertEqual(got, [[3, 7], [0, 4], [5, 9], [5, 5], [3, 7], [0, 2], [1, 3], 162, 96, 96, 230, 0])
+        self.assertEqual(
+            got,
+            [[3, 7], [0, 4], [5, 9], [5, 5], [3, 7], [0, 2], [1, 3], 162, 96, 96, 230, 0]
+            + [[2, 6], [5, 9], 100, 80, 282, 30],
+        )
 
     REFERENCE = """function referenceIndexAt(entries,page,frac){
       const at=e=>e.frac||0,deep=e=>e.depth||0,above=e=>e.page<page||(e.page===page&&at(e)<=frac+1e-6);
@@ -1219,6 +1228,53 @@ class OutlineFollow(OutlineBase):
                     self.assertTrue(got["current"], got)
                     self.assertIn(got["doc"], ("whole", "under") if name == "320x720" else ("whole",), got)
                     self.assertEqual(got["focus"], "nav-sheet", got)
+
+    def test_a_filter_in_the_sheet_leaves_no_result_cut(self):
+        """390x844: the sheet's filter draws its list again with taller rows (a group's line over a name found under two
+        groups); the list is fitted to them from the first result, so none is cut at the filter or the foot, and the focus stays
+        in the field (review of #335: the window sized at opening cut the results)."""
+        phone = self.on("ms", **PHONE)
+        twice = [(g, 0, [("PL%d · 그림" % j, j % 2, []) for j in range(1, 21)]) for g in ("채택", "본문 그림 3")]
+        self.load(phone, twice)
+        phone.evaluate("() => {updateSectionStrip = () => {}; OUTLINE_SELECTED = 30; markOutline();}")
+        self.assertEqual(self.open_sheet(phone)["cut"], [])
+        phone.fill("#ns-outline-search", "PL1")
+        phone.wait_for_function("document.querySelector('#ns-outline-items .ol-grp')")
+        got = phone.evaluate(SHEET_ROWS)
+        self.assertEqual((got["cut"], got["list"], got["focus"]), ([], 0, "ns-outline-search"), got)
+
+    def test_the_sheet_is_fitted_again_when_its_height_changes(self):
+        """390x844, three documents: the keyboard coming up (the screen 520px high) leaves the top part less than three outline
+        rows, so the sheet steps by whole rows - here past the whole document list, which takes the document's row wholly under
+        the head; going down again, the top part is back in place with that row whole. No row is cut at either height, and the
+        focus stays where it was (review of #335)."""
+        phone = self.long(**PHONE)
+        self.read_to(phone, 2)
+        self.assertEqual(self.open_sheet(phone)["cut"], [])
+        for height, stepped in ((520, True), (844, False)):
+            with self.subTest(height=height):
+                phone.set_viewport_size({"width": 390, "height": height})
+                phone.wait_for_timeout(200)
+                settle(phone)
+                got = phone.evaluate(SHEET_ROWS)
+                self.assertEqual(
+                    (got["cut"], got["doc"], got["focus"]), ([], "under" if stepped else "whole", "nav-sheet"), got
+                )
+                self.assertTrue(got["current"] or got["index"] is None, got)
+                self.assertEqual(got["sheet"] > 0, stepped, got)
+
+    def test_with_one_document_the_view_is_pinned_where_the_sheet_steps(self):
+        """One document on a 320x480 phone: the top part leaves the outline less than three rows, so the sheet steps; the view,
+        which stands for the current document, stays pinned whole under the head, and the part after it starts right under it -
+        no row cut, none half behind it (review of #335)."""
+        ps.APP.set_docs([self.ms])
+        phone = self.on("ms", **{**PHONE, "viewport": {"width": 320, "height": 480}})
+        self.load(phone, grouped_tree(LONG, 2))
+        phone.evaluate("() => {updateSectionStrip = () => {}; OUTLINE_SELECTED = 70; markOutline();}")
+        got = self.open_sheet(phone)
+        self.assertEqual((got["cut"], got["doc"], got["focus"]), ([], "whole", "nav-sheet"), got)
+        self.assertGreater(got["sheet"], 0, got)
+        self.assertTrue(got["current"], got)
 
 
 def flatten(tree):

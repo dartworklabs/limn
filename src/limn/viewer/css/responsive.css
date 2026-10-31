@@ -719,10 +719,11 @@ body:not(.compact) :is(#help,#trash,#more) .ns-grab{display:none}
 #nav-sheet[open]>*{flex:none}
 #nav-sheet[open]>#ns-outline:not([hidden]){flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
 #nav-sheet[open] #ns-outline>.ns-oh{flex:none}
-#nav-sheet[open] #ns-outline-items{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;align-content:start}
-/* Where the sheet must scroll as well (navSheetReveal), it steps by whole rows, and the current document's row stays pinned under the
-   head over the row the step brought there (--ns-head-h: the head's height, the search row with it). */
-#nav-sheet[open] #ns-docs .dm-item.on{position:sticky;top:var(--ns-head-h,0px);z-index:0}   /* over the plain rows it is pinned on, under the head (z-index 1) when its list pushes it up */
+#nav-sheet[open] #ns-outline-items{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;align-content:start;grid-auto-rows:max-content}   /* rows as tall as their content: sized by the column, a clamped name (overflow hidden) would let a row shrink to 44px and clip its lines */
+/* Where the sheet must scroll as well (navSheetFit), it steps by whole rows, and the current document's row - with one document, the
+   view, which then stands for it - stays pinned under the head over what the step brought there (--ns-head-h: the head's height,
+   the search row with it). */
+#nav-sheet[open] #ns-docs .dm-item.on,#nav-sheet[open] #ns-docs[hidden]~#ns-view{position:sticky;top:var(--ns-head-h,0px);z-index:0}   /* over the plain rows it is pinned on, under the head (z-index 1) when its list pushes it up */
 #nav-sheet>#ns-view{margin:var(--space-2) 0}   /* its own 4px inset: the sections' padding took its sides, and the thumb ran into the edge */
 #nav-sheet .ns-h{margin:0 0 var(--space-1);font-size:var(--text-sm);font-weight:600;color:var(--muted-foreground)}
 #nav-sheet .dm-list{display:flex;flex-direction:column;gap:var(--space-1)}
