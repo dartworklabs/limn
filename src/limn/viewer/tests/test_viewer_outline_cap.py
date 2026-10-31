@@ -557,6 +557,9 @@ STILL = """() => new Promise(done => {const box = document.querySelector('#outli
 READ_TO = """n => new Promise(done => {const L = document.querySelector('#left');
   document.getElementById('p' + n).scrollIntoView();
   const top = L.scrollTop, look = () => {if (OUTLINE_ACTIVE_PAGE === n) done(top); else requestAnimationFrame(look);}; look();})"""
+# Resolves once a rendering update has run: animation frames come before its layout and the ResizeObservers after it, so by the
+# second frame both have.
+TWO_FRAMES = "() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))"
 # Records in window.SCROLLS what the panel is asked to scroll to, leaving it to scroll.
 SCROLLS = """() => {const box = document.querySelector('#outline'), to = box.scrollTo; window.SCROLLS = [];
   box.scrollTo = function (o) {window.SCROLLS.push(o); return to.call(this, o);};}"""
@@ -743,7 +746,8 @@ class OutlineFollow(OutlineBase):
 
     def test_the_filter_stays_in_reach_above_the_list(self):
         """However far the list is, the filter and its hint stay at the top of the panel, on every band that has it, and rows
-        pass under them: a press on the field reaches the field. With the list at its top it stands where it always stood."""
+        pass under them: a press on the field reaches the field. With the list at its top it stands where it always stood. The panel's
+        scroll padding is the band's height once a rendering update has run after the hint grew it."""
         for name, device in (("desktop", DESKTOP), ("fold", FOLD)):
             with self.subTest(device=name):
                 page = self.long(**device)
@@ -771,6 +775,10 @@ class OutlineFollow(OutlineBase):
         page.wait_for_function(SHOWN, timeout=3000)
         page.evaluate(STILL)
         page.focus("#outline-search")
+        # The hint makes the band taller at the next layout, and the panel's scroll padding follows it from a ResizeObserver, which
+        # runs in the rendering update after that layout, before its paint. Reading right after the focus can come before that
+        # update and find the old padding (52 against the band's 72): wait for one.
+        page.evaluate(TWO_FRAMES)
         hint = page.locator("#outline-hint").bounding_box()
         band = page.locator("#outline-find").bounding_box()
         self.assertGreater(hint["height"], 0)
