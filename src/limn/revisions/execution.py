@@ -27,7 +27,7 @@ from limn.revisions.scope import ScopeRefusal, ScopeUnwritable, UnsafePath, plan
 
 TEXT_COMMANDS_FILE = "textcmd.txt"  # in a job's work folder, beside the old/ and new/ snapshots
 # What a TeX build reads only when something names it: finished PDFs and pictures. A build root past the limits has those no
-# other file names stand as empty files (revision_snapshot) - a manuscript folder that keeps its past comparison PDFs holds
+# other file names stand as blank files (revision_snapshot) - a manuscript folder that keeps its past comparison PDFs holds
 # 350 MB of them beside 6 MB it builds from.
 REVISION_NAMED_FILES = frozenset(
     (".pdf", ".png", ".jpg", ".jpeg", ".eps", ".ps", ".mps", ".svg", ".gif", ".tif", ".tiff", ".webp")
@@ -157,11 +157,12 @@ def revision_snapshot(spec: RevisionSpec, commit: str, dest: Path, also: Iterabl
     """Write the build root of commit (spec.source) into the new folder dest from git objects - regular files only,
     within the file-count and size limits - and check that spec.main is there. The step failure otherwise.
 
-    A build root past the size limits has the REVISION_NAMED_FILES that nothing names stand as empty files, and is refused
+    A build root past the size limits has the REVISION_NAMED_FILES that nothing names stand as blank files, and is refused
     if it is still past them. What names one is the other files of the build root and the sources in also (the other side
     of the comparison, a pin's blocks). A build root within the limits is written whole, as a name found here is a guess:
-    an empty file answers \\IfFileExists as the real one does and fails the build if read, so a picture named by a macro
-    (fig\\thepage) ends in compile_failed, not in a wrong PDF."""
+    a blank file is sparse, the real one's size in zeros on no disk, so \\IfFileExists and \\pdffilesize answer as for the
+    real one, and reading it fails the build (no reader of pictures takes zeros, and TeX refuses a NUL), so a picture named
+    by a macro (fig\\thepage) ends in compile_failed, not in a wrong PDF."""
     prefix = "" if spec.source == "." else spec.source + "/"
     cmd = ["ls-tree", "-r", "-l", "-z", commit]
     if prefix:
@@ -217,9 +218,11 @@ def revision_snapshot(spec: RevisionSpec, commit: str, dest: Path, also: Iterabl
         if isinstance(data, StepFailed):
             return data
     for entry in held:
-        if not (dest / entry.path).exists():
-            (dest / entry.path).parent.mkdir(parents=True, exist_ok=True)
-            (dest / entry.path).touch()
+        target = dest / entry.path
+        if not target.exists():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with target.open("wb") as blank:
+                blank.truncate(entry.size)
     if not (dest / spec.main).is_file():
         return StepFailed("missing_main")
     return None

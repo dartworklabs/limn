@@ -486,16 +486,19 @@ class ManuscriptRevisions(Base):
         return subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=self.repo, text=True).strip()
 
     def snapshot_files(self, commit: str, name: str = "snapshot"):
-        """The files a snapshot of commit wrote under the build root with their sizes, or its failure."""
+        """The files a snapshot of commit wrote under the build root with their sizes, or its failure. A blank file, zeros,
+        is said as its size negated."""
         dest = self.repo / name
         got = revision_execution.revision_snapshot(revision_spec(self.latest), commit, dest)
-        return (
-            got if got else {p.relative_to(dest).as_posix(): p.stat().st_size for p in dest.rglob("*") if p.is_file()}
-        )
+        if got:
+            return got
+        files = {p.relative_to(dest).as_posix(): p for p in dest.rglob("*") if p.is_file()}
+        return {k: -p.stat().st_size if not p.read_bytes().strip(b"\0") else p.stat().st_size for k, p in files.items()}
 
     def test_a_build_root_past_the_limits_keeps_only_what_is_named_of_its_pdfs_and_pictures(self):
-        """Past comparison PDFs fill the folder: past the limits one no source names stands as an empty file. Those named by
-        name, by stem and by a path, with a name a word cannot hold, and every other kind of file are written whole."""
+        """Past comparison PDFs fill the folder: past the limits one no source names stands as a blank file of its size. Those
+        named by name, by stem and by a path, with a name a word cannot hold, and every other kind of file are written
+        whole."""
         tex = rb"\includegraphics[width=2cm]{images/plot.pdf}\includegraphics{stem}\input{part.tex}"
         head = self.commit_files(
             {
@@ -512,8 +515,8 @@ class ManuscriptRevisions(Base):
         kept = {
             "data.bin": 28,
             "deep/in part.pdf": 4,
-            "diff/old_diff.pdf": 0,
-            "diff/older.png": 0,
+            "diff/old_diff.pdf": -4096,
+            "diff/older.png": -4096,
             "images/plot.pdf": 4,
             "main.tex": len(tex),
             "part.tex": 30,
@@ -525,7 +528,7 @@ class ManuscriptRevisions(Base):
             self.assertEqual(self.snapshot_files(head, "by-file"), kept)
 
     def test_too_many_files_are_refused_as_before(self):
-        """An empty file is still a file: the count of files is the limit it was, whatever they hold."""
+        """A blank file is still a file: the count of files is the limit it was, whatever they hold."""
         head = self.commit_files({"main.tex": b"text", "a.pdf": b"x", "b.pdf": b"x"})
         with mock.patch.object(revision_execution, "REVISION_FILES_MAX", 2):
             self.assertEqual(self.snapshot_files(head), revisions.StepFailed("snapshot_size"))
@@ -548,7 +551,7 @@ class ManuscriptRevisions(Base):
 
     def test_the_new_side_keeps_what_the_old_side_and_a_pins_blocks_name(self):
         """latexdiff can carry a deleted figure into the new side, and a pin's blocks write text over the old side: what those
-        name is real in the new side's snapshot, what nothing names is empty."""
+        name is real in the new side's snapshot, what nothing names is blank."""
         self.commit_files(
             {
                 "main.tex": rb"\includegraphics{old_picture}",
@@ -563,7 +566,9 @@ class ManuscriptRevisions(Base):
         def built(spec, work, jobdir, timeout, text_commands, log):
             """Instead of latexdiff and latexmk: what the new side holds."""
             new = work / "new"
-            sizes.update({p.relative_to(new).as_posix(): p.stat().st_size for p in new.rglob("*") if p.is_file()})
+            sizes.update(
+                {p.relative_to(new).as_posix(): len(p.read_bytes().strip(b"\0")) for p in new.rglob("*") if p.is_file()}
+            )
             return []
 
         writes = [scoping.ScopeWrite("main.tex", rb"\includegraphics{scoped}")]
@@ -945,16 +950,25 @@ class ManuscriptRevisions(Base):
 
     @needs_tex("bwrap", "latexdiff", "latexmk", "pdftotext")
     def test_a_file_left_out_answers_for_itself_and_fails_a_build_that_reads_it(self):
-        """A name no source spells, past the limits: a test of whether the file exists answers as for the real file, so no
-        content goes missing, and reading the empty stand-in ends in compile_failed, not in a wrong PDF."""
+        """Names no source spells, past the limits. A test of whether the file exists and of its size answers as for the real
+        file, so no content goes missing; reading the blank stand-in as a picture or as TeX ends in compile_failed, not in a
+        wrong PDF."""
         doc = r"\documentclass{article}\usepackage{graphicx}\begin{document}%s\end{document}"
-        self.commit_files({"fig1.pdf": b"x" * 8192})
-        head = self.commit_main(doc % r"\IfFileExists{fig\thepage.pdf}{PRESENT}{MISSING}", "test it")
+        self.commit_files({"fig1.pdf": b"x" * 8192, "fig1.svg": b"y" * 8192})
+        asks = r"\IfFileExists{fig\thepage.pdf}{PRESENT}{MISSING} \ifnum\pdffilesize{fig\thepage.pdf}=8192 RIGHT\else WRONG\fi "
+        self.commit_main(doc % (asks + "oldword"), "ask about it")
+        head = self.commit_main(doc % (asks + "newword"), "a word")
         with mock.patch.object(revision_execution, "REVISION_TREE_MAX", 4096):
-            self.assertIn("PRESENT", self.comparison_text(head))
-            head = self.commit_main(doc % r"\includegraphics{fig\thepage.pdf}", "read it")
-            built, _ = self.build_comparison(head)
-        self.assertEqual(built, revisions.StepFailed("compile_failed"))
+            text = self.comparison_text(head)
+            for word in ("PRESENT", "RIGHT"):
+                with self.subTest(word=word):
+                    self.assertIn(word, text)
+            for read in (r"\includegraphics{fig\thepage.pdf}", r"\InputIfFileExists{fig\thepage.svg}{}{MISSING}"):
+                with self.subTest(read=read):
+                    self.commit_main(doc % (read + " oldword"), "read it")
+                    head = self.commit_main(doc % (read + " newword"), "a word")
+                    built, _ = self.build_comparison(head)
+                    self.assertEqual(built, revisions.StepFailed("compile_failed"))
 
     @needs_tex("bwrap", "latexdiff", "latexmk", "pdftotext")
     def test_a_folder_of_past_comparisons_with_a_bibliography_builds_its_comparison(self):
