@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **A commit pressed while another comparison builds gets its PDF.** A document builds one comparison at a time and opening
+  the changes view starts the newest commit's, so pressing another commit meanwhile was answered busy, and the view stopped
+  on '이 문서의 비교 PDF를 만드는 중입니다' for good. It now says it waits, and shows its own PDF when that one ends.
+
 ## 0.4.40 — 2026-11-01
 
 ### Fixed

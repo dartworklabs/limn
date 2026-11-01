@@ -18,7 +18,7 @@ from limn.revisions import core as revisions, execution as revision_execution
 from limn.security.access import LOCAL_ACTOR
 
 from helpers import add_pin, extract_js_fn, jreq, ps, run_node
-from helpers_browser import BrowserBase
+from helpers_browser import BrowserBase, nothing_follows
 
 PHONE = {"viewport": {"width": 411, "height": 908}, "is_mobile": True, "has_touch": True}
 DESKTOP = {"viewport": {"width": 1440, "height": 900}}
@@ -363,6 +363,52 @@ class RangePicker(PickerBase):
         page.wait_for_function("REV.rowsDoc===DOC&&REV.format==='source'&&REV.sourceCommit!==''", timeout=15000)
         page.wait_for_timeout(500)
         self.assertEqual(len(posts), 1, posts)
+
+    def busy_answers(self, page, times: int) -> list:
+        """The first `times` POST /api/revision-build answered busy, as while another comparison runs; those answered."""
+        answered: list = []
+
+        def answer(route):
+            if route.request.method == "POST" and len(answered) < times:
+                answered.append(route.request.url)
+                body = {"error": "이 문서의 비교 PDF를 만드는 중입니다.", "reason": "busy"}
+                return route.fulfill(status=409, content_type="application/json", body=json.dumps(body))
+            return route.fallback()
+
+        page.route("**/api/revision-build*", answer)
+        return answered
+
+    def test_a_comparison_waits_for_the_one_before_it(self):
+        """A document builds one comparison at a time and opening the view starts the newest commit's, so a commit pressed
+        meanwhile is answered busy. It says it waits and shows its own PDF when that one ends, with no second press. It
+        stopped on the answer, saying one was being built, for good."""
+        page = self.open(0, init=self.seen_script(self.commits[4]))
+        answered = self.busy_answers(page, 2)
+        self.changes(page)
+        page.wait_for_function("REV.seenState==='ok'", timeout=15000)
+        page.click("#revision-pdf-tab")
+        page.wait_for_function("()=>/앞선 비교 PDF/.test($('#revision-status').textContent)", timeout=15000)
+        page.wait_for_selector('.revision-page[data-state="ready"] canvas', timeout=15000)
+        self.assertEqual(len(answered), 2)
+
+    def test_a_comparison_left_stops_waiting_and_coming_back_asks_again(self):
+        """Leaving for the source diff while it waits ends the wait: nothing more is asked and the source diff keeps its status
+        line. Coming back to the PDF asks again, and it shows when the one before it ends."""
+        page = self.open(0, init=self.seen_script(self.commits[4]))
+        answered = self.busy_answers(page, 3)
+        self.changes(page)
+        page.wait_for_function("REV.seenState==='ok'", timeout=15000)
+        page.click("#revision-pdf-tab")
+        page.wait_for_function("()=>/앞선 비교 PDF/.test($('#revision-status').textContent)", timeout=15000)
+        page.click("#revision-source-tab")
+        page.wait_for_function("REV.format==='source'", timeout=15000)
+        left = len(answered)
+        nothing_follows(page, 1500)
+        self.assertEqual(len(answered), left)
+        self.assertNotIn("앞선 비교 PDF", page.locator("#revision-status").text_content())
+        page.click("#revision-pdf-tab")
+        page.wait_for_selector('.revision-page[data-state="ready"] canvas', timeout=15000)
+        self.assertEqual(len(answered), 3)
 
     def test_desktop_lays_the_list_beside_the_changes(self):
         """At 1440x900 the list is a 304px column left of the changes, rows at least 48px, the quick range in the
