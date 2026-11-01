@@ -68,13 +68,24 @@ class VerdictBase(BrowserBase):
         The page verdict line can draw before the list is asked for, so taking the routes as soon as the line is
         there could take none and let the real list through unheld (a CI flake: the line read the verdict, not
         '판정 읽는 중…')."""
+        return self._take_held(page, "held_list", "the viewer never asked for the pin list", timeout_ms)
+
+    def take_held(self, page, timeout_ms=10000):
+        """The held POST /api/pin routes, once the viewer has sent a pin's save at least once; stops holding. A page line's
+        save sends its pick first, so its POST /api/pin can still be on its way while the line says it saves (PV_BUSY)."""
+        return self._take_held(page, "held", "the viewer never sent a pin's save", timeout_ms)
+
+    def _take_held(self, page, name, never, timeout_ms):
+        """The routes held in self.<name>, once one is there (the route handler runs while Playwright waits on the page),
+        and stops holding them; fails with `never` after timeout_ms."""
         waited = 0
-        while not self.held_list:
+        while not getattr(self, name):
             if waited >= timeout_ms:
-                self.fail("the viewer never asked for the pin list")
+                self.fail(never)
             page.wait_for_timeout(20)
             waited += 20
-        held, self.held_list = self.held_list, None
+        held = getattr(self, name)
+        setattr(self, name, None)
         return held
 
     def route(self, route):
@@ -6822,7 +6833,8 @@ class RcRound2(VerdictBase):
 
     def test_a_held_save_keeps_the_text_and_a_failed_one_leaves_it_as_the_pages_draft(self):
         """(P1-A) 1 with its save held, Enter, '3번 패널' typed: the popover waits for the verdict's number with the text;
-        released, it is that verdict's draft. A save that fails meanwhile leaves the text as the page's draft."""
+        released, it is that verdict's draft. A save that fails meanwhile - held while the text is typed, then lost on the
+        network - leaves the text as the page's draft."""
         page = self.on("fig")
         self.held = []
         page.keyboard.press("1")
@@ -6842,13 +6854,18 @@ class RcRound2(VerdictBase):
         settle(page)
         self.drop_all()
         self.reload(page)
-        self.fail_pin = 1
         page.locator(WORD % (1, "보류")).focus()
         page.keyboard.press("Escape")
         page.evaluate("searchToPage()")
+        # Held, not lost at once: a save that fails while the text is still being typed closes the popover there, as it
+        # should, and what is typed after that goes into no field (#352: under load the failure came mid-text).
+        self.held = []
         page.keyboard.press("2")
         page.keyboard.press("Enter")
         page.keyboard.type("실패해도 남는 이유")
+        self.assertEqual(page.evaluate(POP, 1)["value"], "실패해도 남는 이유")
+        for route in self.take_held(page):
+            route.abort()
         page.wait_for_function("()=>LINE.some(n=>n.title.startsWith('판정 저장 실패'))", timeout=10000)
         settle(page)
         self.assertEqual(page.evaluate(DRAFTS).get("fig:p1"), "실패해도 남는 이유")
