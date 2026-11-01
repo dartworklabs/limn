@@ -318,14 +318,15 @@ class Traced:
     """The range a selection traces to (trace_range): the path that won, its raw lines and score (0-1), and the range
     ladder around them (compute_levels: the default rung's lo/hi and kind, every rung, the default's name).
 
-    weak is set when the region's text was weighed but the best score is below WEAK_SCORE. split, only when not weak,
+    score is None when there was nothing to weigh, a picture's region or words so common they name no place: no measure,
+    not a 0% match. weak is set when the region's text was weighed but the best score is below WEAK_SCORE. split, only when not weak,
     names the winner's and the loser's first lines when both paths scored within SPLIT_MARGIN and the loser's line lies
     outside the chosen range - the two paths point at different places."""
 
     via: Via
     raw_lo: int
     raw_hi: int
-    score: float
+    score: float | None
     lo: int
     hi: int
     kind: str
@@ -333,6 +334,12 @@ class Traced:
     default_level: str
     weak: bool
     split: tuple[int, int] | None
+
+
+def draws_picture(lines: Sequence[str], lo: int, hi: int) -> bool:
+    """Whether these lines (lo, hi in lines) include a picture. SyncTeX names a picture's words by that line, and the words
+    live in the picture's own file, so the source's words tell nothing about the place."""
+    return any("\\includegraphics" in strip_comment(line) for line in lines[max(0, lo - 1) : hi])
 
 
 def trace_range(
@@ -346,16 +353,21 @@ def trace_range(
     cands: list[tuple[Via, int, int, float]] = []
     if synctex:
         cands.append(("synctex", synctex[0], synctex[1], score_range(tw, lines, synctex[0], synctex[1])))
-    alt = by_text(tw, lines, synctex[0] if synctex else None)
+    # On a picture SyncTeX is sure, and the picture's words matching some sentence elsewhere would only take the pin away.
+    picture = synctex is not None and draws_picture(lines, synctex[0], synctex[1])
+    alt = None if picture else by_text(tw, lines, synctex[0] if synctex else None)
     if alt:
         cands.append(("text", alt[0], alt[1], alt[2]))
     if not cands:
         return None
     cands.sort(key=lambda c: (-c[3], c[0] != "synctex"))
     via, raw_lo, raw_hi, best = cands[0]
-    weak = bool(tw) and best < WEAK_SCORE
     lad = compute_levels(lines, raw_lo, raw_hi, envs)
     lo, hi = lad["lo"], lad["hi"]
+    # The paths compete on their raw lines, and the answer says how much of the drag is in the lines the pin shows: SyncTeX
+    # names a table's cells by its \\end line, whose words are the rows above it.
+    score = max(best, score_range(tw, lines, lo, hi)) if tw and not picture else None
+    weak = score is not None and score < WEAK_SCORE
     # If both expand into the same block, the two paths haven't actually diverged - no disagreement.
     split = (
         (cands[0][1], cands[1][1])
@@ -365,7 +377,7 @@ def trace_range(
         and not (lo <= cands[1][1] <= hi)
         else None
     )
-    return Traced(via, raw_lo, raw_hi, best, lo, hi, lad["kind"], lad["levels"], lad["default_level"], weak, split)
+    return Traced(via, raw_lo, raw_hi, score, lo, hi, lad["kind"], lad["levels"], lad["default_level"], weak, split)
 
 
 # ---------------------------------------------------------------- Anchors

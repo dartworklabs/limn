@@ -1365,6 +1365,24 @@ class FrontendPanelWidthLogic(unittest.TestCase):
             [["문단", "abstract", "frontmatter"], ["itemize", "itemize (바깥)"], "L159", "L155-L173"],
         )
 
+    def test_nothing_to_weigh_has_no_badge(self):
+        """No score is no measure: a picture's region or words too common to name a place carry no badge. So does a pin saved
+        before there was no score, as 0 by SyncTeX with no quote. A score of 0 over text that was read keeps its warning."""
+        js = "\n".join(
+            [
+                js_tooltips(),
+                js_via_limits(),
+                extract_js_fn("viaTag"),
+                "console.log(JSON.stringify([viaTag({via:'synctex',score:null}),viaTag({via:'text'}),"
+                "viaTag({via:'synctex',score:0}),viaTag({via:'synctex',score:0,quote:'읽은 글'}),"
+                "viaTag({via:'text',score:0})]));",
+            ]
+        )
+        got = json.loads(run_node(js))
+        self.assertEqual(got[:3], [None, None, None])
+        self.assertTrue(got[3]["low"])
+        self.assertTrue(got[4]["low"])
+
     def test_via_tag_hides_confident_matches_and_flags_uncertain(self):
         """90% and above hides the badge; below that it is '위치 불확실', and below 30% it is low (the warning colour).
         The tooltip says, in whole sentences and in this order, how the place was found, how much of the dragged text

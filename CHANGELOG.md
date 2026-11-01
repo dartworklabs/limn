@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **A drag along a line of text reads that line, and the '위치 불확실' badge stops crying wolf.** A drag a few points high, the
+  way one strokes along a sentence, got no text: `pdftotext`'s crop takes a word only when its lower part lies inside the
+  rectangle, so 8 pt over the top of a 9.3 pt word gave nothing. The source line was right, but the pin had no quote and a
+  warning badge saying 0% of the drag matched. Every recent false badge on a real manuscript was this. Such a drag now reads
+  the words it touches. A drag with nothing to weigh, a picture or words too common to name a place, has no score
+  (`score: null` in the pick answer) and no badge, rather than 0%; pins saved so stay as they are and show none. Drags that
+  had text are read as before.
+- **A word the source does not hold no longer counts against a place.** A section number a `\ref` printed or a word inside a
+  picture was weighed as the rarest word of all, though no line can contain it, so '한계는 Section 5.5에' on its right line
+  scored 34%. Such words are left out of the score, and a drag of nothing else has no score.
+- **A drag over a picture stays on the picture.** SyncTeX names a picture exactly, but its words could match a sentence
+  elsewhere, and the text path then took the pin to that sentence. On a picture the text path no longer competes, and the
+  match has no score, as those words tell nothing about the place.
+- **The score is of the lines the pin shows.** SyncTeX names a table's cells by its `\end` line, so a drag on a table scored
+  0% on the line though the table holds every word. The paths still compete on their raw lines.
+
 ## 0.4.40 — 2026-11-01
 
 ### Fixed
