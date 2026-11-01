@@ -150,9 +150,9 @@ class TokenCache:
         actually picked the Nomenclature can come out scoring high overlap with a body paragraph too (observed).
         The rarer a token, the more power it has to pin down a location; a word on more than 5% of the lines is
         dropped. A number the file does not hold is dropped too: a \\ref printed it, no line can contain it, and weighed as
-        the rarest of all "5.5" took a right place to 34%. One it holds weighs no more than the lightest word beside it: it
-        can tell two rows with the same label apart, but a printed "3.2" matching an unrelated 3.2 outweighed every word and
-        took a drag whose line held all of its words to another paragraph. A word the file lacks stays, because it says
+        the rarest of all "5.5" took a right place to 34%. Those it holds weigh together no more than the lightest word beside
+        them: they can tell two rows with the same label apart, but a printed "3.2" matching an unrelated 3.2 outweighed every
+        word and took a drag whose line held all of its words to another paragraph. A word the file lacks stays, because it says
         something: the drag may be on another file, which is what the score is there to catch.
         The cache key is (path, mtime_ns, size) - id(lines) gets reused once the list is garbage-collected
         and can pick up another file's frequencies."""
@@ -173,7 +173,9 @@ class TokenCache:
         # a word scattered across the whole manuscript names no place
         kept = [(t, freq) for t, freq in kept if freq <= n * 0.05]
         kept = [(t, freq) for t, freq in kept if freq or not NUMBER_RE.fullmatch(t) or t in whole]
-        lightest = min((1.0 / (1.0 + freq) for t, freq in kept if not NUMBER_RE.fullmatch(t)), default=1.0)
+        numbers = sum(1 for t, _ in kept if NUMBER_RE.fullmatch(t))
+        lightest = min((1.0 / (1.0 + freq) for t, freq in kept if not NUMBER_RE.fullmatch(t)), default=numbers)
+        share = lightest / max(1, numbers)
         return [
-            (t, min(1.0 / (1.0 + freq), lightest) if NUMBER_RE.fullmatch(t) else 1.0 / (1.0 + freq)) for t, freq in kept
+            (t, min(1.0 / (1.0 + freq), share) if NUMBER_RE.fullmatch(t) else 1.0 / (1.0 + freq)) for t, freq in kept
         ]

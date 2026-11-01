@@ -14,8 +14,8 @@
 - **A number no longer outvotes the words around it.** A number a `\ref` printed is in no line of the source, yet it was
   weighed as the rarest word of all, so '한계는 Section 5.5에' on its right line scored 34%; such a number is left out now.
   And where a printed number matched an unrelated one it outweighed every word, which took a drag whose line held all of its
-  words to another paragraph; a number now weighs no more than the lightest word beside it, so it can still tell two rows of
-  one label apart. A word the file does not hold still counts, as it may mean the drag is on another file.
+  words to another paragraph; numbers now weigh together no more than the lightest word beside them, so they can still tell
+  two rows of one label apart. A word the file does not hold still counts, as it may mean the drag is on another file.
 - **A drag over a picture stays on the picture.** SyncTeX names a picture by its own `\includegraphics` line, but its words
   could match a sentence elsewhere, and the text path then took the pin to that sentence. There the text path no longer
   competes, and the match has no score, as those words tell nothing about the place.

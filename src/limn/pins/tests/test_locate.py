@@ -602,7 +602,14 @@ class NumbersTheSourceLacks(unittest.TestCase):
         got = dict(pick_source.TokenCache().weights("common 2.5배 shrinks", lines, ("f", 1, 1)))
         self.assertEqual(got["2.5"], got["common"])
         self.assertEqual(got["common"], 0.1)
+        self.assertEqual(self.weights("2.5 2.5"), {"2.5": 0.5})
         self.assertEqual(got["shrinks"], 0.5)
+
+    def test_numbers_together_do_not_outvote_a_word(self):
+        """Two printed numbers that both match another line stay under the word that only the right line has."""
+        lines = ("Frozen encoder (\\ref{a}, \\ref{b}).", "encoder 3.2 4.5") + ("filler",) * 98
+        tw = pick_source.TokenCache().weights("Frozen encoder 3.2 4.5", lines, ("f", 1, 1))
+        self.assertEqual(mapping.trace_range(tw, lines, (1, 1), ("table",)).raw_lo, 1)
 
     def test_numbers_tell_two_rows_of_one_label_apart(self):
         """Two tables with the same row label: the numbers are what picks the row SyncTeX did not name."""
