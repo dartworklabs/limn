@@ -144,7 +144,9 @@ const FIGURE_REST_PX=2;   // the pages rest on a figure's arrival within this (a
 // stalls the glide past its guard (PV_JUMP lapses after a second), which gives scroll anchoring back, and the anchoring's
 // adjustment left the figure 30-300px off (#345). So each time the pages come to rest - after ARRIVAL_REST_MS without a
 // scroll, the glide guard down - it measures the place again and glides the rest (pvGlideTo: the guard and the held anchoring
-// again), until ARRIVAL_SETTLE_MS after the first rest, at most ARRIVAL_FIXES times. It only settles what nobody asked
+// again), at most ARRIVAL_FIXES times, until ARRIVAL_SETTLE_MS after the rest that found nothing to do: each correction counts
+// the window again from its own rest, which is always measured. Counted from the first rest it closed on a correction stopped on
+// its way, whose guard lapses up to two seconds later, and left the figure short by what remained (#357). It only settles what nobody asked
 // for: anything the person does meanwhile - a press, a key, a wheel or a touch anywhere, a window resize - lets it go
 // (arrivalLetGo), for that starts a move of its own (a card's mark, a search hit, a zoom, another page) the watch must not
 // undo; so do the person's scroll (PV_HAND), another document and the pages not shown. A new arrival replaces it.
@@ -162,7 +164,7 @@ function arrivalSettle(){const a=ARRIVAL,L=$('#left'),el=a?document.getElementBy
   const now=performance.now(); if(!a.until)a.until=now+ARRIVAL_SETTLE_MS; else if(now>a.until){ARRIVAL=null; return;}
   const to=a.figure?figureTop(a.n):Math.max(0,Math.min(L.scrollHeight-L.clientHeight,L.scrollTop+el.getBoundingClientRect().top-L.getBoundingClientRect().top-L.clientTop));
   if(to===null){ARRIVAL=null; return;}
-  if(Math.abs(L.scrollTop-to)>FIGURE_REST_PX){if(a.fixes>=ARRIVAL_FIXES){ARRIVAL=null; return;} a.fixes++; pvGlideTo(to); arrivalSoon();}}
+  if(Math.abs(L.scrollTop-to)>FIGURE_REST_PX){if(a.fixes>=ARRIVAL_FIXES){ARRIVAL=null; return;} a.fixes++; a.until=0; pvGlideTo(to); arrivalSoon();}}
 // A scroll while it watches - the glide's own, an anchoring adjustment, a correction - waits for the next rest; a person's
 // scroll (PV_HAND) lets it go at that rest. So does a change of the pages' column's height, with no scroll at all: a line
 // pass that holds anchoring off (pvHoldView) or a far line drawn at its new height moves what is below it and says nothing

@@ -296,6 +296,38 @@ class FigureArrival(FigurePages):
                     self.at_figure(page.evaluate(WHERE, 4), 4)
                 page.context.close()
 
+    def test_a_correction_stopped_on_its_way_is_measured_when_the_pages_rest_however_late(self):
+        """The layout above moves as the arrival glides, and its correction is stopped where it stands (a script's write ends
+        a smooth scroll), its guard going down only past the two seconds after the first rest: the settling measures that
+        rest too and glides the rest. It closed first, and the figure stayed short by what remained (#357)."""
+        page = self.on(SIZES["desktop 1440x900"])
+        page.evaluate(
+            """() => {const glide = pvGlideTo, L = document.querySelector('#left'); let n = 0;
+              pvGlideTo = to => {glide(to); if (++n === 2) {L.scrollTop = L.scrollTop; PV_SCROLL_AT += 1000;}};}"""
+        )
+        page.evaluate(JUMP_AS_A_LINE_GROWS, ["goPage(4)", 2])
+        self.rest(page)
+        self.at_figure(page.evaluate(WHERE, 4), 4)
+
+    def test_a_line_fitted_anew_as_an_arrival_passes_does_not_stop_it(self):
+        """A line above the reading page changes its height in a fitting pass while a far arrival glides. The pass keeps the
+        reading page where it stood by a write to the scroll, which ended the glide there, thousands of px short, for two
+        seconds or for good (#357). The arrival now goes on to its place in one glide and settles there."""
+        page = self.on(SIZES["desktop 1440x900"])
+        before = page.evaluate("()=>document.querySelector('#doc .pv[data-page=\"1\"]').getBoundingClientRect().height")
+        page.evaluate(
+            """() => {const L = document.querySelector('#left'), l = document.querySelector('#doc .pv[data-page="1"]');
+              window.__ends = []; L.addEventListener('scrollend', () => __ends.push(L.scrollTop));
+              const pass = () => {if (L.scrollTop < 2000) return; L.removeEventListener('scroll', pass);
+                l.style.width = '200px'; pvFit([l]); window.__grew = l.getBoundingClientRect().height;};
+              L.addEventListener('scroll', pass); goPage(4);}"""
+        )
+        self.rest(page)
+        where = page.evaluate(WHERE, 4)
+        self.at_figure(where, 4)
+        self.assertGreater(page.evaluate("()=>__grew"), before)
+        self.assertGreater(page.evaluate("()=>__ends[0]"), where["arrive"] - 200)
+
     def test_a_line_above_that_grows_after_the_rest_with_anchoring_held_off_is_followed(self):
         """Page 4's figure reached and at rest; then the line of page 2 grows by 60px with scroll anchoring held off on the
         PDF area, as a line pass does (pvHoldView) - nothing scrolls. The arrival notices the column's height change and

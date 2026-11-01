@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **A far arrival at a figure no longer stops short when a line is fitted on the way (#357).** A line above the reading
+  page that changed height in a fitting pass made the viewer write the pages' scroll to keep the reading page in place,
+  and a write ends a smooth scroll where it stands: a jump to page 4 rested 3,200 px short until the settling picked it up.
+  The pass now leaves a jump alone. The settling itself gave up on a correction stopped on its way, because its two seconds
+  counted from the first rest and the stopped glide's guard lapses about as late: the figure stayed short by what remained.
+  Each correction now counts them from its own rest. The agent contract is unchanged.
+
 ## 0.4.40 — 2026-11-01
 
 ### Fixed
