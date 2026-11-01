@@ -168,6 +168,17 @@ class TraceRange(unittest.TestCase):
         t = mapping.trace_range([("weekly", 1.0), ("monthly", 1.0)], lines, (2, 2), self.envs)
         self.assertEqual((t.via, t.raw_lo, t.score, t.weak, t.split), ("synctex", 2, None, False, None))
 
+    def test_a_line_with_a_picture_and_more_is_not_taken_for_the_picture(self):
+        """One line holding a caption beside its picture holds text, so a sentence elsewhere can still correct it. A picture
+        with options and a trailing comment is still only a picture."""
+        rest = ("\\end{figure}", "", "rareone raretwo") + ("filler",) * 6
+        mixed = ("\\begin{figure}", "\\includegraphics{a.pdf}\\caption{unrelated}") + rest
+        t = mapping.trace_range([("rareone", 1.0), ("raretwo", 1.0)], mixed, (2, 2), self.envs)
+        self.assertEqual((t.via, t.raw_lo), ("text", 5))
+        alone = ("\\begin{figure}", "  \\includegraphics[width=2cm]{a.pdf} % the first") + rest
+        t = mapping.trace_range([("rareone", 1.0), ("raretwo", 1.0)], alone, (2, 2), self.envs)
+        self.assertEqual((t.via, t.raw_lo, t.score), ("synctex", 2, None))
+
     def test_a_range_of_lines_with_a_picture_is_not_taken_for_the_picture(self):
         """SyncTeX's answer of two lines, a picture and a caption, holds text, so a sentence elsewhere can still correct it."""
         lines = (

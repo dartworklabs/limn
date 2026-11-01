@@ -14,7 +14,7 @@
 - **A number a `\ref` printed no longer counts against a place.** Such a number is in no line of the source, yet it was
   weighed as the rarest word of all, so '한계는 Section 5.5에' on its right line scored 34%. A number the file does not hold
   is left out of the score. A word it does not hold still counts, as it may mean the drag is on another file.
-- **A drag over a picture stays on the picture.** SyncTeX names a picture by its one `\includegraphics` line, but its words
+- **A drag over a picture stays on the picture.** SyncTeX names a picture by its own `\includegraphics` line, but its words
   could match a sentence elsewhere, and the text path then took the pin to that sentence. There the text path no longer
   competes, and the match has no score, as those words tell nothing about the place.
 - **Each rung of the range has its own score.** SyncTeX names a table's cells by its `\end` line, so a drag on a table scored

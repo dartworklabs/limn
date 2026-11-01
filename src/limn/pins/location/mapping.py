@@ -117,6 +117,7 @@ def by_text(tw: TokenWeights, lines: Sequence[str], near: int | None = None) -> 
 
 # ---------------------------------------------------------------- Block expansion and the range ladder
 
+PICTURE_LINE_RE = re.compile(r"\\includegraphics(\[[^\]]*\])?\{[^{}]*\}")
 SECTION_RE = re.compile(r"\s*\\(part|chapter|section|subsection|subsubsection|paragraph)\*?[\[{]")
 
 
@@ -337,11 +338,15 @@ class Traced:
 
 
 def draws_picture(lines: Sequence[str], synctex: tuple[int, int]) -> bool:
-    """Whether SyncTeX's range is one line that includes a picture. It names a picture's words by that line alone, and the
-    words live in the picture's own file, so the source's words tell nothing about the place. A range of more lines holds
-    text as well, which the text path may rightly correct."""
+    """Whether SyncTeX's range is one line that holds a picture and nothing else. It names a picture's words by that line
+    alone, and the words live in the picture's own file, so the source's words tell nothing about the place. A longer range
+    or a line with anything more holds text as well, which the text path may rightly correct."""
     lo, hi = synctex
-    return lo == hi and 0 < lo <= len(lines) and "\\includegraphics" in strip_comment(lines[lo - 1])
+    return (
+        lo == hi
+        and 0 < lo <= len(lines)
+        and PICTURE_LINE_RE.fullmatch(strip_comment(lines[lo - 1]).strip()) is not None
+    )
 
 
 def trace_range(
