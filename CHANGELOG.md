@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **A far move from the phone's navigation sheet lands after the keyboard was up (#346).** On a Chromium phone, with the
+  sheet's outline filter used while the keyboard shrank the screen, the next far move from the page field (page 105 to
+  page 80) stopped on page 102 or 103: the band the keyboard had held settled 200 ms into the glide, and its re-fit wrote
+  the pages' scroll offset back to where it already was, which ends a smooth scroll in Chromium. A re-fit that leaves the
+  reading spot's page where it stood, at the same height, no longer touches the scroll. The agent contract is unchanged.
+
 ## 0.4.39 — 2026-11-01
 
 ### Changed
