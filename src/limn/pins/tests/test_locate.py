@@ -593,8 +593,14 @@ class NumbersTheSourceLacks(unittest.TestCase):
         """Section 5.5 is what \\ref printed; the source says sec:limits. The words stay, held or not."""
         self.assertEqual(set(self.weights("한계는 Section 5.5에 shrinks")), {"한계는", "Section", "shrinks"})
 
-    def test_a_number_the_source_holds_stays(self):
+    def test_a_number_counts_where_there_are_few_words(self):
+        """A row of a table: a number the file holds is what there is to go on, one it lacks is still no measure."""
         self.assertEqual(set(self.weights("2.5배 shrinks")), {"2.5", "shrinks"})
+        self.assertEqual(set(self.weights("2.5 9.9")), {"2.5"})
+
+    def test_a_number_beside_words_does_not_outvote_them(self):
+        """Section 2.5 printed by a \\ref matches an unrelated 2.5 and would weigh more than the words: it is left out."""
+        self.assertEqual(set(self.weights("한계는 Section 2.5 shrinks")), {"한계는", "Section", "shrinks"})
 
     def test_a_word_of_another_file_still_counts_against_the_place(self):
         """The drag is on a file SyncTeX did not name: its words are absent here, and they must weigh, or a wrong file looks

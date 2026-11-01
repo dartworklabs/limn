@@ -149,9 +149,10 @@ class TokenCache:
         Without weighting, common words like "target"/"data"/"training" dominate the score, so a selection that
         actually picked the Nomenclature can come out scoring high overlap with a body paragraph too (observed).
         The rarer a token, the more power it has to pin down a location; a word on more than 5% of the lines is
-        dropped, and so is a number the file does not hold: what a \\ref printed, which no line can contain. Weighed as the
-        rarest of all, a printed "5.5" took a right place to 34%. A word the file lacks stays, because it says something: the
-        drag may be on another file, which is what the score is there to catch.
+        dropped. A number counts only where fewer than two words do, a row of a table: printed by a \\ref it is in no line, and
+        weighed as the rarest of all "5.5" took a right place to 34%, or it matches an unrelated number and outweighs every
+        word, which took a drag whose line held all of its words to another paragraph. A word the file lacks stays, because
+        it says something: the drag may be on another file, which is what the score is there to catch.
         The cache key is (path, mtime_ns, size) - id(lines) gets reused once the list is garbage-collected
         and can pick up another file's frequencies."""
         with self._lock:
@@ -167,10 +168,13 @@ class TokenCache:
                 self._entry[key] = entry
         df, whole = entry
         n = max(1, len(lines))
-        out = []
-        for t in {t for t in TOKEN_RE.findall(text) if len(t) >= 2}:
-            freq = df.get(t, 0)
-            if freq > n * 0.05 or (not freq and NUMBER_RE.fullmatch(t) and t not in whole):
-                continue
-            out.append((t, 1.0 / (1.0 + freq)))
-        return out
+        kept = [(t, df.get(t, 0)) for t in {t for t in TOKEN_RE.findall(text) if len(t) >= 2}]
+        kept = [
+            (t, freq) for t, freq in kept if freq <= n * 0.05
+        ]  # a word scattered across the whole manuscript names no place
+        words = sum(1 for t, _ in kept if not NUMBER_RE.fullmatch(t))
+        return [
+            (t, 1.0 / (1.0 + freq))
+            for t, freq in kept
+            if not NUMBER_RE.fullmatch(t) or (words < 2 and (freq or t in whole))
+        ]
