@@ -19,7 +19,7 @@ from limn.pins.location import source as pick_source
 import helpers_figure
 from helpers import blank_png, ps, split_resp
 from helpers_access import ALICE, BOB, member_add, talk_to
-from helpers_browser import MISSES_44, VIEWPORTS, BrowserBase, nothing_follows, settle
+from helpers_browser import MISSES_44, VIEWPORTS, BrowserBase, ime_commit, ime_compose, nothing_follows, settle
 
 WORDS = {"format": "limn-verdicts/1", "verdicts": [{"key": "채택"}, {"key": "보류"}, {"key": "삭제", "confirm": True}]}
 N_PAGES = 7  # the last two are list pages: no verdict, no summary
@@ -845,6 +845,98 @@ class PanelEdges(PanelBase):
                 page.keyboard.type(more)
         self.assertEqual(page.locator("#doc .pv-pop .pv-reason").input_value(), "가나12다")
         self.assertEqual(len(self.pins()), 1, "a digit typed on became a verdict")
+
+    def test_a_rebuild_that_moves_the_lines_keeps_the_reason_field_with_its_caret_both_ways(self):
+        """A reason typed in the panel on page 1, the caret one back from its end, when a new build with a page more and
+        pages too wide for the panel arrives (the pages are built again): the field on the line under the page has the
+        focus, the text and the caret, and digits typed on stay text - and the same when the next build brings the panel
+        back. No verdict is saved. A popover's button focused before a rebuild has the focus after it; a focus put
+        elsewhere (the PDF area) stays there. The rebuild took the field with the focus, which fell to nothing (#352)."""
+        page = self.on()
+        page.locator('#pv-panel button[data-key="채택"]').click()
+        page.wait_for_function("OPEN_ALL.length===1")
+        settle(page)
+        page.locator('#pv-panel [data-act="pv-reason-open"]').click()
+        page.keyboard.type("가나다")
+        page.keyboard.press("ArrowLeft")
+        page.evaluate("()=>{window.M0=META;}")
+        wide = (
+            "()=>refreshDoc({...M0,pages:[...M0.pages,M0.pages[M0.pages.length-1]].map(p=>({...p,pt_w:p.pt_w*1.6}))})"
+        )
+        back = "()=>refreshDoc(M0)"
+        for build, beside, more in ((wide, False, "1"), (back, True, "2")):
+            with self.subTest(beside=beside):
+                page.evaluate(build)
+                settle(page)
+                self.assertEqual(page.evaluate(SHAPE)["beside"], beside)
+                self.assertTrue(
+                    page.evaluate("()=>pvIsReasonField(document.activeElement)"), "the field lost the focus"
+                )
+                page.keyboard.type(more)
+        self.assertEqual(page.locator("#doc .pv-pop .pv-reason").input_value(), "가나12다")
+        self.assertEqual(len(self.pins()), 1, "a digit typed on became a verdict")
+        page.focus('#doc .pv-pop [data-act="pv-reason-close"]')
+        page.evaluate(wide)
+        settle(page)
+        self.assertEqual(page.evaluate(FOCUS)["act"], "pv-reason-close")
+        page.locator("#left").focus()
+        page.evaluate(back)
+        settle(page)
+        self.assertEqual(page.evaluate("document.activeElement.id"), "left")
+        self.assertEqual(page.locator("#doc .pv-pop .pv-reason").input_value(), "가나12다")
+
+    def test_crossing_the_bar_mid_syllable_waits_for_the_syllable_both_ways(self):
+        """A reason typed in the panel, '유' left composing, when the room falls past the bar: the lines stay beside the
+        pages and the field is the same; committed, they move, and the field under the page has the focus and the text
+        with the syllable once - the 1 typed on is text. The same on the way back. Moved at once, the composition ended
+        with the old field and the input method's commit came on top of the text carried over: '묶이는 이유유' (#352)."""
+        page = self.on()
+        cdp = page.context.new_cdp_session(page)
+        page.locator('#pv-panel button[data-key="채택"]').click()
+        page.wait_for_function("OPEN_ALL.length===1")
+        settle(page)
+        page.locator('#pv-panel [data-act="pv-reason-open"]').click()
+        page.keyboard.type("묶이는 이")
+        same = "()=>document.querySelector('#doc .pv-pop .pv-reason')===window.FIELD"
+        want = "묶이는 이"
+        for room, beside, more in ((320, False, "1"), (370, True, "2")):
+            with self.subTest(beside=beside):
+                page.evaluate("()=>{window.FIELD=document.querySelector('#doc .pv-pop .pv-reason');}")
+                ime_compose(cdp, "ㅇ", "유")
+                self.resize(page, room)
+                self.assertEqual((page.evaluate(SHAPE)["beside"], page.evaluate(same)), (not beside, True))
+                ime_commit(cdp, "유")
+                page.wait_for_function("b=>PV_SIDE===b", arg=beside)
+                settle(page)
+                self.assertTrue(
+                    page.evaluate("()=>pvIsReasonField(document.activeElement)"), "the field lost the focus"
+                )
+                page.keyboard.type(more)
+                want += "유" + more
+                self.assertEqual(page.locator(FIELD).input_value(), want)
+        self.assertEqual(len(self.pins()), 1, "a digit typed on became a verdict")
+
+    def test_a_rebuild_keeps_the_reading_page_and_the_reason_in_the_panel(self):
+        """A reason typed in the panel on page 5, the reading line 30px above the page's end, when a new build with a page
+        more builds the pages again: page 5 is still read, its popover open with the text and the focus, nothing written.
+        Read from the new column before the summaries under the pages above were back, the reading page was page 6: the
+        reason was moved on from, written and closed, and the focus fell to nothing (#352)."""
+        page = self.on()
+        h = page.evaluate("()=>document.getElementById('p5').getBoundingClientRect().height")
+        self.to(page, 5, 160 - h + 30)
+        self.assertEqual(page.evaluate("pvReadingPage()"), 5)
+        page.locator('#pv-panel button[data-key="채택"]').click()
+        page.wait_for_function("OPEN_ALL.length===1")
+        settle(page)
+        page.locator('#pv-panel [data-act="pv-reason-open"]').click()
+        page.keyboard.type("다섯째 쪽")
+        (pid,) = self.pins()
+        page.evaluate("()=>refreshDoc({...META,pages:META.pages.concat(META.pages.slice(-1))})")
+        settle(page)
+        got = page.evaluate("()=>[pvReadingPage(),!!PV_REASON&&PV_REASON.page,pvIsReasonField(document.activeElement)]")
+        self.assertEqual(got, [5, 5, True])
+        self.assertEqual(page.locator(FIELD).input_value(), "다섯째 쪽")
+        self.assertEqual(self.pins()[pid]["note"], "", "the half text was written")
 
     def test_the_lines_moving_keep_the_save_chip_and_the_reading_spot(self):
         """A chip in the panel when the room falls past its bar stands on the page's line, its undo still there; page 3,

@@ -235,6 +235,24 @@ function pvReasonLost(r){const f=pvReasonField(),had=!!f&&document.activeElement
 let PV_REFOCUS=/** @type {{page:number,sel:string}|null} */(null);
 function pvReasonAfterLines(){const w=PV_REFOCUS; if(!w)return; PV_REFOCUS=null;
   const c=/** @type {HTMLElement|null} */(document.querySelector('#doc .pv[data-page="'+w.page+'"] '+w.sel)); if(c)c.focus({preventScroll:true});}
+// A rebuild of the pages (buildDoc) takes the open popover away with them, and a focus in it fell to nothing: what was typed
+// on was lost and a digit saved a verdict (#352 review). Before it, pvReasonHoldFocus notes the focus in the session's
+// popover - its field with the selection, or one of its controls; null when the focus is anywhere else, which the rebuild
+// leaves alone. After it, pvReasonFocusBack gives the focus back to the same place in the popover drawn again, beside the
+// pages or under one - while it is still on nothing. An input method's composition ends with the old field (the session's
+// text holds what it had composed). A popover not drawn again leaves the keys typed on no verdict keys (PV_KEY_GUARD).
+/** @typedef {{sid:number,sel:[number,number,string]|null,act:string}} ReasonFocus */
+/** @returns {ReasonFocus|null} */
+function pvReasonHoldFocus(){const r=PV_REASON,a=/** @type {HTMLElement|null} */(document.activeElement),pop=a&&a.closest?a.closest('#doc .pv-pop'):null;
+  if(!r||!a||!pop||pop.getAttribute('data-id')!=='s'+r.sid)return null;
+  if(pvIsReasonField(a))return {sid:r.sid,sel:[a.selectionStart,a.selectionEnd,a.selectionDirection||'none'],act:''};
+  return {sid:r.sid,sel:null,act:a.dataset.act||''};}
+/** @param {ReasonFocus|null} h */
+function pvReasonFocusBack(h){const a=document.activeElement; if(!h||(a&&a!==document.body))return;
+  const r=PV_REASON,pop=r&&r.sid===h.sid?document.querySelector('#doc .pv-pop[data-id="s'+h.sid+'"]'):null;
+  const c=/** @type {HTMLElement|null} */(!pop?null:h.sel?pop.querySelector('.pv-reason'):h.act?pop.querySelector('[data-act="'+h.act+'"]'):null);
+  if(!c){PV_KEY_GUARD=true; return;}
+  c.focus({preventScroll:true}); if(h.sel&&pvIsReasonField(c))c.setSelectionRange(h.sel[0],h.sel[1],/** @type {'forward'|'backward'|'none'} */(h.sel[2]));}
 // Once per document in this page's life, when its first lines are drawn: the drafts kept for pins that are gone are let go,
 // one kept for a verdict that is not its line's current one of the person's becomes its page's draft (only that is marked
 // there), and the others wait on their lines ('초안 있음') - none opens by itself: a popover restored on a page far from the reading
@@ -873,7 +891,7 @@ data-tip="${tr('이 판정의 이유를 씁니다. 메모로 붙습니다')}">${
 // is composing - and its height follows its lines.
 /** @param {HTMLElement} line */
 function pvReasonAfterDraw(line){const r=PV_REASON,f=/** @type {HTMLTextAreaElement|null} */(line.querySelector('.pv-pop .pv-reason')); if(!r||!f)return;
-  if(f.value!==r.text&&!PV_COMPOSING){const had=document.activeElement===f; f.value=r.text; if(had){const n=f.value.length; f.setSelectionRange(n,n);}}
+  if(f.value!==r.text&&PV_COMPOSING!==f){const had=document.activeElement===f; f.value=r.text; if(had){const n=f.value.length; f.setSelectionRange(n,n);}}
   pvReasonGrow(f);}
 // The field's height: its lines, up to its max-height (CSS), from one line.
 /** @param {HTMLTextAreaElement} f */
@@ -884,16 +902,34 @@ function pvRefill(page){const v=pageVerdictsOn(),e=/** @type {HTMLElement|null} 
   if(v&&e)fillPv(e,page,pageVerdictPins().get(page),v);}
 
 // ---------------- Input
-let PV_COMPOSING=false;   // an input method is composing in the reason field: its value is not put back
-$('#doc').addEventListener('compositionstart',e=>{if(pvIsReasonField(e.target))PV_COMPOSING=true;});
-// The composition's end settles what it brought back (pvReasonFollow, which waits for it).
-$('#doc').addEventListener('compositionend',e=>{const f=e.target; if(!pvIsReasonField(f))return; PV_COMPOSING=false;
-  const r=PV_REASON; if(r&&f.dataset.id==='s'+r.sid){pvReasonFollow(r); if(PV_REASON===r)rdKeep(r);}});
+// The reason field an input method is composing in: its value is not put back. The composition ends with its field: a field
+// drawn anew in its place (the pages built again) holds the session's text - while a flag stood, it was left empty and the
+// next input wrote what it held over the reason (#352).
+let PV_COMPOSING=/** @type {HTMLTextAreaElement|null} */(null);
+$('#doc').addEventListener('compositionstart',e=>{if(pvIsReasonField(e.target))PV_COMPOSING=e.target;});
+// The composition's end settles what it brought back (pvReasonFollow, which waits for it), and what waited for it goes on
+// (pvComposedOver).
+$('#doc').addEventListener('compositionend',e=>{const f=e.target; if(!pvIsReasonField(f))return; PV_COMPOSING=null;
+  const r=PV_REASON; if(r&&f.dataset.id==='s'+r.sid){pvReasonFollow(r); if(PV_REASON===r)rdKeep(r);} setTimeout(pvComposedOver,0);});
+// Whether an input method is composing a syllable in a reason field in the document. Nothing takes that field away
+// meanwhile: the lines do not move beside or under the pages (pvSideWant) and the pages are not built again (refreshDoc,
+// pvReasonComposed) until it ends. Moved or rebuilt, the field was a new one: the old one's composition ended with it, and
+// the input method's commit landed on top of the text carried over ('묶이는 이유' became '묶이는 이유유', #352).
+function pvComposingNow(){return !!PV_COMPOSING&&PV_COMPOSING.isConnected;}
+const PV_COMPOSED_WAIT=/** @type {(()=>void)[]} */([]);   // what waits for the composition's end (pvReasonComposed)
+const PV_COMPOSED_POLL_MS=200;   // how often a wait looks again: a field taken out of the document ends its composition without the event
+// Resolves once no syllable is being composed in a reason field (pvComposingNow) - at once when none is.
+/** @returns {Promise<void>} */
+function pvReasonComposed(){return new Promise(res=>{if(!pvComposingNow()){res(); return;}
+  const go=()=>{clearInterval(t); res();},t=setInterval(()=>{if(!pvComposingNow())go();},PV_COMPOSED_POLL_MS); PV_COMPOSED_WAIT.push(go);});}
+// After a composition ended, unless another began meanwhile: the rebuilds that waited go on, and the lines move if the room
+// crossed its bar while it lasted.
+function pvComposedOver(){if(pvComposingNow())return; PV_COMPOSED_WAIT.splice(0).forEach(go=>go()); if(pageVerdictsOn())pvSideCheck();}
 // Every input keeps the draft (rdPut), with the parts moved into it placed where they are now (pvReasonPlace) - a part
 // brought back whose text has landed on its pin meanwhile leaves at once (pvReasonFollow), or once an input method's
 // composition ends - and lets a first Esc go; the line follows its emptiness (the state).
 $('#doc').addEventListener('input',e=>{const f=e.target; if(!pvIsReasonField(f))return; const r=PV_REASON; if(!r||f.dataset.id!=='s'+r.sid)return;
-  const was=r.text; r.text=f.value; r.via=pvReasonPlace(r,was,f.selectionEnd); r.escArm=''; if(!PV_COMPOSING)pvReasonFollow(r); rdKeep(r); pvReasonGrow(f); pvRefill(r.page);});
+  const was=r.text; r.text=f.value; r.via=pvReasonPlace(r,was,f.selectionEnd); r.escArm=''; if(PV_COMPOSING!==f)pvReasonFollow(r); rdKeep(r); pvReasonGrow(f); pvRefill(r.page);});
 // The parts of session r's text once an input made it r.text from `was`, the caret at `caret`. A text the field held before
 // - back by an undo or a redo, a paste or a typed letter taken back, a composition given up - has the parts it had then: an
 // edit inside a part lets it go (rdEdit), and the undo that put the text back left it with none, so the text was no longer
