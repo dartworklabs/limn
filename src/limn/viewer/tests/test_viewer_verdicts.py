@@ -8583,7 +8583,7 @@ class ChipFontWait(VerdictBase):
         page.evaluate(
             "()=>{window.__fs='loaded'; document.fonts.dispatchEvent(new Event('loadingdone'));}"
         )  # sizePv: the line's width again
-        page.wait_for_timeout(100)
+        settle(page)
         self.assertEqual(page.evaluate(self.STATE, None), [True, False, False])
 
     def test_a_chip_with_no_room_while_its_save_is_out_is_placed_when_the_save_ends(self):
@@ -8607,7 +8607,7 @@ class ChipFontWait(VerdictBase):
 
     def test_a_chip_whose_fonts_never_load_goes_to_the_status_line_after_3_seconds(self):
         page = self.saved_then_squeezed()
-        page.wait_for_timeout(3300)
+        page.wait_for_function("()=>LINE.some(n=>n.undo&&!!n.act)")  # the timer's own end: on a busy machine past 3.3 s
         self.assertEqual(page.evaluate(self.STATE, None), [False, False, True])
 
 
