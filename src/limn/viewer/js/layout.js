@@ -138,10 +138,10 @@ function scheduleRelayout(){if(RELAY)return; RELAY=requestAnimationFrame(()=>{RE
 // The re-fit itself: relayout once the document is open, else only the layout.
 function refit(){if(META)relayout(); else applyLayout();}
 // Applies settleBand to the window now. Settle: BAND_IN takes the new input. Keep: BAND_IN stays (a pending wait is dropped - the
-// window came back). Wait: (re)starts BAND_SETTLE_MS; when it runs out with no text field focused, BAND_IN takes the window's input
-// and the page re-fits once. Returns whether the caller may re-fit now.
+// window came back). Wait: (re)starts BAND_SETTLE_MS; when it runs out with no text field focused, BAND_IN takes the window's input,
+// the page re-fits once and the page lines follow (pvSideWant holds them meanwhile). Returns whether the caller may re-fit now.
 function bandSettle(){const N=bandInput(),step=settleBand(BAND_IN,N,typingNow()); clearTimeout(BAND_T); BAND_T=0;
-  if(step===BAND_STEP.WAIT){BAND_T=setTimeout(()=>{BAND_T=0; if(typingNow())return; BAND_IN=bandInput(); refit();},BAND_SETTLE_MS); return false;}
+  if(step===BAND_STEP.WAIT){BAND_T=setTimeout(()=>{BAND_T=0; pvStickSoon(); if(typingNow())return; BAND_IN=bandInput(); refit();},BAND_SETTLE_MS); return false;}
   if(step===BAND_STEP.SETTLE)BAND_IN=N; return true;}
 // Whether the window differs from the settled band input (a band change may be due).
 function bandStale(){const o=bandInput(); return !!BAND_IN&&(o.w!==BAND_IN.w||o.h!==BAND_IN.h||o.coarse!==BAND_IN.coarse);}
