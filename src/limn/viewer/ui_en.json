@@ -77,6 +77,7 @@
  "겹쳐 보기": "Overlay",
  "겹쳐 볼 빌드": "Build to show",
  "고친 줄은 [소스 diff]": "the changed lines are in [Source diff]",
+ "앞선 비교 PDF가 끝나는 대로 이 비교 PDF를 만듭니다. 원고와 핀은 그대로 사용할 수 있습니다.": "Building this comparison PDF once the one before it ends. The manuscript and pins stay usable.",
  "이 그림의 요소 지도를 읽지 못해 영역으로 찍습니다 — 그림 저장소가 지도를 다시 쓰면 다시 고르세요.": "The figure's element map could not be read, so the region is pinned — select again once the figure repository writes the map.",
  "이 요소를 그린 코드 줄을 찾지 못해 영역으로 찍습니다 — 스크립트를 고친 뒤라면 그림을 다시 렌더하고 다시 고르세요.": "No code line was found for this element, so the region is pinned — if the script changed, re-render the figure and select again.",
  "PDF 를 벡터로 열지 못했습니다": "Couldn't open the PDF as vectors",

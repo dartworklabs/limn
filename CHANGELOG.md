@@ -34,6 +34,9 @@
   or a card's [보기] had nothing to measure its place after the glide, so a line fitted on the way left the page up to 200
   px off. Every glide now settles as a figure's arrival does; anything the person does lets it go, a search hit or anything
   else a script shows lets it go too, and a scroll by anything else after the pages rested is left alone.
+- **A commit pressed while another comparison builds gets its PDF.** A document builds one comparison at a time and opening
+  the changes view starts the newest commit's, so pressing another commit meanwhile was answered busy, and the view stopped
+  on '이 문서의 비교 PDF를 만드는 중입니다' for good. It now says it waits, and shows its own PDF when that one ends.
 
 ## 0.4.40 — 2026-11-01
 

@@ -578,6 +578,7 @@ class VisitLocalContinuations(unittest.TestCase):
         js = "\n".join(
             [
                 source,
+                extract_js_fn("revisionStart"),
                 """
                 let DOC='a';const REV={seq:1,commit:'head',target:null};
                 const REV_SCOPE={whole:false,fallback:false},REV_PDF={loading:null};
