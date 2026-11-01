@@ -158,6 +158,11 @@ pre.nowrap{white-space:pre}
    soft shadow above it. Compact screens keep the 44px words and tighten the rest - a 4px ring, 4px off the bottom, a
    smaller shadow - since every px there is plot. */
 .pv.stuck{background:var(--background);box-shadow:0 0 0 var(--pv-ring) var(--background),0 -1px 0 var(--pv-ring) var(--border-strong),0 -2px var(--pv-blur) var(--pv-ring) var(--shadow-color)}
+/* Held under its own page by an open reason's room and lying over the next page's head (.pv-over, verdict.js pvRoomPlace):
+   the same edge and shadow under it as over it, so the band is set off from the page it covers instead of reading as that
+   page's head. */
+.pv.stuck.pv-over{box-shadow:0 0 0 var(--pv-ring) var(--background),0 -1px 0 var(--pv-ring) var(--border-strong),0 1px 0 var(--pv-ring) var(--border-strong),
+  0 -2px var(--pv-blur) var(--pv-ring) var(--shadow-color),0 2px var(--pv-blur) var(--pv-ring) var(--shadow-color)}
 body.compact .pv{--pv-ring:var(--space-1);--pv-gap:var(--space-1);--pv-blur:4px}
 /* Not floating while a selection is being written - the composer has its own verdict row, and on a phone or a foldable the
    line would sit on the selection or the sheet - nor over a phone's open sheet, which leaves too little of the page. Over a
@@ -275,6 +280,11 @@ body.lay-narrow.has-status:not(.typing,.pv-typing){--pv-inset:calc(var(--sheet-h
    it, and never taller than the room it has (it scrolls). Never a scroll anchor: a line is sticky, and an anchor that moves
    with the scroll turns a change inside it into a jump of the page. */
 .pv.pv-pop-below>.pv-pop{top:calc(100% + var(--space-2));bottom:auto}
+/* Room to read a page's end under its open reason popover (verdict.js pvRoomPlace, #345): an empty box after the line, as tall
+   as what the popover covers of the page, that a sticky line may come down into; its negative margin gives the height back,
+   so no page moves when it comes or goes. The line's top edge is sticky where it stands (its inline top). Beside the pages
+   the blocks are grids and hold no line: never there. */
+body:not(.pv-beside) #doc .pgw.pv-roomy::after{content:'';display:block;height:var(--pv-room,0px);margin-bottom:calc(-1 * var(--pv-room,0px))}
 .pv>.pv-pop{max-height:var(--pv-pop-max,none);overflow-y:auto}
 @media (pointer:coarse){body.pv-typing .pv.reading>:is(.pv-fig,.pv-fig-sep){display:none}
   body.pv-typing .pv>.nt-chip :is(.nt-ic,.nt-t){display:none}}

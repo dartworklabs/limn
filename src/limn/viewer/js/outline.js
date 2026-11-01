@@ -277,14 +277,18 @@ function pickOutline(i){const e=OUTLINE_ENTRIES[i]; if(!e)return;
   markOutline(); updateSectionStrip(); setViewMode('manuscript');
   const top=outlinePickTop(e); if(top===null)goPage(e.page); else pvGlideTo(top);}
 // Where a pick scrolls the pages to, as #left's scrollTop: a heading with a place on its page (an XYZ destination below the
-// page's top) OUTLINE_PICK_GAP under the top of the free PDF area (selPopArea: under the section strip, the instance band
-// or the select mode's bar) - lower when it stands near its page's bottom, so that the reading line (readingDepth) still
-// falls on its page and the strip names it - as far as the pages scroll; null - the page's top, as goPage - for an entry
-// that names a whole page (frac 0) and for every entry of a figure document, whose pages are its figures.
+// page's top) OUTLINE_PICK_GAP under the free PDF area's top (spotTop); null - goPage's arrival (arrivePage: the page's
+// top, or a figure page's figure) - for an entry that names a whole page (frac 0) and for every entry of a figure
+// document, whose pages are its figures.
 function outlinePickTop(e){const pg=document.getElementById('p'+e.page),d=docInfo(DOC);
   if(!pg||!(e.frac>0)||(d&&isFigureKind(d.kind)))return null;
-  const L=$('#left'),r=pg.getBoundingClientRect(),y=r.top+e.frac*r.height,read=L.getBoundingClientRect().top+readingDepth(L);
-  const want=Math.max(selPopArea().top+OUTLINE_PICK_GAP,read+2-(r.bottom-y));
+  return spotTop(pg,e.frac,OUTLINE_PICK_GAP);}
+// #left's scrollTop that puts the place `frac` down page pg `gap` px under the top of the free PDF area (selPopArea: under the
+// section strip, the instance band or the select mode's bar) - lower when it stands near its page's bottom, so that the
+// reading line (readingDepth) still falls on its page and the strip names it - as far as the pages scroll.
+/** @param {HTMLElement} pg @param {number} frac @param {number} gap */
+function spotTop(pg,frac,gap){const L=$('#left'),r=pg.getBoundingClientRect(),y=r.top+frac*r.height,read=L.getBoundingClientRect().top+readingDepth(L);
+  const want=Math.max(selPopArea().top+gap,read+2-(r.bottom-y));
   return Math.max(0,Math.min(L.scrollHeight-L.clientHeight,Math.round(L.scrollTop+y-want)));}
 // (Re)starts the wait after which a pick still on its way is over (any scroll of the pages restarts it).
 function outlinePickWait(){clearTimeout(OUTLINE_PICK_WAIT); if(OUTLINE_PINNED&&!OUTLINE_PINNED.reached)OUTLINE_PICK_WAIT=setTimeout(dropOutlinePick,OUTLINE_PICK_SETTLE_MS);}

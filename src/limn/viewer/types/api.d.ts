@@ -171,8 +171,9 @@ interface RevisionRow {
 }
 
 // One page image of the current build (meta `pages`), with its size in PDF points. On a figure document whose map loads,
-// what the map says of the page: its figure (root element id), its title when the map has one, and verdict - always
-// false - when the page takes no verdict.
+// what the map says of the page: its figure (root element id), its title when the map has one, verdict - always
+// false - when the page takes no verdict, and on a page with a figure body (<figure>/@figure) the body's top edge and the
+// lowest bottom edge of the elements above it, as page fractions (docs/handbook/viewer.md §그림 쪽 도착).
 interface PageImage {
   name: string;
   pt_w: number;
@@ -180,6 +181,8 @@ interface PageImage {
   figure?: string;
   title?: string;
   verdict?: boolean;
+  figure_top?: number;
+  figure_above?: number;
 }
 
 // A figure document's two builds in GET /api/revisions (`overlay`): the build on screen and the build before it, with their

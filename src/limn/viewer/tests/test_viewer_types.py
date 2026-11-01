@@ -277,9 +277,11 @@ class DeclaredViewShapes(AccessBase):
         self.answer("Meta", "GET", "/api/meta?doc=ms", headers=alice)
         self.answer("Meta", "GET", "/api/meta?doc=rv&light=1", headers=BOB)
         self.answer("Meta", "GET", "/api/meta?doc=rr", headers=BOB)
-        # a figure document whose map says page 2 takes no verdict: meta's pages carry the map's page facts
+        # a figure document whose map says page 2 takes no verdict and names page 1's figure body under its calendar
+        # strip: meta's pages carry the map's page facts, the arrival's (figure_top, figure_above) among them
         fmap = helpers_figure.viewer_map()
         fmap["pages"][1]["verdict"] = False
+        fmap["pages"][0]["elements"].append({"id": "B2/@figure", "parent": "B2", "frac": [0.06, 0.4, 0.88, 0.5]})
         fig = helpers_figure.figure_doc(self.src, ps.APP.C.paths)
         ps.APP.set_docs([*docs, fig])
         helpers_figure.viewer_build(fig, helpers_figure.BUILD1, fmap)

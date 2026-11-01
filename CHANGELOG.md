@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.4.39 — 2026-11-01
+
+### Changed
+
+- **A figure page is arrived at by its figure (#345 item 2).** On a figure document page whose map names its figure body
+  (the element `<figure>/@figure`), the outline, a page field, the page list and a card's [보기] now put the figure's top
+  edge under the PDF area's top, keeping up to 24 pt above it for the figure's label line, instead of the page's top:
+  the page's head and text box no longer push the figure below the first screen (at 1440 x 900 the whole figure showed on
+  26 of 88 pages of a 1.6.0 gallery, now on all 88). The same entry again while the pages rest on the figure goes to the
+  page's top, and once more back to the figure. It lands there once the pages rest, even when the layout above moves
+  on the way (a save's list reload, scroll anchoring after a stall); a person's own scroll is left alone. The reading
+  line falls inside the figure, so the section strip, the page count, the keys 1-5 and the verdict panel name the
+  arrived page. Pages without a figure body, and every LaTeX or view-only page, arrive at their top as before. `GET /api/meta` adds `figure_top` and `figure_above` to such a page's
+  facts; the agent contract is otherwise unchanged.
+
+### Fixed
+
+- **The page's end scrolls clear of an open reason (#345 item 1).** The reason popover stands above its page line, so at
+  a page's end it covered the page's last lines - a figure's caption - and no scroll uncovered them: the line and the
+  popover came up with the page. While the popover is open, the line and the popover now stay where they are as the
+  pages scroll on, until the page's end has come up from under them by what they covered, then go on with the page.
+  Opening and closing it moves nothing, no page moves in the flow and nothing scrolls by itself; held lower than its
+  place, the line floats over the gap, and while it lies over the next page's head it has an edge and a shadow under it
+  as over it, so it does not read as part of that page. The side panel's popover, beside the page, is unchanged. The
+  agent contract is unchanged.
+- **Opening or closing a reason no longer scrolls the pages (#345, also in 0.4.38).** Each drawing of the page lines
+  measures every line in the document as the reading line for a moment, and the lines above the reading page that it
+  does not hold grew and shrank back; the PDF area's scroll anchoring kept part of that. With the pin panel closed on a
+  1440 figure document, the pages went 46px down when a reason opened (by Enter or a click) and again when it closed,
+  and 39px on a phone when it opened. The measure now never anchors the scroll at any zoom, as it already did while
+  pinch-zoomed.
+
 ## 0.4.38 — 2026-10-31
 
 ### Fixed

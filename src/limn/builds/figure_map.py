@@ -616,6 +616,30 @@ def element_kind(el: MapElement, root: bool) -> str:
     return "el:" + (el.part[:KIND_PART_MAX] if el.part else "?")
 
 
+FIGURE_BODY = "/@figure"  # appended to a page's figure id: the id of the element that is the figure itself on the page
+
+
+@dataclass(frozen=True)
+class FigureArrival:
+    """Where the viewer arrives on a figure page (docs/handbook/viewer.md §그림 쪽 도착), as page fractions from the top:
+    the top edge of the figure body, and the lowest bottom edge of the page's other elements ending at or above that
+    edge (None when none does) - the room between holds the figure's own label line, which has no element."""
+
+    top: float
+    above: float | None
+
+
+def figure_arrival(page: MapPage) -> FigureArrival | None:
+    """The arrival on page: its figure body is the element whose id is the page's figure id followed by FIGURE_BODY
+    (a producer's page head, notes and caption are its siblings); None for a page without one."""
+    body = page.by_id(page.figure + FIGURE_BODY)
+    if body is None:
+        return None
+    top = body.frac[1]
+    ends = [e.frac[1] + e.frac[3] for e in page.elements if e is not body and e.frac[1] + e.frac[3] <= top]
+    return FigureArrival(top, max(ends) if ends else None)
+
+
 @dataclass(frozen=True)
 class ElementFollow:
     """Where a pinned element is on a map (follow_element): its page and box, both None when it is lost, and sync."""
