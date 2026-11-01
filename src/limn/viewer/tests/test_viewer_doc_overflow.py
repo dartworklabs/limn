@@ -7,7 +7,8 @@ twelve documents whose names mix Hangul and Latin and differ in length (MANY), a
 Which links a screen shows is a number a person chose from the names and the screen, written out per viewport
 (SHOWN_FIRST, SHOWN_LAST) - not worked out again from the widths, which would repeat the rule under test. The widths those
 choices rest on are the bundled Pretendard Variable's (docs/handbook/viewer.md §글꼴); each test that reads the row checks
-first that the links are drawn in it, so a machine that draws them in another face fails at that line, not at a count.
+first that the links are drawn in it, so a machine that draws them in another face fails at that line, not at a count. A
+browser that rounds the same face's advances is another matter: test_bundled_font.py names that one.
 
 Run: uv run pytest -q src/limn/viewer/tests/test_viewer_doc_overflow.py
 """
