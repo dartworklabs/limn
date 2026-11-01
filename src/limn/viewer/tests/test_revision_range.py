@@ -239,15 +239,16 @@ class RangePicker(PickerBase):
 
     def test_a_row_press_ranges_from_it_to_now_and_this_commit_only_narrows(self):
         """From [마지막으로 본 뒤], pressing c2 compares c2's parent to the newest; pressing c5 then ends the range at c5;
-        [이 커밋만] shows c2 alone; [변경 PDF] then builds that commit's comparison."""
+        [이 커밋만] shows c2 alone; [변경 PDF] then builds that commit's comparison. A range paints its rows when the server's
+        answer names them (paintedIds), so each count waits for REV.rangeIds, not only for the request to be set."""
         page = self.changes(self.open(0, init=self.seen_script(self.commits[4])))
         page.locator("#revision-commits .rc-row[data-commit='%s']" % self.commits[2]).click()
-        page.wait_for_function("REV.base===%s" % json.dumps(self.commits[1]), timeout=15000)
+        page.wait_for_function("REV.base===%s&&REV.rangeIds" % json.dumps(self.commits[1]), timeout=15000)
         self.assertEqual(page.evaluate("REV.commit"), self.commits[-1])
         self.assertEqual(self.segment(page, "from").get_attribute("aria-checked"), "true")
         self.assertEqual(page.locator("#revision-commits .rc-row.in").count(), 6)
         page.locator("#revision-commits .rc-row[data-commit='%s']" % self.commits[5]).click()
-        page.wait_for_function("REV.commit===%s" % json.dumps(self.commits[5]), timeout=15000)
+        page.wait_for_function("REV.commit===%s&&REV.rangeIds" % json.dumps(self.commits[5]), timeout=15000)
         self.assertEqual(page.evaluate("REV.base"), self.commits[1])
         self.assertEqual(page.locator("#revision-commits .rc-row.in").count(), 4)
         self.segment(page, "one").click()
