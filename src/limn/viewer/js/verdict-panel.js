@@ -48,7 +48,7 @@ function pvSideTurn(){const on=pvSideWant(); if(on===PV_SIDE)return null;
   const L=$('#left'),a=/** @type {HTMLElement|null} */(document.activeElement),f=pvIsReasonField(a)?/** @type {HTMLTextAreaElement} */(a):null,at=pvReadingAt();
   const keep={spot:L.scrollTop>0?topAnchor(readingDepth(L)):null,inLine:!!a&&!!a.closest&&!!a.closest('#doc .pv'),caret:f?[f.selectionStart,f.selectionEnd]:null,
     popAct:!!a&&!!a.closest&&!!a.closest('#doc .pv-pop')&&!f&&a.dataset.act||'',ctl:pvControlOf(a)};
-  if(f)PV_COMPOSING=false; PV_AT_HELD=at; pvSideApply(on); return keep;}
+  if(f)PV_COMPOSING=null; PV_AT_HELD=at; pvSideApply(on); return keep;}
 // The lines have moved and are fitted: the point that was under the reading line is there again, so the page in view does not
 // shift and the reading page is the one held (a rounded scroll position may fall a pixel off a page's edge: taken back).
 /** @param {NonNullable<ReturnType<typeof pvSideTurn>>} k */

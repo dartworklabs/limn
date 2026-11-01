@@ -873,7 +873,7 @@ data-tip="${tr('이 판정의 이유를 씁니다. 메모로 붙습니다')}">${
 // is composing - and its height follows its lines.
 /** @param {HTMLElement} line */
 function pvReasonAfterDraw(line){const r=PV_REASON,f=/** @type {HTMLTextAreaElement|null} */(line.querySelector('.pv-pop .pv-reason')); if(!r||!f)return;
-  if(f.value!==r.text&&!PV_COMPOSING){const had=document.activeElement===f; f.value=r.text; if(had){const n=f.value.length; f.setSelectionRange(n,n);}}
+  if(f.value!==r.text&&PV_COMPOSING!==f){const had=document.activeElement===f; f.value=r.text; if(had){const n=f.value.length; f.setSelectionRange(n,n);}}
   pvReasonGrow(f);}
 // The field's height: its lines, up to its max-height (CSS), from one line.
 /** @param {HTMLTextAreaElement} f */
@@ -884,16 +884,19 @@ function pvRefill(page){const v=pageVerdictsOn(),e=/** @type {HTMLElement|null} 
   if(v&&e)fillPv(e,page,pageVerdictPins().get(page),v);}
 
 // ---------------- Input
-let PV_COMPOSING=false;   // an input method is composing in the reason field: its value is not put back
-$('#doc').addEventListener('compositionstart',e=>{if(pvIsReasonField(e.target))PV_COMPOSING=true;});
+// The reason field an input method is composing in: its value is not put back. The composition ends with its field: a field
+// drawn anew in its place (the pages built again) holds the session's text - while a flag stood, it was left empty and the
+// next input wrote what it held over the reason (#352).
+let PV_COMPOSING=/** @type {HTMLTextAreaElement|null} */(null);
+$('#doc').addEventListener('compositionstart',e=>{if(pvIsReasonField(e.target))PV_COMPOSING=e.target;});
 // The composition's end settles what it brought back (pvReasonFollow, which waits for it).
-$('#doc').addEventListener('compositionend',e=>{const f=e.target; if(!pvIsReasonField(f))return; PV_COMPOSING=false;
+$('#doc').addEventListener('compositionend',e=>{const f=e.target; if(!pvIsReasonField(f))return; PV_COMPOSING=null;
   const r=PV_REASON; if(r&&f.dataset.id==='s'+r.sid){pvReasonFollow(r); if(PV_REASON===r)rdKeep(r);}});
 // Every input keeps the draft (rdPut), with the parts moved into it placed where they are now (pvReasonPlace) - a part
 // brought back whose text has landed on its pin meanwhile leaves at once (pvReasonFollow), or once an input method's
 // composition ends - and lets a first Esc go; the line follows its emptiness (the state).
 $('#doc').addEventListener('input',e=>{const f=e.target; if(!pvIsReasonField(f))return; const r=PV_REASON; if(!r||f.dataset.id!=='s'+r.sid)return;
-  const was=r.text; r.text=f.value; r.via=pvReasonPlace(r,was,f.selectionEnd); r.escArm=''; if(!PV_COMPOSING)pvReasonFollow(r); rdKeep(r); pvReasonGrow(f); pvRefill(r.page);});
+  const was=r.text; r.text=f.value; r.via=pvReasonPlace(r,was,f.selectionEnd); r.escArm=''; if(PV_COMPOSING!==f)pvReasonFollow(r); rdKeep(r); pvReasonGrow(f); pvRefill(r.page);});
 // The parts of session r's text once an input made it r.text from `was`, the caret at `caret`. A text the field held before
 // - back by an undo or a redo, a paste or a typed letter taken back, a composition given up - has the parts it had then: an
 // edit inside a part lets it go (rdEdit), and the undo that put the text back left it with none, so the text was no longer

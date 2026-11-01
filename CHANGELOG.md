@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **A Hangul syllable still composing no longer costs the reason typed before it (#352).** A key save and Enter at once
+  open the reason popover while the save is out. When the save landed while an input method was still composing a
+  syllable in the field, the line gained the pressed word's context in front of the popover and the field was drawn
+  again: it came back empty, and the syllable committed next was saved as the whole reason ('묶이는 이유' became '유').
+  The field now stays the same element whatever comes or goes before it, so its text, focus, caret and composition carry
+  on. A field drawn anew while a syllable composes (a new build with another page count builds the pages again) holds
+  the text typed so far instead of starting empty. A save that fails while the text is still being typed closes the
+  popover with what was typed by then, as before; the RcRound2 test whose failure could arrive mid-text under load now
+  holds the save until the text is in. The agent contract is unchanged.
+
 ## 0.4.39 — 2026-11-01
 
 ### Changed

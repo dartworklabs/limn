@@ -5686,6 +5686,71 @@ class ReasonKeys(VerdictBase):
         self.assertEqual(page.evaluate(REASON, 1), {"focused": True, "value": "2", "placeholder": "이유 (선택)"})
 
 
+def compose(cdp, *steps):
+    """An input method's composition in the focused field, one preedit after another (CDP Input.imeSetComposition):
+    compose(cdp, 'ㅇ', '유') leaves '유' composing, not yet committed. Input.insertText then commits it, as the input method
+    does when the next key ends the syllable."""
+    for s in steps:
+        cdp.send("Input.imeSetComposition", {"text": s, "selectionStart": len(s), "selectionEnd": len(s)})
+
+
+# Marks the open reason field (FIELD) and records the end of a composition in it (ENDED: the text it committed).
+MARK_FIELD = """()=>{const f=document.querySelector('#doc .pv-pop .pv-reason'); window.FIELD=f; window.ENDED=null;
+  f.addEventListener('compositionend',e=>{window.ENDED=e.data;});}"""
+# The open reason field now: whether it is the one marked, its text and focus, and what a composition in it committed.
+FIELD_NOW = """()=>{const f=document.querySelector('#doc .pv-pop .pv-reason');
+  return f&&{same: f===window.FIELD, value: f.value, focused: document.activeElement===f, ended: window.ENDED};}"""
+
+
+class ReasonComposition(VerdictBase):
+    """A reason typed with an input method (Hangul): the syllable still composing is part of the text, also when the line
+    is drawn again under it (#352)."""
+
+    def test_a_save_landing_mid_syllable_keeps_the_field_its_text_and_composition(self):
+        """2 (its save held), Enter, '묶이는 이' typed and '유' left composing; the save lands and binds the popover, and
+        the line gains the pressed word's context before it. The field is the same element with '묶이는 이유' and the
+        focus, its composition going on; committed and Enter, the note is the whole text. Drawn again by place, the field
+        was replaced and came back empty: the committed '유' was the note."""
+        page = self.on("fig")
+        cdp = page.context.new_cdp_session(page)
+        self.held = []
+        page.keyboard.press("2")
+        page.wait_for_function("PV_BUSY.size===1")
+        page.keyboard.press("Enter")
+        page.keyboard.type("묶이는 이")
+        page.evaluate(MARK_FIELD)
+        compose(cdp, "ㅇ", "유")
+        self.release()
+        page.wait_for_function("()=>OPEN_ALL.length===1&&!!PV_REASON&&PV_REASON.id>0", timeout=10000)
+        settle(page)
+        want = {"same": True, "value": "묶이는 이유", "focused": True, "ended": None}
+        self.assertEqual(page.evaluate(FIELD_NOW), want)
+        cdp.send("Input.insertText", {"text": "유"})  # the input method commits the syllable
+        self.assertEqual(page.evaluate(FIELD_NOW), {**want, "ended": "유"})
+        page.keyboard.press("Enter")
+        (pid,) = self.pins()
+        page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id&&p.note)", arg=pid, timeout=10000)
+        settle(page)
+        self.assertEqual(self.pins()[pid]["note"], "묶이는 이유")
+
+    def test_a_field_drawn_anew_mid_syllable_holds_the_text(self):
+        """채택's reason open, '마지막 이' typed and '유' left composing; a new build with a page more arrives and the pages
+        and their lines are built again: the new field holds '마지막 이유'. The composition ended with the old field, out
+        of the document, and the new one was left empty - what was typed next was written over the reason."""
+        page = self.on("fig")
+        self.press_page(page, 1, "채택")
+        open_reason(page, 1)
+        cdp = page.context.new_cdp_session(page)
+        page.keyboard.type("마지막 이")
+        page.evaluate(MARK_FIELD)
+        compose(cdp, "ㅇ", "유")
+        page.evaluate("()=>refreshDoc({...META,pages:META.pages.concat(META.pages.slice(-1))})")
+        settle(page)
+        got = page.evaluate(FIELD_NOW)
+        self.assertEqual((got["same"], got["value"]), (False, "마지막 이유"))
+        self.assertEqual(page.evaluate("PV_REASON.text"), "마지막 이유")
+
+
 class ReasonDrafts(VerdictBase):
     """An unsaved reason is never lost without a word (0.4.34 P1-2): drafts are kept per pin in this tab (sessionStorage);
     leaving the page with one asks first (beforeunload); with text Esc takes two presses, the first saying what the second
