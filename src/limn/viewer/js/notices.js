@@ -237,13 +237,15 @@ function endNotice(n,acted,seen){if(!NOTICES.has(n.n))return; NOTICES.delete(n.n
 // Read before message n goes. A button of it with the focus goes with it, and what is returned, called once it has gone, finds
 // the focus a place: on a document with page lines the line of the page the button was on (a chip's) or the reading page's, else
 // the pages - never nothing, so Tab goes on from there and not from the top of the page. Called where nothing took the focus
-// meanwhile; a press with a reason being typed leaves it in its field (noticeAct). anyDoc: on a document without page lines too.
-// An action's press goes without it, for the action may put the focus where it wants; the window's end and [x] have no action.
+// meanwhile; a press with a reason being typed leaves it in its field (noticeAct). With a card's editor or reply open it is left
+// out of the pages: there a digit is the pages' verdict key (verdictKey shuts them for a focus outside the pages), and a person
+// in the middle of a reply did not ask for that. anyDoc: on a document without page lines too. An action's press goes without
+// it, for the action may put the focus where it wants; the window's end and [x] have no action.
 /** @param {Notice} n @param {boolean} [anyDoc] @returns {()=>void} */
 function noticeFocusBack(n,anyDoc){const f=/** @type {HTMLElement|null} */(document.activeElement);
   const own=!!f&&!!f.closest&&!!f.closest('[data-act^="notice-"][data-n="'+n.n+'"]');
   const l=own&&f?/** @type {HTMLElement|null} */(f.closest('#doc .pv')):null,page=l?Number(l.dataset.page)||0:0;
-  return ()=>{const g=document.activeElement; if(!own||(g&&g!==document.body))return; const lines=!!pageVerdictsOn();
+  return ()=>{const g=document.activeElement; if(!own||(g&&g!==document.body)||EDITOR.current||REPLY)return; const lines=!!pageVerdictsOn();
     if(lines?!pvFocusLine(page||PV_READ):anyDoc)searchToPage();};}
 // How long an action's request may go unanswered before its message says so (noticeLate) - the bound a page line's
 // take-back has too (verdict.js PV_DROP_WAIT). A let: the tests shorten it.

@@ -230,6 +230,24 @@ class NoticeFocus(VerdictBase):
         page.wait_for_function("s => !document.querySelector(s)", arg=note)
         self.assertEqual(page.evaluate(self.WHERE), "left")
 
+    def test_the_end_of_a_window_keeps_the_focus_out_of_the_pages_while_a_reply_is_open(self):
+        """A card's reply open: inside the pages a digit is a verdict key, so a window's end does not put the focus there,
+        and a 2 changes no verdict (it took a page's 보류 back)."""
+        page = self.on("fig")
+        pid = self.press_page(page, 2, "보류")
+        page.evaluate("id => openReply(id)", pid)
+        page.wait_for_function("() => !!REPLY")
+        note = self.line_note(page)
+        act = page.locator(note + '[data-act="notice-act"]')
+        act.focus()
+        self.assertEqual(page.evaluate("()=>document.activeElement.dataset.act"), "notice-act")
+        page.evaluate(self.END)
+        page.wait_for_function("s => !document.querySelector(s)", arg=note)
+        self.assertEqual(page.evaluate(self.WHERE), "nothing")
+        page.keyboard.press("2")
+        settle(page)
+        self.assertEqual(self.pins()[pid]["state"], "open")
+
     def test_closing_a_message_leaves_the_focus_on_the_reading_line(self):
         """[x] pressed from the keyboard takes its own button away: the focus goes to the reading page's line."""
         page = self.on("fig")
