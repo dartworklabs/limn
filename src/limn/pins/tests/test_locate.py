@@ -12,6 +12,7 @@ Run: uv run pytest -q src/limn/pins/tests/test_locate.py
 import ast
 import json
 import os
+import subprocess
 import tempfile
 import time
 import unittest
@@ -24,6 +25,7 @@ from limn.builds.artifacts import BuildFailed, BuildOk, BuildOkWithErrors, Build
 from limn.pins.location import (
     input as location_input,
     lookup as locate,
+    mapping,
     position,
     range as source_range,
     resolve as pick_resolve,
@@ -154,10 +156,10 @@ class TokenWeights(unittest.TestCase):
     def test_cache_is_keyed_by_file_version(self):
         """The same key reuses the first lines' frequencies even when handed other lines; a new key recounts."""
         cache = pick_source.TokenCache()
-        first, other = ["alpha beta"] + ["filler"] * 39, ["filler"] * 40
+        first, other = ["alpha beta"] + ["filler"] * 39, ["alpha one", "alpha two"] + ["filler"] * 38
         self.assertEqual(dict(cache.weights("alpha", first, ("f", 1, 1))), {"alpha": 0.5})
         self.assertEqual(dict(cache.weights("alpha", other, ("f", 1, 1))), {"alpha": 0.5})
-        self.assertEqual(dict(cache.weights("alpha", other, ("f", 2, 1))), {"alpha": 1.0})
+        self.assertAlmostEqual(dict(cache.weights("alpha", other, ("f", 2, 1)))["alpha"], 1 / 3)
 
 
 class Overlaps(unittest.TestCase):
@@ -568,6 +570,118 @@ class Estimate(Base):
         self.assertIs(self.est_of(pid), True)
         edit_pin(pid, {"note": "메모만", "base_rev": self.pin(pid)["rev"]}, dict(LOCAL_ACTOR))
         self.assertIs(self.est_of(pid), True)
+
+
+BBOX = """<page width="595" height="842">
+    <word xMin="100.000000" yMin="83.500000" xMax="130.000000" yMax="92.800000">첫째</word>
+    <word xMin="133.000000" yMin="83.500000" xMax="170.000000" yMax="92.800000">A&amp;B</word>
+    <word xMin="100.000000" yMin="98.000000" xMax="130.000000" yMax="107.300000">아래줄</word>
+</page>"""
+
+
+class NumbersTheSourceLacks(unittest.TestCase):
+    """A number a \\ref printed is in no line, so it is not weighed. A word the file lacks stays: it may be on another file."""
+
+    LINES = ("타겟 데이터의 한계는 \\ref{sec:limits}에 적는다", "transfer gain shrinks here", "순서 2.5배") + (
+        "다른 문단의 글자",
+    ) * 40
+
+    def weights(self, text):
+        return dict(pick_source.TokenCache().weights(text, self.LINES, ("f", 1, 1)))
+
+    def test_a_printed_number_is_left_out(self):
+        """Section 5.5 is what \\ref printed; the source says sec:limits. The words stay, held or not."""
+        self.assertEqual(set(self.weights("한계는 Section 5.5에 shrinks")), {"한계는", "Section", "shrinks"})
+
+    def test_a_drag_of_numbers_has_the_ones_the_file_holds(self):
+        self.assertEqual(self.weights("2.5 9.9"), {"2.5": 0.5})
+
+    def test_a_number_weighs_no_more_than_the_lightest_word(self):
+        """A printed 2.5 that matches an unrelated 2.5 must not outvote the words around it."""
+        lines = self.LINES + ("common word",) * 9 + ("filler",) * 400
+        got = dict(pick_source.TokenCache().weights("common 2.5배 shrinks", lines, ("f", 1, 1)))
+        self.assertEqual(got["2.5"], got["common"])
+        self.assertEqual(got["common"], 0.1)
+        self.assertEqual(self.weights("2.5 2.5"), {"2.5": 0.5})
+        self.assertEqual(got["shrinks"], 0.5)
+
+    def test_numbers_together_do_not_outvote_a_word(self):
+        """Two printed numbers that both match another line stay under the word that only the right line has."""
+        lines = ("Frozen encoder (\\ref{a}, \\ref{b}).", "encoder 3.2 4.5") + ("filler",) * 98
+        tw = pick_source.TokenCache().weights("Frozen encoder 3.2 4.5", lines, ("f", 1, 1))
+        self.assertEqual(mapping.trace_range(tw, lines, (1, 1), ("table",)).raw_lo, 1)
+
+    def test_numbers_tell_two_rows_of_one_label_apart(self):
+        """Two tables with the same row label: the numbers are what picks the row SyncTeX did not name."""
+        lines = (
+            "Frozen encoder & 0.12 & 0.34",
+            "\\end{tabular}",
+            "",
+            "Frozen encoder & 0.56 & 0.78",
+            "\\end{tabular}",
+        ) + ("filler words",) * 40
+        tw = pick_source.TokenCache().weights("Frozen encoder 0.12 0.34", lines, ("f", 1, 1))
+        t = mapping.trace_range(tw, lines, (4, 4), ("table",))
+        self.assertEqual((t.via, t.raw_lo), ("text", 1))
+
+    def test_a_word_of_another_file_still_counts_against_the_place(self):
+        """The drag is on a file SyncTeX did not name: its words are absent here, and they must weigh, or a wrong file looks
+        sure. One held word of three keeps the score at a third of the weight."""
+        tw = pick_source.TokenCache().weights("transfer unrelated absentwords", self.LINES, ("f", 1, 1))
+        self.assertLess(mapping.score_range(tw, self.LINES, 2, 2), 0.5)
+
+
+class RegionText(unittest.TestCase):
+    """What a drag reads. pdftotext's crop, then the words the drag touches when the crop gives nothing."""
+
+    PDF = Path("/nowhere.pdf")
+
+    def text(self, crop: str, box: tuple[float, float, float, float]) -> str:
+        """region_text of box, pdftotext answering crop to a crop and BBOX to -bbox."""
+
+        def run(cmd, **_kwargs):
+            return subprocess.CompletedProcess(cmd, 0, stdout=BBOX if "-bbox" in cmd else crop, stderr="")
+
+        with mock.patch.object(pick_source.subprocess, "run", side_effect=run):
+            return pick_source.region_text(self.PDF, 3, *box)
+
+    def test_the_crop_stands_when_it_has_text(self):
+        """A drag pdftotext reads is read as before, whatever the box touches."""
+        self.assertEqual(self.text("잘린 글\n", (100, 80, 500, 110)), "잘린 글")
+
+    def test_a_drag_along_a_line_reads_the_words_it_touches(self):
+        """A stroke along the top of a line, under a third of its height, reads the words it crosses and not the next line."""
+        self.assertEqual(self.text("\n\x0c", (120, 84, 150, 87)), "첫째 A&B")
+
+    def test_a_drag_touching_nothing_reads_nothing(self):
+        """The gap between two lines, and the space beside the text."""
+        self.assertEqual(self.text("", (100, 94, 130, 97)), "")
+        self.assertEqual(self.text("", (200, 84, 300, 87)), "")
+
+    @needs_tex("pdflatex", "pdftotext")
+    def test_the_top_of_a_real_line_is_read(self):
+        """On a real PDF, where pdftotext's crop gives nothing for the top of a word."""
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            (folder / "d.tex").write_text(
+                "\\documentclass{article}\\begin{document}\\thispagestyle{empty}alphaword betaword gammaword\\end{document}\n",
+                encoding="utf-8",
+            )
+            subprocess.run(
+                ["pdflatex", "-no-shell-escape", "-interaction=nonstopmode", "d.tex"],
+                cwd=folder,
+                check=True,
+                capture_output=True,
+                timeout=120,
+            )
+            pdf = folder / "d.pdf"
+            boxes = subprocess.run(
+                ["pdftotext", "-bbox", "-f", "1", "-l", "1", str(pdf), "-"], capture_output=True, text=True, check=True
+            ).stdout
+            left, top, right, _bottom, word = pick_source.WORD_BOX_RE.findall(boxes)[0]
+            stroke = (float(left), float(top) + 0.2, float(right), float(top) + 1.2)
+            self.assertEqual(pick_source.cropped_text(pdf, 1, *stroke).strip(), "")
+            self.assertEqual(pick_source.region_text(pdf, 1, *stroke), word)
 
 
 class ServerOverlaps(Base):

@@ -129,7 +129,7 @@ def _picked_body(p: Picked) -> Body:
         "raw_hi": t.raw_hi,
         "kind": t.kind,
         "via": t.via,
-        "score": round(t.score, 2),
+        "score": None if t.score is None else round(t.score, 2),
         "warn": pick_warning(p),
         "n_lines": p.n_lines,
         "snippet": p.snippet,
@@ -147,7 +147,7 @@ def pick_warning(p: Picked) -> str:
     a running LaTeX build - the sentences that apply, joined by one space; "" when none does."""
     t = p.traced
     warn = ""
-    if t.weak:
+    if t.weak and t.score is not None:
         warn = PICK_WARNINGS["weak"] % (t.score * 100)
     elif t.split is not None:
         warn = PICK_WARNINGS["split"] % t.split

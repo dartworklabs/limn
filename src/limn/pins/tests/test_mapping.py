@@ -140,10 +140,79 @@ class TraceRange(unittest.TestCase):
         self.assertIsNone(mapping.trace_range(self.weights("zetaunique"), self.lines, None, self.envs))
 
     def test_synctex_alone_is_taken_and_never_weak_without_text(self):
-        """With no text to weigh (a figure), SyncTeX's range stands at score 0 and is not flagged weak."""
+        """With no text to weigh (a figure), SyncTeX's range stands with no score, which is no measure and not a 0% match,
+        and is not flagged weak."""
         t = mapping.trace_range([], self.lines, (14, 14), self.envs)
-        self.assertEqual((t.via, t.raw_lo, t.raw_hi, t.score, t.weak, t.split), ("synctex", 14, 14, 0.0, False, None))
+        self.assertEqual((t.via, t.raw_lo, t.raw_hi, t.score, t.weak, t.split), ("synctex", 14, 14, None, False, None))
         self.assertEqual((t.lo, t.hi, t.kind, t.default_level), (12, 16, "float", "env"))
+
+    def test_one_word_on_one_line_corrects_a_line_without_text(self):
+        """A word of the title, which SyncTeX names by \\end{frontmatter}: on one line of the file it is enough there."""
+        lines = ("\\title{Beyond the start}", "body", "\\end{frontmatter}") + ("filler",) * 40
+        t = mapping.trace_range([("Beyond", 0.5)], lines, (3, 3), self.envs)
+        self.assertEqual((t.via, t.raw_lo, t.score), ("text", 1, 1.0))
+
+    def test_one_word_does_not_overrule_a_line_of_text(self):
+        """SyncTeX on a line of text may be on the wrong file: the word found on one line of this file proves nothing, and
+        the 0% stays to say so."""
+        lines = ("\\caption{Beyond}", "body", "") + ("filler",) * 40 + ("", "some text here", "")
+        t = mapping.trace_range([("Beyond", 0.5)], lines, (45, 45), self.envs)
+        self.assertEqual((t.via, t.raw_lo, t.score, t.weak), ("synctex", 45, 0.0, True))
+
+    def test_one_word_inside_longer_words_on_many_lines_is_not_one_line(self):
+        """`heat` is a whole word on no line, weight 1, and inside `heating` on ten: not one line, so SyncTeX stays."""
+        lines = ("heating here",) * 10 + ("\\end{frontmatter}",) + ("filler",) * 40
+        t = mapping.trace_range([("heat", 1.0)], lines, (11, 11), self.envs)
+        self.assertEqual((t.via, t.raw_lo), ("synctex", 11))
+
+    def test_the_score_is_of_the_lines_the_pin_shows(self):
+        """SyncTeX names a table's cells by its \\end line. The path competes on that line, and the answer says how much of
+        the drag is in the table the pin shows."""
+        lines = ("\\begin{table}", "rarecell text", "rarecell row", "other row", "\\end{table}", "", "after") + (
+            "filler",
+        ) * 6
+        t = mapping.trace_range([("rarecell", 0.25)], lines, (5, 5), self.envs)
+        self.assertEqual((t.via, t.raw_lo, t.lo, t.hi, t.score), ("synctex", 5, 1, 5, 1.0))
+        self.assertEqual({lv["level"]: lv["score"] for lv in t.levels}["raw"], 0.0)
+
+    def test_a_picture_keeps_its_pin_and_has_no_measure(self):
+        """A drag over words inside a picture: SyncTeX names its \\includegraphics line. The same words in a sentence elsewhere
+        do not take the pin there, and they tell nothing about the place, so there is no score, not a 0% match."""
+        lines = (
+            "\\begin{figure}",
+            "\\includegraphics{a.pdf}",
+            "\\caption{the caption}",
+            "\\end{figure}",
+            "",
+            "weekly monthly elsewhere",
+        ) + ("filler",) * 6
+        t = mapping.trace_range([("weekly", 1.0), ("monthly", 1.0)], lines, (2, 2), self.envs)
+        self.assertEqual((t.via, t.raw_lo, t.score, t.weak, t.split), ("synctex", 2, None, False, None))
+
+    def test_a_line_with_a_picture_and_more_is_not_taken_for_the_picture(self):
+        """One line holding a caption beside its picture holds text, so a sentence elsewhere can still correct it. A picture
+        with options and a trailing comment is still only a picture."""
+        rest = ("\\end{figure}", "", "rareone raretwo") + ("filler",) * 6
+        mixed = ("\\begin{figure}", "\\includegraphics{a.pdf}\\caption{unrelated}") + rest
+        t = mapping.trace_range([("rareone", 1.0), ("raretwo", 1.0)], mixed, (2, 2), self.envs)
+        self.assertEqual((t.via, t.raw_lo), ("text", 5))
+        alone = ("\\begin{figure}", "  \\includegraphics[width=2cm]{a.pdf} % the first") + rest
+        t = mapping.trace_range([("rareone", 1.0), ("raretwo", 1.0)], alone, (2, 2), self.envs)
+        self.assertEqual((t.via, t.raw_lo, t.score), ("synctex", 2, None))
+
+    def test_a_range_of_lines_with_a_picture_is_not_taken_for_the_picture(self):
+        """SyncTeX's answer of two lines, a picture and a caption, holds text, so a sentence elsewhere can still correct it."""
+        lines = (
+            "\\begin{figure}",
+            "\\includegraphics{a.pdf}",
+            "\\caption{x}",
+            "\\end{figure}",
+            "",
+            "rareone raretwo",
+        ) + ("filler",) * 6
+        t = mapping.trace_range([("rareone", 1.0), ("raretwo", 1.0)], lines, (2, 3), self.envs)
+        self.assertEqual((t.via, t.raw_lo), ("text", 6))
+        self.assertEqual(t.score, 1.0)
 
     def test_the_better_score_wins_and_synctex_wins_a_tie(self):
         """Text found elsewhere with a higher score wins; the same score keeps SyncTeX."""

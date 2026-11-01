@@ -1365,6 +1365,42 @@ class FrontendPanelWidthLogic(unittest.TestCase):
             [["문단", "abstract", "frontmatter"], ["itemize", "itemize (바깥)"], "L159", "L155-L173"],
         )
 
+    def test_moving_a_pin_sends_the_text_it_moved_to(self):
+        """[위치 다시 잡기] carries the new drag's words, as a new pin does; without them the pin lost its quote."""
+        self.assertIn("pdf_build:c.pdf_build||undefined,quote:c.quote,", extract_js_fn("applyRepick"))
+
+    def test_choosing_a_rung_takes_its_score(self):
+        """The badge speaks for the lines chosen: a table's score does not stay on its \\end line, which holds none of the
+        drag. A rung without a score (a figure's map) keeps the pick's."""
+        js = "\n".join(
+            [
+                extract_js_fn("lvOf"),
+                extract_js_fn("useLevel"),
+                "const o={score:1,levels:[{level:'raw',lo:4,hi:4,snippet:'',score:0},{level:'env',lo:1,hi:4,snippet:'',score:1},"
+                "{level:'el',lo:2,hi:2,snippet:''}]};useLevel(o,'raw');const a=o.score;useLevel(o,'env');const b=o.score;"
+                "useLevel(o,'el');console.log(JSON.stringify([a,b,o.score]));",
+            ]
+        )
+        self.assertEqual(json.loads(run_node(js)), [0, 1, 1])
+
+    def test_nothing_to_weigh_has_no_badge(self):
+        """No score is no measure: a picture's region or words too common to name a place carry no badge. So does a pin saved
+        before there was no score, as 0 by SyncTeX with no quote. A score of 0 over text that was read keeps its warning."""
+        js = "\n".join(
+            [
+                js_tooltips(),
+                js_via_limits(),
+                extract_js_fn("viaTag"),
+                "console.log(JSON.stringify([viaTag({via:'synctex',score:null}),viaTag({via:'text'}),"
+                "viaTag({via:'synctex',score:0}),viaTag({via:'synctex',score:0,quote:'읽은 글'}),"
+                "viaTag({via:'text',score:0})]));",
+            ]
+        )
+        got = json.loads(run_node(js))
+        self.assertEqual(got[:3], [None, None, None])
+        self.assertTrue(got[3]["low"])
+        self.assertTrue(got[4]["low"])
+
     def test_via_tag_hides_confident_matches_and_flags_uncertain(self):
         """90% and above hides the badge; below that it is '위치 불확실', and below 30% it is low (the warning colour).
         The tooltip says, in whole sentences and in this order, how the place was found, how much of the dragged text

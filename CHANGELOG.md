@@ -37,6 +37,28 @@
 - **A commit pressed while another comparison builds gets its PDF.** A document builds one comparison at a time and opening
   the changes view starts the newest commit's, so pressing another commit meanwhile was answered busy, and the view stopped
   on '이 문서의 비교 PDF를 만드는 중입니다' for good. It now says it waits, and shows its own PDF when that one ends.
+- **A drag along a line of text reads that line, and the '위치 불확실' badge stops crying wolf.** A drag a few points high, the
+  way one strokes along a sentence, got no text: `pdftotext`'s crop takes a word only when its lower part lies inside the
+  rectangle, so 8 pt over the top of a 9.3 pt word gave nothing. The source line was right, but the pin had no quote and a
+  warning badge saying 0% of the drag matched. Every recent false badge on a real manuscript was this. Such a drag now reads
+  the words it touches. A drag with nothing to weigh, a picture or words too common to name a place, has no score
+  (`score: null` in the pick answer) and no badge, rather than 0%; pins saved so stay as they are and show none. Drags that
+  had text are read as before.
+- **A number no longer outvotes the words around it.** A number a `\ref` printed is in no line of the source, yet it was
+  weighed as the rarest word of all, so '한계는 Section 5.5에' on its right line scored 34%; such a number is left out now.
+  And where a printed number matched an unrelated one it outweighed every word, which took a drag whose line held all of its
+  words to another paragraph; numbers now weigh together no more than the lightest word beside them, so they can still tell
+  two rows of one label apart. A word the file does not hold still counts, as it may mean the drag is on another file.
+- **A drag over a picture stays on the picture.** SyncTeX names a picture by its own `\includegraphics` line, but its words
+  could match a sentence elsewhere, and the text path then took the pin to that sentence. There the text path no longer
+  competes, and the match has no score, as those words tell nothing about the place.
+- **One word of the title finds the title.** SyncTeX names the title block by `\end{frontmatter}`, and the text path wanted
+  two words, so a drag on one word stayed there at 0%. Where SyncTeX names a line without text, a word on exactly one line of
+  the file is now enough. On a line of text the 0% stays, as the drag may be on another file.
+- **Moving a pin keeps the text it was moved to.** [위치 다시 잡기] did not send the new quote, so the pin lost it.
+- **Each rung of the range has its own score.** SyncTeX names a table's cells by its `\end` line, so a drag on a table scored
+  0% on that line though the table the pin shows holds every word. The paths still compete on their raw lines, the answer
+  gives the default rung's score, and choosing another rung takes that rung's (`levels[].score`).
 
 ## 0.4.40 — 2026-11-01
 
