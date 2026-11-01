@@ -8565,7 +8565,9 @@ class ChipFontWait(VerdictBase):
         page = self.on("fig")
         page.evaluate("setK(PT_PX*2,false); ZOOMED=true")
         settle(page)
-        page.evaluate("()=>{armNotice=()=>{};}")  # the chip's 6 s are no part of this, and a busy machine spends them first
+        page.evaluate(
+            "()=>{armNotice=()=>{};}"
+        )  # the chip's 6 s are no part of this, and a busy machine spends them first
         page.evaluate(
             "()=>{window.__fs='loaded'; Object.defineProperty(document.fonts,'status',{get:()=>window.__fs,configurable:true});}"
         )
