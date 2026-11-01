@@ -7,6 +7,10 @@ document (page 89 of a real 105-page figure document). Chromium and Firefox arri
 of N_PAGES portrait one-figure pages (612 x 792 pt, blank page images) whose word file gives every page a line, at 390 x 844
 by touch and at CI's 1400 x 850. Desktop WebKit does not stand for a physical iPhone.
 
+A far move from the phone's navigation sheet after the keyboard shrank the screen (issue #346) runs in Chromium and WebKit:
+the band the keyboard had held settled during the glide, and its re-fit's write of the unchanged scroll offset ended
+Chromium's smooth scroll a few pages in.
+
 Run: uv run pytest -q src/limn/viewer/tests/test_viewer_cross_browser_jump.py
 """
 
@@ -130,3 +134,64 @@ class FirefoxJump(JumpFlows, JumpBase):
     """The same jumps in Playwright's bundled desktop Firefox."""
 
     BROWSER_ENGINE = "firefox"
+
+
+# One outline entry per page, named by its figure ('PL1' ...), as PDF.js would read a figure document's outline (the fixture's
+# stub PDF has none).
+OUTLINE = """n => {OUTLINE_ENTRIES = Array.from({length: n}, (_, i) => ({title: 'PL' + (i + 1), number: '', page: i + 1, depth: 0, up: -1, frac: 0, x: null}));
+  OUTLINE_DOC = DOC; OUTLINE_BUILD = META.pages_build || ''; renderOutline();}"""
+SHEET_ROWS = "n => document.querySelectorAll('#ns-outline-items > button').length === n"
+
+
+class SheetMoveFlows:
+    """A far move from the phone's navigation sheet after the keyboard has shrunk the screen (issue #346)."""
+
+    def sheet(self, page):
+        """The navigation sheet opened from the tool bar's position button."""
+        page.locator("#btn-pos").click()
+        page.wait_for_function("document.querySelector('#nav-sheet').open")
+        settle(page)
+
+    def sheet_move(self, page, n):
+        """Page n typed into the open sheet's page field and [이동] pressed; what stood once the pages rested."""
+        page.locator("#ns-page-in").click()
+        page.keyboard.type(str(n))
+        page.locator('#nav-sheet [data-act="ns-go"]').click()
+        page.evaluate(RESTED)
+        settle(page)
+        return page.evaluate(AT, n)
+
+    def test_a_far_move_after_the_keyboard_shrank_the_sheet_lands_on_its_page(self):
+        """At page 105 the sheet's outline filter gets 'PL88', the screen shrinks to 534 px high as the keyboard does, the
+        filter is emptied and page 80 is moved to from the page field. The field held the band while it had the focus
+        (settleBand), and the press that took the focus let the band settle 200 ms into the glide: the re-fit put the pages
+        back where they already stood (restoreAnchor), and Chromium ends a smooth scroll at any write of its scroll offset -
+        the pages stopped on page 102 or 103 and stayed there."""
+        page = self.on(PHONE)
+        page.evaluate(OUTLINE, N_PAGES)
+        self.sheet(page)
+        got = self.sheet_move(page, N_PAGES)
+        self.assertLessEqual(abs(got["off"]), 2, got)
+        self.sheet(page)
+        page.locator("#ns-outline-search").click()
+        page.keyboard.type("PL88")
+        page.wait_for_function(SHEET_ROWS, arg=1)
+        page.set_viewport_size({"width": 390, "height": 534})  # the keyboard, which resizes a phone's layout
+        page.wait_for_function("innerHeight === 534")
+        settle(page)
+        page.locator("#ns-outline-search").fill("")
+        page.wait_for_function(SHEET_ROWS, arg=N_PAGES)
+        settle(page)
+        got = self.sheet_move(page, 80)
+        self.assertLessEqual(abs(got["off"]), 2, got)
+        self.assertEqual((got["read"], got["jump"], got["anchoring"]), (80, False, "auto"), got)
+
+
+class ChromiumSheetMove(SheetMoveFlows, JumpBase):
+    """The move in Chromium by touch, where the glide stopped short."""
+
+
+class WebKitSheetMove(SheetMoveFlows, JumpBase):
+    """The same move in desktop WebKit with touch emulation, which arrived before as well."""
+
+    BROWSER_ENGINE = "webkit"
