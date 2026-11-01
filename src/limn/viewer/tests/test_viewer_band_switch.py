@@ -99,7 +99,7 @@ class BandBase(BrowserBase):
     def resize(self, page, size, band):
         """The window at size and the band settled on band (a touch window waits for it), all moves over."""
         page.set_viewport_size(size)
-        page.wait_for_function("b=>innerWidth===%d&&BAND===b" % size["width"], arg=band)
+        page.wait_for_function("([w,b])=>innerWidth===w&&BAND_IN.w===w&&!BAND_T&&BAND===b", arg=[size["width"], band])
         settle(page)
         page.evaluate(RESTED)
         settle(page)
@@ -182,10 +182,9 @@ class TopSpotHolds(BandBase):
 class LinesFollowTheWindow(BandBase):
     """The lines wait for a band settling, and still move when it has settled without changing."""
 
-    def test_a_touch_window_narrowed_within_the_wide_band_moves_the_lines_once_it_settles(self):
+    def check(self, page):
         """A touch desktop narrowed from 1920 to 1400: the same band, too little room beside the pages. A new width waits
         BAND_SETTLE_MS, the lines with it: they go under the pages when it has settled, with the page read where it stood."""
-        page = self.on(DESK_TOUCH, **TOUCH)
         self.assertTrue(page.evaluate(STANDS, PAGE)["beside"])
         self.place(page, page.evaluate(DEPTH) - 10)
         was = page.evaluate(STANDS, PAGE)
@@ -194,3 +193,16 @@ class LinesFollowTheWindow(BandBase):
         self.assertFalse(got["beside"])
         self.assertEqual(got["read"], PAGE)
         self.assertLessEqual(abs(got["y"] - was["y"]), 1, (was, got))
+
+    def test_a_touch_window_narrowed_within_the_wide_band_moves_the_lines_once_it_settles(self):
+        """With the scale the screen picks, the settling's re-fit sets it again."""
+        self.check(self.on(DESK_TOUCH, **TOUCH))
+
+    def test_a_saved_zoom_does_not_keep_the_lines_beside_the_pages_after_the_band_settles(self):
+        """With a zoom saved the settling's re-fit leaves the scale alone (autoW), so nothing in it looks at the room again:
+        the settling's own look (bandSettle) moves the lines."""
+        page = self.on(DESK_TOUCH, **TOUCH)
+        page.evaluate("actualSize()")
+        settle(page)
+        self.assertEqual(page.evaluate("prefs().figZoom"), 1)
+        self.check(page)
