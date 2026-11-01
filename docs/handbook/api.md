@@ -437,7 +437,7 @@ latexdiff는 본문 글과, 자기가 아는 글 명령(`\textbf`·`\section`·`
 ```
 
 - **`base_rev` 는 필수다.** 수정하려는 핀을 읽을 때 받은 `rev` 를 보낸다. 다르면 `409 {"error":"conflict","pin":<최신>}` 이고 아무것도 바뀌지 않는다. 다른 에이전트가 먼저 닫았거나 자동 줄 맞춤이 옮긴 핀을 옛 `lo`·`hi` 로 조용히 덮어쓰지 않기 위해서다. `409` 를 받으면 응답의 최신 `pin` 을 보고 다시 보낸다.
-- **위치를 통째로 바꿀 때는 `loc` 을 보낸다.** 모양은 `loc: {file, page, lo, hi, raw_lo, raw_hi, kind, via, score, fill, rival, frac, scope, pdf_build, el}` 이고, 이것을 "위치 다시 잡기"라 부른다. 필수는 `file`·`lo`·`hi` 다. `loc` 에 없는 `page`·`frac` 은 기존 값을 둔다. `kind` 가 없으면 `lines` 가 되고, 나머지 위치 필드는 지워진다. id, 메모, 작성자는 그대로다. `el` 은 위치 필드다. 그림 문서에서만 받고(다른 문서에서는 모르는 필드처럼 버린다), 다른 위치 필드처럼 `loc` 에 없으면 핀의 `el` 이 지워진다. `lo`·`hi` 만 고치는 편집은 `el` 을 둔다. 영역 핀과 줄 핀은 위치 다시 잡기로 서로 바뀌지 않는다(§그림 문서의 pick·핀).
+- **위치를 통째로 바꿀 때는 `loc` 을 보낸다.** 모양은 `loc: {file, page, lo, hi, raw_lo, raw_hi, kind, via, score, fill, rival, frac, scope, quote, pdf_build, el}` 이고, 이것을 "위치 다시 잡기"라 부른다. 필수는 `file`·`lo`·`hi` 다. `loc` 에 없는 `page`·`frac` 은 기존 값을 둔다. `kind` 가 없으면 `lines` 가 되고, 나머지 위치 필드는 지워진다. id, 메모, 작성자는 그대로다. `el` 은 위치 필드다. 그림 문서에서만 받고(다른 문서에서는 모르는 필드처럼 버린다), 다른 위치 필드처럼 `loc` 에 없으면 핀의 `el` 이 지워진다. `lo`·`hi` 만 고치는 편집은 `el` 을 둔다. 영역 핀과 줄 핀은 위치 다시 잡기로 서로 바뀌지 않는다(§그림 문서의 pick·핀).
 - **`pdf_build` 는 `loc` 에 `frac` 이 있을 때만 바뀐다.** 이때 값은 `loc` 에 담긴 `pdf_build` 다. 뷰어는 여기에 pick 응답 값을 넣는다. 둘 다 없으면 지금 빌드다. 메모, `note_append`, `lo`·`hi` 만 고치는 편집은 `pdf_build` 를 건드리지 않는다.
 - **범위가 바뀌면 `anchor` 를 새로 뜨고 `stale`·`sync` 를 지운다.** 위치를 잃은(`stale`) 핀도 이 경로로 고친다.
 - **닫힌 핀은 메모만 고칠 수 있다.** 범위나 위치, 제안 수정(`suggest`)을 보내면 `409 {"error":"done"}` 이다.

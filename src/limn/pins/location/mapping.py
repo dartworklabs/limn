@@ -100,8 +100,9 @@ def by_text(tw: TokenWeights, lines: Sequence[str], near: int | None = None) -> 
 
     This is the path used when SyncTeX stays silent or points somewhere wrong on a table/equation region.
     Korean word tokens survive almost untouched by markup (e.g. `타겟--소스 $i$ 간 코사인 거리`), so they
-    remain in the source text as-is."""
-    if len(tw) < 2:
+    remain in the source text as-is. One word is enough to test SyncTeX's line (near) when it is on one line of the file:
+    a word of the title, which SyncTeX names by \\end{frontmatter}."""
+    if len(tw) < 2 and not (near is not None and tw and tw[0][1] >= 0.5):
         return None
     scores = [sum(w for t, w in tw if t in ln) for ln in lines]
     if max(scores, default=0) <= 0:

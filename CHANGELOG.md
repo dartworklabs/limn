@@ -19,6 +19,9 @@
 - **A drag over a picture stays on the picture.** SyncTeX names a picture by its own `\includegraphics` line, but its words
   could match a sentence elsewhere, and the text path then took the pin to that sentence. There the text path no longer
   competes, and the match has no score, as those words tell nothing about the place.
+- **One word of the title finds the title.** SyncTeX names the title block by `\end{frontmatter}`, and the text path wanted
+  two words, so a drag on one word stayed there at 0%. A word on one line of the file is now enough to correct SyncTeX.
+- **Moving a pin keeps the text it was moved to.** [위치 다시 잡기] did not send the new quote, so the pin lost it.
 - **Each rung of the range has its own score.** SyncTeX names a table's cells by its `\end` line, so a drag on a table scored
   0% on that line though the table the pin shows holds every word. The paths still compete on their raw lines, the answer
   gives the default rung's score, and choosing another rung takes that rung's (`levels[].score`).

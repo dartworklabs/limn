@@ -146,11 +146,20 @@ class TraceRange(unittest.TestCase):
         self.assertEqual((t.via, t.raw_lo, t.raw_hi, t.score, t.weak, t.split), ("synctex", 14, 14, None, False, None))
         self.assertEqual((t.lo, t.hi, t.kind, t.default_level), (12, 16, "float", "env"))
 
+    def test_one_word_on_one_line_corrects_synctex(self):
+        """A word of the title, which SyncTeX names by \\end{frontmatter}: on one line of the file it is enough. A word on
+        more lines weighs less and is not."""
+        lines = ("\\title{Beyond the start}", "body", "\\end{frontmatter}") + ("filler",) * 40
+        t = mapping.trace_range([("Beyond", 0.5)], lines, (3, 3), self.envs)
+        self.assertEqual((t.via, t.raw_lo, t.score), ("text", 1, 1.0))
+        t = mapping.trace_range([("filler", 0.25)], lines, (3, 3), self.envs)
+        self.assertEqual((t.via, t.raw_lo), ("synctex", 3))
+
     def test_the_score_is_of_the_lines_the_pin_shows(self):
         """SyncTeX names a table's cells by its \\end line. The path competes on that line, and the answer says how much of
         the drag is in the table the pin shows."""
         lines = ("\\begin{table}", "rarecell text", "other row", "\\end{table}", "", "after") + ("filler",) * 6
-        t = mapping.trace_range([("rarecell", 1.0)], lines, (4, 4), self.envs)
+        t = mapping.trace_range([("rarecell", 0.25)], lines, (4, 4), self.envs)
         self.assertEqual((t.via, t.raw_lo, t.lo, t.hi, t.score), ("synctex", 4, 1, 4, 1.0))
         self.assertEqual({lv["level"]: lv["score"] for lv in t.levels}["raw"], 0.0)
 

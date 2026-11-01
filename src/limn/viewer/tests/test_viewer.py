@@ -1365,6 +1365,10 @@ class FrontendPanelWidthLogic(unittest.TestCase):
             [["문단", "abstract", "frontmatter"], ["itemize", "itemize (바깥)"], "L159", "L155-L173"],
         )
 
+    def test_moving_a_pin_sends_the_text_it_moved_to(self):
+        """[위치 다시 잡기] carries the new drag's words, as a new pin does; without them the pin lost its quote."""
+        self.assertIn("pdf_build:c.pdf_build||undefined,quote:c.quote,", extract_js_fn("applyRepick"))
+
     def test_choosing_a_rung_takes_its_score(self):
         """The badge speaks for the lines chosen: a table's score does not stay on its \\end line, which holds none of the
         drag. A rung without a score (a figure's map) keeps the pick's."""
