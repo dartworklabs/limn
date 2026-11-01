@@ -221,9 +221,9 @@ def settle(page, timeout=15000):
 
 def pdf_boot_done(page):
     """Wait until the viewer's boot has PDF.js, or has given up on it. vecBoot's import of it is neither a fetch nor a timer, so
-    settle() does not wait for it, and the open that follows takes a new VEC.gen: a stand-in document a test loaded before
-    that was left stale, its outline dropped while it was read. After this the viewer starts no open of its own, and any
-    it has under way gives way to the stand-in's generation."""
+    settle() does not wait for it, and the open that follows takes a new VEC.gen and forgets the outline: a stand-in
+    document loaded before that went stale, and an outline a test drew lost its sheet section. After this the viewer
+    starts no open of its own, and any it has under way gives way to a stand-in's generation."""
     page.wait_for_function("VEC.lib!==null||VEC.failed!==null")
 
 
@@ -464,9 +464,9 @@ class BrowserBase(ChromiumTestCase):
 
     def open(self, n_open, lang="ko", init=None, test_font=False, **device):
         """Open the viewer in a new context and return the page once boot() has finished and the page has settled: the
-        pin lists (open, review, done) are loaded and polling has started, with at least n_open open pins. init is an
-        optional script run before the viewer's own. test_font requests the fixed
-        page-scoped Hangul face before the viewer script executes.
+        pin lists (open, review, done) are loaded and polling has started, with at least n_open open pins, and the boot has
+        done with PDF.js (pdf_boot_done). init is an optional script run before the viewer's own. test_font requests the
+        fixed page-scoped Hangul face before the viewer script executes.
 
         The wait is on LIGHT_TIMER, which boot() sets only after `await loadPins()`. META and the initial
         `OPEN_ALL=[]` are both set before that await, so waiting on them alone let a test act on a review or done
@@ -488,6 +488,8 @@ class BrowserBase(ChromiumTestCase):
             wait_test_font(page)
         page.wait_for_function(booted(n_open), timeout=20000)
         settle(page)
+        pdf_boot_done(page)
+        settle(page)  # the open that follows PDF.js
         self.addCleanup(lambda: self.assertEqual(errors, []))
         return page
 
