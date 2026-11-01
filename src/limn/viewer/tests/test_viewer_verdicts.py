@@ -2307,6 +2307,9 @@ class LineLayout(VerdictBase):
         page = self.on("fig", viewport={"width": 1920, "height": 1080})
         page.evaluate("setK(PT_PX*2,false); ZOOMED=true")  # a line wide enough for the chip with its words
         settle(page)
+        # No message's window runs: this is about the chip's place, and the hundreds of widths below outlast its 6 s on a busy
+        # machine, which left no chip and no undo on the status line.
+        page.evaluate("()=>{armNotice=()=>{};}")
         self.press_page(page, 1, "보류")
         self.press_page(page, 1, "채택")
         geom = """w=>{const l=document.querySelector('#doc .pv[data-page="1"]'); if(w){l.style.width=w+'px'; pvFit([l]);}
