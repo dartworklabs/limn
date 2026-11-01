@@ -22,7 +22,7 @@ from limn.pins.location import source as pick_source
 import helpers_figure
 from helpers import blank_png, ps, split_resp
 from helpers_access import ALICE, talk_to
-from helpers_browser import BrowserBase, nothing_follows, settle
+from helpers_browser import BrowserBase, nothing_follows, pdf_boot_done, settle
 from helpers_outline import grouped_tree
 
 WORDS = {"format": "limn-verdicts/1", "verdicts": [{"key": "채택"}, {"key": "보류"}, {"key": "삭제", "confirm": True}]}
@@ -165,6 +165,7 @@ class EngineBase(BrowserBase):
     def outline(self):
         """The manuscript at 1400 x 850 with the outline panel open on LONG rows, reading page 1."""
         page = self.on("ms", init=OUTLINE_OPEN, **DESKTOP)
+        pdf_boot_done(page)
         self.assertEqual(page.evaluate(LOAD_TREE, [grouped_tree(LONG, 2), 2]), LONG)
         settle(page)
         return page

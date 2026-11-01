@@ -17,7 +17,7 @@ from urllib.parse import parse_qs, urlparse
 import helpers_figure
 from helpers import extract_js_fn, ps, run_node
 from helpers_access import ALICE
-from helpers_browser import BrowserBase, nothing_follows, settle
+from helpers_browser import BrowserBase, nothing_follows, pdf_boot_done, settle
 from helpers_notices import node_or_skip
 from helpers_outline import SHEET_ROWS, chain_tree, grouped_tree, outline_pdf
 
@@ -368,6 +368,7 @@ class OutlineBase(BrowserBase):
             page.evaluate("k=>switchDoc(k)", doc)
             page.wait_for_function("k=>DOC===k&&META&&META.doc===k&&document.querySelector('#p1')", arg=doc)
             settle(page)
+        pdf_boot_done(page)  # a test goes on to load an outline of its own
         return page
 
     def load(self, page, tree, pages=2):

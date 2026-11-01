@@ -219,6 +219,14 @@ def settle(page, timeout=15000):
     page.wait_for_function(QUIET, timeout=timeout, polling="raf")
 
 
+def pdf_boot_done(page):
+    """Wait until the viewer's boot has PDF.js, or has given up on it. vecBoot's import of it is neither a fetch nor a timer, so
+    settle() does not wait for it, and the open that follows takes a new VEC.gen: a stand-in document a test loaded before
+    that was left stale, its outline dropped while it was read. After this the viewer starts no open of its own, and any
+    it has under way gives way to the stand-in's generation."""
+    page.wait_for_function("VEC.lib!==null||VEC.failed!==null")
+
+
 def fonts_ready(page):
     """Wait for document.fonts.ready - every web font load the page has started has finished, so its text is drawn in
     the bundled Pretendard Variable and not a fallback it shows meanwhile (docs/handbook/viewer.md §글꼴) - and return
