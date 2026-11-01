@@ -1419,8 +1419,10 @@ const PV_HAND=()=>{PV_SCROLL_HAND=performance.now(); PV_GLIDE=false; pvJumpSet(n
 // on its way is over: its guard comes down, and its settling, which would glide the pages back, lets go. No input need come
 // before: a search hit lands when the PDF's text has been read. A write that only keeps what is on screen across a layout
 // change does not come here (restoreAnchor, pvLetBlocks, setSelMode, zoomRestore, pvSideSettle): it moves with the place, so the
-// settling stays right. test_viewer_scroll_writes.py holds the list: a new scripted scroll has to be put in it.
-function pvShow(){arrivalLetGo(); if(PV_JUMP!==null){pvJumpSet(null); PV_GLIDE=false;}}
+// settling stays right. test_viewer_scroll_writes.py holds the list: a new scripted scroll has to be put in it. Given what it
+// shows as a place, the pages settle there when a glide was on its way: the write stops it a frame or two late.
+/** @param {()=>number|null} [place] */
+function pvShow(place){arrivalLetGo(); if(PV_JUMP===null)return; pvJumpSet(null); PV_GLIDE=false; if(place)arrivalWatch(place);}
 // Sets where a jump is going (PV_JUMP, null when none), and while it goes holds the PDF area's scroll anchoring off (#left.pv-glide,
 // frame.css). WebKit ends a smooth scroll at any anchoring adjustment of its scroller, and on the way the lines are drawn again
 // as each page passes under the reading line: on a phone a jump from page 1 to page 105 of a figure document rested at page 89,

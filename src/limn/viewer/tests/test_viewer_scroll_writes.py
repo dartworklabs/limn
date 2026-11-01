@@ -17,7 +17,7 @@ JS = Path(__file__).resolve().parents[1] / "js"
 WRITE = re.compile(r"\.scroll(?:Top|Left)\s*[-+]?=(?!=)|\.scrollTo\(|\.scrollBy\(|\.scrollIntoView\(")
 FUNCTION = re.compile(r"^(?:async\s+)?function\s+(\w+)")
 
-# (file, function: <top> outside any): how many writes. pvShow() comes before each of them.
+# (file, function: <top> outside any): how many writes. pvShow comes before each of them.
 SHOWS = {
     ("doc-switch.js", "showDoc"): 1,
     ("figure.js", "showElementBox"): 1,
@@ -101,11 +101,11 @@ class ScrollWrites(unittest.TestCase):
         )
 
     def test_a_write_that_shows_something_ends_the_jump_first(self):
-        """pvShow() stands before each write of SHOWS, in its function."""
+        """pvShow stands before each write of SHOWS, in its function."""
         for name, where, before in writes():
             if (name, where) in SHOWS:
                 with self.subTest(write="%s %s" % (name, where)):
-                    self.assertIn("pvShow()", before)
+                    self.assertIn("pvShow(", before)
 
     def test_the_lists_do_not_overlap(self):
         """A write is of one kind."""

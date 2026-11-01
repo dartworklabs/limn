@@ -221,14 +221,19 @@ function searchRows(){if(BAND===LAYOUT_BAND.PHONE&&SEARCH.open)document.document
 // Scrolls hit h into the free part of the PDF area unless every line of it already is there, with 8px to spare: its first line
 // 30% down the area, as [보기] puts a mark, or higher so that its last line still shows when it runs over lines; a hit taller
 // than the area shows its first line at the area's top. Sideways only when a zoomed page has its start off to a side. Its page
-// counts as near the view from here on.
-function searchReveal(h){const pg=document.getElementById('p'+h.page); if(!pg)return; const bs=searchBoxes(h),L=$('#left'),a=searchArea();
+// counts as near the view from here on. A hit shown as the PDF's text is read can land on a jump's way: the jump is over, and
+// the hit is the place the pages settle on, for a glide stopped by a write goes on a frame or two and took it under the bar.
+function searchReveal(h){const s=searchShift(h),L=$('#left'); if(!s)return;
+  if(s.by||s.aside)pvShow(()=>{const n=searchShift(h); return n?L.scrollTop+n.by:null;});
+  if(s.by)L.scrollTop+=s.by;
+  if(s.aside)L.scrollLeft+=s.aside;
+  SEARCH.near.add(h.page);}   // in view now: its boxes are drawn at once, ahead of the observer
+// How far the PDF area has to scroll to show hit h as searchReveal does, down and across, 0 where it shows; null without its page.
+function searchShift(h){const pg=document.getElementById('p'+h.page); if(!pg)return null; const bs=searchBoxes(h),a=searchArea();
   const r=pg.getBoundingClientRect(),x=r.left+pg.clientLeft,y=r.top+pg.clientTop,w=pg.clientWidth,ht=pg.clientHeight;
   const top=y+Math.min(...bs.map(b=>b[1]))*ht,bottom=y+Math.max(...bs.map(b=>b[1]+b[3]))*ht,left=x+bs[0][0]*w,right=left+bs[0][2]*w;
-  const off=top<a.top+8||bottom>a.bottom-8,aside=left<a.left+8||right>a.right-8; if(off||aside)pvShow();
-  if(off){const want=bottom-top>a.bottom-a.top-16?a.top+8:Math.min(a.top+(a.bottom-a.top)*0.3,a.bottom-8-(bottom-top)); L.scrollTop+=top-want;}
-  if(aside)L.scrollLeft+=(left+right)/2-(a.left+a.right)/2;
-  SEARCH.near.add(h.page);}   // in view now: its boxes are drawn at once, ahead of the observer
+  const want=bottom-top>a.bottom-a.top-16?a.top+8:Math.min(a.top+(a.bottom-a.top)*0.3,a.bottom-8-(bottom-top));
+  return {by:top<a.top+8||bottom>a.bottom-8?top-want:0,aside:left<a.left+8||right>a.right-8?(left+right)/2-(a.left+a.right)/2:0};}
 // Picks the current hit when there is none: the first at or after the reference, once every page between the two has been
 // read (or could not be); the first of all once the pages from the reference on hold none.
 function searchPick(){if(SEARCH.cur||!SEARCH.hits.length)return; const r=SEARCH.ref,P=searchPages(SEARCH.doc);

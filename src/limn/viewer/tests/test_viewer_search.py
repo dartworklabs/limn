@@ -3133,21 +3133,23 @@ class HitInAJump(SearchBase):
         put_build(self.doc, build_dir(self.doc).name, search_pdf(long_pages(14)), 14)
 
     def test_a_hit_that_lands_on_a_jump_s_way_stays_on_screen(self):
-        """The search for page 2's marker waits for the text; page 14 is picked from the page list, and the text comes as the
-        pages move. The hit is shown and stays: the settling took the pages on to page 14 with the hit off the screen."""
+        """The search for page 2's marker waits for the text; page 14 is picked from the page list, and the text comes once
+        the pages have left page 2 behind. The hit is shown and stays, clear of the bars: the settling took the pages on to page
+        14 with the hit off the screen, and a glide stopped by the write ran on and put it under the section strip."""
         page = self.view()
         page.evaluate(TEXT_GATE)
         self.disclose(page)
         page.fill("#search-q", "marker2")
         page.wait_for_function("__text.held.size>0")
-        page.evaluate("""() => {const L = $('#left'), go = () => {if (L.scrollTop < 100) return;
-          L.removeEventListener('scroll', go); __text.all();}; L.addEventListener('scroll', go);}""")
+        page.evaluate("""() => {const L = $('#left'), far = document.getElementById('p4').offsetTop,
+          go = () => {if (L.scrollTop < far) return; L.removeEventListener('scroll', go); __text.all();};
+          L.addEventListener('scroll', go);}""")
         page.locator("#section-page").click()
         page.locator('#page-pop [data-act="page-go"][data-page="14"]').click()
         page.wait_for_function(COUNTED, timeout=20000)
         page.wait_for_function("()=>SEARCH.cur&&SEARCH.cur.page===2")
         settle(page)
-        self.assertEqual(page.evaluate("()=>[ARRIVAL, PV_JUMP]"), [None, None])
+        self.assertIsNone(page.evaluate("()=>PV_JUMP"))
         self.assertTrue(all(b["shows"] for b in self.current(page)["boxes"]), self.current(page))
 
 

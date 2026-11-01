@@ -313,9 +313,8 @@ class EveryJump(FigurePages):
         page.evaluate(ON_THE_WAY, "pvShow(); document.querySelector('#left').scrollTop = 300;")
         page.evaluate("()=>goPage(6)")
         self.rest(page)
-        self.assertEqual(
-            page.evaluate("()=>[document.querySelector('#left').scrollTop, ARRIVAL, PV_JUMP]"), [300, None, None]
-        )
+        self.assertEqual(page.evaluate("()=>[ARRIVAL, PV_JUMP]"), [None, None])
+        self.assertGreater(page.evaluate(WHERE, 6)["page"], 1000)  # a write stops a glide a frame or two late
 
     def test_a_write_that_keeps_the_view_on_the_way_does_not_end_the_jump(self):
         """A build that lands in the middle of a jump puts the reading spot back (restoreAnchor), with the pages moved. The write
