@@ -306,6 +306,27 @@ class EveryJump(FigurePages):
         self.rest(page)
         self.assertLessEqual(abs(page.evaluate(WHERE, 7)["page"]), 2)
 
+    def test_what_a_script_shows_on_the_way_ends_the_jump(self):
+        """In the middle of a jump a script shows something higher up (pvShow, as a search hit that lands then does; the hit
+        itself is in test_viewer_search.py): no input came, and neither the jump nor its settling takes the pages from there."""
+        page = self.on(SIZES["desktop 1440x900"])
+        page.evaluate(ON_THE_WAY, "pvShow(); document.querySelector('#left').scrollTop = 300;")
+        page.evaluate("()=>goPage(6)")
+        self.rest(page)
+        self.assertEqual(
+            page.evaluate("()=>[document.querySelector('#left').scrollTop, ARRIVAL, PV_JUMP]"), [300, None, None]
+        )
+
+    def test_a_write_that_keeps_the_view_on_the_way_does_not_end_the_jump(self):
+        """A build that lands in the middle of a jump puts the reading spot back (restoreAnchor), with the pages moved. The write
+        stops the glide, but it showed nothing: the settling takes the pages on to their place."""
+        page = self.on(SIZES["desktop 1440x900"])
+        page.evaluate(ON_THE_WAY, "{const a = topAnchor(); " + A_BLOCK + " restoreAnchor(a);}")
+        page.evaluate("()=>goPage(6)")
+        self.rest(page)
+        self.grew(page)
+        self.at_top(page.evaluate(WHERE, 6), 6)
+
     def test_a_scroll_after_the_rest_is_not_pulled_back(self):
         """At rest on page 6, within the settling's two seconds: the wheel is the person's and lets it go; a scroll by anything
         else (no input came) leaves the place where it was, so it is no layout's doing and it lets go as well."""

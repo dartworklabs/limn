@@ -350,7 +350,7 @@ function jumpPin(id){if(viaDoc(id,jumpPin))return; const p=PINS.find(x=>x.id===i
   const m=/** @type {HTMLElement} */(document.querySelector('.mark[data-pin="'+id+'"]'));
   if(m){
     const L=$('#left'),lr=L.getBoundingClientRect(),mr=m.getBoundingClientRect();
-    arrivalLetGo(); L.scrollTop+=(mr.top-(lr.top+lr.height*0.30));
+    pvShow(); L.scrollTop+=(mr.top-(lr.top+lr.height*0.30));
     m.classList.remove('flash');void m.offsetWidth;m.classList.add('flash');
   } else {
     arrivePage(pinPlace(p).page);   // the page's top, or a figure page's figure

@@ -1415,6 +1415,12 @@ addEventListener('keydown',verdictKey);
 // to page 64 saved 보류 on page 12). A scroll the person makes goes on acting at once; an instant jump ends at once.
 let PV_SCROLL_AT=0,PV_SCROLL_HAND=0,PV_GLIDE=false,PV_JUMP=/** @type {number|null} */(null);   // PV_JUMP: the scrollTop a jump is going to
 const PV_HAND=()=>{PV_SCROLL_HAND=performance.now(); PV_GLIDE=false; pvJumpSet(null);};   // the person takes the pages over
+// A script is about to scroll the PDF area to show something - a search hit, a mark, a box, a line, another document - so a jump
+// on its way is over: its guard comes down, and its settling, which would glide the pages back, lets go. No input need come
+// before: a search hit lands when the PDF's text has been read. A write that only keeps what is on screen across a layout
+// change does not come here (restoreAnchor, pvLetBlocks, setSelMode, zoomRestore, pvSideSettle): it moves with the place, so the
+// settling stays right. test_viewer_scroll_writes.py holds the list: a new scripted scroll has to be put in it.
+function pvShow(){arrivalLetGo(); if(PV_JUMP!==null){pvJumpSet(null); PV_GLIDE=false;}}
 // Sets where a jump is going (PV_JUMP, null when none), and while it goes holds the PDF area's scroll anchoring off (#left.pv-glide,
 // frame.css). WebKit ends a smooth scroll at any anchoring adjustment of its scroller, and on the way the lines are drawn again
 // as each page passes under the reading line: on a phone a jump from page 1 to page 105 of a figure document rested at page 89,
@@ -1572,4 +1578,4 @@ addEventListener('keydown',e=>{if(e.key!=='Tab'||!e.shiftKey||e.ctrlKey||e.metaK
     const first=[...blk.querySelectorAll(PV_TABBABLE)].find(pvTabStop); if(first!==a)return;
     const m=panel?pvMarkStops(Number(panel.dataset.page)):[]; if(m.length){e.preventDefault(); m[m.length-1].focus(); return;}}
   const to=pvOutStop(); if(!to)return; e.preventDefault(); to.focus({preventScroll:true});
-  if(to.closest('#outline')||to.classList.contains('pv-sum'))to.scrollIntoView({block:'nearest'});});   // an outline entry comes into the outline's view; the pages stay
+  if(to.closest('#outline')||to.classList.contains('pv-sum')){pvShow(); to.scrollIntoView({block:'nearest'});}});   // an outline entry comes into the outline's view; the pages stay

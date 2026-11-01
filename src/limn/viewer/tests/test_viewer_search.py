@@ -3123,6 +3123,34 @@ PICK_AND = """([i, how, away]) => {
 }"""
 
 
+class HitInAJump(SearchBase):
+    """A search's first hit is shown when the PDF's text has been read as far as it, with no input before it, and that can be in
+    the middle of a jump the person started meanwhile (pages.js arrivalSettle, pvShow)."""
+
+    def setUp(self):
+        """Fourteen long pages, so the jump from page 1 to page 14 is far."""
+        super().setUp()
+        put_build(self.doc, build_dir(self.doc).name, search_pdf(long_pages(14)), 14)
+
+    def test_a_hit_that_lands_on_a_jump_s_way_stays_on_screen(self):
+        """The search for page 2's marker waits for the text; page 14 is picked from the page list, and the text comes as the
+        pages move. The hit is shown and stays: the settling took the pages on to page 14 with the hit off the screen."""
+        page = self.view()
+        page.evaluate(TEXT_GATE)
+        self.disclose(page)
+        page.fill("#search-q", "marker2")
+        page.wait_for_function("__text.held.size>0")
+        page.evaluate("""() => {const L = $('#left'), go = () => {if (L.scrollTop < 100) return;
+          L.removeEventListener('scroll', go); __text.all();}; L.addEventListener('scroll', go);}""")
+        page.locator("#section-page").click()
+        page.locator('#page-pop [data-act="page-go"][data-page="14"]').click()
+        page.wait_for_function(COUNTED, timeout=20000)
+        page.wait_for_function("()=>SEARCH.cur&&SEARCH.cur.page===2")
+        settle(page)
+        self.assertEqual(page.evaluate("()=>[ARRIVAL, PV_JUMP]"), [None, None])
+        self.assertTrue(all(b["shows"] for b in self.current(page)["boxes"]), self.current(page))
+
+
 class SectionStripOutlineOrder(SearchBase):
     """The section strip and the outline's highlight on a document whose outline is not in page order (issue #279): a
     figure set's outline grouped by status (STATUS_OUTLINE). The strip named the last entry in the outline's order that

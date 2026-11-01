@@ -12,8 +12,8 @@
   Each correction now counts them from its own rest. The agent contract is unchanged.
 - **Every jump ends where it asked, with or without a figure.** A jump to a page with no figure, an outline entry's place
   or a card's [보기] had nothing to measure its place after the glide, so a line fitted on the way left the page up to 200
-  px off. Every glide now settles as a figure's arrival does; anything the person does lets it go, and a scroll by anything
-  else after the pages rested is left alone.
+  px off. Every glide now settles as a figure's arrival does; anything the person does lets it go, a search hit or anything
+  else a script shows lets it go too, and a scroll by anything else after the pages rested is left alone.
 
 ## 0.4.40 — 2026-11-01
 

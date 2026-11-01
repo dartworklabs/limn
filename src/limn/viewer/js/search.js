@@ -225,8 +225,9 @@ function searchRows(){if(BAND===LAYOUT_BAND.PHONE&&SEARCH.open)document.document
 function searchReveal(h){const pg=document.getElementById('p'+h.page); if(!pg)return; const bs=searchBoxes(h),L=$('#left'),a=searchArea();
   const r=pg.getBoundingClientRect(),x=r.left+pg.clientLeft,y=r.top+pg.clientTop,w=pg.clientWidth,ht=pg.clientHeight;
   const top=y+Math.min(...bs.map(b=>b[1]))*ht,bottom=y+Math.max(...bs.map(b=>b[1]+b[3]))*ht,left=x+bs[0][0]*w,right=left+bs[0][2]*w;
-  if(top<a.top+8||bottom>a.bottom-8){const want=bottom-top>a.bottom-a.top-16?a.top+8:Math.min(a.top+(a.bottom-a.top)*0.3,a.bottom-8-(bottom-top)); L.scrollTop+=top-want;}
-  if(left<a.left+8||right>a.right-8)L.scrollLeft+=(left+right)/2-(a.left+a.right)/2;
+  const off=top<a.top+8||bottom>a.bottom-8,aside=left<a.left+8||right>a.right-8; if(off||aside)pvShow();
+  if(off){const want=bottom-top>a.bottom-a.top-16?a.top+8:Math.min(a.top+(a.bottom-a.top)*0.3,a.bottom-8-(bottom-top)); L.scrollTop+=top-want;}
+  if(aside)L.scrollLeft+=(left+right)/2-(a.left+a.right)/2;
   SEARCH.near.add(h.page);}   // in view now: its boxes are drawn at once, ahead of the observer
 // Picks the current hit when there is none: the first at or after the reference, once every page between the two has been
 // read (or could not be); the first of all once the pages from the reference on hold none.
@@ -410,8 +411,9 @@ function searchShown(e){return document.contains(e)&&e.getClientRects().length>0
 // box (scrolled back to where [보기] puts a mark) or the composer's field in its panel.
 /** @param {HTMLElement} to */
 function searchBringBack(to){if($('#sel-pop').contains(to)&&SEL_POP_BOX){const b=SEL_POP_BOX.getBoundingClientRect(),a=selPopArea(),L=$('#left');
-    if(b.top<a.top+8||b.bottom>a.bottom-8)L.scrollTop+=b.top-(a.top+(a.bottom-a.top)*0.3);
-    if(b.left<a.left+8||b.right>a.right-8)L.scrollLeft+=(b.left+b.right)/2-(a.left+a.right)/2;
+    const off=b.top<a.top+8||b.bottom>a.bottom-8,aside=b.left<a.left+8||b.right>a.right-8; if(off||aside)pvShow();
+    if(off)L.scrollTop+=b.top-(a.top+(a.bottom-a.top)*0.3);
+    if(aside)L.scrollLeft+=(b.left+b.right)/2-(a.left+a.right)/2;
     placeSelPop();}
   else if($('#composer').contains(to))to.scrollIntoView({block:'nearest',inline:'nearest'});}
 // Puts the focus on the PDF's scroller - where the keys then scroll - for as long as it stays there: it is not a tab stop and

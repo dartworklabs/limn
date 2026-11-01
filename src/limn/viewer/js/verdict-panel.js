@@ -166,7 +166,7 @@ function pvPanelFit(l){l.classList.remove('pv-tight','pv-early-out','pv-t-kept',
 // (readingDepth), else centred on that line - so the reading page is that page. smooth: a glide (a card's [보기]).
 /** @param {number} page @param {boolean} [smooth] */
 function pvBring(page,smooth){const at=pvBringTop(page); if(at===null)return;
-  if(smooth){pvGlideTo(at); arrivalWatch(()=>pvBringTop(page));} else $('#left').scrollTop=at;}
+  if(smooth){pvGlideTo(at); arrivalWatch(()=>pvBringTop(page));} else{pvShow(); $('#left').scrollTop=at;}}
 /** The scrollTop of that reading place, or null without the page. @param {number} page @returns {number|null} */
 function pvBringTop(page){const L=$('#left'),pg=document.getElementById('p'+page); if(!pg)return null;
   const lr=L.getBoundingClientRect(),r=pg.getBoundingClientRect(),pad=parseFloat(getComputedStyle(L).paddingTop),d=readingDepth(L);

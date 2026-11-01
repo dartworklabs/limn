@@ -152,9 +152,12 @@ const FIGURE_REST_PX=2;   // the pages rest on a jump's place within this (a gli
 // short by what remained (#357). It only settles what nobody asked
 // for: anything the person does meanwhile - a press, a key, a wheel or a touch anywhere, a window resize - lets it go
 // (arrivalLetGo), for that starts a move of its own (a card's mark, a search hit, a zoom, another page) the watch must not
-// undo; so do the person's scroll (PV_HAND), another document and the pages not shown. So does a scroll by anything else once
-// the pages have rested at the place: the place stayed and the pages left it, which is no layout's doing (at). A new jump
-// replaces it. An instant jump needs no watch: nothing is on its way when a pass comes, and the pass keeps the view itself.
+// undo; so do the person's scroll (PV_HAND), another document and the pages not shown. A script that scrolls to show something
+// lets it go too, with no input before it (pvShow: a search hit landing as the PDF's text is read, in the middle of a jump); a
+// script that only keeps what is on screen does not, and may stop the glide: the place moved with it, and the settling goes
+// on. A scroll by anything else, once the pages have rested at the place, lets it go at that rest: the place stayed and the
+// pages left it, which is no layout's doing (at). A new jump replaces it. An instant jump needs no watch: nothing is on its way
+// when a pass comes, and the pass keeps the view itself.
 const ARRIVAL_REST_MS=120,ARRIVAL_SETTLE_MS=2000,ARRIVAL_FIXES=3;
 let ARRIVAL=/** @type {{place:()=>number|null,hand:number,doc:string|null,fixes:number,until:number,at:number|null}|null} */(null),ARRIVAL_TIMER=0;
 /** @param {()=>number|null} place - the scrollTop the jump goes to, measured now; null once it is gone */
