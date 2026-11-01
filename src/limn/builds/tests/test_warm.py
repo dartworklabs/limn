@@ -308,9 +308,9 @@ class ReadsDigest(unittest.TestCase):
         )
         for fn, args, want in cases:
             with self.subTest(fn=fn.__name__):
-                start = time.perf_counter()
+                start = time.process_time()  # the CPU it took: a backtracking regular expression has no count to read
                 self.assertEqual(fn(*args), want)
-                self.assertLess(time.perf_counter() - start, 0.5)
+                self.assertLess(time.process_time() - start, 0.5)
 
     def test_a_recipe_without_a_recorder_file_keeps_its_cold_digest(self):
         """A build that published no .fls records no reads (no skip) but its styles and cold digest."""
