@@ -25,12 +25,15 @@ function returnToSpot(){const s=SPOT; SPOT=null; if(!s||s.doc!==DOC||!$('#left')
 // in-flight refresh even when the document key matches again; its old pages must not replace the new visit. A failed read
 // is said on the status line (api, NOTICE_HOST.LINE) and throws. A refresh means a new build of the document is here (a
 // completed build, one met on returning to the document or on a pick): a failed request to rebuild it is over (rebuildSources).
+let REFRESH_GEN=0;   // the meta snapshots refreshDoc has had to apply, counted (a waiting one is dropped once a newer one came)
 async function refreshDoc(meta){let a=topAnchor(); const k=DOC,seq=SWITCHSEQ;
   const m=meta===undefined?(await api(dq('/api/meta'),{what:'화면 정보 읽기',where:NOTICE_HOST.LINE})).data:meta;
   if(k!==DOC||seq!==SWITCHSEQ)return;
+  const gen=++REFRESH_GEN;
   // Building the pages again takes the reason field with them: a syllable being composed in it ends first (pvComposingNow),
-  // and the spot is read again after the wait.
-  if(!(META&&m.pages.length===META.pages.length)&&pvComposingNow()){await pvReasonComposed(); if(k!==DOC||seq!==SWITCHSEQ)return; a=topAnchor();}
+  // and the spot is read again after the wait. A newer snapshot that came meanwhile wins - applied at once (the same page
+  // count) or waiting too: this one is dropped, never put back over it (a newer build was rolled back for good, #352 review).
+  if(!(META&&m.pages.length===META.pages.length)&&pvComposingNow()){await pvReasonComposed(); if(k!==DOC||seq!==SWITCHSEQ||gen!==REFRESH_GEN)return; a=topAnchor();}
   rebuildSources(k).forEach(sourceOk); META_BY.set(k,m);
   const same=META&&m.pages.length===META.pages.length; META=m; drawMeta();
   // The canvas was drawn from the old PDF - it's torn down to show the new PNG first, then redrawn once the new build's PDF is opened.

@@ -5768,6 +5768,35 @@ class ReasonComposition(VerdictBase):
         settle(page)
         self.assertEqual([(p["verdict"], p["note"]) for p in self.pins().values()], [("채택", "마지막 이유 추가 2")])
 
+    def test_a_newer_build_while_a_rebuild_waits_for_the_syllable_is_never_rolled_back(self):
+        """Build A on screen, '유' left composing: build B with a page more waits for the syllable; build C, with A's page
+        count, comes next and is applied at once. When the syllable is committed B is dropped - C stays on screen, with
+        A's pages and the field the same. B, applied after its wait, put the older build back over C for good: the build
+        polling had already counted C's (#352 review)."""
+        page = self.on("fig")
+        self.press_page(page, 1, "채택")
+        open_reason(page, 1)
+        cdp = page.context.new_cdp_session(page)
+        page.keyboard.type("마지막 이")
+        page.evaluate(MARK_FIELD)
+        ime_compose(cdp, "ㅇ", "유")
+        n = page.evaluate("META.pages.length")
+        page.evaluate(
+            "()=>{window.M0=META; window.RB=refreshDoc({...M0,pages:M0.pages.concat(M0.pages.slice(-1)),mark:'B'});}"
+        )
+        settle(page)
+        page.evaluate("()=>refreshDoc({...M0,mark:'C'})")
+        settle(page)
+        self.assertEqual(page.evaluate("[META.mark,META.pages.length]"), ["C", n])
+        ime_commit(cdp, "유")
+        page.evaluate("()=>window.RB")  # B's refresh is over
+        settle(page)
+        self.assertEqual(
+            page.evaluate("[META.mark,META.pages.length,document.querySelectorAll('#doc .pg').length]"), ["C", n, n]
+        )
+        got = page.evaluate(FIELD_NOW)
+        self.assertEqual((got["same"], got["value"], got["focused"]), (True, "마지막 이유", True))
+
     def test_a_failed_save_mid_syllable_leaves_it_once_in_the_pages_draft(self):
         """2 (its save held), Enter, '실패한 이' typed and '유' left composing; the save is lost on the network. The popover
         closes as any failed save's does, its text with the syllable as the page's draft; the input method's commit

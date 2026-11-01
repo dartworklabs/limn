@@ -21,7 +21,8 @@
   composition ended with the old one, and the input method's commit landed on top of the text carried over: '묶이는 이유'
   was saved as '묶이는 이유유123'. A new build with another page count did the same on a foldable or a tablet. The lines
   now stay where they are until the syllable ends and then move, and such a build waits to build the pages again until
-  then. A failed verdict save while a syllable composes closes the popover as before, keeping the text with the
+  then; a newer build that arrives meanwhile wins, and the waiting one is dropped rather than put back over it. A
+  failed verdict save while a syllable composes closes the popover as before, keeping the text with the
   syllable once as the page's draft.
 - **A new build keeps the reading page while it builds the pages again (#352).** Read from the new column before the
   summaries under the pages above were back, the reading page was the next one: a reason being typed in the side panel
