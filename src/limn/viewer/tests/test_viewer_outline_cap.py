@@ -551,24 +551,25 @@ class LongOutline(OutlineBase):
                 self.assertEqual((got["rows"], got["note"] is not None), (rows, cut > 0))
 
     def test_the_strip_and_the_filter_stay_fast_at_the_cap(self):
-        """With CAP entries the section strip's lookup, a section change and a filter keystroke cost milliseconds. The
-        bounds are an order of magnitude over what a laptop measures (lookup 0.01ms, section change 0.5ms, keystroke
-        10ms), so a slow runner does not fail them but a lookup or a redraw that grew with the entries' number
-        squared would."""
+        """With CAP entries the section strip's lookup, a section change and a filter keystroke each read a few fields an
+        entry, counted, so a busy machine does not change the answer as it did a stopwatch's. The bounds are about twice the
+        reads an entry measured (7.5, 7.5 and 17); a lookup or a redraw that grew with the entries' number squared reads
+        thousands."""
         page = self.on("fig")
         self.load(page, grouped_tree(CAP, 2))
         got = page.evaluate(
-            """() => {const t = () => performance.now(), E = OUTLINE_ENTRIES, f = document.querySelector('#outline-search');
-              let t0 = t(); for (let i = 0; i < 200; i++) outlineIndexAt(E, 1 + i % 2, (i % 100) / 100);
-              const lookup = (t() - t0) / 200;
-              t0 = t(); for (let i = 0; i < 20; i++) {OUTLINE_SELECTED = (i * 97) % E.length; OUTLINE_ACTIVE_PAGE = -1; updateSectionStrip();}
-              const change = (t() - t0) / 20;
-              f.value = 'S'; t0 = t(); f.dispatchEvent(new Event('input')); const key = t() - t0;
-              return {lookup, change, key};}"""
+            """() => {let reads = 0; const plain = OUTLINE_ENTRIES, f = document.querySelector('#outline-search');
+              const counted = (times, run) => {reads = 0; for (let i = 0; i < times; i++) run(i); return reads / times / plain.length;};
+              OUTLINE_ENTRIES = plain.map(e => new Proxy(e, {get: (t, k) => {reads++; return t[k];}}));
+              const E = OUTLINE_ENTRIES;
+              const lookup = counted(200, i => outlineIndexAt(E, 1 + i % 2, (i % 100) / 100));
+              const change = counted(20, i => {OUTLINE_SELECTED = (i * 97) % E.length; OUTLINE_ACTIVE_PAGE = -1; updateSectionStrip();});
+              f.value = 'S'; const key = counted(1, () => f.dispatchEvent(new Event('input')));
+              OUTLINE_ENTRIES = plain; return {lookup, change, key};}"""
         )
-        self.assertLess(got["lookup"], 1, got)
-        self.assertLess(got["change"], 20, got)
-        self.assertLess(got["key"], 400, got)
+        self.assertLess(got["lookup"], 15, got)
+        self.assertLess(got["change"], 15, got)
+        self.assertLess(got["key"], 35, got)
 
     def test_a_section_change_moves_the_mark_without_drawing_the_list_again(self):
         """Scrolling a long document changes the section at every page; the rows of the list stay the same elements and
