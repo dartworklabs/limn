@@ -206,6 +206,8 @@ class OutlineLogic(unittest.TestCase):
             + [[9, 13], [0, 4], [4, 8], [0, 2], None, None],
         )
 
+    READS_PER_ENTRY = 200  # entry fields one lookup may read, per entry
+    MAX_GROWTH = 2.5  # how many times those reads may grow when the entries double
     REFERENCE = """function referenceIndexAt(entries,page,frac){
       const at=e=>e.frac||0,deep=e=>e.depth||0,above=e=>e.page<page||(e.page===page&&at(e)<=frac+1e-6);
       const x=e=>typeof e.x==='number'?e.x:null,sameX=(a,b)=>x(a)===null||x(b)===null?x(a)===x(b):Math.abs(x(a)-x(b))<=1e-3;
@@ -269,35 +271,44 @@ class OutlineLogic(unittest.TestCase):
         self.assertTrue(got["found"])
 
     def test_the_lookup_stays_fast_where_many_entries_share_a_page(self):
-        """The cost of one lookup at 2,000 entries: all distinct spots on one page (the pairwise rule took ~26 ms), all at one
-        spot, forty to a spot, fifty pages of forty, and - what the first fix left at ~15 ms - all at one height with left edges
-        apart, in clumps within 1e-3 and (the crowded case) every edge within 1e-3 of the next; also all at one edge with the
-        heights apart. Each under 5 ms (measured under 1) and equal to the old answer."""
+        """The work of one lookup at 2,000 entries, as the entry fields it reads (a count, so a busy machine does not change
+        it, as it did a stopwatch's milliseconds): all distinct spots on one page, all at one spot, forty to a spot, fifty
+        pages of forty, all at one height with left edges apart, in clumps within 1e-3 and (the crowded case) every edge
+        within 1e-3 of the next; also all at one edge with the heights apart. Each under READS_PER_ENTRY a entry (measured
+        138 at worst, where the pairwise rule reads 3,930 in `distinct` and 19,998 in `one_height_edges_apart`), growing
+        with the entries' number and not its square (double the entries, under MAX_GROWTH times the reads; the pairwise
+        rule's grow four times), and equal to the old answer."""
         got = self.run_js(
             ["outlineIndexAt"],
             "(()=>{"
             + self.REFERENCE
             + """
-            const mk = f => Array.from({length: 2000}, (_, i) => f(i));
-            const cases = {
-              distinct: [mk(i => ({page: 1, depth: i % 4, frac: i / 2001, x: null})), 1, 0.99],
-              one_spot: [mk(i => ({page: 1, depth: i % 5, frac: 0.3, x: null})), 1, 0.9],
-              forty_a_spot: [mk(i => ({page: 1, depth: i % 4, frac: Math.floor(i / 40) / 50, x: i % 3 ? null : 12})), 1, 0.99],
-              fifty_pages: [mk(i => ({page: 1 + Math.floor(i / 40), depth: i % 3, frac: (i % 40) / 41, x: null})), 30, 0.7],
-              one_height_edges_apart: [mk(i => ({page: 1, depth: i % 4, frac: 0.3, x: i * 0.25})), 1, 0.9],
-              one_height_edge_clumps: [mk(i => ({page: 1, depth: i % 4, frac: 0.3, x: 10 + (i % 50) * 0.0004 + Math.floor(i / 50) * 5})), 1, 0.9],
-              one_height_edges_crowded: [mk(i => ({page: 1, depth: i % 4, frac: 0.3, x: 10 + i * 1e-7})), 1, 0.9],
-              one_edge_heights_apart: [mk(i => ({page: 1, depth: i % 4, frac: i / 2001, x: 72})), 1, 0.99],
-            };
-            const out = {};
-            for (const [k, [E, page, frac]] of Object.entries(cases)) {
-              const t0 = performance.now(); let a; for (let r = 0; r < 20; r++) a = outlineIndexAt(E, page, frac);
-              out[k] = {ms: (performance.now() - t0) / 20, same: a === referenceIndexAt(E, page, frac)};}
+            const cases = n => {
+              const mk = f => Array.from({length: n}, (_, i) => f(i));
+              return {
+                distinct: [mk(i => ({page: 1, depth: i % 4, frac: i / (n + 1), x: null})), 1, 0.99],
+                one_spot: [mk(i => ({page: 1, depth: i % 5, frac: 0.3, x: null})), 1, 0.9],
+                forty_a_spot: [mk(i => ({page: 1, depth: i % 4, frac: Math.floor(i / 40) / (n / 40), x: i % 3 ? null : 12})), 1, 0.99],
+                fifty_pages: [mk(i => ({page: 1 + Math.floor(i / 40), depth: i % 3, frac: (i % 40) / 41, x: null})), 30, 0.7],
+                one_height_edges_apart: [mk(i => ({page: 1, depth: i % 4, frac: 0.3, x: i * 0.25})), 1, 0.9],
+                one_height_edge_clumps: [mk(i => ({page: 1, depth: i % 4, frac: 0.3, x: 10 + (i % 50) * 0.0004 + Math.floor(i / 50) * 5})), 1, 0.9],
+                one_height_edges_crowded: [mk(i => ({page: 1, depth: i % 4, frac: 0.3, x: 10 + i * 1e-7})), 1, 0.9],
+                one_edge_heights_apart: [mk(i => ({page: 1, depth: i % 4, frac: i / (n + 1), x: 72})), 1, 0.99],
+              };};
+            const reads = ([E, page, frac]) => {let n = 0;
+              const counted = E.map(e => new Proxy(e, {get: (t, k) => {n++; return t[k];}}));
+              return {answer: outlineIndexAt(counted, page, frac), reads: n};};
+            const half = cases(1000), full = cases(2000), out = {};
+            for (const [k, c] of Object.entries(full)) {
+              const a = reads(c), b = reads(half[k]);
+              out[k] = {per_entry: a.reads / 2000, growth: a.reads / b.reads, same: a.answer === referenceIndexAt(...c)};}
             return out;})()""",
         )
+        self.assertEqual(len(got), 8)
         for name, row in got.items():
             self.assertTrue(row["same"], name)
-            self.assertLess(row["ms"], 5, (name, got))
+            self.assertLess(row["per_entry"], self.READS_PER_ENTRY, (name, got))
+            self.assertLess(row["growth"], self.MAX_GROWTH, (name, got))
 
 
 class MetaTitled:
