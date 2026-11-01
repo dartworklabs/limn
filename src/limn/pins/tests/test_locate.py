@@ -593,14 +593,29 @@ class NumbersTheSourceLacks(unittest.TestCase):
         """Section 5.5 is what \\ref printed; the source says sec:limits. The words stay, held or not."""
         self.assertEqual(set(self.weights("한계는 Section 5.5에 shrinks")), {"한계는", "Section", "shrinks"})
 
-    def test_a_number_counts_where_there_are_few_words(self):
-        """A row of a table: a number the file holds is what there is to go on, one it lacks is still no measure."""
-        self.assertEqual(set(self.weights("2.5배 shrinks")), {"2.5", "shrinks"})
-        self.assertEqual(set(self.weights("2.5 9.9")), {"2.5"})
+    def test_a_drag_of_numbers_has_the_ones_the_file_holds(self):
+        self.assertEqual(self.weights("2.5 9.9"), {"2.5": 0.5})
 
-    def test_a_number_beside_words_does_not_outvote_them(self):
-        """Section 2.5 printed by a \\ref matches an unrelated 2.5 and would weigh more than the words: it is left out."""
-        self.assertEqual(set(self.weights("한계는 Section 2.5 shrinks")), {"한계는", "Section", "shrinks"})
+    def test_a_number_weighs_no_more_than_the_lightest_word(self):
+        """A printed 2.5 that matches an unrelated 2.5 must not outvote the words around it."""
+        lines = self.LINES + ("common word",) * 9 + ("filler",) * 400
+        got = dict(pick_source.TokenCache().weights("common 2.5배 shrinks", lines, ("f", 1, 1)))
+        self.assertEqual(got["2.5"], got["common"])
+        self.assertEqual(got["common"], 0.1)
+        self.assertEqual(got["shrinks"], 0.5)
+
+    def test_numbers_tell_two_rows_of_one_label_apart(self):
+        """Two tables with the same row label: the numbers are what picks the row SyncTeX did not name."""
+        lines = (
+            "Frozen encoder & 0.12 & 0.34",
+            "\\end{tabular}",
+            "",
+            "Frozen encoder & 0.56 & 0.78",
+            "\\end{tabular}",
+        ) + ("filler words",) * 40
+        tw = pick_source.TokenCache().weights("Frozen encoder 0.12 0.34", lines, ("f", 1, 1))
+        t = mapping.trace_range(tw, lines, (4, 4), ("table",))
+        self.assertEqual((t.via, t.raw_lo), ("text", 1))
 
     def test_a_word_of_another_file_still_counts_against_the_place(self):
         """The drag is on a file SyncTeX did not name: its words are absent here, and they must weigh, or a wrong file looks
