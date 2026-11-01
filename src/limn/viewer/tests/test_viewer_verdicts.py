@@ -180,6 +180,84 @@ class VerdictBase(BrowserBase):
         settle(page)
 
 
+class NoticeFocus(VerdictBase):
+    """A button that goes with its message leaves the focus on the line or the pages, not on nothing: Tab would start again
+    from the top of the page. The press on an action had this already; the window's end and [x] did not."""
+
+    WHERE = """() => {const a = document.activeElement; if (!a || a === document.body) return 'nothing';
+      const l = a.closest('#doc .pv'); return l ? 'line ' + l.dataset.page : a.id || a.className;}"""
+    END = "() => NOTICES.forEach(n => {if (n.life === NOTICE_LIFE.TIMER) {n.at = 0; n.hover = false; armNotice(n);}})"
+
+    def chip(self, page):
+        self.press_page(page, 2, "보류")
+        act = '#doc .pv[data-page="2"]>.nt-chip [data-act="notice-act"]'
+        page.wait_for_selector(act)
+        return act
+
+    def line_note(self, page):
+        """A timed message with an action on the status line; the selector of its buttons."""
+        n = page.evaluate(
+            "() => lineNote('시험', NOTICE_KIND.INFO, {label: '되돌리기', fn: () => {}}, {literal: true, life: NOTICE_LIFE.TIMER}).n"
+        )
+        act = '#status [data-n="%d"]' % n
+        page.wait_for_selector(act)
+        return act
+
+    def test_the_end_of_a_window_leaves_the_focus_on_the_line(self):
+        """A save chip's [되돌리기] with the focus when its six seconds end: the focus goes to the line of the chip's page."""
+        page = self.on("fig")
+        act = self.chip(page)
+        page.locator(act).focus()
+        page.evaluate(self.END)
+        page.wait_for_function("s => !document.querySelector(s)", arg=act)
+        self.assertEqual(page.evaluate(self.WHERE), "line 2")
+
+    def test_the_end_of_a_window_leaves_a_focus_that_is_elsewhere(self):
+        """The focus on something else stays there: the window takes nothing from a person who has moved on."""
+        page = self.on("fig")
+        act = self.chip(page)
+        page.locator("#jump").focus()
+        page.evaluate(self.END)
+        page.wait_for_function("s => !document.querySelector(s)", arg=act)
+        self.assertEqual(page.evaluate(self.WHERE), "jump")
+
+    def test_the_end_of_a_window_without_page_lines_leaves_the_focus_on_the_pages(self):
+        """On a document with no page lines ("ms") the focus goes to the PDF's scroller, where the keys scroll."""
+        page = self.on("ms")
+        note = self.line_note(page)
+        page.locator(note + '[data-act="notice-act"]').focus()
+        page.evaluate(self.END)
+        page.wait_for_function("s => !document.querySelector(s)", arg=note)
+        self.assertEqual(page.evaluate(self.WHERE), "left")
+
+    def test_the_end_of_a_window_keeps_the_focus_out_of_the_pages_while_a_reply_is_open(self):
+        """A card's reply open: inside the pages a digit is a verdict key, so a window's end does not put the focus there,
+        and a 2 changes no verdict (it took a page's 보류 back)."""
+        page = self.on("fig")
+        pid = self.press_page(page, 2, "보류")
+        page.evaluate("id => openReply(id)", pid)
+        page.wait_for_function("() => !!REPLY")
+        note = self.line_note(page)
+        act = page.locator(note + '[data-act="notice-act"]')
+        act.focus()
+        self.assertEqual(page.evaluate("()=>document.activeElement.dataset.act"), "notice-act")
+        page.evaluate(self.END)
+        page.wait_for_function("s => !document.querySelector(s)", arg=note)
+        self.assertEqual(page.evaluate(self.WHERE), "nothing")
+        page.keyboard.press("2")
+        settle(page)
+        self.assertEqual(self.pins()[pid]["state"], "open")
+
+    def test_closing_a_message_leaves_the_focus_on_the_reading_line(self):
+        """[x] pressed from the keyboard takes its own button away: the focus goes to the reading page's line."""
+        page = self.on("fig")
+        note = self.line_note(page)
+        page.locator(note + '[data-act="notice-x"]').focus()
+        page.keyboard.press("Enter")
+        page.wait_for_function("s => !document.querySelector(s)", arg=note)
+        self.assertEqual(page.evaluate(self.WHERE), "line %d" % page.evaluate("PV_READ"))
+
+
 class ComposerRow(VerdictBase):
     """The composer's verdict row: shown with words, saves the selection as a verdict, two presses for a confirm word."""
 

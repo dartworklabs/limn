@@ -11,6 +11,10 @@
   to 200 px off. The spot now keeps that distance, and the lines wait for the band to settle. The switch holds the page
   read within a pixel in both directions; a page above the reading line still moves by the change in the space, as the
   line under it becomes a one-row summary (12 px on a touch desktop). The agent contract is unchanged.
+- **The keyboard's focus no longer falls to nothing when a message ends.** A [되돌리기] or [x] with the focus went with its
+  message when the six seconds ended or [x] was pressed, and the next Tab started again from the top of the page. The focus
+  now goes to the line of the chip's page or the reading page's line, else to the pages, as a press on an action already did.
+  A focus moved elsewhere stays there. The agent contract is unchanged.
 
 ## 0.4.40 — 2026-11-01
 
