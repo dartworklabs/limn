@@ -15,6 +15,15 @@
   message when the six seconds ended or [x] was pressed, and the next Tab started again from the top of the page. The focus
   now goes to the line of the chip's page or the reading page's line, else to the pages, as a press on an action already did.
   A focus moved elsewhere stays there. The agent contract is unchanged.
+- **A manuscript that cites through BibTeX gets its comparison PDF.** The comparison's sandbox did not show
+  `/etc/alternatives`, through which Debian and Ubuntu link `bibtex`, so every document with a bibliography ended in
+  `compile_failed`. The comparison cache's version is new, so a pin's failed comparison, which a POST does not retry, is
+  built again.
+- **A folder that keeps past comparison PDFs gets its comparison PDF.** A build root past the snapshot's 256 MiB was refused
+  with `size_limit`, though a manuscript's 350 MB of old PDFs are not what it builds from. Such a snapshot now keeps each
+  PDF and picture that nothing names as a blank file of its size, which takes no disk, and is refused only if it is still
+  past the limit. A file read after all ends in `compile_failed`, not in a wrong PDF. The limits and a folder within them
+  are unchanged.
 
 ## 0.4.40 — 2026-11-01
 

@@ -52,7 +52,9 @@ SCOPE_BYTES_MAX = 16 * 1024 * 1024  # both sides of every changed file together
 SCOPE_CACHE_KEEP = 32  # entries: counts, block key and the two patches, each cut at REVISION_DIFF_MAX + 1 bytes
 SCOPE_SLOTS = 2  # scope computations (cache misses) reading git at once; more wait, then show whole
 SCOPE_SECONDS_MAX = 60  # reading one commit's files for scoping, all git calls together
-REVISION_CACHE_VERSION = "latex-pdf-v2"  # v2: latexdiff marks inside the document's own text commands (issue #162)
+# v2: latexdiff marks inside the document's own text commands (issue #162). v3: a bibliography builds in the sandbox, and
+# a cached failure of a pin's comparison, which a POST does not retry, goes with it.
+REVISION_CACHE_VERSION = "latex-pdf-v3"
 REVISION_FILES_MAX = 4000
 REVISION_TREE_MAX = 256 * 1024 * 1024
 REVISION_FILE_MAX = 64 * 1024 * 1024

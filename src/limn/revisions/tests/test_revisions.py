@@ -475,6 +475,132 @@ class ManuscriptRevisions(Base):
             revisions.StepFailed("unsafe_snapshot"),
         )
 
+    def commit_files(self, files: dict[str, bytes]) -> str:
+        """Commits files under the build root; the commit."""
+        for name, data in files.items():
+            path = self.repo / "ms" / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+        subprocess.run(["git", "add", "ms"], cwd=self.repo, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-qm", "files"], cwd=self.repo, check=True, capture_output=True)
+        return subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=self.repo, text=True).strip()
+
+    def snapshot_files(self, commit: str, name: str = "snapshot"):
+        """The files a snapshot of commit wrote under the build root with their sizes, or its failure. A blank file, zeros,
+        is said as its size negated."""
+        dest = self.repo / name
+        got = revision_execution.revision_snapshot(revision_spec(self.latest), commit, dest)
+        if got:
+            return got
+        files = {p.relative_to(dest).as_posix(): p for p in dest.rglob("*") if p.is_file()}
+        return {k: -p.stat().st_size if not p.read_bytes().strip(b"\0") else p.stat().st_size for k, p in files.items()}
+
+    def test_a_build_root_past_the_limits_keeps_only_what_is_named_of_its_pdfs_and_pictures(self):
+        """Past comparison PDFs fill the folder: past the limits one no source names stands as a blank file of its size. Those
+        named by name, by stem and by a path, with a name a word cannot hold, and every other kind of file are written
+        whole."""
+        tex = rb"\includegraphics[width=2cm]{images/plot.pdf}\includegraphics{stem}\input{part.tex}"
+        head = self.commit_files(
+            {
+                "main.tex": tex,
+                "part.tex": rb"\includegraphics{deep/in part}",
+                "images/plot.pdf": b"used",
+                "stem.PNG": b"used",
+                "deep/in part.pdf": b"used",
+                "data.bin": b"\0not named but not a picture",
+                "diff/old_diff.pdf": b"x" * 4096,
+                "diff/older.png": b"x" * 4096,
+            }
+        )
+        kept = {
+            "data.bin": 28,
+            "deep/in part.pdf": 4,
+            "diff/old_diff.pdf": -4096,
+            "diff/older.png": -4096,
+            "images/plot.pdf": 4,
+            "main.tex": len(tex),
+            "part.tex": 30,
+            "stem.PNG": 4,
+        }
+        with mock.patch.object(revision_execution, "REVISION_TREE_MAX", 4096):
+            self.assertEqual(self.snapshot_files(head), kept)
+        with mock.patch.object(revision_execution, "REVISION_FILE_MAX", 4095):
+            self.assertEqual(self.snapshot_files(head, "by-file"), kept)
+
+    def test_too_many_files_are_refused_as_before(self):
+        """A blank file is still a file: the count of files is the limit it was, whatever they hold."""
+        head = self.commit_files({"main.tex": b"text", "a.pdf": b"x", "b.pdf": b"x"})
+        with mock.patch.object(revision_execution, "REVISION_FILES_MAX", 2):
+            self.assertEqual(self.snapshot_files(head), revisions.StepFailed("snapshot_size"))
+
+    def test_a_build_root_within_the_limits_is_written_whole(self):
+        """A name found in the sources is a guess, so it is used only where the whole would be refused: a picture named by a
+        macro comes along in a folder that fits."""
+        tex = rb"\includegraphics{fig\thepage}"
+        head = self.commit_files({"main.tex": tex, "fig1.pdf": b"used"})
+        self.assertEqual(self.snapshot_files(head), {"fig1.pdf": 4, "main.tex": len(tex)})
+
+    def test_a_build_root_stays_refused_where_the_named_files_are_past_the_limits(self):
+        """What the build reads is not left out: named files over the limit refuse the snapshot, as does a source over it."""
+        head = self.commit_files({"main.tex": rb"\includegraphics{big}", "big.pdf": b"x" * 4096})
+        with mock.patch.object(revision_execution, "REVISION_TREE_MAX", 4096):
+            self.assertEqual(self.snapshot_files(head), revisions.StepFailed("snapshot_size"))
+        head = self.commit_files({"main.tex": b"y" * 8192, "big.pdf": b"x"})
+        with mock.patch.object(revision_execution, "REVISION_TREE_MAX", 4096):
+            self.assertEqual(self.snapshot_files(head, "source"), revisions.StepFailed("snapshot_size"))
+
+    def test_the_new_side_keeps_what_the_old_side_and_a_pins_blocks_name(self):
+        """latexdiff can carry a deleted figure into the new side, and a pin's blocks write text over the old side: what those
+        name is real in the new side's snapshot, what nothing names is blank."""
+        self.commit_files(
+            {
+                "main.tex": rb"\includegraphics{old_picture}",
+                "old_picture.pdf": b"old",
+                "scoped.pdf": b"scoped",
+                "diff/past.pdf": b"x" * 8192,
+            }
+        )
+        head = self.commit_main("no picture\n", "drop the picture")
+        sizes: dict[str, int] = {}
+
+        def built(spec, work, jobdir, timeout, text_commands, log):
+            """Instead of latexdiff and latexmk: what the new side holds."""
+            new = work / "new"
+            sizes.update(
+                {p.relative_to(new).as_posix(): len(p.read_bytes().strip(b"\0")) for p in new.rglob("*") if p.is_file()}
+            )
+            return []
+
+        writes = [scoping.ScopeWrite("main.tex", rb"\includegraphics{scoped}")]
+        spec = revision_spec(head)
+        for name, want, patched in (
+            (False, {"scoped.pdf": 0}, spec),
+            (True, {"scoped.pdf": 6}, spec._replace(scope=("x",))),
+        ):
+            with self.subTest(scoped=name):
+                with (
+                    mock.patch.object(revision_execution, "REVISION_TREE_MAX", 4096),
+                    mock.patch.object(revision_execution, "plan_scope_writes", return_value=writes),
+                    mock.patch.object(revision_execution, "_diff_and_build", side_effect=built),
+                ):
+                    revision_execution.revision_compile(patched, Path(tempfile.mkdtemp(dir=self.repo)), 30)
+                self.assertEqual(
+                    {**want, "old_picture.pdf": 3, "diff/past.pdf": 0},
+                    {k: sizes[k] for k in (*want, "old_picture.pdf", "diff/past.pdf")},
+                )
+
+    def test_names_are_found_without_holding_a_sources_words(self):
+        """Only the wanted names come back, however many other words a source has; a binary file names nothing, and a source
+        too long to read in the snapshot's time is a step failure."""
+        data = b"\\includegraphics[width=2cm]{images/fig1.pdf} " + b"word " * 70000
+        forever = time.monotonic() + 60
+        self.assertEqual(revision_execution.names_found(data, {b"fig1.pdf", b"other"}, forever), {b"fig1.pdf"})
+        self.assertEqual(revision_execution.names_found(b"\0fig1.pdf", {b"fig1.pdf"}, forever), set())
+        self.assertEqual(
+            revision_execution.names_found(data, {b"fig1.pdf"}, time.monotonic() - 1),
+            revisions.StepFailed("snapshot_timeout"),
+        )
+
     def test_revision_jobs_are_bounded_and_cache_expires(self):
         """Exhausted job capacity refuses work; expired ready artifacts become idle and pruning bounds cache growth."""
         with mock.patch.object(ps.APP.RT.revision_jobs, "slots", threading.BoundedSemaphore(0)):
@@ -564,8 +690,9 @@ class ManuscriptRevisions(Base):
             "/etc/texmf",
             "/var/lib/texmf",
             "/var/cache/fontconfig",
+            "/etc/alternatives",
         )
-        present = {"/usr", "/bin", "/lib", "/etc/fonts", "/var/lib/texmf"}
+        present = {"/usr", "/bin", "/lib", "/etc/alternatives", "/etc/fonts", "/var/lib/texmf"}
         real_which, real_exists, real_exec = shutil.which, Path.exists, revisions.revision_exec
         calls = []
 
@@ -592,6 +719,7 @@ class ManuscriptRevisions(Base):
             return [
                 fake + "/bwrap", "--unshare-all", "--die-with-parent", "--clearenv",
                 "--ro-bind", "/usr", "/usr", "--ro-bind", "/bin", "/bin", "--ro-bind", "/lib", "/lib",
+                "--ro-bind", "/etc/alternatives", "/etc/alternatives",
                 "--ro-bind", "/etc/fonts", "/etc/fonts", "--ro-bind", "/var/lib/texmf", "/var/lib/texmf",
                 "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", "--bind", str(work), "/work",
                 "--chdir", "/work/new/.",
@@ -819,6 +947,48 @@ class ManuscriptRevisions(Base):
         text = self.comparison_text(head)
         self.assertIn("oldopening", text)
         self.assertIn("newopening", text)
+
+    @needs_tex("bwrap", "latexdiff", "latexmk", "pdftotext")
+    def test_a_file_left_out_answers_for_itself_and_fails_a_build_that_reads_it(self):
+        """Names no source spells, past the limits. A test of whether the file exists and of its size answers as for the real
+        file, so no content goes missing; reading the blank stand-in as a picture or as TeX ends in compile_failed, not in a
+        wrong PDF."""
+        doc = r"\documentclass{article}\usepackage{graphicx}\begin{document}%s\end{document}"
+        self.commit_files({"fig1.pdf": b"x" * 8192, "fig1.svg": b"y" * 8192})
+        asks = r"\IfFileExists{fig\thepage.pdf}{PRESENT}{MISSING} \ifnum\pdffilesize{fig\thepage.pdf}=8192 RIGHT\else WRONG\fi "
+        self.commit_main(doc % (asks + "oldword"), "ask about it")
+        head = self.commit_main(doc % (asks + "newword"), "a word")
+        with mock.patch.object(revision_execution, "REVISION_TREE_MAX", 4096):
+            text = self.comparison_text(head)
+            for word in ("PRESENT", "RIGHT"):
+                with self.subTest(word=word):
+                    self.assertIn(word, text)
+            for read in (r"\includegraphics{fig\thepage.pdf}", r"\InputIfFileExists{fig\thepage.svg}{}{MISSING}"):
+                with self.subTest(read=read):
+                    self.commit_main(doc % (read + " oldword"), "read it")
+                    head = self.commit_main(doc % (read + " newword"), "a word")
+                    built, _ = self.build_comparison(head)
+                    self.assertEqual(built, revisions.StepFailed("compile_failed"))
+
+    @needs_tex("bwrap", "latexdiff", "latexmk", "pdftotext")
+    def test_a_folder_of_past_comparisons_with_a_bibliography_builds_its_comparison(self):
+        """The manuscript folder a comparison failed on: past comparison PDFs put it past the limits, and it cites through
+        BibTeX, which on Debian and Ubuntu is a link through /etc/alternatives and was missing in the sandbox. The comparison
+        builds, with its old and new words and its reference list."""
+        tex = "\\documentclass{article}\n\\begin{document}\noldword \\cite{tex}.\n\\bibliographystyle{plain}\n\\bibliography{refs}\n\\end{document}\n"
+        self.commit_files(
+            {
+                "main.tex": tex.encode(),
+                "refs.bib": b"@book{tex, author={Donald Knuth}, title={The TeXbook}, year={1984}, publisher={AW}}\n",
+                "diff/past_comparison.pdf": b"x" * 8192,
+            }
+        )
+        head = self.commit_main(tex.replace("oldword", "newword"), "a word")
+        with mock.patch.object(revision_execution, "REVISION_TREE_MAX", 4096):
+            text = self.comparison_text(head)
+        for word in ("oldword", "newword", "TeXbook"):
+            with self.subTest(word=word):
+                self.assertIn(word, text)
 
     def build_comparison(self, head: str, forced: tuple[str, ...] | None = None):
         """Builds the whole-commit comparison of head in the real sandbox, in a new job folder, and returns (outcome, job
