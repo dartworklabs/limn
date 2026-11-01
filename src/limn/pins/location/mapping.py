@@ -95,14 +95,26 @@ def score_range(tw: TokenWeights, lines: Sequence[str], lo: int, hi: int) -> flo
     return sum(w for t, w in tw if t in blob) / sum(w for _, w in tw)
 
 
+def one_word_will_do(tw: TokenWeights, lines: Sequence[str], near: int | None) -> bool:
+    """Whether one word may place a drag: SyncTeX named a line without text (near; a word of the title it names by
+    \\end{frontmatter}) and the word is on exactly one line of the file. A line of text is an answer to weigh, and a word found
+    there or not says too little to overrule it, so a drag on the wrong file keeps its warning."""
+    return (
+        len(tw) == 1
+        and near is not None
+        and 0 < near <= len(lines)
+        and WITHOUT_TEXT_RE.fullmatch(lines[near - 1]) is not None
+        and sum(1 for line in lines if tw[0][0] in line) == 1
+    )
+
+
 def by_text(tw: TokenWeights, lines: Sequence[str], near: int | None = None) -> tuple[int, int, float] | None:
     """Recovers source lines from the rendered text's word tokens.
 
     This is the path used when SyncTeX stays silent or points somewhere wrong on a table/equation region.
     Korean word tokens survive almost untouched by markup (e.g. `타겟--소스 $i$ 간 코사인 거리`), so they
-    remain in the source text as-is. One word is enough to test SyncTeX's line (near) when it is on one line of the file:
-    a word of the title, which SyncTeX names by \\end{frontmatter}."""
-    if len(tw) < 2 and not (near is not None and tw and tw[0][1] >= 0.5):
+    remain in the source text as-is. One word is enough only where one_word_will_do says so."""
+    if len(tw) < 2 and not one_word_will_do(tw, lines, near):
         return None
     scores = [sum(w for t, w in tw if t in ln) for ln in lines]
     if max(scores, default=0) <= 0:
@@ -118,6 +130,7 @@ def by_text(tw: TokenWeights, lines: Sequence[str], near: int | None = None) -> 
 
 # ---------------------------------------------------------------- Block expansion and the range ladder
 
+WITHOUT_TEXT_RE = re.compile(r"\s*(\\end\{[^{}]*\}\W*)?")  # blank, or the end of an environment
 PICTURE_LINE_RE = re.compile(r"\\includegraphics(\[[^\]]*\])?\{[^{}]*\}")
 SECTION_RE = re.compile(r"\s*\\(part|chapter|section|subsection|subsubsection|paragraph)\*?[\[{]")
 

@@ -146,21 +146,33 @@ class TraceRange(unittest.TestCase):
         self.assertEqual((t.via, t.raw_lo, t.raw_hi, t.score, t.weak, t.split), ("synctex", 14, 14, None, False, None))
         self.assertEqual((t.lo, t.hi, t.kind, t.default_level), (12, 16, "float", "env"))
 
-    def test_one_word_on_one_line_corrects_synctex(self):
-        """A word of the title, which SyncTeX names by \\end{frontmatter}: on one line of the file it is enough. A word on
-        more lines weighs less and is not."""
+    def test_one_word_on_one_line_corrects_a_line_without_text(self):
+        """A word of the title, which SyncTeX names by \\end{frontmatter}: on one line of the file it is enough there."""
         lines = ("\\title{Beyond the start}", "body", "\\end{frontmatter}") + ("filler",) * 40
         t = mapping.trace_range([("Beyond", 0.5)], lines, (3, 3), self.envs)
         self.assertEqual((t.via, t.raw_lo, t.score), ("text", 1, 1.0))
-        t = mapping.trace_range([("filler", 0.25)], lines, (3, 3), self.envs)
-        self.assertEqual((t.via, t.raw_lo), ("synctex", 3))
+
+    def test_one_word_does_not_overrule_a_line_of_text(self):
+        """SyncTeX on a line of text may be on the wrong file: the word found on one line of this file proves nothing, and
+        the 0% stays to say so."""
+        lines = ("\\caption{Beyond}", "body", "") + ("filler",) * 40 + ("", "some text here", "")
+        t = mapping.trace_range([("Beyond", 0.5)], lines, (45, 45), self.envs)
+        self.assertEqual((t.via, t.raw_lo, t.score, t.weak), ("synctex", 45, 0.0, True))
+
+    def test_one_word_inside_longer_words_on_many_lines_is_not_one_line(self):
+        """`heat` is a whole word on no line, weight 1, and inside `heating` on ten: not one line, so SyncTeX stays."""
+        lines = ("heating here",) * 10 + ("\\end{frontmatter}",) + ("filler",) * 40
+        t = mapping.trace_range([("heat", 1.0)], lines, (11, 11), self.envs)
+        self.assertEqual((t.via, t.raw_lo), ("synctex", 11))
 
     def test_the_score_is_of_the_lines_the_pin_shows(self):
         """SyncTeX names a table's cells by its \\end line. The path competes on that line, and the answer says how much of
         the drag is in the table the pin shows."""
-        lines = ("\\begin{table}", "rarecell text", "other row", "\\end{table}", "", "after") + ("filler",) * 6
-        t = mapping.trace_range([("rarecell", 0.25)], lines, (4, 4), self.envs)
-        self.assertEqual((t.via, t.raw_lo, t.lo, t.hi, t.score), ("synctex", 4, 1, 4, 1.0))
+        lines = ("\\begin{table}", "rarecell text", "rarecell row", "other row", "\\end{table}", "", "after") + (
+            "filler",
+        ) * 6
+        t = mapping.trace_range([("rarecell", 0.25)], lines, (5, 5), self.envs)
+        self.assertEqual((t.via, t.raw_lo, t.lo, t.hi, t.score), ("synctex", 5, 1, 5, 1.0))
         self.assertEqual({lv["level"]: lv["score"] for lv in t.levels}["raw"], 0.0)
 
     def test_a_picture_keeps_its_pin_and_has_no_measure(self):
