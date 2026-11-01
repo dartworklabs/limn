@@ -392,13 +392,12 @@ class RangePicker(PickerBase):
         self.assertEqual(len(answered), 2)
 
     def test_a_comparison_left_stops_waiting_and_coming_back_asks_again(self):
-        """Leaving for the source diff while it waits ends the wait: nothing more is asked and the source diff keeps its status
-        line. Coming back to the PDF asks again, and it shows when the one before it ends."""
-        page = self.open(0, init=self.seen_script(self.commits[4]))
+        """Leaving one commit's PDF for the source diff while it waits ends the wait: nothing more is asked, and the promise
+        goes from the status line, which a commit's source diff does not write. Coming back to the PDF asks again, and it
+        shows when the one before it ends."""
+        page = self.open(0)
         answered = self.busy_answers(page, 3)
         self.changes(page)
-        page.wait_for_function("REV.seenState==='ok'", timeout=15000)
-        page.click("#revision-pdf-tab")
         page.wait_for_function("()=>/앞선 비교 PDF/.test($('#revision-status').textContent)", timeout=15000)
         page.click("#revision-source-tab")
         page.wait_for_function("REV.format==='source'", timeout=15000)
