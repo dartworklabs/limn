@@ -1318,6 +1318,7 @@ function pvInsetR(){const L=$('#left'),R=$('#right'),G=$('#grip'); if(!L.getClie
 // The page under the reading line - the one the section strip and the page count name, readingDepth under the PDF area's
 // top - while the pages are shown and the document has page lines; 0 otherwise. Read from the layout as it is now.
 function pvReadingAt(){if(PV_AT_HELD)return PV_AT_HELD;   // the lines are moving beside or under the pages (verdict-panel.js)
+  if(PV_BUILD_AT)return PV_BUILD_AT;   // the pages are being built again (refreshDoc)
   if(!pageVerdictsOn()||document.body.classList.contains('revision-open')||!$('#left').getClientRects().length)return 0;
   const a=topAnchor(readingDepth($('#left'))); return a?a.page:0;}
 // The reading page when it has a line (pageTakesVerdict), else 0: its line floats and names its figure (PV_READ).

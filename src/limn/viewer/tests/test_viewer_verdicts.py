@@ -21,7 +21,16 @@ from limn.pins.location import source as pick_source
 import helpers_figure
 from helpers import ps, split_resp
 from helpers_access import ALICE, BOB, member_add, member_set_role, talk_to
-from helpers_browser import MISSES_44, BrowserBase, booted, nothing_follows, settle, watch_idle
+from helpers_browser import (
+    MISSES_44,
+    BrowserBase,
+    booted,
+    ime_commit,
+    ime_compose,
+    nothing_follows,
+    settle,
+    watch_idle,
+)
 
 WORDS = {"format": "limn-verdicts/1", "verdicts": [{"key": "채택"}, {"key": "보류"}, {"key": "삭제", "confirm": True}]}
 AGENT = {"Tailscale-User-Login": "agentb@example.com", "Tailscale-User-Name": "Agent B"}
@@ -5686,14 +5695,6 @@ class ReasonKeys(VerdictBase):
         self.assertEqual(page.evaluate(REASON, 1), {"focused": True, "value": "2", "placeholder": "이유 (선택)"})
 
 
-def compose(cdp, *steps):
-    """An input method's composition in the focused field, one preedit after another (CDP Input.imeSetComposition):
-    compose(cdp, 'ㅇ', '유') leaves '유' composing, not yet committed. Input.insertText then commits it, as the input method
-    does when the next key ends the syllable."""
-    for s in steps:
-        cdp.send("Input.imeSetComposition", {"text": s, "selectionStart": len(s), "selectionEnd": len(s)})
-
-
 # Marks the open reason field (FIELD) and records the end of a composition in it (ENDED: the text it committed).
 MARK_FIELD = """()=>{const f=document.querySelector('#doc .pv-pop .pv-reason'); window.FIELD=f; window.ENDED=null;
   f.addEventListener('compositionend',e=>{window.ENDED=e.data;});}"""
@@ -5719,13 +5720,13 @@ class ReasonComposition(VerdictBase):
         page.keyboard.press("Enter")
         page.keyboard.type("묶이는 이")
         page.evaluate(MARK_FIELD)
-        compose(cdp, "ㅇ", "유")
+        ime_compose(cdp, "ㅇ", "유")
         self.release()
         page.wait_for_function("()=>OPEN_ALL.length===1&&!!PV_REASON&&PV_REASON.id>0", timeout=10000)
         settle(page)
         want = {"same": True, "value": "묶이는 이유", "focused": True, "ended": None}
         self.assertEqual(page.evaluate(FIELD_NOW), want)
-        cdp.send("Input.insertText", {"text": "유"})  # the input method commits the syllable
+        ime_commit(cdp, "유")  # the input method commits the syllable
         self.assertEqual(page.evaluate(FIELD_NOW), {**want, "ended": "유"})
         page.keyboard.press("Enter")
         (pid,) = self.pins()
@@ -5733,24 +5734,31 @@ class ReasonComposition(VerdictBase):
         settle(page)
         self.assertEqual(self.pins()[pid]["note"], "묶이는 이유")
 
-    def test_a_field_drawn_anew_mid_syllable_holds_the_text_and_the_focus(self):
-        """채택's reason open, '마지막 이' typed and '유' left composing; a new build with a page more arrives and the pages
-        and their lines are built again: the new field holds '마지막 이유' with the focus and the caret at its end, so
-        ' 추가 2' typed on is text - no 보류 verdict - and Enter saves the whole of it. The composition ended with the old
-        field, out of the document, and the new one was left empty - what was typed next was written over the reason; and
-        the focus fell to nothing, where the text typed on went nowhere and 2 saved 보류."""
+    def test_a_rebuild_mid_syllable_waits_for_it_and_keeps_the_text_and_the_focus(self):
+        """채택's reason open, '마지막 이' typed and '유' left composing when a new build with a page more arrives: the pages
+        are not built again while the syllable composes - the field is the same, still composing. Committed, the pages are
+        built again and the new field holds '마지막 이유' with the focus and the caret at its end, so ' 추가 2' typed on is
+        text - no 보류 verdict - and Enter saves the whole of it. Built at once, the composition ended with the old field
+        and the commit came on top of the text carried over ('마지막 이유유'); before that the new field was left empty,
+        and the focus fell to nothing, where the text typed on went nowhere and 2 saved 보류."""
         page = self.on("fig")
         self.press_page(page, 1, "채택")
         open_reason(page, 1)
         cdp = page.context.new_cdp_session(page)
         page.keyboard.type("마지막 이")
         page.evaluate(MARK_FIELD)
-        compose(cdp, "ㅇ", "유")
-        page.evaluate("()=>refreshDoc({...META,pages:META.pages.concat(META.pages.slice(-1))})")
+        ime_compose(cdp, "ㅇ", "유")
+        n = page.evaluate("META.pages.length")
+        page.evaluate(
+            "()=>{refreshDoc({...META,pages:META.pages.concat(META.pages.slice(-1))});}"
+        )  # not awaited: it waits
+        settle(page)
+        self.assertEqual((page.evaluate("META.pages.length"), page.evaluate(FIELD_NOW)["same"]), (n, True))
+        ime_commit(cdp, "유")
+        page.wait_for_function("n=>META.pages.length===n+1&&!!document.querySelector('#p'+(n+1))", arg=n)
         settle(page)
         got = page.evaluate(FIELD_NOW)
         self.assertEqual((got["same"], got["value"], got["focused"]), (False, "마지막 이유", True))
-        self.assertEqual(page.evaluate("PV_REASON.text"), "마지막 이유")
         caret = "()=>{const f=document.activeElement; return [f.selectionStart,f.selectionEnd];}"
         self.assertEqual(page.evaluate(caret), [6, 6])
         page.keyboard.type(" 추가 2")
@@ -5759,6 +5767,36 @@ class ReasonComposition(VerdictBase):
         page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id&&p.note)", arg=pid, timeout=10000)
         settle(page)
         self.assertEqual([(p["verdict"], p["note"]) for p in self.pins().values()], [("채택", "마지막 이유 추가 2")])
+
+    def test_a_failed_save_mid_syllable_leaves_it_once_in_the_pages_draft(self):
+        """2 (its save held), Enter, '실패한 이' typed and '유' left composing; the save is lost on the network. The popover
+        closes as any failed save's does, its text with the syllable as the page's draft; the input method's commit
+        that follows and the digits typed on land nowhere (no verdict). Saved again by its word, Enter opens the reason
+        with '실패한 이유' once, and Enter saves it."""
+        page = self.on("fig")
+        cdp = page.context.new_cdp_session(page)
+        self.held = []
+        page.keyboard.press("2")
+        page.wait_for_function("PV_BUSY.size===1")
+        page.keyboard.press("Enter")
+        page.keyboard.type("실패한 이")
+        ime_compose(cdp, "ㅇ", "유")
+        for route in self.take_held(page):
+            route.abort()
+        page.wait_for_function("()=>LINE.some(n=>n.title.startsWith('판정 저장 실패'))", timeout=10000)
+        settle(page)
+        self.assertIsNone(page.evaluate(POP, 1))
+        self.assertEqual(page.evaluate(DRAFTS), {"fig:p1": "실패한 이유"})
+        ime_commit(cdp, "유")
+        page.keyboard.type("123")
+        settle(page)
+        self.assertEqual((page.evaluate(DRAFTS), self.pins()), ({"fig:p1": "실패한 이유"}, {}))
+        pid = self.press_page(page, 1, "보류")
+        self.assertEqual(open_reason(page, 1).input_value(), "실패한 이유")
+        page.keyboard.press("Enter")
+        page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id&&p.note)", arg=pid, timeout=10000)
+        settle(page)
+        self.assertEqual([(p["verdict"], p["note"]) for p in self.pins().values()], [("보류", "실패한 이유")])
 
 
 class ReasonDrafts(VerdictBase):

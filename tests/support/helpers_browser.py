@@ -268,6 +268,19 @@ def off_centre(labels, hangul, tol=0.5):
     return [lb for lb in labels if any(lb[key] is not None and abs(lb[key]) > tol for key in keys)]
 
 
+def ime_compose(cdp, *steps):
+    """An input method's composition in the focused field, one preedit after another (CDP Input.imeSetComposition):
+    ime_compose(cdp, 'ㅇ', '유') leaves '유' composing, not yet committed. ime_commit then commits it, as the input method
+    does when the next key ends the syllable (Input.insertText while a composition is open replaces it)."""
+    for s in steps:
+        cdp.send("Input.imeSetComposition", {"text": s, "selectionStart": len(s), "selectionEnd": len(s)})
+
+
+def ime_commit(cdp, text):
+    """The input method commits text (CDP Input.insertText): in place of the open composition, else at the caret."""
+    cdp.send("Input.insertText", {"text": text})
+
+
 def nothing_follows(page, ms=500):
     """The one bounded negative wait: settle, then let ms pass, so that an event only the browser would still send - a
     click it synthesizes after a tap, a back navigation from an overscroll swipe - has had the time to arrive before the

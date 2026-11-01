@@ -29,7 +29,8 @@ function pvSideRoom(){const L=$('#left'); if(!META||!Array.isArray(META.pages)||
   return innerW()-pageWidth(ptMax(),K);}
 // Whether the lines should stand beside the pages: the wide band, a document with page lines, and the room - with
 // hysteresis around the bar.
-function pvSideWant(){if(LAYOUT!==LAYOUT_MODE.WIDE||!pageVerdictsOn())return false;
+function pvSideWant(){if(pvComposingNow())return PV_SIDE;   // a syllable being composed in the reason keeps the lines where they are until it ends
+  if(LAYOUT!==LAYOUT_MODE.WIDE||!pageVerdictsOn())return false;
   const r=pvSideRoom(); if(r===null)return PV_SIDE; return PV_SIDE?r>=PV_SIDE_EXIT:r>=PV_SIDE_ENTER;}
 // Sets PV_SIDE and the body's class for it (body.pv-beside). No drawing.
 /** @param {boolean} on */
@@ -41,6 +42,9 @@ function pvSideCheck(){if(pvSideWant()===PV_SIDE)return false; drawPageVerdicts(
 // was another page - the blocks change their height, by 4px a page, and only the settling puts the spot back - and a reason
 // being typed moved on: its half text was written and the digits after it were verdict keys. A var: pvReadingAt reads it.
 var PV_AT_HELD=0;
+// The reading page held while the pages are built again (refreshDoc), until the reading spot is back: read from the new
+// column before that, it was a neighbour, and the reason being typed on the panel was moved on from - written and closed (#352).
+var PV_BUILD_AT=0;
 // Before the lines are drawn (drawPageVerdicts): follows the room. When it crossed its bar every line goes and new ones come, so
 // what the person has must be carried over: the reading page, the point of it under the reading line, and the focus. Null
 // when the lines stay where they are. A composition cannot cross: its field goes, and with it its end.

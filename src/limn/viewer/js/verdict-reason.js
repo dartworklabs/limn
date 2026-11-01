@@ -907,9 +907,24 @@ function pvRefill(page){const v=pageVerdictsOn(),e=/** @type {HTMLElement|null} 
 // next input wrote what it held over the reason (#352).
 let PV_COMPOSING=/** @type {HTMLTextAreaElement|null} */(null);
 $('#doc').addEventListener('compositionstart',e=>{if(pvIsReasonField(e.target))PV_COMPOSING=e.target;});
-// The composition's end settles what it brought back (pvReasonFollow, which waits for it).
+// The composition's end settles what it brought back (pvReasonFollow, which waits for it), and what waited for it goes on
+// (pvComposedOver).
 $('#doc').addEventListener('compositionend',e=>{const f=e.target; if(!pvIsReasonField(f))return; PV_COMPOSING=null;
-  const r=PV_REASON; if(r&&f.dataset.id==='s'+r.sid){pvReasonFollow(r); if(PV_REASON===r)rdKeep(r);}});
+  const r=PV_REASON; if(r&&f.dataset.id==='s'+r.sid){pvReasonFollow(r); if(PV_REASON===r)rdKeep(r);} setTimeout(pvComposedOver,0);});
+// Whether an input method is composing a syllable in a reason field in the document. Nothing takes that field away
+// meanwhile: the lines do not move beside or under the pages (pvSideWant) and the pages are not built again (refreshDoc,
+// pvReasonComposed) until it ends. Moved or rebuilt, the field was a new one: the old one's composition ended with it, and
+// the input method's commit landed on top of the text carried over ('묶이는 이유' became '묶이는 이유유', #352).
+function pvComposingNow(){return !!PV_COMPOSING&&PV_COMPOSING.isConnected;}
+const PV_COMPOSED_WAIT=/** @type {(()=>void)[]} */([]);   // what waits for the composition's end (pvReasonComposed)
+const PV_COMPOSED_POLL_MS=200;   // how often a wait looks again: a field taken out of the document ends its composition without the event
+// Resolves once no syllable is being composed in a reason field (pvComposingNow) - at once when none is.
+/** @returns {Promise<void>} */
+function pvReasonComposed(){return new Promise(res=>{if(!pvComposingNow()){res(); return;}
+  const go=()=>{clearInterval(t); res();},t=setInterval(()=>{if(!pvComposingNow())go();},PV_COMPOSED_POLL_MS); PV_COMPOSED_WAIT.push(go);});}
+// After a composition ended, unless another began meanwhile: the rebuilds that waited go on, and the lines move if the room
+// crossed its bar while it lasted.
+function pvComposedOver(){if(pvComposingNow())return; PV_COMPOSED_WAIT.splice(0).forEach(go=>go()); if(pageVerdictsOn())pvSideCheck();}
 // Every input keeps the draft (rdPut), with the parts moved into it placed where they are now (pvReasonPlace) - a part
 // brought back whose text has landed on its pin meanwhile leaves at once (pvReasonFollow), or once an input method's
 // composition ends - and lets a first Esc go; the line follows its emptiness (the state).

@@ -25,9 +25,12 @@ function returnToSpot(){const s=SPOT; SPOT=null; if(!s||s.doc!==DOC||!$('#left')
 // in-flight refresh even when the document key matches again; its old pages must not replace the new visit. A failed read
 // is said on the status line (api, NOTICE_HOST.LINE) and throws. A refresh means a new build of the document is here (a
 // completed build, one met on returning to the document or on a pick): a failed request to rebuild it is over (rebuildSources).
-async function refreshDoc(meta){const a=topAnchor(),k=DOC,seq=SWITCHSEQ;
+async function refreshDoc(meta){let a=topAnchor(); const k=DOC,seq=SWITCHSEQ;
   const m=meta===undefined?(await api(dq('/api/meta'),{what:'화면 정보 읽기',where:NOTICE_HOST.LINE})).data:meta;
   if(k!==DOC||seq!==SWITCHSEQ)return;
+  // Building the pages again takes the reason field with them: a syllable being composed in it ends first (pvComposingNow),
+  // and the spot is read again after the wait.
+  if(!(META&&m.pages.length===META.pages.length)&&pvComposingNow()){await pvReasonComposed(); if(k!==DOC||seq!==SWITCHSEQ)return; a=topAnchor();}
   rebuildSources(k).forEach(sourceOk); META_BY.set(k,m);
   const same=META&&m.pages.length===META.pages.length; META=m; drawMeta();
   // The canvas was drawn from the old PDF - it's torn down to show the new PNG first, then redrawn once the new build's PDF is opened.
@@ -35,7 +38,7 @@ async function refreshDoc(meta){const a=topAnchor(),k=DOC,seq=SWITCHSEQ;
   // the scale alone while the changes view hides the PDF area).
   if(same){vecReleaseAll(); $$('.pg').forEach((pg,i)=>{const p=META.pages[i]; pg.dataset.ptw=String(p.pt_w); pg.style.aspectRatio=p.pt_w+' / '+p.pt_h; pg.querySelector('img').src=pageSrc(p);});
     reapplyK();}
-  else buildDoc();
+  else{PV_BUILD_AT=pvReadingAt(); try{buildDoc(); restoreAnchor(a);}finally{PV_BUILD_AT=0;}}   // the reading page held until its spot is back
   restoreAnchor(a); vecOpen(); if(document.body.classList.contains('revision-open'))loadRevisions(); await loadPins();}
 // On ok_errors|fail, the panel itself is opened right away: it is where a failed build is said (with the pull's line,
 // pullSuffix), and the status line's failure item (compact) and #build-err-chip (the desktop's chips, while the panel is not on
