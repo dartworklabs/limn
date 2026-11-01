@@ -3113,6 +3113,7 @@ SCROLL_STILL = """() => {const w = window, t = document.querySelector('#left').s
 PICK_AND = """([i, how, away]) => {
   const L = document.querySelector('#left'), row = n => document.querySelector('#outline-items button[data-index="' + n + '"]');
   row(i).click();
+  if (how === 'scroll') L.dispatchEvent(new PointerEvent('pointermove', {buttons: 1, bubbles: true}));   // a scroll bar dragged
   if (how === 'wheel') L.dispatchEvent(new WheelEvent('wheel', {deltaY: 120, bubbles: true}));
   if (how === 'key') {document.activeElement.blur(); document.body.dispatchEvent(new KeyboardEvent('keydown', {key: 'PageDown', bubbles: true}));}
   if (how === 'press') L.dispatchEvent(new PointerEvent('pointerdown', {bubbles: true}));
