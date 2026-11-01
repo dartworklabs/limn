@@ -2,20 +2,22 @@
 // The reading spot: the page at the PDF scroller's top edge (or off px below it) and how far down that page the edge is
 // (frac, 0-1), with whether the scroller is at its very top on a touch screen (atTop); null with no pages. At the top edge a
 // page's last pixel does not count; a line below it (off: the reading line) is exact, so the strip, the keys and the panel
-// name the page that line is on while any of it is. y and h: where that page's top stood under the scroller's top and its
-// height, so restoreAnchor can tell a re-fit that moved nothing.
+// name the page that line is on while any of it is. gap: with the edge in the space above that page (frac 0), how far under
+// it the page's top stands. y and h: where that page's top stood under the scroller's top and its height, so restoreAnchor
+// can tell a re-fit that moved nothing.
 function topAnchor(off){const L=$('#left'),lt=L.getBoundingClientRect().top,top=lt+(off||0),atTop=MQ_COARSE.matches&&L.scrollTop<=0,edge=off?0:1;
-  for(const pg of $$('.pg')){const r=pg.getBoundingClientRect(); if(r.bottom>top+edge)return {page:+pg.dataset.page,frac:Math.max(0,(top-r.top)/r.height),atTop,y:r.top-lt,h:r.height};}
+  for(const pg of $$('.pg')){const r=pg.getBoundingClientRect(); if(r.bottom>top+edge)return {page:+pg.dataset.page,frac:Math.max(0,(top-r.top)/r.height),gap:Math.max(0,r.top-top),atTop,y:r.top-lt,h:r.height};}
   return null;}
-// Scrolls the PDF back to a reading spot from topAnchor() after a re-fit. On a touch screen - where the select mode lives - a
-// spot taken at the very top stays at the top, so the space above page 1 (its margin, or the select mode's reserve that keeps
-// the mode bar off its first line) is kept rather than scrolled away; a mouse window re-fits as it always did.
+// Scrolls the PDF back to a reading spot from topAnchor() after a re-fit, with the space above its page (gap): without it a
+// spot between two pages put the page's top on the edge, as much as that space off (#356). On a touch screen - where the select
+// mode lives - a spot taken at the very top stays at the top, so the space above page 1 (its margin, or the select mode's
+// reserve that keeps the mode bar off its first line) is kept at whatever height it has now.
 // Nothing is written when the spot's page stands where it stood at the same height: Chromium ends a smooth scroll at any write
 // of the offset, the same one too, and the band settling 200ms into a jump from the phone's sheet - the keyboard had held it -
 // stopped the glide from page 105 to page 80 on page 103 (#346).
 function restoreAnchor(a){if(!a)return; const L=$('#left'); if(a.atTop){if(L.scrollTop>0)L.scrollTop=0; return;} const pg=document.getElementById('p'+a.page); if(!pg)return;
   const r=pg.getBoundingClientRect(),lt=L.getBoundingClientRect().top; if(Math.abs(r.top-lt-a.y)<.5&&Math.abs(r.height-a.h)<.5)return;
-  L.scrollTop+=r.top-lt+a.frac*r.height;}
+  L.scrollTop+=r.top-lt+a.frac*r.height-(a.gap||0);}
 // The manuscript's reading spot (topAnchor) at the moment the changes view hid it, with its document, kept for the way back: while
 // it is hidden there is no spot to read, and a build that changes the pages' sizes meanwhile (refreshDoc) moves the scroll offset the
 // column keeps to another place. keepSpot() takes it as the view opens; returnToSpot() puts the column back on it when the pages

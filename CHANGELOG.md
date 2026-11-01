@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **A band switch keeps the page being read where it stands (#356).** Widening a foldable to a desktop or narrowing it
+  back moved the page read when the top of the PDF area or the reading line stood in the space between two pages: the
+  re-fit lost how far above the page the spot was and put the page's top on the line, up to the height of that space
+  off, and on the way back a touch window moved the page lines at the old band's narrowed width first, which left it up
+  to 200 px off. The spot now keeps that distance, and the lines wait for the band to settle. The switch holds the page
+  read within a pixel in both directions; a page above the reading line still moves by the change in the space, as the
+  line under it becomes a one-row summary (12 px on a touch desktop). The agent contract is unchanged.
+
 ## 0.4.40 — 2026-11-01
 
 ### Fixed
