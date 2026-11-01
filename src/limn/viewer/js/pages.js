@@ -133,38 +133,45 @@ function fitW(){const a=topAnchor(),L=$('#left');
 // (docs/handbook/viewer.md §그림 쪽 도착). Each is a glide (pvGlideTo, pvGlideInto), so the keys wait for it to end.
 /** @param {number} n */
 function arrivePage(n){const el=document.getElementById('p'+n); if(!el)return; const to=figureTop(n),L=$('#left');
-  if(to===null){arrivalLetGo(); pvGlideInto(el); return;}
+  const pageTop=()=>{const pg=document.getElementById('p'+n); return pg?pvIntoTop(pg):null;};
+  if(to===null){pvGlideInto(el); arrivalWatch(pageTop); return;}
   const top=!pvAutoScrolling()&&Math.abs(L.scrollTop-to)<=FIGURE_REST_PX;
   if(top)pvGlideInto(el); else pvGlideTo(to);
-  arrivalWatch(n,!top);}
+  arrivalWatch(top?pageTop:()=>figureTop(n));}
 const FIGURE_ROOM_PT=24;   // of the page kept above an arrived figure at most: its label line ('PL18 · 지금 판') has no element
-const FIGURE_REST_PX=2;   // the pages rest on a figure's arrival within this (a glide ends on or next to its pixel)
-// A figure page's arrival (its figure, or its top on the press again) lands where it says once the pages rest. The glide's
-// place is reckoned at its start, and the layout can still move under it: a save's list reload redraws hundreds of lines and
-// stalls the glide past its guard (PV_JUMP lapses after a second), which gives scroll anchoring back, and the anchoring's
-// adjustment left the figure 30-300px off (#345). So each time the pages come to rest - after ARRIVAL_REST_MS without a
-// scroll, the glide guard down - it measures the place again and glides the rest (pvGlideTo: the guard and the held anchoring
-// again), at most ARRIVAL_FIXES times, until ARRIVAL_SETTLE_MS after the rest that found nothing to do: each correction counts
-// the window again from its own rest, which is always measured. Counted from the first rest it closed on a correction stopped on
-// its way, whose guard lapses up to two seconds later, and left the figure short by what remained (#357). It only settles what nobody asked
+const FIGURE_REST_PX=2;   // the pages rest on a jump's place within this (a glide ends on or next to its pixel)
+// Every jump of the PDF area - a page, an outline entry's place, a card's [보기]; each glide starts this watch with its place, a
+// function that measures it now - lands where it says once the pages rest. The glide's place is reckoned at its start, and the
+// layout can still move under it: a save's list reload redraws hundreds of lines and stalls the glide past its guard (PV_JUMP
+// lapses after a second), which gives scroll anchoring back, and the anchoring's adjustment left the figure 30-300px off
+// (#345); a line fitted on the way moves the pages after it, and a glide may not be written to (pvLetBlocks). So each time the
+// pages come to rest - after ARRIVAL_REST_MS without a scroll, the glide guard down - it measures the place again and glides the
+// rest (pvGlideTo: the guard and the held anchoring again), at most ARRIVAL_FIXES times, until ARRIVAL_SETTLE_MS after the rest
+// that found nothing to do: each correction counts the window again from its own rest, which is always measured. Counted from
+// the first rest it closed on a correction stopped on its way, whose guard lapses up to two seconds later, and left the figure
+// short by what remained (#357). It only settles what nobody asked
 // for: anything the person does meanwhile - a press, a key, a wheel or a touch anywhere, a window resize - lets it go
 // (arrivalLetGo), for that starts a move of its own (a card's mark, a search hit, a zoom, another page) the watch must not
-// undo; so do the person's scroll (PV_HAND), another document and the pages not shown. A new arrival replaces it.
+// undo; so do the person's scroll (PV_HAND), another document and the pages not shown. So does a scroll by anything else once
+// the pages have rested at the place: the place stayed and the pages left it, which is no layout's doing (at). A new jump
+// replaces it. An instant jump needs no watch: nothing is on its way when a pass comes, and the pass keeps the view itself.
 const ARRIVAL_REST_MS=120,ARRIVAL_SETTLE_MS=2000,ARRIVAL_FIXES=3;
-let ARRIVAL=/** @type {{n:number,figure:boolean,hand:number,doc:string|null,fixes:number,until:number}|null} */(null),ARRIVAL_TIMER=0;
-/** @param {number} n @param {boolean} figure */
-function arrivalWatch(n,figure){ARRIVAL={n,figure,hand:PV_SCROLL_HAND,doc:DOC,fixes:0,until:0}; arrivalSoon();}
+let ARRIVAL=/** @type {{place:()=>number|null,hand:number,doc:string|null,fixes:number,until:number,at:number|null}|null} */(null),ARRIVAL_TIMER=0;
+/** @param {()=>number|null} place - the scrollTop the jump goes to, measured now; null once it is gone */
+function arrivalWatch(place){ARRIVAL={place,hand:PV_SCROLL_HAND,doc:DOC,fixes:0,until:0,at:null}; arrivalSoon();}
 function arrivalSoon(){clearTimeout(ARRIVAL_TIMER); ARRIVAL_TIMER=setTimeout(arrivalSettle,ARRIVAL_REST_MS);}
 function arrivalLetGo(){if(!ARRIVAL)return; ARRIVAL=null; clearTimeout(ARRIVAL_TIMER);}
 for(const t of ['pointerdown','keydown','wheel','touchstart','gesturestart'])addEventListener(t,arrivalLetGo,{capture:true,passive:true});   // gesturestart: Safari's trackpad pinch
 addEventListener('resize',arrivalLetGo);
-function arrivalSettle(){const a=ARRIVAL,L=$('#left'),el=a?document.getElementById('p'+a.n):null; if(!a)return;
-  if(!el||a.hand!==PV_SCROLL_HAND||a.doc!==DOC||!L.getClientRects().length){ARRIVAL=null; return;}
+function arrivalSettle(){const a=ARRIVAL,L=$('#left'); if(!a)return;
+  if(a.hand!==PV_SCROLL_HAND||a.doc!==DOC||!L.getClientRects().length){ARRIVAL=null; return;}
   if(PV_JUMP!==null||pvAutoScrolling()){arrivalSoon(); return;}   // still on its way
   const now=performance.now(); if(!a.until)a.until=now+ARRIVAL_SETTLE_MS; else if(now>a.until){ARRIVAL=null; return;}
-  const to=a.figure?figureTop(a.n):Math.max(0,Math.min(L.scrollHeight-L.clientHeight,L.scrollTop+el.getBoundingClientRect().top-L.getBoundingClientRect().top-L.clientTop));
-  if(to===null){ARRIVAL=null; return;}
-  if(Math.abs(L.scrollTop-to)>FIGURE_REST_PX){if(a.fixes>=ARRIVAL_FIXES){ARRIVAL=null; return;} a.fixes++; a.until=0; pvGlideTo(to); arrivalSoon();}}
+  const place=a.place(); if(place===null){ARRIVAL=null; return;}
+  const to=Math.max(0,Math.min(L.scrollHeight-L.clientHeight,place));
+  if(Math.abs(L.scrollTop-to)<=FIGURE_REST_PX){a.at=to; return;}
+  if(a.fixes>=ARRIVAL_FIXES||(a.at!==null&&Math.abs(a.at-to)<=FIGURE_REST_PX)){ARRIVAL=null; return;}
+  a.fixes++; a.until=0; a.at=null; pvGlideTo(to); arrivalSoon();}
 // A scroll while it watches - the glide's own, an anchoring adjustment, a correction - waits for the next rest; a person's
 // scroll (PV_HAND) lets it go at that rest. So does a change of the pages' column's height, with no scroll at all: a line
 // pass that holds anchoring off (pvHoldView) or a far line drawn at its new height moves what is below it and says nothing
