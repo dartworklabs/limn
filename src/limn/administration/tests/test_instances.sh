@@ -136,7 +136,11 @@ export LIMN_USER_UNIT_DIR="$T/user-units" LIMN_LEDGER="$T/served/reserved-ports.
 export LIMN_TS_MIN=18005 LIMN_TS_MAX=18012 XDG_RUNTIME_DIR="$T/run"
 export LIMN_WAIT=1 # doc add/remove --restart wait for HTTP 200; there is no server, so keep the loop short
 export LIMN_UV="$T/bin/uv" LIMN_REPO="git+ssh://git@example.invalid/limn" LIMN_UNIT_PATH="/opt/tex/bin:/usr/bin:/bin"
-mkdir -p "$T/run" "$T/served" "$HOME"
+# own_listener's socket tables, empty: a server this account runs on the host is not on a port of these made-up instances.
+export LIMN_PROC_NET="$T/proc-net"
+mkdir -p "$T/run" "$T/served" "$HOME" "$LIMN_PROC_NET"
+: > "$LIMN_PROC_NET/tcp"
+: > "$LIMN_PROC_NET/tcp6"
 # The port ledger already lists a unit advertising local 18105 → the 18005↔18105 pair is unusable.
 printf '# generated\n18105 other-serve.service\n' > "$LIMN_LEDGER"
 cp "$LIMN_LEDGER" "$T/ledger.orig"
