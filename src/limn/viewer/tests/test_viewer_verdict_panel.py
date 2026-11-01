@@ -846,6 +846,45 @@ class PanelEdges(PanelBase):
         self.assertEqual(page.locator("#doc .pv-pop .pv-reason").input_value(), "가나12다")
         self.assertEqual(len(self.pins()), 1, "a digit typed on became a verdict")
 
+    def test_a_rebuild_that_moves_the_lines_keeps_the_reason_field_with_its_caret_both_ways(self):
+        """A reason typed in the panel on page 1, the caret one back from its end, when a new build with a page more and
+        pages too wide for the panel arrives (the pages are built again): the field on the line under the page has the
+        focus, the text and the caret, and digits typed on stay text - and the same when the next build brings the panel
+        back. No verdict is saved. A popover's button focused before a rebuild has the focus after it; a focus put
+        elsewhere (the PDF area) stays there. The rebuild took the field with the focus, which fell to nothing (#352)."""
+        page = self.on()
+        page.locator('#pv-panel button[data-key="채택"]').click()
+        page.wait_for_function("OPEN_ALL.length===1")
+        settle(page)
+        page.locator('#pv-panel [data-act="pv-reason-open"]').click()
+        page.keyboard.type("가나다")
+        page.keyboard.press("ArrowLeft")
+        page.evaluate("()=>{window.M0=META;}")
+        wide = (
+            "()=>refreshDoc({...M0,pages:[...M0.pages,M0.pages[M0.pages.length-1]].map(p=>({...p,pt_w:p.pt_w*1.6}))})"
+        )
+        back = "()=>refreshDoc(M0)"
+        for build, beside, more in ((wide, False, "1"), (back, True, "2")):
+            with self.subTest(beside=beside):
+                page.evaluate(build)
+                settle(page)
+                self.assertEqual(page.evaluate(SHAPE)["beside"], beside)
+                self.assertTrue(
+                    page.evaluate("()=>pvIsReasonField(document.activeElement)"), "the field lost the focus"
+                )
+                page.keyboard.type(more)
+        self.assertEqual(page.locator("#doc .pv-pop .pv-reason").input_value(), "가나12다")
+        self.assertEqual(len(self.pins()), 1, "a digit typed on became a verdict")
+        page.focus('#doc .pv-pop [data-act="pv-reason-close"]')
+        page.evaluate(wide)
+        settle(page)
+        self.assertEqual(page.evaluate(FOCUS)["act"], "pv-reason-close")
+        page.locator("#left").focus()
+        page.evaluate(back)
+        settle(page)
+        self.assertEqual(page.evaluate("document.activeElement.id"), "left")
+        self.assertEqual(page.locator("#doc .pv-pop .pv-reason").input_value(), "가나12다")
+
     def test_the_lines_moving_keep_the_save_chip_and_the_reading_spot(self):
         """A chip in the panel when the room falls past its bar stands on the page's line, its undo still there; page 3,
         read from a third of the way down, stays where it is in both directions."""

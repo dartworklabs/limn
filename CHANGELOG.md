@@ -10,9 +10,16 @@
   again: it came back empty, and the syllable committed next was saved as the whole reason ('묶이는 이유' became '유').
   The field now stays the same element whatever comes or goes before it, so its text, focus, caret and composition carry
   on. A field drawn anew while a syllable composes (a new build with another page count builds the pages again) holds
-  the text typed so far instead of starting empty. A save that fails while the text is still being typed closes the
-  popover with what was typed by then, as before; the RcRound2 test whose failure could arrive mid-text under load now
-  holds the save until the text is in. The agent contract is unchanged.
+  the text typed so far instead of starting empty.
+- **A new build that builds the pages again keeps the focus in an open reason (#352).** The focus fell to nothing with
+  the old popover: the text typed on was lost and a digit saved a verdict. It now comes back to the field drawn again,
+  with its selection, or to the popover's button that had it - also when the new pages move the lines between the side
+  panel and under the pages. A focus elsewhere stays where it is; a popover not drawn again leaves the digits typed on
+  no verdict keys.
+- **Test only:** a save that fails while the text is still being typed closes the popover with what was typed by then,
+  as before; the RcRound2 test whose failure could arrive mid-text under load now holds the save until the text is in.
+
+The agent contract is unchanged.
 
 ## 0.4.39 — 2026-11-01
 

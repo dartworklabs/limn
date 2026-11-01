@@ -235,6 +235,24 @@ function pvReasonLost(r){const f=pvReasonField(),had=!!f&&document.activeElement
 let PV_REFOCUS=/** @type {{page:number,sel:string}|null} */(null);
 function pvReasonAfterLines(){const w=PV_REFOCUS; if(!w)return; PV_REFOCUS=null;
   const c=/** @type {HTMLElement|null} */(document.querySelector('#doc .pv[data-page="'+w.page+'"] '+w.sel)); if(c)c.focus({preventScroll:true});}
+// A rebuild of the pages (buildDoc) takes the open popover away with them, and a focus in it fell to nothing: what was typed
+// on was lost and a digit saved a verdict (#352 review). Before it, pvReasonHoldFocus notes the focus in the session's
+// popover - its field with the selection, or one of its controls; null when the focus is anywhere else, which the rebuild
+// leaves alone. After it, pvReasonFocusBack gives the focus back to the same place in the popover drawn again, beside the
+// pages or under one - while it is still on nothing. An input method's composition ends with the old field (the session's
+// text holds what it had composed). A popover not drawn again leaves the keys typed on no verdict keys (PV_KEY_GUARD).
+/** @typedef {{sid:number,sel:[number,number,string]|null,act:string}} ReasonFocus */
+/** @returns {ReasonFocus|null} */
+function pvReasonHoldFocus(){const r=PV_REASON,a=/** @type {HTMLElement|null} */(document.activeElement),pop=a&&a.closest?a.closest('#doc .pv-pop'):null;
+  if(!r||!a||!pop||pop.getAttribute('data-id')!=='s'+r.sid)return null;
+  if(pvIsReasonField(a))return {sid:r.sid,sel:[a.selectionStart,a.selectionEnd,a.selectionDirection||'none'],act:''};
+  return {sid:r.sid,sel:null,act:a.dataset.act||''};}
+/** @param {ReasonFocus|null} h */
+function pvReasonFocusBack(h){const a=document.activeElement; if(!h||(a&&a!==document.body))return;
+  const r=PV_REASON,pop=r&&r.sid===h.sid?document.querySelector('#doc .pv-pop[data-id="s'+h.sid+'"]'):null;
+  const c=/** @type {HTMLElement|null} */(!pop?null:h.sel?pop.querySelector('.pv-reason'):h.act?pop.querySelector('[data-act="'+h.act+'"]'):null);
+  if(!c){PV_KEY_GUARD=true; return;}
+  c.focus({preventScroll:true}); if(h.sel&&pvIsReasonField(c))c.setSelectionRange(h.sel[0],h.sel[1],/** @type {'forward'|'backward'|'none'} */(h.sel[2]));}
 // Once per document in this page's life, when its first lines are drawn: the drafts kept for pins that are gone are let go,
 // one kept for a verdict that is not its line's current one of the person's becomes its page's draft (only that is marked
 // there), and the others wait on their lines ('초안 있음') - none opens by itself: a popover restored on a page far from the reading

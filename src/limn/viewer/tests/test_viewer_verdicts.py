@@ -5733,10 +5733,12 @@ class ReasonComposition(VerdictBase):
         settle(page)
         self.assertEqual(self.pins()[pid]["note"], "묶이는 이유")
 
-    def test_a_field_drawn_anew_mid_syllable_holds_the_text(self):
+    def test_a_field_drawn_anew_mid_syllable_holds_the_text_and_the_focus(self):
         """채택's reason open, '마지막 이' typed and '유' left composing; a new build with a page more arrives and the pages
-        and their lines are built again: the new field holds '마지막 이유'. The composition ended with the old field, out
-        of the document, and the new one was left empty - what was typed next was written over the reason."""
+        and their lines are built again: the new field holds '마지막 이유' with the focus and the caret at its end, so
+        ' 추가 2' typed on is text - no 보류 verdict - and Enter saves the whole of it. The composition ended with the old
+        field, out of the document, and the new one was left empty - what was typed next was written over the reason; and
+        the focus fell to nothing, where the text typed on went nowhere and 2 saved 보류."""
         page = self.on("fig")
         self.press_page(page, 1, "채택")
         open_reason(page, 1)
@@ -5747,8 +5749,16 @@ class ReasonComposition(VerdictBase):
         page.evaluate("()=>refreshDoc({...META,pages:META.pages.concat(META.pages.slice(-1))})")
         settle(page)
         got = page.evaluate(FIELD_NOW)
-        self.assertEqual((got["same"], got["value"]), (False, "마지막 이유"))
+        self.assertEqual((got["same"], got["value"], got["focused"]), (False, "마지막 이유", True))
         self.assertEqual(page.evaluate("PV_REASON.text"), "마지막 이유")
+        caret = "()=>{const f=document.activeElement; return [f.selectionStart,f.selectionEnd];}"
+        self.assertEqual(page.evaluate(caret), [6, 6])
+        page.keyboard.type(" 추가 2")
+        page.keyboard.press("Enter")
+        (pid,) = self.pins()
+        page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id&&p.note)", arg=pid, timeout=10000)
+        settle(page)
+        self.assertEqual([(p["verdict"], p["note"]) for p in self.pins().values()], [("채택", "마지막 이유 추가 2")])
 
 
 class ReasonDrafts(VerdictBase):
