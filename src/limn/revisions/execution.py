@@ -25,6 +25,14 @@ from limn.revisions.macros import PREAMBLE_MAX, text_macros
 from limn.revisions.scope import ScopeRefusal, ScopeUnwritable, UnsafePath, plan_scope_writes
 
 TEXT_COMMANDS_FILE = "textcmd.txt"  # in a job's work folder, beside the old/ and new/ snapshots
+# What a TeX build reads only when something names it: finished PDFs and pictures. A build root over the limits leaves out those
+# no other file names (revision_snapshot) - a manuscript folder that keeps its past comparison PDFs holds 350 MB of them beside
+# 6 MB it builds from.
+REVISION_NAMED_FILES = frozenset(
+    (".pdf", ".png", ".jpg", ".jpeg", ".eps", ".ps", ".mps", ".svg", ".gif", ".tif", ".tiff", ".webp")
+)
+# What can stand around a file's name in a source file: \includegraphics[width=2cm]{images/fig1.pdf} names images and fig1.pdf.
+NAME_EDGE = re.compile(rb"[\s{}\[\]()<>,;:=%\"'`|\\/]+")
 COMPARISON_NOTE = "수식 내부와 같은 파일명의 그림 내용 변경은 강조되지 않을 수 있습니다. 그림·서지·스타일 변경은 소스 변경사항도 확인하세요."
 # Issue #162: the run with the document's text commands did not build, so the comparison shown is plain latexdiff's.
 TEXT_COMMANDS_FALLBACK_NOTE = (
@@ -87,9 +95,55 @@ def parse_ls_tree_row(row: bytes, prefix: str) -> TreeFile | UnsafeTreeRow:
         return UnsafeTreeRow()
 
 
+def snapshot_over_limits(entries: list[TreeFile]) -> bool:
+    """Whether a snapshot of these files is past a file's size, the whole's or the number of files."""
+    return (
+        len(entries) > REVISION_FILES_MAX
+        or sum(e.size for e in entries) > REVISION_TREE_MAX
+        or any(e.size > REVISION_FILE_MAX for e in entries)
+    )
+
+
+def named_in(data: bytes) -> set[bytes]:
+    """The words of a source file that could be a file's name or stem; none for a binary file."""
+    return set() if b"\0" in data else set(NAME_EDGE.split(data))
+
+
+def is_named(entry: TreeFile, names: set[bytes]) -> bool:
+    """Whether a file with this name is named in names (named_in). A name a word cannot hold, with a space say, counts as
+    named: only a file that is surely not read may stay out."""
+    name = entry.path.name.encode()
+    return bool(NAME_EDGE.search(name)) or name in names or entry.path.stem.encode() in names
+
+
+def write_tree_file(spec: RevisionSpec, entry: TreeFile, dest: Path, deadline: float) -> bytes | StepFailed:
+    """Writes one file of a snapshot under dest from git objects, within deadline: its bytes, or the step failure."""
+    if time.monotonic() >= deadline:
+        return StepFailed("snapshot_timeout")
+    ran = core.git_exec(
+        ["cat-file", "blob", entry.oid],
+        spec.repo,
+        min(15, max(0.01, deadline - time.monotonic())),
+        entry.size + 4096,
+    )
+    if isinstance(ran, StepFailed):
+        return ran
+    rc, data, _ = ran
+    if rc != 0 or len(data) != entry.size:
+        return StepFailed("snapshot_blob")
+    target = dest / entry.path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(data)
+    return data
+
+
 def revision_snapshot(spec: RevisionSpec, commit: str, dest: Path) -> None | StepFailed:
     """Write the build root of commit (spec.source) into the new folder dest from git objects - regular files only,
-    within the file-count and size limits - and check that spec.main is there. The step failure otherwise."""
+    within the file-count and size limits - and check that spec.main is there. The step failure otherwise.
+
+    A build root past the limits goes without the REVISION_NAMED_FILES nothing in it names, and is refused if it is still
+    past them. One that fits is written whole, as a name found here is a guess: a picture named by a macro (fig\\thepage)
+    is not found, and its comparison ends in compile_failed, not in a wrong PDF."""
     prefix = "" if spec.source == "." else spec.source + "/"
     cmd = ["ls-tree", "-r", "-l", "-z", commit]
     if prefix:
@@ -101,36 +155,35 @@ def revision_snapshot(spec: RevisionSpec, commit: str, dest: Path) -> None | Ste
     if rc != 0:
         return StepFailed("snapshot_read")
     entries: list[TreeFile] = []
-    total = 0
     for row in tree.split(b"\0"):
         if not row:
             continue
         entry = parse_ls_tree_row(row, prefix)
         if isinstance(entry, UnsafeTreeRow):
             return StepFailed("unsafe_snapshot")
-        total += entry.size
         entries.append(entry)
-        if entry.size > REVISION_FILE_MAX or total > REVISION_TREE_MAX or len(entries) > REVISION_FILES_MAX:
+    held: list[TreeFile] = []
+    if snapshot_over_limits(entries):
+        held = [e for e in entries if e.path.suffix.lower() in REVISION_NAMED_FILES]
+        entries = [e for e in entries if e.path.suffix.lower() not in REVISION_NAMED_FILES]
+        if snapshot_over_limits(entries):
             return StepFailed("snapshot_size")
     dest.mkdir(parents=True)
     deadline = time.monotonic() + 60
+    names: set[bytes] = set()
     for entry in entries:
-        if time.monotonic() >= deadline:
-            return StepFailed("snapshot_timeout")
-        ran = core.git_exec(
-            ["cat-file", "blob", entry.oid],
-            spec.repo,
-            min(15, max(0.01, deadline - time.monotonic())),
-            entry.size + 4096,
-        )
-        if isinstance(ran, StepFailed):
-            return ran
-        rc, data, _ = ran
-        if rc != 0 or len(data) != entry.size:
-            return StepFailed("snapshot_blob")
-        target = dest / entry.path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(data)
+        data = write_tree_file(spec, entry, dest, deadline)
+        if isinstance(data, StepFailed):
+            return data
+        if held:
+            names |= named_in(data)
+    needed = [e for e in held if is_named(e, names)]
+    if snapshot_over_limits(entries + needed):
+        return StepFailed("snapshot_size")
+    for entry in needed:
+        data = write_tree_file(spec, entry, dest, deadline)
+        if isinstance(data, StepFailed):
+            return data
     if not (dest / spec.main).is_file():
         return StepFailed("missing_main")
     return None
@@ -202,6 +255,7 @@ def revision_sandbox(work: Path, main_parent: Path, tool: str, args: list[str]) 
         "/bin",
         "/lib",
         "/lib64",
+        "/etc/alternatives",  # Debian's /usr/bin/bibtex and others are links through it, dangling without it
         "/etc/fonts",
         "/etc/texmf",
         "/var/lib/texmf",

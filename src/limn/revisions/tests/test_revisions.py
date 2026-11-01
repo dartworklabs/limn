@@ -475,6 +475,65 @@ class ManuscriptRevisions(Base):
             revisions.StepFailed("unsafe_snapshot"),
         )
 
+    def commit_files(self, files: dict[str, bytes]) -> str:
+        """Commits files under the build root; the commit."""
+        for name, data in files.items():
+            path = self.repo / "ms" / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+        subprocess.run(["git", "add", "ms"], cwd=self.repo, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-qm", "files"], cwd=self.repo, check=True, capture_output=True)
+        return subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=self.repo, text=True).strip()
+
+    def snapshot_files(self, commit: str, name: str = "snapshot"):
+        """What a snapshot of commit wrote under the build root, or its failure."""
+        dest = self.repo / name
+        got = revision_execution.revision_snapshot(revision_spec(self.latest), commit, dest)
+        return got if got else sorted(p.relative_to(dest).as_posix() for p in dest.rglob("*") if p.is_file())
+
+    def test_a_build_root_past_the_limits_goes_without_the_files_nothing_names(self):
+        """Past comparison PDFs fill the folder: over the limits a snapshot leaves out a PDF or picture no source names, and
+        keeps those named by name, by stem and by a path, with a name a word cannot hold, and every other kind of file."""
+        tex = rb"\includegraphics[width=2cm]{images/plot.pdf}\includegraphics{stem}\input{part.tex}"
+        head = self.commit_files(
+            {
+                "main.tex": tex,
+                "part.tex": rb"\includegraphics{deep/in part}",
+                "images/plot.pdf": b"used",
+                "stem.PNG": b"used",
+                "deep/in part.pdf": b"used",
+                "data.bin": b"\0not named but not a picture",
+                "diff/old_diff.pdf": b"x" * 4096,
+                "diff/older.png": b"x" * 4096,
+            }
+        )
+        kept = ["data.bin", "deep/in part.pdf", "images/plot.pdf", "main.tex", "part.tex", "stem.PNG"]
+        with mock.patch.object(revision_execution, "REVISION_TREE_MAX", 4096):
+            self.assertEqual(self.snapshot_files(head), kept)
+        with mock.patch.object(revision_execution, "REVISION_FILES_MAX", 6):
+            self.assertEqual(self.snapshot_files(head, "by-count"), kept)
+        with mock.patch.object(revision_execution, "REVISION_FILE_MAX", 4095):
+            self.assertEqual(self.snapshot_files(head, "by-file"), kept)
+
+    def test_a_build_root_within_the_limits_is_written_whole(self):
+        """A name found in the sources is a guess, so it is used only where the whole would be refused: a picture named by a
+        macro comes along in a folder that fits."""
+        head = self.commit_files({"main.tex": rb"\includegraphics{fig\thepage}", "fig1.pdf": b"used"})
+        self.assertEqual(self.snapshot_files(head), ["fig1.pdf", "main.tex"])
+
+    def test_a_build_root_stays_refused_where_the_named_files_are_past_the_limits(self):
+        """What the build reads is not left out: named files over the limit refuse the snapshot, as does a source over it."""
+        head = self.commit_files({"main.tex": rb"\includegraphics{big}", "big.pdf": b"x" * 4096})
+        with mock.patch.object(revision_execution, "REVISION_TREE_MAX", 4096):
+            self.assertEqual(self.snapshot_files(head), revisions.StepFailed("snapshot_size"))
+        head = self.commit_files({"main.tex": b"y" * 8192, "big.pdf": b"x"})
+        with mock.patch.object(revision_execution, "REVISION_TREE_MAX", 4096):
+            self.assertEqual(self.snapshot_files(head, "source"), revisions.StepFailed("snapshot_size"))
+
+    def test_a_binary_file_names_nothing(self):
+        """A file with a NUL is not read for names, so it keeps nothing."""
+        self.assertEqual(revision_execution.named_in(b"\0old_diff.pdf"), set())
+
     def test_revision_jobs_are_bounded_and_cache_expires(self):
         """Exhausted job capacity refuses work; expired ready artifacts become idle and pruning bounds cache growth."""
         with mock.patch.object(ps.APP.RT.revision_jobs, "slots", threading.BoundedSemaphore(0)):
@@ -564,8 +623,9 @@ class ManuscriptRevisions(Base):
             "/etc/texmf",
             "/var/lib/texmf",
             "/var/cache/fontconfig",
+            "/etc/alternatives",
         )
-        present = {"/usr", "/bin", "/lib", "/etc/fonts", "/var/lib/texmf"}
+        present = {"/usr", "/bin", "/lib", "/etc/alternatives", "/etc/fonts", "/var/lib/texmf"}
         real_which, real_exists, real_exec = shutil.which, Path.exists, revisions.revision_exec
         calls = []
 
@@ -592,6 +652,7 @@ class ManuscriptRevisions(Base):
             return [
                 fake + "/bwrap", "--unshare-all", "--die-with-parent", "--clearenv",
                 "--ro-bind", "/usr", "/usr", "--ro-bind", "/bin", "/bin", "--ro-bind", "/lib", "/lib",
+                "--ro-bind", "/etc/alternatives", "/etc/alternatives",
                 "--ro-bind", "/etc/fonts", "/etc/fonts", "--ro-bind", "/var/lib/texmf", "/var/lib/texmf",
                 "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", "--bind", str(work), "/work",
                 "--chdir", "/work/new/.",
@@ -819,6 +880,26 @@ class ManuscriptRevisions(Base):
         text = self.comparison_text(head)
         self.assertIn("oldopening", text)
         self.assertIn("newopening", text)
+
+    @needs_tex("bwrap", "latexdiff", "latexmk", "pdftotext")
+    def test_a_folder_of_past_comparisons_with_a_bibliography_builds_its_comparison(self):
+        """The manuscript folder a comparison failed on: past comparison PDFs put it past the limits, and it cites through
+        BibTeX, which on Debian and Ubuntu is a link through /etc/alternatives and was missing in the sandbox. The comparison
+        builds, with its old and new words and its reference list."""
+        tex = "\\documentclass{article}\n\\begin{document}\noldword \\cite{tex}.\n\\bibliographystyle{plain}\n\\bibliography{refs}\n\\end{document}\n"
+        self.commit_files(
+            {
+                "main.tex": tex.encode(),
+                "refs.bib": b"@book{tex, author={Donald Knuth}, title={The TeXbook}, year={1984}, publisher={AW}}\n",
+                "diff/past_comparison.pdf": b"x" * 8192,
+            }
+        )
+        head = self.commit_main(tex.replace("oldword", "newword"), "a word")
+        with mock.patch.object(revision_execution, "REVISION_TREE_MAX", 4096):
+            text = self.comparison_text(head)
+        for word in ("oldword", "newword", "TeXbook"):
+            with self.subTest(word=word):
+                self.assertIn(word, text)
 
     def build_comparison(self, head: str, forced: tuple[str, ...] | None = None):
         """Builds the whole-commit comparison of head in the real sandbox, in a new job folder, and returns (outcome, job
