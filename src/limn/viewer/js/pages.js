@@ -22,12 +22,12 @@ function pageWidth(ptw,k){return Math.max(1,Math.round(ptw*k));}
 // to the bottom of the PDF area within that block, so it floats while its page is in view and settles under the page at its
 // end - in one block with every page it would float over the next pages' lines.
 function buildDoc(){
-  const doc=$('#doc'); doc.replaceChildren(); COMPOSE.box=null;
+  const doc=$('#doc'),focus=pvReasonHoldFocus(); doc.replaceChildren(); COMPOSE.box=null;   // a focus in the reason popover comes back with it
   META.pages.forEach((p,i)=>{const d=document.createElement('div'); d.className='pg'; d.id='p'+(i+1); d.dataset.page=String(i+1);
     d.dataset.ptw=String(p.pt_w); d.style.width=pageWidth(p.pt_w,K)+'px'; d.style.aspectRatio=p.pt_w+' / '+p.pt_h;
     setHtml(d,html`<span class="no">${i+1}</span><img loading="lazy" draggable="false" alt="${tl('{page}쪽',{page:i+1})}" src="${pageSrc(p)}">`);
     const w=document.createElement('div'); w.className='pgw'; w.dataset.page=String(i+1); w.appendChild(d); doc.appendChild(w);});
-  pageWidthVars(); marks(); vecObserve(); drawZoom();
+  pageWidthVars(); marks(); vecObserve(); drawZoom(); pvReasonFocusBack(focus);
 }
 // save=false is auto-fit - never saved. If a width fit for a narrow first window persisted into a wider window, the pages would look too small.
 // The scale is never saved in compact (mid/narrow) - so a width fit for a folded screen never overrides the spread/desktop setting.

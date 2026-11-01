@@ -386,7 +386,7 @@ class PinListLoading(unittest.TestCase):
             [
                 extract_js_fn("refreshDoc"),
                 """
-                let DOC='b',SWITCHSEQ=1,META={pages:[{id:'current'}]};
+                let DOC='b',SWITCHSEQ=1,META={pages:[{id:'current'}]},REFRESH_GEN=0;
                 const META_BY=new Map(),pending=[],painted=[];
                 const document={body:{classList:{contains:()=>false}}};
                 function topAnchor(){return null;}
@@ -416,7 +416,7 @@ class PinListLoading(unittest.TestCase):
                 extract_js_fn("switchDoc"),
                 extract_js_fn("refreshDoc"),
                 """
-                let DOC='a',SWITCHSEQ=0,META={pages:[{id:'a'}]},COMPOSE={current:null}; const EDITOR={current:null,saving:false};
+                let DOC='a',SWITCHSEQ=0,META={pages:[{id:'a'}]},COMPOSE={current:null},REFRESH_GEN=0; const EDITOR={current:null,saving:false};
                 const META_BY=new Map([['b',{pages:[{id:'old'}],pages_build:'v1'}]]);
                 const VIEW_BY=new Map(),requests=[];
                 const document={body:{classList:{contains:()=>false}}};

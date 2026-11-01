@@ -9,6 +9,33 @@
   page 80) stopped on page 102 or 103: the band the keyboard had held settled 200 ms into the glide, and its re-fit wrote
   the pages' scroll offset back to where it already was, which ends a smooth scroll in Chromium. A re-fit that leaves the
   reading spot's page where it stood, at the same height, no longer touches the scroll. The agent contract is unchanged.
+- **A Hangul syllable still composing no longer costs the reason typed before it (#352).** A key save and Enter at once
+  open the reason popover while the save is out. When the save landed while an input method was still composing a
+  syllable in the field, the line gained the pressed word's context in front of the popover and the field was drawn
+  again: it came back empty, and the syllable committed next was saved as the whole reason ('묶이는 이유' became '유').
+  The field now stays the same element whatever comes or goes before it, so its text, focus, caret and composition carry
+  on. A field drawn anew while a syllable composes (a new build with another page count builds the pages again) holds
+  the text typed so far instead of starting empty.
+- **A new build that builds the pages again keeps the focus in an open reason (#352).** The focus fell to nothing with
+  the old popover: the text typed on was lost and a digit saved a verdict. It now comes back to the field drawn again,
+  with its selection, or to the popover's button that had it - also when the new pages move the lines between the side
+  panel and under the pages. A focus elsewhere stays where it is; a popover not drawn again leaves the digits typed on
+  no verdict keys.
+- **Nothing moves or rebuilds a reason field while a syllable composes in it (#352).** Crossing the side panel's bar
+  (a wider window: 1440 to 1920) moved the lines while '유' was still composing; the field moved was a new one, the
+  composition ended with the old one, and the input method's commit landed on top of the text carried over: '묶이는 이유'
+  was saved as '묶이는 이유유123'. A new build with another page count did the same on a foldable or a tablet. The lines
+  now stay where they are until the syllable ends and then move, and such a build waits to build the pages again until
+  then; a newer build that arrives meanwhile wins, and the waiting one is dropped rather than put back over it. A
+  failed verdict save while a syllable composes closes the popover as before, keeping the text with the
+  syllable once as the page's draft.
+- **A new build keeps the reading page while it builds the pages again (#352).** Read from the new column before the
+  summaries under the pages above were back, the reading page was the next one: a reason being typed in the side panel
+  was moved on from - written and closed - and the focus fell to nothing (the digits typed on could save verdicts).
+- **Test only:** a save that fails while the text is still being typed closes the popover with what was typed by then,
+  as before; the RcRound2 test whose failure could arrive mid-text under load now holds the save until the text is in.
+
+The agent contract is unchanged.
 
 ## 0.4.39 — 2026-11-01
 

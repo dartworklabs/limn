@@ -758,16 +758,30 @@ function fillPv(el,page,list,v){el.dataset.page=String(page); el.classList.toggl
   el.classList.toggle('pv-pop-open',!!el.querySelector(':scope>.pv-pop')); pvReasonAfterDraw(el);
   if(f&&sel&&!f.isConnected){const g=/** @type {HTMLTextAreaElement|null} */(el.querySelector('.pv-pop .pv-reason[data-id="'+f.dataset.id+'"]'));
     if(g){g.focus({preventScroll:true}); g.setSelectionRange(sel[0],sel[1]);}}}
-// Makes a's children b's, keeping every node that is the same kind in the same place (pvMorph).
+// Makes a's children b's, keeping every node that is the same kind in the same place (pvMorph). The child that is or holds
+// the reason field stays where it is when b has the same one anywhere: the nodes before and after it are made b's on either
+// side of it. By place alone a node new before it - the pressed word's context, once the save the popover waited for landed -
+// took its place and the field was drawn again: an input method's composition in it ended, and the syllable it committed
+// went into an empty field and was saved as the whole reason (#352).
 /** @param {Node} a @param {Node} b */
-function pvMorphKids(a,b){const ac=[...a.childNodes],bc=[...b.childNodes];
-  bc.forEach((n,i)=>{if(i<ac.length)pvMorph(ac[i],n); else a.appendChild(n);}); ac.slice(bc.length).forEach(n=>n.remove());}
-// Makes node a read as b: the same text, or the same element (tag, data-act and data-id - a reason field of another pin is
-// another field, never one keeping the first pin's typed text) with b's attributes and children; another kind of node takes
-// a's place.
+function pvMorphKids(a,b){const ac=[...a.childNodes],bc=[...b.childNodes],i=ac.findIndex(pvHoldsReason),j=i<0?-1:bc.findIndex(n=>pvSameNode(ac[i],n));
+  if(j<0){pvMorphRun(a,ac,bc,null); return;}
+  pvMorphRun(a,ac.slice(0,i),bc.slice(0,j),ac[i]); pvMorph(ac[i],bc[j]); pvMorphRun(a,ac.slice(i+1),bc.slice(j+1),null);}
+// Makes the run ac of a's children read as bc, by place: the new nodes past its end go in before `at` (null: at the end), and
+// the old ones past bc's end go.
+/** @param {Node} a @param {ChildNode[]} ac @param {ChildNode[]} bc @param {Node|null} at */
+function pvMorphRun(a,ac,bc,at){bc.forEach((n,k)=>{if(k<ac.length)pvMorph(ac[k],n); else a.insertBefore(n,at);}); ac.slice(bc.length).forEach(n=>n.remove());}
+// Whether node n is the reason field or holds it.
+/** @param {Node} n */
+function pvHoldsReason(n){return n instanceof Element&&(pvIsReasonField(n)||!!n.querySelector('.pv-reason'));}
+// Whether pvMorph keeps node a to read as b: the same kind of node - for an element the same tag, data-act and data-id (a
+// reason field of another pin is another field, never one keeping the first pin's typed text).
 /** @param {Node} a @param {Node} b */
-function pvMorph(a,b){if(a.nodeType!==b.nodeType||a.nodeName!==b.nodeName||(a instanceof Element&&b instanceof Element&&(a.getAttribute('data-act')!==b.getAttribute('data-act')||a.getAttribute('data-id')!==b.getAttribute('data-id')))){
-    /** @type {ChildNode} */(a).replaceWith(b); return;}
+function pvSameNode(a,b){return a.nodeType===b.nodeType&&a.nodeName===b.nodeName&&!(a instanceof Element&&b instanceof Element&&(a.getAttribute('data-act')!==b.getAttribute('data-act')||a.getAttribute('data-id')!==b.getAttribute('data-id')));}
+// Makes node a read as b: the same text, or the same element (pvSameNode) with b's attributes and children; another kind of
+// node takes a's place.
+/** @param {Node} a @param {Node} b */
+function pvMorph(a,b){if(!pvSameNode(a,b)){/** @type {ChildNode} */(a).replaceWith(b); return;}
   if(!(a instanceof Element&&b instanceof Element)){if(a.nodeValue!==b.nodeValue)a.nodeValue=b.nodeValue; return;}
   [...a.attributes].forEach(x=>{if(!b.hasAttribute(x.name))a.removeAttribute(x.name);});
   [...b.attributes].forEach(x=>{if(a.getAttribute(x.name)!==x.value)a.setAttribute(x.name,x.value);});
@@ -1304,6 +1318,7 @@ function pvInsetR(){const L=$('#left'),R=$('#right'),G=$('#grip'); if(!L.getClie
 // The page under the reading line - the one the section strip and the page count name, readingDepth under the PDF area's
 // top - while the pages are shown and the document has page lines; 0 otherwise. Read from the layout as it is now.
 function pvReadingAt(){if(PV_AT_HELD)return PV_AT_HELD;   // the lines are moving beside or under the pages (verdict-panel.js)
+  if(PV_BUILD_AT)return PV_BUILD_AT;   // the pages are being built again (refreshDoc)
   if(!pageVerdictsOn()||document.body.classList.contains('revision-open')||!$('#left').getClientRects().length)return 0;
   const a=topAnchor(readingDepth($('#left'))); return a?a.page:0;}
 // The reading page when it has a line (pageTakesVerdict), else 0: its line floats and names its figure (PV_READ).

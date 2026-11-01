@@ -21,7 +21,16 @@ from limn.pins.location import source as pick_source
 import helpers_figure
 from helpers import ps, split_resp
 from helpers_access import ALICE, BOB, member_add, member_set_role, talk_to
-from helpers_browser import MISSES_44, BrowserBase, booted, nothing_follows, settle, watch_idle
+from helpers_browser import (
+    MISSES_44,
+    BrowserBase,
+    booted,
+    ime_commit,
+    ime_compose,
+    nothing_follows,
+    settle,
+    watch_idle,
+)
 
 WORDS = {"format": "limn-verdicts/1", "verdicts": [{"key": "채택"}, {"key": "보류"}, {"key": "삭제", "confirm": True}]}
 AGENT = {"Tailscale-User-Login": "agentb@example.com", "Tailscale-User-Name": "Agent B"}
@@ -68,13 +77,24 @@ class VerdictBase(BrowserBase):
         The page verdict line can draw before the list is asked for, so taking the routes as soon as the line is
         there could take none and let the real list through unheld (a CI flake: the line read the verdict, not
         '판정 읽는 중…')."""
+        return self._take_held(page, "held_list", "the viewer never asked for the pin list", timeout_ms)
+
+    def take_held(self, page, timeout_ms=10000):
+        """The held POST /api/pin routes, once the viewer has sent a pin's save at least once; stops holding. A page line's
+        save sends its pick first, so its POST /api/pin can still be on its way while the line says it saves (PV_BUSY)."""
+        return self._take_held(page, "held", "the viewer never sent a pin's save", timeout_ms)
+
+    def _take_held(self, page, name, never, timeout_ms):
+        """The routes held in self.<name>, once one is there (the route handler runs while Playwright waits on the page),
+        and stops holding them; fails with `never` after timeout_ms."""
         waited = 0
-        while not self.held_list:
+        while not getattr(self, name):
             if waited >= timeout_ms:
-                self.fail("the viewer never asked for the pin list")
+                self.fail(never)
             page.wait_for_timeout(20)
             waited += 20
-        held, self.held_list = self.held_list, None
+        held = getattr(self, name)
+        setattr(self, name, None)
         return held
 
     def route(self, route):
@@ -5675,6 +5695,139 @@ class ReasonKeys(VerdictBase):
         self.assertEqual(page.evaluate(REASON, 1), {"focused": True, "value": "2", "placeholder": "이유 (선택)"})
 
 
+# Marks the open reason field (FIELD) and records the end of a composition in it (ENDED: the text it committed).
+MARK_FIELD = """()=>{const f=document.querySelector('#doc .pv-pop .pv-reason'); window.FIELD=f; window.ENDED=null;
+  f.addEventListener('compositionend',e=>{window.ENDED=e.data;});}"""
+# The open reason field now: whether it is the one marked, its text and focus, and what a composition in it committed.
+FIELD_NOW = """()=>{const f=document.querySelector('#doc .pv-pop .pv-reason');
+  return f&&{same: f===window.FIELD, value: f.value, focused: document.activeElement===f, ended: window.ENDED};}"""
+
+
+class ReasonComposition(VerdictBase):
+    """A reason typed with an input method (Hangul): the syllable still composing is part of the text, also when the line
+    is drawn again under it (#352)."""
+
+    def test_a_save_landing_mid_syllable_keeps_the_field_its_text_and_composition(self):
+        """2 (its save held), Enter, '묶이는 이' typed and '유' left composing; the save lands and binds the popover, and
+        the line gains the pressed word's context before it. The field is the same element with '묶이는 이유' and the
+        focus, its composition going on; committed and Enter, the note is the whole text. Drawn again by place, the field
+        was replaced and came back empty: the committed '유' was the note."""
+        page = self.on("fig")
+        cdp = page.context.new_cdp_session(page)
+        self.held = []
+        page.keyboard.press("2")
+        page.wait_for_function("PV_BUSY.size===1")
+        page.keyboard.press("Enter")
+        page.keyboard.type("묶이는 이")
+        page.evaluate(MARK_FIELD)
+        ime_compose(cdp, "ㅇ", "유")
+        self.release()
+        page.wait_for_function("()=>OPEN_ALL.length===1&&!!PV_REASON&&PV_REASON.id>0", timeout=10000)
+        settle(page)
+        want = {"same": True, "value": "묶이는 이유", "focused": True, "ended": None}
+        self.assertEqual(page.evaluate(FIELD_NOW), want)
+        ime_commit(cdp, "유")  # the input method commits the syllable
+        self.assertEqual(page.evaluate(FIELD_NOW), {**want, "ended": "유"})
+        page.keyboard.press("Enter")
+        (pid,) = self.pins()
+        page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id&&p.note)", arg=pid, timeout=10000)
+        settle(page)
+        self.assertEqual(self.pins()[pid]["note"], "묶이는 이유")
+
+    def test_a_rebuild_mid_syllable_waits_for_it_and_keeps_the_text_and_the_focus(self):
+        """채택's reason open, '마지막 이' typed and '유' left composing when a new build with a page more arrives: the pages
+        are not built again while the syllable composes - the field is the same, still composing. Committed, the pages are
+        built again and the new field holds '마지막 이유' with the focus and the caret at its end, so ' 추가 2' typed on is
+        text - no 보류 verdict - and Enter saves the whole of it. Built at once, the composition ended with the old field
+        and the commit came on top of the text carried over ('마지막 이유유'); before that the new field was left empty,
+        and the focus fell to nothing, where the text typed on went nowhere and 2 saved 보류."""
+        page = self.on("fig")
+        self.press_page(page, 1, "채택")
+        open_reason(page, 1)
+        cdp = page.context.new_cdp_session(page)
+        page.keyboard.type("마지막 이")
+        page.evaluate(MARK_FIELD)
+        ime_compose(cdp, "ㅇ", "유")
+        n = page.evaluate("META.pages.length")
+        page.evaluate(
+            "()=>{refreshDoc({...META,pages:META.pages.concat(META.pages.slice(-1))});}"
+        )  # not awaited: it waits
+        settle(page)
+        self.assertEqual((page.evaluate("META.pages.length"), page.evaluate(FIELD_NOW)["same"]), (n, True))
+        ime_commit(cdp, "유")
+        page.wait_for_function("n=>META.pages.length===n+1&&!!document.querySelector('#p'+(n+1))", arg=n)
+        settle(page)
+        got = page.evaluate(FIELD_NOW)
+        self.assertEqual((got["same"], got["value"], got["focused"]), (False, "마지막 이유", True))
+        caret = "()=>{const f=document.activeElement; return [f.selectionStart,f.selectionEnd];}"
+        self.assertEqual(page.evaluate(caret), [6, 6])
+        page.keyboard.type(" 추가 2")
+        page.keyboard.press("Enter")
+        (pid,) = self.pins()
+        page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id&&p.note)", arg=pid, timeout=10000)
+        settle(page)
+        self.assertEqual([(p["verdict"], p["note"]) for p in self.pins().values()], [("채택", "마지막 이유 추가 2")])
+
+    def test_a_newer_build_while_a_rebuild_waits_for_the_syllable_is_never_rolled_back(self):
+        """Build A on screen, '유' left composing: build B with a page more waits for the syllable; build C, with A's page
+        count, comes next and is applied at once. When the syllable is committed B is dropped - C stays on screen, with
+        A's pages and the field the same. B, applied after its wait, put the older build back over C for good: the build
+        polling had already counted C's (#352 review)."""
+        page = self.on("fig")
+        self.press_page(page, 1, "채택")
+        open_reason(page, 1)
+        cdp = page.context.new_cdp_session(page)
+        page.keyboard.type("마지막 이")
+        page.evaluate(MARK_FIELD)
+        ime_compose(cdp, "ㅇ", "유")
+        n = page.evaluate("META.pages.length")
+        page.evaluate(
+            "()=>{window.M0=META; window.RB=refreshDoc({...M0,pages:M0.pages.concat(M0.pages.slice(-1)),mark:'B'});}"
+        )
+        settle(page)
+        page.evaluate("()=>refreshDoc({...M0,mark:'C'})")
+        settle(page)
+        self.assertEqual(page.evaluate("[META.mark,META.pages.length]"), ["C", n])
+        ime_commit(cdp, "유")
+        page.evaluate("()=>window.RB")  # B's refresh is over
+        settle(page)
+        self.assertEqual(
+            page.evaluate("[META.mark,META.pages.length,document.querySelectorAll('#doc .pg').length]"), ["C", n, n]
+        )
+        got = page.evaluate(FIELD_NOW)
+        self.assertEqual((got["same"], got["value"], got["focused"]), (True, "마지막 이유", True))
+
+    def test_a_failed_save_mid_syllable_leaves_it_once_in_the_pages_draft(self):
+        """2 (its save held), Enter, '실패한 이' typed and '유' left composing; the save is lost on the network. The popover
+        closes as any failed save's does, its text with the syllable as the page's draft; the input method's commit
+        that follows and the digits typed on land nowhere (no verdict). Saved again by its word, Enter opens the reason
+        with '실패한 이유' once, and Enter saves it."""
+        page = self.on("fig")
+        cdp = page.context.new_cdp_session(page)
+        self.held = []
+        page.keyboard.press("2")
+        page.wait_for_function("PV_BUSY.size===1")
+        page.keyboard.press("Enter")
+        page.keyboard.type("실패한 이")
+        ime_compose(cdp, "ㅇ", "유")
+        for route in self.take_held(page):
+            route.abort()
+        page.wait_for_function("()=>LINE.some(n=>n.title.startsWith('판정 저장 실패'))", timeout=10000)
+        settle(page)
+        self.assertIsNone(page.evaluate(POP, 1))
+        self.assertEqual(page.evaluate(DRAFTS), {"fig:p1": "실패한 이유"})
+        ime_commit(cdp, "유")
+        page.keyboard.type("123")
+        settle(page)
+        self.assertEqual((page.evaluate(DRAFTS), self.pins()), ({"fig:p1": "실패한 이유"}, {}))
+        pid = self.press_page(page, 1, "보류")
+        self.assertEqual(open_reason(page, 1).input_value(), "실패한 이유")
+        page.keyboard.press("Enter")
+        page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id&&p.note)", arg=pid, timeout=10000)
+        settle(page)
+        self.assertEqual([(p["verdict"], p["note"]) for p in self.pins().values()], [("보류", "실패한 이유")])
+
+
 class ReasonDrafts(VerdictBase):
     """An unsaved reason is never lost without a word (0.4.34 P1-2): drafts are kept per pin in this tab (sessionStorage);
     leaving the page with one asks first (beforeunload); with text Esc takes two presses, the first saying what the second
@@ -6822,7 +6975,8 @@ class RcRound2(VerdictBase):
 
     def test_a_held_save_keeps_the_text_and_a_failed_one_leaves_it_as_the_pages_draft(self):
         """(P1-A) 1 with its save held, Enter, '3번 패널' typed: the popover waits for the verdict's number with the text;
-        released, it is that verdict's draft. A save that fails meanwhile leaves the text as the page's draft."""
+        released, it is that verdict's draft. A save that fails meanwhile - held while the text is typed, then lost on the
+        network - leaves the text as the page's draft."""
         page = self.on("fig")
         self.held = []
         page.keyboard.press("1")
@@ -6842,13 +6996,18 @@ class RcRound2(VerdictBase):
         settle(page)
         self.drop_all()
         self.reload(page)
-        self.fail_pin = 1
         page.locator(WORD % (1, "보류")).focus()
         page.keyboard.press("Escape")
         page.evaluate("searchToPage()")
+        # Held, not lost at once: a save that fails while the text is still being typed closes the popover there, as it
+        # should, and what is typed after that goes into no field (#352: under load the failure came mid-text).
+        self.held = []
         page.keyboard.press("2")
         page.keyboard.press("Enter")
         page.keyboard.type("실패해도 남는 이유")
+        self.assertEqual(page.evaluate(POP, 1)["value"], "실패해도 남는 이유")
+        for route in self.take_held(page):
+            route.abort()
         page.wait_for_function("()=>LINE.some(n=>n.title.startsWith('판정 저장 실패'))", timeout=10000)
         settle(page)
         self.assertEqual(page.evaluate(DRAFTS).get("fig:p1"), "실패해도 남는 이유")
