@@ -73,7 +73,7 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 
 브라우저가 닿는 테스트(`src/limn/viewer/tests/test_viewer_browser.py`, `src/limn/viewer/tests/test_viewer.py`의 `Frontend*` 가드)는 **임의의 시간(`sleep`, `wait_for_timeout`)을 기다리지 않는다.** 이벤트·DOM 상태·통신 완료를 가리키는 술어(`expect(...)`, `wait_for_selector`, `wait_for_function`)를 기다린다. 공용 대기 `settle()`(`tests/support/helpers_browser.py`)은 짧은 타이머·`fetch`·CSS 애니메이션과 함께 웹 글꼴 로딩(`document.fonts.status`)이 끝나기를 기다린다. 담은 글꼴의 조각은 그 글자가 처음 화면에 나올 때 받아서, 그 전에 잰 글은 폴백 글꼴의 값이기 때문이다([viewer.md](viewer.md) §글꼴). 시간으로 기다리면 빠른 머신에서는 시간을 낭비하고 느린 CI에서는 무작위로 깨진다. 브라우저가 건너뛰는 요소(화면에서 먼 `content-visibility: auto` 안, 예를 들어 먼 쪽 판정 줄)의 애니메이션은 기다리지 않는다. Firefox는 그 요소를 다시 그릴 때까지 애니메이션을 첫 프레임에 멈춘 채 실행 중으로 두어, 기다리면 끝나지 않는다.
 
-`settle()`이 보지 못하는 기다림도 있다. 부팅의 PDF.js `import`는 `fetch`도 타이머도 아니어서, `BrowserBase.open()`이 `pdf_boot_done()`으로 그 끝까지 기다린다. `import` 뒤의 열기가 `VEC.gen`을 올리고 목차를 잊으므로, 먼저 넣은 대역 문서나 목차가 사라지기 때문이다.
+부팅의 PDF.js `import`는 `fetch`도 타이머도 아니지만 `settle()`이 그 끝까지 기다린다. `import` 뒤의 열기가 `VEC.gen`을 올리고 목차를 잊으므로, 먼저 넣은 대역 문서나 목차가 사라지기 때문이다. 모든 뷰어 하네스가 `settle()`로 돌아오므로 하네스마다 따로 기다리지 않는다.
 
 뷰어 화면의 시간 의존 동작(폴링 간격, 알림 배지 깜빡임, 날짜 포맷)을 테스트할 때는 브라우저의 시계를 얼린다(`clock.set_fixed_time()`).
 
