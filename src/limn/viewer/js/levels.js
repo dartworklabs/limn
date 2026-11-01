@@ -75,7 +75,7 @@ function segFade(seg){if(!seg)return; const over=seg.scrollWidth-seg.clientWidth
 document.addEventListener('scroll',e=>{const t=/** @type {HTMLElement} */(e.target); if(t&&t.classList&&t.classList.contains('seg'))segFade(t);},true);
 // Applies rung key to o (the composer's selection or an edit card): its lines, scope and source; a figure rung also selects
 // its element (elSel), which lines later set in the excerpt keep (setLines).
-function useLevel(o,key){const lv=lvOf(o,key); if(!lv)return; o.lo=lv.lo;o.hi=lv.hi;o.scope=lv.level;o.env=lv.env||null;o.snippet=lv.snippet; if(lv.el)o.elSel=lv.el;}
+function useLevel(o,key){const lv=lvOf(o,key); if(!lv)return; if('score' in lv)o.score=lv.score; o.lo=lv.lo;o.hi=lv.hi;o.scope=lv.level;o.env=lv.env||null;o.snippet=lv.snippet; if(lv.el)o.elSel=lv.el;}
 let snipT=/** @type {ReturnType<typeof setTimeout>|undefined} */(undefined);
 // Refreshes the text of a range set in the excerpt only while its selection still owns the visit or its edit card survives.
 function refetchSnip(o,after){const visit=captureVisit(); clearTimeout(snipT); snipT=setTimeout(async()=>{

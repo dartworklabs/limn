@@ -1365,6 +1365,20 @@ class FrontendPanelWidthLogic(unittest.TestCase):
             [["문단", "abstract", "frontmatter"], ["itemize", "itemize (바깥)"], "L159", "L155-L173"],
         )
 
+    def test_choosing_a_rung_takes_its_score(self):
+        """The badge speaks for the lines chosen: a table's score does not stay on its \\end line, which holds none of the
+        drag. A rung without a score (a figure's map) keeps the pick's."""
+        js = "\n".join(
+            [
+                extract_js_fn("lvOf"),
+                extract_js_fn("useLevel"),
+                "const o={score:1,levels:[{level:'raw',lo:4,hi:4,snippet:'',score:0},{level:'env',lo:1,hi:4,snippet:'',score:1},"
+                "{level:'el',lo:2,hi:2,snippet:''}]};useLevel(o,'raw');const a=o.score;useLevel(o,'env');const b=o.score;"
+                "useLevel(o,'el');console.log(JSON.stringify([a,b,o.score]));",
+            ]
+        )
+        self.assertEqual(json.loads(run_node(js)), [0, 1, 1])
+
     def test_nothing_to_weigh_has_no_badge(self):
         """No score is no measure: a picture's region or words too common to name a place carry no badge. So does a pin saved
         before there was no score, as 0 by SyncTeX with no quote. A score of 0 over text that was read keeps its warning."""

@@ -336,10 +336,12 @@ class Traced:
     split: tuple[int, int] | None
 
 
-def draws_picture(lines: Sequence[str], lo: int, hi: int) -> bool:
-    """Whether these lines (lo, hi in lines) include a picture. SyncTeX names a picture's words by that line, and the words
-    live in the picture's own file, so the source's words tell nothing about the place."""
-    return any("\\includegraphics" in strip_comment(line) for line in lines[max(0, lo - 1) : hi])
+def draws_picture(lines: Sequence[str], synctex: tuple[int, int]) -> bool:
+    """Whether SyncTeX's range is one line that includes a picture. It names a picture's words by that line alone, and the
+    words live in the picture's own file, so the source's words tell nothing about the place. A range of more lines holds
+    text as well, which the text path may rightly correct."""
+    lo, hi = synctex
+    return lo == hi and 0 < lo <= len(lines) and "\\includegraphics" in strip_comment(lines[lo - 1])
 
 
 def trace_range(
@@ -354,7 +356,7 @@ def trace_range(
     if synctex:
         cands.append(("synctex", synctex[0], synctex[1], score_range(tw, lines, synctex[0], synctex[1])))
     # On a picture SyncTeX is sure, and the picture's words matching some sentence elsewhere would only take the pin away.
-    picture = synctex is not None and draws_picture(lines, synctex[0], synctex[1])
+    picture = synctex is not None and draws_picture(lines, synctex)
     alt = None if picture else by_text(tw, lines, synctex[0] if synctex else None)
     if alt:
         cands.append(("text", alt[0], alt[1], alt[2]))
@@ -364,9 +366,13 @@ def trace_range(
     via, raw_lo, raw_hi, best = cands[0]
     lad = compute_levels(lines, raw_lo, raw_hi, envs)
     lo, hi = lad["lo"], lad["hi"]
-    # The paths compete on their raw lines, and the answer says how much of the drag is in the lines the pin shows: SyncTeX
-    # names a table's cells by its \\end line, whose words are the rows above it.
-    score = max(best, score_range(tw, lines, lo, hi)) if tw and not picture else None
+    # The paths compete on their raw lines; each rung then says how much of the drag is in its own lines, as the person can
+    # choose any, and the answer gives the default's: SyncTeX names a table's cells by its \\end line, whose words are the rows
+    # above it, so the raw line alone would say 0% of a table holding every word.
+    measured = bool(tw) and not picture
+    for level in lad["levels"]:
+        level["score"] = round(score_range(tw, lines, level["lo"], level["hi"]), 2) if measured else None
+    score = score_range(tw, lines, lo, hi) if measured else None
     weak = score is not None and score < WEAK_SCORE
     # If both expand into the same block, the two paths haven't actually diverged - no disagreement.
     split = (

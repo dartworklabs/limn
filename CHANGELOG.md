@@ -11,14 +11,15 @@
   the words it touches. A drag with nothing to weigh, a picture or words too common to name a place, has no score
   (`score: null` in the pick answer) and no badge, rather than 0%; pins saved so stay as they are and show none. Drags that
   had text are read as before.
-- **A word the source does not hold no longer counts against a place.** A section number a `\ref` printed or a word inside a
-  picture was weighed as the rarest word of all, though no line can contain it, so '한계는 Section 5.5에' on its right line
-  scored 34%. Such words are left out of the score, and a drag of nothing else has no score.
-- **A drag over a picture stays on the picture.** SyncTeX names a picture exactly, but its words could match a sentence
-  elsewhere, and the text path then took the pin to that sentence. On a picture the text path no longer competes, and the
-  match has no score, as those words tell nothing about the place.
-- **The score is of the lines the pin shows.** SyncTeX names a table's cells by its `\end` line, so a drag on a table scored
-  0% on the line though the table holds every word. The paths still compete on their raw lines.
+- **A number a `\ref` printed no longer counts against a place.** Such a number is in no line of the source, yet it was
+  weighed as the rarest word of all, so '한계는 Section 5.5에' on its right line scored 34%. A number the file does not hold
+  is left out of the score. A word it does not hold still counts, as it may mean the drag is on another file.
+- **A drag over a picture stays on the picture.** SyncTeX names a picture by its one `\includegraphics` line, but its words
+  could match a sentence elsewhere, and the text path then took the pin to that sentence. There the text path no longer
+  competes, and the match has no score, as those words tell nothing about the place.
+- **Each rung of the range has its own score.** SyncTeX names a table's cells by its `\end` line, so a drag on a table scored
+  0% on that line though the table the pin shows holds every word. The paths still compete on their raw lines, the answer
+  gives the default rung's score, and choosing another rung takes that rung's (`levels[].score`).
 
 ## 0.4.40 — 2026-11-01
 

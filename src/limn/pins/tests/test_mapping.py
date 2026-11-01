@@ -152,6 +152,7 @@ class TraceRange(unittest.TestCase):
         lines = ("\\begin{table}", "rarecell text", "other row", "\\end{table}", "", "after") + ("filler",) * 6
         t = mapping.trace_range([("rarecell", 1.0)], lines, (4, 4), self.envs)
         self.assertEqual((t.via, t.raw_lo, t.lo, t.hi, t.score), ("synctex", 4, 1, 4, 1.0))
+        self.assertEqual({lv["level"]: lv["score"] for lv in t.levels}["raw"], 0.0)
 
     def test_a_picture_keeps_its_pin_and_has_no_measure(self):
         """A drag over words inside a picture: SyncTeX names its \\includegraphics line. The same words in a sentence elsewhere
@@ -166,6 +167,20 @@ class TraceRange(unittest.TestCase):
         ) + ("filler",) * 6
         t = mapping.trace_range([("weekly", 1.0), ("monthly", 1.0)], lines, (2, 2), self.envs)
         self.assertEqual((t.via, t.raw_lo, t.score, t.weak, t.split), ("synctex", 2, None, False, None))
+
+    def test_a_range_of_lines_with_a_picture_is_not_taken_for_the_picture(self):
+        """SyncTeX's answer of two lines, a picture and a caption, holds text, so a sentence elsewhere can still correct it."""
+        lines = (
+            "\\begin{figure}",
+            "\\includegraphics{a.pdf}",
+            "\\caption{x}",
+            "\\end{figure}",
+            "",
+            "rareone raretwo",
+        ) + ("filler",) * 6
+        t = mapping.trace_range([("rareone", 1.0), ("raretwo", 1.0)], lines, (2, 3), self.envs)
+        self.assertEqual((t.via, t.raw_lo), ("text", 6))
+        self.assertEqual(t.score, 1.0)
 
     def test_the_better_score_wins_and_synctex_wins_a_tie(self):
         """Text found elsewhere with a higher score wins; the same score keeps SyncTeX."""

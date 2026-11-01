@@ -25,6 +25,7 @@ from limn.builds.artifacts import BuildFailed, BuildOk, BuildOkWithErrors, Build
 from limn.pins.location import (
     input as location_input,
     lookup as locate,
+    mapping,
     position,
     range as source_range,
     resolve as pick_resolve,
@@ -578,26 +579,28 @@ BBOX = """<page width="595" height="842">
 </page>"""
 
 
-class WordsTheSourceLacks(unittest.TestCase):
-    """A word no line of the file holds cannot be in any range of it, so it is not weighed at all."""
+class NumbersTheSourceLacks(unittest.TestCase):
+    """A number a \\ref printed is in no line, so it is not weighed. A word the file lacks stays: it may be on another file."""
 
-    LINES = ("타겟 데이터의 한계는 \\ref{sec:limits}에 적는다", "transfer gain shrinks here") + (
+    LINES = ("타겟 데이터의 한계는 \\ref{sec:limits}에 적는다", "transfer gain shrinks here", "순서 2.5배") + (
         "다른 문단의 글자",
     ) * 40
 
     def weights(self, text):
         return dict(pick_source.TokenCache().weights(text, self.LINES, ("f", 1, 1)))
 
-    def test_a_printed_number_and_a_pictures_word_are_left_out(self):
-        """Section 5.5 is what \\ref printed; the source says sec:limits. Only the word the file holds stays."""
-        self.assertEqual(set(self.weights("한계는 Section 5.5에 shrinks")), {"한계는"} | {"shrinks"})
+    def test_a_printed_number_is_left_out(self):
+        """Section 5.5 is what \\ref printed; the source says sec:limits. The words stay, held or not."""
+        self.assertEqual(set(self.weights("한계는 Section 5.5에 shrinks")), {"한계는", "Section", "shrinks"})
 
-    def test_a_word_inside_a_longer_one_of_the_source_stays(self):
-        """A word the PDF split at a line's end is a part of a source word, which the score finds as a substring."""
-        self.assertEqual(set(self.weights("데이터")), {"데이터"})
+    def test_a_number_the_source_holds_stays(self):
+        self.assertEqual(set(self.weights("2.5배 shrinks")), {"2.5", "shrinks"})
 
-    def test_nothing_the_source_holds_is_nothing_to_weigh(self):
-        self.assertEqual(self.weights("Section 5.5 picture label"), {})
+    def test_a_word_of_another_file_still_counts_against_the_place(self):
+        """The drag is on a file SyncTeX did not name: its words are absent here, and they must weigh, or a wrong file looks
+        sure. One held word of three keeps the score at a third of the weight."""
+        tw = pick_source.TokenCache().weights("transfer unrelated absentwords", self.LINES, ("f", 1, 1))
+        self.assertLess(mapping.score_range(tw, self.LINES, 2, 2), 0.5)
 
 
 class RegionText(unittest.TestCase):
