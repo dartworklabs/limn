@@ -1436,26 +1436,23 @@ class AsyncBuild(Base):
 
     @needs_tex("latexmk", "pdftoppm")
     def test_real_build_progresses_through_all_phases(self):
-        """Run once with the real latexmk/pdftoppm and observe the copy->latex->render order."""
+        """Run once with the real latexmk/pdftoppm and observe the latex->render order, each phase as the build state takes
+        it: a thread that polled the state missed a phase while a busy machine kept it from running."""
         seen = []
-        stop = threading.Event()
 
-        def poll():
-            """Record distinct phases until the real build finishes or the test stops the observer."""
-            while not stop.is_set():
-                ph = limn_build.state_snapshot(ps.APP.docs[0])["phase"]
-                if ph and (not seen or seen[-1] != ph):
-                    seen.append(ph)
-                time.sleep(0.01)
+        class Phases(dict):
+            """The build state, noting each phase it is given."""
 
-        t = threading.Thread(target=poll, daemon=True)
-        t.start()
-        res = ps.APP.build_requests.build_all(ps.APP.docs[0])
-        stop.set()
-        t.join(2)
+            def update(self, *args, **kw):
+                new = dict(*args, **kw)
+                super().update(new)
+                if new.get("phase"):
+                    seen.append(new["phase"])
+
+        with mock.patch.object(ps.APP.docs[0], "bstate", Phases(ps.APP.docs[0].bstate)):
+            res = ps.APP.build_requests.build_all(ps.APP.docs[0])
         self.assertIsInstance(res, BuildOk)
-        self.assertIn("latex", seen)
-        self.assertIn("render", seen)
+        self.assertLess(seen.index("latex"), seen.index("render"))
         self.assertTrue(limn_build.cur_pdf(ps.APP.docs[0]).exists())
         aux = limn_build.cur_pages(ps.APP.docs[0]) / "main.aux"
         self.assertTrue(aux.is_file(), "successful build must publish its matching .aux with PDF pages")

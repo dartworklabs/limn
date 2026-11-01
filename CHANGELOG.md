@@ -24,6 +24,16 @@
   PDF and picture that nothing names as a blank file of its size, which takes no disk, and is refused only if it is still
   past the limit. A file read after all ends in `compile_failed`, not in a wrong PDF. The limits and a folder within them
   are unchanged.
+- **A far arrival at a figure no longer stops short when a line is fitted on the way (#357).** A line above the reading
+  page that changed height in a fitting pass made the viewer write the pages' scroll to keep the reading page in place,
+  and a write ends a smooth scroll where it stands: a jump to page 4 rested 3,200 px short until the settling picked it up.
+  The pass now leaves a jump alone. The settling itself gave up on a correction stopped on its way, because its two seconds
+  counted from the first rest and the stopped glide's guard lapses about as late: the figure stayed short by what remained.
+  Each correction now counts them from its own rest. The agent contract is unchanged.
+- **Every jump ends where it asked, with or without a figure.** A jump to a page with no figure, an outline entry's place
+  or a card's [보기] had nothing to measure its place after the glide, so a line fitted on the way left the page up to 200
+  px off. Every glide now settles as a figure's arrival does; anything the person does lets it go, a search hit or anything
+  else a script shows lets it go too, and a scroll by anything else after the pages rested is left alone.
 
 ## 0.4.40 — 2026-11-01
 

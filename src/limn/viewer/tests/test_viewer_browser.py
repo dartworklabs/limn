@@ -86,6 +86,33 @@ SLOW_PIN_LIST = (
 # ---------------------------------------------------------------- BrowserBase itself
 
 
+class SettleWaitsForPdfJs(BrowserBase):
+    """settle() is what every harness returns on, so the boot's import of PDF.js, which no idle watch sees, is its to wait for:
+    the open after it took back an outline a test had drawn (OutlineRows, OutlineColumns) or loaded (LOAD_TREE)."""
+
+    def test_settle_does_not_return_while_the_import_is_out(self):
+        """With the module held the boot goes on to its end (booted), and settle() does not answer; with it let go it does,
+        and the viewer has PDF.js."""
+        from playwright.sync_api import (
+            TimeoutError as PlaywrightTimeout,  # as helpers_browser: only where a browser runs
+        )
+
+        held = []
+        context = self.browser.new_context()
+        self.addCleanup(context.close)
+        watch_idle(context)
+        page = context.new_page()
+        page.route("**/*", lambda r: held.append(r) if "/pdf.min.mjs" in r.request.url else self.route(r))
+        page.goto("http://viewer.test/?lang=ko")
+        page.wait_for_function(booted(0), timeout=20000)
+        with self.assertRaises(PlaywrightTimeout):
+            settle(page, timeout=1000)
+        self.assertEqual(len(held), 1)
+        self.route(held[0])
+        settle(page)
+        self.assertTrue(page.evaluate("VEC.lib!==null"))
+
+
 class BrowserOpenWaitsForPins(BrowserBase):
     """BrowserBase.open returns only after the viewer knows every pin. The ScopedViewer flake (CI run 36216447363):
     open(0) returned once META was set, before boot() had loaded the pin lists; showChange() of a done pin then found

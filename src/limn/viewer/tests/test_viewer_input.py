@@ -630,8 +630,10 @@ class ViewerBase(BrowserBase):
 
     @staticmethod
     def cdp(page):
-        """A CDP session for touch input."""
-        return page.context.new_cdp_session(page)
+        """A CDP session for touch input; tap() reaches its page by it."""
+        session = page.context.new_cdp_session(page)
+        session.page = page
+        return session
 
     @staticmethod
     def touch(cdp, kind, pts):
@@ -654,11 +656,10 @@ class ViewerBase(BrowserBase):
             time.sleep(dt)
         self.touch(cdp, "touchEnd", [])
 
-    def tap(self, cdp, x, y, hold=0.05):
-        """A short tap (hold = how long the finger stays down - the finger's timing, as in swipe(), not a wait)."""
-        self.touch(cdp, "touchStart", [(x, y)])
-        time.sleep(hold)
-        self.touch(cdp, "touchEnd", [])
+    def tap(self, cdp, x, y):
+        """A short tap: down and up go out together. Sent one by one, a busy machine held the finger down past the tool bar's
+        press tip (tooltip.js), and a press that showed its tip swallows its click, so the tap did nothing."""
+        cdp.page.touchscreen.tap(x, y)
 
     @staticmethod
     def before_next_tap(page):

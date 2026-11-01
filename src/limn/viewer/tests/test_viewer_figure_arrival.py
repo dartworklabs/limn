@@ -61,6 +61,24 @@ WHERE = """n => {const L = document.querySelector('#left'), pg = document.getEle
   return {top: L.scrollTop, arrive: figureTop(n), fig: typeof m.figure_top === 'number' ? r.top + m.figure_top * r.height - a.top : null,
     page: r.top - L.getBoundingClientRect().top - L.clientTop, room, reading: pvReadingPage(), keys: pvKeysPage(pvReadingPage()),
     count: document.getElementById('nav-page').textContent, panel: p ? +p.dataset.page : null};}"""
+# The line of page n made 60px taller, as a redraw with more in it makes it. By its height and not by padding: a line has none,
+# so the height it is skipped at (--pv-h, verdict.js §Lines far from the view) is its whole box. A padded line stood 60px taller
+# skipped than drawn: whenever it went far or came near, the pages moved by themselves, late under load (#357).
+LINE_GROWS = """n => {const l = document.querySelector('#doc .pv[data-page="' + n + '"]');
+  l.style.minHeight = (l.getBoundingClientRect().height + 60) + 'px';}"""
+# The next glide of the pages, as it passes the middle of its way - in the scroll event, so with the glide still running, on
+# its last event at the latest - sets off what moves the pages under it (window.__grew: by how much): MOVERS.
+ON_THE_WAY = """move => {const L = document.querySelector('#left'), from = L.scrollTop;
+  const pass = () => {if (PV_JUMP === null || Math.abs(PV_JUMP - L.scrollTop) > Math.abs(PV_JUMP - from) / 2) return;
+    L.removeEventListener('scroll', pass); const h = document.getElementById('p2').getBoundingClientRect().top + L.scrollTop;
+    (0, eval)(move); window.__grew = document.getElementById('p2').getBoundingClientRect().top + L.scrollTop - h;};
+  L.addEventListener('scroll', pass);}"""
+# A real fitting pass over page 1's line, narrowed so that it stacks: pvFit holds the blocks and lets them go by pvLetBlocks.
+A_PASS = """{const l = document.querySelector('#doc .pv[data-page="1"]'); l.style.width = '120px'; pvFit([l]);}"""
+# With the panel beside the pages no line is under them to fit: the space under page 1 grows.
+A_BLOCK = """document.getElementById('p1').parentElement.style.paddingBottom = '60px';"""
+# Sets the jump expression off and makes a line above it taller while it starts: the jump reckoned its place before.
+JUMP_AS_A_LINE_GROWS = "([go, n]) => {(0, eval)(go); (" + LINE_GROWS + ")(n);}"
 
 
 class FigurePages(BrowserBase):
@@ -143,13 +161,6 @@ class FigurePages(BrowserBase):
         page.wait_for_function(RESTING, polling="raf", timeout=10000)
         settle(page)
 
-    def landed(self, page):
-        """The pages at rest after an arrival and its settling (pages.js arrivalSettle): rested, then rested again once
-        any correction it started has run."""
-        self.rest(page)
-        page.wait_for_timeout(300)
-        self.rest(page)
-
     def to_top(self, page):
         """The pages at the document's top, as a hand puts them (no arrival watching)."""
         page.evaluate("()=>{PV_HAND(); document.querySelector('#left').scrollTop = 0;}")
@@ -193,6 +204,144 @@ class FigurePages(BrowserBase):
         self.assertLessEqual(abs(where["page"]), 2, where)
         self.assertEqual(where["reading"], n if n != N_PAGES else 0, where)
         self.assertTrue(where["count"].startswith("%d " % n), where)
+
+
+class EveryJump(FigurePages):
+    """Every jump ends where it asked, with or without a figure, though a line above its place is fitted on the way: a pass
+    may not write to a glide, so the settling measures the place when it rests (pages.js arrivalSettle, #357)."""
+
+    def setUp(self):
+        super().setUp()
+        (ps.APP.C.src / "reviewer.limnverdicts.json").write_text(json.dumps(WORDS, ensure_ascii=False), "utf-8")
+
+    def fitted_on_the_way(self, page, move=A_PASS):
+        """The next glide of the pages meets a fitting pass (ON_THE_WAY)."""
+        page.evaluate(ON_THE_WAY, move)
+
+    def grew(self, page):
+        """The pass happened and moved what comes after page 1: what the jump's place moved by."""
+        self.assertGreater(page.evaluate("()=>window.__grew"), 10)
+
+    def test_a_page_with_no_figure_from_the_page_list_the_page_field_and_the_outline(self):
+        """Page 6 (a figure page whose map names no body) and page 7 (a list page): the page list, the page field (its Enter
+        lets nothing go) and a whole-page outline entry each end at the page's top. Each stood the line's growth short."""
+        ways = {"page list": self.page_list, "page field": self.page_field, "outline": self.outline}
+        for name, go in ways.items():
+            for n in (6, 7):
+                with self.subTest(way=name, page=n):
+                    page = self.on(SIZES["desktop 1440x900"])
+                    self.fitted_on_the_way(page)
+                    go(page, n)
+                    self.grew(page)
+                    self.at_top(page.evaluate(WHERE, n), n)
+                    page.context.close()
+
+    def test_the_navigation_sheet_s_page_field_on_a_phone(self):
+        """The phone's page field (navGo) ends at page 6's top."""
+        page = self.on(VIEWPORTS["phone 390x844"])
+        self.fitted_on_the_way(page)
+        page.evaluate("()=>{$('#ns-page-in').value='6'; navGo();}")
+        self.rest(page)
+        self.grew(page)
+        self.assertLessEqual(abs(page.evaluate(WHERE, 6)["page"]), 2)
+
+    def test_a_card_s_view_under_the_pages_and_beside_them(self):
+        """A card's [보기] of page 6's verdict: its block where jumpPv puts it; with the panel beside the pages, the reading
+        place (pvBring)."""
+        pid = self.verdict(6, "보류")
+        wanted = {
+            "under": "()=>pvIntoTop(document.querySelector('#doc .pv[data-page=\"6\"]').parentElement)",
+            "beside": "()=>pvBringTop(6)",
+        }
+        for name, device in (("under", SIZES["desktop 1440x900"]), ("beside", WIDE)):
+            with self.subTest(side=name):
+                page = self.on(device, n_open=1)
+                self.assertEqual(page.evaluate("()=>PV_SIDE"), name == "beside")
+                self.fitted_on_the_way(page, A_BLOCK if name == "beside" else A_PASS)
+                page.evaluate("id=>jumpPin(id)", pid)
+                self.rest(page)
+                self.grew(page)
+                got = page.evaluate(
+                    "w=>[document.querySelector('#left').scrollTop,(0,eval)('('+w+')')()]", wanted[name]
+                )
+                self.assertLessEqual(abs(got[0] - got[1]), 2, got)
+                page.context.close()
+
+    def test_a_document_without_figures_by_its_page_and_by_an_outline_place(self):
+        """A view-only PDF: its page 2, and a place on it from an outline entry (pickOutline's own glide), each end there."""
+        for name, go, want in (
+            ("page", "goPage(2)", "pvIntoTop(document.getElementById('p2'))"),
+            (
+                "place",
+                "OUTLINE_ENTRIES=[{page:2,frac:0.3,title:'x',level:0}]; pickOutline(0)",
+                "outlinePickTop({page:2,frac:0.3})",
+            ),
+        ):
+            with self.subTest(go=name):
+                page = self.open(0, **SIZES["desktop 1440x900"])
+                page.evaluate("k=>switchDoc(k)", "rv")
+                page.wait_for_function("()=>DOC==='rv'&&META&&META.doc==='rv'&&document.querySelector('#p2')")
+                settle(page)
+                self.assertIsNone(page.evaluate("()=>figureTop(2)"))
+                self.fitted_on_the_way(page)
+                page.evaluate("g=>{(0,eval)(g);}", go)
+                self.rest(page)
+                self.grew(page)
+                got = page.evaluate("w=>[document.querySelector('#left').scrollTop,(0,eval)(w)]", want)
+                self.assertLessEqual(abs(got[0] - got[1]), 2, got)
+                page.context.close()
+
+    def test_reduced_motion_and_an_instant_jump_keep_the_view_through_a_pass(self):
+        """With reduced motion a jump is instant, as a search hit and a mark's jump always are: no glide is on its way, so a
+        pass right after it keeps the reading page by itself, as it did."""
+        page = self.on(dict(SIZES["desktop 1440x900"], reduced_motion="reduce"))
+        self.assertEqual(page.evaluate("()=>SMOOTH"), "auto")
+        page.evaluate("p=>{goPage(6); (0,eval)(p);}", A_PASS)
+        self.rest(page)
+        self.at_top(page.evaluate(WHERE, 6), 6)
+        self.to_top(page)
+        page.evaluate("""() => {const L = document.querySelector('#left'), l = document.querySelector('#doc .pv[data-page="2"]');
+          L.scrollTop += document.getElementById('p7').getBoundingClientRect().top - L.getBoundingClientRect().top - L.clientTop;
+          l.style.width = '120px'; pvFit([l]);}""")
+        self.rest(page)
+        self.assertLessEqual(abs(page.evaluate(WHERE, 7)["page"]), 2)
+
+    def test_what_a_script_shows_on_the_way_ends_the_jump(self):
+        """In the middle of a jump a script shows something higher up (pvShow, as a search hit that lands then does; the hit
+        itself is in test_viewer_search.py): no input came, and neither the jump nor its settling takes the pages from there."""
+        page = self.on(SIZES["desktop 1440x900"])
+        page.evaluate(ON_THE_WAY, "pvShow(); document.querySelector('#left').scrollTop = 300;")
+        page.evaluate("()=>goPage(6)")
+        self.rest(page)
+        self.assertEqual(page.evaluate("()=>[ARRIVAL, PV_JUMP]"), [None, None])
+        self.assertGreater(page.evaluate(WHERE, 6)["page"], 1000)  # a write stops a glide a frame or two late
+
+    def test_a_write_that_keeps_the_view_on_the_way_does_not_end_the_jump(self):
+        """A build that lands in the middle of a jump puts the reading spot back (restoreAnchor), with the pages moved. The write
+        stops the glide, but it showed nothing: the settling takes the pages on to their place."""
+        page = self.on(SIZES["desktop 1440x900"])
+        page.evaluate(ON_THE_WAY, "{const a = topAnchor(); " + A_BLOCK + " restoreAnchor(a);}")
+        page.evaluate("()=>goPage(6)")
+        self.rest(page)
+        self.grew(page)
+        self.at_top(page.evaluate(WHERE, 6), 6)
+
+    def test_a_scroll_after_the_rest_is_not_pulled_back(self):
+        """At rest on page 6, within the settling's two seconds: the wheel is the person's and lets it go; a scroll by anything
+        else (no input came) leaves the place where it was, so it is no layout's doing and it lets go as well."""
+        page = self.on(SIZES["desktop 1440x900"])
+        self.page_list(page, 6)
+        self.assertIsNotNone(page.evaluate("()=>ARRIVAL"))
+        page.evaluate("()=>{document.querySelector('#left').scrollTop -= 300;}")
+        self.rest(page)
+        self.assertIsNone(page.evaluate("()=>ARRIVAL"))
+        self.assertAlmostEqual(page.evaluate(WHERE, 6)["page"], 300, delta=2)
+        self.page_list(page, 6)
+        page.mouse.move(700, 500)
+        page.mouse.wheel(0, -300)
+        self.rest(page)
+        self.assertIsNone(page.evaluate("()=>ARRIVAL"))
+        self.assertGreater(page.evaluate(WHERE, 6)["page"], 200)
 
 
 class FigureArrival(FigurePages):
@@ -277,8 +426,6 @@ class FigureArrival(FigurePages):
             for key in ("채택", "보류", "삭제"):
                 self.verdict(n, key)
         pid = self.verdict(4, "보류")
-        grow = """([go, n]) => {(0, eval)(go); const l = document.querySelector('#doc .pv[data-page="' + n + '"]');
-          l.style.paddingBottom = (parseFloat(l.style.paddingBottom || '0') + 60) + 'px';}"""
         view = "jumpPin(%d)" % pid
         for name in ("fold inner 841x673", "desktop 1440x900"):
             with self.subTest(device=name):
@@ -293,47 +440,76 @@ class FigureArrival(FigurePages):
                 settle(page)
                 for i, go in enumerate((view, "goPage(4)", "$('#jump').value='4'; goPage()")):
                     self.to_top(page)
-                    page.evaluate(grow, [go, 2 + i % 2])
-                    self.landed(page)
+                    page.evaluate(JUMP_AS_A_LINE_GROWS, [go, 2 + i % 2])
+                    self.rest(page)
                     self.at_figure(page.evaluate(WHERE, 4), 4)
                 page.context.close()
+
+    def test_a_correction_stopped_on_its_way_is_measured_when_the_pages_rest_however_late(self):
+        """The layout above moves as the arrival glides, and its correction is stopped where it stands (a script's write ends
+        a smooth scroll), its guard going down only past the two seconds after the first rest: the settling measures that
+        rest too and glides the rest. It closed first, and the figure stayed short by what remained (#357)."""
+        page = self.on(SIZES["desktop 1440x900"])
+        page.evaluate(
+            """() => {const glide = pvGlideTo, L = document.querySelector('#left'); let n = 0;
+              pvGlideTo = to => {glide(to); if (++n === 2) {L.scrollTop = L.scrollTop; PV_SCROLL_AT += 1000;}};}"""
+        )
+        page.evaluate(JUMP_AS_A_LINE_GROWS, ["goPage(4)", 2])
+        self.rest(page)
+        self.at_figure(page.evaluate(WHERE, 4), 4)
+
+    def test_a_line_fitted_anew_as_an_arrival_passes_does_not_stop_it(self):
+        """A line above the reading page changes its height in a fitting pass while a far arrival glides. The pass keeps the
+        reading page where it stood by a write to the scroll, which ended the glide there, thousands of px short, for two
+        seconds or for good (#357). The arrival now goes on to its place in one glide and settles there."""
+        page = self.on(SIZES["desktop 1440x900"])
+        before = page.evaluate("()=>document.querySelector('#doc .pv[data-page=\"1\"]').getBoundingClientRect().height")
+        page.evaluate(
+            """() => {const L = document.querySelector('#left'), l = document.querySelector('#doc .pv[data-page="1"]');
+              window.__ends = []; L.addEventListener('scrollend', () => __ends.push(L.scrollTop));
+              const pass = () => {if (L.scrollTop < 2000) return; L.removeEventListener('scroll', pass);
+                l.style.width = '200px'; pvFit([l]); window.__grew = l.getBoundingClientRect().height;};
+              L.addEventListener('scroll', pass); goPage(4);}"""
+        )
+        self.rest(page)
+        where = page.evaluate(WHERE, 4)
+        self.at_figure(where, 4)
+        self.assertGreater(page.evaluate("()=>__grew"), before)
+        self.assertGreater(page.evaluate("()=>__ends[0]"), where["arrive"] - 200)
 
     def test_a_line_above_that_grows_after_the_rest_with_anchoring_held_off_is_followed(self):
         """Page 4's figure reached and at rest; then the line of page 2 grows by 60px with scroll anchoring held off on the
         PDF area, as a line pass does (pvHoldView) - nothing scrolls. The arrival notices the column's height change and
-        settles on the figure again; it does not hang on an anchoring scroll to notice."""
+        settles on the figure again; it does not hang on an anchoring scroll to notice. The settling's two seconds count from
+        the growth here, whatever the checks of the first arrival cost a busy machine."""
         page = self.on(SIZES["desktop 1440x900"])
         self.page_list(page, 4)
         self.at_figure(page.evaluate(WHERE, 4), 4)
-        page.evaluate("""() => {document.querySelector('#left').style.overflowAnchor = 'none';
-          document.querySelector('#doc .pv[data-page="2"]').style.paddingBottom = '60px';}""")
-        self.landed(page)
+        page.evaluate(
+            "n => {ARRIVAL.until = performance.now() + ARRIVAL_SETTLE_MS;"
+            " document.querySelector('#left').style.overflowAnchor = 'none'; (" + LINE_GROWS + ")(n);}",
+            2,
+        )
+        self.rest(page)
         self.at_figure(page.evaluate(WHERE, 4), 4)
 
     def test_a_person_who_scrolls_while_it_glides_is_not_pulled_back(self):
         """The layout above moves as the arrival glides and the person scrolls the pages themselves on the way: once they
         rest the arrival lets go and leaves them where the person put them."""
         page = self.on(SIZES["desktop 1440x900"])
-        page.evaluate(
-            """() => {goPage(4); const l = document.querySelector('#doc .pv[data-page="2"]'); l.style.paddingBottom = '60px';}"""
-        )
+        page.evaluate(JUMP_AS_A_LINE_GROWS, ["goPage(4)", 2])
         page.wait_for_function("()=>document.querySelector('#left').scrollTop>1500")
         page.mouse.move(700, 500)
         page.mouse.wheel(0, -400)
-        self.landed(page)
-        still = page.evaluate("()=>document.querySelector('#left').scrollTop")
-        page.wait_for_timeout(600)
-        settle(page)
-        self.assertEqual(page.evaluate("()=>[document.querySelector('#left').scrollTop, ARRIVAL]"), [still, None])
-        self.assertGreater(abs(still - page.evaluate("()=>figureTop(4)")), 50)
+        self.rest(page)
+        self.assertIsNone(page.evaluate("()=>ARRIVAL"))  # nothing is left to pull them back
+        self.assertGreater(abs(page.evaluate("()=>document.querySelector('#left').scrollTop-figureTop(4)")), 50)
 
     def test_what_the_person_does_next_is_not_undone_by_a_settling_arrival(self):
         """An arrival at page 4's figure is on its way while the layout above it grows (so it would settle once it rests),
         and the person moves on before it rests - the page list's page 6 (no figure body), a zoom, a key on the page: each
         lets the arrival go, and once the pages rest they stay where that move left them, not pulled back to page 4."""
         page = self.on(SIZES["desktop 1440x900"])
-        start = """() => {goPage(4); const l = document.querySelector('#doc .pv[data-page="2"]');
-          l.style.paddingBottom = (parseFloat(l.style.paddingBottom || '0') + 60) + 'px';}"""
         moves = {
             "page list 6": lambda: self.page_list(page, 6),
             "zoom in": lambda: page.locator("#btn-zoom-in").click(),
@@ -342,17 +518,13 @@ class FigureArrival(FigurePages):
         for name, move in moves.items():
             with self.subTest(move=name):
                 self.to_top(page)
-                page.evaluate(start)
+                page.evaluate(JUMP_AS_A_LINE_GROWS, ["goPage(4)", 2])
                 move()
-                self.landed(page)
-                still = page.evaluate("()=>document.querySelector('#left').scrollTop")
-                page.wait_for_timeout(600)
-                settle(page)
-                self.assertEqual(
-                    page.evaluate("()=>[document.querySelector('#left').scrollTop, ARRIVAL]"), [still, None]
-                )
-                if name == "page list 6":
+                self.rest(page)
+                if name == "page list 6":  # the move's own jump is what is watched now
                     self.at_top(page.evaluate(WHERE, 6), 6)
+                else:
+                    self.assertIsNone(page.evaluate("()=>ARRIVAL"))  # nothing is left to pull them back
 
     def test_a_key_waits_for_the_glide_then_judges_the_arrived_page(self):
         """A digit pressed in the same task as the page list's jump to page 3's figure, before its first scroll, saves

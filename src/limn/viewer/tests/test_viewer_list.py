@@ -367,7 +367,7 @@ class PinListLoading(unittest.TestCase):
                 function pdoc(p){return p.doc||'a';}
                 function saveView(){} function searchLeave(){} function parkDraft(){} function openDraftDoc(){} function restoreDraft(){}
                 function cancelRepick(){} function savePrefs(){} function setHash(){}
-                function hideTip(){} function drawMeta(){} function buildDoc(){} function autoW(){}
+                function hideTip(){} function drawMeta(){} function buildDoc(){} function autoW(){} function pvShow(){}
                 function restoreView(){} function applyViewWidth(){return false;}
                 function drawPins(){drawn.push(DONE.map(p=>p.id));}
                 function marks(){} function drawDocTabs(){} function vecOpen(){} function pollBuild(){}

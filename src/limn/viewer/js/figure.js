@@ -41,7 +41,7 @@ for(const [ev,on] of /** @type {[string,boolean][]} */([['mouseenter',true],['fo
   $('#c-path').addEventListener(ev,()=>showElementHi(on));
 function showElementBox(){const b=COMPOSE.box; if(!b||!b.isConnected)return;
   const a=selPopArea(),r=b.getBoundingClientRect();
-  if(r.top<a.top||r.bottom>a.bottom)$('#left').scrollTop+=r.top-(a.top+(a.bottom-a.top)*0.3);
+  if(r.top<a.top||r.bottom>a.bottom){pvShow(); $('#left').scrollTop+=r.top-(a.top+(a.bottom-a.top)*0.3);}
   b.classList.remove('flash'); void b.offsetWidth; b.classList.add('flash');
   b.addEventListener('animationend',()=>b.classList.remove('flash'),{once:true});}
 // The page badge of a region on a figure document (composer and card): '코드 없는 요소' when the map chose an element
