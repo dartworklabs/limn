@@ -489,25 +489,93 @@ class PageLine(VerdictBase):
         self.assertEqual(page.locator('.mark[data-pin="%d"]' % made["id"]).count(), 1)
 
     def test_the_figure_page_body_takes_only_the_page_figure(self):
-        """pageVerdictBody: a rung whose element is its own path's root, else a region whose element is; a panel's region
-        or a ladder without the root gives nothing, so nothing is saved; a PDF's region is kept as it is."""
+        """pageVerdictBody: a rung whose element is its own path's root, else a region whose element is, else - the pick
+        chose an element inside the figure, a region answer or a ladder without the root - a region over the whole page
+        naming that element's figure; an answer naming no element gives nothing, so nothing is saved; a PDF's region is
+        kept as it is."""
         page = self.on("ms")
         out = page.evaluate("""()=>{const root={id:'B2',path:['B2'],frac:[0,0,1,1]},panel={id:'B2/p',path:['B2','B2/p'],frac:[0,0,.5,1]};
           const line={file:'f',name:'s.py',page:1,lo:3,hi:9,raw_lo:3,raw_hi:9,via:'map',score:1,frac:[0,0,1,1],quote:'',pdf_build:'b'};
-          const rung=pageVerdictBody({...line,levels:[{level:'el:1',lo:4,hi:6,el:panel},{level:'fig',lo:1,hi:40,el:root}]},'figure');
+          const rung=pageVerdictBody({...line,el:panel,levels:[{level:'el:1',lo:4,hi:6,el:panel},{level:'fig',lo:1,hi:40,el:root}]},'figure');
           return [rung&&[rung.lo,rung.hi,rung.scope,rung.kind,rung.el.id], !!pageVerdictBody({kind:'region',page:1,frac:[0,0,1,1],el:root},'figure'),
-            pageVerdictBody({kind:'region',page:1,frac:[0,0,1,1],el:panel},'figure'), pageVerdictBody({...line,levels:[{level:'el:1',lo:4,hi:6,el:panel}]},'figure'),
+            pageVerdictBody({kind:'region',page:1,frac:[0,0,1,1],quote:'q',pdf_build:'b',el:panel},'figure'),
+            pageVerdictBody({...line,el:panel,levels:[{level:'el:1',lo:4,hi:6,el:panel}]},'figure'),
+            pageVerdictBody({kind:'region',page:1,frac:[0,0,1,1],quote:'',pdf_build:'b'},'figure'),
             pageVerdictBody({kind:'region',page:2,frac:[0,0,1,1],quote:'q',pdf_build:'b'},'pdf')];}""")
+        whole = {
+            "page": 1,
+            "frac": [0, 0, 1, 1],
+            "quote": "",
+            "pdf_build": "b",
+            "el": {"id": "B2", "path": ["B2"], "frac": [0, 0, 1, 1]},
+        }
         self.assertEqual(
             out,
             [
                 [1, 40, "fig", "figure", "B2"],
                 True,
-                None,
+                whole,
+                whole,
                 None,
                 {"page": 2, "frac": [0, 0, 1, 1], "quote": "q", "pdf_build": "b"},
             ],
         )
+
+    def test_a_page_verdict_takes_the_figure_where_a_large_element_wins_the_whole_page_pick(self):
+        """A figure element covering 40% of the page or more wins the line's whole-page pick (pick_element), as on the
+        concept figures' pages 1 and 17: page 1's lanes, drawn without code, gave a region answer naming the lanes and page
+        2's rows, whose figure has no code of its own, a ladder without the figure's rung. Both pages said '이 그림은 쪽
+        판정을 받지 못합니다' and saved nothing; each press now saves the verdict of the page's figure (el.path == [el.id])
+        over the whole page."""
+        fmap = {
+            "format": "limn-figure-map/1",
+            "pdf": "figures.pdf",
+            "pdf_sha256": "0" * 64,
+            "pages": [
+                {
+                    "page": 1,
+                    "figure": "B3",
+                    "title": "[후보] Information boundary",
+                    "elements": [
+                        {"id": "B3", "frac": [0, 0, 1, 1], "src": {"file": "src/B2_calendar.py", "lo": 12, "hi": 140}},
+                        {"id": "B3/lanes", "parent": "B3", "label": "lanes", "frac": [0.038, 0.193, 0.923, 0.444]},
+                    ],
+                },
+                {
+                    "page": 2,
+                    "figure": "TA2",
+                    "title": "[후보] All rows",
+                    "elements": [
+                        {"id": "TA2", "frac": [0, 0, 1, 1]},
+                        {
+                            "id": "TA2/rows",
+                            "parent": "TA2",
+                            "label": "rows",
+                            "frac": [0.023, 0.137, 0.954, 0.533],
+                            "src": {"file": "src/B2_calendar.py", "lo": 80, "hi": 97},
+                        },
+                    ],
+                },
+            ],
+        }
+        helpers_figure.viewer_build(self.fig, helpers_figure.BUILD2, fmap)
+        meta = self.call("GET", "/api/meta?doc=fig")[1]
+        for n, chosen, kind in ((1, "B3/lanes", "region"), (2, "TA2/rows", "lines")):
+            pg = meta["pages"][n - 1]
+            pick = {"doc": "fig", "page": n, "x0": 0, "y0": 0, "x1": pg["pt_w"], "y1": pg["pt_h"], "frac": [0, 0, 1, 1]}
+            code, d = self.call("POST", "/api/pick", {**pick, "pdf_build": helpers_figure.BUILD2})
+            self.assertEqual((code, d["el"]["id"], d.get("kind") == "region"), (200, chosen, kind == "region"), d)
+            self.assertFalse(any(lv["el"]["path"] == [lv["el"]["id"]] for lv in d.get("levels") or []), d)
+        page = self.on("fig")
+        for n, fig in ((1, "B3"), (2, "TA2")):
+            made = self.press_page(page, n, "채택")
+            pin = self.pins()[made]
+            self.assertEqual(
+                (pin["verdict"], pin["page"], pin["el"]["id"], pin["el"]["path"], pin["frac"], pin["pdf_build"]),
+                ("채택", n, fig, [fig], [0, 0, 1, 1], helpers_figure.BUILD2),
+                pin,
+            )
+            self.assertIn("판정 #%d 채택" % pin["id"], page.evaluate(LINE, n)["text"])
 
 
 class ViewerRole(VerdictBase):

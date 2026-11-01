@@ -36,6 +36,11 @@
   as before; the RcRound2 test whose failure could arrive mid-text under load now holds the save until the text is in.
 
 The agent contract is unchanged.
+- **A page verdict on a figure page saves where a large element covers the page.** The line's whole-page pick chooses an
+  element that covers 40% of the page or more, so on such pages (the concept figures' pages 1 and 17) it answered with
+  that element instead of the figure, and [채택] or a digit key said '이 그림은 쪽 판정을 받지 못합니다' and saved nothing.
+  The line now saves the verdict of the element's figure over the whole page, as the composer's verdict does. A pick that
+  names no element still saves nothing. The API and the agent contract are unchanged.
 
 ## 0.4.39 — 2026-11-01
 

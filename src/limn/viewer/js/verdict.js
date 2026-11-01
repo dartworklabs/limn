@@ -390,8 +390,11 @@ function verdictUndo(id){const undo=async()=>{let was=null;
 
 // ---------------- The page verdict line (figure documents and view-only PDFs, page: true)
 // The pin body a page verdict saves from the whole page's pick answer d (D7): on a figure document the rung whose element is
-// the page's figure (el.path == [el.id]) - its lines and element - else a region answer whose element is that figure; on a
-// view-only PDF the region answer as it is. null when a figure page gives neither. Pure but for the figure helpers.
+// the page's figure (el.path == [el.id]) - its lines and element - else a region answer whose element is that figure, else
+// - the pick chose an element inside the figure: one covering 40% of the page wins a whole-page drag (pick_element) - a
+// region over the whole page naming the figure, the root of that element's path, as the composer's verdict saves it
+// (figureVerdictBody, ADR-0022 D2); on a view-only PDF the region answer as it is. null when a figure page's answer names
+// no element (its map could not be read). Pure but for the figure helpers.
 /** @param {any} d @param {string|undefined} kind @returns {Record<string, unknown>|null} */
 function pageVerdictBody(d,kind){const root=el=>!!el&&Array.isArray(el.path)&&el.path.length===1&&el.path[0]===el.id;
   if(isFigureKind(kind)){
@@ -399,6 +402,8 @@ function pageVerdictBody(d,kind){const root=el=>!!el&&Array.isArray(el.path)&&el
     if(lv)return figureFields({file:d.file,name:d.name,page:d.page,lo:lv.lo,hi:lv.hi,raw_lo:d.raw_lo,raw_hi:d.raw_hi,via:d.via,score:d.score,
       frac:d.frac,quote:d.quote,pdf_build:d.pdf_build||undefined,scope:lv.level},lv.el,lv);
     if(isRegion(d)&&root(d.el))return figureFields({page:d.page,frac:d.frac,quote:d.quote,pdf_build:d.pdf_build||undefined},d.el,null);
+    const fig=d.el&&Array.isArray(d.el.path)?d.el.path[0]:null;
+    if(typeof fig==='string'&&fig)return figureFields({page:d.page,frac:WHOLE_PAGE.slice(),quote:'',pdf_build:d.pdf_build||undefined},{id:fig,path:[fig],frac:WHOLE_PAGE.slice()},null);
     return null;}
   return isRegion(d)?{page:d.page,frac:d.frac,quote:d.quote,pdf_build:d.pdf_build||undefined}:null;}
 // A page line's pending state is keyed by its document and page (pvSlot): a save held on one document's page must not hold,
