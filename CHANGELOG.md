@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **The keyboard's focus no longer falls to nothing when a message ends.** A [되돌리기] or [x] with the focus went with its
+  message when the six seconds ended or [x] was pressed, and the next Tab started again from the top of the page. The focus
+  now goes to the line of the chip's page or the reading page's line, else to the pages, as a press on an action already did.
+  A focus moved elsewhere stays there. The agent contract is unchanged.
+
 ## 0.4.40 — 2026-11-01
 
 ### Fixed

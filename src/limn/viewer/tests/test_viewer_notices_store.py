@@ -30,8 +30,8 @@ from helpers_notices import COUNT_CONFIRMS, SEEN, WATCH_ALERTS, NoticePage, node
 STORE_FNS = [
     "msgSplit", "noticeDupe", "noticeDot", "makeNotice", "lineNote", "endNotice", "noticeText", "armNotice",
     "noticeHeld", "lineHeld", "holdLine", "releaseLine", "lineHoverIn", "lineHoverOut", "lineVisible", "noticeAct",
-    "noticeClose", "deferred", "deferredNote", "undoNote", "offerSeen", "sourceEntry", "sourceOk", "flushDeferred",
-    "isUndo", "lineCap", "sameWords", "realMove",
+    "noticeClose", "noticeFocusBack", "deferred", "deferredNote", "undoNote", "offerSeen", "sourceEntry", "sourceOk",
+    "flushDeferred", "isUndo", "lineCap", "sameWords", "realMove",
 ]  # fmt: skip
 STORE_CONSTS = r"^const (?:NOTICE_MS|NOTICE_HOLD_MAX|LINE_MAX)=\d+;"
 
