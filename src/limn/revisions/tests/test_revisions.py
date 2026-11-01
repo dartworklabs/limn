@@ -486,14 +486,16 @@ class ManuscriptRevisions(Base):
         return subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=self.repo, text=True).strip()
 
     def snapshot_files(self, commit: str, name: str = "snapshot"):
-        """What a snapshot of commit wrote under the build root, or its failure."""
+        """The files a snapshot of commit wrote under the build root with their sizes, or its failure."""
         dest = self.repo / name
         got = revision_execution.revision_snapshot(revision_spec(self.latest), commit, dest)
-        return got if got else sorted(p.relative_to(dest).as_posix() for p in dest.rglob("*") if p.is_file())
+        return (
+            got if got else {p.relative_to(dest).as_posix(): p.stat().st_size for p in dest.rglob("*") if p.is_file()}
+        )
 
-    def test_a_build_root_past_the_limits_goes_without_the_files_nothing_names(self):
-        """Past comparison PDFs fill the folder: over the limits a snapshot leaves out a PDF or picture no source names, and
-        keeps those named by name, by stem and by a path, with a name a word cannot hold, and every other kind of file."""
+    def test_a_build_root_past_the_limits_keeps_only_what_is_named_of_its_pdfs_and_pictures(self):
+        """Past comparison PDFs fill the folder: past the limits one no source names stands as an empty file. Those named by
+        name, by stem and by a path, with a name a word cannot hold, and every other kind of file are written whole."""
         tex = rb"\includegraphics[width=2cm]{images/plot.pdf}\includegraphics{stem}\input{part.tex}"
         head = self.commit_files(
             {
@@ -507,19 +509,33 @@ class ManuscriptRevisions(Base):
                 "diff/older.png": b"x" * 4096,
             }
         )
-        kept = ["data.bin", "deep/in part.pdf", "images/plot.pdf", "main.tex", "part.tex", "stem.PNG"]
+        kept = {
+            "data.bin": 28,
+            "deep/in part.pdf": 4,
+            "diff/old_diff.pdf": 0,
+            "diff/older.png": 0,
+            "images/plot.pdf": 4,
+            "main.tex": len(tex),
+            "part.tex": 30,
+            "stem.PNG": 4,
+        }
         with mock.patch.object(revision_execution, "REVISION_TREE_MAX", 4096):
             self.assertEqual(self.snapshot_files(head), kept)
-        with mock.patch.object(revision_execution, "REVISION_FILES_MAX", 6):
-            self.assertEqual(self.snapshot_files(head, "by-count"), kept)
         with mock.patch.object(revision_execution, "REVISION_FILE_MAX", 4095):
             self.assertEqual(self.snapshot_files(head, "by-file"), kept)
+
+    def test_too_many_files_are_refused_as_before(self):
+        """An empty file is still a file: the count of files is the limit it was, whatever they hold."""
+        head = self.commit_files({"main.tex": b"text", "a.pdf": b"x", "b.pdf": b"x"})
+        with mock.patch.object(revision_execution, "REVISION_FILES_MAX", 2):
+            self.assertEqual(self.snapshot_files(head), revisions.StepFailed("snapshot_size"))
 
     def test_a_build_root_within_the_limits_is_written_whole(self):
         """A name found in the sources is a guess, so it is used only where the whole would be refused: a picture named by a
         macro comes along in a folder that fits."""
-        head = self.commit_files({"main.tex": rb"\includegraphics{fig\thepage}", "fig1.pdf": b"used"})
-        self.assertEqual(self.snapshot_files(head), ["fig1.pdf", "main.tex"])
+        tex = rb"\includegraphics{fig\thepage}"
+        head = self.commit_files({"main.tex": tex, "fig1.pdf": b"used"})
+        self.assertEqual(self.snapshot_files(head), {"fig1.pdf": 4, "main.tex": len(tex)})
 
     def test_a_build_root_stays_refused_where_the_named_files_are_past_the_limits(self):
         """What the build reads is not left out: named files over the limit refuse the snapshot, as does a source over it."""
@@ -530,9 +546,55 @@ class ManuscriptRevisions(Base):
         with mock.patch.object(revision_execution, "REVISION_TREE_MAX", 4096):
             self.assertEqual(self.snapshot_files(head, "source"), revisions.StepFailed("snapshot_size"))
 
-    def test_a_binary_file_names_nothing(self):
-        """A file with a NUL is not read for names, so it keeps nothing."""
-        self.assertEqual(revision_execution.named_in(b"\0old_diff.pdf"), set())
+    def test_the_new_side_keeps_what_the_old_side_and_a_pins_blocks_name(self):
+        """latexdiff can carry a deleted figure into the new side, and a pin's blocks write text over the old side: what those
+        name is real in the new side's snapshot, what nothing names is empty."""
+        self.commit_files(
+            {
+                "main.tex": rb"\includegraphics{old_picture}",
+                "old_picture.pdf": b"old",
+                "scoped.pdf": b"scoped",
+                "diff/past.pdf": b"x" * 8192,
+            }
+        )
+        head = self.commit_main("no picture\n", "drop the picture")
+        sizes: dict[str, int] = {}
+
+        def built(spec, work, jobdir, timeout, text_commands, log):
+            """Instead of latexdiff and latexmk: what the new side holds."""
+            new = work / "new"
+            sizes.update({p.relative_to(new).as_posix(): p.stat().st_size for p in new.rglob("*") if p.is_file()})
+            return []
+
+        writes = [scoping.ScopeWrite("main.tex", rb"\includegraphics{scoped}")]
+        spec = revision_spec(head)
+        for name, want, patched in (
+            (False, {"scoped.pdf": 0}, spec),
+            (True, {"scoped.pdf": 6}, spec._replace(scope=("x",))),
+        ):
+            with self.subTest(scoped=name):
+                with (
+                    mock.patch.object(revision_execution, "REVISION_TREE_MAX", 4096),
+                    mock.patch.object(revision_execution, "plan_scope_writes", return_value=writes),
+                    mock.patch.object(revision_execution, "_diff_and_build", side_effect=built),
+                ):
+                    revision_execution.revision_compile(patched, Path(tempfile.mkdtemp(dir=self.repo)), 30)
+                self.assertEqual(
+                    {**want, "old_picture.pdf": 3, "diff/past.pdf": 0},
+                    {k: sizes[k] for k in (*want, "old_picture.pdf", "diff/past.pdf")},
+                )
+
+    def test_names_are_found_without_holding_a_sources_words(self):
+        """Only the wanted names come back, however many other words a source has; a binary file names nothing, and a source
+        too long to read in the snapshot's time is a step failure."""
+        data = b"\\includegraphics[width=2cm]{images/fig1.pdf} " + b"word " * 70000
+        forever = time.monotonic() + 60
+        self.assertEqual(revision_execution.names_found(data, {b"fig1.pdf", b"other"}, forever), {b"fig1.pdf"})
+        self.assertEqual(revision_execution.names_found(b"\0fig1.pdf", {b"fig1.pdf"}, forever), set())
+        self.assertEqual(
+            revision_execution.names_found(data, {b"fig1.pdf"}, time.monotonic() - 1),
+            revisions.StepFailed("snapshot_timeout"),
+        )
 
     def test_revision_jobs_are_bounded_and_cache_expires(self):
         """Exhausted job capacity refuses work; expired ready artifacts become idle and pruning bounds cache growth."""
@@ -880,6 +942,19 @@ class ManuscriptRevisions(Base):
         text = self.comparison_text(head)
         self.assertIn("oldopening", text)
         self.assertIn("newopening", text)
+
+    @needs_tex("bwrap", "latexdiff", "latexmk", "pdftotext")
+    def test_a_file_left_out_answers_for_itself_and_fails_a_build_that_reads_it(self):
+        """A name no source spells, past the limits: a test of whether the file exists answers as for the real file, so no
+        content goes missing, and reading the empty stand-in ends in compile_failed, not in a wrong PDF."""
+        doc = r"\documentclass{article}\usepackage{graphicx}\begin{document}%s\end{document}"
+        self.commit_files({"fig1.pdf": b"x" * 8192})
+        head = self.commit_main(doc % r"\IfFileExists{fig\thepage.pdf}{PRESENT}{MISSING}", "test it")
+        with mock.patch.object(revision_execution, "REVISION_TREE_MAX", 4096):
+            self.assertIn("PRESENT", self.comparison_text(head))
+            head = self.commit_main(doc % r"\includegraphics{fig\thepage.pdf}", "read it")
+            built, _ = self.build_comparison(head)
+        self.assertEqual(built, revisions.StepFailed("compile_failed"))
 
     @needs_tex("bwrap", "latexdiff", "latexmk", "pdftotext")
     def test_a_folder_of_past_comparisons_with_a_bibliography_builds_its_comparison(self):
