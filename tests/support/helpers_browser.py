@@ -6,7 +6,8 @@ Chromium is $LIMN_CHROMIUM, a system Chrome/Chromium, or Playwright's bundled on
 that order. Without Playwright or a browser the class is skipped, unless
 LIMN_TEST_REQUIRE_BROWSER=1 (CI), where that is a failure. Classes selecting Firefox or WebKit use Playwright's
 bundled engine (`playwright install firefox webkit`). Every class that launches a browser carries the pytest marker
-`browser`, so `pytest -m "not browser"` runs the rest.
+`browser`, so `pytest -m "not browser"` runs the rest. Chromium keeps the font's own advances (CHROMIUM_ARGS), so a width
+a test fixes does not depend on which of those binaries a machine has.
 
 The browser tests never wait a fixed time for the page to get somewhere: they wait on the state the next step reads (a
 variable the viewer sets, an element, the page having settled - settle()). The one fixed wait left is nothing_follows(),
@@ -34,6 +35,11 @@ from limn.platform.files import file_in_tree, tex_lines
 from helpers import ApplicationFixture, blank_png, ps, run_config, serve_viewer, split_resp
 from helpers_access import ALICE, reset_access, talk_to
 from helpers_browser_font import use_test_font, wait_test_font
+
+# Chromium's flags. Playwright's bundled headless shell hints in full by default, whatever fontconfig says, and rounds every
+# glyph's advance to a whole pixel: the same bundled face then measures other widths than in Chrome, and the checks that fix
+# a layout from widths pick another step (docs/handbook/verification.md §브라우저 테스트의 글자 너비).
+CHROMIUM_ARGS = ["--no-sandbox", "--font-render-hinting=none"]
 
 # The timers settle() waits for: the viewer's debounces, slides and long-press timers run 0-1000ms. Longer ones are
 # lifetimes no test waits out - an undo's 6s window, a tooltip's 4s.
@@ -321,7 +327,7 @@ class ChromiumTestCase(unittest.TestCase):
         try:
             if cls.BROWSER_ENGINE == "chromium":
                 exe = os.environ.get("LIMN_CHROMIUM") or shutil.which("google-chrome") or shutil.which("chromium")
-                cls.browser = cls.pw.chromium.launch(executable_path=exe or None, args=["--no-sandbox"])
+                cls.browser = cls.pw.chromium.launch(executable_path=exe or None, args=CHROMIUM_ARGS)
             else:
                 cls.browser = getattr(cls.pw, cls.BROWSER_ENGINE).launch()
         except Exception as e:  # no bundled or system browser

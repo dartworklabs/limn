@@ -221,6 +221,19 @@ MONO_FALLBACK = (
 MEASURED = """() => {const f = document.querySelector('#more-foot').style;
   return {bar: ['bar-sel-icon', 'bar-snug', 'bar-tight'].filter(c => document.querySelector('#bar1').classList.contains(c)),
     foot: ['--ink-word', '--ink-ver', '--help-chev'].map(k => f.getPropertyValue(k))};}"""
+# A line of Hangul and Latin as long as a document name, and its width in the sans stack at the interface's 12px and at a
+# hundred times that, where rounding an advance to a pixel changes the line by less than a part in a thousand.
+ADVANCE_TEXT = "심사위원 의견에 대한 상세 답변서와 수정 내역을 정리한 개정 문서 최종본 Response to reviewers"
+ADVANCES = """async (text) => {const line = document.createElement('span');
+  line.style.cssText = 'position:absolute;white-space:nowrap;font-family:var(--font-sans);font-weight:600';
+  line.textContent = text;
+  document.body.append(line);
+  const width = async px => {line.style.fontSize = px + 'px';
+    await document.fonts.load('600 ' + px + 'px "Pretendard Variable"', text);
+    return line.getBoundingClientRect().width;};
+  const small = await width(12), large = await width(1200);
+  line.remove();
+  return {small, large};}"""
 PHONE = {"viewport": {"width": 384, "height": 832}, "is_mobile": True, "has_touch": True, "device_scale_factor": 2.625}
 DESK = {"viewport": {"width": 1400, "height": 850}}
 
@@ -326,6 +339,15 @@ class BundledFontInBrowser(BrowserBase):
                     self.assertLess(len({u.path for u in fonts}), 92)
                     css = [u for u, kind in requests if kind == "stylesheet"]
                     self.assertEqual(css, ["http://viewer.test/vendor/pretendard/pretendard.css?%s" % version])
+
+    def test_text_keeps_the_fonts_own_advances_at_the_interface_size(self):
+        """A line at 12px is a hundredth of its width at 1200px: the browser under test keeps the font's fractional
+        advances. A browser that rounds each to a whole pixel draws the same face at other widths, so the checks that
+        fix a layout from widths would pick other steps; this names that cause in one place
+        (docs/handbook/verification.md §브라우저 테스트의 글자 너비)."""
+        page, _ = self.view(DESK, "ko")
+        got = page.evaluate(ADVANCES, ADVANCE_TEXT)
+        self.assertAlmostEqual(got["small"], got["large"] / 100, delta=0.5, msg="glyph advances are rounded: %s" % got)
 
     def test_text_measures_are_taken_again_once_the_font_arrives(self):
         """A 430px phone in English and Korean with a monospace fallback (MONO_FALLBACK): its slices held back while the
