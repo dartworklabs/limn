@@ -598,6 +598,7 @@ class ViewerBase(BrowserBase):
 
     def view(self, device, lang="ko", prefs=None, reduced=False, init=None, dark=False, hash_="", test_font=False):
         """Open the viewer on a device preset and return the page once boot() has finished and the page has settled.
+        lang=None opens it without ?lang=, in the saved choice (an init script can seed it) or the browser's language.
         prefs = pinPrefs before boot (coach marks are pre-seen unless given).
         test_font loads the fixed Hangul face in this page before the viewer script."""
         p = {"coach": {"touch": 1, "mouse": 1, "sel": 1}}
@@ -620,7 +621,7 @@ class ViewerBase(BrowserBase):
             use_test_font(page, self.route)
         else:
             page.route("**/*", self.route)
-        page.goto("http://viewer.test/?lang=%s%s" % (lang, hash_))
+        page.goto("http://viewer.test/%s%s" % ("" if lang is None else "?lang=" + lang, hash_))
         if test_font:
             wait_test_font(page)
         page.wait_for_function(BOOTED, timeout=20000)
@@ -5399,6 +5400,40 @@ class BarAndSheets(ViewerBase):
             ),
             ["en", "en", '{"note":"쓰던 메모"}'],
         )
+
+    def test_a_language_pick_reloads_an_address_with_only_a_hash(self):
+        """The viewer's usual address is /#doc=<key> with no ?lang= (several documents write the hash; a link carries
+        it). The pick replaced the address with itself less ?lang=, which there is the same address: a jump to the same
+        hash inside the page that loads nothing, so the choice was saved but the screen stayed in the old language until a
+        manual reload (0.4.43 functional test, both ways). The pick loads a new page in the chosen language at the same
+        hash, without ?lang=, with the tab's draft."""
+        for old, new in (("ko", "en"), ("en", "ko")):
+            with self.subTest(old=old, new=new):
+                seed = (
+                    "try{if(!sessionStorage.getItem('__lang')){sessionStorage.setItem('__lang','1');"
+                    "localStorage.setItem('limnLang',%s);}}catch(e){}" % json.dumps(old)
+                )
+                page = self.view(DESK, lang=None, init=seed, hash_="#doc=main")
+                self.assertEqual(page.evaluate("[location.search, location.hash, LANG]"), ["", "#doc=main", old])
+                page.evaluate("sessionStorage.setItem('limnDraft:test','{\"note\":\"쓰던 메모\"}')")
+                page.click("#btn-more")
+                with page.expect_navigation() as nav:
+                    page.click("#m-lang [data-lang=%s]" % new)
+                # a jump inside the page (same address and hash) has no response: nothing was loaded
+                self.assertIsNotNone(nav.value, "the pick loaded no new page")
+                page.wait_for_function(BOOTED, timeout=20000)
+                self.assertEqual(
+                    page.evaluate(
+                        "[LANG, document.documentElement.lang, localStorage.getItem('limnLang'), location.search,"
+                        " location.hash, sessionStorage.getItem('limnDraft:test'),"
+                        " document.querySelector('#m-lang [aria-checked=true]').dataset.lang]"
+                    ),
+                    [new, new, new, "", "#doc=main", '{"note":"쓰던 메모"}', new],
+                )
+                rebuild = "PDF 재빌드"
+                self.assertEqual(
+                    page.text_content("#btn-rebuild .lbl").strip(), UI_EN[rebuild] if new == "en" else rebuild
+                )
 
     def test_zoom_shows_its_percentage(self):
         """[더보기]'s zoom had no feedback but the 449px of page above the sheet (P11): the figure between [−] and [+] says
