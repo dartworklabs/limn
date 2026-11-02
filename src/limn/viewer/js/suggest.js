@@ -102,7 +102,7 @@ ${open?tr('제안 접기'):tr('제안 펼치기')+' · '+tl('{n}줄',{n:rows.len
 function suggestBadge(p,closed){if(!p.suggest)return null; const st=closed?SUGGEST_STATE.READY:p.suggest_state;
   if(st===SUGGEST_STATE.CHANGED)return html`<span class="badge badge-warning sg-badge" data-tip="${tr('그사이 이 줄들이 바뀌어 제안의 원문과 다릅니다 — 에이전트는 넣지 않고 답글로 알립니다. [수정]에서 지금 원문으로 맞출 수 있습니다')}">${ic('triangle-alert')}${tr('제안 수정')} · ${tr('원문 바뀜')}</span>`;
   if(st===SUGGEST_STATE.UNKNOWN)return html`<span class="badge badge-warning sg-badge" data-tip="${tr('원문과 대조할 수 없습니다(위치를 잃었거나 파일을 읽지 못함) — 에이전트는 넣지 않고 알립니다')}">${ic('triangle-alert')}${tr('제안 수정')} · ${tr('확인 불가')}</span>`;
-  return html`<span class="badge sg-badge" data-tip="${tr('작성자가 바꿀 글을 직접 썼습니다 — 에이전트가 이 줄 범위에 글자 그대로 넣습니다')}">${tr('제안 수정')}</span>`;}
+  return html`<span class="badge sg-badge" data-tip="${tr('작성자가 바꿀 글을 직접 썼습니다 — 에이전트가 이 줄 범위에 넣고, 명백한 오타·문장 오류만 고쳐 알립니다. 뜻이 걸린 문제는 넣기 전에 묻습니다')}">${tr('제안 수정')}</span>`;}
 
 // ---------------- The editor (composer and edit card)
 // Reads the lines o.lo..o.hi of o.file exactly (GET /api/snippet?…&text=1) into draft sg as its base - and as its text too
