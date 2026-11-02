@@ -94,6 +94,12 @@ QUIET = """() => {
 }"""
 
 
+# An element's words as drawn on screen, for page.evaluate / locator.evaluate: its text without the words only a screen
+# reader reads (.tip-sr - a badge's explanation, docs/handbook/viewer.md §설명과 접근성).
+SEEN_TEXT = """e => {e = typeof e === 'string' ? document.querySelector(e) : e; const c = e.cloneNode(true);
+  c.querySelectorAll('.tip-sr').forEach(s => s.remove()); return c.textContent;}"""
+
+
 # ---------------------------------------------------------------- layout probes shared by the browser test files
 # Every visible element matching the selector whose tap area is under 44px wide or high, as "name WxH(hit wxh)": from its
 # centre, the px that still answer it going left/right/up/down (each side counted to 60px), as the diagnosis measured them - the

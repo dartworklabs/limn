@@ -25,7 +25,7 @@ from limn.security.access import LOCAL_ACTOR
 from helpers import HTML, add_pin, extract_js_fn, ps, req, run_node
 from helpers_access import ALICE, actor
 from helpers_authority import post_authority
-from helpers_browser import MISSES_24, MISSES_44, BrowserBase, settle
+from helpers_browser import MISSES_24, MISSES_44, SEEN_TEXT, BrowserBase, settle
 
 HANGUL = re.compile(r"[가-힣]")
 # Line 5 is the second line of the paragraph at lines 4-5; the quote environment around it runs from line 3 to 96.
@@ -42,15 +42,17 @@ PHONE = {"viewport": {"width": 390, "height": 844}, "is_mobile": True, "has_touc
 COACH_SEEN = "try{localStorage.setItem('pinPrefs',JSON.stringify({coach:{touch:1,mouse:1,sel:1}}));}catch(e){}"
 # The composer's suggestion as drawn: the switch, the reason in its place, the editor and the line under it.
 STATE = """() => {const q = s => document.querySelector(s), shown = e => !!e && e.getClientRects().length > 0;
+  const seen = e => [...e.childNodes].filter(n => !(n.classList && n.classList.contains('tip-sr'))).map(n => n.textContent).join('');
   const line = q('#c-sg-note'), act = line && line.querySelector('button');
-  return {switch: shown(q('#c-sg-tg')), on: q('#c-sg-tg').getAttribute('aria-checked'), why: shown(q('#c-sg-why')) ? q('#c-sg-why').textContent : null,
+  return {switch: shown(q('#c-sg-tg')), on: q('#c-sg-tg').getAttribute('aria-checked'), why: shown(q('#c-sg-why')) ? seen(q('#c-sg-why')) : null,
     editor: shown(q('#c-sg-text')), text: q('#c-sg-text').value, readOnly: q('#c-sg-text').readOnly,
     line: shown(line) ? line.querySelector('span').textContent : null, act: act ? act.textContent : null,
     cur: shown(q('#c-sg-cur')), base: SG.base, range: COMPOSE.current && [COMPOSE.current.lo, COMPOSE.current.hi]};}"""
 # A card's suggestion as drawn: its badge (text, warning look), its diff rows (class, number, line) and the fold button.
 CARD = """id => {const c = document.querySelector('.pin[data-id="' + id + '"]'), b = c.querySelector('.sg-badge'), f = c.querySelector('.sg-foot button');
   const shown = e => !!e && e.getClientRects().length > 0;
-  return {badge: b ? b.textContent : null, warn: !!b && b.classList.contains('badge-warning'), note: c.querySelector('.note') ? c.querySelector('.note').textContent : null,
+  const seen = e => [...e.childNodes].filter(n => !(n.classList && n.classList.contains('tip-sr'))).map(n => n.textContent).join('');
+  return {badge: b ? seen(b) : null, warn: !!b && b.classList.contains('badge-warning'), note: c.querySelector('.note') ? c.querySelector('.note').textContent : null,
     view: shown(c.querySelector('.sg-view')),
     rows: [...c.querySelectorAll('.sg-diff .rd-line')].map(r => [r.className.replace('rd-line ', ''), r.querySelector('.rd-no').textContent, r.querySelector('.rd-code').textContent]),
     fold: f ? f.textContent : null};}"""
@@ -406,7 +408,7 @@ class SuggestComposer(SuggestBase):
         got.append(page.inner_text("#c-sg-note"))
         page.click("#c-sg-tg")
         settle(page)
-        got.append(page.inner_text("#c-sg-why"))
+        got.append(page.evaluate(SEEN_TEXT, "#c-sg-why"))
         self.assertEqual([t for t in got if HANGUL.search(t or "")], [], got)
         self.assertEqual((got[0], got[-1]), ("Suggested edit", "Suggested edits: 80 lines at most"))
 

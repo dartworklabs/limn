@@ -6,6 +6,8 @@
   it follows the explanation when that changes.
 - ``TipKeyboard`` holds the WAI-ARIA tooltip pattern: the keyboard's focus shows the box on every device, a tablet
   without hover too, Esc and leaving the control hide it, and Tab's own scroll does not take it.
+- ``TipReadAlong`` holds a badge's explanation, read with the card: a [제안 수정] warning badge says why the agent will not
+  apply it to a screen reader, in its words' language, with nothing changed on screen or in the Tab order.
 
 Run: uv run pytest -q src/limn/viewer/tests/test_viewer_tips.py
 """
@@ -23,7 +25,7 @@ HANGUL = re.compile(r"[가-힣]")
 DESK = {"viewport": {"width": 1440, "height": 900}}
 TABLET = {"viewport": {"width": 768, "height": 1024}, "is_mobile": True, "has_touch": True, "device_scale_factor": 2}
 COACH_SEEN = "try{localStorage.setItem('pinPrefs',JSON.stringify({coach:{touch:1,mouse:1,sel:1}}));}catch(e){}"
-# The box as shown: hidden or not, its text, and whether it stands by the focused control (beside or over it, no gap).
+# The box as shown: hidden or not, its text, the focused control and that control's explanation.
 BOX = """() => {const t = document.getElementById('tip'), f = document.activeElement;
   return {shown: !t.hidden, text: t.textContent, focus: f && (f.id || f.className), tip: f && f.dataset ? f.dataset.tip : null};}"""
 
@@ -41,6 +43,35 @@ def ax(page, selector):
     return tuple((node.get(k) or {}).get("value") for k in ("role", "name", "description"))
 
 
+def ax_words(page, selector):
+    """The words Chrome gives a screen reader for the element matching selector and everything in it, its static texts in
+    reading order joined (CDP Accessibility.getPartialAXTree, then the children of each node)."""
+    cdp = page.context.new_cdp_session(page)
+    out = []
+    try:
+        cdp.send("Accessibility.enable")
+        found = cdp.send("Runtime.evaluate", {"expression": "document.querySelector(%s)" % json.dumps(selector)})
+        nodes = cdp.send(
+            "Accessibility.getPartialAXTree", {"objectId": found["result"]["objectId"], "fetchRelatives": False}
+        )
+
+        seen = set()
+
+        def walk(node):  # an ignored node's children are also its parent's: each is read once
+            if node["nodeId"] in seen:
+                return
+            seen.add(node["nodeId"])
+            if (node.get("role") or {}).get("value") == "StaticText" and not node.get("ignored"):
+                out.append(node["name"]["value"])
+            for child in cdp.send("Accessibility.getChildAXNodes", {"id": node["nodeId"]})["nodes"]:
+                walk(child)
+
+        walk(nodes["nodes"][0])
+    finally:
+        cdp.detach()
+    return "".join(out)
+
+
 class TipDescriptionLogic(unittest.TestCase):
     """What an explanation adds to a name: nothing when it is the name, the rest when it starts with the name and a
     separator, all of it otherwise."""
@@ -53,7 +84,8 @@ class TipDescriptionLogic(unittest.TestCase):
     def test_a_description_says_only_what_the_name_does_not(self):
         """The name again is no description; '폭 맞춤: …', '#3 · …' and 'X — …' give what follows the separator; a tip
         that only begins with the name's letters ('지금 빌드의 그림…' for '지금 빌드') is a sentence and stays whole; spaces
-        and line breaks collapse; no tip, no description."""
+        and line breaks collapse; no tip, no description. The name's words may stand apart by a colon in the tip ('담당:
+        Bob Park' for '담당 Bob Park'), and a name with regular-expression characters is matched as written."""
         got = json.loads(
             run_node(
                 extract_js_fn("tipDescText")
@@ -61,7 +93,9 @@ class TipDescriptionLogic(unittest.TestCase):
             console.log(JSON.stringify([tipDescText('상태: 열림', '상태: 열림'), tipDescText('폭 맞춤: PDF 쪽 폭을 맞춥니다', '폭 맞춤'),
               tipDescText('#3 · 메모 첫 줄', '#3'), tipDescText('Fit width — fits the page', ' Fit width '),
               tipDescText('지금 빌드의 그림을 보입니다', '지금 빌드'), tipDescText('바꿀 글을\n  직접 씁니다', '제안 수정'),
-              tipDescText('', '완료'), tipDescText('설명', '')]));"""
+              tipDescText('', '완료'), tipDescText('설명', ''),
+              tipDescText('담당: Bob Park — 에이전트는 이 핀을 건너뜁니다', '담당 Bob Park'), tipDescText('담당: 나', '담당 나'),
+              tipDescText('a.b (x)? · 설명', 'a.b (x)?')]));"""
             )
         )
         self.assertEqual(
@@ -73,6 +107,9 @@ class TipDescriptionLogic(unittest.TestCase):
                 "fits the page",
                 "지금 빌드의 그림을 보입니다",
                 "바꿀 글을 직접 씁니다",
+                "",
+                "설명",
+                "에이전트는 이 핀을 건너뜁니다",
                 "",
                 "설명",
             ],
@@ -198,6 +235,82 @@ class TipKeyboard(TipBase):
         d = {"file": str(self.main), "lo": 3 + 2 * i, "hi": 3 + 2 * i, "page": 1, "note": "메모 %d" % (i + 1)}
         d["frac"] = [0.1, 0.05 + 0.04 * i, 0.3, 0.02]
         add_pin(d, actor(ALICE))
+
+
+# A badge's words for a screen reader (.tip-sr) as drawn: its text, whether it is the visually hidden 1px box, and whether
+# taking it out moves or resizes the badge (it must not: nothing on screen changes). Put back as it was, at once.
+READ_ALONG = """sel => {const b = document.querySelector(sel), sr = b.querySelector(':scope>.tip-sr');
+  if (!sr) return null;
+  const r = b.getBoundingClientRect(), s = sr.getBoundingClientRect(), cs = getComputedStyle(sr);
+  sr.remove(); const q = b.getBoundingClientRect(); b.append(sr);
+  return {text: sr.textContent, translate: sr.translate, hidden: s.width <= 1 && s.height <= 1 && cs.clip === 'rect(0px, 0px, 0px, 0px)',
+    same: r.left === q.left && r.top === q.top && r.width === q.width && r.height === q.height,
+    focusable: b.tabIndex >= 0, words: [...b.childNodes].filter(n => n !== sr).map(n => n.textContent).join('')};}"""
+
+
+class TipReadAlong(TipBase):
+    """A badge with an explanation carries it as words only a screen reader reads, so the card is read with it - the
+    [제안 수정 · 원문 바뀜] badge's 'the agent will not apply it' had no route to one - and nothing is added on screen or to
+    the Tab order. The words follow the explanation and speak the screen's language."""
+
+    BASE = "Line 4 of the demo manuscript.\nLine 5 of the demo manuscript."
+
+    def add(self):
+        """An open pin on lines 4-5 by Alice with a suggestion; its id."""
+        d = {"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "짧게", "frac": [0.1, 0.1, 0.3, 0.05]}
+        d["suggest"] = {"base": self.BASE, "text": "Line four.\nLine 5 of the demo manuscript."}
+        return add_pin(d, actor(ALICE)).core.id
+
+    def test_a_warning_badge_is_read_with_why_the_agent_will_not_apply_it(self):
+        """Line 5 edited after the suggestion: the card's '제안 수정 · 원문 바뀜' badge is read as its words and then its
+        explanation (Chrome's tree and Playwright's snapshot), from a 1px hidden box that moves nothing and adds no tab stop;
+        the lines lost, the same badge reads the 'cannot be checked' explanation instead."""
+        pid = self.add()
+        tex = self.main.read_text(encoding="utf-8")
+        self.main.write_text(tex.replace("Line 5 of the demo", "Line 5, edited, of the demo"), encoding="utf-8")
+        page = self.view(n_open=1)
+        badge = '.pin[data-id="%d"] .sg-badge' % pid
+        tip = page.get_attribute(badge, "data-tip")
+        self.assertIn("에이전트는 넣지 않고", tip)
+        got = page.evaluate(READ_ALONG, badge)
+        self.assertIsNotNone(got, "the badge has no words for a screen reader")
+        self.assertEqual(got["text"], ": " + tip)
+        self.assertEqual(
+            (got["words"], got["hidden"], got["same"], got["focusable"], got["translate"]),
+            ("제안 수정 · 원문 바뀜", True, True, False, False),
+        )
+        self.assertEqual(ax_words(page, badge), "제안 수정 · 원문 바뀜: " + tip)
+        self.assertIn(tip, page.locator(badge).aria_snapshot())
+        self.main.write_text(tex.replace(self.BASE, "Something else.\nEntirely."), encoding="utf-8")
+        page.evaluate("loadPins()")
+        settle(page)
+        got = page.evaluate(READ_ALONG, badge)
+        self.assertEqual(got["words"], "제안 수정 · 확인 불가")
+        self.assertEqual(got["text"], ": " + page.get_attribute(badge, "data-tip"))
+        self.assertIn("넣지 않고 알립니다", got["text"])
+
+    def test_the_english_screen_reads_the_explanation_in_english(self):
+        """On the English screen the badge's words and explanation are both English: the copy is made from the
+        explanation the English observer wrote, and is not translated again."""
+        pid = self.add()
+        tex = self.main.read_text(encoding="utf-8")
+        self.main.write_text(tex.replace("Line 5 of the demo", "Line 5, edited, of the demo"), encoding="utf-8")
+        page = self.view(n_open=1, lang="en")
+        badge = '.pin[data-id="%d"] .sg-badge' % pid
+        words = ax_words(page, badge)
+        self.assertEqual(words, "Suggested edit · source changed: " + page.get_attribute(badge, "data-tip"))
+        self.assertIn("will not apply", words)
+        self.assertIsNone(HANGUL.search(words), words)
+
+    def test_the_reason_in_the_switchs_place_is_read_with_its_explanation(self):
+        """An area pick has no [제안 수정] switch; the short reason in its place ('영역에는 제안 수정 없음') is read with its
+        explanation, as a badge is."""
+        self.PICK = {"kind": "region", "view_only": True, "lo": None, "hi": None, "file": None, "quote": "Area"}
+        page = self.view()
+        self.compose(page)
+        tip = page.get_attribute("#c-sg-why", "data-tip")
+        self.assertEqual(ax_words(page, "#c-sg-why"), "영역에는 제안 수정 없음: " + tip)
+        self.assertTrue(page.evaluate(READ_ALONG, "#c-sg-why")["same"])
 
 
 if __name__ == "__main__":
