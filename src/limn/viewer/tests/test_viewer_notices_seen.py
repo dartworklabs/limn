@@ -406,28 +406,40 @@ class SeenFlows(BrowserBase):
 
     def test_a_mouse_on_the_line_or_the_open_list_holds_an_undo_window(self):
         """Desktop: '선택 취소됨 [되돌리기]' on the line outlives its 6 s while the mouse is on the line, and goes 6 s
-        after the mouse leaves; another one outlives its 6 s while the '+N' list is open, and goes after it closes."""
-        page = self.view("desktop")
-        self.compose(page, "기다릴 메모")
-        page.click("#btn-cancel")
-        page.wait_for_function("LINE.some(n=>n.title==='선택 취소됨')")
-        page.hover("#status .st-tx")
-        page.wait_for_timeout(6600)
-        self.assertTrue(self.line_has(page, "선택 취소됨"))
-        page.mouse.move(700, 500)
+        after the mouse leaves; another one outlives its 6 s while the '+N' list is open, and goes after it closes. The two
+        holds are on two pages and wait out their windows together: neither flow writes to the server, and the second
+        page's line starts as the first page's stood once its message had gone. Each page's message has its 9 s from its
+        own release, so waiting for one page first gives the other no more time (gone_within)."""
+        hover = self.view("desktop")
+        self.compose(hover, "기다릴 메모")
+        hover.click("#btn-cancel")
+        hover.wait_for_function("LINE.some(n=>n.title==='선택 취소됨')")
+        hover.hover("#status .st-tx")
+        listed = self.view("desktop")
+        self.compose(listed, "목록에서 기다릴 메모")
+        listed.click("#btn-cancel")
+        listed.wait_for_function("LINE.some(n=>n.title==='선택 취소됨')")
+        listed.evaluate("lineNote('다른 소식',NOTICE_KIND.INFO)")
+        listed.click("#status [data-act=status-more]")
+        listed.mouse.move(700, 500)
+        listed.wait_for_timeout(6600)  # past both windows: the list's began last
+        self.assertTrue(self.line_has(hover, "선택 취소됨"))
+        self.assertTrue(self.line_has(listed, "선택 취소됨"))
+        gone = "!LINE.some(n=>n.title==='선택 취소됨')"
+        hover.mouse.move(700, 500)
         t0 = time.monotonic()
-        page.wait_for_function("!LINE.some(n=>n.title==='선택 취소됨')", timeout=9000)
+        listed.keyboard.press("Escape")
+        t1 = time.monotonic()
+        self.gone_within(hover, gone, t0, 9.0)
         self.assertGreater(time.monotonic() - t0, 5.0)
-        self.compose(page, "목록에서 기다릴 메모")
-        page.click("#btn-cancel")
-        page.wait_for_function("LINE.some(n=>n.title==='선택 취소됨')")
-        page.evaluate("lineNote('다른 소식',NOTICE_KIND.INFO)")
-        page.click("#status [data-act=status-more]")
-        page.mouse.move(700, 500)
-        page.wait_for_timeout(6600)
-        self.assertTrue(self.line_has(page, "선택 취소됨"))
-        page.keyboard.press("Escape")
-        page.wait_for_function("!LINE.some(n=>n.title==='선택 취소됨')", timeout=9000)
+        self.gone_within(listed, gone, t1, 9.0)
+
+    def gone_within(self, page, expr, since, seconds):
+        """Wait until expr holds on page, failing once `seconds` have passed since `since` (time.monotonic()): a wait that
+        starts after another page's wait keeps its own deadline from its own start and does not gain the time that took."""
+        left = (since + seconds - time.monotonic()) * 1000
+        self.assertGreater(left, 0, "no time left of %.1f s for: %s" % (seconds, expr))  # a timeout of 0 is none
+        page.wait_for_function(expr, timeout=left)
 
     def test_a_new_message_leaves_the_focus_on_a_live_undo(self):
         """Desktop: the focus on the line's [되돌리기] stays there when a background message arrives, and Enter still
