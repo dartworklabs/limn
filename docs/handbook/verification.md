@@ -33,7 +33,7 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 
 | 검사 | 게이트 여부 | 명령 | 설정 위치 |
 | --- | --- | --- | --- |
-| §1 파이썬 테스트(§4·§5의 자동 부분 포함) | 게이트 | `uv run pytest -q -rs` | `ci.yml`의 `test`·`macos`·`tex` 작업, `pyproject.toml`의 `[tool.pytest.ini_options]` |
+| §1 파이썬 테스트(§4·§5의 자동 부분 포함) | 게이트 | `uv run pytest -q -rs` | `ci.yml`의 `test`·`macos`·`tex` 작업, Linux 브라우저 부분(`browser.yml`), `pyproject.toml`의 `[tool.pytest.ini_options]` |
 | macOS 실제 브라우저 키보드 흐름·대체 글꼴 잉크·테스트 글꼴 격리 | 게이트 | `uv run pytest -q -rs -n 2 -m browser src/limn/viewer/tests/test_viewer_search.py::SearchKeys src/limn/viewer/tests/test_viewer_search.py::SearchShortcutFocus src/limn/viewer/tests/test_viewer_search.py::SearchScope src/limn/viewer/tests/test_viewer_search.py::SearchInk::test_the_fields_text_is_on_its_neighbours_line_in_fallback_fonts src/limn/viewer/tests/test_viewer_doc_overflow.py::WithSearch src/limn/viewer/tests/test_viewer_assignee.py::TwoPeopleWithOneName src/limn/viewer/tests/test_viewer_input.py::HangulInkInClippingBoxes src/limn/viewer/tests/test_viewer_size_alignment.py::LabelInkCentre tests/test_browser_font.py::BrowserFontProvision` | `ci.yml`의 `macos-browser` 작업 |
 | §2 인스턴스 관리자 테스트 | 게이트 | `bash src/limn/administration/tests/test_instances.sh` | `ci.yml`의 `instances` 작업 |
 | §3 설치 스모크 | 게이트 | `uv tool install .` 뒤 설치된 명령과 패키지 내용 확인 | `ci.yml`의 `install` 작업 |
@@ -45,8 +45,9 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 
 - 수정 중에는 바뀐 동작을 직접 보는 테스트와 관련 정적 검사부터 돌린다. 전체 게이트는 완료 전 한 번 돌리고, 같은 입력으로 반복하지 않는다. 실패 원인을 고친 뒤에는 영향을 받는 게이트만 다시 돌린다.
 - pytest는 기본 4개 worker와 `loadscope`로 실행한다. 같은 클래스의 브라우저·서버 자원을 한 worker 안에 유지하고 Chromium 과다 실행을 피하기 위해 CPU 개수 대신 고정 상한을 쓴다. `-n 0`은 직렬 디버깅, `-n 2`는 메모리가 작은 환경에서 쓴다.
-- CI는 일반 테스트(core), 브라우저(browser), 실제 TeX(tex), 인스턴스 관리자(instances), 정적 검사(lint), 설치(install)를 독립 작업으로 실행한다. Linux의 일반·브라우저 검사는 Python 3.10·3.12에서 돈다. 일반 검사는 `-m "not browser and not tex"`, 브라우저는 `-m browser`, TeX는 `-m tex`로 분리한다. macOS 일반 검사는 2개 worker로 실행한다. Linux 브라우저·TeX 검사도 각각 2개 worker로 실행한다. 인스턴스 셸 검사는 Linux·macOS에서 독립적으로 돈다.
-- CI의 모든 작업에는 시간 한도(`timeout-minutes`)가 있어, 멈춘 작업은 GitHub 기본값 6시간을 기다리지 않고 실패한다. Ubuntu 저장소에서 내려받는 단계(Playwright `--with-deps`, TeX 설치)는 따로 더 짧은 한도를 두어, 멈춘 단계가 실패로 표시된다. 이 단계 앞에서 apt는 지역 미러 대신 `archive.ubuntu.com`만 쓰고, 응답 없는 연결은 30초 뒤 다시 시도한다. CI의 pytest는 `-o faulthandler_timeout=600`으로 돌아, 한 테스트가 600초를 넘기면 모든 스레드의 스택을 로그에 남긴다. 실행은 멈추지 않으며, 그 스택이 멈춘 테스트와 줄을 가리킨다. 한도 값의 정본은 `ci.yml`이다.
+- CI는 일반 테스트(core), 브라우저(browser), 실제 TeX(tex), 인스턴스 관리자(instances), 정적 검사(lint), 설치(install)를 독립 작업으로 실행한다. Linux의 일반·브라우저 검사는 Python 3.10·3.12에서 돈다. 일반 검사는 `-m "not browser and not tex"`, 브라우저는 `-m browser`, TeX는 `-m tex`로 분리한다. macOS 일반 검사는 2개 worker로 실행한다. Linux 브라우저 검사의 각 부분과 TeX 검사도 2개 worker로 실행한다. 인스턴스 셸 검사는 Linux·macOS에서 독립적으로 돈다.
+- Linux 브라우저 검사는 Python 버전마다 여러 부분으로 나뉘어 각자의 러너에서 동시에 돈다([`browser.yml`](../../.github/workflows/browser.yml)). 부분 i는 `uv run pytest -q -rs -n 2 -m browser --shard i/N`이고, 부분 수 N은 `browser.yml`의 shard 목록이 정본이다. `--shard`([`helpers_shards.py`](../../tests/support/helpers_shards.py))는 `loadscope`가 한 worker에 두는 단위(클래스, 모듈의 함수들)를 통째로 한 부분에 넣는다. 단위별로 잰 시간([`shard_seconds.json`](../../tests/data/shard_seconds.json))을 보고 무거운 단위부터 지금까지 가장 가벼운 부분에 넣으며, 부분 안에서도 무거운 단위를 먼저 시작한다. 파일에 없는 단위(새 클래스)는 잰 단위의 테스트당 평균 시간에 테스트 수를 곱한 무게로 한 부분에 들어간다. 그래서 파일이 낡으면 균형만 흐트러지고 테스트는 빠지지 않는다. 클래스를 더하거나 빼거나 크게 느려지거나 빨라지게 했으면 `uv run pytest -q -m browser -n 4 --shard-record tests/data/shard_seconds.json`으로 파일을 새로 잰다. 그 실행에서 테스트가 모두 건너뛴 단위(그 기계가 띄우지 못한 엔진의 클래스)는 파일에서 빠져 평균 무게를 받는다. 브랜치 보호가 요구하는 `test (3.10, browser, browser, 2)`·`test (3.12, browser, browser, 2)`는 그 버전의 모든 부분이 성공했을 때만 통과하는 작업이다. 부분의 실패·취소·건너뜀은 실패로 보고, 다른 버전의 부분 결과는 보지 않는다. [`test_ci_shards.py`](../../tests/architecture/test_ci_shards.py)가 어떤 N에서도 모든 브라우저 테스트가 정확히 한 부분에 들어가는지(파일에 없는 단위, 매개변수·하위 테스트를 가진 테스트 포함), CI의 N에서 빈 부분이 없는지, 두 워크플로가 버전마다 모든 부분을 돌리고 그 결과로 필수 이름을 보고하는지 확인한다.
+- CI의 모든 작업에는 시간 한도(`timeout-minutes`)가 있어, 멈춘 작업은 GitHub 기본값 6시간을 기다리지 않고 실패한다. Ubuntu 저장소에서 내려받는 단계(Playwright `--with-deps`, TeX 설치)는 따로 더 짧은 한도를 두어, 멈춘 단계가 실패로 표시된다. 이 단계 앞에서 apt는 지역 미러 대신 `archive.ubuntu.com`만 쓰고, 응답 없는 연결은 30초 뒤 다시 시도한다. CI의 pytest는 `-o faulthandler_timeout=600`으로 돌아, 한 테스트가 600초를 넘기면 모든 스레드의 스택을 로그에 남긴다. 실행은 멈추지 않으며, 그 스택이 멈춘 테스트와 줄을 가리킨다. 한도 값의 정본은 `ci.yml`과 `browser.yml`이다.
 - macOS의 `macos-browser`는 실제 Chromium으로 검색 키·초점 반환·문서 행·동명이인 태그 삽입과 삭제를 2개 worker에서 검증한다. `SearchInk`의 대체 글꼴 메서드는 컨트롤의 `sans-serif`·`monospace`를 DPR 1·2에서 그려 검색 안내의 실제 픽셀 가운데가 줄 가운데의 `0.5px` 안인지도 확인한다. 안내 자체는 시스템 UI 글꼴이므로 이 검사는 임의의 혼합 글꼴을 가운데 맞추는 보장이 아니다. `LIMN_TEST_REQUIRE_BROWSER=1`·`LIMN_TEST_REQUIRE_NODE=1`로 도구 부재를 실패로 다룬다. 호스트 플랫폼을 바꾸지 않는 검색 검사는 실제 `navigator.platform`과 Python 호스트를 대조한 뒤 native 단축키·힌트·검색 결과·Esc의 초점 반환을 확인한다. 이 제한된 게이트는 macOS의 전체 화면·모든 글꼴이나 브라우저 엔진, 실제 Linux·Windows의 시스템 글꼴 증거를 대신하지 않는다.
 - 테스트가 끝난 뒤에는 **무엇을 돌려 몇 초 만에 통과했는지** 숫자로 보고한다(§결과를 보고하는 법).
 
@@ -104,7 +105,7 @@ Linux에서 힌팅을 정하는 쪽은 실행 파일마다 다르다. Google Chr
 
 검색 안내의 오른쪽 끝은 칸의 실제 오른쪽 테두리 **안쪽**에서 8 CSS px 떨어져야 한다. 소수 배율에서는 브라우저가 테두리를 기기 픽셀에 맞추므로, 선언한 `1px`가 레이아웃에서도 정확히 1 CSS px라는 가정으로 바깥 간격을 재지 않는다. [`test_viewer_search.py`](../../src/limn/viewer/tests/test_viewer_search.py)의 `hint_inner_inset()`은 마지막 grid 칸에 크기가 0인 표식을 두어 실제 내용 끝을 찾고, 오른쪽 안쪽 여백을 더해 테두리 안쪽을 잰다. 표식을 둔 동안과 제거한 뒤에 기존 자식의 사각형과 칸의 화면 PNG 바이트가 그대로인지 확인하고, 실패해도 표식을 제거한다.
 
-`SearchBarGeometry`의 기존 안내 검사는 이 관찰값에 8px와 `0.01px` 허용 오차를 적용한다. `SearchHintInsetChromium`·`SearchHintInsetFirefox`·`SearchHintInsetWebKit`은 같은 관찰과 판정으로 DPR 1·1.25·1.5·2를 확인한다. 이 12개 조건은 기본 pytest의 `browser` 표식으로 수집되며, Linux CI의 브라우저 작업이 세 엔진을 설치해 실행하는 게이트다. native 단축키, 담은 글꼴, 밝은 테마에서의 안쪽 간격만 보장한다. 더 넓은 글꼴·테마·플랫폼 조합의 외부 실측은 정보 검사이며, 실제 Safari 앱과 실기기 증거를 대신하지 않는다.
+`SearchBarGeometry`의 기존 안내 검사는 이 관찰값에 8px와 `0.01px` 허용 오차를 적용한다. `SearchHintInsetChromium`·`SearchHintInsetFirefox`·`SearchHintInsetWebKit`은 같은 관찰과 판정으로 DPR 1·1.25·1.5·2를 확인한다. 이 12개 조건은 기본 pytest의 `browser` 표식으로 수집되며, Linux CI의 브라우저 부분이 각자 세 엔진을 설치해 실행하는 게이트다. native 단축키, 담은 글꼴, 밝은 테마에서의 안쪽 간격만 보장한다. 더 넓은 글꼴·테마·플랫폼 조합의 외부 실측은 정보 검사이며, 실제 Safari 앱과 실기기 증거를 대신하지 않는다.
 
 
 ### 판정 패널과 목차의 엔진 검사
@@ -137,9 +138,9 @@ Firefox는 초점도 선택도 없으면 키보드 스크롤을 창에 보낸다
 | `src/limn/*/tests/`, `src/limn/pins/*/tests/` | 소유 기능과 경계의 값·규칙·입력·저장·HTTP·실행·뷰어 동작. `viewer/tests/test_viewer_role_keyboard.py`는 실제 서버와 저장소에서 사람·에이전트·viewer의 검토 조작 및 거절, PDF 마크 버튼의 Tab·Enter·Space 이동을 본다 |
 | `src/limn/administration/tests/test_instances.sh` | 인스턴스 셸 명령·실행 인자·유닛 생성·업데이트 |
 | `tests/contracts/` | 여러 기능의 HTTP·`pins.md` 스냅샷과 성질 검증. 그림 문서 흐름(지도 pick, 요소 핀, 다시 렌더 뒤의 계산 필드)은 `test_contract_snapshot.py`가 [`tests/data/contract_snapshot_figure.json`](../../tests/data/contract_snapshot_figure.json)과 따로 비교한다. 판정 흐름(낱말 파일이 있는 세 종류 문서, 판정 핀 만들기와 거절, 편집 규칙, 더 새 판정에 밀린 핀의 `superseded_by`, `pins.md` 표시)은 [`tests/data/verdict_snapshot.json`](../../tests/data/verdict_snapshot.json)과 따로 비교한다. `test_figure_rollback.py`는 이전 릴리스가 그림 핀 레코드를, `test_suggest_rollback.py`는 제안 수정 레코드를, `test_verdict_rollback.py`는 판정 레코드를 읽고 바이트 그대로 되쓰는지 본다. `test_verdict_keys.py`는 낱말 파일과 저장된 판정의 `key` 규칙이 두 기능에서 같은지 본다 |
-| `tests/architecture/` | 공개 표면·import 경계, Handbook 참조, 이름·개인정보 규칙, CI 액션의 커밋 고정·체크아웃 자격 증명·uv와 빌드 백엔드 버전 고정 |
+| `tests/architecture/` | 공개 표면·import 경계, Handbook 참조, 이름·개인정보 규칙, CI 액션의 커밋 고정·체크아웃 자격 증명·uv와 빌드 백엔드 버전 고정, 브라우저 검사의 부분 나누기(모든 테스트가 정확히 한 부분에, 버전별 필수 이름의 결과) |
 | `tests/tools/` | 테스트 식별자 이동 대조·그림 선택 비교 도구 둘(재구성한 표본, 임계값 격자를 재는 D6 측정 도구), 익명 PoC 서버의 정확한 Host 허용·자원 allowlist·API 읽기와 쓰기 거부 경계 |
-| `tests/support/`, `tests/data/`, `tests/fixtures/` | 수집하지 않는 공용 테스트 도우미와 고정 입력·스냅샷·테스트 글꼴 출처와 라이선스. 그림 문서 fixture(그림 스크립트·공통 부품·요소 지도·빌드 폴더와, pick 답을 뷰어처럼 저장하는 도우미, 뷰어 테스트가 쓰는 세 문서(원고·그림·보기 전용 PDF)의 등록과 다시 렌더)는 [`tests/support/helpers_figure.py`](../../tests/support/helpers_figure.py)에 있다 |
+| `tests/support/`, `tests/data/`, `tests/fixtures/` | 수집하지 않는 공용 테스트 도우미와 고정 입력·스냅샷·테스트 글꼴 출처와 라이선스, 브라우저 검사를 나누는 `--shard` 플러그인과 단위별 측정 시간. 그림 문서 fixture(그림 스크립트·공통 부품·요소 지도·빌드 폴더와, pick 답을 뷰어처럼 저장하는 도우미, 뷰어 테스트가 쓰는 세 문서(원고·그림·보기 전용 PDF)의 등록과 다시 렌더)는 [`tests/support/helpers_figure.py`](../../tests/support/helpers_figure.py)에 있다 |
 
 pytest는 `tests`와 `src/limn`을 수집하고 `tests/support`에서 공용 도우미를 찾는다. `--import-mode=importlib`는 패키지마다 같은 테스트 파일 이름을 허용한다. 테스트용 `__init__.py`는 필요하지 않다. wheel은 모든 `tests/`를 제외하고 sdist는 검증 소스를 포함한다. mypy는 동거 테스트를 제외한 모든 프로덕션 모듈을 엄격히 검사한다.
 
