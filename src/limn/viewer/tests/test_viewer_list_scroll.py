@@ -76,22 +76,30 @@ class ManyCardsWhileThePdfScrolls(BrowserBase):
     WHO = ALICE
 
     def setUp(self):
-        """Three hundred open pins over the demo manuscript's lines, their notes one to three lines long."""
+        """Three hundred open pins over the demo manuscript's lines, their notes one to three lines long, stored in one
+        write. add_pin makes each pin alone in the live list, which is emptied after it (the ids still count up, from
+        pins.seq), and then all go in together. Added one after another, each add read, synced and rendered again every
+        pin before it (45,150 pins over the 300 writes, about a minute a test) to store the same pins."""
         super().setUp()
         who = actor(ALICE)
-        self.pins = [
-            add_pin(
-                {
-                    "file": str(self.main),
-                    "lo": 3 + i % 30,
-                    "hi": 4 + i % 30,
-                    "page": 1 + i % 2,
-                    "note": NOTES[i % len(NOTES)] + " (%d)" % i,
-                },
-                who,
-            ).record
-            for i in range(N_PINS)
-        ]
+        store = ps.APP.pin_editing.context().store
+        made = []
+        for i in range(N_PINS):
+            made.append(
+                add_pin(
+                    {
+                        "file": str(self.main),
+                        "lo": 3 + i % 30,
+                        "hi": 4 + i % 30,
+                        "page": 1 + i % 2,
+                        "note": NOTES[i % len(NOTES)] + " (%d)" % i,
+                    },
+                    who,
+                )
+            )
+            store.transact(lambda pins: (pins.clear(), True))
+        self.pins = [pin.record for pin in made]
+        store.transact(lambda pins: (pins.extend(made), True))
 
     def skipping(self, page, cond, msg):
         """Wait until cond holds: the browser skips a card a frame after the observer's report that marks it, itself a
