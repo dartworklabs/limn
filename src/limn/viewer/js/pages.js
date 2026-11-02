@@ -175,6 +175,10 @@ function arrivalSettle(){const a=ARRIVAL,L=$('#left'); if(!a)return;
   if(Math.abs(L.scrollTop-to)<=FIGURE_REST_PX){a.at=to; return;}
   if(a.fixes>=ARRIVAL_FIXES||(a.at!==null&&Math.abs(a.at-to)<=FIGURE_REST_PX)){ARRIVAL=null; return;}
   a.fixes++; a.until=0; a.at=null; pvGlideTo(to); arrivalSoon();}
+// Whether the last jump is still on its way to its place: gliding (the guard, as above) or owed its settling - its watch has
+// neither found the pages at the place nor let it go, and may glide the rest. A stop between scrolls is no rest while either
+// holds, however long: a busy machine's frames come late. An outline pick waits on this before it lets go (outlinePickRest).
+function jumpOnItsWay(){return PV_JUMP!==null||pvAutoScrolling()||(ARRIVAL!==null&&ARRIVAL.at===null);}
 // A scroll while it watches - the glide's own, an anchoring adjustment, a correction - waits for the next rest; a person's
 // scroll (PV_HAND) lets it go at that rest. So does a change of the pages' column's height, with no scroll at all: a line
 // pass that holds anchoring off (pvHoldView) or a far line drawn at its new height moves what is below it and says nothing
