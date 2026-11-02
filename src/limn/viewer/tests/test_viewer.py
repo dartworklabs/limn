@@ -760,8 +760,12 @@ class FrontendMobileStructure(unittest.TestCase):
         self.assertIn(
             "if(touchRecent()||MQ_NOHOVER.matches)return; const t=/** @type {HTMLElement} */(e.target); armTip(", HTML
         )
-        # devices without hover don't show the focus tooltip either (QA phone: the tooltip stayed stuck over the list after a tap). The card as a whole gets no tooltip.
-        self.assertIn("||touchRecent()||MQ_NOHOVER.matches){if(Date.now()>=SWALLOW_CLICK)hideTip();return;}", HTML)
+        # devices without hover don't show the focus tooltip either (QA phone: the tooltip stayed stuck over the list after a tap),
+        # unless the keyboard moved the focus (test_viewer_tips.TipKeyboard). The card as a whole gets no tooltip.
+        self.assertIn(
+            "||(!keyInput()&&(touchRecent()||MQ_NOHOVER.matches))){if(Date.now()>=SWALLOW_CLICK)hideTip();return;}",
+            HTML,
+        )
         self.assertNotIn("data-doc=\"'+esc(pdoc(p))+'\" data-tip=\"'+tip+'\"", extract_js_fn("card"))
         self.assertIn("document.addEventListener('contextmenu'", HTML)
 

@@ -59,12 +59,26 @@ document.addEventListener('pointerdown',()=>{document.documentElement.dataset.in
 // Makes the keyboard the input the ring answers when a key press navigates (keyNavigates); a press makes it the pointer (above).
 function inputFromKey(e){if(keyNavigates(e.key,typingNow(),e.ctrlKey||e.metaKey||e.altKey))document.documentElement.dataset.input='key';}
 document.addEventListener('keydown',inputFromKey,true);
+// Whether the last input was a key that navigates (inputFromKey): a focus that follows it is the keyboard's.
+const keyInput=()=>document.documentElement.dataset.input==='key';
 document.addEventListener('mouseover',e=>{if(touchRecent()||MQ_NOHOVER.matches)return; const t=/** @type {HTMLElement} */(e.target); armTip(t.closest?t.closest('[data-tip]'):null);});
 // A focus tooltip is never shown on an input field (textarea) - it covered the snippet while typing, and the tooltip
 // swallowed the first Esc, so "Esc to cancel -> Ctrl+Enter" ended up saving a pin that was meant to be discarded (observed).
+// The keyboard's focus shows the description on every device (the WAI-ARIA tooltip pattern): a tablet with a keyboard has no
+// hover, and Tab there reached a control whose explanation nothing could show. A focus that follows a tap stays without one.
 document.addEventListener('focusin',e=>{const t=/** @type {HTMLElement} */(e.target);
-  if((t&&t.tagName==='TEXTAREA')||touchRecent()||MQ_NOHOVER.matches){if(Date.now()>=SWALLOW_CLICK)hideTip();return;}
+  if((t&&t.tagName==='TEXTAREA')||(!keyInput()&&(touchRecent()||MQ_NOHOVER.matches))){if(Date.now()>=SWALLOW_CLICK)hideTip();return;}
   armTip(t.closest?t.closest('[data-tip]'):null);});
+// Esc closes a showing box first (the key dispatch, events.js); one still waiting to show (armTip's 300ms) goes with any Esc, so
+// it never opens after the key that dismissed it. A box over a control in an open sheet, menu or help (a modal dialog) takes
+// its Esc here, before the dialog: the key dispatch leaves an open dialog's Esc to the browser, whose close request took the
+// box, the sheet and the focused control at once. Its default is prevented so the dialog stays; the next Esc closes it. While
+// typing in a field the Esc goes on as before, as the key dispatch lets a field's Esc go on past the box.
+/** @param {KeyboardEvent} e */
+function tipEscKey(e){if(e.key!=='Escape')return; if(TIP.hidden){hideTip(); return;}
+  const at=TIP_AT&&TIP_AT.el; if(!at||!at.closest('dialog[open]')||typingNow())return;
+  hideTip(); e.preventDefault(); e.stopImmediatePropagation();}
+document.addEventListener('keydown',tipEscKey,true);
 // Long-press tooltip (touch/pen): holding for 500ms shows the description, and the one click after release is swallowed (so the button doesn't fire).
 // Over a page image, quick selection (long-press = that paragraph) takes priority, so only badges (.mark [data-act=mark-jump]) apply. Input fields keep their paste menu.
 // A control that holds its hover and focus box back for a while - a page verdict line's words, [판정 취소] and earlier link
@@ -100,6 +114,64 @@ document.addEventListener('contextmenu',e=>{if(LAST_PTR==='mouse')return; const 
   if(t&&t.closest&&(t.closest('.pg')||pressTarget(t)))e.preventDefault();});
 document.addEventListener('input',hideTip,true);
 document.addEventListener('focusout',hideTip);
-document.addEventListener('scroll',hideTip,true);
+// A scroll moves what a box stands by, so the box goes. A description still waiting for the keyboard's focus waits again
+// instead: Tab scrolls the control it reaches into view, and that scroll took the description the focus had asked for.
+document.addEventListener('scroll',()=>{const el=TIP.hidden?tipEl:null; hideTip();
+  if(el&&el.contains(document.activeElement)&&keyInput())armTip(el);},true);
 // Releasing right after a long-press opens it, Chrome sends a simulated mousedown - that alone must never close it.
 document.addEventListener('mousedown',()=>{if(Date.now()>=SWALLOW_CLICK)hideTip();},true);
+// Explanations for screen readers: an explanation (data-tip, else data-tip-press) reaches a screen reader as well as the box
+// (docs/handbook/viewer.md §설명과 접근성). A control that takes focus carries it as its description (aria-description), read
+// with its name when it is focused. A badge takes no focus, so it carries it as words after its own that only a screen reader
+// reads: data-tip-sr, drawn as clipped generated content (components.css [data-tip-sr]::after). The card is read with them,
+// and nothing on screen or in the Tab order changes; being generated content they are neither copied with a selection nor
+// found by the browser's find, which a hidden text node was (an invisible find result, a pasted explanation). A label that
+// marks itself .tip-read does the same (the composer's reason where [제안 수정] cannot go). Each copy is made from the
+// attribute as it stands whenever it changes - after the English observer rewrites it too, so it speaks the screen's language
+// and is never translated again (aria-description and data-tip-sr are not I18N_ATTRS).
+// What repeats the name adds nothing: a tip that is the name gives no description, and one that starts with the name and a
+// separator ('폭 맞춤: …') gives what follows. A control whose drawing code sets its own description (aria-describedby, or an
+// aria-description it wrote - the composer's element path) keeps that one. A badge named by its own aria-label (an old
+// verdict's marker) is read by that label, and one inside a control adds nothing to that control's name.
+// A card's fact line (its assignee chip, .as-chip) is read as one line of its own words (종류 · 담당 · 상태, cards.css): its
+// explanation is the general rule that a person's pin is skipped, which on every such card would only repeat; the chip that
+// can be pressed carries it as its description.
+const TIP_FOCUS='button,a[href],input,select,textarea,summary,[tabindex]',TIP_SEL='[data-tip],[data-tip-press]',TIP_READ='.badge:not(.as-chip),.tip-read';
+// The descriptions this part wrote, so one the drawing code wrote is told apart and left alone.
+const TIP_WROTE=/** @type {WeakMap<Element,string>} */(new WeakMap());
+/** What tip says beyond name: '' when it is the name, the rest after the name and a separator when it starts with them, else tip
+ * (whitespace collapsed). The name's words may be set apart by a colon in the tip ('담당 Bob Park' in '담당: Bob Park — …').
+ * Pure. @param {string} tip @param {string} name */
+function tipDescText(tip,name){const t=String(tip||'').replace(/\s+/g,' ').trim(),words=String(name||'').replace(/\s+/g,' ').trim().split(' ');
+  if(!t)return ''; if(!words[0])return t;
+  const head='^'+words.map(w=>w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('[: ]+');
+  if(new RegExp(head+':?$').test(t))return '';
+  const m=new RegExp(head+' ?[:\u2014\u00b7] (.+)$').exec(t); return m?m[1]:t;}
+/** el's own name as a screen reader hears it: its aria-label, else its words. @param {Element} el */
+function tipOwnName(el){const l=el.getAttribute('aria-label'); return l&&l.trim()?l:el.textContent||'';}
+/** Puts el's explanation where a screen reader finds it (above), or takes away the copy of one that went. @param {Element} el */
+function tipDescribe(el){const tip=el.getAttribute('data-tip')||el.getAttribute('data-tip-press')||'';
+  if(el.matches(TIP_FOCUS)){el.removeAttribute('data-tip-sr'); if(el.hasAttribute('aria-describedby'))return;
+    const cur=el.getAttribute('aria-description'); if(cur!==null&&TIP_WROTE.get(el)!==cur)return;   // the drawing code's own
+    const d=tipDescText(tip,tipOwnName(el));
+    if(d){if(d!==cur){el.setAttribute('aria-description',d); TIP_WROTE.set(el,d);}}
+    else if(cur!==null){el.removeAttribute('aria-description'); TIP_WROTE.delete(el);}
+    return;}
+  if(!el.matches(TIP_READ))return;
+  const inside=!!el.parentElement&&!!el.parentElement.closest(TIP_FOCUS);   // its words are a control's name: no more in it
+  const d=inside||el.hasAttribute('aria-label')?'':tipDescText(tip,tipOwnName(el));
+  if(!d){el.removeAttribute('data-tip-sr'); return;}
+  if(el.getAttribute('data-tip-sr')!==': '+d)el.setAttribute('data-tip-sr',': '+d);}
+/** tipDescribe for node and everything under it that has an explanation. @param {Node} node */
+function tipDescribeTree(node){if(node.nodeType!==1)return; const el=/** @type {Element} */(node);
+  if(el.matches(TIP_SEL))tipDescribe(el); for(const e of el.querySelectorAll(TIP_SEL))tipDescribe(e);}
+// Kept in step with every drawing: an element drawn, an explanation, a name or a tab stop changed, or the words of an element
+// with an explanation (its name) rewritten.
+new MutationObserver(ms=>{for(const m of ms){const t=m.target;
+  if(m.type==='attributes'){tipDescribe(/** @type {Element} */(t)); continue;}
+  if(m.type==='childList')m.addedNodes.forEach(tipDescribeTree);
+  const host=(t.nodeType===1?/** @type {Element} */(t):t.parentElement);
+  const owner=host&&host.closest(TIP_SEL); if(owner)tipDescribe(owner);}})
+  .observe(document.body,{childList:true,subtree:true,characterData:true,attributes:true,
+    attributeFilter:['data-tip','data-tip-press','aria-label','aria-describedby','tabindex']});
+tipDescribeTree(document.body);
