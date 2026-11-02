@@ -19,6 +19,22 @@
   - **Where it shows:** the `pins.md` guidance clause and legend entry, both skills, and the viewer's [제안 수정] switch
     and card badge explanations say this instead of "word for word".
 
+### Internal
+
+- **CI takes about 10 minutes instead of 42-44.** Each Python version's browser suite runs in five parts on their own
+  runners. Each part gets whole test classes, balanced by measured seconds (`--shard i/n`,
+  `tests/data/shard_seconds.json`, refreshed with `--shard-record`). A class the timings do not know is weighed by the
+  mean, so it still runs. The required checks keep their names and fail unless every part passed. Release tags no longer
+  run CI, because a tag's commit is the merge commit main already ran (#369, #374).
+- **Cheaper slow browser tests, nothing weakened.** ManyCardsWhileThePdfScrolls built its 300 pins with each re-reading
+  every earlier one (287-337 s → 62-80 s). Other tests repeated loads, typing, theme switches or real waits:
+  - LinePolish, the slow phone scroll and the seen holds use several pages at once, each wait keeping its own deadline.
+    The handbook now describes when that is allowed.
+  - Four assignee tests stopped repeating loads and typing.
+  - The contrast test makes one theme switch per state.
+
+  Each change was proven by mutations that fail the old and the new test alike (#370-#373).
+
 ## 0.4.42 — 2026-11-02
 
 ### Changed
