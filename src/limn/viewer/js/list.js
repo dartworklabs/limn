@@ -134,14 +134,15 @@ function drawPins(){dropStaleReview();
   $('#m-trash-n').textContent=nTrash; $('#trash-link').textContent=tl('휴지통 {n}',{n:nTrash}); $('#trash-link').hidden=!nTrash;
   $('#empty').hidden=SHOWN.length>0||OPEN_ALL.length>0||REVIEW_ALL.length>0||!!EDITOR.current;
   // Empty list: the header's count already says it - a separate '아직 없습니다.' line is never added too (QA). Only a note that another document has pins is left.
-  setHtml($('#pins'),SHOWN.length?html`${SHOWN.map(card)}`:multiDoc()&&!SHOW_ALL&&OPEN_ALL.length?html`<div class="dim list-empty">${tl('이 문서에는 없습니다 · 다른 문서에 {n}건',{n:OPEN_ALL.length})}</div>`:html``);
+  setHtml($('#pins'),SHOWN.length?cardRows(SHOWN):multiDoc()&&!SHOW_ALL&&OPEN_ALL.length?html`<div class="dim list-empty">${tl('이 문서에는 없습니다 · 다른 문서에 {n}건',{n:OPEN_ALL.length})}</div>`:html``);
   if(EDITOR.current){const slot=$('#pins .edit-slot'); if(slot)slot.replaceWith(EDITOR.current.el); else $('#pins').appendChild(EDITOR.current.el); renderEdit();
     if(efocus&&eta&&document.contains(eta)){eta.focus(); try{eta.setSelectionRange(efocus[0],efocus[1]);}catch(e){}}}
   // Awaiting-review section: between open pins and done. Hidden when empty - but not while a confirm's undo row stands in it
   // (offersIn). The card looks the same as an open pin (thread/replies); only the actions are [확인]/[답글].
   const LREV=MENTION_ONLY?REVIEW_ALL.filter(mentionsMe):listReview();
   $('#sec-review').hidden=!LREV.length&&!offersIn('review'); secHead('review',tr('검토 대기'),LREV.map(p=>p.id),REVIEW_ALL.map(p=>p.id));
-  setHtml($('#review-pins'),html`${LREV.map(card)}`);
+  setHtml($('#review-pins'),cardRows(LREV));
+  drawOrderControl((SEC.open&&SHOWN.length>0)||(SEC.review&&LREV.length>0));
   updateReviewCount();
   // Done section: hidden header and all if empty. The header stays stuck to the top while scrolling.
   $('#sec-done').hidden=!LDONE.length; secHead('done',tr('완료'),LDONE.map(p=>p.id),DONE_ALL.map(p=>p.id));
@@ -152,6 +153,31 @@ function drawPins(){dropStaleReview();
   drawOffers(nfocus); drawBanners(); lazyCards(keep); cardFocusBack(cfocus);
   if(REV.target)revTargetActs();
 }
+// The pins of a list section in order (docs/handbook/viewer.md §목록 순서), list itself untouched. LIST_ORDER.NEW: the newest `at`
+// first, the later pin first within a minute, a pin with no readable time last. LIST_ORDER.PAGE: by page, where the pin's mark is
+// now, then line, then height on the page for a region, which has no line; pins of several documents stand document by document,
+// since page numbers mean nothing across them. LIST_ORDER.ID: as the server lists them.
+/** @param {Pin[]} list @param {string} order - a LIST_ORDER value @returns {Pin[]} */
+function orderPins(list,order){if(order===LIST_ORDER.ID)return list;
+  const key=(/** @type {Pin} */p)=>{if(order===LIST_ORDER.NEW){const t=timeParts(p.at); return [t?-t.t:Infinity,-p.id];}
+    const at=pinPlace(p),d=DOCS.findIndex(x=>x.key===pdoc(p)); return [d<0?DOCS.length:d,at.page,p.lo==null?Infinity:p.lo,at.frac?at.frac[1]:Infinity,p.id];};
+  // Two missing values subtract to NaN, which falls through to the next key as a tie does.
+  return list.map(p=>({p,k:key(p)})).sort((a,b)=>{for(let i=0;i<a.k.length;i++){const c=a.k[i]-b.k[i]; if(c)return c;} return 0;}).map(r=>r.p);}
+// One list section's cards as Html, in the list's order; newest first, a day line stands over each day's first card. Its name is
+// worked out here, so it is right from the next draw on when the date turns.
+/** @param {Pin[]} list @returns {Html} */
+function cardRows(list){const now=Date.now(); let day='';
+  return html`${orderPins(list,ORDER).map(p=>{const d=ORDER===LIST_ORDER.NEW?dayName(p.at,now):'',over=d&&d!==day?html`<div class="day-line"><span>${d}</span></div>`:''; if(d)day=d; return html`${over}${card(p)}`;})}`;}
+// [최신순 | 쪽순 | 번호순]: shown while the open or review section shows a card, the list's order pressed.
+/** @param {boolean} any */
+function drawOrderControl(any){const c=$('#list-order'); c.hidden=!any;
+  for(const b of c.querySelectorAll('button')){const on=/** @type {HTMLElement} */(b).dataset.order===ORDER; b.classList.toggle('on',on); b.setAttribute('aria-pressed',String(on));}}
+// A press on the order control: the list is drawn in order o, remembered for this browser, with the control where it stood under
+// the pointer - a card kept in place (lazyCards) would scroll it away - and its button keeps the focus (it is not redrawn).
+/** @param {string|undefined} o - a LIST_ORDER value */
+function setListOrder(o){const next=listOrderOf(o); if(next===ORDER)return; ORDER=next; savePrefs({order:next});
+  const c=$('#list-order'),y=c.getBoundingClientRect().top; drawPins();
+  listScroller().scrollTop+=c.getBoundingClientRect().top-y;}
 // Cards far from the list's view are left for the browser to skip (.lazy: content-visibility:auto, list.css): it does not
 // lay them out or paint them until they come near the view. Their markup stays whole and current all the while - a card
 // coming back is drawn from what it holds then - and a focus, a find or a selection reaching into one draws it at once; a

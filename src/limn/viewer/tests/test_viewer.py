@@ -1961,7 +1961,8 @@ class FrontendSemanticAudit(unittest.TestCase):
         )
         self.assertTrue(agent.startswith('<span class="av i agent" aria-hidden="true"><svg class="ic ic-bot"'), agent)
         self.assertIn("(나)", extract_js_fn("msgHtml"))
-        self.assertIn("(나)", extract_js_fn("card"))
+        self.assertIn("(나)", extract_js_fn("noteHead"))
+        self.assertIn("(나)", extract_js_fn("tlMsg"))
 
     def test_touch_targets_in_archive_rows(self):
         """On touch an archive row's [원래 요청], its reply line and the reply count each answer the 44px hit (--hit)."""
@@ -4496,12 +4497,12 @@ class FrontendThread(unittest.TestCase):
         self.assertIn("deferredNote(d,NOTICE_PLACE.CARD,", send)
 
     def test_compact_collapsed_card_hides_thread(self):
-        """A collapsed compact card hides its badges, quote line, author, note, actions, thread and the review access
-        sentence - only the head, the note's preview and the facts line stay."""
+        """A collapsed compact card hides its badges, quote line, comment head, note, actions, thread and the review
+        access sentence - only the head, the note's preview and the facts line stay."""
         css = HTML[HTML.index("<style>") : HTML.index("</style>")]
         self.assertIn(
             "body.compact .pin:not(.open):not(.editing) "
-            ":is(.tags,.quote,.au,.note,.acts,.head>.sp,.thread,.review-access){display:none}",
+            ":is(.tags,.quote,.note-h,.cmt>.av,.note,.acts,.head>.sp,.thread,.review-access){display:none}",
             css,
         )
 

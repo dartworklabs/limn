@@ -52,6 +52,8 @@ const NOTICE_LIFE=Object.freeze({STICKY:'sticky',CLICK:'click',TIMER:'timer'}); 
 const NOTICE_DOT=Object.freeze({SIDE:'side',RV:'rv'});   // the chip a background message marks, [핀 N] or [검토 M]; also the body class dot-<value>
 const NOTICE_TOPIC=Object.freeze({PICK:'pick',SIDE:'side'});   // what a first-visit hint asks for (endTopic): a selection, the panel opened
 const VD_WHERE=Object.freeze({COMPOSER:'composer',PAGE:'page'});   // where a verdict button is (verdict.js): the composer's verdict row or a page verdict line
+const LIST_ORDER=Object.freeze({NEW:'new',PAGE:'page',ID:'id'});   // the pin list's order (orderPins); index.html data-order
+const STAMP_FORM=Object.freeze({BOTH:'both',SHORT:'short',EDITED:'edited'});   // what a comment's time says (stampText); a .rt's data-form
 // Each band's layout mode (docs/handbook/viewer.md §모바일 레이아웃): the sheet (narrow), the panel between the nav bar and the
 // action row (mid) or the desktop (wide). Code that only asks which of the three reads LAYOUT; code that differs per band reads BAND.
 const BAND_MODE=Object.freeze({[LAYOUT_BAND.PHONE]:LAYOUT_MODE.NARROW,[LAYOUT_BAND.TABLET_SHEET]:LAYOUT_MODE.NARROW,[LAYOUT_BAND.SHORT]:LAYOUT_MODE.MID,[LAYOUT_BAND.MID_OVERLAY]:LAYOUT_MODE.MID,[LAYOUT_BAND.MID_SIDE]:LAYOUT_MODE.MID,[LAYOUT_BAND.WIDE]:LAYOUT_MODE.WIDE});

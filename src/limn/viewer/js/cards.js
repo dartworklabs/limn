@@ -20,11 +20,8 @@ function card(p){p=pvQuietRel(p);   // no overlap badge between two verdicts abo
   if(rb)tags.push(html`<span class="badge" data-tip="${tl(rb.rel===RANGE_REL.PARTIAL?'핀 #{id}{p} 줄 범위가 일부 겹칩니다. 참고만 하고 따로 고쳐도 됩니다':
     '핀 #{id}{p} 같은 곳을 가리킵니다. 한 번에 고치고 함께 닫는 편이 낫습니다',{id:rb.id,p:josa(rb.id,'과','와')})}">${rb.label}</span>`);
   const v=closedCard?null:viaTag(p); if(v)tags.push(html`<span class="badge${v.low?' badge-warning':''}" data-tip="${v.tip}">${v.t}</span>`);
-  const tip=authorTip(p),me=isMe(p.author)?html`<span class="me-tag"> ${tr('(나)')}</span>`:'';
-  const au=p.author?html`<span class="au" data-tip="${tip}">${avatar(p.author)}<span class="au-n" translate="no">${who(p.author)}${me}</span></span>`
-    :html`<span class="au old" data-tip="${tip}">기록 전</span>`;
   const editing=!!(EDITOR.current&&EDITOR.current.id===p.id),open=OPEN_CARDS.has(p.id);
-  // Header line: number/line-range/page on the left, author/collapse on the right. Badges (.tags) drop to one line below the header.
+  // Header line: number/line-range/page on the left, reply count/collapse on the right. Badges (.tags) drop to one line below the header.
   // compact accordion: the collapsed header and note preview (.sum) retain the note-level metadata; clicking expands badges/note/buttons (CSS).
   // In wide, .sum and the collapse button are hidden and the card is always expanded. Actions form an equal-width grid; only [완료] is emphasized, [삭제] is the destructive color.
   const first=String(p.note||'').split('\n')[0].trim(),noNote=html`<span class="dim">${tr(p.suggest?'(제안 문안만)':'(메모 없음)')}</span>`;   // a suggestion alone says what to do
@@ -40,7 +37,9 @@ function card(p){p=pvQuietRel(p);   // no overlap badge between two verdicts abo
   // link answers its whole touch area (.sum-vd, responsive.css).
   const vo=verdictOldMarker(p),vt=verdictTarget(p),vk=!!verdictOf(p),hasNote=vo&&p.note?html`<span class="sum-has">${tr('메모 있음')}</span>`:'';
   const why=vk&&!vo&&!vOnly&&first?html`<span class="sum-note">${fmtText(first,p.mentions)}</span>`:'';
-  const sum=html`<div class="sum${vk?' sum-vd':''}" translate="no" data-act="card-toggle">${vk?html`${verdictBadge(p)}${vo}${vt}${hasNote}${why}`:first?fmtText(first,p.mentions):noNote}</div>`;
+  // It starts with when the note was written, the short form: a folded card has no comment head to say so.
+  const sumT=p.at?stampSpan(p.at,STAMP_FORM.SHORT,'sum-t'):'';
+  const sum=html`<div class="sum${vk?' sum-vd':''}" translate="no" data-act="card-toggle">${sumT}${vk?html`${verdictBadge(p)}${vo}${vt}${hasNote}${why}`:first?fmtText(first,p.mentions):noNote}</div>`;
   if(isRegion(p)){const fb=figRegionBadge(p.el,isFigureKind((docInfo(pdoc(p))||{}).kind));   // a figure region: element without code, or map unreadable
     tags.unshift(fb?html`<span class="badge" data-tip="${fb.tip}">${fb.t}</span>`:html`<span class="badge" data-tip="보기 전용 PDF의 핀 — 줄 번호 없이 쪽·영역과 영역 글자로 가리킵니다">보기 전용</span>`);}
   if(isQuestion(p))tags.unshift(html`<span class="badge badge-question" data-tip="${T.question}">${ic('circle-question-mark')}질문</span>`);
@@ -69,6 +68,14 @@ function card(p){p=pvQuietRel(p);   // no overlap badge between two verdicts abo
   const nr=replyCount(p);
   const thn=nr?html`<span class="th-n" role="button" tabindex="0" data-act="reply-open" aria-label="${tl('답글 {n}건 — 답글 쓰기',{n:nr})}" data-tip="${tl('이 핀의 답글 {n}건 — 누르면 카드를 펴고 답글 칸을 엽니다',{n:nr})}">${ic('message-square')}<span class="lbl">${nr}</span></span>`:'';
   const dot=stDot(rv?CARD_DOT.REVIEW:p.stale||elLost(p)?CARD_DOT.LOST:claimed?CARD_DOT.CLAIMED:CARD_DOT.OPEN),unfold=open||(!rv&&editing);
+  // Who wrote the note is said by the comment's head (noteHead). A folded compact card draws no such head, so its own head keeps the avatar.
+  const folded=LAYOUT!==LAYOUT_MODE.WIDE&&!unfold;
+  const au=folded&&who(p.author)?html`<span class="au" role="img" aria-label="${who(p.author)}" data-tip="${authorTip(p)}" translate="no">${avatar(p.author)}</span>`:'';
+  // The first comment (docs/handbook/viewer.md §패널 정리 핀 카드): a reply's shape, its head and then the note and what belongs to
+  // the note beside the avatar's column. The thread follows it, and .tl-on draws the timeline through them (cards.css). The edit
+  // card takes the note's place under the same head, with no thread: comment('') is the head alone.
+  const comment=(/** @type {Html|string} */body)=>html`<div class="tl${body&&!folded&&threadOf(p).length?' tl-on':''}"><div class="cmt">${nodeAvatar(p.author)}\
+<div class="cmt-b">${noteHead(p)}${body}</div></div>${body?threadHtml(p,LAYOUT===LAYOUT_MODE.WIDE):''}</div>`;
   const head=html`<div class="row head">${dot}${go}<span class="n go" role="button" tabindex="0" data-act="view" data-tip="${T.n}">#${p.id}</span>${docChip(p)}\
 <span class="loc" tabindex="0" data-copy="${isRegion(p)?locCopy(p):name+' '+loc}" data-tip="${isRegion(p)?'영역이 있는 PDF 쪽. 클릭하면 복사':T.loc}">${locText(p)}</span>\
 <span class="pg-link" role="button" tabindex="0" data-act="view" data-tip="클릭하면 그 쪽으로 이동">${page}</span>\
@@ -76,14 +83,14 @@ function card(p){p=pvQuietRel(p);   // no overlap badge between two verdicts abo
 <button class="btn-icon btn-sm btn-ghost cmp b-fold" data-act="card-toggle" aria-expanded="${unfold}" aria-label="${open?'카드 접기':'카드 펼치기'}">${ic(unfold?'chevron-down':'chevron-right')}</button></div>\
 ${sum}<div class="tags">${tags}</div>`;
   if(rv)return html`<div class="pin card review${open?' open':''}" data-id="${p.id}" data-doc="${pdoc(p)}">${head}\
-${quote}${vOnly?'':html`<div class="note" translate="no">${p.note?fmtText(p.note,p.mentions):noNote}</div>`}${suggestView(p)}${metadata}${threadHtml(p,LAYOUT===LAYOUT_MODE.WIDE)}\
+${quote}${comment(html`${vOnly?'':html`<div class="note" translate="no">${p.note?fmtText(p.note,p.mentions):noNote}</div>`}${suggestView(p)}${metadata}`)}\
 <div class="acts"><button class="btn-sm b-change" data-act="change" data-tip="${T.change}">변경 보기</button>\
 <button class="btn-sm b-reply" data-act="reply-open" data-tip="${T.reply}">답글</button>\
 ${canConfirmReview()?html`<button class="btn-sm b-confirm${isMe(p.author)?' btn-soft':''}" data-act="confirm" data-tip="${T.confirm}">확인</button>`:''}</div>\
 ${canConfirmReview()?'':html`<div class="dim review-access">${confirmAccessText()}</div>`}</div>`;
-  const body=editing?html`<div class="edit-slot"></div>${metadata}`
-    :html`${quote}${vOnly?'':html`<div class="note" translate="no" data-act="edit" data-tip="${tr('클릭하면 메모와 범위를 고칩니다')}">${p.note?fmtText(p.note,p.mentions):noNote}</div>`}\
-${suggestView(p)}${metadata}${threadHtml(p,LAYOUT===LAYOUT_MODE.WIDE)}<div class="acts">${cardActs(claimed,LAYOUT!==LAYOUT_MODE.WIDE,!(verdictOf(p)&&isAgentRole()),!!verdictOf(p))}</div>`;
+  const body=editing?html`${comment('')}<div class="edit-slot"></div>${metadata}`
+    :html`${quote}${comment(html`${vOnly?'':html`<div class="note" translate="no" data-act="edit" data-tip="${tr('클릭하면 메모와 범위를 고칩니다')}">${p.note?fmtText(p.note,p.mentions):noNote}</div>`}\
+${suggestView(p)}${metadata}`)}<div class="acts">${cardActs(claimed,LAYOUT!==LAYOUT_MODE.WIDE,!(verdictOf(p)&&isAgentRole()),!!verdictOf(p))}</div>`;
   return html`<div class="pin card${p.stale||elLost(p)?' st':''}${claimed?' claimed':''}${editing?' editing':''}${open?' open':''}" data-id="${p.id}" data-doc="${pdoc(p)}">${head}${body}</div>`;
 }
 // An open card's action row, in the order it is seen so that Tab follows it. wide: [보기] [수정] [답글] ([풀기]) [삭제] [완료], by name.
@@ -107,13 +114,44 @@ function cardActs(claimed,compact,canDrop=true,verdict=false){const dl=verdict?'
 // [원래 요청]. The expanded state is kept in ARC_OPEN ('r:'|'o:'|'d:' + id) so it survives a redraw.
 const ARC_OPEN=new Set();
 // Relative time (docs/handbook/viewer.md §뜻과 모양): '방금'/'N분 전'/'N시간 전'/'N일 전', 'M-D' past a week. Absolute time is in the description (hover).
-// The original string is kept in data-at and re-computed every 60 seconds (tickRel).
+// The original string is kept in data-at and re-computed every 60 seconds (tickRel). The archive and the verdict line say this;
+// a comment says stampText.
 function relTime(s,now){s=String(s||''); const m=/^(\d{4})-(\d\d)-(\d\d)[ T](\d\d):(\d\d)/.exec(s); if(!m)return s;
   const t=new Date(+m[1],+m[2]-1,+m[3],+m[4],+m[5]).getTime(),d=Math.max(0,((now==null?Date.now():now)-t)/60000);
   if(d<1)return tr('방금'); if(d<60)return tl('{n}분 전',{n:Math.floor(d)}); if(d<24*60)return tl('{n}시간 전',{n:Math.floor(d/60)}); if(d<7*24*60)return tl('{n}일 전',{n:Math.floor(d/1440)});
   return (+m[2])+'-'+(+m[3]);}
 function relSpan(s,cls,tip){return html`<span class="rt${cls?' '+cls:''}" data-at="${s||''}" data-tip="${(tip?tip+' ':'')+(s||'?')}">${relTime(s)}</span>`;}
-function tickRel(){if(document.hidden)return; $$('.rt[data-at]').forEach(e=>{const v=relTime(e.dataset.at); if(e.textContent!==v)e.textContent=v;});}
+// A stored time as its wall-clock parts and the instant they name on this device ({y, mo, d, md:'MM-DD', hm:'HH:MM', t}), or null
+// for a string that is no time. Pure but for the device's time zone.
+/** @param {string|null|undefined} s */
+function timeParts(s){const m=/^(\d{4})-(\d\d)-(\d\d)[ T](\d\d):(\d\d)/.exec(String(s||'')); if(!m)return null;
+  return {y:+m[1],mo:+m[2],d:+m[3],md:m[2]+'-'+m[3],hm:m[4]+':'+m[5],t:new Date(+m[1],+m[2]-1,+m[3],+m[4],+m[5]).getTime()};}
+// The absolute part of a comment's time: 'MM-DD HH:MM', with the year ('2025-09-25 00:01') when it is not now's. A string that is
+// no time comes back as it is. now is injected by tests.
+/** @param {string|null|undefined} s @param {number} [now] @returns {string} */
+function timeAbs(s,now){const p=timeParts(s); if(!p)return String(s||'');
+  return (p.y===new Date(now==null?Date.now():now).getFullYear()?'':p.y+'-')+p.md+' '+p.hm;}
+// The relative part of a comment's time, relTime's words, for a time less than seven days old; else ''. now is injected by tests.
+/** @param {string|null|undefined} s @param {number} [now] @returns {string} */
+function timeAgo(s,now){const p=timeParts(s); return p&&(now==null?Date.now():now)-p.t<7*24*60*60000?relTime(s,now):'';}
+// What a comment's time says (docs/handbook/viewer.md §뜻과 모양): BOTH '14시간 전 · 11-01 20:41', only the absolute part from
+// seven days on; EDITED the same after '수정'; SHORT, a folded card's preview, the relative part if any, else the absolute.
+/** @param {string|null|undefined} s @param {string} form - a STAMP_FORM value @param {number} [now] @returns {string} */
+function stampText(s,form,now){const ago=timeAgo(s,now),abs=timeAbs(s,now); if(form===STAMP_FORM.SHORT)return ago||abs;
+  const both=ago?ago+' · '+abs:abs; return form===STAMP_FORM.EDITED?tl('수정 {time}',{time:both}):both;}
+// A comment's time as Html: stampText's words, kept current by tickRel, with the whole stored string as its description.
+/** @param {string|null|undefined} s @param {string} form - a STAMP_FORM value @param {string} [cls] @returns {Html} */
+function stampSpan(s,form,cls){return html`<span class="rt ts${cls?' '+cls:''}" data-at="${s||''}" data-form="${form}" data-tip="${s||'?'}">${stampText(s,form)}</span>`;}
+// The name of the day a stored time falls on, as a day line of the list says it: 오늘, 어제, '10월 31일', and '2025년 9월 25일' in another
+// year; '' for a string that is no time. A time ahead of this device's clock counts as today. now is injected by tests.
+/** @param {string|null|undefined} s @param {number} [now] @returns {string} */
+function dayName(s,now){const p=timeParts(s); if(!p)return ''; const n=new Date(now==null?Date.now():now);
+  const ago=Math.round((Date.UTC(n.getFullYear(),n.getMonth(),n.getDate())-Date.UTC(p.y,p.mo-1,p.d))/86400000);   // calendar days: a day of 23 or 25 hours counts as one
+  if(ago<=0)return tr('오늘'); if(ago===1)return tr('어제');
+  const m=LANG===UI_LANG.EN?['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][p.mo-1]:p.mo;
+  return p.y===n.getFullYear()?tl('{m}월 {d}일',{m,d:p.d}):tl('{y}년 {m}월 {d}일',{y:p.y,m,d:p.d});}
+// Every 60 seconds the drawn times say what they say now: a comment's by its form, the rest by relTime.
+function tickRel(){if(document.hidden)return; $$('.rt[data-at]').forEach(e=>{const f=e.dataset.form,v=f?stampText(e.dataset.at,f):relTime(e.dataset.at); if(e.textContent!==v)e.textContent=v;});}
 setInterval(tickRel,60000);
 function arcTime(s){s=String(s||''); return /^\d{4}-\d\d-\d\d \d\d:\d\d/.test(s)?s.slice(5,16):s;}
 // The location span of an archive row (done or trashed pin): 'L12-L18' for lines, '쪽 N 영역' for a region, N being the page

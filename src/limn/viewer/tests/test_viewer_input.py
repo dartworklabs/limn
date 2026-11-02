@@ -2116,9 +2116,9 @@ DESK_1440 = {
     "head": [1093, 108, 347, 32],
     "toggle": [1113, 113, 22],
     "chevron": [1118, 117, 14, 14],
-    "card": [1105, 144, 323],
+    "card": [1105, 216, 323],  # under the order control and the newest-first day line (§목록 순서): 72px lower
     "card_pad": ["8px", "12px", "8px", "12px"],
-    "dot": [1118, 163, 8, 8],
+    "dot": [1118, 235, 8, 8],
     "list": ["0px", "12px", "32px", "12px"],
     "#help": {"x": 380, "width": 680, "pad": ["16px", "24px", "16px", "24px"], "max_height": "792px", "mid": 450},
     "#trash": {"x": 440, "width": 560, "pad": ["16px", "24px", "16px", "24px"], "max_height": "792px", "mid": 450},
@@ -6428,7 +6428,7 @@ class DesktopGrid(ViewerBase):
         "tool",
         "card",
     )
-    TEXT = ("barFirstText", "chevron", "cardDot", "cardNote")
+    TEXT = ("barFirstText", "chevron", "cardDot")
 
     def lines(self, device, lang="ko"):
         """DESK_LINES on device in lang, with the panel open, a review chip in the meta and the composer open on a pick."""
@@ -6443,9 +6443,10 @@ class DesktopGrid(ViewerBase):
         person, the composer's location row, note, kind, range caption and save row, the section head's last tool and a
         card start 12px in from the panel's inner edge and the controls end 12px in from its right edge (the tool row was 8;
         the kind row ends in its [제안 수정] switch);
-        the tool row's first label, the section chevron and a card's dot and note start 25px in (13, 13, 25 and 25 before),
-        and the last section tool's label ends 25px in (21). The meta's review chip ends 12px in when it stands at the row's
-        end and starts 12px in when it wraps to the row's start; the person starts 12px in when it starts its line."""
+        the tool row's first label, the section chevron and a card's dot start 25px in (13, 13 and 25 before), and the last
+        section tool's label ends 25px in (21). A card's note, its first comment's, starts on a reply's text edge, 28px past
+        the text line. The meta's review chip ends 12px in when it stands at the row's end and starts 12px in when it wraps
+        to the row's start; the person starts 12px in when it starts its line."""
         for device in (MOUSE_WIDE, DESK):
             for lang in ("ko", "en"):
                 with self.subTest(w=device["viewport"]["width"], lang=lang):
@@ -6463,6 +6464,9 @@ class DesktopGrid(ViewerBase):
                     self.assertEqual(set(left.values()) | set(right.values()), {12}, (left, right))
                     text = {k: got[k][0] for k in self.TEXT}
                     self.assertEqual(set(text.values()) | {got["toolText"][1]}, {25}, (text, got["toolText"]))
+                    self.assertEqual(
+                        got["cardNote"][0], 25 + 28
+                    )  # the first comment's note: a reply's text edge, past the avatar column
 
     def test_the_panel_content_is_as_wide_as_before(self):
         """1440x900: the panel is 348px and a card 323px wide - the insets did not move, only what sat off the two lines."""

@@ -115,7 +115,7 @@ function dragSheetTo(h){keepSheet(); document.documentElement.style.setProperty(
 // (preventDefault). ok(e) filters the touchstart; onMove(dy) follows; onEnd(dy, v) settles (dy null = cancelled; v px/ms, down +).
 function pullDown(box,ok,onStart,onMove,onEnd){let P=/** @type {{x:number,y:number,on:boolean,pts:{y:number,t:number}[]}|null} */(null);
   box.addEventListener('touchstart',e=>{if(P&&P.on)onEnd(null,0); P=null; const t=e.touches[0];   // a second finger cancels a pull
-    if(e.touches.length!==1||!ok(e)||(e.target.closest&&e.target.closest('textarea,input,select,pre,.seg')))return;
+    if(e.touches.length!==1||!ok(e)||(e.target.closest&&e.target.closest('textarea,input,select,pre,.seg:not(#list-order)')))return;   // the order control does not scroll and heads the list, where a pull starts
     P={x:t.clientX,y:t.clientY,on:false,pts:[]};},{passive:true});
   box.addEventListener('touchmove',e=>{if(!P)return; const t=e.touches[0],dx=t.clientX-P.x,dy=t.clientY-P.y;
     if(!P.on){if(Math.hypot(dx,dy)<8)return;

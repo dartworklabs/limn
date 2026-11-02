@@ -193,10 +193,10 @@ class ManyCardsWhileThePdfScrolls(BrowserBase):
         list is read again. Scrolled into view, it is drawn with the new note, at the new note's height."""
         page = self.open(N_PINS)
         self.assertEqual(page.evaluate(HEIGHTS), [], "cards that stand at another height than they are drawn at")
-        far = self.pins[-3]["id"]  # near the end, out of view
+        far = self.pins[2]["id"]  # newest first, so near the end of the list: out of view
         longer = ("다른 사람이 고친 메모입니다. " * 12).strip()
         self.assertEqual(
-            record_of(edit_pin(far, {"note": longer, "base_rev": self.pins[-3]["rev"]}, actor(ALICE)))["note"], longer
+            record_of(edit_pin(far, {"note": longer, "base_rev": self.pins[2]["rev"]}, actor(ALICE)))["note"], longer
         )
         self.assertTrue(page.evaluate("loadPins()"))
         settle(page)

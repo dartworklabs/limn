@@ -251,7 +251,7 @@ class StoreFlows(NoticePage, BrowserBase):
         A real movement onto the next undo row still holds it, and it goes once the pointer moves off."""
         for lo in range(3, 33, 3):
             self.pin(lo, "열린 핀 %d" % lo)
-        first, second = self.review_pins(34, 36)
+        second, first = self.review_pins(34, 36)  # newest first (§목록 순서): the later pin is drawn first, the earlier last
         page = self.view("desktop", init=SEEN + ";" + COUNT_CONFIRMS, n_open=10)
         page.evaluate(
             "setSide(true); SEC.review=true; OPEN_CARDS.add(%d); OPEN_CARDS.add(%d); drawPins()" % (first, second)

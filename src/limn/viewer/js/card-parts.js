@@ -223,16 +223,35 @@ const MSG_OPEN=new Set();
 function msgBody(m,key){const long=String(m.text||'').length>280||String(m.text||'').split('\n').length>6,open=!key||MSG_OPEN.has(key);
   const more=long&&key?html`<button class="btn-sm btn-ghost msg-more" data-act="msg-more" data-key="${key}" aria-expanded="${open}">${open?'접기':'더 보기'}</button>`:'';
   return html`<div class="msg-t${long&&!open?' clamp':''}" translate="no">${msgText(m)}</div>${more}`;}
-// One thread entry: a post (avatar, author, time, text) or a state record (who, what, reference, time, optional text).
+// One entry of an archive row's thread: a post (avatar, author, time, text) or a state record (who, what, reference, time, optional text).
 /** @param {ThreadEntry} m */
 function msgHtml(m,key){const by=m.by||{},nm=who(by)||'?',mine=isMe(by)?html`<span class="me-tag"> ${tr('(나)')}</span>`:'';
   if(m.ev)return html`<div class="msg ev ev-${m.ev}"><div class="msg-h"><b translate="no">${nm}${mine}</b><span>${tr(EV_LABEL[m.ev]||m.ev)}${hasRef(m.ref)?' · '+m.ref:''}</span>${relSpan(m.at)}</div>${m.text?msgBody(m,key):''}</div>`;
   return html`<div class="msg">${avatar(by)}<div class="msg-b"><div class="msg-h"><b translate="no">${nm}${mine}</b>${relSpan(m.at)}</div>${msgBody(m,key)}</div></div>`;}
+// A node of a card's timeline: the person's avatar, or for no recorded person an empty circle in its place, so the column, the
+// line and the indent of the text hold.
+/** @param {Person|null|undefined} a @returns {Html} */
+function nodeAvatar(a){return who(a)?avatar(a):html`<span class="av none" aria-hidden="true"></span>`;}
+// The head of a card's first comment, a reply's: who wrote the note ('기록 전' for a pin from before authors were recorded), when,
+// and when it was last edited. The name's description also says who edited it.
+/** @param {Pin} p @returns {Html} */
+function noteHead(p){const nm=who(p.author),me=isMe(p.author)?html`<span class="me-tag"> ${tr('(나)')}</span>`:'';
+  return html`<div class="msg-h note-h"><b class="${nm?'':'old'}" translate="no" data-tip="${authorTip(p)}">${nm||tr('기록 전')}${me}</b>\
+${p.at?stampSpan(p.at,STAMP_FORM.BOTH):''}${p.edited_at?stampSpan(p.edited_at,STAMP_FORM.EDITED):''}</div>`;}
+// One entry of a card's timeline: a post (avatar, then name and time over its text) or a state record (a dot in the avatar's
+// place, then name and time, what happened and its reference on the next line, any text under them).
+/** @param {ThreadEntry} m @param {string} key - keeps a long post open across redraws (msgBody) @returns {Html} */
+function tlMsg(m,key){const by=m.by||{},mine=isMe(by)?html`<span class="me-tag"> ${tr('(나)')}</span>`:'';
+  const head=html`<div class="msg-h"><b translate="no">${who(by)||'?'}${mine}</b>${stampSpan(m.at,STAMP_FORM.BOTH)}</div>`;
+  if(m.ev)return html`<div class="msg ev ev-${m.ev}"><span class="ev-dot" aria-hidden="true"></span><div class="msg-b">${head}\
+<div class="ev-l">${tr(EV_LABEL[m.ev]||m.ev)}${hasRef(m.ref)?' · '+m.ref:''}</div>${m.text?msgBody(m,key):''}</div></div>`;
+  return html`<div class="msg">${nodeAvatar(by)}<div class="msg-b">${head}${msgBody(m,key)}</div></div>`;}
 // The thread of p as Html (empty without entries): the last 3 entries in wide, the last 1 elsewhere, unless THREAD_OPEN
-// holds p; the button that shows the rest or folds them; and the reply slot when p's reply box is open.
+// holds p; the button that shows the rest or folds them, in a row the timeline passes (.th-row); and the reply slot when p's
+// reply box is open.
 /** @param {Pin} p */
 function threadHtml(p,wide){const th=threadOf(p),keep=wide?3:1,all=THREAD_OPEN.has(p.id),hide=all?0:Math.max(0,th.length-keep);
-  const more=hide?html`<button class="btn-sm btn-ghost th-more" data-act="thread-more" aria-expanded="false">${tl('이전 {n}건 보기',{n:hide})}</button>`
-    :all&&th.length>keep?html`<button class="btn-sm btn-ghost th-more" data-act="thread-more" aria-expanded="true">스레드 접기</button>`:'';
-  const msgs=th.slice(hide).map((m,i)=>msgHtml(m,p.id+':'+(i+hide))),slot=REPLY&&REPLY.id===p.id?html`<div class="reply-slot"></div>`:'';
+  const more=hide?html`<div class="th-row"><button class="btn-sm btn-ghost th-more" data-act="thread-more" aria-expanded="false">${tl('이전 {n}건 보기',{n:hide})}</button></div>`
+    :all&&th.length>keep?html`<div class="th-row"><button class="btn-sm btn-ghost th-more" data-act="thread-more" aria-expanded="true">스레드 접기</button></div>`:'';
+  const msgs=th.slice(hide).map((m,i)=>tlMsg(m,p.id+':'+(i+hide))),slot=REPLY&&REPLY.id===p.id?html`<div class="reply-slot"></div>`:'';
   return more||msgs.length||slot?html`<div class="thread">${more}${msgs}${slot}</div>`:html``;}

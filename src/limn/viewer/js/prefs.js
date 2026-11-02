@@ -13,6 +13,11 @@ function secState(saved){const o=Object.assign({},SEC_DEFAULT); if(saved&&typeof
 function secNewCount(seen,ids){if(!seen)return 0; return ids.filter(id=>!seen.has(id)).length;}
 let SEC=secState(prefs().sec);
 const SEC_SEEN={open:/** @type {Set<number>|null} */(null),review:/** @type {Set<number>|null} */(null),done:/** @type {Set<number>|null} */(null)};
+// The pin list's order (docs/handbook/viewer.md §목록 순서): one choice for this browser across documents, remembered in
+// pinPrefs.order. Returns the saved value when it names an order, else the default: newest first.
+/** @param {unknown} saved @returns {string} */
+function listOrderOf(saved){return Object.values(LIST_ORDER).includes(/** @type {any} */(saved))?/** @type {string} */(saved):LIST_ORDER.NEW;}
+let ORDER=listOrderOf(prefs().order);
 
 const THEMES=['system','light','dark'],THEME_NAME={system:'시스템',light:'밝게',dark:'어둡게'};
 // Applies the saved theme (system, light or dark; light by default): the page's data-theme and [더보기]'s theme segments - the
