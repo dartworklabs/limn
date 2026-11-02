@@ -3121,6 +3121,47 @@ PICK_AND = """([i, how, away]) => {
   if (how === 'pick') row(8).click();
   if (away) L.scrollTop += document.getElementById('p' + away).getBoundingClientRect().top - L.getBoundingClientRect().top;
 }"""
+# Picks entry i in the outline and keeps the viewer busy for twice the time a pick waits for the pages to move
+# (OUTLINE_PICK_SETTLE_MS), as a loaded machine or a long redraw does: at once, before the smooth scroll's first frame, or
+# given `at`, in the scroll event that first shows page `at`'s top in the pane, half way there. The browser goes on with
+# the scroll meanwhile, and the viewer hears of it only in a frame after the busy task, after the wait has run out.
+PICK_BUSY = """([i, at]) => {
+  const L = document.querySelector('#left'), busy = () => {const end = performance.now() + 2 * OUTLINE_PICK_SETTLE_MS; while (performance.now() < end);};
+  if (at) {const hold = () => {if (document.getElementById('p' + at).getBoundingClientRect().top < L.getBoundingClientRect().top) return;
+    L.removeEventListener('scroll', hold); busy();}; L.addEventListener('scroll', hold);}
+  document.querySelector('#outline-items button[data-index="' + i + '"]').click();
+  if (!at) busy();
+}"""
+# Picks entry i in the outline and keeps the pages' scroll events from the viewer for twice the time a pick waits for the
+# pages to move (OUTLINE_PICK_SETTLE_MS), then tells it of the scroll with one: the frame that carries them comes late, as
+# on a loaded machine, and the viewer's timers run before it.
+PICK_HELD = """i => {
+  const L = document.querySelector('#left'), wait = 2 * OUTLINE_PICK_SETTLE_MS, until = performance.now() + wait;
+  const hold = e => {if (e.target === L && performance.now() < until) e.stopImmediatePropagation();};
+  addEventListener('scroll', hold, true);
+  setTimeout(() => {removeEventListener('scroll', hold, true); L.dispatchEvent(new Event('scroll'));}, wait);
+  document.querySelector('#outline-items button[data-index="' + i + '"]').click();
+}"""
+# Picks entry i in the outline, and in the scroll event that first shows page 7's top in the pane - half way from page 10
+# to page 5 - page 1 grows by 60px and the reading spot is put back (restoreAnchor), as a build landing in the middle of a
+# jump does: the write stops the glide there, and the jump's settling (pages.js arrivalSettle) takes the pages on once the
+# glide guard is down. Given `growing`, the pages' column then changes height on every frame, below the pages on screen (a
+# far line drawn at its new height), until the guard has been down for twice the time a pick waits for the pages to move
+# (OUTLINE_PICK_SETTLE_MS): the settling waits for the column to keep still, so the pages rest on page 7 meanwhile.
+PICK_STOPPED = """([i, growing]) => {
+  const L = document.querySelector('#left'), first = document.getElementById('p1').parentElement;
+  const last = [...document.querySelectorAll('#doc .pgw')].pop();
+  let n = 0, down = 0;
+  const grow = () => {last.style.paddingBottom = (n++ % 2) + 'px';
+    if (PV_JUMP !== null || pvAutoScrolling()) down = 0; else if (!down) down = performance.now();
+    if (!down || performance.now() - down < 2 * OUTLINE_PICK_SETTLE_MS) requestAnimationFrame(grow);};
+  const stop = () => {if (document.getElementById('p7').getBoundingClientRect().top < L.getBoundingClientRect().top) return;
+    L.removeEventListener('scroll', stop); const a = topAnchor();
+    first.style.paddingBottom = (parseFloat(first.style.paddingBottom || '0') + 60) + 'px'; restoreAnchor(a);
+    if (growing) grow();};
+  L.addEventListener('scroll', stop);
+  document.querySelector('#outline-items button[data-index="' + i + '"]').click();
+}"""
 
 
 class HitInAJump(SearchBase):
@@ -3168,9 +3209,9 @@ class SectionStripOutlineOrder(SearchBase):
             STATUS_PAGES,
         )
 
-    def outlined(self):
-        """The viewer on the desktop with the outline read and drawn."""
-        page = self.view()
+    def outlined(self, dev=DESKTOP):
+        """The viewer on the desktop (dev) with the outline read and drawn."""
+        page = self.view(dev)
         page.wait_for_function("OUTLINE_ENTRIES.length===%d" % len(STATUS_OUTLINE))
         settle(page)
         return page
@@ -3266,6 +3307,45 @@ class SectionStripOutlineOrder(SearchBase):
                 page.evaluate(PICK_AND, [7, how, None])
                 self.still(page)
                 self.assertEqual(page.evaluate(STRIP), ["[채택] A5", "5 / %d쪽" % STATUS_PAGES])
+
+    def test_a_pick_whose_scroll_the_viewer_hears_of_late_is_named_where_it_lands(self):
+        """[후보] A5 picked from page 10, and the viewer hears of the scroll later than a pick waits for the pages to move:
+        it is busy right after the click, before the scroll's first frame, or half way, on page 7; with reduced motion,
+        where the jump is instant and over at once, the frame that tells of it comes after that wait. A busy machine showed
+        page 5's own [채택] A5 where the pages landed: the wait ran out before the scroll's first frame and let the pick
+        go. The pages never stood still short of page 5, so the strip names the entry picked, [후보] A5."""
+        pages = {"smooth": self.outlined(), "reduce": self.outlined(dict(DESKTOP, reduced_motion="reduce"))}
+        self.assertEqual(pages["reduce"].evaluate("SMOOTH"), "auto")
+        late = (("smooth", "busy at once", PICK_BUSY, [7, None]), ("smooth", "busy half way", PICK_BUSY, [7, 7]))
+        for motion, how, pick, arg in late + (("reduce", "frame held", PICK_HELD, 7),):
+            with self.subTest(motion=motion, late=how):
+                page = pages[motion]
+                self.scroll_to(page, STATUS_PAGES)
+                page.evaluate(pick, arg)
+                page.wait_for_function(
+                    "document.querySelector('#section-page-t').textContent==='5 / %d쪽'" % STATUS_PAGES
+                )
+                self.still(page)
+                self.assertEqual(page.evaluate(STRIP), ["[후보] A5", "5 / %d쪽" % STATUS_PAGES])
+                self.assertEqual(
+                    page.evaluate("document.querySelector('#outline-items .ol-active').dataset.index"), "7"
+                )
+
+    def test_a_pick_whose_glide_stops_on_the_way_is_named_where_the_settling_takes_it(self):
+        """[후보] A5 picked from page 10, and half way, on page 7, a write that keeps the view stops the glide (a build
+        landing in the middle of the jump); the second time the pages' column then goes on changing height for a while, so
+        the settling waits. The pages stand still on page 7 for longer than a pick waits, but the jump is not over: its
+        settling takes them on to page 5, and there the strip names the entry picked, [후보] A5."""
+        page = self.outlined()
+        for growing in (False, True):
+            with self.subTest(column="growing" if growing else "still"):
+                self.scroll_to(page, STATUS_PAGES)
+                page.evaluate(PICK_STOPPED, [7, growing])
+                page.wait_for_function(
+                    "document.querySelector('#section-page-t').textContent==='5 / %d쪽'" % STATUS_PAGES
+                )
+                self.still(page)
+                self.assertEqual(page.evaluate(STRIP), ["[후보] A5", "5 / %d쪽" % STATUS_PAGES])
 
 
 # A manuscript's headings inside their pages: 'Foot of page k.' stands at 300pt (its top at 312) on each page of

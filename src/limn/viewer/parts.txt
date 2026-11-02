@@ -35,7 +35,7 @@ js/i18n.js              # UI language: tr/tl/trMsg, API error and pick warning t
 js/prefs.js             # per-device preferences (pinPrefs), list-section state, theme
 js/api.js               # api() and how a failed request is said, copy
 js/notices.js           # messages in context: banners, undos where the action was, status-line messages, dots, deferred sends
-js/tooltip.js           # hover/focus tooltips and the touch long-press tooltip
+js/tooltip.js           # hover/focus tooltips, the touch long-press tooltip, explanations for screen readers
 js/doc-tabs.js          # several documents: the list, tabs and links
 js/revisions.js         # the changes view: source diff, comparison PDF, [변경 보기] from a pin
 js/doc-switch.js        # the documents sheet, remembered view positions, switching documents

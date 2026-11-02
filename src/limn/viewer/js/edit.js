@@ -28,7 +28,7 @@ function openEdit(id){if(viaDoc(id,openEdit))return; const p=PINS.find(x=>x.id==
 <div class="e-assign assign-row" role="radiogroup" aria-label="담당" hidden></div>\
 <div class="e-sg-row sg-row"><button class="btn-ghost sg-tg hit" role="switch" aria-checked="false" data-act="sg-toggle" \
 data-tip="이 줄 범위를 바꿀 글을 직접 씁니다. 끄고 저장하면 이 핀의 제안 수정을 지웁니다"><span class="sg-sw" aria-hidden="true"></span><span class="lbl">제안 수정</span></button>\
-<span class="sg-why" hidden></span></div>\
+<span class="sg-why tip-read" hidden></span></div>\
 <div class="sg e-sg" hidden><textarea class="sg-text e-sg-text" rows="2" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="제안 문안" \
 placeholder="이 줄들을 바꿀 글 (비우면 이 줄들을 지웁니다)" data-tip="이 줄 범위를 바꿀 글입니다. ⌘ Enter / Ctrl+Enter 저장, Esc 취소"></textarea>\
 <div class="sg-note q-hint" aria-live="polite" hidden></div><div class="sg-cur" hidden></div></div>\

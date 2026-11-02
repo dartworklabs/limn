@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.4.44 — 2026-11-02
+
+### Fixed
+
+- **Explanations reach the keyboard and screen readers.** The explanation a control shows in its hover box was only in
+  that box, so a screen reader heard the composer's [Suggested edit] switch as `switch "Suggested edit"` and nothing more,
+  and a card's `Suggested edit · source changed` badge never said that the agent will not apply it.
+  - **Controls:** a focusable control's explanation is its accessible description, read with its name (without the name
+    again), in the screen's language. No tab stop is added.
+  - **Badges:** a badge's explanation is read with the card, as words only a screen reader reads; nothing changes on
+    screen or in the Tab order, and the words are neither copied with a selection nor found by the browser's find. So is
+    the short reason that stands where [Suggested edit] cannot go.
+  - **Keyboard:** the keyboard's focus shows the box on a tablet with a keyboard too, an Esc before it shows cancels it,
+    and the scroll a Tab makes to reach a control no longer takes its box away. In a sheet or menu ([More], help) the
+    first Esc closes a control's box and the second the sheet.
+  - The agent contract (`pins.md`, HTTP API) is unchanged.
+- **A language pick takes effect at once** (#377). On the viewer's usual address (`/#doc=…`), picking a language in
+  [더보기] stored the choice but left the screen in the old language until a manual reload. The same address was
+  replaced, which browsers treat as a move within the page. The pick now reloads when the address would not change.
+  The place, the other query values and the tab's draft stay.
+- **An outline pick waits for its jump before it lets go** (#378). An item picked in the outline was let go once no
+  scroll had been heard for 250 ms. Under load, or when a build landed during the jump, that happened before the page
+  moved, and the section strip then named the other item at the same place. It now waits while the jump is on its way
+  and checks the reading line where the jump ended. The handbook gains two notes on browser tests: reproduce a
+  load-only race by fixing its order, and a test may end the CSS transitions its own action starts.
+
 ## 0.4.43 — 2026-11-02
 
 ### Changed

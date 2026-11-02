@@ -267,9 +267,9 @@ function outlineIndexAt(entries,page,frac){
 // that page (`reached`); on the way there the strip follows the reading line. A pick whose scroll ends anywhere else is let
 // go before it is reached, so that a later visit to its page by hand shows that page's own entry: when the reader takes
 // over (a wheel, a touch, a press on the pages or the scroll bar, a scrolling key), when the window changes size, when
-// another pick replaces it, and when the pages have stood still for OUTLINE_PICK_SETTLE_MS short of its page.
+// another pick replaces it, and when the pages have come to rest short of its page (outlinePickRest).
 let OUTLINE_PINNED=/** @type {{page:number,index:number,reached:boolean}|null} */(null),OUTLINE_PICK_WAIT=0;
-const OUTLINE_PICK_SETTLE_MS=250;   // a smooth scroll moves the pages every frame; this long without a scroll, it is over
+const OUTLINE_PICK_SETTLE_MS=250;   // a smooth scroll moves the pages every frame; this long without a scroll, the pick looks whether they rest
 const OUTLINE_PICK_GAP=8;   // px between the top of the free PDF area and a picked heading
 // Pick entry i of the outline: the strip and the highlight name it, and the pages scroll to it (outlinePickTop).
 function pickOutline(i){const e=OUTLINE_ENTRIES[i]; if(!e)return;
@@ -291,8 +291,17 @@ function outlinePickTop(e){const pg=document.getElementById('p'+e.page),d=docInf
 function spotTop(pg,frac,gap){const L=$('#left'),r=pg.getBoundingClientRect(),y=r.top+frac*r.height,read=L.getBoundingClientRect().top+readingDepth(L);
   const want=Math.max(selPopArea().top+gap,read+2-(r.bottom-y));
   return Math.max(0,Math.min(L.scrollHeight-L.clientHeight,Math.round(L.scrollTop+y-want)));}
-// (Re)starts the wait after which a pick still on its way is over (any scroll of the pages restarts it).
-function outlinePickWait(){clearTimeout(OUTLINE_PICK_WAIT); if(OUTLINE_PINNED&&!OUTLINE_PINNED.reached)OUTLINE_PICK_WAIT=setTimeout(dropOutlinePick,OUTLINE_PICK_SETTLE_MS);}
+// (Re)starts the wait after which a pick still on its way looks whether the pages rest (any scroll of the pages restarts it).
+function outlinePickWait(){clearTimeout(OUTLINE_PICK_WAIT); if(OUTLINE_PINNED&&!OUTLINE_PINNED.reached)OUTLINE_PICK_WAIT=setTimeout(outlinePickRest,OUTLINE_PICK_SETTLE_MS);}
+// No scroll was heard for OUTLINE_PICK_SETTLE_MS. That alone is no rest: the viewer hears of a scroll in a frame, and a busy
+// machine runs this before the frame that carries the glide's next scroll - even its first, after a slow click - and letting
+// go then left the strip naming the page's own entry where the pick landed (a figure set's adopted entry for a pick of the
+// candidate at the same spot). So while the jump is on its way (jumpOnItsWay) the pick waits on; at rest the reading line
+// decides, measured now rather than in a frame still to come: on the pick's page the pick has reached it (updateSectionStrip),
+// anywhere else it is let go.
+function outlinePickRest(){const pin=OUTLINE_PINNED; if(!pin||pin.reached)return;
+  if(jumpOnItsWay()){outlinePickWait(); return;}
+  updateSectionStrip(); if(!pin.reached)dropOutlinePick();}
 // Lets go of a pick that has not reached its page; one that has keeps to the end of its page.
 function dropOutlinePick(){clearTimeout(OUTLINE_PICK_WAIT); if(!OUTLINE_PINNED||OUTLINE_PINNED.reached)return; OUTLINE_PINNED=null; updateSectionStrip();}
 // The section strip under the nav bar (the section at the reading line and 'page / pages') and the outline's highlight; mid has no

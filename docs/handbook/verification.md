@@ -75,6 +75,8 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 
 브라우저가 닿는 테스트(`src/limn/viewer/tests/test_viewer_browser.py`, `src/limn/viewer/tests/test_viewer.py`의 `Frontend*` 가드)는 **임의의 시간(`sleep`, `wait_for_timeout`)을 기다리지 않는다.** 이벤트·DOM 상태·통신 완료를 가리키는 술어(`expect(...)`, `wait_for_selector`, `wait_for_function`)를 기다린다. 공용 대기 `settle()`(`tests/support/helpers_browser.py`)은 짧은 타이머·`fetch`·CSS 애니메이션과 함께 웹 글꼴 로딩(`document.fonts.status`)이 끝나기를 기다린다. 담은 글꼴의 조각은 그 글자가 처음 화면에 나올 때 받아서, 그 전에 잰 글은 폴백 글꼴의 값이기 때문이다([viewer.md](viewer.md) §글꼴). 시간으로 기다리면 빠른 머신에서는 시간을 낭비하고 느린 CI에서는 무작위로 깨진다. 브라우저가 건너뛰는 요소(화면에서 먼 `content-visibility: auto` 안, 예를 들어 먼 쪽 판정 줄)의 애니메이션은 기다리지 않는다. Firefox는 그 요소를 다시 그릴 때까지 애니메이션을 첫 프레임에 멈춘 채 실행 중으로 두어, 기다리면 끝나지 않는다.
 
+테스트는 자기 동작이 시작한 CSS 트랜지션을 끝낼 수 있다. 동작 앞뒤의 `document.getAnimations()`를 견주어 그 동작이 새로 시작한 `CSSTransition`에만 `finish()`를 부르고, 그 뒤에도 `settle()`을 기다린다. 끝낸 트랜지션은 곧바로 끝 상태를 그리므로, 다 흐르기를 기다려 읽은 것과 같은 값을 읽는다. 두 조건이 다 맞을 때만 쓴다. 뷰어가 잰 대상에서 `transitionend`를 듣지 않아야 하고(`finish()`는 그 이벤트를 앞당긴다), 테스트가 끝 상태만 재야 한다(중간 상태는 사라진다). [`test_viewer_contrast.py`](../../src/limn/viewer/tests/test_viewer_contrast.py)의 `SWITCH`가 테마를 바꾸며 컨트롤의 색 트랜지션(`components.css`, 120ms)을 이렇게 끝낸다(#373). 대비 검사는 바뀐 테마의 색만 재고, 뷰어에는 `transitionend`를 듣는 코드가 없다.
+
 부팅의 PDF.js `import`는 `fetch`도 타이머도 아니지만 `settle()`이 그 끝까지 기다린다. `import` 뒤의 열기가 `VEC.gen`을 올리고 목차를 잊으므로, 먼저 넣은 대역 문서나 목차가 사라지기 때문이다. 모든 뷰어 하네스가 `settle()`로 돌아오므로 하네스마다 따로 기다리지 않는다.
 
 뷰어 화면의 시간 의존 동작(폴링 간격, 알림 배지 깜빡임, 날짜 포맷)을 테스트할 때는 브라우저의 시계를 얼린다(`clock.set_fixed_time()`).
@@ -124,6 +126,8 @@ Firefox는 초점도 선택도 없으면 키보드 스크롤을 창에 보낸다
 저장소 뿌리의 `conftest.py`는 Hypothesis의 시간 검사(`deadline`, `too_slow`)를 끈다. 성질 검사의 합격은 걸린 시간과 무관하고, 멈춘 검사는 CI의 시간 한도와 `faulthandler_timeout`이 잡는다.
 
 지나가는 상태를 스레드로 폴링해 관찰하지 않는다. 바쁜 기계에서는 폴러가 돌지 못한 사이에 상태가 지나가므로, 상태가 바뀌는 자리에서 기록한다(`test_build.py`의 실제 빌드 단계 검사).
+
+바쁜 기계에서만 나는 경쟁은 그 순서를 고정해 재현한다. 바쁜 기계에서는 프레임이 늦어, 뷰어가 프레임에서 듣는 이벤트(스크롤)보다 타이머가 먼저 돈다. [`test_viewer_search.py`](../../src/limn/viewer/tests/test_viewer_search.py)의 `SectionStripOutlineOrder`는 목차에서 고른 직후나 미끄러짐 도중에 뷰어를 고른 것의 기다림(`OUTLINE_PICK_SETTLE_MS`)의 두 배 동안 바쁘게 하거나 그동안 스크롤 이벤트를 붙잡아 이 순서를 만든다. 이것은 결과를 기다리는 시간이 아니라 넣는 고장이고, 그 뒤의 확인은 상태를 기다린다.
 
 `pipefail` 아래의 셸 검사에서 `명령 | grep -q`는 첫 일치에서 파이프를 닫는다. 아직 쓸 것이 남은 명령은 SIGPIPE로 죽고, 파이프라인이 실패하므로 바쁜 기계에서만 검사가 깨진다. [`test_instances.sh`](../../src/limn/administration/tests/test_instances.sh)의 파이프는 입력을 끝까지 읽는 `has()`로 끝낸다. 같은 파일은 `LIMN_PROC_NET`을 빈 소켓 표로 두어 호스트에서 도는 서버가 검사에 끼어들지 않게 한다.
 
