@@ -28,8 +28,9 @@
   run CI, because a tag's commit is the merge commit main already ran (#369, #374).
 - **Cheaper slow browser tests, nothing weakened.** ManyCardsWhileThePdfScrolls built its 300 pins with each re-reading
   every earlier one (287-337 s → 62-80 s). Other tests repeated loads, typing, theme switches or real waits:
-  - LinePolish, the slow phone scroll and the seen holds use several pages at once, each wait keeping its own deadline.
-    The handbook now describes when that is allowed.
+  - LinePolish and the seen holds use several pages at once, each wait keeping its own deadline. The handbook now
+    describes when that is allowed.
+  - The slow phone scroll waits one frame per 4 px step, as its docstring says, instead of two.
   - Four assignee tests stopped repeating loads and typing.
   - The contrast test makes one theme switch per state.
 
