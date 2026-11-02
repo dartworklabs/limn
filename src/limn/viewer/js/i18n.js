@@ -60,7 +60,10 @@ function i18nStart(){for(const r of /** @type {NodeListOf<HTMLElement>} */(docum
       if(v){const e=trMsg(v); if(e!==v)el.setAttribute(name,e);}}}})
     .observe(document.body,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:I18N_ATTRS});}
 // [더보기]'s language segment: saves lang (ko or en) as this device's choice and reloads in it - the tab's draft is kept
-// (sessionStorage). The language on screen does nothing; nothing asks first.
+// (sessionStorage). The language on screen does nothing; nothing asks first. A ?lang= would beat the saved choice, so the
+// reload drops it and keeps the hash (document and place). Without one the address is unchanged, and replacing an address
+// that has a hash with itself only jumps to that hash inside the page, loading nothing - so that case reloads.
 function switchLang(lang){if(lang!==UI_LANG.KO&&lang!==UI_LANG.EN||lang===LANG)return;
   try{localStorage.setItem('limnLang',lang);}catch(e){}
-  const u=new URL(location.href); u.searchParams.delete('lang'); location.replace(u.toString());}
+  const u=new URL(location.href); u.searchParams.delete('lang');
+  if(u.href===location.href)location.reload(); else location.replace(u.href);}
