@@ -1961,8 +1961,7 @@ class FrontendSemanticAudit(unittest.TestCase):
         )
         self.assertTrue(agent.startswith('<span class="av i agent" aria-hidden="true"><svg class="ic ic-bot"'), agent)
         self.assertIn("(나)", extract_js_fn("msgHtml"))
-        self.assertIn("(나)", extract_js_fn("noteHead"))
-        self.assertIn("(나)", extract_js_fn("tlMsg"))
+        self.assertIn("(나)", extract_js_fn("whoWhen"))  # the first comment's and every timeline entry's head
 
     def test_touch_targets_in_archive_rows(self):
         """On touch an archive row's [원래 요청], its reply line and the reply count each answer the 44px hit (--hit)."""

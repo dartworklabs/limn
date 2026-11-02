@@ -203,6 +203,13 @@ body.compact #trash-link{display:none}   /* compact: the Trash is in [⋯], like
 .cmt{position:relative;display:flex;align-items:flex-start;gap:var(--space-2);margin-top:var(--space-2)}
 .cmt-b{flex:1;min-width:0}
 .note-h{line-height:1.5}   /* a whole number of px, as a reply's head: the note under it starts on a whole pixel */
+/* Who and when on one line (card-parts.js whoWhen): it wraps as one item, so a long name never pushes its time to another line;
+   the name gives way to an ellipsis, '(나)' and the time keep their width. A following edit time wraps under them. */
+.tl .msg-h .who{display:flex;align-items:baseline;gap:0 var(--space-2);min-width:0;max-width:100%}
+.tl .msg-h .who>b{display:flex;min-width:0}
+.tl .msg-h .who .nm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tl .msg-h .who :is(.me-tag,.rt){flex:none}
+.tl .msg-h .who .me-tag{margin-left:var(--space-1)}   /* the text's leading space is not drawn at a flex item's start */
 .note-h b.old{font-style:italic;font-weight:400}
 .pin .note-h+.note{margin-top:0}
 .av.none{background:var(--muted)}   /* no recorded person: the node of the column stays */

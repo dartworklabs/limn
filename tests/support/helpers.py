@@ -136,6 +136,7 @@ def js_thread() -> str:
                 "msgText",
                 "msgHtml",
                 "nodeAvatar",
+                "whoWhen",
                 "noteHead",
                 "tlMsg",
                 "threadHtml",

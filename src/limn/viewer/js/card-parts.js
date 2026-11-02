@@ -232,17 +232,24 @@ function msgHtml(m,key){const by=m.by||{},nm=who(by)||'?',mine=isMe(by)?html`<sp
 // line and the indent of the text hold.
 /** @param {Person|null|undefined} a @returns {Html} */
 function nodeAvatar(a){return who(a)?avatar(a):html`<span class="av none" aria-hidden="true"></span>`;}
+// Who and when at the start of a card's comment or entry head, kept on one line (.who): the name (user text, translate="no")
+// ends in an ellipsis where the line is short, its whole text staying the element's text and its description (tip), and '(나)'
+// and the time are never cut. cls marks a name with no recorded person.
+/** @param {string} name @param {boolean} mine @param {string} tip @param {Html|string} time @param {string} [cls] @returns {Html} */
+function whoWhen(name,mine,tip,time,cls){const me=mine?html`<span class="me-tag"> ${tr('(나)')}</span>`:'';   // the space is the text's; drawn, the margin is
+  return html`<span class="who"><b class="${cls||''}" data-tip="${tip}"><span class="nm" translate="no">${name}</span>${me}</b>${time}</span>`;}
 // The head of a card's first comment, a reply's: who wrote the note ('기록 전' for a pin from before authors were recorded), when,
-// and when it was last edited. The name's description also says who edited it.
+// and when it was last edited, which takes the next line where the first has no room. The name's description also says who
+// edited it.
 /** @param {Pin} p @returns {Html} */
-function noteHead(p){const nm=who(p.author),me=isMe(p.author)?html`<span class="me-tag"> ${tr('(나)')}</span>`:'';
-  return html`<div class="msg-h note-h"><b class="${nm?'':'old'}" translate="no" data-tip="${authorTip(p)}">${nm||tr('기록 전')}${me}</b>\
-${p.at?stampSpan(p.at,STAMP_FORM.BOTH):''}${p.edited_at?stampSpan(p.edited_at,STAMP_FORM.EDITED):''}</div>`;}
+function noteHead(p){const nm=who(p.author);
+  return html`<div class="msg-h note-h">${whoWhen(nm||tr('기록 전'),isMe(p.author),authorTip(p),p.at?stampSpan(p.at,STAMP_FORM.BOTH):'',nm?'':'old')}\
+${p.edited_at?stampSpan(p.edited_at,STAMP_FORM.EDITED):''}</div>`;}
 // One entry of a card's timeline: a post (avatar, then name and time over its text) or a state record (a dot in the avatar's
 // place, then name and time, what happened and its reference on the next line, any text under them).
 /** @param {ThreadEntry} m @param {string} key - keeps a long post open across redraws (msgBody) @returns {Html} */
-function tlMsg(m,key){const by=m.by||{},mine=isMe(by)?html`<span class="me-tag"> ${tr('(나)')}</span>`:'';
-  const head=html`<div class="msg-h"><b translate="no">${who(by)||'?'}${mine}</b>${stampSpan(m.at,STAMP_FORM.BOTH)}</div>`;
+function tlMsg(m,key){const by=m.by||{},nm=who(by)||'?';
+  const head=html`<div class="msg-h">${whoWhen(nm,isMe(by),nm,stampSpan(m.at,STAMP_FORM.BOTH))}</div>`;
   if(m.ev)return html`<div class="msg ev ev-${m.ev}"><span class="ev-dot" aria-hidden="true"></span><div class="msg-b">${head}\
 <div class="ev-l">${tr(EV_LABEL[m.ev]||m.ev)}${hasRef(m.ref)?' · '+m.ref:''}</div>${m.text?msgBody(m,key):''}</div></div>`;
   return html`<div class="msg">${nodeAvatar(by)}<div class="msg-b">${head}${msgBody(m,key)}</div></div>`;}

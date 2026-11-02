@@ -35,6 +35,8 @@ FOLD = VIEWPORTS["fold inner 841x673"]
 PHONE = VIEWPORTS["phone 390x844"]
 FOUR_SIZES = {"desktop": DESKTOP, "foldable": FOLD, "tablet": TABLET, "phone": PHONE}
 NOW = "new Date(2026,10,2,12,0).getTime()"  # 2026-11-02 12:00, on this machine's clock
+# A person whose name is 60 letters with no space to break at (the longest a head has to hold on one line).
+LONG = {"Tailscale-User-Login": "long@example.com", "Tailscale-User-Name": ("Wolfeschlegelsteinhausen" * 3)[:60]}
 
 
 def ago(**delta):
@@ -265,16 +267,16 @@ class TimelineFixture(BrowserBase):
             pid, post_authority(store, dict(LOCAL_ACTOR), "close", pid), CloseRequest(reply=reply, ref=ref)
         )
 
-    def reopen(self, pid):
-        """Reopen the pin as Alice: a reopen record in its thread."""
+    def reopen(self, pid, who=ALICE):
+        """Reopen the pin as who (Alice): a reopen record in its thread."""
         ps.APP.pin_lifecycle.reopen_pin(
-            pid, post_authority(ps.APP.pin_lifecycle.context().store, actor(ALICE), "reopen", pid)
+            pid, post_authority(ps.APP.pin_lifecycle.context().store, actor(who), "reopen", pid)
         )
 
-    def edit_note(self, pid, note):
-        """Edit the pin's note as Alice through the real service, against the revision stored now; the stored note."""
+    def edit_note(self, pid, note, who=ALICE):
+        """Edit the pin's note as who (Alice) through the real service, against the revision stored now; the stored note."""
         rev = find_record(ps.APP.snapshot_pins(), pid)["rev"]
-        return record_of(edit_pin(pid, {"note": note, "base_rev": rev}, actor(ALICE)))["note"]
+        return record_of(edit_pin(pid, {"note": note, "base_rev": rev}, actor(who)))["note"]
 
     def age(self, **ats):
         """Rewrite stored `at` of pins by 'p<id>'=value."""
@@ -399,10 +401,44 @@ class CommentCards(TimelineFixture):
         page.evaluate("id => openEdit(id)", pid)
         page.wait_for_selector("#pins .edit .e-note")
         card = self.card(page, pid)
-        self.assertEqual(card.locator(".note-h b").inner_text(), "Alice Kim (나)")
+        self.assertEqual(card.locator(".note-h b").text_content(), "Alice Kim (나)")
         self.assertEqual(card.locator(".tl-on").count(), 0)
         self.assertEqual(card.locator(".thread").count(), 0)
         self.assertLess(card.locator(".note-h").bounding_box()["y"], card.locator(".edit").bounding_box()["y"])
+
+    HEADS = """c => {const R = e => e.getBoundingClientRect(), C = R(c), L = document.querySelector('#list');
+      return {doc: document.documentElement.scrollWidth - innerWidth, list: L.scrollWidth - L.clientWidth, heads: [...c.querySelectorAll('.tl .msg-h')].map(h => {
+        const n = h.querySelector('.nm'), t = h.querySelector('.who .rt'), N = R(n), T = R(t);
+        return {name: n.textContent, tip: n.closest('b').dataset.tip, cut: n.scrollWidth > n.clientWidth, shown: N.width,
+          time: t.textContent, visible: t.checkVisibility(), inside: T.right <= C.right - 12.5 + 0.5, beside: T.left >= N.right && Math.abs(T.bottom - N.bottom) < 2};})};}"""
+
+    def test_a_long_name_ends_in_an_ellipsis_and_its_time_stays_beside_it(self):
+        """A 60-letter name with no space, on the note, a reply, a reopen and with an edit, at 1440, 841, 1024 and 390: no
+        band scrolls sideways, each head's name is cut with an ellipsis yet holds its whole text and description, and its
+        time is drawn whole beside it inside the card."""
+        pid = self.pin(author=LONG)
+        self.reply(pid, "답글", who=LONG)
+        self.close(pid)
+        self.reopen(pid, who=LONG)
+        self.assertEqual(self.edit_note(pid, "고친 메모", who=LONG), "고친 메모")
+        name = LONG["Tailscale-User-Name"]
+        for size, device in FOUR_SIZES.items():
+            with self.subTest(size=size):
+                page = self.show(1, device)
+                page.evaluate("id => {OPEN_CARDS.add(id); THREAD_OPEN.add(id); drawPins();}", pid)
+                settle(page)
+                got = self.card(page, pid).evaluate(self.HEADS)
+                self.assertLessEqual(got["doc"], 0)
+                self.assertLessEqual(got["list"], 0)
+                heads = got["heads"]
+                self.assertEqual([h["name"] for h in heads], [name, name, "로컬/에이전트", name])
+                for h in heads:
+                    self.assertTrue(h["visible"] and h["inside"] and h["beside"], h)
+                    self.assertRegex(h["time"], r"^방금 · \d\d-\d\d \d\d:\d\d$")
+                for h in (heads[0], heads[1], heads[3]):
+                    self.assertTrue(h["cut"], h)
+                    self.assertGreater(h["shown"], 20, h)
+                    self.assertIn(name, h["tip"])
 
     def test_the_drawn_words_follow_the_clock(self):
         """tickRel moves every comment's words: the head's, a reply's and the preview's, into the absolute form at seven days."""
