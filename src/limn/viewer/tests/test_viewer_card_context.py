@@ -350,7 +350,7 @@ class CardContextBrowser(CardFixture):
         self.assertEqual(row.locator("button,[role=button],[data-act=edit]").count(), 0)
 
     def test_long_untrusted_name_stays_text_and_separate_from_author_and_reply_count(self):
-        """Untrusted recipient names neither execute markup nor crowd the author's independent header."""
+        """Untrusted recipient names neither execute markup nor crowd the comment's own head or the card's reply count."""
         name = '<img src=x onerror="window.nameAttack=true"> & ' + "LongRecipient" * 16
         ps.APP.C.people_file.write_text(
             json.dumps(
@@ -370,7 +370,7 @@ class CardContextBrowser(CardFixture):
         self.assertEqual(recipient.get_attribute("translate"), "no")
         self.assertEqual(card.locator(".card-meta img, .card-meta script").count(), 0)
         self.assertFalse(page.evaluate("Boolean(window.nameAttack)"))
-        self.assertIn("Alice Kim", card.locator(".head .au").inner_text())
+        self.assertIn("Alice Kim", card.locator(".note-h").inner_text())
         self.assertEqual(card.locator(".head .th-n").inner_text(), "1")
         bounds = card.bounding_box()
         recipient_bounds = recipient.bounding_box()
@@ -428,11 +428,11 @@ CARD_LABELS = r"""id => {const c = document.querySelector('#right .pin[data-id="
   const drawn = e => e.getClientRects().length > 0 && !e.closest('.sr-only'), mid = e => {const r = e.getBoundingClientRect(); return r.top + r.height / 2;};
   const own = e => [...e.childNodes].some(n => n.nodeType === 3 && n.nodeValue.trim());
   const read = (row, box) => e => Object.assign(__m.label(e, box), {row, el: e.className});
-  const words = [...head.querySelectorAll('.go-all .lbl, .th-n .lbl, :scope > .n.go, :scope > .loc, :scope > .pg-link, .au-n')].filter(drawn).map(read('head', head));
+  const words = [...head.querySelectorAll('.go-all .lbl, .th-n .lbl, :scope > .n.go, :scope > .loc, :scope > .pg-link')].filter(drawn).map(read('head', head));
   const facts = [...meta.querySelectorAll('*')].filter(e => drawn(e) && own(e)).map(read('facts', meta));
   const icons = Object.fromEntries([['dot', '.st-dot'], ['reply', '.th-n svg'], ['fold', '.b-fold svg'], ['avatar', '.au .av']]
     .map(([k, s]) => [k, head.querySelector(s)]).filter(([, e]) => e && drawn(e)).map(([k, e]) => [k, mid(e) - mid(head)]));
-  const clips = [...c.querySelectorAll('.card-meta .as-n, .head .au-n')].filter(drawn).map(e => {const lb = __m.label(e), m = inkMetrics(e, e.textContent), R = e.getBoundingClientRect();
+  const clips = [...c.querySelectorAll('.card-meta .as-n')].filter(drawn).map(e => {const lb = __m.label(e), m = inkMetrics(e, e.textContent), R = e.getBoundingClientRect();
     return {el: e.className, text: e.textContent, over: R.top - (lb.baseline - m.a), under: lb.baseline + m.d - R.bottom};});
   return {labels: words.concat(facts), icons, clips};}"""
 
@@ -692,20 +692,19 @@ DESK_HEAD = r"""id => {const c = document.querySelector('#right .pin[data-id="' 
   const R = e => {const r = e.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom];}, mid = e => {const r = e.getBoundingClientRect(); return r.top + r.height / 2;};
   const span = (e, n) => {const t = e.firstChild, g = document.createRange(); g.setStart(t, 0); g.setEnd(t, n == null ? t.data.length : n); return R(g);};
   const q = s => h.querySelector(s), words = {}, icons = {}, ink = [], rings = {};
-  for (const [k, s] of [['n', ':scope > .n.go'], ['loc', ':scope > .loc'], ['pg', ':scope > .pg-link'], ['author', '.au-n'], ['reply', '.th-n .lbl']]) {
+  for (const [k, s] of [['n', ':scope > .n.go'], ['loc', ':scope > .loc'], ['pg', ':scope > .pg-link'], ['reply', '.th-n .lbl']]) {
     const e = q(s); if (e && e.getClientRects().length) words[k] = __m.label(e, h);}
-  for (const [k, s] of [['dot', '.st-dot'], ['avatar', '.au .av'], ['reply', '.th-n svg']]) {const e = q(s); if (e && e.getClientRects().length) icons[k] = mid(e) - (H.top + H.height / 2);}
+  for (const [k, s] of [['dot', '.st-dot'], ['reply', '.th-n svg']]) {const e = q(s); if (e && e.getClientRects().length) icons[k] = mid(e) - (H.top + H.height / 2);}
   ink.push({k: 'dot', box: R(q('.st-dot')), ix: 0}, {k: 'n', box: span(q(':scope > .n.go')), ix: 0}, {k: 'loc', box: span(q(':scope > .loc')), ix: 0},
-    {k: 'pg', box: span(q(':scope > .pg-link'), q(':scope > .pg-link').firstChild.data.length - 1), ix: 0}, {k: 'avatar', box: R(q('.au .av')), ix: 0},
-    {k: 'author', box: span(q('.au-n')), ix: 0});
+    {k: 'pg', box: span(q(':scope > .pg-link'), q(':scope > .pg-link').firstChild.data.length - 1), ix: 0});
   for (const [k, s] of [['n', ':scope > .n.go'], ['loc', ':scope > .loc'], ['pg', ':scope > .pg-link']]) {const e = q(s), b = e.getBoundingClientRect(), g = span(e);
     const base = __m.label(e, h).baseline, m = inkMetrics(e, e.textContent); rings[k] = {over: base - m.a - b.top, under: b.bottom - (base + m.d)};}
   return {top: H.top, height: H.height, card: R(c), words, icons, ink, rings};}"""
 
 
 class DesktopHeadRow(FoldedCardBase):
-    """The desktop card's head row - dot, #N, line range, N쪽, reply icon and count, avatar, author's name - on one ink
-    centre at device scale factors 1 and 2 (docs/handbook/viewer.md §글자 가운데)."""
+    """The desktop card's head row - dot, #N, line range, N쪽, reply icon and count - on one ink centre at device scale
+    factors 1 and 2 (docs/handbook/viewer.md §글자 가운데)."""
 
     def cards(self):
         """Pins of mine and Bob's, one with a reply, one assigned to a colleague, one awaiting review with a thread:
@@ -723,13 +722,13 @@ class DesktopHeadRow(FoldedCardBase):
 
     def test_the_head_row_is_on_the_cap_height_reference_at_scale_factors_1_and_2(self):
         """Every card's head row starts on a whole pixel (the note's 21.7px lines and the thread's 19.5px ones put
-        the cards under them between pixels). By layout every word's cap-height centre - #N, the line range, N쪽,
-        the author's name, the reply count - and the dot's, avatar's and reply icon's centres are within 0.5px of the
-        row's centre and of each other (as line boxes #N stood 0.8px, the range 1.9px and the name 0.6px over the
-        dot). Painted, each item's ink is within 0.5px plus half a device pixel of the row's centre line: a word's
-        baseline is drawn on a whole device pixel, and three sizes (#N 14px bold, the range 13px, N쪽 and the name
-        12px) put their baselines at different fractions of one, so a pair can differ by up to a device pixel that no
-        layout removes - at scale factor 2 the row's items are within 0.75px of each other."""
+        the cards under them between pixels). By layout every word's cap-height centre - #N, the line range, N쪽, the
+        reply count - and the dot's and reply icon's centres are within 0.5px of the row's centre and of each other (as
+        line boxes #N stood 0.8px and the range 1.9px over the dot). Painted, each item's ink is within 0.5px plus half
+        a device pixel of the row's centre line: a word's baseline is drawn on a whole device pixel, and three sizes
+        (#N 14px bold, the range 13px, N쪽 12px) put their baselines at different fractions of one, so a pair can differ
+        by up to a device pixel that no layout removes - at scale factor 2 the row's items are within 0.75px of each
+        other."""
         pids = self.cards()
         for dsf in (1, 2):
             device = {"viewport": {"width": 1440, "height": 900}, "device_scale_factor": dsf}
@@ -741,7 +740,7 @@ class DesktopHeadRow(FoldedCardBase):
                     settle(page)
                     got = page.evaluate(DESK_HEAD, pid)
                     self.assertEqual((got["top"] % 1, got["height"]), (0, 28), got)
-                    self.assertGreaterEqual(len(got["words"]), 4, got)
+                    self.assertGreaterEqual(len(got["words"]), 3, got)
                     layout = [w["cap"] for w in got["words"].values()] + [w["digits"] for w in got["words"].values()]
                     layout += list(got["icons"].values())
                     self.assertLessEqual(max(abs(v) for v in layout), 0.5, got)
@@ -756,7 +755,7 @@ class DesktopHeadRow(FoldedCardBase):
                     ink = page.evaluate(ROW_INK, [shot, dsf, items])
                     centre = got["top"] + 14
                     painted = {k: v["mid"] + y0 - centre for k, v in ink.items() if v}
-                    self.assertEqual(len(painted), 6, ink)
+                    self.assertEqual(len(painted), 4, ink)
                     self.assertLessEqual(max(abs(v) for v in painted.values()), 0.5 + 0.5 / dsf, (pid, painted))
                     if dsf == 2:
                         self.assertLessEqual(max(painted.values()) - min(painted.values()), 0.75, (pid, painted))

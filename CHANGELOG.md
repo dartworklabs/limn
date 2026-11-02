@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.4.42 — 2026-11-02
+
+### Changed
+
+- **A comment says when it was written.** A card's first comment had no time at all, only a mouse hover, and a reply only
+  `13시간 전`. The first comment now has a reply's head (avatar, name, time, `수정 <time>` once edited) on its own line over
+  the note, which stands on the reply text's edge, on open and review cards alike. The author leaves the card's head; a folded
+  compact card keeps the avatar there, and its preview starts with the short time. Comments, replies and state records say
+  relative and absolute time together (`14시간 전 · 11-01 20:41`), the absolute alone from seven days on, with the year when it
+  is not this year; the hover keeps the stored string. Archive rows and the verdict line read as before.
+- **A card's thread is a timeline.** A line runs through the avatars from the first comment to the last entry, with no divider
+  above the thread. State records have a coloured dot in the avatar's place, their time beside the name and what happened on
+  the next line. A card with no thread has no line.
+- **A long name keeps its time beside it.** A comment's, a reply's or a state record's name ends in an ellipsis on the head's
+  line, so the list never scrolls sideways and the time stays in view; the whole name is its description. A name or a close's
+  reference that reads like a UI word ('완료') stays as written in English, its description too.
+
+### Added
+
+- **The pin list has an order.** `[최신순 | 쪽순 | 번호순]` under the open pins' head orders the open and review sections:
+  newest first with a line per day (the default), by page and line, or as before by number. The choice stays in this browser
+  across documents, and Tab, focus, jumps and undo rows follow the order drawn: an undo row stands under its day's line where
+  its card was, rows of two cards deleted in a row stand in their cards' order, and a day's line stays while the row of its
+  only card does. `pins.md` and the HTTP API are unchanged.
+
 ## 0.4.41 — 2026-11-02
 
 ### Fixed

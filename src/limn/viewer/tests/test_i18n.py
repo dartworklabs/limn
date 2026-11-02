@@ -744,7 +744,7 @@ class EnglishChrome(ChromiumTestCase):
         got = page.evaluate(
             """id => {const c = document.querySelector('.pin[data-id="' + id + '"]'), t = s => (c.querySelector(s) || {}).textContent;
               return {link: document.querySelector('#doc-links [data-doc=rr]').textContent, sheet: document.querySelector('#nav-sheet [data-doc=rr] .nm').textContent,
-                note: t('.note'), sum: t('.sum'), post: t('.msg-t'), author: t('.au-n')};}""",
+                note: t('.note'), sum: c.querySelector('.sum').lastChild.textContent, post: t('.msg-t'), author: t('.note-h b')};}""",
             pin["id"],
         )
         self.assertEqual(
