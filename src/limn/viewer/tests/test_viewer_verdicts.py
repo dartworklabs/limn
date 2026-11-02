@@ -8207,6 +8207,14 @@ SWEEP_READ = """async()=>{const L=document.querySelector('#left'),l2=()=>documen
   for(let w=400;w<=720;w+=8){setK(w/META.pages[1].pt_w,false); ZOOMED=true; await frame();
     const a=await read(1),b=await read(2); if(a[0]!==1||b[0]!==2)continue; seen.add(a[1]); if(a.slice(1).join()!==b.slice(1).join())bad.push([w,a,b]);}
   return {bad,seen:[...seen]};}"""
+# SWEEP_READ set off without waiting for it, its promise kept as window.__sweep (page.evaluate('()=>window.__sweep') waits for
+# what it finds): the pages of a test's subtests sweep at once. A sweep steps on its own page's animation frames, which every
+# page has at the same rate however many sweep, and reads only that page's layout - one after another, four sweeps took four
+# times as long for the same readings.
+SWEEP_START = "()=>{window.__sweep=(" + SWEEP_READ + ")();}"
+# Stops the light poll (and waits for one already out): a page that sweeps while the next subtest saves a verdict does not take
+# that save into its lines, as it did not when the subtests ran one after another and it was closed before the next save.
+NO_POLL = "async()=>{clearInterval(LIGHT_TIMER); if(LIGHT_INFLIGHT)await LIGHT_INFLIGHT;}"
 
 
 class LinePolish(VerdictBase):
@@ -8332,18 +8340,24 @@ class LinePolish(VerdictBase):
         Korean and English, on the wide band and the side-panel band (1000 x 800): the line's rows, its height and where its
         state stands in it are the same while page 1 is read and while page 2 is, and the sweep crosses the bar. Fitted with
         [이유 추가] only where it showed, the line stacked only while it was read; kept as tall as the reading line's, a
-        resting line's state stood centred in the room, 40-65px off its identifier (#308 review)."""
+        resting line's state stood centred in the room, 40-65px off its identifier (#308 review). The four pages sweep at
+        once (SWEEP_START): nothing here writes to the server after the two verdicts."""
         verdict_as(self, self.WHO, 2, "보류")
         verdict_as(self, self.WHO, 2, "채택")
+        swept = {}
         for lang in ("ko", "en"):
             for vp in ({"width": 1400, "height": 850}, {"width": 1000, "height": 800}):
                 with self.subTest(lang=lang, viewport=vp["width"]):
                     page = self.on("fig", n_open=2, lang=lang, viewport=vp)
                     page.evaluate("setSide(false)")
                     settle(page)
-                    got = page.evaluate(SWEEP_READ)
-                    self.assertEqual((got["bad"], sorted(got["seen"])), ([], [False, True]), got)
-                    page.context.close()
+                    page.evaluate(SWEEP_START)
+                    swept[lang, vp["width"]] = page
+        for (lang, width), page in swept.items():
+            with self.subTest(lang=lang, viewport=width):
+                got = page.evaluate("()=>window.__sweep")
+                self.assertEqual((got["bad"], sorted(got["seen"])), ([], [False, True]), got)
+                page.context.close()
 
     def test_a_key_saved_line_keeps_its_rows_whichever_page_is_read(self):
         """#322 item 2: page 2 with an earlier verdict made elsewhere and the person's own saved here by its key, no reason -
@@ -8351,9 +8365,11 @@ class LinePolish(VerdictBase):
         a tight line shows the earlier link beside it. Page 2's width swept across its bar 8px at a time, Korean and English,
         on the wide band and the side-panel band (1000 x 800): the line's rows, its height and where its state stands in it
         are the same while page 1 is read and while page 2 is, and the sweep crosses the bar. Fitted on the look it showed,
-        the line stacked or took a second row of its state only while it was read (123 against 91px), or only at rest."""
+        the line stacked or took a second row of its state only while it was read (123 against 91px), or only at rest. Each
+        page sweeps while the next one is opened and saves (SWEEP_START), its light poll stopped first (NO_POLL)."""
         verdict_as(self, self.WHO, 2, "보류")
         bands = ({"width": 1400, "height": 850}, {"width": 1000, "height": 800})
+        swept = {}
         for i, (lang, vp) in enumerate((lang, vp) for lang in ("ko", "en") for vp in bands):
             with self.subTest(lang=lang, viewport=vp["width"]):
                 page = self.on("fig", n_open=1 + i, lang=lang, viewport=vp)
@@ -8367,7 +8383,12 @@ class LinePolish(VerdictBase):
                 page.evaluate(END_CHIPS)
                 settle(page)
                 self.assertIn("Enter", page.evaluate(ADD_TEXT, 2))
-                got = page.evaluate(SWEEP_READ)
+                page.evaluate(NO_POLL)
+                page.evaluate(SWEEP_START)
+                swept[lang, vp["width"]] = page
+        for (lang, width), page in swept.items():
+            with self.subTest(lang=lang, viewport=width):
+                got = page.evaluate("()=>window.__sweep")
                 self.assertEqual((got["bad"], sorted(got["seen"])), ([], [False, True]), got)
                 page.context.close()
 
