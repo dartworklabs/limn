@@ -412,11 +412,11 @@ body.compact .pin .head{flex-wrap:nowrap;margin:-6px 0}
 @media (pointer:coarse){body.compact .pin .head{margin:0;height:calc(var(--hit) - var(--space-3));min-height:0}}
 .pin :is(.go-all,.th-n) .lbl{text-box:trim-both cap alphabetic}   /* the head's words on its dot's and chevron's centre, in any font (as line boxes they stood 0.3-0.8px over it, 2.2px in a fallback font) */
 body.compact .pin.open .sum,body.compact .pin.editing .sum{display:none}
-body.compact .pin:not(.open):not(.editing) :is(.tags,.quote,.au,.note,.acts,.head>.sp,.thread,.review-access){display:none}
+body.compact .pin:not(.open):not(.editing) :is(.tags,.quote,.note-h,.cmt>.av,.note,.acts,.head>.sp,.thread,.review-access){display:none}
+body.compact .pin:not(.open):not(.editing) :is(.tl,.cmt,.cmt-b){display:contents}   /* only the facts line is left of the comment: it follows the preview as before, their margins one */
 /* A folded card with a facts line (cards.css) gives it the preview's second line: head, one line of the note, the facts - never
    taller than a card with a two-line preview and nothing to report. */
-body.compact .pin:not(.open):not(.editing):has(>.card-meta:not(.hide-folded)) .sum{-webkit-line-clamp:1}
-body.compact .pin .au .au-n{display:none}
+body.compact .pin:not(.open):not(.editing):has(.card-meta:not(.hide-folded)) .sum{-webkit-line-clamp:1}
 body.lay-narrow{display:block;--ctl-touch-sm:32px;--sheet-gap:48px}   /* the phone sheet's small touch controls are drawn at 32px, a tablet panel's at 36px (tokens.css) */
 body.lay-narrow #main{height:100%}
 body.lay-narrow #left{height:100%}

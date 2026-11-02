@@ -444,9 +444,9 @@ class NoticeFlows(BrowserBase):
                 row.wait_for(state="visible")
                 settle(page)
                 order = page.evaluate(
-                    "[...document.querySelectorAll('#pins > *')].map(e=>e.classList.contains('nt-row')?'row':e.dataset.id)"
+                    "[...document.querySelectorAll('#pins > :not(.day-line)')].map(e=>e.classList.contains('nt-row')?'row':e.dataset.id)"
                 )
-                self.assertEqual(order, [str(first), "row", str(last)])
+                self.assertEqual(order, [str(last), "row", str(first)])  # newest first, the list's default order
                 self.assertEqual(row.locator(".nt-ti").inner_text(), "핀 #%d 삭제됨" % mid)
                 self.assertEqual(row.locator(".nt-d").inner_text(), "휴지통에 30일 보관")
                 self.assertIn("핀 #%d 삭제됨" % mid, page.inner_text("#sr-news"))

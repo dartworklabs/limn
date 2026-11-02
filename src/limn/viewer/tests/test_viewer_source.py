@@ -339,6 +339,8 @@ VIEWER_SETS = {
     "NOTICE_DOT",
     "NOTICE_TOPIC",
     "VD_WHERE",
+    "LIST_ORDER",
+    "STAMP_FORM",
 }
 
 

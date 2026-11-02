@@ -58,6 +58,7 @@ OTHERS = {
     ("list.js", "gotoReview"): 1,
     ("list.js", "jumpToCard"): 1,
     ("list.js", "lazyCards"): 1,
+    ("list.js", "setListOrder"): 1,
     ("mentions.js", "mentionPlace"): 1,
     ("notices.js", "bannerNote"): 1,
     ("outline.js", "outlineFollow"): 1,

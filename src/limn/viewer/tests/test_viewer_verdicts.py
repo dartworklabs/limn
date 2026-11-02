@@ -1212,7 +1212,7 @@ class SupersededMarker(VerdictBase):
         )
 
     def test_a_folded_older_verdict_with_a_note_previews_its_badges(self):
-        """A superseded verdict with a note: folded, its preview is its badge, the marker and the words '메모 있음' (the note
+        """A superseded verdict with a note: folded, its preview is (after its time) its badge, the marker and the words '메모 있음' (the note
         shows when opened); without a note there are no such words; the current verdict's preview leads with its badge and
         then its note (P2-9 of the 0.4.33 review: a note took the whole preview and hid which verdict it was)."""
         page = self.on("ms")
@@ -1230,10 +1230,12 @@ class SupersededMarker(VerdictBase):
         page.evaluate("()=>{setSide(true); drawPins();}")
         settle(page)
         sums = page.evaluate(
-            """ids=>ids.map(id=>{const s=document.querySelector('.pin[data-id="'+id+'"] .sum');
-              return {text: s.textContent, marker: !!s.querySelector('.vd-old'), shown: s.getClientRects().length>0};})""",
+            """ids=>ids.map(id=>{const s=document.querySelector('.pin[data-id="'+id+'"] .sum'),t=s.querySelector('.sum-t');
+              return {text: s.textContent.slice(t?t.textContent.length:0), marker: !!s.querySelector('.vd-old'), shown: s.getClientRects().length>0,
+                time: !!t&&s.firstElementChild===t};})""",
             [a, b],
         )
+        self.assertEqual([s.pop("time") for s in sums], [True, True])  # first, when it was written (§뜻과 모양)
         self.assertEqual(sums[0], {"text": "판정 보류" + replaced(b) + "메모 있음", "marker": True, "shown": True})
         self.assertEqual(sums[1], {"text": "판정 채택새 판단", "marker": False, "shown": True})
 

@@ -96,8 +96,8 @@ interface NoticeRun {
 }
 
 // A message in context (notices.js, docs/handbook/viewer.md §알림 자리): what it says and how (a chip shows its short label),
-// where it is drawn (place, and the banner host, the pin, list section and pin before it for an undo; away once a row's card
-// has left), how long it lives, the chip it marks (dot), the hint topic, the duplicate keys of the status line, whether it is
+// where it is drawn (place, and the banner host, the pin, list section and pin before it for an undo, and for a row the pin
+// as its card was drawn, which orders the row among the cards (rec); away once a row's card has left), how long it lives, the chip it marks (dot), the hint topic, the duplicate keys of the status line, whether it is
 // read out as an alert and comes first on the line (alert), whether its action's request is out (busy), the error source it
 // stands for (one entry each), whether it offers an undo (never evicted), whether a mouse is on it (hover) and its window is
 // held (held), and what runs when it leaves (gone). el is made once and moved.
@@ -109,6 +109,7 @@ interface Notice {
   pin: number | null;
   sec: string;
   prev: number | null;
+  rec: Pin | null;
   kind: string;
   title: string;
   desc: string;

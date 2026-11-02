@@ -147,7 +147,7 @@ class QuoteLine(BrowserBase):
             card,
             "c=>{const q=c.querySelector('.quote'),n=c.querySelector('.note');"
             "return {text:q&&q.querySelector('.q-t').textContent,tip:q&&q.dataset.tip,translate:q&&q.getAttribute('translate'),"
-            "before:!!q&&q.nextElementSibling===n,cut:q&&q.querySelector('.q-t').scrollWidth>q.querySelector('.q-t').clientWidth};}",
+            "before:!!q&&q.nextElementSibling===n.closest('.tl'),cut:q&&q.querySelector('.q-t').scrollWidth>q.querySelector('.q-t').clientWidth};}",
         )
         self.assertEqual(got, {"text": LONG, "tip": LONG, "translate": "no", "before": True, "cut": True})
         self.assertEqual(page.locator('.pin.card[data-id="%d"] .quote' % bare).count(), 0)

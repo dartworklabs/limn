@@ -22,6 +22,13 @@ button.sec-tg{display:inline-flex;align-items:center;gap:var(--space-1);min-widt
 .sec-head button:not(.sec-tg){background:transparent;border-color:transparent;color:var(--muted-foreground);white-space:nowrap}
 @media (hover:hover){.sec-head button:not(.sec-tg):hover{background:var(--accent);color:var(--foreground)}}
 .sec-head button:not(.sec-tg)[aria-pressed=true]{background:var(--accent);border-color:transparent;color:var(--foreground)}
+/* The list's order (docs/handbook/viewer.md §목록 순서): the standard segmented track under the open pins' head. On touch it stands
+   16px under the head: the head's controls reach 10px under it, and its segments' 44px hits reach 4px over the track. */
+@media (pointer:coarse){#list-order{margin-top:var(--space-4)}}
+/* A day of the newest-first order (docs/handbook/viewer.md §목록 순서): its name between two hairlines. */
+.day-line{display:flex;align-items:center;gap:var(--space-2);margin:var(--space-2) 0;color:var(--muted-foreground);font-size:var(--text-sm);font-weight:600;line-height:var(--line-label)}   /* a whole number of px: every card under it starts on a whole pixel */
+.day-line::before,.day-line::after{content:"";flex:1;height:1px;background:var(--border)}
+.day-line:first-child{margin-top:0}
 /* A card far from the list's view is not laid out or painted until it comes near it (list.js lazyCards, issue #305). It stands
    at the height it had when it went (--card-h), or at the one it was last drawn at (auto). */
 #list .pin.card.lazy{content-visibility:auto;contain-intrinsic-block-size:auto var(--card-h)}
