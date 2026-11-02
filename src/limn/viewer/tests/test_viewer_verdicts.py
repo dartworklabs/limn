@@ -7650,9 +7650,15 @@ class RcRound4(VerdictBase):
             "()=>{const L=document.querySelector('#left'),p=document.getElementById('p2'); L.scrollTop+=p.getBoundingClientRect().top-L.getBoundingClientRect().top-L.clientHeight;}"
         )
         settle(page)
+        # 4px a frame, as above. The viewer answers a step in that frame's pvStickSoon callback, which runs after the walk's
+        # own (registered before the scroll event), so each reading sees the viewer's answer to the step before - a scroll
+        # back, a flip, a line's height - and one more frame after the last step reads its answer: every step's answer is read
+        # once, as with two frames a step, in half the frames.
         walk = """async dir=>{const L=document.querySelector('#left'),l1=document.querySelector('#doc .pv[data-page="1"]'); const seq=[PV_READ],hs=new Set(); let back=0,prev=L.scrollTop;
-          for(let i=0;i<300;i++){L.scrollTop+=4*dir; await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
-            if((L.scrollTop-prev)*dir<-0.5)back++; prev=L.scrollTop; if(PV_READ!==seq[seq.length-1])seq.push(PV_READ); hs.add(Math.round(l1.getBoundingClientRect().height));}
+          const frame=()=>new Promise(r=>requestAnimationFrame(r));
+          const read=()=>{if((L.scrollTop-prev)*dir<-0.5)back++; prev=L.scrollTop; if(PV_READ!==seq[seq.length-1])seq.push(PV_READ); hs.add(Math.round(l1.getBoundingClientRect().height));};
+          for(let i=0;i<300;i++){L.scrollTop+=4*dir; await frame(); read();}
+          await frame(); read();
           return {seq,back,heights:[...hs]};}"""
         down = page.evaluate(walk, 1)
         self.assertEqual((down["seq"], down["back"], len(down["heights"])), ([1, 2], 0, 1), down)
