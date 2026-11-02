@@ -250,6 +250,15 @@ READ = (
 }"""
 )
 
+# LOOK([root, unpainted]): READ of the first element the selector root matches (the body without one), as {theme: the
+# theme it was read in, out: READ's answer, or null when root matches nothing} - one round trip a reading.
+LOOK = (
+    "([sel, unpainted]) => {const root = sel ? document.querySelector(sel) : null;"
+    " return {theme: document.documentElement.dataset.theme, out: sel && !root ? null : ("
+    + READ
+    + ")([root, unpainted])};}"
+)
+
 # PAIRS([[key, need]], surfaces): for each dimming rule named, its colour - faded by the opacity of every rule with its
 # selector - drawn on each surface token: the lowest ratio under need, as "key: ratio on --surface"; a rule the page lacks
 # or one without a colour is reported as such.
@@ -268,6 +277,11 @@ PAIRS = (
   return out;
 }"""
 )
+
+# SWITCH(theme): set the theme and finish at once the CSS transitions the switch starts (the controls fade their colours
+# over 120ms): their end is the colour the page then draws, which a wait for them to run out would read as well.
+SWITCH = """t => {const before = new Set(document.getAnimations()); setTheme(t);
+  for (const a of document.getAnimations()) if (a instanceof CSSTransition && !before.has(a)) a.finish();}"""
 
 # The plain surfaces secondary text sits on: the panes, the badge and track fills, and a hover's or a current row's --accent.
 SURFACES = (
@@ -516,17 +530,21 @@ class ContrastWalk(BrowserBase):
 
     # ------------------------------------------------------------ reading
     def look(self, page, state, root=None):
-        """READ root (a selector, or the whole page) in the light and the dark theme, after the switch has settled;
-        each text under its ratio or not composited goes to self.short, each rule a held text used to self.used and each
-        selector of UNPAINTED that excused something to self.excused."""
-        for theme in THEMES:
-            page.evaluate("t=>setTheme(t)", theme)
-            settle(page)
-            handle = page.query_selector(root) if root else None
-            if root and handle is None:
+        """READ root (a selector, or the whole page) in the light and the dark theme: the settled page in the theme on
+        screen, then switched to the other one (SWITCH) and settled - one switch a state (LOOK). Each text under its ratio
+        or not composited goes to self.short, each rule a held text used to self.used and each selector of UNPAINTED that
+        excused something to self.excused."""
+        read = []
+        for _ in THEMES:
+            if read:
+                page.evaluate(SWITCH, next(t for t in THEMES if t not in read))
+                settle(page)
+            got = page.evaluate(LOOK, [root, list(UNPAINTED)])
+            theme, out = got["theme"], got["out"]
+            read.append(theme)
+            if out is None:
                 self.short.append("%s %s: nothing at %s" % (theme, state, root))
                 continue
-            out = page.evaluate(READ, [handle, list(UNPAINTED)])
             self.rules.update(out["rules"])
             self.used.update(out["used"])
             self.excused.update(out["excused"])
@@ -537,6 +555,7 @@ class ContrastWalk(BrowserBase):
                 for t in out["texts"]
                 if t["ratio"] < t["need"]
             )
+        self.assertCountEqual(read, THEMES, state)
 
     def hover(self, page, sel, state):
         """Move the mouse onto the first visible sel and READ it hovered (desktop only: touch answers no hover)."""
@@ -603,8 +622,10 @@ class ContrastWalk(BrowserBase):
                 "k=>bannerNote(NOTICE_HOST.LIST,'알림 제목 — 알림 설명',k,{label:'다시 시도',run:()=>{}},{literal:true})",
                 kind,
             )
+            settle(page)
             self.look(page, "banner " + kind, "#list .nt-banner")
         page.evaluate("()=>lineNote('상태 줄 알림 — 설명',NOTICE_KIND.WARN,{label:'보기',run:()=>{}},{literal:true})")
+        settle(page)
         self.look(page, "status line", "#status")
         page.click("#btn-more")
         page.wait_for_selector("#more[open]")
@@ -673,6 +694,7 @@ class ContrastWalk(BrowserBase):
             settle(page)
         page.evaluate("openTrash()")
         page.wait_for_selector("#trash[open] .arc-row")
+        settle(page)
         self.look(page, "trash", "#trash")
         self.hover(page, "#trash .arc-row", "trash row")
         page.context.close()
@@ -727,6 +749,7 @@ class ContrastWalk(BrowserBase):
             page.wait_for_function("n=>COMPOSE.current.hi===n", arg=hi + 1)
             settle(page)
         page.wait_for_selector("#c-xp .xp-fold")
+        settle(page)
         self.look(page, "folded excerpt", "#composer")
         # The band now overlaps the thread's pin: a note may join it. One Sam Jung picked from the @-list is told by joining
         # and has a separate save - the preview's two groups, apart (.m-sep), each name with its login (.ml).
@@ -747,6 +770,7 @@ class ContrastWalk(BrowserBase):
         page = self.open(2, **DEVICES[self.device])
         self.show_doc(page, "rv")
         page.wait_for_selector("#doc .pv")
+        settle(page)
         self.look(page, "page verdict lines", "#doc")
         self.hover(page, "#doc .pv button", "page verdict word")
         if (
@@ -925,6 +949,7 @@ class WalkCatchesDimmedText(ContrastWalk):
         self.device = "desktop"
         page = self.open(2)
         page.evaluate("h=>document.body.insertAdjacentHTML('beforeend',h)", self.CASES)
+        settle(page)
         self.look(page, "cases", "#zz-cases")
         light = [s for s in self.short if s.startswith("light ")]
         for what, mark in (
@@ -968,6 +993,7 @@ class WalkCatchesDimmedText(ContrastWalk):
         self.device = "desktop"
         page = self.open(2)
         page.evaluate("h=>document.body.insertAdjacentHTML('beforeend',h)", self.UNPAINTED_CASES)
+        settle(page)
         with mock.patch.dict(UNPAINTED, {"#zz-inner": "a synthetic excuse"}):
             self.look(page, "cases", "#zz-blind")
         light = [s for s in self.short if s.startswith("light ")]
