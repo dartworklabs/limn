@@ -5,7 +5,8 @@
   given: a focusable control's explanation is its description, without its name again, in the screen's language, and
   it follows the explanation when that changes.
 - ``TipKeyboard`` holds the WAI-ARIA tooltip pattern: the keyboard's focus shows the box on every device, a tablet
-  without hover too, Esc and leaving the control hide it, and Tab's own scroll does not take it.
+  without hover too, Esc and leaving the control hide it - in a sheet the box before the sheet - and Tab's own scroll does
+  not take it.
 - ``TipReadAlong`` holds a badge's explanation, read with the card: a [제안 수정] warning badge says why the agent will not
   apply it to a screen reader, in its words' language, with nothing changed on screen or in the Tab order, and the words
   are neither copied with a selection nor found by the browser's find.
@@ -232,6 +233,29 @@ class TipKeyboard(TipBase):
         page.wait_for_function("!document.getElementById('tip').hidden", timeout=3000)
         box = page.evaluate(BOX)
         self.assertEqual((box["text"], box["focus"]), (box["tip"], "probe-done"))
+
+    def test_esc_on_a_box_in_the_more_sheet_closes_the_box_first_and_then_the_sheet(self):
+        """[더보기] is a modal dialog - a bottom sheet on a 768x1024 touch tablet, a menu under [⋯] on the desktop. Tab onto
+        its [축소] and its box shows; the first Esc closes only the box, and the sheet and the focus on [축소] stay; the second
+        Esc closes the sheet. The browser's close request used to take the box and the sheet at once."""
+        for name, device, press in (("tablet", TABLET, "tap"), ("desktop", DESK, "click")):
+            with self.subTest(name):
+                page = self.view(device)
+                getattr(page, press)("#btn-more")
+                page.wait_for_function("document.getElementById('more').open")
+                settle(page)
+                zoom = "#more [data-act=zoom-out]"
+                self.tab_to(page, zoom)
+                page.wait_for_function("!document.getElementById('tip').hidden", timeout=3000)
+                self.assertEqual(page.evaluate(BOX)["text"], page.get_attribute(zoom, "data-tip"))
+                page.keyboard.press("Escape")
+                settle(page)
+                state = """sel => [TIP.hidden, document.getElementById('more').open,
+                  document.activeElement === document.querySelector(sel)]"""
+                self.assertEqual(page.evaluate(state, zoom), [True, True, True])
+                page.keyboard.press("Escape")
+                settle(page)
+                self.assertEqual(page.evaluate(state, zoom)[1], False)
 
     def add_pin(self, i):
         """Open pin i+1 on its own line of the demo manuscript."""

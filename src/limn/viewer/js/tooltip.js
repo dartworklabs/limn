@@ -70,9 +70,14 @@ document.addEventListener('focusin',e=>{const t=/** @type {HTMLElement} */(e.tar
   if((t&&t.tagName==='TEXTAREA')||(!keyInput()&&(touchRecent()||MQ_NOHOVER.matches))){if(Date.now()>=SWALLOW_CLICK)hideTip();return;}
   armTip(t.closest?t.closest('[data-tip]'):null);});
 // Esc closes a showing box first (the key dispatch, events.js); one still waiting to show (armTip's 300ms) goes with any Esc, so
-// it never opens after the key that dismissed it.
+// it never opens after the key that dismissed it. A box over a control in an open sheet, menu or help (a modal dialog) takes
+// its Esc here, before the dialog: the key dispatch leaves an open dialog's Esc to the browser, whose close request took the
+// box, the sheet and the focused control at once. Its default is prevented so the dialog stays; the next Esc closes it. While
+// typing in a field the Esc goes on as before, as the key dispatch lets a field's Esc go on past the box.
 /** @param {KeyboardEvent} e */
-function tipEscKey(e){if(e.key==='Escape'&&TIP.hidden)hideTip();}
+function tipEscKey(e){if(e.key!=='Escape')return; if(TIP.hidden){hideTip(); return;}
+  const at=TIP_AT&&TIP_AT.el; if(!at||!at.closest('dialog[open]')||typingNow())return;
+  hideTip(); e.preventDefault(); e.stopImmediatePropagation();}
 document.addEventListener('keydown',tipEscKey,true);
 // Long-press tooltip (touch/pen): holding for 500ms shows the description, and the one click after release is swallowed (so the button doesn't fire).
 // Over a page image, quick selection (long-press = that paragraph) takes priority, so only badges (.mark [data-act=mark-jump]) apply. Input fields keep their paste menu.
