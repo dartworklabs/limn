@@ -1,0 +1,74 @@
+name: Browser tests
+
+# One Python version's browser suite (the `browser` marker), split in parts that run at once on their own runners.
+# ci.yml calls this once per version and reports the version's result under the check name branch protection requires.
+#
+# `--shard i/n` (tests/support/helpers_shards.py) gives part i whole test classes, the way `--dist loadscope` keeps a
+# class on one worker, balanced by the seconds each class took in a measured run (tests/data/shard_seconds.json). The
+# parts add up to the suite whatever that file says: a class it does not know weighs its tests at the measured mean and
+# still runs in exactly one part (tests/architecture/test_ci_shards.py). Each part runs the heaviest classes first, so
+# the slowest class does not start last.
+#
+# Each part keeps the unsplit job's two workers on the same four-CPU runner, so a test's time is what it was there;
+# more workers would race the same CPUs in tests that measure layout. The count of parts is the shard list below. The
+# limits follow ci.yml's rule: about twice a part's usual length, which is its time to set up plus a share of the
+# suite's (see the shard list), and the browser download keeps its own shorter limit.
+on:
+  workflow_call:
+    inputs:
+      python:
+        description: The Python version to run the browser suite on
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  part:
+    name: part ${{ matrix.shard }}/${{ strategy.job-total }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        # The parts. --shard takes their count from the matrix size (strategy.job-total), so this list is the one place
+        # to change it. The unsplit job spent about 40 minutes in pytest with two workers: five parts spend about 8 each,
+        # after about 2 to set up. The slowest class (about 5 minutes) is the floor of a part; more parts would save
+        # little past it and the setup, and would queue behind the account's limit of runners at once.
+        shard: [1, 2, 3, 4, 5]
+    env:
+      # Browser layout tests must run here, not skip.
+      LIMN_TEST_REQUIRE_BROWSER: "1"
+      # So must the node --check of the served page's inline scripts (src/limn/viewer/tests/test_viewer_files.py): node 22 is set up below.
+      LIMN_TEST_REQUIRE_NODE: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Full history and tags, as in ci.yml's test job: tests load earlier releases with git show.
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.12.23"
+          python-version: ${{ inputs.python }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+      - name: Install dev dependencies
+        run: uv sync --group dev --locked
+      # `--with-deps` installs the browsers' system libraries with apt-get. The image lists a regional Azure mirror
+      # first, which has served a whole install at about 30 kB/s; use the main archive only, and give up on a stalled
+      # connection after 30 seconds rather than waiting on it. ci.yml's tex job does the same before its apt-get.
+      - name: Point apt at the main Ubuntu archive
+        run: |
+          printf '%s\n' 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          printf '%s\n' 'Acquire::Retries "3";' 'Acquire::https::Timeout "30";' 'Acquire::http::Timeout "30";' \
+            | sudo tee /etc/apt/apt.conf.d/80-ci-timeouts >/dev/null
+      # Every engine on every part: which part holds a Firefox or WebKit class follows the timings, and a part without
+      # the engine its class needs would fail (LIMN_TEST_REQUIRE_BROWSER) rather than skip.
+      - name: Install Playwright browsers
+        timeout-minutes: 10
+        run: uv run playwright install --with-deps chromium firefox webkit
+      - name: Browser tests, one part
+        run: uv run pytest -q -rs -n 2 -m browser --shard ${{ matrix.shard }}/${{ strategy.job-total }} -o faulthandler_timeout=600

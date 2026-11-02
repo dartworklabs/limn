@@ -3,11 +3,11 @@ name: CI
 on:
   push:
     branches: [main]
-    tags: ["v*"]
   pull_request:
 
-# A new PR revision supersedes that PR's older read-only checks. Main and tag
-# runs keep a unique group so every integration and release tree is validated.
+# A new PR revision supersedes that PR's older read-only checks. Main runs keep a unique group so every integration
+# tree is validated. A release tag does not run: it points at the merge commit whose push to main has just run the
+# whole workflow on that same tree, and nothing reads a tag's run (`limn update` installs a tag without asking CI).
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
@@ -22,12 +22,12 @@ permissions:
 # the system packages under Playwright's `--with-deps`, bwrap and the shell tests without any change here. Move to a
 # newer image in its own pull request, where a failure is attributable to the image.
 #
-# A stuck job fails instead of holding a runner for GitHub's six-hour default. Each job's `timeout-minutes` is about
-# twice its usual length and never under 15 minutes, and the steps that download from the Ubuntu archive have their
-# own shorter limit, so the step that stalled is the one marked failed. Every pytest run sets `faulthandler_timeout`:
-# a test still running after 600 seconds prints the stack of every thread, which names the test and the line it is
-# waiting on, while the run carries on. The slowest browser test takes a little over two minutes on a fast machine,
-# and 600 seconds still leaves each job's limit room to print the stack before it stops the job.
+# A stuck job fails instead of holding a runner for GitHub's six-hour default. Each job's `timeout-minutes` (the browser
+# parts' in browser.yml too) is about twice its usual length and never under 15 minutes, and the steps that download
+# from the Ubuntu archive have their own shorter limit, so the step that stalled is the one marked failed. Every pytest
+# run sets `faulthandler_timeout`: a test still running after 600 seconds prints the stack of every thread, which names
+# the test and the line it is waiting on, while the run carries on. The slowest browser test takes a little over two
+# minutes on a fast machine, and 600 seconds still leaves each job's limit room to print the stack before it stops the job.
 jobs:
   lint:
     runs-on: ubuntu-24.04
@@ -67,23 +67,19 @@ jobs:
 
   test:
     runs-on: ubuntu-24.04
-    # Not a matrix value: every matrix value is part of the job's name, which branch protection requires as is.
-    timeout-minutes: ${{ matrix.suite.name == 'browser' && 45 || 15 }}
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
         python: ["3.10", "3.12"]
+        # The browser suite runs in parts (browser-3-10 and browser-3-12 below). The suite keeps its three values: every
+        # matrix value is part of the job's name, which branch protection requires as is.
         suite:
           - name: core
             markers: "not browser and not tex"
             workers: 4
-          - name: browser
-            markers: "browser"
-            workers: 2
     env:
-      # Browser layout tests must run here, not skip.
-      LIMN_TEST_REQUIRE_BROWSER: ${{ matrix.suite.name == 'browser' && '1' || '0' }}
-      # So must the node --check of the served page's inline scripts (src/limn/viewer/tests/test_viewer_files.py): node 22 is set up below.
+      # The node --check of the served page's inline scripts (src/limn/viewer/tests/test_viewer_files.py) must run here: node 22 is set up below.
       LIMN_TEST_REQUIRE_NODE: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -100,21 +96,55 @@ jobs:
           node-version: "22"
       - name: Install dev dependencies
         run: uv sync --group dev --locked
-      # `--with-deps` installs the browsers' system libraries with apt-get. The image lists a regional Azure mirror
-      # first, which has served a whole install at about 30 kB/s; use the main archive only, and give up on a stalled
-      # connection after 30 seconds rather than waiting on it. The tex job does the same before its apt-get.
-      - name: Point apt at the main Ubuntu archive
-        if: matrix.suite.name == 'browser'
-        run: |
-          printf '%s\n' 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
-          printf '%s\n' 'Acquire::Retries "3";' 'Acquire::https::Timeout "30";' 'Acquire::http::Timeout "30";' \
-            | sudo tee /etc/apt/apt.conf.d/80-ci-timeouts >/dev/null
-      - name: Install Playwright browsers
-        if: matrix.suite.name == 'browser'
-        timeout-minutes: 10
-        run: uv run playwright install --with-deps chromium firefox webkit
       - name: Python tests
         run: uv run pytest -q -rs -n ${{ matrix.suite.workers }} -m "${{ matrix.suite.markers }}" -o faulthandler_timeout=600
+
+  # Each Python version's browser suite, in parts on their own runners (browser.yml). Two jobs, not one matrix: a job
+  # can wait on another job as a whole, not on some of its matrix entries, and each version's result below must come
+  # from that version's parts alone.
+  browser-3-10:
+    name: browser (3.10)
+    uses: ./.github/workflows/browser.yml
+    with:
+      python: "3.10"
+
+  browser-3-12:
+    name: browser (3.12)
+    uses: ./.github/workflows/browser.yml
+    with:
+      python: "3.12"
+
+  # Branch protection requires the names the unsplit browser jobs had (their matrix values: Python, suite, markers,
+  # workers). Each passes only when every part of its version's suite passed: a failed, cancelled or skipped part fails
+  # it. `always()` runs it in those cases too - a job skipped by its condition reports success, which a required check
+  # takes as a pass.
+  browser-result-3-10:
+    name: test (3.10, browser, browser, 2)
+    needs: browser-3-10
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Every part of the 3.10 browser suite passed
+        env:
+          RESULT: ${{ needs.browser-3-10.result }}
+        run: |
+          echo "browser (3.10): $RESULT"
+          [ "$RESULT" = success ]
+
+  browser-result-3-12:
+    name: test (3.12, browser, browser, 2)
+    needs: browser-3-12
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Every part of the 3.12 browser suite passed
+        env:
+          RESULT: ${{ needs.browser-3-12.result }}
+        run: |
+          echo "browser (3.12): $RESULT"
+          [ "$RESULT" = success ]
 
   macos:
     # macOS semantics for tests that need no TeX or Chromium: BSD
@@ -265,7 +295,7 @@ jobs:
         with:
           version: "0.12.23"
           python-version: "3.12"
-      # The same apt settings as the browser jobs' (see the test job).
+      # The same apt settings as the browser parts' (see browser.yml).
       - name: Point apt at the main Ubuntu archive
         run: |
           printf '%s\n' 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
