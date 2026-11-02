@@ -277,7 +277,7 @@ LaTeX 문서의 줄 핀만 제안을 가진다. 그림 스크립트의 줄에는
 
 ### 누가 넣나
 
-에이전트는 `suggest_state` 가 `ready` 일 때만 `suggest.text` 를 그 줄 범위에 글자 그대로 넣는다. 문장을 다듬거나 바꾸지 않는다. `changed` 나 `unknown` 이면 넣지 않고 핀에 답글로 알린 뒤 열어 둔다. 정확한 글자의 정본은 JSON(`GET /api/pins/{id}` 의 `suggest.text`)이다. `pins.md` 의 블록은 같은 글을 사람이 읽기 좋게 옮긴 것이다. 절차는 [SKILL.ko.md](../../skill/SKILL.ko.md) §제안 수정 핀에 있다.
+에이전트는 `suggest_state` 가 `ready` 일 때만 `suggest.text` 를 그 줄 범위에 넣는다. 넣기 전에 앞뒤 글과 대조해 명백한 오류(오타·문장 오류·논리 모순)만 본다. 오류가 없으면 글자 그대로 넣고, 문장을 다듬거나 바꾸지 않는다. 고칠 길이 하나이고 뜻이 그대로인 오타·문장 오류만 최소로 고친다. 이때 원안을 그대로 넣은 커밋과 교정 커밋을 나누고, 고친 곳을 닫기 답글과 PR 본문에 적는다. 고칠 길이 여럿이거나 주장·수치·조건·인용 범위를 바꿔야 하면 넣지 않고 문제와 최소 수정안을 답글로 묻는다. 핀의 `suggest` 는 작성자의 원안 기록이라 고치지 않는다. 문체·취향·압축은 오류가 아니다. 이 범위는 명백한 오류를 고치라는 것이지 문장을 다시 쓰라는 것이 아니다. 출처: [ADR-0024](../adr/0024-suggested-edit-obvious-errors.md#결정). `changed` 나 `unknown` 이면 넣지 않고 핀에 답글로 알린 뒤 열어 둔다. 정확한 글자의 정본은 JSON(`GET /api/pins/{id}` 의 `suggest.text`)이다. `pins.md` 의 블록은 같은 글을 사람이 읽기 좋게 옮긴 것이다. 절차는 [SKILL.ko.md](../../skill/SKILL.ko.md) §제안 수정 핀에 있다.
 
 실행 정본은 [`limn/pins/suggestion.py`](../../src/limn/pins/suggestion.py)의 `Suggestion`·`lines_text`·`suggest_state`(순수 계산), [`pins/editing/rules.py`](../../src/limn/pins/editing/rules.py)의 `check_suggestion`·`decide_new_suggestion`·`decide_edit`(받을지 판단), [`pins/listing/projection.py`](../../src/limn/pins/listing/projection.py)의 `suggest_view`(읽을 때의 상태), [`pins/listing/render.py`](../../src/limn/pins/listing/render.py)의 `suggestions_md`(`## 제안 문안` 절)다. 파일은 조립 지점이 검사된 원고 핸들로 읽어 넘긴다.
 

@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.4.43 — 2026-11-02
+
+### Changed
+
+- **A suggested edit is checked for obvious errors before it goes in** ([ADR-0024](docs/adr/0024-suggested-edit-obvious-errors.md)).
+  Agents used to apply a suggestion character for character, so a typo or a contradiction in the author's own text went
+  into the manuscript as written, and review let it pass as the author's words.
+  - **The check:** the agent now reads the suggestion against the lines around it for three things only: typos, broken
+    sentences and logical contradictions.
+  - **No error:** it goes in as written.
+  - **A typo or broken sentence with one fix that keeps the meaning:** the agent fixes it minimally. It commits the
+    suggestion as written first, then the fix, and lists each fix in the closing reply and the PR.
+  - **More than one fix, or a fix that would change a claim, number, condition or what a citation supports:** the
+    agent applies nothing. It replies with the passage, the problem and a minimal fix, and leaves the pin open.
+  - **What stays:** the pin keeps the author's text as written. `changed` and `unknown` are still not applied. Style,
+    taste and making a sentence shorter are not errors.
+  - **Where it shows:** the `pins.md` guidance clause and legend entry, both skills, and the viewer's [제안 수정] switch
+    and card badge explanations say this instead of "word for word".
+
+### Internal
+
+- **CI takes about 10 minutes instead of 42-44.** Each Python version's browser suite runs in five parts on their own
+  runners. Each part gets whole test classes, balanced by measured seconds (`--shard i/n`,
+  `tests/data/shard_seconds.json`, refreshed with `--shard-record`). A class the timings do not know is weighed by the
+  mean, so it still runs. The required checks keep their names and fail unless every part passed. Release tags no longer
+  run CI, because a tag's commit is the merge commit main already ran (#369, #374).
+- **Cheaper slow browser tests, nothing weakened.** ManyCardsWhileThePdfScrolls built its 300 pins with each re-reading
+  every earlier one (287-337 s → 62-80 s). Other tests repeated loads, typing, theme switches or real waits:
+  - LinePolish and the seen holds use several pages at once, each wait keeping its own deadline. The handbook now
+    describes when that is allowed.
+  - The slow phone scroll waits one frame per 4 px step, as its docstring says, instead of two.
+  - Four assignee tests stopped repeating loads and typing.
+  - The contrast test makes one theme switch per state.
+
+  Each change was proven by mutations that fail the old and the new test alike (#370-#373).
+
 ## 0.4.42 — 2026-11-02
 
 ### Changed
