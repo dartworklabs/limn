@@ -68,7 +68,7 @@ function noticeDot(want,sideOpen){return want===NOTICE_DOT.SIDE&&sideOpen?'':wan
 /** @param {Partial<Notice>&{msg:string}} o @returns {Notice} */
 function makeNotice(o){const [title,desc]=msgSplit(o.msg);
   const n=/** @type {Notice} */({n:++NOTICE_SEQ,place:o.place||NOTICE_PLACE.LINE,host:o.host||'',pin:o.pin==null?null:o.pin,sec:o.sec||'',
-    prev:o.prev==null?null:o.prev,kind:o.kind||NOTICE_KIND.OK,title,desc,label:o.label||'',act:o.act||null,literal:!!o.literal,keys:o.keys||[],
+    prev:o.prev==null?null:o.prev,rec:o.rec||null,kind:o.kind||NOTICE_KIND.OK,title,desc,label:o.label||'',act:o.act||null,literal:!!o.literal,keys:o.keys||[],
     rank:o.rank||1,at:Date.now(),life:o.life||NOTICE_LIFE.STICKY,dot:o.dot||'',topic:o.topic||'',save:!!o.save,pending:!!o.pending,away:false,
     alert:!!o.alert,busy:false,source:o.source||'',undo:!!o.undo,quiet:!!o.quiet,hover:false,held:false,timer:undefined,gone:o.gone||null,el:null});
   NOTICES.set(n.n,n); return n;}
@@ -230,6 +230,7 @@ function endNotice(n,acted,seen){if(!NOTICES.has(n.n))return; NOTICES.delete(n.n
   const li=LINE.indexOf(n); if(li>=0){LINE.splice(li,1); lineHoverOut();}
   if(n.place===NOTICE_PLACE.BANNER&&BANNERS.get(n.host)===n)BANNERS.delete(n.host);
   if(n.el)n.el.remove();
+  if(n.place===NOTICE_PLACE.ROW)dropBareDayLines();   // a day line drawn for this row alone goes with it
   if((acted||seen)&&n.dot&&!LINE.some(x=>x.dot===n.dot))document.body.classList.remove('dot-'+n.dot);
   if(n.place===NOTICE_PLACE.LINE)drawStatus(); if(n.place===NOTICE_PLACE.BANNER){syncSaveBtn(); tipFollow();}   // what was under it moved up
   if(!acted&&n.gone){const g=n.gone; n.gone=null; g();}}
@@ -369,7 +370,8 @@ new MutationObserver(()=>{if($('#composer').hidden){const n=BANNERS.get(NOTICE_H
   .observe($('#composer'),{attributes:true,attributeFilter:['hidden']});
 
 // Rows in a card's place and notes in a card, after drawPins drew the list. A row waits until its card has left the section
-// (away), then goes after the card drawn before it (prev), or first; once its pin is back in that section, what it offers to
+// (away), then goes into the slot the list drew where its pin would stand in the list's order (cardRows: under its day line), or
+// for a row made after that draw where placeRow puts it; once its pin is back in that section, what it offers to
 // undo is undone and it goes - unless it holds a deferred send, whose card stays out until the send. A note goes above its
 // card's buttons (or a done pin's row's end); a note whose card is not drawn moves to the status line (offerToLine).
 // focus = what noticeFocus() saw before the redraw.
@@ -378,8 +380,8 @@ function drawOffers(focus){NOTICES.forEach(n=>{
   if(n.place===NOTICE_PLACE.ROW){const box=n.sec==='review'?$('#review-pins'):$('#pins');
     if(box.querySelector('.pin.card[data-id="'+n.pin+'"]')){if(n.away&&!n.gone)endNotice(n,true); else if(n.el)n.el.remove(); return;}
     n.away=true; if(n.sec==='review')$('#sec-review').hidden=false;   // its last card may just have left (drawPins keeps it shown too)
-    const e=noticeEl(n,'nt-row'),prev=n.prev!=null?box.querySelector('.pin.card[data-id="'+n.prev+'"]'):null;
-    if(prev)prev.after(e); else box.prepend(e);}
+    const e=noticeEl(n,'nt-row'),slot=box.querySelector('.nt-slot[data-slot="'+n.n+'"]');
+    if(slot)slot.replaceWith(e); else placeRow(box,n,e);}
   else if(n.place===NOTICE_PLACE.CARD){const c=document.querySelector('#list .pin.card[data-id="'+n.pin+'"],#list .arc-row[data-id="'+n.pin+'"]');
     if(!c){offerToLine(n); return;}
     const e=noticeEl(n,'nt-note'),acts=c.querySelector(':scope>.acts'); if(acts)acts.before(e); else c.appendChild(e);}});

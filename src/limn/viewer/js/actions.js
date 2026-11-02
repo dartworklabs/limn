@@ -1,11 +1,11 @@
 // [완료] on an open card. Done (or sent to review, for a screen without identity): a row in the card's place with [되돌리기]
 // (reopenPin) for NOTICE_MS - other presses never end it (docs/handbook/viewer.md §알림 자리). A refusal: a banner on top
 // of the panel.
-async function closePin(id){const prev=drawnBefore($('#pins'),'.pin.card',id);
+async function closePin(id){const prev=drawnBefore($('#pins'),'.pin.card',id),rec=OPEN_ALL.find(p=>p.id===id)||null;
   try{const {data}=await api('/api/pins/'+id+'/close',{method:'POST',what:'완료',where:NOTICE_HOST.LIST,retry:()=>closePin(id)});
   if(!data.ok){bannerNote(NOTICE_HOST.LIST,tl('완료 실패 — 핀 #{id} 이 없습니다',{id}),NOTICE_KIND.ERR);}
   else {markMine(id); undoNote(NOTICE_PLACE.ROW,tl(data.state===PIN_STATE.REVIEW?'핀 #{id} 검토 대기로 보냄 — 이 화면에 신원이 없어(로컬) 에이전트가 닫은 것으로 칩니다':'핀 #{id} 완료',{id}),
-    {label:'되돌리기',wait:true,fn:()=>reopenPin(id)},{pin:id,sec:'open',prev});}}catch(e){} await loadPins();}
+    {label:'되돌리기',wait:true,fn:()=>reopenPin(id)},{pin:id,sec:'open',prev,rec});}}catch(e){} await loadPins();}
 // Awaiting review -> done; the person who confirmed (confirmed_by) is recorded. The card's [확인] and the changes view's guide
 // line call this one function. Like a reply it is a deferred send: the card leaves the review section at once (CONFIRMING keeps
 // it out of every pin snapshot meanwhile, derivePinLists), a row in its place offers [되돌리기] for NOTICE_MS and the request
@@ -48,7 +48,7 @@ function confirmPin(id){if(CONFIRMING.has(id))return; const at=REVIEW_ALL.findIn
       if(now&&!REVIEW_ALL.some(p=>p.id===id)){const i=Math.min(at,REVIEW_ALL.length); REVIEW_ALL=[...REVIEW_ALL.slice(0,i),now,...REVIEW_ALL.slice(i)];}
       else if(pin&&!now&&![OPEN_ALL,REVIEW_ALL,DONE_ALL].some(l=>l.some(p=>p.id===id)))lineNote(tl('핀 #{id} 은 그사이 다른 곳에서 지워졌습니다',{id}),NOTICE_KIND.WARN);
       drawPins(); marks();});
-  deferredNote(d,NOTICE_PLACE.ROW,tl('핀 #{id} 확인 · 완료로 옮겼습니다',{id}),{pin:id,sec:'review',prev});}
+  deferredNote(d,NOTICE_PLACE.ROW,tl('핀 #{id} 확인 · 완료로 옮겼습니다',{id}),{pin:id,sec:'review',prev,rec:pin});}
 // Undo of [완료] (its row's [되돌리기]) - the viewer has no [다시 열기] button any more; a reply reopens by the server rule.
 // Silent: the card comes back. Resolves with whether the pin was reopened (the row waits for it, noticeAct).
 /** @param {number} id @returns {Promise<boolean>} */
@@ -60,7 +60,7 @@ async function reopenPin(id){let ok=false; try{await api('/api/pins/'+id+'/reope
 // the composer comes back too). o.say: the caller says the drop and offers its undo where it was pressed (a page line's
 // [판정 취소], verdict.js pvCancel), o.where is where a failure is said and o.what what it names. Resolves with whether the pin was deleted.
 /** @param {number|null} id @param {boolean} undoSave @param {()=>unknown} [again] @param {{say?:()=>void,where?:string,what?:string}} [o] @returns {Promise<boolean>} */
-async function dropPin(id,undoSave,again,o){const was=OPEN_ALL,applied=PINS_APPLIED_SEQ,prev=drawnBefore($('#pins'),'.pin.card',id); let ok=false,lost=false;
+async function dropPin(id,undoSave,again,o){const was=OPEN_ALL,applied=PINS_APPLIED_SEQ,prev=drawnBefore($('#pins'),'.pin.card',id),rec=was.find(p=>p.id===id)||null; let ok=false,lost=false;
   OPEN_ALL=OPEN_ALL.filter(p=>p.id!==id); PINS=PINS.filter(p=>p.id!==id); if(EDITOR.current&&EDITOR.current.id===id)EDITOR.current=null; drawPins(); marks();
   markMine(id);   // this person's own drop: the next list never says someone else deleted it, also when the answer is lost
   const src='POST /api/pins/'+id+'/drop';
@@ -79,7 +79,7 @@ async function dropPin(id,undoSave,again,o){const was=OPEN_ALL,applied=PINS_APPL
   if(ok){markMine(id);
     if(undoSave)quietNote(tl('핀 #{id} 저장을 되돌렸습니다',{id}));
     else if(o&&o.say)o.say();
-    else undoNote(NOTICE_PLACE.ROW,tl('핀 #{id} 삭제됨 · 휴지통에 30일 보관',{id}),{label:'되돌리기',wait:true,fn:()=>restorePin(id)},{pin:id,sec:'open',prev});}
+    else undoNote(NOTICE_PLACE.ROW,tl('핀 #{id} 삭제됨 · 휴지통에 30일 보관',{id}),{label:'되돌리기',wait:true,fn:()=>restorePin(id)},{pin:id,sec:'open',prev,rec});}
   return ok;}
 // [영구 삭제] (owner): the row leaves the Trash at once and a row in its place offers [되돌리기]; the request goes out when that
 // row does (deferred, NOTICE_MS).

@@ -634,7 +634,8 @@ class TimelineRail(TimelineFixture):
 class OrderControl(TimelineFixture):
     """[최신순 | 쪽순 | 번호순] over the list: what it does to both sections and what follows the order drawn."""
 
-    ROWS = """box => [...document.querySelector(box).children].map(e => e.matches('.pin') ? Number(e.dataset.id) : e.textContent)"""
+    ROWS = """box => [...document.querySelector(box).children].map(e => e.matches('.pin') ? Number(e.dataset.id) : e.matches('.nt-row') ? 'row'
+      : e.matches('.day-line') ? e.textContent : e.className)"""
 
     def rows(self, page, box="#pins"):
         """The list's rows top to bottom: a card's pin id, a day line's words."""
@@ -803,6 +804,68 @@ class OrderControl(TimelineFixture):
         self.card(page, a).locator("[data-act=drop]").focus()
         page.keyboard.press("Enter")
         page.wait_for_function("id => document.activeElement.closest('.pin[data-id=\"' + id + '\"]')", arg=c)
+
+    def four(self):
+        """three() and a fourth pin, d, from today but older than b: today holds b then d, yesterday a alone, then c."""
+        a, b, c = self.three()
+        d = self.pin(note="라", lo=24, hi=24, page=2)
+        self.age(**{"p%d" % d: ago(hours=1)})
+        return a, b, c, d
+
+    def test_an_undo_row_takes_its_cards_place_under_its_day_line(self):
+        """Deleting or completing the first card of a day: the row stands under that day's line, where the card was, at 1440
+        and 1920 wide; [되돌리기] brings the card back to its place and the row goes."""
+        for width, height in ((1440, 900), (1920, 1080)):
+            for act in ("drop", "close"):
+                with self.subTest(width=width, act=act):
+                    self.tearDown()
+                    self.setUp()
+                    a, b, c, d = self.four()
+                    page = self.show(4, {"viewport": {"width": width, "height": height}})
+                    full = ["오늘", b, d, "어제", a, "2025년 9월 25일", c]
+                    self.assertEqual(self.rows(page), full)
+                    line = page.locator("#pins > .day-line").first.bounding_box()["y"]
+                    self.card(page, b).locator("[data-act=%s]" % act).click()
+                    page.wait_for_selector("#pins > .nt-row")
+                    settle(page)
+                    self.assertEqual(self.rows(page), ["오늘", "row", d, "어제", a, "2025년 9월 25일", c])
+                    self.assertEqual(page.locator("#pins > .day-line").first.bounding_box()["y"], line)
+                    page.locator("#pins > .nt-row [data-act=notice-act]").click()
+                    page.wait_for_function(
+                        "id => document.querySelector('#pins > .pin[data-id=\"' + id + '\"]')", arg=b
+                    )
+                    settle(page)
+                    self.assertEqual(self.rows(page), full)
+
+    def test_a_days_only_card_leaves_its_line_with_the_row_until_the_row_goes(self):
+        """Yesterday's only card deleted: its line stays over the row (the row belongs to that day), and goes with it when [x]
+        takes the row; undone instead, the card comes back under it."""
+        a, b, c, d = self.four()
+        page = self.show(4)
+        self.card(page, a).locator("[data-act=drop]").click()
+        page.wait_for_selector("#pins > .nt-row")
+        settle(page)
+        self.assertEqual(self.rows(page), ["오늘", b, d, "어제", "row", "2025년 9월 25일", c])
+        page.locator("#pins > .nt-row [data-act=notice-act]").click()
+        page.wait_for_function("id => document.querySelector('#pins > .pin[data-id=\"' + id + '\"]')", arg=a)
+        settle(page)
+        self.assertEqual(self.rows(page), ["오늘", b, d, "어제", a, "2025년 9월 25일", c])
+        self.card(page, a).locator("[data-act=drop]").click()
+        page.wait_for_selector("#pins > .nt-row")
+        page.locator("#pins > .nt-row [data-act=notice-x]").click()
+        page.wait_for_function("!document.querySelector('#pins > .nt-row')")
+        self.assertEqual(self.rows(page), ["오늘", b, d, "2025년 9월 25일", c])
+
+    def test_the_review_sections_row_takes_its_cards_place_too(self):
+        """[확인] on the first review card of a day: its row stands under that day's line in the review section."""
+        a, b, c, d = self.four()
+        for pid in (a, b, c, d):
+            self.close(pid)
+        self.pin(note="열린 핀")
+        page = self.show(1)
+        self.card(page, b).locator("[data-act=confirm]").click()
+        page.wait_for_selector("#review-pins > .nt-row")
+        self.assertEqual(self.rows(page, "#review-pins"), ["오늘", "row", d, "어제", a, "2025년 9월 25일", c])
 
     def test_a_row_left_in_a_cards_place_stands_after_the_card_drawn_before_it(self):
         """[완료]'s undo row goes where the card was in the order drawn, past a day line, and takes the card's place in the walk."""

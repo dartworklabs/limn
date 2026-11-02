@@ -13,12 +13,15 @@
 - **A card's thread is a timeline.** A line runs through the avatars from the first comment to the last entry, with no divider
   above the thread. State records have a coloured dot in the avatar's place, their time beside the name and what happened on
   the next line. A card with no thread has no line.
+- **A long name keeps its time beside it.** A comment's, a reply's or a state record's name ends in an ellipsis on the head's
+  line, so the list never scrolls sideways and the time stays in view; the whole name is its description.
 
 ### Added
 
 - **The pin list has an order.** `[최신순 | 쪽순 | 번호순]` under the open pins' head orders the open and review sections:
   newest first with a line per day (the default), by page and line, or as before by number. The choice stays in this browser
-  across documents, and Tab, focus, jumps and undo rows follow the order drawn. `pins.md` and the HTTP API are unchanged.
+  across documents, and Tab, focus, jumps and undo rows follow the order drawn: an undo row stands under its day's line where
+  its card was, and a day's line stays while the row of its only card does. `pins.md` and the HTTP API are unchanged.
 
 ## 0.4.41 — 2026-11-02
 
