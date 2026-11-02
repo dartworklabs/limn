@@ -173,18 +173,27 @@ function cardRows(list,sec){const now=Date.now(),slots=new Map(); let day='';
   if(ORDER!==LIST_ORDER.ID)for(const n of NOTICES.values())if(n.place===NOTICE_PLACE.ROW&&n.sec===sec&&n.rec&&!list.some(p=>p.id===n.pin))slots.set(n.rec,n.n);
   return html`${orderPins(list.concat([...slots.keys()]),ORDER).map(p=>{const d=ORDER===LIST_ORDER.NEW?dayName(p.at,now):'',over=d&&d!==day?html`<div class="day-line"><span>${d}</span></div>`:''; if(d)day=d;
     const slot=slots.get(p); return html`${over}${slot?html`<div class="nt-slot" data-slot="${slot}"></div>`:card(p)}`;})}`;}
-// Where undo row e of notice n goes in list section box when the list drew no slot for it (the row came after that draw): after
-// the card drawn before it (prev) - in the newest-first order only when that card is of the row's day; else under its day's
-// line; else, its day having no card left, under a line made for it there, which stays while the row does (dropBareDayLines).
-// With no card before it, first.
+// Where undo row e of notice n goes in list section box when the list drew no slot for it (the row came after that draw): where
+// the list's next draw puts its slot (cardRows), so that draw moves nothing. Its place is by orderPins among what is drawn -
+// the cards and the other rows that know their pins: after the one before it when that is of its day (newest first; in the
+// page order always), else before the one after it when that is, else, its day having nothing else, under a line made for it
+// between the two, which stays while the row does (dropBareDayLines). In the server's order, or for a row that does not know
+// its pin, it follows the card drawn before it (prev), else it goes first.
 /** @param {HTMLElement} box @param {Notice} n @param {HTMLElement} e */
-function placeRow(box,n,e){const prev=n.prev!=null?box.querySelector('.pin.card[data-id="'+n.prev+'"]'):null,d=n.rec&&ORDER===LIST_ORDER.NEW?dayName(n.rec.at):'';
-  const dayOf=(/** @type {Element} */el)=>{let x=el.previousElementSibling; while(x&&!x.matches('.day-line'))x=x.previousElementSibling; return x?x.textContent:'';};
-  if(!d||(prev&&dayOf(prev)===d)){if(prev)prev.after(e); else box.prepend(e); return;}
-  let line=[...box.querySelectorAll(':scope>.day-line')].find(l=>l.textContent===d);
-  if(!line){const l=document.createElement('div'); l.className='day-line'; l.append(document.createElement('span')); /** @type {HTMLElement} */(l.firstChild).textContent=d;
-    if(prev)prev.after(l); else box.prepend(l); line=l;}
-  line.after(e);}
+function placeRow(box,n,e){const prev=n.prev!=null?box.querySelector('.pin.card[data-id="'+n.prev+'"]'):null;
+  if(!n.rec||ORDER===LIST_ORDER.ID){if(prev)prev.after(e); else box.prepend(e); return;}
+  const drawn=/** @type {Map<Pin,Element>} */(new Map());
+  for(const el of box.children){const h=/** @type {HTMLElement} */(el),o=h.matches('.pin.card')?findAnyPin(Number(h.dataset.id)):h.matches('.nt-row')?((NOTICES.get(Number(h.dataset.n))||{}).rec||null):null;
+    if(o&&o!==n.rec)drawn.set(o,el);}
+  const order=orderPins([...drawn.keys(),n.rec],ORDER),i=order.indexOf(n.rec),before=order[i-1],after=order[i+1],now=Date.now();
+  const day=(/** @type {Pin|undefined} */p)=>p&&ORDER===LIST_ORDER.NEW?dayName(p.at,now):'',d=day(n.rec);
+  if(before&&day(before)===d){/** @type {Element} */(drawn.get(before)).after(e); return;}
+  if(after&&day(after)===d){/** @type {Element} */(drawn.get(after)).before(e); return;}
+  const l=document.createElement('div'); l.className='day-line'; l.append(document.createElement('span')); /** @type {HTMLElement} */(l.firstChild).textContent=d;
+  if(before)/** @type {Element} */(drawn.get(before)).after(l);
+  else if(after){const a=/** @type {Element} */(drawn.get(after)),over=a.previousElementSibling; (over&&over.matches('.day-line')?over:a).before(l);}
+  else box.prepend(l);
+  if(d)l.after(e); else l.replaceWith(e);}   // the page order has no day lines
 // Takes out a day line with nothing of its day under it - its last undo row gone - in the open and review sections.
 function dropBareDayLines(){for(const l of $$('#pins>.day-line,#review-pins>.day-line')){const nx=l.nextElementSibling; if(!nx||nx.matches('.day-line'))l.remove();}}
 // [최신순 | 쪽순 | 번호순]: shown while the open or review section shows a card, the list's order pressed.

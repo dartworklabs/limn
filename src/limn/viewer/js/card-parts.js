@@ -232,12 +232,13 @@ function msgHtml(m,key){const by=m.by||{},nm=who(by)||'?',mine=isMe(by)?html`<sp
 // line and the indent of the text hold.
 /** @param {Person|null|undefined} a @returns {Html} */
 function nodeAvatar(a){return who(a)?avatar(a):html`<span class="av none" aria-hidden="true"></span>`;}
-// Who and when at the start of a card's comment or entry head, kept on one line (.who): the name (user text, translate="no")
-// ends in an ellipsis where the line is short, its whole text staying the element's text and its description (tip), and '(나)'
-// and the time are never cut. cls marks a name with no recorded person.
+// Who and when at the start of a card's comment or entry head, kept on one line (.who): the name ends in an ellipsis where the
+// line is short, its whole text staying the element's text and its description (tip), and '(나)' and the time are never cut.
+// The name and its tip are user text: the element holding both is translate="no", so a person named '완료' is not 'Done' in
+// either; '(나)' and the tip's own words are translated here. cls marks a name with no recorded person.
 /** @param {string} name @param {boolean} mine @param {string} tip @param {Html|string} time @param {string} [cls] @returns {Html} */
 function whoWhen(name,mine,tip,time,cls){const me=mine?html`<span class="me-tag"> ${tr('(나)')}</span>`:'';   // the space is the text's; drawn, the margin is
-  return html`<span class="who"><b class="${cls||''}" data-tip="${tip}"><span class="nm" translate="no">${name}</span>${me}</b>${time}</span>`;}
+  return html`<span class="who"><b class="${cls||''}" translate="no" data-tip="${tip}"><span class="nm">${name}</span>${me}</b>${time}</span>`;}
 // The head of a card's first comment, a reply's: who wrote the note ('기록 전' for a pin from before authors were recorded), when,
 // and when it was last edited, which takes the next line where the first has no room. The name's description also says who
 // edited it.
@@ -251,7 +252,7 @@ ${p.edited_at?stampSpan(p.edited_at,STAMP_FORM.EDITED):''}</div>`;}
 function tlMsg(m,key){const by=m.by||{},nm=who(by)||'?';
   const head=html`<div class="msg-h">${whoWhen(nm,isMe(by),nm,stampSpan(m.at,STAMP_FORM.BOTH))}</div>`;
   if(m.ev)return html`<div class="msg ev ev-${m.ev}"><span class="ev-dot" aria-hidden="true"></span><div class="msg-b">${head}\
-<div class="ev-l">${tr(EV_LABEL[m.ev]||m.ev)}${hasRef(m.ref)?' · '+m.ref:''}</div>${m.text?msgBody(m,key):''}</div></div>`;
+<div class="ev-l">${tr(EV_LABEL[m.ev]||m.ev)}${hasRef(m.ref)?html` · <span translate="no">${m.ref}</span>`:''}</div>${m.text?msgBody(m,key):''}</div></div>`;
   return html`<div class="msg">${nodeAvatar(by)}<div class="msg-b">${head}${msgBody(m,key)}</div></div>`;}
 // The thread of p as Html (empty without entries): the last 3 entries in wide, the last 1 elsewhere, unless THREAD_OPEN
 // holds p; the button that shows the rest or folds them, in a row the timeline passes (.th-row); and the reply slot when p's

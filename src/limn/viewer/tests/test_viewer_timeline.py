@@ -35,6 +35,9 @@ FOLD = VIEWPORTS["fold inner 841x673"]
 PHONE = VIEWPORTS["phone 390x844"]
 FOUR_SIZES = {"desktop": DESKTOP, "foldable": FOLD, "tablet": TABLET, "phone": PHONE}
 NOW = "new Date(2026,10,2,12,0).getTime()"  # 2026-11-02 12:00, on this machine's clock
+# A time stored moments ago, as a comment says it: relTime counts from the start of the stored minute, so a test that crosses
+# a minute's end reads '1분 전' (or more on a loaded machine), not '방금'.
+JUST = r"(?:방금|\d+분 전)"
 # A person whose name is 60 letters with no space to break at (the longest a head has to hold on one line).
 LONG = {"Tailscale-User-Login": "long@example.com", "Tailscale-User-Name": ("Wolfeschlegelsteinhausen" * 3)[:60]}
 
@@ -342,7 +345,7 @@ class CommentCards(TimelineFixture):
         self.assertEqual(self.edit_note(edited, "고쳐 쓴 메모"), "고쳐 쓴 메모")
         page = self.show(2)
         row = self.card(page, edited).locator(".note-h .rt[data-form=edited]")
-        self.assertRegex(row.inner_text(), r"^수정 방금 · \d\d-\d\d \d\d:\d\d$")
+        self.assertRegex(row.inner_text(), r"^수정 %s · \d\d-\d\d \d\d:\d\d$" % JUST)
         self.assertRegex(row.get_attribute("data-tip"), r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$")
         self.assertEqual(self.card(page, plain).locator(".rt[data-form=edited]").count(), 0)
 
@@ -434,7 +437,7 @@ class CommentCards(TimelineFixture):
                 self.assertEqual([h["name"] for h in heads], [name, name, "로컬/에이전트", name])
                 for h in heads:
                     self.assertTrue(h["visible"] and h["inside"] and h["beside"], h)
-                    self.assertRegex(h["time"], r"^방금 · \d\d-\d\d \d\d:\d\d$")
+                    self.assertRegex(h["time"], r"^%s · \d\d-\d\d \d\d:\d\d$" % JUST)
                 for h in (heads[0], heads[1], heads[3]):
                     self.assertTrue(h["cut"], h)
                     self.assertGreater(h["shown"], 20, h)
@@ -447,7 +450,7 @@ class CommentCards(TimelineFixture):
         page = self.show(1, TABLET)
         page.evaluate("id => {OPEN_CARDS.add(id); drawPins();}", pid)
         card = self.card(page, pid)
-        self.assertTrue(card.locator(".note-h .rt").inner_text().startswith("방금 · "))
+        self.assertRegex(card.locator(".note-h .rt").inner_text(), r"^%s · " % JUST)
         page.evaluate("() => {const t = Date.now() + 2 * 3600000; Date.now = () => t; tickRel();}")
         self.assertTrue(card.locator(".note-h .rt").inner_text().startswith("2시간 전 · "))
         self.assertTrue(card.locator(".msg .rt").inner_text().startswith("2시간 전 · "))
@@ -634,8 +637,8 @@ class TimelineRail(TimelineFixture):
 class OrderControl(TimelineFixture):
     """[최신순 | 쪽순 | 번호순] over the list: what it does to both sections and what follows the order drawn."""
 
-    ROWS = """box => [...document.querySelector(box).children].map(e => e.matches('.pin') ? Number(e.dataset.id) : e.matches('.nt-row') ? 'row'
-      : e.matches('.day-line') ? e.textContent : e.className)"""
+    ROWS = """box => [...document.querySelector(box).children].map(e => e.matches('.pin') ? Number(e.dataset.id)
+      : e.matches('.nt-row') ? 'row' + (e.textContent.match(/#(\\d+)/) || ['', ''])[1] : e.matches('.day-line') ? e.textContent : e.className)"""
 
     def rows(self, page, box="#pins"):
         """The list's rows top to bottom: a card's pin id, a day line's words."""
@@ -828,7 +831,7 @@ class OrderControl(TimelineFixture):
                     self.card(page, b).locator("[data-act=%s]" % act).click()
                     page.wait_for_selector("#pins > .nt-row")
                     settle(page)
-                    self.assertEqual(self.rows(page), ["오늘", "row", d, "어제", a, "2025년 9월 25일", c])
+                    self.assertEqual(self.rows(page), ["오늘", "row%d" % b, d, "어제", a, "2025년 9월 25일", c])
                     self.assertEqual(page.locator("#pins > .day-line").first.bounding_box()["y"], line)
                     page.locator("#pins > .nt-row [data-act=notice-act]").click()
                     page.wait_for_function(
@@ -845,7 +848,7 @@ class OrderControl(TimelineFixture):
         self.card(page, a).locator("[data-act=drop]").click()
         page.wait_for_selector("#pins > .nt-row")
         settle(page)
-        self.assertEqual(self.rows(page), ["오늘", b, d, "어제", "row", "2025년 9월 25일", c])
+        self.assertEqual(self.rows(page), ["오늘", b, d, "어제", "row%d" % a, "2025년 9월 25일", c])
         page.locator("#pins > .nt-row [data-act=notice-act]").click()
         page.wait_for_function("id => document.querySelector('#pins > .pin[data-id=\"' + id + '\"]')", arg=a)
         settle(page)
@@ -856,6 +859,39 @@ class OrderControl(TimelineFixture):
         page.wait_for_function("!document.querySelector('#pins > .nt-row')")
         self.assertEqual(self.rows(page), ["오늘", b, d, "2025년 9월 25일", c])
 
+    UNDO_TOPS = """() => [...document.querySelectorAll('#pins > .nt-row [data-act=notice-act]')].map(b => b.getBoundingClientRect().top)"""
+
+    def test_rows_of_two_deletes_in_a_row_stand_as_the_next_draw_puts_them(self):
+        """Today's two cards deleted one after the other, both rows standing: newest first, the rows read as their cards did,
+        and a redraw of the list moves neither row nor its [되돌리기] (rows placed when made and slots drawn after agree);
+        so for yesterday's only card and the card after it in the page order."""
+        a, b, c, d = self.four()
+        for order, first, second, want in (
+            ("new", b, d, lambda: ["오늘", "row%d" % b, "row%d" % d, "어제", a, "2025년 9월 25일", c]),
+            ("page", c, a, lambda: ["row%d" % c, "row%d" % a, d, b]),  # page 1 line 4, then page 2 lines 20, 24, 30
+        ):
+            with self.subTest(order=order):
+                page = self.show(4, prefs={"order": order})
+                for pid in (first, second):
+                    self.card(page, pid).locator("[data-act=drop]").click()
+                    page.wait_for_function(
+                        "id => [...document.querySelectorAll('#pins > .nt-row')].some(r => r.textContent.includes('#' + id + ' '))",
+                        arg=pid,
+                    )
+                    settle(page)
+                self.assertEqual(self.rows(page), want())
+                tops = page.evaluate(self.UNDO_TOPS)
+                page.evaluate("drawPins()")
+                self.assertEqual(self.rows(page), want())
+                self.assertEqual(page.evaluate(self.UNDO_TOPS), tops)
+                page.evaluate(
+                    "NOTICES.forEach(n => {if (n.place === 'row') endNotice(n, false);})"
+                )  # the next subtest's pins
+                for pid in (first, second):
+                    ps.APP.pin_trash.restore_pin(
+                        pid, post_authority(ps.APP.pin_trash.context().store, actor(ALICE), "restore", pid)
+                    )
+
     def test_the_review_sections_row_takes_its_cards_place_too(self):
         """[확인] on the first review card of a day: its row stands under that day's line in the review section."""
         a, b, c, d = self.four()
@@ -865,7 +901,7 @@ class OrderControl(TimelineFixture):
         page = self.show(1)
         self.card(page, b).locator("[data-act=confirm]").click()
         page.wait_for_selector("#review-pins > .nt-row")
-        self.assertEqual(self.rows(page, "#review-pins"), ["오늘", "row", d, "어제", a, "2025년 9월 25일", c])
+        self.assertEqual(self.rows(page, "#review-pins"), ["오늘", "row%d" % b, d, "어제", a, "2025년 9월 25일", c])
 
     def test_a_row_left_in_a_cards_place_stands_after_the_card_drawn_before_it(self):
         """[완료]'s undo row goes where the card was in the order drawn, past a day line, and takes the card's place in the walk."""
@@ -947,6 +983,28 @@ class OrderControl(TimelineFixture):
                     if device.get("has_touch"):
                         for b in got["bs"]:
                             self.assertTrue(b["up"] and b["down"], b)
+
+    def test_a_person_named_like_a_ui_word_is_named_as_written_in_english(self):
+        """A person named '완료' ('Done'): in English the first comment's, a reply's and a reopen's heads show '완료' and their
+        descriptions say '완료', and a close whose reference is '완료' reads 'Closed · 완료' - user text is not translated."""
+        done = {"Tailscale-User-Login": "done@example.com", "Tailscale-User-Name": "완료"}
+        pid = self.pin(author=done)
+        self.reply(pid, "답글", who=done)
+        self.close(pid, ref="완료")
+        self.reopen(pid, who=done)
+        page = self.show(1, lang="en")
+        page.evaluate("id => {THREAD_OPEN.add(id); drawPins();}", pid)
+        settle(page)
+        got = self.card(page, pid).evaluate(
+            """c => ({heads: [...c.querySelectorAll('.tl .msg-h .who b')].map(b => [b.querySelector('.nm').textContent, b.dataset.tip]),
+              label: c.querySelector('.msg.ev-close .ev-l').textContent})"""
+        )
+        self.assertEqual([h[0] for h in got["heads"]], ["완료", "완료", "Local/agent", "완료"])
+        for name, tip in got["heads"]:
+            if name == "완료":
+                self.assertIn("완료", tip)
+                self.assertNotIn("Done", tip)
+        self.assertEqual(got["label"], "Closed · 완료")
 
     def test_nothing_of_it_is_left_in_korean_in_english(self):
         """The control, the day lines and the comment heads through the message table."""

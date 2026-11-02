@@ -381,7 +381,7 @@ function drawOffers(focus){NOTICES.forEach(n=>{
     if(box.querySelector('.pin.card[data-id="'+n.pin+'"]')){if(n.away&&!n.gone)endNotice(n,true); else if(n.el)n.el.remove(); return;}
     n.away=true; if(n.sec==='review')$('#sec-review').hidden=false;   // its last card may just have left (drawPins keeps it shown too)
     const e=noticeEl(n,'nt-row'),slot=box.querySelector('.nt-slot[data-slot="'+n.n+'"]');
-    if(slot)slot.replaceWith(e); else placeRow(box,n,e);}
+    if(slot)slot.replaceWith(e); else if(e.parentElement!==box)placeRow(box,n,e);}   // one standing since the last draw has its place
   else if(n.place===NOTICE_PLACE.CARD){const c=document.querySelector('#list .pin.card[data-id="'+n.pin+'"],#list .arc-row[data-id="'+n.pin+'"]');
     if(!c){offerToLine(n); return;}
     const e=noticeEl(n,'nt-note'),acts=c.querySelector(':scope>.acts'); if(acts)acts.before(e); else c.appendChild(e);}});
