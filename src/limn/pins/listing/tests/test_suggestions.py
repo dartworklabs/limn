@@ -22,7 +22,7 @@ from limn.pins.listing.render import (
     pins_md_text,
 )
 
-from helpers import Base, jreq, ps, req, split_resp
+from helpers import DOCS_DIR, SKILL_KO, SKILL_MD, Base, jreq, ps, req, split_resp
 from helpers_access import ALICE, TS_HOST
 
 MAIN = DocHeading("main", "본문", "main.tex", view_only=False, builds_from_source=True, head=None, built_at=None)
@@ -210,6 +210,58 @@ class Section(unittest.TestCase):
         self.assertIn("정확한 바이트의 정본은 GET %s/api/pins/N 의 suggest.text 다." % base, text)
 
 
+class ObviousErrors(unittest.TestCase):
+    """Every place an agent reads how to apply a suggestion tells the same contract (docs/adr/0024-suggested-edit-
+    obvious-errors.md): look for obvious errors first; as written without one; a minimal, reported fix for a typo or
+    broken sentence that keeps the meaning; no change but a question when the meaning is at stake. None of them still
+    says to apply it word for word unconditionally."""
+
+    @staticmethod
+    def section(path, heading):
+        """The text of the section under `heading` (a ### line) up to the next ### heading."""
+        text = path.read_text(encoding="utf-8")
+        start = text.index(heading)
+        end = text.find("\n### ", start + len(heading))
+        return text[start : end if end >= 0 else len(text)]
+
+    def test_api_md_quotes_the_clause_pins_md_prints(self):
+        """api.md §제안 문안 quotes the guidance clause byte for byte, so the two cannot drift."""
+        self.assertIn(SUGGEST_GUIDANCE.removeprefix(" · "), (DOCS_DIR / "api.md").read_text(encoding="utf-8"))
+
+    def test_both_skills_teach_the_three_outcomes(self):
+        """The Korean and English procedures each name the check, the split commits and the honest closing line,
+        the question with the claim released, and keep the pin's suggestion as the author's record."""
+        ko = self.section(SKILL_KO, "### 제안 수정 핀")
+        for words in (
+            "명백한 오류만 본다",
+            "커밋을 둘로 나눈다",
+            "원안 그대로 넣음",
+            "원안에서 N곳 고침",
+            "/unclaim",
+            "교정하려고 고치지 않는다",
+        ):
+            self.assertIn(words, ko)
+        en = self.section(SKILL_MD, "### Suggested-edit pins")
+        for words in (
+            "obvious errors only",
+            "Split the commits",
+            "원안 그대로 넣음",
+            "원안에서 N곳 고침",
+            "/unclaim",
+            "never edit it",
+        ):
+            self.assertIn(words, en)
+
+    def test_no_reader_is_told_to_apply_it_word_for_word_unconditionally(self):
+        """The marker rows, the legend and the viewer's two explanations no longer promise the text goes in as is."""
+        self.assertNotIn("그대로 넣는다(", SUGGEST_LEGEND)
+        self.assertNotIn("`suggest.text` 로 글자 그대로 바꾼다(§제안 수정 핀)", SKILL_KO.read_text(encoding="utf-8"))
+        self.assertNotIn("`suggest.text` verbatim (§Suggested-edit pins)", SKILL_MD.read_text(encoding="utf-8"))
+        for path in ("index.html", "js/suggest.js"):
+            text = (SKILL_MD.parents[1] / "src" / "limn" / "viewer" / path).read_text(encoding="utf-8")
+            self.assertNotIn("글자 그대로 넣습니다", text)
+
+
 class Guidance(unittest.TestCase):
     """The guidance clause and the legend entry exist only while an open pin carries a suggestion."""
 
@@ -220,7 +272,9 @@ class Guidance(unittest.TestCase):
         guidance = next(line for line in with_one if line.startswith("처리한 핀은 닫는다"))
         self.assertTrue(guidance.endswith(SUGGEST_GUIDANCE))
         self.assertIn(
-            "제안 수정 핀은 메모를 다시 쓰지 말고 `suggest.text` 를 위치 칸의 줄 범위에 글자 그대로 넣는다 · "
+            "제안 수정 핀은 메모를 다시 쓰지 말고 `suggest.text` 를 위치 칸의 줄 범위에 넣는다 · "
+            "넣기 전에 앞뒤 글과 대조해, 뜻이 그대로인 명백한 오타·문장 오류만 최소로 고치고 고친 곳을 닫기 답글에 적는다 · "
+            "모순처럼 고칠 길이 여럿이거나 뜻을 바꿔야 하면 넣지 말고 답글로 묻는다 · "
             "`원문 바뀜`·`확인 불가` 면 넣지 말고 답글로 알린다",
             guidance,
         )

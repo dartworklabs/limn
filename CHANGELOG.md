@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **A suggested edit is checked for obvious errors before it goes in** ([ADR-0024](docs/adr/0024-suggested-edit-obvious-errors.md)).
+  Agents used to apply a suggestion character for character, so a typo or a contradiction in the author's own text went
+  into the manuscript as written, and review let it pass as the author's words.
+  - **The check:** the agent now reads the suggestion against the lines around it for three things only: typos, broken
+    sentences and logical contradictions.
+  - **No error:** it goes in as written.
+  - **A typo or broken sentence with one fix that keeps the meaning:** the agent fixes it minimally. It commits the
+    suggestion as written first, then the fix, and lists each fix in the closing reply and the PR.
+  - **More than one fix, or a fix that would change a claim, number, condition or what a citation supports:** the
+    agent applies nothing. It replies with the passage, the problem and a minimal fix, and leaves the pin open.
+  - **What stays:** the pin keeps the author's text as written. `changed` and `unknown` are still not applied. Style,
+    taste and making a sentence shorter are not errors.
+  - **Where it shows:** the `pins.md` guidance clause and legend entry, both skills, and the viewer's [제안 수정] switch
+    and card badge explanations say this instead of "word for word".
+
 ## 0.4.42 — 2026-11-02
 
 ### Changed
