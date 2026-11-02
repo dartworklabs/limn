@@ -75,6 +75,8 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 
 브라우저가 닿는 테스트(`src/limn/viewer/tests/test_viewer_browser.py`, `src/limn/viewer/tests/test_viewer.py`의 `Frontend*` 가드)는 **임의의 시간(`sleep`, `wait_for_timeout`)을 기다리지 않는다.** 이벤트·DOM 상태·통신 완료를 가리키는 술어(`expect(...)`, `wait_for_selector`, `wait_for_function`)를 기다린다. 공용 대기 `settle()`(`tests/support/helpers_browser.py`)은 짧은 타이머·`fetch`·CSS 애니메이션과 함께 웹 글꼴 로딩(`document.fonts.status`)이 끝나기를 기다린다. 담은 글꼴의 조각은 그 글자가 처음 화면에 나올 때 받아서, 그 전에 잰 글은 폴백 글꼴의 값이기 때문이다([viewer.md](viewer.md) §글꼴). 시간으로 기다리면 빠른 머신에서는 시간을 낭비하고 느린 CI에서는 무작위로 깨진다. 브라우저가 건너뛰는 요소(화면에서 먼 `content-visibility: auto` 안, 예를 들어 먼 쪽 판정 줄)의 애니메이션은 기다리지 않는다. Firefox는 그 요소를 다시 그릴 때까지 애니메이션을 첫 프레임에 멈춘 채 실행 중으로 두어, 기다리면 끝나지 않는다.
 
+테스트는 자기 동작이 시작한 CSS 트랜지션을 끝낼 수 있다. 동작 앞뒤의 `document.getAnimations()`를 견주어 그 동작이 새로 시작한 `CSSTransition`에만 `finish()`를 부르고, 그 뒤에도 `settle()`을 기다린다. 끝낸 트랜지션은 곧바로 끝 상태를 그리므로, 다 흐르기를 기다려 읽은 것과 같은 값을 읽는다. 두 조건이 다 맞을 때만 쓴다. 뷰어가 잰 대상에서 `transitionend`를 듣지 않아야 하고(`finish()`는 그 이벤트를 앞당긴다), 테스트가 끝 상태만 재야 한다(중간 상태는 사라진다). [`test_viewer_contrast.py`](../../src/limn/viewer/tests/test_viewer_contrast.py)의 `SWITCH`가 테마를 바꾸며 컨트롤의 색 트랜지션(`components.css`, 120ms)을 이렇게 끝낸다(#373). 대비 검사는 바뀐 테마의 색만 재고, 뷰어에는 `transitionend`를 듣는 코드가 없다.
+
 부팅의 PDF.js `import`는 `fetch`도 타이머도 아니지만 `settle()`이 그 끝까지 기다린다. `import` 뒤의 열기가 `VEC.gen`을 올리고 목차를 잊으므로, 먼저 넣은 대역 문서나 목차가 사라지기 때문이다. 모든 뷰어 하네스가 `settle()`로 돌아오므로 하네스마다 따로 기다리지 않는다.
 
 뷰어 화면의 시간 의존 동작(폴링 간격, 알림 배지 깜빡임, 날짜 포맷)을 테스트할 때는 브라우저의 시계를 얼린다(`clock.set_fixed_time()`).
