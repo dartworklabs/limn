@@ -1937,9 +1937,8 @@ class FigureDocuments(BrowserBase):
     def location_badge(self, page):
         """The composer's '위치 불확실' badge as [shown, its text, whether it is the warning look] and the pick's answer."""
         return page.evaluate(
-            """() => {const t = document.getElementById('c-tag'), c = COMPOSE.current, w = t.cloneNode(true);
-              w.querySelectorAll('.tip-sr').forEach(e => e.remove());   // the words on screen, without the explanation read along
-              return [!t.hidden, w.textContent, t.classList.contains('badge-warning'), [c.score, c.fill, c.rival, c.elSel && c.elSel.id]];}"""
+            """() => {const t = document.getElementById('c-tag'), c = COMPOSE.current;
+              return [!t.hidden, t.textContent, t.classList.contains('badge-warning'), [c.score, c.fill, c.rival, c.elSel && c.elSel.id]];}"""
         )
 
     def test_the_uncertain_badge_hides_only_for_a_pick_that_is_surely_the_element_meant(self):

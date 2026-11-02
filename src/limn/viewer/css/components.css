@@ -65,6 +65,10 @@ button.btn-icon.btn-sm{width:var(--control-h-sm);min-width:var(--control-h-sm);h
 .badge-claimed .ic{color:var(--status-claimed)}
 .badge-claimed.late{background:color-mix(in srgb,var(--status-warning) 14%,transparent);color:var(--status-warning)}
 .badge-claimed.late .ic{color:var(--status-warning)}
+/* A badge's explanation for screen readers (data-tip-sr, tooltip.js; docs/handbook/viewer.md §설명과 접근성): generated content
+   clipped to nothing, as .sr-only clips text. It is read with the badge, and being generated it is neither copied with a
+   selection nor found by the browser's find - a hidden text node was both, an invisible find result and a pasted sentence. */
+[data-tip-sr]::after{content:attr(data-tip-sr);position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);clip-path:inset(50%);white-space:nowrap}
 button.badge{cursor:pointer;padding:0 var(--space-2);border-radius:var(--radius-sm);font-size:var(--text-xs);line-height:calc(var(--line-label) + 2px)}
 @media (hover:hover){button.badge:hover{background:var(--accent);border-color:var(--border-strong)}}
 .card{background:var(--card);color:var(--card-foreground);border:1px solid var(--border);border-radius:var(--radius-lg)}

@@ -10,7 +10,8 @@
   - **Controls:** a focusable control's explanation is its accessible description, read with its name (without the name
     again), in the screen's language. No tab stop is added.
   - **Badges:** a badge's explanation is read with the card, as words only a screen reader reads; nothing changes on
-    screen or in the Tab order. So is the short reason that stands where [Suggested edit] cannot go.
+    screen or in the Tab order, and the words are neither copied with a selection nor found by the browser's find. So is
+    the short reason that stands where [Suggested edit] cannot go.
   - **Keyboard:** the keyboard's focus shows the box on a tablet with a keyboard too, an Esc before it shows cancels it,
     and the scroll a Tab makes to reach a control no longer takes its box away.
   - The agent contract (`pins.md`, HTTP API) is unchanged.

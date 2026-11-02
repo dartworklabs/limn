@@ -7,7 +7,8 @@
 - ``TipKeyboard`` holds the WAI-ARIA tooltip pattern: the keyboard's focus shows the box on every device, a tablet
   without hover too, Esc and leaving the control hide it, and Tab's own scroll does not take it.
 - ``TipReadAlong`` holds a badge's explanation, read with the card: a [제안 수정] warning badge says why the agent will not
-  apply it to a screen reader, in its words' language, with nothing changed on screen or in the Tab order.
+  apply it to a screen reader, in its words' language, with nothing changed on screen or in the Tab order, and the words
+  are neither copied with a selection nor found by the browser's find.
 
 Run: uv run pytest -q src/limn/viewer/tests/test_viewer_tips.py
 """
@@ -179,7 +180,9 @@ class TipKeyboard(TipBase):
             selector,
         )
         page.keyboard.press("Tab")
-        self.assertEqual(page.evaluate("document.activeElement.id"), selector.lstrip("#"))
+        self.assertTrue(
+            page.evaluate("sel => document.activeElement === document.querySelector(sel)", selector), selector
+        )
 
     def test_the_keyboards_focus_shows_the_explanation_on_a_tablet_and_esc_or_leaving_hides_it(self):
         """A 768x1024 touch tablet (no hover) with a keyboard: Tab onto [제안 수정] shows its explanation by it; Esc hides
@@ -237,15 +240,20 @@ class TipKeyboard(TipBase):
         add_pin(d, actor(ALICE))
 
 
-# A badge's words for a screen reader (.tip-sr) as drawn: its text, whether it is the visually hidden 1px box, and whether
-# taking it out moves or resizes the badge (it must not: nothing on screen changes). Put back as it was, at once.
-READ_ALONG = """sel => {const b = document.querySelector(sel), sr = b.querySelector(':scope>.tip-sr');
-  if (!sr) return null;
-  const r = b.getBoundingClientRect(), s = sr.getBoundingClientRect(), cs = getComputedStyle(sr);
-  sr.remove(); const q = b.getBoundingClientRect(); b.append(sr);
-  return {text: sr.textContent, translate: sr.translate, hidden: s.width <= 1 && s.height <= 1 && cs.clip === 'rect(0px, 0px, 0px, 0px)',
+# A badge's words for a screen reader as drawn: the text it carries (data-tip-sr, drawn by its ::after), whether that text is a
+# clipped 1px box, whether taking it away moves or resizes the badge (it must not: nothing on screen changes), whether the
+# badge takes focus, and its own words. Put back as it was, at once.
+READ_ALONG = """sel => {const b = document.querySelector(sel), said = b.getAttribute('data-tip-sr');
+  if (said === null) return null;
+  const a = getComputedStyle(b, '::after'), r = b.getBoundingClientRect();
+  b.removeAttribute('data-tip-sr'); const q = b.getBoundingClientRect(); b.setAttribute('data-tip-sr', said);
+  return {text: said, hidden: a.position === 'absolute' && a.width === '1px' && a.height === '1px' && a.clip === 'rect(0px, 0px, 0px, 0px)',
     same: r.left === q.left && r.top === q.top && r.width === q.width && r.height === q.height,
-    focusable: b.tabIndex >= 0, words: [...b.childNodes].filter(n => n !== sr).map(n => n.textContent).join('')};}"""
+    focusable: b.tabIndex >= 0, words: b.textContent};}"""
+# The words a selection over the card from its head to its note would copy (the browser's own serialization of the selection).
+SELECT_CARD = """id => {const c = document.querySelector('.pin[data-id="' + id + '"]'), r = document.createRange();
+  r.setStartBefore(c.querySelector('.head')); r.setEndAfter(c.querySelector('.note'));
+  const s = getSelection(); s.removeAllRanges(); s.addRange(r); return s.toString();}"""
 
 
 class TipReadAlong(TipBase):
@@ -276,8 +284,7 @@ class TipReadAlong(TipBase):
         self.assertIsNotNone(got, "the badge has no words for a screen reader")
         self.assertEqual(got["text"], ": " + tip)
         self.assertEqual(
-            (got["words"], got["hidden"], got["same"], got["focusable"], got["translate"]),
-            ("제안 수정 · 원문 바뀜", True, True, False, False),
+            (got["words"], got["hidden"], got["same"], got["focusable"]), ("제안 수정 · 원문 바뀜", True, True, False)
         )
         self.assertEqual(ax_words(page, badge), "제안 수정 · 원문 바뀜: " + tip)
         self.assertIn(tip, page.locator(badge).aria_snapshot())
@@ -288,6 +295,37 @@ class TipReadAlong(TipBase):
         self.assertEqual(got["words"], "제안 수정 · 확인 불가")
         self.assertEqual(got["text"], ": " + page.get_attribute(badge, "data-tip"))
         self.assertIn("넣지 않고 알립니다", got["text"])
+
+    def changed_card(self, lang="ko"):
+        """A card whose suggestion's lines changed, on the desktop in lang: the page, the pin's id and its badge's selector."""
+        pid = self.add()
+        tex = self.main.read_text(encoding="utf-8")
+        self.main.write_text(tex.replace("Line 5 of the demo", "Line 5, edited, of the demo"), encoding="utf-8")
+        return self.view(n_open=1, lang=lang), pid, '.pin[data-id="%d"] .sg-badge' % pid
+
+    def test_a_selection_across_the_badge_copies_only_the_words_on_screen(self):
+        """Selecting the card from its head to its note and copying (Ctrl+C, pasted back into a field with Ctrl+V) gives the
+        badge's words and none of its explanation: the read-along words are not selectable text."""
+        page, pid, badge = self.changed_card()
+        selected = page.evaluate(SELECT_CARD, pid)
+        page.keyboard.press("ControlOrMeta+c")
+        page.evaluate(
+            """() => {const t = document.createElement('textarea'); t.id = 'paste-probe'; document.body.append(t); t.focus();}"""
+        )
+        page.keyboard.press("ControlOrMeta+v")
+        copied = page.input_value("#paste-probe")
+        for text in (selected, copied):
+            self.assertIn("제안 수정 · 원문 바뀜", text)
+            self.assertNotIn("에이전트는 넣지 않고", text)
+
+    def test_the_browsers_find_does_not_find_the_explanation(self):
+        """The browser's find (window.find) finds the badge's words but no phrase of its explanation, which would be an
+        invisible result; the explanation is still in the accessibility tree."""
+        page, pid, badge = self.changed_card()
+        find = "t => {getSelection().removeAllRanges(); return window.find(t, false, false, true);}"
+        self.assertTrue(page.evaluate(find, "원문 바뀜"))
+        self.assertFalse(page.evaluate(find, "에이전트는 넣지 않고 답글로"))
+        self.assertIn("에이전트는 넣지 않고 답글로", ax_words(page, badge))
 
     def test_the_english_screen_reads_the_explanation_in_english(self):
         """On the English screen the badge's words and explanation are both English: the copy is made from the

@@ -118,10 +118,12 @@ document.addEventListener('mousedown',()=>{if(Date.now()>=SWALLOW_CLICK)hideTip(
 // Explanations for screen readers: an explanation (data-tip, else data-tip-press) reaches a screen reader as well as the box
 // (docs/handbook/viewer.md §설명과 접근성). A control that takes focus carries it as its description (aria-description), read
 // with its name when it is focused. A badge takes no focus, so it carries it as words after its own that only a screen reader
-// reads (.tip-sr, .sr-only): the card is read with them, and nothing on screen or in the Tab order changes. A label that marks
-// itself .tip-read does the same (the composer's reason where [제안 수정] cannot go). Each copy is made from the attribute as
-// it stands whenever it changes - after the English observer rewrites it too, so it speaks the screen's language and is never
-// translated again (aria-description is not one of I18N_ATTRS, and the words are translate="no").
+// reads: data-tip-sr, drawn as clipped generated content (components.css [data-tip-sr]::after). The card is read with them,
+// and nothing on screen or in the Tab order changes; being generated content they are neither copied with a selection nor
+// found by the browser's find, which a hidden text node was (an invisible find result, a pasted explanation). A label that
+// marks itself .tip-read does the same (the composer's reason where [제안 수정] cannot go). Each copy is made from the
+// attribute as it stands whenever it changes - after the English observer rewrites it too, so it speaks the screen's language
+// and is never translated again (aria-description and data-tip-sr are not I18N_ATTRS).
 // What repeats the name adds nothing: a tip that is the name gives no description, and one that starts with the name and a
 // separator ('폭 맞춤: …') gives what follows. A control whose drawing code sets its own description (aria-describedby, or an
 // aria-description it wrote - the composer's element path) keeps that one. A badge named by its own aria-label (an old
@@ -140,14 +142,11 @@ function tipDescText(tip,name){const t=String(tip||'').replace(/\s+/g,' ').trim(
   const head='^'+words.map(w=>w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('[: ]+');
   if(new RegExp(head+':?$').test(t))return '';
   const m=new RegExp(head+' ?[:\u2014\u00b7] (.+)$').exec(t); return m?m[1]:t;}
-/** el's own name as a screen reader hears it: its aria-label, else its words without the copy below. @param {Element} el */
-function tipOwnName(el){const l=el.getAttribute('aria-label'); if(l&&l.trim())return l;
-  let s=''; for(const n of el.childNodes)if(!(n.nodeType===1&&/** @type {Element} */(n).classList.contains('tip-sr')))s+=n.textContent||'';
-  return s;}
+/** el's own name as a screen reader hears it: its aria-label, else its words. @param {Element} el */
+function tipOwnName(el){const l=el.getAttribute('aria-label'); return l&&l.trim()?l:el.textContent||'';}
 /** Puts el's explanation where a screen reader finds it (above), or takes away the copy of one that went. @param {Element} el */
 function tipDescribe(el){const tip=el.getAttribute('data-tip')||el.getAttribute('data-tip-press')||'';
-  let sr=/** @type {HTMLElement|null} */(el.querySelector(':scope>.tip-sr'));
-  if(el.matches(TIP_FOCUS)){if(sr)sr.remove(); if(el.hasAttribute('aria-describedby'))return;
+  if(el.matches(TIP_FOCUS)){el.removeAttribute('data-tip-sr'); if(el.hasAttribute('aria-describedby'))return;
     const cur=el.getAttribute('aria-description'); if(cur!==null&&TIP_WROTE.get(el)!==cur)return;   // the drawing code's own
     const d=tipDescText(tip,tipOwnName(el));
     if(d){if(d!==cur){el.setAttribute('aria-description',d); TIP_WROTE.set(el,d);}}
@@ -156,10 +155,8 @@ function tipDescribe(el){const tip=el.getAttribute('data-tip')||el.getAttribute(
   if(!el.matches(TIP_READ))return;
   const inside=!!el.parentElement&&!!el.parentElement.closest(TIP_FOCUS);   // its words are a control's name: no more in it
   const d=inside||el.hasAttribute('aria-label')?'':tipDescText(tip,tipOwnName(el));
-  if(!d){if(sr)sr.remove(); return;}
-  const said=': '+d; if(sr&&sr.textContent===said)return;
-  if(!sr){sr=document.createElement('span'); sr.className='sr-only tip-sr'; sr.translate=false; el.append(sr);}
-  sr.textContent=said;}
+  if(!d){el.removeAttribute('data-tip-sr'); return;}
+  if(el.getAttribute('data-tip-sr')!==': '+d)el.setAttribute('data-tip-sr',': '+d);}
 /** tipDescribe for node and everything under it that has an explanation. @param {Node} node */
 function tipDescribeTree(node){if(node.nodeType!==1)return; const el=/** @type {Element} */(node);
   if(el.matches(TIP_SEL))tipDescribe(el); for(const e of el.querySelectorAll(TIP_SEL))tipDescribe(e);}

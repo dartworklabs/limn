@@ -23,7 +23,6 @@ from helpers import ps, split_resp
 from helpers_access import ALICE, BOB, member_add, member_set_role, talk_to
 from helpers_browser import (
     MISSES_44,
-    SEEN_TEXT,
     BrowserBase,
     booted,
     ime_commit,
@@ -300,9 +299,7 @@ class ComposerRow(VerdictBase):
         )
         self.assertTrue(page.evaluate("document.querySelector('#composer').hidden"))
         self.assertIn("#%d 저장됨" % pin["id"], page.evaluate("document.body.textContent"))
-        self.assertEqual(
-            page.locator('.pin[data-id="%d"] .tags .badge-verdict' % pin["id"]).evaluate(SEEN_TEXT), "판정 채택"
-        )
+        self.assertEqual(page.locator('.pin[data-id="%d"] .tags .badge-verdict' % pin["id"]).inner_text(), "판정 채택")
 
     def test_a_confirm_word_takes_two_presses_bound_to_what_it_armed_on(self):
         """삭제's first press saves nothing: it reads '삭제 확정' and a screen reader hears that the next press saves. Esc,
@@ -539,11 +536,11 @@ class PageLine(VerdictBase):
         settle(page)
         self.assertEqual(page.locator('#page-pop-list .pl-row[data-page="1"] .pl-v').inner_text(), "#%d 채택" % a)
         self.assertEqual(page.locator('#page-pop-list .pl-row[data-page="2"] .pl-v').count(), 0)
-        self.assertEqual(page.locator('.pin[data-id="%d"] .tags .badge-verdict' % a).evaluate(SEEN_TEXT), "판정 채택")
+        self.assertEqual(page.locator('.pin[data-id="%d"] .tags .badge-verdict' % a).inner_text(), "판정 채택")
         self.assertEqual(self.call("POST", "/api/pins/%d/close" % a, {}, ALICE)[0], 200)
         page.evaluate("SEC.done=true")
         self.reload(page)
-        self.assertEqual(page.locator('.arc-row[data-id="%d"] .badge-verdict' % a).evaluate(SEEN_TEXT), "판정 채택")
+        self.assertEqual(page.locator('.arc-row[data-id="%d"] .badge-verdict' % a).inner_text(), "판정 채택")
         self.assertIn("처리됨", page.evaluate(LINE, 1)["text"])
 
     def test_without_page_verdicts_the_marks_are_as_before(self):
@@ -842,9 +839,7 @@ class ReviewFixes(VerdictBase):
         page = self.on("ms", n_open=1)
         page.evaluate("()=>{SHOW_ALL=true; drawPins();}")
         settle(page)
-        self.assertEqual(
-            page.locator('.pin[data-id="%d"] .tags .badge-verdict' % made["id"]).evaluate(SEEN_TEXT), "판정 받음"
-        )
+        self.assertEqual(page.locator('.pin[data-id="%d"] .tags .badge-verdict' % made["id"]).inner_text(), "판정 받음")
 
     def test_the_earlier_verdicts_link_is_underlined_only_on_hover(self):
         """'이전 판정 N건 · 새 판정으로 대체됨' has the viewer's link look - no underline at rest, a solid one on hover - in the
@@ -923,7 +918,7 @@ class ReviewFixes(VerdictBase):
         card = '.pin[data-id="%d"]' % a
         self.assertEqual(page.locator(card + " .note").count(), 0)
         self.assertNotIn("(판정만)", page.locator(card).inner_text())
-        self.assertEqual(page.locator(card + " .tags .badge-verdict").evaluate(SEEN_TEXT), "판정 채택")
+        self.assertEqual(page.locator(card + " .tags .badge-verdict").inner_text(), "판정 채택")
         self.assertEqual(self.call("POST", "/api/pins/%d/close" % a, {"reply": "done"}, AGENT)[0], 200)
         page.evaluate("SEC.review=true")
         self.reload(page)
@@ -1236,8 +1231,7 @@ class SupersededMarker(VerdictBase):
         settle(page)
         sums = page.evaluate(
             """ids=>ids.map(id=>{const s=document.querySelector('.pin[data-id="'+id+'"] .sum'),t=s.querySelector('.sum-t');
-              const c=s.cloneNode(true); c.querySelectorAll('.tip-sr').forEach(e=>e.remove());   // the words on screen
-              return {text: c.textContent.slice(t?t.textContent.length:0), marker: !!s.querySelector('.vd-old'), shown: s.getClientRects().length>0,
+              return {text: s.textContent.slice(t?t.textContent.length:0), marker: !!s.querySelector('.vd-old'), shown: s.getClientRects().length>0,
                 time: !!t&&s.firstElementChild===t};})""",
             [a, b],
         )
