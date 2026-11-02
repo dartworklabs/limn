@@ -3,11 +3,11 @@ name: CI
 on:
   push:
     branches: [main]
-    tags: ["v*"]
   pull_request:
 
-# A new PR revision supersedes that PR's older read-only checks. Main and tag
-# runs keep a unique group so every integration and release tree is validated.
+# A new PR revision supersedes that PR's older read-only checks. Main runs keep a unique group so every integration
+# tree is validated. A release tag does not run: it points at the merge commit whose push to main has just run the
+# whole workflow on that same tree, and nothing reads a tag's run (`limn update` installs a tag without asking CI).
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
