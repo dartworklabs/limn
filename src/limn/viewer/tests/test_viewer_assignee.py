@@ -326,12 +326,16 @@ class ComposerBase(BrowserBase):
             page.click(selector)
         settle(page)
 
-    def write(self, page, device, text, selector="#note"):
+    def write(self, page, device, text, selector="#note", replace=False):
         """Put the caret in the field with a press and type text key by key - the @-list opens and closes as it does
         for a person - then leave the field with a press on the range caption under it (after Esc, if the list is
         still open over a tag the text ends with), so the list is closed and a word that does not resolve is
-        flagged, as when the author moves on."""
+        flagged, as when the author moves on. replace selects the field's text and deletes it before typing, so text
+        takes its place."""
         self.press(page, device, selector)
+        if replace:
+            page.keyboard.press("ControlOrMeta+a")
+            page.keyboard.press("Delete")
         page.keyboard.type(text)
         settle(page)
         self.leave(page, device)
@@ -370,11 +374,9 @@ class ComposerBase(BrowserBase):
         return self.sent[-1], find_record(ps.APP.snapshot_pins(), pid)
 
     def rewrite(self, page, text, device=DESKTOP):
-        """Replace the note with text from the keyboard: select all of it, type over it, and leave the field."""
-        self.press(page, device, "#note")
-        page.keyboard.press("ControlOrMeta+a")
-        page.keyboard.press("Delete")
-        self.write(page, device, text)
+        """Replace the note with text from the keyboard: a press into it, select all of it, type over it, and leave the
+        field."""
+        self.write(page, device, text, replace=True)
 
     def events(self, pid):
         """The notices events.jsonl holds for pin pid, as {type: recipients}."""
@@ -419,8 +421,8 @@ class NewPinAssignee(ComposerBase):
         """A fix request and a question alike: the row checks the first tagged colleague, the request carries them as
         `assignee`, the record stores them, they get `assigned` and every tagged colleague `mention`; a note that tags
         no colleague is the agent's and offers no row."""
+        page = self.view(DESKTOP)
         for kind in ("fix", "question"):
-            page = self.view(DESKTOP)
             for label, note, assignee, _, notices in SAVED:
                 with self.subTest(label, kind=kind):
                     self.compose(page, note, kind)
@@ -710,7 +712,8 @@ class AppendToAnOverlappedPin(ComposerBase):
         841x673 overlay: each group stays on one line and the line breaks only after the separator, which ends the first
         line; a name wider than its line is cut with an ellipsis and keeps its whole text (the accessible name). It
         broke between '따로 저장하면 담당' and the name, over three lines, and in English inside the '알림' group.
-        Nothing is wider than the composer."""
+        Nothing is wider than the composer. Each screen and language makes one selection, and each note is typed over the
+        one before."""
         for person in LONG:
             ps.APP.people_directory.record(actor(person))
         notes = {
@@ -729,10 +732,12 @@ class AppendToAnOverlappedPin(ComposerBase):
         whole = [person["Tailscale-User-Name"] for person in LONG] + ["Alice Kim"]
         for name, lang in runs:
             device = VIEWPORTS[name]
-            for label, note in notes.items():
+            page = self.view(device, 1, lang=lang)
+            self.select(page, device)
+            for i, (label, note) in enumerate(notes.items()):
                 with self.subTest(name, lang=lang, note=label):
-                    page = self.view(device, 1, lang=lang)
-                    self.compose(page, note, separate=False, device=device)
+                    self.write(page, device, note, replace=i > 0)
+                    self.assertEqual(page.input_value("#note"), note)
                     line = page.evaluate(APPEND_LINE)
                     self.assertEqual(len(line["groups"]), 2, line)
                     self.assertEqual([len(set(tops)) for tops in line["groups"]], [1, 1], line)
@@ -743,7 +748,7 @@ class AppendToAnOverlappedPin(ComposerBase):
                     for pill in line["names"]:
                         self.assertEqual(pill["ellipsis"], "ellipsis", pill)
                         self.assertTrue(any(w in pill["text"] for w in whole), pill)
-                    page.context.close()
+            page.context.close()
 
     def test_an_append_sends_the_hints_that_tell_a_name_two_people_share(self):
         """Two people named Sam Jung: a note appended to an overlapped pin with the second Sam picked from the @-list
@@ -1120,7 +1125,8 @@ class AssigneeRowGeometry(ComposerBase):
         and the assignee row are never wider than their boxes, and the row's track scrolls only when its segments at
         their narrowest do not fit - by what they lack, never by a rounding pixel. With one or two short names the
         segments always fit, in Korean and English: at 320px the 13px label left the track 1.09px short of Bob's and
-        Carol's segments and it scrolled by 1px; in English the label 'Assignee' left it 20px short."""
+        Carol's segments and it scrolled by 1px; in English the label 'Assignee' left it 20px short. The two names the
+        append mode was written with are read as they stand after [따로 저장], then each other note is typed over it."""
         self.tag_three()
         add_pin({"file": str(self.main), "lo": 5, "hi": 5, "page": 1, "note": "먼저 쓴 메모"}, actor(ALICE))
         notes = {
@@ -1144,8 +1150,10 @@ class AssigneeRowGeometry(ComposerBase):
                     got = page.evaluate(widths)
                     self.assertEqual((got["composer"], got["appendLine"]), (0, 0), ("append", got))
                     self.separate(page, device)
-                    for label, note in notes.items():
-                        self.rewrite(page, note, device)
+                    for label in ("two", "one", "three", "three long"):
+                        if label != "two":
+                            self.rewrite(page, notes[label], device)
+                        self.assertEqual(page.input_value("#note"), notes[label])
                         got = page.evaluate(widths)
                         self.assertEqual((got["composer"], got["row"]), (0, 0), (label, got))
                         if label in ("one", "two"):
