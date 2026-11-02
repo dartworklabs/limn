@@ -3,19 +3,20 @@
 FrontendColourRoles checks token pairs - a token on the surfaces named in a list. A rule can still put the muted text
 on a surface nobody listed, or dim it with an opacity, and pass: the excerpt's context line numbers drew the muted
 text at 70% (3.4:1 in light, 4.0:1 under a dark hover) and the light subtle text sat on a hover's --accent at 3.8:1.
-This walks the page as Chromium draws it instead. In each state - cards, done rows, the Trash, notices, the outline,
-the documents bar, its popover and the navigation sheet, the composer's excerpt, verdict row and suggestion switch on
-the manuscript (its editor before and after its first read, a note that may join an overlapped pin and tags one of two
-people with one name), the reviewer's PDF and the figure, the page verdict lines, the changes view's commit list and
-diffs, an instance with no pins, with a real mouse on rows and keyboard focus - it reads what the page draws as text:
-every text node (an SVG text's fill), the generated text of ::before and ::after, a field's value and its placeholder.
-It composites each one's colour with the backgrounds and opacities of the elements under it - and of its own
-pseudo-element, the placeholder's too - as the browser paints them, and holds small text to 4.5:1 and large text to
-3:1, in the light and the dark theme, on a desktop with a mouse, a phone and an unfolded foldable. A text inside a
-disabled control is not held (WCAG 1.4.3 exempts inactive controls). A text drawn in or over what this compositing
-cannot paint - a background image or gradient, a mask, a filter or a blend on its pseudo-element or on any element under
-it, an SVG gradient fill or any stroke, a colour in a colour space it does not read - is a failure unless UNPAINTED names
-every element that carries one and why; and an element UNPAINTED names must carry one under text the walk reads.
+This walks the page as Chromium draws it instead. In each state - cards (a suggestion's warning line too), done rows,
+the Trash, notices, the outline, the documents bar, its popover and the navigation sheet, the composer's excerpt,
+verdict row and suggestion switch on the manuscript (its editor before and after its first read, a note that may join an
+overlapped pin and tags one of two people with one name), the reviewer's PDF and the figure, the page verdict lines, the
+changes view's commit list and diffs, an instance with no pins, with a real mouse on rows and keyboard focus - it reads
+what the page draws as text: every text node (an SVG text's fill), the generated text of ::before and ::after, a field's
+value and its placeholder. It composites each one's colour with the backgrounds and opacities of the elements under it -
+and of its own pseudo-element, the placeholder's too - as the browser paints them, and holds small text to 4.5:1 and
+large text to 3:1, in the light and the dark theme, on a desktop with a mouse, a phone and an unfolded foldable. A text
+inside a disabled control is not held (WCAG 1.4.3 exempts inactive controls). A text drawn in or over what this
+compositing cannot paint - a background image or gradient, a mask, a filter or a blend on its pseudo-element or on any
+element under it, an SVG gradient fill or any stroke, a colour in a colour space it does not read - is a failure unless
+UNPAINTED names every element that carries one and why; and an element UNPAINTED names must carry one under text the
+walk reads.
 
 Every style rule that sets text in the muted or subtle colour (directly or through a custom property that leads to
 them), or sets an opacity, is either reached by the walk - it set the colour of, or dimmed, text the walk held - or
@@ -382,12 +383,13 @@ def fake_compile(spec, jobdir, timeout):
 
 
 class ContrastWalk(BrowserBase):
-    """A Git manuscript of three commits by two authors, served with the figure document, the reviewer's PDF and six more
-    view-only PDFs; the manuscript's build carries a PDF with an outline, and the manuscript and the reviewer's PDF have
-    verdict words (the PDF's on its pages). The pins draw every list row: an open request assigned to Bob with a thread,
-    an open question, a pin an agent closed (awaiting review) whose range is a changed line and the unchanged line above
-    it, a done pin and a dropped one. Two more people share the name Sam Jung. Holds the walk's scenes, none of its tests;
-    the comparison build is faked, and the figure's and the PDF's picks go to the real handler."""
+    """A Git manuscript of three commits by two authors, served with the figure document, the reviewer's PDF and six
+    more view-only PDFs; the manuscript's build carries a PDF with an outline, and the manuscript and the reviewer's PDF
+    have verdict words (the PDF's on its pages). The pins draw every list row: an open request assigned to Bob with a
+    thread, an open question, a pin an agent closed (awaiting review) whose range is a changed line and the unchanged
+    line above it, a done pin and a dropped one, and two suggested edits - one folded past five rows, one whose lines
+    changed since. Two more people share the name Sam Jung. Holds the walk's scenes, none of its tests; the comparison
+    build is faked, and the figure's and the PDF's picks go to the real handler."""
 
     WHO = ALICE
     maxDiff = None  # every short text in the report, not the first
@@ -435,7 +437,26 @@ class ContrastWalk(BrowserBase):
         done = add_pin({"file": str(self.main), "lo": 9, "hi": 9, "page": 1, "note": "오타"}, A).record["id"]
         gone = add_pin({"file": str(self.main), "lo": 10, "hi": 10, "page": 1, "note": "지울 핀"}, A).record["id"]
         fix = self.commit(REPO_NEW, "Alice Kim", "첫 문단 보강")
-        self.commit(REPO_NEW.replace("Filler two.", "Filler two, reworded."), "Bob Park", "채움 문장 다듬기")
+        # A suggestion on two lines the next commit rewords one of: 'changed', so its card says over its diff, in the
+        # warning colour, that the agent will not apply it.
+        self.warned = add_pin(
+            {
+                "file": str(self.main),
+                "lo": 15,
+                "hi": 16,
+                "page": 1,
+                "note": "줄여 씁니다",
+                "suggest": {"base": "Filler six.\nFiller seven.", "text": "Filler six and seven."},
+            },
+            A,
+        ).record["id"]
+        self.commit(
+            REPO_NEW.replace("Filler two.", "Filler two, reworded.").replace(
+                "Filler seven.", "Filler seven, reworded."
+            ),
+            "Bob Park",
+            "채움 문장 다듬기",
+        )
         ps.APP.pin_lifecycle.close_pin(
             self.review,
             post_authority(store().store, dict(LOCAL_ACTOR), "close", self.review),
@@ -585,8 +606,9 @@ class ContrastWalk(BrowserBase):
 
     # ------------------------------------------------------------ scenes
     def scene_list(self):
-        """The pin list with every section open and three cards unfolded (a thread with a folded entry, a long post and a
-        deleted pin's reference; the review; a suggested edit folded past five rows); a reply being written, with its
+        """The pin list with every section open and four cards unfolded (a thread with a folded entry, a long post and a
+        deleted pin's reference; the review; a suggested edit folded past five rows; one whose lines changed, with its
+        warning badge and the warning line over its diff, read on its own too); a reply being written, with its
         mention list and its preview naming a stranger; the thread's edit card; a hovered card, done row and section tool;
         a banner of each kind on the list and a message on the status line; [더보기]; the desktop's search field and a
         search; the outline (hovered and focused entries, filtered to nothing) or the navigation sheet (likewise); the
@@ -594,10 +616,11 @@ class ContrastWalk(BrowserBase):
         page = self.open(2, **DEVICES[self.device])
         page.evaluate(
             "ids=>{setSide(true); SEC.done=true; SEC.review=true; ids.forEach(i=>OPEN_CARDS.add(i)); drawPins();}",
-            [self.thread, self.review, self.suggested],
+            [self.thread, self.review, self.suggested, self.warned],
         )
         settle(page)
         self.look(page, "list")
+        self.look(page, "warning line", '.pin[data-id="%d"] .sg-warn' % self.warned)
         card = '#review-pins .pin[data-id="%d"]' % self.review
         page.click(card + " .acts [data-act=reply-open]")
         page.fill(card + " textarea.r-text", "@Bo")

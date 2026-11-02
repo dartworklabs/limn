@@ -1,7 +1,8 @@
 """Suggested edits in the viewer (docs/handbook/viewer.md §제안 수정, ADR-0020).
 
 The composer's [제안 수정] switch and its editor, what a save sends and the server keeps, the 409 when the lines changed,
-undo, a card's badge and line diff, and the edit card that changes or removes a suggestion.
+undo, a card's badge and line diff - with the line over it when the agent will not apply it - and the edit card that changes
+or removes a suggestion.
 
 - ``SuggestLogic`` runs the pure decisions of suggest.js under node.
 - ``SuggestFit`` holds the editor's fit on the touch sheets: the location line above the focused field with the keyboard
@@ -54,6 +55,24 @@ CARD = """id => {const c = document.querySelector('.pin[data-id="' + id + '"]'),
     view: shown(c.querySelector('.sg-view')),
     rows: [...c.querySelectorAll('.sg-diff .rd-line')].map(r => [r.className.replace('rd-line ', ''), r.querySelector('.rd-no').textContent, r.querySelector('.rd-code').textContent]),
     fold: f ? f.textContent : null};}"""
+# The line over a card's suggestion when the agent will not apply it, as drawn: its words, or null when it is not there or not
+# shown.
+WARN = """id => {const c = document.querySelector('.pin[data-id="' + id + '"]'), w = c && c.querySelector('.sg-warn');
+  return w && w.getClientRects().length > 0 ? w.textContent : null;}"""
+# The changed and the unknown line's words, Korean and English.
+WARN_KO = ("에이전트는 넣지 않음 · [수정]에서 원문에 맞추기", "에이전트는 넣지 않음 · 원문과 대조 불가")
+WARN_EN = ("The agent won't apply it · rebase it in [Edit]", "The agent won't apply it · can't be checked")
+# TEX with line 5 edited (a suggestion on lines 4-5 is 'changed'), and with lines 10-11 replaced as well (one on them is
+# 'unknown': it loses its place).
+TEX_CHANGED = TEX.replace("Second line of the paragraph.", "Second line, edited.")
+TEX_BOTH = TEX_CHANGED.replace("Filler line 10.\nFiller line 11.\n", "Something else entirely here.\nAnd more.\n")
+# A second suggestion, on lines 10-11 (TEX_BOTH replaces them).
+SECOND = {
+    "note": "둘째",
+    "suggest": {"base": "Filler line 10.\nFiller line 11.", "text": "Filler line ten.\nFiller line 11."},
+    "lo": 10,
+    "hi": 11,
+}
 
 
 def lines(lo, hi):
@@ -196,6 +215,31 @@ class SuggestLogic(unittest.TestCase):
                 ["범위가 바뀌었습니다", "sg-reload"],
                 ["그사이 원문이 바뀌었습니다", "sg-rebase"],
                 ["원문 그대로입니다 — 고친 글만 제안 수정으로 보냅니다", None],
+                None,
+            ],
+        )
+
+    def test_a_warning_line_says_the_agent_will_not_apply_it_and_what_to_do(self):
+        """An open pin: 'changed' says the agent will not apply it and to rebase it in [수정] - a viewer, who cannot edit,
+        only the first; 'unknown' says it cannot be checked. A ready suggestion, no state, or a pin under review or done:
+        no line."""
+        got = self.run_js(
+            ["suggestWarn"],
+            r"""const S = SUGGEST_STATE, P = PIN_STATE;
+            console.log(JSON.stringify([suggestWarn(S.CHANGED, P.OPEN, false), suggestWarn(S.CHANGED, P.OPEN, true),
+              suggestWarn(S.UNKNOWN, P.OPEN, false), suggestWarn(S.UNKNOWN, P.OPEN, true), suggestWarn(S.READY, P.OPEN, false),
+              suggestWarn(undefined, P.OPEN, false), suggestWarn(S.CHANGED, P.REVIEW, false), suggestWarn(S.UNKNOWN, P.DONE, false)]));""",
+        )
+        self.assertEqual(
+            got,
+            [
+                ["에이전트는 넣지 않음", "[수정]에서 원문에 맞추기"],
+                ["에이전트는 넣지 않음"],
+                ["에이전트는 넣지 않음", "원문과 대조 불가"],
+                ["에이전트는 넣지 않음", "원문과 대조 불가"],
+                None,
+                None,
+                None,
                 None,
             ],
         )
@@ -493,7 +537,8 @@ class SuggestSave(SuggestBase):
 
 
 class SuggestCard(SuggestBase):
-    """A card shows its suggestion: the badge with its state, the line diff in the source-diff look, folded past five rows."""
+    """A card shows its suggestion: the badge with its state, the line diff in the source-diff look, folded past five rows,
+    and over it, on an open card the agent will not apply, the line that says so."""
 
     def test_a_card_shows_the_badge_and_the_line_diff(self):
         """A ready suggestion: the plain badge and the rows -first line (4), +new first line (4), common second line (5)."""
@@ -558,6 +603,69 @@ class SuggestCard(SuggestBase):
         page.click('.pin[data-id="1"] .b-fold')
         settle(page)
         self.assertTrue(page.evaluate(CARD, 1)["view"])
+
+    def test_an_open_card_that_will_not_be_applied_says_so_over_its_diff(self):
+        """Two suggestions, ready, and a pin without one: no line. Their lines edited (both 'changed'): over each diff,
+        '에이전트는 넣지 않음 · [수정]에서 원문에 맞추기'; one's lines gone ('unknown'): '… · 원문과 대조 불가'. Sent to review
+        by the agent, and done by its author: the diff stays, the line goes."""
+        pid = self.add(note="짧게", suggest={"base": PARA, "text": NEW})
+        other = self.add(**SECOND)
+        plain = self.add(note="제안 없음", lo=20, hi=20)
+        page = self.view(n_open=3)
+        self.assertEqual([page.evaluate(WARN, i) for i in (pid, other, plain)], [None, None, None])
+        self.main.write_text(TEX_CHANGED.replace("Filler line 11.", "Filler line 11, edited."), encoding="utf-8")
+        page.evaluate("loadPins()")
+        settle(page)
+        self.assertEqual([page.evaluate(WARN, i) for i in (pid, other, plain)], [WARN_KO[0], WARN_KO[0], None])
+        kids = "id=>[...document.querySelector('.pin[data-id=\"'+id+'\"] .sg-view').children].map(e=>e.className)"
+        self.assertEqual(page.evaluate(kids, pid)[:2], ["sg-warn", "sg-diff"])
+        self.main.write_text(
+            TEX.replace(PARA + "\n", "Something else entirely here.\nAnd more.\n").replace(
+                "Filler line 11.", "Filler line 11, edited."
+            ),
+            encoding="utf-8",
+        )
+        page.evaluate("loadPins()")
+        settle(page)
+        self.assertEqual(page.evaluate(WARN, pid), WARN_KO[1])
+        store = ps.APP.pin_lifecycle.context().store
+        ps.APP.pin_lifecycle.close_pin(
+            pid, post_authority(store, dict(LOCAL_ACTOR), "close", pid), CloseRequest(reply="고침")
+        )
+        ps.APP.pin_lifecycle.close_pin(
+            other, post_authority(store, actor(ALICE), "close", other), CloseRequest(reply="됨")
+        )
+        page.evaluate("id=>{loadPins(); SEC.review=true; SEC.done=true; ARC_OPEN.add('o:'+id);}", other)
+        settle(page)
+        page.evaluate("drawPins()")
+        settle(page)
+        got = page.evaluate(
+            """id => {const r = document.querySelector('#review-pins .pin[data-id="' + id + '"]'), d = document.querySelector('#done-list');
+              return {review: !!r && !!r.querySelector('.sg-diff'), reviewLine: !!r && !!r.querySelector('.sg-warn'),
+                done: !!d.querySelector('.arc-orig .sg-diff'), doneLine: !!d.querySelector('.sg-warn')};}""",
+            pid,
+        )
+        self.assertEqual(got, {"review": True, "reviewLine": False, "done": True, "doneLine": False})
+
+    def test_the_english_screen_says_the_line_in_english(self):
+        """On the English screen the changed and the unknown line are the table's English, with no Hangul."""
+        pid = self.add(note="짧게", suggest={"base": PARA, "text": NEW})
+        other = self.add(**SECOND)
+        self.main.write_text(TEX_BOTH, encoding="utf-8")
+        page = self.view(n_open=2, lang="en")
+        self.assertEqual([page.evaluate(WARN, i) for i in (pid, other)], list(WARN_EN))
+
+    def test_a_folded_compact_card_hides_the_warning_line(self):
+        """On a phone a folded card shows no line, as it shows no badge and no diff; opened, the line is over the diff."""
+        pid = self.add(note="짧게", suggest={"base": PARA, "text": NEW})
+        self.main.write_text(TEX_CHANGED, encoding="utf-8")
+        page = self.view(PHONE, n_open=1)
+        page.evaluate("setSide(true)")
+        settle(page)
+        self.assertIsNone(page.evaluate(WARN, pid))
+        page.click('.pin[data-id="%d"] .b-fold' % pid)
+        settle(page)
+        self.assertEqual(page.evaluate(WARN, pid), WARN_KO[0])
 
 
 class SuggestEditCard(SuggestBase):
@@ -682,7 +790,8 @@ class SuggestGeometry(SuggestBase):
     """The kind row and the editor on every device group (docs/handbook/viewer.md §컴포넌트 규격): the switch on the kind
     control's line at the row's end, drawn at 28px in the 36px row, its label and track on the row's centre, answering 44px
     on touch and 24px with a mouse; with the editor open the composer's blocks stay one 8px step apart, the editor's text is
-    16px on touch (12px with a mouse) and wraps, and only the text fields draw a border."""
+    16px on touch (12px with a mouse) and wraps, and only the text fields draw a border. A card's warning line is one line
+    in the desktop panel and stays inside the narrowest phone's card."""
 
     def test_the_lines_action_answers_44px_on_touch_and_24px_with_a_mouse(self):
         """[원문 다시 불러오기] under an edited editor whose range moved: 44px on a phone, 24px at the mouse desktop."""
@@ -724,6 +833,34 @@ class SuggestGeometry(SuggestBase):
                 self.assertEqual(g["borders"], ["note", "c-sg-text"], g)
                 misses = page.evaluate(MISSES_44 if touch else MISSES_24, "#c-sg-tg")
                 self.assertEqual(misses, [], g)
+
+    # The warning line as drawn on card id: its words, height and line height, its font size, its room inside the
+    # suggestion's box (left and right, px; negative is outside), whether it scrolls sideways, and the panel's width.
+    WARN_BOX = """id => {const c = document.querySelector('.pin[data-id="' + id + '"]'), w = c.querySelector('.sg-warn'), v = c.querySelector('.sg-view');
+      const r = w.getBoundingClientRect(), vr = v.getBoundingClientRect(), cs = getComputedStyle(w);
+      return {text: w.textContent, h: r.height, lh: parseFloat(cs.lineHeight), font: parseFloat(cs.fontSize), left: r.left - vr.left,
+        right: vr.right - r.right, sideways: w.scrollWidth > w.clientWidth, panel: document.querySelector('#right').getBoundingClientRect().width};}"""
+
+    def test_the_warning_line_is_one_line_in_the_desktop_panel_and_fits_320px(self):
+        """The changed and the unknown line, Korean and English: in the desktop's 348px panel each is one line (its height
+        its 16px line) of 12px words; on a 320px phone each stays inside its card, wrapping rather than scrolling."""
+        pid = self.add(note="짧게", suggest={"base": PARA, "text": NEW})
+        other = self.add(**SECOND)
+        self.main.write_text(TEX_BOTH, encoding="utf-8")
+        for name in ("desktop 1440x900", "phone 320x720"):
+            for lang, words in (("ko", WARN_KO), ("en", WARN_EN)):
+                with self.subTest(band=name, lang=lang):
+                    page = self.view(BANDS[name], n_open=2, lang=lang)
+                    page.evaluate("ids=>{setSide(true); ids.forEach(i=>OPEN_CARDS.add(i)); drawPins();}", [pid, other])
+                    settle(page)
+                    for i, text in zip((pid, other), words, strict=True):
+                        g = page.evaluate(self.WARN_BOX, i)
+                        self.assertEqual(g["text"], text, g)
+                        self.assertEqual((g["left"], g["sideways"]), (0, False), g)
+                        self.assertGreaterEqual(g["right"], 0, g)
+                        if name.startswith("desktop"):
+                            self.assertEqual((g["panel"], g["font"], g["lh"], g["h"]), (348, 12, 16, 16), g)
+                    page.context.close()
 
 
 # A soft keyboard (Chrome on Android, interactive-widget=resizes-content): the layout is this many px shorter.

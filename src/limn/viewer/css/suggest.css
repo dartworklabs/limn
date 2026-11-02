@@ -44,6 +44,11 @@ button.sg-tg[aria-checked=true]{color:var(--foreground)}
 /* A card's suggestion, after its note: the diff on the source's surface, its lines always wrapped (never sideways), each with
    its number and its '+', '-' or ' ' mark; past five rows its middle folds to '… N줄' with [제안 펼치기] under it. */
 .pin .sg-view{margin-top:var(--space-2)}
+/* An open card whose suggestion the agent will not apply says so in one line over its diff (suggestWarnLine): the card's
+   small text (12px, the facts line's size) on the label's whole-px line, in the warning colour of its badge (4.5:1 on the
+   card in both themes), one 4px step above the diff as [제안 펼치기] is below it. Its words fit one line in the desktop's
+   348px panel and the narrowest touch card; a narrower one wraps them, never sideways. */
+.sg-warn{margin:0 0 var(--space-1);font-size:var(--text-sm);line-height:var(--line-label);color:var(--status-warning);overflow-wrap:anywhere}
 .sg-diff{border-radius:var(--radius);overflow:hidden;background:var(--code);font-family:var(--font-mono);font-size:var(--text-sm);line-height:1.7}
 .sg-diff .rd-no{width:auto;min-width:4ch}
 .sg-diff .rd-fold .rd-code{color:var(--muted-foreground)}
