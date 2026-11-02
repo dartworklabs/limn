@@ -24,6 +24,10 @@ no() {
     fail=$((fail + 1))
 }
 chk() { if eval "$2"; then ok "$1"; else no "$1  [$2]"; fi; }
+# has <grep arguments> — the reader of `command | has PATTERN`, which reads all of its input. `grep -q` stops at the first
+# match and closes the pipe: a writer with more to write (`help` is sed's 4K block and then some) dies of SIGPIPE and
+# pipefail fails the check, on a busy machine only, where grep gets there first.
+has() { grep "$@" > /dev/null; }
 
 # The real interpreter (resolved before HOME is redirected — some python3 shims depend on HOME). limn needs
 # Python >= 3.10, and macOS's /usr/bin/python3 is 3.9, so the first python3 is not enough: LIMN_TEST_PYTHON, then
@@ -132,7 +136,11 @@ export LIMN_USER_UNIT_DIR="$T/user-units" LIMN_LEDGER="$T/served/reserved-ports.
 export LIMN_TS_MIN=18005 LIMN_TS_MAX=18012 XDG_RUNTIME_DIR="$T/run"
 export LIMN_WAIT=1 # doc add/remove --restart wait for HTTP 200; there is no server, so keep the loop short
 export LIMN_UV="$T/bin/uv" LIMN_REPO="git+ssh://git@example.invalid/limn" LIMN_UNIT_PATH="/opt/tex/bin:/usr/bin:/bin"
-mkdir -p "$T/run" "$T/served" "$HOME"
+# own_listener's socket tables, empty: a server this account runs on the host is not on a port of these made-up instances.
+export LIMN_PROC_NET="$T/proc-net"
+mkdir -p "$T/run" "$T/served" "$HOME" "$LIMN_PROC_NET"
+: > "$LIMN_PROC_NET/tcp"
+: > "$LIMN_PROC_NET/tcp6"
 # The port ledger already lists a unit advertising local 18105 → the 18005↔18105 pair is unusable.
 printf '# generated\n18105 other-serve.service\n' > "$LIMN_LEDGER"
 cp "$LIMN_LEDGER" "$T/ledger.orig"
@@ -194,7 +202,7 @@ chk "run builds the arguments from the config" "grep -qx -- '--port' <<< \"\$arg
 chk "run passes the state dir" "grep -qx '$T/data/paper-a' <<< \"\$argv\""
 chk "run passes the label as one argument" "grep -qx -- '--label' <<< \"\$argv\" && grep -qx 'Paper A' <<< \"\$argv\""
 chk "run passes the accent" "grep -qx -- '--accent' <<< \"\$argv\" && grep -qx '#1f77b4' <<< \"\$argv\""
-chk "the packaged server accepts every argument run builds" "\"$PY\" '$ROOT/src/limn/server.py' --help | grep -q -- '--label' && \"$PY\" '$ROOT/src/limn/server.py' --help | grep -q -- '--doc'"
+chk "the packaged server accepts every argument run builds" "\"$PY\" '$ROOT/src/limn/server.py' --help | has -- '--label' && \"$PY\" '$ROOT/src/limn/server.py' --help | has -- '--doc'"
 argv=$(LIMN_PRINT_ARGV=1 "$PV" run paper-b 2> /dev/null)
 chk "GIT_PULL=0 means no --git-pull" "! grep -qx -- '--git-pull' <<< \"\$argv\""
 sed -i.bak '/^PORT=/d' "$T/src/paper-b.env" && rm -f "$T/src/paper-b.env.bak"
@@ -333,7 +341,7 @@ chk "the template reads no EnvironmentFile (limn run reads the config)" "! grep 
 chk "ExecStart is '<limn> run %i'" "grep -qx 'ExecStart=@LIMN_BIN@ run %i' '$U'"
 chk "git runs non-interactively inside the unit" "grep -qx 'Environment=GIT_TERMINAL_PROMPT=0' '$U' && grep -q 'BatchMode=yes' '$U'"
 chk "Restart=on-failure" "grep -qx 'Restart=on-failure' '$U'"
-chk "no 0.0.0.0 and no funnel" "! grep -vE '^#' '$U' | grep -qE '0\\.0\\.0\\.0|funnel'"
+chk "no 0.0.0.0 and no funnel" "! grep -vE '^#' '$U' | has -E '0\\.0\\.0\\.0|funnel'"
 "$PV" add unit-t --manuscript "$ms" --port 19110 --ts-port 19010 --no-start > /dev/null 2>&1
 : > "$STUB_LOG"
 "$PV" start unit-t --no-serve > "$T/start.out" 2>&1
@@ -418,7 +426,7 @@ chk "DOCS keeps the figure entries as given" \
 
 echo "── 9. doc list/add/remove: single document ↔ multi-document switch ──"
 "$PV" add single-1 --manuscript "$ms" --main main.tex --no-serve --no-start > /dev/null 2>&1
-chk "doc list on a single-document instance reports MAIN" "'$PV' doc list single-1 | grep -q 'single document (MAIN=main.tex)'"
+chk "doc list on a single-document instance reports MAIN" "'$PV' doc list single-1 | has 'single document (MAIN=main.tex)'"
 chk "doc add on a nonexistent instance is rejected" "! '$PV' doc add nope --doc 'x=문서:main.tex' >/dev/null 2>&1"
 chk "doc remove on a nonexistent instance is rejected" "! '$PV' doc remove nope x >/dev/null 2>&1"
 chk "an unknown doc subcommand is rejected" "! '$PV' doc frobnicate single-1 >/dev/null 2>&1"
@@ -467,7 +475,7 @@ chk "run refuses a config with both MAIN and DOCS" \
 sed -i.bak '/^MAIN=/d' "$T/src/docs-1.env" && rm -f "$T/src/docs-1.env.bak"
 
 lst2=$("$PV" list 2>&1)
-chk "list's docs column shows 4 for docs-1" "awk '\$1==\"docs-1\"{print \$7}' <<< \"\$lst2\" | grep -qx 4"
+chk "list's docs column shows 4 for docs-1" "awk '\$1==\"docs-1\"{print \$7}' <<< \"\$lst2\" | has -x 4"
 st=$("$PV" status docs-1 2>&1)
 chk "status shows the document count and key list" "grep -q 'docs         4: ms,rr,sub,wd' <<< \"\$st\""
 snip=$("$PV" snippet docs-1 2>&1)
@@ -668,11 +676,11 @@ argv=$(LIMN_PRINT_ARGV=1 "$PV" run insec 2> /dev/null)
 chk "a non-loopback BIND is accepted with --i-know-this-is-insecure in EXTRA_ARGS" "grep -qx -- '--i-know-this-is-insecure' <<< \"\$argv\" && [[ \$(grep -A1 -x -- --bind <<< \"\$argv\" | sed -n 2p) == 0.0.0.0 ]]"
 cp "$T/config/v01.env" "$T/config/lb1.env"
 printf 'AGENT_LOOPBACK=1\n' >> "$T/config/lb1.env"
-chk "AGENT_LOOPBACK=1 → --agent-loopback (tailscale, loopback)" "LIMN_PRINT_ARGV=1 '$PV' run lb1 2>/dev/null | grep -qx -- '--agent-loopback'"
+chk "AGENT_LOOPBACK=1 → --agent-loopback (tailscale, loopback)" "LIMN_PRINT_ARGV=1 '$PV' run lb1 2>/dev/null | has -x -- '--agent-loopback'"
 cp "$T/config/v01.env" "$T/config/tn1.env"
 printf 'TAILNET_AGENT=1\n' >> "$T/config/tn1.env"
-chk "TAILNET_AGENT=1 → --tailnet-agent (v0.2.1 opt-in)" "LIMN_PRINT_ARGV=1 '$PV' run tn1 2>/dev/null | grep -qx -- '--tailnet-agent'"
-chk "a v0.1 config adds no --tailnet-agent" "! LIMN_PRINT_ARGV=1 '$PV' run v01 2>/dev/null | grep -q -- '--tailnet-agent'"
+chk "TAILNET_AGENT=1 → --tailnet-agent (v0.2.1 opt-in)" "LIMN_PRINT_ARGV=1 '$PV' run tn1 2>/dev/null | has -x -- '--tailnet-agent'"
+chk "a v0.1 config adds no --tailnet-agent" "! LIMN_PRINT_ARGV=1 '$PV' run v01 2>/dev/null | has -- '--tailnet-agent'"
 
 "$PV" add acc-add --manuscript "$ms" --port 19131 --ts-port 19031 --auth local --no-serve --no-start > /dev/null 2>&1
 chk "add --auth local writes AUTH=local" "grep -qx 'AUTH=local' '$T/src/acc-add.env'"
@@ -690,7 +698,7 @@ chk "add without --ui-lang writes no UI_LANG line (the browser's language decide
 sed -i.bak 's#^UI_LANG=.*#UI_LANG=ko#' "$T/src/ui-a.env" && rm -f "$T/src/ui-a.env.bak"
 argv=$(LIMN_PRINT_ARGV=1 "$PV" run ui-a 2> /dev/null)
 chk "UI_LANG=ko → --ui-lang ko" "[[ \$(grep -A1 -x -- --ui-lang <<< \"\$argv\" | sed -n 2p) == ko ]]"
-chk "the packaged server accepts --ui-lang" "\"$PY\" '$ROOT/src/limn/server.py' --help | grep -q -- '--ui-lang'"
+chk "the packaged server accepts --ui-lang" "\"$PY\" '$ROOT/src/limn/server.py' --help | has -- '--ui-lang'"
 "$PV" doc add ui-a --doc 'rr=답변서:submission/review_response/review_response.tex' > /dev/null 2>&1
 chk "doc add keeps UI_LANG when it rewrites the config" "grep -qx 'UI_LANG=ko' '$T/src/ui-a.env' && grep -q '^DOCS=' '$T/src/ui-a.env'"
 
@@ -699,11 +707,11 @@ tok=$("$PV" token create v01 --name ci 2> "$T/tok.err")
 chk "token create prints the token on stdout only" "[[ \"\$tok\" == limn_* && \$(wc -l <<< \"\$tok\") -eq 1 ]]"
 chk "the token lands in STATE_DIR from the config, hashed and 0600" \
     "[[ -f '$T/data/v01/tokens.json' && \$(mode_of '$T/data/v01/tokens.json') == 600 ]] && ! grep -qF \"\$tok\" '$T/data/v01/tokens.json' && grep -q '\"name\": \"ci\"' '$T/data/v01/tokens.json'"
-chk "token list shows the name, never the token" "'$PV' token list v01 | grep -q ' ci ' && ! '$PV' token list v01 | grep -qF \"\$tok\""
+chk "token list shows the name, never the token" "'$PV' token list v01 | has ' ci ' && ! '$PV' token list v01 | has -F \"\$tok\""
 chk "token revoke by name" "'$PV' token revoke v01 ci >/dev/null && ! grep -q '\"name\": \"ci\"' '$T/data/v01/tokens.json'"
 chk "token on an unknown instance fails" "! '$PV' token list nope >/dev/null 2>&1"
 chk "member add/role/list via the instance name" \
-    "'$PV' member add v01 alice@example.com --role viewer >/dev/null && '$PV' member role v01 alice@example.com editor >/dev/null && '$PV' member list v01 | grep -qE '^alice@example.com +editor'"
+    "'$PV' member add v01 alice@example.com --role viewer >/dev/null && '$PV' member role v01 alice@example.com editor >/dev/null && '$PV' member list v01 | has -E '^alice@example.com +editor'"
 chk "member remove" "'$PV' member remove v01 alice@example.com >/dev/null && ! grep -q alice '$T/data/v01/people.json'"
 chk "--state-dir instead of an instance" "'$PV' member add --state-dir '$T/data/plain' bob@example.com >/dev/null && grep -q bob@example.com '$T/data/plain/people.json'"
 "$PV" help > "$T/help.out" 2>&1
@@ -771,7 +779,7 @@ out=$(LIMN_PYTHON="$T/py310/python3" LIMN_PRINT_ARGV=1 bash "$IM" run v01 2>&1)
 chk "Python 3.10.0, exactly the floor, is accepted" "[[ \$(sed -n 1p <<< \"\$out\") == '$T/py310/python3' ]]"
 out=$(LIMN_PYTHON="$T/pynew/python3.12" LIMN_PRINT_ARGV=1 PATH="$T/pyother:$PATH" bash "$IM" run v01 2>&1)
 chk "LIMN_PYTHON wins over a good python3 earlier on PATH" "[[ \$(sed -n 1p <<< \"\$out\") == '$T/pynew/python3.12' ]]"
-chk "help still works without a Python" "env -u LIMN_PYTHON PATH='$T/py39' '$BASH' '$IM' help | grep -q 'limn add'"
+chk "help still works without a Python" "env -u LIMN_PYTHON PATH='$T/py39' '$BASH' '$IM' help | has 'limn add'"
 # with_timeout: no timeout(1)/gtimeout (stock macOS) -> perl's alarm still bounds the command.
 if command -v perl > /dev/null 2>&1; then
     mkdir -p "$T/notimeout"

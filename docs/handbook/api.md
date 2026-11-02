@@ -308,7 +308,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
-| `POST` | `/api/pick` | 드래그 좌표를 원문 위치로 되짚는다. 입력은 `page`, `x0`, `y0`, `x1`, `y1` 이다. 선택 `frac` 은 쪽 대비 비율 숫자 4개 목록 `[x, y, w, h]` 이고, 다른 모양이면 `400`. 선택 `pdf_build` 는 드래그할 때 화면의 빌드 id이며, 그 빌드의 PDF로 되짚는다. 그 빌드가 이미 지워졌으면 `200 {error, pdf_build_gone:true}`, 모양이 틀리면 `400`. 응답은 `{file, name, lo, hi, raw_lo, raw_hi, kind, via, score, warn, snippet, frac, levels, default_level, n_lines, quote, overlaps, pdf_build}`. `quote` 는 선택 영역 글자를 공백 정규화해 160자까지 자른 것이다(넘으면 159자 + `…`, 보기 전용 PDF 의 영역 글자와 같은 길이). 뷰어가 이 글자를 한 줄로 보이고 툴팁과 펼침에 전부 보이므로 그 줄의 가장 넓은 폭보다 길게 둔다([viewer.md](viewer.md) §패널 정리). `overlaps` 는 같은 파일의 열린 핀과의 겹침이다(§겹친 핀과 덧붙이기). 입력 오류는 `400`, 되짚기 실패는 `200 {error}`. `levels`·`via`·`score` 의 뜻은 [domain.md](domain.md) §범위 사다리와 §역변환이 두 경로인 이유. 그림 문서의 답은 §그림 문서의 pick·핀 |
+| `POST` | `/api/pick` | 드래그 좌표를 원문 위치로 되짚는다. `score` 는 0~1 이고, 잴 낱말이 없으면(그림 위, 모두 흔한 낱말) `null` 이다. `levels` 의 단계마다 자기 범위의 `score` 가 있고, 답의 `score` 는 기본 단계의 값이다. 입력은 `page`, `x0`, `y0`, `x1`, `y1` 이다. 선택 `frac` 은 쪽 대비 비율 숫자 4개 목록 `[x, y, w, h]` 이고, 다른 모양이면 `400`. 선택 `pdf_build` 는 드래그할 때 화면의 빌드 id이며, 그 빌드의 PDF로 되짚는다. 그 빌드가 이미 지워졌으면 `200 {error, pdf_build_gone:true}`, 모양이 틀리면 `400`. 응답은 `{file, name, lo, hi, raw_lo, raw_hi, kind, via, score, warn, snippet, frac, levels, default_level, n_lines, quote, overlaps, pdf_build}`. `quote` 는 선택 영역 글자를 공백 정규화해 160자까지 자른 것이다(넘으면 159자 + `…`, 보기 전용 PDF 의 영역 글자와 같은 길이). 뷰어가 이 글자를 한 줄로 보이고 툴팁과 펼침에 전부 보이므로 그 줄의 가장 넓은 폭보다 길게 둔다([viewer.md](viewer.md) §패널 정리). `overlaps` 는 같은 파일의 열린 핀과의 겹침이다(§겹친 핀과 덧붙이기). 입력 오류는 `400`, 되짚기 실패는 `200 {error}`. `levels`·`via`·`score` 의 뜻은 [domain.md](domain.md) §범위 사다리와 §역변환이 두 경로인 이유. 그림 문서의 답은 §그림 문서의 pick·핀 |
 | `POST` | `/api/pin` | 새 핀 추가 → `{id}`. 저장 필드 화이트리스트는 `file, name, page, lo, hi, raw_lo, raw_hi, kind, via, score, fill, rival, frac, note, scope, quote, pdf_build, el, suggest, verdict`. `el` 은 그림 문서에서만 저장한다(§그림 문서의 pick·핀). `suggest` 는 LaTeX 문서의 줄 핀만 받고, 저장하기 전에 원문과 대조한다(§제안 수정 (`suggest`)). `verdict` 는 그 문서가 선언한 판정 낱말 하나이고, 사람만 보낸다(§판정 핀 (`verdict`)). 선택으로 `kind_req`(§스레드 (답글)), `mentions`(힌트), `assignee`(담당, §@태그·사람·이벤트)를 받는다. `pdf_build` 를 안 보내면(에이전트 `curl`) 지금 빌드로 찍는다 |
 | `POST` | `/api/pins/{id}/edit` | 제자리 수정 — §핀 수정 (`/api/pins/{id}/edit`) |
 | `POST` | `/api/pins/{id}/close` | 핀 한 건을 닫는다(`done: true`, `closed_by`). 에이전트가 닫으면 검토 대기(`review: true`), 사람이 닫으면 완료다 — §검토 대기. 선택 본문 `{"reply", "ref", "changes", "review"}` — §닫을 때 사유 남기기. 레코드는 남는다. `<state_dir>/pins.md` 에서는 열린 표에서 빠지고 머리줄 건수로만 남는다(§pins.md 형식). 응답은 `{ok, pin, state}`. 그 id가 없으면 `200 {"ok": false, "pin": null}` 이다(reopen도 같다). **이미 닫힌 핀을 다시 닫으면 `{ok: true, pin}` 을 그대로 돌려주고 아무 필드도 바꾸지 않는다.** `rev` 도 그대로다(규칙은 [domain.md](domain.md) §전이에 딸린 규칙) |
@@ -355,12 +355,16 @@ latexdiff는 본문 글과, 자기가 아는 글 명령(`\textbf`·`\section`·`
 | 대상 | 한도 |
 | --- | --- |
 | 파일 하나 | 64 MiB |
-| 스냅샷 하나 | 256 MiB, 4,000개 |
+| 스냅샷 하나 | 256 MiB, 4,000개(아래 글) |
 | 비교 PDF | 32 MiB |
 | 두 프로세스 파이프 출력의 합 | 기본 8 MiB |
 | Git 사본 만들기 | 각각 60초 |
 | `latexdiff` | 60초 |
 | `latexmk` | 서버 `--timeout` 과 180초 중 작은 값 |
+
+빌드 루트 전체가 크기 한도를 넘으면 스냅샷은 PDF와 그림 파일(`.pdf`·`.png`·`.jpg`·`.eps` 등) 가운데 이름이나 확장자를 뺀 이름이 어디에도 나오지 않는 것을 내용 없는 빈 자리 파일로 둔다. 지난 비교 PDF를 쌓아 두는 원고 폴더가 이 경우다. 이름을 찾는 곳은 빌드 루트의 나머지 파일, 비교의 옛 쪽, 핀 비교라면 그 핀의 블록이다. 그래도 넘으면 `snapshot_size` 다. 파일 수 한도는 빈 자리 파일도 그대로 센다.
+
+한도 안에 드는 빌드 루트는 언제나 통째로 쓴다. 이름 찾기는 어림이기 때문이다. 빈 자리 파일은 진짜 파일의 크기만큼 0으로 찬 희소 파일이라 디스크를 쓰지 않는다. `\IfFileExists` 와 `\pdffilesize` 에는 진짜 파일과 같게 답하고, 내용을 읽으면 빌드가 실패한다. 그림 판독기는 0을 받지 않고 TeX는 NUL을 거부한다. 그래서 매크로로 이름을 만드는 그림(`fig\thepage`)은 잘못된 PDF가 아니라 `compile_failed` 로 끝난다.
 
 이력 창(§두 커밋 사이)은 HEAD가 움직일 때만 다시 읽는다. 그래서 HEAD를 그대로 둔 채 이력의 모양만 바꾸는 일 - `git replace`, grafts, 얕은 클론을 깊게 하기(`git fetch --deepen`·`--unshallow`) - 뒤에는 목록·검증·`close_ref` 찾기가 다음 커밋(또는 서버 재시작)까지 옛 목록을 쓴다.
 
@@ -437,7 +441,7 @@ latexdiff는 본문 글과, 자기가 아는 글 명령(`\textbf`·`\section`·`
 ```
 
 - **`base_rev` 는 필수다.** 수정하려는 핀을 읽을 때 받은 `rev` 를 보낸다. 다르면 `409 {"error":"conflict","pin":<최신>}` 이고 아무것도 바뀌지 않는다. 다른 에이전트가 먼저 닫았거나 자동 줄 맞춤이 옮긴 핀을 옛 `lo`·`hi` 로 조용히 덮어쓰지 않기 위해서다. `409` 를 받으면 응답의 최신 `pin` 을 보고 다시 보낸다.
-- **위치를 통째로 바꿀 때는 `loc` 을 보낸다.** 모양은 `loc: {file, page, lo, hi, raw_lo, raw_hi, kind, via, score, fill, rival, frac, scope, pdf_build, el}` 이고, 이것을 "위치 다시 잡기"라 부른다. 필수는 `file`·`lo`·`hi` 다. `loc` 에 없는 `page`·`frac` 은 기존 값을 둔다. `kind` 가 없으면 `lines` 가 되고, 나머지 위치 필드는 지워진다. id, 메모, 작성자는 그대로다. `el` 은 위치 필드다. 그림 문서에서만 받고(다른 문서에서는 모르는 필드처럼 버린다), 다른 위치 필드처럼 `loc` 에 없으면 핀의 `el` 이 지워진다. `lo`·`hi` 만 고치는 편집은 `el` 을 둔다. 영역 핀과 줄 핀은 위치 다시 잡기로 서로 바뀌지 않는다(§그림 문서의 pick·핀).
+- **위치를 통째로 바꿀 때는 `loc` 을 보낸다.** 모양은 `loc: {file, page, lo, hi, raw_lo, raw_hi, kind, via, score, fill, rival, frac, scope, quote, pdf_build, el}` 이고, 이것을 "위치 다시 잡기"라 부른다. 필수는 `file`·`lo`·`hi` 다. `loc` 에 없는 `page`·`frac` 은 기존 값을 둔다. `kind` 가 없으면 `lines` 가 되고, 나머지 위치 필드는 지워진다. id, 메모, 작성자는 그대로다. `el` 은 위치 필드다. 그림 문서에서만 받고(다른 문서에서는 모르는 필드처럼 버린다), 다른 위치 필드처럼 `loc` 에 없으면 핀의 `el` 이 지워진다. `lo`·`hi` 만 고치는 편집은 `el` 을 둔다. 영역 핀과 줄 핀은 위치 다시 잡기로 서로 바뀌지 않는다(§그림 문서의 pick·핀).
 - **`pdf_build` 는 `loc` 에 `frac` 이 있을 때만 바뀐다.** 이때 값은 `loc` 에 담긴 `pdf_build` 다. 뷰어는 여기에 pick 응답 값을 넣는다. 둘 다 없으면 지금 빌드다. 메모, `note_append`, `lo`·`hi` 만 고치는 편집은 `pdf_build` 를 건드리지 않는다.
 - **범위가 바뀌면 `anchor` 를 새로 뜨고 `stale`·`sync` 를 지운다.** 위치를 잃은(`stale`) 핀도 이 경로로 고친다.
 - **닫힌 핀은 메모만 고칠 수 있다.** 범위나 위치, 제안 수정(`suggest`)을 보내면 `409 {"error":"done"}` 이다.

@@ -6,7 +6,8 @@ Chromium is $LIMN_CHROMIUM, a system Chrome/Chromium, or Playwright's bundled on
 that order. Without Playwright or a browser the class is skipped, unless
 LIMN_TEST_REQUIRE_BROWSER=1 (CI), where that is a failure. Classes selecting Firefox or WebKit use Playwright's
 bundled engine (`playwright install firefox webkit`). Every class that launches a browser carries the pytest marker
-`browser`, so `pytest -m "not browser"` runs the rest.
+`browser`, so `pytest -m "not browser"` runs the rest. Chromium keeps the font's own advances (CHROMIUM_ARGS), so a width
+a test fixes does not depend on which of those binaries a machine has.
 
 The browser tests never wait a fixed time for the page to get somewhere: they wait on the state the next step reads (a
 variable the viewer sets, an element, the page having settled - settle()). The one fixed wait left is nothing_follows(),
@@ -34,6 +35,11 @@ from limn.platform.files import file_in_tree, tex_lines
 from helpers import ApplicationFixture, blank_png, ps, run_config, serve_viewer, split_resp
 from helpers_access import ALICE, reset_access, talk_to
 from helpers_browser_font import use_test_font, wait_test_font
+
+# Chromium's flags. Playwright's bundled headless shell hints in full by default, whatever fontconfig says, and rounds every
+# glyph's advance to a whole pixel: the same bundled face then measures other widths than in Chrome, and the checks that fix
+# a layout from widths pick another step (docs/handbook/verification.md §브라우저 테스트의 글자 너비).
+CHROMIUM_ARGS = ["--no-sandbox", "--font-render-hinting=none"]
 
 # The timers settle() waits for: the viewer's debounces, slides and long-press timers run 0-1000ms. Longer ones are
 # lifetimes no test waits out - an undo's 6s window, a tooltip's 4s.
@@ -68,18 +74,22 @@ IDLE_WATCH = (
 
 # settle()'s check, run on every animation frame: nothing pending (IDLE_WATCH), no web font loading (the bundled
 # Pretendard's slices load as their characters first show, and the text swaps from a fallback when they arrive -
-# docs/handbook/viewer.md §글꼴) and no finite CSS animation or transition running (an infinite one - a spinner - never
-# ends), on two frames in a row, so that a requestAnimationFrame callback queued behind the first check has run too. An
-# animation on an element the browser skips (inside content-visibility: auto far from the view, as a far page line) is
-# not waited for: Firefox keeps it running at its first frame until the element is drawn again.
+# docs/handbook/viewer.md §글꼴), no finite CSS animation or transition running (an infinite one - a spinner - never
+# ends) and the boot done with PDF.js, on two frames in a row, so that a requestAnimationFrame callback queued behind the
+# first check has run too. An animation on an element the browser skips (inside content-visibility: auto far from the view,
+# as a far page line) is not waited for: Firefox keeps it running at its first frame until the element is drawn again.
+# The boot imports PDF.js (vecBoot, in the same task as META's arrival), which is neither a fetch nor a timer. The open that
+# follows takes a new VEC.gen and forgets the outline, so what a test drew or loaded before it went: an outline's rows, a
+# stand-in document. Once it has the module or has given up on it, the viewer starts no open of its own.
 QUIET = """() => {
   const idle = window.__limnIdle;
   if (!idle) throw new Error('settle(): this page has no idle watch - add it to the context with watch_idle()');
   const drawn = t => !t || !t.checkVisibility || t.checkVisibility({contentVisibilityAuto: true});
   const moving = document.getAnimations().some(a => a.playState === 'running' && a.effect
     && a.effect.getComputedTiming().iterations !== Infinity && drawn(a.effect.target));
-  const fonts = document.fonts.status === 'loaded';
-  idle.quiet = idle.timers.size === 0 && idle.fetches === 0 && fonts && !moving ? idle.quiet + 1 : 0;
+  const fonts = document.fonts.status === 'loaded', vec = window.__pinVec;
+  const booting = !!vec && typeof META !== 'undefined' && !!META && vec.lib === null && vec.failed === null;
+  idle.quiet = idle.timers.size === 0 && idle.fetches === 0 && fonts && !moving && !booting ? idle.quiet + 1 : 0;
   return idle.quiet >= 2;
 }"""
 
@@ -212,9 +222,9 @@ def watch_idle(context):
 def settle(page, timeout=15000):
     """Wait until the page has settled: no short timer pending, no fetch in flight, no web font loading, no CSS
     animation or transition running, on two animation frames in a row. After it, whatever the last action set in
-    motion - a debounced save, a slide, a server round trip and its redraw, a font slice for new text and the swap -
-    has finished, so the next step reads the state it produced, and a check that something did not happen reads the
-    page after everything that could have made it happen."""
+    motion - a debounced save, a slide, a server round trip and its redraw, a font slice for new text and the swap, the
+    boot's import of PDF.js - has finished, so the next step reads the state it produced, and a check that something did not
+    happen reads the page after everything that could have made it happen."""
     page.evaluate("window.__limnIdle && (window.__limnIdle.quiet = 0)")
     page.wait_for_function(QUIET, timeout=timeout, polling="raf")
 
@@ -321,7 +331,7 @@ class ChromiumTestCase(unittest.TestCase):
         try:
             if cls.BROWSER_ENGINE == "chromium":
                 exe = os.environ.get("LIMN_CHROMIUM") or shutil.which("google-chrome") or shutil.which("chromium")
-                cls.browser = cls.pw.chromium.launch(executable_path=exe or None, args=["--no-sandbox"])
+                cls.browser = cls.pw.chromium.launch(executable_path=exe or None, args=CHROMIUM_ARGS)
             else:
                 cls.browser = getattr(cls.pw, cls.BROWSER_ENGINE).launch()
         except Exception as e:  # no bundled or system browser
@@ -456,9 +466,9 @@ class BrowserBase(ChromiumTestCase):
 
     def open(self, n_open, lang="ko", init=None, test_font=False, **device):
         """Open the viewer in a new context and return the page once boot() has finished and the page has settled: the
-        pin lists (open, review, done) are loaded and polling has started, with at least n_open open pins. init is an
-        optional script run before the viewer's own. test_font requests the fixed
-        page-scoped Hangul face before the viewer script executes.
+        pin lists (open, review, done) are loaded and polling has started, with at least n_open open pins, and the boot has
+        done with PDF.js (settle). init is an optional script run before the viewer's own. test_font requests the
+        fixed page-scoped Hangul face before the viewer script executes.
 
         The wait is on LIGHT_TIMER, which boot() sets only after `await loadPins()`. META and the initial
         `OPEN_ALL=[]` are both set before that await, so waiting on them alone let a test act on a review or done

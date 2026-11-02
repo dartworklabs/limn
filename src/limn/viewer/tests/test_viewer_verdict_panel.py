@@ -2512,8 +2512,10 @@ class TallPanel(PanelBase):
 
     def test_the_popover_lets_the_keyboard_out_and_tab_leaves_the_panel(self):
         """No trap: [접기] by key closes the popover and keeps the draft, and from there Tab reaches the panel's last control
-        and leaves for the pin panel; Shift+Tab comes back into the panel."""
+        and leaves for the pin panel; Shift+Tab comes back into the panel. No message's window runs: Shift+Tab can land on the
+        save chip's [되돌리기], and on a busy machine the chip's 6 s ended right then and took the focus with it."""
         page = self.writing()
+        page.evaluate("()=>{armNotice=()=>{}; NOTICES.forEach(n=>clearTimeout(n.timer));}")
         for _ in range(12):
             if page.evaluate("()=>document.activeElement.dataset.act") == "pv-reason-fold":
                 break

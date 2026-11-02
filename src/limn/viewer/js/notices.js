@@ -185,7 +185,7 @@ function drawOffer(n){if(n.place===NOTICE_PLACE.CHIP)drawChips(); else if(n.plac
 function armNotice(n){if(n.life!==NOTICE_LIFE.TIMER)return; clearTimeout(n.timer); n.timer=undefined; n.held=false; if(n.busy)return;
   const line=n.place===NOTICE_PLACE.CHIP&&!!n.el&&!!n.el.parentElement&&n.el.parentElement.classList.contains('pv');
   const left=n.at+NOTICE_MS+(line?PV_CHIP_HOLD_MAX:NOTICE_HOLD_MAX)-Date.now(); n.held=noticeHeld(n);
-  n.timer=setTimeout(()=>endNotice(n,false),Math.max(0,n.held?left:Math.min(NOTICE_MS,left)));}
+  n.timer=setTimeout(()=>{const back=noticeFocusBack(n,true); endNotice(n,false); back();},Math.max(0,n.held?left:Math.min(NOTICE_MS,left)));}
 // Whether message n's window is held now: one on the status line while the line is (lineHeld); one drawn in place while a
 // mouse is on its element - still in the page and under the pointer, so no hold outlives what was hovered.
 /** @param {Notice} n @returns {boolean} */
@@ -234,6 +234,19 @@ function endNotice(n,acted,seen){if(!NOTICES.has(n.n))return; NOTICES.delete(n.n
   if(n.place===NOTICE_PLACE.LINE)drawStatus(); if(n.place===NOTICE_PLACE.BANNER){syncSaveBtn(); tipFollow();}   // what was under it moved up
   if(!acted&&n.gone){const g=n.gone; n.gone=null; g();}}
 
+// Read before message n goes. A button of it with the focus goes with it, and what is returned, called once it has gone, finds
+// the focus a place: on a document with page lines the line of the page the button was on (a chip's) or the reading page's, else
+// the pages - never nothing, so Tab goes on from there and not from the top of the page. Called where nothing took the focus
+// meanwhile; a press with a reason being typed leaves it in its field (noticeAct). With a card's editor or reply open it is left
+// out of the pages: there a digit is the pages' verdict key (verdictKey shuts them for a focus outside the pages), and a person
+// in the middle of a reply did not ask for that. anyDoc: on a document without page lines too. An action's press goes without
+// it, for the action may put the focus where it wants; the window's end and [x] have no action.
+/** @param {Notice} n @param {boolean} [anyDoc] @returns {()=>void} */
+function noticeFocusBack(n,anyDoc){const f=/** @type {HTMLElement|null} */(document.activeElement);
+  const own=!!f&&!!f.closest&&!!f.closest('[data-act^="notice-"][data-n="'+n.n+'"]');
+  const l=own&&f?/** @type {HTMLElement|null} */(f.closest('#doc .pv')):null,page=l?Number(l.dataset.page)||0:0;
+  return ()=>{const g=document.activeElement; if(!own||(g&&g!==document.body)||EDITOR.current||REPLY)return; const lines=!!pageVerdictsOn();
+    if(lines?!pvFocusLine(page||PV_READ):anyDoc)searchToPage();};}
 // How long an action's request may go unanswered before its message says so (noticeLate) - the bound a page line's
 // take-back has too (verdict.js PV_DROP_WAIT). A let: the tests shorten it.
 let NOTICE_ACT_WAIT=8000;
@@ -247,12 +260,7 @@ let NOTICE_ACT_WAIT=8000;
 // action is told (run.away(), save.js) so that it takes no focus either.
 /** @param {number} num */
 function noticeAct(num){const n=NOTICES.get(num); if(!n||n.busy)return; const a=n.act;
-  // An action whose button had the focus goes with its message: on a document with page lines the focus goes to the line of the page
-  // it was on (a chip's) or the reading page's, else the pages - never nothing. A press with a reason being typed leaves the focus
-  // in its field (below).
-  const f=/** @type {HTMLElement|null} */(document.activeElement),own=!!f&&!!f.closest&&!!f.closest('[data-act="notice-act"][data-n="'+n.n+'"]');
-  const l=own&&f?/** @type {HTMLElement|null} */(f.closest('#doc .pv')):null,page=l?Number(l.dataset.page)||0:0;
-  const back=()=>{const g=document.activeElement; if(!own||!pageVerdictsOn()||(g&&g!==document.body))return; if(!pvFocusLine(page||PV_READ))searchToPage();};
+  const back=noticeFocusBack(n);
   if(!a||!a.wait){endNotice(n,true); if(a)a.fn(); back(); return;}
   n.busy=true; clearTimeout(n.timer); n.timer=undefined; n.held=false;
   document.querySelectorAll('[data-act="notice-act"][data-n="'+n.n+'"]').forEach(b=>b.setAttribute('aria-busy','true'));
@@ -291,7 +299,7 @@ function noticeLate(n,a){const what=tr(a.label==='되살리기'?'되살리기의
 document.addEventListener('mousedown',e=>{const t=/** @type {HTMLElement|null} */(e.target); if(!!t&&!!t.closest&&!!t.closest('[data-act="notice-act"]')&&pvIsReasonField(document.activeElement))e.preventDefault();},true);
 // [x] on message num: it goes as read (with its dot), and what it held runs (gone: a deferred send goes now).
 /** @param {number} num */
-function noticeClose(num){const n=NOTICES.get(num); if(n)endNotice(n,false,true);}
+function noticeClose(num){const n=NOTICES.get(num); if(!n)return; const back=noticeFocusBack(n,true); endNotice(n,false,true); back();}
 // A hint goes once the person does what it says (NOTICE_TOPIC.PICK: a selection was made; SIDE: the panel was opened).
 /** @param {string} topic */
 function endTopic(topic){NOTICES.forEach(n=>{if(n.topic===topic)endNotice(n,false,true);});}

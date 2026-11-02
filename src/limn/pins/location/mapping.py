@@ -95,13 +95,26 @@ def score_range(tw: TokenWeights, lines: Sequence[str], lo: int, hi: int) -> flo
     return sum(w for t, w in tw if t in blob) / sum(w for _, w in tw)
 
 
+def one_word_will_do(tw: TokenWeights, lines: Sequence[str], near: int | None) -> bool:
+    """Whether one word may place a drag: SyncTeX named a line without text (near; a word of the title it names by
+    \\end{frontmatter}) and the word is on exactly one line of the file. A line of text is an answer to weigh, and a word found
+    there or not says too little to overrule it, so a drag on the wrong file keeps its warning."""
+    return (
+        len(tw) == 1
+        and near is not None
+        and 0 < near <= len(lines)
+        and WITHOUT_TEXT_RE.fullmatch(lines[near - 1]) is not None
+        and sum(1 for line in lines if tw[0][0] in line) == 1
+    )
+
+
 def by_text(tw: TokenWeights, lines: Sequence[str], near: int | None = None) -> tuple[int, int, float] | None:
     """Recovers source lines from the rendered text's word tokens.
 
     This is the path used when SyncTeX stays silent or points somewhere wrong on a table/equation region.
     Korean word tokens survive almost untouched by markup (e.g. `타겟--소스 $i$ 간 코사인 거리`), so they
-    remain in the source text as-is."""
-    if len(tw) < 2:
+    remain in the source text as-is. One word is enough only where one_word_will_do says so."""
+    if len(tw) < 2 and not one_word_will_do(tw, lines, near):
         return None
     scores = [sum(w for t, w in tw if t in ln) for ln in lines]
     if max(scores, default=0) <= 0:
@@ -117,6 +130,8 @@ def by_text(tw: TokenWeights, lines: Sequence[str], near: int | None = None) -> 
 
 # ---------------------------------------------------------------- Block expansion and the range ladder
 
+WITHOUT_TEXT_RE = re.compile(r"\s*(\\end\{[^{}]*\}\W*)?")  # blank, or the end of an environment
+PICTURE_LINE_RE = re.compile(r"\\includegraphics(\[[^\]]*\])?\{[^{}]*\}")
 SECTION_RE = re.compile(r"\s*\\(part|chapter|section|subsection|subsubsection|paragraph)\*?[\[{]")
 
 
@@ -318,14 +333,15 @@ class Traced:
     """The range a selection traces to (trace_range): the path that won, its raw lines and score (0-1), and the range
     ladder around them (compute_levels: the default rung's lo/hi and kind, every rung, the default's name).
 
-    weak is set when the region's text was weighed but the best score is below WEAK_SCORE. split, only when not weak,
+    score is None when there was nothing to weigh, a picture's region or words so common they name no place: no measure,
+    not a 0% match. weak is set when the region's text was weighed but the best score is below WEAK_SCORE. split, only when not weak,
     names the winner's and the loser's first lines when both paths scored within SPLIT_MARGIN and the loser's line lies
     outside the chosen range - the two paths point at different places."""
 
     via: Via
     raw_lo: int
     raw_hi: int
-    score: float
+    score: float | None
     lo: int
     hi: int
     kind: str
@@ -333,6 +349,18 @@ class Traced:
     default_level: str
     weak: bool
     split: tuple[int, int] | None
+
+
+def draws_picture(lines: Sequence[str], synctex: tuple[int, int]) -> bool:
+    """Whether SyncTeX's range is one line that holds a picture and nothing else. It names a picture's words by that line
+    alone, and the words live in the picture's own file, so the source's words tell nothing about the place. A longer range
+    or a line with anything more holds text as well, which the text path may rightly correct."""
+    lo, hi = synctex
+    return (
+        lo == hi
+        and 0 < lo <= len(lines)
+        and PICTURE_LINE_RE.fullmatch(strip_comment(lines[lo - 1]).strip()) is not None
+    )
 
 
 def trace_range(
@@ -346,16 +374,25 @@ def trace_range(
     cands: list[tuple[Via, int, int, float]] = []
     if synctex:
         cands.append(("synctex", synctex[0], synctex[1], score_range(tw, lines, synctex[0], synctex[1])))
-    alt = by_text(tw, lines, synctex[0] if synctex else None)
+    # On a picture SyncTeX is sure, and the picture's words matching some sentence elsewhere would only take the pin away.
+    picture = synctex is not None and draws_picture(lines, synctex)
+    alt = None if picture else by_text(tw, lines, synctex[0] if synctex else None)
     if alt:
         cands.append(("text", alt[0], alt[1], alt[2]))
     if not cands:
         return None
     cands.sort(key=lambda c: (-c[3], c[0] != "synctex"))
     via, raw_lo, raw_hi, best = cands[0]
-    weak = bool(tw) and best < WEAK_SCORE
     lad = compute_levels(lines, raw_lo, raw_hi, envs)
     lo, hi = lad["lo"], lad["hi"]
+    # The paths compete on their raw lines; each rung then says how much of the drag is in its own lines, as the person can
+    # choose any, and the answer gives the default's: SyncTeX names a table's cells by its \\end line, whose words are the rows
+    # above it, so the raw line alone would say 0% of a table holding every word.
+    measured = bool(tw) and not picture
+    for level in lad["levels"]:
+        level["score"] = round(score_range(tw, lines, level["lo"], level["hi"]), 2) if measured else None
+    score = score_range(tw, lines, lo, hi) if measured else None
+    weak = score is not None and score < WEAK_SCORE
     # If both expand into the same block, the two paths haven't actually diverged - no disagreement.
     split = (
         (cands[0][1], cands[1][1])
@@ -365,7 +402,7 @@ def trace_range(
         and not (lo <= cands[1][1] <= hi)
         else None
     )
-    return Traced(via, raw_lo, raw_hi, best, lo, hi, lad["kind"], lad["levels"], lad["default_level"], weak, split)
+    return Traced(via, raw_lo, raw_hi, score, lo, hi, lad["kind"], lad["levels"], lad["default_level"], weak, split)
 
 
 # ---------------------------------------------------------------- Anchors

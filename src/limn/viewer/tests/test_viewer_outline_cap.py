@@ -206,6 +206,8 @@ class OutlineLogic(unittest.TestCase):
             + [[9, 13], [0, 4], [4, 8], [0, 2], None, None],
         )
 
+    READS_PER_ENTRY = 200  # entry fields one lookup may read, per entry
+    MAX_GROWTH = 2.5  # how many times those reads may grow when the entries double
     REFERENCE = """function referenceIndexAt(entries,page,frac){
       const at=e=>e.frac||0,deep=e=>e.depth||0,above=e=>e.page<page||(e.page===page&&at(e)<=frac+1e-6);
       const x=e=>typeof e.x==='number'?e.x:null,sameX=(a,b)=>x(a)===null||x(b)===null?x(a)===x(b):Math.abs(x(a)-x(b))<=1e-3;
@@ -269,35 +271,44 @@ class OutlineLogic(unittest.TestCase):
         self.assertTrue(got["found"])
 
     def test_the_lookup_stays_fast_where_many_entries_share_a_page(self):
-        """The cost of one lookup at 2,000 entries: all distinct spots on one page (the pairwise rule took ~26 ms), all at one
-        spot, forty to a spot, fifty pages of forty, and - what the first fix left at ~15 ms - all at one height with left edges
-        apart, in clumps within 1e-3 and (the crowded case) every edge within 1e-3 of the next; also all at one edge with the
-        heights apart. Each under 5 ms (measured under 1) and equal to the old answer."""
+        """The work of one lookup at 2,000 entries, as the entry fields it reads (a count, so a busy machine does not change
+        it, as it did a stopwatch's milliseconds): all distinct spots on one page, all at one spot, forty to a spot, fifty
+        pages of forty, all at one height with left edges apart, in clumps within 1e-3 and (the crowded case) every edge
+        within 1e-3 of the next; also all at one edge with the heights apart. Each under READS_PER_ENTRY a entry (measured
+        138 at worst, where the pairwise rule reads 3,930 in `distinct` and 19,998 in `one_height_edges_apart`), growing
+        with the entries' number and not its square (double the entries, under MAX_GROWTH times the reads; the pairwise
+        rule's grow four times), and equal to the old answer."""
         got = self.run_js(
             ["outlineIndexAt"],
             "(()=>{"
             + self.REFERENCE
             + """
-            const mk = f => Array.from({length: 2000}, (_, i) => f(i));
-            const cases = {
-              distinct: [mk(i => ({page: 1, depth: i % 4, frac: i / 2001, x: null})), 1, 0.99],
-              one_spot: [mk(i => ({page: 1, depth: i % 5, frac: 0.3, x: null})), 1, 0.9],
-              forty_a_spot: [mk(i => ({page: 1, depth: i % 4, frac: Math.floor(i / 40) / 50, x: i % 3 ? null : 12})), 1, 0.99],
-              fifty_pages: [mk(i => ({page: 1 + Math.floor(i / 40), depth: i % 3, frac: (i % 40) / 41, x: null})), 30, 0.7],
-              one_height_edges_apart: [mk(i => ({page: 1, depth: i % 4, frac: 0.3, x: i * 0.25})), 1, 0.9],
-              one_height_edge_clumps: [mk(i => ({page: 1, depth: i % 4, frac: 0.3, x: 10 + (i % 50) * 0.0004 + Math.floor(i / 50) * 5})), 1, 0.9],
-              one_height_edges_crowded: [mk(i => ({page: 1, depth: i % 4, frac: 0.3, x: 10 + i * 1e-7})), 1, 0.9],
-              one_edge_heights_apart: [mk(i => ({page: 1, depth: i % 4, frac: i / 2001, x: 72})), 1, 0.99],
-            };
-            const out = {};
-            for (const [k, [E, page, frac]] of Object.entries(cases)) {
-              const t0 = performance.now(); let a; for (let r = 0; r < 20; r++) a = outlineIndexAt(E, page, frac);
-              out[k] = {ms: (performance.now() - t0) / 20, same: a === referenceIndexAt(E, page, frac)};}
+            const cases = n => {
+              const mk = f => Array.from({length: n}, (_, i) => f(i));
+              return {
+                distinct: [mk(i => ({page: 1, depth: i % 4, frac: i / (n + 1), x: null})), 1, 0.99],
+                one_spot: [mk(i => ({page: 1, depth: i % 5, frac: 0.3, x: null})), 1, 0.9],
+                forty_a_spot: [mk(i => ({page: 1, depth: i % 4, frac: Math.floor(i / 40) / (n / 40), x: i % 3 ? null : 12})), 1, 0.99],
+                fifty_pages: [mk(i => ({page: 1 + Math.floor(i / 40), depth: i % 3, frac: (i % 40) / 41, x: null})), 30, 0.7],
+                one_height_edges_apart: [mk(i => ({page: 1, depth: i % 4, frac: 0.3, x: i * 0.25})), 1, 0.9],
+                one_height_edge_clumps: [mk(i => ({page: 1, depth: i % 4, frac: 0.3, x: 10 + (i % 50) * 0.0004 + Math.floor(i / 50) * 5})), 1, 0.9],
+                one_height_edges_crowded: [mk(i => ({page: 1, depth: i % 4, frac: 0.3, x: 10 + i * 1e-7})), 1, 0.9],
+                one_edge_heights_apart: [mk(i => ({page: 1, depth: i % 4, frac: i / (n + 1), x: 72})), 1, 0.99],
+              };};
+            const reads = ([E, page, frac]) => {let n = 0;
+              const counted = E.map(e => new Proxy(e, {get: (t, k) => {n++; return t[k];}}));
+              return {answer: outlineIndexAt(counted, page, frac), reads: n};};
+            const half = cases(1000), full = cases(2000), out = {};
+            for (const [k, c] of Object.entries(full)) {
+              const a = reads(c), b = reads(half[k]);
+              out[k] = {per_entry: a.reads / 2000, growth: a.reads / b.reads, same: a.answer === referenceIndexAt(...c)};}
             return out;})()""",
         )
+        self.assertEqual(len(got), 8)
         for name, row in got.items():
             self.assertTrue(row["same"], name)
-            self.assertLess(row["ms"], 5, (name, got))
+            self.assertLess(row["per_entry"], self.READS_PER_ENTRY, (name, got))
+            self.assertLess(row["growth"], self.MAX_GROWTH, (name, got))
 
 
 class MetaTitled:
@@ -539,24 +550,25 @@ class LongOutline(OutlineBase):
                 self.assertEqual((got["rows"], got["note"] is not None), (rows, cut > 0))
 
     def test_the_strip_and_the_filter_stay_fast_at_the_cap(self):
-        """With CAP entries the section strip's lookup, a section change and a filter keystroke cost milliseconds. The
-        bounds are an order of magnitude over what a laptop measures (lookup 0.01ms, section change 0.5ms, keystroke
-        10ms), so a slow runner does not fail them but a lookup or a redraw that grew with the entries' number
-        squared would."""
+        """With CAP entries the section strip's lookup, a section change and a filter keystroke each read a few fields an
+        entry, counted, so a busy machine does not change the answer as it did a stopwatch's. The bounds are about twice the
+        reads an entry measured (7.5, 7.5 and 17); a lookup or a redraw that grew with the entries' number squared reads
+        thousands."""
         page = self.on("fig")
         self.load(page, grouped_tree(CAP, 2))
         got = page.evaluate(
-            """() => {const t = () => performance.now(), E = OUTLINE_ENTRIES, f = document.querySelector('#outline-search');
-              let t0 = t(); for (let i = 0; i < 200; i++) outlineIndexAt(E, 1 + i % 2, (i % 100) / 100);
-              const lookup = (t() - t0) / 200;
-              t0 = t(); for (let i = 0; i < 20; i++) {OUTLINE_SELECTED = (i * 97) % E.length; OUTLINE_ACTIVE_PAGE = -1; updateSectionStrip();}
-              const change = (t() - t0) / 20;
-              f.value = 'S'; t0 = t(); f.dispatchEvent(new Event('input')); const key = t() - t0;
-              return {lookup, change, key};}"""
+            """() => {let reads = 0; const plain = OUTLINE_ENTRIES, f = document.querySelector('#outline-search');
+              const counted = (times, run) => {reads = 0; for (let i = 0; i < times; i++) run(i); return reads / times / plain.length;};
+              OUTLINE_ENTRIES = plain.map(e => new Proxy(e, {get: (t, k) => {reads++; return t[k];}}));
+              const E = OUTLINE_ENTRIES;
+              const lookup = counted(200, i => outlineIndexAt(E, 1 + i % 2, (i % 100) / 100));
+              const change = counted(20, i => {OUTLINE_SELECTED = (i * 97) % E.length; OUTLINE_ACTIVE_PAGE = -1; updateSectionStrip();});
+              f.value = 'S'; const key = counted(1, () => f.dispatchEvent(new Event('input')));
+              OUTLINE_ENTRIES = plain; return {lookup, change, key};}"""
         )
-        self.assertLess(got["lookup"], 1, got)
-        self.assertLess(got["change"], 20, got)
-        self.assertLess(got["key"], 400, got)
+        self.assertLess(got["lookup"], 15, got)
+        self.assertLess(got["change"], 15, got)
+        self.assertLess(got["key"], 35, got)
 
     def test_a_section_change_moves_the_mark_without_drawing_the_list_again(self):
         """Scrolling a long document changes the section at every page; the rows of the list stay the same elements and

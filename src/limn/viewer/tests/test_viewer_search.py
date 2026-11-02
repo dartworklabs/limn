@@ -3113,6 +3113,7 @@ SCROLL_STILL = """() => {const w = window, t = document.querySelector('#left').s
 PICK_AND = """([i, how, away]) => {
   const L = document.querySelector('#left'), row = n => document.querySelector('#outline-items button[data-index="' + n + '"]');
   row(i).click();
+  if (how === 'scroll') L.dispatchEvent(new PointerEvent('pointermove', {buttons: 1, bubbles: true}));   // a scroll bar dragged
   if (how === 'wheel') L.dispatchEvent(new WheelEvent('wheel', {deltaY: 120, bubbles: true}));
   if (how === 'key') {document.activeElement.blur(); document.body.dispatchEvent(new KeyboardEvent('keydown', {key: 'PageDown', bubbles: true}));}
   if (how === 'press') L.dispatchEvent(new PointerEvent('pointerdown', {bubbles: true}));
@@ -3120,6 +3121,36 @@ PICK_AND = """([i, how, away]) => {
   if (how === 'pick') row(8).click();
   if (away) L.scrollTop += document.getElementById('p' + away).getBoundingClientRect().top - L.getBoundingClientRect().top;
 }"""
+
+
+class HitInAJump(SearchBase):
+    """A search's first hit is shown when the PDF's text has been read as far as it, with no input before it, and that can be in
+    the middle of a jump the person started meanwhile (pages.js arrivalSettle, pvShow)."""
+
+    def setUp(self):
+        """Fourteen long pages, so the jump from page 1 to page 14 is far."""
+        super().setUp()
+        put_build(self.doc, build_dir(self.doc).name, search_pdf(long_pages(14)), 14)
+
+    def test_a_hit_that_lands_on_a_jump_s_way_stays_on_screen(self):
+        """The search for page 2's marker waits for the text; page 14 is picked from the page list, and the text comes once
+        the pages have left page 2 behind. The hit is shown and stays, clear of the bars: the settling took the pages on to page
+        14 with the hit off the screen, and a glide stopped by the write ran on and put it under the section strip."""
+        page = self.view()
+        page.evaluate(TEXT_GATE)
+        self.disclose(page)
+        page.fill("#search-q", "marker2")
+        page.wait_for_function("__text.held.size>0")
+        page.evaluate("""() => {const L = $('#left'), far = document.getElementById('p4').offsetTop,
+          go = () => {if (L.scrollTop < far) return; L.removeEventListener('scroll', go); __text.all();};
+          L.addEventListener('scroll', go);}""")
+        page.locator("#section-page").click()
+        page.locator('#page-pop [data-act="page-go"][data-page="14"]').click()
+        page.wait_for_function(COUNTED, timeout=20000)
+        page.wait_for_function("()=>SEARCH.cur&&SEARCH.cur.page===2")
+        settle(page)
+        self.assertIsNone(page.evaluate("()=>PV_JUMP"))
+        self.assertTrue(all(b["shows"] for b in self.current(page)["boxes"]), self.current(page))
 
 
 class SectionStripOutlineOrder(SearchBase):

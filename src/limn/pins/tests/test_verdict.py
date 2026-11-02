@@ -14,7 +14,7 @@ Run: uv run pytest -q src/limn/pins/tests/test_verdict.py
 """
 
 import math
-import time
+import sys
 import unittest
 
 from hypothesis import example, given, strategies as st
@@ -463,24 +463,34 @@ class LargeHistories(unittest.TestCase):
         self.assertEqual(superseded_by(pins, lambda p: where), reference(pins, targets))
 
     def test_closed_lines_with_a_different_anchor_each_take_linear_time(self):
-        """20,000 closed verdicts on one range, no two on the same text (the case that made every pin scan all the
-        newer ones: 11 s before the index) answer in well under the 2 s a quadratic scan could not keep to, and so do
-        20,000 on one figure."""
-        n = 20_000
-        lines = [
-            latex(i, anchor={"head": "h%d" % i, "tail": "t%d" % i, "head_off": 0, "tail_off": 0}, **DONE)
-            for i in range(1, n + 1)
-        ]
-        figures = [figure(i) for i in range(1, n + 1)]
-        for pins, where, want in (
-            (lines, Placement("ms", "tex", file="/ms/main.tex"), 0),
-            (figures, FIG_DOC, n - 1),
-        ):
-            started = time.perf_counter()
-            got = superseded_by(pins, lambda p, where=where: where)
-            took = time.perf_counter() - started
-            self.assertEqual(len(got), want)
-            self.assertLess(took, 2.0, "%d pins took %.2f s" % (n, took))
+        """Closed verdicts on one range, no two on the same text (the case that made every pin scan all the newer ones: 11 s
+        at 20,000 before the index), and as many on one figure: twice the pins run under 2.5 times the lines of Python, where
+        a scan runs four times. Counted, so a busy machine does not change the answer, as it did the 2 s this was given."""
+
+        def lines_of(n, make, where, want):
+            pins = [make(i) for i in range(1, n + 1)]
+            lines = 0
+
+            def tracer(_frame, event, _arg):
+                nonlocal lines
+                lines += event == "line"
+                return tracer
+
+            sys.settrace(tracer)
+            try:
+                got = superseded_by(pins, lambda p, where=where: where)
+            finally:
+                sys.settrace(None)
+            self.assertEqual(len(got), want(n))
+            return lines
+
+        def line(i):
+            return latex(i, anchor={"head": "h%d" % i, "tail": "t%d" % i, "head_off": 0, "tail_off": 0}, **DONE)
+
+        on_lines = Placement("ms", "tex", file="/ms/main.tex")
+        for make, where, want in ((line, on_lines, lambda n: 0), (figure, FIG_DOC, lambda n: n - 1)):
+            with self.subTest(where=where.kind):
+                self.assertLess(lines_of(2000, make, where, want) / lines_of(1000, make, where, want), 2.5)
 
     def test_a_hand_edited_anchor_offset_never_breaks_the_index(self):
         """An offset that is a list or an object is still comparable and hashable: two pins that store the same one are

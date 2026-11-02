@@ -479,6 +479,24 @@ async function showChange(id){const p=findAnyPin(id); if(!p)return; const k=pdoc
   const m=/\b[0-9a-f]{7,40}\b/.exec(REV.target.ref); REV.target.tokOf=m?m[0]:'';
   if(LAYOUT===LAYOUT_MODE.NARROW)setSide(false);
   if(document.body.classList.contains('revision-open'))loadRevisions(); else setViewMode(VIEW_MODE.REVISIONS);}
+const REVISION_BUSY_WAITS=240;   // times a comparison asks again, a second apart, for the one before it: past latexdiff's and latexmk's limits together
+// Asks for the comparison. A document builds one at a time, and opening this view starts the newest commit's: a press on another
+// commit while it runs is answered busy, and waits for it here, saying so, instead of stopping on that answer. Null: the view
+// moved on while it waited; leaving for the source diff stops the waiting too, and coming back asks again (REV.pdfCommit).
+/** @param {Record<string,unknown>} body @param {number} seq @param {string} k @param {string} id */
+async function revisionStart(body,seq,k,id){
+  const box=$('#revision-status'),waiting=tr('앞선 비교 PDF가 끝나는 대로 이 비교 PDF를 만듭니다. 원고와 핀은 그대로 사용할 수 있습니다.');
+  const left=()=>{if(!revisionCurrent(seq,k,id))return true; if(REV.format===DIFF_FORMAT.PDF)return false;
+    REV.pdfCommit=''; if(box.textContent===waiting)box.textContent=''; return true;};   // its own line, not this one's promise
+  for(let waits=0;;waits++){
+    try{return (await api('/api/revision-build',{method:'POST',body,what:'비교 PDF 만들기',silent:true})).data;}
+    catch(e){
+      const answer=/** @type {{reason?:string}|undefined} */(/** @type {ApiError} */(e).data);
+      if(!answer||answer.reason!=='busy'||waits>=REVISION_BUSY_WAITS)throw e;
+      if(left())return null;
+      box.textContent=waiting;
+      await new Promise(resolve=>setTimeout(resolve,1000));
+      if(left())return null;}}}
 // Start or read the comparison PDF for this revision; late responses and module imports cannot attach to another view.
 /** Load one comparison visit; mounting owns zoomable page geometry. */
 async function loadRevisionPdf(id,seq,k){
@@ -486,8 +504,9 @@ async function loadRevisionPdf(id,seq,k){
   // v0.3: for a pin, the comparison is old + only that pin's hunks unless [커밋 전체 비교] is on or that build already failed
   const pin=tg&&revisionPinFor(id)&&!REV_SCOPE.whole&&!REV_SCOPE.fallback?tg.id:null,base=REV.base,pq=pin?'&pin='+pin:base?'&base='+encodeURIComponent(base):'';
   try{
-    let status=(await api('/api/revision-build',{method:'POST',body:pin?{commit:id,doc:k,pin}:base?{commit:id,doc:k,base}:{commit:id,doc:k},what:'비교 PDF 만들기',silent:true})).data;
-    if(!revisionCurrent(seq,k,id))return;
+    const first=await revisionStart(pin?{commit:id,doc:k,pin}:base?{commit:id,doc:k,base}:{commit:id,doc:k},seq,k,id);
+    if(first===null||!revisionCurrent(seq,k,id))return;
+    let status=first;
     if(pin&&status.scope){REV_SCOPE.partial=status.scope===SCOPE_MODE.PIN;syncRevisionWhole();}
     for(let tries=0;status.state===REVISION_STATE.RUNNING&&tries<180;tries++){
       if(!revisionCurrent(seq,k,id))return;

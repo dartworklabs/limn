@@ -923,13 +923,16 @@ function pvKeepBlocks(lines){/** @type {Set<HTMLElement>} */ const set=new Set()
 // area's scroll anchoring, so every line above that changed its height moved the view with nothing to follow: after a save, a
 // window narrowed under the panel's bar and widened again within a moment read page 70 instead of 75. The area's own anchoring
 // is off for the step, so it adds no correction of its own, and is put back as it was (a pinch-zoom hold's included). A touch
-// screen at its very top stays there, as restoreAnchor keeps it: the space above page 1 is not scrolled away.
+// screen at its very top stays there, as restoreAnchor keeps it: the space above page 1 is not scrolled away. A jump on its way
+// (PV_JUMP) is left to go on: a script's write ends a smooth scroll where it stands, and a line fitted as a far jump passed it
+// stopped the jump there, a thousand px short of a figure (#357). Every glide has the settling, which measures its place again
+// when it rests and glides what moved (arrivalWatch, arrivalSettle) - unless the person has acted meanwhile, which lets it go.
 /** @param {[HTMLElement,string,string][]} kept */
 function pvLetBlocks(kept){if(!kept.length)return; const L=$('#left'),a=L.getClientRects().length?topAnchor(readingDepth(L)):null;
   const pg=a?document.getElementById('p'+a.page):null,y=pg?pg.getBoundingClientRect().top:0,was=L.style.getPropertyValue('overflow-anchor');
   if(pg)L.style.setProperty('overflow-anchor','none');
   kept.forEach(([b,h,m])=>{b.style.height=h; b.style.marginBottom=m;}); kept.length=0;
-  if(!pg||!a)return; const d=pg.getBoundingClientRect().top-y; if(Math.abs(d)>0.5&&!a.atTop)L.scrollTop+=d;   // a touch screen's top stays the top (restoreAnchor)
+  if(!pg||!a)return; const d=pg.getBoundingClientRect().top-y; if(Math.abs(d)>0.5&&!a.atTop&&PV_JUMP===null)L.scrollTop+=d;   // a touch screen's top stays the top (restoreAnchor)
   void L.offsetHeight; if(was)L.style.setProperty('overflow-anchor',was); else L.style.removeProperty('overflow-anchor');}
 // Holds the view where it is across pvFit's pass (on) and lets go after it (off, given what on returned): the PDF area does
 // not anchor its scroll (overflow-anchor), and its layout is brought up to date before it anchors again, so the anchor it
@@ -1134,8 +1137,8 @@ function jumpPv(id){if(!PV_SHOWN.has(id))return false; const p=PINS.find(x=>x.id
   const fig=figureTop(t.page)!==null;
   if(PV_SIDE){if(!document.getElementById('p'+t.page))return false; if(fig)arrivePage(t.page); else pvBring(t.page,true); pvFlashOn(t.page); return true;}   // the panel flashes where the page lands (verdict-panel.js)
   const line=/** @type {HTMLElement|null} */(document.querySelector('#doc .pv[data-page="'+t.page+'"]')); if(!line)return false;
-  const block=/** @type {HTMLElement} */(line.parentElement),L=$('#left');
-  if(fig)arrivePage(t.page); else pvGlideInto(block,block.getBoundingClientRect().height<=L.clientHeight?'center':'start'); flash(line); return true;}
+  const block=/** @type {HTMLElement} */(line.parentElement),L=$('#left'),how=block.getBoundingClientRect().height<=L.clientHeight?'center':'start';
+  if(fig)arrivePage(t.page); else{pvGlideInto(block,how); arrivalWatch(()=>block.isConnected?pvIntoTop(block,how):null);} flash(line); return true;}
 
 // ---------------- Lines far from the view (docs/handbook/viewer.md §판정 핀)
 // A line more than a view's height above or below what the PDF area shows is left for the browser to skip (.pv-far:
@@ -1412,6 +1415,14 @@ addEventListener('keydown',verdictKey);
 // to page 64 saved 보류 on page 12). A scroll the person makes goes on acting at once; an instant jump ends at once.
 let PV_SCROLL_AT=0,PV_SCROLL_HAND=0,PV_GLIDE=false,PV_JUMP=/** @type {number|null} */(null);   // PV_JUMP: the scrollTop a jump is going to
 const PV_HAND=()=>{PV_SCROLL_HAND=performance.now(); PV_GLIDE=false; pvJumpSet(null);};   // the person takes the pages over
+// A script is about to scroll the PDF area to show something - a search hit, a mark, a box, a line, another document - so a jump
+// on its way is over: its guard comes down, and its settling, which would glide the pages back, lets go. No input need come
+// before: a search hit lands when the PDF's text has been read. A write that only keeps what is on screen across a layout
+// change does not come here (restoreAnchor, pvLetBlocks, setSelMode, zoomRestore, pvSideSettle): it moves with the place, so the
+// settling stays right. test_viewer_scroll_writes.py holds the list: a new scripted scroll has to be put in it. Given what it
+// shows as a place, the pages settle there when a glide was on its way: the write stops it a frame or two late.
+/** @param {()=>number|null} [place] */
+function pvShow(place){arrivalLetGo(); if(PV_JUMP===null)return; pvJumpSet(null); PV_GLIDE=false; if(place)arrivalWatch(place);}
 // Sets where a jump is going (PV_JUMP, null when none), and while it goes holds the PDF area's scroll anchoring off (#left.pv-glide,
 // frame.css). WebKit ends a smooth scroll at any anchoring adjustment of its scroller, and on the way the lines are drawn again
 // as each page passes under the reading line: on a phone a jump from page 1 to page 105 of a figure document rested at page 89,
@@ -1451,9 +1462,12 @@ function pvGlideArm(to){const L=$('#left'),top=Math.max(0,Math.min(L.scrollHeigh
   if(SMOOTH==='smooth'&&Math.abs(top-L.scrollTop)>1){pvJumpSet(top); PV_GLIDE=true; PV_SCROLL_AT=performance.now();}}
 /** @param {number} top */
 function pvGlideTo(top){pvGlideArm(top); $('#left').scrollTo({top,behavior:SMOOTH});}
+/** The scrollTop that brings el to the top of the PDF area, or its middle to the area's middle (center).
+ * @param {Element} el @param {'start'|'center'} [block] */
+function pvIntoTop(el,block){const L=$('#left'),r=el.getBoundingClientRect(),lr=L.getBoundingClientRect();
+  return L.scrollTop+(block==='center'?r.top+r.height/2-(lr.top+L.clientTop+L.clientHeight/2):r.top-lr.top-L.clientTop);}
 /** @param {Element} el @param {'start'|'center'} [block] */
-function pvGlideInto(el,block){const L=$('#left'),r=el.getBoundingClientRect(),lr=L.getBoundingClientRect();
-  pvGlideArm(L.scrollTop+(block==='center'?r.top+r.height/2-(lr.top+L.clientTop+L.clientHeight/2):r.top-lr.top-L.clientTop)); el.scrollIntoView({behavior:SMOOTH,block:block||'start'});}
+function pvGlideInto(el,block){pvGlideArm(pvIntoTop(el,block)); el.scrollIntoView({behavior:SMOOTH,block:block||'start'});}
 // Said once while the pages glide: the key was not taken, press it again once they rest.
 function pvSayGliding(){lineNote('쪽으로 가는 중이라 판정 키를 받지 않았습니다 — 멈춘 뒤 다시 누릅니다',NOTICE_KIND.INFO,null,{source:'verdict-key',life:NOTICE_LIFE.TIMER});}
 // Tab from the PDF area (where Esc, a moved-on popover or a search leaves the focus) goes to the reading page's line - its
@@ -1566,4 +1580,4 @@ addEventListener('keydown',e=>{if(e.key!=='Tab'||!e.shiftKey||e.ctrlKey||e.metaK
     const first=[...blk.querySelectorAll(PV_TABBABLE)].find(pvTabStop); if(first!==a)return;
     const m=panel?pvMarkStops(Number(panel.dataset.page)):[]; if(m.length){e.preventDefault(); m[m.length-1].focus(); return;}}
   const to=pvOutStop(); if(!to)return; e.preventDefault(); to.focus({preventScroll:true});
-  if(to.closest('#outline')||to.classList.contains('pv-sum'))to.scrollIntoView({block:'nearest'});});   // an outline entry comes into the outline's view; the pages stay
+  if(to.closest('#outline')||to.classList.contains('pv-sum')){pvShow(); to.scrollIntoView({block:'nearest'});}});   // an outline entry comes into the outline's view; the pages stay

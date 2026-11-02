@@ -143,4 +143,4 @@ function revealBox(box){if(!box||LAYOUT===LAYOUT_MODE.WIDE||!document.contains(b
   const L=$('#left'),lr=L.getBoundingClientRect(),br=box.getBoundingClientRect(),bar=$('#sel-bar');
   let bottom=lr.bottom; if(LAYOUT===LAYOUT_MODE.NARROW&&SIDE_OPEN)bottom=Math.min(bottom,$('#right').getBoundingClientRect().top);
   const top=Math.max(lr.top+28,bar.getClientRects().length?bar.getBoundingClientRect().bottom+8:0); if(br.top>=top&&br.bottom<=bottom-8)return;
-  L.scrollTop+=br.top-top-Math.max(0,(bottom-top-br.height)/3);}
+  pvShow(); L.scrollTop+=br.top-top-Math.max(0,(bottom-top-br.height)/3);}

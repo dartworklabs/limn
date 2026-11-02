@@ -28,8 +28,10 @@ let PV_SIDE=false;   // the lines stand beside the pages now: one panel, a summa
 function pvSideRoom(){const L=$('#left'); if(!META||!Array.isArray(META.pages)||!META.pages.length||!L.getClientRects().length)return null;
   return innerW()-pageWidth(ptMax(),K);}
 // Whether the lines should stand beside the pages: the wide band, a document with page lines, and the room - with
-// hysteresis around the bar.
-function pvSideWant(){if(pvComposingNow())return PV_SIDE;   // a syllable being composed in the reason keeps the lines where they are until it ends
+// hysteresis around the bar. They stay as they are while the band settles (BAND_T): moved at the old band's new width they
+// stack, the space under a page grows, and the re-fit that follows took its spot from there and left the page read up to 200px
+// off (#356). bandSettle looks again once the band has settled.
+function pvSideWant(){if(pvComposingNow()||BAND_T)return PV_SIDE;   // a syllable being composed in the reason keeps the lines where they are until it ends
   if(LAYOUT!==LAYOUT_MODE.WIDE||!pageVerdictsOn())return false;
   const r=pvSideRoom(); if(r===null)return PV_SIDE; return PV_SIDE?r>=PV_SIDE_EXIT:r>=PV_SIDE_ENTER;}
 // Sets PV_SIDE and the body's class for it (body.pv-beside). No drawing.
@@ -54,11 +56,15 @@ function pvSideTurn(){const on=pvSideWant(); if(on===PV_SIDE)return null;
     popAct:!!a&&!!a.closest&&!!a.closest('#doc .pv-pop')&&!f&&a.dataset.act||'',ctl:pvControlOf(a)};
   if(f)PV_COMPOSING=null; PV_AT_HELD=at; pvSideApply(on); return keep;}
 // The lines have moved and are fitted: the point that was under the reading line is there again, so the page in view does not
-// shift and the reading page is the one held (a rounded scroll position may fall a pixel off a page's edge: taken back).
+// shift and the reading page is the one held (a rounded scroll position may fall a pixel off a page's edge: taken back). A
+// reading line in the space above the page (the spot's gap) stands that far above it again, as far as the new space keeps it
+// past the page before, or that page would be the one read. The space changes with the lines, so the page before moves by
+// the difference: the page read is the one held.
 /** @param {NonNullable<ReturnType<typeof pvSideTurn>>} k */
 function pvSideSettle(k){PV_AT_HELD=0; const a=k.spot,pg=a?document.getElementById('p'+a.page):null; if(!a||!pg)return;
-  const L=$('#left'),y=()=>L.getBoundingClientRect().top+readingDepth(L),r=pg.getBoundingClientRect(); L.scrollTop+=r.top+a.frac*r.height-y();
-  const b=pg.getBoundingClientRect(); if(b.bottom<=y())L.scrollTop-=2; else if(b.top>y())L.scrollTop+=2;}
+  const L=$('#left'),y=()=>L.getBoundingClientRect().top+readingDepth(L),r=pg.getBoundingClientRect(),up=document.getElementById('p'+(a.page-1)),room=up?r.top-up.getBoundingClientRect().bottom:Infinity,gap=Math.min(a.gap,Math.max(0,room-2));
+  L.scrollTop+=r.top+a.frac*r.height-gap-y();
+  const b=pg.getBoundingClientRect(); if(b.bottom<=y())L.scrollTop-=2; else if(!gap&&b.top>y())L.scrollTop+=2;}
 // After the lines moved: a save chip stands on its pin's new line (drawChips, else its undo goes to the status line), and the reason
 // field that had the focus has it again with its caret, or the popover's button its focus - what is typed next stays text,
 // never a verdict key. Any other control focused on a line has the focus on the same control of its moved line (pvControlAgain).
@@ -165,10 +171,13 @@ function pvPanelFit(l){l.classList.remove('pv-tight','pv-early-out','pv-t-kept',
 // Brings page `page` to the reading place: its top at the PDF area's top padding when the page reaches past the reading line
 // (readingDepth), else centred on that line - so the reading page is that page. smooth: a glide (a card's [보기]).
 /** @param {number} page @param {boolean} [smooth] */
-function pvBring(page,smooth){const L=$('#left'),pg=document.getElementById('p'+page); if(!pg)return;
+function pvBring(page,smooth){const at=pvBringTop(page); if(at===null)return;
+  if(smooth){pvGlideTo(at); arrivalWatch(()=>pvBringTop(page));} else{pvShow(); $('#left').scrollTop=at;}}
+/** The scrollTop of that reading place, or null without the page. @param {number} page @returns {number|null} */
+function pvBringTop(page){const L=$('#left'),pg=document.getElementById('p'+page); if(!pg)return null;
   const lr=L.getBoundingClientRect(),r=pg.getBoundingClientRect(),pad=parseFloat(getComputedStyle(L).paddingTop),d=readingDepth(L);
-  const top=r.height>d-pad+24?pad:d-r.height/2,by=r.top-lr.top-top;
-  if(smooth)pvGlideTo(L.scrollTop+by); else L.scrollTop+=by;}
+  const top=r.height>d-pad+24?pad:d-r.height/2;
+  return L.scrollTop+r.top-lr.top-top;}
 
 // ---------------- The summary under each page
 // The summary's words: what its row says, for its name.

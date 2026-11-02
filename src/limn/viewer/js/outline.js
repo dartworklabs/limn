@@ -275,7 +275,8 @@ const OUTLINE_PICK_GAP=8;   // px between the top of the free PDF area and a pic
 function pickOutline(i){const e=OUTLINE_ENTRIES[i]; if(!e)return;
   OUTLINE_SELECTED=i; OUTLINE_ACTIVE_PAGE=e.page; OUTLINE_PINNED={index:i,page:e.page,reached:false}; outlinePickWait();
   markOutline(); updateSectionStrip(); setViewMode('manuscript');
-  const top=outlinePickTop(e); if(top===null)goPage(e.page); else pvGlideTo(top);}
+  const top=outlinePickTop(e); if(top===null){goPage(e.page); return;}
+  pvGlideTo(top); arrivalWatch(()=>outlinePickTop(e));}
 // Where a pick scrolls the pages to, as #left's scrollTop: a heading with a place on its page (an XYZ destination below the
 // page's top) OUTLINE_PICK_GAP under the free PDF area's top (spotTop); null - goPage's arrival (arrivePage: the page's
 // top, or a figure page's figure) - for an entry that names a whole page (frac 0) and for every entry of a figure

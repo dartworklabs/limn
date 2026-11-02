@@ -283,7 +283,7 @@ function pvReasonRestore(){const doc=DOC||''; if(PV_RESTORED.has(doc)||!META)ret
 /** @param {number} page */
 function pvShowLine(page){if(PV_SIDE){pvBring(page); pvStick();}   // beside the pages the panel is the line, once the page is read (verdict-panel.js)
   const l=/** @type {HTMLElement|null} */(document.querySelector('#doc .pv[data-page="'+page+'"]')); if(!l)return;
-  if(!PV_SIDE){const blk=/** @type {HTMLElement} */(l.parentElement||l); blk.scrollIntoView({block:blk.getBoundingClientRect().height<=$('#left').clientHeight?'center':'end'});}
+  if(!PV_SIDE){const blk=/** @type {HTMLElement} */(l.parentElement||l); pvShow(); blk.scrollIntoView({block:blk.getBoundingClientRect().height<=$('#left').clientHeight?'center':'end'});}
   requestAnimationFrame(()=>{if(pvIsReasonField(document.activeElement))return;   // the mark was already pressed: its field keeps the focus
     const m=/** @type {HTMLElement|null} */(document.querySelector('#doc .pv[data-page="'+page+'"] .pv-draft'));
     if(m)m.focus({preventScroll:true}); else if(!pvFocusLine(page))searchToPage();});}
