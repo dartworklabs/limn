@@ -86,10 +86,12 @@ function buildsFromSource(kind){return kind===DOC_KIND.TEX;}
 // focus kept would hold it for good, so the hold is bounded: it lasts IME_HOLD_MS past that key's last keydown (handed on
 // or a repeat), and it ends - the key with it - at a keydown the input method does not take that is neither that key
 // handed on nor its repeat (another key: a held key repeats no more once another goes down; that key pressed anew: it was
-// up) and at text that is not the composition's own commit (later than IME_TAIL_MS after its end: a paste, an on-screen
-// keyboard's letter). Past the bound the key is still the composition's: a keydown marked as its repeat that comes later
-// is not the viewer's and holds the field again. Read with imeKey. Registered here, in the first part, so it sees every
-// keydown before any handler does.
+// up) and at text that is not the composition's own commit (imeCommit: a paste, an on-screen keyboard's letter). That
+// commit is known by what it is, not by when it comes: ibus-hangul ends the composition with nothing in it and then puts
+// the syllable in as text of its own, and Chromium stamps that input when it dispatches it - after the page's handlers of
+// the end, however long they take. Past the bound the key is still the composition's: a keydown marked as its repeat
+// that comes later is not the viewer's and holds the field again. Read with imeKey. Registered here, in the first part, so
+// it sees every keydown before any handler does.
 // IME_HOLD_MS is longer than the delay before a held key's first repeat that the usual settings give - X's default
 // 660 ms, GNOME's 500 ms (its slider goes to 2 s), Windows' at most 1 s - so a held key keeps the field through it, and
 // longer than the 2 s within which Chromium marks a key's next keydown as a repeat at all: on Linux it gives a first
@@ -99,7 +101,9 @@ function buildsFromSource(kind){return kind===DOC_KIND.TEX;}
 const IME_TAIL_MS=100,IME_HOLD_MS=2500;
 /** The last key the input method took in the open composition (marked composing), not up since: its field, its physical key (imeCode) and its name (imeName); null when there is none. @type {{el:EventTarget|null,code:string,name:string}|null} */
 let IME_PRESSED=null;
-/** The last composition a key ended: its field, its time, that key - its physical key and its name, from the key the input method took and the keydown it handed on ('' where the browser named none) - and the first keydown after it (null until one comes). Ends with that key's keyup, another key, other text, or what forgets it. @type {{el:EventTarget|null,at:number,code:string,name:string,key:KeyboardEvent|null}|null} */
+/** The text the open composition shows, as its last update that showed any gave it ('' until one does). */
+let IME_TEXT='';
+/** The last composition a key ended: its field, its time, that key - its physical key and its name, from the key the input method took and the keydown it handed on ('' where the browser named none) -, the first keydown after it (null until one comes), and the text its commit may still put in ('' once an input came: imeCommit). Ends with that key's keyup, another key, other text, or what forgets it. @type {{el:EventTarget|null,at:number,code:string,name:string,key:KeyboardEvent|null,text:string}|null} */
 let IME_END=null;
 /** While this timer runs (not 0), IME_END's key holds its field (imeHeldIn): IME_HOLD_MS from that key's last keydown. */
 let IME_HOLD_T=0;
@@ -120,16 +124,24 @@ function imeHold(){clearTimeout(IME_HOLD_T); IME_HOLD_T=setTimeout(()=>{IME_HOLD
 function imeFree(){setTimeout(()=>{for(const f of IME_ON_FREE)f();},0);}
 function imeEnd(){if(!IME_END)return; IME_END=null; clearTimeout(IME_HOLD_T); IME_HOLD_T=0; imeFree();}
 function imeForget(){IME_PRESSED=null; imeEnd();}
-addEventListener('compositionstart',imeForget,true);
+addEventListener('compositionstart',()=>{IME_TEXT=''; imeForget();},true);
+// An update to nothing is kept out: ibus-hangul empties the composition before it ends it and commits the syllable.
+addEventListener('compositionupdate',e=>{if(e.data)IME_TEXT=e.data;},true);
 addEventListener('compositionend',e=>{const p=IME_PRESSED; imeEnd(); IME_PRESSED=null;
-  if(p&&p.el===e.target){IME_END={el:e.target,at:e.timeStamp,code:p.code,name:p.name,key:null}; imeHold();}},true);
+  if(p&&p.el===e.target){IME_END={el:e.target,at:e.timeStamp,code:p.code,name:p.name,key:null,text:e.data||IME_TEXT}; imeHold();}},true);
 addEventListener('keyup',e=>{if(IME_PRESSED&&imeUp(e,IME_PRESSED))IME_PRESSED=null; if(IME_END&&imeUp(e,IME_END))imeEnd();},true);
 // The field's blur (focus events pass the window on their way down) and the window's own; a field's is looked at once the
 // task that blurred it is done, when a field drawn anew has taken its place.
 addEventListener('blur',e=>{const t=e.target; if(t instanceof Node)queueMicrotask(()=>{if(t.isConnected)imeForget();}); else imeForget();},true);
 addEventListener('pagehide',imeForget,true);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)imeForget();});
-addEventListener('input',e=>{if(IME_END&&!(/** @type {InputEvent} */(e).isComposing)&&e.timeStamp-IME_END.at>IME_TAIL_MS)imeEnd();},true);
+addEventListener('input',e=>{const r=IME_END,i=/** @type {InputEvent} */(e); if(r&&!i.isComposing&&!imeCommit(i,r))imeEnd();},true);
+/** Whether input i, after a key ended composition r (IME_END), is that composition's own: typed as a composition's, or -
+ * the first input after the end, and only that one - the text the composition showed, put in in its field (ibus-hangul's
+ * commit). Any later input is other text. @param {InputEvent} i @param {{el:EventTarget|null,text:string}} r */
+function imeCommit(i,r){const t=i.inputType;
+  if(t==='insertCompositionText'||t==='insertFromComposition'||t==='deleteCompositionText')return true;
+  const own=!!r.text&&i.target===r.el&&i.data===r.text; r.text=''; return own;}
 // The tail Esc's browser defaults are not the composition's either: it would empty a search field and close a sheet (a
 // modal dialog), which the same Esc on a platform that marks it composing does not do. A tail Enter's default stays: in a
 // note it is the new line the input method gives with every Linux program. Where Enter is the viewer's own key in a text

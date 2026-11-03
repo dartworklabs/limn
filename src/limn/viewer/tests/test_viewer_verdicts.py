@@ -5879,15 +5879,11 @@ UNIDENTIFIED_KEYS = """()=>{const f=document.activeElement,
   for(let i=0;i<3;i++)out.push(k({key:'Enter',keyCode:13,shiftKey:true,repeat:true}));
   return out;}"""
 
-# In the focused field, ibus-hangul's order with Chromium (the round-3 ibus log): keydown Process on Enter (marked
-# composing), compositionend, the committed text as an input of its own (isComposing false), then the Enter handed on -
-# the page's own events, in one task. Whether that Enter went uncanceled (dispatchEvent).
-COMMIT_THEN_KEY = """()=>{const f=document.activeElement;
-  f.dispatchEvent(new CompositionEvent('compositionstart',{bubbles:true,data:''}));
-  f.dispatchEvent(new KeyboardEvent('keydown',{bubbles:true,cancelable:true,composed:true,key:'Process',code:'Enter',keyCode:229,isComposing:true}));
-  f.dispatchEvent(new CompositionEvent('compositionend',{bubbles:true,data:''}));
-  f.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:'글',isComposing:false}));
-  return f.dispatchEvent(new KeyboardEvent('keydown',{bubbles:true,cancelable:true,composed:true,key:'Enter',code:'Enter',keyCode:13}));}"""
+# A handler of the next composition's end that takes ms (the page's own, after the viewer's, busy all that time), and the
+# time from that end to the next input after it, in COMMIT_GAP (the events' own times).
+SLOW_END = """ms=>{window.COMMIT_GAP=null; let end=null;
+  addEventListener('compositionend',e=>{end=e.timeStamp; const t=performance.now(); while(performance.now()-t<ms);},{once:true});
+  addEventListener('input',e=>{if(end!==null&&window.COMMIT_GAP===null)window.COMMIT_GAP=e.timeStamp-end;});}"""
 # A new build with a page more (the last one twice): the pages are to be built again.
 GROW = "()=>{refreshDoc({...META,pages:META.pages.concat(META.pages.slice(-1))});}"
 
@@ -6184,17 +6180,30 @@ class ReasonComposition(VerdictBase):
         self.assertEqual(page.evaluate(REASON, 1), {"focused": True, "value": "한글", "placeholder": "이유 (선택)"})
 
     def test_the_text_the_composition_commits_is_its_own(self):
-        """ibus-hangul commits the syllable as text of its own after the composition ends, before it hands the Enter on
-        (COMMIT_THEN_KEY): that text is the composition's, not other text, so the Enter is still the composition's -
-        canceled, nothing written. Taken as other text, it let the key go, and the Enter wrote the reason."""
-        page = self.on("fig")
-        pid = self.press_page(page, 1, "채택")
-        open_reason(page, 1)
-        page.keyboard.type("한글")
-        self.assertFalse(page.evaluate(COMMIT_THEN_KEY), "the Enter handed on was not canceled")
-        settle(page)
-        self.assertIsNotNone(page.evaluate(POP, 1), "the popover closed")
-        self.assertFalse(self.pins()[pid].get("note"))
+        """ibus-hangul ends the composition with nothing in it and then puts the syllable in as text of its own, before it
+        hands the Enter on (ime_commit_ended, Chromium's own events): that text is the composition's, not other text, so
+        the Enter is still the composition's - the popover stays with '한글' and the focus, nothing written; the next
+        Enter writes it. Chromium stamps that input when it dispatches it, after the page's handlers of the end: also
+        where one of them takes 180 ms (SLOW_END), the input coming that much later. Taken as other text, the commit let
+        the key go and the Enter wrote the reason and closed the popover; known as the commit by coming within
+        core.js IME_TAIL_MS of the end, it did so behind the slow handler."""
+        for slow, word in ((0, "채택"), (180, "보류")):
+            with self.subTest(end_handler_ms=slow):
+                page = self.on("fig")
+                cdp, pid = self.open_composing(page, word)
+                page.evaluate(SLOW_END, slow)
+                at = time.time()
+                ime_key_down(cdp, "Enter", at)
+                ime_commit_ended(cdp, "글")
+                ime_key_press(cdp, "Enter", at)
+                ime_key_up(cdp, "Enter", at)
+                settle(page)
+                self.assertGreaterEqual(page.evaluate("COMMIT_GAP"), slow)
+                self.assertEqual(
+                    page.evaluate(REASON, 1), {"focused": True, "value": "한글", "placeholder": "이유 (선택)"}
+                )
+                self.assertFalse(self.pins()[pid].get("note"))
+                self.enter_saves(page, cdp, pid)
 
     def test_a_rebuild_waits_for_the_key_that_ended_the_syllable_to_come_up(self):
         """'한' typed and '글' left composing when a new build with a page more arrives: it waits for the syllable (above).

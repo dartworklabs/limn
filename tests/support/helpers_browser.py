@@ -379,15 +379,15 @@ def ime_key_repeats(page, cdp, key, until, delay=IME_REPEAT_DELAY, *, code=None)
 
 def ime_end_with(cdp, key, text, repeats=0):
     """The input method ends its composition with key the way ibus-hangul on Linux does: the key goes down marked
-    composing (ime_key_down), the input method commits text (compositionend and the committed input), then hands the very
-    key on as a plain keydown (isComposing false) and its keyup - with no keyup before that keydown (core.js imeTail,
-    docs/handbook/viewer.md §조합을 끝내는 키). One press, so like ibus-hangul's every keydown and the keyup carry the
+    composing (ime_key_down), the input method commits text (ime_commit_ended: compositionend, then the committed input),
+    then hands the very key on as a plain keydown (isComposing false) and its keyup - with no keyup before that keydown
+    (core.js imeTail, docs/handbook/viewer.md §조합을 끝내는 키). One press, so like ibus-hangul's every keydown and the keyup carry the
     time the key went down (CDP's event time): the gap a busy machine leaves between the commit and the next call does not
     move the key out of core.js IME_TAIL_MS. With repeats the key is held: that many autorepeats (keydown with repeat, at
     IME_REPEAT_DELAY and IME_REPEAT_EVERY - past the window) come before its keyup. The time of the press."""
     at = time.time()
     ime_key_down(cdp, key, at)
-    ime_commit(cdp, text)
+    ime_commit_ended(cdp, text)
     ime_key_press(cdp, key, at)
     last = at
     for i in range(repeats):
