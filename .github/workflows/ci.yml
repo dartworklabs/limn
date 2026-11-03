@@ -158,7 +158,9 @@ jobs:
           command -v timeout || echo "no timeout(1)"
           stat -f %Lp README.md
       - name: Python tests
-        run: uv run pytest -q -rs -n 2 -m "not browser and not tex" -o faulthandler_timeout=600
+        # One worker per CPU: macos-latest hands out 3-core M1 and 5-core M2 Pro machines, and two workers left a
+        # core idle on the 3-core ones (206.9 s at -n 2, 159.9 s at -n 3 on the same M1).
+        run: uv run pytest -q -rs -n auto -m "not browser and not tex" -o faulthandler_timeout=600
 
   macos-browser:
     # Native Apple shortcuts and caret navigation need a real macOS browser;

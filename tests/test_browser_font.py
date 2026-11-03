@@ -5,10 +5,12 @@ import io
 import json
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 
 import pytest
+
+from limn.web.handler import Server
 
 import helpers_browser_font as fonts
 from helpers_browser import BrowserBase, booted, drawn_faces, settle
@@ -157,7 +159,9 @@ def test_http_redirect_cannot_contact_a_second_destination(monkeypatch):
         def log_message(self, *args):
             """Keep the source fixture's access payload out of the test's diagnostic output."""
 
-    server = HTTPServer(("127.0.0.1", 0), RedirectSource)
+    # Limn's own listener: plain HTTPServer resolves its bind address by reverse DNS, which stalls for about half a
+    # minute on macOS runners.
+    server = Server(("127.0.0.1", 0), RedirectSource)
     worker = threading.Thread(target=server.serve_forever)
     worker.start()
     try:
