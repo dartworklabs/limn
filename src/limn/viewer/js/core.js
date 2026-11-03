@@ -87,13 +87,15 @@ function buildsFromSource(kind){return kind===DOC_KIND.TEX;}
 // or a repeat), and it ends - the key with it - at a keydown the input method does not take that is neither that key
 // handed on nor its repeat (another key: a held key repeats no more once another goes down; that key pressed anew: it was
 // up) and at text that is not the composition's own commit (later than IME_TAIL_MS after its end: a paste, an on-screen
-// keyboard's letter). Past the bound the key is still the composition's: a repeat that comes later is not the viewer's
-// and holds the field again. Read with imeKey. Registered here, in the first part, so it sees every keydown before any
-// handler does.
+// keyboard's letter). Past the bound the key is still the composition's: a keydown marked as its repeat that comes later
+// is not the viewer's and holds the field again. Read with imeKey. Registered here, in the first part, so it sees every
+// keydown before any handler does.
 // IME_HOLD_MS is longer than the delay before a held key's first repeat that the usual settings give - X's default
-// 660 ms, GNOME's 500 ms (its slider goes to 2 s), Windows' at most 1 s - so a held key keeps the field through it. A longer
-// delay only lets the field go before the first repeat, which is still the composition's; a release that never came costs
-// what waits at most this long.
+// 660 ms, GNOME's 500 ms (its slider goes to 2 s), Windows' at most 1 s - so a held key keeps the field through it, and
+// longer than the 2 s within which Chromium marks a key's next keydown as a repeat at all: on Linux it gives a first
+// repeat later than that as a new press of the key (repeat false), which nothing tells from one, so that press and its
+// repeats are the viewer's, as a key held without an input method. A release that never came costs what waits at most
+// this long.
 const IME_TAIL_MS=100,IME_HOLD_MS=2500;
 /** The last key the input method took in the open composition (marked composing), not up since: its field, its physical key (imeCode) and its name (imeName); null when there is none. @type {{el:EventTarget|null,code:string,name:string}|null} */
 let IME_PRESSED=null;

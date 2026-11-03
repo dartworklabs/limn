@@ -6318,11 +6318,13 @@ class ReasonComposition(VerdictBase):
                 self.assertEqual(self.pins()[pid]["note"], text)
 
     def test_a_repeat_after_the_hold_is_still_the_composition_s(self):
-        """The Enter that ended the syllable held down on a keyboard whose first repeat comes later than IME_HOLD_MS: the
-        hold lets the field go at the bound, and the pages are built again under the key, the focus in the new field. The
-        repeats that come then, in that field, are still the composition's: nothing written, no new line, the popover
-        open with '한글'; the next Enter writes it. Forgotten with the old field (Chromium blurs a focused field as it takes
-        it out) or kept to it, the first late repeat wrote the reason and closed the popover."""
+        """The Enter that ended the syllable held down on a keyboard whose first repeat comes later than IME_HOLD_MS, marked
+        as a repeat (as CDP's autoRepeat marks it; Chromium on Linux marks none more than 2 s after the last keydown -
+        docs/handbook/viewer.md §조합을 끝내는 키): the hold lets the field go at the bound, and the pages are built again
+        under the key, the focus in the new field. The repeats that come then, in that field, are still the composition's:
+        nothing written, no new line, the popover open with '한글'; the next Enter writes it. Forgotten with the old field
+        (Chromium blurs a focused field as it takes it out) or kept to it, the first late repeat wrote the reason and
+        closed the popover."""
         page = self.on("fig")
         cdp, pid, n, _ = self.held_over(page, "보류")
         hold = page.evaluate("IME_HOLD_MS") / 1000
