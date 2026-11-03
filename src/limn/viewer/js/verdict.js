@@ -204,7 +204,11 @@ function vdWhereOf(b){return b.dataset.act==='verdict-save'?VD_WHERE.COMPOSER:VD
 // current verdict, or the word a save on the line is for, is pressed (aria-pressed, a filled look; a confirm word the
 // destructive fill) - and its name stays '채택 판정 — 3쪽' whichever it is. Its description says what a press does: an
 // unpressed word saves that verdict (the current one is replaced), the pressed one takes the person's own open verdict
-// back (as [판정 취소]), and a pressed one that is not theirs or is handled says why it is not taken back here.
+// back (as [판정 취소]), and a pressed one that is not theirs or is handled says why it is not taken back here. The word a
+// save is for (SAVING) keeps its box's words but gives a screen reader none (an empty aria-description, which tooltip.js
+// leaves as the drawing code's): the line's status (.pv-busy, role=status) says the save, once. A click presses the word
+// and focuses it at the same moment, so a description that changed then was read with the focus and again as a change -
+// Orca said '이 판정을 저장하는 중입니다 · 단축키 2' twice, 26 ms apart, before the status said '보류 저장 중…'.
 // Off: a composer's button is disabled; a page line's waits (aria-disabled, verdictPress ignores it) before the first list,
 // and right after its word was taken back (PV_TOGGLE_HOLD) - it keeps the focus a keyboard press left on it, which a
 // disabled button would drop to the page.
@@ -234,7 +238,7 @@ function vdButton(c,where,page,target,off,kn,quiet,pr){const armed=vdArmedHere(c
     :pr===PV_PRESS.HANDLED?tr('지금 판정입니다 · 처리된 판정이라 카드의 [지우기]로 거둡니다'):pr===PV_PRESS.SAVING?tr('이 판정을 저장하는 중입니다'):tr('누르면 이 쪽의 판정으로 저장합니다 · 다시 누르면 거둡니다');
   if(said)tip+=' · '+tl(c.confirm?'단축키 {key} (두 번)':'단축키 {key}',{key:kn});
   return html`<button type="button" class="vd-b hit${c.confirm?' vd-confirm':''}${armed?' armed':''}" translate="no" data-act="${where===VD_WHERE.COMPOSER?'verdict-save':'pv-save'}" \
-data-key="${c.key}" data-page="${page}" aria-label="${name}"${line?html` aria-pressed="${on?'true':'false'}"`:''}${on&&pr!==PV_PRESS.SAVING?html` aria-describedby="pv-on-${page}"`:''}\
+data-key="${c.key}" data-page="${page}" aria-label="${name}"${line?html` aria-pressed="${on?'true':'false'}"`:''}${on&&pr!==PV_PRESS.SAVING?html` aria-describedby="pv-on-${page}"`:''}${on&&pr===PV_PRESS.SAVING?html` aria-description=""`:''}\
 ${quiet||(armed&&line)?html` data-tip-press="${tip}"`:html` data-tip="${tip}"`}${kn?html` data-kn="${kn}"`:''}${said?html` aria-keyshortcuts="${kn}"`:''}${off?line?html` aria-disabled="true"`:html` disabled`:''}>\
 ${on?ic('check'):''}<span class="lbl">${armed?tl('{word} 확정',{word:c.label}):c.label}</span></button>`;}
 // A page line's word state (vdButton pr): not pressed, or pressed as the person's own open verdict (a press takes it back),

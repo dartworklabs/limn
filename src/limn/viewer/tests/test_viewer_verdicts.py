@@ -6396,6 +6396,47 @@ class RapidPresses(VerdictBase):
         self.assertEqual(page.evaluate(LINE, 1)["pin"], str(pins[1]["id"]))
 
 
+def ax_description(page, sel):
+    """The description Chromium's accessibility tree gives the element sel ('' for none) - what a screen reader reads after
+    its name, and reads again when it changes on the focused control."""
+    cdp = page.context.new_cdp_session(page)
+    try:
+        obj = cdp.send("Runtime.evaluate", {"expression": "document.querySelector(%s)" % json.dumps(sel)})["result"]
+        node = cdp.send("DOM.describeNode", {"objectId": obj["objectId"]})["node"]
+        cdp.send("DOM.getDocument", {"depth": 0})
+        ax = cdp.send(
+            "Accessibility.getPartialAXTree", {"backendNodeId": node["backendNodeId"], "fetchRelatives": False}
+        )
+        return ax["nodes"][0].get("description", {}).get("value", "")
+    finally:
+        cdp.detach()
+
+
+class SavingWordSaid(VerdictBase):
+    """A page line's save is said once (docs/handbook/viewer.md §판정 핀): by the line's status, not also by the pressed word."""
+
+    def test_the_word_being_saved_gives_a_screen_reader_no_description(self):
+        """보류 pressed with the pointer (the press focuses it at once), its save held: the word is pressed with no
+        description - its box keeps '이 판정을 저장하는 중입니다' - and the line's status says '· 보류 저장 중…'. Saved, the
+        word is described by the line's context. With the saving description, the click's focus and the description's
+        change came together, and Orca read '이 판정을 저장하는 중입니다 · 단축키 2' twice before the status."""
+        page = self.on("fig")
+        self.held = []
+        word = WORD % (1, "보류")
+        page.locator(word).click()
+        page.wait_for_function("PV_BUSY.size===1")  # no settle while the save is held: it waits for the network
+        self.assertEqual(page.evaluate("s=>document.activeElement===document.querySelector(s)", word), True)
+        self.assertEqual(page.evaluate(PRESSED, 1), ["false", "true", "false"])
+        self.assertEqual(ax_description(page, word), "")
+        self.assertTrue(page.get_attribute(word, "data-tip").startswith("이 판정을 저장하는 중입니다"))
+        busy = "()=>[...document.querySelectorAll('#doc .pv[data-page=\"1\"] .pv-busy')].map(e=>e.textContent.replace(/\\s+/g,' ').trim())"
+        self.assertEqual(page.evaluate(busy), ["· 보류 저장 중…"])
+        self.release()
+        page.wait_for_function("PV_BUSY.size===0&&OPEN_ALL.length===1")
+        settle(page)
+        self.assertEqual(ax_description(page, word), "지금 보류 판정 · 다시 누르면 판정 취소")
+
+
 class ReasonEdit(VerdictBase):
     """A saved reason is changed or cleared from the line (0.4.34 P2-5): its text on the line (a check and its first line) opens the popover with
     it; Enter writes the changed text over it; [지우기] clears it with [되돌리기]; Enter on an empty field keeps it."""
