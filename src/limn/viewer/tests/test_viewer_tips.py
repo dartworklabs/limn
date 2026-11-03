@@ -7,9 +7,10 @@
 - ``TipKeyboard`` holds the WAI-ARIA tooltip pattern: the keyboard's focus shows the box on every device, a tablet
   without hover too, Esc and leaving the control hide it - in a sheet the box before the sheet - and Tab's own scroll does
   not take it.
-- ``TipReadAlong`` holds a badge's explanation, read with the card: a [제안 수정] warning badge says why the agent will not
-  apply it to a screen reader, in its words' language, with nothing changed on screen or in the Tab order, and the words
-  are neither copied with a selection nor found by the browser's find.
+- ``TipReadAlong`` holds a badge's explanation, read with the card: the [제안 수정] badge says what it means to a screen
+  reader, in its words' language, with nothing changed on screen or in the Tab order, and the words are neither copied
+  with a selection nor found by the browser's find. A [제안 수정] warning badge reads only its words: its card's visible
+  line says that the agent will not apply it, and is read with the card.
 
 Run: uv run pytest -q src/limn/viewer/tests/test_viewer_tips.py
 """
@@ -281,9 +282,10 @@ SELECT_CARD = """id => {const c = document.querySelector('.pin[data-id="' + id +
 
 
 class TipReadAlong(TipBase):
-    """A badge with an explanation carries it as words only a screen reader reads, so the card is read with it - the
-    [제안 수정 · 원문 바뀜] badge's 'the agent will not apply it' had no route to one - and nothing is added on screen or to
-    the Tab order. The words follow the explanation and speak the screen's language."""
+    """A badge with an explanation carries it as words only a screen reader reads, so the card is read with it, and nothing
+    is added on screen or to the Tab order. The words follow the explanation and speak the screen's language. A [제안 수정]
+    warning badge carries none: its card says in a visible line that the agent will not apply it, and that line is read with
+    the card."""
 
     BASE = "Line 4 of the demo manuscript.\nLine 5 of the demo manuscript."
 
@@ -293,44 +295,63 @@ class TipReadAlong(TipBase):
         d["suggest"] = {"base": self.BASE, "text": "Line four.\nLine 5 of the demo manuscript."}
         return add_pin(d, actor(ALICE)).core.id
 
-    def test_a_warning_badge_is_read_with_why_the_agent_will_not_apply_it(self):
-        """Line 5 edited after the suggestion: the card's '제안 수정 · 원문 바뀜' badge is read as its words and then its
-        explanation (Chrome's tree and Playwright's snapshot), from a 1px hidden box that moves nothing and adds no tab stop;
-        the lines lost, the same badge reads the 'cannot be checked' explanation instead."""
+    def card(self, lang="ko"):
+        """A card whose suggestion still fits its lines, on the desktop in lang: the page, the pin's id and its plain
+        [제안 수정] badge's selector."""
+        pid = self.add()
+        return self.view(n_open=1, lang=lang), pid, '.pin[data-id="%d"] .sg-badge' % pid
+
+    def test_a_badge_is_read_with_its_explanation(self):
+        """The card's plain '제안 수정' badge is read as its words and then its explanation (Chrome's tree and Playwright's
+        snapshot), from a 1px hidden box that moves nothing and adds no tab stop; the words follow a changed explanation and
+        go with a removed one."""
+        page, pid, badge = self.card()
+        tip = page.get_attribute(badge, "data-tip")
+        self.assertIn("에이전트가 이 줄 범위에 넣고", tip)
+        got = page.evaluate(READ_ALONG, badge)
+        self.assertIsNotNone(got, "the badge has no words for a screen reader")
+        self.assertEqual(got["text"], ": " + tip)
+        self.assertEqual((got["words"], got["hidden"], got["same"], got["focusable"]), ("제안 수정", True, True, False))
+        self.assertEqual(ax_words(page, badge), "제안 수정: " + tip)
+        self.assertIn(tip, page.locator(badge).aria_snapshot())
+        page.evaluate("s=>{document.querySelector(s).dataset.tip='다른 설명';}", badge)
+        settle(page)
+        self.assertEqual(ax_words(page, badge), "제안 수정: 다른 설명")
+        page.evaluate("s=>document.querySelector(s).removeAttribute('data-tip')", badge)
+        settle(page)
+        self.assertIsNone(page.evaluate(READ_ALONG, badge))
+        self.assertEqual(ax_words(page, badge), "제안 수정")
+
+    def test_a_warning_badge_leaves_its_explanation_to_the_cards_line(self):
+        """Line 5 edited after the suggestion: the '제안 수정 · 원문 바뀜' badge keeps its explanation box (data-tip) but is
+        read as its words alone, and the card is read with its visible line that the agent will not apply it and what to
+        do; the lines lost, the '확인 불가' badge likewise, the line saying it cannot be checked."""
         pid = self.add()
         tex = self.main.read_text(encoding="utf-8")
         self.main.write_text(tex.replace("Line 5 of the demo", "Line 5, edited, of the demo"), encoding="utf-8")
         page = self.view(n_open=1)
-        badge = '.pin[data-id="%d"] .sg-badge' % pid
-        tip = page.get_attribute(badge, "data-tip")
-        self.assertIn("에이전트는 넣지 않고", tip)
-        got = page.evaluate(READ_ALONG, badge)
-        self.assertIsNotNone(got, "the badge has no words for a screen reader")
-        self.assertEqual(got["text"], ": " + tip)
-        self.assertEqual(
-            (got["words"], got["hidden"], got["same"], got["focusable"]), ("제안 수정 · 원문 바뀜", True, True, False)
-        )
-        self.assertEqual(ax_words(page, badge), "제안 수정 · 원문 바뀜: " + tip)
-        self.assertIn(tip, page.locator(badge).aria_snapshot())
-        self.main.write_text(tex.replace(self.BASE, "Something else.\nEntirely."), encoding="utf-8")
-        page.evaluate("loadPins()")
-        settle(page)
-        got = page.evaluate(READ_ALONG, badge)
-        self.assertEqual(got["words"], "제안 수정 · 확인 불가")
-        self.assertEqual(got["text"], ": " + page.get_attribute(badge, "data-tip"))
-        self.assertIn("넣지 않고 알립니다", got["text"])
-
-    def changed_card(self, lang="ko"):
-        """A card whose suggestion's lines changed, on the desktop in lang: the page, the pin's id and its badge's selector."""
-        pid = self.add()
-        tex = self.main.read_text(encoding="utf-8")
-        self.main.write_text(tex.replace("Line 5 of the demo", "Line 5, edited, of the demo"), encoding="utf-8")
-        return self.view(n_open=1, lang=lang), pid, '.pin[data-id="%d"] .sg-badge' % pid
+        card, badge = '.pin[data-id="%d"]' % pid, '.pin[data-id="%d"] .sg-badge' % pid
+        for words, line in (
+            ("제안 수정 · 원문 바뀜", "에이전트는 넣지 않음 · 수정해서 원문에 맞추기"),
+            ("제안 수정 · 확인 불가", "에이전트는 넣지 않음 · 원문과 대조 불가"),
+        ):
+            with self.subTest(words):
+                if words.endswith("확인 불가"):
+                    self.main.write_text(tex.replace(self.BASE, "Something else.\nEntirely."), encoding="utf-8")
+                    page.evaluate("loadPins()")
+                    settle(page)
+                self.assertIn("에이전트는 넣지 않고", page.get_attribute(badge, "data-tip"))
+                self.assertIsNone(page.evaluate(READ_ALONG, badge), "a warning badge reads its explanation along")
+                self.assertEqual(ax_words(page, badge), words)
+                read = ax_words(page, card)
+                self.assertIn(words, read)
+                self.assertIn(line, read)
+                self.assertNotIn("에이전트는 넣지 않고", read)
 
     def test_a_selection_across_the_badge_copies_only_the_words_on_screen(self):
         """Selecting the card from its head to its note and copying (Ctrl+C, pasted back into a field with Ctrl+V) gives the
         badge's words and none of its explanation: the read-along words are not selectable text."""
-        page, pid, badge = self.changed_card()
+        page, pid, badge = self.card()
         selected = page.evaluate(SELECT_CARD, pid)
         page.keyboard.press("ControlOrMeta+c")
         page.evaluate(
@@ -339,29 +360,25 @@ class TipReadAlong(TipBase):
         page.keyboard.press("ControlOrMeta+v")
         copied = page.input_value("#paste-probe")
         for text in (selected, copied):
-            self.assertIn("제안 수정 · 원문 바뀜", text)
-            self.assertNotIn("에이전트는 넣지 않고", text)
+            self.assertIn("제안 수정", text)
+            self.assertNotIn("에이전트가 이 줄 범위에 넣고", text)
 
     def test_the_browsers_find_does_not_find_the_explanation(self):
         """The browser's find (window.find) finds the badge's words but no phrase of its explanation, which would be an
         invisible result; the explanation is still in the accessibility tree."""
-        page, pid, badge = self.changed_card()
+        page, pid, badge = self.card()
         find = "t => {getSelection().removeAllRanges(); return window.find(t, false, false, true);}"
-        self.assertTrue(page.evaluate(find, "원문 바뀜"))
-        self.assertFalse(page.evaluate(find, "에이전트는 넣지 않고 답글로"))
-        self.assertIn("에이전트는 넣지 않고 답글로", ax_words(page, badge))
+        self.assertTrue(page.evaluate(find, "제안 수정"))
+        self.assertFalse(page.evaluate(find, "에이전트가 이 줄 범위에 넣고"))
+        self.assertIn("에이전트가 이 줄 범위에 넣고", ax_words(page, badge))
 
     def test_the_english_screen_reads_the_explanation_in_english(self):
         """On the English screen the badge's words and explanation are both English: the copy is made from the
         explanation the English observer wrote, and is not translated again."""
-        pid = self.add()
-        tex = self.main.read_text(encoding="utf-8")
-        self.main.write_text(tex.replace("Line 5 of the demo", "Line 5, edited, of the demo"), encoding="utf-8")
-        page = self.view(n_open=1, lang="en")
-        badge = '.pin[data-id="%d"] .sg-badge' % pid
+        page, pid, badge = self.card(lang="en")
         words = ax_words(page, badge)
-        self.assertEqual(words, "Suggested edit · source changed: " + page.get_attribute(badge, "data-tip"))
-        self.assertIn("will not apply", words)
+        self.assertEqual(words, "Suggested edit: " + page.get_attribute(badge, "data-tip"))
+        self.assertIn("agent", words)
         self.assertIsNone(HANGUL.search(words), words)
 
     def test_the_reason_in_the_switchs_place_is_read_with_its_explanation(self):
