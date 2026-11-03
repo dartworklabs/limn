@@ -135,8 +135,9 @@ document.addEventListener('mousedown',()=>{if(Date.now()>=SWALLOW_CLICK)hideTip(
 // verdict's marker) is read by that label, and one inside a control adds nothing to that control's name.
 // A card's fact line (its assignee chip, .as-chip) is read as one line of its own words (종류 · 담당 · 상태, cards.css): its
 // explanation is the general rule that a person's pin is skipped, which on every such card would only repeat; the chip that
-// can be pressed carries it as its description.
-const TIP_FOCUS='button,a[href],input,select,textarea,summary,[tabindex]',TIP_SEL='[data-tip],[data-tip-press]',TIP_READ='.badge:not(.as-chip),.tip-read';
+// can be pressed carries it as its description. A badge whose card says its explanation in a visible line (.tip-shown: a
+// [제안 수정] warning badge, whose card says the agent will not apply it) adds nothing either: that line is read with the card.
+const TIP_FOCUS='button,a[href],input,select,textarea,summary,[tabindex]',TIP_SEL='[data-tip],[data-tip-press]',TIP_READ='.badge:not(.as-chip,.tip-shown),.tip-read';
 // The descriptions this part wrote, so one the drawing code wrote is told apart and left alone.
 const TIP_WROTE=/** @type {WeakMap<Element,string>} */(new WeakMap());
 /** What tip says beyond name: '' when it is the name, the rest after the name and a separator when it starts with them, else tip

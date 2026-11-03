@@ -1413,5 +1413,11 @@
  "이유는 이전 판정 #{id} {word}에 저장됨 · 지금 판정은 #{cur} {now} — {target}": "Reason saved on the earlier verdict #{id} {word} · the current verdict is #{cur} {now} — {target}",
  "이유 일부는 이전 판정 #{id} {word}에 저장됨 · 초안에는 나머지를 남겼습니다 — {target}": "Part of the reason was saved on the earlier verdict #{id} {word} · the rest stays in the draft — {target}",
  "판정 #{id} 이유는 저장되지 않아 지금 판정의 초안으로 옮겼습니다 · 줄의 [초안 있음]이 엽니다 — {target}": "The reason for verdict #{id} was not saved and is now the current verdict's draft · [Draft] on its line opens it — {target}",
- "보이지 않는 쪽의 단추라 누르지 않았습니다 — 읽는 쪽에서 다시 누릅니다": "That button is on a page out of view, so it was not pressed — press it again on the page you are reading"
+ "보이지 않는 쪽의 단추라 누르지 않았습니다 — 읽는 쪽에서 다시 누릅니다": "That button is on a page out of view, so it was not pressed — press it again on the page you are reading",
+ "에이전트는 넣지 않음": "The agent won't apply it",
+ "수정해서 원문에 맞추기": "rebase it in Edit",
+ "원문과 대조 불가": "can't be checked",
+ "이 핀의 수정 칸을 엽니다 — 거기서 [지금 원문으로 맞추기]가 제안의 원문을 지금 그 줄들로 바꿉니다": "Opens this pin's editor — there [Use the current source] rebases the suggestion on these lines as they are now",
+ "에이전트는 넣지 않음 · 그사이 원문이 바뀌었습니다": "The agent won't apply it · the source changed meanwhile",
+ "에이전트는 넣지 않음 · 원문과 대조 불가": "The agent won't apply it · can't be checked"
 }

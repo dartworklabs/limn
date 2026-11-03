@@ -94,14 +94,32 @@ function suggestView(p){const s=p.suggest; if(!s)return null;
   const k=pdoc(p)+':'+p.id,open=SG_OPEN.has(k),rows=suggestDiff(s.base,s.text,p.lo||1);
   const foot=rows.length>SUGGEST_FOLD?html`<div class="sg-foot"><button class="btn-sm btn-ghost" data-act="sg-fold" data-key="${k}" aria-expanded="${String(open)}">\
 ${open?tr('제안 접기'):tr('제안 펼치기')+' · '+tl('{n}줄',{n:rows.length})}</button></div>`:null;
-  return html`<div class="sg-view">${suggestDiffHtml(suggestFold(rows,open))}${foot}</div>`;}
+  return html`<div class="sg-view">${suggestWarnLine(p)}${suggestDiffHtml(suggestFold(rows,open))}${foot}</div>`;}
+// The line over the diff of an open pin whose suggestion the agent will not apply (docs/handbook/viewer.md §제안 수정): that
+// the agent will not apply it ('에이전트는 넣지 않음'), then why or what to do. 'unknown': why, '원문과 대조 불가' (`reason`).
+// 'changed': what to do - rebase it in the edit card - as the line's one action (`edit`), a link-style button that opens
+// that card's editor, as the card's [수정] does (an icon alone on touch). A viewer cannot edit, so has no action and reads
+// the first part alone. The warning badge's explanation, said on screen for everyone, short enough for one line in the
+// desktop panel and at 320px. null for a ready suggestion or a pin that is not open (a closed pin is not re-synced). Pure.
+/** @param {string|undefined} st @param {string} pinSt @param {boolean} viewer @returns {{reason:string|null,edit:boolean}|null} */
+function suggestWarn(st,pinSt,viewer){if(pinSt!==PIN_STATE.OPEN)return null;
+  if(st===SUGGEST_STATE.CHANGED)return {reason:null,edit:!viewer};
+  if(st===SUGGEST_STATE.UNKNOWN)return {reason:'원문과 대조 불가',edit:false};
+  return null;}
+/** suggestWarn's line for p, in the screen's language; null when it has none. @param {Pin} p @returns {Html|null} */
+function suggestWarnLine(p){const w=suggestWarn(p.suggest_state,pinState(p),isViewer()); if(!w)return null;
+  const go=w.edit?html` · <button class="sg-warn-go hit" data-act="edit" data-tip="${tr('이 핀의 수정 칸을 엽니다 — 거기서 [지금 원문으로 맞추기]가 제안의 원문을 지금 그 줄들로 바꿉니다')}">\
+${tr('수정해서 원문에 맞추기')}</button>`:null;
+  return html`<p class="sg-warn">${tr('에이전트는 넣지 않음')}${w.reason?' · '+tr(w.reason):null}${go}</p>`;}
 // A card's [제안 수정] badge, with the reason not to apply it when its lines no longer read as its base ('원문 바뀜') or
 // cannot be compared ('확인 불가'): a pin's `suggest_state`. A closed card shows the plain badge: a closed pin is not re-synced, and
-// one whose suggestion was applied reads as changed. null without a suggestion.
+// one whose suggestion was applied reads as changed. null without a suggestion. The two warning badges are .tip-shown: the
+// card's line over the diff (suggestWarnLine) says what their explanation says, so they carry no words for a screen reader
+// (tooltip.js); their explanation box stays.
 /** @param {Pin} p @param {boolean} closed @returns {Html|null} */
 function suggestBadge(p,closed){if(!p.suggest)return null; const st=closed?SUGGEST_STATE.READY:p.suggest_state;
-  if(st===SUGGEST_STATE.CHANGED)return html`<span class="badge badge-warning sg-badge" data-tip="${tr('그사이 이 줄들이 바뀌어 제안의 원문과 다릅니다 — 에이전트는 넣지 않고 답글로 알립니다. [수정]에서 지금 원문으로 맞출 수 있습니다')}">${ic('triangle-alert')}${tr('제안 수정')} · ${tr('원문 바뀜')}</span>`;
-  if(st===SUGGEST_STATE.UNKNOWN)return html`<span class="badge badge-warning sg-badge" data-tip="${tr('원문과 대조할 수 없습니다(위치를 잃었거나 파일을 읽지 못함) — 에이전트는 넣지 않고 알립니다')}">${ic('triangle-alert')}${tr('제안 수정')} · ${tr('확인 불가')}</span>`;
+  if(st===SUGGEST_STATE.CHANGED)return html`<span class="badge badge-warning sg-badge tip-shown" data-tip="${tr('그사이 이 줄들이 바뀌어 제안의 원문과 다릅니다 — 에이전트는 넣지 않고 답글로 알립니다. [수정]에서 지금 원문으로 맞출 수 있습니다')}">${ic('triangle-alert')}${tr('제안 수정')} · ${tr('원문 바뀜')}</span>`;
+  if(st===SUGGEST_STATE.UNKNOWN)return html`<span class="badge badge-warning sg-badge tip-shown" data-tip="${tr('원문과 대조할 수 없습니다(위치를 잃었거나 파일을 읽지 못함) — 에이전트는 넣지 않고 알립니다')}">${ic('triangle-alert')}${tr('제안 수정')} · ${tr('확인 불가')}</span>`;
   return html`<span class="badge sg-badge" data-tip="${tr('작성자가 바꿀 글을 직접 썼습니다 — 에이전트가 이 줄 범위에 넣고, 명백한 오타·문장 오류만 고쳐 알립니다. 뜻이 걸린 문제는 넣기 전에 묻습니다')}">${tr('제안 수정')}</span>`;}
 
 // ---------------- The editor (composer and edit card)
@@ -139,9 +157,11 @@ function suggestRebase(sg,o,owns,redraw){const c=sg.current; sg.current=null;
   if(o)suggestRead(sg,o,false,owns,redraw); else redraw();}
 // The one line under the editor of draft sg on o, or null: what is under way or wrong first, then what a save will do. Each is
 // a Korean message (drawn through tr) and maybe the line's one action {act, label, tip}. isEdit: an edit card, whose pin's
-// suggest_state is `state`.
+// suggest_state is `state`. While its draft keeps the pin's own base, an edit card of a pin the agent will not apply says so
+// first ('에이전트는 넣지 않음', `warn`: drawn in the warning colour, as on the card): 'changed' with the rebase that ends it, 'unknown' with
+// why. A rebase or a new range's source is a new base, and the line goes, as the card's will once it is saved.
 /** @param {SuggestDraft} sg @param {any} o @param {string|null} off @param {boolean} isEdit @param {string|undefined} state
- * @returns {{msg:string,act:{act:string,label:string,tip:string}|null}|null} */
+ * @returns {{msg:string,act:{act:string,label:string,tip:string}|null,warn?:boolean}|null} */
 function suggestLine(sg,o,off,isEdit,state){
   const reload={act:'sg-reload',label:'원문 다시 불러오기',tip:'지금 범위의 원문 줄을 다시 읽어 이 칸을 채웁니다. 쓰던 글은 그 원문으로 바뀝니다'};
   const rebase={act:'sg-rebase',label:'지금 원문으로 맞추기',tip:'쓰던 글은 그대로 두고, 이 제안이 바꿀 원문을 지금 그 줄들의 글로 바꿉니다'};
@@ -151,7 +171,9 @@ function suggestLine(sg,o,off,isEdit,state){
   const f=sg.fail; if(f)return {msg:tl('원문을 읽지 못했습니다 — {why}',{why:f.why}),act:{act:f.fill?'sg-reload':'sg-rebase',label:'원문 다시 읽기',tip:'이 줄들의 원문을 다시 읽습니다'}};
   if(sg.current&&o&&suggestKey(sg.current)===suggestKey(o))return {msg:'그사이 원문이 바뀌었습니다 — 아래는 지금 원문과 이 글의 차이입니다',act:rebase};
   if(suggestMoved(sg,o))return {msg:'범위가 바뀌었습니다',act:reload};
-  if(isEdit&&sg.had&&state===SUGGEST_STATE.CHANGED&&sg.base===sg.had.base)return {msg:'그사이 원문이 바뀌었습니다',act:rebase};
+  const own=isEdit&&!!sg.had&&sg.base===sg.had.base;
+  if(own&&state===SUGGEST_STATE.CHANGED)return {msg:'에이전트는 넣지 않음 · 그사이 원문이 바뀌었습니다',act:rebase,warn:true};
+  if(own&&state===SUGGEST_STATE.UNKNOWN)return {msg:'에이전트는 넣지 않음 · 원문과 대조 불가',act:null,warn:true};
   if(sg.base!=null&&sg.text===sg.base)return {msg:isEdit&&sg.had?'원문과 같아 저장하면 이 핀의 제안 수정을 지웁니다':'원문 그대로입니다 — 고친 글만 제안 수정으로 보냅니다',act:null};
   return null;}
 // Grows a suggestion editor to its text, from two lines up to twelve (then it scrolls).
@@ -173,6 +195,7 @@ function drawSuggest(sg,o,off,els,isEdit,state){const shown=!off||(off===SUGGEST
   const editing=sg.on&&shown; els.ta.hidden=!editing;
   if(els.ta.value!==sg.text)els.ta.value=sg.text; els.ta.readOnly=sg.base==null;
   const line=shown?suggestLine(sg,o,off,isEdit,state):null,said=line?line.msg+'\n'+(line.act?line.act.act:''):''; els.line.hidden=!line;
+  els.line.classList.toggle('sg-note-warn',!!(line&&line.warn));
   if(els.line.dataset.said!==said){els.line.dataset.said=said; const a=line&&line.act;
     if(line)setHtml(els.line,html`<span>${tr(line.msg)}</span>${a?html`<button class="hit" data-act="${a.act}" data-tip="${a.tip}">${tr(a.label)}</button>`:''}`); else els.line.replaceChildren();}
   const c=editing&&sg.current&&o&&suggestKey(sg.current)===suggestKey(o)?sg.current:null; els.cur.hidden=!c;
