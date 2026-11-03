@@ -1,0 +1,87 @@
+# ADR-0025: Markdown 문서를 HTML 화면으로 받는다 — 브라우저가 원문을 그리고, 그린 블록이 원문 줄을 가리킨다
+
+| | |
+| --- | --- |
+| **번호** | ADR-0025 |
+| **제목** | Markdown 문서를 HTML 화면으로 받는다 — 브라우저가 원문을 그리고, 그린 블록이 원문 줄을 가리킨다 |
+| **상태** | 제안 |
+| **결정일** | 미정 |
+| **결정자** | Limn 소유자 (승인 전) |
+| **출처** | [설계(보류, 개정 1)](../superpowers/specs/2026-10-24-html-document-surface.md), [이슈 #255](https://github.com/dartworklabs/limn/issues/255), 버리는 PoC 브랜치 `poc/html-surface` |
+| **부분 대체** | [ADR-0011](0011-figure-documents.md) D1의 지원 범위 문구("LaTeX 원고와 벡터 그래픽")에 Markdown 문서를 더한다. [ADR-0020](0020-suggested-edit-pins.md) D1의 "LaTeX 문서의 줄 핀에만 둔다" 한 구절은 "제안을 받는 문서(LaTeX·Markdown)의 줄 핀에 둔다"로 바꾼다. 두 ADR의 나머지는 그대로다 |
+
+## 맥락
+
+Limn은 LaTeX 원고에만 줄 핀을 준다. 보기 전용 PDF에는 쪽과 영역 핀만 있고, 그림 문서는 요소 지도로 코드 줄을 가리킨다. 그런데 사람과 에이전트가 함께 고치는 작업 문서는 Markdown인 경우가 많다. 지금은 Markdown을 줄 1:1로 LaTeX로 바꾼 생성 파일을 커밋해 띄우는 임시 방법을 쓴다. 이 방법은 생성 파일을 원본과 계속 맞춰야 하고, 제안 수정 편집 칸에 이스케이프된 글이 보이며, 휴대폰에서 종이 쪽을 확대해 읽어야 한다.
+
+Limn 안에서 Markdown을 LaTeX로 바꾸는 길도 검토했다. 그러나 TeX와 글꼴이 필요하고, `.md` 만 고치면 화면이 옛 쪽에 머물며, 형식마다 변환기가 필요해 기각했다(설계 §진단). 이 길로 돌아가야 했던 까닭은 뷰어가 PDF밖에 그리지 못하기 때문이다.
+
+소유자는 2026-10-24에 지금은 LaTeX만 유지하기로 하고 이 계획을 검토에 넘겼다. 이 ADR은 그 계획을 현재 코드(0.4.45)와 다시 대조하고 PoC로 확인한 결정 초안이다. 이 변경은 문서 종류·사다리 값·제안 관문 등 에이전트 계약과, `page` 없는 줄 핀이라는 저장 모양, 런타임 번들(멈춤 신호), 그리고 같은 출처에서 남이 쓴 글을 그리는 보안 경계를 건드린다. 그래서 설계 승인 전에는 구현하지 않는다.
+
+## 결정
+
+| # | 결정 | 상태 |
+| --- | --- | --- |
+| D1 | 문서를 그리는 화면을 둘로 나눈다. PDF 화면은 지금 그대로다. HTML 화면에서는 브라우저가 원문을 그리고, 그린 블록마다 원문 줄 범위를 붙인다. 첫 종류는 `.md` 로 등록하는 `markdown` 이다. 빌드·생성 파일·감시 스레드가 없다 | 제안 |
+| D2 | Markdown 줄 핀은 `file`·`lo`·`hi`·`kind`·`scope`·`quote`·`raw_lo`·`raw_hi` 만 가진다. `page`·`frac`·`pdf_build` 는 저장하지 않고, 보내도 버린다. `pins.md` 의 쪽 칸은 `page` 가 없는 줄 핀에 `—` 를 쓴다 | 제안 |
+| D3 | 값 목록을 늘린다(ADR-0011 D5 선례). 문서 `kind` 에 `markdown`, `scope`·`levels[].level` 에 `block`·`section`, 핀 `kind` 에 `md:<블록>`(`md:paragraph`·`md:item`·`md:table`·`md:code`·`md:quote`·`md:html`)과 `md:section` 을 더한다 | 제안 |
+| D4 | 행동은 능력으로 가른다. `Doc` 에 `renders_in_browser`·`takes_suggestions` 를 더한다. 제안 관문, 판정 대상 계산, 시작 빌드에 남은 종류 비교를 능력으로 바꾼다. API에 능력 필드는 더하지 않는다 | 제안 |
+| D5 | 파서는 markdown-it을 뷰어에 번들한다(`src/limn/vendor/markdown-it/`, ESM 브라우저 빌드, MIT). Markdown 문서를 열 때만 불러오고, 토큰을 따라 DOM을 짓는다. 서버는 Markdown을 파싱하지 않는다 | 제안 (멈춤 신호) |
+| D6 | 그린 문서는 아무것도 실행하거나 불러오지 않는다. DOM API로만 짓고, 원시 HTML은 줄 범위를 가진 자리표시로 보이며 그리지 않는다. 링크는 `http(s)`·`mailto`·문서 안 `#제목` 만 열고, 그림은 불러오지 않는다. 뷰어 페이지의 `script-src` CSP는 앞선 조건이고 따로 결정한다 | 제안 |
+| D7 | 줄 번호의 권위는 서버다. 원문 경로는 `str.splitlines()` 로 나눈 줄 목록을 크기를 제한해 읽어 보낸다. 뷰어는 그것을 이어 파싱할 뿐 원문 바이트를 다시 나누지 않는다 | 제안 |
+| D8 | 제안 수정은 Markdown 줄 핀에도 둔다. 편집 칸과 차이는 Markdown 원문이다. 원문 대조·`suggest_state`·`## 제안 문안` 은 그대로 쓴다 | 제안 |
+
+### D2를 고른 근거
+
+레코드 검사는 `page` 가 있을 때만 정수인지 보고, 모델에서도 `page` 는 선택 필드다. 그래서 `page` 없는 줄 핀은 지금 서버도, 옛 서버도 읽는다. 막는 곳은 만드는 길이다. 추가 파서가 `page` 기본값 1을 넣고, 편집의 줄 위치는 `page` 를 요구한다. 이 두 곳만 고치면 된다.
+
+PoC는 기본값 때문에 `page: 1` 을 저장했다. 그러자 `pins.md` 쪽 칸에 `1` 이 찍혔다. 뜻 없는 값이 에이전트 계약에 남고 퍼지면 거두기 어렵기 때문에 그 길을 고르지 않는다.
+
+### D5를 고른 근거
+
+블록 토큰의 `map` 이 원문 줄 범위를 준다. 문단 안의 `softbreak` 는 원문 줄의 경계다. 그래서 문단 안의 한 줄도 핀이 된다. PoC로 문단·제목·목록 항목·표 행·코드 블록·인용·원시 HTML 블록에서 이를 확인했다. 번들은 124,681바이트이고, 이미 번들한 PDF.js의 약 7%다.
+
+서버에서 표준 라이브러리로 렌더하는 안은 번들이 없다. 대신 CommonMark 블록 규칙을 Limn이 소유하고, GitHub 렌더와 경계 사례에서 어긋나며, 서버가 만든 HTML을 넣는 두 번째 sink가 생긴다.
+
+## Trade-off
+
+- 런타임 번들이 하나 는다. 판을 고정하고 sha256을 적으며, 고칠 때는 PDF.js와 같은 절차로 갈아 끼운다.
+- README류 문서의 머리 HTML(가운데 맞춘 로고, 배지)이 그려지지 않는다. 자리표시와 원문 첫 줄만 보인다. 허용 목록 소독기를 들이면 그릴 수 있지만, 번들과 정책이 하나 더 는다.
+- 원격 그림과 문서 밖 상대 링크가 열리지 않는다. 읽는 사람이 원문 저장소에서 따로 봐야 한다.
+- 뷰어에 문서 영역이 둘이 된다. 쪽을 전제한 기능(쪽 판정 줄과 패널, 비교 PDF, 쪽 목록, PDF 확대, Limn 찾기)은 Markdown 문서에서 꺼진다. 1단계의 찾기는 브라우저의 찾기다.
+- 옛 서버로 되돌리려면 먼저 Markdown 문서를 인스턴스 설정에서 빼야 한다. 옛 서버는 `.md` 문서가 있는 설정으로 시작하지 않는다. 상태 폴더의 핀은 그대로 읽힌다.
+
+## 대안
+
+- **Limn 안에서 Markdown을 LaTeX로 바꾼다.** 외부 도구, 조용한 옛 쪽, 형식마다 변환기 문제로 기각했다.
+- **저장소가 생성 LaTeX를 커밋하는 지금 방법을 유지한다.** 이 ADR이 승인되기 전까지의 임시 방법이다.
+- **`page: 1` 을 저장한다.** 코드는 가장 적지만 거짓 사실이 계약에 남아 기각했다(D2).
+- **블록 번호로 핀을 저장한다.** 편집에 살아남지 못해 기각했다.
+- **서버 렌더러(표준 라이브러리).** D5 근거대로 기각했다.
+- **원시 HTML을 소독해 그린다.** 1단계에서는 기각한다. 필요해지면 별도 ADR로 다룬다.
+
+## 결과
+
+- 구현은 설계 개정의 승인, 이 ADR의 `승인됨`, 뷰어 페이지 CSP의 별도 결정 뒤에 [계획](../superpowers/plans/2026-10-24-html-document-surface.md) 순서로 한다. 뷰어 변경은 머지 전에 네 기기군 PoC를 보인다.
+- 에이전트 계약에 값 넷(문서 `kind`, `scope`, 핀 `kind`, 원문 경로)과 `pins.md` 표시 둘(쪽 칸 `—`, Markdown 문서 절 꼬리말)이 더해진다. 기존 경로·필드·상태의 뜻은 그대로다.
+- 저장 형식에 새 필드는 없다. Markdown 핀은 `page` 없는 줄 핀이다.
+
+### 현재 상태 투영
+
+- **영향받는 현재 권위**
+  - `runtime/documents.py` 의 문서 종류와 능력
+  - 시작 빌드(`builds/run.py`, `builds/service.py`)
+  - 핀 만들기·편집(`pins/editing/`)과 `pins.md`(`pins/listing/render.py`)
+  - 판정 대상(`pins/verdict.py`, `pins/runtime.py`)
+  - 비교 pathspec(`revisions/core.py`)
+  - 읽기 권한(`security/access.py`)과 보안 헤더(`web/handler.py`)
+  - 뷰어와 번들
+  - 에이전트 계약(`api.md`, SKILL)
+- **갱신할 Handbook role/path:** purpose `docs/handbook/purpose.md`(지원 범위), architecture `docs/handbook/architecture.md`(채택값, 번들), `docs/handbook/domain.md`(능력 표, 여러 문서), `docs/handbook/api.md`(값 목록, `page` 없는 줄 핀, 제안 관문, 판정 대상, 원문 경로), `docs/handbook/viewer.md`, `docs/handbook/build-sync.md`, `docs/handbook/instances.md`, `docs/handbook/operations.md`, `docs/handbook/index.md` 파일 지도
+- **효력 형태:** 단계적 이행(계획의 Task 1–6)
+- **완료 증거**
+  - 계약 스냅숏에 Markdown 문서와 `page` 없는 줄 핀이 있다.
+  - 직전 릴리스가 그 레코드를 지우지 않는다.
+  - 보안 시험 문서가 무력하게 그려진다.
+  - 서버와 뷰어의 줄 번호가 모든 구분자에서 같다.
+  - 네 기기군 실측이 있다.
