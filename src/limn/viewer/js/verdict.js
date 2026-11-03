@@ -193,7 +193,7 @@ function vdRedraw(where){if(where===VD_WHERE.COMPOSER)renderVerdictRow(); else d
 // the long press showed.
 window.addEventListener('click',e=>{if(!VD_ARM||Date.now()<SWALLOW_CLICK)return; const b=/** @type {HTMLElement|null} */(/** @type {HTMLElement} */(e.target).closest('[data-act="verdict-save"],[data-act="pv-save"]'));
   if(!(b&&vdArmedHere(b.dataset.key||'',vdWhereOf(b),Number(b.dataset.page)||0)))disarmVerdict(true,true);},true);
-window.addEventListener('keydown',e=>{if(e.key!=='Escape'||!VD_ARM)return; e.preventDefault(); e.stopImmediatePropagation(); disarmVerdict(true,true);},true);
+window.addEventListener('keydown',e=>{if(e.key!=='Escape'||!VD_ARM||imeKey(e))return; e.preventDefault(); e.stopImmediatePropagation(); disarmVerdict(true,true);},true);
 /** @param {HTMLElement} b */
 function vdWhereOf(b){return b.dataset.act==='verdict-save'?VD_WHERE.COMPOSER:VD_WHERE.PAGE;}
 
@@ -204,7 +204,11 @@ function vdWhereOf(b){return b.dataset.act==='verdict-save'?VD_WHERE.COMPOSER:VD
 // current verdict, or the word a save on the line is for, is pressed (aria-pressed, a filled look; a confirm word the
 // destructive fill) - and its name stays '채택 판정 — 3쪽' whichever it is. Its description says what a press does: an
 // unpressed word saves that verdict (the current one is replaced), the pressed one takes the person's own open verdict
-// back (as [판정 취소]), and a pressed one that is not theirs or is handled says why it is not taken back here.
+// back (as [판정 취소]), and a pressed one that is not theirs or is handled says why it is not taken back here. The word a
+// save is for (SAVING) keeps its box's words but gives a screen reader none (an empty aria-description, which tooltip.js
+// leaves as the drawing code's): the line's status (.pv-busy, role=status) says the save, once. A click presses the word
+// and focuses it at the same moment, so a description that changed then was read with the focus and again as a change -
+// Orca said '이 판정을 저장하는 중입니다 · 단축키 2' twice, 26 ms apart, before the status said '보류 저장 중…'.
 // Off: a composer's button is disabled; a page line's waits (aria-disabled, verdictPress ignores it) before the first list,
 // and right after its word was taken back (PV_TOGGLE_HOLD) - it keeps the focus a keyboard press left on it, which a
 // disabled button would drop to the page.
@@ -234,7 +238,7 @@ function vdButton(c,where,page,target,off,kn,quiet,pr){const armed=vdArmedHere(c
     :pr===PV_PRESS.HANDLED?tr('지금 판정입니다 · 처리된 판정이라 카드의 [지우기]로 거둡니다'):pr===PV_PRESS.SAVING?tr('이 판정을 저장하는 중입니다'):tr('누르면 이 쪽의 판정으로 저장합니다 · 다시 누르면 거둡니다');
   if(said)tip+=' · '+tl(c.confirm?'단축키 {key} (두 번)':'단축키 {key}',{key:kn});
   return html`<button type="button" class="vd-b hit${c.confirm?' vd-confirm':''}${armed?' armed':''}" translate="no" data-act="${where===VD_WHERE.COMPOSER?'verdict-save':'pv-save'}" \
-data-key="${c.key}" data-page="${page}" aria-label="${name}"${line?html` aria-pressed="${on?'true':'false'}"`:''}${on&&pr!==PV_PRESS.SAVING?html` aria-describedby="pv-on-${page}"`:''}\
+data-key="${c.key}" data-page="${page}" aria-label="${name}"${line?html` aria-pressed="${on?'true':'false'}"`:''}${on&&pr!==PV_PRESS.SAVING?html` aria-describedby="pv-on-${page}"`:''}${on&&pr===PV_PRESS.SAVING?html` aria-description=""`:''}\
 ${quiet||(armed&&line)?html` data-tip-press="${tip}"`:html` data-tip="${tip}"`}${kn?html` data-kn="${kn}"`:''}${said?html` aria-keyshortcuts="${kn}"`:''}${off?line?html` aria-disabled="true"`:html` disabled`:''}>\
 ${on?ic('check'):''}<span class="lbl">${armed?tl('{word} 확정',{word:c.label}):c.label}</span></button>`;}
 // A page line's word state (vdButton pr): not pressed, or pressed as the person's own open verdict (a press takes it back),
@@ -1358,7 +1362,7 @@ document.addEventListener('focusin',e=>{const t=/** @type {HTMLElement|null} */(
 // the focus goes to the PDF area, and Enter is taken as on the pages - the reading page's reason (pvReasonEnterKey) - while
 // Space is only said.
 /** @param {KeyboardEvent} e */
-function pvOffPageKey(e){if((e.key!=='Enter'&&e.key!==' ')||e.ctrlKey||e.metaKey||e.altKey||e.isComposing)return; const t=/** @type {HTMLElement|null} */(e.target);
+function pvOffPageKey(e){if((e.key!=='Enter'&&e.key!==' ')||e.ctrlKey||e.metaKey||e.altKey||imeKey(e))return; const t=/** @type {HTMLElement|null} */(e.target);
   const l=t&&t.closest?t.closest('#doc .pv'):null; if(!t||!l||(t.closest&&t.closest('.pv-pop'))||typingNow())return;
   const r=pvReadingAt(),n=Number(/** @type {HTMLElement} */(l).dataset.page),left=!!PV_LINE_FOCUS&&PV_LINE_FOCUS.el===t&&PV_LINE_FOCUS.read===n;
   if(PV_DROP_OUT.has(pvSlot(n))){e.preventDefault(); e.stopImmediatePropagation(); return;}   // its take-back is out
@@ -1383,7 +1387,7 @@ if(typeof ResizeObserver!=='undefined'){const R=document.getElementById('right')
 // written (the composer is open) or the changes view is shown, not with Ctrl, Alt or Meta (Alt+digit switches documents).
 // On a page that takes no verdict a key says so on the status line, once. The button and its line say the key (vdButton kn).
 /** @param {KeyboardEvent} e */
-function verdictKey(e){if(e.defaultPrevented||e.repeat||e.isComposing||e.ctrlKey||e.metaKey||e.altKey||!/^[1-5]$/.test(e.key))return;
+function verdictKey(e){if(e.defaultPrevented||e.repeat||imeKey(e)||e.ctrlKey||e.metaKey||e.altKey||!/^[1-5]$/.test(e.key))return;
   const t=/** @type {HTMLElement|null} */(e.target);
   if(t&&(t.tagName==='TEXTAREA'||t.tagName==='INPUT'||t.tagName==='SELECT'||t.isContentEditable))return;
   if(document.querySelector('dialog[open]')||!$('#page-pop').hidden||!$('#doc-pop').hidden||!$('#composer').hidden)return;

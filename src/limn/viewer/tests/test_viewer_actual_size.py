@@ -16,7 +16,7 @@ import unittest
 import helpers_figure
 from helpers import add_pin, blank_png, extract_js_fn, ps, run_node
 from helpers_access import ALICE
-from helpers_browser import BrowserBase, nothing_follows, settle
+from helpers_browser import BrowserBase, clock_still, nothing_follows, settle
 from helpers_notices import node_or_skip
 
 PT_PX = 96 / 72
@@ -594,7 +594,7 @@ class ActualSize(BrowserBase):
         self.assertTrue(at["on"], "the press point is not on the badge's press area: %s" % at)
         cdp = page.context.new_cdp_session(page)
         page.clock.install()
-        page.clock.pause_at(time.time() * 1000 + 1000)
+        clock_still(page)
         send_pointer(cdp, kind, "down", *at["press"])
         for i in range(1, 6):
             send_pointer(cdp, kind, "move", at["press"][0] + 12 * i, at["press"][1] + 8 * i)

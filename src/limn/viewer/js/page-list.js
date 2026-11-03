@@ -94,7 +94,7 @@ function drawSheetPages(){const box=$('#ns-pages'),n=pageCount(); box.hidden=!n;
 // Keys in a page list (the popover's and the sheet's): ↓/↑ move one row, Home/End to the ends - from the page field ↓/↑ go to
 // the current page's row; Enter on a row is its click, Enter in the field goes to the typed page (clamped to 1..n).
 function pageListKey(e){const t=/** @type {HTMLElement} */(e.target);
-  if(e.isComposing)return;
+  if(imeKey(e))return;
   if(t.id==='page-pop-in'){
     if(e.key==='Enter'){e.preventDefault(); const p=clampPage(/** @type {HTMLInputElement} */(t).value,pageCount()); if(p!==null)goListedPage(p);}
     else if(e.key==='ArrowDown'||e.key==='ArrowUp'){const r=/** @type {HTMLElement|null} */($('#page-pop-list [aria-selected=true]')); if(r){e.preventDefault(); r.focus();}}

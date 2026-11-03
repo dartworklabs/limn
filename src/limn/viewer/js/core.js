@@ -62,6 +62,97 @@ function isFigureKind(kind){return kind===DOC_KIND.FIGURE;}
 // Whether a document of this `kind` is rebuilt from its source: only a LaTeX one. A view-only PDF and a figure redraw when their
 // files change, so they have no rebuild and word a finished build as a redraw.
 function buildsFromSource(kind){return kind===DOC_KIND.TEX;}
+// The key that ends an input method's composition is the method's (docs/handbook/viewer.md §조합을 끝내는 키): it only ends the
+// composition, also held down. While a syllable composes the browser marks its keys (isComposing, keyCode 229). But
+// ibus-hangul on Linux ends the composition first and then hands the very Enter or Esc on as a plain keydown: keydown Process
+// (marked composing), compositionend, the committed text, keydown Enter (isComposing false), keyup Enter - one press, so both
+// keydowns carry its time. So when a key the input method took in that composition (marked composing, in its field) is down
+// - not up since - as the composition ends, the first keydown after that compositionend, in the field it ended in, no later
+// than IME_TAIL_MS after it, is that key; held, its repeats are that key too, until it comes up (imeTail). A composition that
+// no key ended (a click, the focus leaving, text put in at once - Playwright's Firefox types Hangul so) has none. Event times
+// are when the OS made the event, so a busy main thread does not stretch them: the handed-on keydown is a few ms before the
+// compositionend (Chromium stamps that one when it dispatches it) - 2-4 ms with ibus-hangul. The window leaves room for a
+// browser that stamps the two the other way round and for a coarse clock (a privacy setting rounds event times to as much
+// as 100 ms), and stays far under the time a person takes to press a key on purpose. A key is known by its physical key
+// (code) from its keydown to its keyup. Where the browser names none - no code, or 'Unidentified' (Android's on-screen
+// keyboards give key 'Unidentified' or 'Process', keyCode 229 and no code), which every such key shares - any keyup ends
+// it, and a repeat is known by its name (Enter, Escape). The input method hands its key on at once, and a key that comes up
+// while the page has no focus never reaches the page: so the field or the window losing the focus, the page hidden or left,
+// and a new composition forget all of it. A field taken out of the document under the focus (drawn anew in its place) is
+// not left: Chromium blurs it as it goes, Firefox does not, and the key goes on down where the focus now is (imeTail).
+// While that key is down its field stays (imeHeldIn): what waits for a composition to end - the pages built again, the
+// page lines moving - waits for it too and looks again when it is let go (IME_ON_FREE), so the key handed on and its
+// repeats land in the field that composed, not in one drawn anew as the viewer's. A release the page never gets with the
+// focus kept would hold it for good, so the hold is bounded: it lasts IME_HOLD_MS past that key's last keydown (handed on
+// or a repeat), and it ends - the key with it - at a keydown the input method does not take that is neither that key
+// handed on nor its repeat (another key: a held key repeats no more once another goes down; that key pressed anew: it was
+// up). Text put in ends neither: no text tells the input method's commit from other text. ibus-hangul ends the
+// composition with nothing in it and then puts the syllable in as text of its own, which Chromium stamps when it
+// dispatches it - after the page's handlers of the end, however long they take -, and a method may commit other text than
+// it showed, or in parts, or before the end. A key that brings more text ends it as above when the input method does not
+// take it, a new composition forgets it, and text with no such key (a paste from a menu, a letter the method puts in at
+// once) leaves the field to the bound. Past the bound the key is still the composition's: a keydown marked as its repeat
+// that comes later is not the viewer's and holds the field again. Read with imeKey. Registered here, in the first part, so
+// it sees every keydown before any handler does.
+// IME_HOLD_MS is longer than the delay before a held key's first repeat that the usual settings give - X's default
+// 660 ms, GNOME's 500 ms (its slider goes to 2 s), Windows' at most 1 s - so a held key keeps the field through it, and
+// longer than the 2 s within which Chromium marks a key's next keydown as a repeat at all: on Linux it gives a first
+// repeat later than that as a new press of the key (repeat false), which nothing tells from one, so that press and its
+// repeats are the viewer's, as a key held without an input method. A release that never came costs what waits at most
+// this long.
+const IME_TAIL_MS=100,IME_HOLD_MS=2500;
+/** The last key the input method took in the open composition (marked composing), not up since: its field, its physical key (imeCode) and its name (imeName); null when there is none. @type {{el:EventTarget|null,code:string,name:string}|null} */
+let IME_PRESSED=null;
+/** The last composition a key ended: its field, its time, that key - its physical key and its name, from the key the input method took and the keydown it handed on ('' where the browser named none) - and the first keydown after it (null until one comes). Ends with that key's keyup, another key, or what forgets it. @type {{el:EventTarget|null,at:number,code:string,name:string,key:KeyboardEvent|null}|null} */
+let IME_END=null;
+/** While this timer runs (not 0), IME_END's key holds its field (imeHeldIn): IME_HOLD_MS from that key's last keydown. */
+let IME_HOLD_T=0;
+/** What looks again once that key lets its field go (imeFree): run after the event, so it reads the state the event left. @type {(()=>void)[]} */
+const IME_ON_FREE=[];
+/** Key event e's physical key (code); '' when the browser does not name it: no code, or 'Unidentified'. @param {KeyboardEvent} e */
+function imeCode(e){const c=e.code; return c&&c!=='Unidentified'?c:'';}
+/** Key event e's name (key); '' for a key the input method took ('Process') or one the browser does not name ('Unidentified'). @param {KeyboardEvent} e */
+function imeName(e){const k=e.key; return k&&k!=='Process'&&k!=='Unidentified'?k:'';}
+/** Whether keyup e may be key k's (IME_PRESSED, IME_END): the same physical key, or any where either has none. @param {KeyboardEvent} e @param {{code:string}} k */
+function imeUp(e,k){const c=imeCode(e); return !k.code||!c||c===k.code;}
+/** Whether keydown e repeats key k (IME_END) held down: the same physical key, or, where either has none, the same name. @param {KeyboardEvent} e @param {{code:string,name:string}} k */
+function imeRepeat(e,k){const c=imeCode(e); return e.repeat&&(k.code&&c?c===k.code:!!k.name&&e.key===k.name);}
+/** Whether el is a node taken out of the document. @param {EventTarget|null} el */
+function imeGone(el){return el instanceof Node&&!el.isConnected;}
+// That key came again: it holds its field IME_HOLD_MS more.
+function imeHold(){clearTimeout(IME_HOLD_T); IME_HOLD_T=setTimeout(()=>{IME_HOLD_T=0; imeFree();},IME_HOLD_MS);}
+function imeFree(){setTimeout(()=>{for(const f of IME_ON_FREE)f();},0);}
+function imeEnd(){if(!IME_END)return; IME_END=null; clearTimeout(IME_HOLD_T); IME_HOLD_T=0; imeFree();}
+function imeForget(){IME_PRESSED=null; imeEnd();}
+addEventListener('compositionstart',imeForget,true);
+addEventListener('compositionend',e=>{const p=IME_PRESSED; imeEnd(); IME_PRESSED=null;
+  if(p&&p.el===e.target){IME_END={el:e.target,at:e.timeStamp,code:p.code,name:p.name,key:null}; imeHold();}},true);
+addEventListener('keyup',e=>{if(IME_PRESSED&&imeUp(e,IME_PRESSED))IME_PRESSED=null; if(IME_END&&imeUp(e,IME_END))imeEnd();},true);
+// The field's blur (focus events pass the window on their way down) and the window's own; a field's is looked at once the
+// task that blurred it is done, when a field drawn anew has taken its place.
+addEventListener('blur',e=>{const t=e.target; if(t instanceof Node)queueMicrotask(()=>{if(t.isConnected)imeForget();}); else imeForget();},true);
+addEventListener('pagehide',imeForget,true);
+document.addEventListener('visibilitychange',()=>{if(document.hidden)imeForget();});
+// The tail Esc's browser defaults are not the composition's either: it would empty a search field and close a sheet (a
+// modal dialog), which the same Esc on a platform that marks it composing does not do. A tail Enter's default stays: in a
+// note it is the new line the input method gives with every Linux program. Where Enter is the viewer's own key in a text
+// box (the reason field, the @-list) its handler takes the newline away too (imeTail).
+addEventListener('keydown',e=>{const r=IME_END;
+  if(r){if(!r.key){r.key=e; if(imeTail(e)){r.code=imeCode(e)||r.code; r.name=e.key;}}
+    if(imeTail(e)||imeRepeat(e,r))imeHold();   // that key, handed on or held
+    else if(!e.isComposing&&e.keyCode!==229)imeEnd();}
+  if(e.key==='Escape'&&imeTail(e))e.preventDefault();
+  if(e.isComposing||e.keyCode===229)IME_PRESSED={el:e.target,code:imeCode(e),name:imeName(e)};},true);
+/** Whether keydown e is the Enter or Esc that ended a composition (above): the first keydown after it, in its window, or a
+ * repeat of that key while it is held - in the field the composition ended in, or wherever the focus went once that field
+ * was taken out of the document. @param {KeyboardEvent} e */
+function imeTail(e){const r=IME_END; if(!r||(e.key!=='Enter'&&e.key!=='Escape')||(r.el!==e.target&&!imeGone(r.el)))return false;
+  return (r.key===e&&e.timeStamp-r.at<=IME_TAIL_MS)||imeRepeat(e,r);}
+/** The field a key ended a composition in while that key holds it (IME_END, IME_HOLD_T, above), else null. @returns {EventTarget|null} */
+function imeHeldIn(){return IME_END&&IME_HOLD_T?IME_END.el:null;}
+/** Whether keydown e is the input method's, not the viewer's: a key while it composes, or the key that ended its
+ * composition (imeTail). Every key handler that acts on Enter or Esc in or near a text field asks this first. @param {KeyboardEvent} e */
+function imeKey(e){return e.isComposing||e.keyCode===229||imeTail(e);}
 // META is null only until boot() reads /api/meta; nothing reads it before.
 let META=/** @type {Meta} */(/** @type {unknown} */(null)),PINS=/** @type {Pin[]} */([]),DONE=/** @type {Pin[]} */([]),DROPPED=/** @type {Pin[]} */([]),REPICK=/** @type {Repick|null} */(null),PICKSEQ=0;
 // K: the scale of the document on screen, CSS px per PDF point (pages.js §page sizes); 0 until its first pages are built.

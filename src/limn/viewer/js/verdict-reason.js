@@ -911,20 +911,25 @@ $('#doc').addEventListener('compositionstart',e=>{if(pvIsReasonField(e.target))P
 // (pvComposedOver).
 $('#doc').addEventListener('compositionend',e=>{const f=e.target; if(!pvIsReasonField(f))return; PV_COMPOSING=null;
   const r=PV_REASON; if(r&&f.dataset.id==='s'+r.sid){pvReasonFollow(r); if(PV_REASON===r)rdKeep(r);} setTimeout(pvComposedOver,0);});
-// Whether an input method is composing a syllable in a reason field in the document. Nothing takes that field away
-// meanwhile: the lines do not move beside or under the pages (pvSideWant) and the pages are not built again (refreshDoc,
-// pvReasonComposed) until it ends. Moved or rebuilt, the field was a new one: the old one's composition ended with it, and
-// the input method's commit landed on top of the text carried over ('묶이는 이유' became '묶이는 이유유', #352).
-function pvComposingNow(){return !!PV_COMPOSING&&PV_COMPOSING.isConnected;}
+// Whether an input method is composing a syllable in a reason field in the document, or the key that ended it there still
+// holds it (core.js imeHeldIn). Nothing takes that field away meanwhile: the lines do not move beside or under the pages
+// (pvSideWant) and the pages are not built again (refreshDoc, pvReasonComposed) until it ends and that key lets go. Moved or
+// rebuilt, the field was a new one: the old one's composition ended with it, and the input method's commit landed on top
+// of the text carried over ('묶이는 이유' became '묶이는 이유유', #352); and after the commit, the Enter ibus-hangul hands on
+// and its repeats came to the new field as the viewer's: the reason was written and the popover closed.
+function pvComposingNow(){if(PV_COMPOSING&&PV_COMPOSING.isConnected)return true; const f=imeHeldIn(); return pvIsReasonField(f)&&f.isConnected;}
 const PV_COMPOSED_WAIT=/** @type {(()=>void)[]} */([]);   // what waits for the composition's end (pvReasonComposed)
 const PV_COMPOSED_POLL_MS=200;   // how often a wait looks again: a field taken out of the document ends its composition without the event
-// Resolves once no syllable is being composed in a reason field (pvComposingNow) - at once when none is.
+// Resolves once no syllable is being composed in a reason field and the key that ended one has let it go (pvComposingNow) -
+// at once when none is.
 /** @returns {Promise<void>} */
 function pvReasonComposed(){return new Promise(res=>{if(!pvComposingNow()){res(); return;}
   const go=()=>{clearInterval(t); res();},t=setInterval(()=>{if(!pvComposingNow())go();},PV_COMPOSED_POLL_MS); PV_COMPOSED_WAIT.push(go);});}
-// After a composition ended, unless another began meanwhile: the rebuilds that waited go on, and the lines move if the room
-// crossed its bar while it lasted.
+// After a composition ended, unless another began meanwhile or the key that ended it still holds the field: the rebuilds
+// that waited go on, and the lines move if the room crossed its bar while it lasted. Held, it looks again once that key
+// lets the field go (core.js IME_ON_FREE): up, another key, forgotten, or IME_HOLD_MS with no event of its own.
 function pvComposedOver(){if(pvComposingNow())return; PV_COMPOSED_WAIT.splice(0).forEach(go=>go()); if(pageVerdictsOn())pvSideCheck();}
+IME_ON_FREE.push(pvComposedOver);
 // Every input keeps the draft (rdPut), with the parts moved into it placed where they are now (pvReasonPlace) - a part
 // brought back whose text has landed on its pin meanwhile leaves at once (pvReasonFollow), or once an input method's
 // composition ends - and lets a first Esc go; the line follows its emptiness (the state).
@@ -968,7 +973,8 @@ function pvReasonFollow(r){const h=r.hist; if(!h||!h.landed.length)return;
 // [저장], [지우기]) is the field's Esc: it did nothing there.
 $('#doc').addEventListener('keydown',e=>{const t=/** @type {HTMLElement} */(e.target);
   if(e.key==='Escape'&&!pvIsReasonField(t)&&PV_REASON&&t&&t.closest&&t.closest('#doc .pv-pop')&&!e.ctrlKey&&!e.metaKey&&!e.altKey){e.preventDefault(); e.stopPropagation(); hideTip(); pvReasonEsc('key'); return;}});
-$('#doc').addEventListener('keydown',e=>{const f=e.target; if(!pvIsReasonField(f)||e.isComposing||e.keyCode===229)return;
+$('#doc').addEventListener('keydown',e=>{const f=e.target; if(!pvIsReasonField(f))return;
+  if(imeKey(e)){if(imeTail(e))e.preventDefault(); return;}   // the Enter that ended a composition adds no new line either
   if(e.key==='Enter'&&!e.shiftKey&&!e.ctrlKey&&!e.metaKey&&!e.altKey){e.preventDefault(); e.stopPropagation(); pvReasonSave(f); return;}
   if(e.key==='Escape'){e.preventDefault(); e.stopPropagation(); pvReasonEsc('key');}});
 // While a popover is open, Tab and Shift+Tab keep to it and its line, from anywhere in either: past the last control (the
@@ -1005,7 +1011,7 @@ document.addEventListener('keydown',pvReasonEscKey);
 // gliding to where a jump sends them (pvAutoScrolling): the reading page is not yet the one asked for. While that page's
 // save is still out the popover opens bound to it (pvReasonOpenPending) - a key and Enter at once is one intent.
 /** @param {KeyboardEvent} e */
-function pvReasonEnterKey(e){if(e.key!=='Enter'||e.defaultPrevented||e.isComposing||e.ctrlKey||e.metaKey||e.altKey||e.shiftKey||e.repeat)return;
+function pvReasonEnterKey(e){if(e.key!=='Enter'||e.defaultPrevented||imeKey(e)||e.ctrlKey||e.metaKey||e.altKey||e.shiftKey||e.repeat)return;
   const t=/** @type {HTMLElement|null} */(e.target),L=$('#left');
   // On a control of the line whose digit key's save is out the Enter is that intent too: the focus may rest on any of them.
   const l=!!t&&!!t.closest&&!t.closest('.pv-pop')?/** @type {HTMLElement|null} */(t.closest('#doc .pv')):null,n=l?Number(l.dataset.page)||0:0;

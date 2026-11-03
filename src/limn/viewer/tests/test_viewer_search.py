@@ -39,7 +39,17 @@ from limn.viewer.tests import search_corpus
 
 import helpers_figure
 from helpers import blank_png, extract_js_fn, minimal_pdf, needs_tex, needs_tex_files, ps, run_node
-from helpers_browser import MISSES_44, VIEWPORTS, BrowserBase, booted, fonts_ready, search_shortcut, settle, watch_idle
+from helpers_browser import (
+    MISSES_44,
+    VIEWPORTS,
+    BrowserBase,
+    booted,
+    fonts_ready,
+    ime_end_with,
+    search_shortcut,
+    settle,
+    watch_idle,
+)
 from helpers_outline import SHEET_ROWS
 
 NBSP, SHY, FI, LSQ, RSQ, EN_DASH = chr(0xA0), chr(0xAD), chr(0xFB01), chr(0x2018), chr(0x2019), chr(0x2013)
@@ -1451,6 +1461,37 @@ class SearchComposition(SearchBase):
         self.assertEqual(self.count(page), "1/7")
         page.keyboard.press("Enter")
         self.assertEqual(self.count(page), "2/7")
+
+    def test_the_enter_that_ends_a_composition_does_not_step(self):
+        """'조' typed and '류' composed, then Enter the way ibus-hangul on Linux sends it - the syllable committed first
+        (compositionend), then the Enter unmarked (isComposing false), then its keyup (docs/handbook/viewer.md §조합을
+        끝내는 키): it only ends the composition, and the current hit stays. The next Enter steps."""
+        page = self.view()
+        self.search(page, "조")
+        self.ime(page, "ㄹ")
+        self.ime(page, "류")
+        ime_end_with(self.cdp, "Enter", "류")
+        page.wait_for_function(COUNTED + "&&document.querySelector('#search-count').textContent!=='0/0'")
+        settle(page)
+        self.assertEqual((page.input_value("#search-q"), self.count(page)), ("조류", "1/3"))
+        page.keyboard.press("Enter")
+        self.assertEqual(self.count(page), "2/3")
+
+    def test_the_esc_that_ends_a_composition_leaves_the_search_open_with_its_query(self):
+        """The same with Esc: the search stays open with '조류' and its hits - neither the viewer's close nor the
+        browser's own clearing of a search field (an Esc's default there) - and the next Esc closes it."""
+        page = self.view()
+        self.search(page, "조")
+        self.ime(page, "ㄹ")
+        self.ime(page, "류")
+        ime_end_with(self.cdp, "Escape", "류")
+        page.wait_for_function(COUNTED + "&&document.querySelector('#search-count').textContent!=='0/0'")
+        settle(page)
+        self.assertEqual((page.input_value("#search-q"), self.count(page)), ("조류", "1/3"))
+        self.assertTrue(page.evaluate("SEARCH.open"))
+        page.keyboard.press("Escape")
+        settle(page)
+        self.assertEqual((page.input_value("#search-q"), page.evaluate("SEARCH.open")), ("", False))
 
 
 class SearchShortcutFocus(SearchBase):

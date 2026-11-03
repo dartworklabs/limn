@@ -34,7 +34,7 @@ import helpers_figure
 from helpers import SW_JS, add_pin, blank_png, edit_stored, find_record, minimal_pdf, ps, records, trash_records
 from helpers_access import ALICE, BOB, CAROL, REPO_NEW as NEW, REPO_OLD as OLD, actor
 from helpers_authority import post_authority
-from helpers_browser import BrowserBase, booted, settle, watch_idle
+from helpers_browser import BrowserBase, booted, ime_compose, ime_end_with, settle, watch_idle
 
 HANGUL = re.compile(r"[가-힣]")
 A, B = actor(ALICE), actor(BOB)
@@ -1087,6 +1087,37 @@ class ReplyKeyboardAndFailure(BrowserBase):
         self.assertIn("상태 유지", sw.inner_text())
         sw.click()
         self.assertEqual(sw.get_attribute("aria-checked"), "true")
+
+
+class MentionListComposition(BrowserBase):
+    """The @-list takes no key an input method ends its composition with (docs/handbook/viewer.md §조합을 끝내는 키)."""
+
+    WHO = ALICE
+    HAN = {"login": "hg@example.com", "name": "한결"}
+
+    def setUp(self):
+        """A person whose name is Hangul, to be called from the composer's note."""
+        super().setUp()
+        ps.APP.people_directory.record(self.HAN)
+
+    def test_the_enter_that_ends_a_composition_neither_picks_nor_breaks_the_line(self):
+        """'@한' typed in the composer's note and '결' composed (the list shows 한결), then Enter the way ibus-hangul on
+        Linux sends it - the syllable committed, then the Enter unmarked (isComposing false), then its keyup: the list
+        stays open on 한결 and the note is '@한결', with no pick and no new line. The next Enter picks: '@한결 '."""
+        page = self.open(0)
+        self.open_composer(page)
+        page.focus("#note")
+        page.keyboard.type("@한")
+        page.wait_for_selector("#mention-pop:not([hidden])")
+        cdp = page.context.new_cdp_session(page)
+        ime_compose(cdp, "ㄱ", "겨", "결")
+        ime_end_with(cdp, "Enter", "결")
+        settle(page)
+        self.assertEqual((page.input_value("#note"), page.is_visible("#mention-pop")), ("@한결", True))
+        self.assertIn("한결", page.inner_text("#mention-pop"))
+        page.keyboard.press("Enter")
+        settle(page)
+        self.assertEqual((page.input_value("#note"), page.is_visible("#mention-pop")), ("@한결 ", False))
 
 
 class RestoreLinkRunsOnce(BrowserBase):

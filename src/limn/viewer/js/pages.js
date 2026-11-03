@@ -196,12 +196,12 @@ function figureTop(n){const pg=document.getElementById('p'+n),m=META&&META.pages
   const h=pg.getBoundingClientRect().height,free=(m.figure_top-(typeof m.figure_above==='number'?m.figure_above:0))*h;
   return spotTop(pg,m.figure_top,Math.max(OUTLINE_PICK_GAP,Math.min(FIGURE_ROOM_PT*h/m.pt_h,free)));}
 function goPage(v){arrivePage(parseInt(v===undefined?$('#jump').value:v,10));}
-$('#jump').addEventListener('keydown',e=>{if(e.key==='Enter')goPage();});
+$('#jump').addEventListener('keydown',e=>{if(e.key==='Enter'&&!imeKey(e))goPage();});
 // The page a typed entry v goes to in a document of n pages: a whole number clamped to 1..n; null for an empty or non-number
 // entry, which goes nowhere. Pure.
 function clampPage(v,n){const s=String(v==null?'':v).trim(); if(!/^-?\d+$/.test(s)||!(n>=1))return null; return Math.min(n,Math.max(1,parseInt(s,10)));}
 // The navigation sheet's page field (Enter or [이동]): goes to the clamped page and closes the sheet; nothing typed does nothing.
 function navGo(){const p=clampPage($('#ns-page-in').value,META&&META.pages?META.pages.length:0); if(p===null)return;
   $('#nav-sheet').close(); if(document.body.classList.contains('revision-open'))setViewMode(VIEW_MODE.MANUSCRIPT); goPage(p);}
-$('#ns-page-in').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.isComposing){e.preventDefault(); navGo();}});
+$('#ns-page-in').addEventListener('keydown',e=>{if(e.key==='Enter'&&!imeKey(e)){e.preventDefault(); navGo();}});
 
