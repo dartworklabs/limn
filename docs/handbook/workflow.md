@@ -97,8 +97,10 @@
 
    ```bash
    awk -v h="## X.Y.Z " 'index($0,h)==1{f=1;next} /^## /{f=0} f' CHANGELOG.md > /tmp/limn-notes.md
-   gh release create vX.Y.Z --verify-tag --title "vX.Y.Z — <한 줄 요약>" --notes-file /tmp/limn-notes.md
+   test -s /tmp/limn-notes.md && gh release create vX.Y.Z --verify-tag --title "vX.Y.Z — <한 줄 요약>" --notes-file /tmp/limn-notes.md
    ```
+
+   머리줄이 맞지 않으면 awk는 오류 없이 빈 파일을 만든다. `test -s`가 빈 본문의 Release를 막는다. 더 새 판이 이미 있는데 옛 판의 Release를 낼 때는 `--latest=false`를 붙인다. 그래야 Latest가 옛 판으로 옮겨 가지 않는다.
 
 4. 각 머신의 운영자는 `limn update`로 최신 태그를 설치하고 실행 중인 인스턴스를 재시작한다. `--dry-run`으로 계획을 먼저 볼 수 있다. 상세는 [instances.md](instances.md)다.
 
