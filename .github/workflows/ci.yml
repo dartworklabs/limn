@@ -100,10 +100,11 @@ jobs:
       - name: Python tests
         run: uv run pytest -q -rs -n ${{ matrix.suite.workers }} -m "${{ matrix.suite.markers }}" -o faulthandler_timeout=600
 
-  # The browser suite, in parts on their own runners (browser.yml), on Python 3.12 only. It tests the viewer's JS in a
-  # browser; running it on a second Python version doubled its cost for little signal. Python 3.10 stays covered by the
-  # core suite above on 3.10, by the lint job's Ruff and mypy (both target 3.10) and by the instances job's check of the
-  # 3.10 floor. A server path that only a browser test reaches no longer runs on 3.10.
+  # The browser suite, in jobs on their own runners (browser.yml: the Chromium classes in parts, the Firefox and WebKit
+  # classes in one job), on Python 3.12 only. It tests the viewer's JS in a browser; running it on a second Python
+  # version doubled its cost for little signal. Python 3.10 stays covered by the core suite above on 3.10, by the lint
+  # job's Ruff and mypy (both target 3.10) and by the instances job's check of the 3.10 floor. A server path that only a
+  # browser test reaches no longer runs on 3.10.
   browser-3-12:
     name: browser (3.12)
     uses: ./.github/workflows/browser.yml
@@ -111,7 +112,7 @@ jobs:
       python: "3.12"
 
   # Branch protection requires the name the unsplit 3.12 browser job had (its matrix values: Python, suite, markers,
-  # workers). It passes only when every part of the suite passed: a failed, cancelled or skipped part fails it.
+  # workers). It passes only when every job of the suite passed: a failed, cancelled or skipped part fails it.
   # `always()` runs it in those cases too - a job skipped by its condition reports success, which a required check takes
   # as a pass.
   browser-result-3-12:
@@ -121,7 +122,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - name: Every part of the 3.12 browser suite passed
+      - name: Every job of the 3.12 browser suite passed
         env:
           RESULT: ${{ needs.browser-3-12.result }}
         run: |
