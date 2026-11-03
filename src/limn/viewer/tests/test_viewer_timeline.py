@@ -38,7 +38,9 @@ TABLET = VIEWPORTS["tablet 1024x768"]
 FOLD = VIEWPORTS["fold inner 841x673"]
 PHONE = VIEWPORTS["phone 390x844"]
 FOUR_SIZES = {"desktop": DESKTOP, "foldable": FOLD, "tablet": TABLET, "phone": PHONE}
-NOW = "new Date(2026,10,2,12,0).getTime()"  # 2026-11-02 12:00, on this machine's clock
+# 2026-11-02 12:00 in Seoul, where StampWords runs node. In a zone that keeps daylight saving time the week before it can
+# be 169 hours (the US left it on 11-01), and the seven-day cut, which counts hours, would fall an hour from the tests' edge.
+NOW = "new Date(2026,10,2,12,0).getTime()"
 # The browser tests' time: noon on the 15th of this month in Seoul. The page runs in that zone with its clock started there
 # (TimelineFixture.show), the server stamps what it records with it, and ago() counts back from it, so a day line, a relative
 # word, the year and the seven-day cut read the same whenever the suite runs. By the real clock an hour ago was yesterday from
@@ -79,7 +81,7 @@ class StampWords(unittest.TestCase):
     def words(self, script, lang="ko"):
         """The JSON script prints, run with the time functions, now (the fixed clock) and BOTH, SHORT and EDITED."""
         prelude = "const now=%s,BOTH=STAMP_FORM.BOTH,SHORT=STAMP_FORM.SHORT,EDITED=STAMP_FORM.EDITED;" % NOW
-        return json.loads(run_node("\n".join([stamp_js(lang), prelude, script])))
+        return json.loads(run_node("\n".join([stamp_js(lang), prelude, script]), tz="Asia/Seoul"))
 
     def test_a_time_says_both_under_seven_days_and_only_the_absolute_from_then_on(self):
         """Relative and absolute together up to the last minute of the seventh day, the absolute alone from that minute."""
