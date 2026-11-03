@@ -356,14 +356,25 @@ def clock_now():
     return datetime.now(ZoneInfo("UTC"))
 
 
+# How far clock_still runs the page's clock on before it stops it: room for the time the call takes, as pause_at may not
+# go back.
+CLOCK_STILL_AHEAD_MS = 1000
+
+
 def clock_still(page):
-    """Stop the page's clock, installed with its context (BrowserBase.open's clock): from here its timers, its
+    """Stop the page's clock, installed with its context (BrowserBase.open's clock), CLOCK_STILL_AHEAD_MS on from the
+    page's time - what falls due in that span runs, as it would on a machine that much slower: from there its timers, its
     performance.now() and its events' times - Playwright's clock stamps an event with its performance.now() when the page
     first reads the time, whatever CDP said - move only as the test runs it on (page.clock.run_for), never with the time
     the test, the driver or the machine takes. So a check that a span has not run out yet, or has, does not depend on
     real scheduling. settle() waits for the page's short timers, which do not run while the clock stands: run it on
-    first, or page.clock.resume() - it runs at real speed again from where it stood."""
-    page.clock.pause_at(page.evaluate("Date.now()") + 1000)
+    first, or page.clock.resume() - it runs at real speed again from where it stood. Python's pause_at takes seconds
+    (a datetime here): given milliseconds it went tens of thousands of years on and ran every timer the page had, once -
+    also one a test set up to still be pending -, so the page's time is checked to have gone no further than the span."""
+    now = page.evaluate("Date.now()")
+    page.clock.pause_at(datetime.fromtimestamp((now + CLOCK_STILL_AHEAD_MS) / 1000, ZoneInfo("UTC")))
+    went = page.evaluate("Date.now()") - now
+    assert 0 <= went <= CLOCK_STILL_AHEAD_MS, f"the page's clock went {went} ms on, not {CLOCK_STILL_AHEAD_MS}"
 
 
 # ibus-hangul ends the composition 2-4 ms after the key that ends it went down (3 ms in the round-2 ibus log), and hands
