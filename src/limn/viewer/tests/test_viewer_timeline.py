@@ -10,6 +10,8 @@
 - ``OrderControl`` drives the control: the default and the remembered order, day lines, both sections, the filters, keyboard
   walking, jumps and far cards in the order drawn, and the fit at four sizes.
 
+The browser classes run at a fixed time of day (NOON), the page and the server alike, not at the hour the suite runs.
+
 Run: uv run pytest -q src/limn/viewer/tests/test_viewer_timeline.py
 """
 
@@ -19,6 +21,8 @@ import random
 import shutil
 import time
 import unittest
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from limn.pins.lifecycle.rules import CloseRequest
 from limn.security.access import LOCAL_ACTOR
@@ -35,18 +39,25 @@ FOLD = VIEWPORTS["fold inner 841x673"]
 PHONE = VIEWPORTS["phone 390x844"]
 FOUR_SIZES = {"desktop": DESKTOP, "foldable": FOLD, "tablet": TABLET, "phone": PHONE}
 NOW = "new Date(2026,10,2,12,0).getTime()"  # 2026-11-02 12:00, on this machine's clock
-# A time stored moments ago, as a comment says it: relTime counts from the start of the stored minute, so a test that crosses
-# a minute's end reads '1분 전' (or more on a loaded machine), not '방금'.
+# The browser tests' time: noon on the 15th of this month in Seoul. The page runs in that zone with its clock started there
+# (TimelineFixture.show), the server stamps what it records with it, and ago() counts back from it, so a day line, a relative
+# word, the year and the seven-day cut read the same whenever the suite runs. By the real clock an hour ago was yesterday from
+# 00:00 to 01:00 on the runner (UTC on CI), a day ago was last year on January 1st, and eight days on was next year from
+# December 24th. Mid-month, what the tests reach (two days back, eight days on) stays in the month; this month rather than
+# a fixed date keeps it within 30 days of the server's own clock, by which it still counts the Trash's days.
+NOON = datetime.fromtimestamp(time.time(), ZoneInfo("Asia/Seoul")).replace(
+    day=15, hour=12, minute=0, second=0, microsecond=0
+)
+# A time stored moments ago, as a comment says it: relTime counts from the start of the stored minute and the page's clock
+# runs on from NOON, so a test that crosses a minute's end reads '1분 전' (or more on a loaded machine), not '방금'.
 JUST = r"(?:방금|\d+분 전)"
 # A person whose name is 60 letters with no space to break at (the longest a head has to hold on one line).
 LONG = {"Tailscale-User-Login": "long@example.com", "Tailscale-User-Name": ("Wolfeschlegelsteinhausen" * 3)[:60]}
 
 
 def ago(**delta):
-    """The stored string of a time this far before now, as the server writes it."""
-    return time.strftime(
-        "%Y-%m-%d %H:%M:%S", time.localtime(time.time() - delta.get("days", 0) * 86400 - delta.get("hours", 0) * 3600)
-    )
+    """The stored string of a time this far (days=, hours=) before NOON, as the server writes it in Seoul."""
+    return (NOON - timedelta(**delta)).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def stamp_js(lang="ko"):
@@ -244,8 +255,10 @@ class TimelineFixture(BrowserBase):
     WHO = ALICE
 
     def setUp(self):
-        """Give each test its own manuscript, its two people and a fresh line for each pin."""
+        """Give each test its own manuscript, its two people and a fresh line for each pin. The server stamps what the
+        test makes (a pin, a reply, an edit, a close) at NOON, the time the page starts at."""
         super().setUp()
+        ps.APP.assembly.pins.commands.now_str = ago
         self.next_line = 4
         for person in (ALICE, BOB):
             ps.APP.people_directory.record(actor(person))
@@ -294,13 +307,14 @@ class TimelineFixture(BrowserBase):
         edit_stored(step)
 
     def show(self, n_open, device=DESKTOP, theme="light", lang="ko", prefs=None):
-        """The list on device with the hints seen and the panel or sheet open; prefs adds to the saved preferences."""
+        """The list on device at NOON in Seoul with the hints seen and the panel or sheet open; prefs adds to the saved
+        preferences."""
         saved = {"theme": theme, "coach": {"touch": 1, "mouse": 1, "sel": 1}, **(prefs or {})}
         # set on the context's first page only: a reload keeps what the page saved meanwhile
         init = "try{if(!localStorage.getItem('pinPrefs'))localStorage.setItem('pinPrefs',%s);}catch(e){}" % json.dumps(
             json.dumps(saved)
         )
-        page = self.open(n_open, lang=lang, init=init, **device)
+        page = self.open(n_open, lang=lang, init=init, clock=NOON, **device)
         page.evaluate("setSide(true)")
         settle(page)
         return page

@@ -464,17 +464,25 @@ class BrowserBase(ChromiumTestCase):
             out["content-disposition"] = hdrs["content-disposition"]
         route.fulfill(status=code, headers=out, body=data)
 
-    def open(self, n_open, lang="ko", init=None, test_font=False, **device):
+    def open(self, n_open, lang="ko", init=None, test_font=False, clock=None, **device):
         """Open the viewer in a new context and return the page once boot() has finished and the page has settled: the
         pin lists (open, review, done) are loaded and polling has started, with at least n_open open pins, and the boot has
         done with PDF.js (settle). init is an optional script run before the viewer's own. test_font requests the
-        fixed page-scoped Hangul face before the viewer script executes.
+        fixed page-scoped Hangul face before the viewer script executes. clock, an aware datetime in a ZoneInfo zone, is
+        the page's time: the context runs in that zone and its clock starts at that instant, then runs at real speed, so
+        the spans the viewer times by Date.now() (a click held off after a tap, a change it made itself) still end.
 
         The wait is on LIGHT_TIMER, which boot() sets only after `await loadPins()`. META and the initial
         `OPEN_ALL=[]` are both set before that await, so waiting on them alone let a test act on a review or done
         pin that the viewer did not know yet (showChange() of an unknown pin does nothing, and nothing retries)."""
-        context = self.browser.new_context(**(device or {"viewport": {"width": 1400, "height": 850}}))
+        options = dict(device or {"viewport": {"width": 1400, "height": 850}})
+        if clock is not None:
+            options["timezone_id"] = clock.tzinfo.key
+        context = self.browser.new_context(**options)
         self.addCleanup(context.close)
+        if clock is not None:
+            # before IDLE_WATCH (watch_idle), which then wraps the clock's timers, as settle() needs
+            context.clock.install(time=clock)
         if init:
             context.add_init_script(init)
         watch_idle(context)
