@@ -23,9 +23,11 @@ import sys
 import tempfile
 import time
 import unittest
+from datetime import datetime
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -292,6 +294,15 @@ def ime_commit(cdp, text):
     cdp.send("Input.insertText", {"text": text})
 
 
+def ime_commit_ended(cdp, text):
+    """The input method commits the open composition's text the way ibus-hangul does when a key ends the syllable: it
+    empties the composition, which ends it (compositionend with no data), and puts text in as text of its own (an input
+    not marked composing) - Chromium's own events in the order the real ibus-hangul gives (docs/handbook/viewer.md §조합을
+    끝내는 키). Chromium stamps that input when it dispatches it, after the page's handlers of the end."""
+    cdp.send("Input.imeSetComposition", {"text": "", "selectionStart": 0, "selectionEnd": 0})
+    cdp.send("Input.insertText", {"text": text})
+
+
 # The keys an input method ends a composition with, as the browser gets them from the system - what Playwright's press
 # sends over CDP (an Enter's text, so its default, the new line in a text box, is the browser's own unless a handler takes
 # it) - and the autorepeat of a held key (X's default: the first repeat 660 ms after the press, then one every 40 ms).
@@ -325,31 +336,45 @@ def ime_key_up(cdp, key="Enter", at=None, *, name=None, code=None):
     cdp.send("Input.dispatchKeyEvent", ev if at is None else {**ev, "timestamp": at})
 
 
-def ime_key_press(cdp, key, at, repeat=False, *, code=None, shift=False):
-    """A keydown of key as the system gives it (IME_KEYS), stamped at (CDP's event time); with repeat, an autorepeat's.
-    code, if given, instead of the key's ('' for none); shift: with Shift held (a Shift+Enter)."""
+def ime_key_press(cdp, key, at=None, repeat=False, *, code=None, shift=False):
+    """A keydown of key as the system gives it (IME_KEYS), stamped at (CDP's event time; now if None); with repeat, an
+    autorepeat's. code, if given, instead of the key's ('' for none); shift: with Shift held (a Shift+Enter)."""
     k = {**IME_KEYS[key], **({} if code is None else {"code": code})}
-    cdp.send(
-        "Input.dispatchKeyEvent",
-        {
-            "type": "keyDown" if "text" in k else "rawKeyDown",
-            **k,
-            "autoRepeat": repeat,
-            "timestamp": at,
-            **({"modifiers": 8} if shift else {}),
-        },
-    )
+    ev = {
+        "type": "keyDown" if "text" in k else "rawKeyDown",
+        **k,
+        "autoRepeat": repeat,
+        **({"modifiers": 8} if shift else {}),
+    }
+    cdp.send("Input.dispatchKeyEvent", ev if at is None else {**ev, "timestamp": at})
 
 
-def ime_key_held(cdp, key, start, until, delay=IME_REPEAT_DELAY, *, code=None):
-    """Key, pressed at start (time.time() seconds), held down in real time: its autorepeats from start + delay, one every
-    IME_REPEAT_EVERY, until `until`, each sent at its time and stamped then - what the page gets from a held key, as
-    against ime_end_with's repeats, all sent at once. code, if given, instead of the key's ('' for none)."""
-    t = start + delay
-    while t < until:
-        time.sleep(max(0.0, t - time.time()))
-        ime_key_press(cdp, key, time.time(), repeat=True, code=code)
-        t += IME_REPEAT_EVERY
+def clock_now():
+    """A page clock for BrowserBase.open(clock=...) where only its control matters (clock_still): now, in UTC."""
+    return datetime.now(ZoneInfo("UTC"))
+
+
+def clock_still(page):
+    """Stop the page's clock, installed with its context (BrowserBase.open's clock): from here its timers, its
+    performance.now() and its events' times - Playwright's clock stamps an event with its performance.now() when the page
+    first reads the time, whatever CDP said - move only as the test runs it on (page.clock.run_for), never with the time
+    the test, the driver or the machine takes. So a check that a span has not run out yet, or has, does not depend on
+    real scheduling. settle() waits for the page's short timers, which do not run while the clock stands: run it on
+    first, or page.clock.resume() - it runs at real speed again from where it stood."""
+    page.clock.pause_at(page.evaluate("Date.now()") + 1000)
+
+
+def ime_key_repeats(page, cdp, key, until, delay=IME_REPEAT_DELAY, *, code=None):
+    """Key held down while the page's clock stands still (clock_still): its autorepeats, the first delay s after now
+    and then one every IME_REPEAT_EVERY, the clock run on to each, until `until` s from now - what the page gets from a
+    held key whatever time the test takes between them. code, if given, instead of the key's ('' for none). The clock
+    is left at the last repeat."""
+    step, t = delay, 0.0
+    while t + step < until:
+        page.clock.run_for(round(step * 1000))
+        t += step
+        ime_key_press(cdp, key, repeat=True, code=code)
+        step = IME_REPEAT_EVERY
 
 
 def ime_end_with(cdp, key, text, repeats=0):

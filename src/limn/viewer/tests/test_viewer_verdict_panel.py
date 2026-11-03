@@ -11,7 +11,6 @@ Run: uv run pytest -q src/limn/viewer/tests/test_viewer_verdict_panel.py
 """
 
 import json
-import time
 from unittest import mock
 from urllib.parse import urlparse
 
@@ -24,7 +23,10 @@ from helpers_browser import (
     MISSES_44,
     VIEWPORTS,
     BrowserBase,
+    clock_now,
+    clock_still,
     ime_commit,
+    ime_commit_ended,
     ime_compose,
     ime_key_down,
     ime_key_press,
@@ -928,13 +930,10 @@ class PanelEdges(PanelBase):
                 self.assertEqual(page.locator(FIELD).input_value(), want)
         self.assertEqual(len(self.pins()), 1, "a digit typed on became a verdict")
 
-    def test_crossing_the_bar_waits_for_the_key_that_ended_the_syllable(self):
-        """A reason typed in the panel, '유' left composing, when the room falls past the bar: the lines stay beside the
-        pages (above). The Enter goes down and the input method commits '유': they still stay while that key is down, and
-        the Enter it hands on adds nothing. Up, they move at once: the field under the page has the focus and '묶이는 이유', nothing
-        written. Moved at the commit, the Enter handed on came to the new field as the viewer's: it wrote the reason and
-        closed the popover."""
-        page = self.on()
+    def reason_composing(self, page):
+        """'묶이는 이' typed in a reason in the panel and '유' left composing when the room falls past the bar: the lines
+        stay beside the pages (above). The page's clock then stands still (clock_still - the page opened with one): what
+        waits and the key's hold come only as the test runs it. The CDP session and the pin."""
         cdp = page.context.new_cdp_session(page)
         page.locator('#pv-panel button[data-key="채택"]').click()
         page.wait_for_function("OPEN_ALL.length===1")
@@ -944,49 +943,55 @@ class PanelEdges(PanelBase):
         (pid,) = self.pins()
         ime_compose(cdp, "ㅇ", "유")
         self.resize(page, 320)
-        at = time.time()
-        ime_key_down(cdp, "Enter", at)
-        ime_commit(cdp, "유")
-        settle(page)
-        self.assertTrue(page.evaluate(SHAPE)["beside"], "the lines moved while the key was down")
-        ime_key_press(cdp, "Enter", at)
-        ime_key_up(cdp, "Enter", at)
-        settle(page)  # at once: not at the pins' next poll, which draws the lines again
-        self.assertFalse(page.evaluate("PV_SIDE"), "the lines stayed beside the pages")
+        clock_still(page)
+        return cdp, pid
+
+    def moved_with_the_reason(self, page, pid):
+        """The lines have moved: the field under the page has the focus and '묶이는 이유', and nothing is written."""
         self.assertTrue(page.evaluate("()=>pvIsReasonField(document.activeElement)"), "the field lost the focus")
         self.assertEqual(page.locator(FIELD).input_value(), "묶이는 이유")
         self.assertEqual(self.pins()[pid]["note"], "", "the reason was written")
 
+    def test_crossing_the_bar_waits_for_the_key_that_ended_the_syllable(self):
+        """The reason composing when the room falls past the bar (reason_composing). The Enter goes down, the input
+        method commits '유' and hands the Enter on: the lines still stay while that key is down, 400 ms on the page's
+        clock, and the Enter adds nothing. Up, they move at once - not at the pins' next poll, which draws the lines
+        again: the field under the page has the focus and '묶이는 이유', nothing written. Moved at the commit, the Enter
+        handed on came to the new field as the viewer's: it wrote the reason and closed the popover."""
+        page = self.on(clock=clock_now(), **WIDE)
+        cdp, pid = self.reason_composing(page)
+        ime_key_down(cdp, "Enter")
+        ime_commit_ended(cdp, "유")
+        ime_key_press(cdp, "Enter")
+        page.clock.run_for(400)
+        self.assertTrue(page.evaluate(SHAPE)["beside"], "the lines moved while the key was down")
+        ime_key_up(cdp, "Enter")
+        page.clock.run_for(1)  # the look the release starts, and nothing else
+        self.assertFalse(page.evaluate("PV_SIDE"), "the lines stayed beside the pages")
+        page.clock.resume()
+        settle(page)
+        self.moved_with_the_reason(page, pid)
+
     def release_never_comes(self, name, code):
         """As above, but the Enter's keyup never comes while the field keeps the focus (an input method may keep the
-        release); name and code: what the browser says of the key the input method takes (ime_key_down), code '' also for
-        the one handed on. The lines stay beside the pages 400 ms on, and move once core.js IME_HOLD_MS has passed with no
-        event of that key: the field under the page has the focus and '묶이는 이유', nothing written. Held until that key's
-        release, the lines stayed beside the pages for good."""
-        page = self.on()
-        cdp = page.context.new_cdp_session(page)
-        page.locator('#pv-panel button[data-key="채택"]').click()
-        page.wait_for_function("OPEN_ALL.length===1")
-        settle(page)
-        page.locator('#pv-panel [data-act="pv-reason-open"]').click()
-        page.keyboard.type("묶이는 이")
-        (pid,) = self.pins()
-        ime_compose(cdp, "ㅇ", "유")
-        self.resize(page, 320)
-        at = time.time()
-        ime_key_down(cdp, "Enter", at, name=name, code=code)
-        ime_commit(cdp, "유")
-        ime_key_press(cdp, "Enter", at, code=code)
-        hold = page.evaluate("IME_HOLD_MS") / 1000
-        page.wait_for_timeout(400)
-        settle(page)
+        release); name and code: what the browser says of the key the input method takes (ime_key_down), code '' also
+        for the one handed on. On the page's clock the lines stay beside the pages until core.js IME_HOLD_MS has passed
+        with no event of that key - 1 ms short of it they are there - and move at it, at once: the field under the page
+        has the focus and '묶이는 이유', nothing written. Held until that key's release, the lines stayed beside the pages
+        for good; let go at the bound with nothing looking again then, they waited for the next drawing."""
+        page = self.on(clock=clock_now(), **WIDE)
+        cdp, pid = self.reason_composing(page)
+        ime_key_down(cdp, "Enter", name=name, code=code)
+        ime_commit_ended(cdp, "유")
+        ime_key_press(cdp, "Enter", code=code)
+        hold = page.evaluate("IME_HOLD_MS")
+        page.clock.run_for(hold - 1)
         self.assertTrue(page.evaluate(SHAPE)["beside"], "the lines moved while the key was down")
-        page.wait_for_function("()=>!PV_SIDE", timeout=(hold + 3) * 1000)
-        self.assertLess(time.time() - at, hold + 1.5, "the lines waited past the bound")
+        page.clock.run_for(2)  # the bound, and the look it starts (a 0 ms timer set in a timer: 1 ms on)
+        self.assertFalse(page.evaluate("PV_SIDE"), "the lines stayed beside the pages")
+        page.clock.resume()
         settle(page)
-        self.assertTrue(page.evaluate("()=>pvIsReasonField(document.activeElement)"), "the field lost the focus")
-        self.assertEqual(page.locator(FIELD).input_value(), "묶이는 이유")
-        self.assertEqual(self.pins()[pid]["note"], "", "the reason was written")
+        self.moved_with_the_reason(page, pid)
 
     def test_the_lines_move_when_the_release_never_comes(self):
         self.release_never_comes("Process", None)
