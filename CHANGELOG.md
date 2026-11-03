@@ -9,12 +9,16 @@
   reason, the Enter that committed `한글` also saved the reason and closed the popover, and in an edit card the Esc that
   committed a syllable of a suggested edit closed the edit and lost the unsaved suggestion. macOS marks that key as
   composing, and it was already left alone there.
-  - **The rule:** when a key the input method took is still down as the composition ends, the first key after the end,
-    in the field it ended in and within 100 ms of it, is that key and belongs to the input method. A composition that no
-    key ended (a click, the focus moving, text put in at once) has no such key. One rule serves every field that acts on Enter or Esc: the
-    reason popover, the composer's and the edit card's save and cancel keys, replies, the @-list, search, the outline
-    filter, the page number fields and the document list's filter. The next Enter or Esc acts as before, and so does a
-    key pressed after another key came up.
+  - **The rule:** when a key the input method took in that composition is still down as the composition ends, the first
+    key after the end, in the field it ended in and within 100 ms of it, is that key and belongs to the input method.
+    Held down, its repeats are that key too, until it comes up: holding the Enter no longer saves the reason on its first
+    repeat, nor does holding the Esc close the edit. A composition that no key ended (a click, the focus moving, text
+    put in at once) has no such key, and neither has one after the key's release was missed: the field or the window
+    losing the focus, the page hidden or left, and a new composition forget a key still down, and a key pressed in
+    another field never counts. One rule serves every field that acts on Enter or Esc: the reason popover, the
+    composer's and the edit card's save and cancel keys, replies, the @-list, search, the outline filter, the page number
+    fields and the document list's filter. The next Enter or Esc acts as before, and so does a key pressed after that
+    key came up.
   - **What the browser does with it:** that Esc no longer empties the search field or closes the phone's navigation
     sheet either. That Enter still starts a new line in a note, a reply or a suggested edit, as the input method gives
     it, but not in the reason field or while the @-list is open.
