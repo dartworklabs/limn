@@ -26,10 +26,8 @@ from helpers_browser import (
     clock_now,
     clock_still,
     ime_commit,
-    ime_commit_ended,
     ime_compose,
-    ime_key_down,
-    ime_key_press,
+    ime_end_held,
     ime_key_up,
     nothing_follows,
     settle,
@@ -960,9 +958,7 @@ class PanelEdges(PanelBase):
         handed on came to the new field as the viewer's: it wrote the reason and closed the popover."""
         page = self.on(clock=clock_now(), **WIDE)
         cdp, pid = self.reason_composing(page)
-        ime_key_down(cdp, "Enter")
-        ime_commit_ended(cdp, "유")
-        ime_key_press(cdp, "Enter")
+        ime_end_held(page, cdp, "Enter", "유")
         page.clock.run_for(400)
         self.assertTrue(page.evaluate(SHAPE)["beside"], "the lines moved while the key was down")
         ime_key_up(cdp, "Enter")
@@ -981,9 +977,7 @@ class PanelEdges(PanelBase):
         for good; let go at the bound with nothing looking again then, they waited for the next drawing."""
         page = self.on(clock=clock_now(), **WIDE)
         cdp, pid = self.reason_composing(page)
-        ime_key_down(cdp, "Enter", name=name, code=code)
-        ime_commit_ended(cdp, "유")
-        ime_key_press(cdp, "Enter", code=code)
+        ime_end_held(page, cdp, "Enter", "유", name=name, code=code)
         hold = page.evaluate("IME_HOLD_MS")
         page.clock.run_for(hold - 1)
         self.assertTrue(page.evaluate(SHAPE)["beside"], "the lines moved while the key was down")

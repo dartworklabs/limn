@@ -364,17 +364,34 @@ def clock_still(page):
     page.clock.pause_at(page.evaluate("Date.now()") + 1000)
 
 
-def ime_key_repeats(page, cdp, key, until, delay=IME_REPEAT_DELAY, *, code=None):
-    """Key held down while the page's clock stands still (clock_still): its autorepeats, the first delay s after now
-    and then one every IME_REPEAT_EVERY, the clock run on to each, until `until` s from now - what the page gets from a
-    held key whatever time the test takes between them. code, if given, instead of the key's ('' for none). The clock
-    is left at the last repeat."""
-    step, t = delay, 0.0
-    while t + step < until:
-        page.clock.run_for(round(step * 1000))
-        t += step
+# ibus-hangul ends the composition 2-4 ms after the key that ends it went down (3 ms in the round-2 ibus log), and hands
+# the key on at once.
+IME_END_AFTER = 0.003
+
+
+def ime_end_held(page, cdp, key, text, *, name="Process", code=None, hand_on=True):
+    """While the page's clock stands still (clock_still), the input method ends its composition with key as ibus-hangul
+    does, and the key stays down: it goes down (ime_key_down; name and code as there), the clock runs IME_END_AFTER on,
+    the input method commits text (ime_commit_ended) and, with hand_on, hands the key on at once (code as for the key
+    taken). No keyup."""
+    ime_key_down(cdp, key, name=name, code=code)
+    page.clock.run_for(round(IME_END_AFTER * 1000))
+    ime_commit_ended(cdp, text)
+    if hand_on:
+        ime_key_press(cdp, key, code=code)
+
+
+def ime_key_repeats(page, cdp, key, until, delay=IME_REPEAT_DELAY, *, since=IME_END_AFTER, code=None):
+    """Key, down for `since` s already (ime_end_held's), held while the page's clock stands still (clock_still): its
+    autorepeats, the first `delay` s after it went down and then one every IME_REPEAT_EVERY, the clock run on to each,
+    until `until` s after it went down - what the page gets from a held key whatever time the test takes between them.
+    code, if given, instead of the key's ('' for none). The clock is left at the last repeat."""
+    now, t = since, delay
+    while t < until:
+        page.clock.run_for(round((t - now) * 1000))
+        now = t
         ime_key_press(cdp, key, repeat=True, code=code)
-        step = IME_REPEAT_EVERY
+        t += IME_REPEAT_EVERY
 
 
 def ime_end_with(cdp, key, text, repeats=0):

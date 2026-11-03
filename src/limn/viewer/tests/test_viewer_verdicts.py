@@ -23,6 +23,7 @@ import helpers_figure
 from helpers import ps, split_resp
 from helpers_access import ALICE, BOB, member_add, member_set_role, talk_to
 from helpers_browser import (
+    IME_END_AFTER,
     IME_REPEAT_DELAY,
     IME_REPEAT_EVERY,
     MISSES_44,
@@ -33,6 +34,7 @@ from helpers_browser import (
     ime_commit,
     ime_commit_ended,
     ime_compose,
+    ime_end_held,
     ime_end_with,
     ime_key_down,
     ime_key_press,
@@ -6223,19 +6225,14 @@ class ReasonComposition(VerdictBase):
                 n = page.evaluate("META.pages.length")
                 clock_still(page)
                 page.evaluate(GROW)  # it waits
-                ime_key_down(cdp, "Enter")
-                ime_commit_ended(cdp, "글")
-                if case != "window blur":
-                    ime_key_press(cdp, "Enter")  # handed on at once, as ibus-hangul does
+                ime_end_held(page, cdp, "Enter", "글", hand_on=case != "window blur")
                 page.clock.run_for(400)  # two of the waits' looks
                 self.assertEqual(page.evaluate(REBUILT, n), [False, True])
                 if case == "window blur":
                     page.evaluate(away)
                 else:
-                    if case == "held":  # X's first repeat 660 ms after the press, then one every 40 ms
-                        for ms in (round(IME_REPEAT_DELAY * 1000) - 400, 40, 40):
-                            page.clock.run_for(ms)
-                            ime_key_press(cdp, "Enter", repeat=True)
+                    if case == "held":  # three repeats: 660, 700 and 740 ms after the press
+                        ime_key_repeats(page, cdp, "Enter", 0.76, since=IME_END_AFTER + 0.4)
                         self.assertEqual(page.evaluate(REBUILT, n), [False, True])
                     ime_key_up(cdp, "Enter")
                 page.clock.run_for(1)  # the look the key letting go starts, and not the waits' next one
@@ -6259,9 +6256,7 @@ class ReasonComposition(VerdictBase):
         n = page.evaluate("META.pages.length")
         clock_still(page)
         page.evaluate(GROW)
-        ime_key_down(cdp, "Enter", name=name, code=code)
-        ime_commit_ended(cdp, "글")
-        ime_key_press(cdp, "Enter", code=code)
+        ime_end_held(page, cdp, "Enter", "글", name=name, code=code)
         return cdp, pid, n
 
     def rebuilt_with(self, page, pid, text):
@@ -6296,8 +6291,8 @@ class ReasonComposition(VerdictBase):
         """The Enter that ended the syllable held down as a keyboard repeats it - the first repeat 660 ms after the
         press, then one every 40 ms, the page's clock run on to each (ime_key_repeats) - for 800 ms longer than
         IME_HOLD_MS: the rebuild still waits, and every repeat is the composition's. Up, the pages are built again at
-        once. Bound by the time since the press, not since that key's last repeat, the pages were built again under the
-        held key."""
+        once. Bound by the time since the composition ended, not since that key's last keydown, the pages were built
+        again under the held key, 2.5 s after the end - between two repeats, as the end comes 3 ms after the press."""
         page = self.on("fig", clock=clock_now())
         cdp, pid, n = self.held_over(page, "채택")
         ime_key_repeats(page, cdp, "Enter", page.evaluate("IME_HOLD_MS") / 1000 + 0.8)
