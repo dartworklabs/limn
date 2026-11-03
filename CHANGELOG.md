@@ -19,6 +19,11 @@
     release ends it, and its repeats are known by the key's name. While that key is down a page verdict's reason field
     stays as it is: a new build that would rebuild the pages, or a window resize that would move the verdict lines
     beside or under them, waits until it comes up, so the key handed on and its repeats reach the field that composed.
+    That wait has an end: if the key's release never reaches the page while the field keeps the focus, the rebuild and
+    the move go on 2.5 s after the key's last press or repeat, and at once when another key goes down or other text
+    comes in (a paste, an on-screen keyboard). A held key's repeats keep the field all along, and a repeat that comes
+    after the wait has ended (a repeat delay set longer than 2.5 s) still belongs to the input method, also in the field
+    drawn anew.
     One rule serves every field that acts on Enter or Esc: the reason popover, the
     composer's and the edit card's save and cancel keys, replies, the @-list, search, the outline filter, the page number
     fields and the document list's filter. The next Enter or Esc acts as before, and so does a key pressed after that
