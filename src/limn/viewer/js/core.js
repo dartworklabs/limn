@@ -63,32 +63,48 @@ function isFigureKind(kind){return kind===DOC_KIND.FIGURE;}
 // files change, so they have no rebuild and word a finished build as a redraw.
 function buildsFromSource(kind){return kind===DOC_KIND.TEX;}
 // The key that ends an input method's composition is the method's (docs/handbook/viewer.md §조합을 끝내는 키): it only ends the
-// composition. While a syllable composes the browser marks its keys (isComposing, keyCode 229). But ibus-hangul on Linux ends
-// the composition first and then hands the very Enter or Esc on as a plain keydown: keydown Process (marked composing),
-// compositionend, the committed text, keydown Enter (isComposing false), keyup Enter - one press, so both keydowns carry its
-// time. So when a key the input method took (marked composing) is down - no keyup since - as the composition ends, the
-// first keydown after that compositionend, on the field it ended in, no later than IME_TAIL_MS after it, is that key. A
-// composition that no key ended (a click, the focus leaving, text put in at once - Playwright's Firefox types Hangul so)
-// has none. Event times are when the OS made the event, so a busy main thread does not stretch them: the handed-on keydown
-// is a few ms before the compositionend (Chromium stamps that one when it dispatches it) - 2-4 ms with ibus-hangul. The
-// window leaves room for a browser that stamps the two the other way round and for a coarse clock (a privacy setting rounds
-// event times to as much as 100 ms), and stays far under the time a person takes to press a key on purpose. Read with
-// imeKey. Registered here, in the first part, so it sees every keydown before any handler does.
+// composition, also held down. While a syllable composes the browser marks its keys (isComposing, keyCode 229). But
+// ibus-hangul on Linux ends the composition first and then hands the very Enter or Esc on as a plain keydown: keydown Process
+// (marked composing), compositionend, the committed text, keydown Enter (isComposing false), keyup Enter - one press, so both
+// keydowns carry its time. So when a key the input method took in that composition (marked composing, in its field) is down
+// - not up since - as the composition ends, the first keydown after that compositionend, in the field it ended in, no later
+// than IME_TAIL_MS after it, is that key; held, its repeats are that key too, until it comes up (imeTail). A composition that
+// no key ended (a click, the focus leaving, text put in at once - Playwright's Firefox types Hangul so) has none. Event times
+// are when the OS made the event, so a busy main thread does not stretch them: the handed-on keydown is a few ms before the
+// compositionend (Chromium stamps that one when it dispatches it) - 2-4 ms with ibus-hangul. The window leaves room for a
+// browser that stamps the two the other way round and for a coarse clock (a privacy setting rounds event times to as much
+// as 100 ms), and stays far under the time a person takes to press a key on purpose. A key is known by its physical key
+// (code) from its keydown to its keyup; where the browser names none, any keyup ends it. The input method hands its key on
+// at once, and a key that comes up while the page has no focus never reaches the page: so the field or the window losing
+// the focus, the page hidden or left, and a new composition forget all of it. Read with imeKey. Registered here, in the
+// first part, so it sees every keydown before any handler does.
 const IME_TAIL_MS=100;
-let IME_PRESSED=false;   // a keydown the input method took (isComposing, keyCode 229) since the last keyup
-/** The last compositionend a key ended: its field and time, and the first keydown after it (null until one comes). @type {{el:EventTarget|null,at:number,key:KeyboardEvent|null}|null} */
+/** The last key the input method took in the open composition (marked composing), not up since: its field and imeId; null when there is none. @type {{el:EventTarget|null,id:string}|null} */
+let IME_PRESSED=null;
+/** The last composition a key ended: its field, its time, that key (imeId, '' while the browser has not named it) and the first keydown after it (null until one comes). Ends with that key's keyup. @type {{el:EventTarget|null,at:number,id:string,key:KeyboardEvent|null}|null} */
 let IME_END=null;
-addEventListener('compositionstart',()=>{IME_END=null;},true);
-addEventListener('compositionend',e=>{IME_END=IME_PRESSED?{el:e.target,at:e.timeStamp,key:null}:null;},true);
-addEventListener('keyup',()=>{IME_END=null; IME_PRESSED=false;},true);
+/** What names key event e from its keydown to its keyup: its physical key (code), else, for a key the input method did not take, its name ('Process' is not one); '' when the browser does not say. @param {KeyboardEvent} e */
+function imeId(e){return e.code||(e.isComposing||e.keyCode===229?'':e.key);}
+/** Whether key event e is the key named id; '' is any key (one not named). @param {KeyboardEvent} e @param {string} id */
+function imeIs(e,id){return !id||(e.code||e.key)===id;}
+function imeForget(){IME_PRESSED=null; IME_END=null;}
+addEventListener('compositionstart',imeForget,true);
+addEventListener('compositionend',e=>{const p=IME_PRESSED; IME_END=p&&p.el===e.target?{el:e.target,at:e.timeStamp,id:p.id,key:null}:null; IME_PRESSED=null;},true);
+addEventListener('keyup',e=>{if(IME_PRESSED&&imeIs(e,IME_PRESSED.id))IME_PRESSED=null; if(IME_END&&imeIs(e,IME_END.id))IME_END=null;},true);
+addEventListener('blur',imeForget,true);   // the field's (focus events pass the window on their way down) and the window's own
+addEventListener('pagehide',imeForget,true);
+document.addEventListener('visibilitychange',()=>{if(document.hidden)imeForget();});
 // The tail Esc's browser defaults are not the composition's either: it would empty a search field and close a sheet (a
 // modal dialog), which the same Esc on a platform that marks it composing does not do. A tail Enter's default stays: in a
 // note it is the new line the input method gives with every Linux program. Where Enter is the viewer's own key in a text
 // box (the reason field, the @-list) its handler takes the newline away too (imeTail).
-addEventListener('keydown',e=>{const r=IME_END; if(r&&!r.key){r.key=e; if(e.key==='Escape'&&imeTail(e))e.preventDefault();}
-  if(e.isComposing||e.keyCode===229)IME_PRESSED=true;},true);
-/** Whether keydown e is the Enter or Esc that ended a composition (above). @param {KeyboardEvent} e */
-function imeTail(e){const r=IME_END; return !!r&&r.key===e&&(e.key==='Enter'||e.key==='Escape')&&r.el===e.target&&e.timeStamp-r.at<=IME_TAIL_MS;}
+addEventListener('keydown',e=>{const r=IME_END; if(r&&!r.key){r.key=e; if(imeTail(e))r.id=imeId(e)||r.id;}
+  if(e.key==='Escape'&&imeTail(e))e.preventDefault();
+  if(e.isComposing||e.keyCode===229)IME_PRESSED={el:e.target,id:imeId(e)};},true);
+/** Whether keydown e is the Enter or Esc that ended a composition (above): the first keydown after it, in its window, or a
+ * repeat of that key while it is held. @param {KeyboardEvent} e */
+function imeTail(e){const r=IME_END; if(!r||r.el!==e.target||(e.key!=='Enter'&&e.key!=='Escape'))return false;
+  return (r.key===e&&e.timeStamp-r.at<=IME_TAIL_MS)||(e.repeat&&!!r.id&&imeIs(e,r.id));}
 /** Whether keydown e is the input method's, not the viewer's: a key while it composes, or the key that ended its
  * composition (imeTail). Every key handler that acts on Enter or Esc in or near a text field asks this first. @param {KeyboardEvent} e */
 function imeKey(e){return e.isComposing||e.keyCode===229||imeTail(e);}

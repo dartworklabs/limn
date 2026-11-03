@@ -816,25 +816,29 @@ class SuggestEditCard(SuggestBase):
     def test_the_esc_that_ends_a_composition_keeps_the_edit_and_its_unsaved_suggestion(self):
         """'한' composed at the end of the suggestion and Esc, the way ibus-hangul on Linux sends it - the syllable
         committed first, then the Esc unmarked (isComposing false), then its keyup (docs/handbook/viewer.md §조합을 끝내는
-        키): that Esc only ends the composition. The card stays open with the text as typed; the next Esc cancels the edit.
-        Taken as the viewer's, the first Esc closed the edit and the unsaved suggestion was gone."""
+        키): that Esc only ends the composition, and held down its autorepeats too, until it comes up. The card stays open
+        with the text as typed; the next Esc cancels the edit. Taken as the viewer's, the first Esc closed the edit and the
+        unsaved suggestion was gone - held, its first repeat did."""
         pid = self.add(note="짧게", suggest={"base": PARA, "text": NEW})
         page = self.view(n_open=1)
-        self.edit(page, pid)
-        page.focus(".e-sg-text")
-        page.evaluate(
-            "()=>{const t=document.querySelector('.e-sg-text'); t.setSelectionRange(t.value.length,t.value.length);}"
-        )
         cdp = page.context.new_cdp_session(page)
-        ime_compose(cdp, "ㅎ", "하", "한")
-        ime_end_with(cdp, "Escape", "한")
-        settle(page)
-        self.assertTrue(
-            page.evaluate("!!EDITOR.current&&document.activeElement===document.querySelector('.e-sg-text')")
-        )
-        self.assertEqual(page.input_value(".e-sg-text"), NEW + "한")
-        page.keyboard.press("Escape")
-        page.wait_for_function("!EDITOR.current")
+        for held in (0, 3):
+            with self.subTest(held=held):
+                self.edit(page, pid)
+                page.focus(".e-sg-text")
+                page.evaluate(
+                    "()=>{const t=document.querySelector('.e-sg-text'); t.setSelectionRange(t.value.length,t.value.length);}"
+                )
+                ime_compose(cdp, "ㅎ", "하", "한")
+                ime_end_with(cdp, "Escape", "한", repeats=held)
+                settle(page)
+                self.assertTrue(
+                    page.evaluate("!!EDITOR.current&&document.activeElement===document.querySelector('.e-sg-text')")
+                )
+                self.assertEqual(page.input_value(".e-sg-text"), NEW + "한")
+                page.keyboard.press("Escape")
+                page.wait_for_function("!EDITOR.current")
+                settle(page)
 
     def test_switching_off_and_saving_removes_the_suggestion(self):
         """Off: the line says saving removes it; the edit sends suggest null and the pin has none."""

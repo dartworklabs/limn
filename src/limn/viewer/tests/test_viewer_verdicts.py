@@ -12,6 +12,7 @@ Run: uv run pytest -q src/limn/viewer/tests/test_viewer_verdicts.py
 """
 
 import json
+import time
 from types import SimpleNamespace
 from unittest import mock
 from urllib.parse import urlparse
@@ -29,6 +30,7 @@ from helpers_browser import (
     ime_compose,
     ime_end_with,
     ime_key_down,
+    ime_key_press,
     ime_key_up,
     nothing_follows,
     settle,
@@ -5981,31 +5983,56 @@ class ReasonComposition(VerdictBase):
         settle(page)
         self.assertEqual([(p["verdict"], p["note"]) for p in self.pins().values()], [("보류", "실패한 이유")])
 
-    def open_composing(self, page, word="채택"):
-        """word saved on page 1 and its reason open, '한' typed and '글' left composing; (the CDP session, the pin)."""
+    def open_composing(self, page, word="채택", before=None):
+        """word saved on page 1 and its reason open, '한' typed and '글' left composing; (the CDP session, the pin).
+        before(cdp), if given, runs in the field just before '글' begins to compose."""
         pid = self.press_page(page, 1, word)
         open_reason(page, 1)
         cdp = page.context.new_cdp_session(page)
         page.keyboard.type("한")
+        if before:
+            before(cdp)
         ime_compose(cdp, "ㄱ", "그", "글")
         return cdp, pid
+
+    def enter_saves(self, page, cdp, pid, at=None):
+        """An Enter (stamped at, CDP's event time, if given) writes the reason '한글' on pid and closes the popover."""
+        if at is None:
+            page.keyboard.press("Enter")
+        else:
+            ime_key_press(cdp, "Enter", at)
+            ime_key_up(cdp, "Enter", at)
+        page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id&&p.note)", arg=pid, timeout=10000)
+        settle(page)
+        self.assertEqual((self.pins()[pid]["note"], page.evaluate(POP, 1)), ("한글", None))
 
     def test_the_enter_that_ends_a_composition_only_ends_it(self):
         """ibus-hangul on Linux commits the last syllable and then hands the Enter on unmarked (compositionend, keydown
         Enter with isComposing false, keyup - docs/handbook/viewer.md §조합을 끝내는 키): that Enter is the composition's.
         The popover stays with '한글' and the focus, no new line in it and nothing written; the next Enter writes '한글'.
-        Taken as the viewer's, the first Enter wrote the reason and closed the popover; let through to the browser, it
-        put a new line after the syllable."""
-        page = self.on("fig")
-        cdp, pid = self.open_composing(page)
-        ime_end_with(cdp, "Enter", "글")
-        settle(page)
-        self.assertEqual(page.evaluate(REASON, 1), {"focused": True, "value": "한글", "placeholder": "이유 (선택)"})
-        self.assertFalse(self.pins()[pid].get("note"))
-        page.keyboard.press("Enter")
-        page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id&&p.note)", arg=pid, timeout=10000)
-        settle(page)
-        self.assertEqual((self.pins()[pid]["note"], page.evaluate(POP, 1)), ("한글", None))
+        Held down, the key stays the composition's through its autorepeats until it comes up - also where the key
+        marked composing is the one that repeats and none is handed on. Taken as the viewer's, the first Enter wrote the
+        reason and closed the popover - held, its first repeat did; let through to the browser, it put a new line after
+        the syllable."""
+        for case, word in (("pressed", "채택"), ("held", "보류"), ("marked, held", "채택")):
+            with self.subTest(case=case):
+                page = self.on("fig")  # each case on a page of its own: one that fails leaves nothing open for the next
+                cdp, pid = self.open_composing(page, word)
+                if case == "marked, held":
+                    at = time.time()
+                    ime_key_down(cdp, "Enter", at)
+                    ime_commit(cdp, "글")
+                    for i in range(3):
+                        ime_key_press(cdp, "Enter", at + 0.66 + i * 0.04, repeat=True)
+                    ime_key_up(cdp, "Enter", at + 0.8)
+                else:
+                    ime_end_with(cdp, "Enter", "글", repeats=3 if case == "held" else 0)
+                settle(page)
+                self.assertEqual(
+                    page.evaluate(REASON, 1), {"focused": True, "value": "한글", "placeholder": "이유 (선택)"}
+                )
+                self.assertFalse(self.pins()[pid].get("note"))
+                self.enter_saves(page, cdp, pid)
 
     def test_the_esc_that_ends_a_composition_keeps_the_popover(self):
         """The same with Esc: the popover stays with '한글' and the focus (nothing armed: the first Esc of a field with
@@ -6021,24 +6048,60 @@ class ReasonComposition(VerdictBase):
         self.assertNotEqual(page.evaluate("PV_REASON&&PV_REASON.escArm"), "")
 
     def test_an_enter_after_the_composition_ended_is_a_press_of_its_own(self):
-        """Enter writes the reason at once, as it always did, when it is not the key that ended the composition: the key
-        that committed the syllable came up before it; no key ended the composition (a click, the focus, text put in at
-        once - as Playwright's Firefox types Hangul); or it comes well after the composition ended."""
-        page = self.on("fig")
-        for case, word in (("released", "채택"), ("no key", "보류"), ("later", "채택")):
+        """Enter writes the reason at once, as it always did, when it is not the key that ended the composition - even
+        stamped as fast as that key (at the commit): the key that committed the syllable came up before it; no key ended
+        the composition (a click, the focus, text put in at once - as Playwright's Firefox types Hangul); a key the input
+        method took before the composition began, whose keyup never came, is no key of it, nor is one taken in another
+        field the focus then left; or, unstamped, it comes well after the composition ended."""
+        cases = (
+            ("released", "채택"),
+            ("no key", "보류"),
+            ("key never up", "채택"),
+            ("other field", "보류"),
+            ("later", "채택"),
+        )
+        for case, word in cases:
             with self.subTest(case=case):
-                cdp, pid = self.open_composing(page, word)
-                if case != "no key":
-                    ime_key_down(cdp)
+                page = self.on("fig")
+                if case == "other field":
+                    page.evaluate(
+                        "()=>{const i=document.createElement('input'); i.id='ime-other'; document.body.append(i); i.focus();}"
+                    )
+                    ime_key_down(page.context.new_cdp_session(page))
+                before = ime_key_down if case == "key never up" else None
+                cdp, pid = self.open_composing(page, word, before)
+                at = time.time()
+                if case in ("released", "later"):
+                    ime_key_down(cdp, "Enter", at)
                 ime_commit(cdp, "글")
                 if case == "released":
-                    ime_key_up(cdp)
+                    ime_key_up(cdp, "Enter", at)
                 elif case == "later":
                     page.wait_for_timeout(400)  # past the window (core.js IME_TAIL_MS)
-                page.keyboard.press("Enter")
-                page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id&&p.note)", arg=pid, timeout=10000)
-                settle(page)
-                self.assertEqual(self.pins()[pid]["note"], "한글")
+                self.enter_saves(page, cdp, pid, None if case == "later" else at)
+
+    def test_the_focus_or_the_page_going_away_ends_the_composition_key(self):
+        """A key ended the composition and its keyup has not come when the field loses the focus and gets it back, the
+        window loses the focus, the page is hidden or left (pagehide - bfcache keeps it): an Enter after that is a press
+        of its own and writes the reason, even stamped at that key's time. The input method hands its key on at once, and
+        a key that comes up while the page has no focus never reaches the page; kept, the Enter was swallowed."""
+        away = {
+            "field blur": "()=>{const f=document.activeElement; f.blur(); f.focus();}",
+            "window blur": "()=>{window.dispatchEvent(new FocusEvent('blur')); window.dispatchEvent(new FocusEvent('focus'));}",
+            "hidden": "()=>{for(const h of [true,false]){Object.defineProperty(document,'hidden',{configurable:true,get:()=>h});"
+            " document.dispatchEvent(new Event('visibilitychange'));} delete document.hidden;}",
+            "pagehide": "()=>{window.dispatchEvent(new PageTransitionEvent('pagehide',{persisted:true}));"
+            " window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true}));}",
+        }
+        for (case, js), word in zip(away.items(), ("채택", "보류", "채택", "보류"), strict=True):
+            with self.subTest(case=case):
+                page = self.on("fig")
+                cdp, pid = self.open_composing(page, word)
+                at = time.time()
+                ime_key_down(cdp, "Enter", at)
+                ime_commit(cdp, "글")
+                page.evaluate(js)
+                self.enter_saves(page, cdp, pid, at)
 
 
 class ReasonDrafts(VerdictBase):
