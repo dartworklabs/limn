@@ -291,6 +291,29 @@ def ime_commit(cdp, text):
     cdp.send("Input.insertText", {"text": text})
 
 
+def ime_key_down(cdp):
+    """A key goes down that the input method takes while it composes: keydown Process (keyCode 229, marked composing)."""
+    cdp.send(
+        "Input.dispatchKeyEvent", {"type": "rawKeyDown", "key": "Process", "code": "", "windowsVirtualKeyCode": 229}
+    )
+
+
+def ime_key_up(cdp):
+    """That key comes up (its keyup)."""
+    cdp.send("Input.dispatchKeyEvent", {"type": "keyUp", "key": "Process", "code": "", "windowsVirtualKeyCode": 229})
+
+
+def ime_end_with(page, cdp, key, text):
+    """The input method ends its composition with key the way ibus-hangul on Linux does: the key goes down marked
+    composing (ime_key_down), the input method commits text (compositionend and the committed input), then hands the very
+    key on as a plain keydown (isComposing false) and its keyup - with no keyup before that keydown (core.js imeTail,
+    docs/handbook/viewer.md §조합을 끝내는 키). Playwright's press sends the key as the browser gets it from the system, so
+    its default (an Enter's new line in a text box) is the browser's own unless a handler takes it."""
+    ime_key_down(cdp)
+    ime_commit(cdp, text)
+    page.keyboard.press(key)
+
+
 def nothing_follows(page, ms=500):
     """The one bounded negative wait: settle, then let ms pass, so that an event only the browser would still send - a
     click it synthesizes after a tap, a back navigation from an overscroll swipe - has had the time to arrive before the

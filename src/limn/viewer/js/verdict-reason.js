@@ -968,7 +968,8 @@ function pvReasonFollow(r){const h=r.hist; if(!h||!h.landed.length)return;
 // [저장], [지우기]) is the field's Esc: it did nothing there.
 $('#doc').addEventListener('keydown',e=>{const t=/** @type {HTMLElement} */(e.target);
   if(e.key==='Escape'&&!pvIsReasonField(t)&&PV_REASON&&t&&t.closest&&t.closest('#doc .pv-pop')&&!e.ctrlKey&&!e.metaKey&&!e.altKey){e.preventDefault(); e.stopPropagation(); hideTip(); pvReasonEsc('key'); return;}});
-$('#doc').addEventListener('keydown',e=>{const f=e.target; if(!pvIsReasonField(f)||e.isComposing||e.keyCode===229)return;
+$('#doc').addEventListener('keydown',e=>{const f=e.target; if(!pvIsReasonField(f))return;
+  if(imeKey(e)){if(imeTail(e))e.preventDefault(); return;}   // the Enter that ended a composition adds no new line either
   if(e.key==='Enter'&&!e.shiftKey&&!e.ctrlKey&&!e.metaKey&&!e.altKey){e.preventDefault(); e.stopPropagation(); pvReasonSave(f); return;}
   if(e.key==='Escape'){e.preventDefault(); e.stopPropagation(); pvReasonEsc('key');}});
 // While a popover is open, Tab and Shift+Tab keep to it and its line, from anywhere in either: past the last control (the
@@ -1005,7 +1006,7 @@ document.addEventListener('keydown',pvReasonEscKey);
 // gliding to where a jump sends them (pvAutoScrolling): the reading page is not yet the one asked for. While that page's
 // save is still out the popover opens bound to it (pvReasonOpenPending) - a key and Enter at once is one intent.
 /** @param {KeyboardEvent} e */
-function pvReasonEnterKey(e){if(e.key!=='Enter'||e.defaultPrevented||e.isComposing||e.ctrlKey||e.metaKey||e.altKey||e.shiftKey||e.repeat)return;
+function pvReasonEnterKey(e){if(e.key!=='Enter'||e.defaultPrevented||imeKey(e)||e.ctrlKey||e.metaKey||e.altKey||e.shiftKey||e.repeat)return;
   const t=/** @type {HTMLElement|null} */(e.target),L=$('#left');
   // On a control of the line whose digit key's save is out the Enter is that intent too: the focus may rest on any of them.
   const l=!!t&&!!t.closest&&!t.closest('.pv-pop')?/** @type {HTMLElement|null} */(t.closest('#doc .pv')):null,n=l?Number(l.dataset.page)||0:0;

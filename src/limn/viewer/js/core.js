@@ -62,6 +62,36 @@ function isFigureKind(kind){return kind===DOC_KIND.FIGURE;}
 // Whether a document of this `kind` is rebuilt from its source: only a LaTeX one. A view-only PDF and a figure redraw when their
 // files change, so they have no rebuild and word a finished build as a redraw.
 function buildsFromSource(kind){return kind===DOC_KIND.TEX;}
+// The key that ends an input method's composition is the method's (docs/handbook/viewer.md §조합을 끝내는 키): it only ends the
+// composition. While a syllable composes the browser marks its keys (isComposing, keyCode 229). But ibus-hangul on Linux ends
+// the composition first and then hands the very Enter or Esc on as a plain keydown: keydown Process (marked composing),
+// compositionend, the committed text, keydown Enter (isComposing false), keyup Enter - one press, so both keydowns carry its
+// time. So when a key the input method took (marked composing) is down - no keyup since - as the composition ends, the
+// first keydown after that compositionend, on the field it ended in, no later than IME_TAIL_MS after it, is that key. A
+// composition that no key ended (a click, the focus leaving, text put in at once - Playwright's Firefox types Hangul so)
+// has none. Event times are when the OS made the event, so a busy main thread does not stretch them: the handed-on keydown
+// is a few ms before the compositionend (Chromium stamps that one when it dispatches it) - 2-4 ms with ibus-hangul. The
+// window leaves room for a browser that stamps the two the other way round and for a coarse clock (a privacy setting rounds
+// event times to as much as 100 ms), and stays far under the time a person takes to press a key on purpose. Read with
+// imeKey. Registered here, in the first part, so it sees every keydown before any handler does.
+const IME_TAIL_MS=100;
+let IME_PRESSED=false;   // a keydown the input method took (isComposing, keyCode 229) since the last keyup
+/** The last compositionend a key ended: its field and time, and the first keydown after it (null until one comes). @type {{el:EventTarget|null,at:number,key:KeyboardEvent|null}|null} */
+let IME_END=null;
+addEventListener('compositionstart',()=>{IME_END=null;},true);
+addEventListener('compositionend',e=>{IME_END=IME_PRESSED?{el:e.target,at:e.timeStamp,key:null}:null;},true);
+addEventListener('keyup',()=>{IME_END=null; IME_PRESSED=false;},true);
+// The tail Esc's browser defaults are not the composition's either: it would empty a search field and close a sheet (a
+// modal dialog), which the same Esc on a platform that marks it composing does not do. A tail Enter's default stays: in a
+// note it is the new line the input method gives with every Linux program. Where Enter is the viewer's own key in a text
+// box (the reason field, the @-list) its handler takes the newline away too (imeTail).
+addEventListener('keydown',e=>{const r=IME_END; if(r&&!r.key){r.key=e; if(e.key==='Escape'&&imeTail(e))e.preventDefault();}
+  if(e.isComposing||e.keyCode===229)IME_PRESSED=true;},true);
+/** Whether keydown e is the Enter or Esc that ended a composition (above). @param {KeyboardEvent} e */
+function imeTail(e){const r=IME_END; return !!r&&r.key===e&&(e.key==='Enter'||e.key==='Escape')&&r.el===e.target&&e.timeStamp-r.at<=IME_TAIL_MS;}
+/** Whether keydown e is the input method's, not the viewer's: a key while it composes, or the key that ended its
+ * composition (imeTail). Every key handler that acts on Enter or Esc in or near a text field asks this first. @param {KeyboardEvent} e */
+function imeKey(e){return e.isComposing||e.keyCode===229||imeTail(e);}
 // META is null only until boot() reads /api/meta; nothing reads it before.
 let META=/** @type {Meta} */(/** @type {unknown} */(null)),PINS=/** @type {Pin[]} */([]),DONE=/** @type {Pin[]} */([]),DROPPED=/** @type {Pin[]} */([]),REPICK=/** @type {Repick|null} */(null),PICKSEQ=0;
 // K: the scale of the document on screen, CSS px per PDF point (pages.js §page sizes); 0 until its first pages are built.

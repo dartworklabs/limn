@@ -193,7 +193,7 @@ function vdRedraw(where){if(where===VD_WHERE.COMPOSER)renderVerdictRow(); else d
 // the long press showed.
 window.addEventListener('click',e=>{if(!VD_ARM||Date.now()<SWALLOW_CLICK)return; const b=/** @type {HTMLElement|null} */(/** @type {HTMLElement} */(e.target).closest('[data-act="verdict-save"],[data-act="pv-save"]'));
   if(!(b&&vdArmedHere(b.dataset.key||'',vdWhereOf(b),Number(b.dataset.page)||0)))disarmVerdict(true,true);},true);
-window.addEventListener('keydown',e=>{if(e.key!=='Escape'||!VD_ARM)return; e.preventDefault(); e.stopImmediatePropagation(); disarmVerdict(true,true);},true);
+window.addEventListener('keydown',e=>{if(e.key!=='Escape'||!VD_ARM||imeKey(e))return; e.preventDefault(); e.stopImmediatePropagation(); disarmVerdict(true,true);},true);
 /** @param {HTMLElement} b */
 function vdWhereOf(b){return b.dataset.act==='verdict-save'?VD_WHERE.COMPOSER:VD_WHERE.PAGE;}
 
@@ -1358,7 +1358,7 @@ document.addEventListener('focusin',e=>{const t=/** @type {HTMLElement|null} */(
 // the focus goes to the PDF area, and Enter is taken as on the pages - the reading page's reason (pvReasonEnterKey) - while
 // Space is only said.
 /** @param {KeyboardEvent} e */
-function pvOffPageKey(e){if((e.key!=='Enter'&&e.key!==' ')||e.ctrlKey||e.metaKey||e.altKey||e.isComposing)return; const t=/** @type {HTMLElement|null} */(e.target);
+function pvOffPageKey(e){if((e.key!=='Enter'&&e.key!==' ')||e.ctrlKey||e.metaKey||e.altKey||imeKey(e))return; const t=/** @type {HTMLElement|null} */(e.target);
   const l=t&&t.closest?t.closest('#doc .pv'):null; if(!t||!l||(t.closest&&t.closest('.pv-pop'))||typingNow())return;
   const r=pvReadingAt(),n=Number(/** @type {HTMLElement} */(l).dataset.page),left=!!PV_LINE_FOCUS&&PV_LINE_FOCUS.el===t&&PV_LINE_FOCUS.read===n;
   if(PV_DROP_OUT.has(pvSlot(n))){e.preventDefault(); e.stopImmediatePropagation(); return;}   // its take-back is out
@@ -1383,7 +1383,7 @@ if(typeof ResizeObserver!=='undefined'){const R=document.getElementById('right')
 // written (the composer is open) or the changes view is shown, not with Ctrl, Alt or Meta (Alt+digit switches documents).
 // On a page that takes no verdict a key says so on the status line, once. The button and its line say the key (vdButton kn).
 /** @param {KeyboardEvent} e */
-function verdictKey(e){if(e.defaultPrevented||e.repeat||e.isComposing||e.ctrlKey||e.metaKey||e.altKey||!/^[1-5]$/.test(e.key))return;
+function verdictKey(e){if(e.defaultPrevented||e.repeat||imeKey(e)||e.ctrlKey||e.metaKey||e.altKey||!/^[1-5]$/.test(e.key))return;
   const t=/** @type {HTMLElement|null} */(e.target);
   if(t&&(t.tagName==='TEXTAREA'||t.tagName==='INPUT'||t.tagName==='SELECT'||t.isContentEditable))return;
   if(document.querySelector('dialog[open]')||!$('#page-pop').hidden||!$('#doc-pop').hidden||!$('#composer').hidden)return;

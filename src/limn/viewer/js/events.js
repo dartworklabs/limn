@@ -120,7 +120,7 @@ document.addEventListener('click',e=>{const target=/** @type {HTMLElement} */(e.
 $('#doc-select').addEventListener('change',e=>switchDoc(e.target.value));
 $('#revision-file').addEventListener('change',renderRevisionFile);
 document.addEventListener('keydown',e=>{
-  if(e.isComposing||e.keyCode===229)return;
+  if(imeKey(e))return;   // an input method's key, the Enter or Esc that ended its composition too (core.js)
   const t=/** @type {HTMLElement} */(e.target),inField=t&&(t.tagName==='TEXTAREA'||t.tagName==='INPUT'||t.tagName==='SELECT'||t.isContentEditable);
   // Ctrl(Cmd) + = / - / 0 zooms/fits just the PDF page instead of the browser zoom. Left to the browser inside an input field.
   if((e.ctrlKey||e.metaKey)&&!e.altKey&&!inField){const z=zoomKey(e);

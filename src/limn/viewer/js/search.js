@@ -462,7 +462,7 @@ document.addEventListener('pointerdown',e=>{if(!SEARCH.open||SEARCH.q||$('#doc-s
 // Keys in the search: Enter is the next hit and Shift+Enter the previous (not while an input method composes); Esc ends the
 // search. Neither reaches the viewer's own keys (events.js), so Esc here never cancels a selection or a draft - but with the
 // search closed and empty (the focus on its magnifier) there is nothing to end, and Esc is the viewer's.
-$('#doc-search').addEventListener('keydown',e=>{if(e.isComposing||e.keyCode===229)return;
+$('#doc-search').addEventListener('keydown',e=>{if(imeKey(e))return;
   if(e.key==='Escape'){if(!SEARCH.open&&!SEARCH.q)return; e.preventDefault(); e.stopPropagation(); searchClose(true);}
   else if(e.key==='Enter'&&e.target===$('#search-q')){e.preventDefault(); e.stopPropagation(); searchGo(e.shiftKey?-1:1);}});
 // The shortcut (searchKey): the field takes the focus instead of the browser's find, which finds nothing in a canvas. Pressed

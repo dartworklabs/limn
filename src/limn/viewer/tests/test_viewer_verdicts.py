@@ -27,6 +27,9 @@ from helpers_browser import (
     booted,
     ime_commit,
     ime_compose,
+    ime_end_with,
+    ime_key_down,
+    ime_key_up,
     nothing_follows,
     settle,
     watch_idle,
@@ -5977,6 +5980,65 @@ class ReasonComposition(VerdictBase):
         page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id&&p.note)", arg=pid, timeout=10000)
         settle(page)
         self.assertEqual([(p["verdict"], p["note"]) for p in self.pins().values()], [("보류", "실패한 이유")])
+
+    def open_composing(self, page, word="채택"):
+        """word saved on page 1 and its reason open, '한' typed and '글' left composing; (the CDP session, the pin)."""
+        pid = self.press_page(page, 1, word)
+        open_reason(page, 1)
+        cdp = page.context.new_cdp_session(page)
+        page.keyboard.type("한")
+        ime_compose(cdp, "ㄱ", "그", "글")
+        return cdp, pid
+
+    def test_the_enter_that_ends_a_composition_only_ends_it(self):
+        """ibus-hangul on Linux commits the last syllable and then hands the Enter on unmarked (compositionend, keydown
+        Enter with isComposing false, keyup - docs/handbook/viewer.md §조합을 끝내는 키): that Enter is the composition's.
+        The popover stays with '한글' and the focus, no new line in it and nothing written; the next Enter writes '한글'.
+        Taken as the viewer's, the first Enter wrote the reason and closed the popover; let through to the browser, it
+        put a new line after the syllable."""
+        page = self.on("fig")
+        cdp, pid = self.open_composing(page)
+        ime_end_with(page, cdp, "Enter", "글")
+        settle(page)
+        self.assertEqual(page.evaluate(REASON, 1), {"focused": True, "value": "한글", "placeholder": "이유 (선택)"})
+        self.assertFalse(self.pins()[pid].get("note"))
+        page.keyboard.press("Enter")
+        page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id&&p.note)", arg=pid, timeout=10000)
+        settle(page)
+        self.assertEqual((self.pins()[pid]["note"], page.evaluate(POP, 1)), ("한글", None))
+
+    def test_the_esc_that_ends_a_composition_keeps_the_popover(self):
+        """The same with Esc: the popover stays with '한글' and the focus (nothing armed: the first Esc of a field with
+        text asks before it drops it); the next Esc is the field's first."""
+        page = self.on("fig")
+        cdp, _ = self.open_composing(page)
+        ime_end_with(page, cdp, "Escape", "글")
+        settle(page)
+        self.assertEqual(page.evaluate(REASON, 1), {"focused": True, "value": "한글", "placeholder": "이유 (선택)"})
+        self.assertEqual(page.evaluate("PV_REASON&&PV_REASON.escArm"), "")
+        page.keyboard.press("Escape")
+        settle(page)
+        self.assertNotEqual(page.evaluate("PV_REASON&&PV_REASON.escArm"), "")
+
+    def test_an_enter_after_the_composition_ended_is_a_press_of_its_own(self):
+        """Enter writes the reason at once, as it always did, when it is not the key that ended the composition: the key
+        that committed the syllable came up before it; no key ended the composition (a click, the focus, text put in at
+        once - as Playwright's Firefox types Hangul); or it comes well after the composition ended."""
+        page = self.on("fig")
+        for case, word in (("released", "채택"), ("no key", "보류"), ("later", "채택")):
+            with self.subTest(case=case):
+                cdp, pid = self.open_composing(page, word)
+                if case != "no key":
+                    ime_key_down(cdp)
+                ime_commit(cdp, "글")
+                if case == "released":
+                    ime_key_up(cdp)
+                elif case == "later":
+                    page.wait_for_timeout(400)  # past the window (core.js IME_TAIL_MS)
+                page.keyboard.press("Enter")
+                page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id&&p.note)", arg=pid, timeout=10000)
+                settle(page)
+                self.assertEqual(self.pins()[pid]["note"], "한글")
 
 
 class ReasonDrafts(VerdictBase):
