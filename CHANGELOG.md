@@ -22,8 +22,9 @@
     That wait has an end: if the key's release never reaches the page while the field keeps the focus, the rebuild and
     the move go on 2.5 s after the key's last press or repeat, and at once when another key goes down or other text
     comes in (a paste, an on-screen keyboard). A held key's repeats keep the field all along, and a repeat that comes
-    after the wait has ended (a repeat delay set longer than 2.5 s) still belongs to the input method, also in the field
-    drawn anew.
+    after the wait has ended still belongs to the input method, also in the field drawn anew. One limit remains: with a
+    key repeat delay set longer than 2 s, Chromium on Linux reports a held key's first repeat as a new press of the key,
+    so that press and the repeats after it act as the viewer's keys, as the key held without an input method would.
     One rule serves every field that acts on Enter or Esc: the reason popover, the
     composer's and the edit card's save and cancel keys, replies, the @-list, search, the outline filter, the page number
     fields and the document list's filter. The next Enter or Esc acts as before, and so does a key pressed after that
