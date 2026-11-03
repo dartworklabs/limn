@@ -294,13 +294,15 @@ def ime_commit(cdp, text):
     cdp.send("Input.insertText", {"text": text})
 
 
-def ime_commit_ended(cdp, text):
-    """The input method commits the open composition's text the way ibus-hangul does when a key ends the syllable: it
-    empties the composition, which ends it (compositionend with no data), and puts text in as text of its own (an input
-    not marked composing) - Chromium's own events in the order the real ibus-hangul gives (docs/handbook/viewer.md §조합을
-    끝내는 키). Chromium stamps that input when it dispatches it, after the page's handlers of the end."""
+def ime_commit_ended(cdp, *parts):
+    """The input method commits the open composition the way ibus-hangul does when a key ends the syllable: it empties
+    the composition, which ends it (compositionend with no data), and puts the text in as text of its own (an input not
+    marked composing) - Chromium's own events in the order the real ibus-hangul gives (docs/handbook/viewer.md §조합을
+    끝내는 키). Chromium stamps that input when it dispatches it, after the page's handlers of the end. Each of parts is an
+    input of its own: one is ibus-hangul's syllable, more a method that commits in parts."""
     cdp.send("Input.imeSetComposition", {"text": "", "selectionStart": 0, "selectionEnd": 0})
-    cdp.send("Input.insertText", {"text": text})
+    for text in parts:
+        cdp.send("Input.insertText", {"text": text})
 
 
 # The keys an input method ends a composition with, as the browser gets them from the system - what Playwright's press
@@ -369,14 +371,14 @@ def clock_still(page):
 IME_END_AFTER = 0.003
 
 
-def ime_end_held(page, cdp, key, text, *, name="Process", code=None, hand_on=True):
+def ime_end_held(page, cdp, key, *parts, name="Process", code=None, hand_on=True, commit=ime_commit_ended):
     """While the page's clock stands still (clock_still), the input method ends its composition with key as ibus-hangul
     does, and the key stays down: it goes down (ime_key_down; name and code as there), the clock runs IME_END_AFTER on,
-    the input method commits text (ime_commit_ended) and, with hand_on, hands the key on at once (code as for the key
-    taken). No keyup."""
+    the input method commits parts (commit(cdp, *parts): ime_commit_ended, or ime_commit - the commit before the end, in
+    Chromium's own order) and, with hand_on, hands the key on at once (code as for the key taken). No keyup."""
     ime_key_down(cdp, key, name=name, code=code)
     page.clock.run_for(round(IME_END_AFTER * 1000))
-    ime_commit_ended(cdp, text)
+    commit(cdp, *parts)
     if hand_on:
         ime_key_press(cdp, key, code=code)
 

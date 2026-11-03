@@ -5886,6 +5886,9 @@ UNIDENTIFIED_KEYS = """()=>{const f=document.activeElement,
 SLOW_END = """ms=>{window.COMMIT_GAP=null; let end=null;
   addEventListener('compositionend',e=>{end=e.timeStamp; const t=performance.now(); while(performance.now()-t<ms);},{once:true});
   addEventListener('input',e=>{if(end!==null&&window.COMMIT_GAP===null)window.COMMIT_GAP=e.timeStamp-end;});}"""
+# What the input method composes, one preedit after another: '글', and '문자' (two syllables showing at once).
+GEUL = ("ㄱ", "그", "글")
+MUNJA = ("ㅁ", "무", "문", "문ㅈ", "문자")
 # A new build with a page more (the last one twice): the pages are to be built again.
 GROW = "()=>{refreshDoc({...META,pages:META.pages.concat(META.pages.slice(-1))});}"
 
@@ -6014,20 +6017,21 @@ class ReasonComposition(VerdictBase):
         settle(page)
         self.assertEqual([(p["verdict"], p["note"]) for p in self.pins().values()], [("보류", "실패한 이유")])
 
-    def open_composing(self, page, word="채택", before=None):
-        """word saved on page 1 and its reason open, '한' typed and '글' left composing; (the CDP session, the pin).
-        before(cdp), if given, runs in the field just before '글' begins to compose."""
+    def open_composing(self, page, word="채택", before=None, steps=GEUL):
+        """word saved on page 1 and its reason open, '한' typed and '글' left composing - or the last of steps, one
+        preedit after another; (the CDP session, the pin). before(cdp), if given, runs in the field just before the
+        composition begins."""
         pid = self.press_page(page, 1, word)
         open_reason(page, 1)
         cdp = page.context.new_cdp_session(page)
         page.keyboard.type("한")
         if before:
             before(cdp)
-        ime_compose(cdp, "ㄱ", "그", "글")
+        ime_compose(cdp, *steps)
         return cdp, pid
 
-    def enter_saves(self, page, cdp, pid, at=None):
-        """An Enter (stamped at, CDP's event time, if given) writes the reason '한글' on pid and closes the popover."""
+    def enter_saves(self, page, cdp, pid, at=None, text="한글"):
+        """An Enter (stamped at, CDP's event time, if given) writes the reason text on pid and closes the popover."""
         if at is None:
             page.keyboard.press("Enter")
         else:
@@ -6035,7 +6039,7 @@ class ReasonComposition(VerdictBase):
             ime_key_up(cdp, "Enter", at)
         page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id&&p.note)", arg=pid, timeout=10000)
         settle(page)
-        self.assertEqual((self.pins()[pid]["note"], page.evaluate(POP, 1)), ("한글", None))
+        self.assertEqual((self.pins()[pid]["note"], page.evaluate(POP, 1)), (text, None))
 
     def test_the_enter_that_ends_a_composition_only_ends_it(self):
         """ibus-hangul on Linux commits the last syllable and then hands the Enter on unmarked (compositionend, keydown
@@ -6181,31 +6185,39 @@ class ReasonComposition(VerdictBase):
         self.assertEqual(page.evaluate(UNIDENTIFIED_KEYS), [False, False, True, True, True, True])
         self.assertEqual(page.evaluate(REASON, 1), {"focused": True, "value": "한글", "placeholder": "이유 (선택)"})
 
-    def test_the_text_the_composition_commits_is_its_own(self):
+    def test_the_text_the_input_method_commits_leaves_its_key_alone(self):
         """ibus-hangul ends the composition with nothing in it and then puts the syllable in as text of its own, before it
-        hands the Enter on (ime_commit_ended, Chromium's own events): that text is the composition's, not other text, so
-        the Enter is still the composition's - the popover stays with '한글' and the focus, nothing written; the next
-        Enter writes it. Chromium stamps that input when it dispatches it, after the page's handlers of the end: also
-        where one of them takes 180 ms (SLOW_END), the input coming that much later. Taken as other text, the commit let
-        the key go and the Enter wrote the reason and closed the popover; known as the commit by coming within
-        core.js IME_TAIL_MS of the end, it did so behind the slow handler."""
-        for slow, word in ((0, "채택"), (180, "보류")):
-            with self.subTest(end_handler_ms=slow):
+        hands the Enter on (ime_commit_ended, Chromium's own events). No text ends the key that ended the composition, so
+        the Enter is still the composition's - the popover stays with the text and the focus, nothing written; the next
+        Enter writes it: also where the page's handler of the end takes 180 ms (SLOW_END), the input that much later as
+        Chromium stamps it when it dispatches it; where the method commits other text than it showed ('극' for '글'); and
+        where it commits in parts ('문', then '자' for '문자'). Taken as other text, the commit let the key go and the
+        Enter wrote the reason and closed the popover: known by coming within core.js IME_TAIL_MS of the end, behind the
+        slow handler; known as the text the composition showed, when it differed or came in parts."""
+        cases = (
+            ("as shown", "채택", 0, GEUL, ("글",)),
+            ("as shown, slow end", "보류", 180, GEUL, ("글",)),
+            ("other text", "채택", 0, GEUL, ("극",)),
+            ("in parts", "보류", 0, MUNJA, ("문", "자")),
+        )
+        for case, word, slow, steps, parts in cases:
+            with self.subTest(case=case):
                 page = self.on("fig")
-                cdp, pid = self.open_composing(page, word)
+                cdp, pid = self.open_composing(page, word, steps=steps)
                 page.evaluate(SLOW_END, slow)
                 at = time.time()
                 ime_key_down(cdp, "Enter", at)
-                ime_commit_ended(cdp, "글")
+                ime_commit_ended(cdp, *parts)
                 ime_key_press(cdp, "Enter", at)
                 ime_key_up(cdp, "Enter", at)
                 settle(page)
                 self.assertGreaterEqual(page.evaluate("COMMIT_GAP"), slow)
+                text = "한" + "".join(parts)
                 self.assertEqual(
-                    page.evaluate(REASON, 1), {"focused": True, "value": "한글", "placeholder": "이유 (선택)"}
+                    page.evaluate(REASON, 1), {"focused": True, "value": text, "placeholder": "이유 (선택)"}
                 )
                 self.assertFalse(self.pins()[pid].get("note"))
-                self.enter_saves(page, cdp, pid)
+                self.enter_saves(page, cdp, pid, text=text)
 
     def test_a_rebuild_waits_for_the_key_that_ended_the_syllable_to_come_up(self):
         """'한' typed and '글' left composing when a new build with a page more arrives: it waits for the syllable (above).
@@ -6244,19 +6256,20 @@ class ReasonComposition(VerdictBase):
                 self.assertFalse(self.pins()[pid].get("note"))
                 self.enter_saves(page, cdp, pid)
 
-    def held_over(self, page, word, name="Process", code=None):
+    def held_over(self, page, word, name="Process", code=None, *, steps=GEUL, parts=("글",), commit=ime_commit_ended):
         """'한' typed in word's reason on page 1 and '글' left composing when a new build with a page more arrives (it
         waits, above); then the Enter goes down, the input method commits '글' and hands the Enter on (ibus-hangul's
         order), and its keyup has not come. The page - opened with a clock (on(..., clock=clock_now())) - has its clock
         standing still from the build on (clock_still): the waits' looks and the key's hold come only as the test runs
         it. name and code: what the browser says of the key the input method takes (ime_key_down); code '' also for the
-        one handed on. The CDP session, the pin and the page count before the build."""
-        cdp, pid = self.open_composing(page, word)
+        one handed on. steps: what composes (open_composing); parts and commit: what the input method commits, and how
+        (ime_end_held). The CDP session, the pin and the page count before the build."""
+        cdp, pid = self.open_composing(page, word, steps=steps)
         page.evaluate(MARK_FIELD)
         n = page.evaluate("META.pages.length")
         clock_still(page)
         page.evaluate(GROW)
-        ime_end_held(page, cdp, "Enter", "글", name=name, code=code)
+        ime_end_held(page, cdp, "Enter", *parts, name=name, code=code, commit=commit)
         return cdp, pid, n
 
     def rebuilt_with(self, page, pid, text):
@@ -6306,39 +6319,66 @@ class ReasonComposition(VerdictBase):
         self.rebuilt_with(page, pid, "한글")
         self.enter_saves(page, cdp, pid)
 
-    def test_another_key_or_other_text_lets_the_field_go(self):
+    def test_another_key_lets_the_field_go(self):
         """The Enter that ended the syllable handed on and not up, the page's clock run 200 ms on, past a wait's look
-        (held_over), when another key goes down (Shift: a held key repeats no more once another goes down) or text comes
-        in that is not the composition's commit - text put in later (a paste or an on-screen keyboard does so), or the
-        very syllable the composition committed put in once more (only the first input after the end can be the commit):
-        the rebuild goes on at once, the new field holding the text with the focus, nothing written; the next Enter
-        writes it. Let go only by that key's release or the bound, the rebuild waited; with every input of the committed
-        syllable taken as the commit, it waited behind the syllable put in again."""
+        (held_over), when another key goes down (Shift: a held key repeats no more once another goes down): the rebuild
+        goes on at once, the new field holding '한글' with the focus, nothing written; the next Enter writes it. Let go
+        only by that key's release or the bound, the rebuild waited."""
         shift = {"key": "Shift", "code": "ShiftLeft", "windowsVirtualKeyCode": 16}
+        page = self.on("fig", clock=clock_now())
+        cdp, pid, n = self.held_over(page, "채택")
+        page.clock.run_for(200)
+        self.assertEqual(page.evaluate(REBUILT, n), [False, True])
+        cdp.send("Input.dispatchKeyEvent", {"type": "rawKeyDown", **shift, "modifiers": 8})
+        cdp.send("Input.dispatchKeyEvent", {"type": "keyUp", **shift})
+        page.clock.run_for(1)  # at once: not at the bound, nor at the waits' next look
+        self.assertEqual(page.evaluate("META.pages.length"), n + 1)
+        page.clock.resume()
+        settle(page)
+        self.rebuilt_with(page, pid, "한글")
+        self.enter_saves(page, cdp, pid)
+
+    def test_text_put_in_neither_ends_the_key_nor_lets_the_field_go(self):
+        """No text tells the input method's commit from other text, so none ends the key that ended the syllable or its
+        hold (docs/handbook/viewer.md §조합을 끝내는 키). The Enter goes down while a new build waits (held_over), and the
+        input method commits other text than it showed ('극' for '글'), or in parts ('문', then '자' for '문자'), or before
+        the end (ime_commit: Chromium's own order, the last composing input and then an end with the syllable), and hands
+        the Enter on. That Enter is the composition's, and the field stays, through 200 ms on the page's clock - past a
+        wait's look - and text then put in with no key (the syllable once more, other text: a paste from a menu). Up, the
+        pages are built again at once; never up, IME_HOLD_MS after the Enter handed on, the text put in counting for
+        nothing, and not 1 ms before. The new field holds the text with the focus, nothing written; the next Enter writes
+        it. Ended by text other than the composition showed, put in first, the Enter handed on wrote the reason and
+        closed the popover - also when it came in parts; let go by text, the pages were built again at once."""
         cases = (
-            ("another key", "채택", "한글"),
-            ("other text", "보류", "한글다"),
-            ("the syllable again", "채택", "한글글"),
+            ("other text", "채택", GEUL, ("극",), ime_commit_ended, "", "up"),
+            ("in parts", "보류", MUNJA, ("문", "자"), ime_commit_ended, "", "up"),
+            ("before the end, then once more", "채택", GEUL, ("글",), ime_commit, "글", "up"),
+            ("text later, never up", "보류", GEUL, ("글",), ime_commit_ended, "다", "never"),
         )
-        for case, word, text in cases:
+        for case, word, steps, parts, commit, later, up in cases:
             with self.subTest(case=case):
                 page = self.on("fig", clock=clock_now())
-                cdp, pid, n = self.held_over(page, word)
+                cdp, pid, n = self.held_over(page, word, steps=steps, parts=parts, commit=commit)
                 page.clock.run_for(200)
                 self.assertEqual(page.evaluate(REBUILT, n), [False, True])
-                if case == "another key":
-                    cdp.send("Input.dispatchKeyEvent", {"type": "rawKeyDown", **shift, "modifiers": 8})
-                    cdp.send("Input.dispatchKeyEvent", {"type": "keyUp", **shift})
+                if later:
+                    ime_commit(cdp, later)
+                page.clock.run_for(1)
+                self.assertEqual(page.evaluate(REBUILT, n), [False, True])
+                text = "한" + "".join(parts) + later
+                self.assertEqual(page.evaluate(FIELD_NOW)["value"], text)
+                if up == "up":
+                    ime_key_up(cdp, "Enter")
+                    page.clock.run_for(1)  # at once: the look the release starts, not the waits' next one
                 else:
-                    ime_commit(cdp, "다" if case == "other text" else "글")
-                page.clock.run_for(1)  # at once: not at the bound, nor at the waits' next look
+                    page.clock.run_for(page.evaluate("IME_HOLD_MS") - 202)  # 1 ms short of the bound
+                    self.assertEqual(page.evaluate(REBUILT, n), [False, True])
+                    page.clock.run_for(2)  # the bound, and the look it starts (a 0 ms timer set in a timer: 1 ms on)
                 self.assertEqual(page.evaluate("META.pages.length"), n + 1)
                 page.clock.resume()
                 settle(page)
                 self.rebuilt_with(page, pid, text)
-                page.keyboard.press("Enter")
-                page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id&&p.note)", arg=pid, timeout=10000)
-                self.assertEqual(self.pins()[pid]["note"], text)
+                self.enter_saves(page, cdp, pid, text=text)
 
     def test_a_repeat_after_the_hold_is_still_the_composition_s(self):
         """The Enter that ended the syllable held down on a keyboard whose first repeat comes later than IME_HOLD_MS, marked

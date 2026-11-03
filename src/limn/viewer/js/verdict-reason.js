@@ -927,7 +927,7 @@ function pvReasonComposed(){return new Promise(res=>{if(!pvComposingNow()){res()
   const go=()=>{clearInterval(t); res();},t=setInterval(()=>{if(!pvComposingNow())go();},PV_COMPOSED_POLL_MS); PV_COMPOSED_WAIT.push(go);});}
 // After a composition ended, unless another began meanwhile or the key that ended it still holds the field: the rebuilds
 // that waited go on, and the lines move if the room crossed its bar while it lasted. Held, it looks again once that key
-// lets the field go (core.js IME_ON_FREE): up, another key, other text, forgotten, or IME_HOLD_MS with no event of its own.
+// lets the field go (core.js IME_ON_FREE): up, another key, forgotten, or IME_HOLD_MS with no event of its own.
 function pvComposedOver(){if(pvComposingNow())return; PV_COMPOSED_WAIT.splice(0).forEach(go=>go()); if(pageVerdictsOn())pvSideCheck();}
 IME_ON_FREE.push(pvComposedOver);
 // Every input keeps the draft (rdPut), with the parts moved into it placed where they are now (pvReasonPlace) - a part
