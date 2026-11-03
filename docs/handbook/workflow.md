@@ -91,9 +91,18 @@
 
 버전의 정본은 [`src/limn/__init__.py`](../../src/limn/__init__.py)의 `__version__`이다. `pyproject.toml`은 hatch로 이 값을 읽는다.
 
-1. `__version__`을 올리고 [CHANGELOG.md](../../CHANGELOG.md)에 날짜와 변경 요약을 적는다. 에이전트 계약이 바뀌지 않았다면 그 사실도 적는다.
+1. `__version__`을 올리고 [CHANGELOG.md](../../CHANGELOG.md)에 날짜와 변경 요약을 적는다. 에이전트 계약이 바뀌지 않았다면 그 사실도 적는다. 같은 커밋에서 [README.md](../../README.md)·[README.ko.md](../../README.ko.md)·[SKILL.md](../../skill/SKILL.md)·[SKILL.ko.md](../../skill/SKILL.ko.md)의 설치 명령 태그(`dartworklabs/limn@vX.Y.Z`)도 새 버전으로 올린다. 사람과 에이전트가 이 명령으로 설치하므로, 남은 태그는 옛 릴리스를 계속 설치시킨다. [`test_install_tag.py`](../../tests/architecture/test_install_tag.py)가 `__version__`과 다른 설치 태그를 거부한다.
 2. `main`에 머지한 뒤 `vX.Y.Z` 태그를 단다. 태그가 가리키는 머지 커밋은 `main` 푸시의 CI가 이미 검사했으므로 태그 푸시에서는 CI가 돌지 않는다([verification.md](verification.md) §합격의 뜻).
-3. 각 머신의 운영자는 `limn update`로 최신 태그를 설치하고 실행 중인 인스턴스를 재시작한다. `--dry-run`으로 계획을 먼저 볼 수 있다. 상세는 [instances.md](instances.md)다.
+3. 태그를 단 뒤 같은 태그로 GitHub Release를 만든다. 제목은 `vX.Y.Z — <이 판을 한 줄로 요약한 영어>`이고, 본문은 CHANGELOG의 그 판 절 그대로다. README의 최신 릴리스 배지와 Releases 페이지의 Latest가 이것을 읽으므로, 빠뜨리면 공개 페이지가 옛 판을 최신으로 보인다.
+
+   ```bash
+   awk -v h="## X.Y.Z " 'index($0,h)==1{f=1;next} /^## /{f=0} f' CHANGELOG.md > /tmp/limn-notes.md
+   test -s /tmp/limn-notes.md && gh release create vX.Y.Z --verify-tag --title "vX.Y.Z — <한 줄 요약>" --notes-file /tmp/limn-notes.md
+   ```
+
+   머리줄이 맞지 않으면 awk는 오류 없이 빈 파일을 만든다. `test -s`가 빈 본문의 Release를 막는다. 더 새 판이 이미 있는데 옛 판의 Release를 낼 때는 `--latest=false`를 붙인다. 그래야 Latest가 옛 판으로 옮겨 가지 않는다.
+
+4. 각 머신의 운영자는 `limn update`로 최신 태그를 설치하고 실행 중인 인스턴스를 재시작한다. `--dry-run`으로 계획을 먼저 볼 수 있다. 상세는 [instances.md](instances.md)다.
 
 > **참고**
 >
