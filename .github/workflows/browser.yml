@@ -40,8 +40,8 @@ jobs:
       fail-fast: false
       matrix:
         # The parts. --shard takes their count from the matrix size (strategy.job-total), so this list is the one place
-        # to change it. The Chromium classes are about 80 minutes of one worker's time in CI
-        # (tests/data/shard_seconds.json), about 40 with two workers: ten parts spend about 4 each, after under a
+        # to change it. The Chromium classes are about 74 minutes of one worker's time in CI
+        # (tests/data/shard_seconds.json), about 37 with two workers: ten parts spend about 4 each, after under a
         # minute to set up. The slowest class (about 3.5 minutes, on one worker) is the floor of a part and close to
         # that share; more parts would save little past it and would queue behind the account's limit of runners.
         shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
