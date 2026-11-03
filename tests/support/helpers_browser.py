@@ -362,8 +362,8 @@ CLOCK_STILL_AHEAD_MS = 1000
 
 
 def clock_still(page):
-    """Stop the page's clock, installed with its context (BrowserBase.open's clock), CLOCK_STILL_AHEAD_MS on from the
-    page's time - what falls due in that span runs, as it would on a machine that much slower: from there its timers, its
+    """Stop the page's clock, installed (BrowserBase.open's clock, or page.clock.install()), CLOCK_STILL_AHEAD_MS on from
+    the page's time - what falls due in that span runs, as it would on a machine that much slower: from there its timers, its
     performance.now() and its events' times - Playwright's clock stamps an event with its performance.now() when the page
     first reads the time, whatever CDP said - move only as the test runs it on (page.clock.run_for), never with the time
     the test, the driver or the machine takes. So a check that a span has not run out yet, or has, does not depend on

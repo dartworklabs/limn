@@ -38,6 +38,7 @@ from helpers_browser import (
     SEGMENTS,
     BrowserBase,
     booted,
+    clock_still,
     fonts_ready,
     nothing_follows,
     settle,
@@ -1449,7 +1450,7 @@ class FoldOverlay(ViewerBase):
         at = "(()=>{const a=zoomAnchor(300,400);return [a.pg.id,+a.fx.toFixed(3),+a.fy.toFixed(3)];})()"
         before = page.evaluate(at)
         page.clock.install()
-        page.clock.pause_at(time.time() * 1000 + 1000)  # performance.now() and the long-press timer stand still
+        clock_still(page)  # performance.now() and the long-press timer stand still
         self.tap(cdp, 300, 400)
         self.tap(cdp, 300, 400)
         page.wait_for_function("w=>Math.abs(pageWidth(ptMax(),K)-w)<=2", arg=w0 * 2, timeout=10000)
@@ -7281,7 +7282,7 @@ class ClickOffCancelsSelection(ViewerBase):
         x, y = self.blank(page)
         w0 = page.evaluate("pageWidth(ptMax(),K)")
         page.clock.install()
-        page.clock.pause_at(time.time() * 1000 + 1000)  # performance.now() and the timers stand still
+        clock_still(page)  # performance.now() and the timers stand still
         self.tap(cdp, x, y)
         self.tap(cdp, x, y)
         page.wait_for_function("w=>Math.abs(pageWidth(ptMax(),K)-w)>2", arg=w0, timeout=10000)
