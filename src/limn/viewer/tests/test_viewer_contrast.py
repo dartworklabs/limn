@@ -608,11 +608,12 @@ class ContrastWalk(BrowserBase):
     def scene_list(self):
         """The pin list with every section open and four cards unfolded (a thread with a folded entry, a long post and a
         deleted pin's reference; the review; a suggested edit folded past five rows; one whose lines changed, with its
-        warning badge and the warning line over its diff, read on its own too); a reply being written, with its
-        mention list and its preview naming a stranger; the thread's edit card; a hovered card, done row and section tool;
-        a banner of each kind on the list and a message on the status line; [더보기]; the desktop's search field and a
-        search; the outline (hovered and focused entries, filtered to nothing) or the navigation sheet (likewise); the
-        documents bar's popover, filtered to nothing; the Trash and a hovered trash row."""
+        warning badge and the warning line over its diff and its action, read on its own too, and its edit card's
+        warning line); a reply being written, with its mention list and its preview naming a stranger; the thread's edit
+        card; a hovered card, done row and section tool; a banner of each kind on the list and a message on the status
+        line; [더보기]; the desktop's search field and a search; the outline (hovered and focused entries, filtered to
+        nothing) or the navigation sheet (likewise); the documents bar's popover, filtered to nothing; the Trash and a
+        hovered trash row."""
         page = self.open(2, **DEVICES[self.device])
         page.evaluate(
             "ids=>{setSide(true); SEC.done=true; SEC.review=true; ids.forEach(i=>OPEN_CARDS.add(i)); drawPins();}",
@@ -636,6 +637,12 @@ class ContrastWalk(BrowserBase):
         settle(page)
         self.look(page, "edit card", ".edit")
         page.keyboard.press("Escape")
+        settle(page)
+        page.evaluate("id=>openEdit(id)", self.warned)
+        page.wait_for_selector(".edit .e-sg .sg-note.sg-note-warn:not([hidden])")
+        settle(page)
+        self.look(page, "warning edit card", ".edit .e-sg .sg-note")
+        page.evaluate("cancelEdit()")
         settle(page)
         self.hover(page, '#pins .pin[data-id="%d"]' % self.thread, "card")
         self.hover(page, "#done-list .arc-row", "done row")

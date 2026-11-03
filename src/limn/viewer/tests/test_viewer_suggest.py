@@ -59,9 +59,13 @@ CARD = """id => {const c = document.querySelector('.pin[data-id="' + id + '"]'),
 # shown.
 WARN = """id => {const c = document.querySelector('.pin[data-id="' + id + '"]'), w = c && c.querySelector('.sg-warn');
   return w && w.getClientRects().length > 0 ? w.textContent : null;}"""
-# The changed and the unknown line's words, Korean and English.
-WARN_KO = ("에이전트는 넣지 않음 · [수정]에서 원문에 맞추기", "에이전트는 넣지 않음 · 원문과 대조 불가")
-WARN_EN = ("The agent won't apply it · rebase it in [Edit]", "The agent won't apply it · can't be checked")
+# The changed and the unknown line's words, Korean and English; the changed line's last part is its action.
+WARN_KO = ("에이전트는 넣지 않음 · 수정해서 원문에 맞추기", "에이전트는 넣지 않음 · 원문과 대조 불가")
+WARN_EN = ("The agent won't apply it · rebase it in Edit", "The agent won't apply it · can't be checked")
+# A card's warning line as drawn: its words, and its action (a button) - name, act and accessible description - or null.
+WARN_PARTS = """id => {const w = document.querySelector('.pin[data-id="' + id + '"] .sg-warn'); if (!w || !w.getClientRects().length) return null;
+  const b = w.querySelector('button');
+  return {text: w.textContent, act: b ? [b.textContent, b.dataset.act, b.getAttribute('aria-description')] : null};}"""
 # TEX with line 5 edited (a suggestion on lines 4-5 is 'changed'), and with lines 10-11 replaced as well (one on them is
 # 'unknown': it loses its place).
 TEX_CHANGED = TEX.replace("Second line of the paragraph.", "Second line, edited.")
@@ -213,16 +217,16 @@ class SuggestLogic(unittest.TestCase):
                 ["원문을 읽지 못했습니다 — x", "sg-reload"],
                 ["그사이 원문이 바뀌었습니다 — 아래는 지금 원문과 이 글의 차이입니다", "sg-rebase"],
                 ["범위가 바뀌었습니다", "sg-reload"],
-                ["그사이 원문이 바뀌었습니다", "sg-rebase"],
+                ["에이전트는 넣지 않음 · 그사이 원문이 바뀌었습니다", "sg-rebase"],
                 ["원문 그대로입니다 — 고친 글만 제안 수정으로 보냅니다", None],
                 None,
             ],
         )
 
     def test_a_warning_line_says_the_agent_will_not_apply_it_and_what_to_do(self):
-        """An open pin: 'changed' says the agent will not apply it and to rebase it in [수정] - a viewer, who cannot edit,
-        only the first; 'unknown' says it cannot be checked. A ready suggestion, no state, or a pin under review or done:
-        no line."""
+        """An open pin: 'changed' says the agent will not apply it, with the action to rebase it in its edit card - a viewer,
+        who cannot edit, without it; 'unknown' says it cannot be checked, a viewer too (a reason, not an action). A ready
+        suggestion, no state, or a pin under review or done: no line."""
         got = self.run_js(
             ["suggestWarn"],
             r"""const S = SUGGEST_STATE, P = PIN_STATE;
@@ -233,12 +237,44 @@ class SuggestLogic(unittest.TestCase):
         self.assertEqual(
             got,
             [
-                ["에이전트는 넣지 않음", "[수정]에서 원문에 맞추기"],
-                ["에이전트는 넣지 않음"],
-                ["에이전트는 넣지 않음", "원문과 대조 불가"],
-                ["에이전트는 넣지 않음", "원문과 대조 불가"],
+                {"reason": None, "edit": True},
+                {"reason": None, "edit": False},
+                {"reason": "원문과 대조 불가", "edit": False},
+                {"reason": "원문과 대조 불가", "edit": False},
                 None,
                 None,
+                None,
+                None,
+            ],
+        )
+
+    def test_an_edit_card_says_the_agent_will_not_apply_it_until_its_base_is_new(self):
+        """The edit card of a 'changed' pin on its own base: '에이전트는 넣지 않음 · 그사이 원문이 바뀌었습니다' with the
+        rebase, as a warning; of an 'unknown' one: '에이전트는 넣지 않음 · 원문과 대조 불가', no action. Rebased (a new base)
+        or filled from a new range: nothing more to warn of. Switched off, a 409's current lines or a moved range say their
+        own line first; a ready pin's edit card, no warning."""
+        got = self.run_js(
+            ["suggestKey", "suggestMoved", "suggestLine"],
+            r"""const o = {file: 'f', lo: 4, hi: 5}, had = {base: 'old', text: 'new'};
+            const d = x => ({on: true, text: 'new', base: 'old', file: 'f', lo: 4, hi: 5, had, current: null, reading: '', fail: null, ...x});
+            const say = l => l ? [l.msg, l.act && l.act.act, !!l.warn] : null, S = SUGGEST_STATE;
+            console.log(JSON.stringify([say(suggestLine(d({}), o, null, true, S.CHANGED)), say(suggestLine(d({}), o, null, true, S.UNKNOWN)),
+              say(suggestLine(d({base: 'now'}), o, null, true, S.CHANGED)), say(suggestLine(d({base: 'now'}), o, null, true, S.UNKNOWN)),
+              say(suggestLine(d({on: false}), o, null, true, S.CHANGED)),
+              say(suggestLine(d({current: {text: 'c', file: 'f', lo: 4, hi: 5}}), o, null, true, S.UNKNOWN)),
+              say(suggestLine(d({lo: 3}), o, null, true, S.UNKNOWN)), say(suggestLine(d({}), o, null, true, S.READY)),
+              say(suggestLine(d({}), o, null, false, S.CHANGED))]));""",
+        )
+        self.assertEqual(
+            got,
+            [
+                ["에이전트는 넣지 않음 · 그사이 원문이 바뀌었습니다", "sg-rebase", True],
+                ["에이전트는 넣지 않음 · 원문과 대조 불가", None, True],
+                None,
+                None,
+                ["저장하면 이 핀의 제안 수정을 지웁니다", None, False],
+                ["그사이 원문이 바뀌었습니다 — 아래는 지금 원문과 이 글의 차이입니다", "sg-rebase", False],
+                ["범위가 바뀌었습니다", "sg-reload", False],
                 None,
                 None,
             ],
@@ -667,6 +703,45 @@ class SuggestCard(SuggestBase):
         settle(page)
         self.assertEqual(page.evaluate(WARN, pid), WARN_KO[0])
 
+    def test_the_changed_lines_action_opens_the_cards_editor(self):
+        """The changed line's last part is a button named by its words and described by its explanation; pressed with a
+        mouse on the desktop or tapped on a phone, it opens that card's edit card, as the card's [수정] does (on touch an icon
+        alone). The unknown line has no action."""
+        pid = self.add(note="짧게", suggest={"base": PARA, "text": NEW})
+        other = self.add(**SECOND)
+        self.main.write_text(TEX_BOTH, encoding="utf-8")
+        for device in (DESK, PHONE):
+            with self.subTest(touch=bool(device.get("has_touch"))):
+                page = self.view(device, n_open=2)
+                page.evaluate("ids=>{setSide(true); ids.forEach(i=>OPEN_CARDS.add(i)); drawPins();}", [pid, other])
+                settle(page)
+                got = page.evaluate(WARN_PARTS, pid)
+                self.assertEqual(got["text"], WARN_KO[0])
+                name, act, desc = got["act"]
+                self.assertEqual((name, act), ("수정해서 원문에 맞추기", "edit"))
+                self.assertIn("[지금 원문으로 맞추기]", desc)
+                self.assertIsNone(page.evaluate(WARN_PARTS, other)["act"])
+                link = page.locator('.pin[data-id="%d"] .sg-warn' % pid).get_by_role(
+                    "button", name="수정해서 원문에 맞추기"
+                )
+                link.tap() if device.get("has_touch") else link.click()
+                page.wait_for_function("id=>EDITOR.current&&EDITOR.current.id===id", arg=pid)
+                page.context.close()
+
+    def test_a_viewer_reads_the_changed_line_without_its_action_and_the_unknown_line_whole(self):
+        """Alice as a viewer, who cannot edit: the changed line is '에이전트는 넣지 않음' with no button; the unknown line
+        keeps its reason, '에이전트는 넣지 않음 · 원문과 대조 불가'."""
+        pid = self.add(note="짧게", suggest={"base": PARA, "text": NEW})
+        other = self.add(**SECOND)
+        self.main.write_text(TEX_BOTH, encoding="utf-8")
+        ps.APP.C.people_file.write_text(
+            json.dumps({"version": 1, "people": [dict(actor(ALICE), role="viewer")]}), encoding="utf-8"
+        )
+        page = self.view(n_open=2)
+        self.assertTrue(page.evaluate("isViewer()"))
+        self.assertEqual(page.evaluate(WARN_PARTS, pid), {"text": "에이전트는 넣지 않음", "act": None})
+        self.assertEqual(page.evaluate(WARN_PARTS, other), {"text": WARN_KO[1], "act": None})
+
 
 class SuggestEditCard(SuggestBase):
     """The edit card edits a suggestion, removes it by switching it off, adds one to a pin without, and shows a closed
@@ -760,6 +835,43 @@ class SuggestEditCard(SuggestBase):
         self.assertIn("Second line, changed.", page.inner_text(".edit .sg-cur"))
         self.assertEqual(self.records()[0]["suggest"], {"base": PARA, "text": NEW})
 
+    # The edit card's line as drawn: its words, its action's words or null, and its words' colour against the card line's.
+    WARN_EDIT = """() => {const l = document.querySelector('.edit .e-sg .sg-note'); if (!l || l.hidden) return null;
+      const b = l.querySelector('button'), probe = document.createElement('p'); probe.className = 'sg-warn'; document.querySelector('.edit').append(probe);
+      const warn = getComputedStyle(probe).color; probe.remove();
+      return {text: l.querySelector('span').textContent, act: b ? b.textContent : null, warning: getComputedStyle(l.querySelector('span')).color === warn};}"""
+
+    def test_the_edit_card_of_a_pin_the_agent_will_not_apply_says_so_until_its_base_is_new(self):
+        """A changed pin's edit card, opened from its line: '에이전트는 넣지 않음 · 그사이 원문이 바뀌었습니다' in the warning
+        colour with [지금 원문으로 맞추기]; pressed, the base is the current lines and the line goes. An unknown pin's edit card:
+        '에이전트는 넣지 않음 · 원문과 대조 불가' in the warning colour, no action."""
+        pid = self.add(note="짧게", suggest={"base": PARA, "text": NEW})
+        other = self.add(**SECOND)
+        self.main.write_text(TEX_BOTH, encoding="utf-8")
+        page = self.view(n_open=2)
+        page.click('.pin[data-id="%d"] .sg-warn-go' % pid)
+        page.wait_for_function("id=>EDITOR.current&&EDITOR.current.id===id&&EDITOR.current.levels.length>0", arg=pid)
+        settle(page)
+        self.assertEqual(
+            page.evaluate(self.WARN_EDIT),
+            {
+                "text": "에이전트는 넣지 않음 · 그사이 원문이 바뀌었습니다",
+                "act": "지금 원문으로 맞추기",
+                "warning": True,
+            },
+        )
+        page.click(".edit .e-sg .sg-note button")
+        page.wait_for_function("()=>EDITOR.current&&EDITOR.current.sg.base!==EDITOR.current.sg.had.base")
+        settle(page)
+        self.assertIsNone(page.evaluate(self.WARN_EDIT))
+        page.evaluate("cancelEdit()")
+        settle(page)
+        self.edit(page, other)
+        self.assertEqual(
+            page.evaluate(self.WARN_EDIT),
+            {"text": "에이전트는 넣지 않음 · 원문과 대조 불가", "act": None, "warning": True},
+        )
+
 
 # The kind row and the editor as drawn: the row and the switch's boxes, the switch label's box (trimmed to its cap height),
 # the kind track, the composer blocks' gaps, the editor's font size and whether its text overflows sideways, and the
@@ -842,8 +954,9 @@ class SuggestGeometry(SuggestBase):
         right: vr.right - r.right, sideways: w.scrollWidth > w.clientWidth, panel: document.querySelector('#right').getBoundingClientRect().width};}"""
 
     def test_the_warning_line_is_one_line_in_the_desktop_panel_and_fits_320px(self):
-        """The changed and the unknown line, Korean and English: in the desktop's 348px panel each is one line (its height
-        its 16px line) of 12px words; on a 320px phone each stays inside its card, wrapping rather than scrolling."""
+        """The changed and the unknown line, Korean and English: in the desktop's 348px panel and on a 320px phone each is
+        one line (its height its 16px line) of 12px words, inside its card, wrapping rather than scrolling; the changed
+        line's action is drawn on that line (16px, no box) and answers 24px with the mouse, 44px on the phone."""
         pid = self.add(note="짧게", suggest={"base": PARA, "text": NEW})
         other = self.add(**SECOND)
         self.main.write_text(TEX_BOTH, encoding="utf-8")
@@ -858,8 +971,23 @@ class SuggestGeometry(SuggestBase):
                         self.assertEqual(g["text"], text, g)
                         self.assertEqual((g["left"], g["sideways"]), (0, False), g)
                         self.assertGreaterEqual(g["right"], 0, g)
+                        self.assertEqual((g["font"], g["lh"], g["h"]), (12, 16, 16), g)
                         if name.startswith("desktop"):
-                            self.assertEqual((g["panel"], g["font"], g["lh"], g["h"]), (348, 12, 16, 16), g)
+                            self.assertEqual(g["panel"], 348, g)
+                    link = '.pin[data-id="%d"] .sg-warn-go' % pid
+                    self.assertEqual(
+                        page.evaluate("s=>document.querySelector(s).getBoundingClientRect().height", link), 16
+                    )
+                    touch = bool(BANDS[name].get("has_touch"))
+                    page.evaluate("s=>document.querySelector(s).scrollIntoView({block:'center'})", link)
+                    settle(page)
+                    self.assertTrue(
+                        page.evaluate(
+                            "s=>{const r=document.querySelector(s).getBoundingClientRect(); return r.top>0&&r.bottom<innerHeight;}",
+                            link,
+                        )
+                    )
+                    self.assertEqual(page.evaluate(MISSES_44 if touch else MISSES_24, link), [])
                     page.context.close()
 
 

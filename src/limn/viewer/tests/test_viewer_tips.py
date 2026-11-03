@@ -332,7 +332,7 @@ class TipReadAlong(TipBase):
         page = self.view(n_open=1)
         card, badge = '.pin[data-id="%d"]' % pid, '.pin[data-id="%d"] .sg-badge' % pid
         for words, line in (
-            ("제안 수정 · 원문 바뀜", "에이전트는 넣지 않음 · [수정]에서 원문에 맞추기"),
+            ("제안 수정 · 원문 바뀜", "에이전트는 넣지 않음 · 수정해서 원문에 맞추기"),
             ("제안 수정 · 확인 불가", "에이전트는 넣지 않음 · 원문과 대조 불가"),
         ):
             with self.subTest(words):
