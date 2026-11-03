@@ -1,14 +1,14 @@
 """The browser suite split across CI jobs (`--shard i/n`, tests/support/helpers_shards.py) runs every test once.
 
-CI runs each Python version's browser suite as parts on separate runners (.github/workflows/browser.yml) and reports
-them under the one check name branch protection requires (.github/workflows/ci.yml). A part that dropped a test, or a
-test that ran in no part, would pass the gate without running; these tests hold that, for any number of parts:
+CI runs the browser suite once, on Python 3.12, as parts on separate runners (.github/workflows/browser.yml) and
+reports them under the one check name branch protection requires (.github/workflows/ci.yml). A part that dropped a test,
+or a test that ran in no part, would pass the gate without running; these tests hold that, for any number of parts:
 
 1. Every selected test is in exactly one part, a scope (a class; a module's functions) whole in one part - for made-up
    collections with parameters and scopes the timing file does not know, and for the real browser suite.
 2. The option runs that part: it splits what -m selected, runs subtests with their test, agrees across xdist workers,
    and starts the heaviest class first.
-3. The workflows run every part on each Python version and fail the required name when a part did not pass.
+3. The workflows run every part, once, on Python 3.12 and fail the required name when a part did not pass.
 
 Run: uv run pytest -q tests/architecture/test_ci_shards.py
 """
@@ -29,7 +29,7 @@ pytest_plugins = ("pytester",)
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOWS = ROOT / ".github" / "workflows"
-PYTHONS = ("3.10", "3.12")
+BROWSER_PYTHON = "3.12"
 
 
 def collected(*args: str) -> list[str]:
@@ -284,10 +284,10 @@ def test_a_recording_is_the_seconds_of_each_scope_without_counting_subtests_agai
     assert hs.scope_seconds(reports) == {"m.py": 0.3, "m.py::C": 3.5}
 
 
-def test_ci_runs_every_part_on_each_python_and_fails_the_required_name_unless_all_passed():
-    """browser.yml runs `-m browser --shard i/n` for i in 1..n on the caller's Python; ci.yml calls it once per version
-    and reports `test (<version>, browser, browser, 2)` from that version's parts only, failing on anything but success
-    (a failed, cancelled or skipped part) and running even then (`if: always()`)."""
+def test_ci_runs_every_part_once_on_3_12_and_fails_the_required_name_unless_all_passed():
+    """browser.yml runs `-m browser --shard i/n` for i in 1..n on the caller's Python; ci.yml calls it once, on 3.12,
+    and reports `test (3.12, browser, browser, 2)` - the one browser result it has - from those parts, failing on
+    anything but success (a failed, cancelled or skipped part) and running even then (`if: always()`)."""
     browser = jobs((WORKFLOWS / "browser.yml").read_text(encoding="utf-8"))
     (part,) = browser.values()
     assert "python-version: ${{ inputs.python }}" in part
@@ -296,11 +296,12 @@ def test_ci_runs_every_part_on_each_python_and_fails_the_required_name_unless_al
     keys = [line.split(":")[0].strip() for line in matrix.splitlines() if not line.strip().startswith("#")]
     assert keys == ["shard"], matrix  # so strategy.job-total is the number of parts
     ci = jobs((WORKFLOWS / "ci.yml").read_text(encoding="utf-8"))
-    for version in PYTHONS:
-        caller = "browser-%s" % version.replace(".", "-")
-        assert "uses: ./.github/workflows/browser.yml" in ci[caller]
-        assert 'python: "%s"' % version in ci[caller]
-        (gate,) = [job for job in ci.values() if "name: test (%s, browser, browser, 2)\n" % version in job]
-        assert "needs: %s\n" % caller in gate and "if: always()\n" in gate, gate
-        assert "RESULT: ${{ needs.%s.result }}" % caller in gate and '[ "$RESULT" = success ]' in gate, gate
+    (caller,) = [name for name, job in ci.items() if "uses: ./.github/workflows/browser.yml" in job]
+    assert re.findall(r'^      python: "([\d.]+)"$', ci[caller], re.MULTILINE) == [BROWSER_PYTHON], ci[caller]
+    (gate,) = [
+        job for job in ci.values() if re.search(r"^    name: test \([\d.]+, browser, browser, 2\)$", job, re.MULTILINE)
+    ]
+    assert "    name: test (%s, browser, browser, 2)\n" % BROWSER_PYTHON in gate, gate
+    assert "needs: %s\n" % caller in gate and "if: always()\n" in gate, gate
+    assert "RESULT: ${{ needs.%s.result }}" % caller in gate and '[ "$RESULT" = success ]' in gate, gate
     assert ci_parts() > 1

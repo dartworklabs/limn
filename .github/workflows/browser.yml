@@ -1,7 +1,7 @@
 name: Browser tests
 
-# One Python version's browser suite (the `browser` marker), split in parts that run at once on their own runners.
-# ci.yml calls this once per version and reports the version's result under the check name branch protection requires.
+# The browser suite (the `browser` marker), split in parts that run at once on their own runners. ci.yml calls this
+# once, on Python 3.12, and reports the parts' result under the check name branch protection requires.
 #
 # `--shard i/n` (tests/support/helpers_shards.py) gives part i whole test classes, the way `--dist loadscope` keeps a
 # class on one worker, balanced by the seconds each class took in a measured run (tests/data/shard_seconds.json). The
@@ -11,8 +11,9 @@ name: Browser tests
 #
 # Each part keeps the unsplit job's two workers on the same four-CPU runner, so a test's time is what it was there;
 # more workers would race the same CPUs in tests that measure layout. The count of parts is the shard list below. The
-# limits follow ci.yml's rule: about twice a part's usual length, which is its time to set up plus a share of the
-# suite's (see the shard list), and the browser download keeps its own shorter limit.
+# limits follow ci.yml's rule. Twice a part's usual length, its time to set up plus a share of the suite's (see the
+# shard list), is under the rule's 15 minutes; but a test that hangs near the end of a part prints its stack 600 seconds
+# later (faulthandler_timeout), so the job's limit is 20 minutes, and the browser download keeps its own shorter limit.
 on:
   workflow_call:
     inputs:
@@ -28,15 +29,16 @@ jobs:
   part:
     name: part ${{ matrix.shard }}/${{ strategy.job-total }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
         # The parts. --shard takes their count from the matrix size (strategy.job-total), so this list is the one place
-        # to change it. The unsplit job spent about 40 minutes in pytest with two workers: five parts spend about 8 each,
-        # after about 2 to set up. The slowest class (about 5 minutes) is the floor of a part; more parts would save
-        # little past it and the setup, and would queue behind the account's limit of runners at once.
-        shard: [1, 2, 3, 4, 5]
+        # to change it. The suite is about 75 minutes of test time (tests/data/shard_seconds.json), about 38 in pytest
+        # with two workers: ten parts spend about 4 each, after 1 to 2 to set up. The slowest class (about 3.5 minutes,
+        # on one worker) is the floor of a part and already close to that share; more parts would save little past it
+        # and the setup, and would queue behind the account's limit of runners at once.
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     env:
       # Browser layout tests must run here, not skip.
       LIMN_TEST_REQUIRE_BROWSER: "1"

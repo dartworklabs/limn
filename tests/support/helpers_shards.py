@@ -1,6 +1,6 @@
 """Split a test selection into n parts that run on separate machines (`--shard i/n`), a whole class at a time.
 
-CI runs the browser suite as several jobs per Python version; each runs `pytest -m browser --shard i/n` and they
+CI runs the browser suite as several jobs, on one Python version; each runs `pytest -m browser --shard i/n` and they
 add up to the suite (docs/handbook/verification.md §검증 시간과 병렬 실행). The unit of the split is the scope that
 pytest-xdist's `--dist loadscope` keeps on one worker (scope_of), so a class's browser and server stay together
 in one shard as they stay on one worker inside it.

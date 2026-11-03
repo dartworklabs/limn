@@ -27,7 +27,8 @@ permissions:
 # from the Ubuntu archive have their own shorter limit, so the step that stalled is the one marked failed. Every pytest
 # run sets `faulthandler_timeout`: a test still running after 600 seconds prints the stack of every thread, which names
 # the test and the line it is waiting on, while the run carries on. The slowest browser test takes a little over two
-# minutes on a fast machine, and 600 seconds still leaves each job's limit room to print the stack before it stops the job.
+# minutes on a fast machine, and each job's limit leaves those 600 seconds after the job's usual length, so a test that
+# hangs late in a job still prints its stack before the limit stops the job.
 jobs:
   lint:
     runs-on: ubuntu-24.04
@@ -72,7 +73,7 @@ jobs:
       fail-fast: false
       matrix:
         python: ["3.10", "3.12"]
-        # The browser suite runs in parts (browser-3-10 and browser-3-12 below). The suite keeps its three values: every
+        # The browser suite runs in parts, on 3.12 only (browser-3-12 below). The suite keeps its three values: every
         # matrix value is part of the job's name, which branch protection requires as is.
         suite:
           - name: core
@@ -99,39 +100,20 @@ jobs:
       - name: Python tests
         run: uv run pytest -q -rs -n ${{ matrix.suite.workers }} -m "${{ matrix.suite.markers }}" -o faulthandler_timeout=600
 
-  # Each Python version's browser suite, in parts on their own runners (browser.yml). Two jobs, not one matrix: a job
-  # can wait on another job as a whole, not on some of its matrix entries, and each version's result below must come
-  # from that version's parts alone.
-  browser-3-10:
-    name: browser (3.10)
-    uses: ./.github/workflows/browser.yml
-    with:
-      python: "3.10"
-
+  # The browser suite, in parts on their own runners (browser.yml), on Python 3.12 only. It tests the viewer's JS in a
+  # browser; running it on a second Python version doubled its cost for little signal. Python 3.10 stays covered by the
+  # core suite above on 3.10, by the lint job's Ruff and mypy (both target 3.10) and by the instances job's check of the
+  # 3.10 floor. A server path that only a browser test reaches no longer runs on 3.10.
   browser-3-12:
     name: browser (3.12)
     uses: ./.github/workflows/browser.yml
     with:
       python: "3.12"
 
-  # Branch protection requires the names the unsplit browser jobs had (their matrix values: Python, suite, markers,
-  # workers). Each passes only when every part of its version's suite passed: a failed, cancelled or skipped part fails
-  # it. `always()` runs it in those cases too - a job skipped by its condition reports success, which a required check
-  # takes as a pass.
-  browser-result-3-10:
-    name: test (3.10, browser, browser, 2)
-    needs: browser-3-10
-    if: always()
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    steps:
-      - name: Every part of the 3.10 browser suite passed
-        env:
-          RESULT: ${{ needs.browser-3-10.result }}
-        run: |
-          echo "browser (3.10): $RESULT"
-          [ "$RESULT" = success ]
-
+  # Branch protection requires the name the unsplit 3.12 browser job had (its matrix values: Python, suite, markers,
+  # workers). It passes only when every part of the suite passed: a failed, cancelled or skipped part fails it.
+  # `always()` runs it in those cases too - a job skipped by its condition reports success, which a required check takes
+  # as a pass.
   browser-result-3-12:
     name: test (3.12, browser, browser, 2)
     needs: browser-3-12
