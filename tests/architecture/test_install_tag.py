@@ -42,11 +42,40 @@ def stale_tags(text: str, current: str) -> list[str]:
     ]
 
 
-def markdown_files() -> list[str]:
+def markdown_files(root: Path = ROOT) -> list[str]:
+    """Tracked and untracked-but-not-ignored Markdown files under `root`, history excluded.
+
+    `-z` keeps a non-ASCII name as it is: without it Git quotes and escapes the name, which then names no file.
+    """
     out = subprocess.run(
-        ["git", "ls-files", "-co", "--exclude-standard", "*.md"], cwd=ROOT, capture_output=True, text=True, check=True
+        ["git", "ls-files", "-z", "-co", "--exclude-standard", "--", "*.md"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=True,
     )
-    return [p for p in out.stdout.splitlines() if not p.startswith(HISTORY) and (ROOT / p).is_file()]
+    return [p for p in out.stdout.split("\0") if p and not p.startswith(HISTORY) and (root / p).is_file()]
+
+
+def test_the_file_list_keeps_non_ascii_names_and_leaves_out_history_and_ignored_files(tmp_path: Path) -> None:
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    # Git's default, set here so a contributor's own `core.quotePath false` cannot hide the case.
+    subprocess.run(["git", "config", "core.quotePath", "true"], cwd=tmp_path, check=True)
+    for name in (
+        "docs/설치.md",
+        "설명.md",
+        "README.md",
+        "CHANGELOG.md",
+        "docs/adr/0001-기록.md",
+        "ignored.md",
+        "a.txt",
+    ):
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).write_text("dartworklabs/limn@v0.0.1\n", encoding="utf-8")
+    (tmp_path / ".gitignore").write_text("ignored.md\n", encoding="utf-8")
+    subprocess.run(["git", "add", "docs/설치.md", "README.md", "CHANGELOG.md", "docs/adr"], cwd=tmp_path, check=True)
+    assert sorted(markdown_files(tmp_path)) == ["README.md", "docs/설치.md", "설명.md"]
 
 
 def test_the_rule_finds_every_tag_but_the_current_one() -> None:
