@@ -51,14 +51,23 @@ button.sg-tg[aria-checked=true]{color:var(--foreground)}
 .sg-warn{margin:0 0 var(--space-1);font-size:var(--text-sm);line-height:var(--line-label);color:var(--status-warning);overflow-wrap:anywhere}
 /* Its action, '수정해서 원문에 맞추기', opens the card's editor: a word in the line in the viewer's link look (primary text, no
    underline at rest, a solid one on hover and :focus-visible - cards.css), drawn on the line's 16px with no box of its own, so
-   the line keeps its height on every pointer. It answers 44px on touch from the hit utility (.hit) and 24px with a mouse from
-   a centred box, as the editor line's action does. */
+   the line keeps its height on every pointer. With a mouse it answers a centred 24px box, which reaches 4px over and under
+   the line: into the 8px above it and to the diff's top edge, never into the diff. On touch it answers 44px (.hit), but
+   not centred: a centred box reached 10px into the diff, and a tap on the diff's first row opened the editor. Its box
+   ends at the diff's top edge and rises 44px from there, and the line takes the room above it that this needs: on touch
+   a card whose line has the action starts its suggestion 24px under the note (8px otherwise), so the box covers the gap,
+   the line and the 4px under it, and neither the note (its #N links) nor the diff. The browser moves a tap that lands on
+   nothing that answers taps to a nearby control that does (Chromium's touch adjustment moved one 1-8px inside the diff to
+   the action); a style for :active makes a card's diff a node that answers taps, so a tap on it stays on it. */
 .sg-warn button.sg-warn-go{display:inline;min-height:0;min-width:0;height:auto;padding:0;border:0;border-radius:0;background:transparent;
   color:var(--primary);font:inherit;line-height:inherit;vertical-align:baseline;text-decoration:none;text-underline-offset:3px}
 .sg-warn button.sg-warn-go:focus-visible{text-decoration:underline}
 @media (hover:hover){.sg-warn button.sg-warn-go:hover{background:transparent;color:var(--primary);text-decoration:underline}}
 @media (pointer:fine){.sg-warn button.sg-warn-go{position:relative}
   .sg-warn button.sg-warn-go::after{content:'';position:absolute;left:50%;top:50%;width:max(100%,24px);height:max(100%,24px);transform:translate(-50%,-50%)}}
+@media (pointer:coarse){.pin .sg-view:has(>.sg-warn .sg-warn-go){margin-top:var(--space-6)}
+  .pin .sg-warn button.sg-warn-go::after{top:auto;bottom:calc(-1 * var(--space-1));height:var(--hit);transform:translateX(-50%)}
+  .pin .sg-diff:active{cursor:text}}
 /* An edit card's line while its draft keeps the pin's base says first that the agent will not apply it (suggestLine `warn`):
    its words in the card line's warning colour, its action still the link. */
 .sg-note.sg-note-warn>span{color:var(--status-warning)}

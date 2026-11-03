@@ -2248,14 +2248,18 @@ class FrontendHoverForMouse(unittest.TestCase):
     def test_a_touch_press_gets_a_brief_token_wash_instead(self):
         """With hover answering a mouse only, a touch screen still sees a press: while a control is pressed (:active) an
         inset wash of the text colour covers its surface, from tokens, under the no-hover query only - so nothing stays
-        after the finger lifts and a mouse keeps its hover look."""
+        after the finger lifts and a mouse keeps its hover look. The only other :active rule paints nothing: it makes a
+        card's suggestion diff a node that answers taps on touch, so the browser's touch adjustment leaves a tap on it
+        there (docs/handbook/viewer.md §모바일 레이아웃)."""
         css = HTML[HTML.index("<style>") + len("<style>") : HTML.index("</style>")]
         self.assertIn(
             "@media not all and (hover:hover){button:active:not(:disabled){box-shadow:inset 0 0 0 100vmax "
             "color-mix(in srgb,var(--foreground) 8%,transparent)}}",
             css,
         )
-        self.assertEqual(css.count(":active"), 1)
+        rules = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+        self.assertEqual(rules.count(":active"), 2)
+        self.assertIn(".pin .sg-diff:active{cursor:text}", rules)
 
     def test_the_guard_catches_a_bare_a_negated_and_a_pointer_hover_rule(self):
         """A bare rule, one under the negated query and one under another media query are reported; the same rule inside

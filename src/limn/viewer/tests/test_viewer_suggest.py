@@ -728,6 +728,45 @@ class SuggestCard(SuggestBase):
                 page.wait_for_function("id=>EDITOR.current&&EDITOR.current.id===id", arg=pid)
                 page.context.close()
 
+    # The changed line's action on card id as drawn: the x of its centre, the note's bottom, the line's top and bottom, the
+    # diff's top, and how far its hit reaches over and under its centre (elementFromPoint, 1px steps, 60px each way).
+    ACT_BOX = """id => {const c = document.querySelector('.pin[data-id="' + id + '"]'), b = c.querySelector('.sg-warn-go'), R = e => e.getBoundingClientRect();
+      const r = R(b), x = r.left + r.width / 2, cy = r.top + r.height / 2, own = y => {const h = document.elementFromPoint(x, y); return !!h && (h === b || b.contains(h));};
+      let u = 0, d = 0; while (u < 60 && own(cy - u - 1)) u++; while (d < 60 && own(cy + d + 1)) d++;
+      return {x, note: R(c.querySelector('.note')).bottom, line: [R(c.querySelector('.sg-warn')).top, R(c.querySelector('.sg-warn')).bottom],
+        diff: R(c.querySelector('.sg-diff')).top, hit: [cy - u, cy + d + 1]};}"""
+
+    def test_a_tap_just_inside_the_diff_under_the_action_stays_on_the_diff(self):
+        """On a phone (390px) and an unfolded foldable's panel (841px): the action's 44px hit rises from the diff's top edge
+        through the line to the note's bottom edge, covering neither; a real tap 1, 2 or 5px inside the diff under the action
+        opens no editor (no hit there, and the browser's touch adjustment does not move it to the action), while a tap on the
+        action opens it."""
+        pid = self.add(note="짧게", suggest={"base": PARA, "text": NEW})
+        self.main.write_text(TEX_CHANGED, encoding="utf-8")
+        for name in ("phone 390x844", "fold inner 841x673"):
+            with self.subTest(band=name):
+                page = self.view(BANDS[name], n_open=1)
+                page.evaluate("id=>{setSide(true); OPEN_CARDS.add(id); drawPins();}", pid)
+                settle(page)
+                page.evaluate(
+                    "id=>document.querySelector('.pin[data-id=\"'+id+'\"] .sg-warn').scrollIntoView({block:'center'})",
+                    pid,
+                )
+                settle(page)
+                g = page.evaluate(self.ACT_BOX, pid)
+                self.assertEqual(g["hit"][1] - g["hit"][0], 44, g)
+                self.assertLessEqual(g["hit"][1], g["diff"], g)
+                self.assertGreaterEqual(g["hit"][0], g["note"], g)
+                for dy in (1, 2, 5):
+                    page.touchscreen.tap(g["x"], g["diff"] + dy)
+                    settle(page)
+                    self.assertFalse(
+                        page.evaluate("!!EDITOR.current"), "a tap %dpx inside the diff opened the editor" % dy
+                    )
+                page.touchscreen.tap(g["x"], (g["line"][0] + g["line"][1]) / 2)
+                page.wait_for_function("id=>EDITOR.current&&EDITOR.current.id===id", arg=pid)
+                page.context.close()
+
     def test_a_viewer_reads_the_changed_line_without_its_action_and_the_unknown_line_whole(self):
         """Alice as a viewer, who cannot edit: the changed line is '에이전트는 넣지 않음' with no button; the unknown line
         keeps its reason, '에이전트는 넣지 않음 · 원문과 대조 불가'."""
