@@ -41,12 +41,17 @@ from limn.viewer.mark import FILES as BRAND_FILES, Brand, Icon, brand
 Message: TypeAlias = str | dict[str, str]
 # The bundled libraries GET /vendor/<library>/<file> serves: PDF.js (default_pdfjs_dir) and the Pretendard font
 # (default_pretendard_dir). Lucide's icons are inlined in the page, never served.
-VendorLibrary: TypeAlias = Literal["pdfjs", "pretendard"]
+VendorLibrary: TypeAlias = Literal["pdfjs", "pretendard", "markdown-it"]  # markdown-it: PoC (HTML surface)
 
 
 def default_pdfjs_dir() -> Path:
     """Return the package's bundled PDF.js directory."""
     return Path(__file__).resolve().parent.parent / "vendor" / "pdfjs"
+
+
+def default_markdown_it_dir() -> Path:
+    """PoC: the package's bundled markdown-it (ESM browser build), loaded only when a Markdown document opens."""
+    return Path(__file__).resolve().parent.parent / "vendor" / "markdown-it"
 
 
 def default_pretendard_dir() -> Path:

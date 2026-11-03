@@ -272,7 +272,8 @@ let OUTLINE_PINNED=/** @type {{page:number,index:number,reached:boolean}|null} *
 const OUTLINE_PICK_SETTLE_MS=250;   // a smooth scroll moves the pages every frame; this long without a scroll, the pick looks whether they rest
 const OUTLINE_PICK_GAP=8;   // px between the top of the free PDF area and a picked heading
 // Pick entry i of the outline: the strip and the highlight name it, and the pages scroll to it (outlinePickTop).
-function pickOutline(i){const e=OUTLINE_ENTRIES[i]; if(!e)return;
+function pickOutline(i){if(isMdDoc()){mdGoHeading(i); return;}   // PoC: a heading of the HTML surface
+  const e=OUTLINE_ENTRIES[i]; if(!e)return;
   OUTLINE_SELECTED=i; OUTLINE_ACTIVE_PAGE=e.page; OUTLINE_PINNED={index:i,page:e.page,reached:false}; outlinePickWait();
   markOutline(); updateSectionStrip(); setViewMode('manuscript');
   const top=outlinePickTop(e); if(top===null){goPage(e.page); return;}

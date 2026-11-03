@@ -666,6 +666,7 @@ READ_PATHS = frozenset(
         "/api/pins/dropped",
         "/api/snippet",
         "/api/overlaps",
+        "/api/source",  # PoC: the HTML surface's source lines
     }
 )
 
@@ -686,7 +687,7 @@ def check_read(path: str) -> None:
     """Admitted principals may read declared paths; new registrations start denied."""
     if path in READ_PATHS or re.fullmatch(r"/api/pins/\d+", path):
         return
-    if path.startswith(("/pages/", "/vendor/pdfjs/", "/vendor/pretendard/")):
+    if path.startswith(("/pages/", "/vendor/pdfjs/", "/vendor/pretendard/", "/vendor/markdown-it/")):
         return  # These declared resource families validate their leaf names at their sink.
     raise HTTPError(404, "없는 경로입니다: %s" % path, reason="not_found")
 

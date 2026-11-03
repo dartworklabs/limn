@@ -61,7 +61,7 @@ function card(p){p=pvQuietRel(p);   // no overlap badge between two verdicts abo
   const lost=!!(p.stale||lostEl),metadata=cardMetadata(p,rv?'검토 대기':lost?'위치 잃음':claimed?'처리 중':ro?'다시 열림':'열림',pressable);
   // compact's head link (CSS shows it in place of #N, the line range and N쪽, diagnosis P6/U5): one 44px target that does what
   // [보기] does - the same data-act, so it also replaces the row's [보기] there.
-  const page=tl('{page}쪽',{page:pinPlace(p).page});
+  const page=isMdPin(p)?'Markdown':tl('{page}쪽',{page:pinPlace(p).page});   // PoC: a Markdown pin has no page
   // Its words and the reply count are in .lbl: compact trims them to their cap height, so the head row's dot, words, count and
   // chevron share one centre in any font.
   const go=html`<span class="go-all" role="button" tabindex="0" data-act="view" data-tip="${T.view}"><span class="lbl">#${p.id} · ${locText(p)} · ${page}</span></span>`;

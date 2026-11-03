@@ -81,7 +81,7 @@ def whole_page_target(record: Mapping[str, Any], figure_document: bool, view_onl
 
 
 # A document's kind as the verdict order reads it (limn.runtime.documents.DocKind: pins do not import the runtime).
-TargetKind: TypeAlias = Literal["tex", "pdf", "figure"]
+TargetKind: TypeAlias = Literal["tex", "pdf", "figure", "markdown"]
 
 
 @dataclass(frozen=True)

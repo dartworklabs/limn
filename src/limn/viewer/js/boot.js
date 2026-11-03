@@ -14,7 +14,8 @@ async function boot(){i18nStart();
   if(multiDoc()){setHash(DOC); savePrefs({lastDoc:DOC});}
   drawMeta(); applySideWidth(); applyOutlineState(); const hadW=applyViewWidth(v); buildDoc(); if(!hadW)autoW(); vecBoot(); const pinsLoaded=await loadPins();
   restoreView(v); drawDocTabs(); updateSectionStrip(); restoreDraft();   // the page count is there before the first scroll (mid shows it in the nav bar)
-  if(MQ_COARSE.matches)coach('touch','PDF를 길게 누르면 그 문단을 고릅니다 · [선택]을 켜면 끌어서 고릅니다');
+  if(isMdDoc())coach(MQ_COARSE.matches?'touch':'mouse',MQ_COARSE.matches?'블록을 누르면 그 블록을, 길게 눌러 글을 고르면 그 줄을 고릅니다':'글을 끌어 고르면 그 줄을, 블록을 누르면 그 블록을 고릅니다');   // PoC
+  else if(MQ_COARSE.matches)coach('touch','PDF를 길게 누르면 그 문단을 고릅니다 · [선택]을 켜면 끌어서 고릅니다');
   else coach('mouse','PDF를 끌어서 고칠 곳을 고르세요');   // first-time mouse users had no hint how to pin (the PDF also shows a crosshair)
   // A failed first read has no pin baseline; the light poll must retry even when meta has not changed.
   if(pinsLoaded){LAST_PINS_REV=META.pins_rev; LAST_SRC_MTIME=META.src_sig||META.src_mtime;}
@@ -69,10 +70,11 @@ function viewerBlocked(){if(!isViewer())return false; bannerNote(undefined,'보�
 // signed in, the stale and sync badges and the pins.md help text; the rebuild button is hidden unless the document builds
 // from source. Reads META only and sends nothing.
 function drawMeta(){
-  document.body.classList.toggle('no-rebuild',!buildsFromSource(META.kind));   // only a LaTeX document builds from source; a view-only PDF and a figure redraw when their files change
+  document.body.classList.toggle('no-rebuild',!buildsFromSource(META.kind));
+  document.body.classList.toggle('md-surface',isMdDoc());   // PoC: page-only controls hide for the HTML surface   // only a LaTeX document builds from source; a view-only PDF and a figure redraw when their files change
   document.body.classList.toggle('role-viewer',isViewer());
   $('#m-download').disabled=!META.pages_build;   // no build on screen, no PDF to save
-  $('#meta-main').textContent=META.main; $('#meta-pages').textContent=tl('{n}쪽',{n:META.pages.length});
+  $('#meta-main').textContent=META.main; $('#meta-pages').textContent=isMdDoc()?'Markdown':tl('{n}쪽',{n:META.pages.length});
   const head=commitShown(META.head); $('#meta-head').textContent=head; $('#meta-head-w').hidden=!head;
   $('#meta-built').textContent=String(META.built_at||'').slice(0,16).replace('T',' ');
   const me=META.me||/** @type {Me} */({});

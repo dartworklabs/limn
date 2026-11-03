@@ -270,7 +270,7 @@ class PinCommands:
             doc = self.doc_by_key(key)
             if doc is None:
                 return None
-            if doc.kind == "tex":
+            if doc.kind in ("tex", "markdown"):  # PoC: a Markdown pin's target is its lines, as a LaTeX pin's
                 return Placement(key, doc.kind, file=located_file(pin, locate))
             if doc.kind == "pdf" and whole_page_target(pin.record, figure_document=False, view_only_document=True):
                 if key not in contexts:

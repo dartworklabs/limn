@@ -261,6 +261,8 @@ def parse_doc_arg(spec: str, ms: Path) -> DocSpec | DocSpecRefusal:
         kind = "tex"
     elif suf == ".pdf":
         kind = "pdf"
+    elif suf == ".md":
+        kind = "markdown"  # PoC: the HTML surface
     else:
         return DocKindUnknown(key, main)
     return DocSpec(key=key, name=name, kind=kind, src=root, main=main)
@@ -364,6 +366,8 @@ def doc_start_line(key: str, kind: DocKind, path: str, build_started: bool) -> s
             label = "view-only"
         case "figure":
             label = "figure   "
+        case "markdown":
+            label = "markdown "
     return "doc    %-10s %s %s%s" % (key, label, path, "  (build started)" if build_started else "")
 
 

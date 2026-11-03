@@ -47,6 +47,7 @@ async function pollLightOnce(){
   const needsPins=LAST_PINS_REV===null||d.pins_rev!==LAST_PINS_REV||sig!==LAST_SRC_MTIME;
   const applied=!needsPins||await loadPins();
   if(k!==DOC||visit!==SWITCHSEQ)return;
+  if(isMdDoc()&&sig!==LAST_SRC_MTIME)mdBuild();   // PoC: the source changed - the HTML surface draws it again
   if(applied){LAST_PINS_REV=d.pins_rev; LAST_SRC_MTIME=sig;}
   // A build started via curl by another session/agent is also caught through light meta's build.state - the 1-second poll only
   // runs during that (or when this tab itself pressed rebuild()).

@@ -18,7 +18,7 @@ from limn.pins.location.resolve import (
 from limn.pins.location.service import PinLocationService
 from limn.runtime.documents import Doc
 from limn.web.answers import accepted
-from limn.web.parse import DocumentFacts, Query, parse_flag
+from limn.web.parse import DocumentFacts, Query, parse_flag, source_file
 
 Body: TypeAlias = dict[str, object]
 
@@ -48,6 +48,21 @@ def snippet(app: LocationApp, doc: Doc, query: Query) -> Body:
     return app.location_service.snippet(
         rng, parse_flag(query, "levels"), not doc.has_element_map, parse_flag(query, "text")
     )
+
+
+def source(app: LocationApp, doc: Doc) -> Body:
+    """PoC: GET /api/source - a document the browser renders (Doc.renders_in_browser) as the server numbers its lines.
+
+    The lines are the server's own (tex_lines: str.splitlines()), sent already split, so the viewer's line numbers are the
+    server's by construction - it joins them with "\\n" before parsing and never splits the raw file itself."""
+    if not doc.renders_in_browser:
+        return {"error": "이 문서는 브라우저에서 그리지 않습니다.", "reason": "not_rendered"}
+    facts = app.document_facts(doc)
+    f = source_file(str(doc.main), facts.root, facts.state)
+    if not hasattr(f, "path"):
+        return {"error": "원문 파일을 읽지 못했습니다.", "reason": "source_unreadable"}
+    lines = facts.lines(f)  # type: ignore[arg-type]
+    return {"doc": doc.key, "file": str(doc.main), "name": doc.main.name, "lines": lines, "n_lines": len(lines)}
 
 
 def overlaps(app: LocationApp, doc: Doc, query: Query) -> Body:

@@ -92,6 +92,7 @@ function selectionOpen(){return !!(COMPOSE.current||!$('#composer').hidden)&&!RE
 // ignore the pointer, so the page is what the press lands on).
 /** Whether a primary press can cancel the open selection; pin badge buttons, controls and marks never cancel it. */
 function pressOutsideSelection(e){const t=/** @type {Element} */(e.target); if(!selectionOpen())return false;
+  if(isMdDoc()&&t.closest('#md'))return false;   // PoC: a press on the HTML surface picks (md-surface.js), never cancels
   if(t.closest('.mark [data-act=mark-jump],button,a,input,textarea,select,[data-act],[role=button],#sel-pop'))return false;
   const L=$('#left'); if(t===L&&(e.offsetX>=L.clientWidth||e.offsetY>=L.clientHeight))return false;
   const inside=[...document.querySelectorAll('.mark'),...(COMPOSE.box?[COMPOSE.box,...COMPOSE.box.querySelectorAll('i')]:[]),...(selPopOpen()?[SEL_POP]:[])].map(n=>n.getBoundingClientRect());

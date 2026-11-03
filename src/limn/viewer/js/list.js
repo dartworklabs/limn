@@ -340,6 +340,7 @@ function markHitSides(){const bs=/** @type {HTMLElement[]} */($$('.mark button.m
 /** Draw native, named pin badge buttons at the current mark coordinates, preserving mark and undo-chip geometry. */
 // A pin a page verdict line shows (pvShows) draws no page-size box: the line under its page says it (drawPageVerdicts, first).
 function marks(){
+  if(isMdDoc()){mdMarks(); drawChips(); return;}   // PoC: pins on the HTML surface are marked on its lines
   $$('.mark').forEach(m=>m.remove()); drawPageVerdicts();
   // Awaiting-review pins are also drawn as purple marks - so the reviewer can see right there what was fixed (unrelated to an open pin's overlap/editing).
   // A figure pin is drawn where the server found its element in this build (see pinPlace), and a found element is no estimate.
@@ -401,6 +402,7 @@ function jumpPin(id){if(viaDoc(id,jumpPin))return; const p=PINS.find(x=>x.id===i
   if(document.body.classList.contains('revision-open'))setViewMode(VIEW_MODE.MANUSCRIPT);
   if(jumpPv(id))return;   // a pin its page verdict line shows: the line
   if(LAYOUT===LAYOUT_MODE.NARROW)setSide(false);   // collapsed first so the sheet doesn't cover the page, then measured
+  if(isMdDoc()){mdJump(id); return;}   // PoC
   const m=/** @type {HTMLElement} */(document.querySelector('.mark[data-pin="'+id+'"]'));
   if(m){
     const L=$('#left'),lr=L.getBoundingClientRect(),mr=m.getBoundingClientRect();

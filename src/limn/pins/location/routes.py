@@ -13,6 +13,8 @@ def get(request: GetRequest, app: LocationApp) -> Reply | None:
     path = request.path
     if path == "/api/snippet":
         return json_reply(http.snippet(app, request.doc, request.query))
+    if path == "/api/source":  # PoC: the HTML surface's source lines
+        return json_reply(http.source(app, request.doc))
     if path == "/api/overlaps":
         return json_reply(http.overlaps(app, request.doc, request.query))
     return None

@@ -37,7 +37,7 @@ DEFAULT_DOC_KEY = "main"
 # Branches ask a capability of Doc - builds_from_source, watches_files, takes_line_pins, shows_revisions, view_only -
 # never the kind. Only what reports the kind itself reads it: the API's kind, a document's authority identity, the
 # startup line (docs/handbook/domain.md §여러 문서).
-DocKind: TypeAlias = Literal["tex", "pdf", "figure"]
+DocKind: TypeAlias = Literal["tex", "pdf", "figure", "markdown"]
 
 
 def kind_builds_from_source(kind: DocKind) -> bool:
@@ -314,7 +314,18 @@ class Doc:
         """Its pins are file/lo/hi line ranges with anchor re-sync, and a request that names only a file can route to
         it (doc_for_file): a LaTeX document, and a figure document - its pins are lines of the code that drew it
         (docs/handbook/domain.md §여러 문서)."""
-        return self.kind in ("tex", "figure")
+        return self.kind in ("tex", "figure", "markdown")
+
+    @property
+    def renders_in_browser(self) -> bool:
+        """PoC (docs/superpowers/specs/2026-10-24-html-document-surface.md): the viewer draws the source itself as flowing
+        HTML - a Markdown document. No build, no pages; a pin is the file/lo/hi of the rendered block."""
+        return self.kind == "markdown"
+
+    @property
+    def takes_suggestions(self) -> bool:
+        """PoC: a line pin of this document may carry a suggested edit - a LaTeX or a Markdown document."""
+        return self.kind in ("tex", "markdown")
 
     @property
     def shows_revisions(self) -> bool:

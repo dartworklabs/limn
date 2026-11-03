@@ -20,7 +20,8 @@ SUGGEST_LINES_MAX = 80
 # paragraph, the innermost environment and up to two outer ones, or plain lines), or on a figure document
 # limn.builds.figure_map.ladder_scopes (the element and up to seven ancestors, el..el8, and the whole figure, fig).
 Scope: TypeAlias = Literal[
-    "raw", "para", "env", "env2", "env3", "lines", "el", "el2", "el3", "el4", "el5", "el6", "el7", "el8", "fig"
+    "raw", "para", "env", "env2", "env3", "lines", "el", "el2", "el3", "el4", "el5", "el6", "el7", "el8", "fig",
+    "block", "section",  # PoC: a Markdown document's rungs (the rendered block, the heading's section)
 ]
 SCOPES: tuple[Scope, ...] = get_args(Scope)
 # The longest quote a pick gives and a pin keeps: the PDF text a drag chose, whitespace-normalized. A view-only PDF's

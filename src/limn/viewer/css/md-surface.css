@@ -1,0 +1,58 @@
+/* ---------------- HTML surface (throwaway PoC, md-surface.js): a Markdown document drawn as one flowing column.
+   Page-only controls hide (no pages, no zoom, no page list); the column keeps a left gutter for the pins' number badges. */
+body.md-surface #nav-page,body.md-surface #section-page,body.md-surface #doc-search,body.md-surface #vec-chip,body.md-surface #jump,
+body.md-surface #btn-zoom-out,body.md-surface #btn-zoom-in,body.md-surface #btn-actual,body.md-surface #btn-fit,body.md-surface #btn-select,
+body.md-surface #m-zoom-l,body.md-surface #m-zoom,body.md-surface #m-actual,body.md-surface #m-size-l,body.md-surface #m-download,body.md-surface #view-switch,
+body.md-surface .m-row:has(#m-zoom-l),body.md-surface .m-row:has(#m-size-l){display:none!important}
+body.md-surface #doc{padding:var(--space-4) var(--space-4) var(--space-6)}
+.md-wait{padding:var(--space-6);text-align:center}
+.md{max-width:46rem;margin:0 auto;padding:var(--space-6) var(--space-6) var(--space-6) calc(var(--space-6) + 28px);background:var(--card);
+  color:var(--card-foreground);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow-page);
+  font-size:var(--text-xl);line-height:1.75;word-break:keep-all;overflow-wrap:anywhere;user-select:text;-webkit-user-select:text;cursor:text}
+.md [data-lo]{position:relative}
+.md h1,.md h2,.md h3,.md h4,.md h5,.md h6{line-height:1.35;margin:1.4em 0 .5em;font-weight:700}
+.md h1{font-size:1.6em;margin-top:0}.md h2{font-size:1.32em;padding-bottom:.25em;border-bottom:1px solid var(--border)}.md h3{font-size:1.14em}.md h4,.md h5,.md h6{font-size:1em}
+.md p{margin:0 0 .9em}
+.md ul,.md ol{margin:0 0 .9em;padding-left:1.4em}
+.md li{margin:.15em 0}
+.md li>p{margin:0 0 .4em}
+.md blockquote{margin:0 0 .9em;padding:.1em 0 .1em 1em;border-left:3px solid var(--border-strong);color:var(--muted-foreground)}
+.md pre{margin:0 0 .9em;padding:var(--space-3);background:var(--code);border:1px solid var(--border);border-radius:var(--radius);overflow-x:auto;
+  font-size:var(--text-base);line-height:1.6;white-space:pre}
+.md pre .ln{display:block;white-space:pre}
+.md code{font-family:var(--font-mono);font-size:.9em}
+.md :not(pre)>code,.md .ln>code{padding:.05em .3em;background:var(--muted);border-radius:var(--radius-sm)}
+.md table{border-collapse:collapse;margin:0 0 .9em;display:block;overflow-x:auto;max-width:100%;font-size:var(--text-lg)}
+.md th,.md td{border:1px solid var(--border-strong);padding:.3em .6em;vertical-align:top}
+.md th{background:var(--muted)}
+.md hr{border:0;border-top:1px solid var(--border-strong);margin:1.4em 0}
+.md a{color:var(--primary);text-decoration:underline;cursor:pointer}
+.md .md-rel{text-decoration:underline dotted;text-underline-offset:3px}
+.md .md-img{display:inline-block;padding:0 .4em;border:1px dashed var(--border-strong);border-radius:var(--radius-sm);color:var(--muted-foreground);font-size:.9em}
+/* Raw HTML is never drawn: a block is a muted placeholder that keeps its lines (pinnable), an inline tag shows as code. */
+.md .md-html{margin:0 0 .9em;padding:var(--space-2) var(--space-3);border:1px dashed var(--border-strong);border-radius:var(--radius);color:var(--muted-foreground);
+  font-size:var(--text-base);display:flex;flex-direction:column;gap:2px}
+.md .md-html-l{font-weight:600}
+.md .md-html code{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.md .md-html-in{color:var(--muted-foreground)}
+/* The chosen lines (a selection before it is saved) and the lines of each pin. A pin's block also gets a bar in the gutter. */
+.md .ln.md-sel,.md [data-lo].md-sel{background:color-mix(in srgb,var(--primary) 22%,transparent);border-radius:2px}
+.md .ln.md-pin,.md [data-lo].md-pin{background:color-mix(in srgb,var(--status-open) 16%,transparent);border-radius:2px}
+.md .ln.md-pin.rv,.md [data-lo].md-pin.rv{background:color-mix(in srgb,var(--status-review) 16%,transparent)}
+.md .ln.md-pin.st,.md [data-lo].md-pin.st{background:color-mix(in srgb,var(--status-warning) 18%,transparent)}
+.md .md-flash{animation:md-flash 1.2s ease-out}
+@keyframes md-flash{0%{box-shadow:0 0 0 3px var(--primary)}100%{box-shadow:0 0 0 0 transparent}}
+/* Pins' number badges: a layer of the column, in its left gutter at the height of each pin's first line (md-surface.js). */
+.md{position:relative}
+.md .md-badges{position:absolute;left:var(--space-3);display:flex;flex-direction:column;gap:2px;user-select:none;-webkit-user-select:none}
+.md .md-badge{position:relative;min-width:22px;height:22px;padding:0 4px;border:0;border-radius:var(--radius);background:var(--status-open);color:var(--status-open-foreground);
+  font-size:var(--text-sm);font-weight:700;line-height:22px;text-align:center;cursor:pointer}
+.md .md-badge.rv{background:var(--status-review);color:var(--status-review-foreground)}
+.md .md-badge.st{background:var(--status-warning);color:var(--warning-foreground)}
+.md .md-badge::after{content:'';position:absolute;inset:-11px -6px}   /* a 44px touch target around a 22px badge */
+/* Phones: the column fills the width, the gutter narrows. */
+@media (max-width:600px){
+  body.md-surface #doc{padding:var(--space-2) 0 var(--space-6)}
+  .md{border-radius:0;border-left:0;border-right:0;padding:var(--space-4) var(--space-4) var(--space-4) calc(var(--space-4) + 26px);font-size:var(--text-xl);line-height:1.7}
+  .md .md-badges{left:var(--space-1)}
+}

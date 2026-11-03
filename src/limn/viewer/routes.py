@@ -26,6 +26,7 @@ class VendorServing:
 # (docs/handbook/api.md §화면·PDF·정적 파일).
 VENDOR: Mapping[VendorLibrary, VendorServing] = {
     "pdfjs": VendorServing({".mjs": "text/javascript; charset=utf-8"}, "public, max-age=86400"),
+    "markdown-it": VendorServing({".mjs": "text/javascript; charset=utf-8"}, "public, max-age=86400"),  # PoC
     "pretendard": VendorServing(
         {".woff2": "font/woff2", ".css": "text/css; charset=utf-8"}, "public, max-age=31536000, immutable"
     ),
@@ -97,6 +98,8 @@ def get(request: GetRequest, app: ViewerShellApp) -> Reply | None:
         return Reply(200, app.viewer().service_worker.encode(), "text/javascript; charset=utf-8", "no-cache")
     if path.startswith("/vendor/pdfjs/"):
         return _vendor(app, "pdfjs", path, path[len("/vendor/pdfjs/") :])
+    if path.startswith("/vendor/markdown-it/"):  # PoC: the HTML surface's parser
+        return _vendor(app, "markdown-it", path, path[len("/vendor/markdown-it/") :])
     if path.startswith("/vendor/pretendard/"):
         return _vendor(app, "pretendard", path, path[len("/vendor/pretendard/") :])
     return None

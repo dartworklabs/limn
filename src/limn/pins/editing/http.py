@@ -82,7 +82,7 @@ def edit(app: EditingRequests, pid: int, actor: PostAuthority, body: dict[str, A
     facts = app.document_facts(target.document)
     place = accepted(editing_input.parse_edit_place(parsed, target.region, facts, verdict=target.verdict))
     request = replace(parsed.request, place=place)
-    result = app.pin_editing.edit_pin(pid, request, actor, target.region, target.document.builds_from_source)
+    result = app.pin_editing.edit_pin(pid, request, actor, target.region, target.document.takes_suggestions)  # PoC
     return edit_answer(result, app.public)
 
 

@@ -1,6 +1,7 @@
 // ------------------------------------------------ Range levels
 function lvOf(obj,key){return (obj.levels||[]).find(l=>l.level===key||(l.merged||[]).includes(key));}
 function kindFor(scope,env){if(!scope)return null; if(scope.startsWith('env'))return 'env:'+(env||'?');
+  if(scope==='block'||scope==='section')return 'md:'+scope;   // PoC: the HTML surface's rungs
   return scope==='para'?'paragraph':'lines';}
 // The name of o's range kind for a description: its rung's, else its kind's; '' for lines set one by one (scope 'lines'),
 // whose lines alone say what they are.

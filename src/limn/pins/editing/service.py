@@ -76,7 +76,7 @@ def add_pin(ctx: PinContext, D: Doc, request: AddRequest, actor: PostAuthority) 
     location = ctx.locate({"file": place.file}) if isinstance(place, LinePlace) else None
     lines, mtime = location.source.snapshot() if location is not None else ([], 0.0)
     if request.suggest is not None and request.verdict is None:
-        decided = decide_new_suggestion(request.suggest, place, D.builds_from_source, lines)
+        decided = decide_new_suggestion(request.suggest, place, D.takes_suggestions, lines)  # PoC: capability, not LaTeX
         if not isinstance(decided, Suggestion):
             return decided
     author = actor.principal.authors_verdicts()

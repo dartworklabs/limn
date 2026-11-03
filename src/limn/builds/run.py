@@ -53,6 +53,8 @@ def needs_build(D: BuildDoc, no_build: bool, dpi: int) -> bool:
     pages were rendered or it has no page images at dpi (--no-build does not apply to it); a LaTeX document unless
     no_build (--no-build), and even then when its PDF or its page images are missing. Reads the page directory on
     screen and, for a watched document, its file's signature."""
+    if getattr(D, "renders_in_browser", False):  # PoC: the viewer draws a Markdown document itself - no pages to make
+        return False
     if D.watches_files:
         return engine.pdf_changed(D) or not build.page_list(build.cur_pages(D), dpi)
     return not no_build or not build.cur_pdf(D).exists() or not build.page_list(build.cur_pages(D), dpi)

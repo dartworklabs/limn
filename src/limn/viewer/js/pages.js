@@ -22,6 +22,8 @@ function pageWidth(ptw,k){return Math.max(1,Math.round(ptw*k));}
 // to the bottom of the PDF area within that block, so it floats while its page is in view and settles under the page at its
 // end - in one block with every page it would float over the next pages' lines.
 function buildDoc(){
+  if(isMdDoc()){COMPOSE.box=null; mdBuild(); return;}   // PoC: the HTML surface draws its own document (md-surface.js)
+  document.body.classList.remove('md-surface');
   const doc=$('#doc'),focus=pvReasonHoldFocus(); doc.replaceChildren(); COMPOSE.box=null;   // a focus in the reason popover comes back with it
   META.pages.forEach((p,i)=>{const d=document.createElement('div'); d.className='pg'; d.id='p'+(i+1); d.dataset.page=String(i+1);
     d.dataset.ptw=String(p.pt_w); d.style.width=pageWidth(p.pt_w,K)+'px'; d.style.aspectRatio=p.pt_w+' / '+p.pt_h;
