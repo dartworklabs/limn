@@ -78,8 +78,10 @@ function buildsFromSource(kind){return kind===DOC_KIND.TEX;}
 // keyboards give key 'Unidentified' or 'Process', keyCode 229 and no code), which every such key shares - any keyup ends
 // it, and a repeat is known by its name (Enter, Escape). The input method hands its key on at once, and a key that comes up
 // while the page has no focus never reaches the page: so the field or the window losing the focus, the page hidden or left,
-// and a new composition forget all of it. Read with imeKey. Registered here, in the first part, so it sees every keydown
-// before any handler does.
+// and a new composition forget all of it. While that key is down its field stays (imeHeldIn): what waits for a composition
+// to end - the pages built again, the page lines moving - waits for it too, or the key handed on and its repeats would land
+// in the field drawn anew in its place, as the viewer's. Read with imeKey. Registered here, in the first part, so it sees
+// every keydown before any handler does.
 const IME_TAIL_MS=100;
 /** The last key the input method took in the open composition (marked composing), not up since: its field, its physical key (imeCode) and its name (imeName); null when there is none. @type {{el:EventTarget|null,code:string,name:string}|null} */
 let IME_PRESSED=null;
@@ -111,6 +113,8 @@ addEventListener('keydown',e=>{const r=IME_END; if(r&&!r.key){r.key=e; if(imeTai
  * repeat of that key while it is held. @param {KeyboardEvent} e */
 function imeTail(e){const r=IME_END; if(!r||r.el!==e.target||(e.key!=='Enter'&&e.key!=='Escape'))return false;
   return (r.key===e&&e.timeStamp-r.at<=IME_TAIL_MS)||imeRepeat(e,r);}
+/** The field a key ended a composition in while that key is down (IME_END, above), else null. @returns {EventTarget|null} */
+function imeHeldIn(){return IME_END&&IME_END.el;}
 /** Whether keydown e is the input method's, not the viewer's: a key while it composes, or the key that ended its
  * composition (imeTail). Every key handler that acts on Enter or Esc in or near a text field asks this first. @param {KeyboardEvent} e */
 function imeKey(e){return e.isComposing||e.keyCode===229||imeTail(e);}

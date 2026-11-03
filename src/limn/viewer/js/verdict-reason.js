@@ -911,20 +911,27 @@ $('#doc').addEventListener('compositionstart',e=>{if(pvIsReasonField(e.target))P
 // (pvComposedOver).
 $('#doc').addEventListener('compositionend',e=>{const f=e.target; if(!pvIsReasonField(f))return; PV_COMPOSING=null;
   const r=PV_REASON; if(r&&f.dataset.id==='s'+r.sid){pvReasonFollow(r); if(PV_REASON===r)rdKeep(r);} setTimeout(pvComposedOver,0);});
-// Whether an input method is composing a syllable in a reason field in the document. Nothing takes that field away
-// meanwhile: the lines do not move beside or under the pages (pvSideWant) and the pages are not built again (refreshDoc,
-// pvReasonComposed) until it ends. Moved or rebuilt, the field was a new one: the old one's composition ended with it, and
-// the input method's commit landed on top of the text carried over ('묶이는 이유' became '묶이는 이유유', #352).
-function pvComposingNow(){return !!PV_COMPOSING&&PV_COMPOSING.isConnected;}
+// Whether an input method is composing a syllable in a reason field in the document, or the key that ended it there is still
+// down (core.js imeHeldIn). Nothing takes that field away meanwhile: the lines do not move beside or under the pages
+// (pvSideWant) and the pages are not built again (refreshDoc, pvReasonComposed) until it ends and that key is up. Moved or
+// rebuilt, the field was a new one: the old one's composition ended with it, and the input method's commit landed on top
+// of the text carried over ('묶이는 이유' became '묶이는 이유유', #352); and after the commit, the Enter ibus-hangul hands on
+// and its repeats came to the new field as the viewer's: the reason was written and the popover closed.
+function pvComposingNow(){if(PV_COMPOSING&&PV_COMPOSING.isConnected)return true; const f=imeHeldIn(); return pvIsReasonField(f)&&f.isConnected;}
 const PV_COMPOSED_WAIT=/** @type {(()=>void)[]} */([]);   // what waits for the composition's end (pvReasonComposed)
 const PV_COMPOSED_POLL_MS=200;   // how often a wait looks again: a field taken out of the document ends its composition without the event
-// Resolves once no syllable is being composed in a reason field (pvComposingNow) - at once when none is.
+// Resolves once no syllable is being composed in a reason field and the key that ended one is up (pvComposingNow) - at
+// once when none is.
 /** @returns {Promise<void>} */
 function pvReasonComposed(){return new Promise(res=>{if(!pvComposingNow()){res(); return;}
   const go=()=>{clearInterval(t); res();},t=setInterval(()=>{if(!pvComposingNow())go();},PV_COMPOSED_POLL_MS); PV_COMPOSED_WAIT.push(go);});}
-// After a composition ended, unless another began meanwhile: the rebuilds that waited go on, and the lines move if the room
-// crossed its bar while it lasted.
-function pvComposedOver(){if(pvComposingNow())return; PV_COMPOSED_WAIT.splice(0).forEach(go=>go()); if(pageVerdictsOn())pvSideCheck();}
+// After a composition ended, unless another began meanwhile or the key that ended it is still down: the rebuilds that waited
+// go on, and the lines move if the room crossed its bar while it lasted. Kept from going on, it looks again when a key comes
+// up or the focus goes (PV_COMPOSED_HELD).
+let PV_COMPOSED_HELD=false;
+function pvComposedOver(){PV_COMPOSED_HELD=pvComposingNow(); if(PV_COMPOSED_HELD)return; PV_COMPOSED_WAIT.splice(0).forEach(go=>go()); if(pageVerdictsOn())pvSideCheck();}
+// Looked at after the event: core.js has forgotten the key by then.
+for(const t of ['keyup','blur'])addEventListener(t,()=>{if(PV_COMPOSED_HELD)setTimeout(pvComposedOver,0);},true);
 // Every input keeps the draft (rdPut), with the parts moved into it placed where they are now (pvReasonPlace) - a part
 // brought back whose text has landed on its pin meanwhile leaves at once (pvReasonFollow), or once an input method's
 // composition ends - and lets a first Esc go; the line follows its emptiness (the state).

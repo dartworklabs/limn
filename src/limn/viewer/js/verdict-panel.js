@@ -31,7 +31,7 @@ function pvSideRoom(){const L=$('#left'); if(!META||!Array.isArray(META.pages)||
 // hysteresis around the bar. They stay as they are while the band settles (BAND_T): moved at the old band's new width they
 // stack, the space under a page grows, and the re-fit that follows took its spot from there and left the page read up to 200px
 // off (#356). bandSettle looks again once the band has settled.
-function pvSideWant(){if(pvComposingNow()||BAND_T)return PV_SIDE;   // a syllable being composed in the reason keeps the lines where they are until it ends
+function pvSideWant(){if(pvComposingNow()||BAND_T)return PV_SIDE;   // a syllable being composed in the reason keeps the lines where they are until it ends and its key is up
   if(LAYOUT!==LAYOUT_MODE.WIDE||!pageVerdictsOn())return false;
   const r=pvSideRoom(); if(r===null)return PV_SIDE; return PV_SIDE?r>=PV_SIDE_EXIT:r>=PV_SIDE_ENTER;}
 // Sets PV_SIDE and the body's class for it (body.pv-beside). No drawing.

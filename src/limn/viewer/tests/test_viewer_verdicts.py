@@ -6165,6 +6165,48 @@ class ReasonComposition(VerdictBase):
         self.assertEqual(page.evaluate(UNIDENTIFIED_KEYS), [False, False, True, True, True, True])
         self.assertEqual(page.evaluate(REASON, 1), {"focused": True, "value": "한글", "placeholder": "이유 (선택)"})
 
+    def test_a_rebuild_waits_for_the_key_that_ended_the_syllable_to_come_up(self):
+        """'한' typed and '글' left composing when a new build with a page more arrives: it waits for the syllable (above).
+        The Enter goes down and the input method commits '글': the pages are not built again while that key is down - also
+        past the waits' look (verdict-reason.js PV_COMPOSED_POLL_MS) and held -, and the Enter it hands on and its repeats
+        are the composition's. Up - or forgotten, the window losing the focus - the pages are built again at once: the new
+        field holds '한글' with the focus, nothing written, and the next Enter writes it. Built at the commit, the Enter
+        handed on came to the new field as the viewer's: it wrote '한글' and closed the popover."""
+        built = "n=>[META.pages.length===n+1, document.activeElement===window.FIELD]"
+        away = "()=>{window.dispatchEvent(new FocusEvent('blur')); window.dispatchEvent(new FocusEvent('focus'));}"
+        for case, word in (("pressed", "채택"), ("held", "보류"), ("window blur", "채택")):
+            with self.subTest(case=case):
+                page = self.on("fig")
+                cdp, pid = self.open_composing(page, word)
+                page.evaluate(MARK_FIELD)
+                n = page.evaluate("META.pages.length")
+                page.evaluate("()=>{refreshDoc({...META,pages:META.pages.concat(META.pages.slice(-1))});}")  # it waits
+                at = time.time()
+                ime_key_down(cdp, "Enter", at)
+                ime_commit(cdp, "글")
+                page.wait_for_timeout(400)
+                settle(page)
+                self.assertEqual(page.evaluate(built, n), [False, True])
+                if case == "window blur":
+                    page.evaluate(away)
+                else:
+                    ime_key_press(cdp, "Enter", at)
+                    if case == "held":
+                        page.wait_for_timeout(400)
+                        settle(page)
+                        self.assertEqual(page.evaluate(built, n), [False, True])
+                        for i in range(3):
+                            ime_key_press(cdp, "Enter", at + IME_REPEAT_DELAY + i * IME_REPEAT_EVERY, repeat=True)
+                    ime_key_up(cdp, "Enter", at + 1)
+                settle(page)  # at once: not at the waits' next look, nor the pins' poll
+                self.assertEqual(
+                    page.evaluate("n=>[META.pages.length,!!document.querySelector('#p'+n)]", n + 1), [n + 1, True]
+                )
+                got = page.evaluate(FIELD_NOW)
+                self.assertEqual((got["same"], got["value"], got["focused"]), (False, "한글", True))
+                self.assertFalse(self.pins()[pid].get("note"))
+                self.enter_saves(page, cdp, pid)
+
 
 class ReasonDrafts(VerdictBase):
     """An unsaved reason is never lost without a word (0.4.34 P1-2): drafts are kept per pin in this tab (sessionStorage);
