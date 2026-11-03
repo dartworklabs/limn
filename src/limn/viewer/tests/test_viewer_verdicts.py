@@ -23,6 +23,8 @@ import helpers_figure
 from helpers import ps, split_resp
 from helpers_access import ALICE, BOB, member_add, member_set_role, talk_to
 from helpers_browser import (
+    IME_REPEAT_DELAY,
+    IME_REPEAT_EVERY,
     MISSES_44,
     BrowserBase,
     booted,
@@ -5859,6 +5861,19 @@ FIELD_NOW = """()=>{const f=document.querySelector('#doc .pv-pop .pv-reason');
   return f&&{same: f===window.FIELD, value: f.value, focused: document.activeElement===f, ended: window.ENDED};}"""
 
 
+# In the focused field: a composition ended by an Esc whose code is 'Unidentified', that Esc and its repeat, then a
+# Shift+Enter and three repeats with the same code - all the page's own events, in one task. Whether each keydown went
+# uncanceled (dispatchEvent).
+UNIDENTIFIED_KEYS = """()=>{const f=document.activeElement,
+  k=o=>f.dispatchEvent(new KeyboardEvent('keydown',{bubbles:true,cancelable:true,composed:true,code:'Unidentified',...o}));
+  f.dispatchEvent(new CompositionEvent('compositionstart',{bubbles:true,data:''}));
+  k({key:'Process',keyCode:229,isComposing:true});
+  f.dispatchEvent(new CompositionEvent('compositionend',{bubbles:true,data:'글'}));
+  const out=[k({key:'Escape',keyCode:27}),k({key:'Escape',keyCode:27,repeat:true}),k({key:'Enter',keyCode:13,shiftKey:true})];
+  for(let i=0;i<3;i++)out.push(k({key:'Enter',keyCode:13,shiftKey:true,repeat:true}));
+  return out;}"""
+
+
 class ReasonComposition(VerdictBase):
     """A reason typed with an input method (Hangul): the syllable still composing is part of the text, also when the line
     is drawn again under it (#352)."""
@@ -6102,6 +6117,53 @@ class ReasonComposition(VerdictBase):
                 ime_commit(cdp, "글")
                 page.evaluate(js)
                 self.enter_saves(page, cdp, pid, at)
+
+    def test_a_key_the_browser_does_not_name_ends_with_any_keyup(self):
+        """Android's on-screen keyboards name no key: the key the input method takes is keydown 'Unidentified' or 'Process'
+        with keyCode 229 and no code, and so is its keyup. The Enter that ended the composition, no code either, is the
+        composition's and so are its repeats; the unnamed keyup that comes next ends it, so a Shift+Enter held after that
+        is a new line, and so is each of its repeats. A keyup that names no key may be any key's: it ends one the browser
+        did name too (ibus's Process with its code). Known by its name as by a physical key, the Enter waited for a keyup
+        named Enter: the Shift+Enter put in its new line and its repeats were swallowed."""
+        for name, code, word in (("Unidentified", "", "채택"), ("Process", "", "보류"), ("Unidentified", None, "채택")):
+            with self.subTest(name=name, named_down=code is None):
+                page = self.on("fig")
+                cdp, pid = self.open_composing(page, word)
+                at = time.time()
+                ime_key_down(cdp, "Enter", at, name="Process" if code is None else name, code=code)
+                ime_commit(cdp, "글")
+                ime_key_press(cdp, "Enter", at, code="")
+                for i in range(2):
+                    ime_key_press(cdp, "Enter", at + IME_REPEAT_DELAY + i * IME_REPEAT_EVERY, repeat=True, code="")
+                ime_key_up(cdp, "Enter", at + 0.8, name=name, code="")
+                settle(page)
+                self.assertEqual(page.evaluate(REASON, 1)["value"], "한글")
+                t = time.time()
+                ime_key_press(cdp, "Enter", t, code="", shift=True)
+                for i in range(3):
+                    ime_key_press(
+                        cdp, "Enter", t + IME_REPEAT_DELAY + i * IME_REPEAT_EVERY, repeat=True, code="", shift=True
+                    )
+                ime_key_up(cdp, "Enter", t + 0.8, code="")
+                settle(page)
+                self.assertEqual(
+                    page.evaluate(REASON, 1), {"focused": True, "value": "한글\n\n\n\n", "placeholder": "이유 (선택)"}
+                )
+                self.assertFalse(self.pins()[pid].get("note"))
+
+    def test_a_code_the_browser_cannot_tell_is_no_key_of_its_own(self):
+        """A browser that cannot tell a key's physical key gives the code 'Unidentified' (the UI Events value), the same
+        for every such key: it names none. The Esc that ended a composition there, held: it and its repeat are the
+        composition's (canceled, the field as it was); a Shift+Enter pressed while it is still down is not, nor is any of
+        its repeats. Known by that shared code, the Shift+Enter's repeats were taken for the Esc's and canceled. Chromium
+        makes a code it does not know '' (ime_key_down), so these are the page's own events, in one task: what the viewer
+        does with a key shows as whether it canceled it."""
+        page = self.on("fig")
+        self.press_page(page, 1, "채택")
+        open_reason(page, 1)
+        page.keyboard.type("한글")
+        self.assertEqual(page.evaluate(UNIDENTIFIED_KEYS), [False, False, True, True, True, True])
+        self.assertEqual(page.evaluate(REASON, 1), {"focused": True, "value": "한글", "placeholder": "이유 (선택)"})
 
 
 class ReasonDrafts(VerdictBase):

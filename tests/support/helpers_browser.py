@@ -302,27 +302,42 @@ IME_KEYS = {
 IME_REPEAT_DELAY, IME_REPEAT_EVERY = 0.66, 0.04
 
 
-def ime_key_down(cdp, key="Enter", at=None):
+def ime_key_down(cdp, key="Enter", at=None, *, name="Process", code=None):
     """Key goes down and the input method takes it while it composes: keydown Process on that physical key (keyCode 229,
     marked composing - ibus-hangul's, docs/handbook/viewer.md §조합을 끝내는 키). at: its time (CDP's event time, seconds
-    since the epoch), now if None."""
-    ev = {"type": "rawKeyDown", "key": "Process", "code": IME_KEYS[key]["code"], "windowsVirtualKeyCode": 229}
+    since the epoch), now if None. name and code, if given, are what the browser says instead: Android's on-screen
+    keyboards give 'Unidentified' or 'Process' and no code (code=''; Chromium makes a code it does not know '' too)."""
+    k = IME_KEYS[key]
+    ev = {"type": "rawKeyDown", "key": name, "code": k["code"] if code is None else code, "windowsVirtualKeyCode": 229}
     cdp.send("Input.dispatchKeyEvent", ev if at is None else {**ev, "timestamp": at})
 
 
-def ime_key_up(cdp, key="Enter", at=None):
-    """That key comes up (its keyup)."""
+def ime_key_up(cdp, key="Enter", at=None, *, name=None, code=None):
+    """That key comes up (its keyup). With name the input method's keyup the way Android's on-screen keyboards give it:
+    that name ('Unidentified' or 'Process') and keyCode 229; code, if given, instead of the key's ('' for none)."""
     k = IME_KEYS[key]
-    ev = {"type": "keyUp", "key": k["key"], "code": k["code"], "windowsVirtualKeyCode": k["windowsVirtualKeyCode"]}
+    ev = {
+        "type": "keyUp",
+        "key": name or k["key"],
+        "code": k["code"] if code is None else code,
+        "windowsVirtualKeyCode": 229 if name else k["windowsVirtualKeyCode"],
+    }
     cdp.send("Input.dispatchKeyEvent", ev if at is None else {**ev, "timestamp": at})
 
 
-def ime_key_press(cdp, key, at, repeat=False):
-    """A keydown of key as the system gives it (IME_KEYS), stamped at (CDP's event time); with repeat, an autorepeat's."""
-    k = IME_KEYS[key]
+def ime_key_press(cdp, key, at, repeat=False, *, code=None, shift=False):
+    """A keydown of key as the system gives it (IME_KEYS), stamped at (CDP's event time); with repeat, an autorepeat's.
+    code, if given, instead of the key's ('' for none); shift: with Shift held (a Shift+Enter)."""
+    k = {**IME_KEYS[key], **({} if code is None else {"code": code})}
     cdp.send(
         "Input.dispatchKeyEvent",
-        {"type": "keyDown" if "text" in k else "rawKeyDown", **k, "autoRepeat": repeat, "timestamp": at},
+        {
+            "type": "keyDown" if "text" in k else "rawKeyDown",
+            **k,
+            "autoRepeat": repeat,
+            "timestamp": at,
+            **({"modifiers": 8} if shift else {}),
+        },
     )
 
 

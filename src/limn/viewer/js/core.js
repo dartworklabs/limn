@@ -74,23 +74,29 @@ function buildsFromSource(kind){return kind===DOC_KIND.TEX;}
 // compositionend (Chromium stamps that one when it dispatches it) - 2-4 ms with ibus-hangul. The window leaves room for a
 // browser that stamps the two the other way round and for a coarse clock (a privacy setting rounds event times to as much
 // as 100 ms), and stays far under the time a person takes to press a key on purpose. A key is known by its physical key
-// (code) from its keydown to its keyup; where the browser names none, any keyup ends it. The input method hands its key on
-// at once, and a key that comes up while the page has no focus never reaches the page: so the field or the window losing
-// the focus, the page hidden or left, and a new composition forget all of it. Read with imeKey. Registered here, in the
-// first part, so it sees every keydown before any handler does.
+// (code) from its keydown to its keyup. Where the browser names none - no code, or 'Unidentified' (Android's on-screen
+// keyboards give key 'Unidentified' or 'Process', keyCode 229 and no code), which every such key shares - any keyup ends
+// it, and a repeat is known by its name (Enter, Escape). The input method hands its key on at once, and a key that comes up
+// while the page has no focus never reaches the page: so the field or the window losing the focus, the page hidden or left,
+// and a new composition forget all of it. Read with imeKey. Registered here, in the first part, so it sees every keydown
+// before any handler does.
 const IME_TAIL_MS=100;
-/** The last key the input method took in the open composition (marked composing), not up since: its field and imeId; null when there is none. @type {{el:EventTarget|null,id:string}|null} */
+/** The last key the input method took in the open composition (marked composing), not up since: its field, its physical key (imeCode) and its name (imeName); null when there is none. @type {{el:EventTarget|null,code:string,name:string}|null} */
 let IME_PRESSED=null;
-/** The last composition a key ended: its field, its time, that key (imeId, '' while the browser has not named it) and the first keydown after it (null until one comes). Ends with that key's keyup. @type {{el:EventTarget|null,at:number,id:string,key:KeyboardEvent|null}|null} */
+/** The last composition a key ended: its field, its time, that key - its physical key and its name, from the key the input method took and the keydown it handed on ('' where the browser named none) - and the first keydown after it (null until one comes). Ends with that key's keyup. @type {{el:EventTarget|null,at:number,code:string,name:string,key:KeyboardEvent|null}|null} */
 let IME_END=null;
-/** What names key event e from its keydown to its keyup: its physical key (code), else, for a key the input method did not take, its name ('Process' is not one); '' when the browser does not say. @param {KeyboardEvent} e */
-function imeId(e){return e.code||(e.isComposing||e.keyCode===229?'':e.key);}
-/** Whether key event e is the key named id; '' is any key (one not named). @param {KeyboardEvent} e @param {string} id */
-function imeIs(e,id){return !id||(e.code||e.key)===id;}
+/** Key event e's physical key (code); '' when the browser does not name it: no code, or 'Unidentified'. @param {KeyboardEvent} e */
+function imeCode(e){const c=e.code; return c&&c!=='Unidentified'?c:'';}
+/** Key event e's name (key); '' for a key the input method took ('Process') or one the browser does not name ('Unidentified'). @param {KeyboardEvent} e */
+function imeName(e){const k=e.key; return k&&k!=='Process'&&k!=='Unidentified'?k:'';}
+/** Whether keyup e may be key k's (IME_PRESSED, IME_END): the same physical key, or any where either has none. @param {KeyboardEvent} e @param {{code:string}} k */
+function imeUp(e,k){const c=imeCode(e); return !k.code||!c||c===k.code;}
+/** Whether keydown e repeats key k (IME_END) held down: the same physical key, or, where either has none, the same name. @param {KeyboardEvent} e @param {{code:string,name:string}} k */
+function imeRepeat(e,k){const c=imeCode(e); return e.repeat&&(k.code&&c?c===k.code:!!k.name&&e.key===k.name);}
 function imeForget(){IME_PRESSED=null; IME_END=null;}
 addEventListener('compositionstart',imeForget,true);
-addEventListener('compositionend',e=>{const p=IME_PRESSED; IME_END=p&&p.el===e.target?{el:e.target,at:e.timeStamp,id:p.id,key:null}:null; IME_PRESSED=null;},true);
-addEventListener('keyup',e=>{if(IME_PRESSED&&imeIs(e,IME_PRESSED.id))IME_PRESSED=null; if(IME_END&&imeIs(e,IME_END.id))IME_END=null;},true);
+addEventListener('compositionend',e=>{const p=IME_PRESSED; IME_END=p&&p.el===e.target?{el:e.target,at:e.timeStamp,code:p.code,name:p.name,key:null}:null; IME_PRESSED=null;},true);
+addEventListener('keyup',e=>{if(IME_PRESSED&&imeUp(e,IME_PRESSED))IME_PRESSED=null; if(IME_END&&imeUp(e,IME_END))IME_END=null;},true);
 addEventListener('blur',imeForget,true);   // the field's (focus events pass the window on their way down) and the window's own
 addEventListener('pagehide',imeForget,true);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)imeForget();});
@@ -98,13 +104,13 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden)imeForget()
 // modal dialog), which the same Esc on a platform that marks it composing does not do. A tail Enter's default stays: in a
 // note it is the new line the input method gives with every Linux program. Where Enter is the viewer's own key in a text
 // box (the reason field, the @-list) its handler takes the newline away too (imeTail).
-addEventListener('keydown',e=>{const r=IME_END; if(r&&!r.key){r.key=e; if(imeTail(e))r.id=imeId(e)||r.id;}
+addEventListener('keydown',e=>{const r=IME_END; if(r&&!r.key){r.key=e; if(imeTail(e)){r.code=imeCode(e)||r.code; r.name=e.key;}}
   if(e.key==='Escape'&&imeTail(e))e.preventDefault();
-  if(e.isComposing||e.keyCode===229)IME_PRESSED={el:e.target,id:imeId(e)};},true);
+  if(e.isComposing||e.keyCode===229)IME_PRESSED={el:e.target,code:imeCode(e),name:imeName(e)};},true);
 /** Whether keydown e is the Enter or Esc that ended a composition (above): the first keydown after it, in its window, or a
  * repeat of that key while it is held. @param {KeyboardEvent} e */
 function imeTail(e){const r=IME_END; if(!r||r.el!==e.target||(e.key!=='Enter'&&e.key!=='Escape'))return false;
-  return (r.key===e&&e.timeStamp-r.at<=IME_TAIL_MS)||(e.repeat&&!!r.id&&imeIs(e,r.id));}
+  return (r.key===e&&e.timeStamp-r.at<=IME_TAIL_MS)||imeRepeat(e,r);}
 /** Whether keydown e is the input method's, not the viewer's: a key while it composes, or the key that ended its
  * composition (imeTail). Every key handler that acts on Enter or Esc in or near a text field asks this first. @param {KeyboardEvent} e */
 function imeKey(e){return e.isComposing||e.keyCode===229||imeTail(e);}
