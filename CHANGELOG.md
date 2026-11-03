@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **The key that ends a Korean composition only ends it, on Linux too.** ibus-hangul on Linux commits the last syllable
+  first and then hands the same Enter or Esc on as a plain key, so the viewer took it as its own: in a page verdict's
+  reason, the Enter that committed `한글` also saved the reason and closed the popover, and in an edit card the Esc that
+  committed a syllable of a suggested edit closed the edit and lost the unsaved suggestion. macOS marks that key as
+  composing, and it was already left alone there.
+  - **The rule:** when a key the input method took is still down as the composition ends, the first key after the end,
+    in the field it ended in and within 100 ms of it, is that key and belongs to the input method. A composition that no
+    key ended (a click, the focus moving, text put in at once) has no such key. One rule serves every field that acts on Enter or Esc: the
+    reason popover, the composer's and the edit card's save and cancel keys, replies, the @-list, search, the outline
+    filter, the page number fields and the document list's filter. The next Enter or Esc acts as before, and so does a
+    key pressed after another key came up.
+  - **What the browser does with it:** that Esc no longer empties the search field or closes the phone's navigation
+    sheet either. That Enter still starts a new line in a note, a reply or a suggested edit, as the input method gives
+    it, but not in the reason field or while the @-list is open.
+- **A screen reader hears a page verdict's save once.** Pressing a word on a page verdict line with the pointer made
+  Orca read the word's new description, `This verdict is being saved · Key 2` (Korean `이 판정을 저장하는 중입니다 ·
+  단축키 2`), twice before the line's status said the save: the press gave the word the focus and changed its
+  description at the same moment. The word being saved now has no description of its own (its hover box keeps the
+  words), and the line's status says the save once. The saved result is still read once.
+- The agent contract (`pins.md`, HTTP API) is unchanged.
+
 ## 0.4.45 — 2026-11-03
 
 ### Changed
