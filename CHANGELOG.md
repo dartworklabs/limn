@@ -15,7 +15,11 @@
     repeat, nor does holding the Esc close the edit. A composition that no key ended (a click, the focus moving, text
     put in at once) has no such key, and neither has one after the key's release was missed: the field or the window
     losing the focus, the page hidden or left, and a new composition forget a key still down, and a key pressed in
-    another field never counts. One rule serves every field that acts on Enter or Esc: the reason popover, the
+    another field never counts. Where the browser names no physical key (Android's on-screen keyboards), any key's
+    release ends it, and its repeats are known by the key's name. While that key is down a page verdict's reason field
+    stays as it is: a new build that would rebuild the pages, or a window resize that would move the verdict lines
+    beside or under them, waits until it comes up, so the key handed on and its repeats reach the field that composed.
+    One rule serves every field that acts on Enter or Esc: the reason popover, the
     composer's and the edit card's save and cancel keys, replies, the @-list, search, the outline filter, the page number
     fields and the document list's filter. The next Enter or Esc acts as before, and so does a key pressed after that
     key came up.
