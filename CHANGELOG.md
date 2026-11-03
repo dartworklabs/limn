@@ -21,7 +21,10 @@
     beside or under them, waits until it comes up, so the key handed on and its repeats reach the field that composed.
     That wait has an end: if the key's release never reaches the page while the field keeps the focus, the rebuild and
     the move go on 2.5 s after the key's last press or repeat, and at once when another key goes down or other text
-    comes in (a paste, an on-screen keyboard). A held key's repeats keep the field all along, and a repeat that comes
+    comes in (a paste, an on-screen keyboard). The syllable the input method commits as the composition ends is not
+    other text, however late the page gets it: a page busy with the end of the composition gets it later, and it is
+    known by what it is - the first text after the end that is what the composition showed - not by when it comes.
+    A held key's repeats keep the field all along, and a repeat that comes
     after the wait has ended still belongs to the input method, also in the field drawn anew. One limit remains: with a
     key repeat delay set longer than 2 s, Chromium on Linux reports a held key's first repeat as a new press of the key,
     so that press and the repeats after it act as the viewer's keys, as the key held without an input method would.
