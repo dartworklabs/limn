@@ -957,6 +957,44 @@ class PanelEdges(PanelBase):
         self.assertEqual(page.locator(FIELD).input_value(), "묶이는 이유")
         self.assertEqual(self.pins()[pid]["note"], "", "the reason was written")
 
+    def release_never_comes(self, name, code):
+        """As above, but the Enter's keyup never comes while the field keeps the focus (an input method may keep the
+        release); name and code: what the browser says of the key the input method takes (ime_key_down), code '' also for
+        the one handed on. The lines stay beside the pages 400 ms on, and move once core.js IME_HOLD_MS has passed with no
+        event of that key: the field under the page has the focus and '묶이는 이유', nothing written. Held until that key's
+        release, the lines stayed beside the pages for good."""
+        page = self.on()
+        cdp = page.context.new_cdp_session(page)
+        page.locator('#pv-panel button[data-key="채택"]').click()
+        page.wait_for_function("OPEN_ALL.length===1")
+        settle(page)
+        page.locator('#pv-panel [data-act="pv-reason-open"]').click()
+        page.keyboard.type("묶이는 이")
+        (pid,) = self.pins()
+        ime_compose(cdp, "ㅇ", "유")
+        self.resize(page, 320)
+        at = time.time()
+        ime_key_down(cdp, "Enter", at, name=name, code=code)
+        ime_commit(cdp, "유")
+        ime_key_press(cdp, "Enter", at, code=code)
+        hold = page.evaluate("IME_HOLD_MS") / 1000
+        page.wait_for_timeout(400)
+        settle(page)
+        self.assertTrue(page.evaluate(SHAPE)["beside"], "the lines moved while the key was down")
+        page.wait_for_function("()=>!PV_SIDE", timeout=(hold + 3) * 1000)
+        self.assertLess(time.time() - at, hold + 1.5, "the lines waited past the bound")
+        settle(page)
+        self.assertTrue(page.evaluate("()=>pvIsReasonField(document.activeElement)"), "the field lost the focus")
+        self.assertEqual(page.locator(FIELD).input_value(), "묶이는 이유")
+        self.assertEqual(self.pins()[pid]["note"], "", "the reason was written")
+
+    def test_the_lines_move_when_the_release_never_comes(self):
+        self.release_never_comes("Process", None)
+
+    def test_the_lines_move_when_the_release_of_a_key_with_no_name_never_comes(self):
+        """The same where the browser names no key (Android's 'Unidentified', no code)."""
+        self.release_never_comes("Unidentified", "")
+
     def test_a_rebuild_keeps_the_reading_page_and_the_reason_in_the_panel(self):
         """A reason typed in the panel on page 5, the reading line 30px above the page's end, when a new build with a page
         more builds the pages again: page 5 is still read, its popover open with the text and the focus, nothing written.

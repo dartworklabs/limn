@@ -78,15 +78,31 @@ function buildsFromSource(kind){return kind===DOC_KIND.TEX;}
 // keyboards give key 'Unidentified' or 'Process', keyCode 229 and no code), which every such key shares - any keyup ends
 // it, and a repeat is known by its name (Enter, Escape). The input method hands its key on at once, and a key that comes up
 // while the page has no focus never reaches the page: so the field or the window losing the focus, the page hidden or left,
-// and a new composition forget all of it. While that key is down its field stays (imeHeldIn): what waits for a composition
-// to end - the pages built again, the page lines moving - waits for it too, or the key handed on and its repeats would land
-// in the field drawn anew in its place, as the viewer's. Read with imeKey. Registered here, in the first part, so it sees
-// every keydown before any handler does.
-const IME_TAIL_MS=100;
+// and a new composition forget all of it. A field taken out of the document under the focus (drawn anew in its place) is
+// not left: Chromium blurs it as it goes, Firefox does not, and the key goes on down where the focus now is (imeTail).
+// While that key is down its field stays (imeHeldIn): what waits for a composition to end - the pages built again, the
+// page lines moving - waits for it too and looks again when it is let go (IME_ON_FREE), so the key handed on and its
+// repeats land in the field that composed, not in one drawn anew as the viewer's. A release the page never gets with the
+// focus kept would hold it for good, so the hold is bounded: it lasts IME_HOLD_MS past that key's last keydown (handed on
+// or a repeat), and it ends - the key with it - at a keydown the input method does not take that is neither that key
+// handed on nor its repeat (another key: a held key repeats no more once another goes down; that key pressed anew: it was
+// up) and at text that is not the composition's own commit (later than IME_TAIL_MS after its end: a paste, an on-screen
+// keyboard's letter). Past the bound the key is still the composition's: a repeat that comes later is not the viewer's
+// and holds the field again. Read with imeKey. Registered here, in the first part, so it sees every keydown before any
+// handler does.
+// IME_HOLD_MS is longer than the delay before a held key's first repeat that the usual settings give - X's default
+// 660 ms, GNOME's 500 ms (its slider goes to 2 s), Windows' at most 1 s - so a held key keeps the field through it. A longer
+// delay only lets the field go before the first repeat, which is still the composition's; a release that never came costs
+// what waits at most this long.
+const IME_TAIL_MS=100,IME_HOLD_MS=2500;
 /** The last key the input method took in the open composition (marked composing), not up since: its field, its physical key (imeCode) and its name (imeName); null when there is none. @type {{el:EventTarget|null,code:string,name:string}|null} */
 let IME_PRESSED=null;
-/** The last composition a key ended: its field, its time, that key - its physical key and its name, from the key the input method took and the keydown it handed on ('' where the browser named none) - and the first keydown after it (null until one comes). Ends with that key's keyup. @type {{el:EventTarget|null,at:number,code:string,name:string,key:KeyboardEvent|null}|null} */
+/** The last composition a key ended: its field, its time, that key - its physical key and its name, from the key the input method took and the keydown it handed on ('' where the browser named none) - and the first keydown after it (null until one comes). Ends with that key's keyup, another key, other text, or what forgets it. @type {{el:EventTarget|null,at:number,code:string,name:string,key:KeyboardEvent|null}|null} */
 let IME_END=null;
+/** While this timer runs (not 0), IME_END's key holds its field (imeHeldIn): IME_HOLD_MS from that key's last keydown. */
+let IME_HOLD_T=0;
+/** What looks again once that key lets its field go (imeFree): run after the event, so it reads the state the event left. @type {(()=>void)[]} */
+const IME_ON_FREE=[];
 /** Key event e's physical key (code); '' when the browser does not name it: no code, or 'Unidentified'. @param {KeyboardEvent} e */
 function imeCode(e){const c=e.code; return c&&c!=='Unidentified'?c:'';}
 /** Key event e's name (key); '' for a key the input method took ('Process') or one the browser does not name ('Unidentified'). @param {KeyboardEvent} e */
@@ -95,26 +111,40 @@ function imeName(e){const k=e.key; return k&&k!=='Process'&&k!=='Unidentified'?k
 function imeUp(e,k){const c=imeCode(e); return !k.code||!c||c===k.code;}
 /** Whether keydown e repeats key k (IME_END) held down: the same physical key, or, where either has none, the same name. @param {KeyboardEvent} e @param {{code:string,name:string}} k */
 function imeRepeat(e,k){const c=imeCode(e); return e.repeat&&(k.code&&c?c===k.code:!!k.name&&e.key===k.name);}
-function imeForget(){IME_PRESSED=null; IME_END=null;}
+/** Whether el is a node taken out of the document. @param {EventTarget|null} el */
+function imeGone(el){return el instanceof Node&&!el.isConnected;}
+// That key came again: it holds its field IME_HOLD_MS more.
+function imeHold(){clearTimeout(IME_HOLD_T); IME_HOLD_T=setTimeout(()=>{IME_HOLD_T=0; imeFree();},IME_HOLD_MS);}
+function imeFree(){setTimeout(()=>{for(const f of IME_ON_FREE)f();},0);}
+function imeEnd(){if(!IME_END)return; IME_END=null; clearTimeout(IME_HOLD_T); IME_HOLD_T=0; imeFree();}
+function imeForget(){IME_PRESSED=null; imeEnd();}
 addEventListener('compositionstart',imeForget,true);
-addEventListener('compositionend',e=>{const p=IME_PRESSED; IME_END=p&&p.el===e.target?{el:e.target,at:e.timeStamp,code:p.code,name:p.name,key:null}:null; IME_PRESSED=null;},true);
-addEventListener('keyup',e=>{if(IME_PRESSED&&imeUp(e,IME_PRESSED))IME_PRESSED=null; if(IME_END&&imeUp(e,IME_END))IME_END=null;},true);
-addEventListener('blur',imeForget,true);   // the field's (focus events pass the window on their way down) and the window's own
+addEventListener('compositionend',e=>{const p=IME_PRESSED; imeEnd(); IME_PRESSED=null;
+  if(p&&p.el===e.target){IME_END={el:e.target,at:e.timeStamp,code:p.code,name:p.name,key:null}; imeHold();}},true);
+addEventListener('keyup',e=>{if(IME_PRESSED&&imeUp(e,IME_PRESSED))IME_PRESSED=null; if(IME_END&&imeUp(e,IME_END))imeEnd();},true);
+// The field's blur (focus events pass the window on their way down) and the window's own; a field's is looked at once the
+// task that blurred it is done, when a field drawn anew has taken its place.
+addEventListener('blur',e=>{const t=e.target; if(t instanceof Node)queueMicrotask(()=>{if(t.isConnected)imeForget();}); else imeForget();},true);
 addEventListener('pagehide',imeForget,true);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)imeForget();});
+addEventListener('input',e=>{if(IME_END&&!(/** @type {InputEvent} */(e).isComposing)&&e.timeStamp-IME_END.at>IME_TAIL_MS)imeEnd();},true);
 // The tail Esc's browser defaults are not the composition's either: it would empty a search field and close a sheet (a
 // modal dialog), which the same Esc on a platform that marks it composing does not do. A tail Enter's default stays: in a
 // note it is the new line the input method gives with every Linux program. Where Enter is the viewer's own key in a text
 // box (the reason field, the @-list) its handler takes the newline away too (imeTail).
-addEventListener('keydown',e=>{const r=IME_END; if(r&&!r.key){r.key=e; if(imeTail(e)){r.code=imeCode(e)||r.code; r.name=e.key;}}
+addEventListener('keydown',e=>{const r=IME_END;
+  if(r){if(!r.key){r.key=e; if(imeTail(e)){r.code=imeCode(e)||r.code; r.name=e.key;}}
+    if(imeTail(e)||imeRepeat(e,r))imeHold();   // that key, handed on or held
+    else if(!e.isComposing&&e.keyCode!==229)imeEnd();}
   if(e.key==='Escape'&&imeTail(e))e.preventDefault();
   if(e.isComposing||e.keyCode===229)IME_PRESSED={el:e.target,code:imeCode(e),name:imeName(e)};},true);
 /** Whether keydown e is the Enter or Esc that ended a composition (above): the first keydown after it, in its window, or a
- * repeat of that key while it is held. @param {KeyboardEvent} e */
-function imeTail(e){const r=IME_END; if(!r||r.el!==e.target||(e.key!=='Enter'&&e.key!=='Escape'))return false;
+ * repeat of that key while it is held - in the field the composition ended in, or wherever the focus went once that field
+ * was taken out of the document. @param {KeyboardEvent} e */
+function imeTail(e){const r=IME_END; if(!r||(e.key!=='Enter'&&e.key!=='Escape')||(r.el!==e.target&&!imeGone(r.el)))return false;
   return (r.key===e&&e.timeStamp-r.at<=IME_TAIL_MS)||imeRepeat(e,r);}
-/** The field a key ended a composition in while that key is down (IME_END, above), else null. @returns {EventTarget|null} */
-function imeHeldIn(){return IME_END&&IME_END.el;}
+/** The field a key ended a composition in while that key holds it (IME_END, IME_HOLD_T, above), else null. @returns {EventTarget|null} */
+function imeHeldIn(){return IME_END&&IME_HOLD_T?IME_END.el:null;}
 /** Whether keydown e is the input method's, not the viewer's: a key while it composes, or the key that ended its
  * composition (imeTail). Every key handler that acts on Enter or Esc in or near a text field asks this first. @param {KeyboardEvent} e */
 function imeKey(e){return e.isComposing||e.keyCode===229||imeTail(e);}

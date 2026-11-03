@@ -32,6 +32,7 @@ from helpers_browser import (
     ime_compose,
     ime_end_with,
     ime_key_down,
+    ime_key_held,
     ime_key_press,
     ime_key_up,
     nothing_follows,
@@ -5859,6 +5860,8 @@ MARK_FIELD = """()=>{const f=document.querySelector('#doc .pv-pop .pv-reason'); 
 # The open reason field now: whether it is the one marked, its text and focus, and what a composition in it committed.
 FIELD_NOW = """()=>{const f=document.querySelector('#doc .pv-pop .pv-reason');
   return f&&{same: f===window.FIELD, value: f.value, focused: document.activeElement===f, ended: window.ENDED};}"""
+# Whether the pages were built again with the page more (n before it) and whether the marked field still has the focus.
+REBUILT = "n=>[META.pages.length===n+1, document.activeElement===window.FIELD]"
 
 
 # In the focused field: a composition ended by an Esc whose code is 'Unidentified', that Esc and its repeat, then a
@@ -5872,6 +5875,16 @@ UNIDENTIFIED_KEYS = """()=>{const f=document.activeElement,
   const out=[k({key:'Escape',keyCode:27}),k({key:'Escape',keyCode:27,repeat:true}),k({key:'Enter',keyCode:13,shiftKey:true})];
   for(let i=0;i<3;i++)out.push(k({key:'Enter',keyCode:13,shiftKey:true,repeat:true}));
   return out;}"""
+
+# In the focused field, ibus-hangul's order with Chromium (the round-3 ibus log): keydown Process on Enter (marked
+# composing), compositionend, the committed text as an input of its own (isComposing false), then the Enter handed on -
+# the page's own events, in one task. Whether that Enter went uncanceled (dispatchEvent).
+COMMIT_THEN_KEY = """()=>{const f=document.activeElement;
+  f.dispatchEvent(new CompositionEvent('compositionstart',{bubbles:true,data:''}));
+  f.dispatchEvent(new KeyboardEvent('keydown',{bubbles:true,cancelable:true,composed:true,key:'Process',code:'Enter',keyCode:229,isComposing:true}));
+  f.dispatchEvent(new CompositionEvent('compositionend',{bubbles:true,data:''}));
+  f.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:'글',isComposing:false}));
+  return f.dispatchEvent(new KeyboardEvent('keydown',{bubbles:true,cancelable:true,composed:true,key:'Enter',code:'Enter',keyCode:13}));}"""
 
 
 class ReasonComposition(VerdictBase):
@@ -6165,6 +6178,19 @@ class ReasonComposition(VerdictBase):
         self.assertEqual(page.evaluate(UNIDENTIFIED_KEYS), [False, False, True, True, True, True])
         self.assertEqual(page.evaluate(REASON, 1), {"focused": True, "value": "한글", "placeholder": "이유 (선택)"})
 
+    def test_the_text_the_composition_commits_is_its_own(self):
+        """ibus-hangul commits the syllable as text of its own after the composition ends, before it hands the Enter on
+        (COMMIT_THEN_KEY): that text is the composition's, not other text, so the Enter is still the composition's -
+        canceled, nothing written. Taken as other text, it let the key go, and the Enter wrote the reason."""
+        page = self.on("fig")
+        pid = self.press_page(page, 1, "채택")
+        open_reason(page, 1)
+        page.keyboard.type("한글")
+        self.assertFalse(page.evaluate(COMMIT_THEN_KEY), "the Enter handed on was not canceled")
+        settle(page)
+        self.assertIsNotNone(page.evaluate(POP, 1), "the popover closed")
+        self.assertFalse(self.pins()[pid].get("note"))
+
     def test_a_rebuild_waits_for_the_key_that_ended_the_syllable_to_come_up(self):
         """'한' typed and '글' left composing when a new build with a page more arrives: it waits for the syllable (above).
         The Enter goes down and the input method commits '글': the pages are not built again while that key is down - also
@@ -6172,7 +6198,7 @@ class ReasonComposition(VerdictBase):
         are the composition's. Up - or forgotten, the window losing the focus - the pages are built again at once: the new
         field holds '한글' with the focus, nothing written, and the next Enter writes it. Built at the commit, the Enter
         handed on came to the new field as the viewer's: it wrote '한글' and closed the popover."""
-        built = "n=>[META.pages.length===n+1, document.activeElement===window.FIELD]"
+        built = REBUILT
         away = "()=>{window.dispatchEvent(new FocusEvent('blur')); window.dispatchEvent(new FocusEvent('focus'));}"
         for case, word in (("pressed", "채택"), ("held", "보류"), ("window blur", "채택")):
             with self.subTest(case=case):
@@ -6206,6 +6232,110 @@ class ReasonComposition(VerdictBase):
                 self.assertEqual((got["same"], got["value"], got["focused"]), (False, "한글", True))
                 self.assertFalse(self.pins()[pid].get("note"))
                 self.enter_saves(page, cdp, pid)
+
+    def held_over(self, page, word, name="Process", code=None):
+        """'한' typed in word's reason on page 1 and '글' left composing when a new build with a page more arrives (it
+        waits, above); then the Enter goes down, the input method commits '글' and hands the Enter on (ibus-hangul's
+        order), and its keyup has not come. name and code: what the browser says of the key the input method takes
+        (ime_key_down); code '' also for the one handed on. The CDP session, the pin, the page count before the build and
+        the time of the press."""
+        cdp, pid = self.open_composing(page, word)
+        page.evaluate(MARK_FIELD)
+        n = page.evaluate("META.pages.length")
+        page.evaluate("()=>{refreshDoc({...META,pages:META.pages.concat(META.pages.slice(-1))});}")
+        at = time.time()
+        ime_key_down(cdp, "Enter", at, name=name, code=code)
+        ime_commit(cdp, "글")
+        ime_key_press(cdp, "Enter", at, code=code)
+        return cdp, pid, n, at
+
+    def rebuilt_with(self, page, pid, text):
+        """The pages are built again: the new reason field holds text with the focus, and nothing is written."""
+        got = page.evaluate(FIELD_NOW)
+        self.assertEqual((got["same"], got["value"], got["focused"]), (False, text, True))
+        self.assertFalse(self.pins()[pid].get("note"))
+
+    def test_a_release_that_never_comes_lets_the_field_go(self):
+        """The Enter that ended the syllable handed on (held_over) and its keyup never comes while the field keeps the
+        focus - an input method may keep the release. The waiting rebuild goes on once core.js IME_HOLD_MS has passed with
+        no event of that key, and not before (400 ms on): the new field holds '한글' with the focus, nothing written, and
+        the next Enter is a press of its own and writes it. The same where the browser names no key (Android's
+        'Unidentified', no code). Held until that key's release, the rebuild waited for good."""
+        for name, code, word in (("Process", None, "채택"), ("Unidentified", "", "보류")):
+            with self.subTest(name=name):
+                page = self.on("fig")
+                cdp, pid, n, at = self.held_over(page, word, name, code)
+                hold = page.evaluate("IME_HOLD_MS") / 1000
+                page.wait_for_timeout(400)
+                settle(page)
+                self.assertEqual(page.evaluate(REBUILT, n), [False, True])
+                page.wait_for_function("n=>META.pages.length===n+1", arg=n, timeout=(hold + 3) * 1000)
+                self.assertLess(time.time() - at, hold + 1.5, "the rebuild waited past the bound")
+                settle(page)
+                self.rebuilt_with(page, pid, "한글")
+                self.enter_saves(page, cdp, pid)
+
+    def test_a_held_key_keeps_the_field_through_its_repeats(self):
+        """The Enter that ended the syllable held down as a keyboard repeats it - the first repeat 660 ms after the
+        press, then one every 40 ms, each sent as it comes - for longer than IME_HOLD_MS: the rebuild still waits, and
+        every repeat is the composition's. Up, the pages are built again at once. Bound by the time since the press, not
+        since that key's last repeat, the pages were built again under the held key."""
+        page = self.on("fig")
+        cdp, pid, n, at = self.held_over(page, "채택")
+        hold = page.evaluate("IME_HOLD_MS") / 1000
+        ime_key_held(cdp, "Enter", at, at + hold + 0.8)
+        self.assertEqual(page.evaluate(REBUILT, n), [False, True])
+        self.assertEqual(page.evaluate(FIELD_NOW)["value"], "한글")
+        ime_key_up(cdp, "Enter", time.time())
+        settle(page)  # at once
+        self.assertEqual(page.evaluate(REBUILT, n), [True, False])
+        self.rebuilt_with(page, pid, "한글")
+        self.enter_saves(page, cdp, pid)
+
+    def test_another_key_or_other_text_lets_the_field_go(self):
+        """The Enter that ended the syllable handed on and not up when another key goes down (Shift: a held key repeats
+        no more once another goes down) or text that is not the composition's comes in (put in 200 ms on, as a paste or an
+        on-screen keyboard does): the rebuild goes on at once, the new field holding the text with the focus, nothing
+        written; the next Enter writes it. Let go only by that key's release or the bound, the rebuild waited."""
+        shift = {"key": "Shift", "code": "ShiftLeft", "windowsVirtualKeyCode": 16}
+        for case, word, text in (("another key", "채택", "한글"), ("other text", "보류", "한글다")):
+            with self.subTest(case=case):
+                page = self.on("fig")
+                cdp, pid, n, _ = self.held_over(page, word)
+                page.wait_for_timeout(200)
+                settle(page)
+                self.assertEqual(page.evaluate(REBUILT, n), [False, True])
+                if case == "another key":
+                    cdp.send("Input.dispatchKeyEvent", {"type": "rawKeyDown", **shift, "modifiers": 8})
+                    cdp.send("Input.dispatchKeyEvent", {"type": "keyUp", **shift})
+                else:
+                    ime_commit(cdp, "다")
+                settle(page)  # at once: not at the bound
+                self.assertEqual(page.evaluate(REBUILT, n), [True, False])
+                self.rebuilt_with(page, pid, text)
+                page.keyboard.press("Enter")
+                page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id&&p.note)", arg=pid, timeout=10000)
+                self.assertEqual(self.pins()[pid]["note"], text)
+
+    def test_a_repeat_after_the_hold_is_still_the_composition_s(self):
+        """The Enter that ended the syllable held down on a keyboard whose first repeat comes later than IME_HOLD_MS: the
+        hold lets the field go at the bound, and the pages are built again under the key, the focus in the new field. The
+        repeats that come then, in that field, are still the composition's: nothing written, no new line, the popover
+        open with '한글'; the next Enter writes it. Forgotten with the old field (Chromium blurs a focused field as it takes
+        it out) or kept to it, the first late repeat wrote the reason and closed the popover."""
+        page = self.on("fig")
+        cdp, pid, n, _ = self.held_over(page, "보류")
+        hold = page.evaluate("IME_HOLD_MS") / 1000
+        page.wait_for_function("n=>META.pages.length===n+1", arg=n, timeout=(hold + 3) * 1000)
+        settle(page)
+        self.rebuilt_with(page, pid, "한글")
+        start = time.time()
+        ime_key_held(cdp, "Enter", start, start + 0.2, delay=0)
+        ime_key_up(cdp, "Enter", time.time())
+        settle(page)
+        self.assertEqual(page.evaluate(REASON, 1), {"focused": True, "value": "한글", "placeholder": "이유 (선택)"})
+        self.assertFalse(self.pins()[pid].get("note"))
+        self.enter_saves(page, cdp, pid)
 
 
 class ReasonDrafts(VerdictBase):

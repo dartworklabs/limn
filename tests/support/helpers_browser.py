@@ -341,6 +341,17 @@ def ime_key_press(cdp, key, at, repeat=False, *, code=None, shift=False):
     )
 
 
+def ime_key_held(cdp, key, start, until, delay=IME_REPEAT_DELAY, *, code=None):
+    """Key, pressed at start (time.time() seconds), held down in real time: its autorepeats from start + delay, one every
+    IME_REPEAT_EVERY, until `until`, each sent at its time and stamped then - what the page gets from a held key, as
+    against ime_end_with's repeats, all sent at once. code, if given, instead of the key's ('' for none)."""
+    t = start + delay
+    while t < until:
+        time.sleep(max(0.0, t - time.time()))
+        ime_key_press(cdp, key, time.time(), repeat=True, code=code)
+        t += IME_REPEAT_EVERY
+
+
 def ime_end_with(cdp, key, text, repeats=0):
     """The input method ends its composition with key the way ibus-hangul on Linux does: the key goes down marked
     composing (ime_key_down), the input method commits text (compositionend and the committed input), then hands the very
