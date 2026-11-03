@@ -1111,7 +1111,7 @@ class MentionListComposition(BrowserBase):
         page.wait_for_selector("#mention-pop:not([hidden])")
         cdp = page.context.new_cdp_session(page)
         ime_compose(cdp, "ㄱ", "겨", "결")
-        ime_end_with(page, cdp, "Enter", "결")
+        ime_end_with(cdp, "Enter", "결")
         settle(page)
         self.assertEqual((page.input_value("#note"), page.is_visible("#mention-pop")), ("@한결", True))
         self.assertIn("한결", page.inner_text("#mention-pop"))

@@ -827,7 +827,7 @@ class SuggestEditCard(SuggestBase):
         )
         cdp = page.context.new_cdp_session(page)
         ime_compose(cdp, "ㅎ", "하", "한")
-        ime_end_with(page, cdp, "Escape", "한")
+        ime_end_with(cdp, "Escape", "한")
         settle(page)
         self.assertTrue(
             page.evaluate("!!EDITOR.current&&document.activeElement===document.querySelector('.e-sg-text')")

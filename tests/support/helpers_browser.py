@@ -21,6 +21,7 @@ import re
 import shutil
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from typing import Literal
@@ -291,27 +292,58 @@ def ime_commit(cdp, text):
     cdp.send("Input.insertText", {"text": text})
 
 
-def ime_key_down(cdp):
-    """A key goes down that the input method takes while it composes: keydown Process (keyCode 229, marked composing)."""
+# The keys an input method ends a composition with, as the browser gets them from the system - what Playwright's press
+# sends over CDP (an Enter's text, so its default, the new line in a text box, is the browser's own unless a handler takes
+# it) - and the autorepeat of a held key (X's default: the first repeat 660 ms after the press, then one every 40 ms).
+IME_KEYS = {
+    "Enter": {"key": "Enter", "code": "Enter", "windowsVirtualKeyCode": 13, "text": "\r", "unmodifiedText": "\r"},
+    "Escape": {"key": "Escape", "code": "Escape", "windowsVirtualKeyCode": 27},
+}
+IME_REPEAT_DELAY, IME_REPEAT_EVERY = 0.66, 0.04
+
+
+def ime_key_down(cdp, key="Enter", at=None):
+    """Key goes down and the input method takes it while it composes: keydown Process on that physical key (keyCode 229,
+    marked composing - ibus-hangul's, docs/handbook/viewer.md §조합을 끝내는 키). at: its time (CDP's event time, seconds
+    since the epoch), now if None."""
+    ev = {"type": "rawKeyDown", "key": "Process", "code": IME_KEYS[key]["code"], "windowsVirtualKeyCode": 229}
+    cdp.send("Input.dispatchKeyEvent", ev if at is None else {**ev, "timestamp": at})
+
+
+def ime_key_up(cdp, key="Enter", at=None):
+    """That key comes up (its keyup)."""
+    k = IME_KEYS[key]
+    ev = {"type": "keyUp", "key": k["key"], "code": k["code"], "windowsVirtualKeyCode": k["windowsVirtualKeyCode"]}
+    cdp.send("Input.dispatchKeyEvent", ev if at is None else {**ev, "timestamp": at})
+
+
+def ime_key_press(cdp, key, at, repeat=False):
+    """A keydown of key as the system gives it (IME_KEYS), stamped at (CDP's event time); with repeat, an autorepeat's."""
+    k = IME_KEYS[key]
     cdp.send(
-        "Input.dispatchKeyEvent", {"type": "rawKeyDown", "key": "Process", "code": "", "windowsVirtualKeyCode": 229}
+        "Input.dispatchKeyEvent",
+        {"type": "keyDown" if "text" in k else "rawKeyDown", **k, "autoRepeat": repeat, "timestamp": at},
     )
 
 
-def ime_key_up(cdp):
-    """That key comes up (its keyup)."""
-    cdp.send("Input.dispatchKeyEvent", {"type": "keyUp", "key": "Process", "code": "", "windowsVirtualKeyCode": 229})
-
-
-def ime_end_with(page, cdp, key, text):
+def ime_end_with(cdp, key, text, repeats=0):
     """The input method ends its composition with key the way ibus-hangul on Linux does: the key goes down marked
     composing (ime_key_down), the input method commits text (compositionend and the committed input), then hands the very
     key on as a plain keydown (isComposing false) and its keyup - with no keyup before that keydown (core.js imeTail,
-    docs/handbook/viewer.md §조합을 끝내는 키). Playwright's press sends the key as the browser gets it from the system, so
-    its default (an Enter's new line in a text box) is the browser's own unless a handler takes it."""
-    ime_key_down(cdp)
+    docs/handbook/viewer.md §조합을 끝내는 키). One press, so like ibus-hangul's every keydown and the keyup carry the
+    time the key went down (CDP's event time): the gap a busy machine leaves between the commit and the next call does not
+    move the key out of core.js IME_TAIL_MS. With repeats the key is held: that many autorepeats (keydown with repeat, at
+    IME_REPEAT_DELAY and IME_REPEAT_EVERY - past the window) come before its keyup. The time of the press."""
+    at = time.time()
+    ime_key_down(cdp, key, at)
     ime_commit(cdp, text)
-    page.keyboard.press(key)
+    ime_key_press(cdp, key, at)
+    last = at
+    for i in range(repeats):
+        last = at + IME_REPEAT_DELAY + i * IME_REPEAT_EVERY
+        ime_key_press(cdp, key, last, repeat=True)
+    ime_key_up(cdp, key, last + IME_REPEAT_EVERY / 2 if repeats else at)
+    return at
 
 
 def nothing_follows(page, ms=500):

@@ -5998,7 +5998,7 @@ class ReasonComposition(VerdictBase):
         put a new line after the syllable."""
         page = self.on("fig")
         cdp, pid = self.open_composing(page)
-        ime_end_with(page, cdp, "Enter", "글")
+        ime_end_with(cdp, "Enter", "글")
         settle(page)
         self.assertEqual(page.evaluate(REASON, 1), {"focused": True, "value": "한글", "placeholder": "이유 (선택)"})
         self.assertFalse(self.pins()[pid].get("note"))
@@ -6012,7 +6012,7 @@ class ReasonComposition(VerdictBase):
         text asks before it drops it); the next Esc is the field's first."""
         page = self.on("fig")
         cdp, _ = self.open_composing(page)
-        ime_end_with(page, cdp, "Escape", "글")
+        ime_end_with(cdp, "Escape", "글")
         settle(page)
         self.assertEqual(page.evaluate(REASON, 1), {"focused": True, "value": "한글", "placeholder": "이유 (선택)"})
         self.assertEqual(page.evaluate("PV_REASON&&PV_REASON.escArm"), "")
