@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.45 — 2026-11-03
 
 ### Changed
 
