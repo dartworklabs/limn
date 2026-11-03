@@ -1,7 +1,12 @@
-"""Split a test selection into n parts that run on separate machines (`--shard i/n`), a whole class at a time.
+"""Split a test selection into n parts that run on separate machines (`--shard i/n`), a whole class at a time, and mark
+the tests of each browser class with the engine it runs on.
 
-CI runs the browser suite as several jobs, on one Python version; each runs `pytest -m browser --shard i/n` and they
-add up to the suite (docs/handbook/verification.md §검증 시간과 병렬 실행). The unit of the split is the scope that
+CI runs the browser suite as several jobs, on one Python version (.github/workflows/browser.yml): its Chromium classes
+in parts, each `pytest -m "browser and not firefox and not webkit" --shard i/n`, and the Firefox and WebKit classes in
+a job of their own, `-m "browser and (firefox or webkit)"`, which alone installs those engines; together they run the
+suite (docs/handbook/verification.md §검증 시간과 병렬 실행). The engine markers come from a class's
+BROWSER_ENGINE (tests/support/helpers_browser.py): a test of a class that selects Firefox or WebKit carries `firefox`
+or `webkit`. The unit of the split is the scope that
 pytest-xdist's `--dist loadscope` keeps on one worker (scope_of), so a class's browser and server stay together
 in one shard as they stay on one worker inside it.
 
@@ -15,12 +20,16 @@ in one part and the parts stay near balanced until the file is refreshed.
 Within a part the heaviest scopes come first, and the option turns off xdist's own reordering by test count, so the
 part's slowest class starts at once instead of last on one worker while the others idle.
 
-Refresh SECONDS from a whole run of the browser suite after classes are added, removed or made faster or slower:
+Refresh SECONDS after classes are added, removed or made faster or slower, from the timings the parts of a green CI run
+kept (each part records its classes with --shard-record and keeps the file as the artifact shard-seconds-<i>):
 
-    uv run pytest -q -m browser -n 4 --shard-record tests/data/shard_seconds.json
+    gh run download <run id> -R dartworklabs/limn -p 'shard-seconds-*' -D /tmp/shard-seconds
+    jq -S --indent 1 -s add /tmp/shard-seconds/*/shard-seconds.json > tests/data/shard_seconds.json
 
-A class whose tests all skipped in that run (an engine the machine cannot launch) is left out of the file and weighs at
-the mean. Stale or missing entries cost only balance, never a test.
+The parts hold disjoint classes, so the union is the suite's. CI's runners are the machines the parts run on; a local
+run (`uv run pytest -q -m "browser and not firefox and not webkit" -n 4 --shard-record ...`) measures another machine's
+proportions. A class whose tests all skipped in a run is left out of the file and weighs at the mean. Stale or missing
+entries cost only balance, never a test.
 """
 
 import argparse
@@ -34,6 +43,9 @@ from typing import TypeVar
 import pytest
 
 SECONDS = Path(__file__).resolve().parents[1] / "data" / "shard_seconds.json"
+# The engines a browser class may select instead of the default Chromium (ChromiumTestCase.BROWSER_ENGINE), each the
+# name of the marker its tests carry.
+ENGINES = ("firefox", "webkit")
 # Seconds per test for a scope when SECONDS knows none of the selected scopes (an empty or foreign file).
 DEFAULT_PER_TEST = 1.0
 
@@ -166,12 +178,27 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    """Keep the part's own order under xdist; start a recording on the controller."""
+    """Register the engine markers; keep the part's own order under xdist; start a recording on the controller."""
+    for engine in ENGINES:
+        config.addinivalue_line(
+            "markers", "%s: a test of a class whose BROWSER_ENGINE is %s (set by helpers_shards.py)" % (engine, engine)
+        )
     if config.getoption("shard") is not None and hasattr(config.option, "loadscopereorder"):
         config.option.loadscopereorder = False
     path = config.getoption("shard_record")
     if path is not None and not hasattr(config, "workerinput"):
         config.pluginmanager.register(Recorder(path), "shard-record")
+
+
+def pytest_itemcollected(item: pytest.Item) -> None:
+    """Mark a test of a class that selects Firefox or WebKit with that engine, as it is collected and so before -m
+    selects. A test outside a browser class, or of one on the default Chromium, carries neither marker."""
+    engine = getattr(getattr(item, "cls", None), "BROWSER_ENGINE", "chromium")
+    if engine == "chromium":
+        return
+    if engine not in ENGINES:
+        raise pytest.UsageError("%s: BROWSER_ENGINE %r is not chromium or one of %s" % (item.nodeid, engine, ENGINES))
+    item.add_marker(engine)
 
 
 @pytest.hookimpl(trylast=True)
