@@ -21,10 +21,13 @@ import re
 import shutil
 import sys
 import tempfile
+import time
 import unittest
+from datetime import datetime
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -289,6 +292,139 @@ def ime_compose(cdp, *steps):
 def ime_commit(cdp, text):
     """The input method commits text (CDP Input.insertText): in place of the open composition, else at the caret."""
     cdp.send("Input.insertText", {"text": text})
+
+
+def ime_commit_ended(cdp, *parts):
+    """The input method commits the open composition the way ibus-hangul does when a key ends the syllable: it empties
+    the composition, which ends it (compositionend with no data), and puts the text in as text of its own (an input not
+    marked composing) - Chromium's own events in the order the real ibus-hangul gives (docs/handbook/viewer.md §조합을
+    끝내는 키). Chromium stamps that input when it dispatches it, after the page's handlers of the end. Each of parts is an
+    input of its own: one is ibus-hangul's syllable, more a method that commits in parts."""
+    cdp.send("Input.imeSetComposition", {"text": "", "selectionStart": 0, "selectionEnd": 0})
+    for text in parts:
+        cdp.send("Input.insertText", {"text": text})
+
+
+# The keys an input method ends a composition with, as the browser gets them from the system - what Playwright's press
+# sends over CDP (an Enter's text, so its default, the new line in a text box, is the browser's own unless a handler takes
+# it) - and the autorepeat of a held key (X's default: the first repeat 660 ms after the press, then one every 40 ms).
+IME_KEYS = {
+    "Enter": {"key": "Enter", "code": "Enter", "windowsVirtualKeyCode": 13, "text": "\r", "unmodifiedText": "\r"},
+    "Escape": {"key": "Escape", "code": "Escape", "windowsVirtualKeyCode": 27},
+}
+IME_REPEAT_DELAY, IME_REPEAT_EVERY = 0.66, 0.04
+
+
+def ime_key_down(cdp, key="Enter", at=None, *, name="Process", code=None):
+    """Key goes down and the input method takes it while it composes: keydown Process on that physical key (keyCode 229,
+    marked composing - ibus-hangul's, docs/handbook/viewer.md §조합을 끝내는 키). at: its time (CDP's event time, seconds
+    since the epoch), now if None. name and code, if given, are what the browser says instead: Android's on-screen
+    keyboards give 'Unidentified' or 'Process' and no code (code=''; Chromium makes a code it does not know '' too)."""
+    k = IME_KEYS[key]
+    ev = {"type": "rawKeyDown", "key": name, "code": k["code"] if code is None else code, "windowsVirtualKeyCode": 229}
+    cdp.send("Input.dispatchKeyEvent", ev if at is None else {**ev, "timestamp": at})
+
+
+def ime_key_up(cdp, key="Enter", at=None, *, name=None, code=None):
+    """That key comes up (its keyup). With name the input method's keyup the way Android's on-screen keyboards give it:
+    that name ('Unidentified' or 'Process') and keyCode 229; code, if given, instead of the key's ('' for none)."""
+    k = IME_KEYS[key]
+    ev = {
+        "type": "keyUp",
+        "key": name or k["key"],
+        "code": k["code"] if code is None else code,
+        "windowsVirtualKeyCode": 229 if name else k["windowsVirtualKeyCode"],
+    }
+    cdp.send("Input.dispatchKeyEvent", ev if at is None else {**ev, "timestamp": at})
+
+
+def ime_key_press(cdp, key, at=None, repeat=False, *, code=None, shift=False):
+    """A keydown of key as the system gives it (IME_KEYS), stamped at (CDP's event time; now if None); with repeat, an
+    autorepeat's. code, if given, instead of the key's ('' for none); shift: with Shift held (a Shift+Enter)."""
+    k = {**IME_KEYS[key], **({} if code is None else {"code": code})}
+    ev = {
+        "type": "keyDown" if "text" in k else "rawKeyDown",
+        **k,
+        "autoRepeat": repeat,
+        **({"modifiers": 8} if shift else {}),
+    }
+    cdp.send("Input.dispatchKeyEvent", ev if at is None else {**ev, "timestamp": at})
+
+
+def clock_now():
+    """A page clock for BrowserBase.open(clock=...) where only its control matters (clock_still): now, in UTC."""
+    return datetime.now(ZoneInfo("UTC"))
+
+
+# How far clock_still runs the page's clock on before it stops it: room for the time the call takes, as pause_at may not
+# go back.
+CLOCK_STILL_AHEAD_MS = 1000
+
+
+def clock_still(page):
+    """Stop the page's clock, installed (BrowserBase.open's clock, or page.clock.install()), CLOCK_STILL_AHEAD_MS on from
+    the page's time - what falls due in that span runs, as it would on a machine that much slower: from there its timers, its
+    performance.now() and its events' times - Playwright's clock stamps an event with its performance.now() when the page
+    first reads the time, whatever CDP said - move only as the test runs it on (page.clock.run_for), never with the time
+    the test, the driver or the machine takes. So a check that a span has not run out yet, or has, does not depend on
+    real scheduling. settle() waits for the page's short timers, which do not run while the clock stands: run it on
+    first, or page.clock.resume() - it runs at real speed again from where it stood. Python's pause_at takes seconds
+    (a datetime here): given milliseconds it went tens of thousands of years on and ran every timer the page had, once -
+    also one a test set up to still be pending -, so the page's time is checked to have gone no further than the span."""
+    now = page.evaluate("Date.now()")
+    page.clock.pause_at(datetime.fromtimestamp((now + CLOCK_STILL_AHEAD_MS) / 1000, ZoneInfo("UTC")))
+    went = page.evaluate("Date.now()") - now
+    assert 0 <= went <= CLOCK_STILL_AHEAD_MS, f"the page's clock went {went} ms on, not {CLOCK_STILL_AHEAD_MS}"
+
+
+# ibus-hangul ends the composition 2-4 ms after the key that ends it went down (3 ms in the round-2 ibus log), and hands
+# the key on at once.
+IME_END_AFTER = 0.003
+
+
+def ime_end_held(page, cdp, key, *parts, name="Process", code=None, hand_on=True, commit=ime_commit_ended):
+    """While the page's clock stands still (clock_still), the input method ends its composition with key as ibus-hangul
+    does, and the key stays down: it goes down (ime_key_down; name and code as there), the clock runs IME_END_AFTER on,
+    the input method commits parts (commit(cdp, *parts): ime_commit_ended, or ime_commit - the commit before the end, in
+    Chromium's own order) and, with hand_on, hands the key on at once (code as for the key taken). No keyup."""
+    ime_key_down(cdp, key, name=name, code=code)
+    page.clock.run_for(round(IME_END_AFTER * 1000))
+    commit(cdp, *parts)
+    if hand_on:
+        ime_key_press(cdp, key, code=code)
+
+
+def ime_key_repeats(page, cdp, key, until, delay=IME_REPEAT_DELAY, *, since=IME_END_AFTER, code=None):
+    """Key, down for `since` s already (ime_end_held's), held while the page's clock stands still (clock_still): its
+    autorepeats, the first `delay` s after it went down and then one every IME_REPEAT_EVERY, the clock run on to each,
+    until `until` s after it went down - what the page gets from a held key whatever time the test takes between them.
+    code, if given, instead of the key's ('' for none). The clock is left at the last repeat."""
+    now, t = since, delay
+    while t < until:
+        page.clock.run_for(round((t - now) * 1000))
+        now = t
+        ime_key_press(cdp, key, repeat=True, code=code)
+        t += IME_REPEAT_EVERY
+
+
+def ime_end_with(cdp, key, text, repeats=0):
+    """The input method ends its composition with key the way ibus-hangul on Linux does: the key goes down marked
+    composing (ime_key_down), the input method commits text (ime_commit_ended: compositionend, then the committed input),
+    then hands the very key on as a plain keydown (isComposing false) and its keyup - with no keyup before that keydown
+    (core.js imeTail, docs/handbook/viewer.md §조합을 끝내는 키). One press, so like ibus-hangul's every keydown and the keyup carry the
+    time the key went down (CDP's event time): the gap a busy machine leaves between the commit and the next call does not
+    move the key out of core.js IME_TAIL_MS. With repeats the key is held: that many autorepeats (keydown with repeat, at
+    IME_REPEAT_DELAY and IME_REPEAT_EVERY - past the window) come before its keyup. The time of the press."""
+    at = time.time()
+    ime_key_down(cdp, key, at)
+    ime_commit_ended(cdp, text)
+    ime_key_press(cdp, key, at)
+    last = at
+    for i in range(repeats):
+        last = at + IME_REPEAT_DELAY + i * IME_REPEAT_EVERY
+        ime_key_press(cdp, key, last, repeat=True)
+    ime_key_up(cdp, key, last + IME_REPEAT_EVERY / 2 if repeats else at)
+    return at
 
 
 def nothing_follows(page, ms=500):

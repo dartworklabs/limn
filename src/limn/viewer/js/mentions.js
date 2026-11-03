@@ -257,7 +257,8 @@ document.addEventListener('input',e=>{const t=/** @type {HTMLTextAreaElement} */
   mentionPreview(t);
   if(t.classList.contains('e-note')){renderAssignEdit(); if(EDITOR.current)qHint(EDITOR.current.el.querySelector('.e-qhint'),t.value,EDITOR.current.kind_req);}
   else if(t.classList.contains('r-text'))renderReplyOutcome();});
-window.addEventListener('keydown',e=>{if(!MENTION.ta||e.target!==MENTION.ta||$('#mention-pop').hidden||e.isComposing)return;
+window.addEventListener('keydown',e=>{if(!MENTION.ta||e.target!==MENTION.ta||$('#mention-pop').hidden)return;
+  if(imeKey(e)){if(imeTail(e))e.preventDefault(); return;}   // the Enter that ended a composition neither picks nor breaks the line (core.js)
   const n=MENTION.items.length;
   if(e.key==='ArrowDown'||e.key==='ArrowUp'){if(!n)return; e.preventDefault(); e.stopImmediatePropagation();
     MENTION.sel=(MENTION.sel+(e.key==='ArrowDown'?1:n-1))%n; mentionUpdate(MENTION.ta);}

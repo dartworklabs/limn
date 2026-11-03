@@ -215,7 +215,7 @@ function docMenuNext(){const more=$('#doc-more'),stops=/** @type {HTMLElement[]}
 // shuts the popover with the focus on the button.
 $('#doc-more').addEventListener('keydown',e=>{if(e.key==='ArrowDown'&&!e.altKey){e.preventDefault(); if($('#doc-pop').hidden)openDocMenu();}});
 $('#doc-pop').addEventListener('keydown',e=>{const t=/** @type {HTMLElement} */(e.target),f=$('#doc-pop-in');
-  if(e.isComposing)return;
+  if(imeKey(e))return;
   const rows=/** @type {HTMLElement[]} */([...$('#doc-pop-list').children]).filter(r=>!r.hidden),field=!f.hidden;
   if(e.altKey&&!e.ctrlKey&&!e.metaKey&&/^Digit[1-9]$/.test(e.code||'')){const d=DOCS[+e.code.slice(5)-1]; e.preventDefault(); e.stopPropagation();
     if(d){closeDocMenu(true); switchDoc(d.key);} return;}

@@ -19,7 +19,19 @@ from limn.pins.location import source as pick_source
 import helpers_figure
 from helpers import blank_png, ps, split_resp
 from helpers_access import ALICE, BOB, member_add, talk_to
-from helpers_browser import MISSES_44, VIEWPORTS, BrowserBase, ime_commit, ime_compose, nothing_follows, settle
+from helpers_browser import (
+    MISSES_44,
+    VIEWPORTS,
+    BrowserBase,
+    clock_now,
+    clock_still,
+    ime_commit,
+    ime_compose,
+    ime_end_held,
+    ime_key_up,
+    nothing_follows,
+    settle,
+)
 
 WORDS = {"format": "limn-verdicts/1", "verdicts": [{"key": "채택"}, {"key": "보류"}, {"key": "삭제", "confirm": True}]}
 N_PAGES = 7  # the last two are list pages: no verdict, no summary
@@ -915,6 +927,72 @@ class PanelEdges(PanelBase):
                 want += "유" + more
                 self.assertEqual(page.locator(FIELD).input_value(), want)
         self.assertEqual(len(self.pins()), 1, "a digit typed on became a verdict")
+
+    def reason_composing(self, page):
+        """'묶이는 이' typed in a reason in the panel and '유' left composing when the room falls past the bar: the lines
+        stay beside the pages (above). The page's clock then stands still (clock_still - the page opened with one): what
+        waits and the key's hold come only as the test runs it. The CDP session and the pin."""
+        cdp = page.context.new_cdp_session(page)
+        page.locator('#pv-panel button[data-key="채택"]').click()
+        page.wait_for_function("OPEN_ALL.length===1")
+        settle(page)
+        page.locator('#pv-panel [data-act="pv-reason-open"]').click()
+        page.keyboard.type("묶이는 이")
+        (pid,) = self.pins()
+        ime_compose(cdp, "ㅇ", "유")
+        self.resize(page, 320)
+        clock_still(page)
+        return cdp, pid
+
+    def moved_with_the_reason(self, page, pid):
+        """The lines have moved: the field under the page has the focus and '묶이는 이유', and nothing is written."""
+        self.assertTrue(page.evaluate("()=>pvIsReasonField(document.activeElement)"), "the field lost the focus")
+        self.assertEqual(page.locator(FIELD).input_value(), "묶이는 이유")
+        self.assertEqual(self.pins()[pid]["note"], "", "the reason was written")
+
+    def test_crossing_the_bar_waits_for_the_key_that_ended_the_syllable(self):
+        """The reason composing when the room falls past the bar (reason_composing). The Enter goes down, the input
+        method commits '유' and hands the Enter on: the lines still stay while that key is down, 400 ms on the page's
+        clock, and the Enter adds nothing. Up, they move at once - not at the pins' next poll, which draws the lines
+        again: the field under the page has the focus and '묶이는 이유', nothing written. Moved at the commit, the Enter
+        handed on came to the new field as the viewer's: it wrote the reason and closed the popover."""
+        page = self.on(clock=clock_now(), **WIDE)
+        cdp, pid = self.reason_composing(page)
+        ime_end_held(page, cdp, "Enter", "유")
+        page.clock.run_for(400)
+        self.assertTrue(page.evaluate(SHAPE)["beside"], "the lines moved while the key was down")
+        ime_key_up(cdp, "Enter")
+        page.clock.run_for(1)  # the look the release starts, and nothing else
+        self.assertFalse(page.evaluate("PV_SIDE"), "the lines stayed beside the pages")
+        page.clock.resume()
+        settle(page)
+        self.moved_with_the_reason(page, pid)
+
+    def release_never_comes(self, name, code):
+        """As above, but the Enter's keyup never comes while the field keeps the focus (an input method may keep the
+        release); name and code: what the browser says of the key the input method takes (ime_key_down), code '' also
+        for the one handed on. On the page's clock the lines stay beside the pages until core.js IME_HOLD_MS has passed
+        with no event of that key - 1 ms short of it they are there - and move at it, at once: the field under the page
+        has the focus and '묶이는 이유', nothing written. Held until that key's release, the lines stayed beside the pages
+        for good; let go at the bound with nothing looking again then, they waited for the next drawing."""
+        page = self.on(clock=clock_now(), **WIDE)
+        cdp, pid = self.reason_composing(page)
+        ime_end_held(page, cdp, "Enter", "유", name=name, code=code)
+        hold = page.evaluate("IME_HOLD_MS")
+        page.clock.run_for(hold - 1)
+        self.assertTrue(page.evaluate(SHAPE)["beside"], "the lines moved while the key was down")
+        page.clock.run_for(2)  # the bound, and the look it starts (a 0 ms timer set in a timer: 1 ms on)
+        self.assertFalse(page.evaluate("PV_SIDE"), "the lines stayed beside the pages")
+        page.clock.resume()
+        settle(page)
+        self.moved_with_the_reason(page, pid)
+
+    def test_the_lines_move_when_the_release_never_comes(self):
+        self.release_never_comes("Process", None)
+
+    def test_the_lines_move_when_the_release_of_a_key_with_no_name_never_comes(self):
+        """The same where the browser names no key (Android's 'Unidentified', no code)."""
+        self.release_never_comes("Unidentified", "")
 
     def test_a_rebuild_keeps_the_reading_page_and_the_reason_in_the_panel(self):
         """A reason typed in the panel on page 5, the reading line 30px above the page's end, when a new build with a page

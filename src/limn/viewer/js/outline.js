@@ -332,7 +332,7 @@ function outlineRows(box){return /** @type {HTMLElement[]} */([...box.querySelec
 /** @param {HTMLElement} field @param {HTMLElement} box @param {HTMLElement} sr */
 function outlineFilter(field,box,sr){
   const fieldEl=/** @type {HTMLInputElement} */(field),keyed=()=>{document.documentElement.dataset.input='key';},
-    mine=(/** @type {KeyboardEvent} */e)=>!(e.isComposing||e.keyCode===229||e.ctrlKey||e.metaKey||e.altKey||e.shiftKey);
+    mine=(/** @type {KeyboardEvent} */e)=>!(imeKey(e)||e.ctrlKey||e.metaKey||e.altKey||e.shiftKey);
   field.addEventListener('input',()=>{outlineList(box,fieldEl.value); outlineSay(box,fieldEl.value,sr);});
   field.addEventListener('keydown',e=>{if(!mine(e)||(e.key!=='Enter'&&e.key!=='ArrowDown'))return;
     if(e.key==='Enter'&&!fieldEl.value.trim())return;   // nothing typed: the whole outline is listed, and none of it was asked for
