@@ -15,7 +15,9 @@
     cards in both languages.
   - **Its action:** `rebase it in Edit` is a link that opens the card's editor, as [Edit] does; on touch [Edit] is a
     pencil icon alone, so the line no longer names a label that is not on screen. It keeps the line's height and
-    answers a 44px tap on touch, a 24px click with a mouse. A viewer, who cannot edit, gets no action: the changed line
+    answers a 24px click with a mouse and a 44px tap on touch. On touch that area rises from the diff's top edge, with
+    the room for it above the line (the suggestion starts 24px under the note), and the diff keeps its own taps: a tap
+    just inside the diff no longer opens the editor. A viewer, who cannot edit, gets no action: the changed line
     is `The agent won't apply it` alone, while the unknown line keeps its reason.
   - **The editor says it too:** while an edit card keeps the pin's own base, its line under the editor starts with the
     same warning, in the warning colour: `The agent won't apply it · the source changed meanwhile` with [Use the
