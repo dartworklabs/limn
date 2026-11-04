@@ -332,6 +332,7 @@ function mdPick(r,b0,b1,quote,tapped){const levels=mdLevels(r,b0,b1),q=String(qu
   $('#composer').hidden=false; setBusy(false); $('#c-err').hidden=true; $('#c-body').hidden=false;
   setSide(true); applySide(); COMPOSE.dismissedOverlap=null; sel.overlaps=overlapsFor(sel,PINS); SNIP_OPEN=false;
   renderComposer(); renderVerdictRow(); $('#composer').scrollTop=0; if(LAYOUT!==LAYOUT_MODE.WIDE)$('#right').scrollTop=0;
+  revealBox(/** @type {HTMLElement|null} */(document.querySelector('#md .md-sel')));   // the chosen lines out from under the sheet (compact), as a PDF box is
   if(LAST_PTR==='mouse')$('#note').focus({preventScroll:true});}
 // The ladder of an edit card on a pin of this document: its lines' rungs from the drawn document (mdLevels), or none when the
 // document on screen is another or is not drawn (the line view, a notice) - the card then keeps the lines it has.

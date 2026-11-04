@@ -783,6 +783,24 @@ class Phone(MarkdownBase):
         page.wait_for_function("COMPOSE.current&&COMPOSE.current.scope==='block'", timeout=5000)
         self.assertEqual(page.evaluate("[COMPOSE.current.lo,COMPOSE.current.hi]"), [3, 5])
 
+    def test_the_chosen_lines_come_out_from_under_the_sheet(self):
+        """A tap on a block near the screen's bottom opens the sheet over it: the column scrolls so the chosen lines stand
+        above the sheet, as a PDF selection box does (revealBox)."""
+        page = self.open_md(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+        quote = fixture_line("인용 첫")
+        page.evaluate(
+            "(()=>{const L=document.getElementById('left'),e=document.querySelector(\"#md [data-line='%d']\");"
+            "L.scrollTop+=e.getBoundingClientRect().bottom-L.getBoundingClientRect().bottom+12;})()" % quote
+        )
+        self.line_el(page, quote).tap()
+        page.wait_for_function("COMPOSE.current&&COMPOSE.current.lo===%d" % quote, timeout=5000)
+        settle(page)
+        got = page.evaluate(
+            "[document.querySelector('#md .md-sel').getBoundingClientRect().bottom,"
+            "document.getElementById('right').getBoundingClientRect().top]"
+        )
+        self.assertLessEqual(got[0], got[1])
+
     def test_the_column_fits_the_phones_width(self):
         """The code block's and the table's widest lines scroll inside their own boxes: the column is no wider than the
         pane, and the pane does not scroll sideways (#doc is fit-content for pages, never for this column)."""
