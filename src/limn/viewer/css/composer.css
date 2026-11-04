@@ -74,6 +74,7 @@ button.tg[aria-pressed=true]{border-color:var(--border-strong)}
 .wn{color:var(--warning)}
 .warnline{color:var(--warning);font-size:var(--text-sm);margin-top:var(--space-2)}
 .errline{color:var(--destructive);font-size:var(--text-base);margin-top:var(--space-2)}
+.errline.flush{margin:0}   /* in a row of its own (the re-place banner), no gap above */
 .pin{position:relative;padding:var(--space-2) var(--space-3);margin-bottom:var(--space-2)}   /* shape follows .card */
 /* The range excerpt (excerpt.js, docs/handbook/viewer.md §패널 정리 범위 발췌): on every layout it is the source in the composer
    and the edit card (a region keeps its text), the mouse desktop's too. One row per source line - its number,
