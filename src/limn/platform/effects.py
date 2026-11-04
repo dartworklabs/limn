@@ -28,6 +28,11 @@ def reading() -> Iterator[None]:
         _read_only.reset(token)
 
 
+def is_reading() -> bool:
+    """Whether this request denies persistent effects, including implicit child-process writes."""
+    return _read_only.get()
+
+
 def require_writer() -> None:
     """Reject writer acquisition or effects in a read request before any file or thread changes."""
     if _read_only.get():

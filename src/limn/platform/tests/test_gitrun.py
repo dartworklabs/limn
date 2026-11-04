@@ -24,6 +24,7 @@ from unittest import mock
 from limn.administration import token_files
 from limn.builds import engine as build_engine
 from limn.platform import git as gitrun
+from limn.platform.effects import reading
 from limn.platform.git import KEPT_GIT_VARS, git_command, git_env
 from limn.revisions import core as revisions
 from limn.runtime import startup
@@ -85,6 +86,16 @@ class Environment(unittest.TestCase):
             env = git_env()
         self.assertNotIn("GIT_DIR", env)
         self.assertEqual(env["LIMN_PROBE"], "1")
+
+    def test_read_scope_disables_transports_and_optional_writes_after_extra_environment(self):
+        """Neither inherited nor caller-extra variables can enable Git writes in a GET scope."""
+        unsafe = {"GIT_NO_LAZY_FETCH": "0", "GIT_ALLOW_PROTOCOL": "file", "GIT_OPTIONAL_LOCKS": "1"}
+        with reading():
+            env = git_env(unsafe, unsafe)
+        self.assertEqual(
+            {key: env[key] for key in unsafe},
+            {"GIT_NO_LAZY_FETCH": "1", "GIT_ALLOW_PROTOCOL": "", "GIT_OPTIONAL_LOCKS": "0"},
+        )
 
     def test_a_command_is_a_list_never_a_string(self):
         """git_command prefixes git to a list and refuses a string (a defect: nothing may build a command line)."""

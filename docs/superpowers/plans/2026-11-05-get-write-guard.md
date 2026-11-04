@@ -46,3 +46,8 @@
 GET inventory와 실제 코드의 불일치는 찾지 못했다. 구현 중 새 읽기 범위의 PermissionError를 사람 기록의 옛 OSError 복구가 삼키는 점은 기록 진입점의 writer 검사로 고쳤다. 화면/문구는 그대로다. mentions.js의 "이 뷰어를 연 테일넷 사람만" 안내와 대응 영어 번역, unknown_assignee 오류의 같은 안내, CLI 멤버 목록의 LAST SEEN은 이제 실제 변경 기록의 의미와 맞지 않아 소유자 PoC 대상이다. 실제 Tailscale Serve·trusted-proxy 브라우저 세션과 WebKit 실행은 이 환경에서 검증하지 않았다. 새 기능 간 import는 없고 공통 platform의 읽기 효과 범위만 각 소유 기능에 연결했다.
 
 최종 POST 점검에서 동기 재빌드의 새 발행이 사람 등록 관찰값을 세우지 않던 누락을 고쳤다. 실제 임시 파일을 발행하는 컴파일 adapter fixture로 `people.json`이 없다는 실패를 먼저 확인하고, 성공한 새 발행이 관찰값을 세운 뒤 통과함을 확인했다. busy·변경 없음·실패는 등록하지 않는다. 마지막 제품 커밋 뒤 core(3,754 통과·1 건너뜀·6,516 subtests), 지정 browser+외부 진입(75 통과·3 건너뜀·132 subtests), architecture(111 통과)와 정적·타입 게이트를 재확인했다.
+
+
+### 리뷰 보완: Git 자식 프로세스의 영속 쓰기
+
+공통 `git_env()`가 HTTP 읽기 범위를 확인해 선택적 잠금과 lazy fetch를 막는다. Git 2.43은 `GIT_NO_LAZY_FETCH`를 지원하지 않으므로 빈 `GIT_ALLOW_PROTOCOL`로 file 전송과 remote helper를 포함한 모든 전송을 거절한다. promisor 설정은 2.43에서 누적되므로 나중의 `promisor=false`에 기대지 않는다. 저장소 설정은 바꾸지 않는다. 실제 `uploadpack.allowFilter=true` 저장소에서 `--no-local --filter=blob:none` 부분 클론을 경로별로 새로 만들었다. 네 revision GET과 meta/docs, status·cat-file·blame·show 어댑터 실행이 `.git` 전체 bytes/inode/mtime을 보존한다. blob이 없을 때 diff는 기존 `404 diff_unreadable`, 비교 상태는 `idle`, PDF는 `404 revision_not_ready`다. 원래 구현은 revision-diff가 pack 파일을 만들어 새 검사의 트리 동일성 assertion에서 실패했다.

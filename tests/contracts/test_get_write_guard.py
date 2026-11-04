@@ -6,13 +6,15 @@ import hashlib
 import inspect
 import json
 import os
+import shutil
+import subprocess
 import threading
 from pathlib import Path
 from unittest import mock
 
 from limn.builds import artifacts
 from limn.pins.maintenance import PinMaintenance
-from limn.platform import files
+from limn.platform import files, git as gitrun
 from limn.platform.diagnostics import BoundedDiagnostics
 from limn.platform.effects import reading
 from limn.security import access
@@ -21,7 +23,7 @@ from limn.web.app import RouteRegistry
 from limn.web.routes import RouteBundle
 
 from helpers import Base, add_pin, blank_png, minimal_pdf, ps, req, set_config, split_resp
-from helpers_access import A_LOGIN, ALICE, B_LOGIN, BOB, C_LOGIN, CAROL, ScopedRepo, member_add, token_create
+from helpers_access import A_LOGIN, ALICE, B_LOGIN, BOB, C_LOGIN, CAROL, ScopedRepo, configure, member_add, token_create
 
 FAMILIES = {
     "/api/pins/1",
@@ -364,6 +366,72 @@ class TestReadContract(Base):
 
 class TestComparisonReads(ScopedRepo):
     """Reach comparison cache lookup with a real authorized commit, rather than an invalid-query shortcut."""
+
+    def test_partial_clone_reads_never_fetch_or_refresh_index(self):
+        """Missing historic blobs produce existing refusals, never lazy-fetch packs or index refreshes."""
+        self.git("config", "uploadpack.allowFilter", "true")
+        # A fresh clone per route proves each request preserves a genuinely incomplete object store.
+        routes = (
+            ("/api/revisions", 200, None),
+            ("/api/revision-diff?commit=" + self.fix, 404, "diff_unreadable"),
+            ("/api/revision-build?commit=" + self.fix, 200, "idle"),
+            ("/api/revision-pdf?commit=" + self.fix, 404, "revision_not_ready"),
+            ("/api/meta", 200, None),
+            ("/api/docs", 200, None),
+        )
+        state = ps.APP.C.state
+        for i, (route, expected, reason) in enumerate(routes):
+            with self.subTest(route=route):
+                clone = self.repo / ("partial-%d" % i)
+                subprocess.run(
+                    [
+                        "git",
+                        "clone",
+                        "--quiet",
+                        "--no-local",
+                        "--no-checkout",
+                        "--filter=blob:none",
+                        self.repo.as_uri(),
+                        str(clone),
+                    ],
+                    check=True,
+                    capture_output=True,
+                )
+                shutil.copytree(self.src, clone / "ms")
+                # Create a real index without checking out/fetching any missing blobs.
+                subprocess.run(["git", "reset", "--quiet", "HEAD"], cwd=clone, check=True, capture_output=True)
+                missing = subprocess.run(
+                    ["git", "rev-list", "--objects", "--all", "--missing=print"],
+                    cwd=clone,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout
+                self.assertIn("?", missing)
+                configure(ps, clone / "ms", clone / "ms/main.tex", state)
+                # Repository configuration cannot reopen a transport for a GET.
+                subprocess.run(
+                    ["git", "config", "protocol.file.allow", "always"], cwd=clone, check=True, capture_output=True
+                )
+                before = tree(clone / ".git")
+                code, data = self.call("GET", route, headers=ALICE)
+                self.assertEqual(tree(clone / ".git"), before)
+                self.assertEqual(code, expected, data)
+                if reason is not None:
+                    self.assertEqual(data["state" if reason == "idle" else "reason"], reason)
+                # Also exercise optional index refresh and blob readers through every process adapter.
+                with reading():
+                    self.assertEqual(gitrun.run_git(["status", "--porcelain"], clone, 10).returncode, 0)
+                    self.assertNotEqual(gitrun.git(["cat-file", "-p", self.fix + ":ms/main.tex"], clone)[0], 0)
+                    with gitrun.open_git(["blame", self.fix, "--", "ms/main.tex"], clone) as proc:
+                        proc.communicate(timeout=10)
+                        self.assertNotEqual(proc.returncode, 0)
+                    from limn.revisions.core import git_exec
+
+                    self.assertNotEqual(git_exec(["show", self.fix + ":ms/main.tex"], clone, 10, 4096)[0], 0)
+                self.assertEqual(tree(clone / ".git"), before)
+                if route == "/api/revisions":
+                    self.assertIn(self.fix, [row["id"] for row in data["revisions"]])
 
     def test_absent_and_existing_root_are_read_only(self):
         """Status is idle without mkdir; PDF retains not-ready, including an existing empty root."""

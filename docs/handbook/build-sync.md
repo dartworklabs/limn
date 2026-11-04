@@ -261,6 +261,7 @@ Limn이 띄우는 git은 모두 [`src/limn/platform/git.py`](../../src/limn/plat
 - stdin은 `/dev/null`이고 새 세션에서 돈다. 제어 터미널이 없으므로 git도, fetch가 부르는 ssh도 `/dev/tty`로 비밀번호·암호 문구·호스트 키를 묻지 못한다.
 - `GIT_TERMINAL_PROMPT=0`을 준다. HTTPS 자격 증명이 필요하면 묻지 않고 바로 실패한다(`error:fetch_failed`).
 - 서버 환경의 `GIT_*` 변수는 넘기지 않는다. `GIT_DIR`·`GIT_WORK_TREE`·`GIT_INDEX_FILE`·`GIT_CONFIG_*` 같은 변수는 git을 다른 저장소로 보내거나 원고에 없는 설정을 더하고, `GIT_ASKPASS`는 묻는 프로그램을 띄운다. ssh 전송 설정(`GIT_SSH_COMMAND`·`GIT_SSH`·`GIT_SSH_VARIANT`)만 남긴다. systemd 유닛이 `GIT_SSH_COMMAND`로 ssh를 BatchMode로 돌리고([instances.md](instances.md)), 운영자가 배포 키를 거기서 고를 수 있어서다. `HOME`·`PATH`·`SSH_AUTH_SOCK`·로케일·프록시 설정은 그대로 넘긴다.
+- HTTP 읽기 범위에서는 공통 Git 환경이 `GIT_OPTIONAL_LOCKS=0`으로 선택적 인덱스 갱신을 막고 `GIT_NO_LAZY_FETCH=1`을 준다. Git 2.43에서도 부분 클론의 누락 객체를 저장하지 않도록 `GIT_ALLOW_PROTOCOL`을 빈 허용 목록으로 설정해 모든 전송을 막는다. 이 값은 저장소의 `protocol.*.allow`보다 우선하며 설정 파일을 고치지 않는다. 로컬 객체만 필요한 이력은 그대로 조회하고, 없는 blob이 필요한 diff는 기존 `404 diff_unreadable`로 답한다. 비교 상태는 객체 읽기가 필요 없으면 기존 `idle`을, PDF는 준비되지 않았으면 `404 revision_not_ready`를 유지한다. POST·독립 동기화에는 이 읽기 제한을 적용하지 않는다.
 - git에 설정한 자격 증명 도우미(credential helper)와 ssh 에이전트는 그대로 쓴다. 꺼지는 것은 사람에게 묻는 일뿐이다.
 
 비교 PDF의 샌드박스 빌드(latexdiff·latexmk)는 이 규칙이 아니라 샌드박스 규칙을 따른다([api.md](api.md) §변경 보기와 비교 PDF).
