@@ -61,7 +61,7 @@
 | `LABEL` / `ACCENT` | 뷰어 이름표와 강조색(`#rrggbb`) |
 | `UI_LANG` | 뷰어 화면 언어의 인스턴스 기본값 `ko`·`en`. 비우면 브라우저 언어를 따른다. `limn run`이 `--ui-lang`으로 넘긴다 |
 | `EXTRA_ARGS` | 그 밖의 서버 인자(공백으로 나눔). `limn add`의 기본값은 `--no-build`다. 산출물이 없으면 서버가 어차피 빌드한다 |
-| `DOCS` | 여러 문서(본문, 답변서, 보기 전용 PDF 등)를 탭으로 전환한다. `MAIN`과 함께 쓰지 않는다. 아래 '여러 문서 (`DOCS=`)' 절 |
+| `DOCS` | 여러 문서(본문, 답변서, 보기 전용 PDF, Markdown 문서 등)를 탭으로 전환한다. `MAIN`과 함께 쓰지 않는다. 아래 '여러 문서 (`DOCS=`)' 절 |
 
 값에 공백이나 `#`이 있으면 `limn`이 큰따옴표로 감싸 쓴다. `#`을 주석으로 읽는 파서가 있기 때문이다.
 
@@ -98,7 +98,7 @@ limn add paper2 --manuscript ~/papers/paper2 --git-pull --label Paper2
 | 옵션 | 뜻 |
 | --- | --- |
 | `--manuscript <dir>` | 원고 폴더. 필수 |
-| `--main <file.tex>` | 최상위 `.tex`. 원고 폴더 맨 위에 있어야 한다. `--doc`과 함께 쓰지 않는다 |
+| `--main <file.tex>` | 최상위 `.tex`. 원고 폴더 맨 위에 있어야 한다. `--doc`과 함께 쓰지 않는다. `.md`는 거절하고 `--doc <키>=<이름>:<경로>` 꼴을 알린다. Markdown 문서는 `--doc`으로 더한다 |
 | `--doc <키>=<표시 이름>:<경로>` | 문서. 여러 번 준다. `--main`과 함께 쓰지 않는다 |
 | `--stage auto\|initial\|revision` | 기본 문서 탭 자동 탐지에만 쓴다. `--doc`·`--main`과 함께 주면 거부한다 |
 | `--port N` / `--ts-port N` | 로컬 포트와 테일넷 포트를 직접 준다. 하나만 주면 나머지는 짝 간격(`LIMN_LOCAL_OFFSET`, 기본 `100`)으로 계산한다 |
@@ -169,6 +169,7 @@ limn add paper2 --manuscript ~/papers/paper2        # 같은 결과를 설정에
 >
 > limn doc add paper2 --doc 'cl=커버레터:submission/cover_letter/cover_letter.tex' --restart
 > limn doc add paper2 --doc 'fig=그림:figures::out/figures.limnmap.json' --restart
+> limn doc add paper2 --doc 'nt=노트:notes/plan.md' --restart
 > limn doc list paper2
 > limn doc remove paper2 cl
 > ```
@@ -178,12 +179,13 @@ limn add paper2 --manuscript ~/papers/paper2        # 같은 결과를 설정에
 | `--doc` 형식 | `<키>=<표시 이름>:<경로>`. 첫 `=` 앞이 키, 다음 `:`까지가 이름, 나머지가 경로 |
 | 키 | `[a-z0-9-]{1,24}`, 중복 금지. 핀에 남으므로 한 번 정하면 바꾸지 않는다 |
 | 이름 | 비어 있으면 안 되고 40자 이하 |
-| 경로 | `--manuscript` 기준 상대(권장) 또는 절대. 반드시 `--manuscript` 안. `.tex`(LaTeX), `.pdf`(보기 전용), `.limnmap.json`(그림 문서)만 받는다 |
+| 경로 | `--manuscript` 기준 상대(권장) 또는 절대. 반드시 `--manuscript` 안. `.tex`(LaTeX), `.pdf`(보기 전용), `.limnmap.json`(그림 문서), `.md`(Markdown 문서)만 받는다 |
 | `x/main.tex` | LaTeX, 빌드 루트 `x/` |
 | `root::sub/main.tex` | LaTeX, 빌드 루트 `root/`(복사 범위를 넓힌다), 메인 `root/sub/main.tex` |
 | `x/file.pdf` | 보기 전용(재빌드 없음, 쪽·영역 핀) |
 | `x/figures.limnmap.json` | 그림 문서. 지도가 가리키는 PDF를 가져온다(재빌드 없음). 문서 폴더는 지도가 있는 `x/` |
 | `root::sub/figures.limnmap.json` | 그림 문서. 문서 폴더는 `root/`, 지도는 `root/sub/figures.limnmap.json`. 지도 속 코드 경로(`src`·`impl`)가 `root/` 기준일 때 쓴다 |
+| `x/notes.md` | Markdown 문서. 빌드가 없고 뷰어가 원문을 그린다. 핀은 쪽 없는 줄 핀이다. `::` 표기는 받지 않는다 |
 | 개수 | 12개까지 |
 | `MAIN`과의 관계 | 함께 쓰지 않는다. `add`와 `run`이 거부한다 |
 | 설정 파일 형식 | `DOCS="<키1>=<이름1>:<경로1>;<키2>=…"`. `;`로 나누고, 이름에 공백이 있을 수 있어 따옴표로 싼다 |
@@ -267,7 +269,7 @@ limn update --from ~/src/limn  # 로컬 체크아웃(개발용)
 - `--no-restart`를 주면 설치만 하고 인스턴스를 재시작하지 않는다.
 - 설치가 실패하면 현재 판에 머문다.
 
-되돌리기는 이전 태그를 다시 설치하는 것이다. `limn update --ref v<이전 판>`을 실행한다. 업데이트할 때마다 이 명령을 찍어 준다. 따로 두는 앱 사본은 더 없다. 설치된 태그가 곧 판이다.
+되돌리기는 이전 태그를 다시 설치하는 것이다. `limn update --ref v<이전 판>`을 실행한다. 업데이트할 때마다 이 명령을 찍어 준다. 따로 두는 앱 사본은 더 없다. 설치된 태그가 곧 판이다. `.md` 등록이 없는 판(0.4.47 이하)으로 되돌릴 때는 먼저 Markdown 문서를 `limn doc remove <이름> <키>`로 뺀다. 그 판은 Markdown 문서가 있는 설정으로 시작하지 않는다. 핀은 상태 폴더에 그대로 남는다([operations.md](operations.md) §여러 문서 (`--doc`)).
 
 ### 종료 코드
 
