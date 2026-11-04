@@ -397,11 +397,13 @@ LATEX_SOURCE_SUFFIXES: frozenset[str] = frozenset({".tex", ".bib", ".sty", ".cls
 
 
 def doc_for_file(docs: Sequence[Doc], root: Path, path: object) -> Doc:
-    """Which document of docs that takes line pins (LaTeX or figure) a request that only gave a file (agent curl)
-    belongs to: the one whose folder most deeply contains it (a relative path is taken under the manuscript root), or
-    the first document if none does or the path cannot be resolved. Of documents equally deep, a file with a LaTeX
-    source suffix (LATEX_SOURCE_SUFFIXES, any case) goes to the one built from source, any other file to the one with
-    an element map, and in a tie that leaves the first listed wins. View-only documents never match."""
+    """Which document of docs that takes line pins (LaTeX, figure or Markdown) a request that only gave a file (agent
+    curl) belongs to: the one whose folder most deeply contains it (a relative path is taken under the manuscript
+    root), or the first document if none does or the path cannot be resolved. Of documents equally deep, a file with a
+    LaTeX source suffix (LATEX_SOURCE_SUFFIXES, any case) goes to the one built from source, any other file to the one
+    with an element map, and in a tie that leaves the first listed wins. View-only documents never match. A document
+    the browser draws (renders_in_browser) is one file: it holds its own main file - first listed, before any folder
+    match - and nothing else, so a file beside or below it goes on to the folder rule."""
     try:
         p = Path(str(path)) if os.path.isabs(str(path)) else root / str(path)
         p = p.resolve()
@@ -411,6 +413,13 @@ def doc_for_file(docs: Sequence[Doc], root: Path, path: object) -> Doc:
     best, rank = None, (-1, False)
     for d in docs:
         if not d.takes_line_pins:
+            continue
+        if d.renders_in_browser:
+            try:
+                if p == d.main.resolve():
+                    return d
+            except (OSError, RuntimeError):
+                pass
             continue
         try:
             p.relative_to(d.src.resolve())

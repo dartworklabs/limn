@@ -37,6 +37,7 @@ from limn.pins.editing.rules import (
 )
 from limn.pins.model import OpenPin
 from limn.pins.suggestion import Suggestion
+from limn.runtime import documents
 from limn.runtime.documents import Doc
 from limn.web.errors import InputRejected
 
@@ -428,3 +429,55 @@ class MarkdownSuggestionsOverHttp(MarkdownDocument):
         self.assertEqual(ps.APP.read_pins()[0], [])
         pid = self.make_md(suggest={"base": PARAGRAPH, "text": "x"})
         self.assertEqual(self.pin(pid)["suggest"]["text"], "x")
+
+
+class FileOnlyRouting(Base):
+    """A request that names only a file (an agent's curl, no doc key) goes to the document that holds it
+    (limn.runtime.documents.doc_for_file). A Markdown document is one file: it holds its own file alone, whichever
+    folder it shares - so its .md goes to it and not to a LaTeX document in the same folder, and a LaTeX file beside
+    or below it still goes to the LaTeX document."""
+
+    def setUp(self):
+        """ms (main.tex) and nt (plan.md) in the same manuscript folder, ms listed first; notes/ holds a second
+        Markdown document nt2 (notes/todo.md) beside a .tex and an .md that no document registers."""
+        super().setUp()
+        self.plan = self.src / "plan.md"
+        self.plan.write_text(PLAN, encoding="utf-8")
+        (self.src / "notes").mkdir()
+        self.todo = self.src / "notes" / "todo.md"
+        self.todo.write_text("- one\n- two\n", encoding="utf-8")
+        (self.src / "notes" / "part.tex").write_text("a\nb\n", encoding="utf-8")
+        (self.src / "notes" / "loose.md").write_text("a\nb\n", encoding="utf-8")
+        self.ms = Doc("ms", "본문", "tex", self.src, self.main, paths=ps.APP.C.paths)
+        self.nt = Doc("nt", "계획", "markdown", self.src, self.plan, paths=ps.APP.C.paths)
+        self.nt2 = Doc("nt2", "할 일", "markdown", self.src / "notes", self.todo, paths=ps.APP.C.paths)
+        self.docs = [self.ms, self.nt, self.nt2]
+        ps.APP.set_docs(self.docs)
+        self.addCleanup(ps.APP.set_docs, None)
+
+    def test_a_markdown_documents_own_file_goes_to_it(self):
+        """plan.md (relative or absolute) goes to nt although ms is as deep and listed first; notes/todo.md to nt2."""
+        self.assertIs(documents.doc_for_file(self.docs, self.src, "plan.md"), self.nt)
+        self.assertIs(documents.doc_for_file(self.docs, self.src, str(self.plan)), self.nt)
+        self.assertIs(documents.doc_for_file(self.docs, self.src, "notes/todo.md"), self.nt2)
+
+    def test_other_files_never_go_to_a_markdown_document(self):
+        """main.tex, a .tex in a Markdown document's folder and an .md no document registers go to the LaTeX
+        document, as before Markdown documents existed."""
+        for name in ("main.tex", "notes/part.tex", "notes/loose.md"):
+            with self.subTest(file=name):
+                self.assertIs(documents.doc_for_file(self.docs, self.src, name), self.ms)
+
+    def test_a_pin_that_names_only_the_md_file_is_a_markdown_pin(self):
+        """POST /api/pin with file plan.md and no doc makes a pin of nt without page fields; one on main.tex is ms's
+        with its page."""
+        code, _, out = split_resp(self.talk(jreq("POST", "/api/pin", {"file": "plan.md", "lo": 3, "hi": 4, "page": 1})))
+        self.assertEqual(code, 200, out)
+        md = self.pin(json.loads(out)["id"])
+        self.assertEqual(md["doc"], "nt")
+        for key in PAGE_FIELDS:
+            self.assertNotIn(key, md)
+        code, _, out = split_resp(self.talk(jreq("POST", "/api/pin", {"file": "main.tex", "lo": 4, "hi": 5})))
+        self.assertEqual(code, 200, out)
+        tex = self.pin(json.loads(out)["id"])
+        self.assertEqual((tex["doc"], tex["page"]), ("ms", 1))
