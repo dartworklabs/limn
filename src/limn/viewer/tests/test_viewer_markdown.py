@@ -30,7 +30,7 @@ from limn.administration import serve_documents as startup_documents
 
 import helpers_csp
 from helpers import ps, req
-from helpers_browser import BrowserBase, ime_key_down, ime_key_press, ime_key_up, settle
+from helpers_browser import BrowserBase, ime_compose, ime_end_with, settle
 from helpers_figure import BUILD1, viewer_build
 
 # Resolves when the Markdown document on screen is drawn (a document, the line view or a notice) and no parse is in flight.
@@ -380,18 +380,22 @@ class Security(MarkdownBase):
         )
 
     def test_an_in_document_link_goes_to_its_heading_and_its_enter_asks_the_input_method_first(self):
-        """[제목으로](#코드와-인용) scrolls that heading to the top, by click and by Enter; an Enter the input method takes
-        (marked composing) does nothing (imeKey, docs/handbook/viewer.md §조합을 끝내는 키)."""
+        """[제목으로](#코드와-인용) scrolls that heading to the top on Enter - but not on the Enter that ended a Hangul
+        composition: here the field it composed in leaves the document as the composition ends and the focus lands on the
+        link (the case imeTail keeps: the key goes on where the focus went, docs/handbook/viewer.md §조합을 끝내는 키), as
+        ibus-hangul hands that Enter on (ime_end_with). The global key path asks imeKey before it activates the link."""
         page = self.open_md()
-        link = page.locator("#md .md-anchor")
-        link.focus()
+        page.evaluate(
+            "(()=>{const a=document.querySelector('#md .md-anchor'),i=document.createElement('input'); i.id='md-probe'; a.after(i);"
+            "i.addEventListener('compositionend',()=>{a.focus(); i.remove();},{once:true}); i.focus();})()"
+        )
         cdp = page.context.new_cdp_session(page)
-        ime_key_down(cdp, "Enter")
-        ime_key_up(cdp, "Enter", name="Process")
+        ime_compose(cdp, "ㄱ", "가")
+        ime_end_with(cdp, "Enter", "가")
         settle(page)
+        self.assertTrue(page.evaluate("document.activeElement.classList.contains('md-anchor')"))
         self.assertNotEqual(page.evaluate("document.querySelector('#section-current').textContent"), "코드와 인용")
-        ime_key_press(cdp, "Enter")
-        ime_key_up(cdp, "Enter")
+        page.keyboard.press("Enter")
         page.wait_for_function("document.querySelector('#section-current').textContent==='코드와 인용'", timeout=5000)
 
 
@@ -778,6 +782,18 @@ class Phone(MarkdownBase):
         self.line_el(page, 4).tap()
         page.wait_for_function("COMPOSE.current&&COMPOSE.current.scope==='block'", timeout=5000)
         self.assertEqual(page.evaluate("[COMPOSE.current.lo,COMPOSE.current.hi]"), [3, 5])
+
+    def test_the_column_fits_the_phones_width(self):
+        """The code block's and the table's widest lines scroll inside their own boxes: the column is no wider than the
+        pane, and the pane does not scroll sideways (#doc is fit-content for pages, never for this column)."""
+        self.write(FIXTURE + "\n```\n" + "x" * 300 + "\n```\n\n|" + " 넓은 칸 |" * 30 + "\n|" + " - |" * 30 + "\n")
+        page = self.open_md(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+        got = page.evaluate(
+            "(()=>{const L=document.getElementById('left'),m=document.getElementById('md').getBoundingClientRect();"
+            "return {over:L.scrollWidth-L.clientWidth,right:m.right,width:L.clientWidth};})()"
+        )
+        self.assertLessEqual(got["over"], 0)
+        self.assertLessEqual(got["right"], got["width"] + 1)
 
 
 class CoreFirefox(Picking):

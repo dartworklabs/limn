@@ -47,6 +47,7 @@ class AsyncDocumentVisits(unittest.TestCase):
         js = "\n".join(
             [
                 extract_js_fn("pollLightOnce"),
+                "function isMdDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
                 """
                 let DOC='a',SWITCHSEQ=1,POLL_FAILS=1;
                 const lost={hidden:true};
@@ -93,6 +94,7 @@ class AsyncDocumentVisits(unittest.TestCase):
         js = "\n".join(
             [
                 extract_js_fn("pollLightOnce"),
+                "function isMdDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
                 """
                 let DOC='a',SWITCHSEQ=1,POLL_FAILS=2;
                 const lost={hidden:false};

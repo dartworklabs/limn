@@ -300,7 +300,7 @@ function mdBlockAt(node){const e=node&&(node.nodeType===1?/** @type {Element} */
   return b;}
 // The block kinds a block rung takes (its pin kind is md:<kind>, ADR-0025 D3) and their names on the ladder.
 const MD_BLOCK_KINDS=['paragraph','item','table','code','quote','html'];
-const MD_BLOCK_LABEL={paragraph:'문단',item:'목록 항목',table:'표',code:'코드 블록',quote:'인용',html:'HTML 블록'};
+const MD_BLOCK_LABEL={'paragraph':'문단','item':'목록 항목','table':'표','code':'코드 블록','quote':'인용','html':'HTML 블록'};
 function mdSnippet(lo,hi){const out=[]; for(let n=lo;n<=Math.min(hi,lo+79);n++)out.push(String(n).padStart(5,' ')+'  '+(MD.lines[n-1]||''));
   if(hi-lo+1>80)out.push('      … '+tl('{n}줄 더',{n:hi-lo+1-80})); return out.join('\n');}
 // The section around lines lo..hi: from the nearest heading at or above lo to the line before the next heading of the same or a
@@ -374,7 +374,7 @@ let MD_RO_T=0; const MD_RO=window.ResizeObserver?new ResizeObserver(()=>{clearTi
 // Scrolls pin id's first line to the reading depth and flashes its lines (jumpPin's branch).
 function mdJump(id){const p=PINS.find(x=>x.id===id)||REVIEW_ALL.find(x=>x.id===id); if(!p||typeof p.lo!=='number'||typeof p.hi!=='number')return;
   const leaves=mdLeaves(p.lo,p.hi); if(!leaves.length)return; const L=$('#left'),lr=L.getBoundingClientRect(),r=leaves[0].getBoundingClientRect();
-  L.scrollTop+=(r.top-(lr.top+lr.height*0.30)); leaves.forEach(e=>{e.classList.remove('md-flash'); void e.offsetWidth; e.classList.add('md-flash');});
+  pvShow(); L.scrollTop+=(r.top-(lr.top+lr.height*0.30)); leaves.forEach(e=>{e.classList.remove('md-flash'); void e.offsetWidth; e.classList.add('md-flash');});
   setTimeout(()=>leaves.forEach(e=>e.classList.remove('md-flash')),1200);}
 // ---------------- Outline from headings, the strip and the position button
 function mdOutline(){OUTLINE_DOC=DOC; OUTLINE_BUILD=(META&&META.pages_build)||''; OUTLINE_CUT=0;
@@ -404,7 +404,7 @@ function mdHint(){const e=$('#empty'); if(!e)return; if(!MD_HINT_PDF)MD_HINT_PDF
   setHtml(e,html`<span class="t-mouse">${tr('글을')} <b>${tr('끌어')}</b> ${tr('고르면 그 줄을,')} <b>${tr('블록을 누르면')}</b> ${tr('그 블록을 고르고')}</span><span class="t-touch"><b>${tr('블록을 누르면')}</b> ${tr('그 블록을,')} <b>${tr('길게 눌러')}</b> ${tr('글을 고르면 그 줄을 고르고')}</span> ${tr('그 자리의')} <b>${tr('원문 줄 번호')}</b>${tr('가 핀의 위치가 됩니다.')}<br>
     ${tr('메모를 달아 핀으로 저장하면, 에이전트가 pins.md 한 장만 읽고 작업합니다.')}<br><span class="t-mouse"><kbd>?</kbd> ${tr('를 누르면 도움말.')}</span><span class="t-touch">${tr('도움말은 [더보기]에 있습니다.')}</span>`);}
 function mdGoHeading(i){const h=MD.heads[i]; if(!h)return; OUTLINE_SELECTED=i; markOutline();
-  const L=$('#left'),lr=L.getBoundingClientRect(),r=h.el.getBoundingClientRect(); L.scrollTo({top:L.scrollTop+r.top-lr.top-8,behavior:SMOOTH});}
+  const L=$('#left'),lr=L.getBoundingClientRect(),r=h.el.getBoundingClientRect(); pvShow(); L.scrollTo({top:L.scrollTop+r.top-lr.top-8,behavior:SMOOTH});}
 // ---------------- Input on the document
 // A mouse drag ends: its text selection, if inside the document, is the pick. A press without a selection (a click, a tap) picks the
 // block under it - not on a link, a badge or another control.
