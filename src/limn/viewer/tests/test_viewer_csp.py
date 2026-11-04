@@ -12,6 +12,7 @@ Run: uv run pytest -q src/limn/viewer/tests/test_viewer_csp.py
 """
 
 import re
+import tempfile
 import threading
 import unittest
 from pathlib import Path
@@ -129,42 +130,75 @@ class EnforcedFlows:
 
 
 VIEWER_DIR = Path(__file__).resolve().parents[1]
-# Markup the policy refuses, written into the page template or a JS part: a style attribute (also through setAttribute),
-# an inline event handler attribute, a javascript: URL. A property set from JS (el.style.x, el.onclick) is not markup and
-# is allowed. The lookbehind keeps `.style=` and `.onclick=` out.
+# What Limn's pages are written from: the viewer's template and JS parts, and the refusal page (limn.web.errors).
+PAGE_SOURCES = [
+    VIEWER_DIR / "index.html",
+    *sorted((VIEWER_DIR / "js").glob("*.js")),
+    VIEWER_DIR.parent / "web" / "errors.py",
+]
+# Markup the policy refuses, in any of them: a style attribute (also through setAttribute), an inline event handler
+# attribute, a javascript: URL. A property set from JS (el.style.x, el.onclick) is not markup and is allowed. The
+# lookbehind keeps `.style=` and `.onclick=` out.
 REFUSED_MARKUP = {
     "style attribute": re.compile(r"(?<![\w.$-])style\s*=\s*[\"'$]"),
     "style through setAttribute": re.compile(r"setAttribute\(\s*['\"]style['\"]"),
     "inline event handler": re.compile(r"(?<![\w.$-])on[a-z]+\s*=\s*[\"'$]"),
     "javascript: URL": re.compile(r"javascript:", re.I),
 }
+# What the JS parts may not make at all: a <script> or <style> element, as markup or with createElement. The policy
+# allows only the inline elements the page is sent with, by their hashes, so one made later is refused (a script
+# element) or does not apply (a style element); a module is import()ed from this origin instead, and a look is set
+# with a CSS rule or el.style. The template's and the refusal page's own elements are hashed and are not looked for.
+REFUSED_IN_JS = {
+    "script or style markup": re.compile(r"<(?:script|style)\b", re.I),
+    "script or style element": re.compile(r"createElement\(\s*['\"`](?:script|style)['\"`]", re.I),
+}
+
+
+def refused_in(path: Path) -> list[str]:
+    """'<file>:<line> <what>' for each refused piece of markup in path (the JS-only patterns for a .js file)."""
+    text = path.read_text(encoding="utf-8")
+    patterns = dict(REFUSED_MARKUP, **(REFUSED_IN_JS if path.suffix == ".js" else {}))
+    return [
+        "%s:%d %s" % (path.name, text.count("\n", 0, m.start()) + 1, what)
+        for what, pattern in patterns.items()
+        for m in pattern.finditer(text)
+    ]
 
 
 class StaticGuards(unittest.TestCase):
-    """The template and the JS parts write no markup the page's policy refuses. The browser suite's gate sees only the
-    flows it drives; a flow it does not reach (the re-place banner's error line was one) is caught here."""
+    """The template, the JS parts and the refusal page write no markup the page's policy refuses, and the JS parts make
+    no script or style element. The browser suite's gate sees only the flows it drives; a flow it does not reach (the
+    re-place banner's error line was one) is caught here."""
 
     def test_no_markup_the_policy_refuses(self):
-        found = []
-        for path in [VIEWER_DIR / "index.html", *sorted((VIEWER_DIR / "js").glob("*.js"))]:
-            text = path.read_text(encoding="utf-8")
-            for what, pattern in REFUSED_MARKUP.items():
-                found += [
-                    "%s:%d %s" % (path.name, text.count("\n", 0, m.start()) + 1, what) for m in pattern.finditer(text)
-                ]
-        self.assertEqual(found, [])
+        self.assertEqual([found for path in PAGE_SOURCES for found in refused_in(path)], [])
 
     def test_the_patterns_catch_what_they_name(self):
-        """Each pattern finds the markup it names and not the JS property of the same name."""
+        """Each pattern finds the markup it names and not the JS property or call of the same name."""
         for what, markup, prop in (
             ("style attribute", '<span class="errline" style="margin:0">', "el.style=x"),
             ("style through setAttribute", "el.setAttribute('style','x')", "el.getAttribute('style')"),
             ("inline event handler", '<button onclick="go()">', "el.onclick=go"),
             ("javascript: URL", '<a href="javascript:go()">', "a.href=url"),
+            ("script or style markup", "html`<style>.x{}</style>`", "el.styleSheets"),
+            ("script or style element", "document.createElement('script')", "document.createElement('span')"),
         ):
             with self.subTest(what=what):
-                self.assertTrue(REFUSED_MARKUP[what].search(markup))
-                self.assertFalse(REFUSED_MARKUP[what].search(prop))
+                patterns = dict(REFUSED_MARKUP, **REFUSED_IN_JS)
+                self.assertTrue(patterns[what].search(markup))
+                self.assertFalse(patterns[what].search(prop))
+
+    def test_a_js_part_is_held_to_the_js_patterns_and_the_template_is_not(self):
+        """The template's own <script> and <style> are allowed (hashed); the same text in a JS part is refused."""
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in ("part.js", "page.html"):
+                (Path(tmp) / name).write_text("<style>a{}</style>\n<script>go()</script>\n", encoding="utf-8")
+            self.assertEqual(
+                refused_in(Path(tmp) / "part.js"),
+                ["part.js:1 script or style markup", "part.js:2 script or style markup"],
+            )
+            self.assertEqual(refused_in(Path(tmp) / "page.html"), [])
 
 
 class EnforcedChromium(EnforcedFlows, BrowserBase):
