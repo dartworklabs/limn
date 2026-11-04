@@ -50,6 +50,20 @@ def pick(lo, hi):
 문서 밖 상대 경로는 열지 않는다: [핸드북](docs/handbook/index.md)
 원격 그림은 불러오지 않는다: ![원격 그림](https://example.com/tracker.png)
 
+## 여러 줄 인라인
+
+강조가 *줄을 넘어
+이어진다* 그래도 줄은 맞는다.
+[링크 글이 줄을
+넘는다](https://example.org) 이 줄도 맞는다.
+
+코드 표시가 `줄을
+넘으면` 줄을 셀 수 없다.
+그래서 이 문단은 통째로 고른다.
+
+같은 출처 링크는 열지 않는다: [API](https://limn.example.ts.net:18020/api/meta)
+다른 scheme 도 열지 않는다: <ftp://example.org/file> [앱](myapp://open)
+
 ---
 
 마지막 문단. 끝.

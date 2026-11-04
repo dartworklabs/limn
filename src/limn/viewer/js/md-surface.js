@@ -3,15 +3,17 @@
 // the direction. A Markdown document (kind "markdown") is drawn by the viewer from its source:
 // - GET /api/source answers the file as the server numbers it (str.splitlines(), already split), so the lines this screen shows
 //   are the server's lines by construction: they are joined with "\n" for the parser and never re-split from raw bytes.
-// - markdown-it (vendored ESM, imported only here) parses with raw HTML off; every block token's `map` becomes data-lo/data-hi on
-//   the element drawn for it, and each source line inside a paragraph, heading or code block gets its own span (data-line).
+// - markdown-it (vendored ESM, imported only here) parses with raw HTML as its own tokens; every block token's `map` becomes
+//   data-lo/data-hi on the element drawn for it. Inside a paragraph or heading each source line gets its own span (data-line)
+//   only when the line breaks the parser kept match the line ends of the source (mdInlineLines); otherwise the whole run of
+//   text is one span with the block's lines. A code block's content lines are its source lines one for one.
 // - The DOM is built with createElement/textContent only: markdown-it's HTML renderer is never used, so the one innerHTML sink
-//   (markup.js setHtml) stays the only one. A link keeps only http(s), mailto and an in-document #heading; an image is never
-//   fetched - its alt text stands in its place.
+//   (markup.js setHtml) stays the only one. A link opens only through mdHref's allowlist (another origin's http(s), mailto, an
+//   in-document #heading); an image is never fetched - its alt text stands in its place.
 // - A text selection (mouse drag, a phone's long-press handles) becomes lines lo..hi; a tap or click on a block picks that block.
 //   The ladder is: the chosen lines -> the block -> the heading's section. Saving goes through the ordinary POST /api/pin.
 const MD_VERSION='15.0.3';
-const MD={lib:/** @type {any} */(null),gen:0,doc:'',file:'',name:'',lines:/** @type {string[]} */([]),
+const MD={lib:/** @type {any} */(null),gen:0,doc:'',file:'',name:'',lines:/** @type {string[]} */([]),at:0,
   heads:/** @type {{level:number,lo:number,el:HTMLElement,title:string}[]} */([])};
 function rendersInBrowser(kind){return kind===DOC_KIND.MARKDOWN;}
 // Whether pin p belongs to a browser-rendered document of this instance (its card names no page).
@@ -34,7 +36,7 @@ async function mdBuild(){const gen=++MD.gen,k=DOC,doc=$('#doc');
   const root=document.createElement('article'); root.className='md'; root.id='md'; root.setAttribute('translate','no');
   MD.heads=[]; mdRender(md.parse(MD.lines.join('\n'),{}),root);
   const keep=$('#left').scrollTop; doc.replaceChildren(root); $('#left').scrollTop=keep; if(MD_RO)MD_RO.observe(root);
-  mdOutline(); marks(); if(COMPOSE.current)mdSelMark(COMPOSE.current);}
+  mdOutline(); marks(); if(COMPOSE.current)mdSelMark(COMPOSE.current); mdStrip();}
 // The lines lo..hi of a block token's map, its trailing blank lines left out (a loose list item's map runs over them).
 function mdSpan(t){if(!t.map)return null; let lo=t.map[0]+1,hi=Math.max(lo,t.map[1]);
   while(hi>lo&&!String(MD.lines[hi-1]||'').trim())hi--; return {lo,hi};}
@@ -57,7 +59,7 @@ function mdRender(tokens,root){const stack=[root];
     else if(t.type==='fence'||t.type==='code_block'){const pre=document.createElement('pre'),code=document.createElement('code'); mdMap(pre,t,'code');
       const lang=String(t.info||'').trim().split(/\s+/)[0]; if(lang)pre.dataset.lang=lang;
       const first=t.map?t.map[0]+1+(t.type==='fence'?1:0):0;
-      String(t.content).replace(/\n$/,'').split('\n').forEach((ln,i)=>{const s=document.createElement('span'); s.className='ln'; if(first)s.dataset.line=String(first+i); s.textContent=ln+'\n'; code.appendChild(s);});
+      if(t.content)String(t.content).replace(/\n$/,'').split('\n').forEach((ln,i)=>{const s=document.createElement('span'); s.className='ln'; if(first)s.dataset.line=String(first+i); s.textContent=ln+'\n'; code.appendChild(s);});
       pre.appendChild(code); top.appendChild(pre);}
     else if(t.type==='hr'){const hr=document.createElement('hr'); mdMap(hr,t,'rule'); top.appendChild(hr);}
     else if(t.type==='html_block'){const box=document.createElement('div'); mdMap(box,t,'html'); box.className='md-html';
@@ -66,17 +68,38 @@ function mdRender(tokens,root){const stack=[root];
       const code=document.createElement('code'); code.textContent=first.trim().slice(0,120); if(sp)code.dataset.line=String(sp.lo);
       box.append(lab,code); top.appendChild(box);}
   }}
-// An inline token's children into parent: one span per source line (softbreak and hardbreak end a line), emphasis, code, links.
-function mdInline(t,parent){let line=t.map?t.map[0]+1:0;
-  const mk=()=>{const s=document.createElement('span'); s.className='ln'; if(line)s.dataset.line=String(line); parent.appendChild(s); return s;};
-  const stack=[mk()];
-  for(const c of t.children||[]){const top=stack[stack.length-1];
+// ---------------- Rendered text -> source lines
+// The source line each child of inline token t starts on (pure): t's first line plus the line breaks (softbreak, hardbreak)
+// before the child. The children are flat - emphasis and links are open/close tokens among them - so a break inside one is
+// counted too. That names the right line only when every line end in t's source became such a break. A code span (it turns
+// the line end into a space), a raw HTML tag, a link's destination or title, a reference label or an image's alt text that runs
+// over a line end swallows it, and every child after it would be labelled one line early; markdown-it gives inline children no
+// source offsets to recover from that. So exact is true only when the breaks and the line ends of t.content are as many, and
+// then lines[i] is child i's line; otherwise the caller gives the whole token one range, lo..hi (its first to last line).
+/** @param {{map?:number[]|null,content?:string,children?:{type:string}[]|null}} t
+    @returns {{exact:boolean,lo:number,hi:number,lines:number[]}} */
+function mdInlineLines(t){const lo=t.map?t.map[0]+1:0,ends=(String(t.content||'').match(/\n/g)||[]).length;
+  let n=0; const lines=(t.children||[]).map(c=>{const at=lo+n; if(c.type==='softbreak'||c.type==='hardbreak')n++; return at;});
+  return {exact:lo>0&&n===ends,lo,hi:lo?lo+ends:0,lines};}
+// An inline token's children into parent, its lines as mdInlineLines tells them. Exact: one span per source line (data-line);
+// a break inside emphasis or a link ends the open elements in the old line's span and opens shallow copies of them in the new
+// one, so the text after the break is under its own line. Not exact: one span with the token's whole range (data-lo/data-hi,
+// kind 'lines'), so a selection inside it takes all of those lines - never a wrong one, and never a suggestion's wrong base.
+function mdInline(t,parent){const m=mdInlineLines(t);
+  const mk=(/** @type {number} */line)=>{const s=document.createElement('span'); s.className='ln';
+    if(m.exact)s.dataset.line=String(line); else if(m.lo){s.dataset.lo=String(m.lo); s.dataset.hi=String(m.hi); s.dataset.kind='lines';}
+    parent.appendChild(s); return s;};
+  let stack=/** @type {HTMLElement[]} */([mk(m.lo)]);
+  (t.children||[]).forEach((c,i)=>{const top=stack[stack.length-1];
     switch(c.type){
       case 'text':top.appendChild(document.createTextNode(c.content));break;
       case 'code_inline':{const e=document.createElement('code'); e.textContent=c.content; top.appendChild(e); break;}
       case 'softbreak':case 'hardbreak':
-        top.appendChild(c.type==='hardbreak'?document.createElement('br'):document.createTextNode('\n')); if(line)line++;
-        if(stack.length===1)stack[0]=mk(); break;   // an emphasis that runs over a line break keeps its line in the span it began in
+        top.appendChild(c.type==='hardbreak'?document.createElement('br'):document.createTextNode('\n'));
+        if(m.exact){const next=[mk(m.lines[i]+1)];
+          for(const e of stack.slice(1)){const k=/** @type {HTMLElement} */(e.cloneNode(false)); next[next.length-1].appendChild(k); next.push(k);}
+          stack=next;}
+        break;
       case 'strong_open':case 'em_open':case 's_open':{const e=document.createElement(c.tag); top.appendChild(e); stack.push(e); break;}
       case 'link_open':{const e=mdLink(c.attrGet('href')); top.appendChild(e); stack.push(e); break;}
       case 'strong_close':case 'em_close':case 's_close':case 'link_close':if(stack.length>1)stack.pop(); break;
@@ -84,13 +107,35 @@ function mdInline(t,parent){let line=t.map?t.map[0]+1:0;
         e.textContent=tr('그림')+': '+(c.content||c.attrGet('alt')||c.attrGet('src')||'');
         e.dataset.tip=tl('그림은 불러오지 않습니다 · {src}',{src:String(c.attrGet('src')||'')}); top.appendChild(e); break;}
       case 'html_inline':{const e=document.createElement('code'); e.className='md-html-in'; e.textContent=c.content; top.appendChild(e); break;}
-      default:if(c.content)top.appendChild(document.createTextNode(c.content));}}}
-// A link element for href: http(s) and mailto open in a new tab without a referrer or opener; an in-document '#…' scrolls to the
-// heading it names; anything else (a relative path, another scheme markdown-it let through) is inert text with its target in the tip.
-function mdLink(href){const h=String(href||'');
-  if(/^(https?:|mailto:)/i.test(h)){const a=document.createElement('a'); a.href=h; a.target='_blank'; a.rel='noopener noreferrer'; a.dataset.tip=h; return a;}
-  if(/^#[^#]*$/.test(h)){const a=document.createElement('a'); a.href='javascript:void 0'; a.className='md-anchor'; a.dataset.mdAnchor=h.slice(1); a.removeAttribute('href'); a.setAttribute('role','link'); a.tabIndex=0; return a;}
-  const s=document.createElement('span'); s.className='md-rel'; s.dataset.tip=tl('문서 밖 경로는 열지 않습니다 · {href}',{href:h}); return s;}
+      default:if(c.content)top.appendChild(document.createTextNode(c.content));}});}
+// What a link in the document may do (pure; origin is the viewer page's location.origin). Every link token comes here - an
+// ordinary link, an autolink, a reference link - and this allowlist is the gate. markdown-it's own validateLink is a denylist
+// (javascript:, vbscript:, file:, data: but data:image/gif|png|jpeg|webp) and lets ftp:, any custom scheme and those images through.
+// - '#…' is an in-document heading: {open:'anchor', id}.
+// - mailto: is {open:'mail', href}.
+// - An absolute http(s) URL is {open:'web', href} when it names an origin other than the viewer's, no loopback host and no user or
+//   password. href is the URL as parsed here, so what the browser follows is what was checked: a raw 'https:/api/meta' would
+//   resolve against the page to the viewer's own origin, while parsed alone it is https://api/meta.
+// - Anything else is {open:null}, inert text with its target in the tip: a relative path, a scheme-relative '//host', another
+//   scheme, the viewer's own origin (Limn's API answers GETs with the reader's identity and some of them write - a full /api/meta
+//   re-syncs pins, / records the visit), a loopback host (on the server's machine that is Limn again, as the local agent).
+/** @param {unknown} raw @param {string} origin @returns {{open:'web'|'mail'|'anchor'|null,href:string,id?:string}} */
+function mdHref(raw,origin){const h=String(raw==null?'':raw).trim();
+  if(/^#[^#]*$/.test(h))return {open:'anchor',href:h,id:h.slice(1)};
+  if(!/^(https?|mailto):/i.test(h))return {open:null,href:h};
+  let u; try{u=new URL(h);}catch(e){return {open:null,href:h};}
+  if(u.protocol==='mailto:')return {open:'mail',href:u.href};
+  if(u.username||u.password||u.origin===origin||mdLoopback(u.hostname))return {open:null,href:h};
+  return {open:'web',href:u.href};}
+// Whether a URL's host (as URL.hostname gives it: lower case, IPv4 in dotted form, IPv6 in brackets) is this machine. Pure.
+function mdLoopback(host){const h=String(host).toLowerCase().replace(/^\[|\]$/g,'');
+  return h==='localhost'||h.endsWith('.localhost')||/^127\./.test(h)||h==='0.0.0.0'||h==='::1'||h==='::'||/^::ffff:(127\.|7f)/.test(h);}
+// A link element for href (mdHref): a web or mail link opens in a new tab without a referrer or opener; an in-document '#…'
+// scrolls to the heading it names; anything else is inert text with its target in the tip.
+function mdLink(href){const r=mdHref(href,location.origin);
+  if(r.open==='web'||r.open==='mail'){const a=document.createElement('a'); a.href=r.href; a.target='_blank'; a.rel='noopener noreferrer'; a.dataset.tip=r.href; return a;}
+  if(r.open==='anchor'){const a=document.createElement('a'); a.className='md-anchor'; a.dataset.mdAnchor=r.id||''; a.setAttribute('role','link'); a.tabIndex=0; return a;}
+  const s=document.createElement('span'); s.className='md-rel'; s.dataset.tip=tl('이 링크는 열지 않습니다 · {href}',{href:r.href}); return s;}
 // GitHub-like heading slug: lower case, punctuation dropped, spaces to '-'.
 function mdSlug(s){return String(s).trim().toLowerCase().replace(/[^\p{L}\p{N}\s-]/gu,'').replace(/\s/g,'-');}
 // ---------------- Picking: selection -> lines, and the ladder
@@ -99,9 +144,10 @@ function mdRangeAt(node){const e=node&&(node.nodeType===1?/** @type {Element} */
   const md=$('#md'); if(!md||!md.contains(e))return null;
   const ln=e.closest('[data-line]'); if(ln&&md.contains(ln)){const n=+(/** @type {HTMLElement} */(ln).dataset.line||0); if(n)return {lo:n,hi:n};}
   const b=/** @type {HTMLElement|null} */(e.closest('[data-lo]')); return b&&md.contains(b)?{lo:+(b.dataset.lo||0),hi:+(b.dataset.hi||0)}:null;}
-// The block a point belongs to for the ladder's second rung: a table row's table, a list item's paragraph's item, else its nearest block.
+// The block a point belongs to for the ladder's second rung: a table row's table, a list item's paragraph's item, else its nearest
+// block (a run of text whose lines could not be told - kind 'lines', mdInline - stands for the block it is in).
 function mdBlockAt(node){const e=node&&(node.nodeType===1?/** @type {Element} */(node):node.parentElement); if(!e)return null;
-  let b=/** @type {HTMLElement|null} */(e.closest('[data-lo]')); if(!b)return null;
+  let b=/** @type {HTMLElement|null} */(e.closest('[data-lo]')); if(b&&b.dataset.kind==='lines'&&b.parentElement)b=/** @type {HTMLElement|null} */(b.parentElement.closest('[data-lo]')); if(!b)return null;
   if(b.dataset.kind==='row')b=/** @type {HTMLElement|null} */(b.closest('table[data-lo]'))||b;
   else if(b.dataset.kind==='paragraph'&&b.parentElement&&b.parentElement.dataset.kind==='item')b=b.parentElement;
   return b;}
@@ -174,6 +220,31 @@ function mdJump(id){const p=PINS.find(x=>x.id===id)||REVIEW_ALL.find(x=>x.id===i
 // ---------------- Outline from headings
 function mdOutline(){outlineForget(); OUTLINE_ENTRIES=MD.heads.map((h,i)=>({title:h.title,number:'',depth:Math.max(0,h.level-1),page:i+1,pageLabel:'L'+h.lo,frac:0,up:-1}));
   OUTLINE_DOC=DOC; OUTLINE_BUILD=''; renderOutline();}
+// The source line at the reading line (readingDepth under the pane's top): the last line span or block, in document order, whose
+// top is at or above it. 0 before the document is drawn.
+function mdReadingLine(){const L=$('#left'),md=$('#md'); if(!L||!md)return 0; const y=L.getBoundingClientRect().top+readingDepth(L);
+  let at=0; for(const e of md.querySelectorAll('[data-line],[data-lo]')){const h=/** @type {HTMLElement} */(e);
+    if(h.getBoundingClientRect().top>y)break; at=+(h.dataset.line||h.dataset.lo||0)||at;}
+  return at;}
+// The section strip and the phone's position button for a Markdown document, which has no pages (updateSectionStrip's branch):
+// the heading above the reading line is the outline's current entry and the strip's title; the button reads [L<line>/<lines>].
+function mdStrip(){if(!isMdDoc())return; MD.at=mdReadingLine();
+  let i=-1; MD.heads.forEach((h,j)=>{if(h.lo<=MD.at)i=j;}); if(i!==OUTLINE_SELECTED){OUTLINE_SELECTED=i; markOutline();}
+  const h=MD.heads[i]; $('#section-current').textContent=h?h.title:tr('원문'); drawPos();}
+let MD_STRIP_F=0; $('#left').addEventListener('scroll',()=>{if(!isMdDoc()||MD_STRIP_F)return; MD_STRIP_F=requestAnimationFrame(()=>{MD_STRIP_F=0; mdStrip();});},{passive:true});
+// posLabel's shape for a Markdown document: [L37/164 ▾] - the reading line's source line of the file's lines, '–' for what is not
+// known yet - with the document's name as posLabel puts it. Pure but for tl.
+/** @param {string} doc @param {number} line @param {number} n @param {boolean} multi @param {boolean} wide */
+function mdPosLabel(doc,line,n,multi,wide){const name=multi&&wide?doc:'',p=line||'–',m=n||'–';
+  return {name,pages:'L'+p+'/'+m,label:name?tl('이동 · {doc} · {line} / {n}줄',{doc:name,line:p,n:m}):tl('이동 · {line} / {n}줄',{line:p,n:m})};}
+// The empty list's help (#empty) speaks of dragging on the PDF; a Markdown document gets its own words, and a PDF document gets the
+// page's own back (kept as served).
+let MD_HINT_PDF=/** @type {Node[]|null} */(null);
+function mdHint(){const e=$('#empty'); if(!e)return; if(!MD_HINT_PDF)MD_HINT_PDF=[...e.childNodes].map(n=>n.cloneNode(true));
+  if(!isMdDoc()){if(e.dataset.md){e.replaceChildren(...MD_HINT_PDF.map(n=>n.cloneNode(true))); delete e.dataset.md;} return;}
+  if(e.dataset.md)return; e.dataset.md='1';
+  setHtml(e,html`<span class="t-mouse">${tr('글을')} <b>${tr('끌어')}</b> ${tr('고르면 그 줄을,')} <b>${tr('블록을 누르면')}</b> ${tr('그 블록을 고르고')}</span><span class="t-touch"><b>${tr('블록을 누르면')}</b> ${tr('그 블록을,')} <b>${tr('길게 눌러')}</b> ${tr('글을 고르면 그 줄을 고르고')}</span> ${tr('그 자리의')} <b>${tr('원문 줄 번호')}</b>${tr('가 핀의 위치가 됩니다.')}<br>
+    ${tr('메모를 달아 핀으로 저장하면, 에이전트가 pins.md 한 장만 읽고 작업합니다.')}<br><span class="t-mouse"><kbd>?</kbd> ${tr('를 누르면 도움말.')}</span><span class="t-touch">${tr('도움말은 [더보기]에 있습니다.')}</span>`);}
 function mdGoHeading(i){const h=MD.heads[i]; if(!h)return; OUTLINE_SELECTED=i; markOutline();
   const L=$('#left'),lr=L.getBoundingClientRect(),r=h.el.getBoundingClientRect(); L.scrollTo({top:L.scrollTop+r.top-lr.top-8,behavior:SMOOTH});
   if(LAYOUT===LAYOUT_MODE.NARROW&&typeof closeNavSheet==='function')closeNavSheet();}

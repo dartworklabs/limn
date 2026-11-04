@@ -121,7 +121,9 @@ function posLabel(doc,page,n,multi,wide,mode){
 // Draws [본문 3/25 ▾] from the document on screen, the reading line's page and the view (posLabel), with a dot when another
 // document's manuscript is newer or building. The button is translate="no" (a document name), so its UI words are tr()'d here.
 function drawPos(){const b=$('#btn-pos'); if(!b)return; const cur=docInfo(DOC),n=META&&META.pages?META.pages.length:0;
-  const L=posLabel(cur?cur.name:'',OUTLINE_ACTIVE_PAGE||1,n,multiDoc(),innerWidth>=400,document.body.classList.contains('revision-open')?VIEW_MODE.REVISIONS:VIEW_MODE.MANUSCRIPT);
+  const rev=document.body.classList.contains('revision-open');
+  const L=isMdDoc()&&!rev?mdPosLabel(cur?cur.name:'',MD.at,MD.lines.length,multiDoc(),innerWidth>=400)   // PoC: a Markdown document has lines, not pages
+    :posLabel(cur?cur.name:'',OUTLINE_ACTIVE_PAGE||1,n,multiDoc(),innerWidth>=400,rev?VIEW_MODE.REVISIONS:VIEW_MODE.MANUSCRIPT);
   const nm=$('#btn-pos-n'); nm.textContent=L.name; nm.hidden=!L.name; $('#btn-pos-p').textContent=L.pages;
   b.setAttribute('aria-label',L.label); b.dataset.tip=tr('문서·보기·쪽·목차로 갑니다');
   $('#btn-pos-dot').hidden=!DOCS.some(d=>d.key!==DOC&&(d.stale_build||d.building));}

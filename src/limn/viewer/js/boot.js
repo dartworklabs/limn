@@ -71,7 +71,7 @@ function viewerBlocked(){if(!isViewer())return false; bannerNote(undefined,'보�
 // from source. Reads META only and sends nothing.
 function drawMeta(){
   document.body.classList.toggle('no-rebuild',!buildsFromSource(META.kind));
-  document.body.classList.toggle('md-surface',isMdDoc());   // PoC: page-only controls hide for the HTML surface   // only a LaTeX document builds from source; a view-only PDF and a figure redraw when their files change
+  document.body.classList.toggle('md-surface',isMdDoc()); mdHint();   // PoC: page-only controls hide for the HTML surface   // only a LaTeX document builds from source; a view-only PDF and a figure redraw when their files change
   document.body.classList.toggle('role-viewer',isViewer());
   $('#m-download').disabled=!META.pages_build;   // no build on screen, no PDF to save
   $('#meta-main').textContent=META.main; $('#meta-pages').textContent=isMdDoc()?'Markdown':tl('{n}쪽',{n:META.pages.length});

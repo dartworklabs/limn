@@ -310,7 +310,7 @@ function dropOutlinePick(){clearTimeout(OUTLINE_PICK_WAIT); if(!OUTLINE_PINNED||
 // page counts open the page list (openPageList).
 // How far under the top of the PDF pane the reading line is: a quarter of the pane's height, at most 160px.
 function readingDepth(L){return L?Math.min(160,L.clientHeight/4):0;}
-function updateSectionStrip(){
+function updateSectionStrip(){if(isMdDoc()){mdStrip(); return;}   // PoC: the HTML surface's strip and position button
   const L=$('#left'),anchor=topAnchor(readingDepth(L)),page=anchor?anchor.page:1,frac=anchor?anchor.frac:0;
   const pin=OUTLINE_PINNED;
   if(pin&&pin.page===page){pin.reached=true; clearTimeout(OUTLINE_PICK_WAIT);} else if(pin&&pin.reached)OUTLINE_PINNED=null;
