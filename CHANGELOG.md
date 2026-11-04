@@ -4,7 +4,7 @@
 
 ### Security
 
-- **The viewer runs only its own inline code and same-server scripts and styles.** The viewer page and the page a
+- **The viewer permits hash-matching inline scripts and styles, and same-origin script and stylesheet files, whoever inserted them.** The viewer page and the page a
   browser sees when it is refused now carry a Content-Security-Policy that is enforced from this release on: inline
   code runs only if its text matches the SHA-256 of the page's own inline scripts and stylesheet, scripts and styles
   load only from the same server, and the one outside resource is an `https:` avatar image. If someone else's text

@@ -105,7 +105,7 @@
 
 ### 페이지 정책
 
-뷰어 페이지는 페이지 자신의 인라인 스크립트·스타일과 같은 출처의 파일만 허용하는 Content-Security-Policy 아래에서 돈다. 정책의 값과 이유는 [architecture.md](architecture.md) 불변식 9에 있다. 뷰어 코드는 그래서 다음을 지킨다.
+뷰어 페이지의 Content-Security-Policy는 스크립트와 스타일에 대해 같은 출처의 파일과 페이지의 허용 해시에 맞는 인라인 요소를 허용하며, 누가 삽입했는지는 구별하지 않는다. 정책의 값과 이유는 [architecture.md](architecture.md) 불변식 9에 있다. 뷰어 코드는 그래서 다음을 지킨다.
 
 - **`style` 속성을 쓰지 않는다.** 템플릿, `` html`…` ``, `setAttribute('style', …)` 모두다. 모양은 CSS 규칙으로 주고, 실행 중에 정하는 값(폭, 위치, 재서 넣는 변수)은 CSSOM(`el.style.x = …`, `style.setProperty('--…')`)으로 넣는다. CSSOM은 정책이 다루지 않는다. 인스턴스 색도 속성이 아니라 `tokens.css` 의 `--brand` 로 받는다(§리터럴 예외(허용 목록)).
 - **인라인 이벤트 처리기(`onclick=` 등)와 `javascript:` 주소를 쓰지 않는다.** 클릭은 `data-act` 로 나눈다(`js/events.js`).
