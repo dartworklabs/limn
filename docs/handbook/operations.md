@@ -379,7 +379,7 @@ curl -s -X POST http://127.0.0.1:<port>/api/rebuild | head -c 200   # state 가 
 ├── pins.jsonl.corrupt-*.bak  # 깨진 줄이 있을 때 첫 쓰기 전 원본 보존(조건부)
 ├── pins_<ts>.jsonl.bak       # /api/clear 보관본
 ├── pins.md                   # 에이전트 진입점 — 이 한 장만 읽는다
-├── people.json               # @태그 후보이자 멤버 — 이 뷰어를 연 사람과 `limn member` 로 넣은 사람(선택 `role`, 에이전트 제외, 원자적 교체, 권한 0600)
+├── people.json               # @태그 후보이자 멤버 — 이 뷰어를 연 사람과 `limn member` 로 넣은 사람(선택 `role`, 에이전트 제외, 원자적 교체, 권한 0600). 채택한 목표에서는 연 사람 대신 실제로 바꾼 사람(architecture.md §GET의 쓰기 — 현재와 채택한 목표)
 ├── tokens.json               # 에이전트 API 토큰 — SHA-256 해시만, 권한 0600, `limn token` 이 쓴다(첫 토큰 전에는 없다)
 ├── .people.lock · .tokens.lock   # 위 두 파일의 프로세스 간 잠금(서버와 CLI 가 동시에 쓸 수 있다)
 ├── events.jsonl              # mention·review_requested·replied·reopened·assigned·dropped·cleared·purged 기록(추가 전용, 최근 5000건, 바깥으로 보내지 않는다)
