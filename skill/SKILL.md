@@ -26,7 +26,7 @@ Terms are defined once here and used with exactly this meaning below.
 | **claim** | A short-lived "in progress" lock with an ETA, shown as `처리 중(<이름>, 약 N분)` ("in progress (<name>, about N min)"). |
 | **view-only document** | A PDF served without sources (e.g. reviewer comments). Its pins have a page and region, but no line numbers. |
 | **figure document** | A figure drawn by code, served as one PDF page per figure with an element map from the figure repository (`kind: "figure"` in `GET /api/docs`). Its pins are line pins on the drawing script and name the element (`el`). |
-| **suggested edit** | A pin's exact replacement text for its lines (`suggest: {base, text}`), marked `제안 수정` ("suggested edit"). Only a LaTeX line pin carries one. Apply it only when `suggest_state` is `ready`, after checking it for obvious errors: as written if it has none, with a minimal reported fix for a typo or broken sentence that keeps its meaning (§Suggested-edit pins). |
+| **suggested edit** | A pin's exact replacement text for its lines (`suggest: {base, text}`), marked `제안 수정` ("suggested edit"). Only a line pin of a LaTeX or Markdown document carries one. Apply it only when `suggest_state` is `ready`, after checking it for obvious errors: as written if it has none, with a minimal reported fix for a typo or broken sentence that keeps its meaning (§Suggested-edit pins). |
 | **verdict pin** | A pin a person made by picking one of its document's verdict words (`verdict`, e.g. `채택`), marked `판정 <낱말>` ("verdict <word>") first in the number cell. The words and what they mean belong to the document's repository; Limn never carries a verdict out. Only people make one, and its verdict and place never change. |
 
 ## When to use, when not
@@ -140,6 +140,8 @@ A pin whose number cell shows `제안 수정` ("suggested edit") carries the exa
    - **broken sentences**: particles, number or tense that do not agree, or a sentence that does not end;
    - **logical contradictions**: within the text, or head-on with the text around it (it says a value fell while the numbers it gives rose; it differs from a value defined earlier).
 
+   In a Markdown file, text that breaks the Markdown is a typo too: a table row whose cell count differs from the header row's, emphasis (`**`, `_`) or a code span or fence left unclosed, a list item indented so that it falls out of its list or into the item above. The rule is the same: fix it only when there is one fix (a missing closing `**` at the end of the phrase it opened), and ask when there are several (where the emphasis should end is unclear).
+
    An error is obvious only if anyone would call it wrong without knowing what the author meant. Style, taste, word choice, making it shorter and reordering are not errors; leave them alone.
 4. **With no error, replace exactly lines `lo..hi`** of the file in the location column with `suggest.text`, character for character. Do not reword it, reformat it or merge it with edits of your own. An empty `text` deletes those lines. `suggest` never holds `\r`: keep the file's own line terminator (a CRLF file stays CRLF). Read the lines right before you edit; if they no longer read as `suggest.base`, treat the pin as `changed`.
 5. **Fix a typo or broken sentence minimally when it has one fix and the meaning stays the same.** Change only the wrong characters or words. Never touch a claim, number, unit, condition, citation, label or term.
@@ -248,7 +250,7 @@ Send each JSON key, query parameter and singleton security header once. Duplicat
 | `GET /api/pins/{id}` | One pin with its whole thread (`pins.md` carries at most 3 thread entries), and a suggested edit's `suggest` with its `suggest_state` |
 | `POST /api/pins/{id}/confirm` | Awaiting review → done (**humans only**; 403 without an identity header) |
 | `POST /api/pins/{id}/reopen` | Reopen (clears the old `reply`, `ref` and `changes`). Optional `{"reason"}` stays in the thread |
-| `POST /api/pins/{id}/edit` | Edit note or range (`base_rev` required), or `note_append`. `suggest: {base, text}` sets a suggested edit on a LaTeX line pin, `null` removes it. A verdict pin takes note-level edits only (anything else is `400 verdict_fixed`) |
+| `POST /api/pins/{id}/edit` | Edit note or range (`base_rev` required), or `note_append`. `suggest: {base, text}` sets a suggested edit on a LaTeX or Markdown line pin, `null` removes it. A verdict pin takes note-level edits only (anything else is `400 verdict_fixed`) |
 | `POST /api/pins/{id}/drop` | Move a pin to the Trash. `/restore` brings it back within 30 days (permanent `/purge` is owner-only). Not a verdict pin: an agent gets `403 verdict_human` for both |
 | `POST /api/rebuild?async=1` | Rebuild a LaTeX document's PDF (`kind: "tex"` only; figure and view-only documents answer `400`); progress at `GET /api/build`. With several documents add `&doc=<key>` to both. A manuscript identical to the build on screen ends at once as `ok` with `unchanged: true`; add `&force=1` to rebuild from scratch (after changing a file only a shell-escape program reads) |
 | `GET /api/docs` | Document list (key, name, kind `tex`/`pdf`/`figure`, open pin count, build state). A document with verdict words adds `verdicts` (`verdicts_error` when its word file cannot be used) |

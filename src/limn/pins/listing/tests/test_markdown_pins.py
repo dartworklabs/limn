@@ -15,7 +15,7 @@ import unittest
 from limn.pins.listing.render import DocHeading, PinFacts, PinsMdInput, pins_md_text
 from limn.runtime.documents import Doc
 
-from helpers import Base, jreq, ps, split_resp
+from helpers import SKILL_KO, SKILL_MD, Base, jreq, ps, split_resp
 
 MAIN = DocHeading("main", "본문", "main.tex", view_only=False, builds_from_source=True, head=None, built_at=None)
 NOTES = DocHeading(
@@ -147,6 +147,32 @@ class MarkdownSection(unittest.TestCase):
         self.assertFalse(MAIN.renders_in_browser)
         md = pins_md_text(page([line_pin(1)], docs=(MAIN,)))
         self.assertNotIn("Markdown", md)
+
+
+class SkillTeachesMarkdownSuggestions(unittest.TestCase):
+    """Both SKILLs say a Markdown line pin carries a suggested edit and count broken Markdown among the obvious errors
+    (docs/adr/0024-suggested-edit-obvious-errors.md, ADR-0025 D8), so the two cannot drift apart unnoticed."""
+
+    def test_both_skills_name_markdown_pins_and_the_three_markdown_errors(self):
+        """The English and the Korean SKILL each name LaTeX and Markdown line pins and the table cells, the unclosed
+        emphasis or code and the list indentation; neither still says only a LaTeX line pin carries one."""
+        for path, words, gone in (
+            (
+                SKILL_MD,
+                ("a LaTeX or Markdown document carries one", "cell count", "left unclosed", "indented"),
+                "Only a LaTeX line pin carries one.",
+            ),
+            (
+                SKILL_KO,
+                ("LaTeX·Markdown 문서의 줄 핀만 가진다", "칸 수가 다르", "닫히지 않았", "들여쓰기가 틀려"),
+                "LaTeX 문서의 줄 핀만 가진다.",
+            ),
+        ):
+            skill = path.read_text(encoding="utf-8")
+            for word in words:
+                with self.subTest(skill=path.name, word=word):
+                    self.assertIn(word, skill)
+            self.assertNotIn(gone, skill)
 
 
 class MarkdownPinsMd(Base):
