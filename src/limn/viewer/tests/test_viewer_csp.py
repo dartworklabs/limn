@@ -21,6 +21,7 @@ import threading
 import unittest
 from pathlib import Path
 
+import helpers_csp
 import helpers_figure
 import helpers_js
 from helpers import ps
@@ -438,6 +439,35 @@ ALLOWED_PROBES = [
     ("html", '<a href="/?lang=en">English</a>'),
     ("py", "PAGE = '<style>body{margin:0}</style><script>go()</script>'"),
 ]
+
+
+class HarnessReports(unittest.TestCase):
+    """The gate leaves out only the harness's own reports: Playwright's eval and WebKit's screenshot sync style."""
+
+    SYNC = {"directive": "style-src-elem", "blocked": "inline", "sample": "body {}", "source": "", "line": 5}
+
+    def test_the_screenshot_sync_style_is_the_harness_own(self):
+        """WebKit's `<style>body {}</style>` from Playwright's utility world (no source URL) is left out."""
+        self.assertTrue(helpers_csp.playwright_screenshot_sync(self.SYNC))
+        self.assertTrue(helpers_csp.harness_own(self.SYNC))
+
+    def test_a_style_the_viewer_inserts_is_still_reported(self):
+        """The same text with the page's URL, other text, a style attribute or another directive stays a violation."""
+        page = "http://viewer.test/?lang=ko"
+        for case in (
+            dict(self.SYNC, source=page),
+            dict(self.SYNC, sample="body { color: red }"),
+            dict(self.SYNC, sample="body {}", directive="style-src-attr"),
+            dict(self.SYNC, directive="script-src-elem"),
+            dict(self.SYNC, blocked="https://other.example/x.css"),
+        ):
+            with self.subTest(case=case):
+                self.assertFalse(helpers_csp.harness_own(case))
+
+    def test_eval_stays_the_harness_own_only_without_a_url(self):
+        """Playwright's eval is left out; an eval in the page's own code is reported."""
+        self.assertTrue(helpers_csp.harness_own({"blocked": "eval", "source": ""}))
+        self.assertFalse(helpers_csp.harness_own({"blocked": "eval", "source": "http://viewer.test/"}))
 
 
 class StaticGuards(unittest.TestCase):

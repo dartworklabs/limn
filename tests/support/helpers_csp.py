@@ -10,7 +10,9 @@ Content-Security-Policy-Report-Only (report_only), not as the enforced header. P
 its predicate with eval() inside the page in Chromium and Firefox alike, so an enforced policy without 'unsafe-eval'
 stops every test at its first wait; a report-only one lets the wait run and still reports, with the same directive and
 the same refused thing, everything the enforced policy would block - nothing is blocked that is not reported. The one
-report that is the harness's own is that eval (playwright_eval), which the gate leaves out. What enforcement itself
+reports that are the harness's own are that eval (playwright_eval) and, in WebKit, the empty `<style>body {}</style>`
+Playwright's screenshotter inserts and removes to sync animations before each screenshot (playwright_screenshot_sync);
+the gate leaves both out. What enforcement itself
 does to the viewer is tested apart, with the enforced header and waits that need no eval (viewer/tests/test_viewer_csp.py).
 
 watch_csp() puts a listener for `securitypolicyviolation` in every page of a context before the page's own scripts
@@ -54,6 +56,26 @@ def playwright_eval(violation: dict) -> bool:
     return violation.get("blocked") == "eval" and (source == "" or source.startswith("debugger eval code"))
 
 
+def playwright_screenshot_sync(violation: dict) -> bool:
+    """Whether a violation is the `<style>body {}</style>` Playwright's screenshotter adds and removes in WebKit before
+    a screenshot (`inPagePrepareForScreenshots` when the browser delegate asks to toggle a stylesheet to sync
+    animations; Chromium and Firefox do not), run in Playwright's utility world. Like playwright_eval it has no source
+    URL; the viewer's own inline style would carry the page's URL, so one of its own is still reported."""
+    source = str(violation.get("source") or "")
+    directive = str(violation.get("directive") or "")
+    return (
+        directive in ("style-src-elem", "style-src")
+        and violation.get("blocked") == "inline"
+        and violation.get("sample") == "body {}"
+        and source == ""
+    )
+
+
+def harness_own(violation: dict) -> bool:
+    """Whether a violation is the test harness's own, not the viewer's (playwright_eval, playwright_screenshot_sync)."""
+    return playwright_eval(violation) or playwright_screenshot_sync(violation)
+
+
 def report_only(policy: str) -> dict[str, str]:
     """The response header a fixture route gives the browser for the server's policy: the same policy as
     Content-Security-Policy-Report-Only, with 'report-sample' in script-src and style-src so a report names the first
@@ -64,10 +86,10 @@ def report_only(policy: str) -> dict[str, str]:
 
 
 def _report(violation: dict) -> None:
-    """Keep one violation for the gate - not the harness's own eval (playwright_eval), nor one a test provoked on purpose
+    """Keep one violation for the gate - not the harness's own (harness_own), nor one a test provoked on purpose
     (window.__limnCspExpected while it did) - and append it to $LIMN_CSP_LOG when set."""
     record = dict(violation, test=os.environ.get("PYTEST_CURRENT_TEST", ""))
-    if not playwright_eval(record) and not record.get("expected"):
+    if not harness_own(record) and not record.get("expected"):
         VIOLATIONS.append(record)
     log = os.environ.get("LIMN_CSP_LOG")
     if log:
