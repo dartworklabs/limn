@@ -60,7 +60,7 @@ function showBuildErr(r,say){BUILD.error=r; if(DOC)BUILD_ERR_BY.set(DOC,r); cons
   const log=String(r.log_tail||r.log||'').split('\n').slice(-20).join('\n');
   const close=html`<button class="btn-sm" data-act="err-close" data-tip="이 알림을 닫습니다(다시 보기는 위 배지로)">닫기</button>`;
   const errors=(r.errors||[]).map(e=>html`<div class="dim">${e.line?'L'+e.line+' · ':''}${e.msg}</div>`);
-  setHtml(b,html`<div class="row"><b>${title}</b><span class="sp"></span>${close}</div>${errors}<pre class="nowrap" style="max-height:30vh">${log}</pre>`);
+  setHtml(b,html`<div class="row"><b>${title}</b><span class="sp"></span>${close}</div>${errors}<pre class="nowrap">${log}</pre>`);
   b.hidden=false; syncBuildErrChip();}
 // The error sources of document k's rebuild (notices.js sourceEntry): the requests rebuild() sends, plain and forced
 // (api's source is the method and URL). A failed [PDF 재빌드] says itself under its own; an answered one clears it, and so
