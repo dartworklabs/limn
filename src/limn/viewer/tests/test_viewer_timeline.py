@@ -478,7 +478,7 @@ class CommentCards(TimelineFixture):
 
 # The stretch of the rail's column one card paints, from under its first node to the last node, as (r, g, b) by device pixel
 # row: the card's screenshot is decoded on a canvas, and the column read at the avatar column's middle.
-RAIL_PIXELS = """async ([b64, scale, x, y0, y1]) => {const im = new Image(); im.src = 'data:image/png;base64,' + b64; await im.decode();
+RAIL_PIXELS = """async ([b64, scale, x, y0, y1]) => {const im = await createImageBitmap(new Blob([Uint8Array.from(atob(b64), ch => ch.charCodeAt(0))], {type: 'image/png'}));
   const cv = document.createElement('canvas'); cv.width = im.width; cv.height = im.height; const g = cv.getContext('2d', {willReadFrequently: true}); g.drawImage(im, 0, 0);
   const out = []; for (let v = Math.ceil(y0 * scale); v < Math.floor(y1 * scale); v++) out.push([...g.getImageData(Math.floor(x * scale), v, 1, 1).data].slice(0, 3));
   return out;}"""

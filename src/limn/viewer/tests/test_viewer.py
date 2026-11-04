@@ -4330,7 +4330,7 @@ class FrontendResponsiveBrowser(ChromiumTestCase):
         return None, got, False
 
     PIXEL_AT = """async ([b64]) => {
-      const img = new Image(); img.src = 'data:image/png;base64,' + b64; await img.decode();
+      const img = await createImageBitmap(new Blob([Uint8Array.from(atob(b64), ch => ch.charCodeAt(0))], {type: 'image/png'}));
       const c = document.createElement('canvas'); c.width = c.height = 1; const g = c.getContext('2d'); g.drawImage(img, 0, 0);
       const d = g.getImageData(0, 0, 1, 1).data; return 'rgb(' + d[0] + ', ' + d[1] + ', ' + d[2] + ')';
     }"""

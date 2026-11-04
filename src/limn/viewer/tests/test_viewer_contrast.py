@@ -126,7 +126,7 @@ PRELUDE = r"""
     else if (r instanceof CSSStyleRule) { const color = r.style.getPropertyValue('color').trim(), opacity = r.style.getPropertyValue('opacity').trim();
       for (const p of r.style) if (p.startsWith('--')) defs.push([p, r.style.getPropertyValue(p)]);
       if (color || opacity) rules.push({key: conds.concat(r.selectorText).join(' '), sel: r.selectorText, conds, color, opacity}); } } };
-  for (const s of document.styleSheets) visit(s.cssRules, []);
+  for (const s of [...document.styleSheets, ...document.adoptedStyleSheets]) visit(s.cssRules, []);   // a test's overrides are adopted sheets
   const refs = v => [...String(v).matchAll(/var\(\s*(--[\w-]+)/g)].map(m => m[1]);
   const dim = new Set(['--muted-foreground', '--subtle-foreground']);
   for (let grew = true; grew;) { grew = false;
@@ -956,8 +956,9 @@ class WalkCatchesDimmedText(ContrastWalk):
     def open(self, n_open, **kw):
         """Open the viewer with BROKEN appended to its styles."""
         kw["init"] = (
-            "document.addEventListener('DOMContentLoaded',()=>{const s=document.createElement('style');"
-            "s.textContent=%s;document.head.append(s);});" % json.dumps(self.BROKEN)
+            "document.addEventListener('DOMContentLoaded',()=>{const s=new CSSStyleSheet();"
+            "s.replaceSync(%s);document.adoptedStyleSheets=[...document.adoptedStyleSheets,s];});"
+            % json.dumps(self.BROKEN)
         )
         return super().open(n_open, **kw)
 
