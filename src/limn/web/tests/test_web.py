@@ -266,8 +266,8 @@ class HandlerStructure(unittest.TestCase):
                 self.assertIn("reason='not_found'", exc)
 
 
-# One request per route of the handler and registered feature routes (a /pages/, a /vendor/pdfjs/ and a /vendor/pretendard/
-# name stand for their prefixes, pin 1 for an id). GuardOrder checks these lists against the route sources.
+# One request per route of the handler and registered feature routes (a /pages/, a /vendor/pdfjs/, a /vendor/markdown-it/
+# and a /vendor/pretendard/ name stand for their prefixes, pin 1 for an id). GuardOrder checks these lists against the route sources.
 PIN_ACTIONS = ("close", "reopen", "drop", "restore", "purge", "edit", "claim", "unclaim", "reply", "confirm")
 GET_ROUTES = (
     "/",
@@ -279,6 +279,7 @@ GET_ROUTES = (
     "/api/version",
     "/api/meta",
     "/sw.js",
+    "/md-parse.mjs",
     "/api/revisions",
     "/api/revision-diff",
     "/api/revision-build",
@@ -295,6 +296,7 @@ GET_ROUTES = (
     "/api/source",
     "/pages/page-1.png",
     "/vendor/pdfjs/pdf.min.mjs",
+    "/vendor/markdown-it/markdown-it.esm.min.mjs",
     "/vendor/pretendard/pretendard.css",
     "/pdf",
     "/no-such-path",

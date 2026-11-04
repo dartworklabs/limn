@@ -19,7 +19,8 @@ Placeholders filled here:
 - __UI_EN_JSON__: the ko -> en message table (ui_en.json), for the viewer's I18N_EN.
 - {{ic:<name>}}: one icon as an inline <svg> (icon_svg), the same markup the JS ic() builds.
 
-The service worker (sw.js, GET /sw.js) is read from the same folder by service_worker(); it is served on its own,
+The service worker (sw.js, GET /sw.js) is read from the same folder by service_worker(), and the Markdown parse worker
+(md-parse.mjs, GET /md-parse.mjs) by md_worker(), which fills its __MARKDOWN_IT_VERSION__; each is served on its own,
 not inlined.
 
 A missing or malformed viewer file is a packaging defect and raises (OSError / ValueError): the server fails at startup
@@ -39,14 +40,20 @@ from limn.viewer.mark import FILES as BRAND_FILES, Brand, Icon, brand
 
 # One entry of the message table: an English string, or plural forms {"one": ..., "other": ...} for a key with {n}.
 Message: TypeAlias = str | dict[str, str]
-# The bundled libraries GET /vendor/<library>/<file> serves: PDF.js (default_pdfjs_dir) and the Pretendard font
-# (default_pretendard_dir). Lucide's icons are inlined in the page, never served.
-VendorLibrary: TypeAlias = Literal["pdfjs", "pretendard"]
+# The bundled libraries GET /vendor/<library>/<file> serves: PDF.js (default_pdfjs_dir), the Pretendard font
+# (default_pretendard_dir) and markdown-it (default_markdown_it_dir). Lucide's icons are inlined in the page, never served.
+VendorLibrary: TypeAlias = Literal["pdfjs", "pretendard", "markdown-it"]
 
 
 def default_pdfjs_dir() -> Path:
     """Return the package's bundled PDF.js directory."""
     return Path(__file__).resolve().parent.parent / "vendor" / "pdfjs"
+
+
+def default_markdown_it_dir() -> Path:
+    """Return the package's bundled markdown-it directory: the ESM browser build the Markdown parse worker imports
+    (vendor/markdown-it/README.md). There is no run setting for another one."""
+    return Path(__file__).resolve().parent.parent / "vendor" / "markdown-it"
 
 
 def default_pretendard_dir() -> Path:
@@ -75,7 +82,9 @@ def read_viewer() -> "ViewerFiles":
         icons=LUCIDE,
         version=__version__,
     )
-    return ViewerFiles(template, service_worker(VIEWER_DIR), messages, logo.icons)
+    return ViewerFiles(
+        template, service_worker(VIEWER_DIR), messages, logo.icons, md_worker(VIEWER_DIR, MARKDOWN_IT_VERSION)
+    )
 
 
 VIEWER_DIR = Path(__file__).resolve().parent  # this package's folder: index.html, parts.txt, css/, js/
@@ -85,9 +94,15 @@ VIEWER_MANIFEST = "parts.txt"  # the ordered list of parts, beside index.html
 VIEWER_PART_RE = re.compile(r"[a-z0-9-]+/[a-z0-9-]+\.[a-z]+")  # folder/name.ext: never leaves the viewer folder
 # The service worker GET /sw.js serves, beside index.html. A script of its own, never a part of the page.
 SERVICE_WORKER = "sw.js"
+# The Markdown parse worker GET /md-parse.mjs serves, beside index.html: a module worker of its own (md_worker).
+MD_WORKER = "md-parse.mjs"
 
 # PDF.js renders the PDF as vectors in the viewer (vendor/pdfjs/README.md). The version is also the ?v= value that busts the browser cache.
 PDFJS_VERSION = "6.3.289"
+
+# markdown-it parses a Markdown document in the parse worker (vendor/markdown-it/README.md). The version is the ?v= the
+# worker imports it with, which busts the browser cache.
+MARKDOWN_IT_VERSION = "15.0.3"
 
 # The interface font, Pretendard Variable (vendor/pretendard/README.md). Every URL of it - the stylesheet the page links
 # and each slice the stylesheet names - carries this version as its ?v=, so a cached copy never needs revalidating.
@@ -263,6 +278,14 @@ def service_worker(directory: Path) -> str:
     return (directory / SERVICE_WORKER).read_text(encoding="utf-8")
 
 
+def md_worker(directory: Path, markdown_it_version: str) -> str:
+    """The Markdown parse worker GET /md-parse.mjs serves: directory/md-parse.mjs with __MARKDOWN_IT_VERSION__ filled, the
+    ?v= of the vendored markdown-it it imports. A module worker the viewer starts from this origin when a Markdown
+    document opens (md-surface.js); it parses within the limits it is sent and answers plain tokens, and touches no DOM.
+    A missing file is a packaging defect and raises OSError, like the page's parts."""
+    return (directory / MD_WORKER).read_text(encoding="utf-8").replace("__MARKDOWN_IT_VERSION__", markdown_it_version)
+
+
 def viewer_html(
     directory: Path,
     messages: Mapping[str, Message],
@@ -303,26 +326,30 @@ def viewer_html(
 @dataclass(frozen=True)
 class ViewerFiles:
     """The viewer package as read from disk once per process: the page template (viewer_html, the run-time
-    placeholders still in it), the service worker (service_worker), the ko -> en message table (load_ui_messages)
-    and the icon each favicon route serves (limn.viewer.mark.Brand.icons, by GET path; empty serves none). The composition
-    root reads it at startup (server.read_viewer), never at import."""
+    placeholders still in it), the service worker (service_worker), the ko -> en message table (load_ui_messages),
+    the icon each favicon route serves (limn.viewer.mark.Brand.icons, by GET path; empty serves none) and the Markdown
+    parse worker (md_worker; empty serves none). The composition root reads it at startup (server.read_viewer), never at
+    import."""
 
     template: str
     service_worker: str
     messages: dict[str, Message]
     icons: Mapping[str, Icon] = field(default_factory=dict)
+    md_worker: str = ""
 
 
 @dataclass(frozen=True)
 class ServedViewer:
     """What the viewer routes of one run answer: the page GET / serves (the template with the run's interface language,
     label and accent, run_page), the service worker GET /sw.js serves, the message table a refused browser's page reads and the icon
-    each favicon route serves (by GET path; the same for every run - the tile is never the instance colour)."""
+    each favicon route serves (by GET path; the same for every run - the tile is never the instance colour) and the
+    Markdown parse worker GET /md-parse.mjs serves (empty: none, 404)."""
 
     page: str
     service_worker: str
     messages: dict[str, Message]
     icons: Mapping[str, Icon] = field(default_factory=dict)
+    md_worker: str = ""
 
 
 def run_page(template: str, label: str, accent: str, ui_lang: str | None) -> str:
@@ -338,7 +365,12 @@ def run_page(template: str, label: str, accent: str, ui_lang: str | None) -> str
 
 def serve_viewer(files: ViewerFiles, label: str, accent: str, ui_lang: str | None) -> ServedViewer:
     """What a run labelled `label` in `accent` with interface language ui_lang (None = the browser's) serves from the
-    viewer files: the filled page (run_page), and the service worker, the message table and the icons as read."""
+    viewer files: the filled page (run_page), and the service worker, the message table, the icons and the Markdown
+    parse worker as read."""
     return ServedViewer(
-        run_page(files.template, label, accent, ui_lang), files.service_worker, files.messages, files.icons
+        run_page(files.template, label, accent, ui_lang),
+        files.service_worker,
+        files.messages,
+        files.icons,
+        files.md_worker,
     )
