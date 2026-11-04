@@ -1,11 +1,11 @@
 """The changes view of a Markdown document (ADR-0025; docs/handbook/api.md §변경 보기와 비교 PDF): the Git history of its
 own file alone, the source diff of those commits with a pin's own hunks, and no comparison PDF.
 
-A LaTeX main and a Markdown document sit in one folder of a real temporary repository, one commit per file, so each
-history answers exactly which commits touched its own files: the LaTeX document's suffix pathspec never names the .md,
-and the Markdown document's file list never names the .tex. The Markdown file has a form feed before the pinned line,
-so a pin numbered by str.splitlines() sits one line below git's number for the same text. No --doc suffix chooses the
-Markdown kind yet, so the document is made directly.
+A LaTeX main and a Markdown document sit in one folder of a real temporary repository, with commits that touch one of
+the files or both, so each history answers exactly which commits touched its own files: the LaTeX document's suffix
+pathspec never names the .md, and the Markdown document's file list never names the .tex. The Markdown file has a form
+feed before the pinned line, so a pin numbered by str.splitlines() sits one line below git's number for the same text.
+No --doc suffix chooses the Markdown kind yet, so the document is made directly.
 
 Run: uv run pytest -q src/limn/revisions/tests/test_markdown_revisions.py
 """
@@ -26,10 +26,11 @@ PLAN = "# Plan\n\nIntro.\x0cAfter a form feed.\n\nAlpha line.\nBeta line.\n\n" +
 
 class MarkdownHistory(AccessBase):
     """ms (LaTeX, main.tex) and nt (Markdown, plan.md) in the manuscript folder, committed in order: everything
-    (initial), an edit of two separate lines of plan.md (markdown edit), an edit of main.tex (latex edit)."""
+    (initial), an edit of two separate lines of plan.md (markdown edit), an edit of main.tex (latex edit), and one
+    commit that edits both - a line added at the end of each file (mixed edit)."""
 
     def setUp(self):
-        """Serve ms and nt over one folder and make the three commits."""
+        """Serve ms and nt over one folder and make the four commits."""
         super().setUp()
         if not shutil.which("git"):
             self.skipTest("git not available")
@@ -49,6 +50,9 @@ class MarkdownHistory(AccessBase):
         self.commits["markdown edit"] = self.commit("markdown edit", "plan.md")
         self.main.write_text(self.main.read_text(encoding="utf-8") + "% latex edit\n", encoding="utf-8")
         self.commits["latex edit"] = self.commit("latex edit", "main.tex")
+        self.md.write_text(self.md.read_text(encoding="utf-8") + "Coda line.\n", encoding="utf-8")
+        self.main.write_text(self.main.read_text(encoding="utf-8") + "% mixed edit\n", encoding="utf-8")
+        self.commits["mixed edit"] = self.commit("mixed edit", ".")
 
     def git(self, *args):
         """Run a fixture git command in the manuscript folder; its stdout, stripped."""
@@ -75,9 +79,10 @@ class MarkdownHistory(AccessBase):
 
     def test_each_document_lists_only_the_commits_of_its_own_files(self):
         """A commit that touched only plan.md is in the Markdown document's history and not in the LaTeX document's; a
-        commit that touched only main.tex the other way round. Both start from the commit that added both."""
-        self.assertEqual(self.subjects("nt"), ["markdown edit", "initial"])
-        self.assertEqual(self.subjects("ms"), ["latex edit", "initial"])
+        commit that touched only main.tex the other way round. A commit that touched both is in both, and both start
+        from the commit that added both."""
+        self.assertEqual(self.subjects("nt"), ["mixed edit", "markdown edit", "initial"])
+        self.assertEqual(self.subjects("ms"), ["mixed edit", "latex edit", "initial"])
 
     def test_the_source_diff_of_a_markdown_commit_and_no_other_documents_commit(self):
         """The Markdown commit's diff names plan.md and its new lines and nothing of main.tex; each document's commit is
@@ -110,14 +115,17 @@ class MarkdownHistory(AccessBase):
 
     def test_a_markdown_document_has_no_comparison_pdf(self):
         """The comparison PDF routes answer a Markdown document as they answer a document without one (404
-        commit_not_recent), and nothing is built or cached for it."""
-        commit = self.commits["markdown edit"]
-        for method, path, body in (
-            ("POST", "/api/revision-build", {"commit": commit, "doc": "nt"}),
-            ("GET", "/api/revision-build?doc=nt&commit=" + commit, None),
-            ("GET", "/api/revision-pdf?doc=nt&commit=" + commit, None),
-        ):
-            with self.subTest(method=method, path=path):
-                code, answer = self.call(method, path, body)
-                self.assertEqual((code, answer["reason"]), (404, "commit_not_recent"))
+        commit_not_recent) for every commit with a parent: its own (markdown edit), the LaTeX document's (latex edit)
+        and one of both (mixed edit). The last two are in the LaTeX history window the comparison is built from, so only
+        the document's capability refuses them. Nothing is built or cached for it."""
+        for subject in ("markdown edit", "latex edit", "mixed edit"):
+            commit = self.commits[subject]
+            for method, path, body in (
+                ("POST", "/api/revision-build", {"commit": commit, "doc": "nt"}),
+                ("GET", "/api/revision-build?doc=nt&commit=" + commit, None),
+                ("GET", "/api/revision-pdf?doc=nt&commit=" + commit, None),
+            ):
+                with self.subTest(subject=subject, method=method, path=path):
+                    code, answer = self.call(method, path, body)
+                    self.assertEqual((code, answer.get("reason")), (404, "commit_not_recent"))
         self.assertFalse((self.nt.dir / "revisions").exists())
