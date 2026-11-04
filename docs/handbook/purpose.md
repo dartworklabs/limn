@@ -1,6 +1,6 @@
 # 목적과 범위
 
-Limn은 LaTeX 원고와 벡터 그래픽을 PDF로 띄우고 그 위에 핀을 찍는 리뷰 도구다. 사람이 브라우저에서 PDF 위에 핀(메모)을 찍으면, 에이전트(또는 다른 사람)가 그 핀을 보고 원고나 그림의 해당 자리를 고치고 핀을 닫는다. 범위를 LaTeX 원고와 벡터 그래픽으로 둔 결정은 [ADR-0011](../adr/0011-figure-documents.md) D1이다.
+Limn은 LaTeX 원고와 벡터 그래픽을 PDF로 띄우고 Markdown 문서는 원문에서 바로 그려, 그 위에 핀을 찍는 리뷰 도구다. 사람이 브라우저에서 PDF나 그린 문서 위에 핀(메모)을 찍으면, 에이전트(또는 다른 사람)가 그 핀을 보고 원고나 그림의 해당 자리를 고치고 핀을 닫는다. 범위를 LaTeX 원고와 벡터 그래픽으로 둔 결정은 [ADR-0011](../adr/0011-figure-documents.md) D1이고, 여기에 Markdown 문서를 더한 결정은 [ADR-0025](../adr/0025-html-document-surface.md) D1이다.
 
 ## 줄이는 비용
 
@@ -18,6 +18,7 @@ Limn은 LaTeX 원고와 벡터 그래픽을 PDF로 띄우고 그 위에 핀을 �
 
 - LaTeX 원고: `latexmk` 또는 `pdflatex`/`xelatex`/`lualatex` 기반 빌드. SyncTeX(`.synctex.gz`)가 나오는 환경.
 - 벡터 그래픽: 그림 저장소가 그림을 PDF(그림 한 장이 한 쪽)로 렌더하고 요소 지도(`.limnmap.json`)를 함께 낸 그림. Limn은 렌더하지 않고 두 파일을 가져온다([build-sync.md](build-sync.md) §그림 문서). 지도 형식은 [api.md](api.md) §그림 요소 지도 (`limn-figure-map/1`)에 있다.
+- Markdown 문서: `.md` 파일 하나. 빌드도 변환도 없이 뷰어가 원문을 그리고(CommonMark와 GFM의 표·취소선), 핀은 그 파일의 줄을 가리킨다([viewer.md](viewer.md) §Markdown 화면). 원문은 1 MiB까지 그린다.
 - 네트워크: 로컬 루프백(`127.0.0.1`), 사설망(`tailscale serve`), 인증 리버스 프록시 뒤.
 - 브라우저: 최신 데스크톱 브라우저 (Chromium, Firefox, Safari).
 
@@ -28,6 +29,7 @@ Limn은 LaTeX 원고와 벡터 그래픽을 PDF로 띄우고 그 위에 핀을 �
 - 사용자가 이미 파일과 줄 번호를 알고 있다면 서버를 띄우는 비용이 낭비다. 바로 고친다.
 - Typst 원고는 범위 밖이다. SyncTeX은 LaTeX 전용이다.
 - 요소 지도가 없는 그림(사진, 받은 래스터 그림)은 그림 문서가 아니다. 보기 전용 PDF로 띄운다.
+- Markdown 문서의 원시 HTML과 그림은 그리지 않고, 수식·각주·머리 정보 같은 확장도 그리지 않는다. `.md` 밖의 줄 단위 형식(일반 텍스트, 코드)은 문서로 받지 않는다.
 
 ## 하지 않는 일
 

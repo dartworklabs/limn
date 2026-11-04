@@ -21,11 +21,14 @@ function showTip(el){showTipText(el,el.dataset.tip||'');}
 // description stands left of that box, level with el, so it covers none of the box's own rows - over a word it covered the
 // panel's name above it, and under it the controls - unless there is no room there. Standing there it lies over the page
 // beside the box (the gap is narrower than any description), so it draws an edge (.tip-beside, overlays.css): without one it
-// read as a box cut off at the page's edge, in the dark theme most.
+// read as a box cut off at the page's edge, in the dark theme most. A description that ends in a URL el names (data-tip-url: a
+// link or an image of a Markdown document) has that URL in a span of its own (.tip-url), the one part that may break anywhere.
 /** @param {HTMLElement} el @param {string} txt */
 function showTipText(el,txt){if(!txt||!document.contains(el))return;
-  const box=/** @type {HTMLElement|null} */(el.closest('[data-tip-at="left"]'));
-  TIP.textContent=txt; TIP.classList.toggle('tip-beside',!!box); tipShown(true);   // measured with its edge
+  const box=/** @type {HTMLElement|null} */(el.closest('[data-tip-at="left"]')),url=el.dataset.tipUrl||'';
+  if(url&&txt.endsWith(url)){const u=document.createElement('span'); u.className='tip-url'; u.textContent=url; TIP.replaceChildren(txt.slice(0,txt.length-url.length),u);}
+  else TIP.textContent=txt;
+  TIP.classList.toggle('tip-beside',!!box); tipShown(true);   // measured with its edge
   const r=el.getBoundingClientRect(),tw=TIP.offsetWidth,th=TIP.offsetHeight,bl=box?box.getBoundingClientRect().left-tw-8:-1;
   TIP_AT={el,x:r.left,y:r.top};   // where el stood, for tipFollow - the box beside the panel too
   if(box&&bl>=4){TIP.style.left=bl+'px'; TIP.style.top=Math.max(4,Math.min(r.top+r.height/2-th/2,innerHeight-th-4))+'px'; return;}

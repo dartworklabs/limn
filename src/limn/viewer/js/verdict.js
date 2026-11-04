@@ -15,7 +15,7 @@ function docVerdicts(doc){const k=doc===undefined?DOC:doc,m=META&&(!k||META.doc=
 // The page verdict line is drawn for a document whose words say page: true (the server sets it only for a figure document
 // or a view-only PDF): the words, else null.
 /** @returns {DocVerdicts|null} */
-function pageVerdictsOn(){const v=docVerdicts(); return v&&v.page?v:null;}
+function pageVerdictsOn(){if(isMdDoc())return null; const v=docVerdicts(); return v&&v.page?v:null;}   // a Markdown document has no pages
 // Whether this screen may make a verdict pin: a person who edits (a viewer reads, an agent never makes one, D11).
 function canVerdict(){const r=META&&META.me&&META.me.role; return r!==ROLE.VIEWER&&r!==ROLE.AGENT;}
 // A pin's verdict key, or null: a stored value counts only when it is key-shaped, as the server reads it (pins/verdict.py

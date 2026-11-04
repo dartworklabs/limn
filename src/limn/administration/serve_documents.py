@@ -143,7 +143,8 @@ class DocFileMissing:
 
 @dataclass(frozen=True)
 class DocKindUnknown:
-    """The main file is neither .tex (LaTeX), .pdf (view-only) nor a figure map (MAP_SUFFIX, exact case)."""
+    """The main file is neither .tex (LaTeX), .pdf (view-only), a figure map (MAP_SUFFIX, exact case) nor .md
+    (Markdown)."""
 
     key: str
     main: Path
@@ -261,6 +262,8 @@ def parse_doc_arg(spec: str, ms: Path) -> DocSpec | DocSpecRefusal:
         kind = "tex"
     elif suf == ".pdf":
         kind = "pdf"
+    elif suf == ".md":
+        kind = "markdown"
     else:
         return DocKindUnknown(key, main)
     return DocSpec(key=key, name=name, kind=kind, src=root, main=main)
@@ -297,7 +300,11 @@ def doc_refusal_message(r: DocsRefusal) -> str:
         case DocFileMissing(key=key, main=main):
             return "--doc %s: 파일이 없습니다: %s" % (key, main)
         case DocKindUnknown(key=key, main=main):
-            return "--doc %s: .tex(LaTeX), .pdf(보기 전용), %s(그림)만 받습니다: %s" % (key, MAP_SUFFIX, main)
+            return "--doc %s: .tex(LaTeX), .pdf(보기 전용), %s(그림), .md(Markdown)만 받습니다: %s" % (
+                key,
+                MAP_SUFFIX,
+                main,
+            )
         case TooManyDocs(count=count):
             return "--doc 는 %d개까지입니다(지금 %d개)" % (DOCS_MAX, count)
         case DocKeyRepeated(key=key):
@@ -398,9 +405,13 @@ class RunDocuments:
 
 def pick_documents(src: Path, specs: Sequence[str], main: str | None) -> RunDocuments | StartupRefused:
     """The documents of a command line with manuscript folder src (already resolved), or the refusal, in this order: a
-    missing manuscript folder, --doc together with --main, a bad --doc, no or several top-level .tex files, a --main
-    that does not exist. The run's main file is the first --doc document whose kind builds from source, else the
-    first document's."""
+    missing manuscript folder, --doc together with --main, a bad --doc, a --main ending in .md, no or several top-level
+    .tex files, a --main that does not exist. The run's main file is the first --doc document whose kind builds from
+    source, else the first document's.
+
+    --main names the LaTeX main of a single-document run, which builds; it never makes a Markdown document. A .md
+    there (any case) is refused with the --doc form that registers one (ADR-0025), rather than built as LaTeX and
+    failing - the one way a .md reached a document before .md registration."""
     if not src.is_dir():
         return StartupRefused("Manuscript directory does not exist: %s" % src)
     if specs:
@@ -411,6 +422,10 @@ def pick_documents(src: Path, specs: Sequence[str], main: str | None) -> RunDocu
             return StartupRefused(doc_refusal_message(docs))
         first_built = next((d for d in docs if kind_builds_from_source(d["kind"])), docs[0])
         return RunDocuments(docs, first_built["main"])
+    if main and main.lower().endswith(".md"):
+        return StartupRefused(
+            "--main takes the LaTeX main (.tex) - a Markdown document is served with --doc <key>=<name>:%s" % main
+        )
     main_file = (src / main) if main else detect_main(src)
     if isinstance(main_file, StartupRefused):
         return main_file

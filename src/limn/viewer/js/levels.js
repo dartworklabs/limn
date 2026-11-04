@@ -1,6 +1,10 @@
 // ------------------------------------------------ Range levels
 function lvOf(obj,key){return (obj.levels||[]).find(l=>l.level===key||(l.merged||[]).includes(key));}
+// A Markdown document's rungs (md-surface.js mdLevels, ADR-0025 D3): a block is md:<its kind> (the rung's env), a section md:section,
+// and several blocks whole (level blocks) are lines - a pin's scope is one of the server's (wireScope), and blocks is none of them.
+function wireScope(scope){return scope==='blocks'?'lines':scope;}
 function kindFor(scope,env){if(!scope)return null; if(scope.startsWith('env'))return 'env:'+(env||'?');
+  if(scope==='block')return 'md:'+(env||'paragraph'); if(scope==='section')return 'md:section';
   return scope==='para'?'paragraph':'lines';}
 // The name of o's range kind for a description: its rung's, else its kind's; '' for lines set one by one (scope 'lines'),
 // whose lines alone say what they are.
@@ -19,15 +23,16 @@ function rng(lo,hi){return 'L'+lo+(hi!==lo?'-L'+hi:'');}
 // Segment-control labels are kept short - '환경 abstract' -> 'abstract'. When the same environment name appears more than
 // once, '(바깥)' is kept to distinguish them. The line range is left out of the label, going instead into the description (data-tip)/aria-label and the location line.
 // A figure rung is named by its element as the server labelled it (a person's words, not run through levelLabel).
-function levelName(lv,all){if(lv.el)return String(lv.label||elName(lv.el)); if(!lv.env)return levelLabel(lv.label);
+function levelName(lv,all){if(lv.el)return String(lv.label||elName(lv.el)); if(!lv.env||lv.level==='block')return levelLabel(lv.label);
   const dup=(all||[]).filter(o=>o.env===lv.env).length>1; return dup?levelLabel(lv.label).replace(/^(환경|Environment) /,''):lv.env;}
 // The range ladder's segments (composer and edit card) as Html, one button per rung, the rung matching the range pressed. A
 // figure rung (it carries an element) gets the element's tooltip; its line count comes from lo-hi when the rung has no n.
+// A Markdown document's rungs have descriptions of their own (T.mdraw: no drag area there, a tap chose the line too).
 function levelBtns(o,isEdit){const cur=curLevel(o),ls=o.levels||[]; return ls.map(lv=>{const on=lv===cur,n=rungLines(lv);
-  const tip=lv.el?rungTip(lv):isEdit&&lv.level==='raw'?T.cur:(lv.level.startsWith('env')?T.env:T[lv.level]);
+  const tip=lv.el?rungTip(lv):isEdit&&lv.level==='raw'?T.cur:lv.level.startsWith('env')?T.env:lv.level==='raw'&&isMdDoc()?T.mdraw:T[lv.level]||'';
   const label=isEdit&&lv.level==='raw'?tr('지금 범위'):levelName(lv,ls),nl=tl('{n}줄',{n});
   return html`<button class="${on?'on':''}" data-act="level" data-level="${lv.level}" aria-pressed="${on}" aria-label="${label+' '+rng(lv.lo,lv.hi)+' · '+nl}" \
-data-tip="${rng(lv.lo,lv.hi)+' · '+tr(tip)}">${label} <span class="k${n>50?' wn':''}">· ${nl}</span></button>`;});}
+data-tip="${rng(lv.lo,lv.hi)+(tip?' · '+tr(tip):'')}">${label} <span class="k${n>50?' wn':''}">· ${nl}</span></button>`;});}
 // A rung's line count: the server's n, else its lo-hi span (a figure rung may come without n).
 function rungLines(lv){return typeof lv.n==='number'?lv.n:lv.hi-lv.lo+1;}
 // Draws the range ladder of o into box (#c-levels or an edit card's .e-levels): its segments, shown only when there are two

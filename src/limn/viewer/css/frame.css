@@ -123,7 +123,7 @@ body.outline-collapsed #outline-items,body.outline-collapsed #outline-search,bod
 :is(#outline-items,#ns-outline-items) button{display:grid;grid-column:1/-1;grid-template-columns:subgrid;gap:normal;   /* its list's gap, not a button's */
   align-items:baseline;align-content:center;text-align:left;background:transparent;border:0}
 :is(#outline-items,#ns-outline-items) .ol-no{grid-column:1}
-:is(#outline-items,#ns-outline-items) .ol-name{grid-column:2/6;overflow-wrap:anywhere}
+:is(#outline-items,#ns-outline-items) .ol-name{grid-column:2/6;overflow-wrap:anywhere;word-break:keep-all}   /* Korean breaks between words */
 :is(#outline-items,#ns-outline-items) .ol-depth-1>.ol-no{grid-column:2}
 :is(#outline-items,#ns-outline-items) .ol-depth-1>.ol-name{grid-column:3/6}
 :is(#outline-items,#ns-outline-items) .ol-depth-2>.ol-no{grid-column:3}

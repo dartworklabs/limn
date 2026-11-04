@@ -46,11 +46,11 @@ Requires Python ≥ 3.10, [uv](https://docs.astral.sh/uv/), a TeX distribution w
 (`latexmk`/`pdflatex`) and Poppler (`pdftoppm`, `pdfinfo`).
 
 ```bash
-uv tool install git+https://github.com/dartworklabs/limn@v0.4.47
+uv tool install git+https://github.com/dartworklabs/limn@v0.4.48
 limn version
 ```
 
-With SSH access to GitHub, `git+ssh://git@github.com/dartworklabs/limn@v0.4.47` works too.
+With SSH access to GitHub, `git+ssh://git@github.com/dartworklabs/limn@v0.4.48` works too.
 
 ## Run one server
 
@@ -151,7 +151,7 @@ Personal data in the imported history was replaced with placeholders.
 Nothing is deleted; ports, tailnet addresses and pins carry over.
 
 ```bash
-uv tool install git+https://github.com/dartworklabs/limn@v0.4.47
+uv tool install git+https://github.com/dartworklabs/limn@v0.4.48
 limn migrate --dry-run            # plan: ~/.config/pin-viewer/<name>.env -> ~/.config/limn/<name>.env
 limn migrate                      # copy configs (idempotent; old files stay)
 # per instance:

@@ -33,9 +33,8 @@ DOCS_MAX = 12
 DEFAULT_DOC_KEY = "main"
 
 # What a document is, read once from a --doc path's suffix (limn.administration.serve_documents.parse_doc_arg);
-# an instance started without --doc serves one "tex" document; a path ending in MAP_SUFFIX is a "figure". A "markdown"
-# document is drawn by the browser from its source (ADR-0025); no suffix chooses it yet - it opens with the viewer
-# surface - so only a Doc made directly has it.
+# an instance started without --doc serves one "tex" document; a path ending in MAP_SUFFIX is a "figure", one ending
+# in ".md" a "markdown" document, which the browser draws from its source (ADR-0025).
 # Branches ask a capability of Doc - builds_from_source, watches_files, takes_line_pins, shows_revisions, view_only,
 # has_element_map, renders_in_browser, takes_suggestions - never the kind. Only what reports the kind itself reads it:
 # the API's kind, a document's authority identity, the startup line (docs/handbook/domain.md §여러 문서).

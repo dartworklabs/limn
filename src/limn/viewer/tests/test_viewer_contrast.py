@@ -297,6 +297,21 @@ SURFACES = (
     "--secondary",
     "--accent",
 )
+# The Markdown document scene_markdown draws: the muted text of a quote, a raw HTML block's placeholder, an inline tag and an
+# image's stand-in, an inert link, and two raw HTML blocks in a row as one closed run (its button's muted line).
+MD_NOTES = """# 노트
+
+> 인용한 문장이다.
+
+<div align="center"><b>머리</b></div>
+
+글 사이의 <span>인라인 태그</span>와 ![그림 설명](https://example.org/x.png), [열지 않는 링크](docs/x.md).
+
+<p align="center">하나</p>
+
+<p align="center">둘</p>
+"""
+
 # What an excused rule is held to: its text at 4.5:1 (TEXT) or its icon at 3:1 (ICON) on every one of SURFACES in both
 # themes, faded by its selector's opacity; or nothing (INACTIVE: a disabled or waiting control, which WCAG 1.4.3 exempts,
 # or a drag's passing fade). This is a supplement for what the walk cannot draw: it knows no ancestor's opacity and no
@@ -320,6 +335,11 @@ NOT_WALKED: dict[str, tuple[float | None, str]] = {
     ".sec-tg > .ic": (ICON, "a section head's chevron"),
     "body.lay-narrow #bar1 #btn-pos .ic": (ICON, "the phone tool bar's location icon"),
     "body.lay-wide #bar1 #btn-more": (ICON, "the desktop tool bar's [더보기], an icon button"),
+    # text: held to 4.5:1 on the surfaces
+    ".md-wait, .md-note": (
+        TEXT,
+        "the Markdown surface's line while its source is read, and its notice past the byte or line limit",
+    ),
     # inactive or passing: not held
     "button:disabled": (INACTIVE, "a disabled control"),
     '.vd-btns button[aria-disabled="true"]': (INACTIVE, "a verdict button that cannot be pressed"),
@@ -512,7 +532,13 @@ class ContrastWalk(BrowserBase):
         assert isinstance(docs, list), docs
         ms, rv, *extra = docs
         fig = helpers_figure.figure_doc(src, ps.APP.C.paths)
-        ps.APP.set_docs([ms, fig, rv, *extra])
+        # Two Markdown documents last (scene_markdown): one with a quote, raw HTML, an inline tag and an image, and one
+        # past the nesting limit, shown as its source lines.
+        (src / "notes.md").write_text(MD_NOTES, encoding="utf-8")
+        (src / "deep.md").write_text("".join("  " * i + "- %d\n" % i for i in range(25)), encoding="utf-8")
+        md = startup_documents.make_docs(["nt=노트:notes.md", "dp=깊은 목록:deep.md"], src, ps.APP.C.paths)
+        assert isinstance(md, list), md
+        ps.APP.set_docs([ms, fig, rv, *extra, *md])
         for D in (ms, fig, rv, *extra):
             helpers_figure.viewer_build(
                 D, helpers_figure.BUILD1, helpers_figure.viewer_map() if D.has_element_map else None
@@ -878,6 +904,18 @@ class ContrastWalk(BrowserBase):
         self.look(page, "pin's comparison", "#revision-controls")
         page.context.close()
 
+    def scene_markdown(self):
+        """A Markdown document as the browser draws it: a quote, a raw HTML placeholder, an inline tag, an image's stand-in,
+        an inert link and a closed run of raw HTML blocks; and a document past a limit as its numbered source lines under the
+        line naming the limit."""
+        page = self.open(2, **DEVICES[self.device])
+        for key, state in (("nt", "Markdown document"), ("dp", "Markdown source lines")):
+            page.evaluate("k=>switchDoc(k)", key)
+            page.wait_for_function("k=>DOC===k&&MD.shown===k&&!MD.job&&!!document.querySelector('article#md')", arg=key)
+            settle(page)
+            self.look(page, state, "#doc")
+        page.context.close()
+
     def scene_empty(self):
         """An instance with no pins at all, as its pin lists answer (no_pins): the panel's hint on how to make one."""
         self.no_pins = True
@@ -902,6 +940,7 @@ class ContrastWalk(BrowserBase):
             self.scene_composer()
             self.scene_documents()
             self.scene_changes()
+            self.scene_markdown()
             self.scene_empty()
 
 

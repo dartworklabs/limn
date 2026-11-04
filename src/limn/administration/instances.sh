@@ -49,7 +49,7 @@
 # the server flags of the same meaning. Unset keys add no flag, so a v0.1 config runs exactly as before.
 #
 # Multiple documents (--doc, DOCS=): a single instance switches between tabs for the body, response
-# letter, a view-only PDF, and so on. Format is <key>=<display name>:<path>. Keys are [a-z0-9-]{1,24},
+# letter, a view-only PDF, a Markdown document (.md), and so on. Format is <key>=<display name>:<path>. Keys are [a-z0-9-]{1,24},
 # no duplicates, up to 12 documents, and paths must be inside --manuscript. `<build root>::<main.tex>`
 # is an extended notation (LaTeX only) that widens the copy scope to the build root. In the config file
 # this is written as DOCS="<key1>=<name1>:<path1>;<key2>=..." (split on `;`). MAIN and DOCS are not

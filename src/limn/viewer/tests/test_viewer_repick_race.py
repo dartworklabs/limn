@@ -36,6 +36,7 @@ class RepickRequestLifetime(unittest.TestCase):
                 function clearPendingSave(){COMPOSE.pendingSave=false;clears++;} function applySide(){} function applySheet(){} function tl(s){return s;}
                 function saveDraftSoon(){} function endTopic(){} function renderVerdictRow(){}   // the verdict row (verdict.js)
                 function closeSelPop(){} function drawSelPop(){} function selPopOpen(){return false;}   // the note popover by the box (sel-popover.js)
+                function mdSelMark(){}   // the chosen lines on the Markdown surface (md-surface.js)
                 function errText(d){return d.error;}
                 function lvOf(){return null;} function isRegion(){return false;}
                 function scopeLabel(){return '';} function levelLabel(){return '';}
@@ -54,6 +55,7 @@ class RepickRequestLifetime(unittest.TestCase):
                 extract_js_fn("startRepick"),
                 extract_js_fn("pick"),
                 extract_js_fn("switchDoc"),
+                "function isMdDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
                 scenario,
             ]
         )

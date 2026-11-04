@@ -783,7 +783,8 @@ class DocArgs(unittest.TestCase):
             (
                 "rr=답변서:notes.txt",
                 DocKindUnknown("rr", ms / "notes.txt"),
-                "--doc rr: .tex(LaTeX), .pdf(보기 전용), .limnmap.json(그림)만 받습니다: %s" % (ms / "notes.txt"),
+                "--doc rr: .tex(LaTeX), .pdf(보기 전용), .limnmap.json(그림), .md(Markdown)만 받습니다: %s"
+                % (ms / "notes.txt"),
             ),
             (
                 "rv=코멘트:sub::review.pdf",

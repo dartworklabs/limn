@@ -2,9 +2,9 @@
 
 Which kind a --doc path names, and the two startup decisions made on a parsed --doc before any Doc exists - whether
 a document keyed main keeps the state-folder root, and which document's main file is the run's - follow
-limn.runtime.documents.kind_builds_from_source, never a kind name. Every suffix other than .tex and .pdf is refused at this
-boundary (docs/handbook/code-style-roadmap.md §R10); src/limn/runtime/tests/test_startup.py DocArgs pins the full refusal list and
-its messages.
+limn.runtime.documents.kind_builds_from_source, never a kind name. Every suffix other than .tex, .pdf, the figure map's and
+.md is refused at this boundary (docs/handbook/code-style-roadmap.md §R10); src/limn/runtime/tests/test_startup.py DocArgs
+pins the full refusal list and its messages.
 
 Run: uv run pytest -q src/limn/administration/tests/test_serve_documents.py
 """
@@ -43,6 +43,9 @@ class StartupTree(unittest.TestCase):
         (self.ms / "sub" / "review.pdf").write_bytes(PDF)
         (self.ms / "sub" / "SCAN.PDF").write_bytes(PDF)
         (self.ms / "sub" / "figure.svg").write_text("<svg/>", encoding="utf-8")
+        (self.ms / "notes").mkdir()
+        (self.ms / "notes" / "plan.md").write_text("# Plan\n", encoding="utf-8")
+        (self.ms / "notes" / "README.MD").write_text("# Read me\n", encoding="utf-8")
         self.paths = RunPaths(self.ms, self.ms / "main.tex", root / "state")
 
 
@@ -54,6 +57,36 @@ class DocumentKindFromPath(StartupTree):
         specs = ("ms=본문:main.tex", "rv=리뷰:sub/review.pdf", "sc=스캔:sub/SCAN.PDF")
         got = [serve_documents.parse_doc_arg(spec, self.ms) for spec in specs]
         self.assertEqual([d["kind"] for d in got], ["tex", "pdf", "pdf"])
+
+    def test_a_md_suffix_in_any_case_names_a_markdown_document(self):
+        """plan.md and README.MD are markdown documents (ADR-0025 D1): the file's folder is the document's folder, and
+        its main is the .md itself."""
+        got = [
+            serve_documents.parse_doc_arg(spec, self.ms)
+            for spec in ("nt=계획:notes/plan.md", "rd=안내:notes/README.MD")
+        ]
+        self.assertEqual([d["kind"] for d in got], ["markdown", "markdown"])
+        self.assertEqual([d["main"] for d in got], [self.ms / "notes" / "plan.md", self.ms / "notes" / "README.MD"])
+        self.assertEqual({d["src"] for d in got}, {self.ms / "notes"})
+
+    def test_other_markdown_like_suffixes_are_still_refused(self):
+        """Only .md opens a Markdown document: .markdown, .mdx and .txt are unknown kinds, named in the refusal with
+        every accepted suffix."""
+        for rel in ("notes/plan.markdown", "notes/plan.mdx", "notes/plan.txt"):
+            with self.subTest(rel=rel):
+                (self.ms / rel).write_text("# Plan\n", encoding="utf-8")
+                got = serve_documents.parse_doc_arg("nt=계획:" + rel, self.ms)
+                self.assertEqual(got, DocKindUnknown("nt", self.ms / rel))
+                self.assertEqual(
+                    serve_documents.doc_refusal_message(got),
+                    "--doc nt: .tex(LaTeX), .pdf(보기 전용), .limnmap.json(그림), .md(Markdown)만 받습니다: %s"
+                    % (self.ms / rel),
+                )
+
+    def test_the_root_form_refuses_a_markdown_document(self):
+        """'::' gives a build root, and a Markdown document builds nothing: it is refused as a view-only PDF is."""
+        got = serve_documents.parse_doc_arg("nt=계획:notes::plan.md", self.ms)
+        self.assertEqual(got, DocExtendedWrongKind("nt", self.ms / "notes" / "plan.md"))
 
     def test_an_svg_is_not_a_document_kind(self):
         """A vector graphic file on its own is refused with its resolved path; the server never serves SVG."""
@@ -81,6 +114,44 @@ class BuildsFromSourceAtStartup(StartupTree):
         )
         self.assertIsInstance(got, RunDocuments)
         self.assertEqual(got.main, self.ms / "main.tex")
+
+
+class MarkdownAtStartup(StartupTree):
+    """A Markdown document builds nothing, so the two startup decisions treat it as they treat a view-only PDF, and
+    --main never makes one."""
+
+    def test_a_markdown_document_keyed_main_does_not_take_the_state_root(self):
+        """main=계획:notes/plan.md keeps its own docs/main folder: the state-folder root is a built document's."""
+        docs = serve_documents.make_docs(["main=계획:notes/plan.md", "ms=본문:main.tex"], self.ms, self.paths)
+        self.assertIsInstance(docs, list)
+        self.assertEqual([(d.key, d.kind, d.root) for d in docs], [("main", "markdown", False), ("ms", "tex", False)])
+        self.assertTrue(docs[0].renders_in_browser)
+        self.assertEqual(docs[0].apart, NO_APART)
+
+    def test_the_run_main_skips_a_markdown_document_listed_first(self):
+        """The run's main file is the LaTeX one behind the Markdown document; with Markdown alone it is the .md."""
+        got = serve_documents.pick_documents(self.ms, ["nt=계획:notes/plan.md", "ms=본문:main.tex"], None)
+        self.assertIsInstance(got, RunDocuments)
+        self.assertEqual(got.main, self.ms / "main.tex")
+        alone = serve_documents.pick_documents(self.ms, ["nt=계획:notes/plan.md"], None)
+        self.assertIsInstance(alone, RunDocuments)
+        self.assertEqual(alone.main, self.ms / "notes" / "plan.md")
+
+    def test_main_never_names_a_markdown_document(self):
+        """--main is the LaTeX main of a single-document run: a .md there, in any case and even when it exists, is
+        refused with the --doc form, not built as LaTeX; a .tex --main is served as before."""
+        for main in ("notes/plan.md", "notes/README.MD", "missing.md"):
+            with self.subTest(main=main):
+                self.assertEqual(
+                    serve_documents.pick_documents(self.ms, [], main),
+                    StartupRefused(
+                        "--main takes the LaTeX main (.tex) - a Markdown document is served with --doc <key>=<name>:%s"
+                        % main
+                    ),
+                )
+        self.assertEqual(
+            serve_documents.pick_documents(self.ms, [], "main.tex"), RunDocuments(None, self.ms / "main.tex")
+        )
 
 
 class SetApartAtStartup(StartupTree):
@@ -139,8 +210,7 @@ class DocStartLine(unittest.TestCase):
         )
 
     def test_a_markdown_document_reads_markdown_aligned_with_view_only(self):
-        """markdown prints 'Markdown' and one space, as wide as 'view-only'. No --doc suffix chooses this kind yet; the
-        label is the exhaustive match's case for it, so the type check passes."""
+        """markdown prints 'Markdown' and one space, as wide as 'view-only' (a .md --doc path, never built)."""
         self.assertEqual(
             serve_documents.doc_start_line("nt", "markdown", "notes/plan.md", False),
             "doc    nt         Markdown  notes/plan.md",
@@ -201,7 +271,8 @@ class FigureRegistration(unittest.TestCase):
                 self.assertEqual(got, DocKindUnknown("fig", self.ms / rel))
                 self.assertEqual(
                     serve_documents.doc_refusal_message(got),
-                    "--doc fig: .tex(LaTeX), .pdf(보기 전용), .limnmap.json(그림)만 받습니다: %s" % (self.ms / rel),
+                    "--doc fig: .tex(LaTeX), .pdf(보기 전용), .limnmap.json(그림), .md(Markdown)만 받습니다: %s"
+                    % (self.ms / rel),
                 )
 
     def test_the_root_form_takes_latex_or_a_map_and_refuses_a_pdf(self):

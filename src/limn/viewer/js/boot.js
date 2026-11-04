@@ -14,7 +14,8 @@ async function boot(){i18nStart();
   if(multiDoc()){setHash(DOC); savePrefs({lastDoc:DOC});}
   drawMeta(); applySideWidth(); applyOutlineState(); const hadW=applyViewWidth(v); buildDoc(); if(!hadW)autoW(); vecBoot(); const pinsLoaded=await loadPins();
   restoreView(v); drawDocTabs(); updateSectionStrip(); restoreDraft();   // the page count is there before the first scroll (mid shows it in the nav bar)
-  if(MQ_COARSE.matches)coach('touch','PDF를 길게 누르면 그 문단을 고릅니다 · [선택]을 켜면 끌어서 고릅니다');
+  if(isMdDoc())coach(MQ_COARSE.matches?'touch':'mouse',MQ_COARSE.matches?'블록을 누르면 그 블록을, 길게 눌러 글을 고르면 그 줄을 고릅니다':'끌면 그 줄을, 누르면 그 블록을 고릅니다');
+  else if(MQ_COARSE.matches)coach('touch','PDF를 길게 누르면 그 문단을 고릅니다 · [선택]을 켜면 끌어서 고릅니다');
   else coach('mouse','PDF를 끌어서 고칠 곳을 고르세요');   // first-time mouse users had no hint how to pin (the PDF also shows a crosshair)
   // A failed first read has no pin baseline; the light poll must retry even when meta has not changed.
   if(pinsLoaded){LAST_PINS_REV=META.pins_rev; LAST_SRC_MTIME=META.src_sig||META.src_mtime;}
@@ -70,11 +71,14 @@ function viewerBlocked(){if(!isViewer())return false; bannerNote(undefined,'보�
 // from source. Reads META only and sends nothing.
 function drawMeta(){
   document.body.classList.toggle('no-rebuild',!buildsFromSource(META.kind));   // only a LaTeX document builds from source; a view-only PDF and a figure redraw when their files change
+  document.body.classList.toggle('md-surface',isMdDoc()); mdHint();   // a Markdown document: no pages, so the page-only controls hide (md-surface.css)
   document.body.classList.toggle('role-viewer',isViewer());
-  $('#m-download').disabled=!META.pages_build;   // no build on screen, no PDF to save
-  $('#meta-main').textContent=META.main; $('#meta-pages').textContent=tl('{n}쪽',{n:META.pages.length});
+  $('#m-download').disabled=!META.pages_build||isMdDoc();   // no build on screen, no PDF to save
+  // A Markdown document has no PDF: its file is the tab's source, 'Markdown' its form, and no build time (nor its ' · ').
+  $('#meta-main').textContent=META.main; $('#meta-main').dataset.tip=tr(isMdDoc()?'이 탭의 원문 파일':'PDF를 만든 최상위 원고 파일');
+  $('#meta-pages').textContent=isMdDoc()?'Markdown':tl('{n}쪽',{n:META.pages.length}); $('#meta-pages').dataset.tip=tr(isMdDoc()?'브라우저가 원문에서 그리는 문서 형식':'지금 화면에 있는 PDF의 쪽 수');
   const head=commitShown(META.head); $('#meta-head').textContent=head; $('#meta-head-w').hidden=!head;
-  $('#meta-built').textContent=String(META.built_at||'').slice(0,16).replace('T',' ');
+  const built=isMdDoc()?'':String(META.built_at||'').slice(0,16).replace('T',' '); $('#meta-built').textContent=built; $('#meta-built-w').hidden=!built;   // a Markdown document is never built
   const me=META.me||/** @type {Me} */({});
   setHtml($('#me'),html`${avatar(me)}<span class="au-n" translate="no">${who(me)}</span>`);
   $('#me').dataset.tip=tl('지금 이 화면을 쓰는 사람: {name}. 핀을 저장·수정·완료하면 이 이름으로 기록됩니다',{name:(isAgent(me)?who(me):me.name||'')+(me.login&&me.login!==LOCAL_LOGIN?' ('+me.login+')':'')});

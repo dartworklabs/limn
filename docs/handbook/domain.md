@@ -169,7 +169,7 @@ UI는 일치율이 90% 이상이거나 일치율이 없으면 아무것도 붙�
 
 범위가 같은 단계는 하나로 합치고 `merged`로 표시한다. 기본 단계(`default_level`)는 `--float-envs` 환경 안이면 그 `env` 단계이고, 아니면 `para`다. 응답의 `lo`/`hi`/`kind`는 기본 단계의 값이다.
 
-LaTeX 사다리에는 section 단계를 두지 않는다. 절 전체를 범위로 잡으면 수백 줄 범위가 쉽게 생긴다. Markdown 문서의 `block`·`section` 은 서버의 pick 이 아니라 뷰어가 그린 블록의 줄 범위로 만든다(§Markdown 문서).
+LaTeX 사다리에는 section 단계를 두지 않는다. 절 전체를 범위로 잡으면 수백 줄 범위가 쉽게 생긴다. Markdown 문서의 `block`·`section` 은 서버의 pick 이 아니라 뷰어가 그린 블록의 줄 범위로 만든다(§Markdown 문서, [viewer.md](viewer.md) §Markdown 화면).
 
 그림 문서의 사다리는 고른 요소에서 뿌리까지 올라간다. 단계 하나가 요소 하나이고, 줄 범위는 그 요소의 `src`다. 이름(`label`)은 요소의 `label`, 없으면 `part`, 없으면 id다. 한 사다리의 단계는 모두 고른 요소의 `src`와 같은 파일에 있다. 단계를 바꿔도 파일이 바뀌지 않게 하려는 것이다. 그래서 `src`가 없는 조상, 다른 파일에서 그린 조상, 줄 범위가 지금 파일 길이를 넘는 조상은 단계에서 빠진다. 줄 범위가 같은 단계는 하나로 합친다. 합칠 때 안쪽 단계가 남고 바깥 단계의 이름이 `merged`에 들어간다. 안쪽 요소가 사람이 드래그한 자리에 더 가깝기 때문이다. 기본 단계(`default_level`)는 고른 요소의 단계 `el`이고, 그림 전체를 골랐으면 `fig`다. 단계마다 그 요소의 `el`이 붙어 있어서, 단계를 바꾸면 핀이 가리키는 요소도 함께 바뀐다. 실행 정본은 [`src/limn/pins/location/figure.py`](../../src/limn/pins/location/figure.py)의 `element_rungs`와 [`src/limn/builds/figure_map.py`](../../src/limn/builds/figure_map.py)의 `ladder_scopes`다.
 
@@ -477,9 +477,7 @@ LaTeX 사다리에는 section 단계를 두지 않는다. 절 전체를 범위�
 
 ### 문서 종류와 능력
 
-문서 종류(`Doc.kind`)는 `tex`(LaTeX 원고), `pdf`(보기 전용 PDF), `figure`(그림 문서) 셋이다. 종류는 기동할 때 `--doc` 경로에서 한 번 정한다(`parse_doc_arg`). 이름이 `.limnmap.json`으로 끝나면(소문자 그대로) 그림 문서, `.tex`면 LaTeX, `.pdf`면 보기 전용이다. `.tex`와 `.pdf`는 대소문자를 가리지 않는다. 그 뒤로는 닫힌 타입 `DocKind`로 다닌다. `--doc` 없이 띄운 단일 문서는 `tex`다.
-
-`DocKind`에는 넷째 종류 `markdown`(브라우저가 원문을 그리는 Markdown 문서)도 있다. 이 종류를 고르는 `--doc` 확장자는 없다. 그래서 인스턴스는 Markdown 문서를 띄우지 않고, 이 종류는 코드가 `Doc`을 직접 만들 때만 생긴다. 아래 표의 `markdown` 열은 그 능력이다.
+문서 종류(`Doc.kind`)는 `tex`(LaTeX 원고), `pdf`(보기 전용 PDF), `figure`(그림 문서), `markdown`(브라우저가 원문을 그리는 Markdown 문서) 넷이다. 종류는 기동할 때 `--doc` 경로에서 한 번 정한다(`parse_doc_arg`). 이름이 `.limnmap.json`으로 끝나면(소문자 그대로) 그림 문서, `.tex`면 LaTeX, `.pdf`면 보기 전용, `.md`면 Markdown이다. `.tex`·`.pdf`·`.md`는 대소문자를 가리지 않는다. 그 밖의 확장자(`.markdown`·`.mdx`·`.txt` 등)는 기동을 거절한다. 그 뒤로는 닫힌 타입 `DocKind`로 다닌다. `--doc` 없이 띄운 단일 문서는 `tex`다. `--main`은 그 단일 문서의 LaTeX 메인이고 빌드되므로 Markdown 문서를 만들지 않는다. `.md`(대소문자 무관)를 주면 LaTeX로 빌드해 실패하는 대신 `--doc <키>=<이름>:<경로>` 꼴을 알리며 기동을 거절한다. `::`(빌드 루트) 표기도 빌드하는 문서의 것이라 `.md`를 받지 않는다.
 
 분기는 종류 이름을 묻지 않고 **능력**을 묻는다. 능력은 `Doc`의 속성이고, 종류에서 능력을 정하는 규칙은 [`limn/documents.py`](../../src/limn/runtime/documents.py) 한 곳에 있다. 그래서 종류가 늘어도 분기마다 종류 목록을 고치지 않는다.
 
@@ -531,7 +529,7 @@ LaTeX 소스가 없는 PDF도 같은 문서 목록에 둔다. 리뷰어 코멘�
 
 그림 문서의 pick은 지도로 되짚어 그 요소를 그린 코드 줄을 돌려준다(§그림 문서의 요소 pick). 핀은 그 스크립트의 줄 핀(`file`·`lo`·`hi`)이고, 선택 필드 `el`이 어느 요소인지 적는다. 줄 검증과 anchor 재동기화는 LaTeX 핀과 같다. 그래서 그림을 모르는 에이전트도 줄 핀으로 처리할 수 있다. 코드 없이 그린 요소를 골랐거나 줄을 줄 수 없으면 영역 핀(`pdf`·`page`·`frac`)에 `el`을 더한다. 영역 핀이 적는 PDF는 화면 빌드의 지도가 가리키는 PDF다([api.md](api.md) §그림 문서의 pick·핀). `/api/docs`·`/api/meta`의 `kind`는 `figure`이고 `view_only`는 `false`다. 줄 핀을 받기 때문이다.
 
-파일만 준 요청(에이전트의 `curl`)은 줄 핀을 받는 문서, 곧 LaTeX 문서와 그림 문서 가운데서 문서를 고른다(`doc_for_file`).
+파일만 준 요청(에이전트의 `curl`)은 줄 핀을 받는 문서, 곧 LaTeX 문서·그림 문서·Markdown 문서 가운데서 문서를 고른다(`doc_for_file`). Markdown 문서는 자기 파일만 가지며 아래 규칙보다 먼저다(§Markdown 문서).
 
 - 그 파일을 가장 깊게 감싸는 문서 폴더의 문서가 먼저다. 그림 폴더가 LaTeX 문서의 빌드 루트 안에 있으면, 그 폴더의 파일은 더 깊은 그림 문서로 간다. 같은 소유가 그 LaTeX 문서의 `src_mtime` 에도 적용된다(§알려진 제약).
 - 깊이가 같으면 파일 종류로 가른다. `.tex`·`.bib`·`.sty`·`.cls`·`.bst`(대소문자 무관)는 원고에서 빌드하는 문서로, 그 밖의 파일(그림 스크립트, 데이터)은 그림 문서로 간다.
@@ -539,7 +537,7 @@ LaTeX 소스가 없는 PDF도 같은 문서 목록에 둔다. 리뷰어 코멘�
 
 ### Markdown 문서
 
-Markdown 문서는 뷰어가 원문을 그리므로 쪽이 없다. 그래서 그 핀은 `page`·`frac`·`pdf_build` 가 없는 줄 핀이다. 출처: [ADR-0025 D2](../adr/0025-html-document-surface.md#결정). `page: 1` 같은 뜻 없는 값이 에이전트 계약에 남아 퍼지지 않게 하려는 것이다. 이 사실은 핀을 쓰는 모든 길 끝까지 간다.
+Markdown 문서는 `--doc` 경로가 `.md`인 문서다. 서버는 빌드하지도 파싱하지도 않고, 원문의 줄 목록을 `GET /api/source`로 준다. 뷰어가 그 줄을 그리고 그린 블록마다 원문 줄 범위를 붙이며, 범위 사다리의 블록·절 단계도 그 줄 지도에서 만든다([viewer.md](viewer.md) §Markdown 화면). 서버는 저장할 때 `lo..hi`가 파일 안인지만 본다. 쪽이 없으므로 그 핀은 `page`·`frac`·`pdf_build` 가 없는 줄 핀이다. 출처: [ADR-0025 D2](../adr/0025-html-document-surface.md#결정). `page: 1` 같은 뜻 없는 값이 에이전트 계약에 남아 퍼지지 않게 하려는 것이다. 이 사실은 핀을 쓰는 모든 길 끝까지 간다.
 
 - **만드는 길.** 위치 파서는 문서 사실(`DocumentFacts.renders_in_browser`, 요소 지도와 같은 길)에서 쪽 없는 문서인지 읽고, 보낸 `page`·`frac`·`pdf_build` 를 검사하지 않고 버린다. 줄 위치(`LinePlace`)는 `pages` 를 인자로 받아, 쪽 없는 위치에는 쪽 필드를 두지 못한다. `new_line_pin` 은 그 위치에 `pdf_build` 를 넣지 않는다.
 - **고치는 길.** `decide_edit` 가 `pages` 를 받아 편집 사실에 싣고, `evolve_edit` 은 쪽 없는 문서의 줄 핀에서 `page`·`frac`·`pdf_build`·`frac_build` 를 지운다. 위치 다시 잡기든 메모만 고치는 편집이든 같다. 이 `pages` 는 아래 다른 쓰기와 같은 답(`PinContext.has_pages`)을 핀 레코드에서 읽은 값(`EditTarget.pages`)이고, 새 `loc` 도 이 값으로 읽는다. 이 실행이 띄우지 않는 문서의 핀은 `loc` 을 첫 문서의 사실로 읽지만 쪽이 있는 핀으로 다룬다. 첫 문서가 Markdown 이어도 쪽 필드를 잃지 않는다.

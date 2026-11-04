@@ -107,6 +107,8 @@ document.addEventListener('click',e=>{const target=/** @type {HTMLElement} */(e.
     case 'thread-more':if(id==null)break; if(THREAD_OPEN.has(id))THREAD_OPEN.delete(id); else THREAD_OPEN.add(id); drawPins();break;
     case 'arc-toggle':{const k=a.dataset.key; if(!k)break; if(ARC_OPEN.has(k))ARC_OPEN.delete(k); else ARC_OPEN.add(k); drawPins(); break;}
     case 'esave':saveEdit();break; case 'ecancel':cancelEdit();break;
+    case 'md-anchor':mdGoAnchor(a);break;   // an in-document #heading link of the Markdown surface
+    case 'md-html-run':mdHtmlRun(a);break;   // a run of raw HTML blocks opens or closes (md-surface.js)
     case 'repick':startRepick();break; case 'rp-cancel':cancelRepick();break; case 'rp-apply':applyRepick();break;
     case 'sec-toggle':toggleSec(a.dataset.sec);break;
     case 'trash-open':openTrash();break; case 'trash-close':$('#trash').close();break;
@@ -123,7 +125,7 @@ document.addEventListener('keydown',e=>{
   if(imeKey(e))return;   // an input method's key, the Enter or Esc that ended its composition too (core.js)
   const t=/** @type {HTMLElement} */(e.target),inField=t&&(t.tagName==='TEXTAREA'||t.tagName==='INPUT'||t.tagName==='SELECT'||t.isContentEditable);
   // Ctrl(Cmd) + = / - / 0 zooms/fits just the PDF page instead of the browser zoom. Left to the browser inside an input field.
-  if((e.ctrlKey||e.metaKey)&&!e.altKey&&!inField){const z=zoomKey(e);
+  if((e.ctrlKey||e.metaKey)&&!e.altKey&&!inField&&!isMdDoc()){const z=zoomKey(e);   // a Markdown document's text zooms with the browser
     if(z){if(document.body.classList.contains('revision-open')){
       if(!revisionPdfActive())return;}
       e.preventDefault();zoomVisiblePdf(z);return;}}

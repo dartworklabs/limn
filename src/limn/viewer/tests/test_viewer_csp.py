@@ -21,6 +21,8 @@ import threading
 import unittest
 from pathlib import Path
 
+from limn.administration import serve_documents as startup_documents
+
 import helpers_csp
 import helpers_figure
 import helpers_js
@@ -59,6 +61,20 @@ DRAWN = """key => new Promise((resolve, reject) => {
   })();
 })"""
 
+# Resolves once the Markdown document key is drawn on its surface by the parse worker (import() of the vendored markdown-it from
+# this origin, in a module worker from this origin - ADR-0026): its column with a heading, a table row and a line span, and no
+# limit hit - or fails after the timeout. Like DRAWN, the page resolves it; nothing is evaluated by Playwright's polling.
+MD_DRAWN = """key => new Promise((resolve, reject) => {
+  const done = () => DOC === key && MD.shown === key && !MD.job && document.querySelector('article#md h1') &&
+    document.querySelector('#md tr[data-lo]') && document.querySelector('#md [data-line]');
+  const t0 = performance.now();
+  (function poll() {
+    if (done()) return resolve([MD.limit, document.querySelectorAll('#md [data-line]').length]);
+    if (performance.now() - t0 > 15000) return reject(new Error('not drawn: ' + key));
+    requestAnimationFrame(poll);
+  })();
+})"""
+
 # Puts in an inline script element with text the page did not carry and a button with an inline click handler, clicks
 # it, and resolves with the directives of the two violations they report - in the page's own order of events. The two
 # are expected (window.__limnCspExpected while they come in), so the gate (helpers_csp.no_csp_violation) leaves them
@@ -87,6 +103,14 @@ class EnforcedFlows:
         for D in self.docs:
             build = Path(D.dir / (D.dir / "pages.cur").read_text().strip())
             (build / D.pdf_name).write_bytes(two_page_pdf((1152, 384) if D.has_element_map else (612, 792)))
+        src = ps.APP.C.src
+        (src / "notes.md").write_text(
+            "# 노트\n\n첫 줄\n둘째 줄 [링크](https://example.org/)\n\n| a | b |\n| - | - |\n| 1 | 2 |\n",
+            encoding="utf-8",
+        )
+        md = startup_documents.make_docs(["nt=노트:notes.md"], src, ps.APP.C.paths)
+        assert isinstance(md, list), md
+        ps.APP.set_docs(self.docs + md)
         self.httpd = ps.Server(("127.0.0.1", 0), ps.Handler)
         threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
         self.addCleanup(self.httpd.server_close)
@@ -125,6 +149,14 @@ class EnforcedFlows:
         self.assertEqual(self.violations(page), [])
         stripe = page.evaluate("getComputedStyle(document.getElementById('brand-stripe')).backgroundColor")
         self.assertNotIn(stripe, ("", "rgba(0, 0, 0, 0)"))
+
+    def test_a_markdown_document_is_drawn_by_its_parse_worker_under_the_enforced_policy(self):
+        """The Markdown surface imports markdown-it in its module worker from this origin and builds its column with DOM
+        calls (no style attribute, no inline script): drawn, no limit hit, nothing refused."""
+        page = self.enforced()
+        page.evaluate("async k => await switchDoc(k)", "nt")
+        self.assertEqual(page.evaluate(MD_DRAWN, "nt"), [None, 3])  # the heading's line and the paragraph's two
+        self.assertEqual(self.violations(page), [])
 
     def test_an_inline_script_without_a_hash_and_an_inline_handler_do_not_run(self):
         """An inline script element with other text and an onclick attribute are refused and reported, the two only."""

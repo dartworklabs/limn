@@ -722,7 +722,8 @@ class FrontendMobileStructure(unittest.TestCase):
         # app-level zoom, §PDF 영역 전용 확대). A page in selection mode is none (one-finger drag = select).
         # The width/height grips are none so they don't fight scroll while dragging. The panel is pan-y pinch-zoom
         # (a horizontal drag stays a pointer stream for the overlay's swipe; pinch keeps the browser's zoom), and
-        # the narrow sheet's tool bar is none - the whole bar drags the sheet (input review 2026-09-26).
+        # the narrow sheet's tool bar is none - the whole bar drags the sheet (input review 2026-09-26). A Markdown document has
+        # no pages to scale: its #left adds pinch-zoom, so two fingers are the browser's zoom there (md-surface.css).
         css_nc = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
         self.assertEqual(
             [x.strip() for x in re.findall(r"([^{}]*)\{[^{}]*touch-action", css_nc)],
@@ -735,8 +736,10 @@ class FrontendMobileStructure(unittest.TestCase):
                 "body.selmode .pg",
                 "body.lay-narrow #sheet-grip",
                 "body.lay-narrow #bar1",
+                "body.md-surface #left",
             ],
         )
+        self.assertIn("body.md-surface #left{touch-action:pan-x pan-y pinch-zoom}", css_nc)
         self.assertRegex(css_nc, r"\n#right\{[^}]*touch-action:pan-y pinch-zoom\}")
         self.assertRegex(css_nc, r"\n#left\{[^}]*touch-action:pan-x pan-y\}")
         self.assertIn("body.selmode .pg{touch-action:none", css)
@@ -902,6 +905,7 @@ class FrontendVectorLogic(unittest.TestCase):
                 extract_js_fn("vecCancel"),
                 extract_js_fn("vecNextJob"),
                 extract_js_fn("vecOpen"),
+                "function isMdDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
                 r"""
             function $(sel){return {hidden:false};}
             function dq(u){return u;}
@@ -970,7 +974,10 @@ class FrontendZoom(unittest.TestCase):
     """Guard the inputs, bounds, and anchors used by PDF area zoom controls."""
 
     def test_ctrl_wheel_on_pdf_area_is_intercepted_non_passive(self):
-        self.assertIn("L.addEventListener('wheel',e=>{if(!(e.ctrlKey||e.metaKey))return; e.preventDefault();", HTML)
+        # a Markdown document's text zooms with the browser (isMdDoc): the wheel is left alone there
+        self.assertIn(
+            "L.addEventListener('wheel',e=>{if(!(e.ctrlKey||e.metaKey)||isMdDoc())return; e.preventDefault();", HTML
+        )
         i = HTML.index("L.addEventListener('wheel'")
         self.assertIn("{passive:false}", HTML[i : i + 300])
         self.assertIn("const L=$('#left')", HTML[i - 500 : i])  # PDF area only — sidebar wheel scrolling is left alone
@@ -989,7 +996,7 @@ class FrontendZoom(unittest.TestCase):
         """Only modifier shortcuts outside fields reach the visible PDF's controller."""
         m = re.search(r"document\.addEventListener\('keydown',e=>\{(.*?)\n\}\);", HTML, re.S)
         body = m.group(1)
-        self.assertIn("if((e.ctrlKey||e.metaKey)&&!e.altKey&&!inField){const z=zoomKey(e);", body)
+        self.assertIn("if((e.ctrlKey||e.metaKey)&&!e.altKey&&!inField&&!isMdDoc()){const z=zoomKey(e);", body)
         self.assertIn("e.preventDefault();zoomVisiblePdf(z)", body)
         self.assertLess(body.index("inField="), body.index("zoomKey(e)"))
 
@@ -1268,6 +1275,7 @@ class FrontendMobileLogic(unittest.TestCase):
             let LAYOUT='mid', REPLY=null, META=null; const THREAD_OPEN=new Set(), MQ_COARSE={matches:true};
             function suggestBadge(){return null;} function suggestView(){return null;}   // these pins carry no suggested edit (suggest.js)
             function verdictOf(){return null;} function verdictBadge(){return null;} function pvQuietRel(p){return p;} function verdictOldMarker(){return null;} function verdictTarget(){return null;}   // ...and no verdict (verdict.js)
+            function isMdPin(){return false;}   // ...and are on a document with pages (md-surface.js)
             """,
                 extract_js_fn("rng"),
                 extract_js_fn("multiDoc"),
@@ -1612,6 +1620,15 @@ COLOR_RE = re.compile(
 RADIUS_OK = re.compile(r"^(?:var\(--radius(?:-sm|-lg)?\)|0|50%)$")
 
 
+# The font sizes the raw-value allowlist names with their reasons (raw_css_allowlist.json, test_viewer_raw_css.py): a Markdown
+# document's heading scale. Those are the only ones off the text scale.
+LISTED_FONT_SIZES = {
+    (e["selector"], e["value"])
+    for e in json.loads((Path(__file__).with_name("raw_css_allowlist.json")).read_text(encoding="utf-8"))["entries"]
+    if e["property"] == "font-size"
+}
+
+
 def css_rules():
     """The (selector, [(property, value)]) list inside <style>. Strips comments and flattens @media rules too."""
     css = HTML[HTML.index("<style>") + len("<style>") : HTML.index("</style>")]
@@ -1727,7 +1744,11 @@ class FrontendDesignTokens(unittest.TestCase):
         bad = []
         for sel, decls in css_rules():
             for k, v in decls:
-                if k == "font-size" and not re.fullmatch(r"var\(--text-(?:xs|sm|base|lg|xl)\)|inherit", v):
+                if (
+                    k == "font-size"
+                    and not re.fullmatch(r"var\(--text-(?:xs|sm|base|lg|xl)\)|inherit", v)
+                    and (sel, v) not in LISTED_FONT_SIZES
+                ):
                     bad.append("%s { %s:%s }" % (sel, k, v))
                 if k == "font" and v != "inherit" and not v.startswith("var(--text-"):
                     bad.append("%s { %s:%s }" % (sel, k, v))
@@ -2012,8 +2033,8 @@ class FrontendSemanticAudit(unittest.TestCase):
     def test_references_share_one_link_style_and_pending_looks_pending(self):
         # one consistent link style (QA 2026-09-24): #number, line range, page N, and in-text #12 all share
         # one look — primary color, no underline at rest, solid underline on hover/focus. There used to be
-        # three looks: bold dotted, blue, gray dotted. A dotted underline is now used only for an
-        # unresolved @-mention (.mention-bad).
+        # three looks: bold dotted, blue, gray dotted. A dotted underline now marks only what does not go
+        # anywhere: an unresolved @-mention (.mention-bad) and a Markdown document's link that does not open (.md-rel).
         self.assertIn(":is(.loc,.pg-link,.pin .n.go,.pin-ref){text-decoration:none;", self.css)
         self.assertIn(":is(.loc,.pg-link,.pin .n.go,.pin-ref):focus-visible{text-decoration:underline}", self.css)
         self.assertIn(  # the hover underline answers a mouse only (FrontendHoverForMouse)
@@ -2026,7 +2047,7 @@ class FrontendSemanticAudit(unittest.TestCase):
         ):
             self.assertIn(rule, self.css)
         dotted = [r for r in re.findall(r"[^{}]+\{[^}]*underline dotted[^}]*\}", self.css)]
-        self.assertEqual([r.split("{")[0].strip() for r in dotted], [".mention-bad"])
+        self.assertEqual([r.split("{")[0].strip() for r in dotted], [".mention-bad", ".md .md-rel"])
         self.assertIn("button[data-pending]{cursor:progress;", self.css)
 
 
@@ -2277,7 +2298,7 @@ class PinNumberJump(unittest.TestCase):
     def test_number_is_a_button_that_jumps(self):
         src = HTML
         self.assertIn('<span class="n go" role="button" tabindex="0" data-act="view"', src)
-        self.assertIn("누르면 PDF에서 이 핀 자리로 갑니다", src)
+        self.assertIn("누르면 문서에서 이 핀 자리로 갑니다", src)
 
     def test_number_is_keyboard_and_touch_reachable(self):
         """#N is a role=button the keyboard reaches; on touch #N, the line range and N쪽 are each a real 44x44 box.
@@ -3102,7 +3123,8 @@ class FrontendFigure(unittest.TestCase):
         self.assertIn("const est=isEstimated(p)&&!hasMark(p),lost=p.stale||elLost(p);", m)
         c = extract_js_fn("card")
         # the open and the review card's N쪽, and compact's one head link '#N · L… · N쪽' (input diagnosis U5)
-        self.assertEqual(c.count("{page:pinPlace(p).page}"), 1)  # one page label for both cards' links
+        self.assertEqual(c.count("pinPlace(p).page"), 1)  # one page label for both cards' links
+        self.assertEqual(c.count("tl('{page}쪽',{page:at})"), 1)  # ... none for a Markdown pin, which has no page
         self.assertEqual(c.count("p.stale||elLost(p)?CARD_DOT.LOST"), 1)  # one status dot for both cards
         self.assertIn("const lostEl=elLostTag(p); if(lostEl)tags.push(lostEl);", c)
         self.assertIn("figRegionBadge(p.el,isFigureKind((docInfo(pdoc(p))||{}).kind))", c)
@@ -3160,6 +3182,7 @@ class FrontendFigure(unittest.TestCase):
                 r"""
             const DOC='d', DEFAULT_DOC='d', markBadgeSides=()=>{}, drawChips=()=>{}; let PINS=[], REVIEW_ALL=[]; const drawn=[];
             const drawPageVerdicts=()=>{}, pvShows=()=>false;   // no page verdict line on this document (verdict.js)
+            const isMdDoc=()=>false;   // and it has pages (md-surface.js)
             const $$=()=>[]; const esc=s=>String(s);
             const page1={appendChild:m=>drawn.push([m.dataset.pin,m.className,m.style.left,m.style.width])};
             const document={getElementById:id=>id==='p1'?page1:null,
@@ -4547,6 +4570,7 @@ class FrontendReview(unittest.TestCase):
             const THREAD_OPEN=new Set(), MQ_COARSE={matches:false};
             function suggestBadge(){return null;} function suggestView(){return null;}   // these pins carry no suggested edit (suggest.js)
             function verdictOf(){return null;} function verdictBadge(){return null;} function pvQuietRel(p){return p;} function verdictOldMarker(){return null;} function verdictTarget(){return null;}   // ...and no verdict (verdict.js)
+            function isMdPin(){return false;}   // ...and are on a document with pages (md-surface.js)
             """,
                 extract_js_fn("rng"),
                 extract_js_fn("multiDoc"),

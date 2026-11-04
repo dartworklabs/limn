@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.4.48 — 2026-11-04
+
+### Added
+
+- **Markdown documents can be registered, read and pinned in the viewer.** A `--doc` path ending in `.md` (or
+  `limn doc add <name> --doc '<key>=<name>:<path>.md'`) is a Markdown document: no build, no PDF - the viewer draws the
+  file itself as one flowing column (CommonMark with GFM tables and strikethrough) and every block it draws carries
+  its source lines. Drag over text to pin those lines, click or tap a block to pin it, or a heading to pin its section;
+  the range ladder is chosen lines -> block (or the blocks a drag spans) -> section. Pins are ordinary line pins of the `.md` file with no page
+  (`pins.md` writes `—` in the page column), take suggested edits in Markdown, and show as tinted lines with a number
+  badge in the left margin. The outline comes from the headings, the changes view opens on the file's source diff,
+  and an edit to the file is on screen within a few seconds.
+  - **Drawn without running anything:** raw HTML is shown as a placeholder with its lines, never drawn (raw HTML
+    blocks in a row, such as a README's head, fold into one placeholder that opens to each block); images are
+    not loaded (their alt text stands in); a link opens only if it goes to another site's `http(s)` address, a
+    `mailto:` or a heading in the document - the viewer's own address, loopback and addresses with a user or password
+    stay plain text. The viewer's Content-Security-Policy is unchanged and applies here too.
+  - **Limits:** a file over 1 MiB is not drawn (a notice says its size). A document too deep, too large or too slow
+    to parse (nesting 20, 30,000 block or 150,000 inline tokens, 60,000 drawn elements, 2 s) is shown as its numbered
+    source lines instead, which still take pins; past 50,000 lines a notice says so.
+  - **No page controls:** page counts, the page list, zoom buttons, [select] and PDF download are hidden on such a
+    document; find (Ctrl/⌘+F) and zoom, a two-finger pinch included, are the browser's.
+  - **`--main` stays LaTeX:** `--main notes.md` is refused with the `--doc` form to use instead.
+  - **Agents:** the contract only gains values (document `kind` `markdown`, `scope` `block`/`section`, pin `kind`
+    `md:<block>`/`md:section`, already in 0.4.47's server). Make a pin on such a document with `file`, `lo` and `hi`; a
+    `page` sent is dropped. There is nothing to rebuild.
+  - **Rollback:** 0.4.47 and earlier do not start with a Markdown document in the configuration. Take it out first
+    (`limn doc remove <name> <key>`), then `limn update --ref v0.4.47`; its pins stay in the state folder and show under
+    the documents not configured.
+
+### Changed
+
+- **The list order `[쪽순]` is `[위치순]` (`Page` is `Position` in English)** on every document: it orders pins by
+  where they are, which is a page and a line on a PDF and a line on a Markdown document.
+- **A description that ends in an address breaks the address anywhere** and the words before it only between words;
+  in the dark theme the description box has a 1px edge.
+
 ## 0.4.47 — 2026-11-04
 
 ### Security

@@ -59,8 +59,8 @@ doc_check_path() {
     else
         if [[ "$path" == /* ]]; then main="$path"; else main="$ms/$path"; fi
         case "$main" in
-            *.tex | *.pdf | *.limnmap.json) ;;
-            *) die "--doc $key: only .tex (LaTeX), .pdf (view-only) or .limnmap.json (figure) are accepted: $main" ;;
+            *.tex | *.pdf | *.limnmap.json | *.md) ;;
+            *) die "--doc $key: only .tex (LaTeX), .pdf (view-only), .limnmap.json (figure) or .md (Markdown) are accepted: $main" ;;
         esac
     fi
     [[ -f "$main" ]] || die "--doc $key: file does not exist: $main"

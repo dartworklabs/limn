@@ -5,6 +5,8 @@
 // - Keyboard Ctrl(Cmd) + = / + / - / 0 -> zoom in/out/fit width (never intercepted while an input field has focus - see the key handler).
 // - Touch: #left has touch-action:pan-x pan-y, so there's no browser pinch. K changes with the ratio of the two-finger distance, and the
 //   point under the midpoint of the two fingers follows the fingers (drag while zooming). A page in selection mode has touch-action:none, so it goes through the same path.
+// - A Markdown document (md-surface.js) has no pages to scale: every one of these leaves its input to the browser - Ctrl+wheel,
+//   a trackpad's gesture and two fingers zoom the page as anywhere else (md-surface.css lets #left pinch there).
 function zoomKey(e){const k=e.key,c=e.code;
   if(k==='='||k==='+'||c==='Equal'||c==='NumpadAdd')return 'in';
   if(k==='-'||k==='_'||c==='Minus'||c==='NumpadSubtract')return 'out';
@@ -20,17 +22,17 @@ function wheelFactor(dy,mode){if(!dy)return 1;
 (function(){const L=$('#left'); let acc=1,pt=/** @type {number[]|null} */(null),raf=0,G=/** @type {{k:number}|null} */(null),
     TP=/** @type {{d:number,k:number,a:ReturnType<typeof zoomAnchor>}|null} */(null);
   const flush=()=>{raf=0; if(acc===1||!pt)return; const f=acc; acc=1; zoomTo(K*f,pt[0],pt[1]);};
-  L.addEventListener('wheel',e=>{if(!(e.ctrlKey||e.metaKey))return; e.preventDefault();
+  L.addEventListener('wheel',e=>{if(!(e.ctrlKey||e.metaKey)||isMdDoc())return; e.preventDefault();   // a Markdown document's text zooms with the browser
     acc*=wheelFactor(e.deltaY,e.deltaMode); pt=[e.clientX,e.clientY]; if(!raf)raf=requestAnimationFrame(flush);},{passive:false});
-  L.addEventListener('gesturestart',e=>{e.preventDefault(); if(!TP)G={k:K};},{passive:false});
-  L.addEventListener('gesturechange',e=>{e.preventDefault(); if(G&&!TP&&e.scale>0)zoomTo(G.k*e.scale,e.clientX,e.clientY);},{passive:false});
-  L.addEventListener('gestureend',e=>{e.preventDefault(); G=null;},{passive:false});
+  L.addEventListener('gesturestart',e=>{if(isMdDoc())return; e.preventDefault(); if(!TP)G={k:K};},{passive:false});
+  L.addEventListener('gesturechange',e=>{if(isMdDoc())return; e.preventDefault(); if(G&&!TP&&e.scale>0)zoomTo(G.k*e.scale,e.clientX,e.clientY);},{passive:false});
+  L.addEventListener('gestureend',e=>{G=null; if(isMdDoc())return; e.preventDefault();},{passive:false});
   const mid=(a,b)=>[(a.clientX+b.clientX)/2,(a.clientY+b.clientY)/2];
   const dist=(a,b)=>Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY)||1;
   let tr=0,last=/** @type {{d:number,m:number[]}|null} */(null);
   const apply=()=>{tr=0; if(!TP||!last)return;
     setK(TP.k*last.d/TP.d); markZoomed(); zoomRestore(TP.a,last.m[0],last.m[1]);};
-  L.addEventListener('touchstart',e=>{if(e.touches.length!==2){if(e.touches.length>2)TP=null; return;}
+  L.addEventListener('touchstart',e=>{if(isMdDoc()){TP=null; return;} if(e.touches.length!==2){if(e.touches.length>2)TP=null; return;}
     if(e.cancelable)e.preventDefault();
     const a=e.touches[0],b=e.touches[1],m=mid(a,b); cancelDrag(); cancelLP();
     TP={d:dist(a,b),k:K,a:zoomAnchor(m[0],m[1])}; last={d:TP.d,m};},{passive:false});
