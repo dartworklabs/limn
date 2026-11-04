@@ -4,8 +4,11 @@ Every response carries a policy (handler.end_headers). A response that is not on
 a page image, pins.md, a vendored file, the base class's own error pages - carries FRAME_ONLY: nobody may frame it, and
 nothing else is said, so a PDF a browser opens in its own viewer is not restricted. An HTML page Limn assembles (the
 viewer at GET /, the readable refusal page) carries page_policy(page), computed from the page's own text: its inline
-<script> and <style> elements are allowed by their SHA-256 hashes, so the page needs no 'unsafe-inline', and a script
-that someone else's text manages to put into the page does not run.
+<script> and <style> elements are allowed by their SHA-256 hashes, so the page needs no 'unsafe-inline': inline code
+with any other text, an inline event handler, a style attribute and a script from another origin are refused. It
+narrows what injected markup can do and is not a sanitizer - a script element pointing at a file of this origin, or
+inline text matching one of the hashes, runs whoever inserted it (CSP3 matches a hash by content); keeping other
+people's text from becoming markup is the viewer's escaping (limn.viewer, docs/handbook/viewer.md).
 
 The hashes are taken from the exact text the page is sent with, after every placeholder is filled - the viewer's
 template is filled per run (the interface language in a script, the accent in the stylesheet), so its policy is the

@@ -4,7 +4,7 @@
 
 ## 문제
 
-지금 모든 응답의 CSP는 `frame-ancestors 'none'` 하나다(`web/handler.py` `end_headers`). 그래서 뷰어 페이지에서는 어떤 스크립트든 돈다. 뷰어는 지금 사람이 쓴 글을 `html``…`` 의 이스케이프와 `setHtml()` 한 곳(`markup.js`)으로만 그리므로 막힌 구멍은 없다. 그러나 HTML 화면이 들어오면 뷰어는 같은 출처에서, 읽는 사람의 신원으로, 남이 쓴 Markdown을 그린다. 렌더러 규율(DOM API만, 원시 HTML 자리표시, 링크 허용 목록) 하나가 무너지면 그 문서가 Limn API를 읽는 사람의 권한으로 부를 수 있다. CSP는 그때 주입된 스크립트가 돌지 않게 하는 두 번째 벽이다.
+지금 모든 응답의 CSP는 `frame-ancestors 'none'` 하나다(`web/handler.py` `end_headers`). 그래서 뷰어 페이지에서는 어떤 스크립트든 돈다. 뷰어는 지금 사람이 쓴 글을 `html``…`` 의 이스케이프와 `setHtml()` 한 곳(`markup.js`)으로만 그리므로 막힌 구멍은 없다. 그러나 HTML 화면이 들어오면 뷰어는 같은 출처에서, 읽는 사람의 신원으로, 남이 쓴 Markdown을 그린다. 렌더러 규율(DOM API만, 원시 HTML 자리표시, 링크 허용 목록) 하나가 무너지면 그 문서가 Limn API를 읽는 사람의 권한으로 부를 수 있다. CSP는 그때 주입의 피해를 좁히는 두 번째 벽이다. 해시가 맞지 않는 인라인 코드와 다른 출처의 스크립트는 막지만, 같은 출처의 스크립트 파일과 해시가 맞는 인라인 글은 누가 넣었든 돈다. 살균기가 아니므로 렌더러 규율이 첫 벽으로 남는다.
 
 ## 현재 코드 대조
 
@@ -78,7 +78,7 @@ object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; frame-
 | 실행마다 | 언어와 색이 다른 두 실행의 정책이 다르고, 각자 자기 바이트와 맞다(템플릿에서 재면 실패한다) | 같은 곳 |
 | 지시어 | 위 표의 값, `unsafe` 가 없다, 다른 응답은 `frame-ancestors 'none'` 하나다 | 같은 곳, `security/tests/test_security.py` `FramingHeaders` |
 | 읽을 수 없는 꼴 | 속성 붙은 태그, 다른 닫는 태그, `<!--` 는 `ValueError`. 꾸러미의 페이지는 `</script><!--` 같은 이름을 줘도 브라우저와 같게 읽힌다 | `test_csp.py` |
-| 강제 | 원고·그림 문서·보기 전용 PDF를 PDF.js 모듈과 worker로 그리고, 도움말이 열리며, 보고가 0건이다. 페이지에 없던 스크립트 요소와 `onclick` 속성은 돌지 않고 각각 보고된다 | `viewer/tests/test_viewer_csp.py` |
+| 강제 | 원고·그림 문서·보기 전용 PDF를 PDF.js 모듈과 worker로 그리고, 도움말이 열리며, 보고가 0건이다. 글이 해시와 다른 인라인 스크립트 요소와 `onclick` 속성은 돌지 않고 각각 보고된다 | `viewer/tests/test_viewer_csp.py` |
 | 보고 0건 | 모든 브라우저 시험의 페이지가 보고를 내지 않는다 | `tests/support/helpers_csp.py`(pytest 플러그인), 가로채기 경로 |
 | 정적 가드 | 템플릿과 JS 조각에 `style` 속성(`setAttribute('style', …)` 포함), `on…=` 처리기 속성, `javascript:` 주소가 없다. JS 속성(`el.style`, `el.onclick`)은 걸리지 않는다. 브라우저 시험이 지나지 않는 흐름(다시 잡기 오류 줄)을 덮는다 | `test_viewer_csp.py` `StaticGuards` |
 

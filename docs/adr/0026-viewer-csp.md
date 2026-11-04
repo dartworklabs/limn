@@ -65,6 +65,6 @@ Playwright의 `wait_for_function()` 은 조건을 페이지 안에서 `eval` 로
 
 ## 결과
 
-- 뷰어에 주입된 스크립트와 인라인 처리기는 돌지 않는다. 강제 시험이 페이지에 없던 스크립트 요소와 `onclick` 속성이 막히고 보고되는 것을 본다.
+- 남의 글이 뷰어에 마크업을 넣더라도, 그 안의 인라인 스크립트(글이 페이지의 해시와 다른 것)·인라인 처리기·`javascript:` 주소는 돌지 않고 다른 출처의 스크립트는 받지 않는다. 강제 시험이 해시가 맞지 않는 인라인 스크립트 요소와 `onclick` 속성이 막히고 보고되는 것을 본다. 정책은 주입의 피해를 좁힐 뿐 살균기가 아니다. 같은 출처의 스크립트 파일을 가리키는 `<script>` 요소와, 글이 페이지의 해시와 같은 인라인 스크립트는 누가 넣었든 돈다(CSP3는 해시를 내용으로 맞춘다). 남의 글이 마크업이 되지 않게 하는 일은 뷰어의 이스케이프와 렌더러 규율이 맡고, 정책은 그 뒤의 벽이다.
 - ADR-0025의 HTML 화면(계획 Task 5)은 이 정책 아래에서 짓는다. markdown-it은 같은 출처에서 `import()` 하고, 파싱 Worker는 같은 출처의 파일로 띄운다(`blob:` Worker는 쓰지 않는다). 그린 문서는 `style` 속성을 마크업으로 쓰지 않는다.
 - 같은 변경에서 [architecture.md](../handbook/architecture.md)(보안 경계와 불변식), [api.md](../handbook/api.md)·[operations.md](../handbook/operations.md)(응답 헤더 문장), [viewer.md](../handbook/viewer.md)(인라인과 `style` 속성 규칙), [verification.md](../handbook/verification.md)(보고 0건 가드와 강제 시험), `SECURITY.md`(클릭재킹 항목), [index.md](index.md)를 고친다.

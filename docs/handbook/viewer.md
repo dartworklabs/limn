@@ -109,13 +109,13 @@
 
 - **`style` 속성을 쓰지 않는다.** 템플릿, `` html`…` ``, `setAttribute('style', …)` 모두다. 모양은 CSS 규칙으로 주고, 실행 중에 정하는 값(폭, 위치, 재서 넣는 변수)은 CSSOM(`el.style.x = …`, `style.setProperty('--…')`)으로 넣는다. CSSOM은 정책이 다루지 않는다. 인스턴스 색도 속성이 아니라 `tokens.css` 의 `--brand` 로 받는다(§리터럴 예외(허용 목록)).
 - **인라인 이벤트 처리기(`onclick=` 등)와 `javascript:` 주소를 쓰지 않는다.** 클릭은 `data-act` 로 나눈다(`js/events.js`).
-- **JS 조각은 `<script>`·`<style>` 요소를 만들지 않는다.** 마크업으로도 `createElement` 로도 마찬가지다. 나중에 만든 스크립트 요소는 막히고 스타일 요소는 적용되지 않는다. 모듈은 같은 출처에서 `import()` 한다(PDF.js).
+- **JS 조각은 `<script>`·`<style>` 요소를 만들지 않는다.** 마크업으로도 `createElement` 로도 마찬가지다. 정책은 이 가운데 일부만 막는다. 글이 해시와 다른 인라인 요소는 막히지만, 같은 출처의 파일을 가리키는 스크립트 요소와 글이 페이지의 해시와 같은 요소는 누가 만들었든 돈다. 그래서 이 규칙은 정적 검사가 지킨다. 모듈은 같은 출처에서 `import()` 한다(PDF.js).
 - **`eval`·`new Function`·글자로 준 타이머·WebAssembly를 쓰지 않는다.** PDF.js는 `isEvalSupported:false`, `useWasm:false` 로 연다.
 - **다른 출처에서 받는 것은 사람 사진(`https:` 그림)뿐이다.** 글꼴·스크립트·연결·worker는 같은 출처다. worker는 같은 출처의 번들 파일로 띄우고 `blob:` worker는 쓰지 않는다. worker 안은 페이지 정책이 아니라 worker 응답의 정책을 따르기 때문이다.
 
 템플릿(`index.html`)의 인라인 `<script>`·`<style>` 은 속성 없는 꼴로만 쓴다. 해시는 사람이 적지 않는다. `limn/web/csp.py` 의 `page_policy` 가 `GET /` 가 보내는 바로 그 글에서 요소마다 SHA-256을 재어 `script-src`·`style-src` 에 싣는다. 실행이 채우는 자리표시(머리 스크립트의 `__UI_LANG__`, `tokens.css` 의 `__ACCENT__`)를 채운 뒤이고, 줄바꿈은 브라우저의 토크나이저처럼 LF로 바꾼 뒤다. 그래서 인라인 글을 고치거나 새 인라인 요소를 더해도 정책은 저절로 맞는다. 속성 붙은 `<script>`·`<style>`, 글 안의 `</script`·`</style`, `<!--` 는 브라우저가 다르게 읽을 수 있어 해시하지 않고 거부한다. 꾸러미 페이지 시험([`web/tests/test_csp.py`](../../src/limn/web/tests/test_csp.py)의 `PackagedPagePolicy`)이 이를 잡는다.
 
-이 규칙은 세 겹으로 지킨다. [`test_viewer_csp.py`](../../src/limn/viewer/tests/test_viewer_csp.py)의 `StaticGuards` 는 템플릿·JS 조각·거절 페이지(`web/errors.py`)에서 `style` 속성, 인라인 처리기, `javascript:` 주소를, JS 조각에서 `<script>`·`<style>` 마크업과 `createElement('script'|'style')` 을 찾는다. JS 속성(`el.style`, `el.onclick`)은 걸리지 않는다. 브라우저 시험이 지나지 않는 흐름(위치 다시 잡기의 오류 줄이 그랬다)을 이 검사가 덮는다. 모든 브라우저 시험은 정책 위반이 하나라도 보고되면 실패하고, 강제 시험이 세 엔진에서 실제 헤더 그대로 뷰어를 띄운다([verification.md](verification.md) §브라우저 테스트의 페이지 정책).
+이 규칙은 세 겹으로 지킨다. [`test_viewer_csp.py`](../../src/limn/viewer/tests/test_viewer_csp.py)의 `StaticGuards` 는 템플릿·JS 조각·아이콘(`assemble.py`)·거절 페이지(`web/errors.py`)에서 `style` 속성, 인라인 처리기, `javascript:` 주소를, JS 조각과 템플릿의 인라인 스크립트에서 `<script>`·`<style>` 마크업, `createElement(NS)` 로 만드는 `script`·`style` 요소, `setAttribute(NS)` 로 넣는 `style`·`on…` 속성을 찾는다. JS는 토큰으로 읽는다(`tests/support/helpers_js.py`). 모든 문자열·템플릿 리터럴을 이스케이프를 푼 뒤 마크업으로 보고, 속성 이름은 대소문자를 가리지 않으며 값은 따옴표가 없어도 된다. 호출은 괄호 앞의 공백·주석, `?.`, `['…']` 와 따옴표·템플릿 인자를 가리지 않는다. 실행 중에 만드는 이름(변수로 준 태그, `+` 로 이은 글)은 보지 못한다. JS 속성과 CSSOM(`el.style.x`, `el.style.cssText`, 생성 스타일시트, `el.onclick`)은 걸리지 않는다. 브라우저 시험이 지나지 않는 흐름(위치 다시 잡기의 오류 줄이 그랬다)을 이 검사가 덮는다. 모든 브라우저 시험은 정책 위반이 하나라도 보고되면 실패하고, 강제 시험이 세 엔진에서 실제 헤더 그대로 뷰어를 띄운다([verification.md](verification.md) §브라우저 테스트의 페이지 정책).
 
 페이지에 `<style>`·`<script>` 를 넣는 브라우저 확장(다크 모드, 문법 검사)은 이 페이지에서 일부 막히고 콘솔에 보고가 남는다. 뷰어의 동작에는 영향이 없다.
 

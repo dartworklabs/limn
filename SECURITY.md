@@ -56,12 +56,17 @@ What the server does defend against:
 - Scripts and styles injected into Limn's pages: the viewer (`GET /`) and the refusal page a browser sees enforce
   their own Content-Security-Policy, `default-src 'self'; script-src 'self' <hashes>; style-src 'self' <hashes>;
   img-src 'self' https:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none';
-  frame-ancestors 'none'`. Only the page's own inline `<script>` and `<style>` elements run, by the SHA-256 of the
-  exact text sent (taken per run, after the interface language and the accent are filled in), and only files from
-  the same origin load: no `'unsafe-inline'`, no `'unsafe-eval'`, no nonce, no report endpoint, and no option turns
-  the policy off. A script element or an inline event handler that text written by someone else manages to put into
-  the page does not run, an injected `<style>` or `style` attribute does not apply, and an injected `<base>`, form,
-  plugin or frame does nothing. The one other origin is an `https:` image, for avatars (`Tailscale-User-Profile-Pic`,
+  frame-ancestors 'none'`. Inline code runs only if its text matches the SHA-256 of one of the page's own inline
+  `<script>` and `<style>` elements (taken per run, after the interface language and the accent are filled in), and
+  scripts, styles and other files load only from the same origin: no `'unsafe-inline'`, no `'unsafe-eval'`, no nonce,
+  no report endpoint, and no option turns the policy off. So if text written by someone else gets markup into the
+  page, an inline script or event handler, a `javascript:` URL, an inline `<style>` or a `style` attribute in it is
+  refused, a script from another origin does not load, and an injected `<base>`, form, plugin or frame does nothing.
+  The policy narrows what such an injection can do; it is not a sanitizer. A `<script>` element that points at a
+  script of this origin still runs, and so does an inline script whose text matches one of the page's hashes,
+  whoever inserted it (CSP3 matches a hash by content). Keeping other people's text from becoming markup at all is
+  the viewer's job (it builds markup only through escaping templates, docs/handbook/viewer.md), and the policy is the
+  wall behind it. The one other origin is an `https:` image, for avatars (`Tailscale-User-Profile-Pic`,
   accepted only as `https://`): whoever chose an avatar URL can see, from the image requests, who opened the viewer
   and when. A dedicated worker runs under its own response's policy, so the viewer starts workers only from its own
   bundled files. Every other response (JSON, `pins.md`, PDFs, page images, vendored files) carries
