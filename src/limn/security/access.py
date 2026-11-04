@@ -666,6 +666,7 @@ READ_PATHS = frozenset(
         "/api/pins/dropped",
         "/api/snippet",
         "/api/overlaps",
+        "/api/source",
     }
 )
 

@@ -292,6 +292,7 @@ GET_ROUTES = (
     "/api/pins/1",
     "/api/snippet",
     "/api/overlaps",
+    "/api/source",
     "/pages/page-1.png",
     "/vendor/pdfjs/pdf.min.mjs",
     "/vendor/pretendard/pretendard.css",
