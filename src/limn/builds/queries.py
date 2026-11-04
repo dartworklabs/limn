@@ -271,11 +271,19 @@ class BuildQueries:
         return element_follower(fmap if isinstance(fmap, FigureMap) else None)
 
     def history_files(self, doc: Doc) -> tuple[Path, ...] | None:
-        """The files whose Git history is figure document doc's changes, in this order: its map file, the PDF the map of
-        the build on screen names (artifacts.figure_pdf, only when it lies inside doc.src), and every script and shared
-        component that map names, joined to doc.src as the map gives them (figure_map.map_source_files). Just the map
-        file when the build on screen has no loadable map; None for a document without an element map. Reads the map
-        copy through the run's cache, and no file the map names."""
+        """The files whose Git history is document doc's changes, chosen by what the document can do; None for a LaTeX
+        document, whose history is its folder's manuscript suffixes instead (limn.revisions.core.revision_scope).
+
+        - A document with an element map (a figure document), in this order: its map file, the PDF the map of the build
+          on screen names (artifacts.figure_pdf, only when it lies inside doc.src), and every script and shared
+          component that map names, joined to doc.src as the map gives them (figure_map.map_source_files). Just the map
+          file when the build on screen has no loadable map. Reads the map copy through the run's cache, and no file
+          the map names.
+        - A document the browser draws (a Markdown document): its own file alone, so another document's file in the
+          same folder - a LaTeX main beside it - never enters its history, nor its file a LaTeX document's.
+        - Any other document: None."""
+        if doc.renders_in_browser:
+            return (doc.main,)
         if not doc.has_element_map:
             return None
         fmap = self.maps().get(doc, artifacts.cur_pages(doc).name)

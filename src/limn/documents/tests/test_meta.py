@@ -113,14 +113,14 @@ CAPABILITY_TABLE = {
         "renders_in_browser": False,
         "takes_suggestions": False,
     },
-    # Markdown (ADR-0025): the browser draws it from its source - no build, no page images, no watch - and its pins
-    # are line pins. No --doc suffix chooses this kind yet (it opens with the viewer surface), so only a Doc made
-    # directly has it. shows_revisions turns on with the changes view for it.
+    # Markdown (ADR-0025): the browser draws it from its source - no build, no page images, no watch - its pins are
+    # line pins and its changes are the Git history of its own file. No --doc suffix chooses this kind yet (it opens
+    # with the viewer surface), so only a Doc made directly has it.
     "markdown": {
         "builds_from_source": False,
         "watches_files": False,
         "takes_line_pins": True,
-        "shows_revisions": False,
+        "shows_revisions": True,
         "view_only": False,
         "has_element_map": False,
         "renders_in_browser": True,

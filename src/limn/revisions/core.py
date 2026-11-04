@@ -90,7 +90,8 @@ class RevisionDoc(Protocol):
     @property
     def builds_from_source(self) -> bool:
         """Whether latexmk builds it (limn.runtime.documents.Doc.builds_from_source): only such a document has a
-        comparison PDF; a figure document's changes are its pages overlaid in the viewer."""
+        comparison PDF; a figure document's changes are its pages overlaid in the viewer, a Markdown document's its
+        source diff alone."""
         ...
 
     @property
@@ -341,8 +342,9 @@ class RevisionContext:
     cache: ScopeCache
     jobs: RevisionJobs
     describe: Callable[[BuildFailure], tuple[str, str]]  # (message, API reason) a failed build records
-    # The build owner's answers for a figure document, injected by the composition root: which files' history its
-    # changes are, and the two builds its overlay lays one over the other; both None for any other document.
+    # The build owner's answers, injected by the composition root: which files' history a figure or Markdown document's
+    # changes are (None for a LaTeX document), and the two builds a figure document's overlay lays one over the other
+    # (None for any other document).
     history_files: Callable[[Doc], tuple[Path, ...] | None]
     overlay: Callable[[Doc], dict[str, Any] | None]
     windows: WindowCache  # the run's history windows per HEAD (revision_window), so a status poll does not walk the log
@@ -400,8 +402,10 @@ def revision_scope(D: RevisionDoc, files: Sequence[Path] | None = None) -> tuple
     files None: a LaTeX document - just the manuscript text inside the chosen main .tex's folder. D.src is the
     build-copy scope, so multiple documents can share the same root. The change history must be filtered to
     D.main.parent, or commits from the body, highlights, and cover letter get mixed together.
-    files given: a figure document - exactly those files (RevisionBuildQueries.history_files: its map, the PDF the map
-    names and the map's scripts and shared components), found from the repository holding D.src (files_pathspec)."""
+    files given: a figure or a Markdown document - exactly those files (RevisionBuildQueries.history_files: a figure
+    document's map, the PDF the map names and the map's scripts and shared components; a Markdown document's own file),
+    found from the repository holding D.src (files_pathspec). The suffix pathspec above never names a Markdown file, so
+    a LaTeX document and a Markdown document in one folder keep apart histories."""
     if not D.shows_revisions:
         return None
     if files is not None:
@@ -526,8 +530,8 @@ def revision_history(
     """GET /api/revisions: the document's manuscript commits from its history window (revision_window, ancestry order),
     each {id, date, subject, author, time, parents}, or available: false when it has no history. Without page, the
     first REVISION_RECENT rows and the two keys {available, revisions}; with page, that page of the window
-    (history_page) with `more` added, or CommitNotRecent for a before outside it. files are a figure document's history
-    files (revision_scope); None for a LaTeX document. windows keeps the window per HEAD."""
+    (history_page) with `more` added, or CommitNotRecent for a before outside it. files are a figure or Markdown
+    document's history files (revision_scope); None for a LaTeX document. windows keeps the window per HEAD."""
     window = revision_window(D, files, windows)
     if isinstance(window, NoHistory) or not window[2] and not _has_history(window[0], window[1]):
         return {"available": False, "revisions": []}
@@ -700,8 +704,8 @@ def revision_diff(
     (v0.3), an additive `scope` says which of its hunks belong to that pin (scope_payload); the whole-commit `diff` is
     returned unchanged either way. With base (issue #188, never together with pin - the request parser refuses that),
     the range's answer instead (range_diff). Only a commit in the document's history window is read. files are a
-    figure document's history files, which scope both the list and the diff (revision_scope); None for a LaTeX
-    document."""
+    figure or Markdown document's history files, which scope both the list and the diff (revision_scope); None for a
+    LaTeX document."""
     if base is not None:
         return range_diff(D, commit, base, files, ctx.windows)
     window = revision_window(D, files, ctx.windows)
