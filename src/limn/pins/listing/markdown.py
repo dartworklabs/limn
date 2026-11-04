@@ -140,6 +140,7 @@ class PinMarkdown:
                 head=self.builds.heading(d).head,
                 built_at=self.builds.heading(d).built_at,
                 has_element_map=d.has_element_map,
+                renders_in_browser=d.renders_in_browser,
             )
             for d in self.deps.docs
         )

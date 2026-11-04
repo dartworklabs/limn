@@ -249,7 +249,8 @@ class Fields(unittest.TestCase):
         self.assertEqual(
             editing_fields.parse_scope(["raw"]),
             InputRejected(
-                "scope 는 raw|para|env|env2|env3|lines|el|el2|el3|el4|el5|el6|el7|el8|fig 중 하나입니다.", "bad_scope"
+                "scope 는 raw|para|env|env2|env3|lines|el|el2|el3|el4|el5|el6|el7|el8|fig|block|section 중 하나입니다.",
+                "bad_scope",
             ),
         )
 

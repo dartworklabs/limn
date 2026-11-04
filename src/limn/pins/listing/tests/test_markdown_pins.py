@@ -1,9 +1,10 @@
-"""pins.md for a Markdown document (ADR-0025 D2, D3): a line pin without a page, and the document's section.
+"""pins.md for a Markdown document (ADR-0025 D2, D3): a line pin without a page, its range, and the document's section.
 
 A Markdown document is drawn by the browser from its source, so its line pins have no page: the page column shows
-`—` for any line pin without one. First the renderer on its own (PinsMdInput values), then pins.md as the server
-writes it after a Markdown pin is made. No --doc suffix chooses a Markdown document yet, so each test makes one
-directly.
+`—` for any line pin without one. Its ladder's rungs are the rendered block (scope `block`, kind `md:<block>`) and the
+heading's section (scope `section`, kind `md:section`), which the range column names; its section title says it is a
+Markdown document. First the renderer on its own (PinsMdInput values), then pins.md as the server writes it after a
+Markdown pin is made. No --doc suffix chooses a Markdown document yet, so each test makes one directly.
 
 Run: uv run pytest -q src/limn/pins/listing/tests/test_markdown_pins.py
 """
@@ -17,6 +18,11 @@ from limn.runtime.documents import Doc
 from helpers import Base, jreq, ps, split_resp
 
 MAIN = DocHeading("main", "본문", "main.tex", view_only=False, builds_from_source=True, head=None, built_at=None)
+NOTES = DocHeading(
+    "nt", "계획", "notes/plan.md", view_only=False, builds_from_source=False, head=None, built_at=None,
+    renders_in_browser=True,
+)  # fmt: skip
+MARKDOWN_TITLE = "## 계획 · `nt` · `notes/plan.md` — Markdown(쪽 없음)"
 T = 1_790_000_000.0
 
 
@@ -82,6 +88,67 @@ class PageColumn(unittest.TestCase):
         self.assertEqual(row_of(md, 1)[1], "2")
 
 
+class RangeColumn(unittest.TestCase):
+    """The range column names a Markdown rung: the block's kind, or the section."""
+
+    def test_a_block_shows_its_markdown_kind_and_a_section_shows_md_section(self):
+        """scope block with kind md:<block> shows that kind; scope section shows md:section; a block without an md:
+        kind shows the rung's own name rather than a LaTeX word."""
+        rows = [
+            line_pin(1, scope="block", kind="md:table"),
+            line_pin(2, scope="block", kind="md:item"),
+            line_pin(3, scope="section", kind="md:section"),
+            line_pin(4, scope="section", kind="lines"),
+            line_pin(5, scope="block", kind="lines"),
+        ]
+        md = pins_md_text(page(rows))
+        self.assertEqual(
+            [row_of(md, pid)[3] for pid in (1, 2, 3, 4, 5)],
+            ["md:table", "md:item", "md:section", "md:section", "block"],
+        )
+
+    def test_the_latex_rungs_read_as_before(self):
+        """para, env, raw and lines keep their labels."""
+        rows = [
+            line_pin(1, scope="para", kind="paragraph"),
+            line_pin(2, scope="env", kind="env:figure"),
+            line_pin(3, scope="raw"),
+            line_pin(4, scope="lines"),
+        ]
+        md = pins_md_text(page(rows))
+        self.assertEqual([row_of(md, pid)[3] for pid in (1, 2, 3, 4)], ["paragraph", "env:figure", "lines", "lines"])
+
+
+class MarkdownSection(unittest.TestCase):
+    """The section of a Markdown document."""
+
+    def test_its_title_says_markdown_and_it_has_no_build_line(self):
+        """The section title ends with — Markdown(쪽 없음); with no build there is no 기준 line; the LaTeX section's
+        title is unchanged."""
+        pin = line_pin(1, file="/ms/notes/plan.md")
+        del pin["page"]
+        md = pins_md_text(page([pin, line_pin(2)], {1: facts(doc_key="nt"), 2: facts()}, docs=(MAIN, NOTES)))
+        lines = md.splitlines()
+        self.assertIn(MARKDOWN_TITLE, lines)
+        self.assertIn("## 본문 · `main` · `main.tex`", lines)
+        after = lines[lines.index(MARKDOWN_TITLE) + 1 :]
+        self.assertFalse(any(t.startswith("기준:") for t in after[:2]), after[:2])
+
+    def test_a_markdown_document_alone_is_sectioned(self):
+        """Like a figure document, a Markdown document served alone still gets its section, so its title says what its
+        pins are."""
+        pin = line_pin(1, file="/ms/notes/plan.md")
+        del pin["page"]
+        md = pins_md_text(page([pin], {1: facts(doc_key="nt")}, docs=(NOTES,)))
+        self.assertIn(MARKDOWN_TITLE, md.splitlines())
+
+    def test_a_heading_without_the_new_field_is_no_markdown_document(self):
+        """renders_in_browser defaults to False: headings built before the field keep their titles."""
+        self.assertFalse(MAIN.renders_in_browser)
+        md = pins_md_text(page([line_pin(1)], docs=(MAIN,)))
+        self.assertNotIn("Markdown", md)
+
+
 class MarkdownPinsMd(Base):
     """pins.md as the server writes it, with a LaTeX document ms and a Markdown document nt (notes/plan.md)."""
 
@@ -115,3 +182,13 @@ class MarkdownPinsMd(Base):
         text = self.pins_md()
         self.assertEqual(row_of(text, md_pin)[1:3], ["—", "`notes/plan.md L3-L4`"])
         self.assertEqual(row_of(text, tex_pin)[1], "2")
+
+    def test_the_markdown_section_and_its_rungs_as_written(self):
+        """A block pin and a section pin on notes/plan.md are listed under the Markdown section title with md:table and
+        md:section in the range column."""
+        block = self.make(doc="nt", file=str(self.md), lo=3, hi=4, scope="block", kind="md:paragraph", note="a")
+        section = self.make(doc="nt", file=str(self.md), lo=6, hi=8, scope="section", kind="md:section", note="b")
+        text = self.pins_md()
+        self.assertIn(MARKDOWN_TITLE, text.splitlines())
+        self.assertEqual((row_of(text, block)[3], row_of(text, section)[3]), ("md:paragraph", "md:section"))
+        self.assertEqual((self.pin(block)["scope"], self.pin(section)["scope"]), ("block", "section"))
