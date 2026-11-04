@@ -15,6 +15,7 @@ from pathlib import Path
 import helpers_figure
 from helpers import minimal_pdf, ps
 from helpers_browser import BrowserBase, booted, settle, watch_idle
+from helpers_csp import report_only_documents
 
 DEVICES = {
     "desktop": {"viewport": {"width": 1400, "height": 850}},
@@ -57,6 +58,7 @@ class PdfDownloadRow(BrowserBase):
         self.addCleanup(context.close)
         watch_idle(context)
         page = context.new_page()
+        report_only_documents(page)
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.goto("http://127.0.0.1:%d/?lang=ko" % self.httpd.server_address[1])

@@ -1,8 +1,45 @@
 # Changelog
 
-## Unreleased
+## 0.4.47 — 2026-11-04
+
+### Security
+
+- **The viewer permits hash-matching inline scripts and styles, and same-origin script and stylesheet files, whoever inserted them.** The viewer page and the page a
+  browser sees when it is refused now carry a Content-Security-Policy that is enforced from this release on: inline
+  code runs only if its text matches the SHA-256 of the page's own inline scripts and stylesheet, scripts and styles
+  load only from the same server, and the one outside resource is an `https:` avatar image. If someone else's text
+  gets markup into the page, an event handler, a `javascript:` URL or a `style` attribute in it is refused, an inline
+  script or stylesheet in it is refused unless its text matches one of the page's hashes, a script or style from
+  another site does not load, and an injected `<base>`, form, plugin or frame does nothing. This narrows what such an
+  injection can do; it is not a sanitizer: a script or stylesheet pointing at a file of this server, or inline text
+  matching one of the page's hashes, still runs or applies whoever inserted it. It is the
+  second wall, behind the viewer's escaping, that the Markdown documents of a coming release are drawn behind. Every
+  other response (JSON, `pins.md`, PDFs, page images) keeps `frame-ancestors 'none'` alone, so agents see no change.
+  - **What you see:** nothing should look or work differently. The viewer's four `style` attributes became CSS rules
+    of the same values (the instance colour stripe takes `--brand`).
+  - **Browser extensions:** an extension that inserts its own `<style>` or `<script>` into pages (a dark mode, a
+    grammar checker) may be partly blocked on the viewer, and the browser's console shows a CSP report for it. The
+    viewer itself is unaffected.
+  - **Rollback:** there is no option that turns the policy off or reports instead of enforcing. If a browser shows the
+    viewer broken by it, go back to the previous release (`limn update --ref v0.4.46`, which reinstalls it and restarts
+    the running instances); no state, pin, setting or API changed, so nothing is left behind.
+
+### Fixed
+
+- **A notification's pin link opens the pin even when the light poll reads the list first.** Clicking a browser
+  notification brings the viewer tab forward and opens the pin's card after reading the list again. The tab coming
+  forward also starts a light poll, and when the poll's read of the list, asked after the link's, was answered first, the
+  link took its own read, overtaken, for a failed one and did nothing: no card opened and the PDF stayed where it was.
+  The list the link waited for was already there, so the link now goes on; it still stops when the read of the list
+  fails. The pin list and its scroll position were right in that race all along: an answer older than the one the list
+  shows is not drawn.
 
 ### Internal
+
+- **The pin list's scroll tests no longer fail when the light poll's read overtakes theirs (#392).** They asked that
+  their own read of the list was the one drawn, which an overtaken read is not, by design. They now check that the list
+  shows a read asked since their change and what it holds, and a new test makes the poll overtake a read whose answer
+  predates an agent's close: the late answer is not drawn, and the card and the view stay as the poll left them.
 
 - **Server groundwork for Markdown documents (ADR-0025), not reachable yet.** No `--doc` suffix chooses a Markdown
   document until the viewer can draw one, so nothing below changes what an instance serves today.
@@ -18,6 +55,31 @@
     it; there is no comparison PDF.
   - A Markdown file inside a LaTeX document's tree is not one of its sources: editing it never marks the LaTeX build
     stale or makes a rebuild run latexmk (a test pins this).
+
+- **Pins on Markdown documents (ADR-0025), not reachable yet.** No `--doc` suffix chooses a Markdown document until the
+  viewer can draw one, so no instance serves one today; these rules hold for it once one is served.
+  - A Markdown line pin has no `page`, `frac` or `pdf_build`. Sent with a new pin or a re-placement they are dropped
+    unread, as an `el` is outside a figure document, so an agent's habitual `page: 1` is no refusal; no `pdf_build` is
+    stamped when none is sent; and any write of such a pin removes the page fields and the legacy `frac_build` a record
+    still carries: an edit (a note-only one too), a claim or unclaim, a reply, a close (an agent's with `changes` too),
+    a confirmation, a reopen, a drop into the Trash, a restore, and the anchor re-sync. A LaTeX line pin keeps its page
+    fields exactly as before, and so does a pin of a document the instance does not serve, on every write: an edit
+    reads that from the pin's own record, not from the first document, even when the first document is Markdown.
+  - `scope` gains `block` and `section`, and pin kinds `md:paragraph`, `md:item`, `md:table`, `md:code`, `md:quote`,
+    `md:html` and `md:section` appear. In `pins.md` the range column names them, a Markdown document's section title
+    ends with `— Markdown(쪽 없음)` (a lone Markdown document is sectioned, as a figure document is), and the page
+    column shows `—` for any line pin without a page. Before, such a pin showed `0`; only a record from before page was
+    stored, or a hand edit, has none on a LaTeX document.
+  - The suggestion gate asks the document's capability (`takes_suggestions`), so a Markdown line pin takes a suggested
+    edit with the same limits, base check and `suggest_state`; a view-only PDF, a figure document and a region pin still
+    answer `suggest_unsupported`, whose message now names LaTeX and Markdown, in Korean and in the English viewer. The
+    `bad_scope` message lists the two new values. The SKILL counts broken Markdown (a table row's cell count, unclosed
+    emphasis or code, a list item's indentation) among the obvious errors to check before applying a suggestion.
+  - A request that names only a file goes to the Markdown document whose file it is, even beside a LaTeX main or a
+    figure document in the same folder and whatever order the documents are registered in; every other file goes by
+    folder as before, so a `.tex` below a Markdown document's folder stays with the LaTeX document.
+  - A fourth contract snapshot records the Markdown pin flow, and v0.4.46 reads the Markdown records and writes them
+    back byte for byte (`tests/contracts/test_markdown_rollback.py`).
 
 ## 0.4.46 — 2026-11-04
 

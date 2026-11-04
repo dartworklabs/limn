@@ -24,14 +24,15 @@ from limn.web.parse import PDF_BUILD_REFUSAL, DocumentFacts, Frac, Json, int_fie
 @dataclass(frozen=True)
 class LineLoc:
     """A line pin's checked location (parse_loc): the file inside the manuscript tree (absolute, resolved) and its
-    name, the range 1 <= lo <= hi <= the file's line count, the page (>= 1), and each optional field the request sent
-    - None when it did not; el is the figure element, kept on a figure document only."""
+    name, the range 1 <= lo <= hi <= the file's line count, the page (>= 1; None on a document without pages, which
+    has no frac or pdf_build either), and each optional field the request sent - None when it did not; el is the
+    figure element, kept on a figure document only."""
 
     file: str
     name: str
     lo: int
     hi: int
-    page: int
+    page: int | None
     raw_lo: int | None = None
     raw_hi: int | None = None
     kind: str | None = None
@@ -46,9 +47,12 @@ class LineLoc:
     el: PinElement | None = None
 
     def to_record(self) -> Record:
-        """The fields as a pin record stores them: file, name, lo, hi, page, then each optional field that was sent,
-        in this order (the key order pin records have always had; frac as a JSON list), a figure pin's el last."""
-        out: dict[str, Any] = {"file": self.file, "name": self.name, "lo": self.lo, "hi": self.hi, "page": self.page}
+        """The fields as a pin record stores them: file, name, lo, hi, page (none without pages), then each optional
+        field that was sent, in this order (the key order pin records have always had; frac as a JSON list), a figure
+        pin's el last."""
+        out: dict[str, Any] = {"file": self.file, "name": self.name, "lo": self.lo, "hi": self.hi}
+        if self.page is not None:
+            out["page"] = self.page
         optional: tuple[tuple[str, object], ...] = (
             ("raw_lo", self.raw_lo),
             ("raw_hi", self.raw_hi),
@@ -175,15 +179,20 @@ def _el_impl(v: object) -> ElementImpl | None | InputRejected:
     return ElementImpl(file, lo, hi)
 
 
-def parse_loc(d: Json, facts: DocumentFacts) -> LineLoc | InputRejected:
+def parse_loc(d: Json, facts: DocumentFacts, *, pages: bool | None = None) -> LineLoc | InputRejected:
     """A line pin's location, or the first field refused.
 
     file must be a file inside the manuscript tree and 1 <= lo <= hi <= its line count, so this reads that file's
     lines (facts.lines) before checking the range. page defaults to 1; raw_lo, raw_hi, kind, via (one of
     mapping.VIAS), score, fill, rival (a figure map pick's, a boolean), frac, scope (one of edit.SCOPES), quote (truncated to 60 characters) and pdf_build (a page
     directory name) are checked in that order when sent (a null counts as not sent), then el on a figure document
-    (parse_el; on any other document it is dropped like an unknown field). The checked location is constructed only
-    after every field has passed.
+    (parse_el; on any other document it is dropped like an unknown field). On a document the browser draws
+    (facts.renders_in_browser) there are no pages: page, frac and pdf_build are dropped unread, like an el outside a
+    figure document, so an agent's habitual page: 1 is no refusal and nothing of it is stored
+    (docs/adr/0025-html-document-surface.md D2). pages, when given, answers whether the place has pages instead of the
+    document's facts: an edit passes the answer its pin's own record gives (limn.pins.editing.service.EditTarget), so
+    the pin of a document this run does not serve is placed with pages whatever document its facts were read from.
+    The checked location is constructed only after every field has passed.
     """
     f = source_file(d.get("file"), facts.root, facts.state)
     if isinstance(f, InputRejected):
@@ -197,11 +206,15 @@ def parse_loc(d: Json, facts: DocumentFacts) -> LineLoc | InputRejected:
         return hi
     if not 1 <= lo <= hi <= max(n, 1):
         return InputRejected("줄 범위가 파일(%d줄) 밖입니다: L%d-L%d" % (n, lo, hi), "range_outside_file")
-    page = int_field(d.get("page", 1), "page")
-    if isinstance(page, InputRejected):
-        return page
-    if page < 1:
-        return InputRejected("page 는 1 이상이어야 합니다.", "bad_page")
+    paged = not facts.renders_in_browser if pages is None else pages
+    page: int | None = None
+    if paged:
+        sent_page = int_field(d.get("page", 1), "page")
+        if isinstance(sent_page, InputRejected):
+            return sent_page
+        if sent_page < 1:
+            return InputRejected("page 는 1 이상이어야 합니다.", "bad_page")
+        page = sent_page
     raw: dict[str, int] = {}
     for k in ("raw_lo", "raw_hi"):
         if d.get(k) is not None:
@@ -228,7 +241,7 @@ def parse_loc(d: Json, facts: DocumentFacts) -> LineLoc | InputRejected:
     rival = d.get("rival")
     if rival is not None and not isinstance(rival, bool):
         return InputRejected("rival 은 true 나 false 입니다.", "bad_rival")
-    frac = d.get("frac")
+    frac = d.get("frac") if paged else None
     if frac is not None:
         frac = _frac4(frac, InputRejected("frac 은 숫자 4개 목록입니다.", "bad_frac"))
         if isinstance(frac, InputRejected):
@@ -243,7 +256,7 @@ def parse_loc(d: Json, facts: DocumentFacts) -> LineLoc | InputRejected:
         if not isinstance(quote, str):
             return InputRejected("quote 는 문자열입니다.", "bad_quote")
         quote = truncate_quote(quote, PDF_QUOTE_MAX)
-    pdf_build = d.get("pdf_build")  # the build on screen at drag time (pdf_build from the pick response)
+    pdf_build = d.get("pdf_build") if paged else None  # the build on screen at drag time (from the pick response)
     if pdf_build is not None and not facts.valid_build_name(pdf_build):
         return InputRejected(PDF_BUILD_REFUSAL, "bad_pdf_build")
     # a figure pin's element (docs/handbook/api.md §그림 문서의 pick·핀)

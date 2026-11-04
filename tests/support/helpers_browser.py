@@ -38,6 +38,7 @@ from limn.platform.files import file_in_tree, tex_lines
 from helpers import ApplicationFixture, blank_png, ps, run_config, serve_viewer, split_resp
 from helpers_access import ALICE, reset_access, talk_to
 from helpers_browser_font import use_test_font, wait_test_font
+from helpers_csp import report_only, watching
 
 # Chromium's flags. Playwright's bundled headless shell hints in full by default, whatever fontconfig says, and rounds every
 # glyph's advance to a whole pixel: the same bundled face then measures other widths than in Chrome, and the checks that fix
@@ -137,7 +138,7 @@ SEGMENTS = """root => [...document.querySelectorAll(root + ' .seg')].filter(s =>
 # and column's coverage the strongest difference over the box's strongest; the ink's vertical centre and its left and right
 # edges, the partial rows and columns counted by their coverage. A fill is read 6px in from every edge (its rounded corners,
 # the halves' seam), a ghost 3px in from its sides, an icon's box (ix: 0) from its own edges.
-ROW_INK = """async ([b64, dpr, items]) => {const img = new Image(); img.src = 'data:image/png;base64,' + b64; await img.decode();
+ROW_INK = """async ([b64, dpr, items]) => {const img = await createImageBitmap(new Blob([Uint8Array.from(atob(b64), ch => ch.charCodeAt(0))], {type: 'image/png'}));
   const c = document.createElement('canvas'); c.width = img.width; c.height = img.height; const x = c.getContext('2d'); x.drawImage(img, 0, 0);
   const D = x.getImageData(0, 0, c.width, c.height).data, W = c.width, out = {};
   const lum = (X, Y) => {const i = (Y * W + X) * 4; return 0.2126 * D[i] + 0.7152 * D[i + 1] + 0.0722 * D[i + 2];};
@@ -470,6 +471,7 @@ class ChromiumTestCase(unittest.TestCase):
                 cls.browser = cls.pw.chromium.launch(executable_path=exe or None, args=CHROMIUM_ARGS)
             else:
                 cls.browser = getattr(cls.pw, cls.BROWSER_ENGINE).launch()
+            cls.browser = watching(cls.browser)
         except Exception as e:  # no bundled or system browser
             cls.pw.stop()
             if required:
@@ -575,7 +577,11 @@ class BrowserBase(ChromiumTestCase):
     def forward(self, route):
         """Send one viewer.test request to the in-process handler as WHO (tailnet headers, and a same-origin Origin on a
         POST) and fulfil the route with the handler's answer."""
-        rq = route.request
+        route.fulfill(**self.answer(route.request))
+
+    def answer(self, rq):
+        """The in-process handler's answer to viewer.test request rq, sent as WHO (see forward), as the keyword arguments
+        of route.fulfill: computed now, from the server's state now, so a test may hold it and fulfil a route later."""
         u = urlparse(rq.url)
         body = rq.post_data_buffer or b""
         h = {
@@ -598,7 +604,9 @@ class BrowserBase(ChromiumTestCase):
         out = {"content-type": hdrs.get("content-type", "application/octet-stream")}
         if "content-disposition" in hdrs:  # a download's name, which the browser reads from the answer
             out["content-disposition"] = hdrs["content-disposition"]
-        route.fulfill(status=code, headers=out, body=data)
+        if "content-security-policy" in hdrs:  # the page's policy, reported on (helpers_csp.report_only)
+            out.update(report_only(hdrs["content-security-policy"]))
+        return {"status": code, "headers": out, "body": data}
 
     def open(self, n_open, lang="ko", init=None, test_font=False, clock=None, **device):
         """Open the viewer in a new context and return the page once boot() has finished and the page has settled: the

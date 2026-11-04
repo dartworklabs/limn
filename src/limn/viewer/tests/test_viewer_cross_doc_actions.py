@@ -47,6 +47,7 @@ class CrossDocumentActionLifetime(unittest.TestCase):
                 const MQ_COARSE={matches:false};
                 let firstOtherResolve=null,otherReads=0,loadPinsResolve=null,holdPins=false,loaded=true;
                 function loadPins(){return holdPins?new Promise(resolve=>{loadPinsResolve=resolve;}):Promise.resolve(loaded);}
+                function loadPinsNow(){return loadPins();}   // loaded: the list shows a read asked since the call
                 function api(url){
                   if(url==='/api/meta?doc=other'){
                     otherReads++;

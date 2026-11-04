@@ -36,8 +36,9 @@ function applyPinLists(rows,dropped,lists){
   if(COMPOSE.current){recomputeOverlap(); renderOverlapBanner();}   // if the list changes (someone else's save/completion), overlap is recomputed too
   docTitle(true);
 }
-// Fetches one pin snapshot and its Trash. Returns whether it applied; only a newer applied snapshot supersedes it. A failed
-// read is a banner on top of the panel with [다시 시도].
+// Fetches one pin snapshot and its Trash. Returns whether it applied; only a newer applied snapshot supersedes it: a read
+// another one started later overtook (a light poll's, an action's) returns false and draws nothing, and the list stays as
+// the newer one drew it. A failed read is a banner on top of the panel with [다시 시도].
 async function loadPins(){const seq=++PINS_LOAD_SEQ; let d;
   try{d=(await api('/api/pins?all=1',{what:'핀 읽기',where:NOTICE_HOST.LIST,retry:()=>{loadPins();}})).data;}catch(e){return false;}
   if(seq<PINS_APPLIED_SEQ)return false;
@@ -52,6 +53,13 @@ async function loadPins(){const seq=++PINS_LOAD_SEQ; let d;
   applyPinLists(d,dropped,derivePinLists(d,DOC,DEFAULT_DOC,CONFIRMING));
   return true;
 }
+// Reads the list again for a caller that goes on to act on it as it stands (a pin link opening its card). Resolves true
+// when the list now shows a snapshot asked for by this call or a later one - its own read applied, or a newer read that
+// overtook it did - and false only when none since the call has applied (the read failed and said so). loadPins' own
+// answer is false when overtaken, the light poll's cue to read that revision again (docs/handbook/build-sync.md §자동
+// 동기화 (가벼운 meta 폴링)), so a caller that waits for the list itself reads it with this.
+/** @returns {Promise<boolean>} */
+async function loadPinsNow(){const since=PINS_LOAD_SEQ; await loadPins(); return PINS_APPLIED_SEQ>since;}
 // The list drawn in the sidebar: the current document by default, everything if 'all documents'. A pin being edited is kept even from another document (so the draft text doesn't disappear).
 function listOpen(){return SHOW_ALL&&multiDoc()?OPEN_ALL:OPEN_ALL.filter(p=>pdoc(p)===DOC||!DOC||(EDITOR.current&&EDITOR.current.id===p.id));}
 function listDone(){return SHOW_ALL&&multiDoc()?DONE_ALL:DONE;}

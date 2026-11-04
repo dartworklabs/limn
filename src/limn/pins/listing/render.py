@@ -41,7 +41,9 @@ class DocHeading:
     rendered from a file Limn only reads). head is the short git hash the page images came from ('-' outside git) and
     built_at when they were committed; either is None when the document was never built. path is the main file
     relative to --manuscript. has_element_map: a figure document (Doc.has_element_map) - its section title says
-    '— 그림(요소 지도)': its pins are lines of the drawing code, re-rendered in the figure repository and never rebuilt."""
+    '— 그림(요소 지도)': its pins are lines of the drawing code, re-rendered in the figure repository and never rebuilt.
+    renders_in_browser: a Markdown document (Doc.renders_in_browser) - its section title says '— Markdown(쪽 없음)':
+    the browser draws it from its source, so its pins have no page and nothing is built."""
 
     key: str
     name: str
@@ -51,6 +53,7 @@ class DocHeading:
     head: str | None
     built_at: str | None
     has_element_map: bool = False
+    renders_in_browser: bool = False
 
 
 @dataclass(frozen=True)
@@ -157,6 +160,12 @@ def region_text_of(r: Record) -> str:
     )
 
 
+def page_col(r: Record) -> str:
+    """The page column: the pin's page, or `—` for a line pin without one - a Markdown document's, which has no pages
+    (docs/adr/0025-html-document-surface.md D2). A region pin always has its page."""
+    return md_cell(r["page"]) if "page" in r else "—"
+
+
 def location_col(r: Record, facts: PinFacts) -> str:
     """The location column: the file (facts.location - relative to --manuscript, so for a root file the basename, as
     before) and the line range. A view-only PDF's pin has no line, so it's "쪽 N, 영역 ..." instead (the PDF path is in
@@ -167,8 +176,9 @@ def location_col(r: Record, facts: PinFacts) -> str:
 
 
 def range_label(r: Record) -> str:
-    """Range column: if scope is set, env* -> env:<name>, para -> paragraph, raw/lines -> lines; otherwise the legacy kind.
-    Every branch that shows a record value escapes it through md_cell."""
+    """Range column: if scope is set, env* -> env:<name>, para -> paragraph, raw/lines -> lines, a Markdown document's
+    block -> its kind md:<block> (or block when the kind is no md: one) and section -> md:section; otherwise the
+    legacy kind. Every branch that shows a record value escapes it through md_cell."""
     if is_region_pin(r):
         return "영역"
     scope = r.get("scope")
@@ -179,6 +189,11 @@ def range_label(r: Record) -> str:
         return "paragraph"
     if scope in ("raw", "lines"):
         return "lines"
+    if scope == "block":
+        k = str(r.get("kind") or "")
+        return md_cell(k) if k.startswith("md:") else "block"
+    if scope == "section":
+        return "md:section"
     return md_cell(r.get("kind") or "")
 
 
@@ -691,13 +706,18 @@ def pins_md_text(page: PinsMdInput) -> str:
         if q:
             note = q + note
         rows_by_doc.setdefault(f.doc_key, []).append(
-            "| %s | %s | %s | %s | %s |" % (idcol, md_cell(r.get("page", 0)), location_col(r, f), range_label(r), note)
+            "| %s | %s | %s | %s | %s |" % (idcol, page_col(r), location_col(r, f), range_label(r), note)
         )
 
     docs = page.docs
     known = [d.key for d in docs]
-    # A figure document is always sectioned, alone too: its title and 기준 line say what its pins are.
-    sectioned = len(docs) > 1 or any(k not in known[:1] for k in rows_by_doc) or any(d.has_element_map for d in docs)
+    # A figure or Markdown document is always sectioned, alone too: its title (and a figure's 기준 line) says what its
+    # pins are.
+    sectioned = (
+        len(docs) > 1
+        or any(k not in known[:1] for k in rows_by_doc)
+        or any(d.has_element_map or d.renders_in_browser for d in docs)
+    )
     # A region pin is a view-only PDF's - unless it points at a figure: a pin with an element, or any region pin on a
     # figure document (a pick that fell back to a region). Its fix is in the figure repository, not in LaTeX.
     figure_docs = {d.key for d in docs if d.has_element_map}
@@ -814,6 +834,8 @@ def pins_md_text(page: PinsMdInput) -> str:
             title += " — 보기 전용 PDF(줄 번호 없음)"
         elif d.has_element_map:
             title += " — 그림(요소 지도)"
+        elif d.renders_in_browser:
+            title += " — Markdown(쪽 없음)"
         out += ["", title]
         if d.head and d.head != "-" and d.built_at:
             out.append("기준: %s · %s %s" % (d.head, "빌드" if d.builds_from_source else "그림", d.built_at))

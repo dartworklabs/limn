@@ -8,8 +8,9 @@ from urllib.parse import quote
 
 
 class Reply(NamedTuple):
-    """Status, body, Content-Type, optional Cache-Control, optional ETag (a quoted entity tag) and optional
-    Content-Disposition (a complete header value, e.g. attachment_disposition) for one response."""
+    """Status, body, Content-Type, optional Cache-Control, optional ETag (a quoted entity tag), optional
+    Content-Disposition (a complete header value, e.g. attachment_disposition) and, for one of Limn's HTML pages, its
+    Content-Security-Policy (limn.web.csp.page_policy; None sends limn.web.csp.FRAME_ONLY) for one response."""
 
     code: int
     body: bytes
@@ -17,6 +18,7 @@ class Reply(NamedTuple):
     cache: str | None = None
     etag: str | None = None
     disposition: str | None = None
+    csp: str | None = None
 
 
 def json_reply(obj: object, code: int = 200) -> Reply:

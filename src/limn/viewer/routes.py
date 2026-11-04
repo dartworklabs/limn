@@ -1,5 +1,6 @@
 """GET paths and replies for the viewer shell and bundled browser assets."""
 
+import functools
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -7,6 +8,7 @@ from typing import Protocol
 
 from limn.viewer.assemble import ServedViewer, VendorLibrary
 from limn.viewer.mark import ICON_ROUTES
+from limn.web.csp import page_policy
 from limn.web.errors import HTTPError
 from limn.web.reply import Reply, json_reply
 from limn.web.routes import GetRequest
@@ -54,6 +56,14 @@ class ViewerShellApp(Protocol):
         ...
 
 
+@functools.lru_cache(maxsize=8)
+def _page_policy(page: str) -> str:
+    """The Content-Security-Policy of the viewer page GET / sends, from that very text (limn.web.csp.page_policy): the
+    run fills a script (the interface language) and the stylesheet (the accent), so the hashes are the run's, never the
+    template's. A run serves one page object, whose hash Python keeps, so after the first request this is a lookup."""
+    return page_policy(page)
+
+
 def _read(path: Path) -> bytes | None:
     """Read a served file or return None when it is unavailable."""
     try:
@@ -85,7 +95,8 @@ def get(request: GetRequest, app: ViewerShellApp) -> Reply | None:
     path = request.path
     if path == "/":
         request.record_person()
-        return Reply(200, app.viewer().page.encode(), "text/html; charset=utf-8")
+        page = app.viewer().page
+        return Reply(200, page.encode(), "text/html; charset=utf-8", csp=_page_policy(page))
     if path in ICON_ROUTES:
         icon = app.viewer().icons.get(path)
         if icon is None:

@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from limn.pins.model import Actor, Pin, TrashedPin, parse_pin
+from limn.pins.pages import page_fields_kept
 from limn.pins.thread import CLAIM_FIELDS, rev_after, signature
 from limn.pins.verdict import verdict_of
 
@@ -42,9 +43,11 @@ def verdict_kept_for_people(pin: Pin, human: bool) -> VerdictByAgent | None:
     return None if human or verdict_of(pin.record) is None else VerdictByAgent(pin.core.pid)
 
 
-def drop(pin: Pin, by: Actor, at: str) -> TrashedPin:
-    """The Trash copy of a deleted pin: its record without the claim (never left behind), stamped with who and when."""
-    record = {key: value for key, value in pin.record.items() if key not in CLAIM_FIELDS}
+def drop(pin: Pin, by: Actor, at: str, *, pages: bool = True) -> TrashedPin:
+    """The Trash copy of a deleted pin: its record without the claim (never left behind), stamped with who and when.
+    pages says its document has pages; without, a line pin's copy keeps no page field (limn.pins.pages)."""
+    kept = page_fields_kept(pin.record, pages)
+    record = {key: value for key, value in kept.items() if key not in CLAIM_FIELDS}
     record["dropped_at"] = at
     record["dropped_by"] = signature(by)
     return TrashedPin.from_record(record)

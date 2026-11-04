@@ -782,7 +782,7 @@ body.compact #trash .arc-list{max-height:none;overflow:visible}   /* the sheet s
 @media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
 /* Label chip/stripe (§Running multiple manuscript instances at once): since its purpose is distinguishing tabs when multiple manuscript viewers are
    open at once, the accent color is pinned as a fixed background (inline style) - the label color must stay the same across theme changes. */
-#brand-stripe{position:fixed;top:0;left:0;right:0;height:4px;z-index:50;pointer-events:none}
+#brand-stripe{position:fixed;top:0;left:0;right:0;height:4px;z-index:50;pointer-events:none;background:var(--brand)}
 .chip{flex:none;color:var(--brand-foreground);font-weight:700;font-size:var(--text-sm);line-height:1.4;padding:var(--space-1) var(--space-2);border-radius:var(--radius);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px}
 @media (max-width:480px){.chip{max-width:64px;font-size:var(--text-xs);padding:2px var(--space-1)}}

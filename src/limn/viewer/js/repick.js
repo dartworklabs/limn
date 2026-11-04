@@ -1,7 +1,7 @@
 // ------------------------------------------------ Re-place location
 // Shows the re-place banner with markup (Html) as its content.
 function banner(markup){const b=$('#banner'); setHtml(b,markup); b.hidden=false;}
-function bannerRepick(err){if(!REPICK)return; const line=err?html`<span class="errline" style="margin:0">${err}</span>`:'';
+function bannerRepick(err){if(!REPICK)return; const line=err?html`<span class="errline flush">${err}</span>`:'';
   banner(html`<span>${tl('핀 #{id} 의 새 위치를 PDF에서 드래그하세요 · Esc 취소',{id:REPICK.id})}</span>${line}<span class="sp"></span><button class="btn-sm" data-act="rp-cancel" data-tip="위치 다시 잡기를 그만둡니다 (Esc)">취소</button>`);}
 // The re-place banner compares the current and the new place; on a figure the '새 위치' box snaps to the new element. A
 // candidate of the other shape (a region for a line pin, lines for a region pin) is dropped and the banner asks for

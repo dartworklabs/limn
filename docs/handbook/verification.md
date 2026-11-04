@@ -8,6 +8,7 @@
 > - 자동 게이트: §1 파이썬 테스트, §2 인스턴스 관리자 테스트, §3 설치 스모크, §8 정적 검사, §9 타입 검사, §10 기능 경계 검사
 > - 불안정한 테스트를 막는 규칙(상태를 기다리고, 시계를 얼린다): §브라우저 테스트의 기다림, 생긴 뒤의 처리: §불안정한 테스트
 > - 글자 너비에서 정해지는 검사의 전제(어떤 Chromium이든 소수 전진폭): §브라우저 테스트의 글자 너비
+> - 브라우저 시험이 페이지 정책(CSP)을 지키는지와 강제 시험: §브라우저 테스트의 페이지 정책
 > - 사람이 확인하는 게이트: §4 에이전트 계약 호환, §5 화면 실측
 > - 아직 없는 게이트: §6 정량 게이트가 없는 영역
 > - 문서 출판: §7 Handbook 출판
@@ -59,7 +60,7 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 | 적용 조건 | 파이썬 코드, 뷰어 파일, 에이전트 계약, 테스트를 바꿀 때. PR 전과 CI에서 항상 돈다 |
 | 실행 | `uv run pytest -q -rs` (기본 4개 worker). 빠른 일반 검사: `uv run pytest -q -rs -m "not browser and not tex"`. 병렬 옵션의 정본은 `pyproject.toml`의 `addopts` |
 | 합격 기준 | 실패나 에러가 0건이어야 한다. 수집된 테스트가 0건인 실행(pytest 종료 코드 5)은 통과가 아니라 실패다. 건너뛴 테스트(`s`)가 있으면 그 이유가 합당해야 한다(예: TeX Live가 없는 로컬 환경에서 TeX 테스트 스킵). CI는 도구 부재를 건너뜀이 아니라 실패로 바꾼다. 브라우저·TeX 작업은 `LIMN_TEST_REQUIRE_BROWSER=1`·`LIMN_TEST_REQUIRE_TEX=1`, 모든 테스트 작업은 `LIMN_TEST_REQUIRE_NODE=1`을 둔다 |
-| 보장 범위 | 단위와 통합 수준의 동작 회귀를 막는다. 브라우저 표식의 테스트는 지정된 Chromium 동작·레이아웃과 Firefox·WebKit의 핵심 핀 생성·편집·덧붙임·되돌리기 흐름, 판정 패널과 목차 따라가기의 핵심 흐름(§판정 패널과 목차의 엔진 검사), 세 엔진의 검색 안내 안쪽 간격(§검색 안내의 안쪽 간격)을 확인한다. 실제 iOS 기기, 모든 엔진의 전체 화면과 실제 tailnet 환경은 보장하지 않는다(§5, §6) |
+| 보장 범위 | 단위와 통합 수준의 동작 회귀를 막는다. 브라우저 표식의 테스트는 지정된 Chromium 동작·레이아웃과 Firefox·WebKit의 핵심 핀 생성·편집·덧붙임·되돌리기 흐름, 판정 패널과 목차 따라가기의 핵심 흐름(§판정 패널과 목차의 엔진 검사), 세 엔진의 검색 안내 안쪽 간격(§검색 안내의 안쪽 간격), 세 엔진에서 강제한 페이지 정책 아래의 문서 그리기와 모든 브라우저 시험의 정책 위반 0건(§브라우저 테스트의 페이지 정책)을 확인한다. 실제 iOS 기기, 모든 엔진의 전체 화면과 실제 tailnet 환경은 보장하지 않는다(§5, §6) |
 
 ### 선택형 연결 입장과 실패 종료
 
@@ -86,6 +87,18 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 한 테스트가 여러 조건을 차례로 돌며 프레임이나 알림 창을 오래 기다리면, 그 흐름들을 한 브라우저 안의 별도 컨텍스트 페이지에서 함께 돌릴 수 있다. 판정 줄 폭 sweep(`test_viewer_verdicts.py`의 `LinePolish`, `SWEEP_START`)과 상태 줄 hold(`test_viewer_notices_seen.py`의 `SeenFlows`)가 그렇게 돈다. 페이지들은 같은 프로세스의 서버 하나를 함께 쓰므로 흐름끼리 독립이어야 한다. 흐름이 서버에 쓰지 않거나(선택·취소·상태 줄 메시지처럼 페이지 안에서 끝나는 일), 쓰는 흐름이 있으면 다른 페이지의 light poll을 먼저 멈춘다(`NO_POLL`). 차례로 돌 때 각 페이지는 다음 흐름이 쓰기 전에 닫혔으므로, 그 쓰기를 읽어 들이면 다른 조건이 된다. 격리는 세 가지를 전제로 한다. 페이지마다 컨텍스트가 달라 `sessionStorage`·쿠키를 나누지 않는다. Playwright의 Chromium은 모든 페이지를 보이고 초점을 가진 것으로 다루므로, 페이지마다 `requestAnimationFrame`이 제 속도로 돌고 한 페이지의 입력이 다른 페이지에 `blur`를 보내지 않는다. 포인터도 페이지마다 따로여서(`page.mouse`) `:hover`와 그것이 거는 hold가 페이지별로 유지된다. 기다림은 페이지마다 제 시작점에서 잰 원래 기한을 지킨다. 한 페이지를 먼저 기다리는 동안 흐른 시간이 다른 페이지의 기한에 더해지면 그 검사가 원래보다 느슨해지므로, 남은 시간을 그 페이지의 시작점에서 계산한다(`SeenFlows.gone_within`).
 
 키보드 입력은 검사 의도를 플랫폼과 맞춘다. 명시적인 비 Apple `Ctrl+F` 계약은 플랫폼을 fixture에 선언하고, 일반 흐름은 실제 호스트의 검색 키를 보낸다. 텍스트 시작으로 이동하는 입력도 macOS의 `Command+↑`와 다른 호스트의 `Ctrl+Home`을 구분한다. 플랫폼을 선언한 검사는 키·물리 코드·IME 계약을, 실제 플랫폼 검사는 native 입력의 동작을 확인하며 서로를 대신하지 않는다. 커서 이동 뒤의 삽입·삭제 결과와 기존 잉크 허용 오차는 그대로 검증한다.
+
+### 브라우저 테스트의 페이지 정책
+
+모든 브라우저 시험은 서버가 보낸 페이지 정책([architecture.md](architecture.md) 불변식 9) 아래에서 돈다. 다만 강제가 아니라 **Report-Only**로 받는다. Playwright의 `wait_for_function()` 은 조건 글을 페이지 안에서 `eval` 로 돌리므로(Chromium·Firefox 모두), `'unsafe-eval'` 없는 정책을 강제하면 모든 시험이 첫 기다림에서 멈춘다. `bypass_csp` 는 정책을 통째로 꺼서 잴 수 없다.
+
+- **헤더를 넘긴다.** 가로채기 경로(`helpers_browser.BrowserBase.forward`)는 서버 응답의 `Content-Security-Policy` 를 `Content-Security-Policy-Report-Only` 로 바꿔 넘긴다(`helpers_csp.report_only`). 바꾸는 것은 헤더 이름과, 보고에 인라인 글 앞부분을 싣는 `'report-sample'` 뿐이다. Report-Only도 강제와 같은 지시어로 같은 대상을 보고하므로, 보고 0건은 그 흐름에서 강제해도 막히는 것이 0건이라는 뜻이다. 실제 서버로 띄우는 시험(PDF 내려받기)은 문서 요청(`/`)만 가로채 같은 변환을 한다(`report_only_documents`).
+- **보고가 하나라도 있으면 실패한다.** [`helpers_csp.py`](../../tests/support/helpers_csp.py)가 시험 브라우저의 모든 컨텍스트에 `securitypolicyviolation` 을 듣는 스크립트를 페이지 스크립트보다 먼저 넣는다. 저장소 뿌리 `conftest.py` 가 싣는 pytest 플러그인 `no_csp_violation` 이 `browser` 표식의 시험마다 보고를 모아, 하나라도 있으면 그 시험을 실패로 한다. 빼는 것은 셋이다(`helpers_csp.harness_own`). 시험 자신의 `eval`(주소 없는 코드나 Firefox의 `debugger eval code` 에서 막힌 `eval`), WebKit에서 Playwright가 스크린숏 직전에 애니메이션을 맞추려 넣었다 빼는 빈 스타일(지시어 `style-src-elem` 또는 `style-src`, 막힌 것 `inline`, 글이 정확히 `body {}`, 주소 없음. Chromium·Firefox에서는 넣지 않는다), 그리고 시험이 일부러 일으킨 위반(`window.__limnCspExpected`)이다. 앞의 둘은 Playwright의 유틸리티 세계에서 돌아 주소가 없고, 뷰어의 코드와 그 인라인 글은 늘 페이지나 모듈 주소를 달고 오므로 빠지지 않는다. `LIMN_CSP_LOG=<파일>` 을 주면 모든 보고(빼는 것 포함)를 시험 id와 함께 JSON 줄로 남겨, 전체 실행 한 번으로 위반을 모두 모은다.
+- **시험 코드도 정책을 어기지 않는다.** 위의 Playwright 스크린숏 스타일을 빼면, 시험의 스타일은 인라인 `<style>`(Playwright `add_style_tag`) 대신 생성 스타일시트(`add_test_style`: `CSSStyleSheet.replaceSync` 와 `adoptedStyleSheets`)로, 늦게 오는 글꼴은 `FontFace` API로 넣는다. 스크린숏 화소는 `data:` 그림이 아니라 `createImageBitmap(new Blob(…))` 로 푼다. 페이지를 바꿔 쓰는 고정 장치(시험 글꼴 로더)는 자기 스크립트의 해시를 그 페이지의 정책에 더한다(`allow_page_scripts`).
+- **강제는 따로 시험한다.** [`test_viewer_csp.py`](../../src/limn/viewer/tests/test_viewer_csp.py)는 실제 HTTP 서버가 보낸 헤더 그대로 띄우고, `eval` 이 필요 없는 기다림(선택자 엔진, 페이지가 푸는 Promise)만 쓴다. 원고·그림 문서·보기 전용 PDF가 PDF.js 모듈과 worker로 그려지고 도움말이 열리며 보고가 0건인지, 글이 해시와 다른 인라인 스크립트 요소와 `onclick` 속성이 돌지 않고 각각 보고되는지 본다. 같은 출처의 스크립트 파일이나 해시가 맞는 글은 정책이 막지 않으므로 시험하지 않는다. Chromium·Firefox·WebKit 클래스가 있고, Linux CI에서는 Chromium 클래스가 브라우저 부분에서, Firefox·WebKit 클래스가 엔진 작업에서 돈다. 같은 파일의 `StaticGuards` 는 브라우저 없이 템플릿·JS 조각·아이콘·거절 페이지의 마크업과 요소·속성을 만드는 호출을 토큰으로 본다. 금지된 꼴을 쓰는 여러 방법(따옴표·템플릿 리터럴·대소문자·따옴표 없는 값·괄호 앞 주석·이스케이프)을 하나씩 넣어 모두 걸리는지, CSSOM과 JS 속성은 걸리지 않는지도 본다([viewer.md](viewer.md) §페이지 정책).
+- **헤더와 보낸 바이트가 맞는다.** [`web/tests/test_csp.py`](../../src/limn/web/tests/test_csp.py)는 `GET /` 와 거절 페이지의 헤더 해시를 받은 몸의 인라인 글 해시와 견준다. 오라클은 `limn.web.csp` 와 따로 `html.parser`·`hashlib` 으로 몸을 읽는다. 언어와 색이 다른 두 실행의 정책이 다르고 각자 자기 바이트와 맞는지(템플릿에서 재면 실패한다), 꾸러미 페이지가 `</script><!--` 같은 이름을 받아도 브라우저와 같게 읽히는지, 다른 응답이 `frame-ancestors 'none'` 하나인지도 본다. 모든 응답의 클릭재킹 헤더는 `security/tests/test_security.py` 의 `FramingHeaders` 가 본다.
+
+보고 0건 가드는 브라우저 시험이 지나는 흐름에서의 증거다. 모든 브라우저 판, 확장, 시험이 지나지 않는 흐름에서 막히는 것이 없다는 보장은 아니다. 정적 검사와 꾸러미 페이지 시험이 그 틈의 일부를 덮는다.
 
 ### 고정된 테스트용 한글 글꼴
 
@@ -145,7 +158,7 @@ Firefox는 초점도 선택도 없으면 키보드 스크롤을 창에 보낸다
 | --- | --- |
 | `src/limn/*/tests/`, `src/limn/pins/*/tests/` | 소유 기능과 경계의 값·규칙·입력·저장·HTTP·실행·뷰어 동작. `viewer/tests/test_viewer_role_keyboard.py`는 실제 서버와 저장소에서 사람·에이전트·viewer의 검토 조작 및 거절, PDF 마크 버튼의 Tab·Enter·Space 이동을 본다 |
 | `src/limn/administration/tests/test_instances.sh` | 인스턴스 셸 명령·실행 인자·유닛 생성·업데이트 |
-| `tests/contracts/` | 여러 기능의 HTTP·`pins.md` 스냅샷과 성질 검증. 그림 문서 흐름(지도 pick, 요소 핀, 다시 렌더 뒤의 계산 필드)은 `test_contract_snapshot.py`가 [`tests/data/contract_snapshot_figure.json`](../../tests/data/contract_snapshot_figure.json)과 따로 비교한다. 판정 흐름(낱말 파일이 있는 세 종류 문서, 판정 핀 만들기와 거절, 편집 규칙, 더 새 판정에 밀린 핀의 `superseded_by`, `pins.md` 표시)은 [`tests/data/verdict_snapshot.json`](../../tests/data/verdict_snapshot.json)과 따로 비교한다. `test_figure_rollback.py`는 이전 릴리스가 그림 핀 레코드를, `test_suggest_rollback.py`는 제안 수정 레코드를, `test_verdict_rollback.py`는 판정 레코드를 읽고 바이트 그대로 되쓰는지 본다. `test_verdict_keys.py`는 낱말 파일과 저장된 판정의 `key` 규칙이 두 기능에서 같은지 본다 |
+| `tests/contracts/` | 여러 기능의 HTTP·`pins.md` 스냅샷과 성질 검증. 그림 문서 흐름(지도 pick, 요소 핀, 다시 렌더 뒤의 계산 필드)은 `test_contract_snapshot.py`가 [`tests/data/contract_snapshot_figure.json`](../../tests/data/contract_snapshot_figure.json)과 따로 비교한다. 판정 흐름(낱말 파일이 있는 세 종류 문서, 판정 핀 만들기와 거절, 편집 규칙, 더 새 판정에 밀린 핀의 `superseded_by`, `pins.md` 표시)은 [`tests/data/verdict_snapshot.json`](../../tests/data/verdict_snapshot.json)과 따로 비교한다. Markdown 흐름(쪽 필드 없이 저장되는 줄 핀, 블록·절, 제안 수정, 쪽 필드를 다시 보낸 위치 다시 잡기, 휴지통, `pins.md` 의 `—` 와 절 제목)은 [`tests/data/contract_snapshot_markdown.json`](../../tests/data/contract_snapshot_markdown.json)과 따로 비교한다. `test_figure_rollback.py`는 이전 릴리스가 그림 핀 레코드를, `test_suggest_rollback.py`는 제안 수정 레코드를, `test_verdict_rollback.py`는 판정 레코드를, `test_markdown_rollback.py`는 Markdown 핀 레코드를 읽고 바이트 그대로 되쓰는지 본다. `test_verdict_keys.py`는 낱말 파일과 저장된 판정의 `key` 규칙이 두 기능에서 같은지 본다 |
 | `tests/architecture/` | 공개 표면·import 경계, Handbook 참조, 이름·개인정보 규칙, CI 액션의 커밋 고정·체크아웃 자격 증명·uv와 빌드 백엔드 버전 고정, README·SKILL 설치 명령의 태그가 `__version__`과 같은지, 브라우저 검사의 부분 나누기(모든 테스트가 정확히 한 부분에, 필수 이름의 결과) |
 | `tests/tools/` | 테스트 식별자 이동 대조·그림 선택 비교 도구 둘(재구성한 표본, 임계값 격자를 재는 D6 측정 도구), 익명 PoC 서버의 정확한 Host 허용·자원 allowlist·API 읽기와 쓰기 거부 경계 |
 | `tests/support/`, `tests/data/`, `tests/fixtures/` | 수집하지 않는 공용 테스트 도우미와 고정 입력·스냅샷·테스트 글꼴 출처와 라이선스, 브라우저 검사를 나누는 `--shard` 플러그인과 단위별 측정 시간. 그림 문서 fixture(그림 스크립트·공통 부품·요소 지도·빌드 폴더와, pick 답을 뷰어처럼 저장하는 도우미, 뷰어 테스트가 쓰는 세 문서(원고·그림·보기 전용 PDF)의 등록과 다시 렌더)는 [`tests/support/helpers_figure.py`](../../tests/support/helpers_figure.py)에 있다 |
@@ -182,7 +195,7 @@ CI는 uv `0.12.23`을 쓰고, 패키지 빌드는 Hatchling `1.32.4`를 요구�
 | --- | --- |
 | 측정 대상 | 에이전트가 읽는 파일과 API의 하위 호환: `pins.md` 형식(열 순서, 상태 표시어, 한국어 머리말), HTTP API 응답 스키마, 핀 레코드 필드, 오류 응답 형식 |
 | 적용 조건 | `pins.md` 렌더링, API 경로·응답, 핀 레코드 구조를 바꿀 때 |
-| 실행 | 자동: `tests/contracts/test_contract_snapshot.py`(원고 흐름, 그림 문서 흐름, 판정 흐름), `src/limn/pins/tests/test_model.py`, `tests/contracts/test_figure_rollback.py`(이전 릴리스 v0.3.5·v0.3.7·v0.3.8이 그림 핀 레코드를 읽고 바이트 그대로 되쓰는지. 그 태그가 없는 얕은 클론은 그 릴리스만 건너뛰고, CI는 전체 이력을 받아 모두 돈다), `tests/contracts/test_suggest_rollback.py`(이전 릴리스 v0.4.23이 제안 수정 레코드를 읽고 바이트 그대로 되쓰는지. 태그가 없으면 같은 규칙으로 건너뛴다), `tests/contracts/test_verdict_rollback.py`(이전 릴리스 v0.4.25가 판정 레코드 — 살아 있는 핀과 휴지통 사본, 쪽 전체 그림과 쪽 전체 PDF, 판정이 아닌 손으로 고친 값 — 를 깨진 줄 없이 읽고 두 파일을 바이트 그대로 되쓰는지. 태그가 없으면 같은 규칙으로 건너뛴다). 수동: [api.md](api.md)와 [SKILL.ko.md](../../skill/SKILL.ko.md)의 설명이 일치하는지 대조 |
+| 실행 | 자동: `tests/contracts/test_contract_snapshot.py`(원고 흐름, 그림 문서 흐름, 판정 흐름, Markdown 흐름), `src/limn/pins/tests/test_model.py`, `tests/contracts/test_figure_rollback.py`(이전 릴리스 v0.3.5·v0.3.7·v0.3.8이 그림 핀 레코드를 읽고 바이트 그대로 되쓰는지. 그 태그가 없는 얕은 클론은 그 릴리스만 건너뛰고, CI는 전체 이력을 받아 모두 돈다), `tests/contracts/test_suggest_rollback.py`(이전 릴리스 v0.4.23이 제안 수정 레코드를 읽고 바이트 그대로 되쓰는지. 태그가 없으면 같은 규칙으로 건너뛴다), `tests/contracts/test_verdict_rollback.py`(이전 릴리스 v0.4.25가 판정 레코드 — 살아 있는 핀과 휴지통 사본, 쪽 전체 그림과 쪽 전체 PDF, 판정이 아닌 손으로 고친 값 — 를 깨진 줄 없이 읽고 두 파일을 바이트 그대로 되쓰는지. 태그가 없으면 같은 규칙으로 건너뛴다), `tests/contracts/test_markdown_rollback.py`(이전 릴리스 v0.4.46이 `page`·`frac`·`pdf_build` 없는 Markdown 핀 레코드 — 살아 있는 핀과 휴지통 사본 — 를 깨진 줄 없이 읽고 두 파일을 바이트 그대로 되쓰는지. 태그가 없으면 같은 규칙으로 건너뛴다). 수동: [api.md](api.md)와 [SKILL.ko.md](../../skill/SKILL.ko.md)의 설명이 일치하는지 대조 |
 | 합격 기준 | 스냅샷 테스트 통과, 스키마에 필수 필드가 빠지지 않음, 기존 필드의 의미가 바뀌지 않음 |
 | 보장 범위 | 기존 에이전트가 새 버전의 Limn과 통신할 때 깨지지 않음을 보장한다. 에이전트 자체의 버그는 보장하지 않는다 |
 

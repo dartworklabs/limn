@@ -50,6 +50,7 @@ from helpers_browser import (
     settle,
     watch_idle,
 )
+from helpers_csp import add_test_style
 from helpers_outline import SHEET_ROWS
 
 NBSP, SHY, FI, LSQ, RSQ, EN_DASH = chr(0xA0), chr(0xAD), chr(0xFB01), chr(0x2018), chr(0x2019), chr(0x2013)
@@ -742,8 +743,8 @@ COUNTED = "/^\\d+\\/\\d+$/.test(document.querySelector('#search-count').textCont
 COUNTING = "/^\\d+\\/\\d+…$/.test(document.querySelector('#search-count').textContent)"
 # A fallback for the interface font in place of the bundled Pretendard: the given generic family alone.
 FONT = (
-    "document.addEventListener('DOMContentLoaded',()=>{const s=document.createElement('style');"
-    "s.textContent=':root:root{--font-sans:%s}';document.head.append(s);});"
+    "document.addEventListener('DOMContentLoaded',()=>{const s=new CSSStyleSheet();"
+    "s.replaceSync(':root:root{--font-sans:%s}');document.adoptedStyleSheets=[...document.adoptedStyleSheets,s];});"
 )
 
 # The nav bar as drawn: its box and the band its controls are centred in (from the stripe's bottom to the bar's bottom),
@@ -801,7 +802,7 @@ def hint_inner_inset(page):
 # The vertical centre of the ink in each box of a screenshot (base64 PNG at device scale factor dpr; boxes [l, t, r, b] in
 # the shot's CSS px): the device rows holding a pixel that differs from the box's commonest luminance, the first and
 # last counted by how strongly they differ. null for a box with no ink.
-INK_MID = """async ([b64, dpr, boxes]) => {const img = new Image(); img.src = 'data:image/png;base64,' + b64; await img.decode();
+INK_MID = """async ([b64, dpr, boxes]) => {const img = await createImageBitmap(new Blob([Uint8Array.from(atob(b64), ch => ch.charCodeAt(0))], {type: 'image/png'}));
   const c = document.createElement('canvas'); c.width = img.width; c.height = img.height; const x = c.getContext('2d'); x.drawImage(img, 0, 0);
   return boxes.map(([l, t, r, b]) => {const X0 = Math.floor(l * dpr), X1 = Math.ceil(r * dpr), Y0 = Math.floor(t * dpr), Y1 = Math.ceil(b * dpr), W = X1 - X0, H = Y1 - Y0;
     if (W < 1 || H < 1) return null; const D = x.getImageData(X0, Y0, W, H).data, lum = i => 0.2126 * D[i] + 0.7152 * D[i + 1] + 0.0722 * D[i + 2];
@@ -1560,7 +1561,7 @@ class SearchShortcutFocus(SearchBase):
         """With the field's row out of the layout (a state where no rule brings it back - here the bar is taken out by a
         style), the native find shortcut is not intercepted - the browser's find - and the search does not open."""
         page = self.view()
-        page.add_style_tag(content="#doc-nav{display:none!important}")
+        add_test_style(page, "#doc-nav{display:none!important}")
         page.focus("#jump")
         page.evaluate("window.__kd=[]; addEventListener('keydown',e=>window.__kd.push([e.key,e.defaultPrevented]))")
         search_shortcut(page)
@@ -1957,7 +1958,7 @@ OVER_BAR = """() => {const q = s => document.querySelector(s), box = q('#search-
     above: reach(box.top - 2), below: reach(box.bottom + 2), mode: q('#doc-search').dataset.mode};}"""
 # The bar's pixels in the strips above and below the open box, within its width: in each strip, how many pixels differ from
 # the commonest colour of their own row (the bar's background or its bottom line - each one colour across).
-STRAY = """async ([b64, dpr, rows]) => {const img = new Image(); img.src = 'data:image/png;base64,' + b64; await img.decode();
+STRAY = """async ([b64, dpr, rows]) => {const img = await createImageBitmap(new Blob([Uint8Array.from(atob(b64), ch => ch.charCodeAt(0))], {type: 'image/png'}));
   const c = document.createElement('canvas'); c.width = img.width; c.height = img.height; const x = c.getContext('2d'); x.drawImage(img, 0, 0);
   return rows.map(([l, t, r, b]) => {const X0 = Math.ceil(l * dpr), Y0 = Math.ceil(t * dpr), W = Math.floor(r * dpr) - X0, H = Math.floor(b * dpr) - Y0; if (W < 1 || H < 1) return 0;
     const D = x.getImageData(X0, Y0, W, H).data; let off = 0;
@@ -2013,7 +2014,7 @@ class SearchCrowdedBar(FiveDocsBase):
         The browser's own tap highlight is turned off: Chrome washes the tapped magnifier's 44px box for a while after
         the tap, and that wash is not the page's drawing."""
         page = self.view(CROWDED[name])
-        page.add_style_tag(content="*{-webkit-tap-highlight-color:transparent}")
+        add_test_style(page, "*{-webkit-tap-highlight-color:transparent}")
         self.assertEqual(page.evaluate(BAR)["mode"], "icon", name)
         self.search(page, "tide")
         return page
