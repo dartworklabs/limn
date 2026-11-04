@@ -26,7 +26,7 @@ import math
 import re
 from collections.abc import Callable, Hashable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Literal, TypeAlias
+from typing import Any, TypeAlias
 
 from limn.pins.element import element_of
 from limn.pins.model import LineSpan, OpenPin, Pin, is_region_pin
@@ -80,21 +80,38 @@ def whole_page_target(record: Mapping[str, Any], figure_document: bool, view_onl
     return False
 
 
-# A document's kind as the verdict order reads it (limn.runtime.documents.DocKind: pins do not import the runtime).
-TargetKind: TypeAlias = Literal["tex", "pdf", "figure"]
+@dataclass(frozen=True)
+class FigurePlacement:
+    """A verdict pin of a document with an element map (Doc.has_element_map, a figure document): it is about a figure.
+    doc is the key of the document the pin belongs to."""
+
+    doc: str
 
 
 @dataclass(frozen=True)
-class Placement:
-    """What the edge reads of a verdict pin's document before the order is computed: doc, the key of the document the
-    pin belongs to, and its kind. file is, for a LaTeX document, where the pin's file is on this machine now (the
-    path overlaps count it in, so a moved checkout is one file). estimated, for a view-only PDF, is the API's `est` of
-    the pin - its mark is only an estimate on the PDF on screen (limn.pins.location.position.pin_est)."""
+class PagePlacement:
+    """A verdict pin of a view-only document (Doc.view_only, a view-only PDF): it is about a whole page or nothing. doc
+    is the key of the document the pin belongs to; estimated is the API's `est` of the pin - its mark is only an
+    estimate on the PDF on screen (limn.pins.location.position.pin_est)."""
 
     doc: str
-    kind: TargetKind
-    file: str | None = None
     estimated: bool = False
+
+
+@dataclass(frozen=True)
+class LinesPlacement:
+    """A verdict pin of a document that takes line pins and has no element map (Doc.takes_line_pins, a LaTeX or
+    Markdown document): it is about its lines. doc is the key of the document the pin belongs to; file is where the
+    pin's file is on this machine now (the path overlaps count it in, so a moved checkout is one file), None when the
+    pin has none."""
+
+    doc: str
+    file: str | None = None
+
+
+# What the edge reads of a verdict pin's document before the order is computed, one case per kind of target - chosen
+# from the document's capabilities, never its kind (pins do not import the runtime's DocKind).
+Placement: TypeAlias = FigurePlacement | PagePlacement | LinesPlacement
 
 
 @dataclass(frozen=True)
@@ -177,34 +194,36 @@ def order_target(pin: Pin, placed: Placement) -> OrderTarget | None:
     """The target a verdict pin is about, as far as its stored place says it without a project's rules (the viewer's
     verdictTargetOf, so the two never disagree), or None when it cannot be resolved:
 
-    - figure document: its figure, el.path[0] (figure_root) - the pin on the figure itself and the one on a panel of
-      it are about the same thing; None without an element path.
-    - view-only PDF: its page, for a region pin over the whole page (whole_page_target) whose mark is not an estimate
-      on the PDF on screen; any other region is None.
-    - LaTeX document: its exact lines - the file as placed now, lo and hi - unless the pin lost its anchor (stale);
-      a region pin has none.
+    - figure document (FigurePlacement): its figure, el.path[0] (figure_root) - the pin on the figure itself and the
+      one on a panel of it are about the same thing; None without an element path.
+    - view-only PDF (PagePlacement): its page, for a region pin over the whole page (whole_page_target) whose mark is
+      not an estimate on the PDF on screen; any other region is None.
+    - LaTeX or Markdown document (LinesPlacement): its exact lines - the file as placed now, lo and hi - unless the
+      pin lost its anchor (stale); a region pin, or a pin placed without a file, has none.
 
     A lines target is only a candidate: the server re-matches an open pin's lines to the text now, never a closed
     one's, so same_lines says when two pins on the same lines are about the same text. Which lines are one item of
     the repository is the repository's rule, so None and 'not superseded' never say a pin is current."""
     r = pin.record
-    if placed.kind == "figure":
-        root = figure_root(r)
-        return None if root is None else OrderTarget((placed.doc, "figure " + root))
-    if placed.kind == "pdf":
-        page = r.get("page")
-        if placed.estimated or not whole_page_target(r, figure_document=False, view_only_document=True):
-            return None
-        return OrderTarget((placed.doc, "page %d" % page)) if is_int(page) else None
-    span = pin.core.place
-    if not isinstance(span, LineSpan) or r.get("stale") or placed.file is None:
-        return None
-    return OrderTarget(
-        (placed.doc, "lines %s:%d-%d" % (placed.file, span.lo, span.hi)),
-        on_lines=True,
-        open=isinstance(pin, OpenPin),
-        anchor=anchor_key(r),
-    )
+    match placed:
+        case FigurePlacement(doc=doc):
+            root = figure_root(r)
+            return None if root is None else OrderTarget((doc, "figure " + root))
+        case PagePlacement(doc=doc, estimated=estimated):
+            page = r.get("page")
+            if estimated or not whole_page_target(r, figure_document=False, view_only_document=True):
+                return None
+            return OrderTarget((doc, "page %d" % page)) if is_int(page) else None
+        case LinesPlacement(doc=doc, file=file):
+            span = pin.core.place
+            if not isinstance(span, LineSpan) or r.get("stale") or file is None:
+                return None
+            return OrderTarget(
+                (doc, "lines %s:%d-%d" % (file, span.lo, span.hi)),
+                on_lines=True,
+                open=isinstance(pin, OpenPin),
+                anchor=anchor_key(r),
+            )
 
 
 def same_lines(a: OrderTarget, b: OrderTarget) -> bool:

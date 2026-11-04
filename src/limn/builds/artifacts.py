@@ -138,6 +138,11 @@ class BuildDoc(BuildStateHolder, Protocol):
         """The watch re-renders its pages when its file changes (limn.runtime.documents.Doc.watches_files)."""
 
     @property
+    def renders_in_browser(self) -> bool:
+        """The viewer draws it from its source: it has no PDF and no page images, so startup builds nothing for it
+        (limn.runtime.documents.Doc.renders_in_browser)."""
+
+    @property
     def lock(self) -> threading.Lock:
         """Held for the whole of one build of this document."""
 

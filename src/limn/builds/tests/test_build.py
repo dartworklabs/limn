@@ -46,6 +46,7 @@ from limn.builds.artifacts import (
     BuildMapCache,
     BuildOk,
     BuildOkWithErrors,
+    BuildSkipped,
     BuildStarted,
     CopyFailed,
     PagesNotRendered,
@@ -100,7 +101,8 @@ echo "Pages:          1"
 class PlainDoc:
     """A document as the build sees it (the BuildDoc protocol), with every path given - nothing global. LaTeX by
     default; a view-only PDF sets builds_from_source=False and watches_files=True, as limn.runtime.documents.Doc answers for
-    kind "pdf"."""
+    kind "pdf"; a Markdown document sets builds_from_source=False and renders_in_browser=True, as it answers for kind
+    "markdown"."""
 
     src: Path
     main: Path
@@ -114,6 +116,7 @@ class PlainDoc:
     mcache_epoch: int = 0
     builds_from_source: bool = True
     watches_files: bool = False
+    renders_in_browser: bool = False
     apart: ApartPaths = NO_APART
     input_sets: InputSetCache = field(default_factory=InputSetCache)
 
@@ -792,6 +795,16 @@ class RebuildRules(unittest.TestCase):
         self.pdf.main.write_bytes(b"%PDF-1.4 changed, longer")
         self.assertTrue(build_run.needs_build(self.pdf, True, 72))
 
+    def test_startup_never_builds_a_document_the_browser_draws(self):
+        """A Markdown document has no PDF and no page images: startup builds it neither by default nor under --no-build,
+        although it has no pages at all."""
+        root = self.tex.src
+        (root / "plan.md").write_text("# Plan\n", encoding="utf-8")
+        md = PlainDoc(root, root / "plan.md", root / "state-md", builds_from_source=False, renders_in_browser=True)
+        md.dir.mkdir()
+        self.assertFalse(build_run.needs_build(md, False, 72))
+        self.assertFalse(build_run.needs_build(md, True, 72))
+
 
 class ReadsBeforeAndBetweenBuilds(unittest.TestCase):
     """What the build reads of a document, by whether it builds from source: the PDF before any page copy and the
@@ -1201,6 +1214,26 @@ class Legacy(Base):
         self.assertEqual((ps.APP.C.state / "pages" / "main.synctex.gz").read_bytes(), b"syn-old")
         limn_build.migrate_pages(ps.APP.docs[0])  # calling it twice doesn't overwrite either
         self.assertEqual(limn_build.cur_pdf(ps.APP.docs[0]).read_bytes(), b"%PDF-old")
+
+
+class MarkdownStartup(Base):
+    """Startup of a Markdown document (Doc.renders_in_browser) through the build service: nothing is built, so its build
+    state and history record no failed build - with or without --no-build, waiting or not."""
+
+    def test_startup_skips_it_and_records_no_failed_build(self):
+        """init_doc answers BuildSkipped for every switch; the document's build state stays idle and it has no build
+        history (builds.json)."""
+        (self.src / "notes").mkdir()
+        md = self.src / "notes" / "plan.md"
+        md.write_text("# Plan\n\nA line.\n", encoding="utf-8")
+        doc = Doc("nt", "계획", "markdown", self.src / "notes", md, paths=ps.APP.C.paths)
+        ps.APP.set_docs([Doc("main", "본문", "tex", self.src, self.main, paths=ps.APP.C.paths), doc])
+        self.addCleanup(ps.APP.set_docs, None)
+        for no_build in (False, True):
+            for wait in (True, False):
+                self.assertEqual(ps.APP.build_requests.init_doc(doc, no_build, wait), BuildSkipped())
+        self.assertEqual(limn_build.state_snapshot(doc)["state"], "idle")
+        self.assertFalse((doc.dir / "builds.json").exists())
 
 
 # ---------------------------------------------------------------- async build (docs/handbook/build-sync.md §비동기 재빌드)

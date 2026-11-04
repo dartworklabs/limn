@@ -22,7 +22,9 @@ from hypothesis import example, given, strategies as st
 from limn.pins.model import parse_pin
 from limn.pins.verdict import (
     PAGE_EPSILON,
-    Placement,
+    FigurePlacement,
+    LinesPlacement,
+    PagePlacement,
     figure_root,
     order_target,
     same_lines,
@@ -98,8 +100,8 @@ class WholePage(unittest.TestCase):
 
 
 ANCHOR = {"head": "Intro text.", "tail": "More text.", "head_off": 0, "tail_off": 0}
-FIG_DOC = Placement("fig", "figure")
-RV_DOC = Placement("rv", "pdf")
+FIG_DOC = FigurePlacement("fig")
+RV_DOC = PagePlacement("rv")
 
 
 def pin(pid, record, **state):
@@ -133,7 +135,7 @@ def pdf_page(pid, page=3, frac=(0, 0, 1, 1), **state):
 def placed(pins, where=None):
     """superseded_by over pins, each placed by where (pin id -> Placement) or by the LaTeX document ms."""
     where = where or {}
-    return superseded_by(pins, lambda p: where.get(p.core.pid, Placement("ms", "tex", file="/ms/main.tex")))
+    return superseded_by(pins, lambda p: where.get(p.core.pid, LinesPlacement("ms", file="/ms/main.tex")))
 
 
 DONE = {"done": True}
@@ -175,7 +177,7 @@ class Supersession(unittest.TestCase):
         self.assertEqual(self.figures(figure(1), figure(2, ("B3",))), {})
         both = superseded_by(
             [figure(1), figure(2)],
-            lambda p: Placement("fig", "figure") if p.core.pid == 1 else Placement("fig2", "figure"),
+            lambda p: FigurePlacement("fig") if p.core.pid == 1 else FigurePlacement("fig2"),
         )
         self.assertEqual(both, {})
 
@@ -244,7 +246,7 @@ class ViewOnlyPage(unittest.TestCase):
 
     def pages(self, *pins, estimated=()):
         """The supersession of pins on the view-only document rv; the ids in estimated have an estimated mark."""
-        return superseded_by(list(pins), lambda p: Placement("rv", "pdf", estimated=p.core.pid in estimated))
+        return superseded_by(list(pins), lambda p: PagePlacement("rv", estimated=p.core.pid in estimated))
 
     def test_a_newer_verdict_on_the_same_page_supersedes(self):
         """The same page supersedes; another page does not."""
@@ -288,16 +290,16 @@ class LinesOfLatex(unittest.TestCase):
     def test_other_lines_or_files_are_other_targets(self):
         """A different range or a different file does not supersede."""
         self.assertEqual(placed([latex(1), latex(2, lo=4, hi=6)]), {})
-        by_file = {2: Placement("ms", "tex", file="/ms/sections/other.tex")}
+        by_file = {2: LinesPlacement("ms", file="/ms/sections/other.tex")}
         self.assertEqual(placed([latex(1), latex(2)], by_file), {})
 
     def test_a_pin_that_lost_its_anchor_or_is_a_region_has_no_target(self):
         """A stale pin and a region pin are left out."""
         stale = latex(2, stale=True)
         self.assertEqual(placed([latex(1), stale]), {})
-        self.assertIsNone(order_target(stale, Placement("ms", "tex", file="/ms/main.tex")))
+        self.assertIsNone(order_target(stale, LinesPlacement("ms", file="/ms/main.tex")))
         self.assertEqual(placed([latex(1), pdf_page(2)]), {})
-        self.assertIsNone(order_target(latex(1), Placement("ms", "tex")))
+        self.assertIsNone(order_target(latex(1), LinesPlacement("ms")))
 
     def test_same_lines_is_true_for_any_target_but_lines(self):
         """The anchor and the open state decide only between two pins about lines."""
@@ -458,7 +460,7 @@ class LargeHistories(unittest.TestCase):
             latex(i, lo=lo, hi=lo + 1, anchor=self.ANCHORS[a], **({} if is_open else DONE))
             for i, (is_open, a, lo) in enumerate(spec, 1)
         ]
-        where = Placement("ms", "tex", file="/ms/main.tex")
+        where = LinesPlacement("ms", file="/ms/main.tex")
         targets = {p.core.pid: order_target(p, where) for p in pins}
         self.assertEqual(superseded_by(pins, lambda p: where), reference(pins, targets))
 
@@ -487,9 +489,9 @@ class LargeHistories(unittest.TestCase):
         def line(i):
             return latex(i, anchor={"head": "h%d" % i, "tail": "t%d" % i, "head_off": 0, "tail_off": 0}, **DONE)
 
-        on_lines = Placement("ms", "tex", file="/ms/main.tex")
+        on_lines = LinesPlacement("ms", file="/ms/main.tex")
         for make, where, want in ((line, on_lines, lambda n: 0), (figure, FIG_DOC, lambda n: n - 1)):
-            with self.subTest(where=where.kind):
+            with self.subTest(where=type(where).__name__):
                 self.assertLess(lines_of(2000, make, where, want) / lines_of(1000, make, where, want), 2.5)
 
     def test_a_hand_edited_anchor_offset_never_breaks_the_index(self):

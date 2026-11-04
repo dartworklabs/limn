@@ -40,7 +40,14 @@ from limn.pins.record import Broken, parse_record as record_parse_record, parse_
 from limn.pins.store import PinFiles, PinStore, Row
 from limn.pins.suggestion import suggestion_of
 from limn.pins.trash.service import PinTrash
-from limn.pins.verdict import Placement, superseded_by, whole_page_target
+from limn.pins.verdict import (
+    FigurePlacement,
+    LinesPlacement,
+    PagePlacement,
+    Placement,
+    superseded_by,
+    whole_page_target,
+)
 from limn.platform.files import tex_lines
 from limn.runtime import documents
 from limn.runtime.config import RunConfig
@@ -258,26 +265,31 @@ class PinCommands:
     def superseded_by_id(self, pins: Sequence[Pin]) -> dict[int, int]:
         """The verdict pins of `pins` (the full live set) that a newer verdict pin about the same target supersedes,
         {pin id: current verdict's id} (limn.pins.verdict.superseded_by, ADR-0023), never stored. Each verdict pin
-        is placed in its own document as the viewer places it: a LaTeX pin by the file pin_locator() finds for it now,
-        a view-only PDF's whole-page pin by whether its mark is only an estimate (pin_est, the document's estimation
-        facts read at most once per call); a pin of a document this instance does not serve has no target."""
+        is placed in its own document as the viewer places it, by the document's capabilities: a pin of a document
+        with an element map on its figure; a pin of any other document that takes line pins (LaTeX, Markdown) by the
+        file pin_locator() finds for it now; a view-only document's whole-page pin by whether its mark is only an
+        estimate (pin_est, the document's estimation facts read at most once per call). A pin of a document this
+        instance does not serve has no target."""
         locate = self.pin_locator()
         contexts: dict[str, EstContext | None] = {}
 
         def placement(pin: Pin) -> Placement | None:
-            """The pin's document, kind and the facts its kind's target reads, or None for an unserved document."""
+            """The pin's document and the facts its target reads, chosen by the document's capabilities, or None for
+            an unserved document. Only a view-only document's whole-page pin reads estimation facts."""
             key = self.pin_doc_key(pin.record)
             doc = self.doc_by_key(key)
             if doc is None:
                 return None
-            if doc.kind == "tex":
-                return Placement(key, doc.kind, file=located_file(pin, locate))
-            if doc.kind == "pdf" and whole_page_target(pin.record, figure_document=False, view_only_document=True):
-                if key not in contexts:
-                    contexts[key] = self._doc_est_context(key)
-                ctx = contexts[key]
-                return Placement(key, doc.kind, estimated=True if ctx is None else pin_est(pin.record, ctx))
-            return Placement(key, doc.kind)
+            if doc.has_element_map:
+                return FigurePlacement(key)
+            if doc.takes_line_pins:
+                return LinesPlacement(key, file=located_file(pin, locate))
+            if not whole_page_target(pin.record, figure_document=False, view_only_document=doc.view_only):
+                return PagePlacement(key)
+            if key not in contexts:
+                contexts[key] = self._doc_est_context(key)
+            ctx = contexts[key]
+            return PagePlacement(key, estimated=True if ctx is None else pin_est(pin.record, ctx))
 
         return superseded_by(pins, placement)
 

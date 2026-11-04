@@ -138,6 +138,14 @@ class DocStartLine(unittest.TestCase):
             "doc    rv         view-only sub/review.pdf",
         )
 
+    def test_a_markdown_document_reads_markdown_aligned_with_view_only(self):
+        """markdown prints 'Markdown' and one space, as wide as 'view-only'. No --doc suffix chooses this kind yet; the
+        label is the exhaustive match's case for it, so the type check passes."""
+        self.assertEqual(
+            serve_documents.doc_start_line("nt", "markdown", "notes/plan.md", False),
+            "doc    nt         Markdown  notes/plan.md",
+        )
+
 
 class FigureRegistration(unittest.TestCase):
     """A --doc path ending in documents.MAP_SUFFIX registers a figure document (docs/handbook/domain.md §여러 문서): its

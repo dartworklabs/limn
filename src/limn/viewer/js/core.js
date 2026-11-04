@@ -27,7 +27,7 @@ const KIND_REQ=Object.freeze({FIX:'fix',QUESTION:'question'});   // a pin's `kin
 const ROLE=Object.freeze({OWNER:'owner',EDITOR:'editor',VIEWER:'viewer',AGENT:'agent'});   // a person's `role` (access.ROLES)
 const EVENT_TYPE=Object.freeze({MENTION:'mention',REVIEW_REQUESTED:'review_requested',REPLIED:'replied',REOPENED:'reopened',ASSIGNED:'assigned',DROPPED:'dropped'});   // an event's `type` (events.EventType)
 const VIA=Object.freeze({SYNCTEX:'synctex',TEXT:'text',MAP:'map'});   // how a pick traced its range: a pick's and a pin's `via` (limn.pins.location.mapping.Via)
-const DOC_KIND=Object.freeze({TEX:'tex',PDF:'pdf',FIGURE:'figure'});   // a document's `kind` in /api/docs and /api/meta (limn.runtime.documents.DocKind)
+const DOC_KIND=Object.freeze({TEX:'tex',PDF:'pdf',FIGURE:'figure',MARKDOWN:'markdown'});   // a document's `kind` in /api/docs and /api/meta (limn.runtime.documents.DocKind)
 const EL_SYNC=Object.freeze({OK:'ok',MOVED:'moved',LOST:'lost'});   // where a figure pin's element is in the current build: a pin's `el_sync` (limn.builds.figure_map.ElSync)
 const SUGGEST_STATE=Object.freeze({READY:'ready',CHANGED:'changed',UNKNOWN:'unknown'});   // whether a pin's suggested edit still fits its lines: a pin's `suggest_state` (limn.pins.suggestion.SuggestState)
 const SAVE_MODE=Object.freeze({NEW:'new',APPEND:'append'});   // what a save of the composer's note does: a new pin, or the note joins the open pin the selection overlaps (assignOutcome)
@@ -62,6 +62,10 @@ function isFigureKind(kind){return kind===DOC_KIND.FIGURE;}
 // Whether a document of this `kind` is rebuilt from its source: only a LaTeX one. A view-only PDF and a figure redraw when their
 // files change, so they have no rebuild and word a finished build as a redraw.
 function buildsFromSource(kind){return kind===DOC_KIND.TEX;}
+// Whether a document of this `kind` is view-only - its pins are pages and regions, never lines (the server's view_only,
+// limn.runtime.documents.Doc.view_only): only a view-only PDF. Every other kind takes line pins.
+/** @param {string|undefined} kind */
+function isViewOnlyKind(kind){return kind===DOC_KIND.PDF;}
 // The key that ends an input method's composition is the method's (docs/handbook/viewer.md §조합을 끝내는 키): it only ends the
 // composition, also held down. While a syllable composes the browser marks its keys (isComposing, keyCode 229). But
 // ibus-hangul on Linux ends the composition first and then hands the very Enter or Esc on as a plain keydown: keydown Process

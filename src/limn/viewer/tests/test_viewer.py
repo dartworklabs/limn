@@ -2763,6 +2763,20 @@ class FrontendFigure(unittest.TestCase):
             [[False, True], [False, False], [True, False], [False, False], [False, False], [False, False]],
         )
 
+    def test_only_a_view_only_pdf_is_a_view_only_kind(self):
+        """isViewOnlyKind, which the verdict targets ask, is the server's view_only for each kind: true for a view-only
+        PDF alone - a LaTeX, figure and Markdown document take line pins - and false for a kind the page does not know
+        and for none, so such a pin is still placed on its lines as before."""
+        self.node()
+        js = "\n".join(
+            [
+                extract_js_fn("isViewOnlyKind"),
+                "const K=['tex','pdf','figure','markdown','video',undefined,null];"
+                "console.log(JSON.stringify(K.map(isViewOnlyKind)));",
+            ]
+        )
+        self.assertEqual(json.loads(run_node(js)), [False, True, False, False, False, False, False])
+
     def test_the_documents_list_marks_a_figure_and_keeps_the_pdf_mark(self):
         """The documents sheet marks a figure '그림' (English 'Figure'), keeps 'PDF' on a view-only PDF, and marks a
         LaTeX document with neither."""
