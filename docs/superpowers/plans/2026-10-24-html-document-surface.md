@@ -6,7 +6,7 @@ Scope: [HTML document surface — Markdown and other line-based sources](../spec
 
 - [x] Step 1: The owner settles the spec's open calls: decision 1 (Markdown pins store no `page`/`frac`), 4 (vendored markdown-it), 5 (security policy: raw HTML as placeholders, no remote images, CSP first) and the UI points of 7 seen in the PoC. Expected: a revised spec marked approved, with the exact approval recorded. Done 2026-11-04: decisions 1, 4 and 5 as recommended (spec status block).
 - [x] Step 2: ADR-0025 raised to `승인됨` at merge (partial supersession of ADR-0011 D1's scope wording and ADR-0020 D1's "LaTeX only").
-- [ ] Step 3: A separate design and ADR for the viewer page's Content-Security-Policy (`script-src 'self' 'sha256-…'`, `object-src 'none'`, `base-uri 'none'`; `img-src` and the PDF.js worker measured). It lands before the HTML surface.
+- [x] Step 3: A separate design and ADR for the viewer page's Content-Security-Policy (`script-src 'self' 'sha256-…'`, `object-src 'none'`, `base-uri 'none'`; `img-src` and the PDF.js worker measured). It lands before the HTML surface. Done 2026-11-04: [spec](../specs/2026-11-04-viewer-csp.md) and [ADR-0026](../../adr/0026-viewer-csp.md) approved with every recommendation (hashes only in `style-src`, enforced from the first release, `img-src 'self' https:`, the same policy on the refusal page); the enforced policy lands on branch `feat/viewer-csp`, and Task 5 builds under it (no `style` attributes, markdown-it `import()`ed and the parse Worker loaded from this origin, no `blob:` Worker).
 
 ## Task 1: Capabilities, registration, startup
 

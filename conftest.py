@@ -9,7 +9,7 @@ caught, by CI's job limits and faulthandler_timeout (docs/handbook/verification.
 
 from hypothesis import HealthCheck, settings
 
-pytest_plugins = ["helpers_shards"]
+pytest_plugins = ["helpers_shards", "helpers_csp"]
 
 settings.register_profile("limn", deadline=None, suppress_health_check=[HealthCheck.too_slow])
 settings.load_profile("limn")

@@ -20,6 +20,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
+from helpers_csp import allow_page_scripts
+
 if TYPE_CHECKING:
     from playwright.sync_api import Page, Route
 
@@ -205,7 +207,8 @@ class _FontDocumentRoute:
     def fulfill(self, *, status: int, headers: dict[str, str], body: bytes) -> None:
         """Transform only successful HTML, preserving all other response bytes."""
         if status == 200 and headers.get("content-type", "").startswith("text/html"):
-            body = prepare_font_document(body.decode("utf-8")).encode("utf-8")
+            page = prepare_font_document(body.decode("utf-8"))
+            headers, body = allow_page_scripts(headers, page), page.encode("utf-8")
         self.route.fulfill(status=status, headers=headers, body=body)
 
     def abort(self) -> None:

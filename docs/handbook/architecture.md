@@ -116,7 +116,7 @@ Python의 비공개 이름은 런타임 접근을 봉인하지 않는다. 검사
 
 ### 2. 서버 런타임은 표준 라이브러리만 쓴다
 
-`pyproject.toml`의 `dependencies = []`가 이 규칙의 실행 정본이다. Python 3.10 이상에서 돈다. 뷰어도 React·Tailwind·빌드 단계·CDN 없이 번들한 PDF.js, Pretendard 글꼴, Lucide만 쓴다. 뷰어의 CSS·JS가 여러 조각 파일이어도 번들러나 모듈 로더를 들이지 않는다. 서버가 `parts.txt` 순서대로 조각을 이어 인라인 `<style>`·`<script>` 하나씩으로 내보낸다. 배포가 패키지 설치 하나로 끝나야 연구실 머신에서 유지할 수 있기 때문이다. 개발 의존성(pytest, pytest-xdist, hypothesis, Playwright, Ruff, ShellCheck, mypy, 그리고 `package.json`의 TypeScript)은 이 규칙과 무관하다. TypeScript는 뷰어 JS의 타입을 검사만 하고 아무것도 만들지 않는다.
+`pyproject.toml`의 `dependencies = []`가 이 규칙의 실행 정본이다. Python 3.10 이상에서 돈다. 뷰어도 React·Tailwind·빌드 단계·CDN 없이 번들한 PDF.js, Pretendard 글꼴, Lucide만 쓴다. 뷰어의 CSS·JS가 여러 조각 파일이어도 번들러나 모듈 로더를 들이지 않는다. 서버가 `parts.txt` 순서대로 조각을 이어 인라인 `<style>`·`<script>` 하나씩으로 내보낸다. 인라인 요소는 속성 없는 꼴로만 쓰고, 페이지 정책이 그 글의 해시로 허용한다(불변식 9). 배포가 패키지 설치 하나로 끝나야 연구실 머신에서 유지할 수 있기 때문이다. 개발 의존성(pytest, pytest-xdist, hypothesis, Playwright, Ruff, ShellCheck, mypy, 그리고 `package.json`의 TypeScript)은 이 규칙과 무관하다. TypeScript는 뷰어 JS의 타입을 검사만 하고 아무것도 만들지 않는다.
 
 ### 3. 에이전트 계약은 호환을 깨지 않는다
 
@@ -142,6 +142,24 @@ Python의 비공개 이름은 런타임 접근을 봉인하지 않는다. 검사
 
 뷰어 UI 문자열의 원본은 템플릿 안 한국어이고, 영어 모드는 [`viewer/ui_en.json`](../../src/limn/viewer/ui_en.json) 대응표로 바꾼다. `pins.md`와 API 오류 문자열(`{"error": "<한국어>", "reason": "<코드>"}`)은 계약이라 번역하지 않는다. 뷰어의 영어 화면은 오류 문장을 옮기지 않고 안정 코드 `reason`으로 표의 영어 문장을 찾는다([api.md](api.md) §오류 응답). 코드·주석·docstring·테스트 이름·커밋 메시지·CLI 도움말은 영어로 쓴다.
 
+### 9. Limn의 HTML 페이지에서는 같은 출처의 스크립트와 해시가 맞는 인라인 코드만 돈다
+
+뷰어(`GET /`)와 브라우저에게 보이는 거절 페이지는 자기 Content-Security-Policy를 강제한다.
+
+```text
+default-src 'self'; script-src 'self' <인라인 스크립트 해시>; style-src 'self' <인라인 스타일 해시>;
+img-src 'self' https:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; frame-ancestors 'none'
+```
+
+- **해시는 보내는 글에서 잰다.** 실행의 자리표시(머리 스크립트의 언어, 스타일시트의 색)를 채운 뒤이고, HTML 토크나이저처럼 CR LF와 홀로 선 CR을 LF로 바꾼 뒤다. 계산은 [`limn/web/csp.py`](../../src/limn/web/csp.py)의 `page_policy` 한 곳이다. 뷰어는 `GET /` 가 보내는 그 페이지 객체로 한 번 재어 기억하고(`viewer/routes.py`), 거절 페이지는 보낼 때 잰다. 정책을 따로 저장하지 않으므로 정책과 페이지가 어긋날 수 없다. 조립(`viewer/assemble.py`)은 `limn.web` 을 모른다.
+- **읽는 법이 둘일 수 있는 꼴은 거부한다.** 속성 붙은 `<script>`·`<style>`, 글 안의 다른 닫는 태그, `<!--` 는 해시하지 않고 `ValueError` 로 거부한다(그 요청은 `500`). 실행이 바꾸는 값은 이스케이프한 이름·`#rrggbb` 색·`ko`·`en` 뿐이라, 꾸러미 페이지가 어떤 실행 값으로도 읽힌다는 것을 시험이 미리 확인한다. 조립 결함은 운영이 아니라 시험에서 드러난다.
+- **스크립트와 스타일은 같은 출처의 파일 또는 페이지의 허용 해시와 내용이 일치하는 인라인 요소만 허용하며, 누가 삽입했는지는 구별하지 않는다.** `'unsafe-inline'`·`'unsafe-eval'`·nonce·보고 주소는 없다. 글이 해시와 다른 인라인 스크립트·`<style>`, 인라인 처리기, `javascript:` 주소, `style` 속성은 막히고 다른 출처의 스크립트는 받지 않는다. `style` 속성과 허용 해시에 맞지 않는 인라인 `<style>`은 막힌다. 같은 출처의 스타일시트와 허용 해시에 맞는 `<style>`은 누가 삽입했든 적용되므로, CSS를 통한 유출을 모두 막는 것은 아니다. 다른 출처는 사람 사진의 `https:` 그림 하나다(`Tailscale-User-Profile-Pic`, 서버가 `https://` 만 받는다). 공급자마다 호스트가 달라 목록으로 좁히지 않았다. 그 대가로 사진 주소를 정한 사람은 그 그림을 받는 요청으로 누가 언제 뷰어를 열었는지 알 수 있다.
+- **처음부터 강제하고 끄는 길이 없다.** Report-Only로 내지 않는다. 보고를 받을 경로가 없으면 보고는 사용자의 콘솔에만 남고, 받을 경로를 두면 남이 쓸 수 있는 쓰기 경로가 생긴다. 정책을 끄거나 Report-Only로 바꾸는 실행 인자도 없다. 문제가 생기면 이전 태그로 업데이트한다(`limn update --ref <태그>`). 상태·저장·API가 바뀌지 않아 되돌려도 남는 것이 없다.
+- **그 밖의 응답은 `frame-ancestors 'none'` 하나다**(`FRAME_ONLY`). JSON, `pins.md`, PDF, 쪽 이미지, vendor 파일, 서비스 워커, 표준 라이브러리의 오류 쪽이 그렇다. 브라우저가 PDF를 자기 보기로 열 때 막지 않고, 에이전트가 받는 헤더는 그대로다. 처리기는 `_send(…, csp=)` 로 받은 정책을 그 응답의 `end_headers` 에서 한 번 쓴다. CSP 헤더가 둘이면 브라우저가 둘 다 지키므로 응답마다 하나만 보낸다.
+- **worker 안은 worker 응답의 정책을 따른다.** vendor 파일의 응답은 `FRAME_ONLY` 라 PDF.js worker 안의 코드는 이 제한을 받지 않는다. 그래서 worker로는 같은 출처의 번들 파일만 띄우고 `blob:` worker는 쓰지 않는다.
+
+정책은 주입의 피해를 좁힐 뿐 살균기가 아니다. 같은 출처의 스크립트 파일을 가리키는 `<script>` 요소와, 글이 페이지의 해시와 같은 인라인 스크립트는 누가 넣었든 돈다(CSP3는 해시를 내용으로 맞춘다). 그래서 남의 글이 마크업이 되지 않게 하는 첫 벽은 뷰어의 이스케이프와 렌더러 규율이고([viewer.md](viewer.md) §마크업 만들기), JS 조각이 `<script>`·`<style>` 요소를 만들지 않는다는 규칙도 정책이 아니라 정적 검사가 지킨다. 이 규칙이 깨지면 렌더러의 규율 하나가 무너질 때 주입된 인라인 스크립트나 다른 출처의 스크립트가 읽는 사람의 신원으로 Limn API를 부른다. 같은 출처에서 남이 쓴 문서를 그리는 화면(ADR-0025의 HTML 화면)은 이 정책 아래에서만 짓는다. 뷰어 작성 규칙은 [viewer.md](viewer.md) §페이지 정책, 시험은 [verification.md](verification.md) §브라우저 테스트의 페이지 정책에 있다. 결정의 경위는 [ADR-0026](../adr/0026-viewer-csp.md)이다.
+
 ## 멈춤 신호
 
 아래 변경은 코드부터 쓰지 말고 멈춘다. 설계를 먼저 정하고 검토한 뒤 구현하며, 되돌리기 어려운 결정이면 ADR을 남긴다. 절차는 [workflow.md](workflow.md) §기본 경로와 §결정 기록에 있다. 마지막 행(핵심 값이 코드에만 있음)만은 설계를 멈추지 않고, 그 값과 이유를 해당 topic에 적어 푼다.
@@ -152,5 +170,6 @@ Python의 비공개 이름은 런타임 접근을 봉인하지 않는다. 검사
 | 새 저장 파일이나 저장 형식 변경 | 상태 디렉터리에 새 파일, 레코드 필드 의미 변경 | 불변식 4, 6. 옛 상태와의 호환을 설계해야 한다 |
 | 새 상태 기계·권한·비동기 흐름 | 핀 상태 추가, 역할 기반 권한, 새 백그라운드 스레드 | 수명 주기와 동시성 규칙이 바뀐다 |
 | 에이전트 계약 변경 | `pins.md` 열, API 필드·경로·상태 이름 | 불변식 3 |
+| 페이지 정책을 넓힘 | `'unsafe-inline'`·`'unsafe-eval'`·nonce, 다른 출처나 `data:`·`blob:` 를 더함, 보고 경로, 정책을 끄는 실행 인자 | 불변식 9. 주입된 스크립트나 CSS가 도는 길이 열린다 |
 | 도메인에서 인프라로의 의존 역전 | 핀의 순수 모델·판단 모듈이 HTTP·파일·소켓·git을 직접 import | 의존 방향 위반 |
 | 핵심 값이 코드에만 있음 | 핀 번호 체계, 신원 판단 규칙 | 이유를 모르는 값은 다음 변경에서 조용히 바뀐다. 값과 이유를 [domain.md](domain.md)·[operations.md](operations.md)·[verification.md](verification.md) 중 맞는 topic에 적는다 |

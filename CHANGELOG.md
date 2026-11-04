@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+### Security
+
+- **The viewer permits hash-matching inline scripts and styles, and same-origin script and stylesheet files, whoever inserted them.** The viewer page and the page a
+  browser sees when it is refused now carry a Content-Security-Policy that is enforced from this release on: inline
+  code runs only if its text matches the SHA-256 of the page's own inline scripts and stylesheet, scripts and styles
+  load only from the same server, and the one outside resource is an `https:` avatar image. If someone else's text
+  gets markup into the page, an event handler, a `javascript:` URL or a `style` attribute in it is refused, an inline
+  script or stylesheet in it is refused unless its text matches one of the page's hashes, a script or style from
+  another site does not load, and an injected `<base>`, form, plugin or frame does nothing. This narrows what such an
+  injection can do; it is not a sanitizer: a script or stylesheet pointing at a file of this server, or inline text
+  matching one of the page's hashes, still runs or applies whoever inserted it. It is the
+  second wall, behind the viewer's escaping, that the Markdown documents of a coming release are drawn behind. Every
+  other response (JSON, `pins.md`, PDFs, page images) keeps `frame-ancestors 'none'` alone, so agents see no change.
+  - **What you see:** nothing should look or work differently. The viewer's four `style` attributes became CSS rules
+    of the same values (the instance colour stripe takes `--brand`).
+  - **Browser extensions:** an extension that inserts its own `<style>` or `<script>` into pages (a dark mode, a
+    grammar checker) may be partly blocked on the viewer, and the browser's console shows a CSP report for it. The
+    viewer itself is unaffected.
+  - **Rollback:** there is no option that turns the policy off or reports instead of enforcing. If a browser shows the
+    viewer broken by it, go back to the previous release (`limn update --ref v0.4.46`, which reinstalls it and restarts
+    the running instances); no state, pin, setting or API changed, so nothing is left behind.
+
 ### Fixed
 
 - **A notification's pin link opens the pin even when the light poll reads the list first.** Clicking a browser

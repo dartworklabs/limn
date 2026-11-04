@@ -303,14 +303,21 @@ class UnreadablePeople(AccessBase):
 
 
 class FramingHeaders(AccessBase):
-    """Every response forbids being framed by another page (clickjacking): X-Frame-Options DENY and a CSP whose only
-    directive is frame-ancestors 'none'. Page images are cached privately, like the PDFs."""
+    """Every response forbids being framed by another page (clickjacking): X-Frame-Options DENY and a CSP with
+    frame-ancestors 'none' - the only directive, but on one of Limn's HTML pages, whose policy is the page's own
+    (limn.web.csp, test_csp.py). Page images are cached privately, like the PDFs."""
 
     FRAMING = {"x-frame-options": "DENY", "content-security-policy": "frame-ancestors 'none'"}
 
     def framing(self):
-        """The two anti-framing headers of the last response."""
-        return {k: self.last_headers.get(k) for k in self.FRAMING}
+        """The two anti-framing headers of the last response, an HTML page's policy cut to its frame-ancestors."""
+        got = {k: self.last_headers.get(k) for k in self.FRAMING}
+        if (self.last_headers.get("content-type") or "").startswith("text/html"):
+            policy = got["content-security-policy"] or ""
+            got["content-security-policy"] = next(
+                (d.strip() for d in policy.split(";") if d.strip().startswith("frame-ancestors ")), policy
+            )
+        return got
 
     def test_html_json_errors_and_images_forbid_framing(self):
         """The viewer page, a JSON answer, a 404, a 401 and a 403 refusal page all carry both headers."""

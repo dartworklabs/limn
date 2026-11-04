@@ -758,7 +758,8 @@ class BuildHtmlSubstitution(unittest.TestCase):
         # the instance's own name is never translated (translate="no")
         self.assertIn('</svg></span><span translate="no">A-DEMO</span>', out)
         self.assertNotIn('id="brand-chip"', out)
-        self.assertIn('id="brand-stripe" style="background:#1d4ed8"', out)
+        self.assertIn('<div id="brand-stripe"></div>', out)  # its colour is --brand (tokens.css), no style attribute
+        self.assertIn("--brand:#1d4ed8;", out)
         self.assertNotIn("__LABEL__", out)
         self.assertNotIn("__LIMN_", out)
         self.assertNotIn("__ICON_KEY__", out)

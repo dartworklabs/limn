@@ -44,6 +44,7 @@ from helpers_browser import (
     settle,
     watch_idle,
 )
+from helpers_csp import add_test_style
 
 WORDS = {"format": "limn-verdicts/1", "verdicts": [{"key": "채택"}, {"key": "보류"}, {"key": "삭제", "confirm": True}]}
 AGENT = {"Tailscale-User-Login": "agentb@example.com", "Tailscale-User-Name": "Agent B"}
@@ -3115,8 +3116,9 @@ class LateFont(VerdictBase):
         self.held_font = []
         page.evaluate(
             r"""()=>{const f=performance.getEntriesByType('resource').map(e=>e.name).find(n=>/\/vendor\/pretendard\/.*\.woff2/.test(n));
-              const s=document.createElement('style'); s.textContent="@font-face{font-family:'Late Face';src:url('"+f+(f.includes('?')?'&':'?')+"late') format('woff2')}"+
-                "#doc .pv{font-family:'Late Face',monospace}"; document.head.appendChild(s);}"""
+              document.fonts.add(new FontFace('Late Face',"url('"+f+(f.includes('?')?'&':'?')+"late') format('woff2')"));
+              const s=new CSSStyleSheet(); s.replaceSync("#doc .pv{font-family:'Late Face',monospace}");
+              document.adoptedStyleSheets=[...document.adoptedStyleSheets,s];}"""
         )
         page.wait_for_function("()=>document.fonts.status==='loading'")
         page.evaluate("sizePv()")
@@ -3888,7 +3890,7 @@ class ReasonRoom(VerdictBase):
         The kept rows are made here by a measure-only padding on the line's state, as the fixture's words wrap otherwise."""
         page = self.on("fig", viewport={"width": 800, "height": 700})  # under the pages: no room for the panel
         page.evaluate("setSide(false)")
-        page.add_style_tag(content="#doc.pv-measure .pv:not(.reading)>.pv-t{padding-top:23px}")
+        add_test_style(page, "#doc.pv-measure .pv:not(.reading)>.pv-t{padding-top:23px}")
         page.evaluate("setK(420/META.pages[0].pt_w,false); ZOOMED=true")  # page 1 420px wide: its line stacks
         settle(page)
         page.evaluate(
@@ -9309,7 +9311,7 @@ class TouchDetails(VerdictBase):
         view, which went to the top (422 -> 0 on a 91-page document). Here the measure grows page 1's line by 400px, as the
         identifiers of a long document's lines above the reading page do together."""
         page = self.phone()
-        page.add_style_tag(content="#doc.pv-measure .pv[data-page='1']{padding-bottom:400px}")
+        add_test_style(page, "#doc.pv-measure .pv[data-page='1']{padding-bottom:400px}")
         page.context.new_cdp_session(page).send("Emulation.setPageScaleFactor", {"pageScaleFactor": 2})
         settle(page)
         page.evaluate(

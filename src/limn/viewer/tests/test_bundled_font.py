@@ -214,8 +214,9 @@ BUNDLED = re.compile(r"Pretendard Variable( \(\w+\))?")
 # A fallback far from Pretendard for the time its slices are held back: the sans stack is Pretendard Variable, then the
 # generic monospace - wider, with other ink - whatever fonts the machine has.
 MONO_FALLBACK = (
-    "document.addEventListener('DOMContentLoaded',()=>{const s=document.createElement('style');"
-    "s.textContent=':root:root{--font-sans:\"Pretendard Variable\",monospace}';document.head.append(s);});"
+    "document.addEventListener('DOMContentLoaded',()=>{const s=new CSSStyleSheet();"
+    "s.replaceSync(':root:root{--font-sans:\"Pretendard Variable\",monospace}');"
+    "document.adoptedStyleSheets=[...document.adoptedStyleSheets,s];});"
 )
 # What the viewer measured from text: the sheet bar's step and [더보기]'s foot ink line (layout.js fitBarWords, footInk).
 MEASURED = """() => {const f = document.querySelector('#more-foot').style;

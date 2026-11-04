@@ -1612,9 +1612,6 @@ COLOR_RE = re.compile(
 RADIUS_OK = re.compile(r"^(?:var\(--radius(?:-sm|-lg)?\)|0|50%)$")
 
 
-INLINE_STYLE_OK = {"background:__ACCENT__"}  # the instance label color — the server fills it in via the --accent value
-
-
 def css_rules():
     """The (selector, [(property, value)]) list inside <style>. Strips comments and flattens @media rules too."""
     css = HTML[HTML.index("<style>") + len("<style>") : HTML.index("</style>")]
@@ -1745,12 +1742,11 @@ class FrontendDesignTokens(unittest.TestCase):
         coarse = css[css.index("@media (pointer:coarse){") :]
         self.assertIn(":root{--doc-nav-h:48px;--text-xs:12px}", coarse[: coarse.index("\n}")])
 
-    def test_inline_styles_and_scripts_carry_no_design_literals(self):
+    def test_scripts_carry_no_design_literals(self):
+        """The markup carries no style attribute at all - the page's policy refuses one (test_viewer_csp.StaticGuards;
+        the instance colour is tokens.css's --brand) - and JS sets no colour or font size directly."""
         body = HTML[HTML.index("</style>") :]
-        for st in re.findall(r'style="([^"]*)"', body):
-            self.assertTrue(
-                st in INLINE_STYLE_OK or not (COLOR_RE.search(st) or re.search(r"font-size|radius", st)), st
-            )
+        self.assertEqual(re.findall(r'style="([^"]*)"', body), [])
         # JS never sets color or font size directly on an element's style (only width/height/coordinates/token variables)
         self.assertEqual(
             re.findall(r"\.style\.(?:color|background\w*|fontSize|borderRadius|borderColor)\s*=", body), []
@@ -4344,7 +4340,7 @@ class FrontendResponsiveBrowser(ChromiumTestCase):
         return None, got, False
 
     PIXEL_AT = """async ([b64]) => {
-      const img = new Image(); img.src = 'data:image/png;base64,' + b64; await img.decode();
+      const img = await createImageBitmap(new Blob([Uint8Array.from(atob(b64), ch => ch.charCodeAt(0))], {type: 'image/png'}));
       const c = document.createElement('canvas'); c.width = c.height = 1; const g = c.getContext('2d'); g.drawImage(img, 0, 0);
       const d = g.getImageData(0, 0, 1, 1).data; return 'rgb(' + d[0] + ', ' + d[1] + ', ' + d[2] + ')';
     }"""
