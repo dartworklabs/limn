@@ -615,6 +615,32 @@ class Picking(MarkdownBase):
             "(()=>{const s=getSelection(); s.selectAllChildren(document.body); return [mdSelectionPick(null),!!COMPOSE.current];})()"
         )
         self.assertEqual(everything, [False, False])
+        # From above the article to its very start: cut back, nothing of the document is left.
+        empty = page.evaluate(
+            "(()=>{const md=document.getElementById('md'),r=document.createRange();r.setStartBefore(md);r.setEnd(md,0);"
+            "const s=getSelection(); s.removeAllRanges(); s.addRange(r); return [mdSelectionPick(null),!!COMPOSE.current];})()"
+        )
+        self.assertEqual(empty, [False, False])
+
+    def test_a_selection_past_the_end_takes_a_last_block_with_no_text(self):
+        """A selection from the first paragraph to past the article takes the document's last block even when that block
+        has no character of its own - a closing thematic break, an empty fenced code block. Cut back to that block's end, the
+        selection did not end at the start of a next block (the rule that leaves such a line out is for an end inside the
+        document), so the block's lines stay in."""
+        page = self.open_md()
+        for name, text, hi in (("rule", "첫 문단.\n\n---\n", 3), ("empty code", "첫 문단.\n\n```\n```\n", 4)):
+            with self.subTest(last=name):
+                self.write(text)
+                page.evaluate("mdBuild()")
+                page.wait_for_function(DRAWN, timeout=20000)
+                settle(page)
+                got = page.evaluate(
+                    "(()=>{const md=document.getElementById('md'),r=document.createRange(),l=md.querySelector(\"[data-line='1']\");"
+                    "r.setStart(l.firstChild,0); r.setEndAfter(md); const s=getSelection(); s.removeAllRanges(); s.addRange(r);"
+                    "return [mdSelectionPick(null),COMPOSE.current&&COMPOSE.current.lo,COMPOSE.current&&COMPOSE.current.hi];})()"
+                )
+                self.assertEqual(got, [True, 1, hi])
+                page.evaluate("discardSelection()")
 
     def test_a_tap_on_a_block_no_longer_than_its_lines_picks_the_block(self):
         """A tap on a block whose lines are all the tapped lines - a raw HTML block's placeholder, a one-line paragraph -

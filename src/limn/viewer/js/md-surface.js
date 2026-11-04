@@ -489,8 +489,10 @@ function mdSelectionPick(tapTarget){const s=window.getSelection(),md=$('#md'); i
   if(s&&!s.isCollapsed&&s.rangeCount){const r0=s.getRangeAt(0),r=mdDocPart(r0,md); if(!r)return false;
     let a=mdRangeAt(r.startContainer),b=mdRangeAt(r.endContainer); if(!a||!b)return false;
     // A selection that ends before any character of its last line (a triple click ends at the start of the next block) does
-    // not take that line: nothing of it is selected.
-    if(b.lo>a.hi&&mdNothingOfEnd(r)){const prev=b.lo-1; b={lo:Math.max(a.lo,prev),hi:Math.max(a.lo,prev)};}
+    // not take that line: nothing of it is selected. An end mdDocPart cut back to the document's last element is no such end -
+    // the selection ran past that element, which may have no character of its own (a closing rule, an empty code block).
+    const cut=r!==r0&&!md.contains(r0.endContainer);
+    if(b.lo>a.hi&&!cut&&mdNothingOfEnd(r)){const prev=b.lo-1; b={lo:Math.max(a.lo,prev),hi:Math.max(a.lo,prev)};}
     let lo=Math.min(a.lo,b.lo),hi=Math.max(a.hi,b.hi); while(hi>lo&&!String(MD.lines[hi-1]||'').trim())hi--;
     mdPick({lo,hi},mdBlockAt(r.startContainer),mdBlockAt(r.endContainer),r===r0?s.toString():r.toString(),false); return true;}
   if(tapTarget){const t=/** @type {Element} */(tapTarget);
@@ -504,13 +506,14 @@ function mdSelectionPick(tapTarget){const s=window.getSelection(),md=$('#md'); i
 // The part of selection range r inside the document md: r itself when it lies inside; else r cut back to the document's first
 // and last line elements where it runs past them - a triple click on the last paragraph ends after the article, there being no
 // next block inside it to end at, and a drag may start above it. One end must be in the document: a selection with both ends
-// outside it (select-all, one made in the side panel) is no pick, as before - null, as for one that does not reach it.
+// outside it (select-all, one made in the side panel) is no pick, as before - null, as for one that does not reach it or one
+// that, cut back, takes nothing of it (from above the document to its very start).
 /** @param {Range} r @param {HTMLElement} md */
 function mdDocPart(r,md){if(md.contains(r.commonAncestorContainer))return r; if(!md.contains(r.startContainer)&&!md.contains(r.endContainer))return null;
   const els=mdLineEls(); if(!els.length)return null;
   const c=r.cloneRange(); if(!md.contains(r.startContainer))c.setStart(els[0],0);
   if(!md.contains(r.endContainer)){const e=els[els.length-1]; c.setEnd(e,e.childNodes.length);}
-  return c;}
+  return c.collapsed?null:c;}
 // Shows a link's description that does not open (a tap on it), until 4s pass or the next press.
 /** @param {HTMLElement} el */
 function mdRelTip(el){showTip(el); const txt=TIP.textContent; setTimeout(()=>{if(!TIP.hidden&&TIP.textContent===txt)hideTip();},4000);}
