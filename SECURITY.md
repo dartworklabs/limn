@@ -129,3 +129,9 @@ today — some manuscripts rely on their `latexmkrc`. The details are in
 Please report security issues privately via GitHub's "Report a vulnerability" (Security → Advisories)
 on this repository rather than in a public issue. Include the Limn version (`limn version`), how the
 instance is exposed, and steps to reproduce. We aim to acknowledge reports within a week.
+
+## Read requests
+
+GET (and any future HEAD implementation) cannot write persistent state or manuscript files, create folders, or schedule writing work. Bounded in-memory caches and bounded Git reads remain allowed after authentication and admission; this does not eliminate read denial of service. Fetch Metadata is not required for pure reads. Logs are outside this promise, with bounded duplicate suppression for read-reachable tracebacks and damaged-pin warnings.
+
+Opening a viewer no longer registers a person or updates their name, photo or seen timestamps. Only a real authorized changing POST records a person. A new reader with no stored row or pin participation is absent from people/mention candidates; an editor appears after their first change, while the owner must explicitly add a viewer with `limn member add`. Existing rows and roles remain intact. Background maintenance runs at startup and every 60 seconds; disk `pins.md` may lag one cycle (longer on slow or failed passes), while HTTP `/pins.md` computes current positions.

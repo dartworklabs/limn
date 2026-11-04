@@ -25,7 +25,7 @@ Limn은 하나의 `dartwork-limn` 배포 안에서 기능 소유권으로 나눈
 | --- | --- | --- |
 | 핀 | `pins/` | 모델·레코드·스레드 규칙, `store.py`의 트랜잭션, `context.py`의 실행 협력자, `revision.py`의 비교용 핀 사실. `application.py`와 `runtime.py`가 조회 계약·실행 협력자·경로를 조립한다. `needs.py`는 주입받는 빌드 조회와 그 답에서 읽는 멤버를 Protocol로, 문서 조회의 판정 낱말 조회를 타입으로 선언하고, `notice.py`는 핀이 내보내는 알림 값 `PinNotice`를 소유한다. 만들기·편집은 `editing/`, 처리 중 표시는 `claims/`, 전이는 `lifecycle/`, 삭제·복원은 `trash/`, 조회·Markdown은 `listing/`, 원문·PDF 위치 계산은 `location/` |
 | 빌드 | `builds/` | 결과 값(`values.py`), 산출물·이력·원고 지문(`artifacts.py`), 요청 시점의 파일·쪽 사실(`document_facts.py`), 컴파일·재빌드·PDF 감시·그림 지도 파싱(`figure_map.py`)·PDF/지도 가져오기(`figure.py`)와 응답 |
-| 협업 | `collaboration/` | 사람 후보·방문 기록 연결, `events.jsonl`, 멘션 알림·폴링. 핀의 태그·차례 규칙은 핀 소유권에 남고 조립 지점이 주입하는 값·동작으로 받는다. 받는 알림의 필드는 `contracts.py`의 `Notice` Protocol로 선언한다 |
+| 협업 | `collaboration/` | 사람 후보·실제 변경 기록 연결, `events.jsonl`, 멘션 알림·폴링. 핀의 태그·차례 규칙은 핀 소유권에 남고 조립 지점이 주입하는 값·동작으로 받는다. 받는 알림의 필드는 `contracts.py`의 `Notice` Protocol로 선언한다 |
 | 문서 조회 | `documents/` | 문서 탭·meta·목차 응답과 파싱, 문서 옆 판정 낱말 파일의 읽기·파싱과 응답 필드(`verdicts.py`). 브라우저가 그리는 문서의 원문 읽기(`source.py`, `GET /api/source`). `needs.py`는 주입받는 핀 수 조회·빌드 사실 조회와 그 답에서 읽는 멤버를 Protocol로 선언한다. 실행별 문서 자원은 `runtime/documents.py`가 소유한다 |
 | 비교 | `revisions/` | Git 이력·원고 diff·격리 비교 PDF·작업 캐시와 응답. `scope.py`가 diff 파싱·핀 범위 귀속·범위 패치와 사본 쓰기 계획을, `macros.py`가 latexdiff에 글 명령으로 넘길 원고 정의 명령의 판정을 소유한다. `needs.py`는 주입받는 핀 조회와 그 답에서 읽는 필드를 Protocol로 선언한다 |
 | 동기화 | `sync/` | 원격 main 감시·fast-forward·문서별 재빌드 선택 |
@@ -68,7 +68,7 @@ bounded listener는 worker 생성 전에 리스너별 불투명 owner와 재사�
 
 실패 종료는 불확실한 소유권에서 계속 입장하지 않는 안전성을 위해 같은 실행의 다른 요청·daemon 작업 가용성을 포기한다. runtime은 stop event를 세우고 등록 watcher를 각각 한 번 최대 5초 join한다. 렌더 executor의 interpreter exit join은 더 오래 걸릴 수 있어 전체 종료 SLA가 아니며, 새 drain·self-restart·자식 프로세스 정책·rollback을 더하지 않는다. 핀 파생 파일과 알림의 동시 완료, 중단 빌드 완료, 모든 descendant 회수는 보장하지 않는다. 기본 비활성과 주체별 비용 한도의 공백, 운영 예산 뒤 별도 활성화·옵션 제거 rollback은 [operations.md](operations.md) §선택형 연결 입장 상한이 설명한다. 출처: [ADR-0016 D5](../adr/0016-optional-connection-admission.md#d5-기존-정리-비용을-수용하고-활성화는-따로-결정한다).
 
-각 기능의 `assemble_*()`는 자신의 서비스와 HTTP 경로를 묶은 subsystem을 반환한다. `server.py`의 `ServerAssembly`는 이 결과들을 보관하는 값이며 기능 동작을 대신 수행하지 않는다. `WebApplication`에는 보안 검사, 문서 선택, 경로 등록과 방문 기록 협력자만 전달한다. 뷰어 오류 메시지와 설정도 명시적인 읽기 함수로 받는다. HTTP 처리기가 저장소나 기능 서비스 전체를 찾아 쓰는 구조를 허용하지 않는다.
+각 기능의 `assemble_*()`는 자신의 서비스와 HTTP 경로를 묶은 subsystem을 반환한다. `server.py`의 `ServerAssembly`는 이 결과들을 보관하는 값이며 기능 동작을 대신 수행하지 않는다. `WebApplication`에는 보안 검사, 문서 선택, 경로 등록과 실제 변경 뒤 사람 기록 협력자만 전달한다. 뷰어 오류 메시지와 설정도 명시적인 읽기 함수로 받는다. HTTP 처리기가 저장소나 기능 서비스 전체를 찾아 쓰는 구조를 허용하지 않는다.
 
 기능 사이에 오가는 사실은 아래와 같다. 모든 행에서 조립 지점이 공급자의 조회나 콜백을 주입하고, 소비 기능은 공급 기능을 import하지 않는다. 소비자는 공급자의 자료를 재조립하지 않고 필요한 사실을 질의한다. 쓰기·알림·동기화처럼 import 방향과 별개인 실행 연결은 조립 지점이 구체 명령이나 작은 콜백을 넘긴다. 범용 컨테이너나 이벤트 버스는 두지 않는다.
 
@@ -124,7 +124,7 @@ Python의 비공개 이름은 런타임 접근을 봉인하지 않는다. 검사
 
 ### 4. 핀 파일은 한 잠금 아래 정해진 순서로만 쓴다
 
-핀 파일을 만지는 모든 경로는 해당 서버 실행의 핀 잠금(`RT.pin_lock`)을 잡는다. 살아 있는 핀을 변경하는 경로는 **읽기 → 재동기화 → 요청한 변경 적용 → 원본 JSONL·`pins.md` 바이트 준비 → 정해진 순서로 파일 교체**를 지키고, [`limn/pins/store.py`](../../src/limn/pins/store.py)의 `PinStore.transact()`가 이 순서를 강제한다. 삭제는 준비 뒤 휴지통 → 원본 → Markdown, 되살리기는 원본 → Markdown → 휴지통 순서다. 휴지통 정리와 전체 지우기도 같은 잠금 아래에서 파일을 읽고 쓰며, 전체 지우기는 빈 Markdown을 렌더하고 살아 있는 핀의 휴지통 사본을 정리한 뒤 원본을 보관한다. 핀 파일(`pins.jsonl`·`pins.md`·`pins.dropped.jsonl`·`pins.seq`)을 쓰는 코드는 모두 `pins/store.py`에 있다. 잠금 없이 동시에 저장하면 각 요청이 같은 옛 내용을 읽고 자기 변경만 얹어 쓰므로, 나중 쓰기가 앞선 쓰기를 덮어 핀이 사라진다. 핀 번호는 `pins.seq`에서 발급하고 삭제 뒤에도 다시 쓰지 않는다. 상세는 [domain.md](domain.md) §저장소 안전성이다.
+핀 파일을 만지는 모든 경로는 해당 서버 실행의 핀 잠금(`RT.pin_lock`)을 잡는다. 살아 있는 핀을 변경하는 경로는 **읽기 → 재동기화 → 요청한 변경 적용 → 원본 JSONL·`pins.md` 바이트 준비 → 정해진 순서로 파일 교체**를 지키고, [`limn/pins/store.py`](../../src/limn/pins/store.py)의 `PinStore.transact()`가 요청의 순서를 강제한다. 요청과 독립된 `PinStore.maintain()`도 같은 잠금 아래 읽기·재동기화·전체 바이트 준비를 거쳐 변경한 파일만 교체하며, 준비·교체 실패에는 원본을 보존한다. 삭제는 준비 뒤 휴지통 → 원본 → Markdown, 되살리기는 원본 → Markdown → 휴지통 순서다. 휴지통 정리와 전체 지우기도 같은 잠금 아래에서 파일을 읽고 쓰며, 전체 지우기는 빈 Markdown을 렌더하고 살아 있는 핀의 휴지통 사본을 정리한 뒤 원본을 보관한다. 핀 파일(`pins.jsonl`·`pins.md`·`pins.dropped.jsonl`·`pins.seq`)을 쓰는 코드는 모두 `pins/store.py`에 있다. 잠금 없이 동시에 저장하면 각 요청이 같은 옛 내용을 읽고 자기 변경만 얹어 쓰므로, 나중 쓰기가 앞선 쓰기를 덮어 핀이 사라진다. 핀 번호는 `pins.seq`에서 발급하고 삭제 뒤에도 다시 쓰지 않는다. 상세는 [domain.md](domain.md) §저장소 안전성이다.
 
 ### 5. 원본 원고는 서버가 고치지 않는다
 
@@ -189,3 +189,9 @@ img-src 'self' https:; object-src 'none'; base-uri 'none'; form-action 'none'; f
 | 페이지 정책을 넓힘 | `'unsafe-inline'`·`'unsafe-eval'`·nonce, 다른 출처나 `data:`·`blob:` 를 더함, 보고 경로, 정책을 끄는 실행 인자 | 불변식 9. 주입된 스크립트나 CSS가 도는 길이 열린다 |
 | 도메인에서 인프라로의 의존 역전 | 핀의 순수 모델·판단 모듈이 HTTP·파일·소켓·git을 직접 import | 의존 방향 위반 |
 | 핵심 값이 코드에만 있음 | 핀 번호 체계, 신원 판단 규칙 | 이유를 모르는 값은 다음 변경에서 조용히 바뀐다. 값과 이유를 [domain.md](domain.md)·[operations.md](operations.md)·[verification.md](verification.md) 중 맞는 topic에 적는다 |
+
+## HTTP 읽기 능력과 유지 실행
+
+GET과 향후 HEAD의 읽기 범위는 HTTP 경계에서 정하고 요청에 걸친 협력자에 전달한다. `platform/effects.py`의 요청별 범위는 중첩 조회에도 유지되며, 핀 writer 발급과 보관된 writer의 변경 메서드, 원자적 파일 쓰기·잠금 파일·빌드·runtime 스레드 예약은 이 범위를 거절한다. 조회용 `PinReader`에는 저장 메서드가 없다. 권한을 받은 POST는 실제 변경을 관찰해 성공 뒤에만 사람을 기록한다. `GetRequest`는 사람 기록 협력자를 받지 않는다. 기존 POST 권한 범위 검사는 별도로 유지한다.
+
+재동기화 저장·파생 Markdown·휴지통의 실행 주체는 요청이 아니라 `pins/maintenance.py`다. 시작과 완료 후 60초 주기, 단일 실행, 변경 없으면 무쓰기, 준비 후 교체·실패 원복을 지킨다. HTTP 조회는 즉시 위치를 계산하고 디스크 파일은 한 주기 늦을 수 있다. 로그는 별도 제한을 두며 메모리 캐시·bounded Git 읽기만 예외다. 세부 한도와 독자 등록의 비용은 [api.md](api.md) §GET의 영속 무효과, [build-sync.md](build-sync.md) §요청과 독립된 핀 유지에 있다. [ADR-0027](../adr/0027-get-write-guard.md)의 승인된 B를 구현한 경계다.

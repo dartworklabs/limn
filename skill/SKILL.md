@@ -5,6 +5,8 @@ description: "Work with Limn, a browser viewer that turns a region picked on a L
 
 # Limn
 
+Disk `pins.md` can lag current pin positions by about 60 seconds during normal operation (longer if maintenance is slow or fails). HTTP `GET /pins.md` computes current positions immediately and never writes state. Opening the viewer does not register new readers; a person is recorded only after a real authorized changing POST. A reader with no stored record or pin participation is absent from people and mention candidates; the owner must explicitly register viewers with `limn member add`.
+
 English | [한국어](SKILL.ko.md)
 
 Limn (림, "to depict clearly") shows the manuscript PDF in a browser. A person drags over a region; SyncTeX maps it back to the `.tex` file and line range; Limn stores it with a note as a **pin** (a TODO with a location attached). Instead of a screenshot (1,000–1,600 tokens, no location) the agent receives one line such as `sections/method.tex L493-L501` (≈35 tokens) and reads and edits the source directly. Co-authors on the same tailnet leave pins through the same address, and Limn records who left each one.

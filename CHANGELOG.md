@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Security
+
+- Make every GET read-only through a request-scoped capability: no persistent writes, folder creation or writing-work scheduling, including pin resynchronization, Trash cleanup and comparison cache reads. Pure reads remain available without Fetch Metadata.
+- Bound path arguments before integer parsing and deduplicate/cap read-reachable error tracebacks and damaged-pin warnings.
+
+### Changed
+
+- Register people only after real authorized changing POSTs. Opening or polling no longer records readers or updates names/photos/seen timestamps; new readers without stored records or pin participation are absent from people and mention candidates. Owners must explicitly add viewers with `limn member add`. Existing rows and roles remain.
+- Resynchronize pins in memory for GET; maintain saved positions, derived Markdown and Trash at startup and every 60 seconds without overlapping passes or unchanged rewrites. Disk `pins.md` can lag a cycle (longer on slow/failed upkeep); HTTP `/pins.md` is current. Failed maintenance preserves originals.
+
 ## 0.4.49 — 2026-11-05
 
 ### Fixed
