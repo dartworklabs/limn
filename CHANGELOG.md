@@ -23,8 +23,10 @@
   viewer can draw one, so no instance serves one today; these rules hold for it once one is served.
   - A Markdown line pin has no `page`, `frac` or `pdf_build`. Sent with a new pin or a re-placement they are dropped
     unread, as an `el` is outside a figure document, so an agent's habitual `page: 1` is no refusal; no `pdf_build` is
-    stamped when none is sent; and any edit of such a pin, a note-only one too, removes the page fields and the legacy
-    `frac_build` a record still carries. A LaTeX line pin keeps its page fields exactly as before.
+    stamped when none is sent; and any write of such a pin removes the page fields and the legacy `frac_build` a record
+    still carries: an edit (a note-only one too), a claim or unclaim, a reply, a close (an agent's with `changes` too),
+    a confirmation, a reopen, a drop into the Trash, a restore, and the anchor re-sync. A LaTeX line pin keeps its page
+    fields exactly as before.
   - `scope` gains `block` and `section`, and pin kinds `md:paragraph`, `md:item`, `md:table`, `md:code`, `md:quote`,
     `md:html` and `md:section` appear. In `pins.md` the range column names them, a Markdown document's section title
     ends with `— Markdown(쪽 없음)` (a lone Markdown document is sectioned, as a figure document is), and the page

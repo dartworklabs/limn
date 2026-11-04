@@ -7,6 +7,7 @@ from limn.pins.claims.rules import ClaimClosedPin, ClaimedByOther, ClaimRequest,
 from limn.pins.context import PinContext, load_pin, typed_actor
 from limn.pins.location.position import epoch
 from limn.pins.model import DonePin, OpenPin, Pin, PinNotFound, ReviewPin
+from limn.pins.pages import keep_pages
 from limn.security.access import PostAuthority, require_authority
 
 
@@ -23,7 +24,8 @@ class PinClaims:
 
         The rule is limn.pins.claims.rules.claim(): a closed pin or another identity's live claim is refused (409 over HTTP),
         the same identity extends. The context supplies epoch time for expiry and a separate display timestamp
-        for the stored claim; each is read once when evaluating the request.
+        for the stored claim; each is read once when evaluating the request. A placed claim drops the page fields of a
+        line pin on a document without pages (limn.pins.pages.keep_pages), as every write of a pin does.
         """
         ctx = self.context()
         require_authority(actor, ctx.authority_scope, "claim", pid)
@@ -44,6 +46,7 @@ class PinClaims:
                 epoch(held.at) if held is not None else None,
             )
             if isinstance(result, OpenPin):
+                result = keep_pages(result, ctx.has_pages(result.record))
                 pins[i] = result
                 return result, True
             return result, False
@@ -51,7 +54,8 @@ class PinClaims:
         return ctx.store.transact(fn)[1]
 
     def unclaim_pin(self, pid: int, actor: PostAuthority) -> OpenPin | ReviewPin | DonePin | NotClaimed | PinNotFound:
-        """Clear the in-progress marker, whoever asks (actor is not checked); written only when there was a claim."""
+        """Clear the in-progress marker, whoever asks (actor is not checked); written only when there was a claim, and
+        then without the page fields of a line pin on a document without pages (limn.pins.pages.keep_pages)."""
         ctx = self.context()
         require_authority(actor, ctx.authority_scope, "unclaim", pid)
 
@@ -64,6 +68,7 @@ class PinClaims:
             result = unclaim(pin)
             if isinstance(result, NotClaimed):
                 return result, False
+            result = keep_pages(result, ctx.has_pages(result.record))
             pins[i] = result
             return result, True
 

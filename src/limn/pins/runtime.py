@@ -151,6 +151,13 @@ class PinCommands:
         doc = self.doc_by_key(self.pin_doc_key(r))
         return doc is not None and doc.watches_files
 
+    def has_pages(self, r: Record) -> bool:
+        """Whether the document pin record r belongs to (pin_doc_key) has pages: False for one the browser draws from
+        its source (Doc.renders_in_browser), True otherwise - also for a document this run does not serve, whose kind
+        is unknown, so its pins are written as they are."""
+        doc = self.doc_by_key(self.pin_doc_key(r))
+        return doc is None or not doc.renders_in_browser
+
     def refresh_files(self, r: Record) -> None:
         """Bring the files of the document pin record r belongs to up to date (the refresh_watched collaborator, by key)."""
         self.refresh_watched(self.pin_doc_key(r))
@@ -200,8 +207,9 @@ class PinCommands:
 
     def sync_all(self, pins: list[Pin]) -> bool:
         """The store's re-sync (PinStore.sync): stored pins' lines follow their anchors in the .tex files as this instance
-        finds them now (limn.pins.location.lookup.sync_all)."""
-        return locate_sync_all(pins, self.pin_locator())
+        finds them now (limn.pins.location.lookup.sync_all), a re-matched pin of a document without pages written
+        without page fields (has_pages)."""
+        return locate_sync_all(pins, self.pin_locator(), self.has_pages)
 
     def pin_store(self) -> PinStore:
         """The pin store (limn.pins.store) over the current run arguments - where the composition root wires it.
@@ -381,6 +389,7 @@ class PinCommands:
             watches_files=self.watches_files,
             refresh_files=self.refresh_files,
             verdict_keys=self.verdict_keys,
+            has_pages=self.has_pages,
         )
 
     def render_pins_md(self, pins: Sequence[Pin]) -> None:

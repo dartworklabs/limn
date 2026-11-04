@@ -5,7 +5,10 @@ A Markdown document (Doc.renders_in_browser) is drawn by the browser from its so
 are file, lo, hi, kind, scope and quote alone. The location parsers read the capability from the document's facts
 (DocumentFacts.renders_in_browser) and drop the page fields a request sends, as they drop an el outside a figure
 document; the pure rules take it as an argument (LinePlace's pages, decide_edit's pages) and every edit of such a pin
-removes page fields a record already carries. A LaTeX line pin keeps its page fields exactly as before.
+removes page fields a record already carries. Every other write of such a pin does too - a claim or unclaim, a reply,
+a close, a confirmation, a reopen, a drop into the Trash, a restore and the anchor re-sync - through limn.pins.pages,
+with the answer PinContext.has_pages gives for the pin's document. A LaTeX line pin keeps its page fields exactly as
+before.
 
 A Markdown document's lines are prose a person writes, so its line pins take a suggested edit, as a LaTeX document's
 do: the suggestion gate asks the capability Doc.takes_suggestions, not whether the document is built from LaTeX. A
@@ -20,6 +23,7 @@ Run: uv run pytest -q src/limn/pins/editing/tests/test_markdown_pins.py
 
 import itertools
 import json
+import os
 import unittest
 
 from limn.pins.editing import input as editing_input, location as editing_location
@@ -36,18 +40,23 @@ from limn.pins.editing.rules import (
     evolve_edit,
     new_line_pin,
 )
-from limn.pins.model import OpenPin
+from limn.pins.model import DonePin, OpenPin, ReviewPin
+from limn.pins.pages import keep_pages, page_fields_kept
 from limn.pins.suggestion import Suggestion
+from limn.pins.trash.rules import drop
 from limn.runtime import documents
 from limn.runtime.documents import Doc
 from limn.web.errors import InputRejected
 
-from helpers import Base, jreq, ps, req, split_resp
+from helpers import Base, jreq, ps, req, split_resp, trash_records
+from helpers_access import BOB, AccessBase
 from helpers_figure import BUILD1, SCRIPT, b2_map, figure_doc, script_lines, write_build
 from helpers_pin_rules import ALICE_PERSON, AT
 
 # The page fields a Markdown pin never keeps: the three a request may send, and the legacy frac_build a record may hold.
 PAGE_FIELDS = ("page", "frac", "pdf_build", "frac_build")
+# Their values as an older writer, a hand edit or a pin moved in from a generated .tex tab may have left them.
+LEGACY = {"page": 1, "frac": [0.1, 0.2, 0.3, 0.4], "pdf_build": "pages", "frac_build": "pages"}
 PLAN = (
     "# Plan\n"  # 1
     "\n"  # 2
@@ -194,6 +203,41 @@ class PagelessRecords(unittest.TestCase):
             decide_edit(
                 pin, EditRequest(base_rev=2, place=pageless_place()), ALICE_PERSON, AT, "10:00", None, 4000, pages=True
             )
+
+
+class PageFieldsOnWrite(unittest.TestCase):
+    """limn.pins.pages: what every write of a pin keeps of its page fields, given whether its document has pages."""
+
+    def test_a_line_pin_without_pages_loses_them_in_its_state_and_order(self):
+        """An open, a review and a done line pin each come back in their state without the four fields, the rest in
+        the stored order."""
+        for state, extra in ((OpenPin, {}), (ReviewPin, {"done": True, "review": True}), (DonePin, {"done": True})):
+            with self.subTest(state=state.__name__):
+                record = markdown_record(**extra)
+                out = keep_pages(state.from_record(record), False)
+                self.assertIsInstance(out, state)
+                self.assertEqual(list(out.record), [key for key in record if key not in PAGE_FIELDS])
+
+    def test_with_pages_or_with_none_to_drop_the_pin_is_the_same(self):
+        """A document with pages keeps every field, and a pin without page fields is handed back as it is, so its
+        stored line keeps its bytes."""
+        pin = OpenPin.from_record(markdown_record())
+        self.assertIs(keep_pages(pin, True), pin)
+        clean = OpenPin.from_record({k: v for k, v in markdown_record().items() if k not in PAGE_FIELDS})
+        self.assertIs(keep_pages(clean, False), clean)
+
+    def test_a_region_pin_keeps_its_place(self):
+        """A region pin's page and frac are its place: kept on a document without pages too."""
+        region = {"pdf": "/ms/r.pdf", "name": "r.pdf", "kind": "region", "page": 2, "frac": [0, 0, 1, 1], "id": 4}
+        self.assertEqual(page_fields_kept(region, False), region)
+        pin = OpenPin.from_record(region)
+        self.assertIs(keep_pages(pin, False), pin)
+
+    def test_the_trash_copy_takes_the_documents_pages(self):
+        """drop with pages=False leaves a Trash copy without the four fields; with pages it keeps them."""
+        pin = OpenPin.from_record(markdown_record())
+        self.assertEqual([k for k in PAGE_FIELDS if k in drop(pin, ALICE_PERSON, AT, pages=False).record], [])
+        self.assertEqual([k for k in PAGE_FIELDS if k in drop(pin, ALICE_PERSON, AT).record], list(PAGE_FIELDS))
 
 
 class MarkdownDocument(Base):
@@ -361,6 +405,183 @@ class PagelessPinsOverHttp(MarkdownDocument):
         code, d = self.post("/api/pins/%d/edit" % pid, {"base_rev": 1, "note": "다시"})
         self.assertEqual(code, 200, d)
         self.assertEqual((self.pin(pid)["page"], self.pin(pid)["frac"], self.pin(pid)["pdf_build"]), (2, *kept))
+
+
+class PagelessOnEveryWrite(MarkdownDocument, AccessBase):
+    """Not an edit alone: every write of a Markdown line pin whose record still carries page, frac, pdf_build and
+    frac_build drops all four (ADR-0025 D2) - a claim, an unclaim, a reply, a reopening reply, a person's close, an
+    agent's close with changes, a confirmation, a reopen, a drop (its Trash copy), a restore and the anchor re-sync. A
+    LaTeX line pin keeps them on each of those writes, and a refused write writes nothing. Records are read from
+    pins.jsonl as stored, without the re-sync a read through the store would run."""
+
+    def raw(self, pid):
+        """Pin pid's record as pins.jsonl holds it now, read without a re-sync."""
+        for line in ps.APP.C.pins_jsonl.read_text(encoding="utf-8").splitlines():
+            record = json.loads(line)
+            if record.get("id") == pid:
+                return record
+        self.fail("pin #%d is not in pins.jsonl" % pid)
+
+    def page_fields(self, record):
+        """The page fields record carries, with their values."""
+        return {key: record[key] for key in PAGE_FIELDS if key in record}
+
+    def legacy(self, pid):
+        """Give pin pid's stored record the four page fields, as LEGACY has them."""
+        self.stored_with(pid, **LEGACY)
+        self.assertEqual(self.page_fields(self.raw(pid)), LEGACY)
+
+    def act(self, pid, action, body=None, headers=None):
+        """POST /api/pins/{pid}/{action} - as the loopback agent, or as the person headers name - answered 200."""
+        code, d = self.call("POST", "/api/pins/%d/%s" % (pid, action), body or {}, headers)
+        self.assertEqual(code, 200, d)
+        return d
+
+    def assert_pageless_now(self, pid):
+        """Pin pid's stored record carries no page field."""
+        self.assertEqual(self.page_fields(self.raw(pid)), {})
+
+    def test_a_claim(self):
+        """POST /claim on a legacy record drops the four fields with the claim it places."""
+        pid = self.make_md()
+        self.legacy(pid)
+        self.act(pid, "claim")
+        self.assertIn("claimed_by", self.raw(pid))
+        self.assert_pageless_now(pid)
+
+    def test_an_unclaim(self):
+        """POST /unclaim of a claimed legacy record drops them with the claim."""
+        pid = self.make_md()
+        self.act(pid, "claim")
+        self.legacy(pid)
+        self.act(pid, "unclaim")
+        self.assertNotIn("claimed_by", self.raw(pid))
+        self.assert_pageless_now(pid)
+
+    def test_a_reply_in_each_state(self):
+        """An agent's reply - it never reopens - drops them on an open legacy record, on one awaiting review (an
+        agent's close) and on a done one (a person's close); the pin keeps its state and the reply is its last
+        thread entry."""
+        for state, closer in (("open", None), ("review", {}), ("done", BOB)):
+            with self.subTest(state=state):
+                pid = self.make_md()
+                if closer is not None:
+                    self.act(pid, "close", {}, closer or None)
+                self.legacy(pid)
+                self.act(pid, "reply", {"text": "확인했습니다"})
+                record = self.raw(pid)
+                shown = "review" if record.get("review") else "done" if record.get("done") else "open"
+                self.assertEqual((shown, record["thread"][-1]["text"]), (state, "확인했습니다"))
+                self.assert_pageless_now(pid)
+
+    def test_a_reopening_reply(self):
+        """A person's reply on a legacy record awaiting review reopens it and drops them."""
+        pid = self.make_md()
+        self.act(pid, "close")
+        self.legacy(pid)
+        self.act(pid, "reply", {"text": "다시 봐 주세요"}, BOB)
+        self.assertIs(self.raw(pid)["done"], False)
+        self.assert_pageless_now(pid)
+
+    def test_a_persons_close(self):
+        """A person's close of a legacy record (done at once) drops them."""
+        pid = self.make_md()
+        self.legacy(pid)
+        self.act(pid, "close", {"reply": "고쳤습니다"}, BOB)
+        self.assertNotIn("review", self.raw(pid))
+        self.assert_pageless_now(pid)
+
+    def test_an_agents_close_with_changes(self):
+        """An agent's close with changes (awaiting review) drops them; the changes are stored."""
+        pid = self.make_md()
+        self.legacy(pid)
+        self.act(pid, "close", {"reply": "고쳤습니다", "changes": [{"file": str(self.md), "lo": 3, "hi": 3}]})
+        record = self.raw(pid)
+        self.assertEqual((record["review"], record["changes"][0]["lo"]), (True, 3))
+        self.assert_pageless_now(pid)
+
+    def test_a_confirmation(self):
+        """A person's confirmation of a legacy record awaiting review drops them."""
+        pid = self.make_md()
+        self.act(pid, "close")
+        self.legacy(pid)
+        self.act(pid, "confirm", {}, BOB)
+        self.assertIn("confirmed_by", self.raw(pid))
+        self.assert_pageless_now(pid)
+
+    def test_a_reopen(self):
+        """POST /reopen of a closed legacy record drops them."""
+        pid = self.make_md()
+        self.act(pid, "close")
+        self.legacy(pid)
+        self.act(pid, "reopen", {"reason": "다시"})
+        self.assertIs(self.raw(pid)["done"], False)
+        self.assert_pageless_now(pid)
+
+    def test_a_drop(self):
+        """POST /drop of a legacy record leaves a Trash copy without them."""
+        pid = self.make_md()
+        self.legacy(pid)
+        self.act(pid, "drop")
+        (copy,) = [entry for entry in trash_records() if entry["id"] == pid]
+        self.assertEqual(self.page_fields(copy), {})
+
+    def test_a_restore(self):
+        """POST /restore of a Trash copy that still carries them brings the pin back without them."""
+        pid = self.make_md()
+        self.act(pid, "drop")
+        path = ps.APP.pin_store().files.dropped
+        entries = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+        path.write_text(
+            "".join(json.dumps({**e, **LEGACY} if e["id"] == pid else e, ensure_ascii=False) + "\n" for e in entries),
+            encoding="utf-8",
+        )
+        self.assertEqual(self.page_fields(trash_records()[-1]), LEGACY)
+        self.act(pid, "restore")
+        self.assert_pageless_now(pid)
+
+    def test_the_anchor_resync(self):
+        """Two lines added above a legacy record's lines move it on the next read (GET /api/pins re-syncs and writes
+        the pin), and that write drops them."""
+        pid = self.make_md(6, 7)
+        self.legacy(pid)
+        synced_at = self.raw(pid)["synced_at"]
+        self.md.write_text("# Intro\n\n" + PLAN, encoding="utf-8")
+        os.utime(self.md, (synced_at + 5, synced_at + 5))
+        code, _, out = split_resp(self.talk(req("GET", "/api/pins")))
+        self.assertEqual(code, 200, out)
+        self.assertEqual((self.raw(pid)["lo"], self.raw(pid)["hi"]), (8, 9))
+        self.assert_pageless_now(pid)
+
+    def test_a_latex_line_pin_keeps_them_on_every_write(self):
+        """The same writes of a LaTeX line pin carrying the four fields keep them, the Trash copy included."""
+        pid = self.make(doc="ms", file=str(self.main), lo=4, hi=5, note="n")
+        self.legacy(pid)
+        for action, body, headers in (
+            ("claim", {}, None),
+            ("unclaim", {}, None),
+            ("reply", {"text": "확인"}, None),
+            ("close", {}, None),
+            ("confirm", {}, BOB),
+            ("reopen", {"reason": "다시"}, None),
+            ("drop", {}, None),
+        ):
+            with self.subTest(action=action):
+                self.act(pid, action, body, headers)
+                record = trash_records()[-1] if action == "drop" else self.raw(pid)
+                self.assertEqual(self.page_fields(record), LEGACY)
+        self.act(pid, "restore")
+        self.assertEqual(self.page_fields(self.raw(pid)), LEGACY)
+
+    def test_a_refused_write_writes_nothing(self):
+        """A claim of a closed legacy record is refused (409) and its record keeps the four fields: only a write
+        drops them."""
+        pid = self.make_md()
+        self.act(pid, "close")
+        self.legacy(pid)
+        code, d = self.call("POST", "/api/pins/%d/claim" % pid, {})
+        self.assertEqual(code, 409, d)
+        self.assertEqual(self.page_fields(self.raw(pid)), LEGACY)
 
 
 PARAGRAPH = "First line of the paragraph.\nSecond line of the paragraph."  # PLAN lines 3-4

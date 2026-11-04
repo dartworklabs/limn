@@ -12,8 +12,9 @@ from typing import Any, NamedTuple, Protocol, TypeAlias
 from limn.pins.location import position
 from limn.pins.location.mapping import norm, pin_rel_path
 from limn.pins.location.position import EstContext, resync
-from limn.pins.model import DonePin, LineSpan, OpenPin, Pin, PinCore, ReviewPin
+from limn.pins.model import DonePin, LineSpan, OpenPin, Pin, PinCore, Record, ReviewPin
 from limn.pins.needs import BuildAnswers
+from limn.pins.pages import keep_pages
 from limn.platform.files import ManuscriptFile, file_in_tree, tree_part
 from limn.runtime.documents import Doc
 
@@ -155,10 +156,11 @@ def overlaps_for_range(file: str, lo: int, hi: int, pins: Sequence[Pin], locate:
 # ---------------------------------------------------------------- Anchors and re-syncing
 
 
-def sync_all(pins: list[Pin], locate: Locator) -> bool:
+def sync_all(pins: list[Pin], locate: Locator, has_pages: Callable[[Record], bool] = lambda record: True) -> bool:
     """If the manuscript is newer than a pin, re-match its line numbers via the anchor (limn.pins.location.position.resync).
-    A re-matched pin replaces its old state in pins; returns whether any pin changed. The pin store calls this under
-    its lock before every transaction (limn.pins.store.PinStore.sync).
+    A re-matched pin replaces its old state in pins - written like any pin, so without the page fields of a line pin
+    whose document has none (has_pages, limn.pins.pages.keep_pages); returns whether any pin changed. The pin store
+    calls this under its lock before every transaction (limn.pins.store.PinStore.sync).
 
     Open line pins only (a view-only PDF's pin has no lines). The pin's file is the one locate finds (ADR-0006: a moved
     checkout is followed; outside the tree is never read); a pin whose file cannot be located or is not a file now is
@@ -181,7 +183,7 @@ def sync_all(pins: list[Pin], locate: Locator) -> bool:
         lines, nlines, mtime = cache[f]
         new = resync(pin, span, lines, nlines, mtime, str(f))
         if new is not None:
-            pins[i] = new
+            pins[i] = keep_pages(new, has_pages(new.record))
             changed = True
     return changed
 

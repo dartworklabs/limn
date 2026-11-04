@@ -70,6 +70,8 @@ class PinContext:
     record's document: whether its files are watched, and the effect that pulls and imports them before a close
     awaiting review is written - called outside the lock. verdict_keys answers the verdict words a document declares
     now - called outside the lock, just before a new verdict pin's transaction, which checks the pin against them.
+    has_pages answers whether a pin record's document has pages: every write of a pin passes it to
+    limn.pins.pages.keep_pages, so a line pin of a document without pages loses the page fields it still carries.
     """
 
     store: PinStore
@@ -98,6 +100,9 @@ class PinContext:
     # The verdict keys a document declares now (limn.pins.needs.VerdictKeys), read just before a new pin's transaction
     # takes the pin lock. By default no document declares any, so every verdict pin is refused.
     verdict_keys: VerdictKeys = lambda doc: ()
+    # Whether the document a pin record belongs to has pages (not one the browser draws from its source, ADR-0025 D2).
+    # By default every document has.
+    has_pages: Callable[[Mapping[str, Any]], bool] = lambda record: True
 
     @property
     def authority_scope(self) -> AuthorityScope:

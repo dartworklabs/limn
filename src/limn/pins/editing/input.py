@@ -14,7 +14,6 @@ from limn.pins.editing.fields import (
 from limn.pins.editing.location import parse_loc, parse_region
 from limn.pins.editing.rules import (
     NULLABLE_TARGETS,
-    PAGE_FIELDS,
     AddRequest,
     EditRequest,
     LinePlace,
@@ -24,6 +23,7 @@ from limn.pins.editing.rules import (
     SuggestChange,
     UnreadLoc,
 )
+from limn.pins.pages import PAGE_FIELDS
 from limn.pins.suggestion import Suggestion
 from limn.web.errors import InputRejected
 from limn.web.parse import DocumentFacts, Json, int_field, parse_mention_hints

@@ -30,6 +30,7 @@ from limn.pins.lifecycle.rules import (
 )
 from limn.pins.mentions import pin_mentions_all, resolve_mentions
 from limn.pins.model import DonePin, OpenPin, Pin, PinNotFound, ReviewPin
+from limn.pins.pages import keep_pages
 from limn.security.access import PostAuthority, require_authority
 
 
@@ -55,6 +56,9 @@ class PinLifecycle:
         closed pin arrive after the edited figure is on screen. A refresh that raises never keeps the pin open: the
         error is printed to stderr, as the watch prints its own, and the close goes on; the watch catches up. The pin is
         read again under the lock for the close itself.
+
+        Like every write of a pin, a close of a line pin on a document without pages (ctx.has_pages) drops the page
+        fields the record still carries (limn.pins.pages.keep_pages, ADR-0025 D2).
         """
         ctx = self.context()
         require_authority(actor, ctx.authority_scope, "close", pid)
@@ -82,7 +86,7 @@ class PinLifecycle:
                 return event, False
             if not isinstance(pin, OpenPin):
                 raise AssertionError("decide_close accepted a pin that was already closed")
-            closed = evolve_close(pin, event)
+            closed = evolve_close(keep_pages(pin, ctx.has_pages(pin.record)), event)
             pins[i] = closed
             r = closed.record
             if isinstance(closed, ReviewPin):
@@ -130,7 +134,8 @@ class PinLifecycle:
         An agent is refused before the store is touched. Otherwise the pin is loaded under the pin lock
         (transact) and lifecycle.confirm() decides, with shown - the done_at of the close the person saw, or None for
         any close; only a new DonePin is written, in the pin's place, so the saved line keeps its field order. Every
-        other outcome, ShownCloseChanged included, is returned unchanged and writes nothing. No notice.
+        other outcome, ShownCloseChanged included, is returned unchanged and writes nothing. No notice. The confirmed
+        pin keeps no page field on a document without pages (limn.pins.pages.keep_pages).
         """
         ctx = self.context()
         require_authority(actor, ctx.authority_scope, "confirm", pid)
@@ -147,6 +152,7 @@ class PinLifecycle:
             i, pin = found
             result = confirm(pin, person, ctx.now(), shown)
             if isinstance(result, DonePin):
+                result = keep_pages(result, ctx.has_pages(result.record))
                 pins[i] = result
                 return result, True
             return result, False
@@ -169,7 +175,8 @@ class PinLifecycle:
         (ev=reopen, the same notices), so the pin returns to the open table of pins.md with that reason. Otherwise it is a
         plain reply, refused as ThreadFull when the thread already holds ctx.thread_max replies; every @-tag in it is a
         mention (whether or not tagged before), and the author plus everyone previously tagged on this pin who is not
-        tagged here gets a replied notice. The poster themself gets neither.
+        tagged here gets a replied notice. The poster themself gets neither. Either reply drops the page fields of a
+        line pin on a document without pages (limn.pins.pages.keep_pages).
         """
         ctx = self.context()
         require_authority(actor, ctx.authority_scope, "reply", pid)
@@ -196,12 +203,13 @@ class PinLifecycle:
             )
             author = (pin.core.author or {}).get("login")
             before = pin_mentions_all(pin)
+            pages = ctx.has_pages(pin.record)
             replied: OpenPin | ReviewPin | DonePin
             match event:
                 case ThreadFull():
                     return event, False
                 case PinReopened():
-                    replied = reopen_request(pin, event)
+                    replied = keep_pages(reopen_request(pin, event), pages)
                     pins[i] = replied
                     r = replied.record
                     msg = r["thread"][-1]
@@ -218,7 +226,7 @@ class PinLifecycle:
                         )
                     )
                 case Replied():
-                    replied = _with_reply(pin, event)
+                    replied = _with_reply(pin, event, pages)
                     pins[i] = replied
                     r = replied.record
                     msg = r["thread"][-1]
@@ -250,14 +258,15 @@ def _reopen(
     """POST /reopen's step (inside transact): the pin reopened by limn.pins.lifecycle.rules.reopen_request, rev bumped, and
     - if it was closed - a mention queued for everyone the reason @-tags and reopened for the author (the @-tags are
     resolved against the people on pins). A reopening reply calls reopen_request itself in reply_pin. Returns the
-    reopened pin; the caller puts it in pin's place."""
+    reopened pin - without page fields on a document without pages (limn.pins.pages.keep_pages); the caller puts it in
+    pin's place."""
     ment = (
         resolve_mentions(reason or "", ctx.known_people(pins), hints, exclude=actor.get("login"))
         if not isinstance(pin, OpenPin)
         else []
     )
     event = decide_reopen(pin, typed_actor(actor), ctx.now(), reason, tuple(ment))
-    opened = reopen_request(pin, event)
+    opened = keep_pages(reopen_request(pin, event), ctx.has_pages(pin.record))
     if event.was_closed:
         r = opened.record
         _reopen_notices(ctx, r, actor, ment, r["thread"][-1], evs)
@@ -276,12 +285,13 @@ def _reopen_notices(
     )
 
 
-def _with_reply(pin: Pin, event: Replied) -> Pin:
-    """evolve_reply() on a pin of any state: the rule keeps the state, so each state goes in as its own type."""
+def _with_reply(pin: Pin, event: Replied, pages: bool) -> Pin:
+    """evolve_reply() on a pin of any state, then keep_pages with pages (whether its document has pages): the rule
+    keeps the state, so each state goes in as its own type."""
     match pin:
         case OpenPin():
-            return evolve_reply(pin, event)
+            return keep_pages(evolve_reply(pin, event), pages)
         case ReviewPin():
-            return evolve_reply(pin, event)
+            return keep_pages(evolve_reply(pin, event), pages)
         case DonePin():
-            return evolve_reply(pin, event)
+            return keep_pages(evolve_reply(pin, event), pages)

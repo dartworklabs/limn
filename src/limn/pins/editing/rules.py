@@ -19,18 +19,8 @@ from limn.pins.editing.values import (
 )
 from limn.pins.element import element_of
 from limn.pins.location.mapping import VIAS
-from limn.pins.model import (
-    Actor,
-    DonePin,
-    KindReq,
-    LineSpan,
-    OpenPin,
-    Pin,
-    Record,
-    ReviewPin,
-    is_kind_req,
-    is_region_pin,
-)
+from limn.pins.model import Actor, DonePin, KindReq, LineSpan, OpenPin, Pin, Record, ReviewPin, is_kind_req
+from limn.pins.pages import PAGE_FIELDS, page_fields_kept
 from limn.pins.suggestion import Suggestion, lines_text
 from limn.pins.thread import PinT, author, rev_after, signature, thread_message, with_entry
 from limn.pins.verdict import verdict_of
@@ -59,11 +49,6 @@ LOC_FIELDS = (
 
 # A region without a quote or an el drops the previous one.
 REGION_PLACE_FIELDS = ("page", "frac", "quote", "pdf_build", "el")
-
-# Where on a page a line pin was picked, and on which build: what a line pin of a document without pages - one the
-# browser draws from its source - never keeps (docs/adr/0025-html-document-surface.md D2). frac_build is the legacy
-# name of pdf_build.
-PAGE_FIELDS = ("page", "frac", "pdf_build", "frac_build")
 
 
 @dataclass(frozen=True)
@@ -817,9 +802,7 @@ def evolve_edit(
             record["scope"] = event.scope
         if event.kind is not None:
             record["kind"] = event.kind
-    if not event.pages and not is_region_pin(record):
-        for key in PAGE_FIELDS:
-            record.pop(key, None)
+    record = page_fields_kept(record, event.pages)
     if where is not None:
         record["file"], record["file_rel"] = where.path, where.rel
     if anchoring is not None:

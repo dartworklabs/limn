@@ -28,7 +28,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 CORPUS = ROOT / "tests" / "data" / "pin_records.jsonl"
 TAG = "v0.4.46"
-# The page fields no Markdown record carries (limn.pins.editing.rules.PAGE_FIELDS).
+# The page fields no Markdown record carries (limn.pins.pages.PAGE_FIELDS).
 PAGE_FIELDS = ("page", "frac", "pdf_build", "frac_build")
 
 # v0.4.46's own store: typed parsing bound to DOC_KEY_RE and is_actor as its server binds them, PinStore(files, lock,
