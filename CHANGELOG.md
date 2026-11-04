@@ -34,9 +34,9 @@
     stored, or a hand edit, has none on a LaTeX document.
   - The suggestion gate asks the document's capability (`takes_suggestions`), so a Markdown line pin takes a suggested
     edit with the same limits, base check and `suggest_state`; a view-only PDF, a figure document and a region pin still
-    answer `suggest_unsupported`, whose message now names LaTeX and Markdown. The `bad_scope` message lists the two new
-    values. The SKILL counts broken Markdown (a table row's cell count, unclosed emphasis or code, a list item's
-    indentation) among the obvious errors to check before applying a suggestion.
+    answer `suggest_unsupported`, whose message now names LaTeX and Markdown, in Korean and in the English viewer. The
+    `bad_scope` message lists the two new values. The SKILL counts broken Markdown (a table row's cell count, unclosed
+    emphasis or code, a list item's indentation) among the obvious errors to check before applying a suggestion.
   - A request that names only a file goes to the Markdown document whose file it is, even beside a LaTeX main or a
     figure document in the same folder and whatever order the documents are registered in; every other file goes by
     folder as before, so a `.tex` below a Markdown document's folder stays with the LaTeX document.

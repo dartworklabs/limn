@@ -259,7 +259,7 @@
  "reason:suggest_base_changed": "The lines changed since this suggestion was written; the response holds their current text.",
  "reason:suggest_noop": "The suggested text is the same as the original.",
  "reason:suggest_too_long": "The suggested edit is too long (at most 80 lines and 16,000 characters each).",
- "reason:suggest_unsupported": "Suggested edits work only on line pins of a LaTeX document.",
+ "reason:suggest_unsupported": "Suggested edits work only on line pins of a LaTeX or Markdown document. For a view-only PDF, a figure document or a region pin, ask in the note.",
  "reason:synctex_outside": "SyncTeX points outside the manuscript. Rebuild the PDF and select again.",
  "reason:text_empty": "The text is empty.",
  "reason:text_required": "Write something first.",

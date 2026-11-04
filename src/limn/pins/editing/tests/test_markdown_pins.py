@@ -24,6 +24,7 @@ Run: uv run pytest -q src/limn/pins/editing/tests/test_markdown_pins.py
 import itertools
 import json
 import os
+import shutil
 import unittest
 
 from limn.pins.editing import input as editing_input, location as editing_location
@@ -48,7 +49,7 @@ from limn.runtime import documents
 from limn.runtime.documents import Doc
 from limn.web.errors import InputRejected
 
-from helpers import Base, jreq, ps, req, split_resp, trash_records
+from helpers import UI_EN, Base, jreq, js_i18n, ps, req, run_node, split_resp, trash_records
 from helpers_access import BOB, AccessBase
 from helpers_figure import BUILD1, SCRIPT, b2_map, figure_doc, script_lines, write_build
 from helpers_pin_rules import ALICE_PERSON, AT
@@ -651,6 +652,29 @@ class MarkdownSuggestionsOverHttp(MarkdownDocument):
         self.assertEqual(ps.APP.read_pins()[0], [])
         pid = self.make_md(suggest={"base": PARAGRAPH, "text": "x"})
         self.assertEqual(self.pin(pid)["suggest"]["text"], "x")
+
+    def test_the_refusal_names_markdown_in_either_language(self):
+        """The 400 suggest_unsupported body a view-only PDF's pin gets, shown through the viewer's own errText (the
+        reason's English entry in en, the server's Korean text in ko), names Markdown beside LaTeX in both languages."""
+        (self.src / "review.pdf").write_bytes(b"%PDF-1.4\n%%EOF\n")
+        rv = Doc("rv", "리뷰", "pdf", self.src, self.src / "review.pdf", paths=ps.APP.C.paths)
+        ps.APP.set_docs([self.ms, self.nt, rv])
+        body = {"doc": "rv", "page": 1, "frac": [0.1, 0.1, 0.2, 0.2], "suggest": {"base": "a", "text": "b"}}
+        code, refusal = self.post("/api/pin", body)
+        self.assertEqual((code, refusal["reason"]), (400, "suggest_unsupported"), refusal)
+        if not shutil.which("node"):
+            self.skipTest("node not available")
+        shown = {
+            lang: json.loads(
+                run_node(js_i18n(lang) + "\nconsole.log(JSON.stringify(errText(%s)));" % json.dumps(refusal))
+            )
+            for lang in ("en", "ko")
+        }
+        self.assertEqual(shown, {"en": UI_EN["reason:suggest_unsupported"], "ko": refusal["error"]})
+        for lang, text in shown.items():
+            with self.subTest(lang=lang):
+                self.assertIn("LaTeX", text)
+                self.assertIn("Markdown", text)
 
 
 class FileOnlyRouting(Base):
