@@ -245,6 +245,22 @@ class TestReadContract(Base):
         self.assertEqual(status, 200)
         self.assertEqual(json.loads((self.state / "people.json").read_text())["people"][0]["login"], A_LOGIN)
 
+    def test_synchronous_rebuild_records_the_person_after_publication(self):
+        """A synchronous rebuild POST that publishes new state registers its human just like a saved pin."""
+        from limn.builds.service import BuildRequests
+        from limn.builds.values import BuildOk
+
+        def publish(doc, *args, **kwargs):
+            """Stand in for the compiler at its owned adapter, publishing a real file to this temporary state."""
+            files.atomic_write(self.state / "published-test.txt", "published")
+            return BuildOk("", 0.0, None, None, None, "head", "pages", 1)
+
+        with mock.patch.object(BuildRequests, "tracked", side_effect=publish):
+            status, _, _ = self.response("POST", "/api/rebuild", {}, headers=ALICE)
+        self.assertEqual(status, 200)
+        self.assertTrue((self.state / "people.json").exists())
+        self.assertEqual(json.loads((self.state / "people.json").read_text())["people"][0]["login"], A_LOGIN)
+
     def test_maintenance_converges_and_leaves_unchanged_files(self):
         """Independent upkeep saves positions/Markdown, prunes Trash, then leaves identical inodes and mtimes."""
         self.dirty()

@@ -66,13 +66,17 @@ def build_now(D: BuildDoc, run: Callable[[], FinishedBuild]) -> FinishedBuild | 
     """Run one build of D synchronously. If D is already building, returns BuildBusy without waiting.
 
     run is the tracked build (see run_tracked) bound to D by the caller. One lock per document - different
-    documents build concurrently (each has its own build folder)."""
+    documents build concurrently (each has its own build folder). A successful new publication marks a real
+    request change for human registration; busy, unchanged and failed outcomes do not."""
     require_writer()
     lock = D.lock
     if not lock.acquire(blocking=False):
         return BuildBusy()
     try:
-        return run()
+        result = run()
+        if isinstance(result, BuildOk | BuildOkWithErrors):
+            changed()
+        return result
     finally:
         lock.release()
 

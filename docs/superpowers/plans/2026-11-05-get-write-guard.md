@@ -41,6 +41,8 @@
 
 브라우저는 임시 원고·상태와 127.0.0.1의 두 서버에서 Chromium·Firefox 각각 8개 진입 방식과 두 출처 관계(총 32개)를 검사했다. script/img/link의 JSON 응답은 브라우저의 opaque-response 차단으로 response 이벤트 없이 끝날 수 있어 onload/onerror 완료와 서버 수신 기록을 함께 확인한다. boot·실제 light poll·unload에서 자동 POST가 없고 상태·원고 파일의 bytes/inode/mtime이 같다.
 
-검증: ruff check·format(594개 파일), mypy 두 플랫폼(173개 파일), boundaries, typecheck, strict ratchet(오류 0), core(3,753 통과·1 건너뜀·6,516 subtests), architecture(111 통과), instance 셸(222 통과), 지정 browser 및 새 외부 진입 검사(75 통과·WebKit 3 건너뜀·132 subtests), Handbook check와 git diff --check 통과. 새 계약 파일만 실행하면 12개·3,800 subtests가 통과한다. 요청에서 요구한 최종 커밋의 독립 Codex 리뷰는 소유 세션으로 돌려준다. 원격 push·PR·상시 인스턴스 조작은 하지 않았다. 검토 서버는 만들지 않았으며 수정 정본 Markdown을 직접 검토한다.
+검증: ruff check·format(594개 파일), mypy 두 플랫폼(173개 파일), boundaries, typecheck, strict ratchet(오류 0), core(3,754 통과·1 건너뜀·6,516 subtests), architecture(111 통과), instance 셸(222 통과), 지정 browser 및 새 외부 진입 검사(75 통과·WebKit 3 건너뜀·132 subtests), Handbook check와 git diff --check 통과. 새 계약 파일만 실행하면 13개·3,800 subtests가 통과한다. 요청에서 요구한 최종 커밋의 독립 Codex 리뷰는 소유 세션으로 돌려준다. 원격 push·PR·상시 인스턴스 조작은 하지 않았다. 검토 서버는 만들지 않았으며 수정 정본 Markdown을 직접 검토한다.
 
 GET inventory와 실제 코드의 불일치는 찾지 못했다. 구현 중 새 읽기 범위의 PermissionError를 사람 기록의 옛 OSError 복구가 삼키는 점은 기록 진입점의 writer 검사로 고쳤다. 화면/문구는 그대로다. mentions.js의 "이 뷰어를 연 테일넷 사람만" 안내와 대응 영어 번역, unknown_assignee 오류의 같은 안내, CLI 멤버 목록의 LAST SEEN은 이제 실제 변경 기록의 의미와 맞지 않아 소유자 PoC 대상이다. 실제 Tailscale Serve·trusted-proxy 브라우저 세션과 WebKit 실행은 이 환경에서 검증하지 않았다. 새 기능 간 import는 없고 공통 platform의 읽기 효과 범위만 각 소유 기능에 연결했다.
+
+최종 POST 점검에서 동기 재빌드의 새 발행이 사람 등록 관찰값을 세우지 않던 누락을 고쳤다. 실제 임시 파일을 발행하는 컴파일 adapter fixture로 `people.json`이 없다는 실패를 먼저 확인하고, 성공한 새 발행이 관찰값을 세운 뒤 통과함을 확인했다. busy·변경 없음·실패는 등록하지 않는다. 마지막 제품 커밋 뒤 core(3,754 통과·1 건너뜀·6,516 subtests), 지정 browser+외부 진입(75 통과·3 건너뜀·132 subtests), architecture(111 통과)와 정적·타입 게이트를 재확인했다.
