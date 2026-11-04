@@ -5,8 +5,9 @@ ref and changes, a confirm, a reopen, an edit, the Trash and back, and the refus
 agent, a stale edit, a claim on a closed pin, a missing pin) - runs through the real handler with the clock, the time
 zone and the paths pinned. Every answer (status and body), pins.md after every write, and at the end GET /pins.md,
 GET /api/pins, GET /api/pins/<id> and GET /api/pins/dropped are compared with tests/data/contract_snapshot.json
-(docs/handbook/verification.md §4), so a refactor that changes any of these bytes fails here. The figure flow and the
-verdict flow are recorded apart, in tests/data/contract_snapshot_figure.json and tests/data/verdict_snapshot.json.
+(docs/handbook/verification.md §4), so a refactor that changes any of these bytes fails here. The figure flow, the
+verdict flow and the Markdown flow are recorded apart, in tests/data/contract_snapshot_figure.json,
+tests/data/verdict_snapshot.json and tests/data/contract_snapshot_markdown.json.
 
 Paths are written as <ROOT> (the temporary folder), the clock is 2026-09-26 10:00:00 +09:00 whatever the machine's
 zone. A deliberate contract change (docs/handbook/api.md, approved first) re-records the snapshot:
@@ -449,6 +450,109 @@ class VerdictContractSnapshot(SnapshotBase):
         self.step("verdicts: GET /api/pins?all=1", "GET", "/api/pins?all=1")
         self.step("verdicts: GET /api/pins/<c>", "GET", "/api/pins/%d" % c)
         self.assert_recorded(VERDICT_SNAPSHOT)
+
+
+MARKDOWN_SNAPSHOT = Path(__file__).resolve().parents[2] / "tests" / "data" / "contract_snapshot_markdown.json"
+# A Markdown document of the flow: a heading, a paragraph, a list and a table.
+PLAN_MD = "# Plan\n\nFirst line of the paragraph.\nSecond line of the paragraph.\n\n- item one\n- item two\n\n| a | b |\n|---|---|\n| 1 | 2 |\n"
+
+
+class MarkdownContractSnapshot(SnapshotBase):
+    """The Markdown flow, recorded in tests/data/contract_snapshot_markdown.json (docs/adr/0025-html-document-surface.md
+    D2, D3, D8): a LaTeX document ms and a Markdown document nt (notes/plan.md), made directly since no --doc suffix
+    chooses one yet. An agent's line pin sent with page fields out of habit, a block, a section, a suggested edit on a
+    list item and a LaTeX pin beside them; a re-placement that sends page fields again and a note edit; a drop and the
+    Trash; then pins.md, the pin list and the suggestion's pin. No Markdown pin answers or stores a page field, and the
+    page column shows `—` for them. The older flows never meet a Markdown document, and their snapshots stay byte for
+    byte as they were."""
+
+    def setUp(self):
+        """The pinned clocks; ms and nt; the Markdown file's mtime T0."""
+        super().setUp()
+        (self.src / "notes").mkdir()
+        self.md = self.src / "notes" / "plan.md"
+        self.md.write_text(PLAN_MD, encoding="utf-8")
+        os.utime(self.md, (T0, T0))
+        ms = Doc("ms", "본문", "tex", self.src, self.main, paths=ps.APP.C.paths)
+        nt = Doc("nt", "계획", "markdown", self.src / "notes", self.md, paths=ps.APP.C.paths)
+        ps.APP.set_docs([ms, nt])
+        self.addCleanup(ps.APP.set_docs, None)
+
+    def test_the_markdown_pin_flow_answers_as_recorded(self):
+        """Every answer and pins.md along the Markdown flow equal the recorded snapshot."""
+        md, main = str(self.md), str(self.main)
+        habit = {"page": 1, "frac": [0.1, 0.1, 0.2, 0.2], "pdf_build": "pages"}
+        a = self.step(
+            "markdown: agent pins lines, sending page fields out of habit",
+            "POST",
+            "/api/pin",
+            {"doc": "nt", "file": md, "lo": 3, "hi": 4, "note": "문장을 줄여 줘", **habit},
+        )["id"]
+        b = self.step(
+            "markdown: person pins a table block",
+            "POST",
+            "/api/pin",
+            {
+                "doc": "nt",
+                "file": md,
+                "lo": 9,
+                "hi": 11,
+                "scope": "block",
+                "kind": "md:table",
+                "quote": "a b 1 2",
+                "note": "칸을 하나 더",
+            },
+            ALICE,
+        )["id"]
+        c = self.step(
+            "markdown: person pins the section",
+            "POST",
+            "/api/pin",
+            {"doc": "nt", "file": md, "lo": 1, "hi": 11, "scope": "section", "kind": "md:section", "note": "절 순서"},
+            BOB,
+        )["id"]
+        d = self.step(
+            "markdown: person suggests an edit of a list item",
+            "POST",
+            "/api/pin",
+            {
+                "doc": "nt",
+                "file": md,
+                "lo": 6,
+                "hi": 6,
+                "scope": "block",
+                "kind": "md:item",
+                "note": "",
+                "suggest": {"base": "- item one", "text": "- the first item"},
+            },
+            ALICE,
+        )["id"]
+        self.step(
+            "markdown: agent pins LaTeX lines beside them",
+            "POST",
+            "/api/pin",
+            {"doc": "ms", "file": main, "lo": 4, "hi": 5, "page": 1, "note": "n"},
+        )
+        self.step(
+            "markdown: person re-places the agent's pin, sending page fields again",
+            "POST",
+            "/api/pins/%d/edit" % a,
+            {"base_rev": 0, "loc": {"file": md, "lo": 3, "hi": 3, **dict(habit, page=2)}},
+            ALICE,
+        )
+        self.step(
+            "markdown: person edits the block's note",
+            "POST",
+            "/api/pins/%d/edit" % b,
+            {"base_rev": 0, "note": "칸을 둘 더"},
+            ALICE,
+        )
+        self.step("markdown: person drops the section pin", "POST", "/api/pins/%d/drop" % c, {}, BOB)
+        self.step("markdown: the Trash", "GET", "/api/pins/dropped")
+        self.step("markdown: GET /pins.md", "GET", "/pins.md")
+        self.step("markdown: GET /api/pins", "GET", "/api/pins")
+        self.step("markdown: GET /api/pins/<d>", "GET", "/api/pins/%d" % d)
+        self.assert_recorded(MARKDOWN_SNAPSHOT)
 
 
 if __name__ == "__main__":
