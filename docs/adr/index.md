@@ -31,7 +31,7 @@
 | [ADR-0025](0025-html-document-surface.md) | Markdown 문서를 HTML 화면으로 받는다 — 브라우저가 원문을 그리고, 그린 블록이 원문 줄을 가리킨다 | `.md` 를 `markdown` 종류로 받아 뷰어가 markdown-it으로 그리고, 핀은 `page` 없는 줄 핀이며, 제안 관문과 판정 대상을 능력으로 가르고, 그린 문서는 아무것도 실행하거나 불러오지 않는다 | 승인됨 | 부분 대체: [ADR-0011](0011-figure-documents.md) D1의 지원 범위 문구에 Markdown을 더함, [ADR-0020](0020-suggested-edit-pins.md) D1의 "LaTeX 문서의 줄 핀에만" 한 구절 | — |
 | [ADR-0026](0026-viewer-csp.md) | Limn의 HTML 페이지에 해시 기반 Content-Security-Policy를 강제한다 | 뷰어 `GET /` 와 거절 페이지는 보낼 글에서 잰 인라인 해시와 `'self'` 만 허용하는 정책(엄격한 `style-src`, `img-src 'self' https:`, `object-src`·`base-uri`·`form-action`·`frame-src`·`frame-ancestors` `'none'`)을 첫 판부터 강제하고, 그 밖의 응답은 `frame-ancestors 'none'` 하나로 둔다. [ADR-0025](0025-html-document-surface.md) D6이 HTML 화면의 앞선 조건으로 따로 정하기로 한 결정이며 ADR-0025를 대체하지 않는다 | 승인됨 | — | — |
 
-| [ADR-0027](0027-get-write-guard.md) | GET의 영속 유지 쓰기를 없애 외부 이동 뒤의 기동도 읽기로 둔다 | 모든 GET을 영속 무효과로 만들고 방문은 실제 변경 때, 핀·휴지통 유지는 요청과 독립된 주기로 옮기는 안을 제안한다 | 제안 | — | — |
+| [ADR-0027](0027-get-write-guard.md) | GET의 영속 유지 쓰기를 없애 외부 이동 뒤의 기동도 읽기로 둔다 | 모든 GET을 영속 무효과로 만들고 방문은 실제 변경 때, 핀·휴지통 유지는 시작과 60초 주기로 옮긴다. 헤더 없는 순수 GET은 받고, 한도 있는 메모리 캐시·Git 조회만 읽기 예외다 | 승인됨 | — | — |
 
 ## 읽는 법
 
