@@ -4,14 +4,15 @@
 
 ### Security
 
-- **The viewer refuses inline code it did not send and scripts from other sites.** The viewer page and the page a
+- **The viewer runs only its own inline code and same-server scripts and styles.** The viewer page and the page a
   browser sees when it is refused now carry a Content-Security-Policy that is enforced from this release on: inline
   code runs only if its text matches the SHA-256 of the page's own inline scripts and stylesheet, scripts and styles
   load only from the same server, and the one outside resource is an `https:` avatar image. If someone else's text
-  gets markup into the page, an inline script or event handler, a `javascript:` URL, an inline stylesheet or a `style`
-  attribute in it is refused, a script from another site does not load, and an injected `<base>`, form, plugin or
-  frame does nothing. This narrows what such an injection can do; it is not a sanitizer: a script element pointing at
-  a file of this server, or inline text matching one of the page's hashes, still runs whoever inserted it. It is the
+  gets markup into the page, an event handler, a `javascript:` URL or a `style` attribute in it is refused, an inline
+  script or stylesheet in it is refused unless its text matches one of the page's hashes, a script or style from
+  another site does not load, and an injected `<base>`, form, plugin or frame does nothing. This narrows what such an
+  injection can do; it is not a sanitizer: a script or stylesheet pointing at a file of this server, or inline text
+  matching one of the page's hashes, still runs or applies whoever inserted it. It is the
   second wall, behind the viewer's escaping, that the Markdown documents of a coming release are drawn behind. Every
   other response (JSON, `pins.md`, PDFs, page images) keeps `frame-ancestors 'none'` alone, so agents see no change.
   - **What you see:** nothing should look or work differently. The viewer's four `style` attributes became CSS rules

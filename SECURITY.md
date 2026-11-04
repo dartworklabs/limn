@@ -60,10 +60,11 @@ What the server does defend against:
   `<script>` and `<style>` elements (taken per run, after the interface language and the accent are filled in), and
   scripts, styles and other files load only from the same origin: no `'unsafe-inline'`, no `'unsafe-eval'`, no nonce,
   no report endpoint, and no option turns the policy off. So if text written by someone else gets markup into the
-  page, an inline script or event handler, a `javascript:` URL, an inline `<style>` or a `style` attribute in it is
-  refused, a script from another origin does not load, and an injected `<base>`, form, plugin or frame does nothing.
-  The policy narrows what such an injection can do; it is not a sanitizer. A `<script>` element that points at a
-  script of this origin still runs, and so does an inline script whose text matches one of the page's hashes,
+  page, an event handler, a `javascript:` URL or a `style` attribute in it is refused, an inline `<script>` or
+  `<style>` in it is refused unless its text matches one of the page's hashes, a script or stylesheet from another
+  origin does not load, and an injected `<base>`, form, plugin or frame does nothing. The policy narrows what such
+  an injection can do; it is not a sanitizer. A `<script>` or stylesheet link that points at a file of this origin
+  still runs or applies, and so does an inline `<script>` or `<style>` whose text matches one of the page's hashes,
   whoever inserted it (CSP3 matches a hash by content). Keeping other people's text from becoming markup at all is
   the viewer's job (it builds markup only through escaping templates, docs/handbook/viewer.md), and the policy is the
   wall behind it. The one other origin is an `https:` image, for avatars (`Tailscale-User-Profile-Pic`,
