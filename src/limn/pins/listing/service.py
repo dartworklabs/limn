@@ -10,7 +10,7 @@ from limn.pins.location.position import EstContext
 from limn.pins.model import Pin, PinNotFound, Record
 from limn.pins.needs import FollowElement
 from limn.pins.retention import expires_ts, unexpired, without_live_shadows
-from limn.pins.store import PinStore
+from limn.pins.store import PinReader
 
 Json = dict[str, Any]
 
@@ -18,7 +18,7 @@ Json = dict[str, Any]
 class ListingDeps(Protocol):
     """Only the run-specific facts that JSON pin views need."""
 
-    def pin_store(self) -> PinStore:
+    def pin_reader(self) -> PinReader:
         """The run's pin store and lock."""
         ...
 
@@ -90,7 +90,7 @@ class PinListing:
 
     def dropped_payload(self, now: float | None = None) -> list[Json]:
         """Visible Trash entries from one locked read of live and dropped files."""
-        store = self.deps.pin_store()
+        store = self.deps.pin_reader()
         with store.lock:
             pins = store.read_pins()[0]
             entries = store.read_dropped()[0]

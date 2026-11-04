@@ -615,7 +615,7 @@ class ManuscriptRevisions(Base):
                 revisions.AllSlotsBusy(),
             )
         spec = revision_spec(self.latest)
-        root = revision_jobs.revision_cache_root(ps.APP.docs[0])
+        root = revision_jobs.revision_cache_root(ps.APP.docs[0], create=True)
         jobdir = root / spec.key
         jobdir.mkdir()
         (jobdir / "revision.pdf").write_bytes(b"%PDF-1.4")
@@ -631,7 +631,7 @@ class ManuscriptRevisions(Base):
 
     def test_corrupt_revision_cache_is_a_miss(self):
         spec = revision_spec(self.latest)
-        root = revision_jobs.revision_cache_root(ps.APP.docs[0])
+        root = revision_jobs.revision_cache_root(ps.APP.docs[0], create=True)
         jobdir = root / spec.key
         jobdir.mkdir()
         for content in ("[]", "null", "1", "bad JSON", '{"state":"running"}', '{"state":"ready"}'):
@@ -769,7 +769,7 @@ class ManuscriptRevisions(Base):
             if held:
                 jobs.slots.release()
         self.assertEqual(got, [True, True])
-        with (revision_jobs.revision_cache_root(ps.APP.docs[0]) / "build.lock").open("a") as lock:
+        with (revision_jobs.revision_cache_root(ps.APP.docs[0], create=True) / "build.lock").open("a") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             fcntl.flock(lock, fcntl.LOCK_UN)
 
@@ -777,7 +777,7 @@ class ManuscriptRevisions(Base):
         """Every way revision_start can stop after claiming a build slot - the document's lock held by another
         process, a symlinked job folder, an error while preparing the job, a thread that cannot start - gives the slot
         and the lock back and leaves no job registered; so does a worker that finished."""
-        root = revision_jobs.revision_cache_root(ps.APP.docs[0])
+        root = revision_jobs.revision_cache_root(ps.APP.docs[0], create=True)
         with (root / "build.lock").open("a") as other:
             fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)
             self.assertEqual(
@@ -1380,7 +1380,7 @@ class ScopedErrorBodies(ScopedRepo):
             with self.subTest(case=name), mock.patch.object(revisions, "revision_changes", side_effect=fake):
                 st = self.build_status(self.p2)
                 self.assertEqual((st["state"], st["error"], st["reason"]), ("error", msg, reason))
-                shutil.rmtree(revision_jobs.revision_cache_root(ps.APP.docs[0]))
+                shutil.rmtree(revision_jobs.revision_cache_root(ps.APP.docs[0], create=True))
         spec = revision_spec(self.fix, self.p2)
         bad = ("ms/../evil.tex", "ms/../evil.tex", 0, 1, 0, 1)
         evil = scoping.FileChange(bad[0], bad[1], (b"x\n",), (b"y\n",), (scoping.Block(0, 1, 0, 1),), False)
@@ -1728,7 +1728,7 @@ class ScopeReviewRegressions(AccessBase):
 
     def test_scoped_comparisons_never_evict_whole_commit_ones(self):
         """m4: pin-scoped cache entries have their own limit, so many pins do not push out the whole-commit PDFs."""
-        root = revision_jobs.revision_cache_root(ps.APP.docs[0])
+        root = revision_jobs.revision_cache_root(ps.APP.docs[0], create=True)
         whole = [root / ("%064x" % i) for i in range(3)]
         scoped = [root / ("%064x" % (100 + i)) for i in range(revisions.REVISION_SCOPED_KEEP + 4)]
         for i, d in enumerate(whole + scoped):

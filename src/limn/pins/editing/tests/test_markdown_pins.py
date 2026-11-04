@@ -551,6 +551,7 @@ class PagelessOnEveryWrite(MarkdownDocument, AccessBase):
         os.utime(self.md, (synced_at + 5, synced_at + 5))
         code, _, out = split_resp(self.talk(req("GET", "/api/pins")))
         self.assertEqual(code, 200, out)
+        ps.APP.assembly.pins.startup.maintain()
         self.assertEqual((self.raw(pid)["lo"], self.raw(pid)["hi"]), (8, 9))
         self.assert_pageless_now(pid)
 
@@ -587,6 +588,7 @@ class PagelessOnEveryWrite(MarkdownDocument, AccessBase):
         self.assertEqual(self.raw(pid)["note"], "다시")
         self.assertEqual(self.page_fields(self.raw(pid)), LEGACY)
         self.act(pid, "edit", {"base_rev": 1, "loc": {"file": str(self.main), "lo": 8, "hi": 9}})
+        ps.APP.assembly.pins.startup.maintain()
         self.assertEqual((self.raw(pid)["lo"], self.raw(pid)["hi"]), (8, 9))
         self.assertEqual(self.page_fields(self.raw(pid)), LEGACY)
         self.act(pid, "edit", {"base_rev": 2, "loc": {"file": str(self.main), "lo": 8, "hi": 9, "page": 2}})

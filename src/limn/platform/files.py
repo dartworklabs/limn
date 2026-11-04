@@ -23,11 +23,14 @@ import fcntl
 import os
 import re
 import stat
+import tempfile
 import threading
-from collections.abc import Collection, Iterator
+from collections.abc import Collection, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeAlias
+
+from limn.platform.effects import require_writer
 
 PATH_MAX_CHARS = 4096  # a longer name is refused before it reaches the file system
 
@@ -36,6 +39,7 @@ def atomic_write(path: Path, text: str, mode: int | None = None) -> None:
     """Write to a temp file in the same directory, then os.replace - readers only ever see the old file or the new one.
     With mode (e.g. 0o600 for tokens.json) the temp file is created with that mode, so the content is never readable by
     others, even briefly. A failed write or replacement leaves the old file and removes the partial temp file."""
+    require_writer()
     tmp = path.with_name(".%s.tmp%d.%d" % (path.name, os.getpid(), threading.get_ident()))
     try:
         if mode is None:
@@ -67,6 +71,7 @@ def store_lock(state: Path, name: str) -> Iterator[None]:
     """Cross-process lock around one read-modify-write of a state file. The running server (record_person) and
     `limn member` / `limn token` may write the same file at once; a thread lock alone would let one of them
     overwrite the other's change with stale data. The lock file (.<name>.lock) stays in the state dir."""
+    require_writer()
     fd = os.open(str(Path(state) / (".%s.lock" % name)), os.O_RDWR | os.O_CREAT, 0o600)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX)
@@ -318,3 +323,47 @@ def vendor_file(base: Path, name: object, suffixes: Collection[str]) -> Path | N
     if f.parent != base or f.suffix not in suffixes or not f.is_file():
         return None
     return f
+
+
+def replace_files(replacements: Mapping[Path, str | bytes]) -> None:
+    """Stage a small file set before replacing; on failure restore the original inodes and bytes.
+
+    Callers hold their resource lock. Hard links retain originals until the whole pass succeeds. This is
+    rollback for I/O failures, not a multi-file crash transaction; after a crash the next pass converges.
+    """
+    require_writer()
+    if not replacements:
+        return
+    first = next(iter(replacements))
+    with tempfile.TemporaryDirectory(prefix=".maintenance-", dir=first.parent) as folder:
+        temporary = Path(folder)
+        backups: dict[Path, Path | None] = {}
+        staged: dict[Path, Path] = {}
+        for index, (path, text) in enumerate(replacements.items()):
+            backup = temporary / (str(index) + ".old")
+            if path.exists():
+                os.link(path, backup)
+                backups[path] = backup
+            else:
+                backups[path] = None
+            staged[path] = temporary / str(index)
+            if isinstance(text, bytes):
+                with staged[path].open("wb") as output:
+                    output.write(text)
+                    output.flush()
+                    os.fsync(output.fileno())
+            else:
+                atomic_write(staged[path], text)
+        committed: list[Path] = []
+        try:
+            for path, source in staged.items():
+                os.replace(source, path)
+                committed.append(path)
+        except BaseException:
+            for path in reversed(committed):
+                original = backups[path]
+                if original is None:
+                    path.unlink()
+                else:
+                    os.replace(original, path)
+            raise

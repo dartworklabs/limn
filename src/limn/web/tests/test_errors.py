@@ -319,6 +319,10 @@ class RefusalBodies(AccessBase):
         err = io.StringIO()
         with (
             mock.patch.object(PinLocationService, "overlaps", side_effect=RuntimeError(text)),
+            mock.patch(
+                "limn.web.handler.diagnostics",
+                __import__("limn.platform.diagnostics", fromlist=["BoundedDiagnostics"]).BoundedDiagnostics(),
+            ),
             contextlib.redirect_stderr(err),
         ):
             code, d = self.call("GET", "/api/overlaps?file=%s&lo=1&hi=2" % self.main, headers=headers, token=token)

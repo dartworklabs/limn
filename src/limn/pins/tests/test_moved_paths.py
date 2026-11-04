@@ -351,6 +351,7 @@ class MovedManuscript(MovedManuscriptBase):
         self.use_root(self.b)
         pins = self.api_pins()
         self.assertEqual((pins[self.p_new]["lo"], pins[self.p_old]["lo"]), (7, 12))
+        ps.APP.assembly.pins.startup.maintain()
         stored = self.stored()
         self.assertEqual(stored[self.p_old]["file"], str(self.b / "sections" / "x.tex"))  # lines and file describe B
         self.assertNotIn("file_rel", stored[self.p_old])  # still no backfill

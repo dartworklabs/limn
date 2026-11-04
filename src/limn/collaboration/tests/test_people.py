@@ -309,14 +309,15 @@ class PeopleOnTheServer(Base):
             ps.APP.notices.emit_events([{"type": "mention", "pin": 1, "to": ["x"]}])
         self.assertFalse(ps.APP.C.events_file.exists())
 
-    def test_viewer_open_records_person_and_people_api_merges_pin_actors(self):
+    def test_reads_do_not_register_people_and_api_merges_pin_actors(self):
+        """ADR-0027: only stored people and pin actors become candidates."""
         self.talk(req("GET", "/", headers=self.HW))
         self.talk(req("GET", "/api/meta?light=1", headers=self.HS))  # polling doesn't count
-        self.assertEqual([p["login"] for p in ps.APP.people_directory.load()], [self.W["login"]])
+        self.assertEqual([p["login"] for p in ps.APP.people_directory.load()], [])
         add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "x"}, dict(self.S)).record["id"]
         code, _, raw = split_resp(self.talk(req("GET", "/api/people", headers=self.HW)))
         d = json.loads(raw)
-        self.assertEqual(sorted(p["login"] for p in d["people"]), sorted([self.S["login"], self.W["login"]]))
+        self.assertEqual(sorted(p["login"] for p in d["people"]), [self.S["login"]])
         self.assertEqual(d["me"]["login"], self.W["login"])
         self.assertNotIn("local", [p["login"] for p in d["people"]])
 

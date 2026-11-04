@@ -26,8 +26,8 @@ cheap to make per call.
 """
 
 import json
+import re
 import shutil
-import sys
 import threading
 import time
 from collections.abc import Callable, Iterable, Sequence
@@ -37,7 +37,10 @@ from typing import Any, TypeAlias, TypeVar
 
 from limn.pins.model import Pin, TrashedPin
 from limn.pins.record import Broken
-from limn.platform.files import atomic_write
+from limn.pins.retention import unexpired, without_live_shadows
+from limn.platform.diagnostics import diagnostics
+from limn.platform.effects import changed, require_writer
+from limn.platform.files import atomic_write, replace_files
 from limn.runtime.paths import PinFiles as PinFiles
 
 # One stored record as JSON gives it: a pin or a Trash entry as written, or a pin as the API shows it.
@@ -78,8 +81,8 @@ def top_id(ids: Iterable[int | None]) -> int:
 
 
 @dataclass(frozen=True)
-class PinStore:
-    """The pin files of one state directory and the lock and order every change to them goes through.
+class PinReader:
+    """Read capability for one state directory: parsed values and detached in-memory resynchronization.
 
     lock is the process-wide lock of this state directory. Every path that touches the pin files holds it - without
     it a read-modify-write race lost most concurrent writes (of 30 pins saved at once only 2 survived, observed). It
@@ -121,8 +124,9 @@ class PinStore:
                 continue
             out.append(parsed)
         if bad:
-            print(
-                "warning: failed to read %d line(s) of %s (line %s)." % (len(bad), path.name, bad[:10]), file=sys.stderr
+            diagnostics.emit(
+                "damaged pin file:" + str(path),
+                lambda: "warning: failed to read %d line(s) of %s (line %s)." % (len(bad), path.name, bad[:10]),
             )
         return out, bad
 
@@ -130,6 +134,27 @@ class PinStore:
         """The live pins, parsed, and pins.jsonl's broken line numbers, as read_jsonl(). Takes no lock and never
         re-syncs."""
         return self.read_jsonl(self.files.pins_jsonl, self.parse)
+
+    def read_dropped(self) -> tuple[list[TrashedPin], list[int]]:
+        """The Trash entries, parsed, and the Trash file's broken line numbers, as read_jsonl(). Takes no lock: only a
+        file that finished an atomic replace is ever read, so a reader never sees a half-written Trash."""
+        return self.read_jsonl(self.files.dropped, self.parse_trashed)
+
+    def snapshot(self) -> list[Pin]:
+        """Return freshly resynchronized pins in memory, without obtaining any writing capability."""
+        with self.lock:
+            pins, _ = self.read_pins()
+            self.sync(pins)
+            return pins
+
+
+@dataclass(frozen=True)
+class PinStore(PinReader):
+    """A writer issued only outside the HTTP read scope; all mutations retain the transaction lock."""
+
+    def __post_init__(self) -> None:
+        """Refuse construction from GET/HEAD, including indirectly through captured feature services."""
+        require_writer()
 
     def unique_path(self, stem: str, suffix: str) -> Path:
         """<state>/<stem><suffix>, or the first free <stem>-1<suffix>, <stem>-2<suffix>, ... - so archiving twice in
@@ -144,6 +169,7 @@ class PinStore:
     def _keep_corrupt(self, path: Path) -> None:
         """Copies path's current bytes (and mtime) to <name>.corrupt-<local time>.bak before a rewrite drops its
         unreadable lines - they are never lost silently. Nothing if path does not exist."""
+        require_writer()
         if path.exists():
             shutil.copy2(path, self.unique_path("%s.corrupt-%s" % (path.name, time.strftime("%Y%m%d-%H%M%S")), ".bak"))
 
@@ -165,6 +191,7 @@ class PinStore:
         """Commit prepared live bytes in JSONL then Markdown order, backing up unreadable original lines first.
 
         Callers hold the store lock and must not change the pins between preparation and this write."""
+        require_writer()
         if prepared.bad:
             self._keep_corrupt(self.files.pins_jsonl)
         atomic_write(self.files.pins_jsonl, prepared.jsonl)
@@ -183,6 +210,7 @@ class PinStore:
         the re-sync, and the exception propagates. An optional before_write step runs only after both replacement
         texts are prepared and before the live replacement, for the Trash-first drop. Returns (the pins as written or
         read, fn's result)."""
+        require_writer()
         with self.lock:
             pins, bad = self.read_pins()
             synced = self.sync(pins)
@@ -192,15 +220,13 @@ class PinStore:
                 if before_write is not None:
                     before_write(result)
                 self.write_prepared(prepared)
+                if mutated:
+                    changed()
             return pins, result
-
-    def snapshot(self) -> list[Pin]:
-        """The live pins, re-synced (and written back if the re-sync changed them) - a read-only transaction."""
-        pins, _ = self.transact(lambda pins: (None, False))
-        return pins
 
     def render_md(self, pins: Sequence[Pin]) -> None:
         """Rewrites pins.md from pins alone (startup, clear). Callers hold the lock."""
+        require_writer()
         atomic_write(self.files.pins_md, self.render(pins))
 
     def clear(self, before_archive: Callable[[Sequence[Pin]], None] | None = None) -> tuple[int, str | None]:
@@ -209,6 +235,7 @@ class PinStore:
         in place. An optional before_archive step receives the live snapshot after rendering, for clearing its Trash
         shadows; its failure also leaves the live file in place. pins.seq is untouched, so ids keep incrementing.
         Returns (how many readable pins there were, the archive's file name or None without pins.jsonl)."""
+        require_writer()
         with self.lock:
             pins, _ = self.read_pins()
             n, archive = len(pins), None
@@ -220,19 +247,17 @@ class PinStore:
                 self.files.pins_jsonl.rename(dest)
                 archive = dest.name
             atomic_write(self.files.pins_md, md)
+        changed()
         return n, archive
-
-    def read_dropped(self) -> tuple[list[TrashedPin], list[int]]:
-        """The Trash entries, parsed, and the Trash file's broken line numbers, as read_jsonl(). Takes no lock: only a
-        file that finished an atomic replace is ever read, so a reader never sees a half-written Trash."""
-        return self.read_jsonl(self.files.dropped, self.parse_trashed)
 
     def write_dropped(self, entries: Sequence[TrashedPin], bad: list[int] | None = None) -> None:
         """Rewrites the Trash with entries, each as its stored record. Callers hold the lock. With bad (the Trash had
         unreadable lines) the original file is kept as a .corrupt-*.bak first, as write_pins does for pins.jsonl."""
+        require_writer()
         if bad:
             self._keep_corrupt(self.files.dropped)
         atomic_write(self.files.dropped, dump_jsonl(entry.record for entry in entries))
+        changed()
 
     def _max_id_in(self, path: Path) -> int:
         """The largest id among path's readable records, 0 for none. Read with the live-pin parse: an archive holds
@@ -247,6 +272,7 @@ class PinStore:
     def init_seq(self) -> None:
         """If pins.seq is missing, fills it once, under the lock, with the largest id across the live, archived
         (pins_*.jsonl.bak) and dropped records - a one-time migration for a state directory older than pins.seq."""
+        require_writer()
         with self.lock:
             if self.files.seq.exists():
                 return
@@ -259,6 +285,7 @@ class PinStore:
         """Hands out the next pin id and records it in pins.seq: one more than both pins.seq and every id in pins
         (an unreadable pins.seq counts as 0). An id is never reused - "#2" in a chat message must never end up
         pointing at a different pin. Called inside a transaction, which holds the lock."""
+        require_writer()
         try:
             last = int(self.files.seq.read_text().strip() or 0)
         except (OSError, ValueError):
@@ -266,3 +293,38 @@ class PinStore:
         nid = max(last, top_id(pin.core.id for pin in pins)) + 1
         atomic_write(self.files.seq, str(nid))
         return nid
+
+    def maintain(self, days: int, now: float) -> None:
+        """Prepare current pins, Markdown and retained Trash before any replacement; leave unchanged bytes alone.
+
+        Original damaged bytes are included as backups in the same prepared replacement set.
+        """
+        require_writer()
+        with self.lock:
+            pins, bad = self.read_pins()
+            synced = self.sync(pins)
+            entries, trash_bad = self.read_dropped()
+            keep = unexpired(without_live_shadows(entries, pins), days, now)
+            md = self.render(pins)
+            if self.files.pins_md.exists():
+                old = self.files.pins_md.read_text(encoding="utf-8")
+                stamp = r"(?m)^갱신: \d{4}-\d{2}-\d{2} \d{2}:\d{2}"
+                if re.sub(stamp, "갱신:", old) == re.sub(stamp, "갱신:", md):
+                    md = old
+            replacements: dict[Path, str | bytes] = {self.files.pins_md: md}
+            if synced:
+                replacements[self.files.pins_jsonl] = dump_jsonl(pin.record for pin in pins)
+            if len(keep) != len(entries):
+                replacements[self.files.dropped] = dump_jsonl(entry.record for entry in keep)
+            if synced and bad:
+                backup = self.unique_path("pins.jsonl.corrupt-" + time.strftime("%Y%m%d-%H%M%S"), ".bak")
+                replacements[backup] = self.files.pins_jsonl.read_bytes()
+            if len(keep) != len(entries) and trash_bad:
+                backup = self.unique_path("pins.dropped.jsonl.corrupt-" + time.strftime("%Y%m%d-%H%M%S"), ".bak")
+                replacements[backup] = self.files.dropped.read_bytes()
+            replacements = {
+                path: text
+                for path, text in replacements.items()
+                if not path.exists() or path.read_bytes() != (text.encode("utf-8") if isinstance(text, str) else text)
+            }
+            replace_files(replacements)

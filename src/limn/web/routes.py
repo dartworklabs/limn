@@ -19,7 +19,6 @@ class GetRequest(NamedTuple):
     actor: dict[str, Any]
     principal: access.Principal
     host_raw: str
-    record_person: Callable[[], None]
 
 
 GetRoute: TypeAlias = Callable[[GetRequest], Reply | None]

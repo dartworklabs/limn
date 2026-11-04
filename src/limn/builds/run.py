@@ -21,6 +21,7 @@ from limn.builds.artifacts import (
     ViewOnlyNoRebuild,
 )
 from limn.builds.completion import compiled_mtime, kept_publication, project_completion
+from limn.platform.effects import changed, require_writer
 
 
 class Rebuildable(Protocol):
@@ -66,6 +67,7 @@ def build_now(D: BuildDoc, run: Callable[[], FinishedBuild]) -> FinishedBuild | 
 
     run is the tracked build (see run_tracked) bound to D by the caller. One lock per document - different
     documents build concurrently (each has its own build folder)."""
+    require_writer()
     lock = D.lock
     if not lock.acquire(blocking=False):
         return BuildBusy()
@@ -85,6 +87,7 @@ def build_in_background(
     state releases the lock. If the thread cannot start or run itself dies, the build is finished as a failure
     (BuildAborted worker_crashed, its log text from describe) and its lock is released - the chip must never stay
     at running."""
+    require_writer()
     if not D.lock.acquire(blocking=False):
         return BuildBusy()
     try:
@@ -123,6 +126,7 @@ def build_in_background(
         finally:
             D.lock.release()
         raise
+    changed()
     return BuildStarted()
 
 

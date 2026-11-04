@@ -1,6 +1,6 @@
 """People: <state>/people.json and the @-tag candidates (docs/handbook/api.md §@태그·사람·이벤트).
 
-people.json = tailnet people who have opened (or done something in) this viewer {login,name,pic,first_seen,last_seen}
+people.json = people recorded after an authorized changing POST in this viewer {login,name,pic,first_seen,last_seen}
 plus the role `limn member` sets. Local/agent is never recorded. The file is written to a temp file under a lock and
 then os.replace'd (atomic) - readers only ever see the old file or the new one.
 
@@ -33,7 +33,7 @@ Row: TypeAlias = dict[str, Any]
 # (people.json path, login) -> (name, pic, epoch last written): the running server's memo of what it last wrote.
 SeenMemo: TypeAlias = dict[tuple[str, str], tuple[str, Any, float]]
 
-# don't rewrite people.json's last_seen more often than this interval (so every poll doesn't trigger a write)
+# Coalesce identical profile updates across real changing POSTs, never across visits.
 PEOPLE_TOUCH_S = 600
 
 

@@ -135,7 +135,9 @@ class ModuleBoundary(unittest.TestCase):
         )
         self.assertNotIn("limn.platform.files", self.imported(ACCESS_PY))
         self.assertIn("limn.platform.files", self.imported(Path(member_state.__file__)))
-        self.assertEqual({n for n in self.imported(Path(files.__file__)) if n.startswith("limn")}, set())
+        self.assertEqual(
+            {n for n in self.imported(Path(files.__file__)) if n.startswith("limn")}, {"limn.platform.effects"}
+        )
 
     def test_limn_member_writes_people_json_in_the_people_stores_format(self):
         """`limn member` and the running server write one format: what member_add writes is people_text of its rows,

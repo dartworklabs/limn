@@ -1,6 +1,6 @@
 """HTTP responses for viewer meta, document list, published outline labels and a browser-drawn document's source."""
 
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from typing import Any
 
 from limn.documents import input as document_input
@@ -21,12 +21,9 @@ def meta(
     actor: Json,
     role: access.Role,
     query: Mapping[str, list[str]],
-    record_person: Callable[[], None],
 ) -> Json:
-    """GET /api/meta: record a full viewer read, then append role and event notifications."""
+    """GET /api/meta: read viewer facts, then append role and event notifications."""
     light = parse.parse_flag(query, "light")
-    if not light:
-        record_person()
     out = service.meta(doc, actor, light)
     out["me"] = dict(actor, role=role)
     # Preserve the existing order: an invalid event cursor is refused only after meta is built.

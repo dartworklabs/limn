@@ -138,7 +138,10 @@ class LocalProvider(AccessBase):
         self.assertEqual(self.pin(rid)["confirmed_by"]["login"], "alice")
 
     def test_owner_recorded_as_owner(self):
+        """The local owner is recorded by the first real change, never by opening the page."""
         self.call("GET", "/")
+        self.assertEqual(self.people_file(), [])
+        self.pin_id()
         self.assertEqual([(p["login"], p.get("role")) for p in self.people_file()], [("alice", "owner")])
 
     def test_non_loopback_is_401_and_agents_use_tokens(self):
@@ -1021,9 +1024,9 @@ class Migration(AccessBase):
         self.assertEqual(self.call("POST", "/api/pins/2/close", None, ALICE)[1]["state"], "done")
         code, d = self.call("POST", "/api/pins/4/confirm", None, ALICE)
         self.assertEqual((code, d["state"]), (200, "done"))
-        self.assertEqual(self.call("GET", "/", headers=CAROL)[0], 200)  # an unknown tailnet person is auto-added
+        self.assertEqual(self.call("GET", "/", headers=CAROL)[0], 200)  # a read-only newcomer is no longer auto-added
         people = {p["login"]: p for p in self.people_file()}
-        self.assertEqual(sorted(people), ["alice@example.com", "bob@example.com", "carol@example.com"])
+        self.assertEqual(sorted(people), ["alice@example.com", "bob@example.com"])
         self.assertTrue(all("role" not in p for p in people.values()))
         self.assertEqual(people["bob@example.com"], V01_PEOPLE[1])  # untouched
         self.assertFalse(ps.APP.C.tokens_file.exists())

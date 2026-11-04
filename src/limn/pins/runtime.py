@@ -37,7 +37,7 @@ from limn.pins.model import EventType, Pin, Record, TrashedPin
 from limn.pins.needs import BuildAnswers, FollowElement, VerdictKeys
 from limn.pins.notice import PinNotice
 from limn.pins.record import Broken, parse_record as record_parse_record, parse_trashed as record_parse_trashed
-from limn.pins.store import PinFiles, PinStore, Row
+from limn.pins.store import PinFiles, PinReader, PinStore, Row
 from limn.pins.suggestion import suggestion_of
 from limn.pins.trash.service import PinTrash
 from limn.pins.verdict import (
@@ -211,6 +211,17 @@ class PinCommands:
         without page fields (has_pages)."""
         return locate_sync_all(pins, self.pin_locator(), self.has_pages)
 
+    def pin_reader(self) -> PinReader:
+        """Issue only read operations; snapshots resynchronize detached values without saving."""
+        return PinReader(
+            PinFiles(self.C.state),
+            self.RT.pin_lock,
+            self.parse_record,
+            self.parse_trashed,
+            self.sync_all,
+            self.pin_markdown.pins_md_text,
+        )
+
     def pin_store(self) -> PinStore:
         """The pin store (limn.pins.store) over the current run arguments - where the composition root wires it.
 
@@ -228,19 +239,19 @@ class PinCommands:
 
     def read_pins(self) -> tuple[list[Pin], list[int]]:
         """The live pins, parsed, and pins.jsonl's broken line numbers, lock-free and not re-synced (PinStore.read_pins)."""
-        return self.pin_store().read_pins()
+        return self.pin_reader().read_pins()
 
     def read_dropped(self) -> tuple[list[TrashedPin], list[int]]:
         """The Trash entries, parsed, and the Trash file's broken line numbers, lock-free (PinStore.read_dropped)."""
-        return self.pin_store().read_dropped()
+        return self.pin_reader().read_dropped()
 
     def write_pins(self, pins: list[Pin], bad: list[int] | None = None) -> None:
         """Rewrites pins.jsonl then pins.md; nothing if rendering fails (PinStore.write_pins). Callers hold RT.pin_lock."""
         self.pin_store().write_pins(pins, bad)
 
     def snapshot_pins(self) -> list[Pin]:
-        """The live pins, re-synced and written back if that changed them (PinStore.snapshot)."""
-        return self.pin_store().snapshot()
+        """Return current positions in memory without saving (PinReader.snapshot)."""
+        return self.pin_reader().snapshot()
 
     def public(self, r: Record) -> Json:
         """A record as the API returns it (limn.pins.listing.projection.public_record), placed where pin_location() finds its file under

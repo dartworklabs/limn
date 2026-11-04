@@ -332,7 +332,6 @@ def prepare(app: ServerAssembly, documents: list[Doc] | None, no_build: bool) ->
     environment = app.environment
     environment.docs[:] = documents or [Doc(DEFAULT_DOC_KEY, "본문", legacy=True, paths=environment.C.paths)]
     app.pins.startup.initialize_sequence()
-    app.pins.commands.pin_trash.purge_trash()
     for doc in environment.docs:
         result = app.builds.commands.initialize(doc, no_build, wait=not documents)
         if not documents and result.refusal is not None:
@@ -343,7 +342,8 @@ def prepare(app: ServerAssembly, documents: list[Doc] | None, no_build: bool) ->
         environment.RT.start_thread(app.builds.commands.watch, environment.RT.stopping)
     if environment.C.git_pull:
         environment.RT.start_thread(app.sync.service.watch, environment.RT.stopping)
-    app.pins.startup.render_markdown()
+    app.pins.startup.maintain()
+    environment.RT.start_thread(app.pins.startup.watch, environment.RT.stopping)
     startup.tighten_state_perms(environment.C.people_file)
     return None
 
