@@ -51,3 +51,13 @@ GET inventory와 실제 코드의 불일치는 찾지 못했다. 구현 중 새 
 ### 리뷰 보완: Git 자식 프로세스의 영속 쓰기
 
 공통 `git_env()`가 HTTP 읽기 범위를 확인해 선택적 잠금과 lazy fetch를 막는다. Git 2.43은 `GIT_NO_LAZY_FETCH`를 지원하지 않으므로 빈 `GIT_ALLOW_PROTOCOL`로 file 전송과 remote helper를 포함한 모든 전송을 거절한다. promisor 설정은 2.43에서 누적되므로 나중의 `promisor=false`에 기대지 않는다. 저장소 설정은 바꾸지 않는다. 실제 `uploadpack.allowFilter=true` 저장소에서 `--no-local --filter=blob:none` 부분 클론을 경로별로 새로 만들었다. 네 revision GET과 meta/docs, status·cat-file·blame·show 어댑터 실행이 `.git` 전체 bytes/inode/mtime을 보존한다. blob이 없을 때 diff는 기존 `404 diff_unreadable`, 비교 상태는 `idle`, PDF는 `404 revision_not_ready`다. 원래 구현은 revision-diff가 pack 파일을 만들어 새 검사의 트리 동일성 assertion에서 실패했다.
+
+
+### 리뷰 보완: 원고 읽기 실패와 유지 원본 보존
+
+`ManuscriptFile.snapshot_checked()`는 빈 파일과 읽기 실패를 구별한다. 재동기화·새 핀·줄 편집의 anchor 계산은 이 읽기를 쓴다. 읽기 실패에서 GET은 부분 계산을 버리고 원본 레코드를 주며, POST는 저장 전에 실패한다. 유지 실행도 JSONL·Markdown·휴지통의 전체 묶음을 보존하고 제한된 진단 뒤 다음 주기에 재시도한다. 실제 chmod 000 원고와 anchor 없는 레코드에서 기존 구현의 파일 동일성 assertion 실패를 확인했다. 권한 복구 뒤 다음 주기는 정상 anchor와 동기화 시각을 보충한다. mtime 0인 빈 원고와 UTF-8/열기 실패도 구별해 검사한다.
+
+
+리뷰 보완 최종 검증: Git 2.43.0에서 두 회귀의 수정 전 assertion 실패를 확인했다. 첫 fix 커밋 뒤 공통 Git 읽기 제한을 제거하자 새 부분 클론 검사의 6개 하위 사례가 실패했고 `git checkout -- src/limn/platform/git.py`로 복구했다. 둘째 fix 커밋 뒤 재동기화가 다시 실패를 빈 원고로 읽게 하자 chmod 회귀가 파일 동일성 assertion에서 실패했고 `git checkout -- src/limn/pins/location/lookup.py`로 복구했다. ruff check·format(594개 파일), mypy 두 플랫폼(각 173개 파일), boundaries, npm typecheck, strict ratchet(오류 0), shellcheck, Handbook check, git diff --check가 통과했다. core는 3,758 통과·1 건너뜀·6,522 subtests, architecture는 111 통과, instances 셸은 222 통과다. core 건너뜀은 별도 실제 상태 사본이 필요한 opt-in 검사이며 chmod 회귀는 실행됐다.
+
+요청의 `test_viewer_revisions*.py`에 해당하는 파일은 이 트리에 없으므로 실제 비교 검사인 `test_revision_range.py`·`test_revision_zoom.py`와 revision을 참조하는 모든 viewer 검사 파일에서 browser 표시 검사를 돌렸다. 두 묶음은 각각 515 통과·4 건너뜀·798 subtests와 238 통과·3 건너뜀·205 subtests다. 별도 외부 진입 browser는 2 통과·32 subtests이며, 합계 755 통과·7 건너뜀·1,035 subtests다. WebKit은 설치된 실행 파일의 OS 라이브러리가 없어 실행하지 못했고 설치·상시 서비스 조작은 하지 않았다. 출판 자산 세 파일은 스킬 원본과 같고 index/filemap 책임은 바뀌지 않았다. 검토 서버는 만들지 않았으며 정본 Markdown을 직접 검토한다. push·PR·다른 워크트리 수정은 하지 않았다. 마지막 독립 Codex 리뷰는 소유 세션이 수행한다.

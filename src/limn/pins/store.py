@@ -40,7 +40,7 @@ from limn.pins.record import Broken
 from limn.pins.retention import unexpired, without_live_shadows
 from limn.platform.diagnostics import diagnostics
 from limn.platform.effects import changed, require_writer
-from limn.platform.files import atomic_write, replace_files
+from limn.platform.files import ManuscriptReadError, atomic_write, replace_files
 from limn.runtime.paths import PinFiles as PinFiles
 
 # One stored record as JSON gives it: a pin or a Trash entry as written, or a pin as the API shows it.
@@ -141,11 +141,17 @@ class PinReader:
         return self.read_jsonl(self.files.dropped, self.parse_trashed)
 
     def snapshot(self) -> list[Pin]:
-        """Return freshly resynchronized pins in memory, without obtaining any writing capability."""
+        """Return detached resynchronized pins, or the original batch when a manuscript read fails."""
         with self.lock:
             pins, _ = self.read_pins()
-            self.sync(pins)
-            return pins
+            current = list(pins)
+            try:
+                self.sync(current)
+            except ManuscriptReadError as error:
+                message = "warning: pin snapshot failed: %s" % error
+                diagnostics.emit("pin snapshot:" + str(error), lambda: message)
+                return pins
+            return current
 
 
 @dataclass(frozen=True)
@@ -209,7 +215,7 @@ class PinStore(PinReader):
         still writes a re-sync. If fn raises (a defect or an infrastructure failure), nothing is written, not even
         the re-sync, and the exception propagates. An optional before_write step runs only after both replacement
         texts are prepared and before the live replacement, for the Trash-first drop. Returns (the pins as written or
-        read, fn's result)."""
+        read, fn's result). A manuscript read failure propagates before fn or any save, preserving the batch."""
         require_writer()
         with self.lock:
             pins, bad = self.read_pins()
@@ -298,6 +304,7 @@ class PinStore(PinReader):
         """Prepare current pins, Markdown and retained Trash before any replacement; leave unchanged bytes alone.
 
         Original damaged bytes are included as backups in the same prepared replacement set.
+        Manuscript read failures propagate before preparation, preserving this entire state-file batch for retry.
         """
         require_writer()
         with self.lock:

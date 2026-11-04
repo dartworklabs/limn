@@ -154,6 +154,10 @@ def file_in_tree(p: object, root: Path, state: Path) -> ManuscriptFile | TreePat
     return checked
 
 
+class ManuscriptReadError(OSError):
+    """A checked manuscript could not be read; callers must not persist inferred anchors."""
+
+
 @dataclass(frozen=True, init=False)
 class ManuscriptFile:
     """A checked manuscript read capability; only file_in_tree creates instances.
@@ -204,14 +208,24 @@ class ManuscriptFile:
                 os.close(directory)
 
     def snapshot(self) -> tuple[list[str], float]:
-        """Read UTF-8 lines and mtime from one regular descriptor, or ([], 0) on refusal."""
+        """Read UTF-8 lines and mtime, or ([], 0) for legacy display-only callers on refusal.
+
+        Callers that may persist derived anchors must use snapshot_checked instead.
+        """
+        try:
+            return self.snapshot_checked()
+        except ManuscriptReadError:
+            return [], 0.0
+
+    def snapshot_checked(self) -> tuple[list[str], float]:
+        """Read lines and mtime from one descriptor; raise ManuscriptReadError instead of fabricating empty text."""
         try:
             with self._descriptor() as descriptor:
                 metadata = os.fstat(descriptor)
                 with os.fdopen(descriptor, encoding="utf-8", closefd=False) as stream:
                     return stream.read().splitlines(), metadata.st_mtime
-        except (OSError, UnicodeDecodeError, ValueError):
-            return [], 0.0
+        except (OSError, UnicodeDecodeError, ValueError) as error:
+            raise ManuscriptReadError("cannot read manuscript: %s" % self.path.name) from error
 
     def metadata(self) -> os.stat_result | None:
         """Stat the checked regular descriptor; never follow a replacement link for metadata."""

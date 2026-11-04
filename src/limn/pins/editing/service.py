@@ -69,12 +69,12 @@ def add_pin(ctx: PinContext, D: Doc, request: AddRequest, actor: PostAuthority) 
     keeps a word file or map copy that stalls from holding up every other pin operation. Its suggestion, if it sent
     one, is never decided - the verdict decision refuses every such request - so the verdict's refusals come in their
     own order. A refusal writes nothing of its own (a re-sync of the stored pins may still be written, as for any
-    transaction)."""
+    transaction). A failed checked manuscript read propagates before any anchor or pin is saved."""
     require_authority(actor, ctx.authority_scope, "add", document_authority_target(D))
     place = request.place
     # Manuscript text is read before taking the pin lock, as it was for line pins before this shared transaction.
     location = ctx.locate({"file": place.file}) if isinstance(place, LinePlace) else None
-    lines, mtime = location.source.snapshot() if location is not None else ([], 0.0)
+    lines, mtime = location.source.snapshot_checked() if location is not None else ([], 0.0)
     if request.suggest is not None and request.verdict is None:
         decided = decide_new_suggestion(request.suggest, place, D.takes_suggestions, lines)
         if not isinstance(decided, Suggestion):
@@ -197,8 +197,8 @@ def edit_pin(
     the pin's document takes suggested edits (Doc.takes_suggestions: LaTeX and Markdown), the only ones whose line
     pins take a suggestion. pages
     says the pin's document has pages (not Doc.renders_in_browser): on one without, the edit removes every page field
-    the record carries (limn.pins.editing.rules.evolve_edit).
-    """
+    the record carries (limn.pins.editing.rules.evolve_edit). A failed checked anchor read propagates before
+    saving the edit."""
     require_authority(actor, ctx.authority_scope, "edit", pid)
     clock = ctx.hm() if request.note_append is not None else ""
     evs: list[Event | None] = []
@@ -224,7 +224,7 @@ def edit_pin(
         span = event.span()
         anchoring = None
         if span is not None and where is not None:
-            lines, mtime = where.source.snapshot()
+            lines, mtime = where.source.snapshot_checked()
             anchoring = Anchoring(anchor_of(lines, *span, comment_marker(str(where.path))), mtime)
         tags = (
             None

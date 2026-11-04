@@ -164,7 +164,8 @@ def sync_all(pins: list[Pin], locate: Locator, has_pages: Callable[[Record], boo
 
     Open line pins only (a view-only PDF's pin has no lines). The pin's file is the one locate finds (ADR-0006: a moved
     checkout is followed; outside the tree is never read); a pin whose file cannot be located or is not a file now is
-    left alone. Each file is read once per call."""
+    left alone. Each file is read once per call. A located file read failure raises ManuscriptReadError;
+    the store must discard this batch rather than persist anchors inferred from empty text."""
     changed = False
     cache: dict[Path, tuple[list[str], list[str], float]] = {}
     for i, pin in enumerate(pins):
@@ -178,7 +179,7 @@ def sync_all(pins: list[Pin], locate: Locator, has_pages: Callable[[Record], boo
             continue
         f = loc.path
         if f not in cache:
-            ls, mtime = loc.source.snapshot()
+            ls, mtime = loc.source.snapshot_checked()
             cache[f] = (ls, [norm(t) for t in ls], mtime)
         lines, nlines, mtime = cache[f]
         new = resync(pin, span, lines, nlines, mtime, str(f))

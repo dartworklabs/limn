@@ -304,6 +304,50 @@ class TestReadContract(Base):
             files.replace_files({a: "new a", b: "new b"})
         self.assertEqual({p: (p.read_bytes(), p.stat().st_ino, p.stat().st_mtime_ns) for p in (a, b)}, originals)
 
+    def test_unreadable_manuscript_preserves_legacy_pins_until_retry(self):
+        """A failed source read cannot poison a legacy anchor through upkeep, GET, or a POST transaction."""
+        if os.geteuid() == 0:
+            self.skipTest("root can read chmod 000 manuscripts")
+        self.dirty()
+        path = self.state / "pins.jsonl"
+        # Preserve a valid legacy row and another file's dirty pin to catch partial-batch publication.
+        legacy = json.loads(path.read_text().splitlines()[1])
+        other = self.src / "other.tex"
+        other.write_text(self.main.read_text())
+        healthy = dict(legacy, id=3, file=str(other), file_rel="other.tex")
+        path.write_text(json.dumps(healthy) + "\n" + json.dumps(legacy) + "\n")
+        upkeep = PinMaintenance(ps.APP.pin_store, 30)
+        mode = self.main.stat().st_mode
+        self.main.chmod(0)
+        try:
+            before = tree(self.state)
+            import io
+            from contextlib import redirect_stderr
+
+            stderr = io.StringIO()
+            with mock.patch("limn.pins.maintenance.diagnostics", BoundedDiagnostics()), redirect_stderr(stderr):
+                upkeep.run()
+                upkeep.run()
+            self.assertEqual(tree(self.state), before)
+            self.assertEqual(stderr.getvalue().count("pin maintenance failed"), 1)
+            records = [pin.record for pin in ps.APP.snapshot_pins()]
+            self.assertTrue(all("anchor" not in row and "synced_at" not in row for row in records))
+            status, _, body = self.response("GET", "/api/pins", headers=ALICE)
+            self.assertEqual(status, 200)
+            self.assertTrue(all(row.get("anchor") is None and row.get("synced_at") is None for row in json.loads(body)))
+            self.assertEqual(tree(self.state), before)
+            # Even a later writer cannot save a fabricated empty anchor from a failed resync.
+            status, _, post_body = self.response(
+                "POST", "/api/pins/2/edit", {"note": "changed", "base_rev": legacy["rev"]}, headers=ALICE
+            )
+            self.assertEqual(status, 500, post_body)
+            self.assertEqual(tree(self.state), before)
+        finally:
+            self.main.chmod(mode)
+        upkeep.run()
+        rows = [json.loads(line) for line in path.read_text().splitlines()]
+        self.assertTrue(all(row["anchor"] and row["synced_at"] > 0 for row in rows))
+
     def test_maintenance_never_overlaps(self):
         """A concurrent pass is skipped, and shutdown wakes a sleeping watcher without a new pass."""
         upkeep = PinMaintenance(ps.APP.pin_store, 30)
