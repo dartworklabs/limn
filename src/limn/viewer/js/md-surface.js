@@ -119,17 +119,48 @@ function mdInline(t,parent){const m=mdInlineLines(t);
 // - Anything else is {open:null}, inert text with its target in the tip: a relative path, a scheme-relative '//host', another
 //   scheme, the viewer's own origin (Limn's API answers GETs with the reader's identity and some of them write - a full /api/meta
 //   re-syncs pins, / records the visit), a loopback host (on the server's machine that is Limn again, as the local agent).
+// Both checks compare hosts by one spelling (mdHostKey), the destination's and the viewer's alike: 'localhost.:18920' and
+// 'x.ts.net.:18020' are Limn again (its Host check reads a name with its trailing dots dropped), not another origin.
 /** @param {unknown} raw @param {string} origin @returns {{open:'web'|'mail'|'anchor'|null,href:string,id?:string}} */
 function mdHref(raw,origin){const h=String(raw==null?'':raw).trim();
   if(/^#[^#]*$/.test(h))return {open:'anchor',href:h,id:h.slice(1)};
   if(!/^(https?|mailto):/i.test(h))return {open:null,href:h};
   let u; try{u=new URL(h);}catch(e){return {open:null,href:h};}
   if(u.protocol==='mailto:')return {open:'mail',href:u.href};
-  if(u.username||u.password||u.origin===origin||mdLoopback(u.hostname))return {open:null,href:h};
+  if(u.username||u.password||mdSameOrigin(u,origin)||mdLoopback(u.hostname))return {open:null,href:h};
   return {open:'web',href:u.href};}
-// Whether a URL's host (as URL.hostname gives it: lower case, IPv4 in dotted form, IPv6 in brackets) is this machine. Pure.
-function mdLoopback(host){const h=String(host).toLowerCase().replace(/^\[|\]$/g,'');
-  return h==='localhost'||h.endsWith('.localhost')||/^127\./.test(h)||h==='0.0.0.0'||h==='::1'||h==='::'||/^::ffff:(127\.|7f)/.test(h);}
+// A host's one spelling (URL.hostname, or a Host header's name): lower case, without IPv6 brackets or trailing dots. The URL
+// parser already folds case, full-width letters, percent escapes and every IPv4 spelling (127.1, 0x7f.1, 017700000001,
+// 2130706433, '127.0.0.1.') into dotted form, and IPv6 into its short hex form; the trailing dot of a name ('localhost.',
+// also from 'localhost%2e' or 'localhost。') it keeps. DNS reads 'name.' as 'name', and so does Limn's Host and Origin check
+// (security/access.py split_host, origin_ok: name.rstrip('.')): this rule is that one. Pure.
+function mdHostKey(host){return String(host==null?'':host).toLowerCase().replace(/^\[|\]$/g,'').replace(/\.+$/,'');}
+// Whether URL u has the viewer page's origin (location.origin): scheme, host by one spelling (mdHostKey) and port (the URL
+// parser leaves a default port out of both). An origin that does not parse ('null') counts as the same: every link is
+// inert rather than one let through unchecked. Pure.
+/** @param {URL} u @param {string} origin */
+function mdSameOrigin(u,origin){let v; try{v=new URL(origin);}catch(e){return true;}
+  return u.protocol===v.protocol&&mdHostKey(u.hostname)===mdHostKey(v.hostname)&&u.port===v.port;}
+// Whether a URL's host (URL.hostname) is this machine: localhost and *.localhost, 0.0.0.0/8 and 127.0.0.0/8, and in IPv6
+// :: and ::1 and an IPv4-mapped (::ffff:a.b.c.d) or -compatible (::a.b.c.d) address of those. Hosts are compared by
+// mdHostKey's spelling; the URL parser has put every address in one form (mdHostKey). A name a hosts file maps to loopback
+// (ip6-localhost, the machine's own name) is not listed: Limn's Host check admits only localhost, 127.0.0.1 and ::1 as
+// loopback and answers any other such name 403. Pure.
+function mdLoopback(host){const h=mdHostKey(host);
+  if(h==='localhost'||h.endsWith('.localhost'))return true;
+  if(/^(127|0)\.\d+\.\d+\.\d+$/.test(h))return true;
+  const g=mdIpv6(h); if(!g)return false;
+  if(g.slice(0,5).every(x=>x===0)&&(g[5]===0xffff||g[5]===0)){const o=g[6]>>8; return o===127||o===0;}   // also :: and ::1
+  return false;}
+// An IPv6 address in the URL parser's form (hex groups, one '::' at most, no brackets) -> its eight 16-bit groups; null for
+// anything else. Pure.
+/** @param {string} h @returns {number[]|null} */
+function mdIpv6(h){if(!/^[0-9a-f:]+$/.test(h)||!h.includes(':'))return null;
+  const parts=h.split('::'); if(parts.length>2)return null;
+  const head=parts[0]?parts[0].split(':'):[],tail=parts.length===2&&parts[1]?parts[1].split(':'):[];
+  const fill=parts.length===2?8-head.length-tail.length:0; if(fill<0||(parts.length===1&&head.length!==8))return null;
+  const g=[...head,...Array(fill).fill('0'),...tail]; if(g.some(x=>!/^[0-9a-f]{1,4}$/.test(x)))return null;
+  return g.map(x=>parseInt(x,16));}
 // A link element for href (mdHref): a web or mail link opens in a new tab without a referrer or opener; an in-document '#…'
 // scrolls to the heading it names; anything else is inert text with its target in the tip.
 function mdLink(href){const r=mdHref(href,location.origin);

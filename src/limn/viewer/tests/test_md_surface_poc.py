@@ -66,6 +66,35 @@ HREFS = {
     "http://[::ffff:127.0.0.1]/": None,
     "http://0/": None,
     "https://user:pw@example.org/": None,
+    # The same hosts spelt another way: a trailing dot (kept by the URL parser, dropped by DNS and by Limn's Host check),
+    # case, percent escapes, full-width letters, other IPv4 forms, IPv6 written out or mapped, 0.0.0.0 and :: - and the
+    # viewer's own origin with a trailing dot, in capitals or with its default port written out.
+    "http://localhost.:18920/api/source?doc=fixture": None,
+    "http://LOCALHOST..:18920/": None,
+    "http://localhost%2e:18920/": None,
+    "http://localhost\u3002:18920/": None,
+    "http://\uff4c\uff4f\uff43\uff41\uff4c\uff48\uff4f\uff53\uff54/": None,
+    "http://a.localhost./": None,
+    "http://127.0.0.1.:18920/": None,
+    "http://127.1/": None,
+    "http://0x7f.1/": None,
+    "http://017700000001/": None,
+    "http://127.255.255.254/": None,
+    "http://0.0.0.0./": None,
+    "http://[0:0:0:0:0:0:0:1]:18920/": None,
+    "http://[::]/": None,
+    "http://[::ffff:0.0.0.0]/": None,
+    "http://[::127.0.0.1]/": None,
+    "https://limn.example.ts.net.:18020/api/meta": None,
+    "HTTPS://LIMN.EXAMPLE.TS.NET.:18020/": None,
+    "https://limn.example.ts.net..:18020/": None,
+    # Not the viewer: another port or scheme of its host, another tailnet name, an address that is not loopback.
+    "https://limn.example.ts.net/": "web",
+    "http://limn.example.ts.net:18020/": "web",
+    "https://other.example.ts.net.:18020/": "web",
+    "http://128.0.0.1/": "web",
+    "http://[::2:7f00:1]/": "web",
+    "http://localhost.example.org/": "web",
 }
 
 
@@ -80,16 +109,20 @@ class MarkdownSurfacePoc(unittest.TestCase):
             self.skipTest("node not available")
 
     def node(self, body: str):
-        """body run with the served functions, `md` (the vendored markdown-it as the viewer configures it) and `out`, whose
-        JSON is the answer."""
+        """body run with the served functions, `md` (the vendored markdown-it as the viewer configures it), `mdLinkify`
+        (the same with linkify on, which the viewer leaves off) and `out`, whose JSON is the answer."""
         js = "\n".join(
             [
                 extract_js_fn("mdInlineLines"),
+                extract_js_fn("mdHostKey"),
+                extract_js_fn("mdSameOrigin"),
+                extract_js_fn("mdIpv6"),
                 extract_js_fn("mdLoopback"),
                 extract_js_fn("mdHref"),
                 "const {pathToFileURL}=require('node:url');",
                 "(async()=>{const MarkdownIt=(await import(pathToFileURL(%s).href)).default;" % json.dumps(str(BUNDLE)),
                 "const md=MarkdownIt({html:true,linkify:false,typographer:false}); let out=null;",
+                "const mdLinkify=MarkdownIt({html:true,linkify:true,typographer:false});",
                 body,
                 "console.log(JSON.stringify(out));})().catch(e=>{console.error(e); process.exit(1);});",
             ]
@@ -172,6 +205,46 @@ class MarkdownSurfacePoc(unittest.TestCase):
                 ["data:image/png;base64,AAAA", "", None],
             ],
         )
+
+    def test_a_trailing_dot_or_other_spelling_of_limn_stays_inert_in_every_kind_of_link(self):
+        """The hosts mdHref refuses, spelt as Limn's Host check still admits them (a trailing dot, capitals, the viewer's
+        host with a dot), reach the gate through every link token markdown-it makes - an inline link, a reference link
+        and an autolink - and each stays inert, while another origin in the same tokens opens. The viewer leaves linkify
+        off, so a bare URL is no link; with it on, linkify-it ends a bare URL's host at a trailing dot (the rest is text)
+        and the link it makes is gated the same way: loopback stays inert, the viewer's host without its port is another
+        origin."""
+        cases = {
+            "http://localhost.:18920/api/source?doc=fixture": (None, ("http://localhost", None)),
+            "http://LOCALHOST.:18920/api/meta": (None, ("http://LOCALHOST", None)),
+            "http://127.0.0.1.:18920/": (None, ("http://127.0.0.1", None)),
+            "http://[::1]:18920/": (None, ("http://[::1]:18920/", None)),
+            "https://limn.example.ts.net.:18020/api/meta": (None, ("https://limn.example.ts.net", "web")),
+            "https://example.org/a": ("web", ("https://example.org/a", "web")),
+        }
+        paras = ["[i](%s) [r][r%d] <%s> bare %s\n\n[r%d]: %s" % (h, n, h, h, n, h) for n, h in enumerate(cases)]
+        got = self.node(
+            "const paras=%s,origin=%s; const links=(m,src)=>m.parse(src,{}).flatMap(t=>t.children||[])"
+            ".filter(c=>c.type==='link_open').map(c=>[c.markup,c.attrGet('href'),mdHref(c.attrGet('href'),origin).open]);"
+            "out=paras.map(src=>({viewer:links(md,src),linkify:links(mdLinkify,src)}));" % (json.dumps(paras), json.dumps(ORIGIN))
+        )
+        for (h, (want, (bare, bare_open))), links in zip(cases.items(), got, strict=True):
+            with self.subTest(h):
+                written = [["", h, want], ["", h, want], ["autolink", h, want]]
+                self.assertEqual([[m, href.lower(), o] for m, href, o in links["viewer"]],
+                                 [[m, href.lower(), o] for m, href, o in written])
+                self.assertEqual([[m, href.lower(), o] for m, href, o in links["linkify"]],
+                                 [[m, href.lower(), o] for m, href, o in written + [["linkify", bare, bare_open]]])
+
+    def test_the_viewer_origin_is_read_in_the_same_spelling(self):
+        """A viewer opened at its host with a trailing dot (or in capitals) still refuses its own origin without the dot,
+        and one whose origin does not parse ('null') opens no web link at all."""
+        got = self.node(
+            "out=[mdHref('https://limn.example.ts.net:18020/api/meta','https://limn.example.ts.net.:18020').open,"
+            "mdHref('https://limn.example.ts.net:18020/api/meta','https://LIMN.example.ts.net:18020').open,"
+            "mdHref('https://limn.example.ts.net:443/','https://limn.example.ts.net').open,"
+            "mdHref('https://example.org/','null').open];"
+        )
+        self.assertEqual(got, [None, None, None, None])
 
 
 if __name__ == "__main__":

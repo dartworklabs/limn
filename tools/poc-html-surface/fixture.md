@@ -63,6 +63,7 @@ def pick(lo, hi):
 
 같은 출처 링크는 열지 않는다: [API](https://limn.example.ts.net:18020/api/meta)
 다른 scheme 도 열지 않는다: <ftp://example.org/file> [앱](myapp://open)
+끝에 점을 붙인 이름도 열지 않는다: [API](http://localhost.:18920/api/source?doc=fixture) <https://limn.example.ts.net.:18020/api/meta>
 
 ---
 

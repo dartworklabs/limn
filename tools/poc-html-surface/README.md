@@ -13,7 +13,8 @@ block opens the ordinary composer with a ladder of lines -> block -> section; th
 (`file`, `lo`, `hi`) saved through `POST /api/pin`.
 
 [`fixture.md`](fixture.md) is the demo document (its last section has the multiline inline and link cases; its same-origin
-link names `limn.example.ts.net:18020` - put the instance's own public host there to see it refused). Run it on loopback
+links name `limn.example.ts.net:18020`, one with a trailing dot - put the instance's own public host there to see them
+refused). Run it on loopback
 (replace the placeholders):
 
 ```bash
