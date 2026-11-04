@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **A triple click on a Markdown document's last paragraph picks its lines.** Chromium ends that selection after the
+  document (there is no next block to end at; Firefox ends it in the paragraph), and a selection reaching outside the document was dropped whole, so the
+  first click's block pick stood: the pin was saved as the paragraph block instead of the chosen lines. Only the part of a
+  selection inside the document counts now, and its quote is that part's text. The same holds for a drag that starts
+  above the document.
+
 ## 0.4.48 — 2026-11-04
 
 ### Added

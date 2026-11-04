@@ -570,6 +570,46 @@ class Picking(MarkdownBase):
             ["raw", fixture_line("인용 첫"), fixture_line("인용 둘째")],
         )
 
+    def test_a_triple_click_on_the_last_paragraph_picks_its_line(self):
+        """A triple click on the document's last paragraph picks its line at the chosen-lines rung, as on any other
+        paragraph. Chromium ends that selection past the document's article, in the element after it - there is no next
+        block inside it to end at (Firefox ends it in the paragraph) - and a selection reaching out of #md was dropped
+        whole, so the first click's block pick stood. Only the part of a selection inside the document counts now, and the
+        quote is that part's text."""
+        page = self.open_md()
+        last = fixture_line("마지막 문단.")
+        # Where the selection ends as the third press is released, before the pick moves the focus to the note field.
+        page.evaluate(
+            "window.__mdEnd=null;document.addEventListener('mouseup',()=>{const s=getSelection();"
+            "if(s.rangeCount)__mdEnd=document.getElementById('md').contains(s.getRangeAt(0).endContainer);},true)"
+        )
+        page.locator("#md [data-line='%d']" % last).click(click_count=3)
+        settle(page)
+        if self.BROWSER_ENGINE != "firefox":
+            self.assertIs(page.evaluate("__mdEnd"), False)  # the case this test is for
+        self.assertEqual(
+            page.evaluate("[COMPOSE.current.scope,COMPOSE.current.lo,COMPOSE.current.hi]"), ["raw", last, last]
+        )
+        self.assertEqual(page.evaluate("COMPOSE.current.quote"), "마지막 문단.")
+
+    def test_a_selection_from_outside_the_document_into_it_picks_only_the_documents_lines(self):
+        """A selection that starts outside the article (above it, in the document column) and ends inside it picks the
+        lines from the document's first line to the line it ends in; one that does not touch the article picks nothing."""
+        page = self.open_md()
+        page.evaluate("discardSelection()")
+        got = page.evaluate(
+            "(()=>{const md=document.getElementById('md'),r=document.createRange(),l=md.querySelector(\"[data-line='4']\");"
+            "r.setStartBefore(md); r.setEnd(l.firstChild,1); const s=getSelection(); s.removeAllRanges(); s.addRange(r);"
+            "const ok=mdSelectionPick(null); return [ok,COMPOSE.current&&COMPOSE.current.lo,COMPOSE.current&&COMPOSE.current.hi];})()"
+        )
+        self.assertEqual(got, [True, 1, 4])
+        page.evaluate("discardSelection()")
+        outside = page.evaluate(
+            "(()=>{const r=document.createRange(),c=document.getElementById('bar1');r.selectNodeContents(c);"
+            "const s=getSelection(); s.removeAllRanges(); s.addRange(r); return mdSelectionPick(null);})()"
+        )
+        self.assertFalse(outside)
+
     def test_a_tap_on_a_block_no_longer_than_its_lines_picks_the_block(self):
         """A tap on a block whose lines are all the tapped lines - a raw HTML block's placeholder, a one-line paragraph -
         picks the block as a tap on any block does: the block's rung stands first with the chosen lines merged into it, and
