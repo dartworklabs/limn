@@ -56,6 +56,11 @@ function clearPendingSave(){if(!COMPOSE.pendingSave)return; COMPOSE.pendingSave=
 // With verdict (a word of the document's, the composer's verdict row - which calls it only with a found selection: its buttons
 // are off while the pick runs) the pin is a verdict pin: a fix request with no suggestion; its undo withdraws it and does
 // not bring the composer back (verdictUndo, D10).
+// Whether stored pin p stands where selection d was saved: on the same page - or, for a selection with no page (a Markdown
+// document's lines, ADR-0025 D2), on the same lines of the same file with no page either. Pure.
+/** @param {Pin} p @param {{page?:number|null,file?:string|null,lo?:number|null,hi?:number|null}} d */
+function samePlace(p,d){if(typeof d.page==='number')return p.page===d.page;
+  return p.page==null&&p.file===d.file&&p.lo===d.lo&&p.hi===d.hi;}
 /** Save the submitted selection once, preserving any later edits as a draft and offering undo for the created pin.
  * @param {string} [verdict] */
 async function savePin(verdict){
@@ -91,9 +96,9 @@ async function savePin(verdict){
   try{let status=0,data=/** @type {any} */(null);
     try{({status,data}=await api('/api/pin',{method:'POST',body,what:verdict?'판정 저장':'핀 저장',where:NOTICE_HOST.COMPOSER,save:true,expect:sg?[409]:[]}));}
     catch(e){const x=/** @type {ApiError} */(e); if(x&&x.status)throw e;
-      // No answer: the pin may be on the server - this person's, on this document and page, this note and verdict, newer than
+      // No answer: the pin may be on the server - this person's, on this document and place, this note and verdict, newer than
       // any before the press. Then it is a save (its failure banner goes below), not a failure whose [다시 저장] would make it twice.
-      await loadPins(); const got=OPEN_ALL.find(p=>p.id>top&&isMe(p.author)&&pdoc(p)===(body.doc||DEFAULT_DOC)&&p.page===d.page&&String(p.note||'')===note&&(verdictOf(p)||'')===(verdict||''));
+      await loadPins(); const got=OPEN_ALL.find(p=>p.id>top&&isMe(p.author)&&pdoc(p)===(body.doc||DEFAULT_DOC)&&samePlace(p,d)&&String(p.note||'')===note&&(verdictOf(p)||'')===(verdict||''));
       if(!got)throw e; status=200; data={id:got.id}; sourceOk('POST /api/pin');}
     if(status===409){suggestSaveRefused(d,data); return;}
     const id=data.id,failed=BANNERS.get(NOTICE_HOST.COMPOSER);

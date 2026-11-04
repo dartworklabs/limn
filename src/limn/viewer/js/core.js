@@ -54,6 +54,7 @@ const NOTICE_TOPIC=Object.freeze({PICK:'pick',SIDE:'side'});   // what a first-v
 const VD_WHERE=Object.freeze({COMPOSER:'composer',PAGE:'page'});   // where a verdict button is (verdict.js): the composer's verdict row or a page verdict line
 const LIST_ORDER=Object.freeze({NEW:'new',PAGE:'page',ID:'id'});   // the pin list's order (orderPins); index.html data-order
 const STAMP_FORM=Object.freeze({BOTH:'both',SHORT:'short',EDITED:'edited'});   // what a comment's time says (stampText); a .rt's data-form
+const MD_LIMIT=Object.freeze({BYTES:'bytes',LINES:'lines',NESTING:'nesting',BLOCKS:'blocks',INLINES:'inlines',ELEMENTS:'elements',TIME:'time',LOAD:'load',ERROR:'error'});   // the limit a Markdown document's drawing hit (md-surface.js, MD_LIMITS): #md's data-limit
 // Each band's layout mode (docs/handbook/viewer.md §모바일 레이아웃): the sheet (narrow), the panel between the nav bar and the
 // action row (mid) or the desktop (wide). Code that only asks which of the three reads LAYOUT; code that differs per band reads BAND.
 const BAND_MODE=Object.freeze({[LAYOUT_BAND.PHONE]:LAYOUT_MODE.NARROW,[LAYOUT_BAND.TABLET_SHEET]:LAYOUT_MODE.NARROW,[LAYOUT_BAND.SHORT]:LAYOUT_MODE.MID,[LAYOUT_BAND.MID_OVERLAY]:LAYOUT_MODE.MID,[LAYOUT_BAND.MID_SIDE]:LAYOUT_MODE.MID,[LAYOUT_BAND.WIDE]:LAYOUT_MODE.WIDE});
@@ -62,6 +63,11 @@ function isFigureKind(kind){return kind===DOC_KIND.FIGURE;}
 // Whether a document of this `kind` is rebuilt from its source: only a LaTeX one. A view-only PDF and a figure redraw when their
 // files change, so they have no rebuild and word a finished build as a redraw.
 function buildsFromSource(kind){return kind===DOC_KIND.TEX;}
+// Whether a document of this `kind` is drawn by the browser from its source (the server's renders_in_browser,
+// limn.runtime.documents.Doc.renders_in_browser): only a Markdown one. It has no pages - #doc holds its column (md-surface.js) -
+// and its line pins carry no page.
+/** @param {string|undefined} kind */
+function rendersInBrowser(kind){return kind===DOC_KIND.MARKDOWN;}
 // Whether a document of this `kind` is view-only - its pins are pages and regions, never lines (the server's view_only,
 // limn.runtime.documents.Doc.view_only): only a view-only PDF. Every other kind takes line pins.
 /** @param {string|undefined} kind */

@@ -63,7 +63,8 @@ async function editSnip(withLevels){const E=EDITOR.current; if(!E)return;
     if(EDITOR.current!==E)return;
     if(status===400){E.snippet=tr('원문을 읽지 못했습니다')+' — '+errText(data)+'\n'+tr('위치 다시 잡기로 고치세요.'); renderEdit(); return;}
     E.snippet=data.snippet; E.n_lines=data.n_lines;
-    if(withLevels&&data.levels){E.levels=data.levels; if(!E.scope||!lvOf(E,E.scope)){const cur=E.levels.find(l=>l.lo===E.lo&&l.hi===E.hi);
+    const md=withLevels&&rendersInBrowser(editDocKind(E))?mdEditLevels(E):null;   // a Markdown pin's rungs come from the drawn document
+    if(md)E.levels=md; else if(withLevels&&data.levels&&!rendersInBrowser(editDocKind(E))){E.levels=data.levels; if(!E.scope||!lvOf(E,E.scope)){const cur=E.levels.find(l=>l.lo===E.lo&&l.hi===E.hi);
       if(cur&&!E.scope)E.scope=null;}}
     renderEdit();}catch(e){}}
 // Draws the open edit card from EDITOR.current: the kind, the range caption (a region's page and area instead), the ladder -

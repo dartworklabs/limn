@@ -34,7 +34,7 @@ async function vecBoot(){
 }
 // Opens the PDF for the currently displayed build (META.pages_build). Never used if the page count differs from what's on screen (coordinates would be off).
 async function vecOpen(){
-  if(!VEC.lib||!META)return;
+  if(!VEC.lib||!META||isMdDoc())return;   // a Markdown document has no PDF
   const gen=++VEC.gen, build=META.pages_build||'', n=META.pages.length, key=vecCacheKey(DOC,build); let doc=VEC.cache.get(key);
   vecCancel(); searchClear();   // another document or build: its search starts empty (search.js)
   outlineForget();   // and the outline and page names of the document left behind are not the new one's (outline.js)

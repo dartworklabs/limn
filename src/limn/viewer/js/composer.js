@@ -142,7 +142,7 @@ function renderComposer(){const d=COMPOSE.current; if(!d)return; saveDraftSoon()
   $('#composer').classList.remove('region');
   const copy=d.name+' L'+d.lo+'-L'+d.hi;
   $('#c-loc').textContent=d.name+' '+rng(d.lo,d.hi); $('#c-loc').dataset.copy=copy; renderElement(d,COMPOSE.box);
-  const pg=$('#c-page'),pgn=tl('{page}쪽',{page:d.page}),sc=scopeLabel(d); pg.textContent=pgn;
+  const pg=$('#c-page'),pgn=typeof d.page==='number'?tl('{page}쪽',{page:d.page}):'Markdown',sc=scopeLabel(d); pg.textContent=pgn;   // a Markdown document's lines have no page
   pg.dataset.tip=pgn+(sc?' · '+sc:'')+' · '+tl('{n}줄',{n:/** @type {number} */(d.hi)-/** @type {number} */(d.lo)+1})+' · '+tl('드래그한 줄 {range}',{range:rng(d.raw_lo,d.raw_hi)});
   const v=viaTag(d),tg=$('#c-tag'); tg.hidden=!v; if(v){tg.textContent=v.t;tg.dataset.tip=v.tip;tg.classList.toggle('badge-warning',!!v.low);}
   $('#c-warn').hidden=!d.warn; $('#c-warn').textContent=warnText(d.warn);
@@ -157,6 +157,7 @@ function renderComposer(){const d=COMPOSE.current; if(!d)return; saveDraftSoon()
   drawComposerQuote(d);
   renderSuggest(d);   // the [제안 수정] switch and its editor follow the range (suggest.js)
   drawSelPop();   // the popover by the box shows the same location
+  mdSelMark(d);   // the chosen lines on the Markdown surface
 }
 // ---------------- The PDF text a drag chose (docs/handbook/viewer.md §패널 정리 '드래그한 글자', issue #185)
 // The selection whose quote line is open, or null: a new pick is a new object, so it starts folded, while a range change
@@ -209,7 +210,7 @@ function qHint(box,text,kind){if(box)box.hidden=kind===KIND_REQ.QUESTION||!looks
 // Drops the current selection and its box (clearNote also empties the note, kind and assignee). No undo here -
 // discardSelection() is the user's Esc/[취소], which offers one. A sheet's height is drawn again (applySheet): the tablet sheet's
 // composing lift ends with the composer, also when an open edit card keeps the sheet open.
-function cancelSelection(clearNote){if(REPICK)cancelRepick(); closeSelPop(); COMPOSE.current=null; COMPOSE.intent++; PICKSEQ++; COMPOSE.picking=false; clearPendingSave(); if(COMPOSE.box){COMPOSE.box.remove();COMPOSE.box=null;} saveDraftSoon();
+function cancelSelection(clearNote){if(REPICK)cancelRepick(); closeSelPop(); mdSelMark(null); COMPOSE.current=null; COMPOSE.intent++; PICKSEQ++; COMPOSE.picking=false; clearPendingSave(); if(COMPOSE.box){COMPOSE.box.remove();COMPOSE.box=null;} saveDraftSoon();
   COMPOSE.dismissedOverlap=null; setBusy(false); $('#composer').hidden=true; if(clearNote){$('#note').value=''; $('#note')._mentions=null; ASSIGN_NEW.touched=false; renderAssignNew(); setKind(KIND_REQ.FIX); suggestClear();}
   if(!REPICK)setSelMode(false); if(LAYOUT===LAYOUT_MODE.NARROW&&!EDITOR.current)setSide(false); applySide();
   if(LAYOUT===LAYOUT_MODE.NARROW)applySheet();}

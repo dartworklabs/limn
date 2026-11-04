@@ -1,7 +1,12 @@
 {
   "about": "Raw values the viewer CSS may keep outside tokens.css (test_viewer_raw_css.py, docs/handbook/viewer.md §리터럴 예외). Every entry names its file, selector, property and the raw value, with the reason no token fits. A new entry needs a reason; an entry that no longer matches a declaration fails the test.",
   "hairline": {
-    "values": ["1px", "2px", "-1px", "-2px"],
+    "values": [
+      "1px",
+      "2px",
+      "-1px",
+      "-2px"
+    ],
     "reason": "Hairlines and optical corrections in padding, margin and gap: a badge's 1px above and below, a segmented control's 2px between segments, a border's 1px taken off an edge. They are the width of a line, not a spacing step."
   },
   "entries": [
@@ -88,6 +93,27 @@
       "property": "margin-right",
       "value": "348px",
       "reason": "The fallback of the panel width JS measures (--side-w) in the panel's slide-in keyframes."
+    },
+    {
+      "file": "md-surface.css",
+      "selector": ".md h1",
+      "property": "font-size",
+      "value": "1.6em",
+      "reason": "A Markdown document's heading scale: its headings are sized relative to the column's text (--text-xl), as GitHub draws Markdown, and the text tokens stop at --text-xl; a heading at a text step would read as body text."
+    },
+    {
+      "file": "md-surface.css",
+      "selector": ".md h2",
+      "property": "font-size",
+      "value": "1.32em",
+      "reason": "A Markdown document's heading scale: its headings are sized relative to the column's text (--text-xl), as GitHub draws Markdown, and the text tokens stop at --text-xl; a heading at a text step would read as body text."
+    },
+    {
+      "file": "md-surface.css",
+      "selector": ".md h3",
+      "property": "font-size",
+      "value": "1.14em",
+      "reason": "A Markdown document's heading scale: its headings are sized relative to the column's text (--text-xl), as GitHub draws Markdown, and the text tokens stop at --text-xl; a heading at a text step would read as body text."
     }
   ]
 }

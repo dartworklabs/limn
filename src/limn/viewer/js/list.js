@@ -164,11 +164,12 @@ function drawPins(){dropStaleReview();
 // The pins of a list section in order (docs/handbook/viewer.md §목록 순서), list itself untouched. LIST_ORDER.NEW: the newest `at`
 // first, the later pin first within a minute, a pin with no readable time last. LIST_ORDER.PAGE: by page, where the pin's mark is
 // now, then line, then height on the page for a region, which has no line; pins of several documents stand document by document,
-// since page numbers mean nothing across them. LIST_ORDER.ID: as the server lists them.
+// since page numbers mean nothing across them. A pin with no page (a Markdown document's, ADR-0025 D2) is ordered by its lines
+// alone - its page counts as 0. LIST_ORDER.ID: as the server lists them.
 /** @param {Pin[]} list @param {string} order - a LIST_ORDER value @returns {Pin[]} */
 function orderPins(list,order){if(order===LIST_ORDER.ID)return list;
   const key=(/** @type {Pin} */p)=>{if(order===LIST_ORDER.NEW){const t=timeParts(p.at); return [t?-t.t:Infinity,-p.id];}
-    const at=pinPlace(p),d=DOCS.findIndex(x=>x.key===pdoc(p)); return [d<0?DOCS.length:d,at.page,p.lo==null?Infinity:p.lo,at.frac?at.frac[1]:Infinity,p.id];};
+    const at=pinPlace(p),d=DOCS.findIndex(x=>x.key===pdoc(p)); return [d<0?DOCS.length:d,typeof at.page==='number'?at.page:0,p.lo==null?Infinity:p.lo,at.frac?at.frac[1]:Infinity,p.id];};
   // Two missing values subtract to NaN, which falls through to the next key as a tie does.
   return list.map(p=>({p,k:key(p)})).sort((a,b)=>{for(let i=0;i<a.k.length;i++){const c=a.k[i]-b.k[i]; if(c)return c;} return 0;}).map(r=>r.p);}
 // One list section's cards as Html, in the list's order; newest first, a day line stands over each day's first card. Its name is
@@ -348,6 +349,7 @@ function markHitSides(){const bs=/** @type {HTMLElement[]} */($$('.mark button.m
 /** Draw native, named pin badge buttons at the current mark coordinates, preserving mark and undo-chip geometry. */
 // A pin a page verdict line shows (pvShows) draws no page-size box: the line under its page says it (drawPageVerdicts, first).
 function marks(){
+  if(isMdDoc()){mdMarks(); drawChips(); return;}   // the Markdown surface marks its lines (md-surface.js)
   $$('.mark').forEach(m=>m.remove()); drawPageVerdicts();
   // Awaiting-review pins are also drawn as purple marks - so the reviewer can see right there what was fixed (unrelated to an open pin's overlap/editing).
   // A figure pin is drawn where the server found its element in this build (see pinPlace), and a found element is no estimate.
@@ -409,6 +411,7 @@ function jumpPin(id){if(viaDoc(id,jumpPin))return; const p=PINS.find(x=>x.id===i
   if(document.body.classList.contains('revision-open'))setViewMode(VIEW_MODE.MANUSCRIPT);
   if(jumpPv(id))return;   // a pin its page verdict line shows: the line
   if(LAYOUT===LAYOUT_MODE.NARROW)setSide(false);   // collapsed first so the sheet doesn't cover the page, then measured
+  if(isMdDoc()){mdJump(id); return;}   // its first line on the Markdown surface
   const m=/** @type {HTMLElement} */(document.querySelector('.mark[data-pin="'+id+'"]'));
   if(m){
     const L=$('#left'),lr=L.getBoundingClientRect(),mr=m.getBoundingClientRect();

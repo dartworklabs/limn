@@ -1,6 +1,8 @@
 // ------------------------------------------------ Range levels
 function lvOf(obj,key){return (obj.levels||[]).find(l=>l.level===key||(l.merged||[]).includes(key));}
+// A Markdown document's rungs (md-surface.js mdLevels, ADR-0025 D3): a block is md:<its kind> (the rung's env), a section md:section.
 function kindFor(scope,env){if(!scope)return null; if(scope.startsWith('env'))return 'env:'+(env||'?');
+  if(scope==='block')return 'md:'+(env||'paragraph'); if(scope==='section')return 'md:section';
   return scope==='para'?'paragraph':'lines';}
 // The name of o's range kind for a description: its rung's, else its kind's; '' for lines set one by one (scope 'lines'),
 // whose lines alone say what they are.
@@ -19,7 +21,7 @@ function rng(lo,hi){return 'L'+lo+(hi!==lo?'-L'+hi:'');}
 // Segment-control labels are kept short - '환경 abstract' -> 'abstract'. When the same environment name appears more than
 // once, '(바깥)' is kept to distinguish them. The line range is left out of the label, going instead into the description (data-tip)/aria-label and the location line.
 // A figure rung is named by its element as the server labelled it (a person's words, not run through levelLabel).
-function levelName(lv,all){if(lv.el)return String(lv.label||elName(lv.el)); if(!lv.env)return levelLabel(lv.label);
+function levelName(lv,all){if(lv.el)return String(lv.label||elName(lv.el)); if(!lv.env||lv.level==='block')return levelLabel(lv.label);
   const dup=(all||[]).filter(o=>o.env===lv.env).length>1; return dup?levelLabel(lv.label).replace(/^(환경|Environment) /,''):lv.env;}
 // The range ladder's segments (composer and edit card) as Html, one button per rung, the rung matching the range pressed. A
 // figure rung (it carries an element) gets the element's tooltip; its line count comes from lo-hi when the rung has no n.

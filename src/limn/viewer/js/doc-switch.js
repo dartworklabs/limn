@@ -120,15 +120,18 @@ function posLabel(doc,page,n,multi,wide,mode){
   return {name,pages:p+'/'+m,label:name?tl('이동 · {doc} · {page} / {n}쪽',{doc:name,page:p,n:m}):tl('이동 · {page} / {n}쪽',{page:p,n:m})};}
 // Draws [본문 3/25 ▾] from the document on screen, the reading line's page and the view (posLabel), with a dot when another
 // document's manuscript is newer or building. The button is translate="no" (a document name), so its UI words are tr()'d here.
-function drawPos(){const b=$('#btn-pos'); if(!b)return; const cur=docInfo(DOC),n=META&&META.pages?META.pages.length:0;
-  const L=posLabel(cur?cur.name:'',OUTLINE_ACTIVE_PAGE||1,n,multiDoc(),innerWidth>=400,document.body.classList.contains('revision-open')?VIEW_MODE.REVISIONS:VIEW_MODE.MANUSCRIPT);
+function drawPos(){const b=$('#btn-pos'); if(!b)return; const cur=docInfo(DOC),n=META&&META.pages?META.pages.length:0,rev=document.body.classList.contains('revision-open');
+  const L=isMdDoc()&&!rev?mdPosLabel(cur?cur.name:'',MD.at,MD.lines.length,multiDoc(),innerWidth>=400)   // a Markdown document has lines, not pages
+    :posLabel(cur?cur.name:'',OUTLINE_ACTIVE_PAGE||1,n,multiDoc(),innerWidth>=400,rev?VIEW_MODE.REVISIONS:VIEW_MODE.MANUSCRIPT);
   const nm=$('#btn-pos-n'); nm.textContent=L.name; nm.hidden=!L.name; $('#btn-pos-p').textContent=L.pages;
   b.setAttribute('aria-label',L.label); b.dataset.tip=tr('문서·보기·쪽·목차로 갑니다');
   $('#btn-pos-dot').hidden=!DOCS.some(d=>d.key!==DOC&&(d.stale_build||d.building));}
 // Viewed position: page/fraction anchored at the top, page scale (K), whether zoomed manually in compact, horizontal scroll. Kept in sessionStorage so it survives a reload.
-function saveView(){if(!DOC||!META||!$('#doc .pg'))return; const a=topAnchor();
-  VIEW_BY.set(DOC,{page:a?a.page:1,frac:a?a.frac:0,k:K,zoomed:ZOOMED,sl:$('#left').scrollLeft,lay:LAYOUT});
-  if(multiDoc()){try{sessionStorage.setItem('pinDocView',JSON.stringify(Array.from(VIEW_BY.entries())));}catch(e){}}}
+function saveView(){if(!DOC||!META)return;
+  if(isMdDoc()){const a=MD.shown===DOC?mdAnchor():null; if(a)VIEW_BY.set(DOC,{line:a.line,off:a.off,lay:LAYOUT}); saveViews(); return;}   // its reading line
+  if(!$('#doc .pg'))return; const a=topAnchor();
+  VIEW_BY.set(DOC,{page:a?a.page:1,frac:a?a.frac:0,k:K,zoomed:ZOOMED,sl:$('#left').scrollLeft,lay:LAYOUT}); saveViews();}
+function saveViews(){if(multiDoc()){try{sessionStorage.setItem('pinDocView',JSON.stringify(Array.from(VIEW_BY.entries())));}catch(e){}}}
 function loadViews(){if(!multiDoc())return; try{const a=JSON.parse(sessionStorage.getItem('pinDocView')||'[]');
   if(Array.isArray(a))a.forEach(x=>{if(Array.isArray(x)&&docInfo(x[0])&&x[1]&&typeof x[1]==='object')VIEW_BY.set(x[0],x[1]);});}catch(e){}}
 // A kept view's scale: its k, or - kept by a release that stored the page width - that width over the widest page m (points);
@@ -140,7 +143,8 @@ function viewScale(v,m){return typeof v.k==='number'&&v.k>0?v.k:typeof v.w==='nu
 function applyViewWidth(v){if(v&&v.lay===LAYOUT&&(LAYOUT===LAYOUT_MODE.WIDE||v.zoomed)){const k=viewScale(v,ptMax());
     if(k){K=k; ZOOMED=LAYOUT!==LAYOUT_MODE.WIDE&&!!v.zoomed; return true;}}
   ZOOMED=false; K=startK(); return false;}
-function restoreView(v){if(!v)return; restoreAnchor({page:v.page,frac:v.frac}); if(typeof v.sl==='number')$('#left').scrollLeft=v.sl;}
+function restoreView(v){if(!v)return; if(isMdDoc()){MD.want=typeof v.line==='number'?{line:v.line,off:+v.off||0,top:0}:null; return;}   // once it is drawn (mdShow)
+  restoreAnchor({page:v.page,frac:v.frac}); if(typeof v.sl==='number')$('#left').scrollLeft=v.sl;}
 addEventListener('pagehide',saveView);
 // Switches documents. Remembers the current view and draft, then opens only the destination document's draft.
 // If a meta cache exists, that document is drawn immediately without waiting, then the latest meta is fetched in the background, and pages are swapped only if the build changed.

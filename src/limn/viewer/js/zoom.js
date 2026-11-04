@@ -20,7 +20,7 @@ function wheelFactor(dy,mode){if(!dy)return 1;
 (function(){const L=$('#left'); let acc=1,pt=/** @type {number[]|null} */(null),raf=0,G=/** @type {{k:number}|null} */(null),
     TP=/** @type {{d:number,k:number,a:ReturnType<typeof zoomAnchor>}|null} */(null);
   const flush=()=>{raf=0; if(acc===1||!pt)return; const f=acc; acc=1; zoomTo(K*f,pt[0],pt[1]);};
-  L.addEventListener('wheel',e=>{if(!(e.ctrlKey||e.metaKey))return; e.preventDefault();
+  L.addEventListener('wheel',e=>{if(!(e.ctrlKey||e.metaKey)||isMdDoc())return; e.preventDefault();   // a Markdown document's text zooms with the browser
     acc*=wheelFactor(e.deltaY,e.deltaMode); pt=[e.clientX,e.clientY]; if(!raf)raf=requestAnimationFrame(flush);},{passive:false});
   L.addEventListener('gesturestart',e=>{e.preventDefault(); if(!TP)G={k:K};},{passive:false});
   L.addEventListener('gesturechange',e=>{e.preventDefault(); if(G&&!TP&&e.scale>0)zoomTo(G.k*e.scale,e.clientX,e.clientY);},{passive:false});

@@ -37,6 +37,7 @@ async function refreshDoc(meta){let a=topAnchor(); const k=DOC,seq=SWITCHSEQ;
   const m=meta===undefined?(await api(dq('/api/meta'),{what:'화면 정보 읽기',where:NOTICE_HOST.LINE})).data:meta;
   if(k!==DOC||seq!==SWITCHSEQ)return;
   const gen=++REFRESH_GEN;
+  if(rendersInBrowser(m.kind)){META_BY.set(k,m); META=m; drawMeta(); mdBuild(); await loadPins(); return;}   // no pages: the source is drawn again
   // Building the pages again takes the reason field with them: a syllable being composed in it ends first, and the key that
   // ended it lets the field go (pvComposingNow), and the spot is read again after the wait. A newer snapshot that came meanwhile wins - applied at once (the same page
   // count) or waiting too: this one is dropped, never put back over it (a newer build was rolled back for good, #352 review).

@@ -61,10 +61,11 @@ function card(p){p=pvQuietRel(p);   // no overlap badge between two verdicts abo
   const lost=!!(p.stale||lostEl),metadata=cardMetadata(p,rv?'검토 대기':lost?'위치 잃음':claimed?'처리 중':ro?'다시 열림':'열림',pressable);
   // compact's head link (CSS shows it in place of #N, the line range and N쪽, diagnosis P6/U5): one 44px target that does what
   // [보기] does - the same data-act, so it also replaces the row's [보기] there.
-  const page=tl('{page}쪽',{page:pinPlace(p).page});
+  // A pin of a Markdown document has no page (ADR-0025 D2): its head says the lines alone.
+  const at=pinPlace(p).page,page=typeof at==='number'&&!isMdPin(p)?' · '+tl('{page}쪽',{page:at}):'';
   // Its words and the reply count are in .lbl: compact trims them to their cap height, so the head row's dot, words, count and
   // chevron share one centre in any font.
-  const go=html`<span class="go-all" role="button" tabindex="0" data-act="view" data-tip="${T.view}"><span class="lbl">#${p.id} · ${locText(p)} · ${page}</span></span>`;
+  const go=html`<span class="go-all" role="button" tabindex="0" data-act="view" data-tip="${T.view}"><span class="lbl">#${p.id} · ${locText(p)}${page}</span></span>`;
   const nr=replyCount(p);
   const thn=nr?html`<span class="th-n" role="button" tabindex="0" data-act="reply-open" aria-label="${tl('답글 {n}건 — 답글 쓰기',{n:nr})}" data-tip="${tl('이 핀의 답글 {n}건 — 누르면 카드를 펴고 답글 칸을 엽니다',{n:nr})}">${ic('message-square')}<span class="lbl">${nr}</span></span>`:'';
   const dot=stDot(rv?CARD_DOT.REVIEW:p.stale||elLost(p)?CARD_DOT.LOST:claimed?CARD_DOT.CLAIMED:CARD_DOT.OPEN),unfold=open||(!rv&&editing);
