@@ -2,7 +2,22 @@
 
 ## Unreleased
 
+### Fixed
+
+- **A notification's pin link opens the pin even when the light poll reads the list first.** Clicking a browser
+  notification brings the viewer tab forward and opens the pin's card after reading the list again. The tab coming
+  forward also starts a light poll, and when the poll's read of the list, asked after the link's, was answered first, the
+  link took its own read, overtaken, for a failed one and did nothing: no card opened and the PDF stayed where it was.
+  The list the link waited for was already there, so the link now goes on; it still stops when the read of the list
+  fails. The pin list and its scroll position were right in that race all along: an answer older than the one the list
+  shows is not drawn.
+
 ### Internal
+
+- **The pin list's scroll tests no longer fail when the light poll's read overtakes theirs (#392).** They asked that
+  their own read of the list was the one drawn, which an overtaken read is not, by design. They now check that the list
+  shows a read asked since their change and what it holds, and a new test makes the poll overtake a read whose answer
+  predates an agent's close: the late answer is not drawn, and the card and the view stay as the poll left them.
 
 - **Server groundwork for Markdown documents (ADR-0025), not reachable yet.** No `--doc` suffix chooses a Markdown
   document until the viewer can draw one, so nothing below changes what an instance serves today.

@@ -92,10 +92,13 @@ function takeLinkHash(){const link={pin:hashPin(),doc:hashDoc(),restore:/(?:^#|[
   if(link.pin)history.replaceState(history.state,'',location.pathname+location.search+(link.doc?'#doc='+link.doc:''));
   return link;}
 // restore = the [되살리기] action of a 'dropped' notification: bring the pin back from the Trash first (never for a viewer).
+// The list is read again first and the link goes on once it shows a snapshot asked for since then - its own read's, or a
+// newer read's that overtook it (the light poll the tab's return sets off) - and stops only when the read failed: an
+// earlier list could restore a pin from a Trash that no longer holds it.
 async function openPinFromLink(doc,pin,restore){if(!pin)return; if(doc&&doc!==DOC&&docInfo(doc)){
     const opening=switchDoc(doc),visit=SWITCHSEQ; await opening; if(DOC!==doc||visit!==SWITCHSEQ)return;}
   const visit=SWITCHSEQ,k=DOC;
-  const applied=await loadPins(); if(!applied||DOC!==k||visit!==SWITCHSEQ)return;
+  const now=await loadPinsNow(); if(!now||DOC!==k||visit!==SWITCHSEQ)return;
   if(restore&&!isViewer()&&!findAnyPin(pin)&&DROPPED.some(x=>x.id===pin)){
     await restorePin(pin); if(DOC!==k||visit!==SWITCHSEQ)return;}
   const p=findAnyPin(pin); if(!p){if(DROPPED.some(x=>x.id===pin))openTrash(pin); return;} if(pinState(p)===PIN_STATE.DONE){SEC.done=true;}

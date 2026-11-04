@@ -12,7 +12,10 @@ FontFace from bytes, a family no text uses) while it scrolls the PDF area, so it
 long tasks are only reported. What skipping must not change is held too: no card in view is skipped (it would be drawn
 on whole pixels and clipped), every card stands at its drawn height (on the phone too, whose sheet opens after the first
 draw), the view stays where it stands across a redraw that changed a card above it or took the card at its top to
-another section or away, and a card changed while out of view shows what it holds now when it comes in.
+another section or away, and a card changed while out of view shows what it holds now when it comes in. A read the list
+makes again may be overtaken by a newer one (the light poll's every five seconds): the tests read it with loadPinsNow, which
+answers whether the list shows a snapshot asked for since, and check what the list holds; a late answer from before the
+change leaves the list and its view as the newer read drew them.
 
 Run: uv run pytest -q src/limn/viewer/tests/test_viewer_list_scroll.py
 """
@@ -54,6 +57,11 @@ IN_VIEW_TOP = """id => document.querySelector('#list .pin[data-id="' + id + '"]'
 # The id of the first card whose bottom is below the top of the list's view.
 TOP_CARD = """() => {const t = listScroller().getBoundingClientRect().top;
   return +[...document.querySelectorAll('#list .pin.card')].find(c => c.getBoundingClientRect().bottom > t).dataset.id;}"""
+# The list section the card of pin id is drawn in (pins, review-pins, done-list), or null with no card for it.
+SECTION_OF = """id => {const c = document.querySelector('#list .pin[data-id="' + id + '"]');
+  return c ? c.closest('#pins,#review-pins,#done-list').id : null;}"""
+# The note the card of pin id holds (its markup: a skipped card's innerText is empty).
+NOTE_OF = """id => document.querySelector('#list .pin[data-id="' + id + '"] .note').textContent"""
 # How many cards the browser skips now: their content is not drawn.
 SKIPPED = """() => [...document.querySelectorAll('#list .pin.card')]
   .filter(c => !c.firstElementChild.checkVisibility({contentVisibilityAuto: true})).length"""
@@ -154,8 +162,9 @@ class ManyCardsWhileThePdfScrolls(BrowserBase):
                 longer = ("%s님이 고친 메모입니다. " % name * 12).strip()
                 rec = record_of(edit_pin(above, {"note": longer, "base_rev": rev[above]}, actor(ALICE)))
                 rev[above] = rec["rev"]
-                self.assertTrue(page.evaluate("loadPins()"))
+                self.assertTrue(page.evaluate("loadPinsNow()"), "the list was not read again")
                 settle(page)
+                self.assertEqual(page.evaluate(NOTE_OF, above), longer, "the list read again lacks the edit")
                 self.assertEqual(
                     page.evaluate(IN_VIEW_TOP, pid),
                     top,
@@ -188,13 +197,67 @@ class ManyCardsWhileThePdfScrolls(BrowserBase):
                     ps.APP.pin_lifecycle.close_pin(
                         first, post_authority(store, dict(LOCAL_ACTOR), "close", first), CloseRequest(reply="고침")
                     )
-                self.assertTrue(page.evaluate("loadPins()"))
+                self.assertTrue(page.evaluate("loadPinsNow()"), "the list was not read again")
                 settle(page)
+                self.assertEqual(
+                    page.evaluate(SECTION_OF, first),
+                    "review-pins" if how != "deleted" else None,
+                    "the list read again still shows the card at the top as open",
+                )
                 self.assertEqual(
                     page.evaluate(IN_VIEW_TOP, pid),
                     top,
                     "the view moved when the card at its top was %s" % how,
                 )
+
+    def test_a_late_answer_from_before_a_change_leaves_the_list_as_the_newer_read_drew_it(self):
+        """Down the list, a read of it is answered from the server as it stands, and only then does an agent close the pin of
+        the card at the top of the view; that answer reaches the page late. The light poll, asked after it and answered
+        after the close, comes first: the card goes to 검토 대기 and the view stays where it stood. The late answer, older
+        than what the list shows, is not drawn: the card does not come back among the open ones and the view does not
+        move. The poll's timer is stopped so that only these two reads run, in this order."""
+        page = self.open(N_PINS, init=NO_COACH, **DESKTOP)
+        page.evaluate("clearInterval(LIGHT_TIMER)")
+        page.evaluate("LIGHT_INFLIGHT")  # a poll the timer had started: done before the reads below
+        page.evaluate("() => {const S = listScroller(); S.scrollTop = S.scrollHeight * 0.6;}")
+        page.wait_for_function("(%s)()[2]" % AT_READING_POINT, timeout=8000)
+        settle(page)
+        pid, top, _ = page.evaluate(AT_READING_POINT)
+        first = page.evaluate(TOP_CARD)
+        self.assertNotEqual(first, int(pid))
+        store = ps.APP.pin_lifecycle.context().store
+        late = []  # [the answer from before the close, the route it is held on]
+
+        def answer_then_close(route):
+            """The first pin read from here on: answer it from the server as it stands and hold the answer, then close the
+            pin of the card at the top of the view. Every later read goes on as usual."""
+            if late:
+                return route.fallback()
+            late.extend([self.answer(route.request), route])
+            ps.APP.pin_lifecycle.close_pin(
+                first, post_authority(store, dict(LOCAL_ACTOR), "close", first), CloseRequest(reply="고침")
+            )
+
+        page.route("**/api/pins?all=1", answer_then_close)
+        page.evaluate("() => { window.lateRead = loadPins(); }")  # the read whose answer is held: not awaited
+        # The poll's meta sees the close, and its read draws the list and puts the view back, all before it resolves. The
+        # page is not settled here: the held read is a fetch in flight till it is answered.
+        page.evaluate("pollLight()")
+        self.assertEqual(len(late), 2, "no pin read was held")
+        self.assertEqual(
+            [page.evaluate(SECTION_OF, first), page.evaluate(IN_VIEW_TOP, pid)],
+            ["review-pins", top],
+            "after the poll: the card at the top of the view, its section; the reading point, its top",
+        )
+        held, route = late
+        route.fulfill(**held)
+        page.evaluate("window.lateRead")  # the late answer reached the page and the read is over
+        settle(page)
+        self.assertEqual(
+            [page.evaluate(SECTION_OF, first), page.evaluate(IN_VIEW_TOP, pid)],
+            ["review-pins", top],
+            "the late answer from before the close was drawn over the poll's",
+        )
 
     def test_a_card_changed_out_of_view_comes_in_with_what_it_holds_now(self):
         """A card near the end of the list, out of view and skipped, gets a note twelve times as long from someone else; the
@@ -206,7 +269,7 @@ class ManyCardsWhileThePdfScrolls(BrowserBase):
         self.assertEqual(
             record_of(edit_pin(far, {"note": longer, "base_rev": self.pins[2]["rev"]}, actor(ALICE)))["note"], longer
         )
-        self.assertTrue(page.evaluate("loadPins()"))
+        self.assertTrue(page.evaluate("loadPinsNow()"), "the list was not read again")
         settle(page)
         self.assertEqual(page.evaluate(HEIGHTS), [], "cards that stand at another height than they are drawn at")
         card = "#list .pin[data-id='%d']" % far

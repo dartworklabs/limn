@@ -142,6 +142,81 @@ class PinListLoading(unittest.TestCase):
             },
         )
 
+    # The served loadPins with a stubbed network and screen. Every pin read waits on the server until the scenario answers
+    # it (answer(i, id): read i, in the order asked, gets one pin) or fails it (fail(i)); the Trash answers at once.
+    PINS_HARNESS = """
+        let DOC='main',SWITCHSEQ=0,DEFAULT_DOC='main',OPEN_ALL=[],REVIEW_ALL=[],DONE_ALL=[],PINS=[],DONE=[],DROPPED=[];
+        let REPLY=null,COMPOSE={current:null},PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0; const CONFIRMING=new Set(),CONFIRMING_PIN=new Map(); const EDITOR={current:null,saving:false};
+        const SEC_SEEN={open:null,review:null,done:null},SEC={done:false},OPEN_CARDS=new Set(),drawn=[],pending=[];
+        let jumps=0;
+        function api(url){
+          if(url==='/api/pins?all=1')return new Promise((resolve,reject)=>pending.push({resolve,reject}));
+          if(url==='/api/pins/dropped')return Promise.resolve({data:{dropped:[]}});
+          throw Error(url);
+        }
+        const answer=(i,id)=>pending[i].resolve({data:[{id}]}),fail=i=>pending[i].reject(Error('offline'));
+        const open=()=>OPEN_ALL.map(p=>p.id);
+        function loadPeople(){} function pdoc(p){return p.doc||DEFAULT_DOC;}
+        function notePinChanges(){} function noteReviewChanges(){}
+        function drawPins(){drawn.push(open());}
+        function marks(){} function drawDocTabs(){} function docTitle(){}
+        function recomputeOverlap(){} function renderOverlapBanner(){} function closeReply(){}
+        function docInfo(){return true;} function isViewer(){return false;} function restorePin(){} function openTrash(){}
+        function findAnyPin(id){return OPEN_ALL.concat(REVIEW_ALL,DONE_ALL).find(p=>p.id===id)||null;}
+        function setSide(){} function jumpPin(){jumps++;} function jumpToCard(){} function requestAnimationFrame(){}
+        """
+
+    def _pins_run(self, scenario, *functions):
+        """Run scenario (an async body that prints JSON) against the served pinState, derivePinLists, applyPinLists,
+        loadPins and loadPinsNow, and the named functions besides, under PINS_HARNESS; return what it prints, parsed."""
+        names = ("pinState", "derivePinLists", "applyPinLists", "loadPins", "loadPinsNow", *functions)
+        body = "(async()=>{%s})();" % scenario
+        return json.loads(run_node("\n".join([*(extract_js_fn(n) for n in names), self.PINS_HARNESS, body])))
+
+    def test_reading_now_answers_whether_the_list_shows_a_snapshot_asked_since_the_call(self):
+        """loadPinsNow resolves true when its own read applied or a newer read that overtook it did, and false when its
+        read failed with nothing newer applied - also when an older read, asked before the call, applied while it waited.
+        loadPins itself stays false when overtaken: the light poll reads that revision again."""
+        cases = {
+            "its own read applies": (
+                "const now=loadPinsNow(); answer(0,1); console.log(JSON.stringify({now:await now,open:open()}));",
+                {"now": True, "open": [1]},
+            ),
+            "a newer read overtakes it": (
+                """const now=loadPinsNow(),newer=loadPins(); answer(1,2); const n=await newer; answer(0,1);
+                   console.log(JSON.stringify({now:await now,newer:n,open:open()}));""",
+                {"now": True, "newer": True, "open": [2]},
+            ),
+            "its read fails while an older one applies": (
+                """const old=loadPins(),now=loadPinsNow(); answer(0,1); await old; fail(1);
+                   console.log(JSON.stringify({now:await now,open:open()}));""",
+                {"now": False, "open": [1]},
+            ),
+            "loadPins, overtaken": (
+                """const old=loadPins(),newer=loadPins(); answer(1,2); await newer; answer(0,1);
+                   console.log(JSON.stringify({older:await old,open:open()}));""",
+                {"older": False, "open": [2]},
+            ),
+        }
+        for name, (scenario, expected) in cases.items():
+            with self.subTest(name):
+                self.assertEqual(self._pins_run(scenario), expected)
+
+    def test_a_pin_link_opens_its_card_when_a_newer_read_overtakes_its_own(self):
+        """A notification's pin link reads the list again before it opens the pin's card. When a light poll's read, asked
+        after the link's, applies first, the link's own read is overtaken - and the list it waited for is there: the card
+        opens and the PDF goes to the pin. Before, the link took the overtaken read for a failed one and did nothing."""
+        scenario = """
+            const link=openPinFromLink('main',7,false);   // its read waits on the server
+            const poll=loadPins(); answer(1,7);           // the poll's read, asked after it, is answered first
+            const applied=await poll; answer(0,7); await link;
+            console.log(JSON.stringify({applied,opened:[...OPEN_CARDS],jumps,drawn}));
+            """
+        self.assertEqual(
+            self._pins_run(scenario, "openPinFromLink"),
+            {"applied": True, "opened": [7], "jumps": 1, "drawn": [[7], [7]]},
+        )
+
     def test_failed_newer_poll_keeps_older_success_and_retries_revision(self):
         """A failed newer pin fetch cannot discard an older success or mark its meta revision as loaded."""
         js = "\n".join(
