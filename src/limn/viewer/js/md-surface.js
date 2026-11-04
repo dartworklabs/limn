@@ -30,7 +30,8 @@ const MD={gen:0,doc:/** @type {string|null} */(''),file:'',name:'',lines:/** @ty
   asked:/** @type {number|null} */(null),at:0,limit:/** @type {string|null} */(null),
   heads:/** @type {{level:number,lo:number,el:HTMLElement,title:string,slug:string}[]} */([]),
   worker:/** @type {Worker|null} */(null),job:/** @type {{id:number,resolve:(r:any)=>void,t:ReturnType<typeof setTimeout>}|null} */(null),seq:0,
-  waiting:false,els:0,shown:/** @type {string|null} */(''),want:/** @type {{line:number,off:number,top:number}|null} */(null)};
+  waiting:false,els:0,shown:/** @type {string|null} */(''),want:/** @type {{line:number,off:number,top:number}|null} */(null),
+  jumpTo:/** @type {{id:number,doc:string|null,seq:number}|null} */(null)};
 // Whether the document on screen is drawn here (no pages), and whether pin p belongs to such a document of this instance.
 function isMdDoc(){return !!META&&rendersInBrowser(META.kind);}
 /** @param {Pin} p */
@@ -89,7 +90,8 @@ async function mdBuild(){if(mdFieldBusy()){MD.waiting=true; return;}
 /** @param {HTMLElement} node */
 function mdShow(node){const a=MD.want||(MD.shown===DOC?mdAnchor():null); MD.want=null; MD.limit=node.dataset.limit||null;
   $('#doc').replaceChildren(node); MD.shown=DOC; mdRestore(a);
-  if(MD_RO)MD_RO.observe(node); mdOutline(); marks(); mdRelevel(); mdSelMark(COMPOSE.current); mdStrip();}
+  if(MD_RO)MD_RO.observe(node); mdOutline(); marks(); mdRelevel(); mdSelMark(COMPOSE.current); mdStrip();
+  const j=MD.jumpTo; MD.jumpTo=null; if(j&&j.doc===DOC&&j.seq===SWITCHSEQ)mdJump(j.id);}   // a jump asked before the draw (mdJump)
 // The line view offers the chosen lines alone (mdLineView): a pick of this document whose ladder came from the drawn document
 // (a draft kept from before the parser failed) keeps its lines but takes the ladder a pick there gives - those lines, as lines.
 function mdRelevel(){const d=COMPOSE.current; if(!d||REPICK||isRegion(d)||d.doc!==DOC||d.file!==MD.file||!$('#md.md-lines'))return;
@@ -443,8 +445,11 @@ function mdMarks(){const md=$('#md'); if(!md)return;
     box.appendChild(b);}}
 // The column reflows when its width changes (a panel, a rotation): the badges follow their lines.
 let MD_RO_T=0; const MD_RO=window.ResizeObserver?new ResizeObserver(()=>{clearTimeout(MD_RO_T); MD_RO_T=setTimeout(()=>{if(isMdDoc())mdMarks();},120);}):null;
-// Scrolls pin id's first line to the reading depth and flashes its lines (jumpPin's branch).
-function mdJump(id){const p=PINS.find(x=>x.id===id)||REVIEW_ALL.find(x=>x.id===id); if(!p||typeof p.lo!=='number'||typeof p.hi!=='number')return;
+// Scrolls pin id's first line to the reading depth and flashes its lines (jumpPin's branch). A jump asked before this
+// document is on screen - [보기] on a pin of another document: switchDoc settles before the source is read and drawn - waits
+// for the draw (mdShow) of this visit; another switch drops it.
+function mdJump(id){if(MD.shown!==DOC||!$('#md')){MD.jumpTo={id,doc:DOC,seq:SWITCHSEQ}; return;}
+  const p=PINS.find(x=>x.id===id)||REVIEW_ALL.find(x=>x.id===id); if(!p||typeof p.lo!=='number'||typeof p.hi!=='number')return;
   const leaves=mdLeaves(p.lo,p.hi); if(!leaves.length)return; const L=$('#left'),lr=L.getBoundingClientRect(),r=leaves[0].getBoundingClientRect();
   pvShow(); L.scrollTop+=(r.top-(lr.top+lr.height*0.30)); leaves.forEach(e=>{e.classList.remove('md-flash'); void e.offsetWidth; e.classList.add('md-flash');});
   setTimeout(()=>leaves.forEach(e=>e.classList.remove('md-flash')),1200);}

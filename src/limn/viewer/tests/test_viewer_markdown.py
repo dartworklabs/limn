@@ -32,6 +32,7 @@ import helpers_csp
 from helpers import ps, req
 from helpers_browser import BrowserBase, clock_now, clock_still, ime_compose, ime_end_with, settle
 from helpers_figure import BUILD1, viewer_build
+from helpers_outline import outline_pdf
 
 # Resolves when the Markdown document on screen is drawn (a document, the line view or a notice) and no parse is in flight.
 DRAWN = "typeof MD!=='undefined'&&MD.shown===DOC&&!!document.querySelector('#md')&&!MD.job"
@@ -299,6 +300,77 @@ class Drawing(MarkdownBase):
         page.evaluate("switchDoc('nt')")
         page.wait_for_function(DRAWN, timeout=10000)
         self.assertGreaterEqual(page.evaluate("mdReadingLine()"), fixture_line("## 표") - 2)
+
+
+class FromAnotherDocument(MarkdownBase):
+    """Arriving on the Markdown document from the LaTeX one while work for either is still in flight."""
+
+    def hold_routes(self, page, part):
+        """Route every request, holding back those whose URL holds part until the test forwards them (returned list)."""
+        held = []
+
+        def route(r):
+            if part in r.request.url:
+                return held.append(r)
+            return self.route(r)
+
+        page.route("**/*", route)
+        return held
+
+    def test_view_on_a_pin_waits_for_the_document_to_be_drawn(self):
+        """[보기] on a Markdown pin while the LaTeX document is on screen: switchDoc settles before the source is read and
+        drawn, so the jump waits for the draw - the pin's first line lands at the reading depth, not at the top the
+        document was left at."""
+        line = fixture_line("> 인용 첫")
+        pid = self.save_via_api(line, line)
+        page = self.open_md(1)
+        page.evaluate("switchDoc('ms')")
+        page.wait_for_function("DOC==='ms'&&document.querySelectorAll('#doc .pg').length===2", timeout=10000)
+        held = self.hold_routes(page, "/api/source")
+        # the switch's own promise, settled after the jump's (registered on it first by the wrapper, so it runs first)
+        page.evaluate(
+            "(()=>{const s=switchDoc; window.switchDoc=k=>{const p=s(k); window.__sw=p.then(()=>1); return p;};"
+            " jumpPin(%d);})()" % pid
+        )
+        page.evaluate("window.__sw")  # switched, the jump asked; the source read is still held
+        self.assertEqual(page.evaluate("[DOC,!!document.querySelector('#md')]"), ["nt", False])
+        self.assertEqual(len(held), 1)
+        for r in held:
+            self.forward(r)
+        page.wait_for_function(SHOWN + "&&DOC==='nt'", timeout=10000)
+        settle(page)
+        got = page.evaluate(
+            "(()=>{const L=document.getElementById('left'),lr=L.getBoundingClientRect(),"
+            "r=document.querySelector(\"#md [data-line='%d']\").getBoundingClientRect();"
+            " return [L.scrollTop>0,Math.round(r.top-(lr.top+lr.height*0.30))];})()" % line
+        )
+        self.assertTrue(got[0])
+        self.assertLessEqual(abs(got[1]), 2, got)
+
+    def test_the_latex_pdf_still_opening_does_not_take_the_outline(self):
+        """Leaving the LaTeX document while its PDF is still being read: the Markdown document's outline is its headings
+        after that read ends - the PDF's open, outline and pages are the document left behind's."""
+        (Path(self.ms.dir) / BUILD1 / self.ms.pdf_name).write_bytes(outline_pdf(2, [("PDF 장", 0, [])]))
+        page = self.open_md()
+        page.wait_for_function("!!window.__pinVec.lib", timeout=10000)
+        page.evaluate(
+            "(()=>{window.__vo=[]; window.__lo=[]; const v=vecOpen,o=loadOutline;"
+            " window.vecOpen=()=>{const p=v(); window.__vo.push(p); return p;};"
+            " window.loadOutline=(d,g)=>{const p=o(d,g); window.__lo.push(p); return p;};})()"
+        )
+        held = self.hold_routes(page, "/pdf?")
+        page.evaluate("switchDoc('ms')")
+        page.wait_for_function("DOC==='ms'&&document.querySelectorAll('#doc .pg').length===2", timeout=10000)
+        self.assertEqual(len(held), 1)
+        page.evaluate("switchDoc('nt')")
+        page.wait_for_function(SHOWN + "&&DOC==='nt'", timeout=10000)
+        heads = page.evaluate("MD.heads.map(h=>h.title)")
+        self.assertEqual(page.evaluate("OUTLINE_ENTRIES.map(e=>e.title)"), heads)
+        for r in held:
+            self.forward(r)
+        page.evaluate("Promise.all(window.__vo)")  # the PDF's open ends (and the Markdown document's, at once)
+        page.evaluate("Promise.all(window.__lo)")  # and any outline read it started
+        self.assertEqual(page.evaluate("[OUTLINE_DOC,OUTLINE_ENTRIES.map(e=>e.title)]"), ["nt", heads])
 
 
 class Security(MarkdownBase):
