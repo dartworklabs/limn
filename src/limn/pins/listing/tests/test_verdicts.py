@@ -634,3 +634,41 @@ class SupersededOverHTTP(OnDisk):
         old_lines = self.make({**self.main_body, "lo": 4, "hi": 5, "note": "채택 옛 꼴"})
         self.assertEqual(self.superseded(), {first: second, lines_a: lines_b})
         self.assertNotIn(old_lines, self.superseded())
+
+
+class MarkdownVerdictsOverHTTP(AccessBase):
+    """A Markdown document's verdict pins are about their lines (ADR-0025, the spec's 판정 핀): the server places them
+    on the file they point at, as it places a LaTeX document's, so the newer verdict on the same lines supersedes the
+    older one. No --doc suffix chooses the kind yet, so the document is made directly."""
+
+    def setUp(self):
+        """ms (LaTeX) and nt (Markdown, notes/plan.md), each with the word file."""
+        super().setUp()
+        (self.src / "notes").mkdir()
+        self.md = self.src / "notes" / "plan.md"
+        self.md.write_text("# Plan\n\nFirst line.\nSecond line.\n\nOther paragraph.\n", encoding="utf-8")
+        self.ms = Doc("ms", "본문", "tex", self.src, self.main, paths=ps.APP.C.paths)
+        self.nt = Doc("nt", "계획", "markdown", self.src / "notes", self.md, paths=ps.APP.C.paths)
+        ps.APP.set_docs([self.ms, self.nt])
+        self.addCleanup(ps.APP.set_docs, None)
+        for doc in (self.ms, self.nt):
+            verdicts_path(doc).write_text(json.dumps(WORDS, ensure_ascii=False), encoding="utf-8")
+
+    def verdict(self, verdict, lo=3, hi=4):
+        """A Markdown verdict on lines lo-hi of notes/plan.md, made by editor Bob; its id."""
+        body = {"doc": "nt", "file": str(self.md), "lo": lo, "hi": hi, "verdict": verdict}
+        code, d = self.call("POST", "/api/pin", body, headers=BOB)
+        self.assertEqual(code, 200, d)
+        return d["id"]
+
+    def test_the_newer_verdict_on_the_same_lines_supersedes_the_older(self):
+        """Two verdicts on lines 3-4: the older gets superseded_by the newer in GET /api/pins?all=1 and is marked in
+        pins.md; a verdict on other lines is its own target."""
+        first, other, second = self.verdict("채택"), self.verdict("채택", 6, 6), self.verdict("보류")
+        code, pins = self.call("GET", "/api/pins?all=1", headers=BOB)
+        self.assertEqual(code, 200, pins)
+        self.assertEqual({p["id"]: p["superseded_by"] for p in pins if "superseded_by" in p}, {first: second})
+        self.assertNotIn(other, [p["id"] for p in pins if "superseded_by" in p])
+        text = ps.APP.C.pins_md.read_text(encoding="utf-8")
+        self.assertTrue(number_cell(text, first).startswith("%d · 판정 채택 · %s" % (first, superseded_marker(second))))
+        self.assertNotIn("대체됨", number_cell(text, second))

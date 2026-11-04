@@ -258,9 +258,10 @@ class PinCommands:
     def superseded_by_id(self, pins: Sequence[Pin]) -> dict[int, int]:
         """The verdict pins of `pins` (the full live set) that a newer verdict pin about the same target supersedes,
         {pin id: current verdict's id} (limn.pins.verdict.superseded_by, ADR-0023), never stored. Each verdict pin
-        is placed in its own document as the viewer places it: a LaTeX pin by the file pin_locator() finds for it now,
-        a view-only PDF's whole-page pin by whether its mark is only an estimate (pin_est, the document's estimation
-        facts read at most once per call); a pin of a document this instance does not serve has no target."""
+        is placed in its own document as the viewer places it: a pin of a document that takes line pins and has no
+        element map (LaTeX, Markdown) by the file pin_locator() finds for it now, a view-only PDF's whole-page pin by
+        whether its mark is only an estimate (pin_est, the document's estimation facts read at most once per call); a
+        pin of a document this instance does not serve has no target."""
         locate = self.pin_locator()
         contexts: dict[str, EstContext | None] = {}
 
@@ -270,7 +271,7 @@ class PinCommands:
             doc = self.doc_by_key(key)
             if doc is None:
                 return None
-            if doc.kind == "tex":
+            if doc.takes_line_pins and not doc.has_element_map:
                 return Placement(key, doc.kind, file=located_file(pin, locate))
             if doc.kind == "pdf" and whole_page_target(pin.record, figure_document=False, view_only_document=True):
                 if key not in contexts:
