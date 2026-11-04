@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### Security
+
+- **The viewer runs only its own scripts and styles.** The viewer page and the page a browser sees when it is refused
+  now carry a Content-Security-Policy that is enforced from this release on: only the page's own inline scripts and
+  stylesheet (allowed by the SHA-256 of the text sent) and files from the same server run or load, and the one
+  outside resource is an `https:` avatar image. A script, an inline event handler, a stylesheet or a `style`
+  attribute that someone else's text manages to put into the page does not run or apply, and an injected `<base>`,
+  form, plugin or frame does nothing. This is the second wall the Markdown documents of a coming release are drawn
+  behind. Every other response (JSON, `pins.md`, PDFs, page images) keeps `frame-ancestors 'none'` alone, so agents
+  see no change.
+  - **What you see:** nothing should look or work differently. The viewer's four `style` attributes became CSS rules
+    of the same values (the instance colour stripe takes `--brand`).
+  - **Browser extensions:** an extension that inserts its own `<style>` or `<script>` into pages (a dark mode, a
+    grammar checker) may be partly blocked on the viewer, and the browser's console shows a CSP report for it. The
+    viewer itself is unaffected.
+  - **Rollback:** there is no option that turns the policy off or reports instead of enforcing. If a browser shows the
+    viewer broken by it, go back to the previous release (`limn update --ref v0.4.46`, which reinstalls it and restarts
+    the running instances); no state, pin, setting or API changed, so nothing is left behind.
+
 ### Internal
 
 - **Server groundwork for Markdown documents (ADR-0025), not reachable yet.** No `--doc` suffix chooses a Markdown
