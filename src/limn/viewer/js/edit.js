@@ -104,7 +104,7 @@ async function saveEdit(){const E=EDITOR.current; if(!E||EDITOR.saving||viewerBl
   // A figure pin's ladder here is raw/lines only (no element rungs): a rung press alone would trade the element's kind
   // for 'lines', so only changed lines are sent; the pin keeps its el either way (a range edit is not a loc).
   if(E.lo!==E.orig.lo||E.hi!==E.orig.hi||(!E.pinEl&&(E.scope||null)!==(E.orig.scope||null))){body.lo=E.lo;body.hi=E.hi;
-    if(E.scope){body.scope=E.scope; body.kind=kindFor(E.scope,E.env);}}
+    if(E.scope){body.scope=wireScope(E.scope); body.kind=kindFor(E.scope,E.env);}}
   const sg=suggestForEdit(E.sg,suggestOff(E,editDocKind(E))); if(sg!==undefined)body.suggest=sg;
   if(Object.keys(body).length===1){cancelEdit();return;}
   const fields=editFields(E),hints=mentionHints(editNote(E)); EDITOR.saving=true; syncEditSaveButton();

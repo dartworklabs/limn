@@ -722,7 +722,8 @@ class FrontendMobileStructure(unittest.TestCase):
         # app-level zoom, §PDF 영역 전용 확대). A page in selection mode is none (one-finger drag = select).
         # The width/height grips are none so they don't fight scroll while dragging. The panel is pan-y pinch-zoom
         # (a horizontal drag stays a pointer stream for the overlay's swipe; pinch keeps the browser's zoom), and
-        # the narrow sheet's tool bar is none - the whole bar drags the sheet (input review 2026-09-26).
+        # the narrow sheet's tool bar is none - the whole bar drags the sheet (input review 2026-09-26). A Markdown document has
+        # no pages to scale: its #left adds pinch-zoom, so two fingers are the browser's zoom there (md-surface.css).
         css_nc = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
         self.assertEqual(
             [x.strip() for x in re.findall(r"([^{}]*)\{[^{}]*touch-action", css_nc)],
@@ -735,8 +736,10 @@ class FrontendMobileStructure(unittest.TestCase):
                 "body.selmode .pg",
                 "body.lay-narrow #sheet-grip",
                 "body.lay-narrow #bar1",
+                "body.md-surface #left",
             ],
         )
+        self.assertIn("body.md-surface #left{touch-action:pan-x pan-y pinch-zoom}", css_nc)
         self.assertRegex(css_nc, r"\n#right\{[^}]*touch-action:pan-y pinch-zoom\}")
         self.assertRegex(css_nc, r"\n#left\{[^}]*touch-action:pan-x pan-y\}")
         self.assertIn("body.selmode .pg{touch-action:none", css)
@@ -2030,8 +2033,8 @@ class FrontendSemanticAudit(unittest.TestCase):
     def test_references_share_one_link_style_and_pending_looks_pending(self):
         # one consistent link style (QA 2026-09-24): #number, line range, page N, and in-text #12 all share
         # one look — primary color, no underline at rest, solid underline on hover/focus. There used to be
-        # three looks: bold dotted, blue, gray dotted. A dotted underline is now used only for an
-        # unresolved @-mention (.mention-bad).
+        # three looks: bold dotted, blue, gray dotted. A dotted underline now marks only what does not go
+        # anywhere: an unresolved @-mention (.mention-bad) and a Markdown document's link that does not open (.md-rel).
         self.assertIn(":is(.loc,.pg-link,.pin .n.go,.pin-ref){text-decoration:none;", self.css)
         self.assertIn(":is(.loc,.pg-link,.pin .n.go,.pin-ref):focus-visible{text-decoration:underline}", self.css)
         self.assertIn(  # the hover underline answers a mouse only (FrontendHoverForMouse)
@@ -2044,7 +2047,7 @@ class FrontendSemanticAudit(unittest.TestCase):
         ):
             self.assertIn(rule, self.css)
         dotted = [r for r in re.findall(r"[^{}]+\{[^}]*underline dotted[^}]*\}", self.css)]
-        self.assertEqual([r.split("{")[0].strip() for r in dotted], [".mention-bad"])
+        self.assertEqual([r.split("{")[0].strip() for r in dotted], [".mention-bad", ".md .md-rel"])
         self.assertIn("button[data-pending]{cursor:progress;", self.css)
 
 
@@ -2295,7 +2298,7 @@ class PinNumberJump(unittest.TestCase):
     def test_number_is_a_button_that_jumps(self):
         src = HTML
         self.assertIn('<span class="n go" role="button" tabindex="0" data-act="view"', src)
-        self.assertIn("누르면 PDF에서 이 핀 자리로 갑니다", src)
+        self.assertIn("누르면 문서에서 이 핀 자리로 갑니다", src)
 
     def test_number_is_keyboard_and_touch_reachable(self):
         """#N is a role=button the keyboard reaches; on touch #N, the line range and N쪽 are each a real 44x44 box.

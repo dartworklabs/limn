@@ -47,7 +47,9 @@ async function pollLightOnce(){
   const needsPins=LAST_PINS_REV===null||d.pins_rev!==LAST_PINS_REV||sig!==LAST_SRC_MTIME;
   const applied=!needsPins||await loadPins();
   if(k!==DOC||visit!==SWITCHSEQ)return;
-  if(isMdDoc()&&d.src_mtime!==MD.mtime){MD.mtime=d.src_mtime; mdBuild();}   // its source changed: the Markdown surface draws it again
+  // Its source changed since the last read that answered: the Markdown surface reads and draws it again, asked once per change
+  // while that read is on its way (MD.asked), and again on the next poll if it failed (mdBuild clears MD.asked).
+  if(isMdDoc()&&d.src_mtime!==MD.mtime&&d.src_mtime!==MD.asked){MD.asked=d.src_mtime; mdBuild();}
   if(applied){LAST_PINS_REV=d.pins_rev; LAST_SRC_MTIME=sig;}
   // A build started via curl by another session/agent is also caught through light meta's build.state - the 1-second poll only
   // runs during that (or when this tab itself pressed rebuild()).

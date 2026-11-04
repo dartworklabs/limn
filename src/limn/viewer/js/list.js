@@ -205,7 +205,7 @@ function placeRow(box,n,e){const prev=n.prev!=null?box.querySelector('.pin.card[
   if(d)l.after(e); else l.replaceWith(e);}   // the page order has no day lines
 // Takes out a day line with nothing of its day under it - its last undo row gone - in the open and review sections.
 function dropBareDayLines(){for(const l of $$('#pins>.day-line,#review-pins>.day-line')){const nx=l.nextElementSibling; if(!nx||nx.matches('.day-line'))l.remove();}}
-// [최신순 | 쪽순 | 번호순]: shown while the open or review section shows a card, the list's order pressed.
+// [최신순 | 위치순 | 번호순]: shown while the open or review section shows a card, the list's order pressed.
 /** @param {boolean} any */
 function drawOrderControl(any){const c=$('#list-order'); c.hidden=!any;
   for(const b of c.querySelectorAll('button')){const on=/** @type {HTMLElement} */(b).dataset.order===ORDER; b.classList.toggle('on',on); b.setAttribute('aria-pressed',String(on));}}

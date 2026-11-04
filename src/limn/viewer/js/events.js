@@ -108,6 +108,7 @@ document.addEventListener('click',e=>{const target=/** @type {HTMLElement} */(e.
     case 'arc-toggle':{const k=a.dataset.key; if(!k)break; if(ARC_OPEN.has(k))ARC_OPEN.delete(k); else ARC_OPEN.add(k); drawPins(); break;}
     case 'esave':saveEdit();break; case 'ecancel':cancelEdit();break;
     case 'md-anchor':mdGoAnchor(a);break;   // an in-document #heading link of the Markdown surface
+    case 'md-html-run':mdHtmlRun(a);break;   // a run of raw HTML blocks opens or closes (md-surface.js)
     case 'repick':startRepick();break; case 'rp-cancel':cancelRepick();break; case 'rp-apply':applyRepick();break;
     case 'sec-toggle':toggleSec(a.dataset.sec);break;
     case 'trash-open':openTrash();break; case 'trash-close':$('#trash').close();break;

@@ -416,6 +416,20 @@ class Picking(MarkdownBase):
             page.evaluate("[...document.querySelectorAll('#md .md-sel')].map(e=>+(e.dataset.line||e.dataset.lo))"),
             [3, 4, 5],
         )
+        # Each rung says what it takes, after its lines (no 'undefined'); the chosen lines have a primary outline over their
+        # tint, apart from a pin's; the location line names no page and no 'Markdown'.
+        tips = page.evaluate(
+            "[...document.querySelectorAll('#c-levels button')].map(b=>[b.dataset.tip,b.getAttribute('aria-description')||b.dataset.tip])"
+        )
+        self.assertEqual(len(tips), 3)
+        for tip, desc in tips:
+            with self.subTest(tip=tip):
+                self.assertRegex(tip, r"^L\d+(-L\d+)? · \S")
+                self.assertNotIn("undefined", tip + desc)
+        self.assertIn("블록", tips[1][0])
+        self.assertIn("제목", tips[2][0])
+        self.assertEqual(page.evaluate("getComputedStyle(document.querySelector('#md .md-sel')).outlineStyle"), "solid")
+        self.assertTrue(page.evaluate("document.getElementById('c-page').hidden"))
         self.save(page)
         rec = records(ps.APP.C.state)[-1]
         self.assertEqual(
@@ -494,9 +508,55 @@ class Picking(MarkdownBase):
         page = self.open_md(1)
         page.locator("#md .md-badge").click()
         page.wait_for_selector(".pin.cur", timeout=5000)
+        # [보기] and the card's number speak of the document, not a PDF
+        for sel in (".pin.cur button[data-act=view]", ".pin.cur .n.go"):
+            with self.subTest(sel=sel):
+                self.assertNotIn("PDF", page.locator(sel).first.get_attribute("data-tip"))
         page.evaluate("document.getElementById('left').scrollTop=0")
         page.locator(".pin.cur button[data-act=view]").first.click()
         page.wait_for_function("document.querySelectorAll('#md .md-flash').length>0", timeout=5000)
+
+    def test_a_drag_over_two_blocks_offers_them_whole_and_saves_lines(self):
+        """A drag from the paragraph's second line into the first list item: the ladder is the chosen lines, the two blocks
+        whole ('블록 2개', the paragraph's first line to the item's) and the section; that rung saves as lines (scope lines -
+        the server has no scope for several blocks)."""
+        page = self.open_md()
+        item = fixture_line("첫째 항목")
+        x0, y0, x1, y1 = page.evaluate(
+            "(()=>{const a=document.querySelector(\"#md [data-line='4']\").getClientRects()[0],"
+            "b=[...document.querySelector(\"#md li[data-lo='%d']\").getClientRects()].at(-1);"
+            "return [a.left+4,a.top+a.height/2,b.right-4,b.top+b.height/2];})()" % item
+        )
+        page.mouse.move(x0, y0)
+        page.mouse.down()
+        page.mouse.move(x1, y1, steps=8)
+        page.mouse.up()
+        page.wait_for_function("COMPOSE.current&&COMPOSE.current.levels.length===3", timeout=5000)
+        levels = page.evaluate("COMPOSE.current.levels.map(l=>[l.level,l.lo,l.hi,l.label])")
+        self.assertEqual([lv[0] for lv in levels], ["raw", "blocks", "section"])
+        self.assertEqual(levels[0][1:3], [4, item])
+        self.assertEqual(levels[1], ["blocks", 3, item, "블록 2개"])
+        page.click("#c-levels [data-act=level][data-level=blocks]")
+        page.wait_for_function("COMPOSE.current.scope==='blocks'", timeout=5000)
+        self.save(page)
+        rec = records(ps.APP.C.state)[-1]
+        self.assertEqual((rec["lo"], rec["hi"], rec["scope"], rec["kind"]), (3, item, "lines", "lines"))
+
+    def test_stacked_badges_each_take_the_press_on_them(self):
+        """Two pins on one first line stack their badges 2px apart: each badge's own top, middle and bottom go to it -
+        toward the other one its press reaches only half the gap - and a lone badge answers at least --mark-hit tall."""
+        self.save_via_api(3, 5)
+        self.save_via_api(3, 3)
+        for device in ({}, {"viewport": {"width": 390, "height": 844}, "is_mobile": True, "has_touch": True}):
+            with self.subTest(touch=bool(device)):
+                page = self.open_md(2, **device)
+                self.assertEqual(page.evaluate("document.querySelectorAll('#md .md-badges').length"), 1)
+                got = page.evaluate(
+                    "[...document.querySelectorAll('#md .md-badge')].map(b=>{const r=b.getBoundingClientRect(),x=r.left+r.width/2,"
+                    "at=y=>{const e=document.elementFromPoint(x,y); return e&&e.closest('.md-badge')===b;};"
+                    "return [at(r.top+0.5),at(r.top+r.height/2),at(r.bottom-0.5)];})"
+                )
+                self.assertEqual(got, [[True, True, True], [True, True, True]])
 
     def test_the_lost_save_answer_is_found_by_its_lines(self):
         """A save whose answer never arrives finds the pin on the server by this person, document, file and lines - it has
@@ -513,7 +573,7 @@ class Picking(MarkdownBase):
         self.assertEqual(len(records(ps.APP.C.state)), 1)
 
     def test_the_list_orders_pinned_lines_by_line(self):
-        """[쪽순] orders a Markdown document's pins by their lines (they have no page)."""
+        """[위치순] orders a Markdown document's pins by their lines (they have no page)."""
         for lo, hi in ((fixture_line("마지막 문단"),) * 2, (3, 5), (fixture_line("| 가 |"),) * 2):
             self.save_via_api(lo, hi)
         page = self.open_md(3)
@@ -581,6 +641,30 @@ class Redrawing(MarkdownBase):
             "document.querySelector('#md').textContent.includes('문단 셋째 줄을 고쳤다.')", timeout=8000
         )
         self.assertLessEqual(abs(page.evaluate("mdReadingLine()") - before), 1)
+
+    def test_a_read_that_failed_is_asked_again_on_the_next_poll(self):
+        """An edit whose source read fails once (the request aborted) leaves the notice; once reads answer again, the next
+        light polls read and draw the new text - a read that failed does not count as the source read at that time."""
+        page = self.open_md()
+        self.write(FIXTURE.replace("문단 셋째 줄.", "문단 셋째 줄을 고쳤다."))
+        failed = []
+
+        def source(route):
+            if urlparse(route.request.url).path == "/api/source" and not failed:
+                failed.append(route.request.url)
+                return route.abort()
+            return self.route(route)
+
+        page.route("**/*", source)
+        page.evaluate("pollLightOnce()")
+        page.wait_for_function("!!document.querySelector('#md.md-note')", timeout=8000)
+        self.assertEqual(page.evaluate("document.querySelector('#md').textContent"), "원문을 읽지 못했습니다")
+        self.assertEqual(len(failed), 1)
+        for _ in range(2):
+            page.evaluate("pollLightOnce()")
+        page.wait_for_function(
+            "document.querySelector('#md').textContent.includes('문단 셋째 줄을 고쳤다.')", timeout=8000
+        )
 
     def test_a_redraw_waits_while_a_field_in_the_document_is_composing(self):
         """A redraw would replace every node of #doc: while a field in it composes (here a field put there, as any field
@@ -690,6 +774,33 @@ class Limits(MarkdownBase):
                 self.check(page, want, len(server_lines(self.md)))
                 self.assertLess(took, 15, name)
 
+    def test_one_long_inline_run_or_code_block_yields_inside_and_a_newer_draw_stops_it(self):
+        """'*x* ' 30,000 times is one inline token of 119,999 children (30,002 elements) and a fenced block of 30,000
+        lines one token: the build yields inside each, never more than two chunks' elements apart, and a draw started at a
+        yield inside one stops the older draw - only the newer one is shown."""
+        page = self.open_md()
+        page.evaluate(
+            "(()=>{const y=mdYield,s=mdShow; window.mdYield=()=>{const w=window.__md; w.y.push(MD.els);"
+            "if(w.race&&w.y.length===w.race){w.race=0; mdBuild();} return y();};"
+            "window.mdShow=n=>{window.__md.shown.push(n.dataset.limit||'drawn'); return s(n);};})()"
+        )
+        chunk = page.evaluate("MD_LIMITS.chunk")
+        cases = {"inline": "*x* " * 30_000 + "\n", "code": "```\n" + "x\n" * 30_000 + "```\n"}
+        for name, text in cases.items():
+            with self.subTest(name=name):
+                self.write(text)
+                page.evaluate("window.__md={y:[],shown:[],race:0}; mdBuild()")
+                page.wait_for_function("window.__md.shown.length>0&&" + DRAWN, timeout=20000)
+                y = page.evaluate("window.__md.y")
+                self.assertEqual(page.evaluate("window.__md.shown"), ["drawn"])
+                self.assertGreater(len(y), 10)
+                gaps = [b - a for a, b in zip([0, *y[:-1]], y, strict=True)]
+                self.assertLessEqual(max(gaps), 2 * chunk, gaps[:5])
+                page.evaluate("window.__md={y:[],shown:[],race:5}; mdBuild()")
+                page.wait_for_function("window.__md.shown.length>0&&" + DRAWN, timeout=20000)
+                settle(page)
+                self.assertEqual(page.evaluate("[window.__md.race,window.__md.shown]"), [0, ["drawn"]])
+
     def test_a_parse_past_the_time_limit_is_stopped_and_the_lines_are_shown(self):
         """A parse that never answers (the module made to hang) is stopped at MD_LIMITS.ms: the line view says so, and the
         next draw starts a fresh worker."""
@@ -749,6 +860,218 @@ class Limits(MarkdownBase):
         )
 
 
+class KeptDraft(MarkdownBase):
+    """A draft kept from the drawn document (a paragraph picked, a note typed), the page reloaded while the parser cannot
+    load: the line view, the kept draft and a new pick."""
+
+    def keep_draft(self, page):
+        self.pick_line(page, 4)  # the paragraph, lines 3-5, with three rungs
+        page.fill("#note", "남긴 메모")
+        page.evaluate("syncDraft()")
+
+    def reload_without_parser(self, page, hold_pins=False):
+        """Reload with the parse worker's module failing; with hold_pins the boot's first pin list is held (returned)
+        until the test answers it, so the line view is up before the boot brings the draft back."""
+        held = []
+
+        def route(r):
+            path = urlparse(r.request.url).path
+            if path == "/md-parse.mjs":
+                return r.abort()
+            if hold_pins and path == "/api/pins" and r.request.method == "GET" and not held:
+                held.append(r)
+                return None
+            return self.route(r)
+
+        page.route("**/*", route)
+        page.reload()
+        page.wait_for_selector("#md[data-limit=load]", timeout=20000)
+        return held
+
+    def test_a_kept_draft_on_the_line_view_keeps_its_lines_as_lines(self):
+        """The kept paragraph comes back on the line view as its lines with the one rung the view has; a click on line 4
+        there then picks line 4, and the save stores that line (not the kept paragraph)."""
+        page = self.open_md()
+        self.keep_draft(page)
+        self.reload_without_parser(page)
+        page.wait_for_function("DRAFT.ready&&!!COMPOSE.current", timeout=8000)
+        settle(page)
+        self.assertEqual(
+            page.evaluate(
+                "[COMPOSE.current.lo,COMPOSE.current.hi,COMPOSE.current.scope,COMPOSE.current.levels.map(l=>l.level)]"
+            ),
+            [3, 5, "raw", ["raw"]],
+        )
+        self.assertEqual(page.evaluate("document.getElementById('note').value"), "남긴 메모")
+        self.line_el(page, 4).click()
+        page.wait_for_function("COMPOSE.current.lo===4&&COMPOSE.current.hi===4", timeout=5000)
+        self.save(page, "줄 하나")
+        rec = records(ps.APP.C.state)[-1]
+        self.assertEqual((rec["lo"], rec["hi"], rec["scope"]), (4, 4, "raw"))
+
+    def test_a_pick_made_before_the_kept_draft_comes_back_wins(self):
+        """A click on line 4 while the boot still waits for the pins: when they come, the kept paragraph does not replace
+        that pick - only its note comes into it - and the save stores line 4."""
+        page = self.open_md()
+        self.keep_draft(page)
+        held = self.reload_without_parser(page, hold_pins=True)
+        self.assertEqual(len(held), 1)
+        self.line_el(page, 4).click()
+        page.wait_for_function("COMPOSE.current&&COMPOSE.current.lo===4", timeout=5000)
+        held[0].fulfill(**self.answer(held[0].request))
+        page.wait_for_function("DRAFT.ready", timeout=8000)
+        settle(page)
+        self.assertEqual(
+            page.evaluate(
+                "[COMPOSE.current.lo,COMPOSE.current.hi,COMPOSE.current.scope,document.getElementById('note').value]"
+            ),
+            [4, 4, "raw", "남긴 메모"],
+        )
+        page.click("#btn-save")
+        page.wait_for_function("PINS.length>0", timeout=8000)
+        rec = records(ps.APP.C.state)[-1]
+        self.assertEqual((rec["lo"], rec["hi"], rec["scope"], rec["note"]), (4, 4, "raw", "남긴 메모"))
+
+
+class Zoom(MarkdownBase):
+    """No pages to scale: two fingers and a trackpad gesture are the browser's on a Markdown document, the viewer's own zoom
+    on a PDF document."""
+
+    PROBE = (
+        "(()=>{const L=document.getElementById('left'),r=L.getBoundingClientRect(),"
+        "t=i=>new Touch({identifier:i,target:L,clientX:r.left+60+i*80,clientY:r.top+120}),"
+        "ts=new TouchEvent('touchstart',{touches:[t(0),t(1)],targetTouches:[t(0),t(1)],changedTouches:[t(1)],cancelable:true,bubbles:true}),"
+        "g=new Event('gesturestart',{cancelable:true,bubbles:true}),ch=new Event('gesturechange',{cancelable:true,bubbles:true});"
+        "L.dispatchEvent(ts); L.dispatchEvent(new TouchEvent('touchend',{touches:[],targetTouches:[],changedTouches:[t(0),t(1)],cancelable:true,bubbles:true}));"
+        "L.dispatchEvent(g); L.dispatchEvent(ch); L.dispatchEvent(new Event('gestureend',{cancelable:true,bubbles:true}));"
+        "return [ts.defaultPrevented,g.defaultPrevented,ch.defaultPrevented,getComputedStyle(L).touchAction];})()"
+    )
+
+    def test_pinch_is_the_browsers_on_the_markdown_surface_only(self):
+        page = self.open_md(viewport={"width": 820, "height": 1000}, has_touch=True)
+        touch, gesture, change, action = page.evaluate(self.PROBE)
+        self.assertEqual((touch, gesture, change), (False, False, False))
+        self.assertTrue("pinch-zoom" in action or action == "manipulation", action)
+        page.evaluate("switchDoc('ms')")
+        page.wait_for_function("DOC==='ms'&&document.querySelectorAll('#doc .pg').length===2", timeout=10000)
+        touch, gesture, change, action = page.evaluate(self.PROBE)
+        self.assertEqual((touch, gesture, change), (True, True, True))
+        self.assertNotIn("pinch-zoom", action)
+
+
+# Three raw HTML blocks in a row (a README's head), a code block tall enough that the reading line stays above the heading,
+# a heading and a paragraph, and one HTML block alone after them.
+HTML_RUN = (
+    '<p align="center">a</p>\n\n<p align="center">\n  <img src="x.png">\n</p>\n\n<div>c</div>\n\n'
+    + "```\n"
+    + "코드\n" * 60
+    + "```\n\n"
+    + "# 제목\n\n본문.\n\n<div>alone</div>\n"
+)
+HTML_ALONE = HTML_RUN.split("\n").index("<div>alone</div>") + 1
+
+
+class HtmlRun(MarkdownBase):
+    """Raw HTML blocks in a row are one closed placeholder that opens to its blocks; one alone stays its own."""
+
+    MD_TEXT = HTML_RUN
+
+    def test_a_run_is_one_closed_placeholder_that_opens_to_blocks_that_take_pins(self):
+        self.save_via_api(3, 5)
+        page = self.open_md(1)
+        run = page.evaluate(
+            "(()=>{const r=document.querySelector('#md .md-html-run'); return r&&[r.dataset.lo,r.dataset.hi,r.dataset.kind,"
+            "r.querySelector('.md-html-sum').textContent,r.querySelector('.md-html-sum').getAttribute('aria-expanded'),"
+            "r.querySelectorAll('.md-html[data-lo]').length,r.querySelector('.md-html-body').hidden];})()"
+        )
+        self.assertEqual(run, ["1", "7", "html", "HTML 블록 3개 · 7줄 · 그리지 않습니다", "false", 0, True])
+        self.assertEqual(
+            page.evaluate("document.querySelectorAll('#md > .md-html[data-lo=\"%d\"]').length" % HTML_ALONE), 1
+        )
+        self.assertEqual(page.evaluate("document.getElementById('section-current').textContent"), "문서 처음")
+        # closed, the pin on lines 3-5 marks the run and its badge stands at it
+        self.assertTrue(page.evaluate("document.querySelector('#md .md-html-run').classList.contains('md-pin')"))
+        page.click("#md .md-html-sum")
+        page.wait_for_function(
+            "document.querySelector('#md .md-html-sum').getAttribute('aria-expanded')==='true'", timeout=5000
+        )
+        self.assertIsNone(page.evaluate("COMPOSE.current"))  # opening it picks nothing
+        self.assertEqual(
+            page.evaluate(
+                "[...document.querySelectorAll('#md .md-html-run .md-html')].map(e=>[+e.dataset.lo,+e.dataset.hi])"
+            ),
+            [[1, 1], [3, 5], [7, 7]],
+        )
+        self.assertIsNone(page.evaluate("document.querySelector('#md .md-html-run').dataset.lo||null"))
+        top = page.evaluate(
+            "Math.round(document.querySelector('#md .md-html[data-lo=\"3\"]').getBoundingClientRect().top"
+            "-document.querySelector('#md .md-badge').getBoundingClientRect().top)"
+        )
+        self.assertLessEqual(abs(top), 2)
+        page.click("#md .md-html[data-lo='3']")  # its own lines: the block's rung is the chosen lines' (merged)
+        page.wait_for_function("COMPOSE.current&&COMPOSE.current.lo===3", timeout=5000)
+        self.assertEqual(
+            page.evaluate("[COMPOSE.current.lo,COMPOSE.current.hi,COMPOSE.current.levels[0].merged]"), [3, 5, ["block"]]
+        )
+
+
+class PageWords(MarkdownBase):
+    """The viewer's own words and styles on a Markdown document: no PDF, no build time, the document's headings in its own
+    style, the outline's empty line."""
+
+    def test_the_head_line_and_the_outline_speak_of_the_document(self):
+        page = self.open_md()
+        got = page.evaluate(
+            "[document.getElementById('meta-main').dataset.tip,document.getElementById('meta-pages').dataset.tip,"
+            "document.getElementById('meta-built-w').hidden,document.getElementById('meta-txt').innerText.trim().endsWith('·')]"
+        )
+        self.assertEqual(got, ["이 탭의 원문 파일", "브라우저가 원문에서 그리는 문서 형식", True, False])
+        # a heading of the document takes none of the viewer's own heading look (a bare h3 rule once did)
+        style = page.evaluate(
+            "(()=>{const h=document.createElement('h3'); h.textContent='Ab'; document.getElementById('md').appendChild(h);"
+            "const s=getComputedStyle(h),c=getComputedStyle(document.getElementById('md')); const out=[s.textTransform,s.letterSpacing,s.color===c.color]; h.remove(); return out;})()"
+        )
+        self.assertEqual(style, ["none", "normal", True])
+        self.write("본문만 있다.\n")
+        page.evaluate("mdBuild()")
+        page.wait_for_function(
+            "!document.getElementById('md').textContent.includes('시험 문서')&&" + DRAWN, timeout=8000
+        )
+        self.assertEqual(
+            page.evaluate("document.getElementById('outline-items').textContent"),
+            "이 문서에는 이동할 수 있는 제목이 없습니다.",
+        )
+        page.evaluate("switchDoc('ms')")
+        page.wait_for_function("DOC==='ms'&&document.querySelectorAll('#doc .pg').length===2", timeout=10000)
+        self.assertEqual(
+            page.evaluate(
+                "[document.getElementById('meta-main').dataset.tip,document.getElementById('meta-built-w').hidden]"
+            ),
+            ["PDF를 만든 최상위 원고 파일", False],
+        )
+
+    def test_a_link_that_does_not_open_says_why_on_focus_with_its_url_apart(self):
+        """A link that does not open is a disabled link to assistive technology, reachable by Tab: the keyboard's focus
+        shows its description, the URL in a part of its own that may break anywhere."""
+        page = self.open_md()
+        rel = page.locator("#md .md-rel").first
+        attrs = rel.evaluate(
+            "e=>[e.tabIndex,e.getAttribute('role'),e.getAttribute('aria-disabled'),e.getAttribute('aria-description'),e.dataset.tip,e.dataset.tipUrl]"
+        )
+        self.assertEqual(attrs[:3], [0, "link", "true"])
+        self.assertEqual(attrs[3], attrs[4])
+        self.assertTrue(attrs[4].startswith("이 링크는 열지 않습니다 · ") and attrs[4].endswith(attrs[5]), attrs)
+        page.keyboard.press("Shift")
+        rel.focus()
+        page.wait_for_function("!document.getElementById('tip').hidden", timeout=5000)
+        tip = page.evaluate(
+            "[document.getElementById('tip').textContent,(document.querySelector('#tip .tip-url')||{}).textContent,"
+            "getComputedStyle(document.querySelector('#tip .tip-url')).wordBreak,getComputedStyle(document.getElementById('tip')).wordBreak]"
+        )
+        self.assertEqual(tip, [attrs[4], attrs[5], "break-all", "keep-all"])
+        self.assertIsNone(page.evaluate("COMPOSE.current"))
+
+
 class ChangesView(MarkdownBase):
     """A Markdown document's changes open on its source diff (no comparison PDF)."""
 
@@ -800,6 +1123,31 @@ class Phone(MarkdownBase):
             "document.getElementById('right').getBoundingClientRect().top]"
         )
         self.assertLessEqual(got[0], got[1])
+
+    def test_a_tap_on_a_link_that_does_not_open_says_why_and_picks_nothing(self):
+        page = self.open_md(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+        rel = page.locator("#md .md-rel").first
+        rel.scroll_into_view_if_needed()
+        rel.tap(force=True)  # a disabled link to Playwright (aria-disabled), not to a finger
+        page.wait_for_function("!document.getElementById('tip').hidden", timeout=5000)
+        self.assertTrue(
+            page.evaluate("document.getElementById('tip').textContent.startsWith('이 링크는 열지 않습니다')")
+        )
+        page.wait_for_timeout(400)
+        self.assertIsNone(page.evaluate("COMPOSE.current"))
+
+    def test_a_badge_answers_a_press_44px_wide_on_the_screen_and_off_the_text(self):
+        """The phone's gutter is one press wide: a badge answers from 22px left to 22px right of its middle, all of it on
+        the screen and left of where the text begins."""
+        self.save_via_api(3, 5)
+        page = self.open_md(1, viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+        got = page.evaluate(
+            "(()=>{const b=document.querySelector('#md .md-badge'),r=b.getBoundingClientRect(),x=r.left+r.width/2,y=r.top+r.height/2,"
+            "at=x=>{const e=document.elementFromPoint(x,y); return !!e&&e.closest('.md-badge')===b;},"
+            "md=document.getElementById('md'),text=md.getBoundingClientRect().left+parseFloat(getComputedStyle(md).paddingLeft);"
+            "return [at(x-21.5),at(x+21.5),x-22>=0,x+22<=text];})()"
+        )
+        self.assertEqual(got, [True, True, True, True])
 
     def test_the_column_fits_the_phones_width(self):
         """The code block's and the table's widest lines scroll inside their own boxes: the column is no wider than the

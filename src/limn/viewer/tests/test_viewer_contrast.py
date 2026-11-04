@@ -298,7 +298,7 @@ SURFACES = (
     "--accent",
 )
 # The Markdown document scene_markdown draws: the muted text of a quote, a raw HTML block's placeholder, an inline tag and an
-# image's stand-in, and an inert link.
+# image's stand-in, an inert link, and two raw HTML blocks in a row as one closed run (its button's muted line).
 MD_NOTES = """# 노트
 
 > 인용한 문장이다.
@@ -306,6 +306,10 @@ MD_NOTES = """# 노트
 <div align="center"><b>머리</b></div>
 
 글 사이의 <span>인라인 태그</span>와 ![그림 설명](https://example.org/x.png), [열지 않는 링크](docs/x.md).
+
+<p align="center">하나</p>
+
+<p align="center">둘</p>
 """
 
 # What an excused rule is held to: its text at 4.5:1 (TEXT) or its icon at 3:1 (ICON) on every one of SURFACES in both
@@ -901,8 +905,9 @@ class ContrastWalk(BrowserBase):
         page.context.close()
 
     def scene_markdown(self):
-        """A Markdown document as the browser draws it: a quote, a raw HTML placeholder, an inline tag, an image's stand-in
-        and an inert link; and a document past a limit as its numbered source lines under the line naming the limit."""
+        """A Markdown document as the browser draws it: a quote, a raw HTML placeholder, an inline tag, an image's stand-in,
+        an inert link and a closed run of raw HTML blocks; and a document past a limit as its numbered source lines under the
+        line naming the limit."""
         page = self.open(2, **DEVICES[self.device])
         for key, state in (("nt", "Markdown document"), ("dp", "Markdown source lines")):
             page.evaluate("k=>switchDoc(k)", key)

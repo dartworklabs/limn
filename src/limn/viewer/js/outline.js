@@ -92,7 +92,7 @@ function renderOutline(){outlineList($('#outline-items'),$('#outline-search').va
  */
 function outlineList(box,q){const query=String(q||'').trim().toLowerCase();
   if(!OUTLINE_ENTRIES.length){box.className='outline-empty';   // all of what it has was left unread (destinationless ancestors, entries below the depth limit): say that
-    const note=outlineCutNote(false); if(note)setHtml(box,note); else box.textContent='이 PDF에는 이동할 수 있는 목차가 없습니다.'; return;}
+    const note=outlineCutNote(false); if(note)setHtml(box,note); else box.textContent=isMdDoc()?'이 문서에는 이동할 수 있는 제목이 없습니다.':'이 PDF에는 이동할 수 있는 목차가 없습니다.'; return;}
   const rows=[]; OUTLINE_ENTRIES.forEach((x,i)=>{if(!query||(x.number+' '+x.title).toLowerCase().includes(query))rows.push(i);});
   const note=outlineCutNote(!!query);
   if(!rows.length){box.className='outline-empty';

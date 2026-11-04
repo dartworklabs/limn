@@ -128,7 +128,7 @@ function renderRegionComposer(d){
   $('#c-loc').textContent=d.name+' · '+tl('쪽 {page} 영역',{page:d.page}); $('#c-loc').dataset.copy=d.name+' 쪽 '+d.page;
   // A figure region: '코드 없는 요소' (element without code lines, its box snapped) or '영역' (map unreadable).
   const pg=$('#c-page'),fb=figRegionBadge(d.el,isFigureKind(META&&META.kind));
-  pg.textContent=fb?fb.t:tr('보기 전용'); pg.dataset.tip=fb?fb.tip:'LaTeX 소스가 없는 PDF입니다 — 줄 번호 없이 쪽·영역과 영역 글자로 핀을 남깁니다';
+  pg.hidden=false; pg.textContent=fb?fb.t:tr('보기 전용'); pg.dataset.tip=fb?fb.tip:'LaTeX 소스가 없는 PDF입니다 — 줄 번호 없이 쪽·영역과 영역 글자로 핀을 남깁니다';
   $('#c-tag').hidden=true; $('#c-warn').hidden=!d.warn; $('#c-warn').textContent=warnText(d.warn); $('#c-overlap').hidden=true;
   $('#c-levels').replaceChildren(); setCap($('#c-cap'),html``); drawExcerpt(null,$('#c-xp'),false);
   const pre=$('#c-snip'); pre.className='wrap open'; pre.textContent=d.quote?tl('영역 글자: {text}',{text:d.quote}):tr('(이 영역에는 글자가 없습니다)');
@@ -142,7 +142,7 @@ function renderComposer(){const d=COMPOSE.current; if(!d)return; saveDraftSoon()
   $('#composer').classList.remove('region');
   const copy=d.name+' L'+d.lo+'-L'+d.hi;
   $('#c-loc').textContent=d.name+' '+rng(d.lo,d.hi); $('#c-loc').dataset.copy=copy; renderElement(d,COMPOSE.box);
-  const pg=$('#c-page'),pgn=typeof d.page==='number'?tl('{page}쪽',{page:d.page}):'Markdown',sc=scopeLabel(d); pg.textContent=pgn;   // a Markdown document's lines have no page
+  const pg=$('#c-page'),pgn=typeof d.page==='number'?tl('{page}쪽',{page:d.page}):'',sc=scopeLabel(d); pg.textContent=pgn; pg.hidden=!pgn;   // a Markdown document's lines have no page: the file and lines say it
   pg.dataset.tip=pgn+(sc?' · '+sc:'')+' · '+tl('{n}줄',{n:/** @type {number} */(d.hi)-/** @type {number} */(d.lo)+1})+' · '+tl('드래그한 줄 {range}',{range:rng(d.raw_lo,d.raw_hi)});
   const v=viaTag(d),tg=$('#c-tag'); tg.hidden=!v; if(v){tg.textContent=v.t;tg.dataset.tip=v.tip;tg.classList.toggle('badge-warning',!!v.low);}
   $('#c-warn').hidden=!d.warn; $('#c-warn').textContent=warnText(d.warn);

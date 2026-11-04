@@ -9,6 +9,8 @@ body.md-surface .m-row:has(#m-zoom-l){display:none!important}
    (components.css, responsive.css), and a code line's or a table's min-content width would widen the column past a phone's
    screen. A long code line or a wide table scrolls inside its own box instead. */
 body.md-surface #doc{width:auto;min-width:0;margin-right:0;padding:var(--space-4) var(--space-4) var(--space-6);cursor:auto}
+/* No pages to scale (zoom.js leaves every zoom input to the browser): two fingers zoom the page as anywhere else. */
+body.md-surface #left{touch-action:pan-x pan-y pinch-zoom}
 .md-wait,.md-note{padding:var(--space-6);text-align:center;color:var(--muted-foreground)}
 .md-note{max-width:46rem;margin:var(--space-6) auto;border:1px dashed var(--border-strong);border-radius:var(--radius-lg);background:var(--card)}
 .md{position:relative;box-sizing:border-box;max-width:46rem;margin:0 auto;padding:var(--space-6) var(--space-6) var(--space-6) calc(var(--space-6) + var(--space-6));
@@ -30,16 +32,23 @@ body.md-surface #doc{width:auto;min-width:0;margin-right:0;padding:var(--space-4
 .md pre .ln{display:block;white-space:pre}
 .md code{font-family:var(--font-mono);font-size:var(--text-lg)}
 .md pre code{font-size:inherit}
-.md :not(pre)>code,.md .ln>code{padding:0 var(--space-1);background:var(--muted);border-radius:var(--radius-sm)}
+.md :not(pre)>code,.md .ln>code{padding:0 var(--space-1);background:color-mix(in srgb,var(--foreground) 9%,transparent);border-radius:var(--radius-sm)}   /* --muted all but vanished on the light card */
 .md table{border-collapse:collapse;margin:0 0 var(--space-3);display:block;overflow-x:auto;max-width:100%;font-size:var(--text-lg)}
 .md th,.md td{border:1px solid var(--border-strong);padding:var(--space-1) var(--space-2);vertical-align:top}
 .md th{background:var(--muted)}
 .md .md-al-left{text-align:left}.md .md-al-center{text-align:center}.md .md-al-right{text-align:right}
 .md hr{border:0;border-top:1px solid var(--border-strong);margin:var(--space-6) 0}
 .md a{color:var(--primary);text-decoration:underline;cursor:pointer}
-.md .md-rel{border-bottom:1px dashed var(--border-strong);cursor:help}   /* a link that does not open: no underline (links' look), a dashed rule */
+.md .md-rel{text-decoration:underline dotted var(--muted-foreground);text-underline-offset:3px;cursor:help}   /* a link that does not open: dotted, in a colour of 3:1 or more, never a link's solid primary */
 .md .md-img{display:inline-block;padding:0 var(--space-1);border:1px dashed var(--border-strong);border-radius:var(--radius-sm);color:var(--muted-foreground);font-size:var(--text-lg)}
-/* Raw HTML is never drawn: a block is a muted placeholder that keeps its lines (it takes pins), an inline tag shows as code. */
+/* Raw HTML is never drawn: a block is a muted placeholder that keeps its lines (it takes pins), an inline tag shows as code.
+   Two or more blocks in a row are one closed run (md-surface.js mdHtmlRunEl): a button that opens it, its blocks inside. */
+.md .md-html-run{margin:0 0 var(--space-3)}
+.md .md-html-sum{display:flex;width:100%;justify-content:flex-start;align-items:center;gap:var(--space-2);padding:var(--space-2) var(--space-3);border:1px dashed var(--border-strong);
+  border-radius:var(--radius);background:transparent;color:var(--muted-foreground);font-size:var(--text-base);font-weight:600;text-align:left;cursor:pointer}
+.md .md-html-sum[aria-expanded=true]{border-bottom-left-radius:0;border-bottom-right-radius:0}
+.md .md-html-sum[aria-expanded=true] .ic{transform:rotate(90deg)}
+.md .md-html-body{padding:var(--space-2) 0 0 var(--space-3)}
 .md .md-html{margin:0 0 var(--space-3);padding:var(--space-2) var(--space-3);border:1px dashed var(--border-strong);border-radius:var(--radius);color:var(--muted-foreground);
   font-size:var(--text-base);display:flex;flex-direction:column;gap:2px}
 .md .md-html-l{font-weight:600}
@@ -52,23 +61,30 @@ body.md-surface #doc{width:auto;min-width:0;margin-right:0;padding:var(--space-4
 .md-lines .md-src .ln{display:block;white-space:pre-wrap;padding-left:var(--space-6)}
 .md-lines .md-src .ln::before{content:attr(data-line);display:inline-block;min-width:4ch;margin-left:calc(-1 * var(--space-6));margin-right:var(--space-2);
   color:var(--subtle-foreground);text-align:right;user-select:none;-webkit-user-select:none}
-/* The chosen lines (a selection before it is saved) and the lines of each pin, in the status colours. */
-.md .ln.md-sel,.md [data-lo].md-sel{background:color-mix(in srgb,var(--primary) 22%,transparent);border-radius:var(--radius-sm)}
+/* The chosen lines (a selection before it is saved) and the lines of each pin, in the status colours; the chosen lines also
+   have a 1px primary outline, so they read apart from a pin's tint where the two colours are near. */
+.md .ln.md-sel,.md [data-lo].md-sel{background:color-mix(in srgb,var(--primary) 22%,transparent);border-radius:var(--radius-sm);outline:1px solid var(--primary)}
 .md .ln.md-pin,.md [data-lo].md-pin{background:color-mix(in srgb,var(--status-open) 16%,transparent);border-radius:var(--radius-sm)}
 .md .ln.md-pin.rv,.md [data-lo].md-pin.rv{background:color-mix(in srgb,var(--status-review) 16%,transparent)}
 .md .ln.md-pin.st,.md [data-lo].md-pin.st{background:color-mix(in srgb,var(--status-warning) 18%,transparent)}
 .md .ln.md-pin.md-sel,.md [data-lo].md-pin.md-sel{background:color-mix(in srgb,var(--primary) 22%,transparent)}
 .md .md-flash{animation:md-flash 1.2s ease-out}
 @keyframes md-flash{0%{box-shadow:0 0 0 3px var(--primary)}100%{box-shadow:0 0 0 0 transparent}}
-/* Pins' number badges: a layer of the column, in its left gutter at the height of each pin's first line (md-surface.js). */
+/* Pins' number badges: a layer of the column, in its left gutter at the height of each pin's first line (md-surface.js). A
+   badge is as big as a PDF page's (--pin-badge-size: 22px, 26px on touch) and answers --mark-hit round it (24px, 44px on
+   touch) - toward a badge stacked under or over it only half the 2px gap, so a press goes to the badge it is on. */
 .md .md-badges{position:absolute;left:var(--space-3);display:flex;flex-direction:column;gap:2px;user-select:none;-webkit-user-select:none}
-.md .md-badge{position:relative;min-width:22px;height:22px;padding:0 var(--space-1);border:0;border-radius:var(--radius);background:var(--status-open);color:var(--status-open-foreground);
-  font-size:var(--text-sm);font-weight:700;line-height:22px;text-align:center;cursor:pointer}
+.md .md-badge{position:relative;min-width:var(--pin-badge-size);height:var(--pin-badge-size);min-height:0;padding:0 var(--space-1);border:0;border-radius:var(--radius);background:var(--status-open);color:var(--status-open-foreground);
+  font-size:var(--text-sm);font-weight:700;line-height:var(--pin-badge-size);text-align:center;cursor:pointer}
 .md .md-badge.rv{background:var(--status-review);color:var(--status-review-foreground)}
 .md .md-badge.st{background:var(--status-warning);color:var(--warning-foreground)}
-.md .md-badge::after{content:'';position:absolute;inset:-11px -6px}   /* a 44px touch target around a 22px badge */
+.md .md-badge::after{content:'';position:absolute;--reach:calc((var(--mark-hit) - var(--pin-badge-size)) / 2);top:calc(-1 * var(--reach));bottom:calc(-1 * var(--reach));
+  left:50%;width:max(100%,var(--mark-hit));transform:translateX(-50%)}
+.md .md-badge:not(:first-child)::after{top:-1px}
+.md .md-badge:not(:last-child)::after{bottom:-1px}
 @media (prefers-reduced-motion:reduce){.md .md-flash{animation:none;outline:3px solid var(--primary)}}
-/* Phones: the column fills the width, the gutter narrows. */
+/* Phones: the column fills the width, the gutter narrows (with #left's own padding a badge's 44px press still ends left of
+   the text). */
 @media (max-width:600px){
   body.md-surface #doc{padding:var(--space-2) 0 var(--space-6)}
   .md{border-radius:0;border-left:0;border-right:0;padding:var(--space-4) var(--space-4) var(--space-4) calc(var(--space-4) + var(--space-6))}

@@ -76,7 +76,7 @@ async function savePin(verdict){
   if(verdict===undefined&&rv&&rv.gen===gen&&rv.sel===d&&KIND_NEW===KIND_REQ.FIX&&!SG.on)verdict=rv.key;
   let body=/** @type {Record<string, unknown>} */({file:d.file,name:d.name,page:d.page,lo:d.lo,hi:d.hi,raw_lo:d.raw_lo,raw_hi:d.raw_hi,via:d.via,score:d.score,fill:d.fill,rival:d.rival,
     frac:d.frac,note:note,quote:d.quote,pdf_build:d.pdf_build||undefined});
-  if(d.scope){body.scope=d.scope; body.kind=kindFor(d.scope,d.env);} else body.kind=d.kind;
+  if(d.scope){body.scope=wireScope(d.scope); body.kind=kindFor(d.scope,d.env);} else body.kind=d.kind;
   if(isRegion(d))body={page:d.page,frac:d.frac,note:note,quote:d.quote,pdf_build:d.pdf_build||undefined};   // view-only: page/region only
   figureFields(body,d.elSel,isRegion(d)?null:figRung(d));   // a figure pick: its element as el, the element's box as frac, its kind
   body.doc=d.doc||DOC||undefined;
