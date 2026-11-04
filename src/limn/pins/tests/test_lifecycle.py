@@ -30,6 +30,7 @@ PURE_IMPORTS = {
     "limn.pins.element",  # a figure pin's el shape; pure (src/limn/pins/tests/test_element.py)
     "limn.pins.suggestion",  # a suggested edit's shape and state; pure, and itself checked below
     "limn.pins.verdict",  # a stored verdict and a pin's whole-page target; pure, and itself checked below
+    "limn.pins.pages",  # what a write keeps of a line pin's page fields (ADR-0025 D2); pure, and itself checked below
     "limn.pins.model",
     "limn.pins.thread",
     "limn.pins.location.position",
@@ -92,6 +93,7 @@ class Purity(unittest.TestCase):
                     "editing/values.py",
                     "suggestion.py",
                     "verdict.py",
+                    "pages.py",
                 )
             ),
             PINS_DIR.parent / "pins/claims/rules.py",

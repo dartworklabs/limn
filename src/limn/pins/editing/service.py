@@ -56,8 +56,8 @@ def add_pin(ctx: PinContext, D: Doc, request: AddRequest, actor: PostAuthority) 
     mention/assigned notices and emits them after the write.
 
     A request with a suggested edit is decided first (limn.pins.editing.rules.decide_new_suggestion): only a line pin
-    of a LaTeX document (D.builds_from_source) takes one, within its limits, and its base must be what the pin's lines
-    read in the same snapshot the anchor is taken from. A refusal is returned and nothing is written - no id is
+    of a document that takes suggestions (D.takes_suggestions: LaTeX and Markdown) takes one, within its limits, and
+    its base must be what the pin's lines read in the same snapshot the anchor is taken from. A refusal is returned and nothing is written - no id is
     allocated and no transaction runs.
 
     A request with a verdict is decided inside the transaction, before an id is allocated
@@ -76,7 +76,7 @@ def add_pin(ctx: PinContext, D: Doc, request: AddRequest, actor: PostAuthority) 
     location = ctx.locate({"file": place.file}) if isinstance(place, LinePlace) else None
     lines, mtime = location.source.snapshot() if location is not None else ([], 0.0)
     if request.suggest is not None and request.verdict is None:
-        decided = decide_new_suggestion(request.suggest, place, D.builds_from_source, lines)
+        decided = decide_new_suggestion(request.suggest, place, D.takes_suggestions, lines)
         if not isinstance(decided, Suggestion):
             return decided
     author = actor.principal.authors_verdicts()
@@ -172,7 +172,14 @@ def _read_verdict(
 
 
 def edit_pin(
-    ctx: PinContext, pid: int, request: EditRequest, actor: PostAuthority, region: bool = False, latex: bool = False
+    ctx: PinContext,
+    pid: int,
+    request: EditRequest,
+    actor: PostAuthority,
+    region: bool = False,
+    suggestions: bool = False,
+    *,
+    pages: bool = True,
 ) -> OpenPin | ReviewPin | DonePin | EditRefusal | PinNotFound:
     """Edits pin pid's note, range, location and note-level fields in place; id/at/done never change.
 
@@ -186,8 +193,11 @@ def edit_pin(
     nothing of their own. An accepted edit gets a new anchor when its range changed (which skips the comment lines of
     the file's kind, comment_marker), the note's @-tags, edited_at/by and rev (evolve_edit); mention/assigned notices
     are emitted after the write. An edit that sets a suggested edit also has the pin's file read under the lock - the
-    file the pin will point at - so its base is compared with the lines it replaces after this edit; latex says the
-    pin's document is a LaTeX one (Doc.builds_from_source), the only kind whose line pins take a suggestion.
+    file the pin will point at - so its base is compared with the lines it replaces after this edit; suggestions says
+    the pin's document takes suggested edits (Doc.takes_suggestions: LaTeX and Markdown), the only ones whose line
+    pins take a suggestion. pages
+    says the pin's document has pages (not Doc.renders_in_browser): on one without, the edit removes every page field
+    the record carries (limn.pins.editing.rules.evolve_edit).
     """
     require_authority(actor, ctx.authority_scope, "edit", pid)
     clock = ctx.hm() if request.note_append is not None else ""
@@ -205,8 +215,10 @@ def edit_pin(
         reads = request.sets_lines() or request.sets_suggestion()  # one read serves both checks
         source = tex_lines(where.source) if where is not None and reads else None
         count = len(source) if source is not None and request.sets_lines() else None
-        facts = SuggestFacts(latex, None if source is None else tuple(source)) if request.sets_suggestion() else None
-        event = decide_edit(pin, request, typed_actor(actor), ctx.now(), clock, count, NOTE_MAX, facts)
+        facts = (
+            SuggestFacts(suggestions, None if source is None else tuple(source)) if request.sets_suggestion() else None
+        )
+        event = decide_edit(pin, request, typed_actor(actor), ctx.now(), clock, count, NOTE_MAX, facts, pages=pages)
         if not isinstance(event, PinEdited):
             return event, False
         span = event.span()
@@ -264,35 +276,46 @@ def _with_edit(
 class EditTarget:
     """What an edit's location is parsed against, read before the pin lock (EditScope): whether the pin is a region
     pin (a view-only document's, or a figure document's region pick - it has no lines), whether it carries a verdict
-    (limn.pins.verdict.verdict_of - then no loc is read, limn.pins.editing.input.parse_edit_place) and the document
-    it belongs to. A verdict never leaves a pin, and the editing rules check the pin again under the lock."""
+    (limn.pins.verdict.verdict_of - then no loc is read, limn.pins.editing.input.parse_edit_place), the document whose
+    facts its loc is parsed against and whose capability decides a suggestion - the one it belongs to, or the first
+    document for a pin whose document this run does not serve - and pages, whether the pin has pages. pages comes from
+    the pin's own record by the rule every write of a pin uses (PinContext.has_pages, limn.pins.pages.keep_pages):
+    False only for a document the browser draws, True for one this run does not serve - never from the first
+    document that stands in for it. The edit is placed (parse_edit_place) and written (edit_pin) with it. A verdict
+    never leaves a pin, and the editing rules check the pin again under the lock."""
 
     region: bool
     verdict: bool
     document: Doc
+    pages: bool
 
 
 @dataclass(frozen=True)
 class EditScope:
-    """Read a pin's region kind, verdict and owning document before parsing an edit's location."""
+    """Read a pin's region kind, verdict, owning document and pages before parsing an edit's location. has_pages is
+    the run's answer for a pin record (PinContext.has_pages)."""
 
     read_pins: Callable[[], tuple[list[Pin], list[int]]]
     docs: Callable[[], Sequence[Doc]]
     pin_doc_key: Callable[[Record], str]
+    has_pages: Callable[[Record], bool]
 
     def __call__(self, pid: int) -> EditTarget:
         """The pin's EditTarget. An id that is not among the live pins reads as a line pin without a verdict in the
-        first document; the pin transaction answers a pin that is still missing as not found."""
+        first document, with that document's pages; the pin transaction answers a pin that is still missing as not
+        found."""
         pins, _ = self.read_pins()
         docs = self.docs()
         i = pin_index(pins, pid)
         if i is None:
-            return EditTarget(False, False, docs[0])
+            first = docs[0]
+            return EditTarget(False, False, first, pages=not first.renders_in_browser)
         pin = pins[i]
         return EditTarget(
             isinstance(pin.core.place, Region),
             verdict_of(pin.record) is not None,
             doc_by_key(docs, self.pin_doc_key(pin.record)) or docs[0],
+            pages=self.has_pages(pin.record),
         )
 
 
@@ -309,9 +332,17 @@ class PinEditing:
         return add_pin(ctx, D, request, actor)
 
     def edit_pin(
-        self, pid: int, request: EditRequest, actor: PostAuthority, region: bool = False, latex: bool = False
+        self,
+        pid: int,
+        request: EditRequest,
+        actor: PostAuthority,
+        region: bool = False,
+        suggestions: bool = False,
+        *,
+        pages: bool = True,
     ) -> OpenPin | ReviewPin | DonePin | EditRefusal | PinNotFound:
-        """Edit one pin under the store lock and emit accepted notices; latex: the pin's document is a LaTeX one."""
+        """Edit one pin under the store lock and emit accepted notices; suggestions: the pin's document takes suggested
+        edits (Doc.takes_suggestions); pages: it has pages (not one the browser draws)."""
         ctx = self.context()
         require_authority(actor, ctx.authority_scope, "edit", pid)
-        return edit_pin(ctx, pid, request, actor, region, latex)
+        return edit_pin(ctx, pid, request, actor, region, suggestions, pages=pages)

@@ -17,6 +17,7 @@ from typing import Any
 
 from limn.pins.context import Event, Json, PinContext, load_pin, typed_actor
 from limn.pins.model import DonePin, OpenPin, Pin, PinNotFound, ReviewPin, TrashedPin, parse_pin
+from limn.pins.pages import page_fields_kept
 from limn.pins.retention import unexpired, without_live_shadows
 from limn.pins.store import pin_index
 from limn.pins.trash.rules import (
@@ -49,7 +50,8 @@ def drop_pin(ctx: PinContext, pid: int, actor: PostAuthority) -> TrashedPin | Pi
 
     The author is told when someone else deletes their pin (a `dropped` event, with [Restore] in the viewer). Expired
     Trash entries are purged in the same write. An agent's drop of a verdict pin is refused and writes nothing
-    (VerdictByAgent, D16)."""
+    (VerdictByAgent, D16). The Trash copy of a line pin on a document without pages has no page field (ctx.has_pages,
+    limn.pins.pages)."""
     require_authority(actor, ctx.authority_scope, "drop", pid)
     human = actor.principal.is_human()
     evs: list[Event | None] = []
@@ -64,7 +66,7 @@ def drop_pin(ctx: PinContext, pid: int, actor: PostAuthority) -> TrashedPin | Pi
         if refused is not None:
             return refused, False
         del pins[i]
-        trashed = drop(pin, typed_actor(actor), ctx.now())
+        trashed = drop(pin, typed_actor(actor), ctx.now(), pages=ctx.has_pages(pin.record))
         r = pin.record
         evs.append(ctx.make_event("dropped", r, actor, [(pin.core.author or {}).get("login")], text=r.get("note")))
         return trashed, True
@@ -109,7 +111,8 @@ def _restore(
 ) -> tuple[OpenPin | ReviewPin | DonePin | NotInTrash | AlreadyLive | VerdictByAgent, bool]:
     """The transact() step of restore_pin: puts the newest unexpired Trash copy of pin pid back into pins (kept in id
     order) with its file and file_rel recorded where the file is now (ADR-0006). Its lines are not re-matched here:
-    the next transaction's sync does that, as for every pin. The rule is limn.pins.trash.rules.restore(); NotInTrash
+    the next transaction's sync does that, as for every pin. A line pin of a document without pages comes back without
+    the page fields its copy still carries (ctx.has_pages, limn.pins.pages). The rule is limn.pins.trash.rules.restore(); NotInTrash
     (404), VerdictByAgent (403, an agent and a verdict pin - human says whether a person asks) and AlreadyLive (409)
     leave pins unchanged."""
     old, _ = ctx.store.read_dropped()
@@ -122,7 +125,7 @@ def _restore(
     result = restore(trashed, pin_index(pins, pid) is not None, typed_actor(actor), ctx.now())
     if isinstance(result, AlreadyLive):
         return result, False
-    rec = dict(result.record)
+    rec = page_fields_kept(result.record, ctx.has_pages(result.record))
     ctx.stamp(rec)  # ADR-0006: a restored pin records where its file is now
     restored = parse_pin(rec)
     pins.append(restored)

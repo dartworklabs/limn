@@ -34,6 +34,31 @@
   - A Markdown file inside a LaTeX document's tree is not one of its sources: editing it never marks the LaTeX build
     stale or makes a rebuild run latexmk (a test pins this).
 
+- **Pins on Markdown documents (ADR-0025), not reachable yet.** No `--doc` suffix chooses a Markdown document until the
+  viewer can draw one, so no instance serves one today; these rules hold for it once one is served.
+  - A Markdown line pin has no `page`, `frac` or `pdf_build`. Sent with a new pin or a re-placement they are dropped
+    unread, as an `el` is outside a figure document, so an agent's habitual `page: 1` is no refusal; no `pdf_build` is
+    stamped when none is sent; and any write of such a pin removes the page fields and the legacy `frac_build` a record
+    still carries: an edit (a note-only one too), a claim or unclaim, a reply, a close (an agent's with `changes` too),
+    a confirmation, a reopen, a drop into the Trash, a restore, and the anchor re-sync. A LaTeX line pin keeps its page
+    fields exactly as before, and so does a pin of a document the instance does not serve, on every write: an edit
+    reads that from the pin's own record, not from the first document, even when the first document is Markdown.
+  - `scope` gains `block` and `section`, and pin kinds `md:paragraph`, `md:item`, `md:table`, `md:code`, `md:quote`,
+    `md:html` and `md:section` appear. In `pins.md` the range column names them, a Markdown document's section title
+    ends with `— Markdown(쪽 없음)` (a lone Markdown document is sectioned, as a figure document is), and the page
+    column shows `—` for any line pin without a page. Before, such a pin showed `0`; only a record from before page was
+    stored, or a hand edit, has none on a LaTeX document.
+  - The suggestion gate asks the document's capability (`takes_suggestions`), so a Markdown line pin takes a suggested
+    edit with the same limits, base check and `suggest_state`; a view-only PDF, a figure document and a region pin still
+    answer `suggest_unsupported`, whose message now names LaTeX and Markdown, in Korean and in the English viewer. The
+    `bad_scope` message lists the two new values. The SKILL counts broken Markdown (a table row's cell count, unclosed
+    emphasis or code, a list item's indentation) among the obvious errors to check before applying a suggestion.
+  - A request that names only a file goes to the Markdown document whose file it is, even beside a LaTeX main or a
+    figure document in the same folder and whatever order the documents are registered in; every other file goes by
+    folder as before, so a `.tex` below a Markdown document's folder stays with the LaTeX document.
+  - A fourth contract snapshot records the Markdown pin flow, and v0.4.46 reads the Markdown records and writes them
+    back byte for byte (`tests/contracts/test_markdown_rollback.py`).
+
 ## 0.4.46 — 2026-11-04
 
 ### Fixed

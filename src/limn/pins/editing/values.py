@@ -17,10 +17,28 @@ SUGGEST_MAX = 16_000
 # the lines an author rewrites are lines the viewer can show whole. GET /api/snippet's exact text has the same cap.
 SUGGEST_LINES_MAX = 80
 # scope: which rung of the range ladder a line pin was placed at - limn.pins.location.mapping.compute_levels (raw drag,
-# paragraph, the innermost environment and up to two outer ones, or plain lines), or on a figure document
-# limn.builds.figure_map.ladder_scopes (the element and up to seven ancestors, el..el8, and the whole figure, fig).
+# paragraph, the innermost environment and up to two outer ones, or plain lines), on a figure document
+# limn.builds.figure_map.ladder_scopes (the element and up to seven ancestors, el..el8, and the whole figure, fig), or
+# on a Markdown document the viewer's ladder (the selected lines, the rendered block, the heading's section;
+# docs/adr/0025-html-document-surface.md D3).
 Scope: TypeAlias = Literal[
-    "raw", "para", "env", "env2", "env3", "lines", "el", "el2", "el3", "el4", "el5", "el6", "el7", "el8", "fig"
+    "raw",
+    "para",
+    "env",
+    "env2",
+    "env3",
+    "lines",
+    "el",
+    "el2",
+    "el3",
+    "el4",
+    "el5",
+    "el6",
+    "el7",
+    "el8",
+    "fig",
+    "block",
+    "section",
 ]
 SCOPES: tuple[Scope, ...] = get_args(Scope)
 # The longest quote a pick gives and a pin keeps: the PDF text a drag chose, whitespace-normalized. A view-only PDF's

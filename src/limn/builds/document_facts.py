@@ -45,6 +45,12 @@ class DocumentFacts:
         return self._doc.view_only
 
     @property
+    def renders_in_browser(self) -> bool:
+        """D is drawn by the viewer from its source (Doc.renders_in_browser): it has no pages, so the parsers drop a line
+        pin's page, frac and pdf_build there."""
+        return self._doc.renders_in_browser
+
+    @property
     def pdf(self) -> Path:
         """The PDF a region pin on D records: a view-only document's own PDF (its main file); for a document with an
         element map, the PDF named by the map of the build on screen (limn.builds.artifacts.build_figure_pdf, the map
