@@ -73,7 +73,7 @@ async function mdBuild(){if(mdFieldBusy()){MD.waiting=true; return;}
   document.body.classList.add('md-surface'); const doc=$('#doc');
   if(MD.shown!==k||!doc.querySelector('#md')){MD.shown=''; doc.replaceChildren(mdWait(tr('원문을 읽는 중입니다.')));}
   let r; try{r=await api(dq('/api/source'),{what:'원문 읽기',silent:true,expect:[413]});}
-  catch(e){if(!stale()){MD.asked=null; mdShow(mdNote(tr('원문을 읽지 못했습니다'),''));} return;}   // not read: the next light poll asks again
+  catch(e){if(!stale()){MD.asked=null; MD.mtime=null; mdShow(mdNote(tr('원문을 읽지 못했습니다'),''));} return;}   // not read: no read answers for this source now (MD.mtime too, or an unchanged source on a return to the document never matches again), so the next light poll asks again
   if(stale())return;
   if(r.status===413){MD.lines=[]; MD.heads=[]; MD.mtime=MD.asked; mdShow(mdNote(tl('이 문서는 {size}라 그리지 않습니다(한도 {limit})',{size:mdMiB(r.data.bytes),limit:mdMiB(r.data.limit)}),MD_LIMIT.BYTES)); return;}
   const src=r.data; MD.doc=k; MD.mtime=src.src_mtime; MD.file=String(src.file||''); MD.name=MD.file.split('/').pop()||MD.file; MD.lines=Array.isArray(src.lines)?src.lines.map(String):[];

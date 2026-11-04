@@ -666,6 +666,29 @@ class Redrawing(MarkdownBase):
             "document.querySelector('#md').textContent.includes('문단 셋째 줄을 고쳤다.')", timeout=8000
         )
 
+    def test_a_read_that_failed_on_a_return_to_the_document_is_asked_again(self):
+        """Back on the Markdown document after the LaTeX one, its unchanged source's read fails once: the notice is shown,
+        and the next light polls read and draw it again - the earlier visit's read does not stand for the failed one."""
+        page = self.open_md()
+        page.evaluate("switchDoc('ms')")
+        page.wait_for_function("DOC==='ms'&&!document.querySelector('#md')", timeout=10000)
+        failed = []
+
+        def source(route):
+            if urlparse(route.request.url).path == "/api/source" and not failed:
+                failed.append(route.request.url)
+                return route.abort()
+            return self.route(route)
+
+        page.route("**/*", source)
+        page.evaluate("switchDoc('nt')")
+        page.wait_for_function("!!document.querySelector('#md.md-note')", timeout=10000)
+        self.assertEqual(page.evaluate("document.querySelector('#md').textContent"), "원문을 읽지 못했습니다")
+        self.assertEqual(len(failed), 1)
+        for _ in range(3):
+            page.evaluate("pollLightOnce()")
+        page.wait_for_function(DRAWN, timeout=8000)
+
     def test_a_redraw_waits_while_a_field_in_the_document_is_composing(self):
         """A redraw would replace every node of #doc: while a field in it composes (here a field put there, as any field
         the surface may hold), the old document stays; when the composition ends the redraw runs."""
