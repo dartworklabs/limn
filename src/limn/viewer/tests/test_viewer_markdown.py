@@ -35,6 +35,9 @@ from helpers_figure import BUILD1, viewer_build
 
 # Resolves when the Markdown document on screen is drawn (a document, the line view or a notice) and no parse is in flight.
 DRAWN = "typeof MD!=='undefined'&&MD.shown===DOC&&!!document.querySelector('#md')&&!MD.job"
+# DRAWN with the source on screen, drawn or as the line view: a notice (a read that failed, a limit) is drawn too, and
+# a wait that must see the document waits for this.
+SHOWN = DRAWN + "&&!document.querySelector('#md.md-note')&&!!document.querySelector('#md [data-line],#md [data-lo]')"
 
 # A document with every block kind, inline constructs whose lines can and cannot be told, a table, and the security cases:
 # raw HTML blocks and tags, script and handlers, javascript:/data:/ftp:/custom-scheme links, relative and scheme-relative
@@ -734,7 +737,7 @@ class Redrawing(MarkdownBase):
         settle(page)
         self.assertTrue(page.evaluate("MD.waiting&&!!document.getElementById('md-probe')"))
         cdp.send("Input.insertText", {"text": "가"})
-        page.wait_for_function("!MD.waiting&&!document.getElementById('md-probe')&&" + DRAWN, timeout=8000)
+        page.wait_for_function("!MD.waiting&&!document.getElementById('md-probe')&&" + SHOWN, timeout=8000)
 
     def test_a_note_composing_in_the_composer_keeps_its_text_across_a_redraw(self):
         """The composer is outside the document: a redraw while its note composes leaves the note's text, focus and
@@ -745,7 +748,7 @@ class Redrawing(MarkdownBase):
         cdp = page.context.new_cdp_session(page)
         cdp.send("Input.imeSetComposition", {"text": "고", "selectionStart": 1, "selectionEnd": 1})
         page.evaluate("mdBuild()")
-        page.wait_for_function("!MD.waiting&&" + DRAWN, timeout=8000)
+        page.wait_for_function("!MD.waiting&&" + SHOWN, timeout=8000)
         cdp.send("Input.insertText", {"text": "고"})
         self.assertEqual(
             page.evaluate("[document.activeElement.id,document.getElementById('note').value]"), ["note", "고"]
@@ -844,14 +847,14 @@ class Limits(MarkdownBase):
             with self.subTest(name=name):
                 self.write(text)
                 page.evaluate("window.__md={y:[],shown:[],race:0}; mdBuild()")
-                page.wait_for_function("window.__md.shown.length>0&&" + DRAWN, timeout=20000)
+                page.wait_for_function("window.__md.shown.length>0&&" + SHOWN, timeout=20000)
                 y = page.evaluate("window.__md.y")
                 self.assertEqual(page.evaluate("window.__md.shown"), ["drawn"])
                 self.assertGreater(len(y), 10)
                 gaps = [b - a for a, b in zip([0, *y[:-1]], y, strict=True)]
                 self.assertLessEqual(max(gaps), 2 * chunk, gaps[:5])
                 page.evaluate("window.__md={y:[],shown:[],race:5}; mdBuild()")
-                page.wait_for_function("window.__md.shown.length>0&&" + DRAWN, timeout=20000)
+                page.wait_for_function("window.__md.shown.length>0&&" + SHOWN, timeout=20000)
                 settle(page)
                 self.assertEqual(page.evaluate("[window.__md.race,window.__md.shown]"), [0, ["drawn"]])
 
@@ -892,7 +895,7 @@ class Limits(MarkdownBase):
         page = self.open_md()
         self.write(b"a" * (1024 * 1024 - 1) + b"\n")
         page.evaluate("mdBuild()")
-        page.wait_for_function(DRAWN, timeout=20000)
+        page.wait_for_function(SHOWN + "&&document.querySelector('#md').textContent.length>=1024*1024-1", timeout=20000)
         self.assertNotEqual(page.evaluate("MD.limit"), "bytes")
         self.write(b"a" * (1024 * 1024) + b"\n")
         page.evaluate("mdBuild()")
