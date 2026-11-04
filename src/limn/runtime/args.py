@@ -33,7 +33,11 @@ def serve_parser(description: str, version: str, default_envs: str) -> argparse.
     ap = argparse.ArgumentParser(prog="limn serve", description=description)
     ap.add_argument("--version", action="version", version=version)
     ap.add_argument("--manuscript", required=True, help="LaTeX source root directory")
-    ap.add_argument("--main", help="Top-level .tex filename (auto-detected if omitted). Not used together with --doc")
+    ap.add_argument(
+        "--main",
+        help="Top-level .tex filename (auto-detected if omitted). Not used together with --doc; "
+        "a Markdown document is served with --doc",
+    )
     ap.add_argument(
         "--doc",
         action="append",
@@ -43,7 +47,7 @@ def serve_parser(description: str, version: str, default_envs: str) -> argparse.
         ".tex = LaTeX (build root is that folder), "
         "<build root>::<main.tex> = build root given separately, .pdf = view-only, "
         ".limnmap.json = figure document (the PDF its element map names, imported; ROOT::map sets the map's source "
-        "folder). The first document is the default. "
+        "folder), .md = Markdown document (the viewer draws its source; no build). The first document is the default. "
         "If omitted, a single document (key main) built from --manuscript/--main",
     )
     ap.add_argument("--port", type=int, help="Picks a free port in 18300-18400 if omitted")
