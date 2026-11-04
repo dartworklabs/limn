@@ -364,6 +364,8 @@ def doc_start_line(key: str, kind: DocKind, path: str, build_started: bool) -> s
             label = "view-only"
         case "figure":
             label = "figure   "
+        case "markdown":
+            label = "Markdown "
     return "doc    %-10s %s %s%s" % (key, label, path, "  (build started)" if build_started else "")
 
 

@@ -477,16 +477,20 @@ LaTeX 문서의 줄 핀만 제안을 가진다. 그림 스크립트의 줄에는
 
 문서 종류(`Doc.kind`)는 `tex`(LaTeX 원고), `pdf`(보기 전용 PDF), `figure`(그림 문서) 셋이다. 종류는 기동할 때 `--doc` 경로에서 한 번 정한다(`parse_doc_arg`). 이름이 `.limnmap.json`으로 끝나면(소문자 그대로) 그림 문서, `.tex`면 LaTeX, `.pdf`면 보기 전용이다. `.tex`와 `.pdf`는 대소문자를 가리지 않는다. 그 뒤로는 닫힌 타입 `DocKind`로 다닌다. `--doc` 없이 띄운 단일 문서는 `tex`다.
 
+`DocKind`에는 넷째 종류 `markdown`(브라우저가 원문을 그리는 Markdown 문서)도 있다. 이 종류를 고르는 `--doc` 확장자는 없다. 그래서 인스턴스는 Markdown 문서를 띄우지 않고, 이 종류는 코드가 `Doc`을 직접 만들 때만 생긴다. 아래 표의 `markdown` 열은 그 능력이다.
+
 분기는 종류 이름을 묻지 않고 **능력**을 묻는다. 능력은 `Doc`의 속성이고, 종류에서 능력을 정하는 규칙은 [`limn/documents.py`](../../src/limn/runtime/documents.py) 한 곳에 있다. 그래서 종류가 늘어도 분기마다 종류 목록을 고치지 않는다.
 
-| 능력 | 뜻 | `tex` | `pdf` | `figure` |
-| --- | --- | --- | --- | --- |
-| `builds_from_source` | 원고에서 빌드한다. latexmk, `--git-pull` 뒤 재빌드, `POST /api/rebuild`, 원고가 더 새롭다는 `stale_build`, `.aux` 목차, 원고 트리의 지문과 `src_mtime`이 여기에 걸린다 | 예 | 아니요 | 아니요 |
-| `watches_files` | 감시 스레드가 파일이 바뀌면 쪽을 다시 그린다. 기동 때도 파일이 바뀌었거나 지금 dpi의 쪽 이미지가 없으면 `--no-build`와 상관없이 그린다 | 아니요 | 예 | 예 |
-| `takes_line_pins` | 줄 핀(`file`·`lo`·`hi`)과 anchor 재동기화를 받는다. 파일만 준 요청은 이 능력이 있는 문서 가운데서 찾는다(`doc_for_file`, §그림 문서) | 예 | 아니요 | 예 |
-| `shows_revisions` | 변경 보기가 있다. LaTeX는 원고 Git 이력과 latexdiff 비교, 그림 문서는 지도에 나오는 파일의 Git 이력과 직전 빌드 쪽의 겹쳐 보기다 | 예 | 아니요 | 예 |
-| `view_only` | 핀이 쪽·영역뿐이다. 늘 `takes_line_pins`의 반대이며, API의 `view_only`가 이 값이다 | 아니요 | 예 | 아니요 |
-| `has_element_map` | 요소 지도를 가진다. 감시가 지도와 그 PDF를 함께 가져오고 쪽 폴더마다 지도를 보관한다 | 아니요 | 아니요 | 예 |
+| 능력 | 뜻 | `tex` | `pdf` | `figure` | `markdown` |
+| --- | --- | --- | --- | --- | --- |
+| `builds_from_source` | 원고에서 빌드한다. latexmk, `--git-pull` 뒤 재빌드, `POST /api/rebuild`, 원고가 더 새롭다는 `stale_build`, `.aux` 목차, 원고 트리의 지문과 `src_mtime`이 여기에 걸린다 | 예 | 아니요 | 아니요 | 아니요 |
+| `watches_files` | 감시 스레드가 파일이 바뀌면 쪽을 다시 그린다. 기동 때도 파일이 바뀌었거나 지금 dpi의 쪽 이미지가 없으면 `--no-build`와 상관없이 그린다 | 아니요 | 예 | 예 | 아니요 |
+| `takes_line_pins` | 줄 핀(`file`·`lo`·`hi`)과 anchor 재동기화를 받는다. 파일만 준 요청은 이 능력이 있는 문서 가운데서 찾는다(`doc_for_file`, §그림 문서) | 예 | 아니요 | 예 | 예 |
+| `shows_revisions` | 변경 보기가 있다. LaTeX는 원고 Git 이력과 latexdiff 비교, 그림 문서는 지도에 나오는 파일의 Git 이력과 직전 빌드 쪽의 겹쳐 보기다 | 예 | 아니요 | 예 | 아니요 |
+| `view_only` | 핀이 쪽·영역뿐이다. 늘 `takes_line_pins`의 반대이며, API의 `view_only`가 이 값이다 | 아니요 | 예 | 아니요 | 아니요 |
+| `has_element_map` | 요소 지도를 가진다. 감시가 지도와 그 PDF를 함께 가져오고 쪽 폴더마다 지도를 보관한다 | 아니요 | 아니요 | 예 | 아니요 |
+| `renders_in_browser` | 쪽 이미지가 아니라 뷰어가 원문을 그린다. PDF도 쪽 이미지도 없다. API에는 이 능력의 필드가 없다 | 아니요 | 아니요 | 아니요 | 예 |
+| `takes_suggestions` | 줄 핀에 제안 수정([ADR-0020](../adr/0020-suggested-edit-pins.md))을 둘 만한 문서다. 그 줄이 사람이 쓰는 글이다. 제안 관문(`check_suggestion`)은 지금 `builds_from_source`를 묻는다. `--doc`로 고르는 세 종류에서는 두 값이 같다. API에는 이 능력의 필드가 없다 | 예 | 아니요 | 아니요 | 예 |
 
 기동 때 `--doc` 값을 파싱한 뒤, 아직 `Doc`을 만들기 전에 두 가지를 정한다. 키가 `main`인 문서가 상태 폴더 루트를 쓰는지와 실행의 메인 파일이 무엇인지다. 둘 다 같은 규칙(`kind_builds_from_source`)을 쓴다.
 
