@@ -642,6 +642,31 @@ class Picking(MarkdownBase):
                 self.assertEqual(got, [True, 1, hi])
                 page.evaluate("discardSelection()")
 
+    def test_a_cut_back_selection_starts_at_a_line_and_quotes_the_rendered_text(self):
+        """Cut back at its start, a selection begins at the document's first line, not at the first block: from above the
+        article into the first line of a three-line paragraph it picks that one line. Cut back at its end, its quote is the
+        text as rendered: two paragraphs through the article's end quote with a space between them (a range's own text runs
+        the paragraphs together)."""
+        page = self.open_md()
+        self.write("첫째 줄\n둘째 줄\n셋째 줄\n\n마지막 문단.\n")
+        page.evaluate("mdBuild()")
+        page.wait_for_function(DRAWN, timeout=20000)
+        settle(page)
+        into_first = page.evaluate(
+            "(()=>{const md=document.getElementById('md'),r=document.createRange(),l=md.querySelector(\"[data-line='1']\");"
+            "r.setStartBefore(md); r.setEnd(l.firstChild,2); const s=getSelection(); s.removeAllRanges(); s.addRange(r);"
+            "return [mdSelectionPick(null),COMPOSE.current&&COMPOSE.current.lo,COMPOSE.current&&COMPOSE.current.hi];})()"
+        )
+        self.assertEqual(into_first, [True, 1, 1])
+        page.evaluate("discardSelection()")
+        through_end = page.evaluate(
+            "(()=>{const md=document.getElementById('md'),r=document.createRange(),l=md.querySelector(\"[data-line='3']\");"
+            "r.setStart(l.firstChild,0); r.setEndAfter(md); const s=getSelection(); s.removeAllRanges(); s.addRange(r);"
+            "return [mdSelectionPick(null),COMPOSE.current&&COMPOSE.current.lo,COMPOSE.current&&COMPOSE.current.hi,"
+            "COMPOSE.current&&COMPOSE.current.quote];})()"
+        )
+        self.assertEqual(through_end, [True, 3, 5, "셋째 줄 마지막 문단."])
+
     def test_a_tap_on_a_block_no_longer_than_its_lines_picks_the_block(self):
         """A tap on a block whose lines are all the tapped lines - a raw HTML block's placeholder, a one-line paragraph -
         picks the block as a tap on any block does: the block's rung stands first with the chosen lines merged into it, and

@@ -494,7 +494,7 @@ function mdSelectionPick(tapTarget){const s=window.getSelection(),md=$('#md'); i
     const cut=r!==r0&&!md.contains(r0.endContainer);
     if(b.lo>a.hi&&!cut&&mdNothingOfEnd(r)){const prev=b.lo-1; b={lo:Math.max(a.lo,prev),hi:Math.max(a.lo,prev)};}
     let lo=Math.min(a.lo,b.lo),hi=Math.max(a.hi,b.hi); while(hi>lo&&!String(MD.lines[hi-1]||'').trim())hi--;
-    mdPick({lo,hi},mdBlockAt(r.startContainer),mdBlockAt(r.endContainer),r===r0?s.toString():r.toString(),false); return true;}
+    mdPick({lo,hi},mdBlockAt(r.startContainer),mdBlockAt(r.endContainer),r===r0?s.toString():mdRangeText(r),false); return true;}
   if(tapTarget){const t=/** @type {Element} */(tapTarget);
     const rel=/** @type {HTMLElement|null} */(t.closest('#md .md-rel')); if(rel&&LAST_PTR!=='mouse'){mdRelTip(rel); return true;}   // a finger has no hover
     if(t.closest('a,button,[data-act],.md-badges,.md-limit'))return false;
@@ -511,9 +511,18 @@ function mdSelectionPick(tapTarget){const s=window.getSelection(),md=$('#md'); i
 /** @param {Range} r @param {HTMLElement} md */
 function mdDocPart(r,md){if(md.contains(r.commonAncestorContainer))return r; if(!md.contains(r.startContainer)&&!md.contains(r.endContainer))return null;
   const els=mdLineEls(); if(!els.length)return null;
-  const c=r.cloneRange(); if(!md.contains(r.startContainer))c.setStart(els[0],0);
+  // The start goes to the first element that carries lines and holds none of its own (a paragraph's first line span, not the
+  // paragraph: that would read as all its lines); the last element in document order is always such a leaf.
+  const first=els.find(e=>!e.querySelector('[data-line],[data-lo]'))||els[0];
+  const c=r.cloneRange(); if(!md.contains(r.startContainer))c.setStart(first,0);
   if(!md.contains(r.endContainer)){const e=els[els.length-1]; c.setEnd(e,e.childNodes.length);}
   return c.collapsed?null:c;}
+// The text range r shows, as the selection's own toString gives it: its contents laid out once in an off-screen box and read
+// as innerText. A range's toString runs blocks together ('First.Last.'), the renderer putting no whitespace between them; the
+// selection itself is not touched, as changing it would set off the touch screen's resting-selection pick again.
+/** @param {Range} r */
+function mdRangeText(r){const box=document.createElement('div'); box.className='sr-only'; box.setAttribute('aria-hidden','true');
+  box.append(r.cloneContents()); document.body.append(box); try{return box.innerText;}finally{box.remove();}}
 // Shows a link's description that does not open (a tap on it), until 4s pass or the next press.
 /** @param {HTMLElement} el */
 function mdRelTip(el){showTip(el); const txt=TIP.textContent; setTimeout(()=>{if(!TIP.hidden&&TIP.textContent===txt)hideTip();},4000);}
