@@ -144,7 +144,7 @@ interface Me {
   role: string;
 }
 
-// One person who opened this viewer or wrote on a pin (GET /api/people).
+// One person recorded on a real change or added as a member, or who wrote on a pin (GET /api/people).
 interface PersonSeen {
   login: string;
   name?: string;
