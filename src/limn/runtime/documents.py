@@ -351,8 +351,8 @@ class Doc:
     def takes_suggestions(self) -> bool:
         """A suggested edit of its lines fits its line pins (docs/adr/0020-suggested-edit-pins.md, ADR-0025 D8): a
         LaTeX document and a Markdown document, whose lines are prose a person writes. A view-only PDF has no lines
-        and a figure document's lines are the code that drew it. The suggestion gate still reads builds_from_source
-        (limn.pins.editing.rules.SuggestFacts); the two agree on every kind a --doc suffix chooses."""
+        and a figure document's lines are the code that drew it. The suggestion gate reads it
+        (limn.pins.editing.rules.check_suggestion, through SuggestFacts on an edit)."""
         return self.kind in ("tex", "markdown")
 
     def rel_path(self) -> str:

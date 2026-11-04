@@ -1,10 +1,15 @@
-"""Line pins on a Markdown document: no page, no frac, no pdf_build on any path that writes one (ADR-0025 D2).
+"""Line pins on a Markdown document: no page, no frac, no pdf_build on any path that writes one (ADR-0025 D2), and
+suggested edits on them (D8).
 
 A Markdown document (Doc.renders_in_browser) is drawn by the browser from its source, so it has no pages: its line pins
 are file, lo, hi, kind, scope and quote alone. The location parsers read the capability from the document's facts
 (DocumentFacts.renders_in_browser) and drop the page fields a request sends, as they drop an el outside a figure
 document; the pure rules take it as an argument (LinePlace's pages, decide_edit's pages) and every edit of such a pin
 removes page fields a record already carries. A LaTeX line pin keeps its page fields exactly as before.
+
+A Markdown document's lines are prose a person writes, so its line pins take a suggested edit, as a LaTeX document's
+do: the suggestion gate asks the capability Doc.takes_suggestions, not whether the document is built from LaTeX. A
+view-only PDF and a figure document still refuse one.
 
 First the pure rules on records, then the parsers through a real document's facts, then POST /api/pin and POST
 /api/pins/{id}/edit over a real server and state folder. No --doc suffix chooses a Markdown document yet, so each test
@@ -23,15 +28,20 @@ from limn.pins.editing.rules import (
     EditRequest,
     LinePlace,
     PinEdited,
+    SuggestFacts,
+    SuggestUnsupported,
     decide_edit,
+    decide_new_suggestion,
     evolve_edit,
     new_line_pin,
 )
 from limn.pins.model import OpenPin
+from limn.pins.suggestion import Suggestion
 from limn.runtime.documents import Doc
 from limn.web.errors import InputRejected
 
 from helpers import Base, jreq, ps, req, split_resp
+from helpers_figure import BUILD1, SCRIPT, b2_map, figure_doc, write_build
 from helpers_pin_rules import ALICE_PERSON, AT
 
 # The page fields a Markdown pin never keeps: the three a request may send, and the legacy frac_build a record may hold.
@@ -349,3 +359,72 @@ class PagelessPinsOverHttp(MarkdownDocument):
         code, d = self.post("/api/pins/%d/edit" % pid, {"base_rev": 1, "note": "다시"})
         self.assertEqual(code, 200, d)
         self.assertEqual((self.pin(pid)["page"], self.pin(pid)["frac"], self.pin(pid)["pdf_build"]), (2, *kept))
+
+
+PARAGRAPH = "First line of the paragraph.\nSecond line of the paragraph."  # PLAN lines 3-4
+
+
+class MarkdownSuggestionRules(unittest.TestCase):
+    """The pure suggestion rules take the document's capability, not whether it is LaTeX."""
+
+    def test_a_document_that_takes_suggestions_accepts_one_on_its_lines(self):
+        """decide_new_suggestion with takes_suggestions accepts a suggestion on a place without pages whose base is its
+        lines; without the capability it is unsupported. decide_edit reads the capability from SuggestFacts."""
+        lines = tuple(PLAN.splitlines())
+        suggestion = Suggestion(PARAGRAPH, "One line.")
+        self.assertEqual(decide_new_suggestion(suggestion, pageless_place(), True, lines), suggestion)
+        self.assertEqual(decide_new_suggestion(suggestion, pageless_place(), False, lines), SuggestUnsupported())
+        pin = OpenPin.from_record(markdown_record())
+        request = EditRequest(base_rev=2, suggest=suggestion)
+        for takes, accepted in ((True, True), (False, False)):
+            with self.subTest(takes_suggestions=takes):
+                event = decide_edit(
+                    pin, request, ALICE_PERSON, AT, "10:00", None, 4000, SuggestFacts(takes, lines), pages=False
+                )
+                self.assertEqual(isinstance(event, PinEdited), accepted, event)
+
+
+class MarkdownSuggestionsOverHttp(MarkdownDocument):
+    """POST /api/pin and POST /api/pins/{id}/edit with a suggestion on the Markdown document, beside a view-only PDF
+    and a figure document that still refuse one."""
+
+    def test_a_new_markdown_pin_stores_its_suggestion_and_reads_ready(self):
+        """A suggestion on notes/plan.md L3-L4 whose base is those lines is stored last in the record and its state
+        is ready; the pin keeps no page field."""
+        pid = self.make_md(suggest={"base": PARAGRAPH, "text": "One line of **the** paragraph."})
+        self.assertEqual(self.pin(pid)["suggest"], {"base": PARAGRAPH, "text": "One line of **the** paragraph."})
+        self.assertEqual(list(self.pin(pid))[-1], "suggest")
+        self.assertEqual(self.get_pin(pid)["suggest_state"], "ready")
+        self.assert_pageless(pid)
+
+    def test_an_edit_sets_a_suggestion_on_a_markdown_pin(self):
+        """An edit setting a suggestion on a Markdown pin is accepted and answered with its state; a base written
+        against other text is still 409 suggest_base_changed with the lines' current text."""
+        pid = self.make_md(6, 7)
+        code, d = self.post(
+            "/api/pins/%d/edit" % pid, {"base_rev": 0, "suggest": {"base": "- item one\n- item two", "text": "- one"}}
+        )
+        self.assertEqual(code, 200, d)
+        self.assertEqual((d["pin"]["suggest"]["text"], d["pin"]["suggest_state"]), ("- one", "ready"))
+        code, d = self.post("/api/pins/%d/edit" % pid, {"base_rev": 1, "suggest": {"base": "- item", "text": "x"}})
+        self.assertEqual((code, d["reason"], d["current"]), (409, "suggest_base_changed", "- item one\n- item two"))
+
+    def test_a_view_only_or_figure_document_still_refuses_one(self):
+        """With a view-only PDF and a figure document served too, their pins are still 400 suggest_unsupported and
+        nothing of them is stored, while the Markdown pin beside them takes its suggestion."""
+        (self.src / "review.pdf").write_bytes(b"%PDF-1.4\n%%EOF\n")
+        fig = figure_doc(self.src, ps.APP.C.paths)
+        rv = Doc("rv", "리뷰", "pdf", self.src, self.src / "review.pdf", paths=ps.APP.C.paths)
+        ps.APP.set_docs([self.ms, self.nt, fig, rv])
+        write_build(fig, BUILD1, b2_map())
+        suggest = {"base": "a", "text": "b"}
+        for body in (
+            {"doc": "rv", "page": 1, "frac": [0.1, 0.1, 0.2, 0.2], "suggest": suggest},
+            {"doc": "fig", "file": SCRIPT, "lo": 88, "hi": 88, "suggest": suggest},
+        ):
+            with self.subTest(doc=body["doc"]):
+                code, d = self.post("/api/pin", body)
+                self.assertEqual((code, d["reason"]), (400, "suggest_unsupported"), d)
+        self.assertEqual(ps.APP.read_pins()[0], [])
+        pid = self.make_md(suggest={"base": PARAGRAPH, "text": "x"})
+        self.assertEqual(self.pin(pid)["suggest"]["text"], "x")

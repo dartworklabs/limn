@@ -84,7 +84,7 @@ def edit(app: EditingRequests, pid: int, actor: PostAuthority, body: dict[str, A
     request = replace(parsed.request, place=place)
     document = target.document
     result = app.pin_editing.edit_pin(
-        pid, request, actor, target.region, document.builds_from_source, pages=not document.renders_in_browser
+        pid, request, actor, target.region, document.takes_suggestions, pages=not document.renders_in_browser
     )
     return edit_answer(result, app.public)
 
@@ -128,7 +128,7 @@ def suggest_refused(result: SuggestRefusal) -> NoReturn:
         case SuggestUnsupported():
             raise HTTPError(
                 400,
-                "제안 수정은 LaTeX 문서의 줄 핀에만 둘 수 있습니다 — 보기 전용 PDF·그림 문서의 핀과 영역 핀은 메모로 요청하세요.",
+                "제안 수정은 LaTeX·Markdown 문서의 줄 핀에만 둘 수 있습니다 — 보기 전용 PDF·그림 문서의 핀과 영역 핀은 메모로 요청하세요.",
                 reason="suggest_unsupported",
             )
         case SuggestRangeTooLong(lines=lines, limit=limit):

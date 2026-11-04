@@ -437,8 +437,9 @@ class RangeOutsideFile:
 
 @dataclass(frozen=True)
 class SuggestUnsupported:
-    """Only a line pin of a LaTeX document takes a suggested edit: a view-only PDF's or a figure document's pin, and a
-    region pin, do not (docs/adr/0020-suggested-edit-pins.md D1)."""
+    """Only a line pin of a document that takes suggestions (Doc.takes_suggestions: LaTeX and Markdown) takes a
+    suggested edit: a view-only PDF's or a figure document's pin, and a region pin, do not
+    (docs/adr/0020-suggested-edit-pins.md D1, docs/adr/0025-html-document-surface.md D8)."""
 
 
 @dataclass(frozen=True)
@@ -547,11 +548,11 @@ EditRefusal: TypeAlias = (
 
 @dataclass(frozen=True)
 class SuggestFacts:
-    """What the shell read for an edit that sets a suggestion: whether the pin's document is a LaTeX document
-    (limn.runtime.documents.Doc.builds_from_source), and the current lines of the file the pin will point at after
-    the edit - None when that file is outside the manuscript tree (a region pin's has no file at all)."""
+    """What the shell read for an edit that sets a suggestion: whether the pin's document takes suggested edits
+    (limn.runtime.documents.Doc.takes_suggestions: LaTeX and Markdown), and the current lines of the file the pin will
+    point at after the edit - None when that file is outside the manuscript tree (a region pin's has no file at all)."""
 
-    latex: bool
+    takes_suggestions: bool
     lines: tuple[str, ...] | None
 
 
@@ -678,7 +679,7 @@ def decide_edit(
         if suggest_facts is None:
             raise ValueError("an edit that sets a suggestion is decided with the facts the shell read (SuggestFacts)")
         after = _span_after(pin, place, lines)
-        refused = check_suggestion(request.suggest, after, suggest_facts.latex)
+        refused = check_suggestion(request.suggest, after, suggest_facts.takes_suggestions)
         if refused is not None:
             return refused
         assert after is not None  # check_suggestion refuses a pin without lines
@@ -716,12 +717,15 @@ def _span_after(pin: Pin, place: Place | None, lines: tuple[int, int] | None) ->
     return (span.lo, span.hi) if isinstance(span, LineSpan) else None
 
 
-def check_suggestion(suggestion: Suggestion, span: tuple[int, int] | None, latex: bool) -> SuggestRefusal | None:
+def check_suggestion(
+    suggestion: Suggestion, span: tuple[int, int] | None, takes_suggestions: bool
+) -> SuggestRefusal | None:
     """A suggestion's own rules on the lines it replaces, span (lo, hi), or None when they hold - in this order: only a
-    line pin (span not None) of a LaTeX document (latex) takes one; the range spans at most SUGGEST_LINES_MAX lines;
-    base, then text, holds at most SUGGEST_MAX characters; text differs from base. Whether base is what the lines read
-    now is the caller's next step, since it needs the file (docs/adr/0020-suggested-edit-pins.md D1, D2)."""
-    if not latex or span is None:
+    line pin (span not None) of a document that takes suggestions (takes_suggestions, Doc.takes_suggestions: LaTeX and
+    Markdown) takes one; the range spans at most SUGGEST_LINES_MAX lines; base, then text, holds at most SUGGEST_MAX
+    characters; text differs from base. Whether base is what the lines read now is the caller's next step, since it
+    needs the file (docs/adr/0020-suggested-edit-pins.md D1, D2; docs/adr/0025-html-document-surface.md D8)."""
+    if not takes_suggestions or span is None:
         return SuggestUnsupported()
     lo, hi = span
     if hi - lo + 1 > SUGGEST_LINES_MAX:
@@ -736,13 +740,14 @@ def check_suggestion(suggestion: Suggestion, span: tuple[int, int] | None, latex
 
 
 def decide_new_suggestion(
-    suggestion: Suggestion, place: Place, latex: bool, lines: Sequence[str]
+    suggestion: Suggestion, place: Place, takes_suggestions: bool, lines: Sequence[str]
 ) -> Suggestion | AddRefusal:
     """A new pin's suggestion, accepted, or why the pin is refused: check_suggestion on the place's lines (a region
     place has none), then its base must be what those lines of the file read now - lines, the snapshot the shell also
-    anchors the pin with (SuggestBaseChanged with what they read otherwise). latex says the document is a LaTeX one."""
+    anchors the pin with (SuggestBaseChanged with what they read otherwise). takes_suggestions says the document takes
+    suggested edits (Doc.takes_suggestions)."""
     span = (place.lo, place.hi) if isinstance(place, LinePlace) else None
-    refused = check_suggestion(suggestion, span, latex)
+    refused = check_suggestion(suggestion, span, takes_suggestions)
     if refused is not None:
         return refused
     assert span is not None  # check_suggestion refuses a place without lines
