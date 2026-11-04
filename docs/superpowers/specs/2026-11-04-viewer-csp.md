@@ -38,7 +38,7 @@ object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; frame-
 
 | 지시어 | 값 | 까닭 |
 | --- | --- | --- |
-| `default-src` | `'self'` | `connect`(같은 출처 `fetch`), `font`(Pretendard), `worker`(PDF.js worker, 서비스 워커, 이후의 Markdown 파싱 Worker), `manifest`·`media` 를 같은 출처로 덮는다. `worker-src` 를 따로 두지 않는다. CSP2 브라우저(Safari 15.4 이하)는 worker를 `child-src`, 없으면 `default-src` 로 찾고, CSP3 브라우저는 `script-src` 로 찾는다. 어느 쪽이든 `'self'` 가 되어 판마다 다르지 않다 |
+| `default-src` | `'self'` | `connect`(같은 출처 `fetch`), `font`(Pretendard), `worker`(PDF.js worker, 서비스 워커, 이후의 Markdown 파싱 Worker), `manifest`·`media` 를 같은 출처로 덮는다. `worker-src` 를 따로 두지 않는다. CSP2 브라우저(Safari 15.4 이하)는 worker를 `child-src`, 없으면 `default-src` 로 찾고, CSP3 브라우저는 `child-src`, `script-src` 순으로 찾는다. 어느 쪽이든 `'self'` 가 되어 판마다 다르지 않다 |
 | `script-src` | `'self'` + 인라인 셋의 해시 | `'self'` 는 PDF.js(이후 markdown-it)의 `import()` 와 서비스 워커 등록을 덮는다. `'unsafe-inline'`·`'unsafe-eval'`·`'strict-dynamic'`·nonce를 쓰지 않는다. nonce는 응답마다 새 값과 페이지 다시 쓰기가 필요하다. 페이지가 실행마다 고정이므로 해시가 맞다 |
 | `style-src` | `'self'` + 스타일시트의 해시 | `'self'` 는 Pretendard 스타일시트다. `style` 속성과 남이 넣은 `<style>` 은 막힌다. 주입된 CSS가 속성 선택자로 값을 읽어 `https:` 그림 주소로 내보내는 길을 닫는다 |
 | `img-src` | `'self' https:` | 쪽 PNG와 파비콘은 같은 출처, 사람 사진은 신원 공급자의 `https` 주소다. 호스트를 정하지 않는다. 공급자마다 다르기 때문이다. `data:`·`blob:` 은 뷰어가 쓰지 않는다 |
@@ -82,14 +82,14 @@ object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; frame-
 | 읽을 수 없는 꼴 | 속성 붙은 태그, 다른 닫는 태그, `<!--` 는 `ValueError`. 꾸러미의 페이지는 `</script><!--` 같은 이름을 줘도 브라우저와 같게 읽힌다 | `test_csp.py` |
 | 강제 | 원고·그림 문서·보기 전용 PDF를 PDF.js 모듈과 worker로 그리고, 도움말이 열리며, 보고가 0건이다. 페이지에 없던 스크립트 요소와 `onclick` 속성은 돌지 않고 각각 보고된다 | `viewer/tests/test_viewer_csp.py` |
 | 보고 0건 | 모든 브라우저 시험의 페이지가 보고를 내지 않는다 | `tests/support/helpers_csp.py`(pytest 플러그인), 가로채기 경로 |
-| 정적 가드 | 템플릿과 조각에 `style=` 속성, `on…=` 처리기 속성, 해시하지 않는 꼴의 `<script>`·`<style>` 이 없다. 브라우저 시험이 지나지 않는 흐름(다시 잡기 오류 줄)을 덮는다 | `test_viewer_csp.py` `StaticGuards` |
+| 정적 가드 | 템플릿과 JS 조각에 `style` 속성(`setAttribute('style', …)` 포함), `on…=` 처리기 속성, `javascript:` 주소가 없다. JS 속성(`el.style`, `el.onclick`)은 걸리지 않는다. 브라우저 시험이 지나지 않는 흐름(다시 잡기 오류 줄)을 덮는다 | `test_viewer_csp.py` `StaticGuards` |
 
 시험 코드가 일으키던 위반도 고쳤다. 고치지 않으면 보고 0건 가드가 실패하기 때문이다.
 
 | 시험 코드의 위반 | 고침 |
 | --- | --- |
 | Playwright `add_style_tag` 가 넣는 인라인 `<style>`(6곳) | `add_test_style()`: `CSSStyleSheet.replaceSync` 와 `adoptedStyleSheets`(CSSOM, CSP 밖) |
-| 대체 글꼴·깨진 색을 시험하려고 init 스크립트가 넣는 `<style>`(5곳), 늦게 오는 글꼴을 시험하는 `@font-face` `<style>`(1곳) | 같은 생성 스타일시트. `@font-face` 는 `FontFace` API(`document.fonts.add`)로. 대비 검사의 규칙 수집이 생성 스타일시트도 읽게 했다(`document.adoptedStyleSheets`) |
+| 대체 글꼴·깨진 색을 시험하려고 init 스크립트가 넣는 `<style>`(5곳), 늦게 오는 글꼴을 시험하는 `@font-face` `<style>`(1곳), 대비 검사의 고정 장치가 마크업과 함께 넣는 `<style>`(2곳) | 같은 생성 스타일시트. `@font-face` 는 `FontFace` API(`document.fonts.add`)로. 대비 검사의 규칙 수집이 생성 스타일시트도 읽게 했다(`document.adoptedStyleSheets`) |
 | 스크린숏을 `data:image/png` 그림으로 해독해 화소를 읽는 도우미(7곳, `img-src`) | `createImageBitmap(new Blob([…]))` 로 해독(fetch가 아니라 CSP 밖) |
 | 시험 글꼴 고정 장치가 뷰어 스크립트를 미루려고 바꿔 넣은 로더 스크립트 | 그 페이지의 정책에 로더의 해시를 더한다(`allow_page_scripts`). 로더가 다시 넣는 뷰어 스크립트는 원래 해시로 허용된다 |
 | 실제 서버로 띄우는 시험(PDF 내려받기)이 받는 강제 헤더 | 문서 요청(`/`)만 가로채 Report-Only로 바꾼다(`report_only_documents`). 내려받기는 그대로 서버로 간다 |
@@ -125,7 +125,7 @@ iPadOS의 모든 브라우저는 WebKit이다. 이 기계에서는 WebKit이 시
 
 ## 위험
 
-- **새 인라인이 막힌다.** 누군가 `style=` 속성이나 속성 붙은 `<script>` 를 더하면 운영에서 조용히 막힌다. 시작 거부(해시할 수 없는 꼴), 정적 가드, 브라우저 보고 0건 가드가 세 겹으로 잡는다. 규칙은 [viewer.md](../../handbook/viewer.md)에 적는다. 모양은 CSS 규칙이나 `el.style`(CSSOM)로 바꾼다.
+- **새 인라인이 막힌다.** 누군가 `style=` 속성이나 속성 붙은 `<script>` 를 더하면 운영에서 조용히 막힌다. 꾸러미 페이지 시험(해시할 수 없는 꼴), 정적 가드, 브라우저 보고 0건 가드가 세 겹으로 잡는다. 규칙은 [viewer.md](../../handbook/viewer.md)에 적는다. 모양은 CSS 규칙이나 `el.style`(CSSOM)로 바꾼다.
 - **브라우저 확장.** 페이지에 `<style>`·`<script>` 를 넣는 확장(다크 모드, 문법 검사)은 이 페이지에서 일부 막히고 콘솔에 보고가 남는다. 확장 자신의 격리 스크립트는 막히지 않는다. 뷰어의 동작에는 영향이 없다.
 - **`img-src https:` 는 넓다.** 주입된 마크업이 있으면 아무 `https` 그림으로 "열었다"는 신호를 낼 수 있다. Markdown 렌더러는 그림을 불러오지 않는다(ADR-0025 D6). 좁히려면 사진을 Limn이 대신 받아 주거나 공급자 호스트 목록을 둬야 하는데, 공급자마다 달라 지금은 하지 않는다.
 - **WebKit 미측정.** 위 §브라우저 지원.
@@ -133,7 +133,7 @@ iPadOS의 모든 브라우저는 WebKit이다. 이 기계에서는 WebKit이 시
 
 ## 되돌리기
 
-코드 되돌리기는 `limn/web/csp.py` 를 빼고 처리기·`Reply`·`ServedViewer` 의 `csp` 를 지우는 것이다. CSS로 옮긴 네 곳은 그대로 두어도 화면이 같다. 운영에서는 이전 태그로 업데이트한다. 상태 파일, 핀, API, 설정 키는 바뀌지 않는다.
+코드 되돌리기는 `limn/web/csp.py` 를 빼고 처리기·`Reply`·`viewer/routes.py` 의 정책 싣기를 지우는 것이다. CSS로 옮긴 네 곳은 그대로 두어도 화면이 같다. 운영에서는 이전 태그로 업데이트한다. 상태 파일, 핀, API, 설정 키는 바뀌지 않는다.
 
 ## 바꿀 곳
 
@@ -145,7 +145,7 @@ iPadOS의 모든 브라우저는 WebKit이다. 이 기계에서는 WebKit이 시
 | `src/limn/viewer/routes.py` | `GET /` 가 보내는 페이지로 정책을 구해 싣기(기억) |
 | `viewer/index.html`, `js/repick.js`, `js/rebuild.js`, `css/responsive.css`, `css/composer.css`, `css/components.css` | `style` 속성 넷을 CSS로 |
 | `tests/support/helpers_csp.py`(새), `helpers_browser.py`, `helpers_browser_font.py`, `conftest.py` | 헤더 넘기기(Report-Only), 보고 수집과 0건 가드, 시험 글꼴 로더 해시 |
-| 시험 코드 | `add_style_tag` 6곳, `<style>` 주입 6곳, `data:` 해독 7곳, 대비 검사의 규칙 수집, 실제 서버 시험의 문서 가로채기, `brand-stripe` 를 보던 조립 시험 |
+| 시험 코드 | `add_style_tag` 6곳, `<style>` 주입 8곳, `data:` 해독 7곳, 대비 검사의 규칙 수집, 실제 서버 시험의 문서 가로채기, `brand-stripe` 를 보던 조립 시험 |
 | `web/tests/test_csp.py`, `viewer/tests/test_viewer_csp.py`(새), `security/tests/test_security.py` | §시험 |
 | Handbook | [architecture.md](../../handbook/architecture.md) §보안(페이지 CSP와 그 불변식), [api.md](../../handbook/api.md)·[operations.md](../../handbook/operations.md)의 응답 헤더 문장, [viewer.md](../../handbook/viewer.md)(인라인을 더하는 규칙, `style` 속성 금지), [verification.md](../../handbook/verification.md)(Report-Only 가로채기와 보고 0건 가드, 강제 시험), `SECURITY.md` 클릭재킹 항목 |
 | `docs/adr/index.md` | ADR-0026 행 |
@@ -161,9 +161,11 @@ PoC `poc/viewer-csp` 에서 잰 값이다.
 | 표본(PDF 내려받기, 뷰어 브라우저, 비교 PDF 확대) 정책 강제, 고치기 전 | 166 실패·115 오류. Playwright 기다림이 `eval` 위반으로 멈춤(166건). `style-src-attr` 332건(페이지 로드마다 2건, `#brand-stripe`·`#trash-h`) |
 | 같은 표본, Report-Only 가로채기, 고친 뒤 | 117 통과. 뷰어 보고 0건, 시험 자신의 `eval` 보고만 |
 | 전체 브라우저 시험 1회차(`-m browser -n 8`, Chromium·Firefox, WebKit 건너뜀), 뷰어 넷을 고친 뒤 | 1,383 통과, 20 건너뜀(WebKit 19, 원래 있던 Firefox 1), 오류 36. 오류는 모두 보고 0건 가드였고 원인은 시험 코드였다(`data:` 해독 236건, `<style>` 주입 27건). 뷰어 쪽 보고 0건. 시험 자신의 `eval` 보고는 약 2만 건 |
-| 전체 브라우저 시험 2회차, 시험 코드를 고친 뒤 | {FULL_RESULT} |
-| 강제 시험 `test_viewer_csp.py` | Chromium·Firefox 4 통과, WebKit 2 건너뜀(이 기계) |
-| 정책 계산 | 1.6 MB 페이지에 약 20 ms(실행 시작에 한 번), 헤더 392바이트 |
+| 전체 브라우저 시험 2회차, 시험 코드를 고친 뒤 | 1,387 통과, 22 건너뜀(WebKit 21, Firefox 1), 실패 1, 오류 2. 오류 2는 대비 시험이 `<style>` 을 넣던 남은 두 곳이었다. 고친 뒤 그 파일과 목록 스크롤 파일이 8 통과, 보고 0건. 실패 1은 `test_viewer_list_scroll` 의 `loadPins()` 가 `false` 를 낸 것(겹친 읽기가 앞섬)으로 보고가 없었고, 단독으로 세 번 통과했다. CSP와 무관한 경쟁으로 보지만 기준 커밋에서 재현해 보지는 않았다. 뷰어 쪽 보고 0건, 시험 자신의 `eval` 보고 34,116건 |
+| 강제 시험 `test_viewer_csp.py` | Chromium·Firefox 4 통과, 정적 가드 2 통과, WebKit 2 건너뜀(이 기계) |
+| 변이 확인(따로 만든 임시 worktree) | `#brand-stripe` 의 `style` 속성을 되살리면 정적 가드, 강제 시험 4, 보고 0건 가드(PDF 내려받기 시험 4)가 실패한다. 테마 스크립트의 해시를 정책에서 빼면 헤더=바이트 시험 3, 강제 시험 4, 보고 0건 가드가 실패한다 |
+| 테일넷 PoC(강제) | Chromium·Firefox 자동화로 원고와 보기 전용 PDF를 PDF.js로 그리고 도움말을 열었다. 위반 0건, 페이지 오류 0건, 색 띠는 실행의 색(`#a21caf`) 그대로 |
+| 정책 계산 | 1.6 MB 페이지에 약 20 ms(실행마다 첫 `GET /` 에 한 번), 헤더 392바이트 |
 
 ## 이후 단계
 
