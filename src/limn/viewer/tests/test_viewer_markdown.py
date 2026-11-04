@@ -672,10 +672,11 @@ class Redrawing(MarkdownBase):
         page = self.open_md()
         page.evaluate("switchDoc('ms')")
         page.wait_for_function("DOC==='ms'&&!document.querySelector('#md')", timeout=10000)
+        down = [True]  # every source read fails until reads answer again; the switch back may ask more than once
         failed = []
 
         def source(route):
-            if urlparse(route.request.url).path == "/api/source" and not failed:
+            if urlparse(route.request.url).path == "/api/source" and down[0]:
                 failed.append(route.request.url)
                 return route.abort()
             return self.route(route)
@@ -683,11 +684,16 @@ class Redrawing(MarkdownBase):
         page.route("**/*", source)
         page.evaluate("switchDoc('nt')")
         page.wait_for_function("!!document.querySelector('#md.md-note')", timeout=10000)
+        settle(page)
         self.assertEqual(page.evaluate("document.querySelector('#md').textContent"), "원문을 읽지 못했습니다")
-        self.assertEqual(len(failed), 1)
+        self.assertGreaterEqual(len(failed), 1)
+        down[0] = False
         for _ in range(3):
             page.evaluate("pollLightOnce()")
-        page.wait_for_function(DRAWN, timeout=8000)
+        # DRAWN alone holds for the notice too (it is #md.md-note): wait for the document itself.
+        page.wait_for_function(
+            DRAWN + "&&!document.querySelector('#md.md-note')&&!!document.querySelector('#md pre')", timeout=8000
+        )
 
     def test_a_redraw_waits_while_a_field_in_the_document_is_composing(self):
         """A redraw would replace every node of #doc: while a field in it composes (here a field put there, as any field
