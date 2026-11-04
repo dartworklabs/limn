@@ -50,6 +50,12 @@ class DocumentFacts(Protocol):
         ...
 
     @property
+    def renders_in_browser(self) -> bool:
+        """The viewer draws the document from its source (limn.runtime.documents.Doc.renders_in_browser): it has no
+        pages, so a line pin on it keeps no page, frac or pdf_build (docs/adr/0025-html-document-surface.md D2)."""
+        ...
+
+    @property
     def pdf(self) -> Path:
         """The PDF a region pin records: a view-only document's own PDF (its main file), or the PDF a figure
         document's on-screen build map names."""

@@ -53,12 +53,14 @@ class Facts:
         pages: dict | None = None,
         current: str = "pages",
         has_element_map: bool = False,
+        renders_in_browser: bool = False,
     ):
         """root is the tree; view_only says the document's pins are regions (DocumentFacts.view_only); pages maps a
         build name to its page sizes; current names the build on screen; has_element_map says the document is a
-        figure (DocumentFacts.has_element_map)."""
+        figure (DocumentFacts.has_element_map); renders_in_browser says it has no pages (DocumentFacts.renders_in_browser)."""
         self.key, self.view_only, self.root, self.state = "rev" if view_only else "main", view_only, root, NO_STATE
         self.has_element_map = has_element_map
+        self.renders_in_browser = renders_in_browser
         self.pdf = root / "review.pdf"
         self._pages = pages if pages is not None else {"pages": [(600.0, 800.0), (600.0, 800.0)]}
         self._current = current

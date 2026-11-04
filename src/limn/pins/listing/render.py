@@ -157,6 +157,12 @@ def region_text_of(r: Record) -> str:
     )
 
 
+def page_col(r: Record) -> str:
+    """The page column: the pin's page, or `—` for a line pin without one - a Markdown document's, which has no pages
+    (docs/adr/0025-html-document-surface.md D2). A region pin always has its page."""
+    return md_cell(r["page"]) if "page" in r else "—"
+
+
 def location_col(r: Record, facts: PinFacts) -> str:
     """The location column: the file (facts.location - relative to --manuscript, so for a root file the basename, as
     before) and the line range. A view-only PDF's pin has no line, so it's "쪽 N, 영역 ..." instead (the PDF path is in
@@ -691,7 +697,7 @@ def pins_md_text(page: PinsMdInput) -> str:
         if q:
             note = q + note
         rows_by_doc.setdefault(f.doc_key, []).append(
-            "| %s | %s | %s | %s | %s |" % (idcol, md_cell(r.get("page", 0)), location_col(r, f), range_label(r), note)
+            "| %s | %s | %s | %s | %s |" % (idcol, page_col(r), location_col(r, f), range_label(r), note)
         )
 
     docs = page.docs

@@ -372,8 +372,8 @@ def add_pin(d: dict, actor: dict, mod=None, doc=None):
 def edit_pin(pid: int, d: dict, actor: dict, mod=None):
     """What POST /api/pins/{pid}/edit does below its HTTP answer: parse the body, place its loc against the pin's own
     document - or leave it unread for a verdict pin (edit_scope) - then edit, telling the service whether that
-    document is a LaTeX one, as the HTTP entry does. Returns the edit's outcome, or the InputRejected of the first
-    refused field."""
+    document is a LaTeX one and whether it has pages, as the HTTP entry does. Returns the edit's outcome, or the
+    InputRejected of the first refused field."""
     mod = (mod or ps).APP
     body = editing_input.parse_edit(d, mod.editing_requests.assignee_people(d))
     if isinstance(body, InputRejected):
@@ -390,6 +390,7 @@ def edit_pin(pid: int, d: dict, actor: dict, mod=None):
         post_authority(mod.pin_editing.context().store, actor, "edit", pid),
         target.region,
         target.document.builds_from_source,
+        pages=not target.document.renders_in_browser,
     )
 
 

@@ -172,7 +172,14 @@ def _read_verdict(
 
 
 def edit_pin(
-    ctx: PinContext, pid: int, request: EditRequest, actor: PostAuthority, region: bool = False, latex: bool = False
+    ctx: PinContext,
+    pid: int,
+    request: EditRequest,
+    actor: PostAuthority,
+    region: bool = False,
+    latex: bool = False,
+    *,
+    pages: bool = True,
 ) -> OpenPin | ReviewPin | DonePin | EditRefusal | PinNotFound:
     """Edits pin pid's note, range, location and note-level fields in place; id/at/done never change.
 
@@ -187,7 +194,9 @@ def edit_pin(
     the file's kind, comment_marker), the note's @-tags, edited_at/by and rev (evolve_edit); mention/assigned notices
     are emitted after the write. An edit that sets a suggested edit also has the pin's file read under the lock - the
     file the pin will point at - so its base is compared with the lines it replaces after this edit; latex says the
-    pin's document is a LaTeX one (Doc.builds_from_source), the only kind whose line pins take a suggestion.
+    pin's document is a LaTeX one (Doc.builds_from_source), the only kind whose line pins take a suggestion. pages
+    says the pin's document has pages (not Doc.renders_in_browser): on one without, the edit removes every page field
+    the record carries (limn.pins.editing.rules.evolve_edit).
     """
     require_authority(actor, ctx.authority_scope, "edit", pid)
     clock = ctx.hm() if request.note_append is not None else ""
@@ -206,7 +215,7 @@ def edit_pin(
         source = tex_lines(where.source) if where is not None and reads else None
         count = len(source) if source is not None and request.sets_lines() else None
         facts = SuggestFacts(latex, None if source is None else tuple(source)) if request.sets_suggestion() else None
-        event = decide_edit(pin, request, typed_actor(actor), ctx.now(), clock, count, NOTE_MAX, facts)
+        event = decide_edit(pin, request, typed_actor(actor), ctx.now(), clock, count, NOTE_MAX, facts, pages=pages)
         if not isinstance(event, PinEdited):
             return event, False
         span = event.span()
@@ -309,9 +318,17 @@ class PinEditing:
         return add_pin(ctx, D, request, actor)
 
     def edit_pin(
-        self, pid: int, request: EditRequest, actor: PostAuthority, region: bool = False, latex: bool = False
+        self,
+        pid: int,
+        request: EditRequest,
+        actor: PostAuthority,
+        region: bool = False,
+        latex: bool = False,
+        *,
+        pages: bool = True,
     ) -> OpenPin | ReviewPin | DonePin | EditRefusal | PinNotFound:
-        """Edit one pin under the store lock and emit accepted notices; latex: the pin's document is a LaTeX one."""
+        """Edit one pin under the store lock and emit accepted notices; latex: the pin's document is a LaTeX one;
+        pages: it has pages (not one the browser draws)."""
         ctx = self.context()
         require_authority(actor, ctx.authority_scope, "edit", pid)
-        return edit_pin(ctx, pid, request, actor, region, latex)
+        return edit_pin(ctx, pid, request, actor, region, latex, pages=pages)

@@ -14,6 +14,7 @@ from limn.pins.editing.fields import (
 from limn.pins.editing.location import parse_loc, parse_region
 from limn.pins.editing.rules import (
     NULLABLE_TARGETS,
+    PAGE_FIELDS,
     AddRequest,
     EditRequest,
     LinePlace,
@@ -76,7 +77,7 @@ def parse_add(d: Json, known: Collection[str], facts: DocumentFacts) -> AddReque
         line = parse_loc(named, facts)
         if isinstance(line, InputRejected):
             return line
-        place = LinePlace(line.to_record(), frozenset(key for key, value in named.items() if value is not None))
+        place = LinePlace(line.to_record(), _named(named, facts), pages=not facts.renders_in_browser)
     note = parse_note(d.get("note"))
     if isinstance(note, InputRejected):
         return note
@@ -252,14 +253,23 @@ def parse_edit_place(
         return line
     return LinePlace(
         replace(line, pdf_build=_placed_build(loc, line.pdf_build, facts)).to_record(),
-        frozenset(key for key, value in loc.items() if value is not None),
+        _named(loc, facts),
+        pages=not facts.renders_in_browser,
     )
+
+
+def _named(sent: Json, facts: DocumentFacts) -> frozenset[str]:
+    """The fields a location body named - sent with a value - as its LinePlace records them: on a document the browser
+    draws, without the page fields parse_loc dropped, so no edit reads them as re-placed."""
+    named = frozenset(key for key, value in sent.items() if value is not None)
+    return named - frozenset(PAGE_FIELDS) if facts.renders_in_browser else named
 
 
 def _placed_build(loc: Json, sent: str | None, facts: DocumentFacts) -> str | None:
     """The pdf_build an edit's re-placement records: the one sent, else the build on screen, when loc re-places frac
-    (its coordinates belong to that build); None - the pin's own is kept - when loc sends no frac."""
-    if loc.get("frac") is None:
+    (its coordinates belong to that build); None - the pin's own is kept - when loc sends no frac. None too on a
+    document the browser draws: it has no builds, and parse_loc dropped the frac."""
+    if loc.get("frac") is None or facts.renders_in_browser:
         return None
     current = facts.current_build()  # read even when one was sent, as it always has been
     return sent if sent is not None else current

@@ -19,7 +19,18 @@ from limn.pins.editing.values import (
 )
 from limn.pins.element import element_of
 from limn.pins.location.mapping import VIAS
-from limn.pins.model import Actor, DonePin, KindReq, LineSpan, OpenPin, Pin, Record, ReviewPin, is_kind_req
+from limn.pins.model import (
+    Actor,
+    DonePin,
+    KindReq,
+    LineSpan,
+    OpenPin,
+    Pin,
+    Record,
+    ReviewPin,
+    is_kind_req,
+    is_region_pin,
+)
 from limn.pins.suggestion import Suggestion, lines_text
 from limn.pins.thread import PinT, author, rev_after, signature, thread_message, with_entry
 from limn.pins.verdict import verdict_of
@@ -48,6 +59,11 @@ LOC_FIELDS = (
 
 # A region without a quote or an el drops the previous one.
 REGION_PLACE_FIELDS = ("page", "frac", "quote", "pdf_build", "el")
+
+# Where on a page a line pin was picked, and on which build: what a line pin of a document without pages - one the
+# browser draws from its source - never keeps (docs/adr/0025-html-document-surface.md D2). frac_build is the legacy
+# name of pdf_build.
+PAGE_FIELDS = ("page", "frac", "pdf_build", "frac_build")
 
 
 @dataclass(frozen=True)
@@ -120,8 +136,10 @@ class LinePlace:
 
     named is the set of fields the request itself sent. An edit keeps the pin's page and frac when the request did
     not name them, and forgets the legacy frac_build only when it re-placed frac. A figure pin's el
-    (limn.pins.element) is checked and carried as given. The record snapshot cannot be changed through the caller's
-    dict or the fields property after construction.
+    (limn.pins.element) is checked and carried as given. pages says the pin's document has pages: a place on one
+    without (the browser draws it from its source) needs no page and may hold none of page, frac and pdf_build
+    (PAGE_FIELDS). The record snapshot cannot be changed through the caller's dict or the fields property after
+    construction.
     """
 
     _items: tuple[tuple[str, object], ...]
@@ -129,16 +147,21 @@ class LinePlace:
     file: str
     lo: int
     hi: int
+    pages: bool
 
-    def __init__(self, fields: Record, named: frozenset[str]) -> None:
+    def __init__(self, fields: Record, named: frozenset[str], pages: bool = True) -> None:
         """Keep the field order and reject a place that would fail the service's required field reads (a via outside
-        mapping.VIAS or a scope outside edit.SCOPES included)."""
+        mapping.VIAS or a scope outside edit.SCOPES included), or a page field on a document without pages."""
         if not isinstance(fields, dict):
             raise ValueError("line place fields must be a record")
         if not fields.keys() <= set(LOC_FIELDS + ("pdf_build",)):
             raise ValueError("line place contains fields outside its location")
         if "frac" in named and "frac" not in fields:
             raise ValueError("a named frac requires replacement coordinates")
+        if not isinstance(pages, bool):
+            raise ValueError("line place pages must be true or false")
+        if not pages and fields.keys() & set(PAGE_FIELDS):
+            raise ValueError("a line place on a document without pages has no page, frac or pdf_build")
         file, name, lo, hi, page = (fields.get(key) for key in ("file", "name", "lo", "hi", "page"))
         if not (
             isinstance(file, str)
@@ -148,8 +171,7 @@ class LinePlace:
             and is_int(lo)
             and is_int(hi)
             and 1 <= lo <= hi
-            and is_int(page)
-            and page >= 1
+            and (not pages or (is_int(page) and page >= 1))
         ):
             raise ValueError("line place requires an absolute file, name, ordered positive lines and page")
         for key in ("raw_lo", "raw_hi"):
@@ -182,6 +204,7 @@ class LinePlace:
         object.__setattr__(self, "file", file)
         object.__setattr__(self, "lo", lo)
         object.__setattr__(self, "hi", hi)
+        object.__setattr__(self, "pages", pages)
 
     @property
     def fields(self) -> Record:
@@ -539,7 +562,8 @@ class PinEdited:
     note is None when the edit leaves the note alone (a note_append arrives here merged). lines is the lo/hi an edit
     without place writes; range_changed says whether the pin's lines moved (always for a line re-placement), which is
     when the shell re-reads the file for a new anchor. suggest is the suggestion it sets (its base checked against the
-    file) or removes, None when it leaves the stored one as it is.
+    file) or removes, None when it leaves the stored one as it is. pages says the pin's document has pages: on one
+    without, the edit removes every page field the record carries (PAGE_FIELDS), whatever else it changes.
     """
 
     by: Actor
@@ -553,6 +577,7 @@ class PinEdited:
     kind_req: KindReq | None
     assignee: str | None
     suggest: SuggestChange | None = None
+    pages: bool = True
 
     def span(self) -> tuple[int, int] | None:
         """The lines to re-anchor: the pin's new range when it changed, else None."""
@@ -598,6 +623,8 @@ def decide_edit(
     line_count: int | None,
     note_max: int,
     suggest_facts: SuggestFacts | None = None,
+    *,
+    pages: bool = True,
 ) -> PinEdited | EditRefusal:
     """What an edit does to this pin, or why it is refused - checked in this order, before anything changes.
 
@@ -614,7 +641,12 @@ def decide_edit(
     shell reads them only then; without them this raises, a caller's defect): it is checked on the range the pin will
     span after this edit (check_suggestion), refused when that file is outside the tree, and its base must be what
     those lines read now (EditBaseChanged otherwise). Removing a suggestion is always accepted on an open pin.
+
+    pages says the pin's document has pages; the accepted edit carries it (PinEdited.pages). A line re-placement made
+    for the other kind of document (LinePlace.pages differs) is a caller's defect and raises.
     """
+    if isinstance(request.place, LinePlace) and request.place.pages != pages:
+        raise ValueError("a line re-placement is decided on the document it was placed for")
     verdict_pin_after = verdict_of(pin.record) is not None or request.verdict_sent
     if verdict_pin_after and request.moves_verdict():
         return VerdictFixed()
@@ -667,6 +699,7 @@ def decide_edit(
         request.kind_req,
         request.assignee,
         request.suggest,
+        pages,
     )
 
 
@@ -740,6 +773,10 @@ def evolve_edit(
     untouched), a changed assignee with an ev=assign thread entry naming them (assignee_name is the person's display
     name), the suggestion the edit sets (`suggest`, replacing a stored one in its place) or removes, edited_at/by, and
     rev. No re-placement touches `suggest`: a range edit without one keeps the stored suggestion, byte for byte.
+
+    On a document without pages (event.pages false) a line pin keeps no page field: every edit - a re-placement or
+    not - removes page, frac, pdf_build and frac_build (PAGE_FIELDS) last, the unnamed page and frac a re-placement
+    kept included (docs/adr/0025-html-document-surface.md D2). A region pin keeps its region.
     """
     record = dict(pin.record)
     place = event.place
@@ -775,6 +812,9 @@ def evolve_edit(
             record["scope"] = event.scope
         if event.kind is not None:
             record["kind"] = event.kind
+    if not event.pages and not is_region_pin(record):
+        for key in PAGE_FIELDS:
+            record.pop(key, None)
     if where is not None:
         record["file"], record["file_rel"] = where.path, where.rel
     if anchoring is not None:
@@ -896,7 +936,8 @@ def new_line_pin(
 
     The location comes first (kind defaults to "lines"), then note, at, id (pid, allocated by the shell), author (the
     request's actor as given), kind_req, the note's @-tags, assignee, the anchor and synced_at the shell captured,
-    pdf_build (the one the viewer sent, else the current build), doc, rev 0, where the file is now (ADR-0006), the
+    pdf_build (the one the viewer sent, else the current build; none on a place without pages, LinePlace.pages), doc,
+    rev 0, where the file is now (ADR-0006), the
     request's suggestion when it has one - the shell has accepted it (decide_new_suggestion) by then - and last the
     verdict decide_new_verdict accepted, when there is one (never with a suggestion).
     """
@@ -910,7 +951,8 @@ def new_line_pin(
         record["assignee"] = request.assignee
     record["anchor"] = anchoring.anchor
     record["synced_at"] = anchoring.synced_at
-    record.setdefault("pdf_build", pdf_build)
+    if place.pages:
+        record.setdefault("pdf_build", pdf_build)
     record["doc"] = doc
     record["rev"] = 0
     if where is not None:
