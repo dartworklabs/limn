@@ -8,6 +8,7 @@
 > - 자동 게이트: §1 파이썬 테스트, §2 인스턴스 관리자 테스트, §3 설치 스모크, §8 정적 검사, §9 타입 검사, §10 기능 경계 검사
 > - 불안정한 테스트를 막는 규칙(상태를 기다리고, 시계를 얼린다): §브라우저 테스트의 기다림, 생긴 뒤의 처리: §불안정한 테스트
 > - 글자 너비에서 정해지는 검사의 전제(어떤 Chromium이든 소수 전진폭): §브라우저 테스트의 글자 너비
+> - 브라우저 시험이 페이지 정책(CSP)을 지키는지와 강제 시험: §브라우저 테스트의 페이지 정책
 > - 사람이 확인하는 게이트: §4 에이전트 계약 호환, §5 화면 실측
 > - 아직 없는 게이트: §6 정량 게이트가 없는 영역
 > - 문서 출판: §7 Handbook 출판
@@ -59,7 +60,7 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 | 적용 조건 | 파이썬 코드, 뷰어 파일, 에이전트 계약, 테스트를 바꿀 때. PR 전과 CI에서 항상 돈다 |
 | 실행 | `uv run pytest -q -rs` (기본 4개 worker). 빠른 일반 검사: `uv run pytest -q -rs -m "not browser and not tex"`. 병렬 옵션의 정본은 `pyproject.toml`의 `addopts` |
 | 합격 기준 | 실패나 에러가 0건이어야 한다. 수집된 테스트가 0건인 실행(pytest 종료 코드 5)은 통과가 아니라 실패다. 건너뛴 테스트(`s`)가 있으면 그 이유가 합당해야 한다(예: TeX Live가 없는 로컬 환경에서 TeX 테스트 스킵). CI는 도구 부재를 건너뜀이 아니라 실패로 바꾼다. 브라우저·TeX 작업은 `LIMN_TEST_REQUIRE_BROWSER=1`·`LIMN_TEST_REQUIRE_TEX=1`, 모든 테스트 작업은 `LIMN_TEST_REQUIRE_NODE=1`을 둔다 |
-| 보장 범위 | 단위와 통합 수준의 동작 회귀를 막는다. 브라우저 표식의 테스트는 지정된 Chromium 동작·레이아웃과 Firefox·WebKit의 핵심 핀 생성·편집·덧붙임·되돌리기 흐름, 판정 패널과 목차 따라가기의 핵심 흐름(§판정 패널과 목차의 엔진 검사), 세 엔진의 검색 안내 안쪽 간격(§검색 안내의 안쪽 간격)을 확인한다. 실제 iOS 기기, 모든 엔진의 전체 화면과 실제 tailnet 환경은 보장하지 않는다(§5, §6) |
+| 보장 범위 | 단위와 통합 수준의 동작 회귀를 막는다. 브라우저 표식의 테스트는 지정된 Chromium 동작·레이아웃과 Firefox·WebKit의 핵심 핀 생성·편집·덧붙임·되돌리기 흐름, 판정 패널과 목차 따라가기의 핵심 흐름(§판정 패널과 목차의 엔진 검사), 세 엔진의 검색 안내 안쪽 간격(§검색 안내의 안쪽 간격), 세 엔진에서 강제한 페이지 정책 아래의 문서 그리기와 모든 브라우저 시험의 정책 위반 0건(§브라우저 테스트의 페이지 정책)을 확인한다. 실제 iOS 기기, 모든 엔진의 전체 화면과 실제 tailnet 환경은 보장하지 않는다(§5, §6) |
 
 ### 선택형 연결 입장과 실패 종료
 
@@ -86,6 +87,18 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 한 테스트가 여러 조건을 차례로 돌며 프레임이나 알림 창을 오래 기다리면, 그 흐름들을 한 브라우저 안의 별도 컨텍스트 페이지에서 함께 돌릴 수 있다. 판정 줄 폭 sweep(`test_viewer_verdicts.py`의 `LinePolish`, `SWEEP_START`)과 상태 줄 hold(`test_viewer_notices_seen.py`의 `SeenFlows`)가 그렇게 돈다. 페이지들은 같은 프로세스의 서버 하나를 함께 쓰므로 흐름끼리 독립이어야 한다. 흐름이 서버에 쓰지 않거나(선택·취소·상태 줄 메시지처럼 페이지 안에서 끝나는 일), 쓰는 흐름이 있으면 다른 페이지의 light poll을 먼저 멈춘다(`NO_POLL`). 차례로 돌 때 각 페이지는 다음 흐름이 쓰기 전에 닫혔으므로, 그 쓰기를 읽어 들이면 다른 조건이 된다. 격리는 세 가지를 전제로 한다. 페이지마다 컨텍스트가 달라 `sessionStorage`·쿠키를 나누지 않는다. Playwright의 Chromium은 모든 페이지를 보이고 초점을 가진 것으로 다루므로, 페이지마다 `requestAnimationFrame`이 제 속도로 돌고 한 페이지의 입력이 다른 페이지에 `blur`를 보내지 않는다. 포인터도 페이지마다 따로여서(`page.mouse`) `:hover`와 그것이 거는 hold가 페이지별로 유지된다. 기다림은 페이지마다 제 시작점에서 잰 원래 기한을 지킨다. 한 페이지를 먼저 기다리는 동안 흐른 시간이 다른 페이지의 기한에 더해지면 그 검사가 원래보다 느슨해지므로, 남은 시간을 그 페이지의 시작점에서 계산한다(`SeenFlows.gone_within`).
 
 키보드 입력은 검사 의도를 플랫폼과 맞춘다. 명시적인 비 Apple `Ctrl+F` 계약은 플랫폼을 fixture에 선언하고, 일반 흐름은 실제 호스트의 검색 키를 보낸다. 텍스트 시작으로 이동하는 입력도 macOS의 `Command+↑`와 다른 호스트의 `Ctrl+Home`을 구분한다. 플랫폼을 선언한 검사는 키·물리 코드·IME 계약을, 실제 플랫폼 검사는 native 입력의 동작을 확인하며 서로를 대신하지 않는다. 커서 이동 뒤의 삽입·삭제 결과와 기존 잉크 허용 오차는 그대로 검증한다.
+
+### 브라우저 테스트의 페이지 정책
+
+모든 브라우저 시험은 서버가 보낸 페이지 정책([architecture.md](architecture.md) 불변식 9) 아래에서 돈다. 다만 강제가 아니라 **Report-Only**로 받는다. Playwright의 `wait_for_function()` 은 조건 글을 페이지 안에서 `eval` 로 돌리므로(Chromium·Firefox 모두), `'unsafe-eval'` 없는 정책을 강제하면 모든 시험이 첫 기다림에서 멈춘다. `bypass_csp` 는 정책을 통째로 꺼서 잴 수 없다.
+
+- **헤더를 넘긴다.** 가로채기 경로(`helpers_browser.BrowserBase.forward`)는 서버 응답의 `Content-Security-Policy` 를 `Content-Security-Policy-Report-Only` 로 바꿔 넘긴다(`helpers_csp.report_only`). 바꾸는 것은 헤더 이름과, 보고에 인라인 글 앞부분을 싣는 `'report-sample'` 뿐이다. Report-Only도 강제와 같은 지시어로 같은 대상을 보고하므로, 보고 0건은 그 흐름에서 강제해도 막히는 것이 0건이라는 뜻이다. 실제 서버로 띄우는 시험(PDF 내려받기)은 문서 요청(`/`)만 가로채 같은 변환을 한다(`report_only_documents`).
+- **보고가 하나라도 있으면 실패한다.** [`helpers_csp.py`](../../tests/support/helpers_csp.py)가 시험 브라우저의 모든 컨텍스트에 `securitypolicyviolation` 을 듣는 스크립트를 페이지 스크립트보다 먼저 넣는다. 저장소 뿌리 `conftest.py` 가 싣는 pytest 플러그인 `no_csp_violation` 이 `browser` 표식의 시험마다 보고를 모아, 하나라도 있으면 그 시험을 실패로 한다. 빼는 것은 둘이다. 시험 자신의 `eval`(주소 없는 코드나 Firefox의 `debugger eval code` 에서 막힌 `eval`. 뷰어의 코드는 늘 주소가 있어 빠지지 않는다)과, 시험이 일부러 일으킨 위반(`window.__limnCspExpected`)이다. `LIMN_CSP_LOG=<파일>` 을 주면 모든 보고(시험의 `eval` 포함)를 시험 id와 함께 JSON 줄로 남겨, 전체 실행 한 번으로 위반을 모두 모은다.
+- **시험 코드도 정책을 어기지 않는다.** 시험의 스타일은 인라인 `<style>`(Playwright `add_style_tag`) 대신 생성 스타일시트(`add_test_style`: `CSSStyleSheet.replaceSync` 와 `adoptedStyleSheets`)로, 늦게 오는 글꼴은 `FontFace` API로 넣는다. 스크린숏 화소는 `data:` 그림이 아니라 `createImageBitmap(new Blob(…))` 로 푼다. 페이지를 바꿔 쓰는 고정 장치(시험 글꼴 로더)는 자기 스크립트의 해시를 그 페이지의 정책에 더한다(`allow_page_scripts`).
+- **강제는 따로 시험한다.** [`test_viewer_csp.py`](../../src/limn/viewer/tests/test_viewer_csp.py)는 실제 HTTP 서버가 보낸 헤더 그대로 띄우고, `eval` 이 필요 없는 기다림(선택자 엔진, 페이지가 푸는 Promise)만 쓴다. 원고·그림 문서·보기 전용 PDF가 PDF.js 모듈과 worker로 그려지고 도움말이 열리며 보고가 0건인지, 페이지에 없던 스크립트 요소와 `onclick` 속성이 돌지 않고 각각 보고되는지 본다. Chromium·Firefox·WebKit 클래스가 있고, Linux CI에서는 Chromium 클래스가 브라우저 부분에서, Firefox·WebKit 클래스가 엔진 작업에서 돈다. 같은 파일의 `StaticGuards` 는 브라우저 없이 템플릿·JS 조각·거절 페이지의 마크업을 본다([viewer.md](viewer.md) §페이지 정책).
+- **헤더와 보낸 바이트가 맞는다.** [`web/tests/test_csp.py`](../../src/limn/web/tests/test_csp.py)는 `GET /` 와 거절 페이지의 헤더 해시를 받은 몸의 인라인 글 해시와 견준다. 오라클은 `limn.web.csp` 와 따로 `html.parser`·`hashlib` 으로 몸을 읽는다. 언어와 색이 다른 두 실행의 정책이 다르고 각자 자기 바이트와 맞는지(템플릿에서 재면 실패한다), 꾸러미 페이지가 `</script><!--` 같은 이름을 받아도 브라우저와 같게 읽히는지, 다른 응답이 `frame-ancestors 'none'` 하나인지도 본다. 모든 응답의 클릭재킹 헤더는 `security/tests/test_security.py` 의 `FramingHeaders` 가 본다.
+
+보고 0건 가드는 브라우저 시험이 지나는 흐름에서의 증거다. 모든 브라우저 판, 확장, 시험이 지나지 않는 흐름에서 막히는 것이 없다는 보장은 아니다. 정적 검사와 꾸러미 페이지 시험이 그 틈의 일부를 덮는다.
 
 ### 고정된 테스트용 한글 글꼴
 

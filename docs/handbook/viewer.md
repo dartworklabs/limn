@@ -50,7 +50,7 @@
 
 화면 규칙은 [`test_viewer.py`](../../src/limn/viewer/tests/test_viewer.py)의 구조·순수 판단 검사와 실제 Chromium 레이아웃 검사로 확인한다. [`test_viewer_files.py`](../../src/limn/viewer/tests/test_viewer_files.py)는 조각 목록·조립 결과와 내보낸 스크립트의 `node --check`를, [`test_viewer_source.py`](../../src/limn/viewer/tests/test_viewer_source.py)는 중복·죽은 함수와 주석에 삼켜진 코드를 본다. 브라우저·node 실행 조건과 합격 범위는 [verification.md](verification.md) §1이 정한다. 번역 대응과 영어 화면은 [`test_i18n.py`](../../src/limn/viewer/tests/test_i18n.py)가 확인한다.
 
-**리터럴 예외를 바꾸면 두 곳을 고친다.** 토큰 밖에 리터럴을 허용하는 자리는 §리터럴 예외(허용 목록)의 표와 `src/limn/viewer/tests/test_viewer.py`의 허용 목록 상수(`TOKEN_SELECTORS`·`INLINE_STYLE_OK`·`RADIUS_OK`)에 함께 있다. 간격·컨트롤 높이의 리터럴은 [`raw_css_allowlist.json`](../../src/limn/viewer/tests/raw_css_allowlist.json)이 자리마다 이유와 함께 적는다. 한쪽만 고치면 문서와 가드가 어긋난다. JS가 재서 넣는 CSS 변수(`--kb`·`--side-w` 등)는 따로 적지 않는다. 가드가 코드의 `setProperty('--…')` 호출에서 목록을 뽑는다.
+**리터럴 예외를 바꾸면 두 곳을 고친다.** 토큰 밖에 리터럴을 허용하는 자리는 §리터럴 예외(허용 목록)의 표와 `src/limn/viewer/tests/test_viewer.py`의 허용 목록 상수(`TOKEN_SELECTORS`·`RADIUS_OK`)에 함께 있다. 간격·컨트롤 높이의 리터럴은 [`raw_css_allowlist.json`](../../src/limn/viewer/tests/raw_css_allowlist.json)이 자리마다 이유와 함께 적는다. 한쪽만 고치면 문서와 가드가 어긋난다. JS가 재서 넣는 CSS 변수(`--kb`·`--side-w` 등)는 따로 적지 않는다. 가드가 코드의 `setProperty('--…')` 호출에서 목록을 뽑는다.
 
 ### 닫힌 값 표
 
@@ -102,6 +102,22 @@
 - 긴 템플릿은 줄 끝의 `\`(템플릿 줄 이음)로 소스 줄만 나눈다. 그냥 줄을 바꾸면 그 줄바꿈이 마크업 안의 공백 글자가 된다.
 
 [`test_viewer_markup.py`](../../src/limn/viewer/tests/test_viewer_markup.py)가 이 규칙을 토큰으로 지킨다. `setHtml()` 밖의 `innerHTML`·`outerHTML` 쓰기와 `insertAdjacentHTML` 같은 HTML 싱크, `markup.js` 밖의 `esc()`·`new Html`, 태그가 아닌 `html(...)` 호출, `+`로 이은 `` html`…` ``은 실패한다. `esc()`를 `markup.js`만 쓰게 하는 이유는 손으로 이스케이프해 마크업 문자열을 짜는 길을 아예 닫기 위해서다. 같은 테스트가 `` html`…` ``의 이스케이프를 node로 확인한다. 화면을 비우는 일은 `el.replaceChildren()`으로 한다.
+
+### 페이지 정책
+
+뷰어 페이지는 페이지 자신의 인라인 스크립트·스타일과 같은 출처의 파일만 허용하는 Content-Security-Policy 아래에서 돈다. 정책의 값과 이유는 [architecture.md](architecture.md) 불변식 9에 있다. 뷰어 코드는 그래서 다음을 지킨다.
+
+- **`style` 속성을 쓰지 않는다.** 템플릿, `` html`…` ``, `setAttribute('style', …)` 모두다. 모양은 CSS 규칙으로 주고, 실행 중에 정하는 값(폭, 위치, 재서 넣는 변수)은 CSSOM(`el.style.x = …`, `style.setProperty('--…')`)으로 넣는다. CSSOM은 정책이 다루지 않는다. 인스턴스 색도 속성이 아니라 `tokens.css` 의 `--brand` 로 받는다(§리터럴 예외(허용 목록)).
+- **인라인 이벤트 처리기(`onclick=` 등)와 `javascript:` 주소를 쓰지 않는다.** 클릭은 `data-act` 로 나눈다(`js/events.js`).
+- **JS 조각은 `<script>`·`<style>` 요소를 만들지 않는다.** 마크업으로도 `createElement` 로도 마찬가지다. 나중에 만든 스크립트 요소는 막히고 스타일 요소는 적용되지 않는다. 모듈은 같은 출처에서 `import()` 한다(PDF.js).
+- **`eval`·`new Function`·글자로 준 타이머·WebAssembly를 쓰지 않는다.** PDF.js는 `isEvalSupported:false`, `useWasm:false` 로 연다.
+- **다른 출처에서 받는 것은 사람 사진(`https:` 그림)뿐이다.** 글꼴·스크립트·연결·worker는 같은 출처다. worker는 같은 출처의 번들 파일로 띄우고 `blob:` worker는 쓰지 않는다. worker 안은 페이지 정책이 아니라 worker 응답의 정책을 따르기 때문이다.
+
+템플릿(`index.html`)의 인라인 `<script>`·`<style>` 은 속성 없는 꼴로만 쓴다. 해시는 사람이 적지 않는다. `limn/web/csp.py` 의 `page_policy` 가 `GET /` 가 보내는 바로 그 글에서 요소마다 SHA-256을 재어 `script-src`·`style-src` 에 싣는다. 실행이 채우는 자리표시(머리 스크립트의 `__UI_LANG__`, `tokens.css` 의 `__ACCENT__`)를 채운 뒤이고, 줄바꿈은 브라우저의 토크나이저처럼 LF로 바꾼 뒤다. 그래서 인라인 글을 고치거나 새 인라인 요소를 더해도 정책은 저절로 맞는다. 속성 붙은 `<script>`·`<style>`, 글 안의 `</script`·`</style`, `<!--` 는 브라우저가 다르게 읽을 수 있어 해시하지 않고 거부한다. 꾸러미 페이지 시험([`web/tests/test_csp.py`](../../src/limn/web/tests/test_csp.py)의 `PackagedPagePolicy`)이 이를 잡는다.
+
+이 규칙은 세 겹으로 지킨다. [`test_viewer_csp.py`](../../src/limn/viewer/tests/test_viewer_csp.py)의 `StaticGuards` 는 템플릿·JS 조각·거절 페이지(`web/errors.py`)에서 `style` 속성, 인라인 처리기, `javascript:` 주소를, JS 조각에서 `<script>`·`<style>` 마크업과 `createElement('script'|'style')` 을 찾는다. JS 속성(`el.style`, `el.onclick`)은 걸리지 않는다. 브라우저 시험이 지나지 않는 흐름(위치 다시 잡기의 오류 줄이 그랬다)을 이 검사가 덮는다. 모든 브라우저 시험은 정책 위반이 하나라도 보고되면 실패하고, 강제 시험이 세 엔진에서 실제 헤더 그대로 뷰어를 띄운다([verification.md](verification.md) §브라우저 테스트의 페이지 정책).
+
+페이지에 `<style>`·`<script>` 를 넣는 브라우저 확장(다크 모드, 문법 검사)은 이 페이지에서 일부 막히고 콘솔에 보고가 남는다. 뷰어의 동작에는 영향이 없다.
 
 ### 타입 검사
 
@@ -1640,7 +1656,7 @@ LaTeX 문서의 줄 핀은 그 줄 범위를 바꿀 글을 담을 수 있다(`su
 | 자리 | 값 | 이유 |
 | --- | --- | --- |
 | 토큰 블록 세 개(`:root`·`:root[data-theme=light]`·척도 블록) | 색·px 값 | 정의하는 자리다 |
-| `#brand-stripe`·`#brand-chip`의 `style="background:__ACCENT__"` | 인스턴스 색 | 서버가 `--accent` 값으로 채운다. 테마가 바뀌어도 그대로여야 하고 회귀 테스트(`BuildHtmlSubstitution`)가 이 모양을 본다 |
+| 척도 블록의 `--brand:__ACCENT__` | 인스턴스 색 | 서버가 `--accent` 값으로 채우고, 맨 위 띠(`#brand-stripe`)가 `var(--brand)` 로 칠한다. 테마가 바뀌어도 그대로여야 하고 회귀 테스트(`BuildHtmlSubstitution`)가 채운 값과 `style` 속성 없는 띠를 본다. 페이지 정책이 `style` 속성을 막으므로 인라인 `style` 로 두지 않는다(§페이지 정책) |
 | `src/limn/viewer/brand/`의 그림 파일(파비콘·홈 화면 아이콘·로고 SVG) | 브랜드 색 | CSS 밖의 이미지이고 브랜드 원본의 바이트 그대로다. 뷰어 안의 인라인 로고는 예외가 아니다 — `parse_svg`가 색을 역할 클래스로 바꾸고 토큰이 칠한다(§마크와 파비콘) |
 | PDF 쪽(PNG·PDF.js 캔버스) | 종이 색 | 원고 PDF의 색이다. 테마는 종이 색을 바꾸지 않는다 |
 | `src/limn/vendor/pdfjs`·Lucide 원본 | — | 외부 코드다(Lucide는 `currentColor`라 글자색을 따른다) |
@@ -1651,7 +1667,7 @@ LaTeX 문서의 줄 핀은 그 줄 범위를 바꿀 글을 담을 수 있다(`su
 
 - 토큰 블록 밖의 색 리터럴
 - 척도 밖의 radius·font-size
-- 인라인 `style`·JS의 색·글자 리터럴
+- JS의 색·글자 리터럴. 마크업의 `style` 속성은 아예 없어야 한다(§페이지 정책)
 - 정의되지 않은 `var()`. 단 JS가 넣는 `--kb`·`--vvh`·`--side-w`·`--sheet-f`·`--stick-top`은 제외한다.
 - 두 테마의 색 토큰 불일치
 

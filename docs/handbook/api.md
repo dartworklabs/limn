@@ -27,7 +27,7 @@ HTTP 전송 입장을 통과한 API 오류 응답은 `{"error": "<한국어 메�
 - **소켓 타임아웃은 30초**다. 본문을 보내다 멈춘 연결과 유휴 keep-alive 연결이 닫힌다. 재빌드처럼 오래 걸리는 처리 시간과는 관계없다.
 - **이 경계를 지난 요청은 신원 확인을 거친다.** 신원을 정하지 못하면 `401`, 들어올 수 없는 사람이면 `403`, 역할이 허락하지 않는 변경이면 `403` 이다. 순서와 규칙은 §인증에 있다.
 - **원고 트리는 `--manuscript` 아래에서 점으로 시작하는 이름 아래를 뺀 곳이다.** `.git`·`.env`·`.ssh`·`.latexmkrc` 같은 이름은 저장소나 기기의 비밀이지 원고가 아니다. 파일 이름을 받는 경로(`/api/snippet`·`/api/overlaps`·새 핀·편집의 `loc`·닫기의 `changes`)는 심볼릭 링크를 푼 경로의 `--manuscript` 아래 부분에 점으로 시작하는 칸이 있으면 트리 밖으로 보고 거절한다. 이유 코드는 트리 밖 파일에 쓰던 `file_outside_manuscript`·`change_outside_manuscript` 그대로이고 문장도 같다. `a.b.tex` 처럼 이름 중간의 점, `~/.local/paper` 처럼 `--manuscript` 자신이 점 폴더 아래 있는 것은 상관없다. 상태 폴더도 원고 트리가 아니다. `--state-dir` 이 `--manuscript` 안(점이 아닌 이름 아래 포함)을 가리키면 그 폴더 아래(`people.json`·`tokens.json`·`audit.jsonl`·`events.jsonl`·핀 파일)는 같은 거절과 같은 문장으로 트리 밖이 된다. 상태 폴더가 원고 옆이나 원고를 품은 위쪽에 있으면 트리에서 빠지는 것은 없다. 점 폴더나 상태 폴더를 가리키게 저장된 핀은 트리 밖 핀(`pin_outside_manuscript`)이다. 정본은 `src/limn/platform/files.py` 의 `tree_part` 다.
-- **모든 응답은 다른 페이지의 프레임에 담기지 않는다.** 서버가 내는 모든 응답(표준 라이브러리가 직접 내는 `501` 같은 오류 쪽도)에 `X-Frame-Options: DENY` 와 `Content-Security-Policy: frame-ancestors 'none'` 이 붙는다. CSP에는 이 지시어 하나뿐이라 뷰어의 인라인 스크립트는 제한하지 않는다. 다른 사이트가 뷰어를 투명한 틀에 넣어 클릭을 훔치는 일(클릭재킹)을 막는다.
+- **모든 응답은 다른 페이지의 프레임에 담기지 않는다.** 서버가 내는 모든 응답(표준 라이브러리가 직접 내는 `501` 같은 오류 쪽도)에 `X-Frame-Options: DENY` 와 `frame-ancestors 'none'` 이 든 `Content-Security-Policy` 가 붙는다. 다른 사이트가 뷰어를 투명한 틀에 넣어 클릭을 훔치는 일(클릭재킹)을 막는다. 에이전트가 받는 응답(JSON, `pins.md`, PDF, 쪽 이미지)의 CSP는 `frame-ancestors 'none'` 이 전부다. Limn이 조립하는 HTML 페이지 둘(뷰어 `GET /` 와 브라우저에게 보이는 거절 페이지)만 페이지 자신의 정책(같은 출처와 인라인 해시만 허용)을 싣는다. 정책의 값은 [architecture.md](architecture.md) 불변식 9에 있다.
 
 ### 오류 응답
 
