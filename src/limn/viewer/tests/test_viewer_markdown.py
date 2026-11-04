@@ -30,7 +30,7 @@ from limn.administration import serve_documents as startup_documents
 
 import helpers_csp
 from helpers import ps, req
-from helpers_browser import BrowserBase, ime_compose, ime_end_with, settle
+from helpers_browser import BrowserBase, clock_now, clock_still, ime_compose, ime_end_with, settle
 from helpers_figure import BUILD1, viewer_build
 
 # Resolves when the Markdown document on screen is drawn (a document, the line view or a notice) and no parse is in flight.
@@ -466,9 +466,34 @@ class Picking(MarkdownBase):
         self.assertEqual(page.evaluate("[COMPOSE.current.lo,COMPOSE.current.hi]"), [3, 4])
         page.evaluate("discardSelection()")
         page.locator("#md [data-line='%d']" % fixture_line("인용 첫")).click(click_count=3)
-        page.wait_for_function("COMPOSE.current&&COMPOSE.current.scope==='raw'", timeout=5000)
-        lo, hi = page.evaluate("[COMPOSE.current.lo,COMPOSE.current.hi]")
-        self.assertLessEqual(hi, fixture_line("인용 둘째"))
+        # The last release's pick, not the second press's word, is what the triple click chose: wait until it has run.
+        settle(page)
+        self.assertEqual(
+            page.evaluate("[COMPOSE.current.scope,COMPOSE.current.lo,COMPOSE.current.hi]"),
+            ["raw", fixture_line("인용 첫"), fixture_line("인용 둘째")],
+        )
+
+    def test_a_triple_click_picks_its_lines_when_each_press_lands_before_the_last_ones_pick(self):
+        """A triple click on the quote's first line picks the quote's two lines at the chosen-lines rung even when each
+        press lands before the page has run the pick the release before it deferred - a busy page, where the browser takes
+        input ahead of timers. That pick belongs to its own press: run after the next press went down, it took that press's
+        selection, and its note-field focus took the selection away, so the click that followed counted as a tap and
+        chose the quote's block instead (Chromium and Firefox alike). The page's clock stands still, so that order is the
+        test's, not the machine's."""
+        page = self.open_md(clock=clock_now())
+        box = self.line_el(page, fixture_line("인용 첫")).bounding_box()
+        page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+        clock_still(page)
+        for n in (1, 2, 3):
+            page.mouse.down(click_count=n)
+            page.clock.run_for(1)  # what the release before left runs now, after this press
+            page.mouse.up(click_count=n)
+        page.clock.resume()
+        settle(page)
+        self.assertEqual(
+            page.evaluate("[COMPOSE.current.scope,COMPOSE.current.lo,COMPOSE.current.hi]"),
+            ["raw", fixture_line("인용 첫"), fixture_line("인용 둘째")],
+        )
 
     def test_a_table_cell_picks_its_row_and_the_block_is_the_table(self):
         """A click in a cell: the chosen lines are its row's one line; the block rung is the whole table (md:table)."""

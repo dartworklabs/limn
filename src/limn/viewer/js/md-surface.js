@@ -499,7 +499,13 @@ function mdRelTip(el){showTip(el); const txt=TIP.textContent; setTimeout(()=>{if
 function mdNothingOfEnd(r){const e=r.endContainer.nodeType===1?/** @type {Element} */(r.endContainer):r.endContainer.parentElement; if(!e)return false;
   const host=e.closest('[data-line]')||e.closest('[data-lo]'); if(!host)return false;
   const head=document.createRange(); head.setStart(host,0); head.setEnd(r.endContainer,r.endOffset); return !head.toString().trim();}
-$('#doc').addEventListener('mouseup',e=>{if(!isMdDoc()||e.button!==0)return; setTimeout(()=>mdSelectionPick(null),0);});
+// A release's pick waits one task, for the selection its press made, and it is that press's alone: once the next press is down (a
+// double or triple click's next press, which a busy page takes ahead of the timer) it does nothing - that press picks at its own
+// release. Run then, it took the new press's selection and the note field's focus took that selection away, so the click that
+// followed counted as a tap and chose the block. MD_PRESS counts the document's primary presses.
+let MD_PRESS=0;
+$('#doc').addEventListener('mousedown',e=>{if(e.button===0)MD_PRESS++;});
+$('#doc').addEventListener('mouseup',e=>{if(!isMdDoc()||e.button!==0)return; const press=MD_PRESS; setTimeout(()=>{if(press===MD_PRESS)mdSelectionPick(null);},0);});
 $('#doc').addEventListener('click',e=>{if(!isMdDoc())return; const s=window.getSelection(); if(s&&!s.isCollapsed)return; mdSelectionPick(e.target);});
 // A finger: the long-press handles make a selection with no mouseup; it is picked once it rests.
 let MD_SEL_T=0;
