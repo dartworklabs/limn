@@ -150,6 +150,8 @@ def apart_paths(src: Path, main: Path, others: Iterable[tuple[DocKind, Path, Pat
     - A view-only PDF, when the file lies strictly inside src: that one file. Its folder (what the document calls its
       src) is not set apart; it is the manuscript root as often as not.
     - Another LaTeX document's folder and anything outside src set nothing apart.
+    - A document the browser draws (a Markdown file) sets nothing apart: the source list keeps only LaTeX and figure-set
+      suffixes (limn.builds.artifacts.SRC_MTIME_EXTS), so its file is never one of this document's sources.
     Symlinks are resolved on both sides, as limn.builds.artifacts.state_in_source does."""
     try:
         root = src.resolve()
@@ -323,8 +325,9 @@ class Doc:
     def shows_revisions(self) -> bool:
         """The changes view is available: the Git history of its files - a LaTeX document's manuscript files, compared
         as a latexdiff PDF; a figure document's map, PDF and drawing files, compared by laying the previous build's
-        pages over the current ones (docs/handbook/viewer.md §변경 보기)."""
-        return self.kind in ("tex", "figure")
+        pages over the current ones; a Markdown document's own file, compared as its source diff alone
+        (docs/handbook/viewer.md §변경 보기)."""
+        return self.kind in ("tex", "figure", "markdown")
 
     @property
     def view_only(self) -> bool:

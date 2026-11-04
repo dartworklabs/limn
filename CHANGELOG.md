@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+### Internal
+
+- **Server groundwork for Markdown documents (ADR-0025), not reachable yet.** No `--doc` suffix chooses a Markdown
+  document until the viewer can draw one, so nothing below changes what an instance serves today.
+  - `GET /api/source?doc=<key>` answers a document the browser draws with its source as
+    `{doc, file, src_mtime, lines}`: the lines split as every other line of the server is counted (UTF-8,
+    `str.splitlines()`), read through the checked manuscript handle with a 1 MiB bounded read. Over the limit it answers
+    `413 source_too_large` with `bytes` and `limit` and no lines; bytes that are not UTF-8 `422 source_not_utf8`; a
+    document shown as pages `400 not_rendered_in_browser`; a file outside the manuscript tree the same `400` every file
+    route gives. Every admitted role reads it, and it writes nothing. The agent contract gains this path and its three
+    reasons; every existing path, field and reason keeps its meaning.
+  - A Markdown document's changes are the Git history of its own file. The LaTeX history keeps its suffix pathspec, so a
+    LaTeX main and a Markdown document in one folder never share commits. The source diff and a pin's own hunks work on
+    it; there is no comparison PDF.
+  - A Markdown file inside a LaTeX document's tree is not one of its sources: editing it never marks the LaTeX build
+    stale or makes a rebuild run latexmk (a test pins this).
+
 ## 0.4.46 — 2026-11-04
 
 ### Fixed

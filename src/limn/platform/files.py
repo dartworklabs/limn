@@ -221,7 +221,9 @@ class ManuscriptFile:
 
         The descriptor's size is looked at first: a file larger than limit is OverLimit without a byte read. Otherwise
         at most limit + 1 bytes are read, so a file that grows while it is read is OverLimit too and never costs more
-        than that. Both answers carry the signature of the descriptor they came from. ReadRefused when the walk, the
+        than that. Both answers carry the signature of the descriptor they came from, and the bytes that descriptor's
+        st_mtime too: one fstat, made before the first byte is read, stamps what was read, so no replacement of the file
+        between a stamp and a read can pair one version's bytes with another's stamp. ReadRefused when the walk, the
         open or a read fails (the file was removed or replaced by a link, is not a regular file, cannot be read).
         A limit that is not a non-negative integer is the caller's defect (ValueError)."""
         if isinstance(limit, bool) or not isinstance(limit, int) or limit < 0:
@@ -242,7 +244,7 @@ class ManuscriptFile:
                     held += len(chunk)
                 if held > limit:
                     return OverLimit(signature)
-                return BoundedBytes(b"".join(chunks), signature)
+                return BoundedBytes(b"".join(chunks), signature, found.st_mtime)
         except (OSError, ValueError):
             return ReadRefused()
 
@@ -265,10 +267,13 @@ class FileSignature:
 
 @dataclass(frozen=True)
 class BoundedBytes:
-    """A bounded read's bytes - at most the limit asked for - and the signature of the descriptor they came from."""
+    """A bounded read's bytes - at most the limit asked for - with the signature of the descriptor they came from and
+    that descriptor's st_mtime: the float os.fstat reports, the form GET /api/meta gives a file's stamp in. Both come
+    from the one fstat made on that descriptor before its first byte was read."""
 
     data: bytes
     signature: FileSignature
+    mtime: float
 
 
 @dataclass(frozen=True)

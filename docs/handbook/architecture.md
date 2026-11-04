@@ -15,7 +15,7 @@
 
 빌드를 원본 체크아웃이 아니라 rsync 사본에서 하는 이유는 동시에 편집 중인 원고를 빌드가 중간 상태로 붙잡지 않게 하려는 것이다. 빌드 사본 경로를 원본 경로로 되돌리는 일(`build_dir → manuscript_dir`)은 서버가 안에서 처리한다. 그래서 에이전트는 언제나 원본 경로만 받는다.
 
-상태 디렉터리를 옮기거나 복제해서 SyncTeX가 옛 빌드 경로를 가리키는 경우도 있다. 이때는 경로 꼬리가 원고 트리 안의 파일과 맞을 때만 경로를 고쳐 쓴다. 원고 체크아웃을 옮겨 핀에 저장된 절대 경로가 낡은 경우도 같은 규칙에 원고 폴더 기준 상대 경로 `file_rel` 을 더해 읽을 때 찾는다([api.md](api.md) §핀 파일의 위치). 원고 트리 밖의 파일은 절대 읽지 않는다. 원고 읽기는 `platform/files.py`의 검사 생성자가 발급하는 `ManuscriptFile`을 통해서만 수행한다. 읽을 때 파일 디스크립터 기준으로 각 디렉터리와 파일을 no-follow로 열어 검사 뒤 심볼릭 링크 교체도 거부한다. 다른 저장소가 쓰는 작은 생산자 파일(문서의 판정 낱말 파일)은 같은 핸들의 제한 읽기(`read_bounded`)로 읽는다. 연 서술자의 크기를 먼저 보고 한도를 넘으면 읽지 않으며, 읽어도 한도 + 1바이트에서 멈춰 읽는 동안 커진 파일도 그 이상 들이지 않는다. 저장·응답에 쓰는 경로 문자열과 파일을 읽을 권한은 별개다. 원고 트리는 `--manuscript` 아래에서 점으로 시작하는 이름(`.git`·`.env` 등) 아래와, 원고 안에 둔 상태 폴더 아래를 뺀 곳이고, 규칙은 `limn/platform/files.py`의 `tree_part` 하나다. 역변환·범위 사다리·줄 맞춤의 규칙은 [domain.md](domain.md)에 있다.
+상태 디렉터리를 옮기거나 복제해서 SyncTeX가 옛 빌드 경로를 가리키는 경우도 있다. 이때는 경로 꼬리가 원고 트리 안의 파일과 맞을 때만 경로를 고쳐 쓴다. 원고 체크아웃을 옮겨 핀에 저장된 절대 경로가 낡은 경우도 같은 규칙에 원고 폴더 기준 상대 경로 `file_rel` 을 더해 읽을 때 찾는다([api.md](api.md) §핀 파일의 위치). 원고 트리 밖의 파일은 절대 읽지 않는다. 원고 읽기는 `platform/files.py`의 검사 생성자가 발급하는 `ManuscriptFile`을 통해서만 수행한다. 읽을 때 파일 디스크립터 기준으로 각 디렉터리와 파일을 no-follow로 열어 검사 뒤 심볼릭 링크 교체도 거부한다. 다른 저장소가 쓰는 작은 생산자 파일(문서의 판정 낱말 파일)과 브라우저가 그리는 문서의 원문(`GET /api/source`, 1 MiB)은 같은 핸들의 제한 읽기(`read_bounded`)로 읽는다. 연 서술자의 크기를 먼저 보고 한도를 넘으면 읽지 않으며, 읽어도 한도 + 1바이트에서 멈춰 읽는 동안 커진 파일도 그 이상 들이지 않는다. 저장·응답에 쓰는 경로 문자열과 파일을 읽을 권한은 별개다. 원고 트리는 `--manuscript` 아래에서 점으로 시작하는 이름(`.git`·`.env` 등) 아래와, 원고 안에 둔 상태 폴더 아래를 뺀 곳이고, 규칙은 `limn/platform/files.py`의 `tree_part` 하나다. 역변환·범위 사다리·줄 맞춤의 규칙은 [domain.md](domain.md)에 있다.
 
 ## 현재 구조
 
@@ -26,7 +26,7 @@ Limn은 하나의 `dartwork-limn` 배포 안에서 기능 소유권으로 나눈
 | 핀 | `pins/` | 모델·레코드·스레드 규칙, `store.py`의 트랜잭션, `context.py`의 실행 협력자, `revision.py`의 비교용 핀 사실. `application.py`와 `runtime.py`가 조회 계약·실행 협력자·경로를 조립한다. `needs.py`는 주입받는 빌드 조회와 그 답에서 읽는 멤버를 Protocol로, 문서 조회의 판정 낱말 조회를 타입으로 선언하고, `notice.py`는 핀이 내보내는 알림 값 `PinNotice`를 소유한다. 만들기·편집은 `editing/`, 처리 중 표시는 `claims/`, 전이는 `lifecycle/`, 삭제·복원은 `trash/`, 조회·Markdown은 `listing/`, 원문·PDF 위치 계산은 `location/` |
 | 빌드 | `builds/` | 결과 값(`values.py`), 산출물·이력·원고 지문(`artifacts.py`), 요청 시점의 파일·쪽 사실(`document_facts.py`), 컴파일·재빌드·PDF 감시·그림 지도 파싱(`figure_map.py`)·PDF/지도 가져오기(`figure.py`)와 응답 |
 | 협업 | `collaboration/` | 사람 후보·방문 기록 연결, `events.jsonl`, 멘션 알림·폴링. 핀의 태그·차례 규칙은 핀 소유권에 남고 조립 지점이 주입하는 값·동작으로 받는다. 받는 알림의 필드는 `contracts.py`의 `Notice` Protocol로 선언한다 |
-| 문서 조회 | `documents/` | 문서 탭·meta·목차 응답과 파싱, 문서 옆 판정 낱말 파일의 읽기·파싱과 응답 필드(`verdicts.py`). `needs.py`는 주입받는 핀 수 조회·빌드 사실 조회와 그 답에서 읽는 멤버를 Protocol로 선언한다. 실행별 문서 자원은 `runtime/documents.py`가 소유한다 |
+| 문서 조회 | `documents/` | 문서 탭·meta·목차 응답과 파싱, 문서 옆 판정 낱말 파일의 읽기·파싱과 응답 필드(`verdicts.py`). 브라우저가 그리는 문서의 원문 읽기(`source.py`, `GET /api/source`). `needs.py`는 주입받는 핀 수 조회·빌드 사실 조회와 그 답에서 읽는 멤버를 Protocol로 선언한다. 실행별 문서 자원은 `runtime/documents.py`가 소유한다 |
 | 비교 | `revisions/` | Git 이력·원고 diff·격리 비교 PDF·작업 캐시와 응답. `scope.py`가 diff 파싱·핀 범위 귀속·범위 패치와 사본 쓰기 계획을, `macros.py`가 latexdiff에 글 명령으로 넘길 원고 정의 명령의 판정을 소유한다. `needs.py`는 주입받는 핀 조회와 그 답에서 읽는 필드를 Protocol로 선언한다 |
 | 동기화 | `sync/` | 원격 main 감시·fast-forward·문서별 재빌드 선택 |
 | 관리 | `administration/` | 토큰·멤버 명령, 문서 실행 인자, 이관, 인스턴스 셸과 `systemd/` 템플릿 |

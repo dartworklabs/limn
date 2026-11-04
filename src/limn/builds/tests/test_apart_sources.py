@@ -31,7 +31,7 @@ from limn.builds.artifacts import (
     BuildUnchanged,
     fls_inputs,
 )
-from limn.runtime.documents import INPUT_CACHE_MAX, NO_APART, ApartPaths, Doc, InputSetCache, RunPaths
+from limn.runtime.documents import INPUT_CACHE_MAX, NO_APART, ApartPaths, Doc, InputSetCache, RunPaths, apart_paths
 
 BUILD1 = "pages-20260926100000"
 BUILD0 = "pages-20260926080000"
@@ -464,6 +464,57 @@ class SourceList(Tree):
         self.assertIn("paper/img/p.pdf", got)
         self.assertNotIn("paper/main.pdf", got)
         self.assertNotIn("figs/a.pdf", got)
+
+
+class MarkdownInsideTheTree(unittest.TestCase):
+    """A Markdown document (ADR-0025) whose file lies inside a LaTeX document's build root - beside its main .tex or in a
+    folder of its own - is not that document's source. The source list keeps LaTeX and figure-set suffixes only, so the
+    Markdown file needs nothing set apart (apart_paths answers NO_APART for it) and an edit of it moves neither src_mtime,
+    which stale_build reads, nor the fingerprint the build's no-change check compares: editing a registered .md never
+    marks the LaTeX build stale or makes a rebuild run latexmk."""
+
+    def setUp(self):
+        """A LaTeX document ms over ms/ (main.tex) with two Markdown documents inside it, plan.md beside main.tex and
+        notes/todo.md, every file back-dated by 100 seconds; ms's apart is what apart_paths gives for those two."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        top = Path(tmp.name).resolve()
+        self.src = top / "ms"
+        self.state = top / "state"
+        write_tree(self.src, ("main.tex", "refs.bib", "plan.md", "notes/todo.md"))
+        self.old = time.time() - 100
+        for p in self.src.rglob("*"):
+            os.utime(p, (self.old, self.old))
+        main = self.src / "main.tex"
+        others = [
+            ("markdown", self.src, self.src / "plan.md"),
+            ("markdown", self.src / "notes", self.src / "notes/todo.md"),
+        ]
+        self.apart = apart_paths(self.src, main, others)
+        self.D = Doc(
+            "ms", "본문", "tex", src=self.src, main=main, paths=RunPaths(self.src, main, self.state), apart=self.apart
+        )
+
+    def measured(self) -> tuple[float, str]:
+        """(src_mtime measured now, past the memo; the source fingerprint) of ms."""
+        return build.src_mtime(self.D, self.state, force=True), build.source_fingerprint(self.D, self.src, self.state)
+
+    def test_an_edit_of_a_markdown_file_is_not_an_edit_of_the_latex_manuscript(self):
+        """Both Markdown files rewritten 30 seconds ahead: ms lists neither, sets nothing apart, and keeps its src_mtime
+        and fingerprint; main.tex rewritten after that moves both (the measure is live)."""
+        before = self.measured()
+        ahead = time.time() + 30
+        for rel in ("plan.md", "notes/todo.md"):
+            (self.src / rel).write_text("# Rewritten\n", encoding="utf-8")
+            os.utime(self.src / rel, (ahead, ahead))
+        self.assertEqual(self.apart, NO_APART)
+        self.assertEqual([rel for rel, _ in build.iter_sources(self.D, self.src, self.state)], ["main.tex", "refs.bib"])
+        self.assertEqual(self.measured(), before)
+        (self.src / "main.tex").write_text("edited", encoding="utf-8")
+        os.utime(self.src / "main.tex", (ahead, ahead))
+        mtime, fingerprint = self.measured()
+        self.assertAlmostEqual(mtime, ahead, places=3)
+        self.assertNotEqual(fingerprint, before[1])
 
 
 class Fingerprint(Tree):
