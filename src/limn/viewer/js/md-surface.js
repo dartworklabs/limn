@@ -503,9 +503,10 @@ function mdSelectionPick(tapTarget){const s=window.getSelection(),md=$('#md'); i
   return false;}
 // The part of selection range r inside the document md: r itself when it lies inside; else r cut back to the document's first
 // and last line elements where it runs past them - a triple click on the last paragraph ends after the article, there being no
-// next block inside it to end at, and a drag may start above it; null when r does not reach the document.
+// next block inside it to end at, and a drag may start above it. One end must be in the document: a selection with both ends
+// outside it (select-all, one made in the side panel) is no pick, as before - null, as for one that does not reach it.
 /** @param {Range} r @param {HTMLElement} md */
-function mdDocPart(r,md){if(md.contains(r.commonAncestorContainer))return r; if(!r.intersectsNode(md))return null;
+function mdDocPart(r,md){if(md.contains(r.commonAncestorContainer))return r; if(!md.contains(r.startContainer)&&!md.contains(r.endContainer))return null;
   const els=mdLineEls(); if(!els.length)return null;
   const c=r.cloneRange(); if(!md.contains(r.startContainer))c.setStart(els[0],0);
   if(!md.contains(r.endContainer)){const e=els[els.length-1]; c.setEnd(e,e.childNodes.length);}

@@ -594,7 +594,9 @@ class Picking(MarkdownBase):
 
     def test_a_selection_from_outside_the_document_into_it_picks_only_the_documents_lines(self):
         """A selection that starts outside the article (above it, in the document column) and ends inside it picks the
-        lines from the document's first line to the line it ends in; one that does not touch the article picks nothing."""
+        lines from the document's first line to the line it ends in. One with both ends outside the article picks nothing,
+        as before: one that does not touch it, and select-all (on a touch screen a resting selection is picked, so a
+        keyboard's select-all would otherwise open the composer on the whole document)."""
         page = self.open_md()
         page.evaluate("discardSelection()")
         got = page.evaluate(
@@ -609,6 +611,10 @@ class Picking(MarkdownBase):
             "const s=getSelection(); s.removeAllRanges(); s.addRange(r); return mdSelectionPick(null);})()"
         )
         self.assertFalse(outside)
+        everything = page.evaluate(
+            "(()=>{const s=getSelection(); s.selectAllChildren(document.body); return [mdSelectionPick(null),!!COMPOSE.current];})()"
+        )
+        self.assertEqual(everything, [False, False])
 
     def test_a_tap_on_a_block_no_longer_than_its_lines_picks_the_block(self):
         """A tap on a block whose lines are all the tapped lines - a raw HTML block's placeholder, a one-line paragraph -

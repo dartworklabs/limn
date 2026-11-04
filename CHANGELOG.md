@@ -8,7 +8,7 @@
   document (there is no next block to end at; Firefox ends it in the paragraph), and a selection reaching outside the document was dropped whole, so the
   first click's block pick stood: the pin was saved as the paragraph block instead of the chosen lines. Only the part of a
   selection inside the document counts now, and its quote is that part's text. The same holds for a drag that starts
-  above the document.
+  above the document. A selection with both ends outside the document (select-all) still picks nothing.
 
 ## 0.4.48 — 2026-11-04
 
