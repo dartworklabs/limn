@@ -3,8 +3,9 @@
 > **상태: 보류. 승인되지 않았고 구현하지 않는다.**
 >
 > - 2026-10-24: 소유자가 지금은 LaTeX만 유지하기로 했다("일단은 tex 만 하자"). 이 계획을 구체적으로 적어 공동 관리자 검토에 넘기라고 했다([이슈 #255](https://github.com/dartworklabs/limn/issues/255)). 검토 의견은 아직 없다.
-> - 2026-11-04 개정 1: 초판은 0.4.23 무렵에 썼다. 그 뒤 들어온 제안 수정·판정 핀·댓글 타임라인 등을 반영해 현재 `main`(0.4.45)과 다시 대조했다. 일곱 결정에 추천안을 달고, 소유자가 방향을 만져 볼 수 있는 버리는 PoC(`poc/html-surface` 브랜치)를 만들었다. 결정 초안은 [ADR-0025](../../adr/0025-html-document-surface.md)(`제안`)다.
+> - 2026-11-04 개정 1: 초판은 0.4.23 무렵에 썼다. 그 뒤 들어온 제안 수정·판정 핀·댓글 타임라인 등을 반영해 당시 `main`(0.4.45, b13aa8c0)과 다시 대조했다. 일곱 결정에 추천안을 달고, 소유자가 방향을 만져 볼 수 있는 버리는 PoC(`poc/html-surface` 브랜치)를 만들었다. 결정 초안은 [ADR-0025](../../adr/0025-html-document-surface.md)(`제안`)다.
 > - 2026-11-04 개정 1 검토 반영: 1차 검토의 일곱 지적을 코드와 대조해 고쳤다. 블록 안 줄 대응 규칙(§결정 6), `page` 없는 핀을 만드는 길과 고치는 길(§결정 1), 변경 보기의 이력 파일(§새로 지나야 하는 길), 번들 의존성 고지(§결정 4), 읽기·파싱·그리기 한도(§결정 5), 판정 핀의 결함 위치, 링크 허용 목록(§결정 5)이다.
+> - 2026-11-04 개정 1 2차 검토 반영: 끝에 점을 붙인 호스트(`localhost.`, 뷰어 호스트 뒤의 `.`)가 링크 관문을 지나던 결함을 고치고, 호스트를 한 철자로 비교하는 규칙과 서버 Host 검사에 대한 권고를 적었다(§결정 5). 번들의 `@oxc-project/runtime` 도우미 밑에 있는 Babel 고지를 더했다(§결정 4). 원문 줄 보기의 줄 한도는 따로 알린다(§결정 5). `main` 0.4.46과 다시 대조했고, 한글 조합을 끝내는 키 규칙을 Markdown 화면에도 건다(§새로 지나야 하는 길).
 > - 구현은 다음 세 가지가 모두 끝나야 시작한다. 소유자가 이 문서의 다음 개정을 명시적으로 승인한다([workflow.md](../../handbook/workflow.md) §기본 경로). ADR-0025를 `승인됨`으로 올린다. 뷰어 변경을 `main`에 넣기 전에 네 기기군 PoC를 보인다.
 
 ## 문제
@@ -54,7 +55,7 @@ HTML 화면에는 변환도, 빌드도, 생성 파일도 없다. 그린 블록�
 
 ## 현재 코드 대조 (개정 1)
 
-초판 뒤 `main` 에 354개 커밋이 들어왔다(0.4.23 → 0.4.45). 아래 근거는 모두 `main` b13aa8c0의 `src/limn/` 기준 경로와 줄이다.
+초판 뒤 `main` 에 354개 커밋이 들어왔다(0.4.23 → 0.4.45). 아래 근거는 모두 `main` b13aa8c0(0.4.45)의 `src/limn/` 기준 경로와 줄이다. 지금 `main` 은 0.4.46(0befcdea)이다. 0.4.46은 뷰어의 한글 조합 키만 바꿨다(#388, `fix/ime-composition-tail-keys`: `core.js` 의 `imeKey`·`imeTail`·`imeHeldIn`, 판정 이유 칸의 미루기). 아래에서 인용한 줄은 0.4.46에서도 같다(`core.js` 에는 `:64` 뒤에 91줄이 들어왔고, `verdict.js` 는 `:196` 부터 바뀌었다). 0.4.46도 Markdown 문서 등록을 거절한다(`administration/serve_documents.py:265`).
 
 ### 그대로 맞는 것
 
@@ -74,7 +75,7 @@ HTML 화면에는 변환도, 빌드도, 생성 파일도 없다. 그린 블록�
 | 원문 서빙과 변경 감시를 위해 `documents/`·`builds/` 에 감시를 더한다 | 감시 스레드가 필요 없다. 빌드하지 않는 문서의 `src_mtime` 은 이미 그 파일 자체의 시각이고, 가벼운 meta 폴링이 그 값을 싣는다 | `builds/artifacts.py:989-991`(`src_mtime`: 빌드하지 않는 문서는 그 파일의 `st_mtime`), `viewer/js/polling.js:45-50`. PoC는 원문이 바뀌면 다시 그린다 |
 | pick을 위해 `pins/location/`(`compute_levels`, `resolve.py`)을 고친다 | Markdown의 pick은 뷰어 안에서 끝난다. 서버는 저장할 때 `lo..hi` 만 확인한다(`parse_loc`). 사다리의 블록·절은 파서의 줄 지도에서 나온다 | PoC가 `/api/pick` 없이 저장한다. 에이전트는 pick을 쓰지 않고 `file`·`lo`·`hi` 로 바로 핀을 만든다 |
 | `apart_paths` 를 고친다 | 필요 없다. LaTeX 문서의 원천 목록은 `SRC_TEX_EXTS` 만 보므로 `.md` 를 떼어 둘 일이 없다 | `runtime/documents.py:141-174`, `builds/artifacts.py:64` |
-| 뷰어는 `pdf-open.js` 등 아홉 파일이 PDF 중심이다 | 쪽을 전제한 코드가 더 늘었다. 쪽 판정 줄·쪽 판정 패널(`verdict.js`·`verdict-reason.js`·`verdict-panel.js`), 비교 PDF 확대(`revision-zoom.js`), 목록의 `쪽순`(`list.js:161-163`)이다. 뷰어 JS는 6,225줄에서 10,839줄이 되었다 | `git show v0.4.23` 과 `main` 의 `viewer/js` 줄 수 |
+| 뷰어는 `pdf-open.js` 등 아홉 파일이 PDF 중심이다 | 쪽을 전제한 코드가 더 늘었다. 쪽 판정 줄·쪽 판정 패널(`verdict.js`·`verdict-reason.js`·`verdict-panel.js`), 비교 PDF 확대(`revision-zoom.js`), 목록의 `쪽순`(`list.js:161-163`)이다. 뷰어 JS는 6,225줄에서 10,839줄(0.4.45), 10,941줄(0.4.46)이 되었다 | `git show v0.4.23`·b13aa8c0·0befcdea 의 `viewer/js` 줄 수 |
 
 ### 새로 지나야 하는 길
 
@@ -87,9 +88,10 @@ HTML 화면에는 변환도, 빌드도, 생성 파일도 없다. 그린 블록�
 | 제안 수정 ([ADR-0020](../../adr/0020-suggested-edit-pins.md), [ADR-0024](../../adr/0024-suggested-edit-obvious-errors.md)) | 관문을 능력으로 옮긴다(§결정 3). `suggest_state`·`## 제안 문안`·원문 대조는 파일 종류를 가리지 않는다. PoC의 `fixture.md` 핀이 "바꿀 준비됨"으로 나왔다. ADR-0024의 "앞뒤 글과 대조한 명백한 오류"에는 Markdown 문법을 깨는 글도 든다. 표의 칸 수가 어긋나거나, 강조·코드 표시가 닫히지 않거나, 목록 들여쓰기가 틀린 경우다. SKILL 예시에 더한다(규칙은 그대로) | `pins/editing/rules.py:686-692`, `pins/listing/render.py` §제안 문안 |
 | 댓글 타임라인·목록 순서 (0.4.42) | 카드의 타임라인은 문서 종류를 가리지 않는다. 목록의 `쪽순` 은 `page` 로 먼저 정렬하므로 `page` 없는 핀은 줄로만 정렬해야 한다. 저장 응답을 잃었을 때 되찾는 길은 `p.page===d.page` 로 핀을 찾는다 | `list.js:161-163`, `save.js:96`, `cards.js:64`(카드의 `N쪽`) |
 | 능력의 전달 | 뷰어는 `/api/docs` 의 `kind` 에서 능력을 한 곳에서 계산한다(`isFigureKind`·`buildsFromSource`). 같은 자리에 `rendersInBrowser` 를 둔다. API에 능력 필드를 따로 더하지 않는다(§결정 3) | `viewer/js/core.js:60-64` |
+| 조합을 끝내는 키 (0.4.46) | 한글 마지막 음절을 확정한 Enter·Esc는 조합만 끝낸다. Enter나 Esc로 무엇을 하는 키 처리는 모두 `imeKey` 부터 묻는다. Markdown 화면이 더하는 키 처리도 같다. 문서 안 `#제목` 링크의 Enter(PoC는 누르기만 받는다), 원문 줄 보기나 뒤에 올 문서 찾기 같은 새 글 칸이 그렇다. 원문이 바뀌어 화면을 다시 지을 때(`mdBuild`) 그 안에 조합 중인 칸이나 조합을 끝낸 키가 붙든 칸(`imeHeldIn`)이 있으면, 쪽을 다시 짓는 새 빌드처럼 칸을 놓을 때까지 미루고 `IME_ON_FREE` 로 잇는다. PoC의 Markdown 영역에는 글 칸이 없다. 작성 패널은 영역 밖이고 쪽 판정 줄은 숨긴다. 그래서 지금은 다시 지어도 칸을 빼앗지 않는다. PoC 브랜치는 0.4.45 기반이라 이 규칙이 없고, 구현은 0.4.46 이후 `main` 에서 한다. 시험은 Linux의 순서를 CDP로 보내는 기존 도구(`ime_end_with`)로 한다 | `viewer/js/core.js`(`imeKey`, `imeHeldIn`, `IME_ON_FREE`), `rebuild.js`(`refreshDoc` 의 `pvReasonComposed`), [viewer.md](../../handbook/viewer.md) §조합을 끝내는 키 |
 | 변경 보기 ([ADR-0005](../../adr/0005-pin-scoped-changes.md), [ADR-0014](../../adr/0014-two-commit-comparison.md)) | 공유 pathspec에 `md` 를 더하지 않는다. 더하면 같은 폴더 LaTeX 문서의 이력에 Markdown 커밋이 섞이고, Markdown 문서는 폴더의 `.tex` 이력을 받는다. Markdown 문서의 이력 파일은 그 `.md` 하나다. 그림 문서처럼 파일 목록 길로 넘기고, 목록은 `history_files` 가 능력으로 고른다(요소 지도 → 지도·PDF·스크립트, 브라우저가 그리는 문서 → 그 파일). LaTeX의 확장자 거름은 그대로 둔다. 핀 단위 hunk는 `splitlines` 줄 번호와 git 줄 번호를 이미 맞춘다. 비교 PDF(latexdiff)는 Markdown에서 돌리지 않으므로 소스 diff만 연다 | `revisions/core.py:396-427`(`revision_scope`, `files` 가 있으면 `_files_scope` `:430-448`), `builds/queries.py:273-286`(`history_files`), `revisions/scope.py:252-264` |
 | `pins.md` | 쪽 칸이 `r.get("page", 0)` 이라 `page` 없는 핀은 `0`, PoC처럼 기본값 1을 저장하면 `1` 이 찍힌다. 절 제목에 문서 종류 꼬리말이 없다. `기준:` 줄은 빌드가 없어 빠진다. 범위 칸은 모르는 `scope` 이면 `kind` 를 싣는다 | `pins/listing/render.py:694`, `:812-819`, `:169-182` |
-| 되돌리기 계약 | 옛 서버(≤0.4.45)는 `.md` 문서가 있는 설정으로는 시작하지 않는다(`DocKindUnknown`). 인스턴스 셸도 거절한다. 그래서 되돌리려면 먼저 그 문서를 설정에서 뺀다. 상태 폴더는 그대로 읽힌다. Markdown 핀은 평범한 줄 핀이고, 설정에 없는 문서의 핀은 `## 설정에 없는 문서` 절로 간다. 새 `scope`·`kind` 값은 레코드 검사(문자열인지만 본다)를 지난다 | `administration/serve_documents.py:265`, `administration/instance_documents.sh:63`, `pins/record.py:128`, `pins/listing/render.py:821-829`. 선례: `tests/contracts/test_suggest_rollback.py` |
+| 되돌리기 계약 | 옛 서버(≤0.4.46)는 `.md` 문서가 있는 설정으로는 시작하지 않는다(`DocKindUnknown`). 인스턴스 셸도 거절한다. 그래서 되돌리려면 먼저 그 문서를 설정에서 뺀다. 상태 폴더는 그대로 읽힌다. Markdown 핀은 평범한 줄 핀이고, 설정에 없는 문서의 핀은 `## 설정에 없는 문서` 절로 간다. 새 `scope`·`kind` 값은 레코드 검사(문자열인지만 본다)를 지난다 | `administration/serve_documents.py:265`, `administration/instance_documents.sh:63`, `pins/record.py:128`, `pins/listing/render.py:821-829`. 선례: `tests/contracts/test_suggest_rollback.py` |
 | 읽기 권한 | 새 읽기 경로는 등록 전까지 거부된다(닫힌 기본값). 원문 경로와 `/vendor/markdown-it/` 을 선언해야 한다 | `security/access.py:645-670`, `:689` |
 | 보안 헤더 | 뷰어 페이지의 CSP는 `frame-ancestors 'none'` 뿐이고, 인라인 스크립트를 막지 않는다. 같은 출처에서 남이 쓴 글을 그리게 되므로 렌더러의 규율에만 기대게 된다(§결정 5) | `web/handler.py:141-148` |
 
@@ -166,7 +168,7 @@ HTML 화면에는 변환도, 빌드도, 생성 파일도 없다. 그린 블록�
 
 ### 결정 4. Markdown 파서
 
-**추천.** markdown-it을 `src/limn/vendor/markdown-it/` 에 번들한다. PoC는 15.0.3 ESM 브라우저 빌드(`markdown-it.esm.min.mjs` 124,681바이트, MIT)를 썼다. 이 한 파일에 의존성이 함께 들어 있다. `entities` 8.1.0(BSD-2-Clause), `mdurl` 2.1.0(MIT, Node.js `url` 코드에 대한 Joyent 고지 포함), `linkify-it` 6.1.0·`uc.micro` 3.0.0·`punycode.js` 2.3.1(MIT), 번들러가 넣은 rolldown 1.2.14 실행 도우미와 `@oxc-project/runtime` 0.154.0 도우미(MIT)다. 판은 markdown-it 15.0.3 태그의 lockfile로 확인했다. 고지는 하나도 빼지 않고 `src/limn/vendor/markdown-it/licenses/` 와 `THIRD_PARTY_NOTICES.md` 에 둔다(PoC 브랜치에 넣었다). BSD-2-Clause는 배포물에 저작권 고지·조건·면책 문구를 함께 실어야 한다. 뷰어는 Markdown 문서를 열 때만 `import()` 로 불러온다. PDF.js가 `/vendor/pdfjs/` 로 서빙되는 방식과 같다.
+**추천.** markdown-it을 `src/limn/vendor/markdown-it/` 에 번들한다. PoC는 15.0.3 ESM 브라우저 빌드(`markdown-it.esm.min.mjs` 124,681바이트, MIT)를 썼다. 이 한 파일에 의존성이 함께 들어 있다. `entities` 8.1.0(BSD-2-Clause), `mdurl` 2.1.0(MIT, Node.js `url` 코드에 대한 Joyent 고지 포함), `linkify-it` 6.1.0·`uc.micro` 3.0.0·`punycode.js` 2.3.1(MIT), 번들러가 넣은 rolldown 1.2.14 실행 도우미와 `@oxc-project/runtime` 0.154.0 도우미(MIT)다. oxc 도우미는 `@babel/runtime` 에서 베낀 코드다(그 패키지의 README). 번들의 네 도우미 가운데 `typeof`(Babel 표지 `"@babel/helpers - typeof"` 가 남아 있다)·`toPropertyKey`·`defineProperty` 는 `@babel/runtime` 8.0.7·7.29.10의 `helpers/esm` 과 바이트까지 같고, `toPrimitive` 는 Babel 것에서 `typeof Symbol` 검사를 뺀 것이다. 그래서 Babel의 MIT 고지(Sebastian McKenzie and other contributors)도 함께 둔다. 판은 markdown-it 15.0.3 태그의 lockfile로 확인했다. 고지는 하나도 빼지 않고 `src/limn/vendor/markdown-it/licenses/` 와 `THIRD_PARTY_NOTICES.md` 에 둔다(PoC 브랜치에 넣었다). BSD-2-Clause는 배포물에 저작권 고지·조건·면책 문구를 함께 실어야 한다. 뷰어는 Markdown 문서를 열 때만 `import()` 로 불러온다. PDF.js가 `/vendor/pdfjs/` 로 서빙되는 방식과 같다.
 
 **근거 (PoC로 확인).**
 
@@ -180,7 +182,7 @@ HTML 화면에는 변환도, 빌드도, 생성 파일도 없다. 그린 블록�
 
 **대안: 블록 경계만 손으로 나누고 글은 평문으로.** 코드는 가장 적다. 그러나 표·강조·목록 모양이 없어 "흐르는 글"을 읽는다는 목적에 못 미친다.
 
-**소유자 몫.** 런타임 번들을 더하는 것은 멈춤 신호다. ADR-0025 D4가 이 결정이다.
+**소유자 몫.** 런타임 번들을 더하는 것은 멈춤 신호다. ADR-0025 D5가 이 결정이다.
 
 ### 결정 5. 보안
 
@@ -192,6 +194,8 @@ HTML 화면에는 변환도, 빌드도, 생성 파일도 없다. 그린 블록�
 2. **원시 HTML은 그리지 않는다.** 파서는 원시 HTML을 별도 토큰으로 내도록 켜 두되(`html:true`), 블록은 줄 범위를 가진 자리표시("HTML N줄 · 그리지 않습니다"와 첫 줄)로, 인라인 태그는 코드 글자로 보인다. 자리표시도 줄 핀을 받는다. 원시 HTML을 끄면(`html:false`) 그 글이 문단 글자로 길게 풀린다. 실제 README 머리의 로고·배지 HTML이 그랬다(PoC 캡처).
 3. **링크는 렌더러의 허용 목록으로만 연다.** markdown-it의 `validateLink` 는 거부 목록이다. `javascript:`·`vbscript:`·`file:`·`data:` 만 막고, 그중 `data:image/gif|png|jpeg|webp` 는 통과시킨다. `ftp:` 와 임의 scheme은 링크가 된다(PoC 시험으로 확인). 그래서 일반 링크·자동 링크·참조 링크의 모든 `link_open` 이 같은 허용 목록을 지나야 하고, `validateLink` 에는 기대지 않는다. 열리는 것은 셋이다. 다른 출처의 `http:`·`https:` 는 새 탭(`rel="noopener noreferrer"`)으로, `mailto:` 도 새 탭으로 연다. 문서 안 `#제목` 은 그 제목으로 간다. 상대 경로, `//호스트`, 그 밖의 scheme은 글자로 두고 팁에 대상을 적는다. 상대 경로는 나중에 등록된 다른 문서로 이을 수 있다. 주소는 페이지 기준 없이 `URL` 로 파싱해 검사하고, 검사한 그 값을 `href` 로 넣는다. 날 문자열 `https:/api/meta` 는 페이지 기준으로 풀면 뷰어 자신의 출처가 되기 때문이다.
    - **같은 출처의 절대 주소는 열지 않는다(추천).** 뷰어와 같은 출처(`location.origin`)와 루프백 호스트(`localhost`, `127.0.0.0/8`, `[::1]`, `0.0.0.0`)를 가리키는 `http(s)` 링크는 글자로 둔다. 사용자 이름·비밀번호가 든 주소도 글자로 둔다. 근거는 셋이다. Limn의 GET은 읽는 사람의 신원으로 답하고, 그중에는 쓰기를 하는 것이 있다. 전체 `/api/meta`·`/api/pins`·`/pins.md` 는 핀을 다시 맞춰 쓰고, `/` 는 연 사람을 기록한다([api.md](../../handbook/api.md)). 서버 기계에서 문서를 읽는 사람에게 루프백 주소는 헤더 없는 루프백 요청, 곧 로컬 에이전트로 닿는다. 문서 안 이동은 `#제목` 으로 되므로, 문서를 쓴 사람이 읽는 사람의 Limn 요청을 만들 까닭이 없다. 등록된 다른 문서로 가는 링크는 이후 단계에서 따로 연다.
+   - **호스트는 한 철자로 비교한다.** 같은 호스트를 다르게 쓴 주소가 관문을 지나면 안 된다. `URL` 파서는 대소문자, 전각 글자, 퍼센트 이스케이프, IPv4의 모든 표기(`127.1`, `0x7f.1`, `017700000001`, `2130706433`, `127.0.0.1.`)를 점 네 개 꼴로, IPv6을 짧은 16진 꼴로 바꾼다. 그러나 이름 끝의 점은 남긴다(`localhost.`, `localhost%2e`·`localhost。` 도 `localhost.` 가 된다). DNS는 `이름.` 을 `이름` 으로 읽고, Limn의 Host·Origin 검사도 끝의 점을 뗀다. 그래서 관문은 목적지와 뷰어(`location.origin`)의 호스트를 모두 같은 규칙으로 바꾼 뒤 비교한다. 소문자로, IPv6 괄호를 빼고, 끝의 점을 모두 뗀다. 같은 출처는 scheme·호스트·포트가 모두 같은 것이다(기본 포트는 파서가 지운다). 루프백은 `localhost`·`*.localhost`, `127.0.0.0/8`·`0.0.0.0/8`, IPv6 `::`·`::1` 과 그 두 IPv4 범위의 IPv4 대응 주소(`::ffff:a.b.c.d`)·호환 주소(`::a.b.c.d`)다. 뷰어 출처를 파싱하지 못하면(`null`) 같은 출처로 보아 웹 링크를 하나도 열지 않는다. hosts 파일이 루프백으로 잇는 다른 이름(`ip6-localhost`, 기계 이름)은 넣지 않는다. Limn의 Host 검사가 루프백으로 받는 이름은 `localhost`·`127.0.0.1`·`::1` 뿐이고, 그 밖의 이름에는 403으로 답한다(PoC에서 `ip6-localhost` 로 확인). PoC 시험은 일반 링크·참조 링크·자동 링크, linkify를 켠 맨 주소의 토큰으로 이 규칙을 본다. linkify-it은 맨 주소의 호스트를 끝의 점에서 끊는다. 그래서 `http://localhost.:18920/…` 는 `http://localhost` 링크와 그 뒤의 글자가 된다. 뷰어는 linkify를 끈다.
+   - **서버의 Host 검사는 끝의 점을 그대로 받는다(권고: 바꾸지 않는다).** 지금 `split_host`(`security/access.py:247-257`)는 이름을 소문자로 바꾸고 끝의 점을 모두 뗀다. 그래서 `host_ok` 는 `localhost.`·`LOCALHOST..`·`127.0.0.1.`·`<호스트>.ts.net.` 을 받고, `origin_ok`(`:317`)도 Origin의 끝 점을 뗀다. 이 정규화는 시험이 지킨다(`security/tests/test_header_parsers.py:59`). 실행 중인 PoC는 `Host: localhost.:18920` 에 200으로 답했고, tailscale serve 너머의 `https://<호스트>.ts.net.:18020/api/source` 도 200이었다(인증서는 점 없는 이름과 맞았다). 끝에 점을 붙인 Host를 서버가 거절해도 얻는 것이 없다. Host 검사는 DNS 리바인딩, 곧 남의 이름을 막는 장치다. `localhost.` 는 남의 이름이 아니고, 거절해도 `127.0.0.1`·`[::1]` 은 그대로 닿는다. 관문은 어차피 그 주소들을 막아야 한다. 거절하면 서버와 관문이 호스트를 읽는 규칙이 반대로 어긋날 뿐이다. 그래서 관문이 서버의 규칙을 그대로 쓴다. 모든 철자를 덮는 서버 쪽 방어는 다른 곳에 있다. 쓰기를 하는 GET(전체 `/api/meta`·`/api/pins`·`/pins.md`, `/`)이 다른 사이트에서 온 이동(`Sec-Fetch-Site: cross-site`·`same-site`)에서는 쓰지 않게 하는 것이다. 이것은 Markdown 화면과 따로 다룰 보안 변경으로 남긴다.
 4. **그림은 불러오지 않는다.** 대체 글로 보인다. 원격 그림은 누가 언제 문서를 열었는지와 IP를 제3자에게 알린다. 나중 단계에서도 원고 트리 안의 그림만, 검사된 읽기 경로로 연다.
 5. **뷰어 페이지에 CSP를 붙인다.** 이것을 앞선 조건으로 둔다. 서버는 조립할 때 인라인 스크립트의 바이트를 알므로 `script-src 'self' 'sha256-…'`, `object-src 'none'`, `base-uri 'none'` 을 걸 수 있다. 뷰어는 인라인 이벤트 처리기 없이 `data-act` 로 나누므로 걸림돌이 적다. PDF.js worker와 사람 사진(`img-src`)은 실측해서 정한다. 보안 경계 변경이므로 Markdown 화면보다 먼저, 따로 승인받는다.
 6. **읽기·파싱·그리기에 한도를 둔다.** 아래 표가 한도와 넘었을 때의 화면이다. 값은 PoC 번들(markdown-it 15.0.3)을 node 26으로 잰 결과와, 이 저장소에서 가장 큰 Markdown(Limn `docs/handbook/viewer.md`, 612 KB, 블록 토큰 7,856, 인라인 토큰 11,963, 중첩 5단계)을 근거로 잡았다. 승인 전에 네 기기군에서 다시 잰다.
@@ -203,7 +207,7 @@ HTML 화면에는 변환도, 빌드도, 생성 파일도 없다. 그린 블록�
    | 블록 토큰 | 30,000 | 원문 줄 보기 |
    | 인라인 토큰 | 150,000 | 원문 줄 보기 |
    | 그린 요소 | 60,000(줄 span 포함, 짓는 동안 센다) | 짓던 것을 버리고 원문 줄 보기 |
-   | 원문 줄 보기의 줄 | 50,000 | 그리지 않는다. 바이트 한도와 같은 알림을 보인다 |
+   | 원문 줄 보기의 줄 | 50,000(서버가 보낸 줄 목록의 길이) | 그리지 않는다. 바이트 한도와 다른 까닭을 실제 줄 수와 한도로 알린다. "이 문서는 원문이 N줄이라 그리지 않습니다(한도 50,000줄)"이고, 까닭 값은 `lines`(실제 줄 수)와 `limit` 이다(바이트 한도의 `bytes`·`limit` 과 같은 꼴). 이 한도는 뷰어가 본다. 1 MiB 안의 문서라면 서버는 줄을 보낸다. 핀 목록·카드·에이전트 경로는 그대로 쓴다 |
    | 시간 | 파싱은 전용 Worker에서 하고, 2초가 지나면 끝낸다(`terminate`). DOM은 2,000 토큰씩 나눠 짓고, 새 원문이 오면 짓던 것을 버린다 | 원문 줄 보기 |
 
    **원문 줄 보기.** 파싱하지 않고 서버가 보낸 줄을 번호와 함께 한 줄씩(`span[data-line]`) 그린다. 줄 핀·작성 패널·제안 수정은 그대로 되고, 사다리에는 "고른 줄"만 있다. 머리에 걸린 한도를 한 줄로 알린다("표가 너무 커서 원문 줄로 보입니다" 등).
