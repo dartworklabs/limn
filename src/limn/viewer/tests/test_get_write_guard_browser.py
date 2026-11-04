@@ -40,7 +40,17 @@ class ExternalReadChains(BrowserBase):
     def test_resources_navigation_boot_and_poll_never_write(self):
         """Eight browser entry methods, both site relationships, boot/poll/unload: no files or automatic POSTs."""
         set_config(ps, auth="local", local_user="reader")
-        server = ps.Server(("127.0.0.1", 0), ps.Handler)
+        received = []
+
+        class RecordingHandler(ps.Handler):
+            """Record only method/path evidence that the actual server received the attempted read."""
+
+            def do_GET(self):
+                """Observe arrival before the production boundary handles the request."""
+                received.append(self.path)
+                super().do_GET()
+
+        server = ps.Server(("127.0.0.1", 0), RecordingHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         base = "http://127.0.0.1:%d" % server.server_port
@@ -57,17 +67,20 @@ class ExternalReadChains(BrowserBase):
                 for method in ("img", "script", "link", "fetch", "click", "location", "form", "open"):
                     with self.subTest(host=host, entry=method), self.browser.new_context() as context:
                         page = context.new_page()
+                        page.set_default_timeout(5000)
                         observed = []
                         context.on(
                             "request", lambda request, observed=observed: observed.append((request.method, request.url))
                         )
                         page.goto("http://%s:%d/" % (host, other.server_port))
                         before = snapshot(ps.APP.C.state), snapshot(ps.APP.C.src)
+                        first_received = len(received)
                         target = base + ("/api/meta" if method in ("img", "script", "link", "fetch") else "/")
                         page.evaluate(
                             """({method, target}) => {
+                          let done; window.__entryDone = new Promise(resolve => { done=resolve; });
                           document.getElementById('go').onclick = () => {
-                            if (method === 'fetch') { fetch(target, {mode: 'no-cors'}); return; }
+                            if (method === 'fetch') { fetch(target, {mode: 'no-cors'}).then(done, done); return; }
                             if (method === 'location') { location.href = target; return; }
                             if (method === 'open') { window.open(target); return; }
                             if (method === 'click') { const a = document.createElement('a'); a.href=target; a.click(); return; }
@@ -75,6 +88,7 @@ class ExternalReadChains(BrowserBase):
                             const element=document.createElement(method);
                             if (method === 'link') { element.rel='stylesheet'; element.href=target; }
                             else element.src=target;
+                            element.onload = element.onerror = done;
                             document.body.append(element);
                           };
                         }""",
@@ -85,6 +99,10 @@ class ExternalReadChains(BrowserBase):
                                 page.click("#go")
                             viewer = popup.value
                             viewer.wait_for_load_state()
+                        elif method in ("img", "script", "link", "fetch"):
+                            page.click("#go")
+                            page.evaluate("() => window.__entryDone")
+                            viewer = page
                         else:
                             with page.expect_response(lambda response, target=target: response.url.startswith(target)):
                                 page.click("#go")
@@ -95,6 +113,12 @@ class ExternalReadChains(BrowserBase):
                             viewer.evaluate("() => pollLightOnce()")
                             viewer.goto("about:blank")
                         page.wait_for_timeout(100)  # bounded negative observation: detect a delayed automatic write
+                        self.assertTrue(
+                            any(
+                                path.startswith("/api/meta" if method in ("img", "script", "link", "fetch") else "/")
+                                for path in received[first_received:]
+                            )
+                        )
                         self.assertFalse([m for m, url in observed if url.startswith(base) and m != "GET"])
                         self.assertEqual((snapshot(ps.APP.C.state), snapshot(ps.APP.C.src)), before)
         finally:

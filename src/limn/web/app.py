@@ -18,10 +18,10 @@ Principal: TypeAlias = access.Principal
 
 
 class PeopleRecorder(Protocol):
-    """The visit-recording operation needed by the common transport layer."""
+    """The human-change recording operation needed after successful changing POSTs."""
 
     def record(self, actor: Json, now: float | None = None, role: access.Role | None = None) -> bool:
-        """Record a human visit with the verified role; return whether the file changed."""
+        """Record a real human change with the verified role; return whether the file changed."""
         ...
 
 
@@ -41,7 +41,7 @@ class RouteRegistry:
 
 @dataclass(frozen=True)
 class WebApplication:
-    """A listener's guards, target selection, dispatch and visit-recording collaborators."""
+    """A listener's guards, target selection, dispatch and human-change recording collaborators."""
 
     settings: Callable[[], RunConfig]
     guards: RequestGuards

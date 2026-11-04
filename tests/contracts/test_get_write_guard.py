@@ -25,9 +25,9 @@ from helpers_access import A_LOGIN, ALICE, B_LOGIN, BOB, C_LOGIN, CAROL, ScopedR
 
 FAMILIES = {
     "/api/pins/1",
-    "/pages/150-1.png",
+    "/pages/page-1.png",
     "/vendor/pdfjs/pdf.min.mjs",
-    "/vendor/markdown-it/markdown-it.min.mjs",
+    "/vendor/markdown-it/markdown-it.esm.min.mjs",
     "/vendor/pretendard/pretendard.css",
 }
 
@@ -106,7 +106,18 @@ class TestReadContract(Base):
         pages.mkdir(parents=True, exist_ok=True)
         (pages / ps.APP.docs[0].pdf_name).write_bytes(minimal_pdf())
         (pages / "page-1.png").write_bytes(blank_png(10, 10))
-        paths += ["/pdf", "/pages/page-1.png"]
+        from limn.administration import serve_documents
+
+        (self.src / "notes.md").write_text("# Notes\n\nA paragraph.\n")
+        notes = serve_documents.make_docs(["notes=Notes:notes.md"], self.src, ps.APP.C)
+        ps.APP.set_docs([ps.APP.docs[0], *notes])
+        paths += [
+            "/pdf",
+            "/pages/page-1.png",
+            "/api/source?doc=notes",
+            "/api/snippet?file=" + str(self.main) + "&lo=4&hi=5",
+            "/api/overlaps?file=" + str(self.main) + "&lo=4&hi=5",
+        ]
         before = tree(self.state), tree(self.src)
         with (
             mock.patch.object(type(ps.APP.RT), "start_thread", side_effect=AssertionError("GET scheduled work")),
@@ -136,8 +147,20 @@ class TestReadContract(Base):
                                         "/api/people",
                                     ):
                                         self.assertEqual(status, 403 if identity is identities[-1] else 200)
-                                    if method == "GET" and path == "/pdf" and identity is not identities[-1]:
+                                    if (
+                                        method == "GET"
+                                        and path in ("/pdf", "/pages/page-1.png")
+                                        and identity is not identities[-1]
+                                    ):
                                         self.assertEqual(status, 304)
+                                    if (
+                                        method == "GET"
+                                        and path.startswith(
+                                            ("/api/source?doc=notes", "/api/snippet?", "/api/overlaps?")
+                                        )
+                                        and identity is not identities[-1]
+                                    ):
+                                        self.assertEqual(status, 200)
                                     self.assertEqual((tree(self.state), tree(self.src)), before)
 
     def test_registered_route_errors_preserve_trees_and_deduplicate_tracebacks(self):
@@ -186,6 +209,27 @@ class TestReadContract(Base):
             ):
                 with self.assertRaises(PermissionError):
                     action()
+
+    def test_http_boundary_denies_writers_captured_by_get_routes(self):
+        """A future GET accidentally capturing a factory or an old writer fails before archive/file changes."""
+        self.dirty()
+        original = ps.Handler.app
+        writer = ps.APP.pin_store()
+        before = tree(self.state), tree(self.src)
+        try:
+            for action in (ps.APP.pin_store, writer.clear):
+
+                def regressed(request, action=action):
+                    """Try a forbidden effect through the real HTTP boundary, ignoring any query flag."""
+                    self.assertFalse(hasattr(request, "record_person"))
+                    action()
+                    raise AssertionError("GET obtained writer")
+
+                ps.Handler.app = dataclasses.replace(original, routes=RouteRegistry(RouteBundle(get=(regressed,))))
+                self.assertEqual(self.response("GET", "/api/pins?read_only=0", headers=ALICE)[0], 500)
+                self.assertEqual((tree(self.state), tree(self.src)), before)
+        finally:
+            ps.Handler.app = original
 
     def test_person_only_after_real_post(self):
         """Opening and refused/missing actions do not register a reader; a saved pin does."""
@@ -245,17 +289,55 @@ class TestReadContract(Base):
     def test_maintenance_never_overlaps(self):
         """A concurrent pass is skipped, and shutdown wakes a sleeping watcher without a new pass."""
         upkeep = PinMaintenance(ps.APP.pin_store, 30)
-        with upkeep._running:
-            upkeep.run()
+        entered, release = threading.Event(), threading.Event()
+        from limn.pins.store import PinStore
+
+        maintain = PinStore.maintain
+
+        def held(store, days, now):
+            """Hold a real pass at its entry so a simultaneous call must skip it."""
+            entered.set()
+            assert release.wait(5)
+            maintain(store, days, now)
+
+        with mock.patch.object(PinStore, "maintain", autospec=True, side_effect=held) as passes:
+            worker = threading.Thread(target=upkeep.run)
+            worker.start()
+            try:
+                self.assertTrue(entered.wait(5))
+                upkeep.run()
+                self.assertEqual(passes.call_count, 1)
+            finally:
+                release.set()
+                worker.join(5)
+            self.assertFalse(worker.is_alive())
         stop = threading.Event()
         stop.set()
         with mock.patch.object(upkeep, "run") as run:
             upkeep.watch(stop, 0.001)
             run.assert_not_called()
+        with (
+            mock.patch.object(stop, "wait", side_effect=[False, True]) as wait,
+            mock.patch.object(upkeep, "run") as run,
+        ):
+            upkeep.watch(stop)
+            self.assertEqual(wait.call_args_list, [mock.call(60.0), mock.call(60.0)])
+            run.assert_called_once_with()
 
     def test_long_id_and_repeated_error_logs_are_bounded(self):
         """Long ids refuse before int(); identical 500s and damaged-file warnings have bounded output."""
         self.assertEqual(self.response("GET", "/api/pins/" + "9" * 5000, headers=ALICE)[0], 414)
+        for length in (21, 1000):
+            self.assertEqual(self.response("GET", "/api/pins/" + "9" * length, headers=ALICE)[0], 404)
+        self.dirty()
+        import io
+        from contextlib import redirect_stderr
+
+        stderr_text = io.StringIO()
+        with mock.patch("limn.pins.store.diagnostics", BoundedDiagnostics()), redirect_stderr(stderr_text):
+            for _ in range(20):
+                self.assertEqual(self.response("GET", "/api/pins", headers=ALICE)[0], 200)
+        self.assertEqual(stderr_text.getvalue().count("warning: failed to read"), 1)
         sink = BoundedDiagnostics()
         with mock.patch("sys.stderr") as stderr:
             for i in range(1000):
