@@ -38,6 +38,18 @@ Inc. MIT notice for the Node.js `url` code its `parse()` is based on) are kept w
 | `punycode.js` | 2.3.1 | MIT | [`licenses/punycode.js-2.3.1.LICENSE`](licenses/punycode.js-2.3.1.LICENSE) | `483acb26…d5f88c8a` | `8768d89a…1f7324a8` |
 | `rolldown` runtime helper (`\0rolldown/runtime.js`, a few lines) | 1.2.14 | MIT | [`licenses/rolldown-1.2.14.LICENSE`](licenses/rolldown-1.2.14.LICENSE) | `23ecfff3…e2f9f734` | `9c142fca…c806e53d` |
 | `@oxc-project/runtime` helpers (`typeof`, `toPrimitive`, `toPropertyKey`, `defineProperty`; injected by rolldown) | 0.154.0 (named in the bundle) | MIT | [`licenses/oxc-project-runtime-0.154.0.LICENSE`](licenses/oxc-project-runtime-0.154.0.LICENSE) | `95ced5ec…fdcc27b3` | `1d7d74ef…40e0d0a1` |
+| `@babel/runtime` helpers beneath them (the same four: see below) | 8.0.7 (licence text; see below) | MIT | [`licenses/babel-runtime-8.0.7.LICENSE`](licenses/babel-runtime-8.0.7.LICENSE) | `117da2af…4ff24f76` | `1ea91c9b…7e439b1` |
+
+The `@oxc-project/runtime` helpers are Babel's. That package's README says its code is copied from the published
+`@babel/runtime` ("All credits to the Babel team"), and its own LICENSE names only VoidZero Inc. and Boshen, so Babel's
+MIT notice (Sebastian McKenzie and other contributors) is kept beside it. Of the four helpers the bundle inlines
+(`//#region \0@oxc-project+runtime@0.154.0/helpers/esm/<name>.js`), `typeof` (which keeps Babel's
+`"@babel/helpers - typeof"` marker), `toPropertyKey` and `defineProperty` are byte for byte `helpers/esm/<name>.js` of
+`@babel/runtime` 8.0.7 and of 7.29.10, and `toPrimitive` is Babel's with the `typeof Symbol` guard dropped (oxc's change).
+Oxc 0.154.0 (published 2026-10-13) names no Babel version: `npm/runtime/upstream.json`, which later records one (8.0.8),
+is not in its tag `crates_v0.154.0`. 8.0.7 is the last `@babel/runtime` published before it (2026-10-07); its LICENSE is
+the same file as 7.29.10's (sha256 `117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76`), taken unmodified
+from `npm pack @babel/runtime@8.0.7` (tarball sha256 `1ea91c9b9b8f1f764b6baec278e28ecb5b47a246298fb01a88e0023db3ed673c`).
 
 Open before approval (plan Task 5 Step 1): rolldown's licence points to a THIRD-PARTY-LICENSE file for code it derives from
 other projects; whether any of that covers the runtime helper lines in this bundle is not checked yet.
