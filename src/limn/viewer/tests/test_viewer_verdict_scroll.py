@@ -26,6 +26,7 @@ import helpers_figure
 from helpers import blank_png, ps, split_resp
 from helpers_access import ALICE, talk_to
 from helpers_browser import BrowserBase, settle
+from helpers_csp import add_test_style
 from helpers_trace import SCROLL_ADDING_FONTS, laid_out, traced
 
 N_PAGES = 60  # each a figure with its line; the issue's document had 88
@@ -158,7 +159,7 @@ class ManyLinesWhileThePdfScrolls(SixtyFigurePages):
         long, events = traced(page, SCROLL_ADDING_FONTS, 8)
         laid = laid_out(events)
         self.assertTrue(laid, "no layout in the trace")
-        page.add_style_tag(content="#doc .pv{content-visibility:visible!important}")
+        add_test_style(page, "#doc .pv{content-visibility:visible!important}")
         settle(page)
         _, events = traced(page, SCROLL_ADDING_FONTS, 8)
         drawn = laid_out(events)

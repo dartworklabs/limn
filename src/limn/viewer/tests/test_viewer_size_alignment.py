@@ -48,8 +48,8 @@ PREFS = "try{localStorage.setItem('pinPrefs',%s);}catch(e){}" % json.dumps(
 FALLBACKS = ("Noto Sans CJK KR", "WenQuanYi Zen Hei")
 # Puts the given families in --font-sans before the viewer lays anything out.
 FALLBACK_INIT = (
-    "document.addEventListener('DOMContentLoaded',()=>{const s=document.createElement('style');"
-    "s.textContent=':root:root{--font-sans:%s,sans-serif}';document.head.append(s);});"
+    "document.addEventListener('DOMContentLoaded',()=>{const s=new CSSStyleSheet();"
+    "s.replaceSync(':root:root{--font-sans:%s,sans-serif}');document.adoptedStyleSheets=[...document.adoptedStyleSheets,s];});"
 )
 # The first of the given families the browser has, or null: a family it lacks measures as the monospace it falls back to.
 FIRST_FONT = """fams => {const c = document.createElement('canvas').getContext('2d'), s = '본문 핀 검토 선택';

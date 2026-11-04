@@ -45,6 +45,7 @@ from helpers_browser import (
     watch_idle,
 )
 from helpers_browser_font import use_test_font, wait_test_font
+from helpers_csp import add_test_style
 from helpers_outline import SHEET_ROWS
 
 HANGUL = re.compile(r"[가-힣]")
@@ -2954,7 +2955,7 @@ FOOT_BOXES = """() => {const f = document.querySelector('#more-foot'), F = f.get
 # Reads the ink of each box from a screenshot (base64 PNG at the device pixel ratio): per pixel row the strongest coverage
 # (luminance against the sheet's, over the ink colour's), and the ink's top and bottom edges in CSS px, the partial edge rows
 # counted by their coverage.
-INK = """async ([b64, dpr, boxes, bg]) => {const img = new Image(); img.src = 'data:image/png;base64,' + b64; await img.decode();
+INK = """async ([b64, dpr, boxes, bg]) => {const img = await createImageBitmap(new Blob([Uint8Array.from(atob(b64), ch => ch.charCodeAt(0))], {type: 'image/png'}));
   const c = document.createElement('canvas'); c.width = img.width; c.height = img.height; const x = c.getContext('2d'); x.drawImage(img, 0, 0);
   const D = x.getImageData(0, 0, c.width, c.height).data, W = c.width, out = {};
   for (const [k, b] of Object.entries(boxes)) {const X0 = Math.max(0, Math.floor(b[0] * dpr)), X1 = Math.min(W, Math.ceil(b[2] * dpr));
@@ -3381,7 +3382,7 @@ class BarChip(ViewerBase):
         for w, h in ((344, 882), (360, 800), (411, 908), (430, 932)):
             for lang in ("ko", "en"):
                 page = self.view(phone(w, h, 3), lang=lang)
-                page.add_style_tag(content=base)
+                add_test_style(page, base)
                 for step in ("", "bar-snug", "bar-snug bar-tight"):
                     with self.subTest(w=w, lang=lang, step=step):
                         page.evaluate(
@@ -6671,8 +6672,8 @@ class SymmetryAudit(ViewerBase):
 WIDE_HANGUL = ("WenQuanYi Zen Hei", "Noto Sans CJK KR")
 # Puts WIDE_HANGUL in --font-sans before the viewer lays anything out (it measures its bars as it boots).
 WIDE_HANGUL_INIT = (
-    "document.addEventListener('DOMContentLoaded',()=>{const s=document.createElement('style');"
-    "s.textContent=':root:root{--font-sans:%s,sans-serif}';document.head.append(s);});"
+    "document.addEventListener('DOMContentLoaded',()=>{const s=new CSSStyleSheet();"
+    "s.replaceSync(':root:root{--font-sans:%s,sans-serif}');document.adoptedStyleSheets=[...document.adoptedStyleSheets,s];});"
     % ",".join('"%s"' % f for f in WIDE_HANGUL)
 )
 # The first of the given families the browser has, or null: a family it lacks measures as the monospace it falls back to.
@@ -6712,8 +6713,8 @@ FORCE_VISIBLE = """([i, on]) => {for (const a of document.querySelectorAll('[dat
 # How two screenshots of one clip (PNG, base64) differ: the number of pixels whose colour differs in the device rows outside
 # [skip[0], skip[1]) - the rows of the box that clips, where ink the clip cut can never be. Inside them the shots differ for
 # other reasons: an ellipsis gives way to the whole words, and Chromium antialiases a clipped text slightly differently.
-PIXEL_DIFF = """async ([a, b, skip]) => {const load = async s => {const i = new Image(); i.src = 'data:image/png;base64,' + s;
-    await i.decode(); const c = document.createElement('canvas'); c.width = i.width; c.height = i.height;
+PIXEL_DIFF = """async ([a, b, skip]) => {const load = async s => {const i = await createImageBitmap(new Blob([Uint8Array.from(atob(s), ch => ch.charCodeAt(0))], {type: 'image/png'}));
+    const c = document.createElement('canvas'); c.width = i.width; c.height = i.height;
     const x = c.getContext('2d'); x.drawImage(i, 0, 0); return x.getImageData(0, 0, c.width, c.height);};
   const A = await load(a), B = await load(b); let n = 0;
   for (let y = 0; y < A.height; y++) {if (y >= skip[0] && y < skip[1]) continue;
