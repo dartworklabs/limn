@@ -209,7 +209,7 @@ class ManyLinesWhileThePdfScrolls(SixtyFigurePages):
         line = '#doc .pv[data-page="%d"]' % n
         self.skipped(page, n)
         made = self.verdict(n, "보류")
-        self.assertTrue(page.evaluate("loadPins()"))
+        self.assertTrue(page.evaluate("loadPinsNow()"), "the list was not read again")  # its own read, or the poll's
         settle(page)
         self.skipped(page, n)
         self.assertEqual(page.evaluate(HEIGHTS), [], "lines that stand at another height than they are drawn at")

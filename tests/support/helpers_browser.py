@@ -575,7 +575,11 @@ class BrowserBase(ChromiumTestCase):
     def forward(self, route):
         """Send one viewer.test request to the in-process handler as WHO (tailnet headers, and a same-origin Origin on a
         POST) and fulfil the route with the handler's answer."""
-        rq = route.request
+        route.fulfill(**self.answer(route.request))
+
+    def answer(self, rq):
+        """The in-process handler's answer to viewer.test request rq, sent as WHO (see forward), as the keyword arguments
+        of route.fulfill: computed now, from the server's state now, so a test may hold it and fulfil a route later."""
         u = urlparse(rq.url)
         body = rq.post_data_buffer or b""
         h = {
@@ -598,7 +602,7 @@ class BrowserBase(ChromiumTestCase):
         out = {"content-type": hdrs.get("content-type", "application/octet-stream")}
         if "content-disposition" in hdrs:  # a download's name, which the browser reads from the answer
             out["content-disposition"] = hdrs["content-disposition"]
-        route.fulfill(status=code, headers=out, body=data)
+        return {"status": code, "headers": out, "body": data}
 
     def open(self, n_open, lang="ko", init=None, test_font=False, clock=None, **device):
         """Open the viewer in a new context and return the page once boot() has finished and the page has settled: the

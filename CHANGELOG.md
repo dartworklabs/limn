@@ -14,6 +14,11 @@
 
 ### Internal
 
+- **The pin list's scroll tests no longer fail when the light poll's read overtakes theirs (#392).** They asked that
+  their own read of the list was the one drawn, which an overtaken read is not, by design. They now check that the list
+  shows a read asked since their change and what it holds, and a new test makes the poll overtake a read whose answer
+  predates an agent's close: the late answer is not drawn, and the card and the view stay as the poll left them.
+
 - **Server groundwork for Markdown documents (ADR-0025), not reachable yet.** No `--doc` suffix chooses a Markdown
   document until the viewer can draw one, so nothing below changes what an instance serves today.
   - `GET /api/source?doc=<key>` answers a document the browser draws with its source as
