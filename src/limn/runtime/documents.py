@@ -341,7 +341,7 @@ class Doc:
     @property
     def renders_in_browser(self) -> bool:
         """The viewer draws it from its source, not from page images: a Markdown document (ADR-0025 D1). It has no
-        PDF and no page images to build or watch."""
+        PDF and no page images to build or watch, so startup builds nothing for it (limn.builds.run.needs_build)."""
         return self.kind == "markdown"
 
     @property
