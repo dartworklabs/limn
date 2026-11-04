@@ -1,14 +1,16 @@
 # Changelog
 
-## Unreleased
+## 0.4.49 — 2026-11-05
 
 ### Fixed
 
 - **A triple click on a Markdown document's last paragraph picks its lines.** Chromium ends that selection after the
-  document (there is no next block to end at; Firefox ends it in the paragraph), and a selection reaching outside the document was dropped whole, so the
-  first click's block pick stood: the pin was saved as the paragraph block instead of the chosen lines. Only the part of a
-  selection inside the document counts now, and its quote is that part's text. The same holds for a drag that starts
-  above the document. A selection with both ends outside the document (select-all) still picks nothing.
+  document (there is no next block to end at; Firefox ends it in the paragraph), and a selection reaching outside the
+  document was dropped whole, so the first click's pick stood: at desktop width the pin was saved as the paragraph
+  block instead of the chosen lines, and in the mid layout no composer opened. Only the part of a selection inside the
+  document counts now - the same for a drag that starts above it - and its quote is that part's rendered text. A
+  selection with both ends outside the document (select-all) still picks nothing.
+- The agent contract (`pins.md`, HTTP API) is unchanged.
 
 ## 0.4.48 — 2026-11-04
 
