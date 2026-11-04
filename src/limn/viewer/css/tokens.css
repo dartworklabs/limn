@@ -17,7 +17,7 @@
   --status-open:var(--success);--status-open-foreground:var(--success-foreground);--status-claimed:#f0b43c;
   --status-closed:var(--success);--status-dropped:#71717a;--status-warning:var(--warning);
   --status-review:#b197fc;--status-review-foreground:#1e1033;
-  --tooltip:#09090b;--tooltip-foreground:#fafafa;
+  --tooltip:#09090b;--tooltip-foreground:#fafafa;--tooltip-edge:#27272a;   /* the box's edge (= --border): a dark box on the dark page needs one */
   --shadow-color:#00000088;--shadow-page:0 2px 18px var(--shadow-color);
   --search-hit:#f2c200;--search-hit-current:#f76707;   /* a search hit's wash and the current hit's: on the page, paper in both themes, so both blocks agree */
   --mark-tile:var(--limn-ink);--mark-stroke:var(--limn-cream)}
@@ -32,7 +32,7 @@
   --success:#1a7f5a;--success-foreground:#ffffff;--warning:#8a5c00;--warning-foreground:#ffffff;
   --status-claimed:#b86e00;--status-dropped:#71717a;
   --status-review:#6d28d9;--status-review-foreground:#ffffff;
-  --tooltip:#18181b;--tooltip-foreground:#fafafa;
+  --tooltip:#18181b;--tooltip-foreground:#fafafa;--tooltip-edge:#18181b;   /* no edge on the light page: the box's own colour */
   --shadow-color:#00000022;--shadow-page:0 1px 6px var(--shadow-color);
   --search-hit:#f2c200;--search-hit-current:#f76707;
   --mark-tile:var(--limn-bone);--mark-stroke:var(--limn-ink)}

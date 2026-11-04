@@ -83,8 +83,9 @@ Limn(림, "또렷이 그리다")은 원고 PDF를 브라우저에 띄운다. 사
      - 위치 칸은 그 요소를 그린 호출, 곧 그림 스크립트의 `<파일> L<lo>-L<hi>` 이고 범위 칸은 요소 종류(`el:MonthCell`, 그림 전체는 `figure`)다.
      - 메모 앞 `«…»` 는 요소 이름이고, 메모 뒤 `공통 부품: <파일>:<lo>-<hi>` 는 공통 부품의 정의다.
      - 위치 칸이 `쪽 N, 영역 …` 인 그림 핀은 코드 줄이 없다. 요소를 코드 없이 그렸거나(예: 디자인 파일), 그 요소의 스크립트나 지도를 읽지 못했다는 뜻이다. 쪽·요소 이름·메모로 그림 저장소에서 고칠 곳을 찾는다. 요소가 디자인 도구에서 왔으면 고치지 말고 보고한다. 고칠 곳을 못 찾으면 닫지 말고 사람에게 묻거나 보고한다.
+   - **Markdown 핀**(제목이 `— Markdown(쪽 없음)` 으로 끝나는 소절): `.md` 문서의 줄 핀이다. 쪽이 없어 쪽 칸은 `—` 다. 위치 칸의 `<파일> L<lo>-L<hi>` 를 그 `.md` 에서 바로 고친다. 범위 칸은 그린 블록(`md:paragraph`·`md:item`·`md:table`·`md:code`·`md:quote`·`md:html`)이나 절(`md:section`, 제목부터 같은 수준이나 더 높은 다음 제목 앞까지)이다. 재빌드할 것이 없다. 뷰어가 몇 초 안에 고친 원문을 다시 그린다. 이 문서에 핀을 만들 때는 pick 없이 `file`·`lo`·`hi` 를 보낸다. `page` 는 보내도 버린다.
    - **저장소를 확인한다(강제).** 머리줄 `논문: <이름표> · 저장소: <url>` 이 있으면 자기 체크아웃의 `git remote get-url origin` 과 같은지 본다. 다르면 다른 논문의 핀이니 처리하지 말고 멈추고 보고한다(여러 인스턴스가 동시에 돌 때의 안전판).
-2. **기준 커밋을 맞춘다.** `기준: <head> · 빌드 <built_at>` 줄(단일 문서는 머리, 여러 문서는 소절마다)이 있고 다른 체크아웃에서 처리하면, `git rev-parse --short HEAD` 가 같은지 먼저 본다. 원고에서 빌드하지 않는 문서(그림 문서, 보기 전용 PDF)의 소절에서는 `기준: <head> · 그림 <built_at>` 으로 읽힌다. 확인은 같다.
+2. **기준 커밋을 맞춘다.** `기준: <head> · 빌드 <built_at>` 줄(단일 문서는 머리, 여러 문서는 소절마다)이 있고 다른 체크아웃에서 처리하면, `git rev-parse --short HEAD` 가 같은지 먼저 본다. 원고에서 빌드하지 않는 문서(그림 문서, 보기 전용 PDF)의 소절에서는 `기준: <head> · 그림 <built_at>` 으로 읽힌다. 확인은 같다. Markdown 문서의 소절에는 빌드가 없어 `기준:` 줄이 없다.
 3. **처리 범위를 정한다.**
    - 부탁받은 쪽이 그 시점 열린 핀을 **전부** 처리한다. 누가 남겼는지와 무관하다(저자 결정 2026-09-22).
    - 사용자가 번호를 지목했으면 그 핀만.
@@ -203,7 +204,7 @@ Limn(림, "또렷이 그리다")은 원고 PDF를 브라우저에 띄운다. 사
 - `close`·`drop` 이 claim 을 지운다. 처리를 포기하거나 넘길 때만 `/unclaim`.
 - 메모·범위를 고칠 때는 `GET /api/pins` 의 `rev` 를 `/edit` 의 `base_rev` 로 보낸다. `409 conflict` 면 응답의 최신 `pin` 을 보고 다시 보낸다. 덧붙이기만 하면 `note_append`(`base_rev` 불필요).
 - 오류 응답은 늘 `{"error": "<한국어 문장>", "reason": "<코드>"}` 다. 분기는 안정 코드 `reason`(`viewer_only`·`conflict`·`pin_not_found` 등 영문 소문자)으로 하고, 문장은 사람이 읽는 것이다. 코드 목록은 `docs/handbook/api.md` §오류 응답.
-- 원고를 고친 뒤 재빌드는 `GET /api/docs` 의 `kind` 가 `"tex"` 인 문서만 한다: `POST /api/rebuild?async=1&doc=<키>`(단일 문서는 `doc` 생략). 옛 PDF 위의 pick 은 줄 번호가 어긋난다. 보기 전용 PDF(`"pdf"`)와 그림 문서(`"figure"`)는 재빌드가 없고 `POST /api/rebuild` 는 `400` 이다.
+- 원고를 고친 뒤 재빌드는 `GET /api/docs` 의 `kind` 가 `"tex"` 인 문서만 한다: `POST /api/rebuild?async=1&doc=<키>`(단일 문서는 `doc` 생략). 옛 PDF 위의 pick 은 줄 번호가 어긋난다. 보기 전용 PDF(`"pdf"`), 그림 문서(`"figure"`), Markdown 문서(`"markdown"`)는 재빌드가 없고 `POST /api/rebuild` 는 `400` 이다.
 - 원고 문서의 핀이 원고에 실린 그림 위에 있으면(범위 칸 `env:figure`·`env:figure*`) 위치 칸은 `\includegraphics` 를 감싼 tex 줄뿐이다. 그 그림이 그림 문서에도 있으면 핀 영역을 그림 좌표로 옮겨 요소를 찾는다. 그림을 배치 크기 그대로 실었다면 1:1 로 옮겨진다. 그림 저장소가 이 일을 하는 도구를 두면 그것을 쓰고, 없으면 그림 문서에서 같은 쪽·영역·메모로 찾는다. 고칠 곳은 그림 핀과 같다. 데이터 그림처럼 그림 문서에 없는 그림은 tex 줄이 위치다.
 - 디자인 도구(예: Figma)에 남긴 코멘트는 Limn 이 읽지 않는다. 그림 저장소가 코멘트를 읽어 그림 요소로 바꾸는 도구를 두면 그 결과를 그림 핀처럼 다룬다. 그 도구에 쓰는 개인 토큰은 사람이 직접 저장하게 하고, 받거나 출력하지 않는다([operations.md](../docs/handbook/operations.md) §그림 문서와 다른 사본).
 - 그림 핀(제목이 `… — 그림(요소 지도)` 인 소절의 핀): 위치 칸의 줄(그 요소를 그린 호출)을 고친다. 요청이 공통 모양에 관한 것이면 — 요소의 `공통 부품` 을 고치면 그 부품을 쓰는 그림이 모두 바뀐다 — 한 그림만 덮어쓰지 말고 사람에게 묻는다. 묻는 법은 핀을 열어 둔 채 그 핀에 답글로 질문을 다는 것이다(`POST /api/pins/N/reply`, 질문 핀과 같다). 닫지 않는다. 고친 뒤에는 그림 저장소에서 그림을 다시 렌더한다(그 저장소의 명령, 예: `make figures`). 같은 그림이 디자인 도구(예: Figma)나 원고의 그림 파일에도 사본으로 있으면, 그림 저장소가 두는 명령으로 사본을 함께 바꾼다. 사본을 하나씩 고치지 않는다. 디자인 도구의 사본에 사람이 고친 흔적이 있으면 덮지 말고 보고한다. Limn 이 PDF와 지도를 지켜보다 알아서 가져오므로, 다시 렌더해야 사람이 고친 그림을 본다. 핀을 닫기 전에 고친 것을 커밋한다. 닫을 때 보내는 `changes` 와 `ref` 에 그 커밋이 필요하다. 그림 문서나 보기 전용 PDF 문서에서 `ref` 를 단 닫기는 Limn 이 머지된 변경을 당기고(`--git-pull` 로 띄운 인스턴스) 새 파일을 가져올 때까지 기다리므로 30초까지 걸릴 수 있다. 그래서 사람에게 알림이 갈 때는 고친 그림이 이미 화면에 있다. 내 쪽에서 닫기가 시간 초과로 끊겼으면 다시 보내도 안전하다. 같은 핀과 `200` 을 돌려주고 알림을 다시 보내지 않는다.
@@ -221,7 +222,7 @@ Limn(림, "또렷이 그리다")은 원고 PDF를 브라우저에 띄운다. 사
    - `--port` 를 빼면 서버가 빈 포트를 골라 기동 로그에 찍는다.
    - 일회성 서버를 내릴 때 `pkill -f limn` 금지. `pid=$(lsof -ti tcp:<port>); [ -n "$pid" ] && kill $pid`.
 3. **실행한다.**
-   - 일회성: `limn serve --manuscript <dir> [--main main.tex | --doc KEY=NAME:PATH ...] [--port N] [--state-dir DIR]`. `--doc`(반복)은 논문 저장소 하나의 문서 여럿을 한 주소에서 고르게 한다. `.tex` 는 LaTeX, `.pdf` 는 보기 전용, `.limnmap.json`(소문자)으로 끝나는 경로는 그림 문서다. 그 지도가 가리키는 PDF를 Limn 이 가져온다. 직접 띄울 때는 **원고마다 `--state-dir` 과 포트를 따로 둔다** — 같은 값을 공유하면 핀이 섞인다. 다른 인자(`--git-pull`·`--label`·`--accent` 등)는 `limn serve --help` 와 [operations.md](../docs/handbook/operations.md).
+   - 일회성: `limn serve --manuscript <dir> [--main main.tex | --doc KEY=NAME:PATH ...] [--port N] [--state-dir DIR]`. `--doc`(반복)은 논문 저장소 하나의 문서 여럿을 한 주소에서 고르게 한다. `.tex` 는 LaTeX, `.pdf` 는 보기 전용, `.limnmap.json`(소문자)으로 끝나는 경로는 그림 문서다. 그 지도가 가리키는 PDF를 Limn 이 가져온다. `.md` 는 Markdown 문서다. 빌드 없이 뷰어가 원문을 그린다(`--main` 에는 주지 않는다). 상시 인스턴스에는 `limn doc add <이름> --doc '<키>=<이름>:<경로>.md'` 로 더한다. 직접 띄울 때는 **원고마다 `--state-dir` 과 포트를 따로 둔다** — 같은 값을 공유하면 핀이 섞인다. 다른 인자(`--git-pull`·`--label`·`--accent` 등)는 `limn serve --help` 와 [operations.md](../docs/handbook/operations.md).
    - 상시, 원고마다 하나: `limn add <이름> --manuscript <dir> ...` 이 포트를 배정하고 설정을 쓰고 `limn@<이름>` 을 켜고 `tailscale serve` 까지 잡는다. 그다음 `limn list`, `limn status <이름>`, `limn url <이름>`. `limn snippet <이름>` 은 논문 저장소 AGENTS.md 에 붙일 조각을 찍는다 — 에이전트가 인스턴스를 찾는 입구다. 운영 안내: [instances.md](../docs/handbook/instances.md).
 4. **노출한다 — Hard Rule.**
 
@@ -252,8 +253,8 @@ JSON 키·쿼리 매개변수·단일값 보안 헤더는 각각 한 번만 보�
 | `POST /api/pins/{id}/reopen` | 다시 연다(옛 `reply`·`ref`·`changes` 삭제). 선택 `{"reason"}` 은 스레드에 남는다 |
 | `POST /api/pins/{id}/edit` | 메모·범위 수정(`base_rev` 필수) 또는 `note_append`. `suggest: {base, text}` 는 LaTeX·Markdown 줄 핀에 제안 수정을 넣고 `null` 은 지운다. 판정 핀은 메모 수준만 고친다(그 밖은 `400 verdict_fixed`) |
 | `POST /api/pins/{id}/drop` | 핀을 휴지통으로 뺀다. 30일 동안 `/restore` 로 되살린다(영구 삭제 `/purge` 는 소유자만). 판정 핀은 안 된다: 에이전트는 둘 다 `403 verdict_human` |
-| `POST /api/rebuild?async=1` | LaTeX 문서의 PDF 재빌드(`kind: "tex"` 만. 그림·보기 전용 문서는 `400`). 진행은 `GET /api/build`. 여러 문서면 둘 다 `&doc=<키>`. 원고가 화면 빌드와 같으면 바로 `ok` 와 `unchanged: true` 로 끝난다. 처음부터 다시 빌드하려면 `&force=1` 을 붙인다(셸 탈출 프로그램만 읽는 파일을 바꿨을 때) |
-| `GET /api/docs` | 문서 목록(키·이름·종류 `tex`/`pdf`/`figure`·열린 핀 수·빌드 상태). 판정 낱말이 있는 문서는 `verdicts`(쓸 수 없는 낱말 파일이면 `verdicts_error`) |
+| `POST /api/rebuild?async=1` | LaTeX 문서의 PDF 재빌드(`kind: "tex"` 만. 그림·보기 전용·Markdown 문서는 `400`). 진행은 `GET /api/build`. 여러 문서면 둘 다 `&doc=<키>`. 원고가 화면 빌드와 같으면 바로 `ok` 와 `unchanged: true` 로 끝난다. 처음부터 다시 빌드하려면 `&force=1` 을 붙인다(셸 탈출 프로그램만 읽는 파일을 바꿨을 때) |
+| `GET /api/docs` | 문서 목록(키·이름·종류 `tex`/`pdf`/`figure`/`markdown`·열린 핀 수·빌드 상태). 판정 낱말이 있는 문서는 `verdicts`(쓸 수 없는 낱말 파일이면 `verdicts_error`) |
 | `GET /api/meta?light=1` | 쓰기 없는 상태 조회(`stale_build` 등). `&ev=<seq>` 면 나에게 온 이벤트(브라우저 알림용) |
 
 ## 참고 파일

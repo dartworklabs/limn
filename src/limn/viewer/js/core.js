@@ -54,6 +54,7 @@ const NOTICE_TOPIC=Object.freeze({PICK:'pick',SIDE:'side'});   // what a first-v
 const VD_WHERE=Object.freeze({COMPOSER:'composer',PAGE:'page'});   // where a verdict button is (verdict.js): the composer's verdict row or a page verdict line
 const LIST_ORDER=Object.freeze({NEW:'new',PAGE:'page',ID:'id'});   // the pin list's order (orderPins); index.html data-order
 const STAMP_FORM=Object.freeze({BOTH:'both',SHORT:'short',EDITED:'edited'});   // what a comment's time says (stampText); a .rt's data-form
+const MD_LIMIT=Object.freeze({BYTES:'bytes',LINES:'lines',NESTING:'nesting',BLOCKS:'blocks',INLINES:'inlines',ELEMENTS:'elements',TIME:'time',LOAD:'load',ERROR:'error'});   // the limit a Markdown document's drawing hit (md-surface.js, MD_LIMITS): #md's data-limit
 // Each band's layout mode (docs/handbook/viewer.md §모바일 레이아웃): the sheet (narrow), the panel between the nav bar and the
 // action row (mid) or the desktop (wide). Code that only asks which of the three reads LAYOUT; code that differs per band reads BAND.
 const BAND_MODE=Object.freeze({[LAYOUT_BAND.PHONE]:LAYOUT_MODE.NARROW,[LAYOUT_BAND.TABLET_SHEET]:LAYOUT_MODE.NARROW,[LAYOUT_BAND.SHORT]:LAYOUT_MODE.MID,[LAYOUT_BAND.MID_OVERLAY]:LAYOUT_MODE.MID,[LAYOUT_BAND.MID_SIDE]:LAYOUT_MODE.MID,[LAYOUT_BAND.WIDE]:LAYOUT_MODE.WIDE});
@@ -62,6 +63,11 @@ function isFigureKind(kind){return kind===DOC_KIND.FIGURE;}
 // Whether a document of this `kind` is rebuilt from its source: only a LaTeX one. A view-only PDF and a figure redraw when their
 // files change, so they have no rebuild and word a finished build as a redraw.
 function buildsFromSource(kind){return kind===DOC_KIND.TEX;}
+// Whether a document of this `kind` is drawn by the browser from its source (the server's renders_in_browser,
+// limn.runtime.documents.Doc.renders_in_browser): only a Markdown one. It has no pages - #doc holds its column (md-surface.js) -
+// and its line pins carry no page.
+/** @param {string|undefined} kind */
+function rendersInBrowser(kind){return kind===DOC_KIND.MARKDOWN;}
 // Whether a document of this `kind` is view-only - its pins are pages and regions, never lines (the server's view_only,
 // limn.runtime.documents.Doc.view_only): only a view-only PDF. Every other kind takes line pins.
 /** @param {string|undefined} kind */
@@ -198,9 +204,9 @@ window.__pinViewerBoot=Date.now();   // a marker for checking reload status from
 const T={
   stale:'핀을 찍은 첫 문장이 바뀌거나 지워져 위치를 되찾지 못했습니다. 이미 고쳐졌을 수 있으니 확인한 뒤 완료하거나 [수정] → 위치 다시 잡기를 하세요',
   ellost:'그림을 다시 그린 뒤 지도에서 이 요소를 찾지 못했습니다(요소 id가 바뀌었거나 지워짐). 표시는 핀을 찍은 때 자리에 그립니다. 이미 고쳐졌을 수 있으니 확인한 뒤 완료하거나 [수정] → 위치 다시 잡기를 하세요',
-  n:"누르면 PDF에서 이 핀 자리로 갑니다. 에이전트에게는 '#2 처리해줘'처럼 번호로 부르세요. 번호는 다시 쓰이지 않습니다",
+  n:"누르면 문서에서 이 핀 자리로 갑니다. 에이전트에게는 '#2 처리해줘'처럼 번호로 부르세요. 번호는 다시 쓰이지 않습니다",
   loc:'핀이 가리키는 원문 줄. 클릭하면 복사',
-  view:'PDF에서 이 핀 자리로 가서 깜빡입니다', edit:'메모와 범위를 고칩니다. 번호는 그대로입니다',
+  view:'문서에서 이 핀 자리로 가서 깜빡입니다', edit:'메모와 범위를 고칩니다. 번호는 그대로입니다',
   close:"처리됨으로 표시해 목록과 pins.md에서 뺍니다. 아래 '닫힌 핀'에서 되돌릴 수 있습니다",
   drop:'핀을 휴지통으로 보냅니다. 카드 자리에 남는 [되돌리기]나 휴지통에서 같은 번호 그대로 되살릴 수 있습니다(30일 보관)',
   dropVerdict:'이 판정 핀을 휴지통으로 보냅니다(판정을 거둡니다). 같은 대상에 앞선 판정이 있으면 그 판정이 다시 지금 판정이 됩니다. 카드 자리에 남는 [되돌리기]나 휴지통에서 같은 번호 그대로 되살릴 수 있습니다(30일 보관)',
@@ -212,6 +218,10 @@ const T={
   text:'드래그한 글자를 원문에서 직접 찾아 정한 위치입니다. 표나 기호표처럼 좌표로 찾기 어려운 곳에 쓰는 방법입니다.',
   map:'그림 지도에서 드래그와 가장 많이 겹치는 요소를 골랐습니다.',
   raw:'넓히기 전에 드래그 영역이 직접 가리킨 줄만 잡습니다',
+  mdraw:'넓히기 전에 끌어 고르거나 누른 줄만 잡습니다',
+  block:'고른 자리를 감싸는 블록 전체입니다(문단·목록 항목·표·코드 블록·인용·HTML 블록)',
+  blocks:'고른 줄이 걸친 블록들 전체입니다',
+  section:'이 제목부터 같거나 높은 수준의 다음 제목 앞까지입니다',
   para:'드래그한 자리를 감싸는 문단 전체입니다(앞뒤 % 주석 줄은 뺍니다)',
   env:'감싸는 \\begin{…}…\\end{…} 블록 전체입니다. (바깥)은 한 단계 더 바깥 블록입니다',
   el:'이 요소를 그린 코드 줄입니다. 대기 상자가 그림의 이 요소에 맞춰집니다',

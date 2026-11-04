@@ -372,7 +372,8 @@ mkdir -p "$ms/submission/review_response" "$ms/submission/submission_ready" "$ms
 printf '\\documentclass{article}\n\\begin{document}rr\\end{document}\n' > "$ms/submission/review_response/review_response.tex"
 : > "$ms/submission/submission_ready/manuscript.pdf"
 printf '\\documentclass{article}\n\\begin{document}wide\\end{document}\n' > "$ms/wide/deep/main2.tex"
-: > "$ms/readme.md"
+: > "$ms/readme.txt"
+printf '# Notes\n\nA plan.\n' > "$ms/readme.md"
 
 chk "--main and --doc together are rejected" \
     "! '$PV' add docs-x --manuscript '$ms' --main main.tex --doc 'rr=답변서:submission/review_response/review_response.tex' --no-start >/dev/null 2>&1"
@@ -382,7 +383,11 @@ chk "rejects a key rule violation (uppercase)" "! '$PV' add docs-x --manuscript 
 chk "rejects a duplicate key" \
     "! '$PV' add docs-x --manuscript '$ms' --doc 'rr=답변서:submission/review_response/review_response.tex' --doc 'rr=중복:main.tex' --no-start >/dev/null 2>&1"
 chk "rejects a path outside the manuscript (../ is compared after normalization)" "! '$PV' add docs-x --manuscript '$ms' --doc 'out=밖:../outside.tex' --no-start >/dev/null 2>&1"
-chk "rejects an unsupported extension" "! '$PV' add docs-x --manuscript '$ms' --doc 'x=문서:readme.md' --no-start >/dev/null 2>&1"
+chk "rejects an unsupported extension" "! '$PV' add docs-x --manuscript '$ms' --doc 'x=문서:readme.txt' --no-start >/dev/null 2>&1"
+chk "the '::' form rejects a Markdown document" "! '$PV' add docs-x --manuscript '$ms' --doc 'x=노트:.::readme.md' --no-start >/dev/null 2>&1"
+mout=$("$PV" add docs-x --manuscript "$ms" --main readme.md --no-start 2>&1)
+mrc=$?
+chk "--main refuses a Markdown file and names the --doc form" "[[ $mrc -ne 0 ]] && grep -q -- '--doc <key>=<name>:readme.md' <<< \"\$mout\""
 chk "rejects a nonexistent file" "! '$PV' add docs-x --manuscript '$ms' --doc 'x=문서:no-such.tex' --no-start >/dev/null 2>&1"
 mkdir -p "$ms/figs/out"
 printf '{"format": "limn-figure-map/1"}\n' > "$ms/figs/out/figures.limnmap.json"
@@ -423,6 +428,17 @@ chk "a figure map is accepted in the ROOT:: form and as a plain path" "[[ $rc -e
 chk "DOCS keeps the figure entries as given" \
     "grep -qx 'DOCS=\"ms=본문:main.tex;fig=그림:figs::out/figures.limnmap.json;fg=그림 폴더:figs/out/figures.limnmap.json\"' '$T/src/docs-fig.env'"
 "$PV" remove docs-fig > /dev/null 2>&1
+
+out=$("$PV" add docs-md --manuscript "$ms" --no-serve \
+    --doc 'ms=본문:main.tex' \
+    --doc 'nt=노트:readme.md' \
+    --no-start 2>&1)
+rc=$?
+chk "a Markdown document (.md) is accepted as a plain path" "[[ $rc -eq 0 ]]"
+chk "DOCS keeps the Markdown entry as given" "grep -qx 'DOCS=ms=본문:main.tex;nt=노트:readme.md' '$T/src/docs-md.env'"
+argv=$(LIMN_PRINT_ARGV=1 "$PV" run docs-md 2> "$T/docs-md-run.err")
+chk "run passes the Markdown document as a --doc argument" "grep -qx 'nt=노트:readme.md' <<< \"\$argv\""
+"$PV" remove docs-md > /dev/null 2>&1
 
 echo "── 9. doc list/add/remove: single document ↔ multi-document switch ──"
 "$PV" add single-1 --manuscript "$ms" --main main.tex --no-serve --no-start > /dev/null 2>&1

@@ -73,9 +73,10 @@ function clearRevisionPdf(){
   if(REV_PDF.loading){try{void REV_PDF.loading.destroy().catch(()=>{});}catch(e){}REV_PDF.loading=null;}
   REV_PDF.doc=null;$('#revision-pdf').replaceChildren();
 }
-// The format a document's changes show for the one asked (docs/handbook/viewer.md §변경 보기): the source diff when asked;
-// otherwise a figure document's overlay of two builds, and a LaTeX document's comparison PDF - never the overlay. Pure.
-function revisionFormatFor(asked,figure){return asked===DIFF_FORMAT.SOURCE?DIFF_FORMAT.SOURCE:figure?DIFF_FORMAT.OVERLAY:DIFF_FORMAT.PDF;}
+// The format a document's changes show for the one asked (docs/handbook/viewer.md §변경 보기): the source diff when asked, and
+// always for a document with no comparison PDF (source: one the browser draws, a Markdown document); otherwise a figure
+// document's overlay of two builds, and a LaTeX document's comparison PDF - never the overlay. Pure.
+function revisionFormatFor(asked,figure,source){return asked===DIFF_FORMAT.SOURCE||(source&&!figure)?DIFF_FORMAT.SOURCE:figure?DIFF_FORMAT.OVERLAY:DIFF_FORMAT.PDF;}
 // Shows REV.format: the pressed tab, the pane, [이전 | 지금] with the overlay, and the overlay's status line on a figure
 // document (its source diff has none). Loads nothing.
 function drawRevisionFormat(){
@@ -87,7 +88,7 @@ function drawRevisionFormat(){
   $('#revision-overlay').hidden=$('#revision-side').hidden=REV.format!==DIFF_FORMAT.OVERLAY;
   if(REV.overlay)$('#revision-status').textContent=REV.format===DIFF_FORMAT.OVERLAY?overlayStatus(REV.overlay):'';}
 /** Switch formats while retaining comparison scale for the selected commit. */
-function setRevisionFormat(format){REV.format=revisionFormatFor(format,!!REV.overlay); drawRevisionFormat();
+function setRevisionFormat(format){REV.format=revisionFormatFor(format,!!REV.overlay,isMdDoc()); drawRevisionFormat();
   if(REV.format===DIFF_FORMAT.SOURCE&&REV.commit&&REV.sourceCommit!==revKey())
     loadRevisionSource(REV.commit,REV.seq,DOC);
   if(REV.format===DIFF_FORMAT.SOURCE&&REV.base&&REV.sourceCommit===revKey())$('#revision-status').textContent=REV.rangeLine;
@@ -127,9 +128,9 @@ async function loadRevisions(){
   REV.rows=rows; REV.rowsDoc=k||''; REV.more=!!data.more; if(!again)REV.listOpen=false;
   if(!again||!REV.seen||REV.seenState!==SEEN_STATE.OK)openSeen(revSeen(k||''),rows);
   REV.history=!!data.available&&rows.length>0; setRevisionOverlay(data.overlay||null);
-  const fig=!!REV.overlay; REV.format=revisionFormatFor(REV.format,fig); drawRevisionFormat();   // a LaTeX document after a figure leaves the overlay
+  const fig=!!REV.overlay; REV.format=revisionFormatFor(REV.format,fig,isMdDoc()); drawRevisionFormat();   // a LaTeX document after a figure leaves the overlay; a Markdown one opens its source diff
   $('#revision-controls').hidden=!REV.history&&!fig; $('#revision-note').hidden=!REV.history;
-  $('#revision-pdf-tab').hidden=fig; $('#revision-overlay-tab').hidden=!fig; $('#revision-source-tab').hidden=!REV.history;
+  $('#revision-pdf-tab').hidden=fig||isMdDoc(); $('#revision-overlay-tab').hidden=!fig; $('#revision-source-tab').hidden=!REV.history;
   if(!data.available){list.textContent='이 문서의 Git 변경사항을 볼 수 없습니다.'; drawRange();
     if(fig){setRevisionFormat(DIFF_FORMAT.OVERLAY);return;}
     if(tg)revTargetNote(tg.region?'보기 전용 PDF 문서의 핀이라 Git 변경사항이 없습니다 — 고친 곳은 LaTeX 문서(본문 등)의 변경사항에서 찾으세요.':

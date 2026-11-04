@@ -116,6 +116,7 @@ cmd_add() {
         validate_doc_specs "$manuscript" "${docs[@]}"
     elif [[ -n "$main" ]]; then
         [[ "$stage" == auto ]] || die "--stage is only used for auto-detection without --doc/--main"
+        [[ "$main" != *.[mM][dD] ]] || die "--main takes the LaTeX main (.tex) — a Markdown document is added with --doc <key>=<name>:$main"
         [[ "$main" != */* && -f "$manuscript/$main" ]] || die "main .tex is not at the top of the manuscript dir: $manuscript/$main"
     elif detect_docs_layout "$manuscript" "$stage"; then
         docs=("${DETECTED_DOCS[@]}")

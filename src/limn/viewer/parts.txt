@@ -27,6 +27,7 @@ css/overlays.css        # tooltip, dialogs, the page list
 css/responsive.css      # mobile/touch, the mid and narrow layouts, reduced motion, the label chip
 css/search.css          # in-document search: the nav bar's field, its folded magnifier, the phone's row, hit boxes
 css/notices.css         # messages in context: banners, undo rows, notes and chips, the status line's messages, dots
+css/md-surface.css      # the Markdown surface: the document column, its blocks, line marks and badges, the line view, notices
 
 __APP_JS__
 js/core.js              # strict mode, DOM helpers, icons, shared state, the tooltip texts (T)
@@ -59,6 +60,7 @@ js/selection.js         # drag and quick selection on the PDF, double-tap zoom
 js/levels.js            # the range ladder, line nudges, source snippets, the location-confidence badge
 js/excerpt.js           # the range excerpt: the band of selected lines between dimmed neighbours, tapped to widen or narrow
 js/figure.js            # figure documents: the chosen element's box and path
+js/md-surface.js        # the Markdown surface: drawing a document from its source (parse worker, limits), lines, links, picks, marks
 js/suggest.js           # suggested edits: the draft, its switch and editor (composer, edit card), a card's badge and line diff
 js/composer.js          # pick() and the composer: overlap banner, kind, question hint, discard and restore
 js/draft.js             # the composer draft kept per tab (sessionStorage)

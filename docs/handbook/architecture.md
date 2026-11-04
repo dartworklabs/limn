@@ -30,7 +30,7 @@ Limn은 하나의 `dartwork-limn` 배포 안에서 기능 소유권으로 나눈
 | 비교 | `revisions/` | Git 이력·원고 diff·격리 비교 PDF·작업 캐시와 응답. `scope.py`가 diff 파싱·핀 범위 귀속·범위 패치와 사본 쓰기 계획을, `macros.py`가 latexdiff에 글 명령으로 넘길 원고 정의 명령의 판정을 소유한다. `needs.py`는 주입받는 핀 조회와 그 답에서 읽는 필드를 Protocol로 선언한다 |
 | 동기화 | `sync/` | 원격 main 감시·fast-forward·문서별 재빌드 선택 |
 | 관리 | `administration/` | 토큰·멤버 명령, 문서 실행 인자, 이관, 인스턴스 셸과 `systemd/` 템플릿 |
-| 뷰어 | `viewer/` | HTML·CSS·JS, `ui_en.json`, 마크·브랜드 파일(`brand/`), 페이지 조립과 제공 경로 |
+| 뷰어 | `viewer/` | HTML·CSS·JS, `ui_en.json`, 마크·브랜드 파일(`brand/`), 페이지 조립과 제공 경로. Markdown 문서를 그리는 화면(`js/md-surface.js`)과 그 파싱 worker(`md-parse.mjs`, `GET /md-parse.mjs`)도 여기 있다 |
 | 실행 자원 | `runtime/` | 시작 규칙·인자·얼린 설정, 실행별 문서와 잠금, 상태 파일의 고정 위치(`paths.py`), `resources.py`의 자원 수명과 감시 스레드 정리 |
 | 보안 | `security/` | 신원·Host/Origin·역할·권한 발급, 사람 사실, 인증 안내, 감사 파일 |
 | 기능 독립 장치 | `platform/` | 원자적 파일 교체·검사된 원고 핸들과 그 제한 읽기(`files.py`), Git 프로세스(`git.py`), JSON 숫자 판정(`values.py`), 제한된 텍스트(`text.py`) |
@@ -116,7 +116,7 @@ Python의 비공개 이름은 런타임 접근을 봉인하지 않는다. 검사
 
 ### 2. 서버 런타임은 표준 라이브러리만 쓴다
 
-`pyproject.toml`의 `dependencies = []`가 이 규칙의 실행 정본이다. Python 3.10 이상에서 돈다. 뷰어도 React·Tailwind·빌드 단계·CDN 없이 번들한 PDF.js, Pretendard 글꼴, Lucide만 쓴다. 뷰어의 CSS·JS가 여러 조각 파일이어도 번들러나 모듈 로더를 들이지 않는다. 서버가 `parts.txt` 순서대로 조각을 이어 인라인 `<style>`·`<script>` 하나씩으로 내보낸다. 인라인 요소는 속성 없는 꼴로만 쓰고, 페이지 정책이 그 글의 해시로 허용한다(불변식 9). 배포가 패키지 설치 하나로 끝나야 연구실 머신에서 유지할 수 있기 때문이다. 개발 의존성(pytest, pytest-xdist, hypothesis, Playwright, Ruff, ShellCheck, mypy, 그리고 `package.json`의 TypeScript)은 이 규칙과 무관하다. TypeScript는 뷰어 JS의 타입을 검사만 하고 아무것도 만들지 않는다.
+`pyproject.toml`의 `dependencies = []`가 이 규칙의 실행 정본이다. Python 3.10 이상에서 돈다. 뷰어도 React·Tailwind·빌드 단계·CDN 없이 번들한 PDF.js, markdown-it, Pretendard 글꼴, Lucide만 쓴다. markdown-it은 Markdown 문서를 열 때만 파싱 worker가 같은 출처에서 가져온다(`src/limn/vendor/markdown-it/`, 번들에 든 의존성의 판과 고지는 그 README와 `THIRD_PARTY_NOTICES.md`). 서버는 Markdown을 파싱하지 않는다. 뷰어의 CSS·JS가 여러 조각 파일이어도 번들러나 모듈 로더를 들이지 않는다. 서버가 `parts.txt` 순서대로 조각을 이어 인라인 `<style>`·`<script>` 하나씩으로 내보낸다. 인라인 요소는 속성 없는 꼴로만 쓰고, 페이지 정책이 그 글의 해시로 허용한다(불변식 9). 배포가 패키지 설치 하나로 끝나야 연구실 머신에서 유지할 수 있기 때문이다. 개발 의존성(pytest, pytest-xdist, hypothesis, Playwright, Ruff, ShellCheck, mypy, 그리고 `package.json`의 TypeScript)은 이 규칙과 무관하다. TypeScript는 뷰어 JS의 타입을 검사만 하고 아무것도 만들지 않는다.
 
 ### 3. 에이전트 계약은 호환을 깨지 않는다
 
@@ -155,10 +155,10 @@ img-src 'self' https:; object-src 'none'; base-uri 'none'; form-action 'none'; f
 - **읽는 법이 둘일 수 있는 꼴은 거부한다.** 속성 붙은 `<script>`·`<style>`, 글 안의 다른 닫는 태그, `<!--` 는 해시하지 않고 `ValueError` 로 거부한다(그 요청은 `500`). 실행이 바꾸는 값은 이스케이프한 이름·`#rrggbb` 색·`ko`·`en` 뿐이라, 꾸러미 페이지가 어떤 실행 값으로도 읽힌다는 것을 시험이 미리 확인한다. 조립 결함은 운영이 아니라 시험에서 드러난다.
 - **스크립트와 스타일은 같은 출처의 파일 또는 페이지의 허용 해시와 내용이 일치하는 인라인 요소만 허용하며, 누가 삽입했는지는 구별하지 않는다.** `'unsafe-inline'`·`'unsafe-eval'`·nonce·보고 주소는 없다. 글이 해시와 다른 인라인 스크립트·`<style>`, 인라인 처리기, `javascript:` 주소, `style` 속성은 막히고 다른 출처의 스크립트는 받지 않는다. `style` 속성과 허용 해시에 맞지 않는 인라인 `<style>`은 막힌다. 같은 출처의 스타일시트와 허용 해시에 맞는 `<style>`은 누가 삽입했든 적용되므로, CSS를 통한 유출을 모두 막는 것은 아니다. 다른 출처는 사람 사진의 `https:` 그림 하나다(`Tailscale-User-Profile-Pic`, 서버가 `https://` 만 받는다). 공급자마다 호스트가 달라 목록으로 좁히지 않았다. 그 대가로 사진 주소를 정한 사람은 그 그림을 받는 요청으로 누가 언제 뷰어를 열었는지 알 수 있다.
 - **처음부터 강제하고 끄는 길이 없다.** Report-Only로 내지 않는다. 보고를 받을 경로가 없으면 보고는 사용자의 콘솔에만 남고, 받을 경로를 두면 남이 쓸 수 있는 쓰기 경로가 생긴다. 정책을 끄거나 Report-Only로 바꾸는 실행 인자도 없다. 문제가 생기면 이전 태그로 업데이트한다(`limn update --ref <태그>`). 상태·저장·API가 바뀌지 않아 되돌려도 남는 것이 없다.
-- **그 밖의 응답은 `frame-ancestors 'none'` 하나다**(`FRAME_ONLY`). JSON, `pins.md`, PDF, 쪽 이미지, vendor 파일, 서비스 워커, 표준 라이브러리의 오류 쪽이 그렇다. 브라우저가 PDF를 자기 보기로 열 때 막지 않고, 에이전트가 받는 헤더는 그대로다. 처리기는 `_send(…, csp=)` 로 받은 정책을 그 응답의 `end_headers` 에서 한 번 쓴다. CSP 헤더가 둘이면 브라우저가 둘 다 지키므로 응답마다 하나만 보낸다.
-- **worker 안은 worker 응답의 정책을 따른다.** vendor 파일의 응답은 `FRAME_ONLY` 라 PDF.js worker 안의 코드는 이 제한을 받지 않는다. 그래서 worker로는 같은 출처의 번들 파일만 띄우고 `blob:` worker는 쓰지 않는다.
+- **그 밖의 응답은 `frame-ancestors 'none'` 하나다**(`FRAME_ONLY`). JSON, `pins.md`, PDF, 쪽 이미지, vendor 파일, 서비스 워커, Markdown 파싱 worker, 표준 라이브러리의 오류 쪽이 그렇다. 브라우저가 PDF를 자기 보기로 열 때 막지 않고, 에이전트가 받는 헤더는 그대로다. 처리기는 `_send(…, csp=)` 로 받은 정책을 그 응답의 `end_headers` 에서 한 번 쓴다. CSP 헤더가 둘이면 브라우저가 둘 다 지키므로 응답마다 하나만 보낸다.
+- **worker 안은 worker 응답의 정책을 따른다.** vendor 파일과 `/md-parse.mjs` 의 응답은 `FRAME_ONLY` 라 PDF.js worker와 Markdown 파싱 worker 안의 코드는 이 제한을 받지 않는다. 그래서 worker로는 같은 출처의 파일(번들한 PDF.js worker, 번들한 markdown-it만 가져오는 Limn의 파싱 worker)만 띄우고 `blob:` worker는 쓰지 않는다. 파싱 worker는 받은 글을 토큰으로 돌려줄 뿐 DOM에도 API에도 닿지 않는다.
 
-정책은 주입의 피해를 좁힐 뿐 살균기가 아니다. 같은 출처의 스크립트 파일을 가리키는 `<script>` 요소와, 글이 페이지의 해시와 같은 인라인 스크립트는 누가 넣었든 돈다(CSP3는 해시를 내용으로 맞춘다). 그래서 남의 글이 마크업이 되지 않게 하는 첫 벽은 뷰어의 이스케이프와 렌더러 규율이고([viewer.md](viewer.md) §마크업 만들기), JS 조각이 `<script>`·`<style>` 요소를 만들지 않는다는 규칙도 정책이 아니라 정적 검사가 지킨다. 이 규칙이 깨지면 렌더러의 규율 하나가 무너질 때 주입된 인라인 스크립트나 다른 출처의 스크립트가 읽는 사람의 신원으로 Limn API를 부른다. 같은 출처에서 남이 쓴 문서를 그리는 화면(ADR-0025의 HTML 화면)은 이 정책 아래에서만 짓는다. 뷰어 작성 규칙은 [viewer.md](viewer.md) §페이지 정책, 시험은 [verification.md](verification.md) §브라우저 테스트의 페이지 정책에 있다. 결정의 경위는 [ADR-0026](../adr/0026-viewer-csp.md)이다.
+정책은 주입의 피해를 좁힐 뿐 살균기가 아니다. 같은 출처의 스크립트 파일을 가리키는 `<script>` 요소와, 글이 페이지의 해시와 같은 인라인 스크립트는 누가 넣었든 돈다(CSP3는 해시를 내용으로 맞춘다). 그래서 남의 글이 마크업이 되지 않게 하는 첫 벽은 뷰어의 이스케이프와 렌더러 규율이고([viewer.md](viewer.md) §마크업 만들기), JS 조각이 `<script>`·`<style>` 요소를 만들지 않는다는 규칙도 정책이 아니라 정적 검사가 지킨다. 이 규칙이 깨지면 렌더러의 규율 하나가 무너질 때 주입된 인라인 스크립트나 다른 출처의 스크립트가 읽는 사람의 신원으로 Limn API를 부른다. 같은 출처에서 남이 쓴 문서를 그리는 화면(ADR-0025의 Markdown 화면)은 이 정책 아래에서만 짓는다. 그 화면은 정책에 기대지 않고도 무력하게 그린다. DOM 호출로만 짓고(markdown-it의 HTML 렌더러를 쓰지 않는다), 원시 HTML은 자리표시로 두며, 그림은 받지 않고, 모든 링크 토큰은 허용 목록을 지난다. 다른 출처의 `http(s)`·`mailto`·문서 안 `#제목` 만 열고, 뷰어 자신의 출처·루프백 주소·자격 증명이 든 주소는 열지 않는다([viewer.md](viewer.md) §Markdown 화면). 뷰어 작성 규칙은 [viewer.md](viewer.md) §페이지 정책, 시험은 [verification.md](verification.md) §브라우저 테스트의 페이지 정책에 있다. 결정의 경위는 [ADR-0026](../adr/0026-viewer-csp.md)이다.
 
 ## 멈춤 신호
 

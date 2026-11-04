@@ -651,7 +651,7 @@ class TimelineRail(TimelineFixture):
 
 
 class OrderControl(TimelineFixture):
-    """[최신순 | 쪽순 | 번호순] over the list: what it does to both sections and what follows the order drawn."""
+    """[최신순 | 위치순 | 번호순] over the list: what it does to both sections and what follows the order drawn."""
 
     ROWS = """box => [...document.querySelector(box).children].map(e => e.matches('.pin') ? Number(e.dataset.id)
       : e.matches('.nt-row') ? 'row' + (e.textContent.match(/#(\\d+)/) || ['', ''])[1] : e.matches('.day-line') ? e.textContent : e.className)"""
@@ -680,10 +680,10 @@ class OrderControl(TimelineFixture):
         self.assertEqual(page.locator("#list-order button[aria-pressed=true]").inner_text(), "최신순")
 
     def test_by_page_and_by_number_have_no_day_lines(self):
-        """쪽순 goes by page then line, 번호순 back to the list as the server gives it, neither with a day line."""
+        """위치순 goes by page then line, 번호순 back to the list as the server gives it, neither with a day line."""
         a, b, c = self.three()
         page = self.show(3)
-        self.press(page, "쪽순")
+        self.press(page, "위치순")
         self.assertEqual(self.rows(page), [c, a, b])
         self.press(page, "번호순")
         self.assertEqual(self.rows(page), [a, b, c])
@@ -696,25 +696,25 @@ class OrderControl(TimelineFixture):
         self.pin()
         page = self.show(1)
         self.assertEqual(self.rows(page, "#review-pins"), ["오늘", b, "어제", a, "2025년 9월 25일", c])
-        self.press(page, "쪽순")
+        self.press(page, "위치순")
         self.assertEqual(self.rows(page, "#review-pins"), [c, a, b])
 
     def test_the_choice_is_remembered_in_this_browser(self):
         """A press is saved in pinPrefs and comes back with the page; a stale saved value is the default."""
         a, b, c = self.three()
         page = self.show(3)
-        self.press(page, "쪽순")
+        self.press(page, "위치순")
         self.assertEqual(page.evaluate("JSON.parse(localStorage.getItem('pinPrefs')).order"), "page")
         page.reload()
         page.wait_for_function(booted(3))
         settle(page)
         self.assertEqual(self.rows(page), [c, a, b])
-        self.assertEqual(page.locator("#list-order button[aria-pressed=true]").inner_text(), "쪽순")
+        self.assertEqual(page.locator("#list-order button[aria-pressed=true]").inner_text(), "위치순")
         stale = self.show(3, prefs={"order": "sideways"})
         self.assertEqual(stale.locator("#list-order button[aria-pressed=true]").inner_text(), "최신순")
 
     def test_the_order_holds_across_documents_and_with_all_documents_on(self):
-        """One choice for every document; with [모든 문서] 쪽순 keeps each document together, and the filter still filters."""
+        """One choice for every document; with [모든 문서] 위치순 keeps each document together, and the filter still filters."""
         ms, _fig, rv = helpers_figure.viewer_docs(ps.APP, ps.APP.C.src)
         self.addCleanup(lambda: ps.APP.set_docs(None))
         late = add_pin(
@@ -729,7 +729,7 @@ class OrderControl(TimelineFixture):
             "id => DOC==='rv' && !!document.querySelector('#pins .pin[data-id=\"' + id + '\"]')", arg=second
         )
         self.assertEqual(self.rows(page), [second])
-        self.assertEqual(page.locator("#list-order button[aria-pressed=true]").inner_text(), "쪽순")
+        self.assertEqual(page.locator("#list-order button[aria-pressed=true]").inner_text(), "위치순")
         page.locator("#all-docs").click()
         self.assertEqual(self.rows(page), [first, second])
 
@@ -762,7 +762,7 @@ class OrderControl(TimelineFixture):
         self.assertEqual(group.get_attribute("role"), "group")
         self.assertEqual(group.get_attribute("aria-label"), "목록 순서")
         self.assertEqual(
-            group.locator("button").evaluate_all("b => b.map(x => x.textContent)"), ["최신순", "쪽순", "번호순"]
+            group.locator("button").evaluate_all("b => b.map(x => x.textContent)"), ["최신순", "위치순", "번호순"]
         )
         page.locator("#open-toggle").focus()
         for _ in range(12):
@@ -772,7 +772,7 @@ class OrderControl(TimelineFixture):
         self.assertEqual(page.evaluate("document.activeElement.dataset.order"), "new")
         page.keyboard.press("Tab")
         page.keyboard.press("Enter")
-        self.assertEqual(group.locator("[aria-pressed=true]").inner_text(), "쪽순")
+        self.assertEqual(group.locator("[aria-pressed=true]").inner_text(), "위치순")
         self.assertEqual(page.evaluate("document.activeElement.dataset.order"), "page")
         page.keyboard.press("Tab")
         page.keyboard.press("Space")
@@ -797,7 +797,7 @@ class OrderControl(TimelineFixture):
         """Tab from the control meets the cards as drawn in each order, and Shift+Tab meets them backwards."""
         a, b, c = self.three()
         page = self.show(3)
-        self.press(page, "쪽순")
+        self.press(page, "위치순")
         page.locator("#list-order [data-order=id]").focus()
 
         def walk(key, want):
@@ -967,7 +967,7 @@ class OrderControl(TimelineFixture):
         page = self.show(12)
         page.evaluate("listScroller().scrollTop = 20")
         before = page.locator("#list-order").bounding_box()["y"]
-        self.press(page, "쪽순")
+        self.press(page, "위치순")
         self.assertAlmostEqual(page.locator("#list-order").bounding_box()["y"], before, delta=0.5)
 
     def test_it_fits_at_the_four_sizes_in_either_language_with_touch_targets_of_44px(self):
@@ -1029,7 +1029,7 @@ class OrderControl(TimelineFixture):
         page = self.show(3, lang="en")
         self.assertEqual(
             page.locator("#list-order button").evaluate_all("b => b.map(x => x.textContent)"),
-            ["Newest", "Page", "Number"],
+            ["Newest", "Position", "Number"],
         )
         self.assertEqual(page.locator("#list-order").get_attribute("aria-label"), "List order")
         self.assertEqual(

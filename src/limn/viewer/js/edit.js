@@ -63,7 +63,8 @@ async function editSnip(withLevels){const E=EDITOR.current; if(!E)return;
     if(EDITOR.current!==E)return;
     if(status===400){E.snippet=tr('원문을 읽지 못했습니다')+' — '+errText(data)+'\n'+tr('위치 다시 잡기로 고치세요.'); renderEdit(); return;}
     E.snippet=data.snippet; E.n_lines=data.n_lines;
-    if(withLevels&&data.levels){E.levels=data.levels; if(!E.scope||!lvOf(E,E.scope)){const cur=E.levels.find(l=>l.lo===E.lo&&l.hi===E.hi);
+    const md=withLevels&&rendersInBrowser(editDocKind(E))?mdEditLevels(E):null;   // a Markdown pin's rungs come from the drawn document
+    if(md)E.levels=md; else if(withLevels&&data.levels&&!rendersInBrowser(editDocKind(E))){E.levels=data.levels; if(!E.scope||!lvOf(E,E.scope)){const cur=E.levels.find(l=>l.lo===E.lo&&l.hi===E.hi);
       if(cur&&!E.scope)E.scope=null;}}
     renderEdit();}catch(e){}}
 // Draws the open edit card from EDITOR.current: the kind, the range caption (a region's page and area instead), the ladder -
@@ -103,7 +104,7 @@ async function saveEdit(){const E=EDITOR.current; if(!E||EDITOR.saving||viewerBl
   // A figure pin's ladder here is raw/lines only (no element rungs): a rung press alone would trade the element's kind
   // for 'lines', so only changed lines are sent; the pin keeps its el either way (a range edit is not a loc).
   if(E.lo!==E.orig.lo||E.hi!==E.orig.hi||(!E.pinEl&&(E.scope||null)!==(E.orig.scope||null))){body.lo=E.lo;body.hi=E.hi;
-    if(E.scope){body.scope=E.scope; body.kind=kindFor(E.scope,E.env);}}
+    if(E.scope){body.scope=wireScope(E.scope); body.kind=kindFor(E.scope,E.env);}}
   const sg=suggestForEdit(E.sg,suggestOff(E,editDocKind(E))); if(sg!==undefined)body.suggest=sg;
   if(Object.keys(body).length===1){cancelEdit();return;}
   const fields=editFields(E),hints=mentionHints(editNote(E)); EDITOR.saving=true; syncEditSaveButton();

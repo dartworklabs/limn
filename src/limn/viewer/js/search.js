@@ -468,7 +468,7 @@ $('#doc-search').addEventListener('keydown',e=>{if(imeKey(e))return;
 // The shortcut (searchKey): the field takes the focus instead of the browser's find, which finds nothing in a canvas. Pressed
 // again in the field, under a sheet, or where the search is not offered, it is the browser's.
 /** @param {KeyboardEvent} e */
-function searchShortcut(e){if(!searchKey(e,IS_MAC))return;
+function searchShortcut(e){if(!searchKey(e,IS_MAC)||isMdDoc())return;   // a Markdown document is searched with the browser's find
   if(document.activeElement===$('#search-q')||document.querySelector('dialog[open]'))return;
   if(searchOpen())e.preventDefault();}
 document.addEventListener('keydown',searchShortcut);

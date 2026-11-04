@@ -57,6 +57,7 @@ class CrossDocumentActionLifetime(unittest.TestCase):
                 }
                 """,
                 extract_js_fn("switchDoc"),
+                "function isMdDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
                 *(extract_js_fn(name) for name in functions),
                 scenario,
             ]
