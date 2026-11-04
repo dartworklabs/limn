@@ -666,6 +666,26 @@ class Picking(MarkdownBase):
             "COMPOSE.current&&COMPOSE.current.quote];})()"
         )
         self.assertEqual(through_end, [True, 3, 5, "셋째 줄 마지막 문단."])
+        # The quote is what the selection's own text would be for the part inside the document, whatever the blocks are.
+        for name, text in (
+            ("paragraphs", "First paragraph.\n\nLast paragraph.\n"),
+            ("html", "First paragraph.\n\n<div>hidden HTML</div>\n"),
+        ):
+            with self.subTest(blocks=name):
+                page.evaluate("discardSelection()")
+                self.write(text)
+                page.evaluate("mdBuild()")
+                page.wait_for_function(DRAWN, timeout=20000)
+                settle(page)
+                quote, want = page.evaluate(
+                    "(()=>{const md=document.getElementById('md'),s=getSelection(),f=md.querySelector(\"[data-line='1']\");"
+                    "const r=document.createRange(); r.setStart(f.firstChild,0); r.setEndAfter(md); s.removeAllRanges(); s.addRange(r);"
+                    "mdSelectionPick(null); const q=COMPOSE.current&&COMPOSE.current.quote;"
+                    "const els=mdLineEls(),e=els[els.length-1],r2=document.createRange(); r2.setStart(f.firstChild,0);"
+                    "r2.setEnd(e,e.childNodes.length); s.removeAllRanges(); s.addRange(r2);"
+                    "return [q,s.toString().replace(/\\s+/g,' ').trim().slice(0,160)];})()"
+                )
+                self.assertEqual(quote, want)
 
     def test_a_tap_on_a_block_no_longer_than_its_lines_picks_the_block(self):
         """A tap on a block whose lines are all the tapped lines - a raw HTML block's placeholder, a one-line paragraph -

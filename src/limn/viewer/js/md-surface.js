@@ -517,12 +517,14 @@ function mdDocPart(r,md){if(md.contains(r.commonAncestorContainer))return r; if(
   const c=r.cloneRange(); if(!md.contains(r.startContainer))c.setStart(first,0);
   if(!md.contains(r.endContainer)){const e=els[els.length-1]; c.setEnd(e,e.childNodes.length);}
   return c.collapsed?null:c;}
-// The text range r shows, as the selection's own toString gives it: its contents laid out once in an off-screen box and read
-// as innerText. A range's toString runs blocks together ('First.Last.'), the renderer putting no whitespace between them; the
-// selection itself is not touched, as changing it would set off the touch screen's resting-selection pick again.
+// The text range r shows, as the selection's own toString gives it: its contents laid out once off screen, under the document's
+// own .md rules (an HTML placeholder's label and code stack as on screen), and read as innerText. A range's toString runs
+// blocks together ('First.Last.'), the renderer putting no whitespace between them; the selection itself is not touched, as
+// changing it would set off the touch screen's resting-selection pick again.
 /** @param {Range} r */
-function mdRangeText(r){const box=document.createElement('div'); box.className='sr-only'; box.setAttribute('aria-hidden','true');
-  box.append(r.cloneContents()); document.body.append(box); try{return box.innerText;}finally{box.remove();}}
+function mdRangeText(r){const box=document.createElement('div'),doc=document.createElement('div'); box.className='sr-only';
+  box.setAttribute('aria-hidden','true'); doc.className='md'; doc.append(r.cloneContents()); box.append(doc); document.body.append(box);
+  try{return doc.innerText;}finally{box.remove();}}
 // Shows a link's description that does not open (a tap on it), until 4s pass or the next press.
 /** @param {HTMLElement} el */
 function mdRelTip(el){showTip(el); const txt=TIP.textContent; setTimeout(()=>{if(!TIP.hidden&&TIP.textContent===txt)hideTip();},4000);}
