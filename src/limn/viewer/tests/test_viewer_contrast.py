@@ -46,6 +46,7 @@ from helpers import add_pin, minimal_pdf, ps
 from helpers_access import ALICE, BOB, REPO_NEW, REPO_OLD, actor
 from helpers_authority import post_authority
 from helpers_browser import VIEWPORTS, BrowserBase, search_shortcut, settle
+from helpers_csp import add_test_style
 
 # The devices the walk runs on: a desktop with a mouse and a phone run every scene; the unfolded foldable's mid band (its
 # own nav bar with the page indicator, a side panel over the page) runs the list.
@@ -380,6 +381,14 @@ def fake_compile(spec, jobdir, timeout):
     """A comparison build that writes a one-page PDF instead of running latexdiff and latexmk."""
     (jobdir / "revision.pdf").write_bytes(minimal_pdf("diff"))
     return revisions.ComparisonBuilt([])
+
+
+def put_cases(page, cases: str) -> None:
+    """Put a fixture's <style>...</style><markup> on the page: the style as a constructed stylesheet (helpers_csp
+    add_test_style - the page's policy refuses an inline <style>), the markup at the end of the body."""
+    css, _, markup = cases.partition("</style>")
+    add_test_style(page, css.replace("<style>", "", 1))
+    page.evaluate("h=>document.body.insertAdjacentHTML('beforeend',h)", markup)
 
 
 class ContrastWalk(BrowserBase):
@@ -979,7 +988,7 @@ class WalkCatchesDimmedText(ContrastWalk):
         self.short, self.used, self.rules, self.excused = [], set(), set(), set()
         self.device = "desktop"
         page = self.open(2)
-        page.evaluate("h=>document.body.insertAdjacentHTML('beforeend',h)", self.CASES)
+        put_cases(page, self.CASES)
         settle(page)
         self.look(page, "cases", "#zz-cases")
         light = [s for s in self.short if s.startswith("light ")]
@@ -1023,7 +1032,7 @@ class WalkCatchesDimmedText(ContrastWalk):
         self.short, self.used, self.rules, self.excused = [], set(), set(), set()
         self.device = "desktop"
         page = self.open(2)
-        page.evaluate("h=>document.body.insertAdjacentHTML('beforeend',h)", self.UNPAINTED_CASES)
+        put_cases(page, self.UNPAINTED_CASES)
         settle(page)
         with mock.patch.dict(UNPAINTED, {"#zz-inner": "a synthetic excuse"}):
             self.look(page, "cases", "#zz-blind")
