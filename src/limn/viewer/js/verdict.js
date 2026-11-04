@@ -73,7 +73,7 @@ function pageTakesVerdict(page){const pg=META&&Array.isArray(META.pages)?META.pa
 /** @param {Pin} p @param {string|undefined} kind @returns {{page:number,id:string}|null} */
 function pageTargetOf(p,kind){
   if(isFigureKind(kind)){const root=figureRootOf(p),page=root?figurePageOf(root,p):null; return root&&page?{page,id:root}:null;}
-  if(kind!==DOC_KIND.PDF||!isRegion(p)||p.est===true||!isFrac(p.frac))return null;
+  if(!isViewOnlyKind(kind)||!isRegion(p)||p.est===true||!isFrac(p.frac))return null;
   const f=p.frac; return f.every((v,i)=>Math.abs(v-WHOLE_PAGE[i])<=1e-6)?{page:p.page,id:'page '+p.page}:null;}
 // The kind of document doc: the meta's for the document on screen, else its /api/docs entry's.
 /** @param {string} doc @returns {string|undefined} */
@@ -81,15 +81,15 @@ function docKindOf(doc){return (!DOC||doc===DOC)&&META?META.kind:(docInfo(doc)||
 // The target a verdict pin is about, as far as its stored place says it without a project's rules: the page's whole target
 // (pageTargetOf: a figure document's figure, a view-only PDF's whole page) - the page line's targets; else, on a figure
 // document, still its figure (el.path[0]) when the page it is on cannot be told (the figure left the map): one order, on no
-// line; else, on a LaTeX document, its exact lines (file and range) unless their anchor is lost (stale). A key that pins
-// about the same thing share, with whether it is a whole page's; null when the target cannot be resolved (a PDF region that
-// is not its whole page, a figure pin without an element path, a lost line). Lines are only a candidate: the server
-// re-matches an open pin's lines to the text now, never a closed one's, so two pins with the same key are about the same
-// lines only when both are open or both were saved on the same text (sameLines).
+// line; else, on a document that takes line pins (LaTeX, Markdown), its exact lines (file and range) unless their anchor is
+// lost (stale). A key that pins about the same thing share, with whether it is a whole page's; null when the target cannot
+// be resolved (a PDF region that is not its whole page, a figure pin without an element path, a lost line). Lines are only
+// a candidate: the server re-matches an open pin's lines to the text now, never a closed one's, so two pins with the same
+// key are about the same lines only when both are open or both were saved on the same text (sameLines).
 /** @param {Pin} p @param {string|undefined} kind @returns {VerdictTarget|null} */
 function verdictTargetOf(p,kind){const t=pageTargetOf(p,kind); if(t)return {key:'whole '+t.id,whole:true,page:t.page,lines:null};
   if(isFigureKind(kind)){const root=figureRootOf(p); return root?{key:'whole '+root,whole:false,page:p.page,lines:null}:null;}
-  if(kind!==DOC_KIND.PDF&&!isRegion(p)&&p.file&&typeof p.lo==='number'&&typeof p.hi==='number'&&!p.stale)
+  if(!isViewOnlyKind(kind)&&!isRegion(p)&&p.file&&typeof p.lo==='number'&&typeof p.hi==='number'&&!p.stale)
     return {key:'lines '+p.file+':'+p.lo+'-'+p.hi,whole:false,page:p.page,lines:{open:pinState(p)===PIN_STATE.OPEN,anchor:anchorKey(p)}};
   return null;}
 // A line pin's anchor - the text of its first and last lines when it was saved or last re-matched - as one string, or null.

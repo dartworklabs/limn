@@ -62,6 +62,10 @@ function isFigureKind(kind){return kind===DOC_KIND.FIGURE;}
 // Whether a document of this `kind` is rebuilt from its source: only a LaTeX one. A view-only PDF and a figure redraw when their
 // files change, so they have no rebuild and word a finished build as a redraw.
 function buildsFromSource(kind){return kind===DOC_KIND.TEX;}
+// Whether a document of this `kind` is view-only - its pins are pages and regions, never lines (the server's view_only,
+// limn.runtime.documents.Doc.view_only): only a view-only PDF. Every other kind takes line pins.
+/** @param {string|undefined} kind */
+function isViewOnlyKind(kind){return kind===DOC_KIND.PDF;}
 // The key that ends an input method's composition is the method's (docs/handbook/viewer.md §조합을 끝내는 키): it only ends the
 // composition, also held down. While a syllable composes the browser marks its keys (isComposing, keyCode 229). But
 // ibus-hangul on Linux ends the composition first and then hands the very Enter or Esc on as a plain keydown: keydown Process
