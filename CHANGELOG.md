@@ -35,9 +35,9 @@
     answer `suggest_unsupported`, whose message now names LaTeX and Markdown. The `bad_scope` message lists the two new
     values. The SKILL counts broken Markdown (a table row's cell count, unclosed emphasis or code, a list item's
     indentation) among the obvious errors to check before applying a suggestion.
-  - A request that names only a file goes to the Markdown document whose file it is, even beside a LaTeX main in the
-    same folder; every other file goes by folder as before, so a `.tex` below a Markdown document's folder stays with
-    the LaTeX document.
+  - A request that names only a file goes to the Markdown document whose file it is, even beside a LaTeX main or a
+    figure document in the same folder and whatever order the documents are registered in; every other file goes by
+    folder as before, so a `.tex` below a Markdown document's folder stays with the LaTeX document.
   - A fourth contract snapshot records the Markdown pin flow, and v0.4.46 reads the Markdown records and writes them
     back byte for byte (`tests/contracts/test_markdown_rollback.py`).
 

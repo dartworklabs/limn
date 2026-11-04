@@ -18,6 +18,7 @@ makes one directly.
 Run: uv run pytest -q src/limn/pins/editing/tests/test_markdown_pins.py
 """
 
+import itertools
 import json
 import unittest
 
@@ -42,7 +43,7 @@ from limn.runtime.documents import Doc
 from limn.web.errors import InputRejected
 
 from helpers import Base, jreq, ps, req, split_resp
-from helpers_figure import BUILD1, SCRIPT, b2_map, figure_doc, write_build
+from helpers_figure import BUILD1, SCRIPT, b2_map, figure_doc, script_lines, write_build
 from helpers_pin_rules import ALICE_PERSON, AT
 
 # The page fields a Markdown pin never keeps: the three a request may send, and the legacy frac_build a record may hold.
@@ -481,3 +482,59 @@ class FileOnlyRouting(Base):
         self.assertEqual(code, 200, out)
         tex = self.pin(json.loads(out)["id"])
         self.assertEqual((tex["doc"], tex["page"]), ("ms", 1))
+
+
+class SameFolderRegistrationOrder(Base):
+    """A LaTeX document, a figure document and a Markdown document all in the manuscript folder: a request that names
+    only the Markdown file goes to the Markdown document whichever order the three are registered in. At equal depth
+    the folder rule alone would let the first-listed LaTeX document, or the figure document (which an .md file
+    prefers as a file without a LaTeX suffix), take it; the exact match on the Markdown document's own file comes
+    first. Every other file keeps the folder rule's answer in every order."""
+
+    def setUp(self):
+        """ms (main.tex), fig (figures.limnmap.json, drawn by plot.py) and nt (plan.md) over self.src, plus an .md no
+        document registers."""
+        super().setUp()
+        self.plan = self.src / "plan.md"
+        self.plan.write_text(PLAN, encoding="utf-8")
+        (self.src / "plot.py").write_text("\n".join(script_lines()) + "\n", encoding="utf-8")
+        (self.src / "loose.md").write_text("a\nb\n", encoding="utf-8")
+        (self.src / "figures.pdf").write_bytes(b"%PDF-1.4\n%%EOF\n")
+        (self.src / "figures.limnmap.json").write_text(json.dumps(b2_map(), ensure_ascii=False), encoding="utf-8")
+        self.ms = Doc("ms", "본문", "tex", self.src, self.main, paths=ps.APP.C.paths)
+        self.fig = Doc("fig", "그림", "figure", self.src, self.src / "figures.limnmap.json", paths=ps.APP.C.paths)
+        self.nt = Doc("nt", "계획", "markdown", self.src, self.plan, paths=ps.APP.C.paths)
+        self.addCleanup(ps.APP.set_docs, None)
+
+    def orders(self):
+        """Every registration order of the three documents."""
+        return list(itertools.permutations((self.ms, self.fig, self.nt)))
+
+    def test_every_order_routes_each_file_the_same_way(self):
+        """plan.md (relative or absolute) goes to nt, main.tex to ms, plot.py and the unregistered loose.md to fig - in
+        all six orders."""
+        want = {
+            "plan.md": self.nt,
+            str(self.plan): self.nt,
+            "main.tex": self.ms,
+            "plot.py": self.fig,
+            "loose.md": self.fig,
+        }
+        for order in self.orders():
+            for name, doc in want.items():
+                with self.subTest(order=[d.key for d in order], file=name):
+                    self.assertIs(documents.doc_for_file(list(order), self.src, name), doc)
+
+    def test_a_pin_on_the_md_file_is_the_markdown_documents_in_every_order(self):
+        """POST /api/pin with file plan.md and no doc, sent with page: 1 out of habit, is a pin of nt without page
+        fields, whether nt is registered first, between or last."""
+        for order in self.orders():
+            with self.subTest(order=[d.key for d in order]):
+                ps.APP.set_docs(list(order))
+                body = {"file": "plan.md", "lo": 3, "hi": 4, "page": 1, "note": "n"}
+                code, _, out = split_resp(self.talk(jreq("POST", "/api/pin", body)))
+                self.assertEqual(code, 200, out)
+                record = self.pin(json.loads(out)["id"])
+                self.assertEqual(record["doc"], "nt")
+                for key in PAGE_FIELDS:
+                    self.assertNotIn(key, record)
