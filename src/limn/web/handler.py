@@ -147,7 +147,8 @@ class Handler(BaseHTTPRequestHandler):
         """Close the header block of every response - _send's and the base class's own error pages (a malformed
         request line, an unsupported method) - with X-Frame-Options: DENY and a Content-Security-Policy: the HTML
         page's own (_send's csp, used once) or limn.web.csp.FRAME_ONLY, so no other site can frame the viewer and
-        trick a click (clickjacking), and on Limn's pages no script runs but the page's own (docs/adr/0026)."""
+        trick a click (clickjacking), and on Limn's pages only same-origin scripts and inline code whose hash the policy
+        lists can run, whoever inserts them; the policy narrows an injection, it does not sanitize (docs/adr/0026)."""
         policy, self._page_policy = self._page_policy, None
         self.send_header("X-Frame-Options", "DENY")
         self.send_header(page_csp.HEADER, policy or page_csp.FRAME_ONLY)

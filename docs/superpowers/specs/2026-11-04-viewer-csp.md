@@ -38,7 +38,7 @@ object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; frame-
 | --- | --- | --- |
 | `default-src` | `'self'` | `connect`(같은 출처 `fetch`), `font`(Pretendard), `worker`(PDF.js worker, 서비스 워커, 이후의 Markdown 파싱 Worker), `manifest`·`media` 를 같은 출처로 덮는다. `worker-src` 를 따로 두지 않는다. CSP2 브라우저(Safari 15.4 이하)는 worker를 `child-src`, 없으면 `default-src` 로 찾고, CSP3 브라우저는 `child-src`, `script-src` 순으로 찾는다. 어느 쪽이든 `'self'` 가 되어 판마다 다르지 않다 |
 | `script-src` | `'self'` + 인라인 셋의 해시 | `'self'` 는 PDF.js(이후 markdown-it)의 `import()` 와 서비스 워커 등록을 덮는다. `'unsafe-inline'`·`'unsafe-eval'`·`'strict-dynamic'`·nonce를 쓰지 않는다. nonce는 응답마다 새 값과 페이지 다시 쓰기가 필요하다. 페이지가 실행마다 고정이므로 해시가 맞다 |
-| `style-src` | `'self'` + 스타일시트의 해시 | `'self'` 는 Pretendard 스타일시트다. `style` 속성과 남이 넣은 `<style>` 은 막힌다. 주입된 CSS가 속성 선택자로 값을 읽어 `https:` 그림 주소로 내보내는 길을 닫는다 |
+| `style-src` | `'self'` + 스타일시트의 해시 | `'self'` 는 Pretendard 스타일시트다. `style` 속성과, 글이 목록의 해시와 맞지 않는 `<style>` 은 막힌다. 같은 출처의 스타일시트와 해시가 맞는 `<style>` 은 누가 넣었든 적용된다. 그래서 해시가 맞지 않는 주입된 CSS가 속성 선택자로 값을 읽어 `https:` 그림 주소로 내보내는 길을 닫는다 |
 | `img-src` | `'self' https:` | 쪽 PNG와 파비콘은 같은 출처, 사람 사진은 신원 공급자의 `https` 주소다. 호스트를 정하지 않는다. 공급자마다 다르기 때문이다. `data:`·`blob:` 은 뷰어가 쓰지 않는다 |
 | `object-src`·`base-uri`·`form-action`·`frame-src` | `'none'` | 뷰어에 플러그인, `<base>`, 양식, 프레임이 없다. 주입된 `<base>` 가 상대 주소를 돌리거나 주입된 양식이 다른 곳으로 보내는 길을 닫는다 |
 | `frame-ancestors` | `'none'` | 지금과 같다(`X-Frame-Options: DENY` 와 함께) |
