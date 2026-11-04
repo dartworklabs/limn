@@ -51,9 +51,21 @@ What the server does defend against:
   next request, without a restart. Tokens and the `--auth local` owner do not read the file and are unaffected. Keeping
   the roles of an earlier good read was rejected: the result would depend on the process's history, and an unreadable
   `tokens.json` likewise accepts no token.
-- Clickjacking: every response carries `X-Frame-Options: DENY` and `Content-Security-Policy: frame-ancestors 'none'`
-  (no other CSP directive, so the viewer's inline scripts are unaffected). Page images and PDFs are
-  `Cache-Control: private`, never kept by a shared cache.
+- Clickjacking: every response carries `X-Frame-Options: DENY` and a `Content-Security-Policy` with
+  `frame-ancestors 'none'`. Page images and PDFs are `Cache-Control: private`, never kept by a shared cache.
+- Scripts and styles injected into Limn's pages: the viewer (`GET /`) and the refusal page a browser sees enforce
+  their own Content-Security-Policy, `default-src 'self'; script-src 'self' <hashes>; style-src 'self' <hashes>;
+  img-src 'self' https:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none';
+  frame-ancestors 'none'`. Only the page's own inline `<script>` and `<style>` elements run, by the SHA-256 of the
+  exact text sent (taken per run, after the interface language and the accent are filled in), and only files from
+  the same origin load: no `'unsafe-inline'`, no `'unsafe-eval'`, no nonce, no report endpoint, and no option turns
+  the policy off. A script element or an inline event handler that text written by someone else manages to put into
+  the page does not run, an injected `<style>` or `style` attribute does not apply, and an injected `<base>`, form,
+  plugin or frame does nothing. The one other origin is an `https:` image, for avatars (`Tailscale-User-Profile-Pic`,
+  accepted only as `https://`): whoever chose an avatar URL can see, from the image requests, who opened the viewer
+  and when. A dedicated worker runs under its own response's policy, so the viewer starts workers only from its own
+  bundled files. Every other response (JSON, `pins.md`, PDFs, page images, vendored files) carries
+  `frame-ancestors 'none'` alone. The design is [ADR-0026](docs/adr/0026-viewer-csp.md) (Korean).
 - Requests that arrive through `tailscale serve` without identity headers (a `*.ts.net` or `--public-host` Host, e.g.
   tagged devices) are refused (`403`) since v0.2.1 — only a request that names this machine (a loopback Host) and
   carries no proxy header (`X-Forwarded-For/-Host/-Proto/-Port`, `X-Real-IP`, `Forwarded`, `Via`) can be the
