@@ -372,15 +372,15 @@ def add_pin(d: dict, actor: dict, mod=None, doc=None):
 def edit_pin(pid: int, d: dict, actor: dict, mod=None):
     """What POST /api/pins/{pid}/edit does below its HTTP answer: parse the body, place its loc against the pin's own
     document - or leave it unread for a verdict pin (edit_scope) - then edit, telling the service whether that
-    document takes suggested edits and whether it has pages, as the HTTP entry does. Returns the edit's outcome, or the
-    InputRejected of the first refused field."""
+    document takes suggested edits and whether the pin has pages (its record's answer, EditTarget.pages), as the HTTP
+    entry does. Returns the edit's outcome, or the InputRejected of the first refused field."""
     mod = (mod or ps).APP
     body = editing_input.parse_edit(d, mod.editing_requests.assignee_people(d))
     if isinstance(body, InputRejected):
         return body
     target = mod.editing_requests.edit_scope(pid)
     place = editing_input.parse_edit_place(
-        body, target.region, mod.document_facts(target.document), verdict=target.verdict
+        body, target.region, mod.document_facts(target.document), verdict=target.verdict, pages=target.pages
     )
     if isinstance(place, InputRejected):
         return place
@@ -390,7 +390,7 @@ def edit_pin(pid: int, d: dict, actor: dict, mod=None):
         post_authority(mod.pin_editing.context().store, actor, "edit", pid),
         target.region,
         target.document.takes_suggestions,
-        pages=not target.document.renders_in_browser,
+        pages=target.pages,
     )
 
 

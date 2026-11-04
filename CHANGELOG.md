@@ -26,7 +26,8 @@
     stamped when none is sent; and any write of such a pin removes the page fields and the legacy `frac_build` a record
     still carries: an edit (a note-only one too), a claim or unclaim, a reply, a close (an agent's with `changes` too),
     a confirmation, a reopen, a drop into the Trash, a restore, and the anchor re-sync. A LaTeX line pin keeps its page
-    fields exactly as before.
+    fields exactly as before, and so does a pin of a document the instance does not serve, on every write: an edit
+    reads that from the pin's own record, not from the first document, even when the first document is Markdown.
   - `scope` gains `block` and `section`, and pin kinds `md:paragraph`, `md:item`, `md:table`, `md:code`, `md:quote`,
     `md:html` and `md:section` appear. In `pins.md` the range column names them, a Markdown document's section title
     ends with `— Markdown(쪽 없음)` (a lone Markdown document is sectioned, as a figure document is), and the page

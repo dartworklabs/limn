@@ -76,15 +76,18 @@ def add(app: EditingRequests, document: Doc, actor: PostAuthority, body: dict[st
 
 def edit(app: EditingRequests, pid: int, actor: PostAuthority, body: dict[str, Any]) -> Body:
     """Check edit fields before loading the pin's document, then validate its location against that document - or,
-    for a verdict pin, leave it unread for the editing rules to refuse (verdict_fixed)."""
+    for a verdict pin, leave it unread for the editing rules to refuse (verdict_fixed). Whether the pin has pages is
+    its own record's answer (EditTarget.pages), so a pin whose document this run does not serve keeps its page fields
+    whatever document stands in for it."""
     parsed = accepted(editing_input.parse_edit(body, app.assignee_people(body)))
     target = app.edit_scope(pid)
     facts = app.document_facts(target.document)
-    place = accepted(editing_input.parse_edit_place(parsed, target.region, facts, verdict=target.verdict))
+    place = accepted(
+        editing_input.parse_edit_place(parsed, target.region, facts, verdict=target.verdict, pages=target.pages)
+    )
     request = replace(parsed.request, place=place)
-    document = target.document
     result = app.pin_editing.edit_pin(
-        pid, request, actor, target.region, document.takes_suggestions, pages=not document.renders_in_browser
+        pid, request, actor, target.region, target.document.takes_suggestions, pages=target.pages
     )
     return edit_answer(result, app.public)
 

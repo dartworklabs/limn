@@ -77,7 +77,8 @@ def parse_add(d: Json, known: Collection[str], facts: DocumentFacts) -> AddReque
         line = parse_loc(named, facts)
         if isinstance(line, InputRejected):
             return line
-        place = LinePlace(line.to_record(), _named(named, facts), pages=not facts.renders_in_browser)
+        paged = not facts.renders_in_browser
+        place = LinePlace(line.to_record(), _named(named, paged), pages=paged)
     note = parse_note(d.get("note"))
     if isinstance(note, InputRejected):
         return note
@@ -216,7 +217,7 @@ def _changes(request: EditRequest, loc: Json | None) -> bool:
 
 
 def parse_edit_place(
-    body: EditBody, region: bool, facts: DocumentFacts, *, verdict: bool
+    body: EditBody, region: bool, facts: DocumentFacts, *, verdict: bool, pages: bool | None = None
 ) -> Place | UnreadLoc | None | InputRejected:
     """An edit's re-placement checked against the pin's own document (facts), or None when the edit sends no loc.
 
@@ -230,7 +231,10 @@ def parse_edit_place(
     location (parse_region for a region pin, parse_loc for a line pin), a figure document's el included (parse_el):
     the re-placement carries the el it names, or none, and so drops the old one. pdf_build records which build frac's
     coordinates belong to, so a loc that re-places frac takes the one sent or the build on screen, and a loc without
-    frac cannot change it."""
+    frac cannot change it. pages says whether the pin has pages - the answer its own record gives (EditTarget.pages),
+    which the edit then writes with; None reads it from facts. A line place is parsed with it, so a pin whose document
+    this run does not serve, parsed against the first document's facts, keeps its pages even when that document is
+    one the browser draws."""
     request = body.request
     if verdict or request.verdict_sent:
         return None if body.loc is None else UnreadLoc()
@@ -243,33 +247,34 @@ def parse_edit_place(
     loc = body.loc
     if loc is None:
         return None
+    paged = not facts.renders_in_browser if pages is None else pages
     if region:
         area = parse_region(loc, facts)
         if isinstance(area, InputRejected):
             return area
-        return RegionPlace(replace(area, pdf_build=_placed_build(loc, area.pdf_build, facts)).to_record())
-    line = parse_loc(loc, facts)
+        return RegionPlace(replace(area, pdf_build=_placed_build(loc, area.pdf_build, facts, paged)).to_record())
+    line = parse_loc(loc, facts, pages=paged)
     if isinstance(line, InputRejected):
         return line
     return LinePlace(
-        replace(line, pdf_build=_placed_build(loc, line.pdf_build, facts)).to_record(),
-        _named(loc, facts),
-        pages=not facts.renders_in_browser,
+        replace(line, pdf_build=_placed_build(loc, line.pdf_build, facts, paged)).to_record(),
+        _named(loc, paged),
+        pages=paged,
     )
 
 
-def _named(sent: Json, facts: DocumentFacts) -> frozenset[str]:
-    """The fields a location body named - sent with a value - as its LinePlace records them: on a document the browser
-    draws, without the page fields parse_loc dropped, so no edit reads them as re-placed."""
+def _named(sent: Json, pages: bool) -> frozenset[str]:
+    """The fields a location body named - sent with a value - as its LinePlace records them: on a place without pages
+    (a document the browser draws), without the page fields parse_loc dropped, so no edit reads them as re-placed."""
     named = frozenset(key for key, value in sent.items() if value is not None)
-    return named - frozenset(PAGE_FIELDS) if facts.renders_in_browser else named
+    return named if pages else named - frozenset(PAGE_FIELDS)
 
 
-def _placed_build(loc: Json, sent: str | None, facts: DocumentFacts) -> str | None:
+def _placed_build(loc: Json, sent: str | None, facts: DocumentFacts, pages: bool) -> str | None:
     """The pdf_build an edit's re-placement records: the one sent, else the build on screen, when loc re-places frac
-    (its coordinates belong to that build); None - the pin's own is kept - when loc sends no frac. None too on a
-    document the browser draws: it has no builds, and parse_loc dropped the frac."""
-    if loc.get("frac") is None or facts.renders_in_browser:
+    (its coordinates belong to that build); None - the pin's own is kept - when loc sends no frac. None too on a place
+    without pages (a document the browser draws): it has no builds, and parse_loc dropped the frac."""
+    if loc.get("frac") is None or not pages:
         return None
     current = facts.current_build()  # read even when one was sent, as it always has been
     return sent if sent is not None else current

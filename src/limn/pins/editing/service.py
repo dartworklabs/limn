@@ -276,35 +276,46 @@ def _with_edit(
 class EditTarget:
     """What an edit's location is parsed against, read before the pin lock (EditScope): whether the pin is a region
     pin (a view-only document's, or a figure document's region pick - it has no lines), whether it carries a verdict
-    (limn.pins.verdict.verdict_of - then no loc is read, limn.pins.editing.input.parse_edit_place) and the document
-    it belongs to. A verdict never leaves a pin, and the editing rules check the pin again under the lock."""
+    (limn.pins.verdict.verdict_of - then no loc is read, limn.pins.editing.input.parse_edit_place), the document whose
+    facts its loc is parsed against and whose capability decides a suggestion - the one it belongs to, or the first
+    document for a pin whose document this run does not serve - and pages, whether the pin has pages. pages comes from
+    the pin's own record by the rule every write of a pin uses (PinContext.has_pages, limn.pins.pages.keep_pages):
+    False only for a document the browser draws, True for one this run does not serve - never from the first
+    document that stands in for it. The edit is placed (parse_edit_place) and written (edit_pin) with it. A verdict
+    never leaves a pin, and the editing rules check the pin again under the lock."""
 
     region: bool
     verdict: bool
     document: Doc
+    pages: bool
 
 
 @dataclass(frozen=True)
 class EditScope:
-    """Read a pin's region kind, verdict and owning document before parsing an edit's location."""
+    """Read a pin's region kind, verdict, owning document and pages before parsing an edit's location. has_pages is
+    the run's answer for a pin record (PinContext.has_pages)."""
 
     read_pins: Callable[[], tuple[list[Pin], list[int]]]
     docs: Callable[[], Sequence[Doc]]
     pin_doc_key: Callable[[Record], str]
+    has_pages: Callable[[Record], bool]
 
     def __call__(self, pid: int) -> EditTarget:
         """The pin's EditTarget. An id that is not among the live pins reads as a line pin without a verdict in the
-        first document; the pin transaction answers a pin that is still missing as not found."""
+        first document, with that document's pages; the pin transaction answers a pin that is still missing as not
+        found."""
         pins, _ = self.read_pins()
         docs = self.docs()
         i = pin_index(pins, pid)
         if i is None:
-            return EditTarget(False, False, docs[0])
+            first = docs[0]
+            return EditTarget(False, False, first, pages=not first.renders_in_browser)
         pin = pins[i]
         return EditTarget(
             isinstance(pin.core.place, Region),
             verdict_of(pin.record) is not None,
             doc_by_key(docs, self.pin_doc_key(pin.record)) or docs[0],
+            pages=self.has_pages(pin.record),
         )
 
 

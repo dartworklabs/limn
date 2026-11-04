@@ -179,7 +179,7 @@ def _el_impl(v: object) -> ElementImpl | None | InputRejected:
     return ElementImpl(file, lo, hi)
 
 
-def parse_loc(d: Json, facts: DocumentFacts) -> LineLoc | InputRejected:
+def parse_loc(d: Json, facts: DocumentFacts, *, pages: bool | None = None) -> LineLoc | InputRejected:
     """A line pin's location, or the first field refused.
 
     file must be a file inside the manuscript tree and 1 <= lo <= hi <= its line count, so this reads that file's
@@ -189,7 +189,10 @@ def parse_loc(d: Json, facts: DocumentFacts) -> LineLoc | InputRejected:
     (parse_el; on any other document it is dropped like an unknown field). On a document the browser draws
     (facts.renders_in_browser) there are no pages: page, frac and pdf_build are dropped unread, like an el outside a
     figure document, so an agent's habitual page: 1 is no refusal and nothing of it is stored
-    (docs/adr/0025-html-document-surface.md D2). The checked location is constructed only after every field has passed.
+    (docs/adr/0025-html-document-surface.md D2). pages, when given, answers whether the place has pages instead of the
+    document's facts: an edit passes the answer its pin's own record gives (limn.pins.editing.service.EditTarget), so
+    the pin of a document this run does not serve is placed with pages whatever document its facts were read from.
+    The checked location is constructed only after every field has passed.
     """
     f = source_file(d.get("file"), facts.root, facts.state)
     if isinstance(f, InputRejected):
@@ -203,7 +206,7 @@ def parse_loc(d: Json, facts: DocumentFacts) -> LineLoc | InputRejected:
         return hi
     if not 1 <= lo <= hi <= max(n, 1):
         return InputRejected("줄 범위가 파일(%d줄) 밖입니다: L%d-L%d" % (n, lo, hi), "range_outside_file")
-    paged = not facts.renders_in_browser
+    paged = not facts.renders_in_browser if pages is None else pages
     page: int | None = None
     if paged:
         sent_page = int_field(d.get("page", 1), "page")

@@ -574,6 +574,28 @@ class PagelessOnEveryWrite(MarkdownDocument, AccessBase):
         self.act(pid, "restore")
         self.assertEqual(self.page_fields(self.raw(pid)), LEGACY)
 
+    def test_an_edit_of_a_pin_whose_document_is_not_served_keeps_them(self):
+        """A LaTeX line pin whose document left the configuration, with a Markdown document now first, keeps the four
+        fields on an edit of its note and on a re-placement that names none of them, and a re-placement's page, frac
+        and pdf_build are stored as on a document with pages (a re-placed frac forgets frac_build): the edit asks the
+        pin's own record (PinContext.has_pages - a document this run does not serve keeps its page fields), not the
+        first document its loc is parsed against."""
+        pid = self.make(doc="ms", file=str(self.main), lo=4, hi=5, note="n")
+        self.legacy(pid)
+        ps.APP.set_docs([self.nt])
+        self.act(pid, "edit", {"base_rev": 0, "note": "다시"})
+        self.assertEqual(self.raw(pid)["note"], "다시")
+        self.assertEqual(self.page_fields(self.raw(pid)), LEGACY)
+        self.act(pid, "edit", {"base_rev": 1, "loc": {"file": str(self.main), "lo": 8, "hi": 9}})
+        self.assertEqual((self.raw(pid)["lo"], self.raw(pid)["hi"]), (8, 9))
+        self.assertEqual(self.page_fields(self.raw(pid)), LEGACY)
+        self.act(pid, "edit", {"base_rev": 2, "loc": {"file": str(self.main), "lo": 8, "hi": 9, "page": 2}})
+        self.assertEqual(self.page_fields(self.raw(pid)), {**LEGACY, "page": 2})
+        frac, build = [0.2, 0.2, 0.1, 0.1], "pages-20261104120000"
+        loc = {"file": str(self.main), "lo": 8, "hi": 9, "frac": frac, "pdf_build": build}
+        self.act(pid, "edit", {"base_rev": 3, "loc": loc})
+        self.assertEqual(self.page_fields(self.raw(pid)), {"page": 2, "frac": frac, "pdf_build": build})
+
     def test_a_refused_write_writes_nothing(self):
         """A claim of a closed legacy record is refused (409) and its record keeps the four fields: only a write
         drops them."""

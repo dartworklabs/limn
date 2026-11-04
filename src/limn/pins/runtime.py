@@ -117,7 +117,7 @@ class PinCommands:
             self.pin_editing,
             lambda: self.known_people(None),
             self.document_facts,
-            EditScope(self.read_pins, lambda: self.docs, self.pin_doc_key),
+            EditScope(self.read_pins, lambda: self.docs, self.pin_doc_key, self.has_pages),
             self.public,
         )
         self.pin_listing = PinListing(self, TRASH_DAYS)
