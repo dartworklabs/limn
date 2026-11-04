@@ -62,10 +62,10 @@ function card(p){p=pvQuietRel(p);   // no overlap badge between two verdicts abo
   // compact's head link (CSS shows it in place of #N, the line range and N쪽, diagnosis P6/U5): one 44px target that does what
   // [보기] does - the same data-act, so it also replaces the row's [보기] there.
   // A pin of a Markdown document has no page (ADR-0025 D2): its head says the lines alone.
-  const at=pinPlace(p).page,page=typeof at==='number'&&!isMdPin(p)?' · '+tl('{page}쪽',{page:at}):'';
+  const at=pinPlace(p).page,page=typeof at==='number'&&!isMdPin(p)?tl('{page}쪽',{page:at}):'';
   // Its words and the reply count are in .lbl: compact trims them to their cap height, so the head row's dot, words, count and
   // chevron share one centre in any font.
-  const go=html`<span class="go-all" role="button" tabindex="0" data-act="view" data-tip="${T.view}"><span class="lbl">#${p.id} · ${locText(p)}${page}</span></span>`;
+  const go=html`<span class="go-all" role="button" tabindex="0" data-act="view" data-tip="${T.view}"><span class="lbl">#${p.id} · ${locText(p)}${page?' · '+page:''}</span></span>`;
   const nr=replyCount(p);
   const thn=nr?html`<span class="th-n" role="button" tabindex="0" data-act="reply-open" aria-label="${tl('답글 {n}건 — 답글 쓰기',{n:nr})}" data-tip="${tl('이 핀의 답글 {n}건 — 누르면 카드를 펴고 답글 칸을 엽니다',{n:nr})}">${ic('message-square')}<span class="lbl">${nr}</span></span>`:'';
   const dot=stDot(rv?CARD_DOT.REVIEW:p.stale||elLost(p)?CARD_DOT.LOST:claimed?CARD_DOT.CLAIMED:CARD_DOT.OPEN),unfold=open||(!rv&&editing);
@@ -79,7 +79,7 @@ function card(p){p=pvQuietRel(p);   // no overlap badge between two verdicts abo
 <div class="cmt-b">${noteHead(p)}${body}</div></div>${body?threadHtml(p,LAYOUT===LAYOUT_MODE.WIDE):''}</div>`;
   const head=html`<div class="row head">${dot}${go}<span class="n go" role="button" tabindex="0" data-act="view" data-tip="${T.n}">#${p.id}</span>${docChip(p)}\
 <span class="loc" tabindex="0" data-copy="${isRegion(p)?locCopy(p):name+' '+loc}" data-tip="${isRegion(p)?'영역이 있는 PDF 쪽. 클릭하면 복사':T.loc}">${locText(p)}</span>\
-<span class="pg-link" role="button" tabindex="0" data-act="view" data-tip="클릭하면 그 쪽으로 이동">${page}</span>\
+${page?html`<span class="pg-link" role="button" tabindex="0" data-act="view" data-tip="클릭하면 그 쪽으로 이동">${page}</span>`:''}\
 <span class="sp"></span><span class="h-meta">${thn}${au}</span>\
 <button class="btn-icon btn-sm btn-ghost cmp b-fold" data-act="card-toggle" aria-expanded="${unfold}" aria-label="${open?'카드 접기':'카드 펼치기'}">${ic(unfold?'chevron-down':'chevron-right')}</button></div>\
 ${sum}<div class="tags">${tags}</div>`;
