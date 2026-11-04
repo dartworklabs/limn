@@ -164,14 +164,15 @@ def test_only_checked_factory_constructs_capabilities():
 
 
 def test_bounded_read_returns_a_small_file_with_its_signature(tmp_path):
-    """A file of at most the limit is read whole, with the mtime_ns, size and inode of the file it came from."""
+    """A file of at most the limit is read whole, with the mtime_ns, size and inode of the file it came from and its
+    st_mtime as os.stat reports it."""
     from limn.platform.files import BoundedBytes, FileSignature
 
     source = tmp_path / "words.json"
     source.write_bytes(b"x" * 16)
     checked = file_in_tree(str(source), tmp_path, tmp_path / "state")
     found = source.stat()
-    assert checked.read_bounded(16) == BoundedBytes(b"x" * 16, FileSignature.of(found))
+    assert checked.read_bounded(16) == BoundedBytes(b"x" * 16, FileSignature.of(found), found.st_mtime)
     assert checked.read_bounded(16).signature == FileSignature(found.st_mtime_ns, 16, found.st_ino)
 
 

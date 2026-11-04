@@ -2,7 +2,8 @@
 docs/handbook/api.md §화면·PDF·정적 파일).
 
 SourceLinesRule holds source_lines to the text-mode read every other line consumer makes (tex_lines), over generated
-text and bytes and over a file holding every line end str.splitlines() knows. SourceRoute drives the route through the
+text and bytes and over a file holding every line end str.splitlines() knows. SourceStamp holds read_source's stamp to
+the descriptor its bytes came from, across an atomic save that lands while it reads. SourceRoute drives the route through the
 handler on a Markdown document made directly (no --doc suffix chooses the kind yet): its answer, the 1 MiB limit, the
 path checks every file route makes, who may read it, that an edit reaches the viewer's light poll, and that no request
 writes the manuscript.
@@ -16,12 +17,14 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 from urllib.parse import quote
 
 from hypothesis import given, strategies as st
 
 from limn.builds import artifacts as limn_build
-from limn.documents.source import SOURCE_MAX_BYTES, source_lines
+from limn.documents.source import SOURCE_MAX_BYTES, SourceLines, read_source, source_lines
+from limn.platform import files
 from limn.platform.files import ManuscriptFile, file_in_tree, tex_lines
 from limn.runtime.documents import Doc, RunPaths
 
@@ -84,6 +87,57 @@ class SourceLinesRule(unittest.TestCase):
         assert isinstance(checked, ManuscriptFile)
         self.assertEqual(source_lines(path.read_bytes()), EVERY_LINE_END_LINES)
         self.assertEqual(tex_lines(checked), EVERY_LINE_END_LINES)
+
+
+class SourceStamp(unittest.TestCase):
+    """read_source's src_mtime is the stamp of the very file version whose lines it returns."""
+
+    def test_an_atomic_save_while_reading_never_pairs_new_lines_with_the_old_stamp(self):
+        """plan.md holds "old" stamped 1700000000 s. The first time a descriptor on it is closed during read_source, an
+        editor saves "new" stamped 1700000001 s by atomic replacement (write a temporary file, rename it over plan.md),
+        as editors do. Whatever read_source answers is one version whole - the old lines with the old stamp or the new
+        lines with the new stamp - never the new lines with the replaced file's stamp; the next read has the new pair."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name).resolve()
+        path = root / "plan.md"
+        path.write_bytes(b"old\n")
+        os.utime(path, ns=(1_700_000_000_000_000_000,) * 2)
+        checked = file_in_tree(str(path), root, root / "state")
+        assert isinstance(checked, ManuscriptFile)
+        old = (("old",), os.stat(path).st_mtime)
+        original_open, original_close = files.os.open, files.os.close
+        leaves: set[int] = set()
+        saved: list[tuple[tuple[str, ...], float]] = []
+
+        def open_noting_leaves(name, flags, *args, **kwargs):
+            """Open as the OS does and remember each descriptor on plan.md itself."""
+            descriptor = original_open(name, flags, *args, **kwargs)
+            if name == "plan.md":
+                leaves.add(descriptor)
+            return descriptor
+
+        def close_then_save(descriptor):
+            """Close as the OS does; after the first close of a plan.md descriptor, save "new" atomically."""
+            original_close(descriptor)
+            if descriptor in leaves and not saved:
+                part = root / "plan.md.part"
+                part.write_bytes(b"new\n")
+                os.utime(part, ns=(1_700_000_001_000_000_000,) * 2)
+                os.replace(part, path)
+                saved.append((("new",), os.stat(path).st_mtime))
+
+        with (
+            mock.patch.object(files.os, "open", open_noting_leaves),
+            mock.patch.object(files.os, "close", close_then_save),
+        ):
+            got = read_source(checked)
+        self.assertEqual(len(saved), 1, "the save never landed inside the read")
+        assert isinstance(got, SourceLines)
+        self.assertIn((got.lines, got.src_mtime), (old, saved[0]))
+        after = read_source(checked)
+        assert isinstance(after, SourceLines)
+        self.assertEqual((after.lines, after.src_mtime), saved[0])
 
 
 class SourceRoute(AccessBase):
