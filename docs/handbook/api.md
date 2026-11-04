@@ -303,7 +303,7 @@ Markdown 문서도 `/api/revision-diff` 가 그 파일의 diff를 주고, `&pin=
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
-| `GET` | `/api/pins` | 열린 핀 목록(JSON). 레코드마다 `rev`, `rel`(§겹친 핀과 덧붙이기), `est`(불리언, [build-sync.md](build-sync.md) §위치 추정 (`est`)), `state`(§검토 대기)가 채워진다. `rel`·`est`·`state` 는 계산 필드라 저장하지 않는다. `el` 이 있는 그림 핀에는 `mark`·`mark_page`·`el_sync` 도 붙는다(§그림 문서의 pick·핀). 같은 대상에 더 새 판정 핀이 있는 판정 핀에는 `fyi` 다음에 `superseded_by` 가 붙는다(§판정 핀 읽기). 제안 수정이 있는 핀에는 맨 끝에 `suggest_state` 가 붙는다(§제안 수정 (`suggest`)). 저장된 숫자에 NaN·Infinity 가 있으면 응답에서 `null` 이다. `frac`·`el.frac` 은 필드 전체가 그렇다(§핀 레코드 스키마). `?all=1` 이면 닫힌 핀까지 준다. 이 경로는 줄 맞춤(sync) 쓰기를 한다 |
+| `GET` | `/api/pins` | 열린 핀 목록(JSON). 레코드마다 `rev`, `rel`(§겹친 핀과 덧붙이기), `est`(불리언, [build-sync.md](build-sync.md) §위치 추정 (`est`)), `state`(§검토 대기)가 채워진다. `rel`·`est`·`state` 는 계산 필드라 저장하지 않는다. `el` 이 있는 그림 핀에는 `mark`·`mark_page`·`el_sync` 도 붙는다(§그림 문서의 pick·핀). 같은 대상에 더 새 판정 핀이 있는 판정 핀에는 `fyi` 다음에 `superseded_by` 가 붙는다(§판정 핀 읽기). 제안 수정이 있는 핀에는 맨 끝에 `suggest_state` 가 붙는다(§제안 수정 (`suggest`)). 저장된 숫자에 NaN·Infinity 가 있으면 응답에서 `null` 이다. `frac`·`el.frac` 은 필드 전체가 그렇다(§핀 레코드 스키마). `?all=1` 이면 닫힌 핀까지 준다. 이 경로는 줄 맞춤(sync) 쓰기를 한다(채택한 목표는 쓰지 않고 메모리에서만 맞추는 것이다, [architecture.md](architecture.md) §10) |
 | `GET` | `/api/pins/{id}` | 핀 한 건 `{pin}`. `GET /api/pins?all=1` 의 한 항목과 같은 모양이다(스레드 전부와 계산 필드 포함). 없으면 `404` |
 | `GET` | `/api/pins/dropped` | 휴지통 → `{dropped: [...]}`. 잠금 아래 원본과 휴지통을 함께 읽고, `dropped_at` 순으로 유효한 휴지통 항목만 낸다(쓰기 부작용 없음). 살아 있는 원본과 번호가 겹치거나 30일(`TRASH_DAYS`)이 지난 항목은 싣지 않는다(§휴지통). 계산 필드는 `expires_ts`(지워질 시각, epoch 초, 0.2.2+) 하나다. 뷰어의 휴지통이 이것을 쓴다. 열린 목록에서 사라진 핀이 완료인지 삭제인지 가르는 알림도 이것을 쓴다([build-sync.md](build-sync.md) §자동 동기화 (가벼운 meta 폴링)) |
 | `GET` | `/pins.md` | 원격 에이전트 진입점. `<state_dir>/pins.md` 와 같은 내용을 `text/markdown; charset=utf-8` 로 낸다. `GET /api/pins` 와 같은 sync 경로를 탄 뒤 렌더한다. 안내 줄의 base URL만 요청 `Host` 에 맞춘다. `Host` 가 `*.ts.net` 이면 `https://<Host 그대로>`, `--public-host` 이름이면 `https://<이름>[:<포트>]`, 루프백이면 기존 `http://127.0.0.1:<port>` 다. 디스크의 `<state_dir>/pins.md` 는 항상 루프백 base다. Host·Origin 검사는 다른 `GET` 과 같다 — §원격 에이전트 진입점 (`GET /pins.md`) |
@@ -746,6 +746,7 @@ curl -s -X POST <base>/api/pins/12/reply -H 'Content-Type: application/json' -d 
 - 같은 값이면 10분에 한 번만 다시 쓴다. `/api/meta?light=1` 폴링은 쓰지 않는다.
 - 파일이 있는데 쓸 수 없으면(§역할) 방문을 기록하지 않고 파일도 건드리지 않는다. `limn member` 도 같은 판단으로 그런 파일을 거부한다. 그동안 @태그 후보는 핀에 나온 사람뿐이다.
 - `GET /api/people` 은 이 파일과 핀의 작성자·행위자·스레드 글쓴이를 합쳐 준다.
+- **채택한 목표(구현 전, [architecture.md](architecture.md) §10):** 여는 것(`GET /`, 전체 `/api/meta`)만으로는 적지 않고 권한을 검사한 실제 변경 POST에서만 적는다. 기록도 핀 참여도 없는 새 독자는 @태그 후보에 없고 `@`로 적어도 풀리지 않는다. 편집자는 첫 변경 뒤에, `viewer`는 `limn member add` 뒤에 나타난다.
 
 ### @이름 풀기
 

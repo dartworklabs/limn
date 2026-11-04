@@ -367,7 +367,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/paper2.token)" http://127
 >
 > 기본 정책(테일넷 인스턴스): `AUTH`가 없거나 `AUTH=tailscale`이고 허용 목록도 없으면, 인스턴스는 닿는 테일넷 사람 모두에게 열려 있고 누가 했는지만 기록한다.
 
-처음 보는 테일넷 로그인도 들어올 수 있다. 그 사람은 첫 방문 때 `people.json`에 **`role` 필드 없이** 기록되고, 역할이 없으므로 editor다. v0.1과 똑같이 뷰어를 열고 핀·답글·닫기·확인을 할 수 있다. 지금 되는 일은 하나도 막히지 않는다. 역할과 허용 목록(`MEMBERS_ONLY=1`, `--allow`, `limn member`로 준 역할)은 켜야만 적용된다.
+처음 보는 테일넷 로그인도 들어올 수 있다. 그 사람은 첫 방문 때(채택한 목표에서는 첫 실제 변경 때, [architecture.md](architecture.md) §10) `people.json`에 **`role` 필드 없이** 기록되고, 역할이 없으므로 editor다. v0.1과 똑같이 뷰어를 열고 핀·답글·닫기·확인을 할 수 있다. 지금 되는 일은 하나도 막히지 않는다. 역할과 허용 목록(`MEMBERS_ONLY=1`, `--allow`, `limn member`로 준 역할)은 켜야만 적용된다.
 
 - 서버는 `BIND`가 없으면 `127.0.0.1`에 바인드한다. loopback이 아닌 `BIND`는 `AUTH=trusted-proxy`일 때만 받는다. `EXTRA_ARGS`에 `--i-know-this-is-insecure`가 있으면 큰 경고와 함께 뜬다. 테일넷 노출은 `tailscale serve --bg --https=<TS_PORT> http://127.0.0.1:<PORT>` 뿐이다.
 - `tailscale serve`는 `tailscale` 방식에서만 쓴다. `add`와 `start`는 `AUTH=local`·`AUTH=trusted-proxy` 인스턴스에 serve를 거부한다. `AUTH=local`은 loopback 요청이 모두 소유자라서, serve로 열면 테일넷 사람 모두가 소유자가 된다. `AUTH=trusted-proxy`는 테일넷 사람이 프록시 헤더를 직접 보낼 수 있다. 이런 인스턴스는 `--no-serve`로 두고 자체 프록시 뒤에 둔다.
