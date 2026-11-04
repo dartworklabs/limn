@@ -498,6 +498,38 @@ class Picking(MarkdownBase):
             ["raw", fixture_line("인용 첫"), fixture_line("인용 둘째")],
         )
 
+    def test_a_tap_on_a_block_no_longer_than_its_lines_picks_the_block(self):
+        """A tap on a block whose lines are all the tapped lines - a raw HTML block's placeholder, a one-line paragraph -
+        picks the block as a tap on any block does: the block's rung stands first with the chosen lines merged into it, and
+        the pin is md:<kind>, scope block (it was saved as lines). A drag over the same one line still picks the line."""
+        page = self.open_md()
+        ladder = "COMPOSE.current.levels.map(l=>[l.level,l.lo,l.hi,l.env||null,l.merged||[]])"
+        html, last = fixture_line("<div onclick="), fixture_line("마지막 문단.")
+        for where, kind, n in (
+            ("#md .md-html[data-lo='%d']" % html, "html", html),
+            ("#md [data-line='%d']" % last, "paragraph", last),
+        ):
+            with self.subTest(kind=kind):
+                page.locator(where).click()
+                page.wait_for_function("COMPOSE.current&&COMPOSE.current.lo===%d" % n, timeout=5000)
+                self.assertEqual(
+                    page.evaluate("[COMPOSE.current.scope,COMPOSE.current.lo,COMPOSE.current.hi]"), ["block", n, n]
+                )
+                self.assertEqual(page.evaluate(ladder)[0], ["block", n, n, kind, ["raw"]])
+                self.save(page)
+                rec = records(ps.APP.C.state)[-1]
+                self.assertEqual((rec["lo"], rec["hi"], rec["kind"], rec["scope"]), (n, n, "md:" + kind, "block"))
+        box = page.locator("#md [data-line='%d']" % last).bounding_box()
+        assert box
+        y = box["y"] + box["height"] / 2
+        page.mouse.move(box["x"] + 1, y)
+        page.mouse.down()
+        page.mouse.move(box["x"] + box["width"] - 1, y, steps=5)
+        page.mouse.up()
+        page.wait_for_function("COMPOSE.current&&COMPOSE.current.scope==='raw'", timeout=5000)
+        settle(page)
+        self.assertEqual(page.evaluate(ladder)[0], ["raw", last, last, None, ["block"]])
+
     def test_a_table_cell_picks_its_row_and_the_block_is_the_table(self):
         """A click in a cell: the chosen lines are its row's one line; the block rung is the whole table (md:table)."""
         page = self.open_md()
@@ -1065,10 +1097,13 @@ class HtmlRun(MarkdownBase):
             "-document.querySelector('#md .md-badge').getBoundingClientRect().top)"
         )
         self.assertLessEqual(abs(top), 2)
-        page.click("#md .md-html[data-lo='3']")  # its own lines: the block's rung is the chosen lines' (merged)
+        page.click("#md .md-html[data-lo='3']")  # its own lines: a tap picks the block, the chosen lines merged into it
         page.wait_for_function("COMPOSE.current&&COMPOSE.current.lo===3", timeout=5000)
         self.assertEqual(
-            page.evaluate("[COMPOSE.current.lo,COMPOSE.current.hi,COMPOSE.current.levels[0].merged]"), [3, 5, ["block"]]
+            page.evaluate(
+                "[COMPOSE.current.lo,COMPOSE.current.hi,COMPOSE.current.scope,COMPOSE.current.env,COMPOSE.current.levels[0].merged]"
+            ),
+            [3, 5, "block", "html", ["raw"]],
         )
 
 

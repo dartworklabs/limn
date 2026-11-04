@@ -376,19 +376,23 @@ function mdSection(lo,hi){let h=/** @type {{level:number,lo:number,title:string}
 // The ladder for lines r (a drag or a tap) and the blocks its start and end are in (mdBlockAt): the chosen lines, the block when
 // both ends are in one - else, when they meet two or more blocks (mdBlocksIn), those blocks whole ('블록 N개', level blocks:
 // saved as lines, kindFor) - and the heading's section; a rung with the range of one before it merges into that one. A block
-// rung carries its block kind as env (kindFor: md:<kind>).
-/** @param {{lo:number,hi:number}} r @param {HTMLElement|null} b0 @param {HTMLElement|null} b1 */
-function mdLevels(r,b0,b1){const ls=/** @type {any[]} */([]); const add=(level,label,lo,hi,env)=>{const same=ls.find(l=>l.lo===lo&&l.hi===hi);
+// rung carries its block kind as env (kindFor: md:<kind>). A tap (tapped) picks its block: when the block is no more than the
+// tapped lines (an HTML block, a one-line paragraph) its rung stands first and the chosen lines merge into it, so the pin is
+// md:<kind> as any other tapped block's - merged the other way, the tap's block was saved as lines.
+/** @param {{lo:number,hi:number}} r @param {HTMLElement|null} b0 @param {HTMLElement|null} b1 @param {boolean} [tapped] */
+function mdLevels(r,b0,b1,tapped){const ls=/** @type {any[]} */([]); const add=(level,label,lo,hi,env)=>{const same=ls.find(l=>l.lo===lo&&l.hi===hi);
     if(same){(same.merged=same.merged||[]).push(level); return;} ls.push({level,label,lo,hi,n:hi-lo+1,snippet:mdSnippet(lo,hi),env:env||null});};
+  const k=b0&&b0===b1?b0.dataset.kind||'paragraph':'',blo=b0?Math.min(+(b0.dataset.lo||0),r.lo):0,bhi=b0?Math.max(+(b0.dataset.hi||0),r.hi):0;
+  const blockFirst=!!(tapped&&k&&blo===r.lo&&bhi===r.hi); if(blockFirst)add('block',MD_BLOCK_LABEL[k]||'블록',blo,bhi,k);
   add('raw','고른 줄',r.lo,r.hi,null);
-  if(b0&&b0===b1){const k=b0.dataset.kind||'paragraph'; add('block',MD_BLOCK_LABEL[k]||'블록',Math.min(+(b0.dataset.lo||0),r.lo),Math.max(+(b0.dataset.hi||0),r.hi),k);}
+  if(k){if(!blockFirst)add('block',MD_BLOCK_LABEL[k]||'블록',blo,bhi,k);}
   else{const bs=mdBlocksIn(r.lo,r.hi); if(bs.length>1)add('blocks',tl('블록 {n}개',{n:bs.length}),Math.min(r.lo,...bs.map(e=>+(e.dataset.lo||0))),Math.max(r.hi,...bs.map(e=>+(e.dataset.hi||0))),null);}
   const s=mdSection(r.lo,r.hi); if(s)add('section',tr('절')+' · '+(s.title.length>18?s.title.slice(0,18)+'…':s.title),s.lo,s.hi,null);
   return ls;}
 // Fills the composer with lines r of the document on screen, as pick() does with a /api/pick answer; tapped: a tap picked a
 // block, so the block rung is the default (the section rung on a heading). During a re-place it is the candidate instead
 // (bannerCompare), with nothing else changed.
-function mdPick(r,b0,b1,quote,tapped){const levels=mdLevels(r,b0,b1),q=String(quote||'').replace(/\s+/g,' ').trim().slice(0,160);
+function mdPick(r,b0,b1,quote,tapped){const levels=mdLevels(r,b0,b1,tapped),q=String(quote||'').replace(/\s+/g,' ').trim().slice(0,160);
   const head=tapped&&MD.heads.some(h=>h.lo===r.lo&&h.lo===r.hi);
   const def=tapped&&lvOf({levels},head?'section':'block')?(head?'section':'block'):'raw';
   const sel=/** @type {Selection} */(/** @type {unknown} */({doc:DOC,file:MD.file,name:MD.name,lo:r.lo,hi:r.hi,raw_lo:r.lo,raw_hi:r.hi,kind:'lines',
