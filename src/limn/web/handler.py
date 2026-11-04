@@ -23,7 +23,7 @@ from typing import Any, ClassVar
 from urllib.parse import urlparse
 
 from limn.runtime.config import AccessOptions
-from limn.web import answers, parse, request_input
+from limn.web import answers, csp as page_csp, parse, request_input
 from limn.web.answers import accepted
 from limn.web.app import Document, Json, Principal, Query, WebApplication
 from limn.web.errors import HTTPError, InputRejected, error_page_html, page_lang
@@ -91,6 +91,8 @@ class Handler(BaseHTTPRequestHandler):
     principal: Principal
     _admitted: Principal | None  # this request's principal once _guard admits it; None before (reset per request)
     _raw: bytes
+    # the HTML page's Content-Security-Policy for the response being sent (_send); end_headers uses it once
+    _page_policy: str | None = None
 
     def log_message(self, format: str, *args: Any) -> None:  # noqa: A002 - the base class's parameter name
         """No access log: requests carry identities and pin text, and the server prints what it needs itself."""
@@ -103,12 +105,15 @@ class Handler(BaseHTTPRequestHandler):
         cache: str | None = None,
         etag: str | None = None,
         disposition: str | None = None,
+        csp: str | None = None,
     ) -> None:
         """Send one complete response: status, Content-Type/Length, Cache-Control (no-store unless given; page images
         cache privately for 10 minutes - they are manuscript pages, like the PDFs), the ETag when given, nosniff,
-        WWW-Authenticate on 401, Connection: close on every error, and the anti-framing pair end_headers adds. A 200
+        WWW-Authenticate on 401, Connection: close on every error, and the anti-framing pair end_headers adds - with
+        csp, an HTML page's own policy (limn.web.csp.page_policy), as its Content-Security-Policy. A 200
         with an ETag that the request's If-None-Match names is sent as 304 Not Modified without a body. The
         Content-Disposition value (a download's) goes out on a success only, never on an error or a 304."""
+        self._page_policy = csp
         if etag is not None and code == 200 and etag_matches(self.headers.get("If-None-Match"), etag):
             self.send_response(304)
             self.send_header("ETag", etag)
@@ -140,11 +145,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def end_headers(self) -> None:
         """Close the header block of every response - _send's and the base class's own error pages (a malformed
-        request line, an unsupported method) - with X-Frame-Options: DENY and Content-Security-Policy:
-        frame-ancestors 'none', so no other site can frame the viewer and trick a click (clickjacking). The policy
-        has no other directive: the viewer's inline scripts and styles are not restricted."""
+        request line, an unsupported method) - with X-Frame-Options: DENY and a Content-Security-Policy: the HTML
+        page's own (_send's csp, used once) or limn.web.csp.FRAME_ONLY, so no other site can frame the viewer and
+        trick a click (clickjacking), and on Limn's pages no script runs but the page's own (docs/adr/0026)."""
+        policy, self._page_policy = self._page_policy, None
         self.send_header("X-Frame-Options", "DENY")
-        self.send_header("Content-Security-Policy", "frame-ancestors 'none'")
+        self.send_header(page_csp.HEADER, policy or page_csp.FRAME_ONLY)
         super().end_headers()
 
     def _json(self, obj: object, code: int = 200) -> None:
@@ -266,9 +272,8 @@ class Handler(BaseHTTPRequestHandler):
             lang = page_lang(
                 self.headers, {} if isinstance(query, InputRejected) else query, self.app.settings().ui_lang
             )
-            return self._send(
-                e.code, error_page_html(e, lang, self.app.messages()).encode("utf-8"), "text/html; charset=utf-8"
-            )
+            page = error_page_html(e, lang, self.app.messages())
+            return self._send(e.code, page.encode("utf-8"), "text/html; charset=utf-8", csp=page_csp.page_policy(page))
         self._json(e.body, e.code)
 
     def _run(self, fn: Callable[[], None]) -> None:
