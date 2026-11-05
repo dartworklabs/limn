@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.52 — 2026-11-06
 
 ### Added
 
@@ -97,6 +97,14 @@
   stat and a `304` - the file is not opened (an 8 MiB image: about 12 ms of reading and hashing before, about 0.06 ms
   now). The `ETag` is still a hash of the content. A rewrite - at the same size, with its mtime put back - is read again,
   and a file changed less than two seconds ago is not remembered.
+- **The agent contract gains values, one read path and a meaning fix; nothing is removed or renamed.** Pin `kind`
+  `md:front` (fix those YAML lines, keeping YAML syntax) and `md:math` (fix that TeX; its `quote` is the TeX as
+  written); `pins.md`'s range column names them, and 0.4.51 keeps such pins byte for byte. `GET /api/revision-source`
+  serves the viewer's rendered compare (both sides of a drawn document; a side's `reason` `source_too_large`,
+  `source_not_utf8`, `source_unreadable` or `not_a_file`); agents have no use for it. `GET /api/version` now names the
+  code the process runs. A figure document whose map names more than 200 files answers `/api/revisions` with
+  `reason: "too_many_files"` and `/api/revision-diff` with `404 too_many_files`, and startup refuses a document under a
+  dot-named folder. Nothing to rebuild.
 
 ### Fixed
 
