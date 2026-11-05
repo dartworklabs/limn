@@ -1009,14 +1009,19 @@ def git_line_starts(text: str) -> list[list[int]]:
     lines str.splitlines() gives, as every side and GET /api/source number them): the pairs [git line, screen line], 1-based,
     at which the difference between the two numbers changes - from git line g0 on, git line g starts on screen line
     s0 + (g - g0) - the first always [1, 1]. [] when the two agree on every line (no form feed, lone CR, U+2028 or other line
-    end git does not split on). A git line ends on the screen line before the next git line starts. Pure."""
+    end git does not split on). A git line ends on the screen line before the next git line starts; so the last git line
+    ends too, the line after it - git's line count + 1 - starts after the last screen line (screen line count + 1), which
+    is a pair of its own when the last git line holds more than one screen line, with a final newline or without. Pure."""
     pairs: list[list[int]] = []
-    git_line, starts_git_line = 1, True
+    git_line, starts_git_line, screen = 1, True, 0
     for screen, piece in enumerate(text.splitlines(keepends=True), 1):
         if starts_git_line and (not pairs or screen - git_line != pairs[-1][1] - pairs[-1][0]):
             pairs.append([git_line, screen])
         starts_git_line = piece.endswith("\n")  # LF or CRLF: git's line ends here too
         git_line += starts_git_line
+    end_git = git_line if starts_git_line else git_line + 1  # the line after the last, as if one more line followed
+    if pairs and screen + 1 - end_git != pairs[-1][1] - pairs[-1][0]:
+        pairs.append([end_git, screen + 1])
     return pairs if len(pairs) > 1 else []
 
 

@@ -10,11 +10,12 @@ Run: uv run pytest -q src/limn/revisions/tests/test_revision_source.py
 
 import os
 import shutil
+import unittest
 
 from limn.administration.serve_documents import make_docs
 from limn.documents.source import SOURCE_MAX_BYTES
 from limn.platform.git import run_git
-from limn.revisions.core import REVISION_SOURCE_MAX
+from limn.revisions.core import REVISION_SOURCE_MAX, git_line_starts
 from limn.runtime.documents import Doc
 
 from helpers import ps
@@ -304,3 +305,29 @@ class RegisteredSides(AccessBase):
         self.assertEqual(body["new"]["lines"], ["# Draft"])
         code, body = self.sides(draft)
         self.assertEqual((code, body.get("reason")), (404, "commit_not_recent"))
+
+
+class GitLineStartsAtTheEnd(unittest.TestCase):
+    """git_line_starts when the last git line holds more than one screen line: no git line follows to say where it ends,
+    so the line after the last (git's count + 1) starts after the last screen line, a final newline or none."""
+
+    def test_the_last_git_line_ends_on_the_last_screen_line(self):
+        cases = {
+            # git: first / (empty) / A\f\fB - the screen: first / (empty) / A / (empty) / B
+            "first\n\nA\x0c\x0cB\n": [[1, 1], [4, 6]],
+            "first\n\nA\x0c\x0cB": [[1, 1], [4, 6]],
+            "A\u2028B\n": [[1, 1], [2, 3]],
+            "A\u2028B": [[1, 1], [2, 3]],
+            "Intro.\nA\u2028B\u2028C": [[1, 1], [3, 5]],
+            # a form feed before the final newline: git's one line, the screen's two
+            "A\x0c\n": [[1, 1], [2, 3]],
+            # the two agree to the end: no pair for it, and no map at all when nothing else differs
+            "A\nB\x0c": [],
+            "A\n": [],
+            "": [],
+            # a form feed earlier and plain lines after it: the end needs no pair of its own
+            "A\x0cB\nC\n": [[1, 1], [2, 3]],
+        }
+        for text, want in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(git_line_starts(text), want)
