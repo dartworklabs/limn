@@ -1000,7 +1000,24 @@ def _side_lines(repo: Path, sha: str, rel: str) -> Json | None:
         text = ran[1].decode("utf-8")
     except UnicodeDecodeError:
         return {"reason": "source_not_utf8"}
-    return {"lines": text.splitlines()}
+    starts = git_line_starts(text)
+    return {"lines": text.splitlines(), **({"git_line_starts": starts} if starts else {})}
+
+
+def git_line_starts(text: str) -> list[list[int]]:
+    """Where git's lines of text (counted on "\\n" alone, as a hunk header counts them) start among its screen lines (the
+    lines str.splitlines() gives, as every side and GET /api/source number them): the pairs [git line, screen line], 1-based,
+    at which the difference between the two numbers changes - from git line g0 on, git line g starts on screen line
+    s0 + (g - g0) - the first always [1, 1]. [] when the two agree on every line (no form feed, lone CR, U+2028 or other line
+    end git does not split on). A git line ends on the screen line before the next git line starts. Pure."""
+    pairs: list[list[int]] = []
+    git_line, starts_git_line = 1, True
+    for screen, piece in enumerate(text.splitlines(keepends=True), 1):
+        if starts_git_line and (not pairs or screen - git_line != pairs[-1][1] - pairs[-1][0]):
+            pairs.append([git_line, screen])
+        starts_git_line = piece.endswith("\n")  # LF or CRLF: git's line ends here too
+        git_line += starts_git_line
+    return pairs if len(pairs) > 1 else []
 
 
 def _literal_path(paths: Sequence[str]) -> str | None:
@@ -1017,7 +1034,7 @@ def revision_sources(
     """GET /api/revision-source: a browser-drawn document's own file (files: its one history file) on the two sides the
     source diff compares - the commit's first parent (no side for a root commit) and the commit, or with base the range's
     old side (range_ends: base, or the merge base of a base on another line) and the commit - each side as _side_lines
-    gives it. The viewer draws both and marks the blocks that changed (docs/superpowers/specs/2026-11-05-markdown-rendered-
+    gives it ({lines, git_line_starts?}). The viewer draws both and marks the blocks that changed (docs/superpowers/specs/2026-11-05-markdown-rendered-
     compare.md). Only a commit of the document's history window is read, and base under the range's rules, so no other
     object of the repository is named. Answers {id, base, merge_base?, path, old, new}: base the old side's SHA-1 (None
     for a root commit), path the file's repository-relative path as it was registered (the history window's own),

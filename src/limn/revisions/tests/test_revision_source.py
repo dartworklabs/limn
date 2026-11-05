@@ -90,6 +90,23 @@ class RevisionSource(AccessBase):
         self.assertEqual(body["new"]["lines"][2:4], ["Intro.", "After a form feed."])
         self.assertNotIn("merge_base", body)
 
+    def test_a_side_says_where_gits_lines_start_when_the_two_count_apart(self):
+        """A hunk counts git's lines (LF only), a side the screen's: the form feed on line 3 makes git's line 4 the
+        screen's 5, said as git_line_starts [[1, 1], [4, 5]]; a U+2028 more on line 6 adds [6, 8]. A side whose line ends
+        are all LF carries no map."""
+        code, body = self.sides(self.c["markdown edit"])
+        self.assertEqual(code, 200, body)
+        self.assertEqual((body["old"]["git_line_starts"], body["new"]["git_line_starts"]), ([[1, 1], [4, 5]],) * 2)
+        self.md.write_text(PLAN.replace("Alpha line.", "Alpha\u2028line."), encoding="utf-8")
+        sep = self.commit("line separator", "plan.md")
+        code, body = self.sides(sep)
+        self.assertEqual(body["new"]["git_line_starts"], [[1, 1], [4, 5], [6, 8]])
+        self.assertEqual(body["new"]["lines"][5:7], ["Alpha", "line."])
+        self.md.write_text("# Plain\n\nNo other line end.\n", encoding="utf-8")
+        plain = self.commit("plain", "plan.md")
+        code, body = self.sides(plain)
+        self.assertNotIn("git_line_starts", body["new"])
+
     def test_a_root_commit_has_no_old_side_and_a_deletion_no_new_side(self):
         """The commit that added the file has no parent: base and old are null. A commit that deletes the file is in its
         history; its new side is null."""
