@@ -1432,6 +1432,7 @@
  "HTML 블록": "HTML block",
  "머리 정보": "Front matter",
  "머리 정보 · YAML {n}줄": {"one": "Front matter · YAML, {n} line", "other": "Front matter · YAML, {n} lines"},
+ "수식": "Math",
  "HTML 블록 {n}개 · {lines}줄 · 그리지 않습니다": "{n} HTML blocks · {lines} lines · not drawn",
  "블록 {n}개": {"one": "{n} block", "other": "{n} blocks"},
  "넓히기 전에 끌어 고르거나 누른 줄만 잡습니다": "Only the lines dragged over or tapped, before any widening",

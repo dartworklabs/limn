@@ -384,6 +384,111 @@ class FrontMatter(MarkdownBase):
         self.assertIn("| — |", row)
 
 
+# TeX math kept as written (ADR-0032 제안): the lab's t-star pair, which emphasis ate; currency, escaped dollars and a code
+# span, which stay what they were; display math; inline math over a line end; math in a table and in a list.
+MATH_FIXTURE = r"""# 수식 노트
+
+중단 시점 $t^*$ 는 오차가 처음 늘어나는 달이고, $t^*=\infty$ 는 끝까지 늘지 않는다는 뜻이다.
+가격은 $5 와 $10 이고, 이스케이프한 \$x\$ 는 글자다.
+`$code$` 는 코드다.
+
+$$
+\mathrm{Gain}(t) = \frac{\mathrm{MSE}_{\text{no-TL}} - \mathrm{MSE}_{\text{arm}}}{\mathrm{MSE}_{\text{no-TL}}}
+$$
+
+여러 줄에 걸친 $a_1 +
+b_2$ 뒤 문장.
+마지막 줄.
+
+| 기호 | 뜻 |
+| --- | --- |
+| $x_i$ | 건물 $i$ 의 *부하* |
+
+- 목록의 $\Delta_{ij}$ 와 \(y_{i,t}\)
+"""
+MATH_LINE = MATH_FIXTURE.split("\n").index("$$") + 1  # the display math's opening line
+
+
+class Math(MarkdownBase):
+    """TeX math shows its source, every character of it, and keeps the lines around it; display math is a block, md:math."""
+
+    MD_TEXT = MATH_FIXTURE
+
+    def test_math_shows_its_source_and_every_line_is_the_servers(self):
+        """Each math span is a code-face element with its source text, delimiters included, and no emphasis takes a '*' or
+        '_' of it; currency, escaped dollars and a code span stay what they were. The display math is one block over its
+        three lines, each a line span; inline math over a line end keeps the text after it on its own line, and every
+        drawn line names the server's line its text is on."""
+        page = self.open_md()
+        lines = server_lines(self.md)
+        self.assertEqual(
+            page.evaluate("[...document.querySelectorAll('#md code.md-math')].map(e=>e.textContent)"),
+            ["$t^*$", "$t^*=\\infty$", "$a_1 +", "b_2$", "$x_i$", "$i$", "$\\Delta_{ij}$", "\\(y_{i,t}\\)"],
+        )
+        first = page.evaluate("document.querySelector(\"#md [data-line='3']\").closest('p').innerText")
+        self.assertIn("$t^*$ 는 오차가 처음 늘어나는 달이고, $t^*=\\infty$ 는", first)
+        self.assertIn("가격은 $5 와 $10 이고, 이스케이프한 $x$ 는 글자다.", first)
+        self.assertEqual(page.evaluate("document.querySelectorAll('#md p em').length"), 0)
+        self.assertEqual(page.evaluate("document.querySelector('#md td em').textContent"), "부하")
+        self.assertEqual(page.evaluate("document.querySelector('#md p code:not(.md-math)').textContent"), "$code$")
+        box = page.evaluate(
+            "(()=>{const b=document.querySelector('#md [data-kind=math]'); return b&&{tag:b.tagName,lo:+b.dataset.lo,hi:+b.dataset.hi,"
+            "lines:[...b.querySelectorAll('[data-line]')].map(e=>[+e.dataset.line,e.textContent])};})()"
+        )
+        self.assertEqual((box["tag"], box["lo"], box["hi"]), ("PRE", MATH_LINE, MATH_LINE + 2))
+        self.assertEqual(box["lines"], [[n, lines[n - 1] + "\n"] for n in range(MATH_LINE, MATH_LINE + 3)])
+        # Each text node under a line span and the line it names (as Drawing's): a piece of math is its source, other text
+        # may have had its escapes ('\$') read and its markup (`) left out.
+        spans = page.evaluate(
+            "[...document.querySelectorAll('#md [data-line]')].flatMap(e=>{const w=document.createTreeWalker(e,NodeFilter.SHOW_TEXT),out=[];"
+            "for(let t=w.nextNode();t;t=w.nextNode())out.push([+e.dataset.line,t.data]); return out;})"
+        )
+        for n, text in spans:
+            for piece in text.split("\n"):
+                read = re.sub(r"\\([!-/:-@\[-`{-~])", r"\1", lines[n - 1])
+                self.assertTrue(piece.strip() in lines[n - 1] or piece.strip() in read, (n, piece))
+        two = lines.index("b_2$ 뒤 문장.") + 1
+        self.assertEqual([t.strip() for n, t in spans if n == two and t.strip()], ["b_2$", "뒤 문장."])
+        self.assertEqual([t.strip() for n, t in spans if n == two + 1 and t.strip()], ["마지막 줄."])
+        shown = page.evaluate(
+            "[...document.querySelectorAll('#md [data-line],#md [data-lo]')].flatMap(e=>e.dataset.line?[+e.dataset.line]:"
+            "Array.from({length:+e.dataset.hi-+e.dataset.lo+1},(_,i)=>+e.dataset.lo+i))"
+        )
+        self.assertEqual(sorted(set(shown)), [n for n, ln in enumerate(lines, 1) if ln.strip()])
+        style = page.evaluate(
+            "(()=>{const m=getComputedStyle(document.querySelector('#md code.md-math')),c=getComputedStyle(document.querySelector('#md p code:not(.md-math)'));"
+            "return {font:m.fontFamily===c.fontFamily,tint:m.backgroundColor,code:c.backgroundColor,"
+            "wrap:getComputedStyle(document.querySelector('#md .md-math-block .ln')).whiteSpace};})()"
+        )
+        self.assertTrue(style["font"])
+        self.assertEqual(style["tint"], "rgba(0, 0, 0, 0)")
+        self.assertNotEqual(style["code"], style["tint"])
+        self.assertEqual(style["wrap"], "pre-wrap")
+
+    def test_a_tap_on_display_math_picks_the_block_and_saves_md_math(self):
+        """A tap on a line of the display math offers that line, the math block and the section, the block by default; its
+        quote is the TeX as written; the saved pin is the block's lines, kind md:math, scope block, and pins.md names it."""
+        page = self.open_md()
+        got = self.pick_line(page, MATH_LINE + 1)
+        self.assertEqual((got["lo"], got["hi"], got["scope"]), (MATH_LINE, MATH_LINE + 2, "block"))
+        self.assertEqual(
+            got["levels"][:2],
+            [["raw", MATH_LINE + 1, MATH_LINE + 1, None], ["block", MATH_LINE, MATH_LINE + 2, "math"]],
+        )
+        self.assertEqual(got["levels"][2][0], "section")
+        quote = page.evaluate("COMPOSE.current.quote")
+        self.assertTrue(quote.startswith("$$ \\mathrm{Gain}(t) = \\frac{\\mathrm{MSE}_{\\text{no-TL}}"), quote)
+        self.assertTrue(quote.endswith("$$"), quote)
+        self.save(page)
+        rec = records(ps.APP.C.state)[-1]
+        self.assertEqual(
+            (rec["lo"], rec["hi"], rec["kind"], rec["scope"]), (MATH_LINE, MATH_LINE + 2, "md:math", "block")
+        )
+        md = self.talk(req("GET", "/pins.md"))[2].decode()
+        row = next(ln for ln in md.splitlines() if ln.startswith("| ") and "L%d-L%d" % (MATH_LINE, MATH_LINE + 2) in ln)
+        self.assertIn("md:math", row)
+
+
 class FromAnotherDocument(MarkdownBase):
     """Arriving on the Markdown document from the LaTeX one while work for either is still in flight."""
 
@@ -1204,8 +1309,9 @@ class Limits(MarkdownBase):
     def test_a_parse_past_the_time_limit_is_stopped_and_the_lines_are_shown(self):
         """A parse that never answers (the module made to hang) is stopped at MD_LIMITS.ms: the line view says so, and the
         next draw starts a fresh worker."""
-        # The stand-in has what the worker's mdParser calls (block.ruler.before, for the front matter rule) and a parse that hangs.
-        hang = b"export default function(){return {block:{ruler:{before(){}}},parse(){for(;;){}}}};"
+        # The stand-in has what the worker's mdParser calls (block.ruler.before and inline.ruler.before, for its own rules) and
+        # a parse that hangs.
+        hang = b"export default function(){return {block:{ruler:{before(){}}},inline:{ruler:{before(){}}},parse(){for(;;){}}}};"
         self.write("# 제목\n\n본문 한 줄\n")
         page = self.open(0)
 
