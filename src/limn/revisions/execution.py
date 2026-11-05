@@ -167,7 +167,9 @@ def revision_snapshot(spec: RevisionSpec, commit: str, dest: Path, also: Iterabl
     """Write the build root of commit (spec.source) into the new folder dest from git objects - regular files only,
     within the file-count and size limits - and check that spec.main is there. The step failure otherwise. A file under
     a dot-named part of the build root (DotNamedRow) is left out before any blob is read: it is no document's history,
-    so neither side of a comparison - nor the latexdiff and latexmk runs over them - ever holds its text.
+    so neither side of a comparison - nor the latexdiff and latexmk runs over them - ever holds its text. Dot-named parts
+    are judged from the manuscript root: a build root or main file with one there (spec.tree_source, spec.main) is
+    refused (unsafe_snapshot) before git is asked anything, as no file of it is the manuscript.
 
     A build root past the size limits has the REVISION_NAMED_FILES that nothing names stand as blank files, and is refused
     if it is still past them. What names one is the other files of the build root and the sources in also (the other side
@@ -175,6 +177,8 @@ def revision_snapshot(spec: RevisionSpec, commit: str, dest: Path, also: Iterabl
     a blank file is sparse, the real one's size in zeros on no disk, so \\IfFileExists and \\pdffilesize answer as for the
     real one, and reading it fails the build (no reader of pictures takes zeros, and TeX refuses a NUL), so a picture named
     by a macro (fig\\thepage) ends in compile_failed, not in a wrong PDF."""
+    if core.dot_named(spec.tree_source) or core.dot_named(spec.main.as_posix()):
+        return StepFailed("unsafe_snapshot")
     prefix = "" if spec.source == "." else spec.source + "/"
     cmd = ["ls-tree", "-r", "-l", "-z", commit]
     if prefix:

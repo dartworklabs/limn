@@ -118,6 +118,12 @@ class RevisionDoc(Protocol):
         ...
 
     @property
+    def registered_manuscript(self) -> Path:
+        """The manuscript root as the run registered it (limn.runtime.documents.Doc.registered_manuscript): resolved at
+        startup, never again; dot-named parts are judged below it (dot_named_document)."""
+        ...
+
+    @property
     def dir(self) -> Path:
         """The document's state folder; comparisons are cached under its revisions/."""
         ...
@@ -150,7 +156,8 @@ class DiffUnavailable:
 
 @dataclass(frozen=True)
 class NotInRepo:
-    """The document's build root or main file does not lie inside the repository, so no snapshot can be taken."""
+    """The document's build root or main file does not lie inside the repository - or its build root not inside the
+    manuscript root -, so no snapshot can be taken."""
 
 
 @dataclass(frozen=True)
@@ -381,6 +388,9 @@ class RevisionSpec(NamedTuple):
     meta: ScopeMeta | None = None  # additive status fields for a pin request: scope, pin, source, hunks, other
     merge_base: str | None = None  # a range whose base is on another line: base is this merge base (issue #188)
     ranged: bool = False  # a range whose old side is not head's first parent: cached apart (RANGED_MARK)
+    # The build root relative to the manuscript root, as registered: a snapshot judges dot-named parts from there
+    # (limn.revisions.execution.revision_snapshot), so no ancestor of the build root may be one either.
+    tree_source: str = "."
 
 
 # ---------------------------------------------------------------- history and the source diff
@@ -393,10 +403,27 @@ def glob_literal(text: str) -> str:
 
 
 def dot_named(rel: str) -> bool:
-    """Whether the POSIX path rel (relative to a document's folder) has a part whose name starts with '.': the
-    manuscript tree's rule (limn.platform.files.tree_part), which no case folding changes, so .Private is one as .private
-    is. Pure."""
-    return any(part.startswith(".") for part in rel.split("/"))
+    """Whether the POSIX path rel (relative to a document's folder, or to the manuscript root) has a part whose name
+    starts with '.': the manuscript tree's rule (limn.platform.files.tree_part), which no case folding changes, so
+    .Private is one as .private is. A "." part names the folder itself, not a name: "." is no dot-named path. Pure."""
+    return any(part.startswith(".") for part in rel.split("/") if part not in ("", "."))
+
+
+def dot_named_document(D: RevisionDoc) -> bool:
+    """Whether document D, as registered, lies under a dot-named part of the manuscript: its folder (registered_src) or
+    its main file (registered_main) - and so any folder on the way to either - has a part below D.registered_manuscript
+    whose name starts with '.' (the manuscript tree's rule, limn.platform.files.tree_part). Startup refuses such a
+    document (limn.administration.serve_documents.DocDotNamed), so only one made past it is one; it has no history,
+    source diff or comparison, as nothing under such a part is the manuscript. A path outside the manuscript root is not
+    judged here. Pure."""
+    for path in (D.registered_src, D.registered_main):
+        try:
+            parts = path.relative_to(D.registered_manuscript).parts
+        except ValueError:
+            continue
+        if any(part.startswith(".") for part in parts):
+            return True
+    return False
 
 
 def dot_excludes(prefix: str) -> list[str]:
@@ -441,8 +468,9 @@ def revision_scope(D: RevisionDoc, files: Sequence[Path] | None = None) -> tuple
     a Markdown file or a text file other than .bib, .sty, .cls and .bst, so a LaTeX document and a Markdown or text
     document in one folder keep apart histories; a .bib text document's commits are the LaTeX document's too. Neither
     names anything under a dot-named part below the document's folder (dot_excludes), and the folder's own name is
-    matched literally (glob_literal)."""
-    if not D.shows_revisions:
+    matched literally (glob_literal). A document that itself lies under a dot-named part of the manuscript - its folder,
+    its main file or a folder between them and the manuscript root (dot_named_document) - has none."""
+    if not D.shows_revisions or dot_named_document(D):
         return None
     if files is not None:
         return _files_scope(D, files)
@@ -1117,10 +1145,11 @@ def revision_spec(
     try:
         source = D.registered_src.relative_to(repo).as_posix()
         main = D.registered_main.relative_to(D.registered_src)
+        tree_source = D.registered_src.relative_to(D.registered_manuscript).as_posix()
     except ValueError:
         return NotInRepo()
     if base is not None:
-        return range_spec(repo, source, main, paths, window[2], commit, base)
+        return range_spec(repo, source, main, paths, window[2], commit, base, tree_source)
     rc, out, _ = git(["rev-list", "--parents", "-n", "1", commit], repo)
     parents = out.strip().split()
     if rc != 0 or len(parents) < 2 or not REVISION_ID_RE.fullmatch(parents[1]):
@@ -1138,7 +1167,7 @@ def revision_spec(
             blocks = sc.blocks  # keyed by the block set, not the pin: pins on the same fix share it
             extra = ["blocks", [list(b) for b in blocks]]
     key = comparison_key(repo, source, main, base, commit, extra)
-    return RevisionSpec(repo, source, main, base, commit, key, paths, blocks, pin, meta)
+    return RevisionSpec(repo, source, main, base, commit, key, paths, blocks, pin, meta, tree_source=tree_source)
 
 
 def comparison_key(repo: Path, source: str, main: Path, base: str, head: str, extra: Sequence[Any] = ()) -> str:
@@ -1150,12 +1179,20 @@ def comparison_key(repo: Path, source: str, main: Path, base: str, head: str, ex
 
 
 def range_spec(
-    repo: Path, source: str, main: Path, paths: tuple[str, ...], rows: Sequence[Json], commit: str, base: str
+    repo: Path,
+    source: str,
+    main: Path,
+    paths: tuple[str, ...],
+    rows: Sequence[Json],
+    commit: str,
+    base: str,
+    tree_source: str = ".",
 ) -> RevisionSpec | CommitNotRecent | DiffFailed | RangeRefusal:
     """The comparison of the range base..commit (issue #188): base must be in the history window rows or the first
     parent of one of them (window_base; otherwise outside_base says why), and is resolved like the source diff's (resolve_range: the merge base for a
     base on another line). An empty range is EmptyRange - nothing to build. A range whose old side is commit's first
-    parent is the single commit's comparison (same key, not ranged); any other is ranged, cached apart."""
+    parent is the single commit's comparison (same key, not ranged); any other is ranged, cached apart. tree_source is
+    the build root relative to the manuscript root (RevisionSpec.tree_source)."""
     if not window_base(rows, base):
         return outside_base(repo, paths, base)
     ends = resolve_range(repo, base, commit)
@@ -1166,7 +1203,16 @@ def range_spec(
     first: list[str] = next((row["parents"][:1] for row in rows if row["id"] == commit), [])
     key = comparison_key(repo, source, main, ends.old, commit)
     return RevisionSpec(
-        repo, source, main, ends.old, commit, key, paths, merge_base=ends.merge_base, ranged=first != [ends.old]
+        repo,
+        source,
+        main,
+        ends.old,
+        commit,
+        key,
+        paths,
+        merge_base=ends.merge_base,
+        ranged=first != [ends.old],
+        tree_source=tree_source,
     )
 
 

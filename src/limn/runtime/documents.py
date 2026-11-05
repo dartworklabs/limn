@@ -259,8 +259,8 @@ class Doc:
     never stored), the memo of the recorder files parsed for it (input_sets), and the paths its source list leaves out
     (apart) (limn.builds.artifacts.BuildDoc).
 
-    Its src and main are also kept as they were registered (registered_src, registered_main): resolved once, when the
-    composition root makes the document at startup. The revision services name the document's files to Git from these
+    Its src and main, and the manuscript root, are also kept as they were registered (registered_src, registered_main,
+    registered_manuscript): resolved once, when the composition root makes the document at startup. The revision services name the document's files to Git from these
     and never resolve its folders again, so a folder replaced by a symlink after startup cannot change which file the
     document is (limn.revisions.core.registered_repo)."""
 
@@ -300,6 +300,8 @@ class Doc:
         self.input_sets = InputSetCache()
         registered = (paths.src, paths.main) if legacy else (src, main)
         self._registered = (_resolved_once(registered[0]), _resolved_once(registered[1]))
+        manuscript = _resolved_once(paths.src)
+        self._registered_manuscript = paths.src if manuscript is None else manuscript
 
     @property
     def src(self) -> Path:
@@ -332,6 +334,13 @@ class Doc:
         (LaTeX)."""
         assert self._registered[1] is not None, "a document started with --doc has its own main"
         return self._registered[1]
+
+    @property
+    def registered_manuscript(self) -> Path:
+        """The manuscript root (--manuscript, paths.src) as it was when the document was made (startup), symlinks
+        resolved then and never again: what the revision services judge the document's dot-named parts against
+        (limn.revisions.core.dot_named_document)."""
+        return self._registered_manuscript
 
     @property
     def dir(self) -> Path:

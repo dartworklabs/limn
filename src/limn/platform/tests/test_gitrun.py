@@ -244,6 +244,7 @@ class CallSites(unittest.TestCase):
             src=repo,
             registered_main=repo / "main.tex",
             registered_src=repo,
+            registered_manuscript=repo,
         )
 
         done = self.assert_hygienic("run_git", lambda: gitrun.run_git(["rev-parse", "--show-toplevel"], repo, 10))

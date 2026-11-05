@@ -15,6 +15,7 @@ from unittest import mock
 from limn.administration.serve_documents import make_docs
 from limn.pins.location.lookup import recorded_place, recorded_root
 from limn.revisions import core, execution
+from limn.runtime.documents import Doc
 
 from helpers import edit_stored, needs_tex, ps
 from helpers_access import CAROL, REPO_NEW, REPO_OLD, AccessBase, ScopedRepo, member_add
@@ -354,6 +355,78 @@ class PinInLinkedFolder(Repository):
                 self.assertIsNone(recorded_root(record["file"], rel))
                 stale = dict(record, file_rel=rel)
                 self.assertIsNone(recorded_place(record["file"], stale, root, state))
+
+
+class DocumentPastStartup(Repository):
+    """Documents that lie under a dot-named part of the manuscript, made directly as startup would refuse to
+    (serve_documents.DocDotNamed): a LaTeX document and a Markdown document in .Private/, and a LaTeX document whose
+    main file is the dotfile paper/.draft.tex. The dot-named files' text carries SECRET; paper/main.tex, changed by
+    the same two commits, is public."""
+
+    def setUp(self):
+        """Commit the public paper, then it and the dot-named files twice (so a comparison has a parent); serve the
+        three."""
+        super().setUp()
+        for rel in ("paper/main.tex", ".Private/main.tex", ".Private/notes.md", "paper/.draft.tex"):
+            (self.src / rel).parent.mkdir(parents=True, exist_ok=True)
+        tex = "\\documentclass{article}\n\\begin{document}\n%s\n\\end{document}\n"
+        (self.src / "paper" / "main.tex").write_text(tex % "public", encoding="utf-8")
+        self.commit("public")
+        for n in (1, 2):
+            for rel in (".Private/main.tex", "paper/.draft.tex"):
+                (self.src / rel).write_text(tex % ("%s %d" % (SECRET, n)), encoding="utf-8")
+            (self.src / ".Private" / "notes.md").write_text("# %s %d\n" % (SECRET, n), encoding="utf-8")
+            (self.src / "paper" / "main.tex").write_text(tex % ("public %d" % n), encoding="utf-8")
+            self.head = self.commit("private %s %d" % (SECRET, n))
+        paths = ps.APP.C.paths
+        self.docs = {
+            "pp": Doc("pp", "논문", "tex", self.src / ".Private", self.src / ".Private" / "main.tex", paths=paths),
+            "nt": Doc("nt", "노트", "markdown", self.src / ".Private", self.src / ".Private" / "notes.md", paths=paths),
+            "dm": Doc("dm", "초안", "tex", self.src / "paper", self.src / "paper" / ".draft.tex", paths=paths),
+        }
+        self.assertTrue(all(core.dot_named_document(d) for d in self.docs.values()))
+        self.serve(list(self.docs.values()))
+
+    def test_no_route_shows_such_a_documents_history(self):
+        """Each document has no history; asking a commit of its files for a diff, a range or a comparison is refused,
+        and nothing a viewer is answered quotes SECRET."""
+        for key in self.docs:
+            with self.subTest(doc=key):
+                code, body = self.call("GET", "/api/revisions?doc=%s" % key, headers=CAROL)
+                self.assertEqual((code, body.get("available"), body.get("revisions") or []), (200, False, []), body)
+                for query in ("", "&base=%s" % self.head):
+                    code, out = self.call(
+                        "GET", "/api/revision-diff?doc=%s&commit=%s%s" % (key, self.head, query), headers=CAROL
+                    )
+                    self.assertEqual(code, 404, out)
+                    self.assertNotIn(SECRET, str(out))
+                code, out = self.call("GET", "/api/revision-build?doc=%s&commit=%s" % (key, self.head), headers=CAROL)
+                self.assertNotIn(SECRET, str(out))
+        self.assertIsInstance(
+            core.revision_spec(self.docs["pp"], self.head, None, ps.APP.revision_requests.context()),
+            core.CommitNotRecent,
+        )
+
+    def test_a_snapshot_refuses_a_build_root_under_a_dot_named_part(self):
+        """With the history's check out of the way (dot_named_document answering False), the comparison spec of the
+        .Private document names its build root from the manuscript root, and a snapshot of it is refused before any
+        file is written; so is one whose main file is a dotfile. The public folder's snapshot is written."""
+        ctx = ps.APP.revision_requests.context()
+        with mock.patch.object(core, "dot_named_document", return_value=False):
+            specs = {key: core.revision_spec(self.docs[key], self.head, None, ctx) for key in ("pp", "dm")}
+        for key, tree_source in (("pp", ".Private"), ("dm", "paper")):
+            with self.subTest(doc=key):
+                spec = specs[key]
+                self.assertIsInstance(spec, core.RevisionSpec, spec)
+                assert isinstance(spec, core.RevisionSpec)
+                self.assertEqual(spec.tree_source, tree_source)
+                dest = self.src.parent / ("snapshot-" + key)
+                self.assertEqual(execution.revision_snapshot(spec, self.head, dest), core.StepFailed("unsafe_snapshot"))
+                self.assertFalse(dest.exists())
+        public = specs["dm"]._replace(main=Path("main.tex"))
+        dest = self.src.parent / "snapshot-public"
+        self.assertIsNone(execution.revision_snapshot(public, self.head, dest))
+        self.assertEqual(sorted(p.name for p in dest.iterdir()), ["main.tex"])
 
 
 class GlobCharactersInTheFolder(Repository):
