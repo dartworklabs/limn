@@ -21,7 +21,6 @@ import json
 import math
 import os
 import shutil
-import time
 import unittest
 from urllib.parse import urlparse
 
@@ -36,6 +35,7 @@ from helpers_browser import (
     MISSES_44,
     ROW_INK,
     SEGMENTS,
+    TOUCH_STEP,
     VIEWPORTS,
     BrowserBase,
     booted,
@@ -45,6 +45,8 @@ from helpers_browser import (
     hangul_ink_holds,
     off_centre,
     settle,
+    touch_drag,
+    touch_line,
 )
 
 A, B, C = (person["Tailscale-User-Login"] for person in (ALICE, BOB, CAROL))
@@ -294,36 +296,23 @@ class ComposerBase(BrowserBase):
             )
         return self.open(n_open, lang=lang, init=init, **device)
 
-    def select(self, page, device, pace=0.016):
+    def select(self, page, device, pace=TOUCH_STEP):
         """Select a region of page 1 as the device's person does - a mouse drags over it, a finger turns [선택] on and
         drags - and wait for the pick. The fixture answers every pick with the manuscript's one paragraph, so a
         selection made after a pin was saved overlaps that pin and the composer offers [덧붙이기].
 
-        The finger's touches carry their own times, 16ms apart, and it stops at the far corner before it lifts, as a
-        person's does when a box is drawn: the browser reads the release speed from those times, and a finger lifted
-        while moving flings - the tap that stops a fling is no click, so the tap into the note that follows took no
-        focus and its keys were lost (a runner that delivered the moves at once, CI 2026-11-04, outran the 0.5s pause
-        that stood after the drag). pace is the wall time between the moves sent; 0 delivers them as such a runner did."""
+        The finger is helpers_browser's touch_drag: its touches carry their own times and it rests at the far corner
+        before it lifts, as a person's does when a box is drawn - a finger lifted while moving flings, and the tap into
+        the note that followed stopped the fling, took no focus and lost its keys (CI 2026-11-04). pace is the wall
+        time after each move; 0 delivers them at once, as that runner did."""
         if device.get("has_touch"):
             page.tap("#btn-select")
             settle(page)
         box = page.locator("#p1").bounding_box()  # read once [선택] is on: its hint moves the page down
         x0, y0, x1, y1 = box["x"] + box["width"] * 0.2, box["y"] + 40, box["x"] + box["width"] * 0.6, box["y"] + 64
         if device.get("has_touch"):
-            cdp = page.context.new_cdp_session(page)  # left attached: detaching resets the page's touch emulation
-            start = time.time()
-
-            def touch(kind, at, x=None, y=None):
-                """One CDP touch event of the finger, at seconds after the touch began."""
-                points = [] if x is None else [{"x": x, "y": y, "id": 0}]
-                cdp.send("Input.dispatchTouchEvent", {"type": kind, "touchPoints": points, "timestamp": start + at})
-
-            touch("touchStart", 0, x0, y0)
-            for i in range(1, 9):
-                touch("touchMove", 0.016 * i, x0 + (x1 - x0) * i / 8, y0 + (y1 - y0) * i / 8)
-                time.sleep(pace)
-            touch("touchMove", 0.3, x1, y1)  # held still at the corner
-            touch("touchEnd", 0.35)
+            # the session stays attached: detaching resets the page's touch emulation
+            touch_drag(page.context.new_cdp_session(page), touch_line(x0, y0, x1, y1), pace=pace)
         else:
             page.mouse.move(x0, y0)
             page.mouse.down()

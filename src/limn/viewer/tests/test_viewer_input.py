@@ -37,6 +37,7 @@ from helpers_browser import (
     ROW_INK,
     SEGMENTS,
     BrowserBase,
+    Finger,
     booted,
     clock_still,
     fonts_ready,
@@ -649,13 +650,20 @@ class ViewerBase(BrowserBase):
         )
 
     def swipe(self, cdp, x0, y0, x1, y1, steps=12, dt=0.016, hold=0.0):
-        """A one-finger drag from (x0,y0) to (x1,y1) in steps, dt seconds apart (hold = still time before moving).
+        """A one-finger drag from (x0,y0) to (x1,y1) in steps, dt seconds apart (hold = still time before moving), through
+        helpers_browser.Finger: its touches carry their own times and it rests before it lifts, so the browser starts no
+        fling the next tap would stop instead of clicking.
 
-        The sleeps are the finger's timing, not waits for the page: dt sets the drag's speed and hold a still press, and
-        only their lower bound matters - a loaded machine stretches them, the way a slower finger would."""
+        The sleeps are the finger's timing, not waits for the page: dt sets the drag's speed - the release speed the
+        viewer measures (performance.now()) - and hold a still press, and only their lower bound matters - a loaded
+        machine stretches them, the way a slower finger would."""
+        Finger(cdp, pace=dt).down(x0, y0, hold=hold).glide(x1, y1, steps).up()
+
+    def flick(self, cdp, x0, y0, x1, y1, steps=12, dt=0.016):
+        """swipe() as it was before Finger, kept for the tests of a release's speed: lifted while still moving, with no
+        times of its own, so the speed is the moves' arrival. Nothing must follow it at once - a flick on a native
+        scroller flings, and the tap that stops a fling is no click."""
         self.touch(cdp, "touchStart", [(x0, y0)])
-        if hold:
-            time.sleep(hold)
         for i in range(1, steps + 1):
             self.touch(cdp, "touchMove", [(x0 + (x1 - x0) * i / steps, y0 + (y1 - y0) * i / steps)])
             time.sleep(dt)
@@ -1018,6 +1026,7 @@ class ReviewRegressions(ViewerBase):
         page.wait_for_function("SIDE_OPEN")
         settle(page)
         y = page.locator("#list").bounding_box()["y"] + 40
+        # two fingers, which Finger (one finger) cannot send; the test ends on the gesture, no tap follows it
         self.touch(cdp, "touchStart", [(190, y)])
         for i in range(1, 6):
             self.touch(cdp, "touchMove", [(190, y + 20 * i)])
@@ -1033,7 +1042,7 @@ class ReviewRegressions(ViewerBase):
         settle(page)
         r = page.locator("#right").bounding_box()
         x, y = r["x"] + 40, r["y"] + 150
-        self.touch(cdp, "touchStart", [(x, y)])
+        self.touch(cdp, "touchStart", [(x, y)])  # two fingers again, as above
         for i in range(1, 8):
             self.touch(cdp, "touchMove", [(x + 12 * i, y)])
             time.sleep(0.02)  # the finger's timing, as in swipe()
@@ -1235,16 +1244,10 @@ class FoldOverlay(ViewerBase):
         cdp = self.cdp(page)
         self.open_panel(page, cdp)
         x, y = self.panel_point(page)
-        self.touch(cdp, "touchStart", [(x, y)])
-        for i in range(1, 7):
-            self.touch(cdp, "touchMove", [(x + 10 * i, y + 1)])
-            time.sleep(0.03)  # the finger's timing, as in swipe()
+        finger = Finger(cdp, pace=0.03).down(x, y).glide(x + 60, y + 1, 6)  # the finger's timing, as in swipe()
         followed = page.evaluate("document.querySelector('#right').getBoundingClientRect().right")
         self.assertGreater(followed, 842 + 40)  # right: -dx, not a transform
-        for i in range(7, 16):
-            self.touch(cdp, "touchMove", [(x + 10 * i, y + 1)])
-            time.sleep(0.03)
-        self.touch(cdp, "touchEnd", [])
+        finger.glide(x + 150, y + 1, 9).up()
         page.wait_for_function("!SIDE_OPEN&&!document.body.classList.contains('side-closing')")
         self.assertTrue(page.evaluate("prefs().midClosed"))
 
@@ -1254,13 +1257,13 @@ class FoldOverlay(ViewerBase):
         cdp = self.cdp(page)
         self.open_panel(page, cdp)
         x, y = self.panel_point(page)
-        self.swipe(cdp, x, y, x + 60, y, steps=12, dt=0.06)
+        self.flick(cdp, x, y, x + 60, y, steps=12, dt=0.06)  # a release speed under test: the old events, on purpose
         settle(page)
         self.assertTrue(page.evaluate("SIDE_OPEN"))
         self.assertEqual(
             page.evaluate("Math.round(document.querySelector('#right').getBoundingClientRect().right)"), 842
         )
-        self.swipe(cdp, x, y, x + 60, y, steps=2, dt=0)  # CDP moves land ~30ms apart: ~0.9px/ms
+        self.flick(cdp, x, y, x + 60, y, steps=2, dt=0)  # CDP moves land ~30ms apart: ~0.9px/ms
         page.wait_for_function("!SIDE_OPEN")
 
     def test_a_draft_rubber_bands_the_swipe_and_never_closes(self):
@@ -1269,28 +1272,20 @@ class FoldOverlay(ViewerBase):
         cdp = self.cdp(page)
         self.long_press_pick(cdp, page)
         x, y = self.center(page, "#c-page")
-        self.touch(cdp, "touchStart", [(x, y)])
-        for i in range(1, 16):
-            self.touch(cdp, "touchMove", [(x + 15 * i, y)])
-            time.sleep(0.02)  # the finger's timing, as in swipe()
+        finger = Finger(cdp, pace=0.02).down(x, y).glide(x + 225, y, 15)  # the finger's timing, as in swipe()
         shift = page.evaluate("842-document.querySelector('#right').getBoundingClientRect().right")
         self.assertGreaterEqual(shift, -24.5)
         self.assertLess(shift, 0)
-        self.touch(cdp, "touchEnd", [])
+        finger.up()
         settle(page)
         self.assertTrue(page.evaluate("SIDE_OPEN&&!document.querySelector('#composer').hidden"))
 
     def follow_during(self, page, cdp, x, y, dx, dy=0, hold=0.0):
         """Drag from (x,y) by (dx,dy) and report how far the panel's right edge moved before the finger lifts (hold = a
         still press before moving; the sleeps are the finger's timing, as in swipe())."""
-        self.touch(cdp, "touchStart", [(x, y)])
-        if hold:
-            time.sleep(hold)
-        for i in range(1, 11):
-            self.touch(cdp, "touchMove", [(x + dx * i / 10, y + dy * i / 10)])
-            time.sleep(0.02)  # the finger's timing, as in swipe()
+        finger = Finger(cdp, pace=0.02).down(x, y, hold=hold).glide(x + dx, y + dy, 10)
         moved = page.evaluate("Math.round(document.querySelector('#right').getBoundingClientRect().right-innerWidth)")
-        self.touch(cdp, "touchEnd", [])
+        finger.up()
         settle(page)
         return moved
 
@@ -1543,11 +1538,11 @@ class PhoneSheet(ViewerBase):
           dragSample = (pts, _t, pos) => sample(pts, pts.length ? pts[pts.length - 1][0] + 10 : 0, pos);
         }""")
         x, y = self.center(page, "#sheet-grip")
-        self.swipe(cdp, x, y, x, y - 60, steps=2, dt=0)
+        self.flick(cdp, x, y, x, y - 60, steps=2, dt=0)  # release speeds under test: the old events, on purpose
         settle(page)
         self.assertAlmostEqual(page.evaluate("prefs().sheetF"), 0.64, delta=0.01)
         x, y = self.center(page, "#sheet-grip")
-        self.swipe(cdp, x, y, x, y + 70, steps=3, dt=0.01)
+        self.flick(cdp, x, y, x, y + 70, steps=3, dt=0.01)
         page.wait_for_function("!SIDE_OPEN")
 
     def test_a_draft_stops_the_sheet_at_30_percent_instead_of_collapsing(self):
@@ -7292,7 +7287,7 @@ class ClickOffCancelsSelection(ViewerBase):
         page.clock.run_for(2000)  # every timer the two taps left runs now
         self.assertTrue(page.evaluate(HAS_SELECTION))
         x, y = self.blank(page)
-        self.touch(cdp, "touchStart", [(x, y)])
+        self.touch(cdp, "touchStart", [(x, y)])  # a pinch: two fingers, which Finger cannot send; no tap follows it
         self.touch(cdp, "touchStart", [(x, y), (x + 40, y)])
         self.touch(cdp, "touchMove", [(x - 20, y), (x + 60, y)])
         self.touch(cdp, "touchEnd", [])

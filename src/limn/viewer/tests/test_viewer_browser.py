@@ -34,7 +34,18 @@ import helpers_figure
 from helpers import SW_JS, add_pin, blank_png, edit_stored, find_record, minimal_pdf, ps, records, trash_records
 from helpers_access import ALICE, BOB, CAROL, REPO_NEW as NEW, REPO_OLD as OLD, actor
 from helpers_authority import post_authority
-from helpers_browser import BrowserBase, booted, hold_pin_reads, ime_compose, ime_end_with, settle, until, watch_idle
+from helpers_browser import (
+    BrowserBase,
+    booted,
+    hold_pin_reads,
+    ime_compose,
+    ime_end_with,
+    settle,
+    touch_drag,
+    touch_line,
+    until,
+    watch_idle,
+)
 
 HANGUL = re.compile(r"[가-힣]")
 A, B = actor(ALICE), actor(BOB)
@@ -1964,15 +1975,11 @@ class FigureDocuments(BrowserBase):
         return b["x"] + b["width"] * fx, b["y"] + b["height"] * fy
 
     def drag_touch(self, page, frac):
-        """A one-finger drag across frac of page 1 in select mode, then wait for the pick."""
+        """A one-finger drag across frac of page 1 in select mode (helpers_browser.touch_drag), then wait for the pick."""
         x, y, w, h = frac
         x0, y0 = self.on_page(page, x, y)
         x1, y1 = self.on_page(page, x + w, y + h)
-        cdp = page.context.new_cdp_session(page)
-        self.touch(cdp, "touchStart", [(x0, y0)])
-        for i in range(1, 7):
-            self.touch(cdp, "touchMove", [(x0 + (x1 - x0) * i / 6, y0 + (y1 - y0) * i / 6)])
-        self.touch(cdp, "touchEnd", [])
+        touch_drag(page.context.new_cdp_session(page), touch_line(x0, y0, x1, y1, 6))
         page.wait_for_function("COMPOSE.current&&!COMPOSE.picking", timeout=8000)
         settle(page)
 
@@ -2208,16 +2215,7 @@ class FigureDocuments(BrowserBase):
         """[선택] on, one finger drags across the cell on a phone: the map chooses the cell and the box snaps to it."""
         page = self.open_fig(**DEVICES["phone"])
         page.evaluate("setSelMode(true)")
-        x, y, w, h = helpers_figure.CELL_DRAG
-        x0, y0 = self.on_page(page, x, y)
-        x1, y1 = self.on_page(page, x + w, y + h)
-        cdp = page.context.new_cdp_session(page)
-        self.touch(cdp, "touchStart", [(x0, y0)])
-        for i in range(1, 7):
-            self.touch(cdp, "touchMove", [(x0 + (x1 - x0) * i / 6, y0 + (y1 - y0) * i / 6)])
-        self.touch(cdp, "touchEnd", [])
-        page.wait_for_function("COMPOSE.current&&!COMPOSE.picking", timeout=8000)
-        settle(page)
+        self.drag_touch(page, helpers_figure.CELL_DRAG)
         self.assertEqual(page.evaluate("COMPOSE.current.elSel&&COMPOSE.current.elSel.id"), helpers_figure.CELL_ID)
         self.assert_box(page, "#doc .sel", 1, helpers_figure.JULY)
 
