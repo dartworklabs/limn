@@ -688,3 +688,22 @@ class BuildPauses(OneNote):
             ),
             [True, True, True, True],
         )
+
+
+class Rewrapped(OneNote):
+    """A paragraph written on one source line, then wrapped onto two: the drawn document is the same."""
+
+    def texts(self):
+        return [
+            "# 제목\n\n한 줄로 쓴 긴 문단이다 그리고 **굵게** 계속된다.\n\n끝 문단이다.\n",
+            "# 제목\n\n한 줄로 쓴 긴 문단이다\n그리고 **굵게** 계속된다.\n\n끝 문단이다.\n",
+        ]
+
+    def test_a_paragraph_wrapped_on_other_source_lines_is_the_same_block(self):
+        """No block is marked and the compare says both versions draw the same (the exact change is in the source
+        diff). Mutation: count the renderer's line spans as structure in mdcShape -> the paragraph is changed in place,
+        fails."""
+        page = self.open_compare()
+        self.assertEqual(self.marks(page), [])
+        self.assertIn("두 판의 그린 문서가 같습니다", page.locator("#revision-rendered").text_content())
+        self.assertIn("바뀐 블록 없음", page.locator("#revision-status").text_content())
