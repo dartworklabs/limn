@@ -1,6 +1,6 @@
 """The Markdown surface's pure rules: rendered text -> source line mapping and the link allowlist (docs/adr/0025 D6, D7;
 docs/superpowers/specs/2026-10-24-html-document-surface.md §결정 5·6), and the parse worker's own rules - front matter and
-TeX math kept as written (docs/adr/0032, 제안).
+TeX math kept as written (docs/adr/0032).
 
 The served mdInlineLines and mdHref run under node on the token stream of the vendored markdown-it
 (src/limn/vendor/markdown-it/), configured as the parse worker configures it (src/limn/viewer/md-parse.mjs), so the parser
