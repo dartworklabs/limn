@@ -3,7 +3,7 @@
 > **상태: 승인됨 (2026-11-05).** 소유자가 테일넷 PoC를 보고 §열린 결정의 여섯 물음을 모두 추천안대로 승인했다(그림의 뿌리는 원고 트리 전체, SVG는 받고 직접 열면 샌드박스, 8 MiB 한도, 다크 모드의 밝은 판, 링크로 간 전환만 기록 항목 하나, 그림 파일 링크는 새 탭). 결정 기록은 [ADR-0030](../../adr/0030-markdown-tree-images-and-document-links.md)(`승인됨`)이다. [HTML 문서 화면 설계](2026-10-24-html-document-surface.md)의 이후 단계 4다. [ADR-0025](../../adr/0025-html-document-surface.md) D6의 "그림은 불러오지 않는다"와, 상대 경로 링크를 글자로 두는 조항을 부분 대체한다. 보안 경계를 건너므로 [workflow.md](../../handbook/workflow.md) §기본 경로의 HARD-GATE에 따라 이 승인 뒤에 `main` 에 넣는다.
 >
 > - 대조한 코드: `main` 770fa20c(0.4.50). 아래 `file:line` 은 모두 이 커밋 기준이다.
-> - PoC: 브랜치 `poc/md-assets`. 추천안을 끝까지 구현했고 보안 시험이 붙어 있다. 승인 뒤 구현 브랜치 `feat/markdown-images-links` 로 이어 써서 Handbook·SKILL·CHANGELOG를 더한다(§PoC와 남은 일).
+> - PoC: 브랜치 `poc/md-assets`. 추천안을 끝까지 구현했고 보안 시험이 붙어 있다. 승인 뒤 구현 브랜치 `feat/markdown-images-links` 로 이어 써서 남은 일을 닫고 Handbook·SECURITY·SKILL·CHANGELOG를 더했다(§구현에서 정한 것, [구현 계획](../plans/2026-11-05-markdown-images-links.md)).
 > - 형제 설계: 일반 텍스트·코드 문서([ADR-0029](../../adr/index.md), 브랜치 `md-text`)와 겹치지 않게 이 변경은 링크·그림 처리와 그림 읽기 경로만 건드린다.
 
 ## 문제
@@ -71,7 +71,7 @@ Markdown 화면은 그림을 하나도 불러오지 않는다. 그림 자리에�
 - **경로 규칙(`asset_path`).** 뷰어가 이미 정규화해서 보내므로, 고칠 것이 있는 경로는 고치지 않고 거절한다(400 `bad_asset_path`). 비었거나 1,024자를 넘는 것, `/` 로 시작하는 것, 백슬래시·제어 문자가 든 것, 빈 부분·`.`·`..`·점으로 시작하는 부분이 있는 것, 그림 접미사가 아닌 것이 여기 든다. 쿼리는 한 번만 디코드된다. 두 번 인코딩한 `%252e%252e` 는 `%` 가 든 파일 이름일 뿐이다.
 - **트리 검사.** 통과한 경로는 원문 경로와 같은 `parse.source_file`(`file_in_tree`)로 검사한다. 트리 밖으로 나가는 링크(파일이든 폴더든), 상태 폴더, 정규 파일이 아닌 것은 다른 파일 경로와 같은 400(`file_outside_manuscript`·`file_not_found`)이다. 트리 안을 가리키는 링크는 그 파일이다. 원문 경로와 같다.
 - **형식.** 응답의 `Content-Type` 은 접미사로만 정한다. 내용이나 시스템 표에서 정하지 않는다. 내용은 그 형식의 시그니처로 시작해야 한다(PNG·JPEG·GIF·WebP). SVG는 UTF-8 글이고 첫 요소가 `<svg>` 여야 하며, 내부 DTD(엔티티 정의)를 갖지 않아야 한다. 아니면 415 `asset_not_image` 다. `.png` 라는 이름의 HTML이 그림 응답으로 나가지 않게 하려는 것이다.
-- **한도.** 8 MiB. 크기를 먼저 보고, 넘으면 읽지 않고 413 `asset_too_large`(`bytes`·`limit`)다. 스크린숏과 그림은 대개 수백 KB다.
+- **한도.** 8 MiB. 크기를 먼저 보고, 넘으면 읽지 않고 413 `asset_too_large`(`bytes`·`limit`)다. 스크린숏과 그림은 대개 수백 KB다. 래스터 그림은 머리가 말하는 가로·세로가 8192×8192 화소를 넘으면 413 `asset_too_many_pixels`(`width`·`height`·`limit`)이고, 머리에서 크기를 읽지 못하면 415 `asset_not_image` 다(§구현에서 정한 것).
 - **역할.** `READ_PATHS` 에 더한다. 원문 경로와 같아서 owner·editor·viewer·agent가 읽고, 헤더 없는 테일넷 요청·모르는 피어·다른 Host·Origin은 원문 경로와 같은 답을 받는다.
 - **헤더.** `nosniff`(이미 모든 응답에 붙는다), 그림 자신의 CSP(결정 3), `Cross-Origin-Resource-Policy: same-origin`, `Cache-Control: private, no-cache` 와 내용 해시 ETag(결정 7)다. CORP는 `Reply` 에 선택 칸 `resource_policy` 를 더해 보낸다.
 - **쓰지 않는다.** 검사된 디스크립터에서 제한된 읽기를 한 번 할 뿐이다. 어떤 GET도 영속 상태를 바꾸지 않는다는 불변식([architecture.md](../../handbook/architecture.md) §10. 어떤 GET도 영속 상태를 바꾸지 않는다)을 지킨다.
@@ -124,9 +124,9 @@ Markdown 화면은 그림을 하나도 불러오지 않는다. 그림 자리에�
 
 ### 결정 7. 캐시·변경 보기·에이전트 계약
 
-- **캐시.** `Cache-Control: private, no-cache` 와 내용 해시(BLAKE2b 96비트) ETag. 다시 볼 때마다 묻고, 바뀌지 않았으면 304다. 한 문서 안에서 다시 그릴 때는 브라우저의 그림 캐시가 같은 주소를 다시 받지 않는다. 그 자리에서 고친 그림은 다음에 열 때 보인다. 탭을 연 채로 그림만 바뀐 경우를 바로 따라가지는 않는다(§남은 일).
+- **캐시.** `Cache-Control: private, no-cache` 와 내용 해시(BLAKE2b 96비트) ETag. 다시 볼 때마다 묻고, 바뀌지 않았으면 304다. 한 문서 안에서 다시 그릴 때는 브라우저의 그림 캐시가 같은 주소를 다시 받지 않는다. 그 자리에서 고친 그림은 페이지를 다시 열 때 보인다. 탭을 연 채로 그림만 바뀐 경우를 바로 따라가지는 않는다(§구현에서 정한 것).
 - **변경 보기.** 그대로다. Markdown 문서의 이력은 그 `.md` 파일 하나다. 그림만 바꾼 커밋은 그 문서의 변경 보기에 나오지 않는다. 그림의 전후 비교는 이번 범위 밖이다.
-- **에이전트 계약.** `/api/docs`·`/api/meta`·핀 레코드·`pins.md` 는 그대로다. 새 경로 `GET /api/asset` 하나와 이유 코드 넷(`bad_asset_path`·`asset_not_image`·`asset_too_large`·`asset_unreadable`)이 더해진다. [api.md](../../handbook/api.md) §화면·PDF·정적 파일에 적는다. 에이전트는 이 경로를 쓸 일이 없다. 그림 줄의 핀은 평범한 줄 핀이다.
+- **에이전트 계약.** `/api/docs`·`/api/meta`·핀 레코드·`pins.md` 는 그대로다. 새 경로 `GET /api/asset` 하나와 이유 코드 다섯(`bad_asset_path`·`asset_not_image`·`asset_too_large`·`asset_too_many_pixels`·`asset_unreadable`)이 더해진다. [api.md](../../handbook/api.md) §화면·PDF·정적 파일에 적는다. 에이전트는 이 경로를 쓸 일이 없다. 그림 줄의 핀은 평범한 줄 핀이다.
 
 ## 보안
 
@@ -142,13 +142,13 @@ Markdown 화면은 그림을 하나도 불러오지 않는다. 그림 자리에�
 | 직접 연 SVG의 스크립트(같은 출처 문서가 되어 API를 부름) | 그림 응답의 `sandbox; default-src 'none'` | 브라우저 `SvgOnItsOwn`: 정책 아래에서 제목이 그대로이고 출처는 `null` 이며 요청이 0건이다. 정책을 뺀 대조에서는 스크립트가 돈다 |
 | `<img>` 안 SVG의 스크립트·외부 그림 | 브라우저 규칙(그림 문맥) | `TreeImages`: SVG의 `fetch`·`onload` 요청 0건, 다른 호스트 요청 0건 |
 | 원격 추적 그림 | 렌더러는 원격 `src` 로 `<img>` 를 만들지 않는다. 렌더러가 짓는 그림 주소는 `mdAssetUrl` 하나다 | `TreeImages`(다른 호스트 0건), `test_an_image_loads_only_from_the_tree…`, `test_the_image_address_is_built_from_the_checked_path…` |
-| 다른 사이트의 탐침: `<img src="https://<limn>/api/asset?…">` 로 파일이 있는지, 크기가 얼마인지 알아냄(테일넷은 신원이 저절로 붙는다) | `Cross-Origin-Resource-Policy: same-origin` | 헤더 시험(`test_an_image_is_sent…`). 브라우저가 실제로 막는지는 아직 시험하지 않는다(§남은 일) |
+| 다른 사이트의 탐침: `<img src="https://<limn>/api/asset?…">` 로 파일이 있는지, 크기가 얼마인지 알아냄(테일넷은 신원이 저절로 붙는다) | `Cross-Origin-Resource-Policy: same-origin` | 헤더 시험(`test_an_image_is_sent…`), 브라우저 `CrossOriginEmbed`(Chromium·Firefox): 실제 루프백 리스너에서 다른 포트·호스트의 페이지가 그리지 못하고 서버는 200으로 답했으며, 헤더를 뺀 대조에서는 그린다 |
 | 문서가 Limn API를 부르는 링크 | 절대 주소 관문은 그대로다. 뷰어가 짓는 주소는 `/api/asset` 과 `#doc=` 뿐이다. `/api/pins` 같은 상대 경로는 등록 문서도 그림도 아니므로 글자다 | `test_a_link_opens_a_registered_document_an_image_or_nothing`(`/api/pins`, `/api/asset?…`, 자기 출처, 루프백) |
 | 큰 파일·메모리 | 크기를 먼저 보고 8 MiB까지만 읽음 | `test_the_size_limit_holds_at_its_edge` |
 | GET 쓰기 | 제한된 읽기 한 번 | `test_no_answer_writes_anything`(트리·상태 폴더·트리 밖의 바이트와 mtime) |
 | 권한 | 원문 경로와 같은 역할 규칙 | `test_every_admitted_principal_reads_it…` |
 | 그림 수 폭주 | 늦게 불러오기, 기존 요소 한도 60,000 | 기존 한도 시험 |
-| 픽셀 폭탄(작은 파일, 거대한 화면) | 브라우저의 디코드 한도에 맡긴다. 바이트 한도만 둔다 | 없음(§남은 일) |
+| 픽셀 폭탄(작은 파일, 거대한 화면) | 래스터 머리의 가로·세로가 8192×8192를 넘으면 413(`raster_size`). SVG는 그리는 크기로 래스터된다 | `RasterSize`, `test_the_pixel_limit_holds_at_its_edge_whatever_the_file_size` |
 
 **읽는 범위가 넓어지는 것.** viewer 역할도 문서가 가리키지 않은 트리의 그림을 경로로 받을 수 있다. 이것은 같은 사람이 `/api/snippet` 으로 트리의 텍스트 파일을 이미 읽을 수 있는 것과 같은 경계다. 트리 안에 두지 말아야 할 그림이 있다면 그것은 지금도 원고 트리 설정의 문제다.
 
@@ -160,34 +160,38 @@ Markdown 화면은 그림을 하나도 불러오지 않는다. 그림 자리에�
 | 응답과 경로 | `documents/http.py`(`asset`), `documents/routes.py`, `security/access.py`(`READ_PATHS`) | 됨 |
 | CORP 헤더 | `web/reply.py`(`resource_policy`), `web/handler.py`(`_send`) | 됨 |
 | 뷰어: 그림 | `viewer/js/md-surface.js`(`mdRelPath`, `mdImgPath`, `mdImage`, `mdPicLoad`, `mdPicError`, `MD_PIC_SIZE`, `MD.spot`), `viewer/css/md-surface.css`, `viewer/css/tokens.css`(`--image-plate`) | 됨 |
-| 뷰어: 링크 | `md-surface.js`(`mdTarget`, `mdLink`, `mdGoDoc`, `mdGoSlug`, `MD.headTo`), `viewer/js/events.js`(`md-doc`) | 됨 |
-| 문구 | `viewer/ui_en.json`(팁 여덟, 이유 코드 넷) | 됨 |
+| 뷰어: 링크 | `md-surface.js`(`mdTarget`, `mdLink`, `mdGoDoc`, `mdGoSlug`, `MD.headTo`), `viewer/js/events.js`(`md-doc`), `viewer/js/doc-switch.js`·`core.js`(`NAVGEN`) | 됨 |
+| 문구 | `viewer/ui_en.json`(팁 여덟, 이유 코드 다섯) | 됨 |
 | 시험 | `documents/tests/test_assets.py`, `viewer/tests/test_md_tree_refs.py`, `viewer/tests/test_viewer_markdown_assets.py`, 기존 시험 두 곳(원격 그림 팁 문구, 경로 목록) | 됨 |
-| Handbook | [viewer.md](../../handbook/viewer.md) §Markdown 화면(그리기의 그림 항목, §링크와 관문 표), [api.md](../../handbook/api.md) §화면·PDF·정적 파일(새 경로·이유 코드), [architecture.md](../../handbook/architecture.md)(읽기 경로 목록), [verification.md](../../handbook/verification.md)(새 시험), index.md 파일 지도 | 승인 뒤 |
-| SKILL·README·CHANGELOG | 두 SKILL에 "그림은 트리 안의 것만 보인다" 한 줄(에이전트 행동은 그대로), CHANGELOG | 승인 뒤 |
+| Handbook·SECURITY | [viewer.md](../../handbook/viewer.md) §그림·§링크와 관문, [api.md](../../handbook/api.md) §화면·PDF·정적 파일(새 경로)과 §오류 응답(이유 코드), [architecture.md](../../handbook/architecture.md) §9. Limn의 HTML 페이지에서는 같은 출처의 스크립트와 해시가 맞는 인라인 코드만 돈다(그림 응답의 정책)와 문서 조회 슬라이스, [verification.md](../../handbook/verification.md) §원고 트리의 그림 경로, index.md 파일 지도, `SECURITY.md` | 됨 |
+| SKILL·CHANGELOG | 두 SKILL의 Markdown 핀 항목에 그림·링크 한 줄(그림 위 핀은 그 줄의 줄 핀, 그림 요청이면 그림 파일을 고친다), CHANGELOG `Unreleased`. README는 Markdown 문서가 무엇을 보이는지 적지 않아 그대로다 | 됨 |
 
-## PoC와 남은 일
+## PoC
 
 **PoC가 하는 것.** 위 결정의 추천안 전부. 서버 경로, 뷰어의 그림·링크·뒤로 가기·읽던 자리·핀 표시·다크 모드, 보안 시험. 테일넷 시안은 `/tmp/limn-poc-assets/repo` 의 데모 문서 넷(README, 사용 안내, 계획 노트, LaTeX 본문)이다. 데모에는 트리 안의 PNG·JPEG·WebP·GIF·SVG, 원격 그림, 트리 밖을 가리키는 그림과 링크 파일, `.git` 안 그림, 가짜 PNG, 등록되지 않은 파일로 가는 링크가 들어 있다.
 
-**남은 일(구현 단계).**
+## 구현에서 정한 것
 
-- Handbook·SKILL·CHANGELOG(§바꿀 곳).
-- Firefox에서 그림·링크 시험 한 벌(기존 `CoreFirefox` 처럼). WebKit은 이 기계에서 뜨지 않아 CI의 엔진 작업에서 처음 돈다. 브라우저 스크롤 고정이 없는 WebKit에서 읽던 자리 되돌리기를 실기기로 확인한다.
-- CORP가 다른 출처의 `<img>` 를 실제로 막는지 브라우저 시험(두 출처를 띄우는 하네스가 필요하다).
-- 픽셀 폭탄: PNG·GIF 머리의 가로·세로를 읽어 거절할지(예: 1억 화소)를 잰 뒤 정한다.
-- 탭을 연 채 그림 파일만 바뀌면 다음에 열 때 보인다. 바로 따라가려면 원문의 `src_mtime` 처럼 그림의 지문을 폴링해야 한다. 지금은 하지 않는다.
-- 304를 내기 전에도 파일을 끝까지 읽는다. 그림이 커지면 `If-None-Match` 를 먼저 보고 디스크립터의 지문(mtime·크기·inode)으로 답하게 바꾼다.
+승인 때 남은 일로 둔 것을 구현 브랜치에서 아래처럼 닫았다.
+
+- **픽셀 폭탄 — 서버에서 머리를 읽어 거절한다.** 래스터 그림은 머리가 말하는 가로·세로(PNG의 IHDR, GIF의 화면과 첫 장면의 끝, JPEG의 첫 SOFn, WebP의 VP8X 캔버스나 VP8·VP8L 장면)가 8192×8192(67,108,864화소, RGBA로 디코드하면 256 MiB)를 넘으면 413 `asset_too_many_pixels` 다. 8K 화면 캡처(33 Mpx)와 600 dpi A4(35 Mpx)는 들어온다. 머리에서 크기를 읽지 못하면 415 `asset_not_image` 다. 뷰어 쪽 검사는 기각했다. 디코드가 시작된 뒤에야 크기를 알고, 그림 링크로 직접 연 탭은 지키지 못한다. SVG는 그리는 크기로 래스터되므로 한도가 없다.
+- **CORP 브라우저 시험.** `CrossOriginEmbed` 가 실제 루프백 리스너 둘을 띄운다. Chromium은 같은 IP의 다른 포트도 다른 사이트로 보아 `same-site` 도 막고, Firefox는 같은 사이트로 보아 `same-site` 이면 그린다. 그래서 `same-site` 로의 약화는 Firefox 시험이 잡는다.
+- **휴대폰 뒤로 가기 층 아래의 링크.** `LinksUnderTheBackLayer` 가 CloseWatcher 없는 휴대폰에서 시트를 연 채 링크를 따라가 기록 길이가 그대로이고 맨 위 항목이 층의 것이며, 뒤로 가기가 시트를 닫고 문서를 남기는지 본다.
+- **Firefox 한 벌.** 그림·읽던 자리·직접 연 SVG·문서 링크·끼워 넣기 시험을 Firefox에서도 돌린다. Firefox는 직접 연 SVG에서 정책이 막은 것(외부 그림, 파비콘 요청)을 위반으로 알리므로, 그 시험은 그 보고를 시험이 일으킨 것으로 표시한다. WebKit은 이 기계에서 뜨지 않아 넣지 않았다.
+- **탭을 연 채 바뀐 그림 — 알려진 한계로 둔다.** 한 페이지 안에서는 브라우저가 이미 받은 주소의 그림을 다시 받지 않는다(HTML의 받은 그림 목록). 원문이 바뀌어 다시 그려도, 문서를 바꿨다 돌아와도 같다. 바뀐 그림은 페이지를 다시 열 때 보인다. 바로 따라가려면 그림마다 지문을 폴링해야 해서 하지 않는다.
+- **304 전의 읽기 — 알려진 한계로 둔다.** 304도 파일을 한도까지 읽어 내용 해시를 잰다. 8 MiB 파일의 읽기와 BLAKE2b가 약 8 ms다. 서술자의 지문으로 먼저 답하면 이 읽기를 아끼지만, `GetRequest` 에 요청 헤더를 더해야 하고 태그가 내용이 아니라 파일 메타데이터를 따르게 된다(결정 7의 내용 ETag와 다르다).
 
 ## 검증
 
-- **경로 시험** `src/limn/documents/tests/test_assets.py`: 경로 규칙, 형식 시그니처, 응답과 헤더, 304, 탈출 경로 전부, 상태 폴더, 특수 파일, 위장 내용, 8 MiB 경계, 역할, 쓰기 없음.
+- **경로 시험** `src/limn/documents/tests/test_assets.py`: 경로 규칙, 형식 시그니처, 래스터 머리의 크기(`RasterSize`), 응답과 헤더, 304, 탈출 경로 전부, 상태 폴더, 특수 파일, 위장 내용, 8 MiB와 8192×8192 화소 경계, 역할, 쓰기 없음.
 - **순수 시험** `src/limn/viewer/tests/test_md_tree_refs.py`: 상대 경로 풀기(인코딩·`..`·점 부분·뿌리), 그림 소스 분류, 링크 관문(등록 문서·그림·글자, 절대 주소는 그대로), 뷰어와 서버의 접미사 목록 일치, 뷰어가 짓는 주소를 서버가 그대로 받는지.
-- **브라우저 시험** `src/limn/viewer/tests/test_viewer_markdown_assets.py`: 트리 그림을 그리고 나머지는 까닭을 말하는지, 다른 호스트 요청 0건, 직접 연 SVG가 무력한지(정책을 뺀 대조 포함), 그림이 불러와져도 읽던 줄이 2px 안에 있는지(되돌리기를 빼면 772px 어긋난다), 그림 줄 핀의 테두리와 그림 누르기, 문서 링크·`#제목`·뒤로 가기.
+- **브라우저 시험** `src/limn/viewer/tests/test_viewer_markdown_assets.py`: 트리 그림을 그리고 나머지는 까닭을 말하는지, 다른 호스트 요청 0건, 직접 연 SVG가 무력한지(정책을 뺀 대조 포함), 그림이 불러와져도 읽던 줄이 2px 안에 있는지(되돌리기를 빼면 772px 어긋난다), 그림 줄 핀의 테두리와 그림 누르기, 문서 링크·`#제목`·뒤로 가기, 휴대폰 뒤로 가기 층 아래의 링크, 다른 출처의 끼워 넣기(실제 리스너). 그림·읽던 자리·SVG·링크·끼워 넣기는 Firefox에서도 돈다.
 - **기존 게이트.** `uv run pytest -q -n 4 -m "not browser and not tex"`, Markdown 브라우저 시험(`src/limn/viewer/tests/test_viewer_markdown*.py`), ruff, mypy, `npm run typecheck`, strict ratchet.
 - **화면.** 네 기기군 전후 캡처(데스크톱과 폴더블은 라이트·다크)를 소유자에게 보인다([workflow.md](../../handbook/workflow.md) §화면 변경은 PoC를 먼저 보인다).
 
-## 열린 결정
+## 소유자 결정
+
+소유자가 2026-11-05에 테일넷 PoC를 보고 아래 여섯을 모두 추천안대로 승인했다.
 
 | 결정 | 추천 | 한 줄 까닭 |
 | --- | --- | --- |

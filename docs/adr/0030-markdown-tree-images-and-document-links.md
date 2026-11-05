@@ -6,8 +6,8 @@
 | **제목** | Markdown 화면은 원고 트리 안의 그림을 보이고, 등록된 다른 문서로 가는 상대 링크를 연다 |
 | **상태** | 승인됨 |
 | **결정일** | 2026-11-05 |
-| **결정자** | Limn 소유자(2026-11-05, 테일넷 PoC를 보고 여섯 결정을 추천안대로 승인) |
-| **출처** | [설계(승인됨)](../superpowers/specs/2026-11-05-markdown-images-links.md), [HTML 문서 화면 설계](../superpowers/specs/2026-10-24-html-document-surface.md) §이후 단계의 4, PoC 브랜치 `poc/md-assets`(구현 브랜치 `feat/markdown-images-links` 로 이어 씀) |
+| **결정자** | Limn 소유자(2026-11-05, 테일넷 PoC를 보고 여섯 결정을 추천안대로 승인). D2의 화소 한도는 승인 때 남은 일로 열어 둔 것을 구현에서 정했다(설계 §구현에서 정한 것) |
+| **출처** | [설계(승인됨)](../superpowers/specs/2026-11-05-markdown-images-links.md), [구현 계획과 검증](../superpowers/plans/2026-11-05-markdown-images-links.md), [HTML 문서 화면 설계](../superpowers/specs/2026-10-24-html-document-surface.md) §이후 단계의 4, PoC 브랜치 `poc/md-assets`(구현 브랜치 `feat/markdown-images-links` 로 이어 씀) |
 | **부분 대체** | [ADR-0025](0025-html-document-surface.md) D6의 두 구절. "그림은 불러오지 않는다"는 "원고 트리 안의 그림만 검사된 읽기 경로로 불러온다(원격·`data:`·트리 밖은 그대로 불러오지 않는다)"가 된다. 상대 경로 링크를 글자로 두는 조항은 "등록된 문서와 트리의 그림으로 가는 상대 링크는 연다"가 된다. 절대 주소의 허용 목록과 D6의 나머지(DOM으로만 짓기, 원시 HTML 자리표시, 같은 출처·루프백·자격 증명 주소를 열지 않음)는 그대로다 |
 
 ## 맥락
@@ -23,11 +23,11 @@
 | # | 결정 | 상태 |
 | --- | --- | --- |
 | D1 | 그림은 문서 자기 경로를 기준으로 푼 상대 경로가 원고 트리(`--manuscript`) 안에 머물고 그림 접미사(`png`·`jpg`·`jpeg`·`gif`·`webp`·`svg`)를 가질 때만 불러온다. 뿌리는 원고 트리 전체이고, `/` 로 시작하는 경로는 그 뿌리 기준이다. 원격·`data:`·트리 밖 그림은 그대로 대체 글이고, 팁이 까닭을 말한다 | 승인됨 |
-| D2 | 그림은 새 읽기 경로 `GET /api/asset?doc=&path=` 로만 받는다. 서버는 정규화된 트리 상대 경로만 받고(고칠 것이 있으면 400 `bad_asset_path`), 원문 경로와 같은 검사된 핸들로 읽는다. `Content-Type` 은 접미사로 정하고 내용은 그 형식의 시그니처여야 한다(415 `asset_not_image`). 8 MiB를 넘으면 읽지 않는다(413 `asset_too_large`). 역할은 원문 경로와 같다. 아무것도 쓰지 않는다 | 승인됨 |
+| D2 | 그림은 새 읽기 경로 `GET /api/asset?doc=&path=` 로만 받는다. 서버는 정규화된 트리 상대 경로만 받고(고칠 것이 있으면 400 `bad_asset_path`), 원문 경로와 같은 검사된 핸들로 읽는다. `Content-Type` 은 접미사로 정하고 내용은 그 형식의 시그니처여야 한다(415 `asset_not_image`). 8 MiB를 넘으면 읽지 않는다(413 `asset_too_large`). 래스터 그림은 머리가 말하는 가로·세로가 8192×8192 화소를 넘으면 보내지 않는다(413 `asset_too_many_pixels`). 역할은 원문 경로와 같다. 아무것도 쓰지 않는다 | 승인됨 |
 | D3 | 모든 그림 응답은 `nosniff`, 자기 CSP `default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox; frame-ancestors 'none'`, `Cross-Origin-Resource-Policy: same-origin` 을 단다. SVG는 받는다. 뷰어는 `<img>` 로만 그리고, 직접 연 SVG는 이 정책 아래 불투명한 출처의 무력한 문서다 | 승인됨 |
 | D4 | 그림은 늦게 불러오고, 크기를 모르는 동안 자리를 맡는다. 불러와져 크기가 바뀌면 읽던 자리로 되돌린다. 그림만의 블록 종류나 핀 `kind` 는 만들지 않는다. 그림을 누르면 그 줄과 문단을 고르고, 핀이나 고른 줄은 그림 테두리로 보인다. 다크 모드에서는 그림 뒤에 밝은 판을 둔다 | 승인됨 |
 | D5 | 상대 링크가 등록된 문서의 경로(`/api/docs` 의 `path`)를 가리키면 그 문서로 전환한다. Markdown이면 `#제목` 까지 간다. 링크로 간 전환만 방문 기록에 항목 하나를 더해 뒤로 가기로 돌아온다. 휴대폰의 뒤로 가기 레이어가 열려 있으면 더하지 않는다. 트리의 그림을 가리키는 링크는 새 탭에서 `/api/asset` 으로 연다. 그 밖의 상대 링크는 글자다. 절대 주소의 허용 목록은 바꾸지 않는다 | 승인됨 |
-| D6 | 그림 응답은 `private, no-cache` 와 내용 해시 ETag로 캐시한다. 변경 보기·`/api/docs`·핀 레코드·`pins.md` 는 바꾸지 않는다. 에이전트 계약에는 읽기 경로 하나와 이유 코드 넷이 더해진다 | 승인됨 |
+| D6 | 그림 응답은 `private, no-cache` 와 내용 해시 ETag로 캐시한다. 변경 보기·`/api/docs`·핀 레코드·`pins.md` 는 바꾸지 않는다. 에이전트 계약에는 읽기 경로 하나와 이유 코드 다섯이 더해진다 | 승인됨 |
 
 ### D1을 고른 근거
 
@@ -44,9 +44,10 @@
 - 읽기 경로가 하나 는다. 경로 규칙·트리 검사·형식 검사·한도·헤더를 시험이 지켜야 한다. PoC의 경로 시험이 탈출 경로(인코딩 두 번, 파일·폴더 링크 포함), 특수 파일, 위장 내용, 크기 경계, 역할, 쓰기 없음을 본다.
 - viewer 역할이 문서가 가리키지 않은 트리의 그림도 경로로 받을 수 있다. 트리의 텍스트를 이미 읽는 것과 같은 경계로 받아들인다.
 - 원격 그림은 여전히 보이지 않는다. README의 배지·외부 그림은 대체 글로 남는다.
-- 그림만 바꾼 커밋은 그 Markdown 문서의 변경 보기에 나오지 않는다. 탭을 연 채 그림만 바뀌면 다음에 열 때 보인다.
+- 그림만 바꾼 커밋은 그 Markdown 문서의 변경 보기에 나오지 않는다. 탭을 연 채 그림만 바뀌면 페이지를 다시 열 때 보인다. 한 페이지 안에서는 브라우저가 이미 받은 주소의 그림을 다시 받지 않기 때문이다. 바로 따라가려면 그림마다 지문을 폴링해야 해서 하지 않는다.
+- 304도 파일을 한도까지 읽어 내용 해시를 잰다. 8 MiB 한도에서 잰 값은 약 8 ms다(구현 계획 §검증). 서술자의 지문(mtime·크기·inode)으로 먼저 답하면 읽기를 아끼지만, 태그가 내용이 아니라 파일 메타데이터를 따르게 되어 하지 않는다.
 - 다크 모드의 밝은 판은 사진에는 필요 없고, 큰 그림에서는 밝은 면이 넓다. 투명 바탕의 선 그림이 사라지는 것보다 낫다고 본다.
-- 픽셀은 크고 바이트는 작은 그림의 디코드 비용은 브라우저에 맡긴다.
+- 화소 한도는 형식마다 머리를 읽는 작은 파서(PNG의 IHDR, GIF의 화면과 첫 장면, JPEG의 첫 SOFn, WebP의 VP8X·VP8·VP8L)를 더한다. 8192×8192(디코드하면 RGBA 256 MiB)를 넘는 그림, 예컨대 600 dpi A3 한 장은 보이지 않는다. 8K 화면 캡처(33 Mpx)와 600 dpi A4(35 Mpx)는 들어온다. 머리에서 크기를 읽지 못하는 래스터 파일은 그림이 아니다(415). 뷰어 쪽 검사는 디코드가 시작된 뒤에야 크기를 알고, 그림 링크로 직접 연 탭은 지키지 못해 서버에서 한다. SVG는 그리는 크기로 래스터되므로 한도가 없다.
 
 ## 대안
 
@@ -59,7 +60,7 @@
 ## 결과
 
 - PoC(`poc/md-assets`)를 구현으로 쓰고, Handbook·SECURITY·SKILL·CHANGELOG를 같은 변경에서 고친다. 머지 전에 네 기기군 PoC를 보인다([workflow.md](../handbook/workflow.md) §화면 변경은 PoC를 먼저 보인다).
-- 에이전트 계약에는 경로 하나(`GET /api/asset`)와 이유 코드 넷(`bad_asset_path`·`asset_not_image`·`asset_too_large`·`asset_unreadable`)이 더해진다. 기존 경로·필드·상태의 뜻은 그대로다. 저장 형식은 바뀌지 않는다.
+- 에이전트 계약에는 경로 하나(`GET /api/asset`)와 이유 코드 다섯(`bad_asset_path`·`asset_not_image`·`asset_too_large`·`asset_too_many_pixels`·`asset_unreadable`)이 더해진다. 기존 경로·필드·상태의 뜻은 그대로다. 저장 형식은 바뀌지 않는다.
 - 되돌리기는 이전 태그로의 업데이트다. 상태 폴더에 남는 것이 없다.
 
 ### 현재 상태 투영
@@ -69,10 +70,12 @@
   - 읽기 경로 목록(`security/access.py`)과 응답 헤더(`web/reply.py`, `web/handler.py`)
   - 문서 기능(`documents/`)
   - 에이전트 계약(`api.md`)
-- **갱신할 Handbook role/path:** `docs/handbook/viewer.md`(§Markdown 화면의 그리기와 §링크와 관문), `docs/handbook/api.md`(§화면·PDF·정적 파일), `docs/handbook/architecture.md`(읽기 경로), `docs/handbook/verification.md`(새 시험), `docs/handbook/index.md` 파일 지도
+- **갱신할 Handbook role/path:** `docs/handbook/viewer.md`(§Markdown 화면의 §그리기·§그림·§링크와 관문), `docs/handbook/api.md`(§화면·PDF·정적 파일), `docs/handbook/architecture.md`(읽기 경로), `docs/handbook/verification.md`(새 시험), `docs/handbook/index.md` 파일 지도
 - **효력 형태:** 한 번에 이행(PoC가 곧 구현)
 - **완료 증거**
   - 경로 시험이 모든 탈출 경로와 특수·위장 파일을 거절한다.
   - 직접 연 SVG가 강제된 정책 아래 무력하다는 브라우저 시험이 있다.
+  - 다른 출처의 페이지가 실제 리스너의 그림을 끼워 넣지 못한다는 브라우저 시험이 Chromium과 Firefox에 있다.
+  - 화소 한도의 경계 시험이 있다.
   - 원격 요청 0건 시험이 있다.
   - 네 기기군 전후 캡처가 있다.
