@@ -163,8 +163,8 @@ def region_text_of(r: Record) -> str:
 
 
 def page_col(r: Record) -> str:
-    """The page column: the pin's page, or `—` for a line pin without one - a Markdown document's, which has no pages
-    (docs/adr/0025-html-document-surface.md D2). A region pin always has its page."""
+    """The page column: the pin's page, or `—` for a line pin without one - a Markdown or text document's, which has no
+    pages (docs/adr/0025-html-document-surface.md D2, docs/adr/0029-text-documents.md D1). A region pin always has its page."""
     return md_cell(r["page"]) if "page" in r else "—"
 
 

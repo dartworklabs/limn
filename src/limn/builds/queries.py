@@ -279,7 +279,7 @@ class BuildQueries:
           component that map names, joined to doc.src as the map gives them (figure_map.map_source_files). Just the map
           file when the build on screen has no loadable map. Reads the map copy through the run's cache, and no file
           the map names.
-        - A document the browser draws (a Markdown document): its own file alone, so another document's file in the
+        - A document the browser draws (a Markdown or text document): its own file alone, so another document's file in the
           same folder - a LaTeX main beside it - never enters its history, nor its file a LaTeX document's.
         - Any other document: None."""
         if doc.renders_in_browser:

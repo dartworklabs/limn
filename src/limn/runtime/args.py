@@ -36,7 +36,7 @@ def serve_parser(description: str, version: str, default_envs: str) -> argparse.
     ap.add_argument(
         "--main",
         help="Top-level .tex filename (auto-detected if omitted). Not used together with --doc; "
-        "a Markdown document is served with --doc",
+        "a Markdown or text document is served with --doc",
     )
     ap.add_argument(
         "--doc",

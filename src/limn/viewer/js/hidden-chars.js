@@ -10,7 +10,7 @@
 // zero-width characters and bidirectional marks, the bidirectional embeddings, overrides and isolates, the word joiner and
 // invisible operators, the deprecated format characters, the variation selectors, the byte-order mark, the shorthand and
 // musical format controls, the tags), every C0 and C1 control but the tab and the line feed, the line and paragraph
-// separators and the interlinear annotation characters. limn.pins.listing.hidden holds the same table for pins.md; a test
+// separators and the interlinear annotation characters. limn.pins.suggestion.HIDDEN_RANGES holds the same table for pins.md; a test
 // ties the two and checks this one against the engine's own Unicode properties.
 // A character a legitimate sequence needs is left as it is (ccKept). Nothing else is: a tag sequence (a subdivision flag)
 // shows its tags by name.
