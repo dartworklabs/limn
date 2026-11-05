@@ -390,11 +390,12 @@ chk "the '::' form rejects a Markdown document" "! '$PV' add docs-x --manuscript
 mout=$("$PV" add docs-x --manuscript "$ms" --main readme.md --no-start 2>&1)
 mrc=$?
 chk "--main refuses a Markdown file and names the --doc form" "[[ $mrc -ne 0 ]] && grep -q -- '--doc <key>=<name>:readme.md' <<< \"\$mout\""
-printf 'x = 1\n' > "$ms/plot.PY"
-tout=$("$PV" add docs-t --manuscript "$ms" --main plot.PY --no-start 2>&1)
+# tool.PY, not plot.PY: on a case-insensitive file system (macOS) plot.PY is the fixture's Plot.PY, which later checks use.
+printf 'x = 1\n' > "$ms/tool.PY"
+tout=$("$PV" add docs-t --manuscript "$ms" --main tool.PY --no-start 2>&1)
 trc=$?
 chk "--main refuses a text document's suffix (any case), names the --doc form and writes no config" \
-    "[[ $trc -ne 0 ]] && grep -q -- '--doc <key>=<name>:plot.PY' <<< \"\$tout\" && [[ ! -e '$T/config/docs-t.env' && ! -e '$T/src/docs-t.env' ]]"
+    "[[ $trc -ne 0 ]] && grep -q -- '--doc <key>=<name>:tool.PY' <<< \"\$tout\" && [[ ! -e '$T/config/docs-t.env' && ! -e '$T/src/docs-t.env' ]]"
 printf '\\documentclass{article}\\begin{document}x\\end{document}\n' > "$ms/paper.sty"
 chk "--main still takes LaTeX's own source suffix (.sty) as a LaTeX main" "'$PV' add docs-s --manuscript '$ms' --main paper.sty --no-start >/dev/null 2>&1"
 printf '{"format": "limn-figure-map/1"}\n' > "$ms/Figures.LIMNMAP.JSON"
@@ -407,7 +408,7 @@ chk "--main takes a dotfile with no suffix (.py), as the server does" "'$PV' add
 cp "$ms/.py" "$ms/..py"
 chk "--main takes ..py too (no suffix on every Python), as the server does" "'$PV' add docs-e --manuscript '$ms' --main ..py --no-start >/dev/null 2>&1"
 for n in docs-s docs-d docs-e; do "$PV" remove "$n" > /dev/null 2>&1; done
-rm -f "$ms/plot.PY" "$ms/paper.sty" "$ms/Figures.LIMNMAP.JSON" "$ms/.py" "$ms/..py"
+rm -f "$ms/tool.PY" "$ms/paper.sty" "$ms/Figures.LIMNMAP.JSON" "$ms/.py" "$ms/..py"
 chk "rejects a nonexistent file" "! '$PV' add docs-x --manuscript '$ms' --doc 'x=문서:no-such.tex' --no-start >/dev/null 2>&1"
 mkdir -p "$ms/figs/out"
 printf '{"format": "limn-figure-map/1"}\n' > "$ms/figs/out/figures.limnmap.json"
