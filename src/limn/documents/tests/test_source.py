@@ -4,9 +4,9 @@ docs/handbook/api.md §화면·PDF·정적 파일).
 SourceLinesRule holds source_lines to the text-mode read every other line consumer makes (tex_lines), over generated
 text and bytes and over a file holding every line end str.splitlines() knows. SourceStamp holds read_source's stamp to
 the descriptor its bytes came from, across an atomic save that lands while it reads. SourceRoute drives the route through the
-handler on a Markdown document made directly (no --doc suffix chooses the kind yet): its answer, the 1 MiB limit, the
-path checks every file route makes, who may read it, that an edit reaches the viewer's light poll, and that no request
-writes the manuscript.
+handler on a Markdown document made directly: its answer, the 1 MiB limit, the path checks every file route makes, who may
+read it, that an edit reaches the viewer's light poll, and that no request writes the manuscript. TextSourceRoute runs
+every one of them again on a text document (docs/adr/0029-text-documents.md), whose source the route serves alike.
 
 Run: uv run pytest -q src/limn/documents/tests/test_source.py
 """
@@ -154,12 +154,15 @@ class SourceStamp(unittest.TestCase):
 class SourceRoute(AccessBase):
     """The route on a LaTeX document ms (main.tex) and a Markdown document nt (notes/plan.md) inside its tree."""
 
+    KIND = "markdown"  # nt's kind (a document the browser draws)
+    NAME = "plan.md"  # nt's file in notes/
+
     def setUp(self):
         """Serve ms and nt, with nt's source holding every line end; owner Alice, editor Bob and viewer Carol in
         people.json and an API token for the agent role."""
         super().setUp()
         (self.src / "notes").mkdir()
-        self.md = self.src / "notes" / "plan.md"
+        self.md = self.src / "notes" / self.NAME
         self.md.write_bytes(EVERY_LINE_END.encode("utf-8"))
         self.serve(self.md, ps.APP.C.paths)
         self.set_people(
@@ -172,8 +175,8 @@ class SourceRoute(AccessBase):
         _, self.token = token_create(ps.APP.C.state, "ci")
 
     def serve(self, md: Path, paths: RunPaths) -> None:
-        """Serve ms over the manuscript and nt (Markdown, made directly) at md, both with run paths `paths`."""
-        self.nt = Doc("nt", "계획", "markdown", md.parent, md, paths=paths)
+        """Serve ms over the manuscript and nt (of kind KIND, made directly) at md, both with run paths `paths`."""
+        self.nt = Doc("nt", "계획", self.KIND, md.parent, md, paths=paths)
         ps.APP.set_docs([Doc("ms", "본문", "tex", self.src, self.main, paths=paths), self.nt])
         self.addCleanup(ps.APP.set_docs, None)
 
@@ -335,3 +338,13 @@ class SourceRoute(AccessBase):
         answers.append(self.call("GET", "/api/source?doc=ms")[0])
         self.assertEqual(answers, [200, 413, 422, 400, 400])
         self.assertEqual(tree(), before)
+
+
+class TextSourceRoute(SourceRoute):
+    """Every SourceRoute test on a text document nt (notes/plan.txt): the route serves a text document's source as it
+    serves a Markdown one's - the lines as the server numbers them and the line ends that are not LF or CRLF, the 1 MiB
+    limit and its 413, the refusal of bytes that are not UTF-8 and of paths outside the tree, the same readers - and
+    writes nothing."""
+
+    KIND = "text"
+    NAME = "plan.txt"

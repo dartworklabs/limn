@@ -6,8 +6,8 @@ agent, a stale edit, a claim on a closed pin, a missing pin) - runs through the 
 zone and the paths pinned. Every answer (status and body), pins.md after every write, and at the end GET /pins.md,
 GET /api/pins, GET /api/pins/<id> and GET /api/pins/dropped are compared with tests/data/contract_snapshot.json
 (docs/handbook/verification.md §4), so a refactor that changes any of these bytes fails here. The figure flow, the
-verdict flow and the Markdown flow are recorded apart, in tests/data/contract_snapshot_figure.json,
-tests/data/verdict_snapshot.json and tests/data/contract_snapshot_markdown.json.
+verdict flow, the Markdown flow and the text flow are recorded apart, in tests/data/contract_snapshot_figure.json,
+tests/data/verdict_snapshot.json, tests/data/contract_snapshot_markdown.json and tests/data/contract_snapshot_text.json.
 
 Paths are written as <ROOT> (the temporary folder), the clock is 2026-09-26 10:00:00 +09:00 whatever the machine's
 zone. A deliberate contract change (docs/handbook/api.md, approved first) re-records the snapshot:
@@ -24,6 +24,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
+from limn.administration import serve_documents
 from limn.builds import engine as build_engine
 from limn.documents.verdicts import verdicts_path
 from limn.pins.listing import markdown as listing_markdown
@@ -553,6 +554,125 @@ class MarkdownContractSnapshot(SnapshotBase):
         self.step("markdown: GET /api/pins", "GET", "/api/pins")
         self.step("markdown: GET /api/pins/<d>", "GET", "/api/pins/%d" % d)
         self.assert_recorded(MARKDOWN_SNAPSHOT)
+
+
+TEXT_SNAPSHOT = Path(__file__).resolve().parents[2] / "tests" / "data" / "contract_snapshot_text.json"
+# A text document of the flow: a Python script with a function (an indented block), a form feed between its two parts (a
+# line end that is not LF, which /api/source counts) and a closing line.
+PLOT_PY = (
+    "import numpy as np\n"  # 1
+    "\n"  # 2
+    "def plot(ax, data):\n"  # 3
+    "    for row in data:\n"  # 4
+    "        ax.plot(row)\n"  # 5
+    "    return ax\n"  # 6
+    "\x0c\n"  # 7 (the form feed ends line 7; line 8 is empty)
+    "def save(fig):\n"  # 9
+    '    fig.savefig("p.pdf")\n'  # 10
+)
+
+
+class TextContractSnapshot(SnapshotBase):
+    """The text flow, recorded in tests/data/contract_snapshot_text.json (docs/adr/0029-text-documents.md D1, D3, D4, D7,
+    D8): a LaTeX document ms and a text document py (figs/plot.py) as `--doc` registers them - its suffix chooses the
+    kind. The document list, the source with its line ends; an agent's line pin sent with page fields out of habit, an
+    indented block, a paragraph, a suggested edit that adds a bidirectional override and a LaTeX pin beside them; a
+    re-placement onto an indented block that sends page fields again and a note edit; a drop and the Trash; then pins.md,
+    the pin list and the suggestion's pin. No text pin answers or stores a page field, the page column shows `—`, the
+    range column `indent`, the section title `— 텍스트(쪽 없음)`, and the suggestion's block in `## 제안 문안` carries the
+    hidden-character line. The older flows never meet a text document, and their snapshots stay byte for byte as they
+    were."""
+
+    def setUp(self):
+        """The pinned clocks; ms and py from their --doc specs; the script's mtime T0."""
+        super().setUp()
+        (self.src / "figs").mkdir()
+        self.py = self.src / "figs" / "plot.py"
+        self.py.write_text(PLOT_PY, encoding="utf-8")
+        os.utime(self.py, (T0, T0))
+        docs = serve_documents.make_docs(["ms=본문:main.tex", "py=그림 코드:figs/plot.py"], self.src, ps.APP.C.paths)
+        assert isinstance(docs, list), docs
+        ps.APP.set_docs(docs)
+        self.addCleanup(ps.APP.set_docs, None)
+
+    def test_the_text_pin_flow_answers_as_recorded(self):
+        """Every answer and pins.md along the text flow equal the recorded snapshot."""
+        py, main = str(self.py), str(self.main)
+        habit = {"page": 1, "frac": [0.1, 0.1, 0.2, 0.2], "pdf_build": "pages"}
+        self.step("text: GET /api/docs", "GET", "/api/docs", headers=ALICE)
+        self.step("text: GET /api/source", "GET", "/api/source?doc=py", headers=ALICE)
+        a = self.step(
+            "text: agent pins lines, sending page fields out of habit",
+            "POST",
+            "/api/pin",
+            {"doc": "py", "file": py, "lo": 5, "hi": 5, "note": "선 색을 바꿔 줘", **habit},
+        )["id"]
+        b = self.step(
+            "text: person pins an indented block",
+            "POST",
+            "/api/pin",
+            {
+                "doc": "py",
+                "file": py,
+                "lo": 3,
+                "hi": 6,
+                "scope": "indent",
+                "kind": "indent",
+                "quote": "def plot(ax, data):",
+                "note": "함수를 둘로 나눠 줘",
+            },
+            ALICE,
+        )["id"]
+        c = self.step(
+            "text: person pins a paragraph",
+            "POST",
+            "/api/pin",
+            {"doc": "py", "file": py, "lo": 9, "hi": 10, "scope": "para", "kind": "paragraph", "note": "저장 형식"},
+            BOB,
+        )["id"]
+        d = self.step(
+            "text: person suggests an edit that adds a bidirectional override",
+            "POST",
+            "/api/pin",
+            {
+                "doc": "py",
+                "file": py,
+                "lo": 10,
+                "hi": 10,
+                "note": "",
+                "suggest": {"base": '    fig.savefig("p.pdf")', "text": '    fig.savefig("p\u202e.pdf")'},
+            },
+            ALICE,
+        )["id"]
+        self.step(
+            "text: agent pins LaTeX lines beside them",
+            "POST",
+            "/api/pin",
+            {"doc": "ms", "file": main, "lo": 4, "hi": 5, "page": 1, "note": "n"},
+        )
+        self.step(
+            "text: person re-places the agent's pin onto an indented block, sending page fields again",
+            "POST",
+            "/api/pins/%d/edit" % a,
+            {
+                "base_rev": 0,
+                "loc": {"file": py, "lo": 4, "hi": 5, "scope": "indent", "kind": "indent", **dict(habit, page=2)},
+            },
+            ALICE,
+        )
+        self.step(
+            "text: person edits the block's note",
+            "POST",
+            "/api/pins/%d/edit" % b,
+            {"base_rev": 0, "note": "함수를 셋으로 나눠 줘"},
+            ALICE,
+        )
+        self.step("text: person drops the paragraph pin", "POST", "/api/pins/%d/drop" % c, {}, BOB)
+        self.step("text: the Trash", "GET", "/api/pins/dropped")
+        self.step("text: GET /pins.md", "GET", "/pins.md")
+        self.step("text: GET /api/pins", "GET", "/api/pins")
+        self.step("text: GET /api/pins/<d>", "GET", "/api/pins/%d" % d)
+        self.assert_recorded(TEXT_SNAPSHOT)
 
 
 if __name__ == "__main__":
