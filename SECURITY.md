@@ -36,6 +36,15 @@ What the server does defend against:
   under a dot-named part of it (`.git`, `.env`, `.ssh`, `.latexmkrc`, …): those hold repository and machine secrets,
   not manuscript text, and a `viewer` could otherwise read `.git/config` through a snippet. The refusal is the one for
   a file outside the manuscript (`400 file_outside_manuscript` / `change_outside_manuscript`).
+- The change view and comparison builds (`/api/revisions`, `/api/revision-diff`, `/api/revision-build`,
+  `/api/revision-pdf`) show only a document's own registered files: a LaTeX document's manuscript files in its main
+  file's folder, a figure document's map, the PDF it names and the files it lists, a Markdown or text document's own
+  file. Never a file under a dot-named part of the document's folder — the history, the diffs and a comparison build's
+  snapshots of both commits leave such files out, a figure map that lists one included — and never a file of another
+  folder whose name a Git pattern would also match (a folder `paper[1]` is matched as that name). The files, a pin's
+  file and the ranges recorded when it was closed are named by the paths registered at startup: a folder replaced by a
+  symlink after that — to a dot-named folder, another folder or another repository — does not change which files they
+  are.
 - Images a Markdown document shows: `GET /api/asset?doc=&path=` serves an image of the manuscript tree and nothing
   else ([ADR-0030](docs/adr/0030-markdown-tree-images-and-document-links.md), Korean). It takes only a normalized
   path relative to `--manuscript` with an image suffix (`png`, `jpg`, `jpeg`, `gif`, `webp`, `svg`): a leading `/`, a
