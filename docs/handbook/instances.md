@@ -98,7 +98,7 @@ limn add paper2 --manuscript ~/papers/paper2 --git-pull --label Paper2
 | 옵션 | 뜻 |
 | --- | --- |
 | `--manuscript <dir>` | 원고 폴더. 필수 |
-| `--main <file.tex>` | 최상위 `.tex`. 원고 폴더 맨 위에 있어야 한다. 점 파일(`.draft.tex`)이나 점으로 시작하는 폴더를 가리키는 링크는 거부한다(찾은 메인도 같다). `--doc`과 함께 쓰지 않는다. `.md`, 그림 지도(`.limnmap.json`), 텍스트 문서의 확장자(`.py`·`.txt` 등. LaTeX 메인일 수 있는 `.bib`·`.sty`·`.cls`·`.bst`는 받는다)는 빌드하지 않고 거절하며 `--doc <키>=<이름>:<경로>` 꼴을 알린다. Markdown 문서와 텍스트 문서는 `--doc`으로 더한다 |
+| `--main <file.tex>` | 최상위 `.tex`. 원고 폴더 맨 위에 있어야 한다. 점 파일(`.draft.tex`, 접미사가 없는 `.py` 도 점 파일이다)이나 점으로 시작하는 폴더를 가리키는 링크는 거부한다(찾은 메인도 같다). 이미 그런 메인으로 등록한 인스턴스는 아래 '점 파일 메인을 쓰던 설정'을 본다. `--doc`과 함께 쓰지 않는다. `.md`, 그림 지도(`.limnmap.json`), 텍스트 문서의 확장자(`.py`·`.txt` 등. LaTeX 메인일 수 있는 `.bib`·`.sty`·`.cls`·`.bst`는 받는다)는 빌드하지 않고 거절하며 `--doc <키>=<이름>:<경로>` 꼴을 알린다. Markdown 문서와 텍스트 문서는 `--doc`으로 더한다 |
 | `--doc <키>=<표시 이름>:<경로>` | 문서. 여러 번 준다. `--main`과 함께 쓰지 않는다 |
 | `--stage auto\|initial\|revision` | 기본 문서 탭 자동 탐지에만 쓴다. `--doc`·`--main`과 함께 주면 거부한다 |
 | `--port N` / `--ts-port N` | 로컬 포트와 테일넷 포트를 직접 준다. 하나만 주면 나머지는 짝 간격(`LIMN_LOCAL_OFFSET`, 기본 `100`)으로 계산한다 |
@@ -241,9 +241,20 @@ limn add paper2 --manuscript ~/papers/paper2        # 같은 결과를 설정에
 - `MANUSCRIPT` 폴더가 있다.
 - `MAIN`과 `DOCS`가 함께 있지 않다.
 - `MAIN` 파일이 있다.
+- `MAIN` 파일(링크를 따라간 실제 파일)과 `DOCS` 의 경로·`::` 빌드 루트가 원고 폴더 기준으로 점으로 시작하는 이름 아래가 아니다. 서버가 기동할 때 거부하는 것과 같은 규칙이다([operations.md](operations.md) §여러 문서 (`--doc`)).
 - `PORT`가 1024–65535 안의 값이다. 비어 있어도 자동으로 고르지 않는다.
 - `ACCENT`가 `#rrggbb` 형식이다.
 - 접근 설정 키가 위 '접근 설정 키 (v0.2)' 표의 규칙을 지킨다. 예를 들어 loopback이 아닌 `BIND`에는 `AUTH=trusted-proxy`가 있고, `AGENT_LOOPBACK=1`은 `tailscale` 방식과 loopback `BIND`에서만 쓴다. `TAILNET_AGENT=1`도 같은 조건에 `AGENT_LOOPBACK=0`이 아니어야 한다.
+
+### 점 파일 메인을 쓰던 설정
+
+이전 판은 `MAIN=.py` 처럼 이름이 점으로 시작하는 메인(`limn add --main .py`)을 받아 LaTeX로 빌드했다. 이 판부터는 그런 메인을 거부한다. 점으로 시작하는 이름 아래의 파일은 원고가 아니어서 Limn이 읽지 않기 때문이다. `limn add` 는 설정을 쓰기 전에 멈추고, 이미 그렇게 등록된 인스턴스는 `limn run` 이 서버를 띄우기 전에 `the main .tex has a dot-named part (.py)` 로 멈춘다. 유닛은 그동안 `Restart=on-failure` 로 재시작을 되풀이한다. `DOCS` 의 경로나 `::` 빌드 루트가 `.private/` 같은 점으로 시작하는 폴더 아래인 설정도 `--doc <키>: the path has a dot-named part` 로 같은 자리에서 멈춘다.
+
+옮기는 방법은 파일을 점으로 시작하는 부분이 없는 이름으로 두고 그 이름으로 등록하는 것이다.
+
+1. 파일 이름을 바꾼다. 예: `git mv .py main.tex`. 점으로 시작하는 폴더 안의 문서는 그 폴더 밖으로 옮긴다(`git mv .drafts/notes.md drafts/notes.md`).
+2. 설정 파일 `~/.config/limn/<이름>.env` 의 `MAIN=`(또는 `DOCS=` 의 그 문서 경로)을 새 이름으로 고친다. `MAIN` 은 원고 폴더 맨 위의 이름이다(`MAIN=main.tex`).
+3. `limn stop <이름> && limn start <이름>` 으로 다시 띄운다. `limn run` 이 위 검사를 다시 하므로, 남은 점 이름이 있으면 그 이름을 알리며 다시 멈춘다.
 
 > **주의**
 >
