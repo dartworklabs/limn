@@ -65,14 +65,25 @@ class OtherPostRequest(NamedTuple):
 OtherPost: TypeAlias = Callable[[OtherPostRequest], dict[str, object]]
 
 
+class PathPolicy(NamedTuple):
+    """The headers every response for one path carries, whatever it answers - a success, a 304, a refusal of the
+    route itself or one raised before it ran (401, 403, an unknown document), a 500: its Content-Security-Policy, in
+    place of FRAME_ONLY or a page's own, and its Cross-Origin-Resource-Policy."""
+
+    csp: str
+    resource_policy: str
+
+
 @dataclass(frozen=True)
 class RouteBundle:
-    """One capability's ordered reads and uniquely keyed mutation routes."""
+    """One capability's ordered reads, uniquely keyed mutation routes and the paths whose every response carries
+    fixed policy headers (policies, keyed by path)."""
 
     get: tuple[GetRoute, ...] = ()
     post_documents: tuple[PostDocRoute, ...] = ()
     pin_actions: Mapping[str, PinAction] = field(default_factory=dict)
     other_posts: Mapping[str, OtherPost] = field(default_factory=dict)
+    policies: Mapping[str, PathPolicy] = field(default_factory=dict)
 
 
 Route = TypeVar("Route")
@@ -104,4 +115,5 @@ def merge_routes(*bundles: RouteBundle) -> RouteBundle:
         post_documents=tuple(posts),
         pin_actions=_merge_keyed("pin action", tuple(bundle.pin_actions for bundle in bundles)),
         other_posts=_merge_keyed("POST", tuple(bundle.other_posts for bundle in bundles)),
+        policies=_merge_keyed("path policy", tuple(bundle.policies for bundle in bundles)),
     )

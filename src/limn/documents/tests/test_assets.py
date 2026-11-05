@@ -463,6 +463,41 @@ class AssetRoute(AccessBase):
             with self.subTest(who=who):
                 self.assertEqual(self.raw("notes/img/a.png", **kw)[0], code)
 
+    def test_every_answer_of_the_route_carries_the_asset_policy_and_the_resource_policy(self):
+        """Not only the image: a 304, each refusal of the route (400 bad_asset_path and file_not_found, 413 asset_too_large,
+        415 asset_not_image - HTML named .png, which opened on its own must stay a sandboxed document), and the refusals
+        before it runs (401 unidentified, 403 a foreign Host or a headerless tailnet request, 404 unknown_doc, 414 a path
+        too long) carry ASSET_POLICY and Cross-Origin-Resource-Policy same-origin (ADR-0030 D3). Another route's refusal
+        keeps FRAME_ONLY and no resource policy."""
+        (self.src / "notes" / "img" / "big.png").write_bytes(PNG + b"\0" * ASSET_MAX_BYTES)
+        (self.src / "notes" / "img" / "page.png").write_bytes(b"<!doctype html><script>alert(1)</script>")
+        _, first, _ = self.raw("notes/img/a.png")
+        cases = {
+            "image": (self.raw("notes/img/a.png"), 200),
+            "not modified": (self.raw("notes/img/a.png", headers={"If-None-Match": first["etag"]}), 304),
+            "bad path": (self.raw("../x.png"), 400),
+            "no file": (self.raw("notes/img/gone.png"), 400),
+            "too large": (self.raw("notes/img/big.png"), 413),
+            "html as png": (self.raw("notes/img/page.png"), 415),
+            "unidentified": (self.raw("notes/img/a.png", peer="100.64.0.9"), 401),
+            "foreign host": (self.raw("notes/img/a.png", headers=dict(ALICE, Host="evil.example")), 403),
+            "tailnet headerless": (self.raw("notes/img/a.png", headers={"Host": TS_HOST}), 403),
+            "unknown doc": (split_resp(talk_to(ps, req("GET", "/api/asset?doc=zz&path=notes%2Fimg%2Fa.png"))), 404),
+            "path too long": (
+                split_resp(talk_to(ps, req("GET", "/api/asset?doc=nt&path=" + "a" * 5000 + ".png"))),
+                414,
+            ),
+        }
+        for name, ((code, hdrs, _), want) in cases.items():
+            with self.subTest(name=name):
+                self.assertEqual(code, want)
+                self.assertEqual(hdrs["content-security-policy"], ASSET_POLICY)
+                self.assertEqual(hdrs["cross-origin-resource-policy"], "same-origin")
+                self.assertEqual(hdrs["x-content-type-options"], "nosniff")
+        code, hdrs, _ = split_resp(talk_to(ps, req("GET", "/api/source?doc=zz")))
+        self.assertEqual((code, hdrs["content-security-policy"]), (404, "frame-ancestors 'none'"))
+        self.assertNotIn("cross-origin-resource-policy", hdrs)
+
     def test_no_answer_writes_anything(self):
         """Every answer - an image, a 304, each refusal, the size limit - leaves every file of the tree and of the state
         folder as it was, bytes and mtime (docs/adr/0027-get-write-guard.md)."""

@@ -323,6 +323,7 @@ def assemble_application(config: RunConfig, runtime: RunResources) -> ServerAsse
         collaboration.people,
         lambda: resources().viewer.messages,
         hdr_text,
+        routes.policies,
     )
     return ServerAssembly(environment, pins, builds, collaboration, documents_subsystem, revisions, sync, security, web)
 

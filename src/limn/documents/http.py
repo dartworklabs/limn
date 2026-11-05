@@ -6,8 +6,6 @@ from typing import Any
 from limn.documents import input as document_input
 from limn.documents.assets import (
     ASSET_CACHE,
-    ASSET_POLICY,
-    ASSET_RESOURCE_POLICY,
     AssetBytes,
     AssetNotImage,
     AssetPathRefused,
@@ -101,7 +99,8 @@ def asset(doc: Doc, query: Mapping[str, list[str]]) -> Reply:
     (limn.documents.assets). doc selects the tree (every document of an instance shares --manuscript).
 
     200 with the media type its suffix names, an ETag of its content (a matching If-None-Match is a 304), Cache-Control
-    private, no-cache, the asset's own Content-Security-Policy and Cross-Origin-Resource-Policy: same-origin. The
+    private, no-cache. The asset's own Content-Security-Policy and Cross-Origin-Resource-Policy: same-origin go out on
+    every response of the path, this answer and each refusal alike (the path's policy, limn.documents.application). The
     refusals, each its own reason: 400 bad_asset_path for a path the viewer would not send (asset_path); the 400 every
     file route answers for a path outside the tree - outside --manuscript, under a dot-named folder, behind a link that
     leads out, in the state folder (file_outside_manuscript) - or for no regular file there (file_not_found); 413
@@ -116,7 +115,7 @@ def asset(doc: Doc, query: Mapping[str, list[str]]) -> Reply:
     checked = accepted(parse.source_file(rel, doc.paths.src, doc.paths.state))
     match read_asset(checked, wanted.suffix):
         case AssetBytes(data=data, media=media, etag=etag):
-            return Reply(200, data, media, ASSET_CACHE, etag, None, ASSET_POLICY, ASSET_RESOURCE_POLICY)
+            return Reply(200, data, media, ASSET_CACHE, etag)
         case AssetTooLarge(size=size, limit=limit):
             raise HTTPError(
                 413,

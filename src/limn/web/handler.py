@@ -31,7 +31,7 @@ from limn.web.answers import accepted
 from limn.web.app import Document, Json, Principal, Query, WebApplication
 from limn.web.errors import HTTPError, InputRejected, error_page_html, page_lang
 from limn.web.reply import Reply, json_reply as _json_reply
-from limn.web.routes import GetRequest, OtherPostRequest, PinActionRequest, PostDocRequest
+from limn.web.routes import GetRequest, OtherPostRequest, PathPolicy, PinActionRequest, PostDocRequest
 
 READ_SLOTS = threading.BoundedSemaphore(4)
 MAX_BODY = 1 << 20
@@ -110,23 +110,19 @@ class Handler(BaseHTTPRequestHandler):
         etag: str | None = None,
         disposition: str | None = None,
         csp: str | None = None,
-        resource_policy: str | None = None,
     ) -> None:
         """Send one complete response: status, Content-Type/Length, Cache-Control (no-store unless given; page images
         cache privately for 10 minutes - they are manuscript pages, like the PDFs), the ETag when given, nosniff,
         WWW-Authenticate on 401, Connection: close on every error, and the anti-framing pair end_headers adds - with
         csp, an HTML page's own policy (limn.web.csp.page_policy), as its Content-Security-Policy. A 200
         with an ETag that the request's If-None-Match names is sent as 304 Not Modified without a body. The
-        Content-Disposition value (a download's) goes out on a success only, never on an error or a 304. A
-        resource_policy (Cross-Origin-Resource-Policy: a tree image's same-origin) goes out on a success and a 304."""
+        Content-Disposition value (a download's) goes out on a success only, never on an error or a 304."""
         self._page_policy = csp
         if etag is not None and code == 200 and etag_matches(self.headers.get("If-None-Match"), etag):
             self.send_response(304)
             self.send_header("ETag", etag)
             self.send_header("Cache-Control", cache or "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
-            if resource_policy is not None:
-                self.send_header("Cross-Origin-Resource-Policy", resource_policy)
             self.end_headers()
             return
         if code >= 400:
@@ -143,8 +139,6 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("ETag", etag)
         if disposition is not None and code < 400:
             self.send_header("Content-Disposition", disposition)
-        if resource_policy is not None and code < 400:
-            self.send_header("Cross-Origin-Resource-Policy", resource_policy)
         self.send_header("X-Content-Type-Options", "nosniff")
         if code == 401:
             self.send_header("WWW-Authenticate", 'Bearer realm="limn"')
@@ -158,11 +152,21 @@ class Handler(BaseHTTPRequestHandler):
         request line, an unsupported method) - with X-Frame-Options: DENY and a Content-Security-Policy: the HTML
         page's own (_send's csp, used once) or limn.web.csp.FRAME_ONLY, so no other site can frame the viewer and
         trick a click (clickjacking), and on Limn's pages only same-origin scripts and inline code whose hash the policy
-        lists can run, whoever inserts them; the policy narrows an injection, it does not sanitize (docs/adr/0026)."""
+        lists can run, whoever inserts them; the policy narrows an injection, it does not sanitize (docs/adr/0026). A
+        path that registered fixed policies (limn.web.routes.PathPolicy: a tree image's) gets its policy and its
+        Cross-Origin-Resource-Policy on every response instead - a success, a 304 and every refusal or failure alike."""
         policy, self._page_policy = self._page_policy, None
+        fixed = self._path_policy()
         self.send_header("X-Frame-Options", "DENY")
-        self.send_header(page_csp.HEADER, policy or page_csp.FRAME_ONLY)
+        self.send_header(page_csp.HEADER, fixed.csp if fixed else policy or page_csp.FRAME_ONLY)
+        if fixed:
+            self.send_header("Cross-Origin-Resource-Policy", fixed.resource_policy)
         super().end_headers()
+
+    def _path_policy(self) -> PathPolicy | None:
+        """The fixed policies the request's path registered, or None (no path read yet, or none registered)."""
+        raw = getattr(self, "path", None)
+        return self.app.policies.get(urlparse(raw).path) if isinstance(raw, str) else None
 
     def _json(self, obj: object, code: int = 200) -> None:
         """Send obj as a UTF-8 JSON response (non-ASCII kept as is)."""
