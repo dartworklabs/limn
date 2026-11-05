@@ -652,7 +652,9 @@ class AssetTagsBound(unittest.TestCase):
         """Three images into a map of two: the first is dropped (its next revalidation reads it again); asking for the
         second keeps it over the third when a fourth comes in. Mutations: drop the popitem loop of AssetTags.keep -> the
         first is still known, fails; drop the move_to_end of AssetTags.known -> the second is dropped instead, fails."""
-        root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        tmp = tempfile.TemporaryDirectory()  # not enterContext: Python 3.10 has none
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
         state = root / ".state"
         tags = AssetTags(limit=2, settle_ns=0)
         checked = []
@@ -672,7 +674,9 @@ class AssetTagsBound(unittest.TestCase):
     def test_a_read_of_a_file_that_just_changed_is_not_kept(self):
         """keep() leaves out a read whose file changed less than settle_ns before the clock: two writes within one tick
         of the file system's clock could share an identity."""
-        root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        tmp = tempfile.TemporaryDirectory()  # not enterContext: Python 3.10 has none
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
         (root / "p.png").write_bytes(PNG)
         checked = file_in_tree(str(root / "p.png"), root, root / ".state")
         read = read_asset(checked, ".png")

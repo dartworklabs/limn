@@ -451,9 +451,11 @@ class ChangedOnDisk(AssetsBase):
     def test_a_check_asks_only_images_near_the_area_a_few_at_a_time_and_not_too_often(self):
         """far.png, loaded by a scroll to the end and then far below the area again, is not asked; near.png is, one request
         a check (its shown tag is known since it loaded). A second check within MD_PIC_CHECK.gap asks
-        nothing. With nine images on screen, one check asks at most MD_PIC_CHECK.max of them. The requests counted are the
-        ones the route saw. Mutations: drop the distance test -> far.png is asked, fails; drop the count bound -> all nine
-        are asked, fails; drop the gap -> the second check asks again, fails."""
+        nothing. With nine images on screen, one check asks at most MD_PIC_CHECK.max of them, and the next check starts
+        with the three it left, so two checks ask all nine. The requests counted are the ones the route saw. Mutations:
+        drop the distance test -> far.png is asked, fails; drop the count bound -> all nine are asked, fails; drop the gap
+        -> the second check asks again, fails; drop the least-recently-asked order -> the second check asks the same six,
+        fails."""
         page = self.open_md()
         page.evaluate("document.querySelector('#left').scrollTop=document.querySelector('#left').scrollHeight")
         far = "document.querySelector(\"#md .md-pic[data-path='notes/img/far.png'] img\")"
@@ -486,10 +488,25 @@ class ChangedOnDisk(AssetsBase):
             "document.querySelectorAll('#md .md-pic img').length===9&&[...document.querySelectorAll('#md .md-pic img')].every(i=>i.complete&&i.naturalWidth)",
             10,
         )
+        page.evaluate("document.querySelector('#left').scrollTop=0")
         settle(page)
+        self.assertEqual(  # all nine inside the area, so the order among them is the rotation's alone
+            page.evaluate(
+                "(()=>{const r=document.querySelector('#left').getBoundingClientRect();"
+                " return [...document.querySelectorAll('#md .md-pic img')].filter(i=>{const b=i.getBoundingClientRect();"
+                " return b.top>=r.top&&b.bottom<=r.bottom;}).length;})()"
+            ),
+            9,
+        )
         before = len(self.assets_asked())
         self.assertEqual(page.evaluate(CHECK), [0, 6])
-        self.assertEqual(len({a for a in self.assets_asked()[before:]}), 6)
+        first = {a for a in self.assets_asked()[before:]}
+        self.assertEqual(len(first), 6)
+        before = len(self.assets_asked())
+        self.assertEqual(page.evaluate(CHECK), [0, 6])
+        second = {a for a in self.assets_asked()[before:]}
+        self.assertEqual(len(second), 6)
+        self.assertEqual(len(first | second), 9, (sorted(first), sorted(second)))
 
 
 class ChangedOnDiskFirefox(ChangedOnDisk):
