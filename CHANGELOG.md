@@ -14,12 +14,16 @@
   structure changed (bold, out of a quote, list numbering, an image's alt text, a table column's alignment, a code
   block's language or spacing) is a changed block that says what changed; a paragraph only rewrapped in the source -
   inside bold, a link or a formula too - is unchanged. A removed block goes back into the very list, item or table it
-  sat in. Each change is a tint and a word in the left gutter, never colour alone; a screen reader hears "Added block:"
-  and so on. A navigator steps through the changes, the status line counts them, a range keeps the tab and its commit
-  and file counts. Characters that hide or reorder text stay in their boxes on both sides, and a changed one is a
-  changed word. Images on both sides are the manuscript tree's files of now, and the compare says so; links inside the
-  document stay words. A side over 1 MiB, not UTF-8 or not a file is not drawn: the compare says why and offers the
-  source diff. A text document keeps its source diff.
+  sat in. A list item's key is its own text's: an image, a link or an alt text in a quote or table inside it belongs to
+  that block. A quote or list split in two (a blank line between a quote's paragraphs, another bullet) or two joined
+  into one marks the two blocks beside the cut and says so; every bullet of one list changed is no change. Each change
+  is a tint and a word in the left gutter, never colour alone; a screen reader hears "Added block:" and so on. A
+  navigator steps through the changes and the status line counts them. A range - picked in the list, or the new commits
+  a document-changed message's [변경 보기] opens - is compared in [그린 비교] too, with its commit and file counts, unless
+  [소스 diff] was the tab last shown: that tab is kept. Characters that hide or reorder text stay in their boxes on both
+  sides, and a changed one is a changed word. Images on both sides are the manuscript tree's files of now, and the
+  compare says so; links inside the document stay words. A side over 1 MiB, not UTF-8 or not a file is not drawn: the
+  compare says why and offers the source diff. A text document keeps its source diff.
   - **A pin's [변경 보기] still opens its source diff** - the pin's own hunks, the rest folded (ADR-0005). [그린 비교]
     beside it shows the whole commit with the pin's blocks ringed, and says it is the whole commit. A pin-only drawn
     version is a later step.
@@ -103,6 +107,11 @@
 - A pin's quote taken by a tap, or from a selection cut back to the document, keeps a hidden character exactly where it
   stands. It was read with `innerText`, which in Chromium put a line break on each side of the character's box and in
   Firefox dropped bidirectional controls altogether (on the text surface too).
+- **An image that loads before a scroll's frame no longer takes a Markdown document back to where it was.** The reading
+  spot an image's load or failure puts back was the one the last scroll frame had read, so a load that came before the
+  frame of a scroll (Home, a wheel, a key) put back the place before it: on a busy renderer the document jumped 3,000px
+  back down after Home. A spot read at another scroll offset than the pane's now is not put back: the spot is read where
+  the pane stands, and the browser's scroll anchoring keeps the text.
 - **`GET /api/version` names the code the server runs, not the file on disk** (HTTP API semantics, #415). It read
   `__version__` from the package file on every request, so a checkout pulled or an install upgraded under a running
   server made it answer the new version while the old code kept running - an instance 28 releases behind looked
