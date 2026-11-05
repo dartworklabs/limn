@@ -11,14 +11,15 @@
   the front matter, a rule, a raw HTML placeholder. One column: the new version with each removed block put back where it
   was, struck through; a block changed in place has its removed words struck through and its added words marked; a moved
   block leaves one line at its old place ("The 2 blocks here moved to L5–L7"). A block whose words stayed but whose
-  structure changed (bold, out of a quote, list numbering, an image's alt text, a code block's language or spacing) is a
-  changed block that says what changed; a paragraph only rewrapped in the source is unchanged. Each change is a tint and a
-  word in the left gutter, never colour alone; a screen reader hears "Added block:" and so on. A navigator steps through
-  the changes, the status line counts them, a range keeps the tab and its commit and file counts. Characters that hide or
-  reorder text stay in their boxes on both sides, and a changed one is a changed word. Images on both sides are the
-  manuscript tree's files of now, and the compare says so; links inside the document stay words. A side over 1 MiB, not
-  UTF-8 or not a file is not drawn: the compare says why and offers the source diff. A text document keeps its source
-  diff.
+  structure changed (bold, out of a quote, list numbering, an image's alt text, a table column's alignment, a code
+  block's language or spacing) is a changed block that says what changed; a paragraph only rewrapped in the source -
+  inside bold, a link or a formula too - is unchanged. A removed block goes back into the very list, item or table it
+  sat in. Each change is a tint and a word in the left gutter, never colour alone; a screen reader hears "Added block:"
+  and so on. A navigator steps through the changes, the status line counts them, a range keeps the tab and its commit
+  and file counts. Characters that hide or reorder text stay in their boxes on both sides, and a changed one is a
+  changed word. Images on both sides are the manuscript tree's files of now, and the compare says so; links inside the
+  document stay words. A side over 1 MiB, not UTF-8 or not a file is not drawn: the compare says why and offers the
+  source diff. A text document keeps its source diff.
   - **A pin's [변경 보기] still opens its source diff** - the pin's own hunks, the rest folded (ADR-0005). [그린 비교]
     beside it shows the whole commit with the pin's blocks ringed, and says it is the whole commit. A pin-only drawn
     version is a later step.

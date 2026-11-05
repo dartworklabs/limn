@@ -37,7 +37,16 @@
 - [x] Step 1: ruff check·format, mypy 두 플랫폼, 경계 검사, `npm run typecheck`, strict ratchet, `pytest -n 6 -m "not browser and not tex"`, `-m tex`, 바꾼 브라우저 시험 파일과 `test_viewer_markdown*.py`·변경 보기 브라우저 시험(`-n 4`).
 - [x] Step 2: 테일넷 PoC(`limn-poc-mdcmp`)를 이 코드로 다시 띄우고 200과 새 코드를 확인한다. 1440×900·390×844 전후 캡처(핀의 [변경 보기], [그린 비교]).
 
+## Task 7: 리뷰 지적(2026-11-06)
+
+- [x] Step 1: 두 쪽 읽기의 `ls-tree` 에 `:(literal)` pathspec. 시험 `test_a_file_whose_name_reads_as_pathspec_magic_has_its_sides`(`:plan.md`·`:(glob)*.md`). 변이: 맨 경로 → `null`·`source_unreadable`, 실패.
+- [x] Step 2: 뺀 블록과 옮긴 자리 줄은 새 판에서 옛 상자를 대신하는 상자에 선다(`mdcPair`·`mdcPlace`). 시험 `DeletedNestedList`(하위 목록, 느슨한 목록의 항목, 통째로 지운 표). 변이: 부모 태그로만 가르기 → 실패.
+- [x] Step 3: 지운 목록 항목의 제 글은 옮긴다(`mdcOwn`). 시험 `DeletedListImage`. 변이: `cloneNode(true)` → 그림이 크기도 대체 글도 얻지 못해 실패.
+- [x] Step 4: 강조·링크의 사본과 줄 안 수식의 조각은 열쇠에서 한 덩이, 링크 사본은 대상을 다시 세지 않는다, 대체 글은 공백을 접는다. 시험 `RewrappedInsideInline`, `AltRewrapped`. 변이: 합치지 않기, 링크 사본 세기, 수식 조각을 맞닿을 때만 합치기, 대체 글을 그대로 견주기 → 실패.
+- [x] Step 5: 표 칸의 정렬이 열쇠에 들고 `표 칸 정렬이 바뀜` 이라고 적는다. 시험 `TableAlignment`, 순수 시험의 정렬 두 경우. 변이: 정렬을 열쇠에서 빼기, 그 말을 빼기 → 실패.
+
 ## 열린 것
 
 - **D6의 B: 핀 단위 합성 판.** 서버가 ADR-0005 §5의 합성을 파일 하나의 글에 쓰고 `GET /api/revision-source` 가 선택 `pin` 을 받는다. 에이전트 계약에 더하는 일이라 그 변경에서 api.md와 ADR-0005의 덧붙임을 고치고, 핀의 [변경 보기] 기본을 그린 비교로 바꾼다.
+- **같은 종류 상자의 갈라짐.** 같은 종류의 목록·인용이 둘로 갈리거나(글머리표를 `-` 에서 `*` 로, 인용 사이의 빈 줄) 하나로 합쳐지면, 모든 블록의 열쇠가 그대로라 두 판의 그린 문서가 같다고 적는다. 상자의 처음·끝을 열쇠에 넣으면 목록 맨 앞에 항목을 더할 때마다 옛 첫 항목이 고친 블록이 되므로 넣지 않았다. 번호 목록은 시작 번호가 열쇠에 있어 갈라짐이 보인다.
 - **대비 걷기.** 칩·범례·안내 줄·옮긴 자리 줄은 `test_viewer_contrast.py` 의 걷기가 열지 않는다(`NOT_WALKED`). 변경 보기의 그린 비교 장면을 걷기에 더하는 일이 남았다.
