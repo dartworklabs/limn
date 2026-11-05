@@ -83,13 +83,15 @@ function mdcLines(el){return [...el.querySelectorAll('.ln')].map(l=>String(l.tex
 // The key is everything the block shows: its text with its inline structure (shape: emphasis, code, links, images with their
 // alt text, a hidden character's box with the character), the boxes it sits in (box: a quote, a list - a numbered one with its
 // first number), its images' tree paths and its links' targets. So the same words in bold, out of a quote or in a list
-// renumbered are another block - changed in place, as are an image's new alt text, a link's new target and a hidden
-// character put in or taken out.
+// renumbered are another block - changed in place, as are an image's new alt text, a link's new target and a hidden character put in or taken out. What the renderer adds that shows
+// nothing is not in it (mdcShape): the line spans, the copies of an emphasis or a link it opens again after a line break
+// inside it, an inline formula's code box per source line - a paragraph rewrapped, inside bold, a link or a formula too, is
+// the same block. An alt text is compared with its white space folded, as it is drawn.
 /** @param {HTMLElement} root @returns {MdcUnit[]} */
 function mdcUnits(root){const out=/** @type {MdcUnit[]} */([]);
   for(const x of root.querySelectorAll(MDC_UNIT)){const el=/** @type {HTMLElement} */(x); if(!mdcIsUnit(el))continue;
-    const tag=mdcTag(el),text=mdcText(el,tag),refs=mdcRefs(el,'a,[data-anchor],.md-rel'),pics=mdcRefs(el,'.md-pic,.md-img');
-    const shape=mdcShape(el,tag),box=mdcBoxes(el,root),alts=[...el.querySelectorAll('img')].filter(i=>el.tagName!=='LI'||i.closest('li')===el).map(i=>i.getAttribute('alt')||'').join('\u0001');
+    const tag=mdcTag(el),text=mdcText(el,tag),cont=/** @type {Set<Element>} */(new Set()),shape=mdcShape(el,tag,cont);
+    const refs=mdcRefs(el,'a,[data-anchor],.md-rel',cont),pics=mdcRefs(el,'.md-pic,.md-img'),box=mdcBoxes(el,root),alts=[...el.querySelectorAll('img')].filter(i=>el.tagName!=='LI'||i.closest('li')===el).map(i=>(i.getAttribute('alt')||'').replace(/\s+/g,' ').trim()).join('\u0001');
     const lo=+(el.dataset.lo||el.dataset.rLo||0),hi=+(el.dataset.hi||el.dataset.rHi||lo);
     out.push({el,tag,key:[tag,box,shape,pics,refs].join('\u0001'),text,pics,shape,box,alts,lo,hi});}
   return out;}
@@ -104,18 +106,34 @@ function mdcBoxes(el,root){const out=[]; for(let a=el.parentElement;a&&a!==root;
 function mdcInl(e){return e.tagName.toLowerCase()+(e.tagName==='CODE'&&e.className?'.'+e.className:'');}
 // A unit's inline structure as one string: its text, whitespace folded, with every inline element around its part as a mark
 // (<strong>…</strong>, <code.md-math>…</code.md-math>, an image as <img alt>, a hidden character's box as <cc char>), a list
-// item's nested blocks and the screen reader's words left out. The line spans the renderer puts round each source line are
-// no structure: a paragraph wrapped on other lines reads the same. A block of lines' shape is its language (a code block's
-// fence's info word) and its lines exactly as they are (mdcCode). Pure over the DOM.
-/** @param {HTMLElement} el @param {string} tag */
-function mdcShape(el,tag){if(mdcLined(tag))return mdcCode(tag==='PRE'?el.dataset.lang||'':'',mdcLines(el)); let s='';
-  const walk=(/** @type {Node} */n)=>{for(const c of n.childNodes){if(c.nodeType===3){s+=c.nodeValue; continue;} if(c.nodeType!==1)continue;
+// item's nested blocks and the screen reader's words left out. What the renderer adds and nothing shows is no structure: the line spans it puts round each source line, the shallow copies of the
+// emphasis and links open at a line break that it opens again on the next line's span (mdInline), and the code box it draws
+// for each source line of an inline formula (math_inline, one per line) - an emphasis or a link that starts right where one
+// of the same kind and target ends is one run (mdcRun), and so is a formula's piece after the last one's, white space alone
+// between them. So a paragraph wrapped on other lines, inside bold, a link or a formula too, reads the same. A link's copy
+// goes in cont (when given), so it is not counted twice (mdcRefs). A block of lines' shape is its language (a code block's
+// fence's info word) and its lines exactly as they are (mdcCode). Pure over the DOM but for cont.
+/** @param {HTMLElement} el @param {string} tag @param {Set<Element>} [cont] */
+function mdcShape(el,tag,cont){if(mdcLined(tag))return mdcCode(tag==='PRE'?el.dataset.lang||'':'',mdcLines(el));
+  const out=/** @type {(string|{t:string,to:string})[]} */([]);
+  const walk=(/** @type {Node} */n)=>{for(const c of n.childNodes){if(c.nodeType===3){if(c.nodeValue)out.push(c.nodeValue); continue;} if(c.nodeType!==1)continue;
     const e=/** @type {HTMLElement} */(c); if(el.tagName==='LI'&&mdcNested(e)||e.classList.contains('sr-only'))continue;
-    if(e.classList.contains('cc')){s+='\u0002cc '+(e.textContent||'')+'\u0003'; continue;}
+    if(e.classList.contains('cc')){out.push('\u0002cc '+(e.textContent||'')+'\u0003'); continue;}
     if(e.classList.contains('ln')&&e.tagName==='SPAN'){walk(e); continue;}
-    const t=mdcInl(e); if(t==='img'){s+='\u0002img '+(e.getAttribute('alt')||'')+'\u0003'; continue;}
-    s+='\u0002'+t+'\u0003'; walk(e); s+='\u0002/'+t+'\u0003';}};
-  walk(el); return s.replace(/\s+/g,' ').trim();}
+    const t=mdcInl(e); if(t==='img'){out.push('\u0002img '+(e.getAttribute('alt')||'')+'\u0003'); continue;}
+    const to=mdcRun(e)?'\u0001'+mdcTo(e):t==='code.md-math'?'':null; let j=out.length-1;
+    if(t==='code.md-math')while(j>=0&&typeof out[j]==='string'&&!/\S/.test(/** @type {string} */(out[j])))j--;   // a formula's pieces: one line end apart
+    const last=out[j];
+    if(to!==null&&typeof last==='object'&&last.t===t&&last.to===to){out.splice(j,1); if(cont&&to)cont.add(e); walk(e); out.push(last); continue;}   // the same run, on the next line
+    out.push('\u0002'+t+'\u0003'); walk(e); out.push({t,to:to===null?'\u0000':to});}};
+  walk(el); return out.map(x=>typeof x==='string'?x:'\u0002/'+x.t+'\u0003').join('').replace(/\s+/g,' ').trim();}
+// Whether inline element e is one the renderer opens again after a line break inside it (mdInline's stack): an emphasis, a
+// strikethrough, a link - an inert one (.md-rel) too. Pure over the DOM.
+/** @param {HTMLElement} e */
+function mdcRun(e){return /^(STRONG|EM|S|A)$/.test(e.tagName)||e.tagName==='SPAN'&&e.classList.contains('md-rel');}
+// Where a link element points (its target, as mdcRefs names it; '' for an emphasis). Pure over the DOM.
+/** @param {HTMLElement} e */
+function mdcTo(e){return e.dataset.tipUrl||e.getAttribute('href')||e.dataset.anchor||'';}
 // A block of lines' inline structure: its language (a code block's fence's info word, '' for any other) and its lines, spaces
 // and all, serialized without ambiguity (JSON after a marker no other shape starts with) - so a code block whose body or
 // language changed is another block, an empty fence ([]) is not one holding a blank line (['']), and no character in a
@@ -142,11 +160,12 @@ function mdcText(el,tag){if(el.tagName==='TR')return [...el.children].map(c=>(c.
   if(mdcLined(tag))return mdcLines(el).join('\n').replace(/\s+/g,' ').trim();
   let s=''; const walk=(/** @type {Node} */n)=>{for(const c of n.childNodes){if(c.nodeType===3)s+=c.nodeValue; else if(c.nodeType===1&&!(el.tagName==='LI'&&mdcNested(/** @type {Element} */(c))))walk(c);}};
   walk(el); return s.replace(/\s+/g,' ').trim();}
-// What a unit's images (sel '.md-pic,.md-img': tree path or alt text) or links (their targets) point at, in order.
-/** @param {HTMLElement} el @param {string} sel */
-function mdcRefs(el,sel){const out=[];
+// What a unit's images (sel '.md-pic,.md-img': tree path or alt text) or links (their targets) point at, in order; a link the
+// renderer opened again after a line break inside it (skip, from mdcShape) is the link before it, not counted again.
+/** @param {HTMLElement} el @param {string} sel @param {Set<Element>} [skip] */
+function mdcRefs(el,sel,skip){const out=[];
   for(const x of el.querySelectorAll(sel)){const e=/** @type {HTMLElement} */(x);
-    if(el.tagName==='LI'&&e.closest('li')!==el)continue;
+    if(el.tagName==='LI'&&e.closest('li')!==el||skip&&skip.has(e))continue;
     out.push(e.dataset.path||e.dataset.tipUrl||e.getAttribute('href')||e.dataset.anchor||e.textContent||'');}
   return out.join(' ');}
 // ---------------- Comparing sequences

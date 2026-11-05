@@ -779,3 +779,48 @@ class DeletedListImage(OneNote):
         while page.evaluate(got) != want and time.monotonic() < end:
             time.sleep(0.05)
         self.assertEqual(page.evaluate(got), want)
+
+
+REWRAP_INLINE = (
+    "# 강조\n\n앞 문장이다 **Bold{s}words here** 뒤 문장이다.\n\n"
+    "앞 ***굵은{s}기울임*** 과 ~~지운{s}글자~~ 이다.\n\n"
+    "[링크 글자{s}여기](https://example.com/a) 와 [안쪽 링크{s}글자](#끝) 끝이다.\n\n"
+    "코드 `code span{s}text` 끝이다.\n\n수식 $a +{s}b$ 과 $x${s}$y$ 끝이다.\n\n![그림{s}설명](figs/v1.png) **굵게** 끝이다.\n\n"
+    "# 끝\n\n끝 문단이다.\n"
+)
+
+
+class RewrappedInsideInline(OneNote):
+    """Lines rewrapped inside bold, bold italics, a strikethrough, links, a code span, an inline formula and an image's
+    alt text: the drawn document is the same."""
+
+    def texts(self):
+        return [REWRAP_INLINE.format(s=" "), REWRAP_INLINE.format(s="\n")]
+
+    def test_a_line_break_inside_formatting_or_a_link_is_the_same_block(self):
+        """No block is marked. Mutations: no merging of runs in mdcShape -> the bold, strikethrough, link and formula paragraphs
+        are changed in place, fails; count every link element's target in mdcRefs -> the link paragraph is, fails; merge
+        a formula's pieces only when nothing lies between (as an emphasis's) -> the formula's paragraph is, fails."""
+        page = self.open_compare()
+        self.assertEqual(self.marks(page), [])
+        self.assertIn("바뀐 블록 없음", page.locator("#revision-status").text_content())
+
+
+class AltRewrapped(OneNote):
+    """A paragraph whose word becomes bold while its image's alt text is rewrapped onto two lines."""
+
+    def texts(self):
+        return [
+            "# 그림\n\n![그림 설명](figs/v1.png) 굵게 끝이다.\n\n끝 문단이다.\n",
+            "# 그림\n\n![그림\n설명](figs/v1.png) **굵게** 끝이다.\n\n끝 문단이다.\n",
+        ]
+
+    def test_an_alt_text_rewrapped_is_the_same_alt_text(self):
+        """The paragraph is changed in place for its formatting, not for its alt text (drawn with its white space folded).
+        Mutation: compare the alt texts as written (no folding in mdcUnits) -> its tip says the alt text changed, fails."""
+        page = self.open_compare()
+        self.assertEqual([(k, t) for k, t, _ in self.marks(page)], [("mod", "P")])
+        self.assertEqual(
+            page.evaluate("document.querySelector('#revision-rendered [data-mdc]').dataset.mdcWhy"),
+            "글자 모양(굵게·기울임·코드·링크)이 바뀜",
+        )
