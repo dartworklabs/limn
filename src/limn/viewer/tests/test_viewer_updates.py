@@ -193,6 +193,26 @@ class PureRules(unittest.TestCase):
         self.assertEqual(got["failed"], [[{"n": 0, "unknown": True, "history": True}], "src:100", 1])
         self.assertEqual(got["later"], [{"n": 1, "unknown": False, "history": True}])
 
+    def test_a_failed_read_after_another_tab_saw_the_version_lets_this_tabs_tint_go(self):
+        """Seen src:100; this tab checks src:200 (its lines tinted), a second call is left to that check, another tab
+        dismisses src:200's message meanwhile, and the history read fails. What this device has seen is read again
+        before anything asks again: src:200 is seen, so nothing is said and this tab's tint and counted moves go
+        (updForget). Mutation: ask again first -> the asking stops at the record and the tint stays, fails."""
+        got = node_json(
+            ["prOf", "describeCommits", "shownRows", "docBuild", "verAfter", "checkDocUpdate"],
+            """const DOC='nt',META_BY=new Map(),GROUPS=new Map(),UPD={checking:new Map()},said=[],forgot=[]; let META=null,rec=null,go=null;
+            function rendersInBrowser(k){return k==='md';} function updDocState(){return {ver:'src:200',name:'노트',kind:'md'};}
+            function seenDoc(){return rec;} function setSeenDoc(k,r){rec=r;} function dq(u){return u;}
+            async function api(){throw new Error('not asked');} function docUpdateView(){} function updForget(k){forgot.push(k);}
+            function groupNote(g,d){said.push(d.ver);}
+            async function docRows(){await new Promise(r=>{go=r;}); return null;}
+            const idle=async()=>{for(let i=0;i<5;i++)await new Promise(r=>setTimeout(r,0));};
+            (async()=>{rec={ver:'src:100',rev:'aaaa1111'}; const a=checkDocUpdate('nt',{}),b=checkDocUpdate('nt',{}); await idle();
+              rec={ver:'src:200',rev:'bbbb2222'}; go(); await a; await b; await idle();
+              console.log(JSON.stringify({said,forgot,rec:rec.ver}));})();""",
+        )
+        self.assertEqual(got, {"said": [], "forgot": ["nt"], "rec": "src:200"})
+
     def test_a_late_answer_never_overwrites_what_another_tab_recorded_for_the_same_version(self):
         """The real limnSeen store. A first visit reads the note's history (its newest commit A); before that answer lands
         a commit B that leaves the file's mtime alone comes and another tab records {src:200, B}: the late answer leaves

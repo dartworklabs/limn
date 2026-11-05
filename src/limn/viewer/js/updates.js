@@ -159,16 +159,19 @@ async function checkDocUpdate(k,ctx){if(!k)return; const now=updDocState(k); if(
   let rows,build; try{[rows,build]=await Promise.all([docRows(k),docBuild(k,now)]);}
   finally{if(UPD.checking.get(k)===mark)UPD.checking.delete(k);}
   const cur=updDocState(k);
-  // gave up - a newer change's own check says it (the redraw asks); a build that could not be read is not known
-  if(!cur||cur.ver!==now.ver||!build){if(mark.again)checkDocUpdate(k,{}); return;}
-  // A history that could not be read is no empty history: a call left to this check asks again; else which commits are
-  // new is not known - the version is still seen or said, its commits unnamed (as for a build behind its checkout)
-  if(!rows&&mark.again){checkDocUpdate(k,{}); return;}
-  // what this device has seen, read again, decides: another tab may have recorded this version or a later one meanwhile -
-  // a first visit's late answer never overwrites that (its commit may be older) - or a message of this document come
+  // gave up - a newer change's own check says it (the redraw asks)
+  if(!cur||cur.ver!==now.ver){if(mark.again)checkDocUpdate(k,{}); return;}
+  // what this device has seen, read again, decides first - before any asking again, which would stop at that record and
+  // leave this tab's tint: another tab may have recorded this version or a later one meanwhile - a first visit's late
+  // answer never overwrites that (its commit may be older) - or a message of this document come
   const kept=seenDoc(k),last=kept||seen,other=!!kept&&(!seen||kept.ver!==seen.ver||kept.rev!==seen.rev);
   const fresh=!last||(!!ctx.mine&&!GROUPS.has('upd:'+k));
   if(last&&(!fresh||other)&&(last.ver===now.ver||verAfter(last.ver,now.ver))){if(!GROUPS.has('upd:'+k))updForget(k); return;}
+  // a build that could not be read is not known; a history that could not be read is no empty history: a call left to
+  // this check asks again, else which commits are new is not known - the version is still seen or said, its commits
+  // unnamed (as for a build behind its checkout)
+  if(!build){if(mark.again)checkDocUpdate(k,{}); return;}
+  if(!rows&&mark.again){checkDocUpdate(k,{}); return;}
   const shown=rows?shownRows(rows,build.head,build.behind):null;
   if(fresh||!last){setSeenDoc(k,{ver:now.ver,rev:!shown?'':shown.length?shown[0].id:last?last.rev:''}); return;}
   const commits=describeCommits(shown,last.rev);
