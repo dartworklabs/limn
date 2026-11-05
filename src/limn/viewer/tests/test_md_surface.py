@@ -302,6 +302,11 @@ FRONT = {
     "a URL is no key": ("---\nhttps://a.org\n---", None, ("hr", [0, 1])),
     "four dashes": ("----\nk: v\n----", None, ("hr", [0, 1])),
     "indented opening": ("  ---\nk: v\n---", None, ("hr", [0, 1])),
+    # A container's rule calls the block rules with start 0 and line 0 read from after its marker: no front matter there.
+    "a quote's first lines": ("> ---\n> title: A\n> ---", None, ("blockquote_open", [0, 3])),
+    "a quote in a quote": ("> > ---\n> > title: A\n> > ---\n\ntext", None, ("blockquote_open", [0, 3])),
+    "a list item opening with dashes": ("* ---\n  title: A\n  ---", None, ("bullet_list_open", [0, 3])),
+    "an ordered item opening with dashes": ("1. ---\n   title: A\n   ---", None, ("ordered_list_open", [0, 3])),
 }
 
 

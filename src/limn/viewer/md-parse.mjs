@@ -119,9 +119,12 @@ function mdMathBlock(state, start, end, silent) {
 // next line is not blank and opens a YAML mapping - a key and its colon, or a '#' comment - and a later line is '---' or
 // '...'. Anything else is left to the other rules, which read it as before (a rule, a setext heading, a paragraph). The
 // token is front_matter with map [0, the closing line + 1] and info the closing marker; its lines are shown as the server's
-// lines (md-surface.js), never parsed as YAML - nothing in them is a link, an image or markup.
+// lines (md-surface.js), never parsed as YAML - nothing in them is a link, an image or markup. Line 0 of a quote or a list
+// item is no proof of the top: their rules call this one with start 0 and the line read from after their marker ('> ---'),
+// so the rule also asks for the document itself - the root, no container open - and the line's content at the source's
+// very first character.
 function mdFrontMatter(state, start, end, silent) {
-  if (start !== 0 || state.sCount[0] !== 0) return false;
+  if (start !== 0 || state.parentType !== 'root' || state.level !== 0 || state.bMarks[0] + state.tShift[0] !== 0) return false;
   const line = n => state.src.slice(state.bMarks[n], state.eMarks[n]);
   if (!/^﻿?---[ \t]*$/.test(line(0)) || end < 3) return false;
   if (!/^[ \t]*(#|[^\s:#][^:\n]*:([ \t]|$))/.test(line(1))) return false;
