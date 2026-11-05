@@ -8,12 +8,11 @@
 .md.tx .ln{display:block;position:relative;white-space:pre-wrap;padding-left:calc(var(--g) + var(--hang,0) * 1ch);text-indent:calc(-1ch * var(--hang,0));min-height:1.6em}
 .md.tx .ln::before{content:attr(data-line);position:absolute;left:0;top:0;width:calc(var(--gut,4) * 1ch);text-align:right;text-indent:0;
   color:var(--subtle-foreground);user-select:none;-webkit-user-select:none}
-/* A character that would hide or reorder text: kept in the text inside an isolating span, its name shown in a thin box. */
-.md.tx .tx-cc{unicode-bidi:isolate;display:inline-block;position:relative;text-indent:0;margin:0 1px;padding:0 2px;border:1px solid var(--status-warning);
-  border-radius:var(--radius-sm);font-size:var(--text-xs);line-height:1.3;color:var(--muted-foreground);vertical-align:baseline}
-.md.tx .tx-cc::before{content:attr(data-cc)}   /* the character itself is in a .sr-only child: it takes no room, its name does */
-.md.tx .tx-hidden{margin:0 0 var(--space-3);padding:var(--space-2) var(--space-3);border:1px solid var(--border-strong);border-radius:var(--radius);
+/* A character that would hide or reorder text is its box (.cc, components.css); a notice above the lines (what was marked,
+   line ends that are not LF) is out of the text, never selected or copied with it. */
+.md.tx .tx-note{margin:0 0 var(--space-3);padding:var(--space-2) var(--space-3);border:1px solid var(--border-strong);border-radius:var(--radius);
   background:var(--muted);color:var(--muted-foreground);font-family:var(--font-sans);font-size:var(--text-sm);user-select:none;-webkit-user-select:none;cursor:default}
+.md.tx .ln .cc{text-indent:0}
 @media (max-width:600px){
   .md.tx{font-size:var(--text-sm)}
 }

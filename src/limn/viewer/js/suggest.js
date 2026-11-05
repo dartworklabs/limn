@@ -79,11 +79,28 @@ function suggestDiff(base,text,lo){const a=suggestLines(base,false),b=suggestLin
 function suggestFold(rows,open){if(open||rows.length<=SUGGEST_FOLD)return rows;
   return [rows[0],rows[1],{k:'fold',t:'',n:rows.length-4},rows[rows.length-2],rows[rows.length-1]];}
 // Diff rows as Html in the changes view's source-diff look (revisions.css .rd-line): a number column and the line with its
-// '+', '-' or ' ' mark, so a change never rests on colour alone. The lines are the manuscript's text (translate="no").
+// '+', '-' or ' ' mark, so a change never rests on colour alone. The lines are the manuscript's text (translate="no"), each
+// character that would hide or reorder it in its box (ccHtml), whatever the document's kind: a suggestion that puts one in
+// never reads as another text than the one an agent will apply.
 /** @param {{k:string,t:string,n:number}[]} rows @returns {Html} */
 function suggestDiffHtml(rows){return html`<div class="sg-diff" translate="no">${rows.map(r=>r.k==='fold'
     ?html`<span class="rd-line rd-fold"><span class="rd-no" aria-hidden="true"></span><span class="rd-code">… ${tl('{n}줄',{n:r.n})}</span></span>`
-    :html`<span class="rd-line rd-${r.k==='ctx'?'context':r.k}"><span class="rd-no" aria-hidden="true">${r.n}</span><span class="rd-code">${r.k==='add'?'+':r.k==='del'?'-':' '}${r.t}</span></span>`)}</div>`;}
+    :html`<span class="rd-line rd-${r.k==='ctx'?'context':r.k}"><span class="rd-no" aria-hidden="true">${r.n}</span><span class="rd-code">${r.k==='add'?'+':r.k==='del'?'-':' '}${ccHtml(r.t)}</span></span>`)}</div>`;}
+// What draft sg's text holds of the characters that would hide or reorder text (hidden-chars.js), which the editor (a
+// textarea) shows as the browser does - unseen, or the text reordered: the ones it adds to its base ([[name, count]], ccAdded)
+// and how many it has in all; null when it has none. Pure.
+/** @param {SuggestDraft} sg @returns {{added:[string,number][],n:number}|null} */
+function suggestHidden(sg){if(sg.base==null)return null; let n=0; for(const ln of sg.text.split('\n'))n+=ccFind(ln).length;
+  return n?{added:ccAdded(sg.text,sg.base),n}:null;}
+// The line under the editor for h, what suggestHidden found in draft sg on lines from lo, as Html: the characters the draft
+// adds, with the draft's added lines that hold them in the diff look - each character in its box - so the person sees where
+// they are; or, when it only keeps its base's, how many. pins.md flags an added one for the agent too.
+/** @param {SuggestDraft} sg @param {{added:[string,number][],n:number}} h @param {number} lo @returns {Html} */
+function suggestHiddenHtml(sg,h,lo){
+  if(!h.added.length)return html`<span>${tl('원문에 있던, 보이지 않거나 글 순서를 바꾸는 문자 {n}개가 제안 문안에 그대로 있습니다. 이 칸에서는 보이지 않습니다',{n:h.n})}</span>`;
+  const rows=suggestDiff(sg.base||'',sg.text,lo).filter(r=>r.k==='add'&&ccFind(r.t).length).slice(0,SUGGEST_FOLD);
+  return html`<span>${tl('제안 문안이 원문에 없는, 보이지 않거나 글 순서를 바꾸는 문자를 넣습니다: {list}. 이 칸에서는 보이지 않거나 글 순서가 바뀌어 보입니다',
+    {list:h.added.map(([k,c])=>k+' '+tl('{n}개',{n:c})).join(', ')})}</span>${suggestDiffHtml(rows)}`;}
 
 // ---------------- A card's suggestion
 const SG_OPEN=new Set();   // the cards whose suggestion diff is unfolded ('<doc>:<id>'), kept across redraws
@@ -183,11 +200,12 @@ function suggestGrow(ta){if(ta.hidden||!ta.getClientRects().length)return; const
   ta.style.height='auto'; const need=ta.scrollHeight+px(cs.borderTopWidth)+px(cs.borderBottomWidth);
   ta.style.height=Math.min(12*lh+edge,Math.max(2*lh+edge,need))+'px';}
 // Draws draft sg on o into its elements (els): the switch - or, when o can carry no suggestion, the short reason in its place -
-// the editor while on, the one line under it and, after a 409, the diff of the current source -> the text. A range over
+// the editor while on, the one line under it, the characters the editor cannot show (suggestHiddenHtml) and, after a 409, the
+// diff of the current source -> the text. A range over
 // SUGGEST_LINES keeps the switch while it is on, so it can be switched off. The editor is read-only until its first fill. The
 // line is a polite live region, so it is written only when what it says changes (typing redraws it on every key).
 /** @param {SuggestDraft} sg @param {any} o @param {string|null} off
- * @param {{tg:HTMLElement,why:HTMLElement,box:HTMLElement,ta:HTMLTextAreaElement,line:HTMLElement,cur:HTMLElement}} els
+ * @param {{tg:HTMLElement,why:HTMLElement,box:HTMLElement,ta:HTMLTextAreaElement,line:HTMLElement,cc:HTMLElement,cur:HTMLElement}} els
  * @param {boolean} isEdit @param {string|undefined} state */
 function drawSuggest(sg,o,off,els,isEdit,state){const shown=!off||(off===SUGGEST_OFF.LONG&&sg.on);
   els.tg.hidden=!shown; els.tg.setAttribute('aria-checked',String(sg.on));
@@ -198,14 +216,17 @@ function drawSuggest(sg,o,off,els,isEdit,state){const shown=!off||(off===SUGGEST
   els.line.classList.toggle('sg-note-warn',!!(line&&line.warn));
   if(els.line.dataset.said!==said){els.line.dataset.said=said; const a=line&&line.act;
     if(line)setHtml(els.line,html`<span>${tr(line.msg)}</span>${a?html`<button class="hit" data-act="${a.act}" data-tip="${a.tip}">${tr(a.label)}</button>`:''}`); else els.line.replaceChildren();}
+  const hid=editing?suggestHidden(sg):null,cc=hid?suggestHiddenHtml(sg,hid,sg.lo||(o&&o.lo)||1):null,ccSaid=cc?cc.text:'';
+  els.cc.hidden=!cc; els.cc.classList.toggle('sg-cc-warn',!!hid&&hid.added.length>0);   // in the warning colour when it adds some
+  if(els.cc.dataset.said!==ccSaid){els.cc.dataset.said=ccSaid; if(cc)setHtml(els.cc,cc); else els.cc.replaceChildren();}   // a live region: written when it changes
   const c=editing&&sg.current&&o&&suggestKey(sg.current)===suggestKey(o)?sg.current:null; els.cur.hidden=!c;
   if(c)setHtml(els.cur,suggestDiffHtml(suggestDiff(c.text,sg.text,c.lo))); else els.cur.replaceChildren();
-  els.box.hidden=els.ta.hidden&&els.line.hidden&&els.cur.hidden;
+  els.box.hidden=els.ta.hidden&&els.line.hidden&&els.cc.hidden&&els.cur.hidden;
   if(editing)suggestGrow(els.ta);}
 
 // ---------------- The composer's draft (SG)
 /** The composer's suggestion elements. */
-function composerSuggestEls(){return {tg:$('#c-sg-tg'),why:$('#c-sg-why'),box:$('#c-sg'),ta:/** @type {HTMLTextAreaElement} */($('#c-sg-text')),line:$('#c-sg-note'),cur:$('#c-sg-cur')};}
+function composerSuggestEls(){return {tg:$('#c-sg-tg'),why:$('#c-sg-why'),box:$('#c-sg'),ta:/** @type {HTMLTextAreaElement} */($('#c-sg-text')),line:$('#c-sg-note'),cc:$('#c-sg-cc'),cur:$('#c-sg-cur')};}
 // Draws the composer's suggestion for selection d (renderComposer and renderRegionComposer call it on every draw) and keeps an
 // unedited draft on d's lines. A read's answer redraws it, the overlap notice ([덧붙이기] waits on an edited suggestion) and the
 // stored draft. The tablet sheet's height follows the editor as it opens, fills, grows and closes (applySheet, tabletLift).
@@ -227,7 +248,7 @@ function suggestClear(){Object.assign(SG,suggestDraft()); const ta=/** @type {HT
 function editDocKind(E){const d=docInfo(E.doc); return d?d.kind:E.doc===DOC&&META?META.kind:undefined;}
 /** Edit card E's suggestion elements. @param {EditCard} E */
 function editSuggestEls(E){const q=s=>/** @type {HTMLElement} */(E.el.querySelector(s));
-  return {tg:q('.e-sg-row .sg-tg'),why:q('.e-sg-row .sg-why'),box:q('.e-sg'),ta:/** @type {HTMLTextAreaElement} */(q('.e-sg-text')),line:q('.e-sg .sg-note'),cur:q('.e-sg .sg-cur')};}
+  return {tg:q('.e-sg-row .sg-tg'),why:q('.e-sg-row .sg-why'),box:q('.e-sg'),ta:/** @type {HTMLTextAreaElement} */(q('.e-sg-text')),line:q('.e-sg .sg-note'),cc:q('.e-sg .sg-cc'),cur:q('.e-sg .sg-cur')};}
 // Draws edit card E's suggestion (renderEdit): the switch and the editor on an open pin; a closed pin's suggestion read-only
 // (its diff, no switch), as it can only take memo edits.
 /** @param {EditCard} E */

@@ -87,6 +87,12 @@ def js_markup() -> str:
     return (VIEWER / "js" / "markup.js").read_text(encoding="utf-8")
 
 
+def js_hidden_chars() -> str:
+    """The viewer's hidden-character part (js/hidden-chars.js: the repertoire, ccHtml, ccPlain, ...) exactly as served, for
+    node harnesses that run a function showing a source's or a suggestion's text. ccHtml needs js_markup() and js_esc()."""
+    return (VIEWER / "js" / "hidden-chars.js").read_text(encoding="utf-8")
+
+
 def js_icons() -> str:
     """The viewer's Lucide icon table (ICONS) with the markup part that draws it (ic(), html``) — included together when
     running icon-drawing functions like card()/archiveRow() under node. Brings no esc(); add js_esc() if the harness

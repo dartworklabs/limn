@@ -33,6 +33,7 @@ css/text-surface.css    # the text surface: a text document's monospace lines, t
 __APP_JS__
 js/core.js              # strict mode, DOM helpers, icons, shared state, the tooltip texts (T)
 js/markup.js            # html``, ic() and setHtml(): markup with every value escaped, and its one sink
+js/hidden-chars.js      # characters that hide or reorder text: the repertoire, its exceptions, names, boxes (every document kind)
 js/i18n.js              # UI language: tr/tl/trMsg, API error and pick warning text, the English observer
 js/prefs.js             # per-device preferences (pinPrefs), list-section state, theme
 js/api.js               # api() and how a failed request is said, copy
@@ -62,7 +63,7 @@ js/levels.js            # the range ladder, line nudges, source snippets, the lo
 js/excerpt.js           # the range excerpt: the band of selected lines between dimmed neighbours, tapped to widen or narrow
 js/figure.js            # figure documents: the chosen element's box and path
 js/md-surface.js        # the Markdown surface: drawing a document from its source (parse worker, limits), lines, links, picks, marks
-js/text-surface.js      # the text surface: a text document's lines as they are, marked characters, its ladder (paragraph, indented block)
+js/text-surface.js      # the text surface: a text document's lines as they are (limits, the names view, notices), its ladder (paragraph, indented block)
 js/suggest.js           # suggested edits: the draft, its switch and editor (composer, edit card), a card's badge and line diff
 js/composer.js          # pick() and the composer: overlap banner, kind, question hint, discard and restore
 js/draft.js             # the composer draft kept per tab (sessionStorage)

@@ -82,7 +82,7 @@ async function mdBuild(){if(mdFieldBusy()){MD.waiting=true; return;}
   const src=r.data; MD.doc=k; MD.mtime=src.src_mtime; MD.file=String(src.file||''); MD.name=MD.file.split('/').pop()||MD.file; MD.lines=Array.isArray(src.lines)?src.lines.map(String):[];
   if(isTextDoc()){MD.heads=[];   // a text document is never parsed: its lines are its view (text-surface.js)
     if(MD.lines.length>MD_LIMITS.lines){mdShow(mdNote(tl('이 문서는 원문이 {lines}줄이라 그리지 않습니다(한도 {limit}줄)',{lines:mdCount(MD.lines.length),limit:mdCount(MD_LIMITS.lines)}),MD_LIMIT.LINES)); return;}
-    const view=await txView(stale); if(view&&!stale())mdShow(view); return;}
+    const view=await txView(stale,src.line_ends); if(view&&!stale())mdShow(view); return;}
   const res=await mdParse(MD.lines.join('\n')); if(stale()||!res)return;
   let root=/** @type {HTMLElement|null} */(null),limit=res.ok?null:String(res.limit||MD_LIMIT.ERROR);
   if(res.ok){root=await mdRenderAll(res.tokens,stale); if(stale())return; if(!root)limit=MD_LIMIT.ELEMENTS;}
@@ -433,7 +433,7 @@ function mdBlocksIn(lo,hi){const md=$('#md'); if(!md)return []; const meets=(/**
   return /** @type {HTMLElement[]} */([...md.querySelectorAll(MD_BLOCK_SEL)]).filter(e=>{if(!meets(e))return false;
     const up=/** @type {HTMLElement|null} */(e.parentElement&&e.parentElement.closest(MD_BLOCK_SEL)); return !(up&&md.contains(up)&&meets(up));});}
 const MD_BLOCK_LABEL={'paragraph':'문단','item':'목록 항목','table':'표','code':'코드 블록','quote':'인용','html':'HTML 블록'};
-function mdSnippet(lo,hi){const out=[],tx=isTextDoc(); for(let n=lo;n<=Math.min(hi,lo+79);n++){const ln=MD.lines[n-1]||''; out.push(String(n).padStart(5,' ')+'  '+(tx?txPlain(ln):ln));}   // a text document's hidden characters by name (txPlain)
+function mdSnippet(lo,hi){const out=[]; for(let n=lo;n<=Math.min(hi,lo+79);n++)out.push(String(n).padStart(5,' ')+'  '+(MD.lines[n-1]||''));
   if(hi-lo+1>80)out.push('      … '+tl('{n}줄 더',{n:hi-lo+1-80})); return out.join('\n');}
 // The section around lines lo..hi: from the nearest heading at or above lo to the line before the next heading of the same or a
 // higher level (the file's end when none), its trailing blank lines left out. null above the first heading, or when hi is past it.

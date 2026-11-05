@@ -1483,7 +1483,12 @@
  "브라우저가 원문 줄을 그대로 보이는 문서 형식": "The document's format: the browser shows its source lines as they are",
  "고른 줄을 감싸는, 빈 줄 사이의 문단 전체입니다": "The whole paragraph around the chosen lines, between blank lines",
  "고른 줄이 걸친 문단들 전체입니다": "Every paragraph the chosen lines touch, whole",
- "고른 줄이 머리인 들여쓰기 블록, 아니면 고른 줄을 감싼 들여쓰기 블록입니다(머리 줄부터 닫는 괄호 줄까지)": "The indented block the chosen lines head, or else the one they stand in (from its header line to its closing bracket line)",
+ "고른 줄이 머리인 들여쓰기 블록, 아니면 고른 줄을 감싼 들여쓰기 블록입니다(머리 줄부터, 닫는 괄호나 end·fi·done·esac 만 있는 줄까지)": "The indented block the chosen lines head, or else the one they stand in (from its header line to the line that closes it: a closing bracket, or end, fi, done or esac alone)",
  "줄을 누르면 그 줄을, 길게 눌러 글을 고르면 그 줄들을 고릅니다": "Tap a line to choose it; long-press text to choose its lines",
- "누르면 그 줄을, 끌면 그 줄들을 고릅니다": "Click to choose a line; drag to choose lines"
+ "누르면 그 줄을, 끌면 그 줄들을 고릅니다": "Click to choose a line; drag to choose lines",
+ "{n}개": "{n}",
+ "보이지 않거나 글 순서를 바꾸는 문자가 {n}개라 이름을 글자로 보입니다(그릴 요소 한도 {max}개). 이 보기에서 복사하면 그 문자 대신 이름이 복사됩니다": "{n} characters are invisible or reorder text, so their names are shown as text (element limit {max}). A copy from this view gives the names, not the characters",
+ "줄 끝 {n}곳이 LF가 아닙니다({kinds}). Limn은 거기서 줄을 나누므로, 줄 번호가 LF만 세는 편집기·git과 다를 수 있고 복사하면 LF로 바뀝니다": {"one": "{n} line end is not LF ({kinds}). Limn starts a new line there, so line numbers may differ from an editor or git that counts LF only, and a copy turns it into LF", "other": "{n} line ends are not LF ({kinds}). Limn starts a new line at each, so line numbers may differ from an editor or git that counts LF only, and a copy turns them into LF"},
+ "원문에 있던, 보이지 않거나 글 순서를 바꾸는 문자 {n}개가 제안 문안에 그대로 있습니다. 이 칸에서는 보이지 않습니다": {"one": "The suggested text keeps the source's {n} character that is invisible or reorders text. This box does not show it", "other": "The suggested text keeps the source's {n} characters that are invisible or reorder text. This box does not show them"},
+ "제안 문안이 원문에 없는, 보이지 않거나 글 순서를 바꾸는 문자를 넣습니다: {list}. 이 칸에서는 보이지 않거나 글 순서가 바뀌어 보입니다": "The suggested text adds characters the source does not have that are invisible or reorder text: {list}. This box hides them or shows the text reordered"
 }

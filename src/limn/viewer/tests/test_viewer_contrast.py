@@ -340,6 +340,9 @@ NOT_WALKED: dict[str, tuple[float | None, str]] = {
         TEXT,
         "the Markdown surface's line while its source is read, and its notice past the byte or line limit",
     ),
+    ".cc": (TEXT, "a hidden character's name box (hidden-chars.js): no text the walk opens holds such a character"),
+    ".md.tx .ln::before": (TEXT, "a text document's line numbers: the walk opens no text document"),
+    ".md.tx .tx-note": (TEXT, "a text document's notices above its lines: the walk opens no text document"),
     # inactive or passing: not held
     "button:disabled": (INACTIVE, "a disabled control"),
     '.vd-btns button[aria-disabled="true"]': (INACTIVE, "a verdict button that cannot be pressed"),

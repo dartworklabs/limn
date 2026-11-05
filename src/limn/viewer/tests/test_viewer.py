@@ -38,6 +38,7 @@ from helpers import (
     VIEWER_CLOSED_SETS,
     extract_js_fn,
     js_esc,
+    js_hidden_chars,
     js_i18n,
     js_icons,
     js_markup,
@@ -2499,6 +2500,7 @@ class FrontendDocs(unittest.TestCase):
             [
                 esc,
                 js_markup(),
+                js_hidden_chars(),
                 extract_js_fn("renderRevisionDiff"),
                 "console.log(JSON.stringify(String(renderRevisionDiff(%s))));" % json.dumps(patch),
             ]
@@ -2517,12 +2519,35 @@ class FrontendDocs(unittest.TestCase):
         self.assertNotIn("<img ", rendered)
         self.assertIn("rd-meta", rendered)
 
+    def test_revision_diff_names_each_hidden_character_and_drops_a_crlf_lines_cr(self):
+        """A change that adds an override, a zero-width space and a tag shows each in its box, the character kept inside;
+        the CR a CRLF file's line ends in is not drawn (nor marked); a lone CR inside a line is marked (ADR-0029 D5)."""
+        patch = "@@ -1,2 +1,2 @@\n-if ok:\r\n+if ok\u202e:\u200b\U000e0041\r\n+a\rb\n"
+        js = "\n".join(
+            [
+                re.search(r"^const esc=.*;$", HTML, re.M).group(0),
+                js_markup(),
+                js_hidden_chars(),
+                extract_js_fn("renderRevisionDiff"),
+                "console.log(JSON.stringify(String(renderRevisionDiff(%s))));" % json.dumps(patch),
+            ]
+        )
+        out = run_node(js)
+        if out is None:
+            self.skipTest("node not available")
+        rendered = json.loads(out)
+        self.assertEqual(re.findall(r'data-cc="([^"]+)"', rendered), ["U+202E", "U+200B", "U+E0041", "\u240d"])
+        self.assertIn('<span class="cc" data-cc="U+202E"><span class="sr-only">\u202e</span></span>', rendered)
+        self.assertIn(">-if ok:</span>", rendered)
+        self.assertEqual(rendered.count("\r"), 1)  # the lone CR, inside its box: the CRLF lines' CRs are gone
+
     def test_revision_file_selection_renders_only_selected_patch(self):
         esc = re.search(r"^const esc=.*;$", HTML, re.M).group(0)
         js = "\n".join(
             [
                 esc,
                 js_markup(),
+                js_hidden_chars(),
                 extract_js_fn("renderRevisionDiff"),
                 extract_js_fn("renderRevisionFile"),
                 r"""

@@ -171,16 +171,17 @@ let QUOTE_SEL=/** @type {Selection|null} */(null);
 function shownQuote(p,docKind){if(!p||isRegion(p)||isFigureKind(docKind))return ''; return String(p.quote||'').trim();}
 // The quote line's inside: the icon, a name for screen readers and the text. The line is the manuscript's text and is drawn
 // translate="no", so the name is put in the screen's language here (tr); it says where the text was chosen - in the PDF, or
-// in a Markdown document (md), which has none. CSS cuts the text to one line until it is opened.
+// in a document drawn in the browser (md: Markdown or text), which has none. A character in the text that would hide or
+// reorder it is in its box (ccHtml), and its tooltip names it (ccPlain). CSS cuts the text to one line until it is opened.
 /** @param {string} q @param {boolean} md @returns {Html} */
-function quoteInner(q,md){return html`<span class="q-ic" aria-hidden="true">${ic('text-quote')}</span><span class="sr-only">${tr(md?'문서에서 고른 글자':'PDF에서 고른 글자')}: </span><span class="q-t">${q}</span>`;}
+function quoteInner(q,md){return html`<span class="q-ic" aria-hidden="true">${ic('text-quote')}</span><span class="sr-only">${tr(md?'문서에서 고른 글자':'PDF에서 고른 글자')}: </span><span class="q-t">${ccHtml(q)}</span>`;}
 // Opens or folds a quote line (the composer's #c-quote or a card's .quote) where it is, without redrawing, so the focus stays
 // on it. Open, the whole text is on screen and the tooltip that repeated it goes; folded, it comes back. The state is kept
 // for the next draw: the composer's per selection (QUOTE_SEL), a card's per pin (QUOTE_OPEN).
 /** @param {HTMLElement} el */
 function toggleQuote(el){const open=el.getAttribute('aria-expanded')!=='true',t=el.querySelector('.q-t');
   el.classList.toggle('open',open); el.setAttribute('aria-expanded',String(open)); hideTip();
-  if(open)delete el.dataset.tip; else el.dataset.tip=t?t.textContent||'':'';
+  if(open)delete el.dataset.tip; else el.dataset.tip=t?ccPlain(t.textContent||''):'';
   if(el.id==='c-quote')QUOTE_SEL=open?COMPOSE.current:null;
   else{const k=el.dataset.key||''; if(open)QUOTE_OPEN.add(k); else QUOTE_OPEN.delete(k);}}
 // The composer's quote line, right under the location line: shown for a LaTeX line pick with text, open if it was opened for
@@ -189,7 +190,7 @@ function toggleQuote(el){const open=el.getAttribute('aria-expanded')!=='true',t=
 function drawComposerQuote(d){const el=$('#c-quote'),q=shownQuote(d,META?META.kind:undefined); el.hidden=!q;
   if(!q){el.replaceChildren(); delete el.dataset.tip; return;}
   const open=!!d&&QUOTE_SEL===d; setHtml(el,quoteInner(q,isMdDoc())); el.classList.toggle('open',open); el.setAttribute('aria-expanded',String(open));
-  if(open)delete el.dataset.tip; else el.dataset.tip=q;}
+  if(open)delete el.dataset.tip; else el.dataset.tip=ccPlain(q);}
 // When a selection ends via save/cancel/append, selection mode is turned off (scrolling resumes) and the narrow sheet collapses (the body comes forward again).
 // The composer panel's pin kind (fix request / question). Reverts to fix request on save or discard (the default for the next pin).
 // The kind says what the note is, not who handles it: the assignee does not follow it (mentions.js).

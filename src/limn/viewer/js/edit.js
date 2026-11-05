@@ -31,7 +31,7 @@ data-tip="이 줄 범위를 바꿀 글을 직접 씁니다. 끄고 저장하면 
 <span class="sg-why tip-read" hidden></span></div>\
 <div class="sg e-sg" hidden><textarea class="sg-text e-sg-text" rows="2" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="제안 문안" \
 placeholder="이 줄들을 바꿀 글 (비우면 이 줄들을 지웁니다)" data-tip="이 줄 범위를 바꿀 글입니다. ⌘ Enter / Ctrl+Enter 저장, Esc 취소"></textarea>\
-<div class="sg-note q-hint" aria-live="polite" hidden></div><div class="sg-cur" hidden></div></div>\
+<div class="sg-note q-hint" aria-live="polite" hidden></div><div class="sg-cc q-hint" aria-live="polite" hidden></div><div class="sg-cur" hidden></div></div>\
 <div class="e-sg-ro" hidden></div>\
 <div class="rg-cap e-cap" aria-live="polite" aria-atomic="true"></div>\
 <div class="e-levels seg lad" role="group" aria-label="범위" data-rungs="0"></div>\
