@@ -21,7 +21,7 @@ from helpers import edit_stored, needs_tex, ps
 from helpers_access import CAROL, REPO_NEW, REPO_OLD, AccessBase, ScopedRepo, member_add
 from helpers_figure import BUILD1, b2_map, figure_doc, write_build
 
-SECRET = "SECRET-TEXT"
+WITHHELD = "WITHHELD-TEXT"  # what the answers must not carry: the text of a file the change view keeps out
 
 
 class Repository(AccessBase):
@@ -68,7 +68,7 @@ class FigureDotNames(Repository):
         the commit adding it is the document's (its map is), but the diff a viewer is answered holds not its text."""
         fig = figure_doc(self.src, ps.APP.C.paths)
         (fig.src / ".Private").mkdir()
-        (fig.src / ".Private" / "hidden.py").write_text(SECRET + "\n", encoding="utf-8")
+        (fig.src / ".Private" / "hidden.py").write_text(WITHHELD + "\n", encoding="utf-8")
         fmap = b2_map()
         fmap["pages"][0]["elements"][0]["src"]["file"] = ".Private/hidden.py"
         write_build(fig, BUILD1, fmap)
@@ -77,7 +77,7 @@ class FigureDotNames(Repository):
         code, body = self.call("GET", "/api/revision-diff?doc=fig&commit=%s" % head, headers=CAROL)
         self.assertEqual(code, 200, body)
         self.assertIn("B2_calendar.py", body["diff"])
-        self.assertNotIn(SECRET, str(body))
+        self.assertNotIn(WITHHELD, str(body))
 
     def test_registered_file_refuses_a_dot_named_part(self):
         """registered_file names no file with a dot-named part below the document's folder (any case), and keeps one
@@ -105,7 +105,7 @@ def large_map(parts):
 
 class LargeFigureMap(Repository):
     """A figure document (figs/) whose map names about HISTORY_PATHS_MAX history files, and a later commit that touches
-    only files no map names: figs/unlisted.txt and figs/.private/hidden.py (both carry SECRET)."""
+    only files no map names: figs/unlisted.txt and figs/.private/hidden.py (both carry WITHHELD)."""
 
     def history(self, count):
         """Serve the figure with a map whose history files are exactly count, commit it ("figure"), then commit the
@@ -115,10 +115,10 @@ class LargeFigureMap(Repository):
         self.serve([fig])
         self.assertEqual(len(ps.APP.revision_requests.context().history_files(fig) or ()), count)
         first = self.commit("figure")
-        (fig.src / "unlisted.txt").write_text(SECRET + "\n", encoding="utf-8")
+        (fig.src / "unlisted.txt").write_text(WITHHELD + "\n", encoding="utf-8")
         (fig.src / ".private").mkdir()
-        (fig.src / ".private" / "hidden.py").write_text(SECRET + "\n", encoding="utf-8")
-        return first, self.commit("unlisted %s" % SECRET)
+        (fig.src / ".private" / "hidden.py").write_text(WITHHELD + "\n", encoding="utf-8")
+        return first, self.commit("unlisted %s" % WITHHELD)
 
     def test_more_history_files_than_the_limit_are_refused_never_widened_to_the_folder(self):
         """HISTORY_PATHS_MAX + 1 history files: the document has no history (too_many_files, with the limit) - its
@@ -129,12 +129,12 @@ class LargeFigureMap(Repository):
         self.assertEqual(code, 200, body)
         got = (body["available"], body["revisions"], body.get("reason"), body.get("limit"))
         self.assertEqual(got, (False, [], "too_many_files", core.HISTORY_PATHS_MAX))
-        self.assertNotIn(SECRET, str(body))
+        self.assertNotIn(WITHHELD, str(body))
         for query in ("", "&base=%s" % first):
             with self.subTest(query=query):
                 code, out = self.call("GET", "/api/revision-diff?doc=fig&commit=%s%s" % (head, query), headers=CAROL)
                 self.assertEqual((code, out.get("reason")), (404, "too_many_files"), out)
-                self.assertNotIn(SECRET, str(out))
+                self.assertNotIn(WITHHELD, str(out))
 
     def test_history_files_at_the_limit_are_named_one_by_one(self):
         """Exactly HISTORY_PATHS_MAX history files: the history is the figure's commit only, and the diff of the commit
@@ -143,22 +143,22 @@ class LargeFigureMap(Repository):
         self.assertEqual(self.subjects("fig"), ["figure"])
         code, out = self.call("GET", "/api/revision-diff?doc=fig&commit=%s" % head, headers=CAROL)
         self.assertEqual((code, out.get("reason")), (404, "commit_not_recent"), out)
-        self.assertNotIn(SECRET, str(out))
+        self.assertNotIn(WITHHELD, str(out))
 
 
 class ReplacedFolder(Repository):
     """A Markdown document notes/plan.md whose name was a folder in older commits: notes/plan.md/unlisted.txt (its text
-    and the subjects carry SECRET) was committed and changed there before today's file replaced the folder."""
+    and the subjects carry WITHHELD) was committed and changed there before today's file replaced the folder."""
 
     def setUp(self):
         """Commit the folder twice, replace it with the file, edit the file; register notes/plan.md as --doc does."""
         super().setUp()
         folder = self.src / "notes" / "plan.md"
         folder.mkdir(parents=True)
-        (folder / "unlisted.txt").write_text(SECRET + " one\n", encoding="utf-8")
-        self.commit("folder %s" % SECRET)
-        (folder / "unlisted.txt").write_text(SECRET + " two\n", encoding="utf-8")
-        self.folder = self.commit("folder again %s" % SECRET)
+        (folder / "unlisted.txt").write_text(WITHHELD + " one\n", encoding="utf-8")
+        self.commit("folder %s" % WITHHELD)
+        (folder / "unlisted.txt").write_text(WITHHELD + " two\n", encoding="utf-8")
+        self.folder = self.commit("folder again %s" % WITHHELD)
         shutil.rmtree(folder)
         folder.write_text("# Plan\n\nfirst line.\n", encoding="utf-8")
         self.replaced = self.commit("file replaces folder")
@@ -180,7 +180,7 @@ class ReplacedFolder(Repository):
         self.assertEqual(code, 200, out)
         self.assertIn("+first line.", out["diff"])
         self.assertNotIn("unlisted.txt", out["diff"])
-        self.assertNotIn(SECRET, str(out))
+        self.assertNotIn(WITHHELD, str(out))
 
     def test_the_range_diff_holds_only_the_file(self):
         """A range from the folder's last commit (the replacing commit's first parent) to the head: its diff, files,
@@ -192,7 +192,7 @@ class ReplacedFolder(Repository):
         self.assertEqual((out["commits"], out["commit_ids"]), (2, [self.head, self.replaced]))
         self.assertIn("+second line.", out["diff"])
         self.assertNotIn("unlisted.txt", out["diff"])
-        self.assertNotIn(SECRET, str(out))
+        self.assertNotIn(WITHHELD, str(out))
 
 
 class ComparisonSnapshot(Repository):
@@ -207,11 +207,11 @@ class ComparisonSnapshot(Repository):
     def history(self, include):
         """Commit main.tex including .private/notes with the TeX command include, then a commit changing both; the
         whole-commit comparison spec of the second."""
-        self.notes.write_text(SECRET + "BEFORE\n", encoding="utf-8")
+        self.notes.write_text(WITHHELD + "BEFORE\n", encoding="utf-8")
         body = "\\documentclass{article}\n\\begin{document}\n%s\nOld public.\n\\end{document}\n" % include
         self.main.write_text(body, encoding="utf-8")
         self.commit("base")
-        self.notes.write_text(SECRET + "AFTER\n", encoding="utf-8")
+        self.notes.write_text(WITHHELD + "AFTER\n", encoding="utf-8")
         self.main.write_text(body.replace("Old public", "New public"), encoding="utf-8")
         head = self.commit("visible change and hidden change")
         spec = core.revision_spec(ps.APP.docs[0], head, None, ps.APP.revision_requests.context())
@@ -254,10 +254,10 @@ class ComparisonSnapshot(Repository):
         entry = ps.APP.docs[0].dir / "revisions" / old
         entry.mkdir(parents=True)
         (entry / "status.json").write_text('{"state": "ready"}', encoding="utf-8")
-        (entry / "revision.pdf").write_bytes(b"%PDF-1.4 " + SECRET.encode())
+        (entry / "revision.pdf").write_bytes(b"%PDF-1.4 " + WITHHELD.encode())
         code, body = self.call("GET", "/api/revision-pdf?commit=%s" % spec.head, headers=CAROL)
         self.assertNotEqual(code, 200)
-        self.assertNotIn(SECRET, str(body))
+        self.assertNotIn(WITHHELD, str(body))
 
     @needs_tex("bwrap", "latexdiff", "latexmk", "pdftotext")
     def test_the_comparison_pdf_holds_nothing_of_a_dot_named_input(self):
@@ -273,11 +273,11 @@ class ComparisonSnapshot(Repository):
                 result = execution.revision_compile(spec, job, 60)
                 self.assertEqual(isinstance(result, core.ComparisonBuilt), built, result)
                 log = (job / "build.log").read_text(encoding="utf-8") if (job / "build.log").exists() else ""
-                self.assertNotIn(SECRET, log)
+                self.assertNotIn(WITHHELD, log)
                 if built:
                     text = subprocess.check_output(["pdftotext", str(job / "revision.pdf"), "-"], text=True)
                     self.assertIn("New", text)
-                    self.assertNotIn(SECRET, text)
+                    self.assertNotIn(WITHHELD, text)
 
 
 class FigurePdfThroughLink(Repository):
@@ -291,8 +291,8 @@ class FigurePdfThroughLink(Repository):
         self.serve([fig])
         self.commit("figure")
         (fig.src / "other").mkdir()
-        (fig.src / "other" / "figures.pdf").write_text(SECRET + "\n", encoding="utf-8")
-        head = self.commit("other PDF %s" % SECRET)
+        (fig.src / "other" / "figures.pdf").write_text(WITHHELD + "\n", encoding="utf-8")
+        head = self.commit("other PDF %s" % WITHHELD)
         shutil.rmtree(fig.src / "out")
         (fig.src / "out").symlink_to("other", target_is_directory=True)
         self.assertEqual(self.subjects("fig"), ["figure"])
@@ -443,7 +443,7 @@ class PinInLinkedFolder(Repository):
 class DocumentPastStartup(Repository):
     """Documents that lie under a dot-named part of the manuscript, made directly as startup would refuse to
     (serve_documents.DocDotNamed): a LaTeX document and a Markdown document in .Private/, and a LaTeX document whose
-    main file is the dotfile paper/.draft.tex. The dot-named files' text carries SECRET; paper/main.tex, changed by
+    main file is the dotfile paper/.draft.tex. The dot-named files' text carries WITHHELD; paper/main.tex, changed by
     the same two commits, is public."""
 
     def setUp(self):
@@ -457,10 +457,10 @@ class DocumentPastStartup(Repository):
         self.commit("public")
         for n in (1, 2):
             for rel in (".Private/main.tex", "paper/.draft.tex"):
-                (self.src / rel).write_text(tex % ("%s %d" % (SECRET, n)), encoding="utf-8")
-            (self.src / ".Private" / "notes.md").write_text("# %s %d\n" % (SECRET, n), encoding="utf-8")
+                (self.src / rel).write_text(tex % ("%s %d" % (WITHHELD, n)), encoding="utf-8")
+            (self.src / ".Private" / "notes.md").write_text("# %s %d\n" % (WITHHELD, n), encoding="utf-8")
             (self.src / "paper" / "main.tex").write_text(tex % ("public %d" % n), encoding="utf-8")
-            self.head = self.commit("private %s %d" % (SECRET, n))
+            self.head = self.commit("private %s %d" % (WITHHELD, n))
         paths = ps.APP.C.paths
         self.docs = {
             "pp": Doc("pp", "논문", "tex", self.src / ".Private", self.src / ".Private" / "main.tex", paths=paths),
@@ -472,7 +472,7 @@ class DocumentPastStartup(Repository):
 
     def test_no_route_shows_such_a_documents_history(self):
         """Each document has no history; asking a commit of its files for a diff, a range or a comparison is refused,
-        and nothing a viewer is answered quotes SECRET."""
+        and nothing a viewer is answered quotes WITHHELD."""
         for key in self.docs:
             with self.subTest(doc=key):
                 code, body = self.call("GET", "/api/revisions?doc=%s" % key, headers=CAROL)
@@ -482,9 +482,9 @@ class DocumentPastStartup(Repository):
                         "GET", "/api/revision-diff?doc=%s&commit=%s%s" % (key, self.head, query), headers=CAROL
                     )
                     self.assertEqual(code, 404, out)
-                    self.assertNotIn(SECRET, str(out))
+                    self.assertNotIn(WITHHELD, str(out))
                 code, out = self.call("GET", "/api/revision-build?doc=%s&commit=%s" % (key, self.head), headers=CAROL)
-                self.assertNotIn(SECRET, str(out))
+                self.assertNotIn(WITHHELD, str(out))
         self.assertIsInstance(
             core.revision_spec(self.docs["pp"], self.head, None, ps.APP.revision_requests.context()),
             core.CommitNotRecent,
@@ -518,20 +518,20 @@ class GlobCharactersInTheFolder(Repository):
     def test_the_folder_name_is_matched_literally(self):
         """paper[1]/main.tex's history and diff are its own: paper1/main.tex, committed with it and after it, is in
         neither."""
-        for folder, text in (("paper[1]", "own\n"), ("paper1", SECRET + "\n")):
+        for folder, text in (("paper[1]", "own\n"), ("paper1", WITHHELD + "\n")):
             (self.src / folder).mkdir()
             (self.src / folder / "main.tex").write_text(text, encoding="utf-8")
         docs = make_docs(["pp=논문:paper[1]/main.tex"], self.src, ps.APP.C.paths)
         self.assertIsInstance(docs, list, docs)
         self.serve(docs)
         both = self.commit("two papers")
-        (self.src / "paper1" / "main.tex").write_text(SECRET + " again\n", encoding="utf-8")
-        self.commit("other paper %s" % SECRET)
+        (self.src / "paper1" / "main.tex").write_text(WITHHELD + " again\n", encoding="utf-8")
+        self.commit("other paper %s" % WITHHELD)
         self.assertEqual(self.subjects("pp"), ["two papers"])
         code, body = self.call("GET", "/api/revision-diff?doc=pp&commit=%s" % both, headers=CAROL)
         self.assertEqual(code, 200, body)
         self.assertIn("+own", body["diff"])
-        self.assertNotIn(SECRET, str(body))
+        self.assertNotIn(WITHHELD, str(body))
 
     def test_glob_literal_escapes_every_wildcard(self):
         """glob_literal escapes *, ?, [, ] and the backslash; dot_excludes escape the folder too."""

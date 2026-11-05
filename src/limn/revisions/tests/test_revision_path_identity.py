@@ -20,13 +20,13 @@ from limn.runtime.documents import Doc
 from helpers import ps
 from helpers_access import ALICE, CAROL, AccessBase, member_add
 
-SECRET = "SECRET-TEXT"
+WITHHELD = "WITHHELD-TEXT"  # what the answers must not carry: the text of a file the change view keeps out
 
 
 class RegisteredPath(AccessBase):
     """A manuscript repository with a Markdown document (notes/plan.md), a text document (notes/plan.txt) and a LaTeX
     document (paper/main.tex), each with a commit of its own, and a dot-named folder .private whose plan.md, plan.txt
-    and main.tex are committed (subjects and text carry SECRET)."""
+    and main.tex are committed (subjects and text carry WITHHELD)."""
 
     def setUp(self):
         """Commit the documents, then .private, and register the documents as --doc does; Carol is a viewer."""
@@ -42,9 +42,9 @@ class RegisteredPath(AccessBase):
         self.git("config", "user.name", "Alice")
         self.git("add", "notes", "paper", "main.tex")
         self.git("commit", "--quiet", "-m", "public documents")
-        self.write(".private", "# %s\n" % SECRET, "%s\n" % SECRET, "%s\n" % SECRET)
+        self.write(".private", "# %s\n" % WITHHELD, "%s\n" % WITHHELD, "%s\n" % WITHHELD)
         self.git("add", "-f", ".private")
-        self.git("commit", "--quiet", "-m", "private %s" % SECRET)
+        self.git("commit", "--quiet", "-m", "private %s" % WITHHELD)
         docs = make_docs(
             ["nt=계획:notes/plan.md", "tx=텍스트:notes/plan.txt", "pp=논문:paper/main.tex"], self.src, ps.APP.C.paths
         )
@@ -79,7 +79,7 @@ class RegisteredPath(AccessBase):
         shutil.rmtree(self.src / folder)
         os.symlink(target, self.src / folder)
 
-    def assert_nothing_linked(self, marker=SECRET):
+    def assert_nothing_linked(self, marker=WITHHELD):
         """Every revision route of every document, as the viewer Carol: each document lists exactly its own commits,
         and no history row, source diff (whole, a range, a pin's) or comparison status carries marker."""
         for key in self.docs:
@@ -139,7 +139,7 @@ class RegisteredPath(AccessBase):
         commit = self.git("rev-parse", "HEAD~1")
         code, body = self.call("GET", "/api/revision-diff?doc=nt&commit=%s&pin=%s" % (commit, d["id"]), headers=CAROL)
         self.assertEqual(code, 200, body)
-        self.assertNotIn(SECRET, str(body))
+        self.assertNotIn(WITHHELD, str(body))
         self.assertIn("+public line.", body["diff"])
 
     def test_the_comparison_build_compares_the_registered_folder(self):
@@ -171,7 +171,7 @@ class DotNamedFolders(AccessBase):
     a/.old/, .draft.tex) and no symlink anywhere."""
 
     def setUp(self):
-        """Commit main.tex, then the dot-named files (their subject and text carry SECRET); Carol is a viewer."""
+        """Commit main.tex, then the dot-named files (their subject and text carry WITHHELD); Carol is a viewer."""
         super().setUp()
         if not shutil.which("git"):
             self.skipTest("git not available")
@@ -183,8 +183,8 @@ class DotNamedFolders(AccessBase):
         (self.src / "sub" / "part.tex").write_text("public part\n", encoding="utf-8")
         self.commit("public", "main.tex", "sub/part.tex")
         for rel in (".private/notes.tex", "a/.old/refs.bib", ".draft.tex"):
-            (self.src / rel).write_text("%s %s\n" % (SECRET, rel), encoding="utf-8")
-        self.commit("private %s" % SECRET, "-f", ".private", "a/.old", ".draft.tex")
+            (self.src / rel).write_text("%s %s\n" % (WITHHELD, rel), encoding="utf-8")
+        self.commit("private %s" % WITHHELD, "-f", ".private", "a/.old", ".draft.tex")
         member_add(ps.APP.C.state, CAROL["Tailscale-User-Login"], "viewer")
 
     def commit(self, subject, *paths):
@@ -205,4 +205,4 @@ class DotNamedFolders(AccessBase):
         head = run_git(["rev-parse", "HEAD"], self.src, 10).stdout.strip()
         for query in ("commit=%s" % head, "commit=%s&base=%s" % (commit, commit)):
             code, out = self.call("GET", "/api/revision-diff?doc=main&" + query, headers=CAROL)
-            self.assertNotIn(SECRET, str(out))
+            self.assertNotIn(WITHHELD, str(out))
