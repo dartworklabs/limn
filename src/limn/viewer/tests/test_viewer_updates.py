@@ -159,7 +159,7 @@ GROUP_FNS = [
     "lineHeld", "holdLine", "releaseLine", "lineHoverOut", "lineVisible", "noticeAct", "noticeClose", "noticeFocusBack",
     "sourceEntry", "sourceOk", "isUndo", "lineCap", "sameWords", "noticeDots", "holdsDot", "groupNote", "regroup",
     "digestBegin", "digestSoon", "digestHold", "digestEnd", "digestBrief", "digestLine", "digestNote", "digestReplay",
-    "digestTake", "newsSlot",
+    "digestTake", "newsSlot", "keysHeld", "noticeLess", "newsWithout", "digestClosed",
 ]  # fmt: skip
 GROUP_PRELUDE = r"""
 let NOW=0,QID=0; const Q=[];
@@ -265,6 +265,42 @@ class Grouping(unittest.TestCase):
             digestEnd(); console.log(JSON.stringify(said()));"""
         )
         self.assertEqual(got, ["지난 방문 뒤 — 검토 대기 · 본문이 바뀌었습니다 · 메모가 바뀌었습니다"])
+
+    def test_an_event_said_on_a_higher_path_leaves_only_its_own_pins_out_of_a_batch(self):
+        """Dedupe per event, not per message (the list comparison's review group with its newsWithout): #2 then #1 sent
+        to review are one message; the event addressed to me for #1 comes later and takes #1 alone out of it, which says
+        #2 in place. The other way round, a batch of #4 and #5 after the event for #4 says #5 alone. Gathered, the same:
+        #6 and #7, then the event for #6, unfold into #7 and the event."""
+        got = self.run_store(
+            """const kv=g=>({msg:g.ids.length===1?'#'+g.ids[0]+' 검토 대기':'핀 '+g.ids.length+'개 검토 대기 — #'+g.ids.join(', #'),kind:NOTICE_KIND.OK,act:null,
+              o:{keys:g.ids.map(i=>'review_requested:'+i),brief:'검토 대기 '+g.ids.length}});
+            const less=newsWithout('review_requested','ids'),reset=()=>{LINE.slice().forEach(n=>endNotice(n,true)); tick(9000);};
+            const ev=id=>lineNote('핀 #'+id+' · 본문 — 검토 대기: 고침',NOTICE_KIND.OK,null,{literal:true,group:'ev:review_requested',keys:['review_requested:'+id],rank:2,brief:'검토 대기'});
+            groupNote('review',{ids:[2]},kv,merge,less); tick(20000); groupNote('review',{ids:[1]},kv,merge,less); ev(1); const late=said(); reset();
+            ev(4); groupNote('review',{ids:[4,5]},kv,merge,less); const early=said(); reset();
+            digestBegin('지난 방문 뒤'); groupNote('review',{ids:[6,7]},kv,merge,less); ev(6); digestEnd(); const f=LINE.find(n=>n.items); if(f)noticeAct(f.n);
+            console.log(JSON.stringify({late,early,gathered:said()}));"""
+        )
+        self.assertEqual(got["late"], ["핀 #1 · 본문 — 검토 대기: 고침", "#2 검토 대기"])
+        self.assertEqual(got["early"], ["#5 검토 대기", "핀 #4 · 본문 — 검토 대기: 고침"])
+        self.assertEqual(sorted(got["gathered"]), ["#7 검토 대기", "핀 #6 · 본문 — 검토 대기: 고침"])
+
+    def test_closing_a_gathered_line_ends_its_groups_so_new_pins_are_seen(self):
+        """A gathered line holding new pins (newPinsView) and a document's update, closed with [x]: its groups end with
+        it, so the new pins' end finds no other new-pins message and records the highest pin as seen, the update is
+        seen, and neither group is left standing for the next event."""
+        got = self.run_store(
+            extract_js_fn("newPinsView")
+            + """
+            const DOC='nt',UPD={top:2}; let seen=1; const ended=[];
+            function setSeenPin(n){seen=n;} function docInfo(){return {name:'노트'};} function openPinFromLink(){}
+            digestBegin('지난 방문 뒤');
+            groupNote('new:nt',{doc:'nt',pins:[{id:2,who:'Bob Park',place:'L3',note:'새 지적'}]},newPinsView,null);
+            groupNote('upd:nt',{},()=>({msg:'노트가 바뀌었습니다 — 커밋 1개',kind:NOTICE_KIND.INFO,act:null,o:{literal:true,keep:true,onEnd:(a,s)=>ended.push(s)}}),null);
+            digestEnd(); noticeClose(LINE.find(n=>n.items).n);
+            console.log(JSON.stringify({seen,ended,groups:[...GROUPS.keys()]}));"""
+        )
+        self.assertEqual(got, {"seen": 2, "ended": [True], "groups": []})
 
     def test_a_group_event_after_the_gathering_takes_its_message_out_of_the_folded_line(self):
         """A gathered group's next event merges with what was gathered and is said on its own; the folded line says the
@@ -398,6 +434,24 @@ class UpdateFlows(BrowserBase):
         self.poll(page)
         until(page, "LINE.some(n=>n.keys.includes('replied:%d'))" % pid)
         self.assertIn("핀 #%d · 노트 — Bob Park님 답글: 줄였습니다" % pid, self.line(page))
+
+    def test_a_message_that_grows_is_read_out_by_one_live_region(self):
+        """A group's message that grows is read out once: by the line's own region (.st-sr) while the line shows it, the
+        separate #sr-news then left alone; behind an undo, which keeps the line, by #sr-news."""
+        page = self.view()
+        got = page.evaluate(
+            """()=>{digestEnd(); LINE.slice().forEach(n=>endNotice(n,true));
+            const v=d=>({msg:'새 핀 '+d.n+'개',kind:NOTICE_KIND.INFO,act:null,o:{literal:true}}),news=()=>document.querySelector('#sr-news').textContent;
+            const st=()=>document.querySelector('#status .st-sr').textContent;
+            groupNote('grow-test',{n:1},v,null); document.querySelector('#sr-news').textContent='';
+            groupNote('grow-test',{n:2},v,null); const top={status:st(),news:news()};
+            lineNote('되돌릴 수 있습니다',NOTICE_KIND.OK,{label:'되돌리기',fn:()=>{}},{undo:true,literal:true});
+            document.querySelector('#sr-news').textContent='';
+            groupNote('grow-test',{n:3},v,null); return {top,behind:{status:st(),news:news()}};}"""
+        )
+        self.assertEqual(got["top"], {"status": "새 핀 2개", "news": ""})
+        self.assertEqual(got["behind"]["news"], "새 핀 3개")
+        self.assertNotIn("새 핀", got["behind"]["status"])
 
     def test_back_after_a_while_what_came_is_one_line_that_unfolds(self):
         """Away (the last answer 3 minutes ago), a co-author's pin and a closed pin come: one line '자리를 비운 사이 (3분) —

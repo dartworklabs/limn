@@ -98,7 +98,7 @@ function quietNote(msg){announce(trMsg(msg));}
 function lineNote(msg,kind,act,o){o=o||{}; const keys=o.keys||[],rank=o.rank||1,text=o.literal?String(msg):trMsg(msg);
   if(digestHold(msg,kind,act,o))return null;   // gathered while a person was away (digestBegin): said once, together
   if(o.source){const old=sourceEntry(o.source); if(old){if(old.place===NOTICE_PLACE.LINE&&sameWords(old,text,kind))return old; endNotice(old,true);}}
-  const d=noticeDupe(LINE,keys,rank,Date.now()); if(d.skip)return null; d.drop.forEach(x=>endNotice(x,false));
+  const d=noticeDupe(LINE,keys,rank,Date.now()); if(d.skip)return null; d.drop.forEach(x=>noticeLess(x,keys));
   const n=makeNotice({...o,msg:o.literal?String(msg):trMsg(msg),kind,act:act||null,place:NOTICE_PLACE.LINE,pending:false,
     alert:kind===NOTICE_KIND.ERR||!!o.alert,dot:noticeDot(o.dot||'',SIDE_OPEN)});
   if(n.back)LINE.push(n); else if(n.group)LINE.splice(newsSlot(),0,n); else LINE.unshift(n);   // news: behind the undos (newsSlot); another document's behind all (updates.js)
@@ -340,29 +340,50 @@ function dropStaleReview(){const ids=REVIEW_ALL.map(p=>p.id); LINE.slice().forEa
 // on the line, its window (a passing one's) starting again. view(data) gives what it says: {msg, kind, act, o}. A group held
 // by a gathering (digestHold) or by a gathered message not yet unfolded (digestTake) merges the same way, so twelve pins
 // closed one by one are one message, never twelve.
-const GROUPS=/** @type {Map<string,{data:any,n:Notice|null}>} */(new Map());
-/** @param {string} group @param {any} data @param {(d:any)=>{msg:string,kind:string,act:NoticeAct|null,o:Partial<Notice>}} view
- * @param {((a:any,b:any)=>any)|null} [merge] @returns {Notice|null} */
-function groupNote(group,data,view,merge){const g=GROUPS.get(group);
+// The same event on two paths is said once per event, not per message (noticeDupe's keys): less(data, keys) - given by a
+// group whose message carries keys - is its data without the events of those keys, or null when none is left. Events a
+// message of a higher rank already says are left out of what a group says (keysHeld); and when such a message comes later,
+// it takes its events out of the group's message, which says the rest in place (noticeLess) - the others stay.
+/** @typedef {(d:any)=>{msg:string,kind:string,act:NoticeAct|null,o:Partial<Notice>}} GroupView */
+/** @typedef {(d:any,keys:string[])=>any} GroupLess */
+const GROUPS=/** @type {Map<string,{data:any,n:Notice|null,view:GroupView,less:GroupLess|null}>} */(new Map());
+/** @param {string} group @param {any} data @param {GroupView} view @param {((a:any,b:any)=>any)|null} [merge]
+ * @param {GroupLess|null} [less] @returns {Notice|null} */
+function groupNote(group,data,view,merge,less){const g=GROUPS.get(group);
+  if(less){const o=view(data).o||{},held=keysHeld(o.keys||[],o.rank||1); if(held.length){data=less(data,held); if(data==null)return g&&g.n&&NOTICES.has(g.n.n)?g.n:null;}}
   const alive=!!g&&(!!g.n&&NOTICES.has(g.n.n)&&!g.n.busy||!!DIGEST&&DIGEST.items.has(group)||digestTake(group));
   const d=alive&&g&&merge?merge(g.data,data):data,v=view(d);
-  if(alive&&g&&g.n&&NOTICES.has(g.n.n)){g.data=d; regroup(g.n,v); return g.n;}
-  GROUPS.set(group,{data:d,n:null});
+  if(alive&&g&&g.n&&NOTICES.has(g.n.n)){g.data=d; g.view=view; g.less=less||null; regroup(g.n,v); return g.n;}
+  GROUPS.set(group,{data:d,n:null,view,less:less||null});
   const n=lineNote(v.msg,v.kind,v.act,{...v.o,group}); const h=GROUPS.get(group); if(h&&n)h.n=n; return n;}
+// The keys among keys that a message of a higher rank than rank already says: one on the line younger than noticeDupe's
+// window, or one gathered (DIGEST).
+/** @param {string[]} keys @param {number} rank @returns {string[]} */
+function keysHeld(keys,rank){const now=Date.now(),gathered=DIGEST?[...DIGEST.items.values()].map(a=>a[3]||{}).filter(o=>(o.rank||1)>rank):[];
+  return keys.filter(k=>noticeDupe(LINE,[k],rank,now).skip||gathered.some(o=>(o.keys||[]).includes(k)));}
+// Message x gives way to a message of a higher rank that says the events of keys (noticeDupe's drop): a group's message
+// that can leave them out (less) says the rest in place - not as news again: neither moved, nor read out, nor its window
+// started again - and one with nothing left, or that cannot, goes.
+/** @param {Notice} x @param {string[]} keys */
+function noticeLess(x,keys){const g=x.group?GROUPS.get(x.group):undefined,rest=g&&g.n===x&&g.less?g.less(g.data,keys):null;
+  if(!g||rest==null){endNotice(x,false); return;}
+  g.data=rest; regroup(x,g.view(rest),true);}
 // Where news (a message of a group) stands on the line: right behind the last undo still standing - an undo lives its window
 // where it can be pressed (rule 2), and news arriving meanwhile must not hide it behind '+N' - else first.
 /** @returns {number} */
 function newsSlot(){let i=0; LINE.forEach((x,j)=>{if(isUndo(x))i=j+1;}); return i;}
 // Message n says view v now (groupNote): its words, kind, action, keys and dot, as the newest on the line, read out again
-// (politely, unless quiet), and a passing one's window starts again.
-/** @param {Notice} n @param {{msg:string,kind:string,act:NoticeAct|null,o:Partial<Notice>}} v */
-function regroup(n,v){const o=v.o||{},[t,d]=msgSplit(o.literal?String(v.msg):trMsg(v.msg));
-  const same=n.title===t&&n.desc===d&&n.kind===v.kind; n.title=t; n.desc=d; n.kind=v.kind; n.act=v.act||null; n.at=Date.now();
+// (politely, unless quiet) when its words changed - by the line's own live region (.st-sr, drawStatus) when the line shows
+// it, else by #sr-news, never by both, as lineNote reads a first message - and a passing one's window starts again.
+// still: it says less than before (noticeLess) and stays where it is, its window running on, not read out.
+/** @param {Notice} n @param {{msg:string,kind:string,act:NoticeAct|null,o:Partial<Notice>}} v @param {boolean} [still] */
+function regroup(n,v,still){const o=v.o||{},[t,d]=msgSplit(o.literal?String(v.msg):trMsg(v.msg));
+  const same=n.title===t&&n.desc===d&&n.kind===v.kind; n.title=t; n.desc=d; n.kind=v.kind; n.act=v.act||null; if(!still)n.at=Date.now();
   if(o.keys)n.keys=o.keys; if(o.onEnd)n.onEnd=o.onEnd; if(o.life)n.life=o.life; n.back=!!o.back;
   const dot=noticeDot(o.dot||'',SIDE_OPEN); if(dot){n.dot=dot; document.body.classList.add('dot-'+dot);}
-  const i=LINE.indexOf(n); if(i>=0&&!n.back){LINE.splice(i,1); LINE.splice(newsSlot(),0,n);}
-  STATUS_SIG=''; drawStatus(); armNotice(n);
-  if(!same&&!o.quiet)announce(noticeText(n));}
+  const i=LINE.indexOf(n); if(i>=0&&!n.back&&!still){LINE.splice(i,1); LINE.splice(newsSlot(),0,n);}
+  STATUS_SIG=''; drawStatus(); if(still)return; armNotice(n);
+  if(!same&&!o.quiet&&STATUS_TOP!==n.n)announce(noticeText(n));}
 
 // ---------------- Gathering while a person was away (docs/handbook/viewer.md §새 소식)
 // Back after a while (the tab hidden or the device asleep, polling.js) or opening the viewer again (boot), what the first
@@ -382,8 +403,11 @@ function digestSoon(ms){const d=DIGEST; if(!d)return; clearTimeout(d.timer); d.t
 /** @param {string} msg @param {string} kind @param {NoticeAct|null|undefined} act @param {Partial<Notice>} o @returns {boolean} */
 function digestHold(msg,kind,act,o){const d=DIGEST; if(!d||!o.group||o.digest===false||o.undo||o.gone||o.source||o.alert||kind===NOTICE_KIND.ERR)return false;
   // one event on two paths is gathered once, as the line shows it once (noticeDupe): the event path wins over the list's
+  // - per event: a gathered group that can leave the events out (less) keeps the rest (noticeLess)
   const keys=o.keys||[],rank=o.rank||1; for(const [g,a] of d.items){const x=a[3]||{},xk=x.keys||[]; if(g===o.group||!keys.some(k=>xk.includes(k)))continue;
-    if((x.rank||1)>rank&&keys.every(k=>xk.includes(k)))return true; if(rank>(x.rank||1))d.items.delete(g);}
+    if((x.rank||1)>rank&&keys.every(k=>xk.includes(k)))return true;
+    if(rank>(x.rank||1)){const gr=GROUPS.get(g),rest=gr&&gr.less?gr.less(gr.data,keys):null;
+      if(!gr||rest==null){d.items.delete(g); continue;} gr.data=rest; const v=gr.view(rest); d.items.set(g,[v.msg,v.kind,v.act,{...v.o,group:g}]);}}
   d.items.set(o.group,[msg,kind,act,o]); const dot=noticeDot(o.dot||'',SIDE_OPEN); if(dot)document.body.classList.add('dot-'+dot); return true;}
 // The gathering ends: nothing, the one thing as itself, or one message for all of them (digestNote) - behind what the line
 // says already (back): what came meanwhile never takes the line from an undo or a hint the screen itself put there.
@@ -403,8 +427,14 @@ function digestNote(title,items){items=[...items.filter(a=>!(a[3]||{}).back),...
   const dots=[...new Set(items.map(a=>noticeDot((a[3]||{}).dot||'',SIDE_OPEN)).filter(Boolean))];
   const n=lineNote(title+' — '+digestLine(items.map(digestBrief)),NOTICE_KIND.INFO,
     {label:'펼치기',tip:'모은 소식을 하나씩 상태 줄에 놓습니다',fn:()=>{const all=n?n.items||[]:[]; all.forEach(a=>digestReplay(a,false)); if(all.length>1&&!$('#status-list').open)toggleStatusList();}},
-    {literal:true,keep:true,back:true,dots,digest:false,onEnd:(acted,seen)=>{if(!acted&&n)(n.items||[]).forEach(a=>{const f=(a[3]||{}).onEnd; if(f)f(false,seen);});}});
+    {literal:true,keep:true,back:true,dots,digest:false,onEnd:(acted,seen)=>{if(!acted&&n)digestClosed(n.items||[],seen);}});
   if(n){n.items=items; n.digestTitle=title;}}
+// A gathered line went other than by [펼치기] (its [x]: seen): the groups it held end with it - each of their messages has
+// gone, so what a group's end checks (no other new-pins message, updates.js) sees them gone - and then what each held for
+// its end runs, as seen.
+/** @param {any[][]} items @param {boolean} seen */
+function digestClosed(items,seen){items.forEach(a=>{const g=(a[3]||{}).group,h=g?GROUPS.get(g):undefined; if(h&&!(h.n&&NOTICES.has(h.n.n)))GROUPS.delete(g);});
+  items.forEach(a=>{const f=(a[3]||{}).onEnd; if(f)f(false,seen);});}
 // Puts gathered message a on the line as it would have come - behind what the line says (back), or, unfolded by [펼치기], in
 // front; a group's message is that group's again.
 /** @param {any[]} a @param {boolean} back */

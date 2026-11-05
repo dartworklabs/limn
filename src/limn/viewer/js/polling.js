@@ -93,6 +93,11 @@ function startLightPolling(){
   syncHiddenNotifyTimer();   // catches it right away if already hidden at boot (a rare case) and notifications are on
 }
 // This tab's own close/drop/reopen/restore already said so where it happened, so the next loadPins()'s
+// A list comparison's group without the pins whose events a message of a higher rank says (groupNote's less): the pins named
+// '<type>:<id>' leave data[field] - numbers or pins - and each of also beside them, or null when none is left. Pure.
+/** @param {string} type @param {string} field @param {...string} also @returns {(d:any,keys:string[])=>any} */
+function newsWithout(type,field,...also){return (d,keys)=>{const keep=d[field].map((/** @type {any} */x)=>!keys.includes(type+':'+(typeof x==='number'?x:x.id)));
+  if(!keep.some(Boolean))return null; const out={...d}; [field,...also].forEach(f=>{out[f]=d[f].filter((/** @type {any} */_,/** @type {number} */i)=>keep[i]);}); return out;};}
 // notePinChanges never announces the same transition again - only the first notePinChanges judgment right after markMine(id) is swallowed
 // (consumeMine removes it as soon as it's confirmed), and if that judgment hasn't arrived after 10 seconds (e.g. a lost response), it's
 // given up on and subsequent values are announced normally. An action from another tab isn't in this map, so it's shown as usual.
@@ -126,14 +131,15 @@ function notePinChanges(prev,d,dropped){
     o:{life:NOTICE_LIFE.TIMER,dot:NOTICE_DOT.SIDE,literal:true,brief:tl('완료 {n}',{n:g.ids.length})}}),merge);
   if(reviewed.length)groupNote('review',{ids:reviewed},g=>({msg:g.ids.length<=3?tl('#{ids} 이 검토 대기로 넘어왔습니다 — 결과를 보고 [확인]하세요',{ids:g.ids.join(', #'),n:g.ids.length})
       :tl('핀 {n}개가 검토 대기로 넘어왔습니다',{n:g.ids.length})+' — '+ids(g.ids),kind:NOTICE_KIND.OK,act:{label:'보기',tip:'검토 대기 핀으로 갑니다',fn:gotoReview},
-    o:{keys:g.ids.map(i=>EVENT_TYPE.REVIEW_REQUESTED+':'+i),dot:NOTICE_DOT.RV,literal:true,brief:tl('검토 대기 {n}',{n:g.ids.length})}}),merge);
+    o:{keys:g.ids.map(i=>EVENT_TYPE.REVIEW_REQUESTED+':'+i),dot:NOTICE_DOT.RV,literal:true,brief:tl('검토 대기 {n}',{n:g.ids.length})}}),merge,newsWithout(EVENT_TYPE.REVIEW_REQUESTED,'ids'));
   // One dropped pin offers [되살리기]; several, the Trash they are in.
   if(droppedIds.length)groupNote('drop',{ids:droppedIds,names:droppedIds.map(id=>{const rec=dropById.get(id); return (rec&&who(rec.dropped_by))||tr('다른 세션');})},g=>{
     const name=[...new Set(g.names)].join(', '),one=g.ids.length===1,id=g.ids[0];
     return {msg:one?tl('#{id}{o} {name}{p} 삭제함',{id,o:josa(id,'을','를'),name,p:josaName(name,'이','가')}):tl('핀 {n}개를 {name}{p} 삭제함',{n:g.ids.length,name,p:josaName(name,'이','가')})+' — '+ids(g.ids),
       kind:NOTICE_KIND.WARN,act:one?{label:'되살리기',wait:true,fn:()=>restorePin(id)}:{label:'휴지통',tip:'지운 핀을 휴지통에서 봅니다',fn:()=>openTrash(id)},
-      o:{keys:g.ids.map(i=>EVENT_TYPE.DROPPED+':'+i),dot:NOTICE_DOT.SIDE,literal:true,brief:tl('삭제됨 {n}',{n:g.ids.length})}};},
-    (a,b)=>({ids:[...a.ids,...b.ids.filter(i=>!a.ids.includes(i))],names:[...a.names,...b.names]}));   // tl() spoke the UI language; the name is as written
+      o:{keys:g.ids.map(i=>EVENT_TYPE.DROPPED+':'+i),dot:NOTICE_DOT.SIDE,literal:true,brief:tl('삭제됨 {n}',{n:g.ids.length})}};},   // tl() spoke the UI language; the name is as written
+    (a,b)=>{const add=b.ids.map((i,j)=>j).filter(j=>!a.ids.includes(b.ids[j]));   // names stay beside their ids
+      return {ids:[...a.ids,...add.map(j=>b.ids[j])],names:[...a.names,...add.map(j=>b.names[j])]};},newsWithout(EVENT_TYPE.DROPPED,'ids','names'));
   const lost=[],gone=[],moved=[]; (d||[]).filter(p=>pinState(p)===PIN_STATE.OPEN).forEach(p=>{const was=byId.get(p.id); if(!was)return;
     if(!was.stale&&p.stale){lost.push(p); return;}
     if(was.el_sync!==EL_SYNC.LOST&&p.el_sync===EL_SYNC.LOST){gone.push(p); return;}   // a re-render lost a figure pin's element
@@ -166,4 +172,4 @@ function noteReviewChanges(prev,d){if(!prev||!prev.length)return; const known=ne
   const merge=(/** @type {any} */a,/** @type {any} */b)=>({pins:[...a.pins,...b.pins.filter(x=>!a.pins.some(y=>y.id===x.id))]});
   if(ok.length)groupNote('confirmed',{pins:ok},g=>({msg:text(g.pins,'#{id} 확인됨','핀 {n}개 확인됨'),kind:NOTICE_KIND.OK,act:null,o:{life:NOTICE_LIFE.TIMER,dot:NOTICE_DOT.SIDE,literal:true,brief:tl('확인됨 {n}',{n:g.pins.length})}}),merge);
   if(back.length)groupNote('reopened',{pins:back},g=>({msg:text(g.pins,'#{id} 다시 열림','핀 {n}개 다시 열림'),kind:NOTICE_KIND.WARN,act:null,
-    o:{keys:g.pins.map(x=>EVENT_TYPE.REOPENED+':'+x.id),dot:NOTICE_DOT.SIDE,literal:true,brief:tl('다시 열림 {n}',{n:g.pins.length})}}),merge);}
+    o:{keys:g.pins.map(x=>EVENT_TYPE.REOPENED+':'+x.id),dot:NOTICE_DOT.SIDE,literal:true,brief:tl('다시 열림 {n}',{n:g.pins.length})}}),merge,newsWithout(EVENT_TYPE.REOPENED,'pins'));}
