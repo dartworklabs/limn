@@ -39,7 +39,7 @@ const MD={gen:0,doc:/** @type {string|null} */(''),file:'',name:'',lines:/** @ty
   worker:/** @type {Worker|null} */(null),job:/** @type {{id:number,resolve:(r:any)=>void,t:ReturnType<typeof setTimeout>}|null} */(null),seq:0,
   waiting:false,els:0,marked:0,bom:false,shown:/** @type {string|null} */(''),want:/** @type {{line:number,off:number,top:number}|null} */(null),
   jumpTo:/** @type {{id:number,doc:string|null,seq:number}|null} */(null),
-  spot:/** @type {{doc:string|null,w:number,top:number,el:HTMLElement|null,line:number,key:string,frac:number,off:number|null,sel:boolean,again:boolean,left:boolean}|null} */(null),
+  spot:/** @type {{doc:string|null,w:number,el:HTMLElement|null,line:number,key:string,frac:number,off:number|null,sel:boolean,again:boolean}|null} */(null),
   // a heading a link from another document asked for, gone to once this document is drawn in that visit (mdGoDoc), and the
   // heading a jump in flight is going to (mdGoHeading: an image that gets its size moves the destination, not the reading spot)
   headTo:/** @type {{doc:string,id:string,seq:number}|null} */(null),goTo:/** @type {{el:HTMLElement,doc:string|null}|null} */(null)};
@@ -125,7 +125,7 @@ async function mdBuild(){if(mdFieldBusy()){MD.waiting=true; return;}
 function mdShow(node){const want=MD.want,shown=mdColumnShown(); MD.want=null; MD.limit=node.dataset.limit||null;
   const a=shown?(want||(MD.shown===DOC?mdAnchor():null)):null;
   if(!shown){const s=MD.spot;
-    if(want)MD.spot={doc:DOC,w:0,top:want.top,el:null,line:want.line,key:'',frac:0,off:want.off,sel:false,again:true,left:false};
+    if(want)MD.spot={doc:DOC,w:0,el:null,line:want.line,key:'',frac:0,off:want.off,sel:false,again:true};
     else if(s&&s.doc===DOC&&MD.shown===DOC){s.el=null; s.again=true;}
     else MD.spot=null;}
   $('#doc').replaceChildren(node); MD.shown=DOC; mdRestore(a);
@@ -188,7 +188,7 @@ function mdRestore(a){const L=$('#left'); if(!a){return;} const e=mdLeaves(a.lin
 // (mdSpotKeep): from relayout, and from the column's ResizeObserver, which runs after the layout and before the paint. A scroll
 // the reflow itself makes (an offset cut back to the new height) reads only after the spot is back.
 // Reads the spot now: the line element at the document area's top (mdAt) and how far down it the top is (frac, 0-1; el null
-// at the very top), the column's width and scroll offset (top), and whether the chosen lines (.md-sel) are on screen. A read at a width that is not
+// at the very top), the column's width, and whether the chosen lines (.md-sel) are on screen. A read at a width that is not
 // the spot's is left for mdSpotKeep - the reflow moved what it would read - unless force (a new draw: nothing to keep).
 // While the column is not laid out (hidden under the changes view, or 0 wide) nothing is read: the spot read before stays -
 // a redraw there too (mdShow) - for mdSpotKeep to put back once the column is shown again. A spot a hidden redraw left to be
@@ -198,8 +198,8 @@ function mdSpotRead(force){const md=$('#md'),L=$('#left'); if(!isMdDoc()||!md||M
   const s=MD.spot,w=md.getBoundingClientRect().width; if(!mdLaidOut(w))return;
   if(!force&&s&&s.doc===DOC&&(s.w!==w||s.again))return;
   const top=L.getBoundingClientRect().top,e=L.scrollTop>0?mdAt(mdLineEls(),top):null,r=e&&e.getBoundingClientRect();
-  MD.spot={doc:DOC,w,top:L.scrollTop,el:e,line:e?+(e.dataset.line||e.dataset.lo||0):0,key:e?(e.dataset.line?'line':'lo'):'',
-    frac:r&&r.height?Math.min(1,Math.max(0,(top-r.top)/r.height)):0,off:null,sel:mdSelSeen(),again:false,left:false};}
+  MD.spot={doc:DOC,w,el:e,line:e?+(e.dataset.line||e.dataset.lo||0):0,key:e?(e.dataset.line?'line':'lo'):'',
+    frac:r&&r.height?Math.min(1,Math.max(0,(top-r.top)/r.height)):0,off:null,sel:mdSelSeen(),again:false};}
 // The element that stands for spot s's line now: its element if still drawn, else the one a redraw drew for that line - the
 // same kind (a line span, a block starting there), else the first that carries the line (mdLeaves), else - the line is gone,
 // the source got shorter - the nearest line kept before it (mdSpotNear). null: the very top.
@@ -232,30 +232,7 @@ function mdSpotKeep(){const s=MD.spot,md=$('#md'),L=$('#left'); if(!s||s.doc!==D
 // Something above the reading spot changed its height while the width stood - an image that got its size or gave way to its
 // alt text (mdPicLoad, mdPicError): the spot is put back as after a reflow (mdSpotKeep), one model for both. While the
 // column is hidden (under the changes view) nothing can be measured: the spot waits, marked again, for the column to be shown.
-// A spot the pane was scrolled away from since it was read (mdSpotLeft) is not put back: a scroll's own read waits for its
-// animation frame (the pane's scroll listener), and a load that comes first found the pane elsewhere - putting that spot
-// back undid the scroll (on a busy renderer Home's scroll to the top went back 3,000px down when the images came,
-// Firefox). The spot is read where the pane stands instead; what the image moved there is the browser's scroll
-// anchoring's. That test is not made while the width moved (a reflow cuts the offset back) or a hidden redraw waits.
-function mdSpotBack(){const s=MD.spot,md=$('#md'); if(!s||s.doc!==DOC)return;
-  const w=md?md.getBoundingClientRect().width:0;
-  if(!s.again&&w===s.w&&mdLaidOut(w)&&mdSpotLeft(s)){mdSpotRead(true); return;}
-  s.again=true; mdSpotKeep();}
-// Whether the pane was scrolled away from spot s since it was read. Its offset alone does not say so: the layout moves it
-// too. When what is below the reading line no longer reaches as far - an image above it shrinking near the document's end
-// - the browser cuts the offset back to the pane's new end, and the text under the reading line moves on (read 200px
-// before the end, an image of 900px become 20px took the top line from L35 to L45). So an offset that is the spot's own
-// cut back to the new end, to 1px, is the layout's and the spot is put back - unless a scroll was asked for since the spot
-// was read (left, mdSpotLeave): End pressed before its scroll's frame ends where that cut would. Any other offset is a
-// scroll's, or the browser's scroll anchoring's, which kept the text the spot names (read there, it is the same spot).
-/** @param {NonNullable<typeof MD.spot>} s */
-function mdSpotLeft(s){const L=$('#left'),at=L.scrollTop; if(Math.abs(at-s.top)<1)return false;
-  return s.left||Math.abs(at-Math.min(s.top,Math.max(0,L.scrollHeight-L.clientHeight)))>=1;}
-// The person asks for a scroll - a wheel, a touch, a press on the pane or its scroll bar, a scrolling key (mdScrolling): the
-// browser makes it, and only the next frame can read it (the pane's scroll listener, mdSpotRead). The reading spot is
-// marked left until that frame, which reads the scroll that came or finds that none did (a click is no scroll: a shrink
-// after it is the layout's again). The page's own scrolls read the spot where they put the pane (mdJump, mdGoLanded).
-function mdSpotLeave(){const s=MD.spot; if(!s||s.left)return; s.left=true; requestAnimationFrame(()=>{s.left=false;});}
+function mdSpotBack(){const s=MD.spot; if(!s||s.doc!==DOC)return; s.again=true; mdSpotKeep();}
 // Whether the document column is laid out at width w (#md's): shown (#left has boxes - not under the changes view) and wider than 0.
 /** @param {number} w */
 function mdLaidOut(w){return w>0&&mdColumnShown();}
@@ -843,15 +820,13 @@ function mdTopBlock(md,e){let x=/** @type {Element|null} */(e); const tx=md.clas
 // The column reflows when its width changes (a panel, a rotation): the reading spot comes back at once, before the paint
 // (mdSpotKeep), and the badges follow their lines.
 let MD_RO_T=0; const MD_RO=window.ResizeObserver?new ResizeObserver(()=>{mdSpotKeep(); clearTimeout(MD_RO_T); MD_RO_T=setTimeout(()=>{if(isMdDoc())mdMarks();},120);}):null;
-// Scrolls pin id's first line to the reading depth and flashes its lines (jumpPin's branch); the reading spot is read where
-// the jump put the pane, at once - an image that changes before the scroll's frame keeps the pin's line there, as for any
-// spot (mdSpotBack), and does not put back the spot read before the jump. A jump asked before this
+// Scrolls pin id's first line to the reading depth and flashes its lines (jumpPin's branch). A jump asked before this
 // document is on screen - [보기] on a pin of another document: switchDoc settles before the source is read and drawn - waits
 // for the draw (mdShow) of this visit; another switch drops it.
 function mdJump(id){if(MD.shown!==DOC||!$('#md')){MD.jumpTo={id,doc:DOC,seq:SWITCHSEQ}; return;}
   const p=PINS.find(x=>x.id===id)||REVIEW_ALL.find(x=>x.id===id); if(!p||typeof p.lo!=='number'||typeof p.hi!=='number')return;
   const leaves=mdLeaves(p.lo,p.hi); if(!leaves.length)return; const L=$('#left'),lr=L.getBoundingClientRect(),r=leaves[0].getBoundingClientRect();
-  pvShow(); L.scrollTop+=(r.top-(lr.top+lr.height*0.30)); mdSpotRead(true); leaves.forEach(e=>{e.classList.remove('md-flash'); void e.offsetWidth; e.classList.add('md-flash');});
+  pvShow(); L.scrollTop+=(r.top-(lr.top+lr.height*0.30)); leaves.forEach(e=>{e.classList.remove('md-flash'); void e.offsetWidth; e.classList.add('md-flash');});
   setTimeout(()=>leaves.forEach(e=>e.classList.remove('md-flash')),1200);}
 // ---------------- Outline from headings, the strip and the position button
 // A heading as its outline row and the strip name it: plain text, its marked characters by name (ccClip, hidden-chars.js), at
@@ -903,13 +878,11 @@ function mdGoLanded(){const g=MD.goTo; if(!g)return; if(g.doc!==DOC||!g.el.isCon
 // its smooth scroll too, running or only asked for (Firefox starts an asked one after the key's own scroll otherwise), so
 // what the person's input does next starts from here.
 function mdGoStop(){if(!MD.goTo)return; MD.goTo=null; const L=$('#left'); L.scrollTo({top:L.scrollTop,behavior:'instant'});}
-// The person scrolls: the jump in flight ends (mdGoStop) and the reading spot is marked left (mdSpotLeave).
-function mdScrolling(){mdSpotLeave(); mdGoStop();}
-for(const t of ['wheel','touchstart','pointerdown'])$('#left').addEventListener(t,mdScrolling,{passive:true});
+for(const t of ['wheel','touchstart','pointerdown'])$('#left').addEventListener(t,mdGoStop,{passive:true});
 // A key scrolls the pane when nothing else has the focus or something in the pane has it - outline.js's scope (SCROLL_KEYS):
 // with the focus on the page's body, Home or PageDown scrolls the pane without a key event on it.
 addEventListener('keydown',e=>{const a=document.activeElement;
-  if(SCROLL_KEYS.has(e.key)&&(!a||a===document.body||$('#left').contains(a)))mdScrolling();});
+  if(SCROLL_KEYS.has(e.key)&&(!a||a===document.body||$('#left').contains(a)))mdGoStop();});
 // ---------------- Input on the document
 // A mouse drag ends: the part of its text selection inside the document (mdDocPart) is the pick. A press without a selection (a click, a tap) picks the
 // block under it - not on a link, a badge or another control.

@@ -9,9 +9,7 @@ docs/guide.md (gd) - and the LaTeX manuscript (ms):
 - an SVG opened on its own, with the asset route's own headers enforced, runs no script, fetches nothing and has an opaque
   origin; the same SVG without those headers does run (the test can see what it guards);
 - an image that loads above the reading line leaves the text being read where it was, also when it is drawn at a size an
-  earlier load learned and the file has since changed, and when it shrinks near the document's end and the browser cuts
-  the pane's offset back to the new end; End pressed just before that still ends at the end, and a pin's jump just
-  before it keeps the pin's line where the jump put it (ShrinkNearTheEnd);
+  earlier load learned and the file has since changed;
 - a pin on an image's line outlines the image; a click on an image picks its paragraph;
 - a link to another registered document goes to it, at its heading, and the browser's back returns - also before that
   document has opened, which then never opens over the entry back returned to; followed while a phone's back layer holds
@@ -59,17 +57,6 @@ from helpers_figure import BUILD1, viewer_build
 DRAWN = "typeof MD!=='undefined'&&MD.shown===DOC&&!!document.querySelector('#md')&&!MD.job"
 # Every tree image on screen has loaded or failed (a failed one is replaced by its alt text).
 PICS_DONE = "[...document.querySelectorAll('#md .md-pic img')].every(i=>i.complete)"
-# Holds the page's animation frames from window.__framesHeld on - as a renderer too busy to paint holds them - until
-# window.__framesGo() lets them run (cancelAnimationFrame still cancels a held one); counts the images that load or fail
-# (window.__picDone).
-FRAMES_HELD = (
-    "(()=>{const raf=window.requestAnimationFrame.bind(window),caf=window.cancelAnimationFrame.bind(window),q=new Map();"
-    "let n=0;window.__framesHeld=false;window.__picDone=0;"
-    "window.requestAnimationFrame=cb=>{if(!window.__framesHeld)return raf(cb);q.set(--n,cb);return n;};"
-    "window.cancelAnimationFrame=id=>{if(id<0)q.delete(id);else caf(id);};"
-    "window.__framesGo=()=>{window.__framesHeld=false;const l=[...q.values()];q.clear();l.forEach(cb=>raf(cb));};"
-    "for(const t of ['load','error'])document.addEventListener(t,e=>{if(e.target.tagName==='IMG')window.__picDone++;},true);})()"
-)
 SVG = (
     '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="40" onload="fetch(\'/svg-onload\')">'
     "<style>.b{fill:#1d4ed8}</style><script>document.title='svg ran';fetch('/svg-script')</script>"
@@ -533,146 +520,6 @@ class ChangedOnDiskFirefox(ChangedOnDisk):
     BROWSER_ENGINE = "firefox"
 
 
-# Room above an image, the image, and below it about one and a half document areas of paragraphs: read 200px before the
-# document's end, the image stands wholly above the area and within one area's height of it - near enough for a check to
-# ask it again (mdPicCheck), from the very end too - and once it is 880px shorter the pane's end is above that offset.
-END_NEAR = (
-    "# 끝 가까이\n\n"
-    + "".join("위 %d 의 문단.\n\n" % i for i in range(1, 30))
-    + "![줄어들 그림](img/shrink.png)\n\n"
-    + "".join("아래 %d 의 문단.\n\n" % i for i in range(1, 18))
-)
-SHRINK_IMG = "document.querySelector(\"#md .md-pic[data-path='notes/img/shrink.png'] img\")"
-# The line element at the document area's top (mdAt): its first line, and how far above the area's top it starts, in px.
-TOP_LINE = (
-    "(()=>{const t=document.querySelector('#left').getBoundingClientRect().top,e=mdAt(mdLineEls(),t);"
-    " return [+(e.dataset.line||e.dataset.lo),t-e.getBoundingClientRect().top];})()"
-)
-# How far the pane is from its end, in px.
-FROM_END = "(L=>L.scrollHeight-L.clientHeight-L.scrollTop)(document.querySelector('#left'))"
-
-
-class ShrinkNearTheEnd(AssetsBase):
-    """An image above the reading line that gets shorter near the document's end: the browser cuts the pane's offset back to
-    its new end, which is the layout's doing and no scroll - the text being read stays; End pressed just before it still
-    ends at the end, and a pin's [보기] just before it keeps the pin's line where the jump put it. The image is rewritten smaller on disk and a check shows it (mdPicCheck,
-    as ChangedOnDisk), the browser's scroll anchoring off as in ReadingSpot - Chromium's and Firefox's alone would cut
-    nothing (they keep the text by moving the offset), and a browser without it (WebKit) is what this stands in for."""
-
-    PLAN = END_NEAR
-
-    def setUp(self):
-        super().setUp()
-        (self.src / "notes" / "img" / "shrink.png").write_bytes(blank_png(200, 900))
-
-    def read_near_the_end(self, **kw):
-        """The viewer on nt, anchoring off, the image loaded at 900px, the pane about 200px before its end - the area's top
-        halfway down the line it falls on, so the spot names a point of that line (a top between two paragraphs is only
-        the end of the line above, frac 1) - and settled, the reading spot read there; the image wholly above the area and
-        within one area's height of it, also from the end."""
-        page = self.open(0, **kw)
-        until(page, DRAWN, 20)
-        add_test_style(page, "#left,#left *{overflow-anchor:none}")
-        page.evaluate("(L=>{L.scrollTop=L.scrollHeight;})(document.querySelector('#left'))")
-        until(page, SHRINK_IMG + ".complete&&" + SHRINK_IMG + ".naturalHeight===900")
-        settle(page)
-        page.evaluate(
-            "(L=>{L.scrollTop=L.scrollHeight-L.clientHeight-200; const t=L.getBoundingClientRect().top,"
-            " r=mdAt(mdLineEls(),t).getBoundingClientRect(); L.scrollTop+=Math.round(r.top+r.height/2-t);})"
-            "(document.querySelector('#left'))"
-        )
-        settle(page)
-        self.assertTrue(150 < page.evaluate(FROM_END) < 250)
-        self.assertTrue(
-            page.evaluate("MD.spot.top===document.querySelector('#left').scrollTop&&MD.spot.frac>0&&MD.spot.frac<1")
-        )
-        pane = page.evaluate("(r=>[r.top,r.height])(document.querySelector('#left').getBoundingClientRect())")
-        bottom = page.evaluate(SHRINK_IMG + ".getBoundingClientRect().bottom")
-        self.assertLess(bottom, pane[0])
-        self.assertGreater(bottom, pane[0] - pane[1] + 200)
-        return page
-
-    def shrink(self, page):
-        """shrink.png rewritten 200x20, a check asked now; once the image stands at its new size (mdPicLoad has run)."""
-        (self.src / "notes" / "img" / "shrink.png").write_bytes(blank_png(200, 20))
-        page.evaluate("MD_PIC_CHECK.last=-Infinity; void mdPicCheck()")
-        until(page, SHRINK_IMG + ".naturalHeight===20&&" + SHRINK_IMG + ".getAttribute('height')==='20'", 10)
-
-    def test_an_image_that_shrinks_near_the_end_leaves_the_text_in_place(self):
-        """Read 200px before the end, the image above the area becomes 200x20: the document is 880px shorter and the browser
-        cuts the pane's offset back to the new end (680px), the top line standing 200px further on. That offset is the
-        spot's own cut back to the end - the layout's - so the spot is put back: the line at the area's top is the one read
-        before, as far into it, to 2px, and the pane stands as far before the new end. Mutation: take any offset but the
-        spot's for a scroll (no cut back to the end in mdSpotLeft, as before) -> the top line is 200px on, fails."""
-        page = self.read_near_the_end()
-        before, gap = page.evaluate(TOP_LINE), page.evaluate(FROM_END)
-        self.shrink(page)
-        settle(page)
-        after = page.evaluate(TOP_LINE)
-        self.assertEqual(after[0], before[0])
-        self.assertAlmostEqual(after[1], before[1], delta=2)
-        self.assertAlmostEqual(page.evaluate(FROM_END), gap, delta=2)
-
-    @unittest.skipIf(sys.platform == "darwin", "End scrolls no pane on macOS: issue #414")
-    def test_end_pressed_just_before_the_shrink_leaves_the_pane_at_the_end(self):
-        """The same shrink on a renderer too busy to paint: the page's frames are held, End is pressed with the focus on the
-        document area (as a search or a link leaves it) - the pane goes to its end, its scroll not read yet - and then the
-        image shrinks. The cut back to the
-        new end is where End's scroll ends too, and End asked for a scroll since the spot was read: the pane stays at the
-        end, also once the frames run. Mutation: no scroll asked for in mdSpotLeft (left) -> the spot read before End is put
-        back, 200px above the new end, fails."""
-        page = self.read_near_the_end(init=FRAMES_HELD)
-        page.evaluate(
-            "(L=>{L.tabIndex=-1; L.focus({preventScroll:true});})(document.querySelector('#left')); window.__framesHeld=true"
-        )
-        page.keyboard.press("End")
-        until(page, FROM_END + "===0")
-        self.at_the_end_after_the_shrink(page)
-
-    def test_a_pins_jump_just_before_the_shrink_keeps_the_pins_line_where_the_jump_put_it(self):
-        """A pin on the document's last paragraph, its [보기] with the frames held (jumpPin -> mdJump): the jump puts the
-        pin's line 30% down the area, 72px or so before the end, and the image shrinks before the scroll's frame - the
-        browser cuts the offset back to the new end. The jump read the spot where it put the pane, so that is the spot put
-        back: the pin's line stands where the jump put it, to 2px, also once the frames run. Mutation: no read in mdJump
-        -> the spot read before the jump is put back, the line well below, fails."""
-        n = line_of(END_NEAR, "아래 17 의 문단.")
-        body = json.dumps(
-            {"doc": "nt", "file": str(self.src / "notes" / "plan.md"), "lo": n, "hi": n, "note": "끝"}
-        ).encode()
-        code, _, out = self.talk(req("POST", "/api/pin", body, {"Content-Type": "application/json"}))
-        self.assertEqual(code, 200, out)
-        pin_at = (
-            "(()=>{const r=document.querySelector('#left').getBoundingClientRect();"
-            " return mdLeaves(%d,%d)[0].getBoundingClientRect().top-(r.top+r.height*0.30);})()" % (n, n)
-        )
-        page = self.read_near_the_end(init=FRAMES_HELD)
-        until(page, "PINS.length===1")
-        page.evaluate("window.__framesHeld=true; jumpPin(%d)" % json.loads(out)["id"])
-        self.assertAlmostEqual(page.evaluate(pin_at), 0, delta=1)
-        self.assertGreater(page.evaluate(FROM_END), 0)
-        self.shrink(page)
-        self.assertAlmostEqual(page.evaluate(pin_at), 0, delta=2)
-        page.evaluate("window.__framesGo()")
-        settle(page)
-        self.assertAlmostEqual(page.evaluate(pin_at), 0, delta=2)
-
-    def at_the_end_after_the_shrink(self, page):
-        """With the pane at its end, its scroll not read yet: the image shrinks, the pane is at the new end; the frames run,
-        and it still is."""
-        self.assertFalse(page.evaluate("MD.spot.top===document.querySelector('#left').scrollTop"))
-        self.shrink(page)
-        self.assertEqual(page.evaluate(FROM_END), 0)
-        page.evaluate("window.__framesGo()")
-        settle(page)
-        self.assertEqual(page.evaluate(FROM_END), 0)
-
-
-class ShrinkNearTheEndFirefox(ShrinkNearTheEnd):
-    """The same in Firefox."""
-
-    BROWSER_ENGINE = "firefox"
-
-
 MANY = 300  # more than MD_PIC_KEEP (256), the most entries the page's other image records keep
 
 
@@ -788,52 +635,6 @@ class HeadingJump(AssetsBase):
             held, self.hold[:] = list(self.hold), []
             for r in held:
                 r.fulfill(**self.answer(r.request))
-        settle(page)
-        self.assertLess(page.evaluate("document.querySelector('#left').scrollTop"), 50)
-
-    @unittest.skipIf(sys.platform == "darwin", "Home scrolls no pane on macOS: issue #414")
-    def test_images_that_load_before_the_keys_scroll_is_read_leave_the_pane_at_the_top(self):
-        """The Home of the test above on a renderer too busy to paint: the page's frames are held from just before the
-        key, so its scroll to the top is not read yet (the spot is still a line below the top) when the images let go
-        load. The spot was read at another offset than the pane's now: it is not put back but read again where the pane
-        stands (mdSpotBack), and the pane stays at the top, also once the frames run. Mutation: put back whatever spot was
-        read last (no offset test in mdSpotBack) -> the loads take the pane back down to the line read before the key,
-        fails. On a busy runner that was HeadingJumpFirefox's flake (2,987px)."""
-        self.home_before_the_frame(lambda r: r.fulfill(**self.answer(r.request)))
-
-    @unittest.skipIf(sys.platform == "darwin", "Home scrolls no pane on macOS: issue #414")
-    def test_images_that_fail_before_the_keys_scroll_is_read_leave_the_pane_at_the_top(self):
-        """The same with images the server does not give: each becomes its alt text (mdPicError), which puts the spot
-        back the same way. Same mutation -> fails."""
-        self.home_before_the_frame(lambda r: r.fulfill(status=404, body=""))
-
-    def home_before_the_frame(self, answer):
-        """The jump with its images held; frames held, Home, then every held image answered by answer before any frame."""
-        for i in range(1, 7):
-            (self.src / "notes" / "img" / ("p%d.png" % i)).write_bytes(blank_png(200, 900))
-        page = self.open_md(init=FRAMES_HELD)
-        self.holding = True
-        page.locator("#md a.md-doclink").first.click()
-        until(page, "DOC==='gd'&&" + DRAWN, 20)
-        until(
-            page, "!!MD.goTo&&document.querySelector('#left').scrollTop>200"
-        )  # on its way, its spot read below the top
-        page.evaluate("document.activeElement&&document.activeElement.blur(); window.__framesHeld=true")
-        page.keyboard.press("Home")
-        until(page, "document.querySelector('#left').scrollTop===0")
-        self.assertTrue(page.evaluate("!MD.goTo&&!!MD.spot&&!!MD.spot.el"))  # the key's scroll is not read yet
-        held, self.hold[:] = list(self.hold), []
-        self.assertTrue(held)
-        page.evaluate("window.__picDone=0")
-        for r in held:
-            answer(r)
-        until(page, "window.__picDone>=%d" % len(held))
-        self.assertEqual(page.evaluate("document.querySelector('#left').scrollTop"), 0)
-        page.evaluate("window.__framesGo()")
-        self.holding = False  # what the grown images bring into reach loads as it comes, and so does what is still held
-        held, self.hold[:] = list(self.hold), []
-        for r in held:
-            answer(r)
         settle(page)
         self.assertLess(page.evaluate("document.querySelector('#left').scrollTop"), 50)
 

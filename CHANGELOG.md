@@ -108,13 +108,6 @@
 - A pin's quote taken by a tap, or from a selection cut back to the document, keeps a hidden character exactly where it
   stands. It was read with `innerText`, which in Chromium put a line break on each side of the character's box and in
   Firefox dropped bidirectional controls altogether (on the text surface too).
-- **An image that loads before a scroll's frame no longer takes a Markdown document back to where it was.** The reading
-  spot an image's load or failure puts back was the one the last scroll frame had read, so a load that came before the
-  frame of a scroll (Home, a wheel, a key) put back the place before it: on a busy renderer the document jumped 3,000px
-  back down after Home. A spot read at another scroll offset than the pane's now is not put back: the spot is read where
-  the pane stands, and the browser's scroll anchoring keeps the text. An image that shrinks near the document's end,
-  where the browser cuts the offset back to the new end, is no scroll: the text read stays - unless the person scrolled
-  just before (End before its frame stays at the end) - and a pin's [보기] keeps the pin's line where it put it.
 - **`GET /api/version` names the code the server runs, not the file on disk** (HTTP API semantics, #415). It read
   `__version__` from the package file on every request, so a checkout pulled or an install upgraded under a running
   server made it answer the new version while the old code kept running - an instance 28 releases behind looked
