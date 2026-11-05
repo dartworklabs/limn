@@ -32,7 +32,7 @@ STORE_FNS = [
     "noticeHeld", "lineHeld", "holdLine", "releaseLine", "lineHoverIn", "lineHoverOut", "lineVisible", "noticeAct",
     "noticeClose", "noticeFocusBack", "deferred", "deferredNote", "undoNote", "offerSeen", "sourceEntry", "sourceOk",
     "flushDeferred", "isUndo", "lineCap", "sameWords", "realMove", "digestHold", "noticeDots", "holdsDot", "newsDupe",
-    "foldedNews",
+    "foldedNews", "gatheredDupe", "gatheredLess", "dotHeld", "digestDots",
 ]  # fmt: skip
 STORE_CONSTS = r"^const (?:NOTICE_MS|NOTICE_HOLD_MAX|LINE_MAX)=\d+;"
 
