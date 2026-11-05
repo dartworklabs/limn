@@ -143,15 +143,42 @@ class CompareRules(unittest.TestCase):
             self.run_js("mdcWhy(%s,%s)" % (json.dumps(unit("P", INTRO)), json.dumps(unit("P", INTRO2)))), ""
         )
 
+    def test_a_code_blocks_key_holds_its_body_and_language(self):
+        """mdcShape of a code block (a stand-in PRE with the renderer's .ln lines and data-lang) is its language and its
+        lines as they are: return 1; and return 2; in one place are one block changed in place, not the same block; an
+        indent or the language alone changes it too, and mdcWhy says which. The same code is the same block."""
+
+        def code(lang, *lines):
+            stub = "{tagName:'PRE',dataset:{lang:%s},querySelectorAll:()=>%s.map(t=>({textContent:t+'\\n'}))}" % (
+                json.dumps(lang),
+                json.dumps(list(lines)),
+            )
+            shape = self.run_js("mdcShape(%s)" % stub)
+            return unit("PRE", " ".join(" ".join(lines).split()), shape=shape)
+
+        one, two = code("js", "function f() {", "  return 1;", "}"), code("js", "function f() {", "  return 2;", "}")
+        end = unit("P", "끝")
+        self.assertNotEqual(one["key"], two["key"])
+        self.assertEqual(self.ops([one, end], [two, end]), [["mod", 0, 0], ["eq", 1, 1]])
+        self.assertEqual(self.ops([one, end], [dict(one), end]), [["eq", 0, 0], ["eq", 1, 1]])
+        flat, py = code("js", "function f() {", "return 1;", "}"), code("python", "function f() {", "  return 1;", "}")
+        self.assertEqual(
+            [self.run_js("mdcWhy(%s,%s)" % (json.dumps(one), json.dumps(x))) for x in (two, flat, py)],
+            ["", "코드의 공백·들여쓰기가 바뀜", "코드 언어가 바뀜"],
+        )
+        self.assertEqual(self.ops([one, end], [py, end]), [["mod", 0, 0], ["eq", 1, 1]])
+
     def test_git_lines_are_turned_into_the_sides_screen_lines(self):
         """A side whose line 3 holds a form feed and line 5 a U+2028 ([[1,1],[4,5],[6,8]] from the server): git's lines
         4 and 6-7 are the screen's 5 and 8-9; without a map the numbers are the same."""
         got = self.run_js(
             "[mdcGitRange([[1,1],[4,5],[6,8]],10,[4,4]),mdcGitRange([[1,1],[4,5],[6,8]],10,[3,3]),"
             "mdcGitRange([[1,1],[4,5],[6,8]],10,[6,7]),mdcGitRange([[1,1],[4,5],[6,8]],10,[7,9]),"
-            "mdcGitRange(undefined,10,[4,4])]"
+            "mdcGitRange(undefined,10,[4,4]),mdcGitRange([[1,1],[4,6]],5,[3,3]),mdcGitRange([[1,1],[2,3]],2,[1,1])]"
         )
-        self.assertEqual(got, [[5, 5], [3, 4], [8, 9], [9, 10], [4, 4]])
+        # the last two: the server's end pair (git's count + 1 at the screen's + 1) gives the last git line its every
+        # screen line - first/(empty)/A\f\fB is git's 3 lines and the screen's 5; A\u2028B is git's 1 and the screen's 2
+        self.assertEqual(got, [[5, 5], [3, 4], [8, 9], [9, 10], [4, 4], [3, 5], [1, 2]])
 
     def test_a_large_compare_stops_pairing_at_its_budget_and_marks_the_rest_added_and_taken_out(self):
         """8,000 blocks taken out and 8,000 added in one gap, each pair alike: the subsequence gives up past 4 million

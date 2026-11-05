@@ -284,6 +284,8 @@ class Layout(CompareBase):
 
 STRUCT = "# 구조\n\n{warn}\n\n{quote}인용한 문장이다.\n\n{n}. 첫 항목\n{m}. 둘째 항목\n\n![{alt}](figs/v1.png)\n\n끝 문단이다.\n"
 FF = "# 줄 끝\n\nA 문단이다.\x0c이어지는 A.\n\nB 첫 줄이다.\u2028B 둘째 줄.\n\nC 문단이다.\n\n{d}\n"
+CODE = "# 코드\n\n```{lang}\nfunction f() {{\n  return {v};\n}}\n```\n\n끝 문단이다.\n"
+TAIL = "# 끝\n\n첫 문단이다.\n\nA 문단이다.\x0c\x0c{b}{end}"
 
 
 class OneNote(CompareBase):
@@ -389,6 +391,92 @@ class PinPastOtherLineEnds(OneNote):
             "c.querySelectorAll('.sr-only,del').forEach(x=>x.remove());return [e.dataset.mdc||'',c.textContent.trim()];})"
         )
         self.assertEqual(rows, [["mod", "D 문단을 고쳤다."]])
+
+
+class CodeBody(OneNote):
+    """A code block whose body changes (return 1; to return 2;), then whose fence language alone changes (js to python)."""
+
+    def texts(self):
+        return [CODE.format(lang="js", v=1), CODE.format(lang="js", v=2), CODE.format(lang="python", v=2)]
+
+    def code_marks(self, page):
+        """The code block's taken-out and added lines on screen: (del lines, ins lines)."""
+        return page.evaluate(
+            "[[...document.querySelectorAll('#revision-rendered pre del.mdc-w')].map(e=>e.textContent),"
+            "[...document.querySelectorAll('#revision-rendered pre ins.mdc-w')].map(e=>e.textContent)]"
+        )
+
+    def test_a_code_blocks_changed_body_is_a_block_changed_with_its_lines_marked(self):
+        """The body edit: the code block is changed in place (not "the same drawn", not "no changed block"), its old line
+        put back as a line of its own and struck through, its new line marked; the status counts one changed block. The
+        language edit: changed in place, its tip saying the language changed."""
+        page = self.open_compare()
+        self.assertEqual([(k, t) for k, t, _ in self.marks(page)], [("mod", "PRE")])
+        self.assertEqual(
+            page.evaluate("document.querySelector('#revision-rendered pre[data-mdc]').dataset.mdcWhy"),
+            "코드 언어가 바뀜",
+        )
+        self.show(page, self.c[1])
+        self.assertEqual([(k, t) for k, t, _ in self.marks(page)], [("mod", "PRE")])
+        self.assertEqual(self.code_marks(page), [["  return 1;\n"], ["  return 2;"]])
+        lines = page.evaluate(
+            "(()=>{const c=document.querySelector('#revision-rendered pre').cloneNode(true);"
+            "c.querySelectorAll('.sr-only').forEach(x=>x.remove());return c.textContent.split('\\n');})()"
+        )
+        self.assertEqual(lines, ["function f() {", "  return 1;", "  return 2;", "}", ""])
+        status = page.evaluate("document.getElementById('revision-status').textContent")
+        self.assertIn("고침 1", status)
+        self.assertNotIn("바뀐 블록 없음", status)
+        self.assertFalse(
+            page.evaluate(
+                "document.querySelector('#revision-rendered').textContent.includes('두 판의 그린 문서가 같습니다')"
+            )
+        )
+
+
+class PinInTheLastGitLine(OneNote):
+    """A note whose last git line holds two form feeds, so its paragraph B is the screen's line 7 and git's line 5, with no
+    git line after it: the commit rewrites B, with and without a final newline."""
+
+    def texts(self):
+        return [
+            TAIL.format(b="B 문단이다.", end="\n"),
+            TAIL.format(b="B 문단을 고쳤다.", end="\n"),
+            TAIL.format(b="B 문단을 또 고쳤다.", end=""),
+        ]
+
+    def ringed(self, commit):
+        """The blocks a pin on B closed with commit rings in its [변경 보기], as [kind, text]."""
+        self.md.write_text(self.texts()[self.c.index(commit)], encoding="utf-8")
+        lines = self.md.read_text(encoding="utf-8").splitlines()
+        lo = next(i for i, ln in enumerate(lines, 1) if ln.startswith("B "))
+        self.assertEqual(lo, 7)
+        body = json.dumps({"doc": "nt", "file": str(self.md), "lo": lo, "hi": lo, "note": "n"}).encode()
+        code, _, out = self.talk(req("POST", "/api/pin", body, {"Content-Type": "application/json"}))
+        self.assertEqual(code, 200, out)
+        pid = json.loads(out)["id"]
+        close = json.dumps({"ref": "(%s)" % commit[:7], "changes": [{"file": "note.md", "lo": lo, "hi": lo}]}).encode()
+        code, _, out = self.talk(req("POST", "/api/pins/%d/close" % pid, close, {"Content-Type": "application/json"}))
+        self.assertEqual(code, 200, out)
+        page = self.open(0)
+        until(page, DRAWN, 20)
+        until(page, "REVIEW_ALL.some(p=>p.id===%d)" % pid, 10)
+        page.evaluate("showChange(%d)" % pid)
+        until(page, COMPARED + "&&!!document.querySelector('#revision-rendered .mdc-pin')", 15)
+        settle(page)
+        rows = page.evaluate(
+            "[...document.querySelectorAll('#revision-rendered .mdc-pin')].map(e=>{const c=e.cloneNode(true);"
+            "c.querySelectorAll('.sr-only,del').forEach(x=>x.remove());return [e.dataset.mdc||'',c.textContent.trim()];})"
+        )
+        page.close()
+        return rows
+
+    def test_a_pins_hunk_in_the_last_git_line_rings_the_block_it_changed(self):
+        """git's hunk [5,5] is the screen's lines 5-7 (A to B), so the pin rings B, changed - not A alone, unchanged."""
+        self.assertEqual(self.ringed(self.c[1]), [["mod", "B 문단을 고쳤다."]])
+
+    def test_the_same_without_a_final_newline(self):
+        self.assertEqual(self.ringed(self.c[2]), [["mod", "B 문단을 또 고쳤다."]])
 
 
 class ImageNotice(CompareBase):

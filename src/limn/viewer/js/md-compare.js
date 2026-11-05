@@ -84,19 +84,27 @@ function mdcBoxes(el,root){const out=[]; for(let a=el.parentElement;a&&a!==root;
   return out.join('>');}
 // A unit's inline structure as one string: its text, whitespace folded, with every inline element around its part as a mark
 // (<strong>…</strong>, <code>…</code>, an image as <img alt>), a list item's nested blocks and the screen reader's words left
-// out. A code block's is its text alone (its lines are its words). Pure over the DOM.
+// out. A code block's is its fence's language and its lines exactly as they are (mdcCode). Pure over the DOM.
 /** @param {HTMLElement} el */
-function mdcShape(el){if(el.tagName==='PRE')return ''; let s='';
+function mdcShape(el){if(el.tagName==='PRE')return mdcCode(el.dataset.lang||'',[...el.querySelectorAll('.ln')].map(l=>String(l.textContent||'').replace(/\n$/,''))); let s='';
   const walk=(/** @type {Node} */n)=>{for(const c of n.childNodes){if(c.nodeType===3){s+=c.nodeValue; continue;} if(c.nodeType!==1)continue;
     const e=/** @type {HTMLElement} */(c); if(el.tagName==='LI'&&mdcNested(e)||e.classList.contains('sr-only'))continue;
     const t=e.tagName.toLowerCase(); if(t==='img'){s+='\u0002img '+(e.getAttribute('alt')||'')+'\u0003'; continue;}
     s+='\u0002'+t+'\u0003'; walk(e); s+='\u0002/'+t+'\u0003';}};
   walk(el); return s.replace(/\s+/g,' ').trim();}
+// A code block's inline structure: its language (the fence's info word) and its lines, spaces and all - so a code block whose
+// body or language changed is another block. Pure.
+/** @param {string} lang @param {string[]} lines */
+function mdcCode(lang,lines){return '\u0002pre '+lang+'\u0003'+lines.join('\n');}
+// The language a code block's shape (mdcCode) carries. Pure.
+/** @param {string} shape */
+function mdcLang(shape){const m=/^\u0002pre ([^\u0003]*)\u0003/.exec(shape); return m?m[1]:'';}
 // What changed in a block changed in place whose text stayed: its inline structure, an image's alt text, the list numbering,
 // the boxes it sits in - '' when its words changed (the marked words say what). Pure.
 /** @param {MdcUnit} o @param {MdcUnit} n */
 function mdcWhy(o,n){if(o.text!==n.text)return '';
   if(o.alts!==n.alts)return tr('그림 대체 글이 바뀜');
+  if(o.tag==='PRE'&&o.shape!==n.shape)return mdcLang(o.shape)!==mdcLang(n.shape)?tr('코드 언어가 바뀜'):tr('코드의 공백·들여쓰기가 바뀜');
   if(o.shape!==n.shape)return tr('글자 모양(굵게·기울임·코드·링크)이 바뀜');
   if(o.box!==n.box)return o.box.replace(/OL\d+/g,'OL')===n.box.replace(/OL\d+/g,'OL')?tr('목록 번호가 바뀜'):tr('인용·목록 안팎으로 자리가 바뀜');
   return '';}
@@ -191,9 +199,12 @@ function mdcWordMarks(oldEl,newEl,inline,budget){if(budget&&budget.left<=0)retur
   /** @type {{node:Text,s:number,e:number,kind:string,text?:string}[]} */
   const edits=[]; const span=(/** @type {MdcTok[]} */ts,kind)=>{let k=0; while(k<ts.length){let j=k; while(j+1<ts.length&&ts[j+1].node===ts[k].node)j++; edits.push({node:ts[k].node,s:ts[k].s,e:ts[j].e,kind}); k=j+1;}};
   let gone=/** @type {MdcTok[]} */([]);
+  // a code block's words are whole lines: the taken-out lines go back as lines of their own (before the next line, or after
+  // the last one before its line end), not run into the words around them
+  const pre=newEl.tagName==='PRE',sep=pre?'\n':' ';
   const flushGone=(/** @type {number} */bAt)=>{if(!gone.length)return; if(!inline){span(gone,'del');} else{const at=b[bAt]||b[b.length-1];
-      const text=gone.map((t,i)=>i&&gone[i-1].node===t.node&&gone[i-1].e===t.s?t.w:(i?' ':'')+t.w).join('');
-      if(at)edits.push({node:at.node,s:b[bAt]?at.s:at.e,e:b[bAt]?at.s:at.e,kind:'put',text:(b[bAt]?'':' ')+text+(b[bAt]?' ':'')}); else edits.push({node:/** @type {any} */(null),s:0,e:0,kind:'put',text});}
+      const text=pre?gone.map(t=>t.w).join('\n'):gone.map((t,i)=>i&&gone[i-1].node===t.node&&gone[i-1].e===t.s?t.w:(i?' ':'')+t.w).join('');
+      if(at)edits.push({node:at.node,s:b[bAt]?at.s:at.e,e:b[bAt]?at.s:at.e,kind:'put',text:(b[bAt]?'':sep)+text+(b[bAt]?sep:'')}); else edits.push({node:/** @type {any} */(null),s:0,e:0,kind:'put',text});}
     gone=[];};
   let bi=0; for(const o of ops){if(o.t==='eq'){flushGone(o.b); bi=o.b+1; continue;} if(o.t==='del'){gone.push(a[o.a]); continue;} flushGone(o.b); span([b[o.b]],'ins'); bi=o.b+1;}
   flushGone(bi);
@@ -313,7 +324,8 @@ function mdcUnitEls(root,ghosts){return [...root.querySelectorAll(MDC_UNIT+(ghos
 // Git's lines [a,b] of a side (counted on LF alone, as a hunk counts them) as the screen's lines of that side (the side's
 // lines, str.splitlines() - a form feed, a lone CR, U+2028 end a line there and not for git). map is the side's
 // git_line_starts from GET /api/revision-source: [git line, screen line] pairs from which on git line g starts on screen line
-// s + (g - g0), absent when the two agree; n the side's line count. Line a's first screen line to the last before line b+1's.
+// s + (g - g0), absent when the two agree - the last pair the line after the last git line, after the last screen line,
+// when the last git line holds several; n the side's line count. Line a's first screen line to the last before line b+1's.
 // Pure.
 /** @param {number[][]|null|undefined} map @param {number} n @param {number[]} range @returns {number[]} */
 function mdcGitRange(map,n,range){const [a,b]=range; if(!map||!map.length)return [a,b];

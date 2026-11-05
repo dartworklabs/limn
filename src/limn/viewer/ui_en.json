@@ -1538,6 +1538,8 @@
  "그림 대체 글이 바뀜": "Image alt text changed",
  "글자 모양(굵게·기울임·코드·링크)이 바뀜": "Inline formatting (bold, italics, code, links) changed",
  "목록 번호가 바뀜": "List numbering changed",
+ "코드 언어가 바뀜": "Code language changed",
+ "코드의 공백·들여쓰기가 바뀜": "Code spacing or indentation changed",
  "인용·목록 안팎으로 자리가 바뀜": "Moved into or out of a quote or list",
  "바뀐 곳이 많아 블록을 짝짓지 않고 더한 블록과 뺀 블록으로만 표시합니다. 낱말 단위는 [소스 diff]에 있습니다.": "So much changed that blocks are not paired: they are shown as added and removed only. Word-level changes are in [Source diff].",
  "이 커밋에서 파일이 처음 생겼습니다 — 모든 블록이 더한 블록입니다.": "This commit created the file — every block is added.",
