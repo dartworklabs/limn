@@ -78,6 +78,15 @@ def parse_revision_query(q: Query) -> RevisionQuery | InputRejected:
     return _with_base(commit, pin, query_first(q, "base"))
 
 
+def parse_source_query(q: Query) -> RevisionQuery | InputRejected:
+    """GET /api/revision-source: ?commit= (parse_commit) and the optional &base= (parse_base). It names no pin: the
+    rendered compare marks a pin's blocks itself, from the pin's lines."""
+    commit = parse_commit(query_first(q, "commit", "") or "")
+    if isinstance(commit, InputRejected):
+        return commit
+    return _with_base(commit, None, query_first(q, "base"))
+
+
 def parse_revision_build(d: Json) -> RevisionQuery | InputRejected:
     """POST /api/revision-build's body: only commit, base, doc and pin; pin, when present, a JSON integer in range;
     then the commit (parse_commit), then base when the body names it - a full SHA-1 string (null and "" are refused,

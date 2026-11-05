@@ -956,6 +956,128 @@ def range_diff(
     }
 
 
+# ---------------------------------------------------------------- both sides of a browser-drawn document (the rendered compare)
+
+# The most bytes of one side GET /api/revision-source reads and sends: GET /api/source's limit
+# (limn.documents.source.SOURCE_MAX_BYTES, ADR-0025 D7), so a side the viewer could not draw as the current source is never
+# read either. tests/contracts keep the two equal.
+REVISION_SOURCE_MAX = 1_048_576
+_SIDE_MODES = ("100644", "100755")  # a regular file; a symlink (120000) or a submodule (160000) has no lines
+
+
+def _side_lines(repo: Path, sha: str, rel: str) -> Json | None:
+    """The document's file rel (repository-relative) as it is at commit sha, numbered as GET /api/source numbers the
+    current source - its UTF-8 text split with str.splitlines() - as {lines}; None when the file is not in that commit.
+    A side that cannot be drawn is {reason, ...} instead of lines, named as the API names its refusals: source_too_large (with bytes and limit, never read past
+    the size git reports), source_not_utf8, not_a_file (a symlink or a submodule at that path), source_unreadable (git
+    could not read it - in a partial clone, a blob that is not here; HTTP reads never fetch it, limn.platform.git).
+
+    Two bounded git reads: `ls-tree` names the entry (its mode, type and object; the one entry whose name is exactly
+    rel), `cat-file -s` its size, then `cat-file blob` at most REVISION_SOURCE_MAX bytes of it. rel goes to ls-tree as
+    the history names it, a ':(literal)' pathspec - bare, a name such as ':plan.md' or ':(glob)*.md' would read as
+    pathspec magic - and still only the entry of exactly that name is taken (a folder of that name is listed as its
+    own entry, a tree, and is not_a_file).
+    sha is a full SHA-1 the caller checked against the history window. Writes nothing."""
+    ran = git_exec(["ls-tree", "-z", "--full-tree", sha, "--", ":(literal)" + rel], repo, GIT_TIMEOUT, 64 * 1024)
+    if isinstance(ran, StepFailed) or ran[0] != 0:
+        return {"reason": "source_unreadable"}
+    entry = None
+    for item in ran[1].split(b"\0"):
+        meta, _, name = item.partition(b"\t")
+        if name.decode("utf-8", errors="replace") == rel:
+            entry = meta.decode("ascii", errors="replace").split()
+    if entry is None:
+        return None
+    if len(entry) != 3 or entry[0] not in _SIDE_MODES or entry[1] != "blob" or not REVISION_ID_RE.fullmatch(entry[2]):
+        return {"reason": "not_a_file"}
+    oid = entry[2]
+    rc, size, _ = git(["cat-file", "-s", oid], repo)
+    if rc != 0 or not size.strip().isdigit():
+        return {"reason": "source_unreadable"}
+    if int(size.strip()) > REVISION_SOURCE_MAX:
+        return {"reason": "source_too_large", "bytes": int(size.strip()), "limit": REVISION_SOURCE_MAX}
+    ran = git_exec(["cat-file", "blob", oid], repo, GIT_TIMEOUT, REVISION_SOURCE_MAX + 4096)
+    if isinstance(ran, StepFailed) or ran[0] != 0:
+        return {"reason": "source_unreadable"}
+    try:
+        text = ran[1].decode("utf-8")
+    except UnicodeDecodeError:
+        return {"reason": "source_not_utf8"}
+    starts = git_line_starts(text)
+    return {"lines": text.splitlines(), **({"git_line_starts": starts} if starts else {})}
+
+
+def git_line_starts(text: str) -> list[list[int]]:
+    """Where git's lines of text (counted on "\\n" alone, as a hunk header counts them) start among its screen lines (the
+    lines str.splitlines() gives, as every side and GET /api/source number them): the pairs [git line, screen line], 1-based,
+    at which the difference between the two numbers changes - from git line g0 on, git line g starts on screen line
+    s0 + (g - g0) - the first always [1, 1]. [] when the two agree on every line (no form feed, lone CR, U+2028 or other line
+    end git does not split on). A git line ends on the screen line before the next git line starts; so the last git line
+    ends too, the line after it - git's line count + 1 - starts after the last screen line (screen line count + 1), which
+    is a pair of its own when the last git line holds more than one screen line, with a final newline or without. Pure."""
+    pairs: list[list[int]] = []
+    git_line, starts_git_line, screen = 1, True, 0
+    for screen, piece in enumerate(text.splitlines(keepends=True), 1):
+        if starts_git_line and (not pairs or screen - git_line != pairs[-1][1] - pairs[-1][0]):
+            pairs.append([git_line, screen])
+        starts_git_line = piece.endswith("\n")  # LF or CRLF: git's line ends here too
+        git_line += starts_git_line
+    end_git = git_line if starts_git_line else git_line + 1  # the line after the last, as if one more line followed
+    if pairs and screen + 1 - end_git != pairs[-1][1] - pairs[-1][0]:
+        pairs.append([end_git, screen + 1])
+    return pairs if len(pairs) > 1 else []
+
+
+def _literal_path(paths: Sequence[str]) -> str | None:
+    """The one repository-relative path a single-file history pathspec names (_files_scope over one file: one
+    ':(literal)<rel>' include, then excludes only - files_pathspec, dot_excludes), or None for any other pathspec
+    (several files, none, a LaTeX document's patterns). Pure."""
+    named = [p[len(":(literal)") :] for p in paths if p.startswith(":(literal)")]
+    return named[0] if len(named) == 1 and named[0] not in ("", ".") else None
+
+
+def revision_sources(
+    D: RevisionDoc, commit: str, base: str | None, files: Sequence[Path], windows: WindowCache | None = None
+) -> Json | NoHistory | CommitNotRecent | DiffFailed | RangeRefusal:
+    """GET /api/revision-source: a browser-drawn document's own file (files: its one history file) on the two sides the
+    source diff compares - the commit's first parent (no side for a root commit) and the commit, or with base the range's
+    old side (range_ends: base, or the merge base of a base on another line) and the commit - each side as _side_lines
+    gives it ({lines, git_line_starts?}). The viewer draws both and marks the blocks that changed (docs/superpowers/specs/2026-11-05-markdown-rendered-
+    compare.md). Only a commit of the document's history window is read, and base under the range's rules, so no other
+    object of the repository is named. Answers {id, base, merge_base?, path, old, new}: base the old side's SHA-1 (None
+    for a root commit), path the file's repository-relative path as it was registered (the history window's own),
+    old/new the sides (None: the file is not there - added or deleted by the commit, or a folder on its path is a
+    symlink in that commit). An empty range (base == commit) has the same side twice. Reads only."""
+    window = revision_window(D, files, windows)
+    if isinstance(window, NoHistory):
+        return window
+    repo, paths, rows = window
+    if base is not None:
+        found = range_ends(D, commit, base, files, windows)
+        if not isinstance(found, tuple):
+            return found
+        old: str | None = found[2].old
+        tail: Json = {"merge_base": found[2].merge_base} if found[2].merge_base is not None else {}
+    elif commit not in {row["id"] for row in rows}:
+        return CommitNotRecent()
+    else:
+        old, tail = revision_first_parent(repo, commit), {}
+    # Both sides are read at the very path the history window lists the commits of: the document's file as it was
+    # registered (_files_scope, registered_file), one literal pathspec. Nothing is resolved again here, so a folder that
+    # is now a symlink - to a dot-named folder, another folder or another repository - never names another file.
+    rel = _literal_path(paths)
+    if rel is None:
+        return NoHistory()
+    return {
+        "id": commit,
+        "base": old,
+        **tail,
+        "path": rel,
+        "old": None if old is None else _side_lines(repo, old, rel),
+        "new": _side_lines(repo, commit, rel),
+    }
+
+
 def matching_pin_changes(pin: PinProjection, head: str, revisions: Sequence[Record]) -> Sequence[PinChange]:
     """The pin's recorded changes that count on commit head: all of them when its close_ref names head among
     revisions (revision-owned Git/PR reference resolution, _ref_commit over the history window rows), else none - on

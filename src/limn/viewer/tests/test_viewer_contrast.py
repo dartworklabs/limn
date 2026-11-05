@@ -351,6 +351,12 @@ NOT_WALKED: dict[str, tuple[float | None, str]] = {
         TEXT,
         "the notices above a text or Markdown document's lines: the walk opens neither surface's notices",
     ),
+    ".mdc-legend": (TEXT, "the rendered compare's legend (md-compare.js): the walk opens no Markdown changes view"),
+    ".mdc-info": (TEXT, "the rendered compare's notes above it: the walk opens no Markdown changes view"),
+    ".mdc-doc .mdc-ghost": (
+        TEXT,
+        "a moved block's old place in the rendered compare: the walk opens no Markdown changes view",
+    ),
     # inactive or passing: not held
     "button:disabled": (INACTIVE, "a disabled control"),
     '.vd-btns button[aria-disabled="true"]': (INACTIVE, "a verdict button that cannot be pressed"),

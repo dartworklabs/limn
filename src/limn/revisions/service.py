@@ -53,6 +53,16 @@ class RevisionRequests:
         context = self.context()
         return revisions.revision_diff(doc, commit, pin, context, context.history_files(doc), base)
 
+    def sources(self, doc: Doc, commit: str, base: str | None = None) -> dict[str, Any] | DiffRefusal | RangeRefusal:
+        """The file of a document the browser draws (a Markdown or a text document) on the two sides of a commit, or of
+        the range from base. Any other document has no such sides: it answers as a document without them, as a figure
+        document's comparison PDF routes do (CommitNotRecent)."""
+        context = self.context()
+        files = context.history_files(doc)
+        if not doc.renders_in_browser or not files:
+            return CommitNotRecent()
+        return revisions.revision_sources(doc, commit, base, files, context.windows)
+
     def status(
         self, doc: Doc, commit: str, pin: int | None = None, base: str | None = None
     ) -> dict[str, Any] | StatusRefusal | RangeRefusal:

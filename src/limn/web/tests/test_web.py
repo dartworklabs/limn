@@ -283,6 +283,7 @@ GET_ROUTES = (
     "/md-parse.mjs",
     "/api/revisions",
     "/api/revision-diff",
+    "/api/revision-source",
     "/api/revision-build",
     "/api/revision-pdf",
     "/api/outline-labels",

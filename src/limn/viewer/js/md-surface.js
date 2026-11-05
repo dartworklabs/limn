@@ -43,6 +43,21 @@ const MD={gen:0,doc:/** @type {string|null} */(''),file:'',name:'',lines:/** @ty
   // a heading a link from another document asked for, gone to once this document is drawn in that visit (mdGoDoc), and the
   // heading a jump in flight is going to (mdGoHeading: an image that gets its size moves the destination, not the reading spot)
   headTo:/** @type {{doc:string,id:string,seq:number}|null} */(null),goTo:/** @type {{el:HTMLElement,doc:string|null}|null} */(null)};
+// A draw's render context (MdRx): the source lines it numbers its blocks from (lines), the elements built so far (els), the
+// characters drawn in their boxes (marked), whether the next text drawn may be the file's first, its byte-order mark kept
+// (bom, mdText), and the headings (heads). The renderer reads and writes only these; the document view's context is MD
+// itself (mdRenderAll), and the rendered compare (md-compare.js) builds each side with a context of its own (mdRx).
+/** @typedef {{level:number,lo:number,el:HTMLElement,title:string,slug:string}} MdHead */
+/** @typedef {{lines:string[],els:number,marked:number,bom:boolean,heads:MdHead[]}} MdRx */
+// A fresh render context for lines: nothing built, its first text the file's first.
+/** @param {string[]} lines @returns {MdRx} */
+function mdRx(lines){return {lines,els:0,marked:0,bom:String(lines[0]||'').charCodeAt(0)===0xfeff,heads:[]};}
+// The render context a drawn root was built with (the compare's sides, mdRxKeep); any other root is the document view's, MD.
+const MD_RX=/** @type {WeakMap<Element,MdRx>} */(new WeakMap());
+/** @param {Element} root @param {MdRx} cx */
+function mdRxKeep(root,cx){MD_RX.set(root,cx);}
+/** @param {Element|null} e @returns {MdRx} */
+function mdRxOf(e){const root=e&&e.closest('.md'); return (root&&MD_RX.get(root))||MD;}
 // Whether the document on screen is drawn here (no pages), and whether pin p belongs to such a document of this instance.
 function isMdDoc(){return !!META&&rendersInBrowser(META.kind);}
 /** @param {Pin} p */
@@ -225,12 +240,12 @@ function mdColumnShown(){return $('#left').getClientRects().length>0;}
 // Whether any of the chosen lines (.md-sel) stands in the part of the document area they can be seen in (selRoom).
 function mdSelSeen(){const e=document.querySelector('#md .md-sel'); if(!e)return false; const r=e.getBoundingClientRect(),m=selRoom();
   return r.bottom>m.top&&r.top<m.bottom-8;}
-// Builds article#md from the worker's tokens (mdRender), with a yield to the browser and a check for a newer draw whenever
-// mdRender pauses, or null when the elements built pass MD_LIMITS.elements (stale(): a newer draw - then whatever was built
-// is dropped too).
+// Builds article#md from the worker's tokens (mdRender, with MD as its render context), with a yield to the browser and a
+// check for a newer draw whenever mdRender pauses, or null when the elements built pass MD_LIMITS.elements (stale(): a newer
+// draw - then whatever was built is dropped too).
 /** @param {any[]} tokens @param {()=>boolean} stale @returns {Promise<HTMLElement|null>} */
 async function mdRenderAll(tokens,stale){const root=document.createElement('article'); root.className='md'; root.id='md'; root.setAttribute('translate','no'); root.lang='';   // the document's language is not known (docs/handbook/viewer.md §그리기): not the screen's (<html lang>)
-  MD.els=0; MD.marked=0; MD.bom=String(MD.lines[0]||'').charCodeAt(0)===0xfeff; MD.heads=[]; const work=mdRender(root,tokens);
+  MD.els=0; MD.marked=0; MD.bom=String(MD.lines[0]||'').charCodeAt(0)===0xfeff; MD.heads=[]; const work=mdRender(root,tokens,MD);
   try{for(const pause of work){void pause; await mdYield(); if(stale())return null;}}
   catch(e){if(e===MD_OVER)return null; throw e;}
   if(MD.marked)root.prepend(txNote('marks',txMarksText(MD.marked)));   // the text surface's notice (text-surface.js), above the first block
@@ -238,8 +253,9 @@ async function mdRenderAll(tokens,stale){const root=document.createElement('arti
 // The DOM build as a generator that pauses after every MD_LIMITS.chunk units of work - a token, an inline child, a code line,
 // one block of a raw HTML run - counted on one counter (w, mdDue) wherever they fall: one paragraph of 120,000 inline tokens
 // or one code block of 30,000 lines pauses inside itself. Two or more raw HTML blocks in a row are one run (mdHtmlRunEl).
-/** @param {HTMLElement} root @param {any[]} tokens @returns {Generator<void,void,void>} */
-function* mdRender(root,tokens){const r=mdRenderer(root),w={n:0};
+// cx is the draw's render context (MdRx): its lines, its element count, its marked characters and its headings.
+/** @param {HTMLElement} root @param {any[]} tokens @param {MdRx} cx @returns {Generator<void,void,void>} */
+function* mdRender(root,tokens,cx){const r=mdRenderer(root,cx),w={n:0};
   for(let i=0;i<tokens.length;i++){const t=tokens[i]; let j=i;
     while(t.type==='html_block'&&tokens[j+1]&&tokens[j+1].type==='html_block')j++;
     if(j>i){yield* r.run(tokens.slice(i,j+1),w); i=j;} else yield* r.token(t,w);
@@ -248,9 +264,9 @@ function* mdRender(root,tokens){const r=mdRenderer(root),w={n:0};
 /** @param {{n:number}} w */
 function mdDue(w){if(++w.n<MD_LIMITS.chunk)return false; w.n=0; return true;}
 const MD_OVER={over:true};   // thrown by mdEl past MD_LIMITS.elements
-// One element of the drawn document, counted against MD_LIMITS.elements.
-/** @param {string} tag @returns {HTMLElement} */
-function mdEl(tag){if(++MD.els>MD_LIMITS.elements)throw MD_OVER; return document.createElement(tag);}
+// One element of the drawn document, counted against MD_LIMITS.elements on render context cx.
+/** @param {string} tag @param {MdRx} cx @returns {HTMLElement} */
+function mdEl(tag,cx){if(++cx.els>MD_LIMITS.elements)throw MD_OVER; return document.createElement(tag);}
 // ---------------- Characters that hide or reorder text in the drawn document (ADR-0029 D5, docs/handbook/viewer.md §숨은 문자)
 // Every piece of the source's text the document draws - a paragraph's, a heading's, a list item's, a table cell's, a link's,
 // inline and block code, a raw HTML placeholder's first line, an image's alt text - goes in through mdText, pausing with the
@@ -258,112 +274,115 @@ function mdEl(tag){if(++MD.els>MD_LIMITS.elements)throw MD_OVER; return document
 // keep it - inside its box (ccBox), so no line reads in another order than its source; a box is two elements against
 // MD_LIMITS.elements (mdBox) and one unit of work (mdDue). A string with none of them, nearly every one, is one text node after
 // one native test (mdPlain). The byte-order mark that starts the file is kept as on the text surface (ccKept's first): line 1
-// is then a paragraph (the mark is no indent, no '#', no '<'), so the mark is the first text drawn (MD.bom).
-// A marked character's box, counted.
-/** @param {string} ch @returns {HTMLElement} */
-function mdBox(ch){if((MD.els+=2)>MD_LIMITS.elements)throw MD_OVER; MD.marked++; return ccBox(ch);}
-// Whether s goes in as one text node: no character of the repertoire, nor a draw whose first text is still to come (MD.bom).
-/** @param {string} s */
-function mdPlain(s){return !MD.bom&&!CC_ANY.test(s);}
+// is then a paragraph (the mark is no indent, no '#', no '<'), so the mark is the first text drawn (the render context's bom).
+// A marked character's box, counted on render context cx.
+/** @param {string} ch @param {MdRx} cx @returns {HTMLElement} */
+function mdBox(ch,cx){if((cx.els+=2)>MD_LIMITS.elements)throw MD_OVER; cx.marked++; return ccBox(ch);}
+// Whether s goes in as one text node: no character of the repertoire, nor a draw whose first text is still to come (cx.bom).
+/** @param {string} s @param {MdRx} cx */
+function mdPlain(s,cx){return !cx.bom&&!CC_ANY.test(s);}
 // Text s into parent, each marked character in its box, pausing (w: mdRender's counter) after every MD_LIMITS.chunk units; w
-// null: no pause.
-/** @param {Node} parent @param {string} s @param {{n:number}|null} w @returns {Generator<void,void,void>} */
-function* mdText(parent,s,w){const str=String(s),first=MD.bom&&str.charCodeAt(0)===0xfeff; MD.bom=false;
+// null: no pause. cx is the draw's render context.
+/** @param {Node} parent @param {string} s @param {{n:number}|null} w @param {MdRx} cx @returns {Generator<void,void,void>} */
+function* mdText(parent,s,w,cx){const str=String(s),first=cx.bom&&str.charCodeAt(0)===0xfeff; cx.bom=false;
   if(!CC_ANY.test(str)){if(str)parent.appendChild(document.createTextNode(str)); return;}
   let at=0; for(const c of ccScan(str,first)){if(w&&mdDue(w))yield; if(!c)continue;
-    if(c.at>at)parent.appendChild(document.createTextNode(str.slice(at,c.at))); parent.appendChild(mdBox(c.ch)); at=c.at+c.ch.length;}
+    if(c.at>at)parent.appendChild(document.createTextNode(str.slice(at,c.at))); parent.appendChild(mdBox(c.ch,cx)); at=c.at+c.ch.length;}
   if(at<str.length)parent.appendChild(document.createTextNode(str.slice(at)));}
-/** @param {Node} parent @param {string} s */
-function mdTextNow(parent,s){for(const pause of mdText(parent,s,null))void pause;}   // w null: it never pauses
-// Text s into parent once the document is drawn (an image's alt text when it fails): boxes while MD_LIMITS.elements holds them,
-// else the names as plain text (ccPlain).
-/** @param {Node} parent @param {string} s */
-function mdTextLate(parent,s){if(MD.els+2*ccFind(s).length>MD_LIMITS.elements){parent.appendChild(document.createTextNode(ccPlain(s))); return;} mdTextNow(parent,s);}
+/** @param {Node} parent @param {string} s @param {MdRx} cx */
+function mdTextNow(parent,s,cx){for(const pause of mdText(parent,s,null,cx))void pause;}   // w null: it never pauses
+// Text s into parent once the document is drawn (an image's alt text when it fails), counted on the render context of the
+// draw it is in (mdRxOf): boxes while MD_LIMITS.elements holds them, else the names as plain text (ccPlain).
+/** @param {Node} parent @param {string} s @param {MdRx} cx */
+function mdTextLate(parent,s,cx){if(cx.els+2*ccFind(s).length>MD_LIMITS.elements){parent.appendChild(document.createTextNode(ccPlain(s))); return;} mdTextNow(parent,s,cx);}
 /** @param {any} t @param {string} name @returns {string|null} */
 function mdAttr(t,name){const a=(t&&t.attrs)||[]; for(const x of a)if(x[0]===name)return String(x[1]); return null;}
-// The lines lo..hi of a block token's map, its trailing blank lines left out (a loose list item's map runs over them).
-function mdSpan(t){if(!t.map)return null; let lo=t.map[0]+1,hi=Math.max(lo,t.map[1]);
-  while(hi>lo&&!String(MD.lines[hi-1]||'').trim())hi--; return {lo,hi};}
-function mdMap(el,t,kind){const s=mdSpan(t); if(!s)return; el.dataset.lo=String(s.lo); el.dataset.hi=String(s.hi); el.dataset.kind=kind;}
+// The lines lo..hi of a block token's map, its trailing blank lines (of render context cx's lines) left out (a loose list
+// item's map runs over them).
+/** @param {any} t @param {MdRx} cx @returns {{lo:number,hi:number}|null} */
+function mdSpan(t,cx){if(!t.map)return null; let lo=t.map[0]+1,hi=Math.max(lo,t.map[1]);
+  while(hi>lo&&!String(cx.lines[hi-1]||'').trim())hi--; return {lo,hi};}
+/** @param {HTMLElement} el @param {any} t @param {string} kind @param {MdRx} cx */
+function mdMap(el,t,kind,cx){const s=mdSpan(t,cx); if(!s)return; el.dataset.lo=String(s.lo); el.dataset.hi=String(s.hi); el.dataset.kind=kind;}
 const MD_KIND={paragraph_open:'paragraph',heading_open:'heading',bullet_list_open:'list',ordered_list_open:'list',list_item_open:'item',
   blockquote_open:'quote',table_open:'table',tr_open:'row'};
 // A renderer into root for markdown-it's token stream, one token at a time: block tokens nest by `nesting`, an inline token's
 // children are drawn by mdInline. A paragraph markdown-it hides (a tight list's) puts its text straight into the list item.
-/** @param {HTMLElement} root */
-function mdRenderer(root){const stack=[root];
+/** @param {HTMLElement} root @param {MdRx} cx */
+function mdRenderer(root,cx){const stack=[root];
   /** @param {any} t @param {{n:number}} w @returns {Generator<void,void,void>} */
   function* token(t,w){const top=stack[stack.length-1];
     if(t.nesting===1){
       if(t.hidden){stack.push(top); return;}
-      const tag=/^[a-z][a-z0-9]*$/.test(t.tag||'')?t.tag:'div',el=mdEl(tag),kind=MD_KIND[t.type]; if(kind)mdMap(el,t,kind);
+      const tag=/^[a-z][a-z0-9]*$/.test(t.tag||'')?t.tag:'div',el=mdEl(tag,cx),kind=MD_KIND[t.type]; if(kind)mdMap(el,t,kind,cx);
       if(t.type==='ordered_list_open'){const s=mdAttr(t,'start'); if(s&&/^\d{1,9}$/.test(s))el.setAttribute('start',s);}
       if(t.type==='th_open'||t.type==='td_open'){const m=/^text-align:(left|right|center)$/.exec(mdAttr(t,'style')||''); if(m)el.classList.add('md-al-'+m[1]);}
-      if(t.type==='heading_open'&&t.map){el.id='md-h'+(t.map[0]+1); MD.heads.push({level:+tag.slice(1)||1,lo:t.map[0]+1,el,title:'',slug:''});}
+      if(t.type==='heading_open'&&t.map){el.id='md-h'+(t.map[0]+1); cx.heads.push({level:+tag.slice(1)||1,lo:t.map[0]+1,el,title:'',slug:''});}
       top.appendChild(el); stack.push(el); return;}
     if(t.nesting===-1){if(stack.length>1)stack.pop(); return;}
-    if(t.type==='inline'){yield* mdInline(t,top,w); const h=MD.heads[MD.heads.length-1]; if(h&&h.el===top){h.title=(top.textContent||'').trim(); h.slug=mdSlug(h.title);}
+    if(t.type==='inline'){yield* mdInline(t,top,w,cx); const h=cx.heads[cx.heads.length-1]; if(h&&h.el===top){h.title=(top.textContent||'').trim(); h.slug=mdSlug(h.title);}
       if(top.tagName==='P'&&top.querySelectorAll('.md-pic').length===1&&!(top.textContent||'').trim())top.classList.add('md-fig');   // a paragraph that is one image
       return;}
-    if(t.type==='fence'||t.type==='code_block'){const pre=mdEl('pre'),code=mdEl('code'); mdMap(pre,t,'code');
+    if(t.type==='fence'||t.type==='code_block'){const pre=mdEl('pre',cx),code=mdEl('code',cx); mdMap(pre,t,'code',cx);
       const lang=String(t.info||'').trim().split(/\s+/)[0]; if(lang)pre.dataset.lang=lang.slice(0,40);
       const first=t.map?t.map[0]+1+(t.type==='fence'?1:0):0;
       pre.appendChild(code); top.appendChild(pre);
       const lines=t.content?String(t.content).replace(/\n$/,'').split('\n'):[];
-      for(let i=0;i<lines.length;i++){const s=mdEl('span'),ln=lines[i]; s.className='ln'; if(first)s.dataset.line=String(first+i);
-        if(mdPlain(ln))s.textContent=ln+'\n'; else{yield* mdText(s,ln,w); s.appendChild(document.createTextNode('\n'));}
+      for(let i=0;i<lines.length;i++){const s=mdEl('span',cx),ln=lines[i]; s.className='ln'; if(first)s.dataset.line=String(first+i);
+        if(mdPlain(ln,cx))s.textContent=ln+'\n'; else{yield* mdText(s,ln,w,cx); s.appendChild(document.createTextNode('\n'));}
         code.appendChild(s); if(mdDue(w))yield;}
       return;}
-    if(t.type==='hr'){const hr=mdEl('hr'); mdMap(hr,t,'rule'); top.appendChild(hr); return;}
-    if(t.type==='front_matter'){yield* mdFront(t,top,w); return;}
-    if(t.type==='math_block'){yield* mdMath(t,top,w); return;}
-    if(t.type==='html_block')top.appendChild(mdHtmlBox(t));}
+    if(t.type==='hr'){const hr=mdEl('hr',cx); mdMap(hr,t,'rule',cx); top.appendChild(hr); return;}
+    if(t.type==='front_matter'){yield* mdFront(t,top,w,cx); return;}
+    if(t.type==='math_block'){yield* mdMath(t,top,w,cx); return;}
+    if(t.type==='html_block')top.appendChild(mdHtmlBox(t,cx));}
   // A run of raw HTML blocks in a row (mdHtmlRunEl), or each block on its own when one has no lines.
   /** @param {any[]} ts @param {{n:number}} w @returns {Generator<void,void,void>} */
-  function* run(ts,w){const spans=ts.map(mdSpan); if(spans.some(s=>!s)){for(const t of ts){yield* token(t,w); if(mdDue(w))yield;} return;}
-    const el=mdHtmlRunEl(ts.length,/** @type {{lo:number,hi:number}} */(spans[0]).lo,/** @type {{lo:number,hi:number}} */(spans[spans.length-1]).hi),body=/** @type {HTMLElement} */(el.lastChild);
+  function* run(ts,w){const spans=ts.map(x=>mdSpan(x,cx)); if(spans.some(s=>!s)){for(const t of ts){yield* token(t,w); if(mdDue(w))yield;} return;}
+    const el=mdHtmlRunEl(ts.length,/** @type {{lo:number,hi:number}} */(spans[0]).lo,/** @type {{lo:number,hi:number}} */(spans[spans.length-1]).hi,cx),body=/** @type {HTMLElement} */(el.lastChild);
     stack[stack.length-1].appendChild(el);
-    for(const t of ts){const b=mdHtmlBox(t); mdHtmlHold(b,false); body.appendChild(b); if(mdDue(w))yield;}}
+    for(const t of ts){const b=mdHtmlBox(t,cx); mdHtmlHold(b,false); body.appendChild(b); if(mdDue(w))yield;}}
   return {token,run};}
 // YAML front matter (the worker's front_matter token, mdFrontMatter in md-parse.mjs; ADR-0032): a box that carries the
 // block's lines, both '---' lines included (data-lo..hi, kind front - a block of its own, md:front), a head line in the
 // screen's language naming it, and its inner lines one span each (data-line) in a code box. The lines are the server's
-// (MD.lines), drawn as text: YAML is never parsed, so nothing in it links, loads or is markup. It is no heading: the
+// (cx.lines), drawn as text: YAML is never parsed, so nothing in it links, loads or is markup. It is no heading: the
 // outline, the strip and the sections skip it.
-/** @param {any} t @param {HTMLElement} top @param {{n:number}} w @returns {Generator<void,void,void>} */
-function* mdFront(t,top,w){const box=mdEl('div'); box.className='md-front'; mdMap(box,t,'front');
-  const s=mdSpan(t),lo=s?s.lo+1:0,hi=s?s.hi-1:-1;
-  const head=mdEl('div'); head.className='md-front-l'; head.lang=document.documentElement.lang;   // the viewer's words, in the screen's language
+/** @param {any} t @param {HTMLElement} top @param {{n:number}} w @param {MdRx} cx @returns {Generator<void,void,void>} */
+function* mdFront(t,top,w,cx){const box=mdEl('div',cx); box.className='md-front'; mdMap(box,t,'front',cx);
+  const s=mdSpan(t,cx),lo=s?s.lo+1:0,hi=s?s.hi-1:-1;
+  const head=mdEl('div',cx); head.className='md-front-l'; head.lang=document.documentElement.lang;   // the viewer's words, in the screen's language
   head.textContent=tl('머리 정보 · YAML {n}줄',{n:Math.max(0,hi-lo+1)});
-  const pre=mdEl('pre'),code=mdEl('code'); pre.dataset.lang='yaml'; pre.appendChild(code); box.append(head,pre); top.appendChild(box);
-  for(let n=lo;n<=hi;n++){const sp=mdEl('span'),ln=String(MD.lines[n-1]||''); sp.className='ln'; sp.dataset.line=String(n);
-    if(mdPlain(ln))sp.textContent=ln+'\n'; else{yield* mdText(sp,ln,w); sp.appendChild(document.createTextNode('\n'));}   // hidden characters in their boxes, as a code line's
+  const pre=mdEl('pre',cx),code=mdEl('code',cx); pre.dataset.lang='yaml'; pre.appendChild(code); box.append(head,pre); top.appendChild(box);
+  for(let n=lo;n<=hi;n++){const sp=mdEl('span',cx),ln=String(cx.lines[n-1]||''); sp.className='ln'; sp.dataset.line=String(n);
+    if(mdPlain(ln,cx))sp.textContent=ln+'\n'; else{yield* mdText(sp,ln,w,cx); sp.appendChild(document.createTextNode('\n'));}   // hidden characters in their boxes, as a code line's
     code.appendChild(sp); if(mdDue(w))yield;}}
 // Display math (the worker's math_block token, mdMathBlock in md-parse.mjs; ADR-0032): its TeX as written, never rendered -
 // a code box over the block's lines (data-lo..hi, kind math - a block of its own, md:math) with each line, its delimiters
 // included, one span (data-line), as a code block's. The lines are the token's (indentation and quote markers left out).
-/** @param {any} t @param {HTMLElement} top @param {{n:number}} w @returns {Generator<void,void,void>} */
-function* mdMath(t,top,w){const pre=mdEl('pre'),code=mdEl('code'); pre.className='md-math-block'; mdMap(pre,t,'math'); pre.appendChild(code); top.appendChild(pre);
+/** @param {any} t @param {HTMLElement} top @param {{n:number}} w @param {MdRx} cx @returns {Generator<void,void,void>} */
+function* mdMath(t,top,w,cx){const pre=mdEl('pre',cx),code=mdEl('code',cx); pre.className='md-math-block'; mdMap(pre,t,'math',cx); pre.appendChild(code); top.appendChild(pre);
   const first=t.map?t.map[0]+1:0,lines=String(t.content||'').split('\n');
-  for(let i=0;i<lines.length;i++){const s=mdEl('span'),ln=lines[i]; s.className='ln'; if(first)s.dataset.line=String(first+i);
-    if(mdPlain(ln))s.textContent=ln+'\n'; else{yield* mdText(s,ln,w); s.appendChild(document.createTextNode('\n'));}   // hidden characters in their boxes, as a code line's
+  for(let i=0;i<lines.length;i++){const s=mdEl('span',cx),ln=lines[i]; s.className='ln'; if(first)s.dataset.line=String(first+i);
+    if(mdPlain(ln,cx))s.textContent=ln+'\n'; else{yield* mdText(s,ln,w,cx); s.appendChild(document.createTextNode('\n'));}   // hidden characters in their boxes, as a code line's
     code.appendChild(s); if(mdDue(w))yield;}}
 // A raw HTML block's placeholder: its lines (it takes a pin), their count and its first line as code, never the HTML itself.
-/** @param {any} t @returns {HTMLElement} */
-function mdHtmlBox(t){const box=mdEl('div'); mdMap(box,t,'html'); box.className='md-html';
-  const sp=mdSpan(t),n=sp?sp.hi-sp.lo+1:0,first=String(t.content||'').split('\n').find(l=>l.trim())||'';
-  const lab=mdEl('span'); lab.className='md-html-l'; lab.textContent=tl('HTML {lines}줄 · 그리지 않습니다',{lines:n});
+/** @param {any} t @param {MdRx} cx @returns {HTMLElement} */
+function mdHtmlBox(t,cx){const box=mdEl('div',cx); mdMap(box,t,'html',cx); box.className='md-html';
+  const sp=mdSpan(t,cx),n=sp?sp.hi-sp.lo+1:0,first=String(t.content||'').split('\n').find(l=>l.trim())||'';
+  const lab=mdEl('span',cx); lab.className='md-html-l'; lab.textContent=tl('HTML {lines}줄 · 그리지 않습니다',{lines:n});
   let head=''; let k=0; for(const ch of first.trim()){if(++k>120)break; head+=ch;}   // 120 characters at most, never half of one
-  const code=mdEl('code'); mdTextNow(code,head); box.append(lab,code); return box;}
+  const code=mdEl('code',cx); mdTextNow(code,head,cx); box.append(lab,code); return box;}
 // Two or more raw HTML blocks in a row (a README's head of badges and pictures) are one placeholder, closed: a button naming
 // the blocks and their lines (HTML 블록 N개 · M줄) that opens it (mdHtmlRun), each block then its own placeholder that takes a
 // pin. Only what is on screen carries lines (data-lo/hi): closed, the run stands for all its lines as one HTML block; open, each
 // block for its own (mdHtmlHold keeps the other's in data-r-lo/hi). So the marks, the picks, the ladder and the reading line
 // read whatever is shown and nothing hidden.
-/** @param {number} n @param {number} lo @param {number} hi @returns {HTMLElement} */
-function mdHtmlRunEl(n,lo,hi){const el=mdEl('div'); el.className='md-html-run'; el.dataset.rLo=String(lo); el.dataset.rHi=String(hi); el.dataset.kind='html'; mdHtmlHold(el,true);
-  const b=/** @type {HTMLButtonElement} */(mdEl('button')); b.type='button'; b.className='md-html-sum'; b.dataset.act='md-html-run'; b.setAttribute('aria-expanded','false');
+/** @param {number} n @param {number} lo @param {number} hi @param {MdRx} cx @returns {HTMLElement} */
+function mdHtmlRunEl(n,lo,hi,cx){const el=mdEl('div',cx); el.className='md-html-run'; el.dataset.rLo=String(lo); el.dataset.rHi=String(hi); el.dataset.kind='html'; mdHtmlHold(el,true);
+  const b=/** @type {HTMLButtonElement} */(mdEl('button',cx)); b.type='button'; b.className='md-html-sum'; b.dataset.act='md-html-run'; b.setAttribute('aria-expanded','false');
   setHtml(b,html`${ic('chevron-right')}<span>${tl('HTML 블록 {n}개 · {lines}줄 · 그리지 않습니다',{n,lines:hi-lo+1})}</span>`);   // the chevron turns down when open (CSS)
-  const body=mdEl('div'); body.className='md-html-body'; body.hidden=true; el.append(b,body); return el;}
+  const body=mdEl('div',cx); body.className='md-html-body'; body.hidden=true; el.append(b,body); return el;}
 // Shows (on) or hides (off) element e's lines: data-lo/hi from its kept data-r-lo/hi, or none.
 /** @param {HTMLElement} e @param {boolean} on */
 function mdHtmlHold(e,on){if(!e.dataset.rLo){e.dataset.rLo=e.dataset.lo||''; e.dataset.rHi=e.dataset.hi||'';}
@@ -393,29 +412,29 @@ function mdInlineLines(t){const lo=t.map?t.map[0]+1:0,ends=(String(t.content||''
 // one, so the text after the break is under its own line. Not exact: one span with the token's whole range (data-lo/data-hi,
 // kind 'lines'), so a selection inside it takes all of those lines - never a wrong one, and never a suggestion's wrong base.
 // A table cell's inline token has no map: its span carries nothing and the row's range stands for it.
-/** @param {any} t @param {HTMLElement} parent @param {{n:number}} w @returns {Generator<void,void,void>} */
-function* mdInline(t,parent,w){const m=mdInlineLines(t),kids=t.children||[];
-  const mk=(/** @type {number} */line)=>{const s=mdEl('span'); s.className='ln';
+/** @param {any} t @param {HTMLElement} parent @param {{n:number}} w @param {MdRx} cx @returns {Generator<void,void,void>} */
+function* mdInline(t,parent,w,cx){const m=mdInlineLines(t),kids=t.children||[];
+  const mk=(/** @type {number} */line)=>{const s=mdEl('span',cx); s.className='ln';
     if(m.exact)s.dataset.line=String(line); else if(m.lo){s.dataset.lo=String(m.lo); s.dataset.hi=String(m.hi); s.dataset.kind='lines';}
     parent.appendChild(s); return s;};
   let stack=/** @type {HTMLElement[]} */([mk(m.lo)]);
   for(let i=0;i<kids.length;i++){const c=kids[i],top=stack[stack.length-1];
     switch(c.type){
-      case 'text':if(mdPlain(c.content))top.appendChild(document.createTextNode(c.content)); else yield* mdText(top,c.content,w); break;
-      case 'code_inline':{const e=mdEl('code'); top.appendChild(e); yield* mdText(e,c.content,w); break;}
+      case 'text':if(mdPlain(c.content,cx))top.appendChild(document.createTextNode(c.content)); else yield* mdText(top,c.content,w,cx); break;
+      case 'code_inline':{const e=mdEl('code',cx); top.appendChild(e); yield* mdText(e,c.content,w,cx); break;}
       case 'softbreak':case 'hardbreak':
-        top.appendChild(c.type==='hardbreak'?mdEl('br'):document.createTextNode('\n'));
+        top.appendChild(c.type==='hardbreak'?mdEl('br',cx):document.createTextNode('\n'));
         if(m.exact){const next=[mk(m.lines[i]+1)];
-          for(const e of stack.slice(1)){const k=/** @type {HTMLElement} */(e.cloneNode(false)); ++MD.els; next[next.length-1].appendChild(k); next.push(k);}
+          for(const e of stack.slice(1)){const k=/** @type {HTMLElement} */(e.cloneNode(false)); ++cx.els; next[next.length-1].appendChild(k); next.push(k);}
           stack=next;}
         break;
-      case 'strong_open':case 'em_open':case 's_open':{const e=mdEl(c.type==='strong_open'?'strong':c.type==='em_open'?'em':'s'); top.appendChild(e); stack.push(e); break;}
-      case 'link_open':{const e=mdLink(mdAttr(c,'href')); top.appendChild(e); stack.push(e); break;}
-      case 'math_inline':{const e=mdEl('code'); e.className='md-math'; top.appendChild(e); yield* mdText(e,c.content,w); break;}   // TeX as written, delimiters included (mdMathInline), hidden characters in their boxes; one per source line
+      case 'strong_open':case 'em_open':case 's_open':{const e=mdEl(c.type==='strong_open'?'strong':c.type==='em_open'?'em':'s',cx); top.appendChild(e); stack.push(e); break;}
+      case 'link_open':{const e=mdLink(mdAttr(c,'href'),cx); top.appendChild(e); stack.push(e); break;}
+      case 'math_inline':{const e=mdEl('code',cx); e.className='md-math'; top.appendChild(e); yield* mdText(e,c.content,w,cx); break;}   // TeX as written, delimiters included (mdMathInline), hidden characters in their boxes; one per source line
       case 'strong_close':case 'em_close':case 's_close':case 'link_close':if(stack.length>1)stack.pop(); break;
-      case 'image':top.appendChild(yield* mdImage(c,w)); break;
-      case 'html_inline':{const e=mdEl('code'); e.className='md-html-in'; top.appendChild(e); yield* mdText(e,c.content,w); break;}
-      default:if(c.content)yield* mdText(top,c.content,w);}
+      case 'image':top.appendChild(yield* mdImage(c,w,cx)); break;
+      case 'html_inline':{const e=mdEl('code',cx); e.className='md-html-in'; top.appendChild(e); yield* mdText(e,c.content,w,cx); break;}
+      default:if(c.content)yield* mdText(top,c.content,w,cx);}
     if(mdDue(w))yield;}}
 // ---------------- Links: the allowlist
 // What a link in the document may do (pure; origin is the viewer page's location.origin). Every link token comes here - an
@@ -530,14 +549,14 @@ function mdTarget(raw,origin,base,docs){const r=mdHref(raw,origin); if(r.open)re
 // box that keeps a place for it (12rem x 8rem, CSS) until its size is known - at once when an earlier draw learned it
 // (MD_PIC_SIZE) - and once it loads the reading spot is put back (mdPicLoad), so an image above the reading line never moves
 // the text being read. Anything else is the image's alt text, with why it is not loaded in the tip.
-/** @param {any} c @param {{n:number}} w @returns {Generator<void,HTMLElement,void>} */
-function* mdImage(c,w){const raw=String(mdAttr(c,'src')||''),alt=String(c.content||mdAttr(c,'alt')||''),r=mdImgPath(raw,mdBase());
-  if(r.path){const box=mdEl('span'),img=/** @type {HTMLImageElement} */(mdEl('img')); box.className='md-pic'; box.dataset.path=r.path;
+/** @param {any} c @param {{n:number}} w @param {MdRx} cx @returns {Generator<void,HTMLElement,void>} */
+function* mdImage(c,w,cx){const raw=String(mdAttr(c,'src')||''),alt=String(c.content||mdAttr(c,'alt')||''),r=mdImgPath(raw,mdBase());
+  if(r.path){const box=mdEl('span',cx),img=/** @type {HTMLImageElement} */(mdEl('img',cx)); box.className='md-pic'; box.dataset.path=r.path;
     img.alt=alt; img.loading='lazy'; img.decoding='async'; img.draggable=false;
     const known=MD_PIC_SIZE.get(r.path); if(known){img.width=known.w; img.height=known.h; box.classList.add('md-pic-ok');}
     img.addEventListener('load',mdPicLoad); img.addEventListener('error',mdPicError); img.src=mdPicUrl(DOC,r.path);
     box.appendChild(img); return box;}
-  const e=mdEl('span'),src=ccPlain(raw); e.className='md-img'; e.append(tr('그림')+': '); yield* mdText(e,alt||raw,w);   // the alt text is drawn text, as the paragraph's, its marked characters in their boxes, pausing as it does
+  const e=mdEl('span',cx),src=ccPlain(raw); e.className='md-img'; e.append(tr('그림')+': '); yield* mdText(e,alt||raw,w,cx);   // the alt text is drawn text, as the paragraph's, its marked characters in their boxes, pausing as it does
   e.dataset.tip=r.why==='remote'?tl('원격 그림은 불러오지 않습니다 · {src}',{src}):r.why==='out'?tl('원고 밖의 그림은 불러오지 않습니다 · {src}',{src})
     :tl('이 그림은 불러오지 않습니다 · {src}',{src});
   e.dataset.tipUrl=src; return e;}
@@ -621,7 +640,7 @@ async function mdPicCheck(){const now=performance.now(),k=DOC;
 // as for an image that is never loaded, saying so in the tip.
 /** @param {Event} e */
 function mdPicError(e){const img=/** @type {HTMLImageElement} */(e.target),box=img.parentElement; if(!box||!box.isConnected)return;
-  const s=document.createElement('span'),path=box.dataset.path||''; s.className='md-img'; s.append(tr('그림')+': '); mdTextLate(s,img.alt||path);
+  const s=document.createElement('span'),path=box.dataset.path||''; s.className='md-img'; s.append(tr('그림')+': '); mdTextLate(s,img.alt||path,mdRxOf(box));
   const src=ccPlain(path); s.dataset.tip=tl('그림을 불러오지 못했습니다 · {src}',{src}); s.dataset.tipUrl=src;
   box.replaceWith(s); if(isMdDoc()&&!mdGoOn())mdSpotBack();}
 // Every tip of an image or a link below names the hidden characters of the source text it shows again - a path or a '#…'
@@ -630,16 +649,17 @@ function mdPicError(e){const img=/** @type {HTMLImageElement} */(e.target),box=i
 // goes to the heading it names (data-act md-anchor: a click or Enter, the global key handler asking imeKey first); another
 // registered document is data-act md-doc (mdGoDoc), the same way; an image of the tree opens in a new tab from GET /api/asset;
 // anything else is inert text with its target, and why, in the tip.
-function mdLink(href){const r=mdTarget(href,location.origin,mdBase(),DOCS);
-  if(r.open==='web'||r.open==='mail'){const a=/** @type {HTMLAnchorElement} */(mdEl('a')); a.href=r.href; a.target='_blank'; a.rel='noopener noreferrer'; a.dataset.tip=a.dataset.tipUrl=ccPlain(r.href); return a;}
-  if(r.open==='anchor'){const a=mdEl('a'); a.className='md-anchor'; a.dataset.act='md-anchor'; a.dataset.anchor=r.id||''; a.setAttribute('role','link'); a.tabIndex=0; return a;}
-  if(r.open==='doc'){const a=mdEl('a'); a.className='md-doclink'; a.dataset.act='md-doc'; a.dataset.doc=r.key||''; a.dataset.anchor=r.id||''; a.setAttribute('role','link'); a.tabIndex=0;
+/** @param {unknown} href @param {MdRx} cx @returns {HTMLElement} */
+function mdLink(href,cx){const r=mdTarget(href,location.origin,mdBase(),DOCS);
+  if(r.open==='web'||r.open==='mail'){const a=/** @type {HTMLAnchorElement} */(mdEl('a',cx)); a.href=r.href; a.target='_blank'; a.rel='noopener noreferrer'; a.dataset.tip=a.dataset.tipUrl=ccPlain(r.href); return a;}
+  if(r.open==='anchor'){const a=mdEl('a',cx); a.className='md-anchor'; a.dataset.act='md-anchor'; a.dataset.anchor=r.id||''; a.setAttribute('role','link'); a.tabIndex=0; return a;}
+  if(r.open==='doc'){const a=mdEl('a',cx); a.className='md-doclink'; a.dataset.act='md-doc'; a.dataset.doc=r.key||''; a.dataset.anchor=r.id||''; a.setAttribute('role','link'); a.tabIndex=0;
     a.dataset.tip=tl('문서로 이동 · {name}',{name:ccPlain(r.name||'')})+(r.id?' #'+ccPlain(r.id):''); a.dataset.tipUrl=ccPlain(r.href); return a;}
-  if(r.open==='asset'){const a=/** @type {HTMLAnchorElement} */(mdEl('a')),u=mdAssetUrl(DOC,r.href); a.className='md-asset'; a.href=u; a.target='_blank'; a.rel='noopener noreferrer';
+  if(r.open==='asset'){const a=/** @type {HTMLAnchorElement} */(mdEl('a',cx)),u=mdAssetUrl(DOC,r.href); a.className='md-asset'; a.href=u; a.target='_blank'; a.rel='noopener noreferrer';
     const path=ccPlain(r.href); a.dataset.tip=tl('그림을 새 탭에서 엽니다 · {path}',{path}); a.dataset.tipUrl=path; return a;}
   // A link that does not open: a disabled link to assistive technology, reachable by Tab (the focus shows its description, as
   // a hover does), and a tap shows the description instead of picking the block (mdSelectionPick).
-  const shown=ccPlain(r.href),s=mdEl('span'),tip=r.why==='out'?tl('원고 밖을 가리켜 열지 않습니다 · {href}',{href:shown}):r.why==='unregistered'?tl('등록된 문서가 아니라 열지 않습니다 · {href}',{href:shown})
+  const shown=ccPlain(r.href),s=mdEl('span',cx),tip=r.why==='out'?tl('원고 밖을 가리켜 열지 않습니다 · {href}',{href:shown}):r.why==='unregistered'?tl('등록된 문서가 아니라 열지 않습니다 · {href}',{href:shown})
     :tl('이 링크는 열지 않습니다 · {href}',{href:shown});
   s.className='md-rel'; s.dataset.tip=tip; s.dataset.tipUrl=shown;
   s.tabIndex=0; s.setAttribute('role','link'); s.setAttribute('aria-disabled','true'); s.setAttribute('aria-description',tip); return s;}

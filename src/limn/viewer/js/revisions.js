@@ -5,12 +5,14 @@
 // seen this browser's last-seen commit of the document, seenState what the server said of it (SEEN_STATE), seenN how many
 // commits it compares with the newest and seenIds which (the server's count, never the list's positions); rangeIds the
 // commits the shown range compares (the server's commit_ids; null until it answers), rangeBase its old side; listOpen
-// whether the phone shows every loaded row; rangeLine the range's summary for the status line.
+// whether the phone shows every loaded row; rangeLine the range's summary for the status line, and rangeN its commit and file
+// counts (the rendered compare's status line takes them, md-compare.js mdcStatus).
 const REV={seq:0,files:/** @type {{name:string,text:string}[]} */([]),whole:'',commit:'',sourceCommit:'',format:/** @type {string} */(DIFF_FORMAT.PDF),scope:/** @type {any} */(null),other:'',target:/** @type {RevTarget|null} */(null),pdfCommit:'',back:/** @type {string|null} */(null),
   overlay:/** @type {RevisionOverlay|null} */(null),side:/** @type {string} */(OVERLAY_SIDE.CUR),history:false,
   base:'',rows:/** @type {RevisionRow[]} */([]),rowsDoc:'',more:false,range:/** @type {RevRange} */({mode:RANGE_MODE.ONE,start:'',end:'',endSet:false}),
   seen:/** @type {RevSeen|null} */(null),seenState:/** @type {string} */(SEEN_STATE.NONE),seenN:0,seenIds:/** @type {Set<string>} */(new Set()),
-  rangeIds:/** @type {string[]|null} */(null),rangeBase:'',listOpen:false,rangeLine:'',want:/** @type {{base:string,top:string}|null} */(null)};
+  rangeIds:/** @type {string[]|null} */(null),rangeBase:'',listOpen:false,rangeLine:'',rangeN:/** @type {{commits:number,files:number}|null} */(null),
+  want:/** @type {{base:string,top:string}|null} */(null)};
 const REVISION_PAGE=30;   // rows of one /api/revisions page (the server's history window is 500, api.md)
 const REVISION_RECENT=12;   // the commits [변경 보기] picks a pin's commit among - the server resolves a close_ref among the same
 const REVISION_PHONE_ROWS=5;   // rows the phone's list shows before [더 보기]
@@ -74,22 +76,30 @@ function clearRevisionPdf(){
   if(REV_PDF.loading){try{void REV_PDF.loading.destroy().catch(()=>{});}catch(e){}REV_PDF.loading=null;}
   REV_PDF.doc=null;$('#revision-pdf').replaceChildren();
 }
-// The format a document's changes show for the one asked (docs/handbook/viewer.md §변경 보기): the source diff when asked, and
-// always for a document with no comparison PDF (source: one the browser draws, a Markdown document); otherwise a figure
-// document's overlay of two builds, and a LaTeX document's comparison PDF - never the overlay. Pure.
-function revisionFormatFor(asked,figure,source){return asked===DIFF_FORMAT.SOURCE||(source&&!figure)?DIFF_FORMAT.SOURCE:figure?DIFF_FORMAT.OVERLAY:DIFF_FORMAT.PDF;}
+// The format a document's changes show for the one asked (docs/handbook/viewer.md §변경 보기): the source diff when asked; a
+// document drawn from Markdown (drawn) its rendered compare otherwise; the source diff always for another document with no
+// comparison PDF (source: one the browser draws, a text document); otherwise a figure document's overlay of two builds, and a
+// LaTeX document's comparison PDF - never the overlay. Pure.
+function revisionFormatFor(asked,figure,source,drawn){if(asked===DIFF_FORMAT.SOURCE)return DIFF_FORMAT.SOURCE; if(drawn&&!figure)return DIFF_FORMAT.RENDERED;
+  return source&&!figure?DIFF_FORMAT.SOURCE:figure?DIFF_FORMAT.OVERLAY:DIFF_FORMAT.PDF;}
 // Shows REV.format: the pressed tab, the pane, [이전 | 지금] with the overlay, and the overlay's status line on a figure
 // document (its source diff has none). Loads nothing.
 function drawRevisionFormat(){
   $('#revision-pdf-tab').setAttribute('aria-pressed',String(REV.format===DIFF_FORMAT.PDF));
   $('#revision-overlay-tab').setAttribute('aria-pressed',String(REV.format===DIFF_FORMAT.OVERLAY));
   $('#revision-source-tab').setAttribute('aria-pressed',String(REV.format===DIFF_FORMAT.SOURCE));
+  $('#revision-rendered-tab').setAttribute('aria-pressed',String(REV.format===DIFF_FORMAT.RENDERED));
+  $('#revision-rendered').hidden=REV.format!==DIFF_FORMAT.RENDERED; mdcDrawNav();
   $('#revision-view').dataset.format=REV.format;
   $('#revision-pdf').hidden=REV.format!==DIFF_FORMAT.PDF;$('#revision-source').hidden=REV.format!==DIFF_FORMAT.SOURCE;
   $('#revision-overlay').hidden=$('#revision-side').hidden=REV.format!==DIFF_FORMAT.OVERLAY;
   if(REV.overlay)$('#revision-status').textContent=REV.format===DIFF_FORMAT.OVERLAY?overlayStatus(REV.overlay):'';}
 /** Switch formats while retaining comparison scale for the selected commit. */
-function setRevisionFormat(format){REV.format=revisionFormatFor(format,!!REV.overlay,isMdDoc()); drawRevisionFormat();
+function setRevisionFormat(format){REV.format=revisionFormatFor(format,!!REV.overlay,isMdDoc(),mdcDrawn()); drawRevisionFormat();
+  if(REV.format===DIFF_FORMAT.RENDERED&&REV.commit){if(MDC.key!==revKey())mdcShow(REV.commit,REV.base,REV.seq,DOC); else $('#revision-status').textContent=MDC.line;
+    // a range's list painting and its last-seen count come with its source diff's answer: read it beside the compare
+    if(REV.base&&REV.sourceCommit!==revKey())loadRevisionSource(REV.commit,REV.seq,DOC);}
+  if(REV.format===DIFF_FORMAT.SOURCE&&!REV.base&&mdcDrawn())$('#revision-status').textContent='';
   if(REV.format===DIFF_FORMAT.SOURCE&&REV.commit&&REV.sourceCommit!==revKey())
     loadRevisionSource(REV.commit,REV.seq,DOC);
   if(REV.format===DIFF_FORMAT.SOURCE&&REV.base&&REV.sourceCommit===revKey())$('#revision-status').textContent=REV.rangeLine;
@@ -110,7 +120,7 @@ function setViewMode(mode){
   document.body.classList.toggle('revision-open',revisions);
   $('#view-manuscript').setAttribute('aria-pressed',String(!revisions));
   $('#view-revisions').setAttribute('aria-pressed',String(revisions));
-  if(!revisions)REV.target=null;
+  if(!revisions){REV.target=null; mdcClear();}
   if(revisions)loadRevisions(); else{++REV.seq;clearRevisionPdf();setRevisionOverlay(null);$('#revision-pin').hidden=true;revTargetActs();boundK();returnToSpot();if(VEC.doc)vecSchedule(0);updateSectionStrip();markHitSides();}
   drawNavView(); drawPos(); searchOffer();   // the changes view has no search
 }
@@ -130,9 +140,10 @@ async function loadRevisions(){
   REV.rows=rows; REV.rowsDoc=k||''; REV.more=!!data.more; if(!again)REV.listOpen=false;
   if(!again||!REV.seen||REV.seenState!==SEEN_STATE.OK)openSeen(revSeen(k||''),rows);
   REV.history=!!data.available&&rows.length>0; setRevisionOverlay(data.overlay||null);
-  const fig=!!REV.overlay; REV.format=revisionFormatFor(REV.format,fig,isMdDoc()); drawRevisionFormat();   // a LaTeX document after a figure leaves the overlay; a Markdown one opens its source diff
+  const fig=!!REV.overlay; REV.format=revisionFormatFor(REV.format,fig,isMdDoc(),mdcDrawn()); drawRevisionFormat();   // a LaTeX document after a figure leaves the overlay; a Markdown one opens its rendered compare, a text one its source diff
   $('#revision-controls').hidden=!REV.history&&!fig; $('#revision-note').hidden=!REV.history;
   $('#revision-pdf-tab').hidden=fig||isMdDoc(); $('#revision-overlay-tab').hidden=!fig; $('#revision-source-tab').hidden=!REV.history;
+  $('#revision-rendered-tab').hidden=!REV.history||!mdcDrawn();
   if(!data.available){list.textContent=data.reason==='too_many_files'?tl('이 문서는 이력 파일이 {n}개를 넘어 Git 변경사항을 볼 수 없습니다.',{n:data.limit}):
       '이 문서의 Git 변경사항을 볼 수 없습니다.'; drawRange();
     if(fig){setRevisionFormat(DIFF_FORMAT.OVERLAY);return;}
@@ -146,7 +157,8 @@ async function loadRevisions(){
   if(tg){if(REV.seenState===SEEN_STATE.PENDING)resolveSeen(k||'',rows[0].id);
     const pick=await pickRevisionFor(tg,seq,k); if(seq!==REV.seq||k!==DOC||REV.target!==tg)return;
     tg.commit=pick.id; tg.via=pick.via; tg.hit=pick.hit; REV.range={mode:RANGE_MODE.ONE,start:pick.id,end:pick.id,endSet:false};
-    // a figure's lines and pictures are both exact: its overlay opens first; a LaTeX pin's lines exist only in the source diff
+    // a figure's lines and pictures are both exact: its overlay opens first; a LaTeX pin's lines exist only in the source
+    // diff, and a Markdown pin's own hunks too - its [그린 비교] beside it compares the whole commit (ADR-0031 D6)
     if(fig)showRevision(pick.id,DIFF_FORMAT.OVERLAY); else showRevision(pick.id,DIFF_FORMAT.SOURCE); drawRange(); return;}
   // Opened by a document's update message (updates.js openUpdateRange): the commits it named - after the last seen one (base)
   // up to the newest it named (top; the newest row without one) - as a range in the source diff, the list painting what the
@@ -217,10 +229,12 @@ function sideRows(rows){const out=new Set();
 function revKey(){return REV.base?REV.base+'..'+REV.commit:REV.commit;}
 // Shows range rg: opens what it asks, then draws the picker - a range always in its source diff (its comparison PDF is built
 // only when [변경 PDF] is pressed, whatever format was shown), one commit as a list choice always opened (format undefined:
-// the comparison PDF of a LaTeX document, the format shown of a figure document).
+// the comparison PDF of a LaTeX document, the format shown of a figure document). A Markdown document keeps the tab shown,
+// for a range too: its rendered compare builds nothing (md-compare.js).
 /** @param {RevRange} rg @param {string} [format] */
 function showRange(rg,format){REV.range=rg; const q=rangeRequest(REV.rows,rg,REV.seen);
-  showRevision(q.commit,q.base?format===DIFF_FORMAT.OVERLAY?format:DIFF_FORMAT.SOURCE:format,q.base); drawRange();}
+  const drawn=mdcDrawn()?(REV.format===DIFF_FORMAT.SOURCE?DIFF_FORMAT.SOURCE:DIFF_FORMAT.RENDERED):'';
+  showRevision(q.commit,drawn||(q.base?format===DIFF_FORMAT.OVERLAY?format:DIFF_FORMAT.SOURCE:format),q.base); drawRange();}
 // A row of the list pressed (rangePress) and a quick-range segment pressed (rangeMode).
 function pressRevisionRow(id){if(id)showRange(rangePress(REV.rows,REV.range,id));}
 function setRevisionRange(mode){if(!REV.rows.length||mode===REV.range.mode)return; showRange(rangeMode(REV.rows,REV.range,mode,REV.seen));}
@@ -323,7 +337,7 @@ addEventListener('pagehide',()=>{if(document.body.classList.contains('revision-o
  * diff). @param {string} id @param {string} [format] @param {string} [base] */
 async function showRevision(id,format,base){
   RZ.ratio=1;
-  ++REV.seq;REV.commit=id;REV.base=base||'';REV.rangeLine='';REV.rangeIds=null;REV.rangeBase='';REV.sourceCommit='';REV.pdfCommit='';clearRevisionPdf();
+  ++REV.seq;REV.commit=id;REV.base=base||'';REV.rangeLine='';REV.rangeN=null;REV.rangeIds=null;REV.rangeBase='';REV.sourceCommit='';REV.pdfCommit='';clearRevisionPdf();mdcClear();
   $('#revision-note').textContent=REV.base?'두 커밋 사이의 누적 변경 · 이 문서의 Git 이력 · 미커밋 수정 제외':'선택 커밋의 첫 부모와 비교 · 이 문서의 Git 이력 · 미커밋 수정 제외';
   REV.scope=null;REV_SCOPE.whole=REV_SCOPE.partial=REV_SCOPE.fallback=false;drawRevisionOther(null);
   $('#revision-diff').textContent='';$('#revision-file-row').hidden=true;$('#revision-warning').hidden=true;
@@ -390,6 +404,7 @@ async function loadRevisionSource(id,seq,k){
   try{const r=(await api(dq('/api/revision-diff?commit='+encodeURIComponent(id)+pq,k),{what:'변경 내용 읽기',silent:true})).data;
     if(!revisionCurrent(seq,k,id))return;
     if(base){REV.rangeLine=rangeSummary(r); if(REV.format===DIFF_FORMAT.SOURCE)$('#revision-status').textContent=REV.rangeLine;
+      REV.rangeN={commits:Number(r.commits)||0,files:Array.isArray(r.files)?r.files.length:0}; mdcRestatus();
       REV.rangeIds=Array.isArray(r.commit_ids)?r.commit_ids:[]; REV.rangeBase=String(r.base||'');
       if(REV.range.mode===RANGE_MODE.LAST&&REV.seen&&base===REV.seen.id)seenAnswered(r);
       drawRange();}
@@ -457,7 +472,7 @@ function revTargetNote(msg){const tg=REV.target,box=$('#revision-pin'); if(!tg){
   const where=tg.region?tl('쪽 {page} 영역',{page:tg.page}):tg.name+' '+rng(tg.lo,tg.hi);
   const sc=REV.format===DIFF_FORMAT.SOURCE&&REV.scope&&REV.scope.mode===SCOPE_MODE.PIN?REV.scope:null;
   const scopeMsg=sc?tl('이 핀의 변경 {n}곳만 보입니다',{n:sc.hunks})+' ('+tr(sc.source===SCOPE_SOURCE.CHANGES?'에이전트가 기록한 줄':'핀 자리로 추정')+') · ':'';
-  let t=msg?tr(msg):REV.format===DIFF_FORMAT.OVERLAY?tl('직전 빌드와 지금 빌드의 {page}쪽을 겹쳐 보입니다 — [이전]·[지금]으로 바꿔 보세요',{page:tg.page})+
+  let t=msg?tr(msg):REV.format===DIFF_FORMAT.RENDERED?(tg.mdcMsg||tr('두 판을 그려 견주는 중입니다.')):REV.format===DIFF_FORMAT.OVERLAY?tl('직전 빌드와 지금 빌드의 {page}쪽을 겹쳐 보입니다 — [이전]·[지금]으로 바꿔 보세요',{page:tg.page})+
     (REV.history?' · '+tr('고친 줄은 [소스 diff]'):''):scopeMsg+(REV.format===DIFF_FORMAT.PDF?tl('비교 PDF에는 줄 대응이 없어 원고 {page}쪽 근처로만 옮겼습니다(삭제 문장이 끼어 쪽이 밀릴 수 있음). 정확한 줄은 [소스 diff]',{page:tg.page}):
     tr(tg.hit===false?'이 커밋의 diff에서 핀 범위를 찾지 못했습니다 — 가장 가까운 줄을 보입니다':
      tg.near?'핀 범위 줄 자체는 바뀌지 않았고 바로 곁(±5줄)이 바뀌었습니다 — 가장 가까운 줄을 보입니다':'강조한 줄이 핀 범위입니다'));

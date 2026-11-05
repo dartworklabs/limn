@@ -16,6 +16,8 @@ def get(path: str, query: Query, doc: Doc, requests: RevisionRequests) -> Reply 
         return json_reply(http.history(requests, doc, query))
     if path == "/api/revision-diff":
         return json_reply(http.diff(requests, doc, query))
+    if path == "/api/revision-source":
+        return json_reply(http.sources(requests, doc, query))
     if path == "/api/revision-build":
         return json_reply(http.status(requests, doc, query))
     if path == "/api/revision-pdf":
