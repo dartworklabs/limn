@@ -92,7 +92,7 @@ async function mdBuild(){if(mdFieldBusy()){MD.waiting=true; return;}
   MD.doc=k; MD.mtime=src.src_mtime; MD.file=String(src.file||''); MD.name=MD.file.split('/').pop()||MD.file; MD.lines=Array.isArray(src.lines)?src.lines.map(String):[];
   if(isTextDoc()){MD.heads=[];   // a text document is never parsed: its lines are its view (text-surface.js)
     if(MD.lines.length>MD_LIMITS.lines){mdShow(mdNote(tl('이 문서는 원문이 {lines}줄이라 그리지 않습니다(한도 {limit}줄)',{lines:mdCount(MD.lines.length),limit:mdCount(MD_LIMITS.lines)}),MD_LIMIT.LINES)); return;}
-    const view=await txView(stale,src.line_ends); if(view&&!stale()){mdShow(view); if(before)updSourceRedrawn(k||'',before,MD.lines);} return;}
+    const view=await txView(stale,src.line_ends); if(view&&!stale()){mdShow(view); updSourceRedrawn(k||'',before,MD.lines);} return;}
   // A NUL (U+0000) is not parsed: markdown-it turns it into U+FFFD (CommonMark's rule) and its tokens keep no column to put
   // it back by, so the document would read another character than its source has. The line view keeps it, in its box.
   const res=MD.lines.some(l=>l.includes('\0'))?{ok:false,limit:MD_LIMIT.NUL}:await mdParse(MD.lines.join('\n')); if(stale()||!res)return;
@@ -101,7 +101,7 @@ async function mdBuild(){if(mdFieldBusy()){MD.waiting=true; return;}
   if(!root){MD.heads=[];
     if(MD.lines.length>MD_LIMITS.lines){mdShow(mdNote(tl('이 문서는 원문이 {lines}줄이라 그리지 않습니다(한도 {limit}줄)',{lines:mdCount(MD.lines.length),limit:mdCount(MD_LIMITS.lines)}),MD_LIMIT.LINES)); return;}
     root=await mdLineView(/** @type {string} */(limit),stale); if(!root||stale())return;}
-  mdShow(root); if(before)updSourceRedrawn(k||'',before,MD.lines);}
+  mdShow(root); updSourceRedrawn(k||'',before,MD.lines);}
 // Puts node in #doc, keeping the reading spot (the source line at the pane's top, and how far down it), then the marks, the
 // outline, the strip and the chosen lines. While the column is hidden (under the changes view) nothing can be measured: the
 // spot read before it was hidden (MD.spot, or the view a return asks for) is kept as its line and marked to be put back on

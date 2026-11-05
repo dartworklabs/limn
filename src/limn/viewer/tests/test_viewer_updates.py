@@ -435,6 +435,33 @@ class UpdateFlows(BrowserBase):
         page.wait_for_timeout(600)
         self.assertFalse(any("바뀌었습니다" in t for t in self.line(page)), self.line(page))
 
+    def test_a_second_change_before_the_first_is_seen_keeps_the_first_places(self):
+        """L3 changes, and before that is seen L11 changes too: the message says both places and both lines are tinted
+        (the lines are compared with those before the first change, not with those just drawn). Once dismissed, the next
+        change is compared with what was seen: only its own place."""
+        from limn.builds.artifacts import expire_src_mtime
+
+        def change(text):
+            self.md.write_text(text, encoding="utf-8")
+            expire_src_mtime(self.nt)
+            self.poll(page)
+            until(page, "MD.lines.join('\\n')===%s" % json.dumps(text.rstrip("\n")))
+            settle(page)
+
+        page = self.view()
+        until(page, "!!seenDoc('nt')&&LIGHT_INFLIGHT===null")
+        first = SOURCE.replace("첫 문단이다.", "고친 첫 문단이다.")
+        change(first)
+        until(page, "UPD.lines.has('nt')")
+        change(first.replace("끝 문단이다.", "고친 끝 문단이다."))
+        self.assertEqual(page.evaluate("UPD.lines.get('nt').ranges"), [{"lo": 3, "hi": 3}, {"lo": 11, "hi": 11}])
+        self.assertIn("바뀐 곳 2", page.evaluate("LINE.find(n=>n.group==='upd:nt').desc"))
+        tinted = "[...document.querySelectorAll('#md .md-upd')].map(e=>e.textContent.trim())"
+        self.assertEqual(sorted(page.evaluate(tinted)), ["고친 끝 문단이다.", "고친 첫 문단이다."])
+        page.evaluate("noticeClose(LINE.find(n=>n.group==='upd:nt').n)")
+        change(first.replace("끝 문단이다.", "고친 끝 문단이다.").replace("- 둘\n", "- 둘 반\n"))
+        self.assertEqual(page.evaluate("UPD.lines.get('nt').ranges"), [{"lo": 8, "hi": 8}])
+
     def test_a_coauthors_new_pin_and_an_agent_closing_pins_one_by_one_are_one_message_each(self):
         """Bob's new pin on this document: '새 핀 #N — Bob Park · L3 · …' with [보기]. The agent closing three of Alice's
         pins poll by poll: one message that grows to '핀 3개가 검토 대기로 넘어왔습니다 — #a, #b, #c · 로컬/에이전트'."""
@@ -491,6 +518,28 @@ class UpdateFlows(BrowserBase):
         self.poll(page)
         until(page, "LINE.some(n=>n.keys.includes('replied:%d'))" % pid)
         self.assertIn("핀 #%d · 노트 — Bob Park님 답글: 줄였습니다" % pid, self.line(page))
+
+    def test_a_move_saved_after_the_change_was_dismissed_is_said_on_its_own(self):
+        """A paragraph inserted above Alice's pin on L3: the document's update message comes and is dismissed; the
+        maintenance that saves the moved place (ADR-0028) comes later, and that move is said on its own ('#N 줄 +2
+        이동') - not taken into the message that has gone."""
+        pid = add_pin({"file": str(self.md), "lo": 3, "hi": 3, "note": "a"}, actor(ALICE), doc=self.nt).record["id"]
+        page = self.view()
+        until(page, "!!seenDoc('nt')&&LIGHT_INFLIGHT===null")
+        page.evaluate("clearInterval(LIGHT_TIMER); digestEnd()")
+        self.md.write_text(SOURCE.replace("첫 문단이다.", "추가된 문단이다.\n\n첫 문단이다."), encoding="utf-8")
+        from limn.builds.artifacts import expire_src_mtime
+
+        expire_src_mtime(self.nt)
+        page.evaluate("pollLightOnce()")
+        until(page, "LINE.some(n=>n.group==='upd:nt')")
+        page.evaluate("noticeClose(LINE.find(n=>n.group==='upd:nt').n)")
+        ps.APP.assembly.pins.startup.maintain()
+        page.evaluate("pollLightOnce()")
+        until(page, "OPEN_ALL.some(p=>p.id===%d&&p.lo===5)" % pid)
+        settle(page)
+        self.assertIn("#%d 줄 +2 이동" % pid, self.line(page))
+        self.assertFalse(page.evaluate("UPD.moved.has('nt')"))
 
     def test_a_browser_whose_storage_refuses_still_boots_and_keeps_what_it_saw_in_memory(self):
         """Storage throws a SecurityError on reading and writing the event cursor, and refuses writing limnSeen (a full

@@ -10,7 +10,8 @@
 // - this page is older than the Limn the server runs now (GET /api/version): a status item with [새로 고침] (status.js);
 // - back after a while, what came meanwhile is said as one message (notices.js digestBegin, polling.js).
 const UPD={moved:/** @type {Map<string,{moved:Set<number>,lost:Set<number>}>} */(new Map()),
-  lines:/** @type {Map<string,{ranges:{lo:number,hi:number}[],at:number}>} */(new Map()),expect:0,top:/** @type {number|null} */(null)};
+  lines:/** @type {Map<string,{base:string[],ranges:{lo:number,hi:number}[],at:number}>} */(new Map()),expect:0,expectAt:0,
+  seenAt:/** @type {Map<string,number>} */(new Map()),top:/** @type {number|null} */(null)};
 const UPD_EXPECT_MS=120000;   // after a source change is seen, how long its pins' moves wait for the document's update message
 const DIGEST_TAIL_MS=2500;   // how long a gathering waits after its poll for the build and the update it set going
 const LINE_DIFF_MAX=500;   // edit steps the line comparison tries before calling the whole middle one changed place
@@ -161,16 +162,22 @@ function docUpdateView(d){const k=d.key,c=d.commits,here=k===DOC,parts=[],mv=UPD
   const title=tl('{name}{p} 바뀌었습니다',{name:d.name,p:josaName(d.name,'이','가')});
   return {msg:title+' — '+parts.join(' · '),kind:NOTICE_KIND.INFO,act,
     o:{literal:true,keep:true,back:!here,brief:title,onEnd:(/** @type {boolean} */acted,/** @type {boolean} */seen)=>{if(acted||seen)docUpdateSeen(k,d);}}};}
-// Document k's update message has been seen: limnSeen takes what it said, and its moved pins and changed lines go.
+// Document k's update message has been seen: limnSeen takes what it said, and its moved pins and changed lines go. Moves
+// that come after this belong to no message that is due (updPinMoved).
 /** @param {string} k @param {any} d */
-function docUpdateSeen(k,d){setSeenDoc(k,{ver:d.ver,rev:d.top}); UPD.moved.delete(k); if(UPD.lines.delete(k))updMarks();}
-// A change of a document's source was seen (polling.js): for UPD_EXPECT_MS its pins' moves wait for its update message.
-function updExpect(){UPD.expect=Date.now()+UPD_EXPECT_MS;}
-// Pin p moved its lines (lost: lost its place) - counted for its document's update message while that is due or stands, and
-// said there. Returns whether a moved pin is said there (its own message is then left out); a lost pin is always said on its
-// own as well, for it asks for a new place.
+function docUpdateSeen(k,d){setSeenDoc(k,{ver:d.ver,rev:d.top}); UPD.moved.delete(k); UPD.seenAt.set(k,Date.now()); if(UPD.lines.delete(k))updMarks();}
+// A source or a build is changing (polling.js): for UPD_EXPECT_MS its pins' moves wait for its document's update message.
+// fresh: a source changed now - the wait starts now, so a message seen before it does not end it (updPinMoved).
+/** @param {boolean} [fresh] */
+function updExpect(fresh){const t=Date.now(); if(fresh||UPD.expect<t)UPD.expectAt=t; UPD.expect=t+UPD_EXPECT_MS;}
+// Pin p moved its lines (lost: lost its place) - counted for its document's update message while that stands or is due, and
+// said there. Due: a change is awaited (updExpect) that this document's message has not been seen for since - after [x] on
+// that message a late move (a maintenance save of the moved place, ADR-0028) is said on its own, not taken into a message
+// that has gone. Returns whether a moved pin is said there (its own message is then left out); a lost pin is always said on
+// its own as well, for it asks for a new place.
 /** @param {Pin} p @param {boolean} lost @returns {boolean} */
-function updPinMoved(p,lost){const k=pdoc(p),g=GROUPS.get('upd:'+k); if(!g&&UPD.expect<Date.now())return false;
+function updPinMoved(p,lost){const k=pdoc(p),g=GROUPS.get('upd:'+k),t=Date.now();
+  if(!g&&!(UPD.expect>=t&&(UPD.seenAt.get(k)||0)<UPD.expectAt))return false;
   let m=UPD.moved.get(k); if(!m){m={moved:new Set(),lost:new Set()}; UPD.moved.set(k,m);} (lost?m.lost:m.moved).add(p.id);
   if(g&&g.n&&NOTICES.has(g.n.n))regroup(g.n,docUpdateView(g.data)); return !lost;}
 // The changes view on the commits that came after base (the last seen commit), on document k: its source diff of base → the
@@ -180,11 +187,18 @@ function openUpdateRange(k,base){const go=()=>{REV.want={base}; if(document.body
   if(k===DOC){go(); return;} const opening=switchDoc(k),visit=SWITCHSEQ; opening.then(()=>{if(DOC===k&&visit===SWITCHSEQ)go();});}
 
 // ---------------- A drawn document's changed lines
-// The source of drawn document k was read again (md-surface.js mdBuild): the lines that changed since the lines drawn before
-// are tinted (md-upd) while its update message stands, and the message says how many places and goes to them.
-/** @param {string} k @param {string[]} before @param {string[]} now */
-function updSourceRedrawn(k,before,now){const ranges=lineChanges(before,now,LINE_DIFF_MAX); if(!ranges.length)return;
-  UPD.lines.set(k,{ranges,at:-1}); updMarks(); checkDocUpdate(k,{});}
+// The source of drawn document k was drawn (md-surface.js mdBuild); before: the lines it replaced on screen (null on the
+// visit's first draw). The lines that differ from the base - the lines before the change not yet seen began, kept while
+// its message stands - are tinted (md-upd) while that message stands, and the message says how many places and goes to
+// them. A later change before it is seen is compared with that base again, not with the lines just drawn, so a place changed
+// first stays tinted and counted beside the new one; a return to the document compares what it draws now.
+/** @param {string} k @param {string[]|null} before @param {string[]} now */
+function updSourceRedrawn(k,before,now){const u=UPD.lines.get(k),base=u?u.base:before; if(!base)return;
+  const ranges=lineChanges(base,now,LINE_DIFF_MAX); if(!u&&!ranges.length)return;
+  const same=!!u&&JSON.stringify(u.ranges)===JSON.stringify(ranges);
+  UPD.lines.set(k,{base,ranges,at:u&&same?u.at:-1}); updMarks();
+  if(before){checkDocUpdate(k,{}); return;}
+  const g=GROUPS.get('upd:'+k); if(!same&&g&&g.n&&NOTICES.has(g.n.n))regroup(g.n,docUpdateView(g.data));}
 // Tints the changed lines of the document on screen (after every draw of it, md-surface.js mdShow), and only those.
 function updMarks(){$$('#md .md-upd').forEach(e=>e.classList.remove('md-upd')); const u=UPD.lines.get(DOC||''); if(!u||!isMdDoc())return;
   u.ranges.forEach(r=>mdLeaves(r.lo,r.hi).forEach(e=>e.classList.add('md-upd')));}

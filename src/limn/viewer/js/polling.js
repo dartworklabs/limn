@@ -53,7 +53,7 @@ async function pollLightOnce(){
   const sig=d.src_sig||d.src_mtime;
   // A failed or superseded pin refresh has not observed this revision; retry it on the next light poll.
   const needsPins=LAST_PINS_REV===null||d.pins_rev!==LAST_PINS_REV||sig!==LAST_SRC_MTIME;
-  if(sig!==LAST_SRC_MTIME||d.building||(d.sync&&d.sync.state===SYNC_STATE.UPDATING))updExpect();   // its pins' moves wait for its update message
+  if(sig!==LAST_SRC_MTIME||d.building||(d.sync&&d.sync.state===SYNC_STATE.UPDATING))updExpect(sig!==LAST_SRC_MTIME);   // its pins' moves wait for its update message
   const applied=!needsPins||await loadPins();
   if(k!==DOC||visit!==SWITCHSEQ)return;
   // Its source changed since the last read that answered: the Markdown surface reads and draws it again, asked once per change
