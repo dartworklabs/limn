@@ -464,19 +464,12 @@ BLOCK_MATH = {
             ["paragraph_open", [5, 6]],
         ],
     ),
-    # The nested quote's look ahead and the outer quote read the same lines at other levels: neither takes the other's
-    # answers (the level in mdMathMemo's key), so the nested quotes keep their first line only.
-    "nested quotes, each at its own level": (
+    # A lazy line the outer quote took into its paragraph opens no math in the nested quote either: the '\\]' is in a code
+    # span over the line end, so the four lines are one paragraph of both quotes, as CommonMark has them.
+    "a lazy line in nested quotes": (
         ">>`\n\\[\n>``\\]\n``",
         [],
-        [
-            ["blockquote_open", [0, 1]],
-            ["blockquote_open", [0, 1]],
-            ["paragraph_open", [0, 1]],
-            ["paragraph_open", [1, 2]],
-            ["blockquote_open", [2, 4]],
-            ["paragraph_open", [2, 4]],
-        ],
+        [["blockquote_open", [0, 4]], ["blockquote_open", [0, 4]], ["paragraph_open", [0, 4]]],
     ),
     "a list item's lazy continuation stays its paragraph": (
         "- a\n$$\nx\n$$",
@@ -637,7 +630,7 @@ class MathRule(unittest.TestCase):
         with or without an outer quote, under runs of one to three backticks. Mutations: leave the closing delimiter out of
         mdMathMemo's key -> a '$$' search takes a '\\]' search's answers, fails; leave the container's type out -> the
         quote after a list's look ahead takes the list's answers, fails; leave the level out -> nested quotes take each
-        other's, fails. BLOCK_MATH pins a document of each of the last two."""
+        other's, fails. BLOCK_MATH pins a document after a list's look ahead."""
         got = worker_node(
             "const pre=['','- ','> ','  ','> > ','1. ','>   - '],"
             "body=['\\\\[','\\\\]','\\\\[ x','b `` \\\\]','\\\\[ `','`` a','$$','$$ x','x','# H','','`','x \\\\]','x $$'];"
@@ -654,6 +647,28 @@ class MathRule(unittest.TestCase):
         )
         self.assertEqual(got["n"], 40030)
         self.assertGreater(got["distinct"], 35000)  # the sequence does not repeat a small corpus
+        self.assertEqual(got["bad"], [])
+
+    def test_a_document_that_forms_no_math_parses_as_the_bundled_parser_reads_it(self):
+        """The math rules only add math: forty thousand generated documents (as in the memo test, with lazy quote lines,
+        double backticks and closing runs added) that form no math_block or math_inline give the same blocks (type, map)
+        as the bundled parser without the rules. A rule that answers a container's look ahead otherwise than the container
+        that took the line would cut a paragraph CommonMark keeps whole. Mutation: let display math open on a line of an
+        outer block (drop the sCount check of mdMathBlock) -> eight documents parse otherwise, fails."""
+        got = worker_node(
+            "const pre=['','- ','> ','  ','> > ','1. ','>   - ','>>','>'],"
+            "body=['\\\\[','\\\\]','\\\\[ x','b `` \\\\]','\\\\[ `','`` a','$$','$$ x','x','# H','','`','x \\\\]',"
+            "'x $$','``','``\\\\]'];"
+            "let seed=12345; const next=n=>{seed^=seed<<13; seed^=seed>>>17; seed^=seed<<5; return (seed>>>0)%n;};"
+            "const docs=[]; for(let i=0;i<40000;i++){const lines=[]; const k=2+next(6);"
+            "for(let j=0;j<k;j++) lines.push(pre[next(pre.length)]+body[next(body.length)]); docs.push(lines.join('\\n'));}"
+            "const blocks=ts=>JSON.stringify(ts.filter(t=>t.map&&t.type!=='inline').map(t=>[t.type,t.map]));"
+            "const math=ts=>ts.some(t=>t.type==='math_block'||(t.children||[]).some(c=>c.type==='math_inline'));"
+            "let plain=0; const bad=[]; for(const s of docs){const w=md.parse(s,{}); if(math(w)) continue; plain++;"
+            "if(bad.length<3&&blocks(w)!==blocks(base.parse(s,{}))) bad.push(s);}"
+            "out={plain,bad};"
+        )
+        self.assertGreater(got["plain"], 30000)
         self.assertEqual(got["bad"], [])
 
     def test_display_math_openers_without_a_closer_are_read_once(self):

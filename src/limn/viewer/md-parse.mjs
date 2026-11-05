@@ -108,7 +108,11 @@ function mdMathInline(state, silent) {
 // inline rule. The first closing delimiter is the one the inline rule would find in the paragraph those lines make: a code
 // span binds tighter (D6), also one that runs over a line end, so the search carries it from line to line (mdMathBlockEnd).
 function mdMathBlock(state, start, end, silent) {
-  if (state.sCount[start] - state.blkIndent >= 4) return false;
+  // Indented as code opens nothing; nor does a line of an outer block (indented less than this one, as a lazy line an outer
+  // quote has taken into its paragraph is, -1). A quote asking whether math ends its paragraph at such a line reads the
+  // lines after it from other content starts than the quote that took it, so it would answer otherwise and cut a paragraph
+  // the outer quote's answer kept whole.
+  if (state.sCount[start] - state.blkIndent >= 4 || state.sCount[start] < state.blkIndent) return false;
   const s = state.src, b = state.bMarks[start] + state.tShift[start];
   const open = s.startsWith('$$', b) ? '$$' : s.startsWith('\\[', b) ? '\\[' : '';
   if (!open) return false;
