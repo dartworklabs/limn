@@ -958,3 +958,57 @@ class BoxesSplitEnglish(BoxesSplit):
         self.assertEqual(page.evaluate(whys), ["A quote or list split in two"] * 4)
         self.show(page, self.c[2])
         self.assertEqual(page.evaluate(whys), ["Quotes or lists joined into one"] * 4)
+
+
+class UpdateMessageRange(CompareBase):
+    """This browser last saw the note at the table's commit (self.c[2]): the boot says the note changed - two commits -
+    with [변경 보기], which opens just those commits, c[2] → c[4] (docs/handbook/viewer.md §새 소식). On a Markdown
+    document that range opens in [그린 비교], as a range picked in the list does - unless [소스 diff] is the tab shown,
+    which it keeps (§변경 보기, ADR-0031 D4)."""
+
+    def seen(self):
+        """The init script: limnSeen as this browser left it, the note seen at an older version and the table's commit."""
+        rec = {"v": 1, "pin": 0, "docs": {"nt": {"ver": "src:1", "rev": self.c[2]}}}
+        return "localStorage.setItem('limnSeen',%s)" % json.dumps(json.dumps(rec))
+
+    def press_message(self, page):
+        """The note's update message's [변경 보기], once the boot has said it."""
+        until(page, "LINE.some(n=>n.group==='upd:nt'&&!!n.act&&n.act.label==='변경 보기')", 20)
+        page.evaluate("noticeAct(LINE.find(n=>n.group==='upd:nt').n)")
+
+    def opened(self, page, shown):
+        """The view once the message's range is shown in format shown: [format, rendered pane hidden, source pane hidden,
+        [그린 비교] pressed, [소스 diff] pressed]."""
+        ends = "REV.base===%s&&REV.commit===%s" % (json.dumps(self.c[2]), json.dumps(self.c[4]))
+        until(page, (COMPARED if shown == "rendered" else SOURCED.replace("&&!!REV.target", "")) + "&&" + ends, 15)
+        settle(page)
+        return page.evaluate(
+            "[REV.format,document.getElementById('revision-rendered').hidden,document.getElementById('revision-source').hidden,"
+            "document.getElementById('revision-rendered-tab').getAttribute('aria-pressed'),"
+            "document.getElementById('revision-source-tab').getAttribute('aria-pressed')]"
+        )
+
+    def test_from_the_document_the_messages_commits_open_in_the_rendered_compare(self):
+        """From the document view: the range is drawn and compared - the picture's commit and the moved section, nothing
+        else. Mutation: open the message's range in the source diff (REV.format=DIFF_FORMAT.SOURCE before showRange in
+        loadRevisions' REV.want branch, the rule §새 소식 used to state) -> fails."""
+        page = self.open(0, init=self.seen())
+        until(page, DRAWN, 20)
+        self.press_message(page)
+        self.assertEqual(self.opened(page, "rendered"), ["rendered", False, True, "true", "false"])
+        self.assertEqual(sorted({k for k, _, _ in self.marks(page)}), ["del", "ins", "move"])
+
+    def test_on_the_rendered_compare_the_messages_commits_stay_in_it(self):
+        """The changes view is open on the newest commit's [그린 비교]: the message's range opens there too."""
+        page = self.open_compare(init=self.seen())
+        self.press_message(page)
+        self.assertEqual(self.opened(page, "rendered"), ["rendered", False, True, "true", "false"])
+
+    def test_on_the_source_diff_the_messages_commits_open_in_it(self):
+        """The changes view is open on [소스 diff]: the message's range opens in the source diff, the tab kept. Mutation:
+        open a Markdown range in [그린 비교] whatever the tab (showRange) -> fails."""
+        page = self.open_compare(init=self.seen())
+        page.click("#revision-source-tab")
+        until(page, "REV.format===DIFF_FORMAT.SOURCE&&REV.sourceCommit===revKey()", 15)
+        self.press_message(page)
+        self.assertEqual(self.opened(page, "source"), ["source", True, False, "false", "true"])
