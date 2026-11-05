@@ -455,7 +455,7 @@ function mdLevels(r,b0,b1,tapped){if(isTextDoc())return txLevels(r);   // a text
   add('raw','고른 줄',r.lo,r.hi,null);
   if(k){if(!blockFirst)add('block',MD_BLOCK_LABEL[k]||'블록',blo,bhi,k);}
   else{const bs=mdBlocksIn(r.lo,r.hi); if(bs.length>1)add('blocks',tl('블록 {n}개',{n:bs.length}),Math.min(r.lo,...bs.map(e=>+(e.dataset.lo||0))),Math.max(r.hi,...bs.map(e=>+(e.dataset.hi||0))),null);}
-  const s=mdSection(r.lo,r.hi); if(s)add('section',tr('절')+' · '+(s.title.length>18?s.title.slice(0,18)+'…':s.title),s.lo,s.hi,null);
+  const s=mdSection(r.lo,r.hi); if(s)add('section',tr('절')+' · '+ccClip(s.title,18),s.lo,s.hi,null);   // the heading's hidden characters by name (ccClip, ADR-0029 D5)
   return ls;}
 // Fills the composer with lines r of the document on screen, as pick() does with a /api/pick answer; tapped: a tap picked a
 // block, so the block rung is the default (the section rung on a heading). During a re-place it is the candidate instead
