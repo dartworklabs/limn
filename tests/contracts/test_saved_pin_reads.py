@@ -140,13 +140,16 @@ class TestSavedPinReads(Base):
         stop = threading.Event()
         with (
             mock.patch.object(stop, "wait", side_effect=[False, False, True]),
-            mock.patch.object(Path, "read_text", side_effect=AssertionError("idle checker read text")),
-            mock.patch.object(Path, "read_bytes", side_effect=AssertionError("idle checker read bytes")),
+            mock.patch.object(Path, "read_text", side_effect=AssertionError("idle checker read text")) as text_reads,
+            mock.patch.object(Path, "read_bytes", side_effect=AssertionError("idle checker read bytes")) as byte_reads,
             mock.patch.object(
                 ManuscriptFile, "snapshot_checked", side_effect=AssertionError("idle checker read source")
-            ),
+            ) as source_reads,
         ):
             startup.watch(stop)
+            text_reads.assert_not_called()
+            byte_reads.assert_not_called()
+            source_reads.assert_not_called()
         self.assertEqual(tree(ps.APP.C.state), before)
 
     def test_new_pin_registry_refreshes_watched_sources_without_a_request(self):
@@ -227,3 +230,27 @@ class TestSavedPinReads(Base):
         with mock.patch.object(stop, "wait", side_effect=[False, True]):
             startup.watch(stop)
         self.assertEqual(json.loads(ps.APP.C.pins_jsonl.read_text())["lo"], 5)
+
+    def test_periodic_pass_prunes_trash_even_without_source_changes(self):
+        """Time-based retention still converges after sixty seconds even if every stat is unchanged."""
+        from datetime import datetime, timezone
+
+        from helpers import ps
+
+        self.add(lo=4, hi=4)
+        row = json.loads(ps.APP.C.pins_jsonl.read_text())
+        trash = ps.APP.C.state / "pins.dropped.jsonl"
+        trash.write_text(json.dumps(dict(row, id=99, dropped_at=datetime.now(timezone.utc).isoformat())) + "\n")
+        startup = ps.APP.assembly.pins.startup
+        startup.maintain()
+        self.assertNotEqual(trash.read_text(), "")
+        later = time.time() + 31 * 86400
+        next_period = time.monotonic() + 61
+        stop = threading.Event()
+        with (
+            mock.patch.object(stop, "wait", side_effect=[False, True]),
+            mock.patch("limn.pins.maintenance.time.monotonic", return_value=next_period),
+            mock.patch("limn.pins.maintenance.time.time", return_value=later),
+        ):
+            startup.watch(stop)
+        self.assertEqual(trash.read_text(), "")
