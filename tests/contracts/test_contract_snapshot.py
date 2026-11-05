@@ -6,8 +6,9 @@ agent, a stale edit, a claim on a closed pin, a missing pin) - runs through the 
 zone and the paths pinned. Every answer (status and body), pins.md after every write, and at the end GET /pins.md,
 GET /api/pins, GET /api/pins/<id> and GET /api/pins/dropped are compared with tests/data/contract_snapshot.json
 (docs/handbook/verification.md §4), so a refactor that changes any of these bytes fails here. The figure flow, the
-verdict flow, the Markdown flow and the text flow are recorded apart, in tests/data/contract_snapshot_figure.json,
-tests/data/verdict_snapshot.json, tests/data/contract_snapshot_markdown.json and tests/data/contract_snapshot_text.json.
+verdict flow, the Markdown flow, the text flow and the Markdown front matter and math flow are recorded apart, in
+tests/data/contract_snapshot_figure.json, tests/data/verdict_snapshot.json, tests/data/contract_snapshot_markdown.json,
+tests/data/contract_snapshot_text.json and tests/data/contract_snapshot_markdown_dialect.json.
 
 Paths are written as <ROOT> (the temporary folder), the clock is 2026-09-26 10:00:00 +09:00 whatever the machine's
 zone. A deliberate contract change (docs/handbook/api.md, approved first) re-records the snapshot:
@@ -673,6 +674,137 @@ class TextContractSnapshot(SnapshotBase):
         self.step("text: GET /api/pins", "GET", "/api/pins")
         self.step("text: GET /api/pins/<d>", "GET", "/api/pins/%d" % d)
         self.assert_recorded(TEXT_SNAPSHOT)
+
+
+DIALECT_SNAPSHOT = Path(__file__).resolve().parents[2] / "tests" / "data" / "contract_snapshot_markdown_dialect.json"
+# A Markdown document of the dialect flow: YAML front matter, a heading, a paragraph with inline math and display math.
+PAPER_MD = (
+    "---\n"  # 1
+    "title: 논문 노트\n"  # 2
+    "tags: [notes, transfer]\n"  # 3
+    "---\n"  # 4
+    "\n"  # 5
+    "# Method\n"  # 6
+    "\n"  # 7
+    "The loss is $L_{b,t}$ and $t^*$ stops it.\n"  # 8
+    "\n"  # 9
+    "$$\n"  # 10
+    "L = \\sum_t w_t \\ell_t\n"  # 11
+    "$$\n"  # 12
+)
+
+
+class MarkdownDialectContractSnapshot(SnapshotBase):
+    """The front matter and math flow, recorded in tests/data/contract_snapshot_markdown_dialect.json
+    (docs/adr/0032-markdown-front-matter.md D4, D9): a LaTeX document ms and a Markdown document nt (notes/paper.md) as
+    `--doc` registers them. The source as the server sends it (it parses neither the front matter nor the math); an
+    agent's line pin on a YAML line sent with page fields out of habit, the front matter block (`md:front`), the display
+    math block (`md:math`), a suggested edit of the math's TeX and a LaTeX pin beside them; a re-placement onto the front
+    matter block that sends page fields again and a note edit; a drop and the Trash; then pins.md, the pin list and the
+    suggestion's pin. The two kinds are stored, answered and listed (range column) as sent, and no pin of them has a page
+    field. The other flows never meet these kinds, and their snapshots stay byte for byte as they were."""
+
+    def setUp(self):
+        """The pinned clocks; ms and nt from their --doc specs; the Markdown file's mtime T0."""
+        super().setUp()
+        (self.src / "notes").mkdir()
+        self.md = self.src / "notes" / "paper.md"
+        self.md.write_text(PAPER_MD, encoding="utf-8")
+        os.utime(self.md, (T0, T0))
+        docs = serve_documents.make_docs(["ms=본문:main.tex", "nt=논문 노트:notes/paper.md"], self.src, ps.APP.C.paths)
+        assert isinstance(docs, list), docs
+        ps.APP.set_docs(docs)
+        self.addCleanup(ps.APP.set_docs, None)
+
+    def test_the_front_matter_and_math_pin_flow_answers_as_recorded(self):
+        """Every answer and pins.md along the front matter and math flow equal the recorded snapshot."""
+        md, main = str(self.md), str(self.main)
+        habit = {"page": 1, "frac": [0.1, 0.1, 0.2, 0.2], "pdf_build": "pages"}
+        math = "$$\nL = \\sum_t w_t \\ell_t\n$$"
+        self.step("dialect: GET /api/source", "GET", "/api/source?doc=nt", headers=ALICE)
+        a = self.step(
+            "dialect: agent pins a YAML line, sending page fields out of habit",
+            "POST",
+            "/api/pin",
+            {"doc": "nt", "file": md, "lo": 3, "hi": 3, "note": "태그를 더해 줘", **habit},
+        )["id"]
+        b = self.step(
+            "dialect: person pins the front matter block",
+            "POST",
+            "/api/pin",
+            {
+                "doc": "nt",
+                "file": md,
+                "lo": 1,
+                "hi": 4,
+                "scope": "block",
+                "kind": "md:front",
+                "quote": "title: 논문 노트 tags: [notes, transfer]",
+                "note": "제목을 영어로",
+            },
+            ALICE,
+        )["id"]
+        c = self.step(
+            "dialect: person pins the display math block",
+            "POST",
+            "/api/pin",
+            {
+                "doc": "nt",
+                "file": md,
+                "lo": 10,
+                "hi": 12,
+                "scope": "block",
+                "kind": "md:math",
+                "quote": "$$ L = \\sum_t w_t \\ell_t $$",
+                "note": "가중치 정의",
+            },
+            BOB,
+        )["id"]
+        d = self.step(
+            "dialect: person suggests an edit of the display math",
+            "POST",
+            "/api/pin",
+            {
+                "doc": "nt",
+                "file": md,
+                "lo": 10,
+                "hi": 12,
+                "scope": "block",
+                "kind": "md:math",
+                "note": "",
+                "suggest": {"base": math, "text": math.replace("\\sum_t", "\\sum_{t=2}^{T}")},
+            },
+            ALICE,
+        )["id"]
+        self.step(
+            "dialect: agent pins LaTeX lines beside them",
+            "POST",
+            "/api/pin",
+            {"doc": "ms", "file": main, "lo": 4, "hi": 5, "page": 1, "note": "n"},
+        )
+        self.step(
+            "dialect: person re-places the agent's pin onto the front matter block, sending page fields again",
+            "POST",
+            "/api/pins/%d/edit" % a,
+            {
+                "base_rev": 0,
+                "loc": {"file": md, "lo": 1, "hi": 4, "scope": "block", "kind": "md:front", **dict(habit, page=2)},
+            },
+            ALICE,
+        )
+        self.step(
+            "dialect: person edits the front matter pin's note",
+            "POST",
+            "/api/pins/%d/edit" % b,
+            {"base_rev": 0, "note": "제목과 태그를 영어로"},
+            ALICE,
+        )
+        self.step("dialect: person drops the math pin", "POST", "/api/pins/%d/drop" % c, {}, BOB)
+        self.step("dialect: the Trash", "GET", "/api/pins/dropped")
+        self.step("dialect: GET /pins.md", "GET", "/pins.md")
+        self.step("dialect: GET /api/pins", "GET", "/api/pins")
+        self.step("dialect: GET /api/pins/<d>", "GET", "/api/pins/%d" % d)
+        self.assert_recorded(DIALECT_SNAPSHOT)
 
 
 if __name__ == "__main__":
