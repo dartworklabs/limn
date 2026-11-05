@@ -1,0 +1,50 @@
+/* ---------------- The rendered compare of a Markdown document ([그린 비교], md-compare.js): the two sides drawn as the Markdown
+   surface draws a document, in one column (the new side with the taken-out blocks put back) or, asked for and where the pane is
+   wide enough, two columns side by side. Never sideways: two columns that do not fit stack into one. A change is a tint over
+   the block and a word in the column's left gutter (a chip) - never a coloured band on the box's edge; taken-out text is also
+   struck through, so the kinds read without colour. The pin the view was opened for is ringed in the review colour. */
+#revision-rendered{flex:1;min-height:0;overflow:auto;background:var(--background);padding:var(--space-3)}
+body.lay-narrow #revision-view[data-format=rendered] #revision-pane{height:auto}
+body.lay-narrow #revision-view[data-format=rendered] #revision-rendered{flex:none;overflow:visible}
+#revision-nav{display:flex;align-items:center;gap:var(--space-1);margin-left:auto}
+#revision-nav[hidden]{display:none}
+#mdc-at{min-width:9ch;text-align:center;font-size:var(--text-sm);font-variant-numeric:tabular-nums;white-space:nowrap}
+.mdc-frame{max-width:46rem;margin:0 auto}
+.mdc-frame.split{max-width:none}
+.mdc-legend{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2);margin:0 0 var(--space-2);font-size:var(--text-xs);color:var(--muted-foreground)}
+.mdc-legend .mdc-chip{position:static}
+.mdc-legend-t{margin-left:var(--space-1)}
+.mdc-info{margin:0 0 var(--space-2);padding:var(--space-2) var(--space-3);border:1px solid var(--border);border-radius:var(--radius);background:var(--card);
+  color:var(--muted-foreground);font-size:var(--text-sm)}
+.mdc-note{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:var(--space-2)}
+.mdc-cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:var(--space-3);align-items:start}
+.mdc-col{min-width:0}
+.mdc-side{margin:0 0 var(--space-1);font-size:var(--text-xs);font-weight:600;color:var(--muted-foreground)}
+.mdc-cols .md{max-width:none;margin:0}
+.mdc-gap{display:block;list-style:none;margin:0;padding:0}
+/* Block marks: a tint per kind; taken-out text struck through. A list item taken out of a numbered list keeps the numbers of the
+   new side (it takes no count). */
+.mdc-doc .mdc-ins{background:color-mix(in srgb,var(--success) 13%,transparent)}
+.mdc-doc .mdc-del{background:color-mix(in srgb,var(--destructive) 11%,transparent);text-decoration:line-through;
+  text-decoration-color:color-mix(in srgb,var(--destructive) 70%,var(--foreground))}
+.mdc-doc .mdc-mod{background:color-mix(in srgb,var(--warning) 9%,transparent)}
+.mdc-doc .mdc-move{background:color-mix(in srgb,var(--primary) 10%,transparent)}
+.mdc-doc ol>li.mdc-del{counter-increment:list-item 0}
+.mdc-doc ins.mdc-w{text-decoration:none;background:color-mix(in srgb,var(--success) 30%,transparent);border-radius:var(--radius-sm)}
+.mdc-doc del.mdc-w{text-decoration:line-through;background:color-mix(in srgb,var(--destructive) 26%,transparent);border-radius:var(--radius-sm)}
+.mdc-doc .mdc-wl{background:color-mix(in srgb,var(--success) 30%,transparent);border-radius:var(--radius-sm)}
+.mdc-doc .mdc-wl-del{background:color-mix(in srgb,var(--destructive) 26%,transparent);border-radius:var(--radius-sm);text-decoration:line-through}
+.mdc-doc .mdc-ghost{display:block;list-style:none;margin:0 0 var(--space-3);padding:var(--space-1) var(--space-2);border:1px dashed var(--border-strong);
+  border-radius:var(--radius);color:var(--muted-foreground);font-size:var(--text-sm);line-height:1.5;text-decoration:none}
+.mdc-doc tr.mdc-ghost{display:table-row}
+.mdc-doc .mdc-pin{outline:2px solid var(--status-review);outline-offset:2px;border-radius:var(--radius-sm)}
+.mdc-doc .mdc-cur{box-shadow:0 0 0 4px var(--card),0 0 0 6px var(--primary)}
+/* The gutter chips: each changed block's kind at its first line, in the column's left gutter (laid by md-compare.js). */
+.mdc-chips{position:absolute;left:0;top:0;width:calc(var(--space-6) + var(--space-5));pointer-events:none;user-select:none;-webkit-user-select:none}
+.mdc-chip{position:absolute;left:var(--space-1);display:inline-block;padding:0 var(--space-1);border-radius:var(--radius-sm);font-size:var(--text-xs);line-height:18px;
+  font-weight:600;white-space:nowrap;text-decoration:none}
+.mdc-chip-ins{background:color-mix(in srgb,var(--success) 22%,var(--card));color:color-mix(in srgb,var(--success) 70%,var(--foreground))}
+.mdc-chip-del{background:color-mix(in srgb,var(--destructive) 20%,var(--card));color:color-mix(in srgb,var(--destructive) 70%,var(--foreground))}
+.mdc-chip-mod{background:color-mix(in srgb,var(--warning) 22%,var(--card));color:color-mix(in srgb,var(--warning) 70%,var(--foreground))}
+.mdc-chip-move{background:color-mix(in srgb,var(--primary) 20%,var(--card));color:color-mix(in srgb,var(--primary) 70%,var(--foreground))}
+.mdc-chip-pin{background:var(--status-review);color:var(--status-review-foreground)}

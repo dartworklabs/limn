@@ -29,6 +29,7 @@ css/search.css          # in-document search: the nav bar's field, its folded ma
 css/notices.css         # messages in context: banners, undo rows, notes and chips, the status line's messages, dots
 css/md-surface.css      # the Markdown surface: the document column, its blocks, line marks and badges, the line view, notices
 css/text-surface.css    # the text surface: a text document's monospace lines, their gutter, wrapping and marked characters
+css/md-compare.css      # the rendered compare of a Markdown document in the changes view: one column or two, block and word marks, gutter chips
 
 __APP_JS__
 js/core.js              # strict mode, DOM helpers, icons, shared state, the tooltip texts (T)
@@ -64,6 +65,7 @@ js/excerpt.js           # the range excerpt: the band of selected lines between 
 js/figure.js            # figure documents: the chosen element's box and path
 js/md-surface.js        # the Markdown surface: drawing a document from its source (parse worker, limits), lines, links, picks, marks
 js/text-surface.js      # the text surface: a text document's lines as they are (limits, the names view, notices), its ladder (paragraph, indented block)
+js/md-compare.js        # the rendered compare of a Markdown document ([그린 비교]): both sides drawn, compared block by block and word by word
 js/suggest.js           # suggested edits: the draft, its switch and editor (composer, edit card), a card's badge and line diff
 js/composer.js          # pick() and the composer: overlap banner, kind, question hint, discard and restore
 js/draft.js             # the composer draft kept per tab (sessionStorage)

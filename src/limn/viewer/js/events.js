@@ -75,6 +75,7 @@ document.addEventListener('click',e=>{const target=/** @type {HTMLElement} */(e.
     case 'revision':showRevision(a.dataset.commit||'');break;
     case 'revision-format':setRevisionFormat(a.dataset.format);break;
     case 'revision-side':setRevisionSide(a.dataset.side);break;
+    case 'mdc-step':mdcStep(Number(a.dataset.step)||0);break;
     case 'revision-row':pressRevisionRow(a.dataset.commit);break;
     case 'revision-range':setRevisionRange(a.dataset.range);break;
     case 'revision-more':moreRevisions();break;

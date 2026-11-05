@@ -68,14 +68,14 @@
     },
     {
       "file": "revisions.css",
-      "selector": "body.lay-narrow.rev-thumb #revision-source,body.lay-narrow.rev-thumb #revision-pdf,body.lay-narrow.rev-thumb #revision-overlay",
+      "selector": "body.lay-narrow.rev-thumb #revision-source,body.lay-narrow.rev-thumb #revision-pdf,body.lay-narrow.rev-thumb #revision-overlay,body.lay-narrow.rev-thumb #revision-rendered",
       "property": "padding-bottom",
       "value": "160px",
       "reason": "Room under the changes view for the folded sheet's tool bar plus the thumb row over it - a layout place, not a spacing step."
     },
     {
       "file": "revisions.css",
-      "selector": "body.lay-narrow #revision-source,body.lay-narrow #revision-pdf,body.lay-narrow #revision-overlay",
+      "selector": "body.lay-narrow #revision-source,body.lay-narrow #revision-pdf,body.lay-narrow #revision-overlay,body.lay-narrow #revision-rendered",
       "property": "padding-bottom",
       "value": "84px",
       "reason": "Room under the changes view for the folded sheet's tool bar - a layout place, not a spacing step."

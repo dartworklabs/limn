@@ -159,6 +159,7 @@ interface RevTarget {
   hit?: boolean;
   near?: boolean;
   tokOf?: string;
+  mdcMsg?: string;   // the rendered compare's line about the pin's blocks (md-compare.js mdcTarget)
 }
 
 // The changes view's quick range (revisions.js REV.range, issue #188): mode is a RANGE_MODE value, start and end the

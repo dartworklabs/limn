@@ -1594,9 +1594,10 @@ class PageWords(MarkdownBase):
 
 
 class ChangesView(MarkdownBase):
-    """A Markdown document's changes open on its source diff (no comparison PDF)."""
+    """A Markdown document's changes open on its rendered compare, and [소스 diff] shows its source diff (no comparison PDF).
+    The rendered compare itself is test_viewer_md_compare.py's."""
 
-    def test_the_changes_view_opens_the_source_diff(self):
+    def test_the_changes_view_opens_the_rendered_compare_and_the_source_diff(self):
         run = lambda *a: subprocess.run(["git", "-C", str(self.src), *a], check=True, capture_output=True)  # noqa: E731
         run("init", "-q")
         run("config", "user.email", "alice@example.com")
@@ -1608,10 +1609,15 @@ class ChangesView(MarkdownBase):
         page = self.open_md()
         page.evaluate("setViewMode(VIEW_MODE.REVISIONS)")
         page.wait_for_function(
-            "REV.format===DIFF_FORMAT.SOURCE&&!document.getElementById('revision-source').hidden&&REV.sourceCommit",
+            "REV.format===DIFF_FORMAT.RENDERED&&!!document.querySelector('#revision-rendered [data-mdc=mod]')",
             timeout=15000,
         )
         self.assertTrue(page.evaluate("document.getElementById('revision-pdf-tab').hidden"))
+        page.click("#revision-source-tab")
+        page.wait_for_function(
+            "REV.format===DIFF_FORMAT.SOURCE&&!document.getElementById('revision-source').hidden&&REV.sourceCommit",
+            timeout=15000,
+        )
         self.assertIn("문단 셋째 줄을 바꿨다.", page.evaluate("document.getElementById('revision-source').textContent"))
 
 
