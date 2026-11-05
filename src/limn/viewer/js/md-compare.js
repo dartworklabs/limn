@@ -56,7 +56,7 @@ async function mdcBuild(tokens,lines,live){const root=document.createElement('di
     x.dataset.tip=tr('비교 화면에서는 문서 안 링크를 따라가지 않습니다');});
   return root;}
 // ---------------- Blocks and their keys
-/** @typedef {{el:HTMLElement,tag:string,key:string,text:string,pics:string,shape:string,box:string,alts:string,lo:number,hi:number}} MdcUnit */
+/** @typedef {{el:HTMLElement,tag:string,key:string,text:string,pics:string,shape:string,box:string,grp:unknown[],alts:string,lo:number,hi:number}} MdcUnit */
 // Whether element e is a block another unit stands for: a list, a nested paragraph or code, a quote, a table - a tight list
 // item's own text leaves these out.
 /** @param {Element} e */
@@ -86,7 +86,8 @@ function mdcLined(tag){return tag==='PRE'||tag==='MATH'||tag==='FRONT';}
 function mdcLines(el){return [...el.querySelectorAll('.ln')].map(l=>String(l.textContent||'').replace(/\n$/,''));}
 // The comparable blocks of a drawn side, in document order (pure over the DOM): every paragraph, heading, code block, display
 // math, front matter, table row, rule and raw HTML placeholder, and a list item whose text is its own (a tight list's). A
-// raw HTML run is one unit. Each has its tag, its key, its text, its source lines and the parts of its key that are not words.
+// raw HTML run is one unit. Each has its tag, its key, its text, its source lines, the parts of its key that are not words
+// and the very boxes it sits in (grp: its box elements, outermost first - which quote, which list, mdcRegroup).
 // The key is everything the block shows: its text with its inline structure (shape: emphasis, code, links, images with their
 // alt text, a hidden character's box with the character, a table cell's alignment), the boxes it sits in (box: a quote, a
 // list - a numbered one with its first number), its images' tree paths and its links' targets. So the same words in bold, out
@@ -99,15 +100,16 @@ function mdcLines(el){return [...el.querySelectorAll('.ln')].map(l=>String(l.tex
 function mdcUnits(root){const out=/** @type {MdcUnit[]} */([]);
   for(const x of root.querySelectorAll(MDC_UNIT)){const el=/** @type {HTMLElement} */(x); if(!mdcIsUnit(el))continue;
     const tag=mdcTag(el),text=mdcText(el,tag),cont=/** @type {Set<Element>} */(new Set()),shape=mdcShape(el,tag,cont);
-    const refs=mdcRefs(el,'a,[data-anchor],.md-rel',cont),pics=mdcRefs(el,'.md-pic,.md-img'),box=mdcBoxes(el,root),alts=[...el.querySelectorAll('img')].filter(i=>mdcOwnPart(el,i)).map(i=>(i.getAttribute('alt')||'').replace(/\s+/g,' ').trim()).join('\u0001');
+    const grp=mdcBoxEls(el,root),refs=mdcRefs(el,'a,[data-anchor],.md-rel',cont),pics=mdcRefs(el,'.md-pic,.md-img'),box=mdcBoxes(grp),alts=[...el.querySelectorAll('img')].filter(i=>mdcOwnPart(el,i)).map(i=>(i.getAttribute('alt')||'').replace(/\s+/g,' ').trim()).join('\u0001');
     const lo=+(el.dataset.lo||el.dataset.rLo||0),hi=+(el.dataset.hi||el.dataset.rHi||lo);
-    out.push({el,tag,key:[tag,box,shape,pics,refs].join('\u0001'),text,pics,shape,box,alts,lo,hi});}
+    out.push({el,tag,key:[tag,box,shape,pics,refs].join('\u0001'),text,pics,shape,box,grp,alts,lo,hi});}
   return out;}
-// The boxes unit el sits in below the drawn root, outermost first, as one string: each box's tag, a numbered list's with the
-// number it starts at (OL5). Pure over the DOM.
-/** @param {HTMLElement} el @param {HTMLElement} root */
-function mdcBoxes(el,root){const out=[]; for(let a=el.parentElement;a&&a!==root;a=a.parentElement)out.unshift(a.tagName==='OL'?'OL'+(a.getAttribute('start')||'1'):a.tagName);
-  return out.join('>');}
+// The boxes unit el sits in below the drawn root, outermost first: the elements. Pure over the DOM.
+/** @param {HTMLElement} el @param {HTMLElement} root @returns {Element[]} */
+function mdcBoxEls(el,root){const out=[]; for(let a=el.parentElement;a&&a!==root;a=a.parentElement)out.unshift(a); return out;}
+// Those boxes (mdcBoxEls) as one string: each box's tag, a numbered list's with the number it starts at (OL5). Pure over the DOM.
+/** @param {Element[]} grp */
+function mdcBoxes(grp){return grp.map(a=>a.tagName==='OL'?'OL'+(a.getAttribute('start')||'1'):a.tagName).join('>');}
 // The name an inline element goes by in a block's structure (mdcShape) and a word's place (mdcToks): its tag, and for code
 // its kind too (inline math and an inline HTML tag are code boxes of their own). Pure over the DOM.
 /** @param {Element} e */
@@ -153,11 +155,16 @@ function mdcCode(lang,lines){return '\u0002pre\u0003'+JSON.stringify([lang,lines
 // The language a code block's shape (mdcCode) carries, '' for any other shape. Pure.
 /** @param {string} shape */
 function mdcLang(shape){if(!shape.startsWith('\u0002pre\u0003'))return ''; try{return String(JSON.parse(shape.slice(5))[0]);}catch{return '';}}
+// What changed in a block changed in place, beyond the words marked in it: its own change (mdcWhyOwn), then the boxes split
+// or joined at it (how, mdcRegroup's) - '' when only its words changed (the marked words say what). Pure.
+/** @param {MdcUnit} o @param {MdcUnit} n @param {string[]} [how] */
+function mdcWhy(o,n,how){const box=(how||[]).map(h=>h==='split'?tr('인용·목록이 둘로 갈라짐'):tr('인용·목록이 하나로 합쳐짐'));
+  return [mdcWhyOwn(o,n),...box].filter(Boolean).join(' · ');}
 // What changed in a block changed in place whose text stayed: its inline structure, an image's alt text, a table cell's
 // alignment, the list numbering, the boxes it sits in, a block of lines' language or spaces - '' when its words changed (the
 // marked words say what). Pure.
 /** @param {MdcUnit} o @param {MdcUnit} n */
-function mdcWhy(o,n){if(o.text!==n.text)return '';
+function mdcWhyOwn(o,n){if(o.text!==n.text)return '';
   if(o.alts!==n.alts)return tr('그림 대체 글이 바뀜');
   if(o.tag==='PRE'&&o.shape!==n.shape)return mdcLang(o.shape)!==mdcLang(n.shape)?tr('코드 언어가 바뀜'):tr('코드의 공백·들여쓰기가 바뀜');
   if(mdcLined(o.tag)&&o.shape!==n.shape)return tr('줄의 공백·들여쓰기가 바뀜');
@@ -222,7 +229,8 @@ const MDC_MOVE_MIN=6;   // the fewest characters a block taken out and an identi
 // unchanged blocks a block taken out and a block added of the same tag, alike enough and in order, become one block changed
 // in place ({t:'mod'}); then a block taken out and an identical one added anywhere else are one block moved ({t:'from'} where
 // it was, {t:'to'} where it is now). A heading moves at any length, any other block from MDC_MOVE_MIN characters. Weighing a
-// pair spends its words from budget; once it is spent no more pairs are weighed - the rest stay taken out and added.
+// pair spends its words from budget; once it is spent no more pairs are weighed - the rest stay taken out and added. Last, two
+// kept blocks a quote or list split or joined between are changed in place too (mdcRegroup, their ops' how).
 /** @param {MdcUnit[]} ou @param {MdcUnit[]} nu @param {MdcBudget} [budget] */
 function mdcOps(ou,nu,budget){budget=budget||mdcBudget(); const raw=mdcLcs(ou,nu,(x,y)=>x.key===y.key,budget),out=[]; let i=0;
   const words=new Map(),wordsOf=(/** @type {MdcUnit} */u)=>{let w=words.get(u); if(!w){w=mdcWordsOf(u.text); words.set(u,w);} return w;};
@@ -241,7 +249,27 @@ function mdcOps(ou,nu,budget){budget=budget||mdcBudget(); const raw=mdcLcs(ou,nu
     const l=added.get(u.key)||[]; l.push(k); added.set(u.key,l);});
   out.forEach(o=>{if(o.t!=='del')return; const l=added.get(ou[o.a].key); if(!l||!l.length)return; const k=/** @type {number} */(l.shift()),to=out[k];
     o.t='from'; o.b=to.b; to.t='to'; to.a=o.a;});
-  return out;}
+  mdcRegroup(ou,nu,out); return out;}
+// The boxes split or joined between blocks kept on both sides (eq, mod) that come one after the other among those kept: two
+// that shared a box on one side and not on the other while each still sits in boxes of the same kinds - one quote become
+// two (a blank line between its paragraphs), a list cut in two by another bullet (- then *), two quotes or lists joined
+// into one. No key can say it: a key holds the kinds of a block's boxes, never where a box begins or ends, so an item added
+// at a list's top changes no other item. A split that a block added or moved in between makes, standing in neither of
+// their boxes (a paragraph put between two items), is that block's own change: nothing more is marked. Both blocks of a
+// split or a join become blocks changed in place (an eq op a mod) whose op says how ('split', 'merge'; mdcWhy). Pure over
+// the units' boxes (grp: which boxes, by identity; box: their kinds) but for the ops it marks.
+/** @param {MdcUnit[]} ou @param {MdcUnit[]} nu @param {{t:string,a:number,b:number,how?:string[]}[]} ops */
+function mdcRegroup(ou,nu,ops){const kept=ops.filter(o=>o.t==='eq'||o.t==='mod');
+  // how many boxes two units of one side share from the outside in
+  const shared=(/** @type {MdcUnit} */x,/** @type {MdcUnit} */y)=>{const a=x.grp||[],b=y.grp||[]; let d=0; while(d<a.length&&d<b.length&&a[d]===b[d])d++; return d;};
+  // the kinds of a unit's d outermost boxes (a numbered list's start aside), null when it sits in fewer
+  const kinds=(/** @type {MdcUnit} */u,/** @type {number} */d)=>{const k=u.box?u.box.replace(/OL\d+/g,'OL').split('>'):[]; return k.length>=d?k.slice(0,d).join('>'):null;};
+  const alike=(/** @type {MdcUnit} */o,/** @type {MdcUnit} */n,/** @type {number} */d)=>{const k=kinds(o,d); return k!==null&&k===kinds(n,d);};
+  const mark=(/** @type {{t:string,how?:string[]}} */o,/** @type {string} */how)=>{if(o.t==='eq')o.t='mod'; const l=o.how||(o.how=[]); if(!l.includes(how))l.push(how);};
+  for(let i=1;i<kept.length;i++){const p=kept[i-1],q=kept[i],was=shared(ou[p.a],ou[q.a]),now=shared(nu[p.b],nu[q.b]),d=Math.max(was,now);
+    if(was===now||!alike(ou[p.a],nu[p.b],d)||!alike(ou[q.a],nu[q.b],d))continue;   // a block that left or entered a box: its own change (mdcWhyOwn)
+    let cut=false; if(was>now)for(let j=p.b+1;j<q.b&&!cut;j++)cut=shared(nu[j],nu[p.b])<=now&&shared(nu[j],nu[q.b])<=now;
+    if(!cut){const how=was>now?'split':'merge'; mark(p,how); mark(q,how);}}}
 // ---------------- Marking words inside a block changed in place
 // A word of a unit: a run of a text node (node, s..e), or a whole element (el) - a hidden character's box, or in a block of
 // lines one line. w is what it reads (a box's character, a line's text), f the inline elements it sits in below the unit (so a
@@ -373,7 +401,7 @@ function mdcInline(oroot,nroot,ou,nu,ops,budget){let prev=/** @type {HTMLElement
   const boxes=/** @type {MdcBoxes} */(new Map()); for(const o of ops)if(o.t==='eq'||o.t==='mod')mdcPair(boxes,ou[o.a].el,nu[o.b].el,oroot,nroot);   // before anything moves
   ops.forEach((o,k)=>{
     if(o.t==='eq'){prev=nu[o.b].el; return;}
-    if(o.t==='ins'||o.t==='to'||o.t==='mod'){const el=nu[o.b].el; mdcMark(el,o.t==='ins'?'ins':o.t==='to'?'move':'mod',o.t==='mod'?mdcWhy(ou[o.a],nu[o.b]):'');
+    if(o.t==='ins'||o.t==='to'||o.t==='mod'){const el=nu[o.b].el; mdcMark(el,o.t==='ins'?'ins':o.t==='to'?'move':'mod',o.t==='mod'?mdcWhy(ou[o.a],nu[o.b],o.how):'');
       if(o.t==='to')el.dataset.mdcFrom=String(ou[o.a].lo);
       if(o.t==='mod'){mdcWordMarks(ou[o.a].el,el,budget); mdcLinkMarks(ou[o.a].el,el);} prev=el; return;}
     const u=ou[o.a]; if(o.t==='del'){const el=mdcOwn(u); mdcMark(el,'del'); prev=mdcPlace(el,u.el,oroot,prev,next(k),nroot,boxes); return;}

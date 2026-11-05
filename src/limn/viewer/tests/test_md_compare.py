@@ -23,10 +23,12 @@ def served() -> str:
     return extract_js_fn("revisionFormatFor") + "\n" + part
 
 
-def unit(tag, text, pics="", refs="", shape=None, box="", alts=""):
+def unit(tag, text, pics="", refs="", shape=None, box="", alts="", grp=None):
     """A unit as mdcUnits makes it, for a block of tag showing text (and pictures, link targets), its inline structure
-    shape (the text when it has none), the boxes it sits in and its images' alt texts."""
+    shape (the text when it has none), the kinds of the boxes it sits in (box) and which boxes they are (grp: one name
+    per box, outermost first; none given, as many as box names, each its own), and its images' alt texts."""
     shape = text if shape is None else shape
+    grp = [] if grp is None else grp
     key = "\u0001".join([tag, box, shape, pics, refs])
     return {
         "tag": tag,
@@ -34,6 +36,7 @@ def unit(tag, text, pics="", refs="", shape=None, box="", alts=""):
         "pics": pics,
         "shape": shape,
         "box": box,
+        "grp": grp,
         "alts": alts,
         "key": key,
         "lo": 0,
@@ -153,6 +156,94 @@ class CompareRules(unittest.TestCase):
         )
         self.assertEqual(
             self.run_js("mdcWhy(%s,%s)" % (json.dumps(unit("P", INTRO)), json.dumps(unit("P", INTRO2)))), ""
+        )
+
+    def test_a_box_split_or_joined_between_kept_blocks_marks_both_of_them(self):
+        """Two kept blocks that shared a box and now sit in two boxes of the same kind - one quote become two, a list cut
+        in two by another bullet, a list cut in three - are blocks changed in place whose ops say 'split'; the other way
+        round, 'merge'; mdcWhy says so, after a change of their own. One list on both sides (every bullet changed), an
+        item added at its top, a paragraph put between two items (the split is that paragraph's) and a block that left
+        the quote (its own change) mark nothing more. Mutations: drop mdcRegroup -> the splits stay eq, fails; leave out
+        what was added between -> the items beside the paragraph are split, fails."""
+        q, li = "BLOCKQUOTE", "UL"
+        alpha, beta, gamma = "알파 문단이다", "베타 문단이다", "감마 문단이다"
+        cases = [
+            # one quote become two, and back
+            (
+                [unit("P", alpha, box=q, grp=["q"]), unit("P", beta, box=q, grp=["q"])],
+                [unit("P", alpha, box=q, grp=["q1"]), unit("P", beta, box=q, grp=["q2"])],
+                [["mod", 0, 0, ["split"]], ["mod", 1, 1, ["split"]]],
+            ),
+            (
+                [unit("P", alpha, box=q, grp=["q1"]), unit("P", beta, box=q, grp=["q2"])],
+                [unit("P", alpha, box=q, grp=["q"]), unit("P", beta, box=q, grp=["q"])],
+                [["mod", 0, 0, ["merge"]], ["mod", 1, 1, ["merge"]]],
+            ),
+            # a list cut in two, and in three: the middle item is split once from each side
+            (
+                [unit("LI", alpha, box=li, grp=["l"]), unit("LI", beta, box=li, grp=["l"])],
+                [unit("LI", alpha, box=li, grp=["l1"]), unit("LI", beta, box=li, grp=["l2"])],
+                [["mod", 0, 0, ["split"]], ["mod", 1, 1, ["split"]]],
+            ),
+            (
+                [unit("LI", x, box=li, grp=["l"]) for x in (alpha, beta, gamma)],
+                [unit("LI", x, box=li, grp=[g]) for x, g in ((alpha, "l1"), (beta, "l2"), (gamma, "l3"))],
+                [["mod", 0, 0, ["split"]], ["mod", 1, 1, ["split"]], ["mod", 2, 2, ["split"]]],
+            ),
+            # one list on both sides, every bullet changed
+            (
+                [unit("LI", alpha, box=li, grp=["l"]), unit("LI", beta, box=li, grp=["l"])],
+                [unit("LI", alpha, box=li, grp=["m"]), unit("LI", beta, box=li, grp=["m"])],
+                [["eq", 0, 0, []], ["eq", 1, 1, []]],
+            ),
+            # an item added at the list's top
+            (
+                [unit("LI", alpha, box=li, grp=["l"]), unit("LI", beta, box=li, grp=["l"])],
+                [
+                    unit("LI", gamma, box=li, grp=["m"]),
+                    unit("LI", alpha, box=li, grp=["m"]),
+                    unit("LI", beta, box=li, grp=["m"]),
+                ],
+                [["ins", -1, 0, []], ["eq", 0, 1, []], ["eq", 1, 2, []]],
+            ),
+            # a paragraph put between two items cuts the list there: that paragraph is the change
+            (
+                [unit("LI", alpha, box=li, grp=["l"]), unit("LI", beta, box=li, grp=["l"])],
+                [unit("LI", alpha, box=li, grp=["l1"]), unit("P", gamma), unit("LI", beta, box=li, grp=["l2"])],
+                [["eq", 0, 0, []], ["ins", -1, 1, []], ["eq", 1, 2, []]],
+            ),
+            # ... but a paragraph added at the top of the second quote is in one of the boxes: the quote was split
+            (
+                [unit("P", alpha, box=q, grp=["q"]), unit("P", beta, box=q, grp=["q"])],
+                [
+                    unit("P", alpha, box=q, grp=["q1"]),
+                    unit("P", gamma, box=q, grp=["q2"]),
+                    unit("P", beta, box=q, grp=["q2"]),
+                ],
+                [["mod", 0, 0, ["split"]], ["ins", -1, 1, []], ["mod", 1, 2, ["split"]]],
+            ),
+            # a paragraph that left the quote: changed in place for its own box, its neighbour kept
+            (
+                [unit("P", alpha, box=q, grp=["q"]), unit("P", beta, box=q, grp=["q"])],
+                [unit("P", alpha, box=q, grp=["q"]), unit("P", beta)],
+                [["eq", 0, 0, []], ["mod", 1, 1, []]],
+            ),
+        ]
+        for old, new, want in cases:
+            with self.subTest(old=[u["grp"] for u in old], new=[u["grp"] for u in new]):
+                got = self.run_js("mdcOps(%s,%s).map(o=>[o.t,o.a,o.b,o.how||[]])" % (json.dumps(old), json.dumps(new)))
+                self.assertEqual(got, want)
+        same, bold = unit("P", alpha), unit("P", alpha, shape="\u0002strong\u0003" + alpha + "\u0002/strong\u0003")
+        self.assertEqual(
+            self.run_js(
+                "[mdcWhy(%s,%s,['split']),mdcWhy(%s,%s,['merge']),mdcWhy(%s,%s,['split','merge'])]"
+                % tuple(json.dumps(x) for x in (same, same, same, bold, same, same))
+            ),
+            [
+                "인용·목록이 둘로 갈라짐",
+                "글자 모양(굵게·기울임·코드·링크)이 바뀜 · 인용·목록이 하나로 합쳐짐",
+                "인용·목록이 둘로 갈라짐 · 인용·목록이 하나로 합쳐짐",
+            ],
         )
 
     def test_a_code_blocks_key_holds_its_body_and_language(self):

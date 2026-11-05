@@ -904,3 +904,57 @@ class ChildBlockRefs(OneNote):
         self.show(page, self.c[3])
         self.assertEqual([(k, t) for k, t, _ in self.marks(page)], [("mod", "LI"), ("del", "TR"), ("ins", "TR")])
         self.assertEqual(page.evaluate("document.querySelectorAll('#revision-rendered .mdc-wl,.mdc-wl-del').length"), 0)
+
+
+BOXES = "# 상자\n\n> 알파 문단이다.\n>\n> 베타 문단이다.\n\n- 첫 항목이다\n- 둘째 항목이다\n\n끝 문단이다.\n"
+
+
+class BoxesSplit(OneNote):
+    """One quote of two paragraphs and one list of two items: the first commit splits the quote (a blank line between its
+    paragraphs) and the list (the second item's bullet becomes *), the second joins them again, the third changes every
+    bullet to * - one list still."""
+
+    def texts(self):
+        split = BOXES.replace("알파 문단이다.\n>\n>", "알파 문단이다.\n\n>").replace("- 둘째", "* 둘째")
+        return [BOXES, split, BOXES, BOXES.replace("- ", "* ")]
+
+    def test_a_quote_or_list_split_in_two_or_joined_is_a_change_but_new_bullets_are_not(self):
+        """Every bullet changed draws the same document: nothing is marked. The split marks the two paragraphs and the
+        two items as changed in place, each saying the quote or list split in two, no word marked; the join says they
+        joined into one, in Korean and in English. Mutation: drop mdcRegroup from mdcOps -> the split and the join draw
+        'the same', fails."""
+        page = self.open_compare()
+        self.assertEqual(self.marks(page), [])
+        self.assertIn("두 판의 그린 문서가 같습니다", page.locator("#revision-rendered").text_content())
+        whys = (
+            "[...document.querySelectorAll('#revision-rendered [data-mdc]')].map(e=>[e.tagName,e.dataset.mdcWhy||''])"
+        )
+        self.show(page, self.c[1])
+        self.assertEqual([k for k, _, _ in self.marks(page)], ["mod"] * 4)
+        split = "인용·목록이 둘로 갈라짐"
+        self.assertEqual(page.evaluate(whys), [["P", split], ["P", split], ["LI", split], ["LI", split]])
+        self.assertEqual(page.evaluate("document.querySelectorAll('#revision-rendered .mdc-w').length"), 0)
+        self.assertIn(
+            "고친 블록 (%s): " % split,
+            page.evaluate("document.querySelector('#revision-rendered [data-mdc] .sr-only').textContent"),
+        )
+        self.assertIn("고침 4", page.locator("#revision-status").text_content())
+        self.show(page, self.c[2])
+        join = "인용·목록이 하나로 합쳐짐"
+        self.assertEqual(page.evaluate(whys), [["P", join], ["P", join], ["LI", join], ["LI", join]])
+
+
+class BoxesSplitEnglish(BoxesSplit):
+    """The join in the English viewer."""
+
+    def open_compare(self, **kw):
+        return super().open_compare(lang="en", **kw)
+
+    def test_a_quote_or_list_split_in_two_or_joined_is_a_change_but_new_bullets_are_not(self):
+        """The split and the join say so in English."""
+        page = self.open_compare()
+        whys = "[...document.querySelectorAll('#revision-rendered [data-mdc]')].map(e=>e.dataset.mdcWhy||'')"
+        self.show(page, self.c[1])
+        self.assertEqual(page.evaluate(whys), ["A quote or list split in two"] * 4)
+        self.show(page, self.c[2])
+        self.assertEqual(page.evaluate(whys), ["Quotes or lists joined into one"] * 4)

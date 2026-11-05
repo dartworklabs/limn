@@ -1541,6 +1541,8 @@
  "코드의 공백·들여쓰기가 바뀜": "Code spacing or indentation changed",
  "줄의 공백·들여쓰기가 바뀜": "Spacing or indentation of its lines changed",
  "인용·목록 안팎으로 자리가 바뀜": "Moved into or out of a quote or list",
+ "인용·목록이 둘로 갈라짐": "A quote or list split in two",
+ "인용·목록이 하나로 합쳐짐": "Quotes or lists joined into one",
  "바뀐 곳이 많아 블록을 짝짓지 않고 더한 블록과 뺀 블록으로만 표시합니다. 낱말 단위는 [소스 diff]에 있습니다.": "So much changed that blocks are not paired: they are shown as added and removed only. Word-level changes are in [Source diff].",
  "이 커밋에서 파일이 처음 생겼습니다 — 모든 블록이 더한 블록입니다.": "This commit created the file — every block is added.",
  "이 커밋에서 파일을 지웠습니다 — 모든 블록이 뺀 블록입니다.": "This commit deleted the file — every block is removed.",
