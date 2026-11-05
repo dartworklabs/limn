@@ -23,7 +23,7 @@ from urllib.parse import quote
 from hypothesis import given, strategies as st
 
 from limn.builds import artifacts as limn_build
-from limn.documents.source import SOURCE_MAX_BYTES, SourceLines, read_source, source_lines
+from limn.documents.source import SOURCE_MAX_BYTES, SourceLines, other_line_ends, read_source, source_lines
 from limn.platform import files
 from limn.platform.files import ManuscriptFile, file_in_tree, tex_lines
 from limn.runtime.documents import Doc, RunPaths
@@ -75,6 +75,17 @@ class SourceLinesRule(unittest.TestCase):
     def test_any_bytes_are_lines_or_not_utf8_as_a_text_mode_read_has_them(self, data):
         """Any bytes give the text-mode read's lines, or None exactly where that read refuses them as not UTF-8."""
         self.assertEqual(source_lines(data), text_mode_lines(data))
+
+    @given(st.text(alphabet=st.sampled_from(list(LINE_ENDS + "ab é한")), max_size=60))
+    def test_the_other_line_ends_are_the_split_ends_that_are_not_lf_or_crlf(self, text):
+        """other_line_ends counts, by code point name and in the order they first appear, each line end that
+        splitlines(keepends=True) leaves on a line and that is not LF or CRLF - a lone CR among them."""
+        want: dict[str, int] = {}
+        for piece in text.splitlines(keepends=True):
+            end = piece[len((piece.splitlines() or [""])[0]) :]
+            if end and end not in ("\n", "\r\n"):
+                want["U+%04X" % ord(end)] = want.get("U+%04X" % ord(end), 0) + 1
+        self.assertEqual(list(other_line_ends(text)), list(want.items()))
 
     def test_a_file_with_every_line_end_is_numbered_as_tex_lines_numbers_it(self):
         """A real file holding every line end: its lines are the fourteen written out above, and tex_lines reads the same."""
@@ -172,7 +183,8 @@ class SourceRoute(AccessBase):
 
     def test_it_answers_the_lines_as_the_server_numbers_them(self):
         """200 with the document, the source's path as a pin stores it, the stamp of its st_mtime and its lines -
-        tex_lines' lines of the same file, every line end included."""
+        tex_lines' lines of the same file, every line end included - and each line end that is not LF or CRLF, counted
+        by name (CRLF is not one of them)."""
         code, body = self.source()
         self.assertEqual(code, 200, body)
         checked = file_in_tree(str(self.md), self.src, ps.APP.C.state)
@@ -182,6 +194,17 @@ class SourceRoute(AccessBase):
             "file": str(self.md),
             "src_mtime": os.stat(self.md).st_mtime,
             "lines": EVERY_LINE_END_LINES,
+            "line_ends": {
+                "U+000D": 1,
+                "U+000B": 1,
+                "U+000C": 1,
+                "U+001C": 1,
+                "U+001D": 1,
+                "U+001E": 1,
+                "U+0085": 1,
+                "U+2028": 1,
+                "U+2029": 1,
+            },
         }
         self.assertEqual(body, want)
         self.assertEqual(body["lines"], tex_lines(checked))

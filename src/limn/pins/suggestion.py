@@ -9,6 +9,8 @@ Suggestion and the editing rules store Suggestion.to_record(). Whether the sourc
 every read (suggest_state) and never stored. Pure.
 """
 
+import re
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Literal, TypeAlias, TypeGuard
@@ -37,6 +39,47 @@ class Suggestion:
     def to_record(self) -> dict[str, str]:
         """The shape a record stores and the API answers: {"base", "text"}, in that order."""
         return {"base": self.base, "text": self.text}
+
+
+# The characters that would hide or reorder text (docs/adr/0029-text-documents.md D7), by code point, as inclusive ranges:
+# Unicode's Default_Ignorable_Code_Point, every C0 and C1 control but the tab and the line feed, U+2028, U+2029 and the
+# interlinear annotation characters (the Bidi_Control marks are among the first). The viewer marks the same table
+# (src/limn/viewer/js/hidden-chars.js CC_RANGES, with exceptions for sequences that need one); a test ties the two.
+HIDDEN_RANGES: tuple[tuple[int, int], ...] = (
+    (0x00, 0x08),
+    (0x0B, 0x1F),
+    (0x7F, 0x9F),
+    (0xAD, 0xAD),
+    (0x34F, 0x34F),
+    (0x61C, 0x61C),
+    (0x115F, 0x1160),
+    (0x17B4, 0x17B5),
+    (0x180B, 0x180F),
+    (0x200B, 0x200F),
+    (0x2028, 0x202E),
+    (0x2060, 0x206F),
+    (0x3164, 0x3164),
+    (0xFE00, 0xFE0F),
+    (0xFEFF, 0xFEFF),
+    (0xFFA0, 0xFFA0),
+    (0xFFF0, 0xFFFB),
+    (0x1BCA0, 0x1BCA3),
+    (0x1D173, 0x1D17A),
+    (0xE0000, 0xE0FFF),
+)
+_HIDDEN = re.compile(
+    "[%s]" % "".join(re.escape(chr(a)) + ("-" + re.escape(chr(b)) if b > a else "") for a, b in HIDDEN_RANGES)
+)
+
+
+def hidden_added(s: Suggestion) -> list[tuple[str, int]]:
+    """The characters of HIDDEN_RANGES that s's text holds more of than its base: (name, how many more) - the name is the
+    code point, 'U+202E' - in the order they first appear in text; [] when it adds none. Every one is counted, a sequence
+    the viewer leaves unmarked (an emoji's joiner) included: pins.md flags what an agent should confirm, not what it may
+    skip."""
+    counts = Counter(_HIDDEN.findall(s.text))
+    counts.subtract(_HIDDEN.findall(s.base))
+    return [("U+%04X" % ord(ch), n) for ch, n in counts.items() if n > 0]
 
 
 def without_cr(text: str) -> str:

@@ -42,10 +42,11 @@ def outline(service: DocumentViews, doc: Doc) -> Json:
 
 
 def source(doc: Doc) -> Json:
-    """GET /api/source: the source of document doc, which the browser draws, as {doc, file, src_mtime, lines}.
+    """GET /api/source: the source of document doc, which the browser draws, as {doc, file, src_mtime, lines, line_ends}.
 
     file is the source's path as a pin on it stores it (the checked manuscript file); lines are its lines as the server
-    numbers them (limn.documents.source.source_lines); src_mtime the stamp read before them. The refusals, each its own
+    numbers them (limn.documents.source.source_lines); line_ends the line ends among them that are not LF or CRLF, by
+    name with their counts (other_line_ends, {} for none); src_mtime the stamp read before them. The refusals, each its own
     reason: 400 not_rendered_in_browser for a document the viewer shows as pages (its lines are read with /api/snippet);
     the 400 every file route answers for a path outside the manuscript tree - outside --manuscript, under a dot-named
     folder, in the state folder (file_outside_manuscript) - or for no regular file there (file_not_found); 413
@@ -59,8 +60,14 @@ def source(doc: Doc) -> Json:
         )
     checked = accepted(parse.source_file(str(doc.main), doc.paths.src, doc.paths.state))
     match read_source(checked):
-        case SourceLines(lines=lines, src_mtime=src_mtime):
-            return {"doc": doc.key, "file": str(checked), "src_mtime": src_mtime, "lines": list(lines)}
+        case SourceLines(lines=lines, src_mtime=src_mtime, line_ends=line_ends):
+            return {
+                "doc": doc.key,
+                "file": str(checked),
+                "src_mtime": src_mtime,
+                "lines": list(lines),
+                "line_ends": dict(line_ends),
+            }
         case SourceTooLarge(size=size, limit=limit):
             raise HTTPError(
                 413,

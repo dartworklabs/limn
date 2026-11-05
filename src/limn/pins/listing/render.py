@@ -21,7 +21,7 @@ from limn.pins.element import (
 )
 from limn.pins.location.mapping import flat, truncate_quote
 from limn.pins.model import OpenPin, Record, ReviewPin, ThreadEntry, is_region_pin, state_of
-from limn.pins.suggestion import SuggestState, suggestion_of
+from limn.pins.suggestion import SuggestState, hidden_added, suggestion_of
 from limn.pins.thread import claim_holds
 from limn.pins.verdict import verdict_of, whole_page_target
 from limn.platform.values import is_int, is_num
@@ -359,6 +359,11 @@ SUGGEST_HEADINGS: dict[SuggestState, str] = {
     "unknown": "확인 불가 — 넣지 않는다",
 }
 SUGGEST_DELETES = "(이 줄 범위를 지운다)"
+# The line under a block's heading whose text adds characters that would hide or reorder text to its base
+# (limn.pins.suggestion.hidden_added, docs/adr/0029-text-documents.md D7): which ones, and what to do before applying it.
+SUGGEST_HIDDEN = (
+    "숨은 문자: 원문에 없는 %s — 보이지 않거나 글 순서를 바꾸는 문자다. 넣기 전에 그 문자가 필요한지 답글로 묻는다"
+)
 # The guidance clause while an open pin carries a suggestion, and its legend entry while the marker shows.
 SUGGEST_GUIDANCE = (
     " · 제안 수정 핀은 메모를 다시 쓰지 말고 `suggest.text` 를 위치 칸의 줄 범위에 넣는다 · "
@@ -458,7 +463,8 @@ def code_fence(text: str) -> str:
 def suggestions_md(rows: Sequence[Record], facts: Mapping[int, PinFacts], base: str, sectioned: bool) -> list[str]:
     """The `## 제안 문안` section: one block per open pin in rows that carries a suggested edit, by id - a heading
     '### #<id> · <location> · <state>' (the location as the location column has it, after the document key in a
-    sectioned sheet, like the review table), then the text in a code fence long enough to hold it (code_fence), or
+    sectioned sheet, like the review table), then - when the text adds characters that would hide or reorder text to its
+    base - the SUGGEST_HIDDEN line naming them, then the text in a code fence long enough to hold it (code_fence), or
     SUGGEST_DELETES for an empty text. The text's lines are written as they are: the block is the same text as
     GET <base>/api/pins/N's suggest.text, which the section names as the authority. [] when no such pin is open."""
     picked = [(r, suggestion_of(r.get("suggest"))) for r in sorted(rows, key=lambda x: x["id"])]
@@ -484,6 +490,9 @@ def suggestions_md(rows: Sequence[Record], facts: Mapping[int, PinFacts], base: 
         if not suggestion.text:
             out.append(SUGGEST_DELETES)
             continue
+        added = hidden_added(suggestion)
+        if added:
+            out.append(SUGGEST_HIDDEN % ", ".join("%s %d개" % (name, n) for name, n in added))
         fence = code_fence(suggestion.text)
         out += [fence, *suggestion.text.split("\n"), fence]
     return out

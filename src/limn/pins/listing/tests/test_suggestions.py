@@ -172,6 +172,27 @@ class Section(unittest.TestCase):
             section(text)[-2:], ["### #7 · main.tex L120-L123 · 확인 불가 — 넣지 않는다", "(이 줄 범위를 지운다)"]
         )
 
+    def test_a_text_that_adds_hidden_characters_names_them_over_its_block(self):
+        """A text that adds characters that would hide or reorder text to its base - a bidi override, a zero-width space,
+        a tag (one supplementary character) - gets the SUGGEST_HIDDEN line naming each with how many more, between its
+        heading and its fence; one that only keeps its base's gets none."""
+        rows = [
+            row(suggest={"base": "if ok:", "text": "if ok\u202e:\u200b\U000e0041\u202e"}),
+            row(9, suggest={"base": "a\u202eb", "text": "a\u202ec"}),
+        ]
+        text = pins_md_text(page(rows, {7: facts(suggest_state="ready"), 9: facts(suggest_state="ready")}))
+        lines = section(text)
+        at = lines.index("### #7 · main.tex L120-L123 · 바꿀 준비됨")
+        self.assertEqual(
+            lines[at + 1],
+            "숨은 문자: 원문에 없는 U+202E 2개, U+200B 1개, U+E0041 1개 — 보이지 않거나 글 순서를 바꾸는 문자다. "
+            "넣기 전에 그 문자가 필요한지 답글로 묻는다",
+        )
+        self.assertEqual(lines[at + 2 : at + 5], ["```", "if ok\u202e:\u200b\U000e0041\u202e", "```"])
+        nine = lines.index("### #9 · main.tex L120-L123 · 바꿀 준비됨")
+        self.assertEqual(lines[nine + 1], "```")
+        self.assertNotIn("숨은 문자", "\n".join(lines[nine:]))
+
     def test_the_fence_is_one_backtick_longer_than_the_longest_run(self):
         """No backtick, or runs of one and two: three; a run of three: four; a run of five: six."""
         for content, fence in (
