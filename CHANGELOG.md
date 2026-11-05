@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+### Added
+
+- **Markdown documents show YAML front matter and TeX math as written (ADR-0032).** Front matter at the very top of a
+  `.md` file (a first line `---`, a second line that opens a YAML mapping - `key:` or a `#` comment - and a closing
+  `---` or `...`: Pandoc's rule and a check of the second line) is one open block of its own: a head line "Front matter · YAML, N lines" over its lines
+  exactly as the server sends them, never parsed, long values wrapping inside the box. It is no longer drawn as a rule,
+  paragraphs and setext headings, so a skill file's `name:` and `description:` no longer stand in the outline and the
+  section strip. TeX math - `$…$` and `$$…$$` by Pandoc's dollar rules (so `$5 and $10` stays text), `\(…\)`, and `\[…\]`
+  on lines of its own - is recognised, never rendered: it shows its source, delimiters and backslashes included, in the
+  code face, so emphasis and escapes no longer eat the `*`, `_` and `\` inside it (`$t^*$ … $t^*=\infty$`). Inline math
+  has no tint and keeps every line of its paragraph on its own source line; display math is a code box like a code
+  block. A code span comes before math, also across line ends. Characters that hide or reorder text show by name in
+  their boxes in both, as in the rest of the drawn body.
+  - **Two new pin kinds for agents:** tapping the front matter picks the block, saved as kind `md:front` (scope
+    `block`; the ladder is chosen lines -> front matter): edit those YAML lines. Display math is kind `md:math` (chosen
+    lines -> math -> section): edit that TeX; its `quote` is the TeX as written. pins.md's range column names both.
+    Nothing changes on the server, and 0.4.51 reads, keeps and lists these pins as they are (it draws the front matter as
+    a rule and paragraphs and the math as text, on the same lines).
+  - **Not included:** rendered math (KaTeX), Typst, `.qmd`/`.Rmd`, TOML front matter (`+++`) and metadata blocks in the
+    middle of a document. In a table, a `|` inside math must be written `\|`, as on GitHub.
+
 ### Changed
 
 - **A drawn Markdown document marks the characters that hide or reorder text, as a text document does (ADR-0029 D5).**

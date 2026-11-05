@@ -16,7 +16,8 @@ a list item, table cells, a link's text, inline code, a code block, a raw HTML b
 - the line view a limit gives draws its lines with the same boxes and notice (LineView);
 - a document with a NUL (U+0000) - which markdown-it would turn into U+FFFD - is the line view, its NULs in their boxes,
   copied and quoted as U+0000 (Nul);
-- the display holds in Firefox too (DisplayFirefox).
+- front matter and math draw their text with the same boxes, and a tap's quote keeps the characters (FrontAndMath);
+- the display holds in Firefox too (DisplayFirefox, FrontAndMathFirefox).
 
 The repertoire itself, its exceptions and the box markup are test_text_surface.py's; the text surface's display is
 test_viewer_text.py's.
@@ -185,6 +186,64 @@ class Display(HiddenBase):
 
 class DisplayFirefox(Display):
     """The same display in Firefox."""
+
+    BROWSER_ENGINE = "firefox"
+
+
+FRONT_MATH = (
+    "\n".join(
+        [
+            "---",  # 1
+            "title: a" + RLO + "b" + PDI + "c",  # 2: a front matter line
+            "---",  # 3
+            "",
+            "본문 $x" + RLO + "y$ 끝.",  # 5: inline math
+            "",
+            "$$",  # 7
+            "a" + ZWSP + "b",  # 8: a display math line
+            "$$",  # 9
+        ]
+    )
+    + "\n"
+)
+
+
+class FrontAndMath(HiddenBase):
+    """Front matter and math (ADR-0032) draw their source text with the same boxes: their lines are the source's
+    characters, and a tap's quote keeps them (in Firefox too, where only the boxes keep a bidirectional control in a
+    quote)."""
+
+    DOC_TEXT = FRONT_MATH
+
+    def test_front_matter_and_math_box_their_characters_and_a_tap_keeps_them(self):
+        """Boxes on the front matter line (override and pop), in the inline math (override) and on the display math line
+        (zero-width space); each line's text is its source's; a tap on the front matter line quotes that line's exact
+        characters and not the head line the viewer writes; a tap on the display math quotes its line's. Mutations: give
+        mdFront, mdMath or the math_inline case its text with textContent again -> that line's boxes are missing,
+        fails."""
+        page = self.open_md()
+        self.assertEqual(page.evaluate(BOXES), [[2, "U+202E"], [2, "U+2069"], [5, "U+202E"], [8, "U+200B"]])
+        text = page.evaluate(
+            '(()=>{const t=n=>document.querySelector("#md [data-line=\'"+n+"\']").textContent;'
+            "return {front:t(2),math:t(8),inline:document.querySelector('#md code.md-math').textContent};})()"
+        )
+        self.assertEqual(text["front"], "title: a" + RLO + "b" + PDI + "c\n")
+        self.assertEqual(text["math"], "a" + ZWSP + "b\n")
+        self.assertEqual(text["inline"], "$x" + RLO + "y$")
+        page.locator("#md [data-line='2']").click()
+        until(page, "COMPOSE.current&&COMPOSE.current.lo<=2&&COMPOSE.current.hi>=2")
+        quote = page.evaluate("COMPOSE.current.quote")
+        self.assertIn("title: a" + RLO + "b" + PDI + "c", quote)
+        self.assertNotIn("YAML", quote)
+        page.keyboard.press("Escape")
+        until(page, "!COMPOSE.current")
+        page.locator("#md [data-line='8']").click()
+        until(page, "COMPOSE.current&&COMPOSE.current.lo<=8&&COMPOSE.current.hi>=8")
+        self.assertIn("a" + ZWSP + "b", page.evaluate("COMPOSE.current.quote"))
+
+
+class FrontAndMathFirefox(FrontAndMath):
+    """The same in Firefox."""
 
     BROWSER_ENGINE = "firefox"
 

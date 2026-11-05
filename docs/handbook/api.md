@@ -1104,13 +1104,15 @@ Markdown 문서는 뷰어가 원문을 그리는 문서다. `--doc` 경로가 `.
 - 레코드에 이 값이나 옛 이름 `frac_build` 가 남아 있으면 그 핀을 쓸 때 지운다. 손으로 고친 레코드나 생성 `.tex` 탭에서 옮겨 온 핀이 그런 값을 가질 수 있다. 핀을 쓰는 일은 모두 같다. 편집(위치 다시 잡기든 메모만 고치든), 처리 중 표시와 해제, 답글, 닫기(에이전트가 `changes` 를 붙여 닫을 때도), 검토 확인, 다시 열기, 휴지통으로 보내기와 되살리기, 줄 번호 재동기화가 그렇다. 휴지통 사본에도 남지 않는다. 인스턴스가 띄우지 않는 문서의 핀은 종류를 모르므로 어느 쓰기에서도 쪽 필드를 그대로 둔다. 첫 문서가 Markdown 이어도 같다.
 - `GET /api/pins` 의 핀 객체에도 이 필드가 없다. `pins.md` 의 쪽 칸은 `—` 다(§Markdown 핀의 행).
 
-**값 목록이 는다.** `scope` 에 `block`(그린 블록)과 `section`(제목부터 같은 수준이나 더 높은 다음 제목 앞까지)이 더해진다. 핀 `kind` 는 블록이면 `md:paragraph`·`md:item`·`md:table`·`md:code`·`md:quote`·`md:html`, 절이면 `md:section` 이다. 옛 `kind` 값 `block`(LaTeX 환경 블록)과 겹치지 않게 `md:` 를 붙인다. 이 사다리는 뷰어가 그린 블록의 줄 범위로 만든다. 서버는 Markdown을 파싱하지 않고, 저장할 때 `lo..hi` 가 파일 안인지만 본다. 에이전트는 pick 없이 `file`·`lo`·`hi` 로 핀을 만든다.
+**값 목록이 는다.** `scope` 에 `block`(그린 블록)과 `section`(제목부터 같은 수준이나 더 높은 다음 제목 앞까지)이 더해진다. 핀 `kind` 는 블록이면 `md:paragraph`·`md:item`·`md:table`·`md:code`·`md:quote`·`md:html`·`md:front`·`md:math`, 절이면 `md:section` 이다. 옛 `kind` 값 `block`(LaTeX 환경 블록)과 겹치지 않게 `md:` 를 붙인다. `md:front` 는 문서 맨 앞의 YAML 머리 정보(두 `---` 줄까지)이고, 그 핀은 원고의 메타데이터(제목, 날짜, 태그 같은 YAML 줄)를 고치라는 뜻이다. `md:math` 는 따로 선 TeX 수식(`$$` 나 `\[` 로 시작하는 줄부터 닫는 기호의 줄까지)이고, 그 핀은 그 TeX를 고치라는 뜻이다. 뷰어는 수식을 그리지 않고 쓴 글자 그대로 보이므로 핀의 `quote` 도 구분 기호까지 TeX 원문이다(공백을 하나로 접고 160자에서 자르는 것은 다른 핀과 같다). 문단 안의 인라인 수식은 따로 블록이 없어 `md:paragraph` 다. 출처: [ADR-0032](../adr/0032-markdown-front-matter.md) D4·D9. 이 사다리는 뷰어가 그린 블록의 줄 범위로 만든다. 서버는 Markdown을 파싱하지 않고, 저장할 때 `lo..hi` 가 파일 안인지만 본다. 에이전트는 pick 없이 `file`·`lo`·`hi` 로 핀을 만든다.
 
 **제안 수정을 받는다.** Markdown 문서의 줄 핀은 LaTeX 줄 핀처럼 `suggest` 를 받는다. 한도, 쓸 때의 원문 대조, `suggest_state`, `## 제안 문안` 이 같다(§제안 수정 (`suggest`)). 보기 전용 PDF와 그림 문서는 계속 `400 suggest_unsupported` 다.
 
 **재빌드할 것이 없다.** 원문 `.md` 를 고치면 끝이다. 뷰어는 가벼운 폴링의 `src_mtime` 으로 바뀐 것을 알고 다시 그린다. 에이전트는 `kind:"tex"` 문서만 재빌드한다. `POST /api/rebuild` 는 보기 전용·그림 문서처럼 `400 view_only_no_rebuild` 다.
 
 **되돌리기.** `.md` 등록이 없는 서버(0.4.47 이하)는 Markdown 문서가 있는 설정으로 시작하지 않는다. 그래서 되돌리려면 먼저 그 문서를 설정에서 뺀다. 상태 폴더는 그대로 읽힌다. 레코드 검사가 줄 핀의 `page` 를 있을 때만 보고 `scope`·`kind` 는 문자열인지만 보기 때문이다. 그 핀들은 `## 설정에 없는 문서` 소절로 가고, 그 서버의 쪽 칸은 `0` 이다. `tests/contracts/test_markdown_rollback.py` 가 v0.4.46 에서 살아 있는 핀과 휴지통 사본을 깨진 줄 없이 읽고 두 파일을 바이트 그대로 되쓰는지 확인한다.
+
+**`md:front`·`md:math` 의 되돌리기.** 두 값을 모르는 서버(0.4.48–0.4.51)도 같은 설정으로 시작하고 이 핀을 지우지 않는다. 레코드 검사가 `kind` 를 문자열인지만 보고, `pins.md` 범위 칸은 `md:` 로 시작하는 `kind` 를 그대로 적기 때문이다. 그 서버의 뷰어는 머리 정보를 구분선과 문단으로, 수식을 강조가 섞인 글로 그리지만 핀의 줄은 같다. `tests/contracts/test_markdown_dialect_rollback.py` 가 v0.4.51 에서 두 값의 살아 있는 핀과 휴지통 사본을 깨진 줄 없이 읽고, 두 파일을 바이트 그대로 되쓰며, 범위 칸에 그 `kind` 를 적는지 확인한다.
 
 ## 텍스트 문서의 핀
 
@@ -1244,7 +1246,7 @@ Markdown 문서는 뷰어가 원문을 그리는 문서다. `--doc` 경로가 `.
 | `quote` | 선택. 호출자가 붙인 짧은 인용이다. 뷰어는 pick 의 `quote`(드래그한 PDF 글자)를 넣는다. 160자에서 자른다. `GET /api/pins` 는 저장값 그대로 돌려주고, pins.md 의 `«…»` 는 60자다(§메모 칸의 덧붙임) |
 | `pdf_build` | `frac` 을 찍은 빌드 id(쪽 디렉토리 이름). 없으면 옛 핀이다. 옛 필드명 `frac_build` 도 같은 뜻으로 읽는다([build-sync.md](build-sync.md) §위치 추정 (`est`)). Markdown 핀에는 `page`·`frac` 과 함께 없다(§Markdown 문서의 핀) |
 | `anchor` | `{head, tail, head_off, tail_off}`. 줄 맞춤의 기준이다. `*_off` 가 없는 옛 앵커는 0으로 본다([domain.md](domain.md) §줄 번호 재동기화) |
-| `kind` | `paragraph\|float\|block\|none`(옛 값) 또는 `env:<이름>`, `lines`. 그림 핀은 `el:<부품>`(`el:MonthCell`, `el:?`)과 `figure`. Markdown 핀은 `md:paragraph\|md:item\|md:table\|md:code\|md:quote\|md:html` 과 `md:section`. 텍스트 핀의 들여쓰기 블록은 `indent`. 모르는 값은 원문 그대로 둔다 |
+| `kind` | `paragraph\|float\|block\|none`(옛 값) 또는 `env:<이름>`, `lines`. 그림 핀은 `el:<부품>`(`el:MonthCell`, `el:?`)과 `figure`. Markdown 핀은 `md:paragraph\|md:item\|md:table\|md:code\|md:quote\|md:html\|md:front\|md:math` 와 `md:section`. 텍스트 핀의 들여쓰기 블록은 `indent`. 모르는 값은 원문 그대로 둔다 |
 | `author` | 만든 사람 `{login, name, pic?}` |
 | `edited_at`, `edited_by` | 저장 뒤 마지막 수정 시각과 사람 |
 | `closed_by` / `reopened_by` | 닫은 사람과 다시 연 사람(`done_at`·`reopened_at` 과 함께) |
@@ -1417,7 +1419,7 @@ Markdown 핀은 Markdown 문서(§Markdown 문서의 핀)의 소절에 실리는
 - 소절 제목 끝에 `— Markdown(쪽 없음)` 이 붙는다. 빌드가 없으므로 소절에 `기준:` 줄이 없다.
 - 쪽 칸은 `—` 다. `page` 가 없는 줄 핀은 문서와 상관없이 모두 이렇게 쓴다.
 - 위치 칸은 원고 핀처럼 `notes/plan.md L3-L4` 이고, 그 줄을 `.md` 파일에서 바로 고친다.
-- 범위 칸은 블록이면 핀의 `kind`(`md:table`), 절이면 `md:section` 이다(§열).
+- 범위 칸은 블록이면 핀의 `kind`(`md:table`, 머리 정보는 `md:front`, 따로 선 수식은 `md:math`), 절이면 `md:section` 이다(§열).
 
 ### 텍스트 핀의 행
 
