@@ -419,8 +419,8 @@ LATEX_SOURCE_SUFFIXES: frozenset[str] = frozenset({".tex", ".bib", ".sty", ".cls
 
 
 def doc_for_file(docs: Sequence[Doc], root: Path, path: object) -> Doc:
-    """Which document of docs that takes line pins (LaTeX, figure or Markdown) a request that only gave a file (agent
-    curl) belongs to: the one whose folder most deeply contains it (a relative path is taken under the manuscript
+    """Which document of docs that takes line pins (LaTeX, figure, Markdown or text) a request that only gave a file
+    (agent curl) belongs to: the one whose folder most deeply contains it (a relative path is taken under the manuscript
     root), or the first document if none does or the path cannot be resolved. Of documents equally deep, a file with a
     LaTeX source suffix (LATEX_SOURCE_SUFFIXES, any case) goes to the one built from source, any other file to the one
     with an element map, and in a tie that leaves the first listed wins. View-only documents never match. A document
