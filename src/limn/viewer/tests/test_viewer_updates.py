@@ -392,6 +392,23 @@ class PureRules(unittest.TestCase):
         )
         self.assertEqual(got, ["자리를 비운 사이 (3분)", "자리를 비운 사이 (3시간)", "연결이 끊긴 사이 (2일)"])
 
+    def test_a_version_check_left_to_one_out_is_asked_again_when_that_one_fails(self):
+        """checkVersion while one is out (busy): the call is left to it, and once that one fails - the process it asked
+        went away in a restart - the call is asked again, so the newer Limn is said; with none left to it nothing is
+        asked again. Mutation: drop the call while one is out -> one request, no version, fails."""
+        got = node_json(
+            ["checkVersion"],
+            """const VERSION={page:'',server:'',at:0,busy:false,again:false}; let calls=0,fail=null;
+            function drawStatus(){} function versionOutdated(){return VERSION.server&&VERSION.server!=='0.4.51'?VERSION.server:'';}
+            async function api(){calls++; if(calls===1)return new Promise((_,no)=>{fail=no;}); return {data:{version:'0.4.99'}};}
+            const idle=async()=>{for(let i=0;i<5;i++)await new Promise(r=>setTimeout(r,0));};
+            (async()=>{const out={}; const a=checkVersion(); checkVersion(); fail(new Error('reset')); await a; await idle();
+              out.left=[calls,VERSION.server,VERSION.busy]; await checkVersion(); await idle(); out.alone=calls;
+              console.log(JSON.stringify(out));})();""",
+        )
+        self.assertEqual(got["left"], [2, "0.4.99", False])
+        self.assertEqual(got["alone"], 3)
+
     def test_a_newer_limn_is_a_status_item_after_a_lost_connection_and_before_messages_on_every_band(self):
         """statusList: the server's other version is an item right after a lost connection, before the line's other
         messages, with [새로 고침] (act reload); the desktop's line shows it too (statusShown), in its long words."""
