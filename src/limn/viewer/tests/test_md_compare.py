@@ -167,6 +167,9 @@ class CompareRules(unittest.TestCase):
             ["", "코드의 공백·들여쓰기가 바뀜", "코드 언어가 바뀜"],
         )
         self.assertEqual(self.ops([one, end], [py, end]), [["mod", 0, 0], ["eq", 1, 1]])
+        empty, blank = code("py"), code("py", "")  # an empty fence, and the same fence holding one blank line
+        self.assertNotEqual(empty["key"], blank["key"])
+        self.assertEqual(self.ops([empty, end], [blank, end]), [["mod", 0, 0], ["eq", 1, 1]])
 
     def test_git_lines_are_turned_into_the_sides_screen_lines(self):
         """A side whose line 3 holds a form feed and line 5 a U+2028 ([[1,1],[4,5],[6,8]] from the server): git's lines

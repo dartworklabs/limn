@@ -434,6 +434,20 @@ class CodeBody(OneNote):
         )
 
 
+class EmptyFence(OneNote):
+    """An empty python fence that gains one blank line: the fence's lines go from none to one empty line."""
+
+    def texts(self):
+        return ["# 메모\n\n```py\n```\n\n끝\n", "# 메모\n\n```py\n\n```\n\n끝\n"]
+
+    def test_a_blank_line_added_to_an_empty_fence_is_a_change(self):
+        """The commit adds a blank line inside an empty fence: the code block is changed in place, not "no changed
+        block" - its key keeps the number of lines, so [] and [''] differ though both join to ''."""
+        page = self.open_compare()
+        self.assertEqual([(k, t) for k, t, _ in self.marks(page)], [("mod", "PRE")])
+        self.assertNotIn("바뀐 블록 없음", page.evaluate("document.getElementById('revision-status').textContent"))
+
+
 class PinInTheLastGitLine(OneNote):
     """A note whose last git line holds two form feeds, so its paragraph B is the screen's line 7 and git's line 5, with no
     git line after it: the commit rewrites B, with and without a final newline."""

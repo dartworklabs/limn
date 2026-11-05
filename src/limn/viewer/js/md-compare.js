@@ -92,10 +92,11 @@ function mdcShape(el){if(el.tagName==='PRE')return mdcCode(el.dataset.lang||'',[
     const t=e.tagName.toLowerCase(); if(t==='img'){s+='\u0002img '+(e.getAttribute('alt')||'')+'\u0003'; continue;}
     s+='\u0002'+t+'\u0003'; walk(e); s+='\u0002/'+t+'\u0003';}};
   walk(el); return s.replace(/\s+/g,' ').trim();}
-// A code block's inline structure: its language (the fence's info word) and its lines, spaces and all - so a code block whose
-// body or language changed is another block. Pure.
+// A code block's inline structure: its language (the fence's info word), its number of lines and its lines, spaces and all -
+// so a code block whose body or language changed is another block. The count tells an empty fence ([]) from one holding a
+// blank line ([''], which joins to the same ''). Pure.
 /** @param {string} lang @param {string[]} lines */
-function mdcCode(lang,lines){return '\u0002pre '+lang+'\u0003'+lines.join('\n');}
+function mdcCode(lang,lines){return '\u0002pre '+lang+'\u0003'+lines.length+'\u0003'+lines.join('\n');}
 // The language a code block's shape (mdcCode) carries. Pure.
 /** @param {string} shape */
 function mdcLang(shape){const m=/^\u0002pre ([^\u0003]*)\u0003/.exec(shape); return m?m[1]:'';}
