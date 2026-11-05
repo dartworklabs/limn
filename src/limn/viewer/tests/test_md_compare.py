@@ -153,7 +153,7 @@ class CompareRules(unittest.TestCase):
                 json.dumps(lang),
                 json.dumps(list(lines)),
             )
-            shape = self.run_js("mdcShape(%s)" % stub)
+            shape = self.run_js("mdcShape(%s,'PRE')" % stub)
             return unit("PRE", " ".join(" ".join(lines).split()), shape=shape)
 
         one, two = code("js", "function f() {", "  return 1;", "}"), code("js", "function f() {", "  return 2;", "}")

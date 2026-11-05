@@ -353,7 +353,6 @@ NOT_WALKED: dict[str, tuple[float | None, str]] = {
     ),
     ".mdc-legend": (TEXT, "the rendered compare's legend (md-compare.js): the walk opens no Markdown changes view"),
     ".mdc-info": (TEXT, "the rendered compare's notes above it: the walk opens no Markdown changes view"),
-    ".mdc-side": (TEXT, "the rendered compare's column names (two columns): the walk opens no Markdown changes view"),
     ".mdc-doc .mdc-ghost": (
         TEXT,
         "a moved block's old place in the rendered compare: the walk opens no Markdown changes view",

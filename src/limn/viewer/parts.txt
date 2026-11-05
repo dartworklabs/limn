@@ -29,7 +29,7 @@ css/search.css          # in-document search: the nav bar's field, its folded ma
 css/notices.css         # messages in context: banners, undo rows, notes and chips, the status line's messages, dots
 css/md-surface.css      # the Markdown surface: the document column, its blocks, line marks and badges, the line view, notices
 css/text-surface.css    # the text surface: a text document's monospace lines, their gutter, wrapping and marked characters
-css/md-compare.css      # the rendered compare of a Markdown document in the changes view: one column or two, block and word marks, gutter chips
+css/md-compare.css      # the rendered compare of a Markdown document in the changes view: one column, block and word marks, gutter chips
 
 __APP_JS__
 js/core.js              # strict mode, DOM helpers, icons, shared state, the tooltip texts (T)

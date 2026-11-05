@@ -5,13 +5,13 @@
 // seen this browser's last-seen commit of the document, seenState what the server said of it (SEEN_STATE), seenN how many
 // commits it compares with the newest and seenIds which (the server's count, never the list's positions); rangeIds the
 // commits the shown range compares (the server's commit_ids; null until it answers), rangeBase its old side; listOpen
-// whether the phone shows every loaded row; rangeLine the range's summary for the status line.
+// whether the phone shows every loaded row; rangeLine the range's summary for the status line, and rangeN its commit and file
+// counts (the rendered compare's status line takes them, md-compare.js mdcStatus).
 const REV={seq:0,files:/** @type {{name:string,text:string}[]} */([]),whole:'',commit:'',sourceCommit:'',format:/** @type {string} */(DIFF_FORMAT.PDF),scope:/** @type {any} */(null),other:'',target:/** @type {RevTarget|null} */(null),pdfCommit:'',back:/** @type {string|null} */(null),
   overlay:/** @type {RevisionOverlay|null} */(null),side:/** @type {string} */(OVERLAY_SIDE.CUR),history:false,
   base:'',rows:/** @type {RevisionRow[]} */([]),rowsDoc:'',more:false,range:/** @type {RevRange} */({mode:RANGE_MODE.ONE,start:'',end:'',endSet:false}),
   seen:/** @type {RevSeen|null} */(null),seenState:/** @type {string} */(SEEN_STATE.NONE),seenN:0,seenIds:/** @type {Set<string>} */(new Set()),
-  rangeIds:/** @type {string[]|null} */(null),rangeBase:'',listOpen:false,rangeLine:''};
-// A Markdown document's changes open in [그린 비교] (md-compare.js), the rendered compare of the two sides: DIFF_FORMAT.RENDERED.
+  rangeIds:/** @type {string[]|null} */(null),rangeBase:'',listOpen:false,rangeLine:'',rangeN:/** @type {{commits:number,files:number}|null} */(null)};
 const REVISION_PAGE=30;   // rows of one /api/revisions page (the server's history window is 500, api.md)
 const REVISION_RECENT=12;   // the commits [변경 보기] picks a pin's commit among - the server resolves a close_ref among the same
 const REVISION_PHONE_ROWS=5;   // rows the phone's list shows before [더 보기]
@@ -156,8 +156,9 @@ async function loadRevisions(){
   if(tg){if(REV.seenState===SEEN_STATE.PENDING)resolveSeen(k||'',rows[0].id);
     const pick=await pickRevisionFor(tg,seq,k); if(seq!==REV.seq||k!==DOC||REV.target!==tg)return;
     tg.commit=pick.id; tg.via=pick.via; tg.hit=pick.hit; REV.range={mode:RANGE_MODE.ONE,start:pick.id,end:pick.id,endSet:false};
-    // a figure's lines and pictures are both exact: its overlay opens first; a LaTeX pin's lines exist only in the source diff
-    if(fig)showRevision(pick.id,DIFF_FORMAT.OVERLAY); else showRevision(pick.id,mdcDrawn()?DIFF_FORMAT.RENDERED:DIFF_FORMAT.SOURCE); drawRange(); return;}
+    // a figure's lines and pictures are both exact: its overlay opens first; a LaTeX pin's lines exist only in the source
+    // diff, and a Markdown pin's own hunks too - its [그린 비교] beside it compares the whole commit (ADR-0031 D6)
+    if(fig)showRevision(pick.id,DIFF_FORMAT.OVERLAY); else showRevision(pick.id,DIFF_FORMAT.SOURCE); drawRange(); return;}
   // The same document read again while the view is open (a new build) keeps the range shown, moved to the newest commit;
   // a range comes back in its source diff, so a new build never starts its comparison PDF (only [변경 PDF] does).
   if(again&&rows.some(r=>r.id===kept.start)){if(REV.seenState===SEEN_STATE.OK&&kept.mode!==RANGE_MODE.LAST)resolveSeen(k||'',rows[0].id);
@@ -212,9 +213,9 @@ function sideRows(rows){const out=new Set();
 function revKey(){return REV.base?REV.base+'..'+REV.commit:REV.commit;}
 // Shows range rg: opens what it asks, then draws the picker - a range always in its source diff (its comparison PDF is built
 // only when [변경 PDF] is pressed, whatever format was shown), one commit as a list choice always opened (format undefined:
-// the comparison PDF of a LaTeX document, the format shown of a figure document).
+// the comparison PDF of a LaTeX document, the format shown of a figure document). A Markdown document keeps the tab shown,
+// for a range too: its rendered compare builds nothing (md-compare.js).
 /** @param {RevRange} rg @param {string} [format] */
-// A Markdown document keeps the tab shown, a range too: its rendered compare builds nothing (md-compare.js).
 function showRange(rg,format){REV.range=rg; const q=rangeRequest(REV.rows,rg,REV.seen);
   const drawn=mdcDrawn()?(REV.format===DIFF_FORMAT.SOURCE?DIFF_FORMAT.SOURCE:DIFF_FORMAT.RENDERED):'';
   showRevision(q.commit,drawn||(q.base?format===DIFF_FORMAT.OVERLAY?format:DIFF_FORMAT.SOURCE:format),q.base); drawRange();}
@@ -320,7 +321,7 @@ addEventListener('pagehide',()=>{if(document.body.classList.contains('revision-o
  * diff). @param {string} id @param {string} [format] @param {string} [base] */
 async function showRevision(id,format,base){
   RZ.ratio=1;
-  ++REV.seq;REV.commit=id;REV.base=base||'';REV.rangeLine='';REV.rangeIds=null;REV.rangeBase='';REV.sourceCommit='';REV.pdfCommit='';clearRevisionPdf();mdcClear();
+  ++REV.seq;REV.commit=id;REV.base=base||'';REV.rangeLine='';REV.rangeN=null;REV.rangeIds=null;REV.rangeBase='';REV.sourceCommit='';REV.pdfCommit='';clearRevisionPdf();mdcClear();
   $('#revision-note').textContent=REV.base?'두 커밋 사이의 누적 변경 · 이 문서의 Git 이력 · 미커밋 수정 제외':'선택 커밋의 첫 부모와 비교 · 이 문서의 Git 이력 · 미커밋 수정 제외';
   REV.scope=null;REV_SCOPE.whole=REV_SCOPE.partial=REV_SCOPE.fallback=false;drawRevisionOther(null);
   $('#revision-diff').textContent='';$('#revision-file-row').hidden=true;$('#revision-warning').hidden=true;
@@ -387,6 +388,7 @@ async function loadRevisionSource(id,seq,k){
   try{const r=(await api(dq('/api/revision-diff?commit='+encodeURIComponent(id)+pq,k),{what:'변경 내용 읽기',silent:true})).data;
     if(!revisionCurrent(seq,k,id))return;
     if(base){REV.rangeLine=rangeSummary(r); if(REV.format===DIFF_FORMAT.SOURCE)$('#revision-status').textContent=REV.rangeLine;
+      REV.rangeN={commits:Number(r.commits)||0,files:Array.isArray(r.files)?r.files.length:0}; mdcRestatus();
       REV.rangeIds=Array.isArray(r.commit_ids)?r.commit_ids:[]; REV.rangeBase=String(r.base||'');
       if(REV.range.mode===RANGE_MODE.LAST&&REV.seen&&base===REV.seen.id)seenAnswered(r);
       drawRange();}

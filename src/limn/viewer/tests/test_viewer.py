@@ -4752,17 +4752,14 @@ class FrontendChangeView(unittest.TestCase):
         self.assertEqual(out, [0, -1, [[10, 13], [81, 81]], True, False, True, False])
 
     def test_wiring(self):
-        """[변경 보기] is wired from the cards to showChange, a pin's commit opens in the source diff (a Markdown document's in its
-        rendered compare, md-compare.js), and the comparison
+        """[변경 보기] is wired from the cards to showChange, a pin's commit opens in the source diff, and the comparison
         PDF is requested only for a commit or range (revKey) not yet loaded in that format."""
         h = HTML
         self.assertIn('data-act="change"', extract_js_fn("doneCard"))
         self.assertIn('data-act="change"', extract_js_fn("card"))
         self.assertIn("case 'change':if(id!=null)showChange(id);break;", h)
         self.assertIn('id="revision-pin"', h)
-        self.assertIn(
-            "showRevision(pick.id,mdcDrawn()?DIFF_FORMAT.RENDERED:DIFF_FORMAT.SOURCE)", extract_js_fn("loadRevisions")
-        )
+        self.assertIn("showRevision(pick.id,DIFF_FORMAT.SOURCE)", extract_js_fn("loadRevisions"))
         fmt = extract_js_fn("setRevisionFormat")
         # the comparison PDF is only built while viewing that format
         self.assertIn("REV.pdfCommit!==revKey()", fmt)

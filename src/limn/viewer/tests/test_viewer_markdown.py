@@ -1608,15 +1608,15 @@ class ChangesView(MarkdownBase):
         run("commit", "-qam", "second")
         page = self.open_md()
         page.evaluate("setViewMode(VIEW_MODE.REVISIONS)")
-        page.wait_for_function(
-            "REV.format===DIFF_FORMAT.RENDERED&&!!document.querySelector('#revision-rendered [data-mdc=mod]')",
-            timeout=15000,
+        until(
+            page, "REV.format===DIFF_FORMAT.RENDERED&&!!document.querySelector('#revision-rendered [data-mdc=mod]')", 15
         )
         self.assertTrue(page.evaluate("document.getElementById('revision-pdf-tab').hidden"))
         page.click("#revision-source-tab")
-        page.wait_for_function(
+        until(
+            page,
             "REV.format===DIFF_FORMAT.SOURCE&&!document.getElementById('revision-source').hidden&&REV.sourceCommit",
-            timeout=15000,
+            15,
         )
         self.assertIn("문단 셋째 줄을 바꿨다.", page.evaluate("document.getElementById('revision-source').textContent"))
 
