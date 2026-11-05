@@ -380,6 +380,30 @@ class HeadingJump(AssetsBase):
         self.assertAlmostEqual(page.evaluate(SETUP_TOP), 8, delta=3)
         self.assertEqual(page.evaluate("document.querySelector('#section-current').textContent"), "설치")
 
+    def test_a_scrolling_key_with_the_focus_on_the_page_ends_the_jump(self):
+        """The same jump, its images held: Home pressed while the focus is on the page's body (no key event reaches the pane)
+        scrolls the pane back to its top, and that ends the jump - the images let go afterwards do not take the pane back
+        down to the heading."""
+        for i in range(1, 7):
+            (self.src / "notes" / "img" / ("p%d.png" % i)).write_bytes(blank_png(200, 900))
+        page = self.open_md()
+        self.holding = True
+        page.locator("#md a.md-doclink").first.click()
+        until(page, "DOC==='gd'&&" + DRAWN, 20)
+        until(page, "!!MD.goTo")
+        page.evaluate("document.activeElement&&document.activeElement.blur()")
+        self.assertTrue(page.evaluate("document.activeElement===document.body"))
+        page.keyboard.press("Home")
+        until(page, "document.querySelector('#left').scrollTop===0")
+        self.assertFalse(page.evaluate("!!MD.goTo"))
+        for _ in range(10):
+            page.wait_for_timeout(60)
+            held, self.hold[:] = list(self.hold), []
+            for r in held:
+                r.fulfill(**self.answer(r.request))
+        settle(page)
+        self.assertLess(page.evaluate("document.querySelector('#left').scrollTop"), 50)
+
 
 class SvgOnItsOwn(AssetsBase):
     """An SVG of the tree opened as a page (a new tab, a link to it) is inert under the asset route's own headers."""
