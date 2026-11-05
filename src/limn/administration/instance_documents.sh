@@ -94,16 +94,17 @@ doc_check_path() {
         esac
         [[ "$main_s" != /* ]] || die "--doc $key: the main after '::' must be relative to the build root: $main_s"
         main="$root_c/$main_s"
-        case "$main" in
-            *.tex | *.limnmap.json) ;;
-            *) die "--doc $key: '::' notation is only for LaTeX documents (.tex) and figure maps (.limnmap.json): $main" ;;
-        esac
+        [[ "$(name_suffix "$main")" == .tex || "$main" == *.limnmap.json ]] ||
+            die "--doc $key: '::' notation is only for LaTeX documents (.tex) and figure maps (.limnmap.json): $main"
     else
         if [[ "$path" == /* ]]; then main="$path"; else main="$ms/$path"; fi
-        case "$main" in
-            *.tex | *.pdf | *.limnmap.json | *.md) ;;
-            *) doc_is_text "$main" || die "--doc $key: only .tex (LaTeX), .pdf (view-only), .limnmap.json (figure), .md (Markdown) or a text suffix (${DOC_TEXT_SUFFIXES}) are accepted: $main" ;;
-        esac
+        # The kind by name_suffix, as serve_documents.parse_doc_arg reads it (a figure map by its exact-case suffix).
+        if [[ "$main" != *.limnmap.json ]]; then
+            case "$(name_suffix "$main")" in
+                .tex | .pdf | .md) ;;
+                *) doc_is_text "$main" || die "--doc $key: only .tex (LaTeX), .pdf (view-only), .limnmap.json (figure), .md (Markdown) or a text suffix (${DOC_TEXT_SUFFIXES}) are accepted: $main" ;;
+            esac
+        fi
     fi
     [[ -f "$main" ]] || die "--doc $key: file does not exist: $main"
     main_c="$(cd "$(dirname "$main")" && pwd -P)/$(basename "$main")" || die "--doc $key: could not resolve the path: $main"

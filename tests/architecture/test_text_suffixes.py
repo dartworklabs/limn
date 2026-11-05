@@ -8,6 +8,7 @@ refused by the shell or the other way round.
 
 import re
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -116,6 +117,58 @@ class SuffixReading(unittest.TestCase):
                 self.assertEqual(text == "1", not is_map and name_suffix(name) in TEXT_SUFFIXES)
                 self.assertEqual(main_text == "1", name_suffix(name) in TEXT_SUFFIXES - LATEX_OWN_SUFFIXES)
                 self.assertEqual(main_map == "1", is_map)
+
+    def test_a_doc_path_is_accepted_or_refused_alike(self):
+        """The shell's real --doc path check (doc_check_path, plain and '::' form) and the server's parse_doc_arg take and
+        refuse the same file names - dotfiles, trailing dots and upper-case suffixes included."""
+        from limn.administration.serve_documents import parse_doc_arg
+
+        names = (
+            "main.tex",
+            "Main.TEX",
+            "..tex",
+            "..pdf",
+            "..md",
+            "a..tex",
+            "notes.MD",
+            "view.PDF",
+            "plot.py",
+            "..py",
+            ".hidden.py",
+            "figures.limnmap.json",
+            "Figures.LIMNMAP.JSON",
+            "a.",
+            "noext",
+            "readme.docx",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            ms = Path(tmp).resolve()
+            for n in names:
+                (ms / n).write_text("x\n")
+            for form in ("plain", "root"):
+                for n in names:
+                    path = n if form == "plain" else ".::" + n
+                    with self.subTest(form=form, name=n):
+                        server = isinstance(
+                            parse_doc_arg("x=Name:" + path, ms), dict
+                        )  # a DocSpec (TypedDict), not a refusal
+                        run = subprocess.run(
+                            [
+                                "bash",
+                                "-c",
+                                'die() { exit 3; }; source "$1"; DOC_KEY=x DOC_PATH="$3" doc_check_path "$2"',
+                                "bash",
+                                str(SHELL),
+                                str(ms),
+                                path,
+                            ],
+                            capture_output=True,
+                            text=True,
+                            timeout=30,
+                            check=False,
+                        )
+                        self.assertIn(run.returncode, (0, 3), run.stderr)
+                        self.assertEqual(run.returncode == 0, server, (path, run.stdout, run.stderr))
 
 
 if __name__ == "__main__":
