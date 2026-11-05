@@ -201,7 +201,7 @@ class RevisionSource(AccessBase):
         and type check in _side_lines) -> the folder's object read as a blob fails as source_unreadable, fails."""
         self.md.unlink()
         (self.src / "plan.md").mkdir()
-        (self.src / "plan.md" / "old.txt").write_text(SECRET + "\n", encoding="utf-8")
+        (self.src / "plan.md" / "old.txt").write_text(WITHHELD + "\n", encoding="utf-8")
         folder = self.commit("folder", ".")
         shutil.rmtree(self.src / "plan.md")
         self.md.write_text(PLAN, encoding="utf-8")
@@ -210,7 +210,7 @@ class RevisionSource(AccessBase):
             code, body = self.sides(commit)
             self.assertEqual(code, 200, body)
             self.assertEqual(body[side], {"reason": "not_a_file"})
-            self.assertNotIn(SECRET, json.dumps(body))
+            self.assertNotIn(WITHHELD, json.dumps(body))
         code, body = self.sides(again)
         self.assertEqual(body["new"]["lines"], PLAN.splitlines())
 
@@ -241,12 +241,12 @@ class RevisionSource(AccessBase):
         self.assertEqual(self.tree(), before)
 
 
-SECRET = "SECRET-TEXT"
+WITHHELD = "WITHHELD-TEXT"  # what the answers must not carry: the text of a file the change view keeps out
 
 
 class RegisteredSides(AccessBase):
     """A Markdown document registered as --doc registers it (nt=계획:notes/plan.md, its folder notes the document's src),
-    a committed dot-named folder .private and a plain folder other, each holding a plan.md of its own (SECRET); Carol is a
+    a committed dot-named folder .private and a plain folder other, each holding a plan.md of its own (WITHHELD); Carol is a
     viewer. After startup a folder or the file on the way is replaced by a symlink: each side GET /api/revision-source
     answers is still read at the registered path notes/plan.md, never through the link."""
 
@@ -263,9 +263,9 @@ class RegisteredSides(AccessBase):
         self.git("config", "user.name", "Alice")
         self.first = self.commit("public plan", "notes")
         for folder in (".private", "other"):
-            (self.src / folder / "plan.md").write_text("# %s %s\n" % (SECRET, folder), encoding="utf-8")
+            (self.src / folder / "plan.md").write_text("# %s %s\n" % (WITHHELD, folder), encoding="utf-8")
         self.git("add", "-f", ".private", "other")
-        self.git("commit", "--quiet", "-m", "private %s" % SECRET)
+        self.git("commit", "--quiet", "-m", "private %s" % WITHHELD)
         self.register()
         member_add(ps.APP.C.state, CAROL["Tailscale-User-Login"], "viewer")
 
@@ -300,7 +300,7 @@ class RegisteredSides(AccessBase):
                     code, body = self.sides(commit, base)
                     self.assertEqual(code, 200, body)
                     self.assertEqual(body["path"], "notes/plan.md")
-                    self.assertNotIn(SECRET, str(body))
+                    self.assertNotIn(WITHHELD, str(body))
 
     def link_folder(self, target):
         """Replace notes with a symlink to target (a folder name beside it)."""
