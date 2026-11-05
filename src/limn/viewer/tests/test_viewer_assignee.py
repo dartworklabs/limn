@@ -255,6 +255,15 @@ COMPOSING = "() => ({note: document.querySelector('#note').value, open: !documen
 SEPARATE = "#c-overlap [data-act=overlap-separate]"
 # What the status line says - after an action that was not meant, its notice names it ('#1 에 덧붙였습니다').
 STATUS = "() => document.querySelector('#status').innerText"
+# From a write()'s press on, what the document saw (window.__writeSeen, the first 80): each key, edit, focus change and
+# press, with its target and that target's text after it - so text that did not land says where its keys went or what
+# took it. On macOS the note once read '확인' after '@Bob Park 확인' was typed at fold inner 673x841 (#431): the part typed
+# as key events gone, the part Playwright inserts as text there, the focus on the note, no error.
+WRITE_WATCH = """() => {window.__writeSeen = []; if (window.__writeWatch) return; window.__writeWatch = true;
+  const id = t => t && t.nodeType === 1 ? t.tagName + (t.id ? '#' + t.id : '') : String(t);
+  for (const type of ['keydown', 'input', 'focusin', 'focusout', 'pointerdown', 'click'])
+    addEventListener(type, e => {const seen = window.__writeSeen, t = e.target; if (seen.length < 80)
+      seen.push([type, e.key || e.inputType || '', e.data || '', id(t), t && typeof t.value === 'string' ? t.value : null]);}, true);}"""
 
 # The assignee row as drawn: its options in order and the one checked, or null while the row is hidden.
 ASSIGN_ROW = """() => {const box = document.querySelector('#c-assign'); if (box.hidden) return null;
@@ -336,6 +345,7 @@ class ComposerBase(BrowserBase):
         flagged, as when the author moves on. replace selects the field's text and deletes it before typing, so text
         takes its place. The keys follow the press at once, as a person's do: the field has the focus when the press
         returns, and the settle after the keys waits out what the press set in motion as well."""
+        page.evaluate(WRITE_WATCH)
         if device.get("has_touch"):
             page.tap(selector)
         else:
@@ -346,10 +356,11 @@ class ComposerBase(BrowserBase):
         page.keyboard.type(text)
         settle(page)
         # The keys must have landed in the field before it is left: a note that reads empty later then says whether
-        # the typing went elsewhere (the focused element is named) or the field lost it afterwards.
+        # the typing went elsewhere (the focused element is named) or the field lost it afterwards - and what the
+        # document saw from the press on (WRITE_WATCH).
         typed = page.evaluate(
             "s => {const a = document.activeElement; return {value: document.querySelector(s).value,"
-            " focus: a ? a.tagName + (a.id ? '#' + a.id : '') : null};}",
+            " focus: a ? a.tagName + (a.id ? '#' + a.id : '') : null, seen: window.__writeSeen};}",
             selector,
         )
         self.assertIn(text, typed["value"], ("typed", typed))
