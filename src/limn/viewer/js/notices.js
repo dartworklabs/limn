@@ -323,8 +323,13 @@ function endTopic(topic){NOTICES.forEach(n=>{if(n.topic===topic)endNotice(n,fals
 // folded in a gathered line (foldedGone), which [펼치기] would otherwise put back with the dot.
 /** @param {string} dot */
 function noticeSeen(dot){if(dot===NOTICE_DOT.RV){LINE.slice().forEach(n=>{if(reviewPins(n.keys).length)endNotice(n,false,true);});
-    foldedNews().forEach(f=>{if(reviewPins(f.keys).length)foldedGone(f,true);});}
+    foldedNews().forEach(f=>{if(reviewPins(f.keys).length)foldedGone(f,true);}); gatheredGone(o=>reviewPins(o.keys||[]).length>0);}
   document.body.classList.remove('dot-'+dot); if(dot===NOTICE_DOT.SIDE)endTopic(NOTICE_TOPIC.SIDE);}
+// The gathering under way (DIGEST) loses the messages test picks (by their options), as seen: never said - their groups
+// go with them when no message of theirs stands, and what each held for its end runs, as for a message seen on the line.
+/** @param {(o:any)=>boolean} test */
+function gatheredGone(test){if(!DIGEST)return; for(const [g,a] of [...DIGEST.items]){const o=a[3]||{}; if(!test(o))continue;
+  DIGEST.items.delete(g); const h=GROUPS.get(g); if(h&&!(h.n&&NOTICES.has(h.n.n)))GROUPS.delete(g); if(o.onEnd)o.onEnd(false,true);}}
 // The pins a message's keys say were sent to review ('review_requested:<id>', noticeDupe's keys). Pure.
 /** @param {string[]} keys @returns {number[]} */
 function reviewPins(keys){const p=EVENT_TYPE.REVIEW_REQUESTED+':'; return keys.filter(k=>k.startsWith(p)).map(k=>Number(k.slice(p.length)));}
@@ -338,9 +343,7 @@ function reviewNewsStale(keys,inReview){const ids=reviewPins(keys); return ids.l
 // it.
 function dropStaleReview(){const ids=REVIEW_ALL.map(p=>p.id); LINE.slice().forEach(n=>{if(reviewNewsStale(n.keys,ids))endNotice(n,false,true);});
   foldedNews().forEach(f=>{if(reviewNewsStale(f.keys,ids))foldedGone(f,true);});
-  // still being gathered (an event the return's poll said before the list came): it goes as seen too, never said
-  if(DIGEST)for(const [g,a] of [...DIGEST.items]){const o=a[3]||{}; if(!reviewNewsStale(o.keys||[],ids))continue;
-    DIGEST.items.delete(g); const h=GROUPS.get(g); if(h&&!(h.n&&NOTICES.has(h.n.n)))GROUPS.delete(g); if(o.onEnd)o.onEnd(false,true);}
+  gatheredGone(o=>reviewNewsStale(o.keys||[],ids));   // still being gathered (the return's poll said it before the list came)
   const gathered=DIGEST?digestDots([...DIGEST.items.values()]):[];   // a line message gone above may have taken the dot a gathered request still holds
   if(gathered.includes(NOTICE_DOT.RV))document.body.classList.add('dot-'+NOTICE_DOT.RV);
   else if(!LINE.some(n=>holdsDot(n,NOTICE_DOT.RV)))document.body.classList.remove('dot-'+NOTICE_DOT.RV);}

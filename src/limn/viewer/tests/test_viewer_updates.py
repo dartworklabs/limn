@@ -115,6 +115,20 @@ class PureRules(unittest.TestCase):
         self.assertEqual((got[8]["n"], got[8]["unknown"]), (0, False))
         self.assertEqual((got[6]["n"], got[6]["prs"], got[6]["subject"]), (1, [12], "Shorten the introduction"))
 
+    def test_the_highest_pin_seen_stands_when_higher_pins_were_deleted(self):
+        """This device has seen up to #100 (limnSeen.pin); #81-#100 were deleted before the page loaded, so the first
+        snapshot's highest is #50. #80, deleted too, is restored with its number: it is no new pin; #101, made after, is.
+        Mutation: start from the snapshot's highest only -> #80 is said as new, fails."""
+        got = node_json(
+            ["freshPins", "updNewPins"],
+            """const META={me:{login:'me'}},UPD={top:null},GROUPS=new Map(),said=[]; let pin=100;
+            function seenPin(){return pin;} function setSeenPin(n){if(pin<n)pin=n;} function announceNewPins(ps){said.push(ps.map(p=>p.id));}
+            const p=(id,login)=>({id,author:{login}}),rows=[...Array(50)].map((_,i)=>p(i+1,'bob'));
+            updNewPins(rows); updNewPins([...rows,p(80,'bob')]); updNewPins([...rows,p(80,'bob'),p(101,'bob')]);
+            console.log(JSON.stringify({said,top:UPD.top,pin}));""",
+        )
+        self.assertEqual(got, {"said": [[101]], "top": 101, "pin": 100})
+
     def test_a_first_draw_asks_again_and_one_version_is_read_once(self):
         """A first visit: the boot's check of source version 100 is reading the history when the source changes to 200
         and the visit's first draw shows it (updSourceRedrawn with no lines before). That check gives up (its version is
@@ -326,7 +340,7 @@ GROUP_FNS = [
     "digestBegin", "digestSoon", "digestHold", "digestEnd", "digestBrief", "digestLine", "digestNote", "digestReplay",
     "digestTake", "newsSlot", "keysHeld", "noticeLess", "newsWithout", "digestClosed", "newsDupe", "foldedNews",
     "foldedLess", "digestRetitle", "foldedGone", "digestDots", "reviewPins", "reviewNewsStale", "dropStaleReview",
-    "noticeSeen", "endTopic",
+    "noticeSeen", "endTopic", "gatheredGone",
 ]  # fmt: skip
 GROUP_PRELUDE = r"""
 let NOW=0,QID=0; const Q=[];
@@ -498,7 +512,9 @@ class Grouping(unittest.TestCase):
         whose every message went that way goes. A request still being gathered when the list comes (the return's poll said
         it first) goes the same way, never said, and the dot stays only for what still awaits review - also when the line's
         stale request that goes takes the dot with it. Mutations: leave the gathering out of dropStaleReview -> #3 is said
-        after the gathering ends, fails; do not put the gathered request's dot back -> the dot is gone, fails."""
+        after the gathering ends, fails; do not put the gathered request's dot back -> the dot is gone, fails. Looking at
+        the review section takes a request still being gathered too, as seen. Mutation: leave the gathering out of
+        noticeSeen -> the list drawn after puts the dot back and the request is said, fails."""
         got = self.run_store(
             """const kv=g=>({msg:'#'+g.ids.join(', #')+' 검토 대기',kind:NOTICE_KIND.OK,act:null,
               o:{keys:g.ids.map(i=>'review_requested:'+i),dot:NOTICE_DOT.RV,brief:'검토 대기 '+g.ids.length}});
@@ -519,6 +535,9 @@ class Grouping(unittest.TestCase):
             dropStaleReview(); out.dotless=[...BODY].sort(); digestEnd(); out.alone=said(); reset(); REVIEW_ALL=[{id:9}];
             lineNote('핀 #3 · 본문 — 검토 대기: 고침',NOTICE_KIND.OK,null,{literal:true,group:'ev:review_requested',keys:['review_requested:3'],rank:2,dot:NOTICE_DOT.RV,brief:'검토 대기'});
             digestBegin('지난 방문 뒤'); groupNote('review9',{ids:[9]},kv,null); dropStaleReview(); out.kept=[said(),[...BODY].sort()];
+            digestEnd(); reset(); REVIEW_ALL=[{id:9}];
+            digestBegin('지난 방문 뒤'); groupNote('review9',{ids:[9]},kv,null); groupNote('done',{ids:[6]},done,null);
+            noticeSeen(NOTICE_DOT.RV); dropStaleReview(); out.seenGathering=[[...BODY].sort(),GROUPS.has('review9')]; digestEnd(); out.seenAfter=said();
             console.log(JSON.stringify(out));"""
         )
         self.assertEqual(got["before"], [["지난 방문 뒤 — 검토 대기 1 · 완료 2"], ["dot-rv"], [["rv"]]])
@@ -534,6 +553,10 @@ class Grouping(unittest.TestCase):
         self.assertEqual(got["alone"], ["#6 완료"])
         # the line's stale request goes and takes [검토 M]'s dot with it; the gathered #9 still holds it, so it is put back
         self.assertEqual(got["kept"], [[], ["dot-rv"]])
+        # the review section looked at while a request is still being gathered: it is seen there and then, never said, and
+        # a list drawn after brings no dot back
+        self.assertEqual(got["seenGathering"], [[], False])
+        self.assertEqual(got["seenAfter"], ["#6 완료"])
 
     def test_closing_a_gathered_line_ends_its_groups_so_new_pins_are_seen(self):
         """A gathered line holding new pins (newPinsView) and a document's update, closed with [x]: its groups end with

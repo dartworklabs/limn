@@ -252,7 +252,9 @@ function updGoNext(k){if(k!==DOC){switchDoc(k); return;} const u=UPD.lines.get(k
 // this device (limnSeen.pin) - had seen, one message per document. The first visit of a device says nothing.
 /** @param {Pin[]} rows */
 function updNewPins(rows){const me=(META&&META.me&&META.me.login)||'',max=(rows||[]).reduce((m,p)=>Math.max(m,p.id),0);
-  if(UPD.top===null){const seen=seenPin(); UPD.top=max; if(seen===null||seen>=max){setSeenPin(max); return;} announceNewPins(freshPins(rows,seen,me)); return;}
+  // the highest this device has seen stands even when the pins above the list's highest were deleted since: one restored
+  // later keeps its number, and it is no new pin
+  if(UPD.top===null){const seen=seenPin(); UPD.top=Math.max(max,seen===null?0:seen); if(seen===null||seen>=max){setSeenPin(max); return;} announceNewPins(freshPins(rows,seen,me)); return;}
   const fresh=freshPins(rows,UPD.top,me); UPD.top=Math.max(UPD.top,max);
   if(fresh.length)announceNewPins(fresh); else if(![...GROUPS.keys()].some(g=>g.startsWith('new:')))setSeenPin(UPD.top);}
 /** @param {Pin[]} pins */
