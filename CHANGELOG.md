@@ -2,6 +2,47 @@
 
 ## Unreleased
 
+### Added
+
+- **Plain text and source code can be registered, read and pinned in the viewer (ADR-0029).** A `--doc` path whose
+  suffix is on a closed list of 48 - prose and data (`.txt`, `.rst`, `.csv`, …), configuration (`.json`, `.toml`,
+  `.yaml`, `.ini`, `.xml`, …), code (`.py`, `.r`, `.js`, `.ts`, `.sh`, `.c`, `.go`, `.rs`, `.sql`, …) and LaTeX's other
+  sources (`.bib`, `.sty`, `.cls`, `.bst`), in any case - is a text document (or
+  `limn doc add <name> --doc '<key>=<name>:<path>'`): no build, no PDF - the viewer shows the file's lines as they are, in
+  one monospace column with line numbers, never parsed and never highlighted. A press picks its line, a drag the lines
+  it covers; the range ladder is chosen lines -> paragraph (between blank lines) -> indented block (a function, a YAML
+  item, a call's arguments, a `.bib` entry), the shorter first. Pins are ordinary line pins of that file with no page,
+  take suggested edits and verdicts, and the changes view opens on the file's source diff. Long lines always wrap,
+  their continuation hanging under the indentation, so the page never scrolls sideways.
+  - **Not accepted:** files without a suffix (`Makefile`), suffixes not on the list, and `.typ`, `.ipynb`, `.env`,
+    `.pem`, `.key`. `Figures.LIMNMAP.JSON` (a figure map's suffix in another case) is refused rather than shown as text.
+  - **Line ends:** Limn numbers lines as Python's `str.splitlines()` does. A file with line ends that are not LF or CRLF
+    (a form feed, U+2028, a lone CR) gets a notice naming them, because its line numbers past them differ from an
+    editor's or git's. A copy keeps each line's text exactly and joins lines with LF.
+  - **Limits:** 1 MiB and 50,000 lines, as for Markdown; past 60,000 drawn elements the hidden characters are named as
+    text instead of boxed (a notice says so, and that a copy then gives the names).
+  - **Rollback:** 0.4.50 and earlier do not start with a text document in the configuration. Take it out first
+    (`limn doc remove <name> <key>`), then `limn update --ref v0.4.50`; its pins stay in the state folder and show under
+    the documents not configured.
+
+### Changed
+
+- **Characters that hide or reorder text are shown by name, in every document.** A bidirectional override, a
+  zero-width or tag character and the other default-ignorable and control characters (not tab or LF) can make a line
+  read otherwise than its source (Trojan Source). On a text document's lines, in the excerpt under the ladder, a rung's
+  label, a card's quote, every suggestion diff and the changes view's source diff, each now stands in a box with its
+  name (`U+202E`), kept in the text so a copy still has it; a text document's head counts them. Sequences that need one
+  (an emoji's joiner, a joiner between Persian or Indic letters, a variation selector after a Han character, a BOM at
+  the file's start, …) are left alone. Under the suggestion editor, which cannot show them, a line warns when the
+  draft adds any and shows the lines that hold them.
+- **The agent contract gains values and two additive fields; nothing is removed or renamed.** Document `kind` `text`,
+  `scope` `indent` and pin `kind` `indent`; a text document's `pins.md` section title ends in `— 텍스트(쪽 없음)`.
+  `GET /api/source` adds `line_ends` (`{"U+000C": 2}`, `{}` for none). In `pins.md`'s `## 제안 문안`, a suggestion whose
+  text adds such characters to its base gets one line under its heading, `숨은 문자: 원문에 없는 U+202E 1개 — …`:
+  agents ask in a reply whether those characters are needed before applying it. A `pins.md` without such a suggestion
+  is byte for byte unchanged. Make a pin on a text document with `file`, `lo` and `hi`; a `page` sent is dropped. There
+  is nothing to rebuild.
+
 ### Fixed
 
 - **A Markdown document keeps its reading line when its column changes width.** A rotation, collapsing the panel

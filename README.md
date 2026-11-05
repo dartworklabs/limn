@@ -32,8 +32,9 @@ screenshot), edit the source, and close each pin with what they changed; a perso
 on the same private network pin too, and every pin records who left it.
 
 - Single stdlib-only Python server, browser viewer with vector PDF rendering (bundled PDF.js)
-- Several documents per manuscript (manuscript, response letter, view-only reviewer PDFs, figure documents) as tabs
+- Several documents per manuscript (manuscript, response letter, view-only reviewer PDFs, figure documents, Markdown notes, text files) as tabs
 - Figure documents: a figure set drawn by code (one PDF page per figure plus a `limn-figure-map/1` element map) opens as a tab; a drag names the element and the script lines that drew it, and the pin's mark follows the element when the figure is rendered again
+- Markdown and text documents: a `.md` file is drawn from its source, and a plain-text or source-code file (`.py`, `.bib`, `.yaml`, `.txt` and 44 more suffixes) is shown line for line, never parsed; their pins are lines of that file, with no build. Characters that hide or reorder text (Trojan Source) are shown by name wherever a source or a suggestion is shown
 - Rebuilds on demand or when the upstream branch moves (`--git-pull`)
 - Threads, questions, @mentions, assignees, review before done, a diff view per pin
 - Verdict pins: a document may declare up to five verdict words next to it (`<name>.limnverdicts.json`, say accept / hold / delete); a person picks one with one press - under the note for the selection, or under a page of a figure set or a view-only PDF for the whole page - and the pin carries it as `verdict`, fixed once made, and the repository's agent carries it out by that repository's own rules
