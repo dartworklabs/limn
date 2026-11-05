@@ -24,7 +24,6 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
-from unittest import mock
 from urllib.parse import quote
 
 from limn.documents.assets import (
@@ -41,7 +40,6 @@ from limn.documents.assets import (
     raster_size,
     read_asset,
 )
-from limn.platform import files as platform_files
 from limn.platform.files import file_in_tree
 from limn.runtime.documents import Doc
 
@@ -556,44 +554,45 @@ class AssetRevalidation(AssetRoute):
     run here too, with the run keeping every read at once, so each of them holds through the stat path as well."""
 
     def setUp(self):
-        """AssetRoute's tree, with the run's tags keeping a read at once (settle_ns 0) unless a test says otherwise."""
+        """AssetRoute's tree, with the run's tags keeping a read at once (settle_ns 0) unless a test says otherwise, and
+        reading through a read that records the name of each image it reads (AssetTags.read, read_asset behind it)."""
         super().setUp()
         tags = ps.APP.asset_tags
-        settle = tags.settle_ns
+        settle, real = tags.settle_ns, tags.read
         tags.settle_ns = 0
         self.addCleanup(setattr, tags, "settle_ns", settle)
+        self.reads: list[str] = []
+
+        def recording(file, suffix):
+            self.reads.append(file.path.name)
+            return real(file, suffix)
+
+        tags.read = recording
+        self.addCleanup(setattr, tags, "read", real)
 
     def opened(self, path: str, headers=None):
-        """GET path as raw() does, recording the name of every file os.open is asked for meanwhile: (answer, names)."""
-        names: list[str] = []
-        real = platform_files.os.open
-
-        def recording(name, *args, **kwargs):
-            names.append(os.fsdecode(name))
-            return real(name, *args, **kwargs)
-
-        with mock.patch.object(platform_files.os, "open", recording):
-            got = self.raw(path, headers=headers)
-        return got, names
+        """GET path as raw() does: (answer, the names of the images the run read meanwhile)."""
+        start = len(self.reads)
+        got = self.raw(path, headers=headers)
+        return got, self.reads[start:]
 
     def test_an_unchanged_image_revalidates_as_a_stat_without_opening_the_file(self):
         """The first GET reads the image (200, its ETag); If-None-Match with that ETag is a 304 with the asset's own
-        headers, and nothing opened the image - only its folders were walked. Mutation: answer the 304 only after
-        read_asset (drop the tags.known branch of documents.http.asset) -> the file is opened, fails."""
+        headers, and the image was not read. Mutation: answer the 304 only after the read (drop the tags.known branch
+        of documents.http.asset) -> the image is read, fails."""
         (code, first, body), names = self.opened("notes/img/a.png")
         self.assertEqual((code, body), (200, PNG))
-        self.assertIn("a.png", names)
+        self.assertEqual(names, ["a.png"])
         (code, again, body), names = self.opened("notes/img/a.png", {"If-None-Match": first["etag"]})
         self.assertEqual((code, body), (304, b""))
-        self.assertNotIn("a.png", names)
-        self.assertIn("img", names)  # the walk to its folder, no-follow at every step
+        self.assertEqual(names, [])
         self.assertEqual(again["etag"], first["etag"])
         self.assertEqual(again["cache-control"], "private, no-cache")
         self.assertEqual(again["content-security-policy"], ASSET_POLICY)
         self.assertEqual(again["cross-origin-resource-policy"], "same-origin")
         (code, _, _), names = self.opened("notes/img/a.png", {"If-None-Match": '"other"'})
         self.assertEqual(code, 200)  # another tag: the image is sent, so it is read
-        self.assertIn("a.png", names)
+        self.assertEqual(names, ["a.png"])
 
     def test_a_changed_image_is_read_again_even_at_its_old_size_and_mtime(self):
         """The image rewritten in place with other bytes of the same length and its mtime put back: the ETag it had is
@@ -611,11 +610,11 @@ class AssetRevalidation(AssetRoute):
         os.utime(img, ns=(before.st_atime_ns, before.st_mtime_ns))
         (code, second, body), names = self.opened("notes/img/a.png", {"If-None-Match": first["etag"]})
         self.assertEqual((code, body), (200, other))
-        self.assertIn("a.png", names)
+        self.assertEqual(names, ["a.png"])
         self.assertNotEqual(second["etag"], first["etag"])
         (code, _, _), names = self.opened("notes/img/a.png", {"If-None-Match": second["etag"]})
         self.assertEqual(code, 304)
-        self.assertNotIn("a.png", names)
+        self.assertEqual(names, [])
         fresh = img.with_name("a.new")
         fresh.write_bytes(PNG)
         os.replace(fresh, img)
@@ -625,12 +624,12 @@ class AssetRevalidation(AssetRoute):
     def test_an_image_changed_within_the_settle_window_is_read_every_time(self):
         """With the run's settle window (ASSET_TAG_SETTLE_NS), an image written just now is not kept: every revalidation
         reads it again (a 304 still, from its hash), until it has been left alone that long. Mutation: drop the settle
-        check of AssetTags.keep -> the second request opens nothing, fails."""
+        check of AssetTags.keep -> the second request reads nothing, fails."""
         ps.APP.asset_tags.settle_ns = 60 * 1_000_000_000
         _, first, _ = self.raw("notes/img/a.png")
         (code, _, _), names = self.opened("notes/img/a.png", {"If-None-Match": first["etag"]})
         self.assertEqual(code, 304)
-        self.assertIn("a.png", names)
+        self.assertEqual(names, ["a.png"])
 
     def test_a_link_to_an_image_keeps_its_own_entry_by_the_file_it_resolves_to(self):
         """same.png links to a.png inside the tree: both names are one file (one resolved path), so a.png's tag answers
@@ -638,7 +637,7 @@ class AssetRevalidation(AssetRoute):
         _, first, _ = self.raw("notes/img/a.png")
         (code, _, _), names = self.opened("notes/img/same.png", {"If-None-Match": first["etag"]})
         self.assertEqual(code, 304)
-        self.assertNotIn("a.png", names)
+        self.assertEqual(names, [])
         tags = ps.APP.asset_tags
         checked = file_in_tree(str(self.src / "notes" / "img" / "a.png"), self.src, Path(ps.APP.C.state))
         self.assertEqual(tags.known(checked, ".png"), first["etag"])

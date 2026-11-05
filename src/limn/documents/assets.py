@@ -339,11 +339,13 @@ class AssetTags:
     of the content (ADR-0030 D6); this only skips a read whose hash is known. A read of a file changed less than
     settle_ns before it is not kept (ASSET_TAG_SETTLE_NS: the file system's clock may not have ticked between two
     writes). At most `limit` entries, the least recently used dropped first; nothing is written (ADR-0027). Request
-    threads share it under one lock, held only to look an entry up or publish one, never across a stat or a read."""
+    threads share it under one lock, held only to look an entry up or publish one, never across a stat or a read.
+    `read` is the read a request no tag answers makes (read_asset); a test gives one that records what was read."""
 
     limit: int = ASSET_TAGS_MAX
     settle_ns: int = ASSET_TAG_SETTLE_NS
     clock: Callable[[], int] = time.time_ns
+    read: Callable[[ManuscriptFile, str], AssetRead] = read_asset
     _held: OrderedDict[tuple[str, str], tuple[FileIdentity, str]] = field(default_factory=OrderedDict)
     _lock: threading.Lock = field(default_factory=threading.Lock)
 

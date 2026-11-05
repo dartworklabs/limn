@@ -15,7 +15,6 @@ from limn.documents.assets import (
     AssetTooManyPixels,
     AssetUnreadable,
     asset_path,
-    read_asset,
 )
 from limn.documents.service import DocumentViews
 from limn.documents.source import SourceLines, SourceNotUtf8, SourceTooLarge, SourceUnreadable, read_source
@@ -122,7 +121,7 @@ def asset(doc: Doc, query: Mapping[str, list[str]], tags: AssetTags, if_none_mat
         if known is not None and etag_matches(if_none_match, known):
             # The 200 the handler turns into a 304 for this If-None-Match: no body is sent, and none was read.
             return Reply(200, b"", ASSET_TYPES[wanted.suffix], ASSET_CACHE, known)
-    match read_asset(checked, wanted.suffix):
+    match tags.read(checked, wanted.suffix):
         case AssetBytes(data=data, media=media, etag=etag) as read:
             tags.keep(read, wanted.suffix)
             return Reply(200, data, media, ASSET_CACHE, etag)
