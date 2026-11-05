@@ -14,6 +14,8 @@ docs/guide.md (gd) - and the LaTeX manuscript (ms):
 - a link to another registered document goes to it, at its heading, and the browser's back returns - also before that
   document has opened, which then never opens over the entry back returned to; followed while a phone's back layer holds
   the top history entry, it adds none, and back closes the layer;
+- the jump to that heading lands on it though images above it load on the way (HeadingJump); a double click on a link
+  still waiting for its document adds one entry, and back between two entries of one address shows the document it names;
 - another origin's page cannot embed a tree image (Cross-Origin-Resource-Policy: same-origin), on a real loopback
   listener where the browser itself enforces the header; the viewer's own page still can;
 - the image, link and SVG checks hold in Firefox too (the *Firefox classes; WebKit does not launch everywhere, and its
@@ -80,6 +82,22 @@ TALL_GUIDE = (
     "# 안내\n\n![위 그림](../notes/img/tall.png)\n\n"
     + "".join("안내 줄 %d 의 문단.\n\n" % i for i in range(1, 120))
     + "## 읽는 곳\n\n여기.\n"
+)
+# gd with six tall images of their own (unknown sizes) above '## 설치', the heading nt's link goes to, and room below it.
+PICS_GUIDE = (
+    "# 안내\n\n"
+    + "".join(
+        "".join("안내 %d-%d 의 문단.\n\n" % (i, j) for j in range(1, 13))
+        + "![그림 %d](../notes/img/p%d.png)\n\n" % (i, i)
+        for i in range(1, 7)
+    )
+    + "## 설치\n\n설치 문단.\n\n"
+    + "".join("뒤 문단 %d.\n\n" % i for i in range(1, 60))
+)
+# Where the heading '설치' is in the document pane, in px from the pane's top.
+SETUP_TOP = (
+    "(()=>{const h=MD.heads.find(x=>x.title==='설치'),L=document.querySelector('#left');"
+    " return h.el.getBoundingClientRect().top-L.getBoundingClientRect().top;})()"
 )
 # Where the heading '읽는 곳' is in the document pane, in px from the pane's top.
 HEADING_TOP = (
@@ -324,6 +342,45 @@ class ReadingSpotChangedImage(AssetsBase):
         )
 
 
+class HeadingJump(AssetsBase):
+    """A link's jump to another document's heading lands there, though images above it load on the way."""
+
+    GUIDE = PICS_GUIDE
+
+    def test_images_that_load_during_the_jump_do_not_stop_it_short(self):
+        """nt's [안내의 설치] opens gd and scrolls smoothly (the default) to '## 설치', below six 900px images whose asset
+        answers are held and let go every 60ms while the jump runs. Each load would put back the reading spot the scroll was
+        passing and stop the jump far short of the heading (thousands of px); the jump goes on to the heading's new place
+        and lands it 8px under the pane's top. A load seen while the heading was still far from there shows the answers
+        did arrive mid-jump. The browser's scroll anchoring is left as it is."""
+        for i in range(1, 7):
+            (self.src / "notes" / "img" / ("p%d.png" % i)).write_bytes(blank_png(200, 900))
+        page = self.open_md()
+        page.evaluate(
+            "window.__far=0; document.addEventListener('load',e=>{if(e.target.tagName!=='IMG'||DOC!=='gd')return;"
+            " const h=MD.heads.find(x=>x.title==='설치'),L=document.querySelector('#left');"
+            " if(h)__far=Math.max(__far,Math.abs(h.el.getBoundingClientRect().top-L.getBoundingClientRect().top-8));},true)"
+        )
+        self.holding = True
+        page.locator("#md a.md-doclink").first.click()
+        until(page, "DOC==='gd'&&" + DRAWN, 20)
+        last, still = None, 0
+        end = time.monotonic() + 15
+        while still < 8:
+            self.assertLess(time.monotonic(), end, "the pane never came to rest")
+            page.wait_for_timeout(60)
+            held, self.hold[:] = list(self.hold), []
+            for r in held:
+                r.fulfill(**self.answer(r.request))
+            top = page.evaluate("document.querySelector('#left').scrollTop")
+            still = still + 1 if top == last and not held else 0
+            last = top
+        self.assertGreater(page.evaluate("__far"), 200, "no image arrived during the jump")
+        self.assertGreater(page.evaluate("document.querySelectorAll('#md .md-pic-ok').length"), 0)
+        self.assertAlmostEqual(page.evaluate(SETUP_TOP), 8, delta=3)
+        self.assertEqual(page.evaluate("document.querySelector('#section-current').textContent"), "설치")
+
+
 class SvgOnItsOwn(AssetsBase):
     """An SVG of the tree opened as a page (a new tab, a link to it) is inert under the asset route's own headers."""
 
@@ -425,6 +482,50 @@ class DocumentLinks(AssetsBase):
             ["nt", "nt", "nt", depth + 1],
         )
         page.go_forward()
+        until(page, "DOC==='gd'&&" + DRAWN, 10)
+        self.assertTrue(page.evaluate("location.hash").endswith("doc=gd"))
+
+    def test_a_double_click_on_a_pending_link_adds_one_entry_and_back_keeps_address_and_document_together(self):
+        """The link from nt to gd is double-clicked while gd's meta answer is held: one history entry and one meta request,
+        not two (two #doc=gd entries would let back move between equal addresses, with no hashchange, while the traversal
+        ended the switch). Back returns the address to nt; once gd's answer arrives nt is on screen and in the address, and
+        forward opens gd."""
+        page = self.open_md()
+        self.hold_meta = "gd"
+        depth = page.evaluate("history.length")
+        page.locator("#md a.md-doclink").first.dblclick()
+        until(page, "location.hash.endsWith('doc=gd')")
+        end = time.monotonic() + 8
+        while not self.held_meta:
+            self.assertLess(time.monotonic(), end, "gd's meta was never asked for")
+            page.wait_for_timeout(50)
+        page.wait_for_timeout(200)
+        self.assertEqual(page.evaluate("[DOC,history.length]"), ["nt", depth + 1])
+        self.assertEqual(len(self.held_meta), 1)
+        page.go_back()
+        until(page, "location.hash.endsWith('doc=nt')")
+        page.wait_for_timeout(100)
+        self.hold_meta = None
+        for r in self.held_meta:
+            r.fulfill(**self.answer(r.request))
+        page.wait_for_timeout(600)
+        settle(page)
+        self.assertEqual(
+            page.evaluate("[DOC,MD.shown,location.hash.replace(/^.*doc=/,''),history.length]"),
+            ["nt", "nt", "nt", depth + 1],
+        )
+        page.go_forward()
+        until(page, "DOC==='gd'&&" + DRAWN, 10)
+        self.assertTrue(page.evaluate("location.hash").endswith("doc=gd"))
+
+    def test_back_between_two_entries_of_one_address_shows_the_document_it_names(self):
+        """Two entries that both say #doc=gd above nt's (as two follows of one link would leave them, the second while the
+        address already named gd): back from the one to the other fires popstate but no hashchange. gd, which the address
+        names, opens - nt is not left on screen under it."""
+        page = self.open_md()
+        page.evaluate("for(let i=0;i<2;i++)history.pushState(null,'',location.pathname+location.search+'#doc=gd')")
+        self.assertEqual(page.evaluate("DOC"), "nt")
+        page.go_back()
         until(page, "DOC==='gd'&&" + DRAWN, 10)
         self.assertTrue(page.evaluate("location.hash").endswith("doc=gd"))
 
@@ -545,6 +646,12 @@ class TreeImagesFirefox(TreeImages):
 
 class ReadingSpotFirefox(ReadingSpot):
     """The reading spot an image's load puts back, in Firefox (its own scroll anchoring off, as in Chromium)."""
+
+    BROWSER_ENGINE = "firefox"
+
+
+class HeadingJumpFirefox(HeadingJump):
+    """A heading jump that images interrupt on the way, in Firefox."""
 
     BROWSER_ENGINE = "firefox"
 

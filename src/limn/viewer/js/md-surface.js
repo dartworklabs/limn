@@ -37,8 +37,9 @@ const MD={gen:0,doc:/** @type {string|null} */(''),file:'',name:'',lines:/** @ty
   waiting:false,els:0,shown:/** @type {string|null} */(''),want:/** @type {{line:number,off:number,top:number}|null} */(null),
   jumpTo:/** @type {{id:number,doc:string|null,seq:number}|null} */(null),
   spot:/** @type {{doc:string|null,w:number,el:HTMLElement|null,line:number,key:string,frac:number,off:number|null,sel:boolean,again:boolean}|null} */(null),
-  // a heading a link from another document asked for, gone to once this document is drawn in that visit (mdGoDoc)
-  headTo:/** @type {{doc:string,id:string,seq:number}|null} */(null)};
+  // a heading a link from another document asked for, gone to once this document is drawn in that visit (mdGoDoc), and the
+  // heading a jump in flight is going to (mdGoHeading: an image that gets its size moves the destination, not the reading spot)
+  headTo:/** @type {{doc:string,id:string,seq:number}|null} */(null),goTo:/** @type {{el:HTMLElement,doc:string|null}|null} */(null)};
 // Whether the document on screen is drawn here (no pages), and whether pin p belongs to such a document of this instance.
 function isMdDoc(){return !!META&&rendersInBrowser(META.kind);}
 /** @param {Pin} p */
@@ -471,7 +472,8 @@ function mdImage(c){const raw=String(mdAttr(c,'src')||''),alt=String(c.content||
 // The natural size of each tree image this tab has loaded, by tree path: a redraw or a return to the document keeps their places.
 const MD_PIC_SIZE=/** @type {Map<string,{w:number,h:number}>} */(new Map());
 // An image has loaded: its size is kept (MD_PIC_SIZE) and given to its box, and the reading spot (MD.spot, as mdSpotRead last
-// read it) is put back (mdSpotBack) - only an image above it moves anything. A box drawn at a size an earlier load learned is checked too:
+// read it) is put back (mdSpotBack) - only an image above it moves anything. During a jump to a heading (mdGoHeading) the spot is a
+// point the scroll passes on its way: the jump goes on to its heading's new place instead (mdGoOn). A box drawn at a size an earlier load learned is checked too:
 // the file may have changed since (a new size under the same path), and then it is resized and the spot put back as for a
 // first load. Only a size that held changes nothing. The marks follow through the column's ResizeObserver (MD_RO).
 /** @param {Event} e */
@@ -479,14 +481,14 @@ function mdPicLoad(e){const img=/** @type {HTMLImageElement} */(e.target),box=im
   const w=img.naturalWidth,h=img.naturalHeight,path=box.dataset.path||''; if(w&&h)MD_PIC_SIZE.set(path,{w,h}); else MD_PIC_SIZE.delete(path);
   if(box.classList.contains('md-pic-ok')&&+(img.getAttribute('width')||0)===w&&+(img.getAttribute('height')||0)===h)return;
   if(w&&h){img.width=w; img.height=h;} else{img.removeAttribute('width'); img.removeAttribute('height');}
-  box.classList.add('md-pic-ok'); if(box.isConnected&&isMdDoc())mdSpotBack();}
+  box.classList.add('md-pic-ok'); if(box.isConnected&&isMdDoc()&&!mdGoOn())mdSpotBack();}
 // An image the server would not give (not there, not that format, outside the tree behind a link, too large): its alt text,
 // as for an image that is never loaded, saying so in the tip.
 /** @param {Event} e */
 function mdPicError(e){const img=/** @type {HTMLImageElement} */(e.target),box=img.parentElement; if(!box||!box.isConnected)return;
   const s=document.createElement('span'),path=box.dataset.path||''; s.className='md-img'; s.textContent=tr('그림')+': '+(img.alt||path);
   s.dataset.tip=tl('그림을 불러오지 못했습니다 · {src}',{src:path}); s.dataset.tipUrl=path;
-  box.replaceWith(s); if(isMdDoc())mdSpotBack();}
+  box.replaceWith(s); if(isMdDoc()&&!mdGoOn())mdSpotBack();}
 // A link element for href (mdTarget): a web or mail link opens in a new tab without a referrer or opener; an in-document '#…'
 // goes to the heading it names (data-act md-anchor: a click or Enter, the global key handler asking imeKey first); another
 // registered document is data-act md-doc (mdGoDoc), the same way; an image of the tree opens in a new tab from GET /api/asset;
@@ -508,11 +510,13 @@ function mdLink(href){const r=mdTarget(href,location.origin,mdBase(),DOCS);
 // mdShow), with a history entry of its own - the browser's back returns to the document left through the hashchange switch
 // (doc-switch.js), and a back before the document has opened ends that switch (NAVGEN). While a back layer holds the entry on
 // top (a sheet on a phone, gestures.js) no entry is added, as a tab switch adds none; the layer's entry must stay the top one.
+// Followed again while the switch it started still waits for that document (a double click, switchPending), it adds no
+// second entry and starts no second switch: it only names the heading to go to.
 /** @param {HTMLElement} a */
 function mdGoDoc(a){const k=String(a.dataset.doc||''),id=String(a.dataset.anchor||''),d=docInfo(k); if(!d)return;
   if(k===DOC){if(id)mdGoSlug(id); return;}
-  if(!BACK)history.pushState(null,'',location.pathname+location.search+'#doc='+k);
-  void switchDoc(k); MD.headTo=id&&rendersInBrowser(d.kind)?{doc:k,id,seq:SWITCHSEQ}:null;}
+  if(!switchPending(k)){if(!BACK)history.pushState(null,'',location.pathname+location.search+'#doc='+k); void switchDoc(k);}
+  MD.headTo=id&&rendersInBrowser(d.kind)?{doc:k,id,seq:SWITCHSEQ}:null;}
 // GitHub's heading slug: lower case, punctuation dropped, spaces to '-'. Pure.
 function mdSlug(s){return String(s).trim().toLowerCase().replace(/[^\p{L}\p{N}\s_-]/gu,'').replace(/\s/g,'-');}
 // An in-document link to '#id': the first heading whose slug is id (or id percent-decoded), as GitHub numbers repeats
@@ -668,7 +672,7 @@ function mdReadingLine(){const L=$('#left'); if(!$('#md'))return 0; const e=mdAt
 function mdStrip(){if(!isMdDoc())return; MD.at=mdReadingLine();
   let i=-1; MD.heads.forEach((h,j)=>{if(h.lo<=MD.at)i=j;}); if(i!==OUTLINE_SELECTED){OUTLINE_SELECTED=i; markOutline();}
   const h=MD.heads[i]; $('#section-current').textContent=h?h.title:isTextDoc()?MD.name:tr('문서 처음'); drawPos();}   // a text document has no headings: its file   // above the first heading
-let MD_STRIP_F=0; $('#left').addEventListener('scroll',()=>{if(!isMdDoc()||MD_STRIP_F)return; MD_STRIP_F=requestAnimationFrame(()=>{MD_STRIP_F=0; mdStrip(); mdSpotRead();});},{passive:true});
+let MD_STRIP_F=0; $('#left').addEventListener('scroll',()=>{if(!isMdDoc()||MD_STRIP_F)return; MD_STRIP_F=requestAnimationFrame(()=>{MD_STRIP_F=0; mdGoLanded(); mdStrip(); mdSpotRead();});},{passive:true});
 // posLabel's shape for this document: [L37/164 ▾] - the reading line's source line of the file's lines, '–' for what is not
 // known yet - with the document's name as posLabel puts it. Pure but for tl.
 /** @param {string} doc @param {number} line @param {number} n @param {boolean} multi @param {boolean} wide */
@@ -682,8 +686,24 @@ function mdHint(){const e=$('#empty'); if(!e)return; if(!MD_HINT_PDF)MD_HINT_PDF
   const want=isTextDoc()?'tx':'1'; if(e.dataset.md===want)return; e.dataset.md=want; if(want==='tx'){txHint(); return;}   // a text document's own words (text-surface.js)
   setHtml(e,html`<span class="t-mouse">${tr('글을')} <b>${tr('끌어')}</b> ${tr('고르면 그 줄을,')} <b>${tr('블록을 누르면')}</b> ${tr('그 블록을 고르고')}</span><span class="t-touch"><b>${tr('블록을 누르면')}</b> ${tr('그 블록을,')} <b>${tr('길게 눌러')}</b> ${tr('글을 고르면 그 줄을 고르고')}</span> ${tr('그 자리의')} <b>${tr('원문 줄 번호')}</b>${tr('가 핀의 위치가 됩니다.')}<br>
     ${tr('메모를 달아 핀으로 저장하면, 에이전트가 pins.md 한 장만 읽고 작업합니다.')}<br><span class="t-mouse"><kbd>?</kbd> ${tr('를 누르면 도움말.')}</span><span class="t-touch">${tr('도움말은 [더보기]에 있습니다.')}</span>`);}
+// Goes to heading i: the pane scrolls (smoothly unless reduced motion is asked for) until the heading stands 8px under its top.
+// The jump is kept in flight (MD.goTo) until it lands there (mdGoLanded) or the person scrolls: an image that gets its size
+// on the way - a lazy one the scroll passes - moves the heading, and the jump goes on to its new place (mdGoOn).
+/** @param {number} i */
 function mdGoHeading(i){const h=MD.heads[i]; if(!h)return; OUTLINE_SELECTED=i; markOutline();
-  const L=$('#left'),lr=L.getBoundingClientRect(),r=h.el.getBoundingClientRect(); pvShow(); L.scrollTo({top:L.scrollTop+r.top-lr.top-8,behavior:SMOOTH});}
+  MD.goTo={el:h.el,doc:DOC}; mdGoOn(); mdGoLanded();}
+// The scroll top that puts element el 8px under the pane's top, within what the pane can scroll.
+/** @param {HTMLElement} el */
+function mdGoTop(el){const L=$('#left'),t=L.scrollTop+el.getBoundingClientRect().top-L.getBoundingClientRect().top-8;
+  return Math.max(0,Math.min(t,L.scrollHeight-L.clientHeight));}
+// Scrolls on to the destination of the jump in flight, measured again; false when there is none (or its heading is gone).
+function mdGoOn(){const g=MD.goTo; if(!g)return false; if(g.doc!==DOC||!g.el.isConnected){MD.goTo=null; return false;}
+  pvShow(); $('#left').scrollTo({top:mdGoTop(g.el),behavior:SMOOTH}); return true;}
+// The jump in flight has landed when the pane stands at its destination: it ends, and that is the reading spot.
+function mdGoLanded(){const g=MD.goTo; if(!g)return; if(g.doc!==DOC||!g.el.isConnected){MD.goTo=null; return;}
+  if(Math.abs($('#left').scrollTop-mdGoTop(g.el))<=1){MD.goTo=null; mdSpotRead(true);}}
+// The person scrolls (a wheel, a touch, a press on the pane or its scroll bar, a key): a jump in flight ends where it is.
+for(const t of ['wheel','touchstart','pointerdown','keydown'])$('#left').addEventListener(t,()=>{MD.goTo=null;},{passive:true});
 // ---------------- Input on the document
 // A mouse drag ends: the part of its text selection inside the document (mdDocPart) is the pick. A press without a selection (a click, a tap) picks the
 // block under it - not on a link, a badge or another control.

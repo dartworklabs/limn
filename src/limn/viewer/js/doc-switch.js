@@ -153,7 +153,7 @@ addEventListener('pagehide',saveView);
 // and from nothing (body) the next Tab went to the first page's line and scrolled there.
 // A history traversal (the browser's back or forward) ends a switch still waiting for its document's meta (NAVGEN): the
 // address already names where the traversal went, so the late answer neither opens its document nor puts its hash on that
-// entry, and the document left keeps its draft.
+// entry, and the document left keeps its draft. While it waits, SWITCH_TO names it (switchPending).
 async function switchDoc(k){
   if(!k||k===DOC||!docInfo(k))return; const seq=++SWITCHSEQ,nav=NAVGEN; searchLeave();   // the search belongs to the document left (search.js)
   const a=document.activeElement,inPages=!!a&&!!a.closest&&!!a.closest('#left');
@@ -161,7 +161,9 @@ async function switchDoc(k){
   saveView(); parkDraft(); cancelRepick(); if(COMPOSE.current||!$('#composer').hidden)cancelSelection(false);
   if(EDITOR.current&&!editDirty())cancelEdit();
   let m=META_BY.get(k),cached=!!m;
-  if(!m){try{m=(await api(dq('/api/meta',k),{what:'문서 열기',where:NOTICE_HOST.LINE,retry:()=>{switchDoc(k);}})).data;}catch(e){if(seq===SWITCHSEQ)restoreDraft(); return;}
+  if(!m){SWITCH_TO={k,seq,nav};
+    try{m=(await api(dq('/api/meta',k),{what:'문서 열기',where:NOTICE_HOST.LINE,retry:()=>{switchDoc(k);}})).data;}catch(e){if(seq===SWITCHSEQ)restoreDraft(); return;}
+    finally{if(SWITCH_TO&&SWITCH_TO.seq===seq)SWITCH_TO=null;}
     if(seq!==SWITCHSEQ)return; if(nav!==NAVGEN){restoreDraft(); return;}}
   DOC=k; META=m; META_BY.set(k,m); savePrefs({lastDoc:k}); setHash(k);
   hideTip(); showDoc(VIEW_BY.get(k)); openDraftDoc();
@@ -170,6 +172,11 @@ async function switchDoc(k){
     if(seq===SWITCHSEQ&&DOC===k){const changed=f.pages_build!==META.pages_build||f.pages.length!==META.pages.length;
       META_BY.set(k,f); if(changed)await refreshDoc(f); else{META=f; drawMeta();}}}catch(e){}}
 }
+// The switch waiting for its document's meta (switchDoc), or null.
+let SWITCH_TO=/** @type {{k:string,seq:number,nav:number}|null} */(null);
+// Whether a switch to document k is on its way and still the one that will open: the newest switch, no history traversal since.
+/** @param {string} k */
+function switchPending(k){const s=SWITCH_TO; return !!s&&s.k===k&&s.seq===SWITCHSEQ&&s.nav===NAVGEN;}
 // Redraws the screen from the current META (tab switching), including open and done rows from this document before the background refresh.
 // The build chip, error panel, and auto-polling baseline are switched to that document's values too.
 function showDoc(v){
@@ -191,9 +198,13 @@ function cycleDoc(step){if(!multiDoc())return; const i=DOCS.findIndex(d=>d.key==
   switchDoc(DOCS[(i+step+DOCS.length)%DOCS.length].key);}
 // Each history traversal is a new navigation generation (NAVGEN), also one back to the document on screen - except the back
 // layer's own entry (gestures.js: a back that closes a sheet, or the entry it pops itself), which leaves the documents alone.
-// This listener runs before the layer's, so BACK and BACK_SKIP still say whose entry it was.
-window.addEventListener('popstate',()=>{if(BACK_SKIP||(BACK&&BACK.kind==='history'))return; NAVGEN++;});
-window.addEventListener('hashchange',()=>{const k=hashDoc(); if(k&&k!==DOC&&docInfo(k))switchDoc(k);});
+// This listener runs before the layer's, so BACK and BACK_SKIP still say whose entry it was. A traversal then shows the
+// document its address names (followHash): between two entries of the same address no hashchange comes, and the switch it
+// just ended must not leave the address naming one document over another on screen.
+window.addEventListener('popstate',()=>{if(BACK_SKIP||(BACK&&BACK.kind==='history'))return; NAVGEN++; followHash();});
+window.addEventListener('hashchange',followHash);
+// Opens the document the address names (#doc=), unless it is on screen or a switch to it is on its way already.
+function followHash(){const k=hashDoc(); if(k&&k!==DOC&&docInfo(k)&&!switchPending(k))switchDoc(k);}
 // A #number/[보기]/[수정] on another document's pin: switches to that document, then calls then again (used by jumpPin/openEdit at the very top). Returns true if it switched.
 function viaDoc(id,then){const p=OPEN_ALL.find(x=>x.id===id);
   if(!p||pdoc(p)===DOC||!docInfo(pdoc(p)))return false;
