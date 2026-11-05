@@ -31,11 +31,31 @@ What the server does defend against:
   (`trusted-proxy`).
 - Path traversal: static files are limited by name to the vendored PDF.js modules and the vendored Pretendard font
   slices and stylesheet: one name in the folder, no subpath, with a suffix the folder serves.
-- Reading files that are not manuscript: every route that takes a file name (`/api/snippet`, `/api/overlaps`, a new
-  pin, an edit's `loc`, a close's `changes`) accepts only files under `--manuscript`, symlinks resolved, and never one
+- Reading files that are not manuscript: every route that takes a file name (`/api/snippet`, `/api/overlaps`,
+  `/api/asset`, a new pin, an edit's `loc`, a close's `changes`) accepts only files under `--manuscript`, symlinks resolved, and never one
   under a dot-named part of it (`.git`, `.env`, `.ssh`, `.latexmkrc`, …): those hold repository and machine secrets,
   not manuscript text, and a `viewer` could otherwise read `.git/config` through a snippet. The refusal is the one for
   a file outside the manuscript (`400 file_outside_manuscript` / `change_outside_manuscript`).
+- Images a Markdown document shows: `GET /api/asset?doc=&path=` serves an image of the manuscript tree and nothing
+  else ([ADR-0030](docs/adr/0030-markdown-tree-images-and-document-links.md), Korean). It takes only a normalized
+  path relative to `--manuscript` with an image suffix (`png`, `jpg`, `jpeg`, `gif`, `webp`, `svg`): a leading `/`, a
+  backslash, a control character, an empty, `.`, `..` or dot-named part is refused, not repaired (`400
+  bad_asset_path`), and the query is decoded once, so `%252e%252e` is a file name with `%` in it. The path then takes
+  the tree check above (links resolved, no dot-named part, not the state folder, a regular file opened no-follow at
+  every step). The bytes must start as the suffix's format does — an HTML page named `.png` or text named `.svg` is
+  `415 asset_not_image` — and go out as the media type the suffix names, with `nosniff`. A file over 8 MiB is refused
+  without being read, and a raster image whose header gives more than 8192 × 8192 pixels is refused before any browser
+  decodes it (`413`). Every answer carries its own policy, `default-src 'none'; style-src 'unsafe-inline';
+  img-src data:; sandbox; frame-ancestors 'none'`: the viewer draws an image only as `<img>`, where an SVG runs nothing
+  and loads nothing, and an SVG opened on its own (a new tab, a link to it) is a sandboxed document of an opaque
+  origin that runs no script and fetches nothing, so it cannot call Limn's API as the reader. Every answer also
+  carries `Cross-Origin-Resource-Policy: same-origin`, so another site cannot embed one to learn whether a file
+  exists or how large it is — on a tailnet the reader's identity is attached without a credential the browser could
+  withhold. The viewer builds the image address itself from the checked path (no document text reaches it), never
+  loads a remote or `data:` image (a remote one would tell a third party who opened the document, when and from
+  where), and a relative link opens only another registered document or an image of the tree; the allowlist of
+  absolute links is unchanged. A `viewer` can read any image of the tree by its path, as it reads any text file of
+  the tree through `/api/snippet`: keep files you would not show your readers out of `--manuscript`.
 - The state folder is never manuscript. Keep `--state-dir` outside `--manuscript` (the default and `limn add` do). If
   it points inside, under any name, the routes above refuse every file in it the same way — `people.json`,
   `tokens.json` (hashes), `audit.jsonl`, `events.jsonl` and the pin files — also through a link, the build copy leaves
@@ -70,8 +90,8 @@ What the server does defend against:
   wall behind it. The one other origin is an `https:` image, for avatars (`Tailscale-User-Profile-Pic`,
   accepted only as `https://`): whoever chose an avatar URL can see, from the image requests, who opened the viewer
   and when. A dedicated worker runs under its own response's policy, so the viewer starts workers only from its own
-  bundled files. Every other response (JSON, `pins.md`, PDFs, page images, vendored files) carries
-  `frame-ancestors 'none'` alone. The design is [ADR-0026](docs/adr/0026-viewer-csp.md) (Korean).
+  bundled files. An image of the manuscript tree (`/api/asset`) carries its own sandboxing policy (above). Every other
+  response (JSON, `pins.md`, PDFs, page images, vendored files) carries `frame-ancestors 'none'` alone. The design is [ADR-0026](docs/adr/0026-viewer-csp.md) (Korean).
 - Requests that arrive through `tailscale serve` without identity headers (a `*.ts.net` or `--public-host` Host, e.g.
   tagged devices) are refused (`403`) since v0.2.1 — only a request that names this machine (a loopback Host) and
   carries no proxy header (`X-Forwarded-For/-Host/-Proto/-Port`, `X-Real-IP`, `Forwarded`, `Via`) can be the

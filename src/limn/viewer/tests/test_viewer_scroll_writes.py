@@ -22,7 +22,7 @@ SHOWS = {
     ("doc-switch.js", "showDoc"): 1,
     ("figure.js", "showElementBox"): 1,
     ("list.js", "jumpPin"): 1,
-    ("md-surface.js", "mdGoHeading"): 1,
+    ("md-surface.js", "mdGoOn"): 1,
     ("md-surface.js", "mdJump"): 1,
     ("search.js", "searchBringBack"): 3,
     ("search.js", "searchReveal"): 2,
@@ -35,6 +35,7 @@ SHOWS = {
 KEEPS = {
     ("doc-switch.js", "restoreView"): 1,
     ("layout.js", "setSelMode"): 1,
+    ("md-surface.js", "mdGoStop"): 1,
     ("md-surface.js", "mdRestore"): 2,
     ("md-surface.js", "mdSpotKeep"): 2,
     ("pages.js", "fitW"): 1,

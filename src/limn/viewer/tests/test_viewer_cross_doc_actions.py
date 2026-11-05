@@ -20,7 +20,7 @@ class CrossDocumentActionLifetime(unittest.TestCase):
         js = "\n".join(
             [
                 """
-                let DOC='main',SWITCHSEQ=0,META=null,COMPOSE={current:null},REPICK=null; const EDITOR={current:null,saving:false};
+                let DOC='main',SWITCHSEQ=0,NAVGEN=0,META=null,COMPOSE={current:null},REPICK=null; const EDITOR={current:null,saving:false};
                 let OPEN_ALL=[],REVIEW_ALL=[],DONE_ALL=[],PINS=[],DROPPED=[];
                 let LAYOUT='wide',scrolls=0,links=0,banners=0,cardJumps=0,restores=0,trashOpens=0; const SMOOTH='smooth';
                 const VIEW_BY=new Map(),META_BY=new Map([

@@ -9,7 +9,7 @@ from limn.documents.needs import BuildFacts, PinCounts
 from limn.documents.service import DocumentViews
 from limn.documents.verdicts import VerdictFiles
 from limn.runtime.documents import Doc
-from limn.web.routes import RouteBundle
+from limn.web.routes import PathPolicy, RouteBundle
 
 Json = dict[str, Any]
 
@@ -42,8 +42,12 @@ def assemble_documents(
     the pin and build suppliers' objects, matched structurally against limn.documents.needs, so this slice imports
     neither capability. The run gets its own reader of the verdict word files, which reports an unusable file through
     warn (the server log, stderr, when None). The HTTP adapters are imported only here, when a run is assembled."""
+    from limn.documents.assets import ASSET_POLICY, ASSET_RESOURCE_POLICY
     from limn.documents.routes import get
 
     verdicts = VerdictFiles() if warn is None else VerdictFiles(warn)
     views = DocumentViews(settings, docs, sync_status, pins, events_since, now, builds, verdicts)
-    return DocumentsSubsystem(views, RouteBundle(get=(lambda request: get(request, views),)))
+    # Every answer of GET /api/asset - an image, a 304, each refusal - is sandboxed and same-origin (ADR-0030 D3): a
+    # refusal's JSON body, opened on its own, is a document of that path too.
+    policies = {"/api/asset": PathPolicy(ASSET_POLICY, ASSET_RESOURCE_POLICY)}
+    return DocumentsSubsystem(views, RouteBundle(get=(lambda request: get(request, views),), policies=policies))

@@ -103,7 +103,8 @@ class Binding(Base):
     def test_handler_has_no_capability_service_locator(self):
         """The HTTP application exposes only its concrete request-boundary collaborators."""
         self.assertEqual(
-            set(app_members()), {"settings", "guards", "selector", "routes", "recorder", "messages", "header_text"}
+            set(app_members()),
+            {"settings", "guards", "selector", "routes", "recorder", "messages", "header_text", "policies"},
         )
         self.assertFalse(hasattr(ps.Handler.app, "build_requests"))
         rebound = ps.new_runtime(ServedViewer("<p>rebound</p>", "", {}))
@@ -294,6 +295,7 @@ GET_ROUTES = (
     "/api/snippet",
     "/api/overlaps",
     "/api/source",
+    "/api/asset",
     "/pages/page-1.png",
     "/vendor/pdfjs/pdf.min.mjs",
     "/vendor/markdown-it/markdown-it.esm.min.mjs",
@@ -385,20 +387,24 @@ class GuardOrder(AccessBase):
 
     def test_a_refused_request_reaches_no_route(self):
         """Each refusal on each route stops where it is raised: an oversized body before any member is read, a
-        foreign Host after host_ok, an unidentified tailnet peer at identify, a viewer's change at check_role."""
+        foreign Host after host_ok, an unidentified tailnet peer at identify, a viewer's change at check_role. The
+        one member read after it is policies, the fixed headers its response carries (PathPolicy) - never routes."""
         member_add(ps.APP.C.state, "carol@example.com", "viewer")
         carol = {"Tailscale-User-Login": "carol@example.com", "Tailscale-User-Name": "Carol Lee"}
         for method, path in self.routes():
             with self.subTest(method=method, path=path):
-                self.assertEqual(self.send(method, path, {"Content-Length": str((1 << 20) + 1)}), (413, []))
+                self.assertEqual(self.send(method, path, {"Content-Length": str((1 << 20) + 1)}), (413, ["policies"]))
                 self.assertEqual(
-                    self.send(method, path, {"Host": "evil.example"}), (403, ["settings", "host_ok", "header_text"])
+                    self.send(method, path, {"Host": "evil.example"}),
+                    (403, ["settings", "host_ok", "header_text", "policies"]),
                 )
-                self.assertEqual(self.send(method, path, peer="100.64.0.9"), (401, ["settings", "host_ok", "identify"]))
+                self.assertEqual(
+                    self.send(method, path, peer="100.64.0.9"), (401, ["settings", "host_ok", "identify", "policies"])
+                )
                 if method == "POST" and path not in ("/api/pick", "/api/revision-build"):
                     self.assertEqual(
                         self.send(method, path, carol, b"{}"),
-                        (403, ["settings", "host_ok", "identify", "admit", "check_role"]),
+                        (403, ["settings", "host_ok", "identify", "admit", "check_role", "policies"]),
                     )
 
 

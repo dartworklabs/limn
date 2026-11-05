@@ -21,7 +21,7 @@ class RepickRequestLifetime(unittest.TestCase):
             [
                 """
                 let PICKSEQ=0,REPICK={id:7,from:{lo:1,hi:1,page:1},box:null,cand:null};
-                let DOC='main',SWITCHSEQ=0; const COMPOSE={current:null,box:null,picking:false,pendingSave:false,dismissedOverlap:null}; const EDITOR={current:null,saving:false};
+                let DOC='main',SWITCHSEQ=0,NAVGEN=0; const COMPOSE={current:null,box:null,picking:false,pendingSave:false,dismissedOverlap:null}; const EDITOR={current:null,saving:false};
                 let LAYOUT='wide',MID_OVERLAY=false;
                 const MQ_COARSE={matches:false},VIEW_BY=new Map(),META_BY=new Map([['other',{pages:[]}]]);
                 const document={body:{classList:{contains(){return false;}}}};

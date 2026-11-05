@@ -20,7 +20,8 @@
   --tooltip:#09090b;--tooltip-foreground:#fafafa;--tooltip-edge:#27272a;   /* the box's edge (= --border): a dark box on the dark page needs one */
   --shadow-color:#00000088;--shadow-page:0 2px 18px var(--shadow-color);
   --search-hit:#f2c200;--search-hit-current:#f76707;   /* a search hit's wash and the current hit's: on the page, paper in both themes, so both blocks agree */
-  --mark-tile:var(--limn-ink);--mark-stroke:var(--limn-cream)}
+  --mark-tile:var(--limn-ink);--mark-stroke:var(--limn-cream);
+  --image-plate:#fafafa}   /* behind a Markdown image (md-surface.css): dark ink on a transparent figure stays legible on the dark card */
 :root[data-theme=light]{color-scheme:light;
   --background:#e4e4e7;--foreground:#09090b;
   --sidebar:#ffffff;--card:#fafafa;--card-foreground:#09090b;--popover:#ffffff;--popover-foreground:#09090b;
@@ -35,7 +36,8 @@
   --tooltip:#18181b;--tooltip-foreground:#fafafa;--tooltip-edge:#18181b;   /* no edge on the light page: the box's own colour */
   --shadow-color:#00000022;--shadow-page:0 1px 6px var(--shadow-color);
   --search-hit:#f2c200;--search-hit-current:#f76707;
-  --mark-tile:var(--limn-bone);--mark-stroke:var(--limn-ink)}
+  --mark-tile:var(--limn-bone);--mark-stroke:var(--limn-ink);
+  --image-plate:transparent}
 /* Theme-independent scales: radius in 3 steps (only circular dots/avatars use 50%), text in 5 steps, spacing in
    6 steps, control heights. --edge is the compact layout's edge line (docs/handbook/viewer.md §모바일 레이아웃): the fitted page's
    margin on both sides; 16px, 12px on the phone band (body.band-phone, responsive.css). --grabber is the sheet and panel

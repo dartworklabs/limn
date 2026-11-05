@@ -438,7 +438,7 @@ class PinListLoading(unittest.TestCase):
                 extract_js_fn("showDoc"),
                 extract_js_fn("resetBuildForDoc"),
                 """
-                let DOC='a',META={build_seq:1},SWITCHSEQ=0,COMPOSE={current:null}; const EDITOR={current:null,saving:false};
+                let DOC='a',META={build_seq:1},SWITCHSEQ=0,NAVGEN=0,COMPOSE={current:null}; const EDITOR={current:null,saving:false};
                 let OPEN_ALL=[{id:1,doc:'a'},{id:2,doc:'b'}],PINS=[OPEN_ALL[0]];
                 let DONE_ALL=[{id:3,doc:'a'},{id:4,doc:'b'}],DONE=[DONE_ALL[0]];
                 const BUILD={timer:null,lastSeq:null,error:null,booted:false,inflight:null};
@@ -500,7 +500,7 @@ class PinListLoading(unittest.TestCase):
                 "function isMdDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
                 extract_js_fn("refreshDoc"),
                 """
-                let DOC='a',SWITCHSEQ=0,META={pages:[{id:'a'}]},COMPOSE={current:null},REFRESH_GEN=0; const EDITOR={current:null,saving:false};
+                let DOC='a',SWITCHSEQ=0,NAVGEN=0,META={pages:[{id:'a'}]},COMPOSE={current:null},REFRESH_GEN=0; const EDITOR={current:null,saving:false};
                 const META_BY=new Map([['b',{pages:[{id:'old'}],pages_build:'v1'}]]);
                 const VIEW_BY=new Map(),requests=[];
                 const document={body:{classList:{contains:()=>false}}};

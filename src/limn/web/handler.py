@@ -31,7 +31,7 @@ from limn.web.answers import accepted
 from limn.web.app import Document, Json, Principal, Query, WebApplication
 from limn.web.errors import HTTPError, InputRejected, error_page_html, page_lang
 from limn.web.reply import Reply, json_reply as _json_reply
-from limn.web.routes import GetRequest, OtherPostRequest, PinActionRequest, PostDocRequest
+from limn.web.routes import GetRequest, OtherPostRequest, PathPolicy, PinActionRequest, PostDocRequest
 
 READ_SLOTS = threading.BoundedSemaphore(4)
 MAX_BODY = 1 << 20
@@ -152,11 +152,21 @@ class Handler(BaseHTTPRequestHandler):
         request line, an unsupported method) - with X-Frame-Options: DENY and a Content-Security-Policy: the HTML
         page's own (_send's csp, used once) or limn.web.csp.FRAME_ONLY, so no other site can frame the viewer and
         trick a click (clickjacking), and on Limn's pages only same-origin scripts and inline code whose hash the policy
-        lists can run, whoever inserts them; the policy narrows an injection, it does not sanitize (docs/adr/0026)."""
+        lists can run, whoever inserts them; the policy narrows an injection, it does not sanitize (docs/adr/0026). A
+        path that registered fixed policies (limn.web.routes.PathPolicy: a tree image's) gets its policy and its
+        Cross-Origin-Resource-Policy on every response instead - a success, a 304 and every refusal or failure alike."""
         policy, self._page_policy = self._page_policy, None
+        fixed = self._path_policy()
         self.send_header("X-Frame-Options", "DENY")
-        self.send_header(page_csp.HEADER, policy or page_csp.FRAME_ONLY)
+        self.send_header(page_csp.HEADER, fixed.csp if fixed else policy or page_csp.FRAME_ONLY)
+        if fixed:
+            self.send_header("Cross-Origin-Resource-Policy", fixed.resource_policy)
         super().end_headers()
+
+    def _path_policy(self) -> PathPolicy | None:
+        """The fixed policies the request's path registered, or None (no path read yet, or none registered)."""
+        raw = getattr(self, "path", None)
+        return self.app.policies.get(urlparse(raw).path) if isinstance(raw, str) else None
 
     def _json(self, obj: object, code: int = 200) -> None:
         """Send obj as a UTF-8 JSON response (non-ASCII kept as is)."""

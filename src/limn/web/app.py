@@ -1,6 +1,6 @@
 """Concrete HTTP application containing only request-boundary collaborators."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol, TypeAlias
 
@@ -9,7 +9,7 @@ from limn.runtime.documents import Doc, DocNotFound
 from limn.security import access
 from limn.security.application import RequestGuards
 from limn.web.errors import Messages
-from limn.web.routes import RouteBundle
+from limn.web.routes import PathPolicy, RouteBundle
 
 Json: TypeAlias = dict[str, Any]
 Query: TypeAlias = dict[str, list[str]]
@@ -50,3 +50,6 @@ class WebApplication:
     recorder: PeopleRecorder
     messages: Callable[[], Messages]
     header_text: Callable[[object], str]
+    # The fixed policy headers of the paths that registered them (RouteBundle.policies), read only to send a response -
+    # apart from routes, which only dispatch reads, so a refusal can be seen to reach no route.
+    policies: Mapping[str, PathPolicy]

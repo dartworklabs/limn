@@ -196,6 +196,9 @@ const REPLY_VISITS=new Map();
 // META_BY = per-document meta cache (instant tab switching), VIEW_BY = per-document viewed position/zoom, BUILD_ERR_BY = per-document last build error,
 // DOC_SEQ = another document's finished-build count (used to notice a build that finished in the background).
 let DOCS=/** @type {DocEntry[]} */([]),DOC=/** @type {string|null} */(null),DEFAULT_DOC='main',OPEN_ALL=/** @type {Pin[]} */([]),DONE_ALL=/** @type {Pin[]} */([]),SHOW_ALL=false,SWITCHSEQ=0;
+// NAVGEN = the history traversals so far (the browser's back or forward, not the back layer's own entry): a document switch
+// still waiting when one happens opens nothing (switchDoc, doc-switch.js).
+let NAVGEN=0;
 // A continuation may paint visit-local UI only while both the document and its visit number still match.
 function captureVisit(){return {doc:DOC,seq:SWITCHSEQ};}
 // Match a captured visit after an await, including leave-and-return to the same document.
