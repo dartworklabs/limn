@@ -307,8 +307,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.close_connection = True
 
     def do_GET(self) -> None:
-        """BaseHTTPRequestHandler's entry for GET."""
-        with reading(), READ_SLOTS:
+        """Keep the entire GET read-only, including body reading and admission before computation."""
+        with reading():
             self._run(self._get)
 
     def do_POST(self) -> None:
@@ -324,13 +324,14 @@ class Handler(BaseHTTPRequestHandler):
         self._run(dispatch)
 
     def _get(self) -> None:
-        """A GET: the guard, then the route for the request's document (?doc=, the first document if absent)."""
+        """Read and admit a GET before taking a bounded computation slot for its document's route."""
         actor = self._guard()
         u = urlparse(self.path)
         path, q = u.path, accepted(request_input.query_values(u.query))
         self.app.guards.check_read(path)
         # A document-scoped path takes ?doc=<key> (the first document if absent) and is handled for that document (§Multiple documents).
-        return self._get_doc(actor, path, q, self._request_doc(accepted(parse.parse_doc_choice(q))))
+        with READ_SLOTS:
+            return self._get_doc(actor, path, q, self._request_doc(accepted(parse.parse_doc_choice(q))))
 
     def _request_doc(self, choice: parse.DocChoice) -> Document:
         """The document a request names (parsed by parse.parse_doc_choice), found by the server: the first document, or

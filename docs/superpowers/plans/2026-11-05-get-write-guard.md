@@ -19,7 +19,7 @@
 ## Task 4: 비교 GET과 제한된 읽기
 
 - [x] Step 1: `revisions/jobs.py:49-56,199-214,350-369`에서 기존 루트 조회와 POST 생성 경로를 나눈다. Expected: 루트 없음은 idle/not-ready이며 폴더가 생기지 않는다. 기존 비교도 읽기만 한다.
-- [x] Step 2: Git 읽기의 기존 시간·출력·입력·캐시 상한을 유지한다. HTTP 읽기 동시성은 프로세스당 최대 4개로 제한하고 대기는 새 작업을 만들지 않는다. Expected: 쓰기 예약 없이 bounded Git 조회만 실행한다.
+- [x] Step 2: Git 읽기의 기존 시간·출력·입력·캐시 상한을 유지한다. HTTP 읽기 계산 동시성은 프로세스당 최대 4개로 제한하고 대기는 새 작업을 만들지 않는다. 슬롯은 본문 읽기와 Host/Origin·신원·입장·읽기 권한 검사 뒤에만 잡으며 읽기 전용 범위는 입장 전부터 유지한다. Expected: 쓰기 예약 없이 bounded Git 조회만 실행한다.
 
 ## Task 5: 로그와 경로 인자 한도
 
@@ -61,3 +61,8 @@ GET inventory와 실제 코드의 불일치는 찾지 못했다. 구현 중 새 
 리뷰 보완 최종 검증: Git 2.43.0에서 두 회귀의 수정 전 assertion 실패를 확인했다. 첫 fix 커밋 뒤 공통 Git 읽기 제한을 제거하자 새 부분 클론 검사의 6개 하위 사례가 실패했고 `git checkout -- src/limn/platform/git.py`로 복구했다. 둘째 fix 커밋 뒤 재동기화가 다시 실패를 빈 원고로 읽게 하자 chmod 회귀가 파일 동일성 assertion에서 실패했고 `git checkout -- src/limn/pins/location/lookup.py`로 복구했다. ruff check·format(594개 파일), mypy 두 플랫폼(각 173개 파일), boundaries, npm typecheck, strict ratchet(오류 0), shellcheck, Handbook check, git diff --check가 통과했다. core는 3,758 통과·1 건너뜀·6,522 subtests, architecture는 111 통과, instances 셸은 222 통과다. core 건너뜀은 별도 실제 상태 사본이 필요한 opt-in 검사이며 chmod 회귀는 실행됐다.
 
 요청의 `test_viewer_revisions*.py`에 해당하는 파일은 이 트리에 없으므로 실제 비교 검사인 `test_revision_range.py`·`test_revision_zoom.py`와 revision을 참조하는 모든 viewer 검사 파일에서 browser 표시 검사를 돌렸다. 두 묶음은 각각 515 통과·4 건너뜀·798 subtests와 238 통과·3 건너뜀·205 subtests다. 별도 외부 진입 browser는 2 통과·32 subtests이며, 합계 755 통과·7 건너뜀·1,035 subtests다. WebKit은 설치된 실행 파일의 OS 라이브러리가 없어 실행하지 못했고 설치·상시 서비스 조작은 하지 않았다. 출판 자산 세 파일은 스킬 원본과 같고 index/filemap 책임은 바뀌지 않았다. 검토 서버는 만들지 않았으며 정본 Markdown을 직접 검토한다. push·PR·다른 워크트리 수정은 하지 않았다. 마지막 독립 Codex 리뷰는 소유 세션이 수행한다.
+
+
+### 리뷰 보완: 입장 전 요청과 읽기 계산 슬롯
+
+GET의 읽기 전용 범위는 본문 읽기·입장·오류 응답을 포함해 유지하되, 계산 슬롯은 본문을 끝까지 읽고 Host/Origin·신원·입장·읽기 권한 검사를 통과한 뒤 문서 선택과 경로 실행에만 적용한다. 실제 127.0.0.1 소켓 네 개를 본문 읽기에서 멈춘 상태에서, 별도 승인된 `/api/meta`가 응답하는지 검사한다. 잘못된 Host와 신원이 없는 요청을 각각 검사하며 수정 전에는 두 경우 모두 시간 초과로 실패했고 수정 뒤에는 통과했다. 기존 계산 상한 4는 유지한다.

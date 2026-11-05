@@ -4,6 +4,7 @@
 
 ### Security
 
+- Take GET computation slots only after body reading and Host/Origin, identity, admission and read-permission checks, so incomplete or refused requests cannot occupy the four read computation slots.
 - Make every GET read-only through a request-scoped capability: no persistent writes, folder creation or writing-work scheduling, including pin resynchronization, Trash cleanup and comparison cache reads. Pure reads remain available without Fetch Metadata.
 - Bound path arguments before integer parsing and deduplicate/cap read-reachable error tracebacks and damaged-pin warnings.
 
