@@ -26,17 +26,18 @@
   - **Rollback:** 0.4.50 and earlier do not start with a text document in the configuration. Take it out first
     (`limn doc remove <name> <key>`), then `limn update --ref v0.4.50`; its pins stay in the state folder and show under
     the documents not configured.
-
-- **A Markdown document shows the images of its manuscript tree and opens links to the other documents
-  (ADR-0030).** An image whose source is a relative path - resolved against the document's own folder, `/` the
-  tree's root, as GitHub reads a repository - that stays inside `--manuscript` and ends in `png`, `jpg`, `jpeg`,
-  `gif`, `webp` or `svg` is drawn, lazily, in a box that keeps its place until its size is known; the text being read
-  stays where it is when an image above it loads. A pin on an image's line outlines the image, a click on it picks its
+- **A Markdown document shows the images of its manuscript tree and opens links to the other documents (ADR-0030).**
+  An image whose source is a relative path - resolved against the document's own folder, `/` the tree's root, as
+  GitHub reads a repository - that stays inside `--manuscript` and ends in `png`, `jpg`, `jpeg`, `gif`, `webp` or
+  `svg` is drawn, lazily, in a box that keeps its place until its size is known; the text being read stays where it is
+  when an image above it loads, also one that loads while the changes view is open, and a jump to a heading is not cut
+  short when the column changes width on the way. A pin on an image's line outlines the image, a click on it picks its
   paragraph, and in the dark theme a light plate stays behind it. A remote, `data:` or out-of-tree image is still its
   alt text, and its tip now says why. A relative link to another registered document (its `GET /api/docs` `path`)
-  switches to it, at its `#heading` for a Markdown document, with one history entry so the browser's back returns
-  (none while a phone's back layer is open); a link to an image of the tree opens it in a new tab; any other
-  relative link stays text and says why. The allowlist of absolute links is unchanged.
+  switches to it, at its `#heading` for a Markdown document (where a link followed from the keyboard leaves the
+  focus), with one history entry so the browser's back returns (none while a phone's back layer is open); a link to an
+  image of the tree opens it in a new tab; any other relative link stays text and says why. A tip that shows a path or
+  a `#heading` names the hidden characters in it, as the excerpts do. The allowlist of absolute links is unchanged.
 - **`GET /api/asset?doc=&path=`**, the read route those images load from: a normalized tree-relative image path only
   (`400 bad_asset_path` otherwise), the same tree check as every file route, the content checked against the suffix's
   format (`415 asset_not_image`), at most 8 MiB (`413 asset_too_large`) and 8192 × 8192 pixels for a raster image
