@@ -404,6 +404,27 @@ class HeadingJump(AssetsBase):
         settle(page)
         self.assertLess(page.evaluate("document.querySelector('#left').scrollTop"), 50)
 
+    def test_a_scrolling_key_right_after_the_link_also_stops_the_asked_scroll(self):
+        """Home pressed with the focus on the page's body as soon as the linked document is drawn - before the jump's
+        smooth scroll has taken its first frame: the scroll asked for does not start afterwards, and the images let go
+        later do not move the pane either (Firefox ran the asked scroll after the key's own, 1,798px down)."""
+        for i in range(1, 7):
+            (self.src / "notes" / "img" / ("p%d.png" % i)).write_bytes(blank_png(200, 900))
+        page = self.open_md()
+        self.holding = True
+        page.locator("#md a.md-doclink").first.click()
+        until(page, "DOC==='gd'&&" + DRAWN + "&&!!MD.goTo", 20)
+        page.evaluate("document.activeElement&&document.activeElement.blur()")
+        page.keyboard.press("Home")
+        for _ in range(10):
+            page.wait_for_timeout(60)
+            held, self.hold[:] = list(self.hold), []
+            for r in held:
+                r.fulfill(**self.answer(r.request))
+        settle(page)
+        self.assertFalse(page.evaluate("!!MD.goTo"))
+        self.assertLess(page.evaluate("document.querySelector('#left').scrollTop"), 50)
+
 
 class SvgOnItsOwn(AssetsBase):
     """An SVG of the tree opened as a page (a new tab, a link to it) is inert under the asset route's own headers."""

@@ -702,12 +702,15 @@ function mdGoOn(){const g=MD.goTo; if(!g)return false; if(g.doc!==DOC||!g.el.isC
 // The jump in flight has landed when the pane stands at its destination: it ends, and that is the reading spot.
 function mdGoLanded(){const g=MD.goTo; if(!g)return; if(g.doc!==DOC||!g.el.isConnected){MD.goTo=null; return;}
   if(Math.abs($('#left').scrollTop-mdGoTop(g.el))<=1){MD.goTo=null; mdSpotRead(true);}}
-// The person scrolls (a wheel, a touch, a press on the pane or its scroll bar, a key): a jump in flight ends where it is.
-for(const t of ['wheel','touchstart','pointerdown'])$('#left').addEventListener(t,()=>{MD.goTo=null;},{passive:true});
+// The person scrolls (a wheel, a touch, a press on the pane or its scroll bar, a key): a jump in flight ends where it is -
+// its smooth scroll too, running or only asked for (Firefox starts an asked one after the key's own scroll otherwise), so
+// what the person's input does next starts from here.
+function mdGoStop(){if(!MD.goTo)return; MD.goTo=null; const L=$('#left'); L.scrollTo({top:L.scrollTop,behavior:'instant'});}
+for(const t of ['wheel','touchstart','pointerdown'])$('#left').addEventListener(t,mdGoStop,{passive:true});
 // A key scrolls the pane when nothing else has the focus or something in the pane has it - outline.js's scope (SCROLL_KEYS):
 // with the focus on the page's body, Home or PageDown scrolls the pane without a key event on it.
 addEventListener('keydown',e=>{const a=document.activeElement;
-  if(MD.goTo&&SCROLL_KEYS.has(e.key)&&(!a||a===document.body||$('#left').contains(a)))MD.goTo=null;});
+  if(SCROLL_KEYS.has(e.key)&&(!a||a===document.body||$('#left').contains(a)))mdGoStop();});
 // ---------------- Input on the document
 // A mouse drag ends: the part of its text selection inside the document (mdDocPart) is the pick. A press without a selection (a click, a tap) picks the
 // block under it - not on a link, a badge or another control.
