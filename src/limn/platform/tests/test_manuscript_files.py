@@ -166,16 +166,70 @@ def test_only_checked_factory_constructs_capabilities():
 
 
 def test_bounded_read_returns_a_small_file_with_its_signature(tmp_path):
-    """A file of at most the limit is read whole, with the mtime_ns, size and inode of the file it came from and its
-    st_mtime as os.stat reports it."""
-    from limn.platform.files import BoundedBytes, FileSignature
+    """A file of at most the limit is read whole, with the mtime_ns, size and inode of the file it came from, its
+    st_mtime as os.stat reports it, and its identity (resolved path, device, inode, size, mtime and ctime)."""
+    from limn.platform.files import BoundedBytes, FileIdentity, FileSignature
 
     source = tmp_path / "words.json"
     source.write_bytes(b"x" * 16)
     checked = file_in_tree(str(source), tmp_path, tmp_path / "state")
     found = source.stat()
-    assert checked.read_bounded(16) == BoundedBytes(b"x" * 16, FileSignature.of(found), found.st_mtime)
+    identity = FileIdentity.of(source.resolve(), found)
+    assert checked.read_bounded(16) == BoundedBytes(b"x" * 16, FileSignature.of(found), found.st_mtime, identity)
     assert checked.read_bounded(16).signature == FileSignature(found.st_mtime_ns, 16, found.st_ino)
+    assert identity == FileIdentity(
+        str(source.resolve()), found.st_dev, found.st_ino, 16, found.st_mtime_ns, found.st_ctime_ns
+    )
+
+
+def test_identity_is_a_stat_that_never_opens_the_file(tmp_path, monkeypatch):
+    """identity() is the identity a read of the file gives, from a stat of its name in its folder: no open of the file
+    itself (only its folders are walked), no read. Mutation: open the leaf for its fstat as the reads do -> fails."""
+    from limn.platform import files
+
+    source = tmp_path / "fig.png"
+    source.write_bytes(b"x" * 16)
+    checked = file_in_tree(str(source), tmp_path, tmp_path / "state")
+    opened, reads = [], []
+    original_open, original_read = files.os.open, files.os.read
+    monkeypatch.setattr(files.os, "open", lambda name, *a, **k: opened.append(name) or original_open(name, *a, **k))
+    monkeypatch.setattr(files.os, "read", lambda fd, n: reads.append(n) or original_read(fd, n))
+    got = checked.identity()
+    assert "fig.png" not in opened and opened, opened
+    assert reads == []
+    monkeypatch.undo()
+    assert got == checked.read_bounded(16).identity
+
+
+def test_identity_moves_on_with_every_change_and_refuses_what_the_reads_refuse(tmp_path):
+    """A rewrite at the same size with its mtime put back still gives another identity (the ctime moved on); an atomic
+    replacement too (the inode). A name replaced by a link, a folder or a FIFO, or removed, has none (None), as the
+    reads refuse it."""
+    import time
+
+    source = tmp_path / "fig.png"
+    source.write_bytes(b"a" * 16)
+    checked = file_in_tree(str(source), tmp_path, tmp_path / "state")
+    first = checked.identity()
+    before = source.stat()
+    time.sleep(0.02)  # past one tick of the file system's coarse clock
+    source.write_bytes(b"b" * 16)
+    os.utime(source, ns=(before.st_atime_ns, before.st_mtime_ns))
+    second = checked.identity()
+    assert second is not None and first is not None
+    assert (second.size, second.mtime_ns, second.inode) == (first.size, first.mtime_ns, first.inode)
+    assert second != first and second.ctime_ns != first.ctime_ns
+    fresh = tmp_path / "fig.new"
+    fresh.write_bytes(b"c" * 16)
+    os.replace(fresh, source)
+    third = checked.identity()
+    assert third is not None and third.inode != first.inode
+    outside = tmp_path.parent / (tmp_path.name + "-outside.png")
+    outside.write_bytes(b"x")
+    for make in (lambda: source.symlink_to(outside), source.mkdir, lambda: os.mkfifo(source), lambda: None):
+        source.unlink() if source.is_file() or source.is_symlink() or source.is_fifo() else source.rmdir()
+        make()
+        assert checked.identity() is None
 
 
 def test_bounded_read_refuses_a_file_larger_than_the_limit_without_reading_it(tmp_path, monkeypatch):

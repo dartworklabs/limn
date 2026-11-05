@@ -6,9 +6,11 @@ from typing import Any
 from limn.documents import input as document_input
 from limn.documents.assets import (
     ASSET_CACHE,
+    ASSET_TYPES,
     AssetBytes,
     AssetNotImage,
     AssetPathRefused,
+    AssetTags,
     AssetTooLarge,
     AssetTooManyPixels,
     AssetUnreadable,
@@ -22,7 +24,7 @@ from limn.security import access
 from limn.web import parse
 from limn.web.answers import accepted
 from limn.web.errors import HTTPError
-from limn.web.reply import Reply
+from limn.web.reply import Reply, etag_matches
 
 Json = dict[str, Any]
 
@@ -94,12 +96,14 @@ def source(doc: Doc) -> Json:
             raise HTTPError(422, "원문 파일을 읽지 못했습니다: %s" % checked, reason="source_unreadable")
 
 
-def asset(doc: Doc, query: Mapping[str, list[str]]) -> Reply:
+def asset(doc: Doc, query: Mapping[str, list[str]], tags: AssetTags, if_none_match: str | None = None) -> Reply:
     """GET /api/asset?path=<tree-relative path>: an image of document doc's manuscript tree, as its bytes
     (limn.documents.assets). doc selects the tree (every document of an instance shares --manuscript).
 
     200 with the media type its suffix names, an ETag of its content (a matching If-None-Match is a 304), Cache-Control
-    private, no-cache. The asset's own Content-Security-Policy and Cross-Origin-Resource-Policy: same-origin go out on
+    private, no-cache. When if_none_match (the request's header) names the tag the run kept for this file at its
+    identity now (tags, AssetTags: one stat, the file not opened), the answer is that 304 without a read; otherwise the
+    file is read, and its tag kept for the next revalidation. The asset's own Content-Security-Policy and Cross-Origin-Resource-Policy: same-origin go out on
     every response of the path, this answer and each refusal alike (the path's policy, limn.documents.application). The
     refusals, each its own reason: 400 bad_asset_path for a path the viewer would not send (asset_path); the 400 every
     file route answers for a path outside the tree - outside --manuscript, under a dot-named folder, behind a link that
@@ -113,8 +117,14 @@ def asset(doc: Doc, query: Mapping[str, list[str]]) -> Reply:
         raise HTTPError(400, "그림 경로가 올바르지 않습니다.", reason="bad_asset_path")
     rel = wanted.rel
     checked = accepted(parse.source_file(rel, doc.paths.src, doc.paths.state))
+    if if_none_match is not None:
+        known = tags.known(checked, wanted.suffix)
+        if known is not None and etag_matches(if_none_match, known):
+            # The 200 the handler turns into a 304 for this If-None-Match: no body is sent, and none was read.
+            return Reply(200, b"", ASSET_TYPES[wanted.suffix], ASSET_CACHE, known)
     match read_asset(checked, wanted.suffix):
-        case AssetBytes(data=data, media=media, etag=etag):
+        case AssetBytes(data=data, media=media, etag=etag) as read:
+            tags.keep(read, wanted.suffix)
             return Reply(200, data, media, ASSET_CACHE, etag)
         case AssetTooLarge(size=size, limit=limit):
             raise HTTPError(

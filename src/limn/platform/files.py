@@ -12,7 +12,8 @@ parsers (limn.web.parse) turn its refusals into 400 answers, the selection resol
 message. A close's recorded changes (limn.web.parse) and a stored pin path (limn.pins.location.lookup) are judged by tree_part too.
 
 tex_lines is how every line number is counted when a manuscript file is read; ManuscriptFile.read_bounded reads a
-small producer file (a document's verdict words) without ever holding more than its limit; vendor_file is the name
+small producer file (a document's verdict words) without ever holding more than its limit, and ManuscriptFile.identity
+tells whether a file is still the version read before (a tree image's revalidation) by a stat that never opens it; vendor_file is the name
 guard of the bundled library files the viewer loads (PDF.js, the Pretendard font).
 """
 
@@ -181,31 +182,41 @@ class ManuscriptFile:
         return str(self.path)
 
     @contextlib.contextmanager
-    def _descriptor(self) -> Iterator[int]:
-        """Yield a regular no-follow descriptor and close every opened descriptor on exit.
+    def _folder(self) -> Iterator[int]:
+        """Yield a no-follow descriptor of the folder that holds the file, walked from the filesystem root one no-follow
+        descriptor at a time, and close every opened descriptor on exit. The file itself is not opened.
 
-        The leaf is nonblocking so replacement with a FIFO cannot stall a request.
         Policy and OS errors propagate to the read/stat methods, which fail closed.
         """
         if tree_part(self._resolved, self.root, self.state) is None:
             raise OSError("manuscript path is no longer within scope")
         directory = None
-        leaf = None
         try:
             directory = os.open(self._resolved.anchor, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
             for component in self._resolved.parts[1:-1]:
                 child = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
                 os.close(directory)
                 directory = child
-            leaf = os.open(self._resolved.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
-            if not stat.S_ISREG(os.fstat(leaf).st_mode):
-                raise OSError("manuscript source is not a regular file")
-            yield leaf
+            yield directory
         finally:
-            if leaf is not None:
-                os.close(leaf)
             if directory is not None:
                 os.close(directory)
+
+    @contextlib.contextmanager
+    def _descriptor(self) -> Iterator[int]:
+        """Yield a regular no-follow descriptor and close every opened descriptor on exit.
+
+        The leaf is nonblocking so replacement with a FIFO cannot stall a request.
+        Policy and OS errors propagate to the read/stat methods, which fail closed.
+        """
+        with self._folder() as directory:
+            leaf = os.open(self._resolved.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+            try:
+                if not stat.S_ISREG(os.fstat(leaf).st_mode):
+                    raise OSError("manuscript source is not a regular file")
+                yield leaf
+            finally:
+                os.close(leaf)
 
     def snapshot(self) -> tuple[list[str], float]:
         """Read UTF-8 lines and mtime, or ([], 0) for legacy display-only callers on refusal.
@@ -235,14 +246,28 @@ class ManuscriptFile:
         except (OSError, ValueError):
             return None
 
+    def identity(self) -> FileIdentity | None:
+        """The file's identity now (FileIdentity), from a no-follow stat of its name in its folder (_folder's walk):
+        the file itself is never opened, so asking costs no read and a FIFO put in its place cannot stall the asker.
+        None when the walk or the stat fails or the name is no longer a regular file (a link, a folder, a FIFO), as
+        the reads refuse them."""
+        try:
+            with self._folder() as directory:
+                found = os.stat(self._resolved.name, dir_fd=directory, follow_symlinks=False)
+        except (OSError, ValueError):
+            return None
+        if not stat.S_ISREG(found.st_mode):
+            return None
+        return FileIdentity.of(self._resolved, found)
+
     def read_bounded(self, limit: int) -> BoundedBytes | OverLimit | ReadRefused:
         """The file's bytes when it holds at most `limit` of them, read from one checked no-follow descriptor.
 
         The descriptor's size is looked at first: a file larger than limit is OverLimit without a byte read. Otherwise
         at most limit + 1 bytes are read, so a file that grows while it is read is OverLimit too and never costs more
         than that. Both answers carry the signature of the descriptor they came from, and the bytes that descriptor's
-        st_mtime too: one fstat, made before the first byte is read, stamps what was read, so no replacement of the file
-        between a stamp and a read can pair one version's bytes with another's stamp. ReadRefused when the walk, the
+        st_mtime and identity too: one fstat, made before the first byte is read, stamps what was read, so no
+        replacement of the file between a stamp and a read can pair one version's bytes with another's stamp. ReadRefused when the walk, the
         open or a read fails (the file was removed or replaced by a link, is not a regular file, cannot be read).
         A limit that is not a non-negative integer is the caller's defect (ValueError)."""
         if isinstance(limit, bool) or not isinstance(limit, int) or limit < 0:
@@ -263,7 +288,7 @@ class ManuscriptFile:
                     held += len(chunk)
                 if held > limit:
                     return OverLimit(signature)
-                return BoundedBytes(b"".join(chunks), signature, found.st_mtime)
+                return BoundedBytes(b"".join(chunks), signature, found.st_mtime, FileIdentity.of(self._resolved, found))
         except (OSError, ValueError):
             return ReadRefused()
 
@@ -285,14 +310,36 @@ class FileSignature:
 
 
 @dataclass(frozen=True)
+class FileIdentity:
+    """One version of one checked file as a stat tells it, for a cache of what was read from it: the file's resolved
+    path and its st_dev, st_ino, st_size, st_mtime_ns and st_ctime_ns. A write changes the size or the mtime and always
+    the ctime, which no caller can set back (os.utime moves it on too); an atomic replacement changes the inode. Two
+    versions written within one tick of a file system's coarse clock can still share all five, so a cache keeps an
+    identity only once its ctime has settled (limn.documents.assets.AssetTags)."""
+
+    path: str
+    dev: int
+    inode: int
+    size: int
+    mtime_ns: int
+    ctime_ns: int
+
+    @classmethod
+    def of(cls, path: Path, found: os.stat_result) -> FileIdentity:
+        """The identity of the file at resolved path `path` that the stat result `found` reports."""
+        return cls(str(path), found.st_dev, found.st_ino, found.st_size, found.st_mtime_ns, found.st_ctime_ns)
+
+
+@dataclass(frozen=True)
 class BoundedBytes:
-    """A bounded read's bytes - at most the limit asked for - with the signature of the descriptor they came from and
-    that descriptor's st_mtime: the float os.fstat reports, the form GET /api/meta gives a file's stamp in. Both come
-    from the one fstat made on that descriptor before its first byte was read."""
+    """A bounded read's bytes - at most the limit asked for - with the signature of the descriptor they came from,
+    that descriptor's st_mtime (the float os.fstat reports, the form GET /api/meta gives a file's stamp in) and its
+    identity. All three come from the one fstat made on that descriptor before its first byte was read."""
 
     data: bytes
     signature: FileSignature
     mtime: float
+    identity: FileIdentity
 
 
 @dataclass(frozen=True)
