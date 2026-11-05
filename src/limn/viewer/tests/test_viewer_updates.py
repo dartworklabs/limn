@@ -896,7 +896,10 @@ class UpdateFlows(BrowserBase):
         ('Fix the axis (#13)') is committed after them, not built. The message names B alone, and its [변경 보기] opens
         the source diff of A → B - not A → C, the checkout's newest, which the pages on screen do not carry. With the view
         still open, D is committed and the pages are built at C: the list read again for the new build keeps A → B, the
-        range the message named - not A → D, the checkout's newest; C comes with its own message."""
+        range the message named - not A → D, the checkout's newest; C comes with its own message. Thirty-one commits
+        more and a build at the newest push B off the first page of rows the list reads: the range is still A → B.
+        Mutation: keep a range only when its start is among the rows read -> the view moves to the newest commit alone,
+        fails."""
         env = dict(
             os.environ,
             GIT_AUTHOR_NAME="Alice",
@@ -955,6 +958,21 @@ class UpdateFlows(BrowserBase):
         page.evaluate("refreshDoc()")
         until(page, "META.pages_build==='pages-20261105200000'&&REV.rows.length>0&&REV.rows[0].id===%s" % json.dumps(d))
         settle(page)
+        got = page.evaluate("[REV.commit,REV.base,REV.range.end,REV.rangeIds]")
+        self.assertEqual(got, [b, a, b, [b]])
+        for i in range(31):  # past REVISION_PAGE (30): B and the range's start leave the first page of rows read
+            self.main.write_text(self.main.read_text() + "\n%% Note %d\n" % i)
+            git("commit", "-q", "-am", "Note %d" % i)
+        e = git("rev-parse", "HEAD").strip()
+        viewer_build(self.ms, "pages-20261105210000")
+        (self.ms.dir / "head.txt").write_text(e)
+        (self.ms.dir / "built_src_mtime.txt").write_text(str(mt + 30))
+        os.utime(self.main, (mt + 30, mt + 30))
+        expire_src_mtime(self.ms)
+        page.evaluate("refreshDoc()")
+        until(page, "META.pages_build==='pages-20261105210000'&&REV.rows.length>0&&REV.rows[0].id===%s" % json.dumps(e))
+        settle(page)
+        self.assertFalse(page.evaluate("REV.rows.some(r=>r.id===%s)" % json.dumps(b)))
         got = page.evaluate("[REV.commit,REV.base,REV.range.end,REV.rangeIds]")
         self.assertEqual(got, [b, a, b, [b]])
 

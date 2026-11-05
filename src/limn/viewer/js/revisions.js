@@ -158,7 +158,10 @@ async function loadRevisions(){
   // The same document read again while the view is open (a new build) keeps the range shown, moved to the newest commit
   // unless its end was chosen (endSet: pressed, or named by an update message); a range comes back in its source diff, so a
   // new build never starts its comparison PDF (only [변경 PDF] does).
-  if(again&&rows.some(r=>r.id===kept.start)){if(REV.seenState===SEEN_STATE.OK&&kept.mode!==RANGE_MODE.LAST)resolveSeen(k||'',rows[0].id);
+  // A message's range is its base and end, whatever page of rows is read: thirty newer commits push its start off the
+  // first page, and the server still compares them while they are in its history window (else its refusal shows).
+  const held=!!kept&&kept.mode===RANGE_MODE.FROM&&!!kept.base&&kept.endSet;
+  if(again&&(held||rows.some(r=>r.id===kept.start))){if(REV.seenState===SEEN_STATE.OK&&kept.mode!==RANGE_MODE.LAST)resolveSeen(k||'',rows[0].id);
     showRange(kept.mode===RANGE_MODE.ONE?kept:{...kept,end:kept.endSet?kept.end:rows[0].id},REV.format);return;}
   if(REV.seenState===SEEN_STATE.PENDING&&!fig){showRange(rangeMode(rows,REV.range,RANGE_MODE.LAST,REV.seen));return;}
   if(REV.seenState===SEEN_STATE.PENDING)resolveSeen(k||'',rows[0].id);
