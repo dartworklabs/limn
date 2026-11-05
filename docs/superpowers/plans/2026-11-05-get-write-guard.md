@@ -73,3 +73,34 @@ GET의 읽기 전용 범위는 본문 읽기·입장·오류 응답을 포함해
 [ADR-0028](../../adr/0028-saved-pin-positions.md) 결정 1–4가 Task 3의 GET 메모리 재동기화와 60초에만 의존하는 일정을 부분 대체한다. ADR-0027 원문과 과거 실행 증거는 그대로 둔다. GET은 저장된 위치·rev만 주고 계산 필드는 유지한다. POST는 재동기화 뒤 base_rev를 대조하고 저장한다. 기동 조립의 유지 루프는 2초 stat 검사와 60초 전체 유지 실행을 함께 맡는다. HTTP·디스크 pins.md의 지연은 2초 + pass 시간이며 느린 실행·실패에는 더 길다.
 
 수정 전 실제 HTTP 회귀에서 두 번의 미저장 이동 뒤 옛 줄 편집이 200을 반환했다. 같은 검사는 runtime 재생성 뒤에도 200으로 실패했다. 저장 위치 계약 검사도 이동한 GET 줄·Markdown·overlaps assertion에서 실패했다. 최종 검증과 mutation proof는 구현 커밋 뒤 아래에 기록한다.
+
+#### 저장 위치 구현의 검증 기록
+
+구현 커밋 `0f91cd15`와 테스트 보강 `2c7f8012`에서 GET의 detached sync와 reader의 sync/render 협력자를 제거했다. 조회의 읽기 효과 범위는 유지했다. 변경 POST의 트랜잭션은 바꾸지 않았다. 유지 루프는 캐시한 원고 파일과 핀 집합을 발견하는 JSONL의 stat만 검사한다. 원고 지문은 pass 전, JSONL 지문은 성공한 저장 뒤에 잡는다. 원고를 pass 도중 다시 고친 경우와 실패한 pass 뒤 추가 수정 없이 재시도하는 경우를 실제 파일로 검증했다. 새 기능 간 import나 의존성은 없다. Python 지원 하한은 기존 >=3.10 그대로이며 이 실행은 Python 3.12다.
+
+`tests/contracts/test_saved_pin_reads.py`는 8개 검사와 9개 subtests로 저장된 위치·rev, HTTP 두 번 이동의 409, runtime 재생성·startup pass 뒤의 409, 유지 뒤 정상 편집의 200, GET 무쓰기와 계산 필드, 요청 없는 비-main 원고 이동, 유휴 무읽기·무쓰기, prompt shutdown, 새 핀의 감시 경로 등록, pass 중 재수정, 실패 재시도, 무변경 60초 휴지통 유지를 확인한다. 관리 파일은 실제 임시 파일로 검사하며 새 순수 도메인 판단 함수를 만들지는 않았다. 기존 anchor·이동·판정·제안 검사의 재동기화 기대는 유지 실행 뒤에 확인하도록 고쳤고, HTTP Markdown은 유지 전 옛 위치와 유지 후 새 위치를 모두 확인한다. 변경 이유는 구현 커밋 메시지에도 남겼다.
+
+구현을 커밋한 뒤 다음 mutation을 하나씩 넣어 모두 assertion 실패를 확인했고 매번 `git checkout -- <file>`로 복구했다. 로그는 `/tmp/limn-owner-mutation-<이름>.log`에 있다.
+
+| 이름 | 임시 결함 | 검출 |
+| --- | --- | --- |
+| `get-memory-sync` | `pins/runtime.py`의 snapshot에 GET 메모리 sync 복원 | 저장 위치·Markdown·overlaps와 두 번 이동/재시작의 409 검사 실패 |
+| `post-skips-sync` | `pins/store.py`의 transact에서 sync 생략 | 오래된 편집이 200이 되어 실패 |
+| `no-change-trigger` | `pins/maintenance.py`의 지문 변화 조건 제거 | 요청 없는 비-main 이동이 간격 안에 저장되지 않아 실패 |
+| `idle-runs-pass` | 매 tick 무조건 pass 실행 | 유휴 본문 읽기 시도가 관찰되어 실패 |
+| `postpass-source-baseline` | 원고 지문을 pass 뒤에 다시 읽음 | 실행 중 두 번째 이동이 유실되어 실패 |
+| `failed-pass-advances-baseline` | 실패에도 기준 지문 갱신 | 다음 tick의 재시도가 없어 실패 |
+| `shutdown-uninterruptible` | 종료 이벤트 대기를 sleep으로 교체 | 0.5초 종료 확인 실패 |
+| `no-periodic-pass` | 60초 조건 제거 | 원고 변화 없는 휴지통의 만료 정리 실패 |
+| `ignore-pin-registry` | JSONL 지문 감시 제거 | startup 뒤 새 핀의 비-main 이동을 놓쳐 실패 |
+| `reject-fresh-edit` | `pins/editing/rules.py`가 현재 base_rev도 거절하도록 바꿈 | 유지 뒤 정상 편집의 기대 200이 409가 되어 재시작 세 경우에서 실패 |
+
+최종 정적 검사: `uv run ruff check`·`uv run ruff format --check`(596개 파일), `uv run mypy`·`uv run mypy --platform darwin`(각 173개 파일), `uv run python tools/check_boundaries.py`, `npm run typecheck`, `uv run python tools/strict_ratchet.py`(오류 0), shellcheck 통과. core `uv run pytest -q -n 4 -m "not browser and not tex"`는 3,768 통과·1 건너뜀·6,531 subtests 통과(58.17초), `uv run pytest tests/architecture -q`는 111 통과(최종 문서 점검 9.66초), instances 셸은 222 통과·실패 0이다. core의 건너뜀은 기존 opt-in 실제 상태 검사다. 지정 PATH의 Handbook check와 `git diff --check`도 통과했다. 출판 자산 세 파일은 스킬 원본과 같다.
+
+ADR-0027은 시작 HEAD `168b14d5`와 bytes가 같으며, `git diff --name-status origin/main...HEAD -- ':(glob)docs/adr/[0-9][0-9][0-9][0-9]-*.md'`는 새 ADR-0028의 `A` 한 줄뿐이다. index는 파생 목록의 후속 관계와 행 연결만 고쳤다. 운영 topic에 남은 즉시 HTTP 위치 계산 안내도 같은 저장 위치 계약으로 맞췄다. 미리보기 서버는 만들지 않았으며 검토 대상은 정본 Markdown이다. push·PR·GitHub 댓글·다른 worktree 수정·상시 인스턴스 조작은 하지 않았다. 마지막 커밋의 독립 Codex 리뷰는 소유 세션에서 수행한다.
+
+브라우저는 다음 19개 파일에서 `-m browser -n 4`로 실행했다: `test_viewer.py`, `test_viewer_markdown.py`, `test_viewer_csp.py`, `test_confirm_conflict.py`, `test_viewer_verdict_panel.py`, `test_viewer_verdict_scroll.py`, `test_viewer_verdicts.py`, `test_viewer_save_integrity.py`, `test_viewer_repick_race.py`, `test_viewer_suggest.py`, `test_viewer_supersession_parity.py`, `test_viewer_input.py`, `test_viewer_cross_doc_actions.py`, `test_viewer_async_visits.py`, `test_viewer_document_visit.py`, `test_get_write_guard_browser.py`, `test_md_surface.py`, `test_vendor_markdown_it.py`, `test_viewer_source.py`(모두 `src/limn/viewer/tests/` 아래). `--collect-only -n 0 -m browser`로 같은 선택의 테스트가 823개임을 확인했다.
+
+첫 실행은 815 통과·3 건너뜀·874 subtests 통과, 11 실패였다(431.64초). 실패는 모두 `test_viewer_suggest.py`의 미저장 lost anchor를 GET이 즉시 stale로 맞춘다는 옛 가정이었다. 5개 본 검사와 6개 하위 사례가 실패했다. `fe8fc9d8`에서 해당 7개 테스트 메서드의 원고 변경 뒤 유지 실행을 명시했다. UI assertion은 하나도 바꾸지 않았다. 수정한 파일 전체를 다시 실행해 37 통과·38 subtests 통과·실패 0을 확인했다(31.17초). 따라서 중복을 빼고 823개 선택의 최신 결과는 820 통과·3 건너뜀·880 subtests 통과다. 이는 한 번의 재실행 결과라고 주장하는 수치가 아니라, 바꾸지 않은 파일의 첫 실행과 고친 파일 전체 재실행을 대조한 결과다. WebKit 3개는 설치된 실행 파일에 필요한 시스템 라이브러리가 없어 실행하지 못했다. `playwright install`이나 시스템 설치·상시 서비스 조작은 하지 않았다. 실제 Serve·trusted-proxy와 WebKit은 여전히 환경상 미검증이다.
+
+더 넓은 viewer 전체 폴더 검사도 시작했으나 요청 범위 밖 화면 검사까지 포함해 378 통과·408 subtests 통과 시점(186.96초)에 소유한 pytest PID에 SIGINT를 보내 중단했다. 이 부분 실행은 위 19개 파일의 통과 수에 더하지 않았다. 제품 동작이 같은 상태에서 관련 파일을 좁혀 검사했고 CI 설정·skip·timeout·assertion을 완화하지 않았다.
