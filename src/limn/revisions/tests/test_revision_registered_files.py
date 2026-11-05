@@ -61,8 +61,7 @@ class Repository(AccessBase):
 
 
 class FigureDotNames(Repository):
-    """A figure document (figs/) whose map names a file under a dot-named folder, or names more files than
-    HISTORY_PATHS_MAX, so that its history is named by its folder."""
+    """A figure document (figs/) whose map names a file under a dot-named folder."""
 
     def test_a_mapped_file_under_a_dot_named_folder_is_not_in_the_diff(self):
         """The map's root element is drawn by .Private/hidden.py (a capital: the rule is the leading dot, not a name):
@@ -80,28 +79,6 @@ class FigureDotNames(Repository):
         self.assertIn("B2_calendar.py", body["diff"])
         self.assertNotIn(SECRET, str(body))
 
-    def test_the_folder_named_for_a_large_map_leaves_dot_named_folders_out(self):
-        """A map naming 202 files is named by its folder: a later commit touching only figs/.private/hidden.py is not
-        in the history, and a viewer asking its diff is refused."""
-        fig = figure_doc(self.src, ps.APP.C.paths)
-        fmap = b2_map()
-        root = fmap["pages"][0]["elements"][0]
-        fmap["pages"][0]["elements"] = [root] + [
-            {"id": "B2/n%d" % i, "parent": "B2", "frac": [0.1, 0.1, 0.1, 0.1], "src": {"file": "src/part%d.py" % i}}
-            for i in range(core.HISTORY_PATHS_MAX + 1)
-        ]
-        for el in fmap["pages"][0]["elements"][1:]:
-            el["src"].update(lo=1, hi=1)
-        write_build(fig, BUILD1, fmap)
-        self.serve([fig])
-        self.commit("figure")
-        (fig.src / ".private").mkdir()
-        (fig.src / ".private" / "hidden.py").write_text(SECRET + "\n", encoding="utf-8")
-        head = self.commit("private %s" % SECRET)
-        self.assertEqual(self.subjects("fig"), ["figure"])
-        code, body = self.call("GET", "/api/revision-diff?doc=fig&commit=%s" % head, headers=CAROL)
-        self.assertEqual(code, 404, body)
-
     def test_registered_file_refuses_a_dot_named_part(self):
         """registered_file names no file with a dot-named part below the document's folder (any case), and keeps one
         whose name merely holds a dot."""
@@ -110,6 +87,63 @@ class FigureDotNames(Repository):
             with self.subTest(rel=rel):
                 self.assertIsNone(core.registered_file(fig, fig.src / rel))
         self.assertEqual(core.registered_file(fig, fig.src / "src" / "a.b.py"), fig.registered_src / "src" / "a.b.py")
+
+
+def large_map(parts):
+    """b2_map() with its root element (src/B2_calendar.py) followed by parts elements, each drawn by a script of its
+    own (src/part<i>.py): the figure's history files are those scripts, the root's, the map and its PDF."""
+    fmap = b2_map()
+    root = fmap["pages"][0]["elements"][0]
+    fmap["pages"][0]["elements"] = [root] + [
+        {"id": "B2/n%d" % i, "parent": "B2", "frac": [0.1, 0.1, 0.1, 0.1], "src": {"file": "src/part%d.py" % i}}
+        for i in range(parts)
+    ]
+    for el in fmap["pages"][0]["elements"][1:]:
+        el["src"].update(lo=1, hi=1)
+    return fmap
+
+
+class LargeFigureMap(Repository):
+    """A figure document (figs/) whose map names about HISTORY_PATHS_MAX history files, and a later commit that touches
+    only files no map names: figs/unlisted.txt and figs/.private/hidden.py (both carry SECRET)."""
+
+    def history(self, count):
+        """Serve the figure with a map whose history files are exactly count, commit it ("figure"), then commit the
+        unlisted files; (the figure commit, the unlisted one)."""
+        fig = figure_doc(self.src, ps.APP.C.paths)
+        write_build(fig, BUILD1, large_map(count - 3))
+        self.serve([fig])
+        self.assertEqual(len(ps.APP.revision_requests.context().history_files(fig) or ()), count)
+        first = self.commit("figure")
+        (fig.src / "unlisted.txt").write_text(SECRET + "\n", encoding="utf-8")
+        (fig.src / ".private").mkdir()
+        (fig.src / ".private" / "hidden.py").write_text(SECRET + "\n", encoding="utf-8")
+        return first, self.commit("unlisted %s" % SECRET)
+
+    def test_more_history_files_than_the_limit_are_refused_never_widened_to_the_folder(self):
+        """HISTORY_PATHS_MAX + 1 history files: the document has no history (too_many_files, with the limit) - its
+        folder, which holds figs/unlisted.txt, is never named instead - and neither its commit diff nor a range is
+        answered."""
+        first, head = self.history(core.HISTORY_PATHS_MAX + 1)
+        code, body = self.call("GET", "/api/revisions?doc=fig", headers=CAROL)
+        self.assertEqual(code, 200, body)
+        got = (body["available"], body["revisions"], body.get("reason"), body.get("limit"))
+        self.assertEqual(got, (False, [], "too_many_files", core.HISTORY_PATHS_MAX))
+        self.assertNotIn(SECRET, str(body))
+        for query in ("", "&base=%s" % first):
+            with self.subTest(query=query):
+                code, out = self.call("GET", "/api/revision-diff?doc=fig&commit=%s%s" % (head, query), headers=CAROL)
+                self.assertEqual((code, out.get("reason")), (404, "too_many_files"), out)
+                self.assertNotIn(SECRET, str(out))
+
+    def test_history_files_at_the_limit_are_named_one_by_one(self):
+        """Exactly HISTORY_PATHS_MAX history files: the history is the figure's commit only, and the diff of the commit
+        touching the unlisted files is refused as outside it."""
+        _, head = self.history(core.HISTORY_PATHS_MAX)
+        self.assertEqual(self.subjects("fig"), ["figure"])
+        code, out = self.call("GET", "/api/revision-diff?doc=fig&commit=%s" % head, headers=CAROL)
+        self.assertEqual((code, out.get("reason")), (404, "commit_not_recent"), out)
+        self.assertNotIn(SECRET, str(out))
 
 
 class ComparisonSnapshot(Repository):

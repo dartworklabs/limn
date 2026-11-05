@@ -69,7 +69,7 @@ RANGED_MARK = "ranged"  # empty file in a ranged comparison's cache folder
 REVISION_CACHE_TTL = 24 * 3600
 # per-request fields; never stored in a (shared) status. merge_base: a range whose base was on another line (#188)
 SCOPE_META = ("scope", "pin", "source", "hunks", "other", "merge_base")
-HISTORY_PATHS_MAX = 200  # files a figure document's history names one by one; more are named by their folder
+HISTORY_PATHS_MAX = 200  # files a figure document's history names one by one; a document with more has none
 REVISION_RECENT = 12  # rows of GET /api/revisions without paging; a pin's close_ref is resolved among these
 REVISION_HISTORY_MAX = 500  # the history window: the commits a request may name (issue #188, ADR-0014)
 REVISION_PAGE_MAX = 50  # rows of one page of GET /api/revisions?limit=
@@ -136,6 +136,13 @@ class RevisionDoc(Protocol):
 class NoHistory:
     """The document has no manuscript history to show: a view-only PDF, a main file outside its build root, or a
     folder outside any git repository."""
+
+
+@dataclass(frozen=True)
+class TooManyFiles(NoHistory):
+    """A document with more history files than HISTORY_PATHS_MAX (a figure document whose map names that many): it has
+    no history, source diff or comparison, as one without history has none, and its answers say why. Its files are
+    never named by their folder instead, which holds files that are not the document's (SECURITY.md)."""
 
 
 @dataclass(frozen=True)
@@ -216,7 +223,7 @@ class EmptyRange:
 # A range's own refusals (issue #188), answered from limn.revisions.answer.RANGE_REJECTIONS; the other refusals a range
 # meets (CommitNotRecent, DiffFailed, ...) are the single commit's.
 RangeRefusal: TypeAlias = BaseAfterHead | NoMergeBase | EmptyRange | BaseTooOld
-DiffRefusal: TypeAlias = NoHistory | CommitNotRecent | DiffFailed | DiffUnavailable | PinNotInDoc
+DiffRefusal: TypeAlias = NoHistory | TooManyFiles | CommitNotRecent | DiffFailed | DiffUnavailable | PinNotInDoc
 SpecRefusal: TypeAlias = CommitNotRecent | NotInRepo | NoParent | PinNotInDoc | DiffFailed
 StatusRefusal: TypeAlias = SpecRefusal | UnsafeCache
 StartRefusal: TypeAlias = SpecRefusal | UnsafeCache | AllSlotsBusy | DocumentBusy
@@ -433,42 +440,42 @@ def dot_excludes(prefix: str) -> list[str]:
     return [":(exclude,glob)%s**/.*" % at, ":(exclude,glob)%s**/.*/**" % at]
 
 
-def files_pathspec(repo: Path, files: Sequence[Path], folder: Path) -> list[str]:
-    """files (absolute paths) as literal Git pathspecs relative to repo, in order, each once; a file that is not inside
-    repo, or is repo itself, is left out. More than HISTORY_PATHS_MAX of them are named by folder instead (a literal
-    pathspec of a folder covers every file under it), so the git command line stays short; [] when that folder is not
-    inside repo either. Lexical: the paths are compared as given, so callers pass resolved folders. Pure."""
-    out: list[str] = []
+def repo_files(repo: Path, files: Sequence[Path]) -> list[str]:
+    """files (absolute paths) relative to repo as POSIX paths, each once, in order; a file that is not inside repo, or
+    is repo itself, is left out. Lexical: the paths are compared as given, so callers pass resolved folders. Pure."""
+    rels: dict[str, None] = {}
     for f in files:
         try:
             rel = f.relative_to(repo).as_posix()
         except ValueError:
             continue
-        spec = ":(literal)" + rel
-        if rel != "." and spec not in out:
-            out.append(spec)
-    if len(out) <= HISTORY_PATHS_MAX:
-        return out
-    try:
-        return [":(literal)" + folder.relative_to(repo).as_posix()]
-    except ValueError:
-        return []
+        if rel != ".":
+            rels.setdefault(rel)
+    return list(rels)
 
 
-def revision_scope(D: RevisionDoc, files: Sequence[Path] | None = None) -> tuple[Path, list[str]] | None:
+def files_pathspec(rels: Sequence[str]) -> list[str]:
+    """Git pathspecs of the files rels (relative to the repository, repo_files): each as a :(literal) path. Pure."""
+    return [":(literal)" + rel for rel in rels]
+
+
+def revision_scope(D: RevisionDoc, files: Sequence[Path] | None = None) -> tuple[Path, list[str]] | TooManyFiles | None:
     """Returns the repository and Git pathspec of document D's history, or None for a document without revisions (not
-    D.shows_revisions), a main file outside its build root, or a folder outside Git.
+    D.shows_revisions), a main file outside its build root, or a folder outside Git; TooManyFiles for files that are
+    more than HISTORY_PATHS_MAX.
 
     files None: a LaTeX document - just the manuscript text inside the chosen main .tex's folder. D.src is the
     build-copy scope, so multiple documents can share the same root. The change history must be filtered to
     D.main.parent, or commits from the body, highlights, and cover letter get mixed together.
     files given: a figure, a Markdown or a text document - exactly those files (RevisionBuildQueries.history_files: a
     figure document's map, the PDF the map names and the map's scripts and shared components; a Markdown or text
-    document's own file), found from the repository holding D.src (files_pathspec). The suffix pathspec above never names
-    a Markdown file or a text file other than .bib, .sty, .cls and .bst, so a LaTeX document and a Markdown or text
-    document in one folder keep apart histories; a .bib text document's commits are the LaTeX document's too. Neither
-    names anything under a dot-named part below the document's folder (dot_excludes), and the folder's own name is
-    matched literally (glob_literal). A document that itself lies under a dot-named part of the manuscript - its folder,
+    document's own file), found from the repository holding D.src (_files_scope): none of the folder's other files - a
+    document with more than HISTORY_PATHS_MAX of them has no history
+    (TooManyFiles) rather than one widened to its folder. The suffix pathspec above never names a Markdown file or a
+    text file other than .bib, .sty, .cls and .bst, so a LaTeX document and a Markdown or text document in one folder
+    keep apart histories; a .bib text document's commits are the LaTeX document's too. Neither names anything under a
+    dot-named part below the document's folder (dot_excludes), and the folder's own name is matched literally
+    (glob_literal). A document that itself lies under a dot-named part of the manuscript - its folder,
     its main file or a folder between them and the manuscript root (dot_named_document) - has none."""
     if not D.shows_revisions or dot_named_document(D):
         return None
@@ -497,16 +504,18 @@ def revision_scope(D: RevisionDoc, files: Sequence[Path] | None = None) -> tuple
     return repo, paths + dot_excludes(prefix)
 
 
-def _files_scope(D: RevisionDoc, files: Sequence[Path]) -> tuple[Path, list[str]] | None:
+def _files_scope(D: RevisionDoc, files: Sequence[Path]) -> tuple[Path, list[str]] | TooManyFiles | None:
     """The repository holding figure, Markdown or text document D's folder (registered_repo) and files as its
-    pathspec (files_pathspec), or None when the folder is not in a Git repository or none of the files lies in it.
+    pathspec (repo_files, files_pathspec); None when the folder is not in a Git repository or none of the files lies in
+    it, TooManyFiles when more than HISTORY_PATHS_MAX do (the git command line stays short, and the files are never
+    named by their folder instead: it holds files that are not the document's).
 
     Each file is named by the path it was registered with (registered_file), never by where its folder leads now: a
     document whose folder was reached through a symlink when the run started (macOS's /var -> /private/var) keeps its
     whole history, as a LaTeX document does, and a folder replaced by a symlink after that - to a dot-named folder or to
     another repository - does not make another file's history the document's. A file under a dot-named part below the
-    folder is never named (registered_file), and the pathspec ends with dot_excludes, so neither the folder that names
-    more than HISTORY_PATHS_MAX files nor a named file that some commit holds as a folder brings one in."""
+    folder is never named (registered_file), and the pathspec ends with dot_excludes, so a named file that some commit
+    holds as a folder brings none in."""
     repo = registered_repo(D.registered_src)
     if repo is None:
         return None
@@ -514,9 +523,12 @@ def _files_scope(D: RevisionDoc, files: Sequence[Path]) -> tuple[Path, list[str]
         prefix = D.registered_src.relative_to(repo).as_posix()
     except ValueError:
         return None
-    named = [p for p in (registered_file(D, f) for f in files) if p is not None]
-    paths = files_pathspec(repo, named, D.registered_src)
-    return (repo, paths + dot_excludes("" if prefix == "." else prefix + "/")) if paths else None
+    rels = repo_files(repo, [p for p in (registered_file(D, f) for f in files) if p is not None])
+    if not rels:
+        return None
+    if len(rels) > HISTORY_PATHS_MAX:
+        return TooManyFiles()
+    return repo, files_pathspec(rels) + dot_excludes("" if prefix == "." else prefix + "/")
 
 
 def _unlinked_prefix(folder: Path) -> Path:
@@ -627,10 +639,13 @@ def revision_window(
     (revision_scope) and its REVISION_HISTORY_MAX most recent commits as history rows in ancestry order (_log_rows). The
     lists of GET /api/revisions are its first rows and its pages, a request may name only its commits (a range's base
     also their first parents), and a pin's close_ref is resolved among its first REVISION_RECENT. No rows when git
-    cannot list them; NoHistory for a document without history. windows, when given, keeps the rows per HEAD."""
+    cannot list them; NoHistory for a document without history (TooManyFiles for one with too many history files).
+    windows, when given, keeps the rows per HEAD."""
     found = revision_scope(D, files)
     if found is None:
         return NoHistory()
+    if isinstance(found, TooManyFiles):
+        return found
     repo, paths = found
     if windows is not None:
         return repo, paths, windows.rows(repo, paths)
@@ -658,9 +673,13 @@ def revision_history(
     """GET /api/revisions: the document's manuscript commits from its history window (revision_window, ancestry order),
     each {id, date, subject, author, time, parents}, or available: false when it has no history. Without page, the
     first REVISION_RECENT rows and the two keys {available, revisions}; with page, that page of the window
-    (history_page) with `more` added, or CommitNotRecent for a before outside it. files are a figure or Markdown
-    document's history files (revision_scope); None for a LaTeX document. windows keeps the window per HEAD."""
+    (history_page) with `more` added, or CommitNotRecent for a before outside it. A document with more history files
+    than HISTORY_PATHS_MAX (TooManyFiles) answers available false with reason too_many_files and that limit, so the
+    viewer can say why. files are a figure or Markdown document's history files (revision_scope); None for a LaTeX
+    document. windows keeps the window per HEAD."""
     window = revision_window(D, files, windows)
+    if isinstance(window, TooManyFiles):
+        return {"available": False, "revisions": [], "reason": "too_many_files", "limit": HISTORY_PATHS_MAX}
     if isinstance(window, NoHistory) or not window[2] and not _has_history(window[0], window[1]):
         return {"available": False, "revisions": []}
     rows = window[2]

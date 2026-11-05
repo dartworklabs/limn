@@ -19,7 +19,7 @@ from limn.administration import serve_documents
 from limn.builds import artifacts
 from limn.builds.figure_map import FigureMap, map_source_files, parse_map
 from limn.platform.git import run_git
-from limn.revisions.core import HISTORY_PATHS_MAX, files_pathspec
+from limn.revisions.core import HISTORY_PATHS_MAX, files_pathspec, repo_files
 from limn.runtime.documents import Doc
 
 from helpers import map_bytes, ps
@@ -229,20 +229,27 @@ class MapSourceFiles(AccessBase):
 
 
 class FilesPathspec(AccessBase):
-    """core.files_pathspec: the history files as literal pathspecs relative to the repository (pure)."""
+    """core.repo_files and core.files_pathspec: the history files relative to the repository, then as pathspecs that
+    match exactly those files (pure)."""
 
-    def test_files_inside_the_repository_become_literal_paths_once(self):
-        """Each file under the repository is one :(literal) path; a repeat is dropped; a file outside is left out."""
+    def test_files_inside_the_repository_are_named_once(self):
+        """Each file under the repository is named once, in order; a repeat is dropped; a file outside, or the
+        repository itself, is left out."""
         repo = Path("/srv/paper")
-        files = [repo / "figs/out/x.limnmap.json", repo / "figs/src/a b.py", repo / "figs/src/a b.py", Path("/srv/o")]
+        files = [
+            repo / "figs/out/x.limnmap.json",
+            repo / "figs/src/a b.py",
+            repo / "figs/src/a b.py",
+            Path("/srv/o"),
+            repo,
+        ]
+        self.assertEqual(repo_files(repo, files), ["figs/out/x.limnmap.json", "figs/src/a b.py"])
+
+    def test_each_file_is_a_literal_path(self):
+        """Each file is one :(literal) path; the count is never folded into a folder, however many files there are."""
         self.assertEqual(
-            files_pathspec(repo, files, repo / "figs"),
+            files_pathspec(["figs/out/x.limnmap.json", "figs/src/a b.py"]),
             [":(literal)figs/out/x.limnmap.json", ":(literal)figs/src/a b.py"],
         )
-
-    def test_too_many_files_fall_back_to_the_figure_folder(self):
-        """More than HISTORY_PATHS_MAX files are named by the folder holding them all, so the command line stays short."""
-        repo = Path("/srv/paper")
-        files = [repo / "figs" / ("f%d.py" % i) for i in range(HISTORY_PATHS_MAX + 1)]
-        self.assertEqual(files_pathspec(repo, files, repo / "figs"), [":(literal)figs"])
-        self.assertEqual(len(files_pathspec(repo, files[:-1], repo / "figs")), HISTORY_PATHS_MAX)
+        many = ["figs/f%d.py" % i for i in range(HISTORY_PATHS_MAX + 1)]
+        self.assertEqual(files_pathspec(many)[: len(many)], [":(literal)" + rel for rel in many])

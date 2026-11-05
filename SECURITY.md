@@ -43,7 +43,8 @@ What the server does defend against:
   whose path or build root has one (`--doc`, `--main`, `limn add`, `limn doc add`), and the history, the diffs and a
   comparison build's snapshots of both commits leave such files out, a figure map that lists one included. Never a
   file of another folder whose name a Git pattern would also match (a folder `paper[1]` is matched as that name). A
-  document's files are named by the paths registered at startup. A pin's file and the ranges recorded when it was
+  figure document's files are never widened to their folder: one listing more than 200 has no history
+  (`too_many_files`). A document's files are named by the paths registered at startup. A pin's file and the ranges recorded when it was
   closed are named by the paths stored on the pin, placed under the manuscript root registered at startup without
   asking the tree: a stored path below that root is that path, and a record from a moved or cloned checkout is placed by
   its own `file_rel` (a record without one is not placed, and the change view falls back to inferring the pin's
