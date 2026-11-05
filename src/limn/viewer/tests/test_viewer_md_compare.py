@@ -806,6 +806,29 @@ class RewrappedInsideInline(OneNote):
         self.assertIn("바뀐 블록 없음", page.locator("#revision-status").text_content())
 
 
+class TableAlignment(OneNote):
+    """A table's first column goes from left to right aligned; nothing else changes."""
+
+    def texts(self):
+        return [
+            "# 표\n\n| 조건 | 값 |\n| :--- | --- |\n| 가는 조건 | 1 |\n\n끝 문단이다.\n",
+            "# 표\n\n| 조건 | 값 |\n| ---: | --- |\n| 가는 조건 | 1 |\n\n끝 문단이다.\n",
+        ]
+
+    def test_a_columns_new_alignment_changes_its_rows_and_says_so(self):
+        """Both rows are changed in place, each saying the alignment changed, no word marked. Mutation: leave the cell's
+        md-al-* class out of mdcShape -> both rows are the same, fails."""
+        page = self.open_compare()
+        self.assertEqual([(k, t) for k, t, _ in self.marks(page)], [("mod", "TR"), ("mod", "TR")])
+        self.assertEqual(
+            page.evaluate(
+                "[...document.querySelectorAll('#revision-rendered [data-mdc]')].map(e=>e.dataset.mdcWhy||'')"
+            ),
+            ["표 칸 정렬이 바뀜", "표 칸 정렬이 바뀜"],
+        )
+        self.assertEqual(page.evaluate("document.querySelectorAll('#revision-rendered .mdc-w').length"), 0)
+
+
 class AltRewrapped(OneNote):
     """A paragraph whose word becomes bold while its image's alt text is rewrapped onto two lines."""
 

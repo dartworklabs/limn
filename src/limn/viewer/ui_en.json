@@ -1537,6 +1537,7 @@
  "그림은 두 판 모두 지금 원고 트리의 파일입니다 — 옛 판의 그림 파일은 읽지 않습니다.": "Images on both sides are the manuscript tree's files of now — the old side's own image files are not read.",
  "그림 대체 글이 바뀜": "Image alt text changed",
  "글자 모양(굵게·기울임·코드·링크)이 바뀜": "Inline formatting (bold, italics, code, links) changed",
+ "표 칸 정렬이 바뀜": "Table cell alignment changed",
  "목록 번호가 바뀜": "List numbering changed",
  "코드 언어가 바뀜": "Code language changed",
  "코드의 공백·들여쓰기가 바뀜": "Code spacing or indentation changed",

@@ -81,9 +81,10 @@ function mdcLines(el){return [...el.querySelectorAll('.ln')].map(l=>String(l.tex
 // math, front matter, table row, rule and raw HTML placeholder, and a list item whose text is its own (a tight list's). A
 // raw HTML run is one unit. Each has its tag, its key, its text, its source lines and the parts of its key that are not words.
 // The key is everything the block shows: its text with its inline structure (shape: emphasis, code, links, images with their
-// alt text, a hidden character's box with the character), the boxes it sits in (box: a quote, a list - a numbered one with its
-// first number), its images' tree paths and its links' targets. So the same words in bold, out of a quote or in a list
-// renumbered are another block - changed in place, as are an image's new alt text, a link's new target and a hidden character put in or taken out. What the renderer adds that shows
+// alt text, a hidden character's box with the character, a table cell's alignment), the boxes it sits in (box: a quote, a
+// list - a numbered one with its first number), its images' tree paths and its links' targets. So the same words in bold, out
+// of a quote, in a list renumbered or in a column aligned the other way are another block - changed in place, as are an
+// image's new alt text, a link's new target and a hidden character put in or taken out. What the renderer adds that shows
 // nothing is not in it (mdcShape): the line spans, the copies of an emphasis or a link it opens again after a line break
 // inside it, an inline formula's code box per source line - a paragraph rewrapped, inside bold, a link or a formula too, is
 // the same block. An alt text is compared with its white space folded, as it is drawn.
@@ -105,8 +106,9 @@ function mdcBoxes(el,root){const out=[]; for(let a=el.parentElement;a&&a!==root;
 /** @param {Element} e */
 function mdcInl(e){return e.tagName.toLowerCase()+(e.tagName==='CODE'&&e.className?'.'+e.className:'');}
 // A unit's inline structure as one string: its text, whitespace folded, with every inline element around its part as a mark
-// (<strong>…</strong>, <code.md-math>…</code.md-math>, an image as <img alt>, a hidden character's box as <cc char>), a list
-// item's nested blocks and the screen reader's words left out. What the renderer adds and nothing shows is no structure: the line spans it puts round each source line, the shallow copies of the
+// (<strong>…</strong>, <code.md-math>…</code.md-math>, an image as <img alt>, a hidden character's box as <cc char>, a table
+// cell with its alignment as <td right>), a list item's nested blocks and the screen reader's words left out. What the
+// renderer adds and nothing shows is no structure: the line spans it puts round each source line, the shallow copies of the
 // emphasis and links open at a line break that it opens again on the next line's span (mdInline), and the code box it draws
 // for each source line of an inline formula (math_inline, one per line) - an emphasis or a link that starts right where one
 // of the same kind and target ends is one run (mdcRun), and so is a formula's piece after the last one's, white space alone
@@ -125,7 +127,8 @@ function mdcShape(el,tag,cont){if(mdcLined(tag))return mdcCode(tag==='PRE'?el.da
     if(t==='code.md-math')while(j>=0&&typeof out[j]==='string'&&!/\S/.test(/** @type {string} */(out[j])))j--;   // a formula's pieces: one line end apart
     const last=out[j];
     if(to!==null&&typeof last==='object'&&last.t===t&&last.to===to){out.splice(j,1); if(cont&&to)cont.add(e); walk(e); out.push(last); continue;}   // the same run, on the next line
-    out.push('\u0002'+t+'\u0003'); walk(e); out.push({t,to:to===null?'\u0000':to});}};
+    const al=/^T[DH]$/.test(e.tagName)?(/(?:^|\s)md-al-(left|right|center)(?:\s|$)/.exec(e.className)||[])[1]:'';
+    out.push('\u0002'+t+(al?' '+al:'')+'\u0003'); walk(e); out.push({t,to:to===null?'\u0000':to});}};
   walk(el); return out.map(x=>typeof x==='string'?x:'\u0002/'+x.t+'\u0003').join('').replace(/\s+/g,' ').trim();}
 // Whether inline element e is one the renderer opens again after a line break inside it (mdInline's stack): an emphasis, a
 // strikethrough, a link - an inert one (.md-rel) too. Pure over the DOM.
@@ -143,16 +146,21 @@ function mdcCode(lang,lines){return '\u0002pre\u0003'+JSON.stringify([lang,lines
 // The language a code block's shape (mdcCode) carries, '' for any other shape. Pure.
 /** @param {string} shape */
 function mdcLang(shape){if(!shape.startsWith('\u0002pre\u0003'))return ''; try{return String(JSON.parse(shape.slice(5))[0]);}catch{return '';}}
-// What changed in a block changed in place whose text stayed: its inline structure, an image's alt text, the list numbering,
-// the boxes it sits in, a block of lines' language or spaces - '' when its words changed (the marked words say what). Pure.
+// What changed in a block changed in place whose text stayed: its inline structure, an image's alt text, a table cell's
+// alignment, the list numbering, the boxes it sits in, a block of lines' language or spaces - '' when its words changed (the
+// marked words say what). Pure.
 /** @param {MdcUnit} o @param {MdcUnit} n */
 function mdcWhy(o,n){if(o.text!==n.text)return '';
   if(o.alts!==n.alts)return tr('그림 대체 글이 바뀜');
   if(o.tag==='PRE'&&o.shape!==n.shape)return mdcLang(o.shape)!==mdcLang(n.shape)?tr('코드 언어가 바뀜'):tr('코드의 공백·들여쓰기가 바뀜');
   if(mdcLined(o.tag)&&o.shape!==n.shape)return tr('줄의 공백·들여쓰기가 바뀜');
+  if(o.shape!==n.shape&&mdcUnaligned(o.shape)===mdcUnaligned(n.shape))return tr('표 칸 정렬이 바뀜');
   if(o.shape!==n.shape)return tr('글자 모양(굵게·기울임·코드·링크)이 바뀜');
   if(o.box!==n.box)return o.box.replace(/OL\d+/g,'OL')===n.box.replace(/OL\d+/g,'OL')?tr('목록 번호가 바뀜'):tr('인용·목록 안팎으로 자리가 바뀜');
   return '';}
+// A shape (mdcShape) without its table cells' alignment. Pure.
+/** @param {string} shape */
+function mdcUnaligned(shape){return shape.replace(/(\u0002t[dh]) (?:left|right|center)\u0003/g,'$1\u0003');}
 // A unit's own text: a table row's cells joined with ' | ', a list item's without its nested blocks, a block of lines' lines,
 // whitespace folded; a hidden character is in it (its box keeps it for the screen reader).
 /** @param {HTMLElement} el @param {string} tag */

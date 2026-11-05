@@ -109,8 +109,10 @@ class CompareRules(unittest.TestCase):
         self.assertNotIn("from", [t for t, _, _ in got])
 
     def test_the_same_words_with_another_structure_are_one_block_changed_and_say_what_changed(self):
-        """Bold where the words were plain, a paragraph out of a quote, a list renumbered, an image's new alt text: the
-        keys differ, so each is one block changed in place (not kept as it was), and mdcWhy names what changed."""
+        """Bold where the words were plain, a paragraph out of a quote, a list renumbered, an image's new alt text, a table
+        cell aligned the other way: the keys differ, so each is one block changed in place (not kept as it was), and mdcWhy
+        names what changed - a cell whose formatting changed with its alignment is the formatting."""
+        td = "\u0002td{al}\u0003가는 조건\u0002/td\u0003\u0002td\u0003{v}\u0002/td\u0003"
         cases = [
             (
                 unit("P", "Warning", shape="Warning"),
@@ -121,6 +123,14 @@ class CompareRules(unittest.TestCase):
             (
                 unit("P", "", "figs/a.png", shape="\u0002img 옛 설명\u0003", alts="옛 설명"),
                 unit("P", "", "figs/a.png", shape="\u0002img 새 설명\u0003", alts="새 설명"),
+            ),
+            (
+                unit("TR", "가는 조건 | 1", shape=td.format(al=" left", v="1")),
+                unit("TR", "가는 조건 | 1", shape=td.format(al=" right", v="1")),
+            ),
+            (
+                unit("TR", "가는 조건 | 1", shape=td.format(al="", v="1")),
+                unit("TR", "가는 조건 | 1", shape=td.format(al=" center", v="\u0002strong\u00031\u0002/strong\u0003")),
             ),
         ]
         whys = []
@@ -137,6 +147,8 @@ class CompareRules(unittest.TestCase):
                 "인용·목록 안팎으로 자리가 바뀜",
                 "목록 번호가 바뀜",
                 "그림 대체 글이 바뀜",
+                "표 칸 정렬이 바뀜",
+                "글자 모양(굵게·기울임·코드·링크)이 바뀜",
             ],
         )
         self.assertEqual(
