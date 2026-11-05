@@ -12,20 +12,29 @@ docs/guide.md (gd) - and the LaTeX manuscript (ms):
   earlier load learned and the file has since changed;
 - a pin on an image's line outlines the image; a click on an image picks its paragraph;
 - a link to another registered document goes to it, at its heading, and the browser's back returns - also before that
-  document has opened, which then never opens over the entry back returned to.
+  document has opened, which then never opens over the entry back returned to; followed while a phone's back layer holds
+  the top history entry, it adds none, and back closes the layer;
+- another origin's page cannot embed a tree image (Cross-Origin-Resource-Policy: same-origin), on a real loopback
+  listener where the browser itself enforces the header; the viewer's own page still can;
+- the image, link and SVG checks hold in Firefox too (the *Firefox classes; WebKit does not launch everywhere, and its
+  scroll anchoring - absent there - is what ReadingSpot stands in for).
 
 The pure rules are in test_md_tree_refs.py; the route's checks in src/limn/documents/tests/test_assets.py.
 
 Run: uv run pytest -q src/limn/viewer/tests/test_viewer_markdown_assets.py
 """
 
+import http.server
 import json
+import threading
 import time
+from functools import partial
+from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from limn.administration import serve_documents as startup_documents
 
-from helpers import blank_png, ps, req
+from helpers import blank_png, ps, req, set_config
 from helpers_browser import BrowserBase, settle
 from helpers_csp import add_test_style
 from helpers_figure import BUILD1, viewer_build
@@ -344,6 +353,9 @@ class SvgOnItsOwn(AssetsBase):
         """A fresh page that opens notes/img/flow.svg on its own; (title, origin, requests other than the SVG)."""
         context = self.browser.new_context()
         self.addCleanup(context.close)
+        # What the policy refuses there (the external image, Firefox's favicon request) is what the test provokes: the CSP
+        # gate counts those reports as expected (helpers_csp).
+        context.add_init_script("window.__limnCspExpected = true;")
         page = context.new_page()
         page.route("**/*", lambda r: self.enforce(r, strip))
         self.asked = []
@@ -415,3 +427,141 @@ class DocumentLinks(AssetsBase):
         page.go_forward()
         until(page, "DOC==='gd'&&" + DRAWN, 10)
         self.assertTrue(page.evaluate("location.hash").endswith("doc=gd"))
+
+
+# The phone of the back-layer test, and the page without CloseWatcher: the layer is then one history entry (gestures.js armBack).
+PHONE = {"viewport": {"width": 390, "height": 844}, "is_mobile": True, "has_touch": True}
+NO_CLOSE_WATCHER = "delete window.CloseWatcher;"
+
+
+class LinksUnderTheBackLayer(AssetsBase):
+    """A link followed while a phone's back layer is open adds no history entry: the layer's entry stays the top one."""
+
+    PLAN = "# 계획\n\n[안내로](../docs/guide.md)\n\n" + "".join("문단 %d.\n\n" % i for i in range(1, 40))
+
+    def test_a_link_followed_under_the_open_sheet_adds_no_entry_and_back_closes_the_sheet(self):
+        """On a phone without CloseWatcher the open sheet is one history entry (limnLayer). The link to gd, followed with
+        the sheet open, shows gd without a history entry of its own: the length is the same and the top entry is still the
+        layer's. Back then closes the sheet and leaves gd on screen - with an entry of the link's on top, back would have
+        returned to nt and left the sheet open."""
+        page = self.open(0, init=NO_CLOSE_WATCHER, **PHONE)
+        until(page, DRAWN, 20)
+        page.locator("#btn-side").tap()
+        until(page, "SIDE_OPEN&&BACK&&BACK.kind==='history'&&!!(history.state&&history.state.limnLayer)")
+        settle(page)
+        depth = page.evaluate("history.length")
+        page.locator("#md a.md-doclink").first.tap()
+        until(page, "DOC==='gd'&&" + DRAWN, 10)
+        settle(page)
+        self.assertEqual(
+            page.evaluate("[history.length,!!(history.state&&history.state.limnLayer),SIDE_OPEN,BACK&&BACK.kind]"),
+            [depth, True, True, "history"],
+        )
+        page.go_back()
+        until(page, "!SIDE_OPEN&&!BACK")
+        settle(page)
+        self.assertEqual(page.evaluate("[DOC,MD.shown,location.hash.replace(/^.*doc=/,'')]"), ["gd", "gd", "gd"])
+
+
+class CrossOriginEmbed(AssetsBase):
+    """Another origin's page cannot embed a tree image: the asset answer's Cross-Origin-Resource-Policy: same-origin, which
+    the browser enforces on a real loopback listener (the routed pages of the other classes fulfil answers without it)."""
+
+    def listen(self, handler) -> int:
+        """Serve handler on a fresh 127.0.0.1 port for this test; the port."""
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+
+        def stop():
+            server.shutdown()
+            server.server_close()
+            thread.join(5)
+
+        self.addCleanup(stop)
+        return server.server_port
+
+    def embed(self, page_url: str, image_url: str) -> int:
+        """In a fresh context, closed after, the page at page_url puts an <img> of image_url in itself: its natural width
+        once it has loaded or failed (0: not drawn)."""
+        with self.browser.new_context() as context:
+            page = context.new_page()
+            page.set_default_timeout(8000)
+            page.goto(page_url)
+            return page.evaluate(
+                "u=>new Promise(done=>{const i=document.createElement('img'); i.onload=i.onerror=()=>done(i.naturalWidth);"
+                " i.src=u; document.body.append(i);})",
+                image_url,
+            )
+
+    def test_another_origins_page_cannot_embed_a_tree_image_but_the_viewer_can(self):
+        """Limn on 127.0.0.1:P, a plain page on another port Q. The viewer's own page (http://127.0.0.1:P/) draws
+        notes/img/tall.png (200px wide; the document it opens shows other images, so its own requests are told apart); a
+        page on port Q of the same host (127.0.0.1:Q) and of another host (localhost:Q) draw nothing, though the server
+        answered each 200 - the browser refused the answer, not the server. With the header dropped from the same answers
+        (the control), both pages draw it: the check sees what it guards. Firefox counts the two ports of 127.0.0.1 as one
+        site, so there `same-site` would let the first page through; Chromium refuses it either way."""
+        set_config(ps, auth="local", local_user="reader")
+        answered: list[tuple[str, int]] = []
+        drop: list[bool] = []
+
+        class Listener(ps.Handler):
+            """The production handler, noting each answer for the image, and dropping the resource policy when drop."""
+
+            def send_response(self, code, message=None):
+                if "tall.png" in self.path:
+                    answered.append((self.path, code))
+                super().send_response(code, message)
+
+            def send_header(self, keyword, value):
+                if drop and keyword.lower() == "cross-origin-resource-policy":
+                    return
+                super().send_header(keyword, value)
+
+        limn = self.listen(Listener)
+        other = Path(self.tmp.name) / "other"
+        other.mkdir()
+        (other / "index.html").write_text("<!doctype html><title>Another site</title><p>x</p>", encoding="utf-8")
+        port = self.listen(partial(http.server.SimpleHTTPRequestHandler, directory=str(other)))
+        image = "http://127.0.0.1:%d/api/asset?doc=nt&path=notes%%2Fimg%%2Ftall.png" % limn
+        pages = {"same host": "http://127.0.0.1:%d/" % port, "other host": "http://localhost:%d/" % port}
+        self.assertEqual(self.embed("http://127.0.0.1:%d/" % limn, image), 200)
+        for name, url in pages.items():
+            with self.subTest(page=name):
+                del answered[:]
+                self.assertEqual(self.embed(url, image), 0)
+                self.assertEqual([code for _, code in answered], [200])
+        drop.append(True)
+        for name, url in pages.items():
+            with self.subTest(page=name, control="no resource policy"):
+                self.assertEqual(self.embed(url, image), 200)
+
+
+class TreeImagesFirefox(TreeImages):
+    """The tree images, the alt texts and their reasons, the image link and the image's pin in Firefox."""
+
+    BROWSER_ENGINE = "firefox"
+
+
+class ReadingSpotFirefox(ReadingSpot):
+    """The reading spot an image's load puts back, in Firefox (its own scroll anchoring off, as in Chromium)."""
+
+    BROWSER_ENGINE = "firefox"
+
+
+class SvgOnItsOwnFirefox(SvgOnItsOwn):
+    """The SVG opened on its own, inert under the asset route's headers, in Firefox."""
+
+    BROWSER_ENGINE = "firefox"
+
+
+class DocumentLinksFirefox(DocumentLinks):
+    """Links between documents and the browser's back, in Firefox."""
+
+    BROWSER_ENGINE = "firefox"
+
+
+class CrossOriginEmbedFirefox(CrossOriginEmbed):
+    """The resource policy enforced by Firefox's own networking."""
+
+    BROWSER_ENGINE = "firefox"
