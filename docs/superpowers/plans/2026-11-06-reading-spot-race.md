@@ -45,17 +45,17 @@ WebKit에는 스크롤 고정이 없다. 되돌리기는 요소를 다시 재서
 
 페이지의 rAF를 init 스크립트로 잡고, 그림 `load`·`error` 의 수로 푼다. 시계로 풀지 않는다. 시험마다 변이를 적고, 고치기 전에 실패하는 것을 본다.
 
-- [ ] `HeadingJump`: 링크로 연 문서에서 그림이 불러와지는 동안 Home(불러온 그림, 실패한 그림). 고치기 전 243–923px. 변이: `mdSpotFresh` 빼기
-- [ ] `ShrinkNearTheEnd`: 끝 근처에서 줄어드는 그림만(고정 끔. main에서도 통과한다. 지키는 것은 규칙 2). 변이: `mdPicSize` 의 비율 빼기
-- [ ] `ShrinkNearTheEnd`: 프레임 전 End 뒤 축소. 고치기 전 끝에서 217–218px. 변이: `mdSpotFresh` 빼기
-- [ ] `ShrinkNearTheEnd`: 프레임 전 핀 [보기]와 [바뀐 곳] 뒤 축소. 고치기 전 160px. 변이: 규칙 1과 3을 함께 빼기. 하나만 남아도 통과한다
-- [ ] `FindBeforeTheFrame`: 찾기 뒤 그림 불러오기(고정 끔). 고치기 전 2,700px. Chromium의 `window.find()` 는 안쪽 스크롤러를 옮기지 않아 찾은 범위를 `scrollIntoView` 로 보인다. 변이: `mdSpotFresh` 빼기, 처리기 뒤에 읽기
-- [ ] `JumpThenReflow`: 프레임 전 핀 [보기] 뒤 창 폭 변화. 고치기 전 맨 위로 돌아간다. 변이: `mdShowLines` 의 읽기 빼기
-- [ ] 기존 읽던 자리 시험은 고치지 않은 채 통과한다: `ReadingSpot`(+Firefox), `OneReadingSpot`, `JumpAcrossReflow`, `ChangedOnDisk`(+Firefox), `ChangedOnDiskCached`(+Firefox), `ReadingSpotChangedImage`, `HeadingJump`(+Firefox), `test_viewer_text.py` 의 읽는 줄 시험
-- [ ] 부하 아래 20회: `HeadingJumpFirefox` 와 새 시험을 다른 브라우저 파일과 함께 `-n 4` 로 돌린다
+- [x] `HeadingJump`: 링크로 연 문서에서 그림이 불러와지는 동안 Home(불러온 그림, 실패한 그림). 고치기 전 243–923px. 변이: `mdSpotFresh` 빼기 → 398–1,230px
+- [x] `ShrinkNearTheEnd`: 끝 근처에서 줄어드는 그림만(고정 끔. main에서도 통과한다. 지키는 것은 규칙 2). 변이: `mdPicSize` 의 비율 빼기 → L75가 L85로, 처리기 뒤에 비교하기(#433 첫 시도)도 같다
+- [x] `ShrinkNearTheEnd`: 프레임 전 End 뒤 축소. 고치기 전 끝에서 217–218px. 변이: `mdSpotFresh` 빼기 → 217–218px, `past` 빼기 → 8px
+- [x] `ShrinkNearTheEnd`: 프레임 전 핀 [보기]와 [바뀐 곳] 뒤 축소. 고치기 전 160px. 변이: 규칙 1과 3을 함께 빼기 → 160px. 하나만 남아도 통과한다. 비율 빼기 → 57–366px
+- [x] `FindBeforeTheFrame`: 찾기 뒤 그림 불러오기(고정 끔). 고치기 전 2,700px. Chromium의 `window.find()` 는 안쪽 스크롤러를 옮기지 않아 찾은 범위를 `scrollIntoView` 로 보인다. 변이: `mdSpotFresh` 빼기 → 2,700px, 처리기 뒤에 읽기 → 772px, `past` 빼기 → 6–7px
+- [x] `JumpThenReflow`: 프레임 전 핀 [보기] 뒤 창 폭 변화. 고치기 전 맨 위로 돌아간다. 변이: `mdShowLines` 의 읽기 빼기 → 맨 위(L319 대신)
+- [x] 기존 읽던 자리 시험은 고치지 않은 채 통과한다: `ReadingSpot`(+Firefox), `OneReadingSpot`, `JumpAcrossReflow`, `ChangedOnDisk`(+Firefox), `ChangedOnDiskCached`(+Firefox), `ReadingSpotChangedImage`, `HeadingJump`(+Firefox), `test_viewer_text.py` 의 읽는 줄 시험
+- [x] 부하 아래 20회: `HeadingJumpFirefox`(5)와 새 시험(Chromium의 Home 둘 포함 14)을 `test_viewer_markdown.py`·`test_viewer_md_compare.py` 와 함께 `-n 4` 로 돌린다. 19개 × 20회 = 380회 모두 통과, 함께 돈 파일 2,540회 모두 통과
 
 ## 문서
 
-- [ ] [viewer.md](../../handbook/viewer.md) §그림의 읽던 자리 문단, §그리기의 CSSOM 문장
-- [ ] [verification.md](../../handbook/verification.md) 그림 묶음의 브라우저 행과 변이 문단
-- [ ] `CHANGELOG.md` `## Unreleased` `### Fixed`
+- [x] [viewer.md](../../handbook/viewer.md) §그림의 읽던 자리 문단, §그리기의 CSSOM 문장
+- [x] [verification.md](../../handbook/verification.md) 그림 묶음의 브라우저 행과 변이 문단
+- [x] `CHANGELOG.md` `## Unreleased` `### Fixed`
