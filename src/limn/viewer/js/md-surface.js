@@ -14,7 +14,8 @@
 //   inline tag shows as code. A character that would hide or reorder text (hidden-chars.js) stays in the drawn text inside its
 //   box (mdText), as on the text surface, and a notice above the document counts them. An image loads only when its source
 //   is a file of the manuscript tree with an image suffix, resolved against the document's own path (mdImgPath) and fetched
-//   from this origin's GET /api/asset; a remote or data: image, or one that leaves the tree, is its alt text (ADR-0030). A link opens only through the
+//   from this origin's GET /api/asset (asked again on the light poll, mdPicCheck: one rewritten on disk shows without a
+//   reload); a remote or data: image, or one that leaves the tree, is its alt text (ADR-0030). A link opens only through the
 //   allowlist (mdTarget) - another origin's http(s), mailto, an in-document #heading, another registered document of this
 //   instance (by its path, with its #heading), an image of the tree in a new tab; anything else is inert text.
 // - Every block token's map becomes data-lo/data-hi on the element drawn for it. Inside a paragraph or heading each source
@@ -504,7 +505,7 @@ function mdImage(c){const raw=String(mdAttr(c,'src')||''),alt=String(c.content||
   if(r.path){const box=mdEl('span'),img=/** @type {HTMLImageElement} */(mdEl('img')); box.className='md-pic'; box.dataset.path=r.path;
     img.alt=alt; img.loading='lazy'; img.decoding='async'; img.draggable=false;
     const known=MD_PIC_SIZE.get(r.path); if(known){img.width=known.w; img.height=known.h; box.classList.add('md-pic-ok');}
-    img.addEventListener('load',mdPicLoad); img.addEventListener('error',mdPicError); img.src=mdAssetUrl(DOC,r.path);
+    img.addEventListener('load',mdPicLoad); img.addEventListener('error',mdPicError); img.src=mdPicUrl(DOC,r.path);
     box.appendChild(img); return box;}
   const e=mdEl('span'),src=ccPlain(raw); e.className='md-img'; e.append(tr('그림')+': '); mdTextNow(e,alt||raw);   // the alt text is drawn text, as the paragraph's, its marked characters in their boxes
   e.dataset.tip=r.why==='remote'?tl('원격 그림은 불러오지 않습니다 · {src}',{src}):r.why==='out'?tl('원고 밖의 그림은 불러오지 않습니다 · {src}',{src})
@@ -523,6 +524,50 @@ function mdPicLoad(e){const img=/** @type {HTMLImageElement} */(e.target),box=im
   if(box.classList.contains('md-pic-ok')&&+(img.getAttribute('width')||0)===w&&+(img.getAttribute('height')||0)===h)return;
   if(w&&h){img.width=w; img.height=h;} else{img.removeAttribute('width'); img.removeAttribute('height');}
   box.classList.add('md-pic-ok'); if(box.isConnected&&isMdDoc()&&!mdGoOn())mdSpotBack();}
+// ---------------- A tree image changed on disk (docs/handbook/viewer.md §그림)
+// The page keeps the picture it decoded for an address as long as it lives (HTML's list of available images), so an image
+// rewritten on disk showed only after a reload, a redraw drawing the same address again. On the light poll (polling.js),
+// the tree images that have loaded on screen or within one document area's height of it - the nearest MD_PIC_CHECK.max of
+// them, at most once every MD_PIC_CHECK.gap ms, one request at a time - are asked again: fetch(…, {cache:'no-cache'})
+// revalidates with the tag the browser holds (an unchanged image is a stat and a 304 on the server, AssetTags) and reads
+// the ETag. An image whose tag moved on gets its address with &v=<the new tag> (the server reads only doc and path): one the
+// page has not decoded, so the browser loads the new picture, and the box keeps the reading spot as for any image that loads
+// (mdPicLoad -> mdSpotBack). The first check of an address learns the tag of the picture it shows from the browser's cache
+// (cache:'force-cache': the response the <img> was given; without one, the tag now). The version is kept per document and
+// path (MD_PIC_VER), so a redraw or a return to the document draws the new picture too. No route, no field: only GET /api/asset.
+const MD_PIC_CHECK={max:6,gap:4000,last:-Infinity,busy:false,asked:0};
+const MD_PIC_TAG=/** @type {Map<string,string>} */(new Map());   // an address -> the ETag of the picture an image at it shows
+const MD_PIC_VER=/** @type {Map<string,string>} */(new Map());   // doc + '\n' + tree path -> the version its address carries
+const MD_PIC_KEEP=256;   // the most entries either map keeps, the oldest dropped first
+// The address the tree image at path loads from now: mdAssetUrl's, with the version a check found (MD_PIC_VER).
+/** @param {string|null} doc @param {string} path */
+function mdPicUrl(doc,path){const v=MD_PIC_VER.get(String(doc||'')+'\n'+path); return mdAssetUrl(doc,path)+(v?'&v='+encodeURIComponent(v):'');}
+/** @param {Map<string,string>} map @param {string} k @param {string} v */
+function mdPicKeep(map,k,v){map.delete(k); map.set(k,v); while(map.size>MD_PIC_KEEP){const first=map.keys().next().value; if(first===undefined)break; map.delete(first);}}
+// The ETag GET url answers with (cache: the fetch's cache mode), or '' for none - a refusal, no answer. Its body is not read.
+/** @param {string} url @param {RequestCache} cache @returns {Promise<string>} */
+async function mdPicTag(url,cache){MD_PIC_CHECK.asked++;
+  try{const r=await fetch(url,{cache,credentials:'same-origin'}),t=r.ok?r.headers.get('ETag')||'':''; if(r.body)r.body.cancel().catch(()=>{}); return t;}
+  catch(e){return '';}}
+// One check of the tree images near the document area (the header above): how many were given a new address.
+/** @returns {Promise<number>} */
+async function mdPicCheck(){const now=performance.now(),k=DOC;
+  if(MD_PIC_CHECK.busy||now-MD_PIC_CHECK.last<MD_PIC_CHECK.gap||!isMdDoc()||isTextDoc()||MD.shown!==k||!mdColumnShown()||document.hidden)return 0;
+  const lr=$('#left').getBoundingClientRect(),near=/** @type {{img:HTMLImageElement,d:number}[]} */([]);
+  for(const img of /** @type {HTMLImageElement[]} */([...document.querySelectorAll('#md .md-pic img')])){if(!img.complete||!img.naturalWidth)continue;
+    const r=img.getBoundingClientRect(),d=r.bottom<lr.top?lr.top-r.bottom:r.top>lr.bottom?r.top-lr.bottom:0; if(d<=lr.height)near.push({img,d});}
+  if(!near.length)return 0;
+  near.sort((a,b)=>a.d-b.d); MD_PIC_CHECK.busy=true; MD_PIC_CHECK.last=now; let n=0,moved=0; const seen=new Set();
+  try{for(const {img} of near){const box=img.parentElement,path=box&&box.dataset.path,url=img.getAttribute('src')||'';
+      if(n>=MD_PIC_CHECK.max)break; if(!path||!url||seen.has(path))continue; seen.add(path); n++;
+      const was=MD_PIC_TAG.get(url)||await mdPicTag(url,'force-cache'),tag=await mdPicTag(url,'no-cache');
+      if(k!==DOC||MD.shown!==k)break;   // another document since: its images are its own
+      if(!tag)continue; mdPicKeep(MD_PIC_TAG,url,was||tag); if(!was||tag===was)continue;
+      mdPicKeep(MD_PIC_VER,k+'\n'+path,tag.replace(/^W\//,'').replace(/"/g,'')); const next=mdPicUrl(k,path); mdPicKeep(MD_PIC_TAG,next,tag);
+      for(const b of /** @type {HTMLElement[]} */([...document.querySelectorAll('#md .md-pic')]))if(b.dataset.path===path){const i=b.querySelector('img'); if(i&&i.getAttribute('src')!==next)i.src=next;}
+      moved++;}}
+  finally{MD_PIC_CHECK.busy=false;}
+  return moved;}
 // An image the server would not give (not there, not that format, outside the tree behind a link, too large): its alt text,
 // as for an image that is never loaded, saying so in the tip.
 /** @param {Event} e */

@@ -21,6 +21,10 @@ docs/guide.md (gd) - and the LaTeX manuscript (ms):
   when an image loads; a reflow during a heading jump does not cut it short; a tip names the hidden characters of the path
   or '#…' it shows; a link followed from the keyboard leaves the focus on its heading; a text document opened by a link
   draws no image and no link;
+- a tree image rewritten on disk shows without a reload: the light poll asks the images near the document area again,
+  one whose ETag moved on is loaded from a new address, the reading line stays, and a redraw keeps the new picture; the
+  check asks only images near the area, at most MD_PIC_CHECK.max of them, and not twice within MD_PIC_CHECK.gap
+  (ChangedOnDisk);
 - another origin's page cannot embed a tree image (Cross-Origin-Resource-Policy: same-origin), on a real loopback
   listener where the browser itself enforces the header; the viewer's own page still can;
 - the image, link and SVG checks hold in Firefox too (the *Firefox classes; WebKit does not launch everywhere, and its
@@ -357,6 +361,138 @@ class ReadingSpotChangedImage(AssetsBase):
             ),
             ["400", "3600", 3600],
         )
+
+
+# Room above an image near the reading line, the image, the heading the reading line is put on, and far below it a second
+# image that a scroll to the end loads.
+NEAR = (
+    "# 가까운 그림\n\n"
+    + "".join("위 %d 의 문단.\n\n" % i for i in range(1, 30))
+    + "![가까이](img/near.png)\n\n문단 가.\n\n문단 나.\n\n## 읽는 곳\n\n여기.\n\n"
+    + "".join("아래 %d 의 문단.\n\n" % i for i in range(1, 90))
+    + "![멀리](img/far.png)\n\n끝.\n"
+)
+# Where '## 읽는 곳' and the near image are in the document pane, in px from the pane's top.
+NEAR_TOP = "(()=>{const L=document.querySelector('#left').getBoundingClientRect().top,h=MD.heads.find(x=>x.title==='읽는 곳');return h.el.getBoundingClientRect().top-L;})()"
+NEAR_IMG = "document.querySelector(\"#md .md-pic[data-path='notes/img/near.png'] img\")"
+# One check now, whatever the last one's time: how many images it gave a new address, and how many requests it made.
+CHECK = "(async()=>{MD_PIC_CHECK.last=-Infinity; const a=MD_PIC_CHECK.asked,n=await mdPicCheck(); return [n,MD_PIC_CHECK.asked-a];})()"
+
+
+class ChangedOnDisk(AssetsBase):
+    """A tree image rewritten on disk while its document is open shows without a reload, and the text stays in place."""
+
+    PLAN = NEAR
+
+    def setUp(self):
+        super().setUp()
+        (self.src / "notes" / "img" / "near.png").write_bytes(blank_png(200, 300))
+        (self.src / "notes" / "img" / "far.png").write_bytes(blank_png(50, 50))
+
+    def open_md(self, **kw):
+        """The viewer on nt, drawn (far.png, lazy and far below, has not loaded: AssetsBase's wait would never end)."""
+        page = self.open(0, **kw)
+        until(page, DRAWN, 20)
+        settle(page)
+        return page
+
+    def assets_asked(self) -> list[str]:
+        """The /api/asset requests made so far, by address."""
+        return [a for a in self.asked if a.startswith("/api/asset?")]
+
+    def test_a_rewritten_image_shows_on_the_light_poll_and_the_reading_line_stays(self):
+        """The reading line on '## 읽는 곳', the near image just above the document area (within one area's height); a first
+        check learns its tag and changes nothing. near.png is then rewritten 200x700 (400px taller); the light poll (pollLight) asks it again, loads it from
+        its address with &v=<its new tag>, and the heading stays where it was in the pane, to 2px (the browser's scroll
+        anchoring off, as in ReadingSpot). A check of the unchanged image gives no new address. A redraw (the source
+        edited) draws the new picture again, at its new address. Mutations: drop the light poll's mdPicCheck (polling.js)
+        -> the image never changes, fails; draw a redraw's image at mdAssetUrl instead of mdPicUrl -> the old picture
+        comes back, fails."""
+        page = self.open_md()
+        add_test_style(page, "#left,#left *{overflow-anchor:none}")
+        page.evaluate(
+            "(()=>{const h=MD.heads.find(x=>x.title==='읽는 곳'),L=document.querySelector('#left');"
+            " L.scrollTop+=h.el.getBoundingClientRect().top-L.getBoundingClientRect().top-40;})()"
+        )
+        until(page, NEAR_IMG + ".complete&&" + NEAR_IMG + ".naturalHeight===300")
+        settle(page)
+        # Wholly above the area's top and within one area's height of it: near enough to be asked, and what its new size
+        # would move is the text being read.
+        pane = page.evaluate("(r=>[r.top,r.height])(document.querySelector('#left').getBoundingClientRect())")
+        bottom = page.evaluate(NEAR_IMG + ".getBoundingClientRect().bottom")
+        self.assertLess(bottom, pane[0])
+        self.assertGreater(bottom, pane[0] - pane[1])
+        # Its tag learned - the cached answer, then the server's - and nothing changed.
+        self.assertEqual(page.evaluate(CHECK), [0, 2])
+        top = page.evaluate(NEAR_TOP)
+        (self.src / "notes" / "img" / "near.png").write_bytes(blank_png(200, 700))
+        page.evaluate("MD_PIC_CHECK.last=-Infinity; void pollLight()")
+        until(page, NEAR_IMG + ".naturalHeight===700", 10)
+        settle(page)
+        src = page.evaluate(NEAR_IMG + ".getAttribute('src')")
+        self.assertRegex(src, r"^/api/asset\?doc=nt&path=notes%2Fimg%2Fnear\.png&v=[0-9a-f]{24}$")
+        self.assertAlmostEqual(page.evaluate(NEAR_TOP), top, delta=2)
+        self.assertEqual(page.evaluate(CHECK)[0], 0)
+        self.assertEqual(page.evaluate(NEAR_IMG + ".getAttribute('src')"), src)
+        self.md_append(page)
+        until(page, NEAR_IMG + "&&" + NEAR_IMG + ".complete&&" + NEAR_IMG + ".naturalHeight===700", 10)
+        self.assertEqual(page.evaluate(NEAR_IMG + ".getAttribute('src')"), src)
+
+    def md_append(self, page):
+        """notes/plan.md gets one more line at its end; the light poll draws it again."""
+        plan = self.src / "notes" / "plan.md"
+        plan.write_text(plan.read_text(encoding="utf-8") + "\n더한 줄.\n", encoding="utf-8")
+        page.evaluate("void pollLight()")
+        until(page, "MD.lines.some(l=>l==='더한 줄.')&&" + DRAWN, 10)
+
+    def test_a_check_asks_only_images_near_the_area_a_few_at_a_time_and_not_too_often(self):
+        """far.png, loaded by a scroll to the end and then far below the area again, is not asked; near.png is - two requests
+        the first time (its cached answer, then the server's), one after. A second check within MD_PIC_CHECK.gap asks
+        nothing. With nine images on screen, one check asks at most MD_PIC_CHECK.max of them. The requests counted are the
+        ones the route saw. Mutations: drop the distance test -> far.png is asked, fails; drop the count bound -> all nine
+        are asked, fails; drop the gap -> the second check asks again, fails."""
+        page = self.open_md()
+        page.evaluate("document.querySelector('#left').scrollTop=document.querySelector('#left').scrollHeight")
+        far = "document.querySelector(\"#md .md-pic[data-path='notes/img/far.png'] img\")"
+        until(page, far + ".complete&&" + far + ".naturalWidth===50")
+        page.evaluate(
+            "(()=>{const h=MD.heads.find(x=>x.title==='읽는 곳'),L=document.querySelector('#left');"
+            " L.scrollTop+=h.el.getBoundingClientRect().top-L.getBoundingClientRect().top-40;})()"
+        )
+        until(page, NEAR_IMG + ".complete&&" + NEAR_IMG + ".naturalHeight===300")
+        settle(page)
+        before = len(self.assets_asked())
+        self.assertEqual(page.evaluate(CHECK), [0, 2])
+        asked = self.assets_asked()[before:]
+        self.assertEqual(len(asked), 2)
+        self.assertTrue(all("near.png" in a for a in asked), asked)
+        self.assertEqual(
+            page.evaluate(
+                "(async()=>{const a=MD_PIC_CHECK.asked; await mdPicCheck(); return MD_PIC_CHECK.asked-a;})()"
+            ),
+            0,
+        )
+        self.assertEqual(page.evaluate(CHECK), [0, 1])
+        many = "# 여럿\n\n" + "".join("![%d](img/s%d.png)\n\n" % (i, i) for i in range(9))
+        for i in range(9):
+            (self.src / "notes" / "img" / ("s%d.png" % i)).write_bytes(blank_png(30, 30))
+        (self.src / "notes" / "plan.md").write_text(many, encoding="utf-8")
+        page.evaluate("void pollLight()")
+        until(
+            page,
+            "document.querySelectorAll('#md .md-pic img').length===9&&[...document.querySelectorAll('#md .md-pic img')].every(i=>i.complete&&i.naturalWidth)",
+            10,
+        )
+        settle(page)
+        before = len(self.assets_asked())
+        self.assertEqual(page.evaluate(CHECK), [0, 2 * 6])
+        self.assertEqual(len({a for a in self.assets_asked()[before:]}), 6)
+
+
+class ChangedOnDiskFirefox(ChangedOnDisk):
+    """The same in Firefox."""
+
+    BROWSER_ENGINE = "firefox"
 
 
 class HeadingJump(AssetsBase):

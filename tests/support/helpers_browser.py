@@ -764,6 +764,8 @@ class BrowserBase(ChromiumTestCase):
         out = {"content-type": hdrs.get("content-type", "application/octet-stream")}
         if "content-disposition" in hdrs:  # a download's name, which the browser reads from the answer
             out["content-disposition"] = hdrs["content-disposition"]
+        if "etag" in hdrs:  # a tree image's content tag, which the Markdown surface compares to see a changed file
+            out["etag"] = hdrs["etag"]
         if "content-security-policy" in hdrs:  # the page's policy, reported on (helpers_csp.report_only)
             out.update(report_only(hdrs["content-security-policy"]))
         return {"status": code, "headers": out, "body": data}
