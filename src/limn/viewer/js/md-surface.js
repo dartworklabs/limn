@@ -252,8 +252,8 @@ const MD_OVER={over:true};   // thrown by mdEl past MD_LIMITS.elements
 function mdEl(tag){if(++MD.els>MD_LIMITS.elements)throw MD_OVER; return document.createElement(tag);}
 // ---------------- Characters that hide or reorder text in the drawn document (ADR-0029 D5, docs/handbook/viewer.md §숨은 문자)
 // Every piece of the source's text the document draws - a paragraph's, a heading's, a list item's, a table cell's, a link's,
-// inline and block code, a raw HTML placeholder's first line, an image's alt text - goes in through mdText (mdTextNow where
-// nothing may pause): a character of hidden-chars.js's repertoire stays in the text - a selection, a copy and a pin's quote
+// inline and block code, a raw HTML placeholder's first line, an image's alt text - goes in through mdText, pausing with the
+// rest of the build (mdTextNow only for the placeholder's first line, 120 characters at most): a character of hidden-chars.js's repertoire stays in the text - a selection, a copy and a pin's quote
 // keep it - inside its box (ccBox), so no line reads in another order than its source; a box is two elements against
 // MD_LIMITS.elements (mdBox) and one unit of work (mdDue). A string with none of them, nearly every one, is one text node after
 // one native test (mdPlain). The byte-order mark that starts the file is kept as on the text surface (ccKept's first): line 1
@@ -386,7 +386,7 @@ function* mdInline(t,parent,w){const m=mdInlineLines(t),kids=t.children||[];
       case 'strong_open':case 'em_open':case 's_open':{const e=mdEl(c.type==='strong_open'?'strong':c.type==='em_open'?'em':'s'); top.appendChild(e); stack.push(e); break;}
       case 'link_open':{const e=mdLink(mdAttr(c,'href')); top.appendChild(e); stack.push(e); break;}
       case 'strong_close':case 'em_close':case 's_close':case 'link_close':if(stack.length>1)stack.pop(); break;
-      case 'image':top.appendChild(mdImage(c)); break;
+      case 'image':top.appendChild(yield* mdImage(c,w)); break;
       case 'html_inline':{const e=mdEl('code'); e.className='md-html-in'; top.appendChild(e); yield* mdText(e,c.content,w); break;}
       default:if(c.content)yield* mdText(top,c.content,w);}
     if(mdDue(w))yield;}}
@@ -503,14 +503,14 @@ function mdTarget(raw,origin,base,docs){const r=mdHref(raw,origin); if(r.open)re
 // box that keeps a place for it (12rem x 8rem, CSS) until its size is known - at once when an earlier draw learned it
 // (MD_PIC_SIZE) - and once it loads the reading spot is put back (mdPicLoad), so an image above the reading line never moves
 // the text being read. Anything else is the image's alt text, with why it is not loaded in the tip.
-/** @param {any} c @returns {HTMLElement} */
-function mdImage(c){const raw=String(mdAttr(c,'src')||''),alt=String(c.content||mdAttr(c,'alt')||''),r=mdImgPath(raw,mdBase());
+/** @param {any} c @param {{n:number}} w @returns {Generator<void,HTMLElement,void>} */
+function* mdImage(c,w){const raw=String(mdAttr(c,'src')||''),alt=String(c.content||mdAttr(c,'alt')||''),r=mdImgPath(raw,mdBase());
   if(r.path){const box=mdEl('span'),img=/** @type {HTMLImageElement} */(mdEl('img')); box.className='md-pic'; box.dataset.path=r.path;
     img.alt=alt; img.loading='lazy'; img.decoding='async'; img.draggable=false;
     const known=MD_PIC_SIZE.get(r.path); if(known){img.width=known.w; img.height=known.h; box.classList.add('md-pic-ok');}
     img.addEventListener('load',mdPicLoad); img.addEventListener('error',mdPicError); img.src=mdPicUrl(DOC,r.path);
     box.appendChild(img); return box;}
-  const e=mdEl('span'),src=ccPlain(raw); e.className='md-img'; e.append(tr('그림')+': '); mdTextNow(e,alt||raw);   // the alt text is drawn text, as the paragraph's, its marked characters in their boxes
+  const e=mdEl('span'),src=ccPlain(raw); e.className='md-img'; e.append(tr('그림')+': '); yield* mdText(e,alt||raw,w);   // the alt text is drawn text, as the paragraph's, its marked characters in their boxes, pausing as it does
   e.dataset.tip=r.why==='remote'?tl('원격 그림은 불러오지 않습니다 · {src}',{src}):r.why==='out'?tl('원고 밖의 그림은 불러오지 않습니다 · {src}',{src})
     :tl('이 그림은 불러오지 않습니다 · {src}',{src});
   e.dataset.tipUrl=src; return e;}

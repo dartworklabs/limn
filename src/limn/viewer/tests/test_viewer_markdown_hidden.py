@@ -12,6 +12,7 @@ a list item, table cells, a link's text, inline code, a code block, a raw HTML b
 - a click still picks the line it is on and the quote keeps the characters (Display);
 - the boxes count against the element limit: 20,000 of them in one paragraph are drawn, with pauses inside it; 40,000 are
   past it, and the line view then names them as text, as the text surface's names view does (Budget);
+- a remote image's alt text of 10,000 boxes is built with pauses inside it, and a newer draw stops it there (AltBudget);
 - the line view a limit gives draws its lines with the same boxes and notice (LineView);
 - a document with a NUL (U+0000) - which markdown-it would turn into U+FFFD - is the line view, its NULs in their boxes,
   copied and quoted as U+0000 (Nul);
@@ -223,6 +224,28 @@ class Budget(HiddenBase):
         self.assertIn("40,000개", got["note"])
         self.assertIn("이름이 복사됩니다", got["note"])
         self.assertIn("그릴 요소가 너무 많아", got["head"])
+
+
+class AltBudget(HiddenBase):
+    """A remote image's alt text is drawn text like a paragraph's: its boxes pause the build and a newer draw stops it."""
+
+    DOC_TEXT = "# 대체 글\n\n![" + ("a" + ZWSP) * 10_000 + "](https://tracker.example/x.png)\n"
+
+    def test_a_long_alt_text_yields_and_a_newer_draw_stops_it(self):
+        """10,000 zero-width spaces in the alt text of a remote image (one inline child): all drawn as boxes in its
+        .md-img, with a pause to the browser at least every MD_LIMITS.chunk of them; a build whose draw goes stale at its
+        first pause stops there, with fewer than half of the boxes built. Mutation: draw the alt text with mdTextNow (no
+        pause) -> no pause inside it and every box built before the stale draw stops, fails."""
+        page = self.open_md()
+        self.assertEqual(page.evaluate("document.querySelectorAll('#md .md-img .cc').length"), 10_000)
+        got = page.evaluate(
+            "(async()=>{const y=mdYield; let n=0; window.mdYield=()=>{n++; return y();};"
+            "const res=await mdParse(MD.lines.join('\\n')); await mdRenderAll(res.tokens,()=>false); const pauses=n; n=0;"
+            "const root=await mdRenderAll(res.tokens,()=>n>0); window.mdYield=y; return {pauses,stopped:root===null,built:MD.marked};})()"
+        )
+        self.assertGreaterEqual(got["pauses"], 10_000 // 2_000)
+        self.assertTrue(got["stopped"])
+        self.assertLess(got["built"], 5_000)
 
 
 class LineView(HiddenBase):
