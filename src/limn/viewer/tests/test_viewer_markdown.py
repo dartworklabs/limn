@@ -30,7 +30,16 @@ from limn.administration import serve_documents as startup_documents
 
 import helpers_csp
 from helpers import ps, req
-from helpers_browser import BrowserBase, clock_now, clock_still, ime_compose, ime_end_with, settle
+from helpers_browser import (
+    BrowserBase,
+    clock_now,
+    clock_still,
+    hold_pin_reads,
+    ime_compose,
+    ime_end_with,
+    settle,
+    until,
+)
 from helpers_figure import BUILD1, viewer_build
 from helpers_outline import outline_pdf
 
@@ -1609,6 +1618,30 @@ class ReadingSpot(MarkdownBase):
         settle(page)
         self.assertTrue(page.evaluate(SEEN))
 
+    def test_the_changes_view_and_back_keeps_the_top_line(self):
+        """Reading at line 247, the changes view opened and closed (setViewMode): the column is hidden meanwhile, which reads
+        as no width and no line at the top; the spot from before stays and the text comes back at line 247, not line 1."""
+        page = self.open_md(viewport={"width": 1440, "height": 900})
+        self.to_line(page, 247)
+        page.evaluate("setViewMode(VIEW_MODE.REVISIONS)")
+        settle(page)
+        page.evaluate("setViewMode(VIEW_MODE.MANUSCRIPT)")
+        settle(page)
+        self.assertAlmostEqual(page.evaluate(TOP_LINE), 247, delta=1)
+
+    def test_a_rotation_in_the_changes_view_keeps_the_top_line(self):
+        """The foldable turned while its changes view is open: the column comes back at the other width, reflowed, and the
+        line at the top is still line 247 (the spot read before the column was hidden, put back at the new width)."""
+        page = self.open_md(**TABLET_PORTRAIT)
+        self.to_line(page, 247)
+        page.evaluate("setViewMode(VIEW_MODE.REVISIONS)")
+        settle(page)
+        page.set_viewport_size({"width": 841, "height": 673})
+        settle(page)
+        page.evaluate("setViewMode(VIEW_MODE.MANUSCRIPT)")
+        settle(page)
+        self.assertAlmostEqual(page.evaluate(TOP_LINE), 247, delta=1)
+
 
 class Accessibility(MarkdownBase):
     """What a screen reader and a keyboard meet on a Markdown document: the names say document, not PDF; the pin badges come
@@ -1696,6 +1729,25 @@ class Accessibility(MarkdownBase):
         self.assertEqual(
             page.evaluate("document.activeElement.matches('#md .md-badge')&&+document.activeElement.dataset.id"),
             page.evaluate("PINS[0].id"),
+        )
+
+    def test_a_late_save_leaves_the_focus_in_a_note_begun_since(self):
+        """A save's pins reload held back, and meanwhile another line picked and its note typed: when the reload comes the
+        focus and the typed text stay in the new note - the earlier save does not send the focus to its pin's badge."""
+        page = self.open_md()
+        self.pick_line(page, 4)
+        page.fill("#note", "먼저 저장")
+        held = hold_pin_reads(page)
+        page.keyboard.press("Control+Enter")
+        until(page, lambda: page.evaluate("!COMPOSE.current&&document.getElementById('composer').hidden") and held)
+        self.pick_line(page, fixture_line("첫째 항목"))
+        page.focus("#note")
+        page.keyboard.type("새 메모")
+        held[0].fallback()
+        until(page, "PINS.length===1")
+        settle(page)
+        self.assertEqual(
+            page.evaluate("[document.activeElement.id,document.getElementById('note').value]"), ["note", "새 메모"]
         )
 
 

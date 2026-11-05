@@ -146,20 +146,27 @@ function mdRestore(a){const L=$('#left'); if(!a){return;} const e=mdLeaves(a.lin
 // Reads the spot now: the line element at the document area's top (mdAt) and how far down it the top is (frac, 0-1; el null
 // at the very top), the column's width, and whether the chosen lines (.md-sel) are on screen. A read at a width that is not
 // the spot's is left for mdSpotKeep - the reflow moved what it would read - unless force (a new draw: nothing to keep).
+// While the column is not laid out (hidden under the changes view, or 0 wide) nothing is read: the spot read before stays,
+// for mdSpotKeep to put back once the column is shown at a width again; a new draw there leaves no spot.
 /** @param {boolean} [force] */
 function mdSpotRead(force){const md=$('#md'),L=$('#left'); if(!isMdDoc()||!md||MD.shown!==DOC){MD.spot=null; return;}
-  const s=MD.spot,w=md.getBoundingClientRect().width; if(!force&&s&&s.doc===DOC&&s.w!==w)return;
+  const s=MD.spot,w=md.getBoundingClientRect().width; if(!mdLaidOut(w)){if(force)MD.spot=null; return;}
+  if(!force&&s&&s.doc===DOC&&s.w!==w)return;
   const top=L.getBoundingClientRect().top,e=L.scrollTop>0?mdAt(mdLineEls(),top):null,r=e&&e.getBoundingClientRect();
   MD.spot={doc:DOC,w,el:e,frac:r&&r.height?Math.min(1,Math.max(0,(top-r.top)/r.height)):0,sel:mdSelSeen()};}
 // Puts the spot back after the column's width moved: the same point of the same line element at the area's top (the very top
 // stays the top), then - when the chosen lines were on screen - those lines back into view (revealBox, every layout), and
-// reads the spot at the new width. Nothing moves while the width is the spot's. A write is held under half a pixel.
+// reads the spot at the new width. Nothing moves while the width is the spot's, nor while the column is not laid out
+// (mdLaidOut): the spot waits for the column's next width. A write is held under half a pixel.
 function mdSpotKeep(){const s=MD.spot,md=$('#md'),L=$('#left'); if(!s||s.doc!==DOC||!md||!isMdDoc()||MD.shown!==DOC)return;
-  if(md.getBoundingClientRect().width===s.w)return;
+  const w=md.getBoundingClientRect().width; if(w===s.w||!mdLaidOut(w))return;
   if(!s.el||!s.el.isConnected){if(L.scrollTop>0)L.scrollTop=0;}
   else{const r=s.el.getBoundingClientRect(),d=r.top+s.frac*r.height-L.getBoundingClientRect().top; if(Math.abs(d)>=0.5)L.scrollTop+=d;}
   if(s.sel)revealBox(/** @type {HTMLElement|null} */(document.querySelector('#md .md-sel')),true);
   mdSpotRead(true);}
+// Whether the document column is laid out at width w (#md's): shown (#left has boxes - not under the changes view) and wider than 0.
+/** @param {number} w */
+function mdLaidOut(w){return w>0&&$('#left').getClientRects().length>0;}
 // Whether any of the chosen lines (.md-sel) stands in the part of the document area they can be seen in (selRoom).
 function mdSelSeen(){const e=document.querySelector('#md .md-sel'); if(!e)return false; const r=e.getBoundingClientRect(),m=selRoom();
   return r.bottom>m.top&&r.top<m.bottom-8;}

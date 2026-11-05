@@ -237,15 +237,25 @@ function restoreSelection(snap,focus){if(!snap||COMPOSE.current||COMPOSE.picking
   return true;}
 // Whether the focus has nowhere left to stay: on <body>, or inside the composer or the popover by the box, which have just
 // closed (a field hidden under the focus may still report itself focused until the next layout).
+// What a late focusPlace checks against: this visit and the composer's intent, read just after the composer closed.
+function focusClosed(){return {visit:captureVisit(),intent:COMPOSE.intent};}
+// Whether an input method's composition is open in the page (compositionstart, not ended since).
+let IME_OPEN=false;
+addEventListener('compositionstart',()=>{IME_OPEN=true;},true);
+addEventListener('compositionend',()=>{IME_OPEN=false;},true);
 function focusFell(){const a=document.activeElement; return !a||a===document.body||$('#composer').contains(a)||$('#sel-pop').contains(a);}
 // Puts a focus that fell (focusFell) when the composer closed - Esc, [취소], a save, an append - where its work was, so the next
 // Tab goes on from there, not from the page's start (<body>, then the sidebar's first control): the pin saved or appended to
 // (id) - its badge on the Markdown surface, its mark on a PDF page, where the save chip's [되돌리기] is the next Tab - else the
 // place selection d was made at: the line dragged or pressed first on the Markdown surface (raw_lo; the pick may have widened
 // to its block), its page on a PDF; else the document area. A place that is
-// no control holds the focus while it has it (focusHold). A focus the person has put elsewhere meanwhile stays.
-/** @param {Selection|null|undefined} d @param {number|null} id */
-function focusPlace(d,id){if(!focusFell())return;
+// no control holds the focus while it has it (focusHold). A focus the person has put elsewhere meanwhile stays, and so does
+// one in a composer opened since (a save's answer and the pins it reloads come later): with closed - the visit and the
+// composer's intent just after the close (focusClosed) - nothing moves unless both are still those, no composer or pick is
+// open and no input method's composition is (IME_OPEN).
+/** @param {Selection|null|undefined} d @param {number|null} id @param {{visit:{doc:string|null,seq:number},intent:number}} [closed] */
+function focusPlace(d,id,closed){if(closed&&!(currentVisit(closed.visit)&&COMPOSE.intent===closed.intent))return;
+  if(COMPOSE.current||COMPOSE.picking||!$('#composer').hidden||IME_OPEN||!focusFell())return;
   const mark=/** @type {HTMLElement|null} */(id?document.querySelector('#doc [data-act="mark-jump"][data-id="'+id+'"]'):null);
   if(mark&&mark.getClientRects().length){mark.focus({preventScroll:true}); return;}
   let at=/** @type {HTMLElement|null} */(null);

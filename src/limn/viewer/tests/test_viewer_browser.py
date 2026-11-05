@@ -34,7 +34,7 @@ import helpers_figure
 from helpers import SW_JS, add_pin, blank_png, edit_stored, find_record, minimal_pdf, ps, records, trash_records
 from helpers_access import ALICE, BOB, CAROL, REPO_NEW as NEW, REPO_OLD as OLD, actor
 from helpers_authority import post_authority
-from helpers_browser import BrowserBase, booted, ime_compose, ime_end_with, settle, watch_idle
+from helpers_browser import BrowserBase, booted, hold_pin_reads, ime_compose, ime_end_with, settle, until, watch_idle
 
 HANGUL = re.compile(r"[가-힣]")
 A, B = actor(ALICE), actor(BOB)
@@ -1707,6 +1707,26 @@ class QuestionNudgeFocus(BrowserBase):
         self.assertEqual(
             page.evaluate("document.activeElement.matches('#p1 .mark-jump')&&+document.activeElement.dataset.id"),
             page.evaluate("OPEN_ALL[0].id"),
+        )
+
+    def test_a_late_save_leaves_the_focus_in_a_note_begun_since(self):
+        """A save's pins reload held back, and meanwhile a new region picked and its note typed: when the reload comes the
+        focus and the typed text stay in the new note - the earlier save does not send the focus to its pin's mark."""
+        page = self.open(0)
+        self.open_composer(page)
+        page.focus("#note")
+        page.keyboard.type("먼저 저장")
+        held = hold_pin_reads(page)
+        page.keyboard.press("Control+Enter")
+        until(page, lambda: page.evaluate("!COMPOSE.current&&document.getElementById('composer').hidden") and held)
+        self.open_composer(page)
+        page.focus("#note")
+        page.keyboard.type("새 메모")
+        held[0].fallback()
+        until(page, "OPEN_ALL.length===1")
+        settle(page)
+        self.assertEqual(
+            page.evaluate("[document.activeElement.id,document.getElementById('note').value]"), ["note", "새 메모"]
         )
 
 

@@ -8,7 +8,8 @@
   beside it or resizing the window reflowed the column and kept only the scroll offset, so the top line jumped by tens
   of lines (L247 to L307) and a chosen line could leave the screen with only the composer showing. The line at the top
   and how far into it the top stands are kept across every reflow, as the PDF surface keeps its spot, and a chosen line
-  that was on screen is brought back into view.
+  that was on screen is brought back into view. Opening the changes view and coming back keeps it too, also when the
+  window turned meanwhile.
 - **[위치 다시 잡기] on a Markdown pin marks the candidate in the document,** as the PDF surface draws its box, and the
   banner and the moved-pin message write a one-line range as `L9`, not `L9-L9`, on both surfaces.
 - **Screen readers and the keyboard on a Markdown document.** The document area is the region "Markdown document", not
@@ -19,7 +20,8 @@
   description.
 - **Esc, [취소] and a save leave the focus at the place, on both surfaces,** instead of on the page's body, where the next
   Tab went to the sidebar: Esc and [취소] put it on the line clicked (Markdown) or the page of the selection (PDF), and a
-  save or an append on the pin's badge or mark.
+  save or an append on the pin's badge or mark. A save whose answer comes after a new selection was opened leaves the
+  focus in the new note.
 
 ## 0.4.50 — 2026-11-05
 
