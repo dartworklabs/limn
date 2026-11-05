@@ -239,10 +239,14 @@ function restoreSelection(snap,focus){if(!snap||COMPOSE.current||COMPOSE.picking
 // closed (a field hidden under the focus may still report itself focused until the next layout).
 // What a late focusPlace checks against: this visit and the composer's intent, read just after the composer closed.
 function focusClosed(){return {visit:captureVisit(),intent:COMPOSE.intent};}
-// Whether an input method's composition is open in the page (compositionstart, not ended since).
-let IME_OPEN=false;
-addEventListener('compositionstart',()=>{IME_OPEN=true;},true);
-addEventListener('compositionend',()=>{IME_OPEN=false;},true);
+// The element an input method's composition is open in (compositionstart, not ended since), else null. A composition is over
+// once its element ends it, loses the focus (blur), leaves the document - a field drawn away with no compositionend (a switch
+// of documents, a rebuild) - or a new one starts elsewhere; imeOpen() reads the last two at the moment it is asked.
+let IME_EL=/** @type {Element|null} */(null);
+addEventListener('compositionstart',e=>{IME_EL=e.target instanceof Element?e.target:null;},true);
+addEventListener('compositionend',e=>{if(e.target===IME_EL)IME_EL=null;},true);
+addEventListener('focusout',e=>{if(e.target===IME_EL)IME_EL=null;},true);
+function imeOpen(){const e=IME_EL,a=document.activeElement; if(e&&(!e.isConnected||!(a===e||(a&&e.contains(a)))))IME_EL=null; return !!IME_EL;}
 function focusFell(){const a=document.activeElement; return !a||a===document.body||$('#composer').contains(a)||$('#sel-pop').contains(a);}
 // Puts a focus that fell (focusFell) when the composer closed - Esc, [취소], a save, an append - where its work was, so the next
 // Tab goes on from there, not from the page's start (<body>, then the sidebar's first control): the pin saved or appended to
@@ -252,10 +256,10 @@ function focusFell(){const a=document.activeElement; return !a||a===document.bod
 // no control holds the focus while it has it (focusHold). A focus the person has put elsewhere meanwhile stays, and so does
 // one in a composer opened since (a save's answer and the pins it reloads come later): with closed - the visit and the
 // composer's intent just after the close (focusClosed) - nothing moves unless both are still those, no composer or pick is
-// open and no input method's composition is (IME_OPEN).
+// open and no input method's composition is (imeOpen).
 /** @param {Selection|null|undefined} d @param {number|null} id @param {{visit:{doc:string|null,seq:number},intent:number}} [closed] */
 function focusPlace(d,id,closed){if(closed&&!(currentVisit(closed.visit)&&COMPOSE.intent===closed.intent))return;
-  if(COMPOSE.current||COMPOSE.picking||!$('#composer').hidden||IME_OPEN||!focusFell())return;
+  if(COMPOSE.current||COMPOSE.picking||!$('#composer').hidden||imeOpen()||!focusFell())return;
   const mark=/** @type {HTMLElement|null} */(id?document.querySelector('#doc [data-act="mark-jump"][data-id="'+id+'"]'):null);
   if(mark&&mark.getClientRects().length){mark.focus({preventScroll:true}); return;}
   let at=/** @type {HTMLElement|null} */(null);

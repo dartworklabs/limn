@@ -26,14 +26,14 @@ const MD_LIMITS=Object.freeze({nesting:20,blocks:30000,inlines:150000,elements:6
 // (at), the limit hit (limit), its headings, the worker and its parse in flight,
 // whether a redraw waits for a field (waiting), the elements built so far (els), the document #doc shows now (shown: '' for
 // none - a PDF document's pages, the wait line), the reading spot a kept view asks for once it is drawn (want) and the reading
-// spot as last read at the column's width then (spot, mdSpotRead: kept across a reflow, mdSpotKeep).
+// spot as last read at the column's width then (spot, mdSpotRead: kept across a reflow and a redraw while hidden, mdSpotKeep).
 const MD={gen:0,doc:/** @type {string|null} */(''),file:'',name:'',lines:/** @type {string[]} */([]),mtime:/** @type {number|null} */(null),
   asked:/** @type {number|null} */(null),at:0,limit:/** @type {string|null} */(null),
   heads:/** @type {{level:number,lo:number,el:HTMLElement,title:string,slug:string}[]} */([]),
   worker:/** @type {Worker|null} */(null),job:/** @type {{id:number,resolve:(r:any)=>void,t:ReturnType<typeof setTimeout>}|null} */(null),seq:0,
   waiting:false,els:0,shown:/** @type {string|null} */(''),want:/** @type {{line:number,off:number,top:number}|null} */(null),
   jumpTo:/** @type {{id:number,doc:string|null,seq:number}|null} */(null),
-  spot:/** @type {{doc:string|null,w:number,el:HTMLElement|null,frac:number,sel:boolean}|null} */(null)};
+  spot:/** @type {{doc:string|null,w:number,el:HTMLElement|null,line:number,key:string,frac:number,off:number|null,sel:boolean,again:boolean}|null} */(null)};
 // Whether the document on screen is drawn here (no pages), and whether pin p belongs to such a document of this instance.
 function isMdDoc(){return !!META&&rendersInBrowser(META.kind);}
 /** @param {Pin} p */
@@ -88,9 +88,16 @@ async function mdBuild(){if(mdFieldBusy()){MD.waiting=true; return;}
     root=mdLineView(/** @type {string} */(limit));}
   mdShow(root);}
 // Puts node in #doc, keeping the reading spot (the source line at the pane's top, and how far down it), then the marks, the
-// outline, the strip and the chosen lines.
+// outline, the strip and the chosen lines. While the column is hidden (under the changes view) nothing can be measured: the
+// spot read before it was hidden (MD.spot, or the view a return asks for) is kept as its line and marked to be put back on
+// that line's new element once the column is shown, at whatever width (mdSpotKeep).
 /** @param {HTMLElement} node */
-function mdShow(node){const a=MD.want||(MD.shown===DOC?mdAnchor():null); MD.want=null; MD.limit=node.dataset.limit||null;
+function mdShow(node){const want=MD.want,shown=mdColumnShown(); MD.want=null; MD.limit=node.dataset.limit||null;
+  const a=shown?(want||(MD.shown===DOC?mdAnchor():null)):null;
+  if(!shown){const s=MD.spot;
+    if(want)MD.spot={doc:DOC,w:0,el:null,line:want.line,key:'',frac:0,off:want.off,sel:false,again:true};
+    else if(s&&s.doc===DOC&&MD.shown===DOC){s.el=null; s.again=true;}
+    else MD.spot=null;}
   $('#doc').replaceChildren(node); MD.shown=DOC; mdRestore(a);
   if(MD_RO)MD_RO.observe(node); mdOutline(); marks(); mdRelevel(); mdSelMark(mdSelShown()); mdStrip(); mdSpotRead(true);
   const j=MD.jumpTo; MD.jumpTo=null; if(j&&j.doc===DOC&&j.seq===SWITCHSEQ)mdJump(j.id);}   // a jump asked before the draw (mdJump)
@@ -146,27 +153,38 @@ function mdRestore(a){const L=$('#left'); if(!a){return;} const e=mdLeaves(a.lin
 // Reads the spot now: the line element at the document area's top (mdAt) and how far down it the top is (frac, 0-1; el null
 // at the very top), the column's width, and whether the chosen lines (.md-sel) are on screen. A read at a width that is not
 // the spot's is left for mdSpotKeep - the reflow moved what it would read - unless force (a new draw: nothing to keep).
-// While the column is not laid out (hidden under the changes view, or 0 wide) nothing is read: the spot read before stays,
-// for mdSpotKeep to put back once the column is shown at a width again; a new draw there leaves no spot.
+// While the column is not laid out (hidden under the changes view, or 0 wide) nothing is read: the spot read before stays -
+// a redraw there too (mdShow) - for mdSpotKeep to put back once the column is shown again. A spot a hidden redraw left to be
+// put back (again) is not read over before that, even at its width: the scroll the column's showing makes is not the person's.
 /** @param {boolean} [force] */
 function mdSpotRead(force){const md=$('#md'),L=$('#left'); if(!isMdDoc()||!md||MD.shown!==DOC){MD.spot=null; return;}
-  const s=MD.spot,w=md.getBoundingClientRect().width; if(!mdLaidOut(w)){if(force)MD.spot=null; return;}
-  if(!force&&s&&s.doc===DOC&&s.w!==w)return;
+  const s=MD.spot,w=md.getBoundingClientRect().width; if(!mdLaidOut(w))return;
+  if(!force&&s&&s.doc===DOC&&(s.w!==w||s.again))return;
   const top=L.getBoundingClientRect().top,e=L.scrollTop>0?mdAt(mdLineEls(),top):null,r=e&&e.getBoundingClientRect();
-  MD.spot={doc:DOC,w,el:e,frac:r&&r.height?Math.min(1,Math.max(0,(top-r.top)/r.height)):0,sel:mdSelSeen()};}
+  MD.spot={doc:DOC,w,el:e,line:e?+(e.dataset.line||e.dataset.lo||0):0,key:e?(e.dataset.line?'line':'lo'):'',
+    frac:r&&r.height?Math.min(1,Math.max(0,(top-r.top)/r.height)):0,off:null,sel:mdSelSeen(),again:false};}
+// The element that stands for spot s's line now: its element if still drawn, else the one a redraw drew for that line - the
+// same kind (a line span, a block starting there), else the first that carries the line (mdLeaves). null: the very top.
+/** @param {NonNullable<typeof MD.spot>} s */
+function mdSpotEl(s){if(s.el&&s.el.isConnected)return s.el; if(!s.line)return null;
+  const md=$('#md'),k=s.key==='lo'?'data-lo':'data-line',e=/** @type {HTMLElement|null} */(md&&md.querySelector('['+k+'="'+s.line+'"]'));
+  return e||mdLeaves(s.line,s.line)[0]||null;}
 // Puts the spot back after the column's width moved: the same point of the same line element at the area's top (the very top
 // stays the top), then - when the chosen lines were on screen - those lines back into view (revealBox, every layout), and
-// reads the spot at the new width. Nothing moves while the width is the spot's, nor while the column is not laid out
-// (mdLaidOut): the spot waits for the column's next width. A write is held under half a pixel.
+// reads the spot at the new width. Nothing moves while the width is the spot's - unless the document was drawn again while
+// the column was hidden (again: the scroll offset then stands on other lines even at the same width) - nor while the column
+// is not laid out (mdLaidOut): the spot waits for the column's next width. A write is held under half a pixel.
 function mdSpotKeep(){const s=MD.spot,md=$('#md'),L=$('#left'); if(!s||s.doc!==DOC||!md||!isMdDoc()||MD.shown!==DOC)return;
-  const w=md.getBoundingClientRect().width; if(w===s.w||!mdLaidOut(w))return;
-  if(!s.el||!s.el.isConnected){if(L.scrollTop>0)L.scrollTop=0;}
-  else{const r=s.el.getBoundingClientRect(),d=r.top+s.frac*r.height-L.getBoundingClientRect().top; if(Math.abs(d)>=0.5)L.scrollTop+=d;}
+  const w=md.getBoundingClientRect().width; if((w===s.w&&!s.again)||!mdLaidOut(w))return;
+  const e=mdSpotEl(s);
+  if(!e){if(L.scrollTop>0)L.scrollTop=0;}
+  else{const r=e.getBoundingClientRect(),d=r.top+(s.off!==null?s.off:s.frac*r.height)-L.getBoundingClientRect().top; if(Math.abs(d)>=0.5)L.scrollTop+=d;}
   if(s.sel)revealBox(/** @type {HTMLElement|null} */(document.querySelector('#md .md-sel')),true);
   mdSpotRead(true);}
 // Whether the document column is laid out at width w (#md's): shown (#left has boxes - not under the changes view) and wider than 0.
 /** @param {number} w */
-function mdLaidOut(w){return w>0&&$('#left').getClientRects().length>0;}
+function mdLaidOut(w){return w>0&&mdColumnShown();}
+function mdColumnShown(){return $('#left').getClientRects().length>0;}
 // Whether any of the chosen lines (.md-sel) stands in the part of the document area they can be seen in (selRoom).
 function mdSelSeen(){const e=document.querySelector('#md .md-sel'); if(!e)return false; const r=e.getBoundingClientRect(),m=selRoom();
   return r.bottom>m.top&&r.top<m.bottom-8;}
@@ -458,7 +476,7 @@ function mdSelShown(){const c=REPICK&&REPICK.cand; if(!c)return COMPOSE.current;
 /** @param {{file?:string,lo?:number|null,hi?:number|null,kind?:string,pdf?:string}|null} d */
 function mdSelMark(d){$$('#md .md-sel').forEach(e=>e.classList.remove('md-sel'));
   if(d&&isMdDoc()&&d.file===MD.file&&!isRegion(d))mdLeaves(/** @type {number} */(d.lo),/** @type {number} */(d.hi)).forEach(e=>e.classList.add('md-sel'));
-  if(MD.spot&&MD.spot.doc===DOC)MD.spot.sel=mdSelSeen();}
+  if(MD.spot&&MD.spot.doc===DOC&&mdColumnShown())MD.spot.sel=mdSelSeen();}   // hidden, nothing is on screen: what was stays
 // The elements that stand for lines lo..hi: each line span in range, and each block in range that has no line spans of its own
 // and no smaller block in range (a rule, an HTML block) - the smallest things on screen that carry those lines. A table cell's
 // line stands for its row: the row is what is tinted, so a pinned row reads as one band.

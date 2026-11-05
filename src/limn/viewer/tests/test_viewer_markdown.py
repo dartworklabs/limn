@@ -1629,6 +1629,24 @@ class ReadingSpot(MarkdownBase):
         settle(page)
         self.assertAlmostEqual(page.evaluate(TOP_LINE), 247, delta=1)
 
+    def test_a_redraw_in_the_changes_view_keeps_the_top_line(self):
+        """Reading at line 247, the changes view opened, the earlier paragraphs lengthened on disk (the same lines, taller
+        blocks) and drawn again by the light poll while the column is hidden: back on the text at the same width, the top
+        line is still line 247 - the spot read before the column was hidden is kept as its line through the hidden redraw
+        and put back on that line's new element once the column is shown."""
+        page = self.open_md(viewport={"width": 1440, "height": 900})
+        self.to_line(page, 247)
+        page.evaluate("setViewMode(VIEW_MODE.REVISIONS)")
+        settle(page)
+        longer = "셋째 줄을 길게 늘였다. " * 12
+        self.write(self.MD_TEXT.replace("셋째 줄.", longer.strip()))
+        page.evaluate("pollLightOnce()")
+        until(page, "document.querySelector('#md').textContent.includes('셋째 줄을 길게 늘였다.')")
+        settle(page)
+        page.evaluate("setViewMode(VIEW_MODE.MANUSCRIPT)")
+        settle(page)
+        self.assertAlmostEqual(page.evaluate(TOP_LINE), 247, delta=1)
+
     def test_a_rotation_in_the_changes_view_keeps_the_top_line(self):
         """The foldable turned while its changes view is open: the column comes back at the other width, reflowed, and the
         line at the top is still line 247 (the spot read before the column was hidden, put back at the new width)."""
