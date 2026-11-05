@@ -26,7 +26,7 @@ Limn은 원고를 PDF로 빌드해 쪽 이미지로 보여 주고, 그 위에 �
 
 - Limn은 푸시하는 사람을 모두 믿는 원고 저장소만 가리키게 한다. 자동 확인은 `main` 만 fast-forward 하므로 남의 PR 브랜치가 저절로 빌드되지는 않지만, `main` 에 머지되면 빌드된다.
 - 서버 계정에는 원고 빌드에 필요한 것만 둔다. 같은 계정의 다른 저장소 자격 증명이나 토큰 파일은 원고 쪽 코드가 읽을 수 있다.
-- 비교 PDF 빌드(`/api/revision-build`)는 다르다. 과거 커밋의 스냅샷을 `bwrap` 격리 안에서 `latexmk -norc -no-shell-escape` 로 돌려 원고의 `latexmkrc` 를 읽지 않고, 홈 디렉토리·원본 저장소·네트워크도 보이지 않는다([api.md](api.md) §실행 환경과 격리). 스냅샷은 문서를 등록한 경로의 빌드 루트를 Git 객체에서 만들며, 점으로 시작하는 이름 아래의 파일은 blob을 읽기 전에 뺀다. 빌드 사본이 점으로 시작하는 폴더를 건너뛰는 것과 같은 규칙이다([api.md](api.md) §비교 PDF 실행과 캐시).
+- 비교 PDF 빌드(`/api/revision-build`)는 다르다. 과거 커밋의 스냅샷을 `bwrap` 격리 안에서 `latexmk -norc -no-shell-escape` 로 돌려 원고의 `latexmkrc` 를 읽지 않고, 홈 디렉토리·원본 저장소·네트워크도 보이지 않는다([api.md](api.md) §실행 환경과 격리). 스냅샷은 문서를 등록한 경로의 빌드 루트를 Git 객체에서 만들며, 점으로 시작하는 이름 아래의 파일은 blob을 읽기 전에 뺀다. 빌드 사본이 점으로 시작하는 폴더를 건너뛰는 것과 같은 규칙이고, 이름은 원고 폴더 기준으로 본다. 빌드 루트 자체가 그런 이름 아래이면 스냅샷을 만들지 않는다([api.md](api.md) §비교 PDF 실행과 캐시).
 - 본 빌드도 같은 방식(`-norc`, 격리)으로 돌리는 선택 인자는 나중의 후보다. 약속이 아니고 지금 동작은 그대로다. `latexmkrc` 에 기대는 원고가 있어서 기본값으로 켜면 그런 빌드가 깨진다.
 
 이 가정은 [SECURITY.md](../../SECURITY.md) §The manuscript repository is trusted code 와 [operations.md](operations.md) §보안 제약에도 적었다.

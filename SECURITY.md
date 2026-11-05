@@ -39,12 +39,16 @@ What the server does defend against:
 - The change view and comparison builds (`/api/revisions`, `/api/revision-diff`, `/api/revision-build`,
   `/api/revision-pdf`) show only a document's own registered files: a LaTeX document's manuscript files in its main
   file's folder, a figure document's map, the PDF it names and the files it lists, a Markdown or text document's own
-  file. Never a file under a dot-named part of the document's folder — the history, the diffs and a comparison build's
-  snapshots of both commits leave such files out, a figure map that lists one included — and never a file of another
-  folder whose name a Git pattern would also match (a folder `paper[1]` is matched as that name). The files, a pin's
-  file and the ranges recorded when it was closed are named by the paths registered at startup: a folder replaced by a
-  symlink after that — to a dot-named folder, another folder or another repository — does not change which files they
-  are.
+  file. Never a file under a dot-named part of the manuscript, judged from `--manuscript`: startup refuses a document
+  whose path or build root has one (`--doc`, `--main`, `limn add`, `limn doc add`), and the history, the diffs and a
+  comparison build's snapshots of both commits leave such files out, a figure map that lists one included. Never a
+  file of another folder whose name a Git pattern would also match (a folder `paper[1]` is matched as that name). A
+  document's files are named by the paths registered at startup. A pin's file and the ranges recorded when it was
+  closed are named by the paths stored on the pin, placed under the manuscript root registered at startup without
+  asking the tree: a stored path below that root is that path, and a record from a moved or cloned checkout is placed by
+  its own `file_rel` (a record without one is not placed, and the change view falls back to inferring the pin's
+  blocks or to the whole commit). So a folder replaced by a symlink after startup — to a dot-named folder, another
+  folder or another repository — does not change which files they are.
 - Images a Markdown document shows: `GET /api/asset?doc=&path=` serves an image of the manuscript tree and nothing
   else ([ADR-0030](docs/adr/0030-markdown-tree-images-and-document-links.md), Korean). It takes only a normalized
   path relative to `--manuscript` with an image suffix (`png`, `jpg`, `jpeg`, `gif`, `webp`, `svg`): a leading `/`, a
