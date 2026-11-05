@@ -1,9 +1,9 @@
 # Markdown 화면의 그림과 문서 사이 링크 — 원고 트리 안의 그림, 등록된 문서로 가는 상대 링크
 
-> **상태: 제안(소유자 승인 전).** 결정 초안은 [ADR-0030](../../adr/0030-markdown-tree-images-and-document-links.md)(`제안`)이다. [HTML 문서 화면 설계](2026-10-24-html-document-surface.md)의 이후 단계 4다. [ADR-0025](../../adr/0025-html-document-surface.md) D6의 "그림은 불러오지 않는다"와, 상대 경로 링크를 글자로 두는 조항을 부분 대체한다. 보안 경계를 건너므로 [workflow.md](../../handbook/workflow.md) §기본 경로의 HARD-GATE에 따라 승인 뒤에만 `main` 에 넣는다.
+> **상태: 승인됨 (2026-11-05).** 소유자가 테일넷 PoC를 보고 §열린 결정의 여섯 물음을 모두 추천안대로 승인했다(그림의 뿌리는 원고 트리 전체, SVG는 받고 직접 열면 샌드박스, 8 MiB 한도, 다크 모드의 밝은 판, 링크로 간 전환만 기록 항목 하나, 그림 파일 링크는 새 탭). 결정 기록은 [ADR-0030](../../adr/0030-markdown-tree-images-and-document-links.md)(`승인됨`)이다. [HTML 문서 화면 설계](2026-10-24-html-document-surface.md)의 이후 단계 4다. [ADR-0025](../../adr/0025-html-document-surface.md) D6의 "그림은 불러오지 않는다"와, 상대 경로 링크를 글자로 두는 조항을 부분 대체한다. 보안 경계를 건너므로 [workflow.md](../../handbook/workflow.md) §기본 경로의 HARD-GATE에 따라 이 승인 뒤에 `main` 에 넣는다.
 >
 > - 대조한 코드: `main` 770fa20c(0.4.50). 아래 `file:line` 은 모두 이 커밋 기준이다.
-> - PoC: 브랜치 `poc/md-assets`. 추천안을 끝까지 구현했고 보안 시험이 붙어 있다. 승인되면 Handbook·SKILL·CHANGELOG를 더해 그대로 구현으로 쓴다(§PoC와 남은 일).
+> - PoC: 브랜치 `poc/md-assets`. 추천안을 끝까지 구현했고 보안 시험이 붙어 있다. 승인 뒤 구현 브랜치 `feat/markdown-images-links` 로 이어 써서 Handbook·SKILL·CHANGELOG를 더한다(§PoC와 남은 일).
 > - 형제 설계: 일반 텍스트·코드 문서([ADR-0029](../../adr/index.md), 브랜치 `md-text`)와 겹치지 않게 이 변경은 링크·그림 처리와 그림 읽기 경로만 건드린다.
 
 ## 문제
