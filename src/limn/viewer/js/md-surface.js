@@ -334,14 +334,18 @@ function* mdFront(t,top,w){const box=mdEl('div'); box.className='md-front'; mdMa
   const head=mdEl('div'); head.className='md-front-l'; head.lang=document.documentElement.lang;   // the viewer's words, in the screen's language
   head.textContent=tl('머리 정보 · YAML {n}줄',{n:Math.max(0,hi-lo+1)});
   const pre=mdEl('pre'),code=mdEl('code'); pre.dataset.lang='yaml'; pre.appendChild(code); box.append(head,pre); top.appendChild(box);
-  for(let n=lo;n<=hi;n++){const sp=mdEl('span'); sp.className='ln'; sp.dataset.line=String(n); sp.textContent=String(MD.lines[n-1]||'')+'\n'; code.appendChild(sp); if(mdDue(w))yield;}}
+  for(let n=lo;n<=hi;n++){const sp=mdEl('span'),ln=String(MD.lines[n-1]||''); sp.className='ln'; sp.dataset.line=String(n);
+    if(mdPlain(ln))sp.textContent=ln+'\n'; else{yield* mdText(sp,ln,w); sp.appendChild(document.createTextNode('\n'));}   // hidden characters in their boxes, as a code line's
+    code.appendChild(sp); if(mdDue(w))yield;}}
 // Display math (the worker's math_block token, mdMathBlock in md-parse.mjs; ADR-0032): its TeX as written, never rendered -
 // a code box over the block's lines (data-lo..hi, kind math - a block of its own, md:math) with each line, its delimiters
 // included, one span (data-line), as a code block's. The lines are the token's (indentation and quote markers left out).
 /** @param {any} t @param {HTMLElement} top @param {{n:number}} w @returns {Generator<void,void,void>} */
 function* mdMath(t,top,w){const pre=mdEl('pre'),code=mdEl('code'); pre.className='md-math-block'; mdMap(pre,t,'math'); pre.appendChild(code); top.appendChild(pre);
   const first=t.map?t.map[0]+1:0,lines=String(t.content||'').split('\n');
-  for(let i=0;i<lines.length;i++){const s=mdEl('span'); s.className='ln'; if(first)s.dataset.line=String(first+i); s.textContent=lines[i]+'\n'; code.appendChild(s); if(mdDue(w))yield;}}
+  for(let i=0;i<lines.length;i++){const s=mdEl('span'),ln=lines[i]; s.className='ln'; if(first)s.dataset.line=String(first+i);
+    if(mdPlain(ln))s.textContent=ln+'\n'; else{yield* mdText(s,ln,w); s.appendChild(document.createTextNode('\n'));}   // hidden characters in their boxes, as a code line's
+    code.appendChild(s); if(mdDue(w))yield;}}
 // A raw HTML block's placeholder: its lines (it takes a pin), their count and its first line as code, never the HTML itself.
 /** @param {any} t @returns {HTMLElement} */
 function mdHtmlBox(t){const box=mdEl('div'); mdMap(box,t,'html'); box.className='md-html';
@@ -406,7 +410,7 @@ function* mdInline(t,parent,w){const m=mdInlineLines(t),kids=t.children||[];
         break;
       case 'strong_open':case 'em_open':case 's_open':{const e=mdEl(c.type==='strong_open'?'strong':c.type==='em_open'?'em':'s'); top.appendChild(e); stack.push(e); break;}
       case 'link_open':{const e=mdLink(mdAttr(c,'href')); top.appendChild(e); stack.push(e); break;}
-      case 'math_inline':{const e=mdEl('code'); e.className='md-math'; e.textContent=c.content; top.appendChild(e); break;}   // TeX as written, delimiters included (mdMathInline); one per source line
+      case 'math_inline':{const e=mdEl('code'); e.className='md-math'; top.appendChild(e); yield* mdText(e,c.content,w); break;}   // TeX as written, delimiters included (mdMathInline), hidden characters in their boxes; one per source line
       case 'strong_close':case 'em_close':case 's_close':case 'link_close':if(stack.length>1)stack.pop(); break;
       case 'image':top.appendChild(yield* mdImage(c,w)); break;
       case 'html_inline':{const e=mdEl('code'); e.className='md-html-in'; top.appendChild(e); yield* mdText(e,c.content,w); break;}

@@ -13,7 +13,8 @@
   on lines of its own - is recognised, never rendered: it shows its source, delimiters and backslashes included, in the
   code face, so emphasis and escapes no longer eat the `*`, `_` and `\` inside it (`$t^*$ … $t^*=\infty$`). Inline math
   has no tint and keeps every line of its paragraph on its own source line; display math is a code box like a code
-  block. A code span comes before math, also across line ends.
+  block. A code span comes before math, also across line ends. Characters that hide or reorder text show by name in
+  their boxes in both, as in the rest of the drawn body.
   - **Two new pin kinds for agents:** tapping the front matter picks the block, saved as kind `md:front` (scope
     `block`; the ladder is chosen lines -> front matter): edit those YAML lines. Display math is kind `md:math` (chosen
     lines -> math -> section): edit that TeX; its `quote` is the TeX as written. pins.md's range column names both.

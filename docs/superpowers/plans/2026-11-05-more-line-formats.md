@@ -30,7 +30,10 @@
 - [x] Step 1: ruff check·format, mypy 두 플랫폼, `npm run typecheck`, strict ratchet, `pytest -n 4 -m "not browser and not tex"`, `tests/architecture`, `test_viewer_markdown*.py`, `test_md_surface.py`, 계약·되돌림 시험. 브라우저는 `-n 4` 까지, 실패는 혼자 다시 돌린 뒤 판단한다.
 - [x] Step 2: `systemctl --user restart limn-poc-formats` 뒤 테일넷 주소가 200으로 답한다.
 
+## 숨은 문자 표시와 합치기(설계 §결정 10)
+
+- [x] #420이 `main` 에 들어온 뒤(ae354a85) 리베이스하고, 머리 정보 상자(`mdFront`)의 줄과 인라인·따로 선 수식의 글을 본문과 같은 길(`mdText`)로 넣는다. Expected: `test_viewer_markdown_hidden.py` 의 `FrontAndMath`(Chromium·Firefox)가 상자와 누르기 인용을 보고, 세 곳 어디든 `textContent` 로 되돌리면 실패한다.
+
 ## 열린 것
 
-- **숨은 문자 표시와 합치기(설계 §결정 10).** #420(Markdown 본문의 숨은 문자 표시)이 `main` 에 들어오면 머리 정보 상자(`mdFront`)의 줄과 인라인·따로 선 수식의 글을 그 길(`ccBox`·`ccHtml`)로 넣고, 그 없이는 실패하는 브라우저 시험을 더한다. 이 브랜치를 리베이스할 때 #420은 아직 머지되지 않았다.
 - **네 기기군 실측.** PoC 화면을 소유자가 보았다. 구현은 화면을 바꾸지 않았다(사다리 설명 문구만).
