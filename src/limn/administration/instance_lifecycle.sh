@@ -11,6 +11,7 @@ cmd_run() {
     [[ -n "$C_MANUSCRIPT" && -d "$C_MANUSCRIPT" ]] || die "MANUSCRIPT dir does not exist: '$C_MANUSCRIPT'"
     [[ -z "$C_DOCS" || -z "$C_MAIN" ]] || die "config error: MAIN and DOCS cannot be used together: $C_FILE"
     [[ -z "$C_MAIN" || -f "$C_MANUSCRIPT/$C_MAIN" ]] || die "MAIN file does not exist: $C_MANUSCRIPT/$C_MAIN"
+    [[ -z "$C_MAIN" ]] || main_check_dot "$(cd "$C_MANUSCRIPT" && pwd -P)" "$C_MANUSCRIPT/$C_MAIN"
     valid_port "${C_PORT:-x}" || die "PORT is missing or invalid: '$C_PORT' (never left to auto-pick — the advertised address would break)"
     [[ -z "$C_ACCENT" || "$C_ACCENT" =~ ^#[0-9a-fA-F]{6}$ ]] || die "ACCENT must be in #rrggbb format: '$C_ACCENT'"
     valid_ui_lang "$C_UI_LANG" || die "UI_LANG must be ko or en (or left out — the browser's language decides): '$C_UI_LANG'"
@@ -120,6 +121,7 @@ cmd_add() {
         ! main_is_figure_map "$main" || die "--main takes the LaTeX main (.tex) — a figure document is added with --doc <key>=<name>:$main"
         ! main_is_text_doc "$main" || die "--main takes the LaTeX main (.tex) — a text document is added with --doc <key>=<name>:$main"
         [[ "$main" != */* && -f "$manuscript/$main" ]] || die "main .tex is not at the top of the manuscript dir: $manuscript/$main"
+        main_check_dot "$manuscript" "$manuscript/$main"
     elif detect_docs_layout "$manuscript" "$stage"; then
         docs=("${DETECTED_DOCS[@]}")
         validate_doc_specs "$manuscript" "${docs[@]}"
@@ -128,6 +130,7 @@ cmd_add() {
         for d in "${docs[@]}"; do say "  $d"; done
     else
         main=$(detect_main "$manuscript") || die "automatic main .tex detection failed"
+        main_check_dot "$manuscript" "$manuscript/$main"
     fi
     [[ -z "$accent" || "$accent" =~ ^#[0-9a-fA-F]{6}$ ]] || die "--accent must be in #rrggbb format: $accent"
     valid_ui_lang "$ui_lang" || die "--ui-lang must be ko or en: $ui_lang"

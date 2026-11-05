@@ -73,14 +73,64 @@ name_suffix() {
     printf '.%s' "$(printf '%s' "${base##*.}" | tr '[:upper:]' '[:lower:]')"
 }
 
+# physical_file <path> — the path of an existing file with every symlink resolved, as Python's Path.resolve() gives it
+# (serve_documents.parse_doc_arg resolves a --doc path so): its folder by `pwd -P`, then the file's own links followed,
+# at most 40 (the kernel's limit). Printed; fails when a folder cannot be entered or the links do not end.
+physical_file() {
+    local p=$1 dir t i
+    for ((i = 0; i < 40; i++)); do
+        dir=$(cd "$(dirname "$p")" && pwd -P) || return 1
+        [[ "$dir" != / ]] || dir=""
+        p="$dir/$(basename "$p")"
+        if [[ ! -L "$p" ]]; then
+            printf '%s' "$p"
+            return 0
+        fi
+        t=$(readlink "$p") || return 1
+        [[ "$t" == /* ]] || t="$dir/$t"
+        p=$t
+    done
+    return 1
+}
+
+# dot_part <absolute manuscript path> <absolute path> — the first part of path below the manuscript whose name starts
+# with '.', as serve_documents.dot_part (the manuscript tree's rule) reads it: printed, or a failure when path has none
+# or is not below the manuscript. Nothing under such a part is the manuscript, so no document may be one.
+dot_part() {
+    local rest=${2#"$1"/} parts=() part
+    [[ "$rest" != "$2" && -n "$rest" ]] || return 1
+    IFS=/ read -ra parts <<< "$rest"
+    for part in "${parts[@]}"; do
+        if [[ "$part" == .* ]]; then
+            printf '%s' "$part"
+            return 0
+        fi
+    done
+    return 1
+}
+
+DOT_NAMED_WHY="Limn never reads a file under a dot-named part of the manuscript (.git, .env, …)"
+
+# main_check_dot <absolute manuscript path> <main file> — dies when the single document's main file (--main, or the
+# detected one), its links followed, has a dot-named part below the manuscript, as serve_documents.main_dot_refusal does.
+main_check_dot() {
+    local f part
+    f=$(physical_file "$2") || die "could not resolve the main file: $2"
+    if part=$(dot_part "$1" "$f"); then
+        die "the main .tex has a dot-named part ($part) — $DOT_NAMED_WHY, so it cannot serve it: $f"
+    fi
+}
+
 # doc_check_path <absolute manuscript path> — reads DOC_KEY/DOC_PATH filled by doc_parse_kv and
 # validates the path. The `::` notation (<build root>::<main.tex or figure map>) checks that both the build root
 # and the main file are inside the manuscript dir. A string pointing outside the manuscript via `../`
 # can't be caught by a plain prefix comparison (`$ms/../x` still starts with `$ms/` as a string), so
 # it's normalized with `cd .. && pwd -P` before comparing — the same `pwd -P` convention cmd_add uses
-# to normalize the manuscript argument itself.
+# to normalize the manuscript argument itself; the main file's own links are followed too (physical_file), as the server
+# resolves it. Neither the build root nor the main file may have a dot-named part below the manuscript (dot_part), as
+# serve_documents.parse_doc_arg refuses (DocDotNamed).
 doc_check_path() {
-    local ms=$1 path=$DOC_PATH key=$DOC_KEY root="" root_c="" main="" main_c=""
+    local ms=$1 path=$DOC_PATH key=$DOC_KEY root="" root_c="" main="" main_c="" part=""
     if [[ "$path" == *::* ]]; then
         local root_s=${path%%::*} main_s=${path#*::}
         [[ "$main_s" != *::* ]] || die "--doc $key: extended notation takes exactly one <build root>::<main.tex>: $path"
@@ -92,6 +142,9 @@ doc_check_path() {
             "$ms"/* | "$ms") ;;
             *) die "--doc $key: build root is outside --manuscript($ms): $root_c" ;;
         esac
+        if part=$(dot_part "$ms" "$root_c"); then
+            die "--doc $key: the build root has a dot-named part ($part) — $DOT_NAMED_WHY, so it cannot serve this document: $root_c"
+        fi
         [[ "$main_s" != /* ]] || die "--doc $key: the main after '::' must be relative to the build root: $main_s"
         main="$root_c/$main_s"
         [[ "$(name_suffix "$main")" == .tex || "$main" == *.limnmap.json ]] ||
@@ -107,11 +160,14 @@ doc_check_path() {
         fi
     fi
     [[ -f "$main" ]] || die "--doc $key: file does not exist: $main"
-    main_c="$(cd "$(dirname "$main")" && pwd -P)/$(basename "$main")" || die "--doc $key: could not resolve the path: $main"
+    main_c=$(physical_file "$main") || die "--doc $key: could not resolve the path: $main"
     case "$main_c" in
         "$ms"/*) ;;
         *) die "--doc $key: path is outside --manuscript($ms): $main_c" ;;
     esac
+    if part=$(dot_part "$ms" "$main_c"); then
+        die "--doc $key: the path has a dot-named part ($part) — $DOT_NAMED_WHY, so it cannot serve this document: $main_c"
+    fi
     if [[ -n "$root_c" ]]; then
         case "$main_c" in
             "$root_c"/*) ;;

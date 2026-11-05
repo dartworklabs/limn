@@ -144,6 +144,19 @@ class DocFileMissing:
 
 
 @dataclass(frozen=True)
+class DocDotNamed:
+    """The build root of the '::' form (part "root") or the file (part "path"), symlinks resolved, has a part below
+    --manuscript whose name starts with '.' - dot is the first such part. Nothing there is the manuscript
+    (limn.platform.files.tree_part: /api/source and every route reading a named file refuse it), so such a document
+    could never be shown, and its history would be a dot-named folder's."""
+
+    key: str
+    part: Literal["root", "path"]
+    dot: str
+    path: Path
+
+
+@dataclass(frozen=True)
 class DocKindUnknown:
     """The main file is neither .tex (LaTeX), .pdf (view-only), a figure map (MAP_SUFFIX, exact case), .md (Markdown)
     nor a text suffix (TEXT_SUFFIXES)."""
@@ -182,9 +195,21 @@ DocSpecRefusal: TypeAlias = (
     | DocMainOutsideRoot
     | DocExtendedWrongKind
     | DocFileMissing
+    | DocDotNamed
     | DocKindUnknown
 )
 DocsRefusal: TypeAlias = DocSpecRefusal | TooManyDocs | DocKeyRepeated
+
+
+def dot_part(path: Path, ms: Path) -> str | None:
+    """The first part of path below the manuscript folder ms (both resolved) whose name starts with '.' - the manuscript
+    tree's rule (limn.platform.files.tree_part), judged only below ms - or None when it has none or is not below ms.
+    Pure."""
+    try:
+        parts = path.relative_to(ms).parts
+    except ValueError:
+        return None
+    return next((part for part in parts if part.startswith(".")), None)
 
 
 def parse_doc_arg(spec: str, ms: Path) -> DocSpec | DocSpecRefusal:
@@ -199,7 +224,9 @@ def parse_doc_arg(spec: str, ms: Path) -> DocSpec | DocSpecRefusal:
       element map are imported, never built; its folder, the base of the map's source paths, is x.
     - `<key>=<name>:a::b/figures.limnmap.json` - a figure document whose folder is a; the map is a/b/figures.limnmap.json.
     key must be [a-z0-9-]{1,24}; name must be 40 characters or fewer with no ':'. The path must be inside
-    --manuscript (a security constraint: a pin can only ever point at a file inside the manuscript tree).
+    --manuscript (a security constraint: a pin can only ever point at a file inside the manuscript tree), and neither it
+    nor the build root may have a dot-named part below --manuscript once symlinks are resolved (DocDotNamed) - the same
+    rule as the shell's `limn add`/`limn doc add` (instance_documents.sh doc_check_path).
     Returns the DocSpec, or the first rule the value breaks (DocSpecRefusal), checked in this order: form, key, name,
     path, then the files. Reads the file system only to resolve the paths and check that they exist."""
     if not isinstance(spec, str) or "=" not in spec:
@@ -239,6 +266,8 @@ def parse_doc_arg(spec: str, ms: Path) -> DocSpec | DocSpecRefusal:
             return root
         if not root.is_dir():
             return DocRootMissing(key, root)
+        if (dot := dot_part(root, ms)) is not None:
+            return DocDotNamed(key, "root", dot, root)
         mp = Path(main_s.strip())
         if mp.is_absolute():
             return DocMainAbsolute(key, mp)
@@ -256,6 +285,8 @@ def parse_doc_arg(spec: str, ms: Path) -> DocSpec | DocSpecRefusal:
         main, root = found, found.parent
     if not main.is_file():
         return DocFileMissing(key, main)
+    if (dot := dot_part(main, ms)) is not None:
+        return DocDotNamed(key, "path", dot, main)
     suf = name_suffix(main.name)
     kind: DocKind
     if main.name.endswith(MAP_SUFFIX):
@@ -303,6 +334,12 @@ def doc_refusal_message(r: DocsRefusal) -> str:
             return "--doc %s: '::' 표기는 LaTeX 문서(.tex)와 그림 지도(%s)에만 씁니다: %s" % (key, MAP_SUFFIX, main)
         case DocFileMissing(key=key, main=main):
             return "--doc %s: 파일이 없습니다: %s" % (key, main)
+        case DocDotNamed(key=key, part=part, dot=dot, path=path):
+            what = "빌드 루트" if part == "root" else "경로"
+            return (
+                "--doc %s: %s 에 점으로 시작하는 이름(%s)이 있습니다 - 원고 폴더에서 점 이름(.git·.env 같은) 아래의 파일은 "
+                "Limn 이 읽지 않으므로 이 문서를 보일 수 없습니다: %s" % (key, what, dot, path)
+            )
         case DocKindUnknown(key=key, main=main):
             return "--doc %s: .tex(LaTeX), .pdf(보기 전용), %s(그림), .md(Markdown), 텍스트(%s)만 받습니다: %s" % (
                 key,
@@ -384,11 +421,12 @@ def doc_start_line(key: str, kind: DocKind, path: str, build_started: bool) -> s
 
 
 def detect_main(src: Path) -> Path | StartupRefused:
-    """Find the top-level .tex. If it's ambiguous, don't guess - refuse with the candidates."""
+    """Find the top-level .tex. If it's ambiguous, don't guess - refuse with the candidates. A dotfile (.draft.tex) is
+    never one: it is not the manuscript, and the shell's detect_main (a bash glob) never lists it either."""
     cands = [
         p
         for p in sorted(src.glob("*.tex"))
-        if "\\documentclass" in p.read_text(encoding="utf-8", errors="ignore")[:20000]
+        if not p.name.startswith(".") and "\\documentclass" in p.read_text(encoding="utf-8", errors="ignore")[:20000]
     ]
     if len(cands) == 1:
         return cands[0]
@@ -426,7 +464,8 @@ def pick_documents(src: Path, specs: Sequence[str], main: str | None) -> RunDocu
     (TEXT_SUFFIXES, ADR-0029: plot.py, notes.txt), rather than built as LaTeX and failing - except LaTeX's own sources
     (LATEX_OWN_SUFFIXES: .bib .sty .cls .bst), which latexmk builds like a .tex when they hold a document, as before. A
     figure map (MAP_SUFFIX, any case) is refused with the --doc form too. The suffix is name_suffix's: a dotfile named
-    .py or ..py has none, on every Python."""
+    .py or ..py has none, on every Python. The main file - given or detected - is refused when, symlinks resolved, it has
+    a dot-named part below src (main_dot_refusal), as a --doc path is (DocDotNamed)."""
     if not src.is_dir():
         return StartupRefused("Manuscript directory does not exist: %s" % src)
     if specs:
@@ -454,4 +493,22 @@ def pick_documents(src: Path, specs: Sequence[str], main: str | None) -> RunDocu
         return main_file
     if not main_file.exists():
         return StartupRefused("Top-level .tex does not exist: %s" % main_file)
-    return RunDocuments(None, main_file)
+    refused = main_dot_refusal(src, main_file)
+    return refused if refused is not None else RunDocuments(None, main_file)
+
+
+def main_dot_refusal(src: Path, main_file: Path) -> StartupRefused | None:
+    """The refusal of a single document's main file (--main, or the detected one) that, symlinks resolved, has a
+    dot-named part below the manuscript folder src (resolved), else None - the --doc rule (DocDotNamed) for --main, and
+    the shell's (instance_documents.sh main_check_dot)."""
+    try:
+        real = main_file.resolve()
+    except (OSError, RuntimeError):
+        return None
+    dot = dot_part(real, src)
+    if dot is None:
+        return None
+    return StartupRefused(
+        "The main .tex has a dot-named part (%s) - Limn never reads a file under a dot-named part of the manuscript "
+        "(.git, .env, ...), so it cannot serve it: %s" % (dot, real)
+    )

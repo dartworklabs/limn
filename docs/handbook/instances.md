@@ -98,7 +98,7 @@ limn add paper2 --manuscript ~/papers/paper2 --git-pull --label Paper2
 | 옵션 | 뜻 |
 | --- | --- |
 | `--manuscript <dir>` | 원고 폴더. 필수 |
-| `--main <file.tex>` | 최상위 `.tex`. 원고 폴더 맨 위에 있어야 한다. `--doc`과 함께 쓰지 않는다. `.md`, 그림 지도(`.limnmap.json`), 텍스트 문서의 확장자(`.py`·`.txt` 등. LaTeX 메인일 수 있는 `.bib`·`.sty`·`.cls`·`.bst`는 받는다)는 빌드하지 않고 거절하며 `--doc <키>=<이름>:<경로>` 꼴을 알린다. Markdown 문서와 텍스트 문서는 `--doc`으로 더한다 |
+| `--main <file.tex>` | 최상위 `.tex`. 원고 폴더 맨 위에 있어야 한다. 점 파일(`.draft.tex`)이나 점으로 시작하는 폴더를 가리키는 링크는 거부한다(찾은 메인도 같다). `--doc`과 함께 쓰지 않는다. `.md`, 그림 지도(`.limnmap.json`), 텍스트 문서의 확장자(`.py`·`.txt` 등. LaTeX 메인일 수 있는 `.bib`·`.sty`·`.cls`·`.bst`는 받는다)는 빌드하지 않고 거절하며 `--doc <키>=<이름>:<경로>` 꼴을 알린다. Markdown 문서와 텍스트 문서는 `--doc`으로 더한다 |
 | `--doc <키>=<표시 이름>:<경로>` | 문서. 여러 번 준다. `--main`과 함께 쓰지 않는다 |
 | `--stage auto\|initial\|revision` | 기본 문서 탭 자동 탐지에만 쓴다. `--doc`·`--main`과 함께 주면 거부한다 |
 | `--port N` / `--ts-port N` | 로컬 포트와 테일넷 포트를 직접 준다. 하나만 주면 나머지는 짝 간격(`LIMN_LOCAL_OFFSET`, 기본 `100`)으로 계산한다 |
@@ -180,7 +180,7 @@ limn add paper2 --manuscript ~/papers/paper2        # 같은 결과를 설정에
 | `--doc` 형식 | `<키>=<표시 이름>:<경로>`. 첫 `=` 앞이 키, 다음 `:`까지가 이름, 나머지가 경로 |
 | 키 | `[a-z0-9-]{1,24}`, 중복 금지. 핀에 남으므로 한 번 정하면 바꾸지 않는다 |
 | 이름 | 비어 있으면 안 되고 40자 이하 |
-| 경로 | `--manuscript` 기준 상대(권장) 또는 절대. 반드시 `--manuscript` 안. `.tex`(LaTeX), `.pdf`(보기 전용), `.limnmap.json`(그림 문서), `.md`(Markdown 문서), 텍스트 확장자(텍스트 문서, 아래)만 받는다 |
+| 경로 | `--manuscript` 기준 상대(권장) 또는 절대. 반드시 `--manuscript` 안. `.tex`(LaTeX), `.pdf`(보기 전용), `.limnmap.json`(그림 문서), `.md`(Markdown 문서), 텍스트 확장자(텍스트 문서, 아래)만 받는다. 심볼릭 링크를 푼 경로(`::` 의 빌드 루트도)가 `--manuscript` 아래에서 점으로 시작하는 이름 아래이면 거부한다. 서버가 기동할 때 거부하는 것과 같은 규칙이다([operations.md](operations.md) §여러 문서 (`--doc`)) |
 | `x/main.tex` | LaTeX, 빌드 루트 `x/` |
 | `root::sub/main.tex` | LaTeX, 빌드 루트 `root/`(복사 범위를 넓힌다), 메인 `root/sub/main.tex` |
 | `x/file.pdf` | 보기 전용(재빌드 없음, 쪽·영역 핀) |

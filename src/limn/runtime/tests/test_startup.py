@@ -25,6 +25,7 @@ from unittest import mock
 
 from limn.administration import serve_documents as startup_documents
 from limn.administration.serve_documents import (
+    DocDotNamed,
     DocExtendedMalformed,
     DocExtendedWrongKind,
     DocFileMissing,
@@ -819,6 +820,46 @@ class DocArgs(unittest.TestCase):
                 self.assertEqual(got, refusal)
                 self.assertEqual(startup_documents.doc_refusal_message(refusal), message)
         self.assertTrue((m2 / "2nd" / "m.tex").is_file())  # the '::' cases above fail on their rule, not a missing file
+
+    def test_rejects_a_dot_named_path(self):
+        """A path or a '::' build root with a dot-named part below --manuscript, symlinks resolved, is refused naming
+        that part (DocDotNamed): nothing there is the manuscript, so the document could never be shown."""
+        ms = self.ms.resolve()
+        (ms / ".Private").mkdir()
+        (ms / ".Private" / "main.tex").write_text(FIXTURE_TEX, encoding="utf-8")
+        (ms / "sub" / "rr" / ".draft.tex").write_text(FIXTURE_TEX, encoding="utf-8")
+        (ms / "linked").symlink_to(".Private", target_is_directory=True)
+        why = "원고 폴더에서 점 이름(.git·.env 같은) 아래의 파일은 Limn 이 읽지 않으므로 이 문서를 보일 수 없습니다"
+        cases = [
+            (
+                "pp=논문:.Private/main.tex",
+                DocDotNamed("pp", "path", ".Private", ms / ".Private" / "main.tex"),
+                "--doc pp: 경로 에 점으로 시작하는 이름(.Private)이 있습니다 - %s: %s"
+                % (why, ms / ".Private" / "main.tex"),
+            ),
+            (
+                "pp=논문:linked/main.tex",
+                DocDotNamed("pp", "path", ".Private", ms / ".Private" / "main.tex"),
+                "--doc pp: 경로 에 점으로 시작하는 이름(.Private)이 있습니다 - %s: %s"
+                % (why, ms / ".Private" / "main.tex"),
+            ),
+            (
+                "rr=답변서:sub/rr/.draft.tex",
+                DocDotNamed("rr", "path", ".draft.tex", ms / "sub" / "rr" / ".draft.tex"),
+                "--doc rr: 경로 에 점으로 시작하는 이름(.draft.tex)이 있습니다 - %s: %s"
+                % (why, ms / "sub" / "rr" / ".draft.tex"),
+            ),
+            (
+                "pp=논문:.Private::main.tex",
+                DocDotNamed("pp", "root", ".Private", ms / ".Private"),
+                "--doc pp: 빌드 루트 에 점으로 시작하는 이름(.Private)이 있습니다 - %s: %s" % (why, ms / ".Private"),
+            ),
+        ]
+        for spec, refusal, message in cases:
+            with self.subTest(spec):
+                got = startup_documents.parse_doc_arg(spec, self.ms)
+                self.assertEqual(got, refusal)
+                self.assertEqual(startup_documents.doc_refusal_message(refusal), message)
 
     def test_make_docs_rejects_duplicate_keys_and_marks_main_root(self):
         """make_docs returns the list's own refusals (a repeated key; more than DOCS_MAX values, counted before any is

@@ -403,12 +403,27 @@ fout=$("$PV" add docs-f --manuscript "$ms" --main Figures.LIMNMAP.JSON --no-star
 frc=$?
 chk "--main refuses a figure map (any case), names the --doc form and writes no config" \
     "[[ $frc -ne 0 ]] && grep -q -- 'figure document is added with --doc <key>=<name>:Figures.LIMNMAP.JSON' <<< \"\$fout\" && [[ ! -e '$T/config/docs-f.env' && ! -e '$T/src/docs-f.env' ]]"
+# A dotfile is no manuscript file, whatever its suffix: --main refuses .py and ..py (dotfiles with no suffix) and a
+# main.tex that is a link into a dot-named folder, as the server does (serve_documents.main_dot_refusal).
 printf '\\documentclass{article}\\begin{document}x\\end{document}\n' > "$ms/.py"
-chk "--main takes a dotfile with no suffix (.py), as the server does" "'$PV' add docs-d --manuscript '$ms' --main .py --no-start >/dev/null 2>&1"
 cp "$ms/.py" "$ms/..py"
-chk "--main takes ..py too (no suffix on every Python), as the server does" "'$PV' add docs-e --manuscript '$ms' --main ..py --no-start >/dev/null 2>&1"
+mkdir -p "$ms/.Private"
+cp "$ms/.py" "$ms/.Private/main.tex"
+ln -s .Private/main.tex "$ms/alias.tex"
+for m in .py ..py alias.tex; do
+    dout=$("$PV" add docs-d --manuscript "$ms" --main "$m" --no-start 2>&1)
+    drc=$?
+    chk "--main refuses $m (a dot-named part, its link followed) and writes no config" \
+        "[[ $drc -ne 0 ]] && grep -q -- 'has a dot-named part (' <<< \"\$dout\" && [[ ! -e '$T/config/docs-d.env' && ! -e '$T/src/docs-d.env' ]]"
+done
+for d in 'pp=논문:.Private/main.tex' 'pp=논문:.Private::main.tex' 'pp=논문:.::.Private/main.tex' 'pp=논문:alias.tex'; do
+    dout=$("$PV" add docs-d --manuscript "$ms" --doc "$d" --no-start 2>&1)
+    drc=$?
+    chk "--doc refuses $d (a dot-named part below the manuscript) and writes no config" \
+        "[[ $drc -ne 0 ]] && grep -q -- 'has a dot-named part (.Private)' <<< \"\$dout\" && [[ ! -e '$T/config/docs-d.env' && ! -e '$T/src/docs-d.env' ]]"
+done
 for n in docs-s docs-d docs-e; do "$PV" remove "$n" > /dev/null 2>&1; done
-rm -f "$ms/tool.PY" "$ms/paper.sty" "$ms/Figures.LIMNMAP.JSON" "$ms/.py" "$ms/..py"
+rm -rf "$ms/tool.PY" "$ms/paper.sty" "$ms/Figures.LIMNMAP.JSON" "$ms/.py" "$ms/..py" "$ms/alias.tex" "$ms/.Private"
 chk "rejects a nonexistent file" "! '$PV' add docs-x --manuscript '$ms' --doc 'x=문서:no-such.tex' --no-start >/dev/null 2>&1"
 mkdir -p "$ms/figs/out"
 printf '{"format": "limn-figure-map/1"}\n' > "$ms/figs/out/figures.limnmap.json"
