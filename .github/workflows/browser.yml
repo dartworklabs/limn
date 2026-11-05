@@ -102,8 +102,15 @@ jobs:
       - name: Install Chromium's system packages and fonts
         timeout-minutes: 10
         run: uv run playwright install-deps chromium
-      - name: Show the Chrome under test
-        run: google-chrome --version
+      # Then start it once, as the classes launch it (tests/support/helpers_browser.py start_chromium_once). The first start on
+      # a fresh runner reads Chrome's files cold: `google-chrome --version` has taken 20 s (2 s usually), and two such starts
+      # at once, in a part's first two classes, outlasted Playwright's 180 s launch limit and failed every test of both. Here
+      # the cold start is paid once under this step's limit, and a Chrome that cannot start fails this step by name.
+      - name: Show and start the Chrome under test
+        timeout-minutes: 5
+        run: |
+          google-chrome --version
+          uv run python tests/support/helpers_browser.py
       - name: Browser tests, one part
         env:
           LIMN_TEST_FONT_CACHE: ${{ runner.temp }}/browser-test-font
