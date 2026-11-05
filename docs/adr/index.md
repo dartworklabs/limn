@@ -32,6 +32,7 @@
 | [ADR-0026](0026-viewer-csp.md) | Limn의 HTML 페이지에 해시 기반 Content-Security-Policy를 강제한다 | 뷰어 `GET /` 와 거절 페이지는 보낼 글에서 잰 인라인 해시와 `'self'` 만 허용하는 정책(엄격한 `style-src`, `img-src 'self' https:`, `object-src`·`base-uri`·`form-action`·`frame-src`·`frame-ancestors` `'none'`)을 첫 판부터 강제하고, 그 밖의 응답은 `frame-ancestors 'none'` 하나로 둔다. [ADR-0025](0025-html-document-surface.md) D6이 HTML 화면의 앞선 조건으로 따로 정하기로 한 결정이며 ADR-0025를 대체하지 않는다 | 승인됨 | — | — |
 | [ADR-0027](0027-get-write-guard.md) | GET의 영속 유지 쓰기를 없애 외부 이동 뒤의 기동도 읽기로 둔다 | 모든 GET을 영속 무효과로 만들고 방문은 실제 변경 때, 핀·휴지통 유지는 시작과 60초 주기로 옮긴다. 헤더 없는 순수 GET은 받고, 한도 있는 메모리 캐시·Git 조회만 읽기 예외다 | 승인됨 | — | [ADR-0028](0028-saved-pin-positions.md) 부분 대체 |
 | [ADR-0028](0028-saved-pin-positions.md) | GET은 저장된 핀 위치만 주고 원고 변경은 독립 유지 검사로 따라간다 | 위치·rev를 저장 단위로 묶고 변경 POST의 stale 보호를 유지하며 2초 stat 검사로 요청 없이 유지 실행을 당긴다 | 승인됨 | 부분 대체: [ADR-0027](0027-get-write-guard.md) 결정 3의 메모리 GET 재동기화와 시작·60초에만 의존하는 유지 일정 | — |
+| [ADR-0029](0029-text-documents.md) | 일반 텍스트와 소스 코드를 원문 줄 그대로 보이는 텍스트 문서로 받는다 | 닫힌 확장자 목록의 파일을 `text` 종류로 받아 뷰어가 서버의 줄을 고정폭으로 보이고(파싱·구문 강조 없음), 핀은 `page` 없는 줄 핀이며 사다리는 고른 줄 → 문단 → 들여쓰기 블록(`indent`)이고, 글 순서를 바꾸거나 보이지 않는 문자는 이름으로 보인다 | 제안 | 부분 대체: [ADR-0020](0020-suggested-edit-pins.md) D1의 제안을 받는 문서에 텍스트를 더함, [ADR-0011](0011-figure-documents.md) D1의 지원 범위 문구 | — |
 
 ## 읽는 법
 
