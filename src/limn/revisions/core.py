@@ -839,7 +839,7 @@ def revision_diff(
         if base:
             sc = revision_pin_scope(D, repo, paths, base, commit, pin, revisions, ctx)
         else:
-            projection = ctx.pins(pin, D.key, D, lambda path: _repo_rel(D, repo, path))
+            projection = ctx.pins(pin, D.key, lambda path: _repo_rel(D, repo, path))
             sc = PinNotInDoc() if projection is None else PinScope(projection.id, "commit", "none", 0, 0)
         if isinstance(sc, PinNotInDoc):
             return sc
@@ -1068,12 +1068,7 @@ def revision_pin_scope(
     Unless the same pin facts were decided for this commit before (ctx.cache), reads the commit's files within one of
     the cache's slots and decides with revisions.scope.pin_scope(); an unreadable commit is mode "commit" and not
     stored."""
-    projected = ctx.pins(
-        pid,
-        D.key,
-        D,
-        lambda path: _repo_rel(D, repo, path),
-    )
+    projected = ctx.pins(pid, D.key, lambda path: _repo_rel(D, repo, path))
     if projected is None:
         return PinNotInDoc()
     changes = [

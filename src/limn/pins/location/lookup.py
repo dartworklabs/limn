@@ -98,28 +98,48 @@ def locate_file(file: object, file_rel: object, root: Path, state: Path, doc: Bu
     return PinLocation(rel, source) if isinstance(source, ManuscriptFile) else None
 
 
-def recorded_place(file: object, file_rel: object, root: Path, state: Path, doc: BuildRoot | None) -> Path | None:
-    """Where a stored absolute path - a pin's own `file` (with its file_rel) or a path in its `changes` (none) - is in
-    the coordinates the run registered: root is the manuscript root as startup resolved it (limn.server), and a stored
-    path lexically below it ('..' parts folded) is root / that part, whatever a folder on the way leads to now, so a
-    folder replaced by a symlink after startup does not move the pin, or its recorded ranges, to another file. Any
-    other path (a record from a moved or cloned checkout) is placed by locate_file, the rule of ADR-0006. None for a
-    path with a dot-named part below root or one in the state folder `state` (the tree rule, limn.platform.files.
-    tree_part, judged on the path's own parts), and for what locate_file cannot place.
-
-    The changes view's pin scope reads its files from Git (limn.revisions.core.revision_pin_scope), never from this
-    path, so a path below root is placed without asking the filesystem anything (only `state` is resolved) - and is
-    placed even when its file is gone, as the commit the pin was closed on still names it."""
-    if not isinstance(file, str) or not file or "\x00" in file:
+def recorded_root(file: object, file_rel: object) -> Path | None:
+    """The manuscript root a pin record was written under, as the record itself says: its absolute `file` with its
+    file_rel taken off the end - when file_rel is a non-empty relative path without '..' parts that `file` ends with
+    and is shorter than, the check of rule 2 of ADR-0006 (limn.pins.location.mapping.pin_rel_path) - else None (a
+    record written before 0.3.2 has no file_rel, and 0.3.1 relocating a pin left a stale one). Lexical ('..' parts of
+    `file` folded): asks the filesystem nothing. Pure."""
+    if not isinstance(file, str) or not isinstance(file_rel, str) or "\x00" in file or not os.path.isabs(file):
         return None
-    try:
-        rel = Path(os.path.normpath(file)).relative_to(root) if os.path.isabs(file) else None
-    except ValueError:
-        rel = None
+    if file_rel.startswith("/"):
+        return None
+    parts, rel = Path(os.path.normpath(file)).parts, Path(file_rel).parts
+    n = len(rel)
+    if not n or ".." in rel or len(parts) <= n + 1 or parts[-n:] != rel:
+        return None
+    return Path(*parts[:-n])
+
+
+def recorded_place(file: object, record: Mapping[str, Any], root: Path, state: Path) -> Path | None:
+    """Where a path pin record `record` stores - its own `file`, or a path in its `changes` - is in the coordinates the
+    run registered, for the changes view: root is the manuscript root as startup resolved it (limn.server).
+
+    - A path lexically below root ('..' parts folded) is root / that part (rule 1 of ADR-0006).
+    - Any other path - a record from a moved or cloned checkout - is placed by the record's own file_rel: its part
+      below the root the record was written under (recorded_root) is that part below root. So the pin's file is
+      root / file_rel, and a recorded change goes with it.
+    - None for a path the record does not place that way (a record without a usable file_rel, a change outside its
+      record's root), for one with a dot-named part below root and for one in the state folder `state` (the tree
+      rule, limn.platform.files.tree_part, judged on the path's own parts).
+
+    Nothing here asks the manuscript tree anything (only `state` is resolved): the changes view's pin scope reads its
+    files from Git (limn.revisions.core.revision_pin_scope), never from this path, so a folder replaced by a symlink
+    after startup moves neither the pin nor its recorded ranges to another file, and a path is placed even when its
+    file is gone, as the commit the pin was closed on still names it. The tail guesses of locate_file, which read the
+    tree as it is now, place a pin everywhere else (its listing, pins.md)."""
+    if not isinstance(file, str) or not file or "\x00" in file or not os.path.isabs(file):
+        return None
+    stored = Path(os.path.normpath(file))
+    rel = _below(stored, root)
     if rel is None:
-        found = locate_file(file, file_rel, root, state, doc)
-        return None if found is None else found.path
-    if not rel.parts or any(part.startswith(".") for part in rel.parts):
+        base = recorded_root(record.get("file"), record.get("file_rel"))
+        rel = None if base is None else _below(stored, base)
+    if rel is None or not rel.parts or any(part.startswith(".") for part in rel.parts):
         return None
     placed = root / rel
     try:
@@ -127,6 +147,14 @@ def recorded_place(file: object, file_rel: object, root: Path, state: Path, doc:
     except (OSError, RuntimeError):
         return None
     return None if held.is_relative_to(root) and placed.is_relative_to(held) else placed
+
+
+def _below(path: Path, folder: Path) -> Path | None:
+    """path relative to folder when it lies lexically below it, else None. Pure."""
+    try:
+        return path.relative_to(folder)
+    except ValueError:
+        return None
 
 
 def pin_location(r: Mapping[str, Any], root: Path, state: Path, doc: Doc | None) -> PinLocation | None:

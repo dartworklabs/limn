@@ -102,15 +102,6 @@ class PinProjection(LocatedPin, Protocol):
         ...
 
 
-class PinQueryDocument(Protocol):
-    """The part of the compared document the pin query may read."""
-
-    @property
-    def src(self) -> Path:
-        """The document's build root, which bounds where a stored path may be found again."""
-        ...
-
-
 class PinQuery(Protocol):
     """The pin owner's read for one pin of one document."""
 
@@ -118,13 +109,13 @@ class PinQuery(Protocol):
         self,
         pin_id: int,
         document_key: str,
-        document: PinQueryDocument,
         relative: Callable[[Path], str | None],
         /,
     ) -> PinProjection | None:
         """Project pin pin_id of the document with key document_key, or None when no such pin belongs to it.
 
-        The supplier locates every stored path as the checkout has it now and asks `relative` for the form revisions
-        compares with git paths; a recorded change whose path cannot be located or placed that way is left out.
+        The supplier places every stored path in the run's registered coordinates - never through what a folder of
+        the manuscript leads to now - and asks `relative` for the form revisions compares with git paths; a recorded
+        change whose path cannot be placed or named that way is left out.
         """
         ...

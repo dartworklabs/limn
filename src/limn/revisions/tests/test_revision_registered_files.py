@@ -13,10 +13,10 @@ from pathlib import Path
 from unittest import mock
 
 from limn.administration.serve_documents import make_docs
-from limn.pins.location.lookup import recorded_place
+from limn.pins.location.lookup import recorded_place, recorded_root
 from limn.revisions import core, execution
 
-from helpers import needs_tex, ps
+from helpers import edit_stored, needs_tex, ps
 from helpers_access import CAROL, REPO_NEW, REPO_OLD, AccessBase, ScopedRepo, member_add
 from helpers_figure import BUILD1, b2_map, figure_doc, write_build
 
@@ -284,23 +284,76 @@ class PinInLinkedFolder(Repository):
                 folder.symlink_to(name, target_is_directory=True)
                 self.assertEqual(self.scope(), before)
 
+    def test_a_moved_checkouts_pin_keeps_its_file_and_ranges_after_a_link(self):
+        """The pin as a checkout at /old-checkout wrote it - its file and its recorded change there, file_rel
+        paper/main.tex - is placed by its file_rel, so its recorded range still picks the beta paragraph; replacing
+        paper/ by a link to a copy (a plain name, or a dot-named one) then changes neither the scope nor the
+        comparison's blocks and key."""
+        old = Path("/old-checkout") / "paper" / "main.tex"
+
+        def moved(rows):
+            """The pin's file and recorded change as the old checkout stored them."""
+            r = next(r for r in rows if r["id"] == self.pin)
+            self.assertEqual(r["file_rel"], "paper/main.tex")
+            r["file"] = str(old)
+            r["changes"] = [dict(c, file=str(old)) for c in r["changes"]]
+
+        edit_stored(moved)
+        before = self.scope()
+        self.assertEqual((before[0]["mode"], before[0]["source"], before[0]["hunks"]), ("pin", "changes", 1))
+        self.assertTrue(before[1])
+        folder = self.src / "paper"
+        for name in ("copy", ".copy"):
+            shutil.copytree(folder, self.src / name)
+        shutil.rmtree(folder)
+        for name in ("copy", ".copy"):
+            with self.subTest(target=name):
+                if folder.is_symlink():
+                    folder.unlink()
+                folder.symlink_to(name, target_is_directory=True)
+                self.assertEqual(self.scope(), before)
+
     def test_recorded_place_is_lexical_below_the_root(self):
         """recorded_place: a stored path below the root is placed where it was recorded ('..' folded), through a link
         or not; one with a dot-named part is refused."""
         root, state = ps.APP.C.src, ps.APP.C.state
-        doc = ps.APP.docs[0]
+        record = {"file": str(self.paper), "file_rel": "paper/main.tex"}
         target = self.src / "copy"
         shutil.copytree(self.src / "paper", target)
         shutil.rmtree(self.src / "paper")
         (self.src / "paper").symlink_to("copy", target_is_directory=True)
-        self.assertEqual(recorded_place(str(self.paper), "paper/main.tex", root, state, doc), self.paper)
+        self.assertEqual(recorded_place(str(self.paper), record, root, state), self.paper)
         self.assertEqual(
-            recorded_place(str(root / "paper" / ".." / "copy" / "main.tex"), None, root, state, doc),
+            recorded_place(str(root / "paper" / ".." / "copy" / "main.tex"), record, root, state),
             root / "copy" / "main.tex",
         )
         for stored in (root / ".private" / "main.tex", root / "paper" / ".old" / "main.tex"):
             with self.subTest(stored=stored):
-                self.assertIsNone(recorded_place(str(stored), None, root, state, doc))
+                self.assertIsNone(recorded_place(str(stored), record, root, state))
+
+    def test_a_moved_record_is_placed_by_its_own_file_rel(self):
+        """recorded_place for a record of a checkout at /old-checkout: its file is root / file_rel and a change below
+        /old-checkout goes along, whether or not the tree has those files (nothing is asked of it); a record without a
+        usable file_rel, a change outside the record's root and a dot-named part place nothing."""
+        root, state = ps.APP.C.src, ps.APP.C.state
+        shutil.rmtree(self.src / "paper")  # placed all the same: the commit the pin was closed on still has it
+        old = Path("/old-checkout")
+        record = {"file": str(old / "paper" / "main.tex"), "file_rel": "paper/main.tex"}
+        self.assertEqual(recorded_root(record["file"], record["file_rel"]), old)
+        for stored, placed in (
+            (old / "paper" / "main.tex", root / "paper" / "main.tex"),
+            (old / "paper" / "sub" / "part.tex", root / "paper" / "sub" / "part.tex"),
+            (old / "paper" / ".." / "refs.bib", root / "refs.bib"),
+            (Path("/elsewhere") / "paper" / "main.tex", None),
+            (old / ".private" / "main.tex", None),
+        ):
+            with self.subTest(stored=stored):
+                self.assertEqual(recorded_place(str(stored), record, root, state), placed)
+        for rel in (None, "", "/paper/main.tex", "../paper/main.tex", "other/main.tex", "old-checkout/paper/main.tex"):
+            with self.subTest(file_rel=rel):
+                self.assertIsNone(recorded_root(record["file"], rel))
+                stale = dict(record, file_rel=rel)
+                self.assertIsNone(recorded_place(record["file"], stale, root, state))
 
 
 class GlobCharactersInTheFolder(Repository):

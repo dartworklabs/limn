@@ -31,10 +31,10 @@ Json: TypeAlias = dict[str, Any]
 Record: TypeAlias = Mapping[str, Any]
 
 
-def _stored_path(value: Record | str, _document: object) -> Path:
-    """Default locator for isolated projection tests; production supplies the current locator."""
-    file = value.get("file") if isinstance(value, Mapping) else value
-    return Path(file) if isinstance(file, str) else Path()
+def _stored_path(stored: str, _record: Record) -> Path:
+    """Default locator for isolated projection tests: the stored path as it is. Production supplies the run's
+    (limn.pins.location.lookup.recorded_place)."""
+    return Path(stored)
 
 
 def people_facts(record: Record) -> tuple[Json, ...]:
@@ -72,7 +72,7 @@ class PinReadView:
     _read: Callable[[], tuple[list[Pin], list[int]]]
     _snapshot: Callable[[], list[Pin]]
     _document_key: Callable[[Record], str]
-    _locate: Callable[[Record | str, Any], Path | None] = _stored_path
+    _locate: Callable[[str, Record], Path | None] = _stored_path
 
     def counts_by_document(self, known: set[str]) -> tuple[dict[str, int], int]:
         """Return open counts by document and the count outside ``known``."""
@@ -102,24 +102,24 @@ class PinReadView:
         self,
         pin_id: int,
         document_key: str,
-        document: Any,
         relative: Callable[[Path], str | None],
     ) -> RevisionPin | None:
         """Return one document-bound projection with every stored path placed in the run's registered coordinates
-        (the locator assemble_pins binds: limn.pins.location.lookup.recorded_place)."""
+        (the locator assemble_pins binds: limn.pins.location.lookup.recorded_place) - a recorded change by its own
+        record, so a moved checkout's change goes where the pin's file does."""
         record = next((pin.record for pin in self._read()[0] if pin.core.id == pin_id), None)
         if record is None or self._document_key(record) != document_key:
             return None
 
-        def resolve(value: Record | str) -> str | None:
+        def resolve(stored: object) -> str | None:
             """Place a stored path as the run registered its root, then let the revision owner name it in its repository."""
-            path = self._locate(value, document)
+            path = self._locate(stored, record) if isinstance(stored, str) else None
             return relative(path) if path is not None else None
 
         def resolve_pin() -> str | None:
             """Prefer the placed location, retaining a repository-relative historical name after a rename."""
-            current = resolve(record)
             stored = record.get("file")
+            current = resolve(stored)
             return current if current is not None else relative(Path(stored)) if isinstance(stored, str) else None
 
         projection = project_revision_pin(
@@ -197,17 +197,12 @@ def assemble_pins(
         verdict_keys,
     )
 
-    def locate(value: Record | str, document: Any) -> Path | None:
-        """Place a pin or recorded change for the changes view, in the coordinates the run registered (recorded_place):
-        a folder replaced by a symlink after startup does not move it."""
+    def locate(stored: str, record: Record) -> Path | None:
+        """Place a path pin record `record` stores - its file or a recorded change - for the changes view, in the
+        coordinates the run registered (recorded_place): a folder replaced by a symlink after startup does not move it,
+        and a moved checkout's record is placed by its own file_rel, never by what the tree holds now."""
         config = settings()
-        return recorded_place(
-            value.get("file") if isinstance(value, Mapping) else value,
-            value.get("file_rel") if isinstance(value, Mapping) else None,
-            config.src,
-            config.state,
-            document,
-        )
+        return recorded_place(stored, record, config.src, config.state)
 
     def render() -> None:
         """Render current pins after acquiring this run's transaction lock."""
