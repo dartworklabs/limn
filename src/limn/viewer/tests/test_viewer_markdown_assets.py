@@ -455,7 +455,7 @@ class ChangedOnDisk(AssetsBase):
         with the three it left, so two checks ask all nine. The requests counted are the ones the route saw. Mutations:
         drop the distance test -> far.png is asked, fails; drop the count bound -> all nine are asked, fails; drop the gap
         -> the second check asks again, fails; drop the least-recently-asked order -> the second check asks the same six,
-        fails."""
+        fails; keep the turns of images no longer in the document -> near.png stays in the record, fails."""
         page = self.open_md()
         page.evaluate("document.querySelector('#left').scrollTop=document.querySelector('#left').scrollHeight")
         far = "document.querySelector(\"#md .md-pic[data-path='notes/img/far.png'] img\")"
@@ -507,12 +507,65 @@ class ChangedOnDisk(AssetsBase):
         second = {a for a in self.assets_asked()[before:]}
         self.assertEqual(len(second), 6)
         self.assertEqual(len(first | second), 9, (sorted(first), sorted(second)))
+        # near.png, asked before the rewrite and no longer in the document, has no turn kept: the record is the nine
+        self.assertEqual(
+            page.evaluate("[...MD_PIC_CHECK.at.get('nt').keys()].sort()"),
+            sorted("notes/img/s%d.png" % i for i in range(9)),
+        )
 
 
 class ChangedOnDiskFirefox(ChangedOnDisk):
     """The same in Firefox."""
 
     BROWSER_ENGINE = "firefox"
+
+
+MANY = 300  # more than MD_PIC_KEEP (256), the most entries the page's other image records keep
+
+
+class ManyImagesTakeTurns(AssetsBase):
+    """More tree images on screen than a bounded record would hold: the checks, MD_PIC_CHECK.max a time, still ask every
+    one in turn."""
+
+    PLAN = "# 여럿\n\n" + "".join("![%d](img/m%d.png)" % (i, i) for i in range(MANY)) + "\n"
+
+    def setUp(self):
+        super().setUp()
+        for i in range(MANY):
+            (self.src / "notes" / "img" / ("m%d.png" % i)).write_bytes(blank_png(10, 10))
+
+    def test_every_one_of_three_hundred_visible_images_is_asked_once_in_fifty_checks(self):
+        """300 images of 10x10 in one paragraph, all inside the document area. The page's mdPicTag is wrapped to record
+        the path of each check's request (cache 'no-cache'; the read of a loaded image's tag is 'only-if-cached'). Fifty
+        checks of six ask all 300, each once. Mutation: keep the turns in one map bounded to MD_PIC_KEEP entries
+        (mdPicKeep) -> past 256 the first images' turns are dropped, they count as never asked and are asked again, and
+        the last ones never are, fails."""
+        page = self.open(0)
+        until(page, DRAWN, 20)
+        until(
+            page,
+            "document.querySelectorAll('#md .md-pic img').length===%d&&[...document.querySelectorAll('#md .md-pic img')]"
+            ".every(i=>i.complete&&i.naturalWidth===10)" % MANY,
+            30,
+        )
+        settle(page)
+        self.assertEqual(
+            page.evaluate(
+                "(()=>{const r=document.querySelector('#left').getBoundingClientRect();"
+                " return [...document.querySelectorAll('#md .md-pic img')].filter(i=>{const b=i.getBoundingClientRect();"
+                " return b.top>=r.top&&b.bottom<=r.bottom;}).length;})()"
+            ),
+            MANY,
+        )
+        page.evaluate(
+            "(()=>{window.__asked=[]; const o=mdPicTag; mdPicTag=(u,c)=>{"
+            "if(c==='no-cache')__asked.push(new URL(u,location.href).searchParams.get('path')); return o(u,c);};})()"
+        )
+        for _ in range(MANY // 6):
+            self.assertEqual(page.evaluate(CHECK)[1], 6)
+        asked = page.evaluate("__asked")
+        self.assertEqual(len(asked), MANY)
+        self.assertEqual(len(set(asked)), MANY, sorted({a for a in asked if asked.count(a) > 1}))
 
 
 class HeadingJump(AssetsBase):

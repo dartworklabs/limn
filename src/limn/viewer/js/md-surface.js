@@ -532,7 +532,8 @@ function mdPicLoad(e){const img=/** @type {HTMLImageElement} */(e.target),box=im
 // The page keeps the picture it decoded for an address as long as it lives (HTML's list of available images), so an image
 // rewritten on disk showed only after a reload, a redraw drawing the same address again. On the light poll (polling.js),
 // the tree images that have loaded on screen or within one document area's height of it - the nearest MD_PIC_CHECK.max of
-// them, at most once every MD_PIC_CHECK.gap ms, one request at a time - are asked again: fetch(…, {cache:'no-cache'})
+// them (among as near, the one asked longest ago first: more than that many on screen take turns), at most once every
+// MD_PIC_CHECK.gap ms, one request at a time - are asked again: fetch(…, {cache:'no-cache'})
 // revalidates with the tag the browser holds (an unchanged image is a stat and a 304 on the server, AssetTags) and reads
 // the ETag. An image whose tag moved on gets its address with &v=<the new tag> (the server reads only doc and path): one the
 // page has not decoded, so the browser loads the new picture, and the box keeps the reading spot as for any image that loads
@@ -542,14 +543,16 @@ function mdPicLoad(e){const img=/** @type {HTMLImageElement} */(e.target),box=im
 // (that one may be of a newer file, and then no later check would differ): it moves the image once to the address of the
 // tag now, so what it shows is known from then on. The version is kept per document and path (MD_PIC_VER), so a redraw or
 // a return to the document draws the new picture too. No route, no field: only GET /api/asset.
-const MD_PIC_CHECK={max:6,gap:4000,last:-Infinity,busy:false,asked:0,at:/** @type {Map<string,number>} */(new Map())};   // at: doc + '\n' + tree path -> when a check last asked it
+// at: for each document, tree path -> when a check last asked it, for the paths the document shows now (no other bound,
+// so no image's turn is ever forgotten while it is on the page).
+const MD_PIC_CHECK={max:6,gap:4000,last:-Infinity,busy:false,asked:0,at:/** @type {Map<string,Map<string,number>>} */(new Map())};
 const MD_PIC_TAG=/** @type {Map<string,string>} */(new Map());   // an address -> the ETag of the picture an image at it shows
 const MD_PIC_VER=/** @type {Map<string,string>} */(new Map());   // doc + '\n' + tree path -> the version its address carries
-const MD_PIC_KEEP=256;   // the most entries each of these maps keeps, the oldest dropped first
+const MD_PIC_KEEP=256;   // the most entries either map keeps, the oldest dropped first
 // The address the tree image at path loads from now: mdAssetUrl's, with the version a check found (MD_PIC_VER).
 /** @param {string|null} doc @param {string} path */
 function mdPicUrl(doc,path){const v=MD_PIC_VER.get(String(doc||'')+'\n'+path); return mdAssetUrl(doc,path)+(v?'&v='+encodeURIComponent(v):'');}
-/** @template T @param {Map<string,T>} map @param {string} k @param {T} v */
+/** @param {Map<string,string>} map @param {string} k @param {string} v */
 function mdPicKeep(map,k,v){map.delete(k); map.set(k,v); while(map.size>MD_PIC_KEEP){const first=map.keys().next().value; if(first===undefined)break; map.delete(first);}}
 // The ETag GET url answers with (cache: the fetch's cache mode), or '' for none - a refusal, no answer, nothing cached for
 // 'only-if-cached'. Its body is not read.
@@ -565,16 +568,19 @@ async function mdPicSeen(url){if(!url||MD_PIC_TAG.has(url))return; const t=await
 /** @returns {Promise<number>} */
 async function mdPicCheck(){const now=performance.now(),k=DOC;
   if(MD_PIC_CHECK.busy||now-MD_PIC_CHECK.last<MD_PIC_CHECK.gap||!isMdDoc()||isTextDoc()||MD.shown!==k||!mdColumnShown()||document.hidden)return 0;
-  const lr=$('#left').getBoundingClientRect(),near=/** @type {{img:HTMLImageElement,d:number}[]} */([]);
-  for(const img of /** @type {HTMLImageElement[]} */([...document.querySelectorAll('#md .md-pic img')])){if(!img.complete||!img.naturalWidth)continue;
+  const lr=$('#left').getBoundingClientRect(),near=/** @type {{img:HTMLImageElement,d:number}[]} */([]),shown=new Set();
+  for(const img of /** @type {HTMLImageElement[]} */([...document.querySelectorAll('#md .md-pic img')])){const p=img.parentElement&&img.parentElement.dataset.path; if(p)shown.add(p);
+    if(!img.complete||!img.naturalWidth)continue;
     const r=img.getBoundingClientRect(),d=r.bottom<lr.top?lr.top-r.bottom:r.top>lr.bottom?r.top-lr.bottom:0; if(d<=lr.height)near.push({img,d});}
+  let at=MD_PIC_CHECK.at.get(k||''); if(!at){at=new Map(); MD_PIC_CHECK.at.set(k||'',at);}
+  for(const p of [...at.keys()])if(!shown.has(p))at.delete(p);   // an image no longer in the document has no turn to keep
   if(!near.length)return 0;
-  // Nearest first; among images as near (every visible one is at 0) the one asked longest ago first, so past six visible
-  // images the checks take turns instead of asking the same six every time.
-  const asked=(/** @type {HTMLImageElement} */ i)=>MD_PIC_CHECK.at.get(k+'\n'+((i.parentElement&&i.parentElement.dataset.path)||''))||0;
+  // Nearest first; among images as near (every visible one is at 0) the one asked longest ago first, a never-asked one
+  // before all, so past six visible images the checks take turns instead of asking the same six every time.
+  const asked=(/** @type {HTMLImageElement} */ i)=>at.get((i.parentElement&&i.parentElement.dataset.path)||'')||0;
   near.sort((a,b)=>a.d-b.d||asked(a.img)-asked(b.img)); MD_PIC_CHECK.busy=true; MD_PIC_CHECK.last=now; let n=0,moved=0; const seen=new Set();
   try{for(const {img} of near){const box=img.parentElement,path=box&&box.dataset.path,url=img.getAttribute('src')||'';
-      if(n>=MD_PIC_CHECK.max)break; if(!path||!url||seen.has(path))continue; seen.add(path); n++; mdPicKeep(MD_PIC_CHECK.at,k+'\n'+path,now);
+      if(n>=MD_PIC_CHECK.max)break; if(!path||!url||seen.has(path))continue; seen.add(path); n++; at.set(path,now);
       const was=MD_PIC_TAG.get(url)||''; MD_PIC_CHECK.asked++; const tag=await mdPicTag(url,'no-cache');
       if(k!==DOC||MD.shown!==k)break;   // another document since: its images are its own
       if(!tag)continue; if(tag===was){mdPicKeep(MD_PIC_TAG,url,was); continue;}   // was '': what it shows is unknown, so it moves to the address of the tag now
