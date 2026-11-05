@@ -148,7 +148,7 @@ Markdown이 들어온 뒤에도 일반 텍스트와 소스 코드 파일에는 �
 | 제안 수정의 숨은 문자(결정 7) | `suggest.js`(줄 차이, 편집 칸 아래 줄), `index.html`·`edit.js`(그 줄의 자리), `suggest.css`; `pins.md` 의 숨은 문자 줄 `pins/suggestion.py`·`pins/listing/render.py` | 했다 |
 | `/api/source` 의 `line_ends` | `documents/source.py`(`other_line_ends`), `documents/http.py` | 했다 |
 | 제안 거절 문구 | `pins/editing/http.py:134` 는 "LaTeX·Markdown 문서의 줄 핀에만". 에이전트가 읽는 문구라 바꾸지 않고 `reason` 은 그대로 둔다. 텍스트 문서의 핀은 이 거절에 걸리지 않는다 | 그대로 |
-| Handbook·SKILL | `purpose.md`(범위), `domain.md`(능력 표, 텍스트 문서 절, 사다리), `viewer.md`(텍스트 화면 절), `api.md`(종류 값, `indent`, `pins.md` 꼬리말, `## 제안 문안` 의 숨은 문자 줄, `/api/source` 의 `line_ends`, 낱말 파일 자리), `instances.md`·`operations.md`(받는 확장자), `skill/SKILL.md`·`.ko.md`(숨은 문자 줄이 붙은 제안은 넣기 전에 묻는다) | 남음 |
+| Handbook·SKILL | `purpose.md`(범위), `domain.md`(능력 표, 텍스트 문서 절, 사다리), `viewer.md`(텍스트 화면 절), `api.md`(종류 값, `indent`, `pins.md` 꼬리말, `## 제안 문안` 의 숨은 문자 줄, `/api/source` 의 `line_ends`, 낱말 파일 자리), `instances.md`·`operations.md`(받는 확장자), `skill/SKILL.md`·`.ko.md`(숨은 문자 줄이 붙은 제안은 넣기 전에 묻는다) | 구현 브랜치 |
 
 ## 검증
 
@@ -163,7 +163,7 @@ Markdown이 들어온 뒤에도 일반 텍스트와 소스 코드 파일에는 �
 - 변이 시험. 수정을 하나씩 되돌리면 해당 시험이 실패한다. U+202E·소프트 하이픈을 목록에서 빼기, 예외를 끄거나 넓히기, 옛 닫는 줄 정규식, 날것의 블록 이름·제안 차이·원문 발췌·변경 보기, 편집 칸 경고 끄기, 긴 줄 안의 양보·멈춤·요소 한도 빼기, `line_ends` 빼기, CRLF 세기, `pins.md` 숨은 문자 줄 빼기.
 - Markdown 문서의 화면: 같은 두 문서로 `main`(770fa20c)과 이 브랜치를 네 기기군 11개 크기·테마에서 찍어 비교했다. 다른 픽셀이 0이다.
 
-**본 구현이 더할 것.**
+**본 구현이 더할 것.** 구현 브랜치에서 더한 시험과 각 시험의 변이는 [계획](../plans/2026-11-05-text-documents.md) Task 2·3에 있다.
 
 - **계약 시험.** `/api/docs`·`/api/meta` 의 `text`. 텍스트 줄 핀이 `page` 없이 왕복하고 `pins.md` 에 `—`·`indent`·`— 텍스트(쪽 없음)` 로 찍힌다. 보낸 `page`·`frac`·`pdf_build` 가 남지 않는다. 제안 수정을 받는다. 판정 핀의 `superseded_by`. 같은 폴더의 `.tex` 와 `.bib` 텍스트 문서에서 핀이 제 문서로 간다. 직전 릴리스(0.4.50)는 텍스트 문서가 든 설정으로 기동하지 않는다(Markdown과 같다. 되돌리려면 그 문서를 설정에서 먼저 뺀다). 상태 폴더의 핀은 그대로 읽힌다.
 - **브라우저 시험.** 누르기·끌기·길게 누르기의 줄, 사다리 세 단과 합치기, 표시와 배지, 실제 복사(클립보드)로 본 줄 안의 글과 LF, 344px에서 가로 넘김 없음, 원문이 바뀌면 다시 그리기와 읽던 자리, 50,000줄 알림, UTF-8 아닌 파일.

@@ -201,7 +201,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 
 - `doc` 이 없으면 첫 문서다.
 - POST는 쿼리와 JSON 본문의 `doc` 을 둘 다 받는다. 둘이 다르면 `400` 이다.
-- `POST /api/pin` 에 `doc` 없이 `file` 만 오면 문서를 짐작한다. 에이전트의 `curl` 이 이런 요청을 보낸다. 서버는 줄 핀을 받는 문서(LaTeX 문서와 그림 문서) 가운데 그 파일을 가장 깊게 감싸는 문서 폴더의 문서를 고른다. 깊이가 같으면 `.tex`·`.bib`·`.sty`·`.cls`·`.bst`(대소문자 무관)는 원고에서 빌드하는 문서로, 그 밖의 파일은 그림 문서로 간다. 그래도 가려지지 않으면 문서 목록에서 앞선 문서다.
+- `POST /api/pin` 에 `doc` 없이 `file` 만 오면 문서를 짐작한다. 에이전트의 `curl` 이 이런 요청을 보낸다. 브라우저가 그리는 문서(Markdown·텍스트 문서)는 자기 메인 파일을 먼저 갖는다. 그 밖의 파일이면 서버는 줄 핀을 받는 나머지 문서(LaTeX 문서와 그림 문서) 가운데 그 파일을 가장 깊게 감싸는 문서 폴더의 문서를 고른다. 깊이가 같으면 `.tex`·`.bib`·`.sty`·`.cls`·`.bst`(대소문자 무관)는 원고에서 빌드하는 문서로, 그 밖의 파일은 그림 문서로 간다. 그래도 가려지지 않으면 문서 목록에서 앞선 문서다.
 - 없는 키는 `404 {error, docs:[키…]}` 다. 조용히 첫 문서로 물러서지 않는다. 물러서면 핀이 다른 문서에 붙기 때문이다.
 - 핀 id로 가는 경로(`/api/pins/{id}/…`)는 `doc` 이 필요 없다. 핀의 문서는 레코드에 들어 있다.
 - 단일 문서 인스턴스는 `doc` 을 무시해도 된다. 그 문서의 키는 `main` 이다.
@@ -233,7 +233,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 | `GET` | `/vendor/markdown-it/<파일>.mjs` | 뷰어의 Markdown 파싱 worker가 가져오는 markdown-it(ESM 브라우저 빌드 `markdown-it.esm.min.mjs`)을 `text/javascript; charset=utf-8` 로 준다(`Cache-Control: public, max-age=86400`). worker는 `?v=<버전>` 을 붙여 가져온다. 받는 이름과 거절은 `/vendor/pdfjs/` 와 같은 규칙이다. 이름 한 칸의 `.mjs` 만 받고, 하위 경로, `..`, 점으로 시작하는 이름, `%` 인코딩, 디렉토리 밖이나 다른 확장자를 가리키는 심볼릭 링크, `.mjs` 가 아닌 파일(`LICENSE`·`README.md`·`licenses/` 아래 고지)은 모두 `404` 다. 패키지 안 `src/limn/vendor/markdown-it/` 에서만 주고, 디렉토리를 바꾸는 실행 인자는 없다. 출처·버전과 번들에 든 의존성의 고지는 [`src/limn/vendor/markdown-it/README.md`](../../src/limn/vendor/markdown-it/README.md). Host·Origin·신원 검사는 다른 `GET` 과 같다 |
 | `GET` | `/md-parse.mjs` | 뷰어의 Markdown 파싱 worker([viewer.md](viewer.md) §Markdown 화면). 같은 출처의 모듈 worker로 띄우는 Limn의 파일이고, 가져오는 markdown-it의 버전을 채워 `text/javascript; charset=utf-8`, `Cache-Control: no-cache` 로 준다. 받은 글을 파싱해 토큰만 돌려주고 DOM에 닿지 않는다. 다른 응답처럼 CSP는 `frame-ancestors 'none'` 하나다. Host·Origin·신원 검사는 다른 `GET` 과 같다 |
 | `GET` | `/vendor/pretendard/<파일>` | 뷰어의 인터페이스 글꼴 Pretendard Variable([viewer.md](viewer.md) §글꼴). 글꼴 조각(`PretendardVariable.subset.<n>.woff2`)은 `font/woff2`, 스타일시트 `pretendard.css` 는 `text/css; charset=utf-8` 로 준다. `Cache-Control: public, max-age=31536000, immutable` 이다. 뷰어의 링크와 스타일시트가 부르는 모든 주소에 글꼴 버전 `?v=<버전>` 이 붙어 있고, 파일은 패키지 안에만 있어 버전이 같으면 바이트도 같기 때문이다. 받는 이름과 거절은 `/vendor/pdfjs/` 와 같은 규칙이다. 이름 한 칸의 `.woff2`·`.css` 만 받고, 하위 경로, `..`, 점으로 시작하는 이름, `%` 인코딩, 디렉토리 밖이나 다른 확장자를 가리키는 심볼릭 링크, 그 밖의 파일(`LICENSE`·`README.md`·`SHA256SUMS`)은 모두 `404` 다. 디렉토리를 바꾸는 실행 인자는 없다. 출처·버전은 [`src/limn/vendor/pretendard/README.md`](../../src/limn/vendor/pretendard/README.md). Host·Origin·신원 검사는 다른 `GET` 과 같다 |
-| `GET` | `/api/source?doc=<키>` | 브라우저가 원문을 그리는 문서(Markdown, [ADR-0025](../adr/0025-html-document-surface.md))의 원문 → `{doc,file,src_mtime,lines}`. `lines` 는 서버가 줄을 세는 방식 그대로 나눈 줄 목록이다. 파일을 UTF-8로 읽어 `str.splitlines()` 로 나누므로 `\r\n`·외톨이 `\r`·폼 피드·U+2028 같은 줄 끝도 핀과 `/api/snippet` 이 세는 대로 센다. 줄 `n` 은 `lines[n-1]` 이다. `file` 은 그 파일에 줄 핀을 만들 때 저장되는 경로이고, `src_mtime` 은 줄을 읽기 전에 같은 파일 서술자에서 잰 mtime이다. `/api/meta` 의 `src_mtime` 과 같은 값이므로, 가벼운 폴링의 `src_mtime` 이 이 값과 다르면 원문이 바뀐 것이다. 원고 읽기 핸들의 제한 읽기로 1 MiB(1,048,576바이트)까지만 읽는다. 넘으면 줄 없이 `413 {error, reason:"source_too_large", bytes, limit}` 이다. UTF-8 이 아니면 `422 source_not_utf8`, 검사한 뒤 파일이 사라지거나 링크로 바뀌어 읽지 못하면 `422 source_unreadable` 이다. 파일이 원고 트리 밖(원고 밖, 점으로 시작하는 폴더 아래, 원고 안의 상태 폴더 아래, 밖으로 나가는 링크)이면 다른 파일 경로와 같은 `400 file_outside_manuscript`, 없으면 `400 file_not_found` 다. 쪽으로 보이는 문서(LaTeX·보기 전용 PDF·그림)는 `400 not_rendered_in_browser` 이고, 그 줄은 `/api/snippet` 으로 읽는다. 쓰기 없음. 뷰어의 Markdown 화면이 이 줄로 문서를 그린다([viewer.md](viewer.md) §Markdown 화면) |
+| `GET` | `/api/source?doc=<키>` | 브라우저가 원문을 그리는 문서(Markdown·텍스트, [ADR-0025](../adr/0025-html-document-surface.md)·[ADR-0029](../adr/0029-text-documents.md))의 원문 → `{doc,file,src_mtime,lines,line_ends}`. `lines` 는 서버가 줄을 세는 방식 그대로 나눈 줄 목록이다. 파일을 UTF-8로 읽어 `str.splitlines()` 로 나누므로 `\r\n`·외톨이 `\r`·폼 피드·U+2028 같은 줄 끝도 핀과 `/api/snippet` 이 세는 대로 센다. 줄 `n` 은 `lines[n-1]` 이다. `line_ends` 는 그 줄을 나눈 줄 끝 가운데 LF·CRLF가 아닌 것을 코드 포인트 이름별로 센 객체이고, 처음 나온 순서다(`{"U+000C": 2, "U+2028": 1}`, 외톨이 CR은 `U+000D`, 없으면 `{}`). Limn은 거기서 줄을 나누지만 LF만 세는 편집기·git은 나누지 않으므로, 그런 줄 끝 뒤의 줄 번호는 둘이 다르다. 뷰어는 이 값으로 텍스트 문서 머리에 알림을 띄운다. 더하기만 한 필드라 모르는 클라이언트는 무시하면 된다. `file` 은 그 파일에 줄 핀을 만들 때 저장되는 경로이고, `src_mtime` 은 줄을 읽기 전에 같은 파일 서술자에서 잰 mtime이다. `/api/meta` 의 `src_mtime` 과 같은 값이므로, 가벼운 폴링의 `src_mtime` 이 이 값과 다르면 원문이 바뀐 것이다. 원고 읽기 핸들의 제한 읽기로 1 MiB(1,048,576바이트)까지만 읽는다. 넘으면 줄 없이 `413 {error, reason:"source_too_large", bytes, limit}` 이다. UTF-8 이 아니면 `422 source_not_utf8`, 검사한 뒤 파일이 사라지거나 링크로 바뀌어 읽지 못하면 `422 source_unreadable` 이다. 파일이 원고 트리 밖(원고 밖, 점으로 시작하는 폴더 아래, 원고 안의 상태 폴더 아래, 밖으로 나가는 링크)이면 다른 파일 경로와 같은 `400 file_outside_manuscript`, 없으면 `400 file_not_found` 다. 쪽으로 보이는 문서(LaTeX·보기 전용 PDF·그림)는 `400 not_rendered_in_browser` 이고, 그 줄은 `/api/snippet` 으로 읽는다. 쓰기 없음. 뷰어의 Markdown 화면과 텍스트 화면이 이 줄로 문서를 그린다([viewer.md](viewer.md) §Markdown 화면, §텍스트 화면) |
 | `GET` | `/api/outline-labels?doc=<키>` | 현재 PDF와 함께 보존한 `.aux` 의 목차 → `{build,labels:[{number,title,page,level,anchor}]}`. PDF.js outline과 제목·계층·순서가 일치할 때만 번호를 붙인다. `page` 는 인쇄 쪽번호 문자열(로마 숫자 가능)이며 물리 PDF 페이지 인덱스가 아니다. `.aux` 가 없는 기존 빌드는 빈 배열이다. 지원하지 않는 복잡한 TeX 제목은 빈 `number`·`title` 자리표시자가 된다 |
 | `GET` | `/sw.js` | 브라우저 알림용 서비스 워커(`text/javascript; charset=utf-8`, `Cache-Control: no-cache`, 범위 `/`). `fetch` 처리기가 없어 앱 데이터를 캐시하지 않는다 |
 | `GET` | `/favicon.ico` | 탭 파비콘 `.ico`(`image/x-icon`). 먹 둥근 사각형 위 i의 16·32px 픽셀 그림 두 장이 들어 있다. 밝은 탭과 어두운 탭에 같은 그림이다. `Cache-Control: public, max-age=86400`. 뷰어의 링크는 `?v=<내용 키>` 를 붙여 그림이 바뀌면 캐시를 가른다. 브라우저가 링크 없이 스스로 묻는 `/favicon.ico` 는 쿼리가 없어 하루까지 캐시에 남을 수 있다. 0.3.5까지 `/favicon.ico` 는 빈 본문 `204` 였다 |
@@ -315,7 +315,7 @@ Markdown 문서도 `/api/revision-diff` 가 그 파일의 diff를 주고, `&pin=
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
 | `POST` | `/api/pick` | 드래그 좌표를 원문 위치로 되짚는다. `score` 는 0~1 이고, 잴 낱말이 없으면(그림 위, 모두 흔한 낱말) `null` 이다. `levels` 의 단계마다 자기 범위의 `score` 가 있고, 답의 `score` 는 기본 단계의 값이다. 입력은 `page`, `x0`, `y0`, `x1`, `y1` 이다. 선택 `frac` 은 쪽 대비 비율 숫자 4개 목록 `[x, y, w, h]` 이고, 다른 모양이면 `400`. 선택 `pdf_build` 는 드래그할 때 화면의 빌드 id이며, 그 빌드의 PDF로 되짚는다. 그 빌드가 이미 지워졌으면 `200 {error, pdf_build_gone:true}`, 모양이 틀리면 `400`. 응답은 `{file, name, lo, hi, raw_lo, raw_hi, kind, via, score, warn, snippet, frac, levels, default_level, n_lines, quote, overlaps, pdf_build}`. `quote` 는 선택 영역 글자를 공백 정규화해 160자까지 자른 것이다(넘으면 159자 + `…`, 보기 전용 PDF 의 영역 글자와 같은 길이). 뷰어가 이 글자를 한 줄로 보이고 툴팁과 펼침에 전부 보이므로 그 줄의 가장 넓은 폭보다 길게 둔다([viewer.md](viewer.md) §패널 정리). `overlaps` 는 같은 파일의 열린 핀과의 겹침이다(§겹친 핀과 덧붙이기). 입력 오류는 `400`, 되짚기 실패는 `200 {error}`. `levels`·`via`·`score` 의 뜻은 [domain.md](domain.md) §범위 사다리와 §역변환이 두 경로인 이유. 그림 문서의 답은 §그림 문서의 pick·핀 |
-| `POST` | `/api/pin` | 새 핀 추가 → `{id}`. 저장 필드 화이트리스트는 `file, name, page, lo, hi, raw_lo, raw_hi, kind, via, score, fill, rival, frac, note, scope, quote, pdf_build, el, suggest, verdict`. `el` 은 그림 문서에서만 저장한다(§그림 문서의 pick·핀). `suggest` 는 LaTeX·Markdown 문서의 줄 핀만 받고, 저장하기 전에 원문과 대조한다(§제안 수정 (`suggest`)). `verdict` 는 그 문서가 선언한 판정 낱말 하나이고, 사람만 보낸다(§판정 핀 (`verdict`)). 선택으로 `kind_req`(§스레드 (답글)), `mentions`(힌트), `assignee`(담당, §@태그·사람·이벤트)를 받는다. `pdf_build` 를 안 보내면(에이전트 `curl`) 지금 빌드로 찍는다. Markdown 문서는 `page`·`frac`·`pdf_build` 를 저장하지 않는다(§Markdown 문서의 핀) |
+| `POST` | `/api/pin` | 새 핀 추가 → `{id}`. 저장 필드 화이트리스트는 `file, name, page, lo, hi, raw_lo, raw_hi, kind, via, score, fill, rival, frac, note, scope, quote, pdf_build, el, suggest, verdict`. `el` 은 그림 문서에서만 저장한다(§그림 문서의 pick·핀). `suggest` 는 LaTeX·Markdown·텍스트 문서의 줄 핀만 받고, 저장하기 전에 원문과 대조한다(§제안 수정 (`suggest`)). `verdict` 는 그 문서가 선언한 판정 낱말 하나이고, 사람만 보낸다(§판정 핀 (`verdict`)). 선택으로 `kind_req`(§스레드 (답글)), `mentions`(힌트), `assignee`(담당, §@태그·사람·이벤트)를 받는다. `pdf_build` 를 안 보내면(에이전트 `curl`) 지금 빌드로 찍는다. Markdown·텍스트 문서는 `page`·`frac`·`pdf_build` 를 저장하지 않는다(§Markdown 문서의 핀, §텍스트 문서의 핀) |
 | `POST` | `/api/pins/{id}/edit` | 제자리 수정 — §핀 수정 (`/api/pins/{id}/edit`) |
 | `POST` | `/api/pins/{id}/close` | 핀 한 건을 닫는다(`done: true`, `closed_by`). 에이전트가 닫으면 검토 대기(`review: true`), 사람이 닫으면 완료다 — §검토 대기. 선택 본문 `{"reply", "ref", "changes", "review"}` — §닫을 때 사유 남기기. 레코드는 남는다. `<state_dir>/pins.md` 에서는 열린 표에서 빠지고 머리줄 건수로만 남는다(§pins.md 형식). 응답은 `{ok, pin, state}`. 그 id가 없으면 `200 {"ok": false, "pin": null}` 이다(reopen도 같다). **이미 닫힌 핀을 다시 닫으면 `{ok: true, pin}` 을 그대로 돌려주고 아무 필드도 바꾸지 않는다.** `rev` 도 그대로다(규칙은 [domain.md](domain.md) §전이에 딸린 규칙) |
 | `POST` | `/api/pins/{id}/reopen` | 닫은 핀을 되돌린다(`reopened_by`). `close_reply`·`close_ref`·`changes`·`review`·`confirmed_*` 가 있었으면 지운다. 다시 닫을 때 새로 남기기 위해서다. 선택 본문 `{"reason"}` 은 스레드에 남는다 → `{ok, pin, state}`. 뷰어에는 [다시 열기] 버튼이 없고 사람의 답글이 규칙으로 다시 연다(§스레드 (답글)). 이 경로는 에이전트와 뷰어의 [완료] 되돌리기가 쓴다 |
@@ -478,7 +478,7 @@ latexdiff는 본문 글과, 자기가 아는 글 명령(`\textbf`·`\section`·`
 
 ### 받는 핀과 한도
 
-- **제안을 받는 문서, 곧 LaTeX 문서(`kind:"tex"`)와 Markdown 문서(`kind:"markdown"`)의 줄 핀만 받는다.** 두 문서의 줄은 사람이 쓰는 글이다. 보기 전용 PDF 문서의 핀, 그림 문서의 핀, 영역 핀은 `400 suggest_unsupported` 다. 출처: [ADR-0025 D8](../adr/0025-html-document-surface.md#결정). 그림 스크립트에는 공통 부품과 다시 렌더하는 규칙이 따로 있다. 다른 문서의 `el` 처럼 조용히 버리지 않는다. 버리면 작성자는 자기 글이 저장되지 않은 것을 모른다.
+- **제안을 받는 문서, 곧 LaTeX 문서(`kind:"tex"`), Markdown 문서(`kind:"markdown"`), 텍스트 문서(`kind:"text"`)의 줄 핀만 받는다.** 세 문서의 줄은 사람이 쓰고 손으로 고치는 글과 코드다. 보기 전용 PDF 문서의 핀, 그림 문서의 핀, 영역 핀은 `400 suggest_unsupported` 다. 출처: [ADR-0025 D8](../adr/0025-html-document-surface.md#결정), [ADR-0029 D4](../adr/0029-text-documents.md#결정). 거절 문장은 여전히 `LaTeX·Markdown 문서의 줄 핀에만` 이라고 쓴다. 에이전트가 읽는 문구라 바꾸지 않았고, `reason` 이 정본이다. 그림 스크립트에는 공통 부품과 다시 렌더하는 규칙이 따로 있다. 다른 문서의 `el` 처럼 조용히 버리지 않는다. 버리면 작성자는 자기 글이 저장되지 않은 것을 모른다.
 - **줄 범위는 80줄(`SUGGEST_LINES_MAX`) 이하, `base`·`text` 는 각각 16,000자(`SUGGEST_MAX`) 이하다.** 80줄은 스니펫 상한과 같다. 넘으면 `400 suggest_too_long` 이고, 문장에 그 수와 상한이 있다. 범위를 먼저 보고 `base`, `text` 순으로 본다.
 - **`text` 가 `base` 와 같으면 `400 suggest_noop` 이다.**
 - **모양이 틀리면 `400 bad_suggest` 다.** 객체가 아니거나, `base`·`text` 가 빠졌거나, 다른 키가 있거나, 값이 문자열이 아닌 경우다. `POST /api/pin` 의 `null` 은 보내지 않은 것과 같다.
@@ -1110,11 +1110,27 @@ Markdown 문서는 뷰어가 원문을 그리는 문서다. `--doc` 경로가 `.
 
 **되돌리기.** `.md` 등록이 없는 서버(0.4.47 이하)는 Markdown 문서가 있는 설정으로 시작하지 않는다. 그래서 되돌리려면 먼저 그 문서를 설정에서 뺀다. 상태 폴더는 그대로 읽힌다. 레코드 검사가 줄 핀의 `page` 를 있을 때만 보고 `scope`·`kind` 는 문자열인지만 보기 때문이다. 그 핀들은 `## 설정에 없는 문서` 소절로 가고, 그 서버의 쪽 칸은 `0` 이다. `tests/contracts/test_markdown_rollback.py` 가 v0.4.46 에서 살아 있는 핀과 휴지통 사본을 깨진 줄 없이 읽고 두 파일을 바이트 그대로 되쓰는지 확인한다.
 
+## 텍스트 문서의 핀
+
+텍스트 문서는 뷰어가 원문 줄을 그대로 보이는 문서다. `--doc` 경로의 확장자가 닫힌 목록(대소문자 무관, [instances.md](instances.md) §여러 문서 (`DOCS=`))에 드는 일반 텍스트·소스 코드 파일이고, 문서 `kind` 는 `text` 이며, 쪽이 없고 빌드하지 않는다. 뷰어는 `GET /api/source` 의 줄을 파싱하지 않고 줄마다 그대로 보인다([viewer.md](viewer.md) §텍스트 화면). 능력은 Markdown 문서와 같아서(`renders_in_browser`·`takes_line_pins`·`takes_suggestions`·`shows_revisions`) §Markdown 문서의 핀의 쪽 필드 규칙, 제안 수정, 재빌드 없음이 그대로 걸린다. 뷰어만 두 종류를 가른다. 출처: [ADR-0029 D1–D4·D7·D8](../adr/0029-text-documents.md#결정).
+
+**값이 셋 는다.** 문서 `kind` 의 `text`, `scope` 의 `indent`, 핀 `kind` 의 `indent` 다. 사다리는 고른 줄(`raw`, 핀 `kind` `lines`) → 빈 줄 사이의 문단(`para`, LaTeX와 같은 값, 핀 `kind` `paragraph`) → 들여쓰기 블록(`indent`)이다. 고른 줄이 문단 둘 이상에 걸치면 줄(`scope` `lines`)로 저장한다. 사다리는 뷰어가 줄만 보고 만들고, 서버는 저장할 때 `lo..hi` 가 파일 안인지만 본다. 에이전트는 pick 없이 `file`·`lo`·`hi` 로 핀을 만든다.
+
+**`pins.md`.** 문서 소절 제목 끝에 `— 텍스트(쪽 없음)` 이 붙고, 쪽 칸은 `—`, 범위 칸은 들여쓰기 블록이면 `indent` 다(§텍스트 핀의 행).
+
+**판정.** 판정 핀의 대상은 그 줄이다. 같은 줄의 더 새 판정이 옛 판정을 대체한다(§판정 핀 (`verdict`)). 낱말 파일은 메인 파일의 이름 + `.limnverdicts.json` 이다(§판정 낱말 파일 (`limn-verdicts/1`)).
+
+**파일만 준 요청.** 텍스트 문서는 자기 메인 파일만 갖는다. 그 파일은 폴더 규칙보다 먼저 텍스트 문서로 간다(§문서 매개변수 (`doc=`)). `.bib` 를 텍스트 문서로 등록하면 그 `.bib` 만 준 요청도 LaTeX 문서가 아니라 텍스트 문서로 간다.
+
+**변경 보기.** 그 파일 하나의 Git 이력과 소스 diff다. 비교 PDF는 없다. 같은 폴더의 LaTeX·Markdown 문서와 이력이 섞이지 않는다. 다만 LaTeX 문서의 이력은 그 폴더의 `.bib`·`.sty`·`.cls`·`.bst` 도 원고 파일로 넣으므로, 그 파일을 텍스트 문서로 등록하면 그 커밋은 두 이력에 다 나온다.
+
+**되돌리기.** 텍스트 문서 등록이 없는 서버(0.4.50 이하)는 텍스트 문서가 있는 설정으로 시작하지 않는다. 그래서 되돌리려면 먼저 그 문서를 설정에서 뺀다. 상태 폴더는 그대로 읽힌다. 레코드 검사가 `scope`·`kind` 를 문자열인지만 보기 때문이다. `tests/contracts/test_text_rollback.py` 가 v0.4.50 에서 살아 있는 텍스트 핀과 휴지통 사본을 깨진 줄 없이 읽고 두 파일을 바이트 그대로 되쓰는지 확인한다.
+
 ## 판정 낱말 파일 (`limn-verdicts/1`)
 
 판정 낱말 파일은 그 문서의 저장소가 쓰고 Limn이 읽는 생산자 계약이다. 사람이 핀에 고를 수 있는 판정 낱말(§판정 핀 (`verdict`))을 문서마다 선언한다. 낱말의 뜻(무엇을 실행하나)은 그 저장소의 에이전트 규칙에 있으므로, 낱말과 규칙을 같은 커밋에서 고칠 수 있게 파일을 문서 옆에 둔다. 인스턴스 설정 키나 서버 인자는 없다. 형식은 더하기만 한다. 이 판이 모르는 키는 무시하고, 뜻을 바꾸는 변경은 `format` 의 판 번호를 올린다. 출처: [ADR-0021 D2](../adr/0021-verdict-pins.md#결정).
 
-**자리.** 등록한 문서의 메인 파일에서 종류 접미사(`.tex`·`.pdf`·`.limnmap.json`·`.md`)를 떼고 `.limnverdicts.json` 을 붙인 파일이다. `::` 가 있으면 그 뒤의 경로가 메인 파일이다. 단일 문서 인스턴스도 같다.
+**자리.** 등록한 문서의 메인 파일에서 종류 접미사(`.tex`·`.pdf`·`.limnmap.json`·`.md`, 텍스트 문서는 그 확장자)를 떼고 `.limnverdicts.json` 을 붙인 파일이다. `::` 가 있으면 그 뒤의 경로가 메인 파일이다. 단일 문서 인스턴스도 같다. 그래서 같은 폴더에서 이름이 같은 두 문서(`notes/plan.md` 와 `notes/plan.txt`)는 낱말 파일 하나를 함께 쓴다. 자리 규칙에 예외를 두지 않으려는 것이다([ADR-0029](../adr/0029-text-documents.md) D4).
 
 | 문서 경로 | 낱말 파일 |
 | --- | --- |
@@ -1122,6 +1138,7 @@ Markdown 문서는 뷰어가 원문을 그리는 문서다. `--doc` 경로가 `.
 | `figures/out/figures.limnmap.json` | `figures/out/figures.limnverdicts.json` |
 | `submission/manuscript.pdf` | `submission/manuscript.limnverdicts.json` |
 | `notes/plan.md` | `notes/plan.limnverdicts.json` |
+| `figs/plot.py` | `figs/plot.limnverdicts.json` |
 
 ```json
 {
@@ -1217,15 +1234,15 @@ Markdown 문서는 뷰어가 원문을 그리는 문서다. `--doc` 경로가 `.
 | `doc` | 핀이 속한 문서 키(§문서 매개변수 (`doc=`)). 없는 옛 레코드는 첫 문서로 **읽는다**. 이관 쓰기를 하지 않는다. `GET /api/pins` 응답에는 늘 채워진다(계산) |
 | `pdf` | 보기 전용 PDF 문서와 그림 문서의 영역 핀에만 있다. 그 PDF의 절대경로다(그림 문서는 지도가 가리키는 PDF, §보기 전용 PDF 문서의 pick·핀). 이 필드가 있고 `file` 이 없으면 보기 전용 핀으로 검증한다(`page`·`frac` 필수, `lo`·`hi` 없음). 문서 키가 지금 설정에 없어도 깨진 줄로 치지 않는다 |
 | `rev` | 레코드 내용이 바뀌는 모든 쓰기(줄 이동·stale, 수정, 닫기, 다시 열기, 되살리기)에서 +1. 없으면 0 |
-| `scope` | `raw\|para\|env\|env2\|env3\|lines`, 그림 핀은 `el\|el2\|…\|el8\|fig`, Markdown 핀은 `block\|section` 도 쓴다. 저장할 때 고른 범위 사다리 단계다 |
+| `scope` | `raw\|para\|env\|env2\|env3\|lines`, 그림 핀은 `el\|el2\|…\|el8\|fig`, Markdown 핀은 `block\|section`, 텍스트 핀은 `indent` 도 쓴다. 저장할 때 고른 범위 사다리 단계다 |
 | `via` | 범위를 찾은 방법 `synctex\|text\|map`. `map` 은 그림 문서의 요소 지도다 |
 | `el` | 그림 핀만 가진다. 가리킨 요소 `{id, path, label?, part?, impl?: {file, lo, hi}, frac?}`(§그림 문서의 pick·핀)다. 모양이 틀리면 그 줄은 깨진 줄이다. 모양이 틀린 경우는 객체가 아니거나, `id` 가 없거나 문자열이 아니거나 빈 문자열이거나, `path` 가 문자열 목록이 아니거나, `label`·`part` 가 문자열이 아니거나, `impl` 이 `{file: 문자열, lo: 정수, hi: 정수}` 가 아니거나, `frac` 이 숫자 4개가 아닌 때다. 이 필드를 모르는 이전 서버(0.3.5, 0.3.7, 0.3.8에서 확인된다)는 모르는 필드로 지나치고, 되쓸 때 그대로 둔다 |
-| `suggest` | LaTeX·Markdown 문서의 줄 핀만 가진다. 제안 수정 `{base, text}`(§제안 수정 (`suggest`))이고 두 값은 `\r` 이 없는 문자열이다. 모양이 틀리면 그 줄은 깨진 줄이다. 모양이 틀린 경우는 객체가 아니거나, `base`·`text` 가 문자열이 아닌 때다. 그 안의 이 버전이 모르는 키는 그대로 둔다. 이 필드를 모르는 0.4.x 서버는 모르는 필드로 지나치고, 되쓸 때 그대로 둔다 |
+| `suggest` | LaTeX·Markdown·텍스트 문서의 줄 핀만 가진다. 제안 수정 `{base, text}`(§제안 수정 (`suggest`))이고 두 값은 `\r` 이 없는 문자열이다. 모양이 틀리면 그 줄은 깨진 줄이다. 모양이 틀린 경우는 객체가 아니거나, `base`·`text` 가 문자열이 아닌 때다. 그 안의 이 버전이 모르는 키는 그대로 둔다. 이 필드를 모르는 0.4.x 서버는 모르는 필드로 지나치고, 되쓸 때 그대로 둔다 |
 | `verdict` | 판정 핀만 가진다. 만든 때의 판정 낱말 `key` 문자열이다(§판정 핀 (`verdict`)). 문자열이 아니거나 `key` 규칙에 맞지 않는 값은 판정으로 치지 않고 저장된 그대로 두며, 그 줄은 깨진 줄이 아니다. 이 필드를 모르는 0.4.x 서버는 모르는 필드로 지나치고, 되쓸 때 그대로 둔다 |
 | `quote` | 선택. 호출자가 붙인 짧은 인용이다. 뷰어는 pick 의 `quote`(드래그한 PDF 글자)를 넣는다. 160자에서 자른다. `GET /api/pins` 는 저장값 그대로 돌려주고, pins.md 의 `«…»` 는 60자다(§메모 칸의 덧붙임) |
 | `pdf_build` | `frac` 을 찍은 빌드 id(쪽 디렉토리 이름). 없으면 옛 핀이다. 옛 필드명 `frac_build` 도 같은 뜻으로 읽는다([build-sync.md](build-sync.md) §위치 추정 (`est`)). Markdown 핀에는 `page`·`frac` 과 함께 없다(§Markdown 문서의 핀) |
 | `anchor` | `{head, tail, head_off, tail_off}`. 줄 맞춤의 기준이다. `*_off` 가 없는 옛 앵커는 0으로 본다([domain.md](domain.md) §줄 번호 재동기화) |
-| `kind` | `paragraph\|float\|block\|none`(옛 값) 또는 `env:<이름>`, `lines`. 그림 핀은 `el:<부품>`(`el:MonthCell`, `el:?`)과 `figure`. Markdown 핀은 `md:paragraph\|md:item\|md:table\|md:code\|md:quote\|md:html` 과 `md:section`. 모르는 값은 원문 그대로 둔다 |
+| `kind` | `paragraph\|float\|block\|none`(옛 값) 또는 `env:<이름>`, `lines`. 그림 핀은 `el:<부품>`(`el:MonthCell`, `el:?`)과 `figure`. Markdown 핀은 `md:paragraph\|md:item\|md:table\|md:code\|md:quote\|md:html` 과 `md:section`. 텍스트 핀의 들여쓰기 블록은 `indent`. 모르는 값은 원문 그대로 둔다 |
 | `author` | 만든 사람 `{login, name, pic?}` |
 | `edited_at`, `edited_by` | 저장 뒤 마지막 수정 시각과 사람 |
 | `closed_by` / `reopened_by` | 닫은 사람과 다시 연 사람(`done_at`·`reopened_at` 과 함께) |
@@ -1292,7 +1309,7 @@ Markdown 문서는 뷰어가 원문을 그리는 문서다. `--doc` 경로가 `.
 ### 열
 
 - **위치**: `--manuscript`(`C.src`) 기준 **상대경로**다. 루트 파일은 basename과 같다. `\input`·`\include` 로 쪼갠 하위 파일은 `sections/intro.tex L12-L18` 처럼 구분된다. 원고 체크아웃을 옮긴 뒤에도 같다(§핀 파일의 위치). 원고 밖으로 풀리는 핀만 파일 이름으로 줄어든다. 파일명의 `|` 는 `\|` 로 이스케이프한다(아래 §이스케이프).
-- **범위**: `scope` 가 있으면 `env*`→`env:<이름>`, `para`→`paragraph`, `raw`·`lines`→`lines`, `block`→핀의 `md:` `kind`(`md:` 가 아니면 `block`), `section`→`md:section` 으로 쓴다. 없으면 옛 `kind` 값을 그대로 쓴다.
+- **범위**: `scope` 가 있으면 `env*`→`env:<이름>`, `para`→`paragraph`, `raw`·`lines`→`lines`, `block`→핀의 `md:` `kind`(`md:` 가 아니면 `block`), `section`→`md:section`, `indent`→`indent` 로 쓴다. 없으면 옛 `kind` 값을 그대로 쓴다.
 - **줄 번호 시점**: `<state_dir>/pins.md` 를 갱신한 시각 기준이다. 앞선 핀을 고쳐 줄이 밀렸을 수 있으면 `GET /api/pins` 로 다시 맞춘 값을 받는다.
 
 ### 번호 칸의 표시
@@ -1359,13 +1376,13 @@ Markdown 문서는 뷰어가 원문을 그리는 문서다. `--doc` 경로가 `.
 
 ### 여러 문서
 
-`--doc` 이 둘 이상이거나, 첫 문서가 아닌 키의 열린 핀이 있거나, 그림 문서나 Markdown 문서가 있으면 여러 문서 모양이 된다. 그림 문서와 Markdown 문서는 그것이 인스턴스의 유일한 문서여도 늘 자기 소절을 가진다. 파일은 한 장 그대로다.
+`--doc` 이 둘 이상이거나, 첫 문서가 아닌 키의 열린 핀이 있거나, 그림 문서나 Markdown·텍스트 문서가 있으면 여러 문서 모양이 된다. 그림 문서와 Markdown·텍스트 문서는 그것이 인스턴스의 유일한 문서여도 늘 자기 소절을 가진다. 파일은 한 장 그대로다.
 
 1. 머리에 `` 문서: 본문(`ms`) 3건 · … · 리뷰어 코멘트(`rv`, 보기 전용) 1건 `` 한 줄과 소절 안내를 둔다.
-2. 열린 핀이 있는 문서마다 소절 `` ## <이름> · `<키>` · `<--manuscript 기준 경로>` `` 를 둔다. 보기 전용이면 제목 끝에 `— 보기 전용 PDF(줄 번호 없음)` 이, 그림 문서면 `— 그림(요소 지도)` 가, Markdown 문서면 `— Markdown(쪽 없음)` 이 붙는다.
+2. 열린 핀이 있는 문서마다 소절 `` ## <이름> · `<키>` · `<--manuscript 기준 경로>` `` 를 둔다. 보기 전용이면 제목 끝에 `— 보기 전용 PDF(줄 번호 없음)` 이, 그림 문서면 `— 그림(요소 지도)` 가, Markdown 문서면 `— Markdown(쪽 없음)` 이, 텍스트 문서면 `— 텍스트(쪽 없음)` 이 붙는다.
 3. 소절 안에 그 문서의 `기준: <head> · 빌드 <built_at>` 줄이 온다. 원고에서 빌드하지 않는 문서(보기 전용 PDF와 그림 문서)는 `빌드` 대신 `그림` 이라서 `기준: <head> · 그림 <built_at>` 이다. 그 문서의 `head` 가 있고 `-` 가 아니며(git 밖이면 `-`) `built_at` 이 있을 때만 이 줄이 온다. `head` 가 `-` 이면 이 줄은 없다. 그 뒤에 5열 표가 온다.
 
-머리의 단일 `기준:` 줄은 소절로 옮겨 간다. 설정에 없는 문서 키의 핀은 `` ## 설정에 없는 문서 · `<키>` `` 소절로 드러난다. 단일 문서(그림 문서·Markdown 문서가 아닌)에는 문서 소절이 없다. 머리의 `문서:` 줄에는 보기 전용 문서만 `보기 전용` 이 붙고, 그림 문서에는 붙지 않는다.
+머리의 단일 `기준:` 줄은 소절로 옮겨 간다. 설정에 없는 문서 키의 핀은 `` ## 설정에 없는 문서 · `<키>` `` 소절로 드러난다. 단일 문서(그림 문서·Markdown 문서·텍스트 문서가 아닌)에는 문서 소절이 없다. 머리의 `문서:` 줄에는 보기 전용 문서만 `보기 전용` 이 붙고, 그림 문서에는 붙지 않는다.
 
 ### 보기 전용 핀의 행
 
@@ -1399,6 +1416,15 @@ Markdown 핀은 Markdown 문서(§Markdown 문서의 핀)의 소절에 실리는
 - 쪽 칸은 `—` 다. `page` 가 없는 줄 핀은 문서와 상관없이 모두 이렇게 쓴다.
 - 위치 칸은 원고 핀처럼 `notes/plan.md L3-L4` 이고, 그 줄을 `.md` 파일에서 바로 고친다.
 - 범위 칸은 블록이면 핀의 `kind`(`md:table`), 절이면 `md:section` 이다(§열).
+
+### 텍스트 핀의 행
+
+텍스트 핀은 텍스트 문서(§텍스트 문서의 핀)의 소절에 실리는 줄 핀이다.
+
+- 소절 제목 끝에 `— 텍스트(쪽 없음)` 이 붙는다. 빌드가 없으므로 소절에 `기준:` 줄이 없다.
+- 쪽 칸은 `—` 다.
+- 위치 칸은 원고 핀처럼 `figs/plot.py L3-L6` 이고, 그 줄을 그 파일에서 바로 고친다. 줄 번호는 `str.splitlines()` 로 센 것이다. 파일에 LF·CRLF가 아닌 줄 끝(폼 피드, U+2028 등)이 있으면 그 뒤의 번호가 LF만 세는 편집기와 다르다(`GET /api/source` 의 `line_ends`).
+- 범위 칸은 들여쓰기 블록이면 `indent`, 문단이면 `paragraph`, 고른 줄이면 `lines` 다(§열).
 
 ### 판정 핀의 행
 
@@ -1457,6 +1483,7 @@ Markdown 핀은 Markdown 문서(§Markdown 문서의 핀)의 소절에 실리는
 - 소제목은 `### #<번호> · <위치> · <상태>` 다. 위치는 위치 칸과 같은 경로 규칙으로 쓴 `<경로> L<lo>-L<hi>` 이고, 여러 문서 모양이면 검토 대기 표처럼 앞에 `` `<문서 키>` · `` 가 붙는다.
 - 상태 말은 `ready` 면 `바꿀 준비됨`, `changed` 면 `원문 바뀜 — 넣지 않는다`, `unknown` 이면 `확인 불가 — 넣지 않는다` 다.
 - 글은 백틱 울타리 블록에 줄마다 그대로 싣는다. 울타리는 글 안의 가장 긴 백틱 연속보다 하나 길고 적어도 세 개다. 그래서 글 안의 어느 줄도 블록을 일찍 닫지 못하고, 이스케이프 없이 같은 글이 담긴다.
+- 글이 원문(`base`)보다 숨은 문자를 더 가지면 소제목 아래, 울타리 앞에 한 줄을 더한다. `숨은 문자: 원문에 없는 U+202E 1개, U+200B 2개 — 보이지 않거나 글 순서를 바꾸는 문자다. 넣기 전에 그 문자가 필요한지 답글로 묻는다`. 숨은 문자는 보이지 않거나 글 순서를 바꾸는 문자로, 코드 포인트로 정한 한 목록이다(Unicode의 `Default_Ignorable_Code_Point`, 탭과 LF를 뺀 C0·C1 제어 문자, U+2028·U+2029, 행간 주석 문자 U+FFF9–U+FFFB, `pins/suggestion.py` 의 `HIDDEN_RANGES`). 이름은 `U+` 와 네 자리 이상의 16진수이고, 원문보다 많아진 개수만 처음 나온 순서로 센다. 뷰어와 달리 예외가 없다. 이모지의 ZWJ를 넣는 제안도 이 줄이 붙는다. 에이전트는 이 줄이 붙은 제안을 넣기 전에 그 문자가 필요한지 답글로 묻는다. 사람의 화면이 경고했어도, 다른 사람이 쓴 제안이나 태그 문자에 실린 지시를 에이전트가 모르고 넣지 않게 하려는 것이다. 그런 제안이 없으면 `pins.md` 는 바이트까지 그대로이고, JSON(`suggest`)은 바뀌지 않는다. 출처: [ADR-0029 D7](../adr/0029-text-documents.md#결정).
 - `text` 가 비었으면 블록 대신 `(이 줄 범위를 지운다)` 한 줄이다.
 - `<base>` 는 안내 줄과 같은 규칙이다. 디스크의 파일은 루프백, `GET /pins.md` 는 요청 `Host` 에 맞춘 base다(§원격 에이전트 진입점 (`GET /pins.md`)).
 - 블록은 정본이 아니다. 정확한 바이트는 `GET /api/pins/{id}` 의 `suggest.text` 로 읽는다.

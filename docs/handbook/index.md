@@ -20,10 +20,10 @@ catalog_schema: 1
 | --- | --- | --- | --- |
 | purpose | [purpose.md](purpose.md) | Limn이 줄이는 비용, 사용자, 범위, 영역별 진실 소스 | 처음 읽을 때, 현재값의 정본 위치가 헷갈릴 때 / 제품 범위나 정본 위치가 바뀔 때 |
 | architecture | [architecture.md](architecture.md) | 현재 구조(기능 소유권과 공통 경계), 의존 방향, 채택한 설계 축, 불변식, 멈춤 신호 | 코드를 놓을 자리를 고르거나 의존성·저장·보안 경계를 건드리기 전 / 구조 단위·불변식·채택값이 바뀔 때 |
-|  | [domain.md](domain.md) | 핀 용어, 상태와 전이, 역변환·범위 사다리·그림 문서의 요소 pick·anchor 재동기화·읽을 때 계산하는 요소 위치, 저장소 안전성, 작성자 귀속, 여러 문서 서버 규칙(보기 전용 PDF·그림 문서·Markdown 문서), 알려진 제약 | 핀 규칙이나 위치 계산을 고치기 전 / 상태·전이·위치 규칙·한도가 바뀔 때 |
-|  | [viewer.md](viewer.md) | 뷰어 조작 요약, 레이아웃, 패널, 상태 표시, 협업 UI, 디자인 토큰·컴포넌트, 벡터 렌더링·확대, Markdown 화면(줄 대응·링크 관문·한도), 화면 쪽 제약 | 뷰어 HTML·CSS·JS를 고치기 전 / 화면 규칙이나 가드 테스트가 바뀔 때 |
-|  | [build-sync.md](build-sync.md) | 동기·비동기 재빌드, git pull, 자동 동기화 폴링, 위치 추정 est, 응답 다이어트, 보기 전용 PDF 감시, 그림 문서 가져오기, 빌드 없는 Markdown 문서 | 빌드·동기화·추정 코드를 고치기 전 / 빌드 상태나 폴링 규칙이 바뀔 때 |
-|  | [api.md](api.md) | 에이전트 계약: HTTP API 전체, 요청 경계, 핀 레코드 스키마, pins.md 형식, 그림 문서의 pick·핀, 그림 요소 지도 형식, 판정 핀과 판정 낱말 파일 형식 | 에이전트 연동을 만들거나 요청 처리를 고치기 전 / 경로·필드·상태·pins.md 형식이 바뀔 때 |
+|  | [domain.md](domain.md) | 핀 용어, 상태와 전이, 역변환·범위 사다리·그림 문서의 요소 pick·anchor 재동기화·읽을 때 계산하는 요소 위치, 저장소 안전성, 작성자 귀속, 여러 문서 서버 규칙(보기 전용 PDF·그림 문서·Markdown 문서·텍스트 문서와 그 사다리), 알려진 제약 | 핀 규칙이나 위치 계산을 고치기 전 / 상태·전이·위치 규칙·한도가 바뀔 때 |
+|  | [viewer.md](viewer.md) | 뷰어 조작 요약, 레이아웃, 패널, 상태 표시, 협업 UI, 디자인 토큰·컴포넌트, 벡터 렌더링·확대, Markdown 화면(줄 대응·링크 관문·한도), 텍스트 화면(줄 그대로·사다리·한도), 숨은 문자 표시, 화면 쪽 제약 | 뷰어 HTML·CSS·JS를 고치기 전 / 화면 규칙이나 가드 테스트가 바뀔 때 |
+|  | [build-sync.md](build-sync.md) | 동기·비동기 재빌드, git pull, 자동 동기화 폴링, 위치 추정 est, 응답 다이어트, 보기 전용 PDF 감시, 그림 문서 가져오기, 빌드 없는 Markdown·텍스트 문서 | 빌드·동기화·추정 코드를 고치기 전 / 빌드 상태나 폴링 규칙이 바뀔 때 |
+|  | [api.md](api.md) | 에이전트 계약: HTTP API 전체, 요청 경계, 핀 레코드 스키마, pins.md 형식, 그림 문서의 pick·핀, 그림 요소 지도 형식, Markdown·텍스트 문서의 핀, `pins.md` 의 숨은 문자 줄, 판정 핀과 판정 낱말 파일 형식 | 에이전트 연동을 만들거나 요청 처리를 고치기 전 / 경로·필드·상태·pins.md 형식이 바뀔 때 |
 |  | [operations.md](operations.md) | 서버 하나 실행: 요구 환경, 실행 인자, 포트, 보안 제약, tailscale serve, systemd, 상태 파일 | 서버를 띄우거나 운영 문제를 볼 때 / 실행 인자·상태 파일·보안 제약이 바뀔 때 |
 |  | [instances.md](instances.md) | 원고별 인스턴스 관리자: limn 명령, 설정 키, 문서 탭, 업데이트·되돌리기, 포트, 환경 변수 | 인스턴스를 추가·업데이트·제거할 때 / limn 명령·설정 키·유닛 템플릿이 바뀔 때 |
 | verification | [verification.md](verification.md) | 게이트별 측정 대상·적용 조건·실행·합격 기준·보장 범위, 없는 게이트 | PR 전과 리뷰할 때 / 테스트·CI 단계·합격 기준이 바뀔 때 |
@@ -47,6 +47,9 @@ catalog_schema: 1
 | `src/limn/administration/**` | 토큰·멤버·문서 인자·이관·인스턴스 셸·systemd 템플릿 | 명령·설정 키·유닛·업데이트 흐름 변경 | instances.md, operations.md, api.md |
 | `src/limn/viewer/**` | HTML·CSS·JS·번역·마크·브랜드 파일·조립·화면 제공 경로 | 화면 동작·조각 순서·번역·캐시 정책 변경 | viewer.md, api.md, verification.md |
 | `src/limn/viewer/js/md-surface.js`, `src/limn/viewer/css/md-surface.css`, `src/limn/viewer/md-parse.mjs` | Markdown 문서를 원문에서 그리는 화면: 파싱 worker와 한도, DOM으로만 짓기, 줄 대응, 링크 허용 목록, 고르기·사다리·표시·목차, 원문 줄 보기. 남이 쓴 글을 뷰어의 출처에서 그리는 보안 경계 | 그리기·링크 관문·한도·줄 대응·고르기 변경 | viewer.md, architecture.md, api.md, verification.md |
+| `src/limn/viewer/js/text-surface.js`, `src/limn/viewer/css/text-surface.css` | 텍스트 문서를 원문 줄 그대로 보이는 화면: 줄 span과 걸림, 한도와 이름 보기, 숨은 문자·줄 끝 알림, 고른 줄 → 문단 → 들여쓰기 블록 사다리, 안내 말. 파싱하지 않고 DOM으로만 짓는다 | 텍스트 화면의 그리기·사다리·한도·안내 변경 | viewer.md, domain.md, api.md, verification.md |
+| `src/limn/viewer/js/hidden-chars.js`, `src/limn/pins/suggestion.py` | 보이지 않거나 글 순서를 바꾸는 문자의 목록과 예외, 이름 상자·글자 이름 표시(뷰어), 제안이 더한 숨은 문자의 셈(`pins.md`, `suggestion.py` 의 `HIDDEN_RANGES`). 두 목록은 `tests/architecture/test_hidden_chars.py` 가 묶는다. 리뷰 화면이 원문과 다르게 보이지 않게 하는 보안 경계다 | 목록·예외·표시하는 곳·`pins.md` 숨은 문자 줄 변경 | viewer.md, api.md, skill/*, verification.md |
+| `src/limn/runtime/documents.py`, `src/limn/administration/instance_documents.sh` | 문서 종류와 능력, 그리고 텍스트 문서로 받는 닫힌 확장자 목록(서버의 `TEXT_SUFFIXES` 와 셸의 `DOC_TEXT_SUFFIXES` 두 벌, `tests/architecture/test_text_suffixes.py` 가 묶는다) | 문서 종류·능력·받는 확장자 변경(확장자는 더하기만 한다) | instances.md, operations.md, domain.md, purpose.md, skill/* |
 | `src/limn/runtime/**` | 시작·설정·실행별 문서·잠금·캐시·감시 수명·고정 상태 경로 | 실행 수명·설정·문서 경로 변경 | architecture.md, operations.md, domain.md |
 | `src/limn/security/**` | 신원·Host/Origin·역할·권한 발급·사람 사실·감사·인증 안내 | 신뢰·권한·사람 기록·감사 변경 | architecture.md, api.md, operations.md, SECURITY.md |
 | `src/limn/platform/**` | 원고 핸들(크기를 제한한 읽기 `read_bounded` 포함)·원자적 쓰기·실패 원복 교체·파일 잠금·읽기 효과 범위(`effects.py`)·제한된 진단(`diagnostics.py`)·Git 프로세스·숫자와 텍스트 장치 | 파일 접근·프로세스 인자/환경·JSON 값 판정 변경 | domain.md, build-sync.md, architecture.md |

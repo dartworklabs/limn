@@ -11,30 +11,39 @@
 
 ## Task 2: 서버 계약 시험
 
-- [ ] Step 1: 텍스트 계약 스냅숏 `tests/data/contract_snapshot_text.json`(`TextContractSnapshot`). `--doc` 이 고른 `.py` 텍스트 문서와 LaTeX 문서에서 `/api/docs`·`/api/meta` 의 `kind:"text"`, 습관처럼 page 필드를 보낸 줄 핀, 문단(`para`)·들여쓰기 블록(`indent`) 핀, 숨은 문자를 더하는 제안, 위치 편집과 메모 편집, 판정 핀, 버리기와 휴지통, `pins.md`·핀 목록. Expected: 어느 답에도 page 필드가 없고 `pins.md` 는 `—`·`indent`·`— 텍스트(쪽 없음)`·숨은 문자 줄을 찍는다. 변이: `pins.md` 꼬리말을 `Markdown(쪽 없음)` 으로 되돌린다.
-- [ ] Step 2: 텍스트 핀 쓰기 시험 `pins/editing/tests/test_text_pins.py`. `kind`/`scope` `indent` 가 만들기·위치 편집·메모 편집을 지나 저장 파일과 답에 그대로 남고, page·frac·pdf_build 는 저장되지 않으며, 제안 수정을 받고, 판정 핀의 대상이 그 줄이다. Expected: 변이 `SCOPES` 에서 `indent` 빼기 → 400 `bad_scope`; `renders_in_browser` 에서 `text` 빼기 → page 필드가 저장된다; `takes_suggestions` 에서 `text` 빼기 → 400 `suggest_unsupported`.
-- [ ] Step 3: 원문 경로. Markdown의 `SourceRoute` 를 텍스트 문서로 한 번 더 돌린다(줄, `line_ends`, 1 MiB와 413, UTF-8 아님, 거절). Expected: 변이 `rendersInBrowser`(서버)에서 `text` 빼기 → 400 `not_rendered_in_browser`.
-- [ ] Step 4: 변경 보기. 한 폴더의 `main.tex`·`plan.md`·`plan.txt` 와 `refs.bib`: 텍스트 문서의 이력은 제 파일 하나이고, `.tex`·`.md` 문서의 이력과 섞이지 않으며, 핀이 제 hunk만 본다. `.bib` 텍스트 문서는 제 파일만 보고, LaTeX 문서의 이력은 지금처럼 `.bib` 를 넣는다. Expected: 변이 `history_files` 의 `renders_in_browser` 가지를 Markdown으로 좁히기 → 텍스트 이력에 `.tex` 커밋이 섞인다.
-- [ ] Step 5: 직전 릴리스 되돌림 `tests/contracts/test_text_rollback.py`(v0.4.50, `test_markdown_rollback.py` 와 같은 방식). 말뭉치 `tests/data/pin_records.jsonl` 에 텍스트 레코드(`indent`, `para`, 제안, 휴지통 사본)를 더한다. Expected: v0.4.50의 저장소가 모든 텍스트 레코드를 읽고 두 파일을 바이트 그대로 다시 쓴다. 변이: 말뭉치 레코드의 `lo` 를 문자열로 바꾸면 옛 레코드 검사가 그 줄을 깨진 줄로 센다.
+- [x] Step 1: 텍스트 계약 스냅숏 `tests/data/contract_snapshot_text.json`(`TextContractSnapshot`). `--doc` 이 고른 `.py` 텍스트 문서와 LaTeX 문서에서 `/api/docs` 의 `kind:"text"`, `/api/source` 의 `line_ends`(폼 피드 하나), 습관처럼 page 필드를 보낸 줄 핀, 문단(`para`)·들여쓰기 블록(`indent`) 핀, U+202E를 더하는 제안, 들여쓰기 블록으로 옮기는 위치 편집과 메모 편집, 버리기와 휴지통, `pins.md`·핀 목록. Expected: 어느 답에도 page 필드가 없고 `pins.md` 는 `—`·`indent`·`— 텍스트(쪽 없음)`·숨은 문자 줄을 찍는다. 변이: `pins.md` 의 숨은 문자 줄 빼기, `/api/source` 의 `line_ends` 빼기 → 실패.
+- [x] Step 2: 텍스트 핀 쓰기 시험 `pins/editing/tests/test_text_pins.py`(8건). `kind`/`scope` `indent`·`para` 가 만들기·위치 편집·메모 편집을 지나 저장 파일과 답에 그대로 남고, page·frac·pdf_build 는 저장되지 않으며, `pins.md` 의 행과 소절 제목, `/api/docs`·`/api/meta` 의 `text`, 파일만 준 요청의 문서, 제안 수정, 판정 핀의 대상과 `figs/plot.limnverdicts.json`. 변이: `SCOPES` 에서 `indent` 빼기 → 위치 편집 실패; `renders_in_browser` 에서 `text` 빼기 → page 필드가 저장된다; `takes_suggestions` 에서 `text` 빼기 → 제안 거절; `pins.md` 꼬리말을 Markdown으로 → 실패.
+- [x] Step 3: 원문 경로. `TextSourceRoute` 가 Markdown의 `SourceRoute` 를 텍스트 문서로 한 번 더 돌린다(줄과 `line_ends`, 1 MiB와 413, UTF-8 아님, 트리 밖 경로, 읽는 사람, 쓰기 없음). 변이: `renders_in_browser` 에서 `text` 빼기 → 400 `not_rendered_in_browser`.
+- [x] Step 4: 변경 보기 `revisions/tests/test_text_revisions.py`(4건). 한 폴더의 `main.tex`·`plan.md`·`plan.txt`·`refs.bib`: `plan.txt` 의 이력은 제 커밋뿐이고 `.md`·`.tex` 문서와 섞이지 않으며, 핀이 제 hunk만 보고, 비교 PDF가 없다. `.bib` 텍스트 문서는 제 파일만 보고 LaTeX 문서의 이력은 지금처럼 `.bib` 를 넣는다. 변이: `history_files` 의 `renders_in_browser` 가지를 Markdown으로 좁히기 → 실패.
+- [x] Step 5: 직전 릴리스 되돌림 `tests/contracts/test_text_rollback.py`(v0.4.50). 말뭉치 `tests/data/pin_records.jsonl` 에 계약 흐름이 저장한 텍스트 레코드 넷(휴지통 사본 포함)을 더했다. 변이: 텍스트 레코드에 `"page": null` 을 넣으면 v0.4.50의 레코드 검사가 그 줄을 깨진 줄로 세어 실패, `page`·`frac` 을 넣으면 말뭉치 시험이 실패.
 
 ## Task 3: 브라우저 시험
 
-- [ ] Step 1: 고르기. 마우스 누르기(그 줄, 기본 단 `raw`), 끌기(덮은 줄들), 손가락 누르기, 길게 누르기에 해당하는 선택(손잡이로 만든 선택이 멈춘 뒤 0.5초). 저장한 핀에 page 필드가 없다. Expected: 변이 `mdPick` 의 `!isTextDoc()` 빼기 → 누르기가 문단을 고른다.
-- [ ] Step 2: 사다리. 함수 머리 줄의 세 단(고른 줄, 문단, 들여쓰기 블록), 짧은 쪽이 먼저, 같은 범위는 합친다, 두 문단에 걸친 선택은 `문단 2개` 이고 줄로 저장한다, 블록을 고르면 `indent` 로 저장한다. Expected: 변이 `kindFor` 의 `indent` 가지 빼기 → 저장된 `kind` 가 `lines`.
-- [ ] Step 3: 344px 폴더블 바깥 화면에서 쪽이 옆으로 넘어가지 않는다(긴 줄, 탭, 긴 토큰). Expected: 변이 `.md.tx .ln` 의 `white-space:pre-wrap` 을 `pre` 로 → 가로 넘김.
-- [ ] Step 4: 원문이 바뀌면 다시 그리고 읽던 줄을 지킨다. Expected: 변이 텍스트 가지의 `mdShow` 를 첫 그리기에만 → 새 글이 보이지 않는다.
-- [ ] Step 5: 제안 편집 칸 아래 경고: U+202E를 더하는 초안. Expected: 변이 `sg-cc-warn` 토글 빼기 → 경고색이 없다.
-- [ ] Step 6: Firefox 변형. 고르기·사다리 묶음과 숨은 문자 표시를 Firefox에서 한 번 더 돌린다(엔진 표시 클래스).
+`src/limn/viewer/tests/test_viewer_text.py` 에 더했다. PoC의 9건(숨은 문자, 한도, 줄 끝, 제안)과 합쳐 24건이고 그중 4건이 Firefox다.
+
+- [x] Step 1: 고르기(`Picking`). 마우스 누르기는 그 줄(기본 단 `raw`), 끌기는 덮은 줄들, 두 문단에 걸친 끌기는 `문단 2개` 와 줄 저장. 저장한 핀에 page 필드가 없고 `pins.md` 는 `—`·`indent`, 표시와 배지. 변이: `kindFor` 의 `indent` 가지 빼기 → 저장된 `kind` 가 `lines`. (`mdPick` 의 `!isTextDoc()` 는 텍스트 사다리에 `block` 단이 없어 되돌려도 결과가 같다. 막는 줄이 하나 더 있는 방어다.)
+- [x] Step 2: 사다리. 반복문 머리 줄의 세 단(고른 줄, 블록 5–6, 문단 3–7), 짧은 쪽이 먼저, 같은 범위의 블록은 문단에 합친다. 변이: `mdLevels` 의 `txLevels` 가지 빼기 → 실패.
+- [x] Step 3: 손가락(`Touch`). 누르기는 그 줄, 길게 누른 손잡이 선택은 0.5초 뒤 그 줄들, 빈 목록 도움말. 줄은 글자로 찾는다. 변이: 줄 span의 번호를 하나 밀기 → 실패(처음에는 `data-line` 으로 줄을 찾아 놓쳤고, 글자로 찾게 고쳤다); `txHint` 빼기 → 실패.
+- [x] Step 4: 344px 폴더블 바깥 화면(`Width`)에서 쪽이 옆으로 넘어가지 않는다(300자 낱말, 탭 들여쓰기, 긴 한국어 줄), 탭 줄의 `--hang` 8. 변이: `.md.tx .ln` 의 `white-space:pre-wrap` 을 `pre` 로 → 실패.
+- [x] Step 5: 원문이 바뀌면 다시 그리고 읽던 줄을 지킨다(`Redrawing`). 변이: 텍스트 가지의 `mdShow` 를 첫 그리기에만 → 실패.
+- [x] Step 6: 제안 편집 칸 아래 경고: U+202E를 더하는 초안, 저장한 카드의 차이, `pins.md` 의 숨은 문자 줄. 변이: `sg-cc-warn` 토글 빼기 → 실패.
+- [x] Step 7: Firefox 변형 `PickingFirefox`·`HiddenCharactersFirefox`. 숨은 문자 묶음의 변이: `CC_RANGES` 에서 U+202E 빼기 → 실패.
 
 ## Task 4: 문서 동기화
 
-- [ ] Step 1: Handbook `purpose`·`domain`·`viewer`·`api`·`instances`·`operations`·`architecture`(해당할 때)와 `index.md` 의 파일 지도에 새 파일(`text-surface.js`·`text-surface.css`·`hidden-chars.js`, 시험)을 더한다. topic은 현재형으로 쓰고 날짜를 넣지 않는다. Expected: `make handbook-check` 에 해당하는 검사와 `tests/architecture/test_handbook_refs.py` 통과.
-- [ ] Step 2: `skill/SKILL.md`·`skill/SKILL.ko.md`(종류 `text`, `scope` `indent`, `pins.md` 숨은 문자 줄, `limn doc add` 가 받는 파일), README 두 벌(지원 문서 목록), CHANGELOG `Unreleased`.
+- [x] Step 1: Handbook `purpose`·`domain`(종류와 능력 표, 텍스트 문서와 그 사다리, 한계)·`viewer`(텍스트 화면, 숨은 문자, 제안 편집 칸 아래 줄, 변경 보기)·`api`(`/api/source` 의 `line_ends`, 문서 매개변수, 텍스트 문서의 핀, 판정 낱말 자리, 레코드 스키마, `pins.md` 의 텍스트 핀 행과 숨은 문자 줄)·`instances`·`operations`·`build-sync`·`architecture`·`verification`, `index.md` 의 목록과 파일 지도. `tests/architecture/test_handbook_refs.py` 통과. 출판 검사는 이 기계에 pandoc이 없어 Pandoc 파싱 단계만 돌지 못했고, 나머지 규약 검사는 통과했다.
+- [x] Step 2: `skill/SKILL.md`·`skill/SKILL.ko.md`(종류 `text`, 텍스트 핀과 `indent`, `숨은 문자:` 줄이 붙은 제안은 넣기 전에 묻는다, `limn doc add` 가 받는 파일, 재빌드 없음), README 두 벌, CHANGELOG `Unreleased`.
 
 ## Task 5: 검증과 PoC
 
 - [ ] Step 1: ruff check·format, mypy 두 플랫폼, `npm run typecheck`, strict ratchet, boundaries, `pytest -n 4 -m "not browser and not tex"`, `tests/architecture`, 인스턴스 셸 시험, `test_viewer_markdown*.py`, 새·바꾼 브라우저 시험, 건드린 제안·작성 패널·발췌·대비 브라우저 파일. 브라우저는 `-n 4` 까지, 실패는 혼자 다시 돌린 뒤 판단한다.
 - [ ] Step 2: `systemctl --user restart limn-poc-text` 뒤 테일넷 주소가 200으로 답한다.
+
+## 열린 것
+
+- **`--main` 에 텍스트 파일.** `--main plot.py` 는 `.md` 처럼 거절하지 않고, 이 변경 전과 같이 LaTeX로 빌드하다 실패한다. 거절을 더하면 기동 규칙이 바뀌므로 이 브랜치에서는 손대지 않았다.
+- **제안 거절 문장.** `suggest_unsupported` 의 문장은 여전히 `LaTeX·Markdown 문서의 줄 핀에만` 이다. 설계대로 에이전트가 읽는 문구를 바꾸지 않았다. `reason` 이 정본이다.
+- **네 기기군 실측.** 마지막 PoC에서 소유자가 D7의 `pins.md` 숨은 문자 줄과 D8의 `line_ends` 를 함께 확인한다.
 
 ## 후속(이 브랜치 밖)
 

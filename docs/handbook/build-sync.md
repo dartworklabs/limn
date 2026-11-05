@@ -408,11 +408,11 @@ est = (pin.pdf_build ≠ 지금 빌드 그리고 두 빌드의 src_hash 가 다�
 
 ## Markdown 문서
 
-`--doc` 의 경로가 `.md` 인 문서는 빌드하지도 가져오지도 않는다. 뷰어가 원문을 그리기 때문이다([viewer.md](viewer.md) §Markdown 화면). 쪽 이미지·PDF 사본·빌드 이력·감시 스레드가 없다.
+`--doc` 의 경로가 `.md` 인 문서는 빌드하지도 가져오지도 않는다. 뷰어가 원문을 그리기 때문이다([viewer.md](viewer.md) §Markdown 화면). 텍스트 문서(`kind:"text"`, [viewer.md](viewer.md) §텍스트 화면)도 같다. 이 절의 규칙은 그 문서에 그대로 걸리고, 아래의 `.md` 는 그 텍스트 파일로 읽는다. 쪽 이미지·PDF 사본·빌드 이력·감시 스레드가 없다.
 
 - 기동 빌드는 이 문서를 건너뛴다(`needs_build`). `--no-build` 와 무관하다. 그래서 기동 로그의 문서 줄에 `(build started)` 가 붙지 않고, 빌드 실패도 기록되지 않는다.
 - `src_mtime` 은 그 `.md` 파일 자체의 mtime이다. 빌드하지 않는 문서는 그 파일 하나가 원고이기 때문이다. 같은 값을 `GET /api/source` 도 싣는다. 뷰어는 가벼운 meta 폴링(§자동 동기화 (가벼운 meta 폴링))의 `src_mtime` 이 마지막으로 그린 원문의 값과 다르면 원문을 다시 읽어 그린다. 그래서 에이전트가 `.md` 를 고치면 다음 폴링(5초) 안에 화면이 바뀐다.
-- `stale_build` 는 늘 `false` 이고 `POST /api/rebuild?doc=<키>` 는 `400 view_only_no_rebuild` 다. 같은 폴더의 LaTeX 문서는 `.md` 를 원고 파일로 세지 않으므로(§원고 변화 감지) 그 문서의 `stale_build` 도 켜지지 않는다.
+- `stale_build` 는 늘 `false` 이고 `POST /api/rebuild?doc=<키>` 는 `400 view_only_no_rebuild` 다. 같은 폴더의 LaTeX 문서는 `.md` 를 원고 파일로 세지 않으므로(§원고 변화 감지) 그 문서의 `stale_build` 도 켜지지 않는다. 텍스트 문서도 대개 같지만, `.bib`·`.sty`·`.cls`·`.bst` 는 LaTeX 문서의 원고 파일이기도 하다. 그 파일을 텍스트 문서로 등록하고 고치면 같은 폴더 LaTeX 문서의 `stale_build` 가 켜지고 그 문서의 변경 보기에도 그 커밋이 나온다.
 - 핀에는 `pdf_build` 가 없다. 원문이 바뀌면 줄은 다른 줄 핀처럼 anchor 재동기화로 맞춘다([domain.md](domain.md) §줄 번호 재동기화 (`anchor`)).
 
 ## 요청과 독립된 핀 유지

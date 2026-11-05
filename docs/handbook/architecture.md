@@ -30,7 +30,7 @@ Limn은 하나의 `dartwork-limn` 배포 안에서 기능 소유권으로 나눈
 | 비교 | `revisions/` | Git 이력·원고 diff·격리 비교 PDF·작업 캐시와 응답. `scope.py`가 diff 파싱·핀 범위 귀속·범위 패치와 사본 쓰기 계획을, `macros.py`가 latexdiff에 글 명령으로 넘길 원고 정의 명령의 판정을 소유한다. `needs.py`는 주입받는 핀 조회와 그 답에서 읽는 필드를 Protocol로 선언한다 |
 | 동기화 | `sync/` | 원격 main 감시·fast-forward·문서별 재빌드 선택 |
 | 관리 | `administration/` | 토큰·멤버 명령, 문서 실행 인자, 이관, 인스턴스 셸과 `systemd/` 템플릿 |
-| 뷰어 | `viewer/` | HTML·CSS·JS, `ui_en.json`, 마크·브랜드 파일(`brand/`), 페이지 조립과 제공 경로. Markdown 문서를 그리는 화면(`js/md-surface.js`)과 그 파싱 worker(`md-parse.mjs`, `GET /md-parse.mjs`)도 여기 있다 |
+| 뷰어 | `viewer/` | HTML·CSS·JS, `ui_en.json`, 마크·브랜드 파일(`brand/`), 페이지 조립과 제공 경로. Markdown 문서를 그리는 화면(`js/md-surface.js`)과 그 파싱 worker(`md-parse.mjs`, `GET /md-parse.mjs`), 텍스트 문서를 줄 그대로 보이는 화면(`js/text-surface.js`), 모든 문서의 원문·제안 글에서 숨은 문자를 표시하는 조각(`js/hidden-chars.js`)도 여기 있다 |
 | 실행 자원 | `runtime/` | 시작 규칙·인자·얼린 설정, 실행별 문서와 잠금, 상태 파일의 고정 위치(`paths.py`), `resources.py`의 자원 수명과 감시 스레드 정리 |
 | 보안 | `security/` | 신원·Host/Origin·역할·권한 발급, 사람 사실, 인증 안내, 감사 파일 |
 | 기능 독립 장치 | `platform/` | 원자적 파일 교체·검사된 원고 핸들과 그 제한 읽기(`files.py`), Git 프로세스(`git.py`), JSON 숫자 판정(`values.py`), 제한된 텍스트(`text.py`) |
