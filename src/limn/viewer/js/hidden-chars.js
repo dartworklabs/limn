@@ -91,8 +91,10 @@ function ccAdded(text,base){const count=(/** @type {string} */t)=>{const m=new M
 /** @param {string} ch @returns {HTMLElement} */
 function ccBox(ch){const e=document.createElement('span'); e.className='cc'; e.dataset.cc=ccName(ch.codePointAt(0)||0);
   const k=document.createElement('span'); k.className='sr-only'; k.textContent=ch; e.append(k); return e;}
-// s as Html: its text, each marked character as its box (ccBox's markup). Pure.
+// s as Html: its text, each marked character as its box (ccBox's markup) with the character not in the markup but as its code
+// point (data-cp), which setHtml puts in as text - the HTML parser drops a NUL and turns a CR into a line feed, so a box built
+// from markup would show ␀ and copy nothing. Pure.
 /** @param {string} s @returns {Html} */
 function ccHtml(s){const str=String(s),out=[]; let at=0;
-  for(const c of ccFind(str)){out.push(str.slice(at,c.at),html`<span class="cc" data-cc="${ccName(c.ch.codePointAt(0)||0)}"><span class="sr-only">${c.ch}</span></span>`); at=c.at+c.ch.length;}
+  for(const c of ccFind(str)){const cp=c.ch.codePointAt(0)||0; out.push(str.slice(at,c.at),html`<span class="cc" data-cc="${ccName(cp)}"><span class="sr-only" data-cp="${cp.toString(16)}"></span></span>`); at=c.at+c.ch.length;}
   out.push(str.slice(at)); return html`${out}`;}

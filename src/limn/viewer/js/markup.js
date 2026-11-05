@@ -37,8 +37,11 @@ function ic(n){const b=ICONS[n];
   return new Html(b?'<svg class="ic ic-'+n+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">'+b+'</svg>':'');}
 
 // Replaces el's children with markup. Throws a TypeError for anything but Html, so a string built by hand cannot
-// reach the page through here.
+// reach the page through here. An empty element of the markup with data-cp (a code point in hex: ccHtml's box) then gets that
+// character as its text through the DOM, which keeps what the HTML parser would drop or change (a NUL, a CR).
 function setHtml(el,markup){
   if(!(markup instanceof Html))throw new TypeError('setHtml takes Html from html`` or ic()');
-  el.innerHTML=markup.text;
+  el.innerHTML=markup.text; if(!markup.text.includes(' data-cp="'))return;   // most markup has no box: no query
+  for(const k of el.querySelectorAll('[data-cp]')){const c=parseInt(k.getAttribute('data-cp')||'',16);
+    k.removeAttribute('data-cp'); if(c>=0&&c<=0x10ffff&&!(c>=0xd800&&c<=0xdfff))k.textContent=String.fromCodePoint(c);}
 }

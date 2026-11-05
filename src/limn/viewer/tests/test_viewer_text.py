@@ -247,6 +247,21 @@ class Suggestions(TextBase):
         )
         self.assertEqual(rows, [["rd-line rd-del", []], ["rd-line rd-add", ["U+202E"]]])
 
+    def test_a_box_keeps_a_nul_in_the_page_and_in_a_copy(self):
+        """A suggestion 'a<NUL>b': the card's added row shows the ␀ box, the box holds U+0000 in the DOM, and the row's
+        selected text keeps it - the HTML parser drops a NUL, so the box gets it as text, not as markup."""
+        self.add(5, 5, suggest={"base": "    return True", "text": "    return a\u0000b"})
+        page = self.open_tx(n_open=1)
+        got = page.evaluate(
+            "(()=>{const r=document.querySelector('.pin .sg-diff .rd-add .rd-code'),b=r&&r.querySelector('.cc');"
+            "const g=document.createRange(); g.selectNodeContents(r); const s=getSelection(); s.removeAllRanges(); s.addRange(g);"
+            "const t=s.toString(); s.removeAllRanges();"
+            "return {name:b&&b.dataset.cc,inner:b&&b.textContent,text:r.textContent,sel:t,cp:document.querySelectorAll('[data-cp]').length};})()"
+        )
+        self.assertEqual((got["name"], got["inner"], got["cp"]), ("\u2400", "\u0000", 0))
+        self.assertEqual(got["text"], "+    return a\u0000b")
+        self.assertIn("a\u0000b", got["sel"])
+
     def test_the_editor_warns_about_what_the_draft_adds(self):
         """Line 3 picked and the switch on: the draft keeps the line's own four characters - a plain line says so; typing
         a zero-width space adds one - the line turns to the warning, names it with its count and shows the added line with

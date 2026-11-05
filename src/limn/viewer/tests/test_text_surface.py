@@ -273,9 +273,17 @@ class HiddenCharacters(unittest.TestCase):
         )
 
     def test_the_markup_keeps_the_character_inside_its_isolating_box(self):
-        """ccHtml escapes the text and puts each marked character, raw, in a .sr-only child of a .cc box named by it."""
-        got = self.run_js("ccHtml('<b>\\u202e&').text")
-        self.assertEqual(got, '&lt;b&gt;<span class="cc" data-cc="U+202E"><span class="sr-only">‮</span></span>&amp;')
+        """ccHtml escapes the text and puts each marked character in a .sr-only child of a .cc box named by it - as its code
+        point (data-cp) for setHtml to put in as text, never raw in the markup, where the HTML parser loses a NUL or a CR."""
+        got = self.run_js("[ccHtml('<b>\\u202e&').text,ccHtml('a\\u0000b\\rc').text]")
+        self.assertEqual(
+            got,
+            [
+                '&lt;b&gt;<span class="cc" data-cc="U+202E"><span class="sr-only" data-cp="202e"></span></span>&amp;',
+                'a<span class="cc" data-cc="\u2400"><span class="sr-only" data-cp="0"></span></span>b'
+                '<span class="cc" data-cc="\u240d"><span class="sr-only" data-cp="d"></span></span>c',
+            ],
+        )
 
     def test_added_counts_what_a_text_has_more_of_than_its_base(self):
         """Per name, the text's count less the base's, in the order the text first has them; kept sequences count

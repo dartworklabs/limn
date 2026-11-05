@@ -2537,9 +2537,11 @@ class FrontendDocs(unittest.TestCase):
             self.skipTest("node not available")
         rendered = json.loads(out)
         self.assertEqual(re.findall(r'data-cc="([^"]+)"', rendered), ["U+202E", "U+200B", "U+E0041", "\u240d"])
-        self.assertIn('<span class="cc" data-cc="U+202E"><span class="sr-only">\u202e</span></span>', rendered)
+        self.assertIn('<span class="cc" data-cc="U+202E"><span class="sr-only" data-cp="202e"></span></span>', rendered)
         self.assertIn(">-if ok:</span>", rendered)
-        self.assertEqual(rendered.count("\r"), 1)  # the lone CR, inside its box: the CRLF lines' CRs are gone
+        # The lone CR is in its box as its code point (setHtml puts it in as text); the CRLF lines' CRs are gone.
+        self.assertIn('data-cp="d"', rendered)
+        self.assertEqual(rendered.count("\r"), 0)
 
     def test_revision_file_selection_renders_only_selected_patch(self):
         esc = re.search(r"^const esc=.*;$", HTML, re.M).group(0)
