@@ -264,6 +264,21 @@ def worker_rules() -> str:
     return src[src.index("function mdParser(") : src.index("\nlet md = null")]
 
 
+# A parse is "as fast as the bundled parser" when it takes at most AS_FAST times what `base` (markdown-it without the
+# worker's rules) takes on the same document, plus AS_FAST_SLACK_MS for documents the bundle reads in a few ms. Each is
+# the best of three runs after a warm-up, in one node process. A limit in milliseconds failed on a slow CI runner (212 ms
+# for a parse of 30-45 ms here), while the ratio is about the machine's speed only once: the rules cost 1.4-4.3 times the
+# bundle on every document below, and a search that reads the rest again per line (the mutations in each test) 12 times
+# and more.
+AS_FAST = 6
+AS_FAST_SLACK_MS = 40
+PARSE_TIMES = (
+    "const best=(p,s)=>{let b=Infinity; for(let i=0;i<3;i++){const t0=performance.now(); p.parse(s,{});"
+    " b=Math.min(b,performance.now()-t0);} return b;};"
+    "out={}; for(const [name,s] of Object.entries(%s)){md.parse(s,{}); base.parse(s,{}); out[name]=[best(md,s),best(base,s)];}"
+)
+
+
 def worker_node(body: str, *fns: str):
     """body run under node with the worker's rules (worker_rules), `md` (mdParser(20), the parser the viewer uses), `base`
     (the vendored markdown-it as the viewer configured it before these rules), the served md-surface.js functions fns and
@@ -584,9 +599,9 @@ class MathRule(unittest.TestCase):
                     self.assertIn(text.strip(), lines[line - 1])
 
     def test_display_math_openers_without_a_closer_are_read_once(self):
-        """Eight thousand lines that open display math with no closer (about 40 KB) parse in a fraction of the viewer's two
-        seconds: what a search found from a line start is kept (mdMathMemo), so neither a later opening line nor the
-        paragraph asking each line whether math ends it reads the rest again. Lines of '\\[' and '$$', backticks that open
+        """Eight thousand lines that open display math with no closer (about 40 KB) parse as fast as the bundled parser
+        reads them (AS_FAST): what a search found from a line start is kept (mdMathMemo), so neither a later opening line
+        nor the paragraph asking each line whether math ends it reads the rest again. Lines of '\\[' and '$$', backticks that open
         code spans over line ends or never close, and a quote's lines. Twelve hundred lines whose runs grow or shrink by a
         backtick each (about 720 KB) leave every run unmatched: its closing run is looked up (mdTickRuns), not searched
         for through the rest of the document. The parse runs in a node subprocess (run_node's timeout), so a slow one
@@ -600,13 +615,14 @@ class MathRule(unittest.TestCase):
             "backtick runs growing": "\n".join("\\[ " + "`" * (i + 1) for i in range(1200)),
             "backtick runs shrinking": "\n".join("\\[ " + "`" * (1200 - i) for i in range(1200)),
         }
-        got = worker_node(
-            "out={}; for(const [name,s] of Object.entries(%s)){md.parse(s,{}); const t0=performance.now(); md.parse(s,{});"
-            "out[name]=performance.now()-t0;}" % json.dumps(cases)
-        )
-        for name, ms in got.items():
+        got = worker_node(PARSE_TIMES % json.dumps(cases))
+        for name, (ms, base_ms) in got.items():
             with self.subTest(name):
-                self.assertLess(ms, 400, "%s: %.0f ms" % (name, ms))
+                self.assertLess(
+                    ms,
+                    AS_FAST * base_ms + AS_FAST_SLACK_MS,
+                    "%s: %.0f ms, the bundled parser %.0f ms" % (name, ms, base_ms),
+                )
 
     def test_backtick_runs_of_lengths_of_their_own_are_looked_up(self):
         """Backtick runs each of a length of its own cost a lookup each, not a read of the rest. In one paragraph twelve
@@ -614,8 +630,8 @@ class MathRule(unittest.TestCase):
         looking its closing run up (mdTickEnd over mdTickRuns), not by reading the rest of the paragraph once per run.
         Eight hundred '\\[' lines with runs of their own lengths, a hundred thousand lines, then eight hundred runs that
         close them (about 845 KB, also in a quote): a found run is not checked line by line for a line that ends the search
-        (mdMathStopAfter keeps what it read). Each well under the viewer's two seconds; the parse runs in a node subprocess
-        (run_node's timeout), so a slow one fails instead of holding the suite."""
+        (mdMathStopAfter keeps what it read). Each as fast as the bundled parser (AS_FAST); the parse runs in a node
+        subprocess (run_node's timeout), so a slow one fails instead of holding the suite."""
         cases = {
             "inline runs growing": "\n".join("\\( " + "`" * (i + 1) for i in range(1200)),
             "inline runs shrinking": "\n".join("\\( " + "`" * (1200 - i) for i in range(1200)),
@@ -628,13 +644,14 @@ class MathRule(unittest.TestCase):
                 + ["> " + "`" * (i + 1) for i in range(800)]
             ),
         }
-        got = worker_node(
-            "out={}; for(const [name,s] of Object.entries(%s)){md.parse(s,{}); const t0=performance.now(); md.parse(s,{});"
-            "out[name]=performance.now()-t0;}" % json.dumps(cases)
-        )
-        for name, ms in got.items():
+        got = worker_node(PARSE_TIMES % json.dumps(cases))
+        for name, (ms, base_ms) in got.items():
             with self.subTest(name):
-                self.assertLess(ms, 150, "%s: %.0f ms" % (name, ms))
+                self.assertLess(
+                    ms,
+                    AS_FAST * base_ms + AS_FAST_SLACK_MS,
+                    "%s: %.0f ms, the bundled parser %.0f ms" % (name, ms, base_ms),
+                )
 
     def test_a_code_span_closes_at_the_next_run_of_its_length_before_the_end(self):
         """mdTickEnd's lookup answers as the plain search does: from every backtick of every string of up to seven
