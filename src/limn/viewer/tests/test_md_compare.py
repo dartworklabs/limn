@@ -170,6 +170,10 @@ class CompareRules(unittest.TestCase):
         empty, blank = code("py"), code("py", "")  # an empty fence, and the same fence holding one blank line
         self.assertNotEqual(empty["key"], blank["key"])
         self.assertEqual(self.ops([empty, end], [blank, end]), [["mod", 0, 0], ["eq", 1, 1]])
+        # A language or a line holding the old separator characters cannot make two blocks read alike.
+        a, b = code("py", "x\u00030\u0003"), code("py\u00031\u0003x")
+        self.assertNotEqual(a["key"], b["key"])
+        self.assertEqual(self.run_js("mdcLang(%s)" % json.dumps(b["shape"])), "py\u00031\u0003x")
 
     def test_git_lines_are_turned_into_the_sides_screen_lines(self):
         """A side whose line 3 holds a form feed and line 5 a U+2028 ([[1,1],[4,5],[6,8]] from the server): git's lines
