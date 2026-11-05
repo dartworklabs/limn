@@ -293,11 +293,14 @@ class Nul(HiddenBase):
             "boxes:[...md.querySelectorAll('.cc')].map(e=>[+e.closest('[data-line]').dataset.line,e.dataset.cc]),"
             "fffd:md.textContent.includes('\\ufffd'),head:(md.querySelector('.md-limit:not(.tx-note)')||{}).textContent,"
             "note:(md.querySelector('.tx-note[data-note=marks]')||{}).textContent,"
-            "text:[3,5,8].map(n=>(md.querySelector(\"[data-line='\"+n+\"']\")||{}).textContent)};})()"
+            'text:[3,5,8].map(n=>(md.querySelector("[data-line=\'"+n+"\']")||{}).textContent)};})()'
         )
         self.assertEqual((got["limit"], got["lines"], got["fffd"]), ("nul", True, False))
         self.assertEqual(got["boxes"], [[3, "\u2400"], [5, "\u2400"], [8, "\u2400"]])
-        self.assertEqual(got["head"], "원문에 NUL 문자(U+0000)가 있어 원문 줄로 보입니다. Markdown으로 그리면 그 문자가 U+FFFD로 바뀝니다")
+        self.assertEqual(
+            got["head"],
+            "원문에 NUL 문자(U+0000)가 있어 원문 줄로 보입니다. Markdown으로 그리면 그 문자가 U+FFFD로 바뀝니다",
+        )
         self.assertEqual(got["note"], "보이지 않거나 글 순서를 바꾸는 문자 3개를 이름으로 표시했습니다")
         self.assertEqual(got["text"], [lines[2] + "\n", lines[4] + "\n", lines[7] + "\n"])
         sel = page.evaluate(

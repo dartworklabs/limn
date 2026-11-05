@@ -872,7 +872,9 @@ class ChangedOnDiskCached(AssetsBase):
         # nothing cached to read (a cache-only read after mdPicSeen's own fails too), and so no shown tag known
         self.assertEqual(
             page.evaluate(
-                "fetch(" + LIVE_IMG + ".getAttribute('src'),{cache:'only-if-cached',mode:'same-origin'}).then(()=>1,()=>0)"
+                "fetch("
+                + LIVE_IMG
+                + ".getAttribute('src'),{cache:'only-if-cached',mode:'same-origin'}).then(()=>1,()=>0)"
             ),
             0,
         )
