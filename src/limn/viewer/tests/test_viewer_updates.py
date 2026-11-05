@@ -149,23 +149,34 @@ class PureRules(unittest.TestCase):
     def test_a_version_older_than_the_one_seen_is_no_change(self):
         """checkDocUpdate with verAfter: a tab showing an older source or build than this device has seen (a drawn
         document come back to, still showing the lines it was left with, whose change was said and dismissed while it was
-        off screen; another tab that saw a newer build) says nothing and keeps the record; a newer one is said."""
+        off screen; another tab that saw a newer build) says nothing, reads no history and keeps the record; a newer one
+        is said. The built document is not the one on screen (ms beside nt): its meta is the one kept for it, so the
+        build is known and only the order of versions keeps the older one from being said."""
         got = node_json(
             ["describeCommits", "shownRows", "docBuild", "verAfter", "checkDocUpdate"],
-            """const DOC='nt',META_BY=new Map(),GROUPS=new Map(),said=[]; let META=null,rec=null,state=null;
+            """const DOC='nt',META_BY=new Map(),GROUPS=new Map(),said=[]; let META=null,rec=null,state=null,reads=0;
             function rendersInBrowser(k){return k==='md';} function updDocState(){return state;} function seenDoc(){return rec;}
-            function setSeenDoc(k,r){rec=r;} async function docRows(){return [];} function dq(u){return u;}
+            function setSeenDoc(k,r){rec=r;} async function docRows(){reads++; return [];} function dq(u){return u;}
             async function api(){throw new Error('not asked');} function docUpdateView(){}
             function groupNote(g,d){said.push(d.ver);}
+            const check=async(k,s)=>{reads=0; said.length=0; state=s; await checkDocUpdate(k,{}); return [said.slice(),reads,rec.ver];};
+            const ms=build=>{META_BY.set('ms',{pages_build:build,head:'',stale_build:false}); return {ver:'build:'+build,name:'본문',kind:'tex'};};
             (async()=>{const out=[];
-              rec={ver:'src:200',rev:''}; state={ver:'src:100',name:'노트',kind:'md'}; await checkDocUpdate('nt',{}); out.push([said.length,rec.ver]);
-              state={ver:'src:300',name:'노트',kind:'md'}; await checkDocUpdate('nt',{}); out.push([said.slice(),rec.ver]);
-              said.length=0; META={pages_build:'pages-20261105090000',head:'',stale_build:false};
-              rec={ver:'build:pages-20261105100000',rev:''}; state={ver:'build:pages-20261105090000',name:'본문',kind:'tex'};
-              await checkDocUpdate('ms',{}); out.push([said.length,rec.ver]);
+              rec={ver:'src:200',rev:''}; out.push(await check('nt',{ver:'src:100',name:'노트',kind:'md'}));
+              out.push(await check('nt',{ver:'src:300',name:'노트',kind:'md'}));
+              rec={ver:'build:pages-20261105100000',rev:''}; out.push(await check('ms',ms('pages-20261105090000')));
+              out.push(await check('ms',ms('pages-20261105110000')));
               console.log(JSON.stringify(out));})();""",
         )
-        self.assertEqual(got, [[0, "src:200"], [["src:300"], "src:200"], [0, "build:pages-20261105100000"]])
+        self.assertEqual(
+            got,
+            [
+                [[], 0, "src:200"],
+                [["src:300"], 1, "src:200"],
+                [[], 0, "build:pages-20261105100000"],
+                [["build:pages-20261105110000"], 1, "build:pages-20261105100000"],
+            ],
+        )
 
     def test_a_seen_record_only_moves_forward(self):
         """setSeenDoc with verAfter: an older tab dismissing its message (an earlier mtime, an earlier build) keeps the
