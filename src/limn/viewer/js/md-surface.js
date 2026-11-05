@@ -520,6 +520,7 @@ const MD_PIC_SIZE=/** @type {Map<string,{w:number,h:number}>} */(new Map());
 // first load. Only a size that held changes nothing. The marks follow through the column's ResizeObserver (MD_RO).
 /** @param {Event} e */
 function mdPicLoad(e){const img=/** @type {HTMLImageElement} */(e.target),box=img.parentElement; if(!box)return;
+  void mdPicSeen(img.getAttribute('src')||'');
   const w=img.naturalWidth,h=img.naturalHeight,path=box.dataset.path||''; if(w&&h)MD_PIC_SIZE.set(path,{w,h}); else MD_PIC_SIZE.delete(path);
   if(box.classList.contains('md-pic-ok')&&+(img.getAttribute('width')||0)===w&&+(img.getAttribute('height')||0)===h)return;
   if(w&&h){img.width=w; img.height=h;} else{img.removeAttribute('width'); img.removeAttribute('height');}
@@ -532,9 +533,12 @@ function mdPicLoad(e){const img=/** @type {HTMLImageElement} */(e.target),box=im
 // revalidates with the tag the browser holds (an unchanged image is a stat and a 304 on the server, AssetTags) and reads
 // the ETag. An image whose tag moved on gets its address with &v=<the new tag> (the server reads only doc and path): one the
 // page has not decoded, so the browser loads the new picture, and the box keeps the reading spot as for any image that loads
-// (mdPicLoad -> mdSpotBack). The first check of an address learns the tag of the picture it shows from the browser's cache
-// (cache:'force-cache': the response the <img> was given; without one, the tag now). The version is kept per document and
-// path (MD_PIC_VER), so a redraw or a return to the document draws the new picture too. No route, no field: only GET /api/asset.
+// (mdPicLoad -> mdSpotBack). The tag of the picture an address shows is read once that picture has loaded, from the answer
+// the <img> left in the browser's cache (mdPicSeen, cache:'only-if-cached': never the server). Without one - the cache was
+// cleared or is off, or the entry is gone - the shown tag is unknown, and the check does not take the server's tag for it
+// (that one may be of a newer file, and then no later check would differ): it moves the image once to the address of the
+// tag now, so what it shows is known from then on. The version is kept per document and path (MD_PIC_VER), so a redraw or
+// a return to the document draws the new picture too. No route, no field: only GET /api/asset.
 const MD_PIC_CHECK={max:6,gap:4000,last:-Infinity,busy:false,asked:0};
 const MD_PIC_TAG=/** @type {Map<string,string>} */(new Map());   // an address -> the ETag of the picture an image at it shows
 const MD_PIC_VER=/** @type {Map<string,string>} */(new Map());   // doc + '\n' + tree path -> the version its address carries
@@ -544,11 +548,16 @@ const MD_PIC_KEEP=256;   // the most entries either map keeps, the oldest droppe
 function mdPicUrl(doc,path){const v=MD_PIC_VER.get(String(doc||'')+'\n'+path); return mdAssetUrl(doc,path)+(v?'&v='+encodeURIComponent(v):'');}
 /** @param {Map<string,string>} map @param {string} k @param {string} v */
 function mdPicKeep(map,k,v){map.delete(k); map.set(k,v); while(map.size>MD_PIC_KEEP){const first=map.keys().next().value; if(first===undefined)break; map.delete(first);}}
-// The ETag GET url answers with (cache: the fetch's cache mode), or '' for none - a refusal, no answer. Its body is not read.
+// The ETag GET url answers with (cache: the fetch's cache mode), or '' for none - a refusal, no answer, nothing cached for
+// 'only-if-cached'. Its body is not read.
 /** @param {string} url @param {RequestCache} cache @returns {Promise<string>} */
-async function mdPicTag(url,cache){MD_PIC_CHECK.asked++;
-  try{const r=await fetch(url,{cache,credentials:'same-origin'}),t=r.ok?r.headers.get('ETag')||'':''; if(r.body)r.body.cancel().catch(()=>{}); return t;}
+async function mdPicTag(url,cache){
+  try{const r=await fetch(url,{cache,credentials:'same-origin',mode:'same-origin'}),t=r.ok?r.headers.get('ETag')||'':''; if(r.body)r.body.cancel().catch(()=>{}); return t;}
   catch(e){return '';}}
+// A tree image has loaded from address url: the tag of the picture it shows, from the answer the <img> left in the cache,
+// unless a check already knows it (MD_PIC_TAG). Nothing cached: it stays unknown (mdPicCheck).
+/** @param {string} url */
+async function mdPicSeen(url){if(!url||MD_PIC_TAG.has(url))return; const t=await mdPicTag(url,'only-if-cached'); if(t&&!MD_PIC_TAG.has(url))mdPicKeep(MD_PIC_TAG,url,t);}
 // One check of the tree images near the document area (the header above): how many were given a new address.
 /** @returns {Promise<number>} */
 async function mdPicCheck(){const now=performance.now(),k=DOC;
@@ -560,10 +569,11 @@ async function mdPicCheck(){const now=performance.now(),k=DOC;
   near.sort((a,b)=>a.d-b.d); MD_PIC_CHECK.busy=true; MD_PIC_CHECK.last=now; let n=0,moved=0; const seen=new Set();
   try{for(const {img} of near){const box=img.parentElement,path=box&&box.dataset.path,url=img.getAttribute('src')||'';
       if(n>=MD_PIC_CHECK.max)break; if(!path||!url||seen.has(path))continue; seen.add(path); n++;
-      const was=MD_PIC_TAG.get(url)||await mdPicTag(url,'force-cache'),tag=await mdPicTag(url,'no-cache');
+      const was=MD_PIC_TAG.get(url)||''; MD_PIC_CHECK.asked++; const tag=await mdPicTag(url,'no-cache');
       if(k!==DOC||MD.shown!==k)break;   // another document since: its images are its own
-      if(!tag)continue; mdPicKeep(MD_PIC_TAG,url,was||tag); if(!was||tag===was)continue;
+      if(!tag)continue; if(tag===was){mdPicKeep(MD_PIC_TAG,url,was); continue;}   // was '': what it shows is unknown, so it moves to the address of the tag now
       mdPicKeep(MD_PIC_VER,k+'\n'+path,tag.replace(/^W\//,'').replace(/"/g,'')); const next=mdPicUrl(k,path); mdPicKeep(MD_PIC_TAG,next,tag);
+      if(next===url)continue;   // unknown, but already at that tag's address: taken as showing it
       for(const b of /** @type {HTMLElement[]} */([...document.querySelectorAll('#md .md-pic')]))if(b.dataset.path===path){const i=b.querySelector('img'); if(i&&i.getAttribute('src')!==next)i.src=next;}
       moved++;}}
   finally{MD_PIC_CHECK.busy=false;}

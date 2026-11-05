@@ -24,7 +24,9 @@ docs/guide.md (gd) - and the LaTeX manuscript (ms):
 - a tree image rewritten on disk shows without a reload: the light poll asks the images near the document area again,
   one whose ETag moved on is loaded from a new address, the reading line stays, and a redraw keeps the new picture; the
   check asks only images near the area, at most MD_PIC_CHECK.max of them, and not twice within MD_PIC_CHECK.gap
-  (ChangedOnDisk);
+  (ChangedOnDisk); on a real loopback listener, where the browser keeps its HTTP cache, the tag of the picture shown is
+  read from the answer its <img> left there, and with nothing cached (the cache cleared, or off) a changed image still
+  shows on the first check (ChangedOnDiskCached);
 - another origin's page cannot embed a tree image (Cross-Origin-Resource-Policy: same-origin), on a real loopback
   listener where the browser itself enforces the header; the viewer's own page still can;
 - the image, link and SVG checks hold in Firefox too (the *Firefox classes; WebKit does not launch everywhere, and its
@@ -380,7 +382,8 @@ CHECK = "(async()=>{MD_PIC_CHECK.last=-Infinity; const a=MD_PIC_CHECK.asked,n=aw
 
 
 class ChangedOnDisk(AssetsBase):
-    """A tree image rewritten on disk while its document is open shows without a reload, and the text stays in place."""
+    """A tree image rewritten on disk while its document is open shows without a reload, and the text stays in place.
+    Routed: the cache-only read of an image's tag when it loads (mdPicSeen) is answered by the route, from the server."""
 
     PLAN = NEAR
 
@@ -402,7 +405,7 @@ class ChangedOnDisk(AssetsBase):
 
     def test_a_rewritten_image_shows_on_the_light_poll_and_the_reading_line_stays(self):
         """The reading line on '## 읽는 곳', the near image just above the document area (within one area's height); a first
-        check learns its tag and changes nothing. near.png is then rewritten 200x700 (400px taller); the light poll (pollLight) asks it again, loads it from
+        check finds the tag learned when it loaded (mdPicSeen) and changes nothing. near.png is then rewritten 200x700 (400px taller); the light poll (pollLight) asks it again, loads it from
         its address with &v=<its new tag>, and the heading stays where it was in the pane, to 2px (the browser's scroll
         anchoring off, as in ReadingSpot). A check of the unchanged image gives no new address. A redraw (the source
         edited) draws the new picture again, at its new address. Mutations: drop the light poll's mdPicCheck (polling.js)
@@ -422,8 +425,8 @@ class ChangedOnDisk(AssetsBase):
         bottom = page.evaluate(NEAR_IMG + ".getBoundingClientRect().bottom")
         self.assertLess(bottom, pane[0])
         self.assertGreater(bottom, pane[0] - pane[1])
-        # Its tag learned - the cached answer, then the server's - and nothing changed.
-        self.assertEqual(page.evaluate(CHECK), [0, 2])
+        # Its tag known since it loaded; the server's is the same, and nothing changed.
+        self.assertEqual(page.evaluate(CHECK), [0, 1])
         top = page.evaluate(NEAR_TOP)
         (self.src / "notes" / "img" / "near.png").write_bytes(blank_png(200, 700))
         page.evaluate("MD_PIC_CHECK.last=-Infinity; void pollLight()")
@@ -446,8 +449,8 @@ class ChangedOnDisk(AssetsBase):
         until(page, "MD.lines.some(l=>l==='더한 줄.')&&" + DRAWN, 10)
 
     def test_a_check_asks_only_images_near_the_area_a_few_at_a_time_and_not_too_often(self):
-        """far.png, loaded by a scroll to the end and then far below the area again, is not asked; near.png is - two requests
-        the first time (its cached answer, then the server's), one after. A second check within MD_PIC_CHECK.gap asks
+        """far.png, loaded by a scroll to the end and then far below the area again, is not asked; near.png is, one request
+        a check (its shown tag is known since it loaded). A second check within MD_PIC_CHECK.gap asks
         nothing. With nine images on screen, one check asks at most MD_PIC_CHECK.max of them. The requests counted are the
         ones the route saw. Mutations: drop the distance test -> far.png is asked, fails; drop the count bound -> all nine
         are asked, fails; drop the gap -> the second check asks again, fails."""
@@ -462,9 +465,9 @@ class ChangedOnDisk(AssetsBase):
         until(page, NEAR_IMG + ".complete&&" + NEAR_IMG + ".naturalHeight===300")
         settle(page)
         before = len(self.assets_asked())
-        self.assertEqual(page.evaluate(CHECK), [0, 2])
+        self.assertEqual(page.evaluate(CHECK), [0, 1])
         asked = self.assets_asked()[before:]
-        self.assertEqual(len(asked), 2)
+        self.assertEqual(len(asked), 1)
         self.assertTrue(all("near.png" in a for a in asked), asked)
         self.assertEqual(
             page.evaluate(
@@ -485,7 +488,7 @@ class ChangedOnDisk(AssetsBase):
         )
         settle(page)
         before = len(self.assets_asked())
-        self.assertEqual(page.evaluate(CHECK), [0, 2 * 6])
+        self.assertEqual(page.evaluate(CHECK), [0, 6])
         self.assertEqual(len({a for a in self.assets_asked()[before:]}), 6)
 
 
@@ -770,23 +773,131 @@ class LinksUnderTheBackLayer(AssetsBase):
         self.assertEqual(page.evaluate("[DOC,MD.shown,location.hash.replace(/^.*doc=/,'')]"), ["gd", "gd", "gd"])
 
 
+def listen(test, handler) -> int:
+    """Serve handler on a fresh 127.0.0.1 port for test (stopped at its cleanup); the port."""
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    def stop():
+        server.shutdown()
+        server.server_close()
+        thread.join(5)
+
+    test.addCleanup(stop)
+    return server.server_port
+
+
+# The one tree image of LIVE_PLAN, and the width it shows.
+LIVE_IMG = "document.querySelector(\"#md .md-pic[data-path='notes/img/live.png'] img\")"
+LIVE_W = "(i=>i&&i.complete?i.naturalWidth:0)(" + LIVE_IMG + ")"
+
+
+class ChangedOnDiskCached(AssetsBase):
+    """The light poll's check on a real loopback listener, where the browser keeps its HTTP cache: a routed page has none
+    (Playwright's routing turns it off), so ChangedOnDisk never sees what the cache holds, or does not."""
+
+    PLAN = "# 그림\n\n![살아 있는](img/live.png)\n\n끝.\n"
+
+    def setUp(self):
+        super().setUp()
+        (self.src / "notes" / "img" / "live.png").write_bytes(blank_png(120, 40))
+
+    def open_live(self, cache_off: bool = False):
+        """The viewer on nt from a real listener (no routing), its image drawn 120px wide, the light poll's own checks held
+        off (MD_PIC_CHECK.gap: only CHECK runs one) -> (page, context). cache_off: the browser's cache turned off (CDP
+        Network.setCacheDisabled, as DevTools' 'Disable cache') before the page loads; Chromium only."""
+        set_config(ps, auth="local", local_user="reader")
+        port = listen(self, ps.Handler)
+        context = self.browser.new_context(viewport={"width": 1400, "height": 850})
+        self.addCleanup(context.close)
+        page = context.new_page()
+        errors: list[str] = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        self.addCleanup(lambda: self.assertEqual(errors, []))
+        if cache_off:
+            cdp = context.new_cdp_session(page)
+            cdp.send("Network.enable")
+            cdp.send("Network.setCacheDisabled", {"cacheDisabled": True})
+        page.goto("http://127.0.0.1:%d/?lang=ko" % port)
+        until(page, "typeof MD_PIC_CHECK!=='undefined'", 20)
+        page.evaluate("MD_PIC_CHECK.gap=Infinity")
+        until(page, DRAWN, 20)
+        until(page, LIVE_W + "===120", 10)
+        self.assertNotIn("&v=", page.evaluate(LIVE_IMG + ".getAttribute('src')"))
+        return page, context
+
+    def checks_until(self, page, width: int, times: int = 3) -> int:
+        """Up to times checks, one after another, until the image shows width px: the checks it took (times + 1: never)."""
+        for n in range(1, times + 1):
+            page.evaluate(CHECK)
+            try:
+                until(page, LIVE_W + "===%d" % width, 3)
+                return n
+            except AssertionError:
+                continue
+        return times + 1
+
+    def test_an_unchanged_image_is_asked_once_and_not_moved(self):
+        """Once live.png has loaded, the tag of the picture it shows is known from the answer its <img> left in the cache
+        (mdPicSeen): the first check asks the server once, finds the same tag and leaves the image at its address - no
+        second download. Mutation: drop mdPicSeen from mdPicLoad -> the shown tag is unknown, the check moves the image to
+        a new address, fails."""
+        page, _ = self.open_live()
+        src = page.evaluate(LIVE_IMG + ".getAttribute('src')")
+        until(page, "MD_PIC_TAG.has(%s)" % json.dumps(src), 5)
+        self.assertEqual(page.evaluate(CHECK), [0, 1])
+        self.assertEqual(page.evaluate(LIVE_IMG + ".getAttribute('src')"), src)
+
+    def test_an_image_changed_after_the_cache_was_cleared_still_shows(self):
+        """The browser's cache cleared (CDP Network.clearBrowserCache) before the first check, then live.png rewritten 230px
+        wide: the first check gives it its new address and the new picture shows. Before, the first check asked the cache
+        for the shown picture's tag (cache:'force-cache'); with nothing cached the server's answer - the new tag - stood for
+        the old picture and every later check matched it, so the 120px picture stayed for good (Codex's repro: three
+        checks). Mutation: read the shown tag at the first check with cache:'force-cache' and no record at load (the code
+        before) -> it stays 120px, fails."""
+        page, context = self.open_live()
+        until(page, "MD_PIC_TAG.size===1", 5)
+        context.new_cdp_session(page).send("Network.clearBrowserCache")
+        (self.src / "notes" / "img" / "live.png").write_bytes(blank_png(230, 40))
+        self.assertEqual(self.checks_until(page, 230), 1)
+
+    def test_with_the_cache_off_a_changed_image_shows_on_the_first_check(self):
+        """The cache off before the page loads (CDP Network.setCacheDisabled, as DevTools' 'Disable cache'): the <img>
+        leaves no answer to read, so the shown tag is unknown. live.png rewritten 230px wide before the first check: that
+        check does not take the server's tag for the shown one but moves the image to the tag's address, and the new
+        picture shows; the next check, the tag now known, moves nothing. Mutation: take an unknown shown tag from the
+        server's answer (MD_PIC_TAG.get(url)||tag) -> it stays 120px, fails."""
+        page, _ = self.open_live(cache_off=True)
+        # nothing cached to read (a cache-only read after mdPicSeen's own fails too), and so no shown tag known
+        self.assertEqual(
+            page.evaluate(
+                "fetch(" + LIVE_IMG + ".getAttribute('src'),{cache:'only-if-cached',mode:'same-origin'}).then(()=>1,()=>0)"
+            ),
+            0,
+        )
+        self.assertEqual(page.evaluate("MD_PIC_TAG.size"), 0)
+        (self.src / "notes" / "img" / "live.png").write_bytes(blank_png(230, 40))
+        self.assertEqual(self.checks_until(page, 230), 1)
+        self.assertEqual(page.evaluate(CHECK), [0, 1])
+
+
+class ChangedOnDiskCachedFirefox(ChangedOnDiskCached):
+    """The same in Firefox, where no CDP clears or turns off the cache: the check of an unchanged image."""
+
+    BROWSER_ENGINE = "firefox"
+
+    test_an_image_changed_after_the_cache_was_cleared_still_shows = None  # type: ignore[assignment]
+    test_with_the_cache_off_a_changed_image_shows_on_the_first_check = None  # type: ignore[assignment]
+
+
 class CrossOriginEmbed(AssetsBase):
     """Another origin's page cannot embed a tree image: the asset answer's Cross-Origin-Resource-Policy: same-origin, which
     the browser enforces on a real loopback listener (the routed pages of the other classes fulfil answers without it)."""
 
     def listen(self, handler) -> int:
         """Serve handler on a fresh 127.0.0.1 port for this test; the port."""
-        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-
-        def stop():
-            server.shutdown()
-            server.server_close()
-            thread.join(5)
-
-        self.addCleanup(stop)
-        return server.server_port
+        return listen(self, handler)
 
     def embed(self, page_url: str, image_url: str) -> int:
         """In a fresh context, closed after, the page at page_url puts an <img> of image_url in itself: its natural width
