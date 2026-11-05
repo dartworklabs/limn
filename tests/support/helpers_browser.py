@@ -443,6 +443,30 @@ def booted(n_open):
     return "typeof LIGHT_TIMER!=='undefined'&&LIGHT_TIMER!==null&&OPEN_ALL.length>=%d" % n_open
 
 
+def chromium_executable() -> str | None:
+    """The Chromium the classes launch: $LIMN_CHROMIUM, a system Chrome or Chromium, else None for Playwright's own."""
+    return os.environ.get("LIMN_CHROMIUM") or shutil.which("google-chrome") or shutil.which("chromium")
+
+
+def start_chromium_once() -> str:
+    """Launch the Chromium the classes use, as they launch it, open a blank page and close it; return its version and
+    the seconds that took. CI runs this before a part's tests (browser.yml): the first start on a fresh runner reads
+    the browser's files cold (`google-chrome --version` alone has taken 20 s there, against 2 s usually), and two such
+    starts at once in a part's first two classes outlasted Playwright's 180 s launch limit. Run here, the cold start is
+    paid once, under its own step's limit, and a browser that cannot start fails that step by name."""
+    from playwright.sync_api import sync_playwright
+
+    began = time.monotonic()
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(executable_path=chromium_executable(), args=CHROMIUM_ARGS)
+        try:
+            browser.new_page().goto("about:blank")
+            version = browser.version
+        finally:
+            browser.close()
+    return "Chromium %s started in %.1f s" % (version, time.monotonic() - began)
+
+
 class ChromiumTestCase(unittest.TestCase):
     """A test class sharing one browser (cls.browser, driven through cls.pw) across its tests, defaulting to Chromium.
     BROWSER_ENGINE may select bundled Firefox or WebKit. A subclass that needs
@@ -467,8 +491,7 @@ class ChromiumTestCase(unittest.TestCase):
         cls.pw = sync_playwright().start()
         try:
             if cls.BROWSER_ENGINE == "chromium":
-                exe = os.environ.get("LIMN_CHROMIUM") or shutil.which("google-chrome") or shutil.which("chromium")
-                cls.browser = cls.pw.chromium.launch(executable_path=exe or None, args=CHROMIUM_ARGS)
+                cls.browser = cls.pw.chromium.launch(executable_path=chromium_executable(), args=CHROMIUM_ARGS)
             else:
                 cls.browser = getattr(cls.pw, cls.BROWSER_ENGINE).launch()
             cls.browser = watching(cls.browser)
@@ -637,7 +660,8 @@ class BrowserBase(ChromiumTestCase):
             use_test_font(page, self.route)
         else:
             page.route("**/*", self.route)
-        page.goto("http://viewer.test/?lang=%s" % lang)
+        # with the test face, the load event waits on its 16 MB: wait_test_font waits on the face itself, and says how far it got
+        page.goto("http://viewer.test/?lang=%s" % lang, wait_until="domcontentloaded" if test_font else "load")
         if test_font:
             wait_test_font(page)
         page.wait_for_function(booted(n_open), timeout=20000)
@@ -650,3 +674,7 @@ class BrowserBase(ChromiumTestCase):
         page.evaluate("LAST_PTR='mouse'; pick({page:1,x0:10,y0:10,x1:200,y1:60})")
         page.wait_for_selector("#composer:not([hidden])", timeout=8000)
         page.wait_for_function("COMPOSE.current&&COMPOSE.current.lo", timeout=8000)
+
+
+if __name__ == "__main__":
+    print(start_chromium_once())

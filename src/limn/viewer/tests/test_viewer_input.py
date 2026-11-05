@@ -623,7 +623,9 @@ class ViewerBase(BrowserBase):
             use_test_font(page, self.route)
         else:
             page.route("**/*", self.route)
-        page.goto("http://viewer.test/%s%s" % ("" if lang is None else "?lang=" + lang, hash_))
+        url = "http://viewer.test/%s%s" % ("" if lang is None else "?lang=" + lang, hash_)
+        # with the test face, the load event waits on its 16 MB: wait_test_font waits on the face itself, and says how far it got
+        page.goto(url, wait_until="domcontentloaded" if test_font else "load")
         if test_font:
             wait_test_font(page)
         page.wait_for_function(BOOTED, timeout=20000)

@@ -158,6 +158,14 @@ class MarkdownBase(BrowserBase):
         settle(page)
         return page
 
+    def redraw(self, page, timeout=20000):
+        """Draw the document again (mdBuild) and wait until that draw is on screen. A redraw keeps the old drawing in #md
+        while it reads the source and parses it, and DRAWN already holds for that old drawing: waiting on DRAWN alone let a
+        check read the previous source's drawing whenever the read was slow (a limit case read the limit of the case before it).
+        Every draw puts a new #md in #doc (mdShow), so the wait is for an #md other than the one on screen before."""
+        page.evaluate("window.__mdBefore=document.querySelector('#md'); mdBuild()")
+        page.wait_for_function("document.querySelector('#md')!==window.__mdBefore&&" + DRAWN, timeout=timeout)
+
     def line_el(self, page, n):
         """A locator for source line n's element on screen (its line span, else the smallest block that starts there)."""
         return page.locator("#md [data-line='%d']" % n).first
@@ -631,8 +639,7 @@ class Picking(MarkdownBase):
         for name, text, hi in (("rule", "첫 문단.\n\n---\n", 3), ("empty code", "첫 문단.\n\n```\n```\n", 4)):
             with self.subTest(last=name):
                 self.write(text)
-                page.evaluate("mdBuild()")
-                page.wait_for_function(DRAWN, timeout=20000)
+                self.redraw(page)
                 settle(page)
                 got = page.evaluate(
                     "(()=>{const md=document.getElementById('md'),r=document.createRange(),l=md.querySelector(\"[data-line='1']\");"
@@ -649,8 +656,7 @@ class Picking(MarkdownBase):
         the paragraphs together)."""
         page = self.open_md()
         self.write("첫째 줄\n둘째 줄\n셋째 줄\n\n마지막 문단.\n")
-        page.evaluate("mdBuild()")
-        page.wait_for_function(DRAWN, timeout=20000)
+        self.redraw(page)
         settle(page)
         into_first = page.evaluate(
             "(()=>{const md=document.getElementById('md'),r=document.createRange(),l=md.querySelector(\"[data-line='1']\");"
@@ -674,8 +680,7 @@ class Picking(MarkdownBase):
             with self.subTest(blocks=name):
                 page.evaluate("discardSelection()")
                 self.write(text)
-                page.evaluate("mdBuild()")
-                page.wait_for_function(DRAWN, timeout=20000)
+                self.redraw(page)
                 settle(page)
                 quote, want = page.evaluate(
                     "(()=>{const md=document.getElementById('md'),s=getSelection(),f=md.querySelector(\"[data-line='1']\");"
@@ -1046,8 +1051,7 @@ class Limits(MarkdownBase):
             with self.subTest(name=name):
                 self.write(text)
                 t0 = time.monotonic()
-                page.evaluate("mdBuild()")
-                page.wait_for_function(DRAWN, timeout=20000)
+                self.redraw(page)
                 took = time.monotonic() - t0
                 self.check(page, want, len(server_lines(self.md)))
                 self.assertLess(took, 15, name)

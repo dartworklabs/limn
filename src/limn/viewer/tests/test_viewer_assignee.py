@@ -338,6 +338,14 @@ class ComposerBase(BrowserBase):
             page.keyboard.press("Delete")
         page.keyboard.type(text)
         settle(page)
+        # The keys must have landed in the field before it is left: a note that reads empty later then says whether
+        # the typing went elsewhere (the focused element is named) or the field lost it afterwards.
+        typed = page.evaluate(
+            "s => {const a = document.activeElement; return {value: document.querySelector(s).value,"
+            " focus: a ? a.tagName + (a.id ? '#' + a.id : '') : null};}",
+            selector,
+        )
+        self.assertIn(text, typed["value"], ("typed", typed))
         self.leave(page, device)
 
     def leave(self, page, device):

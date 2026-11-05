@@ -16,12 +16,19 @@ import helpers_browser_font as fonts
 from helpers_browser import BrowserBase, booted, drawn_faces, settle
 
 
+@pytest.fixture
+def downloads_allowed(monkeypatch):
+    """A test of the cold-cache download path, which substitutes the download adapter: a cache miss may download here
+    even in CI's prefetched test step (LIMN_TEST_FONT_PREFETCHED=1), where every other provision may not."""
+    monkeypatch.delenv(fonts.PREFETCHED_ENV, raising=False)
+
+
 def cache_path(directory: Path) -> Path:
     """Locate the public artifact by its content identity in an isolated real cache."""
     return directory / (fonts.FONT_SHA256 + ".otf")
 
 
-def test_failed_cold_download_reports_source_and_cache_without_publishing(tmp_path, monkeypatch):
+def test_failed_cold_download_reports_source_and_cache_without_publishing(tmp_path, monkeypatch, downloads_allowed):
     """An offline cold cache is an actionable failure, never a skip or partial font."""
     monkeypatch.setattr(fonts, "_download_font", lambda: fonts.FontProvisionFailure("offline fixture"))
     result = fonts.provision_test_font(tmp_path)
@@ -34,7 +41,7 @@ def test_failed_cold_download_reports_source_and_cache_without_publishing(tmp_pa
 
 
 @pytest.mark.parametrize("payload", [b"", b"OTTO", b"OTTO" + b"x" * fonts.FONT_BYTES])
-def test_download_size_mismatch_cannot_be_published(tmp_path, monkeypatch, payload):
+def test_download_size_mismatch_cannot_be_published(tmp_path, monkeypatch, downloads_allowed, payload):
     """Empty, truncated, and oversized source bytes cannot become a usable cache entry."""
     monkeypatch.setattr(fonts, "_download_font", lambda: payload)
     result = fonts.provision_test_font(tmp_path)
@@ -43,7 +50,7 @@ def test_download_size_mismatch_cannot_be_published(tmp_path, monkeypatch, paylo
     assert not cache_path(tmp_path).exists()
 
 
-def test_same_size_wrong_digest_cannot_be_published(tmp_path, monkeypatch):
+def test_same_size_wrong_digest_cannot_be_published(tmp_path, monkeypatch, downloads_allowed):
     """Matching the expected byte count grants no trust without the exact SHA-256."""
     monkeypatch.setattr(fonts, "_download_font", lambda: b"x" * fonts.FONT_BYTES)
     result = fonts.provision_test_font(tmp_path)
@@ -52,7 +59,7 @@ def test_same_size_wrong_digest_cannot_be_published(tmp_path, monkeypatch):
     assert not cache_path(tmp_path).exists()
 
 
-def test_corrupt_cache_and_offline_source_cannot_supply_fallback_bytes(tmp_path, monkeypatch):
+def test_corrupt_cache_and_offline_source_cannot_supply_fallback_bytes(tmp_path, monkeypatch, downloads_allowed):
     """A failed repair retains diagnostic corrupt bytes but never returns them to the browser."""
     path = cache_path(tmp_path)
     path.write_bytes(b"corrupt existing cache")
@@ -63,7 +70,7 @@ def test_corrupt_cache_and_offline_source_cannot_supply_fallback_bytes(tmp_path,
     assert path.read_bytes() == b"corrupt existing cache"
 
 
-def test_cache_symlink_cannot_admit_or_modify_another_file(tmp_path, monkeypatch):
+def test_cache_symlink_cannot_admit_or_modify_another_file(tmp_path, monkeypatch, downloads_allowed):
     """An untrusted cache symlink is not an artifact and an offline miss leaves its target intact."""
     target = tmp_path / "outside.otf"
     target.write_bytes(b"not an authorized artifact")
@@ -72,6 +79,41 @@ def test_cache_symlink_cannot_admit_or_modify_another_file(tmp_path, monkeypatch
     result = fonts.provision_test_font(tmp_path)
     assert isinstance(result, fonts.FontProvisionFailure)
     assert target.read_bytes() == b"not an authorized artifact"
+
+
+def test_a_prefetched_run_fails_a_cold_cache_without_downloading(tmp_path, monkeypatch):
+    """With LIMN_TEST_FONT_PREFETCHED=1 (CI's test step) a cold cache is a failure naming the prefetch, and no test
+    reaches the upstream host: a download there once timed out inside the tests."""
+    calls = []
+    monkeypatch.setenv(fonts.PREFETCHED_ENV, "1")
+    monkeypatch.setattr(fonts, "_download_font", lambda: calls.append("download") or b"")
+    result = fonts.provision_test_font(tmp_path)
+    assert isinstance(result, fonts.FontProvisionFailure)
+    assert fonts.PREFETCHED_ENV in result.message
+    assert "helpers_browser_font.py" in result.message
+    assert str(cache_path(tmp_path)) in result.message
+    assert calls == []
+    assert not cache_path(tmp_path).exists()
+
+
+def test_the_prefetch_tries_again_after_each_wait_and_reports_every_try(tmp_path, monkeypatch):
+    """A failing upstream is tried once more after each wait, also where the tests may not download; the failure
+    after the last try keeps each try's reason, and nothing is published."""
+    calls, waited = [], []
+    monkeypatch.setenv(fonts.PREFETCHED_ENV, "1")
+
+    def download():
+        """The owned upstream adapter, failing a different way on each try."""
+        calls.append("download")
+        return fonts.FontProvisionFailure("offline fixture %d" % len(calls))
+
+    monkeypatch.setattr(fonts, "_download_font", download)
+    result = fonts.prefetch_test_font(tmp_path, waits=(10, 30), sleep=waited.append)
+    assert isinstance(result, fonts.FontProvisionFailure)
+    assert calls == ["download"] * 3
+    assert waited == [10, 30]
+    assert all("offline fixture %d" % n in result.message for n in (1, 2, 3)), result.message
+    assert not cache_path(tmp_path).exists()
 
 
 def test_checked_in_provenance_matches_the_fixed_download_contract():
@@ -186,7 +228,7 @@ def canonical_font():
 
 
 @pytest.mark.browser
-def test_cold_cache_publishes_verified_source_bytes(tmp_path, monkeypatch, canonical_font):
+def test_cold_cache_publishes_verified_source_bytes(tmp_path, monkeypatch, downloads_allowed, canonical_font):
     """A cold cache publishes verified official bytes without requiring a new warm/offline fetch."""
     monkeypatch.setattr(fonts, "_download_font", lambda: canonical_font.data)
     result = fonts.provision_test_font(tmp_path)
@@ -209,7 +251,7 @@ def test_verified_warm_cache_works_offline(tmp_path, monkeypatch, canonical_font
 
 
 @pytest.mark.browser
-def test_corrupt_cache_is_replaced_by_verified_source_bytes(tmp_path, monkeypatch, canonical_font):
+def test_corrupt_cache_is_replaced_by_verified_source_bytes(tmp_path, monkeypatch, downloads_allowed, canonical_font):
     """A same-size corrupt artifact is atomically repaired rather than reused."""
     corrupted = bytearray(canonical_font.data)
     corrupted[-1] ^= 1
@@ -223,7 +265,27 @@ def test_corrupt_cache_is_replaced_by_verified_source_bytes(tmp_path, monkeypatc
 
 
 @pytest.mark.browser
-def test_simultaneous_cold_readers_receive_one_complete_artifact(tmp_path, monkeypatch, canonical_font):
+def test_the_prefetch_publishes_the_font_a_retry_brings(tmp_path, monkeypatch, canonical_font):
+    """A first try that times out and a second that brings the verified bytes leave them in the cache, after one wait,
+    where a prefetched test run then finds them without a download."""
+    replies = [fonts.FontProvisionFailure("The read operation timed out"), canonical_font.data]
+    waited = []
+    monkeypatch.setattr(fonts, "_download_font", lambda: replies.pop(0))
+    result = fonts.prefetch_test_font(tmp_path, waits=(10, 30), sleep=waited.append)
+    assert isinstance(result, fonts.VerifiedTestFont), result
+    assert waited == [10]
+    assert cache_path(tmp_path).read_bytes() == canonical_font.data
+    monkeypatch.setenv(fonts.PREFETCHED_ENV, "1")
+    monkeypatch.setattr(fonts, "_download_font", lambda: pytest.fail("a prefetched run downloaded"))
+    again = fonts.provision_test_font(tmp_path)
+    assert isinstance(again, fonts.VerifiedTestFont), again
+    assert again.data == canonical_font.data
+
+
+@pytest.mark.browser
+def test_simultaneous_cold_readers_receive_one_complete_artifact(
+    tmp_path, monkeypatch, downloads_allowed, canonical_font
+):
     """Four concurrent misses coalesce one source fetch and each receives complete verified bytes."""
     calls = []
     start = threading.Barrier(5)
@@ -320,7 +382,7 @@ class BrowserFontProvision(BrowserBase):
             route.fulfill(status=200, headers={"content-type": "text/html"}, body=html.encode())
 
         fonts.install_test_font(page, font, viewer)
-        page.goto("http://viewer.test/")
+        page.goto("http://viewer.test/", wait_until="domcontentloaded")
         fonts.wait_test_font(page)
         assert page.evaluate("retainedGlobal") == 23
         assert page.evaluate("window.bootCount") == 1

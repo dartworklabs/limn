@@ -65,6 +65,27 @@ jobs:
           node-version: "22"
       - name: Install dev dependencies
         run: uv sync --group dev --locked
+      # The page-scoped Hangul test font (tests/support/helpers_browser_font.py) is fetched here, before the tests, and kept
+      # under actions/cache by its pinned source: no test reads it from GitHub raw, where a read once timed out inside four
+      # tests of a part. The fetch tries three times, a bounded wait apart; LIMN_TEST_FONT_PREFETCHED=1 on the test step
+      # makes a test whose cache is cold fail rather than download. Every read still checks the pinned SHA-256.
+      - name: Restore the browser test font
+        id: test-font
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/browser-test-font
+          key: browser-test-font-${{ hashFiles('tests/fixtures/browser-font/SOURCE.json') }}
+      - name: Fetch the browser test font
+        timeout-minutes: 5
+        env:
+          LIMN_TEST_FONT_CACHE: ${{ runner.temp }}/browser-test-font
+        run: uv run python tests/support/helpers_browser_font.py
+      - name: Keep the browser test font
+        if: steps.test-font.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/browser-test-font
+          key: ${{ steps.test-font.outputs.cache-primary-key }}
       # `install-deps` installs with apt-get. The image lists a regional Azure mirror first, which has served a whole
       # install at about 30 kB/s; use the main archive only, and give up on a stalled connection after 30 seconds rather
       # than waiting on it. ci.yml's tex job does the same before its apt-get.
@@ -81,9 +102,19 @@ jobs:
       - name: Install Chromium's system packages and fonts
         timeout-minutes: 10
         run: uv run playwright install-deps chromium
-      - name: Show the Chrome under test
-        run: google-chrome --version
+      # Then start it once, as the classes launch it (tests/support/helpers_browser.py start_chromium_once). The first start on
+      # a fresh runner reads Chrome's files cold: `google-chrome --version` has taken 20 s (2 s usually), and two such starts
+      # at once, in a part's first two classes, outlasted Playwright's 180 s launch limit and failed every test of both. Here
+      # the cold start is paid once under this step's limit, and a Chrome that cannot start fails this step by name.
+      - name: Show and start the Chrome under test
+        timeout-minutes: 5
+        run: |
+          google-chrome --version
+          uv run python tests/support/helpers_browser.py
       - name: Browser tests, one part
+        env:
+          LIMN_TEST_FONT_CACHE: ${{ runner.temp }}/browser-test-font
+          LIMN_TEST_FONT_PREFETCHED: "1"
         run: >-
           uv run pytest -q -rs -n 2 -m "browser and not firefox and not webkit"
           --shard ${{ matrix.shard }}/${{ strategy.job-total }} --shard-record shard-seconds.json
