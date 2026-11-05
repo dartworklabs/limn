@@ -637,7 +637,8 @@ class BrowserBase(ChromiumTestCase):
             use_test_font(page, self.route)
         else:
             page.route("**/*", self.route)
-        page.goto("http://viewer.test/?lang=%s" % lang)
+        # with the test face, the load event waits on its 16 MB: wait_test_font waits on the face itself, and says how far it got
+        page.goto("http://viewer.test/?lang=%s" % lang, wait_until="domcontentloaded" if test_font else "load")
         if test_font:
             wait_test_font(page)
         page.wait_for_function(booted(n_open), timeout=20000)
