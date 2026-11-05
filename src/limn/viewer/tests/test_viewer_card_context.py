@@ -303,6 +303,8 @@ class CardContextBrowser(CardFixture):
         lines[12:14] = ["Removed first anchor.\n", "Removed last anchor.\n"]
         self.main.write_text("".join(lines), encoding="utf-8")
         os.utime(self.main, (before.st_atime, before.st_mtime + 1))
+        # GET serves saved positions (ADR-0028); the independent upkeep saves the lost anchor first.
+        ps.APP.assembly.pins.startup.maintain()
         page = self.show_cards(4, PHONE)
         page.evaluate("toggleSec('review', true)")
         settle(page)
