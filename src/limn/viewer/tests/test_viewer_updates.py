@@ -163,12 +163,13 @@ class PureRules(unittest.TestCase):
         self.assertEqual(got["retry"], ["build:p2", 2])
 
     def test_a_history_that_could_not_be_read_is_no_history(self):
-        """checkDocUpdate when /api/revisions fails (docRows null): a first visit's check gives up rather than recording the
-        version with no commit, and asks again for the second check of that version left to it, which records the commit
-        the history names. With an earlier record a failed read says nothing and records nothing - not '커밋 없이 파일이
-        바뀌었습니다' - and the next check names the commit. Mutation: take a failed read for an empty history -> the
-        version is recorded with no commit, the call left to it is not asked again and the change is said without its
-        commit, fails."""
+        """checkDocUpdate when /api/revisions fails (docRows null): a first visit's check asks again for the second check
+        of that version left to it, which records the commit the history names. Alone, a failed read is not an empty
+        history: a first visit records the version with its commits unknown (rev ''), and with an earlier record the
+        change is said with its commits unnamed (unknown) - never '커밋 없이 파일이 바뀌었습니다' - and a later check names
+        the commit. Mutations: take a failed read for an empty history -> the change is said as having no commit and the
+        call left to it is not asked again, fails; record nothing on a failed read -> the first visit leaves no version
+        seen, fails."""
         got = node_json(
             ["prOf", "describeCommits", "shownRows", "docBuild", "verAfter", "checkDocUpdate"],
             """const DOC='nt',META_BY=new Map(),GROUPS=new Map(),UPD={checking:new Map()},said=[]; let META=null,rec=null,fail=0,reads=0,gate=false,go=null;
@@ -182,12 +183,14 @@ class PureRules(unittest.TestCase):
             (async()=>{const out={};
               gate=true; fail=1; const a=checkDocUpdate('nt',{}),b=checkDocUpdate('nt',{}); await idle(); gate=false; go(); await a; await b; await idle();
               out.first=[rec,reads];
-              rec={ver:'src:100',rev:A.id}; reads=0; fail=1; await checkDocUpdate('nt',{}); await idle(); out.failed=[said.slice(),rec.ver,reads];
+              rec=null; reads=0; fail=1; await checkDocUpdate('nt',{}); await idle(); out.alone=[rec,reads];
+              rec={ver:'src:100',rev:A.id}; reads=0; fail=1; await checkDocUpdate('nt',{}); await idle(); out.failed=[said.slice(),rec.ver,reads]; said.length=0;
               await checkDocUpdate('nt',{}); out.later=said.slice();
               console.log(JSON.stringify(out));})();""",
         )
         self.assertEqual(got["first"], [{"ver": "src:200", "rev": "bbbb2222"}, 2])
-        self.assertEqual(got["failed"], [[], "src:100", 1])
+        self.assertEqual(got["alone"], [{"ver": "src:200", "rev": ""}, 1])
+        self.assertEqual(got["failed"], [[{"n": 0, "unknown": True, "history": True}], "src:100", 1])
         self.assertEqual(got["later"], [{"n": 1, "unknown": False, "history": True}])
 
     def test_a_late_answer_never_overwrites_what_another_tab_recorded_for_the_same_version(self):

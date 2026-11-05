@@ -159,18 +159,20 @@ async function checkDocUpdate(k,ctx){if(!k)return; const now=updDocState(k); if(
   let rows,build; try{[rows,build]=await Promise.all([docRows(k),docBuild(k,now)]);}
   finally{if(UPD.checking.get(k)===mark)UPD.checking.delete(k);}
   const cur=updDocState(k);
-  // gave up - a newer change's own check says it (the redraw asks); a history or a build that could not be read is not
-  // known, never an empty one: nothing is said or recorded on it
-  if(!cur||cur.ver!==now.ver||!build||!rows){if(mark.again)checkDocUpdate(k,{}); return;}
+  // gave up - a newer change's own check says it (the redraw asks); a build that could not be read is not known
+  if(!cur||cur.ver!==now.ver||!build){if(mark.again)checkDocUpdate(k,{}); return;}
+  // A history that could not be read is no empty history: a call left to this check asks again; else which commits are
+  // new is not known - the version is still seen or said, its commits unnamed (as for a build behind its checkout)
+  if(!rows&&mark.again){checkDocUpdate(k,{}); return;}
   // what this device has seen, read again, decides: another tab may have recorded this version or a later one meanwhile -
   // a first visit's late answer never overwrites that (its commit may be older) - or a message of this document come
   const kept=seenDoc(k),last=kept||seen,other=!!kept&&(!seen||kept.ver!==seen.ver||kept.rev!==seen.rev);
   const fresh=!last||(!!ctx.mine&&!GROUPS.has('upd:'+k));
   if(last&&(!fresh||other)&&(last.ver===now.ver||verAfter(last.ver,now.ver))){if(!GROUPS.has('upd:'+k))updForget(k); return;}
-  const shown=shownRows(rows,build.head,build.behind);
+  const shown=rows?shownRows(rows,build.head,build.behind):null;
   if(fresh||!last){setSeenDoc(k,{ver:now.ver,rev:!shown?'':shown.length?shown[0].id:last?last.rev:''}); return;}
   const commits=describeCommits(shown,last.rev);
-  groupNote('upd:'+k,{key:k,name:now.name,kind:now.kind,ver:now.ver,seenRev:last.rev,top:commits.unknown?commits.top:commits.top||last.rev,commits,history:rows.length>0},docUpdateView,null);}
+  groupNote('upd:'+k,{key:k,name:now.name,kind:now.kind,ver:now.ver,seenRev:last.rev,top:commits.unknown?commits.top:commits.top||last.rev,commits,history:!rows||rows.length>0},docUpdateView,null);}
 // Every document, the one on screen first: what changed since this device last saw it (boot).
 function checkDocsSeen(){[DOC,...DOCS.map(d=>d.key).filter(k=>k!==DOC)].forEach(k=>{if(k)checkDocUpdate(k,{});});}
 // What document k's update message says (groupNote's view): '<name>이(가) 바뀌었습니다' and then the commits (one: its PR and
