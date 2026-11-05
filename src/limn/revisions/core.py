@@ -11,6 +11,7 @@ import os
 import re
 import selectors
 import signal
+import stat
 import subprocess
 import threading
 import time
@@ -102,6 +103,17 @@ class RevisionDoc(Protocol):
     @property
     def main(self) -> Path:
         """The main .tex; its folder scopes the history."""
+        ...
+
+    @property
+    def registered_src(self) -> Path:
+        """src as the run registered it (limn.runtime.documents.Doc.registered_src): resolved at startup, never again."""
+        ...
+
+    @property
+    def registered_main(self) -> Path:
+        """main as the run registered it (limn.runtime.documents.Doc.registered_main): resolved at startup, never
+        again."""
         ...
 
     @property
@@ -411,15 +423,14 @@ def revision_scope(D: RevisionDoc, files: Sequence[Path] | None = None) -> tuple
         return None
     if files is not None:
         return _files_scope(D, files)
-    root = D.main.resolve().parent
+    root = D.registered_main.parent
     try:
-        root.relative_to(D.src.resolve())
+        root.relative_to(D.registered_src)
     except ValueError:
         return None
-    rc, top, _ = git(["-C", str(root), "rev-parse", "--show-toplevel"], root)
-    if rc != 0 or not top.strip():
+    repo = registered_repo(root)
+    if repo is None:
         return None
-    repo = Path(top.strip()).resolve()
     try:
         prefix = root.relative_to(repo).as_posix()
     except ValueError:
@@ -433,24 +444,70 @@ def revision_scope(D: RevisionDoc, files: Sequence[Path] | None = None) -> tuple
 
 
 def _files_scope(D: RevisionDoc, files: Sequence[Path]) -> tuple[Path, list[str]] | None:
-    """The repository holding figure document D's folder and files as its pathspec (files_pathspec), or None when the
-    folder is not in a Git repository or none of the files lies in it.
+    """The repository holding figure, Markdown or text document D's folder (registered_repo) and files as its
+    pathspec (files_pathspec), or None when the folder is not in a Git repository or none of the files lies in it.
 
-    git answers the repository's resolved path, so each file is compared in the same form: its folder with symlinks
-    resolved, its own name kept (a script that is itself a link is still named by its own path, as git tracks it). A
-    document whose folder is reached through a symlink (macOS's /var -> /private/var) keeps its whole history, as a
-    LaTeX document does (revision_scope resolves its main file's folder the same way)."""
-    try:
-        root = D.src.resolve()
-        named = [f.parent.resolve() / f.name for f in files]
-    except (OSError, RuntimeError):
+    Each file is named by the path it was registered with (registered_file), never by where its folder leads now: a
+    document whose folder was reached through a symlink when the run started (macOS's /var -> /private/var) keeps its
+    whole history, as a LaTeX document does, and a folder replaced by a symlink after that - to a dot-named folder or to
+    another repository - does not make another file's history the document's."""
+    repo = registered_repo(D.registered_src)
+    if repo is None:
         return None
-    rc, top, _ = git(["-C", str(root), "rev-parse", "--show-toplevel"], root)
+    named = [p for p in (registered_file(D, f) for f in files) if p is not None]
+    paths = files_pathspec(repo, named, D.registered_src)
+    return (repo, paths) if paths else None
+
+
+def _unlinked_prefix(folder: Path) -> Path:
+    """The deepest folder on the way from the file system root down to folder (absolute) that is reached without
+    passing a symlink: folder itself while each of its folders is a directory and none is a link, else the last folder
+    before the first one that is a link, is missing or is not a directory. Reads metadata only (lstat)."""
+    at = Path(folder.anchor)
+    for part in folder.relative_to(folder.anchor).parts:
+        step = at / part
+        try:
+            if not stat.S_ISDIR(os.lstat(step).st_mode):  # lstat: a symlink is a link here, never what it points at
+                break
+        except OSError:
+            break
+        at = step
+    return at
+
+
+def registered_repo(folder: Path) -> Path | None:
+    """The top level of the Git repository holding folder - a document's folder as it was registered
+    (Doc.registered_src, or its main file's folder) - resolved, as git answers it; None outside Git.
+
+    git is asked from the deepest part of folder reached without passing a symlink (_unlinked_prefix). A registered
+    folder has no symlink in it (it was resolved at startup), so this is the folder itself until one of its folders is
+    replaced by a link; then git is asked from the folder above that link, and the document's files keep the
+    repository-relative paths they were registered with, whatever the link points at - a dot-named folder of the same
+    repository, or another repository."""
+    start = _unlinked_prefix(folder)
+    rc, top, _ = git(["-C", str(start), "rev-parse", "--show-toplevel"], start)
     if rc != 0 or not top.strip():
         return None
-    repo = Path(top.strip()).resolve()
-    paths = files_pathspec(repo, named, root)
-    return (repo, paths) if paths else None
+    return Path(top.strip()).resolve()
+
+
+def registered_file(D: RevisionDoc, f: Path) -> Path | None:
+    """File f of document D, as RevisionBuildQueries.history_files names it, in its registered form: D.registered_main
+    for D.main; a path below D.src as the same path below D.registered_src (normalised, so a '..' never leaves the
+    folder); a path already below D.registered_src (one the build owner resolved, as artifacts.figure_pdf does) as it
+    is; None for any other path. Lexical: resolves nothing, so no symlink below the registered folder decides which file
+    is named. Pure."""
+    if f == D.main:
+        return D.registered_main
+    for base in (D.src, D.registered_src):
+        try:
+            rel = os.path.normpath(f.relative_to(base).as_posix())
+        except ValueError:
+            continue
+        if rel == ".." or rel.startswith("../"):
+            return None
+        return D.registered_src if rel == "." else D.registered_src / rel
+    return None
 
 
 class HistoryPage(NamedTuple):
@@ -1014,8 +1071,8 @@ def revision_spec(
         return CommitNotRecent()
     repo, paths, revisions = window[0], tuple(window[1]), window[2]
     try:
-        source = D.src.resolve().relative_to(repo).as_posix()
-        main = D.main.resolve().relative_to(D.src.resolve())
+        source = D.registered_src.relative_to(repo).as_posix()
+        main = D.registered_main.relative_to(D.registered_src)
     except ValueError:
         return NotInRepo()
     if base is not None:

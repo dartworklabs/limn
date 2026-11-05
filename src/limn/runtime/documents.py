@@ -230,6 +230,17 @@ def fresh_build_state() -> dict[str, Any]:
     }
 
 
+def _resolved_once(p: Path | None) -> Path | None:
+    """p with its symlinks resolved (Path.resolve, which needs no file to exist), or p as given when it cannot be
+    resolved; None stays None. Doc keeps what this gives at construction as the path it was registered with."""
+    if p is None:
+        return None
+    try:
+        return p.resolve()
+    except (OSError, RuntimeError):
+        return p
+
+
 class Doc:
     """One document of a kind (DocKind): 'tex' is LaTeX, lines traced back via SyncTeX; 'pdf' is a view-only PDF,
     pinned by page and region; 'figure' is a PDF a figure repository renders with its element map (limn.builds.figure_map),
@@ -246,7 +257,12 @@ class Doc:
     estimation) continuous. A Doc carries its own build lock, build state and its lock, history lock, src_mtime memo
     with its lock and its epoch (a count of the times the memo was expired, so an answer measured across an expiry is
     never stored), the memo of the recorder files parsed for it (input_sets), and the paths its source list leaves out
-    (apart) (limn.builds.artifacts.BuildDoc)."""
+    (apart) (limn.builds.artifacts.BuildDoc).
+
+    Its src and main are also kept as they were registered (registered_src, registered_main): resolved once, when the
+    composition root makes the document at startup. The revision services name the document's files to Git from these
+    and never resolve its folders again, so a folder replaced by a symlink after startup cannot change which file the
+    document is (limn.revisions.core.registered_repo)."""
 
     def __init__(
         self,
@@ -282,6 +298,8 @@ class Doc:
         self.mcache_lock = threading.Lock()
         self.mcache_epoch = 0
         self.input_sets = InputSetCache()
+        registered = (paths.src, paths.main) if legacy else (src, main)
+        self._registered = (_resolved_once(registered[0]), _resolved_once(registered[1]))
 
     @property
     def src(self) -> Path:
@@ -299,6 +317,21 @@ class Doc:
             return self.paths.main
         assert self._main is not None, "a document started with --doc has its own main"
         return self._main
+
+    @property
+    def registered_src(self) -> Path:
+        """src as it was when the document was made (startup), symlinks resolved then and never again: the folder the
+        revision services find the document's repository from."""
+        assert self._registered[0] is not None, "a document started with --doc has its own src"
+        return self._registered[0]
+
+    @property
+    def registered_main(self) -> Path:
+        """main as it was when the document was made (startup), symlinks resolved then and never again: the file whose
+        repository-relative path is the document's history (a Markdown or text document), or whose folder is
+        (LaTeX)."""
+        assert self._registered[1] is not None, "a document started with --doc has its own main"
+        return self._registered[1]
 
     @property
     def dir(self) -> Path:
