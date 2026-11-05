@@ -43,7 +43,7 @@
 
 - **`--main` 에 텍스트 파일.** `--main plot.py` 는 `.md` 처럼 거절하지 않고, 이 변경 전과 같이 LaTeX로 빌드하다 실패한다. 거절을 더하면 기동 규칙이 바뀌므로 이 브랜치에서는 손대지 않았다.
 - **제안 거절 문장.** `suggest_unsupported` 의 문장은 여전히 `LaTeX·Markdown 문서의 줄 핀에만` 이다. 설계대로 에이전트가 읽는 문구를 바꾸지 않았다. `reason` 이 정본이다.
-- **네 기기군 실측.** 마지막 PoC에서 소유자가 D7의 `pins.md` 숨은 문자 줄과 D8의 `line_ends` 를 함께 확인한다.
+- **네 기기군 실측.** 마지막 PoC에서 소유자가 D7의 `pins.md` 숨은 문자 줄과 D8의 `line_ends` 를 함께 확인하고 승인했다([PR #410](https://github.com/dartworklabs/limn/pull/410)).
 
 ## 후속(이 브랜치 밖)
 

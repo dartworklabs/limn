@@ -1,6 +1,6 @@
 # 그림 문서 — 벡터 그래픽에 핀을 찍는다 (설계 제안·핸드오버)
 
-> **상태: D1·D5 확정([ADR-0011](../../adr/0011-figure-documents.md)).** 소유자가 목적 범위를 "LaTeX 원고와 벡터 그래픽"으로 넓히고(D1), 계약 값 목록을 늘리는 A안을 골랐다(D5). D2–D4·D6·D7은 권장안을 계획의 전제로 삼았고, 소유자가 계획을 검토할 때 확인한다. 구현 계획은 [색인](../../superpowers/plans/2026-09-30-figure-documents.md)에서 시작한다. 이 문서는 구현을 이어받을 사람과 에이전트를 위한 핸드오버다. 승인 전에는 생산 코드, 에이전트 계약(`pins.md`·HTTP API), 저장 형식을 바꾸지 않는다. Limn의 목적 범위([purpose.md](../../handbook/purpose.md) §지원 범위)를 넓히고 에이전트 계약에 값을 더하므로 HARD-GATE에 걸린다([workflow.md](../../handbook/workflow.md) §기본 경로). 승인되면 결정을 ADR로 먼저 박고 그다음 구현 계획을 쓴다.
+> **상태: 모두 확정([ADR-0011](../../adr/0011-figure-documents.md)), D6의 임계값은 실측으로 확정([ADR-0015](../../adr/0015-d6-measured.md), `cover 0.4`·`fill 0.5`).** 소유자가 목적 범위를 "LaTeX 원고와 벡터 그래픽"으로 넓히고(D1), 계약 값 목록을 늘리는 A안을 골랐다(D5). D2–D4·D6·D7은 소유자의 위임에 따라 진단으로 정했다. 아래는 설계 당시의 핸드오버 기록이다. 구현 계획은 [색인](../../superpowers/plans/2026-09-30-figure-documents.md)에서 시작한다. 이 문서는 구현을 이어받을 사람과 에이전트를 위한 핸드오버다. 승인 전에는 생산 코드, 에이전트 계약(`pins.md`·HTTP API), 저장 형식을 바꾸지 않는다. Limn의 목적 범위([purpose.md](../../handbook/purpose.md) §지원 범위)를 넓히고 에이전트 계약에 값을 더하므로 HARD-GATE에 걸린다([workflow.md](../../handbook/workflow.md) §기본 경로). 승인되면 결정을 ADR로 먼저 박고 그다음 구현 계획을 쓴다.
 
 ## 이 문서를 이어받는 법
 
