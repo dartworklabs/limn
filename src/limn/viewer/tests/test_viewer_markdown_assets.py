@@ -398,9 +398,12 @@ class HeadingJump(AssetsBase):
         self.assertEqual(page.evaluate("document.querySelector('#section-current').textContent"), "설치")
 
     # Home with the focus on the page body scrolls the pane on the Linux hosts CI runs; on macOS it scrolls nothing at
-    # all, so the hand this test needs the guard to see never arrives (measured twice: #left stayed where the jump left
-    # it). The viewer promises no scrolling of its own for that key - it only reads a scroll the browser did - so there
-    # is nothing to fix in the pane here; issue #414 collects what these host keys do differently on macOS.
+    # all (measured twice: #left stayed where the jump left it), so this test's premise - the pane back at its top -
+    # cannot hold there. Only that premise is lost: the jump is dropped by the key's own keydown and not by the scroll
+    # it causes (js/md-surface.js), so "the key ends the asked jump and the images let go later do not move the pane"
+    # is still read on every host by the test right below, which asserts no scroll of its own. The viewer promises no
+    # scrolling for this key - it only reads one the browser did - so there is nothing to fix in the pane; issue #414
+    # collects what these host keys do differently on macOS.
     @unittest.skipIf(sys.platform == "darwin", "Home scrolls no pane on macOS: issue #414")
     def test_a_scrolling_key_with_the_focus_on_the_page_ends_the_jump(self):
         """The same jump, its images held: Home pressed while the focus is on the page's body (no key event reaches the pane)
