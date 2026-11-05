@@ -123,7 +123,7 @@ class PureRules(unittest.TestCase):
         the next build names none (unknown), never a commit the first had already as new (B's PR #12 here); a build at
         such a commit, still behind, after a known one names none either and leaves no commit as seen."""
         got = node_json(
-            ["prOf", "describeCommits", "shownRows", "docBuild", "checkDocUpdate"],
+            ["prOf", "describeCommits", "shownRows", "docBuild", "verAfter", "checkDocUpdate"],
             """const DOC='ms',META_BY=new Map(),GROUPS=new Map(),said=[]; let META=null,rec=null,state=null,ROWS=[];
             function rendersInBrowser(){return false;} function updDocState(){return state;} function seenDoc(){return rec;}
             function setSeenDoc(k,r){rec=r;} async function docRows(){return ROWS;} function dq(u){return u;}
@@ -145,6 +145,27 @@ class PureRules(unittest.TestCase):
         self.assertEqual(got["unrelated"], {"n": 0, "prs": [], "top": "cccc3333cccc", "unknown": True})
         self.assertEqual(got["current"], "bbbb2222bbbb")
         self.assertEqual(got["stillBehind"], {"n": 0, "prs": [], "top": "", "unknown": True})
+
+    def test_a_version_older_than_the_one_seen_is_no_change(self):
+        """checkDocUpdate with verAfter: a tab showing an older source or build than this device has seen (a drawn
+        document come back to, still showing the lines it was left with, whose change was said and dismissed while it was
+        off screen; another tab that saw a newer build) says nothing and keeps the record; a newer one is said."""
+        got = node_json(
+            ["describeCommits", "shownRows", "docBuild", "verAfter", "checkDocUpdate"],
+            """const DOC='nt',META_BY=new Map(),GROUPS=new Map(),said=[]; let META=null,rec=null,state=null;
+            function rendersInBrowser(k){return k==='md';} function updDocState(){return state;} function seenDoc(){return rec;}
+            function setSeenDoc(k,r){rec=r;} async function docRows(){return [];} function dq(u){return u;}
+            async function api(){throw new Error('not asked');} function docUpdateView(){}
+            function groupNote(g,d){said.push(d.ver);}
+            (async()=>{const out=[];
+              rec={ver:'src:200',rev:''}; state={ver:'src:100',name:'노트',kind:'md'}; await checkDocUpdate('nt',{}); out.push([said.length,rec.ver]);
+              state={ver:'src:300',name:'노트',kind:'md'}; await checkDocUpdate('nt',{}); out.push([said.slice(),rec.ver]);
+              said.length=0; META={pages_build:'pages-20261105090000',head:'',stale_build:false};
+              rec={ver:'build:pages-20261105100000',rev:''}; state={ver:'build:pages-20261105090000',name:'본문',kind:'tex'};
+              await checkDocUpdate('ms',{}); out.push([said.length,rec.ver]);
+              console.log(JSON.stringify(out));})();""",
+        )
+        self.assertEqual(got, [[0, "src:200"], [["src:300"], "src:200"], [0, "build:pages-20261105100000"]])
 
     def test_a_seen_record_only_moves_forward(self):
         """setSeenDoc with verAfter: an older tab dismissing its message (an earlier mtime, an earlier build) keeps the
@@ -509,6 +530,58 @@ class UpdateFlows(BrowserBase):
         page.evaluate("noticeClose(LINE.find(n=>n.group==='upd:nt').n)")
         change(first.replace("끝 문단이다.", "고친 끝 문단이다.").replace("- 둘\n", "- 둘 반\n"))
         self.assertEqual(page.evaluate("UPD.lines.get('nt').ranges"), [{"lo": 8, "hi": 8}])
+
+    def test_a_markdown_document_left_behind_says_its_change_and_a_return_after_seeing_it_says_nothing(self):
+        """Read on the Markdown document, then on the manuscript: the note's source changes while it is off screen, and
+        the document list's new mtime says '노트가 바뀌었습니다' with [열기] - the lines drawn before are not what it shows.
+        Back to it with that message standing, the redraw joins it, tinting and counting the place ([바뀐 곳]). Off
+        screen again, a second change said there and dismissed: back to it, nothing is said again and nothing is tinted."""
+        from limn.builds.artifacts import expire_src_mtime
+
+        def change(text):
+            self.md.write_text(text, encoding="utf-8")
+            expire_src_mtime(self.nt)
+            self.poll(page)
+
+        def to(k):
+            page.evaluate("switchDoc(%s)" % json.dumps(k))
+            until(page, "DOC===%s&&!!META&&META.doc===%s" % (json.dumps(k), json.dumps(k)))
+            settle(page)
+
+        def drawn(text):
+            until(page, "MD.shown==='nt'&&MD.lines.join('\\n')===%s" % json.dumps(text.rstrip("\n")))
+            settle(page)
+
+        page = self.view()
+        until(page, "!!seenDoc('nt')&&!!seenDoc('ms')&&LIGHT_INFLIGHT===null")
+        page.evaluate("clearInterval(LIGHT_TIMER); digestEnd()")
+        to("ms")
+        first = SOURCE.replace("첫 문단이다.", "고친 첫 문단이다.")
+        change(first)
+        until(page, "LINE.some(n=>n.group==='upd:nt')")
+        said = page.evaluate(
+            "(()=>{const n=LINE.find(x=>x.group==='upd:nt'); return [n.title,n.desc,n.act&&n.act.label];})()"
+        )
+        self.assertEqual(said, ["노트가 바뀌었습니다", "커밋 없이 파일이 바뀌었습니다", "열기"])
+        to("nt")
+        drawn(first)
+        until(page, "UPD.lines.has('nt')")
+        said = page.evaluate("(()=>{const n=LINE.find(x=>x.group==='upd:nt'); return [n.desc,n.act&&n.act.label];})()")
+        self.assertEqual(said, ["커밋 없이 파일이 바뀌었습니다 · 바뀐 곳 1", "바뀐 곳"])
+        tinted = "[...document.querySelectorAll('#md .md-upd')].map(e=>e.textContent.trim())"
+        self.assertEqual(page.evaluate(tinted), ["고친 첫 문단이다."])
+        page.evaluate("noticeClose(LINE.find(n=>n.group==='upd:nt').n)")
+        to("ms")
+        second = first.replace("끝 문단이다.", "고친 끝 문단이다.")
+        change(second)
+        until(page, "LINE.some(n=>n.group==='upd:nt')")
+        page.evaluate("noticeClose(LINE.find(n=>n.group==='upd:nt').n)")
+        to("nt")
+        drawn(second)
+        page.wait_for_timeout(300)
+        self.assertEqual(self.line(page), [t for t in self.line(page) if "바뀌었습니다" not in t])
+        self.assertEqual(page.evaluate(tinted), [])
+        self.assertFalse(page.evaluate("UPD.lines.has('nt')"))
 
     def test_a_coauthors_new_pin_and_an_agent_closing_pins_one_by_one_are_one_message_each(self):
         """Bob's new pin on this document: '새 핀 #N — Bob Park · L3 · …' with [보기]. The agent closing three of Alice's

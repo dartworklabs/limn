@@ -106,8 +106,9 @@ function awayTitle(ms,lost){const m=Math.max(1,Math.round(ms/60000)),t=m<60?tl('
 // document list; null before it is known.
 /** @param {string} k @returns {{ver:string,name:string,kind:string}|null} */
 function updDocState(k){const m=k===DOC?META:META_BY.get(k),d=docInfo(k),kind=(d&&d.kind)||(m&&m.kind)||'',src=/** @type {any} */(m||d); if(!src)return null;
-  // a drawn document's source as last read (MD.mtime), not the meta it was opened with
-  const mt=MD.doc===k&&typeof MD.mtime==='number'?MD.mtime:k!==DOC&&d&&typeof d.src_mtime==='number'?d.src_mtime:src.src_mtime;
+  // a drawn document on screen: its source as last read (MD.mtime), not the meta it was opened with; off screen: the
+  // document list's (noteOtherDocs keeps it fresh) - MD still holds the lines of one drawn before, as they were when left
+  const mt=k===DOC&&MD.doc===k&&typeof MD.mtime==='number'?MD.mtime:k!==DOC&&d&&typeof d.src_mtime==='number'?d.src_mtime:src.src_mtime;
   const ver=rendersInBrowser(kind)?(typeof mt==='number'?'src:'+mt:''):(src.pages_build?'build:'+src.pages_build:'');
   return ver?{ver,name:(d&&d.name)||(m&&m.doc_name)||k,kind}:null;}
 // Document k's commits, newest first ([] without history), or null when they could not be read.
@@ -136,9 +137,12 @@ function shownRows(rows,head,behind){const i=head?rows.findIndex(r=>r.id.startsW
 // not yet seen stands, which the rebuild then joins. What shows is the shown build's (docBuild): its commit, not the
 // checkout's newest - a checkout pulled ahead of the pages still has those commits to say when their build comes. When which
 // commits it carries is not known (shownRows), no commit is recorded (''): the next change then names none (describeCommits).
+// What shows being older than what this device has seen (verAfter) is no change: this tab has not caught up yet - a drawn
+// document come back to shows the lines it was left with until it draws its source again, whose change was said while it
+// was off screen - and the read that catches up has nothing new to say either.
 /** @param {string} k @param {{mine?:boolean}} ctx */
 async function checkDocUpdate(k,ctx){if(!k)return; const now=updDocState(k); if(!now)return; const seen=seenDoc(k),open=GROUPS.has('upd:'+k);
-  if(seen&&seen.ver===now.ver&&!open)return;
+  if(seen&&(seen.ver===now.ver&&!open||verAfter(seen.ver,now.ver)))return;
   const first=!seen||(!!ctx.mine&&!open); if(seen&&!first&&seen.ver===now.ver)return;
   const [rows,build]=await Promise.all([docRows(k),docBuild(k,now)]),cur=updDocState(k);
   if(!cur||cur.ver!==now.ver||!build)return;   // a newer change came meanwhile: its own check says it
@@ -201,9 +205,13 @@ function openUpdateRange(k,base){const go=()=>{REV.want={base}; if(document.body
 // visit's first draw). The lines that differ from the base - the lines before the change not yet seen began, kept while
 // its message stands - are tinted (md-upd) while that message stands, and the message says how many places and goes to
 // them. A later change before it is seen is compared with that base again, not with the lines just drawn, so a place changed
-// first stays tinted and counted beside the new one; a return to the document compares what it draws now.
+// first stays tinted and counted beside the new one; a return to the document compares what it draws now. A change this
+// device has seen already - its message dismissed while the document was off screen, or in another tab - is no base: the
+// lines it drew are not compared, so no tint stands that no message would take away.
 /** @param {string} k @param {string[]|null} before @param {string[]} now */
-function updSourceRedrawn(k,before,now){const u=UPD.lines.get(k),base=u?u.base:before; if(!base)return;
+function updSourceRedrawn(k,before,now){const u=UPD.lines.get(k),seen=seenDoc(k),cur=updDocState(k);
+  const base=u?u.base:before&&seen&&cur&&verAfter(cur.ver,seen.ver)?before:null;
+  if(!base){if(before)checkDocUpdate(k,{}); return;}
   const ranges=lineChanges(base,now,LINE_DIFF_MAX); if(!u&&!ranges.length)return;
   const same=!!u&&JSON.stringify(u.ranges)===JSON.stringify(ranges);
   UPD.lines.set(k,{base,ranges,at:u&&same?u.at:-1}); updMarks();
