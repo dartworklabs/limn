@@ -81,7 +81,8 @@ class PureRules(unittest.TestCase):
     def test_the_commits_above_the_last_seen_one_name_their_prs_authors_and_newest_subject(self):
         """describeCommits and prOf: a squash merge's '(#12)' and a merge commit's 'Merge pull request #13' are PR numbers;
         the commits counted are those above the last seen one (a prefix of it will do), all of them when it is not among
-        the rows (more); a merge commit's own subject gives way to the commit under it; no seen commit, nothing."""
+        the rows (more); a merge commit's own subject gives way to the commit under it; no seen commit, or rows not known
+        (null), names none and says so (unknown); no rows (no history), nothing."""
         got = node_json(
             ["prOf", "describeCommits"],
             """const rows=[{id:'m1',subject:'Merge pull request #13 from bob/x',author:'Bob Park',time:'t3'},
@@ -89,7 +90,8 @@ class PureRules(unittest.TestCase):
               {id:'c1',subject:'Shorten the introduction (#12)',author:'Carol Lee',time:'t1'},
               {id:'c0abcdef',subject:'Initial',author:'A',time:'t0'}];
             console.log(JSON.stringify([prOf('Title (#7)'),prOf('Merge pull request #9 from a/b'),prOf('No PR'),
-              describeCommits(rows,'c0a'),describeCommits(rows,'zzz'),describeCommits(rows,''),describeCommits(rows.slice(2),'c0abcdef')]));""",
+              describeCommits(rows,'c0a'),describeCommits(rows,'zzz'),describeCommits(rows,''),describeCommits(rows.slice(2),'c0abcdef'),
+              describeCommits(null,'c0a'),describeCommits([],'c0a')]));""",
         )
         self.assertEqual(got[:3], [7, 9, 0])
         self.assertEqual(
@@ -102,24 +104,31 @@ class PureRules(unittest.TestCase):
                 "subject": "Fix the axis names",
                 "time": "t3",
                 "top": "m1",
+                "unknown": False,
             },
         )
         self.assertEqual((got[4]["n"], got[4]["more"]), (4, True))
-        self.assertEqual(got[5]["n"], 0)
+        self.assertEqual(
+            (got[5]["n"], got[5]["prs"], got[5]["authors"], got[5]["unknown"], got[5]["top"]), (0, [], [], True, "m1")
+        )
+        self.assertEqual((got[7]["n"], got[7]["unknown"], got[7]["top"]), (0, True, ""))
+        self.assertEqual((got[8]["n"], got[8]["unknown"]), (0, False))
         self.assertEqual((got[6]["n"], got[6]["prs"], got[6]["subject"]), (1, [12], "Shorten the introduction"))
 
     def test_what_a_built_document_showed_is_its_builds_commit_not_the_checkouts_newest(self):
         """checkDocUpdate with docBuild and shownRows: a first visit while build A shows and the checkout is already at
         commit B records A's commit, so build B then says the one commit B with its PR, not 'files changed without a
         commit'. A build whose commit touched none of the document's files carries all its commits, unless it is behind
-        the checkout (stale_build), which lacks at least the newest; a later build still behind says only what it carries."""
+        the checkout (stale_build): then which of them it carries is not known - a first visit records no commit, and
+        the next build names none (unknown), never a commit the first had already as new (B's PR #12 here); a build at
+        such a commit, still behind, after a known one names none either and leaves no commit as seen."""
         got = node_json(
             ["prOf", "describeCommits", "shownRows", "docBuild", "checkDocUpdate"],
             """const DOC='ms',META_BY=new Map(),GROUPS=new Map(),said=[]; let META=null,rec=null,state=null,ROWS=[];
             function rendersInBrowser(){return false;} function updDocState(){return state;} function seenDoc(){return rec;}
             function setSeenDoc(k,r){rec=r;} async function docRows(){return ROWS;} function dq(u){return u;}
             async function api(){throw new Error('not asked');} function docUpdateView(){}
-            function groupNote(g,d){said.push({n:d.commits.n,prs:d.commits.prs,top:d.top});}
+            function groupNote(g,d){said.push({n:d.commits.n,prs:d.commits.prs,top:d.top,unknown:d.commits.unknown});}
             const C=(id,subject)=>({id,subject,author:'Bob Park',time:'t'});
             const show=async(build,head,stale,rows)=>{META={pages_build:build,head,stale_build:stale}; state={ver:'build:'+build,name:'본문',kind:'tex'}; ROWS=rows; await checkDocUpdate('ms',{});};
             (async()=>{const out={};
@@ -131,11 +140,11 @@ class PureRules(unittest.TestCase):
               console.log(JSON.stringify(out));})();""",
         )
         self.assertEqual(got["first"], "aaaa1111aaaa")
-        self.assertEqual(got["later"], {"n": 1, "prs": [12], "top": "bbbb2222bbbb"})
-        self.assertEqual(got["behind"], "aaaa1111aaaa")
-        self.assertEqual(got["unrelated"], {"n": 2, "prs": [13, 12], "top": "cccc3333cccc"})
+        self.assertEqual(got["later"], {"n": 1, "prs": [12], "top": "bbbb2222bbbb", "unknown": False})
+        self.assertEqual(got["behind"], "")
+        self.assertEqual(got["unrelated"], {"n": 0, "prs": [], "top": "cccc3333cccc", "unknown": True})
         self.assertEqual(got["current"], "bbbb2222bbbb")
-        self.assertEqual(got["stillBehind"], {"n": 1, "prs": [12], "top": "bbbb2222bbbb"})
+        self.assertEqual(got["stillBehind"], {"n": 0, "prs": [], "top": "", "unknown": True})
 
     def test_a_seen_record_only_moves_forward(self):
         """setSeenDoc with verAfter: an older tab dismissing its message (an earlier mtime, an earlier build) keeps the
@@ -216,7 +225,8 @@ GROUP_FNS = [
     "lineHeld", "holdLine", "releaseLine", "lineHoverOut", "lineVisible", "noticeAct", "noticeClose", "noticeFocusBack",
     "sourceEntry", "sourceOk", "isUndo", "lineCap", "sameWords", "noticeDots", "holdsDot", "groupNote", "regroup",
     "digestBegin", "digestSoon", "digestHold", "digestEnd", "digestBrief", "digestLine", "digestNote", "digestReplay",
-    "digestTake", "newsSlot", "keysHeld", "noticeLess", "newsWithout", "digestClosed",
+    "digestTake", "newsSlot", "keysHeld", "noticeLess", "newsWithout", "digestClosed", "newsDupe", "foldedNews",
+    "foldedLess", "digestRetitle",
 ]  # fmt: skip
 GROUP_PRELUDE = r"""
 let NOW=0,QID=0; const Q=[];
@@ -341,6 +351,44 @@ class Grouping(unittest.TestCase):
         self.assertEqual(got["late"], ["핀 #1 · 본문 — 검토 대기: 고침", "#2 검토 대기"])
         self.assertEqual(got["early"], ["#5 검토 대기", "핀 #4 · 본문 — 검토 대기: 고침"])
         self.assertEqual(sorted(got["gathered"]), ["#7 검토 대기", "핀 #6 · 본문 — 검토 대기: 고침"])
+
+    def test_an_event_that_grows_its_message_takes_its_pin_out_of_a_batch_said_between(self):
+        """The event for #1 (rank 2), the list comparison's batch of #2 and #3, then the event for #2, which grows the
+        event's message rather than making one: #2 leaves the batch all the same, which says #3 in place."""
+        got = self.run_store(
+            """const kv=g=>({msg:'#'+g.ids.join(', #')+' 검토 대기',kind:NOTICE_KIND.OK,act:null,o:{keys:g.ids.map(i=>'review_requested:'+i)}});
+            const ev=g=>({msg:'나에게 검토 대기 — #'+g.ids.join(', #'),kind:NOTICE_KIND.OK,act:null,o:{keys:g.ids.map(i=>'review_requested:'+i),rank:2}});
+            groupNote('ev:review_requested',{ids:[1]},ev,merge); tick(1000);
+            groupNote('review',{ids:[2,3]},kv,merge,newsWithout('review_requested','ids')); tick(1000);
+            groupNote('ev:review_requested',{ids:[2]},ev,merge);
+            console.log(JSON.stringify(said()));"""
+        )
+        self.assertEqual(got, ["나에게 검토 대기 — #1, #2", "#3 검토 대기"])
+
+    def test_an_event_after_a_folded_line_takes_its_pins_out_of_what_it_holds(self):
+        """Gathered and folded: the list comparison's #2 and #3, and another group's #4. The event for #2 comes after:
+        the folded line counts what is left and [펼치기] says #3 and #4 beside the event - #2 once. The other way round, a
+        batch of #5 and #6 after a folded event for #5 says #6 alone. A folded message whose every pin an event says leaves
+        the line, its group with it, and a folded line left with nothing goes."""
+        got = self.run_store(
+            """const kv=g=>({msg:'#'+g.ids.join(', #')+' 검토 대기',kind:NOTICE_KIND.OK,act:null,o:{keys:g.ids.map(i=>'review_requested:'+i),brief:'검토 대기 '+g.ids.length}});
+            const ev=g=>({msg:'나에게 검토 대기 — #'+g.ids.join(', #'),kind:NOTICE_KIND.OK,act:null,o:{keys:g.ids.map(i=>'review_requested:'+i),rank:2,brief:'나에게 검토 대기'}});
+            const less=newsWithout('review_requested','ids'),reset=()=>{LINE.slice().forEach(n=>endNotice(n,true)); GROUPS.clear(); tick(9000);};
+            digestBegin('지난 방문 뒤'); groupNote('review',{ids:[2,3]},kv,merge,less); groupNote('other',{ids:[4]},kv,null); digestEnd();
+            groupNote('ev:review_requested',{ids:[2]},ev,merge); const folded=said(); noticeAct(LINE.find(n=>n.items).n); const open=said(); reset();
+            digestBegin('지난 방문 뒤'); groupNote('ev:review_requested',{ids:[5]},ev,merge); groupNote('other',{ids:[9]},kv,null); digestEnd();
+            groupNote('review',{ids:[5,6]},kv,merge,less); const later=said(); reset();
+            digestBegin('지난 방문 뒤'); groupNote('review',{ids:[7]},kv,merge,less); groupNote('other',{ids:[8]},kv,null); digestEnd();
+            groupNote('ev:review_requested',{ids:[7]},ev,merge); const one=said(),groups=[...GROUPS.keys()].sort();
+            groupNote('ev:review_requested',{ids:[8]},ev,merge);
+            console.log(JSON.stringify({folded,open,later,one,groups,none:said()}));"""
+        )
+        self.assertEqual(got["folded"], ["나에게 검토 대기 — #2", "지난 방문 뒤 — 검토 대기 2"])
+        self.assertEqual(sorted(got["open"]), ["#3 검토 대기", "#4 검토 대기", "나에게 검토 대기 — #2"])
+        self.assertEqual(got["later"], ["#6 검토 대기", "지난 방문 뒤 — 나에게 검토 대기 · 검토 대기 1"])
+        self.assertEqual(got["one"], ["나에게 검토 대기 — #7", "지난 방문 뒤 — 검토 대기 1"])
+        self.assertEqual(got["groups"], ["ev:review_requested", "other"])
+        self.assertEqual(got["none"], ["나에게 검토 대기 — #7, #8"])
 
     def test_closing_a_gathered_line_ends_its_groups_so_new_pins_are_seen(self):
         """A gathered line holding new pins (newPinsView) and a document's update, closed with [x]: its groups end with
@@ -581,6 +629,94 @@ class UpdateFlows(BrowserBase):
         self.assertEqual(got["top"], {"status": "새 핀 2개", "news": ""})
         self.assertEqual(got["behind"]["news"], "새 핀 3개")
         self.assertNotIn("새 핀", got["behind"]["status"])
+
+    def test_a_rebuild_at_a_commit_outside_the_documents_history_names_no_pr_from_a_guess(self):
+        """The manuscript's commits are 'Initial' and 'Old introduction (#12)'; the checkout's head is an unrelated commit
+        (in none of its history), and its pages, built there, are behind an uncommitted edit. Which of its commits those
+        pages carry is not known, so the first visit records no commit; the rebuild at the same head that takes the edit
+        says '본문이 바뀌었습니다' with [변경 보기] - never 'PR #12 … · Alice', a commit those pages had already."""
+        env = dict(
+            os.environ,
+            GIT_AUTHOR_NAME="Alice",
+            GIT_AUTHOR_EMAIL="alice@example.com",
+            GIT_COMMITTER_NAME="Alice",
+            GIT_COMMITTER_EMAIL="alice@example.com",
+        )
+
+        def git(*args):
+            return subprocess.check_output(["git", *args], cwd=self.src, env=env, text=True, stderr=subprocess.PIPE)
+
+        git("init", "-q")
+        git("add", "main.tex", "notes.md")
+        git("commit", "-q", "-m", "Initial")
+        self.main.write_text(self.main.read_text() + "\n% Old introduction\n")
+        git("commit", "-q", "-am", "Old introduction (#12)")
+        (self.src / "unrelated.txt").write_text("unrelated")
+        git("add", "unrelated.txt")
+        git("commit", "-q", "-m", "Unrelated change")
+        head = git("rev-parse", "HEAD").strip()
+        (self.ms.dir / "head.txt").write_text(head)
+        mt = self.main.stat().st_mtime
+        (self.ms.dir / "built_src_mtime.txt").write_text(str(mt))
+        self.main.write_text(self.main.read_text() + "\n% New uncommitted edit\n")
+        os.utime(self.main, (mt + 10, mt + 10))
+        from limn.builds.artifacts import expire_src_mtime
+
+        expire_src_mtime(self.ms)
+        page = self.view()
+        until(page, "!!seenDoc('ms')")
+        self.assertEqual(page.evaluate("seenDoc('ms').rev"), "")
+        page.evaluate("clearInterval(LIGHT_TIMER); switchDoc('ms')")
+        until(page, "DOC==='ms'&&!!META&&META.doc==='ms'")
+        settle(page)
+        self.assertTrue(page.evaluate("META.stale_build"))
+        viewer_build(self.ms, "pages-20261105200000")
+        (self.ms.dir / "head.txt").write_text(head)
+        (self.ms.dir / "built_src_mtime.txt").write_text(str(mt + 10))
+        got = page.evaluate(
+            """async()=>{await refreshDoc(); await checkDocUpdate('ms',{}); const n=LINE.find(x=>x.group==='upd:ms');
+            return {stale:META.stale_build,said:n?[n.title,n.desc,n.act&&n.act.label]:null,line:LINE.map(x=>x.title+' — '+x.desc)};}"""
+        )
+        self.assertFalse(got["stale"], got)
+        self.assertEqual(got["said"], ["본문이 바뀌었습니다", "", "변경 보기"], got)
+        self.assertFalse(any("#12" in t or "Alice" in t for t in got["line"]), got)
+
+    def test_an_event_that_grows_takes_its_pin_out_of_a_list_batch_said_between(self):
+        """An event addressed to me for #1, then the list comparison's batch of #2 and #3, then the event for #2 grows
+        the event's message: #2 leaves the batch, which says #3 alone - #2 is said once."""
+        page = self.view()
+        got = page.evaluate(
+            """()=>{clearInterval(LIGHT_TIMER); digestEnd(); LINE.slice().forEach(n=>endNotice(n,true));
+            const ev=id=>({type:EVENT_TYPE.REVIEW_REQUESTED,pin:id,doc:'nt',doc_name:'노트',by:{login:'bob@example.com',name:'Bob'},excerpt:'고침'});
+            const list=g=>({msg:'#'+g.ids.join(', #')+' 검토 대기',kind:NOTICE_KIND.OK,act:null,o:{keys:g.ids.map(i=>'review_requested:'+i),literal:true}});
+            notifyLine(ev(1));
+            groupNote('review',{ids:[2,3]},list,(a,b)=>({ids:[...a.ids,...b.ids]}),newsWithout('review_requested','ids'));
+            notifyLine(ev(2));
+            return LINE.map(n=>({group:n.group,keys:n.keys,title:n.title}));}"""
+        )
+        held = {n["group"]: n["keys"] for n in got}
+        self.assertEqual(held["ev:review_requested"], ["review_requested:1", "review_requested:2"], got)
+        self.assertEqual(held["review"], ["review_requested:3"], got)
+        self.assertEqual(next(n["title"] for n in got if n["group"] == "review"), "#3 검토 대기", got)
+
+    def test_an_event_after_a_folded_line_takes_its_pin_out_of_the_gathered_batch(self):
+        """Gathered while away: the list comparison's batch of #2 and #3, and another group's #4, folded into one line.
+        The event addressed to me for #2 comes then: the folded batch says #3 alone, so [펼치기] says #2 once."""
+        page = self.view()
+        got = page.evaluate(
+            """()=>{clearInterval(LIGHT_TIMER); digestEnd(); LINE.slice().forEach(n=>endNotice(n,true));
+            const list=g=>({msg:'#'+g.ids.join(', #')+' 검토 대기',kind:NOTICE_KIND.OK,act:null,o:{keys:g.ids.map(i=>'review_requested:'+i),literal:true}});
+            digestBegin('자리를 비운 사이 (5분)');
+            groupNote('review',{ids:[2,3]},list,(a,b)=>({ids:[...a.ids,...b.ids]}),newsWithout('review_requested','ids'));
+            groupNote('other',{ids:[4]},list,null); digestEnd();
+            notifyLine({type:EVENT_TYPE.REVIEW_REQUESTED,pin:2,doc:'nt',doc_name:'노트',by:{name:'Bob'},excerpt:'고침'});
+            const folded=LINE.find(n=>n.items); if(folded)noticeAct(folded.n);
+            return LINE.map(n=>({group:n.group,keys:n.keys,title:n.title}));}"""
+        )
+        self.assertEqual(sum("review_requested:2" in n["keys"] for n in got), 1, got)
+        self.assertEqual(
+            sorted(n["title"] for n in got if n["group"] in ("review", "other")), ["#3 검토 대기", "#4 검토 대기"], got
+        )
 
     def test_back_after_a_while_what_came_is_one_line_that_unfolds(self):
         """Away (the last answer 3 minutes ago), a co-author's pin and a closed pin come: one line '자리를 비운 사이 (3분) —

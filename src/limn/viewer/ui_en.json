@@ -1534,6 +1534,7 @@
  },
  "바뀐 줄로 갑니다. 다시 누르면 다음 곳으로 갑니다": "Goes to the changed lines; press again for the next place",
  "버전 확인": "Version check",
+ "변경 보기를 엽니다": "Opens the changes view",
  "삭제됨 {n}": "deleted {n}",
  "새 판정 #{id}": "New verdict #{id}",
  "새 핀 #{id}": "New pin #{id}",

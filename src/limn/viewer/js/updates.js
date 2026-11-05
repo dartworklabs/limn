@@ -55,14 +55,18 @@ function setSeenPin(n){const all=seenStore(); if(typeof all.pin==='number'&&all.
 function prOf(subject){const s=String(subject||''),m=/^Merge pull request #(\d+)/.exec(s)||/\(#(\d+)\)\s*$/.exec(s); return m?+m[1]:0;}
 // The commits above the last seen one (seen: its id or a prefix) in rows (newest first, /api/revisions): how many (all of
 // them when seen is not among them: more), their PRs and authors, the newest one's subject without its '(#12)' - a merge
-// commit's own subject is passed over for the commit under it - and time, and the newest id (top). Nothing without seen. Pure.
-/** @param {{id:string,subject:string,author?:string,time?:string}[]} rows @param {string} seen */
-function describeCommits(rows,seen){const top=rows.length?rows[0].id:'';
-  if(!rows.length||!seen)return {n:0,more:false,prs:/** @type {number[]} */([]),authors:/** @type {string[]} */([]),subject:'',time:'',top};
+// commit's own subject is passed over for the commit under it - and time, and the newest id (top). Nothing when there are
+// no rows (no history). unknown: which of them are new cannot be told - the rows are not known (null: what the shown build
+// carries is not known, shownRows) or no commit was known as seen ('') - so none is named, and top is the newest of the rows
+// known ('' for none). Pure.
+/** @param {{id:string,subject:string,author?:string,time?:string}[]|null} rows @param {string} seen */
+function describeCommits(rows,seen){const top=rows&&rows.length?rows[0].id:'',none={n:0,more:false,prs:/** @type {number[]} */([]),authors:/** @type {string[]} */([]),subject:'',time:'',top,unknown:false};
+  if(!rows||rows.length&&!seen)return {...none,unknown:true};
+  if(!rows.length)return none;
   const at=rows.findIndex(r=>r.id===seen||r.id.startsWith(seen)),fresh=at<0?rows:rows.slice(0,at);
   const plain=fresh.find(r=>!/^Merge (pull request|branch)\b/.test(r.subject))||fresh[0];
   return {n:fresh.length,more:at<0,prs:[...new Set(fresh.map(r=>prOf(r.subject)).filter(Boolean))],authors:[...new Set(fresh.map(r=>String(r.author||'')).filter(Boolean))],
-    subject:plain?String(plain.subject).replace(/\s*\(#\d+\)\s*$/,''):'',time:fresh.length?String(fresh[0].time||''):'',top};}
+    subject:plain?String(plain.subject).replace(/\s*\(#\d+\)\s*$/,''):'',time:fresh.length?String(fresh[0].time||''):'',top,unknown:false};}
 // Where the lines now (b) differ from the lines before (a): the changed lines of b as ranges {lo, hi} (1-based, in order); a
 // place where lines only went away is the line after it (the last line at the end). Common heads and tails are set aside, the
 // middle is compared line by line (Myers) up to max edit steps, past that the whole middle is one place. Pure.
@@ -122,14 +126,16 @@ async function docBuild(k,now){if(rendersInBrowser(now.kind))return {head:'',beh
   const h=String(m.head||''); return {head:/^[0-9a-f]{4,40}$/i.test(h)?h:'',behind:!!m.stale_build};}
 // The commits of a document that its shown build carries, of rows (its history from the checkout, newest first): from the
 // build's commit (head, a prefix will do) down when that is one of them; when it is not - the build's commit touched none of
-// the document's files - all of them, unless the build is behind the checkout (behind), which then lacks at least the newest
-// one: the reads do not say which older ones it lacks too, so the newest alone is left out. A drawn document: all. Pure.
-/** @param {RevisionRow[]} rows @param {string} head @param {boolean} behind @returns {RevisionRow[]} */
-function shownRows(rows,head,behind){const i=head?rows.findIndex(r=>r.id.startsWith(head)):-1; return i>=0?rows.slice(i):behind?rows.slice(1):rows;}
+// the document's files - all of them, unless the build is behind the checkout (behind): then which of them it carries is not
+// known (null) - the reads say neither where the build's commit stands among them nor which of them it lacks, and a guess
+// would name a commit it had already as new. A drawn document: all. Pure.
+/** @param {RevisionRow[]} rows @param {string} head @param {boolean} behind @returns {RevisionRow[]|null} */
+function shownRows(rows,head,behind){const i=head?rows.findIndex(r=>r.id.startsWith(head)):-1; return i>=0?rows.slice(i):behind&&rows.length?null:rows;}
 // Whether document k changed since this device last saw it, and if so says so (docUpdateNote). The first visit of a document
 // on a device, and this tab's own rebuild that brought nothing new (ctx.mine), record what shows as seen - unless a change
 // not yet seen stands, which the rebuild then joins. What shows is the shown build's (docBuild): its commit, not the
-// checkout's newest - a checkout pulled ahead of the pages still has those commits to say when their build comes.
+// checkout's newest - a checkout pulled ahead of the pages still has those commits to say when their build comes. When which
+// commits it carries is not known (shownRows), no commit is recorded (''): the next change then names none (describeCommits).
 /** @param {string} k @param {{mine?:boolean}} ctx */
 async function checkDocUpdate(k,ctx){if(!k)return; const now=updDocState(k); if(!now)return; const seen=seenDoc(k),open=GROUPS.has('upd:'+k);
   if(seen&&seen.ver===now.ver&&!open)return;
@@ -137,19 +143,21 @@ async function checkDocUpdate(k,ctx){if(!k)return; const now=updDocState(k); if(
   const [rows,build]=await Promise.all([docRows(k),docBuild(k,now)]),cur=updDocState(k);
   if(!cur||cur.ver!==now.ver||!build)return;   // a newer change came meanwhile: its own check says it
   const shown=shownRows(rows||[],build.head,build.behind);
-  if(first||!seen){setSeenDoc(k,{ver:now.ver,rev:shown.length?shown[0].id:seen?seen.rev:''}); return;}
+  if(first||!seen){setSeenDoc(k,{ver:now.ver,rev:!shown?'':shown.length?shown[0].id:seen?seen.rev:''}); return;}
   const commits=describeCommits(shown,seen.rev);
-  groupNote('upd:'+k,{key:k,name:now.name,kind:now.kind,ver:now.ver,seenRev:seen.rev,top:commits.top||seen.rev,commits,history:!!(rows&&rows.length)},docUpdateView,null);}
+  groupNote('upd:'+k,{key:k,name:now.name,kind:now.kind,ver:now.ver,seenRev:seen.rev,top:commits.unknown?commits.top:commits.top||seen.rev,commits,history:!!(rows&&rows.length)},docUpdateView,null);}
 // Every document, the one on screen first: what changed since this device last saw it (boot).
 function checkDocsSeen(){[DOC,...DOCS.map(d=>d.key).filter(k=>k!==DOC)].forEach(k=>{if(k)checkDocUpdate(k,{});});}
 // What document k's update message says (groupNote's view): '<name>이(가) 바뀌었습니다' and then the commits (one: its PR and
-// subject and author; several: how many, their PRs and authors), the places a drawn document changed, the pins it moved or
-// lost. Its action: [바뀐 곳] on a drawn document of this visit with places, else [변경 보기] when there are commits (the
-// changes view on just them), [열기] for another document - whose message stands behind this one's (back) - none otherwise. It is seen - limnSeen takes it - once it goes by
-// [x] or its action; a message pushed off the line is not seen and comes again on the next visit.
+// subject and author; several: how many, their PRs and authors; none named when which are new is not known), the places a
+// drawn document changed, the pins it moved or lost. Its action: [바뀐 곳] on a drawn document of this visit with places,
+// else [변경 보기] when there are commits (the changes view on just them, or as it opens when which are new is not known),
+// [열기] for another document - whose message stands behind this one's (back) - none otherwise. It is seen - limnSeen takes
+// it - once it goes by [x] or its action; a message pushed off the line is not seen and comes again on the next visit.
 /** @param {any} d */
 function docUpdateView(d){const k=d.key,c=d.commits,here=k===DOC,parts=[],mv=UPD.moved.get(k),lines=here?UPD.lines.get(k):null;
-  if(c.n===1){parts.push((c.prs[0]?'PR #'+c.prs[0]+' ':'')+c.subject); if(c.authors[0])parts.push(c.authors[0]);}
+  if(c.unknown){/* the change is said without its commits */}
+  else if(c.n===1){parts.push((c.prs[0]?'PR #'+c.prs[0]+' ':'')+c.subject); if(c.authors[0])parts.push(c.authors[0]);}
   else if(c.n>1){parts.push(tl(c.more?'커밋 {n}개 넘게':'커밋 {n}개',{n:c.n})); if(c.prs.length)parts.push(c.prs.slice(0,3).map(/** @param {number} n */n=>'PR #'+n).join(', ')+(c.prs.length>3?' …':''));
     if(c.authors.length)parts.push(c.authors.slice(0,2).join(', ')+(c.authors.length>2?' '+tl('외 {n}명',{n:c.authors.length-2}):''));}
   else parts.push(tr(isFigureKind(d.kind)?'그림을 새로 가져왔습니다':isViewOnlyKind(d.kind)?'PDF를 새로 그렸습니다':'커밋 없이 파일이 바뀌었습니다'));
@@ -158,9 +166,10 @@ function docUpdateView(d){const k=d.key,c=d.commits,here=k===DOC,parts=[],mv=UPD
   if(mv&&mv.lost.size)parts.push(tl('핀 {n}개 위치 잃음',{n:mv.lost.size}));
   const act=!here?{label:'열기',tip:'그 문서로 바꿉니다',fn:()=>switchDoc(k)}
     :lines&&lines.ranges.length?{label:'바뀐 곳',tip:'바뀐 줄로 갑니다. 다시 누르면 다음 곳으로 갑니다',stay:true,fn:()=>updGoNext(k)}
+    :c.unknown&&d.history?{label:'변경 보기',tip:'변경 보기를 엽니다',fn:()=>openUpdateRange(k,'')}
     :c.n>0&&d.history?{label:'변경 보기',tip:'새로 들어온 커밋만 변경 보기에서 엽니다',fn:()=>openUpdateRange(k,d.seenRev)}:null;
   const title=tl('{name}{p} 바뀌었습니다',{name:d.name,p:josaName(d.name,'이','가')});
-  return {msg:title+' — '+parts.join(' · '),kind:NOTICE_KIND.INFO,act,
+  return {msg:parts.length?title+' — '+parts.join(' · '):title,kind:NOTICE_KIND.INFO,act,
     o:{literal:true,keep:true,back:!here,brief:title,onEnd:(/** @type {boolean} */acted,/** @type {boolean} */seen)=>{if(acted||seen)docUpdateSeen(k,d);}}};}
 // Document k's update message has been seen: limnSeen takes what it said, and its moved pins and changed lines go. Moves
 // that come after this belong to no message that is due (updPinMoved).
@@ -181,7 +190,8 @@ function updPinMoved(p,lost){const k=pdoc(p),g=GROUPS.get('upd:'+k),t=Date.now()
   let m=UPD.moved.get(k); if(!m){m={moved:new Set(),lost:new Set()}; UPD.moved.set(k,m);} (lost?m.lost:m.moved).add(p.id);
   if(g&&g.n&&NOTICES.has(g.n.n))regroup(g.n,docUpdateView(g.data)); return !lost;}
 // The changes view on the commits that came after base (the last seen commit), on document k: its source diff of base → the
-// newest commit, the list painting just them (revisions.js REV.want). Another document is switched to first.
+// newest commit, the list painting just them (revisions.js REV.want); without base, the view as it opens. Another document
+// is switched to first.
 /** @param {string} k @param {string} base */
 function openUpdateRange(k,base){const go=()=>{REV.want={base}; if(document.body.classList.contains('revision-open'))loadRevisions(); else setViewMode(VIEW_MODE.REVISIONS);};
   if(k===DOC){go(); return;} const opening=switchDoc(k),visit=SWITCHSEQ; opening.then(()=>{if(DOC===k&&visit===SWITCHSEQ)go();});}
