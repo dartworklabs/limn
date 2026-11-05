@@ -144,6 +144,10 @@ function shownRows(rows,head,behind){const i=head?rows.findIndex(r=>r.id.startsW
 // the history has answered: another tab (limnSeen is shared) may have seen this version or a later one meanwhile - then
 // nothing is said, and what this tab kept for the change (its tinted lines, its counted moves) goes as if its message had
 // been seen (updForget) - or a version between the one read first and this one: the commits are counted from its commit.
+// Whether this is a first visit is decided again then: a record another tab made meanwhile of this version or a later one
+// stays - this answer may name an older commit - and one of an earlier version makes it a change to say. A history (or a
+// build) that could not be read is not known, never an empty one: the check gives up, records nothing and asks again for
+// the calls it stood for.
 /** @param {string} k @param {{mine?:boolean}} ctx */
 async function checkDocUpdate(k,ctx){if(!k)return; const now=updDocState(k); if(!now)return; const seen=seenDoc(k),open=GROUPS.has('upd:'+k);
   if(seen&&(seen.ver===now.ver&&!open||verAfter(seen.ver,now.ver)))return;
@@ -155,13 +159,18 @@ async function checkDocUpdate(k,ctx){if(!k)return; const now=updDocState(k); if(
   let rows,build; try{[rows,build]=await Promise.all([docRows(k),docBuild(k,now)]);}
   finally{if(UPD.checking.get(k)===mark)UPD.checking.delete(k);}
   const cur=updDocState(k);
-  if(!cur||cur.ver!==now.ver||!build){if(mark.again)checkDocUpdate(k,{}); return;}   // gave up: a newer change's own check says it (the redraw asks)
-  const last=seenDoc(k)||seen;
-  if(!first&&last&&(last.ver===now.ver||verAfter(last.ver,now.ver))){if(!GROUPS.has('upd:'+k))updForget(k); return;}
-  const shown=shownRows(rows||[],build.head,build.behind);
-  if(first||!last){setSeenDoc(k,{ver:now.ver,rev:!shown?'':shown.length?shown[0].id:last?last.rev:''}); return;}
+  // gave up - a newer change's own check says it (the redraw asks); a history or a build that could not be read is not
+  // known, never an empty one: nothing is said or recorded on it
+  if(!cur||cur.ver!==now.ver||!build||!rows){if(mark.again)checkDocUpdate(k,{}); return;}
+  // what this device has seen, read again, decides: another tab may have recorded this version or a later one meanwhile -
+  // a first visit's late answer never overwrites that (its commit may be older) - or a message of this document come
+  const kept=seenDoc(k),last=kept||seen,other=!!kept&&(!seen||kept.ver!==seen.ver||kept.rev!==seen.rev);
+  const fresh=!last||(!!ctx.mine&&!GROUPS.has('upd:'+k));
+  if(last&&(!fresh||other)&&(last.ver===now.ver||verAfter(last.ver,now.ver))){if(!GROUPS.has('upd:'+k))updForget(k); return;}
+  const shown=shownRows(rows,build.head,build.behind);
+  if(fresh||!last){setSeenDoc(k,{ver:now.ver,rev:!shown?'':shown.length?shown[0].id:last?last.rev:''}); return;}
   const commits=describeCommits(shown,last.rev);
-  groupNote('upd:'+k,{key:k,name:now.name,kind:now.kind,ver:now.ver,seenRev:last.rev,top:commits.unknown?commits.top:commits.top||last.rev,commits,history:!!(rows&&rows.length)},docUpdateView,null);}
+  groupNote('upd:'+k,{key:k,name:now.name,kind:now.kind,ver:now.ver,seenRev:last.rev,top:commits.unknown?commits.top:commits.top||last.rev,commits,history:rows.length>0},docUpdateView,null);}
 // Every document, the one on screen first: what changed since this device last saw it (boot).
 function checkDocsSeen(){[DOC,...DOCS.map(d=>d.key).filter(k=>k!==DOC)].forEach(k=>{if(k)checkDocUpdate(k,{});});}
 // What document k's update message says (groupNote's view): '<name>이(가) 바뀌었습니다' and then the commits (one: its PR and
@@ -188,9 +197,10 @@ function docUpdateView(d){const k=d.key,c=d.commits,here=k===DOC,parts=[],mv=UPD
   return {msg:parts.length?title+' — '+parts.join(' · '):title,kind:NOTICE_KIND.INFO,act,
     o:{literal:true,keep:true,back:!here,brief:title,onEnd:(/** @type {boolean} */acted,/** @type {boolean} */seen)=>{if(acted||seen)docUpdateSeen(k,d);}}};}
 // Document k's update message has been seen: limnSeen takes what it said, and its moved pins and changed lines go
-// (updForget).
+// (updForget). A record of the message's own version is another tab's - the message is said only while the record names
+// an earlier one (checkDocUpdate) - and stays: that tab read the history too, perhaps after a commit this message missed.
 /** @param {string} k @param {any} d */
-function docUpdateSeen(k,d){setSeenDoc(k,{ver:d.ver,rev:d.top}); updForget(k);}
+function docUpdateSeen(k,d){const was=seenDoc(k); if(!was||was.ver!==d.ver)setSeenDoc(k,{ver:d.ver,rev:d.top}); updForget(k);}
 // What this tab kept for a change of document k that is seen - its moved pins and its tinted lines - goes. Moves that come
 // after this belong to no message that is due (updPinMoved).
 /** @param {string} k */

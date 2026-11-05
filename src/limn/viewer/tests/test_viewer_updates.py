@@ -162,6 +162,82 @@ class PureRules(unittest.TestCase):
         self.assertEqual(got["once"], ["src:200", 1])
         self.assertEqual(got["retry"], ["build:p2", 2])
 
+    def test_a_history_that_could_not_be_read_is_no_history(self):
+        """checkDocUpdate when /api/revisions fails (docRows null): a first visit's check gives up rather than recording the
+        version with no commit, and asks again for the second check of that version left to it, which records the commit
+        the history names. With an earlier record a failed read says nothing and records nothing - not '커밋 없이 파일이
+        바뀌었습니다' - and the next check names the commit. Mutation: take a failed read for an empty history -> the
+        version is recorded with no commit, the call left to it is not asked again and the change is said without its
+        commit, fails."""
+        got = node_json(
+            ["prOf", "describeCommits", "shownRows", "docBuild", "verAfter", "checkDocUpdate"],
+            """const DOC='nt',META_BY=new Map(),GROUPS=new Map(),UPD={checking:new Map()},said=[]; let META=null,rec=null,fail=0,reads=0,gate=false,go=null;
+            function rendersInBrowser(k){return k==='md';} function updDocState(){return {ver:'src:200',name:'노트',kind:'md'};}
+            function seenDoc(){return rec;} function setSeenDoc(k,r){rec=r;} function dq(u){return u;}
+            async function api(){throw new Error('not asked');} function docUpdateView(){} function updForget(){}
+            function groupNote(g,d){said.push({n:d.commits.n,unknown:d.commits.unknown,history:d.history});}
+            const B={id:'bbbb2222',subject:'Fix the axis (#13)',author:'Bob Park',time:'t'},A={id:'aaaa1111',subject:'Initial',author:'A',time:'t'};
+            async function docRows(){reads++; if(gate)await new Promise(r=>{go=r;}); if(fail>0){fail--; return null;} return [B,A];}
+            const idle=async()=>{for(let i=0;i<5;i++)await new Promise(r=>setTimeout(r,0));};
+            (async()=>{const out={};
+              gate=true; fail=1; const a=checkDocUpdate('nt',{}),b=checkDocUpdate('nt',{}); await idle(); gate=false; go(); await a; await b; await idle();
+              out.first=[rec,reads];
+              rec={ver:'src:100',rev:A.id}; reads=0; fail=1; await checkDocUpdate('nt',{}); await idle(); out.failed=[said.slice(),rec.ver,reads];
+              await checkDocUpdate('nt',{}); out.later=said.slice();
+              console.log(JSON.stringify(out));})();""",
+        )
+        self.assertEqual(got["first"], [{"ver": "src:200", "rev": "bbbb2222"}, 2])
+        self.assertEqual(got["failed"], [[], "src:100", 1])
+        self.assertEqual(got["later"], [{"n": 1, "unknown": False, "history": True}])
+
+    def test_a_late_answer_never_overwrites_what_another_tab_recorded_for_the_same_version(self):
+        """The real limnSeen store. A first visit reads the note's history (its newest commit A); before that answer lands
+        a commit B that leaves the file's mtime alone comes and another tab records {src:200, B}: the late answer leaves
+        that record - B counted again on the next change would be said as new. The same for this tab's own rebuild that
+        brought nothing new (ctx.mine); with no other tab the first visit records A, and a later version another tab saw
+        stays. A message for src:200 dismissed after another tab recorded src:200 (its own message, its commit B) leaves
+        that record too. Mutations: decide the first visit only from the record read before the history -> rev A, fails;
+        record a dismissed message whatever the record names -> rev A, fails."""
+        got = node_json(
+            [
+                "seenStore",
+                "seenSave",
+                "seenDoc",
+                "setSeenDoc",
+                "verAfter",
+                "prOf",
+                "describeCommits",
+                "shownRows",
+                "docBuild",
+                "checkDocUpdate",
+                "docUpdateSeen",
+            ],
+            """let SEEN_MEM=null; const M=new Map(); const localStorage={getItem:k=>M.has(k)?M.get(k):null,setItem:(k,v)=>M.set(k,String(v))};
+            const DOC='nt',META_BY=new Map(),GROUPS=new Map(),UPD={checking:new Map()},said=[],forgot=[]; let META=null,meanwhile=null;
+            function rendersInBrowser(k){return k==='md';} function updDocState(){return {ver:'src:200',name:'노트',kind:'md'};}
+            function dq(u){return u;} async function api(){throw new Error('not asked');} function docUpdateView(){}
+            function updForget(k){forgot.push(k);} function groupNote(g,d){said.push(d.ver);}
+            const A={id:'aaaa1111',subject:'Initial',author:'A',time:'t'};
+            async function docRows(){const rows=[A]; if(meanwhile){meanwhile(); meanwhile=null;} return rows;}   // another tab writes before the answer lands
+            const other=rec=>()=>{const all=JSON.parse(M.get('limnSeen')||'{}'); all.v=1; all.docs={...(all.docs||{}),nt:rec}; M.set('limnSeen',JSON.stringify(all));};
+            const check=async(start,then,ctx)=>{M.clear(); if(start)other(start)(); meanwhile=then?other(then):null; said.length=0; await checkDocUpdate('nt',ctx||{}); return [seenDoc('nt'),said.slice()];};
+            (async()=>{const out={};
+              out.other=await check(null,{ver:'src:200',rev:'bbbb2222'});
+              out.alone=await check(null,null);
+              out.later=await check(null,{ver:'src:300',rev:'cccc3333'});
+              out.mine=await check({ver:'src:100',rev:'0000'},{ver:'src:200',rev:'bbbb2222'},{mine:true});
+              M.clear(); setSeenDoc('nt',{ver:'src:100',rev:'0000'}); other({ver:'src:200',rev:'bbbb2222'})(); docUpdateSeen('nt',{ver:'src:200',top:'aaaa1111'});
+              out.dismissed=seenDoc('nt');
+              M.clear(); setSeenDoc('nt',{ver:'src:100',rev:'0000'}); docUpdateSeen('nt',{ver:'src:200',top:'aaaa1111'}); out.own=seenDoc('nt');
+              console.log(JSON.stringify(out));})();""",
+        )
+        self.assertEqual(got["other"], [{"ver": "src:200", "rev": "bbbb2222"}, []])
+        self.assertEqual(got["alone"], [{"ver": "src:200", "rev": "aaaa1111"}, []])
+        self.assertEqual(got["later"], [{"ver": "src:300", "rev": "cccc3333"}, []])
+        self.assertEqual(got["mine"], [{"ver": "src:200", "rev": "bbbb2222"}, []])
+        self.assertEqual(got["dismissed"], {"ver": "src:200", "rev": "bbbb2222"})
+        self.assertEqual(got["own"], {"ver": "src:200", "rev": "aaaa1111"})
+
     def test_what_a_built_document_showed_is_its_builds_commit_not_the_checkouts_newest(self):
         """checkDocUpdate with docBuild and shownRows: a first visit while build A shows and the checkout is already at
         commit B records A's commit, so build B then says the one commit B with its PR, not 'files changed without a
