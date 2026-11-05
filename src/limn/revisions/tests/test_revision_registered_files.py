@@ -9,11 +9,13 @@ Run: uv run pytest -q src/limn/revisions/tests/test_revision_registered_files.py
 
 import shutil
 import subprocess
+from pathlib import Path
+from unittest import mock
 
 from limn.administration.serve_documents import make_docs
-from limn.revisions import core
+from limn.revisions import core, execution
 
-from helpers import ps
+from helpers import needs_tex, ps
 from helpers_access import CAROL, AccessBase, member_add
 from helpers_figure import BUILD1, b2_map, figure_doc, write_build
 
@@ -106,6 +108,91 @@ class FigureDotNames(Repository):
             with self.subTest(rel=rel):
                 self.assertIsNone(core.registered_file(fig, fig.src / rel))
         self.assertEqual(core.registered_file(fig, fig.src / "src" / "a.b.py"), fig.registered_src / "src" / "a.b.py")
+
+
+class ComparisonSnapshot(Repository):
+    """A LaTeX document (main.tex) whose main file inputs .private/notes.tex, committed with it."""
+
+    def setUp(self):
+        """Commit main.tex and .private/notes.tex (BEFORE), then change both (AFTER)."""
+        super().setUp()
+        (self.src / ".private").mkdir()
+        self.notes = self.src / ".private" / "notes.tex"
+
+    def history(self, include):
+        """Commit main.tex including .private/notes with the TeX command include, then a commit changing both; the
+        whole-commit comparison spec of the second."""
+        self.notes.write_text(SECRET + "BEFORE\n", encoding="utf-8")
+        body = "\\documentclass{article}\n\\begin{document}\n%s\nOld public.\n\\end{document}\n" % include
+        self.main.write_text(body, encoding="utf-8")
+        self.commit("base")
+        self.notes.write_text(SECRET + "AFTER\n", encoding="utf-8")
+        self.main.write_text(body.replace("Old public", "New public"), encoding="utf-8")
+        head = self.commit("visible change and hidden change")
+        spec = core.revision_spec(ps.APP.docs[0], head, None, ps.APP.revision_requests.context())
+        self.assertIsInstance(spec, core.RevisionSpec, spec)
+        return spec
+
+    def test_a_snapshot_leaves_dot_named_folders_out(self):
+        """Both sides of the comparison are written without .private: no blob of it reaches the build copy."""
+        spec = self.history("\\input{.private/notes}")
+        for commit, side in ((spec.base, "old"), (spec.head, "new")):
+            dest = self.src.parent / side
+            self.assertIsNone(execution.revision_snapshot(spec, commit, dest))
+            self.assertTrue((dest / "main.tex").is_file())
+            self.assertFalse((dest / ".private").exists())
+
+    def test_ls_tree_rows_under_dot_named_parts_are_skipped(self):
+        """parse_ls_tree_row: a row under a dot-named part is DotNamedRow, whatever it is (a symlink too), while a name
+        that could leave the snapshot folder is still unsafe."""
+        oid = "0" * 40
+        for name in (".private/notes.tex", "a/.old/refs.bib", ".draft.tex"):
+            with self.subTest(name=name):
+                row = ("100644 blob %s 5\t%s" % (oid, name)).encode()
+                self.assertIsInstance(execution.parse_ls_tree_row(row, ""), execution.DotNamedRow)
+        link = ("120000 blob %s 5\t.private" % oid).encode()
+        self.assertIsInstance(execution.parse_ls_tree_row(link, ""), execution.DotNamedRow)
+        for name in (".git/config", "a/../b.tex"):
+            with self.subTest(name=name):
+                row = ("100644 blob %s 5\t%s" % (oid, name)).encode()
+                self.assertIsInstance(execution.parse_ls_tree_row(row, ""), execution.UnsafeTreeRow)
+        plain = ("100644 blob %s 5\tsub/part.tex" % oid).encode()
+        self.assertEqual(execution.parse_ls_tree_row(plain, ""), execution.TreeFile(Path("sub/part.tex"), oid, 5))
+
+    def test_a_pdf_cached_before_the_snapshot_rule_is_not_served(self):
+        """A ready comparison stored under the previous cache version's key (built when snapshots still copied
+        dot-named folders) is not served: the commit's PDF is not ready."""
+        spec = self.history("\\input{.private/notes}")
+        with mock.patch.object(core, "REVISION_CACHE_VERSION", "latex-pdf-v3"):
+            old = core.comparison_key(spec.repo, spec.source, spec.main, spec.base, spec.head)
+        self.assertNotEqual(old, spec.key)
+        entry = ps.APP.docs[0].dir / "revisions" / old
+        entry.mkdir(parents=True)
+        (entry / "status.json").write_text('{"state": "ready"}', encoding="utf-8")
+        (entry / "revision.pdf").write_bytes(b"%PDF-1.4 " + SECRET.encode())
+        code, body = self.call("GET", "/api/revision-pdf?commit=%s" % spec.head, headers=CAROL)
+        self.assertNotEqual(code, 200)
+        self.assertNotIn(SECRET, str(body))
+
+    @needs_tex("bwrap", "latexdiff", "latexmk", "pdftotext")
+    def test_the_comparison_pdf_holds_nothing_of_a_dot_named_input(self):
+        """The comparison of a main that inputs .private/notes.tex. latexdiff --flatten reads an \\input itself, so with
+        the file in the snapshot both its texts were in the PDF; now it finds no such file and the build fails without
+        quoting it. \\InputIfFileExists is left to TeX, which the sandbox runs with openin_any=p (no dot-named file is
+        read either way): that comparison still builds, without the text."""
+        for include, built in (("\\input{.private/notes}", False), ("\\InputIfFileExists{.private/notes}{}{}", True)):
+            with self.subTest(include=include):
+                spec = self.history(include)
+                job = self.src.parent / ("job-%s" % built)
+                job.mkdir()
+                result = execution.revision_compile(spec, job, 60)
+                self.assertEqual(isinstance(result, core.ComparisonBuilt), built, result)
+                log = (job / "build.log").read_text(encoding="utf-8") if (job / "build.log").exists() else ""
+                self.assertNotIn(SECRET, log)
+                if built:
+                    text = subprocess.check_output(["pdftotext", str(job / "revision.pdf"), "-"], text=True)
+                    self.assertIn("New", text)
+                    self.assertNotIn(SECRET, text)
 
 
 class FigurePdfThroughLink(Repository):

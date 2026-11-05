@@ -64,10 +64,18 @@ class UnsafeTreeRow:
     (StepFailed("unsafe_snapshot"))."""
 
 
-def parse_ls_tree_row(row: bytes, prefix: str) -> TreeFile | UnsafeTreeRow:
+@dataclass(frozen=True)
+class DotNamedRow:
+    """An ls-tree row under a dot-named part of the build root (.private/notes.tex, a/.old/refs.bib, .draft.tex): never
+    the manuscript (limn.platform.files.tree_part, the history's pathspec, limn.revisions.core.dot_excludes), so a
+    snapshot neither reads its blob nor writes it, whatever it is."""
+
+
+def parse_ls_tree_row(row: bytes, prefix: str) -> TreeFile | UnsafeTreeRow | DotNamedRow:
     """One row of `git ls-tree -r -l -z` (the text between two NULs: "<mode> <type> <oid> <size>\\t<name>") read as a
-    file under the build root prefix ("" for the repository root, else "<folder>/"), or UnsafeTreeRow. Pure: it only
-    looks at the bytes; the name is UTF-8 and the object id ASCII, as git writes them."""
+    file under the build root prefix ("" for the repository root, else "<folder>/"), DotNamedRow for one with a
+    dot-named part below the build root (a name that could leave or confuse the snapshot folder is still UnsafeTreeRow),
+    or UnsafeTreeRow. Pure: it only looks at the bytes; the name is UTF-8 and the object id ASCII, as git writes them."""
     meta, tab, rawname = row.partition(b"\t")
     fields = meta.split()
     if not tab or len(fields) != 4:
@@ -83,14 +91,16 @@ def parse_ls_tree_row(row: bytes, prefix: str) -> TreeFile | UnsafeTreeRow:
     name = name[len(prefix) :]
     path = Path(name)
     if (
-        mode not in (b"100644", b"100755")
-        or kind != b"blob"
-        or path.is_absolute()
+        path.is_absolute()
         or not name
         or any(p in (".", "..", ".git") for p in name.split("/"))
         or "\\" in name
         or any(ord(c) < 32 for c in name)
     ):
+        return UnsafeTreeRow()
+    if core.dot_named(name):
+        return DotNamedRow()
+    if mode not in (b"100644", b"100755") or kind != b"blob":
         return UnsafeTreeRow()
     try:
         return TreeFile(path, oid_text, int(size))
@@ -155,7 +165,9 @@ def write_tree_file(spec: RevisionSpec, entry: TreeFile, dest: Path, deadline: f
 
 def revision_snapshot(spec: RevisionSpec, commit: str, dest: Path, also: Iterable[bytes] = ()) -> None | StepFailed:
     """Write the build root of commit (spec.source) into the new folder dest from git objects - regular files only,
-    within the file-count and size limits - and check that spec.main is there. The step failure otherwise.
+    within the file-count and size limits - and check that spec.main is there. The step failure otherwise. A file under
+    a dot-named part of the build root (DotNamedRow) is left out before any blob is read: it is no document's history,
+    so neither side of a comparison - nor the latexdiff and latexmk runs over them - ever holds its text.
 
     A build root past the size limits has the REVISION_NAMED_FILES that nothing names stand as blank files, and is refused
     if it is still past them. What names one is the other files of the build root and the sources in also (the other side
@@ -178,6 +190,8 @@ def revision_snapshot(spec: RevisionSpec, commit: str, dest: Path, also: Iterabl
         if not row:
             continue
         entry = parse_ls_tree_row(row, prefix)
+        if isinstance(entry, DotNamedRow):
+            continue
         if isinstance(entry, UnsafeTreeRow):
             return StepFailed("unsafe_snapshot")
         entries.append(entry)

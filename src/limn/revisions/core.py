@@ -54,8 +54,9 @@ SCOPE_CACHE_KEEP = 32  # entries: counts, block key and the two patches, each cu
 SCOPE_SLOTS = 2  # scope computations (cache misses) reading git at once; more wait, then show whole
 SCOPE_SECONDS_MAX = 60  # reading one commit's files for scoping, all git calls together
 # v2: latexdiff marks inside the document's own text commands (issue #162). v3: a bibliography builds in the sandbox, and
-# a cached failure of a pin's comparison, which a POST does not retry, goes with it.
-REVISION_CACHE_VERSION = "latex-pdf-v3"
+# a cached failure of a pin's comparison, which a POST does not retry, goes with it. v4: a snapshot leaves out every file
+# under a dot-named part (limn.revisions.execution.parse_ls_tree_row), so a PDF an older snapshot built is never served.
+REVISION_CACHE_VERSION = "latex-pdf-v4"
 REVISION_FILES_MAX = 4000
 REVISION_TREE_MAX = 256 * 1024 * 1024
 REVISION_FILE_MAX = 64 * 1024 * 1024
