@@ -418,7 +418,8 @@ def revision_scope(D: RevisionDoc, files: Sequence[Path] | None = None) -> tuple
     figure document's map, the PDF the map names and the map's scripts and shared components; a Markdown or text
     document's own file), found from the repository holding D.src (files_pathspec). The suffix pathspec above never names
     a Markdown file or a text file other than .bib, .sty, .cls and .bst, so a LaTeX document and a Markdown or text
-    document in one folder keep apart histories; a .bib text document's commits are the LaTeX document's too."""
+    document in one folder keep apart histories; a .bib text document's commits are the LaTeX document's too. It names
+    nothing under a dot-named part either (two exclude patterns)."""
     if not D.shows_revisions:
         return None
     if files is not None:
@@ -440,6 +441,9 @@ def revision_scope(D: RevisionDoc, files: Sequence[Path] | None = None) -> tuple
     exts = ("tex", "bib", "sty", "cls", "bst")
     paths = [":(glob)%s*.%s" % (prefix, ext) for ext in exts]
     paths += [":(glob)%s**/*.%s" % (prefix, ext) for ext in exts]
+    # Nothing under a dot-named part is the manuscript (limn.platform.files.tree_part; the build copy skips dot folders,
+    # limn.builds.artifacts._excluded_dir), so a committed .private/notes.tex or .old.bib is no document's history.
+    paths += [":(exclude,glob)%s**/.*" % prefix, ":(exclude,glob)%s**/.*/**" % prefix]
     return repo, paths
 
 

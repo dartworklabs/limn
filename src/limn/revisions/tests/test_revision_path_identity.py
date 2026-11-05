@@ -163,3 +163,45 @@ class RegisteredPath(AccessBase):
         found = revisions.revision_scope(doc, files)
         self.assertIsNotNone(found)
         self.assertEqual(found[1], [":(literal)notes/plan.md"])
+
+
+class DotNamedFolders(AccessBase):
+    """A LaTeX document at the manuscript's top with committed .tex and .bib files under dot-named parts (.private/,
+    a/.old/, .draft.tex) and no symlink anywhere."""
+
+    def setUp(self):
+        """Commit main.tex, then the dot-named files (their subject and text carry SECRET); Carol is a viewer."""
+        super().setUp()
+        if not shutil.which("git"):
+            self.skipTest("git not available")
+        for rel in (".private/notes.tex", "a/.old/refs.bib", ".draft.tex", "sub/part.tex"):
+            (self.src / rel).parent.mkdir(parents=True, exist_ok=True)
+        for args in (("init", "--quiet", "-b", "main"), ("config", "user.email", "a@example.com")):
+            self.assertEqual(run_git(list(args), self.src, 10).returncode, 0)
+        self.assertEqual(run_git(["config", "user.name", "A"], self.src, 10).returncode, 0)
+        (self.src / "sub" / "part.tex").write_text("public part\n", encoding="utf-8")
+        self.commit("public", "main.tex", "sub/part.tex")
+        for rel in (".private/notes.tex", "a/.old/refs.bib", ".draft.tex"):
+            (self.src / rel).write_text("%s %s\n" % (SECRET, rel), encoding="utf-8")
+        self.commit("private %s" % SECRET, "-f", ".private", "a/.old", ".draft.tex")
+        member_add(ps.APP.C.state, CAROL["Tailscale-User-Login"], "viewer")
+
+    def commit(self, subject, *paths):
+        """git add paths, then commit them with subject."""
+        self.assertEqual(run_git(["add", *paths], self.src, 10).returncode, 0)
+        self.assertEqual(run_git(["commit", "--quiet", "-m", subject], self.src, 10).returncode, 0)
+
+    def test_files_under_a_dot_named_part_are_not_the_documents_history(self):
+        """The document lists its public commit only, and no route a viewer asks quotes a dot-named file; a public
+        file in a subfolder still counts."""
+        code, body = self.call("GET", "/api/revisions?doc=main", headers=CAROL)
+        self.assertEqual(code, 200, body)
+        self.assertEqual([row["subject"] for row in body["revisions"]], ["public"])
+        commit = body["revisions"][0]["id"]
+        code, out = self.call("GET", "/api/revision-diff?doc=main&commit=%s" % commit, headers=CAROL)
+        self.assertEqual(code, 200, out)
+        self.assertIn("+public part", out["diff"])
+        head = run_git(["rev-parse", "HEAD"], self.src, 10).stdout.strip()
+        for query in ("commit=%s" % head, "commit=%s&base=%s" % (commit, commit)):
+            code, out = self.call("GET", "/api/revision-diff?doc=main&" + query, headers=CAROL)
+            self.assertNotIn(SECRET, str(out))
