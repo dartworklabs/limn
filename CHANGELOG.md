@@ -27,6 +27,23 @@
     (`limn doc remove <name> <key>`), then `limn update --ref v0.4.50`; its pins stay in the state folder and show under
     the documents not configured.
 
+- **A Markdown document shows the images of its manuscript tree and opens links to the other documents
+  (ADR-0030).** An image whose source is a relative path - resolved against the document's own folder, `/` the
+  tree's root, as GitHub reads a repository - that stays inside `--manuscript` and ends in `png`, `jpg`, `jpeg`,
+  `gif`, `webp` or `svg` is drawn, lazily, in a box that keeps its place until its size is known; the text being read
+  stays where it is when an image above it loads. A pin on an image's line outlines the image, a click on it picks its
+  paragraph, and in the dark theme a light plate stays behind it. A remote, `data:` or out-of-tree image is still its
+  alt text, and its tip now says why. A relative link to another registered document (its `GET /api/docs` `path`)
+  switches to it, at its `#heading` for a Markdown document, with one history entry so the browser's back returns
+  (none while a phone's back layer is open); a link to an image of the tree opens it in a new tab; any other
+  relative link stays text and says why. The allowlist of absolute links is unchanged.
+- **`GET /api/asset?doc=&path=`**, the read route those images load from: a normalized tree-relative image path only
+  (`400 bad_asset_path` otherwise), the same tree check as every file route, the content checked against the suffix's
+  format (`415 asset_not_image`), at most 8 MiB (`413 asset_too_large`) and 8192 × 8192 pixels for a raster image
+  (`413 asset_too_many_pixels`), `422 asset_unreadable` when the file goes away after the check. The same roles as
+  `GET /api/source` read it, and it writes nothing. Agents have no use for it: a pin on an image's line is an ordinary
+  line pin.
+
 ### Changed
 
 - **Characters that hide or reorder text are shown by name, in every document.** A bidirectional override, a
@@ -66,6 +83,14 @@
   save or an append on the pin's badge or mark. A save whose answer comes after a new selection was opened leaves the
   focus in the new note. A composition cut off by its field going away (switching documents while a verdict reason was
   being composed) no longer keeps the focus on the page's body afterwards.
+
+### Security
+
+- Every `/api/asset` answer carries its own policy, `default-src 'none'; style-src 'unsafe-inline'; img-src data:;
+  sandbox; frame-ancestors 'none'` (an SVG opened on its own is an inert document of an opaque origin that runs no
+  script and fetches nothing), `Cross-Origin-Resource-Policy: same-origin` (another site cannot embed an image to
+  learn whether a file exists or how large it is), `nosniff` and a media type taken from the suffix alone. The viewer
+  page's policy is unchanged.
 
 ## 0.4.50 — 2026-11-05
 

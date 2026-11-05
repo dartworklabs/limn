@@ -60,7 +60,7 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 | 적용 조건 | 파이썬 코드, 뷰어 파일, 에이전트 계약, 테스트를 바꿀 때. PR 전과 CI에서 항상 돈다 |
 | 실행 | `uv run pytest -q -rs` (기본 4개 worker). 빠른 일반 검사: `uv run pytest -q -rs -m "not browser and not tex"`. 병렬 옵션의 정본은 `pyproject.toml`의 `addopts` |
 | 합격 기준 | 실패나 에러가 0건이어야 한다. 수집된 테스트가 0건인 실행(pytest 종료 코드 5)은 통과가 아니라 실패다. 건너뛴 테스트(`s`)가 있으면 그 이유가 합당해야 한다(예: TeX Live가 없는 로컬 환경에서 TeX 테스트 스킵). CI는 도구 부재를 건너뜀이 아니라 실패로 바꾼다. 브라우저·TeX 작업은 `LIMN_TEST_REQUIRE_BROWSER=1`·`LIMN_TEST_REQUIRE_TEX=1`, 모든 테스트 작업은 `LIMN_TEST_REQUIRE_NODE=1`을 둔다 |
-| 보장 범위 | 단위와 통합 수준의 동작 회귀를 막는다. 브라우저 표식의 테스트는 지정된 Chromium 동작·레이아웃과 Firefox·WebKit의 핵심 핀 생성·편집·덧붙임·되돌리기 흐름, Markdown 화면의 그리기·고르기·저장(Chromium과 Firefox, [viewer.md](viewer.md) §Markdown 화면), 판정 패널과 목차 따라가기의 핵심 흐름(§판정 패널과 목차의 엔진 검사), 세 엔진의 검색 안내 안쪽 간격(§검색 안내의 안쪽 간격), 세 엔진에서 강제한 페이지 정책 아래의 문서 그리기와 모든 브라우저 시험의 정책 위반 0건(§브라우저 테스트의 페이지 정책)을 확인한다. 실제 iOS 기기, 모든 엔진의 전체 화면과 실제 tailnet 환경은 보장하지 않는다(§5, §6) |
+| 보장 범위 | 단위와 통합 수준의 동작 회귀를 막는다. 브라우저 표식의 테스트는 지정된 Chromium 동작·레이아웃과 Firefox·WebKit의 핵심 핀 생성·편집·덧붙임·되돌리기 흐름, Markdown 화면의 그리기·고르기·저장과 원고 트리의 그림·문서 사이 링크(Chromium과 Firefox, [viewer.md](viewer.md) §Markdown 화면), 판정 패널과 목차 따라가기의 핵심 흐름(§판정 패널과 목차의 엔진 검사), 그림 읽기 경로의 보안 시험(§원고 트리의 그림 경로), 세 엔진의 검색 안내 안쪽 간격(§검색 안내의 안쪽 간격), 세 엔진에서 강제한 페이지 정책 아래의 문서 그리기와 모든 브라우저 시험의 정책 위반 0건(§브라우저 테스트의 페이지 정책)을 확인한다. 실제 iOS 기기, 모든 엔진의 전체 화면과 실제 tailnet 환경은 보장하지 않는다(§5, §6) |
 
 ### 선택형 연결 입장과 실패 종료
 
@@ -318,6 +318,18 @@ CI는 uv `0.12.23`을 쓰고, 패키지 빌드는 Hatchling `1.32.4`를 요구�
 `src/limn/web/tests/test_request_boundary.py`와 `src/limn/web/tests/test_request_input.py`는 중복 키·헤더·잘못된 인코딩을 거부하고 연결을 닫으며 상태를 쓰지 않는지 확인한다. `src/limn/security/tests/test_authority.py`는 역할별 기존 허용 동작, 새 경로 등록의 기본 거부, 등록된 모든 POST의 작업 선언, 작업·대상·인스턴스가 다른 권한의 거부와 신원 스냅샷을 검증한다. `src/limn/security/tests/test_access_paths.py`는 주체 × 진입 경로와 역할 × 핀 동작·읽기 경로를 실제 처리기로 확인한다. `src/limn/security/tests/test_header_parsers.py`는 Bearer·Host·Origin·신원 헤더·신뢰 프록시 목록 파서가 생성한 어떤 입력에도 값이나 정해진 거절만 내고, 루프백 Host가 루프백 Origin만 받는지 확인한다. `src/limn/platform/tests/test_manuscript_files.py`는 원고 제외 경로, 검사 뒤 심볼릭 링크 교체, 일반 파일 제한과 디스크립터 정리를 실제 파일로 확인한다. `src/limn/pins/tests/test_pin_sequences.py`는 생성한 전이 시퀀스의 상태·식별자·revision·레코드 왕복을 확인한다.
 
 [`test_build_access.py`](../../src/limn/security/tests/test_build_access.py)는 owner·editor·viewer·agent의 재빌드·비교 빌드 HTTP 권한을 실제 Git 이력·파일·문서 잠금·작업 스레드로 확인한다. viewer의 동기·비동기 재빌드, 신원 없는 요청, 잘못되거나 폐기된 토큰과 허용 목록 밖 신원은 거절되며 원고·상태 파일과 빌드 상태가 그대로다. 허용된 비교는 실제 작업을 만들고 현재 원고·발행 빌드를 바꾸지 않는다. TeX 표식의 검사는 허용된 재빌드의 실제 PDF와 viewer 비교의 샌드박스 PDF를 확인한다. 도구가 없는 일반 검사의 작업 생성 확인은 PDF 완성 검증을 대신하지 않는다. 주체별 작업 한도나 HTTP 연결 상한을 새로 집행하는 검사는 아니며, 그 정책의 공백은 [code-style-roadmap.md](code-style-roadmap.md) §경계 집행과 검증의 한계에 남는다.
+
+## 원고 트리의 그림 경로
+
+Markdown 문서가 보이는 그림은 같은 출처의 읽기 경로 `GET /api/asset` 하나로 받는다([api.md](api.md) §화면·PDF·정적 파일, [ADR-0030](../adr/0030-markdown-tree-images-and-document-links.md)). 남이 쓴 글이 읽는 사람의 신원으로 무언가를 불러오게 하는 경계라, 시험을 세 층에 둔다.
+
+| 층 | 파일 | 보는 것 |
+| --- | --- | --- |
+| 경로 | [`test_assets.py`](../../src/limn/documents/tests/test_assets.py) | 경로 규칙(고칠 것이 있는 경로는 거절), 형식 시그니처와 SVG 머리의 선형 검사, 래스터 머리의 가로·세로(PNG·GIF·JPEG·WebP), 응답과 헤더(정책·CORP·`nosniff`·내용 ETag와 304), 트리를 벗어나는 모든 길(`..`, 한 번·두 번 인코딩, 백슬래시, 절대 경로, 밖으로 나가는 파일·폴더 링크, `.git`, 상태 폴더), 특수 파일과 위장 내용, 8 MiB와 8192×8192 화소의 경계, 역할, 어느 답도 트리·상태 폴더·트리 밖의 바이트와 mtime을 바꾸지 않음 |
+| 순수 규칙 | [`test_md_tree_refs.py`](../../src/limn/viewer/tests/test_md_tree_refs.py) | 뷰어의 상대 경로 풀기, 그림 소스 분류, 링크 관문(등록 문서·그림·글자, 절대 주소는 그대로), 뷰어와 서버의 접미사 목록 일치, 뷰어가 짓는 주소를 서버가 그대로 받는지 |
+| 브라우저 | [`test_viewer_markdown_assets.py`](../../src/limn/viewer/tests/test_viewer_markdown_assets.py) | Chromium과 Firefox. 트리 그림만 불러오고 나머지는 까닭을 말하며 다른 호스트 요청 0건, 직접 연 SVG가 강제된 정책 아래 무력함(정책을 뺀 대조에서는 스크립트가 돈다), 실제 루프백 리스너에서 다른 포트·호스트의 페이지가 그림을 끼워 넣지 못함(서버는 200으로 답했고 CORP를 뺀 대조에서는 그려진다), 읽던 줄이 2px 안(브라우저의 스크롤 고정을 끄고), 그림 줄 핀의 테두리, 문서 링크·`#제목`·뒤로 가기, 전환 전의 뒤로 가기, 휴대폰의 뒤로 가기 층 아래의 링크 |
+
+각 묶음은 지키는 줄을 되돌리면 실패한다. 화소 검사를 빼면 경계 시험이, `sandbox` 를 빼면 직접 연 SVG 시험이, CORP를 빼면 두 엔진의 끼워 넣기 시험이(`same-site` 로 바꾸면 Firefox의 같은 호스트 시험이), 읽던 자리 되돌리기를 빼면 읽던 자리 시험이, 링크의 방문 기록 항목을 빼면 문서 링크 시험이, 뒤로 가기 층의 조건을 빼면 층 아래 링크 시험이 실패한다. WebKit에서는 돌지 않는다. 스크롤 고정이 없는 WebKit의 읽던 자리는 시험이 브라우저 고정을 끄고 대신 잰다.
 
 ## GET 무쓰기 계약 검사
 
