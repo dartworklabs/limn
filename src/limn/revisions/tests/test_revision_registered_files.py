@@ -146,6 +146,55 @@ class LargeFigureMap(Repository):
         self.assertNotIn(SECRET, str(out))
 
 
+class ReplacedFolder(Repository):
+    """A Markdown document notes/plan.md whose name was a folder in older commits: notes/plan.md/unlisted.txt (its text
+    and the subjects carry SECRET) was committed and changed there before today's file replaced the folder."""
+
+    def setUp(self):
+        """Commit the folder twice, replace it with the file, edit the file; register notes/plan.md as --doc does."""
+        super().setUp()
+        folder = self.src / "notes" / "plan.md"
+        folder.mkdir(parents=True)
+        (folder / "unlisted.txt").write_text(SECRET + " one\n", encoding="utf-8")
+        self.commit("folder %s" % SECRET)
+        (folder / "unlisted.txt").write_text(SECRET + " two\n", encoding="utf-8")
+        self.folder = self.commit("folder again %s" % SECRET)
+        shutil.rmtree(folder)
+        folder.write_text("# Plan\n\nfirst line.\n", encoding="utf-8")
+        self.replaced = self.commit("file replaces folder")
+        folder.write_text("# Plan\n\nsecond line.\n", encoding="utf-8")
+        self.head = self.commit("file edited")
+        docs = make_docs(["nt=계획:notes/plan.md"], self.src, ps.APP.C.paths)
+        self.assertIsInstance(docs, list, docs)
+        self.serve(docs)
+
+    def test_the_history_holds_only_the_files_commits(self):
+        """The commits that changed only the old folder's file are not the document's: not listed, their diff refused."""
+        self.assertEqual(self.subjects("nt"), ["file edited", "file replaces folder"])
+        code, out = self.call("GET", "/api/revision-diff?doc=nt&commit=%s" % self.folder, headers=CAROL)
+        self.assertEqual((code, out.get("reason")), (404, "commit_not_recent"), out)
+
+    def test_the_commit_diff_holds_only_the_file(self):
+        """The replacing commit's diff adds the file and deletes nothing of the folder."""
+        code, out = self.call("GET", "/api/revision-diff?doc=nt&commit=%s" % self.replaced, headers=CAROL)
+        self.assertEqual(code, 200, out)
+        self.assertIn("+first line.", out["diff"])
+        self.assertNotIn("unlisted.txt", out["diff"])
+        self.assertNotIn(SECRET, str(out))
+
+    def test_the_range_diff_holds_only_the_file(self):
+        """A range from the folder's last commit (the replacing commit's first parent) to the head: its diff, files,
+        commit count and ids are the file's alone."""
+        query = "doc=nt&commit=%s&base=%s" % (self.head, self.folder)
+        code, out = self.call("GET", "/api/revision-diff?" + query, headers=CAROL)
+        self.assertEqual(code, 200, out)
+        self.assertEqual([f["path"] for f in out["files"]], ["notes/plan.md"])
+        self.assertEqual((out["commits"], out["commit_ids"]), (2, [self.head, self.replaced]))
+        self.assertIn("+second line.", out["diff"])
+        self.assertNotIn("unlisted.txt", out["diff"])
+        self.assertNotIn(SECRET, str(out))
+
+
 class ComparisonSnapshot(Repository):
     """A LaTeX document (main.tex) whose main file inputs .private/notes.tex, committed with it."""
 

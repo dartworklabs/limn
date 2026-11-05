@@ -455,8 +455,10 @@ def repo_files(repo: Path, files: Sequence[Path]) -> list[str]:
 
 
 def files_pathspec(rels: Sequence[str]) -> list[str]:
-    """Git pathspecs of the files rels (relative to the repository, repo_files): each as a :(literal) path. Pure."""
-    return [":(literal)" + rel for rel in rels]
+    """Git pathspecs that match exactly the files rels (relative to the repository, repo_files): each as a :(literal)
+    path, then an exclude of everything below each name (:(exclude,literal)<path>/), as a literal path also matches what
+    lies below it in a commit that held that name as a folder (notes/plan.md/old.txt for notes/plan.md). Pure."""
+    return [":(literal)" + rel for rel in rels] + [":(exclude,literal)%s/" % rel for rel in rels]
 
 
 def revision_scope(D: RevisionDoc, files: Sequence[Path] | None = None) -> tuple[Path, list[str]] | TooManyFiles | None:
@@ -469,8 +471,8 @@ def revision_scope(D: RevisionDoc, files: Sequence[Path] | None = None) -> tuple
     D.main.parent, or commits from the body, highlights, and cover letter get mixed together.
     files given: a figure, a Markdown or a text document - exactly those files (RevisionBuildQueries.history_files: a
     figure document's map, the PDF the map names and the map's scripts and shared components; a Markdown or text
-    document's own file), found from the repository holding D.src (_files_scope): none of the folder's other files - a
-    document with more than HISTORY_PATHS_MAX of them has no history
+    document's own file), found from the repository holding D.src (_files_scope): no file below one of their names and
+    none of the folder's other files - a document with more than HISTORY_PATHS_MAX of them has no history
     (TooManyFiles) rather than one widened to its folder. The suffix pathspec above never names a Markdown file or a
     text file other than .bib, .sty, .cls and .bst, so a LaTeX document and a Markdown or text document in one folder
     keep apart histories; a .bib text document's commits are the LaTeX document's too. Neither names anything under a
@@ -514,8 +516,8 @@ def _files_scope(D: RevisionDoc, files: Sequence[Path]) -> tuple[Path, list[str]
     document whose folder was reached through a symlink when the run started (macOS's /var -> /private/var) keeps its
     whole history, as a LaTeX document does, and a folder replaced by a symlink after that - to a dot-named folder or to
     another repository - does not make another file's history the document's. A file under a dot-named part below the
-    folder is never named (registered_file), and the pathspec ends with dot_excludes, so a named file that some commit
-    holds as a folder brings none in."""
+    folder is never named (registered_file), and the pathspec ends with dot_excludes; what lies below a named file in a
+    commit that held its name as a folder is excluded too (files_pathspec)."""
     repo = registered_repo(D.registered_src)
     if repo is None:
         return None

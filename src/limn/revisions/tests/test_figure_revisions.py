@@ -245,11 +245,17 @@ class FilesPathspec(AccessBase):
         ]
         self.assertEqual(repo_files(repo, files), ["figs/out/x.limnmap.json", "figs/src/a b.py"])
 
-    def test_each_file_is_a_literal_path(self):
-        """Each file is one :(literal) path; the count is never folded into a folder, however many files there are."""
+    def test_each_file_is_a_literal_path_with_nothing_below_it(self):
+        """Each file is one :(literal) path and one exclude of everything below its name; the count is never folded
+        into a folder, however many files there are."""
         self.assertEqual(
             files_pathspec(["figs/out/x.limnmap.json", "figs/src/a b.py"]),
-            [":(literal)figs/out/x.limnmap.json", ":(literal)figs/src/a b.py"],
+            [
+                ":(literal)figs/out/x.limnmap.json",
+                ":(literal)figs/src/a b.py",
+                ":(exclude,literal)figs/out/x.limnmap.json/",
+                ":(exclude,literal)figs/src/a b.py/",
+            ],
         )
         many = ["figs/f%d.py" % i for i in range(HISTORY_PATHS_MAX + 1)]
         self.assertEqual(files_pathspec(many)[: len(many)], [":(literal)" + rel for rel in many])
