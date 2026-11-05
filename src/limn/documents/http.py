@@ -4,6 +4,18 @@ from collections.abc import Mapping
 from typing import Any
 
 from limn.documents import input as document_input
+from limn.documents.assets import (
+    ASSET_CACHE,
+    ASSET_POLICY,
+    ASSET_RESOURCE_POLICY,
+    AssetBytes,
+    AssetNotImage,
+    AssetPathRefused,
+    AssetTooLarge,
+    AssetUnreadable,
+    asset_path,
+    read_asset,
+)
 from limn.documents.service import DocumentViews
 from limn.documents.source import SourceLines, SourceNotUtf8, SourceTooLarge, SourceUnreadable, read_source
 from limn.runtime.documents import Doc
@@ -11,6 +23,7 @@ from limn.security import access
 from limn.web import parse
 from limn.web.answers import accepted
 from limn.web.errors import HTTPError
+from limn.web.reply import Reply
 
 Json = dict[str, Any]
 
@@ -80,3 +93,36 @@ def source(doc: Doc) -> Json:
             raise HTTPError(422, "원문이 UTF-8 이 아닙니다: %s" % checked, reason="source_not_utf8")
         case SourceUnreadable():
             raise HTTPError(422, "원문 파일을 읽지 못했습니다: %s" % checked, reason="source_unreadable")
+
+
+def asset(doc: Doc, query: Mapping[str, list[str]]) -> Reply:
+    """GET /api/asset?path=<tree-relative path>: an image of document doc's manuscript tree, as its bytes
+    (limn.documents.assets). doc selects the tree (every document of an instance shares --manuscript).
+
+    200 with the media type its suffix names, an ETag of its content (a matching If-None-Match is a 304), Cache-Control
+    private, no-cache, the asset's own Content-Security-Policy and Cross-Origin-Resource-Policy: same-origin. The
+    refusals, each its own reason: 400 bad_asset_path for a path the viewer would not send (asset_path); the 400 every
+    file route answers for a path outside the tree - outside --manuscript, under a dot-named folder, behind a link that
+    leads out, in the state folder (file_outside_manuscript) - or for no regular file there (file_not_found); 413
+    asset_too_large with `bytes` and `limit`; 415 asset_not_image when the bytes are not the format the suffix names;
+    422 asset_unreadable when the checked handle refuses the file after the tree check. Writes nothing."""
+    wanted = asset_path(parse.query_first(query, "path"))
+    if isinstance(wanted, AssetPathRefused):
+        raise HTTPError(400, "그림 경로가 올바르지 않습니다.", reason="bad_asset_path")
+    rel = wanted.rel
+    checked = accepted(parse.source_file(rel, doc.paths.src, doc.paths.state))
+    match read_asset(checked, wanted.suffix):
+        case AssetBytes(data=data, media=media, etag=etag):
+            return Reply(200, data, media, ASSET_CACHE, etag, None, ASSET_POLICY, ASSET_RESOURCE_POLICY)
+        case AssetTooLarge(size=size, limit=limit):
+            raise HTTPError(
+                413,
+                "그림이 너무 커서 보내지 않습니다(%d바이트, 한도 %d바이트)." % (size, limit),
+                reason="asset_too_large",
+                bytes=size,
+                limit=limit,
+            )
+        case AssetNotImage():
+            raise HTTPError(415, "그림 파일의 내용이 확장자와 맞지 않습니다: %s" % rel, reason="asset_not_image")
+        case AssetUnreadable():
+            raise HTTPError(422, "그림 파일을 읽지 못했습니다: %s" % rel, reason="asset_unreadable")

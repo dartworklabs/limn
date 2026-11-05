@@ -294,6 +294,7 @@ GET_ROUTES = (
     "/api/snippet",
     "/api/overlaps",
     "/api/source",
+    "/api/asset",
     "/pages/page-1.png",
     "/vendor/pdfjs/pdf.min.mjs",
     "/vendor/markdown-it/markdown-it.esm.min.mjs",

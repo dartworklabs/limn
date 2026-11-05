@@ -110,19 +110,23 @@ class Handler(BaseHTTPRequestHandler):
         etag: str | None = None,
         disposition: str | None = None,
         csp: str | None = None,
+        resource_policy: str | None = None,
     ) -> None:
         """Send one complete response: status, Content-Type/Length, Cache-Control (no-store unless given; page images
         cache privately for 10 minutes - they are manuscript pages, like the PDFs), the ETag when given, nosniff,
         WWW-Authenticate on 401, Connection: close on every error, and the anti-framing pair end_headers adds - with
         csp, an HTML page's own policy (limn.web.csp.page_policy), as its Content-Security-Policy. A 200
         with an ETag that the request's If-None-Match names is sent as 304 Not Modified without a body. The
-        Content-Disposition value (a download's) goes out on a success only, never on an error or a 304."""
+        Content-Disposition value (a download's) goes out on a success only, never on an error or a 304. A
+        resource_policy (Cross-Origin-Resource-Policy: a tree image's same-origin) goes out on a success and a 304."""
         self._page_policy = csp
         if etag is not None and code == 200 and etag_matches(self.headers.get("If-None-Match"), etag):
             self.send_response(304)
             self.send_header("ETag", etag)
             self.send_header("Cache-Control", cache or "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
+            if resource_policy is not None:
+                self.send_header("Cross-Origin-Resource-Policy", resource_policy)
             self.end_headers()
             return
         if code >= 400:
@@ -139,6 +143,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("ETag", etag)
         if disposition is not None and code < 400:
             self.send_header("Content-Disposition", disposition)
+        if resource_policy is not None and code < 400:
+            self.send_header("Cross-Origin-Resource-Policy", resource_policy)
         self.send_header("X-Content-Type-Options", "nosniff")
         if code == 401:
             self.send_header("WWW-Authenticate", 'Bearer realm="limn"')
