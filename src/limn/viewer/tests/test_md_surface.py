@@ -448,6 +448,22 @@ BLOCK_MATH = {
     "never closed": ("$$\nx_1 *y*", [], [["paragraph_open", [0, 2]]]),
     "indented as code": ("    $$\n    x\n    $$", [], [["code_block", [0, 3]]]),
     "inside a fence": ("```\n$$\nx\n$$\n```", [], [["fence", [0, 5]]]),
+    # A list's look ahead between its items reads these lines before the quote does, from other content starts: what it
+    # found is not the quote's (mdMathMemo's key has the container's type). The quote alone gives the same block.
+    "a quote after a list's look ahead": (
+        "- # Item\n\\[\n> \\[ x\n> b `` \\]\n\\[ `\n> `` a",
+        [[[2, 4], ["\\[ x", "b `` \\]"]]],
+        [
+            ["bullet_list_open", [0, 1]],
+            ["list_item_open", [0, 1]],
+            ["heading_open", [0, 1]],
+            ["paragraph_open", [1, 2]],
+            ["blockquote_open", [2, 4]],
+            ["paragraph_open", [4, 5]],
+            ["blockquote_open", [5, 6]],
+            ["paragraph_open", [5, 6]],
+        ],
+    ),
     "a list item's lazy continuation stays its paragraph": (
         "- a\n$$\nx\n$$",
         [],
@@ -597,6 +613,27 @@ class MathRule(unittest.TestCase):
                 self.assertEqual(got[name]["pieces"], want)
                 for text, line in got[name]["pieces"]:
                     self.assertIn(text.strip(), lines[line - 1])
+
+    def test_what_the_display_math_search_keeps_never_changes_a_parse(self):
+        """mdMathMemo only saves reads: forty thousand documents of two to seven lines drawn from list items, quotes,
+        nested quotes, indentation, headings, display math delimiters with and without text, backtick runs and blanks parse
+        to the same tokens (type, map, content) with it as with a fresh memo for every search. The documents come from a
+        fixed linear congruential sequence, so a failure names the same document each run. Mutation: leave the closing
+        delimiter out of mdMathMemo's key -> a '$$' search takes a '\\]' search's answers, fails. The container's type
+        in the key needs a rarer document than these (BLOCK_MATH's quote after a list's look ahead)."""
+        got = worker_node(
+            "const pre=['','- ','> ','  ','> > ','1. ','>   - '],"
+            "body=['\\\\[','\\\\]','\\\\[ x','b `` \\\\]','\\\\[ `','`` a','$$','$$ x','x','# H','','`','x \\\\]','x $$'];"
+            "let seed=12345; const next=n=>{seed=(seed*1103515245+12345)%2147483648; return seed%n;};"
+            "const docs=[]; for(let i=0;i<40000;i++){const lines=[]; const k=2+next(6);"
+            "for(let j=0;j<k;j++) lines.push(pre[next(pre.length)]+body[next(body.length)]); docs.push(lines.join('\\n'));}"
+            "const toks=s=>JSON.stringify(md.parse(s,{}).map(t=>[t.type,t.map,t.content]));"
+            "const kept=docs.map(toks); mdMathMemo=()=>({lines:new Map()});"
+            "const bad=[]; docs.forEach((s,i)=>{if(bad.length<3&&toks(s)!==kept[i]) bad.push(s);});"
+            "out={n:docs.length,bad};"
+        )
+        self.assertEqual(got["n"], 40000)
+        self.assertEqual(got["bad"], [])
 
     def test_display_math_openers_without_a_closer_are_read_once(self):
         """Eight thousand lines that open display math with no closer (about 40 KB) parse as fast as the bundled parser

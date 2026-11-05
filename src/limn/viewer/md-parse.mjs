@@ -157,10 +157,12 @@ function mdMathBlockEnd(state, start, from, end, close) {
   return found;
 }
 // What mdMathBlockEnd keeps for one search range (state.mdMathBlock, which lives as long as the parse): one entry per
-// container - the range's end line, the container's indentation and nesting level - and closing delimiter, since a quote or
-// a list item reads the same lines from another content start. lines: line -> what a search from its start found.
+// container - the range's end line, the container's indentation, nesting level and type - and closing delimiter, since a
+// quote or a list item reads the same lines from another content start. The type is in the key as in mdMathStopAfter's: a
+// list's look ahead between its items and a quote after it can share end, indentation and level, and the quote's lines
+// start past its markers only once it reads them. lines: line -> what a search from its start found.
 function mdMathMemo(state, end, close) {
-  const all = state.mdMathBlock || (state.mdMathBlock = new Map()), key = close + ' ' + end + ' ' + state.blkIndent + ' ' + state.level;
+  const all = state.mdMathBlock || (state.mdMathBlock = new Map()), key = close + ' ' + end + ' ' + state.blkIndent + ' ' + state.level + ' ' + state.parentType;
   let memo = all.get(key);
   if (!memo) all.set(key, memo = {lines: new Map()});
   return memo;
