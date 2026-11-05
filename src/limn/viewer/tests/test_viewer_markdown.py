@@ -319,7 +319,7 @@ class Drawing(MarkdownBase):
         self.assertGreaterEqual(page.evaluate("mdReadingLine()"), fixture_line("## 표") - 2)
 
 
-# YAML front matter (ADR-0032 제안): its '# 주석 줄' would be a heading, and the block a rule and a setext heading, if it were
+# YAML front matter (ADR-0032): its '# 주석 줄' would be a heading, and the block a rule and a setext heading, if it were
 # not read as front matter.
 FRONT_FIXTURE = """---
 title: 실험 노트
@@ -384,7 +384,7 @@ class FrontMatter(MarkdownBase):
         self.assertIn("| — |", row)
 
 
-# TeX math kept as written (ADR-0032 제안): the lab's t-star pair, which emphasis ate; currency, escaped dollars and a code
+# TeX math kept as written (ADR-0032): the lab's t-star pair, which emphasis ate; currency, escaped dollars and a code
 # span, which stay what they were; display math; inline math over a line end; math in a table and in a list.
 MATH_FIXTURE = r"""# 수식 노트
 

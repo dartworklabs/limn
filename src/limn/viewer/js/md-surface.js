@@ -323,7 +323,7 @@ function mdRenderer(root){const stack=[root];
     stack[stack.length-1].appendChild(el);
     for(const t of ts){const b=mdHtmlBox(t); mdHtmlHold(b,false); body.appendChild(b); if(mdDue(w))yield;}}
   return {token,run};}
-// YAML front matter (the worker's front_matter token, mdFrontMatter in md-parse.mjs; ADR-0032 제안): a box that carries the
+// YAML front matter (the worker's front_matter token, mdFrontMatter in md-parse.mjs; ADR-0032): a box that carries the
 // block's lines, both '---' lines included (data-lo..hi, kind front - a block of its own, md:front), a head line in the
 // screen's language naming it, and its inner lines one span each (data-line) in a code box. The lines are the server's
 // (MD.lines), drawn as text: YAML is never parsed, so nothing in it links, loads or is markup. It is no heading: the
@@ -335,7 +335,7 @@ function* mdFront(t,top,w){const box=mdEl('div'); box.className='md-front'; mdMa
   head.textContent=tl('머리 정보 · YAML {n}줄',{n:Math.max(0,hi-lo+1)});
   const pre=mdEl('pre'),code=mdEl('code'); pre.dataset.lang='yaml'; pre.appendChild(code); box.append(head,pre); top.appendChild(box);
   for(let n=lo;n<=hi;n++){const sp=mdEl('span'); sp.className='ln'; sp.dataset.line=String(n); sp.textContent=String(MD.lines[n-1]||'')+'\n'; code.appendChild(sp); if(mdDue(w))yield;}}
-// Display math (the worker's math_block token, mdMathBlock in md-parse.mjs; ADR-0032 제안): its TeX as written, never rendered -
+// Display math (the worker's math_block token, mdMathBlock in md-parse.mjs; ADR-0032): its TeX as written, never rendered -
 // a code box over the block's lines (data-lo..hi, kind math - a block of its own, md:math) with each line, its delimiters
 // included, one span (data-line), as a code block's. The lines are the token's (indentation and quote markers left out).
 /** @param {any} t @param {HTMLElement} top @param {{n:number}} w @returns {Generator<void,void,void>} */
@@ -688,7 +688,7 @@ function mdBlockAt(node){const e=node&&(node.nodeType===1?/** @type {Element} */
   // A heading or a rule is no block of its own (ADR-0025 D3's block kinds): the block it stands in, if any, is.
   while(b&&!MD_BLOCK_KINDS.includes(b.dataset.kind||''))b=b.parentElement?/** @type {HTMLElement|null} */(b.parentElement.closest('#md [data-lo]')):null;
   return b;}
-// The block kinds a block rung takes (its pin kind is md:<kind>, ADR-0025 D3; front, math: ADR-0032 제안) and their names on the ladder.
+// The block kinds a block rung takes (its pin kind is md:<kind>, ADR-0025 D3; front, math: ADR-0032) and their names on the ladder.
 const MD_BLOCK_KINDS=['paragraph','item','table','code','quote','html','front','math'];
 const MD_BLOCK_SEL=MD_BLOCK_KINDS.map(k=>'[data-lo][data-kind="'+k+'"]').join(',');
 // The blocks lines lo..hi meet, outermost: each element of a block kind on screen whose lines meet lo..hi and that no other such

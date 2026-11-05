@@ -297,7 +297,7 @@ SURFACES = (
     "--secondary",
     "--accent",
 )
-# The Markdown document scene_markdown draws: the muted head line of its front matter (ADR-0032 제안), the muted text of a
+# The Markdown document scene_markdown draws: the muted head line of its front matter (ADR-0032), the muted text of a
 # quote, a raw HTML block's placeholder, an inline tag and an image's stand-in, an inert link, and two raw HTML blocks in a
 # row as one closed run (its button's muted line).
 MD_NOTES = """---

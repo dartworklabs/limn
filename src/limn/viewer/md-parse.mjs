@@ -9,7 +9,7 @@
 //                          child reaches level max-1 (markdown-it drops what lies deeper without a word, so reaching it
 //                          counts as over), 'blocks' or 'inlines' when there are more tokens than max;
 //   {id, ok:false, limit:'error'}  when parsing throws.
-// Rules of Limn's own are added (mdParser, ADR-0032 제안): YAML front matter (mdFrontMatter) and TeX math kept as written
+// Rules of Limn's own are added (mdParser, ADR-0032): YAML front matter (mdFrontMatter) and TeX math kept as written
 // (mdMathBlock, mdMathInline).
 import markdownit from '/vendor/markdown-it/markdown-it.esm.min.mjs?v=__MARKDOWN_IT_VERSION__';
 
@@ -24,7 +24,7 @@ function mdParser(nesting) {
   md.inline.ruler.before('escape', 'math_inline', mdMathInline);
   return md;
 }
-// TeX math is kept as written (ADR-0032 제안, docs/superpowers/specs/2026-11-05-more-line-formats.md §수식): nothing is
+// TeX math is kept as written (ADR-0032, docs/superpowers/specs/2026-11-05-more-line-formats.md §수식): nothing is
 // rendered, but no emphasis, link or escape takes a character inside it. The delimiters are Pandoc's tex_math_dollars and
 // tex_math_single_backslash: each opening one and the one that closes it.
 const MD_MATH = Object.freeze({'$$': '$$', '$': '$', '\\(': '\\)', '\\[': '\\]'});
@@ -223,7 +223,7 @@ function mdMathStopAfter(state, n, end) {
 function mdMathStop(state, n, end) {
   return n >= end || state.bMarks[n] + state.tShift[n] >= state.eMarks[n] || state.sCount[n] < state.blkIndent;
 }
-// A markdown-it block rule: YAML front matter at the very top of the document (ADR-0032 제안, docs/superpowers/specs/
+// A markdown-it block rule: YAML front matter at the very top of the document (ADR-0032, docs/superpowers/specs/
 // 2026-11-05-more-line-formats.md). Pandoc's yaml_metadata_block start and end, made a little stricter so that ordinary
 // Markdown is never taken for it: the first line is '---' (after a byte order mark, if any; trailing blanks allowed), the
 // next line is not blank and opens a YAML mapping - a key and its colon, or a '#' comment - and a later line is '---' or

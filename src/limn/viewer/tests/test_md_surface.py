@@ -282,7 +282,7 @@ def worker_node(body: str, *fns: str):
     return json.loads(run_node(js))
 
 
-# YAML front matter (md-parse.mjs mdFrontMatter, ADR-0032 제안): source -> the front_matter token's map [first, end) and
+# YAML front matter (md-parse.mjs mdFrontMatter, ADR-0032): source -> the front_matter token's map [first, end) and
 # closing marker, or None when the document has none and the other rules read its first lines as before; then the first
 # token after it, which keeps its own source lines.
 FRONT = {
@@ -353,7 +353,7 @@ class FrontMatterRule(unittest.TestCase):
         self.assertTrue(got[0])
 
 
-# TeX math kept as written (md-parse.mjs mdMathInline, ADR-0032 제안): source -> the math_inline pieces of every inline token
+# TeX math kept as written (md-parse.mjs mdMathInline, ADR-0032): source -> the math_inline pieces of every inline token
 # in order (each its text as written, delimiters included) and how many emphasis openings (em, strong) are left. The first
 # group are the lab's own patterns, which the bundled markdown-it alone turned into emphasis.
 INLINE_MATH = {
