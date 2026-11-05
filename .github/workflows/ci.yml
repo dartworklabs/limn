@@ -65,6 +65,23 @@ jobs:
         run: npm run typecheck
       - name: Viewer strict ratchet
         run: uv run python tools/strict_ratchet.py
+      # The Handbook's publishing check (docs/handbook/verification.md §7). Past the index it parses every chapter with
+      # the Pandoc release book.json pins, and without that Pandoc it stops before the chapter rules (duplicate heading
+      # IDs, links to missing headings), so a machine without it cannot run them: here it always has it. The archive is
+      # the official release asset, checked against the SHA-256 GitHub lists for it and unpacked under .handbook/ (in
+      # .gitignore), on PATH for this step only. A bump in book.json without one here fails as a Pandoc version mismatch.
+      - name: Handbook check
+        timeout-minutes: 5
+        env:
+          PANDOC_VERSION: "3.9.0.2"
+          PANDOC_SHA256: "a69abfababda8a56969a254b09f9553a7be89ddec00d4e0fe9fd585d71a67508"
+        run: |
+          mkdir -p .handbook
+          curl -fsSL --retry 3 -o .handbook/pandoc.tar.gz \
+            "https://github.com/jgm/pandoc/releases/download/${PANDOC_VERSION}/pandoc-${PANDOC_VERSION}-linux-amd64.tar.gz"
+          echo "${PANDOC_SHA256}  .handbook/pandoc.tar.gz" | sha256sum -c -
+          tar -xzf .handbook/pandoc.tar.gz -C .handbook
+          PATH="$PWD/.handbook/pandoc-${PANDOC_VERSION}/bin:$PATH" uv run python tools/handbook-publish/publish.py check docs/handbook/index.md
 
   test:
     runs-on: ubuntu-24.04
