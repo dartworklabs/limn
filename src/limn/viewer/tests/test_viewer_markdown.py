@@ -1233,6 +1233,17 @@ LIMIT_CASES = {
     ),
     "too many inline tokens": ("*a* " * 45_000 + "\n", "inlines"),
     "too many elements": ("![a](b)" * 61_000 + "\n", "elements"),
+    # Front matter and display math (ADR-0032): every line of theirs is an element, counted with the rest. Near the line
+    # view's limit they are drawn; with the emphasis after them the document is over the element limit and is shown as lines.
+    "front matter near the line limit": ("---\n" + "k: v\n" * 45_000 + "---\n", "drawn"),
+    "display math near the line limit": ("$$\n" + "x\n" * 45_000 + "$$\n", "drawn"),
+    "front matter over the element limit": (
+        "---\n" + "k: v\n" * 40_000 + "---\n\n" + "*a* " * 22_000 + "\n",
+        "elements",
+    ),
+    "display math over the element limit": ("$$\n" + "x\n" * 40_000 + "$$\n\n" + "*a* " * 22_000 + "\n", "elements"),
+    "inline math openers without a close": ("\\(" * 100_000 + "\n", None),
+    "display math openers without a close": ("\\[\n" * 8_000, None),
 }
 
 
