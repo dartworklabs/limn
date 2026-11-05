@@ -666,7 +666,10 @@ class BrowserBase(ChromiumTestCase):
         """A fresh 37-line manuscript with a finished two-page build (blank page images), default access settings, and
         a fresh Runtime serving the viewer page built for the "Demo" paper."""
         self.tmp = tempfile.TemporaryDirectory()
-        root = Path(self.tmp.name)
+        # Resolved as startup resolves --manuscript (limn.server), as helpers.Base does: a temporary folder under a link
+        # (macOS's /var -> /private/var) left the pins' files on the linked path and the documents' registered paths on
+        # the resolved one, so a pin owned none of its commit's lines and its comparison was the whole commit's (#431).
+        root = Path(self.tmp.name).resolve()
         src = root / "ms"
         src.mkdir()
         (src / "main.tex").write_text(DEMO_TEX, encoding="utf-8")
