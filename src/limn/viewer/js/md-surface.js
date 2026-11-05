@@ -11,11 +11,13 @@
 //   notice with the count and the limit (mdNotice). Pins, cards and the agent's paths stay as they are.
 // - The DOM is built with createElement and textContent only: markdown-it's HTML renderer is never used, so the one innerHTML
 //   sink (markup.js setHtml) stays the only one. Raw HTML is never drawn: a block is a placeholder that keeps its lines, an
-//   inline tag shows as code. An image loads only when its source is a file of the manuscript tree with an image suffix,
-//   resolved against the document's own path (mdImgPath) and fetched from this origin's GET /api/asset; a remote or data:
-//   image, or one that leaves the tree, is its alt text (ADR-0030). A link opens only through the allowlist (mdTarget) -
-//   another origin's http(s), mailto, an in-document #heading, another registered document of this instance (by its path,
-//   with its #heading), an image of the tree in a new tab; anything else is inert text.
+//   inline tag shows as code. A character that would hide or reorder text (hidden-chars.js) stays in the drawn text inside its
+//   box (mdText), as on the text surface, and a notice above the document counts them. An image loads only when its source
+//   is a file of the manuscript tree with an image suffix, resolved against the document's own path (mdImgPath) and fetched
+//   from this origin's GET /api/asset (asked again on the light poll, mdPicCheck: one rewritten on disk shows without a
+//   reload); a remote or data: image, or one that leaves the tree, is its alt text (ADR-0030). A link opens only through the
+//   allowlist (mdTarget) - another origin's http(s), mailto, an in-document #heading, another registered document of this
+//   instance (by its path, with its #heading), an image of the tree in a new tab; anything else is inert text.
 // - Every block token's map becomes data-lo/data-hi on the element drawn for it. Inside a paragraph or heading each source
 //   line gets its own span (data-line) only when the inline token's line breaks match its source's line ends (mdInlineLines);
 //   otherwise the whole run is one span with its range. A code block's content lines are its source lines one for one.
@@ -27,14 +29,15 @@ const MD_LIMITS=Object.freeze({nesting:20,blocks:30000,inlines:150000,elements:6
 // that answered, so the light poll, polling.js, sees a failed read as not done), the src_mtime a redraw was last asked for
 // (asked: the light poll asks once per change while that read is on its way, and a failed read clears it), the reading line
 // (at), the limit hit (limit), its headings, the worker and its parse in flight,
-// whether a redraw waits for a field (waiting), the elements built so far (els), the document #doc shows now (shown: '' for
-// none - a PDF document's pages, the wait line), the reading spot a kept view asks for once it is drawn (want) and the reading
+// whether a redraw waits for a field (waiting), the elements built so far (els), the characters drawn in their boxes
+// (marked) and whether the next text drawn may be the file's first, its byte-order mark kept (bom, mdText), the document
+// #doc shows now (shown: '' for none - a PDF document's pages, the wait line), the reading spot a kept view asks for once it is drawn (want) and the reading
 // spot as last read at the column's width then (spot, mdSpotRead: kept across a reflow and a redraw while hidden, mdSpotKeep).
 const MD={gen:0,doc:/** @type {string|null} */(''),file:'',name:'',lines:/** @type {string[]} */([]),mtime:/** @type {number|null} */(null),
   asked:/** @type {number|null} */(null),at:0,limit:/** @type {string|null} */(null),
   heads:/** @type {{level:number,lo:number,el:HTMLElement,title:string,slug:string}[]} */([]),
   worker:/** @type {Worker|null} */(null),job:/** @type {{id:number,resolve:(r:any)=>void,t:ReturnType<typeof setTimeout>}|null} */(null),seq:0,
-  waiting:false,els:0,shown:/** @type {string|null} */(''),want:/** @type {{line:number,off:number,top:number}|null} */(null),
+  waiting:false,els:0,marked:0,bom:false,shown:/** @type {string|null} */(''),want:/** @type {{line:number,off:number,top:number}|null} */(null),
   jumpTo:/** @type {{id:number,doc:string|null,seq:number}|null} */(null),
   spot:/** @type {{doc:string|null,w:number,el:HTMLElement|null,line:number,key:string,frac:number,off:number|null,sel:boolean,again:boolean}|null} */(null),
   // a heading a link from another document asked for, gone to once this document is drawn in that visit (mdGoDoc), and the
@@ -89,12 +92,14 @@ async function mdBuild(){if(mdFieldBusy()){MD.waiting=true; return;}
   if(isTextDoc()){MD.heads=[];   // a text document is never parsed: its lines are its view (text-surface.js)
     if(MD.lines.length>MD_LIMITS.lines){mdShow(mdNote(tl('이 문서는 원문이 {lines}줄이라 그리지 않습니다(한도 {limit}줄)',{lines:mdCount(MD.lines.length),limit:mdCount(MD_LIMITS.lines)}),MD_LIMIT.LINES)); return;}
     const view=await txView(stale,src.line_ends); if(view&&!stale())mdShow(view); return;}
-  const res=await mdParse(MD.lines.join('\n')); if(stale()||!res)return;
+  // A NUL (U+0000) is not parsed: markdown-it turns it into U+FFFD (CommonMark's rule) and its tokens keep no column to put
+  // it back by, so the document would read another character than its source has. The line view keeps it, in its box.
+  const res=MD.lines.some(l=>l.includes('\0'))?{ok:false,limit:MD_LIMIT.NUL}:await mdParse(MD.lines.join('\n')); if(stale()||!res)return;
   let root=/** @type {HTMLElement|null} */(null),limit=res.ok?null:String(res.limit||MD_LIMIT.ERROR);
   if(res.ok){root=await mdRenderAll(res.tokens,stale); if(stale())return; if(!root)limit=MD_LIMIT.ELEMENTS;}
   if(!root){MD.heads=[];
     if(MD.lines.length>MD_LIMITS.lines){mdShow(mdNote(tl('이 문서는 원문이 {lines}줄이라 그리지 않습니다(한도 {limit}줄)',{lines:mdCount(MD.lines.length),limit:mdCount(MD_LIMITS.lines)}),MD_LIMIT.LINES)); return;}
-    root=mdLineView(/** @type {string} */(limit));}
+    root=await mdLineView(/** @type {string} */(limit),stale); if(!root||stale())return;}
   mdShow(root);}
 // Puts node in #doc, keeping the reading spot (the source line at the pane's top, and how far down it), then the marks, the
 // outline, the strip and the chosen lines. While the column is hidden (under the changes view) nothing can be measured: the
@@ -126,13 +131,18 @@ function mdNote(text,limit){const n=document.createElement('div'); n.className='
 function mdMiB(b){const m=(+b||0)/1048576; return (Math.round(m*10)/10).toLocaleString('en')+' MiB';}
 function mdCount(n){return Number(n).toLocaleString('en');}
 // The plain source-line view: every server line as a line span (data-line), numbered by CSS, under a line naming the limit
-// that was hit. Pins, the composer and suggested edits work as ever; the ladder has the chosen lines only.
-/** @param {string} limit @returns {HTMLElement} */
-function mdLineView(limit){const root=document.createElement('article'); root.className='md md-lines'; root.id='md'; root.dataset.limit=limit; root.setAttribute('translate','no'); root.lang='';   // as mdRenderAll's
+// that was hit - each marked character in its box, or past MD_LIMITS.elements every one by its name (srcLines, as the text
+// surface draws its lines), with the notice that says which. Pins, the composer and suggested edits work as ever; the ladder
+// has the chosen lines only. null when a newer draw came (stale) while it was built.
+/** @param {string} limit @param {()=>boolean} stale @returns {Promise<HTMLElement|null>} */
+async function mdLineView(limit,stale){const r=await srcLines(mdLineSpan,'md-src',stale); if(!r)return null;
+  const root=document.createElement('article'); root.className='md md-lines'; root.id='md'; root.dataset.limit=limit; root.setAttribute('translate','no'); root.lang='';   // as mdRenderAll's
   const head=document.createElement('div'); head.className='md-limit'; head.setAttribute('role','status'); head.textContent=mdLimitText(limit); head.lang=document.documentElement.lang; root.appendChild(head);   // the viewer's words, in the screen's language
-  const body=document.createElement('div'); body.className='md-src';
-  MD.lines.forEach((ln,i)=>{const s=document.createElement('span'); s.className='ln'; s.dataset.line=String(i+1); s.textContent=ln+'\n'; body.appendChild(s);});
-  root.appendChild(body); return root;}
+  MD.marked=r.marked; if(r.marked)root.appendChild(txNote('marks',r.names?txNamesText(r.marked):txMarksText(r.marked)));
+  root.appendChild(r.body); return root;}
+// The line view's span for line n (srcLines fills it).
+/** @param {string} ln @param {number} n */
+function mdLineSpan(ln,n){const s=document.createElement('span'); s.className='ln'; s.dataset.line=String(n); return s;}
 // The line view's head line for limit (MD_LIMIT).
 function mdLimitText(limit){switch(limit){
   case MD_LIMIT.NESTING:return tl('중첩이 {max}단을 넘어 원문 줄로 보입니다',{max:MD_LIMITS.nesting});
@@ -141,6 +151,7 @@ function mdLimitText(limit){switch(limit){
   case MD_LIMIT.ELEMENTS:return tl('그릴 요소가 너무 많아 원문 줄로 보입니다(한도 {max}개)',{max:mdCount(MD_LIMITS.elements)});
   case MD_LIMIT.TIME:return tl('읽는 데 {s}초가 넘게 걸려 원문 줄로 보입니다',{s:MD_LIMITS.ms/1000});
   case MD_LIMIT.LOAD:return tr('Markdown 파서를 불러오지 못해 원문 줄로 보입니다');
+  case MD_LIMIT.NUL:return tr('원문에 NUL 문자(U+0000)가 있어 원문 줄로 보입니다. Markdown으로 그리면 그 문자가 U+FFFD로 바뀝니다');
   default:return tr('Markdown을 읽지 못해 원문 줄로 보입니다');}}
 // The elements that carry lines, in document order (line spans and blocks). Their tops never decrease in that order - a block
 // precedes what it holds and stands no lower - so the one at a height is found by halving (mdAt), never by measuring them all.
@@ -218,9 +229,10 @@ function mdSelSeen(){const e=document.querySelector('#md .md-sel'); if(!e)return
 // is dropped too).
 /** @param {any[]} tokens @param {()=>boolean} stale @returns {Promise<HTMLElement|null>} */
 async function mdRenderAll(tokens,stale){const root=document.createElement('article'); root.className='md'; root.id='md'; root.setAttribute('translate','no'); root.lang='';   // the document's language is not known (docs/handbook/viewer.md §그리기): not the screen's (<html lang>)
-  MD.els=0; MD.heads=[]; const work=mdRender(root,tokens);
+  MD.els=0; MD.marked=0; MD.bom=String(MD.lines[0]||'').charCodeAt(0)===0xfeff; MD.heads=[]; const work=mdRender(root,tokens);
   try{for(const pause of work){void pause; await mdYield(); if(stale())return null;}}
   catch(e){if(e===MD_OVER)return null; throw e;}
+  if(MD.marked)root.prepend(txNote('marks',txMarksText(MD.marked)));   // the text surface's notice (text-surface.js), above the first block
   return root;}
 // The DOM build as a generator that pauses after every MD_LIMITS.chunk units of work - a token, an inline child, a code line,
 // one block of a raw HTML run - counted on one counter (w, mdDue) wherever they fall: one paragraph of 120,000 inline tokens
@@ -238,6 +250,34 @@ const MD_OVER={over:true};   // thrown by mdEl past MD_LIMITS.elements
 // One element of the drawn document, counted against MD_LIMITS.elements.
 /** @param {string} tag @returns {HTMLElement} */
 function mdEl(tag){if(++MD.els>MD_LIMITS.elements)throw MD_OVER; return document.createElement(tag);}
+// ---------------- Characters that hide or reorder text in the drawn document (ADR-0029 D5, docs/handbook/viewer.md §숨은 문자)
+// Every piece of the source's text the document draws - a paragraph's, a heading's, a list item's, a table cell's, a link's,
+// inline and block code, a raw HTML placeholder's first line, an image's alt text - goes in through mdText, pausing with the
+// rest of the build (mdTextNow only for the placeholder's first line, 120 characters at most): a character of hidden-chars.js's repertoire stays in the text - a selection, a copy and a pin's quote
+// keep it - inside its box (ccBox), so no line reads in another order than its source; a box is two elements against
+// MD_LIMITS.elements (mdBox) and one unit of work (mdDue). A string with none of them, nearly every one, is one text node after
+// one native test (mdPlain). The byte-order mark that starts the file is kept as on the text surface (ccKept's first): line 1
+// is then a paragraph (the mark is no indent, no '#', no '<'), so the mark is the first text drawn (MD.bom).
+// A marked character's box, counted.
+/** @param {string} ch @returns {HTMLElement} */
+function mdBox(ch){if((MD.els+=2)>MD_LIMITS.elements)throw MD_OVER; MD.marked++; return ccBox(ch);}
+// Whether s goes in as one text node: no character of the repertoire, nor a draw whose first text is still to come (MD.bom).
+/** @param {string} s */
+function mdPlain(s){return !MD.bom&&!CC_ANY.test(s);}
+// Text s into parent, each marked character in its box, pausing (w: mdRender's counter) after every MD_LIMITS.chunk units; w
+// null: no pause.
+/** @param {Node} parent @param {string} s @param {{n:number}|null} w @returns {Generator<void,void,void>} */
+function* mdText(parent,s,w){const str=String(s),first=MD.bom&&str.charCodeAt(0)===0xfeff; MD.bom=false;
+  if(!CC_ANY.test(str)){if(str)parent.appendChild(document.createTextNode(str)); return;}
+  let at=0; for(const c of ccScan(str,first)){if(w&&mdDue(w))yield; if(!c)continue;
+    if(c.at>at)parent.appendChild(document.createTextNode(str.slice(at,c.at))); parent.appendChild(mdBox(c.ch)); at=c.at+c.ch.length;}
+  if(at<str.length)parent.appendChild(document.createTextNode(str.slice(at)));}
+/** @param {Node} parent @param {string} s */
+function mdTextNow(parent,s){for(const pause of mdText(parent,s,null))void pause;}   // w null: it never pauses
+// Text s into parent once the document is drawn (an image's alt text when it fails): boxes while MD_LIMITS.elements holds them,
+// else the names as plain text (ccPlain).
+/** @param {Node} parent @param {string} s */
+function mdTextLate(parent,s){if(MD.els+2*ccFind(s).length>MD_LIMITS.elements){parent.appendChild(document.createTextNode(ccPlain(s))); return;} mdTextNow(parent,s);}
 /** @param {any} t @param {string} name @returns {string|null} */
 function mdAttr(t,name){const a=(t&&t.attrs)||[]; for(const x of a)if(x[0]===name)return String(x[1]); return null;}
 // The lines lo..hi of a block token's map, its trailing blank lines left out (a loose list item's map runs over them).
@@ -268,7 +308,9 @@ function mdRenderer(root){const stack=[root];
       const first=t.map?t.map[0]+1+(t.type==='fence'?1:0):0;
       pre.appendChild(code); top.appendChild(pre);
       const lines=t.content?String(t.content).replace(/\n$/,'').split('\n'):[];
-      for(let i=0;i<lines.length;i++){const s=mdEl('span'); s.className='ln'; if(first)s.dataset.line=String(first+i); s.textContent=lines[i]+'\n'; code.appendChild(s); if(mdDue(w))yield;}
+      for(let i=0;i<lines.length;i++){const s=mdEl('span'),ln=lines[i]; s.className='ln'; if(first)s.dataset.line=String(first+i);
+        if(mdPlain(ln))s.textContent=ln+'\n'; else{yield* mdText(s,ln,w); s.appendChild(document.createTextNode('\n'));}
+        code.appendChild(s); if(mdDue(w))yield;}
       return;}
     if(t.type==='hr'){const hr=mdEl('hr'); mdMap(hr,t,'rule'); top.appendChild(hr); return;}
     if(t.type==='html_block')top.appendChild(mdHtmlBox(t));}
@@ -284,7 +326,8 @@ function mdRenderer(root){const stack=[root];
 function mdHtmlBox(t){const box=mdEl('div'); mdMap(box,t,'html'); box.className='md-html';
   const sp=mdSpan(t),n=sp?sp.hi-sp.lo+1:0,first=String(t.content||'').split('\n').find(l=>l.trim())||'';
   const lab=mdEl('span'); lab.className='md-html-l'; lab.textContent=tl('HTML {lines}줄 · 그리지 않습니다',{lines:n});
-  const code=mdEl('code'); code.textContent=first.trim().slice(0,120); box.append(lab,code); return box;}
+  let head=''; let k=0; for(const ch of first.trim()){if(++k>120)break; head+=ch;}   // 120 characters at most, never half of one
+  const code=mdEl('code'); mdTextNow(code,head); box.append(lab,code); return box;}
 // Two or more raw HTML blocks in a row (a README's head of badges and pictures) are one placeholder, closed: a button naming
 // the blocks and their lines (HTML 블록 N개 · M줄) that opens it (mdHtmlRun), each block then its own placeholder that takes a
 // pin. Only what is on screen carries lines (data-lo/hi): closed, the run stands for all its lines as one HTML block; open, each
@@ -332,8 +375,8 @@ function* mdInline(t,parent,w){const m=mdInlineLines(t),kids=t.children||[];
   let stack=/** @type {HTMLElement[]} */([mk(m.lo)]);
   for(let i=0;i<kids.length;i++){const c=kids[i],top=stack[stack.length-1];
     switch(c.type){
-      case 'text':top.appendChild(document.createTextNode(c.content)); break;
-      case 'code_inline':{const e=mdEl('code'); e.textContent=c.content; top.appendChild(e); break;}
+      case 'text':if(mdPlain(c.content))top.appendChild(document.createTextNode(c.content)); else yield* mdText(top,c.content,w); break;
+      case 'code_inline':{const e=mdEl('code'); top.appendChild(e); yield* mdText(e,c.content,w); break;}
       case 'softbreak':case 'hardbreak':
         top.appendChild(c.type==='hardbreak'?mdEl('br'):document.createTextNode('\n'));
         if(m.exact){const next=[mk(m.lines[i]+1)];
@@ -343,9 +386,9 @@ function* mdInline(t,parent,w){const m=mdInlineLines(t),kids=t.children||[];
       case 'strong_open':case 'em_open':case 's_open':{const e=mdEl(c.type==='strong_open'?'strong':c.type==='em_open'?'em':'s'); top.appendChild(e); stack.push(e); break;}
       case 'link_open':{const e=mdLink(mdAttr(c,'href')); top.appendChild(e); stack.push(e); break;}
       case 'strong_close':case 'em_close':case 's_close':case 'link_close':if(stack.length>1)stack.pop(); break;
-      case 'image':top.appendChild(mdImage(c)); break;
-      case 'html_inline':{const e=mdEl('code'); e.className='md-html-in'; e.textContent=c.content; top.appendChild(e); break;}
-      default:if(c.content)top.appendChild(document.createTextNode(c.content));}
+      case 'image':top.appendChild(yield* mdImage(c,w)); break;
+      case 'html_inline':{const e=mdEl('code'); e.className='md-html-in'; top.appendChild(e); yield* mdText(e,c.content,w); break;}
+      default:if(c.content)yield* mdText(top,c.content,w);}
     if(mdDue(w))yield;}}
 // ---------------- Links: the allowlist
 // What a link in the document may do (pure; origin is the viewer page's location.origin). Every link token comes here - an
@@ -460,14 +503,14 @@ function mdTarget(raw,origin,base,docs){const r=mdHref(raw,origin); if(r.open)re
 // box that keeps a place for it (12rem x 8rem, CSS) until its size is known - at once when an earlier draw learned it
 // (MD_PIC_SIZE) - and once it loads the reading spot is put back (mdPicLoad), so an image above the reading line never moves
 // the text being read. Anything else is the image's alt text, with why it is not loaded in the tip.
-/** @param {any} c @returns {HTMLElement} */
-function mdImage(c){const raw=String(mdAttr(c,'src')||''),alt=String(c.content||mdAttr(c,'alt')||''),r=mdImgPath(raw,mdBase());
+/** @param {any} c @param {{n:number}} w @returns {Generator<void,HTMLElement,void>} */
+function* mdImage(c,w){const raw=String(mdAttr(c,'src')||''),alt=String(c.content||mdAttr(c,'alt')||''),r=mdImgPath(raw,mdBase());
   if(r.path){const box=mdEl('span'),img=/** @type {HTMLImageElement} */(mdEl('img')); box.className='md-pic'; box.dataset.path=r.path;
     img.alt=alt; img.loading='lazy'; img.decoding='async'; img.draggable=false;
     const known=MD_PIC_SIZE.get(r.path); if(known){img.width=known.w; img.height=known.h; box.classList.add('md-pic-ok');}
-    img.addEventListener('load',mdPicLoad); img.addEventListener('error',mdPicError); img.src=mdAssetUrl(DOC,r.path);
+    img.addEventListener('load',mdPicLoad); img.addEventListener('error',mdPicError); img.src=mdPicUrl(DOC,r.path);
     box.appendChild(img); return box;}
-  const e=mdEl('span'),src=ccPlain(raw); e.className='md-img'; e.textContent=tr('그림')+': '+(alt||raw);   // the alt text is drawn text, as the paragraph's
+  const e=mdEl('span'),src=ccPlain(raw); e.className='md-img'; e.append(tr('그림')+': '); yield* mdText(e,alt||raw,w);   // the alt text is drawn text, as the paragraph's, its marked characters in their boxes, pausing as it does
   e.dataset.tip=r.why==='remote'?tl('원격 그림은 불러오지 않습니다 · {src}',{src}):r.why==='out'?tl('원고 밖의 그림은 불러오지 않습니다 · {src}',{src})
     :tl('이 그림은 불러오지 않습니다 · {src}',{src});
   e.dataset.tipUrl=src; return e;}
@@ -480,15 +523,78 @@ const MD_PIC_SIZE=/** @type {Map<string,{w:number,h:number}>} */(new Map());
 // first load. Only a size that held changes nothing. The marks follow through the column's ResizeObserver (MD_RO).
 /** @param {Event} e */
 function mdPicLoad(e){const img=/** @type {HTMLImageElement} */(e.target),box=img.parentElement; if(!box)return;
+  void mdPicSeen(img.getAttribute('src')||'');
   const w=img.naturalWidth,h=img.naturalHeight,path=box.dataset.path||''; if(w&&h)MD_PIC_SIZE.set(path,{w,h}); else MD_PIC_SIZE.delete(path);
   if(box.classList.contains('md-pic-ok')&&+(img.getAttribute('width')||0)===w&&+(img.getAttribute('height')||0)===h)return;
   if(w&&h){img.width=w; img.height=h;} else{img.removeAttribute('width'); img.removeAttribute('height');}
   box.classList.add('md-pic-ok'); if(box.isConnected&&isMdDoc()&&!mdGoOn())mdSpotBack();}
+// ---------------- A tree image changed on disk (docs/handbook/viewer.md §그림)
+// The page keeps the picture it decoded for an address as long as it lives (HTML's list of available images), so an image
+// rewritten on disk showed only after a reload, a redraw drawing the same address again. On the light poll (polling.js),
+// the tree images that have loaded on screen or within one document area's height of it - the nearest MD_PIC_CHECK.max of
+// them (among as near, the one asked longest ago first: more than that many on screen take turns), at most once every
+// MD_PIC_CHECK.gap ms, one request at a time - are asked again: fetch(…, {cache:'no-cache'})
+// revalidates with the tag the browser holds (an unchanged image is a stat and a 304 on the server, AssetTags) and reads
+// the ETag. An image whose tag moved on gets its address with &v=<the new tag> (the server reads only doc and path): one the
+// page has not decoded, so the browser loads the new picture, and the box keeps the reading spot as for any image that loads
+// (mdPicLoad -> mdSpotBack). The tag of the picture an address shows is read once that picture has loaded, from the answer
+// the <img> left in the browser's cache (mdPicSeen, cache:'only-if-cached': never the server). Without one - the cache was
+// cleared or is off, or the entry is gone - the shown tag is unknown, and the check does not take the server's tag for it
+// (that one may be of a newer file, and then no later check would differ): it moves the image once to the address of the
+// tag now, so what it shows is known from then on. The version is kept per document and path (MD_PIC_VER), so a redraw or
+// a return to the document draws the new picture too. No route, no field: only GET /api/asset.
+// at: for each document, tree path -> when a check last asked it, for the paths the document shows now (no other bound,
+// so no image's turn is ever forgotten while it is on the page).
+const MD_PIC_CHECK={max:6,gap:4000,last:-Infinity,busy:false,asked:0,at:/** @type {Map<string,Map<string,number>>} */(new Map())};
+const MD_PIC_TAG=/** @type {Map<string,string>} */(new Map());   // an address -> the ETag of the picture an image at it shows
+const MD_PIC_VER=/** @type {Map<string,string>} */(new Map());   // doc + '\n' + tree path -> the version its address carries
+const MD_PIC_KEEP=256;   // the most entries either map keeps, the oldest dropped first
+// The address the tree image at path loads from now: mdAssetUrl's, with the version a check found (MD_PIC_VER).
+/** @param {string|null} doc @param {string} path */
+function mdPicUrl(doc,path){const v=MD_PIC_VER.get(String(doc||'')+'\n'+path); return mdAssetUrl(doc,path)+(v?'&v='+encodeURIComponent(v):'');}
+/** @param {Map<string,string>} map @param {string} k @param {string} v */
+function mdPicKeep(map,k,v){map.delete(k); map.set(k,v); while(map.size>MD_PIC_KEEP){const first=map.keys().next().value; if(first===undefined)break; map.delete(first);}}
+// The ETag GET url answers with (cache: the fetch's cache mode), or '' for none - a refusal, no answer, nothing cached for
+// 'only-if-cached'. Its body is not read.
+/** @param {string} url @param {RequestCache} cache @returns {Promise<string>} */
+async function mdPicTag(url,cache){
+  try{const r=await fetch(url,{cache,credentials:'same-origin',mode:'same-origin'}),t=r.ok?r.headers.get('ETag')||'':''; if(r.body)r.body.cancel().catch(()=>{}); return t;}
+  catch(e){return '';}}
+// A tree image has loaded from address url: the tag of the picture it shows, from the answer the <img> left in the cache,
+// unless a check already knows it (MD_PIC_TAG). Nothing cached: it stays unknown (mdPicCheck).
+/** @param {string} url */
+async function mdPicSeen(url){if(!url||MD_PIC_TAG.has(url))return; const t=await mdPicTag(url,'only-if-cached'); if(t&&!MD_PIC_TAG.has(url))mdPicKeep(MD_PIC_TAG,url,t);}
+// One check of the tree images near the document area (the header above): how many were given a new address.
+/** @returns {Promise<number>} */
+async function mdPicCheck(){const now=performance.now(),k=DOC;
+  if(MD_PIC_CHECK.busy||now-MD_PIC_CHECK.last<MD_PIC_CHECK.gap||!isMdDoc()||isTextDoc()||MD.shown!==k||!mdColumnShown()||document.hidden)return 0;
+  const lr=$('#left').getBoundingClientRect(),near=/** @type {{img:HTMLImageElement,d:number}[]} */([]),shown=new Set();
+  for(const img of /** @type {HTMLImageElement[]} */([...document.querySelectorAll('#md .md-pic img')])){const p=img.parentElement&&img.parentElement.dataset.path; if(p)shown.add(p);
+    if(!img.complete||!img.naturalWidth)continue;
+    const r=img.getBoundingClientRect(),d=r.bottom<lr.top?lr.top-r.bottom:r.top>lr.bottom?r.top-lr.bottom:0; if(d<=lr.height)near.push({img,d});}
+  let at=MD_PIC_CHECK.at.get(k||''); if(!at){at=new Map(); MD_PIC_CHECK.at.set(k||'',at);}
+  for(const p of [...at.keys()])if(!shown.has(p))at.delete(p);   // an image no longer in the document has no turn to keep
+  if(!near.length)return 0;
+  // Nearest first; among images as near (every visible one is at 0) the one asked longest ago first, a never-asked one
+  // before all, so past six visible images the checks take turns instead of asking the same six every time.
+  const asked=(/** @type {HTMLImageElement} */ i)=>at.get((i.parentElement&&i.parentElement.dataset.path)||'')||0;
+  near.sort((a,b)=>a.d-b.d||asked(a.img)-asked(b.img)); MD_PIC_CHECK.busy=true; MD_PIC_CHECK.last=now; let n=0,moved=0; const seen=new Set();
+  try{for(const {img} of near){const box=img.parentElement,path=box&&box.dataset.path,url=img.getAttribute('src')||'';
+      if(n>=MD_PIC_CHECK.max)break; if(!path||!url||seen.has(path))continue; seen.add(path); n++; at.set(path,now);
+      const was=MD_PIC_TAG.get(url)||''; MD_PIC_CHECK.asked++; const tag=await mdPicTag(url,'no-cache');
+      if(k!==DOC||MD.shown!==k)break;   // another document since: its images are its own
+      if(!tag)continue; if(tag===was){mdPicKeep(MD_PIC_TAG,url,was); continue;}   // was '': what it shows is unknown, so it moves to the address of the tag now
+      mdPicKeep(MD_PIC_VER,k+'\n'+path,tag.replace(/^W\//,'').replace(/"/g,'')); const next=mdPicUrl(k,path); mdPicKeep(MD_PIC_TAG,next,tag);
+      if(next===url)continue;   // unknown, but already at that tag's address: taken as showing it
+      for(const b of /** @type {HTMLElement[]} */([...document.querySelectorAll('#md .md-pic')]))if(b.dataset.path===path){const i=b.querySelector('img'); if(i&&i.getAttribute('src')!==next)i.src=next;}
+      moved++;}}
+  finally{MD_PIC_CHECK.busy=false;}
+  return moved;}
 // An image the server would not give (not there, not that format, outside the tree behind a link, too large): its alt text,
 // as for an image that is never loaded, saying so in the tip.
 /** @param {Event} e */
 function mdPicError(e){const img=/** @type {HTMLImageElement} */(e.target),box=img.parentElement; if(!box||!box.isConnected)return;
-  const s=document.createElement('span'),path=box.dataset.path||''; s.className='md-img'; s.textContent=tr('그림')+': '+(img.alt||path);
+  const s=document.createElement('span'),path=box.dataset.path||''; s.className='md-img'; s.append(tr('그림')+': '); mdTextLate(s,img.alt||path);
   const src=ccPlain(path); s.dataset.tip=tl('그림을 불러오지 못했습니다 · {src}',{src}); s.dataset.tipUrl=src;
   box.replaceWith(s); if(isMdDoc()&&!mdGoOn())mdSpotBack();}
 // Every tip of an image or a link below names the hidden characters of the source text it shows again - a path or a '#…'
@@ -676,8 +782,11 @@ function mdJump(id){if(MD.shown!==DOC||!$('#md')){MD.jumpTo={id,doc:DOC,seq:SWIT
   pvShow(); L.scrollTop+=(r.top-(lr.top+lr.height*0.30)); leaves.forEach(e=>{e.classList.remove('md-flash'); void e.offsetWidth; e.classList.add('md-flash');});
   setTimeout(()=>leaves.forEach(e=>e.classList.remove('md-flash')),1200);}
 // ---------------- Outline from headings, the strip and the position button
+// A heading as its outline row and the strip name it: plain text, its marked characters by name (ccClip, hidden-chars.js), at
+// most MD_HEAD_CLIP characters - the row and the strip cut it to one line anyway, and the name never reads in another order.
+const MD_HEAD_CLIP=120;
 function mdOutline(){OUTLINE_DOC=DOC; OUTLINE_BUILD=(META&&META.pages_build)||''; OUTLINE_CUT=0;
-  OUTLINE_ENTRIES=MD.heads.map((h,i)=>({title:h.title,number:'',depth:Math.max(0,h.level-1),page:i+1,pageLabel:'L'+h.lo,frac:0,up:-1}));
+  OUTLINE_ENTRIES=MD.heads.map((h,i)=>({title:ccClip(h.title,MD_HEAD_CLIP),number:'',depth:Math.max(0,h.level-1),page:i+1,pageLabel:'L'+h.lo,frac:0,up:-1}));
   OUTLINE_SELECTED=-1; renderOutline();}
 // The source line at the reading line (readingDepth under the pane's top): the last line span or block, in document order, whose
 // top is at or above it. 0 before the document is drawn.
@@ -687,7 +796,7 @@ function mdReadingLine(){const L=$('#left'); if(!$('#md'))return 0; const e=mdAt
 // outline's current entry and the strip's title; the button reads [L<line>/<lines>].
 function mdStrip(){if(!isMdDoc())return; MD.at=mdReadingLine();
   let i=-1; MD.heads.forEach((h,j)=>{if(h.lo<=MD.at)i=j;}); if(i!==OUTLINE_SELECTED){OUTLINE_SELECTED=i; markOutline();}
-  const h=MD.heads[i]; $('#section-current').textContent=h?h.title:isTextDoc()?MD.name:tr('문서 처음'); drawPos();}   // a text document has no headings: its file   // above the first heading
+  const h=MD.heads[i]; $('#section-current').textContent=h?ccClip(h.title,MD_HEAD_CLIP):isTextDoc()?ccClip(MD.name,MD_HEAD_CLIP):tr('문서 처음'); drawPos();}   // a text document has no headings: its file   // above the first heading
 let MD_STRIP_F=0; $('#left').addEventListener('scroll',()=>{if(!isMdDoc()||MD_STRIP_F)return; MD_STRIP_F=requestAnimationFrame(()=>{MD_STRIP_F=0; mdGoLanded(); mdStrip(); mdSpotRead();});},{passive:true});
 // posLabel's shape for this document: [L37/164 ▾] - the reading line's source line of the file's lines, '–' for what is not
 // known yet - with the document's name as posLabel puts it. Pure but for tl.
@@ -746,7 +855,7 @@ function mdSelectionPick(tapTarget){const s=window.getSelection(),md=$('#md'); i
     const b=/** @type {HTMLElement|null} */(t.closest('#md [data-lo],#md [data-line]')); if(!b)return false;
     const head=MD.heads.find(h=>h.el===t.closest('#md h1,#md h2,#md h3,#md h4,#md h5,#md h6'));
     const r=head?{lo:head.lo,hi:head.lo}:mdRangeAt(t)||{lo:+(b.dataset.lo||0),hi:+(b.dataset.hi||0)},blk=mdBlockAt(t);
-    mdPick(r,blk,blk,(blk||b).innerText||'',true); return true;}
+    mdPick(r,blk,blk,mdTextOf(blk||b),true); return true;}
   return false;}
 // The part of selection range r inside the document md: r itself when it lies inside; else r cut back to the document's first
 // and last line elements where it runs past them - a triple click on the last paragraph ends after the article, there being no
@@ -767,11 +876,19 @@ function mdDocPart(r,md){if(md.contains(r.commonAncestorContainer))return r; if(
 // blocks together ('First.Last.'), the renderer putting no whitespace between them; the selection itself is not touched, as
 // changing it would set off the touch screen's resting-selection pick again. The pin badges standing between blocks (mdMarks)
 // are the viewer's, not the document's text: they are left out.
+// A marked character's box (ccBox) gives its character, where it stands. innerText does not: Chromium reads the box's hidden
+// child, out of the line's flow, as a block of its own ('x\n\u202e\ny'), and Firefox drops a bidirectional control from
+// innerText altogether. So each box stands in the copy as U+FFF0 - a character of the repertoire, which the document's own
+// text therefore never holds raw - and gets its character back after.
 /** @param {Range} r */
 function mdRangeText(r){const box=document.createElement('div'),doc=document.createElement('div'); box.className='sr-only';
   box.setAttribute('aria-hidden','true'); doc.className='md'; doc.append(r.cloneContents()); doc.querySelectorAll('.md-badges').forEach(e=>e.remove());
+  const kept=/** @type {string[]} */([]); doc.querySelectorAll('.cc').forEach(e=>{kept.push(e.textContent||''); e.replaceWith('\ufff0');});
   box.append(doc); document.body.append(box);
-  try{return doc.innerText;}finally{box.remove();}}
+  try{let i=0; return doc.innerText.replace(/\ufff0/g,()=>kept[i++]||'');}finally{box.remove();}}
+// The text element el shows, as mdRangeText reads a range: a tap's quote.
+/** @param {Element} el */
+function mdTextOf(el){const r=document.createRange(); r.selectNodeContents(el); return mdRangeText(r);}
 // Shows a link's description that does not open (a tap on it), until 4s pass or the next press.
 /** @param {HTMLElement} el */
 function mdRelTip(el){showTip(el); const txt=TIP.textContent; setTimeout(()=>{if(!TIP.hidden&&TIP.textContent===txt)hideTip();},4000);}

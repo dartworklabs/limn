@@ -504,6 +504,7 @@ class ApplicationFixture:
             "people_directory": app.collaboration.people,
             "notices": app.collaboration.notices,
             "document_views": app.documents.views,
+            "asset_tags": app.documents.asset_tags,
             "sync_service": app.sync.service,
             "revision_requests": app.revisions.requests,
             "pin_actions": app.web.routes.bundle.pin_actions,

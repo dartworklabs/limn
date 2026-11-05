@@ -15,16 +15,24 @@ it is). An image over ASSET_MAX_BYTES is refused without being read, and a raste
 ASSET_MAX_PIXELS pixels is refused before any browser decodes it (raster_size: a few kilobytes of PNG can stand for a
 picture whose decoded pixels take gigabytes). An SVG has no such size: a browser rasterizes it at the size it is drawn.
 
-Nothing here writes: one bounded read of one checked descriptor (docs/adr/0027-get-write-guard.md).
+The ETag is a hash of the content (ADR-0030 D6). A run remembers the tag of each image it read under the identity of
+the descriptor it read (AssetTags: path, device, inode, size, mtime and ctime), so a revalidation of an image that has
+not changed since is a stat and a 304, never a read of the file; any change to the file is a new identity and a new read.
+
+Nothing here writes: one bounded read of one checked descriptor, and a bounded map in memory
+(docs/adr/0027-get-write-guard.md).
 """
 
 import hashlib
 import re
-from collections.abc import Mapping
-from dataclasses import dataclass
+import threading
+import time
+from collections import OrderedDict
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
 from typing import TypeAlias
 
-from limn.platform.files import BoundedBytes, ManuscriptFile, OverLimit, ReadRefused
+from limn.platform.files import BoundedBytes, FileIdentity, ManuscriptFile, OverLimit, ReadRefused
 
 # The most bytes of one image the server reads and sends. A screenshot or a figure is well under it; a larger file is
 # answered 413 asset_too_large and never read past its size.
@@ -52,6 +60,13 @@ ASSET_POLICY = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sa
 ASSET_RESOURCE_POLICY = "same-origin"
 # Kept, but asked again each time: an image edited in place shows on the next view, and an unchanged one costs a 304.
 ASSET_CACHE = "private, no-cache"
+# The most images (by resolved path and suffix) one run keeps the content tag of (AssetTags), far more than a document
+# shows at once. Past it the least recently asked is dropped, and its next revalidation reads and hashes it again.
+ASSET_TAGS_MAX = 1024
+# How long after its last change (its ctime) an image's tag is not kept: a file system's clock ticks coarsely (a few ms
+# on Linux, 2 s on FAT), and two writes within one tick can leave one size, mtime and ctime - the second one's content
+# would then be answered with the first one's tag. A tag is kept only for a file left alone this long before the read.
+ASSET_TAG_SETTLE_NS = 2_000_000_000
 
 # How much of an SVG's text is looked at for its root element: what comes before it must fit in this many characters.
 SVG_HEAD_MAX = 8192
@@ -79,11 +94,13 @@ class AssetPath:
 
 @dataclass(frozen=True)
 class AssetBytes:
-    """The image's bytes, its media type (from its suffix) and an entity tag of its content."""
+    """The image's bytes, its media type (from its suffix), an entity tag of its content and the identity of the
+    descriptor they were read from (AssetTags keeps the tag under it)."""
 
     data: bytes
     media: str
     etag: str
+    identity: FileIdentity
 
 
 @dataclass(frozen=True)
@@ -292,7 +309,7 @@ def read_asset(
     AssetTooManyPixels above `pixels`, AssetTooLarge above limit (nothing past the size is read), AssetUnreadable when the
     handle refuses. Writes nothing."""
     match file.read_bounded(limit):
-        case BoundedBytes(data=data):
+        case BoundedBytes(data=data, identity=identity):
             if not asset_kind(data, suffix):
                 return AssetNotImage()
             if suffix != ".svg":
@@ -302,8 +319,62 @@ def read_asset(
                 if size[0] * size[1] > pixels:
                     return AssetTooManyPixels(size[0], size[1], pixels)
             tag = '"%s"' % hashlib.blake2b(data, digest_size=12).hexdigest()
-            return AssetBytes(data, ASSET_TYPES[suffix], tag)
+            return AssetBytes(data, ASSET_TYPES[suffix], tag, identity)
         case OverLimit(signature=signature):
             return AssetTooLarge(max(signature.size, limit + 1), limit)
         case ReadRefused():
             return AssetUnreadable()
+
+
+@dataclass
+class AssetTags:
+    """One run's content tags of the tree images it has sent, so that the revalidation of an unchanged image is a stat
+    and a 304 (GET /api/asset with If-None-Match), not a read and a hash of up to ASSET_MAX_BYTES.
+
+    keep(read, suffix) remembers the tag of an image read (AssetBytes) under the identity of the descriptor it was read
+    from (FileIdentity: resolved path, st_dev, st_ino, st_size, st_mtime_ns, st_ctime_ns), keyed by that path and the
+    suffix it was asked under (the suffix decides the checks its bytes passed). known(file, suffix) answers that tag
+    only while a no-follow stat of the file (ManuscriptFile.identity, the file not opened) gives the same identity: a
+    file written again - at its old size, its mtime put back - has a new ctime and is read again. The tag stays a hash
+    of the content (ADR-0030 D6); this only skips a read whose hash is known. A read of a file changed less than
+    settle_ns before it is not kept (ASSET_TAG_SETTLE_NS: the file system's clock may not have ticked between two
+    writes). At most `limit` entries, the least recently used dropped first; nothing is written (ADR-0027). Request
+    threads share it under one lock, held only to look an entry up or publish one, never across a stat or a read.
+    `read` is the read a request no tag answers makes (read_asset); a test gives one that records what was read."""
+
+    limit: int = ASSET_TAGS_MAX
+    settle_ns: int = ASSET_TAG_SETTLE_NS
+    clock: Callable[[], int] = time.time_ns
+    read: Callable[[ManuscriptFile, str], AssetRead] = read_asset
+    _held: OrderedDict[tuple[str, str], tuple[FileIdentity, str]] = field(default_factory=OrderedDict)
+    _lock: threading.Lock = field(default_factory=threading.Lock)
+
+    def known(self, file: ManuscriptFile, suffix: str) -> str | None:
+        """The content tag of `file` as last read under `suffix`, when its identity now is the one that read had; else
+        None (never read, dropped, changed, or no longer a regular file). One stat; the file is not opened."""
+        now = file.identity()
+        if now is None:
+            return None
+        key = (now.path, suffix)
+        with self._lock:
+            held = self._held.get(key)
+            if held is None or held[0] != now:
+                return None
+            self._held.move_to_end(key)
+            return held[1]
+
+    def keep(self, read: AssetBytes, suffix: str) -> None:
+        """Remember read's tag under its identity and suffix, unless the file changed less than settle_ns before now."""
+        if read.identity.ctime_ns > self.clock() - self.settle_ns:
+            return
+        key = (read.identity.path, suffix)
+        with self._lock:
+            self._held[key] = (read.identity, read.etag)
+            self._held.move_to_end(key)
+            while len(self._held) > self.limit:
+                self._held.popitem(last=False)
+
+    def __len__(self) -> int:
+        """How many entries are held."""
+        with self._lock:
+            return len(self._held)

@@ -30,7 +30,7 @@ from limn.web import answers, csp as page_csp, parse, request_input
 from limn.web.answers import accepted
 from limn.web.app import Document, Json, Principal, Query, WebApplication
 from limn.web.errors import HTTPError, InputRejected, error_page_html, page_lang
-from limn.web.reply import Reply, json_reply as _json_reply
+from limn.web.reply import Reply, etag_matches, json_reply as _json_reply
 from limn.web.routes import GetRequest, OtherPostRequest, PathPolicy, PinActionRequest, PostDocRequest
 
 READ_SLOTS = threading.BoundedSemaphore(4)
@@ -71,17 +71,6 @@ class Server6(Server):
     """The same server on an IPv6 --bind address."""
 
     address_family = socket.AF_INET6
-
-
-def etag_matches(header: str | None, etag: str) -> bool:
-    """Does an If-None-Match header name etag? "*" names any; otherwise a comma-separated list of entity tags, compared
-    weakly (a W/ prefix is ignored on either side), as RFC 9110 asks for If-None-Match."""
-    if header is None:
-        return False
-    if header.strip() == "*":
-        return True
-    want = etag.removeprefix("W/")
-    return any(tag.strip().removeprefix("W/") == want for tag in header.split(","))
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -365,7 +354,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def _get_registered(self, actor: Json, path: str, q: Query, D: Document) -> Reply | None:
         """Try the application's feature-owned GET routes in registration order."""
-        request = GetRequest(path, q, D, actor, self.principal, self.headers.get("Host") or "")
+        request = GetRequest(
+            path, q, D, actor, self.principal, self.headers.get("Host") or "", self.headers.get("If-None-Match")
+        )
         for route in self.app.routes.bundle.get:
             reply = route(request)
             if reply is not None:

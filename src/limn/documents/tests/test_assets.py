@@ -7,7 +7,10 @@ AssetRoute drives the route through the handler on a Markdown document: its answ
 asset's own policy, Cross-Origin-Resource-Policy, nosniff, a content ETag and its 304), every way out of the tree a path
 can try (traversal, encoded traversal once and twice, backslash, absolute, a link out of the tree for a file or a folder,
 a dot-named folder, the state folder), files that are not images (no regular file, wrong content), the size limit and
-the pixel limit at their edges, who may read it, and that no answer writes anything. That an SVG opened on its own runs nothing is a browser test
+the pixel limit at their edges, who may read it, and that no answer writes anything. AssetRevalidation holds the 304 of
+an unchanged image to a stat that never opens the file (the run's AssetTags), a changed image - at its old size, its mtime
+put back - to a new read, a file changed within the settle window to a read every time, and AssetTagsBound the map to its
+limit, least recently used first. That an SVG opened on its own runs nothing is a browser test
 (src/limn/viewer/tests/test_viewer_markdown_assets.py).
 
 Run: uv run pytest -q src/limn/documents/tests/test_assets.py
@@ -17,6 +20,8 @@ import os
 import struct
 import subprocess
 import sys
+import tempfile
+import time
 import unittest
 from pathlib import Path
 from urllib.parse import quote
@@ -26,12 +31,16 @@ from limn.documents.assets import (
     ASSET_MAX_PIXELS,
     ASSET_POLICY,
     ASSET_TYPES,
+    AssetBytes,
     AssetPath,
     AssetPathRefused,
+    AssetTags,
     asset_kind,
     asset_path,
     raster_size,
+    read_asset,
 )
+from limn.platform.files import file_in_tree
 from limn.runtime.documents import Doc
 
 from helpers import blank_png, ps, req, set_config, split_resp
@@ -328,6 +337,26 @@ class AssetRoute(AccessBase):
         _, after, _ = self.raw("notes/img/a.png")
         self.assertNotEqual(after["etag"], hdrs["etag"])
 
+    def test_a_version_the_viewer_adds_to_the_address_is_the_same_image(self):
+        """The viewer gives an image rewritten on disk a new address, its path's with &v=<its new tag> (md-surface.js
+        mdPicUrl), so the page loads the new picture: the route reads only doc and path, and that address answers the
+        image, its tag and its 304 as the plain one does."""
+        _, plain, body = self.raw("notes/img/a.png")
+        code, hdrs, again = split_resp(talk_to(ps, req("GET", "/api/asset?doc=nt&path=notes%2Fimg%2Fa.png&v=0123abcd")))
+        self.assertEqual((code, again, hdrs["etag"]), (200, body, plain["etag"]))
+        code, _, _ = split_resp(
+            talk_to(
+                ps,
+                req(
+                    "GET",
+                    "/api/asset?doc=nt&path=notes%2Fimg%2Fa.png&v=0123abcd",
+                    b"",
+                    {"If-None-Match": plain["etag"]},
+                ),
+            )
+        )
+        self.assertEqual(code, 304)
+
     def test_no_path_leaves_the_tree(self):
         """Every way out answers 400 and never the file's bytes: traversal plain, percent-encoded once (the query decodes it
         to the plain one) and twice (a literal name with '%' that is no file), a backslash, an absolute path (also the
@@ -518,3 +547,143 @@ class AssetRoute(AccessBase):
         answers.append(self.raw("notes/img/a.png", headers={"If-None-Match": hdrs["etag"]})[0])
         self.assertEqual(answers, [200, 200, 400, 400, 415, 413, 400, 304])
         self.assertEqual((files(self.src), files(state), files(self.outside)), before)
+
+
+class AssetRevalidation(AssetRoute):
+    """The 304 of an unchanged image is a stat, never a read; any change to the file is read again. AssetRoute's tests
+    run here too, with the run keeping every read at once, so each of them holds through the stat path as well."""
+
+    def setUp(self):
+        """AssetRoute's tree, with the run's tags keeping a read at once (settle_ns 0) unless a test says otherwise, and
+        reading through a read that records the name of each image it reads (AssetTags.read, read_asset behind it)."""
+        super().setUp()
+        tags = ps.APP.asset_tags
+        settle, real = tags.settle_ns, tags.read
+        tags.settle_ns = 0
+        self.addCleanup(setattr, tags, "settle_ns", settle)
+        self.reads: list[str] = []
+
+        def recording(file, suffix):
+            self.reads.append(file.path.name)
+            return real(file, suffix)
+
+        tags.read = recording
+        self.addCleanup(setattr, tags, "read", real)
+
+    def opened(self, path: str, headers=None):
+        """GET path as raw() does: (answer, the names of the images the run read meanwhile)."""
+        start = len(self.reads)
+        got = self.raw(path, headers=headers)
+        return got, self.reads[start:]
+
+    def test_an_unchanged_image_revalidates_as_a_stat_without_opening_the_file(self):
+        """The first GET reads the image (200, its ETag); If-None-Match with that ETag is a 304 with the asset's own
+        headers, and the image was not read. Mutation: answer the 304 only after the read (drop the tags.known branch
+        of documents.http.asset) -> the image is read, fails."""
+        (code, first, body), names = self.opened("notes/img/a.png")
+        self.assertEqual((code, body), (200, PNG))
+        self.assertEqual(names, ["a.png"])
+        (code, again, body), names = self.opened("notes/img/a.png", {"If-None-Match": first["etag"]})
+        self.assertEqual((code, body), (304, b""))
+        self.assertEqual(names, [])
+        self.assertEqual(again["etag"], first["etag"])
+        self.assertEqual(again["cache-control"], "private, no-cache")
+        self.assertEqual(again["content-security-policy"], ASSET_POLICY)
+        self.assertEqual(again["cross-origin-resource-policy"], "same-origin")
+        (code, _, _), names = self.opened("notes/img/a.png", {"If-None-Match": '"other"'})
+        self.assertEqual(code, 200)  # another tag: the image is sent, so it is read
+        self.assertEqual(names, ["a.png"])
+
+    def test_a_changed_image_is_read_again_even_at_its_old_size_and_mtime(self):
+        """The image rewritten in place with other bytes of the same length and its mtime put back: the ETag it had is
+        no 304 - the file is read, and the answer is the new bytes with a new ETag, which then revalidates as a stat. An
+        atomic replacement too. Mutation: leave st_ctime_ns out of FileIdentity's comparison -> a 304 with the old tag,
+        fails."""
+        img = self.src / "notes" / "img" / "a.png"
+        _, first, _ = self.raw("notes/img/a.png")
+        before = img.stat()
+        time.sleep(0.02)  # past one tick of the file system's coarse clock
+        other = PNG[:-20] + bytes([PNG[-20] ^ 1]) + PNG[-19:]  # one byte of its pixel data's checksum turned
+        self.assertEqual(len(other), len(PNG))
+        self.assertNotEqual(other, PNG)
+        img.write_bytes(other)
+        os.utime(img, ns=(before.st_atime_ns, before.st_mtime_ns))
+        (code, second, body), names = self.opened("notes/img/a.png", {"If-None-Match": first["etag"]})
+        self.assertEqual((code, body), (200, other))
+        self.assertEqual(names, ["a.png"])
+        self.assertNotEqual(second["etag"], first["etag"])
+        (code, _, _), names = self.opened("notes/img/a.png", {"If-None-Match": second["etag"]})
+        self.assertEqual(code, 304)
+        self.assertEqual(names, [])
+        fresh = img.with_name("a.new")
+        fresh.write_bytes(PNG)
+        os.replace(fresh, img)
+        (code, third, body), _ = self.opened("notes/img/a.png", {"If-None-Match": second["etag"]})
+        self.assertEqual((code, body, third["etag"]), (200, PNG, first["etag"]))
+
+    def test_an_image_changed_within_the_settle_window_is_read_every_time(self):
+        """With the run's settle window (ASSET_TAG_SETTLE_NS), an image written just now is not kept: every revalidation
+        reads it again (a 304 still, from its hash), until it has been left alone that long. Mutation: drop the settle
+        check of AssetTags.keep -> the second request reads nothing, fails."""
+        ps.APP.asset_tags.settle_ns = 60 * 1_000_000_000
+        _, first, _ = self.raw("notes/img/a.png")
+        (code, _, _), names = self.opened("notes/img/a.png", {"If-None-Match": first["etag"]})
+        self.assertEqual(code, 304)
+        self.assertEqual(names, ["a.png"])
+
+    def test_a_link_to_an_image_keeps_its_own_entry_by_the_file_it_resolves_to(self):
+        """same.png links to a.png inside the tree: both names are one file (one resolved path), so a.png's tag answers
+        same.png's revalidation as a stat; a suffix the bytes were not checked under has no tag."""
+        _, first, _ = self.raw("notes/img/a.png")
+        (code, _, _), names = self.opened("notes/img/same.png", {"If-None-Match": first["etag"]})
+        self.assertEqual(code, 304)
+        self.assertEqual(names, [])
+        tags = ps.APP.asset_tags
+        checked = file_in_tree(str(self.src / "notes" / "img" / "a.png"), self.src, Path(ps.APP.C.state))
+        self.assertEqual(tags.known(checked, ".png"), first["etag"])
+        self.assertIsNone(tags.known(checked, ".svg"))
+
+
+class AssetTagsBound(unittest.TestCase):
+    """The run's map of content tags holds at most its limit, the least recently asked dropped first."""
+
+    def test_the_map_holds_its_limit_least_recently_used_first(self):
+        """Three images into a map of two: the first is dropped (its next revalidation reads it again); asking for the
+        second keeps it over the third when a fourth comes in. Mutations: drop the popitem loop of AssetTags.keep -> the
+        first is still known, fails; drop the move_to_end of AssetTags.known -> the second is dropped instead, fails."""
+        tmp = tempfile.TemporaryDirectory()  # not enterContext: Python 3.10 has none
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        state = root / ".state"
+        tags = AssetTags(limit=2, settle_ns=0)
+        checked = []
+        for i in range(4):
+            (root / ("p%d.png" % i)).write_bytes(blank_png(i + 1, 1))
+            checked.append(file_in_tree(str(root / ("p%d.png" % i)), root, state))
+        reads = [read_asset(c, ".png") for c in checked]
+        assert all(isinstance(r, AssetBytes) for r in reads)
+        for r in reads[:3]:
+            tags.keep(r, ".png")
+        self.assertEqual(len(tags), 2)
+        self.assertIsNone(tags.known(checked[0], ".png"))
+        self.assertEqual(tags.known(checked[1], ".png"), reads[1].etag)
+        tags.keep(reads[3], ".png")
+        self.assertEqual([tags.known(c, ".png") for c in checked], [None, reads[1].etag, None, reads[3].etag])
+
+    def test_a_read_of_a_file_that_just_changed_is_not_kept(self):
+        """keep() leaves out a read whose file changed less than settle_ns before the clock: two writes within one tick
+        of the file system's clock could share an identity."""
+        tmp = tempfile.TemporaryDirectory()  # not enterContext: Python 3.10 has none
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        (root / "p.png").write_bytes(PNG)
+        checked = file_in_tree(str(root / "p.png"), root, root / ".state")
+        read = read_asset(checked, ".png")
+        assert isinstance(read, AssetBytes)
+        ctime = read.identity.ctime_ns
+        late = AssetTags(settle_ns=1000, clock=lambda: ctime + 1000)
+        late.keep(read, ".png")
+        self.assertEqual(late.known(checked, ".png"), read.etag)
+        early = AssetTags(settle_ns=1000, clock=lambda: ctime + 999)
+        early.keep(read, ".png")
+        self.assertEqual(len(early), 0)

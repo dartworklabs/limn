@@ -75,44 +75,57 @@ function txLevels(r){const ls=/** @type {any[]} */([]),lines=MD.lines;
 /** @param {string} ln @param {number} n */
 function txSpan(ln,n){const s=document.createElement('span'); s.className='ln'; s.dataset.line=String(n);
   const h=txHang(ln); if(h)s.style.setProperty('--hang',String(h)); return s;}
-// Builds article#md for the text document on screen from MD.lines: each line's text, each marked character in its box (ccBox),
-// the text ending in "\n" so that a selection's text keeps its line ends. Within MD_LIMITS (the header above): past
-// MD_LIMITS.elements it gives the names view (txNamesView) instead; null when a newer draw came (stale) at a yield.
+// Builds article#md for the text document on screen from MD.lines (srcLines): each line's text, each marked character in its
+// box (ccBox), the text ending in "\n" so that a selection's text keeps its line ends. Within MD_LIMITS (the header above):
+// past MD_LIMITS.elements it gives the names view instead; null when a newer draw came (stale) at a yield.
 // ends: /api/source's line_ends.
 /** @param {()=>boolean} stale @param {Record<string,number>|undefined} ends @returns {Promise<HTMLElement|null>} */
-async function txView(stale,ends){const lines=MD.lines,body=document.createElement('div'); body.className='tx-src';
-  const w={n:0}; let els=0,marked=0;
-  for(let i=0;i<lines.length;i++){const ln=lines[i],s=txSpan(ln,i+1); let at=0;
-    if(++els>MD_LIMITS.elements)return txNamesView(stale,ends);   // every line's span counts, not only the boxes: plain lines after a line of boxes
-    for(const c of ccScan(ln,i===0)){if(mdDue(w)){await mdYield(); if(stale())return null;}
-      if(!c)continue;
-      if((els+=2)>MD_LIMITS.elements)return txNamesView(stale,ends);
-      if(c.at>at)s.append(ln.slice(at,c.at)); s.append(ccBox(c.ch)); at=c.at+c.ch.length; marked++;}
-    s.append(ln.slice(at)+'\n'); body.appendChild(s);
-    if(mdDue(w)){await mdYield(); if(stale())return null;}}
-  return txRoot(body,ends,marked?tl('보이지 않거나 글 순서를 바꾸는 문자 {n}개를 이름으로 표시했습니다',{n:mdCount(marked)}):'',null);}
-// The names view, when the boxes would pass MD_LIMITS.elements: each line one span whose text has every marked character as
-// its name in angle brackets ('⟨U+200B⟩', ccPlain's form) - one element per line, never a raw character that reorders the
-// line. A copy of it gives the names, not the characters, and its notice says so. null when a newer draw came (stale).
-/** @param {()=>boolean} stale @param {Record<string,number>|undefined} ends @returns {Promise<HTMLElement|null>} */
-async function txNamesView(stale,ends){const lines=MD.lines,body=document.createElement('div'); body.className='tx-src';
-  const w={n:0}; let marked=0;
-  for(let i=0;i<lines.length;i++){const ln=lines[i],s=txSpan(ln,i+1); let at=0,out='';
-    for(const c of ccScan(ln,i===0)){if(mdDue(w)){await mdYield(); if(stale())return null;}
-      if(!c)continue;
-      out+=ln.slice(at,c.at)+'\u27e8'+ccName(c.ch.codePointAt(0)||0)+'\u27e9'; at=c.at+c.ch.length; marked++;}
-    s.textContent=out+ln.slice(at)+'\n'; body.appendChild(s);
-    if(mdDue(w)){await mdYield(); if(stale())return null;}}
-  return txRoot(body,ends,tl('보이지 않거나 글 순서를 바꾸는 문자가 {n}개라 이름을 글자로 보입니다(그릴 요소 한도 {max}개). 이 보기에서 복사하면 그 문자 대신 이름이 복사됩니다',
-    {n:mdCount(marked),max:mdCount(MD_LIMITS.elements)}),MD_LIMIT.ELEMENTS);}
+async function txView(stale,ends){const r=await srcLines(txSpan,'tx-src',stale); if(!r)return null;
+  if(r.names)return txRoot(r.body,ends,txNamesText(r.marked),MD_LIMIT.ELEMENTS);
+  return txRoot(r.body,ends,r.marked?txMarksText(r.marked):'',null);}
+// The source lines on screen (MD.lines) as line spans in a new div of class cls - span(ln, n) makes line n's span, empty - for
+// the text surface (txView) and the Markdown surface's line view (mdLineView). Each marked character (hidden-chars.js) is its
+// box (ccBox) while the elements drawn stay within MD_LIMITS.elements: one a line, two a box, counted on every line, not only
+// on a box (plain lines after a line of boxes). Past it, the names form: each line one span whose text has every marked
+// character as its name in angle brackets ('⟨U+200B⟩', ccPlain's form) - one element a line, never a raw character that
+// reorders the line; a copy of it gives the names, not the characters (txNamesText says so). A yield to the browser after
+// every MD_LIMITS.chunk units of work (a line, a character of the repertoire), within a long line too. -> {body, marked (how
+// many characters it marked), names (the names form)}, or null when a newer draw came (stale) at a yield.
+/** @param {(ln:string,n:number)=>HTMLElement} span @param {string} cls @param {()=>boolean} stale
+    @returns {Promise<{body:HTMLElement,marked:number,names:boolean}|null>} */
+async function srcLines(span,cls,stale){const lines=MD.lines,w={n:0};
+  for(const names of [false,true]){const body=document.createElement('div'); body.className=cls; let els=0,marked=0,over=false;
+    for(let i=0;i<lines.length&&!over;i++){const ln=lines[i],s=span(ln,i+1); let at=0,out='';
+      if(!names&&++els>MD_LIMITS.elements){over=true; break;}
+      for(const c of ccScan(ln,i===0)){if(mdDue(w)){await mdYield(); if(stale())return null;}
+        if(!c)continue;
+        if(names)out+=ln.slice(at,c.at)+'\u27e8'+ccName(c.ch.codePointAt(0)||0)+'\u27e9';
+        else{if((els+=2)>MD_LIMITS.elements){over=true; break;} if(c.at>at)s.append(ln.slice(at,c.at)); s.append(ccBox(c.ch));}
+        at=c.at+c.ch.length; marked++;}
+      if(over)break;
+      if(names)s.textContent=out+ln.slice(at)+'\n'; else s.append(ln.slice(at)+'\n');
+      body.appendChild(s);
+      if(mdDue(w)){await mdYield(); if(stale())return null;}}
+    if(!over)return {body,marked,names};}
+  return null;}   // never reached: the names form has no limit to pass
+// What the notice above the lines says of the characters marked: n boxes, or the names form for n of them.
+/** @param {number} n */
+function txMarksText(n){return tl('보이지 않거나 글 순서를 바꾸는 문자 {n}개를 이름으로 표시했습니다',{n:mdCount(n)});}
+/** @param {number} n */
+function txNamesText(n){return tl('보이지 않거나 글 순서를 바꾸는 문자가 {n}개라 이름을 글자로 보입니다(그릴 요소 한도 {max}개). 이 보기에서 복사하면 그 문자 대신 이름이 복사됩니다',
+  {n:mdCount(n),max:mdCount(MD_LIMITS.elements)});}
+// A notice above a document's text (kind: its data-note - 'marks', 'ends'): out of the text, never selected or copied with it, in
+// the viewer's words and so in the screen's language. A Markdown document's notice is the same element (mdRenderAll, mdLineView).
+/** @param {string} kind @param {string} text */
+function txNote(kind,text){const n=document.createElement('div'); n.className='md-limit tx-note';
+  n.dataset.note=kind; n.setAttribute('role','status'); n.textContent=text; n.lang=document.documentElement.lang; return n;}
 // article#md round the lines (body): the notices above them - what was marked (marks, '' for none) and the line ends that are
 // not LF or CRLF (txEndsText) - and the limit the view hit (limit, its data-limit; null for none).
 /** @param {HTMLElement} body @param {Record<string,number>|undefined} ends @param {string} marks @param {string|null} limit */
 function txRoot(body,ends,marks,limit){const root=document.createElement('article'); root.className='md tx'; root.id='md'; root.setAttribute('translate','no'); root.lang='';   // as mdRenderAll's: the text's language is not known
   if(limit)root.dataset.limit=limit;
   root.style.setProperty('--gut',String(String(MD.lines.length).length+1));
-  for(const [kind,text] of [['marks',marks],['ends',txEndsText(ends)]])if(text){const n=document.createElement('div'); n.className='md-limit tx-note';
-    n.dataset.note=kind; n.setAttribute('role','status'); n.textContent=text; n.lang=document.documentElement.lang; root.appendChild(n);}   // the viewer's words, in the screen's language
+  for(const [kind,text] of [['marks',marks],['ends',txEndsText(ends)]])if(text)root.appendChild(txNote(kind,text));
   root.appendChild(body); return root;}
 // The notice for the line ends of the source that are not LF or CRLF (ends: {name: count}, /api/source line_ends - 'U+000C',
 // 'U+2028', a lone CR as 'U+000D'), or '' when there are none. Limn numbers lines past them; an editor or git that counts LF

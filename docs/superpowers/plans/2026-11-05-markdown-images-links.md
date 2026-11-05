@@ -18,6 +18,7 @@
 - [x] 휴대폰 뒤로 가기 층 아래의 링크. `LinksUnderTheBackLayer`. 변이: `mdGoDoc` 의 `if(!BACK)` 을 빼면 기록 길이가 하나 늘고 맨 위 항목이 층의 것이 아니게 되어 실패한다.
 - [x] Firefox 한 벌: `TreeImagesFirefox`·`ReadingSpotFirefox`·`SvgOnItsOwnFirefox`·`DocumentLinksFirefox`·`CrossOriginEmbedFirefox`. Firefox가 직접 연 SVG에서 알리는 정책 위반은 시험이 일으킨 것으로 표시한다. 변이: `sandbox` 를 빼면 두 엔진의 SVG 시험이, `mdPicLoad` 의 되돌리기를 빼면 읽던 자리 시험 셋이, 링크의 `pushState` 를 빼면 두 엔진의 문서 링크 시험 넷이, 트리 그림을 대체 글로 돌리면 두 엔진의 그림 시험 넷이 실패한다.
 - [x] 알려진 한계로 둔 것(설계 §구현에서 정한 것): 탭을 연 채 바뀐 그림은 페이지를 다시 열 때 보인다. 304도 한도까지 읽는다(8 MiB 읽기와 BLAKE2b 해시를 스무 번 잰 평균 약 8 ms).
+- [x] 후속(`fix/md-surface-followups`): 두 한계를 걷었다. 가벼운 폴링이 문서 영역 가까이의 불러온 그림을 다시 묻고(많아야 6개, 4초에 한 번), 태그가 달라진 그림은 `&v=<태그>` 를 붙인 주소로 새로 받아 읽던 자리를 지킨다(`ChangedOnDisk`). 서버는 보낸 그림의 내용 태그를 파일 정체(경로·장치·inode·크기·mtime·ctime)로 기억해, 바뀌지 않은 그림의 304는 파일을 열지 않는 stat 하나다(같은 8 MiB에서 읽기·해시 약 12 ms → stat 약 0.06 ms, `AssetRevalidation`·`AssetTagsBound`). 경로·필드는 그대로다.
 
 ## Task 4: 승인 기록과 문서
 

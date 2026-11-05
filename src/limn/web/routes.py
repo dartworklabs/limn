@@ -11,7 +11,8 @@ from limn.web.reply import Reply
 
 
 class GetRequest(NamedTuple):
-    """A guarded GET with its selected document and request-local identity facts."""
+    """A guarded GET with its selected document, request-local identity facts and its If-None-Match header (None
+    without one): a route whose answer carries an ETag may tell a 304 before it reads what it would send."""
 
     path: str
     query: Query
@@ -19,6 +20,7 @@ class GetRequest(NamedTuple):
     actor: dict[str, Any]
     principal: access.Principal
     host_raw: str
+    if_none_match: str | None = None
 
 
 GetRoute: TypeAlias = Callable[[GetRequest], Reply | None]

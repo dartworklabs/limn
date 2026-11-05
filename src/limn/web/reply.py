@@ -22,6 +22,18 @@ class Reply(NamedTuple):
     csp: str | None = None
 
 
+def etag_matches(header: str | None, etag: str) -> bool:
+    """Does an If-None-Match header name etag? "*" names any; otherwise a comma-separated list of entity tags, compared
+    weakly (a W/ prefix is ignored on either side), as RFC 9110 asks for If-None-Match. The handler sends a 200 whose
+    ETag the request names as a 304; a route that can tell so before it reads anything asks the same question."""
+    if header is None:
+        return False
+    if header.strip() == "*":
+        return True
+    want = etag.removeprefix("W/")
+    return any(tag.strip().removeprefix("W/") == want for tag in header.split(","))
+
+
 def json_reply(obj: object, code: int = 200) -> Reply:
     """Encode a JSON response as UTF-8 while preserving non-ASCII characters."""
     return Reply(code, json.dumps(obj, ensure_ascii=False).encode(), "application/json; charset=utf-8")
