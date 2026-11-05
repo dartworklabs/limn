@@ -22,6 +22,7 @@ from pathlib import Path
 from limn.administration import member_state, token_state
 from limn.administration.targets import cli_audit
 from limn.pins.store import dump_jsonl
+from limn.revisions.jobs import WORKER_THREAD
 from limn.runtime import config
 from limn.security import access
 from limn.security.access import LOCAL_ACTOR
@@ -44,6 +45,20 @@ from helpers import (
 )
 
 # Tailnet identities as the request headers `tailscale serve` adds. Every server-level module uses these three.
+# A comparison's worker thread may outlast a slow runner's clock, so tests wait for the thread itself rather than poll
+# its status against a deadline. The bound only turns a stuck worker into a failure instead of a hung suite.
+REVISION_WORKER_JOIN_S = 60
+
+
+def join_revision_workers(test) -> None:
+    """Wait until every live comparison worker thread (named jobs.WORKER_THREAD + its key) has ended; fail the test if
+    one still runs after REVISION_WORKER_JOIN_S."""
+    for thread in [t for t in threading.enumerate() if t.name.startswith(WORKER_THREAD)]:
+        thread.join(REVISION_WORKER_JOIN_S)
+        if thread.is_alive():
+            test.fail("revision worker %s did not finish" % thread.name)
+
+
 ALICE = {"Tailscale-User-Login": "alice@example.com", "Tailscale-User-Name": "Alice Kim"}
 BOB = {"Tailscale-User-Login": "bob@example.com", "Tailscale-User-Name": "Bob Park"}
 CAROL = {"Tailscale-User-Login": "carol@example.com", "Tailscale-User-Name": "Carol Lee"}
