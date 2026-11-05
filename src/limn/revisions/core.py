@@ -524,7 +524,8 @@ def registered_repo(folder: Path) -> Path | None:
 
 
 def registered_file(D: RevisionDoc, f: Path) -> Path | None:
-    """File f of document D, as RevisionBuildQueries.history_files names it, in its registered form: D.registered_main for D.main; a path below D.src
+    """File f of document D - one RevisionBuildQueries.history_files names, or a pin's file or recorded change as the
+    pin owner places it (revision_pin_scope) - in its registered form: D.registered_main for D.main; a path below D.src
     as the same path below D.registered_src (normalised, so a '..' never leaves the folder); a path already below
     D.registered_src (one the build owner placed there, as limn.builds.queries.history_pdf does) as it is. None for any
     other path, and for one with a dot-named part below D.registered_src (dot_named) - D's own main too, as the history
@@ -838,7 +839,7 @@ def revision_diff(
         if base:
             sc = revision_pin_scope(D, repo, paths, base, commit, pin, revisions, ctx)
         else:
-            projection = ctx.pins(pin, D.key, D, lambda path: _repo_rel(repo, str(path)))
+            projection = ctx.pins(pin, D.key, D, lambda path: _repo_rel(D, repo, path))
             sc = PinNotInDoc() if projection is None else PinScope(projection.id, "commit", "none", 0, 0)
         if isinstance(sc, PinNotInDoc):
             return sc
@@ -1014,12 +1015,17 @@ def revision_changes(repo: Path, base: str, head: str, paths: Sequence[str]) -> 
         return None
 
 
-def _repo_rel(repo: Path, path: str) -> str | None:
-    """path (absolute, as stored on pins) relative to the repository root in POSIX form, symlinks resolved; None when
-    it lies outside the repository or cannot be resolved."""
+def _repo_rel(D: RevisionDoc, repo: Path, path: Path) -> str | None:
+    """path - a pin's file or a recorded change of document D, as the pin owner places it in the run's registered
+    coordinates (limn.pins.location.lookup.recorded_place) - relative to the repository root repo (registered_repo) in
+    POSIX form, by registered_file: lexical, so a folder replaced by a symlink after startup does not move a pin to
+    another file. None when it is not one of D's files (outside its folder, under a dot-named part) or outside repo."""
+    named = registered_file(D, path)
+    if named is None:
+        return None
     try:
-        return Path(path).resolve().relative_to(repo.resolve()).as_posix()
-    except (ValueError, OSError, RuntimeError, TypeError):
+        return named.relative_to(repo).as_posix()
+    except ValueError:
         return None
 
 
@@ -1055,16 +1061,18 @@ def revision_pin_scope(
 ) -> PinScope | PinNotInDoc:
     """How pin pid of document D sees commit head (compared with its first parent base).
     Revisions are the document's history window rows (revision_window); recorded changes count only on the commit the
-    pin's close_ref names. Their paths are resolved by the pin-owned read view with the same rule as the pin's own file
-    (issue #24) - so a moved or cloned checkout keeps the agent's lines; a path the rule cannot place is dropped and
-    the pin's hunks are inferred as before. Unless the same pin facts were decided for this commit before (ctx.cache),
-    reads the commit's files within one of the cache's slots and decides with revisions.scope.pin_scope(); an unreadable
-    commit is mode "commit" and not stored."""
+    pin's close_ref names. Their paths are placed by the pin-owned read view with the same rule as the pin's own file
+    (issue #24) - so a moved or cloned checkout keeps the agent's lines - in the run's registered coordinates, and named
+    in the repository lexically (_repo_rel), so a folder replaced by a symlink after startup changes neither the pin's
+    file nor its recorded ranges; a path the rule cannot place is dropped and the pin's hunks are inferred as before.
+    Unless the same pin facts were decided for this commit before (ctx.cache), reads the commit's files within one of
+    the cache's slots and decides with revisions.scope.pin_scope(); an unreadable commit is mode "commit" and not
+    stored."""
     projected = ctx.pins(
         pid,
         D.key,
         D,
-        lambda path: _repo_rel(repo, str(path)),
+        lambda path: _repo_rel(D, repo, path),
     )
     if projected is None:
         return PinNotInDoc()

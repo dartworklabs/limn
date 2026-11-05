@@ -5,6 +5,7 @@ the current manuscript tree, resynchronizes their anchors, and computes overlaps
 The document, tree, state folder and stored pins arrive as arguments; this module does not read server globals.
 """
 
+import os
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, NamedTuple, Protocol, TypeAlias
@@ -95,6 +96,37 @@ def locate_file(file: object, file_rel: object, root: Path, state: Path, doc: Bu
     path = root / rel
     source = file_in_tree(str(path), root, state)
     return PinLocation(rel, source) if isinstance(source, ManuscriptFile) else None
+
+
+def recorded_place(file: object, file_rel: object, root: Path, state: Path, doc: BuildRoot | None) -> Path | None:
+    """Where a stored absolute path - a pin's own `file` (with its file_rel) or a path in its `changes` (none) - is in
+    the coordinates the run registered: root is the manuscript root as startup resolved it (limn.server), and a stored
+    path lexically below it ('..' parts folded) is root / that part, whatever a folder on the way leads to now, so a
+    folder replaced by a symlink after startup does not move the pin, or its recorded ranges, to another file. Any
+    other path (a record from a moved or cloned checkout) is placed by locate_file, the rule of ADR-0006. None for a
+    path with a dot-named part below root or one in the state folder `state` (the tree rule, limn.platform.files.
+    tree_part, judged on the path's own parts), and for what locate_file cannot place.
+
+    The changes view's pin scope reads its files from Git (limn.revisions.core.revision_pin_scope), never from this
+    path, so a path below root is placed without asking the filesystem anything (only `state` is resolved) - and is
+    placed even when its file is gone, as the commit the pin was closed on still names it."""
+    if not isinstance(file, str) or not file or "\x00" in file:
+        return None
+    try:
+        rel = Path(os.path.normpath(file)).relative_to(root) if os.path.isabs(file) else None
+    except ValueError:
+        rel = None
+    if rel is None:
+        found = locate_file(file, file_rel, root, state, doc)
+        return None if found is None else found.path
+    if not rel.parts or any(part.startswith(".") for part in rel.parts):
+        return None
+    placed = root / rel
+    try:
+        held = state.resolve()
+    except (OSError, RuntimeError):
+        return None
+    return None if held.is_relative_to(root) and placed.is_relative_to(held) else placed
 
 
 def pin_location(r: Mapping[str, Any], root: Path, state: Path, doc: Doc | None) -> PinLocation | None:

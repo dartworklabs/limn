@@ -105,18 +105,19 @@ class PinReadView:
         document: Any,
         relative: Callable[[Path], str | None],
     ) -> RevisionPin | None:
-        """Return one document-bound projection with every stored path currently resolved."""
+        """Return one document-bound projection with every stored path placed in the run's registered coordinates
+        (the locator assemble_pins binds: limn.pins.location.lookup.recorded_place)."""
         record = next((pin.record for pin in self._read()[0] if pin.core.id == pin_id), None)
         if record is None or self._document_key(record) != document_key:
             return None
 
         def resolve(value: Record | str) -> str | None:
-            """Locate a stored path now, then let the revision owner place it in its repository."""
+            """Place a stored path as the run registered its root, then let the revision owner name it in its repository."""
             path = self._locate(value, document)
             return relative(path) if path is not None else None
 
         def resolve_pin() -> str | None:
-            """Prefer the current location, retaining a repository-relative historical name after a rename."""
+            """Prefer the placed location, retaining a repository-relative historical name after a rename."""
             current = resolve(record)
             stored = record.get("file")
             return current if current is not None else relative(Path(stored)) if isinstance(stored, str) else None
@@ -177,7 +178,7 @@ def assemble_pins(
     composition root - and runs before an agent's close of one of its pins is written
     (docs/handbook/api.md §닫을 때 사유 남기기). verdict_keys answers the verdict words a document declares now - the
     document capability's answer, wired by the composition root - which a new verdict pin is checked against."""
-    from limn.pins.location.lookup import locate_file
+    from limn.pins.location.lookup import recorded_place
     from limn.pins.runtime import PinCommands
 
     commands = PinCommands(
@@ -197,16 +198,16 @@ def assemble_pins(
     )
 
     def locate(value: Record | str, document: Any) -> Path | None:
-        """Resolve a pin or recorded change using the current manuscript paths."""
+        """Place a pin or recorded change for the changes view, in the coordinates the run registered (recorded_place):
+        a folder replaced by a symlink after startup does not move it."""
         config = settings()
-        location = locate_file(
+        return recorded_place(
             value.get("file") if isinstance(value, Mapping) else value,
             value.get("file_rel") if isinstance(value, Mapping) else None,
             config.src,
             config.state,
             document,
         )
-        return None if location is None else location.path
 
     def render() -> None:
         """Render current pins after acquiring this run's transaction lock."""

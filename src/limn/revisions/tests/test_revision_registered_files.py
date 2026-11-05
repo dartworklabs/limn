@@ -13,10 +13,11 @@ from pathlib import Path
 from unittest import mock
 
 from limn.administration.serve_documents import make_docs
+from limn.pins.location.lookup import recorded_place
 from limn.revisions import core, execution
 
 from helpers import needs_tex, ps
-from helpers_access import CAROL, AccessBase, member_add
+from helpers_access import CAROL, REPO_NEW, REPO_OLD, AccessBase, ScopedRepo, member_add
 from helpers_figure import BUILD1, b2_map, figure_doc, write_build
 
 SECRET = "SECRET-TEXT"
@@ -213,6 +214,93 @@ class FigurePdfThroughLink(Repository):
         self.assertEqual(self.subjects("fig"), ["figure"])
         code, body = self.call("GET", "/api/revision-diff?doc=fig&commit=%s" % head, headers=CAROL)
         self.assertEqual(code, 404, body)
+
+
+class PinAfterRootLink(ScopedRepo):
+    """ScopedRepo's manuscript folder replaced, after startup, by a symlink to a dot-named folder of the repository."""
+
+    def test_a_pin_keeps_its_scope(self):
+        """Pin alpha's scoped diff of its fix commit is the same after the link: its file is still ms/main.tex."""
+        before = self.diff_ok(self.fix, self.p1)
+        self.assertEqual(before["scope"]["mode"], "pin")
+        hidden = self.repo / ".private"
+        hidden.mkdir()
+        (hidden / "main.tex").write_text("hidden\n", encoding="utf-8")
+        shutil.rmtree(self.src)
+        self.src.symlink_to(hidden, target_is_directory=True)
+        self.assertEqual(self.diff_ok(self.fix, self.p1)["scope"], before["scope"])
+
+
+class PinInLinkedFolder(Repository):
+    """A LaTeX document paper/main.tex whose fix commit changes three paragraphs; pin alpha (line 4) is closed on it
+    with a recorded change on the beta paragraph (line 12), which decides its blocks."""
+
+    def setUp(self):
+        """Commit REPO_OLD, add pin alpha, commit REPO_NEW and close the pin with its recorded change."""
+        super().setUp()
+        (self.src / "paper").mkdir()
+        self.paper = self.src / "paper" / "main.tex"
+        self.paper.write_text(REPO_OLD, encoding="utf-8")
+        docs = make_docs(["pp=논문:paper/main.tex"], self.src, ps.APP.C.paths)
+        self.assertIsInstance(docs, list, docs)
+        self.serve(docs)
+        self.commit("first")
+        code, d = self.call("POST", "/api/pin", {"doc": "pp", "file": str(self.paper), "lo": 4, "hi": 4, "note": "a"})
+        self.assertEqual(code, 200, d)
+        self.pin = d["id"]
+        self.paper.write_text(REPO_NEW, encoding="utf-8")
+        self.fix = self.commit("fix")
+        code, d = self.call(
+            "POST",
+            "/api/pins/%d/close" % self.pin,
+            {"ref": self.fix[:8], "changes": [{"file": "paper/main.tex", "lo": 12, "hi": 12}]},
+        )
+        self.assertEqual(code, 200, d)
+
+    def scope(self):
+        """The pin's scope of the fix commit, from the source diff and from the comparison spec."""
+        code, body = self.call(
+            "GET", "/api/revision-diff?doc=pp&commit=%s&pin=%d" % (self.fix, self.pin), headers=CAROL
+        )
+        self.assertEqual(code, 200, body)
+        spec = core.revision_spec(ps.APP.docs[0], self.fix, self.pin, ps.APP.revision_requests.context())
+        self.assertIsInstance(spec, core.RevisionSpec, spec)
+        return body["scope"], spec.scope, spec.key
+
+    def test_a_folder_replaced_by_a_link_keeps_the_pins_file_and_ranges(self):
+        """paper -> a copy of it (a plain name, or a dot-named one): the pin is still on paper/main.tex and its
+        recorded range still picks the beta paragraph, in the diff's scope and the comparison spec alike."""
+        before = self.scope()
+        self.assertEqual((before[0]["mode"], before[0]["hunks"]), ("pin", 1))
+        self.assertTrue(before[1])
+        folder = self.src / "paper"
+        for name in ("copy", ".copy"):
+            shutil.copytree(folder, self.src / name)
+        shutil.rmtree(folder)
+        for name in ("copy", ".copy"):
+            with self.subTest(target=name):
+                if folder.is_symlink():
+                    folder.unlink()
+                folder.symlink_to(name, target_is_directory=True)
+                self.assertEqual(self.scope(), before)
+
+    def test_recorded_place_is_lexical_below_the_root(self):
+        """recorded_place: a stored path below the root is placed where it was recorded ('..' folded), through a link
+        or not; one with a dot-named part is refused."""
+        root, state = ps.APP.C.src, ps.APP.C.state
+        doc = ps.APP.docs[0]
+        target = self.src / "copy"
+        shutil.copytree(self.src / "paper", target)
+        shutil.rmtree(self.src / "paper")
+        (self.src / "paper").symlink_to("copy", target_is_directory=True)
+        self.assertEqual(recorded_place(str(self.paper), "paper/main.tex", root, state, doc), self.paper)
+        self.assertEqual(
+            recorded_place(str(root / "paper" / ".." / "copy" / "main.tex"), None, root, state, doc),
+            root / "copy" / "main.tex",
+        )
+        for stored in (root / ".private" / "main.tex", root / "paper" / ".old" / "main.tex"):
+            with self.subTest(stored=stored):
+                self.assertIsNone(recorded_place(str(stored), None, root, state, doc))
 
 
 class GlobCharactersInTheFolder(Repository):
