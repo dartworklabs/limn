@@ -21,7 +21,6 @@ import json
 import math
 import os
 import shutil
-import time
 import unittest
 from urllib.parse import urlparse
 
@@ -36,6 +35,7 @@ from helpers_browser import (
     MISSES_44,
     ROW_INK,
     SEGMENTS,
+    TOUCH_STEP,
     VIEWPORTS,
     BrowserBase,
     booted,
@@ -45,6 +45,8 @@ from helpers_browser import (
     hangul_ink_holds,
     off_centre,
     settle,
+    touch_drag,
+    touch_line,
 )
 
 A, B, C = (person["Tailscale-User-Login"] for person in (ALICE, BOB, CAROL))
@@ -247,6 +249,13 @@ PREVIEW = """() => {const box = document.querySelector('#note-mentions'), out = 
     else if (e.classList.contains('mention') || e.classList.contains('m-who')) out.groups[out.groups.length - 1][1].push(e.textContent.trim());
     else if (e.classList.contains('mention-bad')) out.bad.push(e.textContent.trim());}
   return out;}"""
+# The composer as the person left it: the note's text and whether the composer is open.
+COMPOSING = "() => ({note: document.querySelector('#note').value, open: !document.querySelector('#composer').hidden})"
+# [따로 저장] of the composer's overlap banner.
+SEPARATE = "#c-overlap [data-act=overlap-separate]"
+# What the status line says - after an action that was not meant, its notice names it ('#1 에 덧붙였습니다').
+STATUS = "() => document.querySelector('#status').innerText"
+
 # The assignee row as drawn: its options in order and the one checked, or null while the row is hidden.
 ASSIGN_ROW = """() => {const box = document.querySelector('#c-assign'); if (box.hidden) return null;
   const bs = [...box.querySelectorAll('button[role=radio]')];
@@ -287,27 +296,23 @@ class ComposerBase(BrowserBase):
             )
         return self.open(n_open, lang=lang, init=init, **device)
 
-    def select(self, page, device):
+    def select(self, page, device, pace=TOUCH_STEP):
         """Select a region of page 1 as the device's person does - a mouse drags over it, a finger turns [선택] on and
         drags - and wait for the pick. The fixture answers every pick with the manuscript's one paragraph, so a
-        selection made after a pin was saved overlaps that pin and the composer offers [덧붙이기]."""
+        selection made after a pin was saved overlaps that pin and the composer offers [덧붙이기].
+
+        The finger is helpers_browser's touch_drag: its touches carry their own times and it rests at the far corner
+        before it lifts, as a person's does when a box is drawn - a finger lifted while moving flings, and the tap into
+        the note that followed stopped the fling, took no focus and lost its keys (CI 2026-11-04). pace is the wall
+        time after each move; 0 delivers them at once, as that runner did."""
         if device.get("has_touch"):
             page.tap("#btn-select")
             settle(page)
         box = page.locator("#p1").bounding_box()  # read once [선택] is on: its hint moves the page down
         x0, y0, x1, y1 = box["x"] + box["width"] * 0.2, box["y"] + 40, box["x"] + box["width"] * 0.6, box["y"] + 64
         if device.get("has_touch"):
-            cdp = page.context.new_cdp_session(page)  # left attached: detaching resets the page's touch emulation
-
-            def touch(kind, points):
-                """One CDP touch event of the finger."""
-                cdp.send("Input.dispatchTouchEvent", {"type": kind, "touchPoints": [dict(p, id=0) for p in points]})
-
-            touch("touchStart", [{"x": x0, "y": y0}])
-            for i in range(1, 9):
-                touch("touchMove", [{"x": x0 + (x1 - x0) * i / 8, "y": y0 + (y1 - y0) * i / 8}])
-                time.sleep(0.016)  # the finger's speed, not a wait for the page
-            touch("touchEnd", [])
+            # the session stays attached: detaching resets the page's touch emulation
+            touch_drag(page.context.new_cdp_session(page), touch_line(x0, y0, x1, y1), pace=pace)
         else:
             page.mouse.move(x0, y0)
             page.mouse.down()
@@ -315,8 +320,6 @@ class ComposerBase(BrowserBase):
             page.mouse.up()
         page.wait_for_function("COMPOSE.current&&COMPOSE.current.lo&&!COMPOSE.picking", timeout=8000)
         settle(page)
-        if device.get("has_touch"):
-            time.sleep(0.5)  # the finger's pause before its next tap, past the window that swallows a drag's own click
 
     def press(self, page, device, selector):
         """Press the control as the device's person does: a tap, or a mouse click."""
@@ -331,8 +334,12 @@ class ComposerBase(BrowserBase):
         for a person - then leave the field with a press on the range caption under it (after Esc, if the list is
         still open over a tag the text ends with), so the list is closed and a word that does not resolve is
         flagged, as when the author moves on. replace selects the field's text and deletes it before typing, so text
-        takes its place."""
-        self.press(page, device, selector)
+        takes its place. The keys follow the press at once, as a person's do: the field has the focus when the press
+        returns, and the settle after the keys waits out what the press set in motion as well."""
+        if device.get("has_touch"):
+            page.tap(selector)
+        else:
+            page.click(selector)
         if replace:
             page.keyboard.press("ControlOrMeta+a")
             page.keyboard.press("Delete")
@@ -349,11 +356,16 @@ class ComposerBase(BrowserBase):
         self.leave(page, device)
 
     def leave(self, page, device):
-        """Take the caret out of the note: Esc closes an open @-list, then a press on the range caption."""
+        """Take the caret out of the note: Esc closes an open @-list, then a press on the range caption. Leaving is no
+        action: the composer stays open with the note as it was. A press that acted instead - [덧붙이기] right above the
+        caption empties the note and closes the composer, so does a discard - fails here, with what the status line
+        then says, not later as a note that reads empty."""
+        before = page.input_value("#note")
         if page.evaluate("!document.querySelector('#mention-pop').hidden"):
             page.keyboard.press("Escape")
         self.press(page, device, "#c-cap .rg-l")
         page.wait_for_function("document.querySelector('#mention-pop').hidden")
+        self.assertEqual(page.evaluate(COMPOSING), {"note": before, "open": True}, ("left", page.evaluate(STATUS)))
 
     def compose(self, page, note, kind="fix", device=DESKTOP, separate=True):
         """Select a region, write note in the panel's field and set the kind, all with the device's own input. A
@@ -368,8 +380,8 @@ class ComposerBase(BrowserBase):
 
     def separate(self, page, device=DESKTOP):
         """Choose [따로 저장] where the composer offers [덧붙이기] for an overlapped pin."""
-        if page.is_visible("#c-overlap [data-act=overlap-separate]"):
-            self.press(page, device, "#c-overlap [data-act=overlap-separate]")
+        if page.is_visible(SEPARATE):
+            self.press(page, device, SEPARATE)
 
     def save(self, page, device=DESKTOP):
         """Press [핀 저장], wait for the composer to close and return (the request's body, the stored record)."""
@@ -1155,13 +1167,16 @@ class AssigneeRowGeometry(ComposerBase):
                 with self.subTest(name, lang=lang):
                     page = self.view(device, 1, lang=lang)
                     self.compose(page, notes["two"], separate=False, device=device)
+                    self.assertTrue(page.is_visible(SEPARATE), "the composer offers [덧붙이기] and [따로 저장]")
                     got = page.evaluate(widths)
                     self.assertEqual((got["composer"], got["appendLine"]), (0, 0), ("append", got))
                     self.separate(page, device)
                     for label in ("two", "one", "three", "three long"):
                         if label != "two":
                             self.rewrite(page, notes[label], device)
-                        self.assertEqual(page.input_value("#note"), notes[label])
+                        self.assertEqual(
+                            page.evaluate(COMPOSING), {"note": notes[label], "open": True}, page.evaluate(STATUS)
+                        )
                         got = page.evaluate(widths)
                         self.assertEqual((got["composer"], got["row"]), (0, 0), (label, got))
                         if label in ("one", "two"):
@@ -1171,6 +1186,17 @@ class AssigneeRowGeometry(ComposerBase):
                         else:
                             self.assertGreaterEqual(got["track"], math.floor(got["need"] - got["box"]), (label, got))
                     page.context.close()
+
+    def test_a_tap_into_the_note_right_after_the_drag_takes_the_keys(self):
+        """The screen it failed on in CI (fold inner 841x673), the drag's moves delivered at once as a busy runner
+        delivers them, and the note pressed and typed into as soon as the pick is in: the keys land in the note. When
+        the finger lifted while still moving, the browser flung, and the tap that stopped the fling took no focus: the
+        keys went to [선택], and after [따로 저장] the note read '' (CI 2026-11-04, PR #401)."""
+        device = VIEWPORTS["fold inner 841x673"]
+        page = self.view(device)
+        self.select(page, device, pace=0)
+        self.write(page, device, "@Bob Park 확인")
+        self.assertEqual(page.evaluate(COMPOSING), {"note": "@Bob Park 확인", "open": True})
 
     def test_three_long_names_at_320_scroll_inside_the_row(self):
         """320x720, three long names: the track is longer than the row and scrolls sideways inside it, as the range

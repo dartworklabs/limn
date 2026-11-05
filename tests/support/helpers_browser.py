@@ -462,6 +462,82 @@ def nothing_follows(page, ms=500):
     page.wait_for_timeout(ms)
 
 
+# A synthesized finger's timing (Finger): its events are stamped TOUCH_STEP s apart at least, and it rests TOUCH_REST s
+# at its last point before it lifts - long enough that the browser reads a finger that stopped, not one lifted at speed.
+TOUCH_STEP = 0.016
+TOUCH_REST = 0.15
+
+
+class Finger:
+    """One finger on a touch screen, through the DevTools input domain (Input.dispatchTouchEvent on cdp, a CDP session
+    left attached: detaching it resets the page's touch emulation). Every synthesized touch drag goes through it
+    (docs/handbook/verification.md §불안정한 테스트).
+
+    Each event carries its own time, TOUCH_STEP s after the one before or now, whichever is later, and up() first holds
+    the finger still at its last point for TOUCH_REST s - as a person's comes to rest at the end of a box or a pull. The
+    browser takes the release speed from those times: without them it takes them from when the events arrive, and a
+    runner that delivered the moves at once had a finger lifted at speed, so the browser flung, and the tap that stops a
+    fling is no click - the next tap on a field took no focus and its keys were lost (#401). up() returns once the
+    lift's time has passed, so whatever input follows is stamped after it.
+
+    pace is the wall time after each move: the drag's speed in real time, which the viewer's own gestures measure
+    (performance.now() in gestures.js). 0 sends the moves at once, as such a runner did; the stamps keep their spacing."""
+
+    def __init__(self, cdp, pace=TOUCH_STEP):
+        """A finger on cdp's page, not yet down."""
+        self.cdp, self.pace, self.at, self.xy = cdp, pace, None, None
+
+    def _send(self, kind, gap):
+        """One event of kind at the finger's point (none for touchEnd), stamped gap s after the last or now."""
+        now = time.time()
+        self.at = now if self.at is None else max(self.at + gap, now)
+        points = [] if kind == "touchEnd" else [{"x": self.xy[0], "y": self.xy[1], "id": 0}]
+        self.cdp.send("Input.dispatchTouchEvent", {"type": kind, "touchPoints": points, "timestamp": self.at})
+
+    def down(self, x, y, hold=0.0):
+        """The finger lands at (x, y); hold: s it stays still there before it moves (a still press)."""
+        self.xy, self.at = (x, y), None
+        self._send("touchStart", 0)
+        if hold:
+            time.sleep(hold)
+        return self
+
+    def move(self, x, y):
+        """The finger moves to (x, y), then pace passes."""
+        self.xy = (x, y)
+        self._send("touchMove", TOUCH_STEP)
+        time.sleep(self.pace)
+        return self
+
+    def glide(self, x, y, steps=8):
+        """The finger moves to (x, y) in steps equal moves."""
+        x0, y0 = self.xy
+        for i in range(1, steps + 1):
+            self.move(x0 + (x - x0) * i / steps, y0 + (y - y0) * i / steps)
+        return self
+
+    def up(self):
+        """The finger rests at its point for TOUCH_REST s, then lifts; returns once the lift's time has passed."""
+        self._send("touchMove", TOUCH_REST)
+        self._send("touchEnd", TOUCH_STEP)
+        time.sleep(max(0.0, self.at - time.time()))
+
+
+def touch_drag(cdp, points, pace=TOUCH_STEP):
+    """A one-finger drag through points, [(x, y), ...]: down at the first, a move to each of the rest, at rest, then up
+    (Finger). Returns cdp."""
+    finger = Finger(cdp, pace).down(*points[0])
+    for x, y in points[1:]:
+        finger.move(x, y)
+    finger.up()
+    return cdp
+
+
+def touch_line(x0, y0, x1, y1, steps=8):
+    """The points of a straight drag from (x0, y0) to (x1, y1) in steps equal moves, the press point first."""
+    return [(x0 + (x1 - x0) * i / steps, y0 + (y1 - y0) * i / steps) for i in range(steps + 1)]
+
+
 def booted(n_open):
     """The JS condition that boot() has finished with at least n_open open pins: LIGHT_TIMER is set by the last
     synchronous steps after `await loadPins()` (see BrowserBase.open)."""

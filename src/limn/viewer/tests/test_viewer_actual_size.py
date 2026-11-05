@@ -16,7 +16,7 @@ import unittest
 import helpers_figure
 from helpers import add_pin, blank_png, extract_js_fn, ps, run_node
 from helpers_access import ALICE
-from helpers_browser import BrowserBase, clock_still, nothing_follows, settle
+from helpers_browser import BrowserBase, Finger, clock_still, nothing_follows, settle
 from helpers_notices import node_or_skip
 
 PT_PX = 96 / 72
@@ -545,11 +545,9 @@ class ActualSize(BrowserBase):
                 "Input.dispatchTouchEvent", {"type": kind, "touchPoints": [{"x": x, "y": y, "id": 0} for x, y in pts]}
             )
 
-        touch("touchStart", [(at[0], at[1])])
-        for i in range(1, 9):
-            touch("touchMove", [(at[0] + 10 * i, at[1] + 6 * i)])
+        finger = Finger(cdp).down(at[0], at[1]).glide(at[0] + 80, at[1] + 48)
         page.wait_for_function("!!document.querySelector('#p2 .sel')")
-        touch("touchEnd", [])
+        finger.up()
         settle(page)
         self.assertFalse(page.evaluate("!!document.querySelector('.pin.card.cur')"))
         page.evaluate("cancelSelection(false)")
@@ -595,17 +593,34 @@ class ActualSize(BrowserBase):
         cdp = page.context.new_cdp_session(page)
         page.clock.install()
         clock_still(page)
-        send_pointer(cdp, kind, "down", *at["press"])
+        (x, y), end = at["press"], tuple(at["press"] if back else at["badge"])
+        if kind == "touch":
+            finger = Finger(cdp).down(x, y)
+            move = finger.move
+        else:
+            send_pointer(cdp, kind, "down", x, y)
+            move = lambda px, py: send_pointer(cdp, kind, "move", px, py)  # noqa: E731
         for i in range(1, 6):
-            send_pointer(cdp, kind, "move", at["press"][0] + 12 * i, at["press"][1] + 8 * i)
+            move(x + 12 * i, y + 8 * i)
         page.wait_for_function("!!document.querySelector('#p2 .sel')")
         page.clock.run_for(500)  # the drag has outlasted the 400ms the badge's click used to be held off
-        end = tuple(at["press"] if back else at["badge"])
-        for x, y in ((at["press"][0] + 30, at["press"][1] + 20), end):
-            send_pointer(cdp, kind, "move", x, y)
-        time.sleep(
-            0.15
-        )  # the finger comes to rest: a release at speed starts a fling, and Chromium sends no tap during one
+        for point in ((x + 30, y + 20), end):
+            move(*point)
+        if kind == "touch":
+            finger.up()  # at rest first: a release at speed starts a fling, and Chromium sends no tap during one
+        else:
+            time.sleep(0.15)  # the pen comes to rest before it lifts, as the finger does
+            move(*end)
+            send_pointer(cdp, kind, "up", *end)
+        return cdp
+        send_pointer(cdp, kind, "down", x, y)
+        for i in range(1, 6):
+            send_pointer(cdp, kind, "move", x + 12 * i, y + 8 * i)
+        page.wait_for_function("!!document.querySelector('#p2 .sel')")
+        page.clock.run_for(500)
+        for point in ((x + 30, y + 20), end):
+            send_pointer(cdp, kind, "move", *point)
+        time.sleep(0.15)  # the pen comes to rest as the finger does
         send_pointer(cdp, kind, "move", *end)
         send_pointer(cdp, kind, "up", *end)
         return cdp
