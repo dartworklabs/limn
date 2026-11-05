@@ -255,6 +255,7 @@
  "reason:snapshot_failed": "Couldn't read the manuscript from Git.",
  "reason:asset_not_image": "The image file's contents do not match its extension.",
  "reason:asset_too_large": "The image is too large to send (8 MiB at most).",
+ "reason:asset_too_many_pixels": "The image has too many pixels to send (8192 x 8192 at most).",
  "reason:asset_unreadable": "Couldn't read the image file.",
  "reason:bad_asset_path": "The image path is not valid.",
  "reason:source_not_utf8": "The source file is not UTF-8.",

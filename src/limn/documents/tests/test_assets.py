@@ -2,17 +2,19 @@
 
 AssetPathRule holds the path the route takes to what the viewer sends: tree-relative, normalized, an image suffix - anything
 to repair is refused, not repaired. AssetKind holds each format to its signature, and SVG to an <svg> root without an
-internal DTD subset. AssetRoute drives the route through the handler on a Markdown document: its answer and headers (the
+internal DTD subset. RasterSize holds each raster format's header to the size it gives (the pixel limit reads it).
+AssetRoute drives the route through the handler on a Markdown document: its answer and headers (the
 asset's own policy, Cross-Origin-Resource-Policy, nosniff, a content ETag and its 304), every way out of the tree a path
 can try (traversal, encoded traversal once and twice, backslash, absolute, a link out of the tree for a file or a folder,
-a dot-named folder, the state folder), files that are not images (no regular file, wrong content), the size limit at its
-edge, who may read it, and that no answer writes anything. That an SVG opened on its own runs nothing is a browser test
+a dot-named folder, the state folder), files that are not images (no regular file, wrong content), the size limit and
+the pixel limit at their edges, who may read it, and that no answer writes anything. That an SVG opened on its own runs nothing is a browser test
 (src/limn/viewer/tests/test_viewer_markdown_assets.py).
 
 Run: uv run pytest -q src/limn/documents/tests/test_assets.py
 """
 
 import os
+import struct
 import subprocess
 import sys
 import unittest
@@ -21,12 +23,14 @@ from urllib.parse import quote
 
 from limn.documents.assets import (
     ASSET_MAX_BYTES,
+    ASSET_MAX_PIXELS,
     ASSET_POLICY,
     ASSET_TYPES,
     AssetPath,
     AssetPathRefused,
     asset_kind,
     asset_path,
+    raster_size,
 )
 from limn.runtime.documents import Doc
 
@@ -171,6 +175,85 @@ class AssetKind(unittest.TestCase):
         except subprocess.TimeoutExpired:
             self.fail("asset_kind(.svg) did not end within 20 s on an adversarial head")
         self.assertEqual(done.returncode, 0, done.stderr.decode(errors="replace"))
+
+
+def png_head(w: int, h: int) -> bytes:
+    """A PNG's signature and its IHDR chunk saying w x h pixels, and nothing after: what the pixel limit reads."""
+    ihdr = struct.pack(">IIBBBBB", w, h, 8, 0, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + struct.pack(">I", 13) + b"IHDR" + ihdr + b"\0\0\0\0"
+
+
+def gif_head(screen: tuple[int, int], frame: tuple[int, int, int, int] | None, table: bool = True) -> bytes:
+    """A GIF89a of logical screen `screen` with a global colour table of two entries (table), a graphic control extension,
+    then a frame (left, top, width, height) or the trailer."""
+    out = b"GIF89a" + struct.pack("<HH", *screen) + bytes([0x80 if table else 0, 0, 0]) + (b"\0" * 6 if table else b"")
+    out += b"\x21\xf9\x04\x00\x00\x00\x00\x00"
+    if frame is None:
+        return out + b"\x3b"
+    return out + b"\x2c" + struct.pack("<HHHH", *frame) + b"\0\x02\x02\x44\x01\x00\x3b"
+
+
+def jpeg_head(w: int, h: int, sof: int = 0xC0, before: bytes = b"") -> bytes:
+    """SOI, an APP0 segment, `before`, then a start-of-frame segment `sof` of w x h and a scan."""
+    app0 = b"\xff\xe0" + struct.pack(">H", 16) + b"JFIF\0\x01\x01\0\0\x01\0\x01\0\0"
+    frame = b"\xff" + bytes([sof]) + struct.pack(">HBHHB", 11, 8, h, w, 1) + b"\x01\x11\x00"
+    return b"\xff\xd8" + app0 + before + frame + b"\xff\xda\x00\x08\x01\x01\x00\x00\x3f\x00"
+
+
+def webp_head(kind: bytes, w: int, h: int) -> bytes:
+    """A RIFF/WEBP file whose first chunk `kind` (VP8X, VP8 or VP8L) gives w x h pixels."""
+    if kind == b"VP8X":
+        body = b"\0\0\0\0" + (w - 1).to_bytes(3, "little") + (h - 1).to_bytes(3, "little")
+    elif kind == b"VP8 ":
+        body = b"\0\0\0\x9d\x01\x2a" + struct.pack("<HH", w, h)
+    else:
+        body = b"\x2f" + ((w - 1) | (h - 1) << 14).to_bytes(4, "little")
+    chunk = kind + struct.pack("<I", len(body)) + body
+    return b"RIFF" + struct.pack("<I", 4 + len(chunk)) + b"WEBP" + chunk
+
+
+class RasterSize(unittest.TestCase):
+    """raster_size reads the width and height a raster image's header gives, and nothing from a header that gives none."""
+
+    def test_each_format_gives_its_size(self):
+        """PNG's IHDR; GIF's logical screen, widened by a first frame that reaches past it; JPEG's first start-of-frame
+        (baseline and progressive, after an APP segment and fill bytes); WebP's VP8X canvas, VP8 and VP8L frame."""
+        cases = [
+            (blank_png(7, 5), ".png", (7, 5)),
+            (png_head(9000, 3), ".png", (9000, 3)),
+            (gif_head((40, 30), (0, 0, 40, 30)), ".gif", (40, 30)),
+            (gif_head((40, 30), (5, 6, 100, 200)), ".gif", (105, 206)),
+            (gif_head((40, 30), (0, 0, 4, 3), table=False), ".gif", (40, 30)),
+            (jpeg_head(640, 480), ".jpg", (640, 480)),
+            (jpeg_head(30000, 20, sof=0xC2, before=b"\xff\xff"), ".jpeg", (30000, 20)),
+            (webp_head(b"VP8X", 16384, 16384), ".webp", (16384, 16384)),
+            (webp_head(b"VP8 ", 300, 200), ".webp", (300, 200)),
+            (webp_head(b"VP8L", 16384, 2), ".webp", (16384, 2)),
+        ]
+        for data, suffix, size in cases:
+            with self.subTest(suffix=suffix, size=size):
+                self.assertTrue(asset_kind(data, suffix))
+                self.assertEqual(raster_size(data, suffix), size)
+
+    def test_a_header_that_gives_no_size_gives_none(self):
+        """A PNG cut before or without IHDR first, a GIF with no frame or cut in its descriptor, a JPEG whose scan comes
+        before any frame or that is cut, a WebP of another first chunk or without the VP8 start code - and an SVG."""
+        no_ihdr = b"\x89PNG\r\n\x1a\n" + struct.pack(">I", 0) + b"tEXt" + b"\0" * 12
+        sos_first = b"\xff\xd8\xff\xda\x00\x08\x01\x01\x00\x00\x3f\x00\xff\xc0" + b"\0" * 9
+        cases = [
+            (png_head(5, 5)[:20], ".png"),
+            (no_ihdr, ".png"),
+            (gif_head((40, 30), None), ".gif"),
+            (gif_head((40, 30), (0, 0, 4, 3))[:-12], ".gif"),
+            (sos_first, ".jpg"),
+            (jpeg_head(64, 64)[:24], ".jpg"),
+            (b"RIFF\x10\x00\x00\x00WEBPALPH" + b"\0" * 20, ".webp"),
+            (webp_head(b"VP8 ", 9, 9).replace(b"\x9d\x01\x2a", b"\0\0\0"), ".webp"),
+            (SVG, ".svg"),
+        ]
+        for data, suffix in cases:
+            with self.subTest(data=data[:24], suffix=suffix):
+                self.assertIsNone(raster_size(data, suffix))
 
 
 class AssetRoute(AccessBase):
@@ -326,6 +409,40 @@ class AssetRoute(AccessBase):
         self.assertEqual(
             (body["reason"], body["bytes"], body["limit"]), ("asset_too_large", ASSET_MAX_BYTES + 1, ASSET_MAX_BYTES)
         )
+
+    def test_the_pixel_limit_holds_at_its_edge_whatever_the_file_size(self):
+        """A raster header of exactly ASSET_MAX_PIXELS pixels (8192 x 8192): 200, though the file is a few dozen bytes. One
+        row more: 413 asset_too_many_pixels with the width, the height and the limit - the same for a GIF whose first frame
+        reaches past its small screen, a progressive JPEG and a WebP canvas. A raster file whose header gives no size: 415
+        asset_not_image. An SVG has no pixel size to refuse."""
+        self.assertEqual(ASSET_MAX_PIXELS, 8192 * 8192)
+        img = self.src / "notes" / "img"
+        (img / "edge.png").write_bytes(png_head(8192, 8192))
+        (img / "over.png").write_bytes(png_head(8192, 8193))
+        (img / "wide.png").write_bytes(png_head(ASSET_MAX_PIXELS + 1, 1))
+        (img / "over.gif").write_bytes(gif_head((8, 8), (0, 1, 8192, 8192)))
+        (img / "over.jpg").write_bytes(jpeg_head(16384, 4097, sof=0xC2))
+        (img / "over.webp").write_bytes(webp_head(b"VP8X", 16384, 4097))
+        (img / "nosize.png").write_bytes(png_head(4, 4)[:20])
+        (img / "huge.svg").write_text('<svg xmlns="http://www.w3.org/2000/svg" width="99999" height="99999"/>')
+        code, _, body = self.raw("notes/img/edge.png")
+        self.assertEqual((code, body), (200, png_head(8192, 8192)))
+        for name, (w, h) in (
+            ("over.png", (8192, 8193)),
+            ("wide.png", (ASSET_MAX_PIXELS + 1, 1)),
+            ("over.gif", (8192, 8193)),
+            ("over.jpg", (16384, 4097)),
+            ("over.webp", (16384, 4097)),
+        ):
+            with self.subTest(name=name):
+                code, got = self.call("GET", "/api/asset?doc=nt&path=notes%2Fimg%2F" + name)
+                self.assertEqual(code, 413, got)
+                self.assertEqual(
+                    (got["reason"], got["width"], got["height"], got["limit"]),
+                    ("asset_too_many_pixels", w, h, ASSET_MAX_PIXELS),
+                )
+        self.assertEqual(self.raw("notes/img/nosize.png")[0], 415)
+        self.assertEqual(self.raw("notes/img/huge.svg")[0], 200)
 
     def test_every_admitted_principal_reads_it_and_the_rest_are_refused_alike(self):
         """The same role rule as GET /api/source: owner, editor and viewer over the tailnet, the agent's token and the

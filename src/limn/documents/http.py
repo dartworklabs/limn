@@ -12,6 +12,7 @@ from limn.documents.assets import (
     AssetNotImage,
     AssetPathRefused,
     AssetTooLarge,
+    AssetTooManyPixels,
     AssetUnreadable,
     asset_path,
     read_asset,
@@ -104,8 +105,10 @@ def asset(doc: Doc, query: Mapping[str, list[str]]) -> Reply:
     refusals, each its own reason: 400 bad_asset_path for a path the viewer would not send (asset_path); the 400 every
     file route answers for a path outside the tree - outside --manuscript, under a dot-named folder, behind a link that
     leads out, in the state folder (file_outside_manuscript) - or for no regular file there (file_not_found); 413
-    asset_too_large with `bytes` and `limit`; 415 asset_not_image when the bytes are not the format the suffix names;
-    422 asset_unreadable when the checked handle refuses the file after the tree check. Writes nothing."""
+    asset_too_large with `bytes` and `limit` (ASSET_MAX_BYTES); 413 asset_too_many_pixels with `width`, `height` and
+    `limit` (ASSET_MAX_PIXELS) for a raster image whose header gives it more pixels; 415 asset_not_image when the bytes are
+    not the format the suffix names; 422 asset_unreadable when the checked handle refuses the file after the tree check.
+    Writes nothing."""
     wanted = asset_path(parse.query_first(query, "path"))
     if isinstance(wanted, AssetPathRefused):
         raise HTTPError(400, "그림 경로가 올바르지 않습니다.", reason="bad_asset_path")
@@ -120,6 +123,15 @@ def asset(doc: Doc, query: Mapping[str, list[str]]) -> Reply:
                 "그림이 너무 커서 보내지 않습니다(%d바이트, 한도 %d바이트)." % (size, limit),
                 reason="asset_too_large",
                 bytes=size,
+                limit=limit,
+            )
+        case AssetTooManyPixels(width=width, height=height, limit=limit):
+            raise HTTPError(
+                413,
+                "그림의 화소가 너무 많아 보내지 않습니다(%d×%d, 한도 %d화소)." % (width, height, limit),
+                reason="asset_too_many_pixels",
+                width=width,
+                height=height,
                 limit=limit,
             )
         case AssetNotImage():
