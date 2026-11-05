@@ -234,7 +234,7 @@ CI는 uv `0.12.23`을 쓰고, 패키지 빌드는 Hatchling `1.32.4`를 요구�
 | 항목 | 내용 |
 | --- | --- |
 | 측정 대상 | Handbook이 작성 표준(목록·role 배정·H1 하나·강조 상자 label·코드 언어·단순 표·내부 링크와 절 대상)을 지키고 한 장짜리 HTML로 묶이는지 |
-| 적용 조건 | `docs/handbook/`, `docs/handbook/book.json`, `tools/handbook-publish/`를 바꿀 때 |
+| 적용 조건 | `docs/handbook/`, `docs/handbook/book.json`, `tools/handbook-publish/`를 바꿀 때. CI `lint` 작업은 모든 변경에서 `check`를 돌린다. 그 작업은 `book.json`이 고정한 Pandoc을 아래 §준비대로 받는다. Pandoc이 없는 머신의 `check`는 색인 표까지만 보고 멈추므로, 장의 규칙(중복된 제목 ID, 없는 절로 가는 링크)은 거기서만 걸린다. 폰트가 필요한 `build`는 CI에서 돌지 않는다 |
 | 실행 | 아래 §준비를 마친 뒤 `uv run python tools/handbook-publish/publish.py check docs/handbook/index.md`, 이어서 `uv run python tools/handbook-publish/publish.py build docs/handbook/index.md --output .handbook/out/index.html` |
 | 합격 기준 | 두 명령이 0으로 끝난다. 폰트 SHA-256과 Pandoc 버전은 `book.json`의 값과 정확히 같아야 한다 |
 | 보장 범위 | 형식과 링크 대상까지다. 내용이 코드와 맞는지는 보장하지 않는다. PDF 출판은 `book.json`에 고정한 Playwright·Chromium이 따로 필요하다 |
