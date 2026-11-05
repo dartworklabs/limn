@@ -34,7 +34,7 @@ uv run pytest -q -rs
 
 | 선택 | 현재 동작과 이유 |
 | --- | --- |
-| `--manuscript`, `--main`, `--doc` | 원고 루트를 지정한다. `--main`을 생략하면 `\documentclass`가 있는 최상위 `.tex`를 찾고 후보가 모호하면 멈춘다. `--main`은 LaTeX 메인이다. `.md`나 텍스트 문서의 확장자(`.py`·`.txt` 등. LaTeX 메인일 수 있는 `.bib`·`.sty`·`.cls`·`.bst`는 받는다)를 주면 빌드하지 않고 `--doc <키>=<이름>:<경로>` 꼴을 알리며 기동을 거절한다. 여러 문서와 Markdown·텍스트 문서는 `--doc`을 쓰며 `--main`과 함께 쓰지 않는다(§여러 문서 (`--doc`)) |
+| `--manuscript`, `--main`, `--doc` | 원고 루트를 지정한다. `--main`을 생략하면 `\documentclass`가 있는 최상위 `.tex`를 찾고 후보가 모호하면 멈춘다. `--main`은 LaTeX 메인이다. `.md`, 그림 지도(`.limnmap.json`), 텍스트 문서의 확장자(`.py`·`.txt` 등. LaTeX 메인일 수 있는 `.bib`·`.sty`·`.cls`·`.bst`는 받는다)를 주면 빌드하지 않고 `--doc <키>=<이름>:<경로>` 꼴을 알리며 기동을 거절한다. 여러 문서와 Markdown·텍스트 문서는 `--doc`을 쓰며 `--main`과 함께 쓰지 않는다(§여러 문서 (`--doc`)) |
 | `--port` | 생략하면 loopback의 18300–18399에서 비어 있는 첫 포트를 고른다. 대역이 다 차거나 명시한 포트가 사용 중이면 멈춘다(§포트 충돌 회피 (강제)) |
 | `--max-connections N` | 양의 정수 N을 주면 리스너별 admitted 연결 수를 제한한다. 생략하면 기존 무제한 입장과 worker 시작 실패 처리를 유지한다. 잘못된 값은 argparse가 리스닝 전에 거부하며 기본 숫자나 별도 숫자 최대값은 없다(§선택형 연결 입장 상한) |
 | `--state-dir` | 기본은 `${XDG_DATA_HOME:-~/.local/share}/limn/serve/<slug>`이고 slug에는 원고 경로의 해시가 들어간다. 서로 다른 원고와 worktree의 상태가 섞이지 않게 한다. 상시 인스턴스의 기본 위치는 [instances.md](instances.md)가 정한다 |

@@ -117,6 +117,7 @@ cmd_add() {
     elif [[ -n "$main" ]]; then
         [[ "$stage" == auto ]] || die "--stage is only used for auto-detection without --doc/--main"
         [[ "$main" != *.[mM][dD] ]] || die "--main takes the LaTeX main (.tex) — a Markdown document is added with --doc <key>=<name>:$main"
+        ! main_is_figure_map "$main" || die "--main takes the LaTeX main (.tex) — a figure document is added with --doc <key>=<name>:$main"
         ! main_is_text_doc "$main" || die "--main takes the LaTeX main (.tex) — a text document is added with --doc <key>=<name>:$main"
         [[ "$main" != */* && -f "$manuscript/$main" ]] || die "main .tex is not at the top of the manuscript dir: $manuscript/$main"
     elif detect_docs_layout "$manuscript" "$stage"; then

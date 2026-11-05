@@ -423,7 +423,9 @@ def pick_documents(src: Path, specs: Sequence[str], main: str | None) -> RunDocu
     --main names the LaTeX main of a single-document run, which builds; it never makes a Markdown or text document. A
     .md there (any case) is refused with the --doc form that registers one (ADR-0025), and so is a text suffix
     (TEXT_SUFFIXES, ADR-0029: plot.py, notes.txt), rather than built as LaTeX and failing - except LaTeX's own sources
-    (LATEX_OWN_SUFFIXES: .bib .sty .cls .bst), which latexmk builds like a .tex when they hold a document, as before."""
+    (LATEX_OWN_SUFFIXES: .bib .sty .cls .bst), which latexmk builds like a .tex when they hold a document, as before. A
+    figure map (MAP_SUFFIX, any case) is refused with the --doc form too. The suffix is Path.suffix's: a dotfile named
+    .py has none."""
     if not src.is_dir():
         return StartupRefused("Manuscript directory does not exist: %s" % src)
     if specs:
@@ -437,6 +439,10 @@ def pick_documents(src: Path, specs: Sequence[str], main: str | None) -> RunDocu
     if main and main.lower().endswith(".md"):
         return StartupRefused(
             "--main takes the LaTeX main (.tex) - a Markdown document is served with --doc <key>=<name>:%s" % main
+        )
+    if main and main.lower().endswith(MAP_SUFFIX):
+        return StartupRefused(
+            "--main takes the LaTeX main (.tex) - a figure document is served with --doc <key>=<name>:%s" % main
         )
     if main and Path(main).suffix.lower() in TEXT_SUFFIXES - LATEX_OWN_SUFFIXES:
         return StartupRefused(

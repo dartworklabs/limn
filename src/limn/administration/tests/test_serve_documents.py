@@ -169,7 +169,16 @@ class MarkdownAtStartup(StartupTree):
         self.assertEqual(
             serve_documents.pick_documents(self.ms, [], "main.tex"), RunDocuments(None, self.ms / "main.tex")
         )
-        for name in ("paper.sty", "paper.CLS", "refs.bib", "style.bst"):
+        for main in ("figs/out/figures.limnmap.json", "Figures.LIMNMAP.JSON"):
+            with self.subTest(figure_map=main):
+                self.assertEqual(
+                    serve_documents.pick_documents(self.ms, [], main),
+                    StartupRefused(
+                        "--main takes the LaTeX main (.tex) - a figure document is served with --doc <key>=<name>:%s"
+                        % main
+                    ),
+                )
+        for name in (".py", "paper.sty", "paper.CLS", "refs.bib", "style.bst"):  # .py: a dotfile, no suffix
             with self.subTest(latex_own=name):
                 (self.ms / name).write_text("\\documentclass{article}\\begin{document}x\\end{document}\n")
                 self.assertEqual(serve_documents.pick_documents(self.ms, [], name), RunDocuments(None, self.ms / name))
