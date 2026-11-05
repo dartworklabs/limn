@@ -255,12 +255,11 @@ function updSourceRedrawn(k,before,now){const u=UPD.lines.get(k),seen=seenDoc(k)
 // Tints the changed lines of the document on screen (after every draw of it, md-surface.js mdShow), and only those.
 function updMarks(){$$('#md .md-upd').forEach(e=>e.classList.remove('md-upd')); const u=UPD.lines.get(DOC||''); if(!u||!isMdDoc())return;
   u.ranges.forEach(r=>mdLeaves(r.lo,r.hi).forEach(e=>e.classList.add('md-upd')));}
-// [바뀐 곳]: the next changed place (the first after the last), scrolled to the reading depth and flashed like a pin's lines.
+// [바뀐 곳]: the next changed place (the first after the last), scrolled to the reading depth and flashed like a pin's lines
+// (mdShowLines: the reading spot is read where it lands).
 /** @param {string} k */
 function updGoNext(k){if(k!==DOC){switchDoc(k); return;} const u=UPD.lines.get(k); if(!u||!u.ranges.length)return;
-  u.at=(u.at+1)%u.ranges.length; const r=u.ranges[u.at],els=mdLeaves(r.lo,r.hi); if(!els.length)return;
-  pvShow(); const L=$('#left'),lr=L.getBoundingClientRect(),er=els[0].getBoundingClientRect(); L.scrollTop+=er.top-(lr.top+lr.height*0.30);
-  els.forEach(e=>{e.classList.remove('md-flash'); void e.offsetWidth; e.classList.add('md-flash');}); setTimeout(()=>els.forEach(e=>e.classList.remove('md-flash')),1200);}
+  u.at=(u.at+1)%u.ranges.length; const r=u.ranges[u.at],els=mdLeaves(r.lo,r.hi); if(els.length)mdShowLines(els);}
 
 // ---------------- Others' new pins
 // Each pin snapshot (list.js applyPinLists): pins others made since the highest number this tab - or, on the first snapshot,
