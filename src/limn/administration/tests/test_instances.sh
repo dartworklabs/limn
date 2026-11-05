@@ -404,6 +404,10 @@ chk "--main refuses a figure map (any case), names the --doc form and writes no 
     "[[ $frc -ne 0 ]] && grep -q -- 'figure document is added with --doc <key>=<name>:Figures.LIMNMAP.JSON' <<< \"\$fout\" && [[ ! -e '$T/config/docs-f.env' && ! -e '$T/src/docs-f.env' ]]"
 printf '\\documentclass{article}\\begin{document}x\\end{document}\n' > "$ms/.py"
 chk "--main takes a dotfile with no suffix (.py), as the server does" "'$PV' add docs-d --manuscript '$ms' --main .py --no-start >/dev/null 2>&1"
+cp "$ms/.py" "$ms/..py"
+chk "--main takes ..py too (no suffix on every Python), as the server does" "'$PV' add docs-e --manuscript '$ms' --main ..py --no-start >/dev/null 2>&1"
+for n in docs-s docs-d docs-e; do "$PV" remove "$n" > /dev/null 2>&1; done
+rm -f "$ms/plot.PY" "$ms/paper.sty" "$ms/Figures.LIMNMAP.JSON" "$ms/.py" "$ms/..py"
 chk "rejects a nonexistent file" "! '$PV' add docs-x --manuscript '$ms' --doc 'x=문서:no-such.tex' --no-start >/dev/null 2>&1"
 mkdir -p "$ms/figs/out"
 printf '{"format": "limn-figure-map/1"}\n' > "$ms/figs/out/figures.limnmap.json"

@@ -49,23 +49,28 @@ main_is_figure_map() {
 }
 
 # Whether a --main path names a text document that cannot be a LaTeX main: a DOC_TEXT_SUFFIXES suffix other than
-# MAIN_LATEX_OWN_SUFFIXES, as serve_documents.pick_documents decides. The suffix is Python's Path.suffix: a name that is
-# only a leading dot and a word (.py) has none.
+# MAIN_LATEX_OWN_SUFFIXES, as serve_documents.pick_documents decides, with the suffix name_suffix reads.
 main_is_text_doc() {
-    local low suf
-    low=$(printf '%s' "${1##*/}" | tr '[:upper:]' '[:lower:]')
-    [[ "${low#.}" == *.* ]] || return 1
-    suf=".${low##*.}"
-    [[ " $DOC_TEXT_SUFFIXES " == *" $suf "* && " $MAIN_LATEX_OWN_SUFFIXES " != *" $suf "* ]]
+    local suf
+    suf=$(name_suffix "$1")
+    [[ -n "$suf" && " $DOC_TEXT_SUFFIXES " == *" $suf "* && " $MAIN_LATEX_OWN_SUFFIXES " != *" $suf "* ]]
 }
 
 doc_is_text() {
-    local base=${1##*/} low suf
-    [[ "$base" == *.* ]] || return 1
-    low=$(printf '%s' "$base" | tr '[:upper:]' '[:lower:]')   # tr, not ${base,,}: macOS ships bash 3.2
+    local low suf
+    low=$(printf '%s' "${1##*/}" | tr '[:upper:]' '[:lower:]')   # tr, not ${base,,}: macOS ships bash 3.2
     [[ "${low%.limnmap.json}" == "$low" ]] || return 1
-    suf=".${low##*.}"
-    [[ " $DOC_TEXT_SUFFIXES " == *" $suf "* ]]
+    suf=$(name_suffix "$low")
+    [[ -n "$suf" && " $DOC_TEXT_SUFFIXES " == *" $suf "* ]]
+}
+
+# The suffix of a file name as limn.runtime.documents.name_suffix reads it (lower-cased): from the last dot, once the
+# leading dots are set aside - a dotfile (.py, ..py) has none - and none for a name ending with a dot. Printed, or nothing.
+name_suffix() {
+    local base=${1##*/}
+    while [[ "$base" == .* ]]; do base=${base#.}; done
+    [[ "$base" == *.* && "$base" != *. ]] || return 0
+    printf '.%s' "$(printf '%s' "${base##*.}" | tr '[:upper:]' '[:lower:]')"
 }
 
 # doc_check_path <absolute manuscript path> — reads DOC_KEY/DOC_PATH filled by doc_parse_kv and
