@@ -30,6 +30,7 @@ from limn.revisions.core import (
     NotInRepo,
     RevisionNotReady,
     RevisionPdfMissing,
+    TooManyFiles,
     UnsafeCache,
 )
 from limn.revisions.scope import PinNotInDoc, ScopeMismatch, ScopeRefusal, ScopeUnreadable, ScopeUnwritable, UnsafePath
@@ -40,6 +41,7 @@ from helpers import Base, req, split_resp
 # Every refusal type of the revision routes -> (status, error text, reason): the agent contract, byte for byte.
 REFUSALS = {
     NoHistory: (404, "이 문서는 원고 변경사항을 볼 수 없습니다.", "no_history"),
+    TooManyFiles: (404, "이 문서는 이력 파일이 200개를 넘어 원고 변경사항을 볼 수 없습니다.", "too_many_files"),
     CommitNotRecent: (404, "현재 문서의 최근 커밋이 아닙니다.", "commit_not_recent"),
     DiffFailed: (404, "변경사항을 읽지 못했습니다.", "diff_unreadable"),
     DiffUnavailable: (503, "변경사항을 읽지 못했습니다.", "diff_unreadable"),
@@ -115,7 +117,7 @@ class RevisionRefusalTable(unittest.TestCase):
         """A refusal type added to RevisionRefusal (or to the scoping refusals revision_refused also answers) without
         a row here would go unpinned: the sets must agree."""
         self.assertEqual(refusal_types() | set(typing.get_args(ScopeRefusal)), set(REFUSALS))
-        self.assertEqual(len([t for t in REFUSALS if t.__module__ == "limn.revisions.core"]), 11)
+        self.assertEqual(len([t for t in REFUSALS if t.__module__ == "limn.revisions.core"]), 12)
 
     def test_each_refusal_gets_its_status_reason_and_text(self):
         """revision_refused raises HTTPError(status, text, reason) and nothing more: no extra body field, no page."""

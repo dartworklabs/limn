@@ -28,7 +28,7 @@ class RevisionAnchor(NamedTuple):
 
 
 class RevisionChange(NamedTuple):
-    """One recorded changed range before the current locator resolves its path."""
+    """One recorded changed range before the read view places its path (limn.pins.application.PinReadView)."""
 
     file: str
     lo: int

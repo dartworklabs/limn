@@ -114,8 +114,9 @@ function setViewMode(mode){
   if(revisions)loadRevisions(); else{++REV.seq;clearRevisionPdf();setRevisionOverlay(null);$('#revision-pin').hidden=true;revTargetActs();boundK();returnToSpot();if(VEC.doc)vecSchedule(0);updateSectionStrip();markHitSides();}
   drawNavView(); drawPos(); searchOffer();   // the changes view has no search
 }
-// Reads the document's recent commits into the changes view. Without history (not Git, a view-only PDF, or no recent commit) the
-// one reason line stays and the unusable [변경 PDF] [소스 diff] and the comparison note are hidden; a pin's guide line stays.
+// Reads the document's recent commits into the changes view. Without history (not Git, a view-only PDF, no recent commit, or
+// more history files than the server names one by one: reason too_many_files) the one reason line stays and the unusable
+// [변경 PDF] [소스 diff] and the comparison note are hidden; a pin's guide line stays.
 // A figure document's answer carries its two builds (overlay): its [겹쳐 보기] takes the place of [변경 PDF] and opens first,
 // with or without history; its [소스 diff] shows only with history.
 async function loadRevisions(){
@@ -132,7 +133,8 @@ async function loadRevisions(){
   const fig=!!REV.overlay; REV.format=revisionFormatFor(REV.format,fig,isMdDoc()); drawRevisionFormat();   // a LaTeX document after a figure leaves the overlay; a Markdown one opens its source diff
   $('#revision-controls').hidden=!REV.history&&!fig; $('#revision-note').hidden=!REV.history;
   $('#revision-pdf-tab').hidden=fig||isMdDoc(); $('#revision-overlay-tab').hidden=!fig; $('#revision-source-tab').hidden=!REV.history;
-  if(!data.available){list.textContent='이 문서의 Git 변경사항을 볼 수 없습니다.'; drawRange();
+  if(!data.available){list.textContent=data.reason==='too_many_files'?tl('이 문서는 이력 파일이 {n}개를 넘어 Git 변경사항을 볼 수 없습니다.',{n:data.limit}):
+      '이 문서의 Git 변경사항을 볼 수 없습니다.'; drawRange();
     if(fig){setRevisionFormat(DIFF_FORMAT.OVERLAY);return;}
     if(tg)revTargetNote(tg.region?'보기 전용 PDF 문서의 핀이라 Git 변경사항이 없습니다 — 고친 곳은 LaTeX 문서(본문 등)의 변경사항에서 찾으세요.':
       '이 문서는 Git 이력을 읽을 수 없어(Git 저장소가 아니거나 경로가 밖) 핀 자리를 변경과 맞출 수 없습니다.'); return;}

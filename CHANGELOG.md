@@ -63,6 +63,25 @@
   stands. It was read with `innerText`, which in Chromium put a line break on each side of the character's box and in
   Firefox dropped bidirectional controls altogether (on the text surface too).
 
+### Security
+
+- **The change view no longer shows readers files it promises to withhold** (GHSA-qf8q-c9hg-3ph4). The commit history,
+  diffs and comparison PDFs (`/api/revisions`, `/api/revision-diff`, `/api/revision-build`, `/api/revision-pdf`) could
+  include committed files under a dot-named folder (`.git`, `.private`, …) and files outside a document's own sources:
+  - each document's source folder, main file and repository are now the ones resolved at startup and used literally,
+    so a folder later replaced by a link (by a local account, or a pushed symlink fetched by `--git-pull`) no longer
+    leads the history, diff or pin scope elsewhere;
+  - dot-named parts are left out of every history pathspec (the LaTeX `**/*.tex` ones too), figure scope and comparison
+    build snapshot. A main that `\input`s a dot-folder file can no longer put it into a comparison PDF. The comparison
+    cache key changed, so PDFs built before are built again;
+  - a figure map's files under a dot-named folder are left out, and a map naming more than 200 files gives no history
+    (`too_many_files`) instead of widening the scope to the whole folder;
+  - glob characters in a registered folder's name (`paper[1]`) are matched literally, not as a pattern that also takes
+    in a sibling `paper1/`.
+
+  `/api/source`, `/api/snippet`, `/api/overlaps`, `pins.md` and `/api/pins` were not affected. A document registered
+  under a dot-named folder is now refused at startup.
+
 ## 0.4.51 — 2026-11-05
 
 ### Added

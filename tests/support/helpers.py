@@ -580,7 +580,10 @@ class Base(unittest.TestCase):
         """Bind the server copy's run settings and a fresh Runtime (as a restarted process has) for this test, and the
         single document with its idle build."""
         self.tmp = tempfile.TemporaryDirectory()
-        root = Path(self.tmp.name)
+        # Resolved as startup resolves --manuscript (limn.server): the run uses its registered paths as they are, so a
+        # temporary folder under a link (macOS's /var -> /private/var) must not differ from the paths the server
+        # resolves when it checks a file.
+        root = Path(self.tmp.name).resolve()
         self.src = root / "ms"
         self.src.mkdir()
         self.main = self.src / "main.tex"

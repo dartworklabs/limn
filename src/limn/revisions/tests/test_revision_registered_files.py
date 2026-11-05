@@ -1,0 +1,800 @@
+"""The changes view and the comparison build show a document's own registered files only (SECURITY.md).
+
+Each class below is one way the change view or a comparison build reached a file that is not one of the document's
+own - under a dot-named folder, through a folder replaced by a symlink after startup, or by a folder name Git reads as
+a pattern. A viewer asks the routes, as in test_revision_path_identity.py. RecordThroughAnotherPath and RecordedFolders
+pin the other side: a pin record written through another path to the same manuscript keeps its recorded ranges, by a
+translation startup makes once and a link changed later cannot move.
+
+Run: uv run pytest -q src/limn/revisions/tests/test_revision_registered_files.py
+"""
+
+import os
+import shutil
+import subprocess
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+
+from hypothesis import given, settings, strategies as st
+
+from limn.administration.serve_documents import make_docs
+from limn.builds import artifacts as build
+from limn.pins.location import lookup
+from limn.pins.location.lookup import recorded_folders, recorded_place, recorded_root
+from limn.revisions import core, execution
+from limn.runtime.documents import Doc
+
+from helpers import ApplicationFixture, blank_png, edit_stored, minimal_pdf, needs_tex, ps, set_config
+from helpers_access import CAROL, REPO_NEW, REPO_OLD, AccessBase, ScopedRepo, member_add
+from helpers_figure import BUILD1, b2_map, figure_doc, write_build
+
+WITHHELD = "WITHHELD-TEXT"  # what the answers must not carry: the text of a file the change view keeps out
+
+
+class Repository(AccessBase):
+    """A Git repository at the manuscript folder (no commit yet); Carol is a viewer."""
+
+    def setUp(self):
+        """Initialise the repository and make Carol a viewer."""
+        super().setUp()
+        if not shutil.which("git"):
+            self.skipTest("git not available")
+        self.git("init", "-q", "-b", "main")
+        self.git("config", "user.email", "alice@example.com")
+        self.git("config", "user.name", "Alice")
+        member_add(ps.APP.C.state, CAROL["Tailscale-User-Login"], "viewer")
+
+    def git(self, *args):
+        """Run a fixture git command in the manuscript folder; its stdout, stripped."""
+        done = subprocess.run(["git", *args], cwd=self.src, capture_output=True, text=True, check=True)
+        return done.stdout.strip()
+
+    def commit(self, subject):
+        """Commit everything (dot-named folders too) with subject; returns the new commit."""
+        self.git("add", "-A")
+        self.git("commit", "-qm", subject)
+        return self.git("rev-parse", "HEAD")
+
+    def serve(self, docs):
+        """Serve docs for this test."""
+        ps.APP.set_docs(docs)
+        self.addCleanup(ps.APP.set_docs, None)
+
+    def subjects(self, key):
+        """The subjects GET /api/revisions lists for document key, as the viewer Carol is answered."""
+        code, body = self.call("GET", "/api/revisions?doc=%s" % key, headers=CAROL)
+        self.assertEqual(code, 200, body)
+        return [row["subject"] for row in body["revisions"]]
+
+
+class FigureDotNames(Repository):
+    """A figure document (figs/) whose map names a file under a dot-named folder."""
+
+    def test_a_mapped_file_under_a_dot_named_folder_is_not_in_the_diff(self):
+        """The map's root element is drawn by .Private/hidden.py (a capital: the rule is the leading dot, not a name):
+        the commit adding it is the document's (its map is), but the diff a viewer is answered holds not its text."""
+        fig = figure_doc(self.src, ps.APP.C.paths)
+        (fig.src / ".Private").mkdir()
+        (fig.src / ".Private" / "hidden.py").write_text(WITHHELD + "\n", encoding="utf-8")
+        fmap = b2_map()
+        fmap["pages"][0]["elements"][0]["src"]["file"] = ".Private/hidden.py"
+        write_build(fig, BUILD1, fmap)
+        self.serve([fig])
+        head = self.commit("figure and its hidden source")
+        code, body = self.call("GET", "/api/revision-diff?doc=fig&commit=%s" % head, headers=CAROL)
+        self.assertEqual(code, 200, body)
+        self.assertIn("B2_calendar.py", body["diff"])
+        self.assertNotIn(WITHHELD, str(body))
+
+    def test_registered_file_refuses_a_dot_named_part(self):
+        """registered_file names no file with a dot-named part below the document's folder (any case), and keeps one
+        whose name merely holds a dot."""
+        fig = figure_doc(self.src, ps.APP.C.paths)
+        for rel in (".Private/hidden.py", "src/.old/x.py", "src/.x.py"):
+            with self.subTest(rel=rel):
+                self.assertIsNone(core.registered_file(fig, fig.src / rel))
+        self.assertEqual(core.registered_file(fig, fig.src / "src" / "a.b.py"), fig.registered_src / "src" / "a.b.py")
+
+
+def large_map(parts):
+    """b2_map() with its root element (src/B2_calendar.py) followed by parts elements, each drawn by a script of its
+    own (src/part<i>.py): the figure's history files are those scripts, the root's, the map and its PDF."""
+    fmap = b2_map()
+    root = fmap["pages"][0]["elements"][0]
+    fmap["pages"][0]["elements"] = [root] + [
+        {"id": "B2/n%d" % i, "parent": "B2", "frac": [0.1, 0.1, 0.1, 0.1], "src": {"file": "src/part%d.py" % i}}
+        for i in range(parts)
+    ]
+    for el in fmap["pages"][0]["elements"][1:]:
+        el["src"].update(lo=1, hi=1)
+    return fmap
+
+
+class LargeFigureMap(Repository):
+    """A figure document (figs/) whose map names about HISTORY_PATHS_MAX history files, and a later commit that touches
+    only files no map names: figs/unlisted.txt and figs/.private/hidden.py (both carry WITHHELD)."""
+
+    def history(self, count):
+        """Serve the figure with a map whose history files are exactly count, commit it ("figure"), then commit the
+        unlisted files; (the figure commit, the unlisted one)."""
+        fig = figure_doc(self.src, ps.APP.C.paths)
+        write_build(fig, BUILD1, large_map(count - 3))
+        self.serve([fig])
+        self.assertEqual(len(ps.APP.revision_requests.context().history_files(fig) or ()), count)
+        first = self.commit("figure")
+        (fig.src / "unlisted.txt").write_text(WITHHELD + "\n", encoding="utf-8")
+        (fig.src / ".private").mkdir()
+        (fig.src / ".private" / "hidden.py").write_text(WITHHELD + "\n", encoding="utf-8")
+        return first, self.commit("unlisted %s" % WITHHELD)
+
+    def test_more_history_files_than_the_limit_are_refused_never_widened_to_the_folder(self):
+        """HISTORY_PATHS_MAX + 1 history files: the document has no history (too_many_files, with the limit) - its
+        folder, which holds figs/unlisted.txt, is never named instead - and neither its commit diff nor a range is
+        answered."""
+        first, head = self.history(core.HISTORY_PATHS_MAX + 1)
+        code, body = self.call("GET", "/api/revisions?doc=fig", headers=CAROL)
+        self.assertEqual(code, 200, body)
+        got = (body["available"], body["revisions"], body.get("reason"), body.get("limit"))
+        self.assertEqual(got, (False, [], "too_many_files", core.HISTORY_PATHS_MAX))
+        self.assertNotIn(WITHHELD, str(body))
+        for query in ("", "&base=%s" % first):
+            with self.subTest(query=query):
+                code, out = self.call("GET", "/api/revision-diff?doc=fig&commit=%s%s" % (head, query), headers=CAROL)
+                self.assertEqual((code, out.get("reason")), (404, "too_many_files"), out)
+                self.assertNotIn(WITHHELD, str(out))
+
+    def test_history_files_at_the_limit_are_named_one_by_one(self):
+        """Exactly HISTORY_PATHS_MAX history files: the history is the figure's commit only, and the diff of the commit
+        touching the unlisted files is refused as outside it."""
+        _, head = self.history(core.HISTORY_PATHS_MAX)
+        self.assertEqual(self.subjects("fig"), ["figure"])
+        code, out = self.call("GET", "/api/revision-diff?doc=fig&commit=%s" % head, headers=CAROL)
+        self.assertEqual((code, out.get("reason")), (404, "commit_not_recent"), out)
+        self.assertNotIn(WITHHELD, str(out))
+
+
+class ReplacedFolder(Repository):
+    """A Markdown document notes/plan.md whose name was a folder in older commits: notes/plan.md/unlisted.txt (its text
+    and the subjects carry WITHHELD) was committed and changed there before today's file replaced the folder."""
+
+    def setUp(self):
+        """Commit the folder twice, replace it with the file, edit the file; register notes/plan.md as --doc does."""
+        super().setUp()
+        folder = self.src / "notes" / "plan.md"
+        folder.mkdir(parents=True)
+        (folder / "unlisted.txt").write_text(WITHHELD + " one\n", encoding="utf-8")
+        self.commit("folder %s" % WITHHELD)
+        (folder / "unlisted.txt").write_text(WITHHELD + " two\n", encoding="utf-8")
+        self.folder = self.commit("folder again %s" % WITHHELD)
+        shutil.rmtree(folder)
+        folder.write_text("# Plan\n\nfirst line.\n", encoding="utf-8")
+        self.replaced = self.commit("file replaces folder")
+        folder.write_text("# Plan\n\nsecond line.\n", encoding="utf-8")
+        self.head = self.commit("file edited")
+        docs = make_docs(["nt=계획:notes/plan.md"], self.src, ps.APP.C.paths)
+        self.assertIsInstance(docs, list, docs)
+        self.serve(docs)
+
+    def test_the_history_holds_only_the_files_commits(self):
+        """The commits that changed only the old folder's file are not the document's: not listed, their diff refused."""
+        self.assertEqual(self.subjects("nt"), ["file edited", "file replaces folder"])
+        code, out = self.call("GET", "/api/revision-diff?doc=nt&commit=%s" % self.folder, headers=CAROL)
+        self.assertEqual((code, out.get("reason")), (404, "commit_not_recent"), out)
+
+    def test_the_commit_diff_holds_only_the_file(self):
+        """The replacing commit's diff adds the file and deletes nothing of the folder."""
+        code, out = self.call("GET", "/api/revision-diff?doc=nt&commit=%s" % self.replaced, headers=CAROL)
+        self.assertEqual(code, 200, out)
+        self.assertIn("+first line.", out["diff"])
+        self.assertNotIn("unlisted.txt", out["diff"])
+        self.assertNotIn(WITHHELD, str(out))
+
+    def test_the_range_diff_holds_only_the_file(self):
+        """A range from the folder's last commit (the replacing commit's first parent) to the head: its diff, files,
+        commit count and ids are the file's alone."""
+        query = "doc=nt&commit=%s&base=%s" % (self.head, self.folder)
+        code, out = self.call("GET", "/api/revision-diff?" + query, headers=CAROL)
+        self.assertEqual(code, 200, out)
+        self.assertEqual([f["path"] for f in out["files"]], ["notes/plan.md"])
+        self.assertEqual((out["commits"], out["commit_ids"]), (2, [self.head, self.replaced]))
+        self.assertIn("+second line.", out["diff"])
+        self.assertNotIn("unlisted.txt", out["diff"])
+        self.assertNotIn(WITHHELD, str(out))
+
+
+class ComparisonSnapshot(Repository):
+    """A LaTeX document (main.tex) whose main file inputs .private/notes.tex, committed with it."""
+
+    def setUp(self):
+        """Commit main.tex and .private/notes.tex (BEFORE), then change both (AFTER)."""
+        super().setUp()
+        (self.src / ".private").mkdir()
+        self.notes = self.src / ".private" / "notes.tex"
+
+    def history(self, include):
+        """Commit main.tex including .private/notes with the TeX command include, then a commit changing both; the
+        whole-commit comparison spec of the second."""
+        self.notes.write_text(WITHHELD + "BEFORE\n", encoding="utf-8")
+        body = "\\documentclass{article}\n\\begin{document}\n%s\nOld public.\n\\end{document}\n" % include
+        self.main.write_text(body, encoding="utf-8")
+        self.commit("base")
+        self.notes.write_text(WITHHELD + "AFTER\n", encoding="utf-8")
+        self.main.write_text(body.replace("Old public", "New public"), encoding="utf-8")
+        head = self.commit("visible change and hidden change")
+        spec = core.revision_spec(ps.APP.docs[0], head, None, ps.APP.revision_requests.context())
+        self.assertIsInstance(spec, core.RevisionSpec, spec)
+        return spec
+
+    def test_a_snapshot_leaves_dot_named_folders_out(self):
+        """Both sides of the comparison are written without .private: no blob of it reaches the build copy."""
+        spec = self.history("\\input{.private/notes}")
+        for commit, side in ((spec.base, "old"), (spec.head, "new")):
+            dest = self.src.parent / side
+            self.assertIsNone(execution.revision_snapshot(spec, commit, dest))
+            self.assertTrue((dest / "main.tex").is_file())
+            self.assertFalse((dest / ".private").exists())
+
+    def test_ls_tree_rows_under_dot_named_parts_are_skipped(self):
+        """parse_ls_tree_row: a row under a dot-named part is DotNamedRow, whatever it is (a symlink too), while a name
+        that could leave the snapshot folder is still unsafe."""
+        oid = "0" * 40
+        for name in (".private/notes.tex", "a/.old/refs.bib", ".draft.tex"):
+            with self.subTest(name=name):
+                row = ("100644 blob %s 5\t%s" % (oid, name)).encode()
+                self.assertIsInstance(execution.parse_ls_tree_row(row, ""), execution.DotNamedRow)
+        link = ("120000 blob %s 5\t.private" % oid).encode()
+        self.assertIsInstance(execution.parse_ls_tree_row(link, ""), execution.DotNamedRow)
+        for name in (".git/config", "a/../b.tex"):
+            with self.subTest(name=name):
+                row = ("100644 blob %s 5\t%s" % (oid, name)).encode()
+                self.assertIsInstance(execution.parse_ls_tree_row(row, ""), execution.UnsafeTreeRow)
+        plain = ("100644 blob %s 5\tsub/part.tex" % oid).encode()
+        self.assertEqual(execution.parse_ls_tree_row(plain, ""), execution.TreeFile(Path("sub/part.tex"), oid, 5))
+
+    def test_a_pdf_cached_before_the_snapshot_rule_is_not_served(self):
+        """A ready comparison stored under the previous cache version's key (built when snapshots still copied
+        dot-named folders) is not served: the commit's PDF is not ready."""
+        spec = self.history("\\input{.private/notes}")
+        with mock.patch.object(core, "REVISION_CACHE_VERSION", "latex-pdf-v3"):
+            old = core.comparison_key(spec.repo, spec.source, spec.main, spec.base, spec.head)
+        self.assertNotEqual(old, spec.key)
+        entry = ps.APP.docs[0].dir / "revisions" / old
+        entry.mkdir(parents=True)
+        (entry / "status.json").write_text('{"state": "ready"}', encoding="utf-8")
+        (entry / "revision.pdf").write_bytes(b"%PDF-1.4 " + WITHHELD.encode())
+        code, body = self.call("GET", "/api/revision-pdf?commit=%s" % spec.head, headers=CAROL)
+        self.assertNotEqual(code, 200)
+        self.assertNotIn(WITHHELD, str(body))
+
+    @needs_tex("bwrap", "latexdiff", "latexmk", "pdftotext")
+    def test_the_comparison_pdf_holds_nothing_of_a_dot_named_input(self):
+        """The comparison of a main that inputs .private/notes.tex. latexdiff --flatten reads an \\input itself, so with
+        the file in the snapshot both its texts were in the PDF; now it finds no such file and the build fails without
+        quoting it. \\InputIfFileExists is left to TeX, which the sandbox runs with openin_any=p (no dot-named file is
+        read either way): that comparison still builds, without the text."""
+        for include, built in (("\\input{.private/notes}", False), ("\\InputIfFileExists{.private/notes}{}{}", True)):
+            with self.subTest(include=include):
+                spec = self.history(include)
+                job = self.src.parent / ("job-%s" % built)
+                job.mkdir()
+                result = execution.revision_compile(spec, job, 60)
+                self.assertEqual(isinstance(result, core.ComparisonBuilt), built, result)
+                log = (job / "build.log").read_text(encoding="utf-8") if (job / "build.log").exists() else ""
+                self.assertNotIn(WITHHELD, log)
+                if built:
+                    text = subprocess.check_output(["pdftotext", str(job / "revision.pdf"), "-"], text=True)
+                    self.assertIn("New", text)
+                    self.assertNotIn(WITHHELD, text)
+
+
+class FigurePdfThroughLink(Repository):
+    """A figure document whose out/ folder (holding the map and the PDF it names) is replaced by a symlink to another
+    folder of the same document after startup."""
+
+    def test_the_pdf_history_stays_at_the_registered_path(self):
+        """out -> other: a commit touching only other/figures.pdf is neither in the history nor read as a diff."""
+        fig = figure_doc(self.src, ps.APP.C.paths)
+        write_build(fig, BUILD1, b2_map())
+        self.serve([fig])
+        self.commit("figure")
+        (fig.src / "other").mkdir()
+        (fig.src / "other" / "figures.pdf").write_text(WITHHELD + "\n", encoding="utf-8")
+        head = self.commit("other PDF %s" % WITHHELD)
+        shutil.rmtree(fig.src / "out")
+        (fig.src / "out").symlink_to("other", target_is_directory=True)
+        self.assertEqual(self.subjects("fig"), ["figure"])
+        code, body = self.call("GET", "/api/revision-diff?doc=fig&commit=%s" % head, headers=CAROL)
+        self.assertEqual(code, 404, body)
+
+
+class PinAfterRootLink(ScopedRepo):
+    """ScopedRepo's manuscript folder replaced, after startup, by a symlink to a dot-named folder of the repository."""
+
+    def test_a_pin_keeps_its_scope(self):
+        """Pin alpha's scoped diff of its fix commit is the same after the link: its file is still ms/main.tex."""
+        before = self.diff_ok(self.fix, self.p1)
+        self.assertEqual(before["scope"]["mode"], "pin")
+        hidden = self.repo / ".private"
+        hidden.mkdir()
+        (hidden / "main.tex").write_text("hidden\n", encoding="utf-8")
+        shutil.rmtree(self.src)
+        self.src.symlink_to(hidden, target_is_directory=True)
+        self.assertEqual(self.diff_ok(self.fix, self.p1)["scope"], before["scope"])
+
+
+class PinInLinkedFolder(Repository):
+    """A LaTeX document paper/main.tex whose fix commit changes three paragraphs; pin alpha (line 4) is closed on it
+    with a recorded change on the beta paragraph (line 12), which decides its blocks."""
+
+    def setUp(self):
+        """Commit REPO_OLD, add pin alpha, commit REPO_NEW and close the pin with its recorded change."""
+        super().setUp()
+        (self.src / "paper").mkdir()
+        self.paper = self.src / "paper" / "main.tex"
+        self.paper.write_text(REPO_OLD, encoding="utf-8")
+        docs = make_docs(["pp=논문:paper/main.tex"], self.src, ps.APP.C.paths)
+        self.assertIsInstance(docs, list, docs)
+        self.serve(docs)
+        self.commit("first")
+        code, d = self.call("POST", "/api/pin", {"doc": "pp", "file": str(self.paper), "lo": 4, "hi": 4, "note": "a"})
+        self.assertEqual(code, 200, d)
+        self.pin = d["id"]
+        self.paper.write_text(REPO_NEW, encoding="utf-8")
+        self.fix = self.commit("fix")
+        code, d = self.call(
+            "POST",
+            "/api/pins/%d/close" % self.pin,
+            {"ref": self.fix[:8], "changes": [{"file": "paper/main.tex", "lo": 12, "hi": 12}]},
+        )
+        self.assertEqual(code, 200, d)
+
+    def scope(self):
+        """The pin's scope of the fix commit, from the source diff and from the comparison spec."""
+        code, body = self.call(
+            "GET", "/api/revision-diff?doc=pp&commit=%s&pin=%d" % (self.fix, self.pin), headers=CAROL
+        )
+        self.assertEqual(code, 200, body)
+        spec = core.revision_spec(ps.APP.docs[0], self.fix, self.pin, ps.APP.revision_requests.context())
+        self.assertIsInstance(spec, core.RevisionSpec, spec)
+        return body["scope"], spec.scope, spec.key
+
+    def test_a_folder_replaced_by_a_link_keeps_the_pins_file_and_ranges(self):
+        """paper -> a copy of it (a plain name, or a dot-named one): the pin is still on paper/main.tex and its
+        recorded range still picks the beta paragraph, in the diff's scope and the comparison spec alike."""
+        before = self.scope()
+        self.assertEqual((before[0]["mode"], before[0]["hunks"]), ("pin", 1))
+        self.assertTrue(before[1])
+        folder = self.src / "paper"
+        for name in ("copy", ".copy"):
+            shutil.copytree(folder, self.src / name)
+        shutil.rmtree(folder)
+        for name in ("copy", ".copy"):
+            with self.subTest(target=name):
+                if folder.is_symlink():
+                    folder.unlink()
+                folder.symlink_to(name, target_is_directory=True)
+                self.assertEqual(self.scope(), before)
+
+    def test_a_moved_checkouts_pin_keeps_its_file_and_ranges_after_a_link(self):
+        """The pin as a checkout at /old-checkout wrote it - its file and its recorded change there, file_rel
+        paper/main.tex - is placed by its file_rel, so its recorded range still picks the beta paragraph; replacing
+        paper/ by a link to a copy (a plain name, or a dot-named one) then changes neither the scope nor the
+        comparison's blocks and key."""
+        old = Path("/old-checkout") / "paper" / "main.tex"
+
+        def moved(rows):
+            """The pin's file and recorded change as the old checkout stored them."""
+            r = next(r for r in rows if r["id"] == self.pin)
+            self.assertEqual(r["file_rel"], "paper/main.tex")
+            r["file"] = str(old)
+            r["changes"] = [dict(c, file=str(old)) for c in r["changes"]]
+
+        edit_stored(moved)
+        before = self.scope()
+        self.assertEqual((before[0]["mode"], before[0]["source"], before[0]["hunks"]), ("pin", "changes", 1))
+        self.assertTrue(before[1])
+        folder = self.src / "paper"
+        for name in ("copy", ".copy"):
+            shutil.copytree(folder, self.src / name)
+        shutil.rmtree(folder)
+        for name in ("copy", ".copy"):
+            with self.subTest(target=name):
+                if folder.is_symlink():
+                    folder.unlink()
+                folder.symlink_to(name, target_is_directory=True)
+                self.assertEqual(self.scope(), before)
+
+    def test_recorded_place_is_lexical_below_the_root(self):
+        """recorded_place: a stored path below the root is placed where it was recorded ('..' folded), through a link
+        or not; one with a dot-named part is refused."""
+        root, state = ps.APP.C.src, ps.APP.C.state
+        record = {"file": str(self.paper), "file_rel": "paper/main.tex"}
+        target = self.src / "copy"
+        shutil.copytree(self.src / "paper", target)
+        shutil.rmtree(self.src / "paper")
+        (self.src / "paper").symlink_to("copy", target_is_directory=True)
+        self.assertEqual(recorded_place(str(self.paper), record, root, state), self.paper)
+        self.assertEqual(
+            recorded_place(str(root / "paper" / ".." / "copy" / "main.tex"), record, root, state),
+            root / "copy" / "main.tex",
+        )
+        for stored in (root / ".private" / "main.tex", root / "paper" / ".old" / "main.tex"):
+            with self.subTest(stored=stored):
+                self.assertIsNone(recorded_place(str(stored), record, root, state))
+
+    def test_a_moved_record_is_placed_by_its_own_file_rel(self):
+        """recorded_place for a record of a checkout at /old-checkout: its file is root / file_rel and a change below
+        /old-checkout goes along, whether or not the tree has those files (nothing is asked of it); a record without a
+        usable file_rel, a change outside the record's root and a dot-named part place nothing."""
+        root, state = ps.APP.C.src, ps.APP.C.state
+        shutil.rmtree(self.src / "paper")  # placed all the same: the commit the pin was closed on still has it
+        old = Path("/old-checkout")
+        record = {"file": str(old / "paper" / "main.tex"), "file_rel": "paper/main.tex"}
+        self.assertEqual(recorded_root(record["file"], record["file_rel"]), old)
+        for stored, placed in (
+            (old / "paper" / "main.tex", root / "paper" / "main.tex"),
+            (old / "paper" / "sub" / "part.tex", root / "paper" / "sub" / "part.tex"),
+            (old / "paper" / ".." / "refs.bib", root / "refs.bib"),
+            (Path("/elsewhere") / "paper" / "main.tex", None),
+            (old / ".private" / "main.tex", None),
+        ):
+            with self.subTest(stored=stored):
+                self.assertEqual(recorded_place(str(stored), record, root, state), placed)
+        for rel in (None, "", "/paper/main.tex", "../paper/main.tex", "other/main.tex", "old-checkout/paper/main.tex"):
+            with self.subTest(file_rel=rel):
+                self.assertIsNone(recorded_root(record["file"], rel))
+                stale = dict(record, file_rel=rel)
+                self.assertIsNone(recorded_place(record["file"], stale, root, state))
+
+
+class RecordThroughAnotherPath(ScopedRepo):
+    """ScopedRepo's pin alpha, closed with a recorded change on ms/main.tex, as a record written through another path
+    to the same manuscript: a link to the manuscript folder, or the old place of a checkout moved away with a link left
+    there. Startup translates such folders once (lookup.recorded_folders), so the pin keeps its recorded ranges; a link
+    changed after startup moves nothing until the next start."""
+
+    def setUp(self):
+        """A link to the manuscript folder, named under the temporary folder as given (a link itself on macOS)."""
+        super().setUp()
+        self.alias = Path(self.tmp.name) / "manuscript-link"
+        self.alias.symlink_to(self.src, target_is_directory=True)
+        self.before = self.diff_ok(self.fix, self.p1)["scope"]
+        self.assertEqual((self.before["mode"], self.before["source"], self.before["hunks"]), ("pin", "changes", 1))
+
+    def through(self, folder, pin_file=True, file_rel=True):
+        """Store alpha's recorded change - and, with pin_file, its file - under folder; drop its file_rel unless
+        file_rel."""
+
+        def rewrite(rows):
+            """Alpha's paths as a run that reached the manuscript through folder wrote them."""
+            row = next(r for r in rows if r["id"] == self.p1)
+            if pin_file:
+                row["file"] = str(folder / "main.tex")
+            if not file_rel:
+                row.pop("file_rel", None)
+            for change in row["changes"]:
+                change["file"] = str(folder / "main.tex")
+
+        edit_stored(rewrite)
+
+    def restart(self):
+        """Restart the run over its settings and state: a fresh application through the startup steps
+        (limn.server.prepare, --no-build over cached pages), then served in place of the old one."""
+        doc = ps.APP.docs[0]
+        pages = build.cur_pages(doc)
+        pages.mkdir(parents=True, exist_ok=True)
+        (pages / doc.pdf_name).write_bytes(minimal_pdf())
+        (pages / "page-1.png").write_bytes(blank_png(10, 10))
+        fresh = ApplicationFixture(ps.APP.C, ps.new_runtime(ps.APP.RT.viewer))
+        self.addCleanup(fresh.RT.stop)
+        self.assertIsNone(fresh.prepare(None, True))
+        ps.APP, ps.Handler.app = fresh, fresh.web
+
+    def scope(self):
+        """Alpha's scope of its fix commit, as the viewer asks for it."""
+        return self.diff_ok(self.fix, self.p1)["scope"]
+
+    def repoint(self, target):
+        """Point the link at target, as a local account or a fetched commit can after startup."""
+        self.alias.unlink()
+        self.alias.symlink_to(target, target_is_directory=True)
+
+    def test_a_legacy_record_written_through_a_link_keeps_its_recorded_ranges(self):
+        """A record without file_rel (before 0.3.2) whose file and change name the link: the scope is the one of the
+        record written at the registered path, its source `changes`. Mutation: skip recorded_place's third rule (or
+        make learn_record_folders a no-op) -> the scope falls back to the whole commit, fails."""
+        self.through(self.alias, file_rel=False)
+        self.restart()
+        self.assertEqual(self.scope(), self.before)
+
+    def test_changes_written_through_a_link_beside_a_registered_file_keep_their_ranges(self):
+        """Mixed coordinates - the pin's file and file_rel at the registered path, its change through the link: the
+        change is still the pin's recorded range. Mutation: skip the third rule -> source `inferred`, fails."""
+        self.through(self.alias, pin_file=False)
+        self.restart()
+        self.assertEqual(self.scope(), self.before)
+
+    def test_a_legacy_record_of_a_moved_checkout_keeps_its_ranges_through_the_link_left_behind(self):
+        """The checkout moved to a clone and its old place left as a link to the new one; the run restarts at the new
+        place over legacy records (no file_rel) that name the old place. Mutation: skip the third rule -> the scope
+        falls back to the whole commit, fails."""
+
+        def legacy(rows):
+            """Every record as a Limn before 0.3.2 stored it: no file_rel."""
+            for row in rows:
+                row.pop("file_rel", None)
+
+        edit_stored(legacy)
+        clone = self.repo / "clone"
+        subprocess.run(["git", "clone", "--quiet", str(self.repo), str(clone)], check=True, capture_output=True)
+        moved = clone / "ms"
+        self.src.rename(self.repo / "old-ms")
+        self.src.symlink_to(moved, target_is_directory=True)
+        set_config(src=moved.resolve(), main=(moved / "main.tex").resolve())
+        self.restart()
+        self.assertEqual(self.scope(), self.before)
+
+    def test_an_unreadable_trash_leaves_the_live_records_translated(self):
+        """The Trash file cannot be read (a folder in its place): the startup step still translates the live record
+        written through the link, which keeps its ranges. The step runs alone, as prepare runs it: the whole startup
+        over such a Trash is TrashRecovery.test_startup_ignores_trash_read_error, whose maintenance warning prints
+        once per process. Mutation: drop the step's try -> it raises, fails (and so does that startup test)."""
+        self.through(self.alias, file_rel=False)
+        ps.APP.C.dropped.unlink(missing_ok=True)
+        ps.APP.C.dropped.mkdir()
+        ps.APP.assembly.pins.startup.learn_record_folders()
+        self.assertEqual(self.scope(), self.before)
+
+    def test_a_link_changed_after_startup_moves_nothing(self):
+        """After startup the link leads to a copy inside the tree, a folder outside it, or a dot-named folder: the
+        scope stays the startup's. Mutation: translate the record's folders in locate on every request (instead of
+        once at startup) -> the copy places the pin at ms/copy/main.tex and the others place nothing, fails."""
+        self.through(self.alias, file_rel=False)
+        self.restart()
+        inside, outside, hidden = self.src / "copy", self.repo / "elsewhere", self.src / ".private"
+        for folder in (inside, outside, hidden):
+            shutil.copytree(self.src, folder, ignore=shutil.ignore_patterns("copy", "elsewhere", ".private"))
+        for target in (inside, outside, hidden):
+            with self.subTest(target=target.name):
+                self.repoint(target)
+                self.assertEqual(self.scope(), self.before)
+
+    def test_a_link_made_after_startup_is_not_followed(self):
+        """The link led outside the manuscript at startup, so its records were not translated; pointing it at the
+        manuscript afterwards places nothing until the next start, which then translates it. Mutation: translate in
+        locate on every request -> the scope turns to `changes` before the restart, fails."""
+        elsewhere = self.repo / "elsewhere"
+        shutil.copytree(self.src, elsewhere)
+        self.repoint(elsewhere)
+        self.through(self.alias, file_rel=False)
+        self.restart()
+        unplaced = self.scope()
+        self.assertNotEqual(unplaced["source"], "changes")
+        self.repoint(self.src)
+        self.assertEqual(self.scope(), unplaced)
+        self.restart()
+        self.assertEqual(self.scope(), self.before)
+
+
+class RecordedFolders(unittest.TestCase):
+    """lookup.recorded_folders, the startup's translation of the folders stored records were written through, and the
+    third rule of recorded_place that reads it: only folders that resolve into the tree are kept, and a placed path
+    is checked again."""
+
+    def setUp(self):
+        """A resolved root with sub/, .hidden/ and a state folder inside it, a folder outside it, and links to each
+        named under the temporary folder as given (a link itself when TMPDIR is one)."""
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        base = Path(self.tmp.name)
+        self.root = base.resolve() / "root"
+        self.state = self.root / "state"
+        for folder in (self.root / "sub", self.root / ".hidden", self.state, base / "outside"):
+            folder.mkdir(parents=True)
+        self.links = {}
+        for name, target in (
+            ("to-root", self.root),
+            ("to-sub", self.root / "sub"),
+            ("to-hidden", self.root / ".hidden"),
+            ("to-state", self.state),
+            ("to-outside", base / "outside"),
+            ("loop", base / "loop"),
+        ):
+            self.links[name] = base / name
+            self.links[name].symlink_to(target, target_is_directory=True)
+
+    def legacy(self, *paths):
+        """A record without file_rel naming its file at paths[0] and a recorded change at each other path."""
+        return {"file": str(paths[0]), "changes": [{"file": str(p), "lo": 1, "hi": 1} for p in paths[1:]]}
+
+    def test_only_folders_that_resolve_into_the_tree_are_kept(self):
+        """Links to the root and to sub/ are kept with their resolved folder; links to a dot-named folder, the state
+        folder, outside the root, a loop, a missing path and a path rule 1 already places are not. Mutation: drop the
+        dot-named or state check of recorded_folders -> to-hidden or to-state is kept, fails."""
+        links = self.links
+        records = [
+            self.legacy(links["to-root"] / "main.tex", links["to-sub"] / "part.tex"),
+            self.legacy(links["to-hidden"] / "x.tex", links["to-state"] / "pins.md", links["to-outside"] / "y.tex"),
+            self.legacy(links["loop"] / "z.tex", Path("/nowhere/at/all/w.tex"), self.root / "sub" / "here.tex"),
+            {"file": "relative/main.tex", "changes": "not a list"},
+        ]
+        known = recorded_folders(records, self.root, self.state)
+        self.assertEqual(dict(known), {links["to-root"]: self.root, links["to-sub"]: self.root / "sub"})
+        with self.assertRaises(TypeError):
+            known[links["to-hidden"]] = self.root / ".hidden"  # immutable for the run
+
+    def test_recorded_place_uses_the_translation_and_checks_it_again(self):
+        """A path in a translated folder is placed there with its own name; a dot-named name, and a folder that a
+        forged translation leads into a dot-named folder or the state folder, place nothing. Mutation: drop the
+        dot-named or state check that recorded_place applies to the third rule -> a forged one is placed, fails."""
+        links, root, state = self.links, self.root, self.state
+        known = recorded_folders([self.legacy(links["to-root"] / "main.tex")], root, state)
+        record = self.legacy(links["to-root"] / "main.tex")
+        self.assertEqual(
+            recorded_place(str(links["to-root"] / "main.tex"), record, root, state, known), root / "main.tex"
+        )
+        self.assertEqual(
+            recorded_place(str(links["to-root"] / "gone.tex"), record, root, state, known), root / "gone.tex"
+        )
+        self.assertIsNone(recorded_place(str(links["to-root"] / ".env"), record, root, state, known))
+        self.assertIsNone(recorded_place(str(links["to-root"] / "main.tex"), record, root, state))  # no translation
+        for forged in (root / ".hidden", state, root.parent / "outside"):
+            with self.subTest(forged=forged.name):
+                folders = {links["to-root"]: forged}
+                self.assertIsNone(recorded_place(str(links["to-root"] / "a.tex"), record, root, state, folders))
+
+    def test_a_link_changed_after_the_translation_moves_nothing(self):
+        """The translation is the startup's answer: re-pointing the link afterwards - into a dot-named folder, outside
+        the tree, at sub/ - leaves where its paths are placed as it was."""
+        links, root, state = self.links, self.root, self.state
+        record = self.legacy(links["to-root"] / "main.tex")
+        known = recorded_folders([record], root, state)
+        for target in (root / ".hidden", root.parent / "outside", root / "sub"):
+            with self.subTest(target=target.name):
+                links["to-root"].unlink()
+                links["to-root"].symlink_to(target, target_is_directory=True)
+                self.assertEqual(
+                    recorded_place(str(links["to-root"] / "main.tex"), record, root, state, known), root / "main.tex"
+                )
+
+    def test_at_most_the_bound_of_folders_is_resolved(self):
+        """Past RECORDED_FOLDERS_MAX distinct folders nothing more is resolved: a pins file naming many made-up
+        folders cannot hold startup on the file system. Mutation: drop the bound -> the third folder is kept, fails."""
+        links = self.links
+        records = [self.legacy(Path("/made-up/one/a.tex")), self.legacy(links["to-root"] / "a.tex")]
+        records.append(self.legacy(links["to-sub"] / "b.tex"))
+        with mock.patch.object(lookup, "RECORDED_FOLDERS_MAX", 2):
+            known = recorded_folders(records, self.root, self.state)
+        self.assertEqual(dict(known), {links["to-root"]: self.root})
+
+    @settings(max_examples=300, deadline=None)
+    @given(
+        st.lists(
+            st.sampled_from(["to-root", "to-sub", "to-hidden", "to-state", "sub", ".git", "..", ".", "a.tex"]),
+            max_size=6,
+        ),
+        st.sampled_from(["root", "link", "elsewhere"]),
+        st.dictionaries(
+            st.sampled_from(["to-root", "to-sub", "to-hidden"]),
+            st.sampled_from(["", "sub", ".hidden", "state", "../outside"]),
+        ),
+    )
+    def test_whatever_is_stored_a_placed_path_is_in_the_tree(self, parts, start, forged):
+        """Whatever path is stored and whatever folders a translation holds (forged ones too), recorded_place gives
+        None or a path lexically below the root, under no dot-named part below it and not in the state folder."""
+        base = Path(self.tmp.name)
+        head = {"root": self.root, "link": base, "elsewhere": Path("/elsewhere")}[start]
+        stored = head.joinpath(*parts) if parts else head
+        folders = {base / name: Path(os.path.normpath(self.root / target)) for name, target in forged.items()}
+        record = {"file": str(stored)}
+        placed = recorded_place(str(stored), record, self.root, self.state, folders)
+        if placed is not None:
+            rel = placed.relative_to(self.root)
+            self.assertTrue(rel.parts)
+            self.assertFalse(any(part.startswith(".") for part in rel.parts), placed)
+            self.assertFalse(placed.is_relative_to(self.state), placed)
+
+
+class DocumentPastStartup(Repository):
+    """Documents that lie under a dot-named part of the manuscript, made directly as startup would refuse to
+    (serve_documents.DocDotNamed): a LaTeX document and a Markdown document in .Private/, and a LaTeX document whose
+    main file is the dotfile paper/.draft.tex. The dot-named files' text carries WITHHELD; paper/main.tex, changed by
+    the same two commits, is public."""
+
+    def setUp(self):
+        """Commit the public paper, then it and the dot-named files twice (so a comparison has a parent); serve the
+        three."""
+        super().setUp()
+        for rel in ("paper/main.tex", ".Private/main.tex", ".Private/notes.md", "paper/.draft.tex"):
+            (self.src / rel).parent.mkdir(parents=True, exist_ok=True)
+        tex = "\\documentclass{article}\n\\begin{document}\n%s\n\\end{document}\n"
+        (self.src / "paper" / "main.tex").write_text(tex % "public", encoding="utf-8")
+        self.commit("public")
+        for n in (1, 2):
+            for rel in (".Private/main.tex", "paper/.draft.tex"):
+                (self.src / rel).write_text(tex % ("%s %d" % (WITHHELD, n)), encoding="utf-8")
+            (self.src / ".Private" / "notes.md").write_text("# %s %d\n" % (WITHHELD, n), encoding="utf-8")
+            (self.src / "paper" / "main.tex").write_text(tex % ("public %d" % n), encoding="utf-8")
+            self.head = self.commit("private %s %d" % (WITHHELD, n))
+        paths = ps.APP.C.paths
+        self.docs = {
+            "pp": Doc("pp", "논문", "tex", self.src / ".Private", self.src / ".Private" / "main.tex", paths=paths),
+            "nt": Doc("nt", "노트", "markdown", self.src / ".Private", self.src / ".Private" / "notes.md", paths=paths),
+            "dm": Doc("dm", "초안", "tex", self.src / "paper", self.src / "paper" / ".draft.tex", paths=paths),
+        }
+        self.assertTrue(all(core.dot_named_document(d) for d in self.docs.values()))
+        self.serve(list(self.docs.values()))
+
+    def test_no_route_shows_such_a_documents_history(self):
+        """Each document has no history; asking a commit of its files for a diff, a range or a comparison is refused,
+        and nothing a viewer is answered quotes WITHHELD."""
+        for key in self.docs:
+            with self.subTest(doc=key):
+                code, body = self.call("GET", "/api/revisions?doc=%s" % key, headers=CAROL)
+                self.assertEqual((code, body.get("available"), body.get("revisions") or []), (200, False, []), body)
+                for query in ("", "&base=%s" % self.head):
+                    code, out = self.call(
+                        "GET", "/api/revision-diff?doc=%s&commit=%s%s" % (key, self.head, query), headers=CAROL
+                    )
+                    self.assertEqual(code, 404, out)
+                    self.assertNotIn(WITHHELD, str(out))
+                code, out = self.call("GET", "/api/revision-build?doc=%s&commit=%s" % (key, self.head), headers=CAROL)
+                self.assertNotIn(WITHHELD, str(out))
+        self.assertIsInstance(
+            core.revision_spec(self.docs["pp"], self.head, None, ps.APP.revision_requests.context()),
+            core.CommitNotRecent,
+        )
+
+    def test_a_snapshot_refuses_a_build_root_under_a_dot_named_part(self):
+        """With the history's check out of the way (dot_named_document answering False), the comparison spec of the
+        .Private document names its build root from the manuscript root, and a snapshot of it is refused before any
+        file is written; so is one whose main file is a dotfile. The public folder's snapshot is written."""
+        ctx = ps.APP.revision_requests.context()
+        with mock.patch.object(core, "dot_named_document", return_value=False):
+            specs = {key: core.revision_spec(self.docs[key], self.head, None, ctx) for key in ("pp", "dm")}
+        for key, tree_source in (("pp", ".Private"), ("dm", "paper")):
+            with self.subTest(doc=key):
+                spec = specs[key]
+                self.assertIsInstance(spec, core.RevisionSpec, spec)
+                assert isinstance(spec, core.RevisionSpec)
+                self.assertEqual(spec.tree_source, tree_source)
+                dest = self.src.parent / ("snapshot-" + key)
+                self.assertEqual(execution.revision_snapshot(spec, self.head, dest), core.StepFailed("unsafe_snapshot"))
+                self.assertFalse(dest.exists())
+        public = specs["dm"]._replace(main=Path("main.tex"))
+        dest = self.src.parent / "snapshot-public"
+        self.assertIsNone(execution.revision_snapshot(public, self.head, dest))
+        self.assertEqual(sorted(p.name for p in dest.iterdir()), ["main.tex"])
+
+
+class GlobCharactersInTheFolder(Repository):
+    """Two LaTeX folders, paper[1] (served) and paper1 (not), whose names a Git glob would confuse."""
+
+    def test_the_folder_name_is_matched_literally(self):
+        """paper[1]/main.tex's history and diff are its own: paper1/main.tex, committed with it and after it, is in
+        neither."""
+        for folder, text in (("paper[1]", "own\n"), ("paper1", WITHHELD + "\n")):
+            (self.src / folder).mkdir()
+            (self.src / folder / "main.tex").write_text(text, encoding="utf-8")
+        docs = make_docs(["pp=논문:paper[1]/main.tex"], self.src, ps.APP.C.paths)
+        self.assertIsInstance(docs, list, docs)
+        self.serve(docs)
+        both = self.commit("two papers")
+        (self.src / "paper1" / "main.tex").write_text(WITHHELD + " again\n", encoding="utf-8")
+        self.commit("other paper %s" % WITHHELD)
+        self.assertEqual(self.subjects("pp"), ["two papers"])
+        code, body = self.call("GET", "/api/revision-diff?doc=pp&commit=%s" % both, headers=CAROL)
+        self.assertEqual(code, 200, body)
+        self.assertIn("+own", body["diff"])
+        self.assertNotIn(WITHHELD, str(body))
+
+    def test_glob_literal_escapes_every_wildcard(self):
+        """glob_literal escapes *, ?, [, ] and the backslash; dot_excludes escape the folder too."""
+        self.assertEqual(core.glob_literal("a*b?c[1]\\d"), "a\\*b\\?c\\[1\\]\\\\d")
+        self.assertEqual(core.glob_literal("plain/dir"), "plain/dir")
+        self.assertEqual(
+            core.dot_excludes("paper[1]/"),
+            [":(exclude,glob)paper\\[1\\]/**/.*", ":(exclude,glob)paper\\[1\\]/**/.*/**"],
+        )

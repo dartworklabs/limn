@@ -11,6 +11,7 @@ import os
 import re
 import selectors
 import signal
+import stat
 import subprocess
 import threading
 import time
@@ -53,8 +54,9 @@ SCOPE_CACHE_KEEP = 32  # entries: counts, block key and the two patches, each cu
 SCOPE_SLOTS = 2  # scope computations (cache misses) reading git at once; more wait, then show whole
 SCOPE_SECONDS_MAX = 60  # reading one commit's files for scoping, all git calls together
 # v2: latexdiff marks inside the document's own text commands (issue #162). v3: a bibliography builds in the sandbox, and
-# a cached failure of a pin's comparison, which a POST does not retry, goes with it.
-REVISION_CACHE_VERSION = "latex-pdf-v3"
+# a cached failure of a pin's comparison, which a POST does not retry, goes with it. v4: a snapshot leaves out every file
+# under a dot-named part (limn.revisions.execution.parse_ls_tree_row), so a PDF an older snapshot built is never served.
+REVISION_CACHE_VERSION = "latex-pdf-v4"
 REVISION_FILES_MAX = 4000
 REVISION_TREE_MAX = 256 * 1024 * 1024
 REVISION_FILE_MAX = 64 * 1024 * 1024
@@ -67,7 +69,7 @@ RANGED_MARK = "ranged"  # empty file in a ranged comparison's cache folder
 REVISION_CACHE_TTL = 24 * 3600
 # per-request fields; never stored in a (shared) status. merge_base: a range whose base was on another line (#188)
 SCOPE_META = ("scope", "pin", "source", "hunks", "other", "merge_base")
-HISTORY_PATHS_MAX = 200  # files a figure document's history names one by one; more are named by their folder
+HISTORY_PATHS_MAX = 200  # files a figure document's history names one by one; a document with more has none
 REVISION_RECENT = 12  # rows of GET /api/revisions without paging; a pin's close_ref is resolved among these
 REVISION_HISTORY_MAX = 500  # the history window: the commits a request may name (issue #188, ADR-0014)
 REVISION_PAGE_MAX = 50  # rows of one page of GET /api/revisions?limit=
@@ -105,6 +107,23 @@ class RevisionDoc(Protocol):
         ...
 
     @property
+    def registered_src(self) -> Path:
+        """src as the run registered it (limn.runtime.documents.Doc.registered_src): resolved at startup, never again."""
+        ...
+
+    @property
+    def registered_main(self) -> Path:
+        """main as the run registered it (limn.runtime.documents.Doc.registered_main): resolved at startup, never
+        again."""
+        ...
+
+    @property
+    def registered_manuscript(self) -> Path:
+        """The manuscript root as the run registered it (limn.runtime.documents.Doc.registered_manuscript): resolved at
+        startup, never again; dot-named parts are judged below it (dot_named_document)."""
+        ...
+
+    @property
     def dir(self) -> Path:
         """The document's state folder; comparisons are cached under its revisions/."""
         ...
@@ -117,6 +136,13 @@ class RevisionDoc(Protocol):
 class NoHistory:
     """The document has no manuscript history to show: a view-only PDF, a main file outside its build root, or a
     folder outside any git repository."""
+
+
+@dataclass(frozen=True)
+class TooManyFiles(NoHistory):
+    """A document with more history files than HISTORY_PATHS_MAX (a figure document whose map names that many): it has
+    no history, source diff or comparison, as one without history has none, and its answers say why. Its files are
+    never named by their folder instead, which holds files that are not the document's (SECURITY.md)."""
 
 
 @dataclass(frozen=True)
@@ -137,7 +163,8 @@ class DiffUnavailable:
 
 @dataclass(frozen=True)
 class NotInRepo:
-    """The document's build root or main file does not lie inside the repository, so no snapshot can be taken."""
+    """The document's build root or main file does not lie inside the repository - or its build root not inside the
+    manuscript root -, so no snapshot can be taken."""
 
 
 @dataclass(frozen=True)
@@ -196,7 +223,7 @@ class EmptyRange:
 # A range's own refusals (issue #188), answered from limn.revisions.answer.RANGE_REJECTIONS; the other refusals a range
 # meets (CommitNotRecent, DiffFailed, ...) are the single commit's.
 RangeRefusal: TypeAlias = BaseAfterHead | NoMergeBase | EmptyRange | BaseTooOld
-DiffRefusal: TypeAlias = NoHistory | CommitNotRecent | DiffFailed | DiffUnavailable | PinNotInDoc
+DiffRefusal: TypeAlias = NoHistory | TooManyFiles | CommitNotRecent | DiffFailed | DiffUnavailable | PinNotInDoc
 SpecRefusal: TypeAlias = CommitNotRecent | NotInRepo | NoParent | PinNotInDoc | DiffFailed
 StatusRefusal: TypeAlias = SpecRefusal | UnsafeCache
 StartRefusal: TypeAlias = SpecRefusal | UnsafeCache | AllSlotsBusy | DocumentBusy
@@ -368,89 +395,203 @@ class RevisionSpec(NamedTuple):
     meta: ScopeMeta | None = None  # additive status fields for a pin request: scope, pin, source, hunks, other
     merge_base: str | None = None  # a range whose base is on another line: base is this merge base (issue #188)
     ranged: bool = False  # a range whose old side is not head's first parent: cached apart (RANGED_MARK)
+    # The build root relative to the manuscript root, as registered: a snapshot judges dot-named parts from there
+    # (limn.revisions.execution.revision_snapshot), so no ancestor of the build root may be one either.
+    tree_source: str = "."
 
 
 # ---------------------------------------------------------------- history and the source diff
 
 
-def files_pathspec(repo: Path, files: Sequence[Path], folder: Path) -> list[str]:
-    """files (absolute paths) as literal Git pathspecs relative to repo, in order, each once; a file that is not inside
-    repo, or is repo itself, is left out. More than HISTORY_PATHS_MAX of them are named by folder instead (a literal
-    pathspec of a folder covers every file under it), so the git command line stays short; [] when that folder is not
-    inside repo either. Lexical: the paths are compared as given, so callers pass resolved folders. Pure."""
-    out: list[str] = []
+def glob_literal(text: str) -> str:
+    """text with every character a Git :(glob) pattern reads as a wildcard (*, ?, [, ] and the escape \\ itself)
+    escaped, so a folder named paper[1] matches only itself, never paper1. Pure."""
+    return re.sub(r"([*?\[\]\\])", r"\\\1", text)
+
+
+def dot_named(rel: str) -> bool:
+    """Whether the POSIX path rel (relative to a document's folder, or to the manuscript root) has a part whose name
+    starts with '.': the manuscript tree's rule (limn.platform.files.tree_part), which no case folding changes, so
+    .Private is one as .private is. A "." part names the folder itself, not a name: "." is no dot-named path. Pure."""
+    return any(part.startswith(".") for part in rel.split("/") if part not in ("", "."))
+
+
+def dot_named_document(D: RevisionDoc) -> bool:
+    """Whether document D, as registered, lies under a dot-named part of the manuscript: its folder (registered_src) or
+    its main file (registered_main) - and so any folder on the way to either - has a part below D.registered_manuscript
+    whose name starts with '.' (the manuscript tree's rule, limn.platform.files.tree_part). Startup refuses such a
+    document (limn.administration.serve_documents.DocDotNamed), so only one made past it is one; it has no history,
+    source diff or comparison, as nothing under such a part is the manuscript. A path outside the manuscript root is not
+    judged here. Pure."""
+    for path in (D.registered_src, D.registered_main):
+        try:
+            parts = path.relative_to(D.registered_manuscript).parts
+        except ValueError:
+            continue
+        if any(part.startswith(".") for part in parts):
+            return True
+    return False
+
+
+def dot_excludes(prefix: str) -> list[str]:
+    """The two exclude pathspecs that leave every file under a dot-named part below the folder prefix (relative to the
+    repository, "" or ending in '/') out of a history: dot-named files and every file under a dot-named folder. Pure."""
+    at = glob_literal(prefix)
+    return [":(exclude,glob)%s**/.*" % at, ":(exclude,glob)%s**/.*/**" % at]
+
+
+def repo_files(repo: Path, files: Sequence[Path]) -> list[str]:
+    """files (absolute paths) relative to repo as POSIX paths, each once, in order; a file that is not inside repo, or
+    is repo itself, is left out. Lexical: the paths are compared as given, so callers pass resolved folders. Pure."""
+    rels: dict[str, None] = {}
     for f in files:
         try:
             rel = f.relative_to(repo).as_posix()
         except ValueError:
             continue
-        spec = ":(literal)" + rel
-        if rel != "." and spec not in out:
-            out.append(spec)
-    if len(out) <= HISTORY_PATHS_MAX:
-        return out
-    try:
-        return [":(literal)" + folder.relative_to(repo).as_posix()]
-    except ValueError:
-        return []
+        if rel != ".":
+            rels.setdefault(rel)
+    return list(rels)
 
 
-def revision_scope(D: RevisionDoc, files: Sequence[Path] | None = None) -> tuple[Path, list[str]] | None:
+def files_pathspec(rels: Sequence[str]) -> list[str]:
+    """Git pathspecs that match exactly the files rels (relative to the repository, repo_files): each as a :(literal)
+    path, then an exclude of everything below each name (:(exclude,literal)<path>/), as a literal path also matches what
+    lies below it in a commit that held that name as a folder (notes/plan.md/old.txt for notes/plan.md). Pure."""
+    return [":(literal)" + rel for rel in rels] + [":(exclude,literal)%s/" % rel for rel in rels]
+
+
+def revision_scope(D: RevisionDoc, files: Sequence[Path] | None = None) -> tuple[Path, list[str]] | TooManyFiles | None:
     """Returns the repository and Git pathspec of document D's history, or None for a document without revisions (not
-    D.shows_revisions), a main file outside its build root, or a folder outside Git.
+    D.shows_revisions), a main file outside its build root, or a folder outside Git; TooManyFiles for files that are
+    more than HISTORY_PATHS_MAX.
 
     files None: a LaTeX document - just the manuscript text inside the chosen main .tex's folder. D.src is the
     build-copy scope, so multiple documents can share the same root. The change history must be filtered to
     D.main.parent, or commits from the body, highlights, and cover letter get mixed together.
     files given: a figure, a Markdown or a text document - exactly those files (RevisionBuildQueries.history_files: a
     figure document's map, the PDF the map names and the map's scripts and shared components; a Markdown or text
-    document's own file), found from the repository holding D.src (files_pathspec). The suffix pathspec above never names
-    a Markdown file or a text file other than .bib, .sty, .cls and .bst, so a LaTeX document and a Markdown or text
-    document in one folder keep apart histories; a .bib text document's commits are the LaTeX document's too."""
-    if not D.shows_revisions:
+    document's own file), found from the repository holding D.src (_files_scope): no file below one of their names and
+    none of the folder's other files - a document with more than HISTORY_PATHS_MAX of them has no history
+    (TooManyFiles) rather than one widened to its folder. The suffix pathspec above never names a Markdown file or a
+    text file other than .bib, .sty, .cls and .bst, so a LaTeX document and a Markdown or text document in one folder
+    keep apart histories; a .bib text document's commits are the LaTeX document's too. Neither names anything under a
+    dot-named part below the document's folder (dot_excludes), and the folder's own name is matched literally
+    (glob_literal). A document that itself lies under a dot-named part of the manuscript - its folder,
+    its main file or a folder between them and the manuscript root (dot_named_document) - has none."""
+    if not D.shows_revisions or dot_named_document(D):
         return None
     if files is not None:
         return _files_scope(D, files)
-    root = D.main.resolve().parent
+    root = D.registered_main.parent
     try:
-        root.relative_to(D.src.resolve())
+        root.relative_to(D.registered_src)
     except ValueError:
         return None
-    rc, top, _ = git(["-C", str(root), "rev-parse", "--show-toplevel"], root)
-    if rc != 0 or not top.strip():
+    repo = registered_repo(root)
+    if repo is None:
         return None
-    repo = Path(top.strip()).resolve()
     try:
         prefix = root.relative_to(repo).as_posix()
     except ValueError:
         return None
     prefix = "" if prefix == "." else prefix + "/"
+    at = glob_literal(prefix)  # the folder is a name, not a pattern: paper[1]/ must not match paper1/
     # Git :(glob) ** only matches subfolders, so root files are included via a separate pattern.
     exts = ("tex", "bib", "sty", "cls", "bst")
-    paths = [":(glob)%s*.%s" % (prefix, ext) for ext in exts]
-    paths += [":(glob)%s**/*.%s" % (prefix, ext) for ext in exts]
-    return repo, paths
+    paths = [":(glob)%s*.%s" % (at, ext) for ext in exts]
+    paths += [":(glob)%s**/*.%s" % (at, ext) for ext in exts]
+    # Nothing under a dot-named part is the manuscript (limn.platform.files.tree_part; the build copy skips dot folders,
+    # limn.builds.artifacts._excluded_dir), so a committed .private/notes.tex or .old.bib is no document's history.
+    return repo, paths + dot_excludes(prefix)
 
 
-def _files_scope(D: RevisionDoc, files: Sequence[Path]) -> tuple[Path, list[str]] | None:
-    """The repository holding figure document D's folder and files as its pathspec (files_pathspec), or None when the
-    folder is not in a Git repository or none of the files lies in it.
+def _files_scope(D: RevisionDoc, files: Sequence[Path]) -> tuple[Path, list[str]] | TooManyFiles | None:
+    """The repository holding figure, Markdown or text document D's folder (registered_repo) and files as its
+    pathspec (repo_files, files_pathspec); None when the folder is not in a Git repository or none of the files lies in
+    it, TooManyFiles when more than HISTORY_PATHS_MAX do (the git command line stays short, and the files are never
+    named by their folder instead: it holds files that are not the document's).
 
-    git answers the repository's resolved path, so each file is compared in the same form: its folder with symlinks
-    resolved, its own name kept (a script that is itself a link is still named by its own path, as git tracks it). A
-    document whose folder is reached through a symlink (macOS's /var -> /private/var) keeps its whole history, as a
-    LaTeX document does (revision_scope resolves its main file's folder the same way)."""
-    try:
-        root = D.src.resolve()
-        named = [f.parent.resolve() / f.name for f in files]
-    except (OSError, RuntimeError):
+    Each file is named by the path it was registered with (registered_file), never by where its folder leads now: a
+    document whose folder was reached through a symlink when the run started (macOS's /var -> /private/var) keeps its
+    whole history, as a LaTeX document does, and a folder replaced by a symlink after that - to a dot-named folder or to
+    another repository - does not make another file's history the document's. A file under a dot-named part below the
+    folder is never named (registered_file), and the pathspec ends with dot_excludes; what lies below a named file in a
+    commit that held its name as a folder is excluded too (files_pathspec)."""
+    repo = registered_repo(D.registered_src)
+    if repo is None:
         return None
-    rc, top, _ = git(["-C", str(root), "rev-parse", "--show-toplevel"], root)
+    try:
+        prefix = D.registered_src.relative_to(repo).as_posix()
+    except ValueError:
+        return None
+    rels = repo_files(repo, [p for p in (registered_file(D, f) for f in files) if p is not None])
+    if not rels:
+        return None
+    if len(rels) > HISTORY_PATHS_MAX:
+        return TooManyFiles()
+    return repo, files_pathspec(rels) + dot_excludes("" if prefix == "." else prefix + "/")
+
+
+def _unlinked_prefix(folder: Path) -> Path:
+    """The deepest folder on the way from the file system root down to folder (absolute) that is reached without
+    passing a symlink: folder itself while each of its folders is a directory and none is a link, else the last folder
+    before the first one that is a link, is missing or is not a directory. Reads metadata only (lstat)."""
+    at = Path(folder.anchor)
+    for part in folder.relative_to(folder.anchor).parts:
+        step = at / part
+        try:
+            if not stat.S_ISDIR(os.lstat(step).st_mode):  # lstat: a symlink is a link here, never what it points at
+                break
+        except OSError:
+            break
+        at = step
+    return at
+
+
+def registered_repo(folder: Path) -> Path | None:
+    """The top level of the Git repository holding folder - a document's folder as it was registered
+    (Doc.registered_src, or its main file's folder) - resolved, as git answers it; None outside Git.
+
+    git is asked from the deepest part of folder reached without passing a symlink (_unlinked_prefix). A registered
+    folder has no symlink in it (it was resolved at startup), so this is the folder itself until one of its folders is
+    replaced by a link; then git is asked from the folder above that link, and the document's files keep the
+    repository-relative paths they were registered with, whatever the link points at - a dot-named folder of the same
+    repository, or another repository."""
+    start = _unlinked_prefix(folder)
+    rc, top, _ = git(["-C", str(start), "rev-parse", "--show-toplevel"], start)
     if rc != 0 or not top.strip():
         return None
-    repo = Path(top.strip()).resolve()
-    paths = files_pathspec(repo, named, root)
-    return (repo, paths) if paths else None
+    return Path(top.strip()).resolve()
+
+
+def registered_file(D: RevisionDoc, f: Path) -> Path | None:
+    """File f of document D - one RevisionBuildQueries.history_files names, or a pin's file or recorded change as the
+    pin owner places it (revision_pin_scope) - in its registered form: D.registered_main for D.main; a path below D.src
+    as the same path below D.registered_src (normalised, so a '..' never leaves the folder); a path already below
+    D.registered_src (one the build owner placed there, as limn.builds.queries.history_pdf does) as it is. None for any
+    other path, and for one with a dot-named part below D.registered_src (dot_named) - D's own main too, as the history
+    pathspec leaves it out (dot_excludes). Lexical: resolves nothing, so no symlink below the registered folder decides
+    which file is named. Pure."""
+    if f == D.main:
+        named = D.registered_main
+    else:
+        for base in (D.src, D.registered_src):
+            try:
+                rel = os.path.normpath(f.relative_to(base).as_posix())
+            except ValueError:
+                continue
+            if rel == ".." or rel.startswith("../"):
+                return None
+            named = D.registered_src if rel == "." else D.registered_src / rel
+            break
+        else:
+            return None
+    try:
+        below = named.relative_to(D.registered_src).as_posix()
+    except ValueError:
+        return named  # a main registered outside its folder: judged where it was registered, not here
+    return None if below != "." and dot_named(below) else named
 
 
 class HistoryPage(NamedTuple):
@@ -500,10 +641,13 @@ def revision_window(
     (revision_scope) and its REVISION_HISTORY_MAX most recent commits as history rows in ancestry order (_log_rows). The
     lists of GET /api/revisions are its first rows and its pages, a request may name only its commits (a range's base
     also their first parents), and a pin's close_ref is resolved among its first REVISION_RECENT. No rows when git
-    cannot list them; NoHistory for a document without history. windows, when given, keeps the rows per HEAD."""
+    cannot list them; NoHistory for a document without history (TooManyFiles for one with too many history files).
+    windows, when given, keeps the rows per HEAD."""
     found = revision_scope(D, files)
     if found is None:
         return NoHistory()
+    if isinstance(found, TooManyFiles):
+        return found
     repo, paths = found
     if windows is not None:
         return repo, paths, windows.rows(repo, paths)
@@ -531,9 +675,13 @@ def revision_history(
     """GET /api/revisions: the document's manuscript commits from its history window (revision_window, ancestry order),
     each {id, date, subject, author, time, parents}, or available: false when it has no history. Without page, the
     first REVISION_RECENT rows and the two keys {available, revisions}; with page, that page of the window
-    (history_page) with `more` added, or CommitNotRecent for a before outside it. files are a figure or Markdown
-    document's history files (revision_scope); None for a LaTeX document. windows keeps the window per HEAD."""
+    (history_page) with `more` added, or CommitNotRecent for a before outside it. A document with more history files
+    than HISTORY_PATHS_MAX (TooManyFiles) answers available false with reason too_many_files and that limit, so the
+    viewer can say why. files are a figure or Markdown document's history files (revision_scope); None for a LaTeX
+    document. windows keeps the window per HEAD."""
     window = revision_window(D, files, windows)
+    if isinstance(window, TooManyFiles):
+        return {"available": False, "revisions": [], "reason": "too_many_files", "limit": HISTORY_PATHS_MAX}
     if isinstance(window, NoHistory) or not window[2] and not _has_history(window[0], window[1]):
         return {"available": False, "revisions": []}
     rows = window[2]
@@ -740,7 +888,7 @@ def revision_diff(
         if base:
             sc = revision_pin_scope(D, repo, paths, base, commit, pin, revisions, ctx)
         else:
-            projection = ctx.pins(pin, D.key, D, lambda path: _repo_rel(repo, str(path)))
+            projection = ctx.pins(pin, D.key, lambda path: _repo_rel(D, repo, path))
             sc = PinNotInDoc() if projection is None else PinScope(projection.id, "commit", "none", 0, 0)
         if isinstance(sc, PinNotInDoc):
             return sc
@@ -916,12 +1064,17 @@ def revision_changes(repo: Path, base: str, head: str, paths: Sequence[str]) -> 
         return None
 
 
-def _repo_rel(repo: Path, path: str) -> str | None:
-    """path (absolute, as stored on pins) relative to the repository root in POSIX form, symlinks resolved; None when
-    it lies outside the repository or cannot be resolved."""
+def _repo_rel(D: RevisionDoc, repo: Path, path: Path) -> str | None:
+    """path - a pin's file or a recorded change of document D, as the pin owner places it in the run's registered
+    coordinates (limn.pins.location.lookup.recorded_place) - relative to the repository root repo (registered_repo) in
+    POSIX form, by registered_file: lexical, so a folder replaced by a symlink after startup does not move a pin to
+    another file. None when it is not one of D's files (outside its folder, under a dot-named part) or outside repo."""
+    named = registered_file(D, path)
+    if named is None:
+        return None
     try:
-        return Path(path).resolve().relative_to(repo.resolve()).as_posix()
-    except (ValueError, OSError, RuntimeError, TypeError):
+        return named.relative_to(repo).as_posix()
+    except ValueError:
         return None
 
 
@@ -957,17 +1110,14 @@ def revision_pin_scope(
 ) -> PinScope | PinNotInDoc:
     """How pin pid of document D sees commit head (compared with its first parent base).
     Revisions are the document's history window rows (revision_window); recorded changes count only on the commit the
-    pin's close_ref names. Their paths are resolved by the pin-owned read view with the same rule as the pin's own file
-    (issue #24) - so a moved or cloned checkout keeps the agent's lines; a path the rule cannot place is dropped and
-    the pin's hunks are inferred as before. Unless the same pin facts were decided for this commit before (ctx.cache),
-    reads the commit's files within one of the cache's slots and decides with revisions.scope.pin_scope(); an unreadable
-    commit is mode "commit" and not stored."""
-    projected = ctx.pins(
-        pid,
-        D.key,
-        D,
-        lambda path: _repo_rel(repo, str(path)),
-    )
+    pin's close_ref names. Their paths are placed by the pin-owned read view with the same rule as the pin's own file
+    (issue #24) - so a moved or cloned checkout keeps the agent's lines - in the run's registered coordinates, and named
+    in the repository lexically (_repo_rel), so a folder replaced by a symlink after startup changes neither the pin's
+    file nor its recorded ranges; a path the rule cannot place is dropped and the pin's hunks are inferred as before.
+    Unless the same pin facts were decided for this commit before (ctx.cache), reads the commit's files within one of
+    the cache's slots and decides with revisions.scope.pin_scope(); an unreadable commit is mode "commit" and not
+    stored."""
+    projected = ctx.pins(pid, D.key, lambda path: _repo_rel(D, repo, path))
     if projected is None:
         return PinNotInDoc()
     changes = [
@@ -1014,12 +1164,13 @@ def revision_spec(
         return CommitNotRecent()
     repo, paths, revisions = window[0], tuple(window[1]), window[2]
     try:
-        source = D.src.resolve().relative_to(repo).as_posix()
-        main = D.main.resolve().relative_to(D.src.resolve())
+        source = D.registered_src.relative_to(repo).as_posix()
+        main = D.registered_main.relative_to(D.registered_src)
+        tree_source = D.registered_src.relative_to(D.registered_manuscript).as_posix()
     except ValueError:
         return NotInRepo()
     if base is not None:
-        return range_spec(repo, source, main, paths, window[2], commit, base)
+        return range_spec(repo, source, main, paths, window[2], commit, base, tree_source)
     rc, out, _ = git(["rev-list", "--parents", "-n", "1", commit], repo)
     parents = out.strip().split()
     if rc != 0 or len(parents) < 2 or not REVISION_ID_RE.fullmatch(parents[1]):
@@ -1037,7 +1188,7 @@ def revision_spec(
             blocks = sc.blocks  # keyed by the block set, not the pin: pins on the same fix share it
             extra = ["blocks", [list(b) for b in blocks]]
     key = comparison_key(repo, source, main, base, commit, extra)
-    return RevisionSpec(repo, source, main, base, commit, key, paths, blocks, pin, meta)
+    return RevisionSpec(repo, source, main, base, commit, key, paths, blocks, pin, meta, tree_source=tree_source)
 
 
 def comparison_key(repo: Path, source: str, main: Path, base: str, head: str, extra: Sequence[Any] = ()) -> str:
@@ -1049,12 +1200,20 @@ def comparison_key(repo: Path, source: str, main: Path, base: str, head: str, ex
 
 
 def range_spec(
-    repo: Path, source: str, main: Path, paths: tuple[str, ...], rows: Sequence[Json], commit: str, base: str
+    repo: Path,
+    source: str,
+    main: Path,
+    paths: tuple[str, ...],
+    rows: Sequence[Json],
+    commit: str,
+    base: str,
+    tree_source: str = ".",
 ) -> RevisionSpec | CommitNotRecent | DiffFailed | RangeRefusal:
     """The comparison of the range base..commit (issue #188): base must be in the history window rows or the first
     parent of one of them (window_base; otherwise outside_base says why), and is resolved like the source diff's (resolve_range: the merge base for a
     base on another line). An empty range is EmptyRange - nothing to build. A range whose old side is commit's first
-    parent is the single commit's comparison (same key, not ranged); any other is ranged, cached apart."""
+    parent is the single commit's comparison (same key, not ranged); any other is ranged, cached apart. tree_source is
+    the build root relative to the manuscript root (RevisionSpec.tree_source)."""
     if not window_base(rows, base):
         return outside_base(repo, paths, base)
     ends = resolve_range(repo, base, commit)
@@ -1065,7 +1224,16 @@ def range_spec(
     first: list[str] = next((row["parents"][:1] for row in rows if row["id"] == commit), [])
     key = comparison_key(repo, source, main, ends.old, commit)
     return RevisionSpec(
-        repo, source, main, ends.old, commit, key, paths, merge_base=ends.merge_base, ranged=first != [ends.old]
+        repo,
+        source,
+        main,
+        ends.old,
+        commit,
+        key,
+        paths,
+        merge_base=ends.merge_base,
+        ranged=first != [ends.old],
+        tree_source=tree_source,
     )
 
 

@@ -31,10 +31,10 @@ Json: TypeAlias = dict[str, Any]
 Record: TypeAlias = Mapping[str, Any]
 
 
-def _stored_path(value: Record | str, _document: object) -> Path:
-    """Default locator for isolated projection tests; production supplies the current locator."""
-    file = value.get("file") if isinstance(value, Mapping) else value
-    return Path(file) if isinstance(file, str) else Path()
+def _stored_path(stored: str, _record: Record) -> Path:
+    """Default locator for isolated projection tests: the stored path as it is. Production supplies the run's
+    (limn.pins.location.lookup.recorded_place)."""
+    return Path(stored)
 
 
 def people_facts(record: Record) -> tuple[Json, ...]:
@@ -72,7 +72,7 @@ class PinReadView:
     _read: Callable[[], tuple[list[Pin], list[int]]]
     _snapshot: Callable[[], list[Pin]]
     _document_key: Callable[[Record], str]
-    _locate: Callable[[Record | str, Any], Path | None] = _stored_path
+    _locate: Callable[[str, Record], Path | None] = _stored_path
 
     def counts_by_document(self, known: set[str]) -> tuple[dict[str, int], int]:
         """Return open counts by document and the count outside ``known``."""
@@ -102,23 +102,24 @@ class PinReadView:
         self,
         pin_id: int,
         document_key: str,
-        document: Any,
         relative: Callable[[Path], str | None],
     ) -> RevisionPin | None:
-        """Return one document-bound projection with every stored path currently resolved."""
+        """Return one document-bound projection with every stored path placed in the run's registered coordinates
+        (the locator assemble_pins binds: limn.pins.location.lookup.recorded_place) - a recorded change by its own
+        record, so a moved checkout's change goes where the pin's file does."""
         record = next((pin.record for pin in self._read()[0] if pin.core.id == pin_id), None)
         if record is None or self._document_key(record) != document_key:
             return None
 
-        def resolve(value: Record | str) -> str | None:
-            """Locate a stored path now, then let the revision owner place it in its repository."""
-            path = self._locate(value, document)
+        def resolve(stored: object) -> str | None:
+            """Place a stored path as the run registered its root, then let the revision owner name it in its repository."""
+            path = self._locate(stored, record) if isinstance(stored, str) else None
             return relative(path) if path is not None else None
 
         def resolve_pin() -> str | None:
-            """Prefer the current location, retaining a repository-relative historical name after a rename."""
-            current = resolve(record)
+            """Prefer the placed location, retaining a repository-relative historical name after a rename."""
             stored = record.get("file")
+            current = resolve(stored)
             return current if current is not None else relative(Path(stored)) if isinstance(stored, str) else None
 
         projection = project_revision_pin(
@@ -135,12 +136,15 @@ class PinReadView:
 
 @dataclass(frozen=True)
 class PinStartup:
-    """Pin startup operations owned by the capability."""
+    """Pin startup operations owned by the capability. learn_record_folders translates, once, the folders the stored
+    records were written through under another path to the manuscript (limn.pins.location.lookup.recorded_folders);
+    the composition root runs it before any thread starts or the server listens, and a run never learns them again."""
 
     initialize_sequence: Callable[[], None]
     render_markdown: Callable[[], None]
     maintain: Callable[[], None]
     watch: Callable[[threading.Event], None]
+    learn_record_folders: Callable[[], None]
 
 
 @dataclass(frozen=True)
@@ -177,7 +181,7 @@ def assemble_pins(
     composition root - and runs before an agent's close of one of its pins is written
     (docs/handbook/api.md §닫을 때 사유 남기기). verdict_keys answers the verdict words a document declares now - the
     document capability's answer, wired by the composition root - which a new verdict pin is checked against."""
-    from limn.pins.location.lookup import locate_file
+    from limn.pins.location.lookup import NO_RECORDED_FOLDERS, RecordedFolders, recorded_folders, recorded_place
     from limn.pins.runtime import PinCommands
 
     commands = PinCommands(
@@ -196,17 +200,37 @@ def assemble_pins(
         verdict_keys,
     )
 
-    def locate(value: Record | str, document: Any) -> Path | None:
-        """Resolve a pin or recorded change using the current manuscript paths."""
+    # The folders stored records were written through, as startup translated them (learn_record_folders): this run's
+    # one answer, an immutable mapping replaced as a whole, so a reader on any thread sees the startup's mapping or
+    # (before it ran) none.
+    folders: RecordedFolders = NO_RECORDED_FOLDERS
+
+    def learn_record_folders() -> None:
+        """Translate the folders of the live and trashed records' paths that rules 1 and 2 of recorded_place cannot
+        place, resolving each once, now (recorded_folders); the composition root calls this at startup only. A file
+        that cannot be read leaves its records untranslated - they place less, never elsewhere - and startup goes on,
+        as it does when pin maintenance cannot read the Trash (the step that owns the file reports it)."""
+        nonlocal folders
         config = settings()
-        location = locate_file(
-            value.get("file") if isinstance(value, Mapping) else value,
-            value.get("file_rel") if isinstance(value, Mapping) else None,
-            config.src,
-            config.state,
-            document,
+        records: list[Record] = []
+        reads: tuple[Callable[[], Sequence[Record]], ...] = (
+            lambda: [pin.record for pin in commands.read_pins()[0]],
+            lambda: [trashed.pin.record for trashed in commands.read_dropped()[0]],
         )
-        return None if location is None else location.path
+        for read in reads:
+            try:
+                records.extend(read())
+            except OSError:
+                continue
+        folders = recorded_folders(records, config.src, config.state)
+
+    def locate(stored: str, record: Record) -> Path | None:
+        """Place a path pin record `record` stores - its file or a recorded change - for the changes view, in the
+        coordinates the run registered (recorded_place): a folder replaced by a symlink after startup does not move it,
+        a moved checkout's record is placed by its own file_rel, and a record written through another path to the
+        manuscript by the folders startup translated, never by what the tree holds now."""
+        config = settings()
+        return recorded_place(stored, record, config.src, config.state, folders)
 
     def render() -> None:
         """Render current pins after acquiring this run's transaction lock."""
@@ -215,7 +239,7 @@ def assemble_pins(
 
     view = PinReadView(commands.read_pins, commands.snapshot_pins, commands.pin_doc_key, locate)
     maintenance = PinMaintenance(commands.pin_store, commands.retention_days, commands.maintenance_files)
-    startup = PinStartup(commands.init_seq, render, maintenance.run, maintenance.watch)
+    startup = PinStartup(commands.init_seq, render, maintenance.run, maintenance.watch, learn_record_folders)
     counts = PinCountQueries(view.counts_by_document, view.state_counts, lambda: change_token(settings().pins_jsonl))
     return PinSubsystem(
         counts,

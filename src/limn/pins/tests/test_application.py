@@ -52,7 +52,6 @@ class PinReadViewTests(unittest.TestCase):
         projection = self.view.revision_pin(
             1,
             "paper",
-            None,
             lambda path: "paper/main.tex" if str(path).startswith("/old/") else None,
         )
 
@@ -60,7 +59,7 @@ class PinReadViewTests(unittest.TestCase):
         assert projection is not None
         self.assertEqual(projection.relative_path, "paper/main.tex")
         self.assertEqual(projection.changes, (("paper/main.tex", 10, 12),))
-        self.assertIsNone(self.view.revision_pin(1, "other", None, lambda _path: None))
+        self.assertIsNone(self.view.revision_pin(1, "other", lambda _path: None))
 
     def test_people_projection_contains_only_detached_actor_facts(self) -> None:
         """Collaboration cannot observe source paths or mutate nested pin attribution."""

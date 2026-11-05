@@ -3,6 +3,7 @@
 from typing import Any, NoReturn
 
 from limn.revisions.core import (
+    HISTORY_PATHS_MAX,
     AllSlotsBusy,
     BaseAfterHead,
     BaseTooOld,
@@ -22,6 +23,7 @@ from limn.revisions.core import (
     RevisionPdfMissing,
     RevisionRefusal,
     StepFailed,
+    TooManyFiles,
     UnsafeCache,
 )
 from limn.revisions.scope import PinNotInDoc, ScopeMismatch, ScopeRefusal, ScopeUnreadable, ScopeUnwritable, UnsafePath
@@ -33,6 +35,12 @@ def revision_refused(result: RevisionRefusal) -> NoReturn:
     /api/revision-build), with the statuses and bodies of the agent contract; a pin-scoping refusal through
     SCOPE_REJECTIONS."""
     match result:
+        case TooManyFiles():  # before NoHistory, which it is
+            raise HTTPError(
+                404,
+                "이 문서는 이력 파일이 %d개를 넘어 원고 변경사항을 볼 수 없습니다." % HISTORY_PATHS_MAX,
+                reason="too_many_files",
+            )
         case NoHistory():
             raise HTTPError(404, "이 문서는 원고 변경사항을 볼 수 없습니다.", reason="no_history")
         case CommitNotRecent():

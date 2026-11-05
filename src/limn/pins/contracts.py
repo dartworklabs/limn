@@ -3,21 +3,13 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol, TypeAlias
+from typing import TypeAlias
 
 from limn.pins.revision import RevisionPin
 
-
-class PinDocument(Protocol):
-    """Only the document folder required to locate a moved pin or changed range."""
-
-    @property
-    def src(self) -> Path:
-        """The folder limiting historical path-tail matching."""
-        ...
-
-
-RevisionPinQuery: TypeAlias = Callable[[int, str, PinDocument, Callable[[Path], str | None]], RevisionPin | None]
+# One pin of one document (id, document key) for the changes view, its stored paths placed in the run's registered
+# coordinates and named by the revision owner's callable (limn.pins.application.PinReadView.revision_pin).
+RevisionPinQuery: TypeAlias = Callable[[int, str, Callable[[Path], str | None]], RevisionPin | None]
 
 
 @dataclass(frozen=True)

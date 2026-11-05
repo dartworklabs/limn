@@ -178,10 +178,35 @@ class MarkdownAtStartup(StartupTree):
                         % main
                     ),
                 )
-        for name in (".py", "paper.sty", "paper.CLS", "refs.bib", "style.bst"):  # .py: a dotfile, no suffix
+        for name in ("paper.sty", "paper.CLS", "refs.bib", "style.bst"):
             with self.subTest(latex_own=name):
                 (self.ms / name).write_text("\\documentclass{article}\\begin{document}x\\end{document}\n")
                 self.assertEqual(serve_documents.pick_documents(self.ms, [], name), RunDocuments(None, self.ms / name))
+
+    def test_main_never_names_a_dot_named_file(self):
+        """A --main that is a dotfile (.py, a dotfile with no suffix; .draft.tex), sits in a dot-named folder or is a
+        link into one is refused with the dot-named part, as a --doc path is (DocDotNamed); detection never lists a
+        dotfile, so a manuscript whose only other top-level LaTeX main is .draft.tex detects main.tex."""
+        (self.ms / ".Private").mkdir()
+        for rel in (".py", ".draft.tex", ".Private/main.tex"):
+            (self.ms / rel).write_text(TEX, encoding="utf-8")
+        (self.ms / "alias.tex").symlink_to(".Private/main.tex")
+        for main, dot, real in (
+            (".py", ".py", ".py"),
+            (".draft.tex", ".draft.tex", ".draft.tex"),
+            (".Private/main.tex", ".Private", ".Private/main.tex"),
+            ("alias.tex", ".Private", ".Private/main.tex"),
+        ):
+            with self.subTest(main=main):
+                self.assertEqual(
+                    serve_documents.pick_documents(self.ms, [], main),
+                    StartupRefused(
+                        "The main .tex has a dot-named part (%s) - Limn never reads a file under a dot-named part of "
+                        "the manuscript (.git, .env, ...), so it cannot serve it: %s" % (dot, self.ms / real)
+                    ),
+                )
+        (self.ms / "alias.tex").unlink()  # a link is listed by its own name, as the shell's glob lists it
+        self.assertEqual(serve_documents.pick_documents(self.ms, [], None), RunDocuments(None, self.ms / "main.tex"))
 
 
 class SetApartAtStartup(StartupTree):

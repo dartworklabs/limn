@@ -25,6 +25,7 @@ from unittest import mock
 
 from limn.administration import serve_documents as startup_documents
 from limn.administration.serve_documents import (
+    DocDotNamed,
     DocExtendedMalformed,
     DocExtendedWrongKind,
     DocFileMissing,
@@ -572,6 +573,40 @@ class UiLang(unittest.TestCase):
                     self.assertEqual(got.config.ui_lang, want)
 
 
+class ManuscriptThroughALink(unittest.TestCase):
+    """--manuscript given through a link (macOS's /var -> /private/var, a linked projects folder) is registered as the
+    folder it leads to, and so is every document's folder and main file: the changes view places a pin and its
+    recorded changes under the registered root as they are (limn.pins.location.lookup.recorded_place), and the server
+    resolves a file it checks, so the two must be one coordinate system."""
+
+    def test_the_run_and_its_documents_are_registered_resolved(self):
+        """A link to the manuscript folder: the run's src and main, and a --doc document's registered folder and file,
+        are the resolved paths, below the run's src. Mutation: drop the .resolve() of configure_run's manuscript -> the
+        run's src is the link, fails."""
+        with tempfile.TemporaryDirectory() as d:
+            real = Path(d).resolve() / "real"
+            (real / "notes").mkdir(parents=True)
+            (real / "main.tex").write_text(TEX, encoding="utf-8")
+            (real / "notes" / "plan.md").write_text("# Plan\n", encoding="utf-8")
+            link = Path(d) / "link"
+            link.symlink_to(real, target_is_directory=True)
+            for docs, main in (
+                ([], real / "main.tex"),
+                (["--doc", "nt=Notes:notes/plan.md"], real / "notes" / "plan.md"),
+            ):
+                with self.subTest(docs=docs):
+                    a = ps.build_arg_parser().parse_args(
+                        ["--manuscript", str(link), "--state-dir", str(Path(d) / "st"), "--no-build", *docs]
+                    )
+                    got = ps.configure_run(a, DEFAULT_ACCESS)
+                    assert isinstance(got, ps.RunStart), got
+                    self.assertEqual(got.config.src, real)
+                    self.assertEqual(got.config.main, main)  # with --doc, the first document's file
+                    for doc in got.docs or []:
+                        self.assertEqual(doc.registered_main, real / "notes" / "plan.md")
+                        self.assertEqual(doc.registered_src.relative_to(got.config.src), Path("notes"))
+
+
 class Parser(unittest.TestCase):
     """serve_parser(): the command line takes the server's description, version and --float-envs default."""
 
@@ -819,6 +854,46 @@ class DocArgs(unittest.TestCase):
                 self.assertEqual(got, refusal)
                 self.assertEqual(startup_documents.doc_refusal_message(refusal), message)
         self.assertTrue((m2 / "2nd" / "m.tex").is_file())  # the '::' cases above fail on their rule, not a missing file
+
+    def test_rejects_a_dot_named_path(self):
+        """A path or a '::' build root with a dot-named part below --manuscript, symlinks resolved, is refused naming
+        that part (DocDotNamed): nothing there is the manuscript, so the document could never be shown."""
+        ms = self.ms.resolve()
+        (ms / ".Private").mkdir()
+        (ms / ".Private" / "main.tex").write_text(FIXTURE_TEX, encoding="utf-8")
+        (ms / "sub" / "rr" / ".draft.tex").write_text(FIXTURE_TEX, encoding="utf-8")
+        (ms / "linked").symlink_to(".Private", target_is_directory=True)
+        why = "원고 폴더에서 점 이름(.git·.env 같은) 아래의 파일은 Limn 이 읽지 않으므로 이 문서를 보일 수 없습니다"
+        cases = [
+            (
+                "pp=논문:.Private/main.tex",
+                DocDotNamed("pp", "path", ".Private", ms / ".Private" / "main.tex"),
+                "--doc pp: 경로 에 점으로 시작하는 이름(.Private)이 있습니다 - %s: %s"
+                % (why, ms / ".Private" / "main.tex"),
+            ),
+            (
+                "pp=논문:linked/main.tex",
+                DocDotNamed("pp", "path", ".Private", ms / ".Private" / "main.tex"),
+                "--doc pp: 경로 에 점으로 시작하는 이름(.Private)이 있습니다 - %s: %s"
+                % (why, ms / ".Private" / "main.tex"),
+            ),
+            (
+                "rr=답변서:sub/rr/.draft.tex",
+                DocDotNamed("rr", "path", ".draft.tex", ms / "sub" / "rr" / ".draft.tex"),
+                "--doc rr: 경로 에 점으로 시작하는 이름(.draft.tex)이 있습니다 - %s: %s"
+                % (why, ms / "sub" / "rr" / ".draft.tex"),
+            ),
+            (
+                "pp=논문:.Private::main.tex",
+                DocDotNamed("pp", "root", ".Private", ms / ".Private"),
+                "--doc pp: 빌드 루트 에 점으로 시작하는 이름(.Private)이 있습니다 - %s: %s" % (why, ms / ".Private"),
+            ),
+        ]
+        for spec, refusal, message in cases:
+            with self.subTest(spec):
+                got = startup_documents.parse_doc_arg(spec, self.ms)
+                self.assertEqual(got, refusal)
+                self.assertEqual(startup_documents.doc_refusal_message(refusal), message)
 
     def test_make_docs_rejects_duplicate_keys_and_marks_main_root(self):
         """make_docs returns the list's own refusals (a repeated key; more than DOCS_MAX values, counted before any is

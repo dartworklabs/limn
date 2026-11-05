@@ -329,10 +329,13 @@ def assemble_application(config: RunConfig, runtime: RunResources) -> ServerAsse
 
 
 def prepare(app: ServerAssembly, documents: list[Doc] | None, no_build: bool) -> StartupRefused | None:
-    """Initialize pin files, builds and watches before rendering markdown and tightening state permissions."""
+    """Initialize pin files, builds and watches before rendering markdown and tightening state permissions. The pin
+    records' folders written through another path to the manuscript are translated right after the pin sequence,
+    before the first thread starts and long before the server listens (limn.pins.location.lookup.recorded_folders)."""
     environment = app.environment
     environment.docs[:] = documents or [Doc(DEFAULT_DOC_KEY, "본문", legacy=True, paths=environment.C.paths)]
     app.pins.startup.initialize_sequence()
+    app.pins.startup.learn_record_folders()
     for doc in environment.docs:
         result = app.builds.commands.initialize(doc, no_build, wait=not documents)
         if not documents and result.refusal is not None:
