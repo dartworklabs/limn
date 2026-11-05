@@ -333,11 +333,16 @@ function reviewPins(keys){const p=EVENT_TYPE.REVIEW_REQUESTED+':'; return keys.f
 /** @param {string[]} keys @param {number[]} inReview @returns {boolean} */
 function reviewNewsStale(keys,inReview){const ids=reviewPins(keys); return ids.length>0&&!ids.some(i=>inReview.includes(i));}
 // Each time the list is drawn (drawPins: after a reload, a confirm): the stale review arrivals go (reviewNewsStale) - on the
-// line and folded in a gathered line (foldedGone: the line then says, and marks, what is left) - and [검토 M]'s dot - on the
-// collapsed desktop's [핀 N] too - once no message on the line holds it.
+// line, folded in a gathered line (foldedGone: the line then says, and marks, what is left) and in a gathering still under
+// way (DIGEST) - and [검토 M]'s dot - on the collapsed desktop's [핀 N] too - once no message on the line or gathered holds
+// it.
 function dropStaleReview(){const ids=REVIEW_ALL.map(p=>p.id); LINE.slice().forEach(n=>{if(reviewNewsStale(n.keys,ids))endNotice(n,false,true);});
   foldedNews().forEach(f=>{if(reviewNewsStale(f.keys,ids))foldedGone(f,true);});
-  if(!LINE.some(n=>holdsDot(n,NOTICE_DOT.RV)))document.body.classList.remove('dot-'+NOTICE_DOT.RV);}
+  // still being gathered (an event the return's poll said before the list came): it goes as seen too, never said
+  if(DIGEST)for(const [g,a] of [...DIGEST.items]){const o=a[3]||{}; if(!reviewNewsStale(o.keys||[],ids))continue;
+    DIGEST.items.delete(g); const h=GROUPS.get(g); if(h&&!(h.n&&NOTICES.has(h.n.n)))GROUPS.delete(g); if(o.onEnd)o.onEnd(false,true);}
+  const gathered=DIGEST?digestDots([...DIGEST.items.values()]):[];
+  if(!LINE.some(n=>holdsDot(n,NOTICE_DOT.RV))&&!gathered.includes(NOTICE_DOT.RV))document.body.classList.remove('dot-'+NOTICE_DOT.RV);}
 
 // ---------------- Messages that gather (docs/handbook/viewer.md §새 소식)
 // One status-line message per group ('new:<doc>', 'done', 'upd:<doc>'…): a new event of a group whose message still stands
