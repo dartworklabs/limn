@@ -319,9 +319,11 @@ function noticeClose(num){const n=NOTICES.get(num); if(!n)return; const back=not
 /** @param {string} topic */
 function endTopic(topic){NOTICES.forEach(n=>{if(n.topic===topic)endNotice(n,false,true);});}
 // The person looks where a dot points (the panel opened, the review section gone to): that dot goes, with the panel open the
-// hint on how to open it, and with the review section the messages about pins sent to review (seen).
+// hint on how to open it, and with the review section the messages about pins sent to review (seen) - on the line and
+// folded in a gathered line (foldedGone), which [펼치기] would otherwise put back with the dot.
 /** @param {string} dot */
-function noticeSeen(dot){if(dot===NOTICE_DOT.RV)LINE.slice().forEach(n=>{if(reviewPins(n.keys).length)endNotice(n,false,true);});
+function noticeSeen(dot){if(dot===NOTICE_DOT.RV){LINE.slice().forEach(n=>{if(reviewPins(n.keys).length)endNotice(n,false,true);});
+    foldedNews().forEach(f=>{if(reviewPins(f.keys).length)foldedGone(f,true);});}
   document.body.classList.remove('dot-'+dot); if(dot===NOTICE_DOT.SIDE)endTopic(NOTICE_TOPIC.SIDE);}
 // The pins a message's keys say were sent to review ('review_requested:<id>', noticeDupe's keys). Pure.
 /** @param {string[]} keys @returns {number[]} */
@@ -330,9 +332,11 @@ function reviewPins(keys){const p=EVENT_TYPE.REVIEW_REQUESTED+':'; return keys.f
 // reopened or deleted - here or elsewhere). inReview = the ids awaiting review. Pure.
 /** @param {string[]} keys @param {number[]} inReview @returns {boolean} */
 function reviewNewsStale(keys,inReview){const ids=reviewPins(keys); return ids.length>0&&!ids.some(i=>inReview.includes(i));}
-// Each time the list is drawn (drawPins: after a reload, a confirm): the stale review arrivals go (reviewNewsStale), and
-// [검토 M]'s dot - on the collapsed desktop's [핀 N] too - once no message on the line holds it.
+// Each time the list is drawn (drawPins: after a reload, a confirm): the stale review arrivals go (reviewNewsStale) - on the
+// line and folded in a gathered line (foldedGone: the line then says, and marks, what is left) - and [검토 M]'s dot - on the
+// collapsed desktop's [핀 N] too - once no message on the line holds it.
 function dropStaleReview(){const ids=REVIEW_ALL.map(p=>p.id); LINE.slice().forEach(n=>{if(reviewNewsStale(n.keys,ids))endNotice(n,false,true);});
+  foldedNews().forEach(f=>{if(reviewNewsStale(f.keys,ids))foldedGone(f,true);});
   if(!LINE.some(n=>holdsDot(n,NOTICE_DOT.RV)))document.body.classList.remove('dot-'+NOTICE_DOT.RV);}
 
 // ---------------- Messages that gather (docs/handbook/viewer.md §새 소식)
@@ -379,13 +383,18 @@ function newsDupe(keys,rank,except){const now=Date.now(),line=noticeDupe(LINE.fi
 function foldedNews(){return LINE.flatMap(n=>(n.items||[]).map(a=>{const o=a[3]||{}; return {at:n.at,keys:o.keys||[],rank:o.rank||1,line:n,item:a};}));}
 // Folded message f gives way to a message of a higher rank that says the events of keys, as noticeLess on the line: its
 // group that can leave them out (less) says the rest in the gathered line; with nothing left, or a group that cannot, it
-// leaves the gathered line - its group ends with it, what it held for its end runs, not seen - and the line says what is
-// left (digestRetitle).
+// leaves the gathered line, not seen (foldedGone). The line says what is left (digestRetitle).
 /** @param {{line:Notice,item:any[]}} f @param {string[]} keys */
 function foldedLess(f,keys){const items=f.line.items||[],i=items.indexOf(f.item),o=f.item[3]||{},g=o.group?GROUPS.get(o.group):undefined; if(i<0)return;
   const rest=g&&g.less?g.less(g.data,keys):null;
-  if(g&&rest!=null){g.data=rest; const v=g.view(rest); items[i]=[v.msg,v.kind,v.act,{...v.o,group:o.group}];}
-  else{items.splice(i,1); if(g&&!(g.n&&NOTICES.has(g.n.n)))GROUPS.delete(o.group); if(o.onEnd)o.onEnd(false,false);}
+  if(!g||rest==null){foldedGone(f,false); return;}
+  g.data=rest; const v=g.view(rest); items[i]=[v.msg,v.kind,v.act,{...v.o,group:o.group}]; digestRetitle(f.line);}
+// Folded message f leaves its gathered line, as a message leaving the line does: its group ends with it, what it held for
+// its end runs (seen: as read - a review request whose pins left review, or the review section seen), and the line says
+// and marks what is left (digestRetitle).
+/** @param {{line:Notice,item:any[]}} f @param {boolean} seen */
+function foldedGone(f,seen){const items=f.line.items||[],i=items.indexOf(f.item),o=f.item[3]||{},g=o.group?GROUPS.get(o.group):undefined; if(i<0)return;
+  items.splice(i,1); if(g&&!(g.n&&NOTICES.has(g.n.n)))GROUPS.delete(o.group); if(o.onEnd)o.onEnd(false,seen);
   digestRetitle(f.line);}
 // Message x gives way to a message of a higher rank that says the events of keys (noticeDupe's drop): a group's message
 // that can leave them out (less) says the rest in place - not as news again: neither moved, nor read out, nor its window
@@ -450,7 +459,7 @@ function digestLine(briefs){const seen=new Map();
   return [...seen].map(([b,v])=>v.n>1||v.counted?b+' '+v.n:b).join(' · ');}
 /** @param {string} title @param {any[][]} items */
 function digestNote(title,items){items=[...items.filter(a=>!(a[3]||{}).back),...items.filter(a=>!!(a[3]||{}).back)];   // this document's news first
-  const dots=[...new Set(items.map(a=>noticeDot((a[3]||{}).dot||'',SIDE_OPEN)).filter(Boolean))];
+  const dots=digestDots(items);
   const n=lineNote(title+' — '+digestLine(items.map(digestBrief)),NOTICE_KIND.INFO,
     {label:'펼치기',tip:'모은 소식을 하나씩 상태 줄에 놓습니다',fn:()=>{const all=n?n.items||[]:[]; all.forEach(a=>digestReplay(a,false)); if(all.length>1&&!$('#status-list').open)toggleStatusList();}},
     {literal:true,keep:true,back:true,dots,digest:false,onEnd:(acted,seen)=>{if(!acted&&n)digestClosed(n.items||[],seen);}});
@@ -471,11 +480,15 @@ function digestReplay(a,back){const o=a[3]||{},n=lineNote(a[0],a[1],a[2],{...o,d
 function digestTake(group){for(const n of NOTICES.values()){const items=n.items; if(!items)continue; const i=items.findIndex(a=>(a[3]||{}).group===group); if(i<0)continue;
     items.splice(i,1); digestRetitle(n); return true;}
   return false;}
-// Gathered line n says what it holds now (digestTake, foldedLess): each brief once with how many - or, holding nothing more,
-// it goes (nothing it held runs for its end: what took them out did).
+// The chips the gathered messages items mark (digestNote's dots): each one's dot once. Pure but for SIDE_OPEN.
+/** @param {any[][]} items @returns {string[]} */
+function digestDots(items){return [...new Set(items.map(a=>noticeDot((a[3]||{}).dot||'',SIDE_OPEN)).filter(Boolean))];}
+// Gathered line n says what it holds now (digestTake, foldedLess, foldedGone): each brief once with how many, and the dots
+// of those alone - one left stays a gathered line naming it - or, holding nothing more, it goes (nothing it held runs for
+// its end: what took them out did).
 /** @param {Notice} n */
 function digestRetitle(n){const items=n.items||[]; if(!items.length){n.onEnd=null; endNotice(n,true); return;}
-  const [t,d]=msgSplit((n.digestTitle||n.title)+' — '+digestLine(items.map(digestBrief))); n.title=t; n.desc=d; STATUS_SIG=''; drawStatus();}
+  n.dots=digestDots(items); const [t,d]=msgSplit((n.digestTitle||n.title)+' — '+digestLine(items.map(digestBrief))); n.title=t; n.desc=d; STATUS_SIG=''; drawStatus();}
 
 // A CLICK message - a passing notice that is not an undo (a restored draft's [버리기]) - lasts until the next press somewhere
 // else: a click (a tap, Enter on a button) outside it ends it; a scroll does not. The press that made it has passed by the time

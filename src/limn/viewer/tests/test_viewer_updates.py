@@ -247,7 +247,8 @@ GROUP_FNS = [
     "sourceEntry", "sourceOk", "isUndo", "lineCap", "sameWords", "noticeDots", "holdsDot", "groupNote", "regroup",
     "digestBegin", "digestSoon", "digestHold", "digestEnd", "digestBrief", "digestLine", "digestNote", "digestReplay",
     "digestTake", "newsSlot", "keysHeld", "noticeLess", "newsWithout", "digestClosed", "newsDupe", "foldedNews",
-    "foldedLess", "digestRetitle",
+    "foldedLess", "digestRetitle", "foldedGone", "digestDots", "reviewPins", "reviewNewsStale", "dropStaleReview",
+    "noticeSeen", "endTopic",
 ]  # fmt: skip
 GROUP_PRELUDE = r"""
 let NOW=0,QID=0; const Q=[];
@@ -410,6 +411,35 @@ class Grouping(unittest.TestCase):
         self.assertEqual(got["one"], ["나에게 검토 대기 — #7", "지난 방문 뒤 — 검토 대기 1"])
         self.assertEqual(got["groups"], ["ev:review_requested", "other"])
         self.assertEqual(got["none"], ["나에게 검토 대기 — #7, #8"])
+
+    def test_a_review_request_folded_in_a_gathered_line_goes_once_its_pin_left_review(self):
+        """Gathered while away: the list comparison's #1 sent to review (marking [검토 M]) and two pins closed. #1 is
+        confirmed and leaves the review list: the folded request goes, its group with it, the folded line says and marks
+        what is left - [검토 M]'s dot goes - and [펼치기] never puts #1 back. Looking at the review section takes a folded
+        request whose pin still awaits review the same way; one left stays a folded line naming it, and a folded line
+        whose every message went that way goes."""
+        got = self.run_store(
+            """const kv=g=>({msg:'#'+g.ids.join(', #')+' 검토 대기',kind:NOTICE_KIND.OK,act:null,
+              o:{keys:g.ids.map(i=>'review_requested:'+i),dot:NOTICE_DOT.RV,brief:'검토 대기 '+g.ids.length}});
+            const done=g=>({msg:'#'+g.ids.join(', #')+' 완료',kind:NOTICE_KIND.OK,act:null,o:{brief:'완료 '+g.ids.length}});
+            const less=newsWithout('review_requested','ids'),reset=()=>{LINE.slice().forEach(n=>endNotice(n,true)); GROUPS.clear(); tick(9000);};
+            const marks=()=>[said(),[...BODY].sort(),LINE.filter(n=>n.items).map(n=>n.dots)]; let REVIEW_ALL=[{id:1},{id:2}]; const out={};
+            digestBegin('지난 방문 뒤'); groupNote('review',{ids:[1]},kv,merge,less); groupNote('done',{ids:[4]},done,null); groupNote('done5',{ids:[5]},done,null); digestEnd();
+            out.before=marks(); REVIEW_ALL=[{id:2}]; dropStaleReview(); out.stale=[...marks(),GROUPS.has('review')];
+            noticeAct(LINE.find(n=>n.items).n); out.open=said().sort(); reset();
+            digestBegin('지난 방문 뒤'); groupNote('review',{ids:[2]},kv,merge,less); groupNote('done',{ids:[6]},done,null); digestEnd();
+            noticeSeen(NOTICE_DOT.RV); out.seen=marks(); reset(); REVIEW_ALL=[];
+            digestBegin('지난 방문 뒤'); groupNote('review',{ids:[7]},kv,merge,less);
+            lineNote('핀 #8 · 본문 — 검토 대기: 고침',NOTICE_KIND.OK,null,{literal:true,group:'ev:review_requested',keys:['review_requested:8'],rank:2,dot:NOTICE_DOT.RV,brief:'검토 대기'});
+            digestEnd(); out.both=marks(); dropStaleReview(); out.none=marks();
+            console.log(JSON.stringify(out));"""
+        )
+        self.assertEqual(got["before"], [["지난 방문 뒤 — 검토 대기 1 · 완료 2"], ["dot-rv"], [["rv"]]])
+        self.assertEqual(got["stale"], [["지난 방문 뒤 — 완료 2"], [], [[]], False])
+        self.assertEqual(got["open"], ["#4 완료", "#5 완료"])
+        self.assertEqual(got["seen"], [["지난 방문 뒤 — 완료 1"], [], [[]]])
+        self.assertEqual(got["both"], [["지난 방문 뒤 — 검토 대기 2"], ["dot-rv"], [["rv"]]])
+        self.assertEqual(got["none"], [[], [], []])
 
     def test_closing_a_gathered_line_ends_its_groups_so_new_pins_are_seen(self):
         """A gathered line holding new pins (newPinsView) and a document's update, closed with [x]: its groups end with
