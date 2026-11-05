@@ -153,6 +153,36 @@ class MarkdownAtStartup(StartupTree):
             serve_documents.pick_documents(self.ms, [], "main.tex"), RunDocuments(None, self.ms / "main.tex")
         )
 
+    def test_main_never_names_a_text_document(self):
+        """A text suffix (ADR-0029) as --main, in any case and whether or not the file exists, is refused with the --doc
+        form that registers a text document, not built as LaTeX; a .tex --main is still served, and so is LaTeX's own
+        source suffix (.bib .sty .cls .bst), which can hold a LaTeX main."""
+        for main in ("figs/plot.py", "notes/todo.TXT", "missing.yaml"):
+            with self.subTest(main=main):
+                self.assertEqual(
+                    serve_documents.pick_documents(self.ms, [], main),
+                    StartupRefused(
+                        "--main takes the LaTeX main (.tex) - a text document is served with --doc <key>=<name>:%s"
+                        % main
+                    ),
+                )
+        self.assertEqual(
+            serve_documents.pick_documents(self.ms, [], "main.tex"), RunDocuments(None, self.ms / "main.tex")
+        )
+        for main in ("figs/out/figures.limnmap.json", "Figures.LIMNMAP.JSON"):
+            with self.subTest(figure_map=main):
+                self.assertEqual(
+                    serve_documents.pick_documents(self.ms, [], main),
+                    StartupRefused(
+                        "--main takes the LaTeX main (.tex) - a figure document is served with --doc <key>=<name>:%s"
+                        % main
+                    ),
+                )
+        for name in (".py", "paper.sty", "paper.CLS", "refs.bib", "style.bst"):  # .py: a dotfile, no suffix
+            with self.subTest(latex_own=name):
+                (self.ms / name).write_text("\\documentclass{article}\\begin{document}x\\end{document}\n")
+                self.assertEqual(serve_documents.pick_documents(self.ms, [], name), RunDocuments(None, self.ms / name))
+
 
 class SetApartAtStartup(StartupTree):
     """docs_of gives a LaTeX document what other documents inside its build root own (limn.runtime.documents.apart_paths),

@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **`--main` with a text document's suffix is refused at startup,** as a `.md` already is: `limn serve --main plot.py`
+  (or `notes.txt`, `config.yaml`, any of ADR-0029's suffixes but LaTeX's own `.bib`, `.sty`, `.cls`, `.bst`, which can
+  hold a LaTeX main) used to be built as LaTeX and fail; it now stops with the `--doc <key>=<name>:<path>` form that
+  registers a text document; a figure map (`figures.limnmap.json`) is refused with the figure form. `limn add --main`
+  refuses both the same way before writing any configuration.
+
 ## 0.4.51 — 2026-11-05
 
 ### Added

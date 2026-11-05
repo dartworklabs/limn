@@ -37,13 +37,40 @@ DOC_TEXT_SUFFIXES=".adoc .bash .bib .bst .c .cc .cfg .cjs .cls .cpp .css .csv .g
 
 # doc_is_text <path> — whether the path's suffix, compared case-insensitively as the server does, is a text suffix. A
 # figure map's suffix in another case (Figures.LIMNMAP.JSON) is neither a map nor text, as the server rules.
+# LaTeX's own sources, which a LaTeX main may end in: --main keeps taking them (serve_documents.LATEX_OWN_SUFFIXES, which
+# tests/architecture/test_text_suffixes.py keeps equal to this one).
+MAIN_LATEX_OWN_SUFFIXES=".bib .bst .cls .sty"
+
+# Whether a --main path names a figure map (any case): a figure document, added with --doc.
+main_is_figure_map() {
+    local low
+    low=$(printf '%s' "${1##*/}" | tr '[:upper:]' '[:lower:]')   # tr, not ${..,,}: macOS ships bash 3.2
+    [[ "${low%.limnmap.json}" != "$low" ]]
+}
+
+# Whether a --main path names a text document that cannot be a LaTeX main: a DOC_TEXT_SUFFIXES suffix other than
+# MAIN_LATEX_OWN_SUFFIXES, as serve_documents.pick_documents decides, with the suffix name_suffix reads.
+main_is_text_doc() {
+    local suf
+    suf=$(name_suffix "$1")
+    [[ -n "$suf" && " $DOC_TEXT_SUFFIXES " == *" $suf "* && " $MAIN_LATEX_OWN_SUFFIXES " != *" $suf "* ]]
+}
+
 doc_is_text() {
-    local base=${1##*/} low suf
-    [[ "$base" == *.* ]] || return 1
-    low=$(printf '%s' "$base" | tr '[:upper:]' '[:lower:]')   # tr, not ${base,,}: macOS ships bash 3.2
+    local low suf
+    low=$(printf '%s' "${1##*/}" | tr '[:upper:]' '[:lower:]')   # tr, not ${base,,}: macOS ships bash 3.2
     [[ "${low%.limnmap.json}" == "$low" ]] || return 1
-    suf=".${low##*.}"
-    [[ " $DOC_TEXT_SUFFIXES " == *" $suf "* ]]
+    suf=$(name_suffix "$low")
+    [[ -n "$suf" && " $DOC_TEXT_SUFFIXES " == *" $suf "* ]]
+}
+
+# The suffix of a file name as limn.runtime.documents.name_suffix reads it (lower-cased): from the last dot, once the
+# leading dots are set aside - a dotfile (.py, ..py) has none - and none for a name ending with a dot. Printed, or nothing.
+name_suffix() {
+    local base=${1##*/}
+    while [[ "$base" == .* ]]; do base=${base#.}; done
+    [[ "$base" == *.* && "$base" != *. ]] || return 0
+    printf '.%s' "$(printf '%s' "${base##*.}" | tr '[:upper:]' '[:lower:]')"
 }
 
 # doc_check_path <absolute manuscript path> — reads DOC_KEY/DOC_PATH filled by doc_parse_kv and
@@ -67,16 +94,17 @@ doc_check_path() {
         esac
         [[ "$main_s" != /* ]] || die "--doc $key: the main after '::' must be relative to the build root: $main_s"
         main="$root_c/$main_s"
-        case "$main" in
-            *.tex | *.limnmap.json) ;;
-            *) die "--doc $key: '::' notation is only for LaTeX documents (.tex) and figure maps (.limnmap.json): $main" ;;
-        esac
+        [[ "$(name_suffix "$main")" == .tex || "$main" == *.limnmap.json ]] ||
+            die "--doc $key: '::' notation is only for LaTeX documents (.tex) and figure maps (.limnmap.json): $main"
     else
         if [[ "$path" == /* ]]; then main="$path"; else main="$ms/$path"; fi
-        case "$main" in
-            *.tex | *.pdf | *.limnmap.json | *.md) ;;
-            *) doc_is_text "$main" || die "--doc $key: only .tex (LaTeX), .pdf (view-only), .limnmap.json (figure), .md (Markdown) or a text suffix (${DOC_TEXT_SUFFIXES}) are accepted: $main" ;;
-        esac
+        # The kind by name_suffix, as serve_documents.parse_doc_arg reads it (a figure map by its exact-case suffix).
+        if [[ "$main" != *.limnmap.json ]]; then
+            case "$(name_suffix "$main")" in
+                .tex | .pdf | .md) ;;
+                *) doc_is_text "$main" || die "--doc $key: only .tex (LaTeX), .pdf (view-only), .limnmap.json (figure), .md (Markdown) or a text suffix (${DOC_TEXT_SUFFIXES}) are accepted: $main" ;;
+            esac
+        fi
     fi
     [[ -f "$main" ]] || die "--doc $key: file does not exist: $main"
     main_c="$(cd "$(dirname "$main")" && pwd -P)/$(basename "$main")" || die "--doc $key: could not resolve the path: $main"

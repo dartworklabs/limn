@@ -61,6 +61,19 @@ TEXT_SUFFIXES: frozenset[str] = frozenset(
 )  # fmt: skip
 
 
+def name_suffix(name: str) -> str:
+    """The lower-cased suffix that registers a file name's kind: from its last dot to the end, once the leading dots are
+    set aside - so a dotfile (.py, ..py) has none - and none when the name ends with a dot (a.). Pure.
+
+    Python's Path.suffix answers these names differently from version to version (3.14 changed '..py' and 'a.'), and
+    the instance shell (instance_documents.sh) reads a suffix the same way as this, so startup and `limn add` agree on
+    every Python (tests/architecture/test_text_suffixes.py runs both over the same names)."""
+    base = name.rsplit("/", 1)[-1].lstrip(".")
+    if "." not in base or base.endswith("."):
+        return ""
+    return "." + base.rsplit(".", 1)[1].lower()
+
+
 def kind_builds_from_source(kind: DocKind) -> bool:
     """Whether documents of `kind` are built from their source by latexmk - "tex" only.
 

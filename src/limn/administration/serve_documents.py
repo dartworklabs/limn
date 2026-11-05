@@ -20,6 +20,7 @@ from limn.runtime.documents import (
     RunPaths,
     apart_paths,
     kind_builds_from_source,
+    name_suffix,
 )
 from limn.runtime.startup import APP_NAME, StartupRefused
 
@@ -246,7 +247,7 @@ def parse_doc_arg(spec: str, ms: Path) -> DocSpec | DocSpecRefusal:
             main.relative_to(root)
         except ValueError:
             return DocMainOutsideRoot(key, main)
-        if main.suffix.lower() != ".tex" and not main.name.endswith(MAP_SUFFIX):
+        if name_suffix(main.name) != ".tex" and not main.name.endswith(MAP_SUFFIX):
             return DocExtendedWrongKind(key, main)
     else:
         found = inside(Path(path), "path")
@@ -255,7 +256,7 @@ def parse_doc_arg(spec: str, ms: Path) -> DocSpec | DocSpecRefusal:
         main, root = found, found.parent
     if not main.is_file():
         return DocFileMissing(key, main)
-    suf = main.suffix.lower()
+    suf = name_suffix(main.name)
     kind: DocKind
     if main.name.endswith(MAP_SUFFIX):
         kind = "figure"
@@ -409,15 +410,23 @@ class RunDocuments:
     main: Path
 
 
+# Text suffixes (ADR-0029) that are LaTeX's own sources: a file ending in one of them can still be a LaTeX main (latexmk
+# builds it like a .tex), so --main keeps accepting them as it did before text documents.
+LATEX_OWN_SUFFIXES: frozenset[str] = frozenset({".bib", ".sty", ".cls", ".bst"})
+
+
 def pick_documents(src: Path, specs: Sequence[str], main: str | None) -> RunDocuments | StartupRefused:
     """The documents of a command line with manuscript folder src (already resolved), or the refusal, in this order: a
-    missing manuscript folder, --doc together with --main, a bad --doc, a --main ending in .md, no or several top-level
+    missing manuscript folder, --doc together with --main, a bad --doc, a --main ending in .md or a text suffix, no or several top-level
     .tex files, a --main that does not exist. The run's main file is the first --doc document whose kind builds from
     source, else the first document's.
 
-    --main names the LaTeX main of a single-document run, which builds; it never makes a Markdown document. A .md
-    there (any case) is refused with the --doc form that registers one (ADR-0025), rather than built as LaTeX and
-    failing - the one way a .md reached a document before .md registration."""
+    --main names the LaTeX main of a single-document run, which builds; it never makes a Markdown or text document. A
+    .md there (any case) is refused with the --doc form that registers one (ADR-0025), and so is a text suffix
+    (TEXT_SUFFIXES, ADR-0029: plot.py, notes.txt), rather than built as LaTeX and failing - except LaTeX's own sources
+    (LATEX_OWN_SUFFIXES: .bib .sty .cls .bst), which latexmk builds like a .tex when they hold a document, as before. A
+    figure map (MAP_SUFFIX, any case) is refused with the --doc form too. The suffix is name_suffix's: a dotfile named
+    .py or ..py has none, on every Python."""
     if not src.is_dir():
         return StartupRefused("Manuscript directory does not exist: %s" % src)
     if specs:
@@ -431,6 +440,14 @@ def pick_documents(src: Path, specs: Sequence[str], main: str | None) -> RunDocu
     if main and main.lower().endswith(".md"):
         return StartupRefused(
             "--main takes the LaTeX main (.tex) - a Markdown document is served with --doc <key>=<name>:%s" % main
+        )
+    if main and main.lower().endswith(MAP_SUFFIX):
+        return StartupRefused(
+            "--main takes the LaTeX main (.tex) - a figure document is served with --doc <key>=<name>:%s" % main
+        )
+    if main and name_suffix(main) in TEXT_SUFFIXES - LATEX_OWN_SUFFIXES:
+        return StartupRefused(
+            "--main takes the LaTeX main (.tex) - a text document is served with --doc <key>=<name>:%s" % main
         )
     main_file = (src / main) if main else detect_main(src)
     if isinstance(main_file, StartupRefused):
