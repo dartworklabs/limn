@@ -1003,6 +1003,14 @@ def _side_lines(repo: Path, sha: str, rel: str) -> Json | None:
     return {"lines": text.splitlines()}
 
 
+def _literal_path(paths: Sequence[str]) -> str | None:
+    """The one repository-relative path a single-file history pathspec names (_files_scope over one file: one
+    ':(literal)<rel>' include, then excludes only - files_pathspec, dot_excludes), or None for any other pathspec
+    (several files, none, a LaTeX document's patterns). Pure."""
+    named = [p[len(":(literal)") :] for p in paths if p.startswith(":(literal)")]
+    return named[0] if len(named) == 1 and named[0] not in ("", ".") else None
+
+
 def revision_sources(
     D: RevisionDoc, commit: str, base: str | None, files: Sequence[Path], windows: WindowCache | None = None
 ) -> Json | NoHistory | CommitNotRecent | DiffFailed | RangeRefusal:
@@ -1012,8 +1020,9 @@ def revision_sources(
     gives it. The viewer draws both and marks the blocks that changed (docs/superpowers/specs/2026-11-05-markdown-rendered-
     compare.md). Only a commit of the document's history window is read, and base under the range's rules, so no other
     object of the repository is named. Answers {id, base, merge_base?, path, old, new}: base the old side's SHA-1 (None
-    for a root commit), path the file's repository-relative path, old/new the sides (None: the file is not there - added
-    or deleted by the commit). An empty range (base == commit) has the same side twice. Reads only."""
+    for a root commit), path the file's repository-relative path as it was registered (the history window's own),
+    old/new the sides (None: the file is not there - added or deleted by the commit, or a folder on its path is a
+    symlink in that commit). An empty range (base == commit) has the same side twice. Reads only."""
     window = revision_window(D, files, windows)
     if isinstance(window, NoHistory):
         return window
@@ -1028,9 +1037,11 @@ def revision_sources(
         return CommitNotRecent()
     else:
         old, tail = revision_first_parent(repo, commit), {}
-    try:  # as _files_scope names it to git: its folder with symlinks resolved, its own name kept
-        rel = (files[0].parent.resolve() / files[0].name).relative_to(repo).as_posix()
-    except (IndexError, ValueError, OSError, RuntimeError):
+    # Both sides are read at the very path the history window lists the commits of: the document's file as it was
+    # registered (_files_scope, registered_file), one literal pathspec. Nothing is resolved again here, so a folder that
+    # is now a symlink - to a dot-named folder, another folder or another repository - never names another file.
+    rel = _literal_path(paths)
+    if rel is None:
         return NoHistory()
     return {
         "id": commit,

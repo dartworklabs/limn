@@ -11,13 +11,14 @@ Run: uv run pytest -q src/limn/revisions/tests/test_revision_source.py
 import os
 import shutil
 
+from limn.administration.serve_documents import make_docs
 from limn.documents.source import SOURCE_MAX_BYTES
 from limn.platform.git import run_git
 from limn.revisions.core import REVISION_SOURCE_MAX
 from limn.runtime.documents import Doc
 
 from helpers import ps
-from helpers_access import AccessBase
+from helpers_access import CAROL, AccessBase, member_add
 
 PLAN = "# Plan\n\nIntro.\x0cAfter a form feed.\n\nAlpha line.\nBeta line.\n"
 
@@ -172,3 +173,117 @@ class RevisionSource(AccessBase):
             code, _ = self.sides(self.c["markdown edit"], base=base)
             self.assertEqual(code, 200)
         self.assertEqual(self.tree(), before)
+
+
+SECRET = "SECRET-TEXT"
+
+
+class RegisteredSides(AccessBase):
+    """A Markdown document registered as --doc registers it (nt=계획:notes/plan.md, its folder notes the document's src),
+    a committed dot-named folder .private and a plain folder other, each holding a plan.md of its own (SECRET); Carol is a
+    viewer. After startup a folder or the file on the way is replaced by a symlink: each side GET /api/revision-source
+    answers is still read at the registered path notes/plan.md, never through the link."""
+
+    def setUp(self):
+        """Commit notes/plan.md, then .private/plan.md and other/plan.md; register the document."""
+        super().setUp()
+        if not shutil.which("git"):
+            self.skipTest("git not available")
+        for folder in ("notes", ".private", "other"):
+            (self.src / folder).mkdir()
+        (self.src / "notes" / "plan.md").write_text(PLAN, encoding="utf-8")
+        self.git("init", "--quiet", "-b", "main")
+        self.git("config", "user.email", "alice@example.com")
+        self.git("config", "user.name", "Alice")
+        self.first = self.commit("public plan", "notes")
+        for folder in (".private", "other"):
+            (self.src / folder / "plan.md").write_text("# %s %s\n" % (SECRET, folder), encoding="utf-8")
+        self.git("add", "-f", ".private", "other")
+        self.git("commit", "--quiet", "-m", "private %s" % SECRET)
+        self.register()
+        member_add(ps.APP.C.state, CAROL["Tailscale-User-Login"], "viewer")
+
+    def register(self):
+        """Register nt as limn serve --doc nt=계획:notes/plan.md does."""
+        docs = make_docs(["nt=계획:notes/plan.md"], self.src, ps.APP.C.paths)
+        self.assertIsInstance(docs, list, docs)
+        ps.APP.set_docs(docs)
+        self.addCleanup(ps.APP.set_docs, None)
+
+    git = RevisionSource.git
+    commit = RevisionSource.commit
+
+    def window(self):
+        """The ids GET /api/revisions lists for nt, as Carol is answered."""
+        code, body = self.call("GET", "/api/revisions?doc=nt", headers=CAROL)
+        self.assertEqual(code, 200, body)
+        return [row["id"] for row in body["revisions"]]
+
+    def sides(self, commit, base=None):
+        """GET /api/revision-source for nt as Carol: (status, body)."""
+        q = "/api/revision-source?doc=nt&commit=%s" % commit + ("" if base is None else "&base=" + base)
+        return self.call("GET", q, headers=CAROL)
+
+    def assert_own_sides(self, ids):
+        """The window is exactly ids, and every side of each commit (alone and as a range from the oldest) is read at
+        notes/plan.md and quotes nothing of .private or other."""
+        self.assertEqual(self.window(), ids)
+        for commit in ids:
+            for base in (None, ids[-1]):
+                with self.subTest(commit=commit, base=base):
+                    code, body = self.sides(commit, base)
+                    self.assertEqual(code, 200, body)
+                    self.assertEqual(body["path"], "notes/plan.md")
+                    self.assertNotIn(SECRET, str(body))
+
+    def link_folder(self, target):
+        """Replace notes with a symlink to target (a folder name beside it)."""
+        shutil.rmtree(self.src / "notes")
+        os.symlink(target, self.src / "notes")
+
+    def test_a_folder_linked_to_a_dot_named_folder_reads_the_registered_path(self):
+        """notes -> .private (uncommitted, then committed as --git-pull would check it out): the window stays the
+        document's own commits and no side quotes .private; the committed link's new side has no file."""
+        self.link_folder(".private")
+        self.assert_own_sides([self.first])
+        self.git("add", "--all", "notes")
+        link = self.commit("notes becomes a link", "notes")
+        self.assert_own_sides([link, self.first])
+        code, body = self.sides(link)
+        self.assertIsNone(body["new"])
+        self.assertEqual(body["old"]["lines"], PLAN.splitlines())
+
+    def test_a_folder_linked_to_another_folder_reads_the_registered_path(self):
+        """notes -> other (a plain folder whose plan.md is committed): the same - never other/plan.md."""
+        self.link_folder("other")
+        self.assert_own_sides([self.first])
+
+    def test_a_file_replaced_by_a_link_is_not_a_file_on_that_side(self):
+        """notes/plan.md replaced by a link to ../.private/plan.md and committed: that side is not_a_file, the old side
+        the registered file's own lines."""
+        md = self.src / "notes" / "plan.md"
+        md.unlink()
+        os.symlink("../.private/plan.md", md)
+        link = self.commit("plan becomes a link", "notes")
+        self.assert_own_sides([link, self.first])
+        code, body = self.sides(link)
+        self.assertEqual(body["new"], {"reason": "not_a_file"})
+        self.assertEqual(body["old"]["lines"], PLAN.splitlines())
+
+    def test_a_file_renamed_in_its_history_has_no_old_side_before_the_rename(self):
+        """notes/plan.md removed, then draft.md renamed to it: the rename commit's old side has no file at the registered
+        path (the history does not follow renames), and the draft's own commit is not in the window, so never read."""
+        (self.src / "notes" / "plan.md").unlink()
+        removed = self.commit("removed", "notes")
+        (self.src / "draft.md").write_text("# Draft\n", encoding="utf-8")
+        draft = self.commit("draft", "draft.md")
+        self.git("mv", "draft.md", "notes/plan.md")
+        self.git("commit", "--quiet", "-m", "rename")
+        renamed = self.git("rev-parse", "HEAD")
+        self.assertEqual(self.window(), [renamed, removed, self.first])
+        code, body = self.sides(renamed)
+        self.assertEqual(code, 200, body)
+        self.assertIsNone(body["old"])
+        self.assertEqual(body["new"]["lines"], ["# Draft"])
+        code, body = self.sides(draft)
+        self.assertEqual((code, body.get("reason")), (404, "commit_not_recent"))
