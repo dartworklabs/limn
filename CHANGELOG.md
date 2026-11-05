@@ -4,6 +4,32 @@
 
 ### Added
 
+- **A Markdown document's changes view draws both versions and marks what changed (ADR-0031).** The changes view of a
+  Markdown document opens on a new tab, [그린 비교] (Rendered), next to [소스 diff]: the document as it was before the
+  commit (its first parent, or a range's old side) and as it is at the commit are drawn with the Markdown surface's
+  renderer and compared block by block - a paragraph, a heading, a list item, a table row, a code block, display math,
+  the front matter, a rule, a raw HTML placeholder. One column: the new version with each removed block put back where it
+  was, struck through; a block changed in place has its removed words struck through and its added words marked; a moved
+  block leaves one line at its old place ("The 2 blocks here moved to L5–L7"). A block whose words stayed but whose
+  structure changed (bold, out of a quote, list numbering, an image's alt text, a code block's language or spacing) is a
+  changed block that says what changed; a paragraph only rewrapped in the source is unchanged. Each change is a tint and a
+  word in the left gutter, never colour alone; a screen reader hears "Added block:" and so on. A navigator steps through
+  the changes, the status line counts them, a range keeps the tab and its commit and file counts. Characters that hide or
+  reorder text stay in their boxes on both sides, and a changed one is a changed word. Images on both sides are the
+  manuscript tree's files of now, and the compare says so; links inside the document stay words. A side over 1 MiB, not
+  UTF-8 or not a file is not drawn: the compare says why and offers the source diff. A text document keeps its source
+  diff.
+  - **A pin's [변경 보기] still opens its source diff** - the pin's own hunks, the rest folded (ADR-0005). [그린 비교]
+    beside it shows the whole commit with the pin's blocks ringed, and says it is the whole commit. A pin-only drawn
+    version is a later step.
+  - **New read route for agents and the viewer:** `GET /api/revision-source?doc=&commit=[&base=]` gives the document's
+    file on the two sides the source diff compares, `{id, base, merge_base?, path, old, new}`, each side `{lines,
+    git_line_starts?}` (lines as `GET /api/source` counts them; where git's LF-only lines start among them, only when the
+    two differ), `null` for no file, or `{reason}` (`source_too_large` with `bytes`/`limit`, `source_not_utf8`,
+    `not_a_file`, `source_unreadable`). Only commits of the document's history window, at the path it was registered
+    with; 1 MiB a side; it writes nothing. Other documents get `404 commit_not_recent`; a range's refusals are the source
+    diff's.
+
 - **Markdown documents show YAML front matter and TeX math as written (ADR-0032).** Front matter at the very top of a
   `.md` file (a first line `---`, a second line that opens a YAML mapping - `key:` or a `#` comment - and a closing
   `---` or `...`: Pandoc's rule and a check of the second line) is one open block of its own: a head line "Front matter · YAML, N lines" over its lines
