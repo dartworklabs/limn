@@ -5,8 +5,8 @@
 // are then compared block by block (a paragraph, a heading, a list item's own text, a table row, a code block, a rule, a raw
 // HTML placeholder): a block the other side has as it is, one changed in place (its words marked), one added, one taken out,
 // one moved. Nothing here picks, pins or follows a link: the view reads. Images are the manuscript tree's files of now
-// (GET /api/asset, as the Markdown surface draws them) on both sides - the old side's own image files are not read; the
-// status line says so.
+// (GET /api/asset, as the Markdown surface draws them) on both sides - the old side's own image files are not read; a line
+// above the compare says so whenever a side has one.
 // MDC: the compare on screen (key: revKey() it was drawn for), its parse worker and job, the change groups in order (stops,
 // each the blocks of one change) and the one the navigator is at, the layout (split: two columns, the candidate a ?cmp=split
 // page asks for) and the observer that lays the gutter chips and the columns' alignment out again when a width changes.
@@ -16,6 +16,9 @@ const MDC={seq:0,key:'',worker:/** @type {Worker|null} */(null),job:/** @type {{
 const MDC_SPLIT_MIN=880;   // px of the pane two columns need (two 26rem columns and the gap); narrower, the two stack into one column
 const MDC_ALIGN_PASSES=4;   // layout reads the two columns' alignment takes at most (mdcAlign)
 const MDC_DIFF_CELLS=4e6;   // the most cells one block or word comparison fills; past it the blocks between the common ends are all changed
+// The most steps one compare spends matching (every subsequence's table cells) and pairing (the words of each pair of blocks it
+// weighs): past it no more blocks are paired and no more words marked - what is left is added and taken out as it is, at once.
+const MDC_WORK=8e6;
 const MDC_UNIT='p,h1,h2,h3,h4,h5,h6,pre,tr,hr,li,.md-html,.md-html-run';
 const MDC_LABEL={ins:'더함',del:'뺌',mod:'고침',move:'옮김'};
 // Whether the document on screen is drawn from Markdown (the rendered compare's documents): a text document shows its lines
@@ -52,24 +55,51 @@ function mdcBuild(tokens,lines){const keep={lines:MD.lines,els:MD.els,heads:MD.h
     x.dataset.tip=tr('비교 화면에서는 문서 안 링크를 따라가지 않습니다');});
   return root;}
 // ---------------- Blocks and their keys
-/** @typedef {{el:HTMLElement,tag:string,key:string,text:string,pics:string,lo:number,hi:number}} MdcUnit */
+/** @typedef {{el:HTMLElement,tag:string,key:string,text:string,pics:string,shape:string,box:string,alts:string,lo:number,hi:number}} MdcUnit */
 // Whether element e is a block another unit stands for: a list, a nested paragraph or code, a quote, a table - a tight list
 // item's own text leaves these out.
 /** @param {Element} e */
 function mdcNested(e){return /^(UL|OL|P|PRE|BLOCKQUOTE|TABLE|DIV|H[1-6]|HR)$/.test(e.tagName);}
 // The comparable blocks of a drawn side, in document order (pure over the DOM): every paragraph, heading, code block, table
 // row, rule and raw HTML placeholder, and a list item whose text is its own (a tight list's; a loose item's paragraphs are
-// units of their own). A raw HTML run is one unit. Each has its tag, its key - the text it shows, whitespace folded, with what
-// it points at that the text does not show (an image's tree path, a link's target) - and its source lines.
+// units of their own). A raw HTML run is one unit. Each has its tag, its key, its text, its source lines and the parts of its
+// key that are not words. The key is everything the block shows: its text with its inline structure (shape: emphasis, code,
+// links, images with their alt text), the boxes it sits in (box: a quote, a list - a numbered one with its first number), its
+// images' tree paths and its links' targets. So the same words in bold, out of a quote or in a list renumbered are another
+// block - changed in place, as are an image's new alt text and a link's new target.
 /** @param {HTMLElement} root @returns {MdcUnit[]} */
 function mdcUnits(root){const out=/** @type {MdcUnit[]} */([]);
   for(const x of root.querySelectorAll(MDC_UNIT)){const el=/** @type {HTMLElement} */(x);
     if(el.tagName==='LI'&&[...el.children].some(c=>c.tagName==='P'))continue;
     if(el.classList.contains('md-html')&&el.closest('.md-html-run'))continue;
     const text=mdcText(el),refs=mdcRefs(el,'a,[data-anchor],.md-rel'),pics=mdcRefs(el,'.md-pic,.md-img');
+    const shape=mdcShape(el),box=mdcBoxes(el,root),alts=[...el.querySelectorAll('img')].filter(i=>el.tagName!=='LI'||i.closest('li')===el).map(i=>i.getAttribute('alt')||'').join('\u0001');
     const lo=+(el.dataset.lo||el.dataset.rLo||0),hi=+(el.dataset.hi||el.dataset.rHi||lo);
-    out.push({el,tag:el.tagName,key:el.tagName+'\u0001'+text+'\u0001'+pics+'\u0001'+refs,text,pics,lo,hi});}
+    out.push({el,tag:el.tagName,key:[el.tagName,box,shape,pics,refs].join('\u0001'),text,pics,shape,box,alts,lo,hi});}
   return out;}
+// The boxes unit el sits in below the drawn root, outermost first, as one string: each box's tag, a numbered list's with the
+// number it starts at (OL5). Pure over the DOM.
+/** @param {HTMLElement} el @param {HTMLElement} root */
+function mdcBoxes(el,root){const out=[]; for(let a=el.parentElement;a&&a!==root;a=a.parentElement)out.unshift(a.tagName==='OL'?'OL'+(a.getAttribute('start')||'1'):a.tagName);
+  return out.join('>');}
+// A unit's inline structure as one string: its text, whitespace folded, with every inline element around its part as a mark
+// (<strong>…</strong>, <code>…</code>, an image as <img alt>), a list item's nested blocks and the screen reader's words left
+// out. A code block's is its text alone (its lines are its words). Pure over the DOM.
+/** @param {HTMLElement} el */
+function mdcShape(el){if(el.tagName==='PRE')return ''; let s='';
+  const walk=(/** @type {Node} */n)=>{for(const c of n.childNodes){if(c.nodeType===3){s+=c.nodeValue; continue;} if(c.nodeType!==1)continue;
+    const e=/** @type {HTMLElement} */(c); if(el.tagName==='LI'&&mdcNested(e)||e.classList.contains('sr-only'))continue;
+    const t=e.tagName.toLowerCase(); if(t==='img'){s+='\u0002img '+(e.getAttribute('alt')||'')+'\u0003'; continue;}
+    s+='\u0002'+t+'\u0003'; walk(e); s+='\u0002/'+t+'\u0003';}};
+  walk(el); return s.replace(/\s+/g,' ').trim();}
+// What changed in a block changed in place whose text stayed: its inline structure, an image's alt text, the list numbering,
+// the boxes it sits in - '' when its words changed (the marked words say what). Pure.
+/** @param {MdcUnit} o @param {MdcUnit} n */
+function mdcWhy(o,n){if(o.text!==n.text)return '';
+  if(o.alts!==n.alts)return tr('그림 대체 글이 바뀜');
+  if(o.shape!==n.shape)return tr('글자 모양(굵게·기울임·코드·링크)이 바뀜');
+  if(o.box!==n.box)return o.box.replace(/OL\d+/g,'OL')===n.box.replace(/OL\d+/g,'OL')?tr('목록 번호가 바뀜'):tr('인용·목록 안팎으로 자리가 바뀜');
+  return '';}
 // A unit's own text: a table row's cells joined with ' | ', a list item's without its nested blocks, whitespace folded.
 /** @param {HTMLElement} el */
 function mdcText(el){if(el.tagName==='TR')return [...el.children].map(c=>(c.textContent||'').replace(/\s+/g,' ').trim()).join(' | ');
@@ -83,16 +113,23 @@ function mdcRefs(el,sel){const out=[];
     out.push(e.dataset.path||e.dataset.tipUrl||e.getAttribute('href')||e.dataset.anchor||e.textContent||'');}
   return out.join(' ');}
 // ---------------- Comparing sequences
+// A compare's work budget (MDC_WORK steps), spent by mdcLcs, mdcOps and mdcWordMarks.
+/** @typedef {{left:number}} MdcBudget */
+/** @returns {MdcBudget} */
+function mdcBudget(){return {left:MDC_WORK};}
 // The longest common subsequence of a and b (eq tests two items) as ops in order - {t:'eq',a,b}, {t:'del',a}, {t:'ins',b} -
-// its common ends taken first, and within each gap the deletions before the insertions. Past MDC_DIFF_CELLS the middle is all
-// deleted and inserted (never a wrong match). Pure.
-/** @template T @param {T[]} a @param {T[]} b @param {(x:T,y:T)=>boolean} eq @returns {{t:string,a:number,b:number}[]} */
-function mdcLcs(a,b,eq){const ops=[]; let s=0; while(s<a.length&&s<b.length&&eq(a[s],b[s]))s++;
+// its common ends taken first, and within each gap the deletions before the insertions. Its table's cells are spent from
+// budget (when given); past MDC_DIFF_CELLS or what the budget has left the middle is all deleted and inserted (never a wrong
+// match) and the budget is spent out, so the compare pairs nothing more. Pure but for the budget.
+/** @template T @param {T[]} a @param {T[]} b @param {(x:T,y:T)=>boolean} eq @param {MdcBudget} [budget] @returns {{t:string,a:number,b:number}[]} */
+function mdcLcs(a,b,eq,budget){const ops=[]; let s=0; while(s<a.length&&s<b.length&&eq(a[s],b[s]))s++;
   let ea=a.length,eb=b.length; while(ea>s&&eb>s&&eq(a[ea-1],b[eb-1])){ea--; eb--;}
   for(let i=0;i<s;i++)ops.push({t:'eq',a:i,b:i});
   const n=ea-s,m=eb-s;
-  if(n*m>MDC_DIFF_CELLS){for(let i=s;i<ea;i++)ops.push({t:'del',a:i,b:-1}); for(let j=s;j<eb;j++)ops.push({t:'ins',a:-1,b:j});}
-  else{const w=m+1,L=new Uint32Array((n+1)*w);
+  if(budget)budget.left-=a.length+b.length;   // the ends just walked
+  if(n*m>MDC_DIFF_CELLS||budget&&n*m>budget.left){if(budget&&n*m)budget.left=0;
+    for(let i=s;i<ea;i++)ops.push({t:'del',a:i,b:-1}); for(let j=s;j<eb;j++)ops.push({t:'ins',a:-1,b:j});}
+  else{if(budget)budget.left-=n*m; const w=m+1,L=new Uint32Array((n+1)*w);
     for(let i=n-1;i>=0;i--)for(let j=m-1;j>=0;j--)L[i*w+j]=eq(a[s+i],b[s+j])?L[(i+1)*w+j+1]+1:Math.max(L[(i+1)*w+j],L[i*w+j+1]);
     let i=0,j=0; while(i<n&&j<m){if(eq(a[s+i],b[s+j])){ops.push({t:'eq',a:s+i,b:s+j}); i++; j++;}
       else if(L[(i+1)*w+j]>=L[i*w+j+1]){ops.push({t:'del',a:s+i,b:-1}); i++;} else{ops.push({t:'ins',a:-1,b:s+j}); j++;}}
@@ -102,23 +139,29 @@ function mdcLcs(a,b,eq){const ops=[]; let s=0; while(s<a.length&&s<b.length&&eq(
 // The words and marks of a text (pure): letters and digits together, every other visible character alone.
 /** @param {string} s */
 function mdcWordsOf(s){return String(s).match(/[\p{L}\p{N}_]+|[^\s\p{L}\p{N}_]/gu)||[];}
-// How alike two texts are (pure): twice the words they share over all their words (1 for two empty texts).
-/** @param {string} x @param {string} y */
-function mdcSim(x,y){const a=mdcWordsOf(x),b=mdcWordsOf(y); if(!a.length&&!b.length)return 1; const m=new Map(); let c=0;
+// How alike two texts are, from their words (mdcWordsOf, found once per block however many blocks it is weighed against):
+// twice the words they share over all their words (1 for two empty texts). Pure.
+/** @param {string[]} a @param {string[]} b */
+function mdcSimWords(a,b){if(!a.length&&!b.length)return 1; const m=new Map(); let c=0;
   for(const w of a)m.set(w,(m.get(w)||0)+1); for(const w of b){const k=m.get(w)||0; if(k){c++; m.set(w,k-1);}} return 2*c/(a.length+b.length);}
 const MDC_PAIR=0.4;   // the likeness above which a taken-out block and an added one of the same kind in one gap are one block changed in place
 const MDC_MOVE_MIN=6;   // the fewest characters a block taken out and an identical one added elsewhere need to count as one moved block
-// The block ops of two sides (pure over the units): mdcLcs over the keys, then in each gap between unchanged blocks a block
-// taken out and a block added of the same tag, alike enough and in order, become one block changed in place ({t:'mod'}); then
-// a block taken out and an identical one added anywhere else are one block moved ({t:'from'} where it was, {t:'to'} where it
-// is now). A heading moves at any length, any other block from MDC_MOVE_MIN characters.
-/** @param {MdcUnit[]} ou @param {MdcUnit[]} nu */
-function mdcOps(ou,nu){const raw=mdcLcs(ou,nu,(x,y)=>x.key===y.key),out=[]; let i=0;
+// The block ops of two sides (pure over the units, but for the budget): mdcLcs over the keys, then in each gap between
+// unchanged blocks a block taken out and a block added of the same tag, alike enough and in order, become one block changed
+// in place ({t:'mod'}); then a block taken out and an identical one added anywhere else are one block moved ({t:'from'} where
+// it was, {t:'to'} where it is now). A heading moves at any length, any other block from MDC_MOVE_MIN characters. Weighing a
+// pair spends its words from budget; once it is spent no more pairs are weighed - the rest stay taken out and added.
+/** @param {MdcUnit[]} ou @param {MdcUnit[]} nu @param {MdcBudget} [budget] */
+function mdcOps(ou,nu,budget){budget=budget||mdcBudget(); const raw=mdcLcs(ou,nu,(x,y)=>x.key===y.key,budget),out=[]; let i=0;
+  const words=new Map(),wordsOf=(/** @type {MdcUnit} */u)=>{let w=words.get(u); if(!w){w=mdcWordsOf(u.text); words.set(u,w);} return w;};
   while(i<raw.length){if(raw[i].t==='eq'){out.push(raw[i++]); continue;}
     const gap=[]; while(i<raw.length&&raw[i].t!=='eq')gap.push(raw[i++]);
     const dels=gap.filter(o=>o.t==='del'),ins=gap.filter(o=>o.t==='ins'),pair=new Map(); let from=0;
-    for(const d of dels)for(let x=from;x<ins.length;x++){const n=ins[x];
-      if(nu[n.b].tag===ou[d.a].tag&&nu[n.b].pics===ou[d.a].pics&&mdcSim(ou[d.a].text,nu[n.b].text)>=MDC_PAIR){pair.set(d,n); from=x+1; break;}}
+    weigh: for(const d of dels)for(let x=from;x<ins.length;x++){const n=ins[x];
+      if(budget.left<=0)break weigh;
+      if(nu[n.b].tag!==ou[d.a].tag||nu[n.b].pics!==ou[d.a].pics){budget.left--; continue;}
+      const a=wordsOf(ou[d.a]),b=wordsOf(nu[n.b]); budget.left-=a.length+b.length+1;
+      if(mdcSimWords(a,b)>=MDC_PAIR){pair.set(d,n); from=x+1; break;}}
     let di=0,ni=0; while(di<dels.length||ni<ins.length){const d=dels[di],n=ins[ni];
       if(d&&pair.has(d)){const p=pair.get(d); if(n&&n!==p){out.push(n); ni++; continue;} out.push({t:'mod',a:d.a,b:p.b}); di++; ni++; continue;}
       if(d){out.push(d); di++; continue;} out.push(n); ni++;}}
@@ -128,20 +171,23 @@ function mdcOps(ou,nu){const raw=mdcLcs(ou,nu,(x,y)=>x.key===y.key),out=[]; let 
     o.t='from'; o.b=to.b; to.t='to'; to.a=o.a;});
   return out;}
 // ---------------- Marking words inside a block changed in place
-/** @typedef {{node:Text,s:number,e:number,w:string}} MdcTok */
-// The words of a unit as they sit in its text nodes (a list item's own text only); a code block's lines are its words.
+/** @typedef {{node:Text,s:number,e:number,w:string,f:string}} MdcTok */
+// The words of a unit as they sit in its text nodes (a list item's own text only); a code block's lines are its words. f is
+// the inline elements a word sits in below the unit (strong/em, a link), so a word that only became bold is another word.
 /** @param {HTMLElement} el @returns {MdcTok[]} */
 function mdcToks(el){const out=/** @type {MdcTok[]} */([]);
-  if(el.tagName==='PRE'){for(const ln of el.querySelectorAll('.ln')){const t=ln.firstChild; if(t&&t.nodeType===3){const v=String(t.nodeValue||'').replace(/\n$/,''); out.push({node:/** @type {Text} */(t),s:0,e:v.length,w:v});}} return out;}
-  const walk=(/** @type {Node} */n)=>{for(const c of n.childNodes){
-    if(c.nodeType===3){const v=String(c.nodeValue||''); for(const m of v.matchAll(/[\p{L}\p{N}_]+|[^\s\p{L}\p{N}_]/gu))out.push({node:/** @type {Text} */(c),s:/** @type {number} */(m.index),e:/** @type {number} */(m.index)+m[0].length,w:m[0]});}
-    else if(c.nodeType===1&&!(el.tagName==='LI'&&mdcNested(/** @type {Element} */(c)))&&!(/** @type {Element} */(c)).classList.contains('sr-only'))walk(c);}};
-  walk(el); return out;}
+  if(el.tagName==='PRE'){for(const ln of el.querySelectorAll('.ln')){const t=ln.firstChild; if(t&&t.nodeType===3){const v=String(t.nodeValue||'').replace(/\n$/,''); out.push({node:/** @type {Text} */(t),s:0,e:v.length,w:v,f:''});}} return out;}
+  const walk=(/** @type {Node} */n,/** @type {string} */f)=>{for(const c of n.childNodes){
+    if(c.nodeType===3){const v=String(c.nodeValue||''); for(const m of v.matchAll(/[\p{L}\p{N}_]+|[^\s\p{L}\p{N}_]/gu))out.push({node:/** @type {Text} */(c),s:/** @type {number} */(m.index),e:/** @type {number} */(m.index)+m[0].length,w:m[0],f});}
+    else if(c.nodeType===1&&!(el.tagName==='LI'&&mdcNested(/** @type {Element} */(c)))&&!(/** @type {Element} */(c)).classList.contains('sr-only'))walk(c,f+'/'+(/** @type {Element} */(c)).tagName);}};
+  walk(el,''); return out;}
 // Marks the words of a block changed in place: the added words on the new side (ins), the taken-out ones on the old side
 // (del) - or, in one column (inline), the taken-out words put back into the new block where they were, struck through.
 // Edits run from each text node's end to its start, so the offsets still to come stay right.
-/** @param {HTMLElement} oldEl @param {HTMLElement} newEl @param {boolean} inline */
-function mdcWordMarks(oldEl,newEl,inline){const a=mdcToks(oldEl),b=mdcToks(newEl),ops=mdcLcs(a,b,(x,y)=>x.w===y.w);
+// Past the compare's budget the block stays marked as changed with no words marked.
+/** @param {HTMLElement} oldEl @param {HTMLElement} newEl @param {boolean} inline @param {MdcBudget} [budget] */
+function mdcWordMarks(oldEl,newEl,inline,budget){if(budget&&budget.left<=0)return;
+  const a=mdcToks(oldEl),b=mdcToks(newEl),ops=mdcLcs(a,b,(x,y)=>x.w===y.w&&x.f===y.f,budget);
   /** @type {{node:Text,s:number,e:number,kind:string,text?:string}[]} */
   const edits=[]; const span=(/** @type {MdcTok[]} */ts,kind)=>{let k=0; while(k<ts.length){let j=k; while(j+1<ts.length&&ts[j+1].node===ts[k].node)j++; edits.push({node:ts[k].node,s:ts[k].s,e:ts[j].e,kind}); k=j+1;}};
   let gone=/** @type {MdcTok[]} */([]);
@@ -169,9 +215,10 @@ function mdcLinkMarks(oldEl,newEl){const sel='a,.md-rel,[data-anchor]',to=(/** @
 function mdcEl(tag,text){const e=document.createElement(tag); e.className='mdc-w'; if(text)e.textContent=text; return e;}
 // ---------------- Laying the marks
 // Marks unit element el as a change of kind (ins, del, mod, move): its tint and, for a screen reader, the kind before its text.
-/** @param {HTMLElement} el @param {string} kind */
-function mdcMark(el,kind){el.classList.add('mdc-'+kind); el.dataset.mdc=kind;
-  const s=document.createElement('span'); s.className='sr-only'; s.textContent=tr({ins:'더한 블록',del:'뺀 블록',mod:'고친 블록',move:'옮긴 블록'}[kind]||'')+': ';
+// why, for a block changed in place whose words stayed, says what did change - read with the kind and shown as its tip.
+/** @param {HTMLElement} el @param {string} kind @param {string} [why] */
+function mdcMark(el,kind,why){el.classList.add('mdc-'+kind); el.dataset.mdc=kind; if(why){el.dataset.mdcWhy=why; el.dataset.tip=why;}
+  const s=document.createElement('span'); s.className='sr-only'; s.textContent=tr({ins:'더한 블록',del:'뺀 블록',mod:'고친 블록',move:'옮긴 블록'}[kind]||'')+(why?' ('+why+')':'')+': ';
   if(el.tagName==='TR'){const c=el.firstElementChild; if(c)c.prepend(s);} else if(el.tagName!=='HR')el.prepend(s);}
 // The element a taken-out list item leaves behind in one column: its own text, without the nested blocks the new side keeps.
 /** @param {MdcUnit} u */
@@ -200,14 +247,14 @@ function mdcGhost(u,to){const p=u.el.parentElement,tag=p&&/^(UL|OL)$/.test(p.tag
 // ---------------- The two layouts
 // One column: the new side, with each block taken out put back where it was (struck through), each moved block's old place a
 // slim line, the words of a block changed in place marked inside it. Returns the column, the new units it shows and its stops.
-/** @param {HTMLElement} oroot @param {HTMLElement} nroot @param {MdcUnit[]} ou @param {MdcUnit[]} nu @param {any[]} ops */
-function mdcInline(oroot,nroot,ou,nu,ops){let prev=/** @type {HTMLElement|null} */(null);
+/** @param {HTMLElement} oroot @param {HTMLElement} nroot @param {MdcUnit[]} ou @param {MdcUnit[]} nu @param {any[]} ops @param {MdcBudget} [budget] */
+function mdcInline(oroot,nroot,ou,nu,ops,budget){let prev=/** @type {HTMLElement|null} */(null);
   const next=(/** @type {number} */k)=>{for(let x=k+1;x<ops.length;x++){const o=ops[x]; if(o.t!=='del'&&o.t!=='from')return nu[o.b].el;} return null;};
   ops.forEach((o,k)=>{
     if(o.t==='eq'){prev=nu[o.b].el; return;}
-    if(o.t==='ins'||o.t==='to'||o.t==='mod'){const el=nu[o.b].el; mdcMark(el,o.t==='ins'?'ins':o.t==='to'?'move':'mod');
+    if(o.t==='ins'||o.t==='to'||o.t==='mod'){const el=nu[o.b].el; mdcMark(el,o.t==='ins'?'ins':o.t==='to'?'move':'mod',o.t==='mod'?mdcWhy(ou[o.a],nu[o.b]):'');
       if(o.t==='to')el.dataset.mdcFrom=String(ou[o.a].lo);
-      if(o.t==='mod'){mdcWordMarks(ou[o.a].el,el,true); mdcLinkMarks(ou[o.a].el,el);} prev=el; return;}
+      if(o.t==='mod'){mdcWordMarks(ou[o.a].el,el,true,budget); mdcLinkMarks(ou[o.a].el,el);} prev=el; return;}
     const u=ou[o.a]; if(o.t==='del'){const el=mdcOwn(u); mdcMark(el,'del'); prev=mdcPlace(el,u.el,oroot,prev,next(k),nroot); return;}
     // blocks moved together (a section) leave one line: the first one's, widened to their lines
     const last=k>0?ops[k-1]:null; if(last&&last.t==='from'&&prev&&prev.classList.contains('mdc-ghost')&&mdcBox(u.el,oroot)===mdcBox(ou[last.a].el,oroot)){
@@ -217,11 +264,11 @@ function mdcInline(oroot,nroot,ou,nu,ops){let prev=/** @type {HTMLElement|null} 
   return nroot;}
 // Two columns, the old side left and the new side right, each marked on its own side; a block changed in place has its taken-out
 // words marked on the left and its added words on the right. The blocks both sides have are aligned (mdcAlign).
-/** @param {HTMLElement} oroot @param {HTMLElement} nroot @param {MdcUnit[]} ou @param {MdcUnit[]} nu @param {any[]} ops */
-function mdcSplit(oroot,nroot,ou,nu,ops){MDC.pairs=[];
+/** @param {HTMLElement} oroot @param {HTMLElement} nroot @param {MdcUnit[]} ou @param {MdcUnit[]} nu @param {any[]} ops @param {MdcBudget} [budget] */
+function mdcSplit(oroot,nroot,ou,nu,ops,budget){MDC.pairs=[];
   for(const o of ops){
     if(o.t==='eq'){MDC.pairs.push([ou[o.a].el,nu[o.b].el]); continue;}
-    if(o.t==='mod'){mdcMark(ou[o.a].el,'mod'); mdcMark(nu[o.b].el,'mod'); mdcWordMarks(ou[o.a].el,nu[o.b].el,false); mdcLinkMarks(ou[o.a].el,nu[o.b].el); MDC.pairs.push([ou[o.a].el,nu[o.b].el]); continue;}
+    if(o.t==='mod'){const why=mdcWhy(ou[o.a],nu[o.b]); mdcMark(ou[o.a].el,'mod',why); mdcMark(nu[o.b].el,'mod',why); mdcWordMarks(ou[o.a].el,nu[o.b].el,false,budget); mdcLinkMarks(ou[o.a].el,nu[o.b].el); MDC.pairs.push([ou[o.a].el,nu[o.b].el]); continue;}
     if(o.t==='del')mdcMark(ou[o.a].el,'del'); else if(o.t==='ins')mdcMark(nu[o.b].el,'ins');
     else{const u=o.t==='from'?ou[o.a]:nu[o.b]; mdcMark(u.el,'move'); if(o.t==='to')u.el.dataset.mdcFrom=String(ou[o.a].lo);}}
   const wrap=document.createElement('div'); wrap.className='mdc-cols';
@@ -263,6 +310,15 @@ function mdcChips(){for(const root of MDC.roots){root.querySelectorAll(':scope>.
 function mdcUnitEls(root,ghosts){return [...root.querySelectorAll(MDC_UNIT+(ghosts?',.mdc-ghost':''))].map(x=>/** @type {HTMLElement} */(x))
   .filter(e=>!(e.tagName==='LI'&&[...e.children].some(c=>c.tagName==='P'))&&!(e.classList.contains('md-html')&&e.closest('.md-html-run')));}
 // ---------------- Showing a compare
+// Git's lines [a,b] of a side (counted on LF alone, as a hunk counts them) as the screen's lines of that side (the side's
+// lines, str.splitlines() - a form feed, a lone CR, U+2028 end a line there and not for git). map is the side's
+// git_line_starts from GET /api/revision-source: [git line, screen line] pairs from which on git line g starts on screen line
+// s + (g - g0), absent when the two agree; n the side's line count. Line a's first screen line to the last before line b+1's.
+// Pure.
+/** @param {number[][]|null|undefined} map @param {number} n @param {number[]} range @returns {number[]} */
+function mdcGitRange(map,n,range){const [a,b]=range; if(!map||!map.length)return [a,b];
+  const at=(/** @type {number} */g)=>{let s=g; for(const [g0,s0] of map){if(g0>g)break; s=s0+(g-g0);} return s;};
+  const lo=at(a); return [lo,Math.max(lo,n?Math.min(n,at(b+1)-1):at(b+1)-1)];}
 // The change groups in order: runs of marked blocks with nothing unchanged between them, on the new side (in two columns, a run
 // the old side alone has is a group of its own, between the new side's groups in order). The navigator steps through them.
 /** @param {HTMLElement[]} roots */
@@ -330,28 +386,33 @@ async function mdcShow(id,base,seq,k){const pane=$('#revision-rendered'),key=rev
   const o=await mdcSide(r.old?r.old.lines:null); if(!live())return;
   const n=o.root?await mdcSide(r.new?r.new.lines:null):{root:null,why:''}; if(!live())return;
   if(!o.root||!n.root){pane.replaceChildren(mdcNote(tl('그려 비교하지 못했습니다 — {why}',{why:o.why||n.why||tr('파서를 쓸 수 없습니다')}))); mdcStatus(r,null); return;}
-  const ou=mdcUnits(o.root),nu=mdcUnits(n.root),ops=mdcOps(ou,nu),counts={ins:0,del:0,mod:0,move:0};
+  const budget=mdcBudget(),ou=mdcUnits(o.root),nu=mdcUnits(n.root),ops=mdcOps(ou,nu,budget),counts={ins:0,del:0,mod:0,move:0};
   for(const x of ops){if(x.t==='ins')counts.ins++; else if(x.t==='del')counts.del++; else if(x.t==='mod')counts.mod++; else if(x.t==='to')counts.move++;}
   MDC.split=mdcWantsSplit()&&pane.clientWidth>=MDC_SPLIT_MIN;
-  const view=MDC.split?mdcSplit(o.root,n.root,ou,nu,ops):mdcInline(o.root,n.root,ou,nu,ops);
+  const pics=!!(o.root.querySelector('.md-pic')||n.root.querySelector('.md-pic'));   // before the layout moves the old side's blocks
+  const view=MDC.split?mdcSplit(o.root,n.root,ou,nu,ops,budget):mdcInline(o.root,n.root,ou,nu,ops,budget);
   MDC.roots=MDC.split?[o.root,n.root]:[n.root];
   const head=document.createElement('div'); head.className='mdc-legend'; head.setAttribute('aria-hidden','true');
-  setHtml(head,html`<span class="mdc-chip mdc-chip-ins">${tr('더함')}</span><span class="mdc-chip mdc-chip-del">${tr('뺌')}</span><span class="mdc-chip mdc-chip-mod">${tr('고침')}</span><span class="mdc-chip mdc-chip-move">${tr('옮김')}</span><span class="mdc-legend-t">${tr('그림은 지금 원고 트리의 파일입니다')}</span>`);
+  setHtml(head,html`<span class="mdc-chip mdc-chip-ins">${tr('더함')}</span><span class="mdc-chip mdc-chip-del">${tr('뺌')}</span><span class="mdc-chip mdc-chip-mod">${tr('고침')}</span><span class="mdc-chip mdc-chip-move">${tr('옮김')}</span>`);
   const frame=document.createElement('div'); frame.className='mdc-frame'+(MDC.split?' split':'');
+  // read and seen: the old side's images are not its own (decision 4 of the spec) - a plain line, never the hidden legend's
+  if(pics)frame.appendChild(mdcInfo(tr('그림은 두 판 모두 지금 원고 트리의 파일입니다 — 옛 판의 그림 파일은 읽지 않습니다.'),false));
+  if(budget.left<=0)frame.appendChild(mdcInfo(tr('바뀐 곳이 많아 블록을 짝짓지 않고 더한 블록과 뺀 블록으로만 표시합니다. 낱말 단위는 [소스 diff]에 있습니다.')));
   if(!r.old)frame.appendChild(mdcInfo(tr('이 커밋에서 파일이 처음 생겼습니다 — 모든 블록이 더한 블록입니다.')));
   if(!r.new)frame.appendChild(mdcInfo(tr('이 커밋에서 파일을 지웠습니다 — 모든 블록이 뺀 블록입니다.')));
   if(mdcWantsSplit()&&!MDC.split)frame.appendChild(mdcInfo(tr('화면이 좁아 두 판을 한 단으로 겹쳐 보입니다.')));
   frame.append(head,view); pane.replaceChildren(frame);
   MDC.stops=mdcStops(MDC.roots);
-  const at=mdcTarget(tg0,scope,nu); mdcStatus(r,counts);
+  const at=mdcTarget(tg0,scope,nu,r.new); mdcStatus(r,counts);
   if(!MDC.stops.length)frame.insertBefore(mdcInfo(tr('두 판의 그린 문서가 같습니다 — 줄 끝·공백·HTML 주석처럼 그리지 않는 곳만 바뀌었습니다. 정확한 변경은 [소스 diff]에 있습니다.')),head);
   requestAnimationFrame(()=>{if(!live())return; mdcAlign(); if(!MDC.split)mdcChips();
     MDC.ro=window.ResizeObserver?new ResizeObserver(()=>{if(live())requestAnimationFrame(()=>{if(MDC.split)mdcAlign(); else mdcChips();});}):null;
     if(MDC.ro)MDC.roots.forEach(x=>/** @type {ResizeObserver} */(MDC.ro).observe(x));
     if(at>=0)mdcGo(at); else{MDC.at=-1; mdcDrawNav();}});
   if(REV.target)revTargetNote();}
-/** @param {string} text */
-function mdcInfo(text){const d=document.createElement('div'); d.className='mdc-info'; d.setAttribute('role','status'); d.textContent=text; return d;}
+// A line above the compare: a status, read when it comes, unless status is false - then a standing note, read in its place.
+/** @param {string} text @param {boolean} [status] */
+function mdcInfo(text,status){const d=document.createElement('div'); d.className='mdc-info'; if(status!==false)d.setAttribute('role','status'); d.textContent=text; return d;}
 // The status line of a compare: its two sides and what changed.
 /** @param {any} r @param {{ins:number,del:number,mod:number,move:number}|null} c */
 function mdcStatus(r,c){const ends=(r.base?String(r.base).slice(0,8):tr('없음'))+' → '+String(r.id||'').slice(0,8);
@@ -361,10 +422,12 @@ function mdcStatus(r,c){const ends=(r.base?String(r.base).slice(0,8):tr('없음'
 // The pin the view was opened for ([변경 보기]): its blocks on the new side - those whose lines meet the pin's own changes (the
 // server's hunks of the pin, scope) or else its lines - ringed in the review colour, the changed ones first. Returns the change
 // group to open at (-1: none), and leaves on the pin the line the guide says (tg.mdcMsg).
-/** @param {RevTarget|null} tg @param {any} scope @param {MdcUnit[]} nu */
-function mdcTarget(tg,scope,nu){const t=REV.target; if(t&&!tg)t.mdcMsg=tl('핀 #{id}의 커밋을 볼 때만 핀 자리를 표시합니다',{id:t.id}); if(!tg)return -1;
-  // the pin's own hunks when it owns part of the commit; every hunk when it owns all of it; else its lines as they are now
-  const lo=tg.lo||0,ranges=scope&&scope.mode===SCOPE_MODE.PIN?hunkRanges(scope.diff):scope&&scope.hunks>0?hunkRanges(scope.whole):[[lo,tg.hi||lo]];
+/** @param {RevTarget|null} tg @param {any} scope @param {MdcUnit[]} nu @param {any} side the new side GET /api/revision-source gave */
+function mdcTarget(tg,scope,nu,side){const t=REV.target; if(t&&!tg)t.mdcMsg=tl('핀 #{id}의 커밋을 볼 때만 핀 자리를 표시합니다',{id:t.id}); if(!tg)return -1;
+  // the pin's own hunks when it owns part of the commit; every hunk when it owns all of it; else its lines as they are now. A
+  // hunk counts git's lines (LF only); the blocks count the screen's (the side's lines): mdcGitRange turns one into the other
+  const lo=tg.lo||0,map=side&&side.git_line_starts,n=side&&side.lines?side.lines.length:0,hunks=(/** @type {string} */d)=>hunkRanges(d).map(r=>mdcGitRange(map,n,r));
+  const ranges=scope&&scope.mode===SCOPE_MODE.PIN?hunks(scope.diff):scope&&scope.hunks>0?hunks(scope.whole):[[lo,tg.hi||lo]];
   const meets=nu.filter(u=>u.lo&&ranges.some(([a,b])=>u.hi>=a&&u.lo<=b)&&u.el.isConnected);
   const changed=meets.filter(u=>u.el.dataset.mdc);
   const shown=changed.length?changed:meets;

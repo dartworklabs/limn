@@ -23,9 +23,22 @@ def served() -> str:
     return extract_js_fn("revisionFormatFor") + "\n" + part
 
 
-def unit(tag, text, pics="", refs=""):
-    """A unit as mdcUnits makes it, for a block of tag showing text (and pictures, link targets)."""
-    return {"tag": tag, "text": text, "pics": pics, "key": "\u0001".join([tag, text, pics, refs]), "lo": 0, "hi": 0}
+def unit(tag, text, pics="", refs="", shape=None, box="", alts=""):
+    """A unit as mdcUnits makes it, for a block of tag showing text (and pictures, link targets), its inline structure
+    shape (the text when it has none), the boxes it sits in and its images' alt texts."""
+    shape = text if shape is None else shape
+    key = "\u0001".join([tag, box, shape, pics, refs])
+    return {
+        "tag": tag,
+        "text": text,
+        "pics": pics,
+        "shape": shape,
+        "box": box,
+        "alts": alts,
+        "key": key,
+        "lo": 0,
+        "hi": 0,
+    }
 
 
 INTRO = "이 노트는 부하 예측 모델을 새 건물로 옮길 때 무엇을 먼저 확인할지 정리한다."
@@ -94,6 +107,69 @@ class CompareRules(unittest.TestCase):
         short = unit("P", "끝")
         got = self.ops([short, a, b], [a, b, short])
         self.assertNotIn("from", [t for t, _, _ in got])
+
+    def test_the_same_words_with_another_structure_are_one_block_changed_and_say_what_changed(self):
+        """Bold where the words were plain, a paragraph out of a quote, a list renumbered, an image's new alt text: the
+        keys differ, so each is one block changed in place (not kept as it was), and mdcWhy names what changed."""
+        cases = [
+            (
+                unit("P", "Warning", shape="Warning"),
+                unit("P", "Warning", shape="\u0002strong\u0003Warning\u0002/strong\u0003"),
+            ),
+            (unit("P", "인용한 문장이다.", box="BLOCKQUOTE"), unit("P", "인용한 문장이다.")),
+            (unit("LI", "첫 항목", box="OL1"), unit("LI", "첫 항목", box="OL5")),
+            (
+                unit("P", "", "figs/a.png", shape="\u0002img 옛 설명\u0003", alts="옛 설명"),
+                unit("P", "", "figs/a.png", shape="\u0002img 새 설명\u0003", alts="새 설명"),
+            ),
+        ]
+        whys = []
+        for old, new in cases:
+            with self.subTest(old=old["key"]):
+                self.assertEqual(
+                    self.ops([old, unit("P", "끝")], [new, unit("P", "끝")]), [["mod", 0, 0], ["eq", 1, 1]]
+                )
+            whys.append(self.run_js("mdcWhy(%s,%s)" % (json.dumps(old), json.dumps(new))))
+        self.assertEqual(
+            whys,
+            [
+                "글자 모양(굵게·기울임·코드·링크)이 바뀜",
+                "인용·목록 안팎으로 자리가 바뀜",
+                "목록 번호가 바뀜",
+                "그림 대체 글이 바뀜",
+            ],
+        )
+        self.assertEqual(
+            self.run_js("mdcWhy(%s,%s)" % (json.dumps(unit("P", INTRO)), json.dumps(unit("P", INTRO2)))), ""
+        )
+
+    def test_git_lines_are_turned_into_the_sides_screen_lines(self):
+        """A side whose line 3 holds a form feed and line 5 a U+2028 ([[1,1],[4,5],[6,8]] from the server): git's lines
+        4 and 6-7 are the screen's 5 and 8-9; without a map the numbers are the same."""
+        got = self.run_js(
+            "[mdcGitRange([[1,1],[4,5],[6,8]],10,[4,4]),mdcGitRange([[1,1],[4,5],[6,8]],10,[3,3]),"
+            "mdcGitRange([[1,1],[4,5],[6,8]],10,[6,7]),mdcGitRange([[1,1],[4,5],[6,8]],10,[7,9]),"
+            "mdcGitRange(undefined,10,[4,4])]"
+        )
+        self.assertEqual(got, [[5, 5], [3, 4], [8, 9], [9, 10], [4, 4]])
+
+    def test_a_large_compare_stops_pairing_at_its_budget_and_marks_the_rest_added_and_taken_out(self):
+        """8,000 blocks taken out and 8,000 added in one gap, each pair alike: the subsequence gives up past 4 million
+        cells, which spends the budget, so none is paired. 2,000 and 2,000, no two alike: the subsequence fits, and
+        weighing every pair (4 million of them) would take seconds - the budget stops it. Both end quickly, with every
+        block taken out or added."""
+        js = (
+            "(()=>{const u=(t,i,w)=>({tag:'P',text:w?t+i+' 가'+i+' 나'+i+' 다'+i:t+i+' '+t+'가'+i+' '+t+'나'+i,"
+            "pics:'',shape:'',box:'',alts:'',key:t+i,lo:0,hi:0});"
+            "const o=[],nn=[]; for(let i=0;i<%d;i++){o.push(u('old',i,%s)); nn.push(u('new',i,%s));}"
+            "const t0=Date.now(),b=mdcBudget(),ops=mdcOps(o,nn,b);"
+            "return [Date.now()-t0,b.left<=0,[...new Set(ops.map(x=>x.t))].sort(),ops.length];})()"
+        )
+        for n, alike in ((8000, "true"), (2000, "false")):
+            with self.subTest(blocks=n):
+                got = self.run_js(js % (n, alike, alike))
+                self.assertLess(got[0], 3000, got)
+                self.assertEqual(got[1:], [True, ["del", "ins"], 2 * n], got)
 
     def test_a_markdown_document_opens_its_rendered_compare_unless_the_source_diff_is_asked(self):
         """drawn (a document drawn from Markdown) opens the rendered compare for any format but the source diff; a figure

@@ -15,7 +15,7 @@ import subprocess
 from limn.administration import serve_documents as startup_documents
 
 from helpers import blank_png, ps, req
-from helpers_browser import BrowserBase, settle
+from helpers_browser import BrowserBase, settle, until
 from helpers_figure import BUILD1, viewer_build
 
 INTRO = "이 노트는 부하 예측 모델을 새 건물로 옮길 때 무엇을 먼저 확인할지 정리한다."
@@ -104,17 +104,17 @@ class CompareBase(BrowserBase):
     def open_compare(self, **kw):
         """The viewer on the Markdown document, its changes view open on the newest commit's rendered compare."""
         page = self.open(0, **kw)
-        page.wait_for_function(DRAWN, timeout=20000)
+        until(page, DRAWN, 20)
         settle(page)
         page.evaluate("setViewMode(VIEW_MODE.REVISIONS)")
-        page.wait_for_function(COMPARED, timeout=15000)
+        until(page, COMPARED, 15)
         settle(page)
         return page
 
     def show(self, page, commit, base=""):
         """The rendered compare of commit (from base), once it is drawn."""
         page.evaluate("showRevision(%s,DIFF_FORMAT.RENDERED,%s)" % (json.dumps(commit), json.dumps(base)))
-        page.wait_for_function(COMPARED, timeout=15000)
+        until(page, COMPARED, 15)
         settle(page)
 
     def marks(self, page):
@@ -167,9 +167,8 @@ class Compare(CompareBase):
         page = self.open_compare()
         self.show(page, self.c[3])
         self.assertEqual([(k, t) for k, t, _ in self.marks(page)], [("del", "P"), ("ins", "P")])
-        page.wait_for_function(
-            "[...document.querySelectorAll('#revision-rendered img')].every(i=>i.complete&&i.naturalWidth>0)",
-            timeout=10000,
+        until(
+            page, "[...document.querySelectorAll('#revision-rendered img')].every(i=>i.complete&&i.naturalWidth>0)", 10
         )
         srcs = page.evaluate(
             "[...document.querySelectorAll('#revision-rendered img')].map(i=>new URL(i.src).pathname+new URL(i.src).search)"
@@ -182,7 +181,7 @@ class Compare(CompareBase):
         page = self.open_compare()
         page.evaluate("setRevisionRange(RANGE_MODE.FROM)")
         page.locator("#revision-commits .rc-row").nth(3).click()
-        page.wait_for_function(COMPARED + "&&!!REV.base&&REV.rangeIds!==null", timeout=15000)
+        until(page, COMPARED + "&&!!REV.base&&REV.rangeIds!==null", 15)
         settle(page)
         kinds = sorted({k for k, _, _ in self.marks(page)})
         self.assertEqual(kinds, ["del", "ins", "mod", "move"])
@@ -233,10 +232,10 @@ class PinBlocks(CompareBase):
         code, _, out = self.talk(req("POST", "/api/pins/%d/close" % pid, close, {"Content-Type": "application/json"}))
         self.assertEqual(code, 200, out)
         page = self.open(0)
-        page.wait_for_function(DRAWN, timeout=20000)
-        page.wait_for_function("REVIEW_ALL.some(p=>p.id===%d)" % pid, timeout=10000)
+        until(page, DRAWN, 20)
+        until(page, "REVIEW_ALL.some(p=>p.id===%d)" % pid, 10)
         page.evaluate("showChange(%d)" % pid)
-        page.wait_for_function(COMPARED + "&&!!document.querySelector('#revision-rendered .mdc-pin')", timeout=15000)
+        until(page, COMPARED + "&&!!document.querySelector('#revision-rendered .mdc-pin')", 15)
         settle(page)
         self.assertEqual(page.evaluate("REV.commit"), self.c[2])
         rows = page.evaluate(
@@ -254,7 +253,7 @@ class Layout(CompareBase):
         page = self.open_compare(viewport={"width": 344, "height": 882}, is_mobile=True, has_touch=True)
         page.evaluate("setRevisionRange(RANGE_MODE.FROM)")
         page.locator("#revision-commits .rc-row").nth(3).click()
-        page.wait_for_function(COMPARED + "&&!!REV.base", timeout=15000)
+        until(page, COMPARED + "&&!!REV.base", 15)
         settle(page)
         widths = page.evaluate(
             "[document.documentElement.scrollWidth,document.documentElement.clientWidth,"
@@ -281,3 +280,126 @@ class Layout(CompareBase):
             "return ['방법','결과'].map(s=>Math.abs((at(0,s).getBoundingClientRect().top-t[0])-(at(1,s).getBoundingClientRect().top-t[1])));})()"
         )
         self.assertTrue(all(d <= 2 for d in offs), offs)
+
+
+STRUCT = "# 구조\n\n{warn}\n\n{quote}인용한 문장이다.\n\n{n}. 첫 항목\n{m}. 둘째 항목\n\n![{alt}](figs/v1.png)\n\n끝 문단이다.\n"
+FF = "# 줄 끝\n\nA 문단이다.\x0c이어지는 A.\n\nB 첫 줄이다.\u2028B 둘째 줄.\n\nC 문단이다.\n\n{d}\n"
+
+
+class OneNote(CompareBase):
+    """A Markdown document nt (note.md) and the LaTeX manuscript, the note committed in the versions texts() gives, oldest
+    first (self.c)."""
+
+    def texts(self):
+        """The note's versions, oldest first."""
+        raise NotImplementedError
+
+    def setUp(self):
+        BrowserBase.setUp(self)
+        self.src = self.main.parent
+        (self.src / "figs").mkdir()
+        (self.src / "figs/v1.png").write_bytes(blank_png(40, 20))
+        self.md = self.src / "note.md"
+        versions = self.texts()
+        self.md.write_text(versions[0], encoding="utf-8")
+        docs = startup_documents.make_docs(["nt=노트:note.md", "ms=본문:main.tex"], self.src, ps.APP.C.paths)
+        assert isinstance(docs, list), docs
+        ps.APP.set_docs(docs)
+        viewer_build(docs[1], BUILD1)
+        self.git("init", "-q")
+        self.git("config", "user.email", "alice@example.com")
+        self.git("config", "user.name", "Alice")
+        self.c = [self.commit("first")]
+        for i, text in enumerate(versions[1:]):
+            self.md.write_text(text, encoding="utf-8")
+            self.c.append(self.commit("step %d" % (i + 1)))
+
+
+class SameWordsOtherStructure(OneNote):
+    """The same words in bold, out of a quote, in a list renumbered from 5, and an image with a new alt text."""
+
+    def texts(self):
+        return [
+            STRUCT.format(warn="Warning", quote="> ", n=1, m=2, alt="옛 설명"),
+            STRUCT.format(warn="**Warning**", quote="", n=5, m=6, alt="새 설명"),
+        ]
+
+    def test_each_structural_change_is_a_block_changed_that_says_what_changed(self):
+        """Each of the five blocks is changed in place (none kept as it was, the commit is not 'the same drawn'), its tip
+        and its screen-reader words say what changed, and the bold word is marked where it became bold."""
+        page = self.open_compare()
+        marks = self.marks(page)
+        self.assertEqual(
+            [(k, t) for k, t, _ in marks], [("mod", "P"), ("mod", "P"), ("mod", "LI"), ("mod", "LI"), ("mod", "P")]
+        )
+        whys = page.evaluate(
+            "[...document.querySelectorAll('#revision-rendered [data-mdc]')].map(e=>e.dataset.mdcWhy||'')"
+        )
+        self.assertEqual(
+            whys,
+            [
+                "글자 모양(굵게·기울임·코드·링크)이 바뀜",
+                "인용·목록 안팎으로 자리가 바뀜",
+                "목록 번호가 바뀜",
+                "목록 번호가 바뀜",
+                "그림 대체 글이 바뀜",
+            ],
+        )
+        self.assertIn(
+            "고친 블록 (글자 모양",
+            page.evaluate("document.querySelector('#revision-rendered [data-mdc] .sr-only').textContent"),
+        )
+        self.assertEqual(
+            page.evaluate(
+                "[...document.querySelectorAll('#revision-rendered strong ins.mdc-w')].map(e=>e.textContent)"
+            ),
+            ["Warning"],
+        )
+        self.assertIn("고침 5", page.evaluate("document.getElementById('revision-status').textContent"))
+
+
+class PinPastOtherLineEnds(OneNote):
+    """A note with a form feed in its first paragraph and a U+2028 in its second, whose last paragraph D the commit
+    rewrites: git's line of D is the screen's minus two."""
+
+    def texts(self):
+        return [FF.format(d="D 문단이다."), FF.format(d="D 문단을 고쳤다.")]
+
+    def test_a_pins_hunk_rings_the_block_it_changed_past_a_form_feed(self):
+        """A pin on D closed with that commit: its [변경 보기] rings D (changed), not C two lines above in git's numbering."""
+        lines = self.md.read_text(encoding="utf-8").splitlines()
+        lo = next(i for i, ln in enumerate(lines, 1) if ln.startswith("D "))
+        body = json.dumps({"doc": "nt", "file": str(self.md), "lo": lo, "hi": lo, "note": "n"}).encode()
+        code, _, out = self.talk(req("POST", "/api/pin", body, {"Content-Type": "application/json"}))
+        self.assertEqual(code, 200, out)
+        pid = json.loads(out)["id"]
+        close = json.dumps(
+            {"ref": "(%s)" % self.c[1][:7], "changes": [{"file": "note.md", "lo": lo, "hi": lo}]}
+        ).encode()
+        code, _, out = self.talk(req("POST", "/api/pins/%d/close" % pid, close, {"Content-Type": "application/json"}))
+        self.assertEqual(code, 200, out)
+        page = self.open(0)
+        until(page, DRAWN, 20)
+        until(page, "REVIEW_ALL.some(p=>p.id===%d)" % pid, 10)
+        page.evaluate("showChange(%d)" % pid)
+        until(page, COMPARED + "&&!!document.querySelector('#revision-rendered .mdc-pin')", 15)
+        settle(page)
+        rows = page.evaluate(
+            "[...document.querySelectorAll('#revision-rendered .mdc-pin')].map(e=>{const c=e.cloneNode(true);"
+            "c.querySelectorAll('.sr-only,del').forEach(x=>x.remove());return [e.dataset.mdc||'',c.textContent.trim()];})"
+        )
+        self.assertEqual(rows, [["mod", "D 문단을 고쳤다."]])
+
+
+class ImageNotice(CompareBase):
+    """The note draws an image from the tree: the compare says, where it is read and seen, that both sides' images are the
+    tree's files of now."""
+
+    def test_the_image_notice_is_in_the_accessibility_tree_and_visible(self):
+        page = self.open_compare()
+        notice = "그림은 두 판 모두 지금 원고 트리의 파일입니다"
+        self.assertIn(notice, page.locator("#revision-rendered").aria_snapshot())
+        found = page.get_by_text(notice)
+        self.assertTrue(found.is_visible())
+        self.assertFalse(found.evaluate("e=>!!e.closest('[aria-hidden=true]')"))
+        self.assertNotIn(notice, page.evaluate("document.querySelector('#revision-rendered .mdc-legend').textContent"))
