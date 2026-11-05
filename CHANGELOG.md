@@ -35,7 +35,7 @@
     reloading by itself;
   - back after more than two minutes away: one line for everything that came meanwhile.
   News of one kind grows one message (an agent closing twelve pins one by one is one line). What this browser has seen is
-  kept in its `localStorage` and only moves forward.
+  kept in its `localStorage`, shared by its tabs, and only moves forward.
 
 ### Changed
 

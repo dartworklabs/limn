@@ -178,6 +178,40 @@ class PureRules(unittest.TestCase):
             ],
         )
 
+    def test_what_another_tab_saw_while_the_history_was_read_is_what_counts(self):
+        """checkDocUpdate reads what this device has seen again once the history has answered (another tab writes the
+        same limnSeen). Seen A, build C shows: another tab seeing C itself or a later build D meanwhile leaves nothing to
+        say - what this tab kept for the change goes (updForget) - and one seeing B, between them, leaves C alone to say,
+        counted from B's commit."""
+        got = node_json(
+            ["prOf", "describeCommits", "shownRows", "docBuild", "verAfter", "checkDocUpdate"],
+            """const DOC='ms',META_BY=new Map(),GROUPS=new Map(); let META=null,rec=null,later=null,said=[],forgot=[];
+            function rendersInBrowser(){return false;} function seenDoc(){return rec;} function setSeenDoc(k,r){rec=r;}
+            function updDocState(){return {ver:'build:pages-20261105120000',name:'본문',kind:'tex'};}
+            function dq(u){return u;} async function api(){throw new Error('not asked');} function docUpdateView(){}
+            function updForget(k){forgot.push(k);}
+            function groupNote(g,d){said.push({n:d.commits.n,prs:d.commits.prs,seenRev:d.seenRev,top:d.top});}
+            const C=(id,subject)=>({id,subject,author:'Bob Park',time:'t'});
+            const A=C('aaaa1111aaaa','Initial'),B=C('bbbb2222bbbb','Update introduction (#12)'),Cc=C('cccc3333cccc','Fix the axis (#13)');
+            async function docRows(){if(later)rec=later; return [Cc,B,A];}   // the other tab writes while the read is out
+            (async()=>{const out={};
+              META={pages_build:'pages-20261105120000',head:'cccc333',stale_build:false};
+              const check=async(seen,meanwhile)=>{rec=seen; later=meanwhile; said=[]; forgot=[]; await checkDocUpdate('ms',{});
+                return {said,forgot,rec:rec.ver};};
+              const a={ver:'build:pages-20261105100000',rev:A.id};
+              out.none=await check(a,null);
+              out.same=await check(a,{ver:'build:pages-20261105120000',rev:Cc.id});
+              out.newer=await check(a,{ver:'build:pages-20261105130000',rev:''});
+              out.between=await check(a,{ver:'build:pages-20261105110000',rev:B.id});
+              console.log(JSON.stringify(out));})();""",
+        )
+        both = {"n": 2, "prs": [13, 12], "seenRev": "aaaa1111aaaa", "top": "cccc3333cccc"}
+        self.assertEqual(got["none"], {"said": [both], "forgot": [], "rec": "build:pages-20261105100000"})
+        self.assertEqual(got["same"], {"said": [], "forgot": ["ms"], "rec": "build:pages-20261105120000"})
+        self.assertEqual(got["newer"], {"said": [], "forgot": ["ms"], "rec": "build:pages-20261105130000"})
+        one = {"n": 1, "prs": [13], "seenRev": "bbbb2222bbbb", "top": "cccc3333cccc"}
+        self.assertEqual(got["between"], {"said": [one], "forgot": [], "rec": "build:pages-20261105110000"})
+
     def test_a_seen_record_only_moves_forward(self):
         """setSeenDoc with verAfter: an older tab dismissing its message (an earlier mtime, an earlier build) keeps the
         newer record another tab wrote; a later one, a first one or one of another kind is written. Build ids order by
@@ -504,15 +538,25 @@ class UpdateFlows(BrowserBase):
         self.nt, self.ms = docs
         viewer_build(self.ms, BUILD1)
 
+    DRAWN = "typeof MD!=='undefined'&&MD.shown===DOC&&!!document.querySelector('#md [data-line],#md [data-lo]')"
+
     def view(self, init=SEEN):
         page = self.open(0, init=init, **SCREENS["desktop"])
-        until(
-            page,
-            "typeof MD!=='undefined'&&MD.shown===DOC&&!!document.querySelector('#md [data-line],#md [data-lo]')",
-            20,
-        )
+        until(page, self.DRAWN, 20)
         settle(page)
         return page
+
+    def tab(self, page):
+        """Another tab of page's browser: a page in the same context, so the two share localStorage (limnSeen)."""
+        other = page.context.new_page()
+        errors = []
+        other.on("pageerror", lambda e: errors.append(str(e)))
+        other.route("**/*", self.route)
+        other.goto("http://viewer.test/?lang=ko")
+        until(other, "typeof LIGHT_TIMER!=='undefined'&&!!LIGHT_TIMER&&(%s)" % self.DRAWN, 20)
+        settle(other)
+        self.addCleanup(lambda: self.assertEqual(errors, []))
+        return other
 
     def line(self, page):
         return page.evaluate("LINE.map(n=>n.title+(n.desc?' — '+n.desc:''))")
@@ -623,6 +667,58 @@ class UpdateFlows(BrowserBase):
         self.assertEqual(self.line(page), [t for t in self.line(page) if "바뀌었습니다" not in t])
         self.assertEqual(page.evaluate(tinted), [])
         self.assertFalse(page.evaluate("UPD.lines.has('nt')"))
+
+    def test_a_change_another_tab_saw_past_while_this_one_read_its_history_is_not_said(self):
+        """Two tabs of one browser on the note. Its source changes (B): tab A draws it and reads the note's history to say
+        the change - that read is held. The source changes again (C) and tab B says C, whose [x] records C as seen (the
+        tabs share limnSeen). A's answer comes then: C, newer than B, has been seen, so A says nothing and tints nothing,
+        not B's change again; and drawing C later says nothing either."""
+        from limn.builds.artifacts import expire_src_mtime
+
+        def change(text, at):
+            self.md.write_text(text, encoding="utf-8")
+            os.utime(self.md, (at, at))
+            expire_src_mtime(self.nt)
+
+        def drawn(page, text):
+            return page.evaluate("MD.shown==='nt'&&MD.lines.join('\\n')===%s" % json.dumps(text.rstrip("\n")))
+
+        a = self.view()
+        until(a, "!!seenDoc('nt')&&!!seenDoc('ms')&&LIGHT_INFLIGHT===null")
+        b = self.tab(a)
+        for page in (a, b):
+            page.evaluate("clearInterval(LIGHT_TIMER); digestEnd()")
+            settle(page)
+        held = []
+
+        def hold(route):
+            if held:
+                return route.fallback()
+            held.append(route)
+
+        a.route(re.compile(r"/api/revisions\?"), hold)
+        t0 = self.md.stat().st_mtime
+        first = SOURCE.replace("첫 문단이다.", "고친 첫 문단이다.")
+        change(first, t0 + 10)
+        a.evaluate("pollLight()")
+        until(a, lambda: drawn(a, first) and bool(held))
+        second = first.replace("끝 문단이다.", "고친 끝 문단이다.")
+        change(second, t0 + 20)
+        b.evaluate("pollLight()")
+        until(b, "LINE.some(n=>n.group==='upd:nt')")
+        b.evaluate("noticeClose(LINE.find(n=>n.group==='upd:nt').n)")
+        self.assertEqual(a.evaluate("seenDoc('nt').ver"), b.evaluate("'src:'+MD.mtime"))
+        self.assertFalse(a.evaluate("LINE.some(n=>n.group==='upd:nt')"))
+        held[0].fallback()
+        settle(a)
+        tinted = "document.querySelectorAll('#md .md-upd').length"
+        self.assertEqual(self.line(a), [t for t in self.line(a) if "바뀌었습니다" not in t])
+        self.assertEqual((a.evaluate(tinted), a.evaluate("UPD.lines.has('nt')")), (0, False))
+        a.evaluate("pollLight()")
+        until(a, lambda: drawn(a, second))
+        settle(a)
+        self.assertEqual(self.line(a), [t for t in self.line(a) if "바뀌었습니다" not in t])
+        self.assertEqual(a.evaluate(tinted), 0)
 
     def test_a_coauthors_new_pin_and_an_agent_closing_pins_one_by_one_are_one_message_each(self):
         """Bob's new pin on this document: '새 핀 #N — Bob Park · L3 · …' with [보기]. The agent closing three of Alice's

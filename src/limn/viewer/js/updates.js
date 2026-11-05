@@ -139,17 +139,22 @@ function shownRows(rows,head,behind){const i=head?rows.findIndex(r=>r.id.startsW
 // commits it carries is not known (shownRows), no commit is recorded (''): the next change then names none (describeCommits).
 // What shows being older than what this device has seen (verAfter) is no change: this tab has not caught up yet - a drawn
 // document come back to shows the lines it was left with until it draws its source again, whose change was said while it
-// was off screen - and the read that catches up has nothing new to say either.
+// was off screen - and the read that catches up has nothing new to say either. What this device has seen is read again once
+// the history has answered: another tab (limnSeen is shared) may have seen this version or a later one meanwhile - then
+// nothing is said, and what this tab kept for the change (its tinted lines, its counted moves) goes as if its message had
+// been seen (updForget) - or a version between the one read first and this one: the commits are counted from its commit.
 /** @param {string} k @param {{mine?:boolean}} ctx */
 async function checkDocUpdate(k,ctx){if(!k)return; const now=updDocState(k); if(!now)return; const seen=seenDoc(k),open=GROUPS.has('upd:'+k);
   if(seen&&(seen.ver===now.ver&&!open||verAfter(seen.ver,now.ver)))return;
   const first=!seen||(!!ctx.mine&&!open); if(seen&&!first&&seen.ver===now.ver)return;
   const [rows,build]=await Promise.all([docRows(k),docBuild(k,now)]),cur=updDocState(k);
   if(!cur||cur.ver!==now.ver||!build)return;   // a newer change came meanwhile: its own check says it
+  const last=seenDoc(k)||seen;
+  if(!first&&last&&(last.ver===now.ver||verAfter(last.ver,now.ver))){if(!GROUPS.has('upd:'+k))updForget(k); return;}
   const shown=shownRows(rows||[],build.head,build.behind);
-  if(first||!seen){setSeenDoc(k,{ver:now.ver,rev:!shown?'':shown.length?shown[0].id:seen?seen.rev:''}); return;}
-  const commits=describeCommits(shown,seen.rev);
-  groupNote('upd:'+k,{key:k,name:now.name,kind:now.kind,ver:now.ver,seenRev:seen.rev,top:commits.unknown?commits.top:commits.top||seen.rev,commits,history:!!(rows&&rows.length)},docUpdateView,null);}
+  if(first||!last){setSeenDoc(k,{ver:now.ver,rev:!shown?'':shown.length?shown[0].id:last?last.rev:''}); return;}
+  const commits=describeCommits(shown,last.rev);
+  groupNote('upd:'+k,{key:k,name:now.name,kind:now.kind,ver:now.ver,seenRev:last.rev,top:commits.unknown?commits.top:commits.top||last.rev,commits,history:!!(rows&&rows.length)},docUpdateView,null);}
 // Every document, the one on screen first: what changed since this device last saw it (boot).
 function checkDocsSeen(){[DOC,...DOCS.map(d=>d.key).filter(k=>k!==DOC)].forEach(k=>{if(k)checkDocUpdate(k,{});});}
 // What document k's update message says (groupNote's view): '<name>이(가) 바뀌었습니다' and then the commits (one: its PR and
@@ -175,10 +180,14 @@ function docUpdateView(d){const k=d.key,c=d.commits,here=k===DOC,parts=[],mv=UPD
   const title=tl('{name}{p} 바뀌었습니다',{name:d.name,p:josaName(d.name,'이','가')});
   return {msg:parts.length?title+' — '+parts.join(' · '):title,kind:NOTICE_KIND.INFO,act,
     o:{literal:true,keep:true,back:!here,brief:title,onEnd:(/** @type {boolean} */acted,/** @type {boolean} */seen)=>{if(acted||seen)docUpdateSeen(k,d);}}};}
-// Document k's update message has been seen: limnSeen takes what it said, and its moved pins and changed lines go. Moves
-// that come after this belong to no message that is due (updPinMoved).
+// Document k's update message has been seen: limnSeen takes what it said, and its moved pins and changed lines go
+// (updForget).
 /** @param {string} k @param {any} d */
-function docUpdateSeen(k,d){setSeenDoc(k,{ver:d.ver,rev:d.top}); UPD.moved.delete(k); UPD.seenAt.set(k,Date.now()); if(UPD.lines.delete(k))updMarks();}
+function docUpdateSeen(k,d){setSeenDoc(k,{ver:d.ver,rev:d.top}); updForget(k);}
+// What this tab kept for a change of document k that is seen - its moved pins and its tinted lines - goes. Moves that come
+// after this belong to no message that is due (updPinMoved).
+/** @param {string} k */
+function updForget(k){UPD.moved.delete(k); UPD.seenAt.set(k,Date.now()); if(UPD.lines.delete(k))updMarks();}
 // A source or a build is changing (polling.js): for UPD_EXPECT_MS its pins' moves wait for its document's update message.
 // fresh: a source changed now - the wait starts now, so a message seen before it does not end it (updPinMoved).
 /** @param {boolean} [fresh] */
