@@ -18,7 +18,7 @@ Limn은 LaTeX 원고와 벡터 그래픽을 PDF로 띄우고 Markdown 문서와 
 
 - LaTeX 원고: `latexmk` 또는 `pdflatex`/`xelatex`/`lualatex` 기반 빌드. SyncTeX(`.synctex.gz`)가 나오는 환경.
 - 벡터 그래픽: 그림 저장소가 그림을 PDF(그림 한 장이 한 쪽)로 렌더하고 요소 지도(`.limnmap.json`)를 함께 낸 그림. Limn은 렌더하지 않고 두 파일을 가져온다([build-sync.md](build-sync.md) §그림 문서). 지도 형식은 [api.md](api.md) §그림 요소 지도 (`limn-figure-map/1`)에 있다.
-- Markdown 문서: `.md` 파일 하나. 빌드도 변환도 없이 뷰어가 원문을 그리고(CommonMark와 GFM의 표·취소선), 핀은 그 파일의 줄을 가리킨다([viewer.md](viewer.md) §Markdown 화면). 원문은 1 MiB까지 그린다.
+- Markdown 문서: `.md` 파일 하나. 빌드도 변환도 없이 뷰어가 원문을 그리고(CommonMark와 GFM의 표·취소선, 문서 맨 앞의 YAML 머리 정보는 원문 줄 그대로, TeX 수식은 쓴 글자 그대로), 핀은 그 파일의 줄을 가리킨다([viewer.md](viewer.md) §Markdown 화면). 원문은 1 MiB까지 그린다.
 - 텍스트 문서: 닫힌 확장자 목록(`.txt`·`.py`·`.json`·`.yaml`·`.bib` 등 48개, [instances.md](instances.md) §여러 문서 (`DOCS=`))에 드는 파일 하나. 파싱도 구문 강조도 없이 뷰어가 원문 줄을 그대로 고정폭으로 보이고, 핀은 그 파일의 줄을 가리킨다([viewer.md](viewer.md) §텍스트 화면). 원문은 1 MiB까지 그린다.
 - 네트워크: 로컬 루프백(`127.0.0.1`), 사설망(`tailscale serve`), 인증 리버스 프록시 뒤.
 - 브라우저: 최신 데스크톱 브라우저 (Chromium, Firefox, Safari).
@@ -30,7 +30,7 @@ Limn은 LaTeX 원고와 벡터 그래픽을 PDF로 띄우고 Markdown 문서와 
 - 사용자가 이미 파일과 줄 번호를 알고 있다면 서버를 띄우는 비용이 낭비다. 바로 고친다.
 - Typst 원고는 범위 밖이다. SyncTeX은 LaTeX 전용이다.
 - 요소 지도가 없는 그림(사진, 받은 래스터 그림)은 그림 문서가 아니다. 보기 전용 PDF로 띄운다.
-- Markdown 문서의 원시 HTML과 그림은 그리지 않고, 수식·각주·머리 정보 같은 확장도 그리지 않는다.
+- Markdown 문서의 원시 HTML, 원격·트리 밖 그림, 각주 같은 확장은 그리지 않는다. 수식은 알아보되 그리지 않고 TeX 원문으로 보인다. 머리 정보의 YAML은 파싱하지 않는다. Quarto·R Markdown·AsciiDoc·Org·reStructuredText·Jupyter는 받지 않는다([ADR-0032](../adr/0032-markdown-front-matter.md)).
 - 확장자가 목록에 없는 파일과 확장자 없는 파일(`Makefile`, `LICENSE`)은 문서로 받지 않는다. 따로 화면이 생길 수 있는 `.typ`·`.ipynb` 와 흔히 비밀을 담는 `.env`·`.pem`·`.key` 도 목록에 없다.
 
 ## 하지 않는 일
