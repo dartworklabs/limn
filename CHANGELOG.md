@@ -16,7 +16,8 @@
   inside bold, a link or a formula too - is unchanged. A removed block goes back into the very list, item or table it
   sat in. A list item's key is its own text's: an image, a link or an alt text in a quote or table inside it belongs to
   that block. A quote or list split in two (a blank line between a quote's paragraphs, another bullet) or two joined
-  into one marks the two blocks beside the cut and says so; every bullet of one list changed is no change. Each change
+  into one marks the two blocks beside the cut and says so; every bullet of one list changed is no change, and two
+  tables joined or one split show as the header row taken out or added, not as a quote or list. Each change
   is a tint and a word in the left gutter, never colour alone; a screen reader hears "Added block:" and so on. A
   navigator steps through the changes and the status line counts them. A range - picked in the list, or the new commits
   a document-changed message's [변경 보기] opens - is compared in [그린 비교] too, with its commit and file counts, unless
@@ -111,7 +112,9 @@
   spot an image's load or failure puts back was the one the last scroll frame had read, so a load that came before the
   frame of a scroll (Home, a wheel, a key) put back the place before it: on a busy renderer the document jumped 3,000px
   back down after Home. A spot read at another scroll offset than the pane's now is not put back: the spot is read where
-  the pane stands, and the browser's scroll anchoring keeps the text.
+  the pane stands, and the browser's scroll anchoring keeps the text. An image that shrinks near the document's end,
+  where the browser cuts the offset back to the new end, is no scroll: the text read stays - unless the person scrolled
+  just before (End before its frame stays at the end) - and a pin's [보기] keeps the pin's line where it put it.
 - **`GET /api/version` names the code the server runs, not the file on disk** (HTTP API semantics, #415). It read
   `__version__` from the package file on every request, so a checkout pulled or an install upgraded under a running
   server made it answer the new version while the old code kept running - an instance 28 releases behind looked
