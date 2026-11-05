@@ -442,7 +442,8 @@ body.lay-narrow #sheet-grip.on::before{background:var(--primary)}
 body.lay-narrow #bar1{top:0;padding:0 var(--edge);border-bottom:0;touch-action:none}   /* the whole tool bar drags the sheet; its taps still press buttons */
 body.lay-narrow #sec-open>.sec-head{border-top:1px solid var(--border)}   /* the line under the tool bar is the section head's own (40px with it) */
 @media (pointer:coarse){
-  body.lay-narrow #bar1{--tb-h:var(--ctl-touch)}
+  /* The sheet's tool bar stays --control-h (28px, set below for every pointer): the row itself drags the sheet, so the
+     controls are drawn small and only their hit areas reach 44px (docs/handbook/viewer.md §패널 폭과 시트 높이). */
   body.lay-narrow #bar1 :is(button,#sheet-grip){position:relative;min-height:0;overflow:clip;overflow-clip-margin:var(--space-2)}   /* the label still ellipsizes; the hit area below is not clipped */
   body.lay-narrow #bar1 :is(button,#sheet-grip)::after{content:'';position:absolute;left:50%;top:0;width:max(100%,var(--hit));height:calc(var(--hit) + 2px);transform:translateX(-50%)}   /* +2px: a sheet at a fractional y loses a row to the edge */
   /* The section head is 40px: its tools are drawn at 32px from 4px down, and their hit areas reach into the 12px under it. */
