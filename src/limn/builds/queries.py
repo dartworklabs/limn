@@ -1,5 +1,6 @@
 """Interpret build storage into consumer answers at the build-owned I/O boundary."""
 
+import os
 from collections.abc import Callable, Mapping
 from copy import deepcopy
 from dataclasses import dataclass
@@ -35,11 +36,33 @@ from limn.builds.figure_map import (
     map_source_files,
     pick_element,
 )
+from limn.platform.files import PATH_MAX_CHARS
 from limn.platform.values import is_num
 from limn.runtime.documents import Doc
 from limn.web.parse import DocumentFacts
 
 AUX_MAX_BYTES = 4 * 1024 * 1024
+
+
+def history_pdf(doc: Doc, figure_map: FigureMap) -> Path | None:
+    """The PDF figure_map names, as the path whose Git history is figure document doc's PDF: placed lexically from the
+    folder doc's map was registered in (doc.registered_main's parent) - '..' parts folded, nothing resolved - and kept
+    only when it lies strictly inside doc.registered_src with no dot-named part below it (the manuscript tree's rule,
+    limn.platform.files.tree_part). None for an empty, absolute or over-long path or one holding a backslash or a NUL,
+    as artifacts.figure_pdf refuses them. figure_pdf, through which the import reads the file, resolves symlinks; this
+    asks the filesystem nothing, so a folder replaced by a symlink after startup cannot make another file's commits
+    the document's history. Pure."""
+    rel = figure_map.pdf
+    if not rel or len(rel) > PATH_MAX_CHARS or rel.startswith("/") or "\\" in rel or "\x00" in rel:
+        return None
+    placed = Path(os.path.normpath(doc.registered_main.parent / rel))
+    try:
+        below = placed.relative_to(doc.registered_src)
+    except ValueError:
+        return None
+    if not below.parts or any(part.startswith(".") for part in below.parts):
+        return None
+    return placed
 
 
 def _epoch(value: str | None) -> float | None:
@@ -275,10 +298,10 @@ class BuildQueries:
         document, whose history is its folder's manuscript suffixes instead (limn.revisions.core.revision_scope).
 
         - A document with an element map (a figure document), in this order: its map file, the PDF the map of the build
-          on screen names (artifacts.figure_pdf, only when it lies inside doc.src), and every script and shared
-          component that map names, joined to doc.src as the map gives them (figure_map.map_source_files). Just the map
-          file when the build on screen has no loadable map. Reads the map copy through the run's cache, and no file
-          the map names.
+          on screen names (history_pdf: placed lexically under the folder the document was registered with, only when
+          it lies inside it), and every script and shared component that map names, joined to doc.src as the map gives
+          them (figure_map.map_source_files). Just the map file when the build on screen has no loadable map. Reads the
+          map copy through the run's cache, and no file the map names; nothing here resolves a symlink.
         - A document the browser draws (a Markdown or text document): its own file alone, so another document's file in the
           same folder - a LaTeX main beside it - never enters its history, nor its file a LaTeX document's.
         - Any other document: None."""
@@ -289,7 +312,7 @@ class BuildQueries:
         fmap = self.maps().get(doc, artifacts.cur_pages(doc).name)
         if not isinstance(fmap, FigureMap):
             return (doc.main,)
-        pdf = artifacts.figure_pdf(doc, fmap)
+        pdf = history_pdf(doc, fmap)
         named = tuple(doc.src / rel for rel in map_source_files(fmap))
         return (doc.main, *(() if pdf is None else (pdf,)), *named)
 

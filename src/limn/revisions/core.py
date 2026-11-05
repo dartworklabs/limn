@@ -385,6 +385,26 @@ class RevisionSpec(NamedTuple):
 # ---------------------------------------------------------------- history and the source diff
 
 
+def glob_literal(text: str) -> str:
+    """text with every character a Git :(glob) pattern reads as a wildcard (*, ?, [, ] and the escape \\ itself)
+    escaped, so a folder named paper[1] matches only itself, never paper1. Pure."""
+    return re.sub(r"([*?\[\]\\])", r"\\\1", text)
+
+
+def dot_named(rel: str) -> bool:
+    """Whether the POSIX path rel (relative to a document's folder) has a part whose name starts with '.': the
+    manuscript tree's rule (limn.platform.files.tree_part), which no case folding changes, so .Private is one as .private
+    is. Pure."""
+    return any(part.startswith(".") for part in rel.split("/"))
+
+
+def dot_excludes(prefix: str) -> list[str]:
+    """The two exclude pathspecs that leave every file under a dot-named part below the folder prefix (relative to the
+    repository, "" or ending in '/') out of a history: dot-named files and every file under a dot-named folder. Pure."""
+    at = glob_literal(prefix)
+    return [":(exclude,glob)%s**/.*" % at, ":(exclude,glob)%s**/.*/**" % at]
+
+
 def files_pathspec(repo: Path, files: Sequence[Path], folder: Path) -> list[str]:
     """files (absolute paths) as literal Git pathspecs relative to repo, in order, each once; a file that is not inside
     repo, or is repo itself, is left out. More than HISTORY_PATHS_MAX of them are named by folder instead (a literal
@@ -418,8 +438,9 @@ def revision_scope(D: RevisionDoc, files: Sequence[Path] | None = None) -> tuple
     figure document's map, the PDF the map names and the map's scripts and shared components; a Markdown or text
     document's own file), found from the repository holding D.src (files_pathspec). The suffix pathspec above never names
     a Markdown file or a text file other than .bib, .sty, .cls and .bst, so a LaTeX document and a Markdown or text
-    document in one folder keep apart histories; a .bib text document's commits are the LaTeX document's too. It names
-    nothing under a dot-named part either (two exclude patterns)."""
+    document in one folder keep apart histories; a .bib text document's commits are the LaTeX document's too. Neither
+    names anything under a dot-named part below the document's folder (dot_excludes), and the folder's own name is
+    matched literally (glob_literal)."""
     if not D.shows_revisions:
         return None
     if files is not None:
@@ -437,14 +458,14 @@ def revision_scope(D: RevisionDoc, files: Sequence[Path] | None = None) -> tuple
     except ValueError:
         return None
     prefix = "" if prefix == "." else prefix + "/"
+    at = glob_literal(prefix)  # the folder is a name, not a pattern: paper[1]/ must not match paper1/
     # Git :(glob) ** only matches subfolders, so root files are included via a separate pattern.
     exts = ("tex", "bib", "sty", "cls", "bst")
-    paths = [":(glob)%s*.%s" % (prefix, ext) for ext in exts]
-    paths += [":(glob)%s**/*.%s" % (prefix, ext) for ext in exts]
+    paths = [":(glob)%s*.%s" % (at, ext) for ext in exts]
+    paths += [":(glob)%s**/*.%s" % (at, ext) for ext in exts]
     # Nothing under a dot-named part is the manuscript (limn.platform.files.tree_part; the build copy skips dot folders,
     # limn.builds.artifacts._excluded_dir), so a committed .private/notes.tex or .old.bib is no document's history.
-    paths += [":(exclude,glob)%s**/.*" % prefix, ":(exclude,glob)%s**/.*/**" % prefix]
-    return repo, paths
+    return repo, paths + dot_excludes(prefix)
 
 
 def _files_scope(D: RevisionDoc, files: Sequence[Path]) -> tuple[Path, list[str]] | None:
@@ -454,13 +475,19 @@ def _files_scope(D: RevisionDoc, files: Sequence[Path]) -> tuple[Path, list[str]
     Each file is named by the path it was registered with (registered_file), never by where its folder leads now: a
     document whose folder was reached through a symlink when the run started (macOS's /var -> /private/var) keeps its
     whole history, as a LaTeX document does, and a folder replaced by a symlink after that - to a dot-named folder or to
-    another repository - does not make another file's history the document's."""
+    another repository - does not make another file's history the document's. A file under a dot-named part below the
+    folder is never named (registered_file), and the pathspec ends with dot_excludes, so neither the folder that names
+    more than HISTORY_PATHS_MAX files nor a named file that some commit holds as a folder brings one in."""
     repo = registered_repo(D.registered_src)
     if repo is None:
         return None
+    try:
+        prefix = D.registered_src.relative_to(repo).as_posix()
+    except ValueError:
+        return None
     named = [p for p in (registered_file(D, f) for f in files) if p is not None]
     paths = files_pathspec(repo, named, D.registered_src)
-    return (repo, paths) if paths else None
+    return (repo, paths + dot_excludes("" if prefix == "." else prefix + "/")) if paths else None
 
 
 def _unlinked_prefix(folder: Path) -> Path:
@@ -496,22 +523,31 @@ def registered_repo(folder: Path) -> Path | None:
 
 
 def registered_file(D: RevisionDoc, f: Path) -> Path | None:
-    """File f of document D, as RevisionBuildQueries.history_files names it, in its registered form: D.registered_main
-    for D.main; a path below D.src as the same path below D.registered_src (normalised, so a '..' never leaves the
-    folder); a path already below D.registered_src (one the build owner resolved, as artifacts.figure_pdf does) as it
-    is; None for any other path. Lexical: resolves nothing, so no symlink below the registered folder decides which file
-    is named. Pure."""
+    """File f of document D, as RevisionBuildQueries.history_files names it, in its registered form: D.registered_main for D.main; a path below D.src
+    as the same path below D.registered_src (normalised, so a '..' never leaves the folder); a path already below
+    D.registered_src (one the build owner placed there, as limn.builds.queries.history_pdf does) as it is. None for any
+    other path, and for one with a dot-named part below D.registered_src (dot_named) - D's own main too, as the history
+    pathspec leaves it out (dot_excludes). Lexical: resolves nothing, so no symlink below the registered folder decides
+    which file is named. Pure."""
     if f == D.main:
-        return D.registered_main
-    for base in (D.src, D.registered_src):
-        try:
-            rel = os.path.normpath(f.relative_to(base).as_posix())
-        except ValueError:
-            continue
-        if rel == ".." or rel.startswith("../"):
+        named = D.registered_main
+    else:
+        for base in (D.src, D.registered_src):
+            try:
+                rel = os.path.normpath(f.relative_to(base).as_posix())
+            except ValueError:
+                continue
+            if rel == ".." or rel.startswith("../"):
+                return None
+            named = D.registered_src if rel == "." else D.registered_src / rel
+            break
+        else:
             return None
-        return D.registered_src if rel == "." else D.registered_src / rel
-    return None
+    try:
+        below = named.relative_to(D.registered_src).as_posix()
+    except ValueError:
+        return named  # a main registered outside its folder: judged where it was registered, not here
+    return None if below != "." and dot_named(below) else named
 
 
 class HistoryPage(NamedTuple):

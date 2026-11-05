@@ -162,7 +162,7 @@ class RegisteredPath(AccessBase):
         files = (doc.main,)
         found = revisions.revision_scope(doc, files)
         self.assertIsNotNone(found)
-        self.assertEqual(found[1], [":(literal)notes/plan.md"])
+        self.assertEqual(found[1], [":(literal)notes/plan.md", *revisions.dot_excludes("notes/")])
 
 
 class DotNamedFolders(AccessBase):
