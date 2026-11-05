@@ -416,7 +416,8 @@ GROUP_FNS = [
     "digestBegin", "digestSoon", "digestHold", "digestEnd", "digestBrief", "digestLine", "digestNote", "digestReplay",
     "digestTake", "newsSlot", "keysHeld", "noticeLess", "newsWithout", "digestClosed", "newsDupe", "foldedNews",
     "foldedLess", "digestRetitle", "foldedGone", "digestDots", "reviewPins", "reviewNewsStale", "dropStaleReview",
-    "noticeSeen", "endTopic", "gatheredGone", "gatheredDupe", "gatheredLess", "dotHeld",
+    "noticeSeen", "endTopic", "gatheredGone", "gatheredDupe", "gatheredLess", "groupRedraw",
+    "dotHeld",
 ]  # fmt: skip
 GROUP_PRELUDE = r"""
 let NOW=0,QID=0; const Q=[];
@@ -435,6 +436,10 @@ const view=g=>({msg:g.ids.length===1?'#'+g.ids[0]+' 검토 대기':'핀 '+g.ids.
 const merge=(a,b)=>({ids:[...a.ids,...b.ids]});
 const said=()=>LINE.map(n=>n.title+(n.desc?' — '+n.desc:''));
 """
+# The document update message's view and what redraws it, for the store tests (with what the view itself calls).
+UPDATE_VIEW_FNS = [
+    "docUpdateView", "updPinMoved", "updSourceRedrawn", "lineChanges", "josaName", "isFigureKind", "isViewOnlyKind",
+]  # fmt: skip
 GROUP_CONSTS = r"^const (?:NOTICE_MS|NOTICE_HOLD_MAX|LINE_MAX|DIGEST_MAX_MS)=\d+;"
 
 
@@ -607,6 +612,46 @@ class Grouping(unittest.TestCase):
         self.assertEqual(got["one"], ["나에게 검토 대기 — #1, #6", "#7 검토 대기"])
         self.assertEqual(got["gone"], [False, 0])
         self.assertEqual(got["none"], ["나에게 검토 대기 — #1, #8"])
+
+    def test_a_pin_moved_while_the_documents_change_is_gathered_or_folded_is_said_in_it(self):
+        """The note's update message (the real docUpdateView) is gathered on a return, then folded in a gathered line
+        beside another group's: a pin of the note moving meanwhile is counted for that message and not said on its own
+        (updPinMoved returns true) - and the message says it once the gathering ends ('핀 1개 줄 이동') or [펼치기] puts it
+        on the line ('핀 2개 줄 이동'). The same for the places a redraw counts (updSourceRedrawn: a return to the note
+        while its message is folded). Mutation: refresh the message only when it stands on the line -> the move and the
+        places are in no message, fails."""
+        got = self.run_store(
+            "\n".join(extract_js_fn(n) for n in UPDATE_VIEW_FNS)
+            + """
+            const DOC='nt',UPD={moved:new Map(),lines:new Map(),seenAt:new Map(),expect:0,expectAt:0},LINE_DIFF_MAX=500,out={};
+            function pdoc(p){return p.doc;} function switchDoc(){} function updGoNext(){} function openUpdateRange(){} function docUpdateSeen(){}
+            function updMarks(){} function seenDoc(){return null;} function updDocState(){return null;} function checkDocUpdate(){}
+            const data={key:'nt',name:'노트',kind:'md',ver:'src:200',seenRev:'a',top:'b',history:true,
+              commits:{n:1,more:false,prs:[12],authors:['Bob Park'],subject:'서론 다듬기',time:'',top:'b',unknown:false}};
+            const kv=g=>({msg:'#'+g.ids.join(', #')+' 완료',kind:NOTICE_KIND.OK,act:null,o:{brief:'완료 '+g.ids.length}});
+            digestBegin('지난 방문 뒤'); groupNote('upd:nt',data,docUpdateView,null);
+            out.held=updPinMoved({id:5,doc:'nt'},false); digestEnd(); out.gathered=said();
+            LINE.slice().forEach(n=>endNotice(n,true)); GROUPS.clear(); UPD.moved.clear(); tick(9000);
+            digestBegin('지난 방문 뒤'); groupNote('upd:nt',data,docUpdateView,null); groupNote('done',{ids:[4]},kv,null); digestEnd();
+            out.foldedHeld=[updPinMoved({id:5,doc:'nt'},false),updPinMoved({id:6,doc:'nt'},false)];
+            noticeAct(LINE.find(n=>n.items).n); out.folded=said().sort();
+            LINE.slice().forEach(n=>endNotice(n,true)); GROUPS.clear(); UPD.moved.clear(); tick(9000);
+            UPD.lines.set('nt',{base:['a','b','c'],ranges:[{lo:1,hi:1}],at:-1});
+            digestBegin('지난 방문 뒤'); groupNote('upd:nt',data,docUpdateView,null); groupNote('done',{ids:[7]},kv,null); digestEnd();
+            updSourceRedrawn('nt',null,['A','b','C']); out.places=said(); noticeAct(LINE.find(n=>n.items).n); out.unfolded=said().sort();
+            console.log(JSON.stringify(out));"""
+        )
+        self.assertTrue(got["held"])
+        self.assertEqual(got["gathered"], ["노트가 바뀌었습니다 — PR #12 서론 다듬기 · Bob Park · 핀 1개 줄 이동"])
+        self.assertEqual(got["foldedHeld"], [True, True])
+        self.assertEqual(
+            got["folded"], ["#4 완료", "노트가 바뀌었습니다 — PR #12 서론 다듬기 · Bob Park · 핀 2개 줄 이동"]
+        )
+        # a return to the note draws it while its message is folded: the places the redraw counts are said there
+        self.assertEqual(got["places"], ["지난 방문 뒤 — 노트가 바뀌었습니다 · 완료 1"])
+        self.assertEqual(
+            got["unfolded"], ["#7 완료", "노트가 바뀌었습니다 — PR #12 서론 다듬기 · Bob Park · 바뀐 곳 2"]
+        )
 
     def test_a_review_request_folded_in_a_gathered_line_goes_once_its_pin_left_review(self):
         """Gathered while away: the list comparison's #1 sent to review (marking [검토 M]) and two pins closed. #1 is

@@ -218,7 +218,7 @@ function updExpect(fresh){const t=Date.now(); if(fresh||UPD.expect<t)UPD.expectA
 function updPinMoved(p,lost){const k=pdoc(p),g=GROUPS.get('upd:'+k),t=Date.now();
   if(!g&&!(UPD.expect>=t&&(UPD.seenAt.get(k)||0)<UPD.expectAt))return false;
   let m=UPD.moved.get(k); if(!m){m={moved:new Set(),lost:new Set()}; UPD.moved.set(k,m);} (lost?m.lost:m.moved).add(p.id);
-  if(g&&g.n&&NOTICES.has(g.n.n))regroup(g.n,docUpdateView(g.data)); return !lost;}
+  if(g)groupRedraw('upd:'+k); return !lost;}   // on the line, gathered or folded: it says the move there
 // The changes view on the commits the message named, on document k: its source diff of base (the last seen commit) → top
 // (the newest it named - the shown build's, not the checkout's newest: a checkout ahead of the pages, or a commit come
 // since the message, is not in it), the list painting just them (revisions.js REV.want); without base, the view as it
@@ -246,7 +246,7 @@ function updSourceRedrawn(k,before,now){const u=UPD.lines.get(k),seen=seenDoc(k)
   const same=!!u&&JSON.stringify(u.ranges)===JSON.stringify(ranges);
   UPD.lines.set(k,{base,ranges,at:u&&same?u.at:-1}); updMarks();
   if(before){checkDocUpdate(k,{}); return;}
-  const g=GROUPS.get('upd:'+k); if(!same&&g&&g.n&&NOTICES.has(g.n.n))regroup(g.n,docUpdateView(g.data));}
+  if(!same)groupRedraw('upd:'+k);}   // its message says the places, on the line, gathered or folded
 // Tints the changed lines of the document on screen (after every draw of it, md-surface.js mdShow), and only those.
 function updMarks(){$$('#md .md-upd').forEach(e=>e.classList.remove('md-upd')); const u=UPD.lines.get(DOC||''); if(!u||!isMdDoc())return;
   u.ranges.forEach(r=>mdLeaves(r.lo,r.hi).forEach(e=>e.classList.add('md-upd')));}

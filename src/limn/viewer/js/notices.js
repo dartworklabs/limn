@@ -407,6 +407,17 @@ function gatheredLess(g,keys){const d=DIGEST,a=d?d.items.get(g):undefined; if(!d
   const gr=GROUPS.get(g),rest=gr&&gr.less?gr.less(gr.data,keys):null;
   if(!gr||rest==null){const o=a[3]||{}; d.items.delete(g); if(gr&&!(gr.n&&NOTICES.has(gr.n.n)))GROUPS.delete(g); if(o.onEnd)o.onEnd(false,false); return;}
   gr.data=rest; const v=gr.view(rest); d.items.set(g,[v.msg,v.kind,v.act,{...v.o,group:g}]);}
+// Group's message says its data again wherever it stands - on the line (regroup), gathered (DIGEST) or folded in a gathered
+// line not yet unfolded (which then says what it holds, digestRetitle) - for what its view reads besides its data (a
+// document's moved pins and changed lines, updates.js). Whether it stands anywhere.
+/** @param {string} group @returns {boolean} */
+function groupRedraw(group){const g=GROUPS.get(group); if(!g)return false;
+  if(g.n&&NOTICES.has(g.n.n)){regroup(g.n,g.view(g.data)); return true;}
+  const v=g.view(g.data),item=[v.msg,v.kind,v.act,{...v.o,group}];
+  if(DIGEST&&DIGEST.items.has(group)){DIGEST.items.set(group,item); return true;}
+  const f=foldedNews().find(x=>(x.item[3]||{}).group===group),items=f?f.line.items||[]:[],i=f?items.indexOf(f.item):-1;
+  if(!f||i<0)return false;
+  items[i]=item; digestRetitle(f.line); return true;}
 // The messages gathered lines not yet unfolded hold (digestNote's items), as noticeDupe compares them: each with its keys
 // and rank, as old as its gathered line (at), and where it is held (line, item).
 /** @returns {{at:number,keys:string[],rank:number,line:Notice,item:any[]}[]} */
