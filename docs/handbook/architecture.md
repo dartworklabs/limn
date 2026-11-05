@@ -26,14 +26,14 @@ Limn은 하나의 `dartwork-limn` 배포 안에서 기능 소유권으로 나눈
 | 핀 | `pins/` | 모델·레코드·스레드 규칙, `store.py`의 트랜잭션, `context.py`의 실행 협력자, `revision.py`의 비교용 핀 사실. `application.py`와 `runtime.py`가 조회 계약·실행 협력자·경로를 조립한다. `needs.py`는 주입받는 빌드 조회와 그 답에서 읽는 멤버를 Protocol로, 문서 조회의 판정 낱말 조회를 타입으로 선언하고, `notice.py`는 핀이 내보내는 알림 값 `PinNotice`를 소유한다. 만들기·편집은 `editing/`, 처리 중 표시는 `claims/`, 전이는 `lifecycle/`, 삭제·복원은 `trash/`, 조회·Markdown은 `listing/`, 원문·PDF 위치 계산은 `location/` |
 | 빌드 | `builds/` | 결과 값(`values.py`), 산출물·이력·원고 지문(`artifacts.py`), 요청 시점의 파일·쪽 사실(`document_facts.py`), 컴파일·재빌드·PDF 감시·그림 지도 파싱(`figure_map.py`)·PDF/지도 가져오기(`figure.py`)와 응답 |
 | 협업 | `collaboration/` | 사람 후보·실제 변경 기록 연결, `events.jsonl`, 멘션 알림·폴링. 핀의 태그·차례 규칙은 핀 소유권에 남고 조립 지점이 주입하는 값·동작으로 받는다. 받는 알림의 필드는 `contracts.py`의 `Notice` Protocol로 선언한다 |
-| 문서 조회 | `documents/` | 문서 탭·meta·목차 응답과 파싱, 문서 옆 판정 낱말 파일의 읽기·파싱과 응답 필드(`verdicts.py`). 브라우저가 그리는 문서의 원문 읽기(`source.py`, `GET /api/source`)와 그 문서가 보이는 원고 트리의 그림 읽기(`assets.py`, `GET /api/asset`: 경로 규칙·형식 시그니처·바이트와 화소 한도·응답 정책). `needs.py`는 주입받는 핀 수 조회·빌드 사실 조회와 그 답에서 읽는 멤버를 Protocol로 선언한다. 실행별 문서 자원은 `runtime/documents.py`가 소유한다 |
+| 문서 조회 | `documents/` | 문서 탭·meta·목차 응답과 파싱, 문서 옆 판정 낱말 파일의 읽기·파싱과 응답 필드(`verdicts.py`). 브라우저가 그리는 문서의 원문 읽기(`source.py`, `GET /api/source`)와 그 문서가 보이는 원고 트리의 그림 읽기(`assets.py`, `GET /api/asset`: 경로 규칙·형식 시그니처·바이트와 화소 한도·응답 정책, 보낸 그림의 내용 태그를 파일 정체로 기억하는 실행별 표 `AssetTags`). `needs.py`는 주입받는 핀 수 조회·빌드 사실 조회와 그 답에서 읽는 멤버를 Protocol로 선언한다. 실행별 문서 자원은 `runtime/documents.py`가 소유한다 |
 | 비교 | `revisions/` | Git 이력·원고 diff·격리 비교 PDF·작업 캐시와 응답. `scope.py`가 diff 파싱·핀 범위 귀속·범위 패치와 사본 쓰기 계획을, `macros.py`가 latexdiff에 글 명령으로 넘길 원고 정의 명령의 판정을 소유한다. `needs.py`는 주입받는 핀 조회와 그 답에서 읽는 필드를 Protocol로 선언한다 |
 | 동기화 | `sync/` | 원격 main 감시·fast-forward·문서별 재빌드 선택 |
 | 관리 | `administration/` | 토큰·멤버 명령, 문서 실행 인자, 이관, 인스턴스 셸과 `systemd/` 템플릿 |
 | 뷰어 | `viewer/` | HTML·CSS·JS, `ui_en.json`, 마크·브랜드 파일(`brand/`), 페이지 조립과 제공 경로. Markdown 문서를 그리는 화면(`js/md-surface.js`)과 그 파싱 worker(`md-parse.mjs`, `GET /md-parse.mjs`), 텍스트 문서를 줄 그대로 보이는 화면(`js/text-surface.js`), 모든 문서의 원문·제안 글에서 숨은 문자를 표시하는 조각(`js/hidden-chars.js`)도 여기 있다 |
 | 실행 자원 | `runtime/` | 시작 규칙·인자·얼린 설정, 실행별 문서와 잠금, 상태 파일의 고정 위치(`paths.py`), `resources.py`의 자원 수명과 감시 스레드 정리 |
 | 보안 | `security/` | 신원·Host/Origin·역할·권한 발급, 사람 사실, 인증 안내, 감사 파일 |
-| 기능 독립 장치 | `platform/` | 원자적 파일 교체·검사된 원고 핸들과 그 제한 읽기(`files.py`), Git 프로세스(`git.py`), JSON 숫자 판정(`values.py`), 제한된 텍스트(`text.py`) |
+| 기능 독립 장치 | `platform/` | 원자적 파일 교체·검사된 원고 핸들과 그 제한 읽기, 파일을 열지 않는 정체 stat(`files.py`), Git 프로세스(`git.py`), JSON 숫자 판정(`values.py`), 제한된 텍스트(`text.py`) |
 | HTTP 전송 | `web/` | 처리기·요청 파서·응답과 경로 등록 계약. `WebApplication`은 요청 경계의 구체 협력자만 묶으며 기능 서비스와 오류 표를 소유하지 않는다 |
 | 조립·진입점 | `server.py`, `cli.py`, `__main__.py` | 자원 생성과 기능 연결·명령 전달. 서버는 기능별 조립 결과를 연결하고 시작·리스닝·종료 순서를 정한다 |
 

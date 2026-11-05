@@ -47,4 +47,4 @@
 
 ## 후속(이 브랜치 밖)
 
-- **Markdown 화면 자체의 숨은 문자 표시.** 지금은 Markdown 문서의 원문 발췌·사다리 이름·제안 차이·변경 보기·인용 줄만 표시하고, Markdown 화면이 그린 글(`md-surface.js` 의 렌더러)은 표시하지 않는다. 형제 브랜치 `poc/md-assets` 가 `md-surface.js` 를 바꾸고 있어 이 브랜치는 `md-surface.js` 의 변경을 텍스트 가지 여섯 곳으로 줄였다. 두 기능이 모두 머지된 뒤 따로 한다.
+- [x] **Markdown 화면 자체의 숨은 문자 표시.** 이 브랜치 때는 Markdown 문서의 원문 발췌·사다리 이름·제안 차이·변경 보기·인용 줄만 표시하고, Markdown 화면이 그린 글(`md-surface.js` 의 렌더러)은 표시하지 않았다. 형제 브랜치 `poc/md-assets` 가 `md-surface.js` 를 바꾸고 있어 이 브랜치는 `md-surface.js` 의 변경을 텍스트 가지 여섯 곳으로 줄였다. 두 기능이 머지된 뒤 `fix/md-surface-followups` 가 했다. 그린 글 전부(문단·제목·목록·표 칸·링크·인라인 코드·코드 블록·HTML 자리표시·대체 글)와 원문 줄 보기가 같은 이름 상자이고, 목차와 절 표시줄은 글자 이름, 문서 머리의 알림도 같다. 상자는 요소 한도에 든다. 검증: `test_viewer_markdown_hidden.py`.

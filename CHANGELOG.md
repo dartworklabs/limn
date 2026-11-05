@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+### Changed
+
+- **A drawn Markdown document marks the characters that hide or reorder text, as a text document does (ADR-0029 D5).**
+  Bidirectional overrides and isolates, zero-width characters, controls, tags and the rest of the same repertoire now show
+  by name in their box wherever the document draws its source's text - paragraphs, headings, list items, table cells,
+  link text, inline code, code blocks, the raw HTML placeholder's first line, an image's alt text, and the line view a
+  limit falls back to - so a line never reads in another order than its source (a Trojan Source line in a README reads as
+  it is). The character stays in the text: a selection, a copy and a pin's quote keep it. The same exceptions apply (an
+  emoji's joiners, the file's first byte-order mark), entities markdown-it decodes (`&#x202E;`) are marked too, and a
+  notice above the document counts them. The outline's rows and the section strip name them as text (`⟨U+202E⟩`). A box
+  counts as two of the 60,000 drawn elements; past the limit the line view names them as text, as the text surface's
+  names view does. A document with none of them draws as before (about 2 ms more for 1 MB of paragraphs).
+- **A tree image rewritten on disk shows without reopening the page.** While a Markdown document is open, the light poll
+  asks the images that have loaded near the document area again (at most six, nearest first, every four seconds or more,
+  one request at a time) with a revalidating `GET /api/asset`; an image whose `ETag` moved on is loaded again from its
+  address with `&v=<tag>` (the server reads only `doc` and `path`), keeping the reading line as any image that loads does,
+  and a redraw keeps the new picture. No route or field is added.
+- **An unchanged tree image revalidates without being read.** The server keeps, per run and in memory only, the content
+  tag of each image it sent under the identity of the file it read (resolved path, device, inode, size, mtime and ctime;
+  at most 1,024, the least recently asked dropped first), so an `If-None-Match` for an unchanged image is one no-follow
+  stat and a `304` - the file is not opened (an 8 MiB image: about 12 ms of reading and hashing before, about 0.06 ms
+  now). The `ETag` is still a hash of the content. A rewrite - at the same size, with its mtime put back - is read again,
+  and a file changed less than two seconds ago is not remembered.
+
 ### Fixed
 
 - **`--main` with a text document's suffix is refused at startup,** as a `.md` already is: `limn serve --main plot.py`
@@ -9,6 +33,9 @@
   hold a LaTeX main) used to be built as LaTeX and fail; it now stops with the `--doc <key>=<name>:<path>` form that
   registers a text document; a figure map (`figures.limnmap.json`) is refused with the figure form. `limn add --main`
   refuses both the same way before writing any configuration.
+- A pin's quote taken by a tap, or from a selection cut back to the document, keeps a hidden character exactly where it
+  stands. It was read with `innerText`, which in Chromium put a line break on each side of the character's box and in
+  Firefox dropped bidirectional controls altogether (on the text surface too).
 
 ## 0.4.51 — 2026-11-05
 
