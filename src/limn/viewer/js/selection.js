@@ -138,10 +138,16 @@ function finishRect(pg,box,sx,sy,x,y){
     frac:[Math.min(sx,x),Math.min(sy,y),w,h],pdf_build:META.pages_build||undefined,doc:DOC||undefined});
   if(!repick)openSelPop(box);   // a mouse drag's note popover (sel-popover.js); pick() has opened the composer
   return true;}
-// If the sheet/panel covers the selection box, the body scrolls up until the box is visible (compact only). The view's top
-// is 28px into the PDF area, or 8px under the select mode's bar while it shows, so the box never stays under the bar.
-function revealBox(box){if(!box||LAYOUT===LAYOUT_MODE.WIDE||!document.contains(box))return;
-  const L=$('#left'),lr=L.getBoundingClientRect(),br=box.getBoundingClientRect(),bar=$('#sel-bar');
-  let bottom=lr.bottom; if(LAYOUT===LAYOUT_MODE.NARROW&&SIDE_OPEN)bottom=Math.min(bottom,$('#right').getBoundingClientRect().top);
-  const top=Math.max(lr.top+28,bar.getClientRects().length?bar.getBoundingClientRect().bottom+8:0); if(br.top>=top&&br.bottom<=bottom-8)return;
+// If the sheet/panel covers the selection box, the body scrolls up until the box is visible (compact only; wide: in every layout -
+// the Markdown surface's chosen lines after a reflow, mdSpotKeep). The view's top is 28px into the PDF area, or 8px under the
+// select mode's bar while it shows, so the box never stays under the bar (selRoom).
+/** @param {HTMLElement|null} box @param {boolean} [wide] */
+function revealBox(box,wide){if(!box||(LAYOUT===LAYOUT_MODE.WIDE&&!wide)||!document.contains(box))return;
+  const L=$('#left'),br=box.getBoundingClientRect(),{top,bottom}=selRoom(); if(br.top>=top&&br.bottom<=bottom-8)return;
   pvShow(); L.scrollTop+=br.top-top-Math.max(0,(bottom-top-br.height)/3);}
+// The part of the document area a chosen place can be seen in, as viewport y's: from 28px under the area's top (or 8px under
+// the select mode's bar) down to the area's bottom - or to the sheet's top, where the narrow sheet is open over it.
+/** @returns {{top:number,bottom:number}} */
+function selRoom(){const lr=$('#left').getBoundingClientRect(),bar=$('#sel-bar');
+  let bottom=lr.bottom; if(LAYOUT===LAYOUT_MODE.NARROW&&SIDE_OPEN)bottom=Math.min(bottom,$('#right').getBoundingClientRect().top);
+  return {top:Math.max(lr.top+28,bar.getClientRects().length?bar.getBoundingClientRect().bottom+8:0),bottom};}

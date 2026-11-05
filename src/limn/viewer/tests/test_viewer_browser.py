@@ -1679,6 +1679,36 @@ class QuestionNudgeFocus(BrowserBase):
         page.keyboard.press("Control+Enter")
         page.wait_for_function("OPEN_ALL.length===1", timeout=8000)
 
+    def test_esc_and_save_leave_the_focus_at_the_place(self):
+        """Esc in the note of a selection on a PDF page puts the focus on that page, so the next Tab goes on from there, not
+        from the page's start to the list's first control; a save (Ctrl+Enter) puts it on the new pin's mark."""
+        page = self.open(0)
+        self.open_composer(page)
+        page.focus("#note")
+        page.keyboard.press("Escape")
+        settle(page)
+        self.assertEqual(page.evaluate("document.activeElement.id"), "p1")
+        page.keyboard.press("Tab")
+        # the next control after the page in the document's order (a mark or verdict line on it, else the panel's handle),
+        # not the list's first control the page's start led to
+        self.assertEqual(
+            page.evaluate(
+                "(()=>{const a=document.activeElement;"
+                "return [a.id==='open-toggle',!!(document.getElementById('p1').compareDocumentPosition(a)&Node.DOCUMENT_POSITION_FOLLOWING)];})()"
+            ),
+            [False, True],
+        )
+        self.open_composer(page)
+        page.focus("#note")
+        page.keyboard.type("키보드로 저장")
+        page.keyboard.press("Control+Enter")
+        page.wait_for_function("OPEN_ALL.length===1&&!COMPOSE.current", timeout=8000)
+        settle(page)
+        self.assertEqual(
+            page.evaluate("document.activeElement.matches('#p1 .mark-jump')&&+document.activeElement.dataset.id"),
+            page.evaluate("OPEN_ALL[0].id"),
+        )
+
 
 class ViewerRoleUi(BrowserBase):
     """Check viewer role controls and notice text while editors retain write controls."""

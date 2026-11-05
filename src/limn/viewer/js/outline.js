@@ -89,6 +89,8 @@ function renderOutline(){outlineList($('#outline-items'),$('#outline-search').va
  * own above the row, small, muted and cut to one line: the results are a flat list, and `채택 › PL64` and `본문 그림 › PL64` are two
  * places, and a long group name must not push the names down.
  * Entries keep manuscript wording unchanged; empty-state sentences remain translatable UI text.
+ * A row's name is its number and title: the dot that stands in for no number is not read. A Markdown document's line label
+ * (L7) is not read either - its row is described as the source line instead ('원문 7번째 줄').
  */
 function outlineList(box,q){const query=String(q||'').trim().toLowerCase();
   if(!OUTLINE_ENTRIES.length){box.className='outline-empty';   // all of what it has was left unread (destinationless ancestors, entries below the depth limit): say that
@@ -101,7 +103,8 @@ function outlineList(box,q){const query=String(q||'').trim().toLowerCase();
   const grouped=query?outlineGrouped(OUTLINE_ENTRIES):null;
   setHtml(box,html`${rows.map(i=>{const x=OUTLINE_ENTRIES[i],on=i===OUTLINE_SELECTED;
     const page=x.pageLabel||String(x.page),grp=grouped&&grouped.has(i)?outlineGroupName(OUTLINE_ENTRIES[x.up]):'';
-    return html`<button translate="no" class="ol-depth-${Math.min(x.depth,4)}${on?' ol-active':''}${grp?' ol-grouped':''}" data-act="outline-page" data-index="${i}" data-page="${x.page}" data-close="1" aria-current="${on?'location':'false'}" title="${grp?grp+' › '+x.title:x.title}">${grp?html`<span class="ol-grp">${grp} ›</span>`:''}<span class="ol-no">${x.number||'·'}</span><span class="ol-name">${x.title}</span><span class="ol-page">${page}</span></button>`;})}${note}`);
+    const md=isMdDoc(),line=md?tl('원문 {line}번째 줄',{line:String(x.pageLabel||'').replace(/^L/,'')}):null;
+    return html`<button translate="no" class="ol-depth-${Math.min(x.depth,4)}${on?' ol-active':''}${grp?' ol-grouped':''}" data-act="outline-page" data-index="${i}" data-page="${x.page}" data-close="1" aria-current="${on?'location':'false'}" title="${grp?grp+' › '+x.title:x.title}"${md?html` aria-description="${line}"`:''}>${grp?html`<span class="ol-grp">${grp} ›</span>`:''}<span class="ol-no"${x.number?'':html` aria-hidden="true"`}>${x.number||'·'}</span><span class="ol-name">${x.title}</span><span class="ol-page"${md?html` aria-hidden="true"`:''}>${page}</span></button>`;})}${note}`);
 }
 // The name of an outline entry as a group: its number and title.
 function outlineGroupName(e){return e?(e.number?e.number+' ':'')+e.title:'';}

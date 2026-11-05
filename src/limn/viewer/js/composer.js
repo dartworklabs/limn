@@ -157,7 +157,7 @@ function renderComposer(){const d=COMPOSE.current; if(!d)return; saveDraftSoon()
   drawComposerQuote(d);
   renderSuggest(d);   // the [제안 수정] switch and its editor follow the range (suggest.js)
   drawSelPop();   // the popover by the box shows the same location
-  mdSelMark(d);   // the chosen lines on the Markdown surface
+  mdSelMark(mdSelShown());   // the chosen lines on the Markdown surface (a re-place's candidate while it has one)
 }
 // ---------------- The PDF text a drag chose (docs/handbook/viewer.md §패널 정리 '드래그한 글자', issue #185)
 // The selection whose quote line is open, or null: a new pick is a new object, so it starts folded, while a range change
@@ -170,9 +170,10 @@ let QUOTE_SEL=/** @type {Selection|null} */(null);
 /** @param {{kind?:string,file?:string,pdf?:string,quote?:string}|null} p @param {string|undefined} docKind @returns {string} */
 function shownQuote(p,docKind){if(!p||isRegion(p)||isFigureKind(docKind))return ''; return String(p.quote||'').trim();}
 // The quote line's inside: the icon, a name for screen readers and the text. The line is the manuscript's text and is drawn
-// translate="no", so the name is put in the screen's language here (tr). CSS cuts the text to one line until it is opened.
-/** @param {string} q @returns {Html} */
-function quoteInner(q){return html`<span class="q-ic" aria-hidden="true">${ic('text-quote')}</span><span class="sr-only">${tr('PDF에서 고른 글자')}: </span><span class="q-t">${q}</span>`;}
+// translate="no", so the name is put in the screen's language here (tr); it says where the text was chosen - in the PDF, or
+// in a Markdown document (md), which has none. CSS cuts the text to one line until it is opened.
+/** @param {string} q @param {boolean} md @returns {Html} */
+function quoteInner(q,md){return html`<span class="q-ic" aria-hidden="true">${ic('text-quote')}</span><span class="sr-only">${tr(md?'문서에서 고른 글자':'PDF에서 고른 글자')}: </span><span class="q-t">${q}</span>`;}
 // Opens or folds a quote line (the composer's #c-quote or a card's .quote) where it is, without redrawing, so the focus stays
 // on it. Open, the whole text is on screen and the tooltip that repeated it goes; folded, it comes back. The state is kept
 // for the next draw: the composer's per selection (QUOTE_SEL), a card's per pin (QUOTE_OPEN).
@@ -187,7 +188,7 @@ function toggleQuote(el){const open=el.getAttribute('aria-expanded')!=='true',t=
 /** @param {Selection|null} d */
 function drawComposerQuote(d){const el=$('#c-quote'),q=shownQuote(d,META?META.kind:undefined); el.hidden=!q;
   if(!q){el.replaceChildren(); delete el.dataset.tip; return;}
-  const open=!!d&&QUOTE_SEL===d; setHtml(el,quoteInner(q)); el.classList.toggle('open',open); el.setAttribute('aria-expanded',String(open));
+  const open=!!d&&QUOTE_SEL===d; setHtml(el,quoteInner(q,isMdDoc())); el.classList.toggle('open',open); el.setAttribute('aria-expanded',String(open));
   if(open)delete el.dataset.tip; else el.dataset.tip=q;}
 // When a selection ends via save/cancel/append, selection mode is turned off (scrolling resumes) and the narrow sheet collapses (the body comes forward again).
 // The composer panel's pin kind (fix request / question). Reverts to fix request on save or discard (the default for the next pin).
@@ -234,11 +235,32 @@ function restoreSelection(snap,focus){if(!snap||COMPOSE.current||COMPOSE.picking
   COMPOSE.current=snap.cur; COMPOSE.intent++; recomputeOverlap(); SNIP_OPEN=false; $('#c-err').hidden=true; $('#c-body').hidden=false; $('#composer').hidden=false;
   renderComposer(); setSide(true); applySide(); if(LAYOUT!==LAYOUT_MODE.WIDE)revealBox(COMPOSE.box); if(LAST_PTR==='mouse'&&focus!==false)n.focus({preventScroll:true});
   return true;}
+// Whether the focus has nowhere left to stay: on <body>, or inside the composer or the popover by the box, which have just
+// closed (a field hidden under the focus may still report itself focused until the next layout).
+function focusFell(){const a=document.activeElement; return !a||a===document.body||$('#composer').contains(a)||$('#sel-pop').contains(a);}
+// Puts a focus that fell (focusFell) when the composer closed - Esc, [취소], a save, an append - where its work was, so the next
+// Tab goes on from there, not from the page's start (<body>, then the sidebar's first control): the pin saved or appended to
+// (id) - its badge on the Markdown surface, its mark on a PDF page, where the save chip's [되돌리기] is the next Tab - else the
+// place selection d was made at: the line dragged or pressed first on the Markdown surface (raw_lo; the pick may have widened
+// to its block), its page on a PDF; else the document area. A place that is
+// no control holds the focus while it has it (focusHold). A focus the person has put elsewhere meanwhile stays.
+/** @param {Selection|null|undefined} d @param {number|null} id */
+function focusPlace(d,id){if(!focusFell())return;
+  const mark=/** @type {HTMLElement|null} */(id?document.querySelector('#doc [data-act="mark-jump"][data-id="'+id+'"]'):null);
+  if(mark&&mark.getClientRects().length){mark.focus({preventScroll:true}); return;}
+  let at=/** @type {HTMLElement|null} */(null);
+  if(d&&(d.doc||DOC)===DOC){if(isMdDoc()){const n=typeof d.raw_lo==='number'?d.raw_lo:d.lo; if(!isRegion(d)&&typeof n==='number')at=mdLeaves(n,n)[0]||null;} else if(typeof d.page==='number')at=document.getElementById('p'+d.page);}
+  focusHold(at&&at.getClientRects().length?at:$('#left'));}
+// Focuses el without scrolling; an element that takes no focus of its own takes it for as long as it has it (tabindex -1,
+// dropped on blur), as the PDF area does for a search (searchToPage).
+/** @param {HTMLElement} el */
+function focusHold(el){if(!el.hasAttribute('tabindex')){el.tabIndex=-1; el.addEventListener('blur',()=>el.removeAttribute('tabindex'),{once:true});} el.focus({preventScroll:true});}
 // Esc and [취소] on a selection (docs/handbook/viewer.md §패널 정리): it goes at once, and when its note had text or its suggested edit
 // an edited text the status line offers [되돌리기] for NOTICE_MS, which no other press ends (its place, the composer, is gone),
 // bringing back the selection, the note, the suggested edit and the box - an undo instead of a confirmation. The stored draft
-// stays for that window (a page left meanwhile still restores it) and is removed when the offer goes.
-function discardSelection(){syncDraft(); const snap=selectionSnapshot(); cancelSelection(true);
+// stays for that window (a page left meanwhile still restores it) and is removed when the offer goes. A focus the closing
+// composer took with it goes to the place the selection stood (focusPlace).
+function discardSelection(){syncDraft(); const snap=selectionSnapshot(); cancelSelection(true); focusPlace(snap&&snap.cur,null);
   if(!(snap&&snap.cur&&(snap.note.trim()||snap.sg.on&&suggestEdited(snap.sg)))){syncDraft(); return;}
   const n=lineNote('선택 취소됨',NOTICE_KIND.OK,{label:'되돌리기',tip:'선택과 메모를 되살립니다',fn:()=>restoreSelection(snap)},{life:NOTICE_LIFE.TIMER,undo:true});
   if(n)holdDraftUntil(n);}   // the kept draft goes when the window does

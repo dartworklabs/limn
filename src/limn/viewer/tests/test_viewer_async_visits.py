@@ -423,6 +423,7 @@ class VisitLocalContinuations(unittest.TestCase):
                 extract_js_fn("captureVisit"),
                 extract_js_fn("currentVisit"),
                 extract_js_fn("applyRepick"),
+                extract_js_fn("rng"),
                 """
                 let DOC='a',SWITCHSEQ=1;
                 const prior={id:1,cand:{file:'a.tex',page:1,lo:2,hi:3,kind:'line'}};
@@ -462,6 +463,7 @@ class VisitLocalContinuations(unittest.TestCase):
                         extract_js_fn("hasMark"),
                         extract_js_fn("pinPlace"),
                         extract_js_fn("applyRepick"),
+                        extract_js_fn("rng"),
                         """
                         let DOC='a',SWITCHSEQ=1;
                         let REPICK={id:1,cand:{page:1,kind:'region',frac:[0,0,1,1]}};
@@ -488,6 +490,7 @@ class VisitLocalContinuations(unittest.TestCase):
                         extract_js_fn("captureVisit"),
                         extract_js_fn("currentVisit"),
                         extract_js_fn("applyRepick"),
+                        extract_js_fn("rng"),
                         """
                         let DOC='a',SWITCHSEQ=1;
                         const prior={id:1,cand:{file:'a.tex',page:1,lo:2,hi:3,kind:'line'}};

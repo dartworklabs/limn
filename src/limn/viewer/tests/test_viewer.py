@@ -3433,13 +3433,24 @@ class FrontendFigure(unittest.TestCase):
             [js_tooltips(), js_esc(), js_markup()]
             + [
                 extract_js_fn(n)
-                for n in ("isRegion", "lvOf", "levelLabel", "isFrac", "drawBox", "snapBox", "repickEl", "bannerCompare")
+                for n in (
+                    "isRegion",
+                    "lvOf",
+                    "levelLabel",
+                    "isFrac",
+                    "drawBox",
+                    "snapBox",
+                    "repickEl",
+                    "rng",
+                    "bannerCompare",
+                )
             ]
             + [
                 r"""
             const out=[]; let REPICK;
             function banner(h){out.push(/data-act="rp-apply"/.test(h)?'apply':'banner');}
             function bannerRepick(err){out.push(['again',err]);} function scopeLabel(){return '';}
+            function mdSelMark(){} function mdSelShown(){return null;}   // the Markdown surface's candidate mark (md-surface.js)
             const region={kind:'region',page:1,frac:[0.2,0.2,0.1,0.1],pdf:'x.pdf',quote:''};
             const line={file:'/f.py',page:1,lo:20,hi:30,default_level:'el',
               levels:[{level:'el',lo:20,hi:30,label:'달력',el:{id:'B2/c',path:['B2','B2/c']}}]};
