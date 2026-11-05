@@ -48,7 +48,7 @@ from limn.pins.verdict import (
     superseded_by,
     whole_page_target,
 )
-from limn.platform.files import tex_lines
+from limn.platform.files import tex_lines, tree_part
 from limn.runtime import documents
 from limn.runtime.config import RunConfig
 from limn.runtime.documents import DOC_KEY_RE, Doc
@@ -211,15 +211,33 @@ class PinCommands:
         without page fields (has_pages)."""
         return locate_sync_all(pins, self.pin_locator(), self.has_pages)
 
+    def maintenance_files(self) -> set[Path]:
+        """Find sources of pins in served documents and their main files using metadata only.
+
+        Called under the pin lock during a pass, never on an idle check. Retain safe stored names when a file
+        disappears so its recreation is noticed. Content reads still require the usual checked manuscript handle.
+        """
+        root, state = self.C.src, self.C.state
+        paths = {doc.main for doc in self.docs if tree_part(doc.main, root, state) is not None}
+        for pin in self.read_pins()[0]:
+            if self.doc_by_key(self.pin_doc_key(pin.record)) is None:
+                continue
+            location = self.pin_file(pin, root, state)
+            if location is not None:
+                paths.add(location.path)
+            else:
+                file = pin.record.get("file")
+                if isinstance(file, str) and tree_part(Path(file), root, state) is not None:
+                    paths.add(Path(file))
+        return paths
+
     def pin_reader(self) -> PinReader:
-        """Issue only read operations; snapshots resynchronize detached values without saving."""
+        """Issue saved-record reads without a sync collaborator or any save operations."""
         return PinReader(
             PinFiles(self.C.state),
             self.RT.pin_lock,
             self.parse_record,
             self.parse_trashed,
-            self.sync_all,
-            self.pin_markdown.pins_md_text,
         )
 
     def pin_store(self) -> PinStore:
@@ -250,7 +268,7 @@ class PinCommands:
         self.pin_store().write_pins(pins, bad)
 
     def snapshot_pins(self) -> list[Pin]:
-        """Return current positions in memory without saving (PinReader.snapshot)."""
+        """Return saved positions and revisions without re-syncing or saving (PinReader.snapshot)."""
         return self.pin_reader().snapshot()
 
     def public(self, r: Record) -> Json:
@@ -313,7 +331,7 @@ class PinCommands:
         return superseded_by(pins, placement)
 
     def overlaps_for_range(self, file: str, lo: int, hi: int) -> list[Json]:
-        """The overlap relationships between a not-yet-saved range of file and that file's open pins, as re-synced now
+        """The overlap relationships between a not-yet-saved range of file and that file's open pins at their saved positions
         (limn.pins.location.lookup.overlaps_for_range). Nothing is saved."""
         return locate_overlaps_for_range(file, lo, hi, self.snapshot_pins(), self.pin_locator())
 

@@ -188,11 +188,11 @@ class WhenWrittenTest(StoreBase):
         self.assertFalse(self.store.files.pins_md.exists())
         self.assertEqual(self.sync_calls, 1)
 
-    def test_read_computes_sync_without_saving(self):
-        """ADR-0027: snapshot returns current rows but only a transaction may save them."""
+    def test_read_keeps_saved_rows_without_syncing(self):
+        """ADR-0028: snapshot retains saved rows; only writers may re-sync."""
         self.put('{"id": 1}\n')
         self.sync_result = True
-        self.assertEqual(records(self.store.snapshot()), [{"id": 1, "synced": True}])
+        self.assertEqual(records(self.store.snapshot()), [{"id": 1}])
         self.assertEqual(self.store.files.pins_jsonl.read_text(encoding="utf-8"), '{"id": 1}\n')
         self.assertFalse(self.store.files.pins_md.exists())
 
@@ -527,6 +527,7 @@ class Store(Base):
             self.assertNotIn(gone, p)
 
     def test_stale_term_in_pins_md(self):
+        """Independent upkeep persists lost anchors and renders their warning in Markdown."""
         pid = self.add(8, 9)
         self.main.write_text(
             TEX.replace("Body line seven betaunique.", "rewritten").replace(
@@ -535,8 +536,8 @@ class Store(Base):
             encoding="utf-8",
         )
         os.utime(self.main, (time.time() + 5, time.time() + 5))
-        self.assertTrue(self.pin(pid).get("stale"))
         ps.APP.assembly.pins.startup.maintain()
+        self.assertTrue(self.pin(pid).get("stale"))
         md = ps.APP.C.pins_md.read_text(encoding="utf-8")
         self.assertIn("%d · 위치 잃음" % pid, md)  # "위치 잃음" is spelled out in the number column (formerly ⚠)
         self.assertIn("'위치 잃음' = 위치를 되찾지 못함", md)  # the legend line

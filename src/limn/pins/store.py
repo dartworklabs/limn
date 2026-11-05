@@ -40,7 +40,7 @@ from limn.pins.record import Broken
 from limn.pins.retention import unexpired, without_live_shadows
 from limn.platform.diagnostics import diagnostics
 from limn.platform.effects import changed, require_writer
-from limn.platform.files import ManuscriptReadError, atomic_write, replace_files
+from limn.platform.files import atomic_write, replace_files
 from limn.runtime.paths import PinFiles as PinFiles
 
 # One stored record as JSON gives it: a pin or a Trash entry as written, or a pin as the API shows it.
@@ -82,22 +82,19 @@ def top_id(ids: Iterable[int | None]) -> int:
 
 @dataclass(frozen=True)
 class PinReader:
-    """Read capability for one state directory: parsed values and detached in-memory resynchronization.
+    """Read capability for one state directory: saved parsed values with no resynchronization or persistence.
 
     lock is the process-wide lock of this state directory. Every path that touches the pin files holds it - without
     it a read-modify-write race lost most concurrent writes (of 30 pins saved at once only 2 survived, observed). It
     must be re-entrant: a caller bundles a transaction with the Trash write or its notices under the same lock
     (restore_pin, drop_pin). parse turns one parsed pins.jsonl line into its pin or Broken, parse_trashed one Trash
-    line into its TrashedPin or Broken (limn.pins.record); sync re-matches the pins' line numbers, replacing a pin it
-    moved in the list, and says whether it changed any; render turns the live pins into pins.md's text.
+    line into its TrashedPin or Broken (limn.pins.record).
     """
 
     files: PinFiles
     lock: threading.RLock
     parse: Callable[[object], Pin | Broken]
     parse_trashed: Callable[[object], TrashedPin | Broken]
-    sync: Callable[[list[Pin]], bool]
-    render: Callable[[Sequence[Pin]], str]
 
     def read_jsonl(self, path: Path, parse: Callable[[object], Parsed | Broken]) -> tuple[list[Parsed], list[int]]:
         """(what each readable line of a JSONL file parses to, broken line numbers); a missing file is ([], []). Takes
@@ -141,22 +138,17 @@ class PinReader:
         return self.read_jsonl(self.files.dropped, self.parse_trashed)
 
     def snapshot(self) -> list[Pin]:
-        """Return detached resynchronized pins, or the original batch when a manuscript read fails."""
+        """Return saved pins under the transaction lock; positions and revisions always describe durable records."""
         with self.lock:
-            pins, _ = self.read_pins()
-            current = list(pins)
-            try:
-                self.sync(current)
-            except ManuscriptReadError as error:
-                message = "warning: pin snapshot failed: %s" % error
-                diagnostics.emit("pin snapshot:" + str(error), lambda: message)
-                return pins
-            return current
+            return self.read_pins()[0]
 
 
 @dataclass(frozen=True)
 class PinStore(PinReader):
     """A writer issued only outside the HTTP read scope; all mutations retain the transaction lock."""
+
+    sync: Callable[[list[Pin]], bool]
+    render: Callable[[Sequence[Pin]], str]
 
     def __post_init__(self) -> None:
         """Refuse construction from GET/HEAD, including indirectly through captured feature services."""

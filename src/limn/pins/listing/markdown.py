@@ -43,7 +43,7 @@ class MarkdownDeps(Protocol):
         ...
 
     def snapshot_pins(self) -> list[Pin]:
-        """The live pins after their usual resynchronization."""
+        """The live pins at their saved positions and revisions."""
         ...
 
     def overlaps_by_id(self, pins: Sequence[Pin]) -> dict[int, list[Json]]:

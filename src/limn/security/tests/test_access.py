@@ -1043,12 +1043,14 @@ class Migration(AccessBase):
         self.assertEqual(mask("\n".join(lines)), v03_close_line(V01_PINS_MD.replace("{src}", str(self.src))))
 
     def test_api_and_pins_md_equal_the_v01_server(self):
+        """After independent legacy backfill, saved reads retain the old API and Markdown format."""
         v01 = load_v01()
         if v01 is None:
             self.skipTest("v0.1.0 is not in this clone's history (shallow checkout)")
         old_state = Path(self.tmp.name) / "state-v01"
         self.write_fixture(old_state)
         configure(v01, self.src, self.main, old_state)
+        ps.APP.assembly.pins.startup.maintain()
         self.compare_with(v01)
 
     def compare_with(self, v01, headers=None):
@@ -1127,6 +1129,7 @@ class Migration(AccessBase):
         configure(v01, ms, main, states[0])
         configure(ps, ms, main, states[1])
         self.assertFalse((states[1] / "tokens.json").exists())
+        ps.APP.assembly.pins.startup.maintain()
         self.compare_with(v01)
         people = (
             json.loads((states[1] / "people.json").read_text(encoding="utf-8"))["people"]

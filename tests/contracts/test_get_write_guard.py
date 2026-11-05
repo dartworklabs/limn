@@ -383,8 +383,8 @@ class TestReadContract(Base):
             mock.patch.object(upkeep, "run") as run,
         ):
             upkeep.watch(stop)
-            self.assertEqual(wait.call_args_list, [mock.call(60.0), mock.call(60.0)])
-            run.assert_called_once_with()
+            self.assertEqual(wait.call_args_list, [mock.call(2.0), mock.call(2.0)])
+            run.assert_not_called()
 
     def test_long_id_and_repeated_error_logs_are_bounded(self):
         """Long ids refuse before int(); identical 500s and damaged-file warnings have bounded output."""

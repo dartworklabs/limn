@@ -23,7 +23,7 @@ class ListingDeps(Protocol):
         ...
 
     def snapshot_pins(self) -> list[Pin]:
-        """Live pins after their usual resynchronization."""
+        """Live pins at their saved positions and revisions."""
         ...
 
     def public(self, record: Record) -> Json:

@@ -144,6 +144,7 @@ class MultiDocMoved(AccessBase):
         os.rename(self.old, new)
         shutil.rmtree(new / "manuscript" / "response")
         self.serve(new, "response/main.tex")
+        ps.APP.assembly.pins.startup.maintain()
         p = self.pins()[self.p_ms]
         self.assertNotEqual(p.get("rel_path"), "response/main.tex")
         self.assertFalse(p["file"].startswith(str(new / "response")), p["file"])
@@ -269,6 +270,7 @@ class MovedManuscript(MovedManuscriptBase):
         f = self.b / "sections" / "x.tex"
         f.write_text("new line a\nnew line b\n" + X, encoding="utf-8")
         os.utime(f, (f.stat().st_atime, f.stat().st_mtime + 5))
+        ps.APP.assembly.pins.startup.maintain()
         pins = self.api_pins()
         self.assertEqual((pins[self.p_new]["lo"], pins[self.p_new]["hi"]), (7, 8))
         self.assertEqual((pins[self.p_old]["lo"], pins[self.p_old]["hi"]), (12, 13))
@@ -349,9 +351,9 @@ class MovedManuscript(MovedManuscriptBase):
         """synced_at was measured on A; B's older mtime must not skip the re-match when B's lines differ (review of #19)."""
         self.copy_to_b()
         self.use_root(self.b)
+        ps.APP.assembly.pins.startup.maintain()
         pins = self.api_pins()
         self.assertEqual((pins[self.p_new]["lo"], pins[self.p_old]["lo"]), (7, 12))
-        ps.APP.assembly.pins.startup.maintain()
         stored = self.stored()
         self.assertEqual(stored[self.p_old]["file"], str(self.b / "sections" / "x.tex"))  # lines and file describe B
         self.assertNotIn("file_rel", stored[self.p_old])  # still no backfill
@@ -360,8 +362,10 @@ class MovedManuscript(MovedManuscriptBase):
         """A -> B (newer, two lines added) -> A: back on A the pins are at A's lines, not B's (review of #19)."""
         self.copy_to_b(mtime_delta=100.0)
         self.use_root(self.b)
+        ps.APP.assembly.pins.startup.maintain()
         self.assertEqual(self.api_pins()[self.p_old]["lo"], 12)
         self.use_root(self.a)
+        ps.APP.assembly.pins.startup.maintain()
         pins = self.api_pins()
         self.assertEqual((pins[self.p_new]["lo"], pins[self.p_new]["hi"]), (5, 6))
         self.assertEqual((pins[self.p_old]["lo"], pins[self.p_old]["hi"]), (10, 11))
@@ -383,7 +387,8 @@ class MovedManuscript(MovedManuscriptBase):
             self.call("POST", "/api/pins/%d/edit" % self.p_old, {"note": "n" * 3000, "base_rev": rev})[0], 200
         )
         f = self.a / "sections" / "x.tex"
-        os.utime(f, (f.stat().st_atime, f.stat().st_mtime + 5))  # the next transact re-syncs
+        os.utime(f, (f.stat().st_atime, f.stat().st_mtime + 5))
+        ps.APP.assembly.pins.startup.maintain()  # the next transact re-syncs
         before = self.stored()[self.p_old]
         code, d = self.call(
             "POST",

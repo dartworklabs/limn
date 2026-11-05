@@ -588,14 +588,18 @@ class RemotePinsMd(Base):
         self.assertIn("http://127.0.0.1:18999", disk)
         self.assertNotIn("x.tail1234.ts.net", disk)
 
-    def test_pins_md_endpoint_syncs_like_api_pins(self):
-        # must take the same sync path as GET /api/pins — if editing the manuscript shifted lines, it must be reflected.
+    def test_pins_md_endpoint_keeps_saved_positions_until_upkeep(self):
+        """HTTP Markdown keeps saved positions, then follows independent upkeep just like pin JSON."""
         pid = self.add(lo=7, hi=7, note="n")
         # one blank line up front — everything shifts down by one line
         self.main.write_text("\n" + TEX, encoding="utf-8")
         out = self.talk(req("GET", "/pins.md"))
         body = out.split(b"\r\n\r\n", 1)[1].decode("utf-8")
-        self.assertIn("L8-L8", body)
+        self.assertIn("L7-L7", body)
+        self.assertEqual(self.pin(pid)["lo"], 7)
+        ps.APP.assembly.pins.startup.maintain()
+        out = self.talk(req("GET", "/pins.md"))
+        self.assertIn(b"L8-L8", out)
         self.assertEqual(self.pin(pid)["lo"], 8)
 
     def test_pins_md_endpoint_respects_origin_check(self):
@@ -1532,11 +1536,13 @@ class MultiDoc(Base):
         self.assertIn("## 설정에 없는 문서 · `gone`", md)
 
     def test_sync_and_overlaps_skip_region_pins(self):
+        """Upkeep re-syncs line pins while leaving region pins out of line matching and overlaps."""
         self.fake_pages(self.rv)
         rid = add_pin({"page": 1, "frac": [0.1, 0.1, 0.2, 0.2]}, dict(LOCAL_ACTOR), doc=self.rv).record["id"]
         tid = self.add(4, 5)
         self.main.write_text("\n" + TEX, encoding="utf-8")  # lines shift down
         os.utime(self.main, (time.time() + 5, time.time() + 5))
+        ps.APP.assembly.pins.startup.maintain()
         rows = ps.APP.pin_listing.pins_payload(ps.APP.snapshot_pins(), False)
         by = {r["id"]: r for r in rows}
         self.assertEqual((by[tid]["lo"], by[tid]["hi"]), (5, 6))

@@ -85,7 +85,7 @@ class PinReadView:
         return counts, sum(count for key, count in counts.items() if key not in known)
 
     def state_counts(self) -> dict[str, int]:
-        """Return viewer counts after the normal pin resynchronization."""
+        """Return viewer counts from saved pin records."""
         states = [pin.state for pin in self._snapshot()]
         return {
             "n_open": states.count("open"),
@@ -214,7 +214,7 @@ def assemble_pins(
             commands.render_pins_md(commands.read_pins()[0])
 
     view = PinReadView(commands.read_pins, commands.snapshot_pins, commands.pin_doc_key, locate)
-    maintenance = PinMaintenance(commands.pin_store, commands.retention_days)
+    maintenance = PinMaintenance(commands.pin_store, commands.retention_days, commands.maintenance_files)
     startup = PinStartup(commands.init_seq, render, maintenance.run, maintenance.watch)
     counts = PinCountQueries(view.counts_by_document, view.state_counts, lambda: change_token(settings().pins_jsonl))
     return PinSubsystem(

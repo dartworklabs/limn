@@ -526,5 +526,6 @@ class SuggestOverHttp(Base):
         self.main.write_text(TEX.replace("First paragraph line two.", "First paragraph line 2."), encoding="utf-8")
         self.assertEqual(self.get_pin(pid)["suggest_state"], "changed")
         self.main.write_text(TEX.replace("First paragraph line one about rarewordalpha.\n", ""), encoding="utf-8")
+        ps.APP.assembly.pins.startup.maintain()
         shown = self.get_pin(pid)
         self.assertEqual((shown.get("stale"), shown["suggest_state"]), (True, "unknown"))
