@@ -184,7 +184,8 @@ class SuggestionsAndVerdicts(TextDocument):
         """Two verdicts by editor Bob on lines 3-7, with the word file figs/plot.limnverdicts.json: the older gets
         superseded_by the newer; a verdict on line 9 is its own target."""
         self.set_people([{"login": "bob@example.com", "name": "Bob", "role": "editor"}])
-        self.assertEqual(verdicts_path(self.tx), self.src / "figs" / "plot.limnverdicts.json")
+        # resolved: on macOS the temporary folder /var/... is /private/var/... once a path is resolved
+        self.assertEqual(verdicts_path(self.tx).resolve(), (self.src / "figs" / "plot.limnverdicts.json").resolve())
         verdicts_path(self.tx).write_text(json.dumps(WORDS, ensure_ascii=False), encoding="utf-8")
         first = self.make(BOB, lo=3, hi=7, verdict="채택")
         other = self.make(BOB, lo=9, hi=9, verdict="채택")
