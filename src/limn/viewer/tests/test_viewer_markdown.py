@@ -462,13 +462,14 @@ class Security(MarkdownBase):
 
     def test_nothing_is_fetched_from_another_host(self):
         """The remote images (an img in the raw HTML, a Markdown image) are never fetched: the image is its alt text with its
-        address in the tip, and the page asked no host but its own."""
+        address and why in the tip (a tree image does load, test_viewer_markdown_assets.py), and the page asked no host but
+        its own."""
         page = self.open_md()
         settle(page)
         self.assertEqual(self.away, [])
         self.assertEqual(
             page.evaluate("[...document.querySelectorAll('#md .md-img')].map(e=>[e.textContent,e.dataset.tip])"),
-            [["그림: 원격 그림", "그림은 불러오지 않습니다 · https://tracker.example/pixel.png"]],
+            [["그림: 원격 그림", "원격 그림은 불러오지 않습니다 · https://tracker.example/pixel.png"]],
         )
 
     def test_an_in_document_link_goes_to_its_heading_and_its_enter_asks_the_input_method_first(self):

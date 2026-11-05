@@ -11,8 +11,11 @@
 //   notice with the count and the limit (mdNotice). Pins, cards and the agent's paths stay as they are.
 // - The DOM is built with createElement and textContent only: markdown-it's HTML renderer is never used, so the one innerHTML
 //   sink (markup.js setHtml) stays the only one. Raw HTML is never drawn: a block is a placeholder that keeps its lines, an
-//   inline tag shows as code. An image is never fetched: its alt text stands in its place. A link opens only through the
-//   allowlist (mdHref) - another origin's http(s), mailto, an in-document #heading; anything else is inert text.
+//   inline tag shows as code. An image loads only when its source is a file of the manuscript tree with an image suffix,
+//   resolved against the document's own path (mdImgPath) and fetched from this origin's GET /api/asset; a remote or data:
+//   image, or one that leaves the tree, is its alt text (ADR-0030). A link opens only through the allowlist (mdTarget) -
+//   another origin's http(s), mailto, an in-document #heading, another registered document of this instance (by its path,
+//   with its #heading), an image of the tree in a new tab; anything else is inert text.
 // - Every block token's map becomes data-lo/data-hi on the element drawn for it. Inside a paragraph or heading each source
 //   line gets its own span (data-line) only when the inline token's line breaks match its source's line ends (mdInlineLines);
 //   otherwise the whole run is one span with its range. A code block's content lines are its source lines one for one.
@@ -33,7 +36,9 @@ const MD={gen:0,doc:/** @type {string|null} */(''),file:'',name:'',lines:/** @ty
   worker:/** @type {Worker|null} */(null),job:/** @type {{id:number,resolve:(r:any)=>void,t:ReturnType<typeof setTimeout>}|null} */(null),seq:0,
   waiting:false,els:0,shown:/** @type {string|null} */(''),want:/** @type {{line:number,off:number,top:number}|null} */(null),
   jumpTo:/** @type {{id:number,doc:string|null,seq:number}|null} */(null),
-  spot:/** @type {{doc:string|null,w:number,el:HTMLElement|null,line:number,key:string,frac:number,off:number|null,sel:boolean,again:boolean}|null} */(null)};
+  spot:/** @type {{doc:string|null,w:number,el:HTMLElement|null,line:number,key:string,frac:number,off:number|null,sel:boolean,again:boolean}|null} */(null),
+  // a heading a link from another document asked for, gone to once this document is drawn in that visit (mdGoDoc)
+  headTo:/** @type {{doc:string,id:string,seq:number}|null} */(null)};
 // Whether the document on screen is drawn here (no pages), and whether pin p belongs to such a document of this instance.
 function isMdDoc(){return !!META&&rendersInBrowser(META.kind);}
 /** @param {Pin} p */
@@ -103,7 +108,8 @@ function mdShow(node){const want=MD.want,shown=mdColumnShown(); MD.want=null; MD
     else MD.spot=null;}
   $('#doc').replaceChildren(node); MD.shown=DOC; mdRestore(a);
   if(MD_RO)MD_RO.observe(node); mdOutline(); marks(); mdRelevel(); mdSelMark(mdSelShown()); mdStrip(); mdSpotRead(true);
-  const j=MD.jumpTo; MD.jumpTo=null; if(j&&j.doc===DOC&&j.seq===SWITCHSEQ)mdJump(j.id);}   // a jump asked before the draw (mdJump)
+  const j=MD.jumpTo; MD.jumpTo=null; if(j&&j.doc===DOC&&j.seq===SWITCHSEQ)mdJump(j.id);   // a jump asked before the draw (mdJump)
+  const h=MD.headTo; if(h&&h.doc===DOC){MD.headTo=null; if(h.seq===SWITCHSEQ)mdGoSlug(h.id);}}   // a link from another document (mdGoDoc)
 // The line view offers the chosen lines alone (mdLineView): a pick of this document whose ladder came from the drawn document
 // (a draft kept from before the parser failed) keeps its lines but takes the ladder a pick there gives - those lines, as lines.
 function mdRelevel(){const d=COMPOSE.current; if(!d||REPICK||isRegion(d)||d.doc!==DOC||d.file!==MD.file||!$('#md.md-lines'))return;
@@ -193,6 +199,10 @@ function mdSpotKeep(){const s=MD.spot,md=$('#md'),L=$('#left'); if(!s||s.doc!==D
     const d=r.top+into-L.getBoundingClientRect().top; if(Math.abs(d)>=0.5)L.scrollTop+=d;}
   if(s.sel)revealBox(/** @type {HTMLElement|null} */(document.querySelector('#md .md-sel')),true);
   mdSpotRead(true);}
+// Something above the reading spot changed its height while the width stood - an image that got its size or gave way to its
+// alt text (mdPicLoad, mdPicError): the spot is put back as after a reflow (mdSpotKeep), one model for both. While the
+// column is hidden (under the changes view) nothing can be measured: the spot waits, marked again, for the column to be shown.
+function mdSpotBack(){const s=MD.spot; if(!s||s.doc!==DOC)return; s.again=true; mdSpotKeep();}
 // Whether the document column is laid out at width w (#md's): shown (#left has boxes - not under the changes view) and wider than 0.
 /** @param {number} w */
 function mdLaidOut(w){return w>0&&mdColumnShown();}
@@ -247,7 +257,9 @@ function mdRenderer(root){const stack=[root];
       if(t.type==='heading_open'&&t.map){el.id='md-h'+(t.map[0]+1); MD.heads.push({level:+tag.slice(1)||1,lo:t.map[0]+1,el,title:'',slug:''});}
       top.appendChild(el); stack.push(el); return;}
     if(t.nesting===-1){if(stack.length>1)stack.pop(); return;}
-    if(t.type==='inline'){yield* mdInline(t,top,w); const h=MD.heads[MD.heads.length-1]; if(h&&h.el===top){h.title=(top.textContent||'').trim(); h.slug=mdSlug(h.title);} return;}
+    if(t.type==='inline'){yield* mdInline(t,top,w); const h=MD.heads[MD.heads.length-1]; if(h&&h.el===top){h.title=(top.textContent||'').trim(); h.slug=mdSlug(h.title);}
+      if(top.tagName==='P'&&top.querySelectorAll('.md-pic').length===1&&!(top.textContent||'').trim())top.classList.add('md-fig');   // a paragraph that is one image
+      return;}
     if(t.type==='fence'||t.type==='code_block'){const pre=mdEl('pre'),code=mdEl('code'); mdMap(pre,t,'code');
       const lang=String(t.info||'').trim().split(/\s+/)[0]; if(lang)pre.dataset.lang=lang.slice(0,40);
       const first=t.map?t.map[0]+1+(t.type==='fence'?1:0):0;
@@ -328,9 +340,7 @@ function* mdInline(t,parent,w){const m=mdInlineLines(t),kids=t.children||[];
       case 'strong_open':case 'em_open':case 's_open':{const e=mdEl(c.type==='strong_open'?'strong':c.type==='em_open'?'em':'s'); top.appendChild(e); stack.push(e); break;}
       case 'link_open':{const e=mdLink(mdAttr(c,'href')); top.appendChild(e); stack.push(e); break;}
       case 'strong_close':case 'em_close':case 's_close':case 'link_close':if(stack.length>1)stack.pop(); break;
-      case 'image':{const e=mdEl('span'); e.className='md-img';
-        e.textContent=tr('그림')+': '+(c.content||mdAttr(c,'alt')||mdAttr(c,'src')||'');
-        const src=String(mdAttr(c,'src')||''); e.dataset.tip=tl('그림은 불러오지 않습니다 · {src}',{src}); e.dataset.tipUrl=src; top.appendChild(e); break;}
+      case 'image':top.appendChild(mdImage(c)); break;
       case 'html_inline':{const e=mdEl('code'); e.className='md-html-in'; e.textContent=c.content; top.appendChild(e); break;}
       default:if(c.content)top.appendChild(document.createTextNode(c.content));}
     if(mdDue(w))yield;}}
@@ -389,22 +399,125 @@ function mdIpv6(h){if(!/^[0-9a-f:]+$/.test(h)||!h.includes(':'))return null;
   const fill=parts.length===2?8-head.length-tail.length:0; if(fill<0||(parts.length===1&&head.length!==8))return null;
   const g=[...head,...Array(fill).fill('0'),...tail]; if(g.some(x=>!/^[0-9a-f]{1,4}$/.test(x)))return null;
   return g.map(x=>parseInt(x,16));}
-// A link element for href (mdHref): a web or mail link opens in a new tab without a referrer or opener; an in-document '#…'
-// goes to the heading it names (data-act md-anchor: a click or Enter, the global key handler asking imeKey first); anything
-// else is inert text with its target in the tip.
-function mdLink(href){const r=mdHref(href,location.origin);
+// ---------------- Relative references: the manuscript tree (ADR-0030)
+// A relative reference ref of the document whose file is at tree path base ('docs/guide.md'), resolved in the manuscript tree
+// (pure): {path, frag} - path tree-relative and normalized, frag the part after '#', both percent-decoded once (markdown-it
+// encodes a link's destination) - or {out:true} for one that climbs above the tree's root or a document outside the tree
+// (base null), {bad:true} for a dot-named part ('.git', '.env'), a backslash, a control character or an escape that does not
+// decode; null for no relative reference at all (a scheme, '//host', '#…' alone, nothing). A leading '/' is the tree's root,
+// as GitHub reads it in a repository; '?…' is dropped. The server checks again what it is asked (GET /api/asset).
+/** @param {unknown} ref @param {string|null} base
+    @returns {{path:string,frag:string,out?:undefined,bad?:undefined}|{out:true,bad?:undefined,path?:undefined}|{bad:true,out?:undefined,path?:undefined}|null} */
+function mdRelPath(ref,base){const h=String(ref==null?'':ref).trim();
+  if(!h||h.startsWith('#')||h.startsWith('//')||/^[a-z][a-z0-9+.-]*:/i.test(h))return null;
+  const hash=h.indexOf('#'),q=h.indexOf('?'),end=Math.min(q<0?h.length:q,hash<0?h.length:hash);
+  let p=h.slice(0,end),frag=hash<0?'':h.slice(hash+1);
+  try{p=decodeURIComponent(p); frag=decodeURIComponent(frag);}catch(e){return {bad:true};}
+  if(!p)return null;
+  if(/[\\\x00-\x1f\x7f]/.test(p))return {bad:true};
+  if(base==null)return {out:true};
+  const st=p.startsWith('/')?[]:String(base).split('/').slice(0,-1);
+  for(const s of p.split('/')){if(!s||s==='.')continue; if(s==='..'){if(!st.length)return {out:true}; st.pop(); continue;}
+    if(s.startsWith('.'))return {bad:true}; st.push(s);}
+  return st.length?{path:st.join('/'),frag}:null;}
+// The image suffixes GET /api/asset serves (limn.documents.assets.ASSET_TYPES), and whether tree path p has one. Pure.
+const MD_IMG_EXT=Object.freeze(['png','jpg','jpeg','gif','webp','svg']);
+/** @param {string} p */
+function mdIsImg(p){const m=/\.([A-Za-z0-9]+)$/.exec(p); return !!m&&MD_IMG_EXT.includes(m[1].toLowerCase());}
+// The tree path of the document on screen (its /api/docs path), or null when it lies outside the tree (the path is absolute).
+function mdBase(){const d=docInfo(DOC),p=d?String(d.path||''):''; return p&&!p.startsWith('/')?p:null;}
+// The address an image of the tree loads from: this origin's read-only GET /api/asset, built here from the checked path and
+// never from the document's text. Pure.
+/** @param {string|null} doc @param {string} path */
+function mdAssetUrl(doc,path){return '/api/asset?doc='+encodeURIComponent(String(doc||''))+'&path='+encodeURIComponent(path);}
+// What an image's source loads (pure, base as mdRelPath's): {path} for a file of the tree with an image suffix, or {why} -
+// 'remote' (http(s) or '//host': the third party would learn who opened the document, and when, from where), 'data' (the page
+// policy has no data: images), 'out' (above the tree's root, a dot-named part), 'type' (no image suffix), 'other' (any other
+// scheme, nothing).
+/** @param {unknown} raw @param {string|null} base @returns {{path:string,why?:undefined}|{why:'remote'|'data'|'out'|'type'|'other',path?:undefined}} */
+function mdImgPath(raw,base){const h=String(raw==null?'':raw).trim();
+  if(/^(https?:)?\/\//i.test(h))return {why:'remote'};
+  if(/^data:/i.test(h))return {why:'data'};
+  const r=mdRelPath(h,base); if(!r)return {why:'other'}; if(r.out||r.bad)return {why:'out'};
+  return mdIsImg(r.path)?{path:r.path}:{why:'type'};}
+// What a link may do (pure): mdHref's answer when it opens; else, for a relative reference that stays in the tree, another
+// registered document whose path it names ({open:'doc', key, id: its '#…', name}) or an image of the tree ({open:'asset',
+// href: its tree path, opened in a new tab through GET /api/asset); else inert ({open:null}) with why: 'out' (it leaves the
+// tree) or 'unregistered' (a file of the tree that is no document here) or '' (mdHref's own refusals).
+/** @param {unknown} raw @param {string} origin @param {string|null} base @param {{key:string,path?:string,name?:string}[]} docs
+    @returns {{open:'web'|'mail'|'anchor'|'doc'|'asset'|null,href:string,id?:string,key?:string,name?:string,why?:string}} */
+function mdTarget(raw,origin,base,docs){const r=mdHref(raw,origin); if(r.open)return r;
+  const rel=mdRelPath(raw,base); if(!rel)return {open:null,href:r.href,why:''};
+  if(rel.out||rel.bad)return {open:null,href:r.href,why:'out'};
+  const d=docs.find(x=>String(x.path||'')===rel.path);
+  if(d)return {open:'doc',href:rel.path,key:d.key,id:rel.frag,name:String(d.name||d.key)};
+  if(mdIsImg(rel.path))return {open:'asset',href:rel.path};
+  return {open:null,href:r.href,why:'unregistered'};}
+// An image of the document (an inline image token c): a file of the tree is an <img> from GET /api/asset, lazily loaded, in a
+// box that keeps a place for it (12rem x 8rem, CSS) until its size is known - at once when an earlier draw learned it
+// (MD_PIC_SIZE) - and once it loads the reading spot is put back (mdPicLoad), so an image above the reading line never moves
+// the text being read. Anything else is the image's alt text, with why it is not loaded in the tip.
+/** @param {any} c @returns {HTMLElement} */
+function mdImage(c){const raw=String(mdAttr(c,'src')||''),alt=String(c.content||mdAttr(c,'alt')||''),r=mdImgPath(raw,mdBase());
+  if(r.path){const box=mdEl('span'),img=/** @type {HTMLImageElement} */(mdEl('img')); box.className='md-pic'; box.dataset.path=r.path;
+    img.alt=alt; img.loading='lazy'; img.decoding='async'; img.draggable=false;
+    const known=MD_PIC_SIZE.get(r.path); if(known){img.width=known.w; img.height=known.h; box.classList.add('md-pic-ok');}
+    img.addEventListener('load',mdPicLoad); img.addEventListener('error',mdPicError); img.src=mdAssetUrl(DOC,r.path);
+    box.appendChild(img); return box;}
+  const e=mdEl('span'); e.className='md-img'; e.textContent=tr('그림')+': '+(alt||raw);
+  e.dataset.tip=r.why==='remote'?tl('원격 그림은 불러오지 않습니다 · {src}',{src:raw}):r.why==='out'?tl('원고 밖의 그림은 불러오지 않습니다 · {src}',{src:raw})
+    :tl('이 그림은 불러오지 않습니다 · {src}',{src:raw});
+  e.dataset.tipUrl=raw; return e;}
+// The natural size of each tree image this tab has loaded, by tree path: a redraw or a return to the document keeps their places.
+const MD_PIC_SIZE=/** @type {Map<string,{w:number,h:number}>} */(new Map());
+// An image has loaded: its size is kept (MD_PIC_SIZE) and given to its box, and the reading spot (MD.spot, as mdSpotRead last
+// read it) is put back (mdSpotBack) - only an image above it moves anything. The marks follow through the column's ResizeObserver (MD_RO).
+/** @param {Event} e */
+function mdPicLoad(e){const img=/** @type {HTMLImageElement} */(e.target),box=img.parentElement; if(!box)return;
+  const w=img.naturalWidth,h=img.naturalHeight; if(w&&h)MD_PIC_SIZE.set(box.dataset.path||'',{w,h});
+  if(box.classList.contains('md-pic-ok'))return;
+  if(w&&h){img.width=w; img.height=h;} box.classList.add('md-pic-ok'); if(box.isConnected&&isMdDoc())mdSpotBack();}
+// An image the server would not give (not there, not that format, outside the tree behind a link, too large): its alt text,
+// as for an image that is never loaded, saying so in the tip.
+/** @param {Event} e */
+function mdPicError(e){const img=/** @type {HTMLImageElement} */(e.target),box=img.parentElement; if(!box||!box.isConnected)return;
+  const s=document.createElement('span'),path=box.dataset.path||''; s.className='md-img'; s.textContent=tr('그림')+': '+(img.alt||path);
+  s.dataset.tip=tl('그림을 불러오지 못했습니다 · {src}',{src:path}); s.dataset.tipUrl=path;
+  box.replaceWith(s); if(isMdDoc())mdSpotBack();}
+// A link element for href (mdTarget): a web or mail link opens in a new tab without a referrer or opener; an in-document '#…'
+// goes to the heading it names (data-act md-anchor: a click or Enter, the global key handler asking imeKey first); another
+// registered document is data-act md-doc (mdGoDoc), the same way; an image of the tree opens in a new tab from GET /api/asset;
+// anything else is inert text with its target, and why, in the tip.
+function mdLink(href){const r=mdTarget(href,location.origin,mdBase(),DOCS);
   if(r.open==='web'||r.open==='mail'){const a=/** @type {HTMLAnchorElement} */(mdEl('a')); a.href=r.href; a.target='_blank'; a.rel='noopener noreferrer'; a.dataset.tip=r.href; a.dataset.tipUrl=r.href; return a;}
   if(r.open==='anchor'){const a=mdEl('a'); a.className='md-anchor'; a.dataset.act='md-anchor'; a.dataset.anchor=r.id||''; a.setAttribute('role','link'); a.tabIndex=0; return a;}
+  if(r.open==='doc'){const a=mdEl('a'); a.className='md-doclink'; a.dataset.act='md-doc'; a.dataset.doc=r.key||''; a.dataset.anchor=r.id||''; a.setAttribute('role','link'); a.tabIndex=0;
+    a.dataset.tip=tl('문서로 이동 · {name}',{name:r.name||''})+(r.id?' #'+r.id:''); a.dataset.tipUrl=r.href; return a;}
+  if(r.open==='asset'){const a=/** @type {HTMLAnchorElement} */(mdEl('a')),u=mdAssetUrl(DOC,r.href); a.className='md-asset'; a.href=u; a.target='_blank'; a.rel='noopener noreferrer';
+    a.dataset.tip=tl('그림을 새 탭에서 엽니다 · {path}',{path:r.href}); a.dataset.tipUrl=r.href; return a;}
   // A link that does not open: a disabled link to assistive technology, reachable by Tab (the focus shows its description, as
   // a hover does), and a tap shows the description instead of picking the block (mdSelectionPick).
-  const s=mdEl('span'),tip=tl('이 링크는 열지 않습니다 · {href}',{href:r.href}); s.className='md-rel'; s.dataset.tip=tip; s.dataset.tipUrl=r.href;
+  const s=mdEl('span'),tip=r.why==='out'?tl('원고 밖을 가리켜 열지 않습니다 · {href}',{href:r.href}):r.why==='unregistered'?tl('등록된 문서가 아니라 열지 않습니다 · {href}',{href:r.href})
+    :tl('이 링크는 열지 않습니다 · {href}',{href:r.href});
+  s.className='md-rel'; s.dataset.tip=tip; s.dataset.tipUrl=r.href;
   s.tabIndex=0; s.setAttribute('role','link'); s.setAttribute('aria-disabled','true'); s.setAttribute('aria-description',tip); return s;}
+// A link to another registered document (data-act md-doc): that document, at its '#heading' once it is drawn here (MD.headTo,
+// mdShow), with a history entry of its own - the browser's back returns to the document left through the hashchange switch
+// (doc-switch.js). While a back layer holds the entry on top (a sheet on a phone, gestures.js) no entry is added, as a tab
+// switch adds none; the layer's entry must stay the top one.
+/** @param {HTMLElement} a */
+function mdGoDoc(a){const k=String(a.dataset.doc||''),id=String(a.dataset.anchor||''),d=docInfo(k); if(!d)return;
+  if(k===DOC){if(id)mdGoSlug(id); return;}
+  if(!BACK)history.pushState(null,'',location.pathname+location.search+'#doc='+k);
+  void switchDoc(k); MD.headTo=id&&rendersInBrowser(d.kind)?{doc:k,id,seq:SWITCHSEQ}:null;}
 // GitHub's heading slug: lower case, punctuation dropped, spaces to '-'. Pure.
 function mdSlug(s){return String(s).trim().toLowerCase().replace(/[^\p{L}\p{N}\s_-]/gu,'').replace(/\s/g,'-');}
 // An in-document link to '#id': the first heading whose slug is id (or id percent-decoded), as GitHub numbers repeats
 // (slug, slug-1, ...). Nothing when no heading has it.
 /** @param {HTMLElement} a */
-function mdGoAnchor(a){let want=String(a.dataset.anchor||''); try{want=decodeURIComponent(want);}catch(e){} want=want.toLowerCase();
+function mdGoAnchor(a){mdGoSlug(String(a.dataset.anchor||''));}
+/** @param {string} id */
+function mdGoSlug(id){let want=id; try{want=decodeURIComponent(want);}catch(e){} want=want.toLowerCase();
   const seen=new Map(); let at=-1;
   MD.heads.forEach((h,i)=>{if(at>=0)return; const n=seen.get(h.slug)||0; seen.set(h.slug,n+1); if((n?h.slug+'-'+n:h.slug)===want)at=i;});
   if(at>=0)mdGoHeading(at);}

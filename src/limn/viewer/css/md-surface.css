@@ -40,6 +40,19 @@ body.md-surface #left{touch-action:pan-x pan-y pinch-zoom}
 .md hr{border:0;border-top:1px solid var(--border-strong);margin:var(--space-6) 0}
 .md a{color:var(--primary);text-decoration:underline;cursor:pointer}
 .md .md-rel{text-decoration:underline dotted var(--muted-foreground);text-underline-offset:3px;cursor:help}   /* a link that does not open: dotted, in a colour of 3:1 or more, never a link's solid primary */
+/* An image of the manuscript tree (md-surface.js mdImage, GET /api/asset): as wide as it is, never wider than the column. Until
+   its size is known it keeps a 12rem x 8rem place, so lazy loading has a box to watch; once loaded it takes its own size (the
+   viewer puts the reading spot back). On the dark card a light plate stays behind it, so a figure's dark ink on a transparent
+   ground stays legible. A paragraph that is just one image (md-fig) stands it on its own line. A pin or the chosen lines on an
+   image's line outline the image: a tint behind a picture does not show. */
+.md .md-pic{display:inline-block;max-width:100%;vertical-align:middle;line-height:0}
+.md .md-pic img{display:block;max-width:100%;height:auto;border-radius:var(--radius-sm);background:var(--image-plate)}
+.md .md-pic:not(.md-pic-ok) img{width:12rem;height:8rem;background:var(--muted)}
+.md .md-fig .md-pic{display:block;width:fit-content;margin:var(--space-1) 0}
+.md .md-pin .md-pic img{outline:3px solid var(--status-open);outline-offset:2px}
+.md .md-pin.rv .md-pic img{outline-color:var(--status-review)}
+.md .md-pin.st .md-pic img{outline-color:var(--status-warning)}
+.md .md-sel .md-pic img{outline:2px solid var(--primary);outline-offset:2px}
 .md .md-img{display:inline-block;padding:0 var(--space-1);border:1px dashed var(--border-strong);border-radius:var(--radius-sm);color:var(--muted-foreground);font-size:var(--text-lg)}
 /* Raw HTML is never drawn: a block is a muted placeholder that keeps its lines (it takes pins), an inline tag shows as code.
    Two or more blocks in a row are one closed run (md-surface.js mdHtmlRunEl): a button that opens it, its blocks inside. */
