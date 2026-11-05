@@ -17,9 +17,11 @@ from pathlib import Path
 
 import limn
 
+import helpers_js
 from helpers import extract_js_fn, run_node
 
 BUNDLE = Path(limn.__file__).resolve().parent / "vendor" / "markdown-it" / "markdown-it.esm.min.mjs"
+WORKER = Path(limn.__file__).resolve().parent / "viewer" / "md-parse.mjs"
 ORIGIN = "https://limn.example.ts.net:18020"
 
 # Each case: its source and, for the inline tokens in document order, what the mapping must say. A tuple (lo, hi) is a token
@@ -253,6 +255,84 @@ class MarkdownSurfaceRules(unittest.TestCase):
             "mdHref('https://example.org/','null').open];"
         )
         self.assertEqual(got, [None, None, None, None])
+
+
+# YAML front matter (md-parse.mjs mdFrontMatter, ADR-0032 제안): source -> the front_matter token's map [first, end) and
+# closing marker, or None when the document has none and the other rules read its first lines as before; then the first
+# token after it, which keeps its own source lines.
+FRONT = {
+    "a closed block": ("---\ntitle: A\nauthors: [a, b]\n---\n\n# H", ([0, 4], "---"), ("heading_open", [5, 6])),
+    "closed by dots": ("---\ntitle: A\n...\ntext", ([0, 3], "..."), ("paragraph_open", [3, 4])),
+    "a comment first, blanks inside": ("---\n# note\n\nkey: v\n---\nbody", ([0, 5], "---"), ("paragraph_open", [5, 6])),
+    "a byte order mark and trailing blanks": (
+        "\ufeff--- \nk: v\n---\t\nx",
+        ([0, 3], "---"),
+        ("paragraph_open", [3, 4]),
+    ),
+    "a key whose value has colons": ('---\nurl: "https://a.org/x"\n---', ([0, 3], "---"), None),
+    "a blank line after the opening (Pandoc: a rule)": ("---\n\nk: v\n---", None, ("hr", [0, 1])),
+    "never closed": ("---\ntitle: A\n\npara", None, ("hr", [0, 1])),
+    "not on the first line": ("\n---\nk: v\n---", None, ("hr", [1, 2])),
+    "a paragraph, not a mapping (a setext heading as before)": ("---\nJust words\n---", None, ("hr", [0, 1])),
+    "a URL is no key": ("---\nhttps://a.org\n---", None, ("hr", [0, 1])),
+    "four dashes": ("----\nk: v\n----", None, ("hr", [0, 1])),
+    "indented opening": ("  ---\nk: v\n---", None, ("hr", [0, 1])),
+}
+
+
+class FrontMatterRule(unittest.TestCase):
+    """mdFrontMatter as served in the parse worker, installed by its mdParser on the vendored markdown-it."""
+
+    def setUp(self):
+        if not shutil.which("node"):
+            if os.environ.get("LIMN_TEST_REQUIRE_NODE") == "1":
+                self.fail("node required (LIMN_TEST_REQUIRE_NODE=1) but not installed")
+            self.skipTest("node not available")
+
+    def node(self, body: str):
+        page = "<script>" + WORKER.read_text(encoding="utf-8") + "</script>"
+        js = "\n".join(
+            [
+                helpers_js.function_source(page, "mdParser"),
+                helpers_js.function_source(page, "mdFrontMatter"),
+                "const {pathToFileURL}=require('node:url'); let markdownit=null;",
+                "(async()=>{markdownit=(await import(pathToFileURL(%s).href)).default;" % json.dumps(str(BUNDLE)),
+                "const md=mdParser(20); let out=null;",
+                body,
+                "console.log(JSON.stringify(out));})().catch(e=>{console.error(e); process.exit(1);});",
+            ]
+        )
+        return json.loads(run_node(js))
+
+    def test_front_matter_is_one_block_only_where_pandoc_would_read_one(self):
+        """A '---' first line, a mapping's first line and a '---' or '...' line make one front_matter token over exactly those
+        lines; a blank line after the opening, no closing line, a later start, a first line that is no key or comment, four
+        dashes or an indented opening leave the document to the other rules, which read it as before."""
+        got = self.node(
+            "out={}; for(const [name,src] of Object.entries(%s)){const ts=md.parse(src,{}); const f=ts.find(t=>t.type==='front_matter');"
+            "const next=ts.filter(t=>t.type!=='front_matter'&&t.map&&t.nesting!==-1)[0];"
+            "out[name]={front:f?[f.map,f.info]:null,next:next?[next.type,next.map]:null,"
+            "lines:f?f.content.split('\\n').length:0};}"
+            % json.dumps({name: src for name, (src, _, _) in FRONT.items()}, ensure_ascii=False)
+        )
+        for name, (_src, front, nxt) in FRONT.items():
+            with self.subTest(name):
+                self.assertEqual(got[name]["front"], list(front) if front else None)
+                self.assertEqual(got[name]["next"], list(nxt) if nxt else None)
+                if front:
+                    self.assertEqual(got[name]["lines"], front[0][1] - 2)
+
+    def test_the_blocks_after_it_keep_the_lines_they_have_without_it(self):
+        """Every token after the front matter has the map it has when the front matter lines are blank lines instead: the rule
+        only takes its own lines."""
+        src = "---\ntitle: A\ntags: [x]\n---\n# H\n\npara *one\ntwo*\n\n- a\n- b\n"
+        blank = "\n\n\n\n" + src.split("---\n", 2)[2]
+        got = self.node(
+            "const m=s=>md.parse(s,{}).filter(t=>t.type!=='front_matter'&&t.map).map(t=>[t.type,t.map]);"
+            "out=[m(%s),m(%s)];" % (json.dumps(src), json.dumps(blank))
+        )
+        self.assertEqual(got[0], got[1])
+        self.assertTrue(got[0])
 
 
 if __name__ == "__main__":

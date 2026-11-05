@@ -319,6 +319,71 @@ class Drawing(MarkdownBase):
         self.assertGreaterEqual(page.evaluate("mdReadingLine()"), fixture_line("## 표") - 2)
 
 
+# YAML front matter (ADR-0032 제안): its '# 주석 줄' would be a heading, and the block a rule and a setext heading, if it were
+# not read as front matter.
+FRONT_FIXTURE = """---
+title: 실험 노트
+tags: [markdown, front-matter]
+# 주석 줄
+---
+
+# 본문 제목
+
+첫 문단이다.
+"""
+
+
+class FrontMatter(MarkdownBase):
+    """A document that opens with YAML front matter shows it as one block of its own, md:front, with its lines as written."""
+
+    MD_TEXT = FRONT_FIXTURE
+
+    def test_the_front_matter_is_one_block_with_its_lines_and_no_heading(self):
+        """The box carries lines 1-5 (both '---' lines), each inner line is a line span with the server's text, its head line
+        names it in the screen's language, every source line is on screen, and the outline starts at the first real heading:
+        the YAML comment is no heading, and no rule or setext heading is drawn."""
+        page = self.open_md()
+        lines = server_lines(self.md)
+        box = page.evaluate(
+            "(()=>{const b=document.querySelector('#md [data-kind=front]'); return b&&{lo:+b.dataset.lo,hi:+b.dataset.hi,"
+            "head:b.querySelector('.md-front-l').textContent,lang:b.querySelector('.md-front-l').lang,"
+            "lines:[...b.querySelectorAll('[data-line]')].map(e=>[+e.dataset.line,e.textContent])};})()"
+        )
+        self.assertEqual((box["lo"], box["hi"]), (1, 5))
+        self.assertEqual(box["head"], "머리 정보 · YAML 3줄")
+        self.assertEqual(box["lang"], page.evaluate("document.documentElement.lang"))
+        self.assertEqual(box["lines"], [[n, lines[n - 1] + "\n"] for n in (2, 3, 4)])
+        self.assertEqual(page.evaluate("document.querySelectorAll('#md hr,#md h2').length"), 0)
+        self.assertEqual(page.evaluate("OUTLINE_ENTRIES.map(e=>[e.title,e.pageLabel])"), [["본문 제목", "L7"]])
+        shown = page.evaluate(
+            "[...document.querySelectorAll('#md [data-line],#md [data-lo]')].flatMap(e=>e.dataset.line?[+e.dataset.line]:"
+            "Array.from({length:+e.dataset.hi-+e.dataset.lo+1},(_,i)=>+e.dataset.lo+i))"
+        )
+        self.assertEqual(sorted({n for n in shown}), [n for n, ln in enumerate(lines, 1) if ln.strip()])
+
+    def test_a_tap_on_a_front_matter_line_picks_the_block_and_saves_md_front(self):
+        """A tap on a YAML line offers that line and the front matter block (no section: it is above the first heading), the
+        block by default; the saved pin is lines 1-5, kind md:front, scope block, with no page; pins.md names md:front."""
+        page = self.open_md()
+        got = self.pick_line(page, 3)
+        self.assertEqual((got["lo"], got["hi"], got["scope"]), (1, 5, "block"))
+        self.assertEqual(got["levels"], [["raw", 3, 3, None], ["block", 1, 5, "front"]])
+        self.assertEqual(
+            page.evaluate("COMPOSE.current.quote"), "title: 실험 노트 tags: [markdown, front-matter] # 주석 줄"
+        )
+        self.assertEqual(
+            page.evaluate("getComputedStyle(document.querySelector('#md .md-front pre .ln')).whiteSpace"), "pre-wrap"
+        )
+        self.save(page)
+        rec = records(ps.APP.C.state)[-1]
+        self.assertEqual((rec["lo"], rec["hi"], rec["kind"], rec["scope"]), (1, 5, "md:front", "block"))
+        self.assertNotIn("page", rec)
+        md = self.talk(req("GET", "/pins.md"))[2].decode()
+        row = next(ln for ln in md.splitlines() if ln.startswith("| ") and "L1-L5" in ln)
+        self.assertIn("md:front", row)
+        self.assertIn("| — |", row)
+
+
 class FromAnotherDocument(MarkdownBase):
     """Arriving on the Markdown document from the LaTeX one while work for either is still in flight."""
 
@@ -1139,7 +1204,8 @@ class Limits(MarkdownBase):
     def test_a_parse_past_the_time_limit_is_stopped_and_the_lines_are_shown(self):
         """A parse that never answers (the module made to hang) is stopped at MD_LIMITS.ms: the line view says so, and the
         next draw starts a fresh worker."""
-        hang = b"export default function(){return {parse(){for(;;){}}}};"
+        # The stand-in has what the worker's mdParser calls (block.ruler.before, for the front matter rule) and a parse that hangs.
+        hang = b"export default function(){return {block:{ruler:{before(){}}},parse(){for(;;){}}}};"
         self.write("# 제목\n\n본문 한 줄\n")
         page = self.open(0)
 

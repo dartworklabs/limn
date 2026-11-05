@@ -313,6 +313,7 @@ function mdRenderer(root){const stack=[root];
         code.appendChild(s); if(mdDue(w))yield;}
       return;}
     if(t.type==='hr'){const hr=mdEl('hr'); mdMap(hr,t,'rule'); top.appendChild(hr); return;}
+    if(t.type==='front_matter'){yield* mdFront(t,top,w); return;}
     if(t.type==='html_block')top.appendChild(mdHtmlBox(t));}
   // A run of raw HTML blocks in a row (mdHtmlRunEl), or each block on its own when one has no lines.
   /** @param {any[]} ts @param {{n:number}} w @returns {Generator<void,void,void>} */
@@ -321,6 +322,18 @@ function mdRenderer(root){const stack=[root];
     stack[stack.length-1].appendChild(el);
     for(const t of ts){const b=mdHtmlBox(t); mdHtmlHold(b,false); body.appendChild(b); if(mdDue(w))yield;}}
   return {token,run};}
+// YAML front matter (the worker's front_matter token, mdFrontMatter in md-parse.mjs; ADR-0032 제안): a box that carries the
+// block's lines, both '---' lines included (data-lo..hi, kind front - a block of its own, md:front), a head line in the
+// screen's language naming it, and its inner lines one span each (data-line) in a code box. The lines are the server's
+// (MD.lines), drawn as text: YAML is never parsed, so nothing in it links, loads or is markup. It is no heading: the
+// outline, the strip and the sections skip it.
+/** @param {any} t @param {HTMLElement} top @param {{n:number}} w @returns {Generator<void,void,void>} */
+function* mdFront(t,top,w){const box=mdEl('div'); box.className='md-front'; mdMap(box,t,'front');
+  const s=mdSpan(t),lo=s?s.lo+1:0,hi=s?s.hi-1:-1;
+  const head=mdEl('div'); head.className='md-front-l'; head.lang=document.documentElement.lang;   // the viewer's words, in the screen's language
+  head.textContent=tl('머리 정보 · YAML {n}줄',{n:Math.max(0,hi-lo+1)});
+  const pre=mdEl('pre'),code=mdEl('code'); pre.dataset.lang='yaml'; pre.appendChild(code); box.append(head,pre); top.appendChild(box);
+  for(let n=lo;n<=hi;n++){const sp=mdEl('span'); sp.className='ln'; sp.dataset.line=String(n); sp.textContent=String(MD.lines[n-1]||'')+'\n'; code.appendChild(sp); if(mdDue(w))yield;}}
 // A raw HTML block's placeholder: its lines (it takes a pin), their count and its first line as code, never the HTML itself.
 /** @param {any} t @returns {HTMLElement} */
 function mdHtmlBox(t){const box=mdEl('div'); mdMap(box,t,'html'); box.className='md-html';
@@ -666,15 +679,15 @@ function mdBlockAt(node){const e=node&&(node.nodeType===1?/** @type {Element} */
   // A heading or a rule is no block of its own (ADR-0025 D3's block kinds): the block it stands in, if any, is.
   while(b&&!MD_BLOCK_KINDS.includes(b.dataset.kind||''))b=b.parentElement?/** @type {HTMLElement|null} */(b.parentElement.closest('#md [data-lo]')):null;
   return b;}
-// The block kinds a block rung takes (its pin kind is md:<kind>, ADR-0025 D3) and their names on the ladder.
-const MD_BLOCK_KINDS=['paragraph','item','table','code','quote','html'];
+// The block kinds a block rung takes (its pin kind is md:<kind>, ADR-0025 D3; front: ADR-0032 제안) and their names on the ladder.
+const MD_BLOCK_KINDS=['paragraph','item','table','code','quote','html','front'];
 const MD_BLOCK_SEL=MD_BLOCK_KINDS.map(k=>'[data-lo][data-kind="'+k+'"]').join(',');
 // The blocks lines lo..hi meet, outermost: each element of a block kind on screen whose lines meet lo..hi and that no other such
 // element meeting them holds (a quote's paragraphs are the quote; a list's items are each a block).
 function mdBlocksIn(lo,hi){const md=$('#md'); if(!md)return []; const meets=(/** @type {HTMLElement} */e)=>+(e.dataset.lo||0)<=hi&&+(e.dataset.hi||0)>=lo;
   return /** @type {HTMLElement[]} */([...md.querySelectorAll(MD_BLOCK_SEL)]).filter(e=>{if(!meets(e))return false;
     const up=/** @type {HTMLElement|null} */(e.parentElement&&e.parentElement.closest(MD_BLOCK_SEL)); return !(up&&md.contains(up)&&meets(up));});}
-const MD_BLOCK_LABEL={'paragraph':'문단','item':'목록 항목','table':'표','code':'코드 블록','quote':'인용','html':'HTML 블록'};
+const MD_BLOCK_LABEL={'paragraph':'문단','item':'목록 항목','table':'표','code':'코드 블록','quote':'인용','html':'HTML 블록','front':'머리 정보'};
 function mdSnippet(lo,hi){const out=[]; for(let n=lo;n<=Math.min(hi,lo+79);n++)out.push(String(n).padStart(5,' ')+'  '+(MD.lines[n-1]||''));
   if(hi-lo+1>80)out.push('      … '+tl('{n}줄 더',{n:hi-lo+1-80})); return out.join('\n');}
 // The section around lines lo..hi: from the nearest heading at or above lo to the line before the next heading of the same or a
@@ -855,7 +868,8 @@ function mdSelectionPick(tapTarget){const s=window.getSelection(),md=$('#md'); i
     const b=/** @type {HTMLElement|null} */(t.closest('#md [data-lo],#md [data-line]')); if(!b)return false;
     const head=MD.heads.find(h=>h.el===t.closest('#md h1,#md h2,#md h3,#md h4,#md h5,#md h6'));
     const r=head?{lo:head.lo,hi:head.lo}:mdRangeAt(t)||{lo:+(b.dataset.lo||0),hi:+(b.dataset.hi||0)},blk=mdBlockAt(t);
-    mdPick(r,blk,blk,mdTextOf(blk||b),true); return true;}
+    const said=blk&&blk.dataset.kind==='front'?blk.querySelector('pre'):null;   // the front matter's head line is the viewer's words, not the source's
+    mdPick(r,blk,blk,mdTextOf(said||blk||b),true); return true;}
   return false;}
 // The part of selection range r inside the document md: r itself when it lies inside; else r cut back to the document's first
 // and last line elements where it runs past them - a triple click on the last paragraph ends after the article, there being no

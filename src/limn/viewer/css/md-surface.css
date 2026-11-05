@@ -65,6 +65,10 @@ body.md-surface #left{touch-action:pan-x pan-y pinch-zoom}
 .md .md-html{margin:0 0 var(--space-3);padding:var(--space-2) var(--space-3);border:1px dashed var(--border-strong);border-radius:var(--radius);color:var(--muted-foreground);
   font-size:var(--text-base);display:flex;flex-direction:column;gap:2px}
 .md .md-html-l{font-weight:600}
+.md .md-front{margin:0 0 var(--space-3)}   /* YAML front matter (ADR-0032 제안): a head line, then its lines as a code box */
+.md .md-front-l{margin:0 0 var(--space-1);color:var(--muted-foreground);font-size:var(--text-base);font-weight:600}
+.md .md-front pre{margin:0;white-space:pre-wrap}   /* values are prose: a long one wraps, as a text document's lines do, rather than scroll a phone sideways */
+.md .md-front pre .ln{white-space:pre-wrap;overflow-wrap:anywhere}
 .md .md-html code{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .md .md-html-in{color:var(--muted-foreground)}
 /* The plain source-line view (a limit was hit): numbered lines, the number drawn by CSS so it is never selected with the text. */
