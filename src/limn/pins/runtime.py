@@ -229,6 +229,11 @@ class PinCommands:
                 file = pin.record.get("file")
                 if isinstance(file, str) and tree_part(Path(file), root, state) is not None:
                     paths.add(Path(file))
+                # A moved checkout whose pinned source is not there yet: watch it where its stored relative name puts it
+                # under this root (ADR-0006), so recreating it there is noticed within a tick, not only on the 60 s pass.
+                rel = pin.core.file_rel
+                if isinstance(rel, str) and rel and tree_part(root / rel, root, state) is not None:
+                    paths.add(root / rel)
         return paths
 
     def pin_reader(self) -> PinReader:

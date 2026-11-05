@@ -127,6 +127,47 @@ class TestSavedPinReads(Base):
             self.assertFalse(worker.is_alive())
             self.assertLess(time.monotonic() - started, 0.5)
 
+    def test_a_moved_checkout_watches_a_missing_pinned_source_by_its_relative_name(self):
+        """A checkout moved to another path without one pinned source yet: upkeep watches that source where its stored
+        relative name puts it under the new root, so recreating it there moves the pin within one tick of the checker,
+        not only on the 60 s pass (review of #404)."""
+        import shutil
+
+        from limn.pins.maintenance import CHECK_INTERVAL
+
+        from helpers import add_pin, ps, set_config
+
+        other = self.src / "section.tex"
+        other.write_text(self.main.read_text())
+        add_pin(
+            {"file": str(other), "lo": 4, "hi": 4, "note": "section"}, {"login": "alice@example.com", "name": "Alice"}
+        )
+        moved = Path(self.tmp.name) / "moved"
+        shutil.copytree(self.src, moved)
+        (moved / "section.tex").unlink()
+        set_config(src=moved, main=moved / self.main.name)
+        startup = ps.APP.assembly.pins.startup
+        startup.maintain()
+        stop = threading.Event()
+        worker = threading.Thread(target=startup.watch, args=(stop,))
+        worker.start()
+        try:
+            again = moved / "section.tex"
+            again.write_text("% moved\n" + other.read_text())
+            stamp = again.stat().st_mtime + 1
+            os.utime(again, (stamp, stamp))
+            deadline = time.monotonic() + CHECK_INTERVAL + 1.5
+            while time.monotonic() < deadline:
+                if json.loads(ps.APP.C.pins_jsonl.read_text())["lo"] == 5:
+                    break
+                stop.wait(0.02)
+            saved = json.loads(ps.APP.C.pins_jsonl.read_text())
+            self.assertEqual((saved["lo"], saved["file"]), (5, str(again.resolve())))
+        finally:
+            stop.set()
+            worker.join(0.5)
+            self.assertFalse(worker.is_alive())
+
     def test_unchanged_ticks_only_stat_and_do_not_read_files_or_run_a_pass(self):
         """Unchanged manuscripts incur no content reads or writes between the full sixty-second passes."""
         from tests.contracts.test_get_write_guard import tree
