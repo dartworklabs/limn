@@ -28,7 +28,7 @@ from urllib.parse import urlparse
 
 from helpers import extract_js_fn, ps, records, run_node
 from helpers_access import ALICE, BOB, CAROL, actor
-from helpers_browser import BrowserBase, caret_to_start, fonts_ready, nothing_follows, settle
+from helpers_browser import BrowserBase, caret_to_start, fonts_ready, line_to_end, nothing_follows, settle
 
 DESK = {"viewport": {"width": 1400, "height": 850}}
 MOUSE_MID = {"viewport": {"width": 1000, "height": 800}}
@@ -687,7 +687,7 @@ class PopoverMentions(PopoverDrag, BrowserBase):
                 settle(page)
                 m = page.evaluate(MENTIONS)
                 self.assertEqual((m[key], m["hints"]), ("Read\n @ol", []))
-                page.keyboard.press("End")
+                line_to_end(page)
                 page.keyboard.press("Backspace")
                 page.keyboard.press("Backspace")
                 self.assertEqual(self.typed(page, "Bo")["logins"], [B])

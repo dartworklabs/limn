@@ -395,7 +395,9 @@ class OutlineFlows:
         page.evaluate(READ_TO, 1)
         page.evaluate("OUTLINE_HANDLED = -Infinity; outlineCatchUp()")  # a drag longer than the timed hold
         nothing_follows(page)
-        self.assertEqual(page.evaluate(FOLLOW)["top"], top, "the list moved during the grip's drag")
+        # Held means it does not follow the reading row, which would scroll it by a row (24px) or more. Firefox on macOS
+        # leaves the held list 1px off here, every run; a pixel of drift is not a follow, so the hold is read to a pixel.
+        self.assertAlmostEqual(page.evaluate(FOLLOW)["top"], top, delta=1, msg="the list moved during the grip's drag")
         page.mouse.up()
         page.wait_for_function(SHOWN, timeout=6000)
         page.focus("#outline-search")
