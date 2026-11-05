@@ -13,6 +13,8 @@ a list item, table cells, a link's text, inline code, a code block, a raw HTML b
 - the boxes count against the element limit: 20,000 of them in one paragraph are drawn, with pauses inside it; 40,000 are
   past it, and the line view then names them as text, as the text surface's names view does (Budget);
 - the line view a limit gives draws its lines with the same boxes and notice (LineView);
+- a document with a NUL (U+0000) - which markdown-it would turn into U+FFFD - is the line view, its NULs in their boxes,
+  copied and quoted as U+0000 (Nul);
 - the display holds in Firefox too (DisplayFirefox).
 
 The repertoire itself, its exceptions and the box markup are test_text_surface.py's; the text surface's display is
@@ -247,3 +249,45 @@ class LineView(HiddenBase):
             page.evaluate("document.querySelector('#md .tx-note[data-note=marks]').textContent"),
             "보이지 않거나 글 순서를 바꾸는 문자 2개를 이름으로 표시했습니다",
         )
+
+
+class Nul(HiddenBase):
+    """A NUL (U+0000) in the source sends the document to the line view, which keeps it."""
+
+    NUL = "\u0000"
+    DOC_TEXT = "# 널\n\n문단 a" + NUL + "b 끝.\n\n`코드" + NUL + "x` 안.\n\n```\n줄 c" + NUL + "d\n```\n"
+
+    def test_a_nul_in_a_paragraph_inline_code_and_a_code_block_is_kept_in_its_box(self):
+        """NULs in a paragraph (line 3), in inline code (line 5) and on a code block's line (line 8): markdown-it would draw
+        each as U+FFFD with no box, so the document is the line view (data-limit nul) under a line saying why; each NUL is
+        a box named ␀ on its own line, the notice counts three, no U+FFFD is drawn, each line's text is its source's, a
+        selection of line 3 copies the U+0000, and a click on it picks line 3 with the U+0000 in the pin's quote.
+        Mutation: drop the NUL test before mdParse in mdBuild -> the drawn document shows U+FFFD and no box, fails."""
+        page = self.open_md()
+        lines = self.DOC_TEXT.split("\n")
+        got = page.evaluate(
+            "(()=>{const md=document.querySelector('#md');return {limit:md.dataset.limit||null,lines:md.classList.contains('md-lines'),"
+            "boxes:[...md.querySelectorAll('.cc')].map(e=>[+e.closest('[data-line]').dataset.line,e.dataset.cc]),"
+            "fffd:md.textContent.includes('\\ufffd'),head:(md.querySelector('.md-limit:not(.tx-note)')||{}).textContent,"
+            "note:(md.querySelector('.tx-note[data-note=marks]')||{}).textContent,"
+            "text:[3,5,8].map(n=>(md.querySelector(\"[data-line='\"+n+\"']\")||{}).textContent)};})()"
+        )
+        self.assertEqual((got["limit"], got["lines"], got["fffd"]), ("nul", True, False))
+        self.assertEqual(got["boxes"], [[3, "\u2400"], [5, "\u2400"], [8, "\u2400"]])
+        self.assertEqual(got["head"], "원문에 NUL 문자(U+0000)가 있어 원문 줄로 보입니다. Markdown으로 그리면 그 문자가 U+FFFD로 바뀝니다")
+        self.assertEqual(got["note"], "보이지 않거나 글 순서를 바꾸는 문자 3개를 이름으로 표시했습니다")
+        self.assertEqual(got["text"], [lines[2] + "\n", lines[4] + "\n", lines[7] + "\n"])
+        sel = page.evaluate(
+            "(()=>{const l=document.querySelector(\"#md [data-line='3']\"),r=document.createRange(); r.selectNodeContents(l);"
+            "const s=getSelection(); s.removeAllRanges(); s.addRange(r); const t=s.toString(); s.removeAllRanges(); return t;})()"
+        )
+        self.assertIn("a" + self.NUL + "b", sel)
+        page.locator("#md [data-line='3']").click()
+        until(page, "COMPOSE.current&&COMPOSE.current.lo===3")
+        self.assertIn("a" + self.NUL + "b", page.evaluate("COMPOSE.current.quote"))
+
+
+class NulFirefox(Nul):
+    """The same in Firefox."""
+
+    BROWSER_ENGINE = "firefox"

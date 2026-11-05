@@ -92,7 +92,9 @@ async function mdBuild(){if(mdFieldBusy()){MD.waiting=true; return;}
   if(isTextDoc()){MD.heads=[];   // a text document is never parsed: its lines are its view (text-surface.js)
     if(MD.lines.length>MD_LIMITS.lines){mdShow(mdNote(tl('이 문서는 원문이 {lines}줄이라 그리지 않습니다(한도 {limit}줄)',{lines:mdCount(MD.lines.length),limit:mdCount(MD_LIMITS.lines)}),MD_LIMIT.LINES)); return;}
     const view=await txView(stale,src.line_ends); if(view&&!stale())mdShow(view); return;}
-  const res=await mdParse(MD.lines.join('\n')); if(stale()||!res)return;
+  // A NUL (U+0000) is not parsed: markdown-it turns it into U+FFFD (CommonMark's rule) and its tokens keep no column to put
+  // it back by, so the document would read another character than its source has. The line view keeps it, in its box.
+  const res=MD.lines.some(l=>l.includes('\0'))?{ok:false,limit:MD_LIMIT.NUL}:await mdParse(MD.lines.join('\n')); if(stale()||!res)return;
   let root=/** @type {HTMLElement|null} */(null),limit=res.ok?null:String(res.limit||MD_LIMIT.ERROR);
   if(res.ok){root=await mdRenderAll(res.tokens,stale); if(stale())return; if(!root)limit=MD_LIMIT.ELEMENTS;}
   if(!root){MD.heads=[];
@@ -149,6 +151,7 @@ function mdLimitText(limit){switch(limit){
   case MD_LIMIT.ELEMENTS:return tl('그릴 요소가 너무 많아 원문 줄로 보입니다(한도 {max}개)',{max:mdCount(MD_LIMITS.elements)});
   case MD_LIMIT.TIME:return tl('읽는 데 {s}초가 넘게 걸려 원문 줄로 보입니다',{s:MD_LIMITS.ms/1000});
   case MD_LIMIT.LOAD:return tr('Markdown 파서를 불러오지 못해 원문 줄로 보입니다');
+  case MD_LIMIT.NUL:return tr('원문에 NUL 문자(U+0000)가 있어 원문 줄로 보입니다. Markdown으로 그리면 그 문자가 U+FFFD로 바뀝니다');
   default:return tr('Markdown을 읽지 못해 원문 줄로 보입니다');}}
 // The elements that carry lines, in document order (line spans and blocks). Their tops never decrease in that order - a block
 // precedes what it holds and stands no lower - so the one at a height is found by halving (mdAt), never by measuring them all.

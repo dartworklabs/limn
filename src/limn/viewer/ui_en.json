@@ -1440,6 +1440,7 @@
  "브라우저가 원문에서 그리는 문서 형식": "The document's format: the browser draws it from its source",
  "이 문서에는 이동할 수 있는 제목이 없습니다.": "This document has no headings to go to.",
  "Markdown 파서를 불러오지 못해 원문 줄로 보입니다": "The Markdown parser did not load, so the source lines are shown",
+ "원문에 NUL 문자(U+0000)가 있어 원문 줄로 보입니다. Markdown으로 그리면 그 문자가 U+FFFD로 바뀝니다": "The source has a NUL character (U+0000), so the source lines are shown: drawn as Markdown it would become U+FFFD",
  "Markdown을 읽지 못해 원문 줄로 보입니다": "The Markdown could not be read, so the source lines are shown",
  "Markdown 문서": "Markdown document",
  "텍스트 문서": "Text document",

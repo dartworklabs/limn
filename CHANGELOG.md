@@ -14,6 +14,8 @@
   notice above the document counts them. The outline's rows and the section strip name them as text (`⟨U+202E⟩`). A box
   counts as two of the 60,000 drawn elements; past the limit the line view names them as text, as the text surface's
   names view does. A document with none of them draws as before (about 2 ms more for 1 MB of paragraphs).
+  A document with a NUL (U+0000) anywhere is shown as its source lines, its NULs in their boxes, with a line saying why:
+  markdown-it turns NUL into U+FFFD (CommonMark's rule) and keeps no column to put it back by (`data-limit` `nul`).
 - **A tree image rewritten on disk shows without reopening the page.** While a Markdown document is open, the light poll
   asks the images that have loaded near the document area again (at most six, nearest first, every four seconds or more,
   one request at a time) with a revalidating `GET /api/asset`; an image whose `ETag` moved on is loaded again from its
