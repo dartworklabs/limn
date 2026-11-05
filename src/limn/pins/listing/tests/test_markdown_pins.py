@@ -154,17 +154,18 @@ class SkillTeachesMarkdownSuggestions(unittest.TestCase):
     (docs/adr/0024-suggested-edit-obvious-errors.md, ADR-0025 D8), so the two cannot drift apart unnoticed."""
 
     def test_both_skills_name_markdown_pins_and_the_three_markdown_errors(self):
-        """The English and the Korean SKILL each name LaTeX and Markdown line pins and the table cells, the unclosed
-        emphasis or code and the list indentation; neither still says only a LaTeX line pin carries one."""
+        """The English and the Korean SKILL each name LaTeX, Markdown and text line pins (ADR-0029 D4) and the table
+        cells, the unclosed emphasis or code and the list indentation; neither still says only a LaTeX line pin carries
+        one."""
         for path, words, gone in (
             (
                 SKILL_MD,
-                ("a LaTeX or Markdown document carries one", "cell count", "left unclosed", "indented"),
+                ("a LaTeX, Markdown or text document carries one", "cell count", "left unclosed", "indented"),
                 "Only a LaTeX line pin carries one.",
             ),
             (
                 SKILL_KO,
-                ("LaTeX·Markdown 문서의 줄 핀만 가진다", "칸 수가 다르", "닫히지 않았", "들여쓰기가 틀려"),
+                ("LaTeX·Markdown·텍스트 문서의 줄 핀만 가진다", "칸 수가 다르", "닫히지 않았", "들여쓰기가 틀려"),
                 "LaTeX 문서의 줄 핀만 가진다.",
             ),
         ):
@@ -173,6 +174,30 @@ class SkillTeachesMarkdownSuggestions(unittest.TestCase):
                 with self.subTest(skill=path.name, word=word):
                     self.assertIn(word, skill)
             self.assertNotIn(gone, skill)
+
+    def test_both_skills_teach_text_pins_and_to_ask_before_a_suggestion_that_adds_hidden_characters(self):
+        """Both SKILLs name a text document's section title and its indent range, and tell the agent not to apply a
+        suggestion whose block carries pins.md's `숨은 문자:` line before a reply asks (ADR-0029 D7)."""
+        for path, words in (
+            (
+                SKILL_MD,
+                ("`— 텍스트(쪽 없음)`", "`indent`", "`숨은 문자:`", "Do not apply it: reply asking", "`line_ends`"),
+            ),
+            (
+                SKILL_KO,
+                (
+                    "`— 텍스트(쪽 없음)`",
+                    "`indent`",
+                    "`숨은 문자:`",
+                    "넣지 말고, 이름이 적힌 문자마다 필요한지 답글로 묻는다",
+                    "`line_ends`",
+                ),
+            ),
+        ):
+            skill = path.read_text(encoding="utf-8")
+            for word in words:
+                with self.subTest(skill=path.name, word=word):
+                    self.assertIn(word, skill)
 
 
 class MarkdownPinsMd(Base):
