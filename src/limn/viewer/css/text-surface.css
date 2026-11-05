@@ -1,0 +1,18 @@
+/* ---------------- The text surface (text-surface.js, docs/superpowers/specs/2026-11-05-text-documents.md): a text document's lines in one
+   monospace column. It is the Markdown surface's column (.md, md-surface.css: the card, the badge gutter, the marks), wider,
+   with a line-number gutter. A long line wraps - the page never scrolls sideways - at spaces in Korean prose (keep-all, as
+   the Markdown column) and anywhere in a token longer than the line; its continuation hangs under its indentation (--hang
+   columns, set per line). The number is out of the text's flow, so it is never selected or copied. */
+.md.tx{max-width:56rem;font-family:var(--font-mono);font-size:var(--text-base);line-height:1.6;word-break:keep-all;overflow-wrap:anywhere;tab-size:4;-moz-tab-size:4}
+.md.tx .tx-src{--g:calc(var(--gut,4) * 1ch + var(--space-3))}
+.md.tx .ln{display:block;position:relative;white-space:pre-wrap;padding-left:calc(var(--g) + var(--hang,0) * 1ch);text-indent:calc(-1ch * var(--hang,0));min-height:1.6em}
+.md.tx .ln::before{content:attr(data-line);position:absolute;left:0;top:0;width:calc(var(--gut,4) * 1ch);text-align:right;text-indent:0;
+  color:var(--subtle-foreground);user-select:none;-webkit-user-select:none}
+/* A character that would hide or reorder text is its box (.cc, components.css); a notice above the lines (what was marked,
+   line ends that are not LF) is out of the text, never selected or copied with it. */
+.md.tx .tx-note{margin:0 0 var(--space-3);padding:var(--space-2) var(--space-3);border:1px solid var(--border-strong);border-radius:var(--radius);
+  background:var(--muted);color:var(--muted-foreground);font-family:var(--font-sans);font-size:var(--text-sm);user-select:none;-webkit-user-select:none;cursor:default}
+.md.tx .ln .cc{text-indent:0}
+@media (max-width:600px){
+  .md.tx{font-size:var(--text-sm)}
+}

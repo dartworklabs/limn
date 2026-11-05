@@ -10,6 +10,8 @@ Nothing here writes: a read is one bounded read of one checked descriptor, stamp
 before its first byte. Each outcome is its own value; limn.documents.http answers every one of them in one place.
 """
 
+import re
+from collections import Counter
 from dataclasses import dataclass
 from typing import TypeAlias
 
@@ -22,7 +24,9 @@ SOURCE_MAX_BYTES = 1_048_576
 
 @dataclass(frozen=True)
 class SourceLines:
-    """The source, split as the server numbers lines (source_lines): line n of a pin is lines[n - 1]. src_mtime is the
+    """The source, split as the server numbers lines (source_lines): line n of a pin is lines[n - 1]. line_ends counts the
+    line ends it was split on that are not LF or CRLF (other_line_ends): an editor or git that counts LF alone numbers
+    the lines after one of them otherwise. src_mtime is the
     file's st_mtime, stat'ed on the very descriptor the lines were read from, before its first byte - the same measure
     GET /api/meta's src_mtime takes of a document that is not built. A save that replaces the file while it is read
     leaves that descriptor on the version it opened, so the lines and the stamp are always one version's: a viewer that
@@ -30,6 +34,7 @@ class SourceLines:
 
     lines: tuple[str, ...]
     src_mtime: float
+    line_ends: tuple[tuple[str, int], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -70,12 +75,24 @@ def source_lines(data: bytes) -> list[str] | None:
     return text.splitlines()
 
 
+# Every line end str.splitlines() splits on: CRLF first, so that it is one line end and not a CR and an LF.
+_LINE_END = re.compile("\r\n|[\n\r\x0b\x0c\x1c\x1d\x1e\x85\u2028\u2029]")
+
+
+def other_line_ends(text: str) -> tuple[tuple[str, int], ...]:
+    """The line ends str.splitlines() splits text on that are not LF or CRLF, by code point name ('U+000D' for a lone CR,
+    'U+000C', 'U+2028') with how many of each, in the order they first appear; () when every line ends in LF or CRLF.
+    Pure."""
+    counts = Counter(m for m in _LINE_END.findall(text) if m not in ("\n", "\r\n"))
+    return tuple(("U+%04X" % ord(end), n) for end, n in counts.items())
+
+
 def read_source(file: ManuscriptFile, limit: int = SOURCE_MAX_BYTES) -> SourceRead:
     """The source in the checked manuscript file `file`: at most limit + 1 of its bytes and the stamp of the descriptor
     they came from, in one bounded read of its no-follow descriptor (ManuscriptFile.read_bounded). The stamp is never
     taken through a second descriptor, which an atomic save between the two opens would leave on another version.
 
-    SourceLines when it holds at most `limit` bytes of UTF-8; SourceTooLarge (the size and the limit, no lines) above
+    SourceLines (with its other_line_ends) when it holds at most `limit` bytes of UTF-8; SourceTooLarge (the size and the limit, no lines) above
     that; SourceNotUtf8 for bytes that do not decode; SourceUnreadable when the handle refuses the read. Writes
     nothing."""
     match file.read_bounded(limit):
@@ -83,7 +100,7 @@ def read_source(file: ManuscriptFile, limit: int = SOURCE_MAX_BYTES) -> SourceRe
             lines = source_lines(data)
             if lines is None:
                 return SourceNotUtf8()
-            return SourceLines(tuple(lines), mtime)
+            return SourceLines(tuple(lines), mtime, other_line_ends(data.decode("utf-8")))
         case OverLimit(signature=signature):
             return SourceTooLarge(max(signature.size, limit + 1), limit)
         case ReadRefused():

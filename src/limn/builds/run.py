@@ -50,7 +50,7 @@ def request_rebuild(D: Target, run: Callable[[Target], R]) -> R | ViewOnlyNoRebu
 
 
 def needs_build(D: BuildDoc, no_build: bool, dpi: int) -> bool:
-    """Whether startup builds D: never a document the browser draws (D.renders_in_browser - a Markdown document), which
+    """Whether startup builds D: never a document the browser draws (D.renders_in_browser - a Markdown or text document), which
     has no PDF and no page images to make; a watched document (D.watches_files - a view-only PDF) when its file changed
     since its pages were rendered or it has no page images at dpi (--no-build does not apply to it); a LaTeX document
     unless no_build (--no-build), and even then when its PDF or its page images are missing. Reads the page directory

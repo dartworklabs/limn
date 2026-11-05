@@ -122,7 +122,7 @@ class DocumentBuildQueries:
 class RevisionBuildQueries:
     """Only the build queries the changes view uses. history_files answers which files' Git history a document's changes
     are when they are a list of files - a figure document's map, the PDF its current build's map names and every script
-    and shared component that map names; a Markdown document's own file - and None for a LaTeX document (its folder's
+    and shared component that map names; a Markdown or text document's own file - and None for a LaTeX document (its folder's
     manuscript suffixes) and a view-only PDF. overlay answers the two builds a figure document's changes view
     lays one over the other, as the completed JSON fragment {build, pages, prev_build, prev_pages}, and None for a
     document without an element map. No map, history entry or page folder crosses."""

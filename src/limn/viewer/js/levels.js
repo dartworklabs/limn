@@ -4,7 +4,7 @@ function lvOf(obj,key){return (obj.levels||[]).find(l=>l.level===key||(l.merged|
 // and several blocks whole (level blocks) are lines - a pin's scope is one of the server's (wireScope), and blocks is none of them.
 function wireScope(scope){return scope==='blocks'?'lines':scope;}
 function kindFor(scope,env){if(!scope)return null; if(scope.startsWith('env'))return 'env:'+(env||'?');
-  if(scope==='block')return 'md:'+(env||'paragraph'); if(scope==='section')return 'md:section';
+  if(scope==='block')return 'md:'+(env||'paragraph'); if(scope==='section')return 'md:section'; if(scope==='indent')return 'indent';   // a text document's indented block (ADR-0029 D3)
   return scope==='para'?'paragraph':'lines';}
 // The name of o's range kind for a description: its rung's, else its kind's; '' for lines set one by one (scope 'lines'),
 // whose lines alone say what they are.
@@ -29,7 +29,7 @@ function levelName(lv,all){if(lv.el)return String(lv.label||elName(lv.el)); if(!
 // figure rung (it carries an element) gets the element's tooltip; its line count comes from lo-hi when the rung has no n.
 // A Markdown document's rungs have descriptions of their own (T.mdraw: no drag area there, a tap chose the line too).
 function levelBtns(o,isEdit){const cur=curLevel(o),ls=o.levels||[]; return ls.map(lv=>{const on=lv===cur,n=rungLines(lv);
-  const tip=lv.el?rungTip(lv):isEdit&&lv.level==='raw'?T.cur:lv.level.startsWith('env')?T.env:lv.level==='raw'&&isMdDoc()?T.mdraw:T[lv.level]||'';
+  const tip=lv.el?rungTip(lv):isEdit&&lv.level==='raw'?T.cur:lv.level.startsWith('env')?T.env:lv.level==='raw'&&isMdDoc()?T.mdraw:T[lv.tip||lv.level]||'';   // a rung may name its own description (a text document's paragraphs, txLevels)
   const label=isEdit&&lv.level==='raw'?tr('지금 범위'):levelName(lv,ls),nl=tl('{n}줄',{n});
   return html`<button class="${on?'on':''}" data-act="level" data-level="${lv.level}" aria-pressed="${on}" aria-label="${label+' '+rng(lv.lo,lv.hi)+' · '+nl}" \
 data-tip="${rng(lv.lo,lv.hi)+(tip?' · '+tr(tip):'')}">${label} <span class="k${n>50?' wn':''}">· ${nl}</span></button>`;});}

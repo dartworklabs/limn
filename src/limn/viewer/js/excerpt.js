@@ -53,7 +53,7 @@ function drawExcerpt(o,box,isEdit){const on=!!o&&!o.region&&!isRegion(o);
   const f=/** @type {HTMLElement} */(document.activeElement),had=box.contains(f)&&f.dataset.act?{act:f.dataset.act,line:Number(f.dataset.line)}:null;
   box.hidden=!on; if(!on){box.replaceChildren(); return;}
   excerptTake(o,o.snippet); excerptFetch(o);
-  const L=excerptLines(o),text=k=>{const t=L.get(k); return t==null?'…':t;};
+  const L=excerptLines(o),text=k=>{const t=L.get(k); return t==null?'…':ccHtml(t);};   // a character that would hide or reorder the line in its box (hidden-chars.js)
   const rows=excerptRows(o.lo,o.hi,o.n_lines||o.hi,!isEdit&&SNIP_OPEN).map(r=>r.kind==='fold'?html`<div class="xp-fold">… ${tl('{n}줄',{n:r.n})}</div>`:
     r.kind==='ctx'?html`<button class="xp-row ctx" data-act="xp-to" data-line="${r.k}" aria-label="${tl('L{n}까지 넓히기',{n:r.k})}"><span class="ln">${r.k}</span>\
 <span class="tx">${text(r.k)}</span><span class="xp-chip add" aria-hidden="true">${ic('plus')}</span></button>`:

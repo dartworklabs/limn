@@ -25,7 +25,8 @@ function revisionFiles(patch){
     name:n>=0?s.head.slice(n+3):tl('파일 {n}',{n:i+1}),text:patch.slice(s.at,i+1<starts.length?starts[i+1].at:undefined)};});
 }
 // A patch as Html of numbered lines (file, hunk, add, del, context, meta). The code itself is the manuscript's text, so
-// it is translate="no"; the lines are text.
+// it is translate="no"; the lines are text, each character that would hide or reorder a line in its box (ccHtml) - a
+// change a person reviews never reads as another text. The CR a CRLF file's line ends in is that line end, not text: left out.
 function renderRevisionDiff(patch){
   const lines=String(patch||'').split('\n'); if(lines[lines.length-1]==='')lines.pop();
   let oldLine=/** @type {number|null} */(null),newLine=/** @type {number|null} */(null),inHunk=false;
@@ -41,7 +42,7 @@ function renderRevisionDiff(patch){
     else if(line.startsWith('+')){kind='add';if(newLine!==null)number=newLine++;}
     else if(line.startsWith('-')){kind='del';if(oldLine!==null)number=oldLine++;}
     else if(line.startsWith(' ')){kind='context';if(newLine!==null){number=newLine++; if(oldLine!==null)oldLine++;}}
-    return html`<span class="rd-line rd-${kind}"><span class="rd-no" aria-hidden="true">${number}</span><span class="rd-code" translate="no">${line}</span></span>`;
+    return html`<span class="rd-line rd-${kind}"><span class="rd-no" aria-hidden="true">${number}</span><span class="rd-code" translate="no">${ccHtml(line.endsWith('\r')?line.slice(0,-1):line)}</span></span>`;
   })}`;
 }
 function renderRevisionFile(){const v=$('#revision-file').value,i=Number(v);

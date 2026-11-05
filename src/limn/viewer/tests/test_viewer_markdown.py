@@ -1789,6 +1789,31 @@ class Accessibility(MarkdownBase):
         )
 
 
+class HiddenHeading(MarkdownBase):
+    """A heading that holds a bidirectional override: the section rung names it, never shows it raw (ADR-0029 D5)."""
+
+    MD_TEXT = "# head\u202eabc\n\n문단이다.\n"
+
+    def test_the_section_rung_names_the_heading_s_hidden_characters(self):
+        """A pick of the paragraph under '# head<U+202E>abc': the section rung's text, its aria-label and its description
+        hold no character of the repertoire and show ⟨U+202E⟩ in its place."""
+        page = self.open_md()
+        got = self.pick_line(page, 3)
+        self.assertEqual(
+            [lv[0] for lv in got["levels"]], ["block", "section"]
+        )  # a one-line paragraph: its line merges in
+        rung = page.evaluate(
+            "(()=>{const b=document.querySelector('#c-levels button[data-level=section]');"
+            "return b&&{text:b.textContent,label:b.getAttribute('aria-label'),desc:b.getAttribute('aria-description')||b.dataset.tip||'',"
+            "raw:[b.textContent,b.getAttribute('aria-label'),b.getAttribute('aria-description')||'',b.dataset.tip||''].some(t=>CC_ANY.test(t))};})()"
+        )
+        self.assertIsNotNone(rung)
+        self.assertIn("head⟨U+202E⟩abc", rung["text"])
+        self.assertIn("head⟨U+202E⟩abc", rung["label"])
+        self.assertNotIn("\u202e", rung["text"] + rung["label"] + rung["desc"])
+        self.assertFalse(rung["raw"])
+
+
 class CoreFirefox(Picking):
     """The draw, a pick and its save in Firefox."""
 

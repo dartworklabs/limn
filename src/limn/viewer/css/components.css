@@ -361,3 +361,9 @@ body.band-phone .pv.pv-lean .pv-cn{visibility:hidden}   /* its place kept: the l
    box). Skipping contains a line - its parts drawn on whole pixels, what reaches past its box clipped - so never the
    reading line, which floats, a line holding the focus, its reason popover or a save chip, nor one pvFit is measuring. */
 #doc .pv.pv-far:not(.reading,.pv-fitting,.pv-pop-open,:focus-within,:has(>.nt-chip)){content-visibility:auto;contain-intrinsic-block-size:var(--pv-h)}
+/* A character that would hide or reorder text (hidden-chars.js): kept in the text inside an isolating span, its name shown in a
+   thin box - on the text surface, in the excerpt under the ladder and in a suggestion's diff, for every document kind. The
+   character itself is in a .sr-only child: it takes no room, its name does. */
+.cc{unicode-bidi:isolate;display:inline-block;position:relative;margin:0 1px;padding:0 2px;border:1px solid var(--status-warning);
+  border-radius:var(--radius-sm);font-family:var(--font-mono);font-size:var(--text-xs);line-height:1.3;color:var(--muted-foreground);vertical-align:baseline;white-space:nowrap}
+.cc::before{content:attr(data-cc)}

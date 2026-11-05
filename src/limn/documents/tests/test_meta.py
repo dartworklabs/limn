@@ -126,6 +126,18 @@ CAPABILITY_TABLE = {
         "renders_in_browser": True,
         "takes_suggestions": True,
     },
+    # Text (ADR-0029): plain text or source code the browser shows line for line - the capabilities of Markdown; only the
+    # viewer tells the two apart (showsSourceLines), and pins.md's section title names the form.
+    "text": {
+        "builds_from_source": False,
+        "watches_files": False,
+        "takes_line_pins": True,
+        "shows_revisions": True,
+        "view_only": False,
+        "has_element_map": False,
+        "renders_in_browser": True,
+        "takes_suggestions": True,
+    },
 }
 
 

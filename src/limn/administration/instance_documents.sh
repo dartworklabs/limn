@@ -31,6 +31,21 @@ doc_parse_kv() {
     [[ -n "$DOC_PATH" ]] || die "--doc $DOC_KEY: path is empty"
 }
 
+# The suffixes a --doc path registers as a text document (ADR-0029 D2), lowercase - the same closed list as
+# limn.runtime.documents.TEXT_SUFFIXES, which tests/architecture/test_text_suffixes.py keeps equal to this one.
+DOC_TEXT_SUFFIXES=".adoc .bash .bib .bst .c .cc .cfg .cjs .cls .cpp .css .csv .go .h .hpp .html .ini .java .jl .js .json .jsx .kt .lua .m .mjs .org .py .pyi .r .rb .rs .rst .scss .sh .sql .sty .swift .text .toml .ts .tsv .tsx .txt .xml .yaml .yml .zsh"
+
+# doc_is_text <path> — whether the path's suffix, compared case-insensitively as the server does, is a text suffix. A
+# figure map's suffix in another case (Figures.LIMNMAP.JSON) is neither a map nor text, as the server rules.
+doc_is_text() {
+    local base=${1##*/} low suf
+    [[ "$base" == *.* ]] || return 1
+    low=$(printf '%s' "$base" | tr '[:upper:]' '[:lower:]')   # tr, not ${base,,}: macOS ships bash 3.2
+    [[ "${low%.limnmap.json}" == "$low" ]] || return 1
+    suf=".${low##*.}"
+    [[ " $DOC_TEXT_SUFFIXES " == *" $suf "* ]]
+}
+
 # doc_check_path <absolute manuscript path> — reads DOC_KEY/DOC_PATH filled by doc_parse_kv and
 # validates the path. The `::` notation (<build root>::<main.tex or figure map>) checks that both the build root
 # and the main file are inside the manuscript dir. A string pointing outside the manuscript via `../`
@@ -60,7 +75,7 @@ doc_check_path() {
         if [[ "$path" == /* ]]; then main="$path"; else main="$ms/$path"; fi
         case "$main" in
             *.tex | *.pdf | *.limnmap.json | *.md) ;;
-            *) die "--doc $key: only .tex (LaTeX), .pdf (view-only), .limnmap.json (figure) or .md (Markdown) are accepted: $main" ;;
+            *) doc_is_text "$main" || die "--doc $key: only .tex (LaTeX), .pdf (view-only), .limnmap.json (figure), .md (Markdown) or a text suffix (${DOC_TEXT_SUFFIXES}) are accepted: $main" ;;
         esac
     fi
     [[ -f "$main" ]] || die "--doc $key: file does not exist: $main"

@@ -80,6 +80,9 @@ async function mdBuild(){if(mdFieldBusy()){MD.waiting=true; return;}
   if(stale())return;
   if(r.status===413){MD.lines=[]; MD.heads=[]; MD.mtime=MD.asked; mdShow(mdNote(tl('이 문서는 {size}라 그리지 않습니다(한도 {limit})',{size:mdMiB(r.data.bytes),limit:mdMiB(r.data.limit)}),MD_LIMIT.BYTES)); return;}
   const src=r.data; MD.doc=k; MD.mtime=src.src_mtime; MD.file=String(src.file||''); MD.name=MD.file.split('/').pop()||MD.file; MD.lines=Array.isArray(src.lines)?src.lines.map(String):[];
+  if(isTextDoc()){MD.heads=[];   // a text document is never parsed: its lines are its view (text-surface.js)
+    if(MD.lines.length>MD_LIMITS.lines){mdShow(mdNote(tl('이 문서는 원문이 {lines}줄이라 그리지 않습니다(한도 {limit}줄)',{lines:mdCount(MD.lines.length),limit:mdCount(MD_LIMITS.lines)}),MD_LIMIT.LINES)); return;}
+    const view=await txView(stale,src.line_ends); if(view&&!stale())mdShow(view); return;}
   const res=await mdParse(MD.lines.join('\n')); if(stale()||!res)return;
   let root=/** @type {HTMLElement|null} */(null),limit=res.ok?null:String(res.limit||MD_LIMIT.ERROR);
   if(res.ok){root=await mdRenderAll(res.tokens,stale); if(stale())return; if(!root)limit=MD_LIMIT.ELEMENTS;}
@@ -444,21 +447,22 @@ function mdSection(lo,hi){let h=/** @type {{level:number,lo:number,title:string}
 // tapped lines (an HTML block, a one-line paragraph) its rung stands first and the chosen lines merge into it, so the pin is
 // md:<kind> as any other tapped block's - merged the other way, the tap's block was saved as lines.
 /** @param {{lo:number,hi:number}} r @param {HTMLElement|null} b0 @param {HTMLElement|null} b1 @param {boolean} [tapped] */
-function mdLevels(r,b0,b1,tapped){const ls=/** @type {any[]} */([]); const add=(level,label,lo,hi,env)=>{const same=ls.find(l=>l.lo===lo&&l.hi===hi);
+function mdLevels(r,b0,b1,tapped){if(isTextDoc())return txLevels(r);   // a text document's rungs come from its lines alone
+  const ls=/** @type {any[]} */([]); const add=(level,label,lo,hi,env)=>{const same=ls.find(l=>l.lo===lo&&l.hi===hi);
     if(same){(same.merged=same.merged||[]).push(level); return;} ls.push({level,label,lo,hi,n:hi-lo+1,snippet:mdSnippet(lo,hi),env:env||null});};
   const k=b0&&b0===b1?b0.dataset.kind||'paragraph':'',blo=b0?Math.min(+(b0.dataset.lo||0),r.lo):0,bhi=b0?Math.max(+(b0.dataset.hi||0),r.hi):0;
   const blockFirst=!!(tapped&&k&&blo===r.lo&&bhi===r.hi); if(blockFirst)add('block',MD_BLOCK_LABEL[k]||'블록',blo,bhi,k);
   add('raw','고른 줄',r.lo,r.hi,null);
   if(k){if(!blockFirst)add('block',MD_BLOCK_LABEL[k]||'블록',blo,bhi,k);}
   else{const bs=mdBlocksIn(r.lo,r.hi); if(bs.length>1)add('blocks',tl('블록 {n}개',{n:bs.length}),Math.min(r.lo,...bs.map(e=>+(e.dataset.lo||0))),Math.max(r.hi,...bs.map(e=>+(e.dataset.hi||0))),null);}
-  const s=mdSection(r.lo,r.hi); if(s)add('section',tr('절')+' · '+(s.title.length>18?s.title.slice(0,18)+'…':s.title),s.lo,s.hi,null);
+  const s=mdSection(r.lo,r.hi); if(s)add('section',tr('절')+' · '+ccClip(s.title,18),s.lo,s.hi,null);   // the heading's hidden characters by name (ccClip, ADR-0029 D5)
   return ls;}
 // Fills the composer with lines r of the document on screen, as pick() does with a /api/pick answer; tapped: a tap picked a
 // block, so the block rung is the default (the section rung on a heading). During a re-place it is the candidate instead
 // (bannerCompare), with nothing else changed.
 function mdPick(r,b0,b1,quote,tapped){const levels=mdLevels(r,b0,b1,tapped),q=String(quote||'').replace(/\s+/g,' ').trim().slice(0,160);
   const head=tapped&&MD.heads.some(h=>h.lo===r.lo&&h.lo===r.hi);
-  const def=tapped&&lvOf({levels},head?'section':'block')?(head?'section':'block'):'raw';
+  const def=tapped&&!isTextDoc()&&lvOf({levels},head?'section':'block')?(head?'section':'block'):'raw';   // a tap on a text document picks its line
   const sel=/** @type {Selection} */(/** @type {unknown} */({doc:DOC,file:MD.file,name:MD.name,lo:r.lo,hi:r.hi,raw_lo:r.lo,raw_hi:r.hi,kind:'lines',
     score:null,warn:null,snippet:mdSnippet(r.lo,r.hi),levels,default_level:def,n_lines:MD.lines.length,quote:q,overlaps:[]}));
   if(REPICK){REPICK.cand=sel; bannerCompare(); return;}
@@ -512,15 +516,18 @@ function mdMarks(){const md=$('#md'); if(!md)return;
     // The badge stands in the column's left gutter at the height of the pin's first line (a layer of #md, never inside a
     // paragraph, list or table, so it moves no text). Pins whose first lines share a height stack down.
     const y=Math.round(leaves[0].getBoundingClientRect().top-top);
-    let box=rows.get(y); if(!box){box=document.createElement('span'); box.className='md-badges'; box.setAttribute('translate','no'); box.style.top=y+'px'; md.insertBefore(box,mdTopBlock(md,leaves[0])); rows.set(y,box);}
+    let box=rows.get(y); if(!box){box=document.createElement('span'); box.className='md-badges'; box.setAttribute('translate','no'); box.style.top=y+'px'; const at=mdTopBlock(md,leaves[0]); (at&&at.parentElement||md).insertBefore(box,at); rows.set(y,box);}
     const b=document.createElement('button'); b.type='button'; b.className='md-badge'+(rv?' rv':'')+(lost?' st':''); b.dataset.act='mark-jump'; b.dataset.id=String(p.id);
     b.dataset.pin=String(p.id); b.textContent=String(p.id); b.setAttribute('aria-label',tl('핀 #{id} 카드로 이동',{id:p.id}));
     const n=String(p.note||'').replace(/\s+/g,' ').trim(); b.dataset.tip='#'+p.id+' · '+rng(/** @type {number} */(p.lo),/** @type {number} */(p.hi))+' · '+(n?(n.length>60?n.slice(0,60)+'…':n):tr('(메모 없음)'));
     box.appendChild(b);}}
 // The child of md that holds e (null: e is not inside it) - where a badge layer goes in the document's order, a child of #md
-// still, so it stands in the gutter as before and no block's text (a quote, a tap's block) takes its number.
+// still, so it stands in the gutter as before and no block's text (a quote, a tap's block) takes its number. A text
+// document's lines are all one block (.tx-src, text-surface.js), so there the layer goes before e's line span itself, a
+// sibling of the lines and in no line's text: before the whole text, every badge would be read before the first line.
 /** @param {HTMLElement} md @param {Element} e @returns {Element|null} */
-function mdTopBlock(md,e){let x=/** @type {Element|null} */(e); while(x&&x.parentElement!==md)x=x.parentElement; return x;}
+function mdTopBlock(md,e){let x=/** @type {Element|null} */(e); const tx=md.classList.contains('tx');
+  while(x&&x.parentElement!==md&&!(tx&&x.parentElement&&x.parentElement.classList.contains('tx-src')))x=x.parentElement; return x;}
 // The column reflows when its width changes (a panel, a rotation): the reading spot comes back at once, before the paint
 // (mdSpotKeep), and the badges follow their lines.
 let MD_RO_T=0; const MD_RO=window.ResizeObserver?new ResizeObserver(()=>{mdSpotKeep(); clearTimeout(MD_RO_T); MD_RO_T=setTimeout(()=>{if(isMdDoc())mdMarks();},120);}):null;
@@ -544,7 +551,7 @@ function mdReadingLine(){const L=$('#left'); if(!$('#md'))return 0; const e=mdAt
 // outline's current entry and the strip's title; the button reads [L<line>/<lines>].
 function mdStrip(){if(!isMdDoc())return; MD.at=mdReadingLine();
   let i=-1; MD.heads.forEach((h,j)=>{if(h.lo<=MD.at)i=j;}); if(i!==OUTLINE_SELECTED){OUTLINE_SELECTED=i; markOutline();}
-  const h=MD.heads[i]; $('#section-current').textContent=h?h.title:tr('문서 처음'); drawPos();}   // above the first heading
+  const h=MD.heads[i]; $('#section-current').textContent=h?h.title:isTextDoc()?MD.name:tr('문서 처음'); drawPos();}   // a text document has no headings: its file   // above the first heading
 let MD_STRIP_F=0; $('#left').addEventListener('scroll',()=>{if(!isMdDoc()||MD_STRIP_F)return; MD_STRIP_F=requestAnimationFrame(()=>{MD_STRIP_F=0; mdStrip(); mdSpotRead();});},{passive:true});
 // posLabel's shape for this document: [L37/164 ▾] - the reading line's source line of the file's lines, '–' for what is not
 // known yet - with the document's name as posLabel puts it. Pure but for tl.
@@ -556,7 +563,7 @@ function mdPosLabel(doc,line,n,multi,wide){const name=multi&&wide?doc:'',p=line|
 let MD_HINT_PDF=/** @type {Node[]|null} */(null);
 function mdHint(){const e=$('#empty'); if(!e)return; if(!MD_HINT_PDF)MD_HINT_PDF=[...e.childNodes].map(n=>n.cloneNode(true));
   if(!isMdDoc()){if(e.dataset.md){e.replaceChildren(...MD_HINT_PDF.map(n=>n.cloneNode(true))); delete e.dataset.md;} return;}
-  if(e.dataset.md)return; e.dataset.md='1';
+  const want=isTextDoc()?'tx':'1'; if(e.dataset.md===want)return; e.dataset.md=want; if(want==='tx'){txHint(); return;}   // a text document's own words (text-surface.js)
   setHtml(e,html`<span class="t-mouse">${tr('글을')} <b>${tr('끌어')}</b> ${tr('고르면 그 줄을,')} <b>${tr('블록을 누르면')}</b> ${tr('그 블록을 고르고')}</span><span class="t-touch"><b>${tr('블록을 누르면')}</b> ${tr('그 블록을,')} <b>${tr('길게 눌러')}</b> ${tr('글을 고르면 그 줄을 고르고')}</span> ${tr('그 자리의')} <b>${tr('원문 줄 번호')}</b>${tr('가 핀의 위치가 됩니다.')}<br>
     ${tr('메모를 달아 핀으로 저장하면, 에이전트가 pins.md 한 장만 읽고 작업합니다.')}<br><span class="t-mouse"><kbd>?</kbd> ${tr('를 누르면 도움말.')}</span><span class="t-touch">${tr('도움말은 [더보기]에 있습니다.')}</span>`);}
 function mdGoHeading(i){const h=MD.heads[i]; if(!h)return; OUTLINE_SELECTED=i; markOutline();

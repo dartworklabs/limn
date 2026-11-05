@@ -22,7 +22,7 @@ from limn.administration.serve_documents import (
     DocOutsideManuscript,
     RunDocuments,
 )
-from limn.runtime.documents import MAP_SUFFIX, NO_APART, RunPaths
+from limn.runtime.documents import MAP_SUFFIX, NO_APART, TEXT_SUFFIXES, RunPaths
 from limn.runtime.startup import StartupRefused
 
 TEX = "\\documentclass{article}\n\\begin{document}\nx\n\\end{document}\n"
@@ -70,17 +70,17 @@ class DocumentKindFromPath(StartupTree):
         self.assertEqual({d["src"] for d in got}, {self.ms / "notes"})
 
     def test_other_markdown_like_suffixes_are_still_refused(self):
-        """Only .md opens a Markdown document: .markdown, .mdx and .txt are unknown kinds, named in the refusal with
-        every accepted suffix."""
-        for rel in ("notes/plan.markdown", "notes/plan.mdx", "notes/plan.txt"):
+        """Only .md opens a Markdown document: .markdown and .mdx are unknown kinds, named in the refusal with every
+        accepted suffix (.txt is a text document, ADR-0029)."""
+        for rel in ("notes/plan.markdown", "notes/plan.mdx"):
             with self.subTest(rel=rel):
                 (self.ms / rel).write_text("# Plan\n", encoding="utf-8")
                 got = serve_documents.parse_doc_arg("nt=계획:" + rel, self.ms)
                 self.assertEqual(got, DocKindUnknown("nt", self.ms / rel))
                 self.assertEqual(
                     serve_documents.doc_refusal_message(got),
-                    "--doc nt: .tex(LaTeX), .pdf(보기 전용), .limnmap.json(그림), .md(Markdown)만 받습니다: %s"
-                    % (self.ms / rel),
+                    "--doc nt: .tex(LaTeX), .pdf(보기 전용), .limnmap.json(그림), .md(Markdown), 텍스트(%s)만 받습니다: %s"
+                    % (" ".join(sorted(TEXT_SUFFIXES)), self.ms / rel),
                 )
 
     def test_the_root_form_refuses_a_markdown_document(self):
@@ -263,17 +263,20 @@ class FigureRegistration(unittest.TestCase):
         )
 
     def test_only_the_exact_map_suffix_names_a_figure(self):
-        """A plain .json and an upper-case suffix are unknown kinds, and the refusal lists every accepted suffix
-        (docs/handbook/code-style-roadmap.md §R10)."""
-        for rel in ("figs/out/figures.json", "figs/upper/Figures.LIMNMAP.JSON"):
-            with self.subTest(rel=rel):
-                got = serve_documents.parse_doc_arg("fig=그림:" + rel, self.ms)
-                self.assertEqual(got, DocKindUnknown("fig", self.ms / rel))
-                self.assertEqual(
-                    serve_documents.doc_refusal_message(got),
-                    "--doc fig: .tex(LaTeX), .pdf(보기 전용), .limnmap.json(그림), .md(Markdown)만 받습니다: %s"
-                    % (self.ms / rel),
-                )
+        """An upper-case map suffix is an unknown kind - neither a figure nor a text document, though it ends in .json
+        - and the refusal lists every accepted suffix (docs/handbook/code-style-roadmap.md §R10). A plain .json is a
+        text document (ADR-0029), never a figure."""
+        rel = "figs/upper/Figures.LIMNMAP.JSON"
+        got = serve_documents.parse_doc_arg("fig=그림:" + rel, self.ms)
+        self.assertEqual(got, DocKindUnknown("fig", self.ms / rel))
+        self.assertEqual(
+            serve_documents.doc_refusal_message(got),
+            "--doc fig: .tex(LaTeX), .pdf(보기 전용), .limnmap.json(그림), .md(Markdown), 텍스트(%s)만 받습니다: %s"
+            % (" ".join(sorted(TEXT_SUFFIXES)), self.ms / rel),
+        )
+        got = serve_documents.parse_doc_arg("fig=그림:figs/out/figures.json", self.ms)
+        self.assertIsInstance(got, dict)
+        self.assertEqual(got["kind"], "text")  # type: ignore[index]
 
     def test_the_root_form_takes_latex_or_a_map_and_refuses_a_pdf(self):
         """'::' is for a document with a folder of its own: a LaTeX main or a figure map, never a view-only PDF."""

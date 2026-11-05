@@ -591,6 +591,30 @@ class SuggestCard(SuggestBase):
             ],
         )
 
+    def test_a_hidden_character_it_adds_is_marked_in_its_diff_and_the_editor_warns(self):
+        """A LaTeX suggestion that adds an override and a tag (a supplementary character): the card's added row shows each
+        in its box, the removed and common rows none; a draft that adds one turns the line under the editor to the warning
+        that names it - every document kind is marked alike (hidden-chars.js)."""
+        self.add(note="", suggest={"base": PARA, "text": "First\u202e line.\U000e0041\nSecond line of the paragraph."})
+        page = self.view(n_open=1)
+        rows = page.evaluate(
+            "[...document.querySelectorAll('.pin .sg-diff .rd-line')].map(r=>[r.className.replace('rd-line ',''),"
+            "[...r.querySelectorAll('.cc')].map(e=>e.dataset.cc)])"
+        )
+        self.assertEqual(rows, [["rd-del", []], ["rd-add", ["U+202E", "U+E0041"]], ["rd-context", []]])
+        self.compose(page)
+        self.switch_on(page)
+        self.assertTrue(page.evaluate("document.querySelector('#c-sg-cc').hidden"))
+        page.fill("#c-sg-text", NEW.replace("first", "fir\u202est"))
+        settle(page)
+        w = page.evaluate(
+            "(()=>{const e=document.querySelector('#c-sg-cc'); return [e.getClientRects().length>0,"
+            "e.classList.contains('sg-cc-warn'),e.querySelector('span').textContent,[...e.querySelectorAll('.cc')].map(b=>b.dataset.cc)];})()"
+        )
+        self.assertEqual(w[:2], [True, True])
+        self.assertIn("U+202E 1개", w[2])
+        self.assertEqual(w[3], ["U+202E"])
+
     def test_a_changed_or_unknown_suggestion_says_why_not_to_apply_it(self):
         """Line 5 edited: '제안 수정 · 원문 바뀜' as a warning; both lines gone (the pin loses its place): '확인 불가'; a pin
         sent to review: the plain badge, its diff still shown."""

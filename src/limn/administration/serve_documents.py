@@ -14,6 +14,7 @@ from limn.runtime.documents import (
     DOCS_MAX,
     MAP_SUFFIX,
     NO_APART,
+    TEXT_SUFFIXES,
     Doc,
     DocKind,
     RunPaths,
@@ -143,8 +144,8 @@ class DocFileMissing:
 
 @dataclass(frozen=True)
 class DocKindUnknown:
-    """The main file is neither .tex (LaTeX), .pdf (view-only), a figure map (MAP_SUFFIX, exact case) nor .md
-    (Markdown)."""
+    """The main file is neither .tex (LaTeX), .pdf (view-only), a figure map (MAP_SUFFIX, exact case), .md (Markdown)
+    nor a text suffix (TEXT_SUFFIXES)."""
 
     key: str
     main: Path
@@ -264,6 +265,8 @@ def parse_doc_arg(spec: str, ms: Path) -> DocSpec | DocSpecRefusal:
         kind = "pdf"
     elif suf == ".md":
         kind = "markdown"
+    elif suf in TEXT_SUFFIXES and not main.name.lower().endswith(MAP_SUFFIX):  # Figures.LIMNMAP.JSON: no map, no text
+        kind = "text"
     else:
         return DocKindUnknown(key, main)
     return DocSpec(key=key, name=name, kind=kind, src=root, main=main)
@@ -300,9 +303,10 @@ def doc_refusal_message(r: DocsRefusal) -> str:
         case DocFileMissing(key=key, main=main):
             return "--doc %s: 파일이 없습니다: %s" % (key, main)
         case DocKindUnknown(key=key, main=main):
-            return "--doc %s: .tex(LaTeX), .pdf(보기 전용), %s(그림), .md(Markdown)만 받습니다: %s" % (
+            return "--doc %s: .tex(LaTeX), .pdf(보기 전용), %s(그림), .md(Markdown), 텍스트(%s)만 받습니다: %s" % (
                 key,
                 MAP_SUFFIX,
+                " ".join(sorted(TEXT_SUFFIXES)),
                 main,
             )
         case TooManyDocs(count=count):
@@ -373,6 +377,8 @@ def doc_start_line(key: str, kind: DocKind, path: str, build_started: bool) -> s
             label = "figure   "
         case "markdown":
             label = "Markdown "
+        case "text":
+            label = "text     "
     return "doc    %-10s %s %s%s" % (key, label, path, "  (build started)" if build_started else "")
 
 

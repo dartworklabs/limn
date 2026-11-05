@@ -90,8 +90,8 @@ class RevisionDoc(Protocol):
     @property
     def builds_from_source(self) -> bool:
         """Whether latexmk builds it (limn.runtime.documents.Doc.builds_from_source): only such a document has a
-        comparison PDF; a figure document's changes are its pages overlaid in the viewer, a Markdown document's its
-        source diff alone."""
+        comparison PDF; a figure document's changes are its pages overlaid in the viewer, a Markdown or text document's
+        its source diff alone."""
         ...
 
     @property
@@ -402,10 +402,11 @@ def revision_scope(D: RevisionDoc, files: Sequence[Path] | None = None) -> tuple
     files None: a LaTeX document - just the manuscript text inside the chosen main .tex's folder. D.src is the
     build-copy scope, so multiple documents can share the same root. The change history must be filtered to
     D.main.parent, or commits from the body, highlights, and cover letter get mixed together.
-    files given: a figure or a Markdown document - exactly those files (RevisionBuildQueries.history_files: a figure
-    document's map, the PDF the map names and the map's scripts and shared components; a Markdown document's own file),
-    found from the repository holding D.src (files_pathspec). The suffix pathspec above never names a Markdown file, so
-    a LaTeX document and a Markdown document in one folder keep apart histories."""
+    files given: a figure, a Markdown or a text document - exactly those files (RevisionBuildQueries.history_files: a
+    figure document's map, the PDF the map names and the map's scripts and shared components; a Markdown or text
+    document's own file), found from the repository holding D.src (files_pathspec). The suffix pathspec above never names
+    a Markdown file or a text file other than .bib, .sty, .cls and .bst, so a LaTeX document and a Markdown or text
+    document in one folder keep apart histories; a .bib text document's commits are the LaTeX document's too."""
     if not D.shows_revisions:
         return None
     if files is not None:

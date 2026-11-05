@@ -27,7 +27,7 @@ const KIND_REQ=Object.freeze({FIX:'fix',QUESTION:'question'});   // a pin's `kin
 const ROLE=Object.freeze({OWNER:'owner',EDITOR:'editor',VIEWER:'viewer',AGENT:'agent'});   // a person's `role` (access.ROLES)
 const EVENT_TYPE=Object.freeze({MENTION:'mention',REVIEW_REQUESTED:'review_requested',REPLIED:'replied',REOPENED:'reopened',ASSIGNED:'assigned',DROPPED:'dropped'});   // an event's `type` (events.EventType)
 const VIA=Object.freeze({SYNCTEX:'synctex',TEXT:'text',MAP:'map'});   // how a pick traced its range: a pick's and a pin's `via` (limn.pins.location.mapping.Via)
-const DOC_KIND=Object.freeze({TEX:'tex',PDF:'pdf',FIGURE:'figure',MARKDOWN:'markdown'});   // a document's `kind` in /api/docs and /api/meta (limn.runtime.documents.DocKind)
+const DOC_KIND=Object.freeze({TEX:'tex',PDF:'pdf',FIGURE:'figure',MARKDOWN:'markdown',TEXT:'text'});   // a document's `kind` in /api/docs and /api/meta (limn.runtime.documents.DocKind)
 const EL_SYNC=Object.freeze({OK:'ok',MOVED:'moved',LOST:'lost'});   // where a figure pin's element is in the current build: a pin's `el_sync` (limn.builds.figure_map.ElSync)
 const SUGGEST_STATE=Object.freeze({READY:'ready',CHANGED:'changed',UNKNOWN:'unknown'});   // whether a pin's suggested edit still fits its lines: a pin's `suggest_state` (limn.pins.suggestion.SuggestState)
 const SAVE_MODE=Object.freeze({NEW:'new',APPEND:'append'});   // what a save of the composer's note does: a new pin, or the note joins the open pin the selection overlaps (assignOutcome)
@@ -64,10 +64,14 @@ function isFigureKind(kind){return kind===DOC_KIND.FIGURE;}
 // files change, so they have no rebuild and word a finished build as a redraw.
 function buildsFromSource(kind){return kind===DOC_KIND.TEX;}
 // Whether a document of this `kind` is drawn by the browser from its source (the server's renders_in_browser,
-// limn.runtime.documents.Doc.renders_in_browser): only a Markdown one. It has no pages - #doc holds its column (md-surface.js) -
-// and its line pins carry no page.
+// limn.runtime.documents.Doc.renders_in_browser): a Markdown one and a text one (ADR-0029). It has no pages - #doc holds its
+// column (md-surface.js) - and its line pins carry no page.
 /** @param {string|undefined} kind */
-function rendersInBrowser(kind){return kind===DOC_KIND.MARKDOWN;}
+function rendersInBrowser(kind){return kind===DOC_KIND.MARKDOWN||kind===DOC_KIND.TEXT;}
+// Whether a document drawn in the browser is shown line for line, as its source is, rather than parsed and drawn as Markdown: a
+// text document (plain text or source code, ADR-0029). The one place this is asked.
+/** @param {string|undefined} kind */
+function showsSourceLines(kind){return kind===DOC_KIND.TEXT;}
 // Whether a document of this `kind` is view-only - its pins are pages and regions, never lines (the server's view_only,
 // limn.runtime.documents.Doc.view_only): only a view-only PDF. Every other kind takes line pins.
 /** @param {string|undefined} kind */
@@ -223,6 +227,9 @@ const T={
   blocks:'고른 줄이 걸친 블록들 전체입니다',
   section:'이 제목부터 같거나 높은 수준의 다음 제목 앞까지입니다',
   para:'드래그한 자리를 감싸는 문단 전체입니다(앞뒤 % 주석 줄은 뺍니다)',
+  txpara:'고른 줄을 감싸는, 빈 줄 사이의 문단 전체입니다',
+  txparas:'고른 줄이 걸친 문단들 전체입니다',
+  indent:'고른 줄이 머리인 들여쓰기 블록, 아니면 고른 줄을 감싼 들여쓰기 블록입니다(머리 줄부터, 닫는 괄호나 end·fi·done·esac 만 있는 줄까지)',
   env:'감싸는 \\begin{…}…\\end{…} 블록 전체입니다. (바깥)은 한 단계 더 바깥 블록입니다',
   el:'이 요소를 그린 코드 줄입니다. 대기 상자가 그림의 이 요소에 맞춰집니다',
   fig:'그림 전체를 그린 코드 줄입니다',

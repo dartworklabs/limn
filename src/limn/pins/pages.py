@@ -1,6 +1,6 @@
 """What a line pin keeps of a page: nothing, on a document without pages (docs/adr/0025-html-document-surface.md D2).
 
-A document the browser draws from its source (Doc.renders_in_browser, a Markdown document) has no pages, so its line
+A document the browser draws from its source (Doc.renders_in_browser, a Markdown or text document) has no pages, so its line
 pins hold no page, frac or pdf_build, nor the legacy frac_build. The parsers drop the ones a request sends; values a
 record still carries - a hand edit, a pin moved in from a generated .tex tab - go the next time that pin is written,
 whatever writes it: an edit, a claim, a reply, a close, a confirmation, a reopen, a drop into the Trash, a restore, or

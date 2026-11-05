@@ -4,9 +4,9 @@ docs/handbook/api.md §화면·PDF·정적 파일).
 SourceLinesRule holds source_lines to the text-mode read every other line consumer makes (tex_lines), over generated
 text and bytes and over a file holding every line end str.splitlines() knows. SourceStamp holds read_source's stamp to
 the descriptor its bytes came from, across an atomic save that lands while it reads. SourceRoute drives the route through the
-handler on a Markdown document made directly (no --doc suffix chooses the kind yet): its answer, the 1 MiB limit, the
-path checks every file route makes, who may read it, that an edit reaches the viewer's light poll, and that no request
-writes the manuscript.
+handler on a Markdown document made directly: its answer, the 1 MiB limit, the path checks every file route makes, who may
+read it, that an edit reaches the viewer's light poll, and that no request writes the manuscript. TextSourceRoute runs
+every one of them again on a text document (docs/adr/0029-text-documents.md), whose source the route serves alike.
 
 Run: uv run pytest -q src/limn/documents/tests/test_source.py
 """
@@ -23,7 +23,7 @@ from urllib.parse import quote
 from hypothesis import given, strategies as st
 
 from limn.builds import artifacts as limn_build
-from limn.documents.source import SOURCE_MAX_BYTES, SourceLines, read_source, source_lines
+from limn.documents.source import SOURCE_MAX_BYTES, SourceLines, other_line_ends, read_source, source_lines
 from limn.platform import files
 from limn.platform.files import ManuscriptFile, file_in_tree, tex_lines
 from limn.runtime.documents import Doc, RunPaths
@@ -75,6 +75,17 @@ class SourceLinesRule(unittest.TestCase):
     def test_any_bytes_are_lines_or_not_utf8_as_a_text_mode_read_has_them(self, data):
         """Any bytes give the text-mode read's lines, or None exactly where that read refuses them as not UTF-8."""
         self.assertEqual(source_lines(data), text_mode_lines(data))
+
+    @given(st.text(alphabet=st.sampled_from(list(LINE_ENDS + "ab é한")), max_size=60))
+    def test_the_other_line_ends_are_the_split_ends_that_are_not_lf_or_crlf(self, text):
+        """other_line_ends counts, by code point name and in the order they first appear, each line end that
+        splitlines(keepends=True) leaves on a line and that is not LF or CRLF - a lone CR among them."""
+        want: dict[str, int] = {}
+        for piece in text.splitlines(keepends=True):
+            end = piece[len((piece.splitlines() or [""])[0]) :]
+            if end and end not in ("\n", "\r\n"):
+                want["U+%04X" % ord(end)] = want.get("U+%04X" % ord(end), 0) + 1
+        self.assertEqual(list(other_line_ends(text)), list(want.items()))
 
     def test_a_file_with_every_line_end_is_numbered_as_tex_lines_numbers_it(self):
         """A real file holding every line end: its lines are the fourteen written out above, and tex_lines reads the same."""
@@ -143,12 +154,15 @@ class SourceStamp(unittest.TestCase):
 class SourceRoute(AccessBase):
     """The route on a LaTeX document ms (main.tex) and a Markdown document nt (notes/plan.md) inside its tree."""
 
+    KIND = "markdown"  # nt's kind (a document the browser draws)
+    NAME = "plan.md"  # nt's file in notes/
+
     def setUp(self):
         """Serve ms and nt, with nt's source holding every line end; owner Alice, editor Bob and viewer Carol in
         people.json and an API token for the agent role."""
         super().setUp()
         (self.src / "notes").mkdir()
-        self.md = self.src / "notes" / "plan.md"
+        self.md = self.src / "notes" / self.NAME
         self.md.write_bytes(EVERY_LINE_END.encode("utf-8"))
         self.serve(self.md, ps.APP.C.paths)
         self.set_people(
@@ -161,8 +175,8 @@ class SourceRoute(AccessBase):
         _, self.token = token_create(ps.APP.C.state, "ci")
 
     def serve(self, md: Path, paths: RunPaths) -> None:
-        """Serve ms over the manuscript and nt (Markdown, made directly) at md, both with run paths `paths`."""
-        self.nt = Doc("nt", "계획", "markdown", md.parent, md, paths=paths)
+        """Serve ms over the manuscript and nt (of kind KIND, made directly) at md, both with run paths `paths`."""
+        self.nt = Doc("nt", "계획", self.KIND, md.parent, md, paths=paths)
         ps.APP.set_docs([Doc("ms", "본문", "tex", self.src, self.main, paths=paths), self.nt])
         self.addCleanup(ps.APP.set_docs, None)
 
@@ -172,7 +186,8 @@ class SourceRoute(AccessBase):
 
     def test_it_answers_the_lines_as_the_server_numbers_them(self):
         """200 with the document, the source's path as a pin stores it, the stamp of its st_mtime and its lines -
-        tex_lines' lines of the same file, every line end included."""
+        tex_lines' lines of the same file, every line end included - and each line end that is not LF or CRLF, counted
+        by name (CRLF is not one of them)."""
         code, body = self.source()
         self.assertEqual(code, 200, body)
         checked = file_in_tree(str(self.md), self.src, ps.APP.C.state)
@@ -182,6 +197,17 @@ class SourceRoute(AccessBase):
             "file": str(self.md),
             "src_mtime": os.stat(self.md).st_mtime,
             "lines": EVERY_LINE_END_LINES,
+            "line_ends": {
+                "U+000D": 1,
+                "U+000B": 1,
+                "U+000C": 1,
+                "U+001C": 1,
+                "U+001D": 1,
+                "U+001E": 1,
+                "U+0085": 1,
+                "U+2028": 1,
+                "U+2029": 1,
+            },
         }
         self.assertEqual(body, want)
         self.assertEqual(body["lines"], tex_lines(checked))
@@ -312,3 +338,13 @@ class SourceRoute(AccessBase):
         answers.append(self.call("GET", "/api/source?doc=ms")[0])
         self.assertEqual(answers, [200, 413, 422, 400, 400])
         self.assertEqual(tree(), before)
+
+
+class TextSourceRoute(SourceRoute):
+    """Every SourceRoute test on a text document nt (notes/plan.txt): the route serves a text document's source as it
+    serves a Markdown one's - the lines as the server numbers them and the line ends that are not LF or CRLF, the 1 MiB
+    limit and its 413, the refusal of bytes that are not UTF-8 and of paths outside the tree, the same readers - and
+    writes nothing."""
+
+    KIND = "text"
+    NAME = "plan.txt"
