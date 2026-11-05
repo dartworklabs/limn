@@ -2385,6 +2385,35 @@ class FarJump(PanelBase):
       const note = () => {const n = p.dataset.page; if (w.pages[w.pages.length - 1] !== n) w.pages.push(n); if (p.classList.contains('flash') && !w.flash.includes(n)) w.flash.push(n);};
       new MutationObserver(note).observe(p, {attributes: true, attributeFilter: ['data-page', 'class']});
       const tick = () => {note(); requestAnimationFrame(tick);}; requestAnimationFrame(tick);}"""
+    # The page list's jump from page 1 to page 5 (goPage), and at the first scroll event of its glide that brings page 3 or
+    # a later one under the reading line while the viewer still glides, the pin list's redraw (drawPageVerdicts) - in the
+    # page, in the same event: the jump, the look and the redraw are one call. A test that started the jump, then looked
+    # on its frames from its own process, then redrew, had to catch the glide across three round trips: a test process
+    # late by the glide's length never saw it under way (#423). A scroll event comes before the glide's end (scrollend),
+    # so the redraw always meets the glide, however late the test or the frames are. Returns the page under the reading
+    # line, whether the viewer glides and the page the panel shows, after the redraw; null if the glide ended first.
+    READ_AGAIN_ON_THE_WAY = """async () => {const L = document.querySelector('#left');
+      const at = await new Promise(done => {const stop = n => {L.removeEventListener('scroll', look); L.removeEventListener('scrollend', end); done(n);};
+        const look = () => {if (pvAutoScrolling() && pvReadingAt() >= 3) stop(pvReadingAt());}, end = () => stop(0);
+        L.addEventListener('scroll', look, {passive: true}); L.addEventListener('scrollend', end); goPage(5);});
+      if (!at) return null;
+      drawPageVerdicts();
+      return {at, gliding: pvAutoScrolling(), panel: +document.getElementById('pv-panel').dataset.page};}"""
+    # The same jump, and at the first scroll event of its glide past page 1 while the viewer still glides, the hand on the
+    # pages (PV_HAND, as a wheel's first event) - in the page, in the same event - then, on the next frame, the reading
+    # page and the page the panel shows. The glide's end (scrollend) is kept from the viewer until then, so only the hand
+    # can have let the panel go: a glide landing in that frame would have let it go too. Null if the glide ended first.
+    HAND_ON_THE_WAY = """async () => {const L = document.querySelector('#left');
+      let look = () => {}, hold = () => {}, ends = 0;
+      try {const at = await new Promise(done => {look = () => {if (pvAutoScrolling() && pvReadingAt() > 1) done(pvReadingAt());};
+          hold = e => {if (e.target === L) {e.stopImmediatePropagation(); ends++; done(0);}};
+          addEventListener('scrollend', hold, true); L.addEventListener('scroll', look, {passive: true}); goPage(5);});
+        L.removeEventListener('scroll', look);
+        if (!at) return null;
+        PV_HAND();
+        await new Promise(r => requestAnimationFrame(() => r()));
+        return {at, reading: pvReadingAt(), panel: +document.getElementById('pv-panel').dataset.page};}
+      finally {L.removeEventListener('scroll', look); removeEventListener('scrollend', hold, true); if (ends) L.dispatchEvent(new Event('scrollend'));}}"""
 
     def landed(self, page, n):
         page.wait_for_function(RESTING, polling="raf", timeout=10000)
@@ -2428,25 +2457,24 @@ class FarJump(PanelBase):
 
     def test_a_list_read_again_during_the_glide_keeps_the_panel_held(self):
         """The pin list read again while the pages glide past page 3 (drawPageVerdicts): the panel still shows the page it
-        left, and fills once where the jump lands."""
+        left, and fills once where the jump lands. The redraw is made in the page as the glide passes (READ_AGAIN_ON_THE_WAY)."""
         page = self.on()
         page.evaluate(self.WATCH)
-        page.evaluate("goPage(5)")
-        page.wait_for_function("()=>pvAutoScrolling()&&pvReadingAt()>=3", polling="raf")
-        page.evaluate("drawPageVerdicts()")
-        self.assertEqual(page.evaluate(PANEL)["page"], 1)
+        got = page.evaluate(self.READ_AGAIN_ON_THE_WAY)
+        self.assertIsNotNone(got, "the glide ended before page 3 came under the reading line")
+        self.assertGreaterEqual(got["at"], 3, got)
+        self.assertEqual((got["gliding"], got["panel"]), (True, 1), got)
         self.landed(page, 5)
         self.assertEqual(page.evaluate("window.__shown.pages"), ["1", "5"])
 
     def test_a_hand_on_the_pages_during_the_glide_lets_the_panel_follow_at_once(self):
-        """The wheel during a jump's glide takes the pages over: the panel follows the reading page from the next frame."""
+        """The wheel during a jump's glide takes the pages over: the panel follows the reading page from the next frame. The
+        hand comes in the page as the glide passes page 1, and the glide's end waits meanwhile (HAND_ON_THE_WAY)."""
         page = self.on()
-        page.evaluate("goPage(5)")
-        page.wait_for_function("()=>pvAutoScrolling()&&pvReadingAt()>1", polling="raf")
-        page.evaluate("PV_HAND()")
-        page.wait_for_function(
-            "()=>document.getElementById('pv-panel').dataset.page===String(pvReadingAt())", polling="raf"
-        )
+        got = page.evaluate(self.HAND_ON_THE_WAY)
+        self.assertIsNotNone(got, "the glide ended before it left page 1")
+        self.assertGreater(got["reading"], 1, got)
+        self.assertEqual(got["panel"], got["reading"], got)
 
 
 class MixedWidths(PanelBase):
