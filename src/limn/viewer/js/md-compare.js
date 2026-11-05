@@ -22,6 +22,8 @@ const MDC_DIFF_CELLS=4e6;   // the most cells one block or word comparison fills
 // weighs): past it no more blocks are paired and no more words marked - what is left is added and taken out as it is, at once.
 const MDC_WORK=8e6;
 const MDC_UNIT='p,h1,h2,h3,h4,h5,h6,pre,tr,hr,li,.md-html,.md-html-run,.md-front';
+// The boxes mdcRegroup looks at, a split or a join of which the two kept blocks beside it show: a quote, a list, a list item.
+const MDC_REGROUP=/^(?:BLOCKQUOTE|UL|OL|LI)$/;
 const MDC_LABEL={ins:'더함',del:'뺌',mod:'고침',move:'옮김'};
 // Whether the document on screen is drawn from Markdown (the rendered compare's documents): a text document shows its lines
 // as they are, and its source diff is that already.
@@ -256,14 +258,20 @@ function mdcOps(ou,nu,budget){budget=budget||mdcBudget(); const raw=mdcLcs(ou,nu
 // into one. No key can say it: a key holds the kinds of a block's boxes, never where a box begins or ends, so an item added
 // at a list's top changes no other item. A split that a block added or moved in between makes, standing in neither of
 // their boxes (a paragraph put between two items), is that block's own change: nothing more is marked. Both blocks of a
-// split or a join become blocks changed in place (an eq op a mod) whose op says how ('split', 'merge'; mdcWhy). Pure over
-// the units' boxes (grp: which boxes, by identity; box: their kinds) but for the ops it marks.
+// split or a join become blocks changed in place (an eq op a mod) whose op says how ('split', 'merge'; mdcWhy). Only the
+// quote and list boxes count (MDC_REGROUP): the words name those, and they are the boxes that split or join with no block
+// changing. A table cannot: the second of two tables starts with a header row of its own, so a split or a join adds,
+// takes out or changes that row (th cells for td), and that row says it - two tables joined are not "quotes or lists".
+// Pure over the units' boxes (grp: which boxes, by identity; box: their kinds, one for each) but for the ops it marks.
 /** @param {MdcUnit[]} ou @param {MdcUnit[]} nu @param {{t:string,a:number,b:number,how?:string[]}[]} ops */
-function mdcRegroup(ou,nu,ops){const kept=ops.filter(o=>o.t==='eq'||o.t==='mod');
-  // how many boxes two units of one side share from the outside in
-  const shared=(/** @type {MdcUnit} */x,/** @type {MdcUnit} */y)=>{const a=x.grp||[],b=y.grp||[]; let d=0; while(d<a.length&&d<b.length&&a[d]===b[d])d++; return d;};
-  // the kinds of a unit's d outermost boxes (a numbered list's start aside), null when it sits in fewer
-  const kinds=(/** @type {MdcUnit} */u,/** @type {number} */d)=>{const k=u.box?u.box.replace(/OL\d+/g,'OL').split('>'):[]; return k.length>=d?k.slice(0,d).join('>'):null;};
+function mdcRegroup(ou,nu,ops){const kept=ops.filter(o=>o.t==='eq'||o.t==='mod'),memo=/** @type {Map<MdcUnit,{g:unknown,t:string}[]>} */(new Map());
+  // a unit's quote and list boxes, outermost first: each box (by identity) and its kind (a numbered list's start aside)
+  const own=(/** @type {MdcUnit} */u)=>{let r=memo.get(u); if(r)return r; const k=u.box?u.box.split('>'):[]; r=[];
+    (u.grp||[]).forEach((g,i)=>{const t=String(k[i]||'').replace(/^OL\d+$/,'OL'); if(MDC_REGROUP.test(t))r.push({g,t});}); memo.set(u,r); return r;};
+  // how many of those boxes two units of one side share from the outside in
+  const shared=(/** @type {MdcUnit} */x,/** @type {MdcUnit} */y)=>{const a=own(x),b=own(y); let d=0; while(d<a.length&&d<b.length&&a[d].g===b[d].g)d++; return d;};
+  // the kinds of a unit's d outermost quote and list boxes, null when it sits in fewer
+  const kinds=(/** @type {MdcUnit} */u,/** @type {number} */d)=>{const k=own(u); return k.length>=d?k.slice(0,d).map(x=>x.t).join('>'):null;};
   const alike=(/** @type {MdcUnit} */o,/** @type {MdcUnit} */n,/** @type {number} */d)=>{const k=kinds(o,d); return k!==null&&k===kinds(n,d);};
   const mark=(/** @type {{t:string,how?:string[]}} */o,/** @type {string} */how)=>{if(o.t==='eq')o.t='mod'; const l=o.how||(o.how=[]); if(!l.includes(how))l.push(how);};
   for(let i=1;i<kept.length;i++){const p=kept[i-1],q=kept[i],was=shared(ou[p.a],ou[q.a]),now=shared(nu[p.b],nu[q.b]),d=Math.max(was,now);

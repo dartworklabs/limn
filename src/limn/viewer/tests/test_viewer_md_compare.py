@@ -960,6 +960,34 @@ class BoxesSplitEnglish(BoxesSplit):
         self.assertEqual(page.evaluate(whys), ["Quotes or lists joined into one"] * 4)
 
 
+TABLES = "# 표\n\n| 가 |\n|---|\n| 가 행이다 |\n\n| 나 |\n|---|\n| 나 행이다 |\n\n끝 문단이다.\n"
+
+
+class TablesJoined(OneNote):
+    """Two one-column tables: the first commit joins them (the second's header row, delimiter row and the blank line
+    before them deleted), the second splits them again."""
+
+    def texts(self):
+        return [TABLES, TABLES.replace("| 가 행이다 |\n\n| 나 |\n|---|\n", "| 가 행이다 |\n"), TABLES]
+
+    def test_tables_joined_or_split_show_as_their_header_row_alone(self):
+        """The split adds the second table's header row and the join takes it out: that row is the change, the body rows
+        beside it are not marked, and nothing says a quote or list split or joined - a table's boxes are not regrouped
+        (mdcRegroup, MDC_REGROUP). Mutation: regroup every box (MDC_REGROUP matching any tag) -> the join marks both body
+        rows changed in place, 'quotes or lists joined into one', and the split both, fails."""
+        page = self.open_compare()
+        whys = "[...document.querySelectorAll('#revision-rendered [data-mdc]')].map(e=>e.dataset.mdcWhy||'')"
+        self.assertEqual(self.marks(page), [["ins", "TR", "나"]])
+        self.assertEqual(page.evaluate(whys), [""])
+        self.show(page, self.c[1])
+        self.assertEqual(self.marks(page), [["del", "TR", "나"]])
+        self.assertEqual(page.evaluate(whys), [""])
+        # one table, the header row taken out struck through in it
+        self.assertEqual(
+            page.evaluate("[...document.querySelectorAll('#revision-rendered table')].map(t=>t.rows.length)"), [4]
+        )
+
+
 class UpdateMessageRange(CompareBase):
     """This browser last saw the note at the table's commit (self.c[2]): the boot says the note changed - two commits -
     with [변경 보기], which opens just those commits, c[2] → c[4] (docs/handbook/viewer.md §새 소식). On a Markdown

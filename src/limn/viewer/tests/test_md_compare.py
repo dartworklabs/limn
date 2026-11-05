@@ -162,10 +162,12 @@ class CompareRules(unittest.TestCase):
         """Two kept blocks that shared a box and now sit in two boxes of the same kind - one quote become two, a list cut
         in two by another bullet, a list cut in three - are blocks changed in place whose ops say 'split'; the other way
         round, 'merge'; mdcWhy says so, after a change of their own. One list on both sides (every bullet changed), an
-        item added at its top, a paragraph put between two items (the split is that paragraph's) and a block that left
-        the quote (its own change) mark nothing more. Mutations: drop mdcRegroup -> the splits stay eq, fails; leave out
-        what was added between -> the items beside the paragraph are split, fails."""
-        q, li = "BLOCKQUOTE", "UL"
+        item added at its top, a paragraph put between two items (the split is that paragraph's), a block that left the
+        quote (its own change) and two tables joined or one split (a table's boxes are not regrouped: its header row says
+        it) mark nothing more; two quotes that each hold a table, joined, say so. Mutations: drop mdcRegroup -> the
+        splits stay eq, fails; leave out what was added between -> the items beside the paragraph are split, fails;
+        regroup every box (MDC_REGROUP matching any tag) -> the tables' rows are joined and split, fails."""
+        q, li, t, qt = "BLOCKQUOTE", "UL", "TABLE>TBODY", "BLOCKQUOTE>TABLE>TBODY"
         alpha, beta, gamma = "알파 문단이다", "베타 문단이다", "감마 문단이다"
         cases = [
             # one quote become two, and back
@@ -227,6 +229,24 @@ class CompareRules(unittest.TestCase):
                 [unit("P", alpha, box=q, grp=["q"]), unit("P", beta, box=q, grp=["q"])],
                 [unit("P", alpha, box=q, grp=["q"]), unit("P", beta)],
                 [["eq", 0, 0, []], ["mod", 1, 1, []]],
+            ),
+            # two tables joined into one, and one split in two: a table's boxes are no quote or list (its header row,
+            # added or taken out, says it)
+            (
+                [unit("TR", alpha, box=t, grp=["t1", "b1"]), unit("TR", beta, box=t, grp=["t2", "b2"])],
+                [unit("TR", alpha, box=t, grp=["t", "b"]), unit("TR", beta, box=t, grp=["t", "b"])],
+                [["eq", 0, 0, []], ["eq", 1, 1, []]],
+            ),
+            (
+                [unit("TR", alpha, box=t, grp=["t", "b"]), unit("TR", beta, box=t, grp=["t", "b"])],
+                [unit("TR", alpha, box=t, grp=["t1", "b1"]), unit("TR", beta, box=t, grp=["t2", "b2"])],
+                [["eq", 0, 0, []], ["eq", 1, 1, []]],
+            ),
+            # ... but two quotes that each hold a table, joined into one quote: the quote's join is said
+            (
+                [unit("TR", alpha, box=qt, grp=["q1", "t1", "b1"]), unit("TR", beta, box=qt, grp=["q2", "t2", "b2"])],
+                [unit("TR", alpha, box=qt, grp=["q", "t1", "b1"]), unit("TR", beta, box=qt, grp=["q", "t2", "b2"])],
+                [["mod", 0, 0, ["merge"]], ["mod", 1, 1, ["merge"]]],
             ),
         ]
         for old, new, want in cases:
