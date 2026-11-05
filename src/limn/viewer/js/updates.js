@@ -11,7 +11,8 @@
 // - back after a while, what came meanwhile is said as one message (notices.js digestBegin, polling.js).
 const UPD={moved:/** @type {Map<string,{moved:Set<number>,lost:Set<number>}>} */(new Map()),
   lines:/** @type {Map<string,{base:string[],ranges:{lo:number,hi:number}[],at:number}>} */(new Map()),expect:0,expectAt:0,
-  seenAt:/** @type {Map<string,number>} */(new Map()),top:/** @type {number|null} */(null)};
+  seenAt:/** @type {Map<string,number>} */(new Map()),top:/** @type {number|null} */(null),
+  checking:/** @type {Map<string,string>} */(new Map())};   // document -> the version a check is reading the history for
 const UPD_EXPECT_MS=120000;   // after a source change is seen, how long its pins' moves wait for the document's update message
 const DIGEST_TAIL_MS=2500;   // how long a gathering waits after its poll for the build and the update it set going
 const LINE_DIFF_MAX=500;   // edit steps the line comparison tries before calling the whole middle one changed place
@@ -147,8 +148,12 @@ function shownRows(rows,head,behind){const i=head?rows.findIndex(r=>r.id.startsW
 async function checkDocUpdate(k,ctx){if(!k)return; const now=updDocState(k); if(!now)return; const seen=seenDoc(k),open=GROUPS.has('upd:'+k);
   if(seen&&(seen.ver===now.ver&&!open||verAfter(seen.ver,now.ver)))return;
   const first=!seen||(!!ctx.mine&&!open); if(seen&&!first&&seen.ver===now.ver)return;
-  const [rows,build]=await Promise.all([docRows(k),docBuild(k,now)]),cur=updDocState(k);
-  if(!cur||cur.ver!==now.ver||!build)return;   // a newer change came meanwhile: its own check says it
+  if(!ctx.mine&&UPD.checking.get(k)===now.ver)return;   // a check of this version is reading the history: it says it
+  UPD.checking.set(k,now.ver);
+  let rows,build; try{[rows,build]=await Promise.all([docRows(k),docBuild(k,now)]);}
+  finally{if(UPD.checking.get(k)===now.ver)UPD.checking.delete(k);}
+  const cur=updDocState(k);
+  if(!cur||cur.ver!==now.ver||!build)return;   // a newer change came meanwhile: its own check says it (the redraw asks)
   const last=seenDoc(k)||seen;
   if(!first&&last&&(last.ver===now.ver||verAfter(last.ver,now.ver))){if(!GROUPS.has('upd:'+k))updForget(k); return;}
   const shown=shownRows(rows||[],build.head,build.behind);
@@ -222,7 +227,9 @@ function openUpdateRange(k,base,top){const go=()=>{REV.want={base,top:top||''}; 
 /** @param {string} k @param {string[]|null} before @param {string[]} now */
 function updSourceRedrawn(k,before,now){const u=UPD.lines.get(k),seen=seenDoc(k),cur=updDocState(k);
   const base=u?u.base:before&&seen&&cur&&verAfter(cur.ver,seen.ver)?before:null;
-  if(!base){if(before)checkDocUpdate(k,{}); return;}
+  // the first draw of a visit asks too: a change that came between the page's meta and this draw made the boot's check
+  // give up (its version no longer the one on screen), and nothing else would ask until the next change
+  if(!base){checkDocUpdate(k,{}); return;}
   const ranges=lineChanges(base,now,LINE_DIFF_MAX); if(!u&&!ranges.length)return;
   const same=!!u&&JSON.stringify(u.ranges)===JSON.stringify(ranges);
   UPD.lines.set(k,{base,ranges,at:u&&same?u.at:-1}); updMarks();

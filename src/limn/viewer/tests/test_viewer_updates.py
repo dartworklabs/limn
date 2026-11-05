@@ -115,6 +115,32 @@ class PureRules(unittest.TestCase):
         self.assertEqual((got[8]["n"], got[8]["unknown"]), (0, False))
         self.assertEqual((got[6]["n"], got[6]["prs"], got[6]["subject"]), (1, [12], "Shorten the introduction"))
 
+    def test_a_first_draw_asks_again_and_one_version_is_read_once(self):
+        """A first visit: the boot's check of source version 100 is reading the history when the source changes to 200
+        and the visit's first draw shows it (updSourceRedrawn with no lines before). That check gives up (its version is
+        no longer the one on screen) and the draw asks again, so version 200 is what this device has seen - not nothing,
+        which would take the next change for a first visit and say nothing of it. Two checks of one version at once read
+        the history once. Mutations: ask only after a draw with lines before -> nothing is recorded, fails; drop the
+        in-flight check -> the history is read twice, fails."""
+        got = node_json(
+            ["describeCommits", "shownRows", "docBuild", "verAfter", "checkDocUpdate", "updSourceRedrawn"],
+            """const DOC='nt',META_BY=new Map(),GROUPS=new Map(),UPD={checking:new Map(),lines:new Map()}; let META=null,rec=null,state=null,reads=0,go=null;
+            function rendersInBrowser(kind){return kind==='md';} function updDocState(){return state;} function seenDoc(){return rec;}
+            function setSeenDoc(k,r){rec=r;} function dq(u){return u;} async function api(){throw new Error('not asked');}
+            function docUpdateView(){} function groupNote(){}
+            async function docRows(){reads++; await new Promise(r=>{const was=go; go=()=>{if(was)was(); r();};}); return [];}
+            (async()=>{const out={};
+              state={ver:'src:100',name:'노트',kind:'md'}; const boot=checkDocUpdate('nt',{});
+              state={ver:'src:200',name:'노트',kind:'md'}; updSourceRedrawn('nt',null,['새 줄']);
+              await new Promise(r=>setTimeout(r,0)); go(); await boot; for(let i=0;i<5;i++)await new Promise(r=>setTimeout(r,0));   // the draw's check, not awaited by it
+              out.first=[rec&&rec.ver,reads];
+              rec=null; reads=0; go=null; const a=checkDocUpdate('nt',{}),b=checkDocUpdate('nt',{});
+              await new Promise(r=>setTimeout(r,0)); go(); await a; await b; out.once=[rec&&rec.ver,reads];
+              console.log(JSON.stringify(out));})();""",
+        )
+        self.assertEqual(got["first"], ["src:200", 2])
+        self.assertEqual(got["once"], ["src:200", 1])
+
     def test_what_a_built_document_showed_is_its_builds_commit_not_the_checkouts_newest(self):
         """checkDocUpdate with docBuild and shownRows: a first visit while build A shows and the checkout is already at
         commit B records A's commit, so build B then says the one commit B with its PR, not 'files changed without a
@@ -124,7 +150,7 @@ class PureRules(unittest.TestCase):
         such a commit, still behind, after a known one names none either and leaves no commit as seen."""
         got = node_json(
             ["prOf", "describeCommits", "shownRows", "docBuild", "verAfter", "checkDocUpdate"],
-            """const DOC='ms',META_BY=new Map(),GROUPS=new Map(),said=[]; let META=null,rec=null,state=null,ROWS=[];
+            """const DOC='ms',META_BY=new Map(),GROUPS=new Map(),UPD={checking:new Map()},said=[]; let META=null,rec=null,state=null,ROWS=[];
             function rendersInBrowser(){return false;} function updDocState(){return state;} function seenDoc(){return rec;}
             function setSeenDoc(k,r){rec=r;} async function docRows(){return ROWS;} function dq(u){return u;}
             async function api(){throw new Error('not asked');} function docUpdateView(){}
@@ -154,7 +180,7 @@ class PureRules(unittest.TestCase):
         build is known and only the order of versions keeps the older one from being said."""
         got = node_json(
             ["describeCommits", "shownRows", "docBuild", "verAfter", "checkDocUpdate"],
-            """const DOC='nt',META_BY=new Map(),GROUPS=new Map(),said=[]; let META=null,rec=null,state=null,reads=0;
+            """const DOC='nt',META_BY=new Map(),GROUPS=new Map(),UPD={checking:new Map()},said=[]; let META=null,rec=null,state=null,reads=0;
             function rendersInBrowser(k){return k==='md';} function updDocState(){return state;} function seenDoc(){return rec;}
             function setSeenDoc(k,r){rec=r;} async function docRows(){reads++; return [];} function dq(u){return u;}
             async function api(){throw new Error('not asked');} function docUpdateView(){}
@@ -185,7 +211,7 @@ class PureRules(unittest.TestCase):
         counted from B's commit."""
         got = node_json(
             ["prOf", "describeCommits", "shownRows", "docBuild", "verAfter", "checkDocUpdate"],
-            """const DOC='ms',META_BY=new Map(),GROUPS=new Map(); let META=null,rec=null,later=null,said=[],forgot=[];
+            """const DOC='ms',META_BY=new Map(),GROUPS=new Map(),UPD={checking:new Map()}; let META=null,rec=null,later=null,said=[],forgot=[];
             function rendersInBrowser(){return false;} function seenDoc(){return rec;} function setSeenDoc(k,r){rec=r;}
             function updDocState(){return {ver:'build:pages-20261105120000',name:'본문',kind:'tex'};}
             function dq(u){return u;} async function api(){throw new Error('not asked');} function docUpdateView(){}
@@ -462,7 +488,9 @@ class Grouping(unittest.TestCase):
         confirmed and leaves the review list: the folded request goes, its group with it, the folded line says and marks
         what is left - [검토 M]'s dot goes - and [펼치기] never puts #1 back. Looking at the review section takes a folded
         request whose pin still awaits review the same way; one left stays a folded line naming it, and a folded line
-        whose every message went that way goes."""
+        whose every message went that way goes. A request still being gathered when the list comes (the return's poll said
+        it first) goes the same way, never said, and the dot stays only for what still awaits review. Mutation: leave the
+        gathering out of dropStaleReview -> #3 is said after the gathering ends, fails."""
         got = self.run_store(
             """const kv=g=>({msg:'#'+g.ids.join(', #')+' 검토 대기',kind:NOTICE_KIND.OK,act:null,
               o:{keys:g.ids.map(i=>'review_requested:'+i),dot:NOTICE_DOT.RV,brief:'검토 대기 '+g.ids.length}});
@@ -476,7 +504,11 @@ class Grouping(unittest.TestCase):
             noticeSeen(NOTICE_DOT.RV); out.seen=marks(); reset(); REVIEW_ALL=[];
             digestBegin('지난 방문 뒤'); groupNote('review',{ids:[7]},kv,merge,less);
             lineNote('핀 #8 · 본문 — 검토 대기: 고침',NOTICE_KIND.OK,null,{literal:true,group:'ev:review_requested',keys:['review_requested:8'],rank:2,dot:NOTICE_DOT.RV,brief:'검토 대기'});
-            digestEnd(); out.both=marks(); dropStaleReview(); out.none=marks();
+            digestEnd(); out.both=marks(); dropStaleReview(); out.none=marks(); reset(); REVIEW_ALL=[{id:9}];
+            digestBegin('지난 방문 뒤'); groupNote('review',{ids:[3]},kv,merge,less); groupNote('review9',{ids:[9]},kv,null); groupNote('done',{ids:[6]},done,null);
+            REVIEW_ALL=[{id:9}]; dropStaleReview(); out.gathering=[[...BODY].sort(),GROUPS.has('review')]; digestEnd(); out.after=marks();
+            REVIEW_ALL=[]; reset(); digestBegin('지난 방문 뒤'); groupNote('review',{ids:[3]},kv,merge,less); groupNote('done',{ids:[6]},done,null);
+            dropStaleReview(); out.dotless=[...BODY].sort(); digestEnd(); out.alone=said();
             console.log(JSON.stringify(out));"""
         )
         self.assertEqual(got["before"], [["지난 방문 뒤 — 검토 대기 1 · 완료 2"], ["dot-rv"], [["rv"]]])
@@ -485,6 +517,11 @@ class Grouping(unittest.TestCase):
         self.assertEqual(got["seen"], [["지난 방문 뒤 — 완료 1"], [], [[]]])
         self.assertEqual(got["both"], [["지난 방문 뒤 — 검토 대기 2"], ["dot-rv"], [["rv"]]])
         self.assertEqual(got["none"], [[], [], []])
+        # still being gathered when the list comes: #3 left review, so it is never said; #9 still waits, its dot stays
+        self.assertEqual(got["gathering"], [["dot-rv"], False])
+        self.assertEqual(got["after"], [["지난 방문 뒤 — 검토 대기 1 · 완료 1"], ["dot-rv"], [["rv"]]])
+        self.assertEqual(got["dotless"], [])
+        self.assertEqual(got["alone"], ["#6 완료"])
 
     def test_closing_a_gathered_line_ends_its_groups_so_new_pins_are_seen(self):
         """A gathered line holding new pins (newPinsView) and a document's update, closed with [x]: its groups end with
