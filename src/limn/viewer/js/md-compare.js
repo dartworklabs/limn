@@ -286,24 +286,42 @@ function mdcEl(tag,text){const e=document.createElement(tag); e.className='mdc-w
 function mdcMark(el,kind,why){el.classList.add('mdc-'+kind); el.dataset.mdc=kind; if(why){el.dataset.mdcWhy=why; el.dataset.tip=why;}
   const s=document.createElement('span'); s.className='sr-only'; s.textContent=tr({ins:'더한 블록',del:'뺀 블록',mod:'고친 블록',move:'옮긴 블록'}[kind]||'')+(why?' ('+why+')':'')+': ';
   if(el.tagName==='TR'){const c=el.firstElementChild; if(c)c.prepend(s);} else if(el.tagName!=='HR')el.prepend(s);}
-// The element a taken-out list item leaves behind in one column: its own text, without the nested blocks the new side keeps.
+// The element a taken-out list item leaves behind in one column: its own text, without the nested blocks (units of their own,
+// put back into it when they are taken out too, mdcPlace). Its own nodes are moved, never copied: an image keeps the load and
+// error handlers the renderer gave it (mdImage), so it gets its size or falls back to its alt text as in the document view.
 /** @param {MdcUnit} u */
-function mdcOwn(u){if(u.el.tagName!=='LI')return u.el; const c=/** @type {HTMLElement} */(u.el.cloneNode(true));
-  [...c.children].forEach(x=>{if(mdcNested(x))x.remove();}); return c;}
+function mdcOwn(u){if(u.el.tagName!=='LI')return u.el; const c=/** @type {HTMLElement} */(u.el.cloneNode(false));
+  for(const x of [...u.el.childNodes])if(!(x.nodeType===1&&mdcNested(/** @type {Element} */(x))))c.appendChild(x); return c;}
 /** @param {Element} e @param {Element} root */
 function mdcBox(e,root){const p=e.parentElement; return !p||p===root?'root':p.tagName;}
-/** @param {Element} e @param {Element} root */
-function mdcTop(e,root){let x=e; while(x.parentElement&&x.parentElement!==root)x=x.parentElement; return x;}
-// Puts el - a block taken out of the old side (its old place: ref, in oroot) - into the new side's root: right after the last
-// block laid (prev) or before the next new block when that one sits in the same kind of box (a list, a table, a quote, the
-// column); otherwise inside shallow copies of the boxes it sat in, after prev's top block. Returns el, the next block's prev.
-/** @param {HTMLElement} el @param {HTMLElement} ref @param {HTMLElement} oroot @param {HTMLElement|null} prev @param {HTMLElement|null} next @param {HTMLElement} root */
-function mdcPlace(el,ref,oroot,prev,next,root){const want=mdcBox(ref,oroot);
-  if(prev&&mdcBox(prev,root)===want){prev.after(el); return el;}
-  if(next&&mdcBox(next,root)===want){next.before(el); return el;}
-  let node=/** @type {HTMLElement} */(el); for(let a=ref.parentElement;a&&a!==oroot;a=a.parentElement){const c=/** @type {HTMLElement} */(a.cloneNode(false));
-    delete c.dataset.lo; delete c.dataset.hi; c.appendChild(node); node=c;}
-  if(prev)mdcTop(prev,root).after(node); else if(next)mdcTop(next,root).before(node); else root.appendChild(node);
+// The boxes of the two sides that stand for each other: an old element -> the new side's elements that stand for it. A block
+// kept as it was or changed in place stands for its old self, and so does each box it sits in for the old block's box at the
+// same height while their tags agree (mdcPair); a block taken out, a moved block's old place and the shallow copy of a box made
+// for them stand for what they were put back for (mdcPlace). A moved block's new place stands for nothing on the old side.
+/** @typedef {Map<Element,Element[]>} MdcBoxes */
+/** @param {MdcBoxes} boxes @param {Element} o @param {Element} n */
+function mdcStand(boxes,o,n){const l=boxes.get(o); if(!l)boxes.set(o,[n]); else if(!l.includes(n))l.push(n);}
+/** @param {MdcBoxes} boxes @param {HTMLElement} o @param {HTMLElement} n @param {HTMLElement} oroot @param {HTMLElement} nroot */
+function mdcPair(boxes,o,n,oroot,nroot){
+  for(let a=/** @type {Element|null} */(o),b=/** @type {Element|null} */(n);a&&b&&a!==oroot&&b!==nroot&&a.tagName===b.tagName;a=a.parentElement,b=b.parentElement)mdcStand(boxes,a,b);}
+// The child of box that holds e (e itself, or the box's child it sits in), or null when e is not inside box.
+/** @param {Element} e @param {Element} box */
+function mdcChildOf(e,box){let x=/** @type {Element|null} */(e); while(x&&x.parentElement!==box)x=x.parentElement; return x;}
+// Puts el - a block taken out of the old side (its old place: ref, in oroot), or a moved block's old place - into the new side's
+// root, inside the very boxes ref sat in: the nearest of ref's old boxes that something on the new side stands for (boxes; the
+// column when none) - of those, the one prev (the last block laid) or else next (the next new block) is in - takes it, inside
+// shallow copies of the boxes between (a deleted item's nested list, a deleted table's body), right after the part of it that
+// holds prev, else before the part that holds next, else at its end. A box is judged by what it stands for, never by its tag
+// alone: a nested list is not the list around it, and a list item's paragraph does not join the item before it. Returns el, the
+// next block's prev.
+/** @param {HTMLElement} el @param {HTMLElement} ref @param {HTMLElement} oroot @param {HTMLElement|null} prev @param {HTMLElement|null} next @param {HTMLElement} root @param {MdcBoxes} boxes */
+function mdcPlace(el,ref,oroot,prev,next,root,boxes){mdcStand(boxes,ref,el);
+  let node=/** @type {HTMLElement} */(el),a=ref.parentElement;
+  for(;a&&a!==oroot&&!boxes.has(a);a=a.parentElement){const c=/** @type {HTMLElement} */(a.cloneNode(false));
+    delete c.dataset.lo; delete c.dataset.hi; c.appendChild(node); mdcStand(boxes,a,c); node=c;}
+  const l=a&&a!==oroot?/** @type {Element[]} */(boxes.get(a)):[root],box=l.find(b=>!!prev&&b.contains(prev))||l.find(b=>!!next&&b.contains(next))||l[0];
+  const p=prev&&prev!==box?mdcChildOf(prev,box):null,q=!p&&next?mdcChildOf(next,box):null;
+  if(p)p.after(node); else if(q)q.before(node); else box.appendChild(node);
   return el;}
 // A moved block's place on the side it left: a slim line that says where it went.
 /** @param {MdcUnit} u @param {MdcUnit} to */
@@ -316,17 +334,18 @@ function mdcGhost(u,to){const p=u.el.parentElement,tag=p&&/^(UL|OL)$/.test(p.tag
 /** @param {HTMLElement} oroot @param {HTMLElement} nroot @param {MdcUnit[]} ou @param {MdcUnit[]} nu @param {any[]} ops @param {MdcBudget} [budget] */
 function mdcInline(oroot,nroot,ou,nu,ops,budget){let prev=/** @type {HTMLElement|null} */(null);
   const next=(/** @type {number} */k)=>{for(let x=k+1;x<ops.length;x++){const o=ops[x]; if(o.t!=='del'&&o.t!=='from')return nu[o.b].el;} return null;};
+  const boxes=/** @type {MdcBoxes} */(new Map()); for(const o of ops)if(o.t==='eq'||o.t==='mod')mdcPair(boxes,ou[o.a].el,nu[o.b].el,oroot,nroot);   // before anything moves
   ops.forEach((o,k)=>{
     if(o.t==='eq'){prev=nu[o.b].el; return;}
     if(o.t==='ins'||o.t==='to'||o.t==='mod'){const el=nu[o.b].el; mdcMark(el,o.t==='ins'?'ins':o.t==='to'?'move':'mod',o.t==='mod'?mdcWhy(ou[o.a],nu[o.b]):'');
       if(o.t==='to')el.dataset.mdcFrom=String(ou[o.a].lo);
       if(o.t==='mod'){mdcWordMarks(ou[o.a].el,el,budget); mdcLinkMarks(ou[o.a].el,el);} prev=el; return;}
-    const u=ou[o.a]; if(o.t==='del'){const el=mdcOwn(u); mdcMark(el,'del'); prev=mdcPlace(el,u.el,oroot,prev,next(k),nroot); return;}
+    const u=ou[o.a]; if(o.t==='del'){const el=mdcOwn(u); mdcMark(el,'del'); prev=mdcPlace(el,u.el,oroot,prev,next(k),nroot,boxes); return;}
     // blocks moved together (a section) leave one line: the first one's, widened to their lines
     const last=k>0?ops[k-1]:null; if(last&&last.t==='from'&&prev&&prev.classList.contains('mdc-ghost')&&mdcBox(u.el,oroot)===mdcBox(ou[last.a].el,oroot)){
-      const n=(+(prev.dataset.n||1))+1,lo=+(prev.dataset.toLo||0),hi=nu[o.b].hi; prev.dataset.n=String(n);
+      const n=(+(prev.dataset.n||1))+1,lo=+(prev.dataset.toLo||0),hi=nu[o.b].hi; prev.dataset.n=String(n); mdcStand(boxes,u.el,prev);
       (prev.querySelector('td')||prev).textContent=tl('여기 있던 블록 {n}개를 L{lo}–L{hi}로 옮김',{n,lo,hi}); return;}
-    prev=mdcPlace(mdcGhost(u,nu[o.b]),u.el,oroot,prev,next(k),nroot);});
+    prev=mdcPlace(mdcGhost(u,nu[o.b]),u.el,oroot,prev,next(k),nroot,boxes);});
   return nroot;}
 // The gutter chips: each marked block's kind as a word at its first line, in the column's left gutter (a layer of the column,
 // laid out again when its width changes). Not read aloud: the block itself carries its kind (mdcMark).

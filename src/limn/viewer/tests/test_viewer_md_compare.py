@@ -11,6 +11,7 @@ Run: uv run pytest -q src/limn/viewer/tests/test_viewer_md_compare.py
 
 import json
 import subprocess
+import time
 
 from limn.administration import serve_documents as startup_documents
 
@@ -707,3 +708,74 @@ class Rewrapped(OneNote):
         self.assertEqual(self.marks(page), [])
         self.assertIn("두 판의 그린 문서가 같습니다", page.locator("#revision-rendered").text_content())
         self.assertIn("바뀐 블록 없음", page.locator("#revision-status").text_content())
+
+
+class DeletedNestedList(OneNote):
+    """A list item holding a list of its own is deleted (its child with it), and so are an item of a loose list and a
+    whole table: each deleted block goes back into the boxes it sat in, each box once."""
+
+    def texts(self):
+        return [
+            "# 목록\n\n- 첫 항목이다\n- 부모 항목이다\n  - 자식 항목이다\n- 끝 항목이다\n\n중간 문단이다.\n\n"
+            "* 느슨한 첫 항목이다\n\n  그 둘째 문단이다.\n\n* 느슨한 둘째 항목이다\n\n"
+            "| 조건 | 값 |\n| --- | --- |\n| 가는 조건 | 1 |\n\n끝 문단이다.\n",
+            "# 목록\n\n- 첫 항목이다\n- 끝 항목이다\n\n중간 문단이다.\n\n* 느슨한 첫 항목이다\n\n  그 둘째 문단이다.\n\n끝 문단이다.\n",
+        ]
+
+    def test_a_deleted_item_keeps_its_nested_list_and_a_deleted_table_is_one_table(self):
+        """The child is drawn in a list inside its deleted parent, one level down, not beside it; the loose list's deleted
+        paragraph is an item of its own, not a second paragraph of the kept one; the deleted header row and body row are
+        one table. Mutation: judge a deleted block's box by the tag of its parent alone (mdcPlace before this change) ->
+        the child is a sibling of its parent, the loose item's paragraph joins the item before it and the table is two,
+        fails."""
+        page = self.open_compare()
+        got = page.evaluate(
+            "(()=>{const v=document.querySelector('#revision-rendered .mdc-doc'),own=e=>{const c=e.cloneNode(true);"
+            "c.querySelectorAll('.sr-only,ul,ol').forEach(x=>x.remove());return c.textContent.trim();};"
+            "const depth=e=>{let n=0;for(let a=e.parentElement;a&&a!==v;a=a.parentElement)if(/^(UL|OL)$/.test(a.tagName))n++;return n;};"
+            "const items=[...v.querySelectorAll('li')].map(e=>[own(e),depth(e),e.dataset.mdc||(e.querySelector(':scope>p[data-mdc]')?'p:'+e.querySelector(':scope>p').dataset.mdc:'')]);"
+            "const child=[...v.querySelectorAll('li')].find(e=>own(e)==='자식 항목이다');"
+            "const up=child&&child.parentElement.closest('li');"
+            "return {items,parent:up?own(up):'',"
+            "tables:[...v.querySelectorAll('table')].map(t=>[...t.querySelectorAll('tr')].map(r=>r.dataset.mdc||''))};})()"
+        )
+        self.assertEqual(
+            got["items"],
+            [
+                ["첫 항목이다", 1, ""],
+                ["부모 항목이다", 1, "del"],
+                ["자식 항목이다", 2, "del"],
+                ["끝 항목이다", 1, ""],
+                ["느슨한 첫 항목이다그 둘째 문단이다.", 1, ""],
+                ["느슨한 둘째 항목이다", 1, "p:del"],
+            ],
+            got,
+        )
+        self.assertEqual(got["parent"], "부모 항목이다")
+        self.assertEqual(got["tables"], [["del", "del"]])
+
+
+class DeletedListImage(OneNote):
+    """Two list items with an image each are deleted: one image of the tree, one whose file is not there."""
+
+    def texts(self):
+        return [
+            "# 그림\n\n- 있는 그림 ![있는 그림](figs/v1.png)\n- 없는 그림 ![없는 설명](figs/missing.png)\n"
+            "- 남는 항목이다\n\n끝 문단이다.\n",
+            "# 그림\n\n- 남는 항목이다\n\n끝 문단이다.\n",
+        ]
+
+    def test_a_deleted_list_items_image_loads_or_falls_back_as_in_the_document_view(self):
+        """The image that loads gets its size (md-pic-ok), and the one the server does not give becomes its alt text
+        (.md-img), as the document view draws them (ADR-0031 D8). Mutation: deep-clone the item in mdcOwn (cloneNode(true)
+        drops the image's load and error handlers) -> the missing image stays an empty box, fails."""
+        page = self.open_compare()
+        want = [[True, ""], [False, "그림: 없는 설명"]]
+        got = (
+            "[...document.querySelectorAll('#revision-rendered li[data-mdc=del]')].map(e=>"
+            "[!!e.querySelector('.md-pic-ok img'),(e.querySelector('.md-img')||{}).textContent||''])"
+        )
+        end = time.monotonic() + 10
+        while page.evaluate(got) != want and time.monotonic() < end:
+            time.sleep(0.05)
+        self.assertEqual(page.evaluate(got), want)
