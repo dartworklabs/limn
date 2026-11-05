@@ -63,13 +63,18 @@ async function pollBuildOnce(){
   if(seq===BUILD.lastSeq&&BUILD.asked&&b.unchanged===true){
     BUILD.asked=false; buildUnchanged(b);
   }else if(seq!==BUILD.lastSeq){
+    // This tab's own rebuild that pulled nothing new is an answer to it (the 6 s line below); any other new build on screen -
+    // a merge pulled, another session's rebuild, a figure or PDF that came again - is the document's update (updates.js).
+    const mine=BUILD.asked&&!(b.pull&&b.pull.state===PULL_STATE.OK);
     BUILD.lastSeq=seq; BUILD.asked=false;  // claimed before the await - so the same completion is never processed twice
     DOC_SEQ.set(k,seq);
     try{await refreshDoc();}catch(e){}
     if(k!==DOC||visit!==SWITCHSEQ)return;
     const secs=Math.round(b.elapsed_s||0);
-    if(b.state===BUILD_STATE.OK){lineNote(tr(!buildsFromSource(META.kind)?'PDF가 바뀌어 쪽을 새로 그렸습니다':'PDF 재빌드 완료')+' · '+tl('{n}쪽',{n:META.pages.length})+' · '+tl('{s}초',{s:secs})+pullSuffix(b),NOTICE_KIND.OK,null,{life:NOTICE_LIFE.TIMER}); BUILD.error=null; BUILD_ERR_BY.delete(k); hideBuildErr();}
+    if(b.state===BUILD_STATE.OK){if(mine)lineNote(tr(!buildsFromSource(META.kind)?'PDF가 바뀌어 쪽을 새로 그렸습니다':'PDF 재빌드 완료')+' · '+tl('{n}쪽',{n:META.pages.length})+' · '+tl('{s}초',{s:secs})+pullSuffix(b),NOTICE_KIND.OK,null,{life:NOTICE_LIFE.TIMER});
+      BUILD.error=null; BUILD_ERR_BY.delete(k); hideBuildErr();}
     else if(b.state===BUILD_STATE.OK_ERRORS||b.state===BUILD_STATE.FAIL)showBuildErr(b,true);   // its panel opens and it is read out; the line and the chips keep the failure
+    if(b.state!==BUILD_STATE.FAIL)checkDocUpdate(k||'',{mine});   // a failed build left the pages as they were
   }else if(!booted&&(b.state===BUILD_STATE.FAIL||b.state===BUILD_STATE.OK_ERRORS)){
     showBuildErr(b);   // a freshly opened tab - a build that already failed just opens the panel/chip (leaves a way to look at it again)
   }

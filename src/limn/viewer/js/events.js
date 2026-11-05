@@ -119,6 +119,7 @@ document.addEventListener('click',e=>{const target=/** @type {HTMLElement} */(e.
     case 'status-more':toggleStatusList();break;
     case 'status-why':statusWhy(a);break;
     case 'notice-act':noticeAct(Number(a.dataset.n));break; case 'notice-x':noticeClose(Number(a.dataset.n));break;
+    case 'reload':reloadForUpdate();break;
   }
 });
 $('#doc-select').addEventListener('change',e=>switchDoc(e.target.value));

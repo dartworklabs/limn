@@ -81,6 +81,18 @@ def extract_js_fn(name: str) -> str:
     return helpers_js.closed_set_prelude(VIEWER_CLOSED_SETS, fn) + fn
 
 
+# Stand-ins for the hooks of the viewer's update messages (js/updates.js; notices.js groupNote and the gathering) for a node
+# harness that pulls a function calling them: a group says its view at once through the harness's own lineNote, the gathering
+# and the update checks do nothing. var and function declarations, so a harness may take it more than once.
+JS_UPDATE_STUBS = r"""
+var LIGHT_OK_AT=0,AWAY_MS=120000,DIGEST_TAIL_MS=0,DIGEST=null;
+function digestBegin(){} function digestSoon(){} function awayTitle(){return '';} function checkVersion(){}
+function versionDue(){return false;} function updExpect(){} function updPinMoved(){return false;} function updNewPins(){}
+function checkDocUpdate(){} function updSourceRedrawn(){} function updMarks(){} function seenStore(){return {};} function visitedBefore(){return false;} function checkDocsSeen(){}
+function groupNote(group,data,view){const v=view(data); return lineNote(v.msg,v.kind,v.act,v.o);} function newsWithout(){return ()=>null;}
+"""
+
+
 def js_markup() -> str:
     """The viewer's markup part (js/markup.js: Html, html``, ic(), setHtml()) exactly as served, for node harnesses that
     run functions building markup. It needs esc() (js_esc()) and, to draw an icon, ICONS (js_icons() brings both)."""

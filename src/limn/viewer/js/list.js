@@ -21,7 +21,7 @@ function derivePinLists(rows,doc,defaultDoc,confirming){
 /** Apply a fresh snapshot while retaining dirty or saving editors whose pin is still present, including a rival close. */
 function applyPinLists(rows,dropped,lists){
   const prevOpen=OPEN_ALL,prevReview=REVIEW_ALL;
-  notePinChanges(prevOpen,rows,dropped); noteReviewChanges(prevReview,rows);
+  notePinChanges(prevOpen,rows,dropped); noteReviewChanges(prevReview,rows); updNewPins(rows);   // others' new pins (updates.js)
   OPEN_ALL=lists.openAll; REVIEW_ALL=lists.reviewAll; DONE_ALL=lists.doneAll; DROPPED=dropped;
   PINS=lists.openHere; DONE=lists.doneHere;
   // A pin whose [확인] waits for its undo stays in the verdict order (verdictOrder) as this snapshot has it - still awaiting

@@ -4,7 +4,7 @@ import json
 import shutil
 import unittest
 
-from helpers import extract_js_fn, run_node
+from helpers import JS_UPDATE_STUBS, extract_js_fn, run_node
 
 
 class DocumentVisitActions(unittest.TestCase):
@@ -45,6 +45,7 @@ class DocumentVisitActions(unittest.TestCase):
                   return Promise.resolve({data:{pages:[],pages_build:'same'}});
                 }
                 """,
+                JS_UPDATE_STUBS,
                 *(extract_js_fn(name) for name in functions),
                 scenario,
             ]

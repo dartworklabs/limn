@@ -49,6 +49,20 @@
     a rule and paragraphs and the math as text, on the same lines).
   - **Not included:** rendered math (KaTeX), Typst, `.qmd`/`.Rmd`, TOML front matter (`+++`) and metadata blocks in the
     middle of a document. In a table, a `|` inside math must be written `\|`, as on GitHub.
+- **The viewer says what arrived while you read (ADR-0033).** One status-line message per kind of news, from reads the
+  page already makes - no new endpoint, storage or agent contract:
+  - a document changed (a merge the instance pulled, a push without a PR, an edit in the server's tree, a figure or PDF
+    fetched again): `본문이 바뀌었습니다 — PR #12 … · Bob Park · 핀 2개 줄 이동`, until closed. [변경 보기] opens only the
+    new commits, and keeps to them when a build comes while it is open; a drawn Markdown or text document also tints the
+    changed lines and [바뀐 곳] steps through them. When the build's commit cannot be known, no PR or author is named;
+  - new pins by coauthors or agents, one message per document; replies and edits on others' pins are not news;
+  - events addressed to me (mentions, replies, review waits, reopenings, assignment, deletion), now in the tab whatever
+    the browser-notification switch says; the switch decides only system notifications;
+  - a different Limn on the server: [새로 고침], which first says so if a reply or edit is being written, never
+    reloading by itself;
+  - back after more than two minutes away: one line for everything that came meanwhile.
+  News of one kind grows one message (an agent closing twelve pins one by one is one line). What this browser has seen is
+  kept in its `localStorage`, shared by its tabs, and only moves forward.
 
 ### Changed
 
@@ -89,6 +103,12 @@
 - A pin's quote taken by a tap, or from a selection cut back to the document, keeps a hidden character exactly where it
   stands. It was read with `innerText`, which in Chromium put a line break on each side of the character's box and in
   Firefox dropped bidirectional controls altogether (on the text surface too).
+- **`GET /api/version` names the code the server runs, not the file on disk** (HTTP API semantics, #415). It read
+  `__version__` from the package file on every request, so a checkout pulled or an install upgraded under a running
+  server made it answer the new version while the old code kept running - an instance 28 releases behind looked
+  current. It is now read once when the process starts (`limn serve --version` gives the same value), so it changes only
+  after a restart, and a difference from `limn version` (the installed one) shows an instance that was not restarted.
+  The path, its fields and their types are unchanged.
 
 ### Security
 
