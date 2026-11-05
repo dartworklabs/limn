@@ -12,7 +12,7 @@
 const UPD={moved:/** @type {Map<string,{moved:Set<number>,lost:Set<number>}>} */(new Map()),
   lines:/** @type {Map<string,{base:string[],ranges:{lo:number,hi:number}[],at:number}>} */(new Map()),expect:0,expectAt:0,
   seenAt:/** @type {Map<string,number>} */(new Map()),top:/** @type {number|null} */(null),
-  checking:/** @type {Map<string,string>} */(new Map())};   // document -> the version a check is reading the history for
+  checking:/** @type {Map<string,{ver:string,again:boolean}>} */(new Map())};   // document -> the check reading its history: its version, and whether a call left it to that check
 const UPD_EXPECT_MS=120000;   // after a source change is seen, how long its pins' moves wait for the document's update message
 const DIGEST_TAIL_MS=2500;   // how long a gathering waits after its poll for the build and the update it set going
 const LINE_DIFF_MAX=500;   // edit steps the line comparison tries before calling the whole middle one changed place
@@ -148,12 +148,14 @@ function shownRows(rows,head,behind){const i=head?rows.findIndex(r=>r.id.startsW
 async function checkDocUpdate(k,ctx){if(!k)return; const now=updDocState(k); if(!now)return; const seen=seenDoc(k),open=GROUPS.has('upd:'+k);
   if(seen&&(seen.ver===now.ver&&!open||verAfter(seen.ver,now.ver)))return;
   const first=!seen||(!!ctx.mine&&!open); if(seen&&!first&&seen.ver===now.ver)return;
-  if(!ctx.mine&&UPD.checking.get(k)===now.ver)return;   // a check of this version is reading the history: it says it
-  UPD.checking.set(k,now.ver);
+  // A check of this version is reading the history: it says it - and if it gives up (its reads failed, or another version
+  // came), it asks again for the calls it stood for (again), so no version is left unchecked by one that did not finish.
+  const out=UPD.checking.get(k); if(!ctx.mine&&out&&out.ver===now.ver){out.again=true; return;}
+  const mark={ver:now.ver,again:false}; UPD.checking.set(k,mark);
   let rows,build; try{[rows,build]=await Promise.all([docRows(k),docBuild(k,now)]);}
-  finally{if(UPD.checking.get(k)===now.ver)UPD.checking.delete(k);}
+  finally{if(UPD.checking.get(k)===mark)UPD.checking.delete(k);}
   const cur=updDocState(k);
-  if(!cur||cur.ver!==now.ver||!build)return;   // a newer change came meanwhile: its own check says it (the redraw asks)
+  if(!cur||cur.ver!==now.ver||!build){if(mark.again)checkDocUpdate(k,{}); return;}   // gave up: a newer change's own check says it (the redraw asks)
   const last=seenDoc(k)||seen;
   if(!first&&last&&(last.ver===now.ver||verAfter(last.ver,now.ver))){if(!GROUPS.has('upd:'+k))updForget(k); return;}
   const shown=shownRows(rows||[],build.head,build.behind);

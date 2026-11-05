@@ -341,8 +341,9 @@ function dropStaleReview(){const ids=REVIEW_ALL.map(p=>p.id); LINE.slice().forEa
   // still being gathered (an event the return's poll said before the list came): it goes as seen too, never said
   if(DIGEST)for(const [g,a] of [...DIGEST.items]){const o=a[3]||{}; if(!reviewNewsStale(o.keys||[],ids))continue;
     DIGEST.items.delete(g); const h=GROUPS.get(g); if(h&&!(h.n&&NOTICES.has(h.n.n)))GROUPS.delete(g); if(o.onEnd)o.onEnd(false,true);}
-  const gathered=DIGEST?digestDots([...DIGEST.items.values()]):[];
-  if(!LINE.some(n=>holdsDot(n,NOTICE_DOT.RV))&&!gathered.includes(NOTICE_DOT.RV))document.body.classList.remove('dot-'+NOTICE_DOT.RV);}
+  const gathered=DIGEST?digestDots([...DIGEST.items.values()]):[];   // a line message gone above may have taken the dot a gathered request still holds
+  if(gathered.includes(NOTICE_DOT.RV))document.body.classList.add('dot-'+NOTICE_DOT.RV);
+  else if(!LINE.some(n=>holdsDot(n,NOTICE_DOT.RV)))document.body.classList.remove('dot-'+NOTICE_DOT.RV);}
 
 // ---------------- Messages that gather (docs/handbook/viewer.md §새 소식)
 // One status-line message per group ('new:<doc>', 'done', 'upd:<doc>'…): a new event of a group whose message still stands
