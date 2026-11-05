@@ -214,6 +214,24 @@ class RevisionSource(AccessBase):
         code, body = self.sides(again)
         self.assertEqual(body["new"]["lines"], PLAN.splitlines())
 
+    def test_a_file_whose_name_reads_as_pathspec_magic_has_its_sides(self):
+        """A document file named ':plan.md' or ':(glob)*.md' (a name git would read as pathspec magic) has its two sides
+        read at that very name, as the history and the source diff name it. Mutation: give ls-tree the bare path (drop
+        the ':(literal)' in _side_lines) -> ':plan.md' answers old/new null and ':(glob)*.md' source_unreadable, fails."""
+        for name in (":plan.md", ":(glob)*.md"):
+            with self.subTest(name=name):
+                md = self.src / name
+                md.write_text(PLAN, encoding="utf-8")
+                ps.APP.set_docs([Doc("mg", "마법", "markdown", self.src, md, paths=ps.APP.C.paths)])
+                self.commit("add " + name, ".")
+                md.write_text(PLAN.replace("Alpha line.", "Alpha line, magic."), encoding="utf-8")
+                edit = self.commit("edit " + name, ".")
+                code, body = self.sides(edit, doc="mg")
+                self.assertEqual(code, 200, body)
+                self.assertEqual(body["path"], name)
+                self.assertEqual(body["old"], {"lines": PLAN.splitlines(), "git_line_starts": [[1, 1], [4, 5]]})
+                self.assertEqual(body["new"]["lines"][5], "Alpha line, magic.")
+
     def test_a_read_writes_nothing(self):
         """Reading both sides of a commit and of a range leaves the state and manuscript folders as they were (ADR-0027)."""
         before = self.tree()

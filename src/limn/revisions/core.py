@@ -973,9 +973,12 @@ def _side_lines(repo: Path, sha: str, rel: str) -> Json | None:
     could not read it - in a partial clone, a blob that is not here; HTTP reads never fetch it, limn.platform.git).
 
     Two bounded git reads: `ls-tree` names the entry (its mode, type and object; the one entry whose name is exactly
-    rel - ls-tree reads its arguments as patterns), `cat-file -s` its size, then `cat-file blob` at most
-    REVISION_SOURCE_MAX bytes of it. sha is a full SHA-1 the caller checked against the history window. Writes nothing."""
-    ran = git_exec(["ls-tree", "-z", "--full-tree", sha, "--", rel], repo, GIT_TIMEOUT, 64 * 1024)
+    rel), `cat-file -s` its size, then `cat-file blob` at most REVISION_SOURCE_MAX bytes of it. rel goes to ls-tree as
+    the history names it, a ':(literal)' pathspec - bare, a name such as ':plan.md' or ':(glob)*.md' would read as
+    pathspec magic - and still only the entry of exactly that name is taken (a folder of that name is listed as its
+    own entry, a tree, and is not_a_file).
+    sha is a full SHA-1 the caller checked against the history window. Writes nothing."""
+    ran = git_exec(["ls-tree", "-z", "--full-tree", sha, "--", ":(literal)" + rel], repo, GIT_TIMEOUT, 64 * 1024)
     if isinstance(ran, StepFailed) or ran[0] != 0:
         return {"reason": "source_unreadable"}
     entry = None
