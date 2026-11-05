@@ -12,8 +12,18 @@ let SW_REG=/** @type {ServiceWorkerRegistration|null} */(null);
 function notifySupported(){return !!(window.isSecureContext&&'serviceWorker' in navigator&&'Notification' in window);}
 function notifyPerm(){return 'Notification' in window?Notification.permission:'unsupported';}
 function notifyOn(){return !!prefs().notify&&notifySupported()&&notifyPerm()==='granted';}
-function notifyCursor(){const v=parseInt(localStorage.getItem('pinNotifyCursor')||'',10); return isNaN(v)?null:v;}
-function setNotifyCursor(v){const c=notifyCursor(); if(c==null||v>c)try{localStorage.setItem('pinNotifyCursor',String(v));}catch(e){}}
+// The cursor this tab last set, kept in memory too: a browser whose storage refuses (a SecurityError on reading it, a full
+// quota on writing) still has one for this visit - the boot goes on, and an event is said once - and the newer of the two
+// is the cursor, so another tab's advance in storage counts as well.
+let NOTIFY_CURSOR_MEM=/** @type {number|null} */(null);
+/** @returns {number|null} */
+function notifyCursor(){let v=NaN; try{v=parseInt(localStorage.getItem('pinNotifyCursor')||'',10);}catch(e){}
+  const m=NOTIFY_CURSOR_MEM; return isNaN(v)?m:m!==null&&m>v?m:v;}
+/** @param {number} v */
+function setNotifyCursor(v){const c=notifyCursor(); if(c==null||v>c)putNotifyCursor(v);}
+// Puts the cursor at v, backwards too (the server's events started again): in memory and, where it may, in storage.
+/** @param {number} v */
+function putNotifyCursor(v){NOTIFY_CURSOR_MEM=v; try{localStorage.setItem('pinNotifyCursor',String(v));}catch(e){}}
 function notifyQuery(){if(isLocalIdentity())return ''; const c=notifyCursor(); return c==null?'':'&ev='+c;}
 // Picks what to notify about (a pure function): after the cursor, addressed to me (to), not my own doing. One per pin - mention > reopen > awaiting review > reply, ties go to the later one.
 function pickNotifications(evs,me,cursor){const login=me&&me.login; if(!login||login===LOCAL_LOGIN)return [];
@@ -61,7 +71,7 @@ function notifyDot(type,here){return type===EVENT_TYPE.REVIEW_REQUESTED?NOTICE_D
 function notifyHandle(d){if(!d||typeof d.ev_seq!=='number')return;
   if(isLocalIdentity())return;   // no event is ever addressed to a local identity
   const c=notifyCursor(); if(c==null){setNotifyCursor(d.ev_seq); return;}   // first time enabled in this browser - never floods with a backlog of past events
-  if(!Array.isArray(d.events)){if(d.ev_seq<c)try{localStorage.setItem('pinNotifyCursor',String(d.ev_seq));}catch(e){}return;}
+  if(!Array.isArray(d.events)){if(d.ev_seq<c)putNotifyCursor(d.ev_seq); return;}
   const list=pickNotifications(d.events,META&&META.me,notifyCursor());   // only what's after it, if another tab just advanced the cursor
   const top=d.events.reduce((m,e)=>Math.max(m,e.seq||0),c); setNotifyCursor(top);
   list.forEach(notifyShow);}

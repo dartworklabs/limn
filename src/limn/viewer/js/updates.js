@@ -17,15 +17,30 @@ const LINE_DIFF_MAX=500;   // edit steps the line comparison tries before callin
 
 // ---------------- What a person has seen (localStorage limnSeen: {v, pin, docs:{<key>:{ver, rev}}})
 // ver names what a document showed (its build on screen, or a drawn document's source mtime), rev its newest commit then (''
-// without history); pin the highest pin number whose arrival was said. Another browser or device keeps its own.
+// without history); pin the highest pin number whose arrival was said. Another browser or device keeps its own. A browser
+// whose storage refuses (a SecurityError, a full quota) keeps it in memory for this visit (SEEN_MEM) from the first refusal.
+let SEEN_MEM=/** @type {string|null} */(null);
 /** @returns {{v?:number,pin?:number,docs?:Record<string,{ver:string,rev:string}>}} */
-function seenStore(){try{const v=JSON.parse(localStorage.getItem('limnSeen')||'{}'); return v&&typeof v==='object'?v:{};}catch(e){return {};}}
+function seenStore(){let raw=SEEN_MEM; if(raw===null)try{raw=localStorage.getItem('limnSeen');}catch(e){raw=SEEN_MEM='{}';}
+  try{const v=JSON.parse(raw||'{}'); return v&&typeof v==='object'?v:{};}catch(e){return {};}}
 /** @param {{v?:number,pin?:number,docs?:Record<string,{ver:string,rev:string}>}} all */
-function seenSave(all){all.v=1; try{localStorage.setItem('limnSeen',JSON.stringify(all));}catch(e){}}
+function seenSave(all){all.v=1; const raw=JSON.stringify(all); if(SEEN_MEM!==null){SEEN_MEM=raw; return;}
+  try{localStorage.setItem('limnSeen',raw);}catch(e){SEEN_MEM=raw;}}
 /** @param {string} k @returns {{ver:string,rev:string}|null} */
 function seenDoc(k){const d=(seenStore().docs||{})[k]; return d&&typeof d.ver==='string'?{ver:d.ver,rev:String(d.rev||'')}:null;}
+// Records rec as what document k showed when seen - unless the record kept already names a later version (verAfter): another
+// tab of this browser saw a newer one meanwhile, and an old tab dismissing its older message never takes that back.
 /** @param {string} k @param {{ver:string,rev:string}} rec */
-function setSeenDoc(k,rec){const all=seenStore(); all.docs={...(all.docs||{}),[k]:rec}; seenSave(all);}
+function setSeenDoc(k,rec){const all=seenStore(),was=(all.docs||{})[k]; if(was&&typeof was.ver==='string'&&verAfter(was.ver,rec.ver))return;
+  all.docs={...(all.docs||{}),[k]:rec}; seenSave(all);}
+// Whether version a (limnSeen's ver) is later than b: a drawn document's source mtime ('src:<seconds>') by its number, a
+// built one's build id ('build:pages-<YYYYMMDDHHMMSS>[-<n>]', the server's names) by its time and then its count. Versions
+// of different kinds are not ordered (false). Pure.
+/** @param {string} a @param {string} b @returns {boolean} */
+function verAfter(a,b){const src=/^src:(.+)$/,bld=/^build:pages(?:-(\d{14})(?:-(\d+))?)?$/,sa=src.exec(a),sb=src.exec(b);
+  if(sa&&sb)return Number(sa[1])>Number(sb[1]);
+  const ba=bld.exec(a),bb=bld.exec(b); if(!ba||!bb)return false;
+  const ta=ba[1]||'',tb=bb[1]||''; return ta!==tb?ta>tb:Number(ba[2]||0)>Number(bb[2]||0);}
 // Whether this device was here before: it has a seen record or an event cursor (notify.js).
 function visitedBefore(){return !!seenStore().v||notifyCursor()!==null;}
 /** @returns {number|null} */
@@ -94,17 +109,35 @@ function updDocState(k){const m=k===DOC?META:META_BY.get(k),d=docInfo(k),kind=(d
 /** @param {string} k @returns {Promise<RevisionRow[]|null>} */
 async function docRows(k){try{const r=(await api(dq('/api/revisions?limit='+REVISION_PAGE,k),{what:'변경사항 읽기',silent:true})).data;
   return r.available?/** @type {RevisionRow[]} */(r.revisions||[]):[];}catch(e){return null;}}
+// What document k's shown build was made from, for a built one: the commit its pages came from (the meta's head, '' outside
+// git or unknown) and whether the checkout has moved past it (stale_build: its sources changed since); a drawn document shows
+// the checkout's source ({head:'', behind:false}). From the meta on screen or kept, else the document's light meta; null when
+// that shows another build than now's (a newer one came meanwhile) or cannot be read.
+/** @param {string} k @param {{ver:string,kind:string}} now @returns {Promise<{head:string,behind:boolean}|null>} */
+async function docBuild(k,now){if(rendersInBrowser(now.kind))return {head:'',behind:false};
+  let m=/** @type {any} */(k===DOC?META:META_BY.get(k));
+  if(!m||'build:'+m.pages_build!==now.ver){try{m=(await api(dq('/api/meta?light=1',k),{what:'상태 확인',silent:true})).data;}catch(e){return null;}}
+  if(!m||'build:'+m.pages_build!==now.ver)return null;
+  const h=String(m.head||''); return {head:/^[0-9a-f]{4,40}$/i.test(h)?h:'',behind:!!m.stale_build};}
+// The commits of a document that its shown build carries, of rows (its history from the checkout, newest first): from the
+// build's commit (head, a prefix will do) down when that is one of them; when it is not - the build's commit touched none of
+// the document's files - all of them, unless the build is behind the checkout (behind), which then lacks at least the newest
+// one: the reads do not say which older ones it lacks too, so the newest alone is left out. A drawn document: all. Pure.
+/** @param {RevisionRow[]} rows @param {string} head @param {boolean} behind @returns {RevisionRow[]} */
+function shownRows(rows,head,behind){const i=head?rows.findIndex(r=>r.id.startsWith(head)):-1; return i>=0?rows.slice(i):behind?rows.slice(1):rows;}
 // Whether document k changed since this device last saw it, and if so says so (docUpdateNote). The first visit of a document
 // on a device, and this tab's own rebuild that brought nothing new (ctx.mine), record what shows as seen - unless a change
-// not yet seen stands, which the rebuild then joins. ctx.lines: a drawn document's changed lines, from its redraw.
+// not yet seen stands, which the rebuild then joins. What shows is the shown build's (docBuild): its commit, not the
+// checkout's newest - a checkout pulled ahead of the pages still has those commits to say when their build comes.
 /** @param {string} k @param {{mine?:boolean}} ctx */
 async function checkDocUpdate(k,ctx){if(!k)return; const now=updDocState(k); if(!now)return; const seen=seenDoc(k),open=GROUPS.has('upd:'+k);
   if(seen&&seen.ver===now.ver&&!open)return;
-  if(!seen||(ctx.mine&&!open)){const rows=await docRows(k),cur=updDocState(k); if(!cur||cur.ver!==now.ver)return;
-    setSeenDoc(k,{ver:now.ver,rev:rows&&rows.length?rows[0].id:seen?seen.rev:''}); return;}
-  if(seen.ver===now.ver)return;
-  const rows=await docRows(k),cur=updDocState(k); if(!cur||cur.ver!==now.ver)return;   // a newer change came meanwhile: its own check says it
-  const commits=describeCommits(rows||[],seen.rev);
+  const first=!seen||(!!ctx.mine&&!open); if(seen&&!first&&seen.ver===now.ver)return;
+  const [rows,build]=await Promise.all([docRows(k),docBuild(k,now)]),cur=updDocState(k);
+  if(!cur||cur.ver!==now.ver||!build)return;   // a newer change came meanwhile: its own check says it
+  const shown=shownRows(rows||[],build.head,build.behind);
+  if(first||!seen){setSeenDoc(k,{ver:now.ver,rev:shown.length?shown[0].id:seen?seen.rev:''}); return;}
+  const commits=describeCommits(shown,seen.rev);
   groupNote('upd:'+k,{key:k,name:now.name,kind:now.kind,ver:now.ver,seenRev:seen.rev,top:commits.top||seen.rev,commits,history:!!(rows&&rows.length)},docUpdateView,null);}
 // Every document, the one on screen first: what changed since this device last saw it (boot).
 function checkDocsSeen(){[DOC,...DOCS.map(d=>d.key).filter(k=>k!==DOC)].forEach(k=>{if(k)checkDocUpdate(k,{});});}

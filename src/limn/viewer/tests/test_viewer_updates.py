@@ -108,6 +108,63 @@ class PureRules(unittest.TestCase):
         self.assertEqual(got[5]["n"], 0)
         self.assertEqual((got[6]["n"], got[6]["prs"], got[6]["subject"]), (1, [12], "Shorten the introduction"))
 
+    def test_what_a_built_document_showed_is_its_builds_commit_not_the_checkouts_newest(self):
+        """checkDocUpdate with docBuild and shownRows: a first visit while build A shows and the checkout is already at
+        commit B records A's commit, so build B then says the one commit B with its PR, not 'files changed without a
+        commit'. A build whose commit touched none of the document's files carries all its commits, unless it is behind
+        the checkout (stale_build), which lacks at least the newest; a later build still behind says only what it carries."""
+        got = node_json(
+            ["prOf", "describeCommits", "shownRows", "docBuild", "checkDocUpdate"],
+            """const DOC='ms',META_BY=new Map(),GROUPS=new Map(),said=[]; let META=null,rec=null,state=null,ROWS=[];
+            function rendersInBrowser(){return false;} function updDocState(){return state;} function seenDoc(){return rec;}
+            function setSeenDoc(k,r){rec=r;} async function docRows(){return ROWS;} function dq(u){return u;}
+            async function api(){throw new Error('not asked');} function docUpdateView(){}
+            function groupNote(g,d){said.push({n:d.commits.n,prs:d.commits.prs,top:d.top});}
+            const C=(id,subject)=>({id,subject,author:'Bob Park',time:'t'});
+            const show=async(build,head,stale,rows)=>{META={pages_build:build,head,stale_build:stale}; state={ver:'build:'+build,name:'본문',kind:'tex'}; ROWS=rows; await checkDocUpdate('ms',{});};
+            (async()=>{const out={};
+              const A=C('aaaa1111aaaa','Initial'),B=C('bbbb2222bbbb','Update introduction (#12)'),Cc=C('cccc3333cccc','Fix the axis (#13)');
+              await show('A','aaaa111',true,[B,A]); out.first=rec.rev; await show('B','bbbb222',false,[B,A]); out.later=said.pop();
+              rec=null; await show('A','ffff999',true,[B,A]); out.behind=rec.rev; await show('B','eeee888',false,[Cc,B,A]); out.unrelated=said.pop();
+              rec=null; await show('A','ffff999',false,[B,A]); out.current=rec.rev;
+              rec={ver:'build:A',rev:A.id}; await show('B','ffff999',true,[Cc,B,A]); out.stillBehind=said.pop();
+              console.log(JSON.stringify(out));})();""",
+        )
+        self.assertEqual(got["first"], "aaaa1111aaaa")
+        self.assertEqual(got["later"], {"n": 1, "prs": [12], "top": "bbbb2222bbbb"})
+        self.assertEqual(got["behind"], "aaaa1111aaaa")
+        self.assertEqual(got["unrelated"], {"n": 2, "prs": [13, 12], "top": "cccc3333cccc"})
+        self.assertEqual(got["current"], "bbbb2222bbbb")
+        self.assertEqual(got["stillBehind"], {"n": 1, "prs": [12], "top": "bbbb2222bbbb"})
+
+    def test_a_seen_record_only_moves_forward(self):
+        """setSeenDoc with verAfter: an older tab dismissing its message (an earlier mtime, an earlier build) keeps the
+        newer record another tab wrote; a later one, a first one or one of another kind is written. Build ids order by
+        their time, then their count."""
+        got = node_json(
+            ["seenStore", "seenSave", "seenDoc", "setSeenDoc", "verAfter"],
+            """let SEEN_MEM=null; const M=new Map(); const localStorage={getItem:k=>M.has(k)?M.get(k):null,setItem:(k,v)=>M.set(k,String(v))};
+            const out=[]; const at=()=>seenDoc('d').ver;
+            setSeenDoc('d',{ver:'src:200.5',rev:'b'}); setSeenDoc('d',{ver:'src:100.25',rev:'a'}); out.push(at());
+            setSeenDoc('d',{ver:'src:300',rev:'c'}); out.push(at());
+            setSeenDoc('d',{ver:'build:pages-20261105100000',rev:'x'}); out.push(at());
+            setSeenDoc('d',{ver:'build:pages-20261105090000-3',rev:'y'}); out.push(at());
+            setSeenDoc('d',{ver:'build:pages-20261105100000-2',rev:'z'}); out.push(at());
+            setSeenDoc('d',{ver:'build:pages-20261105100000-1',rev:'w'}); out.push(at());
+            console.log(JSON.stringify(out));""",
+        )
+        self.assertEqual(
+            got,
+            [
+                "src:200.5",
+                "src:300",
+                "build:pages-20261105100000",
+                "build:pages-20261105100000",
+                "build:pages-20261105100000-2",
+                "build:pages-20261105100000-2",
+            ],
+        )
+
     def test_new_pins_are_those_above_the_top_seen_not_made_by_me(self):
         """freshPins: numbered above the highest seen, not mine, in number order."""
         got = node_json(
@@ -434,6 +491,29 @@ class UpdateFlows(BrowserBase):
         self.poll(page)
         until(page, "LINE.some(n=>n.keys.includes('replied:%d'))" % pid)
         self.assertIn("핀 #%d · 노트 — Bob Park님 답글: 줄였습니다" % pid, self.line(page))
+
+    def test_a_browser_whose_storage_refuses_still_boots_and_keeps_what_it_saw_in_memory(self):
+        """Storage throws a SecurityError on reading and writing the event cursor, and refuses writing limnSeen (a full
+        quota): the boot still draws the document, loads the pins and starts polling; the cursor and the seen record live
+        in memory for the visit, so a reply to Alice's pin is said once."""
+        pid = add_pin({"file": str(self.md), "lo": 3, "hi": 3, "note": "a"}, actor(ALICE), doc=self.nt).record["id"]
+        refuse = """;(()=>{const get=Storage.prototype.getItem,set=Storage.prototype.setItem;
+          const no=n=>{throw new DOMException('storage denied',n);};
+          Storage.prototype.getItem=function(k){return k==='pinNotifyCursor'?no('SecurityError'):get.call(this,k);};
+          Storage.prototype.setItem=function(k,v){return k==='pinNotifyCursor'?no('SecurityError'):k==='limnSeen'?no('QuotaExceededError'):set.call(this,k,v);};})();"""
+        page = self.view(init=SEEN + refuse)
+        until(page, "typeof LIGHT_TIMER!=='undefined'&&!!LIGHT_TIMER&&PINS.length===1")
+        page.evaluate("clearInterval(LIGHT_TIMER)")
+        self.poll(page)
+        until(page, "notifyCursor()!==null&&!!seenDoc('nt')")
+        body = json.dumps({"text": "줄였습니다"}).encode()
+        headers = {"Content-Type": "application/json", "Origin": "http://127.0.0.1:18999", **BOB}
+        code, _, out = self.talk(req("POST", "/api/pins/%d/reply?doc=nt" % pid, body, headers))
+        self.assertEqual(code, 200, out)
+        self.poll(page)
+        until(page, "LINE.some(n=>n.keys.includes('replied:%d'))" % pid)
+        self.poll(page)
+        self.assertEqual(page.evaluate("LINE.filter(n=>n.keys.includes('replied:%d')).length" % pid), 1)
 
     def test_a_message_that_grows_is_read_out_by_one_live_region(self):
         """A group's message that grows is read out once: by the line's own region (.st-sr) while the line shows it, the

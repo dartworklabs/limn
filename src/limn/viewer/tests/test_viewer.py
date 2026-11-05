@@ -5283,7 +5283,7 @@ class FrontendNotify(unittest.TestCase):
                 r"""
             function who(a){return (a&&(a.name||a.login))||'';}
             const store={}; const localStorage={getItem:k=>k in store?store[k]:null,setItem:(k,v)=>{store[k]=String(v);}};
-            let NOTIFY=true; function notifyOn(){return NOTIFY;}
+            let NOTIFY=true,NOTIFY_CURSOR_MEM=null; function notifyOn(){return NOTIFY;}
             let META={me:{login:'w@example.com',name:'Wendy Kim'},label:'DEMO-B'}; const SHOWN=[];
             function notifyShow(e){SHOWN.push([e.pin,e.type]);}
             """,
@@ -5293,6 +5293,7 @@ class FrontendNotify(unittest.TestCase):
                 for n in (
                     "notifyCursor",
                     "setNotifyCursor",
+                    "putNotifyCursor",
                     "notifyQuery",
                     "pickNotifications",
                     "notifyText",
