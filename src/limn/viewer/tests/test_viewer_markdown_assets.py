@@ -145,6 +145,8 @@ class AssetsBase(BrowserBase):
         self.holding = False
         self.held_meta: list = []
         self.hold_meta: str | None = None
+        self.source_held: list = []
+        self.hold_source = False
         super().setUp()
         self.src = self.main.parent
         (self.src / "notes" / "img").mkdir(parents=True)
@@ -166,13 +168,17 @@ class AssetsBase(BrowserBase):
         viewer_build(docs[2], BUILD1)
 
     def route(self, route):
-        """Record every request; abort another host's (kept in self.away); hold /api/asset answers while self.holding, and
-        /api/meta answers for the document self.hold_meta (in self.held_meta)."""
+        """Record every request; abort another host's (kept in self.away); hold /api/asset answers while self.holding,
+        gd's /api/source answers while self.hold_source (in self.source_held), and /api/meta answers for the document
+        self.hold_meta (in self.held_meta)."""
         u = urlparse(route.request.url)
         self.asked.append(u.path + ("?" + u.query if u.query else ""))
         if u.netloc != "viewer.test":
             self.away.append(route.request.url)
             return route.abort()
+        if self.hold_source and u.path == "/api/source" and parse_qs(u.query).get("doc") == ["gd"]:
+            self.source_held.append(route)
+            return None
         if self.holding and u.path == "/api/asset":
             self.hold.append(route)
             return None
@@ -879,6 +885,36 @@ class FocusAfterALink(AssetsBase):
         )
         self.assertEqual(got, [0, True, None, True])
         self.assertEqual([a for a in self.asked if a.startswith("/api/asset") and "doc=td" in a], [])
+
+    def test_a_draft_typed_into_while_the_source_is_on_its_way_keeps_the_focus(self):
+        """gd has a draft (a note begun on its first paragraph, left by switching to nt). Enter on nt's link to gd brings the
+        draft back while gd's source is held; the note is typed into; when the source arrives and gd is drawn, the focus
+        stays in the note with its text - the link's arrival does not take it to the heading."""
+        page = self.open_md()
+        page.evaluate("void switchDoc('gd')")
+        until(page, "DOC==='gd'&&" + DRAWN, 20)
+        settle(page)
+        page.locator("#md p").first.click()
+        page.locator("#note").fill("kept draft")
+        page.evaluate("void switchDoc('nt')")
+        until(page, "DOC==='nt'&&" + DRAWN, 20)
+        settle(page)
+        self.hold_source = True
+        page.locator("#md a.md-doclink[data-doc='gd']").focus()
+        page.keyboard.press("Enter")
+        until(page, "DOC==='gd'&&!!COMPOSE.current&&!document.querySelector('#md')")
+        page.locator("#note").focus()
+        page.keyboard.type(" and more")
+        self.assertTrue(self.source_held, "gd's source was not held")
+        self.hold_source = False
+        for r in self.source_held:
+            r.fulfill(**self.answer(r.request))
+        until(page, "DOC==='gd'&&" + DRAWN, 20)
+        settle(page)
+        self.assertEqual(
+            page.evaluate("[document.activeElement.id, document.getElementById('note').value]"),
+            ["note", "kept draft and more"],
+        )
 
 
 class TreeImagesFirefox(TreeImages):

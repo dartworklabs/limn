@@ -524,10 +524,14 @@ function mdGoDoc(a){const k=String(a.dataset.doc||''),id=String(a.dataset.anchor
 // The document a link of another one switched to is drawn (mdShow): it goes to the link's heading (mdGoSlug), and the focus,
 // which the link took away with the document it was in, goes there too - from the document area or the page's body
 // (focusFell), as a browser moves it to the fragment a link names - so a screen reader reads that heading and the next Tab
-// goes on from it, not from the document's first link. A focus put anywhere else since stays; a link without a heading (a
-// text document has none) leaves the focus on the document area.
+// goes on from it, not from the document's first link. A focus put anywhere else since stays; so does one in a composer
+// that is open or being opened (a draft the switch brought back, typed into while the source was on its way), a pick on
+// its way, or an input method's composition - focusPlace's guards; a link without a heading (a text document has none)
+// leaves the focus on the document area.
 /** @param {string} id */
-function mdGoLink(id){const i=id?mdGoSlug(id):-1,L=$('#left'); if(document.activeElement!==L&&!focusFell())return;
+function mdGoLink(id){const i=id?mdGoSlug(id):-1,L=$('#left');
+  if(COMPOSE.current||COMPOSE.picking||!$('#composer').hidden||imeOpen())return;
+  if(document.activeElement!==L&&!focusFell())return;
   const h=MD.heads[i]; focusHold(h?h.el:L);}
 // GitHub's heading slug: lower case, punctuation dropped, spaces to '-'. Pure.
 function mdSlug(s){return String(s).trim().toLowerCase().replace(/[^\p{L}\p{N}\s_-]/gu,'').replace(/\s/g,'-');}
