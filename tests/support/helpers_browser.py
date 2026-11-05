@@ -471,7 +471,7 @@ TOUCH_REST = 0.15
 class Finger:
     """One finger on a touch screen, through the DevTools input domain (Input.dispatchTouchEvent on cdp, a CDP session
     left attached: detaching it resets the page's touch emulation). Every synthesized touch drag goes through it
-    (docs/handbook/verification.md §브라우저 테스트의 터치 드래그).
+    (docs/handbook/verification.md §불안정한 테스트).
 
     Each event carries its own time, TOUCH_STEP s after the one before or now, whichever is later, and up() first holds
     the finger still at its last point for TOUCH_REST s - as a person's comes to rest at the end of a box or a pull. The
