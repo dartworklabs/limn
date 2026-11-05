@@ -13,7 +13,9 @@
   it covers; the range ladder is chosen lines -> paragraph (between blank lines) -> indented block (a function, a YAML
   item, a call's arguments, a `.bib` entry), the shorter first. Pins are ordinary line pins of that file with no page,
   take suggested edits and verdicts, and the changes view opens on the file's source diff. Long lines always wrap,
-  their continuation hanging under the indentation, so the page never scrolls sideways.
+  their continuation hanging under the indentation, so the page never scrolls sideways. It keeps its reading line
+  across width changes and its focus after Esc or a save as a Markdown document does (below); the document area is
+  named "Text document", and each pin badge stands just before its own line.
   - **Not accepted:** files without a suffix (`Makefile`), suffixes not on the list, and `.typ`, `.ipynb`, `.env`,
     `.pem`, `.key`. `Figures.LIMNMAP.JSON` (a figure map's suffix in another case) is refused rather than shown as text.
   - **Line ends:** Limn numbers lines as Python's `str.splitlines()` does. A file with line ends that are not LF or CRLF

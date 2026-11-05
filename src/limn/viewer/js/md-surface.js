@@ -516,15 +516,18 @@ function mdMarks(){const md=$('#md'); if(!md)return;
     // The badge stands in the column's left gutter at the height of the pin's first line (a layer of #md, never inside a
     // paragraph, list or table, so it moves no text). Pins whose first lines share a height stack down.
     const y=Math.round(leaves[0].getBoundingClientRect().top-top);
-    let box=rows.get(y); if(!box){box=document.createElement('span'); box.className='md-badges'; box.setAttribute('translate','no'); box.style.top=y+'px'; md.insertBefore(box,mdTopBlock(md,leaves[0])); rows.set(y,box);}
+    let box=rows.get(y); if(!box){box=document.createElement('span'); box.className='md-badges'; box.setAttribute('translate','no'); box.style.top=y+'px'; const at=mdTopBlock(md,leaves[0]); (at&&at.parentElement||md).insertBefore(box,at); rows.set(y,box);}
     const b=document.createElement('button'); b.type='button'; b.className='md-badge'+(rv?' rv':'')+(lost?' st':''); b.dataset.act='mark-jump'; b.dataset.id=String(p.id);
     b.dataset.pin=String(p.id); b.textContent=String(p.id); b.setAttribute('aria-label',tl('핀 #{id} 카드로 이동',{id:p.id}));
     const n=String(p.note||'').replace(/\s+/g,' ').trim(); b.dataset.tip='#'+p.id+' · '+rng(/** @type {number} */(p.lo),/** @type {number} */(p.hi))+' · '+(n?(n.length>60?n.slice(0,60)+'…':n):tr('(메모 없음)'));
     box.appendChild(b);}}
 // The child of md that holds e (null: e is not inside it) - where a badge layer goes in the document's order, a child of #md
-// still, so it stands in the gutter as before and no block's text (a quote, a tap's block) takes its number.
+// still, so it stands in the gutter as before and no block's text (a quote, a tap's block) takes its number. A text
+// document's lines are all one block (.tx-src, text-surface.js), so there the layer goes before e's line span itself, a
+// sibling of the lines and in no line's text: before the whole text, every badge would be read before the first line.
 /** @param {HTMLElement} md @param {Element} e @returns {Element|null} */
-function mdTopBlock(md,e){let x=/** @type {Element|null} */(e); while(x&&x.parentElement!==md)x=x.parentElement; return x;}
+function mdTopBlock(md,e){let x=/** @type {Element|null} */(e); const tx=md.classList.contains('tx');
+  while(x&&x.parentElement!==md&&!(tx&&x.parentElement&&x.parentElement.classList.contains('tx-src')))x=x.parentElement; return x;}
 // The column reflows when its width changes (a panel, a rotation): the reading spot comes back at once, before the paint
 // (mdSpotKeep), and the badges follow their lines.
 let MD_RO_T=0; const MD_RO=window.ResizeObserver?new ResizeObserver(()=>{mdSpotKeep(); clearTimeout(MD_RO_T); MD_RO_T=setTimeout(()=>{if(isMdDoc())mdMarks();},120);}):null;

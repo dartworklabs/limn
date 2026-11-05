@@ -73,7 +73,7 @@ function viewerBlocked(){if(!isViewer())return false; bannerNote(undefined,'보�
 function drawMeta(){
   document.body.classList.toggle('no-rebuild',!buildsFromSource(META.kind));   // only a LaTeX document builds from source; a view-only PDF and a figure redraw when their files change
   document.body.classList.toggle('md-surface',isMdDoc()); mdHint();   // a Markdown document: no pages, so the page-only controls hide (md-surface.css)
-  $('#left').setAttribute('aria-label',tr(isMdDoc()?'Markdown 문서':'PDF 쪽'));   // the document area's name says what it holds
+  $('#left').setAttribute('aria-label',tr(isMdDoc()?(isTextDoc()?'텍스트 문서':'Markdown 문서'):'PDF 쪽'));   // the document area's name says what it holds
   document.body.classList.toggle('role-viewer',isViewer());
   $('#m-download').disabled=!META.pages_build||isMdDoc();   // no build on screen, no PDF to save
   // A Markdown document has no PDF: its file is the tab's source, 'Markdown' its form, and no build time (nor its ' · ').

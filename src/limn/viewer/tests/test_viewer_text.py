@@ -13,9 +13,12 @@ tests drive the real viewer against the in-process server (BrowserBase) and chec
   chosen lines, the paragraph, the indented block, the shorter first and merged when alike, several paragraphs saved as
   lines) and the saved pin, which carries no page;
 - the column at the foldable's 344 px outer screen: the page never scrolls sideways;
-- a change to the source on disk is drawn again at the reading line.
+- a change to the source on disk is drawn again at the reading line;
+- what the Markdown surface's column gives it too: the top line across a rotation and a redraw under the changes view, the
+  document area named a text document, lang="" on the text but not its notices, the focus after Esc and a save - and each
+  pin badge just before its own line, which a drag over it does not quote.
 
-Picks and the hidden-character display run in Firefox too (the *Firefox classes).
+Picks, the hidden-character display and the drag over a badge run in Firefox too (the *Firefox classes).
 
 The pure rules (ladder, closing lines, the repertoire and its exceptions) are test_text_surface.py.
 
@@ -28,7 +31,7 @@ from limn.administration import serve_documents as startup_documents
 
 from helpers import add_pin, ps, req
 from helpers_access import ALICE, actor
-from helpers_browser import BrowserBase, settle
+from helpers_browser import BrowserBase, settle, until
 from helpers_figure import BUILD1, viewer_build
 
 # Resolves when the text document on screen is drawn (its view or a notice) and no draw is waiting.
@@ -555,3 +558,158 @@ class Redrawing(PickBase):
         )
         settle(page)
         self.assertLessEqual(abs(page.evaluate("mdReadingLine()") - before), 1)
+
+
+def ax_name(page, selector):
+    """Chromium's accessibility role and name of the first element matching selector, as a screen reader gets them (CDP
+    Accessibility.getPartialAXTree)."""
+    cdp = page.context.new_cdp_session(page)
+    try:
+        found = cdp.send("Runtime.evaluate", {"expression": "document.querySelector(%s)" % json.dumps(selector)})
+        node = cdp.send(
+            "Accessibility.getPartialAXTree", {"objectId": found["result"]["objectId"], "fetchRelatives": False}
+        )["nodes"][0]
+    finally:
+        cdp.detach()
+    return tuple((node.get(k) or {}).get("value") for k in ("role", "name"))
+
+
+class Speaking(TextBase):
+    """What a screen reader meets on a text document, as on a Markdown one (#409): the document area is named for a text
+    document, its quotes say the text was chosen in the document, its language is not the screen's, and each pin badge
+    stands just before its own line."""
+
+    def test_the_document_area_is_a_text_document_and_its_quote_was_chosen_in_it(self):
+        """The region is '텍스트 문서' / 'Text document' - not 'Markdown 문서' - and the composer's quote says the text was
+        chosen in the document, in both languages."""
+        for lang, area, quote in (
+            ("ko", "텍스트 문서", "문서에서 고른 글자: "),
+            ("en", "Text document", "Text chosen in the document: "),
+        ):
+            with self.subTest(lang=lang):
+                page = self.open_tx(lang=lang)
+                self.assertEqual(ax_name(page, "#left"), ("region", area))
+                self.pick_line(page, 2)
+                self.assertEqual(page.evaluate("document.querySelector('#c-quote .sr-only').textContent"), quote)
+
+    def test_the_text_is_not_said_in_the_screens_language_but_its_notices_are(self):
+        """#md says the document's language is unknown (lang=""), while the notice above the lines - the viewer's words -
+        is in the screen's language."""
+        for lang in ("en", "ko"):
+            with self.subTest(lang=lang):
+                page = self.open_tx(lang=lang)
+                got = page.evaluate(
+                    "[document.getElementById('md').getAttribute('lang'),"
+                    "[...document.querySelectorAll('#md .tx-note')].map(n=>n.lang)]"
+                )
+                self.assertEqual(got, ["", [lang]])
+
+    def test_each_badge_stands_just_before_its_own_line(self):
+        """Pins on lines 6, 2 and 4 (#1-#3): the badges come in line order, each layer right before its line's span - a
+        text document is one block, so before the whole text they would all be read first - and at that line's height."""
+        for lo in (6, 2, 4):
+            self.add(lo, lo)
+        page = self.open_tx(3)
+        got = page.evaluate(
+            "[...document.querySelectorAll('#md .md-badge')].map(b=>{const p=PINS.find(x=>x.id===+b.dataset.id),"
+            "e=document.querySelector(`#md [data-line='${p.lo}']`);"
+            "return [p.lo,b.parentElement.nextElementSibling===e,Math.abs(b.getBoundingClientRect().top-e.getBoundingClientRect().top)<2];})"
+        )
+        self.assertEqual(got, [[2, True, True], [4, True, True], [6, True, True]])
+
+    def test_esc_and_save_leave_the_focus_at_the_line_and_its_badge(self):
+        """Esc in the note puts the focus on the line that was clicked (line 4), and a save (Ctrl+Enter) on the new pin's
+        badge, as on a Markdown document (focusPlace) - not on the page's body."""
+        page = self.open_tx()
+        self.pick_line(page, 4)
+        self.assertEqual(page.evaluate("document.activeElement.id"), "note")
+        page.keyboard.press("Escape")
+        settle(page)
+        self.assertEqual(page.evaluate("document.activeElement.closest('#md [data-line]')?.dataset.line"), "4")
+        self.pick_line(page, 4)
+        page.fill("#note", "키보드로 저장")
+        page.keyboard.press("Control+Enter")
+        until(page, "PINS.length===1&&!COMPOSE.current")
+        settle(page)
+        self.assertEqual(
+            page.evaluate("document.activeElement.matches('#md .md-badge')&&+document.activeElement.dataset.id"),
+            page.evaluate("PINS[0].id"),
+        )
+
+
+class SpeakingPicks(PickBase):
+    """A drag over a pin's badge, which stands among the lines (Speaking), quotes and picks only the document's lines."""
+
+    def test_a_drag_over_a_pins_badge_quotes_only_the_lines(self):
+        """A pin on line 5 puts its badge before line 5's span: a drag from line 3 into line 7 picks 3-7 and its quote has the
+        lines' text and no badge number."""
+        pid = self.add(5, 5)
+        page = self.open_tx(1)
+        self.assertEqual(page.evaluate("document.querySelector('#md .md-badge').textContent"), str(pid))
+        self.drag(page, 3, 7)
+        got = self.composed(page)
+        self.assertEqual((got["lo"], got["hi"]), (3, 7))
+        quote = page.evaluate("COMPOSE.current.quote")
+        self.assertIn("for row in", quote)
+        self.assertNotIn(str(pid), quote)
+
+
+class SpeakingPicksFirefox(SpeakingPicks):
+    """The drag over a badge in Firefox."""
+
+    BROWSER_ENGINE = "firefox"
+
+
+# The source line at the top of the document area: the first line span whose bottom is below the area's top edge.
+TOP_LINE = (
+    "(()=>{const t=document.getElementById('left').getBoundingClientRect().top+1;"
+    "for(const e of document.querySelectorAll('#md [data-line]'))if(e.getBoundingClientRect().bottom>t)return +e.dataset.line;"
+    "return 0;})()"
+)
+TABLET_PORTRAIT = {"viewport": {"width": 673, "height": 841}, "is_mobile": True, "has_touch": True}
+
+
+class ReadingSpot(TextBase):
+    """The text surface draws through the Markdown surface's column (#md, mdShow), so a change of its width keeps the line at
+    the top of the document area as a Markdown document does (mdSpotKeep, #409): its long lines wrap differently at every
+    width, and the scroll offset alone would stand on other lines."""
+
+    TEXT = "".join(
+        "# %03d 줄은 건물 전력 부하를 예측하는 모델이 시간이 지나며 어떻게 바뀌는지 길게 적어 좁은 화면에서 여러 번 감기게 한다.%s\n"
+        % (i, " 둘째 문장도 길게 써서 넓은 화면에서는 덜 감긴다." * (i % 4))
+        for i in range(1, 301)
+    )
+
+    def to_line(self, page, n):
+        """Scroll source line n to the document area's top, 5px into it, and let the scroll be read."""
+        page.evaluate(
+            "(()=>{const L=document.getElementById('left'),e=document.querySelector(\"#md [data-line='%d']\");"
+            "L.scrollTop+=e.getBoundingClientRect().top-L.getBoundingClientRect().top+5;})()" % n
+        )
+        settle(page)
+        self.assertEqual(page.evaluate(TOP_LINE), n)
+
+    def test_a_rotation_there_and_back_keeps_the_top_line(self):
+        """673x841 -> 841x673 -> 673x841 on a touch screen (the foldable turned): the top line is the same after each turn."""
+        page = self.open_tx(**TABLET_PORTRAIT)
+        self.to_line(page, 180)
+        for size in ({"width": 841, "height": 673}, {"width": 673, "height": 841}):
+            with self.subTest(size=size):
+                page.set_viewport_size(size)
+                settle(page)
+                self.assertEqual(page.evaluate(TOP_LINE), 180)
+
+    def test_a_redraw_in_the_changes_view_keeps_the_top_line(self):
+        """Reading at line 180, the changes view opened, the lines above it lengthened on disk (the same lines, taller) and
+        drawn again by the light poll while the column is hidden: back on the text, the top line is still line 180."""
+        page = self.open_tx(viewport={"width": 1440, "height": 900})
+        self.to_line(page, 180)
+        page.evaluate("setViewMode(VIEW_MODE.REVISIONS)")
+        settle(page)
+        self.write(self.TEXT.replace("길게 적어", "길게 적어 " + "더 길게 늘였다 " * 12))
+        page.evaluate("pollLightOnce()")
+        until(page, "document.querySelector('#md').textContent.includes('더 길게 늘였다')")
+        settle(page)
+        page.evaluate("setViewMode(VIEW_MODE.MANUSCRIPT)")
+        settle(page)
+        self.assertEqual(page.evaluate(TOP_LINE), 180)

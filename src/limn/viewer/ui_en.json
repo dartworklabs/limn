@@ -1437,6 +1437,7 @@
  "Markdown 파서를 불러오지 못해 원문 줄로 보입니다": "The Markdown parser did not load, so the source lines are shown",
  "Markdown을 읽지 못해 원문 줄로 보입니다": "The Markdown could not be read, so the source lines are shown",
  "Markdown 문서": "Markdown document",
+ "텍스트 문서": "Text document",
  "문서에서 고른 글자": "Text chosen in the document",
  "원문 {line}번째 줄": "Source line {line}",
  "{n}줄 더": {"one": "{n} more line", "other": "{n} more lines"},

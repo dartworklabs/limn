@@ -108,11 +108,11 @@ async function txNamesView(stale,ends){const lines=MD.lines,body=document.create
 // article#md round the lines (body): the notices above them - what was marked (marks, '' for none) and the line ends that are
 // not LF or CRLF (txEndsText) - and the limit the view hit (limit, its data-limit; null for none).
 /** @param {HTMLElement} body @param {Record<string,number>|undefined} ends @param {string} marks @param {string|null} limit */
-function txRoot(body,ends,marks,limit){const root=document.createElement('article'); root.className='md tx'; root.id='md'; root.setAttribute('translate','no');
+function txRoot(body,ends,marks,limit){const root=document.createElement('article'); root.className='md tx'; root.id='md'; root.setAttribute('translate','no'); root.lang='';   // as mdRenderAll's: the text's language is not known
   if(limit)root.dataset.limit=limit;
   root.style.setProperty('--gut',String(String(MD.lines.length).length+1));
   for(const [kind,text] of [['marks',marks],['ends',txEndsText(ends)]])if(text){const n=document.createElement('div'); n.className='md-limit tx-note';
-    n.dataset.note=kind; n.setAttribute('role','status'); n.textContent=text; root.appendChild(n);}
+    n.dataset.note=kind; n.setAttribute('role','status'); n.textContent=text; n.lang=document.documentElement.lang; root.appendChild(n);}   // the viewer's words, in the screen's language
   root.appendChild(body); return root;}
 // The notice for the line ends of the source that are not LF or CRLF (ends: {name: count}, /api/source line_ends - 'U+000C',
 // 'U+2028', a lone CR as 'U+000D'), or '' when there are none. Limn numbers lines past them; an editor or git that counts LF
