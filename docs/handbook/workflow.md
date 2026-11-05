@@ -102,7 +102,8 @@
 
    머리줄이 맞지 않으면 awk는 오류 없이 빈 파일을 만든다. `test -s`가 빈 본문의 Release를 막는다. 더 새 판이 이미 있는데 옛 판의 Release를 낼 때는 `--latest=false`를 붙인다. 그래야 Latest가 옛 판으로 옮겨 가지 않는다.
 
-4. 각 머신의 운영자는 `limn update`로 최신 태그를 설치하고 실행 중인 인스턴스를 재시작한다. `--dry-run`으로 계획을 먼저 볼 수 있다. 상세는 [instances.md](instances.md)다.
+4. 비공개 보안 공지(GitHub Security Advisory)로 받은 결함을 이 판이 고쳤다면, Release를 만든 직후 그 공지 초안에 고친 판(`patched_versions`)과 영향 범위(`vulnerable_version_range`), 고친 방법을 채운다. 공개와 CVE 요청은 바깥으로 나가는 일이라 소유자가 정한다([SECURITY.md](../../SECURITY.md) §Reporting a vulnerability). 초안을 그대로 두면 이미 고친 결함이 고쳐지지 않은 것으로 남고, 옛 판을 쓰는 사람은 올려야 하는지 알 수 없다.
+5. 각 머신의 운영자는 `limn update`로 최신 태그를 설치하고 실행 중인 인스턴스를 재시작한다. `--dry-run`으로 계획을 먼저 볼 수 있다. 상세는 [instances.md](instances.md)다.
 
 > **참고**
 >
