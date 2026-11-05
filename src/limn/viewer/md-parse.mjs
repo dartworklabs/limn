@@ -154,22 +154,40 @@ function mdMathMemo(state, end, close) {
 }
 // Where the code span whose opening run of len backticks ends at r on line n closes: [its line, the index just past its
 // closing run] - the next run of exactly len backticks, on this line or a later one before a blank line or a line of an
-// outer block (a code span runs over line ends, CommonMark) - or null when there is none: then the backticks are text.
+// outer block (a code span runs over line ends, CommonMark) - or null when there is none: then the backticks are text. The
+// run is looked up (mdTickRuns), not searched for: a thousand '\[' lines that each end in a run of a length of its own
+// would otherwise read the rest of the document once per line. Only the lines up to the one it lies on are asked whether
+// they end the search, as they stand now: a quote or a list item reads the same lines otherwise.
 function mdTickClose(state, len, r, n, end) {
-  const s = state.src;
-  for (let m = n, j = r; ;) {
-    const le = state.eMarks[m];
-    while (j < le) {
-      if (s.charCodeAt(j) !== 0x60) { j++; continue; }
-      let e = j;
-      while (e < le && s.charCodeAt(e) === 0x60) e++;
-      if (e - j === len) return [m, e];
-      j = e;
-    }
-    m++;
-    if (mdMathStop(state, m, end)) return null;
-    j = state.bMarks[m] + state.tShift[m];
+  const at = mdTickRuns(state).get(len);
+  if (!at) return null;
+  let lo = 0, hi = at.pos.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (at.pos[mid] < r) lo = mid + 1;
+    else hi = mid;
   }
+  if (lo === at.pos.length) return null;
+  for (let m = n + 1; m <= at.line[lo]; m++) if (mdMathStop(state, m, end)) return null;
+  return [at.line[lo], at.pos[lo] + len];
+}
+// The source's backtick runs by length, read once per parse (state.mdTick): len -> {pos, line}, each run's start and line
+// in source order. A line's runs are the same whichever container reads it: a content start (bMarks + tShift) passes over
+// blanks, quote markers and a list marker, never a backtick, so the runs of a line read from it are the runs of the line.
+function mdTickRuns(state) {
+  if (state.mdTick) return state.mdTick;
+  const s = state.src, runs = new Map();
+  for (let j = 0, line = 0; j < s.length;) {
+    const c = s.charCodeAt(j);
+    if (c !== 0x60) { if (c === 0x0a) line++; j++; continue; }
+    let e = j;
+    while (e < s.length && s.charCodeAt(e) === 0x60) e++;
+    let at = runs.get(e - j);
+    if (!at) runs.set(e - j, at = {pos: [], line: []});
+    at.pos.push(j); at.line.push(line);
+    j = e;
+  }
+  return state.mdTick = runs;
 }
 // Whether line n ends the search: past end, blank, or a line of an outer block (indented less than the block; a lazy line,
 // which a quote marks -1).

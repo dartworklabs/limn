@@ -561,14 +561,18 @@ class MathRule(unittest.TestCase):
         """Eight thousand lines that open display math with no closer (about 40 KB) parse in a fraction of the viewer's two
         seconds: what a search found from a line start is kept (mdMathMemo), so neither a later opening line nor the
         paragraph asking each line whether math ends it reads the rest again. Lines of '\\[' and '$$', backticks that open
-        code spans over line ends or never close, and a quote's lines. The parse runs in a node subprocess (run_node's
-        timeout), so a slow one fails instead of holding the suite."""
+        code spans over line ends or never close, and a quote's lines. Twelve hundred lines whose runs grow or shrink by a
+        backtick each (about 720 KB) leave every run unmatched: its closing run is looked up (mdTickRuns), not searched
+        for through the rest of the document. The parse runs in a node subprocess (run_node's timeout), so a slow one
+        fails instead of holding the suite."""
         cases = {
             "backslash brackets": "\\[ x\n" * 8000,
             "dollars": "$$ x\n" * 8000,
             "code spans over line ends": "\\[ `\n" * 8000,
             "backtick runs of forty lengths": "\n".join("\\[ " + "`" * (i % 40 + 1) for i in range(4000)),
             "in a quote": "> \\[ x\n" * 8000,
+            "backtick runs growing": "\n".join("\\[ " + "`" * (i + 1) for i in range(1200)),
+            "backtick runs shrinking": "\n".join("\\[ " + "`" * (1200 - i) for i in range(1200)),
         }
         got = worker_node(
             "out={}; for(const [name,s] of Object.entries(%s)){md.parse(s,{}); const t0=performance.now(); md.parse(s,{});"
