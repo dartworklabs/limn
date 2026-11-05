@@ -4,7 +4,7 @@ import json
 import shutil
 import unittest
 
-from helpers import extract_js_fn, run_node
+from helpers import JS_UPDATE_STUBS, extract_js_fn, run_node
 
 
 class AsyncDocumentVisits(unittest.TestCase):
@@ -46,7 +46,7 @@ class AsyncDocumentVisits(unittest.TestCase):
         """A failed poll from A cannot mark B disconnected after the user switches."""
         js = "\n".join(
             [
-                extract_js_fn("pollLightOnce"),
+                JS_UPDATE_STUBS + extract_js_fn("pollLightOnce"),
                 "function isMdDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
                 """
                 let DOC='a',SWITCHSEQ=1,POLL_FAILS=1;
@@ -93,7 +93,7 @@ class AsyncDocumentVisits(unittest.TestCase):
         """A successful old poll cannot clear the current document's disconnected banner."""
         js = "\n".join(
             [
-                extract_js_fn("pollLightOnce"),
+                JS_UPDATE_STUBS + extract_js_fn("pollLightOnce"),
                 "function isMdDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
                 """
                 let DOC='a',SWITCHSEQ=1,POLL_FAILS=2;

@@ -27,6 +27,7 @@ SHOWS = {
     ("search.js", "searchBringBack"): 3,
     ("search.js", "searchReveal"): 2,
     ("selection.js", "revealBox"): 1,
+    ("updates.js", "updGoNext"): 1,
     ("verdict-panel.js", "pvBring"): 1,
     ("verdict-reason.js", "pvShowLine"): 1,
     ("verdict.js", "<top>"): 1,

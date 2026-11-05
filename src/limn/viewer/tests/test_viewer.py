@@ -29,6 +29,7 @@ import helpers_js
 from helpers import (
     DOCS_DIR,
     HTML,
+    JS_UPDATE_STUBS,
     PKG,
     RULE_CASES,
     SKILL_KO,
@@ -208,7 +209,8 @@ class FrontendLogic(unittest.TestCase):
                 extract_js_fn("pullSuffix"),
                 extract_js_fn("buildsFromSource"),
                 extract_js_fn("pollBuild"),
-                extract_js_fn("pollBuildOnce"),
+                JS_UPDATE_STUBS + extract_js_fn("pollBuildOnce"),
+                "let UPDATES=0; function checkDocUpdate(){UPDATES++;}",
                 r"""
             (async()=>{
               const out={};
@@ -222,10 +224,10 @@ class FrontendLogic(unittest.TestCase):
               const a=pollBuild(), b=pollBuild(), c=pollBuild();
               out.same=(a===b&&b===c);
               resolveApi(); await Promise.all([a,b,c]);
-              out.burst={calls, said:said.slice(), refreshes};
+              out.burst={calls, said:said.slice(), refreshes, updates:UPDATES};
               // 같은 seq 를 다시 봐도 아무 일 없음
               const d=pollBuild(); resolveApi(); await d;
-              out.again={calls, said:said.slice(), refreshes};
+              out.again={calls, said:said.slice(), refreshes, updates:UPDATES};
               // 숨은 탭은 요청하지 않는다
               document.hidden=true; await pollBuild(); out.hidden=calls; document.hidden=false;
               // 5초 틈새에 두 빌드가 지나감(seq 4→6, 마지막 fail) → 한 번만, fail 토스트
@@ -240,10 +242,11 @@ class FrontendLogic(unittest.TestCase):
         out = json.loads(run_node(js))
         self.assertEqual(out["boot"], {"calls": 1, "said": [], "panels": ["ok_errors"], "refreshes": 0})
         self.assertTrue(out["same"])
-        self.assertEqual(out["burst"], {"calls": 1, "said": ["ok"], "refreshes": 1})
-        self.assertEqual(out["again"], {"calls": 2, "said": ["ok"], "refreshes": 1})
+        # a build this tab did not ask for is the document's update (updates.js checkDocUpdate), not the 6 s answer
+        self.assertEqual(out["burst"], {"calls": 1, "said": [], "refreshes": 1, "updates": 1})
+        self.assertEqual(out["again"], {"calls": 2, "said": [], "refreshes": 1, "updates": 1})
         self.assertEqual(out["hidden"], 2)
-        self.assertEqual(out["skip"], {"said": ["ok"], "panels": ["fail"]})  # the failure's place is its panel
+        self.assertEqual(out["skip"], {"said": [], "panels": ["fail"]})  # the failure's place is its panel
 
     def test_rel_badge_matches_python_smallest_inside_rule(self):
         # bug: relBadge (JS, card tag) used to pick insides[0] (the order the server happened to send,
@@ -325,7 +328,7 @@ class FrontendLogic(unittest.TestCase):
                 extract_js_fn("pinState"),
                 extract_js_fn("josa"),
                 extract_js_fn("josaName"),
-                extract_js_fn("notePinChanges"),
+                JS_UPDATE_STUBS + extract_js_fn("notePinChanges"),
                 r"""
             const prev=[{id:1},{id:2},{id:3}];
             const d=[{id:1,done:false},{id:3,done:true}];
@@ -364,7 +367,7 @@ class FrontendLogic(unittest.TestCase):
                 extract_js_fn("pinState"),
                 extract_js_fn("josa"),
                 extract_js_fn("josaName"),
-                extract_js_fn("notePinChanges"),
+                JS_UPDATE_STUBS + extract_js_fn("notePinChanges"),
                 r"""
             notePinChanges([{id:9}],[],[{id:9,dropped_by:{login:'x'}}]);
             CAPTURED.fn();
@@ -390,7 +393,7 @@ class FrontendLogic(unittest.TestCase):
                 extract_js_fn("pinState"),
                 extract_js_fn("josa"),
                 extract_js_fn("josaName"),
-                extract_js_fn("notePinChanges"),
+                JS_UPDATE_STUBS + extract_js_fn("notePinChanges"),
                 r"""
             notePinChanges([{id:5}],[],[]);   // dropped 목록에도 없음(폴링 경합) — 그래도 삭제로는 알린다
             console.log(JSON.stringify(SAID));
@@ -420,7 +423,7 @@ class FrontendLogic(unittest.TestCase):
                 extract_js_fn("pinState"),
                 extract_js_fn("josa"),
                 extract_js_fn("josaName"),
-                extract_js_fn("notePinChanges"),
+                JS_UPDATE_STUBS + extract_js_fn("notePinChanges"),
                 r"""
             markMine(1); markMine(2);   // 이 탭이 방금 #1 을 완료, #2 를 삭제했다
             const prev=[{id:1},{id:2},{id:3},{id:4}];
@@ -567,7 +570,7 @@ class FrontendStructure(unittest.TestCase):
         self.assertIsNotNone(m)
         body = m.group(1)
         self.assertIn("/api/pins/dropped", body)
-        applied = extract_js_fn("applyPinLists")
+        applied = JS_UPDATE_STUBS + extract_js_fn("applyPinLists")
         self.assertIn("DROPPED=dropped", applied)
         self.assertIn("notePinChanges(prevOpen,rows,dropped)", applied)
 
@@ -1962,9 +1965,14 @@ class FrontendSemanticAudit(unittest.TestCase):
             ]
         )
         self.assertEqual(json.loads(run_node(js)), [False, True, True, False, False, False])
-        self.assertIn("{keys:[e.type+':'+e.pin],rank:2,literal:true,", extract_js_fn("notifyShow"))
-        self.assertIn("{keys:reviewed.map(i=>EVENT_TYPE.REVIEW_REQUESTED+':'+i),", extract_js_fn("notePinChanges"))
-        self.assertIn("{keys:[EVENT_TYPE.REOPENED+':'+p.id],", extract_js_fn("noteReviewChanges"))
+        self.assertIn("o:{keys:evs.map(x=>x.type+':'+x.pin),rank:2,literal:true,", extract_js_fn("notifyLineView"))
+        self.assertIn(
+            "{keys:g.ids.map(i=>EVENT_TYPE.REVIEW_REQUESTED+':'+i),",
+            JS_UPDATE_STUBS + extract_js_fn("notePinChanges"),
+        )
+        self.assertIn(
+            "{keys:g.pins.map(x=>EVENT_TYPE.REOPENED+':'+x.id),", JS_UPDATE_STUBS + extract_js_fn("noteReviewChanges")
+        )
 
     def test_closed_cards_drop_position_badges_and_thread_count_opens_reply(self):
         body = extract_js_fn("card")
@@ -2391,7 +2399,7 @@ class HtmlTemplateStructure(unittest.TestCase):
             "+' · '+tl('열린 {n}',{n:PINS.length})",
             extract_js_fn("docTitle"),
         )
-        self.assertIn("docTitle(true);", extract_js_fn("applyPinLists"))
+        self.assertIn("docTitle(true);", JS_UPDATE_STUBS + extract_js_fn("applyPinLists"))
 
 
 class FrontendDocs(unittest.TestCase):
@@ -2611,7 +2619,7 @@ class FrontendDocs(unittest.TestCase):
         put = extract_js_fn("vecCachePut")
         self.assertIn("while(c.size>VEC_CACHE_MAX)", put)
         self.assertIn("vecClose(d)", put)
-        sw = extract_js_fn("switchDoc")
+        sw = JS_UPDATE_STUBS + extract_js_fn("switchDoc")
         self.assertIn("saveView();", sw)
         self.assertIn("setHash(k)", sw)
         self.assertIn("savePrefs({lastDoc:k})", sw)
@@ -2765,10 +2773,11 @@ class FrontendFigure(unittest.TestCase):
         self.assertIn(
             "document.body.classList.toggle('no-rebuild',!buildsFromSource(META.kind))", extract_js_fn("drawMeta")
         )
-        for fn in ("drawMeta", "pollBuildOnce", "noteOtherDocs"):
+        for fn in ("drawMeta", "pollBuildOnce", "noteOtherDocs", "docUpdateView"):
             with self.subTest(fn=fn):
                 self.assertNotIn("view_only", extract_js_fn(fn))
-                self.assertIn("buildsFromSource(", extract_js_fn(fn))
+                if fn != "noteOtherDocs":  # another document's finished build is its update message (docUpdateView)
+                    self.assertRegex(extract_js_fn(fn), r"buildsFromSource\(|isFigureKind\(")
         self.assertIn(
             "isFigureKind(d.kind)?' · '+tr('그림 문서(드래그하면 요소와 그 요소를 그린 코드 줄을 찾습니다)'):''",
             extract_js_fn("docTip"),
@@ -3105,7 +3114,7 @@ class FrontendFigure(unittest.TestCase):
                 extract_js_fn("pinState"),
                 extract_js_fn("josa"),
                 extract_js_fn("josaName"),
-                extract_js_fn("notePinChanges"),
+                JS_UPDATE_STUBS + extract_js_fn("notePinChanges"),
                 r"""
             notePinChanges([{id:1,el_sync:'ok'},{id:2,el_sync:'lost'},{id:3}],[{id:1,el_sync:'lost'},{id:2,el_sync:'lost'},{id:3,el_sync:'moved'}],[]);
             console.log(JSON.stringify(SAID));""",
@@ -3128,7 +3137,7 @@ class FrontendFigure(unittest.TestCase):
                 extract_js_fn("pinState"),
                 extract_js_fn("josa"),
                 extract_js_fn("josaName"),
-                extract_js_fn("notePinChanges"),
+                JS_UPDATE_STUBS + extract_js_fn("notePinChanges"),
                 r"""
             const at=(id,extra)=>Object.assign({id,sync:'ok'},extra);
             notePinChanges([at(1),at(2),at(3),at(4),at(5)],
@@ -3138,7 +3147,9 @@ class FrontendFigure(unittest.TestCase):
             console.log(JSON.stringify(SAID));""",
             ]
         )
-        self.assertEqual(json.loads(run_node(js)), ["#2 줄 +3 이동", "#3 줄 -1 이동"])
+        self.assertEqual(
+            json.loads(run_node(js)), ["핀 2개 줄 이동 — #2 +3, #3 -1"]
+        )  # one message for the snapshot (groupNote)
 
     def test_marks_and_cards_place_a_figure_pin_where_its_element_is(self):
         """marks() and the card's page link use pinPlace; a placed mark is not dashed; a lost element marks the card and
@@ -3156,7 +3167,7 @@ class FrontendFigure(unittest.TestCase):
         self.assertIn("const lostEl=elLostTag(p); if(lostEl)tags.push(lostEl);", c)
         self.assertIn("figRegionBadge(p.el,isFigureKind((docInfo(pdoc(p))||{}).kind))", c)
         self.assertIn("arrivePage(pinPlace(p).page)", extract_js_fn("jumpPin"))  # its page now, by its figure
-        self.assertIn("p.el_sync===EL_SYNC.LOST", extract_js_fn("notePinChanges"))
+        self.assertIn("p.el_sync===EL_SYNC.LOST", JS_UPDATE_STUBS + extract_js_fn("notePinChanges"))
 
     def test_a_pin_of_an_unknown_via_gets_a_neutral_hint_not_the_synctex_one(self):
         """A `via` this page does not know is named as it came, in a tooltip that claims no method and no meaning for the
@@ -3248,9 +3259,9 @@ class FrontendFigure(unittest.TestCase):
         )
 
     def test_the_finished_build_message_says_rebuilt_for_a_manuscript_and_redrawn_for_a_figure(self):
-        """The status-line message after a finished build of the document on screen, and the one for another document's
-        finished build, say 'PDF 재빌드 완료' for a LaTeX document and that the pages were redrawn for a figure or a view-only
-        PDF, in Korean and English."""
+        """The status-line answer to this tab's own rebuild of the document on screen says 'PDF 재빌드 완료' for a LaTeX
+        document and that the pages were redrawn for a figure or a view-only PDF, in Korean and English; another
+        document's finished build is that document's update message (checkDocUpdate, docs/handbook/viewer.md §새 소식)."""
         self.node()
         words = {
             "ko": {
@@ -3276,18 +3287,21 @@ class FrontendFigure(unittest.TestCase):
                         const lineNote=(m,k)=>SAID.push([m,k]); const switchDoc=()=>{}; const drawDocTabs=()=>{};
                         const DOCS=[{key:'b',name:'Fig B',kind:%s}]; const docInfo=k=>DOCS.find(d=>d.key===k)||null;"""
                             % (json.dumps(kind), json.dumps(kind)),
+                            JS_UPDATE_STUBS,
+                            "const CHECKED=[]; function checkDocUpdate(k,ctx){CHECKED.push([k,!!ctx.mine]);} function rendersInBrowser(){return false;}",
                             *[extract_js_fn(n) for n in ("buildsFromSource", "pollBuildOnce", "noteOtherDocs")],
                             r"""
                         (async()=>{
-                          REPLY={data:{state:'ok',seq:1,elapsed_s:3}}; await pollBuildOnce();
+                          BUILD.asked=true; REPLY={data:{state:'ok',seq:1,elapsed_s:3}}; await pollBuildOnce();
                           DOC_SEQ.set('b',1); noteOtherDocs([{key:'b',build_seq:2,last_state:'ok'}]);
-                          console.log(JSON.stringify(SAID.map(t=>t[0])));})();""",
+                          console.log(JSON.stringify([SAID.map(t=>t[0]),CHECKED]));})();""",
                         ]
                     )
-                    on_screen, other = json.loads(run_node(js))
+                    said, checked = json.loads(run_node(js))
                     w = words[lang]
-                    self.assertTrue(on_screen.startswith(w["tex"] if kind == "tex" else w["redrawn"]), on_screen)
-                    self.assertIn(w["tex"] if kind == "tex" else w["other"], other)
+                    self.assertEqual(len(said), 1, said)
+                    self.assertTrue(said[0].startswith(w["tex"] if kind == "tex" else w["redrawn"]), said)
+                    self.assertEqual(checked, [["a", True], ["b", False]])
 
     def test_a_region_pin_is_located_by_the_page_its_mark_is_on_now(self):
         """locCopy (the copy text) and arcLoc (an archive row) name a region pin's page by pinPlace: the page its
@@ -4664,9 +4678,9 @@ class FrontendReview(unittest.TestCase):
                 extract_js_fn("pinState"),
                 extract_js_fn("josa"),
                 extract_js_fn("josaName"),
-                extract_js_fn("notePinChanges"),
+                JS_UPDATE_STUBS + extract_js_fn("notePinChanges"),
                 extract_js_fn("pinState"),
-                extract_js_fn("noteReviewChanges"),
+                JS_UPDATE_STUBS + extract_js_fn("noteReviewChanges"),
                 r"""
             notePinChanges([{id:1},{id:2}],[{id:1,done:true,review:true},{id:2,done:true}],[]);
             noteReviewChanges([{id:5},{id:6},{id:7}],[{id:5,done:true,confirmed_by:{name:'W'}},{id:6,done:false},{id:7,done:true,review:true}]);
@@ -5269,7 +5283,7 @@ class FrontendNotify(unittest.TestCase):
                 r"""
             function who(a){return (a&&(a.name||a.login))||'';}
             const store={}; const localStorage={getItem:k=>k in store?store[k]:null,setItem:(k,v)=>{store[k]=String(v);}};
-            let NOTIFY=true; function notifyOn(){return NOTIFY;}
+            let NOTIFY=true,NOTIFY_CURSOR_MEM=null; function notifyOn(){return NOTIFY;}
             let META={me:{login:'w@example.com',name:'Wendy Kim'},label:'DEMO-B'}; const SHOWN=[];
             function notifyShow(e){SHOWN.push([e.pin,e.type]);}
             """,
@@ -5279,10 +5293,12 @@ class FrontendNotify(unittest.TestCase):
                 for n in (
                     "notifyCursor",
                     "setNotifyCursor",
+                    "putNotifyCursor",
                     "notifyQuery",
                     "pickNotifications",
                     "notifyText",
                     "notifyHandle",
+                    "isLocalIdentity",
                 )
             ]
             + [script]
@@ -5316,10 +5332,15 @@ class FrontendNotify(unittest.TestCase):
             notifyHandle(d);                                            // 탭 A
             notifyHandle(d);                                            // 탭 B 가 같은 응답을 늦게 받음(같은 localStorage)
             notifyHandle({ev_seq:6,events:[]});                         // 새로고침 뒤
+            // the switch off: still asked for and said on the status line (docs/handbook/viewer.md §새 소식)
             NOTIFY=false; notifyHandle({ev_seq:9,events:[{seq:9,type:'mention',pin:3,to:['w@example.com'],by:S}]});
-            console.log(JSON.stringify([c0,q,SHOWN,notifyCursor(),notifyQuery()]));
+            const off=[notifyCursor(),notifyQuery()];
+            META={me:{login:'local',name:'로컬/에이전트'}}; const local=notifyQuery();   // a local identity is never addressed
+            console.log(JSON.stringify([c0,q,SHOWN,off,local]));
             """)
-        self.assertEqual(json.loads(run_node(js)), [4, "&ev=4", [[1, "mention"], [2, "replied"]], 6, ""])
+        self.assertEqual(
+            json.loads(run_node(js)), [4, "&ev=4", [[1, "mention"], [2, "replied"], [3, "mention"]], [9, "&ev=9"], ""]
+        )
 
     def test_wiring(self):
         h = HTML
@@ -5336,7 +5357,7 @@ class FrontendNotify(unittest.TestCase):
         self.assertNotIn("new Notification(", html_without_comments(h))
         self.assertIn("tag:'pin-'+e.pin", extract_js_fn("notifyShow"))
         self.assertIn("document.visibilityState==='visible'&&document.hasFocus()", extract_js_fn("notifyShow"))
-        self.assertIn("notifyQuery()", extract_js_fn("pollLightOnce"))
+        self.assertIn("notifyQuery()", JS_UPDATE_STUBS + extract_js_fn("pollLightOnce"))
         self.assertIn("navigator.serviceWorker.register('/sw.js'", extract_js_fn("notifyRegister"))
 
 

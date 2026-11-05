@@ -86,6 +86,7 @@ interface NoticeAct {
   label: string;
   tip?: string;
   wait?: boolean;
+  stay?: boolean; // the action runs and the message stays (the next changed place, updates.js)
   fn: (run?: NoticeRun) => unknown;
 }
 
@@ -134,6 +135,15 @@ interface Notice {
   timer: ReturnType<typeof setTimeout> | undefined;
   gone: (() => void) | null;
   el: HTMLElement | null;
+  group: string; // the group it says (groupNote): later events of that group merge into it
+  keep: boolean; // never pushed off the line by its cap (a document's update, a gathered message)
+  back: boolean; // stands behind the line's other messages: news of another document (updates.js)
+  dots: string[]; // the chips a gathered message marks (digestNote); else its one dot
+  onEnd: ((acted: boolean, seen: boolean) => void) | null; // runs once as it goes: by its action, or seen ([x])
+  items?: any[][]; // a gathered message's messages, as lineNote's arguments (digestNote)
+  digestTitle?: string; // a gathered message's title
+  brief?: string; // what a gathered message calls it
+  digest?: boolean; // false: never gathered
 }
 
 // A send held back behind its undo (notices.js deferred()): run sends it now, cancel takes it back unsent; note is its undo.
@@ -162,12 +172,14 @@ interface RevTarget {
 }
 
 // The changes view's quick range (revisions.js REV.range, issue #188): mode is a RANGE_MODE value, start and end the
-// commits it spans (start the older; equal for one commit), endSet whether the end was pressed after the start.
+// commits it spans (start the older; equal for one commit), endSet whether the end was chosen (pressed after the start, or
+// named by an update message), base the commit an update message's range is compared from (its last seen commit).
 interface RevRange {
   mode: string;
   start: string;
   end: string;
   endSet: boolean;
+  base?: string;
 }
 
 // The last-seen commit of a document in this browser (localStorage limnRevSeen): its id and when, as MM-DD HH:MM.

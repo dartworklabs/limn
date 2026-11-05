@@ -91,6 +91,10 @@ body.md-surface #left{touch-action:pan-x pan-y pinch-zoom}
 .md .ln.md-pin.rv,.md [data-lo].md-pin.rv{background:color-mix(in srgb,var(--status-review) 16%,transparent)}
 .md .ln.md-pin.st,.md [data-lo].md-pin.st{background:color-mix(in srgb,var(--status-warning) 18%,transparent)}
 .md .ln.md-pin.md-sel,.md [data-lo].md-pin.md-sel{background:color-mix(in srgb,var(--primary) 22%,transparent)}
+/* Lines that changed since the document was last drawn, while its update message stands (updates.js, viewer.md §새 소식): a
+   light amber wash under the text - not a pin's green, not a selection's blue - and no edge or stripe. It wins over a pin's
+   wash while it lasts. */
+.md .ln.md-upd,.md [data-lo].md-upd{background:color-mix(in srgb,var(--warning) 18%,transparent);border-radius:var(--radius-sm)}
 .md .md-flash{animation:md-flash 1.2s ease-out}
 @keyframes md-flash{0%{box-shadow:0 0 0 3px var(--primary)}100%{box-shadow:0 0 0 0 transparent}}
 /* Pins' number badges: a layer of the column, in its left gutter at the height of each pin's first line (md-surface.js). A

@@ -35,8 +35,9 @@ function msgSplit(msg){const s=String(msg==null?'':msg),m=/^(.+?) — (.+)$/.exe
 // (the browser-notification path 2, the list comparison 1). Among shown messages younger than 8 seconds that share a key: a
 // higher rank holding every key suppresses the new one ({skip:true}); a lower rank is replaced by it (drop). The same rank is
 // the same path and so another event (a second review request after a reopen): never suppressed. No keys, no check. Pure.
-/** @param {Notice[]} shown @param {string[]} keys @param {number} rank @param {number} now @returns {{skip:boolean,drop:Notice[]}} */
-function noticeDupe(shown,keys,rank,now){const drop=/** @type {Notice[]} */([]); if(!keys||!keys.length)return {skip:false,drop};
+/** @template {{at:number,keys:string[],rank:number}} T @param {T[]} shown @param {string[]} keys @param {number} rank @param {number} now
+ * @returns {{skip:boolean,drop:T[]}} */
+function noticeDupe(shown,keys,rank,now){const drop=/** @type {T[]} */([]); if(!keys||!keys.length)return {skip:false,drop};
   for(const x of shown){if(now-x.at>8000||!x.keys.length||!keys.some(k=>x.keys.includes(k)))continue;
     if(x.rank>rank&&keys.every(k=>x.keys.includes(k)))return {skip:true,drop:[]};
     if(rank>x.rank)drop.push(x);}
@@ -70,7 +71,8 @@ function makeNotice(o){const [title,desc]=msgSplit(o.msg);
   const n=/** @type {Notice} */({n:++NOTICE_SEQ,place:o.place||NOTICE_PLACE.LINE,host:o.host||'',pin:o.pin==null?null:o.pin,sec:o.sec||'',
     prev:o.prev==null?null:o.prev,rec:o.rec||null,kind:o.kind||NOTICE_KIND.OK,title,desc,label:o.label||'',act:o.act||null,literal:!!o.literal,keys:o.keys||[],
     rank:o.rank||1,at:Date.now(),life:o.life||NOTICE_LIFE.STICKY,dot:o.dot||'',topic:o.topic||'',save:!!o.save,pending:!!o.pending,away:false,
-    alert:!!o.alert,busy:false,source:o.source||'',undo:!!o.undo,quiet:!!o.quiet,hover:false,held:false,timer:undefined,gone:o.gone||null,el:null});
+    alert:!!o.alert,busy:false,source:o.source||'',undo:!!o.undo,quiet:!!o.quiet,hover:false,held:false,timer:undefined,gone:o.gone||null,el:null,
+    group:o.group||'',keep:!!o.keep,back:!!o.back,dots:o.dots||[],onEnd:o.onEnd||null});
   NOTICES.set(n.n,n); return n;}
 
 // Reads text out politely (#sr-news: a silent success, an undo drawn where it happened, an info banner) or assertively
@@ -95,20 +97,24 @@ function quietNote(msg){announce(trMsg(msg));}
 // shows it, else - another one holds the line - politely (#sr-news).
 /** @param {string} msg @param {string} kind @param {NoticeAct|null} [act] @param {Partial<Notice>} [o] @returns {Notice|null} */
 function lineNote(msg,kind,act,o){o=o||{}; const keys=o.keys||[],rank=o.rank||1,text=o.literal?String(msg):trMsg(msg);
+  if(digestHold(msg,kind,act,o))return null;   // gathered while a person was away (digestBegin): said once, together
   if(o.source){const old=sourceEntry(o.source); if(old){if(old.place===NOTICE_PLACE.LINE&&sameWords(old,text,kind))return old; endNotice(old,true);}}
-  const d=noticeDupe(LINE,keys,rank,Date.now()); if(d.skip)return null; d.drop.forEach(x=>endNotice(x,false));
+  if(newsDupe(keys,rank,null))return null;
   const n=makeNotice({...o,msg:o.literal?String(msg):trMsg(msg),kind,act:act||null,place:NOTICE_PLACE.LINE,pending:false,
     alert:kind===NOTICE_KIND.ERR||!!o.alert,dot:noticeDot(o.dot||'',SIDE_OPEN)});
-  LINE.unshift(n); lineCap();
+  if(n.back)LINE.push(n); else if(n.group)LINE.splice(newsSlot(),0,n); else LINE.unshift(n);   // news: behind the undos (newsSlot); another document's behind all (updates.js)
+  lineCap();
   if(n.dot)document.body.classList.add('dot-'+n.dot);
   drawStatus(); armNotice(n);
   if(n.alert)announce(noticeText(n),true); else if(STATUS_TOP!==n.n&&!n.quiet)announce(noticeText(n));
   return n;}
-// The line's cap (rule 2): it keeps LINE_MAX messages besides its undos. Past that the oldest piece of information leaves,
-// then the oldest error - never the newest message, and never an undo, which leaves only by its window, its [되돌리기] or
-// its [x] (an evicted deferred send would go early).
-function lineCap(){for(;;){const kept=LINE.filter(n=>!isUndo(n)); if(kept.length<=LINE_MAX)return;
-  const rest=kept.filter(n=>n!==LINE[0]); endNotice([...rest].reverse().find(n=>!n.alert)||rest[rest.length-1],false);}}
+// The line's cap (rule 2): it keeps LINE_MAX messages besides its undos and what must stay (keep: a document's update, a
+// gathered line). Past that the oldest piece of information leaves, then the oldest error - oldest by when it came (at), as
+// news may stand behind older messages (newsSlot, back) - never the newest message, and never an undo, which leaves only by
+// its window, its [되돌리기] or its [x] (an evicted deferred send would go early).
+function lineCap(){for(;;){const kept=LINE.filter(n=>!isUndo(n)&&!n.keep); if(kept.length<=LINE_MAX)return;
+  const rest=kept.filter(n=>n!==LINE[0]),oldest=(/** @type {Notice[]} */a)=>a.reduce((/** @type {Notice|null} */m,x)=>!m||x.at<=m.at?x:m,null);
+  endNotice(/** @type {Notice} */(oldest(rest.filter(n=>!n.alert))||oldest(rest)),false);}}
 // Whether message n offers an undo: made as one (undoNote, a discarded selection) or holding a deferred send (gone).
 /** @param {Notice} n @returns {boolean} */
 function isUndo(n){return n.undo||!!n.gone;}
@@ -223,7 +229,7 @@ window.addEventListener('blur',lineHoverOut);
 $('#status-list').addEventListener('close',releaseLine);
 
 // Takes a message away from its store and the screen. acted = its own action ended it: gone does not run (the action replaces
-// it). acted or seen ([x]) = the person has read it: its dot goes unless another message on the line still holds it. One
+// it). acted or seen ([x]) = the person has read it: its dot goes unless another message still holds it (dotHeld). One
 // leaving the line ends the line's hover (lineHoverOut). Idempotent.
 /** @param {Notice} n @param {boolean} acted @param {boolean} [seen] */
 function endNotice(n,acted,seen){if(!NOTICES.has(n.n))return; NOTICES.delete(n.n); clearTimeout(n.timer); n.held=false;
@@ -231,9 +237,20 @@ function endNotice(n,acted,seen){if(!NOTICES.has(n.n))return; NOTICES.delete(n.n
   if(n.place===NOTICE_PLACE.BANNER&&BANNERS.get(n.host)===n)BANNERS.delete(n.host);
   if(n.el)n.el.remove();
   if(n.place===NOTICE_PLACE.ROW)dropBareDayLines();   // a day line drawn for this row alone goes with it
-  if((acted||seen)&&n.dot&&!LINE.some(x=>x.dot===n.dot))document.body.classList.remove('dot-'+n.dot);
+  if(acted||seen)noticeDots(n).forEach(d=>{if(!dotHeld(d))document.body.classList.remove('dot-'+d);});
+  const grp=n.group?GROUPS.get(n.group):undefined; if(grp&&grp.n===n)GROUPS.delete(n.group);
   if(n.place===NOTICE_PLACE.LINE)drawStatus(); if(n.place===NOTICE_PLACE.BANNER){syncSaveBtn(); tipFollow();}   // what was under it moved up
+  if(n.onEnd){const f=n.onEnd; n.onEnd=null; f(acted,!!seen);}
   if(!acted&&n.gone){const g=n.gone; n.gone=null; g();}}
+// The chips message n marks: its dot, or a gathered message's dots (digestEnd). Pure.
+/** @param {Notice} n @returns {string[]} */
+function noticeDots(n){return n.dots&&n.dots.length?n.dots:n.dot?[n.dot]:[];}
+/** @param {Notice} n @param {string} d @returns {boolean} */
+function holdsDot(n,d){return noticeDots(n).includes(d);}
+// Whether a message still marks chip d: one on the line (a gathered line by what it holds), or one being gathered (DIGEST),
+// whose dot went on as it was gathered (digestHold) and stays until it is said or seen.
+/** @param {string} d @returns {boolean} */
+function dotHeld(d){return LINE.some(x=>holdsDot(x,d))||!!DIGEST&&digestDots([...DIGEST.items.values()]).includes(d);}
 
 // Read before message n goes. A button of it with the focus goes with it, and what is returned, called once it has gone, finds
 // the focus a place: on a document with page lines the line of the page the button was on (a chip's) or the reading page's, else
@@ -261,6 +278,7 @@ let NOTICE_ACT_WAIT=8000;
 // action is told (run.away(), save.js) so that it takes no focus either.
 /** @param {number} num */
 function noticeAct(num){const n=NOTICES.get(num); if(!n||n.busy)return; const a=n.act;
+  if(a&&a.stay){a.fn(); return;}   // an action that leaves the message standing (the next changed place, updates.js)
   const back=noticeFocusBack(n);
   if(!a||!a.wait){endNotice(n,true); if(a)a.fn(); back(); return;}
   n.busy=true; clearTimeout(n.timer); n.timer=undefined; n.held=false;
@@ -305,10 +323,17 @@ function noticeClose(num){const n=NOTICES.get(num); if(!n)return; const back=not
 /** @param {string} topic */
 function endTopic(topic){NOTICES.forEach(n=>{if(n.topic===topic)endNotice(n,false,true);});}
 // The person looks where a dot points (the panel opened, the review section gone to): that dot goes, with the panel open the
-// hint on how to open it, and with the review section the messages about pins sent to review (seen).
+// hint on how to open it, and with the review section the messages about pins sent to review (seen) - on the line and
+// folded in a gathered line (foldedGone), which [펼치기] would otherwise put back with the dot.
 /** @param {string} dot */
-function noticeSeen(dot){if(dot===NOTICE_DOT.RV)LINE.slice().forEach(n=>{if(reviewPins(n.keys).length)endNotice(n,false,true);});
+function noticeSeen(dot){if(dot===NOTICE_DOT.RV){LINE.slice().forEach(n=>{if(reviewPins(n.keys).length)endNotice(n,false,true);});
+    foldedNews().forEach(f=>{if(reviewPins(f.keys).length)foldedGone(f,true);}); gatheredGone(o=>reviewPins(o.keys||[]).length>0);}
   document.body.classList.remove('dot-'+dot); if(dot===NOTICE_DOT.SIDE)endTopic(NOTICE_TOPIC.SIDE);}
+// The gathering under way (DIGEST) loses the messages test picks (by their options), as seen: never said - their groups
+// go with them when no message of theirs stands, and what each held for its end runs, as for a message seen on the line.
+/** @param {(o:any)=>boolean} test */
+function gatheredGone(test){if(!DIGEST)return; for(const [g,a] of [...DIGEST.items]){const o=a[3]||{}; if(!test(o))continue;
+  DIGEST.items.delete(g); const h=GROUPS.get(g); if(h&&!(h.n&&NOTICES.has(h.n.n)))GROUPS.delete(g); if(o.onEnd)o.onEnd(false,true);}}
 // The pins a message's keys say were sent to review ('review_requested:<id>', noticeDupe's keys). Pure.
 /** @param {string[]} keys @returns {number[]} */
 function reviewPins(keys){const p=EVENT_TYPE.REVIEW_REQUESTED+':'; return keys.filter(k=>k.startsWith(p)).map(k=>Number(k.slice(p.length)));}
@@ -316,10 +341,192 @@ function reviewPins(keys){const p=EVENT_TYPE.REVIEW_REQUESTED+':'; return keys.f
 // reopened or deleted - here or elsewhere). inReview = the ids awaiting review. Pure.
 /** @param {string[]} keys @param {number[]} inReview @returns {boolean} */
 function reviewNewsStale(keys,inReview){const ids=reviewPins(keys); return ids.length>0&&!ids.some(i=>inReview.includes(i));}
-// Each time the list is drawn (drawPins: after a reload, a confirm): the stale review arrivals go (reviewNewsStale), and
-// [검토 M]'s dot - on the collapsed desktop's [핀 N] too - once no message on the line holds it.
+// Each time the list is drawn (drawPins: after a reload, a confirm): the stale review arrivals go (reviewNewsStale) - on the
+// line, folded in a gathered line (foldedGone: the line then says, and marks, what is left) and in a gathering still under
+// way (DIGEST) - and [검토 M]'s dot - on the collapsed desktop's [핀 N] too - once no message on the line or gathered holds
+// it (dotHeld).
 function dropStaleReview(){const ids=REVIEW_ALL.map(p=>p.id); LINE.slice().forEach(n=>{if(reviewNewsStale(n.keys,ids))endNotice(n,false,true);});
-  if(!LINE.some(n=>n.dot===NOTICE_DOT.RV))document.body.classList.remove('dot-'+NOTICE_DOT.RV);}
+  foldedNews().forEach(f=>{if(reviewNewsStale(f.keys,ids))foldedGone(f,true);});
+  gatheredGone(o=>reviewNewsStale(o.keys||[],ids));   // still being gathered (the return's poll said it before the list came)
+  if(!dotHeld(NOTICE_DOT.RV))document.body.classList.remove('dot-'+NOTICE_DOT.RV);}
+
+// ---------------- Messages that gather (docs/handbook/viewer.md §새 소식)
+// One status-line message per group ('new:<doc>', 'done', 'upd:<doc>'…): a new event of a group whose message still stands
+// merges into it - merge(old data, new data) gives the whole - and the message says the whole again in place, as the newest
+// on the line, its window (a passing one's) starting again. view(data) gives what it says: {msg, kind, act, o}. A group held
+// by a gathering (digestHold) or by a gathered message not yet unfolded (digestTake) merges the same way, so twelve pins
+// closed one by one are one message, never twelve.
+// The same event on two paths is said once per event, not per message (noticeDupe's keys): less(data, keys) - given by a
+// group whose message carries keys - is its data without the events of those keys, or null when none is left. Events a
+// message of a higher rank already says are left out of what a group says (keysHeld); and when such a message comes later,
+// it takes its events out of the group's message, which says the rest in place (noticeLess) - the others stay. Such a
+// message coming by growing its own group's message does the same, and a group's message folded in a gathered line not yet
+// unfolded, or still being gathered, gives way as one on the line does (newsDupe, foldedLess, gatheredLess).
+/** @typedef {(d:any)=>{msg:string,kind:string,act:NoticeAct|null,o:Partial<Notice>}} GroupView */
+/** @typedef {(d:any,keys:string[])=>any} GroupLess */
+const GROUPS=/** @type {Map<string,{data:any,n:Notice|null,view:GroupView,less:GroupLess|null}>} */(new Map());
+/** @param {string} group @param {any} data @param {GroupView} view @param {((a:any,b:any)=>any)|null} [merge]
+ * @param {GroupLess|null} [less] @returns {Notice|null} */
+function groupNote(group,data,view,merge,less){const g=GROUPS.get(group);
+  if(less){const o=view(data).o||{},held=keysHeld(o.keys||[],o.rank||1); if(held.length){data=less(data,held); if(data==null)return g&&g.n&&NOTICES.has(g.n.n)?g.n:null;}}
+  const alive=!!g&&(!!g.n&&NOTICES.has(g.n.n)&&!g.n.busy||!!DIGEST&&DIGEST.items.has(group)||digestTake(group));
+  const d=alive&&g&&merge?merge(g.data,data):data,v=view(d);
+  if(alive&&g&&g.n&&NOTICES.has(g.n.n)){const o=view(data).o||{}; newsDupe(o.keys||[],o.rank||1,g.n);   // what this event says, said elsewhere
+    g.data=d; g.view=view; g.less=less||null; regroup(g.n,v); return g.n;}
+  GROUPS.set(group,{data:d,n:null,view,less:less||null});
+  const n=lineNote(v.msg,v.kind,v.act,{...v.o,group}); const h=GROUPS.get(group); if(h&&n)h.n=n; return n;}
+// The keys among keys that a message of a higher rank than rank already says: one on the line or folded in a gathered line
+// (foldedNews), younger than noticeDupe's window, or one gathered (DIGEST).
+/** @param {string[]} keys @param {number} rank @returns {string[]} */
+function keysHeld(keys,rank){const now=Date.now(),gathered=DIGEST?[...DIGEST.items.values()].map(a=>a[3]||{}).filter(o=>(o.rank||1)>rank):[],folded=foldedNews();
+  return keys.filter(k=>noticeDupe(LINE,[k],rank,now).skip||noticeDupe(folded,[k],rank,now).skip||gathered.some(o=>(o.keys||[]).includes(k)));}
+// A message of rank that says the events of keys comes (lineNote), or a group's message grows by them (groupNote; except:
+// that message): whether one of a higher rank says them all already - on the line, folded in a gathered line not yet
+// unfolded (foldedNews) or in the gathering under way (gatheredDupe) - so it is not said again (noticeDupe's skip); else
+// each of a lower rank that says some of them gives way (its drop): it says the rest in place (noticeLess, foldedLess,
+// gatheredLess) or goes.
+/** @param {string[]} keys @param {number} rank @param {Notice|null} except @returns {boolean} */
+function newsDupe(keys,rank,except){const now=Date.now(),line=noticeDupe(LINE.filter(x=>x!==except),keys,rank,now),fold=noticeDupe(foldedNews(),keys,rank,now),
+    dig=gatheredDupe(keys,rank,except?except.group:'');
+  if(line.skip||fold.skip||dig.skip)return true;
+  line.drop.forEach(x=>noticeLess(x,keys)); fold.drop.forEach(f=>foldedLess(f,keys)); dig.drop.forEach(g=>gatheredLess(g,keys)); return false;}
+// The gathering under way (DIGEST) as noticeDupe compares the line - a gathering is shorter than its window: skip when a
+// gathered message of a higher rank says every one of keys; else drop names each gathered group of a lower rank that says
+// some of them. except: the group of the message that says keys. Pure but for DIGEST.
+/** @param {string[]} keys @param {number} rank @param {string} except @returns {{skip:boolean,drop:string[]}} */
+function gatheredDupe(keys,rank,except){const drop=/** @type {string[]} */([]); if(!DIGEST||!keys.length)return {skip:false,drop};
+  for(const [g,a] of DIGEST.items){const x=a[3]||{},xk=x.keys||[],xr=x.rank||1; if(g===except||!keys.some(k=>xk.includes(k)))continue;
+    if(xr>rank&&keys.every(k=>xk.includes(k)))return {skip:true,drop:[]};
+    if(rank>xr)drop.push(g);}
+  return {skip:false,drop};}
+// Gathered group g gives way to a message of a higher rank that says the events of keys, as noticeLess on the line: a group
+// that can leave them out (less) stays gathered with the rest; with nothing left, or a group that cannot, it leaves the
+// gathering, never said - its group with it, and what it held for its end runs, as for a folded message (foldedGone).
+/** @param {string} g @param {string[]} keys */
+function gatheredLess(g,keys){const d=DIGEST,a=d?d.items.get(g):undefined; if(!d||!a)return;
+  const gr=GROUPS.get(g),rest=gr&&gr.less?gr.less(gr.data,keys):null;
+  if(!gr||rest==null){const o=a[3]||{}; d.items.delete(g); if(gr&&!(gr.n&&NOTICES.has(gr.n.n)))GROUPS.delete(g); if(o.onEnd)o.onEnd(false,false); return;}
+  gr.data=rest; const v=gr.view(rest); d.items.set(g,[v.msg,v.kind,v.act,{...v.o,group:g}]);}
+// Group's message says its data again wherever it stands - on the line (regroup), gathered (DIGEST) or folded in a gathered
+// line not yet unfolded (which then says what it holds, digestRetitle) - for what its view reads besides its data (a
+// document's moved pins and changed lines, updates.js). Whether it stands anywhere.
+/** @param {string} group @returns {boolean} */
+function groupRedraw(group){const g=GROUPS.get(group); if(!g)return false;
+  if(g.n&&NOTICES.has(g.n.n)){regroup(g.n,g.view(g.data)); return true;}
+  const v=g.view(g.data),item=[v.msg,v.kind,v.act,{...v.o,group}];
+  if(DIGEST&&DIGEST.items.has(group)){DIGEST.items.set(group,item); return true;}
+  const f=foldedNews().find(x=>(x.item[3]||{}).group===group),items=f?f.line.items||[]:[],i=f?items.indexOf(f.item):-1;
+  if(!f||i<0)return false;
+  items[i]=item; digestRetitle(f.line); return true;}
+// The messages gathered lines not yet unfolded hold (digestNote's items), as noticeDupe compares them: each with its keys
+// and rank, as old as its gathered line (at), and where it is held (line, item).
+/** @returns {{at:number,keys:string[],rank:number,line:Notice,item:any[]}[]} */
+function foldedNews(){return LINE.flatMap(n=>(n.items||[]).map(a=>{const o=a[3]||{}; return {at:n.at,keys:o.keys||[],rank:o.rank||1,line:n,item:a};}));}
+// Folded message f gives way to a message of a higher rank that says the events of keys, as noticeLess on the line: its
+// group that can leave them out (less) says the rest in the gathered line; with nothing left, or a group that cannot, it
+// leaves the gathered line, not seen (foldedGone). The line says what is left (digestRetitle).
+/** @param {{line:Notice,item:any[]}} f @param {string[]} keys */
+function foldedLess(f,keys){const items=f.line.items||[],i=items.indexOf(f.item),o=f.item[3]||{},g=o.group?GROUPS.get(o.group):undefined; if(i<0)return;
+  const rest=g&&g.less?g.less(g.data,keys):null;
+  if(!g||rest==null){foldedGone(f,false); return;}
+  g.data=rest; const v=g.view(rest); items[i]=[v.msg,v.kind,v.act,{...v.o,group:o.group}]; digestRetitle(f.line);}
+// Folded message f leaves its gathered line, as a message leaving the line does: its group ends with it, what it held for
+// its end runs (seen: as read - a review request whose pins left review, or the review section seen), and the line says
+// and marks what is left (digestRetitle).
+/** @param {{line:Notice,item:any[]}} f @param {boolean} seen */
+function foldedGone(f,seen){const items=f.line.items||[],i=items.indexOf(f.item),o=f.item[3]||{},g=o.group?GROUPS.get(o.group):undefined; if(i<0)return;
+  items.splice(i,1); if(g&&!(g.n&&NOTICES.has(g.n.n)))GROUPS.delete(o.group); if(o.onEnd)o.onEnd(false,seen);
+  digestRetitle(f.line);}
+// Message x gives way to a message of a higher rank that says the events of keys (noticeDupe's drop): a group's message
+// that can leave them out (less) says the rest in place - not as news again: neither moved, nor read out, nor its window
+// started again - and one with nothing left, or that cannot, goes.
+/** @param {Notice} x @param {string[]} keys */
+function noticeLess(x,keys){const g=x.group?GROUPS.get(x.group):undefined,rest=g&&g.n===x&&g.less?g.less(g.data,keys):null;
+  if(!g||rest==null){endNotice(x,false); return;}
+  g.data=rest; regroup(x,g.view(rest),true);}
+// Where news (a message of a group) stands on the line: right behind the last undo still standing - an undo lives its window
+// where it can be pressed (rule 2), and news arriving meanwhile must not hide it behind '+N' - else first.
+/** @returns {number} */
+function newsSlot(){let i=0; LINE.forEach((x,j)=>{if(isUndo(x))i=j+1;}); return i;}
+// Message n says view v now (groupNote): its words, kind, action, keys and dot, as the newest on the line, read out again
+// (politely, unless quiet) when its words changed - by the line's own live region (.st-sr, drawStatus) when the line shows
+// it, else by #sr-news, never by both, as lineNote reads a first message - and a passing one's window starts again.
+// still: it says less than before (noticeLess) and stays where it is, its window running on, not read out.
+/** @param {Notice} n @param {{msg:string,kind:string,act:NoticeAct|null,o:Partial<Notice>}} v @param {boolean} [still] */
+function regroup(n,v,still){const o=v.o||{},[t,d]=msgSplit(o.literal?String(v.msg):trMsg(v.msg));
+  const same=n.title===t&&n.desc===d&&n.kind===v.kind; n.title=t; n.desc=d; n.kind=v.kind; n.act=v.act||null; if(!still)n.at=Date.now();
+  if(o.keys)n.keys=o.keys; if(o.onEnd)n.onEnd=o.onEnd; if(o.life)n.life=o.life; n.back=!!o.back;
+  const dot=noticeDot(o.dot||'',SIDE_OPEN); if(dot){n.dot=dot; document.body.classList.add('dot-'+dot);}
+  const i=LINE.indexOf(n); if(i>=0&&!n.back&&!still){LINE.splice(i,1); LINE.splice(newsSlot(),0,n);}
+  STATUS_SIG=''; drawStatus(); if(still)return; armNotice(n);
+  if(!same&&!o.quiet&&STATUS_TOP!==n.n)announce(noticeText(n));}
+
+// ---------------- Gathering while a person was away (docs/handbook/viewer.md §새 소식)
+// Back after a while (the tab hidden or the device asleep, polling.js) or opening the viewer again (boot), what the first
+// polls say is gathered for a moment (digestBegin … digestEnd) and said as one message: '자리를 비운 사이 (38분) — 본문이
+// 바뀌었습니다 · 나를 부름 2 · 검토 대기 3', with [펼치기], which puts each on the line as it would have come. One gathered
+// thing alone is said as itself. Only news is gathered - a message of a group (groupNote: a document's update, new pins, an
+// event addressed to me, the list comparison) - and its dots are put on at once. The screen's own messages (a restored draft,
+// a hint), an error, an undo, a message with an error source or one that asks not to (digest:false) are said as they come -
+// an error where it can be seen now (rule 1).
+let DIGEST=/** @type {{title:string,items:Map<string,any[]>,timer:ReturnType<typeof setTimeout>|undefined}|null} */(null);
+const DIGEST_MAX_MS=8000;   // a gathering never lasts longer than this, whatever it waits for
+/** @param {string} title */
+function digestBegin(title){if(DIGEST)return; DIGEST={title,items:new Map(),timer:setTimeout(digestEnd,DIGEST_MAX_MS)};}
+// Ends the gathering ms from now (at once without ms): what the first poll set going has come by then.
+/** @param {number} [ms] */
+function digestSoon(ms){const d=DIGEST; if(!d)return; clearTimeout(d.timer); d.timer=setTimeout(digestEnd,ms||0);}
+/** @param {string} msg @param {string} kind @param {NoticeAct|null|undefined} act @param {Partial<Notice>} o @returns {boolean} */
+function digestHold(msg,kind,act,o){const d=DIGEST; if(!d||!o.group||o.digest===false||o.undo||o.gone||o.source||o.alert||kind===NOTICE_KIND.ERR)return false;
+  // one event on two paths is gathered once, as the line shows it once (noticeDupe): the event path wins over the list's
+  // - per event: a gathered group that can leave the events out (less) keeps the rest (gatheredLess)
+  const keys=o.keys||[],dup=gatheredDupe(keys,o.rank||1,o.group); if(dup.skip)return true; dup.drop.forEach(g=>gatheredLess(g,keys));
+  d.items.set(o.group,[msg,kind,act,o]); const dot=noticeDot(o.dot||'',SIDE_OPEN); if(dot)document.body.classList.add('dot-'+dot); return true;}
+// The gathering ends: nothing, the one thing as itself, or one message for all of them (digestNote) - behind what the line
+// says already (back): what came meanwhile never takes the line from an undo or a hint the screen itself put there.
+function digestEnd(){const d=DIGEST; if(!d)return; DIGEST=null; clearTimeout(d.timer); const items=[...d.items.values()];
+  if(items.length===1)digestReplay(items[0],true); else if(items.length)digestNote(d.title,items);}
+// The words a gathered message is named by in the gathered line: its brief (o.brief), else its title. Pure.
+/** @param {any[]} a @returns {string} */
+function digestBrief(a){const o=a[3]||{}; return o.brief||msgSplit(o.literal?String(a[0]):trMsg(a[0]))[0];}
+// The gathered line's description: each brief once, in the order they came, with how many - a brief that ends in a count
+// ('새 핀 1', one per document) adds its count up ('새 핀 2'), any other counts how many said it ('나를 부름 2'). Pure.
+/** @param {string[]} briefs @returns {string} */
+function digestLine(briefs){const seen=new Map();
+  briefs.forEach(b=>{const m=/^(.*\S) (\d+)$/.exec(b),k=m?m[1]:b,n=m?+m[2]:1,was=seen.get(k); seen.set(k,{n:(was?was.n:0)+n,counted:!!m||(was?was.counted:false)});});
+  return [...seen].map(([b,v])=>v.n>1||v.counted?b+' '+v.n:b).join(' · ');}
+/** @param {string} title @param {any[][]} items */
+function digestNote(title,items){items=[...items.filter(a=>!(a[3]||{}).back),...items.filter(a=>!!(a[3]||{}).back)];   // this document's news first
+  const dots=digestDots(items);
+  const n=lineNote(title+' — '+digestLine(items.map(digestBrief)),NOTICE_KIND.INFO,
+    {label:'펼치기',tip:'모은 소식을 하나씩 상태 줄에 놓습니다',fn:()=>{const all=n?n.items||[]:[]; all.forEach(a=>digestReplay(a,false)); if(all.length>1&&!$('#status-list').open)toggleStatusList();}},
+    {literal:true,keep:true,back:true,dots,digest:false,onEnd:(acted,seen)=>{if(!acted&&n)digestClosed(n.items||[],seen);}});
+  if(n){n.items=items; n.digestTitle=title;}}
+// A gathered line went other than by [펼치기] (its [x]: seen): the groups it held end with it - each of their messages has
+// gone, so what a group's end checks (no other new-pins message, updates.js) sees them gone - and then what each held for
+// its end runs, as seen.
+/** @param {any[][]} items @param {boolean} seen */
+function digestClosed(items,seen){items.forEach(a=>{const g=(a[3]||{}).group,h=g?GROUPS.get(g):undefined; if(h&&!(h.n&&NOTICES.has(h.n.n)))GROUPS.delete(g);});
+  items.forEach(a=>{const f=(a[3]||{}).onEnd; if(f)f(false,seen);});}
+// Puts gathered message a on the line as it would have come - behind what the line says (back), or, unfolded by [펼치기], in
+// front; a group's message is that group's again.
+/** @param {any[]} a @param {boolean} back */
+function digestReplay(a,back){const o=a[3]||{},n=lineNote(a[0],a[1],a[2],{...o,digest:false,back:back||!!o.back}); const g=o.group&&GROUPS.get(o.group); if(g&&n)g.n=n;}
+// Takes group's gathered message out of a gathered line not yet unfolded, so the group's new event merges into it and is
+// said on its own (groupNote); the line says what is left. Whether there was one.
+/** @param {string} group @returns {boolean} */
+function digestTake(group){for(const n of NOTICES.values()){const items=n.items; if(!items)continue; const i=items.findIndex(a=>(a[3]||{}).group===group); if(i<0)continue;
+    items.splice(i,1); digestRetitle(n); return true;}
+  return false;}
+// The chips the gathered messages items mark (digestNote's dots): each one's dot once. Pure but for SIDE_OPEN.
+/** @param {any[][]} items @returns {string[]} */
+function digestDots(items){return [...new Set(items.map(a=>noticeDot((a[3]||{}).dot||'',SIDE_OPEN)).filter(Boolean))];}
+// Gathered line n says what it holds now (digestTake, foldedLess, foldedGone): each brief once with how many, and the dots
+// of those alone - one left stays a gathered line naming it - or, holding nothing more, it goes (nothing it held runs for
+// its end: what took them out did).
+/** @param {Notice} n */
+function digestRetitle(n){const items=n.items||[]; if(!items.length){n.onEnd=null; endNotice(n,true); return;}
+  n.dots=digestDots(items); const [t,d]=msgSplit((n.digestTitle||n.title)+' — '+digestLine(items.map(digestBrief))); n.title=t; n.desc=d; STATUS_SIG=''; drawStatus();}
 
 // A CLICK message - a passing notice that is not an undo (a restored draft's [버리기]) - lasts until the next press somewhere
 // else: a click (a tap, Enter on a button) outside it ends it; a scroll does not. The press that made it has passed by the time

@@ -4,7 +4,7 @@ import json
 import shutil
 import unittest
 
-from helpers import extract_js_fn, js_markup, run_node
+from helpers import JS_UPDATE_STUBS, extract_js_fn, js_markup, run_node
 
 
 class RepickRequestLifetime(unittest.TestCase):
@@ -54,7 +54,7 @@ class RepickRequestLifetime(unittest.TestCase):
                 extract_js_fn("cancelSelection"),
                 extract_js_fn("startRepick"),
                 extract_js_fn("pick"),
-                extract_js_fn("switchDoc"),
+                JS_UPDATE_STUBS + extract_js_fn("switchDoc"),
                 "function isMdDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
                 scenario,
             ]

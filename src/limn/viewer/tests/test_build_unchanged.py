@@ -16,7 +16,7 @@ import re
 import shutil
 import unittest
 
-from helpers import HTML, UI_EN, extract_js_fn, js_i18n, js_markup, run_node
+from helpers import HTML, JS_UPDATE_STUBS, UI_EN, extract_js_fn, js_i18n, js_markup, run_node
 
 UNCHANGED = {"ko": "변경 없음", "en": "No changes"}
 
@@ -66,6 +66,7 @@ class UnchangedAnswer(unittest.TestCase):
             const lineNote=(m,k,a)=>{SAID.push([m,k,a?a.label:null]);};
             const setInterval=()=>1, clearInterval=()=>{}, pollBuild=()=>{};
             async function poll(reply, asked){REPLY={data:reply}; if(asked)BUILD.asked=true; await pollBuildOnce();}""",
+                JS_UPDATE_STUBS,
                 *[extract_js_fn(n) for n in ("buildsFromSource", "buildChipText", "pollBuildOnce", "buildUnchanged")],
                 "(async()=>{" + steps + "console.log(JSON.stringify({said:SAID,refreshes:REFRESHES,"
                 "asked:BUILD.asked,seq:BUILD.lastSeq,line:!!BUILD.unchanged,draws:DRAWS,"
