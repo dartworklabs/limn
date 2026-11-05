@@ -110,7 +110,7 @@ function mdShow(node){const want=MD.want,shown=mdColumnShown(); MD.want=null; MD
   $('#doc').replaceChildren(node); MD.shown=DOC; mdRestore(a);
   if(MD_RO)MD_RO.observe(node); mdOutline(); marks(); mdRelevel(); mdSelMark(mdSelShown()); mdStrip(); mdSpotRead(true);
   const j=MD.jumpTo; MD.jumpTo=null; if(j&&j.doc===DOC&&j.seq===SWITCHSEQ)mdJump(j.id);   // a jump asked before the draw (mdJump)
-  const h=MD.headTo; if(h&&h.doc===DOC){MD.headTo=null; if(h.seq===SWITCHSEQ)mdGoSlug(h.id);}}   // a link from another document (mdGoDoc)
+  const h=MD.headTo; if(h&&h.doc===DOC){MD.headTo=null; if(h.seq===SWITCHSEQ)mdGoLink(h.id);}}   // a link from another document (mdGoDoc)
 // The line view offers the chosen lines alone (mdLineView): a pick of this document whose ladder came from the drawn document
 // (a draft kept from before the parser failed) keeps its lines but takes the ladder a pick there gives - those lines, as lines.
 function mdRelevel(){const d=COMPOSE.current; if(!d||REPICK||isRegion(d)||d.doc!==DOC||d.file!==MD.file||!$('#md.md-lines'))return;
@@ -191,9 +191,11 @@ function mdCarries(e,n){if(e.dataset.line)return +e.dataset.line===n; const lo=+
 // stays the top), then - when the chosen lines were on screen - those lines back into view (revealBox, every layout), and
 // reads the spot at the new width. Nothing moves while the width is the spot's - unless the document was drawn again while
 // the column was hidden (again: the scroll offset then stands on other lines even at the same width) - nor while the column
-// is not laid out (mdLaidOut): the spot waits for the column's next width. A write is held under half a pixel.
+// is not laid out (mdLaidOut): the spot waits for the column's next width. A write is held under half a pixel. During a jump
+// to a heading (MD.goTo) the spot is only a point the scroll passes: the jump is aimed again at its heading instead (mdGoOn).
 function mdSpotKeep(){const s=MD.spot,md=$('#md'),L=$('#left'); if(!s||s.doc!==DOC||!md||!isMdDoc()||MD.shown!==DOC)return;
   const w=md.getBoundingClientRect().width; if((w===s.w&&!s.again)||!mdLaidOut(w))return;
+  if(mdGoOn()){mdSpotRead(true); return;}   // a jump in flight goes on to its heading's new place: the spot is a point it passes
   const e=mdSpotEl(s);
   if(!e){if(L.scrollTop>0)L.scrollTop=0;}
   else{const r=e.getBoundingClientRect(),into=!s.line||mdCarries(e,s.line)?(s.off!==null?s.off:s.frac*r.height):0;   // a nearer line kept: its top
@@ -465,10 +467,10 @@ function mdImage(c){const raw=String(mdAttr(c,'src')||''),alt=String(c.content||
     const known=MD_PIC_SIZE.get(r.path); if(known){img.width=known.w; img.height=known.h; box.classList.add('md-pic-ok');}
     img.addEventListener('load',mdPicLoad); img.addEventListener('error',mdPicError); img.src=mdAssetUrl(DOC,r.path);
     box.appendChild(img); return box;}
-  const e=mdEl('span'); e.className='md-img'; e.textContent=tr('그림')+': '+(alt||raw);
-  e.dataset.tip=r.why==='remote'?tl('원격 그림은 불러오지 않습니다 · {src}',{src:raw}):r.why==='out'?tl('원고 밖의 그림은 불러오지 않습니다 · {src}',{src:raw})
-    :tl('이 그림은 불러오지 않습니다 · {src}',{src:raw});
-  e.dataset.tipUrl=raw; return e;}
+  const e=mdEl('span'),src=ccPlain(raw); e.className='md-img'; e.textContent=tr('그림')+': '+(alt||raw);   // the alt text is drawn text, as the paragraph's
+  e.dataset.tip=r.why==='remote'?tl('원격 그림은 불러오지 않습니다 · {src}',{src}):r.why==='out'?tl('원고 밖의 그림은 불러오지 않습니다 · {src}',{src})
+    :tl('이 그림은 불러오지 않습니다 · {src}',{src});
+  e.dataset.tipUrl=src; return e;}
 // The natural size of each tree image this tab has loaded, by tree path: a redraw or a return to the document keeps their places.
 const MD_PIC_SIZE=/** @type {Map<string,{w:number,h:number}>} */(new Map());
 // An image has loaded: its size is kept (MD_PIC_SIZE) and given to its box, and the reading spot (MD.spot, as mdSpotRead last
@@ -487,24 +489,26 @@ function mdPicLoad(e){const img=/** @type {HTMLImageElement} */(e.target),box=im
 /** @param {Event} e */
 function mdPicError(e){const img=/** @type {HTMLImageElement} */(e.target),box=img.parentElement; if(!box||!box.isConnected)return;
   const s=document.createElement('span'),path=box.dataset.path||''; s.className='md-img'; s.textContent=tr('그림')+': '+(img.alt||path);
-  s.dataset.tip=tl('그림을 불러오지 못했습니다 · {src}',{src:path}); s.dataset.tipUrl=path;
+  const src=ccPlain(path); s.dataset.tip=tl('그림을 불러오지 못했습니다 · {src}',{src}); s.dataset.tipUrl=src;
   box.replaceWith(s); if(isMdDoc()&&!mdGoOn())mdSpotBack();}
+// Every tip of an image or a link below names the hidden characters of the source text it shows again - a path or a '#…'
+// decoded once, a document's name (ccPlain, hidden-chars.js, ADR-0029 D5); the drawn text, an alt text too, is the document's.
 // A link element for href (mdTarget): a web or mail link opens in a new tab without a referrer or opener; an in-document '#…'
 // goes to the heading it names (data-act md-anchor: a click or Enter, the global key handler asking imeKey first); another
 // registered document is data-act md-doc (mdGoDoc), the same way; an image of the tree opens in a new tab from GET /api/asset;
 // anything else is inert text with its target, and why, in the tip.
 function mdLink(href){const r=mdTarget(href,location.origin,mdBase(),DOCS);
-  if(r.open==='web'||r.open==='mail'){const a=/** @type {HTMLAnchorElement} */(mdEl('a')); a.href=r.href; a.target='_blank'; a.rel='noopener noreferrer'; a.dataset.tip=r.href; a.dataset.tipUrl=r.href; return a;}
+  if(r.open==='web'||r.open==='mail'){const a=/** @type {HTMLAnchorElement} */(mdEl('a')); a.href=r.href; a.target='_blank'; a.rel='noopener noreferrer'; a.dataset.tip=a.dataset.tipUrl=ccPlain(r.href); return a;}
   if(r.open==='anchor'){const a=mdEl('a'); a.className='md-anchor'; a.dataset.act='md-anchor'; a.dataset.anchor=r.id||''; a.setAttribute('role','link'); a.tabIndex=0; return a;}
   if(r.open==='doc'){const a=mdEl('a'); a.className='md-doclink'; a.dataset.act='md-doc'; a.dataset.doc=r.key||''; a.dataset.anchor=r.id||''; a.setAttribute('role','link'); a.tabIndex=0;
-    a.dataset.tip=tl('문서로 이동 · {name}',{name:r.name||''})+(r.id?' #'+r.id:''); a.dataset.tipUrl=r.href; return a;}
+    a.dataset.tip=tl('문서로 이동 · {name}',{name:ccPlain(r.name||'')})+(r.id?' #'+ccPlain(r.id):''); a.dataset.tipUrl=ccPlain(r.href); return a;}
   if(r.open==='asset'){const a=/** @type {HTMLAnchorElement} */(mdEl('a')),u=mdAssetUrl(DOC,r.href); a.className='md-asset'; a.href=u; a.target='_blank'; a.rel='noopener noreferrer';
-    a.dataset.tip=tl('그림을 새 탭에서 엽니다 · {path}',{path:r.href}); a.dataset.tipUrl=r.href; return a;}
+    const path=ccPlain(r.href); a.dataset.tip=tl('그림을 새 탭에서 엽니다 · {path}',{path}); a.dataset.tipUrl=path; return a;}
   // A link that does not open: a disabled link to assistive technology, reachable by Tab (the focus shows its description, as
   // a hover does), and a tap shows the description instead of picking the block (mdSelectionPick).
-  const s=mdEl('span'),tip=r.why==='out'?tl('원고 밖을 가리켜 열지 않습니다 · {href}',{href:r.href}):r.why==='unregistered'?tl('등록된 문서가 아니라 열지 않습니다 · {href}',{href:r.href})
-    :tl('이 링크는 열지 않습니다 · {href}',{href:r.href});
-  s.className='md-rel'; s.dataset.tip=tip; s.dataset.tipUrl=r.href;
+  const shown=ccPlain(r.href),s=mdEl('span'),tip=r.why==='out'?tl('원고 밖을 가리켜 열지 않습니다 · {href}',{href:shown}):r.why==='unregistered'?tl('등록된 문서가 아니라 열지 않습니다 · {href}',{href:shown})
+    :tl('이 링크는 열지 않습니다 · {href}',{href:shown});
+  s.className='md-rel'; s.dataset.tip=tip; s.dataset.tipUrl=shown;
   s.tabIndex=0; s.setAttribute('role','link'); s.setAttribute('aria-disabled','true'); s.setAttribute('aria-description',tip); return s;}
 // A link to another registered document (data-act md-doc): that document, at its '#heading' once it is drawn here (MD.headTo,
 // mdShow), with a history entry of its own - the browser's back returns to the document left through the hashchange switch
@@ -516,18 +520,26 @@ function mdLink(href){const r=mdTarget(href,location.origin,mdBase(),DOCS);
 function mdGoDoc(a){const k=String(a.dataset.doc||''),id=String(a.dataset.anchor||''),d=docInfo(k); if(!d)return;
   if(k===DOC){if(id)mdGoSlug(id); return;}
   if(!switchPending(k)){if(!BACK)history.pushState(null,'',location.pathname+location.search+'#doc='+k); void switchDoc(k);}
-  MD.headTo=id&&rendersInBrowser(d.kind)?{doc:k,id,seq:SWITCHSEQ}:null;}
+  MD.headTo=rendersInBrowser(d.kind)?{doc:k,id:showsSourceLines(d.kind)?'':id,seq:SWITCHSEQ}:null;}   // a text document has no headings
+// The document a link of another one switched to is drawn (mdShow): it goes to the link's heading (mdGoSlug), and the focus,
+// which the link took away with the document it was in, goes there too - from the document area or the page's body
+// (focusFell), as a browser moves it to the fragment a link names - so a screen reader reads that heading and the next Tab
+// goes on from it, not from the document's first link. A focus put anywhere else since stays; a link without a heading (a
+// text document has none) leaves the focus on the document area.
+/** @param {string} id */
+function mdGoLink(id){const i=id?mdGoSlug(id):-1,L=$('#left'); if(document.activeElement!==L&&!focusFell())return;
+  const h=MD.heads[i]; focusHold(h?h.el:L);}
 // GitHub's heading slug: lower case, punctuation dropped, spaces to '-'. Pure.
 function mdSlug(s){return String(s).trim().toLowerCase().replace(/[^\p{L}\p{N}\s_-]/gu,'').replace(/\s/g,'-');}
 // An in-document link to '#id': the first heading whose slug is id (or id percent-decoded), as GitHub numbers repeats
 // (slug, slug-1, ...). Nothing when no heading has it.
 /** @param {HTMLElement} a */
 function mdGoAnchor(a){mdGoSlug(String(a.dataset.anchor||''));}
-/** @param {string} id */
+/** @param {string} id @returns {number} */
 function mdGoSlug(id){let want=id; try{want=decodeURIComponent(want);}catch(e){} want=want.toLowerCase();
   const seen=new Map(); let at=-1;
   MD.heads.forEach((h,i)=>{if(at>=0)return; const n=seen.get(h.slug)||0; seen.set(h.slug,n+1); if((n?h.slug+'-'+n:h.slug)===want)at=i;});
-  if(at>=0)mdGoHeading(at);}
+  if(at>=0)mdGoHeading(at); return at;}
 // ---------------- Picking: selection -> lines, and the ladder
 // The lines a DOM point is on: its line span's, else its nearest block's range, else null (outside the document).
 function mdRangeAt(node){const e=node&&(node.nodeType===1?/** @type {Element} */(node):node.parentElement); if(!e)return null;

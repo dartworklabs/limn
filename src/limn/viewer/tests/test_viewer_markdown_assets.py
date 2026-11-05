@@ -16,6 +16,11 @@ docs/guide.md (gd) - and the LaTeX manuscript (ms):
   the top history entry, it adds none, and back closes the layer;
 - the jump to that heading lands on it though images above it load on the way (HeadingJump); a double click on a link
   still waiting for its document adds one entry, and back between two entries of one address shows the document it names;
+- where this branch meets #409's reading spot and focus and ADR-0029's text documents: an image that loads under the
+  changes view leaves the text in place (one reading-spot model); badges stand before their blocks and follow their lines
+  when an image loads; a reflow during a heading jump does not cut it short; a tip names the hidden characters of the path
+  or '#…' it shows; a link followed from the keyboard leaves the focus on its heading; a text document opened by a link
+  draws no image and no link;
 - another origin's page cannot embed a tree image (Cross-Origin-Resource-Policy: same-origin), on a real loopback
   listener where the browser itself enforces the header; the viewer's own page still can;
 - the image, link and SVG checks hold in Firefox too (the *Firefox classes; WebKit does not launch everywhere, and its
@@ -130,6 +135,8 @@ class AssetsBase(BrowserBase):
 
     PLAN = PLAN
     GUIDE = GUIDE
+    # notes/todo.txt registered as a fourth document, the text document td, when set (its lines).
+    TODO: str | None = None
 
     def setUp(self):
         self.away: list[str] = []
@@ -149,9 +156,11 @@ class AssetsBase(BrowserBase):
         (self.src / "notes" / "img" / "flow.svg").write_text(SVG, encoding="utf-8")
         (self.src / "notes" / "img" / "fake.png").write_text("<html>not a png</html>", encoding="utf-8")
         (self.src.parent / "outside.png").write_bytes(blank_png(10, 10))
-        docs = startup_documents.make_docs(
-            ["nt=계획:notes/plan.md", "gd=안내:docs/guide.md", "ms=본문:main.tex"], self.src, ps.APP.C.paths
-        )
+        specs = ["nt=계획:notes/plan.md", "gd=안내:docs/guide.md", "ms=본문:main.tex"]
+        if self.TODO is not None:
+            (self.src / "notes" / "todo.txt").write_text(self.TODO, encoding="utf-8")
+            specs.append("td=할 일:notes/todo.txt")
+        docs = startup_documents.make_docs(specs, self.src, ps.APP.C.paths)
         assert isinstance(docs, list), docs
         ps.APP.set_docs(docs)
         viewer_build(docs[2], BUILD1)
@@ -681,6 +690,195 @@ class CrossOriginEmbed(AssetsBase):
         for name, url in pages.items():
             with self.subTest(page=name, control="no resource policy"):
                 self.assertEqual(self.embed(url, image), 200)
+
+
+# An in-document link at the top to '## 끝', far below, with room under it: a jump the column's reflow must not cut short.
+FAR_ANCHOR = (
+    "# 위\n\n[끝으로](#끝)\n\n"
+    + "".join(
+        ("앞 문단 %d 은 폭이 바뀌면 다시 접히는 긴 문장으로 이어지고 또 이어진다. " % i) * 4 + "\n\n"
+        for i in range(1, 160)
+    )
+    + "## 끝\n\n끝 문단.\n\n"
+    + "".join("뒤 문단 %d.\n\n" % i for i in range(1, 60))
+)
+# Hidden characters (U+202E, the right-to-left override) in an image's alt text and source and in a link's '#…'.
+RLO = "\u202e"
+HIDDEN = "# 계획\n\n![가%s나](img/g%sone.png)\n\n[안내의 설치](../docs/guide.md#%s설치)\n" % (RLO, RLO, RLO)
+# A text document whose lines look like an image and a link of Markdown.
+TODO_TEXT = "할 일\n![막대](img/chart.png)\n[안내](../docs/guide.md#설치)\n"
+TOP_OF = (
+    "(t=>{const h=MD.heads.find(x=>x.title===t),L=document.querySelector('#left');"
+    " return h.el.getBoundingClientRect().top-L.getBoundingClientRect().top;})"
+)
+
+
+def rest(page, timeout: float = 15.0):
+    """Wait until the document pane's scroll offset has stood still for eight 60ms looks."""
+    last, still, end = None, 0, time.monotonic() + timeout
+    while still < 8:
+        if time.monotonic() > end:
+            raise AssertionError("the pane never came to rest")
+        page.wait_for_timeout(60)
+        top = page.evaluate("document.querySelector('#left').scrollTop")
+        still = still + 1 if top == last else 0
+        last = top
+
+
+class OneReadingSpot(AssetsBase):
+    """An image's load and #409's reading spot are one model (mdSpotBack puts back what mdSpotRead read, as mdSpotKeep does
+    after a reflow): an image that loads while the column is hidden under the changes view leaves the text in place too."""
+
+    PLAN = TALL
+
+    def test_an_image_that_loads_under_the_changes_view_leaves_the_text_in_place(self):
+        """The image's answer is held; the reading line is put on '## 읽는 곳'; the changes view is opened (the column is
+        hidden, nothing can be measured) and the image (900px, far more than its 8rem place) arrives meanwhile. Back on the
+        text at the same width, the heading is where it was, to 2px: the load marks the spot to be put back once the column
+        is shown (again) - put back while hidden it moves nothing, and at the same width mdSpotKeep would keep nothing."""
+        self.holding = True
+        page = self.open(0)
+        until(page, DRAWN, 20)
+        add_test_style(page, "#left,#left *{overflow-anchor:none}")
+        settle(page)
+        top = page.evaluate(
+            "(()=>{const h=MD.heads.find(x=>x.title==='읽는 곳'),L=document.querySelector('#left');"
+            " L.scrollTop+=h.el.getBoundingClientRect().top-L.getBoundingClientRect().top-40;"
+            " return h.el.getBoundingClientRect().top-L.getBoundingClientRect().top;})()"
+        )
+        settle(page)
+        self.assertTrue(self.hold, "the image was never asked for")
+        page.evaluate("setViewMode(VIEW_MODE.REVISIONS)")
+        settle(page)
+        self.assertFalse(page.evaluate("mdColumnShown()"))
+        self.holding = False
+        for r in self.hold:
+            r.fulfill(**self.answer(r.request))
+        until(page, PICS_DONE + "&&!!document.querySelector('#md .md-pic-ok')")
+        settle(page)
+        page.evaluate("setViewMode(VIEW_MODE.MANUSCRIPT)")
+        settle(page)
+        self.assertAlmostEqual(page.evaluate(HEADING_TOP), top, delta=2)
+        self.assertGreater(page.evaluate("document.querySelector('#md .md-pic img').height"), 300)
+
+    def test_badges_stand_before_their_blocks_and_follow_their_lines_when_the_image_loads(self):
+        """Pins on the image's line and on a paragraph below it, the image held: each badge layer stands just before the
+        block of its line (#409: Tab and a screen reader meet it there), and once the image takes its 900px the badges have
+        followed their lines (the column's ResizeObserver), to 1px."""
+        img, para = line_of(TALL, "![위 그림]"), line_of(TALL, "줄 3 의 문단.")
+        for n in (img, para):
+            body = json.dumps(
+                {"doc": "nt", "file": str(self.src / "notes" / "plan.md"), "lo": n, "hi": n, "note": "핀"}
+            ).encode()
+            self.assertEqual(self.talk(req("POST", "/api/pin", body, {"Content-Type": "application/json"}))[0], 200)
+        self.holding = True
+        page = self.open(2)
+        until(page, DRAWN + "&&document.querySelectorAll('#md .md-badge').length===2", 20)
+        settle(page)
+        place = (
+            "[...document.querySelectorAll('#md .md-badge')].map(b=>{const p=PINS.find(x=>x.id===+b.dataset.id),"
+            "e=mdLeaves(p.lo,p.lo)[0],box=b.parentElement;"
+            " return [p.lo,box.nextElementSibling===mdTopBlock(document.querySelector('#md'),e),"
+            "Math.round(b.getBoundingClientRect().top-e.getBoundingClientRect().top)];})"
+        )
+        before = page.evaluate(place)
+        self.assertEqual([x[:2] for x in before], [[img, True], [para, True]])
+        self.holding = False
+        for r in self.hold:
+            r.fulfill(**self.answer(r.request))
+        until(page, PICS_DONE + "&&!!document.querySelector('#md .md-pic-ok')")
+        page.wait_for_timeout(300)
+        settle(page)
+        after = page.evaluate(place)
+        self.assertEqual([x[:2] for x in after], [[img, True], [para, True]])
+        for (_, _, d0), (_, _, d1) in zip(before, after, strict=True):
+            self.assertAlmostEqual(d1, d0, delta=1)
+        self.assertTrue(page.evaluate("!!document.querySelector('#md .md-fig .md-pin .md-pic img')"))
+
+
+class JumpAcrossReflow(AssetsBase):
+    """A heading jump in flight is not cut short by the column's reflow: #409's mdSpotKeep would put back the reading spot
+    the scroll was passing; it lets the jump go on to its heading's new place instead (mdGoOn)."""
+
+    PLAN = FAR_ANCHOR
+
+    def test_a_reflow_during_the_jump_lands_on_the_heading(self):
+        """On a 1024x768 tablet, reading a little way down, [끝으로] is followed; once the smooth scroll is 1,000px on its
+        way, [핀 N] collapses the panel beside the document and the column widens, its long paragraphs taking fewer lines.
+        The pane comes to rest with '## 끝' 8px under its top and the jump ended - put back on the spot it was passing, the
+        scroll stopped there, short of the heading, and the jump stayed in flight."""
+        page = self.open(0, viewport={"width": 1024, "height": 768}, is_mobile=True, has_touch=True)
+        until(page, DRAWN, 20)
+        page.evaluate("document.querySelector('#left').scrollTop=300")
+        settle(page)
+        self.assertTrue(page.evaluate("SIDE_OPEN&&SMOOTH==='smooth'&&!!MD.spot&&!!MD.spot.el"))
+        w0 = page.evaluate("document.querySelector('#md').getBoundingClientRect().width")
+        page.evaluate("document.querySelector('#md a.md-anchor').click()")
+        until(page, "document.querySelector('#left').scrollTop>1300")
+        self.assertTrue(page.evaluate("!!MD.goTo"))
+        page.evaluate("document.getElementById('btn-side').click()")
+        rest(page)
+        self.assertGreater(page.evaluate("document.querySelector('#md').getBoundingClientRect().width"), w0 + 50)
+        self.assertAlmostEqual(page.evaluate(TOP_OF + "('끝')"), 8, delta=3)
+        self.assertFalse(page.evaluate("!!MD.goTo"))
+
+
+class HiddenCharsInTips(AssetsBase):
+    """A tip that shows a source's text again - an image's path, a link's '#…', both decoded once - names its hidden
+    characters (ccPlain, ADR-0029 D5); the alt text is drawn text, as the paragraph around it is (no marking yet)."""
+
+    PLAN = HIDDEN
+
+    def test_a_tip_names_a_right_to_left_override_and_the_drawn_alt_text_keeps_it(self):
+        """The image the server refuses (no such file) and the link to gd's '#\u202e설치': their tips and tip URLs say
+        '⟨U+202E⟩' and hold no U+202E; the alt text standing in for the image still holds the character itself."""
+        page = self.open_md()
+        until(page, "!!document.querySelector('#md .md-img')")
+        got = page.evaluate(
+            "(()=>{const i=document.querySelector('#md .md-img'),a=document.querySelector('#md a.md-doclink');"
+            " return {tip:[i.dataset.tip,i.dataset.tipUrl,a.dataset.tip,a.dataset.tipUrl],alt:i.textContent};})()"
+        )
+        for t in got["tip"]:
+            self.assertNotIn(RLO, t)
+        self.assertIn("⟨U+202E⟩", got["tip"][0])
+        self.assertIn("⟨U+202E⟩", got["tip"][1])
+        self.assertTrue(got["tip"][2].endswith("#⟨U+202E⟩설치"), got["tip"][2])
+        self.assertIn(RLO, got["alt"])
+
+
+class FocusAfterALink(AssetsBase):
+    """A document link followed from the keyboard goes away with its document: the focus is put where it led, the heading
+    it names (as #409's focusPlace keeps the focus at the place after the composer closes), not left on the document area."""
+
+    TODO = TODO_TEXT
+
+    def test_enter_on_a_link_leaves_the_focus_on_its_heading(self):
+        """Enter on nt's [안내의 설치]: once gd is drawn the focus is on its '## 설치' heading, and Tab goes on to gd's next
+        link [계획으로] - left on the document area, Tab would start again at gd's first link, far above the heading."""
+        page = self.open_md()
+        page.locator("#md a.md-doclink[data-doc='gd']").focus()
+        page.keyboard.press("Enter")
+        until(page, "DOC==='gd'&&" + DRAWN, 20)
+        until(page, "document.activeElement===MD.heads.find(x=>x.title==='설치').el")
+        page.keyboard.press("Tab")
+        self.assertTrue(page.evaluate("document.activeElement.matches('#md a.md-doclink[data-doc=nt]')"))
+
+    def test_a_text_document_opens_with_its_lines_as_text_and_the_focus_on_the_document(self):
+        """nt's [할 일](todo.txt) opens the registered text document td: its lines that read as an image and a link stay
+        text (no image, no link, nothing asked of /api/asset for td), no heading is waited for, and the focus is on the
+        document area."""
+        page = self.open_md()
+        page.locator("#md a.md-doclink[data-doc='td']").focus()
+        page.keyboard.press("Enter")
+        until(page, "DOC==='td'&&" + DRAWN, 20)
+        settle(page)
+        got = page.evaluate(
+            "[document.querySelectorAll('#md img,#md a,#md .md-pic,#md .md-img').length,"
+            " document.querySelector('#md').textContent.includes('![막대](img/chart.png)'), MD.headTo,"
+            " document.activeElement===document.getElementById('left')]"
+        )
+        self.assertEqual(got, [0, True, None, True])
+        self.assertEqual([a for a in self.asked if a.startswith("/api/asset") and "doc=td" in a], [])
 
 
 class TreeImagesFirefox(TreeImages):
