@@ -37,6 +37,16 @@ DOC_TEXT_SUFFIXES=".adoc .bash .bib .bst .c .cc .cfg .cjs .cls .cpp .css .csv .g
 
 # doc_is_text <path> — whether the path's suffix, compared case-insensitively as the server does, is a text suffix. A
 # figure map's suffix in another case (Figures.LIMNMAP.JSON) is neither a map nor text, as the server rules.
+# Whether a --main path names a text document (doc_is_text) that cannot be a LaTeX main: LaTeX's own sources (.bib .sty
+# .cls .bst) may hold one and stay accepted, as serve_documents.pick_documents decides (LATEX_OWN_SUFFIXES).
+main_is_text_doc() {
+    doc_is_text "$1" || return 1
+    local low
+    low=$(printf '%s' "${1##*/}" | tr '[:upper:]' '[:lower:]')   # tr, not ${..,,}: macOS ships bash 3.2
+    case "$low" in *.bib | *.sty | *.cls | *.bst) return 1 ;; esac
+    return 0
+}
+
 doc_is_text() {
     local base=${1##*/} low suf
     [[ "$base" == *.* ]] || return 1

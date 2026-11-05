@@ -390,6 +390,13 @@ chk "the '::' form rejects a Markdown document" "! '$PV' add docs-x --manuscript
 mout=$("$PV" add docs-x --manuscript "$ms" --main readme.md --no-start 2>&1)
 mrc=$?
 chk "--main refuses a Markdown file and names the --doc form" "[[ $mrc -ne 0 ]] && grep -q -- '--doc <key>=<name>:readme.md' <<< \"\$mout\""
+printf 'x = 1\n' > "$ms/plot.PY"
+tout=$("$PV" add docs-t --manuscript "$ms" --main plot.PY --no-start 2>&1)
+trc=$?
+chk "--main refuses a text document's suffix (any case), names the --doc form and writes no config" \
+    "[[ $trc -ne 0 ]] && grep -q -- '--doc <key>=<name>:plot.PY' <<< \"\$tout\" && [[ ! -e '$T/config/docs-t.env' && ! -e '$T/src/docs-t.env' ]]"
+printf '\\documentclass{article}\\begin{document}x\\end{document}\n' > "$ms/paper.sty"
+chk "--main still takes LaTeX's own source suffix (.sty) as a LaTeX main" "'$PV' add docs-s --manuscript '$ms' --main paper.sty --no-start >/dev/null 2>&1"
 chk "rejects a nonexistent file" "! '$PV' add docs-x --manuscript '$ms' --doc 'x=문서:no-such.tex' --no-start >/dev/null 2>&1"
 mkdir -p "$ms/figs/out"
 printf '{"format": "limn-figure-map/1"}\n' > "$ms/figs/out/figures.limnmap.json"

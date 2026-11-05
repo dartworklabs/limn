@@ -409,6 +409,11 @@ class RunDocuments:
     main: Path
 
 
+# Text suffixes (ADR-0029) that are LaTeX's own sources: a file ending in one of them can still be a LaTeX main (latexmk
+# builds it like a .tex), so --main keeps accepting them as it did before text documents.
+LATEX_OWN_SUFFIXES: frozenset[str] = frozenset({".bib", ".sty", ".cls", ".bst"})
+
+
 def pick_documents(src: Path, specs: Sequence[str], main: str | None) -> RunDocuments | StartupRefused:
     """The documents of a command line with manuscript folder src (already resolved), or the refusal, in this order: a
     missing manuscript folder, --doc together with --main, a bad --doc, a --main ending in .md or a text suffix, no or several top-level
@@ -417,7 +422,8 @@ def pick_documents(src: Path, specs: Sequence[str], main: str | None) -> RunDocu
 
     --main names the LaTeX main of a single-document run, which builds; it never makes a Markdown or text document. A
     .md there (any case) is refused with the --doc form that registers one (ADR-0025), and so is a text suffix
-    (TEXT_SUFFIXES, ADR-0029: plot.py, refs.bib), rather than built as LaTeX and failing."""
+    (TEXT_SUFFIXES, ADR-0029: plot.py, notes.txt), rather than built as LaTeX and failing - except LaTeX's own sources
+    (LATEX_OWN_SUFFIXES: .bib .sty .cls .bst), which latexmk builds like a .tex when they hold a document, as before."""
     if not src.is_dir():
         return StartupRefused("Manuscript directory does not exist: %s" % src)
     if specs:
@@ -432,7 +438,7 @@ def pick_documents(src: Path, specs: Sequence[str], main: str | None) -> RunDocu
         return StartupRefused(
             "--main takes the LaTeX main (.tex) - a Markdown document is served with --doc <key>=<name>:%s" % main
         )
-    if main and Path(main).suffix.lower() in TEXT_SUFFIXES:
+    if main and Path(main).suffix.lower() in TEXT_SUFFIXES - LATEX_OWN_SUFFIXES:
         return StartupRefused(
             "--main takes the LaTeX main (.tex) - a text document is served with --doc <key>=<name>:%s" % main
         )
