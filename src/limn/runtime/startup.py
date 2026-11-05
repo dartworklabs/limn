@@ -13,7 +13,7 @@ StartupRefused instead of ending the process - server.main() is the one place th
 - The port: a free one (free_port), whether --port can be listened on (probe_port), and the one line for one that
   cannot (listen_refusal).
 - The instance label and accent (default_label, clean_label, run_label, run_accent), and the startup summary.
-- The package version --version and GET /api/version report (app_version).
+- The package version --version and GET /api/version report (app_version): the one this process loaded at start.
 
 The probes (free_port, probe_port, git_remote_url, tighten_state_perms) touch only what their arguments name.
 """
@@ -57,10 +57,11 @@ LABEL_MAX = 40
 ACCENT_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 
-def app_version() -> str:
-    """The package version (__version__ in src/limn/__init__.py), or "0+unknown" when that file cannot be read or has
-    none. Reads the package-root file rather than importing the package, so it gives the same value whether the server
-    is imported as a module (python -m limn.server) or run directly by file path (python .../limn/server.py)."""
+def read_version() -> str:
+    """The package version in src/limn/__init__.py beside this module (__version__), or "0+unknown" when that file
+    cannot be read or has none. Reads the package-root file rather than importing the package, so it gives the same value
+    whether the server is imported as a module (python -m limn.server) or run directly by file path
+    (python .../limn/server.py)."""
     try:
         m = re.search(
             r'^__version__\s*=\s*["\']([^"\']+)["\']',
@@ -70,6 +71,18 @@ def app_version() -> str:
     except OSError:
         m = None
     return m.group(1) if m else "0+unknown"
+
+
+# Read once, when the process loads this module at start: the version of the code this process runs. A checkout pulled
+# or an install upgraded under a running server changes the file but not the code in memory, so reading it per request
+# would name code that is not running (dartworklabs/limn#415).
+LOADED_VERSION = read_version()
+
+
+def app_version() -> str:
+    """The version this process loaded (LOADED_VERSION) - what --version and GET /api/version report. It does not follow
+    the file afterwards: only a restart runs the code on disk, and only then does the answer change."""
+    return LOADED_VERSION
 
 
 class StartupRefused(NamedTuple):

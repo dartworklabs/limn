@@ -18,6 +18,7 @@ import os
 import shutil
 import socket
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -856,6 +857,33 @@ class Version(unittest.TestCase):
         import limn
 
         self.assertEqual(startup.app_version(), limn.__version__)
+
+    def test_a_version_file_changed_after_start_does_not_change_the_answer(self):
+        """The answer is the version the process loaded: a copy of this module in a package whose __init__.py says
+        0.0.1 answers 0.0.1, and still does after that file is rewritten to 0.0.2 (a checkout pulled under a running
+        server, dartworklabs/limn#415); a fresh load - a restart - reads 0.0.2."""
+        import importlib.util
+
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = Path(tmp) / "limn"
+            (pkg / "runtime").mkdir(parents=True)
+            shutil.copy(Path(startup.__file__), pkg / "runtime" / "startup.py")
+            init = pkg / "__init__.py"
+            init.write_text('__version__ = "0.0.1"\n', encoding="utf-8")
+
+            def load():
+                spec = importlib.util.spec_from_file_location("startup_copy", pkg / "runtime" / "startup.py")
+                assert spec and spec.loader
+                module = importlib.util.module_from_spec(spec)
+                with mock.patch.dict(sys.modules, {"startup_copy": module}):  # its dataclasses look the module up
+                    spec.loader.exec_module(module)
+                return module
+
+            running = load()
+            self.assertEqual(running.app_version(), "0.0.1")
+            init.write_text('__version__ = "0.0.2"\n', encoding="utf-8")
+            self.assertEqual(running.app_version(), "0.0.1")
+            self.assertEqual(load().app_version(), "0.0.2")
 
 
 if __name__ == "__main__":

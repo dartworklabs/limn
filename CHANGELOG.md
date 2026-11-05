@@ -62,6 +62,12 @@
 - A pin's quote taken by a tap, or from a selection cut back to the document, keeps a hidden character exactly where it
   stands. It was read with `innerText`, which in Chromium put a line break on each side of the character's box and in
   Firefox dropped bidirectional controls altogether (on the text surface too).
+- **`GET /api/version` names the code the server runs, not the file on disk** (HTTP API semantics, #415). It read
+  `__version__` from the package file on every request, so a checkout pulled or an install upgraded under a running
+  server made it answer the new version while the old code kept running - an instance 28 releases behind looked
+  current. It is now read once when the process starts (`limn serve --version` gives the same value), so it changes only
+  after a restart, and a difference from `limn version` (the installed one) shows an instance that was not restarted.
+  The path, its fields and their types are unchanged.
 
 ## 0.4.51 — 2026-11-05
 
