@@ -13,6 +13,8 @@ Run: uv run pytest -q src/limn/documents/tests/test_assets.py
 """
 
 import os
+import subprocess
+import sys
 import unittest
 from pathlib import Path
 from urllib.parse import quote
@@ -138,6 +140,37 @@ class AssetKind(unittest.TestCase):
         for data in bad:
             with self.subTest(bad=data):
                 self.assertFalse(asset_kind(data, ".svg"))
+
+    def test_the_svg_check_is_linear_on_adversarial_heads(self):
+        """Heads built to make a backtracking matcher repartition them - repeated comments before text that is no SVG,
+        comments that look nested, an unterminated comment or declaration reaching the cut, a cut full of '<!--' - are all
+        refused, and an SVG after a full cut of comments is still found; the lot runs in a child interpreter that must end
+        within 20 s, so a regression fails here instead of hanging the suite (the regular expression this replaced took
+        longer than 2 s on the first, 286 bytes)."""
+        cases = [
+            (b"<!--x-->" * 35 + b"NOTSVG", False),
+            (b"<!--x-->" * 1000 + b"NOTSVG", False),
+            (b"<!-- <!-- -->" * 600 + b"-->NOTSVG", False),
+            (b"<!-- --" * 1200 + b">", False),
+            (b"<!--" + b"-" * 8188, False),
+            (b"<!--x-->" * 1023 + b"<!--", False),
+            (b"<!--" * 2048, False),
+            (b"<?xml " + b"?" * 8186, False),
+            (b"<!DOCTYPE svg " + b"<!--" * 2044, False),
+            (b"<!--x-->" * 1000 + b"<svg/>", True),
+            (b"<?xml version='1.0'?><?xml-stylesheet href='a'?>\n<!--a--><!DOCTYPE svg><svg/>", True),
+            (b"<!--x-->" * 1024 + b"<svg/>", False),
+        ]
+        code = (
+            "import sys\nfrom limn.documents.assets import asset_kind\n"
+            "cases = %r\n"
+            "sys.exit(0 if [asset_kind(d, '.svg') for d, _ in cases] == [w for _, w in cases] else 3)\n"
+        ) % (cases,)
+        try:
+            done = subprocess.run([sys.executable, "-c", code], timeout=20, capture_output=True, check=False)
+        except subprocess.TimeoutExpired:
+            self.fail("asset_kind(.svg) did not end within 20 s on an adversarial head")
+        self.assertEqual(done.returncode, 0, done.stderr.decode(errors="replace"))
 
 
 class AssetRoute(AccessBase):

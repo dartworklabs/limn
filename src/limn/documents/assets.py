@@ -47,12 +47,10 @@ ASSET_RESOURCE_POLICY = "same-origin"
 # Kept, but asked again each time: an image edited in place shows on the next view, and an unchanged one costs a 304.
 ASSET_CACHE = "private, no-cache"
 
-# What an SVG may hold before its root element: a byte-order mark, an XML declaration, comments and a DOCTYPE without an
-# internal subset (no entity definitions), with white space between.
-_SVG_HEAD = re.compile(
-    r"﻿?\s*(?:<\?xml[^>]*\?>\s*)?(?:(?:<!--.*?-->|<!DOCTYPE[^>\[]*>)\s*)*<svg[\s>/]",
-    re.S | re.I,
-)
+# How much of an SVG's text is looked at for its root element: what comes before it must fit in this many characters.
+SVG_HEAD_MAX = 8192
+# XML white space, the only characters allowed between the parts before an SVG's root element.
+_XML_SPACE = " \t\r\n"
 _CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 
 
@@ -135,7 +133,8 @@ def asset_suffix(path: str) -> str | None:
 
 def asset_kind(data: bytes, suffix: str) -> bool:
     """Whether data starts as the format of suffix starts: the PNG, JPEG, GIF and WebP signatures, and for SVG UTF-8
-    text whose first element (after a declaration, comments and a DOCTYPE without an internal subset) is <svg>. Pure."""
+    text whose first element (after a declaration, processing instructions, comments and a DOCTYPE without an internal
+    subset, within SVG_HEAD_MAX characters: svg_head) is <svg>. Pure."""
     if suffix == ".png":
         return data.startswith(b"\x89PNG\r\n\x1a\n")
     if suffix in (".jpg", ".jpeg"):
@@ -149,8 +148,37 @@ def asset_kind(data: bytes, suffix: str) -> bool:
             text = data.decode("utf-8")
         except UnicodeDecodeError:
             return False
-        return _SVG_HEAD.match(text[:8192]) is not None
+        return svg_head(text[:SVG_HEAD_MAX])
     return False
+
+
+def svg_head(text: str) -> bool:
+    """Whether text's first element is <svg>: before it only a byte-order mark, then XML white space, processing
+    instructions (the XML declaration among them), comments and DOCTYPEs without an internal subset (no '[': no entity
+    definitions). Each part is passed over by one forward search for its end, so the scan is linear in len(text) - a
+    regular expression of these alternatives backtracks exponentially over repeated comments. An unterminated part, as at
+    the cut of SVG_HEAD_MAX, is no SVG. Pure."""
+    at, n = (1 if text.startswith("\ufeff") else 0), len(text)
+    while True:
+        while at < n and text[at] in _XML_SPACE:
+            at += 1
+        if text.startswith("<!--", at):
+            end = text.find("-->", at + 4)
+            if end < 0:
+                return False
+            at = end + 3
+        elif text.startswith("<?", at):
+            end = text.find("?>", at + 2)
+            if end < 0:
+                return False
+            at = end + 2
+        elif text[at : at + 9].upper() == "<!DOCTYPE":
+            end = text.find(">", at + 9)
+            if end < 0 or "[" in text[at:end]:
+                return False
+            at = end + 1
+        else:
+            return text[at : at + 4].lower() == "<svg" and text[at + 4 : at + 5] in tuple(_XML_SPACE + ">/")
 
 
 def read_asset(file: ManuscriptFile, suffix: str, limit: int = ASSET_MAX_BYTES) -> AssetRead:
