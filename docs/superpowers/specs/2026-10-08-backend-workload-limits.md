@@ -1,8 +1,8 @@
 # Backend workload limits
 
-Status: **PROPOSED — owner approval pending.** Tracking: issue #222.
+Status: **REJECTED — no manuscript workload limits are introduced** (owner decision, issue #222, closed 2026-10-09: "원고 작업 한도는 도입하지 않음"; the connection-admission design went ahead on its own, `docs/superpowers/specs/2026-10-10-connection-admission.md`). The rest of this document is kept as the record of the survey and measurements behind that decision; none of its policy is in force.
 
-This is a reviewable recommendation, not an adopted contract or an implementation plan. No workload policy in this document is implemented. The formal brainstorming/approved-plan workflow remains pending; the available `arch-design` skill references `superpowers:brainstorming`, which is absent from this session's skill catalog. The owner must approve the limits and changed refusal behavior before production code or canonical Handbook changes adopt them.
+This was a reviewable recommendation, not an adopted contract or an implementation plan. No workload policy in this document is implemented. The formal brainstorming/approved-plan workflow remains pending; the available `arch-design` skill references `superpowers:brainstorming`, which is absent from this session's skill catalog. The owner must approve the limits and changed refusal behavior before production code or canonical Handbook changes adopt them.
 
 ## Current authority and constraints
 
