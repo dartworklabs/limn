@@ -464,6 +464,32 @@ BLOCK_MATH = {
         [[[0, 5], ["$$", "a `b", "$$", "c`", "$$"]]],
         [["blockquote_open", [0, 5]]],
     ),
+    # The list before the quote asks, between its items, whether '$$' opens math and reads the quote's lines as the
+    # document has them; inside the quote the lazy last line ends the search, so the span does not close and neither does
+    # the math (mdMathStopAfter keeps the two apart). With the line marked as the quote's, both close.
+    "a quote's lazy line after a list ends a code span": (
+        "- ```\n$$\n> \\[ `` a\nb `` \\]",
+        [],
+        [
+            ["bullet_list_open", [0, 1]],
+            ["list_item_open", [0, 1]],
+            ["fence", [0, 1]],
+            ["paragraph_open", [1, 2]],
+            ["blockquote_open", [2, 4]],
+            ["paragraph_open", [2, 4]],
+        ],
+    ),
+    "the same line marked as the quote's": (
+        "- ```\n$$\n> \\[ `` a\n> b `` \\]",
+        [[[2, 4], ["\\[ `` a", "b `` \\]"]]],
+        [
+            ["bullet_list_open", [0, 1]],
+            ["list_item_open", [0, 1]],
+            ["fence", [0, 1]],
+            ["paragraph_open", [1, 2]],
+            ["blockquote_open", [2, 4]],
+        ],
+    ),
 }
 
 
@@ -581,6 +607,51 @@ class MathRule(unittest.TestCase):
         for name, ms in got.items():
             with self.subTest(name):
                 self.assertLess(ms, 400, "%s: %.0f ms" % (name, ms))
+
+    def test_backtick_runs_of_lengths_of_their_own_are_looked_up(self):
+        """Backtick runs each of a length of its own cost a lookup each, not a read of the rest. In one paragraph twelve
+        hundred '\\(' lines whose runs grow or shrink by a backtick (about 720 KB): inline math passes over a code span by
+        looking its closing run up (mdTickEnd over mdTickRuns), not by reading the rest of the paragraph once per run.
+        Eight hundred '\\[' lines with runs of their own lengths, a hundred thousand lines, then eight hundred runs that
+        close them (about 845 KB, also in a quote): a found run is not checked line by line for a line that ends the search
+        (mdMathStopAfter keeps what it read). Each well under the viewer's two seconds; the parse runs in a node subprocess
+        (run_node's timeout), so a slow one fails instead of holding the suite."""
+        cases = {
+            "inline runs growing": "\n".join("\\( " + "`" * (i + 1) for i in range(1200)),
+            "inline runs shrinking": "\n".join("\\( " + "`" * (1200 - i) for i in range(1200)),
+            "display runs closed far below": "\n".join(
+                ["\\[ " + "`" * (i + 1) for i in range(800)] + ["x"] * 100000 + ["`" * (i + 1) for i in range(800)]
+            ),
+            "the same in a quote": "\n".join(
+                ["> \\[ " + "`" * (i + 1) for i in range(800)]
+                + ["> x"] * 100000
+                + ["> " + "`" * (i + 1) for i in range(800)]
+            ),
+        }
+        got = worker_node(
+            "out={}; for(const [name,s] of Object.entries(%s)){md.parse(s,{}); const t0=performance.now(); md.parse(s,{});"
+            "out[name]=performance.now()-t0;}" % json.dumps(cases)
+        )
+        for name, ms in got.items():
+            with self.subTest(name):
+                self.assertLess(ms, 150, "%s: %.0f ms" % (name, ms))
+
+    def test_a_code_span_closes_at_the_next_run_of_its_length_before_the_end(self):
+        """mdTickEnd's lookup answers as the plain search does: from every backtick of every string of up to seven
+        characters of '`', 'x' and line ends, and every end max - the next run of as many backticks before max closes the
+        span, a run cut at max counts as long as its part before it, and with none the backticks are text."""
+        got = worker_node(
+            "const naive=(s,k,max)=>{let n=k; while(n<max&&s[n]==='`') n++; for(let j=n;j<max;){if(s[j]!=='`'){j++;continue;}"
+            "let e=j; while(e<max&&s[e]==='`') e++; if(e-j===n-k) return e; j=e;} return n;};"
+            "let all=[''], calls=0; const bad=[];"
+            "for(let len=1;len<=7;len++){all=all.flatMap(s=>['`','x','\\n'].map(c=>s+c));"
+            "for(const s of all){const runs=mdTickRuns(s); for(let k=0;k<len;k++){if(s[k]!=='`') continue;"
+            "for(let max=k;max<=len;max++){calls++; const a=mdTickEnd(s,k,max,runs),b=naive(s,k,max);"
+            "if(a!==b&&bad.length<3) bad.push([s,k,max,a,b]);}}}}"
+            "out={calls,bad};"
+        )
+        self.assertGreater(got["calls"], 10000)
+        self.assertEqual(got["bad"], [])
 
     def test_openers_without_a_closer_are_read_once(self):
         """Twenty thousand '\\(' (or '$$') with no closer in one paragraph parse about as fast as the bundled parser

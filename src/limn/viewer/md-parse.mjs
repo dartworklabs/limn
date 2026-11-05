@@ -31,34 +31,47 @@ const MD_MATH = Object.freeze({'$$': '$$', '$': '$', '\\(': '\\)', '\\[': '\\]'}
 // The index in s, from i up to max, of the first closing delimiter close that neither a backslash nor a code span takes, or
 // -1. In TeX '\$' is a dollar sign and '\\' a backslash, so a backslash and the character after it are passed over; a code
 // span binds tighter than anything but HTML and autolinks (CommonMark), so one is passed over whole (mdTickEnd) - '$10, and
-// `$x$` on the next line' is no math. A scan that found none is kept on memo (one per inline token: its state): a later
-// scan for the same delimiter from that point on, within no more text, finds none either, so ten thousand '\(' without a
-// '\)' are read once, not once each.
+// `$x$` on the next line' is no math. memo is one per inline token (its state): a scan that found none is kept on it - a
+// later scan for the same delimiter from that point on, within no more text, finds none either, so ten thousand '\(' without
+// a '\)' are read once, not once each - and so are the text's backtick runs (mdTickRuns).
 function mdMathEnd(s, i, max, close, memo) {
-  const no = memo && memo[close];
+  const no = memo[close];
   if (no && i >= no[0] && max <= no[1]) return -1;
   for (let k = i; k < max; k++) {
     if (s.startsWith(close, k)) return k;
     const c = s.charCodeAt(k);
     if (c === 0x5c) k++;
-    else if (c === 0x60) k = mdTickEnd(s, k, max) - 1;
+    else if (c === 0x60) k = mdTickEnd(s, k, max, memo.ticks || (memo.ticks = mdTickRuns(s))) - 1;
   }
-  if (memo) memo[close] = [i, max];
+  memo[close] = [i, max];
   return -1;
 }
-// The index just past the code span whose opening backtick run starts at k - closed by the next run of as many backticks -
-// or just past that run when none follows before max (CommonMark: then the backticks are text).
-function mdTickEnd(s, k, max) {
+// The index just past the code span whose opening backtick run starts at k - closed by the next run of as many backticks
+// before max - or just past that run when none follows (CommonMark: then the backticks are text). The run is looked up in
+// s's runs (runs: mdTickRuns), not searched for: a paragraph of twelve hundred lines that each hold a run of a length of its
+// own would otherwise read the rest of it once per run. Before max a run is cut at max: the one that reaches over it counts
+// as long as the part before max.
+function mdTickEnd(s, k, max, runs) {
   let n = k;
   while (n < max && s.charCodeAt(n) === 0x60) n++;
-  for (let j = n; j < max;) {
-    if (s.charCodeAt(j) !== 0x60) { j++; continue; }
-    let e = j;
-    while (e < max && s.charCodeAt(e) === 0x60) e++;
-    if (e - j === n - k) return e;
-    j = e;
+  const len = n - k, at = runs.get(len), i = at ? mdFirstAtOrAfter(at.pos, n) : 0;
+  if (at && i < at.pos.length && at.pos[i] + len <= max) return at.pos[i] + len;
+  if (n < max && s.charCodeAt(max) === 0x60 && s.charCodeAt(max - 1) === 0x60) {
+    let j = max - 1;
+    while (s.charCodeAt(j - 1) === 0x60) j--;
+    if (max - j === len) return max;
   }
   return n;
+}
+// The index of the first entry of the ascending list a that is at least x, or a.length.
+function mdFirstAtOrAfter(a, x) {
+  let lo = 0, hi = a.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (a[mid] < x) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
 }
 // A markdown-it inline rule: math within a block's text - '$$…$$' and '\(…\)', and '$…$' when a non-space follows the opening
 // '$' and the first '$' after it has a non-space before it and no digit after it (Pandoc's rule: '$5 and $10' is text). The
@@ -156,27 +169,21 @@ function mdMathMemo(state, end, close) {
 // closing run] - the next run of exactly len backticks, on this line or a later one before a blank line or a line of an
 // outer block (a code span runs over line ends, CommonMark) - or null when there is none: then the backticks are text. The
 // run is looked up (mdTickRuns), not searched for: a thousand '\[' lines that each end in a run of a length of its own
-// would otherwise read the rest of the document once per line. Only the lines up to the one it lies on are asked whether
-// they end the search, as they stand now: a quote or a list item reads the same lines otherwise.
+// would otherwise read the rest of the document once per line. So is the first line after n that ends the search
+// (mdMathStopAfter), which is not read line by line again for each run either.
 function mdTickClose(state, len, r, n, end) {
-  const at = mdTickRuns(state).get(len);
+  const at = (state.mdTick || (state.mdTick = mdTickRuns(state.src))).get(len);
   if (!at) return null;
-  let lo = 0, hi = at.pos.length;
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1;
-    if (at.pos[mid] < r) lo = mid + 1;
-    else hi = mid;
-  }
-  if (lo === at.pos.length) return null;
-  for (let m = n + 1; m <= at.line[lo]; m++) if (mdMathStop(state, m, end)) return null;
-  return [at.line[lo], at.pos[lo] + len];
+  const i = mdFirstAtOrAfter(at.pos, r);
+  if (i === at.pos.length || mdMathStopAfter(state, n, end) <= at.line[i]) return null;
+  return [at.line[i], at.pos[i] + len];
 }
-// The source's backtick runs by length, read once per parse (state.mdTick): len -> {pos, line}, each run's start and line
-// in source order. A line's runs are the same whichever container reads it: a content start (bMarks + tShift) passes over
-// blanks, quote markers and a list marker, never a backtick, so the runs of a line read from it are the runs of the line.
-function mdTickRuns(state) {
-  if (state.mdTick) return state.mdTick;
-  const s = state.src, runs = new Map();
+// The backtick runs of s by length, read once (state.mdTick for the source, the inline memo for a block's text): len ->
+// {pos, line}, each run's start and line in s, in order. A source line's runs are the same whichever container reads it: a
+// content start (bMarks + tShift) passes over blanks, quote markers and a list marker, never a backtick, so the runs of a
+// line read from it are the runs of the line.
+function mdTickRuns(s) {
+  const runs = new Map();
   for (let j = 0, line = 0; j < s.length;) {
     const c = s.charCodeAt(j);
     if (c !== 0x60) { if (c === 0x0a) line++; j++; continue; }
@@ -187,7 +194,29 @@ function mdTickRuns(state) {
     at.pos.push(j); at.line.push(line);
     j = e;
   }
-  return state.mdTick = runs;
+  return runs;
+}
+// The first line after n that ends the search (mdMathStop), end at most. What it found is kept (state.mdMathStops: line ->
+// the first such line from it on), so a later question from a line that one has passed over is answered there and each
+// line is read once - per container and per rule asking: the range's end line, the container's indentation and nesting
+// level, as for mdMathMemo, and the parent type too. A list asking between its items whether math ends it is at the
+// nesting level of a quote at the top that follows it, and reads that quote's lines as the document has them; inside the
+// quote a lazy line ends the search (mdMathStop).
+function mdMathStopAfter(state, n, end) {
+  const all = state.mdMathStops || (state.mdMathStops = new Map());
+  const key = end + ' ' + state.blkIndent + ' ' + state.level + ' ' + state.parentType;
+  let next = all.get(key);
+  if (!next) all.set(key, next = new Map());
+  const seen = [];
+  let m = n + 1, stop;
+  for (;;) {
+    if (next.has(m)) { stop = next.get(m); break; }
+    if (mdMathStop(state, m, end)) { stop = m; break; }
+    seen.push(m++);
+  }
+  for (const v of seen) next.set(v, stop);
+  next.set(m, stop);
+  return stop;
 }
 // Whether line n ends the search: past end, blank, or a line of an outer block (indented less than the block; a lazy line,
 // which a quote marks -1).
