@@ -8,6 +8,7 @@ Each side is read only for a commit of the document's history window, under the 
 Run: uv run pytest -q src/limn/revisions/tests/test_revision_source.py
 """
 
+import json
 import os
 import shutil
 import unittest
@@ -183,6 +184,35 @@ class RevisionSource(AccessBase):
         code, body = self.sides(link)
         self.assertEqual(code, 200, body)
         self.assertEqual(body["new"], {"reason": "not_a_file"})
+
+    def test_a_side_of_exactly_the_limit_is_drawn(self):
+        """A side of exactly REVISION_SOURCE_MAX bytes carries its lines: the limit is the last size read, as GET
+        /api/source's. Mutation: refuse a side at the limit (size >= REVISION_SOURCE_MAX) -> source_too_large, fails."""
+        self.md.write_bytes(b"a" * (REVISION_SOURCE_MAX - 1) + b"\n")
+        edge = self.commit("edge", "plan.md")
+        code, body = self.sides(edge)
+        self.assertEqual(code, 200, body)
+        self.assertEqual([len(x) for x in body["new"]["lines"]], [REVISION_SOURCE_MAX - 1])
+
+    def test_a_side_whose_path_held_a_folder_is_not_a_file(self):
+        """plan.md replaced by a folder of that name (plan.md/old.txt), then by the file again: the folder's side is
+        not_a_file and nothing below the name is read (main's rule for the history, limn.revisions.core.files_pathspec,
+        keeps plan.md/old.txt out of the window too). Mutation: take any entry ls-tree names as the file (drop the mode
+        and type check in _side_lines) -> the folder's object read as a blob fails as source_unreadable, fails."""
+        self.md.unlink()
+        (self.src / "plan.md").mkdir()
+        (self.src / "plan.md" / "old.txt").write_text(SECRET + "\n", encoding="utf-8")
+        folder = self.commit("folder", ".")
+        shutil.rmtree(self.src / "plan.md")
+        self.md.write_text(PLAN, encoding="utf-8")
+        again = self.commit("file again", ".")
+        for commit, side in ((again, "old"), (folder, "new")):
+            code, body = self.sides(commit)
+            self.assertEqual(code, 200, body)
+            self.assertEqual(body[side], {"reason": "not_a_file"})
+            self.assertNotIn(SECRET, json.dumps(body))
+        code, body = self.sides(again)
+        self.assertEqual(body["new"]["lines"], PLAN.splitlines())
 
     def test_a_read_writes_nothing(self):
         """Reading both sides of a commit and of a range leaves the state and manuscript folders as they were (ADR-0027)."""
