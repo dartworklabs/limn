@@ -754,6 +754,56 @@ class UpdateFlows(BrowserBase):
         self.assertEqual(got["said"], ["본문이 바뀌었습니다", "", "변경 보기"], got)
         self.assertFalse(any("#12" in t or "Alice" in t for t in got["line"]), got)
 
+    def test_the_changes_view_of_an_update_stops_at_the_commit_its_message_named(self):
+        """The manuscript's pages were built at commit B ('Update introduction (#12)'), the last seen commit is A, and C
+        ('Fix the axis (#13)') is committed after them, not built. The message names B alone, and its [변경 보기] opens
+        the source diff of A → B - not A → C, the checkout's newest, which the pages on screen do not carry."""
+        env = dict(
+            os.environ,
+            GIT_AUTHOR_NAME="Alice",
+            GIT_AUTHOR_EMAIL="alice@example.com",
+            GIT_COMMITTER_NAME="Alice",
+            GIT_COMMITTER_EMAIL="alice@example.com",
+        )
+
+        def git(*args):
+            return subprocess.check_output(["git", *args], cwd=self.src, env=env, text=True, stderr=subprocess.PIPE)
+
+        git("init", "-q")
+        git("add", "main.tex", "notes.md")
+        git("commit", "-q", "-m", "Initial")
+        a = git("rev-parse", "HEAD").strip()
+        self.main.write_text(self.main.read_text() + "\n% New introduction\n")
+        git("commit", "-q", "-am", "Update introduction (#12)")
+        b = git("rev-parse", "HEAD").strip()
+        (self.ms.dir / "head.txt").write_text(b)
+        mt = self.main.stat().st_mtime
+        (self.ms.dir / "built_src_mtime.txt").write_text(str(mt))
+        self.main.write_text(self.main.read_text() + "\n% The axis\n")
+        git("commit", "-q", "-am", "Fix the axis (#13)")
+        c = git("rev-parse", "HEAD").strip()
+        os.utime(self.main, (mt + 10, mt + 10))
+        from limn.builds.artifacts import expire_src_mtime
+
+        expire_src_mtime(self.ms)
+        page = self.view()
+        until(page, "!!seenDoc('ms')&&LIGHT_INFLIGHT===null")
+        page.evaluate(
+            """a=>{clearInterval(LIGHT_TIMER); digestEnd(); const all=JSON.parse(localStorage.getItem('limnSeen'));
+            all.docs.ms={ver:'build:pages-20260101000000',rev:a}; localStorage.setItem('limnSeen',JSON.stringify(all));}""",
+            a,
+        )
+        page.evaluate("switchDoc('ms')")
+        until(page, "DOC==='ms'&&LINE.some(n=>n.group==='upd:ms')")
+        said = page.evaluate(
+            "(()=>{const n=LINE.find(x=>x.group==='upd:ms'); return [n.title,n.desc,n.act&&n.act.label];})()"
+        )
+        self.assertEqual(said, ["본문이 바뀌었습니다", "PR #12 Update introduction · Alice", "변경 보기"])
+        page.evaluate("noticeAct(LINE.find(n=>n.group==='upd:ms').n)")
+        until(page, "document.body.classList.contains('revision-open')&&REV.rowsDoc==='ms'&&!!REV.commit")
+        got = page.evaluate("[REV.rows[0].id,REV.commit,REV.base,REV.range.start,REV.range.end]")
+        self.assertEqual(got, [c, b, a, b, b])
+
     def test_an_event_that_grows_takes_its_pin_out_of_a_list_batch_said_between(self):
         """An event addressed to me for #1, then the list comparison's batch of #2 and #3, then the event for #2 grows
         the event's message: #2 leaves the batch, which says #3 alone - #2 is said once."""

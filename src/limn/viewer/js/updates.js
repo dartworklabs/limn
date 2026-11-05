@@ -171,7 +171,7 @@ function docUpdateView(d){const k=d.key,c=d.commits,here=k===DOC,parts=[],mv=UPD
   const act=!here?{label:'열기',tip:'그 문서로 바꿉니다',fn:()=>switchDoc(k)}
     :lines&&lines.ranges.length?{label:'바뀐 곳',tip:'바뀐 줄로 갑니다. 다시 누르면 다음 곳으로 갑니다',stay:true,fn:()=>updGoNext(k)}
     :c.unknown&&d.history?{label:'변경 보기',tip:'변경 보기를 엽니다',fn:()=>openUpdateRange(k,'')}
-    :c.n>0&&d.history?{label:'변경 보기',tip:'새로 들어온 커밋만 변경 보기에서 엽니다',fn:()=>openUpdateRange(k,d.seenRev)}:null;
+    :c.n>0&&d.history?{label:'변경 보기',tip:'새로 들어온 커밋만 변경 보기에서 엽니다',fn:()=>openUpdateRange(k,d.seenRev,d.top)}:null;
   const title=tl('{name}{p} 바뀌었습니다',{name:d.name,p:josaName(d.name,'이','가')});
   return {msg:parts.length?title+' — '+parts.join(' · '):title,kind:NOTICE_KIND.INFO,act,
     o:{literal:true,keep:true,back:!here,brief:title,onEnd:(/** @type {boolean} */acted,/** @type {boolean} */seen)=>{if(acted||seen)docUpdateSeen(k,d);}}};}
@@ -193,11 +193,12 @@ function updPinMoved(p,lost){const k=pdoc(p),g=GROUPS.get('upd:'+k),t=Date.now()
   if(!g&&!(UPD.expect>=t&&(UPD.seenAt.get(k)||0)<UPD.expectAt))return false;
   let m=UPD.moved.get(k); if(!m){m={moved:new Set(),lost:new Set()}; UPD.moved.set(k,m);} (lost?m.lost:m.moved).add(p.id);
   if(g&&g.n&&NOTICES.has(g.n.n))regroup(g.n,docUpdateView(g.data)); return !lost;}
-// The changes view on the commits that came after base (the last seen commit), on document k: its source diff of base → the
-// newest commit, the list painting just them (revisions.js REV.want); without base, the view as it opens. Another document
-// is switched to first.
-/** @param {string} k @param {string} base */
-function openUpdateRange(k,base){const go=()=>{REV.want={base}; if(document.body.classList.contains('revision-open'))loadRevisions(); else setViewMode(VIEW_MODE.REVISIONS);};
+// The changes view on the commits the message named, on document k: its source diff of base (the last seen commit) → top
+// (the newest it named - the shown build's, not the checkout's newest: a checkout ahead of the pages, or a commit come
+// since the message, is not in it), the list painting just them (revisions.js REV.want); without base, the view as it
+// opens. Another document is switched to first.
+/** @param {string} k @param {string} base @param {string} [top] */
+function openUpdateRange(k,base,top){const go=()=>{REV.want={base,top:top||''}; if(document.body.classList.contains('revision-open'))loadRevisions(); else setViewMode(VIEW_MODE.REVISIONS);};
   if(k===DOC){go(); return;} const opening=switchDoc(k),visit=SWITCHSEQ; opening.then(()=>{if(DOC===k&&visit===SWITCHSEQ)go();});}
 
 // ---------------- A drawn document's changed lines

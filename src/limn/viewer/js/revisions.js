@@ -10,7 +10,7 @@ const REV={seq:0,files:/** @type {{name:string,text:string}[]} */([]),whole:'',c
   overlay:/** @type {RevisionOverlay|null} */(null),side:/** @type {string} */(OVERLAY_SIDE.CUR),history:false,
   base:'',rows:/** @type {RevisionRow[]} */([]),rowsDoc:'',more:false,range:/** @type {RevRange} */({mode:RANGE_MODE.ONE,start:'',end:'',endSet:false}),
   seen:/** @type {RevSeen|null} */(null),seenState:/** @type {string} */(SEEN_STATE.NONE),seenN:0,seenIds:/** @type {Set<string>} */(new Set()),
-  rangeIds:/** @type {string[]|null} */(null),rangeBase:'',listOpen:false,rangeLine:'',want:/** @type {{base:string}|null} */(null)};
+  rangeIds:/** @type {string[]|null} */(null),rangeBase:'',listOpen:false,rangeLine:'',want:/** @type {{base:string,top:string}|null} */(null)};
 const REVISION_PAGE=30;   // rows of one /api/revisions page (the server's history window is 500, api.md)
 const REVISION_RECENT=12;   // the commits [변경 보기] picks a pin's commit among - the server resolves a close_ref among the same
 const REVISION_PHONE_ROWS=5;   // rows the phone's list shows before [더 보기]
@@ -146,11 +146,14 @@ async function loadRevisions(){
     tg.commit=pick.id; tg.via=pick.via; tg.hit=pick.hit; REV.range={mode:RANGE_MODE.ONE,start:pick.id,end:pick.id,endSet:false};
     // a figure's lines and pictures are both exact: its overlay opens first; a LaTeX pin's lines exist only in the source diff
     if(fig)showRevision(pick.id,DIFF_FORMAT.OVERLAY); else showRevision(pick.id,DIFF_FORMAT.SOURCE); drawRange(); return;}
-  // Opened by a document's update message (updates.js openUpdateRange): the commits after the last seen one, as a range from it
-  // to the newest in the source diff, the list painting what the server says the range holds.
+  // Opened by a document's update message (updates.js openUpdateRange): the commits it named - after the last seen one (base)
+  // up to the newest it named (top; the newest row without one) - as a range in the source diff, the list painting what the
+  // server says the range holds. Commits above top (the checkout ahead of the shown build, one come since) stay out.
   const want=REV.want; REV.want=null;
-  if(want&&want.base&&!fig&&rows[0].id!==want.base&&!rows[0].id.startsWith(want.base)){const top=rows[0].id,i=rows.findIndex(r=>r.id===want.base||r.id.startsWith(want.base));
-    REV.range={mode:RANGE_MODE.FROM,start:i>0?rows[i-1].id:top,end:top,endSet:false}; showRevision(top,DIFF_FORMAT.SOURCE,i>=0?rows[i].id:want.base); drawRange(); return;}
+  if(want&&want.base&&!fig){const at=(/** @type {string} */id)=>rows.findIndex(r=>r.id===id||r.id.startsWith(id)),i=at(want.base),j=want.top?at(want.top):0;
+    const top=j>=0?rows[j].id:want.top,base=i>=0?rows[i].id:want.base;
+    if(top!==base&&!(i>=0&&j>i)){REV.range={mode:RANGE_MODE.FROM,start:i>0&&i>j?rows[i-1].id:top,end:top,endSet:false};
+      showRevision(top,DIFF_FORMAT.SOURCE,base); drawRange(); return;}}
   // The same document read again while the view is open (a new build) keeps the range shown, moved to the newest commit;
   // a range comes back in its source diff, so a new build never starts its comparison PDF (only [변경 PDF] does).
   if(again&&rows.some(r=>r.id===kept.start)){if(REV.seenState===SEEN_STATE.OK&&kept.mode!==RANGE_MODE.LAST)resolveSeen(k||'',rows[0].id);
