@@ -82,7 +82,8 @@ function txSpan(ln,n){const s=document.createElement('span'); s.className='ln'; 
 /** @param {()=>boolean} stale @param {Record<string,number>|undefined} ends @returns {Promise<HTMLElement|null>} */
 async function txView(stale,ends){const lines=MD.lines,body=document.createElement('div'); body.className='tx-src';
   const w={n:0}; let els=0,marked=0;
-  for(let i=0;i<lines.length;i++){const ln=lines[i],s=txSpan(ln,i+1); let at=0; els++;
+  for(let i=0;i<lines.length;i++){const ln=lines[i],s=txSpan(ln,i+1); let at=0;
+    if(++els>MD_LIMITS.elements)return txNamesView(stale,ends);   // every line's span counts, not only the boxes: plain lines after a line of boxes
     for(const c of ccScan(ln,i===0)){if(mdDue(w)){await mdYield(); if(stale())return null;}
       if(!c)continue;
       if((els+=2)>MD_LIMITS.elements)return txNamesView(stale,ends);

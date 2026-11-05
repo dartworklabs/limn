@@ -190,6 +190,25 @@ class Limits(TextBase):
         self.assertEqual((got["limit"], got["stale"], got["pauses"]), ("elements", None, 4))
 
 
+class MixedLimits(TextBase):
+    """A line of 6,000 zero-width spaces and 49,999 plain lines after it: within the file's limits, but its boxes and its line
+    spans together pass MD_LIMITS.elements."""
+
+    TEXT = "\u200b" * 6_000 + "\n" + "x\n" * 49_999
+
+    def test_every_line_counts_against_the_element_limit(self):
+        """The view is the names view (data-limit elements, no box), under MD_LIMITS.elements elements, with all 50,000
+        lines on screen and line 1 naming its 6,000 characters as text."""
+        page = self.open_tx()
+        got = page.evaluate(
+            "(()=>{const md=document.querySelector('#md'),l=md.querySelector(\"[data-line='1']\");"
+            "return {limit:md.dataset.limit||null,boxes:md.querySelectorAll('.cc').length,els:md.querySelectorAll('*').length,"
+            "max:MD_LIMITS.elements,lines:md.querySelectorAll('.ln').length,count:(l.textContent.match(/\\u27e8U\\+200B\\u27e9/g)||[]).length};})()"
+        )
+        self.assertEqual((got["limit"], got["boxes"], got["lines"], got["count"]), ("elements", 0, 50_000, 6_000))
+        self.assertLess(got["els"], got["max"])
+
+
 class LineEnds(TextBase):
     """Line ends the server splits on that are not LF or CRLF are counted above the lines."""
 
