@@ -44,7 +44,7 @@ const SEEN_STATE=Object.freeze({NONE:'none',PENDING:'pending',OK:'ok',GONE:'gone
 const VIEW_MODE=Object.freeze({MANUSCRIPT:'manuscript',REVISIONS:'revisions'});   // the manuscript or the changes view; index.html data-mode
 const UI_LANG=Object.freeze({KO:'ko',EN:'en'});   // LANG
 const NOTIFY_STATE=Object.freeze({ON:'on',OFF:'off',BLOCKED:'blocked',UNSUPPORTED:'unsupported',LOCAL:'local'});   // browser notifications on this device (notifyState)
-const STATUS_KIND=Object.freeze({NOTICE:'notice',FAILED:'failed',ERRORS:'errors',OFFLINE:'offline',BUILDING:'building',RENDERING:'rendering',SYNC_BLOCKED:'sync-blocked',UNCHANGED:'unchanged',STALE:'stale',SYNC:'sync',PNG:'png'});   // an item of the status line (statusList)
+const STATUS_KIND=Object.freeze({NOTICE:'notice',FAILED:'failed',ERRORS:'errors',OFFLINE:'offline',OUTDATED:'outdated',BUILDING:'building',RENDERING:'rendering',SYNC_BLOCKED:'sync-blocked',UNCHANGED:'unchanged',STALE:'stale',SYNC:'sync',PNG:'png'});   // an item of the status line (statusList)
 const NOTICE_KIND=Object.freeze({OK:'ok',WARN:'warn',ERR:'err',INFO:'info'});   // what a message reports (notices.js): its icon, colour and how it is read out
 const NOTICE_PLACE=Object.freeze({LINE:'line',BANNER:'banner',CHIP:'chip',ROW:'row',CARD:'card',TRASH:'trash'});   // where a message is drawn (notices.js)
 const NOTICE_HOST=Object.freeze({COMPOSER:'composer',LIST:'list',REVIEW:'review',TRASH:'trash',LINE:'line'});   // a banner's panel or section; LINE puts an api() error on the status line
@@ -247,5 +247,6 @@ const T={
   change:'변경사항 탭을 열어 이 핀을 고친 커밋(닫을 때 남긴 참조, 없으면 이 줄을 바꾼 최근 커밋)의 diff 에서 핀 자리를 강조합니다',
   reply:'이 핀에 답글을 답니다. 닫힌 핀이면 보내기 전에 칸 아래 한 줄이 결과(다시 열림·알림·그대로)를 알려 줍니다 (⌘ Enter / Ctrl+Enter 보내기)',
   nochange:'변경 없음', buildanyway:'그래도 빌드',
-  buildanywaytip:'남겨 둔 LaTeX 부산물을 지우고 처음부터 다시 빌드합니다. 빌드가 비교하지 않는 것(셸 탈출로 도는 프로그램이 읽는 파일 등)을 바꿨을 때 씁니다'
+  buildanywaytip:'남겨 둔 LaTeX 부산물을 지우고 처음부터 다시 빌드합니다. 빌드가 비교하지 않는 것(셸 탈출로 도는 프로그램이 읽는 파일 등)을 바꿨을 때 씁니다',
+  reloadtip:'이 탭을 새로 읽어 서버의 새 Limn 화면을 씁니다. 작성 패널의 글과 읽던 자리는 남고, 쓰던 답글·수정이 있으면 먼저 알립니다'
 };

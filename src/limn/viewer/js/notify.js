@@ -1,8 +1,10 @@
 // ------------------------------------------------ Browser notifications (docs/handbook/viewer.md §브라우저 알림) - only while the tab is alive
 // Turned on per device (pinPrefs.notify). Notification.requestPermission() is only ever called from the [알림 켜기] click. The server
-// carries "events addressed to the current identity" in the 5-second poll (/api/meta?light=1&ev=<cursor>), and this tab shows them as
-// notifications. The cursor (pinNotifyCursor) is kept in this browser's localStorage, so a reload or two tabs never announce the same
-// event twice. Display always goes through the service worker's showNotification() (Chrome on Android blocks new Notification()); tag is
+// carries "events addressed to the current identity" in the 5-second poll (/api/meta?light=1&ev=<cursor>) - asked for by every
+// tab of a person, the switch on or off - and a tab says them on its status line; only with the switch on does a tab that is
+// not in front show them as system notifications (docs/handbook/viewer.md §새 소식). The cursor (pinNotifyCursor) is kept in
+// this browser's localStorage, so a reload or two tabs never announce the same event twice, and a visit days later says what
+// came since the last (at most the server's 20 newest). Display always goes through the service worker's showNotification() (Chrome on Android blocks new Notification()); tag is
 // the pin number, so the same pin collapses into one slot. If the tab is visible and focused, the status line says it instead.
 // This only works in a secure context (an https tailnet address, or http://127.0.0.1/localhost) - the browser blocks plain http on other hosts.
 const NOTIFY_RANK={dropped:6,assigned:5,mention:4,reopened:3,review_requested:2,replied:1};
@@ -12,7 +14,7 @@ function notifyPerm(){return 'Notification' in window?Notification.permission:'u
 function notifyOn(){return !!prefs().notify&&notifySupported()&&notifyPerm()==='granted';}
 function notifyCursor(){const v=parseInt(localStorage.getItem('pinNotifyCursor')||'',10); return isNaN(v)?null:v;}
 function setNotifyCursor(v){const c=notifyCursor(); if(c==null||v>c)try{localStorage.setItem('pinNotifyCursor',String(v));}catch(e){}}
-function notifyQuery(){if(!notifyOn())return ''; const c=notifyCursor(); return c==null?'':'&ev='+c;}
+function notifyQuery(){if(isLocalIdentity())return ''; const c=notifyCursor(); return c==null?'':'&ev='+c;}
 // Picks what to notify about (a pure function): after the cursor, addressed to me (to), not my own doing. One per pin - mention > reopen > awaiting review > reply, ties go to the later one.
 function pickNotifications(evs,me,cursor){const login=me&&me.login; if(!login||login===LOCAL_LOGIN)return [];
   const by=new Map();
@@ -25,25 +27,39 @@ function notifyText(e){const nm=who(e.by)||tr('누군가'),ex=String(e.excerpt||
     replied:tl('{name}님 답글: {text}',q),reopened:ex?tl('{name}님이 다시 열었습니다: {text}',q):tl('{name}님이 다시 열었습니다',q),
     assigned:tl('{name}님이 담당으로 지정했습니다: {text}',q),dropped:tl('{name}님이 삭제했습니다: {text}',q)}[e.type]||ex;
   return {title:tl('핀 #{id}',{id:e.pin})+' · '+(e.doc_name||e.doc||(META&&META.label)||''),body};}
-// Shows one event: a status-line message while this tab has focus, else a system notification. notifyText() already speaks
+// Shows one event: a status-line message while this tab has focus, or with the switch off (the message waits on the line
+// for the person to come back), else a system notification. notifyText() already speaks
 // the UI language and quotes the document's name and the post, so the message is literal (a document named '그림' stays
 // '그림'). It marks [검토 M] for a review request and [핀 N] for the rest on this document (notifyDot).
+const NOTIFY_BRIEF={mention:'나를 부름',review_requested:'검토 대기',replied:'답글',reopened:'다시 열림',assigned:'담당 지정',dropped:'삭제됨'};
 async function notifyShow(e){const t=notifyText(e);
-  if(document.visibilityState==='visible'&&document.hasFocus()){
-    const act=e.type===EVENT_TYPE.DROPPED?(isViewer()?{label:'열기',tip:'휴지통에서 봅니다',fn:()=>openPinFromLink(e.doc,e.pin)}:{label:'되살리기',tip:'휴지통에서 같은 번호로 되살립니다',wait:true,fn:()=>restorePin(e.pin)})
-      :{label:'열기',tip:'그 핀으로 갑니다',fn:()=>openPinFromLink(e.doc,e.pin)};
-    lineNote(t.title+' — '+t.body,e.type===EVENT_TYPE.DROPPED?NOTICE_KIND.WARN:NOTICE_KIND.OK,act,
-      {keys:[e.type+':'+e.pin],rank:2,literal:true,dot:notifyDot(e.type,!e.doc||e.doc===DOC)});return;}
+  if(!notifyOn()||document.visibilityState==='visible'&&document.hasFocus()){notifyLine(e); return;}
   try{const reg=SW_REG||await navigator.serviceWorker.ready;
     await reg.showNotification(t.title,{body:t.body,tag:'pin-'+e.pin,icon:(/** @type {HTMLLinkElement} */(document.querySelector('link[rel=apple-touch-icon]')||document.querySelector('link[rel=icon]'))||{href:undefined}).href,
       actions:e.type===EVENT_TYPE.DROPPED&&!isViewer()?[{action:'restore',title:tr('되살리기')}]:[],   // [되살리기] on "X deleted your pin" (the service worker hands it to this tab)
       data:{pin:e.pin,doc:e.doc,url:'/#doc='+encodeURIComponent(e.doc||'')+'&pin='+e.pin}});}catch(err){}}
+// Event e on the status line: one message per kind of event however many pins it reaches (groupNote 'ev:<type>'), so an
+// agent closing twelve of my pins one by one is one message that grows. One pin says what its notification says, with
+// [열기] (a deleted one [되살리기], a viewer's [열기]); more say how many, their numbers and who, with [보기] for review
+// requests (the review section), the Trash for deleted ones, else [열기] on the newest.
+/** @param {any} e */
+function notifyLine(e){groupNote('ev:'+e.type,{evs:[e]},notifyLineView,(a,b)=>({evs:[...a.evs.filter(/** @param {any} x */x=>x.pin!==b.evs[0].pin),...b.evs]}));}
+/** @param {{evs:any[]}} g */
+function notifyLineView(g){const evs=g.evs,e=evs[evs.length-1],n=evs.length,one=n===1,t=notifyText(e),drop=e.type===EVENT_TYPE.DROPPED;
+  const act=drop?(isViewer()?{label:'열기',tip:'휴지통에서 봅니다',fn:()=>openPinFromLink(e.doc,e.pin)}:one?{label:'되살리기',tip:'휴지통에서 같은 번호로 되살립니다',wait:true,fn:()=>restorePin(e.pin)}
+      :{label:'휴지통',tip:'지운 핀을 휴지통에서 봅니다',fn:()=>openTrash(e.pin)})
+    :e.type===EVENT_TYPE.REVIEW_REQUESTED&&!one?{label:'보기',tip:'검토 대기 핀으로 갑니다',fn:gotoReview}:{label:'열기',tip:'그 핀으로 갑니다',fn:()=>openPinFromLink(e.doc,e.pin)};
+  const many=/** @type {Record<string,string>} */({mention:'나를 부른 핀 {n}개',review_requested:'핀 {n}개가 검토 대기로 넘어왔습니다',replied:'답글이 달린 핀 {n}개',
+    reopened:'핀 {n}개 다시 열림',assigned:'나에게 맡긴 핀 {n}개',dropped:'핀 {n}개가 삭제됨'})[e.type]||'소식 {n}개';
+  const ids=evs.slice(0,3).map(x=>'#'+x.pin).join(', ')+(n>3?' '+tl('외 {n}개',{n:n-3}):''),names=[...new Set(evs.map(x=>who(x.by)).filter(Boolean))].slice(0,2).join(', ');
+  return {msg:one?t.title+' — '+t.body:tl(many,{n})+' — '+ids+(names?' · '+names:''),kind:drop?NOTICE_KIND.WARN:NOTICE_KIND.OK,act,
+    o:{keys:evs.map(x=>x.type+':'+x.pin),rank:2,literal:true,dot:notifyDot(e.type,evs.some(x=>!x.doc||x.doc===DOC)),brief:tr(NOTIFY_BRIEF[e.type]||'소식')+(one?'':' '+n)}};}
 // The chip an event's message marks (a NOTICE_DOT, or ''): a review request [검토 M], which counts every document; anything
 // else on this document (here) [핀 N]; another document's nothing - its pins are not in this panel. Pure.
 /** @param {string} type @param {boolean} here @returns {string} */
 function notifyDot(type,here){return type===EVENT_TYPE.REVIEW_REQUESTED?NOTICE_DOT.RV:here?NOTICE_DOT.SIDE:'';}
 function notifyHandle(d){if(!d||typeof d.ev_seq!=='number')return;
-  if(!notifyOn())return;
+  if(isLocalIdentity())return;   // no event is ever addressed to a local identity
   const c=notifyCursor(); if(c==null){setNotifyCursor(d.ev_seq); return;}   // first time enabled in this browser - never floods with a backlog of past events
   if(!Array.isArray(d.events)){if(d.ev_seq<c)try{localStorage.setItem('pinNotifyCursor',String(d.ev_seq));}catch(e){}return;}
   const list=pickNotifications(d.events,META&&META.me,notifyCursor());   // only what's after it, if another tab just advanced the cursor

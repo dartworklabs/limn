@@ -4,7 +4,7 @@ import json
 import shutil
 import unittest
 
-from helpers import extract_js_fn, run_node
+from helpers import JS_UPDATE_STUBS, extract_js_fn, run_node
 
 
 class CrossDocumentActionLifetime(unittest.TestCase):
@@ -56,7 +56,7 @@ class CrossDocumentActionLifetime(unittest.TestCase):
                   return Promise.resolve({data:{pages:[],pages_build:'same'}});
                 }
                 """,
-                extract_js_fn("switchDoc"),
+                JS_UPDATE_STUBS + extract_js_fn("switchDoc"),
                 "function isMdDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
                 *(extract_js_fn(name) for name in functions),
                 scenario,

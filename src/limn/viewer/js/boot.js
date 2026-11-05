@@ -12,6 +12,8 @@ async function boot(){i18nStart();
   try{META=(await api(dq('/api/meta'),{what:'화면 정보 읽기',where:NOTICE_HOST.LINE})).data;}catch(e){return;}
   if(META.doc)DOC=META.doc; META_BY.set(DOC,META); loadViews(); const v=VIEW_BY.get(DOC);
   if(multiDoc()){setHash(DOC); savePrefs({lastDoc:DOC});}
+  // A device that was here before hears what came since, gathered into one message (docs/handbook/viewer.md §새 소식).
+  if(visitedBefore())digestBegin(tr('지난 방문 뒤'));
   drawMeta(); applySideWidth(); applyOutlineState(); const hadW=applyViewWidth(v); buildDoc(); if(!hadW)autoW(); vecBoot(); const pinsLoaded=await loadPins();
   restoreView(v); drawDocTabs(); updateSectionStrip(); restoreDraft();   // the page count is there before the first scroll (mid shows it in the nav bar)
   if(isMdDoc())coach(MQ_COARSE.matches?'touch':'mouse',isTextDoc()?(MQ_COARSE.matches?'줄을 누르면 그 줄을, 길게 눌러 글을 고르면 그 줄들을 고릅니다':'누르면 그 줄을, 끌면 그 줄들을 고릅니다')   // a text document: a press picks its line
@@ -23,6 +25,8 @@ async function boot(){i18nStart();
   BUILD.lastSeq=(typeof META.build_seq==='number')?META.build_seq:0;   // the build count this tab has already "seen"
   (META.docs||[]).forEach(d=>DOC_SEQ.set(d.key,d.build_seq));
   startLightPolling(); startBuildPolling();
+  checkDocsSeen();   // what changed since this device last saw each document (updates.js)
+  if(DIGEST)pollLight().finally(()=>digestSoon(DIGEST_TAIL_MS));   // the events addressed to me since the last visit
   drawNotify(); if(prefs().notify&&notifySupported()&&notifyPerm()==='granted')notifyRegister();
   if(link.pin)openPinFromLink(link.doc||DOC,link.pin,link.restore);
 }

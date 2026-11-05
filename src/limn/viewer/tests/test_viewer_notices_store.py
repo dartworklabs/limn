@@ -31,7 +31,7 @@ STORE_FNS = [
     "msgSplit", "noticeDupe", "noticeDot", "makeNotice", "lineNote", "endNotice", "noticeText", "armNotice",
     "noticeHeld", "lineHeld", "holdLine", "releaseLine", "lineHoverIn", "lineHoverOut", "lineVisible", "noticeAct",
     "noticeClose", "noticeFocusBack", "deferred", "deferredNote", "undoNote", "offerSeen", "sourceEntry", "sourceOk",
-    "flushDeferred", "isUndo", "lineCap", "sameWords", "realMove",
+    "flushDeferred", "isUndo", "lineCap", "sameWords", "realMove", "digestHold", "noticeDots", "holdsDot",
 ]  # fmt: skip
 STORE_CONSTS = r"^const (?:NOTICE_MS|NOTICE_HOLD_MAX|LINE_MAX)=\d+;"
 
@@ -50,7 +50,7 @@ const document={body:{classList:{add:c=>BODY.add(c),remove:c=>BODY.delete(c),con
 const window={addEventListener(){}};
 let SIDE_OPEN=false,STATUS_TOP=0; const SEC={},T={undo:'되돌리기'};
 function announce(){} function drawOffer(){} function drawBanners(){} function syncSaveBtn(){}
-const NOTICES=new Map(),LINE=[],BANNERS=new Map(),DEFERRED=new Set(); let NOTICE_SEQ=0,LINE_HOVER=false,PT_LAST=null;
+const NOTICES=new Map(),LINE=[],BANNERS=new Map(),DEFERRED=new Set(),GROUPS=new Map(); let NOTICE_SEQ=0,LINE_HOVER=false,PT_LAST=null,DIGEST=null;
 function drawStatus(){lineVisible(LINE.length>0);}
 """
 
@@ -202,8 +202,9 @@ class StoreFlows(NoticePage, BrowserBase):
                 self.assertEqual(page.evaluate(count), 0)
 
     def test_4_a_later_build_removes_the_rebuild_error(self):
-        """Desktop: [PDF 재빌드] cannot reach the server - an error on the line; then a build completes: '재빌드 완료' is
-        on the line and the old error is gone."""
+        """Desktop: [PDF 재빌드] cannot reach the server - an error on the line; then a build completes (another
+        session's: this tab's request never got there, so it is the document's update, docs/handbook/viewer.md §새 소식,
+        not the answer '재빌드 완료'): the old error is gone."""
         page = self.view("desktop")
         page.route("**/api/rebuild*", lambda route: route.abort())
         page.evaluate("rebuild()")
@@ -218,7 +219,6 @@ class StoreFlows(NoticePage, BrowserBase):
         )
         page.evaluate("pollBuild()")
         settle(page)
-        self.assertTrue(self.line_has(page, "재빌드 완료"))
         self.assertFalse(self.line_has(page, "PDF 재빌드 실패"))
 
     def test_5_a_burst_of_errors_never_evicts_an_undo(self):

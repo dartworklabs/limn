@@ -88,10 +88,11 @@ async function mdBuild(){if(mdFieldBusy()){MD.waiting=true; return;}
   catch(e){if(!stale()){MD.asked=null; MD.mtime=null; mdShow(mdNote(tr('원문을 읽지 못했습니다'),''));} return;}   // not read: no read answers for this source now (MD.mtime too, or an unchanged source on a return to the document never matches again), so the next light poll asks again
   if(stale())return;
   if(r.status===413){MD.lines=[]; MD.heads=[]; MD.mtime=MD.asked; mdShow(mdNote(tl('이 문서는 {size}라 그리지 않습니다(한도 {limit})',{size:mdMiB(r.data.bytes),limit:mdMiB(r.data.limit)}),MD_LIMIT.BYTES)); return;}
-  const src=r.data; MD.doc=k; MD.mtime=src.src_mtime; MD.file=String(src.file||''); MD.name=MD.file.split('/').pop()||MD.file; MD.lines=Array.isArray(src.lines)?src.lines.map(String):[];
+  const src=r.data,before=MD.doc===k&&MD.mtime!==null&&MD.mtime!==src.src_mtime?MD.lines:null;   // the lines this source replaces (updates.js)
+  MD.doc=k; MD.mtime=src.src_mtime; MD.file=String(src.file||''); MD.name=MD.file.split('/').pop()||MD.file; MD.lines=Array.isArray(src.lines)?src.lines.map(String):[];
   if(isTextDoc()){MD.heads=[];   // a text document is never parsed: its lines are its view (text-surface.js)
     if(MD.lines.length>MD_LIMITS.lines){mdShow(mdNote(tl('이 문서는 원문이 {lines}줄이라 그리지 않습니다(한도 {limit}줄)',{lines:mdCount(MD.lines.length),limit:mdCount(MD_LIMITS.lines)}),MD_LIMIT.LINES)); return;}
-    const view=await txView(stale,src.line_ends); if(view&&!stale())mdShow(view); return;}
+    const view=await txView(stale,src.line_ends); if(view&&!stale()){mdShow(view); if(before)updSourceRedrawn(k||'',before,MD.lines);} return;}
   // A NUL (U+0000) is not parsed: markdown-it turns it into U+FFFD (CommonMark's rule) and its tokens keep no column to put
   // it back by, so the document would read another character than its source has. The line view keeps it, in its box.
   const res=MD.lines.some(l=>l.includes('\0'))?{ok:false,limit:MD_LIMIT.NUL}:await mdParse(MD.lines.join('\n')); if(stale()||!res)return;
@@ -100,7 +101,7 @@ async function mdBuild(){if(mdFieldBusy()){MD.waiting=true; return;}
   if(!root){MD.heads=[];
     if(MD.lines.length>MD_LIMITS.lines){mdShow(mdNote(tl('이 문서는 원문이 {lines}줄이라 그리지 않습니다(한도 {limit}줄)',{lines:mdCount(MD.lines.length),limit:mdCount(MD_LIMITS.lines)}),MD_LIMIT.LINES)); return;}
     root=await mdLineView(/** @type {string} */(limit),stale); if(!root||stale())return;}
-  mdShow(root);}
+  mdShow(root); if(before)updSourceRedrawn(k||'',before,MD.lines);}
 // Puts node in #doc, keeping the reading spot (the source line at the pane's top, and how far down it), then the marks, the
 // outline, the strip and the chosen lines. While the column is hidden (under the changes view) nothing can be measured: the
 // spot read before it was hidden (MD.spot, or the view a return asks for) is kept as its line and marked to be put back on
@@ -113,7 +114,7 @@ function mdShow(node){const want=MD.want,shown=mdColumnShown(); MD.want=null; MD
     else if(s&&s.doc===DOC&&MD.shown===DOC){s.el=null; s.again=true;}
     else MD.spot=null;}
   $('#doc').replaceChildren(node); MD.shown=DOC; mdRestore(a);
-  if(MD_RO)MD_RO.observe(node); mdOutline(); marks(); mdRelevel(); mdSelMark(mdSelShown()); mdStrip(); mdSpotRead(true);
+  if(MD_RO)MD_RO.observe(node); mdOutline(); marks(); mdRelevel(); mdSelMark(mdSelShown()); mdStrip(); mdSpotRead(true); updMarks();
   const j=MD.jumpTo; MD.jumpTo=null; if(j&&j.doc===DOC&&j.seq===SWITCHSEQ)mdJump(j.id);   // a jump asked before the draw (mdJump)
   const h=MD.headTo; if(h&&h.doc===DOC){MD.headTo=null; if(h.seq===SWITCHSEQ)mdGoLink(h.id);}}   // a link from another document (mdGoDoc)
 // The line view offers the chosen lines alone (mdLineView): a pick of this document whose ladder came from the drawn document

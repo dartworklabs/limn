@@ -166,7 +166,7 @@ async function switchDoc(k){
     finally{if(SWITCH_TO&&SWITCH_TO.seq===seq)SWITCH_TO=null;}
     if(seq!==SWITCHSEQ)return; if(nav!==NAVGEN){restoreDraft(); return;}}
   DOC=k; META=m; META_BY.set(k,m); savePrefs({lastDoc:k}); setHash(k);
-  hideTip(); showDoc(VIEW_BY.get(k)); openDraftDoc();
+  hideTip(); showDoc(VIEW_BY.get(k)); openDraftDoc(); checkDocUpdate(k,{});   // changed since this device last saw it (updates.js)
   if(inPages&&(!document.activeElement||document.activeElement===document.body))searchToPage();
   if(cached){try{const f=(await api(dq('/api/meta',k),{what:'문서 열기',silent:true})).data;
     if(seq===SWITCHSEQ&&DOC===k){const changed=f.pages_build!==META.pages_build||f.pages.length!==META.pages.length;

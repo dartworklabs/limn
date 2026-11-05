@@ -293,8 +293,6 @@
  "x.pdf 쪽 3": "x.pdf page 3",
  "{doc} (설정에 없는 문서)": "{doc} (document not in settings)",
  "드래그한 글자 중 {pct}%가 이 줄들에 있습니다(드문 낱말일수록 크게 셉니다).": "{pct}% of the dragged text is in these lines (rarer words count more).",
- "{name} PDF 재빌드 완료": "{name}: PDF rebuilt",
- "{name} PDF 쪽을 새로 그렸습니다": "{name}: PDF pages redrawn",
  "{name} 빌드 실패": "{name}: build failed",
  "{name} 빌드에 LaTeX 오류": "{name}: LaTeX errors in the build",
  "{name} 삭제": "deleted by {name}",
@@ -1507,5 +1505,124 @@
  "보이지 않거나 글 순서를 바꾸는 문자가 {n}개라 이름을 글자로 보입니다(그릴 요소 한도 {max}개). 이 보기에서 복사하면 그 문자 대신 이름이 복사됩니다": "{n} characters are invisible or reorder text, so their names are shown as text (element limit {max}). A copy from this view gives the names, not the characters",
  "줄 끝 {n}곳이 LF가 아닙니다({kinds}). Limn은 거기서 줄을 나누므로, 줄 번호가 LF만 세는 편집기·git과 다를 수 있고 복사하면 LF로 바뀝니다": {"one": "{n} line end is not LF ({kinds}). Limn starts a new line there, so line numbers may differ from an editor or git that counts LF only, and a copy turns it into LF", "other": "{n} line ends are not LF ({kinds}). Limn starts a new line at each, so line numbers may differ from an editor or git that counts LF only, and a copy turns them into LF"},
  "원문에 있던, 보이지 않거나 글 순서를 바꾸는 문자 {n}개가 제안 문안에 그대로 있습니다. 이 칸에서는 보이지 않습니다": {"one": "The suggested text keeps the source's {n} character that is invisible or reorders text. This box does not show it", "other": "The suggested text keeps the source's {n} characters that are invisible or reorder text. This box does not show them"},
- "제안 문안이 원문에 없는, 보이지 않거나 글 순서를 바꾸는 문자를 넣습니다: {list}. 이 칸에서는 보이지 않거나 글 순서가 바뀌어 보입니다": "The suggested text adds characters the source does not have that are invisible or reorder text: {list}. This box hides them or shows the text reordered"
+ "제안 문안이 원문에 없는, 보이지 않거나 글 순서를 바꾸는 문자를 넣습니다: {list}. 이 칸에서는 보이지 않거나 글 순서가 바뀌어 보입니다": "The suggested text adds characters the source does not have that are invisible or reorder text: {list}. This box hides them or shows the text reordered",
+ "Limn {v}(으)로 바뀌었습니다 · 새로 고치면 새 화면을 씁니다": "Limn is now {v} · reload to use the new screen",
+ "Limn 업데이트됨": "Limn updated",
+ "PDF를 새로 그렸습니다": "The PDF was drawn again",
+ "{doc}에 {what}": "{what} in {doc}",
+ "{name}{p} 바뀌었습니다": "{name} changed",
+ "{n}분": {
+  "one": "{n} min",
+  "other": "{n} min"
+ },
+ "{n}시간": {
+  "one": "{n} hour",
+  "other": "{n} hours"
+ },
+ "{n}일": {
+  "one": "{n} day",
+  "other": "{n} days"
+ },
+ "그림을 새로 가져왔습니다": "The figure was imported again",
+ "다시 열림 {n}": "reopened {n}",
+ "담당 지정": "assigned",
+ "모은 소식을 하나씩 상태 줄에 놓습니다": "Puts each gathered message on the status line",
+ "바뀐 곳": "Changes",
+ "바뀐 곳 {n}": {
+  "one": "{n} changed place",
+  "other": "{n} changed places"
+ },
+ "바뀐 줄로 갑니다. 다시 누르면 다음 곳으로 갑니다": "Goes to the changed lines; press again for the next place",
+ "버전 확인": "Version check",
+ "삭제됨 {n}": "deleted {n}",
+ "새 판정 #{id}": "New verdict #{id}",
+ "새 핀 #{id}": "New pin #{id}",
+ "새 핀 {n}": "new pins {n}",
+ "새 핀 {n}개": {
+  "one": "{n} new pin",
+  "other": "{n} new pins"
+ },
+ "새로 고침": "Reload",
+ "새로 들어온 커밋만 변경 보기에서 엽니다": "Opens just the new commits in the changes view",
+ "소식": "news",
+ "쓰던 답글이나 수정이 있습니다 — 보내거나 저장한 뒤 새로 고치세요": "A reply or an edit is being written — send or save it, then reload",
+ "연결이 끊긴 사이 ({t})": "While the connection was lost ({t})",
+ "자리를 비운 사이 ({t})": "While you were away ({t})",
+ "지난 방문 뒤": "Since your last visit",
+ "완료 {n}": "done {n}",
+ "외 {n}개": {
+  "one": "and {n} more",
+  "other": "and {n} more"
+ },
+ "외 {n}명": {
+  "one": "and {n} other",
+  "other": "and {n} others"
+ },
+ "요소 잃음 {n}": "element lost {n}",
+ "위치 잃음 {n}": "location lost {n}",
+ "이 탭을 새로 읽어 서버의 새 Limn 화면을 씁니다. 작성 패널의 글과 읽던 자리는 남고, 쓰던 답글·수정이 있으면 먼저 알립니다": "Reloads this tab to use the server's new Limn screen. The composer's text and your reading spot stay; a reply or edit being written is said first",
+ "지운 핀을 휴지통에서 봅니다": "Shows the deleted pins in the Trash",
+ "커밋 {n}개": {
+  "one": "{n} commit",
+  "other": "{n} commits"
+ },
+ "커밋 {n}개 넘게": "more than {n} commits",
+ "커밋 없이 파일이 바뀌었습니다": "The file changed without a commit",
+ "핀 {n}개 다시 열림": {
+  "one": "{n} pin reopened",
+  "other": "{n} pins reopened"
+ },
+ "핀 {n}개 위치 잃음": {
+  "one": "{n} pin lost its location",
+  "other": "{n} pins lost their location"
+ },
+ "핀 {n}개 줄 이동": {
+  "one": "{n} pin moved lines",
+  "other": "{n} pins moved lines"
+ },
+ "핀 {n}개 확인됨": {
+  "one": "{n} pin confirmed",
+  "other": "{n} pins confirmed"
+ },
+ "핀 {n}개가 검토 대기로 넘어왔습니다": {
+  "one": "{n} pin is awaiting review",
+  "other": "{n} pins are awaiting review"
+ },
+ "핀 {n}개가 완료되었습니다": {
+  "one": "{n} pin is now done",
+  "other": "{n} pins are now done"
+ },
+ "핀 {n}개가 요소를 잃었습니다": {
+  "one": "{n} pin lost its element",
+  "other": "{n} pins lost their elements"
+ },
+ "핀 {n}개가 위치를 잃었습니다": {
+  "one": "{n} pin lost its location",
+  "other": "{n} pins lost their location"
+ },
+ "핀 {n}개를 {name}{p} 삭제함": {
+  "one": "{name} deleted {n} pin",
+  "other": "{name} deleted {n} pins"
+ },
+ "확인됨 {n}": "confirmed {n}",
+ "나를 부른 핀 {n}개": {
+  "one": "{n} pin mentions you",
+  "other": "{n} pins mention you"
+ },
+ "답글이 달린 핀 {n}개": {
+  "one": "Replies on {n} pin",
+  "other": "Replies on {n} pins"
+ },
+ "나에게 맡긴 핀 {n}개": {
+  "one": "{n} pin assigned to you",
+  "other": "{n} pins assigned to you"
+ },
+ "핀 {n}개가 삭제됨": {
+  "one": "{n} pin deleted",
+  "other": "{n} pins deleted"
+ },
+ "소식 {n}개": {
+  "one": "{n} update",
+  "other": "{n} updates"
+ }
 }

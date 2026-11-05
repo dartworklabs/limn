@@ -19,7 +19,8 @@ function statusProgress(pr){if(!pr||typeof pr!=='object')return null; const {don
 // The items the status line shows for s = {notices, build, buildErr, offline, sync, stale, png, canRebuild, unchanged}
 // (statusInput), highest priority first - errors before information (docs/handbook/viewer.md §알림 자리, rule 1): the line's
 // error messages (alert, or kind ERR), newest first (notices, notices.js LINE; act 'notice'); the last build failed or had
-// LaTeX errors; the connection is lost; the line's other messages, newest first; a build runs (rendering in the
+// LaTeX errors; the connection is lost; the server runs another Limn than this page (outdated: its version, [새로 고침],
+// updates.js); the line's other messages, newest first; a build runs (rendering in the
 // page render, else building); main sync is blocked; this tab's rebuild changed nothing (unchanged, for STATUS_TRANSIENT_MS);
 // the PDF is older than its source - not while a build runs, which clears it, nor while the unchanged answer says the
 // rebuild found nothing new (the line would contradict itself); main sync is under way; the PDF shows as PNG. Each item is {kind, act} plus what
@@ -32,6 +33,7 @@ function statusList(s){const out=[],b=s.build,running=!!b&&b.state===BUILD_STATE
   if(e&&e.state===BUILD_STATE.FAIL)out.push({kind:STATUS_KIND.FAILED,act:'build-err-reopen'});
   else if(e&&e.state===BUILD_STATE.OK_ERRORS)out.push({kind:STATUS_KIND.ERRORS,n:(e.errors||[]).length,act:'build-err-reopen'});
   if(s.offline)out.push({kind:STATUS_KIND.OFFLINE,act:null});
+  if(s.outdated)out.push({kind:STATUS_KIND.OUTDATED,version:s.outdated,act:'reload'});
   notes.filter(n=>!alert(n)).forEach(n=>out.push({kind:STATUS_KIND.NOTICE,notice:n,act:'notice'}));
   if(running)out.push({kind:{render:STATUS_KIND.RENDERING}[b.phase]||STATUS_KIND.BUILDING,phase:b.phase||'',el:Math.round(b.elapsed_s||0),
     last:b.last_s?Math.round(b.last_s):0,progress:statusProgress(b.progress),act:null});
@@ -43,7 +45,7 @@ function statusList(s){const out=[],b=s.build,running=!!b&&b.state===BUILD_STATE
   return out;}
 // The items a band's line shows of statusList's: all of them on the compact bands; on the desktop (wide) only the messages
 // and a rebuild's 'no changes' - its status chips (#bar2) already show the build, the connection, sync, staleness and PNG. Pure.
-function statusShown(list,wide){return wide?list.filter(i=>i.kind===STATUS_KIND.NOTICE||i.kind===STATUS_KIND.UNCHANGED):list;}
+function statusShown(list,wide){return wide?list.filter(i=>i.kind===STATUS_KIND.NOTICE||i.kind===STATUS_KIND.UNCHANGED||i.kind===STATUS_KIND.OUTDATED):list;}
 
 // A filled template's text as [label, tail], cut at the template's first placeholder: the words before it (without the
 // separator) are the label, the rest - the numbers - the tail. tl('쪽 {done}/{total}',{done:3,total:9}) is ['쪽', ' 3/9'].
@@ -58,6 +60,7 @@ function statusText(item,fit){const long=fit!=='short';
     case STATUS_KIND.FAILED:return [long?tr('빌드 실패 · 이전 PDF를 보는 중'):tr('빌드 실패'),''];
     case STATUS_KIND.ERRORS:return [long?tl('LaTeX 오류 {n}건 · 새 PDF',{n:item.n}):tl('LaTeX 오류 {n}',{n:item.n}),''];
     case STATUS_KIND.OFFLINE:return [long?tr('연결 끊김 · 다시 잇는 중'):tr('연결 끊김'),''];
+    case STATUS_KIND.OUTDATED:return [long?tl('Limn {v}(으)로 바뀌었습니다 · 새로 고치면 새 화면을 씁니다',{v:item.version}):tr('Limn 업데이트됨'),''];
     case STATUS_KIND.RENDERING:if(item.progress){const pr=item.progress;
         return long?statusSplit('쪽 그리는 중 · {done}/{total}쪽',pr):statusSplit('쪽 {done}/{total}',pr);}
       // falls through: no progress field - the seconds, as for any other phase
@@ -80,6 +83,7 @@ function statusIcon(item){const K=STATUS_KIND;
   if(item.kind===K.NOTICE)return html`<span class="st-ic nk-${item.notice.kind}">${noticeIcon(item.notice.kind)}</span>`;
   if(item.kind===K.FAILED||item.kind===K.ERRORS||item.kind===K.SYNC_BLOCKED)return html`<span class="st-ic warn">${ic('triangle-alert')}</span>`;
   if(item.kind===K.OFFLINE)return html`<span class="st-ic">${ic('wifi-off')}</span>`;
+  if(item.kind===K.OUTDATED)return html`<span class="st-ic warn">${ic('refresh-cw')}</span>`;
   if(item.kind===K.STALE)return html`<span class="st-ic"><i class="st-stale"></i></span>`;
   if(item.kind===K.PNG)return html`<span class="st-ic">${ic('image')}</span>`;
   if(item.kind===K.UNCHANGED||item.kind===K.SYNC&&item.state===SYNC_STATE.UPDATED)return html`<span class="st-ic">${ic('check')}</span>`;
@@ -89,14 +93,15 @@ function statusIcon(item){const K=STATUS_KIND;
 // carries 0.4.5's tip on what a cold build is for, [이유] the reason itself (statusWhy). A message brings its own action and
 // [x] (noticeButtons). The label is a span (.lbl) so CSS can trim it to its cap height.
 function statusAct(item){if(!item.act)return html``; if(item.kind===STATUS_KIND.NOTICE)return noticeButtons(item.notice,true);
-  const force=item.act==='rebuild-force',why=item.act==='status-why',name=item.act==='rebuild'?tr('재빌드'):why?tr('이유'):force?tr(T.buildanyway):tr('보기');
-  const tip=force?html` data-tip="${T.buildanywaytip}"`:why?html` data-tip="${syncWhyText(STATUS_SYNC)}"`:'';
-  return html`<button class="btn-sm st-act ${item.act==='rebuild'?'btn-default':'btn-secondary'}" data-act="${item.act}"${tip}><span class="lbl">${name}</span></button>`;}
+  const force=item.act==='rebuild-force',why=item.act==='status-why',reload=item.act==='reload';
+  const name=item.act==='rebuild'?tr('재빌드'):why?tr('이유'):force?tr(T.buildanyway):reload?tr('새로 고침'):tr('보기');
+  const tip=force?html` data-tip="${T.buildanywaytip}"`:why?html` data-tip="${syncWhyText(STATUS_SYNC)}"`:reload?html` data-tip="${T.reloadtip}"`:'';
+  return html`<button class="btn-sm st-act ${item.act==='rebuild'||reload?'btn-default':'btn-secondary'}" data-act="${item.act}"${tip}><span class="lbl">${name}</span></button>`;}
 
 // What the status line is drawn from, gathered from the shell: its messages (LINE), the running build (BUILD.cur) and the last
 // failed one, the light poll's failures, the last meta `sync`, and the chips that already say stale and PNG - plus whether
 // this document and person may rebuild.
-function statusInput(){return {notices:LINE,build:BUILD.cur,buildErr:BUILD.error,offline:POLL_FAILS>=2,sync:STATUS_SYNC,stale:!$('#meta-stale').hidden,
+function statusInput(){return {notices:LINE,build:BUILD.cur,buildErr:BUILD.error,offline:POLL_FAILS>=2,outdated:versionOutdated(),sync:STATUS_SYNC,stale:!$('#meta-stale').hidden,
   png:!$('#vec-chip').hidden,canRebuild:!!META&&buildsFromSource(META.kind)&&!isViewer(),unchanged:BUILD.unchanged};}
 
 // The answer to this tab's rebuild that kept the pages (0.4.5: ok, unchanged, the same seq), with [그래도 빌드] for a cold
@@ -134,7 +139,7 @@ function drawStatus(){const box=$('#status'),sr=box.querySelector('.st-sr'),body
   const tx=box.querySelector('.st-tx'),long=statusText(top,'long'),short=statusText(top,'short');
   tx.textContent=BAND===LAYOUT_BAND.SHORT?short[0]+short[1]:long[0]+long[1];   // the short band's one row always takes the short text
   if(tx.scrollWidth>tx.clientWidth)tx.textContent=short[0]+short[1];
-  const said=top.notice?top.notice.alert:top.kind===STATUS_KIND.FAILED||top.kind===STATUS_KIND.ERRORS||top.kind===STATUS_KIND.OFFLINE;
+  const said=top.notice?top.notice.alert:top.kind===STATUS_KIND.FAILED||top.kind===STATUS_KIND.ERRORS||top.kind===STATUS_KIND.OFFLINE;   // OUTDATED is read out politely here
   const say=said||top.notice&&top.notice.quiet?'':long[0]; if(sr.textContent!==say)sr.textContent=say;   // a quiet one (a moved undo) was said when it came
   refocusStatus(f);
   const bar=box.querySelector('.st-bar'); if(!bar)return; const {done,total}=top.progress||{},pct=top.progress?Math.round(done/total*100):null;

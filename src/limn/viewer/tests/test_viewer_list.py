@@ -4,7 +4,7 @@ import json
 import shutil
 import unittest
 
-from helpers import extract_js_fn, js_esc, js_markup, run_node
+from helpers import JS_UPDATE_STUBS, extract_js_fn, js_esc, js_markup, run_node
 
 
 class PinListLoading(unittest.TestCase):
@@ -54,7 +54,7 @@ class PinListLoading(unittest.TestCase):
             [
                 extract_js_fn("pinState"),
                 extract_js_fn("derivePinLists"),
-                extract_js_fn("applyPinLists"),
+                JS_UPDATE_STUBS + extract_js_fn("applyPinLists"),
                 extract_js_fn("loadPins"),
                 """
                 let DOC='main',DEFAULT_DOC='main',OPEN_ALL=[],REVIEW_ALL=[],DONE_ALL=[],PINS=[],DONE=[],DROPPED=[];
@@ -98,7 +98,7 @@ class PinListLoading(unittest.TestCase):
             [
                 extract_js_fn("pinState"),
                 extract_js_fn("derivePinLists"),
-                extract_js_fn("applyPinLists"),
+                JS_UPDATE_STUBS + extract_js_fn("applyPinLists"),
                 extract_js_fn("loadPins"),
                 """
                 let DOC='main',DEFAULT_DOC='main',OPEN_ALL=[],REVIEW_ALL=[],DONE_ALL=[],PINS=[],DONE=[],DROPPED=[];
@@ -171,7 +171,9 @@ class PinListLoading(unittest.TestCase):
         loadPins and loadPinsNow, and the named functions besides, under PINS_HARNESS; return what it prints, parsed."""
         names = ("pinState", "derivePinLists", "applyPinLists", "loadPins", "loadPinsNow", *functions)
         body = "(async()=>{%s})();" % scenario
-        return json.loads(run_node("\n".join([*(extract_js_fn(n) for n in names), self.PINS_HARNESS, body])))
+        return json.loads(
+            run_node("\n".join([JS_UPDATE_STUBS, *(extract_js_fn(n) for n in names), self.PINS_HARNESS, body]))
+        )
 
     def test_reading_now_answers_whether_the_list_shows_a_snapshot_asked_since_the_call(self):
         """loadPinsNow resolves true when its own read applied or a newer read that overtook it did, and false when its
@@ -223,9 +225,9 @@ class PinListLoading(unittest.TestCase):
             [
                 extract_js_fn("pinState"),
                 extract_js_fn("derivePinLists"),
-                extract_js_fn("applyPinLists"),
+                JS_UPDATE_STUBS + extract_js_fn("applyPinLists"),
                 extract_js_fn("loadPins"),
-                extract_js_fn("pollLightOnce"),
+                JS_UPDATE_STUBS + extract_js_fn("pollLightOnce"),
                 "function isMdDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
                 """
                 let DOC='main',SWITCHSEQ=0,DEFAULT_DOC='main',OPEN_ALL=[{id:0}],REVIEW_ALL=[],DONE_ALL=[],PINS=OPEN_ALL,DONE=[],DROPPED=[];
@@ -273,9 +275,9 @@ class PinListLoading(unittest.TestCase):
             [
                 extract_js_fn("pinState"),
                 extract_js_fn("derivePinLists"),
-                extract_js_fn("applyPinLists"),
+                JS_UPDATE_STUBS + extract_js_fn("applyPinLists"),
                 extract_js_fn("loadPins"),
-                extract_js_fn("pollLightOnce"),
+                JS_UPDATE_STUBS + extract_js_fn("pollLightOnce"),
                 "function isMdDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
                 """
                 let DOC='main',SWITCHSEQ=0,DEFAULT_DOC='main',OPEN_ALL=[{id:1}],REVIEW_ALL=[],DONE_ALL=[],PINS=OPEN_ALL,DONE=[],DROPPED=[{id:9}];
@@ -328,13 +330,13 @@ class PinListLoading(unittest.TestCase):
             [
                 extract_js_fn("pinState"),
                 extract_js_fn("derivePinLists"),
-                extract_js_fn("applyPinLists"),
+                JS_UPDATE_STUBS + extract_js_fn("applyPinLists"),
                 extract_js_fn("loadPins"),
                 js_esc(),
                 js_markup(),
                 extract_js_fn("boot"),
                 "function isMdDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
-                extract_js_fn("pollLightOnce"),
+                JS_UPDATE_STUBS + extract_js_fn("pollLightOnce"),
                 "function isMdDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
                 """
                 let DOC=null,SWITCHSEQ=0,META=null,DEFAULT_DOC='main',OPEN_ALL=[],REVIEW_ALL=[],DONE_ALL=[],PINS=[],DONE=[],DROPPED=[];
@@ -398,7 +400,7 @@ class PinListLoading(unittest.TestCase):
                 js_markup(),
                 extract_js_fn("boot"),
                 "function isMdDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
-                extract_js_fn("pollLightOnce"),
+                JS_UPDATE_STUBS + extract_js_fn("pollLightOnce"),
                 "function isMdDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
                 """
                 let DOC=null,SWITCHSEQ=0,META=null,LAST_PINS_REV=null,LAST_SRC_MTIME=null;
@@ -433,7 +435,7 @@ class PinListLoading(unittest.TestCase):
         """Switching to cached document B draws B's completed rows before its background fetch resolves."""
         js = "\n".join(
             [
-                extract_js_fn("switchDoc"),
+                JS_UPDATE_STUBS + extract_js_fn("switchDoc"),
                 "function isMdDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
                 extract_js_fn("showDoc"),
                 extract_js_fn("resetBuildForDoc"),
@@ -496,7 +498,7 @@ class PinListLoading(unittest.TestCase):
         """A changed cached document applies the meta it fetched without a second request."""
         js = "\n".join(
             [
-                extract_js_fn("switchDoc"),
+                JS_UPDATE_STUBS + extract_js_fn("switchDoc"),
                 "function isMdDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
                 extract_js_fn("refreshDoc"),
                 """
@@ -534,7 +536,7 @@ class ViewerPollingVisits(unittest.TestCase):
         """A stale light response keeps its notification but cannot set the current revision baseline."""
         js = "\n".join(
             [
-                extract_js_fn("pollLightOnce"),
+                JS_UPDATE_STUBS + extract_js_fn("pollLightOnce"),
                 "function isMdDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
                 """
                 let DOC='b',SWITCHSEQ=1,LAST_PINS_REV='old',LAST_SRC_MTIME='old-src';
@@ -569,7 +571,7 @@ class ViewerPollingVisits(unittest.TestCase):
         """A pin read from an old visit cannot advance the new visit's meta baseline."""
         js = "\n".join(
             [
-                extract_js_fn("pollLightOnce"),
+                JS_UPDATE_STUBS + extract_js_fn("pollLightOnce"),
                 "function isMdDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
                 """
                 let DOC='b',SWITCHSEQ=1,LAST_PINS_REV='old',LAST_SRC_MTIME='old-src';
@@ -600,7 +602,7 @@ class ViewerPollingVisits(unittest.TestCase):
         """An old build status response cannot display its error on a new visit to the same document."""
         js = "\n".join(
             [
-                extract_js_fn("pollBuildOnce"),
+                JS_UPDATE_STUBS + extract_js_fn("pollBuildOnce"),
                 """
                 let DOC='b',SWITCHSEQ=1; const BUILD={timer:null,booted:false,lastSeq:3};
                 const seen=[],DOC_SEQ=new Map(),document={hidden:false};
@@ -627,7 +629,7 @@ class ViewerPollingVisits(unittest.TestCase):
         """A document switch during build refresh suppresses the old visit's completion message."""
         js = "\n".join(
             [
-                extract_js_fn("pollBuildOnce"),
+                JS_UPDATE_STUBS + extract_js_fn("pollBuildOnce"),
                 """
                 let DOC='b',SWITCHSEQ=1; const BUILD={timer:null,booted:true,lastSeq:3};
                 BUILD.error=null;
