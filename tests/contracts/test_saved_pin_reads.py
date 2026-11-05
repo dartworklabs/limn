@@ -162,7 +162,8 @@ class TestSavedPinReads(Base):
                     break
                 stop.wait(0.02)
             saved = json.loads(ps.APP.C.pins_jsonl.read_text())
-            self.assertEqual((saved["lo"], saved["file"]), (5, str(again.resolve())))
+            # Compare resolved paths: on macOS the temp folder /var/... is a link to /private/var/....
+            self.assertEqual((saved["lo"], Path(saved["file"]).resolve()), (5, again.resolve()))
         finally:
             stop.set()
             worker.join(0.5)
