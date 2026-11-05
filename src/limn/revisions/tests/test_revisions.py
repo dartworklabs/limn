@@ -56,7 +56,7 @@ from helpers import (
     split_resp,
     write_records,
 )
-from helpers_access import REPO_NEW as NEW, REPO_OLD as OLD, AccessBase, ScopedRepo, talk_to
+from helpers_access import REPO_NEW as NEW, REPO_OLD as OLD, AccessBase, ScopedRepo, join_revision_workers, talk_to
 from helpers_authority import post_authority
 
 # Issue #162 (synthetic): a short reply letter. Its opening paragraph is running text; the second sits in a macro that
@@ -345,13 +345,11 @@ class ManuscriptRevisions(Base):
         self.assertEqual(limn_meta.outline_labels(ps.APP.docs[0], document_build_queries())["labels"], [])
 
     def _wait_revision(self):
-        deadline = time.monotonic() + 5
-        while time.monotonic() < deadline:
-            status = ps.APP.revision_requests.status(ps.APP.docs[0], self.latest)
-            if status["state"] != "running":
-                return status
-            time.sleep(0.01)
-        self.fail("revision worker did not finish")
+        """The comparison's status once its worker thread has ended (join_revision_workers), read once."""
+        join_revision_workers(self)
+        status = ps.APP.revision_requests.status(ps.APP.docs[0], self.latest)
+        self.assertNotEqual(status["state"], "running", status)
+        return status
 
     def test_async_revision_http_deduplicates_caches_and_preserves_current_build(self):
         """A second POST joins the running build, the PDF is served once ready and cached, the manuscript, its build

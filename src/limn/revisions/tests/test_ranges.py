@@ -22,7 +22,7 @@ from unittest import mock
 from limn.revisions import core as revisions, execution as revision_execution
 
 from helpers import extract_js_fn, ps, run_node
-from helpers_access import REPO_OLD, AccessBase
+from helpers_access import REPO_OLD, AccessBase, join_revision_workers
 
 SNAPSHOT = Path(__file__).resolve().parents[4] / "tests" / "data" / "revision_snapshot.json"
 SIDE = "ms/sec/method.tex"
@@ -135,14 +135,11 @@ class RangeRepo(AccessBase):
         return code, out
 
     def wait_build(self, query: str) -> dict:
-        """GET /api/revision-build?<query> until the job is no longer running (5 s at most)."""
-        deadline = time.monotonic() + 5
-        while time.monotonic() < deadline:
-            code, body = self.call("GET", "/api/revision-build?" + query)
-            if code != 200 or body.get("state") != "running":
-                return body
-            time.sleep(0.01)
-        self.fail("revision worker did not finish")
+        """GET /api/revision-build?<query> once the comparison's worker thread has ended (join_revision_workers)."""
+        join_revision_workers(self)
+        code, body = self.call("GET", "/api/revision-build?" + query)
+        self.assertFalse(code == 200 and body.get("state") == "running", body)
+        return body
 
 
 def fake_compile(spec, jobdir, timeout):

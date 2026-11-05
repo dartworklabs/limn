@@ -42,6 +42,10 @@ from limn.revisions.core import (
     UnsafeCache,
 )
 
+# The name prefix of a comparison's worker thread (followed by its cache key): it names the job in a thread dump, and lets
+# tests wait for the worker itself instead of polling its status against a clock.
+WORKER_THREAD = "limn-revision-"
+
 
 def revision_cache_root(D: RevisionDoc, *, create: bool = False) -> Path | UnsafeCache:
     """The document's comparison cache folder (<state>/revisions for it), read without creating it; POST alone passes create=True. UnsafeCache when it is a
@@ -276,7 +280,12 @@ def _start_job(
         timeout = min(180, max(1, ctx.timeout))
         owned = claimed.pop_all()  # from here the worker frees the slot, the lock and the active entry
     try:
-        threading.Thread(target=_run_job, args=(spec, jobdir, timeout, running, ctx, owned), daemon=True).start()
+        threading.Thread(
+            target=_run_job,
+            args=(spec, jobdir, timeout, running, ctx, owned),
+            name=WORKER_THREAD + spec.key,
+            daemon=True,
+        ).start()
     except BaseException:
         owned.close()
         raise
