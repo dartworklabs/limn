@@ -411,13 +411,13 @@ class RunDocuments:
 
 def pick_documents(src: Path, specs: Sequence[str], main: str | None) -> RunDocuments | StartupRefused:
     """The documents of a command line with manuscript folder src (already resolved), or the refusal, in this order: a
-    missing manuscript folder, --doc together with --main, a bad --doc, a --main ending in .md, no or several top-level
+    missing manuscript folder, --doc together with --main, a bad --doc, a --main ending in .md or a text suffix, no or several top-level
     .tex files, a --main that does not exist. The run's main file is the first --doc document whose kind builds from
     source, else the first document's.
 
-    --main names the LaTeX main of a single-document run, which builds; it never makes a Markdown document. A .md
-    there (any case) is refused with the --doc form that registers one (ADR-0025), rather than built as LaTeX and
-    failing - the one way a .md reached a document before .md registration."""
+    --main names the LaTeX main of a single-document run, which builds; it never makes a Markdown or text document. A
+    .md there (any case) is refused with the --doc form that registers one (ADR-0025), and so is a text suffix
+    (TEXT_SUFFIXES, ADR-0029: plot.py, refs.bib), rather than built as LaTeX and failing."""
     if not src.is_dir():
         return StartupRefused("Manuscript directory does not exist: %s" % src)
     if specs:
@@ -431,6 +431,10 @@ def pick_documents(src: Path, specs: Sequence[str], main: str | None) -> RunDocu
     if main and main.lower().endswith(".md"):
         return StartupRefused(
             "--main takes the LaTeX main (.tex) - a Markdown document is served with --doc <key>=<name>:%s" % main
+        )
+    if main and Path(main).suffix.lower() in TEXT_SUFFIXES:
+        return StartupRefused(
+            "--main takes the LaTeX main (.tex) - a text document is served with --doc <key>=<name>:%s" % main
         )
     main_file = (src / main) if main else detect_main(src)
     if isinstance(main_file, StartupRefused):

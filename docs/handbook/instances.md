@@ -98,7 +98,7 @@ limn add paper2 --manuscript ~/papers/paper2 --git-pull --label Paper2
 | 옵션 | 뜻 |
 | --- | --- |
 | `--manuscript <dir>` | 원고 폴더. 필수 |
-| `--main <file.tex>` | 최상위 `.tex`. 원고 폴더 맨 위에 있어야 한다. `--doc`과 함께 쓰지 않는다. `.md`는 거절하고 `--doc <키>=<이름>:<경로>` 꼴을 알린다. Markdown 문서와 텍스트 문서는 `--doc`으로 더한다 |
+| `--main <file.tex>` | 최상위 `.tex`. 원고 폴더 맨 위에 있어야 한다. `--doc`과 함께 쓰지 않는다. `.md`와 텍스트 문서의 확장자(`.py`·`.bib` 등)는 빌드하지 않고 거절하며 `--doc <키>=<이름>:<경로>` 꼴을 알린다. Markdown 문서와 텍스트 문서는 `--doc`으로 더한다 |
 | `--doc <키>=<표시 이름>:<경로>` | 문서. 여러 번 준다. `--main`과 함께 쓰지 않는다 |
 | `--stage auto\|initial\|revision` | 기본 문서 탭 자동 탐지에만 쓴다. `--doc`·`--main`과 함께 주면 거부한다 |
 | `--port N` / `--ts-port N` | 로컬 포트와 테일넷 포트를 직접 준다. 하나만 주면 나머지는 짝 간격(`LIMN_LOCAL_OFFSET`, 기본 `100`)으로 계산한다 |

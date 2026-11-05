@@ -153,6 +153,22 @@ class MarkdownAtStartup(StartupTree):
             serve_documents.pick_documents(self.ms, [], "main.tex"), RunDocuments(None, self.ms / "main.tex")
         )
 
+    def test_main_never_names_a_text_document(self):
+        """A text suffix (ADR-0029) as --main, in any case and whether or not the file exists, is refused with the --doc
+        form that registers a text document, not built as LaTeX; a .tex --main is still served."""
+        for main in ("figs/plot.py", "refs.BIB", "notes/todo.txt", "missing.yaml"):
+            with self.subTest(main=main):
+                self.assertEqual(
+                    serve_documents.pick_documents(self.ms, [], main),
+                    StartupRefused(
+                        "--main takes the LaTeX main (.tex) - a text document is served with --doc <key>=<name>:%s"
+                        % main
+                    ),
+                )
+        self.assertEqual(
+            serve_documents.pick_documents(self.ms, [], "main.tex"), RunDocuments(None, self.ms / "main.tex")
+        )
+
 
 class SetApartAtStartup(StartupTree):
     """docs_of gives a LaTeX document what other documents inside its build root own (limn.runtime.documents.apart_paths),
