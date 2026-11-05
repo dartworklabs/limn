@@ -39,7 +39,7 @@ const MD={gen:0,doc:/** @type {string|null} */(''),file:'',name:'',lines:/** @ty
   worker:/** @type {Worker|null} */(null),job:/** @type {{id:number,resolve:(r:any)=>void,t:ReturnType<typeof setTimeout>}|null} */(null),seq:0,
   waiting:false,els:0,marked:0,bom:false,shown:/** @type {string|null} */(''),want:/** @type {{line:number,off:number,top:number}|null} */(null),
   jumpTo:/** @type {{id:number,doc:string|null,seq:number}|null} */(null),
-  spot:/** @type {{doc:string|null,w:number,el:HTMLElement|null,line:number,key:string,frac:number,off:number|null,sel:boolean,again:boolean}|null} */(null),
+  spot:/** @type {{doc:string|null,w:number,top:number,el:HTMLElement|null,line:number,key:string,frac:number,off:number|null,sel:boolean,again:boolean}|null} */(null),
   // a heading a link from another document asked for, gone to once this document is drawn in that visit (mdGoDoc), and the
   // heading a jump in flight is going to (mdGoHeading: an image that gets its size moves the destination, not the reading spot)
   headTo:/** @type {{doc:string,id:string,seq:number}|null} */(null),goTo:/** @type {{el:HTMLElement,doc:string|null}|null} */(null)};
@@ -125,7 +125,7 @@ async function mdBuild(){if(mdFieldBusy()){MD.waiting=true; return;}
 function mdShow(node){const want=MD.want,shown=mdColumnShown(); MD.want=null; MD.limit=node.dataset.limit||null;
   const a=shown?(want||(MD.shown===DOC?mdAnchor():null)):null;
   if(!shown){const s=MD.spot;
-    if(want)MD.spot={doc:DOC,w:0,el:null,line:want.line,key:'',frac:0,off:want.off,sel:false,again:true};
+    if(want)MD.spot={doc:DOC,w:0,top:want.top,el:null,line:want.line,key:'',frac:0,off:want.off,sel:false,again:true};
     else if(s&&s.doc===DOC&&MD.shown===DOC){s.el=null; s.again=true;}
     else MD.spot=null;}
   $('#doc').replaceChildren(node); MD.shown=DOC; mdRestore(a);
@@ -188,7 +188,7 @@ function mdRestore(a){const L=$('#left'); if(!a){return;} const e=mdLeaves(a.lin
 // (mdSpotKeep): from relayout, and from the column's ResizeObserver, which runs after the layout and before the paint. A scroll
 // the reflow itself makes (an offset cut back to the new height) reads only after the spot is back.
 // Reads the spot now: the line element at the document area's top (mdAt) and how far down it the top is (frac, 0-1; el null
-// at the very top), the column's width, and whether the chosen lines (.md-sel) are on screen. A read at a width that is not
+// at the very top), the column's width and scroll offset (top), and whether the chosen lines (.md-sel) are on screen. A read at a width that is not
 // the spot's is left for mdSpotKeep - the reflow moved what it would read - unless force (a new draw: nothing to keep).
 // While the column is not laid out (hidden under the changes view, or 0 wide) nothing is read: the spot read before stays -
 // a redraw there too (mdShow) - for mdSpotKeep to put back once the column is shown again. A spot a hidden redraw left to be
@@ -198,7 +198,7 @@ function mdSpotRead(force){const md=$('#md'),L=$('#left'); if(!isMdDoc()||!md||M
   const s=MD.spot,w=md.getBoundingClientRect().width; if(!mdLaidOut(w))return;
   if(!force&&s&&s.doc===DOC&&(s.w!==w||s.again))return;
   const top=L.getBoundingClientRect().top,e=L.scrollTop>0?mdAt(mdLineEls(),top):null,r=e&&e.getBoundingClientRect();
-  MD.spot={doc:DOC,w,el:e,line:e?+(e.dataset.line||e.dataset.lo||0):0,key:e?(e.dataset.line?'line':'lo'):'',
+  MD.spot={doc:DOC,w,top:L.scrollTop,el:e,line:e?+(e.dataset.line||e.dataset.lo||0):0,key:e?(e.dataset.line?'line':'lo'):'',
     frac:r&&r.height?Math.min(1,Math.max(0,(top-r.top)/r.height)):0,off:null,sel:mdSelSeen(),again:false};}
 // The element that stands for spot s's line now: its element if still drawn, else the one a redraw drew for that line - the
 // same kind (a line span, a block starting there), else the first that carries the line (mdLeaves), else - the line is gone,
@@ -232,7 +232,15 @@ function mdSpotKeep(){const s=MD.spot,md=$('#md'),L=$('#left'); if(!s||s.doc!==D
 // Something above the reading spot changed its height while the width stood - an image that got its size or gave way to its
 // alt text (mdPicLoad, mdPicError): the spot is put back as after a reflow (mdSpotKeep), one model for both. While the
 // column is hidden (under the changes view) nothing can be measured: the spot waits, marked again, for the column to be shown.
-function mdSpotBack(){const s=MD.spot; if(!s||s.doc!==DOC)return; s.again=true; mdSpotKeep();}
+// A spot read before the pane last scrolled is not put back: a scroll's own read waits for its animation frame (the pane's
+// scroll listener), and a load that comes first found the pane elsewhere than the spot says (its offset is not the spot's
+// top) - putting that spot back undid the scroll (on a busy renderer Home's scroll to the top went back 3,000px down when
+// the images came, Firefox). The spot is read where the pane stands instead; what the image moved there is the browser's
+// scroll anchoring's. The offset alone is no sign while the width moved (a reflow cuts it back) or a hidden redraw waits.
+function mdSpotBack(){const s=MD.spot,md=$('#md'),L=$('#left'); if(!s||s.doc!==DOC)return;
+  const w=md?md.getBoundingClientRect().width:0;
+  if(!s.again&&w===s.w&&mdLaidOut(w)&&Math.abs(L.scrollTop-s.top)>=1){mdSpotRead(true); return;}   // scrolled since it was read
+  s.again=true; mdSpotKeep();}
 // Whether the document column is laid out at width w (#md's): shown (#left has boxes - not under the changes view) and wider than 0.
 /** @param {number} w */
 function mdLaidOut(w){return w>0&&mdColumnShown();}

@@ -57,6 +57,17 @@ from helpers_figure import BUILD1, viewer_build
 DRAWN = "typeof MD!=='undefined'&&MD.shown===DOC&&!!document.querySelector('#md')&&!MD.job"
 # Every tree image on screen has loaded or failed (a failed one is replaced by its alt text).
 PICS_DONE = "[...document.querySelectorAll('#md .md-pic img')].every(i=>i.complete)"
+# Holds the page's animation frames from window.__framesHeld on - as a renderer too busy to paint holds them - until
+# window.__framesGo() lets them run (cancelAnimationFrame still cancels a held one); counts the images that load or fail
+# (window.__picDone).
+FRAMES_HELD = (
+    "(()=>{const raf=window.requestAnimationFrame.bind(window),caf=window.cancelAnimationFrame.bind(window),q=new Map();"
+    "let n=0;window.__framesHeld=false;window.__picDone=0;"
+    "window.requestAnimationFrame=cb=>{if(!window.__framesHeld)return raf(cb);q.set(--n,cb);return n;};"
+    "window.cancelAnimationFrame=id=>{if(id<0)q.delete(id);else caf(id);};"
+    "window.__framesGo=()=>{window.__framesHeld=false;const l=[...q.values()];q.clear();l.forEach(cb=>raf(cb));};"
+    "for(const t of ['load','error'])document.addEventListener(t,e=>{if(e.target.tagName==='IMG')window.__picDone++;},true);})()"
+)
 SVG = (
     '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="40" onload="fetch(\'/svg-onload\')">'
     "<style>.b{fill:#1d4ed8}</style><script>document.title='svg ran';fetch('/svg-script')</script>"
@@ -635,6 +646,52 @@ class HeadingJump(AssetsBase):
             held, self.hold[:] = list(self.hold), []
             for r in held:
                 r.fulfill(**self.answer(r.request))
+        settle(page)
+        self.assertLess(page.evaluate("document.querySelector('#left').scrollTop"), 50)
+
+    @unittest.skipIf(sys.platform == "darwin", "Home scrolls no pane on macOS: issue #414")
+    def test_images_that_load_before_the_keys_scroll_is_read_leave_the_pane_at_the_top(self):
+        """The Home of the test above on a renderer too busy to paint: the page's frames are held from just before the
+        key, so its scroll to the top is not read yet (the spot is still a line below the top) when the images let go
+        load. The spot was read at another offset than the pane's now: it is not put back but read again where the pane
+        stands (mdSpotBack), and the pane stays at the top, also once the frames run. Mutation: put back whatever spot was
+        read last (no offset test in mdSpotBack) -> the loads take the pane back down to the line read before the key,
+        fails. On a busy runner that was HeadingJumpFirefox's flake (2,987px)."""
+        self.home_before_the_frame(lambda r: r.fulfill(**self.answer(r.request)))
+
+    @unittest.skipIf(sys.platform == "darwin", "Home scrolls no pane on macOS: issue #414")
+    def test_images_that_fail_before_the_keys_scroll_is_read_leave_the_pane_at_the_top(self):
+        """The same with images the server does not give: each becomes its alt text (mdPicError), which puts the spot
+        back the same way. Same mutation -> fails."""
+        self.home_before_the_frame(lambda r: r.fulfill(status=404, body=""))
+
+    def home_before_the_frame(self, answer):
+        """The jump with its images held; frames held, Home, then every held image answered by answer before any frame."""
+        for i in range(1, 7):
+            (self.src / "notes" / "img" / ("p%d.png" % i)).write_bytes(blank_png(200, 900))
+        page = self.open_md(init=FRAMES_HELD)
+        self.holding = True
+        page.locator("#md a.md-doclink").first.click()
+        until(page, "DOC==='gd'&&" + DRAWN, 20)
+        until(
+            page, "!!MD.goTo&&document.querySelector('#left').scrollTop>200"
+        )  # on its way, its spot read below the top
+        page.evaluate("document.activeElement&&document.activeElement.blur(); window.__framesHeld=true")
+        page.keyboard.press("Home")
+        until(page, "document.querySelector('#left').scrollTop===0")
+        self.assertTrue(page.evaluate("!MD.goTo&&!!MD.spot&&!!MD.spot.el"))  # the key's scroll is not read yet
+        held, self.hold[:] = list(self.hold), []
+        self.assertTrue(held)
+        page.evaluate("window.__picDone=0")
+        for r in held:
+            answer(r)
+        until(page, "window.__picDone>=%d" % len(held))
+        self.assertEqual(page.evaluate("document.querySelector('#left').scrollTop"), 0)
+        page.evaluate("window.__framesGo()")
+        self.holding = False  # what the grown images bring into reach loads as it comes, and so does what is still held
+        held, self.hold[:] = list(self.hold), []
+        for r in held:
+            answer(r)
         settle(page)
         self.assertLess(page.evaluate("document.querySelector('#left').scrollTop"), 50)
 
