@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- GET now returns only saved pin positions and revisions, preserving stale-edit conflicts across manuscript moves and restarts. Request-independent maintenance checks pinned sources every 2 seconds using stat only when idle. HTTP and disk `pins.md` can trail edits by that interval plus pass time (longer on slow or failed passes).
+
 ### Security
 
 - Take GET computation slots only after body reading and Host/Origin, identity, admission and read-permission checks, so incomplete or refused requests cannot occupy the four read computation slots.
