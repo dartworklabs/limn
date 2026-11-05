@@ -34,11 +34,31 @@ DEFAULT_DOC_KEY = "main"
 
 # What a document is, read once from a --doc path's suffix (limn.administration.serve_documents.parse_doc_arg);
 # an instance started without --doc serves one "tex" document; a path ending in MAP_SUFFIX is a "figure", one ending
-# in ".md" a "markdown" document, which the browser draws from its source (ADR-0025).
+# in ".md" a "markdown" document, which the browser draws from its source (ADR-0025), and one whose suffix is in
+# TEXT_SUFFIXES a "text" document: plain text or source code the browser shows line for line (ADR-0029).
 # Branches ask a capability of Doc - builds_from_source, watches_files, takes_line_pins, shows_revisions, view_only,
 # has_element_map, renders_in_browser, takes_suggestions - never the kind. Only what reports the kind itself reads it:
 # the API's kind, a document's authority identity, the startup line (docs/handbook/domain.md §여러 문서).
-DocKind: TypeAlias = Literal["tex", "pdf", "figure", "markdown"]
+DocKind: TypeAlias = Literal["tex", "pdf", "figure", "markdown", "text"]
+
+# The suffixes (compared case-insensitively) a --doc path registers as a "text" document (ADR-0029 D2): a closed list,
+# so that a suffix's kind is chosen once - a suffix added later only adds a kind where startup refused before, and one
+# that may get a surface of its own (.typ, .ipynb) or that usually holds credentials (.env, .pem, .key) is left out.
+# LaTeX's own sources (.tex) and Markdown (.md) keep their kinds; .bib, .sty, .cls and .bst are shown as text.
+TEXT_SUFFIXES: frozenset[str] = frozenset(
+    {
+        # prose and data
+        ".txt", ".text", ".rst", ".org", ".adoc", ".csv", ".tsv",
+        # configuration
+        ".json", ".toml", ".yaml", ".yml", ".ini", ".cfg", ".xml",
+        # source code
+        ".py", ".pyi", ".r", ".jl", ".m", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".css", ".scss", ".html",
+        ".sh", ".bash", ".zsh", ".c", ".h", ".cc", ".cpp", ".hpp", ".java", ".kt", ".go", ".rs", ".swift", ".rb",
+        ".lua", ".sql",
+        # LaTeX's other sources
+        ".bib", ".sty", ".cls", ".bst",
+    }
+)  # fmt: skip
 
 
 def kind_builds_from_source(kind: DocKind) -> bool:
@@ -200,7 +220,8 @@ def fresh_build_state() -> dict[str, Any]:
 class Doc:
     """One document of a kind (DocKind): 'tex' is LaTeX, lines traced back via SyncTeX; 'pdf' is a view-only PDF,
     pinned by page and region; 'figure' is a PDF a figure repository renders with its element map (limn.builds.figure_map),
-    imported rather than built; 'markdown' is a source the browser draws, pinned by its lines, with no pages at all.
+    imported rather than built; 'markdown' is a source the browser draws, pinned by its lines, with no pages at all;
+    'text' is plain text or source code the browser shows line for line, pinned by its lines, with no pages either.
     What it can do is read from its capability properties (builds_from_source, watches_files, takes_line_pins,
     shows_revisions, view_only, has_element_map, renders_in_browser, takes_suggestions), never from kind.
 
@@ -317,16 +338,16 @@ class Doc:
     def takes_line_pins(self) -> bool:
         """Its pins are file/lo/hi line ranges with anchor re-sync, and a request that names only a file can route to
         it (doc_for_file): a LaTeX document, a figure document - its pins are lines of the code that drew it - and a
-        Markdown document, whose pins are lines of its own source (docs/handbook/domain.md §여러 문서)."""
-        return self.kind in ("tex", "figure", "markdown")
+        Markdown or text document, whose pins are lines of its own source (docs/handbook/domain.md §여러 문서)."""
+        return self.kind in ("tex", "figure", "markdown", "text")
 
     @property
     def shows_revisions(self) -> bool:
         """The changes view is available: the Git history of its files - a LaTeX document's manuscript files, compared
         as a latexdiff PDF; a figure document's map, PDF and drawing files, compared by laying the previous build's
-        pages over the current ones; a Markdown document's own file, compared as its source diff alone
+        pages over the current ones; a Markdown or text document's own file, compared as its source diff alone
         (docs/handbook/viewer.md §변경 보기)."""
-        return self.kind in ("tex", "figure", "markdown")
+        return self.kind in ("tex", "figure", "markdown", "text")
 
     @property
     def view_only(self) -> bool:
@@ -342,17 +363,19 @@ class Doc:
 
     @property
     def renders_in_browser(self) -> bool:
-        """The viewer draws it from its source, not from page images: a Markdown document (ADR-0025 D1). It has no
-        PDF and no page images to build or watch, so startup builds nothing for it (limn.builds.run.needs_build)."""
-        return self.kind == "markdown"
+        """The viewer draws it from its source, not from page images: a Markdown document (ADR-0025 D1) and a text
+        document (ADR-0029 D1). It has no PDF and no page images to build or watch, so startup builds nothing for it
+        (limn.builds.run.needs_build)."""
+        return self.kind in ("markdown", "text")
 
     @property
     def takes_suggestions(self) -> bool:
         """A suggested edit of its lines fits its line pins (docs/adr/0020-suggested-edit-pins.md, ADR-0025 D8): a
-        LaTeX document and a Markdown document, whose lines are prose a person writes. A view-only PDF has no lines
-        and a figure document's lines are the code that drew it. The suggestion gate reads it
+        LaTeX document, a Markdown document and a text document, whose lines are prose or code a person writes and
+        edits by hand (ADR-0029 D4). A view-only PDF has no lines and a figure document's lines are the code that drew
+        it - a figure repository re-renders from them. The suggestion gate reads it
         (limn.pins.editing.rules.check_suggestion, through SuggestFacts on an edit)."""
-        return self.kind in ("tex", "markdown")
+        return self.kind in ("tex", "markdown", "text")
 
     def rel_path(self) -> str:
         """Path relative to --manuscript (for display / the pins.md header). Points at the main file."""

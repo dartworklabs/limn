@@ -373,6 +373,8 @@ printf '\\documentclass{article}\n\\begin{document}rr\\end{document}\n' > "$ms/s
 : > "$ms/submission/submission_ready/manuscript.pdf"
 printf '\\documentclass{article}\n\\begin{document}wide\\end{document}\n' > "$ms/wide/deep/main2.tex"
 : > "$ms/readme.txt"
+: > "$ms/readme.docx"
+: > "$ms/Plot.PY"
 printf '# Notes\n\nA plan.\n' > "$ms/readme.md"
 
 chk "--main and --doc together are rejected" \
@@ -383,7 +385,7 @@ chk "rejects a key rule violation (uppercase)" "! '$PV' add docs-x --manuscript 
 chk "rejects a duplicate key" \
     "! '$PV' add docs-x --manuscript '$ms' --doc 'rr=답변서:submission/review_response/review_response.tex' --doc 'rr=중복:main.tex' --no-start >/dev/null 2>&1"
 chk "rejects a path outside the manuscript (../ is compared after normalization)" "! '$PV' add docs-x --manuscript '$ms' --doc 'out=밖:../outside.tex' --no-start >/dev/null 2>&1"
-chk "rejects an unsupported extension" "! '$PV' add docs-x --manuscript '$ms' --doc 'x=문서:readme.txt' --no-start >/dev/null 2>&1"
+chk "rejects an unsupported extension" "! '$PV' add docs-x --manuscript '$ms' --doc 'x=문서:readme.docx' --no-start >/dev/null 2>&1"
 chk "the '::' form rejects a Markdown document" "! '$PV' add docs-x --manuscript '$ms' --doc 'x=노트:.::readme.md' --no-start >/dev/null 2>&1"
 mout=$("$PV" add docs-x --manuscript "$ms" --main readme.md --no-start 2>&1)
 mrc=$?
@@ -392,7 +394,7 @@ chk "rejects a nonexistent file" "! '$PV' add docs-x --manuscript '$ms' --doc 'x
 mkdir -p "$ms/figs/out"
 printf '{"format": "limn-figure-map/1"}\n' > "$ms/figs/out/figures.limnmap.json"
 printf '{}\n' > "$ms/figs/out/figures.json"
-chk "rejects a .json that is not a figure map (.limnmap.json)" "! '$PV' add docs-x --manuscript '$ms' --doc 'x=그림:figs/out/figures.json' --no-start >/dev/null 2>&1"
+chk "rejects a figure map suffix in another case (.LIMNMAP.JSON is neither a map nor text)" "! '$PV' add docs-x --manuscript '$ms' --doc 'x=그림:figs/out/Figures.LIMNMAP.JSON' --no-start >/dev/null 2>&1"
 chk "rejects a figure map that does not exist" "! '$PV' add docs-x --manuscript '$ms' --doc 'x=그림:figs/out/none.limnmap.json' --no-start >/dev/null 2>&1"
 chk "the '::' form still rejects a view-only PDF" "! '$PV' add docs-x --manuscript '$ms' --doc 'x=제출본:submission::submission_ready/manuscript.pdf' --no-start >/dev/null 2>&1"
 chk "a rejected --doc add leaves no config behind" "[[ ! -e '$T/src/docs-x.env' ]]"
@@ -439,6 +441,16 @@ chk "DOCS keeps the Markdown entry as given" "grep -qx 'DOCS=ms=본문:main.tex;
 argv=$(LIMN_PRINT_ARGV=1 "$PV" run docs-md 2> "$T/docs-md-run.err")
 chk "run passes the Markdown document as a --doc argument" "grep -qx 'nt=노트:readme.md' <<< \"\$argv\""
 "$PV" remove docs-md > /dev/null 2>&1
+
+out=$("$PV" add docs-tx --manuscript "$ms" --no-serve \
+    --doc 'ms=본문:main.tex' \
+    --doc 'tx=노트:readme.txt' \
+    --doc 'py=그림 코드:Plot.PY' \
+    --no-start 2>&1)
+rc=$?
+chk "text documents (.txt, an upper-case .PY) are accepted as plain paths" "[[ $rc -eq 0 ]]"
+chk "DOCS keeps the text entries as given" "grep -qx 'DOCS=\"ms=본문:main.tex;tx=노트:readme.txt;py=그림 코드:Plot.PY\"' '$T/src/docs-tx.env'"
+"$PV" remove docs-tx > /dev/null 2>&1
 
 echo "── 9. doc list/add/remove: single document ↔ multi-document switch ──"
 "$PV" add single-1 --manuscript "$ms" --main main.tex --no-serve --no-start > /dev/null 2>&1

@@ -44,7 +44,7 @@ from limn.administration.serve_documents import (
     TooManyDocs,
 )
 from limn.runtime import args, config, startup
-from limn.runtime.documents import DOCS_MAX, RunPaths
+from limn.runtime.documents import DOCS_MAX, TEXT_SUFFIXES, RunPaths
 from limn.runtime.startup import AccessOptions, StartupRefused
 from limn.security.access import LOOPBACK_AGENT_DEPRECATION
 
@@ -704,7 +704,7 @@ class DocArgs(unittest.TestCase):
         (self.ms / "sub" / "rr").mkdir(parents=True)
         (self.ms / "sub" / "rr" / "rr.tex").write_text(FIXTURE_TEX, encoding="utf-8")
         (self.ms / "sub" / "review.pdf").write_bytes(MINI_PDF)
-        (self.ms / "notes.txt").write_text("x")
+        (self.ms / "notes.docx").write_text("x")
         (Path(self.tmp.name) / "outside.tex").write_text(FIXTURE_TEX)
         self.paths = RunPaths(self.ms, self.ms / "main.tex", Path(self.tmp.name) / "st")
 
@@ -781,10 +781,10 @@ class DocArgs(unittest.TestCase):
                 "--doc rr: 파일이 없습니다: %s" % (rr / "none.tex"),
             ),
             (
-                "rr=답변서:notes.txt",
-                DocKindUnknown("rr", ms / "notes.txt"),
-                "--doc rr: .tex(LaTeX), .pdf(보기 전용), .limnmap.json(그림), .md(Markdown)만 받습니다: %s"
-                % (ms / "notes.txt"),
+                "rr=답변서:notes.docx",
+                DocKindUnknown("rr", ms / "notes.docx"),
+                "--doc rr: .tex(LaTeX), .pdf(보기 전용), .limnmap.json(그림), .md(Markdown), 텍스트(%s)만 받습니다: %s"
+                % (" ".join(sorted(TEXT_SUFFIXES)), ms / "notes.docx"),
             ),
             (
                 "rv=코멘트:sub::review.pdf",

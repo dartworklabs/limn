@@ -1472,5 +1472,18 @@
  "중첩이 {max}단을 넘어 원문 줄로 보입니다": "Nested more than {max} deep, so the source lines are shown",
  "코드 블록": "Code block",
  "표": "Table",
- "핀 #{id} 의 새 위치를 문서에서 고르세요 · Esc 취소": "Choose pin #{id}'s new place in the document · Esc cancels"
+ "핀 #{id} 의 새 위치를 문서에서 고르세요 · Esc 취소": "Choose pin #{id}'s new place in the document · Esc cancels",
+ "문단 {n}개": {"one": "{n} paragraph", "other": "{n} paragraphs"},
+ "보이지 않거나 글 순서를 바꾸는 문자 {n}개를 이름으로 표시했습니다": {"one": "{n} character that is invisible or reorders text is shown by its name", "other": "{n} characters that are invisible or reorder text are shown by their names"},
+ "줄을 누르면": "Click a line",
+ "그 줄을,": "to choose it;",
+ "고르면 그 줄들을 고르고": "text to choose those lines -",
+ "글을 고르면 그 줄들을 고르고": "text to choose those lines -",
+ "텍스트": "Text",
+ "브라우저가 원문 줄을 그대로 보이는 문서 형식": "The document's format: the browser shows its source lines as they are",
+ "고른 줄을 감싸는, 빈 줄 사이의 문단 전체입니다": "The whole paragraph around the chosen lines, between blank lines",
+ "고른 줄이 걸친 문단들 전체입니다": "Every paragraph the chosen lines touch, whole",
+ "고른 줄이 머리인 들여쓰기 블록, 아니면 고른 줄을 감싼 들여쓰기 블록입니다(머리 줄부터 닫는 괄호 줄까지)": "The indented block the chosen lines head, or else the one they stand in (from its header line to its closing bracket line)",
+ "줄을 누르면 그 줄을, 길게 눌러 글을 고르면 그 줄들을 고릅니다": "Tap a line to choose it; long-press text to choose its lines",
+ "누르면 그 줄을, 끌면 그 줄들을 고릅니다": "Click to choose a line; drag to choose lines"
 }

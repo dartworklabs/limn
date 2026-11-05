@@ -47,7 +47,8 @@ def serve_parser(description: str, version: str, default_envs: str) -> argparse.
         ".tex = LaTeX (build root is that folder), "
         "<build root>::<main.tex> = build root given separately, .pdf = view-only, "
         ".limnmap.json = figure document (the PDF its element map names, imported; ROOT::map sets the map's source "
-        "folder), .md = Markdown document (the viewer draws its source; no build). The first document is the default. "
+        "folder), .md = Markdown document (the viewer draws its source; no build), .txt/.py/.json/.bib and other plain "
+        "text or source code = text document (shown line for line; no build). The first document is the default. "
         "If omitted, a single document (key main) built from --manuscript/--main",
     )
     ap.add_argument("--port", type=int, help="Picks a free port in 18300-18400 if omitted")

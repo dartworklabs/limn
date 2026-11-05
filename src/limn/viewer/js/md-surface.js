@@ -80,6 +80,9 @@ async function mdBuild(){if(mdFieldBusy()){MD.waiting=true; return;}
   if(stale())return;
   if(r.status===413){MD.lines=[]; MD.heads=[]; MD.mtime=MD.asked; mdShow(mdNote(tl('이 문서는 {size}라 그리지 않습니다(한도 {limit})',{size:mdMiB(r.data.bytes),limit:mdMiB(r.data.limit)}),MD_LIMIT.BYTES)); return;}
   const src=r.data; MD.doc=k; MD.mtime=src.src_mtime; MD.file=String(src.file||''); MD.name=MD.file.split('/').pop()||MD.file; MD.lines=Array.isArray(src.lines)?src.lines.map(String):[];
+  if(isTextDoc()){MD.heads=[];   // a text document is never parsed: its lines are its view (text-surface.js)
+    if(MD.lines.length>MD_LIMITS.lines){mdShow(mdNote(tl('이 문서는 원문이 {lines}줄이라 그리지 않습니다(한도 {limit}줄)',{lines:mdCount(MD.lines.length),limit:mdCount(MD_LIMITS.lines)}),MD_LIMIT.LINES)); return;}
+    const view=await txView(stale); if(view&&!stale())mdShow(view); return;}
   const res=await mdParse(MD.lines.join('\n')); if(stale()||!res)return;
   let root=/** @type {HTMLElement|null} */(null),limit=res.ok?null:String(res.limit||MD_LIMIT.ERROR);
   if(res.ok){root=await mdRenderAll(res.tokens,stale); if(stale())return; if(!root)limit=MD_LIMIT.ELEMENTS;}
@@ -430,7 +433,7 @@ function mdBlocksIn(lo,hi){const md=$('#md'); if(!md)return []; const meets=(/**
   return /** @type {HTMLElement[]} */([...md.querySelectorAll(MD_BLOCK_SEL)]).filter(e=>{if(!meets(e))return false;
     const up=/** @type {HTMLElement|null} */(e.parentElement&&e.parentElement.closest(MD_BLOCK_SEL)); return !(up&&md.contains(up)&&meets(up));});}
 const MD_BLOCK_LABEL={'paragraph':'문단','item':'목록 항목','table':'표','code':'코드 블록','quote':'인용','html':'HTML 블록'};
-function mdSnippet(lo,hi){const out=[]; for(let n=lo;n<=Math.min(hi,lo+79);n++)out.push(String(n).padStart(5,' ')+'  '+(MD.lines[n-1]||''));
+function mdSnippet(lo,hi){const out=[],tx=isTextDoc(); for(let n=lo;n<=Math.min(hi,lo+79);n++){const ln=MD.lines[n-1]||''; out.push(String(n).padStart(5,' ')+'  '+(tx?txPlain(ln):ln));}   // a text document's hidden characters by name (txPlain)
   if(hi-lo+1>80)out.push('      … '+tl('{n}줄 더',{n:hi-lo+1-80})); return out.join('\n');}
 // The section around lines lo..hi: from the nearest heading at or above lo to the line before the next heading of the same or a
 // higher level (the file's end when none), its trailing blank lines left out. null above the first heading, or when hi is past it.
@@ -444,7 +447,8 @@ function mdSection(lo,hi){let h=/** @type {{level:number,lo:number,title:string}
 // tapped lines (an HTML block, a one-line paragraph) its rung stands first and the chosen lines merge into it, so the pin is
 // md:<kind> as any other tapped block's - merged the other way, the tap's block was saved as lines.
 /** @param {{lo:number,hi:number}} r @param {HTMLElement|null} b0 @param {HTMLElement|null} b1 @param {boolean} [tapped] */
-function mdLevels(r,b0,b1,tapped){const ls=/** @type {any[]} */([]); const add=(level,label,lo,hi,env)=>{const same=ls.find(l=>l.lo===lo&&l.hi===hi);
+function mdLevels(r,b0,b1,tapped){if(isTextDoc())return txLevels(r);   // a text document's rungs come from its lines alone
+  const ls=/** @type {any[]} */([]); const add=(level,label,lo,hi,env)=>{const same=ls.find(l=>l.lo===lo&&l.hi===hi);
     if(same){(same.merged=same.merged||[]).push(level); return;} ls.push({level,label,lo,hi,n:hi-lo+1,snippet:mdSnippet(lo,hi),env:env||null});};
   const k=b0&&b0===b1?b0.dataset.kind||'paragraph':'',blo=b0?Math.min(+(b0.dataset.lo||0),r.lo):0,bhi=b0?Math.max(+(b0.dataset.hi||0),r.hi):0;
   const blockFirst=!!(tapped&&k&&blo===r.lo&&bhi===r.hi); if(blockFirst)add('block',MD_BLOCK_LABEL[k]||'블록',blo,bhi,k);
@@ -458,7 +462,7 @@ function mdLevels(r,b0,b1,tapped){const ls=/** @type {any[]} */([]); const add=(
 // (bannerCompare), with nothing else changed.
 function mdPick(r,b0,b1,quote,tapped){const levels=mdLevels(r,b0,b1,tapped),q=String(quote||'').replace(/\s+/g,' ').trim().slice(0,160);
   const head=tapped&&MD.heads.some(h=>h.lo===r.lo&&h.lo===r.hi);
-  const def=tapped&&lvOf({levels},head?'section':'block')?(head?'section':'block'):'raw';
+  const def=tapped&&!isTextDoc()&&lvOf({levels},head?'section':'block')?(head?'section':'block'):'raw';   // a tap on a text document picks its line
   const sel=/** @type {Selection} */(/** @type {unknown} */({doc:DOC,file:MD.file,name:MD.name,lo:r.lo,hi:r.hi,raw_lo:r.lo,raw_hi:r.hi,kind:'lines',
     score:null,warn:null,snippet:mdSnippet(r.lo,r.hi),levels,default_level:def,n_lines:MD.lines.length,quote:q,overlaps:[]}));
   if(REPICK){REPICK.cand=sel; bannerCompare(); return;}
@@ -544,7 +548,7 @@ function mdReadingLine(){const L=$('#left'); if(!$('#md'))return 0; const e=mdAt
 // outline's current entry and the strip's title; the button reads [L<line>/<lines>].
 function mdStrip(){if(!isMdDoc())return; MD.at=mdReadingLine();
   let i=-1; MD.heads.forEach((h,j)=>{if(h.lo<=MD.at)i=j;}); if(i!==OUTLINE_SELECTED){OUTLINE_SELECTED=i; markOutline();}
-  const h=MD.heads[i]; $('#section-current').textContent=h?h.title:tr('문서 처음'); drawPos();}   // above the first heading
+  const h=MD.heads[i]; $('#section-current').textContent=h?h.title:isTextDoc()?MD.name:tr('문서 처음'); drawPos();}   // a text document has no headings: its file   // above the first heading
 let MD_STRIP_F=0; $('#left').addEventListener('scroll',()=>{if(!isMdDoc()||MD_STRIP_F)return; MD_STRIP_F=requestAnimationFrame(()=>{MD_STRIP_F=0; mdStrip(); mdSpotRead();});},{passive:true});
 // posLabel's shape for this document: [L37/164 ▾] - the reading line's source line of the file's lines, '–' for what is not
 // known yet - with the document's name as posLabel puts it. Pure but for tl.
@@ -556,7 +560,7 @@ function mdPosLabel(doc,line,n,multi,wide){const name=multi&&wide?doc:'',p=line|
 let MD_HINT_PDF=/** @type {Node[]|null} */(null);
 function mdHint(){const e=$('#empty'); if(!e)return; if(!MD_HINT_PDF)MD_HINT_PDF=[...e.childNodes].map(n=>n.cloneNode(true));
   if(!isMdDoc()){if(e.dataset.md){e.replaceChildren(...MD_HINT_PDF.map(n=>n.cloneNode(true))); delete e.dataset.md;} return;}
-  if(e.dataset.md)return; e.dataset.md='1';
+  const want=isTextDoc()?'tx':'1'; if(e.dataset.md===want)return; e.dataset.md=want; if(want==='tx'){txHint(); return;}   // a text document's own words (text-surface.js)
   setHtml(e,html`<span class="t-mouse">${tr('글을')} <b>${tr('끌어')}</b> ${tr('고르면 그 줄을,')} <b>${tr('블록을 누르면')}</b> ${tr('그 블록을 고르고')}</span><span class="t-touch"><b>${tr('블록을 누르면')}</b> ${tr('그 블록을,')} <b>${tr('길게 눌러')}</b> ${tr('글을 고르면 그 줄을 고르고')}</span> ${tr('그 자리의')} <b>${tr('원문 줄 번호')}</b>${tr('가 핀의 위치가 됩니다.')}<br>
     ${tr('메모를 달아 핀으로 저장하면, 에이전트가 pins.md 한 장만 읽고 작업합니다.')}<br><span class="t-mouse"><kbd>?</kbd> ${tr('를 누르면 도움말.')}</span><span class="t-touch">${tr('도움말은 [더보기]에 있습니다.')}</span>`);}
 function mdGoHeading(i){const h=MD.heads[i]; if(!h)return; OUTLINE_SELECTED=i; markOutline();

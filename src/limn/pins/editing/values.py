@@ -20,7 +20,9 @@ SUGGEST_LINES_MAX = 80
 # paragraph, the innermost environment and up to two outer ones, or plain lines), on a figure document
 # limn.builds.figure_map.ladder_scopes (the element and up to seven ancestors, el..el8, and the whole figure, fig), or
 # on a Markdown document the viewer's ladder (the selected lines, the rendered block, the heading's section;
-# docs/adr/0025-html-document-surface.md D3).
+# docs/adr/0025-html-document-surface.md D3), or on a text document the viewer's ladder (the selected lines, the
+# paragraph between blank lines - para, as on LaTeX - and the indented block the lines head or stand in, indent;
+# docs/adr/0029-text-documents.md D3).
 Scope: TypeAlias = Literal[
     "raw",
     "para",
@@ -39,6 +41,7 @@ Scope: TypeAlias = Literal[
     "fig",
     "block",
     "section",
+    "indent",
 ]
 SCOPES: tuple[Scope, ...] = get_args(Scope)
 # The longest quote a pick gives and a pin keeps: the PDF text a drag chose, whitespace-normalized. A view-only PDF's

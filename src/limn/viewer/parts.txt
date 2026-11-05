@@ -28,6 +28,7 @@ css/responsive.css      # mobile/touch, the mid and narrow layouts, reduced moti
 css/search.css          # in-document search: the nav bar's field, its folded magnifier, the phone's row, hit boxes
 css/notices.css         # messages in context: banners, undo rows, notes and chips, the status line's messages, dots
 css/md-surface.css      # the Markdown surface: the document column, its blocks, line marks and badges, the line view, notices
+css/text-surface.css    # the text surface: a text document's monospace lines, their gutter, wrapping and marked characters
 
 __APP_JS__
 js/core.js              # strict mode, DOM helpers, icons, shared state, the tooltip texts (T)
@@ -61,6 +62,7 @@ js/levels.js            # the range ladder, line nudges, source snippets, the lo
 js/excerpt.js           # the range excerpt: the band of selected lines between dimmed neighbours, tapped to widen or narrow
 js/figure.js            # figure documents: the chosen element's box and path
 js/md-surface.js        # the Markdown surface: drawing a document from its source (parse worker, limits), lines, links, picks, marks
+js/text-surface.js      # the text surface: a text document's lines as they are, marked characters, its ladder (paragraph, indented block)
 js/suggest.js           # suggested edits: the draft, its switch and editor (composer, edit card), a card's badge and line diff
 js/composer.js          # pick() and the composer: overlap banner, kind, question hint, discard and restore
 js/draft.js             # the composer draft kept per tab (sessionStorage)

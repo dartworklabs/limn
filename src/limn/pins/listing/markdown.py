@@ -141,6 +141,7 @@ class PinMarkdown:
                 built_at=self.builds.heading(d).built_at,
                 has_element_map=d.has_element_map,
                 renders_in_browser=d.renders_in_browser,
+                text_lines=d.kind == "text",  # the title reports the document's form (domain.md §문서 종류와 능력)
             )
             for d in self.deps.docs
         )

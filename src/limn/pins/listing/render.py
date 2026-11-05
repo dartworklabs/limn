@@ -42,8 +42,9 @@ class DocHeading:
     built_at when they were committed; either is None when the document was never built. path is the main file
     relative to --manuscript. has_element_map: a figure document (Doc.has_element_map) - its section title says
     '— 그림(요소 지도)': its pins are lines of the drawing code, re-rendered in the figure repository and never rebuilt.
-    renders_in_browser: a Markdown document (Doc.renders_in_browser) - its section title says '— Markdown(쪽 없음)':
-    the browser draws it from its source, so its pins have no page and nothing is built."""
+    renders_in_browser: a document the browser draws from its source (Doc.renders_in_browser) - its section title says
+    '— Markdown(쪽 없음)', or '— 텍스트(쪽 없음)' when text_lines (a text document, ADR-0029): its pins have no page
+    and nothing is built."""
 
     key: str
     name: str
@@ -54,6 +55,7 @@ class DocHeading:
     built_at: str | None
     has_element_map: bool = False
     renders_in_browser: bool = False
+    text_lines: bool = False
 
 
 @dataclass(frozen=True)
@@ -177,8 +179,8 @@ def location_col(r: Record, facts: PinFacts) -> str:
 
 def range_label(r: Record) -> str:
     """Range column: if scope is set, env* -> env:<name>, para -> paragraph, raw/lines -> lines, a Markdown document's
-    block -> its kind md:<block> (or block when the kind is no md: one) and section -> md:section; otherwise the
-    legacy kind. Every branch that shows a record value escapes it through md_cell."""
+    block -> its kind md:<block> (or block when the kind is no md: one) and section -> md:section, a text document's
+    indent -> indent (ADR-0029 D3); otherwise the legacy kind. Every branch that shows a record value escapes it through md_cell."""
     if is_region_pin(r):
         return "영역"
     scope = r.get("scope")
@@ -194,6 +196,8 @@ def range_label(r: Record) -> str:
         return md_cell(k) if k.startswith("md:") else "block"
     if scope == "section":
         return "md:section"
+    if scope == "indent":
+        return "indent"
     return md_cell(r.get("kind") or "")
 
 
@@ -835,7 +839,7 @@ def pins_md_text(page: PinsMdInput) -> str:
         elif d.has_element_map:
             title += " — 그림(요소 지도)"
         elif d.renders_in_browser:
-            title += " — Markdown(쪽 없음)"
+            title += " — 텍스트(쪽 없음)" if d.text_lines else " — Markdown(쪽 없음)"
         out += ["", title]
         if d.head and d.head != "-" and d.built_at:
             out.append("기준: %s · %s %s" % (d.head, "빌드" if d.builds_from_source else "그림", d.built_at))

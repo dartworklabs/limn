@@ -2766,7 +2766,7 @@ class FrontendFigure(unittest.TestCase):
         a kind the page does not know and for none."""
         self.node()
         self.assertEqual(len(re.findall(r"[=!]==\s*DOC_KIND\.FIGURE|DOC_KIND\.FIGURE\s*[=!]==", HTML)), 1)
-        self.assertEqual(len(re.findall(r"[=!]==\s*DOC_KIND\.TEX|DOC_KIND\.TEX\s*[=!]==", HTML)), 1)
+        self.assertEqual(len(re.findall(r"[=!]==\s*DOC_KIND\.TEX\b|DOC_KIND\.TEX\s*[=!]==", HTML)), 1)
         js = "\n".join(
             [
                 extract_js_fn("isFigureKind"),
