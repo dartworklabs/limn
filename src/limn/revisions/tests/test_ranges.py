@@ -459,7 +459,7 @@ class RangePdf(RangeRepo):
         single-commit or pin-scoped comparisons, and the oldest ranges go first."""
         from limn.revisions import jobs as revision_jobs
 
-        root = revision_jobs.revision_cache_root(ps.APP.docs[0])
+        root = revision_jobs.revision_cache_root(ps.APP.docs[0], create=True)
         whole = [root / ("%064x" % i) for i in range(3)]
         scoped = [root / ("%064x" % (50 + i)) for i in range(2)]
         ranged = [root / ("%064x" % (100 + i)) for i in range(revisions.REVISION_RANGED_KEEP + 3)]

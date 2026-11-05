@@ -106,7 +106,18 @@ class ModuleBoundaryTest(unittest.TestCase):
         modules = {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
         modules |= {n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
         limn = {m for m in modules if m == "limn" or m.startswith("limn.")}
-        self.assertEqual(limn, {"limn.platform.files", "limn.pins.model", "limn.pins.record", "limn.runtime.paths"})
+        self.assertEqual(
+            limn,
+            {
+                "limn.platform.files",
+                "limn.platform.effects",
+                "limn.platform.diagnostics",
+                "limn.pins.retention",
+                "limn.pins.model",
+                "limn.pins.record",
+                "limn.runtime.paths",
+            },
+        )
         self.assertFalse({"http", "http.server", "urllib", "subprocess"} & modules)
 
     def test_reads_no_server_global(self):
@@ -177,13 +188,13 @@ class WhenWrittenTest(StoreBase):
         self.assertFalse(self.store.files.pins_md.exists())
         self.assertEqual(self.sync_calls, 1)
 
-    def test_read_writes_when_sync_changed_rows(self):
-        """(result, False) after a re-sync that moved rows writes the re-synced rows and pins.md."""
+    def test_read_keeps_saved_rows_without_syncing(self):
+        """ADR-0028: snapshot retains saved rows; only writers may re-sync."""
         self.put('{"id": 1}\n')
         self.sync_result = True
-        self.assertEqual(records(self.store.snapshot()), [{"id": 1, "synced": True}])
-        self.assertEqual(self.store.files.pins_jsonl.read_text(encoding="utf-8"), '{"id": 1, "synced": true}\n')
-        self.assertEqual(self.store.files.pins_md.read_text(encoding="utf-8"), "#1\n")
+        self.assertEqual(records(self.store.snapshot()), [{"id": 1}])
+        self.assertEqual(self.store.files.pins_jsonl.read_text(encoding="utf-8"), '{"id": 1}\n')
+        self.assertFalse(self.store.files.pins_md.exists())
 
     def test_an_infrastructure_error_after_a_resync_writes_nothing(self):
         """A step failing with an I/O error after a re-sync change writes nothing, not even the re-sync, and the error
@@ -473,6 +484,7 @@ class Store(Base):
                 fh.write(json.dumps(r) + "\n")
         os.utime(self.main, (time.time() + 5, time.time() + 5))  # so sync_all compares synced_at
         self.assertEqual([p.core.id for p in ps.APP.snapshot_pins()], [1])
+        ps.APP.pin_store().transact(lambda pins: (None, True))
         self.assertEqual(len(list(ps.APP.C.state.glob("pins.jsonl.corrupt-*.bak"))), 1)
 
     def test_out_of_tree_file_is_not_read(self):
@@ -515,6 +527,7 @@ class Store(Base):
             self.assertNotIn(gone, p)
 
     def test_stale_term_in_pins_md(self):
+        """Independent upkeep persists lost anchors and renders their warning in Markdown."""
         pid = self.add(8, 9)
         self.main.write_text(
             TEX.replace("Body line seven betaunique.", "rewritten").replace(
@@ -523,6 +536,7 @@ class Store(Base):
             encoding="utf-8",
         )
         os.utime(self.main, (time.time() + 5, time.time() + 5))
+        ps.APP.assembly.pins.startup.maintain()
         self.assertTrue(self.pin(pid).get("stale"))
         md = ps.APP.C.pins_md.read_text(encoding="utf-8")
         self.assertIn("%d · 위치 잃음" % pid, md)  # "위치 잃음" is spelled out in the number column (formerly ⚠)

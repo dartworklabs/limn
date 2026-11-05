@@ -20,7 +20,7 @@ import re
 import shutil
 import unittest
 
-from helpers import add_pin, extract_js_fn, run_node
+from helpers import add_pin, extract_js_fn, ps, run_node
 from helpers_access import ALICE, actor
 from helpers_browser import BrowserBase, settle
 
@@ -338,6 +338,8 @@ class TipReadAlong(TipBase):
             with self.subTest(words):
                 if words.endswith("확인 불가"):
                     self.main.write_text(tex.replace(self.BASE, "Something else.\nEntirely."), encoding="utf-8")
+                    # GET serves saved positions (ADR-0028); the independent upkeep saves the lost anchor first.
+                    ps.APP.assembly.pins.startup.maintain()
                     page.evaluate("loadPins()")
                     settle(page)
                 self.assertIn("에이전트는 넣지 않고", page.get_attribute(badge, "data-tip"))

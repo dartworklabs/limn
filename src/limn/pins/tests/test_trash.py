@@ -336,7 +336,7 @@ class TrashRecovery(AccessBase):
         fresh.C.dropped.mkdir()
         with redirect_stderr(output):
             self.assertIsNone(fresh.prepare(None, True))
-        self.assertIn("warning: could not purge the Trash:", output.getvalue())
+        self.assertIn("warning: pin maintenance failed:", output.getvalue())
         self.assertRegex(fresh.C.pins_md.read_text(encoding="utf-8"), r"\n\| %d[ ·|]" % pid)
 
     def test_failed_cleanup_retries_without_waiting_an_hour(self):
@@ -516,13 +516,17 @@ class LazyTrashExpiry(AccessBase):
         with mock.patch.object(ps.time, "time", return_value=t0):
             self.assertEqual(self.call("GET", "/api/meta?light=1")[0], 200)  # a light poll never writes
             self.assertEqual(self.ids(), [80])
-            self.assertEqual(self.call("GET", "/api/pins")[0], 200)  # a normal read purges
+            self.assertEqual(self.call("GET", "/api/pins")[0], 200)  # a normal read never purges
+            self.assertEqual(self.ids(), [80])
+            ps.APP.assembly.pins.startup.maintain()
             self.assertEqual(self.ids(), [])
             self.put_dropped(81, t0 - 31 * 86400)
             self.call("GET", "/api/pins?all=1")  # within the hour: no second check
             self.assertEqual(self.ids(), [81])
         with mock.patch.object(ps.time, "time", return_value=t0 + 3601):
-            self.call("GET", "/pins.md")  # an hour later: checked again
+            self.call("GET", "/pins.md")
+            self.assertEqual(self.ids(), [81])
+            ps.APP.assembly.pins.startup.maintain()
             self.assertEqual(self.ids(), [])
 
     def test_an_entry_expiring_while_the_server_runs(self):
@@ -535,6 +539,8 @@ class LazyTrashExpiry(AccessBase):
             self.assertEqual(self.ids(), [82])  # not yet 30 days old
         with mock.patch.object(ps.time, "time", return_value=t0 + 2 * 3600):
             self.call("GET", "/api/pins")
+            self.assertEqual(self.ids(), [82])
+            ps.APP.assembly.pins.startup.maintain()
             self.assertEqual(self.ids(), [])
 
 

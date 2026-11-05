@@ -292,3 +292,45 @@ def test_admitted_tcp_internal_error_keeps_role_specific_detail(http_app, monkey
         assert (status, body) == (500, {"error": "서버 내부 오류" + detail, "reason": "internal"})
         assert_transport_closed(client)
     assert not run.errors
+
+
+@pytest.mark.parametrize("host", ["invalid.example", "localhost"])
+def test_incomplete_unadmitted_gets_do_not_block_admitted_meta(http_app, monkeypatch, host):
+    """Four peers stalled before admission cannot consume the legitimate reader's computation capacity."""
+    reading_bodies = threading.Barrier(5)
+
+    class ObservedBodyHandler(composition.Handler):
+        """Synchronize real incomplete requests at the body boundary without changing admission or reads."""
+
+        def _read_raw(self):
+            """Let the controller observe all stalled bodies before sending its legitimate request."""
+            if self.headers.get("Content-Length") == "1":
+                reading_bodies.wait(timeout=5)
+            return super()._read_raw()
+
+    monkeypatch.setattr(composition, "Handler", ObservedBodyHandler)
+    http_app.environment.C = replace(http_app.environment.C, max_connections=None)
+    listener = composition.listen(http_app.web)
+    assert not isinstance(listener, StartupRefused)
+    with running_listener(listener) as run, ExitStack() as clients:
+        stalled = []
+        for _ in range(4):
+            client = clients.enter_context(socket.create_connection(listener.server_address[:2], timeout=2))
+            stalled.append(client)
+            client.sendall(
+                ("GET /api/meta HTTP/1.1\r\nHost: %s\r\nContent-Length: 1\r\nConnection: close\r\n\r\n" % host).encode()
+            )
+        reading_bodies.wait(timeout=5)
+        try:
+            with socket.create_connection(listener.server_address[:2], timeout=2) as admitted:
+                admitted.sendall(req("GET", "/api/meta", headers={**ALICE, "Connection": "close"}))
+                try:
+                    status, _, body = response(admitted, b"")
+                except TimeoutError:
+                    pytest.fail("Unadmitted incomplete GETs blocked an admitted /api/meta request")
+                assert status == 200
+                assert "n_open" in body
+        finally:
+            for client in stalled:
+                assert response(client, b"x")[0] in (401, 403)
+    assert not run.errors

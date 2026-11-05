@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass, replace
@@ -9,6 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeAlias
 
 from limn.pins.contracts import PinCountQueries, RevisionPinQuery
+from limn.pins.maintenance import PinMaintenance
 from limn.pins.model import Pin
 from limn.pins.revision import RevisionPin, revision_pin as project_revision_pin
 
@@ -83,7 +85,7 @@ class PinReadView:
         return counts, sum(count for key, count in counts.items() if key not in known)
 
     def state_counts(self) -> dict[str, int]:
-        """Return viewer counts after the normal pin resynchronization."""
+        """Return viewer counts from saved pin records."""
         states = [pin.state for pin in self._snapshot()]
         return {
             "n_open": states.count("open"),
@@ -137,6 +139,8 @@ class PinStartup:
 
     initialize_sequence: Callable[[], None]
     render_markdown: Callable[[], None]
+    maintain: Callable[[], None]
+    watch: Callable[[threading.Event], None]
 
 
 @dataclass(frozen=True)
@@ -210,7 +214,8 @@ def assemble_pins(
             commands.render_pins_md(commands.read_pins()[0])
 
     view = PinReadView(commands.read_pins, commands.snapshot_pins, commands.pin_doc_key, locate)
-    startup = PinStartup(commands.init_seq, render)
+    maintenance = PinMaintenance(commands.pin_store, commands.retention_days, commands.maintenance_files)
+    startup = PinStartup(commands.init_seq, render, maintenance.run, maintenance.watch)
     counts = PinCountQueries(view.counts_by_document, view.state_counts, lambda: change_token(settings().pins_jsonl))
     return PinSubsystem(
         counts,
@@ -244,7 +249,7 @@ def pin_route_bundle(
             actions[name] = action
     return RouteBundle(
         get=(
-            lambda request: listing_get(request, app, app.pin_trash.maybe_purge_trash, remote_base_for),
+            lambda request: listing_get(request, app, remote_base_for),
             lambda request: location_get(request, app),
         ),
         post_documents=(

@@ -25,6 +25,7 @@ from limn.pins.editing.values import NOTE_MAX
 from limn.pins.location import resolve as pick_resolve
 from limn.pins.location.http import PICK_REFUSALS
 from limn.pins.location.service import PinLocationService
+from limn.platform.diagnostics import BoundedDiagnostics
 from limn.revisions import core as revisions
 from limn.revisions.answer import RANGE_REJECTIONS, REVISION_FAILURES, SCOPE_REJECTIONS, scope_http_error
 from limn.security.access import Principal
@@ -319,6 +320,10 @@ class RefusalBodies(AccessBase):
         err = io.StringIO()
         with (
             mock.patch.object(PinLocationService, "overlaps", side_effect=RuntimeError(text)),
+            mock.patch(
+                "limn.web.handler.diagnostics",
+                BoundedDiagnostics(),
+            ),
             contextlib.redirect_stderr(err),
         ):
             code, d = self.call("GET", "/api/overlaps?file=%s&lo=1&hi=2" % self.main, headers=headers, token=token)

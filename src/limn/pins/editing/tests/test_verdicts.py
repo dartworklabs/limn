@@ -860,9 +860,10 @@ class EditOverHttp(VerdictHttpBase):
                 self.assertEqual(self.stored_bytes(), before)
 
     def test_line_matching_moves_a_verdict_pin(self):
-        """Lines inserted above a verdict pin move it as they move any pin: re-sync is not an edit."""
+        """Independent upkeep moves verdict pins like other pins without editing their verdict."""
         text = self.main.read_text(encoding="utf-8")
         self.main.write_text("% one\n% two\n" + text, encoding="utf-8")
+        ps.APP.assembly.pins.startup.maintain()
         moved = self.pin(self.pid)
         self.assertEqual((moved["lo"], moved["hi"]), (6, 7))
         self.assertEqual(moved["verdict"], "보류")

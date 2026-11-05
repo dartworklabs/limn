@@ -1,5 +1,37 @@
 # Changelog
 
+## Unreleased
+
+### Security
+
+- **No GET writes anything persistent (ADR-0027, ADR-0028).** A page on another site could make the owner's browser
+  send Limn GETs (an image, a script, a no-cors fetch) or open `/`, and the viewer's own requests then recorded the
+  visit, re-saved pins, cleaned the trash and created comparison folders. Every GET (and any future HEAD) now runs
+  under a read-only scope: no file or folder is created, changed or deleted and no writing work is scheduled, and the
+  Git reads behind the change view can neither fetch missing objects nor refresh the index. Pure GETs still need no
+  Fetch Metadata, so curl, agents and old browsers work as before.
+- Path arguments are length-limited before parsing, and repeated tracebacks and damaged-pin warnings are capped and
+  de-duplicated.
+- GET computation slots are taken only after the request body is read and the request admitted, so incomplete or
+  refused requests cannot hold the four read slots.
+
+### Changed
+
+- **People are recorded only on real changes.** Opening or polling the viewer no longer records a reader or updates a
+  name, photo or seen time; a person is recorded after an authorized change (a pin, a reply, a close and the like). A
+  new reader with no stored row and no pin is not in the people list or the @-mention candidates until their first
+  change, and owners add viewers with `limn member add`. Existing rows and roles stay. The mention help and the
+  `unknown_assignee` error now say who can be mentioned.
+- **GET serves saved pin positions, and upkeep saves them soon after a manuscript change.** GET returns only saved
+  positions and revisions, so an edit based on a position the manuscript has since moved is refused as stale, as
+  before. A request-independent check stats the pinned sources every 2 seconds and runs a pass when one changed,
+  besides startup and every 60 seconds; a pass re-syncs and saves pins, rewrites `pins.md` and prunes the trash,
+  writes nothing when nothing changed and keeps the originals when it fails. After a manuscript edit, pin positions in
+  the viewer and in HTTP and disk `pins.md` trail by about that interval plus the pass time (longer if a pass is slow
+  or fails).
+- The agent contract (`pins.md` format, HTTP API) is unchanged; what changed is who is recorded and when positions are
+  saved.
+
 ## 0.4.49 — 2026-11-05
 
 ### Fixed

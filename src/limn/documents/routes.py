@@ -18,7 +18,6 @@ def get(request: GetRequest, service: DocumentViews) -> Reply | None:
                 request.actor,
                 request.principal.role,
                 request.query,
-                request.record_person,
             )
         )
     if path == "/api/docs":

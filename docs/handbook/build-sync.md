@@ -261,6 +261,7 @@ Limn이 띄우는 git은 모두 [`src/limn/platform/git.py`](../../src/limn/plat
 - stdin은 `/dev/null`이고 새 세션에서 돈다. 제어 터미널이 없으므로 git도, fetch가 부르는 ssh도 `/dev/tty`로 비밀번호·암호 문구·호스트 키를 묻지 못한다.
 - `GIT_TERMINAL_PROMPT=0`을 준다. HTTPS 자격 증명이 필요하면 묻지 않고 바로 실패한다(`error:fetch_failed`).
 - 서버 환경의 `GIT_*` 변수는 넘기지 않는다. `GIT_DIR`·`GIT_WORK_TREE`·`GIT_INDEX_FILE`·`GIT_CONFIG_*` 같은 변수는 git을 다른 저장소로 보내거나 원고에 없는 설정을 더하고, `GIT_ASKPASS`는 묻는 프로그램을 띄운다. ssh 전송 설정(`GIT_SSH_COMMAND`·`GIT_SSH`·`GIT_SSH_VARIANT`)만 남긴다. systemd 유닛이 `GIT_SSH_COMMAND`로 ssh를 BatchMode로 돌리고([instances.md](instances.md)), 운영자가 배포 키를 거기서 고를 수 있어서다. `HOME`·`PATH`·`SSH_AUTH_SOCK`·로케일·프록시 설정은 그대로 넘긴다.
+- HTTP 읽기 범위에서는 공통 Git 환경이 `GIT_OPTIONAL_LOCKS=0`으로 선택적 인덱스 갱신을 막고 `GIT_NO_LAZY_FETCH=1`을 준다. Git 2.43에서도 부분 클론의 누락 객체를 저장하지 않도록 `GIT_ALLOW_PROTOCOL`을 빈 허용 목록으로 설정해 모든 전송을 막는다. 이 값은 저장소의 `protocol.*.allow`보다 우선하며 설정 파일을 고치지 않는다. 로컬 객체만 필요한 이력은 그대로 조회하고, 없는 blob이 필요한 diff는 기존 `404 diff_unreadable`로 답한다. 비교 상태는 객체 읽기가 필요 없으면 기존 `idle`을, PDF는 준비되지 않았으면 `404 revision_not_ready`를 유지한다. POST·독립 동기화에는 이 읽기 제한을 적용하지 않는다.
 - git에 설정한 자격 증명 도우미(credential helper)와 ssh 에이전트는 그대로 쓴다. 꺼지는 것은 사람에게 묻는 일뿐이다.
 
 비교 PDF의 샌드박스 빌드(latexdiff·latexmk)는 이 규칙이 아니라 샌드박스 규칙을 따른다([api.md](api.md) §변경 보기와 비교 PDF).
@@ -279,9 +280,9 @@ Limn이 띄우는 git은 모두 [`src/limn/platform/git.py`](../../src/limn/plat
 
 ## 자동 동기화 (가벼운 meta 폴링)
 
-에이전트가 `curl` 로 핀을 닫거나 원고를 고치면 몇 초 안에 뷰어 화면에 반영돼야 한다. 그런데 `GET /api/pins` 와 라이트가 아닌 `GET /api/meta` 는 **쓰기 부작용**이 있다. `sync_all` 이 앵커로 줄을 다시 맞추고 파일에 쓰기 때문이다. 그래서 이 둘을 그대로 폴링할 수는 없다. 채택한 목표(구현 전)에서는 어떤 GET도 쓰지 않고, 줄 맞춤의 저장은 서버 시작 때와 60초마다 도는 유지 실행이 맡는다([architecture.md](architecture.md) §GET의 쓰기 — 현재와 채택한 목표). 그때도 폴링은 바뀐 때만 핀을 다시 읽는 지금의 모양을 지킨다.
+에이전트가 `curl` 로 핀을 닫거나 원고를 고치면 몇 초 안에 뷰어 화면에 반영돼야 한다. 모든 GET은 영속 쓰기 없이 답한다. `GET /api/pins`와 전체 meta는 저장된 핀 위치로 답하므로, 가벼운 폴링과 필요한 때의 전체 조회를 나누어 읽기 비용을 줄인다.
 
-폴링에는 `GET /api/meta?light=1` 을 쓴다. 라이트 meta는 `n_open`·`n_done` 이 빠지고 `snapshot_pins()`(sync 쓰기)를 부르지 않는다. 뷰어는 응답의 두 값이 **바뀌었을 때만** `GET /api/pins`(sync 있음)를 불러 목록을 다시 그린다. 첫 핀 읽기가 실패했거나 이후 핀·휴지통 읽기가 실패·무효화됐으면 읽은 기준값을 갱신하지 않아 다음 폴링에서 재시도한다.
+폴링에는 `GET /api/meta?light=1` 을 쓴다. 라이트 meta는 `n_open`·`n_done` 이 빠지고 `snapshot_pins()`(저장 레코드 조회)를 부르지 않는다. 뷰어는 응답의 두 값이 **바뀌었을 때만** `GET /api/pins`(저장 레코드 조회)를 불러 목록을 다시 그린다. 첫 핀 읽기가 실패했거나 이후 핀·휴지통 읽기가 실패·무효화됐으면 읽은 기준값을 갱신하지 않아 다음 폴링에서 재시도한다.
 
 - `pins_rev`: `pins.jsonl` 의 `f"{mtime_ns}:{size}:{inode}"`. 파일이 없으면 `"0"`(`pins/application.py`의 `change_token`). 뷰어는 이 값을 직전 값과 같은지만 비교한다. 핀 파일은 원자적 교체로만 쓰이고 새 파일은 옛 파일이 inode를 쥔 동안 만들어지므로, 같은 시각 틱 안에 같은 크기로 다시 써도 연속한 두 값은 inode가 달라 항상 다르다.
 - `src_mtime`: 아래에서 설명한다.
@@ -413,3 +414,9 @@ est = (pin.pdf_build ≠ 지금 빌드 그리고 두 빌드의 src_hash 가 다�
 - `src_mtime` 은 그 `.md` 파일 자체의 mtime이다. 빌드하지 않는 문서는 그 파일 하나가 원고이기 때문이다. 같은 값을 `GET /api/source` 도 싣는다. 뷰어는 가벼운 meta 폴링(§자동 동기화 (가벼운 meta 폴링))의 `src_mtime` 이 마지막으로 그린 원문의 값과 다르면 원문을 다시 읽어 그린다. 그래서 에이전트가 `.md` 를 고치면 다음 폴링(5초) 안에 화면이 바뀐다.
 - `stale_build` 는 늘 `false` 이고 `POST /api/rebuild?doc=<키>` 는 `400 view_only_no_rebuild` 다. 같은 폴더의 LaTeX 문서는 `.md` 를 원고 파일로 세지 않으므로(§원고 변화 감지) 그 문서의 `stale_build` 도 켜지지 않는다.
 - 핀에는 `pdf_build` 가 없다. 원문이 바뀌면 줄은 다른 줄 핀처럼 anchor 재동기화로 맞춘다([domain.md](domain.md) §줄 번호 재동기화 (`anchor`)).
+
+## 요청과 독립된 핀 유지
+
+서버 시작의 문서 준비 뒤 유지 실행을 한 번 하고, 종료 이벤트로 대기를 즉시 깨우는 감시 스레드가 완료 후 60초마다 다시 실행한다. 그 사이에는 이름 붙인 상수 `CHECK_INTERVAL`(2초)마다 열린 문서의 핀이 가리키는 파일·문서 main 파일의 mtime_ns·size·inode만 검사한다. 핀 집합의 추가·변경을 발견하기 위한 `pins.jsonl` stat도 한다. 변화가 없으면 본문 읽기나 pass가 없다. 2초는 유휴 stat 비용을 작게 두면서 보통 몇 초 안에 위치를 저장하려는 값이다. pass 전에 원고 지문을 잡아 실행 도중 변경을 놓치지 않으며 실패하면 마지막 성공 기준으로 다음 검사에 재시도한다. 출처: [ADR-0028](../adr/0028-saved-pin-positions.md) 결정 1–4. 같은 실행의 유지 잠금은 겹친 호출을 건너뛰며, GET은 호출·예약하지 않는다. 핀 저장 잠금 아래 읽기·재동기화·Markdown 렌더·휴지통 만료/그림자 제거를 먼저 준비한다. 바이트가 같은 파일은 교체하지 않고 Markdown의 갱신 시각만 달라진 경우도 그대로 둔다. 원고를 읽지 못하면 빈 파일로 간주하지 않고 해당 상태 파일의 유지 묶음 전체를 건너뛰어 핀·Markdown·휴지통의 원본을 모두 보존한다. 같은 실패의 경고는 제한된 진단으로 한 번만 남기고 다음 주기에 재시도한다. GET은 재동기화 없이 저장된 레코드를 돌려주며, POST는 재동기화나 새 anchor를 위한 읽기가 실패하면 저장 전에 실패한다. 실제 빈 원고는 정상 읽기로 구별한다. 다른 준비 실패도 아무 파일도 바꾸지 않는다. 교체 중 실패하면 보관한 원본 inode로 되돌리고 다음 주기에 재시도한다. 프로세스 중단까지 여러 파일을 한꺼번에 커밋하는 보장은 아니며 다음 실행이 수렴시킨다.
+
+GET은 저장된 위치·rev만 주고 HTTP `/pins.md`도 같은 레코드에서 렌더한다. GET 위치와 HTTP·디스크 `pins.md` 모두 원고 수정 뒤 검사 간격(2초) + 유지 실행 시간만큼 늦을 수 있다. 긴 실행·실패에는 더 늦는다. 뷰어는 이미 light meta의 `pins_rev`, 즉 `pins.jsonl` 변경 때만 핀을 다시 읽으므로 사람이 보는 변화는 작다. 출처: [ADR-0028](../adr/0028-saved-pin-positions.md) 결정 1–4. 유지 작업은 과거 요청 수·신원을 받지 않고 사람 파일을 갱신하지 않는다. 구현은 `pins/maintenance.py`와 `PinStore.maintain()`이다.

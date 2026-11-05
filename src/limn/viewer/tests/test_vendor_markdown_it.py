@@ -123,7 +123,7 @@ class VendorMarkdownIt(Base):
         """A served viewer with no worker (ServedViewer's default, as a stand-in viewer has) answers 404 not_found."""
         served = assemble.ServedViewer("<p></p>", "", {})
         app = ViewerShell(lambda: ps.APP.C, lambda: served)
-        request = GetRequest("/md-parse.mjs", {}, ps.APP.docs[0], {}, None, "127.0.0.1", lambda: None)
+        request = GetRequest("/md-parse.mjs", {}, ps.APP.docs[0], {}, None, "127.0.0.1")
         with self.assertRaises(HTTPError) as caught:
             routes.get(request, app)
         self.assertEqual((caught.exception.code, caught.exception.body["reason"]), (404, "not_found"))

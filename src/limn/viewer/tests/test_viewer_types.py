@@ -287,6 +287,9 @@ class DeclaredViewShapes(AccessBase):
         helpers_figure.viewer_build(fig, helpers_figure.BUILD1, fmap)
         self.answer("Meta", "GET", "/api/meta?doc=fig", headers=BOB)
         self.answer("DocsAnswer", "GET", "/api/docs")
+        ps.APP.people_directory.record(
+            {"login": alice["Tailscale-User-Login"], "name": "Alice", "pic": alice["Tailscale-User-Profile-Pic"]}
+        )
         self.answer("PeopleAnswer", "GET", "/api/people", headers=alice)
         statuses, pulls = sync_records()
         self.seen += [("SyncStatus", r) for r in statuses] + [("PullRecord", r) for r in pulls]

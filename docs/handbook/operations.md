@@ -379,7 +379,7 @@ curl -s -X POST http://127.0.0.1:<port>/api/rebuild | head -c 200   # state 가 
 ├── pins.jsonl.corrupt-*.bak  # 깨진 줄이 있을 때 첫 쓰기 전 원본 보존(조건부)
 ├── pins_<ts>.jsonl.bak       # /api/clear 보관본
 ├── pins.md                   # 에이전트 진입점 — 이 한 장만 읽는다
-├── people.json               # @태그 후보이자 멤버 — 이 뷰어를 연 사람과 `limn member` 로 넣은 사람(선택 `role`, 에이전트 제외, 원자적 교체, 권한 0600). 채택한 목표에서는 연 사람 대신 실제로 바꾼 사람(architecture.md §GET의 쓰기 — 현재와 채택한 목표)
+├── people.json               # @태그 후보이자 멤버 — 실제 변경 POST를 한 사람과 `limn member` 로 넣은 사람(선택 `role`, 에이전트 제외, 원자적 교체, 권한 0600)
 ├── tokens.json               # 에이전트 API 토큰 — SHA-256 해시만, 권한 0600, `limn token` 이 쓴다(첫 토큰 전에는 없다)
 ├── .people.lock · .tokens.lock   # 위 두 파일의 프로세스 간 잠금(서버와 CLI 가 동시에 쓸 수 있다)
 ├── events.jsonl              # mention·review_requested·replied·reopened·assigned·dropped·cleared·purged 기록(추가 전용, 최근 5000건, 바깥으로 보내지 않는다)
@@ -394,7 +394,7 @@ curl -s -X POST http://127.0.0.1:<port>/api/rebuild | head -c 200   # state 가 
 
 `people.json`과 `tokens.json`은 접근 제어의 상태다. `people.json`의 각 사람에게는 `role` 필드가 있을 수 있고(`owner`·`editor`·`viewer`·`agent`), 없으면 editor다. `tokens.json`에는 토큰 원문이 아니라 해시만 남으므로 토큰을 잃으면 새로 만든다. 두 파일 모두 권한 `0600` 으로 쓴다. 이미 있는 `people.json` 을 남이 쓸 수 있으면 서버가 기동 때 `0600` 으로 좁히고 한 번 기록한다. 서버와 `limn token`·`limn member` 명령이 두 파일을 동시에 고칠 수 있어서 `.people.lock`·`.tokens.lock`으로 프로세스 사이 쓰기를 잠근다. 돌고 있는 서버는 다음 요청부터 바뀐 내용을 읽으므로 재시작이 필요 없다. 권한만 바꿔도(`chmod`) 다시 읽는다.
 
-`people.json`이 있는데 쓸 수 없으면(읽기 권한 없음, 잘림, 빈 파일, 깨진 JSON, `{"people": [...]}`가 아닌 모양) 서버는 닫힌 쪽으로 동작한다. 헤더로 들어온 사람은 명단의 역할과 관계없이 모두 `viewer`이고, `--members-only`는 `--allow`에 있는 사람만 들이며, 방문을 기록하지 않아 파일을 다시 쓰지 않는다. stderr에 경고가 한 번 찍힌다. 이런 파일을 빈 명단으로 읽으면 모두를 `editor`로 들이고, 첫 방문자 한 명만 담아 덮어써 소유자까지 모든 역할을 잃기 때문이다. `limn member`도 같은 판단으로 이 파일을 고치기를 거부하므로 손으로 되살리거나 백업에서 돌려놓는다. 고치면 재시작 없이 다음 요청부터 원래 역할이 적용된다. 토큰과 `--auth local`의 소유자는 이 파일을 읽지 않아 영향이 없다. 전에 읽은 역할을 계속 쓰지 않는 것은 답이 프로세스 이력에 달리고(재시작하면 바뀐다) `tokens.json`과도 어긋나기 때문이다.
+`people.json`이 있는데 쓸 수 없으면(읽기 권한 없음, 잘림, 빈 파일, 깨진 JSON, `{"people": [...]}`가 아닌 모양) 서버는 닫힌 쪽으로 동작한다. 헤더로 들어온 사람은 명단의 역할과 관계없이 모두 `viewer`이고, `--members-only`는 `--allow`에 있는 사람만 들이며, 실제 변경 때도 사람을 기록하지 않아 파일을 다시 쓰지 않는다. stderr에 경고가 한 번 찍힌다. 이런 파일을 빈 명단으로 읽으면 모두를 `editor`로 들이고, 첫 변경자 한 명만 담아 덮어써 소유자까지 모든 역할을 잃기 때문이다. `limn member`도 같은 판단으로 이 파일을 고치기를 거부하므로 손으로 되살리거나 백업에서 돌려놓는다. 고치면 재시작 없이 다음 요청부터 원래 역할이 적용된다. 토큰과 `--auth local`의 소유자는 이 파일을 읽지 않아 영향이 없다. 전에 읽은 역할을 계속 쓰지 않는 것은 답이 프로세스 이력에 달리고(재시작하면 바뀐다) `tokens.json`과도 어긋나기 때문이다.
 
 `audit.jsonl`은 누가 되돌릴 수 없는 일을 했는지 남기는 감사 기록이다. 서버는 `/api/clear`·영구 삭제를, `limn token`·`limn member` 명령은 토큰 발급·폐기와 멤버 추가·역할 변경·제거를 명령을 돌린 OS 계정 이름으로 덧붙인다. `events.jsonl` 과 달리 회전하지 않으므로 오래 운영한 인스턴스에서는 필요할 때 옮겨 보관한다. 이 파일을 모르는 이전 버전으로 되돌려도 서버는 이 파일을 열지 않고 그대로 돈다. 레코드 모양은 [api.md](api.md) §감사 기록 (`audit.jsonl`)에 있다.
 
@@ -409,3 +409,11 @@ curl -s -X POST http://127.0.0.1:<port>/api/rebuild | head -c 200   # state 가 
     ├── rr/                   # build/ · pages.cur · pages-<build_id>/ · builds.json · built_at.txt · head.txt …(위와 같은 이름)
     └── rv/                   # 보기 전용: pages.cur · pages-<id>/(쪽 PNG + PDF 사본) · builds.json · pdf_sig.txt(그린 PDF 의 mtime_ns:크기:inode)
 ```
+
+## 조회와 유지 작업의 운영 계약
+
+GET은 상태·원고 파일과 폴더를 바꾸거나 쓰기 작업을 예약하지 않는다. `/`와 전체 meta도 사람을 등록하지 않는다. 새 독자는 저장된 기록·핀 참여 이력이 없으면 사람 목록·멘션 후보에 없고 알림 대상으로 풀리지 않는다. 편집자는 첫 실제 변경 POST 뒤 등록되며 viewer는 소유자가 `limn member add`로 넣는다. 기존 멤버·역할은 보존하고 `last_seen`은 방문이 아닌 기록된 변경 시각이다.
+
+유지 실행은 서버 시작과 완료 후 60초마다 핀 위치·파생 Markdown·휴지통을 맞추며, 요청과 독립된 2초 stat 검사에서 원고 변경을 찾으면 같은 실행을 당긴다. 열린 문서의 핀 대상·main 파일과 핀 집합 변경용 `pins.jsonl`만 검사하고 변화 없으면 본문을 읽지 않는다. 겹치지 않고 변경 없는 파일은 교체하지 않으며 실패하면 원본과 마지막 성공 기준을 보존하고 다음 검사에 재시도한다. GET은 저장된 위치·rev만 준다. GET 위치와 HTTP·디스크 `pins.md` 모두 원고 수정 뒤 검사 간격(2초) + 유지 실행 시간만큼 늦을 수 있고 긴 실행·실패에는 더 늦는다. 줄을 고치기 전 원문을 다시 읽는다. 출처: [ADR-0028](../adr/0028-saved-pin-positions.md) 결정 1–4. 이전 서버로 되돌리면 GET 쓰기도 돌아오므로 보안 개선을 유지하는 되돌리기가 아니다.
+
+로그는 GET 무쓰기 보장 밖이다. 반복 500·손상 핀 경고는 원인별 한 번, 프로세스당 최대 64개·각 8 KiB다. 운영 중 같은 원인의 추가 발생 횟수는 출력하지 않는다. 프로세스당 GET 계산 4개 상한은 읽기 프로세스 동시성을 제한할 뿐 연결 수·공정성·모든 읽기 DoS를 해결하지 않는다.

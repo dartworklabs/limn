@@ -25,7 +25,7 @@ from limn.collaboration.events import EventLog, events_since, make_event
 from limn.pins.location import mapping
 
 from helpers import Base, ps, req, split_resp
-from helpers_access import ALICE, BOB, CAROL, configure, reset_access, talk_to
+from helpers_access import ALICE, BOB, CAROL, actor, configure, reset_access, talk_to
 from helpers_events import NoticeFacts
 
 EVENTS_PY = Path(events.__file__)
@@ -363,7 +363,9 @@ class ReplyReopenEvents(unittest.TestCase):
             return code, json.loads(out)
 
         for h in (ALICE, BOB, CAROL):
-            call("GET", "/api/meta", headers=h)  # people.json knows all three
+            call("GET", "/api/meta", headers=h)
+            if mod is ps:
+                mod.APP.people_directory.record(actor(h))  # explicit fixture registration after ADR-0027
         body = {"file": str(main), "lo": 4, "hi": 5, "page": 1, "note": "고쳐 주세요"}
         if assignee:
             body["assignee"] = assignee

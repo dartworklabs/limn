@@ -5,6 +5,8 @@ description: "Work with Limn, a browser viewer that turns a region picked on a L
 
 # Limn
 
+GET returns saved pin positions and revisions and never writes state. After a manuscript edit, GET positions and both HTTP and disk `pins.md` can lag by the independent check interval (2 seconds) plus the maintenance pass time, normally a few seconds (longer if maintenance is slow or fails). Re-read the source before editing lines. Opening the viewer does not register new readers; a person is recorded only after a real authorized changing POST. A reader with no stored record or pin participation is absent from people and mention candidates; the owner must explicitly register viewers with `limn member add`.
+
 English | [한국어](SKILL.ko.md)
 
 Limn (림, "to depict clearly") shows the manuscript PDF in a browser. A person drags over a region; SyncTeX maps it back to the `.tex` file and line range; Limn stores it with a note as a **pin** (a TODO with a location attached). Instead of a screenshot (1,000–1,600 tokens, no location) the agent receives one line such as `sections/method.tex L493-L501` (≈35 tokens) and reads and edits the source directly. Co-authors on the same tailnet leave pins through the same address, and Limn records who left each one.
@@ -55,7 +57,7 @@ Send an API token with every request. Where the token comes from depends on wher
 ### What you read
 
 - `pins.md`: `curl -s <base>/pins.md` remotely, or `Read` `<state_dir>/pins.md` on the server machine.
-- `GET <base>/api/pins`: open pins as JSON, with current line numbers and each pin's `rev`. `file` is the absolute path valid on the server machine now; `rel_path` (v0.3.2) is the path relative to the manuscript folder, as in the `pins.md` location column — use `rel_path` to open it in your own checkout. `GET <base>/api/pins/{id}` returns one pin with its whole thread.
+- `GET <base>/api/pins`: open pins as JSON, with saved line numbers and each pin's saved `rev`. `file` is the absolute path valid on the server machine now; `rel_path` (v0.3.2) is the path relative to the manuscript folder, as in the `pins.md` location column — use `rel_path` to open it in your own checkout. `GET <base>/api/pins/{id}` returns one pin with its whole thread.
 
 ### What you may do
 
@@ -109,7 +111,7 @@ Send an API token with every request. Where the token comes from depends on wher
    - If you run late, claim again with the same identity and a new estimate (an extension). Otherwise the viewer shows `예상보다 늦어짐 (+5분)` ("later than expected (+5 min)").
    - The lock releases itself after `ttl_min` (default: twice the estimate, clamped to 30–120 minutes). It is a safety net; do not use it in place of an estimate.
    - Verdict pins are the exception: claim every verdict pin of one target that you may take before you start (§Verdict pins, step 5).
-5. **Edit.** `Read` `L<lo>-L<hi>` to see the context and edit as the note asks. If an earlier edit may have shifted lines, fetch the realigned values from `GET <base>/api/pins`.
+5. **Edit.** `Read` `L<lo>-L<hi>` to see the context and edit as the note asks. If an earlier edit may have shifted lines, re-read the source to verify the location. `GET <base>/api/pins` may return the old lines until the next maintenance pass.
    - **Keep track of the lines you change for each pin** (since v0.3): step 6 sends them as `changes`, so a reviewer's [변경 보기] (view changes) shows each pin only its own change even when one commit or PR fixes many pins. Committing each pin separately also helps, but it is not required; the PR may be squash-merged as usual.
 6. **Close.** A pin closed by an agent does not become done; it goes to **awaiting review**. When a human clicks [확인] (confirm) in the viewer it is done. When a human writes what is wrong in [답글] (reply), that reply becomes the reason for reopening and the pin returns to the open table (`다시 열림`). A reply that @tags a person is a conversation between people: the state stays, and you still do not process pins awaiting review.
    - **Edit-request pin**: close it with what you changed (`reply`, ≤500 chars), the reference `ref` = `PR #<number> (<commit hash>)` (≤80 chars) and **`changes`**. The viewer's [변경 보기] (view changes) uses the hash in `ref` to find the commit. If the PR is squash-merged and you close after the merge, the hash is the merged commit on `main`.

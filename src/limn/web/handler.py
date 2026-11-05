@@ -14,14 +14,17 @@ from __future__ import annotations
 
 import re
 import socket
-import sys
+import threading
 import traceback
 from collections.abc import Callable
+from contextlib import nullcontext
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from socketserver import TCPServer
 from typing import Any, ClassVar
 from urllib.parse import urlparse
 
+from limn.platform.diagnostics import diagnostics
+from limn.platform.effects import observing_changes, reading
 from limn.runtime.config import AccessOptions
 from limn.web import answers, csp as page_csp, parse, request_input
 from limn.web.answers import accepted
@@ -30,6 +33,7 @@ from limn.web.errors import HTTPError, InputRejected, error_page_html, page_lang
 from limn.web.reply import Reply, json_reply as _json_reply
 from limn.web.routes import GetRequest, OtherPostRequest, PinActionRequest, PostDocRequest
 
+READ_SLOTS = threading.BoundedSemaphore(4)
 MAX_BODY = 1 << 20
 INTERNAL_ERROR = "서버 내부 오류"  # the 500 sentence; the contract of its two forms is internal_error_body's
 
@@ -245,6 +249,8 @@ class Handler(BaseHTTPRequestHandler):
         """Every request: read the body, check Host/Origin, identify (401), admit (403). Leaves the admitted principal
         on self.principal and self._admitted (what a 500 body is chosen by) and returns its actor (what pins record)."""
         self._read_raw()
+        if len(self.path) > 4096:
+            raise HTTPError(414, "경로가 너무 깁니다.", reason="bad_file")
         self._check_origin()
         peer = self.client_address[0] if isinstance(self.client_address, tuple) and self.client_address else ""
         p = self.app.guards.identify(self.headers, peer)
@@ -254,7 +260,7 @@ class Handler(BaseHTTPRequestHandler):
         return p.actor
 
     def _record(self, actor: Json) -> None:
-        """people.json for a person who opened the viewer or wrote something (agents never). The local owner is recorded as owner."""
+        """Record a human after a real authorized change (agents never); the local owner retains owner role."""
         self.app.recorder.record(actor, role="owner" if self.principal.via == "local-owner" else None)
 
     def _wants_page(self) -> bool:
@@ -285,34 +291,47 @@ class Handler(BaseHTTPRequestHandler):
         lends its principal. A browser opening / gets an HTML page instead of JSON."""
         self._admitted = None
         try:
-            fn()
+            with reading() if self.command in ("GET", "HEAD") else nullcontext():
+                fn()
         except HTTPError as err:
             self._refuse(err)
         except (TimeoutError, BrokenPipeError, ConnectionResetError):
             self.close_connection = True
         except Exception as e:  # noqa: BLE001 — reports as JSON instead of dropping the connection
-            traceback.print_exc(file=sys.stderr)
+            frames = traceback.extract_tb(e.__traceback__)
+            cause = repr((type(e).__name__, [(f.filename, f.lineno) for f in frames]))
+            diagnostics.emit(cause, traceback.format_exc)
             try:
                 self._json(internal_error_body(self._admitted, e), 500)
             except OSError:
                 self.close_connection = True
 
     def do_GET(self) -> None:
-        """BaseHTTPRequestHandler's entry for GET."""
-        self._run(self._get)
+        """Keep the entire GET read-only, including body reading and admission before computation."""
+        with reading():
+            self._run(self._get)
 
     def do_POST(self) -> None:
         """BaseHTTPRequestHandler's entry for POST."""
-        self._run(self._post)
+
+        def dispatch() -> None:
+            """Record a person only after a successful route actually changed something."""
+            with observing_changes() as changes:
+                self._post()
+                if changes.changed:
+                    self._record(dict(self.principal.actor))
+
+        self._run(dispatch)
 
     def _get(self) -> None:
-        """A GET: the guard, then the route for the request's document (?doc=, the first document if absent)."""
+        """Read and admit a GET before taking a bounded computation slot for its document's route."""
         actor = self._guard()
         u = urlparse(self.path)
         path, q = u.path, accepted(request_input.query_values(u.query))
         self.app.guards.check_read(path)
         # A document-scoped path takes ?doc=<key> (the first document if absent) and is handled for that document (§Multiple documents).
-        return self._get_doc(actor, path, q, self._request_doc(accepted(parse.parse_doc_choice(q))))
+        with READ_SLOTS:
+            return self._get_doc(actor, path, q, self._request_doc(accepted(parse.parse_doc_choice(q))))
 
     def _request_doc(self, choice: parse.DocChoice) -> Document:
         """The document a request names (parsed by parse.parse_doc_choice), found by the server: the first document, or
@@ -336,9 +355,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _get_registered(self, actor: Json, path: str, q: Query, D: Document) -> Reply | None:
         """Try the application's feature-owned GET routes in registration order."""
-        request = GetRequest(
-            path, q, D, actor, self.principal, self.headers.get("Host") or "", lambda: self._record(actor)
-        )
+        request = GetRequest(path, q, D, actor, self.principal, self.headers.get("Host") or "")
         for route in self.app.routes.bundle.get:
             reply = route(request)
             if reply is not None:
@@ -358,7 +375,7 @@ class Handler(BaseHTTPRequestHandler):
         return accepted(request_input.json_object(raw))
 
     def _post(self) -> None:
-        """A POST: the guard, the role check (before any state change), the body/query, scoped authority, the person record, then the route -
+        """A POST: the guard, the role check (before any state change), the body/query, scoped authority, then the route (the caller records real changes) -
         for the request's document when the route acts on one."""
         actor = self._guard()
         u = urlparse(self.path)
@@ -370,15 +387,13 @@ class Handler(BaseHTTPRequestHandler):
         if registered is not None:
             D = self._request_doc(accepted(parse.parse_doc_choice(q, d, new_pin=registered.new_pin)))
             authority = self.app.guards.authorize_post(self.principal, path, D)
-            self._record(dict(authority))
             return self._json(*registered.action(PostDocRequest(q, d, D, authority, authority.principal)))
         return self._post_other(actor, path, d)
 
     def _post_other(self, actor: Json, path: str, d: Json) -> None:
         """Dispatch guarded POSTs by pin action or exact path; anything else is 404."""
         authority = self.app.guards.authorize_post(self.principal, path)
-        self._record(dict(authority))
-        m = re.fullmatch(r"/api/pins/(\d+)/([a-z]+)", path)
+        m = re.fullmatch(r"/api/pins/([0-9]{1,20})/([a-z]+)", path)
         if m:
             action = self.app.routes.bundle.pin_actions.get(m.group(2))
             if action is not None:

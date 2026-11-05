@@ -437,6 +437,7 @@ class FigurePins(Base):
         edit_stored(lambda rows: rows[0].__setitem__("el", json.loads(el_text(ODD_EL))))
         script = self.fig.src / "src" / "B2_calendar.py"
         script.write_text("# new first line\n" + script.read_text(encoding="utf-8"), encoding="utf-8")
+        ps.APP.assembly.pins.startup.maintain()
         moved = self.pin(pid)
         self.assertEqual((moved["lo"], moved["hi"]), (89, 96))
         self.assertEqual(self.stored_el_text(pid)[1], el_text(ODD_EL))

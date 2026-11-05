@@ -96,7 +96,6 @@ def get(request: GetRequest, app: ViewerShellApp) -> Reply | None:
     whose viewer holds no icon for the path answers 404."""
     path = request.path
     if path == "/":
-        request.record_person()
         page = app.viewer().page
         return Reply(200, page.encode(), "text/html; charset=utf-8", csp=_page_policy(page))
     if path in ICON_ROUTES:

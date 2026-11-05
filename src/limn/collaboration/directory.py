@@ -5,6 +5,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from limn.platform.effects import require_writer
 from limn.security import access, people
 from limn.security.access import is_agent_actor
 
@@ -34,7 +35,8 @@ class PeopleDirectory:
         return rows
 
     def record(self, actor: people.Row, now: float | None = None, role: access.Role | None = None) -> bool:
-        """Record a human visit or change; local and token agents are never recorded."""
+        """Record a human after a real change; read scopes and local/token agents cannot record people."""
+        require_writer()
         login = (actor or {}).get("login")
         if not login or is_agent_actor(actor):
             return False

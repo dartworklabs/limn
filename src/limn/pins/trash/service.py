@@ -2,7 +2,7 @@
 
 A dropped pin stays restorable for trash_days, counted from dropped_at (local time, like every *_at string). Reading
 never writes: GET /api/pins/dropped hides expired entries and copies of live pins; the file is pruned at startup,
-hourly on reads that already write, on drop/restore, and by the owner's permanent delete. An entry without a readable
+by independent sixty-second maintenance, on drop/restore, and by the owner's permanent delete. An entry without a readable
 dropped_at is kept unless its id is live - its age cannot be known, and guessing would delete data. ids stay reserved
 in pins.seq, so a purged number is never reused.
 

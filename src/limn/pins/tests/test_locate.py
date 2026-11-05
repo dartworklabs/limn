@@ -278,11 +278,13 @@ class Anchor(Base):
     """Stored anchors preserve adjacent comments and upgrade older offset-free records."""
 
     def _shift(self, n):
+        """Move the manuscript, then persist the anchor match through independent upkeep."""
         lines = TEX.splitlines()
         lines[3:3] = ["inserted %d" % i for i in range(n)]  # n lines before L4
         time.sleep(0.01)
         self.main.write_text("\n".join(lines) + "\n", encoding="utf-8")
         os.utime(self.main, (time.time() + 5, time.time() + 5))
+        ps.APP.assembly.pins.startup.maintain()
 
     def test_trailing_comment_kept(self):
         pid = self.add(8, 10)  # two body lines + a trailing comment
@@ -435,6 +437,7 @@ class Estimate(Base):
         time.sleep(0.02)
         self.main.write_text("new first line\n" + TEX, encoding="utf-8")
         os.utime(self.main, (time.time() + 5, time.time() + 5))
+        ps.APP.assembly.pins.startup.maintain()
         self.assertIs(self.est_of(pid), True)  # moved +1
         self.assertEqual(self.pin(pid)["sync"], "moved +1")
 

@@ -5,6 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Generic, TypeVar
 
+from limn.platform.effects import require_writer
 from limn.security import access, people
 
 Viewer = TypeVar("Viewer", covariant=True)
@@ -44,6 +45,7 @@ class RuntimeResources(Generic[Viewer, Scope, Jobs, Share, Watch, Tokens, Maps])
 
     def start_thread(self, target: Callable[..., object], *args: object) -> None:
         """Start and register one daemon that exits after ``stopping`` is set."""
+        require_writer()
         thread = threading.Thread(target=target, args=args, daemon=True)
         thread.start()
         self.threads.append(thread)

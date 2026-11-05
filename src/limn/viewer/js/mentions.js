@@ -187,14 +187,14 @@ function mentionPreview(ta){if(!ta)return; const box=ta.nextElementSibling; if(!
   const hits=told.length?html`<span class="m-lab">${ic('at-sign')}알림</span>${told.map(l=>html`<span class="mention${l===me?' me':''}">${personLabel(l)}${l===me?' '+tr('(나 — 알림 없음)'):''}</span>`)}`:'';
   const assigns=o?html`<span class="m-lab">${tr(join?'따로 저장하면 담당':'담당')}</span>${name(/** @type {string} */(o.assignee))}`:html``;
   const head=!o?hits:!join?html`${assigns}${hits}`:join.told.length?html`<span class="m-grp">${hits}<span class="m-sep">·</span></span><span class="m-grp">${assigns}</span>`:hits;
-  const bad=r.bad.map(w=>html`<span class="mention-bad" data-tip="등록된 사람이 아님 — 이 이름으로는 알림이 가지 않습니다. 이 뷰어를 연 테일넷 사람만 부를 수 있습니다">@${w}</span>`);
+  const bad=r.bad.map(w=>html`<span class="mention-bad" data-tip="등록된 사람이 아님 — 이 이름으로는 알림이 가지 않습니다. 핀이나 답글을 남긴 적 있는 사람과 멤버로 등록된 사람만 부를 수 있습니다">@${w}</span>`);
   setHtml(box,html`${head}${bad}${r.bad.length?html`<span class="m-note">등록된 사람이 아님</span>`:''}`);
   box.hidden=false;}
 function mentionUpdate(ta){const q=mentionQuery(ta); if(!q){if(MENTION.ta===ta)mentionClose(); return;}
   const me=META&&META.me&&META.me.login; MENTION.ta=ta; MENTION.start=q.start; MENTION.q=q.q; MENTION.items=mentionMatches(q.q,PEOPLE,me);
   MENTION.sel=Math.min(MENTION.sel,Math.max(0,MENTION.items.length-1));
   const pop=$('#mention-pop');
-  const none=(q.q?tl("'{q}' 와 맞는 사람이 없습니다",{q:q.q}):tr('부를 수 있는 사람이 없습니다'))+' — '+tr('이 뷰어를 연 테일넷 사람만 부를 수 있습니다');
+  const none=(q.q?tl("'{q}' 와 맞는 사람이 없습니다",{q:q.q}):tr('부를 수 있는 사람이 없습니다'))+' — '+tr('핀이나 답글을 남긴 적 있는 사람과 멤버로 등록된 사람만 부를 수 있습니다');
   setHtml(pop,MENTION.items.length?html`${MENTION.items.map((p,i)=>html`<button type="button" role="option" aria-selected="${i===MENTION.sel}" data-act="mention-pick" data-i="${i}">\
 ${avatar(p)}<span>${p.name}</span><span class="ml">${p.login}</span></button>`)}`:html`<div class="dim">${none}</div>`);
   pop.hidden=false; mentionPlace();}

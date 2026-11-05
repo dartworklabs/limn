@@ -37,7 +37,7 @@ from limn.pins.model import EventType, Pin, Record, TrashedPin
 from limn.pins.needs import BuildAnswers, FollowElement, VerdictKeys
 from limn.pins.notice import PinNotice
 from limn.pins.record import Broken, parse_record as record_parse_record, parse_trashed as record_parse_trashed
-from limn.pins.store import PinFiles, PinStore, Row
+from limn.pins.store import PinFiles, PinReader, PinStore, Row
 from limn.pins.suggestion import suggestion_of
 from limn.pins.trash.service import PinTrash
 from limn.pins.verdict import (
@@ -48,7 +48,7 @@ from limn.pins.verdict import (
     superseded_by,
     whole_page_target,
 )
-from limn.platform.files import tex_lines
+from limn.platform.files import tex_lines, tree_part
 from limn.runtime import documents
 from limn.runtime.config import RunConfig
 from limn.runtime.documents import DOC_KEY_RE, Doc
@@ -211,6 +211,40 @@ class PinCommands:
         without page fields (has_pages)."""
         return locate_sync_all(pins, self.pin_locator(), self.has_pages)
 
+    def maintenance_files(self) -> set[Path]:
+        """Find sources of pins in served documents and their main files using metadata only.
+
+        Called under the pin lock during a pass, never on an idle check. Retain safe stored names when a file
+        disappears so its recreation is noticed. Content reads still require the usual checked manuscript handle.
+        """
+        root, state = self.C.src, self.C.state
+        paths = {doc.main for doc in self.docs if tree_part(doc.main, root, state) is not None}
+        for pin in self.read_pins()[0]:
+            if self.doc_by_key(self.pin_doc_key(pin.record)) is None:
+                continue
+            location = self.pin_file(pin, root, state)
+            if location is not None:
+                paths.add(location.path)
+            else:
+                file = pin.record.get("file")
+                if isinstance(file, str) and tree_part(Path(file), root, state) is not None:
+                    paths.add(Path(file))
+                # A moved checkout whose pinned source is not there yet: watch it where its stored relative name puts it
+                # under this root (ADR-0006), so recreating it there is noticed within a tick, not only on the 60 s pass.
+                rel = pin.core.file_rel
+                if isinstance(rel, str) and rel and tree_part(root / rel, root, state) is not None:
+                    paths.add(root / rel)
+        return paths
+
+    def pin_reader(self) -> PinReader:
+        """Issue saved-record reads without a sync collaborator or any save operations."""
+        return PinReader(
+            PinFiles(self.C.state),
+            self.RT.pin_lock,
+            self.parse_record,
+            self.parse_trashed,
+        )
+
     def pin_store(self) -> PinStore:
         """The pin store (limn.pins.store) over the current run arguments - where the composition root wires it.
 
@@ -228,19 +262,19 @@ class PinCommands:
 
     def read_pins(self) -> tuple[list[Pin], list[int]]:
         """The live pins, parsed, and pins.jsonl's broken line numbers, lock-free and not re-synced (PinStore.read_pins)."""
-        return self.pin_store().read_pins()
+        return self.pin_reader().read_pins()
 
     def read_dropped(self) -> tuple[list[TrashedPin], list[int]]:
         """The Trash entries, parsed, and the Trash file's broken line numbers, lock-free (PinStore.read_dropped)."""
-        return self.pin_store().read_dropped()
+        return self.pin_reader().read_dropped()
 
     def write_pins(self, pins: list[Pin], bad: list[int] | None = None) -> None:
         """Rewrites pins.jsonl then pins.md; nothing if rendering fails (PinStore.write_pins). Callers hold RT.pin_lock."""
         self.pin_store().write_pins(pins, bad)
 
     def snapshot_pins(self) -> list[Pin]:
-        """The live pins, re-synced and written back if that changed them (PinStore.snapshot)."""
-        return self.pin_store().snapshot()
+        """Return saved positions and revisions without re-syncing or saving (PinReader.snapshot)."""
+        return self.pin_reader().snapshot()
 
     def public(self, r: Record) -> Json:
         """A record as the API returns it (limn.pins.listing.projection.public_record), placed where pin_location() finds its file under
@@ -302,7 +336,7 @@ class PinCommands:
         return superseded_by(pins, placement)
 
     def overlaps_for_range(self, file: str, lo: int, hi: int) -> list[Json]:
-        """The overlap relationships between a not-yet-saved range of file and that file's open pins, as re-synced now
+        """The overlap relationships between a not-yet-saved range of file and that file's open pins at their saved positions
         (limn.pins.location.lookup.overlaps_for_range). Nothing is saved."""
         return locate_overlaps_for_range(file, lo, hi, self.snapshot_pins(), self.pin_locator())
 

@@ -138,7 +138,10 @@ class LocalProvider(AccessBase):
         self.assertEqual(self.pin(rid)["confirmed_by"]["login"], "alice")
 
     def test_owner_recorded_as_owner(self):
+        """The local owner is recorded by the first real change, never by opening the page."""
         self.call("GET", "/")
+        self.assertEqual(self.people_file(), [])
+        self.pin_id()
         self.assertEqual([(p["login"], p.get("role")) for p in self.people_file()], [("alice", "owner")])
 
     def test_non_loopback_is_401_and_agents_use_tokens(self):
@@ -1021,9 +1024,9 @@ class Migration(AccessBase):
         self.assertEqual(self.call("POST", "/api/pins/2/close", None, ALICE)[1]["state"], "done")
         code, d = self.call("POST", "/api/pins/4/confirm", None, ALICE)
         self.assertEqual((code, d["state"]), (200, "done"))
-        self.assertEqual(self.call("GET", "/", headers=CAROL)[0], 200)  # an unknown tailnet person is auto-added
+        self.assertEqual(self.call("GET", "/", headers=CAROL)[0], 200)  # a read-only newcomer is no longer auto-added
         people = {p["login"]: p for p in self.people_file()}
-        self.assertEqual(sorted(people), ["alice@example.com", "bob@example.com", "carol@example.com"])
+        self.assertEqual(sorted(people), ["alice@example.com", "bob@example.com"])
         self.assertTrue(all("role" not in p for p in people.values()))
         self.assertEqual(people["bob@example.com"], V01_PEOPLE[1])  # untouched
         self.assertFalse(ps.APP.C.tokens_file.exists())
@@ -1040,12 +1043,14 @@ class Migration(AccessBase):
         self.assertEqual(mask("\n".join(lines)), v03_close_line(V01_PINS_MD.replace("{src}", str(self.src))))
 
     def test_api_and_pins_md_equal_the_v01_server(self):
+        """After independent legacy backfill, saved reads retain the old API and Markdown format."""
         v01 = load_v01()
         if v01 is None:
             self.skipTest("v0.1.0 is not in this clone's history (shallow checkout)")
         old_state = Path(self.tmp.name) / "state-v01"
         self.write_fixture(old_state)
         configure(v01, self.src, self.main, old_state)
+        ps.APP.assembly.pins.startup.maintain()
         self.compare_with(v01)
 
     def compare_with(self, v01, headers=None):
@@ -1124,6 +1129,7 @@ class Migration(AccessBase):
         configure(v01, ms, main, states[0])
         configure(ps, ms, main, states[1])
         self.assertFalse((states[1] / "tokens.json").exists())
+        ps.APP.assembly.pins.startup.maintain()
         self.compare_with(v01)
         people = (
             json.loads((states[1] / "people.json").read_text(encoding="utf-8"))["people"]

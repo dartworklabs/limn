@@ -247,14 +247,14 @@ class UnreadablePeople(AccessBase):
 
     def assert_recovers(self, case):
         """Once the good file is back, roles come from it again (Carol, unlisted, is the default editor) and her
-        visit is recorded next to the listed people."""
+        read does not register her next to the listed people."""
         roles = self.visit_all()
         self.assertEqual(
             roles, {"alice@example.com": "viewer", "bob@example.com": "owner", "carol@example.com": "editor"}, case
         )
         self.assertEqual(
             sorted((p["login"], p.get("role")) for p in self.people_file()),
-            [("alice@example.com", "viewer"), ("bob@example.com", "owner"), ("carol@example.com", None)],
+            [("alice@example.com", "viewer"), ("bob@example.com", "owner")],
             case,
         )
 

@@ -69,7 +69,7 @@ HTTP 전송 입장을 통과한 API 오류 응답은 `{"error": "<한국어 메�
 
 > **핵심**
 >
-> 아무 설정도 하지 않은 테일넷 인스턴스(`--auth tailscale`, 허용 목록 없음)에서는 테일넷에서 닿는 사람은 누구나 들어와 첫 방문 때 역할 없이(`editor`) 기록되고, 헤더 없는 루프백 요청은 에이전트다. 역할, 허용 목록, 토큰 전용 운영은 모두 켜야만 적용된다.
+> 아무 설정도 하지 않은 테일넷 인스턴스(`--auth tailscale`, 허용 목록 없음)에서는 테일넷에서 닿는 사람은 누구나 들어와 첫 실제 변경 POST 뒤 역할 없이(`editor`) 기록되고, 헤더 없는 루프백 요청은 에이전트다. 역할, 허용 목록, 토큰 전용 운영은 모두 켜야만 적용된다.
 
 ### 신원을 정하는 순서
 
@@ -119,7 +119,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 | --- | --- |
 | `--members-only` | `people.json` 에 있거나 `--allow` 에 있는 로그인. `people.json` 을 쓸 수 없는 동안은 `--allow` 에 있는 로그인만(§역할) |
 | `--allow` 만 | `--allow` 에 있는 로그인 |
-| 둘 다 없음 | 신원 방식이 확인한 모든 사람. 첫 방문 때 `role` 필드 없이 `people.json` 에 기록된다 |
+| 둘 다 없음 | 신원 방식이 확인한 모든 사람. 첫 실제 변경 POST 뒤 `role` 필드 없이 `people.json` 에 기록된다 |
 
 거부된 로그인은 `403` 이고 `people.json` 에 기록되지 않는다. 토큰과 `local` 방식의 소유자는 늘 들어온다. `*.ts.net` Host로 헤더 없이 온 요청(태그 장치 등)은 허용 목록이 없어도 `403` 이다. `--tailnet-agent` 로 이런 요청을 에이전트로 받게 해도 허용 목록이 있으면 `403` 이다. `limn member add`·`remove` 로 바꾼 명단은 재시작 없이 다음 요청부터 적용된다.
 
@@ -215,8 +215,8 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
 | `GET` | `/api/version` | `{"name":"limn","version":<문자열>}`. `limn serve --version` 과 같은 값이다. 지금 인스턴스가 어느 설치 버전으로 도는지 확인할 때 쓴다. 쓰기 없음 |
-| `GET` | `/api/meta` | `pages`(쪽 목록 `{name,pt_w,pt_h}`. Markdown 문서는 쪽이 없어 빈 목록이다. 그림 문서이고 그 빌드의 지도를 읽을 수 있으면 지도가 그 쪽에 대해 말하는 `figure`·`title`·`verdict`·`figure_top`·`figure_above` 가 이 순서로 더 붙는다 — §그림 요소 지도 (`limn-figure-map/1`)의 쪽 사실), `built_at`, `head`(원고 커밋), `main`(최상위 `.tex` 이름. 보기 전용 PDF는 그 PDF 파일 이름, 그림 문서는 지도 파일 이름, Markdown 문서는 그 `.md` 이름), `label`·`accent`·`repo`(이 인스턴스의 이름표·강조색·git origin URL, [operations.md](operations.md) §여러 논문 인스턴스를 동시에 띄울 때), `n_open`·`n_review`·`n_done`(§검토 대기), `pins_md`·`state_dir`(절대경로), `me`(지금 요청자와 그 `role` — §인증), `building`(재빌드 진행 중), `stale_build`(이 PDF 를 만든 뒤 원고 `.tex` 가 바뀌었는가), `src_mtime`·`build_src_mtime`·`src_age_s`·`pins_rev`([build-sync.md](build-sync.md) §자동 동기화 (가벼운 meta 폴링)), `pages_build`(지금 화면의 빌드 id, `pages.cur` 값), `build_seq`(끝난 빌드 수)·`last_build:{state,errors,finished_at,seq}`·`build:{state,phase,started_at}`([build-sync.md](build-sync.md) §비동기 재빌드), `doc`·`doc_name`·`kind`·`view_only`·`multi`(§문서 매개변수), 그 문서의 판정 낱말 `verdicts` 또는 `verdicts_error`(핀 수 뒤, 낱말 파일이 있을 때만, §판정 낱말 파일 (`limn-verdicts/1`)), `ev_seq`(§브라우저 알림 커서). 여러 문서면 `docs`(`/api/docs` 항목에서 `n_open`·`verdicts`·`verdicts_error` 를 뺀 것)와 `src_sig` 가 붙는다(라이트 포함). `src_sig` 는 문서마다의 `src_mtime` 을 이은 문자열이다. 그래서 뷰어는 다른 문서의 원고가 바뀌어도 목록을 다시 읽는다. 전체 meta는 요청한 사람을 기록한다(§@태그·사람·이벤트) |
-| `GET` | `/api/meta?light=1` | 위와 같되 `n_open`·`n_review`·`n_done` 과 `verdicts`·`verdicts_error` 가 없고 **쓰기를 하지 않는다**(`snapshot_pins()` 의 sync 쓰기를 하지 않는다). 폴링 전용이다. [build-sync.md](build-sync.md) §자동 동기화 (가벼운 meta 폴링) |
+| `GET` | `/api/meta` | `pages`(쪽 목록 `{name,pt_w,pt_h}`. Markdown 문서는 쪽이 없어 빈 목록이다. 그림 문서이고 그 빌드의 지도를 읽을 수 있으면 지도가 그 쪽에 대해 말하는 `figure`·`title`·`verdict`·`figure_top`·`figure_above` 가 이 순서로 더 붙는다 — §그림 요소 지도 (`limn-figure-map/1`)의 쪽 사실), `built_at`, `head`(원고 커밋), `main`(최상위 `.tex` 이름. 보기 전용 PDF는 그 PDF 파일 이름, 그림 문서는 지도 파일 이름, Markdown 문서는 그 `.md` 이름), `label`·`accent`·`repo`(이 인스턴스의 이름표·강조색·git origin URL, [operations.md](operations.md) §여러 논문 인스턴스를 동시에 띄울 때), `n_open`·`n_review`·`n_done`(§검토 대기), `pins_md`·`state_dir`(절대경로), `me`(지금 요청자와 그 `role` — §인증), `building`(재빌드 진행 중), `stale_build`(이 PDF 를 만든 뒤 원고 `.tex` 가 바뀌었는가), `src_mtime`·`build_src_mtime`·`src_age_s`·`pins_rev`([build-sync.md](build-sync.md) §자동 동기화 (가벼운 meta 폴링)), `pages_build`(지금 화면의 빌드 id, `pages.cur` 값), `build_seq`(끝난 빌드 수)·`last_build:{state,errors,finished_at,seq}`·`build:{state,phase,started_at}`([build-sync.md](build-sync.md) §비동기 재빌드), `doc`·`doc_name`·`kind`·`view_only`·`multi`(§문서 매개변수), 그 문서의 판정 낱말 `verdicts` 또는 `verdicts_error`(핀 수 뒤, 낱말 파일이 있을 때만, §판정 낱말 파일 (`limn-verdicts/1`)), `ev_seq`(§브라우저 알림 커서). 여러 문서면 `docs`(`/api/docs` 항목에서 `n_open`·`verdicts`·`verdicts_error` 를 뺀 것)와 `src_sig` 가 붙는다(라이트 포함). `src_sig` 는 문서마다의 `src_mtime` 을 이은 문자열이다. 그래서 뷰어는 다른 문서의 원고가 바뀌어도 목록을 다시 읽는다. 전체 meta도 사람을 기록하지 않는다(§@태그·사람·이벤트) |
+| `GET` | `/api/meta?light=1` | 위와 같되 `n_open`·`n_review`·`n_done` 과 `verdicts`·`verdicts_error` 가 없고 핀 레코드 전체 조회도 생략한다. 모든 GET과 마찬가지로 쓰지 않으며 폴링 비용을 줄이는 경로다. [build-sync.md](build-sync.md) §자동 동기화 (가벼운 meta 폴링) |
 | `GET` | `/api/meta?ev=<seq>` | 라이트와 함께 쓸 수 있다. 요청자에게 온 새 이벤트를 `events` 로 싣는다 — §브라우저 알림 커서 |
 | `GET` | `/api/docs` | 문서 목록 `{docs:[{key,name,kind:"tex"\|"pdf"\|"figure"\|"markdown",view_only,path,main,stale_build,src_mtime,building,build:{state,phase},build_seq,last_state,pages_build,n_pages,n_open,verdicts?,verdicts_error?}], default, multi, other_open}`. 핀은 읽기만 한다(sync 쓰기 없음). `other_open` 은 지금 설정에 없는 문서 키의 열린 핀 수다. `view_only` 는 그 문서의 핀이 쪽·영역뿐인가, 곧 줄 핀을 받지 못하는가를 나타내는 문서의 능력이다. 보기 전용 PDF에서만 `true` 이고, 그림 문서(§그림 요소 지도 (`limn-figure-map/1`))는 줄 핀을 받으므로 `false` 다. 그림 문서의 pick 이 줄을 주지 못해 돌려주는 영역 답의 `view_only: true` 는 그 답이 영역뿐이고 코드 줄이 없다는 뜻이며, 문서의 능력이 아니다(§그림 문서의 pick·핀). `path` 는 `--manuscript` 기준 메인 파일 경로이고 `main` 은 그 파일 이름이다. 그림 문서에서는 둘 다 지도 파일(`.limnmap.json`)을 가리킨다. 항목 끝의 `verdicts`(`{page, choices:[{key,label,confirm}]}`)나 `verdicts_error`(`unreadable`·`too_large`·`invalid`)는 그 문서 옆에 판정 낱말 파일이 있을 때만 붙는다(§판정 낱말 파일 (`limn-verdicts/1`)) |
 | `GET` | `/api/people` | @태그 후보 `{people:[{login,name,pic?,last_seen?,role}], me}` — §@태그·사람·이벤트. `role` 과 `me.role` 은 §인증. 쓰기 없음 |
@@ -225,7 +225,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
-| `GET` | `/` | 뷰어 HTML. 이 뷰어를 연 사람을 기록한다(§@태그·사람·이벤트). 에이전트(토큰, 헤더 없는 루프백 요청)는 기록하지 않는다. 페이지의 머리 스크립트는 인스턴스의 화면 언어 기본값(`--ui-lang`, 없으면 빈 값)을 싣는다. 거부된 브라우저 요청이 받는 안내 쪽의 언어 규칙은 [viewer.md](viewer.md) §역할에 따른 화면에 있다 |
+| `GET` | `/` | 뷰어 HTML. 사람을 기록하지 않는다. 사람 등록은 실제 변경 POST 뒤에만 한다(§@태그·사람·이벤트). 페이지의 머리 스크립트는 인스턴스의 화면 언어 기본값(`--ui-lang`, 없으면 빈 값)을 싣는다. 거부된 브라우저 요청이 받는 안내 쪽의 언어 규칙은 [viewer.md](viewer.md) §역할에 따른 화면에 있다 |
 | `GET` | `/pages/<빌드>/<파일>` | 그 빌드(`pages_build` 값, 쪽 디렉토리 이름)의 쪽 이미지(`page-<번호>.png`)를 `image/png` 로 준다. 뷰어는 이 주소를 쓴다. 쪽 폴더는 공개된 뒤 다시 쓰지 않고 빌드 이름도 다시 쓰지 않으므로 같은 주소는 늘 같은 바이트다. 그래서 시각 빌드 이름(`pages-<14자리>[-<n>]`)이면 `Cache-Control: private, max-age=31536000, immutable` 이다. 옛 배치의 이름 `pages` 는 `private, max-age=600` 이다. 응답은 신원 검사 뒤에만 나가므로 `private` 이다. 그 빌드의 폴더가 지워졌으면 `/pdf?build=` 와 같은 `404 {error, pdf_build_gone, pages_build}`, 그 빌드에 그 쪽이 없거나 이름이 이 모양이 아니면 `404` |
 | `GET` | `/pages/<파일>` | 지금 빌드의 쪽 이미지를 `image/png` 로 준다(`Cache-Control: private, max-age=600`, PDF처럼 공유 캐시에 남지 않는다). 빌드 이름이 없는 옛 주소다. 열려 있던 탭이 깨지지 않게 이 릴리스에서만 남기고 다음 릴리스에서 뺀다. `/pages/` 뒤에 빌드 이름이 아닌 조각이 끼어 있어도 마지막 조각을 지금 빌드에서 찾는다. 이름이 이 모양이 아니거나 파일이 없으면 `404` |
 | `GET` | `/pdf?build=<pages_build>` | 그 빌드의 쪽 이미지와 짝인 PDF 사본(`pages-<build>/<main>.pdf`, 그림 문서는 지도 이름에서 `.limnmap.json` 을 뺀 `<이름>.pdf`)을 `application/pdf` 로 준다. `build` 가 시각 빌드 이름이면 `Cache-Control: private, max-age=31536000, immutable`, `build` 를 빼거나 옛 이름 `pages` 면 `private, max-age=600` 이다. 뷰어가 벡터로 그릴 때 쓴다([viewer.md](viewer.md) §벡터 렌더링). `build` 를 빼면 지금 빌드다. 이름이 틀렸거나, 이미 지워졌거나, 그 디렉토리에 PDF 가 없으면 `404 {error, pdf_build_gone, pages_build}` 다. `build/` 나 다른 빌드로 물러서지 않는다. 화면의 쪽 이미지와 어긋나면 좌표가 틀리기 때문이다. `Range` 는 받지 않고 통째로 준다. Host·Origin 검사는 다른 `GET` 과 같다. 선택 `download=1` 을 더하면 같은 `200` 에 `Content-Disposition: attachment; filename="<ASCII 이름>"[; filename*=UTF-8''<퍼센트 인코딩>]` 한 줄만 더 붙는다. 본문·`Content-Type`·`Cache-Control`·`ETag`·`304` 와 404·403 거절은 `download` 가 없을 때와 같고(거절 응답에는 이 헤더가 없다), 신원·입장 검사도 같은 자리에서 먼저 한다. 파일 이름은 `<문서 이름>.pdf` 다(`/api/docs` 의 `name`, 그림 문서도 같다). 파일 시스템이 받지 않는 글자(`/ \ : * ? " < > |`, 제어 문자)는 `_` 로, 연속 공백은 한 칸으로 바꾸고 앞뒤의 점·공백을 떼며, 윈도 장치 이름(`CON`·`NUL`·`COM1` 등)은 앞에 `_` 를 붙인다. 남는 것이 없으면 `document.pdf` 다. 한글 같은 비ASCII 글자는 `filename*`(RFC 6266·8187)에 UTF-8로 남기고, `filename` 은 ASCII가 아닌 글자를 `_` 로 바꾼 대체 이름이다(ASCII 글자·숫자가 하나도 안 남으면 `document.pdf`). 이름이 ASCII뿐이면 `filename` 하나다. **`download` 의 값이 정확히 `1` 이 아니면(`0`·`true`·빈 값·그 밖) 거절하지 않고 무시한다.** 인라인 응답이 그대로 나간다. 다른 쿼리 스위치(`log`·`async`·`force`)와 같은 규칙이다. 뷰어의 [더보기] → `PDF 내려받기` 가 `/pdf?build=<지금 화면의 빌드>&download=1` 을 쓴다 |
@@ -303,10 +303,10 @@ Markdown 문서도 `/api/revision-diff` 가 그 파일의 diff를 주고, `&pin=
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
-| `GET` | `/api/pins` | 열린 핀 목록(JSON). 레코드마다 `rev`, `rel`(§겹친 핀과 덧붙이기), `est`(불리언, [build-sync.md](build-sync.md) §위치 추정 (`est`)), `state`(§검토 대기)가 채워진다. `rel`·`est`·`state` 는 계산 필드라 저장하지 않는다. `el` 이 있는 그림 핀에는 `mark`·`mark_page`·`el_sync` 도 붙는다(§그림 문서의 pick·핀). 같은 대상에 더 새 판정 핀이 있는 판정 핀에는 `fyi` 다음에 `superseded_by` 가 붙는다(§판정 핀 읽기). 제안 수정이 있는 핀에는 맨 끝에 `suggest_state` 가 붙는다(§제안 수정 (`suggest`)). 저장된 숫자에 NaN·Infinity 가 있으면 응답에서 `null` 이다. `frac`·`el.frac` 은 필드 전체가 그렇다(§핀 레코드 스키마). `?all=1` 이면 닫힌 핀까지 준다. 이 경로는 줄 맞춤(sync) 쓰기를 한다(채택한 목표는 쓰지 않고 메모리에서만 맞추는 것이다, [architecture.md](architecture.md) §GET의 쓰기 — 현재와 채택한 목표) |
+| `GET` | `/api/pins` | 열린 핀 목록(JSON). 레코드마다 `rev`, `rel`(§겹친 핀과 덧붙이기), `est`(불리언, [build-sync.md](build-sync.md) §위치 추정 (`est`)), `state`(§검토 대기)가 채워진다. `rel`·`est`·`state` 는 계산 필드라 저장하지 않는다. `el` 이 있는 그림 핀에는 `mark`·`mark_page`·`el_sync` 도 붙는다(§그림 문서의 pick·핀). 같은 대상에 더 새 판정 핀이 있는 판정 핀에는 `fyi` 다음에 `superseded_by` 가 붙는다(§판정 핀 읽기). 제안 수정이 있는 핀에는 맨 끝에 `suggest_state` 가 붙는다(§제안 수정 (`suggest`)). 저장된 숫자에 NaN·Infinity 가 있으면 응답에서 `null` 이다. `frac`·`el.frac` 은 필드 전체가 그렇다(§핀 레코드 스키마). `?all=1` 이면 닫힌 핀까지 준다. 위치와 `rev`는 저장된 값만 주며 재동기화하거나 저장하지 않는다 |
 | `GET` | `/api/pins/{id}` | 핀 한 건 `{pin}`. `GET /api/pins?all=1` 의 한 항목과 같은 모양이다(스레드 전부와 계산 필드 포함). 없으면 `404` |
 | `GET` | `/api/pins/dropped` | 휴지통 → `{dropped: [...]}`. 잠금 아래 원본과 휴지통을 함께 읽고, `dropped_at` 순으로 유효한 휴지통 항목만 낸다(쓰기 부작용 없음). 살아 있는 원본과 번호가 겹치거나 30일(`TRASH_DAYS`)이 지난 항목은 싣지 않는다(§휴지통). 계산 필드는 `expires_ts`(지워질 시각, epoch 초, 0.2.2+) 하나다. 뷰어의 휴지통이 이것을 쓴다. 열린 목록에서 사라진 핀이 완료인지 삭제인지 가르는 알림도 이것을 쓴다([build-sync.md](build-sync.md) §자동 동기화 (가벼운 meta 폴링)) |
-| `GET` | `/pins.md` | 원격 에이전트 진입점. `<state_dir>/pins.md` 와 같은 내용을 `text/markdown; charset=utf-8` 로 낸다. `GET /api/pins` 와 같은 sync 경로를 탄 뒤 렌더한다. 안내 줄의 base URL만 요청 `Host` 에 맞춘다. `Host` 가 `*.ts.net` 이면 `https://<Host 그대로>`, `--public-host` 이름이면 `https://<이름>[:<포트>]`, 루프백이면 기존 `http://127.0.0.1:<port>` 다. 디스크의 `<state_dir>/pins.md` 는 항상 루프백 base다. Host·Origin 검사는 다른 `GET` 과 같다 — §원격 에이전트 진입점 (`GET /pins.md`) |
+| `GET` | `/pins.md` | 원격 에이전트 진입점. `<state_dir>/pins.md` 와 같은 내용을 `text/markdown; charset=utf-8` 로 낸다. `GET /api/pins`와 같은 저장 레코드에서 렌더한다. HTTP와 디스크 모두 원고 수정 뒤 검사 간격(2초) + 유지 실행 시간만큼 늦을 수 있다. 느린 실행·실패에는 더 늦는다. 안내 줄의 base URL만 요청 `Host` 에 맞춘다. `Host` 가 `*.ts.net` 이면 `https://<Host 그대로>`, `--public-host` 이름이면 `https://<이름>[:<포트>]`, 루프백이면 기존 `http://127.0.0.1:<port>` 다. 디스크의 `<state_dir>/pins.md` 는 항상 루프백 base다. Host·Origin 검사는 다른 `GET` 과 같다 — §원격 에이전트 진입점 (`GET /pins.md`) |
 | `GET` | `/api/snippet?file=&lo=&hi=` | 원문 줄 스니펫(80줄 캡). `&levels=1` 이면 그 범위를 기준으로 한 범위 사다리도 준다(그림 문서에 대한 요청이면 `raw` 단계 하나. §그림 문서의 pick·핀). `&text=1` 이면 범위가 80줄 이하일 때 번호 없는 원문 `text` 를 끝에 더한다. 제안 수정의 `base` 로 보낼 글이다(§제안 수정 (`suggest`)). 원고 트리 밖(점으로 시작하는 이름 아래와 원고 안에 둔 상태 폴더 포함, §요청 형식과 경계)이거나 범위가 틀리면 `400`. 보기 전용 문서면 `400` |
 | `GET` | `/api/overlaps?file=&lo=&hi=` | 그 범위(저장 전 선택)와 열린 핀의 겹침 `{overlaps}`. 뷰어는 쓰지 않고(§겹친 핀과 덧붙이기), 에이전트 호환용으로 남긴다 |
 
@@ -741,12 +741,13 @@ curl -s -X POST <base>/api/pins/12/reply -H 'Content-Type: application/json' -d 
 
 `<state_dir>/people.json` 은 `{"version":1,"people":[{login,name,pic?,first_seen,last_seen,role?}]}` 모양이다. @태그 후보이자 멤버 명단이다.
 
-- 이 뷰어를 연(`GET /`, 전체 `/api/meta`) 사람과, 쓰기 요청을 보낸 사람을 적는다. `limn member add` 로 더한 사람도 있다. 에이전트(토큰 포함)는 적지 않는다.
+- 권한 검사를 통과하고 실제로 상태를 바꾼 POST의 사람만 적는다. `/`·전체 meta·폴링은 등록하지 않고, 위치를 고르기만 하는 POST나 실패·변경 없는 요청도 등록하지 않는다. `limn member add` 로 더한 사람도 있다. 에이전트(토큰 포함)는 적지 않는다.
 - 선택 필드 `role` 은 `owner`·`editor`·`viewer`·`agent` 중 하나이고, 없으면 `editor` 다. `limn member` 로 정하며, 서버가 항목을 다시 써도 그대로 둔다(§인증). 처음 온 사람은 `role` 없이 적힌다. `local` 방식의 소유자만 `owner` 로 적힌다.
-- 같은 값이면 10분에 한 번만 다시 쓴다. `/api/meta?light=1` 폴링은 쓰지 않는다.
-- 파일이 있는데 쓸 수 없으면(§역할) 방문을 기록하지 않고 파일도 건드리지 않는다. `limn member` 도 같은 판단으로 그런 파일을 거부한다. 그동안 @태그 후보는 핀에 나온 사람뿐이다.
+- 같은 이름·사진이면 실제 변경 때도 시각 기록을 10분에 한 번으로 묶는다. `first_seen`·`last_seen`은 방문 시각이 아니라 기록된 실제 변경 시각이다. 이름·사진도 읽기만으로 갱신되지 않는다.
+- 파일이 있는데 쓸 수 없으면(§역할) 사람을 기록하지 않고 파일도 건드리지 않는다. `limn member` 도 같은 판단으로 그런 파일을 거부한다. 그동안 @태그 후보는 핀에 나온 사람뿐이다.
 - `GET /api/people` 은 이 파일과 핀의 작성자·행위자·스레드 글쓴이를 합쳐 준다.
-- **채택한 목표(구현 전, [architecture.md](architecture.md) §GET의 쓰기 — 현재와 채택한 목표):** 여는 것(`GET /`, 전체 `/api/meta`)만으로는 적지 않고 권한을 검사한 실제 변경 POST에서만 적는다. 기록도 핀 참여도 없는 새 독자는 @태그 후보에 없고 `@`로 적어도 풀리지 않는다. 편집자는 첫 변경 뒤에, `viewer`는 `limn member add` 뒤에 나타난다.
+
+저장된 기록도 핀 참여 이력도 없는 새 독자는 열기만 해서는 `/api/people`·`limn member list`·멘션 후보에 나타나지 않는다. 그 사람의 이름이나 전체 login을 `@`로 적어도 알림 대상으로 풀리지 않는다. 편집자는 첫 실제 변경 뒤 등록되고, 변경할 수 없는 `viewer`는 소유자가 `limn member add`로 명시 등록해야 한다. 기존 사람 행과 역할은 유지한다.
 
 ### @이름 풀기
 
@@ -1182,7 +1183,7 @@ Markdown 문서는 뷰어가 원문을 그리는 문서다. `--doc` 경로가 `.
 | --- | --- |
 | 보기 | `GET /api/pins/dropped`. 같은 잠금 아래 원본·휴지통을 읽고 살아 있는 번호의 사본과 30일 지난 항목은 싣지 않는다. 항목마다 계산 필드 `expires_ts`(지워질 시각, epoch 초)가 붙는다. 뷰어의 '며칠 뒤 지워짐'이 이것을 써서 보는 기기의 시간대와 상관없다. 읽기는 파일을 고치지 않는다 |
 | 되살리기 | `POST /api/pins/{id}/restore`. 누구나(`viewer` 제외). 30일이 지난 항목은 `404` 다. 판정 핀은 사람만 되살린다(에이전트는 `403 verdict_human`, §판정 핀의 삭제와 되살리기) |
-| 저절로 지우기 | 30일이 지난 항목과 살아 있는 핀의 그림자 사본은 서버 기동 때, 삭제·되살리기 때, 그리고 오래 떠 있는 서버를 위해 `GET /api/pins`·`GET /pins.md`(이미 줄 맞춤 쓰기를 하는 읽기)에서 성공한 정리 뒤 한 시간에 한 번(`TRASH_CHECK_EVERY_S`) 파일에서 뺀다. 실패한 정리는 다음 쓰기 동반 읽기에서 즉시 재시도한다. 라이트 폴링(`/api/meta?light=1`)과 휴지통 조회는 쓰지 않는다. 서버 로그는 만료 항목 `trash: purged N pin(s)` 와 그림자 사본 `trash: reconciled N live shadow(s)` 를 구분한다. `dropped_at` 은 `now_str` 모양(서버 현지 시각)과 ISO+오프셋을 읽고, 읽을 수 없는 항목은 나이를 모르므로 남긴다. 쓰기가 실패하면(읽기 전용 상태 디렉터리) 경고만 남기고 기동은 계속된다. 읽을 수 없는 줄은 휴지통 파일을 다시 쓸 때 `pins.dropped.jsonl.corrupt-<시각>.bak` 으로 원래 바이트를 남긴다 |
+| 저절로 지우기 | 30일이 지난 항목과 살아 있는 핀의 그림자는 서버 시작과 요청에 독립된 60초 유지 주기에서 파일에서도 뺀다. 삭제·되살리기의 정리도 유지한다. GET은 만료·그림자 항목을 숨기기만 한다. 유지 실패는 원본을 보존하고 다음 주기에 재시도하며, 손상 줄은 교체할 때 원래 바이트를 `.corrupt-<시각>.bak`에 남긴다. 나이를 읽을 수 없는 항목은 남긴다 |
 | 영구 삭제 | `POST /api/pins/{id}/purge`. **`owner` 역할만** 한다. 휴지통에 없으면 `404` 다. `purged` 감사 이벤트와 서버 로그를 남긴다 |
 | 알림 | 작성자가 아닌 쪽이 지우면 작성자에게 `dropped` 이벤트가 간다(§이벤트 (`events.jsonl`)) |
 
@@ -1468,3 +1469,11 @@ Markdown 핀은 Markdown 문서(§Markdown 문서의 핀)의 소절에 실리는
 - 줄바꿈은 메모 칸에서 `⏎`, 나머지 칸(번호, 쪽, 위치, 범위, 인용)에서 공백이 된다.
 
 칸마다 따로 처리하면 한 칸의 분기가 빠져 kind `env:x|y` 같은 값이 열을 늘리기 때문이다.
+
+## GET의 영속 무효과
+
+모든 GET과 향후 HEAD는 상태 디렉터리와 원고 트리의 파일·폴더를 생성·변경·삭제하지 않고, 나중에 쓰는 작업도 예약하지 않는다. HTTP 경계의 읽기 범위는 기능 협력자까지 이어진다. 핀 조회에는 `PinReader`만 발급하며 `PinStore` 발급·원자적 저장·상태 잠금 파일·빌드/유지 예약 경계는 이 범위에서 거절한다. 쿼리 플래그나 Fetch Metadata로 쓰기 예외를 만들지 않는다. 외부 출처·헤더 없는 curl·에이전트도 기존 신원·입장 검사 뒤 순수 조회를 받는다. HEAD는 현재 `501`이다. 출처: [ADR-0027](../adr/0027-get-write-guard.md).
+
+핀 GET은 저장된 위치·rev로만 답하고 기존 계산 필드·순서는 유지한다. HTTP `/pins.md`도 저장 레코드에서 렌더한다. 미저장 위치 둘에 같은 rev가 붙어 오래된 편집이 허용되는 일을 막는다. 변경 트랜잭션은 재동기화한 뒤 `base_rev`를 대조하며 오래된 편집에는 409를 주고 재동기화는 저장한다. 시작·60초 유지 주기 외에 요청 독립적인 2초 stat 검사로 원고 변경을 찾는다. GET 위치와 HTTP·디스크 `pins.md` 모두 원고 수정 뒤 검사 간격 + 실행 시간만큼 늦을 수 있고 긴 실행·실패에는 더 늦는다. 뷰어는 이미 light meta의 `pins_rev` 변경 때만 핀을 다시 읽는다. 출처: [ADR-0028](../adr/0028-saved-pin-positions.md) 결정 1–4. 비교 GET은 기존 루트만 읽으며 루트가 없으면 상태는 `idle`, PDF는 기존 `404 revision_not_ready`다. 루트 생성·정리·컴파일은 권한을 받은 POST가 맡는다.
+
+수명·크기 한도가 있는 메모리 캐시와 한도 있는 Git 읽기 프로세스는 예외다. HTTP GET 계산은 본문을 끝까지 읽고 Host/Origin·신원·입장·읽기 권한 검사를 통과한 뒤에만 슬롯을 잡는다. 계산은 프로세스당 최대 4개가 실행되고 나머지는 기다린다. 본문 읽기를 마치지 못했거나 입장이 거절된 요청은 계산 슬롯을 차지하지 않는다. 연결 입장 상한과 별개이며 읽기 DoS 전체를 막는 보장은 아니다. 로그는 영속 무효과의 범위 밖이지만 요청 경로는 URL 파싱 전 4,096자로 제한한다(`414 bad_file`). 핀 경로 번호는 정수 변환 전에 ASCII 숫자 1–20자리로 제한한다. 같은 원인의 500 traceback·손상 핀 경고는 프로세스 수명 동안 한 번, 합계 최대 64개 원인·각 8 KiB로 제한하며 메모리에는 고정 크기 해시만 남긴다.

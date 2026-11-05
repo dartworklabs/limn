@@ -678,7 +678,7 @@ def post_operation(path: str) -> tuple[str, int | None]:
         return DOCUMENT_OPERATIONS[path], None
     if path == "/api/clear":
         return "clear", None
-    match = re.fullmatch(r"/api/pins/(\d+)/([a-z]+)", path)
+    match = re.fullmatch(r"/api/pins/([0-9]{1,20})/([a-z]+)", path)
     if match and match[2] in PIN_OPERATIONS:
         return match[2], int(match[1])
     raise HTTPError(404, "없는 경로입니다: %s" % path, reason="not_found")
@@ -686,7 +686,7 @@ def post_operation(path: str) -> tuple[str, int | None]:
 
 def check_read(path: str) -> None:
     """Admitted principals may read declared paths; new registrations start denied."""
-    if path in READ_PATHS or re.fullmatch(r"/api/pins/\d+", path):
+    if path in READ_PATHS or re.fullmatch(r"/api/pins/[0-9]{1,20}", path):
         return
     if path.startswith(("/pages/", "/vendor/pdfjs/", "/vendor/markdown-it/", "/vendor/pretendard/")):
         return  # These declared resource families validate their leaf names at their sink.

@@ -62,7 +62,7 @@ def parse_assignee(v: object, known: Collection[str]) -> str | None | InputRejec
         return InputRejected("assignee 는 'agent' 또는 사람의 로그인(문자열)입니다.", "bad_assignee")
     if v not in known:
         return InputRejected(
-            "담당(assignee) '%s' 은(는) 이 뷰어가 아는 사람이 아닙니다 — 'agent' 또는 뷰어를 연 적 있는 테일넷 사람의 로그인을 쓰세요."
+            "담당(assignee) '%s' 은(는) 이 뷰어가 아는 사람이 아닙니다 — 'agent' 또는 핀이나 답글을 남긴 적 있거나 멤버로 등록된 사람의 로그인을 쓰세요."
             % v,
             "unknown_assignee",
         )

@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, TypeAlias
 
+from limn.platform.effects import changed, require_writer
 from limn.platform.files import atomic_write
 from limn.revisions import core, execution
 from limn.revisions.core import (
@@ -42,13 +43,15 @@ from limn.revisions.core import (
 )
 
 
-def revision_cache_root(D: RevisionDoc) -> Path | UnsafeCache:
-    """The document's comparison cache folder (<state>/revisions for it), created if absent; UnsafeCache when it is a
+def revision_cache_root(D: RevisionDoc, *, create: bool = False) -> Path | UnsafeCache:
+    """The document's comparison cache folder (<state>/revisions for it), read without creating it; POST alone passes create=True. UnsafeCache when it is a
     symlink."""
     root = D.dir / "revisions"
     if root.is_symlink():
         return UnsafeCache()
-    root.mkdir(parents=True, exist_ok=True)
+    if create:
+        require_writer()
+        root.mkdir(parents=True, exist_ok=True)
     return root
 
 
@@ -223,7 +226,7 @@ def revision_start(
     if not isinstance(spec, RevisionSpec):
         return spec
     with ctx.jobs.lock:
-        root = revision_cache_root(D)
+        root = revision_cache_root(D, create=True)
         if isinstance(root, UnsafeCache):
             return root
         running = ctx.jobs.active.get(str(root / spec.key))
@@ -243,6 +246,7 @@ def _start_job(
     folder and starts the worker thread, which owns the claims from then on (_run_job frees them). Every return or
     exception before the thread starts frees what was claimed so far, in reverse order (ExitStack). The caller holds
     ctx.jobs.lock; cached is the status the job replaces (its fields seed the running status)."""
+    require_writer()
     jobs, jobdir = ctx.jobs, root / spec.key
     with contextlib.ExitStack() as claimed:
         if not jobs.slots.acquire(blocking=False):
@@ -276,6 +280,7 @@ def _start_job(
     except BaseException:
         owned.close()
         raise
+    changed()
     return running
 
 

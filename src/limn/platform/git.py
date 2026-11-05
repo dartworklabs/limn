@@ -25,6 +25,8 @@ import subprocess
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
+from limn.platform.effects import is_reading
+
 GIT_TIMEOUT = 30  # seconds - one git call (a history read, a diff, a --git-pull fetch)
 
 # GIT_* variables of the server's environment that reach git: the ssh transport the operator chose.
@@ -33,11 +35,20 @@ KEPT_GIT_VARS = frozenset({"GIT_SSH_COMMAND", "GIT_SSH", "GIT_SSH_VARIANT"})
 
 def git_env(environ: Mapping[str, str] | None = None, extra: Mapping[str, str] | None = None) -> dict[str, str]:
     """The environment of a git process: environ (default os.environ) without GIT_* variables other than
-    KEPT_GIT_VARS, with GIT_TERMINAL_PROMPT=0, then extra (e.g. LC_ALL=C for a caller that reads git's messages)."""
+    KEPT_GIT_VARS, with GIT_TERMINAL_PROMPT=0, then extra (e.g. LC_ALL=C). HTTP reads finally impose non-overridable read restrictions."""
     source = os.environ if environ is None else environ
     env = {k: v for k, v in source.items() if not k.startswith("GIT_") or k in KEPT_GIT_VARS}
     env["GIT_TERMINAL_PROMPT"] = "0"
     env.update(extra or {})
+    if is_reading():
+        # Git 2.43 ignores GIT_NO_LAZY_FETCH. An empty protocol allowlist denies
+        # every transport (including file and remote helpers) before a promisor
+        # fetch can receive/store objects, regardless of configured remotes or
+        # protocol.*.allow. Overriding remote.*.promisor=false is insufficient:
+        # 2.43 accumulates promisor entries, and partialCloneFilter adds them too.
+        # https://github.com/git/git/blob/v2.43.0/promisor-remote.c
+        # https://github.com/git/git/blob/v2.43.0/transport.c
+        env.update(GIT_NO_LAZY_FETCH="1", GIT_ALLOW_PROTOCOL="", GIT_OPTIONAL_LOCKS="0")
     return env
 
 

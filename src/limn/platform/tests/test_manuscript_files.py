@@ -1,8 +1,10 @@
 """Checked manuscript reads reject path substitution without leaking file descriptors."""
 
+import os
+
 import pytest
 
-from limn.platform.files import file_in_tree, tex_lines
+from limn.platform.files import ManuscriptReadError, file_in_tree, tex_lines
 
 
 def test_checked_file_refuses_leaf_symlink_substitution(tmp_path):
@@ -240,3 +242,18 @@ def test_bounded_read_refuses_a_file_replaced_by_a_link(tmp_path):
     assert checked.read_bounded(4096) == ReadRefused()
     source.unlink()
     assert checked.read_bounded(4096) == ReadRefused()
+
+
+def test_checked_snapshot_distinguishes_empty_epoch_file_from_read_failure(tmp_path):
+    """Even an empty file with mtime zero is valid input; decode/open failure must not fabricate that snapshot."""
+    source = tmp_path / "main.tex"
+    source.write_bytes(b"")
+    os.utime(source, (0, 0))
+    checked = file_in_tree(str(source), tmp_path, tmp_path / "state")
+    assert checked.snapshot_checked() == ([], 0.0)
+    source.write_bytes(b"\xff")
+    with pytest.raises(ManuscriptReadError):
+        checked.snapshot_checked()
+    source.unlink()
+    with pytest.raises(ManuscriptReadError):
+        checked.snapshot_checked()
