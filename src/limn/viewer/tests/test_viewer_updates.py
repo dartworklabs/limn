@@ -899,7 +899,8 @@ class UpdateFlows(BrowserBase):
         range the message named - not A → D, the checkout's newest; C comes with its own message. Thirty-one commits
         more and a build at the newest push B off the first page of rows the list reads: the range is still A → B.
         Mutation: keep a range only when its start is among the rows read -> the view moves to the newest commit alone,
-        fails."""
+        fails. The view is first opened for a pin: the message's [변경 보기] drops that pin and shows its own range.
+        Mutation: keep REV.target in openUpdateRange -> the pin's commit shows again, fails."""
         env = dict(
             os.environ,
             GIT_AUTHOR_NAME="Alice",
@@ -941,8 +942,15 @@ class UpdateFlows(BrowserBase):
             "(()=>{const n=LINE.find(x=>x.group==='upd:ms'); return [n.title,n.desc,n.act&&n.act.label];})()"
         )
         self.assertEqual(said, ["본문이 바뀌었습니다", "PR #12 Update introduction · Alice", "변경 보기"])
+        # the changes view is open for a pin first: the message's [변경 보기] shows its range, not the pin's commit
+        pid = add_pin({"file": str(self.main), "lo": 1, "hi": 1, "note": "a"}, actor(ALICE), doc=self.ms).record["id"]
+        page.evaluate("loadPins()")
+        until(page, "OPEN_ALL.some(p=>p.id===%d)" % pid)
+        page.evaluate("showChange(%d)" % pid)
+        until(page, "document.body.classList.contains('revision-open')&&!!REV.target&&REV.rowsDoc==='ms'&&!!REV.commit")
         page.evaluate("noticeAct(LINE.find(n=>n.group==='upd:ms').n)")
-        until(page, "document.body.classList.contains('revision-open')&&REV.rowsDoc==='ms'&&!!REV.commit")
+        until(page, "!REV.target&&!!REV.range&&REV.range.base===%s&&!!REV.commit" % json.dumps(a))
+        self.assertTrue(page.evaluate("$('#revision-pin').hidden"))
         got = page.evaluate("[REV.rows[0].id,REV.commit,REV.base,REV.range.start,REV.range.end]")
         self.assertEqual(got, [c, b, a, b, b])
         settle(page)

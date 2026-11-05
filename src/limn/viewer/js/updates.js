@@ -207,7 +207,8 @@ function updPinMoved(p,lost){const k=pdoc(p),g=GROUPS.get('upd:'+k),t=Date.now()
 // since the message, is not in it), the list painting just them (revisions.js REV.want); without base, the view as it
 // opens. Another document is switched to first.
 /** @param {string} k @param {string} base @param {string} [top] */
-function openUpdateRange(k,base,top){const go=()=>{REV.want={base,top:top||''}; if(document.body.classList.contains('revision-open'))loadRevisions(); else setViewMode(VIEW_MODE.REVISIONS);};
+function openUpdateRange(k,base,top){const go=()=>{REV.want={base,top:top||''}; REV.target=null;   // the view opened for a pin shows the message's range now, not that pin's commit
+  if(document.body.classList.contains('revision-open'))loadRevisions(); else setViewMode(VIEW_MODE.REVISIONS);};
   if(k===DOC){go(); return;} const opening=switchDoc(k),visit=SWITCHSEQ; opening.then(()=>{if(DOC===k&&visit===SWITCHSEQ)go();});}
 
 // ---------------- A drawn document's changed lines
