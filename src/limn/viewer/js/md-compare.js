@@ -39,16 +39,15 @@ function mdcParse(text){mdcParseStop(null);
 /** @param {any} r */
 function mdcParseStop(r){const j=MDC.job; if(!j)return; MDC.job=null; clearTimeout(j.t);
   if(MDC.worker){MDC.worker.terminate(); MDC.worker=null;} j.resolve(r);}
-// One side drawn with the Markdown surface's renderer (mdRender) into a root of its own, at once: the renderer reads the lines
-// it trims and counts its elements on MD, so those are this side's for the build and the surface's again after it, with no
-// pause in between for the surface to run in. null past MD_LIMITS.elements. Ids go (a heading's): the surface keeps them.
+// One side drawn with the Markdown surface's renderer (mdRender) into a root of its own, at once, with a render context of
+// its own (mdRx: its lines, its element count, its marked characters, its headings - the document view's MD is never
+// touched). null past MD_LIMITS.elements. Ids go (a heading's): the surface keeps them.
 /** @param {any[]} tokens @param {string[]} lines @returns {HTMLElement|null} */
-function mdcBuild(tokens,lines){const keep={lines:MD.lines,els:MD.els,heads:MD.heads},root=document.createElement('div');
+function mdcBuild(tokens,lines){const root=document.createElement('div'),cx=mdRx(lines);
   root.className='md mdc-doc'; root.setAttribute('translate','no'); root.lang='';
-  MD.lines=lines; MD.els=0; MD.heads=[];
-  try{for(const pause of mdRender(root,tokens))void pause;}
+  try{for(const pause of mdRender(root,tokens,cx))void pause;}
   catch(e){if(e===MD_OVER)return null; throw e;}
-  finally{MD.lines=keep.lines; MD.els=keep.els; MD.heads=keep.heads;}
+  mdRxKeep(root,cx);   // an image that fails later draws its alt text on this side's count (mdPicError)
   root.querySelectorAll('[id]').forEach(e=>e.removeAttribute('id'));
   // a link here reads: an in-document heading and another document stay words, so the view never leaves for the manuscript
   root.querySelectorAll('[data-act="md-anchor"],[data-act="md-doc"]').forEach(e=>{const x=/** @type {HTMLElement} */(e); delete x.dataset.act; x.removeAttribute('role'); x.removeAttribute('tabindex');
