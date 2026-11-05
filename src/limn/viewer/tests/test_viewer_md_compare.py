@@ -847,3 +847,60 @@ class AltRewrapped(OneNote):
             page.evaluate("document.querySelector('#revision-rendered [data-mdc]').dataset.mdcWhy"),
             "글자 모양(굵게·기울임·코드·링크)이 바뀜",
         )
+
+
+CHILD_REFS = (
+    "# 항목\n\n- 그림이 든 항목이다\n  > ![{alt}](figs/{pic}.png)\n- 표가 든 항목이다\n  | 열 |\n  | --- |\n"
+    "  | [링크 글자](https://example.com/{to}) |\n- 끝 항목이다\n\n끝 문단이다.\n"
+)
+
+
+class ChildBlockRefs(OneNote):
+    """Tight list items holding a quote with an image and a table with a link. The first commit changes the image's file
+    and the link's target, the second the alt text, while the first item's own words become bold; the third rewrites the
+    second item's words and puts another row with another link in place of its table's row."""
+
+    def texts(self):
+        return [
+            CHILD_REFS.format(alt="그림", pic="v1", to="a"),
+            CHILD_REFS.format(alt="그림", pic="v2", to="b"),
+            CHILD_REFS.format(alt="새 그림", pic="v2", to="b").replace("- 그림이 든", "- **그림이** 든"),
+            CHILD_REFS.format(alt="새 그림", pic="v2", to="c")
+            .replace("- 그림이 든", "- **그림이** 든")
+            .replace("- 표가 든 항목", "- 표가 든 둘째 항목")
+            .replace("[링크 글자]", "[다른 말]"),
+        ]
+
+    def setUp(self):
+        super().setUp()
+        (self.src / "figs/v2.png").write_bytes(blank_png(60, 20))
+
+    def test_a_child_blocks_image_link_and_alt_text_are_its_own_not_its_items(self):
+        """The image and the link belong to the quote's paragraph and the table's row: the paragraph is taken out and added
+        (another image), the row is changed in place with its link marked, and both items stay as they were. Then the
+        bold item is changed in place for its formatting, not for the alt text its quote's image got. Mutations: count a
+        list item's images and links up to the next list item (closest('li')) in mdcRefs -> the items are taken out and
+        added or changed, fails; take its alt texts the same way -> the bold item says its alt text changed, fails. The
+        rewritten item is changed in place and its table's rows are taken out and added, no link marked as retargeted.
+        Mutation: mark every link below a list item in mdcLinkMarks -> the added row's link says its target changed,
+        fails."""
+        page = self.open_compare()
+        self.show(page, self.c[1])
+        self.assertEqual([(k, t) for k, t, _ in self.marks(page)], [("del", "P"), ("ins", "P"), ("mod", "TR")])
+        self.assertEqual(
+            page.evaluate(
+                "[...document.querySelectorAll('#revision-rendered tr[data-mdc] .mdc-wl')].map(e=>e.textContent)"
+            ),
+            ["링크 글자"],
+        )
+        self.show(page, self.c[2])
+        self.assertEqual([(k, t) for k, t, _ in self.marks(page)], [("mod", "LI"), ("mod", "P")])
+        self.assertEqual(
+            page.evaluate(
+                "[...document.querySelectorAll('#revision-rendered [data-mdc]')].map(e=>e.dataset.mdcWhy||'')"
+            ),
+            ["글자 모양(굵게·기울임·코드·링크)이 바뀜", "그림 대체 글이 바뀜"],
+        )
+        self.show(page, self.c[3])
+        self.assertEqual([(k, t) for k, t, _ in self.marks(page)], [("mod", "LI"), ("del", "TR"), ("ins", "TR")])
+        self.assertEqual(page.evaluate("document.querySelectorAll('#revision-rendered .mdc-wl,.mdc-wl-del').length"), 0)

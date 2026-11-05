@@ -61,6 +61,13 @@ async function mdcBuild(tokens,lines,live){const root=document.createElement('di
 // item's own text leaves these out.
 /** @param {Element} e */
 function mdcNested(e){return /^(UL|OL|P|PRE|BLOCKQUOTE|TABLE|DIV|H[1-6]|HR)$/.test(e.tagName);}
+// Whether element e inside unit el is part of the unit's own content: for a list item, nothing between them is a nested
+// block (mdcNested) - its nested list, a quote or a table in it are units of their own, wherever they sit below it. The one
+// boundary of a list item's text (mdcText), its structure (mdcShape), its words (mdcToks), its images, links and alt texts
+// (mdcRefs, mdcUnits) and its marked links (mdcLinkMarks). Pure over the DOM.
+/** @param {HTMLElement} el @param {Element} e */
+function mdcOwnPart(el,e){if(el.tagName!=='LI')return true;
+  for(let a=/** @type {Element|null} */(e);a&&a!==el;a=a.parentElement)if(mdcNested(a))return false; return true;}
 // Whether element e (one MDC_UNIT matches) is a unit: not a loose list item (its paragraphs are units of their own), not a raw
 // HTML block inside a run (the run is one), not the code box of the front matter (the front matter is one).
 /** @param {Element} e */
@@ -92,7 +99,7 @@ function mdcLines(el){return [...el.querySelectorAll('.ln')].map(l=>String(l.tex
 function mdcUnits(root){const out=/** @type {MdcUnit[]} */([]);
   for(const x of root.querySelectorAll(MDC_UNIT)){const el=/** @type {HTMLElement} */(x); if(!mdcIsUnit(el))continue;
     const tag=mdcTag(el),text=mdcText(el,tag),cont=/** @type {Set<Element>} */(new Set()),shape=mdcShape(el,tag,cont);
-    const refs=mdcRefs(el,'a,[data-anchor],.md-rel',cont),pics=mdcRefs(el,'.md-pic,.md-img'),box=mdcBoxes(el,root),alts=[...el.querySelectorAll('img')].filter(i=>el.tagName!=='LI'||i.closest('li')===el).map(i=>(i.getAttribute('alt')||'').replace(/\s+/g,' ').trim()).join('\u0001');
+    const refs=mdcRefs(el,'a,[data-anchor],.md-rel',cont),pics=mdcRefs(el,'.md-pic,.md-img'),box=mdcBoxes(el,root),alts=[...el.querySelectorAll('img')].filter(i=>mdcOwnPart(el,i)).map(i=>(i.getAttribute('alt')||'').replace(/\s+/g,' ').trim()).join('\u0001');
     const lo=+(el.dataset.lo||el.dataset.rLo||0),hi=+(el.dataset.hi||el.dataset.rHi||lo);
     out.push({el,tag,key:[tag,box,shape,pics,refs].join('\u0001'),text,pics,shape,box,alts,lo,hi});}
   return out;}
@@ -168,12 +175,13 @@ function mdcText(el,tag){if(el.tagName==='TR')return [...el.children].map(c=>(c.
   if(mdcLined(tag))return mdcLines(el).join('\n').replace(/\s+/g,' ').trim();
   let s=''; const walk=(/** @type {Node} */n)=>{for(const c of n.childNodes){if(c.nodeType===3)s+=c.nodeValue; else if(c.nodeType===1&&!(el.tagName==='LI'&&mdcNested(/** @type {Element} */(c))))walk(c);}};
   walk(el); return s.replace(/\s+/g,' ').trim();}
-// What a unit's images (sel '.md-pic,.md-img': tree path or alt text) or links (their targets) point at, in order; a link the
+// What a unit's images (sel '.md-pic,.md-img': tree path or alt text) or links (their targets) point at, in order - its own
+// (mdcOwnPart: not those of a quote, a table or a list nested in a list item, which are in those blocks' keys); a link the
 // renderer opened again after a line break inside it (skip, from mdcShape) is the link before it, not counted again.
 /** @param {HTMLElement} el @param {string} sel @param {Set<Element>} [skip] */
 function mdcRefs(el,sel,skip){const out=[];
   for(const x of el.querySelectorAll(sel)){const e=/** @type {HTMLElement} */(x);
-    if(el.tagName==='LI'&&e.closest('li')!==el||skip&&skip.has(e))continue;
+    if(!mdcOwnPart(el,e)||skip&&skip.has(e))continue;
     out.push(e.dataset.path||e.dataset.tipUrl||e.getAttribute('href')||e.dataset.anchor||e.textContent||'');}
   return out.join(' ');}
 // ---------------- Comparing sequences
@@ -297,10 +305,11 @@ function mdcWordMarks(oldEl,newEl,budget){if(budget&&budget.left<=0)return;
     const end=x.el.lastChild,nl=end&&end.nodeType===3&&/\n$/.test(String(end.nodeValue||''))?/** @type {Text} */(end).splitText(String(end.nodeValue).length-1):null;
     w.append(...[...x.el.childNodes].filter(c=>c!==nl)); x.el.insertBefore(w,nl);}}
 // A link of a block changed in place whose target the other side's block does not have: marked like an added (new side) or a
-// taken-out word (old side), its tip saying the target changed - a link's words can stay while where it goes changes.
+// taken-out word (old side), its tip saying the target changed - a link's words can stay while where it goes changes. A list
+// item's own links only (mdcOwnPart): a nested block's are that block's.
 /** @param {HTMLElement} oldEl @param {HTMLElement} newEl */
 function mdcLinkMarks(oldEl,newEl){const sel='a,.md-rel,[data-anchor]',to=(/** @type {Element} */e)=>{const x=/** @type {HTMLElement} */(e); return x.dataset.tipUrl||x.getAttribute('href')||x.dataset.anchor||'';};
-  const olds=[...oldEl.querySelectorAll(sel)],news=[...newEl.querySelectorAll(sel)],ot=new Set(olds.map(to)),nt=new Set(news.map(to));
+  const olds=[...oldEl.querySelectorAll(sel)].filter(e=>mdcOwnPart(oldEl,e)),news=[...newEl.querySelectorAll(sel)].filter(e=>mdcOwnPart(newEl,e)),ot=new Set(olds.map(to)),nt=new Set(news.map(to));
   for(const e of news){const t=to(e); if(t&&!ot.has(t)){e.classList.add('mdc-wl'); /** @type {HTMLElement} */(e).dataset.tip=tl('링크 대상이 바뀜 · {to}',{to:ccPlain(t)});}}
   for(const e of olds){const t=to(e); if(t&&!nt.has(t))e.classList.add('mdc-wl-del');}}
 // A word mark (ins, del) holding text, each character that would hide or reorder it in its box (ccHtml), as the drawn text has.
