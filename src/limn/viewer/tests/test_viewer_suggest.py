@@ -596,10 +596,14 @@ class SuggestCard(SuggestBase):
         sent to review: the plain badge, its diff still shown."""
         pid = self.add(note="짧게", suggest={"base": PARA, "text": NEW})
         self.main.write_text(TEX.replace("Second line of the paragraph.", "Second line, edited."), encoding="utf-8")
+        # GET projects saved stale state; independent upkeep must persist the lost anchor first.
+        ps.APP.assembly.pins.startup.maintain()
         page = self.view(n_open=1)
         self.assertEqual(page.evaluate(CARD, pid)["badge"], "제안 수정 · 원문 바뀜")
         self.assertTrue(page.evaluate(CARD, pid)["warn"])
         self.main.write_text(TEX.replace(PARA + "\n", "Something else entirely here.\nAnd more.\n"), encoding="utf-8")
+        # GET projects saved stale state; independent upkeep must persist the lost anchor first.
+        ps.APP.assembly.pins.startup.maintain()
         page.evaluate("loadPins()")
         settle(page)
         self.assertEqual(page.evaluate(CARD, pid)["badge"], "제안 수정 · 확인 불가")
@@ -650,6 +654,8 @@ class SuggestCard(SuggestBase):
         page = self.view(n_open=3)
         self.assertEqual([page.evaluate(WARN, i) for i in (pid, other, plain)], [None, None, None])
         self.main.write_text(TEX_CHANGED.replace("Filler line 11.", "Filler line 11, edited."), encoding="utf-8")
+        # GET projects saved stale state; independent upkeep must persist the lost anchor first.
+        ps.APP.assembly.pins.startup.maintain()
         page.evaluate("loadPins()")
         settle(page)
         self.assertEqual([page.evaluate(WARN, i) for i in (pid, other, plain)], [WARN_KO[0], WARN_KO[0], None])
@@ -661,6 +667,8 @@ class SuggestCard(SuggestBase):
             ),
             encoding="utf-8",
         )
+        # GET projects saved stale state; independent upkeep must persist the lost anchor first.
+        ps.APP.assembly.pins.startup.maintain()
         page.evaluate("loadPins()")
         settle(page)
         self.assertEqual(page.evaluate(WARN, pid), WARN_KO[1])
@@ -688,6 +696,8 @@ class SuggestCard(SuggestBase):
         pid = self.add(note="짧게", suggest={"base": PARA, "text": NEW})
         other = self.add(**SECOND)
         self.main.write_text(TEX_BOTH, encoding="utf-8")
+        # GET projects saved stale state; independent upkeep must persist the lost anchor first.
+        ps.APP.assembly.pins.startup.maintain()
         page = self.view(n_open=2, lang="en")
         self.assertEqual([page.evaluate(WARN, i) for i in (pid, other)], list(WARN_EN))
 
@@ -710,6 +720,8 @@ class SuggestCard(SuggestBase):
         pid = self.add(note="짧게", suggest={"base": PARA, "text": NEW})
         other = self.add(**SECOND)
         self.main.write_text(TEX_BOTH, encoding="utf-8")
+        # GET projects saved stale state; independent upkeep must persist the lost anchor first.
+        ps.APP.assembly.pins.startup.maintain()
         for device in (DESK, PHONE):
             with self.subTest(touch=bool(device.get("has_touch"))):
                 page = self.view(device, n_open=2)
@@ -773,6 +785,8 @@ class SuggestCard(SuggestBase):
         pid = self.add(note="짧게", suggest={"base": PARA, "text": NEW})
         other = self.add(**SECOND)
         self.main.write_text(TEX_BOTH, encoding="utf-8")
+        # GET projects saved stale state; independent upkeep must persist the lost anchor first.
+        ps.APP.assembly.pins.startup.maintain()
         ps.APP.C.people_file.write_text(
             json.dumps({"version": 1, "people": [dict(actor(ALICE), role="viewer")]}), encoding="utf-8"
         )
@@ -914,6 +928,8 @@ class SuggestEditCard(SuggestBase):
         pid = self.add(note="짧게", suggest={"base": PARA, "text": NEW})
         other = self.add(**SECOND)
         self.main.write_text(TEX_BOTH, encoding="utf-8")
+        # GET projects saved stale state; independent upkeep must persist the lost anchor first.
+        ps.APP.assembly.pins.startup.maintain()
         page = self.view(n_open=2)
         page.click('.pin[data-id="%d"] .sg-warn-go' % pid)
         page.wait_for_function("id=>EDITOR.current&&EDITOR.current.id===id&&EDITOR.current.levels.length>0", arg=pid)
@@ -1026,6 +1042,8 @@ class SuggestGeometry(SuggestBase):
         pid = self.add(note="짧게", suggest={"base": PARA, "text": NEW})
         other = self.add(**SECOND)
         self.main.write_text(TEX_BOTH, encoding="utf-8")
+        # GET projects saved stale state; independent upkeep must persist the lost anchor first.
+        ps.APP.assembly.pins.startup.maintain()
         for name in ("desktop 1440x900", "phone 320x720"):
             for lang, words in (("ko", WARN_KO), ("en", WARN_EN)):
                 with self.subTest(band=name, lang=lang):
