@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **A Markdown document keeps its reading line when its column changes width.** A rotation, collapsing the panel
+  beside it or resizing the window reflowed the column and kept only the scroll offset, so the top line jumped by tens
+  of lines (L247 to L307) and a chosen line could leave the screen with only the composer showing. The line at the top
+  and how far into it the top stands are kept across every reflow, as the PDF surface keeps its spot, and a chosen line
+  that was on screen is brought back into view. Opening the changes view and coming back keeps it too, also when the
+  window turned meanwhile, and when the source changed on disk and was drawn again while the changes view was open.
+- **[위치 다시 잡기] on a Markdown pin marks the candidate in the document,** as the PDF surface draws its box, and the
+  banner and the moved-pin message write a one-line range as `L9`, not `L9-L9`, on both surfaces.
+- **Screen readers and the keyboard on a Markdown document.** The document area is the region "Markdown document", not
+  "PDF pages", and the composer's and the cards' quote say the text was chosen in the document. Pin badges come in line
+  order, each just before its line, instead of after the last link in pin order; they stay where they were drawn. The
+  document says its language is unknown (`lang=""`), so an English screen does not read a Korean document with an
+  English voice. An outline entry is named by its heading alone, not the dot and the line label, which is its
+  description.
+- **Esc, [취소] and a save leave the focus at the place, on both surfaces,** instead of on the page's body, where the next
+  Tab went to the sidebar: Esc and [취소] put it on the line clicked (Markdown) or the page of the selection (PDF), and a
+  save or an append on the pin's badge or mark. A save whose answer comes after a new selection was opened leaves the
+  focus in the new note. A composition cut off by its field going away (switching documents while a verdict reason was
+  being composed) no longer keeps the focus on the page's body afterwards.
+
 ## 0.4.50 — 2026-11-05
 
 ### Security

@@ -233,6 +233,31 @@ def settle(page, timeout=15000):
     page.wait_for_function(QUIET, timeout=timeout, polling="raf")
 
 
+def until(page, js, timeout=8.0):
+    """Poll expression js with page.evaluate (not wait_for_function: the page's CSP refuses a string it would evaluate), or
+    call js when it is a function, until it is truthy; fails after timeout seconds. Route handlers run only inside a Playwright
+    call, so a function that waits on one makes a call on each try."""
+    end = time.monotonic() + timeout
+    while not (js() if callable(js) else page.evaluate(js)):
+        if time.monotonic() > end:
+            raise AssertionError("not true after %ss: %s" % (timeout, js))
+        time.sleep(0.05)
+
+
+def hold_pin_reads(page):
+    """Hold the next pin read (GET /api/pins?all=1) on page; returns the list it is put in. Later reads go on as usual."""
+    page.evaluate("clearInterval(LIGHT_TIMER)")  # no poll's read is held in its place
+    held = []
+
+    def hold(route):
+        if held:
+            return route.fallback()
+        held.append(route)
+
+    page.route("**/api/pins?all=1", hold)
+    return held
+
+
 def fonts_ready(page):
     """Wait for document.fonts.ready - every web font load the page has started has finished, so its text is drawn in
     the bundled Pretendard Variable and not a fallback it shows meanwhile (docs/handbook/viewer.md §글꼴) - and return

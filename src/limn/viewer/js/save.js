@@ -1,5 +1,6 @@
 // Append a note to an existing pin; a late response must leave any newer selection on screen. Its undo is a chip on that pin's
-// mark ('덧붙임 [되돌리기]', docs/handbook/viewer.md §알림 자리), and a failure a banner over the composer's save row.
+// mark ('덧붙임 [되돌리기]', docs/handbook/viewer.md §알림 자리), and a failure a banner over the composer's save row. A focus the
+// closed composer took goes to that pin's mark (focusPlace).
 /** Append once to the displayed pin revision; conflicts keep the draft, and undo can restore only that verified prior note. */
 async function appendToPin(id,text){
   if(COMPOSE.saving||viewerBlocked())return;
@@ -14,12 +15,14 @@ async function appendToPin(id,text){
   try{const {status,data}=await api('/api/pins/'+id+'/edit',{method:'POST',body,what:'메모 덧붙이기',where:NOTICE_HOST.COMPOSER,intent:'append',expect:[409]});
     if(status===409){bannerNote(NOTICE_HOST.COMPOSER,'다른 쪽이 이 핀을 먼저 바꿨습니다 — 최신 메모를 확인하고 다시 덧붙이세요',NOTICE_KIND.WARN,null,{source:'POST /api/pins/'+id+'/edit append'});
       await loadPins();return;}
+    const closed=composeOwns(selection,box,visit,fields)||restoredDraftOwns(draft);
     if(composeOwns(selection,box,visit,fields)){COMPOSE.box=null; cancelSelection(true); if(box)box.remove(); syncDraft();}
     else if(restoredDraftOwns(draft)){cancelSelection(true); syncDraft();}
     else clearSavedDraft(draft);
+    const after=closed?focusClosed():null;   // a composer opened while the pins reload keeps the focus (focusPlace)
     const chip=undoNote(NOTICE_PLACE.CHIP,tl('#{id} 에 덧붙였습니다',{id}),{label:'되돌리기',wait:true,fn:()=>undoAppend(id,priorNote,data.pin.rev)},
       {pin:id,pending:true,label:tr('덧붙임')});
-    await loadPins(); settleChip(chip);
+    await loadPins(); settleChip(chip); if(after)focusPlace(selection,id,after);   // a focus the closed composer took goes to that pin's mark
   }catch(e){}finally{COMPOSE.saving=false; syncComposeSaveButtons();}}
 /** Keep all create and append controls in step with their shared request lifetime; editable fields remain available. An append
  * also waits while a suggested edit is written (it is saved with a new pin only, renderOverlapBanner). */
@@ -50,7 +53,8 @@ function clearPendingSave(){if(!COMPOSE.pendingSave)return; COMPOSE.pendingSave=
 // for NOTICE_MS, visible with the phone's sheet folded; its [되돌리기] drops the pin again and - only once that delete went
 // through - reopens the composer with the same selection and note. A failed undo keeps the pin and no composer (a second
 // save would duplicate it); its failure's [다시 시도] runs the whole undo again. Failed save: a banner over the save row,
-// whose button then reads [다시 저장] (api's save flag). A suggested edit goes along (suggestForSave); when its base no longer
+// whose button then reads [다시 저장] (api's save flag). A focus the closed composer took goes to the new pin's mark once it is
+// drawn (focusPlace). A suggested edit goes along (suggestForSave); when its base no longer
 // reads as the lines (409 suggest_base_changed) nothing is saved, the draft stays, the editor shows the current text against it
 // and the failure's banner offers [지금 원문으로 맞추기].
 // With verdict (a word of the document's, the composer's verdict row - which calls it only with a found selection: its buttons
@@ -107,6 +111,7 @@ async function savePin(verdict){
     if(cleared){COMPOSE.box=null; cancelSelection(true); if(box)box.remove(); syncDraft();}   // a saved pin leaves no draft
     else if(restored){cancelSelection(true); syncDraft();}
     else clearSavedDraft(draft);
+    const after=cleared||restored?focusClosed():null;   // a composer opened while the pins reload keeps the focus (focusPlace)
     if(SEC_SEEN.open)SEC_SEEN.open.add(id);   // my own new pin is never 'new' on a collapsed header
     /** @type {(run?:NoticeRun)=>Promise<boolean>} */
     const undo=verdict?verdictUndo(id):async run=>{const mine=run?null:focusRun(),ok=await dropPin(id,true,undo); if(mine)mine.stop();
@@ -120,7 +125,7 @@ async function savePin(verdict){
     const chip=verdict?undoNote(NOTICE_PLACE.CHIP,said,{label:'되돌리기',wait:true,fn:undo},{pin:id,pending:true,label:tl('#{id} 저장됨 · {word}',{id,word:verdictLabel(verdict)})})
       :undoNote(NOTICE_PLACE.CHIP,tl(question?'질문 #{id} 저장됨 · pins.md 갱신':'핀 #{id} 저장됨 · pins.md 갱신',{id}),
       {label:'되돌리기',wait:true,fn:undo},{pin:id,pending:true,label:tr('저장됨')});
-    await loadPins(); settleChip(chip);
+    await loadPins(); settleChip(chip); if(after)focusPlace(d,id,after);   // a focus the closed composer took goes to the new pin's mark
   }catch(e){if(verdict){if(COMPOSE.intent===gen)COMPOSE.retryVerdict={key:verdict,sel:d,gen}; else verdictDropped();}}   // [다시 저장] saves this verdict again, or the banner says it was dropped
   finally{COMPOSE.saving=false; syncComposeSaveButtons();}
 }

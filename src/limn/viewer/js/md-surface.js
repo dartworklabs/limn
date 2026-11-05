@@ -25,13 +25,15 @@ const MD_LIMITS=Object.freeze({nesting:20,blocks:30000,inlines:150000,elements:6
 // (asked: the light poll asks once per change while that read is on its way, and a failed read clears it), the reading line
 // (at), the limit hit (limit), its headings, the worker and its parse in flight,
 // whether a redraw waits for a field (waiting), the elements built so far (els), the document #doc shows now (shown: '' for
-// none - a PDF document's pages, the wait line) and the reading spot a kept view asks for once it is drawn (want).
+// none - a PDF document's pages, the wait line), the reading spot a kept view asks for once it is drawn (want) and the reading
+// spot as last read at the column's width then (spot, mdSpotRead: kept across a reflow and a redraw while hidden, mdSpotKeep).
 const MD={gen:0,doc:/** @type {string|null} */(''),file:'',name:'',lines:/** @type {string[]} */([]),mtime:/** @type {number|null} */(null),
   asked:/** @type {number|null} */(null),at:0,limit:/** @type {string|null} */(null),
   heads:/** @type {{level:number,lo:number,el:HTMLElement,title:string,slug:string}[]} */([]),
   worker:/** @type {Worker|null} */(null),job:/** @type {{id:number,resolve:(r:any)=>void,t:ReturnType<typeof setTimeout>}|null} */(null),seq:0,
   waiting:false,els:0,shown:/** @type {string|null} */(''),want:/** @type {{line:number,off:number,top:number}|null} */(null),
-  jumpTo:/** @type {{id:number,doc:string|null,seq:number}|null} */(null)};
+  jumpTo:/** @type {{id:number,doc:string|null,seq:number}|null} */(null),
+  spot:/** @type {{doc:string|null,w:number,el:HTMLElement|null,line:number,key:string,frac:number,off:number|null,sel:boolean,again:boolean}|null} */(null)};
 // Whether the document on screen is drawn here (no pages), and whether pin p belongs to such a document of this instance.
 function isMdDoc(){return !!META&&rendersInBrowser(META.kind);}
 /** @param {Pin} p */
@@ -86,11 +88,18 @@ async function mdBuild(){if(mdFieldBusy()){MD.waiting=true; return;}
     root=mdLineView(/** @type {string} */(limit));}
   mdShow(root);}
 // Puts node in #doc, keeping the reading spot (the source line at the pane's top, and how far down it), then the marks, the
-// outline, the strip and the chosen lines.
+// outline, the strip and the chosen lines. While the column is hidden (under the changes view) nothing can be measured: the
+// spot read before it was hidden (MD.spot, or the view a return asks for) is kept as its line and marked to be put back on
+// that line's new element once the column is shown, at whatever width (mdSpotKeep).
 /** @param {HTMLElement} node */
-function mdShow(node){const a=MD.want||(MD.shown===DOC?mdAnchor():null); MD.want=null; MD.limit=node.dataset.limit||null;
+function mdShow(node){const want=MD.want,shown=mdColumnShown(); MD.want=null; MD.limit=node.dataset.limit||null;
+  const a=shown?(want||(MD.shown===DOC?mdAnchor():null)):null;
+  if(!shown){const s=MD.spot;
+    if(want)MD.spot={doc:DOC,w:0,el:null,line:want.line,key:'',frac:0,off:want.off,sel:false,again:true};
+    else if(s&&s.doc===DOC&&MD.shown===DOC){s.el=null; s.again=true;}
+    else MD.spot=null;}
   $('#doc').replaceChildren(node); MD.shown=DOC; mdRestore(a);
-  if(MD_RO)MD_RO.observe(node); mdOutline(); marks(); mdRelevel(); mdSelMark(COMPOSE.current); mdStrip();
+  if(MD_RO)MD_RO.observe(node); mdOutline(); marks(); mdRelevel(); mdSelMark(mdSelShown()); mdStrip(); mdSpotRead(true);
   const j=MD.jumpTo; MD.jumpTo=null; if(j&&j.doc===DOC&&j.seq===SWITCHSEQ)mdJump(j.id);}   // a jump asked before the draw (mdJump)
 // The line view offers the chosen lines alone (mdLineView): a pick of this document whose ladder came from the drawn document
 // (a draft kept from before the parser failed) keeps its lines but takes the ladder a pick there gives - those lines, as lines.
@@ -109,8 +118,8 @@ function mdCount(n){return Number(n).toLocaleString('en');}
 // The plain source-line view: every server line as a line span (data-line), numbered by CSS, under a line naming the limit
 // that was hit. Pins, the composer and suggested edits work as ever; the ladder has the chosen lines only.
 /** @param {string} limit @returns {HTMLElement} */
-function mdLineView(limit){const root=document.createElement('article'); root.className='md md-lines'; root.id='md'; root.dataset.limit=limit; root.setAttribute('translate','no');
-  const head=document.createElement('div'); head.className='md-limit'; head.setAttribute('role','status'); head.textContent=mdLimitText(limit); root.appendChild(head);
+function mdLineView(limit){const root=document.createElement('article'); root.className='md md-lines'; root.id='md'; root.dataset.limit=limit; root.setAttribute('translate','no'); root.lang='';   // as mdRenderAll's
+  const head=document.createElement('div'); head.className='md-limit'; head.setAttribute('role','status'); head.textContent=mdLimitText(limit); head.lang=document.documentElement.lang; root.appendChild(head);   // the viewer's words, in the screen's language
   const body=document.createElement('div'); body.className='md-src';
   MD.lines.forEach((ln,i)=>{const s=document.createElement('span'); s.className='ln'; s.dataset.line=String(i+1); s.textContent=ln+'\n'; body.appendChild(s);});
   root.appendChild(body); return root;}
@@ -135,11 +144,64 @@ function mdAnchor(){const L=$('#left'); if(!$('#md')||!MD.lines.length)return nu
   return e?{line:+(e.dataset.line||e.dataset.lo||0),off:top-e.getBoundingClientRect().top,top:L.scrollTop}:null;}
 function mdRestore(a){const L=$('#left'); if(!a){return;} const e=mdLeaves(a.line,a.line)[0]; if(!e){L.scrollTop=a.top; return;}
   L.scrollTop+=e.getBoundingClientRect().top+a.off-L.getBoundingClientRect().top;}
+// ---------------- The reading spot across a reflow (docs/handbook/viewer.md §그리기)
+// The column reflows the moment its width changes - a rotation, the panel collapsing beside it, a window resized, the outline
+// opening - and the scroll offset alone then stands on other lines (the top line went from L247 to L307). So the spot is read
+// while the width stands - on each scroll's frame and after each draw (mdSpotRead) - and put back once the width has moved
+// (mdSpotKeep): from relayout, and from the column's ResizeObserver, which runs after the layout and before the paint. A scroll
+// the reflow itself makes (an offset cut back to the new height) reads only after the spot is back.
+// Reads the spot now: the line element at the document area's top (mdAt) and how far down it the top is (frac, 0-1; el null
+// at the very top), the column's width, and whether the chosen lines (.md-sel) are on screen. A read at a width that is not
+// the spot's is left for mdSpotKeep - the reflow moved what it would read - unless force (a new draw: nothing to keep).
+// While the column is not laid out (hidden under the changes view, or 0 wide) nothing is read: the spot read before stays -
+// a redraw there too (mdShow) - for mdSpotKeep to put back once the column is shown again. A spot a hidden redraw left to be
+// put back (again) is not read over before that, even at its width: the scroll the column's showing makes is not the person's.
+/** @param {boolean} [force] */
+function mdSpotRead(force){const md=$('#md'),L=$('#left'); if(!isMdDoc()||!md||MD.shown!==DOC){MD.spot=null; return;}
+  const s=MD.spot,w=md.getBoundingClientRect().width; if(!mdLaidOut(w))return;
+  if(!force&&s&&s.doc===DOC&&(s.w!==w||s.again))return;
+  const top=L.getBoundingClientRect().top,e=L.scrollTop>0?mdAt(mdLineEls(),top):null,r=e&&e.getBoundingClientRect();
+  MD.spot={doc:DOC,w,el:e,line:e?+(e.dataset.line||e.dataset.lo||0):0,key:e?(e.dataset.line?'line':'lo'):'',
+    frac:r&&r.height?Math.min(1,Math.max(0,(top-r.top)/r.height)):0,off:null,sel:mdSelSeen(),again:false};}
+// The element that stands for spot s's line now: its element if still drawn, else the one a redraw drew for that line - the
+// same kind (a line span, a block starting there), else the first that carries the line (mdLeaves), else - the line is gone,
+// the source got shorter - the nearest line kept before it (mdSpotNear). null: the very top.
+/** @param {NonNullable<typeof MD.spot>} s */
+function mdSpotEl(s){if(s.el&&s.el.isConnected)return s.el; if(!s.line)return null;
+  const md=$('#md'),k=s.key==='lo'?'data-lo':'data-line',e=/** @type {HTMLElement|null} */(md&&md.querySelector('['+k+'="'+s.line+'"]'));
+  return e||mdLeaves(s.line,s.line)[0]||mdSpotNear(s.line);}
+// The last line element that starts at or before line n (mdLineEls are in document order, their first lines never going
+// back), or null when none does.
+/** @param {number} n */
+function mdSpotNear(n){const els=mdLineEls(); let at=-1; for(let i=0;i<els.length;i++){if(+(els[i].dataset.line||els[i].dataset.lo||0)>n)break; at=i;} return at<0?null:els[at];}
+// Whether element e carries line n: a line span of n, or a block whose lines lo..hi hold n.
+/** @param {HTMLElement} e @param {number} n */
+function mdCarries(e,n){if(e.dataset.line)return +e.dataset.line===n; const lo=+(e.dataset.lo||0),hi=+(e.dataset.hi||e.dataset.lo||0); return lo<=n&&n<=hi;}
+// Puts the spot back after the column's width moved: the same point of the same line element at the area's top (the very top
+// stays the top), then - when the chosen lines were on screen - those lines back into view (revealBox, every layout), and
+// reads the spot at the new width. Nothing moves while the width is the spot's - unless the document was drawn again while
+// the column was hidden (again: the scroll offset then stands on other lines even at the same width) - nor while the column
+// is not laid out (mdLaidOut): the spot waits for the column's next width. A write is held under half a pixel.
+function mdSpotKeep(){const s=MD.spot,md=$('#md'),L=$('#left'); if(!s||s.doc!==DOC||!md||!isMdDoc()||MD.shown!==DOC)return;
+  const w=md.getBoundingClientRect().width; if((w===s.w&&!s.again)||!mdLaidOut(w))return;
+  const e=mdSpotEl(s);
+  if(!e){if(L.scrollTop>0)L.scrollTop=0;}
+  else{const r=e.getBoundingClientRect(),into=!s.line||mdCarries(e,s.line)?(s.off!==null?s.off:s.frac*r.height):0;   // a nearer line kept: its top
+    const d=r.top+into-L.getBoundingClientRect().top; if(Math.abs(d)>=0.5)L.scrollTop+=d;}
+  if(s.sel)revealBox(/** @type {HTMLElement|null} */(document.querySelector('#md .md-sel')),true);
+  mdSpotRead(true);}
+// Whether the document column is laid out at width w (#md's): shown (#left has boxes - not under the changes view) and wider than 0.
+/** @param {number} w */
+function mdLaidOut(w){return w>0&&mdColumnShown();}
+function mdColumnShown(){return $('#left').getClientRects().length>0;}
+// Whether any of the chosen lines (.md-sel) stands in the part of the document area they can be seen in (selRoom).
+function mdSelSeen(){const e=document.querySelector('#md .md-sel'); if(!e)return false; const r=e.getBoundingClientRect(),m=selRoom();
+  return r.bottom>m.top&&r.top<m.bottom-8;}
 // Builds article#md from the worker's tokens (mdRender), with a yield to the browser and a check for a newer draw whenever
 // mdRender pauses, or null when the elements built pass MD_LIMITS.elements (stale(): a newer draw - then whatever was built
 // is dropped too).
 /** @param {any[]} tokens @param {()=>boolean} stale @returns {Promise<HTMLElement|null>} */
-async function mdRenderAll(tokens,stale){const root=document.createElement('article'); root.className='md'; root.id='md'; root.setAttribute('translate','no');
+async function mdRenderAll(tokens,stale){const root=document.createElement('article'); root.className='md'; root.id='md'; root.setAttribute('translate','no'); root.lang='';   // the document's language is not known (docs/handbook/viewer.md §그리기): not the screen's (<html lang>)
   MD.els=0; MD.heads=[]; const work=mdRender(root,tokens);
   try{for(const pause of work){void pause; await mdYield(); if(stale())return null;}}
   catch(e){if(e===MD_OVER)return null; throw e;}
@@ -225,7 +287,7 @@ function mdHtmlHold(e,on){if(!e.dataset.rLo){e.dataset.rLo=e.dataset.lo||''; e.d
 function mdHtmlRun(btn){const run=/** @type {HTMLElement|null} */(btn.closest('.md-html-run')),body=run&&/** @type {HTMLElement|null} */(run.querySelector('.md-html-body')); if(!run||!body)return;
   const open=btn.getAttribute('aria-expanded')!=='true'; mdHtmlHold(run,!open); body.querySelectorAll('.md-html').forEach(e=>mdHtmlHold(/** @type {HTMLElement} */(e),open));
   body.hidden=!open; btn.setAttribute('aria-expanded',String(open));
-  mdMarks(); mdSelMark(COMPOSE.current); mdStrip();}
+  mdMarks(); mdSelMark(mdSelShown()); mdStrip();}
 // ---------------- Rendered text -> source lines
 // The source line each child of inline token t starts on (pure): t's first line plus the line breaks (softbreak, hardbreak)
 // before the child. The children are flat - emphasis and links are open/close tokens among them - so a break inside one is
@@ -413,9 +475,17 @@ function mdPick(r,b0,b1,quote,tapped){const levels=mdLevels(r,b0,b1,tapped),q=St
 function mdEditLevels(E){if(!isMdDoc()||E.doc!==DOC||typeof E.lo!=='number'||typeof E.hi!=='number')return null;
   const a=mdLeaves(E.lo,E.lo)[0],b=mdLeaves(E.hi,E.hi)[0]; if(!a&&!b)return null;
   const ls=mdLevels({lo:E.lo,hi:E.hi},a?mdBlockAt(a):null,b?mdBlockAt(b):null); return ls.length>1?ls:null;}
-// The chosen lines drawn on the document: their line spans and blocks get .md-sel (null clears).
-function mdSelMark(d){$$('#md .md-sel').forEach(e=>e.classList.remove('md-sel')); if(!d||!isMdDoc()||d.file!==MD.file||isRegion(d))return;
-  mdLeaves(/** @type {number} */(d.lo),/** @type {number} */(d.hi)).forEach(e=>e.classList.add('md-sel'));}
+// What the document marks as chosen: a re-place's candidate while there is one - the lines of the rung its banner names
+// (bannerCompare), as the PDF surface draws its box - else the composer's selection (null: nothing).
+/** @returns {{file?:string,lo?:number|null,hi?:number|null,kind?:string}|null} */
+function mdSelShown(){const c=REPICK&&REPICK.cand; if(!c)return COMPOSE.current; const lv=lvOf(c,c.default_level)||c;
+  return {file:c.file,lo:lv.lo,hi:lv.hi,kind:c.kind};}
+// The chosen lines drawn on the document: their line spans and blocks get .md-sel (null clears), and the reading spot learns
+// whether they are on screen (mdSpotKeep brings them back after a reflow only then).
+/** @param {{file?:string,lo?:number|null,hi?:number|null,kind?:string,pdf?:string}|null} d */
+function mdSelMark(d){$$('#md .md-sel').forEach(e=>e.classList.remove('md-sel'));
+  if(d&&isMdDoc()&&d.file===MD.file&&!isRegion(d))mdLeaves(/** @type {number} */(d.lo),/** @type {number} */(d.hi)).forEach(e=>e.classList.add('md-sel'));
+  if(MD.spot&&MD.spot.doc===DOC&&mdColumnShown())MD.spot.sel=mdSelSeen();}   // hidden, nothing is on screen: what was stays
 // The elements that stand for lines lo..hi: each line span in range, and each block in range that has no line spans of its own
 // and no smaller block in range (a rule, an HTML block) - the smallest things on screen that carry those lines. A table cell's
 // line stands for its row: the row is what is tinted, so a pinned row reads as one band.
@@ -427,10 +497,14 @@ function mdLeaves(lo,hi){const md=$('#md'); if(!md)return [];
   return /** @type {HTMLElement[]} */([...out]);}
 // ---------------- Pins on the document
 // The marks of the pins on screen (marks()' branch): each pin's lines get .md-pin (review .rv, lost .st), and the first of them a
-// number badge in the left gutter that jumps to the card (data-act mark-jump, as on a PDF page).
+// number badge in the left gutter that jumps to the card (data-act mark-jump, as on a PDF page). The badges are drawn in line
+// order, each layer just before the block of #md its line is in: Tab and a screen reader meet a badge where its line is -
+// appended at the column's end they came after the last link, in pin order (#1 L3, #2 L55, #4 L9). The badge's name and
+// description (its tip: '#1 · L3-L5 · <note>') are what marks the pinned lines for them, colour aside.
 function mdMarks(){const md=$('#md'); if(!md)return;
   md.querySelectorAll('.md-badges').forEach(e=>e.remove()); md.querySelectorAll('.md-pin').forEach(e=>e.classList.remove('md-pin','rv','st'));
-  const pins=PINS.concat(REVIEW_ALL.filter(p=>pdoc(p)===DOC)).filter(p=>!isRegion(p)&&typeof p.lo==='number'&&typeof p.hi==='number');
+  const pins=PINS.concat(REVIEW_ALL.filter(p=>pdoc(p)===DOC)).filter(p=>!isRegion(p)&&typeof p.lo==='number'&&typeof p.hi==='number')
+    .sort((a,b)=>/** @type {number} */(a.lo)-/** @type {number} */(b.lo)||a.id-b.id);
   const rows=/** @type {Map<number,HTMLElement>} */(new Map()),top=md.getBoundingClientRect().top;
   for(const p of pins){const leaves=mdLeaves(/** @type {number} */(p.lo),/** @type {number} */(p.hi)); if(!leaves.length)continue;
     const rv=pinState(p)===PIN_STATE.REVIEW,lost=!!p.stale;
@@ -438,13 +512,18 @@ function mdMarks(){const md=$('#md'); if(!md)return;
     // The badge stands in the column's left gutter at the height of the pin's first line (a layer of #md, never inside a
     // paragraph, list or table, so it moves no text). Pins whose first lines share a height stack down.
     const y=Math.round(leaves[0].getBoundingClientRect().top-top);
-    let box=rows.get(y); if(!box){box=document.createElement('span'); box.className='md-badges'; box.setAttribute('translate','no'); box.style.top=y+'px'; md.appendChild(box); rows.set(y,box);}
+    let box=rows.get(y); if(!box){box=document.createElement('span'); box.className='md-badges'; box.setAttribute('translate','no'); box.style.top=y+'px'; md.insertBefore(box,mdTopBlock(md,leaves[0])); rows.set(y,box);}
     const b=document.createElement('button'); b.type='button'; b.className='md-badge'+(rv?' rv':'')+(lost?' st':''); b.dataset.act='mark-jump'; b.dataset.id=String(p.id);
     b.dataset.pin=String(p.id); b.textContent=String(p.id); b.setAttribute('aria-label',tl('핀 #{id} 카드로 이동',{id:p.id}));
     const n=String(p.note||'').replace(/\s+/g,' ').trim(); b.dataset.tip='#'+p.id+' · '+rng(/** @type {number} */(p.lo),/** @type {number} */(p.hi))+' · '+(n?(n.length>60?n.slice(0,60)+'…':n):tr('(메모 없음)'));
     box.appendChild(b);}}
-// The column reflows when its width changes (a panel, a rotation): the badges follow their lines.
-let MD_RO_T=0; const MD_RO=window.ResizeObserver?new ResizeObserver(()=>{clearTimeout(MD_RO_T); MD_RO_T=setTimeout(()=>{if(isMdDoc())mdMarks();},120);}):null;
+// The child of md that holds e (null: e is not inside it) - where a badge layer goes in the document's order, a child of #md
+// still, so it stands in the gutter as before and no block's text (a quote, a tap's block) takes its number.
+/** @param {HTMLElement} md @param {Element} e @returns {Element|null} */
+function mdTopBlock(md,e){let x=/** @type {Element|null} */(e); while(x&&x.parentElement!==md)x=x.parentElement; return x;}
+// The column reflows when its width changes (a panel, a rotation): the reading spot comes back at once, before the paint
+// (mdSpotKeep), and the badges follow their lines.
+let MD_RO_T=0; const MD_RO=window.ResizeObserver?new ResizeObserver(()=>{mdSpotKeep(); clearTimeout(MD_RO_T); MD_RO_T=setTimeout(()=>{if(isMdDoc())mdMarks();},120);}):null;
 // Scrolls pin id's first line to the reading depth and flashes its lines (jumpPin's branch). A jump asked before this
 // document is on screen - [보기] on a pin of another document: switchDoc settles before the source is read and drawn - waits
 // for the draw (mdShow) of this visit; another switch drops it.
@@ -466,7 +545,7 @@ function mdReadingLine(){const L=$('#left'); if(!$('#md'))return 0; const e=mdAt
 function mdStrip(){if(!isMdDoc())return; MD.at=mdReadingLine();
   let i=-1; MD.heads.forEach((h,j)=>{if(h.lo<=MD.at)i=j;}); if(i!==OUTLINE_SELECTED){OUTLINE_SELECTED=i; markOutline();}
   const h=MD.heads[i]; $('#section-current').textContent=h?h.title:tr('문서 처음'); drawPos();}   // above the first heading
-let MD_STRIP_F=0; $('#left').addEventListener('scroll',()=>{if(!isMdDoc()||MD_STRIP_F)return; MD_STRIP_F=requestAnimationFrame(()=>{MD_STRIP_F=0; mdStrip();});},{passive:true});
+let MD_STRIP_F=0; $('#left').addEventListener('scroll',()=>{if(!isMdDoc()||MD_STRIP_F)return; MD_STRIP_F=requestAnimationFrame(()=>{MD_STRIP_F=0; mdStrip(); mdSpotRead();});},{passive:true});
 // posLabel's shape for this document: [L37/164 ▾] - the reading line's source line of the file's lines, '–' for what is not
 // known yet - with the document's name as posLabel puts it. Pure but for tl.
 /** @param {string} doc @param {number} line @param {number} n @param {boolean} multi @param {boolean} wide */
@@ -520,10 +599,12 @@ function mdDocPart(r,md){if(md.contains(r.commonAncestorContainer))return r; if(
 // The text range r shows, as the selection's own toString gives it: its contents laid out once off screen, under the document's
 // own .md rules (an HTML placeholder's label and code stack as on screen), and read as innerText. A range's toString runs
 // blocks together ('First.Last.'), the renderer putting no whitespace between them; the selection itself is not touched, as
-// changing it would set off the touch screen's resting-selection pick again.
+// changing it would set off the touch screen's resting-selection pick again. The pin badges standing between blocks (mdMarks)
+// are the viewer's, not the document's text: they are left out.
 /** @param {Range} r */
 function mdRangeText(r){const box=document.createElement('div'),doc=document.createElement('div'); box.className='sr-only';
-  box.setAttribute('aria-hidden','true'); doc.className='md'; doc.append(r.cloneContents()); box.append(doc); document.body.append(box);
+  box.setAttribute('aria-hidden','true'); doc.className='md'; doc.append(r.cloneContents()); doc.querySelectorAll('.md-badges').forEach(e=>e.remove());
+  box.append(doc); document.body.append(box);
   try{return doc.innerText;}finally{box.remove();}}
 // Shows a link's description that does not open (a tap on it), until 4s pass or the next press.
 /** @param {HTMLElement} el */

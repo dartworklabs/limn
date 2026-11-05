@@ -42,6 +42,7 @@ from helpers_browser import (
     ime_key_up,
     nothing_follows,
     settle,
+    until,
     watch_idle,
 )
 from helpers_csp import add_test_style
@@ -5925,6 +5926,32 @@ class ReasonComposition(VerdictBase):
         page.wait_for_function("id=>OPEN_ALL.some(p=>p.id===id&&p.note)", arg=pid, timeout=10000)
         settle(page)
         self.assertEqual(self.pins()[pid]["note"], "묶이는 이유")
+
+    def test_a_composition_cut_off_by_a_switch_leaves_the_focus_rule_to_the_next_note(self):
+        """채택's reason open and a composition begun in it, then another document opened (switchDoc): the field is taken
+        out of the document with no compositionend. That composition is over: a note picked there and closed with Esc
+        puts the focus on its page (focusPlace), not on <body>."""
+        page = self.on("fig")
+        page.keyboard.press("1")
+        page.wait_for_function("OPEN_ALL.length>=1")
+        settle(page)
+        page.keyboard.press("Enter")
+        page.wait_for_selector('#doc .pv[data-page="1"] .pv-pop .pv-reason')
+        page.evaluate(
+            "()=>{const f=document.querySelector('#doc .pv-pop .pv-reason'); f.focus();"
+            "f.dispatchEvent(new CompositionEvent('compositionstart',{bubbles:true,data:''}));}"
+        )
+        page.evaluate("switchDoc('ms')")
+        until(
+            page,
+            "DOC==='ms'&&!!META&&META.doc==='ms'&&!!document.querySelector('#p1')&&!document.querySelector('.pv-reason')",
+        )
+        settle(page)
+        self.open_composer(page)
+        page.focus("#note")
+        page.keyboard.press("Escape")
+        settle(page)
+        self.assertEqual(page.evaluate("document.activeElement.id"), "p1")
 
     def test_a_rebuild_mid_syllable_waits_for_it_and_keeps_the_text_and_the_focus(self):
         """채택's reason open, '마지막 이' typed and '유' left composing when a new build with a page more arrives: the pages

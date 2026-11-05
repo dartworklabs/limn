@@ -30,7 +30,16 @@ from limn.administration import serve_documents as startup_documents
 
 import helpers_csp
 from helpers import ps, req
-from helpers_browser import BrowserBase, clock_now, clock_still, ime_compose, ime_end_with, settle
+from helpers_browser import (
+    BrowserBase,
+    clock_now,
+    clock_still,
+    hold_pin_reads,
+    ime_compose,
+    ime_end_with,
+    settle,
+    until,
+)
 from helpers_figure import BUILD1, viewer_build
 from helpers_outline import outline_pdf
 
@@ -796,6 +805,26 @@ class Picking(MarkdownBase):
         rec = records(ps.APP.C.state)[-1]
         self.assertEqual((rec["lo"], rec["hi"], rec["scope"], rec["kind"]), (3, item, "lines", "lines"))
 
+    def test_a_drag_over_a_pins_badge_quotes_only_the_documents_text(self):
+        """A pin's badge layer stands between the blocks (in line order, mdMarks): a drag from the paragraph into the pinned
+        list item crosses it, and the quote is the document's text without the badge's number."""
+        item = fixture_line("첫째 항목")
+        self.save_via_api(item, item)
+        page = self.open_md(1)
+        x0, y0, x1, y1 = page.evaluate(
+            "(()=>{const a=document.querySelector(\"#md [data-line='4']\").getClientRects()[0],"
+            "b=[...document.querySelector(\"#md li[data-lo='%d']\").getClientRects()].at(-1);"
+            "return [a.left+4,a.top+a.height/2,b.right-4,b.top+b.height/2];})()" % item
+        )
+        page.mouse.move(x0, y0)
+        page.mouse.down()
+        page.mouse.move(x1, y1, steps=8)
+        page.mouse.up()
+        page.wait_for_function("COMPOSE.current&&COMPOSE.current.hi===%d" % item, timeout=5000)
+        quote = page.evaluate("COMPOSE.current.quote")
+        self.assertIn("첫째 항목", quote)
+        self.assertNotRegex(quote, r"\d")
+
     def test_stacked_badges_each_take_the_press_on_them(self):
         """Two pins on one first line stack their badges 2px apart: each badge's own top, middle and bottom go to it -
         toward the other one its press reaches only half the gap - and a lone badge answers at least --mark-hit tall."""
@@ -862,6 +891,29 @@ class EditingAndSuggestions(MarkdownBase):
             (rec["lo"], rec["hi"], rec["kind"]), (fixture_line("인용 첫"), fixture_line("인용 둘째"), "md:quote")
         )
         self.assertNotIn("page", rec)
+
+    def test_a_replace_candidate_is_marked_on_the_document_and_one_line_reads_as_one(self):
+        """During [위치 다시 잡기] the candidate's lines are marked on the document as chosen lines (as the PDF surface draws
+        its box), the banner names a one-line candidate as L9 - not L9-L9 - and Esc takes the mark away with the re-place."""
+        pid = self.save_via_api(3, 5, scope="block", kind="md:paragraph")
+        item = fixture_line("첫째 항목")
+        page = self.open_md(1)
+        page.evaluate("openEdit(%d)" % pid)
+        page.wait_for_function("EDITOR.current&&EDITOR.current.levels.length>1", timeout=5000)
+        page.evaluate("startRepick()")
+        page.wait_for_function("!!REPICK", timeout=5000)
+        self.line_el(page, item).click()
+        page.wait_for_function("REPICK&&REPICK.cand", timeout=5000)
+        banner = page.evaluate("document.getElementById('banner').textContent")
+        self.assertIn("L3-L5", banner)
+        self.assertIn("새 L%d" % item, banner)
+        self.assertNotIn("L%d-L%d" % (item, item), banner)
+        marked = page.evaluate("[...document.querySelectorAll('#md .md-sel')].map(e=>+(e.dataset.line||e.dataset.lo))")
+        self.assertTrue(marked)
+        self.assertEqual(set(marked), {item})
+        page.keyboard.press("Escape")
+        page.wait_for_function("!REPICK", timeout=5000)
+        self.assertEqual(page.evaluate("document.querySelectorAll('#md .md-sel').length"), 0)
 
     def test_a_suggested_edit_shows_and_saves_the_markdown_source(self):
         """[제안 수정] on lines of the document fills its editor with the lines' Markdown source (not the drawn text), and the
@@ -1445,6 +1497,296 @@ class Phone(MarkdownBase):
         )
         self.assertLessEqual(got["over"], 0)
         self.assertLessEqual(got["right"], got["width"] + 1)
+
+
+def ax(page, selector):
+    """Chromium's accessibility node for the first element matching selector: (role, name, description) as a screen reader
+    gets them (CDP Accessibility.getPartialAXTree)."""
+    cdp = page.context.new_cdp_session(page)
+    try:
+        found = cdp.send("Runtime.evaluate", {"expression": "document.querySelector(%s)" % json.dumps(selector)})
+        node = cdp.send(
+            "Accessibility.getPartialAXTree", {"objectId": found["result"]["objectId"], "fetchRelatives": False}
+        )["nodes"][0]
+    finally:
+        cdp.detach()
+    return tuple((node.get(k) or {}).get("value") for k in ("role", "name", "description"))
+
+
+def long_text() -> str:
+    """A document long enough to scroll at every size, whose paragraphs wrap differently at every column width: 40 sections,
+    each a heading and two three-line paragraphs."""
+    out = []
+    for i in range(1, 41):
+        out += ["## 절 %d" % i, ""]
+        for j in range(2):
+            out += [
+                "%d.%d 문단의 첫 줄은 건물 전력 부하를 예측하는 모델이 시간이 지나며 어떻게 바뀌는지 길게 적는다."
+                % (i, j),
+                "둘째 줄도 일부러 길게 써서 좁은 화면에서는 여러 번 감기고 넓은 화면에서는 덜 감기게 한다.",
+                "셋째 줄.",
+                "",
+            ]
+    return "\n".join(out)
+
+
+# The source line at the top of the document area: the first line span whose bottom is below the area's top edge.
+TOP_LINE = (
+    "(()=>{const t=document.getElementById('left').getBoundingClientRect().top+1;"
+    "for(const e of document.querySelectorAll('#md [data-line]'))if(e.getBoundingClientRect().bottom>t)return +e.dataset.line;"
+    "return 0;})()"
+)
+# Whether the chosen lines are on screen and uncovered: the point inside the first of them is theirs.
+SEEN = (
+    "(()=>{const e=document.querySelector('#md .md-sel'); if(!e)return false; const r=e.getClientRects()[0],"
+    "h=document.elementFromPoint(r.left+Math.min(20,r.width/2),r.top+r.height/2); return !!h&&!!h.closest('.md-sel');})()"
+)
+TABLET_PORTRAIT = {"viewport": {"width": 673, "height": 841}, "is_mobile": True, "has_touch": True}
+
+
+class ReadingSpot(MarkdownBase):
+    """A change of the column's width - a rotation, the panel collapsing beside the document, a window resized - reflows the
+    document: the line at the top of the document area stays the top line, and a chosen line on screen stays on screen, as
+    the PDF surface keeps its reading spot (topAnchor)."""
+
+    MD_TEXT = long_text()
+
+    def to_line(self, page, n):
+        """Scroll source line n to the document area's top, 5px into it, and let the scroll be read."""
+        page.evaluate(
+            "(()=>{const L=document.getElementById('left'),e=document.querySelector(\"#md [data-line='%d']\");"
+            "L.scrollTop+=e.getBoundingClientRect().top-L.getBoundingClientRect().top+5;})()" % n
+        )
+        settle(page)
+        self.assertEqual(page.evaluate(TOP_LINE), n)
+
+    def test_a_rotation_there_and_back_keeps_the_top_line(self):
+        """673x841 -> 841x673 -> 673x841 on a touch screen (the foldable turned): the top line is the same after each turn."""
+        page = self.open_md(**TABLET_PORTRAIT)
+        self.to_line(page, 247)
+        for size in ({"width": 841, "height": 673}, {"width": 673, "height": 841}):
+            with self.subTest(size=size):
+                page.set_viewport_size(size)
+                settle(page)
+                self.assertEqual(page.evaluate(TOP_LINE), 247)
+
+    def test_collapsing_the_panel_beside_the_document_keeps_the_top_line(self):
+        """A 1024x768 tablet: [핀 N] collapses the panel beside the document, the column widens, the top line stays."""
+        page = self.open_md(viewport={"width": 1024, "height": 768}, is_mobile=True, has_touch=True)
+        self.assertTrue(page.evaluate("SIDE_OPEN"))
+        self.to_line(page, 247)
+        page.locator("#btn-side").tap()
+        settle(page)
+        self.assertFalse(page.evaluate("SIDE_OPEN"))
+        self.assertEqual(page.evaluate(TOP_LINE), 247)
+
+    def test_a_resized_window_keeps_the_top_line(self):
+        """A mouse window from 1440 to 1000px wide (the side panel moves beside a narrower column): the top line stays."""
+        page = self.open_md(viewport={"width": 1440, "height": 900})
+        self.to_line(page, 247)
+        page.set_viewport_size({"width": 1000, "height": 900})
+        settle(page)
+        self.assertEqual(page.evaluate(TOP_LINE), 247)
+
+    def test_a_chosen_line_stays_on_screen_across_a_rotation(self):
+        """A line tapped on the foldable stays uncovered on screen after it turns, and after it turns back: the composer
+        alone is not left on screen."""
+        page = self.open_md(**TABLET_PORTRAIT)
+        self.to_line(page, 241)
+        line = 249
+        self.line_el(page, line).tap()
+        page.wait_for_function("COMPOSE.current&&COMPOSE.current.lo>0", timeout=5000)
+        settle(page)
+        self.assertTrue(page.evaluate(SEEN))
+        for size in ({"width": 841, "height": 673}, {"width": 673, "height": 841}):
+            with self.subTest(size=size):
+                page.set_viewport_size(size)
+                settle(page)
+                self.assertTrue(page.evaluate(SEEN))
+
+    def test_a_chosen_line_low_on_screen_is_brought_back_when_the_column_narrows(self):
+        """A line clicked near the bottom of a 1440px window, then the window narrowed to 760px (the panel laid over the
+        document, the column a third as wide): the top line alone kept would push the chosen line below the screen, so the
+        chosen line is brought back into view."""
+        page = self.open_md(viewport={"width": 1440, "height": 900})
+        self.to_line(page, 241)
+        line = page.evaluate(
+            "(()=>{const b=document.getElementById('left').getBoundingClientRect().bottom-60;"
+            "return +[...document.querySelectorAll('#md [data-line]')].filter(e=>e.getBoundingClientRect().bottom<b).at(-1).dataset.line;})()"
+        )
+        self.line_el(page, line).click()
+        page.wait_for_function("COMPOSE.current&&COMPOSE.current.lo>0", timeout=5000)
+        settle(page)
+        self.assertTrue(page.evaluate(SEEN))
+        page.set_viewport_size({"width": 760, "height": 900})
+        settle(page)
+        self.assertTrue(page.evaluate(SEEN))
+
+    def test_the_changes_view_and_back_keeps_the_top_line(self):
+        """Reading at line 247, the changes view opened and closed (setViewMode): the column is hidden meanwhile, which reads
+        as no width and no line at the top; the spot from before stays and the text comes back at line 247, not line 1."""
+        page = self.open_md(viewport={"width": 1440, "height": 900})
+        self.to_line(page, 247)
+        page.evaluate("setViewMode(VIEW_MODE.REVISIONS)")
+        settle(page)
+        page.evaluate("setViewMode(VIEW_MODE.MANUSCRIPT)")
+        settle(page)
+        self.assertAlmostEqual(page.evaluate(TOP_LINE), 247, delta=1)
+
+    def test_a_redraw_in_the_changes_view_keeps_the_top_line(self):
+        """Reading at line 247, the changes view opened, the earlier paragraphs lengthened on disk (the same lines, taller
+        blocks) and drawn again by the light poll while the column is hidden: back on the text at the same width, the top
+        line is still line 247 - the spot read before the column was hidden is kept as its line through the hidden redraw
+        and put back on that line's new element once the column is shown."""
+        page = self.open_md(viewport={"width": 1440, "height": 900})
+        self.to_line(page, 247)
+        page.evaluate("setViewMode(VIEW_MODE.REVISIONS)")
+        settle(page)
+        longer = "셋째 줄을 길게 늘였다. " * 12
+        self.write(self.MD_TEXT.replace("셋째 줄.", longer.strip()))
+        page.evaluate("pollLightOnce()")
+        until(page, "document.querySelector('#md').textContent.includes('셋째 줄을 길게 늘였다.')")
+        settle(page)
+        page.evaluate("setViewMode(VIEW_MODE.MANUSCRIPT)")
+        settle(page)
+        self.assertAlmostEqual(page.evaluate(TOP_LINE), 247, delta=1)
+
+    def test_a_redraw_that_drops_the_line_keeps_the_nearest_line(self):
+        """Reading at line 247, the changes view opened and the source cut to 220 lines, drawn again while the column is
+        hidden: back on the text, the reading line is gone, so the nearest line kept stands for it - the document stays
+        near its (new) end, as the same redraw on screen leaves it - not the very top of the document."""
+        page = self.open_md(viewport={"width": 1440, "height": 900})
+        self.to_line(page, 247)
+        page.evaluate("setViewMode(VIEW_MODE.REVISIONS)")
+        settle(page)
+        self.write("\n".join(self.MD_TEXT.split("\n")[:220]) + "\n")
+        page.evaluate("pollLightOnce()")
+        until(page, "MD.lines.length <= 221")
+        settle(page)
+        page.evaluate("setViewMode(VIEW_MODE.MANUSCRIPT)")
+        settle(page)
+        self.assertGreater(page.evaluate(TOP_LINE), 150)
+
+    def test_a_rotation_in_the_changes_view_keeps_the_top_line(self):
+        """The foldable turned while its changes view is open: the column comes back at the other width, reflowed, and the
+        line at the top is still line 247 (the spot read before the column was hidden, put back at the new width)."""
+        page = self.open_md(**TABLET_PORTRAIT)
+        self.to_line(page, 247)
+        page.evaluate("setViewMode(VIEW_MODE.REVISIONS)")
+        settle(page)
+        page.set_viewport_size({"width": 841, "height": 673})
+        settle(page)
+        page.evaluate("setViewMode(VIEW_MODE.MANUSCRIPT)")
+        settle(page)
+        self.assertAlmostEqual(page.evaluate(TOP_LINE), 247, delta=1)
+
+
+class Accessibility(MarkdownBase):
+    """What a screen reader and a keyboard meet on a Markdown document: the names say document, not PDF; the pin badges come
+    in line order; the document's language is not the screen's; the outline's names are the headings; the focus stays at
+    the place after the composer closes."""
+
+    def test_the_document_area_and_the_quotes_are_named_for_the_document(self):
+        """The document area is the region 'Markdown 문서' (a PDF document's stays 'PDF 쪽'), and the composer's and a card's
+        quote say the text was chosen in the document - in both languages."""
+        for lang, area, quote, pdf in (
+            ("ko", "Markdown 문서", "문서에서 고른 글자: ", "PDF 쪽"),
+            ("en", "Markdown document", "Text chosen in the document: ", "PDF pages"),
+        ):
+            with self.subTest(lang=lang):
+                self.setUp_fresh()
+                page = self.open_md(lang=lang)
+                self.assertEqual(ax(page, "#left")[:2], ("region", area))
+                self.pick_line(page, 4)
+                self.assertEqual(page.evaluate("document.querySelector('#c-quote .sr-only').textContent"), quote)
+                self.save(page)
+                self.assertEqual(
+                    page.evaluate("document.querySelector('#pins .pin .quote .sr-only').textContent"), quote
+                )
+                page.evaluate("switchDoc('ms')")
+                page.wait_for_function("DOC==='ms'&&document.querySelectorAll('#doc .pg').length===2", timeout=10000)
+                self.assertEqual(ax(page, "#left")[:2], ("region", pdf))
+
+    def setUp_fresh(self):
+        """A fresh server state for the next language (no pin saved by the last)."""
+        self.tearDown()
+        self.setUp()
+
+    def test_badges_come_in_line_order_where_their_lines_are(self):
+        """Pins saved on lines 59, 3, 10 and 9 (#1-#4; 9 and 10 are items of one list): their badges come in line order,
+        each just before its line in the document's order - Tab and a screen reader meet a badge where its line is, not
+        after the last link - and each still stands at its line's height in the gutter (within the 2px its rounded offset
+        may take)."""
+        last, item, item2 = fixture_line("마지막 문단"), fixture_line("첫째 항목"), fixture_line("둘째 항목")
+        for lo in (last, 3, item2, item):
+            self.save_via_api(lo, lo)
+        page = self.open_md(4)
+        got = page.evaluate(
+            "[...document.querySelectorAll('#md .md-badge')].map(b=>{const p=PINS.find(x=>x.id===+b.dataset.id),"
+            "e=mdLeaves(p.lo,p.lo)[0],links=[...document.querySelectorAll('#md a,#md [role=link]')].filter(a=>a.compareDocumentPosition(e)&Node.DOCUMENT_POSITION_FOLLOWING);"
+            "return [p.lo,!!(b.compareDocumentPosition(e)&Node.DOCUMENT_POSITION_FOLLOWING),"
+            "links.every(a=>a.compareDocumentPosition(b)&Node.DOCUMENT_POSITION_FOLLOWING),"
+            "Math.abs(b.getBoundingClientRect().top-e.getBoundingClientRect().top)<2];})"
+        )
+        self.assertEqual(got, [[n, True, True, True] for n in (3, item, item2, last)])
+
+    def test_the_document_is_not_said_in_the_screens_language(self):
+        """The document's language is not known: #md says so (lang=""), so an English screen does not read a Korean
+        document with an English voice, nor a Korean screen an English one."""
+        for lang in ("en", "ko"):
+            with self.subTest(lang=lang):
+                page = self.open_md(lang=lang)
+                self.assertEqual(page.evaluate("document.documentElement.lang"), lang)
+                self.assertEqual(page.evaluate("document.getElementById('md').getAttribute('lang')"), "")
+
+    def test_an_outline_entry_is_named_by_its_heading(self):
+        """An outline entry is named by its heading alone - not the dot that stands for no number, nor the line label -
+        and the line is its description."""
+        page = self.open_md()
+        i = page.evaluate("MD.heads.findIndex(h=>h.title==='목록')")
+        role, name, desc = ax(page, "#outline-items button[data-index='%d']" % i)
+        self.assertEqual((role, name), ("button", "목록"))
+        self.assertIn(str(fixture_line("## 목록")), desc or "")
+
+    def test_esc_and_save_leave_the_focus_at_the_place(self):
+        """Esc in the note puts the focus on the line that was clicked (line 4 - the pick is its paragraph, 3-5), so the next
+        Tab goes on in the document, not to the sidebar; a save (Ctrl+Enter) puts it on the new pin's badge."""
+        page = self.open_md()
+        self.pick_line(page, 4)
+        self.assertEqual(page.evaluate("document.activeElement.id"), "note")
+        page.keyboard.press("Escape")
+        settle(page)
+        self.assertEqual(page.evaluate("document.activeElement.closest('#md [data-line]')?.dataset.line"), "4")
+        page.keyboard.press("Tab")
+        self.assertTrue(page.evaluate("document.getElementById('md').contains(document.activeElement)"))
+        self.pick_line(page, 4)
+        page.fill("#note", "키보드로 저장")
+        page.keyboard.press("Control+Enter")
+        page.wait_for_function("PINS.length===1&&!COMPOSE.current", timeout=8000)
+        settle(page)
+        self.assertEqual(
+            page.evaluate("document.activeElement.matches('#md .md-badge')&&+document.activeElement.dataset.id"),
+            page.evaluate("PINS[0].id"),
+        )
+
+    def test_a_late_save_leaves_the_focus_in_a_note_begun_since(self):
+        """A save's pins reload held back, and meanwhile another line picked and its note typed: when the reload comes the
+        focus and the typed text stay in the new note - the earlier save does not send the focus to its pin's badge."""
+        page = self.open_md()
+        self.pick_line(page, 4)
+        page.fill("#note", "먼저 저장")
+        held = hold_pin_reads(page)
+        page.keyboard.press("Control+Enter")
+        until(page, lambda: page.evaluate("!COMPOSE.current&&document.getElementById('composer').hidden") and held)
+        self.pick_line(page, fixture_line("첫째 항목"))
+        page.focus("#note")
+        page.keyboard.type("새 메모")
+        held[0].fallback()
+        until(page, "PINS.length===1")
+        settle(page)
+        self.assertEqual(
+            page.evaluate("[document.activeElement.id,document.getElementById('note').value]"), ["note", "새 메모"]
+        )
 
 
 class CoreFirefox(Picking):

@@ -3,16 +3,17 @@
 function banner(markup){const b=$('#banner'); setHtml(b,markup); b.hidden=false;}
 function bannerRepick(err){if(!REPICK)return; const line=err?html`<span class="errline flush">${err}</span>`:'';
   banner(html`<span>${isMdDoc()?tl('핀 #{id} 의 새 위치를 문서에서 고르세요 · Esc 취소',{id:REPICK.id}):tl('핀 #{id} 의 새 위치를 PDF에서 드래그하세요 · Esc 취소',{id:REPICK.id})}</span>${line}<span class="sp"></span><button class="btn-sm" data-act="rp-cancel" data-tip="위치 다시 잡기를 그만둡니다 (Esc)">취소</button>`);}
-// The re-place banner compares the current and the new place; on a figure the '새 위치' box snaps to the new element. A
+// The re-place banner compares the current and the new place (lines as the composer writes them, rng: L9, L3-L5); on a figure
+// the '새 위치' box snaps to the new element, and on the Markdown surface the candidate's lines are marked (mdSelShown). A
 // candidate of the other shape (a region for a line pin, lines for a region pin) is dropped and the banner asks for
 // another drag: /edit never changes a pin's shape, so no request it would refuse is offered.
 function bannerCompare(){const R=REPICK,c=R&&R.cand; if(!R||!c)return; const lv=lvOf(c,c.default_level)||c,rg=isRegion(c);
   if(rg!==!!R.from.region){R.cand=null; bannerRepick(tr(T.shape)); return;}
-  const where=rg?tl('지금 쪽 {from} · 새 쪽 {to} 영역',{from:R.from.page,to:c.page}):tl('지금 {from} · 새 {to}',{from:'L'+R.from.lo+'-L'+R.from.hi,to:'L'+lv.lo+'-L'+lv.hi});
+  const where=rg?tl('지금 쪽 {from} · 새 쪽 {to} 영역',{from:R.from.page,to:c.page}):tl('지금 {from} · 새 {to}',{from:rng(R.from.lo,R.from.hi),to:rng(lv.lo,lv.hi)});
   const what=rg?(c.quote?String(c.quote).slice(0,40):tr('글자 없는 영역')):(lv.label?levelLabel(lv.label):scopeLabel(c));
   const acts=html`<button class="btn-sm btn-default" data-act="rp-apply" data-tip="번호와 메모는 그대로 두고 위치만 바꿉니다">이 위치로 바꾸기</button><button class="btn-sm" data-act="rp-cancel" data-tip="위치 다시 잡기를 그만둡니다 (Esc)">취소</button>`;
   banner(html`<span class="loc" data-tip="지금 위치 → 새 위치" tabindex="0">${where}</span><span class="dim">(${what})</span><span class="sp"></span>${acts}`);
-  snapBox(R.box,repickEl(c));}
+  snapBox(R.box,repickEl(c)); mdSelMark(mdSelShown());}   // the Markdown surface marks the candidate's lines as its box
 // On touch, selection mode is turned on during a re-place, and narrow collapses the sheet to reveal the page (the banner stays visible even on the collapsed sheet).
 async function startRepick(){if(!EDITOR.current)return;
   if(EDITOR.current.doc&&EDITOR.current.doc!==DOC){const E=EDITOR.current,opening=switchDoc(E.doc),visit=SWITCHSEQ;
@@ -22,8 +23,9 @@ async function startRepick(){if(!EDITOR.current)return;
   if(REPICK)cancelRepick();
   REPICK={id:EDITOR.current.id,from:{lo:EDITOR.current.lo,hi:EDITOR.current.hi,page:EDITOR.current.page,region:!!EDITOR.current.region},box:null,cand:null}; bannerRepick();
   if(MQ_COARSE.matches)setSelMode(true); if(LAYOUT===LAYOUT_MODE.NARROW)setSide(false);}
-// Cancelling also invalidates an in-flight /api/pick; its continuation must not render a banner for the cleared re-place.
-function cancelRepick(){const was=!!REPICK; if(was)PICKSEQ++; if(REPICK&&REPICK.box)REPICK.box.remove(); REPICK=null; $('#banner').hidden=true;
+// Cancelling also invalidates an in-flight /api/pick; its continuation must not render a banner for the cleared re-place. The
+// Markdown surface's mark goes back to the composer's selection, if any.
+function cancelRepick(){const was=!!REPICK; if(was)PICKSEQ++; if(REPICK&&REPICK.box)REPICK.box.remove(); REPICK=null; $('#banner').hidden=true; if(was)mdSelMark(mdSelShown());
   if(was){if(!COMPOSE.current)setSelMode(false); if(EDITOR.current&&LAYOUT!==LAYOUT_MODE.WIDE)setSide(true);}}
 // Sends the re-place candidate as the pin's new location (POST /api/pins/<id>/edit with `loc` and the `base_rev` the editor
 // holds). The loc carries the candidate's range, its element and that element's box on a figure, or only the region on a
@@ -47,5 +49,5 @@ async function applyRepick(){const R=REPICK; if(!R||!R.cand)return; const c=R.ca
     if(currentVisit(visit)&&REPICK===R)cancelRepick();
     if(EDITOR.current===E&&E&&E.id===p.id){Object.assign(E,{base_rev:p.rev,lo:p.lo,hi:p.hi,file:p.file,name:p.name,scope:p.scope||null,page:pinPlace(p).page,quote:p.quote||'',pinEl:p.el||null});
       E.orig.lo=p.lo;E.orig.hi=p.hi;E.orig.scope=p.scope||null; editSnip(true);}
-    quietNote(tl('핀 #{id} 위치를 {where} 로 바꿨습니다',{id:p.id,where:isRegion(p)?tl('쪽 {page} 영역',{page:pinPlace(p).page}):'L'+p.lo+'-L'+p.hi})); await loadPins();
+    quietNote(tl('핀 #{id} 위치를 {where} 로 바꿨습니다',{id:p.id,where:isRegion(p)?tl('쪽 {page} 영역',{page:pinPlace(p).page}):rng(/** @type {number} */(p.lo),/** @type {number} */(p.hi))})); await loadPins();
   }catch(e){}}
