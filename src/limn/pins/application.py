@@ -136,12 +136,15 @@ class PinReadView:
 
 @dataclass(frozen=True)
 class PinStartup:
-    """Pin startup operations owned by the capability."""
+    """Pin startup operations owned by the capability. learn_record_folders translates, once, the folders the stored
+    records were written through under another path to the manuscript (limn.pins.location.lookup.recorded_folders);
+    the composition root runs it before any thread starts or the server listens, and a run never learns them again."""
 
     initialize_sequence: Callable[[], None]
     render_markdown: Callable[[], None]
     maintain: Callable[[], None]
     watch: Callable[[threading.Event], None]
+    learn_record_folders: Callable[[], None]
 
 
 @dataclass(frozen=True)
@@ -178,7 +181,7 @@ def assemble_pins(
     composition root - and runs before an agent's close of one of its pins is written
     (docs/handbook/api.md §닫을 때 사유 남기기). verdict_keys answers the verdict words a document declares now - the
     document capability's answer, wired by the composition root - which a new verdict pin is checked against."""
-    from limn.pins.location.lookup import recorded_place
+    from limn.pins.location.lookup import NO_RECORDED_FOLDERS, RecordedFolders, recorded_folders, recorded_place
     from limn.pins.runtime import PinCommands
 
     commands = PinCommands(
@@ -197,12 +200,37 @@ def assemble_pins(
         verdict_keys,
     )
 
+    # The folders stored records were written through, as startup translated them (learn_record_folders): this run's
+    # one answer, an immutable mapping replaced as a whole, so a reader on any thread sees the startup's mapping or
+    # (before it ran) none.
+    folders: RecordedFolders = NO_RECORDED_FOLDERS
+
+    def learn_record_folders() -> None:
+        """Translate the folders of the live and trashed records' paths that rules 1 and 2 of recorded_place cannot
+        place, resolving each once, now (recorded_folders); the composition root calls this at startup only. A file
+        that cannot be read leaves its records untranslated - they place less, never elsewhere - and startup goes on,
+        as it does when pin maintenance cannot read the Trash (the step that owns the file reports it)."""
+        nonlocal folders
+        config = settings()
+        records: list[Record] = []
+        reads: tuple[Callable[[], Sequence[Record]], ...] = (
+            lambda: [pin.record for pin in commands.read_pins()[0]],
+            lambda: [trashed.pin.record for trashed in commands.read_dropped()[0]],
+        )
+        for read in reads:
+            try:
+                records.extend(read())
+            except OSError:
+                continue
+        folders = recorded_folders(records, config.src, config.state)
+
     def locate(stored: str, record: Record) -> Path | None:
         """Place a path pin record `record` stores - its file or a recorded change - for the changes view, in the
         coordinates the run registered (recorded_place): a folder replaced by a symlink after startup does not move it,
-        and a moved checkout's record is placed by its own file_rel, never by what the tree holds now."""
+        a moved checkout's record is placed by its own file_rel, and a record written through another path to the
+        manuscript by the folders startup translated, never by what the tree holds now."""
         config = settings()
-        return recorded_place(stored, record, config.src, config.state)
+        return recorded_place(stored, record, config.src, config.state, folders)
 
     def render() -> None:
         """Render current pins after acquiring this run's transaction lock."""
@@ -211,7 +239,7 @@ def assemble_pins(
 
     view = PinReadView(commands.read_pins, commands.snapshot_pins, commands.pin_doc_key, locate)
     maintenance = PinMaintenance(commands.pin_store, commands.retention_days, commands.maintenance_files)
-    startup = PinStartup(commands.init_seq, render, maintenance.run, maintenance.watch)
+    startup = PinStartup(commands.init_seq, render, maintenance.run, maintenance.watch, learn_record_folders)
     counts = PinCountQueries(view.counts_by_document, view.state_counts, lambda: change_token(settings().pins_jsonl))
     return PinSubsystem(
         counts,

@@ -2,22 +2,31 @@
 
 Each class below is one way the change view or a comparison build reached a file that is not one of the document's
 own - under a dot-named folder, through a folder replaced by a symlink after startup, or by a folder name Git reads as
-a pattern. A viewer asks the routes, as in test_revision_path_identity.py.
+a pattern. A viewer asks the routes, as in test_revision_path_identity.py. RecordThroughAnotherPath and RecordedFolders
+pin the other side: a pin record written through another path to the same manuscript keeps its recorded ranges, by a
+translation startup makes once and a link changed later cannot move.
 
 Run: uv run pytest -q src/limn/revisions/tests/test_revision_registered_files.py
 """
 
+import os
 import shutil
 import subprocess
+import tempfile
+import unittest
 from pathlib import Path
 from unittest import mock
 
+from hypothesis import given, settings, strategies as st
+
 from limn.administration.serve_documents import make_docs
-from limn.pins.location.lookup import recorded_place, recorded_root
+from limn.builds import artifacts as build
+from limn.pins.location import lookup
+from limn.pins.location.lookup import recorded_folders, recorded_place, recorded_root
 from limn.revisions import core, execution
 from limn.runtime.documents import Doc
 
-from helpers import edit_stored, needs_tex, ps
+from helpers import ApplicationFixture, blank_png, edit_stored, minimal_pdf, needs_tex, ps, set_config
 from helpers_access import CAROL, REPO_NEW, REPO_OLD, AccessBase, ScopedRepo, member_add
 from helpers_figure import BUILD1, b2_map, figure_doc, write_build
 
@@ -438,6 +447,254 @@ class PinInLinkedFolder(Repository):
                 self.assertIsNone(recorded_root(record["file"], rel))
                 stale = dict(record, file_rel=rel)
                 self.assertIsNone(recorded_place(record["file"], stale, root, state))
+
+
+class RecordThroughAnotherPath(ScopedRepo):
+    """ScopedRepo's pin alpha, closed with a recorded change on ms/main.tex, as a record written through another path
+    to the same manuscript: a link to the manuscript folder, or the old place of a checkout moved away with a link left
+    there. Startup translates such folders once (lookup.recorded_folders), so the pin keeps its recorded ranges; a link
+    changed after startup moves nothing until the next start."""
+
+    def setUp(self):
+        """A link to the manuscript folder, named under the temporary folder as given (a link itself on macOS)."""
+        super().setUp()
+        self.alias = Path(self.tmp.name) / "manuscript-link"
+        self.alias.symlink_to(self.src, target_is_directory=True)
+        self.before = self.diff_ok(self.fix, self.p1)["scope"]
+        self.assertEqual((self.before["mode"], self.before["source"], self.before["hunks"]), ("pin", "changes", 1))
+
+    def through(self, folder, pin_file=True, file_rel=True):
+        """Store alpha's recorded change - and, with pin_file, its file - under folder; drop its file_rel unless
+        file_rel."""
+
+        def rewrite(rows):
+            """Alpha's paths as a run that reached the manuscript through folder wrote them."""
+            row = next(r for r in rows if r["id"] == self.p1)
+            if pin_file:
+                row["file"] = str(folder / "main.tex")
+            if not file_rel:
+                row.pop("file_rel", None)
+            for change in row["changes"]:
+                change["file"] = str(folder / "main.tex")
+
+        edit_stored(rewrite)
+
+    def restart(self):
+        """Restart the run over its settings and state: a fresh application through the startup steps
+        (limn.server.prepare, --no-build over cached pages), then served in place of the old one."""
+        doc = ps.APP.docs[0]
+        pages = build.cur_pages(doc)
+        pages.mkdir(parents=True, exist_ok=True)
+        (pages / doc.pdf_name).write_bytes(minimal_pdf())
+        (pages / "page-1.png").write_bytes(blank_png(10, 10))
+        fresh = ApplicationFixture(ps.APP.C, ps.new_runtime(ps.APP.RT.viewer))
+        self.addCleanup(fresh.RT.stop)
+        self.assertIsNone(fresh.prepare(None, True))
+        ps.APP, ps.Handler.app = fresh, fresh.web
+
+    def scope(self):
+        """Alpha's scope of its fix commit, as the viewer asks for it."""
+        return self.diff_ok(self.fix, self.p1)["scope"]
+
+    def repoint(self, target):
+        """Point the link at target, as a local account or a fetched commit can after startup."""
+        self.alias.unlink()
+        self.alias.symlink_to(target, target_is_directory=True)
+
+    def test_a_legacy_record_written_through_a_link_keeps_its_recorded_ranges(self):
+        """A record without file_rel (before 0.3.2) whose file and change name the link: the scope is the one of the
+        record written at the registered path, its source `changes`. Mutation: skip recorded_place's third rule (or
+        make learn_record_folders a no-op) -> the scope falls back to the whole commit, fails."""
+        self.through(self.alias, file_rel=False)
+        self.restart()
+        self.assertEqual(self.scope(), self.before)
+
+    def test_changes_written_through_a_link_beside_a_registered_file_keep_their_ranges(self):
+        """Mixed coordinates - the pin's file and file_rel at the registered path, its change through the link: the
+        change is still the pin's recorded range. Mutation: skip the third rule -> source `inferred`, fails."""
+        self.through(self.alias, pin_file=False)
+        self.restart()
+        self.assertEqual(self.scope(), self.before)
+
+    def test_a_legacy_record_of_a_moved_checkout_keeps_its_ranges_through_the_link_left_behind(self):
+        """The checkout moved to a clone and its old place left as a link to the new one; the run restarts at the new
+        place over legacy records (no file_rel) that name the old place. Mutation: skip the third rule -> the scope
+        falls back to the whole commit, fails."""
+
+        def legacy(rows):
+            """Every record as a Limn before 0.3.2 stored it: no file_rel."""
+            for row in rows:
+                row.pop("file_rel", None)
+
+        edit_stored(legacy)
+        clone = self.repo / "clone"
+        subprocess.run(["git", "clone", "--quiet", str(self.repo), str(clone)], check=True, capture_output=True)
+        moved = clone / "ms"
+        self.src.rename(self.repo / "old-ms")
+        self.src.symlink_to(moved, target_is_directory=True)
+        set_config(src=moved.resolve(), main=(moved / "main.tex").resolve())
+        self.restart()
+        self.assertEqual(self.scope(), self.before)
+
+    def test_an_unreadable_trash_leaves_the_live_records_translated(self):
+        """The Trash file cannot be read (a folder in its place): the startup step still translates the live record
+        written through the link, which keeps its ranges. The step runs alone, as prepare runs it: the whole startup
+        over such a Trash is TrashRecovery.test_startup_ignores_trash_read_error, whose maintenance warning prints
+        once per process. Mutation: drop the step's try -> it raises, fails (and so does that startup test)."""
+        self.through(self.alias, file_rel=False)
+        ps.APP.C.dropped.unlink(missing_ok=True)
+        ps.APP.C.dropped.mkdir()
+        ps.APP.assembly.pins.startup.learn_record_folders()
+        self.assertEqual(self.scope(), self.before)
+
+    def test_a_link_changed_after_startup_moves_nothing(self):
+        """After startup the link leads to a copy inside the tree, a folder outside it, or a dot-named folder: the
+        scope stays the startup's. Mutation: translate the record's folders in locate on every request (instead of
+        once at startup) -> the copy places the pin at ms/copy/main.tex and the others place nothing, fails."""
+        self.through(self.alias, file_rel=False)
+        self.restart()
+        inside, outside, hidden = self.src / "copy", self.repo / "elsewhere", self.src / ".private"
+        for folder in (inside, outside, hidden):
+            shutil.copytree(self.src, folder, ignore=shutil.ignore_patterns("copy", "elsewhere", ".private"))
+        for target in (inside, outside, hidden):
+            with self.subTest(target=target.name):
+                self.repoint(target)
+                self.assertEqual(self.scope(), self.before)
+
+    def test_a_link_made_after_startup_is_not_followed(self):
+        """The link led outside the manuscript at startup, so its records were not translated; pointing it at the
+        manuscript afterwards places nothing until the next start, which then translates it. Mutation: translate in
+        locate on every request -> the scope turns to `changes` before the restart, fails."""
+        elsewhere = self.repo / "elsewhere"
+        shutil.copytree(self.src, elsewhere)
+        self.repoint(elsewhere)
+        self.through(self.alias, file_rel=False)
+        self.restart()
+        unplaced = self.scope()
+        self.assertNotEqual(unplaced["source"], "changes")
+        self.repoint(self.src)
+        self.assertEqual(self.scope(), unplaced)
+        self.restart()
+        self.assertEqual(self.scope(), self.before)
+
+
+class RecordedFolders(unittest.TestCase):
+    """lookup.recorded_folders, the startup's translation of the folders stored records were written through, and the
+    third rule of recorded_place that reads it: only folders that resolve into the tree are kept, and a placed path
+    is checked again."""
+
+    def setUp(self):
+        """A resolved root with sub/, .hidden/ and a state folder inside it, a folder outside it, and links to each
+        named under the temporary folder as given (a link itself when TMPDIR is one)."""
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        base = Path(self.tmp.name)
+        self.root = base.resolve() / "root"
+        self.state = self.root / "state"
+        for folder in (self.root / "sub", self.root / ".hidden", self.state, base / "outside"):
+            folder.mkdir(parents=True)
+        self.links = {}
+        for name, target in (
+            ("to-root", self.root),
+            ("to-sub", self.root / "sub"),
+            ("to-hidden", self.root / ".hidden"),
+            ("to-state", self.state),
+            ("to-outside", base / "outside"),
+            ("loop", base / "loop"),
+        ):
+            self.links[name] = base / name
+            self.links[name].symlink_to(target, target_is_directory=True)
+
+    def legacy(self, *paths):
+        """A record without file_rel naming its file at paths[0] and a recorded change at each other path."""
+        return {"file": str(paths[0]), "changes": [{"file": str(p), "lo": 1, "hi": 1} for p in paths[1:]]}
+
+    def test_only_folders_that_resolve_into_the_tree_are_kept(self):
+        """Links to the root and to sub/ are kept with their resolved folder; links to a dot-named folder, the state
+        folder, outside the root, a loop, a missing path and a path rule 1 already places are not. Mutation: drop the
+        dot-named or state check of recorded_folders -> to-hidden or to-state is kept, fails."""
+        links = self.links
+        records = [
+            self.legacy(links["to-root"] / "main.tex", links["to-sub"] / "part.tex"),
+            self.legacy(links["to-hidden"] / "x.tex", links["to-state"] / "pins.md", links["to-outside"] / "y.tex"),
+            self.legacy(links["loop"] / "z.tex", Path("/nowhere/at/all/w.tex"), self.root / "sub" / "here.tex"),
+            {"file": "relative/main.tex", "changes": "not a list"},
+        ]
+        known = recorded_folders(records, self.root, self.state)
+        self.assertEqual(dict(known), {links["to-root"]: self.root, links["to-sub"]: self.root / "sub"})
+        with self.assertRaises(TypeError):
+            known[links["to-hidden"]] = self.root / ".hidden"  # immutable for the run
+
+    def test_recorded_place_uses_the_translation_and_checks_it_again(self):
+        """A path in a translated folder is placed there with its own name; a dot-named name, and a folder that a
+        forged translation leads into a dot-named folder or the state folder, place nothing. Mutation: drop the
+        dot-named or state check that recorded_place applies to the third rule -> a forged one is placed, fails."""
+        links, root, state = self.links, self.root, self.state
+        known = recorded_folders([self.legacy(links["to-root"] / "main.tex")], root, state)
+        record = self.legacy(links["to-root"] / "main.tex")
+        self.assertEqual(
+            recorded_place(str(links["to-root"] / "main.tex"), record, root, state, known), root / "main.tex"
+        )
+        self.assertEqual(
+            recorded_place(str(links["to-root"] / "gone.tex"), record, root, state, known), root / "gone.tex"
+        )
+        self.assertIsNone(recorded_place(str(links["to-root"] / ".env"), record, root, state, known))
+        self.assertIsNone(recorded_place(str(links["to-root"] / "main.tex"), record, root, state))  # no translation
+        for forged in (root / ".hidden", state, root.parent / "outside"):
+            with self.subTest(forged=forged.name):
+                folders = {links["to-root"]: forged}
+                self.assertIsNone(recorded_place(str(links["to-root"] / "a.tex"), record, root, state, folders))
+
+    def test_a_link_changed_after_the_translation_moves_nothing(self):
+        """The translation is the startup's answer: re-pointing the link afterwards - into a dot-named folder, outside
+        the tree, at sub/ - leaves where its paths are placed as it was."""
+        links, root, state = self.links, self.root, self.state
+        record = self.legacy(links["to-root"] / "main.tex")
+        known = recorded_folders([record], root, state)
+        for target in (root / ".hidden", root.parent / "outside", root / "sub"):
+            with self.subTest(target=target.name):
+                links["to-root"].unlink()
+                links["to-root"].symlink_to(target, target_is_directory=True)
+                self.assertEqual(
+                    recorded_place(str(links["to-root"] / "main.tex"), record, root, state, known), root / "main.tex"
+                )
+
+    def test_at_most_the_bound_of_folders_is_resolved(self):
+        """Past RECORDED_FOLDERS_MAX distinct folders nothing more is resolved: a pins file naming many made-up
+        folders cannot hold startup on the file system. Mutation: drop the bound -> the third folder is kept, fails."""
+        links = self.links
+        records = [self.legacy(Path("/made-up/one/a.tex")), self.legacy(links["to-root"] / "a.tex")]
+        records.append(self.legacy(links["to-sub"] / "b.tex"))
+        with mock.patch.object(lookup, "RECORDED_FOLDERS_MAX", 2):
+            known = recorded_folders(records, self.root, self.state)
+        self.assertEqual(dict(known), {links["to-root"]: self.root})
+
+    @settings(max_examples=300, deadline=None)
+    @given(
+        st.lists(
+            st.sampled_from(["to-root", "to-sub", "to-hidden", "to-state", "sub", ".git", "..", ".", "a.tex"]),
+            max_size=6,
+        ),
+        st.sampled_from(["root", "link", "elsewhere"]),
+        st.dictionaries(
+            st.sampled_from(["to-root", "to-sub", "to-hidden"]),
+            st.sampled_from(["", "sub", ".hidden", "state", "../outside"]),
+        ),
+    )
+    def test_whatever_is_stored_a_placed_path_is_in_the_tree(self, parts, start, forged):
+        """Whatever path is stored and whatever folders a translation holds (forged ones too), recorded_place gives
+        None or a path lexically below the root, under no dot-named part below it and not in the state folder."""
+        base = Path(self.tmp.name)
+        head = {"root": self.root, "link": base, "elsewhere": Path("/elsewhere")}[start]
+        stored = head.joinpath(*parts) if parts else head
+        folders = {base / name: Path(os.path.normpath(self.root / target)) for name, target in forged.items()}
+        record = {"file": str(stored)}
+        placed = recorded_place(str(stored), record, self.root, self.state, folders)
+        if placed is not None:
+            rel = placed.relative_to(self.root)
+            self.assertTrue(rel.parts)
+            self.assertFalse(any(part.startswith(".") for part in rel.parts), placed)
+            self.assertFalse(placed.is_relative_to(self.state), placed)
 
 
 class DocumentPastStartup(Repository):
