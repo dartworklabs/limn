@@ -276,6 +276,42 @@ def caret_to_start(page):
     page.keyboard.press("Meta+ArrowUp" if sys.platform == "darwin" else "Control+Home")
 
 
+def caret_to_end(page):
+    """Move the focused text field's caret to its end using the browser host's native keys."""
+    page.keyboard.press("Meta+ArrowDown" if sys.platform == "darwin" else "Control+End")
+
+
+def line_to_end(page):
+    """Move the focused text field's caret to the end of its line using the browser host's native keys. Bare End is that
+    key on Linux only: on macOS it moves no caret in Firefox or WebKit, and inside a scroller Chromium scrolls that
+    instead (issue #414)."""
+    page.keyboard.press("Meta+ArrowRight" if sys.platform == "darwin" else "End")
+
+
+# The editing commands below are the host's, not the viewer's: the browser runs them, so the chord is the platform's.
+# A Control chord does nothing at all on macOS - the caret stays and the letters land wherever it already was - which
+# is a pass only where the test wanted that place anyway. The viewer's own shortcuts stay Control: it reads
+# ctrlKey || metaKey (src/limn/viewer/js/events.js), so one chord covers both hosts there.
+def undo_edit(page):
+    """Undo the focused text field's last edit with the browser host's native chord."""
+    page.keyboard.press("Meta+z" if sys.platform == "darwin" else "Control+z")
+
+
+def redo_edit(page):
+    """Redo what undo_edit took back, with the browser host's native chord."""
+    page.keyboard.press("Meta+Shift+z" if sys.platform == "darwin" else "Control+Shift+z")
+
+
+def copy_selection(page):
+    """Copy the focused text field's selection with the browser host's native chord."""
+    page.keyboard.press("Meta+c" if sys.platform == "darwin" else "Control+c")
+
+
+def paste_clipboard(page):
+    """Paste at the focused text field's caret with the browser host's native chord."""
+    page.keyboard.press("Meta+v" if sys.platform == "darwin" else "Control+v")
+
+
 def drawn_faces(page, sel, text):
     """The font families Chromium drew text with (give letters without spaces: a space is drawn in the stack's first
     family whatever draws the letters), in the font of the element sel - the browser's own record of the faces

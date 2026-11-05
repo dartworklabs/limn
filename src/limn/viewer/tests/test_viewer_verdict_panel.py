@@ -11,6 +11,8 @@ Run: uv run pytest -q src/limn/viewer/tests/test_viewer_verdict_panel.py
 """
 
 import json
+import sys
+import unittest
 from unittest import mock
 from urllib.parse import urlparse
 
@@ -761,9 +763,14 @@ class PanelEdges(PanelBase):
         page.wait_for_function(RESTING, polling="raf", timeout=10000)
         self.assertGreater(page.evaluate(TOP) - top, 400)
 
-    def test_the_reason_field_keeps_its_own_keys_and_space_presses_a_word(self):
-        """In the reason field Home, End and the arrows move the caret and Space is a space: the pages stay. Space on a word
-        of the panel presses it (the word's rule), and the pages stay."""
+    # Home and End are the browser host's keys here, and on macOS they are not a field's: Firefox and WebKit move no
+    # caret with them, and in the pages' scroller Chromium scrolls instead - the reading page changes, the panel redraws
+    # for it and the open reason field goes (measured: Home scrolled #left by -1104 and the field was gone). The rule
+    # below is the Linux hosts' (issue #414 has the measurements and asks what the viewer should do), so only this half
+    # of what used to be one test skips there: Space on a word is the test under it, and it runs on every host.
+    @unittest.skipIf(sys.platform == "darwin", "Home and End are not a field's keys on macOS: issue #414")
+    def test_the_reason_field_keeps_its_own_keys(self):
+        """In the reason field Home, End and the arrows move the caret and Space is a space: the pages stay."""
         page = self.on()
         self.to(page, 2)
         page.locator('#pv-panel button[data-key="채택"]').click()
@@ -778,7 +785,17 @@ class PanelEdges(PanelBase):
         self.assertEqual(page.locator("#pv-panel .pv-reason").input_value(), "가 나")
         self.assertEqual(page.evaluate(TOP), top)
         self.assertTrue(page.evaluate("()=>pvIsReasonField(document.activeElement)"))
-        page.locator('#pv-panel [data-act="pv-reason-close"]').click()
+
+    def test_space_on_a_word_of_the_panel_presses_it(self):
+        """Space on a word of the panel presses it (the word's rule, not the browser's scroll), and the pages stay - with
+        a verdict already taken and its reason field opened and closed, as a hand that just wrote one leaves the panel."""
+        page = self.on()
+        self.to(page, 2)
+        page.locator('#pv-panel button[data-key="채택"]').click()
+        page.wait_for_function("OPEN_ALL.length===1")
+        settle(page)
+        page.locator('#pv-panel [data-act="pv-reason-open"]').click()
+        top = page.evaluate(TOP)
         page.locator('#pv-panel [data-act="pv-reason-close"]').click()
         settle(page)
         page.locator('#pv-panel button[data-key="보류"]').focus()

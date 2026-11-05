@@ -29,8 +29,11 @@ from helpers_browser import (
     MISSES_44,
     BrowserBase,
     booted,
+    caret_to_end,
+    caret_to_start,
     clock_now,
     clock_still,
+    copy_selection,
     ime_commit,
     ime_commit_ended,
     ime_compose,
@@ -41,7 +44,10 @@ from helpers_browser import (
     ime_key_repeats,
     ime_key_up,
     nothing_follows,
+    paste_clipboard,
+    redo_edit,
     settle,
+    undo_edit,
     until,
     watch_idle,
 )
@@ -5355,10 +5361,10 @@ class ReasonRaces(VerdictBase):
         a = self.lost_and_folded(page, "같은 문장")
         self.press_page(page, 1, "보류")
         open_reason(page, 1)
-        page.keyboard.press("Control+Home")
+        caret_to_start(page)
         page.keyboard.type("다른 줄")
         page.keyboard.press("Shift+Enter")
-        page.keyboard.press("Control+End")
+        caret_to_end(page)
         page.keyboard.press("Shift+Enter")
         page.keyboard.type("새 줄")
         page.keyboard.press("Shift+Enter")
@@ -5378,10 +5384,10 @@ class ReasonRaces(VerdictBase):
         - only spaces at its end: it is still a's sentence, so nothing is written on b."""
         text = "문장 끝"
         field = '#doc .pv[data-page="1"] .pv-reason'
-        for case, keys, want in (
-            ("end", ("Control+End", " 더함"), "문장 끝 더함"),
-            ("start", ("Control+Home", "앞말 "), "앞말 문장 끝"),
-            ("spaces", ("Control+End", "   "), ""),
+        for case, caret, more, want in (
+            ("end", caret_to_end, " 더함", "문장 끝 더함"),
+            ("start", caret_to_start, "앞말 ", "앞말 문장 끝"),
+            ("spaces", caret_to_end, "   ", ""),
         ):
             with self.subTest(case=case):
                 self.drop_all()
@@ -5398,8 +5404,8 @@ class ReasonRaces(VerdictBase):
                 settle(page)
                 self.assertEqual(page.evaluate(POP, 1)["value"], text)
                 page.locator(field).focus()
-                page.keyboard.press(keys[0])
-                page.keyboard.type(keys[1])
+                caret(page)
+                page.keyboard.type(more)
                 page.keyboard.press("Enter")
                 page.wait_for_function("()=>!document.querySelector('#doc .pv-reason')", timeout=10000)
                 settle(page)
@@ -5415,7 +5421,7 @@ class ReasonRaces(VerdictBase):
         a = self.lost_and_folded(page, "공백 뒤 이유  ")
         self.press_page(page, 1, "보류")
         open_reason(page, 1)
-        page.keyboard.press("Control+End")
+        caret_to_end(page)
         page.keyboard.press("Shift+Enter")
         page.keyboard.type("더 쓴 줄")
         self.retry_reason(page)
@@ -5639,17 +5645,17 @@ class ReasonRaces(VerdictBase):
                 b = self.press_page(page, 1, "보류")
                 open_reason(page, 1)
                 if case == "with a line":
-                    for key in ("Control+End", "Shift+Enter"):
-                        page.keyboard.press(key)
+                    caret_to_end(page)
+                    page.keyboard.press("Shift+Enter")
                     page.keyboard.type("더 쓴 줄")
                 if case == "composing":
                     ime = page.context.new_cdp_session(page)
-                    page.keyboard.press("Control+End")
+                    caret_to_end(page)
                     page.keyboard.press("Shift+ArrowLeft")
                     ime.send("Input.imeSetComposition", {"text": "ㅇ", "selectionStart": 1, "selectionEnd": 1})
                     self.assertEqual(self.typed_value(page), "숨은 이ㅇ")
                 else:
-                    page.keyboard.press("Control+Home")
+                    caret_to_start(page)
                     page.keyboard.press("ArrowRight")
                     page.keyboard.type("X")  # inside the moved sentence: it is a new one now
                 self.retry_reason(page, a)
@@ -5670,7 +5676,7 @@ class ReasonRaces(VerdictBase):
                     settle(page)
                     self.assertEqual((self.note(a), self.note(b)), (text, "숨은 이율"))
                     continue
-                page.keyboard.press("Control+z")
+                undo_edit(page)
                 settle(page)
                 titles = page.evaluate("()=>LINE.map(n=>n.title)")
                 if case == "alone":
@@ -5728,24 +5734,27 @@ class ReasonRaces(VerdictBase):
                 a = self.lost_and_folded(page, text)
                 b = self.press_page(page, 1, "보류")
                 open_reason(page, 1)
-                page.keyboard.press("Control+Home")
+                caret_to_start(page)
                 page.keyboard.press("ArrowRight")  # inside the moved sentence, after its first letter
                 if case in ("undo", "redo", "kept"):
                     page.keyboard.type("X")
                     self.assertEqual(self.typed_value(page), "되X돌린 이유")
                     if case != "kept":
-                        page.keyboard.press("Control+z")
+                        undo_edit(page)
                     if case == "redo":
-                        page.keyboard.press("Control+Shift+z")
+                        redo_edit(page)
                         self.assertEqual(self.typed_value(page), "되X돌린 이유")
-                        page.keyboard.press("Control+z")
+                        undo_edit(page)
                 elif case == "paste":  # its last word copied, and pasted inside it
-                    for key in ("Control+End", "Shift+ArrowLeft", "Shift+ArrowLeft", "Control+c"):
-                        page.keyboard.press(key)
-                    for key in ("Control+Home", "ArrowRight", "Control+v"):
-                        page.keyboard.press(key)
+                    caret_to_end(page)
+                    page.keyboard.press("Shift+ArrowLeft")
+                    page.keyboard.press("Shift+ArrowLeft")
+                    copy_selection(page)
+                    caret_to_start(page)
+                    page.keyboard.press("ArrowRight")
+                    paste_clipboard(page)
                     self.assertEqual(self.typed_value(page), "되이유돌린 이유")
-                    page.keyboard.press("Control+z")
+                    undo_edit(page)
                 else:
                     cdp = page.context.new_cdp_session(page)
                     cdp.send("Input.imeSetComposition", {"text": "가", "selectionStart": 1, "selectionEnd": 1})
@@ -5755,7 +5764,7 @@ class ReasonRaces(VerdictBase):
                     else:
                         cdp.send("Input.insertText", {"text": "가"})
                         self.assertEqual(self.typed_value(page), "되가돌린 이유")
-                        page.keyboard.press("Control+z")
+                        undo_edit(page)
                 if case == "kept":
                     self.retry_reason(page)
                     page.wait_for_function("id=>LINE.some(n=>n.title==='이유 저장됨 · 판정 #'+id+' 채택')", arg=a)
