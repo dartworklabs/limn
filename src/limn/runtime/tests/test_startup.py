@@ -857,6 +857,17 @@ class Version(unittest.TestCase):
 
         self.assertEqual(startup.app_version(), limn.__version__)
 
+    def test_a_file_that_changes_under_the_process_does_not_change_it(self):
+        """The version a process reports is the one it read at the start. A deployment checkout gets pulled while its
+        servers stay up, holding the modules they imported; a version read per request made each of them name the
+        version on disk instead of the code it was running (issue #415)."""
+        import limn
+
+        first = startup.app_version()  # warm, as a server's first answer does
+        with mock.patch.object(Path, "read_text", return_value='__version__ = "99.9.9"\n'):
+            self.assertEqual(startup.app_version(), first)
+        self.assertEqual(first, limn.__version__)
+
 
 if __name__ == "__main__":
     unittest.main()

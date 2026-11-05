@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import errno
+import functools
 import hashlib
 import os
 import re
@@ -57,10 +58,16 @@ LABEL_MAX = 40
 ACCENT_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 
+@functools.cache
 def app_version() -> str:
     """The package version (__version__ in src/limn/__init__.py), or "0+unknown" when that file cannot be read or has
     none. Reads the package-root file rather than importing the package, so it gives the same value whether the server
-    is imported as a module (python -m limn.server) or run directly by file path (python .../limn/server.py)."""
+    is imported as a module (python -m limn.server) or run directly by file path (python .../limn/server.py).
+
+    Read once and kept for the life of the process: what a server reports is the code it is running, not the file on
+    disk now. A deployment checkout is pulled while its servers stay up - they hold the modules they imported at start -
+    and reading the file per request made every one of them claim the new version while serving the old code, which is
+    how a drift of 28 releases stayed invisible (issue #415)."""
     try:
         m = re.search(
             r'^__version__\s*=\s*["\']([^"\']+)["\']',
