@@ -92,19 +92,14 @@ function mdMathInline(state, silent) {
 // '\]' ends a line, with no blank line and no line of an outer block between (TeX allows no paragraph break in math either):
 // a block of its own, math_block, map [first, closing + 1], content its lines as written - indentation and quote markers
 // left out, as a fence's - one per source line. A closing delimiter with text after it is left to the paragraph and its
-// inline rule.
+// inline rule. The first closing delimiter is the one the inline rule would find in the paragraph those lines make: a code
+// span binds tighter (D6), also one that runs over a line end, so the search carries it from line to line (mdMathBlockEnd).
 function mdMathBlock(state, start, end, silent) {
   if (state.sCount[start] - state.blkIndent >= 4) return false;
   const s = state.src, b = state.bMarks[start] + state.tShift[start];
   const open = s.startsWith('$$', b) ? '$$' : s.startsWith('\\[', b) ? '\\[' : '';
   if (!open) return false;
-  let n = start, close = -1;
-  for (; n < end; n++) {
-    const lb = n === start ? b + 2 : state.bMarks[n] + state.tShift[n], le = state.eMarks[n];
-    if (n > start && (lb >= le || state.sCount[n] < state.blkIndent)) return false;
-    close = mdMathEnd(s, lb, le, MD_MATH[open], null);
-    if (close >= 0) break;
-  }
+  const [close, n] = mdMathBlockEnd(state, start, b + 2, end, MD_MATH[open]);
   if (close < 0 || s.slice(close + 2, state.eMarks[n]).trim() || !s.slice(b + 2, close).trim()) return false;
   if (silent) return true;
   const t = state.push('math_block', 'math', 0);
@@ -112,6 +107,74 @@ function mdMathBlock(state, start, end, silent) {
   t.content = state.getLines(start, n + 1, state.sCount[start], false);
   state.line = n + 1;
   return true;
+}
+// Where display math opened on line start closes: [the index of the first closing delimiter close from `from` on, its line],
+// or [-1, -1] when a blank line, a line of an outer block (indented less than the block) or end comes first. Each line is
+// read from its content start (bMarks + tShift: indentation and quote markers left out), as the paragraph's inline text
+// would have it; a backslash and the character after it are passed over, and so is a code span, whose closing backticks
+// may lie on a later line (mdTickClose). The search from a line start it reaches outside a code span goes on the same way
+// whichever line it began on, so what it found from there is kept (mdMathMemo): a later search that reaches that line start
+// - from a later opening line, or the paragraph asking each of its lines whether math ends it - stops there, and eight
+// thousand '\[' lines without a '\]' are read once, not once each.
+function mdMathBlockEnd(state, start, from, end, close) {
+  const s = state.src, memo = mdMathMemo(state, end, close), seen = [];
+  let n = start, k = from, found = null;
+  while (!found) {
+    const le = state.eMarks[n];
+    if (k >= le) {
+      n++;
+      if (mdMathStop(state, n, end)) found = [-1, -1];
+      else if (memo.lines.has(n)) found = memo.lines.get(n);
+      else { seen.push(n); k = state.bMarks[n] + state.tShift[n]; }
+      continue;
+    }
+    const c = s.charCodeAt(k);
+    if (s.startsWith(close, k)) found = [k, n];
+    else if (c === 0x5c) k += 2;
+    else if (c !== 0x60) k++;
+    else {
+      let r = k;
+      while (r < le && s.charCodeAt(r) === 0x60) r++;
+      const after = mdTickClose(state, r - k, r, n, end);
+      if (after) [n, k] = after;
+      else k = r;
+    }
+  }
+  for (const m of seen) memo.lines.set(m, found);
+  return found;
+}
+// What mdMathBlockEnd keeps for one search range (state.mdMathBlock, which lives as long as the parse): one entry per
+// container - the range's end line, the container's indentation and nesting level - and closing delimiter, since a quote or
+// a list item reads the same lines from another content start. lines: line -> what a search from its start found.
+function mdMathMemo(state, end, close) {
+  const all = state.mdMathBlock || (state.mdMathBlock = new Map()), key = close + ' ' + end + ' ' + state.blkIndent + ' ' + state.level;
+  let memo = all.get(key);
+  if (!memo) all.set(key, memo = {lines: new Map()});
+  return memo;
+}
+// Where the code span whose opening run of len backticks ends at r on line n closes: [its line, the index just past its
+// closing run] - the next run of exactly len backticks, on this line or a later one before a blank line or a line of an
+// outer block (a code span runs over line ends, CommonMark) - or null when there is none: then the backticks are text.
+function mdTickClose(state, len, r, n, end) {
+  const s = state.src;
+  for (let m = n, j = r; ;) {
+    const le = state.eMarks[m];
+    while (j < le) {
+      if (s.charCodeAt(j) !== 0x60) { j++; continue; }
+      let e = j;
+      while (e < le && s.charCodeAt(e) === 0x60) e++;
+      if (e - j === len) return [m, e];
+      j = e;
+    }
+    m++;
+    if (mdMathStop(state, m, end)) return null;
+    j = state.bMarks[m] + state.tShift[m];
+  }
+}
+// Whether line n ends the search: past end, blank, or a line of an outer block (indented less than the block; a lazy line,
+// which a quote marks -1).
+function mdMathStop(state, n, end) {
+  return n >= end || state.bMarks[n] + state.tShift[n] >= state.eMarks[n] || state.sCount[n] < state.blkIndent;
 }
 // A markdown-it block rule: YAML front matter at the very top of the document (ADR-0032 제안, docs/superpowers/specs/
 // 2026-11-05-more-line-formats.md). Pandoc's yaml_metadata_block start and end, made a little stricter so that ordinary

@@ -438,6 +438,32 @@ BLOCK_MATH = {
         [],
         [["bullet_list_open", [0, 4]], ["list_item_open", [0, 4]], ["paragraph_open", [0, 4]]],
     ),
+    # A code span binds tighter than math (D6), also one over a line end: no '$$' inside it closes the block.
+    "a code span over line ends hides a closing": (
+        "$$\n\\text{`one\n$$\ntwo`} + x_1 * y\nz * q\n$$",
+        [[[0, 6], ["$$", "\\text{`one", "$$", "two`} + x_1 * y", "z * q", "$$"]]],
+        [],
+    ),
+    "only a run of as many backticks closes the span": (
+        "$$\na ``b `\n$$\nc``\n$$",
+        [[[0, 5], ["$$", "a ``b `", "$$", "c``", "$$"]]],
+        [],
+    ),
+    "a run never matched is text, and the closing stands": (
+        "\\[\na ``b\n\\]\nc`\n\\]",
+        [[[0, 3], ["\\[", "a ``b", "\\]"]]],
+        [["paragraph_open", [3, 5]]],
+    ),
+    "a code span stops at a blank line, as the paragraph does": (
+        "$$\na `b\n$$\n\nc`\n$$",
+        [[[0, 3], ["$$", "a `b", "$$"]]],
+        [["paragraph_open", [4, 6]]],
+    ),
+    "in a quote, over the quote's lines": (
+        "> $$\n> a `b\n> $$\n> c`\n> $$",
+        [[[0, 5], ["$$", "a `b", "$$", "c`", "$$"]]],
+        [["blockquote_open", [0, 5]]],
+    ),
 }
 
 
@@ -530,6 +556,27 @@ class MathRule(unittest.TestCase):
                 self.assertEqual(got[name]["pieces"], want)
                 for text, line in got[name]["pieces"]:
                     self.assertIn(text.strip(), lines[line - 1])
+
+    def test_display_math_openers_without_a_closer_are_read_once(self):
+        """Eight thousand lines that open display math with no closer (about 40 KB) parse in a fraction of the viewer's two
+        seconds: what a search found from a line start is kept (mdMathMemo), so neither a later opening line nor the
+        paragraph asking each line whether math ends it reads the rest again. Lines of '\\[' and '$$', backticks that open
+        code spans over line ends or never close, and a quote's lines. The parse runs in a node subprocess (run_node's
+        timeout), so a slow one fails instead of holding the suite."""
+        cases = {
+            "backslash brackets": "\\[ x\n" * 8000,
+            "dollars": "$$ x\n" * 8000,
+            "code spans over line ends": "\\[ `\n" * 8000,
+            "backtick runs of forty lengths": "\n".join("\\[ " + "`" * (i % 40 + 1) for i in range(4000)),
+            "in a quote": "> \\[ x\n" * 8000,
+        }
+        got = worker_node(
+            "out={}; for(const [name,s] of Object.entries(%s)){md.parse(s,{}); const t0=performance.now(); md.parse(s,{});"
+            "out[name]=performance.now()-t0;}" % json.dumps(cases)
+        )
+        for name, ms in got.items():
+            with self.subTest(name):
+                self.assertLess(ms, 400, "%s: %.0f ms" % (name, ms))
 
     def test_openers_without_a_closer_are_read_once(self):
         """Twenty thousand '\\(' (or '$$') with no closer in one paragraph parse about as fast as the bundled parser
