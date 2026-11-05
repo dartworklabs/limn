@@ -4,15 +4,26 @@ The pure rules - the changed lines of a redrawn source, the commits a document's
 new pins, the gathered line, how long a person was away, the status item of a newer Limn - run under node with the served
 functions; grouping and gathering run under node with the notice store and a fake clock; the flows run in Chromium against
 the in-process server on a desktop (1440x900): a Markdown document changed on disk, a co-author's new pin, an agent closing
-pins one by one, a reply with the browser-notification switch off, a newer Limn on the server, and a return after a while.
+pins one by one, a reply with the browser-notification switch off, and a return after a while; a newer Limn runs against a
+real server process (src/limn/server.py from a copy of the package), its files changed and then restarted.
 
 Run: uv run pytest -q src/limn/viewer/tests/test_viewer_updates.py
 """
 
 import json
+import os
 import re
+import shutil
+import socket
+import subprocess
+import sys
+import tempfile
+import time
 import unittest
+import urllib.request
+from pathlib import Path
 
+import limn
 from limn.administration import serve_documents as startup_documents
 from limn.pins.lifecycle.rules import CloseRequest
 from limn.security.access import LOCAL_ACTOR
@@ -20,7 +31,7 @@ from limn.security.access import LOCAL_ACTOR
 from helpers import HTML, add_pin, extract_js_fn, js_i18n, ps, req, run_node
 from helpers_access import ALICE, BOB, actor
 from helpers_authority import post_authority
-from helpers_browser import BrowserBase, settle, until
+from helpers_browser import BrowserBase, ChromiumTestCase, settle, until
 from helpers_figure import BUILD1, viewer_build
 from helpers_notices import SCREENS, SEEN, node_or_skip
 
@@ -388,14 +399,6 @@ class UpdateFlows(BrowserBase):
         until(page, "LINE.some(n=>n.keys.includes('replied:%d'))" % pid)
         self.assertIn("핀 #%d · 노트 — Bob Park님 답글: 줄였습니다" % pid, self.line(page))
 
-    def test_a_newer_limn_on_the_server_asks_to_reload_on_the_line(self):
-        """The page says it is one Limn and the server another: the line leads with the newer Limn and [새로 고침]."""
-        page = self.view()
-        page.evaluate("VERSION.page='0.0.1'; checkVersion()")
-        until(page, "!!document.querySelector('#status [data-act=reload]')")
-        self.assertIn("Limn", page.evaluate(LINE_TEXT))
-        self.assertIn("새로 고침", page.evaluate(LINE_TEXT))
-
     def test_back_after_a_while_what_came_is_one_line_that_unfolds(self):
         """Away (the last answer 3 minutes ago), a co-author's pin and a closed pin come: one line '자리를 비운 사이 (3분) —
         검토 대기 1 · 새 핀 1' (in the order they came) with [펼치기], which puts each on the line."""
@@ -415,3 +418,118 @@ class UpdateFlows(BrowserBase):
         lines = self.line(page)
         self.assertFalse(any(t.startswith("자리를 비운 사이") for t in lines), lines)
         self.assertTrue(any(t.startswith("새 핀 #") for t in lines) and any("검토 대기" in t for t in lines), lines)
+
+
+class ARestartedServer(ChromiumTestCase):
+    """The newer-Limn check against a real server process - src/limn/server.py run by path from a copy of the package, as
+    instances start - on a Markdown document, as Alice: the page's own version is what the process served it with, and
+    GET /api/version is what the process loaded at start (dartworklabs/limn#415)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        root = Path(self.tmp.name)
+        self.pkg = root / "pkg" / "limn"
+        shutil.copytree(Path(limn.__file__).parent, self.pkg, ignore=shutil.ignore_patterns("tests", "__pycache__"))
+        (root / "ms").mkdir()
+        (root / "ms" / "notes.md").write_text(SOURCE, encoding="utf-8")
+        with socket.socket() as sock:
+            sock.bind(("127.0.0.1", 0))
+            self.port = sock.getsockname()[1]
+        self.base = "http://127.0.0.1:%d" % self.port
+        self.log = root / "server.log"
+        self.argv = [
+            sys.executable,
+            str(self.pkg / "server.py"),
+            *("--manuscript", str(root / "ms"), "--doc", "nt=노트:notes.md", "--state-dir", str(root / "state")),
+            *("--port", str(self.port), "--label", "Restart"),
+        ]
+        self.proc = None
+        self.addCleanup(self.stop)
+        self.start()
+
+    def set_version(self, v):
+        """Rewrite the copy's __version__ on disk, as a pulled checkout or an upgraded install does."""
+        init = self.pkg / "__init__.py"
+        init.write_text(
+            re.sub(r'^__version__ = "[^"]+"', '__version__ = "%s"' % v, init.read_text("utf-8"), flags=re.M)
+        )
+
+    def start(self):
+        """Start the server process and wait (up to 30 s) until it answers GET /api/version."""
+        env = {k: v for k, v in os.environ.items() if not k.startswith("LIMN_") and k != "PYTHONPATH"}
+        with self.log.open("ab") as out:
+            self.proc = subprocess.Popen(self.argv, stdout=out, stderr=subprocess.STDOUT, env=env)
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            if self.proc.poll() is not None:
+                break
+            try:
+                self.served_version()
+                return
+            except OSError:
+                time.sleep(0.1)
+        self.fail("the server did not answer:\n" + self.log.read_text("utf-8", "replace"))
+
+    def stop(self):
+        """End the server process this test started (by its own handle), if it still runs."""
+        if self.proc is not None and self.proc.poll() is None:
+            self.proc.terminate()
+            try:
+                self.proc.wait(10)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+                self.proc.wait(10)
+
+    def served_version(self):
+        with urllib.request.urlopen(self.base + "/api/version", timeout=2) as r:
+            return json.loads(r.read())["version"]
+
+    def checked(self, page):
+        """Ask the server's version as the tab does (checkVersion) and wait for the answer; the version the tab holds."""
+        page.evaluate("VERSION.server=''; checkVersion()")
+        until(page, "!VERSION.busy&&!!VERSION.server")
+        return page.evaluate("VERSION.server")
+
+    def test_a_newer_limn_is_said_only_once_a_restart_runs_it_and_a_reload_ends_it(self):
+        """The package files say 0.4.99 while the process still runs the old code: the server answers the old version and
+        the tab says nothing, also after a reload. Restarted, the tab's next poll after the lost connection says
+        'Limn 0.4.99(으)로 바뀌었습니다' with [새로 고침]; a reload gets the new page and the line says nothing."""
+        old = self.served_version()
+        context = self.browser.new_context(viewport={"width": 1440, "height": 900}, extra_http_headers=ALICE)
+        self.addCleanup(context.close)
+        context.add_init_script(SEEN)
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(self.base + "/?lang=ko")
+        until(page, "typeof LIGHT_TIMER!=='undefined'&&!!LIGHT_TIMER", 20)
+        page.evaluate("clearInterval(LIGHT_TIMER)")  # this test drives the polls
+        reload_item = "!!document.querySelector('#status [data-act=reload]')"
+
+        self.set_version("0.4.99")
+        self.assertEqual(self.checked(page), old)
+        self.assertFalse(page.evaluate(reload_item))
+        self.assertEqual(self.served_version(), old)
+        page.reload()
+        until(page, "typeof LIGHT_TIMER!=='undefined'&&!!LIGHT_TIMER", 20)
+        page.evaluate("clearInterval(LIGHT_TIMER)")
+        self.assertEqual(self.checked(page), old)
+        self.assertFalse(page.evaluate(reload_item))
+
+        self.stop()
+        page.evaluate("(async()=>{await pollLightOnce(); await pollLightOnce();})()")
+        until(page, "POLL_FAILS>=2")
+        self.start()
+        self.assertEqual(self.served_version(), "0.4.99")
+        page.evaluate("pollLightOnce()")
+        until(page, reload_item)
+        self.assertIn("Limn 0.4.99(으)로 바뀌었습니다", page.evaluate(LINE_TEXT))
+
+        page.reload()
+        until(page, "typeof LIGHT_TIMER!=='undefined'&&!!LIGHT_TIMER", 20)
+        page.evaluate("clearInterval(LIGHT_TIMER)")
+        self.assertEqual(page.evaluate("document.querySelector('#more-foot .m-ver').textContent.trim()"), "v0.4.99")
+        self.assertEqual(self.checked(page), "0.4.99")
+        self.assertFalse(page.evaluate(reload_item))
+        self.assertEqual(errors, [])
