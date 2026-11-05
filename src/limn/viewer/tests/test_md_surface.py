@@ -464,6 +464,20 @@ BLOCK_MATH = {
             ["paragraph_open", [5, 6]],
         ],
     ),
+    # The nested quote's look ahead and the outer quote read the same lines at other levels: neither takes the other's
+    # answers (the level in mdMathMemo's key), so the nested quotes keep their first line only.
+    "nested quotes, each at its own level": (
+        ">>`\n\\[\n>``\\]\n``",
+        [],
+        [
+            ["blockquote_open", [0, 1]],
+            ["blockquote_open", [0, 1]],
+            ["paragraph_open", [0, 1]],
+            ["paragraph_open", [1, 2]],
+            ["blockquote_open", [2, 4]],
+            ["paragraph_open", [2, 4]],
+        ],
+    ),
     "a list item's lazy continuation stays its paragraph": (
         "- a\n$$\nx\n$$",
         [],
@@ -615,24 +629,31 @@ class MathRule(unittest.TestCase):
                     self.assertIn(text.strip(), lines[line - 1])
 
     def test_what_the_display_math_search_keeps_never_changes_a_parse(self):
-        """mdMathMemo only saves reads: forty thousand documents of two to seven lines drawn from list items, quotes,
-        nested quotes, indentation, headings, display math delimiters with and without text, backtick runs and blanks parse
-        to the same tokens (type, map, content) with it as with a fresh memo for every search. The documents come from a
-        fixed linear congruential sequence, so a failure names the same document each run. Mutation: leave the closing
-        delimiter out of mdMathMemo's key -> a '$$' search takes a '\\]' search's answers, fails. The container's type
-        in the key needs a rarer document than these (BLOCK_MATH's quote after a list's look ahead)."""
+        """mdMathMemo only saves reads: documents parse to the same tokens (type, map, content) with it as with a fresh
+        memo for every search. Forty thousand documents of two to seven lines drawn from list items, quotes, nested quotes,
+        indentation, headings, display math delimiters with and without text, backtick runs and blanks (an xorshift
+        sequence of a fixed seed, so a failure names the same document each run), and thirty of the shape a container's
+        look ahead reads before another container does: a list item or a quoted one, then display math lines in a quote,
+        with or without an outer quote, under runs of one to three backticks. Mutations: leave the closing delimiter out of
+        mdMathMemo's key -> a '$$' search takes a '\\]' search's answers, fails; leave the container's type out -> the
+        quote after a list's look ahead takes the list's answers, fails; leave the level out -> nested quotes take each
+        other's, fails. BLOCK_MATH pins a document of each of the last two."""
         got = worker_node(
             "const pre=['','- ','> ','  ','> > ','1. ','>   - '],"
             "body=['\\\\[','\\\\]','\\\\[ x','b `` \\\\]','\\\\[ `','`` a','$$','$$ x','x','# H','','`','x \\\\]','x $$'];"
-            "let seed=12345; const next=n=>{seed=(seed*1103515245+12345)%2147483648; return seed%n;};"
+            "let seed=12345; const next=n=>{seed^=seed<<13; seed^=seed>>>17; seed^=seed<<5; return (seed>>>0)%n;};"
             "const docs=[]; for(let i=0;i<40000;i++){const lines=[]; const k=2+next(6);"
             "for(let j=0;j<k;j++) lines.push(pre[next(pre.length)]+body[next(body.length)]); docs.push(lines.join('\\n'));}"
+            "for(const a of ['- # H','1. # H','* # H','> - # H','> 1. # H']) for(const q of ['','> '])"
+            " for(const t of ['`','``','```']) docs.push([a,q+'\\\\[',q+'> \\\\[ x',q+'> b '+t+' \\\\]',q+'\\\\[ `',q+'> '+t+' a']"
+            ".join('\\n'));"
             "const toks=s=>JSON.stringify(md.parse(s,{}).map(t=>[t.type,t.map,t.content]));"
             "const kept=docs.map(toks); mdMathMemo=()=>({lines:new Map()});"
             "const bad=[]; docs.forEach((s,i)=>{if(bad.length<3&&toks(s)!==kept[i]) bad.push(s);});"
-            "out={n:docs.length,bad};"
+            "out={n:docs.length,distinct:new Set(docs).size,bad};"
         )
-        self.assertEqual(got["n"], 40000)
+        self.assertEqual(got["n"], 40030)
+        self.assertGreater(got["distinct"], 35000)  # the sequence does not repeat a small corpus
         self.assertEqual(got["bad"], [])
 
     def test_display_math_openers_without_a_closer_are_read_once(self):
