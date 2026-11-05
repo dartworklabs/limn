@@ -1647,6 +1647,22 @@ class ReadingSpot(MarkdownBase):
         settle(page)
         self.assertAlmostEqual(page.evaluate(TOP_LINE), 247, delta=1)
 
+    def test_a_redraw_that_drops_the_line_keeps_the_nearest_line(self):
+        """Reading at line 247, the changes view opened and the source cut to 220 lines, drawn again while the column is
+        hidden: back on the text, the reading line is gone, so the nearest line kept stands for it - the document stays
+        near its (new) end, as the same redraw on screen leaves it - not the very top of the document."""
+        page = self.open_md(viewport={"width": 1440, "height": 900})
+        self.to_line(page, 247)
+        page.evaluate("setViewMode(VIEW_MODE.REVISIONS)")
+        settle(page)
+        self.write("\n".join(self.MD_TEXT.split("\n")[:220]) + "\n")
+        page.evaluate("pollLightOnce()")
+        until(page, "MD.lines.length <= 221")
+        settle(page)
+        page.evaluate("setViewMode(VIEW_MODE.MANUSCRIPT)")
+        settle(page)
+        self.assertGreater(page.evaluate(TOP_LINE), 150)
+
     def test_a_rotation_in_the_changes_view_keeps_the_top_line(self):
         """The foldable turned while its changes view is open: the column comes back at the other width, reflowed, and the
         line at the top is still line 247 (the spot read before the column was hidden, put back at the new width)."""

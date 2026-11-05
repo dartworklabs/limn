@@ -164,11 +164,19 @@ function mdSpotRead(force){const md=$('#md'),L=$('#left'); if(!isMdDoc()||!md||M
   MD.spot={doc:DOC,w,el:e,line:e?+(e.dataset.line||e.dataset.lo||0):0,key:e?(e.dataset.line?'line':'lo'):'',
     frac:r&&r.height?Math.min(1,Math.max(0,(top-r.top)/r.height)):0,off:null,sel:mdSelSeen(),again:false};}
 // The element that stands for spot s's line now: its element if still drawn, else the one a redraw drew for that line - the
-// same kind (a line span, a block starting there), else the first that carries the line (mdLeaves). null: the very top.
+// same kind (a line span, a block starting there), else the first that carries the line (mdLeaves), else - the line is gone,
+// the source got shorter - the nearest line kept before it (mdSpotNear). null: the very top.
 /** @param {NonNullable<typeof MD.spot>} s */
 function mdSpotEl(s){if(s.el&&s.el.isConnected)return s.el; if(!s.line)return null;
   const md=$('#md'),k=s.key==='lo'?'data-lo':'data-line',e=/** @type {HTMLElement|null} */(md&&md.querySelector('['+k+'="'+s.line+'"]'));
-  return e||mdLeaves(s.line,s.line)[0]||null;}
+  return e||mdLeaves(s.line,s.line)[0]||mdSpotNear(s.line);}
+// The last line element that starts at or before line n (mdLineEls are in document order, their first lines never going
+// back), or null when none does.
+/** @param {number} n */
+function mdSpotNear(n){const els=mdLineEls(); let at=-1; for(let i=0;i<els.length;i++){if(+(els[i].dataset.line||els[i].dataset.lo||0)>n)break; at=i;} return at<0?null:els[at];}
+// Whether element e carries line n: a line span of n, or a block whose lines lo..hi hold n.
+/** @param {HTMLElement} e @param {number} n */
+function mdCarries(e,n){if(e.dataset.line)return +e.dataset.line===n; const lo=+(e.dataset.lo||0),hi=+(e.dataset.hi||e.dataset.lo||0); return lo<=n&&n<=hi;}
 // Puts the spot back after the column's width moved: the same point of the same line element at the area's top (the very top
 // stays the top), then - when the chosen lines were on screen - those lines back into view (revealBox, every layout), and
 // reads the spot at the new width. Nothing moves while the width is the spot's - unless the document was drawn again while
@@ -178,7 +186,8 @@ function mdSpotKeep(){const s=MD.spot,md=$('#md'),L=$('#left'); if(!s||s.doc!==D
   const w=md.getBoundingClientRect().width; if((w===s.w&&!s.again)||!mdLaidOut(w))return;
   const e=mdSpotEl(s);
   if(!e){if(L.scrollTop>0)L.scrollTop=0;}
-  else{const r=e.getBoundingClientRect(),d=r.top+(s.off!==null?s.off:s.frac*r.height)-L.getBoundingClientRect().top; if(Math.abs(d)>=0.5)L.scrollTop+=d;}
+  else{const r=e.getBoundingClientRect(),into=!s.line||mdCarries(e,s.line)?(s.off!==null?s.off:s.frac*r.height):0;   // a nearer line kept: its top
+    const d=r.top+into-L.getBoundingClientRect().top; if(Math.abs(d)>=0.5)L.scrollTop+=d;}
   if(s.sel)revealBox(/** @type {HTMLElement|null} */(document.querySelector('#md .md-sel')),true);
   mdSpotRead(true);}
 // Whether the document column is laid out at width w (#md's): shown (#left has boxes - not under the changes view) and wider than 0.
