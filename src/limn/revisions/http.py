@@ -22,6 +22,13 @@ def diff(requests: RevisionRequests, doc: Doc, query: Query) -> dict[str, Any]:
     return answer.revision_answer(requests.diff(doc, commit, pin, base))
 
 
+def sources(requests: RevisionRequests, doc: Doc, query: Query) -> dict[str, Any]:
+    """GET /api/revision-source: a browser-drawn document's file on the two sides of a commit (or of a range with
+    &base=), which the viewer draws and compares."""
+    commit, _, base = accepted(revision_input.parse_source_query(query))
+    return answer.revision_answer(requests.sources(doc, commit, base))
+
+
 def status(requests: RevisionRequests, doc: Doc, query: Query) -> dict[str, Any]:
     """GET /api/revision-build with the existing comparison state answer (of a range with &base=)."""
     commit, pin, base = accepted(revision_input.parse_revision_query(query))

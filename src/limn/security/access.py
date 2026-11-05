@@ -656,6 +656,7 @@ READ_PATHS = frozenset(
         "/pdf",
         "/api/revisions",
         "/api/revision-diff",
+        "/api/revision-source",
         "/api/revision-build",
         "/api/revision-pdf",
         "/api/meta",
