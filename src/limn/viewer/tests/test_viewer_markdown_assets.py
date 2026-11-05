@@ -8,9 +8,11 @@ docs/guide.md (gd) - and the LaTeX manuscript (ms):
   text saying why, and nothing is asked of another host - not even by the SVG, whose script and external image never run;
 - an SVG opened on its own, with the asset route's own headers enforced, runs no script, fetches nothing and has an opaque
   origin; the same SVG without those headers does run (the test can see what it guards);
-- an image that loads above the reading line leaves the text being read where it was;
+- an image that loads above the reading line leaves the text being read where it was, also when it is drawn at a size an
+  earlier load learned and the file has since changed;
 - a pin on an image's line outlines the image; a click on an image picks its paragraph;
-- a link to another registered document goes to it, at its heading, and the browser's back returns.
+- a link to another registered document goes to it, at its heading, and the browser's back returns - also before that
+  document has opened, which then never opens over the entry back returned to.
 
 The pure rules are in test_md_tree_refs.py; the route's checks in src/limn/documents/tests/test_assets.py.
 
@@ -18,7 +20,8 @@ Run: uv run pytest -q src/limn/viewer/tests/test_viewer_markdown_assets.py
 """
 
 import json
-from urllib.parse import urlparse
+import time
+from urllib.parse import parse_qs, urlparse
 
 from limn.administration import serve_documents as startup_documents
 
@@ -63,6 +66,32 @@ TALL = (
 )
 
 
+# Below the image a document draws first, the heading of the reading line far down.
+TALL_GUIDE = (
+    "# 안내\n\n![위 그림](../notes/img/tall.png)\n\n"
+    + "".join("안내 줄 %d 의 문단.\n\n" % i for i in range(1, 120))
+    + "## 읽는 곳\n\n여기.\n"
+)
+# Where the heading '읽는 곳' is in the document pane, in px from the pane's top.
+HEADING_TOP = (
+    "(()=>{const h=MD.heads.find(x=>x.title==='읽는 곳'),L=document.querySelector('#left');"
+    " return h.el.getBoundingClientRect().top-L.getBoundingClientRect().top;})()"
+)
+
+
+def until(page, js: str, timeout: float = 8.0):
+    """Poll the page expression js with page.evaluate (no eval in the page, unlike wait_for_function) until it is truthy;
+    its value, or AssertionError after timeout seconds."""
+    end = time.monotonic() + timeout
+    while True:
+        got = page.evaluate(js)
+        if got:
+            return got
+        if time.monotonic() > end:
+            raise AssertionError("never true: " + js)
+        page.wait_for_timeout(50)
+
+
 def line_of(text: str, needle: str) -> int:
     """The 1-based line of text that holds needle."""
     return next(i for i, ln in enumerate(text.split("\n"), 1) if needle in ln)
@@ -73,18 +102,21 @@ class AssetsBase(BrowserBase):
     images in notes/img, and an image outside the tree."""
 
     PLAN = PLAN
+    GUIDE = GUIDE
 
     def setUp(self):
         self.away: list[str] = []
         self.asked: list[str] = []
         self.hold: list = []
         self.holding = False
+        self.held_meta: list = []
+        self.hold_meta: str | None = None
         super().setUp()
         self.src = self.main.parent
         (self.src / "notes" / "img").mkdir(parents=True)
         (self.src / "docs").mkdir()
         (self.src / "notes" / "plan.md").write_text(self.PLAN, encoding="utf-8")
-        (self.src / "docs" / "guide.md").write_text(GUIDE, encoding="utf-8")
+        (self.src / "docs" / "guide.md").write_text(self.GUIDE, encoding="utf-8")
         (self.src / "notes" / "img" / "chart.png").write_bytes(blank_png(240, 120))
         (self.src / "notes" / "img" / "tall.png").write_bytes(blank_png(200, 900))
         (self.src / "notes" / "img" / "flow.svg").write_text(SVG, encoding="utf-8")
@@ -98,7 +130,8 @@ class AssetsBase(BrowserBase):
         viewer_build(docs[2], BUILD1)
 
     def route(self, route):
-        """Record every request; abort another host's (kept in self.away); hold /api/asset answers while self.holding."""
+        """Record every request; abort another host's (kept in self.away); hold /api/asset answers while self.holding, and
+        /api/meta answers for the document self.hold_meta (in self.held_meta)."""
         u = urlparse(route.request.url)
         self.asked.append(u.path + ("?" + u.query if u.query else ""))
         if u.netloc != "viewer.test":
@@ -106,6 +139,9 @@ class AssetsBase(BrowserBase):
             return route.abort()
         if self.holding and u.path == "/api/asset":
             self.hold.append(route)
+            return None
+        if self.hold_meta and u.path == "/api/meta" and parse_qs(u.query).get("doc") == [self.hold_meta]:
+            self.held_meta.append(route)
             return None
         return super().route(route)
 
@@ -225,6 +261,60 @@ class ReadingSpot(AssetsBase):
         self.assertGreater(page.evaluate("document.querySelector('#md .md-pic img').height"), 300)
 
 
+class ReadingSpotChangedImage(AssetsBase):
+    """An image drawn at the size an earlier load learned, whose file has changed since, still leaves the text in place."""
+
+    PLAN = TALL
+    GUIDE = TALL_GUIDE
+
+    def test_a_changed_image_drawn_at_its_known_size_does_not_move_the_text(self):
+        """nt loads notes/img/tall.png at 200x900, so its size is known (MD_PIC_SIZE); the file is then replaced by a
+        400x3600 image and gd, which shows the same image above its reading line, is opened: its box is drawn at the
+        known 200x900. With the new answer held, the reading line is put on gd's '## 읽는 곳'; once the image arrives it
+        takes its new size (400x3600), and the heading stays where it was in the pane, to 2px - drawn at the old size and
+        left so, the image would grow to 200x1800 and push the heading 900px down. Scroll anchoring is off as in
+        ReadingSpot."""
+        page = self.open_md()
+        self.assertEqual(page.evaluate("(s=>s&&[s.w,s.h])(MD_PIC_SIZE.get('notes/img/tall.png'))"), [200, 900])
+        (self.src / "notes" / "img" / "tall.png").write_bytes(blank_png(400, 3600))
+        add_test_style(page, "#left,#left *{overflow-anchor:none}")
+        self.holding = True
+        page.evaluate("void switchDoc('gd')")
+        until(page, "DOC==='gd'&&" + DRAWN, 20)
+        self.assertEqual(
+            page.evaluate(
+                "(i=>[i.parentElement.classList.contains('md-pic-ok'),i.getAttribute('width'),i.getAttribute('height')])"
+                "(document.querySelector('#md .md-pic img'))"
+            ),
+            [True, "200", "900"],
+        )
+        end = time.monotonic() + 8
+        while not self.hold:
+            self.assertLess(time.monotonic(), end, "the image was never asked for")
+            page.wait_for_timeout(50)
+        settle(page)
+        top = page.evaluate(
+            "(()=>{const h=MD.heads.find(x=>x.title==='읽는 곳'),L=document.querySelector('#left');"
+            " L.scrollTop+=h.el.getBoundingClientRect().top-L.getBoundingClientRect().top-40;"
+            " return h.el.getBoundingClientRect().top-L.getBoundingClientRect().top;})()"
+        )
+        settle(page)
+        page.wait_for_timeout(200)
+        self.holding = False
+        for r in self.hold:
+            r.fulfill(**self.answer(r.request))
+        until(page, PICS_DONE + "&&document.querySelector('#md .md-pic img').naturalWidth===400")
+        settle(page)
+        self.assertAlmostEqual(page.evaluate(HEADING_TOP), top, delta=2)
+        self.assertEqual(
+            page.evaluate(
+                "(i=>[i.getAttribute('width'),i.getAttribute('height'),MD_PIC_SIZE.get('notes/img/tall.png').h])"
+                "(document.querySelector('#md .md-pic img'))"
+            ),
+            ["400", "3600", 3600],
+        )
+
+
 class SvgOnItsOwn(AssetsBase):
     """An SVG of the tree opened as a page (a new tab, a link to it) is inert under the asset route's own headers."""
 
@@ -295,3 +385,33 @@ class DocumentLinks(AssetsBase):
         page.wait_for_function("DOC==='gd'&&" + DRAWN, timeout=10000)
         page.locator("#md a.md-doclink").first.click()
         page.wait_for_function("DOC==='nt'&&" + DRAWN, timeout=10000)
+
+    def test_back_before_the_linked_document_opens_stays_and_keeps_the_entry(self):
+        """The link from nt to gd is followed while gd's meta answer is held, so gd has not opened; back returns the address
+        to nt, which is still on screen. When gd's answer then arrives it opens nothing: nt stays, the entry back returned
+        to still says #doc=nt, the history has no entry more or less, and forward still goes to gd."""
+        page = self.open_md()
+        self.hold_meta = "gd"
+        depth = page.evaluate("history.length")
+        page.locator("#md a.md-doclink").first.click()
+        until(page, "location.hash.endsWith('doc=gd')")
+        end = time.monotonic() + 8
+        while not self.held_meta:
+            self.assertLess(time.monotonic(), end, "gd's meta was never asked for")
+            page.wait_for_timeout(50)
+        self.assertEqual(page.evaluate("[DOC,history.length]"), ["nt", depth + 1])
+        page.go_back()
+        until(page, "location.hash.endsWith('doc=nt')")
+        page.wait_for_timeout(100)
+        self.hold_meta = None
+        for r in self.held_meta:
+            r.fulfill(**self.answer(r.request))
+        page.wait_for_timeout(600)
+        settle(page)
+        self.assertEqual(
+            page.evaluate("[DOC,MD.shown,location.hash.replace(/^.*doc=/,''),history.length]"),
+            ["nt", "nt", "nt", depth + 1],
+        )
+        page.go_forward()
+        until(page, "DOC==='gd'&&" + DRAWN, 10)
+        self.assertTrue(page.evaluate("location.hash").endswith("doc=gd"))

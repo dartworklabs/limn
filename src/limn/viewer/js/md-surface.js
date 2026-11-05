@@ -471,12 +471,15 @@ function mdImage(c){const raw=String(mdAttr(c,'src')||''),alt=String(c.content||
 // The natural size of each tree image this tab has loaded, by tree path: a redraw or a return to the document keeps their places.
 const MD_PIC_SIZE=/** @type {Map<string,{w:number,h:number}>} */(new Map());
 // An image has loaded: its size is kept (MD_PIC_SIZE) and given to its box, and the reading spot (MD.spot, as mdSpotRead last
-// read it) is put back (mdSpotBack) - only an image above it moves anything. The marks follow through the column's ResizeObserver (MD_RO).
+// read it) is put back (mdSpotBack) - only an image above it moves anything. A box drawn at a size an earlier load learned is checked too:
+// the file may have changed since (a new size under the same path), and then it is resized and the spot put back as for a
+// first load. Only a size that held changes nothing. The marks follow through the column's ResizeObserver (MD_RO).
 /** @param {Event} e */
 function mdPicLoad(e){const img=/** @type {HTMLImageElement} */(e.target),box=img.parentElement; if(!box)return;
-  const w=img.naturalWidth,h=img.naturalHeight; if(w&&h)MD_PIC_SIZE.set(box.dataset.path||'',{w,h});
-  if(box.classList.contains('md-pic-ok'))return;
-  if(w&&h){img.width=w; img.height=h;} box.classList.add('md-pic-ok'); if(box.isConnected&&isMdDoc())mdSpotBack();}
+  const w=img.naturalWidth,h=img.naturalHeight,path=box.dataset.path||''; if(w&&h)MD_PIC_SIZE.set(path,{w,h}); else MD_PIC_SIZE.delete(path);
+  if(box.classList.contains('md-pic-ok')&&+(img.getAttribute('width')||0)===w&&+(img.getAttribute('height')||0)===h)return;
+  if(w&&h){img.width=w; img.height=h;} else{img.removeAttribute('width'); img.removeAttribute('height');}
+  box.classList.add('md-pic-ok'); if(box.isConnected&&isMdDoc())mdSpotBack();}
 // An image the server would not give (not there, not that format, outside the tree behind a link, too large): its alt text,
 // as for an image that is never loaded, saying so in the tip.
 /** @param {Event} e */
@@ -503,8 +506,8 @@ function mdLink(href){const r=mdTarget(href,location.origin,mdBase(),DOCS);
   s.tabIndex=0; s.setAttribute('role','link'); s.setAttribute('aria-disabled','true'); s.setAttribute('aria-description',tip); return s;}
 // A link to another registered document (data-act md-doc): that document, at its '#heading' once it is drawn here (MD.headTo,
 // mdShow), with a history entry of its own - the browser's back returns to the document left through the hashchange switch
-// (doc-switch.js). While a back layer holds the entry on top (a sheet on a phone, gestures.js) no entry is added, as a tab
-// switch adds none; the layer's entry must stay the top one.
+// (doc-switch.js), and a back before the document has opened ends that switch (NAVGEN). While a back layer holds the entry on
+// top (a sheet on a phone, gestures.js) no entry is added, as a tab switch adds none; the layer's entry must stay the top one.
 /** @param {HTMLElement} a */
 function mdGoDoc(a){const k=String(a.dataset.doc||''),id=String(a.dataset.anchor||''),d=docInfo(k); if(!d)return;
   if(k===DOC){if(id)mdGoSlug(id); return;}

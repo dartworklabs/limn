@@ -20,7 +20,7 @@ class DocumentVisitActions(unittest.TestCase):
         js = "\n".join(
             [
                 """
-                let DOC='main',SWITCHSEQ=0,META=null,COMPOSE={current:null},REPICK=null; const EDITOR={current:null,saving:false};
+                let DOC='main',SWITCHSEQ=0,NAVGEN=0,META=null,COMPOSE={current:null},REPICK=null; const EDITOR={current:null,saving:false};
                 let OPEN_ALL=[{id:7,doc:'other',file:'m.tex',lo:1,hi:1,page:1}],REVIEW_ALL=[],DONE_ALL=[];
                 let LAYOUT='wide',modeCalls=0;const REV={back:null,target:null};
                 const VIEW_BY=new Map(),META_BY=new Map([
