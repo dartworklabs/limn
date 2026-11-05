@@ -26,8 +26,8 @@
   page already makes - no new endpoint, storage or agent contract:
   - a document changed (a merge the instance pulled, a push without a PR, an edit in the server's tree, a figure or PDF
     fetched again): `본문이 바뀌었습니다 — PR #12 … · Bob Park · 핀 2개 줄 이동`, until closed. [변경 보기] opens only the
-    new commits; a drawn Markdown or text document also tints the changed lines and [바뀐 곳] steps through them. When the
-    build's commit cannot be known, no PR or author is named;
+    new commits, and keeps to them when a build comes while it is open; a drawn Markdown or text document also tints the
+    changed lines and [바뀐 곳] steps through them. When the build's commit cannot be known, no PR or author is named;
   - new pins by coauthors or agents, one message per document; replies and edits on others' pins are not news;
   - events addressed to me (mentions, replies, review waits, reopenings, assignment, deletion), now in the tab whatever
     the browser-notification switch says; the switch decides only system notifications;

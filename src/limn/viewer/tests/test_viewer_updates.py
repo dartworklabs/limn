@@ -894,7 +894,9 @@ class UpdateFlows(BrowserBase):
     def test_the_changes_view_of_an_update_stops_at_the_commit_its_message_named(self):
         """The manuscript's pages were built at commit B ('Update introduction (#12)'), the last seen commit is A, and C
         ('Fix the axis (#13)') is committed after them, not built. The message names B alone, and its [변경 보기] opens
-        the source diff of A → B - not A → C, the checkout's newest, which the pages on screen do not carry."""
+        the source diff of A → B - not A → C, the checkout's newest, which the pages on screen do not carry. With the view
+        still open, D is committed and the pages are built at C: the list read again for the new build keeps A → B, the
+        range the message named - not A → D, the checkout's newest; C comes with its own message."""
         env = dict(
             os.environ,
             GIT_AUTHOR_NAME="Alice",
@@ -940,6 +942,21 @@ class UpdateFlows(BrowserBase):
         until(page, "document.body.classList.contains('revision-open')&&REV.rowsDoc==='ms'&&!!REV.commit")
         got = page.evaluate("[REV.rows[0].id,REV.commit,REV.base,REV.range.start,REV.range.end]")
         self.assertEqual(got, [c, b, a, b, b])
+        settle(page)
+        self.assertEqual(page.evaluate("REV.rangeIds"), [b])
+        self.main.write_text(self.main.read_text() + "\n% The conclusion\n")
+        os.utime(self.main, (mt + 20, mt + 20))
+        git("commit", "-q", "-am", "Write the conclusion (#14)")
+        d = git("rev-parse", "HEAD").strip()
+        viewer_build(self.ms, "pages-20261105200000")
+        (self.ms.dir / "head.txt").write_text(c)
+        (self.ms.dir / "built_src_mtime.txt").write_text(str(mt + 10))
+        expire_src_mtime(self.ms)
+        page.evaluate("refreshDoc()")
+        until(page, "META.pages_build==='pages-20261105200000'&&REV.rows.length>0&&REV.rows[0].id===%s" % json.dumps(d))
+        settle(page)
+        got = page.evaluate("[REV.commit,REV.base,REV.range.end,REV.rangeIds]")
+        self.assertEqual(got, [b, a, b, [b]])
 
     def test_an_event_that_grows_takes_its_pin_out_of_a_list_batch_said_between(self):
         """An event addressed to me for #1, then the list comparison's batch of #2 and #3, then the event for #2 grows

@@ -148,14 +148,16 @@ async function loadRevisions(){
     if(fig)showRevision(pick.id,DIFF_FORMAT.OVERLAY); else showRevision(pick.id,DIFF_FORMAT.SOURCE); drawRange(); return;}
   // Opened by a document's update message (updates.js openUpdateRange): the commits it named - after the last seen one (base)
   // up to the newest it named (top; the newest row without one) - as a range in the source diff, the list painting what the
-  // server says the range holds. Commits above top (the checkout ahead of the shown build, one come since) stay out.
+  // server says the range holds. Commits above top (the checkout ahead of the shown build, one come since) stay out, also
+  // when the list is read again for a new build: the range keeps the message's base and its end (endSet).
   const want=REV.want; REV.want=null;
   if(want&&want.base&&!fig){const at=(/** @type {string} */id)=>rows.findIndex(r=>r.id===id||r.id.startsWith(id)),i=at(want.base),j=want.top?at(want.top):0;
     const top=j>=0?rows[j].id:want.top,base=i>=0?rows[i].id:want.base;
-    if(top!==base&&!(i>=0&&j>i)){REV.range={mode:RANGE_MODE.FROM,start:i>0&&i>j?rows[i-1].id:top,end:top,endSet:false};
-      showRevision(top,DIFF_FORMAT.SOURCE,base); drawRange(); return;}}
-  // The same document read again while the view is open (a new build) keeps the range shown, moved to the newest commit;
-  // a range comes back in its source diff, so a new build never starts its comparison PDF (only [변경 PDF] does).
+    if(top!==base&&!(i>=0&&j>i)){REV.range={mode:RANGE_MODE.FROM,start:i>0&&i>j?rows[i-1].id:top,end:top,endSet:true,base};
+      showRange(REV.range); return;}}
+  // The same document read again while the view is open (a new build) keeps the range shown, moved to the newest commit
+  // unless its end was chosen (endSet: pressed, or named by an update message); a range comes back in its source diff, so a
+  // new build never starts its comparison PDF (only [변경 PDF] does).
   if(again&&rows.some(r=>r.id===kept.start)){if(REV.seenState===SEEN_STATE.OK&&kept.mode!==RANGE_MODE.LAST)resolveSeen(k||'',rows[0].id);
     showRange(kept.mode===RANGE_MODE.ONE?kept:{...kept,end:kept.endSet?kept.end:rows[0].id},REV.format);return;}
   if(REV.seenState===SEEN_STATE.PENDING&&!fig){showRange(rangeMode(rows,REV.range,RANGE_MODE.LAST,REV.seen));return;}
@@ -187,10 +189,12 @@ function rangeMode(rows,rg,mode,seen){const newest=rows.length?rows[0].id:rg.end
   return {mode,start:focus,end:mode===RANGE_MODE.FROM?newest:focus,endSet:false};}
 /** What a range asks the server: {commit, base}, base '' for one commit against its first parent. [마지막으로 본 뒤] compares
  * the last-seen commit with the newest; [이 커밋부터] the start's first parent with the end - a start that is the end, or a
- * root commit (no parent), is that commit alone. Pure. @param {{id:string,parents:string[]}[]} rows @param {RevRange} rg
+ * root commit (no parent), is that commit alone - or, for the range an update message opened, its base (the last seen
+ * commit, rg.base) with the end. Pure. @param {{id:string,parents:string[]}[]} rows @param {RevRange} rg
  * @param {RevSeen|null} seen @returns {{commit:string,base:string}} */
 function rangeRequest(rows,rg,seen){
   if(rg.mode===RANGE_MODE.LAST&&seen)return {commit:rg.end,base:seen.id};
+  if(rg.mode===RANGE_MODE.FROM&&rg.base)return {commit:rg.end,base:rg.base};
   if(rg.mode!==RANGE_MODE.FROM||rg.start===rg.end)return {commit:rg.start,base:''};
   const s=rows.find(r=>r.id===rg.start);
   return s&&s.parents.length?{commit:rg.end,base:s.parents[0]}:{commit:rg.start,base:''};}
