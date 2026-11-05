@@ -20,7 +20,11 @@
   asks the images that have loaded near the document area again (at most six, nearest first, every four seconds or more,
   one request at a time) with a revalidating `GET /api/asset`; an image whose `ETag` moved on is loaded again from its
   address with `&v=<tag>` (the server reads only `doc` and `path`), keeping the reading line as any image that loads does,
-  and a redraw keeps the new picture. No route or field is added.
+  and a redraw keeps the new picture. The tag of the picture shown is read when it loads, from the answer its `<img>` left
+  in the browser's cache; with nothing cached (the cache cleared or turned off) it is unknown, and the first check moves
+  the image once to the address of the tag now rather than taking that tag for the old picture. No route or field is
+  added. This and the stat `304` below reverse two trade-offs ADR-0030 accepted; ADR-0034 (proposed) records them for the
+  owner's approval.
 - **An unchanged tree image revalidates without being read.** The server keeps, per run and in memory only, the content
   tag of each image it sent under the identity of the file it read (resolved path, device, inode, size, mtime and ctime;
   at most 1,024, the least recently asked dropped first), so an `If-None-Match` for an unchanged image is one no-follow
