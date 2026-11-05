@@ -17,7 +17,7 @@ This file is the index. It fixes the order of the phase plans and the names and 
 
 ## Before execution — owner confirmations
 
-All confirmed (ADR-0011): D1 and D5 by the owner; D2–D4, D6, D7 and the grown `bad_scope`/`bad_via` sentences by diagnosis under the owner's delegation. D6's thresholds stay provisional until the first map-producing figure tool is measured. P0 shipped in 0.3.7.
+All confirmed (ADR-0011): D1 and D5 by the owner; D2–D4, D6, D7 and the grown `bad_scope`/`bad_via` sentences by diagnosis under the owner's delegation. D6's thresholds stayed provisional until the first map-producing figure tool was measured; [ADR-0015](../../adr/0015-d6-measured.md) fixed them at `cover 0.4`, `fill 0.5` (2026-10-06). P0 shipped in 0.3.7.
 
 ## Phase plans
 
