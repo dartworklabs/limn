@@ -108,7 +108,8 @@
   arrows (40px, sideways too when the PDF is zoomed wider than the area), Space and Shift+Space (a screen; Shift+Space
   closed the reason field) and, on Linux, Home and End (-1671px and +9684, the field gone) to the pane, and in the
   tablet sheet to the panel. In a read-only field those keys are now dropped on every host; Shift with a moving key
-  still selects there and moves nothing outside, so it is left alone. Firefox moved nothing outside in either case; its
+  moves nothing outside, so it is left alone (Firefox extends the selection with it; Chromium keeps the selection as
+  it was in a read-only field). Firefox moved nothing outside in either case; its
   caret in a read-only field now stays where it stands too. Chords with Ctrl, Alt or Cmd are still the host's (in a
   read-only field Ctrl+Home and Cmd+Up can still move the pane).
 
