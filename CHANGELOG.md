@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **An image that loads before a scroll's frame no longer takes the document back** (#435). On the Markdown and text
+  surfaces the reading spot is read on a scroll's animation frame; on a renderer too busy to paint an image's load or
+  failure came first and put back the spot read before the scroll. Home pressed while a linked document's images loaded
+  went back down 240-1,230px with the page's frames held (on CI now and then, `HeadingJumpFirefox`, 1,817px and
+  2,947px), End before an image shrinking near the end stopped 217px short of the end, and the browser's find, a pin's
+  [보기] and [바뀐 곳] were undone the same way. Just before an image changes size, a pane found elsewhere than where the
+  spot was read is read again there (`mdSpotFresh`), unless that offset is the one a reflow at the same width makes
+  itself - the offset read before beyond what the pane can scroll now and the pane at its new end, as when a web font
+  that came late shortens the document - and then the spot read before is put back across the reflow, as after a width's
+  change; any other offset is a move, whatever reflowed the column (Home after a run of raw HTML blocks opened or
+  closed, after a font's cut); during a jump to a heading an image's change reads the spot where the jump leaves the
+  pane (`mdPicMoved`), so an End after a failed image shortened the document is not taken for that cut; an image's box keeps the ratio its load gave it until its next load is handled
+  (`mdPicSize`), so the browser no longer reshapes it beforehand and cuts the offset at a document's end, which #433's
+  first try took for a scroll; a pin's [보기] and [바뀐 곳] read the spot where they land (`mdShowLines`), so a width that
+  changes before their frame keeps their place. The spot also keeps the px of the room past its line's end (a line's
+  leading, a margin), which it used to drop: put back, a top in that room moved up to 8px.
+
 ## 0.4.52 — 2026-11-06
 
 ### Added

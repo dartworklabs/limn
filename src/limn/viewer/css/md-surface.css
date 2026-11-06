@@ -48,6 +48,10 @@ body.md-surface #left{touch-action:pan-x pan-y pinch-zoom}
 .md .md-pic{display:inline-block;max-width:100%;vertical-align:middle;line-height:0}
 .md .md-pic img{display:block;max-width:100%;height:auto;border-radius:var(--radius-sm);background:var(--image-plate)}
 .md .md-pic:not(.md-pic-ok) img{width:12rem;height:8rem;background:var(--muted)}
+/* A loaded image's box keeps the ratio of the size its load gave it (md-surface.js mdPicSize, --md-pic-r), not that of the
+   picture it shows: a new picture under the same box (a check's new address, a size an earlier load learned) changes it only
+   when its load is handled, where the reading spot is made sure of first (mdSpotFresh). Unset: the picture's own. */
+.md .md-pic.md-pic-ok img{aspect-ratio:var(--md-pic-r,auto)}
 .md .md-fig .md-pic{display:block;width:fit-content;margin:var(--space-1) 0}
 .md .md-pin .md-pic img{outline:3px solid var(--status-open);outline-offset:2px}
 .md .md-pin.rv .md-pic img{outline-color:var(--status-review)}
