@@ -415,6 +415,35 @@ class SegmentKeys(BrowserBase):
         settle(page)
         self.assertEqual(page.evaluate(SIDE_W), presets[2])
 
+    def test_a_change_of_layout_checks_the_width_the_panel_has_in_the_new_one(self):
+        """[좁게] chosen at 1440x900 with [더보기] open, then the window changes: at 768x1024 the panel folds and opens at
+        the tablet's default, at 1000x800 it stays open beside the document at that default - 보통 both times. The row is
+        drawn as the layout changes, before the panel takes its new width, and checked the old layout's 좁게 (folded: the
+        last width shown; open: the width measured), where Home chose nothing. Home now chooses 좁게, and the panel is
+        that wide."""
+        for viewport, folded in (({"width": 768, "height": 1024}, True), ({"width": 1000, "height": 800}, False)):
+            with self.subTest(viewport=viewport):
+                page = self.open(0, viewport={"width": 1440, "height": 900})
+                page.locator("#btn-more").click()
+                page.wait_for_selector("#more[open]")
+                settle(page)
+                page.click('#m-size [data-i="0"]')
+                settle(page)
+                self.assertEqual(page.evaluate(SIDE_W), page.evaluate("sideBounds(LAYOUT, innerWidth).presets[0]"))
+                page.set_viewport_size(viewport)
+                settle(page)
+                presets = page.evaluate("sideBounds(LAYOUT, innerWidth).presets")
+                self.assertEqual(page.evaluate("[SIDE_OPEN, LAYOUT, $('#more').open]"), [not folded, "mid", True])
+                page.evaluate(CLICKS)
+                page.focus("#m-size [aria-checked=true]")
+                self.assertEqual(page.evaluate(FOCUS), {"group": "m-size", "at": "1", "checked": True})
+                self.assertEqual(self.key(page, "Home"), {"group": "m-size", "at": "0", "checked": True})
+                self.assertEqual(page.evaluate("SEG_CLICKS"), 1)
+                page.keyboard.press("Escape")
+                page.evaluate("setSide(true)")
+                settle(page)
+                self.assertEqual(page.evaluate(SIDE_W), presets[0])
+
     def open_ladder(self, page):
         """Open the composer on line 5 of LADDER_TEX, its paragraph chosen, and put the focus on the ladder's chosen rung."""
         self.open_composer(page)

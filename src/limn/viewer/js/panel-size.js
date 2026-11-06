@@ -62,10 +62,12 @@ let SIDE_SHOWN=/** @type {{w:number,min:number,max:number}|null} */(null);
 // Shows a panel width without saving it: #right, --side-w, and the handle's ARIA while the panel is open.
 function showSideW(w,b){$('#right').style.width=w+'px'; document.documentElement.style.setProperty('--side-w',w+'px');
   SIDE_SHOWN={w,min:b.min,max:b.max}; if(SIDE_OPEN)gripAria();}
+// The width the panel has in this layout, open or folded: the layout's saved width (sideKey), else its default, inside its
+// bounds b. applySideWidth draws it; renderSizeSeg checks it.
+function sideWidthFor(b){const p=prefs()[sideKey()]; return clampSide(typeof p==='number'?p:b.def,b);}
 function applySideWidth(){
   if(LAYOUT===LAYOUT_MODE.NARROW){$('#right').style.width=''; applySheet(); return;}
-  const b=sideBounds(LAYOUT,innerWidth),p=prefs()[sideKey()];
-  showSideW(clampSide(typeof p==='number'?p:b.def,b),b);
+  const b=sideBounds(LAYOUT,innerWidth); showSideW(sideWidthFor(b),b);
 }
 // Sets and remembers the width, then re-fits page width/marks (position is preserved - relayout uses topAnchor/restoreAnchor).
 function setSideWidth(w){if(LAYOUT===LAYOUT_MODE.NARROW)return; const b=sideBounds(LAYOUT,innerWidth); w=clampSide(w,b);
@@ -106,14 +108,16 @@ function tabletLift(){const f=sheetF();
 function setSheetF(f){keepSheet(); f=Math.min(1,Math.max(SHEET_MIN_F,f)); savePrefs({[sheetPref().key]:Math.round(f*1000)/1000}); applySheet(); if(!SIDE_OPEN)setSide(true); renderSizeSeg();}
 // The next height stop above the one shown (the composing lift counts as shown); wraps to the lowest.
 function cycleSheet(){const f=document.body.classList.contains('sheet-up')?Math.max(sheetF(),SHEET_COMPOSE_F):sheetF(),i=SHEET_F.findIndex(x=>x>f+0.02); setSheetF(SHEET_F[i<0?0:i]);}
-// The '패널 폭' (wide/mid) / '시트 높이' (narrow) segment control inside [⋯], the size now chosen checked. A folded panel is
-// measured 0 wide, so its width is the one it opens at (SIDE_SHOWN): measured, the tablet's [더보기] - its panel folded at
-// first - checked no width at all, even the one just chosen.
+// The '패널 폭' (wide/mid) / '시트 높이' (narrow) segment control inside [⋯], the size now chosen checked. The width checked is
+// the one the layout gives the panel (sideWidthFor), not one measured or last shown: a folded panel measures 0 wide - the
+// tablet's [더보기], its panel folded at first, checked no width at all - and a layout change draws this row (applyLayout)
+// before the panel takes the new layout's width (applySideWidth), so both read the old layout's. From 1440 to 768 wide with
+// [좁게] chosen, [좁게] stayed checked though the panel opens at the mid default, and Home on it chose nothing.
 function renderSizeSeg(){const box=$('#m-size'); if(!box)return; const narrow=LAYOUT===LAYOUT_MODE.NARROW,at=segFocusAt(box);
   $('#m-size-l').textContent=narrow?'시트 높이':'패널 폭'; box.setAttribute('aria-label',narrow?'시트 높이':'패널 폭');
   let names,cur;
   if(narrow){names=['낮게','보통','높게']; const f=sheetF(); cur=SHEET_F.findIndex(x=>Math.abs(x-f)<=0.02);}
-  else{names=['좁게','보통','넓게']; cur=presetIndex(sideBounds(LAYOUT,innerWidth).presets,!SIDE_OPEN&&SIDE_SHOWN?SIDE_SHOWN.w:curSideW());}
+  else{names=['좁게','보통','넓게']; const b=sideBounds(LAYOUT,innerWidth); cur=presetIndex(b.presets,sideWidthFor(b));}
   setHtml(box,html`${names.map((n,i)=>html`<button class="${i===cur?'on':''}" role="radio" aria-checked="${i===cur}" data-act="size-preset" data-i="${i}">${n}</button>`)}`);
   segRove(box); segKeep(box,at);}   // one Tab stop, the size chosen (else the first: a dragged width has none), and the focus kept (events.js)
 function sizePreset(i){if(LAYOUT===LAYOUT_MODE.NARROW){setSheetF(SHEET_F[i]);return;} setSideWidth(sideBounds(LAYOUT,innerWidth).presets[i]);}
