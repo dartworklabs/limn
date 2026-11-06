@@ -220,17 +220,32 @@ document.addEventListener('keydown',holdCaret,true);
 // Firefox moved only the caret, which the read-only field now keeps as well. Three cases are left alone: a modifier
 // makes them the field's again (Shift+Home selects to the line's start, Meta+Arrow is the host's own caret key - both
 // measured; in a read-only field Shift with a moving key moves nothing outside - Firefox extends the selection, Chromium keeps it - and Ctrl, Alt or Meta
-// make a host's own chord); a field with more than it shows scrolls itself, which is the field's own doing; and
-// anything outside a field, where these keys move the pages as they always have.
+// make a host's own chord); a field with more than it shows that can still scroll the key's way scrolls itself, which
+// is the field's own doing; and anything outside a field, where these keys move the pages as they always have.
+// That field is left the key only while it has room that way (#455). At its end Chromium handed the key on to the
+// scroller outside: 40 lines in the reason field, 106px of 728 shown and scrolled to the end, PageDown moved the pane
+// +873px, and read-only ArrowDown +40, Space +873 (page 4 to 5, the field gone) and End +4034; at its top PageUp,
+// Shift+Space and Home went up the same way, and sideways keys in a read-only field moved a zoomed pane 40px at any
+// height, as the field has no width to scroll. With room the field scrolled and the pane stayed. A writable field's
+// PageUp and PageDown are no field's keys even then: Chromium moves the caret a page and lines it up with each
+// scroller's top, so they moved the pane from anywhere in the field (+226px beside the pages, +576 under them).
+// Firefox moved nothing outside in any of these.
 const PAGE_KEYS=new Set(['PageUp','PageDown']);   // outline.js's SCROLL_KEYS also holds the arrows and Space, which stay a field's keys on every host
 const READ_ONLY_KEYS=new Set(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Home','End','PageUp','PageDown',' ']);   // a read-only field's: none moves a caret there
+const FIELD_UP_KEYS=new Set(['ArrowUp','PageUp','Home']);   // the keys that scroll a field up; Shift+Space too, and the rest of READ_ONLY_KEYS down or sideways
+/** Whether field f can still scroll the way key k (with Shift: shift) scrolls it, short of that end (#455).
+ * @param {HTMLElement} f @param {string} k @param {boolean} shift */
+function fieldRoom(f,k,shift){
+  if(k==='ArrowLeft')return f.scrollLeft>0;
+  if(k==='ArrowRight')return f.scrollLeft+f.clientWidth<f.scrollWidth-1;
+  return FIELD_UP_KEYS.has(k)||(k===' '&&shift)?f.scrollTop>0:f.scrollTop+f.clientHeight<f.scrollHeight-1;}
 /** @param {KeyboardEvent} e */
 function fieldScrollKey(e){const k=e.key;
   if(!READ_ONLY_KEYS.has(k)||e.metaKey||e.ctrlKey||e.altKey||!typingNow())return;
-  const f=/** @type {HTMLInputElement} */(document.activeElement);
-  if(f.readOnly===true){if(e.shiftKey&&k!==' ')return;}   // Shift with a moving key moves nothing outside (Firefox selects, Chromium keeps the selection)
+  const f=/** @type {HTMLInputElement} */(document.activeElement),ro=f.readOnly===true;
+  if(ro){if(e.shiftKey&&k!==' ')return;}   // Shift with a moving key moves nothing outside (Firefox selects, Chromium keeps the selection)
   else if(e.shiftKey||!(PAGE_KEYS.has(k)||(IS_MAC&&(k==='Home'||k==='End'))))return;
-  if(f.scrollHeight>f.clientHeight)return;
+  if((ro||!PAGE_KEYS.has(k))&&f.scrollHeight>f.clientHeight&&fieldRoom(f,k,e.shiftKey))return;
   e.preventDefault();}
 document.addEventListener('keydown',fieldScrollKey,true);
 // Whether a text field has focus - a textarea, a text input or editable content - which on a touch screen means the keyboard is up.

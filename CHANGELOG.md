@@ -118,6 +118,20 @@
   it was in a read-only field). Firefox moved nothing outside in either case; its
   caret in a read-only field now stays where it stands too. Chords with Ctrl, Alt or Cmd are still the host's (in a
   read-only field Ctrl+Home and Cmd+Up can still move the pane).
+- **A long field's keys move no page at its ends either** (#455, after #449 and #452). A field that holds more than it
+  shows was left its scroll keys, as scrolling inside it is the field's own doing. At its end, though, Chromium handed
+  the key on to the scroller outside: with forty lines in the reason field (106px of 728 shown) scrolled to the end,
+  PageDown moved the pane +873px, and in the read-only field (its save out) ArrowDown +40, Space +873 - the reading page
+  went from 4 to 5 and the field closed - and End +4034 on Linux; at its top PageUp, Shift+Space and Home went up the
+  same way, and ArrowLeft and ArrowRight moved a zoomed pane 40px sideways at any height, as the field has no width to
+  scroll. Such a field is now left a key only while it can still scroll that way (up: `scrollTop > 0`; down: short of
+  `scrollHeight - clientHeight` by more than a pixel; sideways by its width); at that end the key's default is dropped
+  as #449 and #452 drop it, and the caret stays where it stands. In the middle the field scrolls and the pane stays, and
+  a key going back from an end (ArrowUp at the end) is still the field's. A writable field's PageUp and PageDown are
+  dropped in the middle too: Chromium moves the caret a page and lines it up with the scroller's top, so they moved the
+  pane from anywhere in the field (+226px beside the pages, +576 under them, PageUp downwards as well). The caret no
+  longer pages through a long field with them; the arrows and the wheel still do. Firefox moved nothing outside in any
+  of these.
 
 ## 0.4.52 — 2026-11-06
 
