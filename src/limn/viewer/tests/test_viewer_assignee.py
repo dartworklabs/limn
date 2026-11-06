@@ -21,7 +21,6 @@ import json
 import math
 import os
 import shutil
-import sys
 import unittest
 from urllib.parse import urlparse
 
@@ -258,9 +257,10 @@ SEPARATE = "#c-overlap [data-act=overlap-separate]"
 STATUS = "() => document.querySelector('#status').innerText"
 # From a write()'s press until its text is read (WRITE_SEEN), what the document saw (the first 80): each key, edit, focus
 # change and press, with its target and that target's text after it - so text that did not land says where its keys went
-# or what took it. On macOS the note once read '확인' after '@Bob Park 확인' was typed at fold inner 673x841 (#431): the
-# part typed as key events gone, the part Playwright inserts as text there, the focus on the note, no error. WRITE_SEEN
-# takes the listeners off again: they watch one write(), not the rest of the test.
+# or what took it. It is what read the note at fold inner 673x841 as '확인' after '@Bob Park 확인' was typed (#431): every
+# key there but no edit of any of them, the Hangul that Playwright inserts as text in their place, the focus on the note
+# and no error - the document's selection had stayed in the caption the press before it left the caret in (layout.js,
+# CARET_HELD). WRITE_SEEN takes the listeners off again: they watch one write(), not the rest of the test.
 WRITE_WATCH = """() => {if (window.__writeWatch) __writeWatch.off();
   const seen = [], types = ['keydown', 'input', 'focusin', 'focusout', 'pointerdown', 'click'];
   const id = t => t && t.nodeType === 1 ? t.tagName + (t.id ? '#' + t.id : '') : String(t);
@@ -272,17 +272,6 @@ WRITE_WATCH = """() => {if (window.__writeWatch) __writeWatch.off();
 # it takes off.
 WRITE_SEEN = """s => {const a = document.activeElement, w = window.__writeWatch; if (w) w.off();
   return {value: document.querySelector(s).value, focus: a ? a.tagName + (a.id ? '#' + a.id : '') : null, seen: w ? w.seen : null};}"""
-# The viewport where macOS lost the typed tag (#431). Its cause has not come out on Linux and is tracked in that issue, so
-# on macOS AssigneeRowGeometry skips it, out of the gate. LIMN_TEST_RUN_431=1 runs it there anyway, so that a run collects
-# what the document saw (WRITE_WATCH) in the failure's message.
-FLAKY_431_VIEWPORT = "fold inner 673x841"
-
-
-def skipped_for_431(name):
-    """Whether the viewport `name` is skipped here: on macOS, unless LIMN_TEST_RUN_431=1."""
-    return name == FLAKY_431_VIEWPORT and sys.platform == "darwin" and os.environ.get("LIMN_TEST_RUN_431") != "1"
-
-
 # The assignee row as drawn: its options in order and the one checked, or null while the row is hidden.
 ASSIGN_ROW = """() => {const box = document.querySelector('#c-assign'); if (box.hidden) return null;
   const bs = [...box.querySelectorAll('button[role=radio]')];
@@ -1190,10 +1179,6 @@ class AssigneeRowGeometry(ComposerBase):
         for name, device in VIEWPORTS.items():
             for lang in ("ko", "en"):
                 with self.subTest(name, lang=lang):
-                    if skipped_for_431(name):
-                        self.skipTest(
-                            "macOS loses the tag typed over the note here: issue #431 (LIMN_TEST_RUN_431=1 runs it)"
-                        )
                     page = self.view(device, 1, lang=lang)
                     self.compose(page, notes["two"], separate=False, device=device)
                     self.assertTrue(page.is_visible(SEPARATE), "the composer offers [덧붙이기] and [따로 저장]")
@@ -1225,6 +1210,24 @@ class AssigneeRowGeometry(ComposerBase):
         page = self.view(device)
         self.select(page, device, pace=0)
         self.write(page, device, "@Bob Park 확인")
+        self.assertEqual(page.evaluate(COMPOSING), {"note": "@Bob Park 확인", "open": True})
+
+    def test_a_tap_back_into_the_note_after_leaving_it_takes_the_keys(self):
+        """The tablet sheet, where leaving the note and tapping back into it lost what was typed next (#431): the
+        second note lands whole.
+
+        Leaving the field is a press on the range caption - static text, so the press leaves the document's selection
+        in it. The tap back into the note then moved the focus but not that selection, and until something moved it
+        the browser turned no key into an edit: the keys arrived at the field, no beforeinput followed and nothing was
+        inserted. What ended it was the sheet's own keepFieldInView 350ms later, so everything typed inside that
+        window was lost and the Hangul that Playwright inserts as text replaced the whole note ('확인' for
+        '@Bob Park 확인'). macOS Chromium at fold inner 673x841; a mouse press never had it, because a click takes the
+        selection into the field with the focus."""
+        device = VIEWPORTS["fold inner 673x841"]
+        page = self.view(device)
+        self.select(page, device)
+        self.write(page, device, "@Bob Park 확인, @Carol Lee 참고")
+        self.rewrite(page, "@Bob Park 확인", device)
         self.assertEqual(page.evaluate(COMPOSING), {"note": "@Bob Park 확인", "open": True})
 
     def test_three_long_names_at_320_scroll_inside_the_row(self):
