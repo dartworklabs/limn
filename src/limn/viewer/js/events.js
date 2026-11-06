@@ -173,6 +173,15 @@ document.addEventListener('keydown',e=>{
 function segManualLeft(e){const t=/** @type {HTMLElement} */(e.target),g=t&&t.closest?t.closest('[role=radiogroup][data-seg-manual]'):null;
   const to=/** @type {Node|null} */(e.relatedTarget); if(g&&!(to&&g.contains(to)))segRove(g);}
 document.addEventListener('focusout',segManualLeft);
+// A ladder's scroll box (.seg.lad) is no Tab stop (tabindex="-1": Firefox makes a box that overflows one of its own), but
+// a press on it - the gap between two words, its edge - still gives it the focus, and from a focused box with tabindex -1
+// Firefox's next Tab began again at the page's start. So the focus such a press gives the box goes on to the group's one
+// stop (segRove's word) as no new focus (focusGivenBack: no description), and Tab leaves from there, as from a word.
+/** @param {FocusEvent} e */
+function segBoxFocus(e){const b=/** @type {HTMLElement} */(e.target); if(!b||!b.matches||!b.matches('.seg.lad[tabindex="-1"]'))return;
+  const g=b.matches('[role=radiogroup]')?b:b.querySelector('[role=radiogroup]')||b,ws=segOffered(g),w=ws.find(x=>x.tabIndex===0)||ws[0];
+  if(w)focusGivenBack(w);}
+document.addEventListener('focusin',segBoxFocus);
 
 document.addEventListener('keydown',e=>{
   if(imeKey(e))return;   // an input method's key, the Enter or Esc that ended its composition too (core.js)

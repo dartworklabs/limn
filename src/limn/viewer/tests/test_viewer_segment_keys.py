@@ -667,6 +667,39 @@ class SegmentKeys(BrowserBase):
         page.evaluate("document.querySelector('#c-levels [data-level=env]').disabled = true")
         self.assertEqual(self.key(page, "ArrowRight")["at"], "raw")
 
+    def test_a_press_between_two_rungs_leaves_tab_where_the_ladder_is(self):
+        """A mouse press on the 2px gap between two rungs of the edit card's and the composer's ladder gives the focus to
+        the chosen rung, not to the ladder's scroll box (tabindex -1) - so the next Tab goes on to the card's next control,
+        as from a rung. From the focused box Firefox's Tab began again at the page's start (#nav-toc-toggle; found in
+        review). Mutation: no segBoxFocus -> the box keeps the focus, and in Firefox Tab leaves the card, fails."""
+        self.main.write_text(LADDER_TEX, encoding="utf-8")
+        for ladder, holder in ((".e-levels", ".edit"), ("#c-levels", "#composer")):
+            with self.subTest(ladder=ladder):
+                page = self.open(0, viewport={"width": 1440, "height": 900})
+                if ladder == ".e-levels":
+                    self.open_edit_ladder(page)
+                else:
+                    self.open_ladder(page)
+                gap = page.locator(ladder).evaluate(
+                    "e=>{const w=e.querySelector('[role=radio]'),r=w.getBoundingClientRect(),"
+                    "n=w.nextElementSibling.getBoundingClientRect(); return [(r.right+n.left)/2, r.top+r.height/2];}"
+                )
+                self.assertFalse(
+                    page.evaluate("([x,y])=>!!document.elementFromPoint(x,y).closest('[role=radio]')", gap)
+                )
+                page.mouse.click(*gap)
+                settle(page)
+                self.assertEqual(
+                    page.evaluate(
+                        "s=>document.activeElement===document.querySelector(s+' [aria-checked=true]')", ladder
+                    ),
+                    True,
+                )
+                page.keyboard.press("Tab")
+                settle(page)
+                self.assertTrue(page.evaluate("s=>!!document.activeElement.closest(s)", holder), holder)
+                page.context.close()
+
 
 class SegmentKeysFirefox(SegmentKeys):
     """The same walks in Firefox."""
