@@ -21,6 +21,10 @@
   centre lies under the panel's box leaves the tab order until the sheet closes or the pages scroll it out; a badge
   scrolled out of the pages (under the document bar, or zoomed past the pages' edge) stays a stop. The check compares
   boxes and costs well under a millisecond per scroll frame with hundreds of badges.
+- **At 320px the sheet bar's [⬚] keeps its 44px press area** (#418). With a pin awaiting review, the left cell was
+  narrower than the pin chip and [⬚] together, so [⬚] stood in the grabber's column and answered only 38px. Under 332px
+  the bar's side edges are 4px instead of 12px; the gap and the icon keep their size, and in Korean the chip keeps its
+  words (핀 2 | 검토 1).
 
 ## 0.4.52 — 2026-11-06
 

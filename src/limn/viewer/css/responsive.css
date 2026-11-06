@@ -467,6 +467,13 @@ body.lay-narrow #bar1 #btn-select{padding:0 var(--space-3)}   /* the tablet shee
 body.band-phone #bar1 #btn-select,body.lay-narrow #bar1.bar-sel-icon #btn-select{width:36px;min-width:36px;padding:0;justify-content:center}
 body.lay-narrow #bar1 #btn-pos{gap:var(--space-1);padding:0 var(--space-2)}
 body.lay-narrow #bar1 #btn-pos .ic{width:16px;height:16px;color:var(--muted-foreground)}
+/* The narrowest phones. The left cell's least is fixed: the chip's two halves at their 44px each and [⬚]'s 44px hit, which
+   is the 8px gap and the 36px icon - 132px, whatever the words. The centred 44px grabber leaves each cell half of what is left
+   after the bar's edges: at 12px edges a phone under 332px wide has a cell under 132px, and [⬚] stood in the grabber's column
+   (126px at 320: 6px into it, its hit cut to 38px) - narrowing the gap or the icon only moves its hit into the chip. So under
+   332px only the bar's edges give, to 4px: the cell is 134px at 320. The gap, the icon, the grid and the grabber's 44px stay,
+   and nothing changes rows - the decoration a width query may carry (docs/handbook/viewer.md §모바일 레이아웃, issue #418). */
+@media (max-width:331.98px){body.lay-narrow #bar1{padding-left:var(--space-1);padding-right:var(--space-1)}}
 @media (pointer:coarse){body.lay-narrow #bar1 :is(#btn-side,#btn-rv,#btn-select,#btn-pos,#btn-more)::after{top:50%;height:var(--hit);transform:translate(-50%,-50%)}
   body.lay-narrow #bar1 #btn-select::after{left:auto;right:0;transform:translateY(-50%)}   /* the 36px chip's hit reaches left into the gap, never into the grabber's column */
   /* The chip's halves are each at least 44px wide (min-width) and meet: each answers its own box, set by its edges - a
