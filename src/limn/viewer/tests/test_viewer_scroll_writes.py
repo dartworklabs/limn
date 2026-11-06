@@ -36,7 +36,7 @@ SHOWS = {
 KEEPS = {
     ("doc-switch.js", "restoreView"): 1,
     ("layout.js", "setSelMode"): 1,
-    ("md-surface.js", "mdGoStop"): 1,
+    ("md-surface.js", "mdGoStop"): 2,
     ("md-surface.js", "mdRestore"): 2,
     ("md-surface.js", "mdSpotKeep"): 2,
     ("pages.js", "fitW"): 1,
