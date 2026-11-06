@@ -75,6 +75,14 @@ button.btn-icon.btn-sm{width:var(--control-h-sm);min-width:var(--control-h-sm);h
    selection nor found by the browser's find - a hidden text node was both, an invisible find result and a pasted sentence. */
 [data-tip-sr]::after{content:attr(data-tip-sr);position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);clip-path:inset(50%);white-space:nowrap}
 button.badge{cursor:pointer;padding:0 var(--space-2);border-radius:var(--radius-sm);font-size:var(--text-xs);line-height:calc(var(--line-label) + 2px)}
+/* What the pointer says over a control that cannot be pressed now (docs/handbook/viewer.md §뜻과 모양): one turned off for a
+   reason (the disabled attribute: [더보기]'s [브라우저 알림] without the browser's leave, a composer's verdict word without a
+   selection) is not-allowed; one held for a moment (aria-disabled="true": it keeps its focus and its description and comes
+   back by itself - a page line's verdict words before the first pin list or while the page's save is out, [판정 취소] then, a
+   reason's [저장] while it writes) waits, as [핀 저장]'s saving does. With no hover look, an arrow there read as broken. After
+   the variants, which set a pointer of their own at the same specificity (.badge). */
+button:disabled{cursor:not-allowed}
+button[aria-disabled="true"]{cursor:progress}
 @media (hover:hover){button.badge:where(:not(:disabled,[aria-disabled="true"])):hover{background:var(--accent);border-color:var(--border-strong)}}
 .card{background:var(--card);color:var(--card-foreground);border:1px solid var(--border);border-radius:var(--radius-lg)}
 input,textarea{background:var(--field);color:var(--foreground);border:1px solid var(--input);border-radius:var(--radius);padding:var(--space-2);

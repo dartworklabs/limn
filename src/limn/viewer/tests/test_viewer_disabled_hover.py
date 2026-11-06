@@ -6,6 +6,9 @@ mouse is over them: the hover fill said "press me" on a control that a press doe
 transition that eases a hover's fill in is waited out (settle) before the look is read. An enabled control beside it is
 read the same way and does change, so a hover that never reached the page cannot pass for a guard.
 
+The pointer says which of the two a control is: not-allowed over one turned off for a reason (disabled), the busy pointer
+over one held for a moment (aria-disabled) - with no hover look, an arrow there read as broken.
+
 The touch press wash (components.css, button:active) skips the same controls; it is held by the stylesheet check in
 test_viewer.py (FrontendHoverForMouse) only: a finger held through the DevTools input domain never sets :active in headless
 Chromium, so no press can be read here.
@@ -37,6 +40,8 @@ PLANT = """variants => {const box = document.createElement('div'); box.id = 'hov
   document.body.append(box);}"""
 
 
+# The pointer's look over sel.
+CURSOR = "sel => getComputedStyle(document.querySelector(sel)).cursor"
 # Page 1's [보류] on the figure document's page verdict line.
 WORD = '#doc .pv[data-page="1"] button.vd-b[data-key="보류"]'
 
@@ -94,7 +99,7 @@ class DisabledHover(BrowserBase):
 
     def test_the_disabled_notifications_row_keeps_its_resting_look_under_the_mouse(self):
         """[더보기]'s [브라우저 알림] cannot turn on over http://viewer.test (disabled, the reason under it): under the mouse
-        it keeps its resting look, while the [휴지통] row under it fills with --accent."""
+        it keeps its resting look and the pointer says not-allowed, while the [휴지통] row under it fills with --accent."""
         page = self.open(0, viewport={"width": 1440, "height": 900})
         page.locator("#btn-more").click()
         page.wait_for_selector("#more[open]")
@@ -102,36 +107,56 @@ class DisabledHover(BrowserBase):
         self.assertTrue(page.evaluate("document.querySelector('#m-notify').disabled"))
         rest, hovered = self.look_at_rest_and_under_mouse(page, "#m-notify")
         self.assertEqual(hovered, rest)
+        self.assertEqual(page.evaluate(CURSOR, "#m-notify"), "not-allowed")
         rest, hovered = self.look_at_rest_and_under_mouse(page, "#m-trash")
         self.assertNotEqual(hovered["background"], rest["background"])
 
     def test_a_waiting_verdict_word_keeps_its_resting_look_until_it_can_be_pressed(self):
-        """The figure's page line while the first pin list is on its way: its words wait (aria-disabled) and keep their
-        resting look under the mouse; once the list is in, the same word fills under the mouse."""
+        """The figure's page line while the first pin list is on its way: its words wait (aria-disabled), keep their
+        resting look under the mouse and show the busy pointer; once the list is in, the same word fills under the mouse
+        and the busy pointer is gone."""
         page, release = waiting_page_line(self, viewport={"width": 1440, "height": 900})
         self.assertEqual(page.get_attribute(WORD, "aria-disabled"), "true")
         rest, hovered = self.look_at_rest_and_under_mouse(page, WORD)
         self.assertEqual(hovered, rest)
         self.assertNotEqual(rest["background"], "rgba(0, 0, 0, 0)")  # a drawn word, not an empty box
+        self.assertEqual(page.evaluate(CURSOR, WORD), "progress")
         release()
         self.assertIsNone(page.get_attribute(WORD, "aria-disabled"))
+        self.assertNotEqual(page.evaluate(CURSOR, WORD), "progress")
         rest, hovered = self.look_at_rest_and_under_mouse(page, WORD)
         self.assertNotEqual(hovered["background"], rest["background"])
 
     def test_every_button_variant_keeps_its_resting_look_when_it_cannot_be_pressed(self):
-        """Each of the components' button variants, disabled or aria-disabled, looks the same at rest and under the mouse;
-        the same variant that can be pressed changes."""
+        """Each of the components' button variants, disabled or aria-disabled, looks the same at rest and under the mouse,
+        with the pointer not-allowed or busy; the same variant that can be pressed changes."""
         page = self.open(0, viewport={"width": 1440, "height": 900})
         page.evaluate(PLANT, list(VARIANTS))
         for v in VARIANTS:
             name = v or "plain"
             for how in ("disabled", "aria"):
                 with self.subTest(variant=name, how=how):
-                    rest, hovered = self.look_at_rest_and_under_mouse(page, '[data-probe="%s-%s"]' % (name, how))
+                    sel = '[data-probe="%s-%s"]' % (name, how)
+                    rest, hovered = self.look_at_rest_and_under_mouse(page, sel)
                     self.assertEqual(hovered, rest)
+                    self.assertEqual(page.evaluate(CURSOR, sel), "not-allowed" if how == "disabled" else "progress")
             with self.subTest(variant=name, how="live"):
                 rest, hovered = self.look_at_rest_and_under_mouse(page, '[data-probe="%s-live"]' % name)
                 self.assertNotEqual(hovered, rest)
+
+    def test_a_reason_save_held_on_a_conflict_says_not_allowed(self):
+        """A reason popover's [저장] is held (aria-disabled) while it writes, and while a newer note found by a write waits
+        to be read ([그 위에 쓰기]): the first waits on the viewer - the busy pointer - the second on the person -
+        not-allowed. Read on the popover's markup planted on the page (verdict-reason.js pvReasonPop draws it)."""
+        page = self.open(0, viewport={"width": 1440, "height": 900})
+        page.evaluate(
+            """() => {for (const cf of [false, true]) {const pv = document.createElement('div'); pv.className = 'pv';
+              pv.innerHTML = '<div class="pv-pop">' + (cf ? '<div class="pv-pop-cf"></div>' : '') +
+                '<span class="pv-pop-acts"><button type="button" class="btn-sm pv-pop-save" aria-disabled="true">저장</button></span></div>';
+              pv.dataset.probe = cf ? 'conflict' : 'writing'; document.body.append(pv);}}"""
+        )
+        self.assertEqual(page.evaluate(CURSOR, '[data-probe="writing"] .pv-pop-save'), "progress")
+        self.assertEqual(page.evaluate(CURSOR, '[data-probe="conflict"] .pv-pop-save'), "not-allowed")
 
 
 class DisabledHoverFirefox(DisabledHover):

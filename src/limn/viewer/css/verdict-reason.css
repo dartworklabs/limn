@@ -46,6 +46,7 @@
 .pv .pv-pop-h:empty,.pv .pv-pop-st:empty{display:none}
 .pv .pv-pop-acts{display:flex;gap:var(--space-1);margin-left:auto}
 .pv .pv-pop-acts button{min-height:var(--control-h-sm)}
+.pv .pv-pop:has(.pv-pop-cf) .pv-pop-save[aria-disabled="true"]{cursor:not-allowed}   /* held on the person, not on a write: a newer note to read, [그 위에 쓰기] (components.css) */
 .pv .pv-pop-acts .pv-pop-clear{color:var(--destructive);position:relative;margin-right:var(--space-3)}
 /* The destructive [지우기] stands 16px from [접기]/[닫기] with a divider in the gap, as the confirm word does on the line. */
 .pv .pv-pop-acts .pv-pop-clear::before{content:'';position:absolute;top:var(--space-1);bottom:var(--space-1);right:calc(-1 * var(--space-2) - 1px);width:1px;background:var(--border-strong);pointer-events:none}

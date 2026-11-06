@@ -1058,7 +1058,8 @@ LaTeX·Markdown·텍스트 문서의 줄 핀은 그 줄 범위를 바꿀 글을 
 - 터치의 누름 그림자도 두 상태를 건너뛴다(`button:active:not(:disabled,[aria-disabled="true"])`).
 - 끈 컨트롤은 불투명도 0.65와 금지 커서로 끈 것을 말한다(위 표의 동작 행).
 
-확인은 둘이다. `FrontendHoverForMouse`는 내보내는 CSS의 모든 `:hover`에 가드가 있는지, 누름 규칙이 두 상태를 빼는지 본다. [`test_viewer_disabled_hover.py`](../../src/limn/viewer/tests/test_viewer_disabled_hover.py)는 Chromium과 Firefox에서 [더보기]의 끈 `브라우저 알림` 행, 첫 목록을 기다리는 쪽 판정 줄 낱말, 버튼 변형 일곱(변형 없음·default·secondary·ghost·soft·destructive·badge)의 끈 판과 기다리는 판이 마우스 아래에서 쉴 때 모양과 같은지 본다. 누를 수 있는 이웃이나 같은 변형은 바뀌는지도 함께 본다. 터치 누름은 정적 검사만 본다. 헤드리스 Chromium에서는 DevTools로 합성한 손가락이 `:active`를 켜지 않기 때문이다.
+확인은 둘이다. `FrontendHoverForMouse`는 내보내는 CSS의 모든 `:hover`에 가드가 있는지, 누름 규칙이 두 상태를 빼는지 본다. [`test_viewer_disabled_hover.py`](../../src/limn/viewer/tests/test_viewer_disabled_hover.py)는 Chromium과 Firefox에서 [더보기]의 끈 `브라우저 알림` 행, 첫 목록을 기다리는 쪽 판정 줄 낱말, 버튼 변형 일곱(변형 없음·default·secondary·ghost·soft·destructive·badge)의 끈 판과 기다리는 판이 마우스 아래에서 쉴 때 모양과 같은지, 커서가 끈 판은 금지이고 기다리는 판은 바쁨인지 본다. 누를 수 있는 이웃이나 같은 변형은 바뀌는지도 함께 본다. 터치 누름은 정적 검사만 본다. 헤드리스 Chromium에서는 DevTools로 합성한 손가락이 `:active`를 켜지 않기 때문이다.
+- 기다리는 컨트롤은 바쁨 커서(`cursor: progress`)로 기다린다는 것을 말한다. hover 면도 없이 화살표만 남으면 고장 난 것처럼 보이기 때문이다. 둘은 마크업이 가른다. 까닭이 있어 끈 컨트롤은 `disabled` 속성이고(`브라우저 알림` 행, 선택 없는 작성 패널의 판정 낱말) 금지 커서를 그대로 둔다. 잠시 기다리는 컨트롤은 `aria-disabled="true"`다. 이유 팝오버의 [저장]이 충돌로 멈춘 동안(더 새 메모를 읽고 [그 위에 쓰기]를 고를 차례)은 기다리는 것이 사람이라 금지 커서다.
 
 **[변경 보기]의 안내 줄.** 글이 길면 글이 줄바꿈되고 [원고로]·[확인] 버튼은 잘리지 않는다. [확인]은 검토 대기 핀일 때만 있고 카드의 [확인]과 같은 동작이다. 휴대폰·태블릿 시트에서는 두 버튼이 변경 보기 아래쪽 sticky 줄에 붙는다. [변경 보기]를 누를 때 보던 문서를 기억해(`REV_BACK`) 그 문서로 돌아간다. 다른 문서면 버튼이 `<문서 이름>(으)로`라고 말한다. 소스 diff는 늘 줄을 바꿔 보인다. 문단 하나를 한 줄로 쓰는 원고가 흔해, 줄바꿈 없이는 폰에서 diff가 화면 여러 개 폭이 되기 때문이다. 전에 있던 [줄바꿈] 토글과 그 저장값(`pinPrefs.diffWrap`)은 없앴고, 옛 저장값은 부팅할 때 지운다.
 

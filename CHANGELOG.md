@@ -8,7 +8,8 @@
   [브라우저 알림] row where notifications cannot turn on - and one that waits (`aria-disabled`: a page verdict line's
   words before the first pin list) filled with the hover colour, as if a press would do something. Every hover rule of
   the viewer now skips both, and so does the touch press wash; the rules keep their specificity, so nothing else
-  changes look.
+  changes look. The pointer says which of the two a control is: not-allowed over one turned off (`disabled`), the busy
+  pointer over one held for a moment (`aria-disabled`), where an arrow with no hover look read as broken.
 - **A segmented control is one Tab stop, walked with the arrow keys** (#417). The one-of-many segments - the kind and
   assignee rows of the composer and the edit card, [더보기]'s theme and language, the navigation sheet's
   [원고 | 변경사항], the changes view's quick range and [이전 | 지금] - took one Tab stop per word and ignored the
