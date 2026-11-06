@@ -62,7 +62,7 @@ button.sg-tg[aria-checked=true]{color:var(--foreground)}
 .sg-warn button.sg-warn-go{display:inline;min-height:0;min-width:0;height:auto;padding:0;border:0;border-radius:0;background:transparent;
   color:var(--primary);font:inherit;line-height:inherit;vertical-align:baseline;text-decoration:none;text-underline-offset:3px}
 .sg-warn button.sg-warn-go:focus-visible{text-decoration:underline}
-@media (hover:hover){.sg-warn button.sg-warn-go:hover{background:transparent;color:var(--primary);text-decoration:underline}}
+@media (hover:hover){.sg-warn button.sg-warn-go:where(:not(:disabled,[aria-disabled="true"])):hover{background:transparent;color:var(--primary);text-decoration:underline}}
 @media (pointer:fine){.sg-warn button.sg-warn-go{position:relative}
   .sg-warn button.sg-warn-go::after{content:'';position:absolute;left:50%;top:50%;width:max(100%,24px);height:max(100%,24px);transform:translate(-50%,-50%)}}
 @media (pointer:coarse){.pin .sg-view:has(>.sg-warn .sg-warn-go){margin-top:var(--space-6)}

@@ -100,6 +100,6 @@ body.dot-side.compact #bar1 #btn-side::before{right:auto;left:-2px}
 /* A copy control that just copied (copiedMark, COPIED_MS): a check and '복사됨' in the success colour where it was - the
    composer's icon button grows to fit the word, a location keeps at least its own width. */
 .copied,button.copied{display:inline-flex;align-items:center;gap:var(--space-1);color:var(--success)}
-@media (hover:hover){button.copied:hover{color:var(--success)}}   /* the mouse that just pressed it is still on it */
+@media (hover:hover){button.copied:where(:not(:disabled,[aria-disabled="true"])):hover{color:var(--success)}}   /* the mouse that just pressed it is still on it */
 .copied svg{flex:none;width:16px;height:16px}
 body #c-copy.copied,button.btn-icon.copied{width:auto;padding:0 var(--space-2)}

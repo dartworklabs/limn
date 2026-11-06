@@ -69,7 +69,7 @@ body.pv-beside #doc .pgw:not(:has(>.pv-sum))>.pg{margin-bottom:var(--space-6)}  
 #doc .pv-sum .pv-sum-id,#doc .pv-sum .vd-w{color:var(--foreground);font-weight:600}
 #doc .pv-sum .pv-sum-draft{color:var(--warning);font-weight:600}
 #doc .pv-sum.on{color:var(--foreground);font-weight:600}
-@media (hover:hover){#doc .pv-sum:hover{background:transparent;color:var(--foreground);text-decoration:underline;text-underline-offset:3px}}
+@media (hover:hover){#doc .pv-sum:where(:not(:disabled,[aria-disabled="true"])):hover{background:transparent;color:var(--foreground);text-decoration:underline;text-underline-offset:3px}}
 #doc .pv-sum.pv-far:not(:focus){content-visibility:auto;contain-intrinsic-block-size:var(--control-h-sm)}
 /* A touch screen wide enough for the panel: the rows stand far enough apart that the '#N' link and what is under it each answer
    44px, and a summary answers 44px; it shows a press as every button does (components.css) and a long press shows its words

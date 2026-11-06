@@ -87,7 +87,7 @@ body.revision-open :is(#btn-actual,#m-actual){display:none}   /* the comparison 
 #more .more-grid{display:flex;flex-direction:column}
 #more .more-grid button,#more .more-grid .m-sw{width:100%}
 #more .more-grid button{justify-content:flex-start;gap:var(--space-2);text-align:left;white-space:nowrap;background:transparent;border-color:transparent;font-size:var(--text-lg)}
-@media (hover:hover){#more .more-grid button:hover{background:var(--accent)}}   /* a tapped row stayed grey (sticky :hover, UX audit P4.6) */
+@media (hover:hover){#more .more-grid button:where(:not(:disabled,[aria-disabled="true"])):hover{background:var(--accent)}}   /* a tapped row stayed grey (sticky :hover, UX audit P4.6) */
 #more .more-grid .lbl{flex:1;min-width:0}
 #more .m-n{color:var(--muted-foreground);font-variant-numeric:tabular-nums}
 #more .more-grid button>.ic:last-child:not(:first-child){color:var(--muted-foreground)}
@@ -107,7 +107,7 @@ body.revision-open :is(#btn-actual,#m-actual){display:none}   /* the comparison 
 #more .m-ver{color:var(--muted-foreground);font-variant-numeric:tabular-nums;vertical-align:calc(-1 * var(--ink-ver,0px))}
 #more .more-foot button{gap:var(--space-1)}
 #more .more-foot [data-act=help] .ic{transform:translateY(var(--help-chev,0px))}   /* on [도움말]'s ink centre (footInk) */
-@media (hover:hover){#more .seg button:not(.on):hover{background:var(--accent)}}
+@media (hover:hover){#more .seg button:not(.on):where(:not(:disabled,[aria-disabled="true"])):hover{background:var(--accent)}}
 @media (pointer:coarse){
   :root{--doc-nav-h:48px;--text-xs:12px}   /* no touch text below 12px: badges, counts, avatar initials and page numbers were 11px (diagnosis P7) */
   :root{--pin-badge-size:26px;--mark-hit:var(--hit)}
@@ -241,7 +241,7 @@ body.compact #bar1{flex-wrap:nowrap;gap:var(--space-2);padding:var(--space-2) va
 body.compact #bar1 .sp{display:none}
 body.compact #bar1 button{flex:1 1 auto;min-width:0;padding:0 var(--space-2);overflow:hidden;text-overflow:ellipsis;font-size:var(--text-lg);font-weight:400;
   border:0;background:transparent;color:var(--foreground)}
-@media (hover:hover){body.compact #bar1 button:hover{background:var(--accent)}}
+@media (hover:hover){body.compact #bar1 button:where(:not(:disabled,[aria-disabled="true"])):hover{background:var(--accent)}}
 /* The compact bars' panel toggle is one split chip, words first: [핀 5 | 검토 1] - the owner's E2 on the phone and tablet sheet,
    and 2b of the cross-resolution pass on the unfolded Fold, the landscape tablets and the landscape phone, where the icon pill
    [📍 5 👁 1 ›] was. The right half (#btn-rv) goes to the review list. The halves and [⬚] share one tonal fill (--secondary,
@@ -775,7 +775,7 @@ body:not(.compact) :is(#help,#trash) .ns-head>.row>button{margin-right:calc(-1 *
    dialog's h2 has, which stood it 4px above the row's middle; its wordmark ends on the title's ink bottom (headInk), above it. */
 :is(#nav-sheet-h,#trash-h,#help-h,#more-label b),:is(.ns-head>.row,#more .more-head)>button .lbl{text-box:trim-both cap alphabetic}
 .ns-head h2{margin:0}
-@media (hover:hover){:is(#nav-sheet,#help,#trash) .ns-head>.row>button:hover{background:var(--accent)}}
+@media (hover:hover){:is(#nav-sheet,#help,#trash) .ns-head>.row>button:where(:not(:disabled,[aria-disabled="true"])):hover{background:var(--accent)}}
 body.compact #trash .arc-list{max-height:none;overflow:visible}   /* the sheet scrolls, so a pull down starts at its top */
 /* Selection on a view-only PDF document: no range ladder, range excerpt or source expansion (there is no line). The region's text is shown in the source field instead. */
 #composer.region #c-levels,#composer.region #c-cap,#composer.region .snip-foot,#composer.region #c-copy{display:none}

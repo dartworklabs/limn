@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **A control that cannot be pressed no longer answers the mouse** (#416). A disabled button - [더보기]'s
+  [브라우저 알림] row where notifications cannot turn on - and one that waits (`aria-disabled`: a page verdict line's
+  words before the first pin list) filled with the hover colour, as if a press would do something. Every hover rule of
+  the viewer now skips both, and so does the touch press wash; the rules keep their specificity, so nothing else
+  changes look.
+
 ## 0.4.52 — 2026-11-06
 
 ### Added

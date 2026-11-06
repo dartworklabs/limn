@@ -12,26 +12,31 @@ button{display:inline-flex;align-items:center;justify-content:center;gap:var(--s
 .ic{width:16px;height:16px;flex:none;display:inline-block;vertical-align:-3px;pointer-events:none}
 .kh{font-weight:400;font-size:var(--text-sm)}   /* a button's shortcut, set off by weight and size: at 80% it read 4.3:1 on a light [핀 저장] */
 /* Every hover look answers a mouse only (docs/handbook/viewer.md §뜻과 모양): on a touch screen a tap leaves :hover stuck on the
-   tapped control, and a [더보기] row stayed grey after it was tapped (UX audit P4.6). */
-@media (hover:hover){button:hover{background:var(--accent);color:var(--accent-foreground)}}
+   tapped control, and a [더보기] row stayed grey after it was tapped (UX audit P4.6). A control that cannot be pressed answers
+   nothing: every :hover in the viewer's CSS is written :where(:not(:disabled,[aria-disabled="true"])):hover, so a disabled
+   control and one that waits (aria-disabled, a page line's verdict words) keep their resting look under the mouse. :where()
+   adds no specificity, so each hover rule wins and loses against the others exactly as it did before the guard (issue #416:
+   the disabled [브라우저 알림] row filled with --accent; test_viewer_disabled_hover.py). */
+@media (hover:hover){button:where(:not(:disabled,[aria-disabled="true"])):hover{background:var(--accent);color:var(--accent-foreground)}}
 button:disabled{opacity:.65;cursor:not-allowed}
 /* Touch press feedback: with no hover, a pressed control is washed with the text colour for the press only - over whatever fill
-   it has, and gone on release, so nothing stays behind as a hover would (docs/handbook/viewer.md §뜻과 모양). */
-@media not all and (hover:hover){button:active:not(:disabled){box-shadow:inset 0 0 0 100vmax color-mix(in srgb,var(--foreground) 8%,transparent)}}
+   it has, and gone on release, so nothing stays behind as a hover would (docs/handbook/viewer.md §뜻과 모양). A control that
+   cannot be pressed is not washed, whichever way it says so (the list in :not() counts as its one most specific argument). */
+@media not all and (hover:hover){button:active:not(:disabled,[aria-disabled="true"]){box-shadow:inset 0 0 0 100vmax color-mix(in srgb,var(--foreground) 8%,transparent)}}
 button.btn-default{background:var(--primary);color:var(--primary-foreground);border-color:var(--primary);font-weight:600}
-@media (hover:hover){button.btn-default:hover{background:color-mix(in srgb,var(--primary) 88%,var(--background));color:var(--primary-foreground)}}
+@media (hover:hover){button.btn-default:where(:not(:disabled,[aria-disabled="true"])):hover{background:color-mix(in srgb,var(--primary) 88%,var(--background));color:var(--primary-foreground)}}
 button.btn-secondary{background:var(--secondary);color:var(--secondary-foreground);border-color:transparent}
-@media (hover:hover){button.btn-secondary:hover{background:color-mix(in srgb,var(--secondary) 88%,var(--foreground))}}
+@media (hover:hover){button.btn-secondary:where(:not(:disabled,[aria-disabled="true"])):hover{background:color-mix(in srgb,var(--secondary) 88%,var(--foreground))}}
 button.btn-ghost{background:transparent;border-color:transparent}
-@media (hover:hover){button.btn-ghost:hover{background:var(--accent)}}
+@media (hover:hover){button.btn-ghost:where(:not(:disabled,[aria-disabled="true"])):hover{background:var(--accent)}}
 /* soft: a light accent (a tint of the primary color). Only for the card's [완료] - set by the author 2026-09-23 (light blue). The secondary token is used by count badges, so it's left untouched */
 button.btn-soft{background:color-mix(in srgb,var(--primary) 14%,transparent);color:var(--primary);border-color:transparent}
-@media (hover:hover){button.btn-soft:hover{background:color-mix(in srgb,var(--primary) 14%,transparent);color:var(--primary);border-color:color-mix(in srgb,var(--primary) 45%,transparent)}}   /* darkening the background further drops light-mode text contrast below 4.5 - shown via a border instead */
+@media (hover:hover){button.btn-soft:where(:not(:disabled,[aria-disabled="true"])):hover{background:color-mix(in srgb,var(--primary) 14%,transparent);color:var(--primary);border-color:color-mix(in srgb,var(--primary) 45%,transparent)}}   /* darkening the background further drops light-mode text contrast below 4.5 - shown via a border instead */
 /* [핀 저장]'s "saving" - looks pressed-and-waiting. After the variants: it carries the same specificity as
    `button.btn-default`, and that rule is the one it has to win over ([핀 저장] is the panel's default action). */
 button[data-pending]{cursor:progress;background:color-mix(in srgb,var(--primary) 70%,var(--background));border-color:transparent}
 button.btn-destructive{background:color-mix(in srgb,var(--destructive) 10%,transparent);color:var(--destructive);border-color:transparent}
-@media (hover:hover){button.btn-destructive:hover{background:color-mix(in srgb,var(--destructive) 18%,transparent);color:var(--destructive)}}
+@media (hover:hover){button.btn-destructive:where(:not(:disabled,[aria-disabled="true"])):hover{background:color-mix(in srgb,var(--destructive) 18%,transparent);color:var(--destructive)}}
 /* The small button is --control-h-sm tall by its token, not by its text (12px x 1.4 + padding made 22.8px), and its label's
    centre is its cap height's (docs/handbook/viewer.md §글자 가운데): a small button of words alone is a block container, so its
    line can be trimmed to the cap height over the baseline (text-box) and the button centres that; a label beside an icon is
@@ -70,7 +75,7 @@ button.btn-icon.btn-sm{width:var(--control-h-sm);min-width:var(--control-h-sm);h
    selection nor found by the browser's find - a hidden text node was both, an invisible find result and a pasted sentence. */
 [data-tip-sr]::after{content:attr(data-tip-sr);position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);clip-path:inset(50%);white-space:nowrap}
 button.badge{cursor:pointer;padding:0 var(--space-2);border-radius:var(--radius-sm);font-size:var(--text-xs);line-height:calc(var(--line-label) + 2px)}
-@media (hover:hover){button.badge:hover{background:var(--accent);border-color:var(--border-strong)}}
+@media (hover:hover){button.badge:where(:not(:disabled,[aria-disabled="true"])):hover{background:var(--accent);border-color:var(--border-strong)}}
 .card{background:var(--card);color:var(--card-foreground);border:1px solid var(--border);border-radius:var(--radius-lg)}
 input,textarea{background:var(--field);color:var(--foreground);border:1px solid var(--input);border-radius:var(--radius);padding:var(--space-2);
   font:inherit;width:100%}
@@ -331,7 +336,7 @@ body:not(.pv-beside) #doc .pgw.pv-roomy::after{content:'';display:block;height:v
    :focus-visible (cards.css §One unified link style). */
 .pv button.pv-early{color:var(--primary);padding-inline:var(--space-1);text-decoration:none;text-underline-offset:3px}
 .pv button.pv-early:focus-visible{background:transparent;text-decoration:underline}
-@media (hover:hover){.pv button.pv-early:hover{background:transparent;color:var(--primary);text-decoration:underline}}
+@media (hover:hover){.pv button.pv-early:where(:not(:disabled,[aria-disabled="true"])):hover{background:transparent;color:var(--primary);text-decoration:underline}}
 /* [판정 취소]: a text action that takes a verdict back, not a way to somewhere - muted destructive text (the danger hue
    leaning to the line's own text, so it never outshouts the state or reads as the blue links), the line's weight, and the
    link's underline only on hover and :focus-visible. A phone's floating line holds it back (.pv-lean, verdict.js pvLean). */
@@ -340,7 +345,7 @@ body:not(.pv-beside) #doc .pgw.pv-roomy::after{content:'';display:block;height:v
 .pv button.pv-cancel{--pv-cancel-fg:color-mix(in srgb,var(--destructive) 78%,var(--foreground));color:var(--pv-cancel-fg);font-weight:inherit;
   padding-inline:var(--space-1);text-decoration:none;text-underline-offset:3px}
 .pv button.pv-cancel:focus-visible{background:transparent;text-decoration:underline}
-@media (hover:hover){.pv button.pv-cancel:hover{background:transparent;color:var(--pv-cancel-fg);text-decoration:underline}}
+@media (hover:hover){.pv button.pv-cancel:where(:not(:disabled,[aria-disabled="true"])):hover{background:transparent;color:var(--pv-cancel-fg);text-decoration:underline}}
 body.band-phone .pv.pv-lean .pv-cn{visibility:hidden}   /* its place kept: the line's rows are the same floating or in place */
 /* A stacked line puts its state on a row of its own and its buttons on the next, at its start, filling the row - or sharing
    it with a save chip at its end (notices.css). */
