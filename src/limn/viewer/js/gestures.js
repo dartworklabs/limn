@@ -71,6 +71,13 @@ function sheetRelease(f,dy,v,composing){
   if(f<SHEET_CLOSE_F||(dy>24&&v>=0.5))return composing?{f:SHEET_MIN_F}:{close:true};
   if(dy<-24&&v<=-0.5){const n=SHEET_F.find(x=>x>f+0.02); return {f:n===undefined?1:n};}
   return {f:Math.max(SHEET_MIN_F,Math.min(1,f))};}
+// The height a released sheet stands at, as sheetRelease's f: 1 when it is held at its highest (max-height, the visible height less
+// --sheet-gap: under the document bar, the keyboard up or down), else the height it shows. Read from the shown height alone, the top
+// was the fraction under 1 (976/1024 = 0.953) and redrew 1px below the bar (issue #456), and with the keyboard up the sheet then stayed
+// that low when it went. Half a pixel more, saved at 1/10000 (setSheetF), redraws the same whole pixel (CSS rounds down) - the shown
+// height over the screen, saved at 1/1000, came back 1px lower about every other time it was let go.
+function shownSheetF(){const r=$('#right'),h=r.getBoundingClientRect().height,top=parseFloat(getComputedStyle(r).maxHeight);
+  return h>=top-1?1:(h+0.5)/innerHeight;}
 // Carries out sheetRelease() for the draft state now: collapse the sheet (remembered) or set its height.
 function settleSheet(f,dy,v){const r=sheetRelease(f,dy,v,draftOpen()); if(r.close){applySheet(); setSide(false,true);} else setSheetF(r.f);}
 // The height a dragged sheet shows: never below 12% - or 30% while a draft is open, where it will stop anyway. A drag ends the
@@ -103,7 +110,7 @@ function dragSheetTo(h){keepSheet(); document.documentElement.style.setProperty(
     if(!d.moved){if(d.lazy||Date.now()<SWALLOW_CLICK)return; if(!SIDE_OPEN)setSide(true,true); else cycleSheet(); SWALLOW_CLICK=Date.now()+400; return;}
     SWALLOW_CLICK=Date.now()+400;   // a drag that started on a tool-bar button never also presses it
     if(!SIDE_OPEN){applySheet(); return;}
-    settleSheet($('#right').getBoundingClientRect().height/innerHeight,e.clientY-d.y,dragSpeed(d.pts));};
+    settleSheet(shownSheetF(),e.clientY-d.y,dragSpeed(d.pts));};
   window.addEventListener('pointerup',end); window.addEventListener('pointercancel',end);
   g.addEventListener('keydown',e=>{if(LAYOUT!==LAYOUT_MODE.NARROW)return; const f=sheetF();
     if(e.key==='ArrowUp'){e.preventDefault(); setSheetF(f+0.05);} else if(e.key==='ArrowDown'){e.preventDefault(); setSheetF(f-0.05);}
@@ -131,7 +138,7 @@ function pullDown(box,ok,onStart,onMove,onEnd){let P=/** @type {{x:number,y:numb
     ()=>{h=$('#right').getBoundingClientRect().height; document.body.classList.add('resizing'); hideTip(); endPress();},
     dy=>dragSheetTo(h-dy),
     (dy,v)=>{document.body.classList.remove('resizing'); if(dy===null){applySheet(); return;}
-      SWALLOW_CLICK=Date.now()+400; settleSheet($('#right').getBoundingClientRect().height/innerHeight,dy,v);});
+      SWALLOW_CLICK=Date.now()+400; settleSheet(shownSheetF(),dy,v);});
 })();
 // The bottom sheets follow a pull-down and close on a release past 35% of their height or a flick (dismissOutcome): [더보기] and the
 // documents sheet always, help and the Trash where they are bottom sheets too (compact; the desktop centres them).
