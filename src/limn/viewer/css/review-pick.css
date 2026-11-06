@@ -42,7 +42,7 @@ label.rv-ck{flex:1;min-width:0;display:flex;align-items:center;gap:var(--space-2
 .rv-ans{min-width:0;color:var(--foreground)}
 .rv-ans>button.msg-more{margin-left:calc(-1 * var(--space-2))}   /* [더 보기] starts where the explanation does */
 .rv-facts{color:var(--muted-foreground);font-size:var(--text-sm)}
-.rv-facts>span{white-space:nowrap}   /* a reference or a range is never broken inside ('바/뀐 줄') */
+.rv-facts>span{display:inline-block;max-width:100%;overflow-wrap:anywhere}   /* a reference or a range moves to the next line whole ('바/뀐 줄' was split); one longer than the row (a commit URL) wraps inside itself */
 /* Touch: a row's label and its links are drawn on the 24px line as with a mouse, and their 44px press areas are round them
    (.hit, responsive.css), as a card's actions are. The bar's label is a head line of its own, 44px. */
 @media (pointer:coarse){label.rv-all{min-height:var(--hit)}}

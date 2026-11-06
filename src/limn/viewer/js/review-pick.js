@@ -59,19 +59,20 @@ function rvBar(list){const bar=$('#rv-bar'); bar.hidden=!RV_PICK; if(!RV_PICK){b
 <button type="button" class="btn-sm btn-soft rv-go" id="rv-go" data-act="rv-go"${n?'':' disabled'} data-tip="${tr('고른 핀을 확인해 완료로 옮깁니다. 6초 안에 되돌릴 수 있습니다')}">${n?tl('{n}건 확인',{n}):tr('확인')}</button>`);
   /** @type {HTMLInputElement} */($('#rv-all')).indeterminate=n>0&&!all;}
 
-// What has the focus in the picking section, as a selector a redraw can find it by again: a row's box or button (by its
-// pin), or one of the bar's controls (by its id). null when the focus is elsewhere.
-/** @returns {string|null} */
+// What has the focus in the picking section, as a redraw can find it again: a row's box, or a control of the row by its
+// data-act and its place among the row's controls of that act (two #N in an explanation are both 'pin-ref'), or one of
+// the bar's controls by its id. null when the focus is elsewhere.
+/** @returns {{sel:string,i:number}|null} */
 function rvFocusKeep(){const a=/** @type {HTMLElement|null} */(document.activeElement); if(!a||!a.closest)return null;
   const row=/** @type {HTMLElement|null} */(a.closest('.rv-row[data-id]')),at=row?'.rv-row[data-id="'+row.dataset.id+'"] ':'';
-  if(row&&a.matches('input[data-pick]'))return at+'input[data-pick]';
-  if(row&&a.dataset.act)return at+'[data-act="'+CSS.escape(a.dataset.act)+'"]';
-  return a.closest('#rv-bar')&&a.id?'#'+CSS.escape(a.id):null;}
-// Gives the focus back after a redraw to what rvFocusKeep found (sel), or - that gone or disabled - to [골라서 확인], else to
-// the section's toggle. Only when the redraw dropped the focus to the page.
-/** @param {string|null} sel */
-function rvFocusBack(sel){const a=document.activeElement; if(!sel||(a&&a!==document.body))return;
-  const el=/** @type {HTMLElement|null} */(document.querySelector(sel)),pick=/** @type {HTMLElement} */($('#review-pick'));
+  if(row&&a.matches('input[data-pick]'))return {sel:at+'input[data-pick]',i:0};
+  if(row&&a.dataset.act){const sel=at+'[data-act="'+CSS.escape(a.dataset.act)+'"]'; return {sel,i:[...document.querySelectorAll(sel)].indexOf(a)};}
+  return a.closest('#rv-bar')&&a.id?{sel:'#'+CSS.escape(a.id),i:0}:null;}
+// Gives the focus back after a redraw to what rvFocusKeep found (k: the same place among its kind, else the first), or -
+// that gone or disabled - to [골라서 확인], else to the section's toggle. Only when the redraw dropped the focus to the page.
+/** @param {{sel:string,i:number}|null} k */
+function rvFocusBack(k){const a=document.activeElement; if(!k||(a&&a!==document.body))return;
+  const all=document.querySelectorAll(k.sel),el=/** @type {HTMLElement|null} */(all[Math.max(0,k.i)]||all[0]||null),pick=/** @type {HTMLElement} */($('#review-pick'));
   const to=el&&!/** @type {HTMLInputElement} */(el).disabled?el:!pick.hidden?pick:/** @type {HTMLElement} */($('#review-toggle'));
   to.focus({preventScroll:true});}
 
@@ -152,7 +153,8 @@ function rvUndo(items,where,ticks){const back=[],lost=[];
 
 // What the server did with one confirm. CLOSED_AGAIN: closed again since the row was ticked (409 conflict, still awaiting
 // review); DONE_BY_PERSON: closed straight to done meanwhile (409 conflict, done); REOPENED: reopened (409 open); GONE: no
-// such pin (200 ok:false); REFUSED: any other refusal (its text); UNREACHED: no answer - the only one [다시 시도] sends again.
+// such pin (200 ok:false); REFUSED: any other refusal (its text); UNREACHED: no answer, or one that cannot be read - the
+// only one [다시 시도] sends again.
 const RV_OUT=Object.freeze({OK:'ok',CLOSED_AGAIN:'closed-again',DONE_BY_PERSON:'done',REOPENED:'reopened',GONE:'gone',REFUSED:'refused',UNREACHED:'unreached'});
 // The outcome of one confirm from its answer: status and body of an answered request (409 expected), or the error api()
 // threw (an ApiError with a status for a refusal, none when the server was not reached). Pure.
@@ -161,7 +163,7 @@ function rvOutcome(r,err){if(err)return err.status?{out:RV_OUT.REFUSED,why:errTe
   const d=r&&r.data;
   if(d&&d.error===PIN_STATE.OPEN)return {out:RV_OUT.REOPENED};
   if(d&&d.error==='conflict')return {out:d.pin&&pinState(d.pin)!==PIN_STATE.REVIEW?RV_OUT.DONE_BY_PERSON:RV_OUT.CLOSED_AGAIN};
-  return d&&d.ok?{out:RV_OUT.OK}:{out:RV_OUT.GONE};}
+  return d&&d.ok?{out:RV_OUT.OK}:d&&d.ok===false?{out:RV_OUT.GONE}:{out:RV_OUT.UNREACHED};}
 
 // How long one confirm may go unanswered before it is said as not sent (and offered to [다시 시도]); a confirm takes some
 // milliseconds. Without it one request the network holds kept every pin of the send out of the list and the banner unsaid.
@@ -177,11 +179,12 @@ function rvSendOne(pin,at){const stop=new AbortController(),bound=setTimeout(()=
     .then(o=>{clearTimeout(bound); CONFIRMING.delete(pin.id); CONFIRMING_PIN.delete(pin.id); if(o.out===RV_OUT.OK)markMine(pin.id); return o;});}
 // Sends the confirms of items all at once (rvSendOne: every request starts in this call, so a page being closed sends them
 // all) and, once each is answered or given up, says what came of them: all done is said quietly; anything refused is one
-// banner on top of the review section that names each pin with why (rvSaid). The list is read again first.
+// banner on top of the review section that names each pin with why (rvSaid). The list is read again alongside, not
+// before: a read the network holds would keep the banner and its [다시 시도] unsaid.
 /** @param {{pin:Pin,at:string}[]} items */
 async function rvSend(items){
   const outs=await Promise.all(items.map(({pin,at})=>rvSendOne(pin,at)));
-  await loadPins();
+  loadPins();
   const said=rvSaid(items.map((x,i)=>({id:x.pin.id,...outs[i]})));
   if(!said){quietNote(tl('핀 {n}건 확인했습니다',{n:items.length})); return;}
   const again=items.filter((x,i)=>outs[i].out===RV_OUT.UNREACHED),first=items.find((x,i)=>outs[i].out===RV_OUT.CLOSED_AGAIN);
@@ -205,9 +208,11 @@ function rvSaid(res){const of=(/** @type {string} */k)=>res.filter(r=>r.out===k)
   return {msg:tl('{n}건 중 {k}건 확인',{n:res.length,k:ok})+' — '+why.join(' · '),kind};}
 
 // [다시 시도]: the pins that did not reach the server, sent again at once with the same done_at - no second undo. A pin
-// confirmed or sent again meanwhile is left out.
+// being sent again, or one the lists read since show done or open, is left out; one the lists have not shown again yet
+// (their read still out) is sent, and the server answers by the done_at as it would have.
 /** @param {{pin:Pin,at:string}[]} items */
-function rvRetry(items){const still=items.filter(x=>!CONFIRMING.has(x.pin.id)&&REVIEW_ALL.some(p=>p.id===x.pin.id)); if(!still.length)return;
+function rvRetry(items){const moved=(/** @type {number} */id)=>[DONE_ALL,OPEN_ALL].some(l=>l.some(p=>p.id===id));
+  const still=items.filter(x=>!CONFIRMING.has(x.pin.id)&&!moved(x.pin.id)); if(!still.length)return;
   for(const {pin} of still){CONFIRMING.add(pin.id); CONFIRMING_PIN.set(pin.id,pin); if(RV_PICK)RV_PICK.delete(pin.id);}
   REVIEW_ALL=REVIEW_ALL.filter(p=>!CONFIRMING.has(p.id)); drawPins(); marks(); rvSend(still);}
 

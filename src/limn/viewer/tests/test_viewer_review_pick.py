@@ -61,7 +61,7 @@ class ReviewPickBase(BrowserBase):
         """The five pins awaiting review, and the viewer's identity Alice in the people directory."""
         super().setUp()
         ps.APP.people_directory.record(A)
-        self.unreached, self.held, self.holding = set(), set(), []
+        self.unreached, self.held, self.holding, self.hold_reads = set(), set(), [], False
         made = []
         for lo, note in ((4, "alpha"), (11, "beta"), (18, "gamma"), (25, "delta"), (30, "epsilon")):
             made.append(add_pin({"file": str(self.main), "lo": lo, "hi": lo, "page": 1, "note": note}, A).record["id"])
@@ -80,12 +80,16 @@ class ReviewPickBase(BrowserBase):
         )
 
     def route(self, route):
-        """BrowserBase's routing, except that a confirm of a pin in self.unreached is aborted (no answer) and one in
-        self.held is never answered (kept in self.holding), as a network that holds a request."""
+        """BrowserBase's routing, except that a confirm of a pin in self.unreached is aborted (no answer), and one in
+        self.held - or, while self.hold_reads, any read of the pin list - is never answered (kept in self.holding), as a
+        network that holds a request."""
         m = re.fullmatch(r"/api/pins/(\d+)/confirm", urlparse(route.request.url).path)
         if m and int(m.group(1)) in self.unreached:
             return route.abort()
         if m and int(m.group(1)) in self.held:
+            self.holding.append(route)
+            return None
+        if self.hold_reads and urlparse(route.request.url).path == "/api/pins":
             self.holding.append(route)
             return None
         return super().route(route)
@@ -379,6 +383,23 @@ class ReviewPickFlows(ReviewPickBase):
         self.assertIn("다시 시도", banner.inner_text())
         self.assertEqual(page.evaluate("CONFIRMING.size"), 0)
 
+    def test_the_banner_and_its_retry_do_not_wait_for_the_list_read(self):
+        """The outcome is said once the confirms are answered, even while the list read that follows is held by the
+        network; its [다시 시도] sends the unreached pin again then too (the lists have not shown it back yet)."""
+        self.unreached.add(self.p2)
+        page = self.review_page()
+        self.pick(page)
+        self.tick(page, self.p1, self.p2)
+        page.click("#rv-go")
+        self.hold_reads = True
+        self.send_now(page)
+        page.wait_for_selector(".nt-banner.nk-err[role=alert]:has-text('2건 중 1건 확인')", timeout=10000)
+        self.unreached.clear()
+        page.click(".nt-banner.nk-err [data-act=notice-act]")
+        page.wait_for_function("CONFIRMS.length===3&&CONFIRMING.size===0")
+        self.assertEqual((self.state(self.p1), self.state(self.p2)), ("done", "done"))
+        self.assertTrue(self.holding, "a list read was held meanwhile")
+
     def test_hiding_the_page_starts_every_confirm_at_once(self):
         """When the page is hidden while the undo row stands (a tab switched, a window closed), every confirm starts in
         that same moment - not one after another's answer, which a closing page would never wait for."""
@@ -533,6 +554,25 @@ class ReviewPickFlows(ReviewPickBase):
         settle(page)
         self.assertEqual(page.evaluate("RV_PICK"), None)
 
+    def test_a_redraw_keeps_the_focus_on_the_same_of_two_pin_references(self):
+        """An explanation naming two pins has two #N links of one kind; the redraw gives the focus back to the one that had
+        it, not to the first - an Enter then would open the other pin."""
+        edit_stored(
+            lambda rows: [
+                r.update(close_reply="#%d 와 #%d 를 함께 고쳤습니다" % (self.p1, self.p2))
+                for r in rows
+                if r["id"] == self.p4
+            ]
+        )
+        page = self.review_page()
+        self.pick(page)
+        refs = '#review-pins .rv-row[data-id="%d"] [data-act=pin-ref]' % self.p4
+        page.keyboard.press("Shift")
+        page.evaluate("s=>document.querySelectorAll(s)[1].focus()", refs)
+        self.assertEqual(page.evaluate("+document.activeElement.dataset.ref"), self.p2)
+        page.evaluate("drawPins()")
+        self.assertEqual(page.evaluate("+document.activeElement.dataset.ref"), self.p2)
+
     def test_a_redraw_keeps_the_focus_and_the_ticks(self):
         """The list's redraw (the five-second sync) draws the rows anew: the focused box keeps the focus and every tick
         stays."""
@@ -628,7 +668,15 @@ class ReviewPickLayout(ReviewPickBase):
         return page
 
     def test_the_rows_and_the_pick_line_line_up_on_every_device(self):
-        """The alignment rules of the spec, measured on the four device classes."""
+        """The alignment rules of the spec, measured on the four device classes - with a reference near the longest a close
+        takes (a commit URL), which must wrap inside the row rather than run past it."""
+        edit_stored(
+            lambda rows: [
+                r.update(close_ref="https://github.com/example/a-long-repository-name/commit/0123456789abcdef0123")
+                for r in rows
+                if r["id"] == self.p4
+            ]
+        )
         for name, device in DEVICES.items():
             with self.subTest(device=name):
                 page = self.picked(device)
@@ -735,14 +783,16 @@ class ReviewPickOutcome(unittest.TestCase):
 
     def test_each_answer_of_a_confirm_has_one_outcome(self):
         """200 ok is done; 409 open is reopened; 409 conflict is closed again while the pin still awaits review, done by a
-        person otherwise (and closed again when the body has no pin); 200 ok:false is gone; a refusal with a status keeps
-        its text; an error without a status is the one [다시 시도] sends again."""
+        person otherwise (and closed again when the body has no pin); 200 ok:false is gone; an answer whose body could not
+        be read is unreached, not gone; a refusal with a status keeps its text; an error without a status is the one
+        [다시 시도] sends again."""
         got = self.run_js(
             "ko",
             """[rvOutcome({status:200,data:{ok:true}}), rvOutcome({status:409,data:{error:'open'}}),
               rvOutcome({status:409,data:{error:'conflict',pin:{state:'review'}}}),
               rvOutcome({status:409,data:{error:'conflict',pin:{state:'done'}}}),
               rvOutcome({status:409,data:{error:'conflict'}}), rvOutcome({status:200,data:{ok:false,pin:null}}),
+              rvOutcome({status:200,data:null}),
               rvOutcome(null,{status:403,data:{error:'확인은 사람이 합니다'}}), rvOutcome(null,{})]""",
         )
         self.assertEqual(
@@ -754,6 +804,7 @@ class ReviewPickOutcome(unittest.TestCase):
                 {"out": "done"},
                 {"out": "closed-again"},
                 {"out": "gone"},
+                {"out": "unreached"},
                 {"out": "refused", "why": "확인은 사람이 합니다"},
                 {"out": "unreached"},
             ],
@@ -778,6 +829,26 @@ class ReviewPickOutcome(unittest.TestCase):
         )
         self.assertEqual(got[2], {"msg": "2건 중 1건 확인 — #5 거절됨: 거절", "kind": "warn"})
         self.assertEqual(got[3], {"msg": "2건 중 1건 확인 — #6 이미 완료로 닫힘", "kind": "info"})
+
+    def test_a_body_the_signal_cuts_off_is_no_answer(self):
+        """api() with a signal that aborts while the answer's body is read rejects (the confirm is then unreached, not an
+        empty answer); a body that is not JSON, with no signal aborted, is still an answer with no data."""
+        js = "\n".join(
+            [
+                js_i18n("ko"),
+                "function sourceOk(){} function apiFailed(){}",
+                extract_js_fn("api"),
+                """globalThis.fetch=(u,init)=>Promise.resolve({status:200,json:()=>new Promise((ok,no)=>{
+                  if(!init.signal){no(new SyntaxError('not JSON'));return;}
+                  init.signal.addEventListener('abort',()=>{const e=new Error('aborted');e.name='AbortError';no(e);});})});
+                const stop=new AbortController();
+                const cut=api('/x',{method:'POST',silent:true,signal:stop.signal}).then(r=>'answered',e=>'threw '+e.name);
+                setTimeout(()=>stop.abort(),0);   // once the body is being read
+                const plain=api('/y',{method:'POST',silent:true}).then(r=>'answered '+JSON.stringify(r.data),e=>'threw '+e.name);
+                Promise.all([cut,plain]).then(v=>console.log(JSON.stringify(v)));""",
+            ]
+        )
+        self.assertEqual(json.loads(run_node(js)), ["threw AbortError", "answered null"])
 
     def test_the_banner_reads_in_english(self):
         """The same banner in English through the table, with one dash: the banner shows what is before it as its title."""
