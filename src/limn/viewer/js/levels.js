@@ -25,24 +25,27 @@ function rng(lo,hi){return 'L'+lo+(hi!==lo?'-L'+hi:'');}
 // A figure rung is named by its element as the server labelled it (a person's words, not run through levelLabel).
 function levelName(lv,all){if(lv.el)return String(lv.label||elName(lv.el)); if(!lv.env||lv.level==='block')return levelLabel(lv.label);
   const dup=(all||[]).filter(o=>o.env===lv.env).length>1; return dup?levelLabel(lv.label).replace(/^(환경|Environment) /,''):lv.env;}
-// The range ladder's segments (composer and edit card) as Html, one button per rung, the rung matching the range pressed. A
+// The range ladder's segments (composer and edit card) as Html, one radio button per rung, the rung matching the range checked. A
 // figure rung (it carries an element) gets the element's tooltip; its line count comes from lo-hi when the rung has no n.
 // A Markdown document's rungs have descriptions of their own (T.mdraw: no drag area there, a tap chose the line too).
 function levelBtns(o,isEdit){const cur=curLevel(o),ls=o.levels||[]; return ls.map(lv=>{const on=lv===cur,n=rungLines(lv);
   const tip=lv.el?rungTip(lv):isEdit&&lv.level==='raw'?T.cur:lv.level.startsWith('env')?T.env:lv.level==='raw'&&isMdDoc()?T.mdraw:T[lv.tip||lv.level]||'';   // a rung may name its own description (a text document's paragraphs, txLevels)
   const label=isEdit&&lv.level==='raw'?tr('지금 범위'):levelName(lv,ls),nl=tl('{n}줄',{n});
-  return html`<button class="${on?'on':''}" data-act="level" data-level="${lv.level}" aria-pressed="${on}" aria-label="${label+' '+rng(lv.lo,lv.hi)+' · '+nl}" \
+  return html`<button class="${on?'on':''}" data-act="level" data-level="${lv.level}" role="radio" aria-checked="${on}" aria-label="${label+' '+rng(lv.lo,lv.hi)+' · '+nl}" \
 data-tip="${rng(lv.lo,lv.hi)+(tip?' · '+tr(tip):'')}">${label} <span class="k${n>50?' wn':''}">· ${nl}</span></button>`;});}
 // A rung's line count: the server's n, else its lo-hi span (a figure rung may come without n).
 function rungLines(lv){return typeof lv.n==='number'?lv.n:lv.hi-lv.lo+1;}
 // Draws the range ladder of o into box (#c-levels or an edit card's .e-levels): its segments, shown only when there are two
 // or more rungs - one segment is no choice, and '문단 · 1줄' alone read as noise (the owner's phone); the caption then names
-// that rung (rangeCap). data-rungs keeps the count for the CSS and the tests.
-function drawLadder(box,o,isEdit){const n=(o.levels||[]).length; box.dataset.rungs=String(n); box.hidden=n<2;
-  setHtml(box,n<2?html``:html`<div class="lad-t">${levelBtns(o,isEdit)}</div>`); if(n>=2)segReveal(box);}   // .lad-t: the drawn track inside the scroll box
+// that rung (rangeCap). data-rungs keeps the count for the CSS and the tests. The box is a scroll box and carries
+// tabindex="-1" in its markup: Firefox makes a box that overflows a Tab stop of its own, so an overflowing ladder took two
+// stops - the box, then the chosen rung. The chosen rung shows itself as the focus or the range moves (segReveal).
+function drawLadder(box,o,isEdit){const n=(o.levels||[]).length,at=segFocusAt(box); box.dataset.rungs=String(n); box.hidden=n<2;
+  setHtml(box,n<2?html``:html`<div class="lad-t">${levelBtns(o,isEdit)}</div>`); if(n>=2)segReveal(box);   // .lad-t: the drawn track inside the scroll box
+  segRove(box); segKeep(box,at);}   // one Tab stop, the rung matching the range (else the first), and the focus kept (events.js)
 // The range caption over the ladder (composer and edit card): '범위 L5-L6 · 2줄' - the lines a save will hand over and their
 // count, whatever set them (a rung or the excerpt). When the ladder is hidden (one rung) and the range is that
-// rung, its name follows ('범위 L5 · 1줄 · 문단'); with a ladder, its pressed segment names it. An edit card's own lines (its
+// rung, its name follows ('범위 L5 · 1줄 · 문단'); with a ladder, its checked segment names it. An edit card's own lines (its
 // 'raw' rung) get no name. A range matching no rung has none either: the lines say what it is ('줄 직접 지정' is gone). In
 // an edit card the range copies as 'file Llo-Lhi' (the composer's location line has its copy).
 // Writes the caption markup (Html) into el only when its text changed: the caption is a polite live region (a screen

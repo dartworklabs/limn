@@ -1,23 +1,26 @@
-"""A segmented control is a radio group the keyboard walks (docs/handbook/viewer.md §디자인 토큰과 컴포넌트, issue #417).
+"""A segmented control is a radio group the keyboard walks (docs/handbook/viewer.md §디자인 토큰과 컴포넌트, issues #417, #438).
 
 The whole group is one Tab stop - the chosen word - and Tab leaves it at once; inside it the arrows move the focus to the
 previous or next word and choose it (wrapping at the ends), Home and End go to its first and last word, and a word that is
 disabled is passed over. Each group kind is walked: one in the page's markup ([더보기]'s theme), one the composer shows
 later (its kind row), the assignee row that draws its words again on every pick - the focus must stay on the word in the
-same place - and the edit card's rows, drawn when it opens. Chromium and Firefox, since focus moves and Tab order are the
-browser's.
+same place - and the edit card's rows, drawn when it opens. So are the three that were rows of toggle buttons until #438:
+the list's order [최신순 | 위치순 | 번호순], which sorts the list again in place, [더보기]'s panel width (the phone's sheet
+height), drawn again on every pick, and the range ladder of the composer and the edit card, drawn again with the range.
+Chromium and Firefox, since focus moves and Tab order are the browser's.
 """
 
 from limn.pins.editing.values import ASSIGNEE_AGENT as AGENT_ASSIGNEE
 
 from helpers import add_pin, ps
 from helpers_access import ALICE, BOB, CAROL, actor
-from helpers_browser import BrowserBase, booted, settle
+from helpers_browser import BrowserBase, booted, settle, until
 
 # Every radio group drawn on the page: its words as (key, checked, tabIndex), where key is the word's data-* value.
 GROUPS = """() => [...document.querySelectorAll('[role=radiogroup]')].filter(g => g.getClientRects().length).map(g => ({
   group: g.id || g.className, words: [...g.querySelectorAll('[role=radio]')].filter(w => !w.disabled && !w.hidden)
-    .map(w => [w.dataset.theme || w.dataset.lang || w.dataset.kind || w.dataset.v || w.dataset.mode || w.textContent.trim(),
+    .map(w => [w.dataset.theme || w.dataset.lang || w.dataset.kind || w.dataset.v || w.dataset.mode || w.dataset.order
+      || w.dataset.level || w.dataset.i || w.textContent.trim(),
       w.getAttribute('aria-checked') === 'true', w.tabIndex])}))"""
 # Counts the presses (clicks) on any radio group's word, in SEG_CLICKS.
 CLICKS = "window.SEG_CLICKS=0; document.addEventListener('click',e=>{if(e.target.closest('[role=radio]'))SEG_CLICKS++;},true)"
@@ -34,7 +37,64 @@ VIEW_STATE = """[document.querySelector('#nav-sheet').open, document.activeEleme
 # The focused element: the radio group it is in, its word's key and whether it is checked, else its id or tag.
 FOCUS = """() => {const a = document.activeElement, g = a && a.closest && a.closest('[role=radiogroup]');
   if (!g) return {group: null, at: a ? a.id || a.tagName : null};
-  return {group: g.id || g.className, at: a.dataset.theme || a.dataset.kind || a.dataset.v, checked: a.getAttribute('aria-checked') === 'true'};}"""
+  return {group: g.id || g.className, at: a.dataset.theme || a.dataset.kind || a.dataset.v || a.dataset.order || a.dataset.level
+    || a.dataset.i, checked: a.getAttribute('aria-checked') === 'true'};}"""
+# The open pins' cards top to bottom, by pin id.
+ROWS = "[...document.querySelectorAll('#pins .pin[data-id]')].map(e => Number(e.dataset.id))"
+# The pin panel's width as drawn, in whole pixels.
+SIDE_W = "Math.round(document.querySelector('#right').getBoundingClientRect().width)"
+# A manuscript whose line 5 has three rungs: the line, its paragraph (lines 4-6) and the abstract round it (lines 3-9).
+LADDER_TEX = (
+    "\\documentclass{article}\n\\begin{document}\n\\begin{abstract}\nLine 4 first.\nLine 5 second.\nLine 6 third.\n\n"
+    + "Line 8 next paragraph.\n\\end{abstract}\n"
+    + "".join("Line %d of the demo manuscript.\n" % i for i in range(10, 40))
+    + "\\end{document}\n"
+)
+# Each rung of LADDER_TEX's ladder at line 5 and the lines it sets.
+RUNGS = {"raw": (5, 5), "para": (4, 6), "env": (3, 9)}
+# The description box: [armed - the element it waits to show for is the focused one, shown, its text].
+TIP = """[tipEl !== null && tipEl === document.activeElement, !document.querySelector('#tip').hidden,
+  document.querySelector('#tip').textContent]"""
+# Narrows the scroll box (a selector) to its widest word and 24px: its words overflow it, and each fits it whole. The
+# assignee row draws its box anew on every pick, so the row around it is narrowed by as much.
+NARROW = """b => {const e = document.querySelector(b), w = Math.max(...[...e.querySelectorAll('[role=radio]')]
+  .map(x => x.offsetWidth)) + 24, row = e.closest('.assign-row') || e, to = w + row.offsetWidth - e.offsetWidth;
+  row.style.flex = '0 0 ' + to + 'px'; row.style.width = to + 'px';}"""
+# Whether the focused word of a scroll box (the ladder, the assignee row) stands whole inside the box.
+WHOLE = """() => {const w = document.activeElement, b = w.closest('.seg.lad'), W = w.getBoundingClientRect(),
+  B = b.getBoundingClientRect(); return b.scrollWidth > b.clientWidth && W.left >= B.left - 0.5 && W.right <= B.right + 0.5;}"""
+
+
+def hold_snippets(page):
+    """Hold every source read (GET /api/snippet) on page from now; returns release(), which waits until one is held, then
+    lets them go on, and every later one. The excerpt reads the lines its range lacks this way and draws its panel again,
+    the ladder with it, when they come."""
+    held, gate = [], {"open": False}
+
+    def hold(route):
+        if gate["open"]:
+            return route.fallback()
+        held.append(route)
+
+    def release():
+        until(page, lambda: page.evaluate("1") and held)  # route handlers run inside a Playwright call
+        gate["open"] = True
+        for r in held:
+            r.fallback()
+
+    page.route("**/api/snippet?*", hold)
+    return release
+
+
+def focused(page):
+    """FOCUS, its group named by its id or first class only (a scrolling group's class names its fades too)."""
+    got = page.evaluate(FOCUS)
+    return dict(got, group=got["group"] and got["group"].split()[0])
+
+
+def gone(page, el):
+    """Wait until element handle el has left the document: its group was drawn again."""
+    until(page, lambda: page.evaluate("e => !document.contains(e)", el))
 
 
 class SegmentKeys(BrowserBase):
@@ -62,12 +122,17 @@ class SegmentKeys(BrowserBase):
         return page.evaluate(FOCUS)
 
     def tab_leaves(self, page, group):
-        """From the focused word of group: Tab leaves the group, and Shift+Tab comes back to its checked word, the next
-        Shift+Tab leaves it backwards - one stop each way."""
-        self.assertNotEqual(self.key(page, "Tab")["group"], group, "Tab stayed in %s" % group)
-        back = self.key(page, "Shift+Tab")
+        """From the focused word of group (its id or first class): Tab leaves the group, and Shift+Tab comes back to its
+        checked word, the next Shift+Tab leaves it backwards - one stop each way."""
+
+        def at(name):
+            self.key(page, name)
+            return focused(page)
+
+        self.assertNotEqual(at("Tab")["group"], group, "Tab stayed in %s" % group)
+        back = at("Shift+Tab")
         self.assertEqual((back["group"], back["checked"]), (group, True))
-        self.assertNotEqual(self.key(page, "Shift+Tab")["group"], group, "Shift+Tab stayed in %s" % group)
+        self.assertNotEqual(at("Shift+Tab")["group"], group, "Shift+Tab stayed in %s" % group)
 
     def test_the_arrows_home_and_end_walk_and_choose_the_theme(self):
         """[더보기]'s theme [시스템 | 밝게 | 어둡게], chosen 밝게: → chooses 어둡게 and the page turns dark, → wraps to
@@ -248,7 +313,8 @@ class SegmentKeys(BrowserBase):
 
     def test_the_edit_cards_rows_are_one_stop_each_when_it_opens(self):
         """A stored question tagging Bob, opened for editing: the card's kind row and assignee row each hold one stop, on
-        질문 and 에이전트; ↑ on the kind row chooses 수정 요청."""
+        질문 and 에이전트; ↑ on the kind row chooses 수정 요청, and → on the assignee row Bob - the row drawn again, the
+        focus on Bob."""
         pid = add_pin(
             {
                 "file": str(self.main),
@@ -271,7 +337,368 @@ class SegmentKeys(BrowserBase):
         self.assertEqual([w[0] for w in groups["e-assign assign-row"] if w[2] == 0], [AGENT_ASSIGNEE])
         page.focus(".e-kind [aria-checked=true]")
         self.assertEqual(self.key(page, "ArrowUp"), {"group": "e-kind seg kind-seg", "at": "fix", "checked": True})
+        page.focus(".e-assign [aria-checked=true]")
+        bob = BOB["Tailscale-User-Login"]
+        self.assertEqual(self.key(page, "ArrowRight"), {"group": "e-assign assign-row", "at": bob, "checked": True})
+        self.assertEqual(page.evaluate("EDITOR.current.assignee"), bob)
         self.assert_one_stop_each(page)
+
+    def three_pins(self):
+        """Three open pins whose orders all differ: newest first [c, b, a], by place [b, c, a], by number [a, b, c]."""
+        at = (
+            {"lo": 30, "hi": 30, "page": 2, "note": "가"},
+            {"lo": 4, "hi": 4, "page": 1, "note": "나"},
+            {"lo": 20, "hi": 20, "page": 2, "note": "다"},
+        )
+        return [add_pin(dict(p, file=str(self.main)), actor(ALICE)).record["id"] for p in at]
+
+    def walk(self, page, group, steps, check):
+        """From the focused word of group, press each (key, word) of steps: the focus is on that word, checked, and
+        check(word) holds; a key onto the word already chosen presses nothing. Returns the presses counted."""
+        page.evaluate(CLICKS)
+        presses, was = 0, page.evaluate(FOCUS)["at"]
+        for name, word in steps:
+            with self.subTest(group=group, key=name, word=word):
+                got = self.key(page, name)
+                self.assertEqual(
+                    dict(got, group=got["group"].split()[0]), {"group": group, "at": word, "checked": True}
+                )
+                presses += word != was
+                self.assertEqual(page.evaluate("SEG_CLICKS"), presses)
+                check(word)
+            was = word
+        return presses
+
+    def test_the_list_order_is_one_stop_and_the_arrows_sort_the_list_again(self):
+        """[최신순 | 위치순 | 번호순] over three pins whose orders differ: one stop, on 최신순; → 위치순 and the cards go by
+        place, → 번호순 by number, → wraps to 최신순, End, Home, ← (wrapping) and ↑/↓ the same, the choice saved for this
+        browser; a second End presses nothing. The focus stays on the same words: the control is not drawn again."""
+        a, b, c = self.three_pins()
+        page = self.open(3, viewport={"width": 1440, "height": 900})
+        rows = {"new": [c, b, a], "page": [b, c, a], "id": [a, b, c]}
+        self.assertEqual(page.evaluate(ROWS), rows["new"])
+        self.assert_one_stop_each(page)
+        page.focus("#list-order [aria-checked=true]")
+        words = page.evaluate_handle("[...document.querySelectorAll('#list-order [role=radio]')]")
+
+        def sorted_again(order):
+            self.assertEqual(page.evaluate(ROWS), rows[order])
+            self.assertEqual(page.evaluate("[ORDER, prefs().order]"), [order, order])
+
+        steps = [("ArrowRight", "page"), ("ArrowRight", "id"), ("ArrowRight", "new"), ("End", "id"), ("Home", "new")]
+        steps += [("ArrowLeft", "id"), ("ArrowUp", "page"), ("ArrowDown", "id"), ("End", "id")]
+        self.assertEqual(self.walk(page, "list-order", steps, sorted_again), 8)
+        self.assertTrue(page.evaluate("ws => ws.every(w => document.contains(w))", words))  # the same words throughout
+        self.assert_one_stop_each(page)
+        self.tab_leaves(page, "list-order")
+        page.reload()  # the order saved comes back with the page, and with it the one stop
+        page.wait_for_function(booted(3), timeout=20000)
+        settle(page)
+        self.assertEqual(page.evaluate(ROWS), rows["id"])
+        self.assert_one_stop_each(page)
+
+    def test_the_panel_width_is_one_stop_and_the_arrows_choose_and_draw_it(self):
+        """[더보기]'s [좁게 | 보통 | 넓게] at 1440x900, 보통 chosen: → chooses 넓게 and the panel widens to that preset, →
+        wraps to 좁게, Home on it presses nothing, End, ←, ↑ and ↓ walk on - each pick draws the words again, and the focus
+        is on the new word in the same place."""
+        page = self.open(0, viewport={"width": 1440, "height": 900})
+        page.locator("#btn-more").click()
+        page.wait_for_selector("#more[open]")
+        settle(page)
+        self.assert_one_stop_each(page)
+        presets = page.evaluate("sideBounds(LAYOUT, innerWidth).presets")
+        self.assertEqual(page.evaluate(SIDE_W), presets[1])
+        page.focus("#m-size [aria-checked=true]")
+        first = page.evaluate_handle("document.activeElement")
+
+        def drawn(i):
+            self.assertEqual(page.evaluate(SIDE_W), presets[int(i)])
+
+        steps = [("ArrowRight", "2"), ("ArrowRight", "0"), ("Home", "0"), ("End", "2"), ("ArrowLeft", "1")]
+        steps += [("ArrowUp", "0"), ("ArrowDown", "1")]
+        self.assertEqual(self.walk(page, "m-size", steps, drawn), 6)
+        self.assertFalse(page.evaluate("e => document.contains(e)", first))  # the words were drawn again
+        self.assertLess(presets[0], presets[1])
+        self.assertLess(presets[1], presets[2])
+        self.assert_one_stop_each(page)
+        self.tab_leaves(page, "m-size")
+
+    def test_the_phones_sheet_height_is_walked_the_same(self):
+        """On a phone the control is [낮게 | 보통 | 높게] for the sheet: → from 보통 chooses 높게 and the sheet stands at
+        the full height, ← back to 보통, Home 낮게 - the focus on the new word each time."""
+        page = self.open(0, viewport={"width": 390, "height": 844})
+        page.locator("#btn-more").click()
+        page.wait_for_selector("#more[open]")
+        settle(page)
+        self.assert_one_stop_each(page)
+        page.focus("#m-size [aria-checked=true]")
+        heights = {"0": 0.45, "1": 0.64, "2": 1}
+
+        def drawn(i):
+            self.assertEqual(page.evaluate("sheetF()"), heights[i])
+            self.assertEqual(
+                page.evaluate("getComputedStyle(document.documentElement).getPropertyValue('--sheet-f')"),
+                str(heights[i]),
+            )
+
+        self.walk(page, "m-size", [("ArrowRight", "2"), ("ArrowLeft", "1"), ("Home", "0")], drawn)
+        self.assertEqual(page.inner_text("#m-size-l"), "시트 높이")
+
+    def test_the_tablets_folded_panel_checks_the_width_it_opens_at(self):
+        """At 768x1024 the panel starts folded, and a folded panel measures 0 wide: [더보기] still checks 보통, the width it
+        opens at, and → checks 넓게 - the panel opened is that wide."""
+        page = self.open(0, viewport={"width": 768, "height": 1024})
+        self.assertFalse(page.evaluate("SIDE_OPEN"))
+        page.locator("#btn-more").click()
+        page.wait_for_selector("#more[open]")
+        settle(page)
+        self.assert_one_stop_each(page)
+        presets = page.evaluate("sideBounds(LAYOUT, innerWidth).presets")
+        page.focus("#m-size [aria-checked=true]")
+        self.assertEqual(page.evaluate(FOCUS), {"group": "m-size", "at": "1", "checked": True})
+        self.assertEqual(self.key(page, "ArrowRight"), {"group": "m-size", "at": "2", "checked": True})
+        self.assert_one_stop_each(page)
+        page.keyboard.press("Escape")
+        page.evaluate("setSide(true)")
+        settle(page)
+        self.assertEqual(page.evaluate(SIDE_W), presets[2])
+
+    def test_a_change_of_layout_checks_the_width_the_panel_has_in_the_new_one(self):
+        """[좁게] chosen at 1440x900 with [더보기] open, then the window changes: at 768x1024 the panel folds and opens at
+        the tablet's default, at 1000x800 it stays open beside the document at that default - 보통 both times. The row is
+        drawn as the layout changes, before the panel takes its new width, and checked the old layout's 좁게 (folded: the
+        last width shown; open: the width measured), where Home chose nothing. Home now chooses 좁게, and the panel is
+        that wide."""
+        for viewport, folded in (({"width": 768, "height": 1024}, True), ({"width": 1000, "height": 800}, False)):
+            with self.subTest(viewport=viewport):
+                page = self.open(0, viewport={"width": 1440, "height": 900})
+                page.locator("#btn-more").click()
+                page.wait_for_selector("#more[open]")
+                settle(page)
+                page.click('#m-size [data-i="0"]')
+                settle(page)
+                self.assertEqual(page.evaluate(SIDE_W), page.evaluate("sideBounds(LAYOUT, innerWidth).presets[0]"))
+                page.set_viewport_size(viewport)
+                settle(page)
+                presets = page.evaluate("sideBounds(LAYOUT, innerWidth).presets")
+                self.assertEqual(page.evaluate("[SIDE_OPEN, LAYOUT, $('#more').open]"), [not folded, "mid", True])
+                page.evaluate(CLICKS)
+                page.focus("#m-size [aria-checked=true]")
+                self.assertEqual(page.evaluate(FOCUS), {"group": "m-size", "at": "1", "checked": True})
+                self.assertEqual(self.key(page, "Home"), {"group": "m-size", "at": "0", "checked": True})
+                self.assertEqual(page.evaluate("SEG_CLICKS"), 1)
+                page.keyboard.press("Escape")
+                page.evaluate("setSide(true)")
+                settle(page)
+                self.assertEqual(page.evaluate(SIDE_W), presets[0])
+
+    def open_ladder(self, page):
+        """Open the composer on line 5 of LADDER_TEX, its paragraph chosen, and put the focus on the ladder's chosen rung."""
+        self.open_composer(page)
+        settle(page)
+        self.assertEqual(
+            page.evaluate("[...document.querySelectorAll('#c-levels [role=radio]')].map(w => w.dataset.level)"),
+            ["raw", "para", "env"],
+        )
+        page.focus("#c-levels [aria-checked=true]")
+
+    def test_the_range_ladder_is_one_stop_and_the_arrows_choose_the_range(self):
+        """The composer's ladder [드래그한 줄 | 문단 | abstract], 문단 chosen: → chooses abstract and the range is its
+        lines (the caption says so), → wraps to the line, ← abstract, Home the line, End abstract, a second End nothing, ↑
+        문단 and ↓ abstract. The ladder is drawn again with every range, and the focus stays on the rung in that place."""
+        self.main.write_text(LADDER_TEX, encoding="utf-8")
+        page = self.open(0, viewport={"width": 1440, "height": 900})
+        self.open_ladder(page)
+        self.assert_one_stop_each(page)
+        first = page.evaluate_handle("document.activeElement")
+
+        def chosen(level):
+            lo, hi = RUNGS[level]
+            self.assertEqual(
+                page.evaluate("[COMPOSE.current.lo, COMPOSE.current.hi, COMPOSE.current.scope]"), [lo, hi, level]
+            )
+            self.assertIn("L%d" % lo + ("-L%d" % hi if hi != lo else ""), page.inner_text("#c-cap"))
+
+        steps = [("ArrowRight", "env"), ("ArrowRight", "raw"), ("ArrowLeft", "env"), ("Home", "raw"), ("End", "env")]
+        steps += [("End", "env"), ("ArrowUp", "para"), ("ArrowDown", "env")]
+        self.assertEqual(self.walk(page, "c-levels", steps, chosen), 7)
+        self.assertFalse(page.evaluate("e => document.contains(e)", first))  # the rungs were drawn again
+        self.assert_one_stop_each(page)
+        self.tab_leaves(page, "c-levels")
+
+    def test_enter_space_and_a_click_on_a_word_drawn_again_keep_the_focus_in_its_group(self):
+        """A press that draws its group again does not drop the focus on the body: Space and Enter on the ladder's chosen
+        rung, a click on another rung, and Space on [더보기]'s chosen width each leave the focus on the word in that place."""
+        self.main.write_text(LADDER_TEX, encoding="utf-8")
+        page = self.open(0, viewport={"width": 1440, "height": 900})
+        self.open_ladder(page)
+        for name in (" ", "Enter"):
+            with self.subTest(key=name):
+                self.assertEqual(self.key(page, name), {"group": "c-levels", "at": "para", "checked": True})
+        page.click("#c-levels [data-level=raw]")
+        settle(page)
+        self.assertEqual(page.evaluate(FOCUS), {"group": "c-levels", "at": "raw", "checked": True})
+        page.keyboard.press("Escape")
+        page.locator("#btn-more").click()
+        page.wait_for_selector("#more[open]")
+        settle(page)
+        page.focus("#m-size [aria-checked=true]")
+        self.assertEqual(self.key(page, " "), {"group": "m-size", "at": "1", "checked": True})
+
+    def test_the_edit_cards_ladder_is_one_stop_and_the_arrows_choose_its_range(self):
+        """A stored pin on line 5 of LADDER_TEX, opened for editing: its ladder [지금 범위 | 문단 | abstract] holds one stop,
+        on 지금 범위; → chooses 문단 and the card's range is lines 4-6, End abstract, Home back to the pin's own line - the
+        focus on the rung in the same place though each pick draws the ladder again."""
+        self.main.write_text(LADDER_TEX, encoding="utf-8")
+        pid = add_pin({"file": str(self.main), "lo": 5, "hi": 5, "page": 1, "note": "고칠 곳"}, actor(ALICE)).record[
+            "id"
+        ]
+        page = self.open(1, viewport={"width": 1440, "height": 900})
+        page.evaluate("id=>openEdit(id)", pid)
+        page.wait_for_function("EDITOR.current&&EDITOR.current.levels.length>2")
+        settle(page)
+        self.assert_one_stop_each(page)
+        page.focus(".e-levels [aria-checked=true]")
+        self.assertEqual(page.evaluate(FOCUS)["at"], "raw")
+
+        def chosen(level):
+            self.assertEqual(page.evaluate("[EDITOR.current.lo, EDITOR.current.hi]"), list(RUNGS[level]))
+
+        steps = [("ArrowRight", "para"), ("End", "env"), ("Home", "raw")]
+        self.assertEqual(self.walk(page, "e-levels", steps, chosen), 3)
+        self.assert_one_stop_each(page)
+
+    def open_edit_ladder(self, page):
+        """Store a pin on line 5 of LADDER_TEX, open its edit card and wait until the card shows its three rungs."""
+        pid = add_pin({"file": str(self.main), "lo": 5, "hi": 5, "page": 1, "note": "고칠 곳"}, actor(ALICE)).record[
+            "id"
+        ]
+        page.evaluate("loadPins()")
+        settle(page)
+        page.evaluate("id=>openEdit(id)", pid)
+        page.wait_for_function("EDITOR.current&&EDITOR.current.levels.length>2")
+        settle(page)
+
+    def test_a_rung_drawn_again_late_shows_its_description_after_a_key_only(self):
+        """A pick whose range the excerpt lacks lines for draws the ladder again once more when they come back (held here
+        until released), and the focus goes back to the rung in its place. After a click on abstract and the pointer
+        gone, that focus shows no description - it showed one, over the range caption and the overlap's buttons above.
+        After a key it shows the rung's description, as the keyboard's focus does. The composer's and the edit card's
+        ladders alike."""
+        self.main.write_text(LADDER_TEX, encoding="utf-8")
+        for ladder, group in (("#c-levels", "c-levels"), (".e-levels", "e-levels")):
+            with self.subTest(ladder=ladder):
+                page = self.open(0, viewport={"width": 1440, "height": 900})
+                if group == "c-levels":
+                    self.open_ladder(page)
+                else:
+                    self.open_edit_ladder(page)
+                left = page.locator("#left").bounding_box()
+                off = (left["x"] + left["width"] / 2, left["y"] + left["height"] / 2)  # on the page
+                under = "([x, y]) => document.elementFromPoint(x, y).closest('[data-tip]')"
+                self.assertIsNone(page.evaluate(under, off))  # nothing there has a description
+                release = hold_snippets(page)
+                page.click(ladder + " [data-level=env]")
+                page.mouse.move(*off)
+                rung = page.evaluate_handle("document.activeElement")
+                self.assertEqual(focused(page), {"group": group, "at": "env", "checked": True})
+                self.assertFalse(page.evaluate(TIP)[0])
+                release()
+                gone(page, rung)
+                self.assertEqual(focused(page), {"group": group, "at": "env", "checked": True})
+                self.assertFalse(page.evaluate(TIP)[0])  # no description waits to show
+                settle(page)
+                self.assertFalse(page.evaluate(TIP)[1])
+                page.unroute("**/api/snippet?*")
+                # the lines are read again, so the next rung waits on them too
+                page.evaluate("XP_LINES.delete(COMPOSE.current || EDITOR.current)")
+                release = hold_snippets(page)
+                page.keyboard.press("ArrowLeft")
+                rung = page.evaluate_handle("document.activeElement")
+                self.assertEqual(focused(page), {"group": group, "at": "para", "checked": True})
+                release()
+                gone(page, rung)
+                self.assertEqual(focused(page), {"group": group, "at": "para", "checked": True})
+                self.assertTrue(page.evaluate(TIP)[0])
+                settle(page)
+                self.assertEqual(page.evaluate(TIP)[1:], [True, page.evaluate("document.activeElement.dataset.tip")])
+
+    def test_an_overflowing_ladder_or_assignee_row_is_one_stop_and_shows_the_chosen_word(self):
+        """A ladder or an assignee row longer than its box scrolls sideways. Firefox makes a box that scrolls a Tab stop of
+        its own - the edit card's ladder at 1024x768 took two stops, the box and the chosen rung - so the box is out of
+        the Tab order: one stop still. End and Home bring the word they choose whole into the box."""
+        self.main.write_text(LADDER_TEX, encoding="utf-8")
+        for box in ("#c-levels", "#c-assign .as-seg", ".e-levels"):
+            with self.subTest(box=box):
+                page = self.open(0, viewport={"width": 1440, "height": 900})
+                if box == ".e-levels":
+                    self.open_edit_ladder(page)
+                else:
+                    self.open_ladder(page)
+                    page.fill("#note", "@Bob Park 그리고 @Carol Lee 확인")
+                    settle(page)
+                page.evaluate(NARROW, box)
+                settle(page)
+                page.focus(box + " [aria-checked=true]")
+                group = focused(page)["group"]
+                for name in ("End", "Home", "End"):
+                    self.key(page, name)
+                    self.assertTrue(page.evaluate(WHOLE), name)
+                self.tab_leaves(page, group)
+
+    def test_a_disabled_word_is_passed_over_in_the_order_the_width_and_the_ladder(self):
+        """With the middle word disabled, → from the first passes over it: 최신순 to 번호순, and - the width's 넓게 and the
+        ladder's abstract disabled - → from 보통 wraps to 좁게 and from 문단 to the line."""
+        self.main.write_text(LADDER_TEX, encoding="utf-8")
+        self.three_pins()
+        page = self.open(3, viewport={"width": 1440, "height": 900})
+        page.evaluate("document.querySelector('#list-order [data-order=page]').disabled = true")
+        page.focus("#list-order [aria-checked=true]")
+        self.assertEqual(self.key(page, "ArrowRight")["at"], "id")
+        self.assertEqual(self.key(page, "ArrowLeft")["at"], "new")
+        page.locator("#btn-more").click()
+        page.wait_for_selector("#more[open]")
+        settle(page)
+        page.evaluate("document.querySelector('#m-size [data-i=\"2\"]').disabled = true")
+        page.focus("#m-size [aria-checked=true]")
+        self.assertEqual(self.key(page, "ArrowRight")["at"], "0")
+        page.keyboard.press("Escape")
+        self.open_ladder(page)
+        page.evaluate("document.querySelector('#c-levels [data-level=env]').disabled = true")
+        self.assertEqual(self.key(page, "ArrowRight")["at"], "raw")
+
+    def test_a_press_between_two_rungs_leaves_tab_where_the_ladder_is(self):
+        """A mouse press on the 2px gap between two rungs of the edit card's and the composer's ladder gives the focus to
+        the chosen rung, not to the ladder's scroll box (tabindex -1) - so the next Tab goes on to the card's next control,
+        as from a rung. From the focused box Firefox's Tab began again at the page's start (#nav-toc-toggle; found in
+        review). Mutation: no segBoxFocus -> the box keeps the focus, and in Firefox Tab leaves the card, fails."""
+        self.main.write_text(LADDER_TEX, encoding="utf-8")
+        for ladder, holder in ((".e-levels", ".edit"), ("#c-levels", "#composer")):
+            with self.subTest(ladder=ladder):
+                page = self.open(0, viewport={"width": 1440, "height": 900})
+                if ladder == ".e-levels":
+                    self.open_edit_ladder(page)
+                else:
+                    self.open_ladder(page)
+                gap = page.locator(ladder).evaluate(
+                    "e=>{const w=e.querySelector('[role=radio]'),r=w.getBoundingClientRect(),"
+                    "n=w.nextElementSibling.getBoundingClientRect(); return [(r.right+n.left)/2, r.top+r.height/2];}"
+                )
+                self.assertFalse(
+                    page.evaluate("([x,y])=>!!document.elementFromPoint(x,y).closest('[role=radio]')", gap)
+                )
+                page.mouse.click(*gap)
+                settle(page)
+                self.assertEqual(
+                    page.evaluate(
+                        "s=>document.activeElement===document.querySelector(s+' [aria-checked=true]')", ladder
+                    ),
+                    True,
+                )
+                page.keyboard.press("Tab")
+                settle(page)
+                self.assertTrue(page.evaluate("s=>!!document.activeElement.closest(s)", holder), holder)
+                page.context.close()
 
 
 class SegmentKeysFirefox(SegmentKeys):

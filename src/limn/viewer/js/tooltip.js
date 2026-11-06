@@ -66,11 +66,20 @@ document.addEventListener('keydown',inputFromKey,true);
 // Whether the last input was a key that navigates (inputFromKey): a focus that follows it is the keyboard's.
 const keyInput=()=>document.documentElement.dataset.input==='key';
 document.addEventListener('mouseover',e=>{if(touchRecent()||MQ_NOHOVER.matches)return; const t=/** @type {HTMLElement} */(e.target); armTip(t.closest?t.closest('[data-tip]'):null);});
+// Puts the focus back on el, which the page drew again in place of the control that had it (segKeep, events.js). It is no
+// new focus: after a key it shows el's description as the keyboard's focus does, after a press it shows none. A rung chosen
+// with the mouse is drawn again once more when the excerpt's lines come back (excerptFetch); by then the pointer had gone
+// elsewhere, and the box the focus given back armed stood over the range caption and the overlap's buttons (#438).
+let FOCUS_GIVEN_BACK=false;
+/** @param {HTMLElement} el */
+function focusGivenBack(el){FOCUS_GIVEN_BACK=true; try{el.focus();}finally{FOCUS_GIVEN_BACK=false;}}
 // A focus tooltip is never shown on an input field (textarea) - it covered the snippet while typing, and the tooltip
 // swallowed the first Esc, so "Esc to cancel -> Ctrl+Enter" ended up saving a pin that was meant to be discarded (observed).
 // The keyboard's focus shows the description on every device (the WAI-ARIA tooltip pattern): a tablet with a keyboard has no
 // hover, and Tab there reached a control whose explanation nothing could show. A focus that follows a tap stays without one.
+// A focus the page gives back itself (focusGivenBack) arms the box only when the keyboard had the focus there.
 document.addEventListener('focusin',e=>{const t=/** @type {HTMLElement} */(e.target);
+  if(FOCUS_GIVEN_BACK&&!keyInput())return;
   if((t&&t.tagName==='TEXTAREA')||(!keyInput()&&(touchRecent()||MQ_NOHOVER.matches))){if(Date.now()>=SWALLOW_CLICK)hideTip();return;}
   armTip(t.closest?t.closest('[data-tip]'):null);});
 // Esc closes a showing box first (the key dispatch, events.js); one still waiting to show (armTip's 300ms) goes with any Esc, so
