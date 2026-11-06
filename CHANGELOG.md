@@ -14,7 +14,8 @@
   itself - the offset read before beyond what the pane can scroll now and the pane at its new end, as when a web font
   that came late shortens the document - and then the spot read before is put back across the reflow, as after a width's
   change; any other offset is a move, whatever reflowed the column (Home after a run of raw HTML blocks opened or
-  closed, after a font's cut); an image's box keeps the ratio its load gave it until its next load is handled
+  closed, after a font's cut); during a jump to a heading an image's change reads the spot where the jump leaves the
+  pane (`mdPicMoved`), so an End after a failed image shortened the document is not taken for that cut; an image's box keeps the ratio its load gave it until its next load is handled
   (`mdPicSize`), so the browser no longer reshapes it beforehand and cuts the offset at a document's end, which #433's
   first try took for a scroll; a pin's [보기] and [바뀐 곳] read the spot where they land (`mdShowLines`), so a width that
   changes before their frame keeps their place. The spot also keeps the px of the room past its line's end (a line's
