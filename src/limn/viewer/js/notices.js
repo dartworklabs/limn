@@ -308,7 +308,7 @@ const NOTICE_LATE_SRC='notice-late:';
 // (NOTICE_LATE_SRC), which goes with the answer as the message does (noticeAct). Either way one message per action:
 // nothing is said twice. The line is not locked meanwhile, so there is nothing to give back.
 /** @param {Notice} n @param {NoticeAct} a */
-function noticeLate(n,a){const what=tr(a.label==='되살리기'?'되살리기의 답이 늦습니다':'되돌리기의 답이 늦습니다')+' · '+noticeText(n);   // every action that waits is one of the two
+function noticeLate(n,a){const what=tr(a.label==='되살리기'?'되살리기의 답이 늦습니다':a.label==='다시 시도'?'다시 시도의 답이 늦습니다':'되돌리기의 답이 늦습니다')+' · '+noticeText(n);   // every action that waits is one of the three (the review rows' [다시 시도], review-pick.js)
   const i=n.place===NOTICE_PLACE.LINE&&NOTICES.has(n.n)?LINE.indexOf(n):-1;
   if(i<0){const m=lineNote(what,NOTICE_KIND.WARN,null,{literal:true,source:NOTICE_LATE_SRC+n.n}); if(m){m.title=what; m.desc=''; drawStatus();} return;}   // lineNote cuts at ' · '
   n.title=what; n.desc=''; n.kind=NOTICE_KIND.WARN; n.quiet=false; LINE.splice(i,1); LINE.unshift(n);
@@ -564,11 +564,11 @@ function noticeRefocus(a){if(a&&document.contains(a)&&document.activeElement!==a
 
 // Banners in their hosts: the composer's above its save row, the review section's under its head (at the top of the list while
 // that section is hidden), the Trash's above its list, the list's at its top. One already in place is not moved.
-function drawBanners(){BANNERS.forEach((n,host)=>{const e=noticeEl(n,'nt-banner'),rv=host===NOTICE_HOST.REVIEW&&!$('#sec-review').hidden;
+function drawBanners(){const f=noticeFocus(); BANNERS.forEach((n,host)=>{const e=noticeEl(n,'nt-banner'),rv=host===NOTICE_HOST.REVIEW&&!$('#sec-review').hidden;
   const p=host===NOTICE_HOST.COMPOSER?$('#c-actions'):host===NOTICE_HOST.TRASH?$('#trash'):rv?$('#sec-review'):$('#list');
   const before=host===NOTICE_HOST.TRASH?$('#trash-list'):rv?$('#review-pins'):p.firstElementChild;
   if(e.parentNode!==p||(before!==e&&e.nextElementSibling!==before))p.insertBefore(e,before===e?e.nextElementSibling:before);});
-  syncSaveBtn(); tipFollow();}   // what is under a banner moved down
+  noticeRefocus(f); syncSaveBtn(); tipFollow();}   // a banner moved (the review section hid: to the list's top) keeps its focus; what is under a banner moved down
 // The composer's [핀 저장] reads [다시 저장] while its banner is a failed save (saveBtnLabel), and goes back after.
 function syncSaveBtn(){const b=$('#btn-save'); if(!b||b.dataset.pending)return; const n=BANNERS.get(NOTICE_HOST.COMPOSER),retry=!!(n&&n.save);
   if((b.dataset.retry==='1')!==retry){if(retry)b.dataset.retry='1'; else delete b.dataset.retry; setHtml(b,saveBtnLabel());}}

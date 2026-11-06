@@ -81,6 +81,7 @@ document.addEventListener('click',e=>{const target=/** @type {HTMLElement} */(e.
     case 'revision-more':moreRevisions();break;
     case 'all-docs':SHOW_ALL=!SHOW_ALL;drawPins();break;
     case 'mention-filter':MENTION_ONLY=!MENTION_ONLY;drawPins();break;
+    case 'review-pick':rvPick(!RV_PICK);break; case 'rv-go':rvConfirm();break; case 'rv-card':if(id!=null)rvToCard(id);break;   // confirming from result rows (review-pick.js)
     case 'list-order':setListOrder(a.dataset.order);break;
     case 'mention-pick':mentionApply(Number(a.dataset.i));break;
     case 'pin-ref':gotoPinRef(Number(a.dataset.ref),e.detail===0);break;   // by keyboard the focus goes to the card
@@ -219,6 +220,7 @@ document.addEventListener('keydown',e=>{
     if(EDITOR.current){e.preventDefault();cancelEdit();return;}
     if(COMPOSE.current||!$('#composer').hidden){e.preventDefault();discardSelection();return;}
     if(SELMODE){e.preventDefault();setSelMode(false);return;}   // a keyboard ends the select mode as [끝내기] does
+    if(RV_PICK&&t&&t.closest&&t.closest('#sec-review')){e.preventDefault();rvPick(false);return;}   // the review section's pick, from inside it (review-pick.js)
     // The 701-900px overlay panel covers the document: Esc collapses it (a selection above was cancelled first).
     if(LAYOUT===LAYOUT_MODE.MID&&MID_OVERLAY&&SIDE_OPEN){e.preventDefault();setSide(false,true,true);focusSideToggle();return;}
     if(document.body.classList.contains('revision-open')){e.preventDefault();revBack();return;}   // Esc in [변경 보기] = [원고로]

@@ -91,6 +91,20 @@ input{line-height:var(--line-field)}   /* a whole number of px tall: at 12px x 1
 input::placeholder,textarea::placeholder{color:var(--muted-foreground)}
 textarea{resize:vertical;min-height:4.8em}
 input.n{width:58px;text-align:center}
+/* The checkbox (docs/handbook/viewer.md §컴포넌트 규격): shadcn/ui's Checkbox in this system's tokens, the same box in every
+   engine - a native box is drawn by the browser and differs in size, colour and tick between Chromium, Firefox and WebKit.
+   The box is --check square with --radius-sm; its edge is the text colour at 55% (3:1 on every surface it stands on, as the
+   page verdict words); ticked or half-ticked it is filled --primary and shows a Lucide check or minus in --primary-foreground.
+   A disabled box is the muted surface, not faded (an opacity would also fade what is drawn over it). The label that holds
+   it is its press area: 24px under a mouse, 44px on touch (review-pick.css). */
+.ck{position:relative;flex:none;display:inline-grid;place-items:center;width:var(--check);height:var(--check)}
+.ck>input{grid-area:1/1;appearance:none;margin:0;padding:0;width:var(--check);height:var(--check);
+  border:1px solid color-mix(in srgb,var(--foreground) 55%,transparent);border-radius:var(--radius-sm);background:var(--field);cursor:inherit}
+.ck>input:is(:checked,:indeterminate){background:var(--primary);border-color:var(--primary)}
+.ck>input:disabled{background:var(--muted);border-color:var(--border);cursor:not-allowed}
+.ck>.ic{grid-area:1/1;width:12px;height:12px;color:var(--primary-foreground);pointer-events:none;visibility:hidden}
+.ck>input:checked:not(:indeterminate)~.ic-check,.ck>input:indeterminate~.ic-minus{visibility:visible}
+:root[data-input=pointer] .ck>input:focus-visible{outline:none}   /* a box is not a text field: its ring answers the keyboard only */
 .sp{flex:1}
 .pg{position:relative;margin:0 auto var(--space-4);box-shadow:var(--shadow-page);user-select:none;cursor:crosshair}   /* a mouse drags a box here */
 :root[data-theme=light] .pg{border:1px solid var(--border)}

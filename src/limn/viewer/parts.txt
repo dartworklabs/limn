@@ -23,6 +23,7 @@ css/verdict-panel.css   # the page verdict panel beside the pages on a wide desk
 css/cards.css           # pin cards: status, links, thread, @-tags, question hint, Trash, @-list, reply outcome
 css/suggest.css         # suggested edits: the kind row's switch, the editor and its line, a card's line diff
 css/list.css            # list sections and the archive rows
+css/review-pick.css     # the review section picking: its head's pick line and the result rows (ADR-0035)
 css/overlays.css        # tooltip, dialogs, the page list
 css/responsive.css      # mobile/touch, the mid and narrow layouts, reduced motion, the label stripe
 css/search.css          # in-document search: the nav bar's field, its folded magnifier, the phone's row, hit boxes
@@ -77,6 +78,7 @@ js/verdict-panel.js     # the page verdict panel beside the pages on a wide desk
 js/sel-popover.js       # the note popover by the selection box (mouse layouts)
 js/card-parts.js        # what a card is built from: people, badges, claims, @-tags and #refs in text, the thread
 js/cards.js             # the open and review card, archive and Trash rows, the Trash dialog
+js/review-pick.js       # confirming several pins awaiting review from their result rows (ADR-0035)
 js/list.js              # loading pins, list sections, drawPins, marks on the PDF, jumping to a pin or card
 js/actions.js           # close, confirm, reopen, drop, purge, restore, unclaim
 js/mentions.js          # @-tag autocomplete, preview and the assignee choice

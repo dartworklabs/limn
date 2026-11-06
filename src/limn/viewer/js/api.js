@@ -2,16 +2,17 @@
 // Calls the server (JSON in and out) and returns {status, data}; a network failure or an unexpected status >= 400 throws. Unless
 // o.silent it is said first (apiFailed): o.what names the request ('핀 저장'), o.where the place (a NOTICE_HOST), o.retry the
 // action a network failure offers, o.save that it was a pin's save. o.expect lists the statuses the caller handles itself;
-// o.keepalive lets the request outlive the page. Its error is keyed by its source - o.source, else its method and URL (which
+// o.keepalive lets the request outlive the page; o.signal (an AbortSignal) ends it unanswered, as a network failure - also
+// while its body is read. Its error is keyed by its source - o.source, else its method and URL (which
 // name its pin and document) with o.intent, what it asks of a URL several actions share (a pin's edit: 'edit', 'loc',
 // 'append', 'append-undo'): a repeat replaces it, and an answer from the same source - the same intent - clears it (sourceOk).
 /** @returns {Promise<{status: number, data: any}>} */
 async function api(url,o){o={...(o||{})}; o.source=o.source||(o.method||'GET')+' '+url+(o.intent?' '+o.intent:'');
-  const init={method:o.method||'GET',headers:{}}; if(o.keepalive)init.keepalive=true;
+  const init={method:o.method||'GET',headers:{}}; if(o.keepalive)init.keepalive=true; if(o.signal)init.signal=o.signal;
   if(o.body!==undefined){init.body=JSON.stringify(o.body);init.headers['Content-Type']='application/json';}
   let r;
   try{r=await fetch(url,init);}catch(e){if(!o.silent)apiFailed(o,tr('서버에 닿지 않습니다'),true);throw e;}
-  let d=null; try{d=await r.json();}catch(e){}
+  let d=null; try{d=await r.json();}catch(e){if(o.signal&&o.signal.aborted)throw e;}   // a body the caller's signal cut off is no answer, not an empty one
   if(r.status>=400&&!(o.expect||[]).includes(r.status)){
     if(!o.silent)apiFailed(o,errText(d)||('HTTP '+r.status),false);
     const err=/** @type {ApiError} */(new Error('HTTP '+r.status)); err.status=r.status; err.data=d; throw err;}

@@ -63,6 +63,7 @@
   --line-field:round(1.55em,2px);   /* a one-line text field's line box: the body's 1.55 to the nearest even px, so the field and what follows it stand on whole px */
   --row-h:48px;--row-h-touch:56px;   /* a two-line list row (the changes view's commit list): subject + author line, a touch row taller */
   --row-h-sm:32px;   /* a one-line menu row a mouse picks from (the documents popover); touch rows are --hit */
+  --check:16px;   /* a checkbox as drawn (components.css .ck), on touch too - its label is the press area; a review row's text starts this plus --space-2 in */
   /* The nav bar's search field (search.css): ten 24px steps wide, the outline column's width; under ten 20px steps it folds to
      its magnifier; its width while it is open (touch widens it) and the least width of the query it shows then - about six
      Hangul letters at the field's 12px (touch: seven at 16px) - which a long count widens the open field to keep. */
