@@ -20,11 +20,16 @@
   [더보기]'s language, which reopens the page, and the phone navigation sheet's [원고 | 변경사항], which changes the view
   and closes the sheet (Home on the chosen 원고 shut it) - are walked without choosing, as tabs with manual activation
   are (WCAG 3.2.2): the keys move the focus, and Enter or Space chooses.
-- **Tab no longer stops on a mark badge the panel or the sheet covers** (#418). On a tablet or phone with the sheet open,
-  Tab put the focus ring on a badge under the sheet, out of sight, and its tooltip floated over the sheet. A badge whose
-  centre lies under the panel's box leaves the tab order until the sheet closes or the pages scroll it out; a badge
-  scrolled out of the pages (under the document bar, or zoomed past the pages' edge) stays a stop. The check compares
-  boxes and costs well under a millisecond per scroll frame with hundreds of badges.
+- **Tab no longer stops on a mark badge the panel, the sheet or the status line covers** (#418). On a tablet or phone
+  with the sheet open, Tab put the focus ring on a badge under the sheet, out of sight, and its tooltip floated over the
+  sheet. A badge whose centre lies under a cover - the panel or sheet, or the status line standing on it (the first
+  visit's line on the tablet's closed sheet) - leaves the tab order until the cover moves or the pages scroll it out; the
+  overlay panel is measured again once it has slid in. A badge scrolled out of the pages (under the document bar, or zoomed past the pages' edge) stays a stop
+  while the pages can bring it to where nothing covers it, and Tab brings it there: the browser had scrolled it only to
+  the pages' edge, under the sheet, where the focus and its description stayed. With the sheet pulled up to the document
+  bar no badge is a stop. A focused badge a scroll takes under a cover loses its description and keeps the focus; one the
+  sheet a key opened comes over is brought out again. The check compares boxes and costs well under a millisecond per
+  scroll frame with hundreds of badges.
 - **At 320px the sheet bar's [⬚] keeps its 44px press area** (#418). With a pin awaiting review, the left cell was
   narrower than the pin chip and [⬚] together, so [⬚] stood in the grabber's column and answered only 38px. Under 332px
   the bar's side edges are 4px instead of 12px; the gap and the icon keep their size, and in Korean the chip keeps its

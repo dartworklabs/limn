@@ -22,6 +22,7 @@ SHOWS = {
     ("doc-switch.js", "showDoc"): 1,
     ("figure.js", "showElementBox"): 1,
     ("list.js", "jumpPin"): 1,
+    ("list.js", "markReveal"): 1,
     ("md-surface.js", "mdGoOn"): 1,
     ("md-surface.js", "mdJump"): 1,
     ("search.js", "searchBringBack"): 3,
