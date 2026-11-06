@@ -37,7 +37,9 @@ data-tip="${rng(lv.lo,lv.hi)+(tip?' · '+tr(tip):'')}">${label} <span class="k${
 function rungLines(lv){return typeof lv.n==='number'?lv.n:lv.hi-lv.lo+1;}
 // Draws the range ladder of o into box (#c-levels or an edit card's .e-levels): its segments, shown only when there are two
 // or more rungs - one segment is no choice, and '문단 · 1줄' alone read as noise (the owner's phone); the caption then names
-// that rung (rangeCap). data-rungs keeps the count for the CSS and the tests.
+// that rung (rangeCap). data-rungs keeps the count for the CSS and the tests. The box is a scroll box and carries
+// tabindex="-1" in its markup: Firefox makes a box that overflows a Tab stop of its own, so an overflowing ladder took two
+// stops - the box, then the chosen rung. The chosen rung shows itself as the focus or the range moves (segReveal).
 function drawLadder(box,o,isEdit){const n=(o.levels||[]).length,at=segFocusAt(box); box.dataset.rungs=String(n); box.hidden=n<2;
   setHtml(box,n<2?html``:html`<div class="lad-t">${levelBtns(o,isEdit)}</div>`); if(n>=2)segReveal(box);   // .lad-t: the drawn track inside the scroll box
   segRove(box); segKeep(box,at);}   // one Tab stop, the rung matching the range (else the first), and the focus kept (events.js)

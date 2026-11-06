@@ -55,6 +55,14 @@ RUNGS = {"raw": (5, 5), "para": (4, 6), "env": (3, 9)}
 # The description box: [armed - the element it waits to show for is the focused one, shown, its text].
 TIP = """[tipEl !== null && tipEl === document.activeElement, !document.querySelector('#tip').hidden,
   document.querySelector('#tip').textContent]"""
+# Narrows the scroll box (a selector) to its widest word and 24px: its words overflow it, and each fits it whole. The
+# assignee row draws its box anew on every pick, so the row around it is narrowed by as much.
+NARROW = """b => {const e = document.querySelector(b), w = Math.max(...[...e.querySelectorAll('[role=radio]')]
+  .map(x => x.offsetWidth)) + 24, row = e.closest('.assign-row') || e, to = w + row.offsetWidth - e.offsetWidth;
+  row.style.flex = '0 0 ' + to + 'px'; row.style.width = to + 'px';}"""
+# Whether the focused word of a scroll box (the ladder, the assignee row) stands whole inside the box.
+WHOLE = """() => {const w = document.activeElement, b = w.closest('.seg.lad'), W = w.getBoundingClientRect(),
+  B = b.getBoundingClientRect(); return b.scrollWidth > b.clientWidth && W.left >= B.left - 0.5 && W.right <= B.right + 0.5;}"""
 
 
 def hold_snippets(page):
@@ -114,12 +122,17 @@ class SegmentKeys(BrowserBase):
         return page.evaluate(FOCUS)
 
     def tab_leaves(self, page, group):
-        """From the focused word of group: Tab leaves the group, and Shift+Tab comes back to its checked word, the next
-        Shift+Tab leaves it backwards - one stop each way."""
-        self.assertNotEqual(self.key(page, "Tab")["group"], group, "Tab stayed in %s" % group)
-        back = self.key(page, "Shift+Tab")
+        """From the focused word of group (its id or first class): Tab leaves the group, and Shift+Tab comes back to its
+        checked word, the next Shift+Tab leaves it backwards - one stop each way."""
+
+        def at(name):
+            self.key(page, name)
+            return focused(page)
+
+        self.assertNotEqual(at("Tab")["group"], group, "Tab stayed in %s" % group)
+        back = at("Shift+Tab")
         self.assertEqual((back["group"], back["checked"]), (group, True))
-        self.assertNotEqual(self.key(page, "Shift+Tab")["group"], group, "Shift+Tab stayed in %s" % group)
+        self.assertNotEqual(at("Shift+Tab")["group"], group, "Shift+Tab stayed in %s" % group)
 
     def test_the_arrows_home_and_end_walk_and_choose_the_theme(self):
         """[더보기]'s theme [시스템 | 밝게 | 어둡게], chosen 밝게: → chooses 어둡게 and the page turns dark, → wraps to
@@ -609,6 +622,29 @@ class SegmentKeys(BrowserBase):
                 self.assertTrue(page.evaluate(TIP)[0])
                 settle(page)
                 self.assertEqual(page.evaluate(TIP)[1:], [True, page.evaluate("document.activeElement.dataset.tip")])
+
+    def test_an_overflowing_ladder_or_assignee_row_is_one_stop_and_shows_the_chosen_word(self):
+        """A ladder or an assignee row longer than its box scrolls sideways. Firefox makes a box that scrolls a Tab stop of
+        its own - the edit card's ladder at 1024x768 took two stops, the box and the chosen rung - so the box is out of
+        the Tab order: one stop still. End and Home bring the word they choose whole into the box."""
+        self.main.write_text(LADDER_TEX, encoding="utf-8")
+        for box in ("#c-levels", "#c-assign .as-seg", ".e-levels"):
+            with self.subTest(box=box):
+                page = self.open(0, viewport={"width": 1440, "height": 900})
+                if box == ".e-levels":
+                    self.open_edit_ladder(page)
+                else:
+                    self.open_ladder(page)
+                    page.fill("#note", "@Bob Park 그리고 @Carol Lee 확인")
+                    settle(page)
+                page.evaluate(NARROW, box)
+                settle(page)
+                page.focus(box + " [aria-checked=true]")
+                group = focused(page)["group"]
+                for name in ("End", "Home", "End"):
+                    self.key(page, name)
+                    self.assertTrue(page.evaluate(WHOLE), name)
+                self.tab_leaves(page, group)
 
     def test_a_disabled_word_is_passed_over_in_the_order_the_width_and_the_ladder(self):
         """With the middle word disabled, → from the first passes over it: 최신순 to 번호순, and - the width's 넓게 and the

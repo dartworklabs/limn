@@ -139,14 +139,15 @@ function personLabel(login){return nameShared(login)?html`${peopleName(login)} <
 /** @param {string} login @returns {boolean} */
 function nameShared(login){const nm=peopleName(login); return PEOPLE.some(p=>p.login!==login&&p.name===nm);}
 // The assignee row (Html) for people, value pressed; empty Html without people. Each option carries act as its data-act.
-// The track scrolls sideways inside the row when it is longer (.lad, the range ladder's rule), so every name reads in full.
+// The track scrolls sideways inside the row when it is longer (.lad, the range ladder's rule), so every name reads in full;
+// its scroll box is out of the Tab order as the ladder's is (levels.js drawLadder).
 // A segment's words are in .as-t, trimmed to their cap height like the row's label, so the two share one centre in any font.
 /** @param {string[]} people @param {string} value @param {string} act @returns {Html} */
 function assignSeg(people,value,act){if(!people.length)return html``;
   const opt=(v,label,tip)=>html`<button type="button" role="radio" data-act="${act}" data-v="${v}" aria-checked="${v===value}"${v===value?html` class="on"`:''} data-tip="${tip}"><span class="as-t">${label}</span></button>`;
   const agent=opt(ASSIGNEE_AGENT,tr('에이전트'),tr('에이전트가 이 핀을 처리합니다 — @태그한 사람에게는 알림만 갑니다'));
   const others=people.map(l=>opt(l,html`@${personLabel(l)}`,tl('{name}에게 맡깁니다 — 에이전트는 이 핀을 건너뜁니다',{name:peopleName(l)+(nameShared(l)?' ('+l+')':'')})));
-  return html`<span class="as-lab">${tr('담당')}</span><div class="seg lad as-seg" data-reveal="whole"><div class="lad-t">${agent}${others}</div></div>`;}
+  return html`<span class="as-lab">${tr('담당')}</span><div class="seg lad as-seg" data-reveal="whole" tabindex="-1"><div class="lad-t">${agent}${others}</div></div>`;}
 // The composer panel's assignee: the author's pick (touched) or, until there is one, the default re-chosen every time the note
 // changes. A pick whose person left the note is dropped. Both assignee rows read the note with the hints the save carries
 // (mentionHints), so they offer exactly whom the server tags.
