@@ -6,9 +6,14 @@ const $$=s=>Array.from(document.querySelectorAll(s));
 const ICONS=__LUCIDE_JSON__;
 const esc=t=>String(t==null?'':t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const IS_MAC=/Mac|iPhone|iPad/i.test(navigator.platform||navigator.userAgent||'');
-const SMOOTH=matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth';
-// Reduced motion (live, not only at load): the panel's slides are skipped, but thresholds and previews stay (§패널 폭과 시트 높이).
+// Reduced motion (live, not only at load): read where it acts and never kept, so a setting changed with the page open
+// applies to the next slide or scroll. The panel's slides are skipped, but thresholds and previews stay (§패널 폭과 시트 높이).
 const MQ_REDUCED=matchMedia('(prefers-reduced-motion: reduce)');
+// How a scripted scroll moves - a jump of the pages, a heading, a card, a change group: smoothly, or at once ('auto': nothing
+// sets a smooth scroll-behavior, and responsive.css holds it auto) while reduced motion is asked for. Asked at each scroll:
+// read once at load (a const), a setting turned on later left every jump gliding and one turned off left them instant (#418).
+/** @returns {ScrollBehavior} */
+function scrollMotion(){return MQ_REDUCED.matches?'auto':'smooth';}
 const MQ=matchMedia('(prefers-color-scheme: light)');
 // Closed sets (docs/handbook/viewer.md §닫힌 값 표): every value the viewer compares a state, status or mode against is a
 // member of one frozen table here, never a string literal at the comparison. The first group comes from the server and

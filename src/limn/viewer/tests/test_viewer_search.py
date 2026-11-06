@@ -3357,7 +3357,7 @@ class SectionStripOutlineOrder(SearchBase):
         page 5's own [채택] A5 where the pages landed: the wait ran out before the scroll's first frame and let the pick
         go. The pages never stood still short of page 5, so the strip names the entry picked, [후보] A5."""
         pages = {"smooth": self.outlined(), "reduce": self.outlined(dict(DESKTOP, reduced_motion="reduce"))}
-        self.assertEqual(pages["reduce"].evaluate("SMOOTH"), "auto")
+        self.assertEqual(pages["reduce"].evaluate("scrollMotion()"), "auto")
         late = (("smooth", "busy at once", PICK_BUSY, [7, None]), ("smooth", "busy half way", PICK_BUSY, [7, 7]))
         for motion, how, pick, arg in late + (("reduce", "frame held", PICK_HELD, 7),):
             with self.subTest(motion=motion, late=how):

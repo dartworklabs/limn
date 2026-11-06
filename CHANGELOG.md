@@ -38,6 +38,13 @@
   the bar's side edges are 4px instead of 12px; the gap and the icon keep their size, and in Korean the chip keeps its
   words (핀 2 | 검토 1). The bar's hit areas are placed without a transform: a hit test rounded a transformed box's
   fractional edge, and in Firefox [⬚] answered 43.6px at 330 and 331px and the grabber 43px at 331.
+- **A reduced-motion setting changed with the viewer open reaches every jump** (#418). The viewer read
+  `prefers-reduced-motion` once, at load, for its scripted scrolls: turned on later, a page jump, an outline entry, a
+  card's [보기], a Markdown heading and the pin list's card and review jumps still glided (only the panel's slide and the
+  outline's follow heard the change), and turned off later they stayed instant. Each scroll now asks the setting as it is
+  (`scrollMotion()`), so the next jump follows it; with it on, a jump lands before the call returns and the pages' glide
+  guard and a heading jump's flight are not set. The changes view's [바뀐 곳] glided whatever the setting; it follows it
+  too. A guard in `test_viewer_scroll_writes.py` keeps every scripted scroll's `behavior` instant or `scrollMotion()`.
 - **An image that loads before a scroll's frame no longer takes the document back** (#435). On the Markdown and text
   surfaces the reading spot is read on a scroll's animation frame; on a renderer too busy to paint an image's load or
   failure came first and put back the spot read before the scroll. Home pressed while a linked document's images loaded

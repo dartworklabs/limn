@@ -1386,6 +1386,48 @@ class InputEndsAGlide(AssetsBase):
             self.assertEqual(writes[-1], t, (k, writes))
 
 
+# The jump to heading '아래' set off and the pane read in the same task: where it stands at once, where the jump goes
+# (mdGoTop), and whether the jump is still in flight (MD.goTo).
+GO_LOW_NOW = (
+    "(()=>{const L=document.querySelector('#left'),i=MD.heads.findIndex(h=>h.title==='아래'),to=mdGoTop(MD.heads[i].el);"
+    " mdGoHeading(i); return {now:L.scrollTop,to,flying:!!MD.goTo};})()"
+)
+
+
+class MotionSetLiveHeading(AssetsBase):
+    """prefers-reduced-motion changed while the viewer is open (#418) reaches the next heading jump: with the setting on
+    the pane stands at the heading before the call returns and the jump is over there (mdGoOn, then mdGoLanded in the
+    same call - the reading spot read once, no jump left in flight for an input to stop, mdGoStop); with it off the jump
+    glides and lands on a later frame. The viewer read the setting once, at load (core.js's SMOOTH, before #418)."""
+
+    PLAN = LONG
+
+    def test_a_heading_jump_follows_the_setting_as_it_is_now(self):
+        """Opened with the setting off and with it on, then turned on and off: each jump to '아래' does what the setting
+        says now, and comes to rest on the heading. Mutation: the behaviour read once at load (before #418) -> the jumps
+        after the first change keep the load's setting, fails."""
+        for start, then in (("no-preference", "reduce"), ("reduce", "no-preference")):
+            page = self.open_md(reduced_motion=start)
+            for setting in (start, then, start):
+                page.emulate_media(reduced_motion=setting)
+                with self.subTest(opened=start, now=setting):
+                    page.evaluate("document.querySelector('#left').scrollTop=0")
+                    self.assertTrue(page.evaluate(PANE_AT_REST)["still"])
+                    got = page.evaluate(GO_LOW_NOW)
+                    self.assertGreater(got["to"], 5000, got)
+                    if setting == "reduce":
+                        self.assertLessEqual(abs(got["now"] - got["to"]), 1, got)
+                        self.assertFalse(got["flying"], got)
+                    else:
+                        self.assertLess(got["now"], 1, got)
+                        self.assertTrue(got["flying"], got)
+                    rest = page.evaluate(PANE_AT_REST)
+                    self.assertTrue(rest["still"], rest)
+                    self.assertAlmostEqual(rest["top"], got["to"], delta=1)
+                    self.assertFalse(page.evaluate("!!MD.goTo"))
+            page.context.close()
+
+
 class SvgOnItsOwn(AssetsBase):
     """An SVG of the tree opened as a page (a new tab, a link to it) is inert under the asset route's own headers."""
 
@@ -1872,7 +1914,7 @@ class JumpAcrossReflow(AssetsBase):
         until(page, DRAWN, 20)
         page.evaluate("document.querySelector('#left').scrollTop=300")
         settle(page)
-        self.assertTrue(page.evaluate("SIDE_OPEN&&SMOOTH==='smooth'&&!!MD.spot&&!!MD.spot.el"))
+        self.assertTrue(page.evaluate("SIDE_OPEN&&scrollMotion()==='smooth'&&!!MD.spot&&!!MD.spot.el"))
         w0 = page.evaluate("document.querySelector('#md').getBoundingClientRect().width")
         page.evaluate("document.querySelector('#md a.md-anchor').click()")
         until(page, "document.querySelector('#left').scrollTop>1300")
@@ -2120,6 +2162,12 @@ class InputEndsAGlideFirefox(InputEndsAGlide):
 
     BROWSER_ENGINE = "firefox"
     FIREFOX_PREFS = {"layout.css.scroll-snap.spring-constant": "5.0"}
+
+
+class MotionSetLiveHeadingFirefox(MotionSetLiveHeading):
+    """The same in Firefox, whose compositor runs a script's smooth scroll."""
+
+    BROWSER_ENGINE = "firefox"
 
 
 class SvgOnItsOwnFirefox(SvgOnItsOwn):

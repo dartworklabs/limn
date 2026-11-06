@@ -95,7 +95,7 @@ function updateReviewCount(){const n=REVIEW_ALL.length,chip=$('#rv-chip');
 // [검토 M], the review chip and a review message's [보기]: the review section, opened and scrolled to; its dot goes (seen).
 function gotoReview(){noticeSeen(NOTICE_DOT.RV); if(!listReview().length&&REVIEW_ALL.length&&multiDoc())SHOW_ALL=true;
   if(!SEC.review){SEC.review=true; savePrefs({sec:SEC});} drawPins();
-  setSide(true); requestAnimationFrame(()=>{const t=$('#sec-review'); if(t&&!t.hidden)t.scrollIntoView({block:'start',behavior:SMOOTH});});}
+  setSide(true); requestAnimationFrame(()=>{const t=$('#sec-review'); if(t&&!t.hidden)t.scrollIntoView({block:'start',behavior:scrollMotion()});});}
 // The reviewer shown on an awaiting-review card: the author is suggested (anyone can confirm - a trust model). If I'm the author, '내 확인 차례'.
 function isMe(a){const me=META&&META.me; return !!(a&&me&&me.login&&me.login!==LOCAL_LOGIN&&a.login===me.login);}
 /** @param {Pin} p */
@@ -462,7 +462,7 @@ function revealCard(id){if(secOpenFor(id))drawPins(); setSide(true); if(LAYOUT==
   if(!OPEN_CARDS.has(id)&&(PINS.some(p=>p.id===id)||REVIEW_ALL.some(p=>p.id===id))){OPEN_CARDS.add(id); drawPins();}}
 function jumpToCard(id){if(secOpenFor(id))drawPins();
   const el=/** @type {HTMLElement} */(document.querySelector('.pin[data-id="'+id+'"]')); if(!el)return;
-  el.scrollIntoView({behavior:SMOOTH,block:'nearest'});
+  el.scrollIntoView({behavior:scrollMotion(),block:'nearest'});
   $$('.pin.cur').forEach(x=>{if(x!==el)x.classList.remove('cur');});
   clearTimeout(el._curT);
   el.classList.remove('flash'); void el.offsetWidth; el.classList.add('cur','flash');
@@ -476,7 +476,7 @@ function gotoPinRef(id,focus){const p=findAnyPin(id); if(!p){if(DROPPED.some(x=>
   if(st===PIN_STATE.DONE)SEC.done=true; else{OPEN_CARDS.add(id); SEC[st===PIN_STATE.REVIEW?'review':'open']=true;} savePrefs({sec:SEC});
   setSide(true); drawPins();
   requestAnimationFrame(()=>{const el=/** @type {HTMLElement} */(document.querySelector('.pin[data-id="'+id+'"],.arc-row[data-id="'+id+'"]')); if(!el)return;
-    el.scrollIntoView({behavior:SMOOTH,block:'nearest'}); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
+    el.scrollIntoView({behavior:scrollMotion(),block:'nearest'}); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
     clearTimeout(el._flT); el._flT=setTimeout(()=>el.classList.remove('flash'),1200);
     if(focus)focusCard(id);});}
 // The pin id beside the card that holds control a - the next card in its section, else the one before - or null: where the
