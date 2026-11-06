@@ -7,7 +7,7 @@
 `fieldScrollKey`([`js/layout.js`](../../../src/limn/viewer/js/layout.js))가 두 경우를 더 막는다.
 
 1. **조합 중인 이동 키.** #449가 막는 키(호스트별 집합 그대로: `PageUp`·`PageDown`은 모든 호스트, `Home`·`End`는 macOS)는 조합 중(`isComposing`, keyCode 229)이어도 기본 동작을 막는다. `imeKey` 예외를 뺀다. 이 네 키에서 `imeKey`가 참이 되는 것은 조합 중일 때뿐이다(`imeTail`은 Enter·Esc만 본다). 조합 자체(글자, 확정, 캐럿)는 건드리지 않는다. 입력기가 받아 간 키는 `Process`로 오므로 이 집합에 들지 않는다.
-2. **읽기 전용 칸의 이동 키.** 초점이 있는 글 칸이 `readOnly`면 화살표·`Home`·`End`·`PageUp`·`PageDown`·`Space`의 기본 동작을 모든 호스트에서 막는다. `Shift+Space`도 막는다. Shift와 이동 키는 선택이라 그대로 두고, Ctrl·Alt·⌘는 호스트의 단축키라 그대로 둔다. 읽기 전용이 되는 칸은 둘이다. 저장이 도는 동안의 판정 이유 칸(`pvReasonSave`)과, 범위의 원문을 읽기 전까지의 제안 문안 칸(`suggestRead`)이다.
+2. **읽기 전용 칸의 이동 키.** 초점이 있는 글 칸이 `readOnly`면 화살표·`Home`·`End`·`PageUp`·`PageDown`·`Space`의 기본 동작을 모든 호스트에서 막는다. `Shift+Space`도 막는다. Shift와 이동 키는 바깥을 움직이지 않으므로 그대로 두고(Firefox는 선택을 넓히고 Chromium은 읽기 전용 칸에서 선택을 그대로 둔다), Ctrl·Alt·⌘는 호스트의 단축키라 그대로 둔다. 읽기 전용이 되는 칸은 둘이다. 저장이 도는 동안의 판정 이유 칸(`pvReasonSave`)과, 범위의 원문을 읽기 전까지의 제안 문안 칸(`suggestRead`)이다.
 
 보이는 것보다 많은 칸과 칸 밖의 키는 #449처럼 그대로 둔다.
 
@@ -23,7 +23,7 @@ macOS 흉내는 Linux Chromium에 `navigator.platform=MacIntel`을 두고 키를
 | 저장 중 이유 칸, 맞춤의 1.6배 확대(153%), 1440×900 | 화살표 | ±40px(←·→는 옆으로) | ±40px | +0, 캐럿 이동 |
 | 같음 | `Space` · `Shift+Space` | +715 · −715, 칸 사라짐 | 같음 | +0 |
 | 같음 | `Home` · `End` | −1671 · +9684, 칸 사라짐 | #449가 막음 | +0 |
-| 같음 | Shift+이동 키 | +0(선택) | +0 | +0, 선택 |
+| 같음 | Shift+이동 키 | +0(선택 그대로) | +0 | +0, 선택 넓힘 |
 | 같음 | `Ctrl+Home`·`Ctrl+End` | 칸 사라짐 | 칸 사라짐 | +0 |
 | 같음 | `⌘↑`·`⌘↓` | | 칸 사라짐 | |
 | 제안 문안 칸(원문 읽는 중), 673×841 시트 | 화살표 · `Space` · `Home` · `End` | `#right` ±40 · +172 · −193 · +163 | | |

@@ -1229,7 +1229,7 @@ class ReasonFieldStill(PanelBase):
         the focus. With the pages zoomed wider than the area (1440x900, 1.6 times the fit) and scrolled halfway sideways,
         each of the arrows, Space, Shift+Space, Home, End, PageUp and PageDown moves the area 0px either way, and the field
         stays with its text and its caret where it stood. Shift+Home is left to the field: in a read-only field Shift with a moving key
-        still selects, and it moves nothing outside.
+        moves nothing outside (Firefox extends the selection, Chromium keeps it).
 
         A read-only field takes no caret key, so Chromium gave these to the area: the arrows 40px (the side ones
         sideways), Space +715, Shift+Space -715 with the field gone, and Home and End on Linux -1671 and +9684 with the

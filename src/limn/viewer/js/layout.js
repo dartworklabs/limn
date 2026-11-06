@@ -219,7 +219,7 @@ document.addEventListener('keydown',holdCaret,true);
 // the tablet sheet the panel slid under it. There those keys and Space are dropped on every host, Shift+Space with them;
 // Firefox moved only the caret, which the read-only field now keeps as well. Three cases are left alone: a modifier
 // makes them the field's again (Shift+Home selects to the line's start, Meta+Arrow is the host's own caret key - both
-// measured; in a read-only field Shift with a moving key still selects and moves nothing outside, and Ctrl, Alt or Meta
+// measured; in a read-only field Shift with a moving key moves nothing outside - Firefox extends the selection, Chromium keeps it - and Ctrl, Alt or Meta
 // make a host's own chord); a field with more than it shows scrolls itself, which is the field's own doing; and
 // anything outside a field, where these keys move the pages as they always have.
 const PAGE_KEYS=new Set(['PageUp','PageDown']);   // outline.js's SCROLL_KEYS also holds the arrows and Space, which stay a field's keys on every host
@@ -228,7 +228,7 @@ const READ_ONLY_KEYS=new Set(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Ho
 function fieldScrollKey(e){const k=e.key;
   if(!READ_ONLY_KEYS.has(k)||e.metaKey||e.ctrlKey||e.altKey||!typingNow())return;
   const f=/** @type {HTMLInputElement} */(document.activeElement);
-  if(f.readOnly===true){if(e.shiftKey&&k!==' ')return;}   // Shift with a moving key selects, which a read-only field does too
+  if(f.readOnly===true){if(e.shiftKey&&k!==' ')return;}   // Shift with a moving key moves nothing outside (Firefox selects, Chromium keeps the selection)
   else if(e.shiftKey||!(PAGE_KEYS.has(k)||(IS_MAC&&(k==='Home'||k==='End'))))return;
   if(f.scrollHeight>f.clientHeight)return;
   e.preventDefault();}
