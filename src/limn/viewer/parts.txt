@@ -24,7 +24,7 @@ css/cards.css           # pin cards: status, links, thread, @-tags, question hin
 css/suggest.css         # suggested edits: the kind row's switch, the editor and its line, a card's line diff
 css/list.css            # list sections and the archive rows
 css/overlays.css        # tooltip, dialogs, the page list
-css/responsive.css      # mobile/touch, the mid and narrow layouts, reduced motion, the label chip
+css/responsive.css      # mobile/touch, the mid and narrow layouts, reduced motion, the label stripe
 css/search.css          # in-document search: the nav bar's field, its folded magnifier, the phone's row, hit boxes
 css/notices.css         # messages in context: banners, undo rows, notes and chips, the status line's messages, dots
 css/md-surface.css      # the Markdown surface: the document column, its blocks, line marks and badges, the line view, notices

@@ -267,18 +267,10 @@ body.compact #bar1 #btn-rv,body.compact #bar1 #btn-rv .side-l{color:var(--status
 body.compact #bar1 :is(.side-n,.rv-c){font-weight:600}   /* proportional figures: a tabular '1' left the half's label 1px off its centre */
 body.compact #bar1 :is(.side-n,.side-l,.rv-c,#btn-select .lbl,#btn-pos b,#btn-pos .nm){text-box:trim-both cap alphabetic}
 body.compact #bar1 .ic{width:18px;height:18px}
-/* If there's no room, the label chip shrinks first (the full name is in the description) - this prevents a button's text from getting clipped to something like 'DF 재빌드' */
-body.compact #bar1 .chip{flex:0 50 auto;min-width:28px}
 /* min-width:0 above (body.compact #bar1 button) is more specific (includes an id) than @media(pointer:coarse)'s
    button{min-width:44px} (line 3647), so it won for narrow screens (lay-mid), and that's why [선택] used to shrink all the way to 40px (observed).
    The same selector is re-pinned here, touch-only - since it comes later in source order than the rule above, it wins the specificity tie. */
 @media (pointer:coarse){body.compact #bar1 button{min-width:var(--hit)}}
-/* Folded (narrow): the label text is pulled out of the tool bar and placed on [더보기]'s first line - shrinking it to 28px left only 'C...', unreadable (2026-09-23).
-   The label-color stripe at the very top (#brand-stripe) distinguishes the instance instead. The [문서] button always shows the short document name in full
-   (body/response/cover letter) without shrinking. The spread-out folded layout (mid, 884px) is under the same flex-wrap:nowrap pressure and its label
-   also shrank to 'CE-iTra...' (71px) (observed) - the same fix is applied there too. #more-label ([더보기]'s first line) already exists in both layouts
-   (shared markup with no layout condition), so the full name is visible without a separate sheet. */
-body.lay-narrow #bar1 .chip,body.lay-mid #bar1 .chip{display:none}
 /* The phone and tablet-sheet bar is a three-column grid (docs/handbook/viewer.md §모바일 레이아웃): [📍 N 👁 M] [⬚] | the grabber |
    [본문 ▾] [⋯] - [⋯] alone on the tablet sheet, whose nav bar has the documents. The outer columns are equal, so the grabber's
    centre is the bar's, the screen's, whatever the language, counts or document; as a flex item centred in the space left between
@@ -791,9 +783,6 @@ body.compact #trash .arc-list{max-height:none;overflow:visible}   /* the sheet s
 #composer.region #c-levels,#composer.region #c-cap,#composer.region .snip-foot,#composer.region #c-copy{display:none}
 .edit.region .e-levels{display:none}
 @media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
-/* Label chip/stripe (§Running multiple manuscript instances at once): since its purpose is distinguishing tabs when multiple manuscript viewers are
+/* Label stripe (§Running multiple manuscript instances at once): since its purpose is distinguishing tabs when multiple manuscript viewers are
    open at once, the accent color is pinned as a fixed background (inline style) - the label color must stay the same across theme changes. */
 #brand-stripe{position:fixed;top:0;left:0;right:0;height:4px;z-index:50;pointer-events:none;background:var(--brand)}
-.chip{flex:none;color:var(--brand-foreground);font-weight:700;font-size:var(--text-sm);line-height:1.4;padding:var(--space-1) var(--space-2);border-radius:var(--radius);
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px}
-@media (max-width:480px){.chip{max-width:64px;font-size:var(--text-xs);padding:2px var(--space-1)}}
