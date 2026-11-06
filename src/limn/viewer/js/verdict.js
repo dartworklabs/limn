@@ -1465,6 +1465,7 @@ function pvAutoScrolling(){return PV_GLIDE&&performance.now()-PV_SCROLL_AT<(PV_S
 /** @param {number} to - the scrollTop it goes to @returns {ScrollBehavior} */
 function pvGlideArm(to){const L=$('#left'),top=Math.max(0,Math.min(L.scrollHeight-L.clientHeight,to)),how=scrollMotion();
   if(how==='smooth'&&Math.abs(top-L.scrollTop)>1){pvJumpSet(top); PV_GLIDE=true; PV_SCROLL_AT=performance.now();}
+  else if(PV_JUMP!==null){pvJumpSet(null); PV_GLIDE=false;}   // this scroll replaces a glide in flight (reduced motion turned on during it): its guard goes with it
   return how;}
 /** @param {number} top */
 function pvGlideTo(top){$('#left').scrollTo({top,behavior:pvGlideArm(top)});}

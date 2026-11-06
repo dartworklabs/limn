@@ -385,6 +385,31 @@ class MotionSetLive(FigurePages):
                         self.assertGreater(page.evaluate("()=>document.querySelector('#left').scrollTop"), 1000)
             page.context.close()
 
+    def test_an_instant_jump_that_replaces_a_glide_in_flight_lets_go_of_its_guard(self):
+        """A glide to page 6 under way, the setting turned on, then a jump to page 3: the pages are there at once and the
+        glide's guard is gone with the glide it replaced - a verdict key is taken, not refused as during a glide. Mutation:
+        no letting go in pvGlideArm when the jump is instant -> the old glide's PV_JUMP and PV_GLIDE stay (scrollend checks
+        the old destination), pvAutoScrolling() is true and the key is refused, fails (found in review)."""
+        page = self.on(dict(SIZES["desktop 1440x900"], reduced_motion="no-preference"))
+        page.evaluate("goPage(6)")
+        page.wait_for_function(
+            "PV_JUMP!==null && document.querySelector('#left').scrollTop>20"
+            " && Math.abs(document.querySelector('#left').scrollTop-PV_JUMP)>100"
+        )
+        page.emulate_media(reduced_motion="reduce")
+        got = page.evaluate(
+            "()=>{goPage(3); return {jump: PV_JUMP, glide: PV_GLIDE, auto: pvAutoScrolling(),"
+            " off: Math.abs(document.querySelector('#left').scrollTop-figureTop(3))};}"
+        )
+        self.assertEqual((got["jump"], got["glide"], got["auto"]), (None, False, False), got)
+        self.assertLessEqual(got["off"], 1, got)
+        page.evaluate("()=>document.body.dispatchEvent(new KeyboardEvent('keydown',{key:'2',bubbles:true}))")
+        page.wait_for_function("()=>OPEN_ALL.length===1")
+        settle(page)
+        self.assertFalse(page.evaluate("()=>LINE.some(n=>n.title.includes('쪽으로 가는 중'))"))
+        (made,) = self.call("GET", "/api/pins?all=1")[1]
+        self.assertEqual((made["page"], made["verdict"]), (3, "보류"), made)
+
 
 class FigureArrival(FigurePages):
     """Each way to a page, each device, the re-press, a page without a body, the keys, the panel and a phone."""
