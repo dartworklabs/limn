@@ -1005,6 +1005,61 @@ class HtmlRunToggleFirefox(HtmlRunToggle):
     BROWSER_ENGINE = "firefox"
 
 
+class ErrorOnAJumpThenEnd(AssetsBase):
+    """An image that fails during a jump to a heading (mdGoHeading) - its file broken on disk, found by the page's check
+    (mdPicCheck) - gives way to its alt text and makes the document some 2,800px shorter, cutting the pane's offset back to
+    the new end. End is then pressed, and another image's held answer let go before any frame (the page's frames held):
+    the pane stays at the end. Found by the review of #435's third round."""
+
+    PLAN = "# Start\n\n![late](img/late.png)\n\n![shrink](img/shrink.png)\n\n" + "".join(
+        "Paragraph %d.\n\n" % i for i in range(1, 20)
+    )
+
+    def route(self, route):
+        """late.png's answer held while self.hold_late; every other request as AssetsBase answers it."""
+        if getattr(self, "hold_late", False) and "late.png" in route.request.url:
+            self.hold.append(route)
+            return None
+        return super().route(route)
+
+    @unittest.skipIf(sys.platform == "darwin", "End scrolls no pane on macOS: issue #414")
+    def test_end_after_an_image_failed_on_a_jump_is_not_undone_by_the_next_image(self):
+        """The pane 200px above its end; the heading jump starts and shrink.png fails on the way (the alt text in its place,
+        the offset cut back to the shorter end); End; late.png loads: the pane is still at the end, before the frames run
+        and after. The failed image's handler reads the spot where the jump left the pane (mdPicMoved), so End is a move
+        from that spot, not the browser's cut. Mutation: no reading after an image's change during a jump (the image
+        handlers' mdSpotBack only when no jump) -> the spot keeps the offset read before the cut, End's offset is taken
+        for the cut, and late.png's load puts the pane back 200px above the end; fails in both engines."""
+        img = self.src / "notes" / "img"
+        (img / "late.png").write_bytes(blank_png(200, 900))
+        (img / "shrink.png").write_bytes(blank_png(200, 3000))
+        self.hold_late = True
+        page = self.open(0, init=FRAMES_HELD)
+        until(page, DRAWN, 20)
+        until(page, "!!document.querySelector('#md .md-pic-ok')")
+        page.evaluate("(L=>{L.scrollTop=L.scrollHeight-L.clientHeight-200;})(document.querySelector('#left'))")
+        settle(page)
+        before = page.evaluate("document.querySelector('#left').scrollHeight")
+        (img / "shrink.png").write_bytes(blank_png(200, 3000)[:33])  # a PNG cut short: the browser cannot draw it
+        page.evaluate("window.__framesHeld=true; MD_PIC_CHECK.last=-Infinity; mdGoHeading(0); void mdPicCheck()")
+        until(page, "!document.querySelector('#md .md-pic[data-path=\"notes/img/shrink.png\"]')")
+        self.assertTrue(page.evaluate("!!MD.goTo"), "the jump had ended before the image failed")
+        self.assertGreater(before - page.evaluate("document.querySelector('#left').scrollHeight"), 2000)
+        page.evaluate("(L=>{L.tabIndex=-1; L.focus({preventScroll:true});})(document.querySelector('#left'))")
+        page.keyboard.press("End")
+        until(page, FROM_END + "<1")
+        self.assertFalse(page.evaluate("!!MD.goTo"), "End did not end the jump")
+        self.hold_late = False
+        self.holding = True  # answer_the_image lets go of the held late.png
+        answer_the_image(self, page, lambda: self.assertAlmostEqual(page.evaluate(FROM_END), 0, delta=2))
+
+
+class ErrorOnAJumpThenEndFirefox(ErrorOnAJumpThenEnd):
+    """The same in Firefox."""
+
+    BROWSER_ENGINE = "firefox"
+
+
 MANY = 300  # more than MD_PIC_KEEP (256), the most entries the page's other image records keep
 
 

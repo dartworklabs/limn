@@ -251,6 +251,8 @@ function mdSpotBack(){const s=MD.spot; if(!s||s.doc!==DOC)return; s.again=true; 
 // frame - End, or a scroll the cut then ate - goes back with it. Any other offset is a move, the cut's too once a move
 // took the pane from that end (Home after a font's reflow), whatever reflowed the column: told by the offset and the
 // scroll range alone, the check asks nothing of the page's other changes - whether they read the spot again after them.
+// An image's own change reads it after (mdSpotBack, or mdPicMoved during a heading jump), so the next image's check
+// starts from the layout this one left, and an End after a failed image shortened the document is not taken for a cut.
 // Not while the width moved (a reflow is mdSpotKeep's), nor while a redraw or a load under the hidden column waits
 // (again), nor while the column is not laid out (a hidden pane's offset reads 0).
 function mdSpotFresh(){const s=MD.spot,md=$('#md'),L=$('#left'); if(!s||s.doc!==DOC||s.again||!md||!isMdDoc()||MD.shown!==DOC)return;
@@ -588,7 +590,7 @@ function* mdImage(c,w,cx){const raw=String(mdAttr(c,'src')||''),alt=String(c.con
 const MD_PIC_SIZE=/** @type {Map<string,{w:number,h:number}>} */(new Map());
 // An image has loaded: its size is kept (MD_PIC_SIZE) and given to its box, and the reading spot (MD.spot, as mdSpotRead last
 // read it, or read again just before the change when the pane was moved since: mdSpotFresh) is put back (mdSpotBack) - only an image above it moves anything. During a jump to a heading (mdGoHeading) the spot is a
-// point the scroll passes on its way: the jump goes on to its heading's new place instead (mdGoOn). A box drawn at a size an earlier load learned is checked too:
+// point the scroll passes on its way: the jump goes on to its heading's new place instead (mdGoOn, mdPicMoved). A box drawn at a size an earlier load learned is checked too:
 // the file may have changed since (a new size under the same path), and then it is resized and the spot put back as for a
 // first load. Only a size that held changes nothing. The marks follow through the column's ResizeObserver (MD_RO).
 /** @param {Event} e */
@@ -597,7 +599,13 @@ function mdPicLoad(e){const img=/** @type {HTMLImageElement} */(e.target),box=im
   const w=img.naturalWidth,h=img.naturalHeight,path=box.dataset.path||''; if(w&&h)MD_PIC_SIZE.set(path,{w,h}); else MD_PIC_SIZE.delete(path);
   if(box.classList.contains('md-pic-ok')&&+(img.getAttribute('width')||0)===w&&+(img.getAttribute('height')||0)===h)return;
   const here=box.isConnected&&isMdDoc(); if(here)mdSpotFresh();
-  mdPicSize(img,w,h); box.classList.add('md-pic-ok'); if(here&&!mdGoOn())mdSpotBack();}
+  mdPicSize(img,w,h); box.classList.add('md-pic-ok'); if(here)mdPicMoved();}
+// After an image's box changed (mdPicLoad, mdPicError): the reading spot put back (mdSpotBack), or - during a jump to a
+// heading - the jump aimed again at its heading's new place (mdGoOn) and the spot read where the pane stands, in the
+// layout the change left. The spot's offset (top) is then the page's own after the change: an End or a scroll after it
+// is not taken for the browser's cut (mdSpotFresh) when the change shortened the document - a failed image's alt text
+// in place of its box - and the next image's check reads it where it stands.
+function mdPicMoved(){if(mdGoOn())mdSpotRead(true); else mdSpotBack();}
 // Gives image img the size w x h (its natural size, from a load): its width and height attributes, and the aspect ratio its
 // box keeps (CSSOM --md-pic-r, md-surface.css). With height:auto the attributes alone give way to the ratio of whatever
 // picture the element shows (aspect-ratio: auto w / h), and the browser takes a new picture's ratio as soon as it knows its
@@ -677,7 +685,7 @@ function mdPicError(e){const img=/** @type {HTMLImageElement} */(e.target),box=i
   const s=document.createElement('span'),path=box.dataset.path||''; s.className='md-img'; s.append(tr('그림')+': '); mdTextLate(s,img.alt||path,mdRxOf(box));
   const src=ccPlain(path); s.dataset.tip=tl('그림을 불러오지 못했습니다 · {src}',{src}); s.dataset.tipUrl=src;
   const here=isMdDoc(); if(here)mdSpotFresh();   // the spot where the pane stands, before the alt text takes the box's place
-  box.replaceWith(s); if(here&&!mdGoOn())mdSpotBack();}
+  box.replaceWith(s); if(here)mdPicMoved();}
 // Every tip of an image or a link below names the hidden characters of the source text it shows again - a path or a '#…'
 // decoded once, a document's name (ccPlain, hidden-chars.js, ADR-0029 D5); the drawn text, an alt text too, is the document's.
 // A link element for href (mdTarget): a web or mail link opens in a new tab without a referrer or opener; an in-document '#…'
