@@ -12,13 +12,25 @@ from limn.pins.editing.values import ASSIGNEE_AGENT as AGENT_ASSIGNEE
 
 from helpers import add_pin, ps
 from helpers_access import ALICE, BOB, CAROL, actor
-from helpers_browser import BrowserBase, settle
+from helpers_browser import BrowserBase, booted, settle
 
 # Every radio group drawn on the page: its words as (key, checked, tabIndex), where key is the word's data-* value.
 GROUPS = """() => [...document.querySelectorAll('[role=radiogroup]')].filter(g => g.getClientRects().length).map(g => ({
   group: g.id || g.className, words: [...g.querySelectorAll('[role=radio]')].filter(w => !w.disabled && !w.hidden)
     .map(w => [w.dataset.theme || w.dataset.lang || w.dataset.kind || w.dataset.v || w.dataset.mode || w.textContent.trim(),
       w.getAttribute('aria-checked') === 'true', w.tabIndex])}))"""
+# Counts the presses (clicks) on any radio group's word, in SEG_CLICKS.
+CLICKS = "window.SEG_CLICKS=0; document.addEventListener('click',e=>{if(e.target.closest('[role=radio]'))SEG_CLICKS++;},true)"
+# [더보기]'s language row: the focused word's language and whether it is chosen, the words holding a Tab stop, the presses
+# counted (CLICKS) and whether the page is still the one marked (STAY: a choice reopens it).
+LANG_STATE = """(() => {const a = document.activeElement, ws = [...document.querySelectorAll('#m-lang [role=radio]')];
+  return {at: a.dataset.lang, checked: a.getAttribute('aria-checked') === 'true', stops: ws.filter(w => w.tabIndex === 0)
+    .map(w => w.dataset.lang), pressed: SEG_CLICKS, stay: window.STAY};})()"""
+# The phone's navigation sheet: open or not, the focused word's view and whether it is chosen, the presses counted (CLICKS,
+# 0 once the page has none counted) and whether the changes view is open.
+VIEW_STATE = """[document.querySelector('#nav-sheet').open, document.activeElement.dataset.mode,
+  document.activeElement.getAttribute('aria-checked') === 'true', window.SEG_CLICKS || 0,
+  document.body.classList.contains('revision-open')]"""
 # The focused element: the radio group it is in, its word's key and whether it is checked, else its id or tag.
 FOCUS = """() => {const a = document.activeElement, g = a && a.closest && a.closest('[role=radiogroup]');
   if (!g) return {group: null, at: a ? a.id || a.tagName : null};
@@ -82,6 +94,99 @@ class SegmentKeys(BrowserBase):
         self.assertEqual(page.get_attribute("html", "data-theme"), "dark")
         self.assert_one_stop_each(page)
         self.tab_leaves(page, "m-theme")
+
+    def test_a_key_onto_the_chosen_word_only_moves_the_focus(self):
+        """A key that lands on the word already chosen presses nothing: [더보기]'s theme, 시스템 chosen - Home presses
+        nothing, End chooses 어둡게, a second End nothing."""
+        page = self.open(0, viewport={"width": 1440, "height": 900})
+        page.locator("#btn-more").click()
+        page.wait_for_selector("#more[open]")
+        page.evaluate("setTheme('system')")
+        settle(page)
+        page.evaluate(CLICKS)
+        page.focus("#m-theme [aria-checked=true]")
+        for name, theme, n in (("Home", "system", 0), ("End", "dark", 1), ("End", "dark", 1)):
+            with self.subTest(key=name, clicks=n):
+                self.assertEqual(self.key(page, name), {"group": "m-theme", "at": theme, "checked": True})
+                self.assertEqual(page.evaluate("SEG_CLICKS"), n)
+        self.assert_one_stop_each(page)
+
+    def test_the_language_is_walked_without_choosing_and_chosen_with_enter_or_space(self):
+        """[더보기]'s language reopens the page when chosen, so its keys only move the focus (data-seg-manual): → from
+        한국어 puts the focus on English and chooses nothing - the page stays, nothing is pressed - and Home, End and ←
+        walk on; the stop goes with the focus, and once Tab has left it is the chosen word again, where Shift+Tab comes
+        back. Enter on English reopens the page in English; there Space on 한국어, reached with ←, reopens it in Korean."""
+        page = self.open(0, viewport={"width": 1440, "height": 900})
+        page.locator("#btn-more").click()
+        page.wait_for_selector("#more[open]")
+        settle(page)
+        page.evaluate(CLICKS + "; window.STAY = 1")
+        page.focus("#m-lang [aria-checked=true]")
+        for name, lang in (
+            ("ArrowRight", "en"),
+            ("Home", "ko"),
+            ("End", "en"),
+            ("ArrowLeft", "ko"),
+            ("ArrowRight", "en"),
+        ):
+            with self.subTest(key=name):
+                page.keyboard.press(name)
+                self.assertEqual(
+                    page.evaluate(LANG_STATE),
+                    {"at": lang, "checked": lang == "ko", "stops": [lang], "pressed": 0, "stay": 1},
+                )
+        self.assertNotEqual(self.key(page, "Tab")["group"], "m-lang")
+        self.assertEqual(page.evaluate(LANG_STATE)["stops"], ["ko"])  # the chosen word is the stop again
+        back = self.key(page, "Shift+Tab")
+        self.assertEqual((back["group"], page.evaluate(LANG_STATE)["at"]), ("m-lang", "ko"))
+        page.keyboard.press("ArrowRight")
+        with page.expect_navigation():
+            page.keyboard.press("Enter")
+        page.wait_for_function(booted(0), timeout=20000)
+        self.assertEqual(page.evaluate("LANG"), "en")
+        page.locator("#btn-more").click()
+        page.wait_for_selector("#more[open]")
+        settle(page)
+        page.focus("#m-lang [aria-checked=true]")
+        page.keyboard.press("ArrowLeft")
+        self.assertEqual(page.evaluate("LANG"), "en")
+        with page.expect_navigation():
+            page.keyboard.press(" ")
+        page.wait_for_function(booted(0), timeout=20000)
+        self.assertEqual(page.evaluate("LANG"), "ko")
+
+    def test_the_phone_navigation_sheets_view_is_walked_without_choosing(self):
+        """The phone's navigation sheet [원고 | 변경사항] changes the view and closes the sheet when chosen, so its keys only
+        move the focus (data-seg-manual): Home on 원고, the word chosen, leaves the sheet open on it (the press shut the
+        sheet and sent the focus to [본문 ▾]); → puts the focus on 변경사항, End and ← walk on, the view and the sheet
+        stay and nothing is pressed. Enter on 변경사항 opens the changes view and closes the sheet; opened again, Space on
+        원고, reached with ←, goes back to the manuscript."""
+        page = self.open(0, viewport={"width": 390, "height": 844})
+        page.locator("#btn-pos").click()
+        page.wait_for_selector("#nav-sheet[open]")
+        settle(page)
+        page.evaluate(CLICKS)
+        page.focus("#ns-view [aria-checked=true]")
+        for name, mode in (
+            ("Home", "manuscript"),
+            ("ArrowRight", "revisions"),
+            ("End", "revisions"),
+            ("ArrowLeft", "manuscript"),
+            ("ArrowRight", "revisions"),
+        ):
+            with self.subTest(key=name):
+                self.key(page, name)
+                self.assertEqual(page.evaluate(VIEW_STATE), [True, mode, mode == "manuscript", 0, False])
+        self.key(page, "Enter")
+        self.assertEqual(page.evaluate(VIEW_STATE)[0::4], [False, True])  # the sheet closed, the changes view open
+        page.locator("#btn-pos").click()
+        page.wait_for_selector("#nav-sheet[open]")
+        settle(page)
+        page.focus("#ns-view [aria-checked=true]")
+        self.key(page, "ArrowLeft")
+        self.assertEqual(page.evaluate(VIEW_STATE)[0:3], [True, "manuscript", False])
+        self.key(page, " ")
+        self.assertEqual(page.evaluate(VIEW_STATE)[0::4], [False, False])
 
     def test_a_disabled_word_is_passed_over(self):
         """With 밝게 disabled, → from 시스템 goes to 어둡게 and ← from 어둡게 back to 시스템."""

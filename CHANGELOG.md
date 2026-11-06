@@ -15,8 +15,11 @@
   [원고 | 변경사항], the changes view's quick range and [이전 | 지금] - took one Tab stop per word and ignored the
   arrows. Tab now enters on the chosen word and the next Tab leaves the segment; ←/→ (↑/↓) move to the previous or next
   word and choose it, wrapping at the ends, Home/End go to the first and last word, and a disabled word is passed over.
-  On the assignee row, which draws its words again on every pick, the focus stays on the word in the same place.
-  Choosing the language with an arrow reopens the page in that language, as a press does.
+  On the assignee row, which draws its words again on every pick, the focus stays on the word in the same place. A key
+  that lands on the word already chosen only moves the focus. The two segments whose choice changes the context -
+  [더보기]'s language, which reopens the page, and the phone navigation sheet's [원고 | 변경사항], which changes the view
+  and closes the sheet (Home on the chosen 원고 shut it) - are walked without choosing, as tabs with manual activation
+  are (WCAG 3.2.2): the keys move the focus, and Enter or Space chooses.
 - **Tab no longer stops on a mark badge the panel or the sheet covers** (#418). On a tablet or phone with the sheet open,
   Tab put the focus ring on a badge under the sheet, out of sight, and its tooltip floated over the sheet. A badge whose
   centre lies under the panel's box leaves the tab order until the sheet closes or the pages scroll it out; a badge
