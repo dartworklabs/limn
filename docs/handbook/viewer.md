@@ -857,6 +857,7 @@ LaTeX·Markdown·텍스트 문서의 줄 핀은 그 줄 범위를 바꿀 글을 
 - **열기.** 팝오버는 쪽 표시 아래 4px, 오른쪽 끝을 쪽 표시에 맞추고 창 안 8px로 당긴다. 열 때 목록은 지금 쪽 줄을 가운데에 둔다(`revealPageRow`). 이동 시트도 같다. 마우스·키보드로 열면 번호 칸이 초점을 받아 바로 칠 수 있고, 터치로 열면 지금 쪽 줄이 초점을 받아 키보드가 올라오지 않는다. 열린 동안 쪽 표시는 `aria-expanded="true"`이고 `--accent`로 칠한다.
 - **고르기.** 줄을 누르면 확인 없이 그 쪽으로 가고 팝오버가 닫힌다(변경 보기였으면 원고로 돌아간다). 번호 칸의 Enter는 1…N으로 맞춘 쪽으로 간다. 숫자가 아니면 아무 일도 없다. 그림 쪽에서는 그 그림 위끝에 도착한다(§그림 쪽 도착).
 - **키보드.** 번호 칸에서 ↓/↑는 지금 쪽 줄로 간다. 줄에서 ↓/↑는 한 줄, Home/End는 끝으로 움직이고 Enter가 고른다. 지금 쪽 줄만 Tab 순서에 있다. 목록은 `role=listbox`, 줄은 `role=option`이고 지금 쪽이 `aria-selected="true"`다. 팝오버는 `role=dialog`이고 쪽 표시는 `aria-haspopup="dialog"`다.
+- **초점 고리는 줄 안쪽이다**(`outline-offset: -2px`). 목록은 스크롤하므로 양옆과 위아래로 넘친 것을 자르고, 줄은 목록 폭을 채운다. 다른 컨트롤처럼 상자 밖 1px에 그리면 고리가 줄 밖으로 3px 나가 모든 줄의 양옆과 첫 줄의 윗변, 끝 줄의 아랫변이 잘렸다. 문서 팝오버의 줄(§문서 링크가 넘칠 때)과 같은 규칙이다. 확인은 [`test_viewer_list_focus_ring.py`](../../src/limn/viewer/tests/test_viewer_list_focus_ring.py)다. Chromium과 Firefox에서 스무 쪽짜리 문서의 데스크톱 팝오버, 터치 태블릿의 팝오버, 휴대폰 이동 시트를 키보드로 걸으며, 첫 줄·끝 줄·그 사이 줄에서 고리(2px `--ring`)와 줄이 자르는 조상의 보이는 상자 안에 있는지 본다.
 - **닫기.** Esc(다른 Esc 동작보다 먼저), 바깥 누르기, 쪽 표시 다시 누르기, 키보드 문서 전환으로 닫힌다. Esc와 고르기는 초점을 쪽 표시로 돌려준다. 쪽 표시가 사라지면(레이아웃이 바뀌면) 팝오버도 닫힌다.
 
 확인은 `test_viewer_input.PageList`와 `PageSectionsLogic`, 그림 문서의 제목은 `test_viewer_outline_cap.FigurePageList`다.

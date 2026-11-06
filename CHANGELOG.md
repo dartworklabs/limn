@@ -45,6 +45,10 @@
   the left (touch only), then [⋯], then back left to the status line's actions. When the band changes, the markup now moves into the order that
   band draws (`placeBarTools`), and back to the sheet's on a sheet; nothing on screen moves, and a control that has the
   focus keeps it.
+- **A page list row's focus ring is whole** (#418). The page list - the page count's popover and the phone's navigation
+  sheet - scrolls, so it clips what passes its sides, and its rows fill its width: the ring every control draws 1px
+  outside its box lost 3px on both sides of every row, on the first row's top and on the last row's bottom. The rows
+  now draw it inside (`outline-offset: -2px`), as the documents popover's rows do.
 - **An image that loads before a scroll's frame no longer takes the document back** (#435). On the Markdown and text
   surfaces the reading spot is read on a scroll's animation frame; on a renderer too busy to paint an image's load or
   failure came first and put back the spot read before the scroll. Home pressed while a linked document's images loaded
