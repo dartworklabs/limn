@@ -97,6 +97,21 @@
   pane stands in every engine; the key's step or the wheel's turn then goes from there. Nothing is drawn between the two
   writes, and a jump nobody interrupts glides as before. The End test no longer waits for the jump's scroll to rest
   first.
+- **A field's scroll keys stay in it mid-syllable and while it is read-only** (#452, after #449). #449 drops the
+  default of PageUp and PageDown in a text field on every host, and of Home and End on macOS. Two cases still moved
+  the scroller outside. A key pressed while a Hangul syllable was composing comes marked composing, and the viewer left
+  it to the input method: Home in the reason field with '나' composing took the pane to its top on macOS (-2208px at
+  1920x1080, page 3 to page 1, the field gone), End to its end, and PageUp and PageDown moved it on Linux too. Now those
+  keys are dropped mid-syllable as well. The composition is not touched: it stays open, and the syllable committed after
+  the key and the next one land in place ('가나다'). And a field that is read-only for a while - the reason field while
+  its save is out, the suggestion's editor until the range's text is read - takes no caret key, so Chromium gave the
+  arrows (40px, sideways too when the PDF is zoomed wider than the area), Space and Shift+Space (a screen; Shift+Space
+  closed the reason field) and, on Linux, Home and End (-1671px and +9684, the field gone) to the pane, and in the
+  tablet sheet to the panel. In a read-only field those keys are now dropped on every host; Shift with a moving key
+  moves nothing outside, so it is left alone (Firefox extends the selection with it; Chromium keeps the selection as
+  it was in a read-only field). Firefox moved nothing outside in either case; its
+  caret in a read-only field now stays where it stands too. Chords with Ctrl, Alt or Cmd are still the host's (in a
+  read-only field Ctrl+Home and Cmd+Up can still move the pane).
 
 ## 0.4.52 — 2026-11-06
 

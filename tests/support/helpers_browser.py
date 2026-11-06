@@ -413,6 +413,45 @@ def ime_key_press(cdp, key, at=None, repeat=False, *, code=None, shift=False):
     cdp.send("Input.dispatchKeyEvent", ev if at is None else {**ev, "timestamp": at})
 
 
+# A macOS host, as far as the viewer and Chromium can tell from another one. The viewer reads the host from
+# navigator.platform (IS_MAC, src/limn/viewer/js/core.js): MAC_PLATFORM is the init script that makes it MacIntel. Chromium
+# takes a key as macOS binds it when the key comes with the Cocoa command it is bound to there - what Playwright sends on a
+# macOS host (its macEditingCommands), and what mac_press sends from any host: Home then scrolls the document instead of
+# moving the caret (issues #414, #452). Only the keys the tests press; Space is bound to no command.
+MAC_PLATFORM = "Object.defineProperty(navigator,'platform',{get:()=>'MacIntel'});"
+MAC_KEY_COMMANDS = {
+    "Home": "scrollToBeginningOfDocument",
+    "End": "scrollToEndOfDocument",
+    "PageUp": "scrollPageUp",
+    "PageDown": "scrollPageDown",
+    "ArrowUp": "moveUp",
+    "ArrowDown": "moveDown",
+    "ArrowLeft": "moveLeft",
+    "ArrowRight": "moveRight",
+    "Shift+Home": "moveToBeginningOfDocumentAndModifySelection",
+}
+_KEY_CODES = {"Home": 36, "End": 35, "PageUp": 33, "PageDown": 34, "ArrowLeft": 37, "ArrowUp": 38, "ArrowRight": 39}
+_KEY_CODES.update(ArrowDown=40, Space=32)
+_MODIFIER_BITS = {"Alt": 1, "Control": 2, "Meta": 4, "Shift": 8}
+
+
+def mac_press(cdp, combo):
+    """Press combo ('Home', 'Shift+Space') through CDP session cdp as a macOS host gives it to Chromium: with the command
+    it is bound to there (MAC_KEY_COMMANDS). Space types a space, as Playwright's press does."""
+    *modifiers, key = combo.split("+")
+    ev = {
+        "key": " " if key == "Space" else key,
+        "code": key,
+        "windowsVirtualKeyCode": _KEY_CODES[key],
+        "modifiers": sum(_MODIFIER_BITS[m] for m in modifiers),
+    }
+    down = {"type": "keyDown", "text": " ", "unmodifiedText": " "} if key == "Space" else {"type": "rawKeyDown"}
+    if combo in MAC_KEY_COMMANDS:
+        down["commands"] = [MAC_KEY_COMMANDS[combo]]
+    cdp.send("Input.dispatchKeyEvent", {**down, **ev})
+    cdp.send("Input.dispatchKeyEvent", {"type": "keyUp", **ev})
+
+
 def clock_now():
     """A page clock for BrowserBase.open(clock=...) where only its control matters (clock_still): now, in UTC."""
     return datetime.now(ZoneInfo("UTC"))
