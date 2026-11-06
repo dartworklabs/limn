@@ -182,6 +182,22 @@ function onViewport(){const vv=window.visualViewport; if(!vv)return;
 {const vv=window.visualViewport; if(vv){vv.addEventListener('resize',onViewport); vv.addEventListener('scroll',onViewport);}}
 document.addEventListener('focusin',e=>{const t=/** @type {HTMLElement} */(e.target);
   if(LAYOUT!==LAYOUT_MODE.WIDE&&t&&t.tagName==='TEXTAREA'&&$('#right').contains(t))setTimeout(()=>{if(BAND===LAYOUT_BAND.TABLET_SHEET)keepFieldInView(); else{t.scrollIntoView({block:'center'}); if(t===$('#note'))noteRowInView();}},350);});
+// The first key of a field puts the caret back where it already stands, which takes the document's selection in with
+// it. Leaving a field is a press on static text (the range caption: the composer's leave), which puts the document's
+// selection in that text; a tap back into the field moved the focus but left the selection there, and until something
+// moved it the browser turned no key into an edit - the keys reached the field, no beforeinput followed and nothing
+// was inserted. What ended it was the sheet's keepFieldInView above, 350ms later, so a note typed right after the tap
+// lost everything up to then (macOS Chromium at the tablet sheet, #431; a mouse press never had it, because a click
+// takes the selection into the field with the focus). It is done on the key and not on the focus because a tap's own
+// caret lands after focusin - and once per turn in the field, before that key is handled, so the key itself lands.
+let CARET_HELD=/** @type {EventTarget|null} */(null);   // the field whose caret has been put since it took the focus
+/** @param {KeyboardEvent} e */
+function holdCaret(e){const t=/** @type {HTMLInputElement} */(e.target);
+  if(!t||t===CARET_HELD||typeof t.setSelectionRange!=='function')return;
+  CARET_HELD=t; const at=t.selectionStart; if(at==null||at!==t.selectionEnd)return;   // a selection is the person's
+  try{t.setSelectionRange(at,at);}catch(err){}}   // a field whose kind has no caret (email, number) refuses it
+document.addEventListener('focusin',()=>{CARET_HELD=null;},true);
+document.addEventListener('keydown',holdCaret,true);
 // Whether a text field has focus - a textarea, a text input or editable content - which on a touch screen means the keyboard is up.
 function typingNow(){const a=/** @type {HTMLInputElement} */(document.activeElement); if(!a||a===document.body)return false; if(a.isContentEditable||a.tagName==='TEXTAREA')return true;
   return a.tagName==='INPUT'&&!/^(checkbox|radio|button|submit|reset|range|color|file|image|hidden)$/i.test(a.type||'');}
