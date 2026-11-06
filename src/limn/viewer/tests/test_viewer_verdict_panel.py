@@ -2391,29 +2391,38 @@ class FarJump(PanelBase):
     # on its frames from its own process, then redrew, had to catch the glide across three round trips: a test process
     # late by the glide's length never saw it under way (#423). A scroll event comes before the glide's end (scrollend),
     # so the redraw always meets the glide, however late the test or the frames are. Returns the page under the reading
-    # line, whether the viewer glides and the page the panel shows, after the redraw; null if the glide ended first.
-    READ_AGAIN_ON_THE_WAY = """async () => {const L = document.querySelector('#left');
-      const at = await new Promise(done => {const stop = n => {L.removeEventListener('scroll', look); L.removeEventListener('scrollend', end); done(n);};
+    # line, whether the viewer glides and the page the panel shows, after the redraw; null if the glide ended first; and
+    # when neither came within GLIDE_WAIT_MS of the jump (no glide at all), what the page stood at then (timeout).
+    READ_AGAIN_ON_THE_WAY = """async wait => {const L = document.querySelector('#left');
+      const at = await new Promise(done => {let timer = 0; const stop = n => {clearTimeout(timer); L.removeEventListener('scroll', look); L.removeEventListener('scrollend', end); done(n);};
         const look = () => {if (pvAutoScrolling() && pvReadingAt() >= 3) stop(pvReadingAt());}, end = () => stop(0);
+        timer = setTimeout(() => stop(-1), wait);
         L.addEventListener('scroll', look, {passive: true}); L.addEventListener('scrollend', end); goPage(5);});
+      if (at < 0) return {timeout: wait, reading: pvReadingAt(), gliding: pvAutoScrolling(), top: L.scrollTop};
       if (!at) return null;
       drawPageVerdicts();
       return {at, gliding: pvAutoScrolling(), panel: +document.getElementById('pv-panel').dataset.page};}"""
     # The same jump, and at the first scroll event of its glide past page 1 while the viewer still glides, the hand on the
     # pages (PV_HAND, as a wheel's first event) - in the page, in the same event - then, on the next frame, the reading
     # page and the page the panel shows. The glide's end (scrollend) is kept from the viewer until then, so only the hand
-    # can have let the panel go: a glide landing in that frame would have let it go too. Null if the glide ended first.
-    HAND_ON_THE_WAY = """async () => {const L = document.querySelector('#left');
-      let look = () => {}, hold = () => {}, ends = 0;
+    # can have let the panel go: a glide landing in that frame would have let it go too. Null if the glide ended first;
+    # what the page stood at (timeout) when neither came within GLIDE_WAIT_MS of the jump.
+    HAND_ON_THE_WAY = """async wait => {const L = document.querySelector('#left');
+      let look = () => {}, hold = () => {}, ends = 0, timer = 0;
       try {const at = await new Promise(done => {look = () => {if (pvAutoScrolling() && pvReadingAt() > 1) done(pvReadingAt());};
           hold = e => {if (e.target === L) {e.stopImmediatePropagation(); ends++; done(0);}};
+          timer = setTimeout(() => done(-1), wait);
           addEventListener('scrollend', hold, true); L.addEventListener('scroll', look, {passive: true}); goPage(5);});
-        L.removeEventListener('scroll', look);
+        clearTimeout(timer); L.removeEventListener('scroll', look);
+        if (at < 0) return {timeout: wait, reading: pvReadingAt(), gliding: pvAutoScrolling(), top: L.scrollTop, ends};
         if (!at) return null;
         PV_HAND();
         await new Promise(r => requestAnimationFrame(() => r()));
         return {at, reading: pvReadingAt(), panel: +document.getElementById('pv-panel').dataset.page};}
-      finally {L.removeEventListener('scroll', look); removeEventListener('scrollend', hold, true); if (ends) L.dispatchEvent(new Event('scrollend'));}}"""
+      finally {clearTimeout(timer); L.removeEventListener('scroll', look); removeEventListener('scrollend', hold, true); if (ends) L.dispatchEvent(new Event('scrollend'));}}"""
+    # How long the two above wait, from the jump, for the glide's scroll or its end: page.evaluate has no time limit of its
+    # own, so a jump that never glides fails here, saying where the page stood, instead of holding the job to its limit.
+    GLIDE_WAIT_MS = 10000
 
     def landed(self, page, n):
         page.wait_for_function(RESTING, polling="raf", timeout=10000)
@@ -2460,8 +2469,9 @@ class FarJump(PanelBase):
         left, and fills once where the jump lands. The redraw is made in the page as the glide passes (READ_AGAIN_ON_THE_WAY)."""
         page = self.on()
         page.evaluate(self.WATCH)
-        got = page.evaluate(self.READ_AGAIN_ON_THE_WAY)
+        got = page.evaluate(self.READ_AGAIN_ON_THE_WAY, self.GLIDE_WAIT_MS)
         self.assertIsNotNone(got, "the glide ended before page 3 came under the reading line")
+        self.assertNotIn("timeout", got, "no scroll or scrollend within GLIDE_WAIT_MS of the jump: %r" % got)
         self.assertGreaterEqual(got["at"], 3, got)
         self.assertEqual((got["gliding"], got["panel"]), (True, 1), got)
         self.landed(page, 5)
@@ -2471,8 +2481,9 @@ class FarJump(PanelBase):
         """The wheel during a jump's glide takes the pages over: the panel follows the reading page from the next frame. The
         hand comes in the page as the glide passes page 1, and the glide's end waits meanwhile (HAND_ON_THE_WAY)."""
         page = self.on()
-        got = page.evaluate(self.HAND_ON_THE_WAY)
+        got = page.evaluate(self.HAND_ON_THE_WAY, self.GLIDE_WAIT_MS)
         self.assertIsNotNone(got, "the glide ended before it left page 1")
+        self.assertNotIn("timeout", got, "no scroll or scrollend within GLIDE_WAIT_MS of the jump: %r" % got)
         self.assertGreater(got["reading"], 1, got)
         self.assertEqual(got["panel"], got["reading"], got)
 
