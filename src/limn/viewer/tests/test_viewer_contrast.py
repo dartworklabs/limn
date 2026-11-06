@@ -281,8 +281,17 @@ PAIRS = (
 )
 
 # SWITCH(theme): set the theme and finish at once the CSS transitions the switch starts (the controls fade their colours
-# over 120ms): their end is the colour the page then draws, which a wait for them to run out would read as well.
+# over 120ms): their end is the colour the page then draws, which a wait for them to run out would read as well. A card
+# the list skips (content-visibility, far from its view) has no style computed, so the switch starts no transition in it;
+# reading its colours computes its style then, and that starts the fade from the colour it had - the walk read a skipped
+# review card's [확인] mid-fade (an oklab mix, a grey between the themes). So every element's style is computed first.
 SWITCH = """t => {const before = new Set(document.getAnimations()); setTheme(t);
+  for (const e of document.querySelectorAll('*')) getComputedStyle(e).color;
+  for (const a of document.getAnimations()) if (a instanceof CSSTransition && !before.has(a)) a.finish();}"""
+# SETTLED_STYLE: the same for the theme the page is in before the first read - a skipped card drawn before the page took
+# its theme (boot sets it after the first list) fades in the same way when the walk computes its style.
+SETTLED_STYLE = """() => {const before = new Set(document.getAnimations());
+  for (const e of document.querySelectorAll('*')) getComputedStyle(e).color;
   for (const a of document.getAnimations()) if (a instanceof CSSTransition && !before.has(a)) a.finish();}"""
 
 # The plain surfaces secondary text sits on: the panes, the badge and track fills, and a hover's or a current row's --accent.
@@ -510,6 +519,16 @@ class ContrastWalk(BrowserBase):
         ps.APP.pin_lifecycle.close_pin(
             done, post_authority(store().store, A, "close", done), CloseRequest(reply="고쳤습니다")
         )
+        # A second pin an agent closed saying nothing: the review section can pick (two listed pins), and this pin's result
+        # row has no result - its box is disabled and its line says to confirm it from its card.
+        self.review_bare = add_pin(
+            {"file": str(self.main), "lo": 12, "hi": 12, "page": 1, "note": "그림 번호"}, A
+        ).record["id"]
+        ps.APP.pin_lifecycle.close_pin(
+            self.review_bare,
+            post_authority(store().store, dict(LOCAL_ACTOR), "close", self.review_bare),
+            CloseRequest(),
+        )
         for who, text in (
             (B, "어느 문장을 뺄까요?"),
             (A, "#%d 와 같은 문제입니다" % gone),
@@ -611,6 +630,7 @@ class ContrastWalk(BrowserBase):
             if read:
                 page.evaluate(SWITCH, next(t for t in THEMES if t not in read))
                 settle(page)
+            page.evaluate(SETTLED_STYLE)
             got = page.evaluate(LOOK, [root, list(UNPAINTED)])
             theme, out = got["theme"], got["out"]
             read.append(theme)
@@ -660,7 +680,7 @@ class ContrastWalk(BrowserBase):
         """The pin list with every section open and four cards unfolded (a thread with a folded entry, a long post and a
         deleted pin's reference; the review; a suggested edit folded past five rows; one whose lines changed, with its
         warning badge and the warning line over its diff and its action, read on its own too, and its edit card's
-        warning line); a reply being written, with its mention list and its preview naming a stranger; the thread's edit
+        warning line); the review section picking, its rows (one ticked, one with no result) and its bar; a reply being written, with its mention list and its preview naming a stranger; the thread's edit
         card; a hovered card, done row and section tool; a banner of each kind on the list and a message on the status
         line; [더보기]; the desktop's search field and a search; the outline (hovered and focused entries, filtered to
         nothing) or the navigation sheet (likewise); the documents bar's popover, filtered to nothing; the Trash and a
@@ -673,6 +693,13 @@ class ContrastWalk(BrowserBase):
         settle(page)
         self.look(page, "list")
         self.look(page, "warning line", '.pin[data-id="%d"] .sg-warn' % self.warned)
+        page.evaluate("rvPick(true)")
+        page.click('#review-pins input[data-pick="%d"]' % self.review)
+        page.wait_for_selector('#review-pins .rv-row.on[data-id="%d"]' % self.review)
+        settle(page)
+        self.look(page, "review rows picking, one ticked", "#sec-review")
+        page.evaluate("rvPick(false)")
+        settle(page)
         card = '#review-pins .pin[data-id="%d"]' % self.review
         page.click(card + " .acts [data-act=reply-open]")
         page.fill(card + " textarea.r-text", "@Bo")

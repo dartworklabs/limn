@@ -34,7 +34,7 @@ BUILT = {
     "mdc-chip-": ("md-compare.js (a change chip's kind)", {"pin"}),
     "mdc-": ("md-compare.js (a compared block's change)", {"del", "ins", "mod", "move"}),
     "ol-depth-": ("outline.js (an outline entry's depth)", {"0", "1", "2", "3", "4"}),
-    "ic-": ("markup.js (an icon's name)", {"pencil"}),
+    "ic-": ("markup.js (an icon's name)", {"check", "minus", "pencil"}),
 }
 BUILT_NAMES = {p + v for p, (_, values) in BUILT.items() for v in values}
 # Classes kept with no writer, and why.

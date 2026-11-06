@@ -81,6 +81,7 @@ document.addEventListener('click',e=>{const target=/** @type {HTMLElement} */(e.
     case 'revision-more':moreRevisions();break;
     case 'all-docs':SHOW_ALL=!SHOW_ALL;drawPins();break;
     case 'mention-filter':MENTION_ONLY=!MENTION_ONLY;drawPins();break;
+    case 'review-pick':rvPick(!RV_PICK);break; case 'rv-go':rvConfirm();break;   // confirming from result rows (review-pick.js)
     case 'list-order':setListOrder(a.dataset.order);break;
     case 'mention-pick':mentionApply(Number(a.dataset.i));break;
     case 'pin-ref':gotoPinRef(Number(a.dataset.ref),e.detail===0);break;   // by keyboard the focus goes to the card

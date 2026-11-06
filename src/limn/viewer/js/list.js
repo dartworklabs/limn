@@ -149,7 +149,7 @@ function drawPins(){dropStaleReview();
   // (offersIn). The card looks the same as an open pin (thread/replies); only the actions are [확인]/[답글].
   const LREV=MENTION_ONLY?REVIEW_ALL.filter(mentionsMe):listReview();
   $('#sec-review').hidden=!LREV.length&&!offersIn('review'); secHead('review',tr('검토 대기'),LREV.map(p=>p.id),REVIEW_ALL.map(p=>p.id));
-  setHtml($('#review-pins'),cardRows(LREV,'review'));
+  if(!rvDraw(LREV))setHtml($('#review-pins'),cardRows(LREV,'review'));   // result rows while the section picks (review-pick.js)
   drawOrderControl((SEC.open&&SHOWN.length>0)||(SEC.review&&LREV.length>0));
   updateReviewCount();
   // Done section: hidden header and all if empty. The header stays stuck to the top while scrolling.

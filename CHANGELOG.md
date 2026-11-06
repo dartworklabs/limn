@@ -2,8 +2,25 @@
 
 ## Unreleased
 
+### Added
+
+- **Confirm several pins awaiting review from their result rows** (#453, ADR-0035). An agent that closes twenty pins
+  at once left twenty cards to confirm one by one. The review section's head now has [골라서 확인] for a person who may
+  confirm while two or more pins are listed: it turns the cards into rows that show each result - the agent's answer,
+  its reference and the lines it changed - with a box each and [변경 보기]. Tick the rows you have read, or
+  [모두 고르기], and [N건 확인] confirms them together after one undo row; each is sent with the close its row showed
+  when it was ticked, so a pin closed again since is refused, not confirmed. A pin closed with nothing said has no
+  result to show and is confirmed from its card. What was not confirmed - closed again, reopened, gone, not sent - is
+  named in one banner, and [다시 시도] sends again only the pins that did not reach the server. The rows follow the
+  list's filters and order, take the section head's insets (a box under the head's chevron, the text under #N, the
+  buttons on the head's right edge) and are used with the keyboard alone (Esc ends the pick). The agent contract does
+  not change: the viewer sends the one-pin `POST /api/pins/{id}/confirm`, one per pin, all started at once.
+
 ### Fixed
 
+- **[검토 M] no longer hides the first review card under the section's head on a phone or a tablet.** The jump scrolled
+  the review section to the very top of the sheet, under the stuck tool bar, so the section's sticky head stood under
+  the bar and covered the top of the first card. The section now stops under the bar.
 - **A control that cannot be pressed no longer answers the mouse** (#416). A disabled button - [더보기]'s
   [브라우저 알림] row where notifications cannot turn on - and one that waits (`aria-disabled`: a page verdict line's
   words before the first pin list) filled with the hover colour, as if a press would do something. Every hover rule of

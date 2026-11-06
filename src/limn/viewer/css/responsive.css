@@ -354,7 +354,7 @@ body.compact #list{overflow:visible;padding-bottom:calc(var(--space-5) + env(saf
    the composer's controls, the save row - starts and ends on --edge, and a line without a box - a section head's chevron and
    name, an archive row's icon and text - starts on --ink. They were spread over 8, 12, 13, 16 and 25px (UX audit P8). */
 body.compact :is(#bar2,#build-err,#banner,#composer,#list){padding-left:var(--edge);padding-right:var(--edge)}
-body.compact .sec-head{margin-left:calc(-1 * var(--edge));margin-right:calc(-1 * var(--edge));padding-left:var(--ink);padding-right:var(--edge)}
+body.compact :is(.sec-head,.rv-row){margin-left:calc(-1 * var(--edge));margin-right:calc(-1 * var(--edge));padding-left:var(--ink);padding-right:var(--edge)}   /* a review result row: the head's insets (review-pick.css) */
 body.compact .arc-row{padding-left:var(--space-3)}
 /* The bottom action row (docs/handbook/viewer.md §패널 정리 동작 줄): in compact, #right is the scroll box and a flex column whose
    bottom is the screen's (the sheet's bottom: var(--kb)) or the panel's, on the action row. The save row is stuck to that bottom

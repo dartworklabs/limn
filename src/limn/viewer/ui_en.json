@@ -1683,5 +1683,28 @@
  "소식 {n}개": {
   "one": "{n} update",
   "other": "{n} updates"
- }
+ },
+ "골라서 확인": "Pick to confirm",
+ "고르기 끝": "Done picking",
+ "결과를 줄로 모아 읽고, 고른 핀을 함께 확인합니다": "Shows each result as a row, so you can read them and confirm the ones you pick together",
+ "바뀐 줄 {at}": "changed {at}",
+ "(판정만)": "(verdict only)",
+ "답 없음": "no answer",
+ "설명 없이 닫혀 결과가 목록에 없습니다 — 카드에서 하나씩 확인하세요": "Closed without an answer, so there is no result to show here — confirm it from its card",
+ "답": "Answer",
+ "모두 고르기 ({n})": "Pick all ({n})",
+ "{n}건 고름": "{n} picked",
+ "{n}건 확인": "Confirm {n}",
+ "고른 핀을 각 줄이 보인 결과로 확인합니다. 6초 안에 되돌릴 수 있습니다": "Confirms the picked pins with the result each row showed. You can undo it for 6 seconds",
+ "핀 {n}건 확인 · 완료로 옮겼습니다": {"one": "{n} pin confirmed · moved to done", "other": "{n} pins confirmed · moved to done"},
+ "핀 {ids} 은 그사이 다른 곳에서 지워졌습니다": "Pins {ids} were deleted elsewhere meanwhile",
+ "핀 {n}건 확인했습니다": {"one": "Confirmed {n} pin", "other": "Confirmed {n} pins"},
+ "서버에 닿지 않은 핀만 같은 결과로 다시 보냅니다": "Sends again only the pins that did not reach the server, with the same results",
+ "{ids} 다시 닫힘 — 새 결과를 보고 확인하세요": "{ids} closed again — look at the new result, then confirm",
+ "{ids} 그사이 다시 열림": "{ids} reopened meanwhile",
+ "{ids} 이미 완료로 닫힘": "{ids} already closed as done",
+ "{ids} 지워짐": "{ids} deleted",
+ "{ids} 서버에 닿지 않아 보내지 못함": "{ids} not sent — the server could not be reached",
+ "#{id} 거절됨: {why}": "#{id} refused: {why}",
+ "{n}건 중 {k}건 확인": "Confirmed {k} of {n}"
 }
