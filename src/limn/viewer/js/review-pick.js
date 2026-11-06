@@ -188,7 +188,7 @@ async function rvSend(items){
   const said=rvSaid(items.map((x,i)=>({id:x.pin.id,...outs[i]})));
   if(!said){quietNote(tl('핀 {n}건 확인했습니다',{n:items.length})); return;}
   const again=items.filter((x,i)=>outs[i].out===RV_OUT.UNREACHED),first=items.find((x,i)=>outs[i].out===RV_OUT.CLOSED_AGAIN);
-  const act=again.length?{label:'다시 시도',tip:tr('서버에 닿지 않은 핀만 같은 결과로 다시 보냅니다'),fn:()=>rvRetry(again)}
+  const act=again.length?{label:'다시 시도',tip:tr('서버에 닿지 않은 핀만 같은 결과로 다시 보냅니다'),wait:true,fn:()=>rvRetry(again)}   // the banner stays, busy, until they are answered
     :first?{label:'변경 보기',tip:T.change,fn:()=>showChange(first.pin.id)}:null;
   bannerNote(NOTICE_HOST.REVIEW,said.msg,said.kind,act,{literal:true});}
 
@@ -209,12 +209,13 @@ function rvSaid(res){const of=(/** @type {string} */k)=>res.filter(r=>r.out===k)
 
 // [다시 시도]: the pins that did not reach the server, sent again at once with the same done_at - no second undo. A pin
 // being sent again, or one the lists read since show done or open, is left out; one the lists have not shown again yet
-// (their read still out) is sent, and the server answers by the done_at as it would have.
-/** @param {{pin:Pin,at:string}[]} items */
+// (their read still out) is sent, and the server answers by the done_at as it would have. Resolves once they are answered
+// and said, so the banner's button stays busy until then (noticeAct).
+/** @param {{pin:Pin,at:string}[]} items @returns {Promise<void>} */
 function rvRetry(items){const moved=(/** @type {number} */id)=>[DONE_ALL,OPEN_ALL].some(l=>l.some(p=>p.id===id));
-  const still=items.filter(x=>!CONFIRMING.has(x.pin.id)&&!moved(x.pin.id)); if(!still.length)return;
+  const still=items.filter(x=>!CONFIRMING.has(x.pin.id)&&!moved(x.pin.id)); if(!still.length)return Promise.resolve();
   for(const {pin} of still){CONFIRMING.add(pin.id); CONFIRMING_PIN.set(pin.id,pin); if(RV_PICK)RV_PICK.delete(pin.id);}
-  REVIEW_ALL=REVIEW_ALL.filter(p=>!CONFIRMING.has(p.id)); drawPins(); marks(); rvSend(still);}
+  REVIEW_ALL=REVIEW_ALL.filter(p=>!CONFIRMING.has(p.id)); drawPins(); marks(); return rvSend(still);}
 
 // A box's change (a click on it or its label, Space on it) ticks or clears it.
 /** @param {Event} e */

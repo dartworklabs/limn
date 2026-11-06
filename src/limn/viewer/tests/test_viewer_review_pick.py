@@ -400,6 +400,57 @@ class ReviewPickFlows(ReviewPickBase):
         self.assertEqual((self.state(self.p1), self.state(self.p2)), ("done", "done"))
         self.assertTrue(self.holding, "a list read was held meanwhile")
 
+    def test_the_retry_keeps_its_banner_busy_until_it_is_answered(self):
+        """[다시 시도] sends again and its banner stays, its button busy, until the answer comes (§알림 자리: an action that
+        sends a request keeps its message until it is answered); then the pin is done and the banner goes."""
+        self.unreached.add(self.p2)
+        page = self.review_page()
+        self.pick(page)
+        self.tick(page, self.p1, self.p2)
+        page.click("#rv-go")
+        self.send_now(page)
+        page.wait_for_selector(".nt-banner.nk-err[role=alert]:has-text('2건 중 1건 확인')", timeout=10000)
+        self.unreached.clear()
+        self.held.add(self.p2)
+        page.click(".nt-banner.nk-err [data-act=notice-act]")
+        page.wait_for_function("CONFIRMS.length===3")
+        self.assertTrue(page.is_visible(".nt-banner.nk-err [data-act=notice-act][aria-busy=true]"))
+        self.assertEqual(page.evaluate("[...CONFIRMING]"), [self.p2])
+        route = self.holding.pop()
+        route.fulfill(**self.answer(route.request))
+        page.wait_for_function("CONFIRMING.size===0&&!document.querySelector('.nt-banner.nk-err')")
+        self.assertEqual(self.state(self.p2), "done")
+
+    def test_a_banner_moved_when_the_review_section_hides_keeps_its_focus(self):
+        """The outcome banner stands under the review section's head before the list is read again; when that read
+        empties the section, the banner moves to the list's top - and a focus on its [x] stays on it."""
+        store = ps.APP.pin_lifecycle.context().store
+        ps.APP.pin_lifecycle.confirm_pin(self.bare, post_authority(store, A, "confirm", self.bare))
+        page = self.review_page()
+        self.pick(page)
+        page.click("label.rv-all")
+        settle(page)
+        ps.APP.pin_lifecycle.reply_pin(self.p2, "아직 아닙니다", post_authority(store, A, "reply", self.p2))
+        page.click("#rv-go")
+        self.hold_reads = True
+        self.send_now(page)
+        page.wait_for_selector(".nt-banner.nk-warn:has-text('4건 중 3건 확인')", timeout=10000)
+        self.assertEqual(page.evaluate("document.querySelector('.nt-banner.nk-warn').parentElement.id"), "sec-review")
+        page.keyboard.press("Shift")
+        page.focus(".nt-banner.nk-warn [data-act=notice-x]")
+        self.hold_reads = False
+        while self.holding:
+            route = self.holding.pop(0)
+            route.fulfill(**self.answer(route.request))
+        page.wait_for_function("document.querySelector('#sec-review').hidden")
+        settle(page)
+        self.assertEqual(
+            page.evaluate(
+                "[document.activeElement.matches('.nt-banner [data-act=notice-x]'), document.activeElement.closest('.nt-banner').parentElement.id]"
+            ),
+            [True, "list"],
+        )
+
     def test_hiding_the_page_starts_every_confirm_at_once(self):
         """When the page is hidden while the undo row stands (a tab switched, a window closed), every confirm starts in
         that same moment - not one after another's answer, which a closing page would never wait for."""
