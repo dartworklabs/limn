@@ -361,10 +361,10 @@ class CoveredMarksSeen(BrowserBase):
         settle(page)
         g = page.locator("#sheet-grip").bounding_box()
         x, y = g["x"] + g["width"] / 2, g["y"] + g["height"] / 2
-        # The grabber pulled up past the document bar: the sheet stands at its tallest whether the release reads as a
-        # fling (sheetRelease's next stop, its top on the bar at 48px) or as let go there (the height it was let go at,
-        # rounded down: 49px, issue #456). Nine 20px moves (180px) reached the bar only as a fling, when the runner
-        # delivered them fast enough; on a slow one the sheet stayed where they left it (top 190).
+        # The grabber pulled up past the document bar: the sheet stands at its highest stop, its top on the bar at 48px,
+        # whether the release reads as a fling (sheetRelease's next stop) or as let go there (held at its highest: issue
+        # #456, where it stood 1px lower, test_viewer_sheet_release.py). Nine 20px moves (180px) reached the bar only as a
+        # fling, when the runner delivered them fast enough; on a slow one the sheet stayed where they left it (top 190).
         page.mouse.move(x, y)
         page.mouse.down()
         for _, py in touch_line(x, y, x, 20, 10)[1:]:
@@ -372,7 +372,7 @@ class CoveredMarksSeen(BrowserBase):
         page.mouse.up()
         settle(page)
         top = page.evaluate("Math.round(document.querySelector('#right').getBoundingClientRect().top)")
-        self.assertIn(top, (48, 49))
+        self.assertEqual(top, 48)
         self.assertEqual(
             page.evaluate(
                 "[...document.querySelectorAll('.mark button.mark-jump')].filter(b => b.tabIndex >= 0).length"

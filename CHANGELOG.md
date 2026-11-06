@@ -4,6 +4,12 @@
 
 ### Fixed
 
+- **A sheet pulled up to the document bar and let go slowly stays on the bar** (#456). On a phone or a tablet, the
+  sheet dragged by its grabber as high as it goes and let go without a fling stood 1px below the document bar: the
+  height it was held at (the visible height less the gap) was saved as a fraction under 1, and drawn again rounded
+  down to a whole pixel. Held at its highest, the release now chooses the highest stop, as a fling does - with the
+  keyboard up too, so the sheet goes back under the bar when the keyboard goes instead of staying 300px lower. Let go
+  anywhere lower, the sheet keeps the pixel it was let go at, where about every other release had come back 1px lower.
 - **A control that cannot be pressed no longer answers the mouse** (#416). A disabled button - [더보기]'s
   [브라우저 알림] row where notifications cannot turn on - and one that waits (`aria-disabled`: a page verdict line's
   words before the first pin list) filled with the hover colour, as if a press would do something. Every hover rule of
