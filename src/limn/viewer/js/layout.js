@@ -29,7 +29,7 @@ function settleBand(C,N,typing){if(!C||(!C.coarse&&!N.coarse))return BAND_STEP.S
 // Picks the band for the settled input (BAND_IN; the window's at the first call) and its panel state: the body classes (lay-*, band-*, mid-overlay, compact), then wide follows the
 // per-device pinPrefs.sideClosed (open by default), mid its midClosed (else open beside the document, collapsed as an overlay),
 // narrow starts collapsed - except between the phone and the tablet sheet, both sheets, which keep it as it was. An open draft
-// keeps it open. The status line moves to the band's place (placeStatus); the phone's navigation sheet closes when the band
+// keeps it open. The tool bar's markup takes the band's order (placeBarTools) and the status line the band's place (placeStatus); the phone's navigation sheet closes when the band
 // is no longer the phone (the nav bar does its job there); an open [더보기] stays open and redraws its sheet-height or panel-width
 // row; the changes view's guide-line buttons move to the thumb row or back (revTargetActs). Returns whether the band or its
 // overlay changed.
@@ -42,7 +42,21 @@ function applyLayout(){if(!BAND_IN)BAND_IN=bandInput(); const o=BAND_IN,band=lay
   SIDE_OPEN=L===LAYOUT_MODE.WIDE?p.sideClosed!==true:(L===LAYOUT_MODE.MID?(typeof p.midClosed==='boolean'?!p.midClosed:!overlay):sheetToSheet&&wasOpen);
   if(!REPICK&&(COMPOSE.current||EDITOR.current||REPLY||!$('#composer').hidden))SIDE_OPEN=true;   // an in-progress note/edit/reply is never left hidden collapsed
   if(band!==LAYOUT_BAND.PHONE&&$('#nav-sheet').open)$('#nav-sheet').close();
-  applySide(); stickTop(); placeStatus(); if($('#more').open){renderSizeSeg(); placeMore();} if(REV.target)revTargetActs(); if(REV.rows.length)renderCommitList(); return true;}
+  const keep=placeBarTools(); applySide(); stickTop(); placeStatus(); if($('#more').open){renderSizeSeg(); placeMore();} if(REV.target)revTargetActs(); if(REV.rows.length)renderCommitList();
+  if(keep&&document.activeElement!==keep)keep.focus({preventScroll:true});   // from the sheet straight to wide the bar shows only once applySide has drawn the panel
+  return true;}
+// Puts the tool bar's markup (#bar1) in the order the band draws it, so Tab crosses the bar from left to right (issue #418). The
+// markup is the sheet's, whose grid draws it as it stands: [핀 N | 검토 M] [⬚] (.bar-l), the grabber, [본문 ▾] [⋯] (.bar-r), then
+// the wide row's tools. The wide row ends on [⋯] (CSS order), so .bar-r goes last; the mid and short rows read
+// [⬚] ··· [⋯] [핀 N | 검토 M] (CSS order, for the thumbs), so [⬚] also leaves its group for the bar's start and the chip's two
+// halves, still one group, follow [⋯]. A control that has the focus keeps it.
+function placeBarTools(){const bar=$('#bar1'),l=/** @type {HTMLElement} */(bar.querySelector('.bar-l')),r=/** @type {HTMLElement} */(bar.querySelector('.bar-r'));
+  const sel=$('#btn-select'),a=/** @type {HTMLElement|null} */(document.activeElement),had=!!a&&bar.contains(a);
+  if(LAYOUT===LAYOUT_MODE.MID){if(bar.firstElementChild!==sel)bar.prepend(sel); if(bar.lastElementChild!==l||l.previousElementSibling!==r)bar.append(r,l);}
+  else{if(l.lastElementChild!==sel)l.append(sel); if(bar.firstElementChild!==l)bar.prepend(l);
+    if(LAYOUT===LAYOUT_MODE.WIDE){if(bar.lastElementChild!==r)bar.append(r);} else if(l.nextElementSibling!==$('#sheet-grip')||$('#sheet-grip').nextElementSibling!==r)$('#sheet-grip').after(r);}
+  if(had&&a&&document.activeElement!==a)a.focus({preventScroll:true});
+  return had&&a&&document.activeElement!==a?a:null;}   // a focus that could not go back yet (its bar not shown before applySide): applyLayout tries again
 // Whether the outline is an overlay over the document that opens one at a time with the pin panel (OUTLINE_MID_OPEN, never
 // saved): in the mid bands and on the tablet sheet. The phone has no outline; wide keeps it beside the document.
 function outlineOverlay(){return LAYOUT===LAYOUT_MODE.MID||BAND===LAYOUT_BAND.TABLET_SHEET;}

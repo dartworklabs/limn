@@ -47,6 +47,7 @@ button.pl-row:has(>.pl-v){grid-template-columns:44px minmax(0,1fr) auto 16px}
 .pl-row .pl-v{white-space:nowrap;font-size:var(--text-sm);color:var(--foreground)}
 .pl-row .ic{color:var(--primary)}
 button.pl-row.on{background:var(--accent);font-weight:600}
+button.pl-row:focus-visible{outline-offset:-2px}   /* inside the row, as the documents popover's: the list scrolls and clips what passes its sides */
 #ns-pages{max-height:220px;padding:0 0 var(--space-2)}   /* five 44px rows, then it scrolls (opened on the current page) */
 /* The documents popover ([+N], doc-tabs.js; docs/handbook/viewer.md §문서 링크가 넘칠 때): the page list's surface, under its
    button and left-aligned to it (placeDocMenu), at most down to 8px above the window's bottom (--dp-room), its list scrolling
