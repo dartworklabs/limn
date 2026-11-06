@@ -87,7 +87,7 @@ body.revision-open :is(#btn-actual,#m-actual){display:none}   /* the comparison 
 #more .more-grid{display:flex;flex-direction:column}
 #more .more-grid button,#more .more-grid .m-sw{width:100%}
 #more .more-grid button{justify-content:flex-start;gap:var(--space-2);text-align:left;white-space:nowrap;background:transparent;border-color:transparent;font-size:var(--text-lg)}
-@media (hover:hover){#more .more-grid button:hover{background:var(--accent)}}   /* a tapped row stayed grey (sticky :hover, UX audit P4.6) */
+@media (hover:hover){#more .more-grid button:where(:not(:disabled,[aria-disabled="true"])):hover{background:var(--accent)}}   /* a tapped row stayed grey (sticky :hover, UX audit P4.6) */
 #more .more-grid .lbl{flex:1;min-width:0}
 #more .m-n{color:var(--muted-foreground);font-variant-numeric:tabular-nums}
 #more .more-grid button>.ic:last-child:not(:first-child){color:var(--muted-foreground)}
@@ -107,7 +107,7 @@ body.revision-open :is(#btn-actual,#m-actual){display:none}   /* the comparison 
 #more .m-ver{color:var(--muted-foreground);font-variant-numeric:tabular-nums;vertical-align:calc(-1 * var(--ink-ver,0px))}
 #more .more-foot button{gap:var(--space-1)}
 #more .more-foot [data-act=help] .ic{transform:translateY(var(--help-chev,0px))}   /* on [도움말]'s ink centre (footInk) */
-@media (hover:hover){#more .seg button:not(.on):hover{background:var(--accent)}}
+@media (hover:hover){#more .seg button:not(.on):where(:not(:disabled,[aria-disabled="true"])):hover{background:var(--accent)}}
 @media (pointer:coarse){
   :root{--doc-nav-h:48px;--text-xs:12px}   /* no touch text below 12px: badges, counts, avatar initials and page numbers were 11px (diagnosis P7) */
   :root{--pin-badge-size:26px;--mark-hit:var(--hit)}
@@ -241,7 +241,7 @@ body.compact #bar1{flex-wrap:nowrap;gap:var(--space-2);padding:var(--space-2) va
 body.compact #bar1 .sp{display:none}
 body.compact #bar1 button{flex:1 1 auto;min-width:0;padding:0 var(--space-2);overflow:hidden;text-overflow:ellipsis;font-size:var(--text-lg);font-weight:400;
   border:0;background:transparent;color:var(--foreground)}
-@media (hover:hover){body.compact #bar1 button:hover{background:var(--accent)}}
+@media (hover:hover){body.compact #bar1 button:where(:not(:disabled,[aria-disabled="true"])):hover{background:var(--accent)}}
 /* The compact bars' panel toggle is one split chip, words first: [핀 5 | 검토 1] - the owner's E2 on the phone and tablet sheet,
    and 2b of the cross-resolution pass on the unfolded Fold, the landscape tablets and the landscape phone, where the icon pill
    [📍 5 👁 1 ›] was. The right half (#btn-rv) goes to the review list. The halves and [⬚] share one tonal fill (--secondary,
@@ -267,18 +267,10 @@ body.compact #bar1 #btn-rv,body.compact #bar1 #btn-rv .side-l{color:var(--status
 body.compact #bar1 :is(.side-n,.rv-c){font-weight:600}   /* proportional figures: a tabular '1' left the half's label 1px off its centre */
 body.compact #bar1 :is(.side-n,.side-l,.rv-c,#btn-select .lbl,#btn-pos b,#btn-pos .nm){text-box:trim-both cap alphabetic}
 body.compact #bar1 .ic{width:18px;height:18px}
-/* If there's no room, the label chip shrinks first (the full name is in the description) - this prevents a button's text from getting clipped to something like 'DF 재빌드' */
-body.compact #bar1 .chip{flex:0 50 auto;min-width:28px}
 /* min-width:0 above (body.compact #bar1 button) is more specific (includes an id) than @media(pointer:coarse)'s
    button{min-width:44px} (line 3647), so it won for narrow screens (lay-mid), and that's why [선택] used to shrink all the way to 40px (observed).
    The same selector is re-pinned here, touch-only - since it comes later in source order than the rule above, it wins the specificity tie. */
 @media (pointer:coarse){body.compact #bar1 button{min-width:var(--hit)}}
-/* Folded (narrow): the label text is pulled out of the tool bar and placed on [더보기]'s first line - shrinking it to 28px left only 'C...', unreadable (2026-09-23).
-   The label-color stripe at the very top (#brand-stripe) distinguishes the instance instead. The [문서] button always shows the short document name in full
-   (body/response/cover letter) without shrinking. The spread-out folded layout (mid, 884px) is under the same flex-wrap:nowrap pressure and its label
-   also shrank to 'CE-iTra...' (71px) (observed) - the same fix is applied there too. #more-label ([더보기]'s first line) already exists in both layouts
-   (shared markup with no layout condition), so the full name is visible without a separate sheet. */
-body.lay-narrow #bar1 .chip,body.lay-mid #bar1 .chip{display:none}
 /* The phone and tablet-sheet bar is a three-column grid (docs/handbook/viewer.md §모바일 레이아웃): [📍 N 👁 M] [⬚] | the grabber |
    [본문 ▾] [⋯] - [⋯] alone on the tablet sheet, whose nav bar has the documents. The outer columns are equal, so the grabber's
    centre is the bar's, the screen's, whatever the language, counts or document; as a flex item centred in the space left between
@@ -445,7 +437,10 @@ body.lay-narrow #sec-open>.sec-head{border-top:1px solid var(--border)}   /* the
   /* The sheet's tool bar stays --control-h (28px, set below for every pointer): the row itself drags the sheet, so the
      controls are drawn small and only their hit areas reach 44px (docs/handbook/viewer.md §패널 폭과 시트 높이). */
   body.lay-narrow #bar1 :is(button,#sheet-grip){position:relative;min-height:0;overflow:clip;overflow-clip-margin:var(--space-2)}   /* the label still ellipsizes; the hit area below is not clipped */
-  body.lay-narrow #bar1 :is(button,#sheet-grip)::after{content:'';position:absolute;left:50%;top:0;width:max(100%,var(--hit));height:calc(var(--hit) + 2px);transform:translateX(-50%)}   /* +2px: a sheet at a fractional y loses a row to the edge */
+  /* The bar's hit areas are placed without a transform, centred by their offsets: a hit test rounds a transformed box to whole
+     pixels, so where a box edge falls between pixels (a word's width, a centred column at an odd window width) a 44px hit
+     answered 43 - in Firefox [⬚] at 330 and 331px and the grabber at 331. An offset box is tested at its own edges. */
+  body.lay-narrow #bar1 :is(button,#sheet-grip)::after{content:'';position:absolute;left:calc((100% - max(100%,var(--hit))) / 2);top:0;width:max(100%,var(--hit));height:calc(var(--hit) + 2px)}   /* +2px: a sheet at a fractional y loses a row to the edge */
   /* The section head is 40px: its tools are drawn at 32px from 4px down, and their hit areas reach into the 12px under it. */
   body.lay-narrow .sec-head{min-height:40px;padding:0 var(--edge) 0 var(--ink);margin-bottom:var(--space-3)}
   body.lay-narrow .sec-head button{min-height:var(--ctl-touch-sm);height:var(--ctl-touch-sm);padding-top:0;padding-bottom:0;position:relative}
@@ -462,18 +457,25 @@ body.lay-narrow #sec-open>.sec-head{border-top:1px solid var(--border)}   /* the
    (text-box), so the row centres every icon on the numbers' cap-height centre; each control answers 44px round its centre. */
 .side-l,#btn-rv{display:none}
 body.lay-narrow #bar1{padding-top:var(--space-3);padding-bottom:var(--space-3);--tb-h:var(--control-h)}   /* open or collapsed: 12 above the row, 12 under it (plus the bottom safe area when collapsed) */
-body.lay-narrow #bar1 #sheet-grip{position:absolute;grid-column:2/3;left:50%;top:0;transform:translateX(-50%);height:var(--hit);padding-top:var(--space-1)}   /* its bar in the inset, its 44px box the empty middle column */
+body.lay-narrow #bar1 #sheet-grip{position:absolute;grid-column:2/3;left:calc(50% - var(--hit) / 2);top:0;height:var(--hit);padding-top:var(--space-1)}   /* its bar in the inset, its 44px box the empty middle column, centred by its offset (no transform: see the hit areas above) */
 body.lay-narrow #bar1 #btn-select{padding:0 var(--space-3)}   /* the tablet sheet's [⬚ 선택] pads like the chip's halves */
 body.band-phone #bar1 #btn-select,body.lay-narrow #bar1.bar-sel-icon #btn-select{width:36px;min-width:36px;padding:0;justify-content:center}
 body.lay-narrow #bar1 #btn-pos{gap:var(--space-1);padding:0 var(--space-2)}
 body.lay-narrow #bar1 #btn-pos .ic{width:16px;height:16px;color:var(--muted-foreground)}
-@media (pointer:coarse){body.lay-narrow #bar1 :is(#btn-side,#btn-rv,#btn-select,#btn-pos,#btn-more)::after{top:50%;height:var(--hit);transform:translate(-50%,-50%)}
-  body.lay-narrow #bar1 #btn-select::after{left:auto;right:0;transform:translateY(-50%)}   /* the 36px chip's hit reaches left into the gap, never into the grabber's column */
+/* The narrowest phones. The left cell's least is fixed: the chip's two halves at their 44px each and [⬚]'s 44px hit, which
+   is the 8px gap and the 36px icon - 132px, whatever the words. The centred 44px grabber leaves each cell half of what is left
+   after the bar's edges: at 12px edges a phone under 332px wide has a cell under 132px, and [⬚] stood in the grabber's column
+   (126px at 320: 6px into it, its hit cut to 38px) - narrowing the gap or the icon only moves its hit into the chip. So under
+   332px only the bar's edges give, to 4px: the cell is 134px at 320. The gap, the icon, the grid and the grabber's 44px stay,
+   and nothing changes rows - the decoration a width query may carry (docs/handbook/viewer.md §모바일 레이아웃, issue #418). */
+@media (max-width:331.98px){body.lay-narrow #bar1{padding-left:var(--space-1);padding-right:var(--space-1)}}
+@media (pointer:coarse){body.lay-narrow #bar1 :is(#btn-side,#btn-rv,#btn-select,#btn-pos,#btn-more)::after{top:calc(50% - var(--hit) / 2);height:var(--hit)}
+  body.lay-narrow #bar1 #btn-select::after{left:auto;right:0}   /* the 36px chip's hit reaches left into the gap, never into the grabber's column */
   /* The chip's halves are each at least 44px wide (min-width) and meet: each answers its own box, set by its edges - a
      centring translateX of half a fractional width put the review half's hit box a pixel into the pins half (hit testing
      rounds a transformed box out to whole pixels; the pins half answered 43px on CI's fonts) - and the pins half also
      4px outwards, into the bar's edge, where no neighbour is. */
-  body.lay-narrow #bar1 :is(#btn-side,#btn-rv)::after{left:0;right:0;width:auto;transform:translateY(-50%)}
+  body.lay-narrow #bar1 :is(#btn-side,#btn-rv)::after{left:0;right:0;width:auto}
   body.lay-narrow #bar1 #btn-side::after{left:calc(-1 * var(--space-1))}}
 /* The width budget: under 400px the chip's halves pad 8px. When the left cell still overflows (English, three-digit counts, a
    folded cover) it steps down (fitBarWords): the halves pad one 4px step less (.bar-snug), then the words give way to a dot
@@ -775,15 +777,12 @@ body:not(.compact) :is(#help,#trash) .ns-head>.row>button{margin-right:calc(-1 *
    dialog's h2 has, which stood it 4px above the row's middle; its wordmark ends on the title's ink bottom (headInk), above it. */
 :is(#nav-sheet-h,#trash-h,#help-h,#more-label b),:is(.ns-head>.row,#more .more-head)>button .lbl{text-box:trim-both cap alphabetic}
 .ns-head h2{margin:0}
-@media (hover:hover){:is(#nav-sheet,#help,#trash) .ns-head>.row>button:hover{background:var(--accent)}}
+@media (hover:hover){:is(#nav-sheet,#help,#trash) .ns-head>.row>button:where(:not(:disabled,[aria-disabled="true"])):hover{background:var(--accent)}}
 body.compact #trash .arc-list{max-height:none;overflow:visible}   /* the sheet scrolls, so a pull down starts at its top */
 /* Selection on a view-only PDF document: no range ladder, range excerpt or source expansion (there is no line). The region's text is shown in the source field instead. */
 #composer.region #c-levels,#composer.region #c-cap,#composer.region .snip-foot,#composer.region #c-copy{display:none}
 .edit.region .e-levels{display:none}
 @media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
-/* Label chip/stripe (§Running multiple manuscript instances at once): since its purpose is distinguishing tabs when multiple manuscript viewers are
+/* Label stripe (§Running multiple manuscript instances at once): since its purpose is distinguishing tabs when multiple manuscript viewers are
    open at once, the accent color is pinned as a fixed background (inline style) - the label color must stay the same across theme changes. */
 #brand-stripe{position:fixed;top:0;left:0;right:0;height:4px;z-index:50;pointer-events:none;background:var(--brand)}
-.chip{flex:none;color:var(--brand-foreground);font-weight:700;font-size:var(--text-sm);line-height:1.4;padding:var(--space-1) var(--space-2);border-radius:var(--radius);
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px}
-@media (max-width:480px){.chip{max-width:64px;font-size:var(--text-xs);padding:2px var(--space-1)}}

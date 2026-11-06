@@ -130,7 +130,7 @@ button.rc-row{position:relative;display:flex;align-items:stretch;justify-content
 .rc-seen::before{flex:0 0 16px}
 #revision-more{width:100%;justify-content:flex-start;padding-left:var(--space-3);padding-right:var(--space-3);border-radius:0;
   border-top:1px solid var(--border);color:var(--muted-foreground);font-size:var(--text-sm)}
-@media (hover:hover){button.rc-row:hover{background:var(--accent);color:var(--accent-foreground)}}
+@media (hover:hover){button.rc-row:where(:not(:disabled,[aria-disabled="true"])):hover{background:var(--accent);color:var(--accent-foreground)}}
 /* The phone and tablet sheet: the quick range spans the header, the list sits above the changes (REVISION_PHONE_ROWS rows until
    [더 보기]) and scrolls with the source diff in one box; the comparison PDF keeps its own scroll box, a view tall, below it. */
 body.lay-narrow #revision-range.seg{flex:1 1 auto}

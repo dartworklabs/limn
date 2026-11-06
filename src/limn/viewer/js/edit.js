@@ -73,6 +73,7 @@ async function editSnip(withLevels){const E=EDITOR.current; if(!E)return;
 /** Draw current editable fields and their save availability, including a card opened while an earlier edit is pending. */
 function renderEdit(){const E=EDITOR.current; if(!E)return; const el=E.el; syncEditSaveButton();
   /** @type {NodeListOf<HTMLElement>} */(el.querySelectorAll('.e-kind button')).forEach(b=>{const on=b.dataset.kind===(E.kind_req||KIND_REQ.FIX); b.classList.toggle('on',on); b.setAttribute('aria-checked',String(on));});
+  segRove(el.querySelector('.e-kind'));   // the group's one Tab stop is the kind now chosen (events.js)
   setCap(el.querySelector('.e-cap'),E.region?html`<span class="e-range loc" tabindex="0" data-copy="${E.name+' 쪽 '+E.page}">${tl('쪽 {page} · 영역',{page:E.page})}</span>`:rangeCap(E,true));
   drawLadder(el.querySelector('.e-levels'),E,true);
   const pre=/** @type {HTMLElement} */(el.querySelector('.e-snip')); pre.className='e-snip wrap'; pre.textContent=snipText(E.snippet,false); renderAssignEdit();

@@ -356,7 +356,7 @@ def run_page(template: str, label: str, accent: str, ui_lang: str | None) -> str
     """The page GET / serves: template (viewer_html) with the run-time placeholders filled in - __UI_LANG__ with the
     instance's interface language (ko or en, --ui-lang; the empty string without it, and the head script then skips
     that step), then __LABEL__ with the HTML-escaped label, then __ACCENT__ with the accent (#rrggbb, startup.run_accent
-    checks it), for the stripe and the label chip. The favicons do not depend on the run: tabs of different instances
+    checks it), for the instance colour (--brand: the stripe, [더보기]'s label dot). The favicons do not depend on the run: tabs of different instances
     are told apart by their title."""
     out = template.replace("__UI_LANG__", ui_lang or "")
     out = out.replace("__LABEL__", html.escape(label, quote=True))

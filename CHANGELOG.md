@@ -4,6 +4,40 @@
 
 ### Fixed
 
+- **A control that cannot be pressed no longer answers the mouse** (#416). A disabled button - [더보기]'s
+  [브라우저 알림] row where notifications cannot turn on - and one that waits (`aria-disabled`: a page verdict line's
+  words before the first pin list) filled with the hover colour, as if a press would do something. Every hover rule of
+  the viewer now skips both, and so does the touch press wash; the rules keep their specificity, so nothing else
+  changes look. The pointer says which of the two a control is: not-allowed over one turned off (`disabled`), the busy
+  pointer over one held for a moment (`aria-disabled`), where an arrow with no hover look read as broken.
+- **A segmented control is one Tab stop, walked with the arrow keys** (#417). The one-of-many segments - the kind and
+  assignee rows of the composer and the edit card, [더보기]'s theme and language, the navigation sheet's
+  [원고 | 변경사항], the changes view's quick range and [이전 | 지금] - took one Tab stop per word and ignored the
+  arrows. Tab now enters on the chosen word and the next Tab leaves the segment; ←/→ (↑/↓) move to the previous or next
+  word and choose it, wrapping at the ends, Home/End go to the first and last word, and a disabled word is passed over.
+  On the assignee row, which draws its words again on every pick, the focus stays on the word in the same place. A key
+  that lands on the word already chosen only moves the focus. The two segments whose choice changes the context -
+  [더보기]'s language, which reopens the page, and the phone navigation sheet's [원고 | 변경사항], which changes the view
+  and closes the sheet (Home on the chosen 원고 shut it) - are walked without choosing, as tabs with manual activation
+  are (WCAG 3.2.2): the keys move the focus, and Enter or Space chooses.
+- **Tab rests on a mark badge in turn and shows it, passing over only one no scroll can show** (#418). On a tablet or
+  phone with the sheet open, Tab put the focus ring on a badge under the sheet, out of sight, and its tooltip floated over
+  the sheet. A badge is a Tab stop while the pages can scroll it, up or down within their ends, to where it stands whole
+  in the pages' box clear of every cover in its columns - the panel or sheet, or the status line standing on it (the first
+  visit's line on the tablet's closed sheet) - wherever it stands now, and Tab and Shift+Tab bring it there, 8px clear: the
+  browser had scrolled a badge only to the pages' edge, under the sheet, where the focus and its description stayed. So
+  Tab from #3 goes to #4 and #5 under the sheet, then #6; passing over every badge a cover was over at that moment went
+  from #3 to #6, and the scroll that brought #6 up showed the two it had passed. Passed over are a badge under the overlay
+  panel, which runs the pages' height (measured again once it has slid in), one at the last page's foot that the pages
+  end before bringing above the sheet, and every badge with the sheet pulled up to the document bar. A badge a cover is
+  over shows no description; a focused one a scroll takes under a cover loses it and keeps the focus, and one the sheet a
+  key opened comes over is brought out again. The check compares boxes and costs well under a millisecond per scroll
+  frame with hundreds of badges.
+- **At 320px the sheet bar's [⬚] keeps its 44px press area** (#418). With a pin awaiting review, the left cell was
+  narrower than the pin chip and [⬚] together, so [⬚] stood in the grabber's column and answered only 38px. Under 332px
+  the bar's side edges are 4px instead of 12px; the gap and the icon keep their size, and in Korean the chip keeps its
+  words (핀 2 | 검토 1). The bar's hit areas are placed without a transform: a hit test rounded a transformed box's
+  fractional edge, and in Firefox [⬚] answered 43.6px at 330 and 331px and the grabber 43px at 331.
 - **An image that loads before a scroll's frame no longer takes the document back** (#435). On the Markdown and text
   surfaces the reading spot is read on a scroll's animation frame; on a renderer too busy to paint an image's load or
   failure came first and put back the spot read before the scroll. Home pressed while a linked document's images loaded

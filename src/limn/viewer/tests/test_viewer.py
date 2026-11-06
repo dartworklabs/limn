@@ -2046,8 +2046,10 @@ class FrontendSemanticAudit(unittest.TestCase):
         # anywhere: an unresolved @-mention (.mention-bad) and a Markdown document's link that does not open (.md-rel).
         self.assertIn(":is(.loc,.pg-link,.pin .n.go,.pin-ref){text-decoration:none;", self.css)
         self.assertIn(":is(.loc,.pg-link,.pin .n.go,.pin-ref):focus-visible{text-decoration:underline}", self.css)
-        self.assertIn(  # the hover underline answers a mouse only (FrontendHoverForMouse)
-            "@media (hover:hover){:is(.loc,.pg-link,.pin .n.go,.pin-ref):hover{text-decoration:underline}}", self.css
+        self.assertIn(  # the hover underline answers a mouse only, and only what can be pressed (FrontendHoverForMouse)
+            "@media (hover:hover){:is(.loc,.pg-link,.pin .n.go,.pin-ref)%s:hover{text-decoration:underline}}"
+            % HOVER_GUARD,
+            self.css,
         )
         for rule in (
             ".pin .n.go{cursor:pointer;color:var(--primary);",
@@ -2262,6 +2264,25 @@ def hover_rules_outside_hover_media(css: str) -> list[str]:
     return bad
 
 
+# What every :hover in the viewer's CSS carries in front of it (docs/handbook/viewer.md §뜻과 모양): a control that cannot be
+# pressed - disabled, or waiting with aria-disabled - takes no hover look. :where() keeps the rule's specificity as it was.
+HOVER_GUARD = ':where(:not(:disabled,[aria-disabled="true"]))'
+
+
+def hover_selectors_without_guard(css: str) -> list[str]:
+    """The selector of every style rule in css with a :hover that HOVER_GUARD does not come right before (issue #416: the
+    disabled [브라우저 알림] row of [더보기] filled with --accent under the mouse)."""
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    bad = []
+    for m in re.finditer(r"([^{}]*)\{", css):
+        prelude = m.group(1).strip()
+        if prelude.startswith("@"):
+            continue
+        if any(not prelude[: h.start()].endswith(HOVER_GUARD) for h in re.finditer(r":hover", prelude)):
+            bad.append(prelude)
+    return bad
+
+
 class FrontendHoverForMouse(unittest.TestCase):
     """Every hover look sits inside `@media (hover:hover)` (docs/handbook/viewer.md §뜻과 모양): on a touch screen a tapped
     row of [더보기] stayed grey after the tap, the owner's 'Theme: System' (UX audit P4.6, 29 bare :hover rules)."""
@@ -2276,16 +2297,38 @@ class FrontendHoverForMouse(unittest.TestCase):
         inset wash of the text colour covers its surface, from tokens, under the no-hover query only - so nothing stays
         after the finger lifts and a mouse keeps its hover look. The only other :active rule paints nothing: it makes a
         card's suggestion diff a node that answers taps on touch, so the browser's touch adjustment leaves a tap on it
-        there (docs/handbook/viewer.md §모바일 레이아웃)."""
+        there (docs/handbook/viewer.md §모바일 레이아웃). A control that cannot be pressed, disabled or aria-disabled, is not
+        washed (§뜻과 모양)."""
         css = HTML[HTML.index("<style>") + len("<style>") : HTML.index("</style>")]
         self.assertIn(
-            "@media not all and (hover:hover){button:active:not(:disabled){box-shadow:inset 0 0 0 100vmax "
-            "color-mix(in srgb,var(--foreground) 8%,transparent)}}",
+            '@media not all and (hover:hover){button:active:not(:disabled,[aria-disabled="true"]){box-shadow:inset 0 0 0 '
+            "100vmax color-mix(in srgb,var(--foreground) 8%,transparent)}}",
             css,
         )
         rules = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
         self.assertEqual(rules.count(":active"), 2)
         self.assertIn(".pin .sg-diff:active{cursor:text}", rules)
+
+    def test_no_hover_rule_answers_a_control_that_cannot_be_pressed(self):
+        """Every :hover of the served page's CSS carries HOVER_GUARD, so no hover look reaches a disabled or a waiting
+        control (the scenes themselves: test_viewer_disabled_hover.py)."""
+        css = HTML[HTML.index("<style>") + len("<style>") : HTML.index("</style>")]
+        self.assertGreater(css.count(HOVER_GUARD + ":hover"), 40)
+        self.assertEqual(hover_selectors_without_guard(css), [])
+
+    def test_the_press_guard_catches_a_hover_without_it(self):
+        """A bare hover, one inside :has() and the second of two in a list are reported; guarded ones and the media
+        feature (hover:hover) are not."""
+        ok = "@media (hover:hover){a%s:hover{color:red}.l:has(b%s:hover)>i{display:block}}" % (HOVER_GUARD, HOVER_GUARD)
+        self.assertEqual(hover_selectors_without_guard(ok), [])
+        for planted in (
+            "@media (hover:hover){button:hover{color:red}}",
+            "@media (hover:hover){.pv:has(.vd-b:hover)>.hint{display:block}}",
+            "@media (hover:hover){x%s:hover,y:hover{color:red}}" % HOVER_GUARD,
+            "@media (hover:hover){z:not(:disabled):hover{color:red}}",
+        ):
+            with self.subTest(planted=planted):
+                self.assertEqual(len(hover_selectors_without_guard(ok + planted)), 1)
 
     def test_the_guard_catches_a_bare_a_negated_and_a_pointer_hover_rule(self):
         """A bare rule, one under the negated query and one under another media query are reported; the same rule inside
@@ -3934,13 +3977,10 @@ class FrontendToolbarOneRow(unittest.TestCase):
             head, r'<button id="btn-reload" class="sec btn-sm" data-act="reload" aria-label="핀 다시 읽기"'
         )
 
-    def test_label_chip_truncates_and_tip_has_full_label(self):
-        css = HTML[HTML.index("<style>") : HTML.index("</style>")]
-        self.assertIn("#bar1 .chip{height:var(--control-h-sm);display:block;", css)
-        self.assertIn("flex:0 1 auto;min-width:40px}", css)
-        self.assertIn("text-overflow:ellipsis", re.search(r"\n\.chip\{[^}]*\}", css).group(0))
-        # in compact, the label yields space first
-        self.assertIn("body.compact #bar1 .chip{flex:0 50 auto;min-width:28px}", css)
+    def test_label_is_off_the_tool_bar_and_tip_has_full_label(self):
+        # the label left the tool bar for [더보기]'s head (#more-label), so a long label takes no room from its buttons
+        bar = HTML[HTML.index('<div class="bar" id="bar1"') : HTML.index('<div class="bar" id="bar2"')]
+        self.assertNotIn("__LABEL__", bar)
         out = page_for("Long-DemoPaper1", "#1d4ed8")
         self.assertIn('data-tip="Long-DemoPaper1 — 이 창이 다루는 논문', out)
 
@@ -3949,7 +3989,6 @@ class FrontendToolbarOneRow(unittest.TestCase):
         # The position button [본문 3/25 ▾] names the document only from 400px; where it does, the name is the one part that
         # shrinks, and the pages and chevron keep their width (UX spec §V4 폭 예산).
         css = HTML[HTML.index("<style>") : HTML.index("</style>")]
-        self.assertIn("body.lay-narrow #bar1 .chip,body.lay-mid #bar1 .chip{display:none}", css)
         self.assertIn("#btn-pos .nm{flex:0 1 auto;min-width:0;", css)
         self.assertIn("#btn-pos b{flex:none;", css)
         # [더보기]'s label is no chip: the instance colour's dot and the name (translate="no"), no Limn icon (UX spec §V7)
@@ -3963,13 +4002,12 @@ class FrontendToolbarOneRow(unittest.TestCase):
         self.assertIn("#more .more-dot{", css)
         self.assertIn("background:var(--brand)", css[css.index("#more .more-dot{") :][:200])
 
-    def test_fold_open_also_hides_toolbar_chip_and_relies_on_more(self):
-        # regression: an unfolded fold device (884px) also puts #bar1 under flex-wrap:nowrap pressure,
-        # shrinking the label to 'CE-iTra…' (71px), unreadable (observed in touch QA). Same fix as narrow —
-        # hide the toolbar chip and show the full name only via #more-label inside [더보기]. #more is
-        # layout-condition-free shared markup, so it works as-is in mid too.
-        css = HTML[HTML.index("<style>") : HTML.index("</style>")]
-        self.assertIn("body.lay-narrow #bar1 .chip,body.lay-mid #bar1 .chip{display:none}", css)
+    def test_fold_open_also_relies_on_more_for_the_label(self):
+        # regression: an unfolded fold device (884px) also puts #bar1 under flex-wrap:nowrap pressure, and a label
+        # chip in it shrank to 'CE-iTra…' (71px), unreadable (observed in touch QA). The tool bar has no label chip;
+        # the full name is #more-label inside [더보기], layout-condition-free shared markup, so it works in mid too.
+        bar = HTML[HTML.index('<div class="bar" id="bar1"') : HTML.index('<div class="bar" id="bar2"')]
+        self.assertNotIn('class="chip"', bar)
         self.assertIn('id="btn-more" class="cmp btn-icon"', HTML)  # [더보기] is shared across compact (= mid/narrow)
 
 
@@ -4861,6 +4899,8 @@ class FrontendMentions(unittest.TestCase):
                     "assignSeg",
                     "segReveal",
                     "segFade",
+                    "segOffered",
+                    "segRove",
                     "mentionPreview",
                     "renderAssignNew",
                     "editNote",
@@ -4978,7 +5018,7 @@ class FrontendMentions(unittest.TestCase):
         word '@Wendy' drops that hint, so the server tags nobody; the row must then offer nobody and default to the
         agent. It used to offer and default to Wendy Kim, saving a pin handed to someone its note never tagged."""
         out = self.run_js(r"""
-            const W=PEOPLE.find(p=>p.name==='Wendy Kim').login, box=()=>({hidden:true,innerHTML:'',replaceChildren(){this.innerHTML='';},querySelector(){return null;}});
+            const W=PEOPLE.find(p=>p.name==='Wendy Kim').login, box=()=>({hidden:true,innerHTML:'',replaceChildren(){this.innerHTML='';},querySelector(){return null;},querySelectorAll(){return [];}});
             const note={value:'@Wendy 봐 주세요',_mentions:new Set([W])},cbox=box();
             function $(s){return s==='#note'?note:s==='#c-assign'?cbox:null;}
             let PEOPLE_KNOWN=true; const ASSIGN_NEW={v:'agent',touched:false};

@@ -27,6 +27,7 @@ function applyTheme(){let t=prefs().theme||'light'; if(!THEMES.includes(t))t='li
   const eff=t==='system'?(MQ.matches?'light':'dark'):(t==='light'?'light':'dark');
   document.documentElement.setAttribute('data-theme',eff);
   for(const r of $$('#m-theme [role=radio]')){const on=r.dataset.theme===t; r.setAttribute('aria-checked',String(on)); r.classList.toggle('on',on);}
+  segRove($('#m-theme'));   // the group's one Tab stop is the word now chosen (events.js)
   const now=$('#m-theme-now'); if(now){now.hidden=t!=='system'; now.textContent=tl('지금 {name}',{name:tr(THEME_NAME[eff])});}}
 MQ.addEventListener('change',applyTheme);
 // [더보기]'s theme segment: saves theme t (one of THEMES) and applies it at once - the change is its own preview, another

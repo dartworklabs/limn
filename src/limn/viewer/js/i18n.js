@@ -52,6 +52,7 @@ function i18nTree(root){if(LANG!==UI_LANG.EN||!root)return;
 // Checks the current language in [더보기]'s language segment, then in English translates the page once and everything drawn or
 // changed after it (text nodes and UI attributes), leaving user text alone (i18nUser).
 function i18nStart(){for(const r of /** @type {NodeListOf<HTMLElement>} */(document.querySelectorAll('#m-lang [role=radio]'))){const on=r.dataset.lang===LANG; r.setAttribute('aria-checked',String(on)); r.classList.toggle('on',on);}
+  segRove($('#m-lang'));   // the group's one Tab stop is the language now chosen (events.js)
   if(LANG!==UI_LANG.EN)return; i18nTree(document.body);
   new MutationObserver(ms=>{for(const m of ms){
     if(m.type==='childList')m.addedNodes.forEach(i18nTree);

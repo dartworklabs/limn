@@ -3,7 +3,7 @@
 #grip{position:relative;z-index:6;width:6px;cursor:col-resize;background:var(--border);flex:none;touch-action:none}
 @media not all and (pointer:coarse){#grip::after{content:'';position:absolute;top:0;bottom:0;left:-3px;right:-3px}}
 #grip.on,#grip:focus-visible{background:var(--border-strong)}
-@media (hover:hover){#grip:hover{background:var(--border-strong)}}
+@media (hover:hover){#grip:where(:not(:disabled,[aria-disabled="true"])):hover{background:var(--border-strong)}}
 body.resizing{-webkit-user-select:none;user-select:none;cursor:col-resize}
 body.resizing #left{pointer-events:none}
 /* Collapsing by the handle (docs/handbook/viewer.md §패널 폭과 시트 높이, snapSide): stopped at the minimum the bar turns primary;
@@ -69,12 +69,12 @@ body.lay-wide .sec-head button:not(.sec-tg){padding-left:var(--space-3);padding-
    [더보기] as a menu under it (responsive.css, placeMore); it stays tinted while the menu is open. */
 body.lay-wide #bar1 #btn-more{display:inline-flex;order:1;background:transparent;border-color:transparent;color:var(--muted-foreground)}
 body.lay-wide #bar1 #btn-more[aria-expanded=true]{background:var(--accent);color:var(--foreground)}
-@media (hover:hover){body.lay-wide #bar1 #btn-more:hover{background:var(--accent);color:var(--foreground)}}
+@media (hover:hover){body.lay-wide #bar1 #btn-more:where(:not(:disabled,[aria-disabled="true"])):hover{background:var(--accent);color:var(--foreground)}}
 #btn-rebuild:not(.btn-default){background:transparent;border-color:transparent;color:var(--muted-foreground)}
 body.lay-wide #btn-rebuild .ic{display:none}   /* text only on a wide screen - so the 348px panel's tool bar fits on one line */
 body.lay-wide #bar1 #btn-rebuild .lbl{text-box:trim-both cap alphabetic}   /* its words' cap height on the row's middle, as the compact rows' (the symmetry audit: 0.6px high as a line box) */
 body.lay-wide #bar1 #btn-rebuild{padding:0 var(--space-3)}   /* its label on the text line; with one [⋯] for three icons the row fits the 348px panel (at 8px [?] had dropped to a second line) */
-@media (hover:hover){#btn-rebuild:not(.btn-default):hover{background:var(--accent);color:var(--foreground)}}
+@media (hover:hover){#btn-rebuild:not(.btn-default):where(:not(:disabled,[aria-disabled="true"])):hover{background:var(--accent);color:var(--foreground)}}
 /* The zoom button (before [↔]): a bordered navigation control as its neighbours that shows the zoom now (drawZoom) and goes to
    100%, pressed while it reads 100%. Its width is fixed - 44px, a control height and 16px - and its figure (tabular digits,
    12px) is centred in it: '999%' fits with room, and no font decides where the row's controls stand (a width taken from the
@@ -84,7 +84,6 @@ body.lay-wide #bar1 #btn-rebuild{padding:0 var(--space-3)}   /* its label on the
 #bar1 #btn-actual{flex:none;width:calc(var(--control-h) + var(--space-4));min-width:0;padding:0;justify-content:center;font-size:var(--text-sm)}
 body.lay-wide #bar1 #btn-actual .z{text-box:trim-both cap alphabetic}
 #bar1 #btn-actual[aria-pressed=true]{background:var(--accent);border-color:var(--border-strong);color:var(--foreground)}
-#bar1 .chip{height:var(--control-h-sm);display:block;line-height:var(--control-h-sm);padding:0 var(--space-2);flex:0 1 auto;min-width:40px}
 /* Safe areas in the wide layout (an iPad home-screen app or full screen, docs/handbook/viewer.md §모바일 레이아웃): the nav bar and the
    panel start below the status bar, and the composer's action row, the list's end and the floating status chips stay above the home
    indicator. The links and tool-bar buttons used to sit under the status bar and [취소][핀 저장] on the home indicator (diagnosis P9). */
