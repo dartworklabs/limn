@@ -445,7 +445,10 @@ body.lay-narrow #sec-open>.sec-head{border-top:1px solid var(--border)}   /* the
   /* The sheet's tool bar stays --control-h (28px, set below for every pointer): the row itself drags the sheet, so the
      controls are drawn small and only their hit areas reach 44px (docs/handbook/viewer.md §패널 폭과 시트 높이). */
   body.lay-narrow #bar1 :is(button,#sheet-grip){position:relative;min-height:0;overflow:clip;overflow-clip-margin:var(--space-2)}   /* the label still ellipsizes; the hit area below is not clipped */
-  body.lay-narrow #bar1 :is(button,#sheet-grip)::after{content:'';position:absolute;left:50%;top:0;width:max(100%,var(--hit));height:calc(var(--hit) + 2px);transform:translateX(-50%)}   /* +2px: a sheet at a fractional y loses a row to the edge */
+  /* The bar's hit areas are placed without a transform, centred by their offsets: a hit test rounds a transformed box to whole
+     pixels, so where a box edge falls between pixels (a word's width, a centred column at an odd window width) a 44px hit
+     answered 43 - in Firefox [⬚] at 330 and 331px and the grabber at 331. An offset box is tested at its own edges. */
+  body.lay-narrow #bar1 :is(button,#sheet-grip)::after{content:'';position:absolute;left:calc((100% - max(100%,var(--hit))) / 2);top:0;width:max(100%,var(--hit));height:calc(var(--hit) + 2px)}   /* +2px: a sheet at a fractional y loses a row to the edge */
   /* The section head is 40px: its tools are drawn at 32px from 4px down, and their hit areas reach into the 12px under it. */
   body.lay-narrow .sec-head{min-height:40px;padding:0 var(--edge) 0 var(--ink);margin-bottom:var(--space-3)}
   body.lay-narrow .sec-head button{min-height:var(--ctl-touch-sm);height:var(--ctl-touch-sm);padding-top:0;padding-bottom:0;position:relative}
@@ -462,7 +465,7 @@ body.lay-narrow #sec-open>.sec-head{border-top:1px solid var(--border)}   /* the
    (text-box), so the row centres every icon on the numbers' cap-height centre; each control answers 44px round its centre. */
 .side-l,#btn-rv{display:none}
 body.lay-narrow #bar1{padding-top:var(--space-3);padding-bottom:var(--space-3);--tb-h:var(--control-h)}   /* open or collapsed: 12 above the row, 12 under it (plus the bottom safe area when collapsed) */
-body.lay-narrow #bar1 #sheet-grip{position:absolute;grid-column:2/3;left:50%;top:0;transform:translateX(-50%);height:var(--hit);padding-top:var(--space-1)}   /* its bar in the inset, its 44px box the empty middle column */
+body.lay-narrow #bar1 #sheet-grip{position:absolute;grid-column:2/3;left:calc(50% - var(--hit) / 2);top:0;height:var(--hit);padding-top:var(--space-1)}   /* its bar in the inset, its 44px box the empty middle column, centred by its offset (no transform: see the hit areas above) */
 body.lay-narrow #bar1 #btn-select{padding:0 var(--space-3)}   /* the tablet sheet's [⬚ 선택] pads like the chip's halves */
 body.band-phone #bar1 #btn-select,body.lay-narrow #bar1.bar-sel-icon #btn-select{width:36px;min-width:36px;padding:0;justify-content:center}
 body.lay-narrow #bar1 #btn-pos{gap:var(--space-1);padding:0 var(--space-2)}
@@ -474,13 +477,13 @@ body.lay-narrow #bar1 #btn-pos .ic{width:16px;height:16px;color:var(--muted-fore
    332px only the bar's edges give, to 4px: the cell is 134px at 320. The gap, the icon, the grid and the grabber's 44px stay,
    and nothing changes rows - the decoration a width query may carry (docs/handbook/viewer.md §모바일 레이아웃, issue #418). */
 @media (max-width:331.98px){body.lay-narrow #bar1{padding-left:var(--space-1);padding-right:var(--space-1)}}
-@media (pointer:coarse){body.lay-narrow #bar1 :is(#btn-side,#btn-rv,#btn-select,#btn-pos,#btn-more)::after{top:50%;height:var(--hit);transform:translate(-50%,-50%)}
-  body.lay-narrow #bar1 #btn-select::after{left:auto;right:0;transform:translateY(-50%)}   /* the 36px chip's hit reaches left into the gap, never into the grabber's column */
+@media (pointer:coarse){body.lay-narrow #bar1 :is(#btn-side,#btn-rv,#btn-select,#btn-pos,#btn-more)::after{top:calc(50% - var(--hit) / 2);height:var(--hit)}
+  body.lay-narrow #bar1 #btn-select::after{left:auto;right:0}   /* the 36px chip's hit reaches left into the gap, never into the grabber's column */
   /* The chip's halves are each at least 44px wide (min-width) and meet: each answers its own box, set by its edges - a
      centring translateX of half a fractional width put the review half's hit box a pixel into the pins half (hit testing
      rounds a transformed box out to whole pixels; the pins half answered 43px on CI's fonts) - and the pins half also
      4px outwards, into the bar's edge, where no neighbour is. */
-  body.lay-narrow #bar1 :is(#btn-side,#btn-rv)::after{left:0;right:0;width:auto;transform:translateY(-50%)}
+  body.lay-narrow #bar1 :is(#btn-side,#btn-rv)::after{left:0;right:0;width:auto}
   body.lay-narrow #bar1 #btn-side::after{left:calc(-1 * var(--space-1))}}
 /* The width budget: under 400px the chip's halves pad 8px. When the left cell still overflows (English, three-digit counts, a
    folded cover) it steps down (fitBarWords): the halves pad one 4px step less (.bar-snug), then the words give way to a dot

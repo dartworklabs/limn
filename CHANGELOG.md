@@ -33,7 +33,8 @@
 - **At 320px the sheet bar's [⬚] keeps its 44px press area** (#418). With a pin awaiting review, the left cell was
   narrower than the pin chip and [⬚] together, so [⬚] stood in the grabber's column and answered only 38px. Under 332px
   the bar's side edges are 4px instead of 12px; the gap and the icon keep their size, and in Korean the chip keeps its
-  words (핀 2 | 검토 1).
+  words (핀 2 | 검토 1). The bar's hit areas are placed without a transform: a hit test rounded a transformed box's
+  fractional edge, and in Firefox [⬚] answered 43.6px at 330 and 331px and the grabber 43px at 331.
 
 ## 0.4.52 — 2026-11-06
 
