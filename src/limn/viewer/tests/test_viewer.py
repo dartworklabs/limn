@@ -4904,6 +4904,8 @@ class FrontendMentions(unittest.TestCase):
                     "assignSeg",
                     "segReveal",
                     "segFade",
+                    "segOffered",
+                    "segRove",
                     "mentionPreview",
                     "renderAssignNew",
                     "editNote",
@@ -5021,7 +5023,7 @@ class FrontendMentions(unittest.TestCase):
         word '@Wendy' drops that hint, so the server tags nobody; the row must then offer nobody and default to the
         agent. It used to offer and default to Wendy Kim, saving a pin handed to someone its note never tagged."""
         out = self.run_js(r"""
-            const W=PEOPLE.find(p=>p.name==='Wendy Kim').login, box=()=>({hidden:true,innerHTML:'',replaceChildren(){this.innerHTML='';},querySelector(){return null;}});
+            const W=PEOPLE.find(p=>p.name==='Wendy Kim').login, box=()=>({hidden:true,innerHTML:'',replaceChildren(){this.innerHTML='';},querySelector(){return null;},querySelectorAll(){return [];}});
             const note={value:'@Wendy 봐 주세요',_mentions:new Set([W])},cbox=box();
             function $(s){return s==='#note'?note:s==='#c-assign'?cbox:null;}
             let PEOPLE_KNOWN=true; const ASSIGN_NEW={v:'agent',touched:false};

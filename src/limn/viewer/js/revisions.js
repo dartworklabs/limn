@@ -250,6 +250,7 @@ function drawRange(){const rows=REV.rows,rg=REV.range,st=REV.seenState;
     b.hidden=st===SEEN_STATE.NONE; b.disabled=st!==SEEN_STATE.OK&&st!==SEEN_STATE.PENDING||st===SEEN_STATE.OK&&REV.seenN===0;
     if(lbl)lbl.textContent=tr(st===SEEN_STATE.GONE?'기록한 커밋을 찾을 수 없음':st===SEEN_STATE.OLD?'기록한 커밋이 최근 500개보다 오래됨':'마지막으로 본 뒤');
     if(k)k.textContent=st===SEEN_STATE.OK?String(REV.seenN):st===SEEN_STATE.PENDING?'…':'';}
+  segRove($('#revision-range'));   // the group's one Tab stop is the range now chosen (events.js)
   renderCommitList();}
 // A commit's time as the list shows it: MM-DD HH:MM of its ISO commit time (the committer's own clock), else its date.
 /** @param {RevisionRow} r */
@@ -392,6 +393,7 @@ ${side(pg.prev,ov.prev_build,'ov-prev',tl('이전 {page}쪽',{page:pg.page}),tr(
 function drawRevisionSide(){const ov=REV.overlay,none=!ov||!ov.prev_build;
   for(const b of /** @type {HTMLButtonElement[]} */($$('#revision-side [role=radio]'))){const on=b.dataset.side===REV.side;
     b.setAttribute('aria-checked',String(on)); b.classList.toggle('on',on); b.disabled=none&&b.dataset.side===OVERLAY_SIDE.PREV;}
+  segRove($('#revision-side'));   // the group's one Tab stop is the side now chosen (events.js)
   $('#revision-overlay').dataset.side=REV.side;}
 // Shows the previous build's pages (side PREV, when there is one) or the current build's.
 function setRevisionSide(side){REV.side=side===OVERLAY_SIDE.PREV&&REV.overlay&&REV.overlay.prev_build?OVERLAY_SIDE.PREV:OVERLAY_SIDE.CUR; drawRevisionSide();}
