@@ -66,6 +66,26 @@ LINE = """n => {const l = document.querySelector('#doc .pv[data-page="' + n + '"
   const c = l.querySelector('button.pv-cancel');
   return {text: t.replace(/·/g, ' · ').replace(/\\s+/g, ' ').trim(), pin: l.dataset.pin || null, cancel: c ? Number(c.dataset.ref) : null,
     words: [...l.querySelectorAll('button.vd-b')].map(b => b.textContent), tips: [...l.querySelectorAll('button.vd-b')].map(b => b.dataset.tip)};}"""
+# A smooth scroll of the PDF area to page 2's top that the viewer did not start (no jump of its own, so its guard judges the
+# scroll by the hand's last touch: verdict.js pvAutoScrolling), held open: the browser's end of it (scrollend) is kept from
+# the viewer and counted until glide_let_go hands it on. The browser's glide is over in about half a second, and a test that
+# looked or pressed its key one round trip after starting it found it over on a loaded runner: PV_GLIDE read false, or was
+# never seen true (#423). Run with the page's clock standing still (clock_still), so that the guard's own lapse - a second
+# after the last scroll event - does not run either: the glide is on when the key comes, however long the test takes.
+GLIDE_HELD = """() => {const L = document.querySelector('#left'), r = document.getElementById('p2').getBoundingClientRect();
+  const held = window.__glideHeld = {ends: 0, hold: e => {if (e.target === L) {e.stopImmediatePropagation(); held.ends++;}}};
+  addEventListener('scrollend', held.hold, true);
+  L.scrollTo({top: L.scrollTop + r.top - L.getBoundingClientRect().top, behavior: 'smooth'});}"""
+
+
+def glide_let_go(page):
+    """End the glide GLIDE_HELD holds: once the browser has ended it (the pages at rest), the viewer gets its scrollend, and
+    the page's clock runs at real speed again."""
+    until(page, "window.__glideHeld.ends > 0")
+    page.evaluate(
+        "() => {removeEventListener('scrollend', __glideHeld.hold, true); document.querySelector('#left').dispatchEvent(new Event('scrollend'));}"
+    )
+    page.clock.resume()
 
 
 class VerdictBase(BrowserBase):
@@ -7247,20 +7267,21 @@ class RcFixes(VerdictBase):
 
     def test_3_a_key_while_a_jump_glides_is_not_taken(self):
         """(3) A smooth jump from page 1 to page 2 under way: 2 is not taken (nothing saved, the status line says why);
-        once the pages rest, 2 saves 보류 on page 2."""
-        page = self.on("fig")
+        once the pages rest, 2 saves 보류 on page 2. The glide is held open while 2 is pressed (GLIDE_HELD)."""
+        page = self.on("fig", clock=clock_now())
         page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
         settle(page)
-        page.evaluate(
-            "()=>{const L=document.querySelector('#left'),r=document.getElementById('p2').getBoundingClientRect(),lr=L.getBoundingClientRect(); L.scrollTo({top:L.scrollTop+r.top-lr.top,behavior:'smooth'});}"
-        )
-        page.wait_for_function("()=>PV_GLIDE")
+        at = page.evaluate("PV_SCROLL_AT")
+        clock_still(page)  # the hand's last touch (none: the page's start) over a second ago when the scroll begins
+        page.evaluate(GLIDE_HELD)
+        until(page, "PV_SCROLL_AT > %r" % at)  # the viewer has seen the glide's first scroll
+        self.assertTrue(page.evaluate("pvAutoScrolling()"))
         page.keyboard.press("2")
-        page.wait_for_timeout(50)
-        self.assertEqual(self.pins(), {})
         self.assertTrue(page.evaluate("()=>LINE.some(n=>n.title==='쪽으로 가는 중이라 판정 키를 받지 않았습니다')"))
-        page.wait_for_function("()=>!pvAutoScrolling()", timeout=5000)
+        glide_let_go(page)
+        self.assertFalse(page.evaluate("pvAutoScrolling()"))
         settle(page)
+        self.assertEqual(self.pins(), {})  # after settle(): a save the 2 had started would have answered
         page.keyboard.press("2")
         page.wait_for_function("OPEN_ALL.length===1")
         settle(page)
@@ -8435,28 +8456,28 @@ class EdgeKeys(VerdictBase):
         """↓ in the outline's filter and on a control outside the pages just before a jump is not the person's hand on the
         pages, so the jump's glide still holds the keys: 2 while it glides saves nothing and says why (↓ there turned the
         guard off, and 2 saved 보류 on a page the jump passed). A real PageDown on the PDF area still is the person's
-        scroll."""
-        page = self.on("fig")
+        scroll. The page's clock stands still from before the ↓ (clock_still): a ↓ taken for the hand would be 0 ms
+        before the glide's first scroll, which is held open while 2 is pressed (GLIDE_HELD)."""
+        page = self.on("fig", clock=clock_now())
         page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
         settle(page)
         hand = page.evaluate("PV_SCROLL_HAND")
+        clock_still(page)
         page.focus("#outline-search")
         page.keyboard.press("ArrowDown")
         page.focus("#section-page")  # where an outline or page-list jump leaves a keyboard focus outside the pages
         page.keyboard.press("ArrowDown")
         self.assertEqual(page.evaluate("PV_SCROLL_HAND"), hand)
-        at = page.evaluate("PV_SCROLL_AT")
-        page.evaluate(
-            "()=>{const L=document.querySelector('#left'),r=document.getElementById('p2').getBoundingClientRect(),lr=L.getBoundingClientRect(); L.scrollTo({top:L.scrollTop+r.top-lr.top,behavior:'smooth'});}"
-        )
-        page.wait_for_function("t=>PV_SCROLL_AT>t", arg=at)
-        self.assertTrue(page.evaluate("PV_GLIDE"))
+        at = page.evaluate("PV_SCROLL_AT")  # after the arrows: only the glide's scroll moves it on the still clock
+        page.evaluate(GLIDE_HELD)
+        until(page, "PV_SCROLL_AT > %r" % at)  # the viewer has seen the glide's first scroll
+        self.assertTrue(page.evaluate("pvAutoScrolling()"))
         page.keyboard.press("2")
-        page.wait_for_timeout(50)
-        self.assertEqual(self.pins(), {})
         self.assertTrue(page.evaluate("()=>LINE.some(n=>n.title==='쪽으로 가는 중이라 판정 키를 받지 않았습니다')"))
-        page.wait_for_function("()=>!pvAutoScrolling()", timeout=5000)
+        glide_let_go(page)
+        self.assertFalse(page.evaluate("pvAutoScrolling()"))
         settle(page)
+        self.assertEqual(self.pins(), {})  # after settle(): a save the 2 had started would have answered
         page.evaluate("searchToPage()")
         hand = page.evaluate("PV_SCROLL_HAND")
         page.keyboard.press("PageDown")
