@@ -161,11 +161,14 @@ LONG = (
 )
 # Where the person's input found the pane - its offset, and whether a heading jump was in flight - read on the window at the
 # first keydown, wheel or pointerdown, before any listener of the viewer's runs (window.__seen). Passive, so the wheel is
-# not held for it.
+# not held for it. `next` is the same offset at the frame after it: where a host whose compositor runs the jump's scroll
+# has left the pane once the stop has been taken (macOS Chromium commits one frame of the jump after the write that ends
+# it - 19px at this speed, then nothing; #448). On a host that scrolls on the main thread the two are the same number.
 INPUT_SEEN = (
     "(()=>{const L=document.querySelector('#left'); window.__seen=null;"
     " for(const t of ['keydown','wheel','pointerdown'])"
-    "  addEventListener(t,()=>{if(!window.__seen)window.__seen={top:L.scrollTop,goTo:!!MD.goTo};},{capture:true,passive:true});})()"
+    "  addEventListener(t,()=>{if(window.__seen)return; window.__seen={top:L.scrollTop,goTo:!!MD.goTo};"
+    "   requestAnimationFrame(()=>{window.__seen.next=L.scrollTop;});},{capture:true,passive:true});})()"
 )
 # Where the heading '설치' is in the document pane, in px from the pane's top.
 SETUP_TOP = (
@@ -663,7 +666,7 @@ class ShrinkNearTheEnd(AssetsBase):
         self.assertAlmostEqual(after[1], before[1], delta=2)
         self.assertAlmostEqual(page.evaluate(FROM_END), gap, delta=2)
 
-    @unittest.skipIf(sys.platform == "darwin", "End scrolls no pane on macOS: issue #414")
+    @unittest.skipIf(sys.platform == "darwin", "End scrolls no pane on macOS: issue #448")
     def test_end_pressed_just_before_the_shrink_leaves_the_pane_at_the_end(self):
         """The same shrink on a renderer too busy to paint: the page's frames are held, End is pressed with the focus on the
         document area (as a search or a link leaves it) - the pane goes to its end, its scroll not read yet - and then the
@@ -899,7 +902,7 @@ class FontSwapAbove(FontSwap):
         self.let_the_font_go(page, before)
         self.let_the_image_go(page, before)
 
-    @unittest.skipIf(sys.platform == "darwin", "Home scrolls no pane on macOS: issue #414")
+    @unittest.skipIf(sys.platform == "darwin", "Home scrolls no pane on macOS: issue #448")
     def test_home_after_a_fonts_cut_is_not_undone_by_the_image(self):
         """The same cut, then Home before any frame: the pane stands at its top, no longer at the end the font cut it
         back to, so the check before tall.png's change takes that for the key's move and reads the spot there - the pane
@@ -926,12 +929,16 @@ class FontSwapBelow(FontSwap):
         """The narrow paragraphs below get some hundreds of px shorter: the pane is cut back to the new end, some lines
         before the one read, which keeps its place in #md. tall.png then loads at the end, the room to put that line
         back: the cut check keeps the spot and the put-back brings it back, to 2px. Mutation: no cut check -> the cut
-        offset is read as a move and an earlier line put back (L61 for L63), fails."""
+        offset is read as a move and an earlier line put back (L61 for L63), fails.
+
+        The place is read to a pixel and a half: on macOS the same line stood 1.0px off after the reflow (1271.5 for
+        1272.5), the sub-pixel that host's own metrics leave. The mutation above puts back a whole other line - tens of
+        pixels - so it still fails at this tolerance (#448)."""
         page, before = self.read_before_the_font()
         self.assertLess(before[0], line_of(LATE_FACE_BELOW, "Narrow 1:"))
         at = page.evaluate(SPOT_IN_MD)
         self.let_the_font_go(page, before)
-        self.assertAlmostEqual(page.evaluate(SPOT_IN_MD), at, delta=0.5)
+        self.assertAlmostEqual(page.evaluate(SPOT_IN_MD), at, delta=1.5)
         self.let_the_image_go(page, before)
 
 
@@ -965,7 +972,7 @@ class HtmlRunToggle(AssetsBase):
 
     PLAN = HTML_RUN
 
-    @unittest.skipIf(sys.platform == "darwin", "Home scrolls no pane on macOS: issue #414")
+    @unittest.skipIf(sys.platform == "darwin", "Home scrolls no pane on macOS: issue #448")
     def test_home_after_a_run_is_opened_is_not_undone_by_an_image(self):
         """The run opened, then Home and tall.png's load before any frame: the check before the image's change
         (mdSpotFresh) finds the pane elsewhere than where the spot was read, and that offset not cut back to an end, so
@@ -975,7 +982,7 @@ class HtmlRunToggle(AssetsBase):
         the branch before the height check passes it (the review's case)."""
         self.home_after_the_run(open_first=False)
 
-    @unittest.skipIf(sys.platform == "darwin", "Home scrolls no pane on macOS: issue #414")
+    @unittest.skipIf(sys.platform == "darwin", "Home scrolls no pane on macOS: issue #448")
     def test_home_after_a_run_is_closed_is_not_undone_by_an_image(self):
         """The same with the run opened first, the spot read there, and then closed: #md gets shorter, no offset is cut
         (the pane is far from its end) and Home stays at the top. Same mutation -> 1,452px, fails."""
@@ -1049,7 +1056,7 @@ class ErrorOnAJumpThenEnd(AssetsBase):
             return None
         return super().route(route)
 
-    @unittest.skipIf(sys.platform == "darwin", "End scrolls no pane on macOS: issue #414")
+    @unittest.skipIf(sys.platform == "darwin", "End scrolls no pane on macOS: issue #448")
     def test_end_after_an_image_failed_on_a_jump_is_not_undone_by_the_next_image(self):
         """The pane 200px above its end; the heading jump starts and shrink.png fails on the way (the alt text in its place,
         the offset cut back to the shorter end); End; late.png loads: the pane is still at the end, before the frames run
@@ -1181,9 +1188,10 @@ class HeadingJump(AssetsBase):
     # cannot hold there. Only that premise is lost: the jump is dropped by the key's own keydown and not by the scroll
     # it causes (js/md-surface.js), so "the key ends the asked jump and the images let go later do not move the pane"
     # is still read on every host by the test right below, which asserts no scroll of its own. The viewer promises no
-    # scrolling for this key - it only reads one the browser did - so there is nothing to fix in the pane; issue #414
-    # collects what these host keys do differently on macOS.
-    @unittest.skipIf(sys.platform == "darwin", "Home scrolls no pane on macOS: issue #414")
+    # scrolling for this key - it only reads one the browser did - so there is nothing to fix in the pane; issue #448
+    # collects what these host keys do differently on macOS. (Issue #414 was the other half, a field's keys reaching
+    # the pane, and is fixed: a field keeps them now.)
+    @unittest.skipIf(sys.platform == "darwin", "Home scrolls no pane on macOS: issue #448")
     def test_a_scrolling_key_with_the_focus_on_the_page_ends_the_jump(self):
         """The same jump, its images held: Home pressed while the focus is on the page's body (no key event reaches the pane)
         scrolls the pane back to its top, and that ends the jump - the images let go afterwards do not take the pane back
@@ -1208,7 +1216,7 @@ class HeadingJump(AssetsBase):
         settle(page)
         self.assertLess(page.evaluate("document.querySelector('#left').scrollTop"), 50)
 
-    @unittest.skipIf(sys.platform == "darwin", "Home scrolls no pane on macOS: issue #414")
+    @unittest.skipIf(sys.platform == "darwin", "Home scrolls no pane on macOS: issue #448")
     def test_images_that_load_before_the_keys_scroll_is_read_leave_the_pane_at_the_top(self):
         """The Home of the test above on a renderer too busy to paint: the page's frames are held from just before the
         key, so its scroll to the top is not read yet (the spot is still a line below the top) when the images let go
@@ -1218,13 +1226,13 @@ class HeadingJump(AssetsBase):
         398-1,230px, fails. On a busy runner that was this class's flake (1,817px, 2,947px)."""
         self.home_before_the_frame(lambda r: r.fulfill(**self.answer(r.request)))
 
-    @unittest.skipIf(sys.platform == "darwin", "Home scrolls no pane on macOS: issue #414")
+    @unittest.skipIf(sys.platform == "darwin", "Home scrolls no pane on macOS: issue #448")
     def test_images_that_fail_before_the_keys_scroll_is_read_leave_the_pane_at_the_top(self):
         """The same with images the server does not give: each becomes its alt text (mdPicError), which puts the spot
         back the same way. Same mutation -> fails."""
         self.home_before_the_frame(lambda r: r.fulfill(status=404, body=""))
 
-    @unittest.skipIf(sys.platform == "darwin", "Home scrolls no pane on macOS: issue #414")
+    @unittest.skipIf(sys.platform == "darwin", "Home scrolls no pane on macOS: issue #448")
     def test_an_image_that_loads_on_the_jumps_way_leaves_home_at_the_top(self):
         """The Home of the tests above after one held image has loaded on the jump's way, the frames already held: the
         jump goes on to its heading (mdGoOn) and nothing reads the spot after that change, so when the other images load
@@ -1234,7 +1242,7 @@ class HeadingJump(AssetsBase):
         back, the pane 398-2,818px below the top, fails. Main and the branch before the height check pass it."""
         self.home_before_the_frame(lambda r: r.fulfill(**self.answer(r.request)), on_the_way=1)
 
-    @unittest.skipIf(sys.platform == "darwin", "Home scrolls no pane on macOS: issue #414")
+    @unittest.skipIf(sys.platform == "darwin", "Home scrolls no pane on macOS: issue #448")
     def test_an_image_that_fails_on_the_jumps_way_leaves_home_at_the_top(self):
         """The same with images the server does not give (mdPicError). Same mutation -> fails."""
         self.home_before_the_frame(lambda r: r.fulfill(status=404, body=""), on_the_way=1)
@@ -1319,16 +1327,22 @@ class InputEndsAGlide(AssetsBase):
         until(page, "!!MD.goTo&&document.querySelector('#left').scrollTop>0")
         return page, page.evaluate("mdGoTop(MD.heads.find(h=>h.title==='아래').el)")
 
-    def ends_where_seen(self, page, dest, step, delta):
+    def ends_where_seen(self, page, dest, step, delta, base="top"):
         """The input came while the jump was in flight, far from its heading; the jump is over, and the pane comes to rest
-        step px (the input's own scroll) from where the input found it, give or take delta."""
+        step px (the input's own scroll) from where the input found it, give or take delta.
+
+        base says which reading of 'where the input found it' the rest is measured from: the offset at the input itself
+        ('top'), or at the frame after it ('next'), which is the same number unless the host's compositor runs the jump's
+        scroll and commits one more frame after the stop (#448). The two readings are never more than that one frame
+        apart, so neither hides a jump that went on - that is what `dest` guards."""
         rest = page.evaluate(PANE_AT_REST)
         seen = page.evaluate("window.__seen")
         self.assertTrue(seen and seen["goTo"], seen)  # the input met the jump in flight
         self.assertGreater(dest - seen["top"], 1000, seen)  # still far from its heading
+        self.assertIn(base, seen, seen)  # 'next' needs its frame to have run
         self.assertFalse(page.evaluate("!!MD.goTo"))
         self.assertTrue(rest["still"], rest)
-        self.assertAlmostEqual(rest["top"], seen["top"] + step, delta=delta, msg="the jump went on to %s" % dest)
+        self.assertAlmostEqual(rest["top"], seen[base] + step, delta=delta, msg="the jump went on to %s" % dest)
 
     def test_a_scroll_key_ends_the_moving_scroll_where_the_key_found_the_pane(self):
         """ArrowDown with the focus on the document area: the pane comes to rest one key step (40-48px) below where the key
@@ -1343,7 +1357,12 @@ class InputEndsAGlide(AssetsBase):
     def test_a_press_on_the_pane_ends_the_moving_scroll_there(self):
         """A mouse press on the document area beside the column - no scroll of its own, and nothing there to pick: the pane
         comes to rest where the press found it, to the pixel. Same mutation -> Firefox's scroll goes on to the heading,
-        fails. Mutation: no write back after the pixel off (mdGoStop) -> the pane rests a pixel from it, fails in both."""
+        fails. Mutation: no write back after the pixel off (mdGoStop) -> the pane rests a pixel from it, fails in both.
+
+        Read from the frame after the press, not the press itself: where the compositor runs the jump's scroll it
+        commits one more frame after the stop's write and then holds there (macOS Chromium: 23px at the press, 42 at
+        the next frame and at rest, #448). The pixel this reads is still the pixel - the mutation above moves the pane
+        by one, after that frame as well."""
         page, dest = self.glide()
         x, y = page.evaluate(
             "(()=>{const r=document.querySelector('#left').getBoundingClientRect(),"
@@ -1353,18 +1372,26 @@ class InputEndsAGlide(AssetsBase):
         page.mouse.move(x, y)
         page.mouse.down()
         page.mouse.up()
-        self.ends_where_seen(page, dest, 0, 0.5)
+        self.ends_where_seen(page, dest, 0, 0.5, base="next")
 
     def test_a_wheel_ends_the_moving_scroll_and_scrolls_from_where_it_found_the_pane(self):
-        """A wheel turned 300px down over the pane: the pane comes to rest 300px below where the wheel found it. Same
-        mutation -> Firefox's scroll goes on to the heading and 300px past it, fails."""
+        """A wheel turned 300px down over the pane: the jump ends there and the pane takes the wheel's own step where
+        the host gives it one. Same mutation -> Firefox's scroll goes on to the heading and 300px past it, fails.
+
+        macOS Chromium gives it none: a wheel turned while a script's smooth scroll runs adds nothing to the pane, and
+        it is not the stop that eats it - with mdGoStop's write taken out entirely the pane still walks the jump's own
+        offsets to the heading and those 300px never appear, while the same wheel with no jump in flight scrolls 0 to
+        300 (measured, #448). So there the step is 0 and what this reads is that the jump ended where the wheel found
+        the pane. It is that engine on that host: Firefox on the same machine takes the step (measured 368 from 68),
+        and so does Chromium on Linux, where CI runs this."""
         page, dest = self.glide()
         x, y = page.evaluate(
             "(r=>[r.left+r.width/2,r.top+r.height/2])(document.querySelector('#left').getBoundingClientRect())"
         )
         page.mouse.move(x, y)
         page.mouse.wheel(0, 300)
-        self.ends_where_seen(page, dest, 300, 10)
+        swallowed = sys.platform == "darwin" and self.BROWSER_ENGINE == "chromium"
+        self.ends_where_seen(page, dest, 0 if swallowed else 300, 10)
 
     def test_the_stop_moves_the_offset_at_the_top_and_at_the_end_too(self):
         """At the pane's top and at its end, where a pixel one way is no move, the stop's first write still moves the offset
