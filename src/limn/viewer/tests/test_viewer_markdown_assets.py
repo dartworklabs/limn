@@ -85,6 +85,15 @@ TOP_LINE = (
 )
 # How far the pane is from its end, in px.
 FROM_END = "(L=>L.scrollHeight-L.clientHeight-L.scrollTop)(document.querySelector('#left'))"
+# Waits, on the page's timers (its frames may be held), until the pane's offset has not moved for 10 ticks of 20ms - a
+# smooth scroll at rest - or 5s have passed: whether it came to rest (still) and where it stands (top).
+PANE_AT_REST = (
+    "() => new Promise(done => {const L = document.querySelector('#left'), t0 = performance.now();"
+    " let last = L.scrollTop, same = 0;"
+    " const tick = () => {const t = L.scrollTop; same = t === last ? same + 1 : 0; last = t;"
+    " if (same >= 10) return done({still: true, top: t}); if (performance.now() - t0 > 5000) return done({still: false, top: t});"
+    " setTimeout(tick, 20);}; setTimeout(tick, 20);})"
+)
 # Where the first element of source line n is in the document pane, in px from 30% down it (where [보기] puts a line).
 AT_DEPTH = (
     "(n=>{const r=document.querySelector('#left').getBoundingClientRect();"
@@ -1045,6 +1054,13 @@ class ErrorOnAJumpThenEnd(AssetsBase):
         until(page, "!document.querySelector('#md .md-pic[data-path=\"notes/img/shrink.png\"]')")
         self.assertTrue(page.evaluate("!!MD.goTo"), "the jump had ended before the image failed")
         self.assertGreater(before - page.evaluate("document.querySelector('#left').scrollHeight"), 2000)
+        # The jump's smooth scroll comes to rest first (the jump itself still in flight: it ends on a frame, mdGoLanded).
+        # End is about what the image's change left, not about a key meeting a smooth scroll that is still running:
+        # Firefox started the jump's scroll at times and not at others, and on CI an End pressed while it ran never
+        # reached the end (run 42148218919).
+        rest = page.evaluate(PANE_AT_REST)
+        self.assertTrue(rest["still"], rest)
+        self.assertTrue(page.evaluate("!!MD.goTo"), "the jump had ended before End")
         page.evaluate("(L=>{L.tabIndex=-1; L.focus({preventScroll:true});})(document.querySelector('#left'))")
         page.keyboard.press("End")
         until(page, FROM_END + "<1")
