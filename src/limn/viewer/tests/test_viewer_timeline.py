@@ -669,15 +669,15 @@ class OrderControl(TimelineFixture):
         return a, b, c
 
     def press(self, page, name):
-        """Press the control's button by its words."""
-        page.get_by_role("button", name=name, exact=True).click()
+        """Press the control's word (a radio) by its words."""
+        page.get_by_role("radio", name=name, exact=True).click()
 
     def test_the_list_starts_newest_first_with_a_line_per_day(self):
         """Nothing saved: 최신순 pressed, the newest first, a line over each day's first card."""
         a, b, c = self.three()
         page = self.show(3)
         self.assertEqual(self.rows(page), ["오늘", b, "어제", a, "2025년 9월 25일", c])
-        self.assertEqual(page.locator("#list-order button[aria-pressed=true]").inner_text(), "최신순")
+        self.assertEqual(page.locator("#list-order button[aria-checked=true]").inner_text(), "최신순")
 
     def test_by_page_and_by_number_have_no_day_lines(self):
         """위치순 goes by page then line, 번호순 back to the list as the server gives it, neither with a day line."""
@@ -709,9 +709,9 @@ class OrderControl(TimelineFixture):
         page.wait_for_function(booted(3))
         settle(page)
         self.assertEqual(self.rows(page), [c, a, b])
-        self.assertEqual(page.locator("#list-order button[aria-pressed=true]").inner_text(), "위치순")
+        self.assertEqual(page.locator("#list-order button[aria-checked=true]").inner_text(), "위치순")
         stale = self.show(3, prefs={"order": "sideways"})
-        self.assertEqual(stale.locator("#list-order button[aria-pressed=true]").inner_text(), "최신순")
+        self.assertEqual(stale.locator("#list-order button[aria-checked=true]").inner_text(), "최신순")
 
     def test_the_order_holds_across_documents_and_with_all_documents_on(self):
         """One choice for every document; with [모든 문서] 위치순 keeps each document together, and the filter still filters."""
@@ -729,7 +729,7 @@ class OrderControl(TimelineFixture):
             "id => DOC==='rv' && !!document.querySelector('#pins .pin[data-id=\"' + id + '\"]')", arg=second
         )
         self.assertEqual(self.rows(page), [second])
-        self.assertEqual(page.locator("#list-order button[aria-pressed=true]").inner_text(), "위치순")
+        self.assertEqual(page.locator("#list-order button[aria-checked=true]").inner_text(), "위치순")
         page.locator("#all-docs").click()
         self.assertEqual(self.rows(page), [first, second])
 
@@ -754,15 +754,17 @@ class OrderControl(TimelineFixture):
         page.evaluate("() => {const t = Date.now() + 86400000; Date.now = () => t; drawPins();}")
         self.assertEqual(self.rows(page), ["어제", pid])
 
-    def test_the_control_is_a_labelled_group_of_buttons_the_keyboard_reaches(self):
-        """A named group of native buttons with aria-pressed; Tab reaches them, Enter and Space press them, the focus stays."""
+    def test_the_control_is_a_labelled_radio_group_the_keyboard_reaches(self):
+        """A named radio group of native buttons with aria-checked (issue #438); Tab reaches the chosen word, → chooses the
+        next one with the focus on it, and the next Tab leaves the group. The walk itself: test_viewer_segment_keys.py."""
         self.three()
         page = self.show(3)
         group = page.locator("#list-order")
-        self.assertEqual(group.get_attribute("role"), "group")
+        self.assertEqual(group.get_attribute("role"), "radiogroup")
         self.assertEqual(group.get_attribute("aria-label"), "목록 순서")
         self.assertEqual(
-            group.locator("button").evaluate_all("b => b.map(x => x.textContent)"), ["최신순", "위치순", "번호순"]
+            group.locator("button[role=radio]").evaluate_all("b => b.map(x => x.textContent)"),
+            ["최신순", "위치순", "번호순"],
         )
         page.locator("#open-toggle").focus()
         for _ in range(12):
@@ -770,14 +772,12 @@ class OrderControl(TimelineFixture):
             if page.evaluate("document.activeElement.dataset.order==='new'"):
                 break
         self.assertEqual(page.evaluate("document.activeElement.dataset.order"), "new")
-        page.keyboard.press("Tab")
-        page.keyboard.press("Enter")
-        self.assertEqual(group.locator("[aria-pressed=true]").inner_text(), "위치순")
+        page.keyboard.press("ArrowRight")
+        self.assertEqual(group.locator("[aria-checked=true]").inner_text(), "위치순")
         self.assertEqual(page.evaluate("document.activeElement.dataset.order"), "page")
+        self.assertEqual(group.locator("[aria-checked=false]").count(), 2)
         page.keyboard.press("Tab")
-        page.keyboard.press("Space")
-        self.assertEqual(group.locator("[aria-pressed=true]").inner_text(), "번호순")
-        self.assertEqual(group.locator("[aria-pressed=false]").count(), 2)
+        self.assertIsNone(page.evaluate("document.activeElement.closest('#list-order')"))
 
     def test_the_control_shows_while_a_section_it_orders_has_a_card(self):
         """No card in the open or review sections, nothing to order; a collapsed open section keeps the control for the other."""

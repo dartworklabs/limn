@@ -920,14 +920,19 @@ function mdGoTop(el){const L=$('#left'),t=L.scrollTop+el.getBoundingClientRect()
   return Math.max(0,Math.min(t,L.scrollHeight-L.clientHeight));}
 // Scrolls on to the destination of the jump in flight, measured again; false when there is none (or its heading is gone).
 function mdGoOn(){const g=MD.goTo; if(!g)return false; if(g.doc!==DOC||!g.el.isConnected){MD.goTo=null; return false;}
-  pvShow(); $('#left').scrollTo({top:mdGoTop(g.el),behavior:SMOOTH}); return true;}
+  pvShow(); $('#left').scrollTo({top:mdGoTop(g.el),behavior:scrollMotion()}); return true;}
 // The jump in flight has landed when the pane stands at its destination: it ends, and that is the reading spot.
 function mdGoLanded(){const g=MD.goTo; if(!g)return; if(g.doc!==DOC||!g.el.isConnected){MD.goTo=null; return;}
   if(Math.abs($('#left').scrollTop-mdGoTop(g.el))<=1){MD.goTo=null; mdSpotRead(true);}}
 // The person scrolls (a wheel, a touch, a press on the pane or its scroll bar, a key): a jump in flight ends where it is -
-// its smooth scroll too, running or only asked for (Firefox starts an asked one after the key's own scroll otherwise), so
-// what the person's input does next starts from here.
-function mdGoStop(){if(!MD.goTo)return; MD.goTo=null; const L=$('#left'); L.scrollTo({top:L.scrollTop,behavior:'instant'});}
+// its smooth scroll too, running or only asked for, so what the person's input does next starts from here. The pane's
+// offset is written a pixel off and back, in one task (nothing is drawn between) - down at the very top, up elsewhere,
+// so the first write moves at either end (Home's place, End's): a write of the offset it already has
+// does not end the scroll in Firefox, whose compositor (APZ) runs it - once that scroll has moved the pane, such a write
+// sends the compositor nothing, and the scroll went on to the heading with the key's or the wheel's own step added (#441).
+// A write that moves the offset ends it there, in every engine.
+function mdGoStop(){if(!MD.goTo)return; MD.goTo=null; const L=$('#left'),t=L.scrollTop;
+  L.scrollTo({top:t>0?t-1:t+1,behavior:'instant'}); L.scrollTo({top:t,behavior:'instant'});}
 for(const t of ['wheel','touchstart','pointerdown'])$('#left').addEventListener(t,mdGoStop,{passive:true});
 // A key scrolls the pane when nothing else has the focus or something in the pane has it - outline.js's scope (SCROLL_KEYS):
 // with the focus on the page's body, Home or PageDown scrolls the pane without a key event on it.

@@ -612,6 +612,9 @@ class ChromiumTestCase(unittest.TestCase):
 
     pytestmark = pytest.mark.browser
     BROWSER_ENGINE: Literal["chromium", "firefox", "webkit"] = "chromium"
+    # Preferences a Firefox class's browser starts with (Playwright's firefox_user_prefs), say a slower smooth scroll for a
+    # test that acts while one runs; none by default.
+    FIREFOX_PREFS: dict[str, str | int | bool] = {}
 
     @classmethod
     def setUpClass(cls):
@@ -629,6 +632,8 @@ class ChromiumTestCase(unittest.TestCase):
         try:
             if cls.BROWSER_ENGINE == "chromium":
                 cls.browser = cls.pw.chromium.launch(executable_path=chromium_executable(), args=CHROMIUM_ARGS)
+            elif cls.BROWSER_ENGINE == "firefox" and cls.FIREFOX_PREFS:
+                cls.browser = cls.pw.firefox.launch(firefox_user_prefs=cls.FIREFOX_PREFS)
             else:
                 cls.browser = getattr(cls.pw, cls.BROWSER_ENGINE).launch()
             cls.browser = watching(cls.browser)

@@ -295,7 +295,7 @@ class EveryJump(FigurePages):
         """With reduced motion a jump is instant, as a search hit and a mark's jump always are: no glide is on its way, so a
         pass right after it keeps the reading page by itself, as it did."""
         page = self.on(dict(SIZES["desktop 1440x900"], reduced_motion="reduce"))
-        self.assertEqual(page.evaluate("()=>SMOOTH"), "auto")
+        self.assertEqual(page.evaluate("()=>scrollMotion()"), "auto")
         page.evaluate("p=>{goPage(6); (0,eval)(p);}", A_PASS)
         self.rest(page)
         self.at_top(page.evaluate(WHERE, 6), 6)
@@ -342,6 +342,73 @@ class EveryJump(FigurePages):
         self.rest(page)
         self.assertIsNone(page.evaluate("()=>ARRIVAL"))
         self.assertGreater(page.evaluate(WHERE, 6)["page"], 200)
+
+
+# A jump set off and the pages read in the same task: where they stood, where they stand at once, and whether a glide is on
+# its way (PV_JUMP). An instant jump has moved the pages before the call returns; a smooth one has not yet.
+JUMP_NOW = """go => {const L = document.querySelector('#left'), from = L.scrollTop; (0, eval)(go);
+  return {from, now: L.scrollTop, glide: PV_JUMP !== null};}"""
+
+
+class MotionSetLive(FigurePages):
+    """prefers-reduced-motion changed while the viewer is open (#418) reaches the next jump of the pages: a page from the
+    page field (a figure's arrival, pvGlideTo), an outline entry's place (pvGlideTo) and a card's [보기] (a page without a
+    figure, pvGlideInto) are instant with the setting on - the pages there before the call returns, no glide guard - and
+    glide again with it off. The viewer read the setting once, at load (core.js's SMOOTH), so a setting turned on later
+    left every jump gliding and one turned off left them instant."""
+
+    def test_each_jump_follows_the_setting_as_it_is_now(self):
+        """Opened with the setting off and with it on, then turned on and off: each jump does what the setting says now.
+        Mutation: the behaviour read once at load (core.js's SMOOTH before #418) -> the jumps after the first change keep
+        the load's setting, fails."""
+        pid = self.verdict(6, "보류")
+        jumps = {
+            "page field": "goPage(3)",
+            "outline place": "OUTLINE_ENTRIES=[{page:6,frac:0.3,title:'F6',level:0}]; pickOutline(0)",
+            "card view": "jumpPin(%d)" % pid,
+        }
+        for start, then in (("no-preference", "reduce"), ("reduce", "no-preference")):
+            page = self.on(dict(SIZES["desktop 1440x900"], reduced_motion=start), n_open=1)
+            for setting in (start, then, start):
+                page.emulate_media(reduced_motion=setting)
+                for name, go in jumps.items():
+                    with self.subTest(opened=start, now=setting, jump=name):
+                        self.to_top(page)
+                        got = page.evaluate(JUMP_NOW, go)
+                        if setting == "reduce":
+                            self.assertGreater(got["now"] - got["from"], 1000, got)
+                            self.assertFalse(got["glide"], got)
+                        else:
+                            self.assertLessEqual(abs(got["now"] - got["from"]), 1, got)
+                            self.assertTrue(got["glide"], got)
+                        self.rest(page)
+                        self.assertGreater(page.evaluate("()=>document.querySelector('#left').scrollTop"), 1000)
+            page.context.close()
+
+    def test_an_instant_jump_that_replaces_a_glide_in_flight_lets_go_of_its_guard(self):
+        """A glide to page 6 under way, the setting turned on, then a jump to page 3: the pages are there at once and the
+        glide's guard is gone with the glide it replaced - a verdict key is taken, not refused as during a glide. Mutation:
+        no letting go in pvGlideArm when the jump is instant -> the old glide's PV_JUMP and PV_GLIDE stay (scrollend checks
+        the old destination), pvAutoScrolling() is true and the key is refused, fails (found in review)."""
+        page = self.on(dict(SIZES["desktop 1440x900"], reduced_motion="no-preference"))
+        page.evaluate("goPage(6)")
+        page.wait_for_function(
+            "PV_JUMP!==null && document.querySelector('#left').scrollTop>20"
+            " && Math.abs(document.querySelector('#left').scrollTop-PV_JUMP)>100"
+        )
+        page.emulate_media(reduced_motion="reduce")
+        got = page.evaluate(
+            "()=>{goPage(3); return {jump: PV_JUMP, glide: PV_GLIDE, auto: pvAutoScrolling(),"
+            " off: Math.abs(document.querySelector('#left').scrollTop-figureTop(3))};}"
+        )
+        self.assertEqual((got["jump"], got["glide"], got["auto"]), (None, False, False), got)
+        self.assertLessEqual(got["off"], 1, got)
+        page.evaluate("()=>document.body.dispatchEvent(new KeyboardEvent('keydown',{key:'2',bubbles:true}))")
+        page.wait_for_function("()=>OPEN_ALL.length===1")
+        settle(page)
+        self.assertFalse(page.evaluate("()=>LINE.some(n=>n.title.includes('쪽으로 가는 중'))"))
+        (made,) = self.call("GET", "/api/pins?all=1")[1]
+        self.assertEqual((made["page"], made["verdict"]), (3, "보류"), made)
 
 
 class FigureArrival(FigurePages):
@@ -568,3 +635,9 @@ class FigureArrival(FigurePages):
         where = page.evaluate(WHERE, 3)
         self.assertLessEqual(abs(where["top"] - where["arrive"]), 2, where)
         self.assertEqual(where["reading"], 3, where)
+
+
+class MotionSetLiveFirefox(MotionSetLive):
+    """The same in Firefox, whose compositor runs a script's smooth scroll."""
+
+    BROWSER_ENGINE = "firefox"

@@ -139,14 +139,15 @@ function personLabel(login){return nameShared(login)?html`${peopleName(login)} <
 /** @param {string} login @returns {boolean} */
 function nameShared(login){const nm=peopleName(login); return PEOPLE.some(p=>p.login!==login&&p.name===nm);}
 // The assignee row (Html) for people, value pressed; empty Html without people. Each option carries act as its data-act.
-// The track scrolls sideways inside the row when it is longer (.lad, the range ladder's rule), so every name reads in full.
+// The track scrolls sideways inside the row when it is longer (.lad, the range ladder's rule), so every name reads in full;
+// its scroll box is out of the Tab order as the ladder's is (levels.js drawLadder).
 // A segment's words are in .as-t, trimmed to their cap height like the row's label, so the two share one centre in any font.
 /** @param {string[]} people @param {string} value @param {string} act @returns {Html} */
 function assignSeg(people,value,act){if(!people.length)return html``;
   const opt=(v,label,tip)=>html`<button type="button" role="radio" data-act="${act}" data-v="${v}" aria-checked="${v===value}"${v===value?html` class="on"`:''} data-tip="${tip}"><span class="as-t">${label}</span></button>`;
   const agent=opt(ASSIGNEE_AGENT,tr('에이전트'),tr('에이전트가 이 핀을 처리합니다 — @태그한 사람에게는 알림만 갑니다'));
   const others=people.map(l=>opt(l,html`@${personLabel(l)}`,tl('{name}에게 맡깁니다 — 에이전트는 이 핀을 건너뜁니다',{name:peopleName(l)+(nameShared(l)?' ('+l+')':'')})));
-  return html`<span class="as-lab">${tr('담당')}</span><div class="seg lad as-seg" data-reveal="whole"><div class="lad-t">${agent}${others}</div></div>`;}
+  return html`<span class="as-lab">${tr('담당')}</span><div class="seg lad as-seg" data-reveal="whole" tabindex="-1"><div class="lad-t">${agent}${others}</div></div>`;}
 // The composer panel's assignee: the author's pick (touched) or, until there is one, the default re-chosen every time the note
 // changes. A pick whose person left the note is dropped. Both assignee rows read the note with the hints the save carries
 // (mentionHints), so they offer exactly whom the server tags.
@@ -158,7 +159,8 @@ const ASSIGN_NEW={v:ASSIGNEE_AGENT,touched:false};
 // (loadPeople draws the row again). savePin() does not read what is settled here: it asks assignOutcome itself.
 function renderAssignNew(){const ta=$('#note'),box=$('#c-assign'); if(!ta||!box)return;
   const o=assignOutcome(composeAsk(SAVE_MODE.NEW)); if(PEOPLE_KNOWN){ASSIGN_NEW.v=/** @type {string} */(o.assignee); ASSIGN_NEW.touched=o.kept;}
-  if(o.people.length&&!appendTarget()){setHtml(box,assignSeg(o.people,/** @type {string} */(o.assignee),'assign-new')); box.hidden=false; segRove(box); segReveal(box.querySelector('.as-seg'));}
+  if(o.people.length&&!appendTarget()){const at=segFocusAt(box); setHtml(box,assignSeg(o.people,/** @type {string} */(o.assignee),'assign-new')); box.hidden=false;
+    segRove(box); segKeep(box,at); segReveal(box.querySelector('.as-seg'));}   // one Tab stop, and the focus kept (events.js)
   else{box.hidden=true; box.replaceChildren();}
   mentionPreview(ta);}
 // The edit card's assignee row: the stored assignee stays pressed until the author changes it - a stored pin never takes the
@@ -166,7 +168,8 @@ function renderAssignNew(){const ta=$('#note'),box=$('#c-assign'); if(!ta||!box)
 function renderAssignEdit(){const E=EDITOR.current; if(!E)return; const ta=editNote(E),box=/** @type {HTMLElement} */(E.el.querySelector('.e-assign')); if(!ta||!box)return;
   const ppl=assignPeople(ta.value,mentionHints(ta),PEOPLE,meLogin(),E.assignee);
   if(!ppl.length){box.hidden=true; box.replaceChildren(); return;}
-  setHtml(box,assignSeg(ppl,E.assignee,'assign-edit')); box.hidden=false; segRove(box); segReveal(box.querySelector('.as-seg'));}   // segRove: one Tab stop (events.js)
+  const at=segFocusAt(box); setHtml(box,assignSeg(ppl,E.assignee,'assign-edit')); box.hidden=false;
+  segRove(box); segKeep(box,at); segReveal(box.querySelector('.as-seg'));}   // one Tab stop, and the focus kept (events.js)
 // The preview line under a mention field: what sending the text does. The composer's note says who handles the pin first -
 // '담당' and the assignee the save sends (assignOutcome, SAVE_MODE.NEW) - then '알림' and the people who are only notified:
 // the assignee is told through the assignment and is not listed again. While the note may also join an existing pin

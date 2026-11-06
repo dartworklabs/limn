@@ -20,6 +20,21 @@
   [더보기]'s language, which reopens the page, and the phone navigation sheet's [원고 | 변경사항], which changes the view
   and closes the sheet (Home on the chosen 원고 shut it) - are walked without choosing, as tabs with manual activation
   are (WCAG 3.2.2): the keys move the focus, and Enter or Space chooses.
+- **The list order, [더보기]'s panel width and the range ladder are walked with the arrow keys too** (#438). The
+  list's [최신순 | 위치순 | 번호순], [좁게 | 보통 | 넓게] (the phone's [낮게 | 보통 | 높게] for the sheet) and the range
+  ladder of the composer and the edit card were rows of toggle buttons, one Tab stop per word. They are one-of-many
+  segments now, as #417 made the others: one Tab stop on the chosen word, and ←/→ (↑/↓), Home and End move and choose
+  at once - the list sorts again, the panel or the sheet takes the size, the range becomes the rung's lines. None of the
+  three changes the context, so none waits for Enter or Space. The groups that draw their words again - the assignee
+  row, the ladder (once more when the excerpt's missing lines come back) and the width - give the focus back to the
+  word in the same place after any press: Enter or Space on a rung or a width had dropped it on the page, and the next
+  Tab started from the top. The focus given back shows the word's description only after a key, as the keyboard's
+  focus does, not after a click. The width control checks the width the panel has in the layout now, open or folded:
+  on a tablet, whose panel starts folded, it checked none, not even the one just chosen, and after a change of layout
+  with [더보기] open it checked the old layout's width. In Firefox an overflowing range ladder or assignee row is one
+  Tab stop too: the browser made its scroll box a stop of its own. A press on the gap between two words gives the focus
+  to the chosen word, not to the box, so the next Tab goes on from the ladder; in Firefox it began again at the page's
+  start.
 - **Tab rests on a mark badge in turn and shows it, passing over only one no scroll can show** (#418). On a tablet or
   phone with the sheet open, Tab put the focus ring on a badge under the sheet, out of sight, and its tooltip floated over
   the sheet. A badge is a Tab stop while the pages can scroll it, up or down within their ends, to where it stands whole
@@ -49,6 +64,13 @@
   sheet - scrolls, so it clips what passes its sides, and its rows fill its width: the ring every control draws 1px
   outside its box lost 3px on both sides of every row, on the first row's top and on the last row's bottom. The rows
   now draw it inside (`outline-offset: -2px`), as the documents popover's rows do.
+- **A reduced-motion setting changed with the viewer open reaches every jump** (#418). The viewer read
+  `prefers-reduced-motion` once, at load, for its scripted scrolls: turned on later, a page jump, an outline entry, a
+  card's [보기], a Markdown heading and the pin list's card and review jumps still glided (only the panel's slide and the
+  outline's follow heard the change), and turned off later they stayed instant. Each scroll now asks the setting as it is
+  (`scrollMotion()`), so the next jump follows it; with it on, a jump lands before the call returns and the pages' glide
+  guard and a heading jump's flight are not set. The changes view's [바뀐 곳] glided whatever the setting; it follows it
+  too. A guard in `test_viewer_scroll_writes.py` keeps every scripted scroll's `behavior` instant or `scrollMotion()`.
 - **An image that loads before a scroll's frame no longer takes the document back** (#435). On the Markdown and text
   surfaces the reading spot is read on a scroll's animation frame; on a renderer too busy to paint an image's load or
   failure came first and put back the spot read before the scroll. Home pressed while a linked document's images loaded
@@ -65,6 +87,16 @@
   first try took for a scroll; a pin's [보기] and [바뀐 곳] read the spot where they land (`mdShowLines`), so a width that
   changes before their frame keeps their place. The spot also keeps the px of the room past its line's end (a line's
   leading, a margin), which it used to drop: put back, a top in that room moved up to 8px.
+- **In Firefox a key, a wheel or a press during a heading jump now ends its smooth scroll too** (#441). On the
+  Markdown surface such an input ended the jump to a heading but wrote the pane's own offset to end its smooth scroll,
+  and once Firefox's compositor (APZ) had moved the pane that write reached it as nothing: the scroll went on to the
+  heading, with an arrow key's or the wheel's own step added to its destination (in the new tests the pane came to
+  rest some 8,800px past where a press found it, one ArrowDown step or 300px of wheel past the heading). On CI it showed as a pane taken back to the heading after Home at the top
+  (`HeadingJumpFirefox`) and as an End that never reached the end (`ErrorOnAJumpThenEndFirefox`). The input now writes
+  the offset a pixel off and back in one task - down at the very top, up elsewhere - which ends the scroll where the
+  pane stands in every engine; the key's step or the wheel's turn then goes from there. Nothing is drawn between the two
+  writes, and a jump nobody interrupts glides as before. The End test no longer waits for the jump's scroll to rest
+  first.
 
 ## 0.4.52 — 2026-11-06
 

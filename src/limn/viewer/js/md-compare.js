@@ -461,7 +461,7 @@ function mdcDrawNav(){const n=MDC.stops.length,box=$('#revision-nav'); box.hidde
 function mdcGo(i,ring){const g=MDC.stops[i]; if(!g)return; MDC.at=i; mdcDrawNav();
   document.querySelectorAll('#revision-rendered .mdc-cur').forEach(e=>e.classList.remove('mdc-cur')); if(ring)g.forEach(e=>e.classList.add('mdc-cur'));
   const pane=LAYOUT===LAYOUT_MODE.NARROW?$('#revision-body'):$('#revision-rendered'),r=g[0].getBoundingClientRect(),p=pane.getBoundingClientRect();
-  pane.scrollTo({top:pane.scrollTop+r.top-p.top-Math.round(pane.clientHeight/3),behavior:'smooth'});}
+  pane.scrollTo({top:pane.scrollTop+r.top-p.top-Math.round(pane.clientHeight/3),behavior:scrollMotion()});}
 /** @param {number} d */
 function mdcStep(d){if(!MDC.stops.length)return; mdcGo(Math.min(MDC.stops.length-1,Math.max(0,MDC.at+d)),true);}
 // Forgets the compare on screen (another commit, another document, the manuscript view).

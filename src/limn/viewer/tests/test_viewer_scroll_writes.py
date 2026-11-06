@@ -36,7 +36,7 @@ SHOWS = {
 KEEPS = {
     ("doc-switch.js", "restoreView"): 1,
     ("layout.js", "setSelMode"): 1,
-    ("md-surface.js", "mdGoStop"): 1,
+    ("md-surface.js", "mdGoStop"): 2,
     ("md-surface.js", "mdRestore"): 2,
     ("md-surface.js", "mdSpotKeep"): 2,
     ("pages.js", "fitW"): 1,
@@ -115,6 +115,22 @@ class ScrollWrites(unittest.TestCase):
             if (name, where) in SHOWS:
                 with self.subTest(write="%s %s" % (name, where)):
                     self.assertIn("pvShow(", before)
+
+    def test_a_scripted_scroll_asks_for_motion_as_the_setting_is_now(self):
+        """Every scripted scroll's behavior is at once ('auto', 'instant') or scrollMotion() - itself or through pvGlideArm,
+        which returns it - read at the scroll, never a smooth one fixed in the code or a value kept from load: a reduced
+        motion setting changed with the page open reaches every scroll (#418). The CSS sets no smooth scroll-behavior,
+        which a script's 'auto' would follow. Mutation: mdcGo's literal 'smooth' (before #418), or a const read at load,
+        fails."""
+        allowed = ("'auto'", "'instant'", "scrollMotion()", "pvGlideArm(", "land?'auto':scrollMotion()")
+        for path in sorted(JS.glob("*.js")):
+            for m in re.finditer(r"\bbehavior\s*:\s*", path.read_text(encoding="utf-8")):
+                rest = m.string[m.end() : m.end() + 40]
+                with self.subTest(file=path.name, at=rest):
+                    self.assertTrue(rest.startswith(allowed), rest)
+        for path in sorted((JS.parent / "css").glob("*.css")):
+            with self.subTest(file=path.name):
+                self.assertNotRegex(path.read_text(encoding="utf-8"), r"scroll-behavior\s*:\s*smooth")
 
     def test_the_lists_do_not_overlap(self):
         """A write is of one kind."""
