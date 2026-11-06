@@ -1,49 +1,52 @@
 /* ---------------- Confirming several pins awaiting review from their result rows (docs/handbook/viewer.md §스레드와 검토, ADR-0035).
-   While the review section picks, its head gets a second line (.rv-bar: [모두 고르기], the count, [N건 확인]) and its cards turn
-   into flat result rows (.rv-row): a checkbox with #N and the place, then the badges, what was asked and what the agent
-   answered. No box: one divider between rows, as the archive rows (§한 겹 담기). Measured by test_viewer_review_pick.py:
-   - the bar's box and every row's box stand at one x, the panel's content edge, where the head's chevron starts;
+   While the review section picks, its head gets a second line (.rv-bar: [모두 고르기] and [N건 확인]) and its cards turn into
+   flat result rows (.rv-row): a checkbox with #N and the place, then the badges, what was asked and what the agent said.
+   A row is an archive row's kind (§한 겹 담기): no box, one divider between rows across the list's content, the ticked one
+   tinted. Measured by test_viewer_review_pick.py:
+   - the bar's box and every row's box stand at one x, centred under the head's chevron: a row starts its box where the
+     head starts its contents (the head's own inset, less the list's padding: 12px in the wide and compact panels, 0 in
+     the mid one);
    - a row's lines start where its #N does: the box's width and --space-2 in;
-   - '요청' and '답' are one grid, so both texts start at one x in any language;
+   - '요청' and '설명' are one grid, so both texts start at one x in any language;
    - [N건 확인] and every row's [변경 보기] end at one x, the content's right edge;
-   - a box is centred on its line's cap height (the head text is trimmed to it, §글자 가운데). */
-.rv-bar{flex:1 0 100%;display:flex;align-items:center;gap:var(--space-3);min-width:0}   /* one line: the count gives way first, [N건 확인] never wraps under it */
+   - a box is centred on its line's cap height (the first line's text is trimmed to it, §글자 가운데). */
+.rv-bar{flex:1 0 100%;display:flex;align-items:center;gap:var(--space-3);min-width:0}
 .rv-bar[hidden]{display:none}
 .rv-bar .sp{flex:1}
 label.rv-all{flex:none;display:inline-flex;align-items:center;gap:var(--space-2);min-height:var(--control-h-sm);color:var(--foreground);font-size:var(--text-base);
   white-space:nowrap;cursor:pointer}
 .rv-all>.lbl{text-box:trim-both cap alphabetic}
-.rv-cnt{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--muted-foreground);font-size:var(--text-sm);white-space:nowrap}
-/* A row has the section head's insets in every layout: it reaches the panel's edges as the head's surface does (its tint, when
-   ticked) and starts its box where the head starts its contents, so the box is centred under the head's chevron (a 14px icon
-   1px in, the toggle's border) and the bar's box; its [변경 보기] ends where the head's tools do. The wide and compact insets
-   are the head's own rules (side-panel.css, responsive.css), which name .rv-row with .sec-head. */
-.rv-row{margin:0 calc(-1 * var(--space-3));padding:var(--space-2) var(--space-3);border-top:1px solid var(--border);font-size:var(--text-base);line-height:var(--line-text)}
-.rv-row:first-child{border-top:0}
+.rv-row{padding:var(--space-2) 0;font-size:var(--text-base);line-height:round(down,1.5em,1px)}   /* a whole pixel per line, as a note's and a thread post's: the rows under it start on whole pixels */
+body.lay-wide .rv-row{padding-left:var(--space-3)}   /* the wide head starts its contents --space-6 in (side-panel.css), the list's padding is --space-3 */
+body.compact .rv-row{padding-left:calc(var(--ink) - var(--edge))}   /* the compact head starts its contents on --ink, the list's content on --edge (responsive.css) */
+.rv-row+.rv-row{border-top:1px solid var(--border)}
 .rv-row.on{background:color-mix(in srgb,var(--primary) 8%,transparent)}
 .rv-l1{display:flex;align-items:center;gap:var(--space-2)}
 label.rv-ck{flex:1;min-width:0;display:flex;align-items:center;gap:var(--space-2);min-height:var(--control-h-sm);cursor:pointer}
 .rv-row.off label.rv-ck{cursor:default}
-/* The head text is trimmed to its cap height, so the box beside it is centred on its letters in any font; padding-block gives the
-   ink above the cap height and under the baseline back to the box that clips a long place to an ellipsis. */
+/* The first line's text is trimmed to its cap height, so the box beside it is centred on its letters in any font; padding-block
+   gives the ink above the cap height and under the baseline back to the box that clips a long place to an ellipsis. */
 .rv-h{min-width:0;padding-block:var(--space-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--foreground);font-weight:600;
   text-box:trim-both cap alphabetic}
 .rv-h>.rv-no{font-weight:700}
 .rv-ck>.dchip{flex:none}   /* [모든 문서]: the document's chip follows the place on the first line */
-.rv-chg{flex:none}
+/* [변경 보기]: a link (.arc-orig-t), as an archive row's actions are, on the first line's 24px (a mouse's least press area): a
+   block container trimmed to its cap height (§글자 가운데), so its word is centred on the line as the box is. */
+.rv-row button.rv-chg{flex:none;display:inline-block;align-content:center;min-height:var(--control-h-sm);text-box:trim-both cap alphabetic}
 .rv-body{display:grid;grid-template-columns:max-content minmax(0,1fr);align-items:baseline;column-gap:var(--space-2);margin-left:calc(var(--check) + var(--space-2))}
 .rv-tags{grid-column:1 / -1;display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1);margin-bottom:var(--space-1)}
 .rv-k{color:var(--muted-foreground);font-size:var(--text-sm);white-space:nowrap}
 .rv-ask{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted-foreground)}
-.rv-ans{min-width:0;color:var(--foreground);white-space:pre-line;overflow-wrap:anywhere}
+.rv-ans{min-width:0;color:var(--foreground)}
+.rv-ans>button.msg-more{margin-left:calc(-1 * var(--space-2))}   /* [더 보기] starts where the explanation does */
 .rv-facts{color:var(--muted-foreground);font-size:var(--text-sm)}
-.rv-row.off .rv-ans{color:var(--muted-foreground)}
-/* Touch: a label is its box's 44px press area; [변경 보기] is drawn as a card's actions are, at --ctl-touch-sm (32px on the
-   phone sheet, 36px in a tablet panel), with its 44px press area round it (.hit) - as tall as the [N건 확인] over it. */
-@media (pointer:coarse){label.rv-ck,label.rv-all{min-height:var(--hit)} .rv-row button.rv-chg{min-height:0;height:var(--ctl-touch-sm);padding-top:0;padding-bottom:0}}
+.rv-facts>span{white-space:nowrap}   /* a reference or a range is never broken inside ('바/뀐 줄') */
+/* Touch: a row's label and its links are drawn on the 24px line as with a mouse, and their 44px press areas are round them
+   (.hit, responsive.css), as a card's actions are. The bar's label is a head line of its own, 44px. */
+@media (pointer:coarse){label.rv-all{min-height:var(--hit)}}
 /* The narrow head is 40px with its 1px border (responsive.css): its 32px tools stand in the middle of the 39px under the
    border and their press areas reach 46px down from their tops. While picking, its first line keeps those 39px (the
-   spacer holds it), so the toggle and [고르기 끝] stay where [골라서 확인] was; and the pick line starts --space-2 under
-   it, past their press areas, so the top of [모두 고르기] is not the section toggle's. */
+   spacer holds it), so the toggle and [골라서 확인] stay where they stood; and the pick line starts --space-2 under it, past
+   their press areas, so the top of [모두 고르기] is not the section toggle's. */
 body.lay-narrow #sec-review.rv-picking>.sec-head>.sp{min-height:39px}
 body.lay-narrow .rv-bar{margin-top:var(--space-2)}

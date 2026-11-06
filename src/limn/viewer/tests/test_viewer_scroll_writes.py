@@ -73,6 +73,7 @@ OTHERS = {
     ("page-list.js", "pageListKey"): 1,
     ("page-list.js", "revealPageRow"): 1,
     ("reply.js", "openReply"): 1,
+    ("review-pick.js", "rvConfirm"): 1,
     ("review-pick.js", "rvPick"): 1,
     ("revision-zoom.js", "mountRevisionPdf"): 1,
     ("revision-zoom.js", "restoreRevisionAnchor"): 2,

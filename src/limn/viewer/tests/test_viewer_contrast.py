@@ -694,7 +694,8 @@ class ContrastWalk(BrowserBase):
         self.look(page, "list")
         self.look(page, "warning line", '.pin[data-id="%d"] .sg-warn' % self.warned)
         page.evaluate("rvPick(true)")
-        page.click('#review-pins input[data-pick="%d"]' % self.review)
+        # the box's label: its press area, 44px round the box on touch
+        page.click('#review-pins label.rv-ck:has(input[data-pick="%d"])' % self.review)
         page.wait_for_selector('#review-pins .rv-row.on[data-id="%d"]' % self.review)
         settle(page)
         self.look(page, "review rows picking, one ticked", "#sec-review")

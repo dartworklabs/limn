@@ -1,16 +1,16 @@
 // ------------------------------------------------ Confirming several pins awaiting review from their result rows (ADR-0035)
 // The review section's [골라서 확인] (#review-pick) turns its cards into result rows: a box with #N and the place, the
-// badges, what was asked and what the agent answered (reply, reference, changed lines), and [변경 보기]. A person ticks the
-// rows whose result they have read and confirms them together with [N건 확인] in the section head's second line (#rv-bar).
-// Each confirm is the one-pin route with the done_at the row showed when it was ticked, so a pin closed again since is
-// refused (409 conflict) instead of confirmed (ADR-0013). docs/handbook/viewer.md §스레드와 검토 has the rules.
+// badges, what was asked, what the agent said (its explanation, reference and changed lines) and [변경 보기]. A person ticks
+// the rows whose result they have read and confirms them together with [N건 확인] in the section head's second line
+// (#rv-bar). Each confirm is the one-pin route with the done_at the row showed when it was ticked, so a pin closed again
+// since is refused (409 conflict) instead of confirmed (ADR-0013). docs/handbook/viewer.md §스레드와 검토 has the rules.
 
 // The ticked rows while the review section picks: pin id -> the done_at its row showed when it was ticked ('' for a close
 // with none). null while the section shows cards.
 let RV_PICK=/** @type {Map<number,string>|null} */(null);
 
-// Whether pin p's row shows a result a person can have read: the agent's reply or the lines it changed. A row without one
-// cannot be ticked - that pin is confirmed from its card (ADR-0035 D2). Pure.
+// Whether pin p's row shows a result a person can have read: the agent's explanation or the lines it changed. A row without
+// one cannot be ticked - that pin is confirmed from its card (ADR-0035 D2). Pure.
 /** @param {Pin} p @returns {boolean} */
 function rvShowsResult(p){return !!String(p.close_reply||'').trim()||(Array.isArray(p.changes)&&p.changes.length>0);}
 
@@ -25,8 +25,10 @@ function rvChanged(p){const c=Array.isArray(p.changes)?p.changes:[]; if(!c.lengt
 /** @param {Pin[]} list the review pins the section lists @returns {boolean} */
 function rvCanPick(list){return canConfirmReview()&&list.length>=2&&list.some(rvShowsResult);}
 
-// One result row of pin p (the review section while it picks). Its box is named by its head line (#N · place · page) and
-// described by its answer line; a row with no result has its box disabled and says where to confirm it instead.
+// One result row of pin p (the review section while it picks). Its box is named by its first line (#N · place · page) and
+// described by its explanation. The explanation folds at six lines as a thread post does (msgBody, [더 보기]); the
+// reference and the changed lines are a line under it, each kept whole. A row with no result has its box disabled and
+// offers [카드에서 확인] instead.
 /** @param {Pin} p @returns {Html} */
 function rvRow(p){const ok=rvShowsResult(p),on=!!RV_PICK&&RV_PICK.has(p.id),first=String(p.note||'').split('\n')[0].trim();
   const at=pinPlace(p).page,page=typeof at==='number'&&!isMdPin(p)?tl('{page}쪽',{page:at}):'';
@@ -34,30 +36,29 @@ function rvRow(p){const ok=rvShowsResult(p),on=!!RV_PICK&&RV_PICK.has(p.id),firs
     isQuestion(p)?html`<span class="badge badge-question" data-tip="${T.question}">${ic('circle-question-mark')}${tr('질문')}</span>`:null,
     suggestBadge(p,true)].filter(t=>!!t&&String(t)!=='');
   const ask=first?fmtText(first,p.mentions):html`<span class="dim">${tr(p.suggest?'(제안 문안만)':verdictOf(p)?'(판정만)':'(메모 없음)')}</span>`;
-  const facts=[p.close_ref?String(p.close_ref):'',rvChanged(p)].filter(Boolean).join(' · ');
-  const ans=ok?html`${p.close_reply?html`<span translate="no">${fmtText(String(p.close_reply).trim(),p.mentions)}</span>`:html`<span class="dim">${tr('답 없음')}</span>`}\
-${facts?html`<span class="rv-facts" translate="no"> · ${facts}</span>`:''}`
-    :html`${tr('설명 없이 닫혀 결과가 목록에 없습니다 — 카드에서 하나씩 확인하세요')}`;
+  const facts=[p.close_ref?String(p.close_ref):'',rvChanged(p)].filter(Boolean),reply=String(p.close_reply||'').trim();
+  const said=!ok?html`<span class="dim">${tr('설명 없이 닫힘')}</span> <button type="button" class="arc-orig-t hit" data-act="rv-card" data-tip="${tr('고르기를 끝내고 이 핀의 카드로 갑니다. 카드에서 결과를 보고 확인하세요')}">${tr('카드에서 확인')}</button>`
+    :html`${reply?msgBody(/** @type {ThreadEntry} */({text:reply,mentions:p.mentions}),'rv:'+p.id):html`<div class="dim">${tr('설명 없음')}</div>`}\
+${facts.length?html`<div class="rv-facts" translate="no">${facts.map((f,i)=>html`${i?' · ':''}<span>${f}</span>`)}</div>`:''}`;
   return html`<div class="rv-row${on?' on':''}${ok?'':' off'}" data-id="${p.id}" data-doc="${pdoc(p)}">\
-<div class="rv-l1"><label class="rv-ck"><span class="ck"><input type="checkbox" data-pick="${p.id}"${on?' checked':''}${ok?'':' disabled'} aria-describedby="rv-a-${p.id}">\
+<div class="rv-l1"><label class="rv-ck hit"><span class="ck"><input type="checkbox" data-pick="${p.id}"${on?' checked':''}${ok?'':' disabled'} aria-describedby="rv-a-${p.id}">\
 ${ic('check')}${ic('minus')}</span><span class="rv-h"><span class="rv-no">#${p.id}</span> · ${locText(p)}${page?' · '+page:''}</span>${docChip(p)}</label>\
-<button type="button" class="btn-sm btn-secondary rv-chg hit" data-act="change" data-tip="${T.change}">${tr('변경 보기')}</button></div>\
+<button type="button" class="arc-orig-t rv-chg hit" data-act="change" data-tip="${T.change}">${tr('변경 보기')}</button></div>\
 <div class="rv-body">${tags.length?html`<div class="rv-tags">${tags}</div>`:''}\
 <span class="rv-k">${tr('요청')}</span><span class="rv-ask" translate="no">${ask}</span>\
-<span class="rv-k">${tr('답')}</span><span class="rv-ans" id="rv-a-${p.id}">${ans}</span></div></div>`;}
+<span class="rv-k">${tr('설명')}</span><div class="rv-ans" id="rv-a-${p.id}">${said}</div></div></div>`;}
 
-// The head's second line while the section picks: [모두 고르기 (N)] (half-ticked while some are), how many are ticked and
-// [N건 확인]. Hidden while it does not pick.
+// The head's second line while the section picks: [모두 고르기 (N)] (half-ticked while some are) and [N건 확인]. Hidden
+// while it does not pick.
 /** @param {Pin[]} list the review pins the section lists */
 function rvBar(list){const bar=$('#rv-bar'); bar.hidden=!RV_PICK; if(!RV_PICK){bar.replaceChildren(); return;}
   const can=list.filter(rvShowsResult),n=can.filter(p=>!!RV_PICK&&RV_PICK.has(p.id)).length,all=n>0&&n===can.length;
   setHtml(bar,html`<label class="rv-all"><span class="ck"><input type="checkbox" id="rv-all"${all?' checked':''}>${ic('check')}${ic('minus')}</span>\
-<span class="lbl">${tl('모두 고르기 ({n})',{n:can.length})}</span></label>\
-<span class="rv-cnt" id="rv-cnt" aria-live="polite">${tl('{n}건 고름',{n})}</span><span class="sp"></span>\
-<button type="button" class="btn-sm btn-default rv-go" id="rv-go" data-act="rv-go"${n?'':' disabled'} data-tip="${tr('고른 핀을 각 줄이 보인 결과로 확인합니다. 6초 안에 되돌릴 수 있습니다')}">${n?tl('{n}건 확인',{n}):tr('확인')}</button>`);
+<span class="lbl">${tl('모두 고르기 ({n})',{n:can.length})}</span></label><span class="sp"></span>\
+<button type="button" class="btn-sm btn-soft rv-go" id="rv-go" data-act="rv-go"${n?'':' disabled'} data-tip="${tr('고른 핀을 확인해 완료로 옮깁니다. 6초 안에 되돌릴 수 있습니다')}">${n?tl('{n}건 확인',{n}):tr('확인')}</button>`);
   /** @type {HTMLInputElement} */($('#rv-all')).indeterminate=n>0&&!all;}
 
-// What has the focus in the picking section, as a selector a redraw can find it by again: a row's box or [변경 보기] (by its
+// What has the focus in the picking section, as a selector a redraw can find it by again: a row's box or button (by its
 // pin), or one of the bar's controls (by its id). null when the focus is elsewhere.
 /** @returns {string|null} */
 function rvFocusKeep(){const a=/** @type {HTMLElement|null} */(document.activeElement); if(!a||!a.closest)return null;
@@ -82,8 +83,9 @@ function rvDraw(list){const can=rvCanPick(list),keep=RV_PICK?rvFocusKeep():null;
   if(RV_PICK&&(!can||!SEC.review)){RV_PICK=null; if(keep)/** @type {HTMLElement} */($('#review-toggle')).focus({preventScroll:true});}   // the cards drawn next hold no focus
   if(RV_PICK){const listed=new Map(list.map(p=>[p.id,p]));
     for(const id of [...RV_PICK.keys()]){const p=listed.get(id); if(!p||!rvShowsResult(p))RV_PICK.delete(id);}}
+  // The head's toggle keeps its name, as [모든 문서] does: pressed, it is filled and leads with a check.
   const b=/** @type {HTMLElement} */($('#review-pick')); b.hidden=!can;
-  b.setAttribute('aria-pressed',String(!!RV_PICK)); b.textContent=tr(RV_PICK?'고르기 끝':'골라서 확인');
+  b.setAttribute('aria-pressed',String(!!RV_PICK)); setHtml(b,html`${RV_PICK?ic('check'):''}${tr('골라서 확인')}`);
   $('#sec-review').classList.toggle('rv-picking',!!RV_PICK);
   rvBar(list);
   if(RV_PICK)setHtml($('#review-pins'),html`${orderPins(list,ORDER).map(rvRow)}`);
@@ -95,6 +97,11 @@ function rvDraw(list){const can=rvCanPick(list),keep=RV_PICK?rvFocusKeep():null;
 function rvPick(on){RV_PICK=on?new Map():null; if(on&&!SEC.review){SEC.review=true; savePrefs({sec:SEC});} drawPins();
   if(on)$('#sec-review').scrollIntoView({block:'start'});   // the section, not its head: a stuck head is where it is shown already and would not scroll
   const f=/** @type {HTMLElement|null} */(on?$('#rv-all'):$('#review-pick')); if(f&&f.getClientRects().length)f.focus({preventScroll:true});}
+
+// [카드에서 확인] on a row with no result: the pick ends and the list goes to that pin's card, unfolded, the focus on its [확인].
+/** @param {number} id */
+function rvToCard(id){rvPick(false); OPEN_CARDS.add(id); drawPins(); jumpToCard(id);
+  const c=/** @type {HTMLElement|null} */(document.querySelector('#review-pins .pin[data-id="'+id+'"] [data-act=confirm]')); if(c)c.focus({preventScroll:true});}
 
 // A box was ticked or cleared: a row's records the done_at its row shows now (ADR-0035 D3); [모두 고르기] ticks every row with
 // a result the section lists, or clears them.
@@ -109,24 +116,26 @@ function rvTick(box){if(!RV_PICK)return; const list=listReviewShown();
 /** @returns {Pin[]} */
 function listReviewShown(){return MENTION_ONLY?REVIEW_ALL.filter(mentionsMe):listReview();}
 
-// [N건 확인]: the ticked pins leave the section at once and picking ends; one undo row stands at the section's top for
-// NOTICE_MS and gets the focus. When it goes (or the page is hidden) every confirm is sent at once (rvSend); its [되돌리기]
-// sends nothing and puts the pins and their ticks back.
+// [N건 확인]: the ticked pins leave the section at once and the rest stay picking; one undo row stands at the section's top
+// for NOTICE_MS - the section is brought to the top of the list so it shows - and gets the focus. When it goes (or the
+// page is hidden) every confirm is sent at once (rvSend); its [되돌리기] sends nothing and puts the pins back (rvUndo).
 function rvConfirm(){if(!RV_PICK)return;
   const items=[...RV_PICK].map(([id,at])=>{const pin=REVIEW_ALL.find(p=>p.id===id); return pin&&!CONFIRMING.has(id)?{pin,at}:null;})
     .filter(x=>!!x).map(x=>/** @type {{pin:Pin,at:string}} */(x));
   if(!items.length)return;
   const where=new Map(items.map(x=>[x.pin.id,REVIEW_ALL.indexOf(x.pin)])),ticks=new Map(items.map(x=>[x.pin.id,x.at]));
-  for(const {pin} of items){CONFIRMING.add(pin.id); CONFIRMING_PIN.set(pin.id,pin);}
-  REVIEW_ALL=REVIEW_ALL.filter(p=>!where.has(p.id)); RV_PICK=null; drawPins(); marks();
+  for(const {pin} of items){CONFIRMING.add(pin.id); CONFIRMING_PIN.set(pin.id,pin); RV_PICK.delete(pin.id);}
+  REVIEW_ALL=REVIEW_ALL.filter(p=>!where.has(p.id)); drawPins(); marks();
   const d=deferred(()=>{rvSend(items);},()=>rvUndo(items,where,ticks));
   const n=deferredNote(d,NOTICE_PLACE.ROW,tl('핀 {n}건 확인 · 완료로 옮겼습니다',{n:items.length}),{sec:'review',prev:null,rec:null});
+  const sec=$('#sec-review'); if(!sec.hidden)sec.scrollIntoView({block:'start'});   // the undo row is the section's first
   const u=/** @type {HTMLElement|null} */(n.el&&n.el.querySelector('.nt-act'));
   if(u&&document.contains(u))u.focus({preventScroll:true}); else /** @type {HTMLElement} */($('#review-toggle')).focus({preventScroll:true});}
 
-// The undo of [N건 확인]: each pin comes back as the latest list has it (CONFIRMING_PIN) at the place it had, and the
-// section picks again with the same ticks, the focus on [N건 확인] (its undo row, which had it, is gone). A pin gone from
-// that list meanwhile is not brought back; one deleted elsewhere is said so.
+// The undo of [N건 확인]: each pin comes back as the latest list has it (CONFIRMING_PIN) at the place it had. While the
+// section picks - also a new pick started meanwhile - their ticks join the ticks it has, and the focus goes to [N건 확인];
+// otherwise they come back as cards and the focus goes to [골라서 확인]. A pin gone from that list meanwhile is not brought
+// back; one deleted elsewhere is said so.
 /** @param {{pin:Pin,at:string}[]} items @param {Map<number,number>} where @param {Map<number,string>} ticks */
 function rvUndo(items,where,ticks){const back=[],lost=[];
   for(const {pin} of items){const now=CONFIRMING_PIN.get(pin.id); CONFIRMING.delete(pin.id); CONFIRMING_PIN.delete(pin.id);
@@ -134,7 +143,8 @@ function rvUndo(items,where,ticks){const back=[],lost=[];
     else if(!now&&![OPEN_ALL,REVIEW_ALL,DONE_ALL].some(l=>l.some(p=>p.id===pin.id)))lost.push(pin.id);}
   back.sort((a,b)=>(where.get(a.id)||0)-(where.get(b.id)||0));
   for(const p of back){const i=Math.min(where.get(p.id)||0,REVIEW_ALL.length); REVIEW_ALL=[...REVIEW_ALL.slice(0,i),p,...REVIEW_ALL.slice(i)];}
-  RV_PICK=new Map(back.map(p=>[p.id,ticks.get(p.id)||''])); drawPins(); marks();
+  if(RV_PICK)for(const p of back)RV_PICK.set(p.id,ticks.get(p.id)||'');
+  drawPins(); marks();
   const to=/** @type {HTMLElement|null} */(RV_PICK?$('#rv-go'):$('#review-pick'));   // the undo row that had the focus is gone
   if(to&&to.getClientRects().length&&!/** @type {HTMLButtonElement} */(to).disabled)to.focus({preventScroll:true});
   if(lost.length)lineNote(tl('핀 {ids} 은 그사이 다른 곳에서 지워졌습니다',{ids:lost.map(i=>'#'+i).join(', ')}),NOTICE_KIND.WARN);}
@@ -170,13 +180,14 @@ async function rvSend(items){
   bannerNote(NOTICE_HOST.REVIEW,said.msg,said.kind,act,{literal:true});}
 
 // The banner for a send whose confirms did not all go through, or null when they did: 'N건 중 K건 확인 — ' and, per kind,
-// the pins and why, joined by ' · '. ERR when a pin did not reach the server, WARN when one was closed again, reopened,
-// gone or refused, INFO when the rest were only done by a person meanwhile. Pure.
+// the pins and why, joined by ' · ' (one dash: the banner shows what is before it as its title and the rest as its
+// description). ERR when a pin did not reach the server, WARN when one was closed again, reopened, gone or refused, INFO
+// when the rest were only done by a person meanwhile. Pure.
 /** @param {{id:number,out:string,why?:string}[]} res @returns {{msg:string,kind:string}|null} */
 function rvSaid(res){const of=(/** @type {string} */k)=>res.filter(r=>r.out===k),ids=(/** @type {{id:number}[]} */l)=>l.map(r=>'#'+r.id).join(', ');
   const ok=of(RV_OUT.OK).length; if(ok===res.length)return null;
   const refused=of(RV_OUT.REFUSED),why=[
-    [RV_OUT.CLOSED_AGAIN,'{ids} 다시 닫힘 — 새 결과를 보고 확인하세요'],[RV_OUT.REOPENED,'{ids} 그사이 다시 열림'],
+    [RV_OUT.CLOSED_AGAIN,'{ids} 다시 닫힘(새 결과를 보고 확인)'],[RV_OUT.REOPENED,'{ids} 그사이 다시 열림'],
     [RV_OUT.DONE_BY_PERSON,'{ids} 이미 완료로 닫힘'],[RV_OUT.GONE,'{ids} 지워짐'],[RV_OUT.UNREACHED,'{ids} 서버에 닿지 않아 보내지 못함']]
     .map(([k,t])=>{const l=of(k); return l.length?tl(t,{ids:ids(l)}):'';}).filter(Boolean);
   for(const r of refused)why.push(tl('#{id} 거절됨: {why}',{id:r.id,why:r.why||''}));
@@ -187,7 +198,7 @@ function rvSaid(res){const of=(/** @type {string} */k)=>res.filter(r=>r.out===k)
 // confirmed or sent again meanwhile is left out.
 /** @param {{pin:Pin,at:string}[]} items */
 function rvRetry(items){const still=items.filter(x=>!CONFIRMING.has(x.pin.id)&&REVIEW_ALL.some(p=>p.id===x.pin.id)); if(!still.length)return;
-  for(const {pin} of still){CONFIRMING.add(pin.id); CONFIRMING_PIN.set(pin.id,pin);}
+  for(const {pin} of still){CONFIRMING.add(pin.id); CONFIRMING_PIN.set(pin.id,pin); if(RV_PICK)RV_PICK.delete(pin.id);}
   REVIEW_ALL=REVIEW_ALL.filter(p=>!CONFIRMING.has(p.id)); drawPins(); marks(); rvSend(still);}
 
 // Esc while the focus is in the picking section ends picking. Listened in the capture phase, before the page's own Esc

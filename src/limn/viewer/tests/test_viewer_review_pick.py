@@ -43,6 +43,7 @@ SEEN = "try{localStorage.setItem('pinPrefs',%s);}catch(e){}" % json.dumps(
 # The device classes a screen change is shown on (docs/handbook/workflow.md §화면 변경은 PoC를 먼저 보인다).
 DEVICES = {
     "desktop": {"viewport": {"width": 1440, "height": 900}},
+    "desktop-mid": {"viewport": {"width": 1024, "height": 768}},
     "tablet": {"viewport": {"width": 768, "height": 1024}, "is_mobile": True, "has_touch": True},
     "fold": {"viewport": {"width": 673, "height": 841}, "is_mobile": True, "has_touch": True},
     "phone": {"viewport": {"width": 390, "height": 844}, "is_mobile": True, "has_touch": True},
@@ -105,9 +106,10 @@ class ReviewPickBase(BrowserBase):
         settle(page)
 
     def tick(self, page, *pids):
-        """Tick (or clear) the rows of pids by clicking their boxes."""
+        """Tick (or clear) the rows of pids by pressing their boxes' labels - the press area, which on touch reaches 44px
+        round the box over it (.hit)."""
         for pid in pids:
-            page.click('#review-pins input[data-pick="%d"]' % pid)
+            page.click('#review-pins label.rv-ck:has(input[data-pick="%d"])' % pid)
         settle(page)
 
     def ticked(self, page):
@@ -123,9 +125,9 @@ class ReviewPickFlows(ReviewPickBase):
     """Picking, confirming, undoing, the refusals and the retry, the keyboard alone and a redraw, in the real viewer."""
 
     def test_rows_show_each_result_and_a_pin_closed_without_one_cannot_be_ticked(self):
-        """Every review pin is a row: the answer, its reference and changed lines are on it; the pin closed with nothing
-        said has its box disabled and says to confirm it from its card. Each box is described by its own answer line.
-        [모두 고르기] counts the four rows with a result, and [확인] waits for a tick."""
+        """Every review pin is a row: the explanation, its reference and changed lines are on it; the pin closed with nothing
+        said has its box disabled and offers [카드에서 확인]. Each box is described by its own explanation. [모두 고르기]
+        counts the four rows with a result, [확인] waits for a tick, and the head's toggle keeps its name, pressed."""
         page = self.review_page()
         self.pick(page)
         rows = page.evaluate(
@@ -138,14 +140,15 @@ class ReviewPickFlows(ReviewPickBase):
         self.assertIn("alpha fixed", by[self.p1]["text"])
         self.assertIn("PR #9", by[self.p1]["text"])
         self.assertIn("바뀐 줄 L18-L19", by[self.p3]["text"])
-        self.assertIn("답 없음", by[self.p3]["text"])
-        self.assertIn("카드에서 하나씩 확인하세요", by[self.bare]["text"])
+        self.assertIn("설명 없음", by[self.p3]["text"])
+        self.assertIn("설명 없이 닫힘", by[self.bare]["text"])
+        self.assertIn("카드에서 확인", by[self.bare]["text"])
         self.assertEqual([r["id"] for r in rows if r["disabled"]], [self.bare])
         self.assertTrue(all(r["described"] for r in rows))
         self.assertIn("모두 고르기 (4)", page.inner_text("#rv-bar"))
         self.assertTrue(page.is_disabled("#rv-go"))
         self.assertEqual(page.get_attribute("#review-pick", "aria-pressed"), "true")
-        self.assertEqual(page.inner_text("#review-pick").strip(), "고르기 끝")
+        self.assertEqual(page.inner_text("#review-pick").strip(), "골라서 확인")
 
     def test_the_head_button_needs_two_listed_pins_and_a_person_who_may_confirm(self):
         """[골라서 확인] is there for a person who may confirm while two or more pins are listed. A viewer-only person has
@@ -187,27 +190,35 @@ class ReviewPickFlows(ReviewPickBase):
         page.click("label.rv-all")
         settle(page)
         self.assertCountEqual(self.ticked(page), [self.p1, self.p2, self.p3, self.p4])
-        self.assertEqual((page.inner_text("#rv-cnt"), page.inner_text("#rv-go").strip()), ("4건 고름", "4건 확인"))
+        self.assertEqual(page.inner_text("#rv-go").strip(), "4건 확인")
         self.assertEqual(page.evaluate("[$('#rv-all').checked,$('#rv-all').indeterminate]"), [True, False])
         self.tick(page, self.p2)
         self.assertEqual(page.evaluate("[$('#rv-all').checked,$('#rv-all').indeterminate]"), [False, True])
-        self.assertEqual(page.inner_text("#rv-cnt"), "3건 고름")
+        self.assertEqual(page.inner_text("#rv-go").strip(), "3건 확인")
         page.click("label.rv-all")
         settle(page)
         self.assertCountEqual(self.ticked(page), [self.p1, self.p2, self.p3, self.p4])
 
     def test_confirm_waits_for_its_undo_then_sends_each_ticked_pin_with_the_close_its_row_showed(self):
-        """[N건 확인] takes the ticked rows off at once and ends the pick; one undo row takes the focus and nothing is sent
-        while it stands. When it goes, each ticked pin gets one confirm with the done_at its row showed, kept alive, and
-        both are done, confirmed by Alice; the rest still await review."""
+        """[N건 확인] takes the ticked rows off at once and the rest stay picking; one undo row stands at the section's top,
+        in view under its head, and takes the focus; nothing is sent while it stands. When it goes, each ticked pin gets
+        one confirm with the done_at its row showed, kept alive, and both are done, confirmed by Alice; the rest still
+        await review."""
         page = self.review_page()
         self.pick(page)
         self.tick(page, self.p1, self.p2)
         page.click("#rv-go")
         page.wait_for_selector(".nt:has-text('핀 2건 확인')")
         self.assertTrue(page.evaluate("document.activeElement.matches('.nt .nt-act')"))
-        self.assertEqual(page.evaluate("RV_PICK"), None)
-        self.assertEqual(page.locator("#review-pins .pin.card").count(), 3)
+        self.assertEqual(page.evaluate("RV_PICK&&RV_PICK.size"), 0)
+        self.assertEqual(page.locator("#review-pins .rv-row").count(), 3)
+        shown = page.evaluate(
+            """() => {const n = document.querySelector('#review-pins .nt').getBoundingClientRect(),
+              h = document.querySelector('#sec-review>.sec-head').getBoundingClientRect(),
+              s = document.querySelector('#list').getBoundingClientRect();
+              return n.top >= h.bottom - 0.5 && n.bottom <= s.bottom + 0.5;}"""
+        )
+        self.assertTrue(shown, "the undo row is in view, under the section's head")
         self.assertEqual(page.evaluate("CONFIRMS"), [])
         self.send_now(page)
         page.wait_for_function("CONFIRMS.length===2")
@@ -239,6 +250,63 @@ class ReviewPickFlows(ReviewPickBase):
         self.assertEqual(page.evaluate("[CONFIRMS.length,DEFERRED.size,CONFIRMING.size]"), [0, 0, 0])
         self.assertEqual([self.state(p) for p in (self.p1, self.p2)], ["review", "review"])
 
+    def test_its_undo_joins_the_ticks_of_a_pick_made_meanwhile(self):
+        """Ticks made while the undo row stands stay when it is used: the pins it brings back join them, so [N건 확인]
+        then confirms both - it never swaps a new pick for the one just taken back."""
+        page = self.review_page()
+        self.pick(page)
+        self.tick(page, self.p1, self.p2)
+        page.click("#rv-go")
+        self.tick(page, self.p3)
+        page.click(".nt:has-text('%s') [data-act=notice-act]" % UNDO)
+        page.wait_for_selector('#review-pins .rv-row[data-id="%d"]' % self.p1)
+        settle(page)
+        self.assertCountEqual(self.ticked(page), [self.p1, self.p2, self.p3])
+        self.assertEqual(page.inner_text("#rv-go").strip(), "3건 확인")
+        self.assertEqual(page.evaluate("CONFIRMS.length"), 0)
+
+    def test_a_row_without_a_result_leads_to_its_card(self):
+        """[카드에서 확인] on the row of a pin closed with nothing said ends the pick and puts the focus on that pin's [확인]
+        in its card - on a phone, whose cards are folded, the card unfolded and in view."""
+        page = self.review_page(**DEVICES["phone"])
+        self.pick(page)
+        page.click('#review-pins .rv-row[data-id="%d"] [data-act=rv-card]' % self.bare)
+        settle(page)
+        self.assertEqual(page.evaluate("RV_PICK"), None)
+        got = page.evaluate(
+            """id => {const a = document.activeElement, r = a.getBoundingClientRect(),
+              s = document.querySelector('#right').getBoundingClientRect();
+              return [a.matches('.pin[data-id="' + id + '"] [data-act=confirm]'),
+                r.height > 0 && r.top >= s.top && r.bottom <= s.bottom];}""",
+            self.bare,
+        )
+        self.assertEqual(got, [True, True])
+
+    def test_the_undo_row_shows_after_a_confirm_from_far_down_a_long_list(self):
+        """[N건 확인] pressed in the stuck head with the list read far down (a phone, thirteen rows): the undo row - the
+        section's first - is brought into view under the head, so its six seconds are not spent out of sight."""
+        for lo in range(5, 37, 4):
+            pid = add_pin({"file": str(self.main), "lo": lo, "hi": lo, "page": 1, "note": "more %d" % lo}, A).record[
+                "id"
+            ]
+            self.close(pid, reply="fixed %d" % lo)
+        page = self.review_page(**DEVICES["phone"])
+        self.pick(page)
+        last = page.evaluate("+[...document.querySelectorAll('#review-pins .rv-row')].pop().dataset.id")
+        self.tick(page, last)
+        page.evaluate("document.querySelector('#right').scrollTop = 1e6")
+        settle(page)
+        page.click("#rv-go")
+        page.wait_for_selector(".nt:has-text('핀 1건 확인')")
+        settle(page)
+        shown = page.evaluate(
+            """() => {const n = document.querySelector('#review-pins .nt').getBoundingClientRect(),
+              h = document.querySelector('#sec-review>.sec-head').getBoundingClientRect(),
+              s = document.querySelector('#right').getBoundingClientRect();
+              return [n.top >= h.bottom - 0.5, n.bottom <= s.bottom + 0.5];}"""
+        )
+        self.assertEqual(shown, [True, True])
+
     def test_a_pin_closed_again_or_reopened_after_its_row_was_ticked_is_left_and_the_banner_says_why(self):
         """A row ticked, then its pin closed again by the agent (another done_at) or reopened by a person's reply: those
         confirms answer 409 and are not made, the other is, and one warning banner on the review section names each
@@ -255,14 +323,14 @@ class ReviewPickFlows(ReviewPickBase):
         self.send_now(page)
         banner = page.wait_for_selector(".nt-banner.nk-warn[role=alert]:has-text('3건 중 1건 확인')", timeout=10000)
         text = banner.inner_text()
-        self.assertIn("#%d 다시 닫힘 — 새 결과를 보고 확인하세요" % self.p1, text)
+        self.assertIn("#%d 다시 닫힘(새 결과를 보고 확인)" % self.p1, text)
         self.assertIn("#%d 그사이 다시 열림" % self.p2, text)
         self.assertIn("변경 보기", text)
         self.assertEqual([self.state(p) for p in (self.p1, self.p2, self.p4)], ["review", "open", "done"])
 
     def test_a_confirm_that_did_not_reach_the_server_is_sent_again_by_retry_with_the_same_close(self):
-        """A confirm with no answer leaves its pin awaiting review and in the list; an error banner names it and its
-        [다시 시도] sends that pin alone again, with the done_at its row showed."""
+        """A confirm with no answer leaves its pin awaiting review and back in the picking list; an error banner names it
+        and its [다시 시도] sends that pin alone again, with the done_at its row showed."""
         self.unreached.add(self.p2)
         page = self.review_page()
         self.pick(page)
@@ -271,7 +339,7 @@ class ReviewPickFlows(ReviewPickBase):
         self.send_now(page)
         banner = page.wait_for_selector(".nt-banner.nk-err[role=alert]:has-text('2건 중 1건 확인')", timeout=10000)
         self.assertIn("#%d 서버에 닿지 않아 보내지 못함" % self.p2, banner.inner_text())
-        page.wait_for_selector('#review-pins .pin.card[data-id="%d"]' % self.p2)
+        page.wait_for_selector('#review-pins .rv-row[data-id="%d"]' % self.p2)
         self.assertEqual((self.state(self.p1), self.state(self.p2)), ("done", "review"))
         self.unreached.clear()
         page.click(".nt-banner.nk-err [data-act=notice-act]")
@@ -299,9 +367,9 @@ class ReviewPickFlows(ReviewPickBase):
 
     def test_the_keyboard_alone_picks_ticks_confirms_undoes_and_ends(self):
         """Enter on [골라서 확인] picks and puts the focus on [모두 고르기]; Space ticks all; Tab goes to [N건 확인], then
-        through the rows in order - the first row (no result) offers its [변경 보기] alone, the next its box (Space clears
-        it) and its [변경 보기]; Enter on [N건 확인] confirms and puts the focus on the undo; Enter undoes; Esc ends the
-        pick, the focus back on [골라서 확인]."""
+        through the rows in order - the first row (no result) offers its [변경 보기] and [카드에서 확인], the next its box
+        (Space clears it) and its [변경 보기]; Enter on [N건 확인] confirms and puts the focus on the undo; Enter undoes;
+        Esc ends the pick, the focus back on [골라서 확인]."""
         page = self.review_page()
         page.keyboard.press("Shift")
         page.focus("#review-pick")
@@ -320,6 +388,8 @@ class ReviewPickFlows(ReviewPickBase):
         page.keyboard.press("Tab")
         self.assertEqual(page.evaluate(here), [self.bare, "change"])
         page.keyboard.press("Tab")
+        self.assertEqual(page.evaluate(here), [self.bare, "rv-card"])
+        page.keyboard.press("Tab")
         self.assertEqual(page.evaluate(here), [first, "box"])
         page.keyboard.press("Space")
         settle(page)
@@ -327,7 +397,7 @@ class ReviewPickFlows(ReviewPickBase):
         self.assertEqual(page.evaluate(here), [first, "box"])
         page.keyboard.press("Tab")
         self.assertEqual(page.evaluate(here), [first, "change"])
-        for _ in range(3):
+        for _ in range(4):
             page.keyboard.press("Shift+Tab")
         self.assertEqual(page.evaluate("document.activeElement.id"), "rv-go")
         page.keyboard.press("Enter")
@@ -383,7 +453,7 @@ GEOMETRY = """() => {
   const out = {chev: R(q('#review-toggle .ic')), pick: R(q('#review-pick')), head: R(q('#sec-review>.sec-head')),
     all: R(box), go: R(go), goInk: __m.label(go, box), allInk: __m.label(lbl.querySelector('.lbl'), box),
     allHit: hitH(lbl), goHit: hitH(go), pickHit: hitH(q('#review-pick')),
-    bar: {sw: q('#rv-bar').scrollWidth, cw: q('#rv-bar').clientWidth},
+    bar: {sw: q('#rv-bar').scrollWidth, cw: q('#rv-bar').clientWidth}, pins: R(q('#review-pins')),
     list: {sw: q('#list').scrollWidth, cw: q('#list').clientWidth}, rows: []};
   for (const row of document.querySelectorAll('#review-pins .rv-row')) {
     const b = row.querySelector('input[data-pick]'), h = row.querySelector('.rv-h'), chg = row.querySelector('.rv-chg');
@@ -393,8 +463,6 @@ GEOMETRY = """() => {
       ink: __m.label(h, b), chgInk: __m.label(chg, b), labelHit: hitH(row.querySelector('label.rv-ck')), chgHit: hitH(chg),
       sw: row.scrollWidth, cw: row.clientWidth});}
   return out;}"""
-# A small touch control's drawn height on this page (--ctl-touch-sm), in px.
-CTL_TOUCH_SM = "parseFloat(getComputedStyle(document.body).getPropertyValue('--ctl-touch-sm'))"
 # The drawn look of the boxes and the colours they stand in, in the theme on screen. Colours are read through a canvas, so
 # any colour the browser computes (color-mix, oklab) comes back as 8-bit sRGB; a row's surface is its tint over the panel.
 LOOKS = """() => {
@@ -483,8 +551,13 @@ class ReviewPickLayout(ReviewPickBase):
                     self.assertEqual(row["row"]["h"], round(row["row"]["h"]), where + ": the next row on a whole px")
                     self.assertGreaterEqual(row["labelHit"], need - TOL, where + ": the box's press area")
                     self.assertGreaterEqual(row["chgHit"], need - TOL, where + ": [변경 보기]'s press area")
-                    # drawn as a card's actions on touch (--ctl-touch-sm: 32px on the phone sheet, 36px in a tablet panel)
-                    self.assertEqual(row["chg"]["h"], page.evaluate(CTL_TOUCH_SM) if touch else 24, where + ": drawn height")
+                    self.assertEqual((row["label"]["h"], row["chg"]["h"]), (24, 24), where + ": the first line is 24px")
+                    self.assertAlmostEqual(
+                        row["row"]["x"], g["pins"]["x"], delta=TOL, msg=where + ": across the content"
+                    )
+                    self.assertAlmostEqual(
+                        row["row"]["r"], g["pins"]["r"], delta=TOL, msg=where + ": across the content"
+                    )
                     self.assertLessEqual(row["sw"], row["cw"], where + ": nothing wider than the row")
                 self.assertAlmostEqual(g["go"]["r"], g["pick"]["r"], delta=TOL, msg=name + ": the head's right edge")
                 self.assertAlmostEqual(abs(g["allInk"]["cap"]), 0, delta=TOL, msg=name + ": [모두 고르기] on its box")
@@ -586,7 +659,7 @@ class ReviewPickOutcome(unittest.TestCase):
         self.assertEqual(
             got[1],
             {
-                "msg": "4건 중 1건 확인 — #2 다시 닫힘 — 새 결과를 보고 확인하세요 · #3 그사이 다시 열림 · #4 서버에 닿지 않아 보내지 못함",
+                "msg": "4건 중 1건 확인 — #2 다시 닫힘(새 결과를 보고 확인) · #3 그사이 다시 열림 · #4 서버에 닿지 않아 보내지 못함",
                 "kind": "err",
             },
         )
@@ -594,11 +667,11 @@ class ReviewPickOutcome(unittest.TestCase):
         self.assertEqual(got[3], {"msg": "2건 중 1건 확인 — #6 이미 완료로 닫힘", "kind": "info"})
 
     def test_the_banner_reads_in_english(self):
-        """The same banner in English through the table."""
+        """The same banner in English through the table, with one dash: the banner shows what is before it as its title."""
         got = self.run_js("en", "rvSaid([{id:1,out:'ok'},{id:2,out:'closed-again'},{id:4,out:'unreached'}])")
         self.assertEqual(
             got["msg"],
-            "Confirmed 1 of 3 — #2 closed again — look at the new result, then confirm · #4 not sent — the server could not be reached",
+            "Confirmed 1 of 3 — #2 closed again (look at the new result, then confirm) · #4 not sent (the server could not be reached)",
         )
 
 
