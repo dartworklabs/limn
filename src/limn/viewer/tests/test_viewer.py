@@ -2983,7 +2983,7 @@ class FrontendFigure(unittest.TestCase):
               {level:'el',lo:24,hi:26,label:'7월',snippet:'',el:{id:'B2/c/m07',path:['B2','B2/c','B2/c/m07']}},
               {level:'el2',lo:20,hi:30,n:11,label:'달력',snippet:'',el:{id:'B2/c',path:['B2','B2/c']}},
               {level:'fig',lo:1,hi:40,label:'B2',snippet:'',el:{id:'B2',path:['B2']}}]};
-            const re=/data-level="([^"]+)" aria-pressed="([^"]+)"[^>]*data-tip="([^"]*)">([^<]*)<span class="k[^"]*">· ([^<]*)</g;
+            const re=/data-level="([^"]+)" role="radio" aria-checked="([^"]+)"[^>]*data-tip="([^"]*)">([^<]*)<span class="k[^"]*">· ([^<]*)</g;
             console.log(JSON.stringify([...html`${levelBtns(o,false)}`.text.matchAll(re)].map(m=>[m[1],m[2],m[3],m[4].trim(),m[5]])));"""
             ]
         )
@@ -4873,6 +4873,7 @@ class FrontendMentions(unittest.TestCase):
             const PINSET={12:1,3:1}; function findAnyPin(id){return PINSET[id]?{id}:null;} let DROPPED=[{id:40}];
             function tr(s){return s;}
             const KIND_NEW='fix'; function appendTarget(){return null;}   // no overlapped pin on offer
+            const document={activeElement:null};   // nothing has the focus: a row drawn again has none to keep (segKeep)
             """,
             ]
             + [
@@ -4905,6 +4906,9 @@ class FrontendMentions(unittest.TestCase):
                     "segReveal",
                     "segFade",
                     "segOffered",
+                    "segShown",
+                    "segFocusAt",
+                    "segKeep",
                     "segRove",
                     "mentionPreview",
                     "renderAssignNew",

@@ -106,11 +106,14 @@ function tabletLift(){const f=sheetF();
 function setSheetF(f){keepSheet(); f=Math.min(1,Math.max(SHEET_MIN_F,f)); savePrefs({[sheetPref().key]:Math.round(f*1000)/1000}); applySheet(); if(!SIDE_OPEN)setSide(true); renderSizeSeg();}
 // The next height stop above the one shown (the composing lift counts as shown); wraps to the lowest.
 function cycleSheet(){const f=document.body.classList.contains('sheet-up')?Math.max(sheetF(),SHEET_COMPOSE_F):sheetF(),i=SHEET_F.findIndex(x=>x>f+0.02); setSheetF(SHEET_F[i<0?0:i]);}
-// The '패널 폭' (wide/mid) / '시트 높이' (narrow) segment control inside [⋯].
-function renderSizeSeg(){const box=$('#m-size'); if(!box)return; const narrow=LAYOUT===LAYOUT_MODE.NARROW;
+// The '패널 폭' (wide/mid) / '시트 높이' (narrow) segment control inside [⋯], the size now chosen checked. A folded panel is
+// measured 0 wide, so its width is the one it opens at (SIDE_SHOWN): measured, the tablet's [더보기] - its panel folded at
+// first - checked no width at all, even the one just chosen.
+function renderSizeSeg(){const box=$('#m-size'); if(!box)return; const narrow=LAYOUT===LAYOUT_MODE.NARROW,at=segFocusAt(box);
   $('#m-size-l').textContent=narrow?'시트 높이':'패널 폭'; box.setAttribute('aria-label',narrow?'시트 높이':'패널 폭');
   let names,cur;
   if(narrow){names=['낮게','보통','높게']; const f=sheetF(); cur=SHEET_F.findIndex(x=>Math.abs(x-f)<=0.02);}
-  else{names=['좁게','보통','넓게']; cur=presetIndex(sideBounds(LAYOUT,innerWidth).presets,curSideW());}
-  setHtml(box,html`${names.map((n,i)=>html`<button class="${i===cur?'on':''}" aria-pressed="${i===cur}" data-act="size-preset" data-i="${i}">${n}</button>`)}`);}
+  else{names=['좁게','보통','넓게']; cur=presetIndex(sideBounds(LAYOUT,innerWidth).presets,!SIDE_OPEN&&SIDE_SHOWN?SIDE_SHOWN.w:curSideW());}
+  setHtml(box,html`${names.map((n,i)=>html`<button class="${i===cur?'on':''}" role="radio" aria-checked="${i===cur}" data-act="size-preset" data-i="${i}">${n}</button>`)}`);
+  segRove(box); segKeep(box,at);}   // one Tab stop, the size chosen (else the first: a dragged width has none), and the focus kept (events.js)
 function sizePreset(i){if(LAYOUT===LAYOUT_MODE.NARROW){setSheetF(SHEET_F[i]);return;} setSideWidth(sideBounds(LAYOUT,innerWidth).presets[i]);}

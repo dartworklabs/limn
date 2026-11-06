@@ -205,10 +205,11 @@ function placeRow(box,n,e){const prev=n.prev!=null?box.querySelector('.pin.card[
   if(d)l.after(e); else l.replaceWith(e);}   // the page order has no day lines
 // Takes out a day line with nothing of its day under it - its last undo row gone - in the open and review sections.
 function dropBareDayLines(){for(const l of $$('#pins>.day-line,#review-pins>.day-line')){const nx=l.nextElementSibling; if(!nx||nx.matches('.day-line'))l.remove();}}
-// [최신순 | 위치순 | 번호순]: shown while the open or review section shows a card, the list's order pressed.
+// [최신순 | 위치순 | 번호순]: shown while the open or review section shows a card, the list's order checked.
 /** @param {boolean} any */
 function drawOrderControl(any){const c=$('#list-order'); c.hidden=!any;
-  for(const b of c.querySelectorAll('button')){const on=/** @type {HTMLElement} */(b).dataset.order===ORDER; b.classList.toggle('on',on); b.setAttribute('aria-pressed',String(on));}}
+  for(const b of c.querySelectorAll('button')){const on=/** @type {HTMLElement} */(b).dataset.order===ORDER; b.classList.toggle('on',on); b.setAttribute('aria-checked',String(on));}
+  segRove(c);}   // the group's one Tab stop is the order now chosen (events.js)
 // A press on the order control: the list is drawn in order o, remembered for this browser, with the control where it stood under
 // the pointer - a card kept in place (lazyCards) would scroll it away - and its button keeps the focus (it is not redrawn).
 /** @param {string|undefined} o - a LIST_ORDER value */

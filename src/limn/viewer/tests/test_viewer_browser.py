@@ -1994,7 +1994,7 @@ class FigureDocuments(BrowserBase):
         self.assertEqual(
             page.eval_on_selector_all(
                 "#c-levels button",
-                "bs=>bs.map(b=>[b.dataset.level,b.firstChild.textContent.trim(),b.getAttribute('aria-pressed')])",
+                "bs=>bs.map(b=>[b.dataset.level,b.firstChild.textContent.trim(),b.getAttribute('aria-checked')])",
             ),
             [["el", "7월", "true"], ["el2", "달력", "false"], ["fig", "B2", "false"]],
         )

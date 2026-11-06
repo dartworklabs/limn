@@ -34,7 +34,7 @@ placeholder="이 줄들을 바꿀 글 (비우면 이 줄들을 지웁니다)" da
 <div class="sg-note q-hint" aria-live="polite" hidden></div><div class="sg-cc q-hint" aria-live="polite" hidden></div><div class="sg-cur" hidden></div></div>\
 <div class="e-sg-ro" hidden></div>\
 <div class="rg-cap e-cap" aria-live="polite" aria-atomic="true"></div>\
-<div class="e-levels seg lad" role="group" aria-label="범위" data-rungs="0"></div>\
+<div class="e-levels seg lad" role="radiogroup" aria-label="범위" data-rungs="0"></div>\
 <div class="xp e-xp" hidden></div>\
 <pre class="e-snip wrap" translate="no">${tr('원문 읽는 중…')}</pre>\
 <div class="e-acts"><button class="btn-sm b-repick" data-act="repick" data-tip="${T.repick}">위치 다시 잡기</button>\

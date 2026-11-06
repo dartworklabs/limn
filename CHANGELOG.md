@@ -20,6 +20,16 @@
   [더보기]'s language, which reopens the page, and the phone navigation sheet's [원고 | 변경사항], which changes the view
   and closes the sheet (Home on the chosen 원고 shut it) - are walked without choosing, as tabs with manual activation
   are (WCAG 3.2.2): the keys move the focus, and Enter or Space chooses.
+- **The list order, [더보기]'s panel width and the range ladder are walked with the arrow keys too** (#438). The
+  list's [최신순 | 위치순 | 번호순], [좁게 | 보통 | 넓게] (the phone's [낮게 | 보통 | 높게] for the sheet) and the range
+  ladder of the composer and the edit card were rows of toggle buttons, one Tab stop per word. They are one-of-many
+  segments now, as #417 made the others: one Tab stop on the chosen word, and ←/→ (↑/↓), Home and End move and choose
+  at once - the list sorts again, the panel or the sheet takes the size, the range becomes the rung's lines. None of the
+  three changes the context, so none waits for Enter or Space. The groups that draw their words again - the assignee
+  row, the ladder (once more when a pick's overlaps come back) and the width - give the focus back to the word in the
+  same place after any press: Enter or Space on a rung or a width had dropped it on the page, and the next Tab started
+  from the top. On a tablet, whose panel starts folded, the width control checks the width the panel opens at; it
+  checked none, not even the one just chosen.
 - **Tab rests on a mark badge in turn and shows it, passing over only one no scroll can show** (#418). On a tablet or
   phone with the sheet open, Tab put the focus ring on a badge under the sheet, out of sight, and its tooltip floated over
   the sheet. A badge is a Tab stop while the pages can scroll it, up or down within their ends, to where it stands whole

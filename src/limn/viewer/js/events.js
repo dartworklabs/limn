@@ -137,6 +137,18 @@ $('#revision-file').addEventListener('change',renderRevisionFile);
 const SEG_STEP={ArrowLeft:-1,ArrowUp:-1,ArrowRight:1,ArrowDown:1};
 /** The words of radio group g that can take the focus: neither disabled nor hidden. @param {Element} g */
 function segOffered(g){return /** @type {HTMLButtonElement[]} */([...g.querySelectorAll('[role=radio]')]).filter(w=>!w.disabled&&!w.hidden);}
+/** The words of g on offer that are laid out - the ones a key walks. @param {Element} g */
+function segShown(g){return segOffered(g).filter(w=>w.getClientRects().length);}
+/** Where the focus is among the words g shows (segShown), -1 when it is not on one of them. @param {Element} g */
+function segFocusAt(g){return segShown(g).indexOf(/** @type {HTMLButtonElement} */(document.activeElement));}
+// Three groups draw their words again: the assignee row on every pick and every change of the note (mentions.js assignSeg),
+// the range ladder with every range (levels.js drawLadder - a pick draws it again once more when its overlaps come back) and
+// [더보기]'s size on every pick and relayout (panel-size.js renderSizeSeg). The word with the focus goes with the old words,
+// and the focus would land on the body: an arrow's walk ended there, as did Enter or Space on the chosen word, and the next
+// Tab began again from the page's start. So each draw notes where the focus was (segFocusAt) and puts it back on the word now
+// in place i - the last when there are fewer. A group drawn away (no people left to assign) has none, and the focus stays.
+/** @param {Element} g @param {number} i */
+function segKeep(g,i){if(i<0)return; const ws=segShown(g),w=ws[Math.min(i,ws.length-1)]; if(w)w.focus();}
 /** Keep one Tab stop in radio group g: the chosen word, else the first one on offer. It reads the markup only, not the
  * layout, so a group drawn while its panel is closed holds its one stop before it shows. @param {Element|null} g */
 function segRove(g){if(!g)return; const ws=segOffered(g),on=ws.find(w=>w.getAttribute('aria-checked')==='true')||ws[0];
@@ -146,18 +158,13 @@ document.addEventListener('keydown',e=>{
   const t=/** @type {HTMLElement} */(e.target); if(imeKey(e)||e.ctrlKey||e.metaKey||e.altKey)return;
   if(!t||!t.closest||t.getAttribute('role')!=='radio')return;
   const g=t.closest('[role=radiogroup]'); if(!g)return;
-  const ws=segOffered(g).filter(w=>w.getClientRects().length),i=ws.indexOf(/** @type {HTMLButtonElement} */(t)); if(i<0)return;
+  const ws=segShown(g),i=ws.indexOf(/** @type {HTMLButtonElement} */(t)); if(i<0)return;
   const step=SEG_STEP[e.key];
   const to=step!==undefined?(i+step+ws.length)%ws.length:e.key==='Home'?0:e.key==='End'?ws.length-1:-1;
   if(to<0)return;
   e.preventDefault(); const w=ws[to];
   if(g.hasAttribute('data-seg-manual')){for(const x of segOffered(g))x.tabIndex=x===w?0:-1; w.focus(); return;}   // the focus only
-  w.tabIndex=0; w.focus(); if(w.getAttribute('aria-checked')!=='true')w.click();
-  // The press may draw the group again and take the focused word with it - the assignee row replaces its words on every
-  // pick (mentions.js assignSeg) - and the focus would land on the body, ending the walk. Put it on the word now in that
-  // place. A group that drew itself away (no people left to assign) has none, and the focus stays where the redraw left it.
-  if(!g.contains(document.activeElement)){const nws=segOffered(g).filter(x=>x.getClientRects().length),nw=nws[Math.min(to,nws.length-1)];
-    if(nw)nw.focus();}
+  w.tabIndex=0; w.focus(); if(w.getAttribute('aria-checked')!=='true')w.click();   // a group the press draws again keeps the focus (segKeep)
   segRove(g);});
 // The focus has left a group walked without choosing: its stop is the chosen word again, where Tab and Shift+Tab come back to.
 /** @param {FocusEvent} e */
