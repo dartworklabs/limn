@@ -28,7 +28,7 @@ button.badge-review{font-weight:600}
    Same inside a faded archive row - the row's text is faded and only the clickable words are in the primary color. */
 :is(.loc,.pg-link,.pin .n.go,.pin-ref){text-decoration:none;text-underline-offset:3px}
 :is(.loc,.pg-link,.pin .n.go,.pin-ref):focus-visible{text-decoration:underline}
-@media (hover:hover){:is(.loc,.pg-link,.pin .n.go,.pin-ref):hover{text-decoration:underline}}
+@media (hover:hover){:is(.loc,.pg-link,.pin .n.go,.pin-ref):where(:not(:disabled,[aria-disabled="true"])):hover{text-decoration:underline}}
 .pin :is(.sum,.note)>.dim{line-height:1}   /* '(메모 없음)' is smaller than a note's words: with the note's line height its own box pushed the line a pixel taller (folded 20px for 19, open 23px for 22) */
 .pin .note{margin-top:var(--space-1);line-height:round(1.55em,1px);white-space:pre-wrap;word-break:break-word;cursor:text}   /* the body's 1.55 on a whole pixel (21.7 -> 22): every card under a note then starts on a whole pixel, where its head row's words and icons are painted on one line */
 /* Card header: number/range/page on the left, author/collapse on the right. Badges are a single row below the header. Actions form an equal-width grid; only [완료] is emphasized and [삭제] is in the destructive color. */
@@ -66,16 +66,16 @@ body.compact .pin .acts :is(.b-edit,.b-drop,.b-unclaim){flex:none;padding:0;widt
 /* The three icons share one neutral fill and size; only the delete glyph is red, and [삭제] keeps one more spacing step from [수정]
    so a thumb meant for edit does not land on delete. */
 body.compact .pin .acts .b-drop{background:var(--secondary);margin-right:var(--space-2)}
-@media (hover:hover){body.compact .pin .acts .b-drop:hover{background:color-mix(in srgb,var(--destructive) 12%,var(--secondary))}}
+@media (hover:hover){body.compact .pin .acts .b-drop:where(:not(:disabled,[aria-disabled="true"])):hover{background:color-mix(in srgb,var(--destructive) 12%,var(--secondary))}}
 body.compact .pin .acts .b-reply{margin-left:auto}   /* the row's order is the markup's (cardActs), so Tab follows what is seen */
 body.compact .pin .acts button:not(.btn-icon){padding-left:var(--space-3);padding-right:var(--space-3)}
 button.b-close{font-weight:600}
 /* Buttons inside a card are borderless and filled (secondary) - so six bordered buttons never line up inside an already-bordered card.
    Only [완료] gets the soft emphasis; [삭제] is plain destructive-colored text with no fill, so it never becomes the most eye-catching button. [취소] next to an input field uses the same fill. */
 .pin :is(.acts,.e-acts,.r-acts) button:not(.btn-soft):not(.btn-destructive):not(.btn-default){background:var(--secondary);color:var(--secondary-foreground);border-color:transparent}
-@media (hover:hover){.pin :is(.acts,.e-acts,.r-acts) button:not(.btn-soft):not(.btn-destructive):not(.btn-default):hover{background:var(--accent)}}
+@media (hover:hover){.pin :is(.acts,.e-acts,.r-acts) button:not(.btn-soft):not(.btn-destructive):not(.btn-default):where(:not(:disabled,[aria-disabled="true"])):hover{background:var(--accent)}}
 .pin .acts button.btn-destructive{background:transparent}
-@media (hover:hover){.pin .acts button.btn-destructive:hover{background:color-mix(in srgb,var(--destructive) 12%,transparent)}}   /* [완료] = soft, [삭제] = destructive - the variant is set by the class in the markup */
+@media (hover:hover){.pin .acts button.btn-destructive:where(:not(:disabled,[aria-disabled="true"])):hover{background:color-mix(in srgb,var(--destructive) 12%,transparent)}}   /* [완료] = soft, [삭제] = destructive - the variant is set by the class in the markup */
 .e-acts{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:var(--space-2);margin-top:var(--space-2)}
 /* Pin kind (fix request / question). The question badge has a primary-color border. */
 .kind-seg{margin:var(--space-2) 0 0}
@@ -112,7 +112,7 @@ body.compact .pin:not(.open):not(.editing) .card-meta.hide-folded{position:absol
 .pin .card-meta .as-chip .as-n{min-width:0;padding-block:var(--space-1);overflow:hidden;text-overflow:ellipsis}
 .pin .card-meta .as-chip .ic{flex:none;width:12px;height:12px;margin-left:var(--space-1);color:var(--muted-foreground)}   /* the pencil of the assignee that can be pressed (a mouse only) */
 .pin .card-meta button.as-chip:focus-visible{text-decoration:underline}
-@media (hover:hover){.pin .card-meta button.as-chip:hover{background:transparent;color:var(--primary);text-decoration:underline}}
+@media (hover:hover){.pin .card-meta button.as-chip:where(:not(:disabled,[aria-disabled="true"])):hover{background:transparent;color:var(--primary);text-decoration:underline}}
 /* The pressable assignee's 44px touch hit comes from the hit utility (button.badge::after) and never from padding, so the line
    is as tall on every card. The assignee is a button only where that box has room: in a folded card, where nothing else by the
    line is pressed (cards.js). */
@@ -154,7 +154,7 @@ body.compact .pin:not(.open):not(.editing) .card-meta.hide-folded{position:absol
 .q-hint svg{width:14px;height:14px;flex:none}
 .q-hint button{background:transparent;border-color:transparent;color:var(--primary);padding:0 var(--space-1);font-size:var(--text-sm);text-underline-offset:3px}
 .q-hint button:focus-visible{background:transparent;color:var(--primary);text-decoration:underline}
-@media (hover:hover){.q-hint button:hover{background:transparent;color:var(--primary);text-decoration:underline}}
+@media (hover:hover){.q-hint button:where(:not(:disabled,[aria-disabled="true"])):hover{background:transparent;color:var(--primary);text-decoration:underline}}
 /* A '#12' inside text = a link to that pin (a navigable string is dotted-underline, solid on hover - the same convention as .pg-link/#number) */
 .pin-ref{color:var(--primary);font-weight:600;cursor:pointer}
 /* '#12' pointing at a deleted pin (in the Trash): faded, struck number + 'deleted pin' - clicking opens the Trash at that row */
@@ -179,7 +179,7 @@ body.band-phone #trash .arc-acts{grid-row:2}
 body.band-phone #trash .arc-l2{grid-column:1}
 .arc-acts{flex:none;display:inline-flex;gap:var(--space-1);margin-left:auto}
 #trash-link{display:flex;margin:var(--space-3) auto 0;color:var(--muted-foreground);background:transparent;border-color:transparent}
-@media (hover:hover){#trash-link:hover{background:var(--accent);color:var(--foreground)}}
+@media (hover:hover){#trash-link:where(:not(:disabled,[aria-disabled="true"])):hover{background:var(--accent);color:var(--foreground)}}
 body.compact #trash-link{display:none}   /* compact: the Trash is in [⋯], like the other secondary lists */
 .arc-row.flash{animation:pinflash 1.2s ease-in-out 1;border-radius:var(--radius)}
 /* @-tag autocomplete: a list that appears right below the input field (above it if there's no room). Never steals the input field's focus (blocks pointerdown).
@@ -247,7 +247,7 @@ button.msg-more{align-self:flex-start;margin-top:2px;color:var(--muted-foregroun
 .msg.ev .msg-t{color:var(--card-foreground);font-size:var(--text-base)}
 button.th-more{align-self:flex-start;color:var(--muted-foreground)}
 .th-n{display:inline-flex;align-items:center;gap:2px;flex:none;color:var(--muted-foreground);font-size:var(--text-xs);cursor:pointer;border-radius:var(--radius);padding:0 2px;position:relative}
-@media (hover:hover){.th-n:hover{background:var(--accent);color:var(--foreground)}}
+@media (hover:hover){.th-n:where(:not(:disabled,[aria-disabled="true"])):hover{background:var(--accent);color:var(--foreground)}}
 .th-n .ic{width:12px;height:12px}
 .reply-box{display:flex;flex-direction:column;gap:var(--space-2);margin-top:var(--space-2)}
 .reply-box textarea{min-height:3.2em}

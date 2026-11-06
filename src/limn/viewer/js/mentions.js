@@ -158,7 +158,7 @@ const ASSIGN_NEW={v:ASSIGNEE_AGENT,touched:false};
 // (loadPeople draws the row again). savePin() does not read what is settled here: it asks assignOutcome itself.
 function renderAssignNew(){const ta=$('#note'),box=$('#c-assign'); if(!ta||!box)return;
   const o=assignOutcome(composeAsk(SAVE_MODE.NEW)); if(PEOPLE_KNOWN){ASSIGN_NEW.v=/** @type {string} */(o.assignee); ASSIGN_NEW.touched=o.kept;}
-  if(o.people.length&&!appendTarget()){setHtml(box,assignSeg(o.people,/** @type {string} */(o.assignee),'assign-new')); box.hidden=false; segReveal(box.querySelector('.as-seg'));}
+  if(o.people.length&&!appendTarget()){setHtml(box,assignSeg(o.people,/** @type {string} */(o.assignee),'assign-new')); box.hidden=false; segRove(box); segReveal(box.querySelector('.as-seg'));}
   else{box.hidden=true; box.replaceChildren();}
   mentionPreview(ta);}
 // The edit card's assignee row: the stored assignee stays pressed until the author changes it - a stored pin never takes the
@@ -166,7 +166,7 @@ function renderAssignNew(){const ta=$('#note'),box=$('#c-assign'); if(!ta||!box)
 function renderAssignEdit(){const E=EDITOR.current; if(!E)return; const ta=editNote(E),box=/** @type {HTMLElement} */(E.el.querySelector('.e-assign')); if(!ta||!box)return;
   const ppl=assignPeople(ta.value,mentionHints(ta),PEOPLE,meLogin(),E.assignee);
   if(!ppl.length){box.hidden=true; box.replaceChildren(); return;}
-  setHtml(box,assignSeg(ppl,E.assignee,'assign-edit')); box.hidden=false; segReveal(box.querySelector('.as-seg'));}
+  setHtml(box,assignSeg(ppl,E.assignee,'assign-edit')); box.hidden=false; segRove(box); segReveal(box.querySelector('.as-seg'));}   // segRove: one Tab stop (events.js)
 // The preview line under a mention field: what sending the text does. The composer's note says who handles the pin first -
 // '담당' and the assignee the save sends (assignOutcome, SAVE_MODE.NEW) - then '알림' and the people who are only notified:
 // the assignee is told through the assignment and is not listed again. While the note may also join an existing pin

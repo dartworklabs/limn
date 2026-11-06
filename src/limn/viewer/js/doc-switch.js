@@ -110,7 +110,8 @@ function navSheetStep(parts,need,pin=null){let best=Infinity; const ok=(/** @typ
   return Math.ceil(best<Infinity?best:parts.length?parts[parts.length-1]:0);}
 // The navigation sheet's view switch: the view on screen is the checked radio.
 function drawNavView(){const rev=document.body.classList.contains('revision-open');
-  for(const b of $$('#ns-view [role=radio]')){const on=(b.dataset.mode===VIEW_MODE.REVISIONS)===rev; b.setAttribute('aria-checked',String(on)); b.classList.toggle('on',on);}}
+  for(const b of $$('#ns-view [role=radio]')){const on=(b.dataset.mode===VIEW_MODE.REVISIONS)===rev; b.setAttribute('aria-checked',String(on)); b.classList.toggle('on',on);}
+  segRove($('#ns-view'));}   // the group's one Tab stop is the view now chosen (events.js)
 // The phone's position button (docs/handbook/viewer.md §모바일 레이아웃): [본문 3/25 ▾] - the document's name only with several
 // documents on a 400px-or-wider phone, the reading line's page of the pages, '–/–' before they are known, and '변경사항' in the
 // changes view - as {name, pages, label}; label is its accessible name. Pure but for tr/tl.

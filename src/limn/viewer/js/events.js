@@ -124,6 +124,47 @@ document.addEventListener('click',e=>{const target=/** @type {HTMLElement} */(e.
 });
 $('#doc-select').addEventListener('change',e=>switchDoc(e.target.value));
 $('#revision-file').addEventListener('change',renderRevisionFile);
+// A segmented control is a radio group (docs/handbook/viewer.md §디자인 토큰과 컴포넌트): the whole group is one Tab stop, the
+// arrows move inside it and Home/End go to its ends. The one stop is a roving tabindex - the chosen word is the one Tab
+// reaches - set wherever a group is drawn or its choice changes (segRove), and the key that moves presses the word it moves
+// to, so the arrows and a click take the same path (issue #417). A key that lands on the word already chosen (Home on the
+// first when it is the one, an arrow round a group of one) only moves the focus: pressing a chosen word is no new choice.
+// A group whose choice changes the context (data-seg-manual in the markup: [더보기]'s language reopens the page, the phone's
+// navigation sheet [원고 | 변경사항] changes the view and closes the sheet) is walked without choosing, as tabs with manual
+// activation are (WCAG 3.2.2): the keys only move the focus, and Enter or Space - the word's own press - chooses. While the
+// focus walks such a group the stop goes with it, so Tab leaves from where the focus is in one step; when the focus leaves,
+// the stop goes back to the chosen word (segManualLeft).
+const SEG_STEP={ArrowLeft:-1,ArrowUp:-1,ArrowRight:1,ArrowDown:1};
+/** The words of radio group g that can take the focus: neither disabled nor hidden. @param {Element} g */
+function segOffered(g){return /** @type {HTMLButtonElement[]} */([...g.querySelectorAll('[role=radio]')]).filter(w=>!w.disabled&&!w.hidden);}
+/** Keep one Tab stop in radio group g: the chosen word, else the first one on offer. It reads the markup only, not the
+ * layout, so a group drawn while its panel is closed holds its one stop before it shows. @param {Element|null} g */
+function segRove(g){if(!g)return; const ws=segOffered(g),on=ws.find(w=>w.getAttribute('aria-checked')==='true')||ws[0];
+  for(const w of ws)w.tabIndex=w===on?0:-1;}
+for(const g of $$('[role=radiogroup]'))segRove(g);   // the groups in the page's markup; a drawn one calls segRove itself
+document.addEventListener('keydown',e=>{
+  const t=/** @type {HTMLElement} */(e.target); if(imeKey(e)||e.ctrlKey||e.metaKey||e.altKey)return;
+  if(!t||!t.closest||t.getAttribute('role')!=='radio')return;
+  const g=t.closest('[role=radiogroup]'); if(!g)return;
+  const ws=segOffered(g).filter(w=>w.getClientRects().length),i=ws.indexOf(/** @type {HTMLButtonElement} */(t)); if(i<0)return;
+  const step=SEG_STEP[e.key];
+  const to=step!==undefined?(i+step+ws.length)%ws.length:e.key==='Home'?0:e.key==='End'?ws.length-1:-1;
+  if(to<0)return;
+  e.preventDefault(); const w=ws[to];
+  if(g.hasAttribute('data-seg-manual')){for(const x of segOffered(g))x.tabIndex=x===w?0:-1; w.focus(); return;}   // the focus only
+  w.tabIndex=0; w.focus(); if(w.getAttribute('aria-checked')!=='true')w.click();
+  // The press may draw the group again and take the focused word with it - the assignee row replaces its words on every
+  // pick (mentions.js assignSeg) - and the focus would land on the body, ending the walk. Put it on the word now in that
+  // place. A group that drew itself away (no people left to assign) has none, and the focus stays where the redraw left it.
+  if(!g.contains(document.activeElement)){const nws=segOffered(g).filter(x=>x.getClientRects().length),nw=nws[Math.min(to,nws.length-1)];
+    if(nw)nw.focus();}
+  segRove(g);});
+// The focus has left a group walked without choosing: its stop is the chosen word again, where Tab and Shift+Tab come back to.
+/** @param {FocusEvent} e */
+function segManualLeft(e){const t=/** @type {HTMLElement} */(e.target),g=t&&t.closest?t.closest('[role=radiogroup][data-seg-manual]'):null;
+  const to=/** @type {Node|null} */(e.relatedTarget); if(g&&!(to&&g.contains(to)))segRove(g);}
+document.addEventListener('focusout',segManualLeft);
+
 document.addEventListener('keydown',e=>{
   if(imeKey(e))return;   // an input method's key, the Enter or Esc that ended its composition too (core.js)
   const t=/** @type {HTMLElement} */(e.target),inField=t&&(t.tagName==='TEXTAREA'||t.tagName==='INPUT'||t.tagName==='SELECT'||t.isContentEditable);

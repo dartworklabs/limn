@@ -5,7 +5,7 @@
 .c-loc-main .loc{font-weight:600}
 #c-path{color:var(--muted-foreground);font-size:var(--text-sm);overflow-wrap:anywhere}   /* a figure element's path before its code lines */
 #c-path:focus-visible{color:var(--foreground);text-decoration:underline}   /* it answers a pointer: the element's box on the page is drawn stronger (figure.js) */
-@media (hover:hover){#c-path:hover{color:var(--foreground);text-decoration:underline}}
+@media (hover:hover){#c-path:where(:not(:disabled,[aria-disabled="true"])):hover{color:var(--foreground);text-decoration:underline}}
 #c-page{color:var(--muted-foreground);font-size:var(--text-sm)}
 /* The PDF text a drag chose (#c-quote under the location line, a card's .quote above its note, issue #185): an icon and one
    muted line cut with an ellipsis, the whole text in the tooltip; pressed (.open) it wraps in full. The row is its 4px padding
@@ -17,7 +17,7 @@
 .quote .q-ic .ic{width:14px;height:14px}
 .quote .q-t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .quote.open .q-t{white-space:normal;overflow-wrap:anywhere;color:var(--foreground)}
-@media (hover:hover){.quote:hover .q-t{color:var(--foreground)}}
+@media (hover:hover){.quote:where(:not(:disabled,[aria-disabled="true"])):hover .q-t{color:var(--foreground)}}
 @media (pointer:coarse){.quote{line-height:20px} .quote .q-ic{height:20px}}
 /* The range caption over the ladder (rangeCap): '범위' and the lines a save hands over, their count, and with one rung its name. */
 .rg-cap{margin:var(--space-2) 0 0;font-size:var(--text-sm);line-height:1.5;color:var(--muted-foreground);font-variant-numeric:tabular-nums}
@@ -99,7 +99,7 @@ button.tg[aria-pressed=true]{border-color:var(--border-strong)}
 .xp-row.ctx .tx{-webkit-line-clamp:2;color:var(--muted-foreground)}   /* a dimmed neighbour */
 .xp-row.ctx .ln{color:var(--subtle-foreground)}   /* its number one step dimmer, opaque: an opacity under the hover's --accent fell below 4.5:1 */
 button.xp-row{cursor:pointer;min-width:0;justify-content:stretch}
-@media (hover:hover){button.xp-row:hover{background:var(--accent)}}
+@media (hover:hover){button.xp-row:where(:not(:disabled,[aria-disabled="true"])):hover{background:var(--accent)}}
 .xp-fold{padding:var(--space-1) var(--space-2) var(--space-1) calc(var(--space-2) + 3ch + var(--space-2));color:var(--muted-foreground);
   background:color-mix(in srgb,var(--primary) 20%,var(--code))}   /* inside the band, so the same tint and no line */
 .xp-chip{justify-self:center;display:flex;align-items:center;justify-content:center;width:var(--chip);height:var(--chip);
@@ -107,7 +107,7 @@ button.xp-row{cursor:pointer;min-width:0;justify-content:stretch}
 .xp-chip .ic{width:16px;height:16px}
 .xp-chip.add{background:color-mix(in srgb,var(--primary) 16%,transparent);color:var(--primary)}
 .xp-chip.xp-drop{background:var(--popover);color:var(--foreground);box-shadow:inset 0 0 0 1px var(--border-strong)}
-@media (hover:hover){button.xp-row:hover .xp-chip.add{background:color-mix(in srgb,var(--primary) 24%,transparent)}}
+@media (hover:hover){button.xp-row:where(:not(:disabled,[aria-disabled="true"])):hover .xp-chip.add{background:color-mix(in srgb,var(--primary) 24%,transparent)}}
 /* The note popover by the selection box (#sel-pop, sel-popover.js, docs/handbook/viewer.md §패널 정리 '선택 상자 곁 메모'): a
    floating surface on the popover tokens, 320px wide, three rows on one left and one right edge at its 12px padding - the
    location and [Esc], the note field (two lines), [자세히 →] ... [저장]. [자세히]'s ghost padding is pulled out so its text
@@ -135,7 +135,7 @@ button.xp-row{cursor:pointer;min-width:0;justify-content:stretch}
 .vd-btns{display:flex;flex-wrap:wrap;flex:1 1 auto;gap:var(--space-1);min-width:0}
 .vd-btns button{flex:1 0 auto;padding-inline:var(--space-2)}
 .vd-btns .lbl{white-space:nowrap}
-.vd-btns button[aria-disabled=true]{opacity:.65;cursor:not-allowed}
+.vd-btns button[aria-disabled=true]{opacity:.65;cursor:progress}   /* a page line's word waits (components.css); a composer's off word is disabled */
 .vd-btns.wrapped button{flex-grow:0}   /* wrapped: each word at its own width, from the start (vdWrapFit) */   /* a page line's buttons while its page's save runs: they keep the focus */
 button.vd-confirm{color:var(--destructive)}
 button.vd-confirm.armed{background:color-mix(in srgb,var(--destructive) 10%,transparent);border-color:var(--destructive);color:var(--destructive);font-weight:600}

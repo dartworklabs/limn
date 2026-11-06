@@ -2046,8 +2046,10 @@ class FrontendSemanticAudit(unittest.TestCase):
         # anywhere: an unresolved @-mention (.mention-bad) and a Markdown document's link that does not open (.md-rel).
         self.assertIn(":is(.loc,.pg-link,.pin .n.go,.pin-ref){text-decoration:none;", self.css)
         self.assertIn(":is(.loc,.pg-link,.pin .n.go,.pin-ref):focus-visible{text-decoration:underline}", self.css)
-        self.assertIn(  # the hover underline answers a mouse only (FrontendHoverForMouse)
-            "@media (hover:hover){:is(.loc,.pg-link,.pin .n.go,.pin-ref):hover{text-decoration:underline}}", self.css
+        self.assertIn(  # the hover underline answers a mouse only, and only what can be pressed (FrontendHoverForMouse)
+            "@media (hover:hover){:is(.loc,.pg-link,.pin .n.go,.pin-ref)%s:hover{text-decoration:underline}}"
+            % HOVER_GUARD,
+            self.css,
         )
         for rule in (
             ".pin .n.go{cursor:pointer;color:var(--primary);",
@@ -2262,6 +2264,25 @@ def hover_rules_outside_hover_media(css: str) -> list[str]:
     return bad
 
 
+# What every :hover in the viewer's CSS carries in front of it (docs/handbook/viewer.md §뜻과 모양): a control that cannot be
+# pressed - disabled, or waiting with aria-disabled - takes no hover look. :where() keeps the rule's specificity as it was.
+HOVER_GUARD = ':where(:not(:disabled,[aria-disabled="true"]))'
+
+
+def hover_selectors_without_guard(css: str) -> list[str]:
+    """The selector of every style rule in css with a :hover that HOVER_GUARD does not come right before (issue #416: the
+    disabled [브라우저 알림] row of [더보기] filled with --accent under the mouse)."""
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    bad = []
+    for m in re.finditer(r"([^{}]*)\{", css):
+        prelude = m.group(1).strip()
+        if prelude.startswith("@"):
+            continue
+        if any(not prelude[: h.start()].endswith(HOVER_GUARD) for h in re.finditer(r":hover", prelude)):
+            bad.append(prelude)
+    return bad
+
+
 class FrontendHoverForMouse(unittest.TestCase):
     """Every hover look sits inside `@media (hover:hover)` (docs/handbook/viewer.md §뜻과 모양): on a touch screen a tapped
     row of [더보기] stayed grey after the tap, the owner's 'Theme: System' (UX audit P4.6, 29 bare :hover rules)."""
@@ -2276,16 +2297,38 @@ class FrontendHoverForMouse(unittest.TestCase):
         inset wash of the text colour covers its surface, from tokens, under the no-hover query only - so nothing stays
         after the finger lifts and a mouse keeps its hover look. The only other :active rule paints nothing: it makes a
         card's suggestion diff a node that answers taps on touch, so the browser's touch adjustment leaves a tap on it
-        there (docs/handbook/viewer.md §모바일 레이아웃)."""
+        there (docs/handbook/viewer.md §모바일 레이아웃). A control that cannot be pressed, disabled or aria-disabled, is not
+        washed (§뜻과 모양)."""
         css = HTML[HTML.index("<style>") + len("<style>") : HTML.index("</style>")]
         self.assertIn(
-            "@media not all and (hover:hover){button:active:not(:disabled){box-shadow:inset 0 0 0 100vmax "
-            "color-mix(in srgb,var(--foreground) 8%,transparent)}}",
+            '@media not all and (hover:hover){button:active:not(:disabled,[aria-disabled="true"]){box-shadow:inset 0 0 0 '
+            "100vmax color-mix(in srgb,var(--foreground) 8%,transparent)}}",
             css,
         )
         rules = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
         self.assertEqual(rules.count(":active"), 2)
         self.assertIn(".pin .sg-diff:active{cursor:text}", rules)
+
+    def test_no_hover_rule_answers_a_control_that_cannot_be_pressed(self):
+        """Every :hover of the served page's CSS carries HOVER_GUARD, so no hover look reaches a disabled or a waiting
+        control (the scenes themselves: test_viewer_disabled_hover.py)."""
+        css = HTML[HTML.index("<style>") + len("<style>") : HTML.index("</style>")]
+        self.assertGreater(css.count(HOVER_GUARD + ":hover"), 40)
+        self.assertEqual(hover_selectors_without_guard(css), [])
+
+    def test_the_press_guard_catches_a_hover_without_it(self):
+        """A bare hover, one inside :has() and the second of two in a list are reported; guarded ones and the media
+        feature (hover:hover) are not."""
+        ok = "@media (hover:hover){a%s:hover{color:red}.l:has(b%s:hover)>i{display:block}}" % (HOVER_GUARD, HOVER_GUARD)
+        self.assertEqual(hover_selectors_without_guard(ok), [])
+        for planted in (
+            "@media (hover:hover){button:hover{color:red}}",
+            "@media (hover:hover){.pv:has(.vd-b:hover)>.hint{display:block}}",
+            "@media (hover:hover){x%s:hover,y:hover{color:red}}" % HOVER_GUARD,
+            "@media (hover:hover){z:not(:disabled):hover{color:red}}",
+        ):
+            with self.subTest(planted=planted):
+                self.assertEqual(len(hover_selectors_without_guard(ok + planted)), 1)
 
     def test_the_guard_catches_a_bare_a_negated_and_a_pointer_hover_rule(self):
         """A bare rule, one under the negated query and one under another media query are reported; the same rule inside
@@ -4861,6 +4904,8 @@ class FrontendMentions(unittest.TestCase):
                     "assignSeg",
                     "segReveal",
                     "segFade",
+                    "segOffered",
+                    "segRove",
                     "mentionPreview",
                     "renderAssignNew",
                     "editNote",
@@ -4978,7 +5023,7 @@ class FrontendMentions(unittest.TestCase):
         word '@Wendy' drops that hint, so the server tags nobody; the row must then offer nobody and default to the
         agent. It used to offer and default to Wendy Kim, saving a pin handed to someone its note never tagged."""
         out = self.run_js(r"""
-            const W=PEOPLE.find(p=>p.name==='Wendy Kim').login, box=()=>({hidden:true,innerHTML:'',replaceChildren(){this.innerHTML='';},querySelector(){return null;}});
+            const W=PEOPLE.find(p=>p.name==='Wendy Kim').login, box=()=>({hidden:true,innerHTML:'',replaceChildren(){this.innerHTML='';},querySelector(){return null;},querySelectorAll(){return [];}});
             const note={value:'@Wendy 봐 주세요',_mentions:new Set([W])},cbox=box();
             function $(s){return s==='#note'?note:s==='#c-assign'?cbox:null;}
             let PEOPLE_KNOWN=true; const ASSIGN_NEW={v:'agent',touched:false};

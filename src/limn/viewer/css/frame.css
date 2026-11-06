@@ -64,7 +64,7 @@ body.docs-multi:not(.lay-narrow) #doc-links,body.docs-multi.band-tablet-sheet #d
    the ring stands 2px clear of them; [+N] keeps its own box and the 2px margins that put it where the links' wider boxes and
    narrower gap would otherwise move it. */
 :is(#doc-links,#view-switch) button:focus-visible{outline-offset:-2px}
-@media (hover:hover){#doc-links button:hover{color:var(--foreground)}}
+@media (hover:hover){#doc-links button:where(:not(:disabled,[aria-disabled="true"])):hover{color:var(--foreground)}}
 #doc-links .doc-link-count{font-size:var(--text-xs);color:var(--subtle-foreground);margin-left:var(--space-1)}
 #doc-links button[aria-current=page] .doc-link-count{color:var(--muted-foreground)}   /* label-colored text measured 2.8 contrast in dark (QA) - the current document's underline bar already carries the label color */
 /* [+N] after the last link shown when some do not fit (docFit, docs/handbook/viewer.md §문서 링크가 넘칠 때): the links' text
@@ -81,7 +81,7 @@ body.docs-multi:not(.lay-narrow) #doc-links,body.docs-multi.band-tablet-sheet #d
 #doc-links #doc-more[data-fit=name]{color:var(--foreground);font-weight:600}
 #doc-more[data-fit=name] .lbl{min-width:0;overflow:hidden;text-overflow:ellipsis;padding-block:var(--space-1)}   /* the padding keeps the ink past the cap height inside the box that clips the ellipsis */
 #doc-links #doc-more[aria-expanded=true]{background:var(--accent);color:var(--foreground)}
-@media (hover:hover){#doc-links #doc-more:hover{background:var(--accent)}}
+@media (hover:hover){#doc-links #doc-more:where(:not(:disabled,[aria-disabled="true"])):hover{background:var(--accent)}}
 #doc-select-wrap label{color:var(--muted-foreground);font-size:var(--text-sm)}
 #doc-select{max-width:230px;min-width:120px;background:var(--sidebar);border:0;font-weight:600;padding:var(--space-1) var(--space-5) var(--space-1) 2px}
 #view-switch{padding-left:0}
@@ -148,13 +148,13 @@ body.outline-collapsed #outline-items,body.outline-collapsed #outline-search,bod
 #outline-items button .ol-page{color:var(--subtle-foreground);font-size:var(--text-xs)}
 #outline-items button.ol-active{background:var(--accent);color:var(--foreground)}
 #outline-items button:focus-visible{background:var(--accent);color:var(--foreground)}
-@media (hover:hover){#outline-items button:hover{background:var(--accent);color:var(--foreground)}}
+@media (hover:hover){#outline-items button:where(:not(:disabled,[aria-disabled="true"])):hover{background:var(--accent);color:var(--foreground)}}
 #outline-items button:is(.ol-active,:focus-visible) .ol-page{color:var(--muted-foreground)}   /* the faint page number measured 3.8 contrast on --accent here (QA) */
-@media (hover:hover){#outline-items button:hover .ol-page{color:var(--muted-foreground)}}
+@media (hover:hover){#outline-items button:where(:not(:disabled,[aria-disabled="true"])):hover .ol-page{color:var(--muted-foreground)}}
 #outline-grip{position:relative;z-index:6;width:6px;flex:none;cursor:col-resize;touch-action:none;background:var(--border)}
 @media not all and (pointer:coarse){#outline-grip::after{content:'';position:absolute;inset:0 -9px}}   /* touch: the .hit utility's 44px (responsive.css) */
 #outline-grip.on,#outline-grip:focus-visible{background:var(--border-strong)}
-@media (hover:hover){#outline-grip:hover{background:var(--border-strong)}}
+@media (hover:hover){#outline-grip:where(:not(:disabled,[aria-disabled="true"])):hover{background:var(--border-strong)}}
 body.outline-collapsed #outline-grip,body.band-phone #outline,body.lay-narrow #outline-grip{display:none}
 #section-strip{display:flex;align-items:center;gap:var(--space-2);height:var(--strip-h);flex:none;padding:0 var(--space-4);background:var(--sidebar);
   border-bottom:1px solid var(--border-seam);font-size:var(--text-sm);color:var(--muted-foreground)}
