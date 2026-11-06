@@ -22,6 +22,17 @@
 - **[검토 M] no longer hides the first review card under the section's head on a phone or a tablet.** The jump scrolled
   the review section to the very top of the sheet, under the stuck tool bar, so the section's sticky head stood under
   the bar and covered the top of the first card. The section now stops under the bar.
+
+## 0.4.53 — 2026-11-07
+
+### Fixed
+
+- **A sheet pulled up to the document bar and let go slowly stays on the bar** (#456). On a phone or a tablet, the
+  sheet dragged by its grabber as high as it goes and let go without a fling stood 1px below the document bar: the
+  height it was held at (the visible height less the gap) was saved as a fraction under 1, and drawn again rounded
+  down to a whole pixel. Held at its highest, the release now chooses the highest stop, as a fling does - with the
+  keyboard up too, so the sheet goes back under the bar when the keyboard goes instead of staying 300px lower. Let go
+  anywhere lower, the sheet keeps the pixel it was let go at, where about every other release had come back 1px lower.
 - **A control that cannot be pressed no longer answers the mouse** (#416). A disabled button - [더보기]'s
   [브라우저 알림] row where notifications cannot turn on - and one that waits (`aria-disabled`: a page verdict line's
   words before the first pin list) filled with the hover colour, as if a press would do something. Every hover rule of
@@ -115,6 +126,20 @@
   pane stands in every engine; the key's step or the wheel's turn then goes from there. Nothing is drawn between the two
   writes, and a jump nobody interrupts glides as before. The End test no longer waits for the jump's scroll to rest
   first.
+- **A field's first key puts its caret back, so a tap into it takes the keys** (#431). Leaving a panel field by a
+  press on static text (the range caption) left the document's selection in that text, and a tap back into the field
+  moved the focus but not the selection. While the two were apart the browser turned no key into an edit: at the fold's
+  inner screen (673x841, macOS Chromium) a note rewritten right after the tap lost what was typed in its first 350ms,
+  until the sheet's own scroll moved the selection (`@Bob Park 확인` came out `확인`). The first key in a field now puts
+  its caret back where it already stands before the key is handled, which takes the selection in with the focus. A
+  selection being made in the field is left alone.
+- **A field's scroll keys stay in the field, so the pages do not move under what is being written** (#414). In the
+  verdict reason field, Home pressed while writing scrolled the PDF pane to the top on macOS (-1104px at 1920x1080),
+  the reading page changed and the open field closed with what was in it; End, PageUp and PageDown did the same, and
+  in the tablet sheet the composer's note moved the panel instead. The page keys are no field's keys on any host, so
+  PageUp and PageDown are dropped in a text field everywhere; Home and End are dropped only on macOS, where they are
+  not a field's caret keys. Only the default goes, so the caret stays where it stands. A key with a modifier
+  (Shift+Home selects, Cmd+Up is the host's caret key) is left to the host.
 - **A field's scroll keys stay in it mid-syllable and while it is read-only** (#452, after #449). #449 drops the
   default of PageUp and PageDown in a text field on every host, and of Home and End on macOS. Two cases still moved
   the scroller outside. A key pressed while a Hangul syllable was composing comes marked composing, and the viewer left
@@ -130,6 +155,21 @@
   it was in a read-only field). Firefox moved nothing outside in either case; its
   caret in a read-only field now stays where it stands too. Chords with Ctrl, Alt or Cmd are still the host's (in a
   read-only field Ctrl+Home and Cmd+Up can still move the pane).
+- **A long field's keys move no page at its ends either** (#455, after #449 and #452). A field that holds more than it
+  shows was left its scroll keys, as scrolling inside it is the field's own doing. At its end, though, Chromium handed
+  the key on to the scroller outside: with forty lines in the reason field (106px of 728 shown) scrolled to the end,
+  PageDown moved the pane +873px, and in the read-only field (its save out) ArrowDown +40, Space +873 - the reading page
+  went from 4 to 5 and the field closed - and End +4034 on Linux; at its top PageUp, Shift+Space and Home went up the
+  same way, and ArrowLeft and ArrowRight moved a zoomed pane 40px sideways at any height, as the field has no width to
+  scroll. Such a field is now left a key only while it can still scroll that way (up: `scrollTop > 0`; down: short of
+  `scrollHeight - clientHeight` by more than a pixel; sideways by its width); at that end the key's default is dropped
+  as #449 and #452 drop it, and the caret stays where it stands. In the middle the field scrolls and the pane stays, and
+  a key going back from an end (ArrowUp at the end) is still the field's. A writable field's PageUp and PageDown are
+  dropped in the middle too: Chromium moves the caret a page and lines it up with the scroller's top, so they moved the
+  pane from anywhere in the field (+226px beside the pages, +576 under them, PageUp downwards as well). The caret no
+  longer pages through a long field with them; the arrows and the wheel still do. Firefox moved nothing outside in any
+  of these.
+- The agent contract (`pins.md`, HTTP API) is unchanged.
 
 ## 0.4.52 — 2026-11-06
 

@@ -1156,10 +1156,9 @@ KEYDOWNS = """()=>{window.__kd=[]; addEventListener('keydown',e=>{window.__kd.pu
   dropped:e.defaultPrevented});});}"""
 
 
-class ReasonFieldStill(PanelBase):
-    """A key that would move the pages, pressed in the reason field while a syllable is composing or while its save is out,
-    moves nothing and leaves the field as it was (#452, docs/handbook/viewer.md §키와 초점 **글 칸의 스크롤 키**). The keys
-    are this host's (Playwright's press); MAC makes the viewer and Chromium take them as macOS does from any host
+class ReasonFieldKeys(PanelBase):
+    """The reason field and the keys pressed in it (docs/handbook/viewer.md §키와 초점 **글 칸의 스크롤 키**). The keys are
+    this host's (Playwright's press); MAC makes the viewer and Chromium take them as macOS does from any host
     (MAC_PLATFORM, mac_press)."""
 
     MAC = False
@@ -1192,6 +1191,11 @@ class ReasonFieldStill(PanelBase):
         settle(page)
         page.locator(line + ' [data-act="pv-reason-open"]').click()
         page.wait_for_function("()=>pvIsReasonField(document.activeElement)")
+
+
+class ReasonFieldStill(ReasonFieldKeys):
+    """A key that would move the pages, pressed in the reason field while a syllable is composing or while its save is out,
+    moves nothing and leaves the field as it was (#452)."""
 
     def test_a_scroll_key_mid_syllable_moves_nothing_and_the_syllable_lands(self):
         """'가' typed in the reason field on page 3, then for each scroll key the host does not give a field (PageUp and
@@ -1300,6 +1304,168 @@ class ReasonFieldStillFirefox(ReasonFieldStill):
             keys,
         )
         self.assertEqual(dropped, [True] * len(keys))
+
+
+# Forty lines for the reason field, which shows 106px of their 728 and scrolls (verdict-reason.css, max-height 9em).
+LONG = "\n".join("이유 %02d 줄: 칸보다 긴 글의 키" % i for i in range(1, 41))
+# The focused reason field's scroll, caret and text, and where the PDF area stands and the page it reads.
+FIELD_AT = """()=>{const L=document.querySelector('#left'),f=document.activeElement,r=pvIsReasonField(f);
+  return {top:Math.round(L.scrollTop),left:Math.round(L.scrollLeft),page:pvReadingPage(),field:r,readOnly:r?f.readOnly:null,
+    scroll:r?Math.round(f.scrollTop):null,caret:r?f.selectionStart:null,text:r?f.value:null,
+    over:r?f.scrollHeight-f.clientHeight:null};}"""
+# Scrolls the focused field to its top, its middle or its end, with the caret on the line there (inside it in the middle).
+FIELD_TO = """w=>{const f=document.activeElement,max=f.scrollHeight-f.clientHeight,n=f.value.length,mid=f.value.indexOf('이유 20')+3;
+  if(w==='top'){f.setSelectionRange(0,0); f.scrollTop=0;} else if(w==='mid'){f.setSelectionRange(mid,mid); f.scrollTop=Math.round(max/2);}
+  else {f.setSelectionRange(n,n); f.scrollTop=max;}}"""
+# Whether the PDF area and the focused field have rested for ten frames (a key's smooth scroll is over).
+BOTH_RESTING = """() => {const L = document.querySelector('#left'), f = document.activeElement, v = [L.scrollTop, L.scrollLeft, f ? f.scrollTop : -1].join();
+  const w = window.__rest2 || (window.__rest2 = {v: '', n: 0}); if (v === w.v) w.n++; else {w.v = v; w.n = 0;}
+  if (w.n < 10) return false; window.__rest2 = null; return true;}"""
+# The keys that scroll a field up: the rest of the moving keys scroll it down.
+UP_KEYS = ("ArrowUp", "PageUp", "Home", "Shift+Space")
+
+
+class ReasonFieldLong(ReasonFieldKeys):
+    """The reason field holds more than it shows, and a key pressed in it moves no page at the field's ends either (#455,
+    docs/handbook/viewer.md §키와 초점 **글 칸의 스크롤 키**). Such a field is left a key only while it can still scroll
+    that way, and it scrolls itself; at its end Chromium gave the key to the scroller outside."""
+
+    maxDiff = None  # a failure names every key that moved the pages
+
+    def long_reason(self, page, n=4):
+        """Page n read, its verdict taken and its reason field focused with LONG, which it scrolls."""
+        self.reason(page, n)
+        page.locator("#doc .pv-reason:focus").fill(LONG)
+        self.assertGreater(page.evaluate(FIELD_AT)["over"], 300, "the reason field does not scroll")
+
+    def pressed(self, page, where, key, n=4):
+        """Page n brought to the reading line (no settle(): a held save would keep it waiting) and the field scrolled to
+        where; key pressed. -> (the field and the area before, after, whether the key's default was dropped)."""
+        if n:
+            page.evaluate(TO, [n, 16])
+        page.evaluate(FIELD_TO, where)
+        page.wait_for_function(BOTH_RESTING, polling="raf", timeout=10000)
+        at = page.evaluate(FIELD_AT)
+        self.press(page, key)
+        page.wait_for_function(BOTH_RESTING, polling="raf", timeout=10000)
+        return at, page.evaluate(FIELD_AT), page.evaluate("window.__kd[window.__kd.length-1].dropped")
+
+    def test_a_long_reasons_page_keys_and_its_ends_move_no_page(self):
+        """1920x1080, page 4's reason field with forty lines, 106px of 728 shown. Scrolled to its end, PageDown; to its top,
+        PageUp; in its middle, either; on macOS Home at its top and End at its end: the PDF area moves 0px, page 4 is still
+        read, and the field keeps the focus, its scroll and its caret. The field's own keys stay its own: ArrowUp at its end
+        and ArrowDown at its top move the caret, and in its middle Home and End move the caret (Linux) or scroll the field
+        to its top and end (macOS), the area still.
+
+        Left to the browser, Chromium gave PageDown at the end to the area (+873px, as the issue had it) and PageUp at the
+        top (-873, page 4 to 3, the field gone), Home at the top -3312 and End at the end +4034 on macOS. In the middle a
+        writable field's PageUp and PageDown moved the caret a page and lined it up with the area's top: +226 each, the
+        page keys even then no field's keys. Firefox moved nothing outside."""
+        page = self.on()
+        self.long_reason(page)
+        page.evaluate(KEYDOWNS)
+        mac = page.evaluate("IS_MAC")
+        cases = [("end", "PageDown"), ("top", "PageUp"), ("mid", "PageDown"), ("mid", "PageUp")]
+        cases += [("top", "Home"), ("end", "End")] if mac else []
+        moved = {}
+        for where, key in cases:
+            at, now, dropped = self.pressed(page, where, key)
+            moved[where, key] = (
+                now["top"] - at["top"],
+                now["page"],
+                now["field"],
+                now["scroll"] - at["scroll"] if now["field"] else None,
+                now["caret"] == at["caret"],
+                dropped,
+            )
+            if not now["field"]:
+                break  # the key took the field away: the cases left cannot be pressed in it
+        self.assertEqual(moved, dict.fromkeys(cases, (0, 4, True, 0, True, True)))
+        own = {}
+        for where, key in [("end", "ArrowUp"), ("top", "ArrowDown"), ("mid", "Home"), ("mid", "End")]:
+            at, now, dropped = self.pressed(page, where, key)
+            changed = now["caret"] != at["caret"] or now["scroll"] != at["scroll"]
+            own[where, key] = (now["top"] - at["top"], now["page"], now["field"], changed, dropped)
+            if mac and key in ("Home", "End"):
+                self.assertEqual(now["scroll"], 0 if key == "Home" else now["over"], (key, now))
+        self.assertEqual(own, dict.fromkeys(own, (0, 4, True, True, False)))
+        self.assertEqual(page.evaluate(FIELD_AT)["text"], LONG)
+
+    def test_a_long_reason_being_saved_moves_no_page_at_its_ends(self):
+        """The same field with Enter pressed and its save held, so it is read-only. At its end ArrowDown, PageDown, Space and
+        End, at its top ArrowUp, PageUp, Shift+Space and Home: the area moves 0px, page 4 is still read and the field stays,
+        read-only, its scroll where it was. In its middle every one of these is left to the field (Chromium scrolls it that
+        way) and the area still moves 0px.
+
+        Left to the browser at the field's end, Chromium gave them to the area: ArrowDown +40px, PageDown and Space +873
+        (Space took the reading page from 4 to 5 and the field went, as the issue had it), End +4034; at its top ArrowUp
+        -40, PageUp and Shift+Space -873 (page 3), Home -3312 (page 1). Firefox moved nothing outside."""
+        page = self.on()
+        self.long_reason(page)
+        self.held_edit = []
+        page.keyboard.press("Enter")
+        page.wait_for_function("()=>pvIsReasonField(document.activeElement)&&document.activeElement.readOnly")
+        page.evaluate(KEYDOWNS)
+        ends = [("end", k) for k in ("ArrowDown", "PageDown", "Space", "End")]
+        ends += [("top", k) for k in ("ArrowUp", "PageUp", "Shift+Space", "Home")]
+        middle = [("mid", k) for _, k in ends]
+        moved, ways = {}, {}
+        for where, key in ends + middle:
+            at, now, dropped = self.pressed(page, where, key)
+            moved[where, key] = (now["top"] - at["top"], now["page"], now["field"], now["readOnly"], dropped)
+            if not now["field"]:
+                break  # the key took the field away
+            ways[where, key] = now["scroll"] - at["scroll"]
+        want = {**dict.fromkeys(ends, (0, 4, True, True, True)), **dict.fromkeys(middle, (0, 4, True, True, False))}
+        self.assertEqual(moved, want)
+        self.assertEqual({c: d for c, d in ways.items() if c in ends}, dict.fromkeys(ends, 0))
+        if self.BROWSER_ENGINE == "chromium":
+            self.assertEqual(
+                {c: (d < 0 if c[1] in UP_KEYS else d > 0) for c, d in ways.items() if c in middle},
+                dict.fromkeys(middle, True),
+                ways,
+            )
+        self.assertEqual(page.evaluate(FIELD_AT)["text"], LONG)
+        self.release(self.held_edit)
+
+    def test_a_long_reason_being_saved_moves_no_zoomed_page_sideways(self):
+        """1440x900, the pages zoomed to 1.6 times the fit and scrolled halfway sideways, the reason field under page 2 long
+        and read-only while its save is held: ArrowLeft and ArrowRight, at the field's top, middle and end, move the area 0px
+        either way. The field wraps its lines and has no width to scroll, so Chromium gave them to the area: 40px sideways
+        at any height of the field."""
+        page = self.on(viewport={"width": 1440, "height": 900})
+        page.evaluate("zoomTo(K*1.6)")
+        settle(page)
+        self.long_reason(page, 2)
+        self.held_edit = []
+        page.keyboard.press("Enter")
+        page.wait_for_function("()=>pvIsReasonField(document.activeElement)&&document.activeElement.readOnly")
+        page.evaluate("()=>{const L=document.querySelector('#left'); L.scrollLeft=(L.scrollWidth-L.clientWidth)/2;}")
+        page.wait_for_function(BOTH_RESTING, polling="raf", timeout=10000)
+        self.assertGreater(page.evaluate(FIELD_AT)["left"], 40, "the pages are not wider than the area")
+        page.evaluate(KEYDOWNS)
+        cases = [(w, k) for w in ("top", "mid", "end") for k in ("ArrowLeft", "ArrowRight")]
+        moved = {}
+        for where, key in cases:
+            at, now, dropped = self.pressed(page, where, key, n=0)
+            moved[where, key] = (now["left"] - at["left"], now["top"] - at["top"], now["field"], dropped)
+            if not now["field"]:
+                break  # the key took the field away
+        self.assertEqual(moved, dict.fromkeys(cases, (0, 0, True, True)))
+        self.release(self.held_edit)
+
+
+class ReasonFieldLongMac(ReasonFieldLong):
+    """The same on macOS, from any host: Home and End scroll the field there, and at its ends they are dropped too."""
+
+    MAC = True
+
+
+class ReasonFieldLongFirefox(ReasonFieldLong):
+    """The same in Firefox, which moved nothing outside the field at its ends or in its middle; this reads which keys the
+    viewer drops there, the same as in Chromium."""
+
+    BROWSER_ENGINE = "firefox"
 
 
 class PanelViewer(PanelBase):
