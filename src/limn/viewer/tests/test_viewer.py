@@ -290,7 +290,7 @@ class FrontendLogic(unittest.TestCase):
             const el=makeEl();
             const document={querySelector:()=>el, querySelectorAll:()=>[]};
             const $=s=>document.querySelector(s), $$=s=>Array.from(document.querySelectorAll(s));
-            const SMOOTH='auto'; function secOpenFor(){return false;}
+            function scrollMotion(){return 'auto';} function secOpenFor(){return false;}
             """,
                 extract_js_fn("jumpToCard"),
                 r"""

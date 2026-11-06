@@ -920,7 +920,7 @@ function mdGoTop(el){const L=$('#left'),t=L.scrollTop+el.getBoundingClientRect()
   return Math.max(0,Math.min(t,L.scrollHeight-L.clientHeight));}
 // Scrolls on to the destination of the jump in flight, measured again; false when there is none (or its heading is gone).
 function mdGoOn(){const g=MD.goTo; if(!g)return false; if(g.doc!==DOC||!g.el.isConnected){MD.goTo=null; return false;}
-  pvShow(); $('#left').scrollTo({top:mdGoTop(g.el),behavior:SMOOTH}); return true;}
+  pvShow(); $('#left').scrollTo({top:mdGoTop(g.el),behavior:scrollMotion()}); return true;}
 // The jump in flight has landed when the pane stands at its destination: it ends, and that is the reading spot.
 function mdGoLanded(){const g=MD.goTo; if(!g)return; if(g.doc!==DOC||!g.el.isConnected){MD.goTo=null; return;}
   if(Math.abs($('#left').scrollTop-mdGoTop(g.el))<=1){MD.goTo=null; mdSpotRead(true);}}

@@ -1460,18 +1460,20 @@ function pvAutoScrolling(){return PV_GLIDE&&performance.now()-PV_SCROLL_AT<(PV_S
 // Every smooth jump of the PDF area starts here (a page, an outline entry's place, a card's [보기]): it is a glide from now, not
 // from its first scroll event a frame later, in which a digit acted on the page being left, and whatever the hand did just
 // before - a recent wheel made the guard take the jump for the person's own scroll. Nothing to glide (reduced motion, or
-// already there): no guard, no scroll event would end it.
-/** @param {number} to - the scrollTop it goes to */
-function pvGlideArm(to){const L=$('#left'),top=Math.max(0,Math.min(L.scrollHeight-L.clientHeight,to));
-  if(SMOOTH==='smooth'&&Math.abs(top-L.scrollTop)>1){pvJumpSet(top); PV_GLIDE=true; PV_SCROLL_AT=performance.now();}}
+// already there): no guard, no scroll event would end it. Returns how the jump's scroll goes (scrollMotion, read once
+// here, so the guard and the scroll agree).
+/** @param {number} to - the scrollTop it goes to @returns {ScrollBehavior} */
+function pvGlideArm(to){const L=$('#left'),top=Math.max(0,Math.min(L.scrollHeight-L.clientHeight,to)),how=scrollMotion();
+  if(how==='smooth'&&Math.abs(top-L.scrollTop)>1){pvJumpSet(top); PV_GLIDE=true; PV_SCROLL_AT=performance.now();}
+  return how;}
 /** @param {number} top */
-function pvGlideTo(top){pvGlideArm(top); $('#left').scrollTo({top,behavior:SMOOTH});}
+function pvGlideTo(top){$('#left').scrollTo({top,behavior:pvGlideArm(top)});}
 /** The scrollTop that brings el to the top of the PDF area, or its middle to the area's middle (center).
  * @param {Element} el @param {'start'|'center'} [block] */
 function pvIntoTop(el,block){const L=$('#left'),r=el.getBoundingClientRect(),lr=L.getBoundingClientRect();
   return L.scrollTop+(block==='center'?r.top+r.height/2-(lr.top+L.clientTop+L.clientHeight/2):r.top-lr.top-L.clientTop);}
 /** @param {Element} el @param {'start'|'center'} [block] */
-function pvGlideInto(el,block){pvGlideArm(pvIntoTop(el,block)); el.scrollIntoView({behavior:SMOOTH,block:block||'start'});}
+function pvGlideInto(el,block){el.scrollIntoView({behavior:pvGlideArm(pvIntoTop(el,block)),block:block||'start'});}
 // Said once while the pages glide: the key was not taken, press it again once they rest.
 function pvSayGliding(){lineNote('쪽으로 가는 중이라 판정 키를 받지 않았습니다 — 멈춘 뒤 다시 누릅니다',NOTICE_KIND.INFO,null,{source:'verdict-key',life:NOTICE_LIFE.TIMER});}
 // Tab from the PDF area (where Esc, a moved-on popover or a search leaves the focus) goes to the reading page's line - its

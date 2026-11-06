@@ -202,7 +202,7 @@ function outlineFollow(open){if(document.body.classList.contains('outline-collap
     list.getBoundingClientRect().top-from,$('#outline-find').offsetHeight,over(row),sec?over(sec):undefined);
   if(to===null)return;
   const land=jump||Math.abs(to-st)>h;
-  OUTLINE_AIM=land?null:{top:to,at:now}; box.scrollTo({top:to,behavior:land?'auto':'smooth'});}
+  OUTLINE_AIM=land?null:{top:to,at:now}; box.scrollTo({top:to,behavior:land?'auto':scrollMotion()});}
 // How many px at the foot of the panel (its box o) the bottom chrome covers: the collapsed sheet (#right) and the status line over
 // it (#status-dock) where they are drawn across the panel. Only the tablet sheet's overlay has them there, and only it pads its
 // foot to match (responsive.css). Elsewhere it is 0: a collapsed #right in mid or short is a transparent frame whose floating
