@@ -67,19 +67,18 @@ function dragSample(pts,t,pos){pts.push([t,pos]); while(pts.length>2&&t-pts[0][0
 // of the screen, dy = the whole move (down positive), v = the release speed (px/ms, down positive). Below 25% or a downward fling
 // (more than 24px at 0.5px/ms or faster) collapses it - or, while a draft is open, stops it at 30% (a drag never hides a draft);
 // an upward fling goes to the next height stop; otherwise it stays where it was let go. Returns {close:true} or {f}.
-function sheetRelease(f,dy,v,composing){
+function sheetRelease(f,dy,v,composing,keep){
   if(f<SHEET_CLOSE_F||(dy>24&&v>=0.5))return composing?{f:SHEET_MIN_F}:{close:true};
   if(dy<-24&&v<=-0.5){const n=SHEET_F.find(x=>x>f+0.02); return {f:n===undefined?1:n};}
-  return {f:Math.max(SHEET_MIN_F,Math.min(1,f))};}
-// The height a released sheet stands at, as sheetRelease's f: 1 when it is held at its highest (max-height, the visible height less
-// --sheet-gap: under the document bar, the keyboard up or down), else the height it shows. Read from the shown height alone, the top
-// was the fraction under 1 (976/1024 = 0.953) and redrew 1px below the bar (issue #456), and with the keyboard up the sheet then stayed
-// that low when it went. Half a pixel more, saved at 1/10000 (setSheetF), redraws the same whole pixel (CSS rounds down) - the shown
-// height over the screen, saved at 1/1000, came back 1px lower about every other time it was let go.
+  return {f:Math.max(SHEET_MIN_F,Math.min(1,keep===undefined?f:keep))};}   // keep: the height to save when it stays (shownSheetF)
+// A released sheet's height for sheetRelease: f, the height it shows over the screen, which the close and fling thresholds are
+// judged on; keep, the height it stays at when it stays - 1 when it is held at its highest (max-height, the visible height less
+// --sheet-gap: under the document bar, the keyboard up or down), else the shown height plus half a pixel, which saved at 1/10000
+// (setSheetF) CSS redraws on the same whole pixel (it rounds down) (issue #456).
 function shownSheetF(){const r=$('#right'),h=r.getBoundingClientRect().height,top=parseFloat(getComputedStyle(r).maxHeight);
-  return h>=top-1?1:(h+0.5)/innerHeight;}
-// Carries out sheetRelease() for the draft state now: collapse the sheet (remembered) or set its height.
-function settleSheet(f,dy,v){const r=sheetRelease(f,dy,v,draftOpen()); if(r.close){applySheet(); setSide(false,true);} else setSheetF(r.f);}
+  return {f:h/innerHeight,keep:h>=top-1?1:(h+0.5)/innerHeight};}
+// Carries out sheetRelease() for the draft state now on s (shownSheetF): collapse the sheet (remembered) or set its height.
+function settleSheet(s,dy,v){const r=sheetRelease(s.f,dy,v,draftOpen(),s.keep); if(r.close){applySheet(); setSide(false,true);} else setSheetF(r.f);}
 // The height a dragged sheet shows: never below 12% - or 30% while a draft is open, where it will stop anyway. A drag ends the
 // composing lift (keepSheet): from here the finger sets the height.
 function dragSheetTo(h){keepSheet(); document.documentElement.style.setProperty('--sheet-f',String(Math.max(draftOpen()?SHEET_MIN_F:0.12,h/innerHeight)));}

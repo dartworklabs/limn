@@ -27,7 +27,7 @@ KB = """window.__kb = 0;
 # Every drag sample 100ms after the one before it, whenever it came; and each release's speed kept (window.__v, px/ms).
 SLOW = """() => {const sample = dragSample, release = sheetRelease;
   dragSample = (pts, _t, pos) => sample(pts, pts.length ? pts[pts.length - 1][0] + 100 : 0, pos);
-  sheetRelease = (f, dy, v, c) => {window.__v = v; return release(f, dy, v, c);};}"""
+  sheetRelease = (...a) => {window.__v = a[2]; return release(...a);};}"""
 # The sheet's top and height, and the band's saved height.
 SHEET = """() => {const r = document.querySelector('#right').getBoundingClientRect(), p = prefs();
   return {top: r.top, h: r.height, f: BAND === LAYOUT_BAND.TABLET_SHEET ? p.sheetFTab : p.sheetF};}"""
@@ -114,6 +114,37 @@ class GrabberRelease(SheetDrag):
                     held, shown = self.drag(page, y1, steps=8)
                     self.assertEqual(shown["h"], held["h"], (y1, held, shown))
                 page.context.close()
+
+    def test_the_close_and_fling_thresholds_are_judged_on_the_height_it_shows(self):
+        """The half pixel the sheet keeps when it stays is not counted where its release is judged. A fling up from 30% to
+        440px on the tablet goes to the next stop above the height it shows (45%), not past it; let go slowly at 211px of
+        846 (under 25%), the sheet closes. Mutation: the kept height (shown + 0.5px) judged instead -> the fling skips to
+        64% and the slow release comes back at 30%, fails (found in review)."""
+        page = self.sheet(TABLET)
+        page.evaluate("setSheetF(0.3)")
+        settle(page)
+        # samples 10ms apart, however the moves arrive: the release reads as a fling
+        page.evaluate(
+            "() => {dragSample = (pts, _t, pos) => {pts.push([pts.length ? pts[pts.length - 1][0] + 10 : 0, pos]);"
+            " while (pts.length > 2 && pts[pts.length - 1][0] - pts[0][0] > 100) pts.shift();};}"
+        )
+        g = page.locator("#sheet-grip").bounding_box()
+        x, y = g["x"] + g["width"] / 2, g["y"] + g["height"] / 2
+        h = page.evaluate(SHEET)["h"]
+        page.mouse.move(x, y)
+        page.mouse.down()
+        for _, py in touch_line(x, y, x, y - (440 - h), 12)[1:]:
+            page.mouse.move(x, py)
+        page.mouse.up()
+        settle(page)
+        self.assertEqual(page.evaluate(SHEET)["f"], 0.45)
+        page.context.close()
+        page = self.sheet((390, 846))
+        g = page.locator("#sheet-grip").bounding_box()
+        y = g["y"] + g["height"] / 2
+        h = page.evaluate(SHEET)["h"]
+        self.drag(page, y + (h - 211), steps=50)
+        self.assertFalse(page.evaluate("SIDE_OPEN"), "let go under 25% of the screen, the sheet closes")
 
 
 class GrabberReleaseFirefox(GrabberRelease):
