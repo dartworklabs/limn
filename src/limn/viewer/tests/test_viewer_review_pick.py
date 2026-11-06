@@ -14,7 +14,9 @@ import os
 import re
 import shutil
 import unittest
+from datetime import datetime
 from urllib.parse import urlparse
+from zoneinfo import ZoneInfo
 
 from limn.pins.lifecycle import input as lifecycle_input
 from limn.pins.lifecycle.rules import CloseRequest
@@ -59,7 +61,7 @@ class ReviewPickBase(BrowserBase):
         """The five pins awaiting review, and the viewer's identity Alice in the people directory."""
         super().setUp()
         ps.APP.people_directory.record(A)
-        self.unreached = set()
+        self.unreached, self.held, self.holding = set(), set(), []
         made = []
         for lo, note in ((4, "alpha"), (11, "beta"), (18, "gamma"), (25, "delta"), (30, "epsilon")):
             made.append(add_pin({"file": str(self.main), "lo": lo, "hi": lo, "page": 1, "note": note}, A).record["id"])
@@ -78,10 +80,14 @@ class ReviewPickBase(BrowserBase):
         )
 
     def route(self, route):
-        """BrowserBase's routing, except that a confirm of a pin in self.unreached is aborted (no answer)."""
+        """BrowserBase's routing, except that a confirm of a pin in self.unreached is aborted (no answer) and one in
+        self.held is never answered (kept in self.holding), as a network that holds a request."""
         m = re.fullmatch(r"/api/pins/(\d+)/confirm", urlparse(route.request.url).path)
         if m and int(m.group(1)) in self.unreached:
             return route.abort()
+        if m and int(m.group(1)) in self.held:
+            self.holding.append(route)
+            return None
         return super().route(route)
 
     def state(self, pid):
@@ -92,9 +98,10 @@ class ReviewPickBase(BrowserBase):
         """The done_at of pin pid's close on the server."""
         return find_record(ps.APP.snapshot_pins(), pid)["done_at"]
 
-    def review_page(self, **device):
-        """The viewer as Alice with the pin panel and the review section open, recording its confirms (RECORD_CONFIRMS)."""
-        page = self.open(0, init=SEEN + RECORD_CONFIRMS, **(device or DEVICES["desktop"]))
+    def review_page(self, clock=None, **device):
+        """The viewer as Alice with the pin panel and the review section open, recording its confirms (RECORD_CONFIRMS);
+        clock, an aware datetime, puts the page on Playwright's clock from that instant (BrowserBase.open)."""
+        page = self.open(0, init=SEEN + RECORD_CONFIRMS, clock=clock, **(device or DEVICES["desktop"]))
         page.evaluate("setSide(true); SEC.review=true; drawPins()")
         settle(page)
         return page
@@ -350,6 +357,28 @@ class ReviewPickFlows(ReviewPickBase):
         self.assertEqual(again["body"], {"done_at": self.done_at(self.p2)})
         self.assertEqual(self.state(self.p2), "done")
 
+    def test_a_confirm_left_unanswered_holds_back_neither_the_others_nor_the_banner(self):
+        """One confirm the network never answers, one that fails at once and one that goes through: the failed pin is back
+        in the list by the next list read, while the held one is still out; after RV_SEND_MS (15s, on the page's clock) the
+        held one is given up, and one error banner names both as not sent and offers [다시 시도]."""
+        self.unreached.add(self.p1)
+        self.held.add(self.p2)
+        page = self.review_page(clock=datetime.now(ZoneInfo("UTC")))
+        self.pick(page)
+        self.tick(page, self.p1, self.p2, self.p4)
+        page.click("#rv-go")
+        self.send_now(page)
+        page.wait_for_function("CONFIRMS.length===3")
+        page.clock.run_for(6000)  # a list read after the answers that came
+        page.wait_for_selector('#review-pins .rv-row[data-id="%d"]' % self.p1)
+        self.assertEqual(page.evaluate("[...CONFIRMING]"), [self.p2])
+        self.assertEqual((self.state(self.p1), self.state(self.p4)), ("review", "done"))
+        page.clock.run_for(16000)
+        banner = page.wait_for_selector(".nt-banner.nk-err[role=alert]:has-text('3건 중 1건 확인')", timeout=10000)
+        self.assertIn("#%d, #%d 서버에 닿지 않아 보내지 못함" % (self.p1, self.p2), banner.inner_text())
+        self.assertIn("다시 시도", banner.inner_text())
+        self.assertEqual(page.evaluate("CONFIRMING.size"), 0)
+
     def test_hiding_the_page_starts_every_confirm_at_once(self):
         """When the page is hidden while the undo row stands (a tab switched, a window closed), every confirm starts in
         that same moment - not one after another's answer, which a closing page would never wait for."""
@@ -408,6 +437,8 @@ class ReviewPickFlows(ReviewPickBase):
         settle(page)
         self.assertEqual(len(self.ticked(page)), 3)
         self.assertEqual(page.evaluate("document.activeElement.id"), "rv-go")
+        if not page.evaluate("TIP.hidden"):  # a description shown for the focus is the top thing: its own Esc
+            page.keyboard.press("Escape")
         page.keyboard.press("Escape")
         settle(page)
         self.assertEqual(page.evaluate("[document.activeElement.id, RV_PICK]"), ["review-pick", None])
@@ -427,6 +458,80 @@ class ReviewPickFlows(ReviewPickBase):
         page.evaluate("document.querySelector('#right').scrollTop = 0")
         self.pick(page)
         self.assertEqual(page.evaluate(under, "#review-pins .rv-row"), [True, True])
+
+    def test_a_redraw_keeps_the_row_being_read_where_it_stands(self):
+        """A list read that makes a row above the view taller (its pin's explanation now five lines) leaves the rows in
+        view where they stood on screen, as the cards do (listKeep: the first row in view keeps its place)."""
+        for lo in range(5, 37, 4):
+            pid = add_pin({"file": str(self.main), "lo": lo, "hi": lo, "page": 1, "note": "more %d" % lo}, A).record[
+                "id"
+            ]
+            self.close(pid, reply="fixed %d" % lo)
+        page = self.review_page()
+        self.pick(page)
+        ids = page.evaluate("[...document.querySelectorAll('#review-pins .rv-row')].map(r=>+r.dataset.id)")
+        read = ids[8]
+        y = "id=>document.querySelector('#review-pins .rv-row[data-id=\"'+id+'\"]').getBoundingClientRect().top"
+        page.evaluate(
+            "id=>{const r=document.querySelector('#review-pins .rv-row[data-id=\"'+id+'\"]'); r.scrollIntoView({block:'center'});}",
+            read,
+        )
+        settle(page)
+        above = page.evaluate(
+            """() => {const top = document.querySelector('#list').getBoundingClientRect().top;
+              return +[...document.querySelectorAll('#review-pins .rv-row')].filter(r => r.getBoundingClientRect().bottom < top)
+                .pop().dataset.id;}"""
+        )
+        before = page.evaluate(y, read)
+        edit_stored(
+            lambda rows: [
+                r.update(close_reply="\n".join("line %d" % i for i in range(5))) for r in rows if r["id"] == above
+            ]
+        )
+        page.evaluate("loadPins()")
+        page.wait_for_function(
+            "id=>(document.querySelector('#review-pins .rv-row[data-id=\"'+id+'\"] .rv-ans')||{}).innerText.includes('line 4')",
+            arg=above,
+        )
+        settle(page)
+        self.assertAlmostEqual(page.evaluate(y, read), before, delta=1)
+
+    def test_a_pin_reference_reaches_its_row_while_picking(self):
+        """While the section picks, a #N (gotoPinRef) to an awaiting-review pin out of view brings its row into view and,
+        by keyboard, focuses its box - the cards it looked for are not there."""
+        for lo in range(5, 37, 4):
+            pid = add_pin({"file": str(self.main), "lo": lo, "hi": lo, "page": 1, "note": "more %d" % lo}, A).record[
+                "id"
+            ]
+            self.close(pid, reply="fixed %d" % lo)
+        page = self.review_page()
+        self.pick(page)
+        far = page.evaluate("+[...document.querySelectorAll('#review-pins .rv-row')].pop().dataset.id")
+        page.evaluate("document.querySelector('#list').scrollTop = 0")
+        page.evaluate("id=>gotoPinRef(id,true)", far)
+        settle(page)
+        got = page.evaluate(
+            """id => {const r = document.querySelector('#review-pins .rv-row[data-id="' + id + '"]').getBoundingClientRect(),
+              s = document.querySelector('#list').getBoundingClientRect(), a = document.activeElement;
+              return [r.top >= s.top && r.bottom <= s.bottom, a.matches('.rv-row[data-id="' + id + '"] input[data-pick]'), !!RV_PICK];}""",
+            far,
+        )
+        self.assertEqual(got, [True, True, True])
+
+    def test_esc_closes_a_showing_description_first_then_the_pick(self):
+        """Esc closes the top thing only: with [골라서 확인]'s description showing after a keyboard focus, the first Esc closes
+        the description and the pick stays; the next ends the pick."""
+        page = self.review_page()
+        self.pick(page)
+        page.keyboard.press("Shift+Tab")  # from [모두 고르기] back to [골라서 확인], by keyboard
+        self.assertEqual(page.evaluate("document.activeElement.id"), "review-pick")
+        page.wait_for_selector("#tip:not([hidden])", timeout=5000)
+        page.keyboard.press("Escape")
+        settle(page)
+        self.assertEqual(page.evaluate("[TIP.hidden, RV_PICK!==null]"), [True, True])
+        page.keyboard.press("Escape")
+        settle(page)
+        self.assertEqual(page.evaluate("RV_PICK"), None)
 
     def test_a_redraw_keeps_the_focus_and_the_ticks(self):
         """The list's redraw (the five-second sync) draws the rows anew: the focused box keeps the focus and every tick

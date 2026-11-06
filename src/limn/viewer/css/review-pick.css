@@ -21,6 +21,7 @@ body.lay-wide .rv-row{padding-left:var(--space-3)}   /* the wide head starts its
 body.compact .rv-row{padding-left:calc(var(--ink) - var(--edge))}   /* the compact head starts its contents on --ink, the list's content on --edge (responsive.css) */
 .rv-row+.rv-row{border-top:1px solid var(--border)}
 .rv-row.on{background:color-mix(in srgb,var(--primary) 8%,transparent)}
+.rv-row.flash{animation:pinflash 1.2s ease-in-out 1}   /* reached from a #N, a mark or a notice (gotoPinRef, jumpToCard), as a card is */
 .rv-l1{display:flex;align-items:center;gap:var(--space-2)}
 label.rv-ck{flex:1;min-width:0;display:flex;align-items:center;gap:var(--space-2);min-height:var(--control-h-sm);cursor:pointer}
 .rv-row.off label.rv-ck{cursor:default}

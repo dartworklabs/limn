@@ -163,15 +163,24 @@ function rvOutcome(r,err){if(err)return err.status?{out:RV_OUT.REFUSED,why:errTe
   if(d&&d.error==='conflict')return {out:d.pin&&pinState(d.pin)!==PIN_STATE.REVIEW?RV_OUT.DONE_BY_PERSON:RV_OUT.CLOSED_AGAIN};
   return d&&d.ok?{out:RV_OUT.OK}:{out:RV_OUT.GONE};}
 
-// Sends the confirms of items all at once (each with the done_at its row showed when ticked; keepalive, so a page being
-// closed sends them all) and says what came of them: all done is said quietly; anything refused is one banner on top of
-// the review section that names each pin with why (rvSaid). Then the list is read again.
+// How long one confirm may go unanswered before it is said as not sent (and offered to [다시 시도]); a confirm takes some
+// milliseconds. Without it one request the network holds kept every pin of the send out of the list and the banner unsaid.
+const RV_SEND_MS=15000;
+// Sends the confirm of one pin with the done_at its row showed when ticked (keepalive, so a page being closed sends it)
+// and lets the pin go back to the lists as soon as it is answered, whatever the others do: off CONFIRMING, the next list
+// read shows it where the server has it. No answer within RV_SEND_MS ends the request as unreached - a retry of one that
+// did reach the server answers as already done, with the same done_at. Resolves with its outcome (rvOutcome).
+/** @param {Pin} pin @param {string} at @returns {Promise<{out:string,why?:string}>} */
+function rvSendOne(pin,at){const stop=new AbortController(),bound=setTimeout(()=>stop.abort(),RV_SEND_MS);
+  return api('/api/pins/'+pin.id+'/confirm',{method:'POST',silent:true,expect:[409],keepalive:true,signal:stop.signal,body:at?{done_at:at}:{}})
+    .then(r=>rvOutcome(r),e=>rvOutcome(null,/** @type {ApiError} */(e)))
+    .then(o=>{clearTimeout(bound); CONFIRMING.delete(pin.id); CONFIRMING_PIN.delete(pin.id); if(o.out===RV_OUT.OK)markMine(pin.id); return o;});}
+// Sends the confirms of items all at once (rvSendOne: every request starts in this call, so a page being closed sends them
+// all) and, once each is answered or given up, says what came of them: all done is said quietly; anything refused is one
+// banner on top of the review section that names each pin with why (rvSaid). The list is read again first.
 /** @param {{pin:Pin,at:string}[]} items */
 async function rvSend(items){
-  const outs=await Promise.all(items.map(({pin,at})=>api('/api/pins/'+pin.id+'/confirm',{method:'POST',silent:true,expect:[409],keepalive:true,body:at?{done_at:at}:{}})
-    .then(r=>rvOutcome(r),e=>rvOutcome(null,/** @type {ApiError} */(e)))));
-  outs.forEach((o,i)=>{if(o.out===RV_OUT.OK)markMine(items[i].pin.id);});
-  for(const {pin} of items){CONFIRMING.delete(pin.id); CONFIRMING_PIN.delete(pin.id);}
+  const outs=await Promise.all(items.map(({pin,at})=>rvSendOne(pin,at)));
   await loadPins();
   const said=rvSaid(items.map((x,i)=>({id:x.pin.id,...outs[i]})));
   if(!said){quietNote(tl('핀 {n}건 확인했습니다',{n:items.length})); return;}
@@ -202,12 +211,6 @@ function rvRetry(items){const still=items.filter(x=>!CONFIRMING.has(x.pin.id)&&R
   for(const {pin} of still){CONFIRMING.add(pin.id); CONFIRMING_PIN.set(pin.id,pin); if(RV_PICK)RV_PICK.delete(pin.id);}
   REVIEW_ALL=REVIEW_ALL.filter(p=>!CONFIRMING.has(p.id)); drawPins(); marks(); rvSend(still);}
 
-// Esc while the focus is in the picking section ends picking. Listened in the capture phase, before the page's own Esc
-// (events.js), which would close the panel or the sheet the section is in.
-/** @param {KeyboardEvent} e */
-function rvEscape(e){if(e.key!=='Escape'||!RV_PICK||e.isComposing)return; const a=document.activeElement;
-  if(!a||!a.closest||!a.closest('#sec-review'))return; e.preventDefault(); e.stopPropagation(); rvPick(false);}
-document.addEventListener('keydown',rvEscape,true);
 // A box's change (a click on it or its label, Space on it) ticks or clears it.
 /** @param {Event} e */
 function rvChange(e){const t=/** @type {HTMLInputElement} */(e.target);

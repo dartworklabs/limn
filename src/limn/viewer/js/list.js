@@ -277,9 +277,9 @@ function listScroller(){return document.body.classList.contains('compact')?$('#r
 // not laid out.
 /** @returns {{sel:string,sec:string,top:number}[]} */
 function listKeep(){const S=listScroller(),out=[]; if(!S.scrollTop||!S.getClientRects().length)return out; const R=S.getBoundingClientRect();
-  for(const r of /** @type {HTMLElement[]} */($$('#list .pin[data-id],#list .arc-row[data-id]'))){if(!r.getClientRects().length)continue; const b=r.getBoundingClientRect();
+  for(const r of /** @type {HTMLElement[]} */($$('#list .pin[data-id],#list .arc-row[data-id],#list .rv-row[data-id]'))){if(!r.getClientRects().length)continue; const b=r.getBoundingClientRect();
     if(b.bottom<=R.top)continue; if(b.top>=R.bottom)break;
-    out.push({sel:'#list '+(r.classList.contains('arc-row')?'.arc-row':'.pin')+'[data-id="'+CSS.escape(r.dataset.id||'')+'"]',sec:listSection(r),top:b.top});}
+    out.push({sel:'#list '+(r.classList.contains('arc-row')?'.arc-row':r.classList.contains('rv-row')?'.rv-row':'.pin')+'[data-id="'+CSS.escape(r.dataset.id||'')+'"]',sec:listSection(r),top:b.top});}
   return out;}
 // The section a row is drawn in: open (#pins), awaiting review (#review-pins) or done (#done-list).
 /** @param {Element} r */
@@ -462,7 +462,7 @@ function secOpenFor(id){const p=findAnyPin(id); if(!p)return false; const st=pin
 function revealCard(id){if(secOpenFor(id))drawPins(); setSide(true); if(LAYOUT===LAYOUT_MODE.WIDE)return;
   if(!OPEN_CARDS.has(id)&&(PINS.some(p=>p.id===id)||REVIEW_ALL.some(p=>p.id===id))){OPEN_CARDS.add(id); drawPins();}}
 function jumpToCard(id){if(secOpenFor(id))drawPins();
-  const el=/** @type {HTMLElement} */(document.querySelector('.pin[data-id="'+id+'"]')); if(!el)return;
+  const el=/** @type {HTMLElement} */(document.querySelector('.pin[data-id="'+id+'"],.rv-row[data-id="'+id+'"]')); if(!el)return;   // a result row while the review section picks
   el.scrollIntoView({behavior:scrollMotion(),block:'nearest'});
   $$('.pin.cur').forEach(x=>{if(x!==el)x.classList.remove('cur');});
   clearTimeout(el._curT);
@@ -476,7 +476,7 @@ function gotoPinRef(id,focus){const p=findAnyPin(id); if(!p){if(DROPPED.some(x=>
   if(multiDoc()&&DOC&&pdoc(p)!==DOC)SHOW_ALL=true;
   if(st===PIN_STATE.DONE)SEC.done=true; else{OPEN_CARDS.add(id); SEC[st===PIN_STATE.REVIEW?'review':'open']=true;} savePrefs({sec:SEC});
   setSide(true); drawPins();
-  requestAnimationFrame(()=>{const el=/** @type {HTMLElement} */(document.querySelector('.pin[data-id="'+id+'"],.arc-row[data-id="'+id+'"]')); if(!el)return;
+  requestAnimationFrame(()=>{const el=/** @type {HTMLElement} */(document.querySelector('.pin[data-id="'+id+'"],.arc-row[data-id="'+id+'"],.rv-row[data-id="'+id+'"]')); if(!el)return;
     el.scrollIntoView({behavior:scrollMotion(),block:'nearest'}); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
     clearTimeout(el._flT); el._flT=setTimeout(()=>el.classList.remove('flash'),1200);
     if(focus)focusCard(id);});}
@@ -487,7 +487,8 @@ function cardNeighbour(a){const c=a.closest('.pin.card'); if(!c)return null; let
   let b=c.previousElementSibling; while(b&&!b.matches('.pin.card'))b=b.previousElementSibling; const t=/** @type {HTMLElement|null} */(n||b); return t?Number(t.dataset.id):null;}
 // Puts the focus on pin id's card - its number (a button) - when it is drawn.
 /** @param {number} id */
-function focusCard(id){const n=/** @type {HTMLElement|null} */(document.querySelector('.pin[data-id="'+id+'"] .n.go,.arc-row[data-id="'+id+'"] .n')); if(n)n.focus({preventScroll:true});}
+function focusCard(id){const n=/** @type {HTMLElement|null} */(document.querySelector('.pin[data-id="'+id+'"] .n.go,.arc-row[data-id="'+id+'"] .n,.rv-row[data-id="'+id+'"] input:not(:disabled),.rv-row[data-id="'+id+'"] .rv-act'));
+  if(n)n.focus({preventScroll:true});}   // a result row (review-pick.js): its box, or its first link when the box is off
 // Scrolls the mark of pin id into view and flashes it (switching to the pin's document first); a pin whose mark is not drawn
 // scrolls to the page the mark would be on.
 function jumpPin(id){if(viaDoc(id,jumpPin))return; const p=PINS.find(x=>x.id===id)||REVIEW_ALL.find(x=>x.id===id&&pdoc(x)===DOC);
