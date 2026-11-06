@@ -3977,13 +3977,10 @@ class FrontendToolbarOneRow(unittest.TestCase):
             head, r'<button id="btn-reload" class="sec btn-sm" data-act="reload" aria-label="핀 다시 읽기"'
         )
 
-    def test_label_chip_truncates_and_tip_has_full_label(self):
-        css = HTML[HTML.index("<style>") : HTML.index("</style>")]
-        self.assertIn("#bar1 .chip{height:var(--control-h-sm);display:block;", css)
-        self.assertIn("flex:0 1 auto;min-width:40px}", css)
-        self.assertIn("text-overflow:ellipsis", re.search(r"\n\.chip\{[^}]*\}", css).group(0))
-        # in compact, the label yields space first
-        self.assertIn("body.compact #bar1 .chip{flex:0 50 auto;min-width:28px}", css)
+    def test_label_is_off_the_tool_bar_and_tip_has_full_label(self):
+        # the label left the tool bar for [더보기]'s head (#more-label), so a long label takes no room from its buttons
+        bar = HTML[HTML.index('<div class="bar" id="bar1"') : HTML.index('<div class="bar" id="bar2"')]
+        self.assertNotIn("__LABEL__", bar)
         out = page_for("Long-DemoPaper1", "#1d4ed8")
         self.assertIn('data-tip="Long-DemoPaper1 — 이 창이 다루는 논문', out)
 
@@ -3992,7 +3989,6 @@ class FrontendToolbarOneRow(unittest.TestCase):
         # The position button [본문 3/25 ▾] names the document only from 400px; where it does, the name is the one part that
         # shrinks, and the pages and chevron keep their width (UX spec §V4 폭 예산).
         css = HTML[HTML.index("<style>") : HTML.index("</style>")]
-        self.assertIn("body.lay-narrow #bar1 .chip,body.lay-mid #bar1 .chip{display:none}", css)
         self.assertIn("#btn-pos .nm{flex:0 1 auto;min-width:0;", css)
         self.assertIn("#btn-pos b{flex:none;", css)
         # [더보기]'s label is no chip: the instance colour's dot and the name (translate="no"), no Limn icon (UX spec §V7)
@@ -4006,13 +4002,12 @@ class FrontendToolbarOneRow(unittest.TestCase):
         self.assertIn("#more .more-dot{", css)
         self.assertIn("background:var(--brand)", css[css.index("#more .more-dot{") :][:200])
 
-    def test_fold_open_also_hides_toolbar_chip_and_relies_on_more(self):
-        # regression: an unfolded fold device (884px) also puts #bar1 under flex-wrap:nowrap pressure,
-        # shrinking the label to 'CE-iTra…' (71px), unreadable (observed in touch QA). Same fix as narrow —
-        # hide the toolbar chip and show the full name only via #more-label inside [더보기]. #more is
-        # layout-condition-free shared markup, so it works as-is in mid too.
-        css = HTML[HTML.index("<style>") : HTML.index("</style>")]
-        self.assertIn("body.lay-narrow #bar1 .chip,body.lay-mid #bar1 .chip{display:none}", css)
+    def test_fold_open_also_relies_on_more_for_the_label(self):
+        # regression: an unfolded fold device (884px) also puts #bar1 under flex-wrap:nowrap pressure, and a label
+        # chip in it shrank to 'CE-iTra…' (71px), unreadable (observed in touch QA). The tool bar has no label chip;
+        # the full name is #more-label inside [더보기], layout-condition-free shared markup, so it works in mid too.
+        bar = HTML[HTML.index('<div class="bar" id="bar1"') : HTML.index('<div class="bar" id="bar2"')]
+        self.assertNotIn('class="chip"', bar)
         self.assertIn('id="btn-more" class="cmp btn-icon"', HTML)  # [더보기] is shared across compact (= mid/narrow)
 
 

@@ -386,7 +386,6 @@ NOT_WALKED: dict[str, tuple[float | None, str]] = {
     ),
     # text in a state the walk's fixture does not reach
     "#doc-select-wrap label": (TEXT, "the documents select's label: no rule shows #doc-select-wrap in any band"),
-    ".rv-close": (TEXT, "a review card's closing line: no script draws it"),
     "#more .m-l small": (TEXT, "[더보기]'s '지금 밝게' under the system theme: the walk sets the theme"),
     "#revision-more": (TEXT, "the commit list's [더 보기]: needs more commits than one page of the list"),
     ".ov-no": (TEXT, "the figure overlay's page number: needs a figure with two builds in the changes view"),
