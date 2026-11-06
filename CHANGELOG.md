@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.54 — 2026-11-07
 
 ### Added
 
@@ -22,6 +22,7 @@
 - **[검토 M] no longer hides the first review card under the section's head on a phone or a tablet.** The jump scrolled
   the review section to the very top of the sheet, under the stuck tool bar, so the section's sticky head stood under
   the bar and covered the top of the first card. The section now stops under the bar.
+- The agent contract (`pins.md`, HTTP API) is unchanged.
 
 ## 0.4.53 — 2026-11-07
 
