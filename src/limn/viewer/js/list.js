@@ -320,7 +320,28 @@ function markBadgeRoom(pg){const L=$('#left'); if(!L||!pg||!pg.getClientRects().
 // that is not laid out keeps its side until the page shows again.
 function markBadgeSides(){pageNoSides(); const rooms=new Map(); $$('.mark').forEach(m=>{const pg=m.parentElement;
     if(!rooms.has(pg))rooms.set(pg,markBadgeRoom(pg)); const r=rooms.get(pg); if(r)m.classList.toggle('in',markBadgeIn(+m.dataset.fx,r.w,r.pad,r.reach));});
-  $$('.sel.pending').forEach(pendingBadgeSide); markHitSides();}   // the pending boxes' '+' badges follow the same rule
+  $$('.sel.pending').forEach(pendingBadgeSide); markHitSides(); markCoverSkip();}   // the pending boxes' '+' badges follow the same rule
+// A badge the panel or the sheet covers is no stop for the keyboard (docs/handbook/viewer.md §모바일 레이아웃): Tab put the
+// ring on a mark the person could not see, and its tooltip floated over the panel that hid it (issue #418). A badge leaves
+// the tab order while its centre lies both inside the pages' visible box (#left's, within the window) and inside the panel's
+// box (#right: the sheet, the overlay panel, or the bottom bar of a closed sheet). A badge outside the pages' box - scrolled
+// away above, below or aside - keeps its stop, whatever is drawn over that edge: Tab scrolls it back. Beside the pages
+// (the wide desktop) the two boxes never share a point, so no badge leaves. The boxes are compared, not hit-tested: a hit
+// test per badge took 15 ms a pass in Chromium with 150 badges on screen, which a scroll pays every frame; the comparison
+// takes under 1 ms. Every box is read before any stop is written, and only a stop that changes is written.
+function markCoverSkip(){const L=$('#left'),P=$('#right'); if(!L||!P)return; const v=L.getBoundingClientRect(),p=P.getBoundingClientRect();
+  const x0=Math.max(v.left,p.left,0),y0=Math.max(v.top,p.top,0),x1=Math.min(v.right,p.right,innerWidth),y1=Math.min(v.bottom,p.bottom,innerHeight);
+  const bs=/** @type {HTMLElement[]} */($$('.mark button.mark-jump'));
+  const stops=bs.map(b=>{const r=b.getBoundingClientRect(),cx=r.left+r.width/2,cy=r.top+r.height/2;
+    return r.width>0&&cx>=x0&&cx<x1&&cy>=y0&&cy<y1?-1:0;});   // inside both boxes: covered
+  bs.forEach((b,i)=>{if(b.tabIndex!==stops[i])b.tabIndex=stops[i];});}
+// What the panel covers changes without the marks being drawn again: the sheet opens, closes or is dragged to another height,
+// the window is resized, or the pages scroll under it. The sheet's size is watched (its open and closed heights differ); a
+// scroll asks again at most once a frame.
+if(window.ResizeObserver)new ResizeObserver(()=>markCoverSkip()).observe($('#right'),{box:'border-box'});
+let MARK_COVER_TICK=0;
+$('#left').addEventListener('scroll',()=>{if(MARK_COVER_TICK)return;
+  MARK_COVER_TICK=requestAnimationFrame(()=>{MARK_COVER_TICK=0; markCoverSkip();});},{passive:true});
 // How far each mark badge's press area may reach on each side (docs/handbook/viewer.md §모바일 레이아웃): boxes are the badges'
 // drawn boxes {x,y,w,h} in one coordinate space and reach the press area's full size.
 // Two badges whose press areas would overlap split the gap between their drawn boxes in half, along the axis on which their

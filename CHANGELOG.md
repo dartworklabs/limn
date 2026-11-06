@@ -16,6 +16,11 @@
   word and choose it, wrapping at the ends, Home/End go to the first and last word, and a disabled word is passed over.
   On the assignee row, which draws its words again on every pick, the focus stays on the word in the same place.
   Choosing the language with an arrow reopens the page in that language, as a press does.
+- **Tab no longer stops on a mark badge the panel or the sheet covers** (#418). On a tablet or phone with the sheet open,
+  Tab put the focus ring on a badge under the sheet, out of sight, and its tooltip floated over the sheet. A badge whose
+  centre lies under the panel's box leaves the tab order until the sheet closes or the pages scroll it out; a badge
+  scrolled out of the pages (under the document bar, or zoomed past the pages' edge) stays a stop. The check compares
+  boxes and costs well under a millisecond per scroll frame with hundreds of badges.
 
 ## 0.4.52 — 2026-11-06
 
