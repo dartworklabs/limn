@@ -593,12 +593,9 @@ class PopoverMentions(PopoverDrag, BrowserBase):
         self.assertGreaterEqual(s["row"]["top"], s["list"]["top"] - 0.5, s)  # the scroll is whole pixels
         self.assertLessEqual(s["row"]["bottom"], s["list"]["bottom"] + 0.5, s)
         page.mouse.move((s["list"]["left"] + s["list"]["right"]) / 2, (s["list"]["top"] + s["list"]["bottom"]) / 2)
+        before = page.evaluate("document.querySelector('#mention-pop').scrollTop")  # read before the wheel can move it
         page.mouse.wheel(0, -40)
-        page.wait_for_function(
-            "t => document.querySelector('#mention-pop').scrollTop < t",
-            arg=page.evaluate("document.querySelector('#mention-pop').scrollTop"),
-            timeout=5000,
-        )
+        page.wait_for_function("t => document.querySelector('#mention-pop').scrollTop < t", arg=before, timeout=5000)
         page.keyboard.press("Enter")
         settle(page)
         m = page.evaluate(MENTIONS)
