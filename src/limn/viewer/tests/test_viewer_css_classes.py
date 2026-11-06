@@ -4,7 +4,8 @@ A rule whose class nothing writes styles nothing and only misleads the next read
 `.chip` and `.rv-close` outlived their markup by weeks, and two tests pinned the dead `.chip` text. A class counts as
 written when its name stands as a whole word (not inside a longer name) in the page template (index.html), a viewer script,
 or the Python under src/limn that serves HTML. The viewer builds some names at run time from a fixed prefix
-(`'nk-'+kind`, `ev-${m.ev}`); those families are BUILT, each with the script that builds it, and every other class must
+(`'nk-'+kind`, `ev-${m.ev}`); BUILT lists each such family with the script that builds it and the values it joins, and
+only those exact names pass unnamed - a static class that shares a family's prefix (`.mdc-note`, `.rd-no`) must still
 appear by name. KEPT names the classes kept with no writer on purpose.
 
 This is a lower bound: a name that also occurs as a plain word in a script (`chip`, `open`) passes whether or not an element
@@ -20,19 +21,22 @@ CSS_DIR = VIEWER / "css"
 JS_DIR = VIEWER / "js"
 SRC = VIEWER.parent
 
-# Class families the viewer names at run time: prefix -> the script that builds the name from it.
+# Class families the viewer names at run time: prefix -> (the script that builds the name from it, the values it joins).
+# Only prefix+value passes unnamed; a value is a quoted string in a script (a number for a depth).
 BUILT = {
-    "band-": "layout.js (the screen band on <body>)",
-    "lay-": "layout.js (the layout on <body>)",
-    "dot-": "notices.js (the red dot on the control a message leads to)",
-    "nk-": "notices.js, status.js (a message's kind)",
-    "ev-": "card-parts.js (a thread's state record: close, reopen, confirm, assign)",
-    "rd-": "revisions.js, suggest.js (a diff line's kind)",
-    "md-al-": "md-surface.js (a Markdown table cell's alignment)",
-    "mdc-": "md-compare.js (a compared block's change)",
-    "ol-depth-": "outline.js (an outline entry's depth)",
-    "ic-": "markup.js (an icon's name)",
+    "band-": ("layout.js (the screen band on <body>)", {"short", "tablet-sheet"}),
+    "lay-": ("layout.js (the layout on <body>)", {"mid", "narrow"}),
+    "dot-": ("notices.js (the red dot on the control a message leads to)", {"rv", "side"}),
+    "nk-": ("notices.js, status.js (a message's kind)", {"err", "info", "ok", "warn"}),
+    "ev-": ("card-parts.js (a thread's state record)", {"assign", "close", "confirm", "reopen"}),
+    "rd-": ("revisions.js, suggest.js (a diff line's kind)", {"del", "file", "hunk", "meta"}),
+    "md-al-": ("md-surface.js (a Markdown table cell's alignment)", {"center", "left", "right"}),
+    "mdc-chip-": ("md-compare.js (a change chip's kind)", {"pin"}),
+    "mdc-": ("md-compare.js (a compared block's change)", {"del", "ins", "mod", "move"}),
+    "ol-depth-": ("outline.js (an outline entry's depth)", {"0", "1", "2", "3", "4"}),
+    "ic-": ("markup.js (an icon's name)", {"pencil"}),
 }
+BUILT_NAMES = {p + v for p, (_, values) in BUILT.items() for v in values}
 # Classes kept with no writer, and why.
 KEPT = {
     "badge-default": "a badge variant of the component set (docs/handbook/viewer.md §디자인 토큰과 컴포넌트, 배지)",
@@ -80,8 +84,8 @@ def named(name: str, text: str) -> bool:
 
 
 def unwritten(classes, text: str) -> list[str]:
-    """The classes neither named in text, nor of a BUILT family, nor KEPT."""
-    return sorted(c for c in classes if c not in KEPT and not c.startswith(tuple(BUILT)) and not named(c, text))
+    """The classes neither named in text, nor a name a BUILT family joins, nor KEPT."""
+    return sorted(c for c in classes if c not in KEPT and c not in BUILT_NAMES and not named(c, text))
 
 
 class ViewerCssClasses(unittest.TestCase):
@@ -93,20 +97,26 @@ class ViewerCssClasses(unittest.TestCase):
         cls.text = writers()
 
     def test_every_selected_class_is_written(self):
-        """Every class a rule selects is named by the template, a script or the server, or built from a BUILT prefix."""
+        """Every class a rule selects is named by the template, a script or the server, or is a name a BUILT family joins."""
         dead = unwritten(self.classes, self.text)
         self.assertEqual(
             [(c, self.classes[c]) for c in dead], [], "remove these rules, or list the class with a reason"
         )
 
     def test_every_built_family_is_still_built_and_selected(self):
-        """Each BUILT prefix is still joined to a value in a script ('nk-'+…, `ev-${…}`), and some rule selects a class of
-        it - so the list never outlives the family."""
+        """Each BUILT prefix is still joined to a value in a script ('nk-'+…, `ev-${…}`); each name it lists is selected by
+        a rule, is not also written whole (then it needs no listing), and its value stands quoted in a script (a depth
+        is a number) - so the list never outlives the family or names a value no script has."""
         scripts = "\n".join(p.read_text(encoding="utf-8") for p in sorted(JS_DIR.glob("*.js")))
-        for prefix in BUILT:
+        for prefix, (_, values) in BUILT.items():
             with self.subTest(prefix=prefix):
                 self.assertRegex(scripts, r"[\s'\"`]" + re.escape(prefix) + r"(?:['\"]\s*\+|\$\{)")
-                self.assertTrue(any(c.startswith(prefix) for c in self.classes))
+            for value in sorted(values):
+                with self.subTest(name=prefix + value):
+                    self.assertIn(prefix + value, self.classes)
+                    self.assertFalse(named(prefix + value, self.text))
+                    if not value.isdigit():
+                        self.assertRegex(scripts, "['\"`]" + re.escape(value) + "['\"`]")
 
     def test_every_kept_class_is_selected_and_unwritten(self):
         """A KEPT class is still selected by a rule and still has no writer; once something writes it, it leaves KEPT."""
@@ -125,4 +135,7 @@ class ViewerCssClasses(unittest.TestCase):
         )
         classes = selector_classes(css)
         self.assertEqual(classes, {"planted-x", "nk-new", "btn-icon"})
-        self.assertEqual(unwritten(classes, '<b class="btn-icon">'), ["planted-x"])
+        self.assertEqual(unwritten(classes, '<b class="btn-icon">'), ["nk-new", "planted-x"])
+        self.assertEqual(
+            unwritten({"nk-err", "mdc-note", "rd-no"}, ""), ["mdc-note", "rd-no"]
+        )  # a family's static class is not built
