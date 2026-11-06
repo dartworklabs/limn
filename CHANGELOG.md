@@ -20,6 +20,16 @@
   first try took for a scroll; a pin's [보기] and [바뀐 곳] read the spot where they land (`mdShowLines`), so a width that
   changes before their frame keeps their place. The spot also keeps the px of the room past its line's end (a line's
   leading, a margin), which it used to drop: put back, a top in that room moved up to 8px.
+- **In Firefox a key, a wheel or a press during a heading jump now ends its smooth scroll too** (#441). On the
+  Markdown surface such an input ended the jump to a heading but wrote the pane's own offset to end its smooth scroll,
+  and once Firefox's compositor (APZ) had moved the pane that write reached it as nothing: the scroll went on to the
+  heading, with an arrow key's or the wheel's own step added to its destination (in the new tests the pane came to
+  rest some 8,800px past where a press found it, one ArrowDown step or 300px of wheel past the heading). On CI it showed as a pane taken back to the heading after Home at the top
+  (`HeadingJumpFirefox`) and as an End that never reached the end (`ErrorOnAJumpThenEndFirefox`). The input now writes
+  the offset a pixel off and back in one task - down at the very top, up elsewhere - which ends the scroll where the
+  pane stands in every engine; the key's step or the wheel's turn then goes from there. Nothing is drawn between the two
+  writes, and a jump nobody interrupts glides as before. The End test no longer waits for the jump's scroll to rest
+  first.
 
 ## 0.4.52 — 2026-11-06
 
