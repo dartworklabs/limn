@@ -22,7 +22,7 @@ again when the cover is the sheet a key opened.
 
 from helpers import add_pin
 from helpers_access import ALICE, actor
-from helpers_browser import BrowserBase, settle
+from helpers_browser import BrowserBase, settle, touch_line
 
 TABLET = {"viewport": {"width": 768, "height": 1024}, "is_mobile": True, "has_touch": True, "device_scale_factor": 2}
 DESKTOP = {"viewport": {"width": 1440, "height": 900}}
@@ -361,13 +361,18 @@ class CoveredMarksSeen(BrowserBase):
         settle(page)
         g = page.locator("#sheet-grip").bounding_box()
         x, y = g["x"] + g["width"] / 2, g["y"] + g["height"] / 2
+        # The grabber pulled up past the document bar: the sheet stands at its tallest whether the release reads as a
+        # fling (sheetRelease's next stop, its top on the bar at 48px) or as let go there (the height it was let go at,
+        # rounded down: 49px, issue #456). Nine 20px moves (180px) reached the bar only as a fling, when the runner
+        # delivered them fast enough; on a slow one the sheet stayed where they left it (top 190).
         page.mouse.move(x, y)
         page.mouse.down()
-        for i in range(1, 10):
-            page.mouse.move(x, y - 20 * i)
+        for _, py in touch_line(x, y, x, 20, 10)[1:]:
+            page.mouse.move(x, py)
         page.mouse.up()
         settle(page)
-        self.assertEqual(page.evaluate("Math.round(document.querySelector('#right').getBoundingClientRect().top)"), 48)
+        top = page.evaluate("Math.round(document.querySelector('#right').getBoundingClientRect().top)")
+        self.assertIn(top, (48, 49))
         self.assertEqual(
             page.evaluate(
                 "[...document.querySelectorAll('.mark button.mark-jump')].filter(b => b.tabIndex >= 0).length"
