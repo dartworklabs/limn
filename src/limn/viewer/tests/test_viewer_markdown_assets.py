@@ -14,7 +14,10 @@ docs/guide.md (gd) - and the LaTeX manuscript (ms):
 - a move of the pane whose animation frame has not come yet when an image changes size - the page's frames held, as on
   a renderer too busy to paint - is not undone: Home and End (HeadingJump, ShrinkNearTheEnd), the browser's find in page
   (FindBeforeTheFrame), a pin's [보기] and [바뀐 곳] (ShrinkNearTheEnd), and a pin's [보기] followed by a reflow
-  (JumpThenReflow);
+  (JumpThenReflow); nor is Home undone after an image that loaded on the way of a heading jump (HeadingJump);
+- a web font that swaps in before such a frame, its reflow at the same width cutting the pane's offset back to a shorter
+  document's end, is no move: an image that loads next puts back the line read before the font, the reflow above that
+  line or below it (FontSwapAbove, FontSwapBelow);
 - a pin on an image's line outlines the image; a click on an image picks its paragraph;
 - a link to another registered document goes to it, at its heading, and the browser's back returns - also before that
   document has opened, which then never opens over the entry back returned to; followed while a phone's back layer holds
@@ -55,7 +58,7 @@ from urllib.parse import parse_qs, urlparse
 from limn.administration import serve_documents as startup_documents
 
 from helpers import blank_png, ps, req, set_config
-from helpers_browser import BrowserBase, settle
+from helpers_browser import BrowserBase, booted, settle, watch_idle
 from helpers_csp import add_test_style
 from helpers_figure import BUILD1, viewer_build
 
@@ -158,6 +161,12 @@ def until(page, js: str, timeout: float = 8.0):
         if time.monotonic() > end:
             raise AssertionError("never true: " + js)
         page.wait_for_timeout(50)
+
+
+def pictures(routes) -> int:
+    """How many of the held routes are an <img>'s own asks - the loads or failures their answers bring
+    (window.__picDone) - and not the read of a loaded picture's tag (mdPicSeen's fetch of the same address)."""
+    return sum(r.request.resource_type == "image" for r in routes)
 
 
 def line_of(text: str, needle: str) -> int:
@@ -696,6 +705,180 @@ class ShrinkNearTheEndFirefox(ShrinkNearTheEnd):
     BROWSER_ENGINE = "firefox"
 
 
+# Paragraphs of narrow letters, which a monospace fallback face sets on about twice as many lines as the bundled face
+# (Pretendard) does, and one-line paragraphs, whose height no face changes (the column's line height is a number,
+# md-surface.css). Above the reading line an image, then the narrow paragraphs, then the short ones, read in near the
+# end: the font's reflow is all above the line.
+LATE_FACE = (
+    "# Font\n\n![image](img/tall.png)\n\n"
+    + "".join("Narrow %d: " % i + "il " * 300 + "\n\n" for i in range(1, 9))
+    + "".join("Short %d.\n\n" % i for i in range(1, 60))
+)
+# The short paragraphs first, the narrow ones below them and the image at the document's end: read in the short ones
+# about 200px before the end, the font's reflow is all below the reading line, and so is the image.
+LATE_FACE_BELOW = (
+    "# Font\n\n"
+    + "".join("Short %d.\n\n" % i for i in range(1, 40))
+    + "".join("Narrow %d: " % i + "il " * 100 + "\n\n" for i in range(1, 4))
+    + "![image](img/tall.png)\n"
+)
+# The line element at the document area's top: its first line, how far down it the top is as a share of its height (the
+# reading spot's frac), and that height in px.
+TOP_SHARE = (
+    "(()=>{const t=document.querySelector('#left').getBoundingClientRect().top,e=mdAt(mdLineEls(),t),"
+    "r=e.getBoundingClientRect(); return [+(e.dataset.line||e.dataset.lo),(t-r.top)/r.height,r.height];})()"
+)
+# How far down #md the reading spot's element starts, in px.
+SPOT_IN_MD = "MD.spot.el.getBoundingClientRect().top-document.querySelector('#md').getBoundingClientRect().top"
+
+
+class FontSwap(AssetsBase):
+    """A web font that swaps in before a scroll's frame - the page's frames held, as on a renderer too busy to paint -
+    sets paragraphs on fewer lines at the same width: the document gets shorter and, read 200px before its end, the
+    browser cuts the pane's offset back to the new end. The reflow and its cut are no person's move, and the line read
+    before the font stays the reading spot until an image that loads next puts it back (FontSwapAbove, FontSwapBelow).
+    The bundled face's answers are held from the start, the column's fallback face is monospace (wider than Pretendard
+    whatever the machine's sans-serif is: Chromium's own fallback on a Linux host set these letters much as Pretendard
+    does, and no reflow followed) and the browser's scroll anchoring is off (as ShrinkNearTheEnd); tall.png is held
+    too."""
+
+    # The test's own style: the browser's scroll anchoring off, the column's fallback face monospace.
+    STYLE = '#left,#left *{overflow-anchor:none} #md{font-family:"Pretendard Variable",monospace}'
+
+    def read_before_the_font(self):
+        """The viewer on nt, the face and tall.png held, the pane halfway down the line about 200px before its end and
+        the spot read there by the scroll's frame; the page, and that line as TOP_SHARE gives it."""
+        self.faces: list = []
+        self.holding_faces = True
+
+        def route(r):
+            if self.holding_faces and urlparse(r.request.url).path.endswith(".woff2"):
+                self.faces.append(r)
+                return None
+            return self.route(r)
+
+        self.holding = True
+        context = self.browser.new_context(viewport={"width": 1400, "height": 850})
+        self.addCleanup(context.close)
+        context.add_init_script(FRAMES_HELD)
+        watch_idle(context)
+        page = context.new_page()
+        errors: list[str] = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        self.addCleanup(lambda: self.assertEqual(errors, []))
+        page.route("**/*", route)
+        page.goto("http://viewer.test/?lang=en", wait_until="domcontentloaded")  # the load event would wait on the face
+        until(page, DRAWN + "&&" + booted(0), 20)
+        add_test_style(page, self.STYLE)
+        until(page, "document.fonts.status==='loading'")
+        # tall.png is lazy: asked once it comes near the area, and not if the pane leaves it first
+        page.evaluate("document.querySelector('#md .md-pic img').scrollIntoView({block:'nearest'})")
+        end = time.monotonic() + 10
+        while not self.hold:
+            self.assertLess(time.monotonic(), end, "tall.png was never asked for")
+            page.wait_for_timeout(50)
+        page.evaluate(
+            "(L=>{L.scrollTop=L.scrollHeight-L.clientHeight-200; const t=L.getBoundingClientRect().top,"
+            " r=mdAt(mdLineEls(),t).getBoundingClientRect(); L.scrollTop+=Math.round(r.top+r.height/2-t);})"
+            "(document.querySelector('#left'))"
+        )
+        # two frames: the scroll's has read the spot there
+        page.evaluate("new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))")
+        before = page.evaluate(TOP_SHARE)
+        self.assertTrue(150 < page.evaluate(FROM_END) < 250)
+        self.assertEqual(page.evaluate("MD.spot.line"), before[0])
+        self.assertTrue(0.2 < before[1] < 0.8)
+        self.assertGreater(before[0], line_of(self.PLAN, "Short 1."))
+        return page, before
+
+    def let_the_font_go(self, page, before):
+        """The frames held, the face let go: once it is laid out the document is shorter, the pane cut back to its new
+        end and another line at the area's top, the spot not read since."""
+        page.evaluate("window.__framesHeld=true")
+        held, self.faces[:] = list(self.faces), []
+        self.holding_faces = False
+        self.assertTrue(held)
+        for r in held:
+            r.fulfill(**self.answer(r.request))
+        until(page, "document.fonts.status==='loaded'", 10)
+        until(page, FROM_END + "<1")
+        self.assertNotEqual(page.evaluate(TOP_SHARE)[0], before[0])
+        self.assertEqual(page.evaluate("MD.spot.line"), before[0])
+
+    def let_the_image_go(self, page, before):
+        """tall.png answered before any frame (its box from 8rem to 900px): the line read before the font is back at the
+        area's top, also once the frames run."""
+        self.holding = False
+        held, self.hold[:] = list(self.hold), []
+        page.evaluate("window.__picDone=0")
+        for r in held:
+            r.fulfill(**self.answer(r.request))
+        until(page, "window.__picDone>=1&&!!document.querySelector('#md .md-pic-ok')")
+        self.at_the_line_read_before(page, before)
+        page.evaluate("window.__framesGo()")
+        settle(page)
+        self.at_the_line_read_before(page, before)
+
+    def at_the_line_read_before(self, page, before):
+        """The line read before the font at the area's top, the top as far down it (its share of the line's height now),
+        to 2px."""
+        now = page.evaluate(TOP_SHARE)
+        self.assertEqual(now[0], before[0])
+        self.assertAlmostEqual(now[1] * now[2], before[1] * now[2], delta=2)
+
+
+class FontSwapAbove(FontSwap):
+    """The font's reflow and the image above the reading line (the review's case)."""
+
+    PLAN = LATE_FACE
+
+    def test_an_image_after_a_fonts_reflow_above_puts_back_the_line_read_before_it(self):
+        """The narrow paragraphs above get thousands of px shorter and the pane is cut back to the new end, some lines
+        on. tall.png then loads above: the check before its box changes (mdSpotFresh) finds #md of another height than
+        the spot was read at and keeps the spot, and the put-back after the change (mdSpotBack) brings that line back,
+        as far down it, to 2px. Mutation: no height check (the offset compared alone, the branch before the fix) -> the
+        cut offset is taken for a move and read, the top line five short paragraphs on (L127 for L117), fails; in
+        Firefox with its own fallback face as well (the review's L123, frac 0.41 for 0.68)."""
+        page, before = self.read_before_the_font()
+        self.let_the_font_go(page, before)
+        self.let_the_image_go(page, before)
+
+
+class FontSwapBelow(FontSwap):
+    """The font's reflow and the image below the reading line: the spot's element keeps its place in #md. The pane's
+    room after the document (60vh, frame.css) is taken away, so that what the font shortens within the area's height
+    below the line is enough to cut the offset: with the room, hardly a screen's text is left below a line read near the
+    end."""
+
+    PLAN = LATE_FACE_BELOW
+    STYLE = FontSwap.STYLE + " #left{padding-bottom:0}"
+
+    def test_an_image_after_a_fonts_reflow_below_puts_back_the_line_read_before_it(self):
+        """The narrow paragraphs below get some hundreds of px shorter: the pane is cut back to the new end, some lines
+        before the one read, which keeps its place in #md. tall.png then loads at the end, the room to put that line
+        back: the height check keeps the spot and the put-back brings it back, to 2px. Mutations: no height check -> the
+        cut offset is read as a move and an earlier line put back (L61 for L63), fails; the check on the place of the
+        spot's element in #md instead of #md's height -> that place did not move, the same, fails."""
+        page, before = self.read_before_the_font()
+        self.assertLess(before[0], line_of(LATE_FACE_BELOW, "Narrow 1:"))
+        at = page.evaluate(SPOT_IN_MD)
+        self.let_the_font_go(page, before)
+        self.assertAlmostEqual(page.evaluate(SPOT_IN_MD), at, delta=0.5)
+        self.let_the_image_go(page, before)
+
+
+class FontSwapAboveFirefox(FontSwapAbove):
+    """The same in Firefox."""
+
+    BROWSER_ENGINE = "firefox"
+
+
+class FontSwapBelowFirefox(FontSwapBelow):
+    """The same in Firefox."""
+
+    BROWSER_ENGINE = "firefox"
+
+
 MANY = 300  # more than MD_PIC_KEEP (256), the most entries the page's other image records keep
 
 
@@ -830,8 +1013,24 @@ class HeadingJump(AssetsBase):
         back the same way. Same mutation -> fails."""
         self.home_before_the_frame(lambda r: r.fulfill(status=404, body=""))
 
-    def home_before_the_frame(self, answer):
-        """The jump with its images held; frames held, Home, then every held image answered by answer before any frame."""
+    @unittest.skipIf(sys.platform == "darwin", "Home scrolls no pane on macOS: issue #414")
+    def test_an_image_that_loads_on_the_jumps_way_leaves_home_at_the_top(self):
+        """The Home of the tests above after one held image has loaded on the jump's way, the frames already held: the
+        jump goes on to its heading (mdGoOn) and the spot is read after that change (mdPicMoved), so when the other
+        images load after Home the check before each (mdSpotFresh) finds the column laid out as the spot was read and
+        takes the pane's top for the key's move. Mutation: no read after an image's change during a jump -> the check
+        finds another layout, as after a font's swap, keeps the spot read before Home and the loads put it back, the
+        pane 398-2,818px below the top, fails. Main and the branch before the layout check pass it."""
+        self.home_before_the_frame(lambda r: r.fulfill(**self.answer(r.request)), on_the_way=1)
+
+    @unittest.skipIf(sys.platform == "darwin", "Home scrolls no pane on macOS: issue #414")
+    def test_an_image_that_fails_on_the_jumps_way_leaves_home_at_the_top(self):
+        """The same with images the server does not give (mdPicError). Same mutation -> fails."""
+        self.home_before_the_frame(lambda r: r.fulfill(status=404, body=""), on_the_way=1)
+
+    def home_before_the_frame(self, answer, on_the_way=0):
+        """The jump with its images held; frames held, the first on_the_way held images answered by answer while the
+        jump is still on, Home, then every other held image answered by answer before any frame."""
         for i in range(1, 7):
             (self.src / "notes" / "img" / ("p%d.png" % i)).write_bytes(blank_png(200, 900))
         page = self.open_md(init=FRAMES_HELD)
@@ -842,6 +1041,14 @@ class HeadingJump(AssetsBase):
             page, "!!MD.goTo&&document.querySelector('#left').scrollTop>200"
         )  # on its way, its spot read below the top
         page.evaluate("document.activeElement&&document.activeElement.blur(); window.__framesHeld=true")
+        if on_the_way:
+            self.assertGreater(len(self.hold), on_the_way)  # and some left for after Home
+            held, self.hold[:] = self.hold[:on_the_way], self.hold[on_the_way:]
+            page.evaluate("window.__picDone=0")
+            for r in held:
+                answer(r)
+            until(page, "window.__picDone>=%d" % pictures(held))
+            self.assertTrue(page.evaluate("!!MD.goTo"))  # still on its way: the frame that would land it is held
         page.keyboard.press("Home")
         until(page, "document.querySelector('#left').scrollTop===0")
         self.assertTrue(page.evaluate("!MD.goTo&&!!MD.spot&&!!MD.spot.el"))  # the key's scroll is not read yet
@@ -850,7 +1057,7 @@ class HeadingJump(AssetsBase):
         page.evaluate("window.__picDone=0")
         for r in held:
             answer(r)
-        until(page, "window.__picDone>=%d" % len(held))
+        until(page, "window.__picDone>=%d" % pictures(held))
         self.assertEqual(page.evaluate("document.querySelector('#left').scrollTop"), 0)
         page.evaluate("window.__framesGo()")
         self.holding = False  # what the grown images bring into reach loads as it comes, and so does what is still held
