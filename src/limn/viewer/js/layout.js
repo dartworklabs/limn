@@ -42,7 +42,9 @@ function applyLayout(){if(!BAND_IN)BAND_IN=bandInput(); const o=BAND_IN,band=lay
   SIDE_OPEN=L===LAYOUT_MODE.WIDE?p.sideClosed!==true:(L===LAYOUT_MODE.MID?(typeof p.midClosed==='boolean'?!p.midClosed:!overlay):sheetToSheet&&wasOpen);
   if(!REPICK&&(COMPOSE.current||EDITOR.current||REPLY||!$('#composer').hidden))SIDE_OPEN=true;   // an in-progress note/edit/reply is never left hidden collapsed
   if(band!==LAYOUT_BAND.PHONE&&$('#nav-sheet').open)$('#nav-sheet').close();
-  placeBarTools(); applySide(); stickTop(); placeStatus(); if($('#more').open){renderSizeSeg(); placeMore();} if(REV.target)revTargetActs(); if(REV.rows.length)renderCommitList(); return true;}
+  const keep=placeBarTools(); applySide(); stickTop(); placeStatus(); if($('#more').open){renderSizeSeg(); placeMore();} if(REV.target)revTargetActs(); if(REV.rows.length)renderCommitList();
+  if(keep&&document.activeElement!==keep)keep.focus({preventScroll:true});   // from the sheet straight to wide the bar shows only once applySide has drawn the panel
+  return true;}
 // Puts the tool bar's markup (#bar1) in the order the band draws it, so Tab crosses the bar from left to right (issue #418). The
 // markup is the sheet's, whose grid draws it as it stands: [핀 N | 검토 M] [⬚] (.bar-l), the grabber, [본문 ▾] [⋯] (.bar-r), then
 // the wide row's tools. The wide row ends on [⋯] (CSS order), so .bar-r goes last; the mid and short rows read
@@ -53,7 +55,8 @@ function placeBarTools(){const bar=$('#bar1'),l=/** @type {HTMLElement} */(bar.q
   if(LAYOUT===LAYOUT_MODE.MID){if(bar.firstElementChild!==sel)bar.prepend(sel); if(bar.lastElementChild!==l||l.previousElementSibling!==r)bar.append(r,l);}
   else{if(l.lastElementChild!==sel)l.append(sel); if(bar.firstElementChild!==l)bar.prepend(l);
     if(LAYOUT===LAYOUT_MODE.WIDE){if(bar.lastElementChild!==r)bar.append(r);} else if(l.nextElementSibling!==$('#sheet-grip')||$('#sheet-grip').nextElementSibling!==r)$('#sheet-grip').after(r);}
-  if(had&&a&&document.activeElement!==a)a.focus({preventScroll:true});}
+  if(had&&a&&document.activeElement!==a)a.focus({preventScroll:true});
+  return had&&a&&document.activeElement!==a?a:null;}   // a focus that could not go back yet (its bar not shown before applySide): applyLayout tries again
 // Whether the outline is an overlay over the document that opens one at a time with the pin panel (OUTLINE_MID_OPEN, never
 // saved): in the mid bands and on the tablet sheet. The phone has no outline; wide keeps it beside the document.
 function outlineOverlay(){return LAYOUT===LAYOUT_MODE.MID||BAND===LAYOUT_BAND.TABLET_SHEET;}

@@ -44,7 +44,7 @@
   701 to 1099px with a mouse) and the landscape phone's top row it went [핀] [검토] at the right end, back to [⬚ 선택] at
   the left (touch only), then [⋯], then back left to the status line's actions. When the band changes, the markup now moves into the order that
   band draws (`placeBarTools`), and back to the sheet's on a sheet; nothing on screen moves, and a control that has the
-  focus keeps it.
+  focus keeps it, also from a sheet straight to the desktop, whose bar shows only once the panel is drawn for it.
 - **A page list row's focus ring is whole** (#418). The page list - the page count's popover and the phone's navigation
   sheet - scrolls, so it clips what passes its sides, and its rows fill its width: the ring every control draws 1px
   outside its box lost 3px on both sides of every row, on the first row's top and on the last row's bottom. The rows

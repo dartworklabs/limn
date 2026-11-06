@@ -145,6 +145,28 @@ class BarTabOrder(BrowserBase):
                 self.assertEqual(page.evaluate("document.activeElement.id"), "btn-more")
                 self.assert_rows_read_left_to_right(page, "%s at %d" % (band, w))
 
+    def test_the_focus_on_more_survives_a_jump_from_the_sheet_straight_to_the_desktop(self):
+        """The sheet closed and [⋯] holding the focus, the window grown from the sheet's band straight to the desktop - a
+        mouse at 673, a phone and a tablet by touch: [⋯] still has the focus. The bar's markup moves as the band changes
+        (placeBarTools) before the panel is drawn for the new band (applySide), and the focus given back then went nowhere:
+        the desktop bar was not shown yet, and the focus fell to the page's body (found by the functional test). Mutation:
+        no second try after applySide in applyLayout -> body, fails."""
+        for name, viewport, touch in (
+            ("mouse 673x900", {"width": 673, "height": 900}, False),
+            ("phone 390x844", {"width": 390, "height": 844}, True),
+            ("tablet 768x1024", {"width": 768, "height": 1024}, True),
+        ):
+            with self.subTest(name):
+                page = self.open(2, **self.device(viewport, touch))
+                self.assertFalse(page.evaluate("document.body.classList.contains('band-wide')"))
+                page.focus("#btn-more")
+                self.assertEqual(page.evaluate("document.activeElement.id"), "btn-more")
+                page.set_viewport_size({"width": 1440, "height": 900})
+                page.wait_for_function("() => document.body.classList.contains('band-wide')")
+                settle(page)
+                self.assertEqual(page.evaluate("document.activeElement.id"), "btn-more", name)
+                page.context.close()
+
     def test_a_turned_foldable_keeps_the_chip_and_the_select_button_in_order(self):
         """By touch, an unfolded foldable turned between landscape (the overlay panel) and portrait (the tablet sheet), then
         held as a landscape phone (the short band) and turned back: in each band the chip's two halves and [⬚] are drawn on
