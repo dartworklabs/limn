@@ -17,7 +17,9 @@ docs/guide.md (gd) - and the LaTeX manuscript (ms):
   (JumpThenReflow); nor is Home undone after an image that loaded on the way of a heading jump (HeadingJump);
 - a web font that swaps in before such a frame, its reflow at the same width cutting the pane's offset back to a shorter
   document's end, is no move: an image that loads next puts back the line read before the font, the reflow above that
-  line or below it (FontSwapAbove, FontSwapBelow);
+  line or below it (FontSwapAbove, FontSwapBelow); Home pressed after that cut is a move all the same (FontSwapAbove),
+  and so is Home after a run of raw HTML blocks opened or closed, which moves the column's height and no offset
+  (HtmlRunToggle);
 - a pin on an image's line outlines the image; a click on an image picks its paragraph;
 - a link to another registered document goes to it, at its heading, and the browser's back returns - also before that
   document has opened, which then never opens over the entry back returned to; followed while a phone's back layer holds
@@ -620,10 +622,11 @@ class ShrinkNearTheEnd(AssetsBase):
         cuts the pane's offset back to the new end (680px), the top line standing 200px further on. That cut is the
         layout's, so the spot read before is put back: the line at the area's top is the one read before, as far into it,
         to 2px, and the pane stands as far before the new end. Main passes this (it never compares offsets); it guards the
-        fix's own hole, #433's first one. Mutation: let the box take the new picture's shape before its load is handled (no
-        aspect ratio held in mdPicSize) -> at the load the offset is already cut, the check before the change (mdSpotFresh)
-        takes it for a move and reads the spot there, the top line L85 for L75, fails; so does comparing the offset after
-        the change (#433's first try)."""
+        fix's own hole, #433's first one: the cut taken for a move. Two things keep it apart, either alone enough: the box
+        takes the new picture's shape only in the handler, after the check before the change (mdPicSize), and that check
+        (mdSpotFresh) knows a cut - the offset read before beyond the pane's new end, the pane at that end. Mutation:
+        neither (no aspect ratio held, no cut check) -> at the load the offset is already cut, the check takes it for a
+        move and reads the spot there, the top line L85 for L75, fails."""
         page = self.read_near_the_end()
         before, gap = page.evaluate(TOP_LINE), page.evaluate(FROM_END)
         self.shrink(page)
@@ -639,9 +642,12 @@ class ShrinkNearTheEnd(AssetsBase):
         document area (as a search or a link leaves it) - the pane goes to its end, its scroll not read yet - and then the
         image shrinks. The pane stands elsewhere than where the spot was read, so the spot is read there before the image
         changes, and put back after: the pane stays at the end, also once the frames run. End's offset falls in the room
-        below a line, past the element's end: the spot keeps those px too (past). Mutations: no check before the change
-        (mdSpotFresh) -> the spot read before End is put back, 217px above the new end, fails; no past -> 8px above it,
-        fails."""
+        below a line, past the element's end: the spot keeps those px too (past). The pane is at its end but the offset
+        read before is not beyond it - no cut - so End is a move. Mutations: no check before the change (mdSpotFresh) ->
+        the spot read before End is put back, 217px above the new end, fails; no past -> 8px above it, fails; the cut
+        told by the pane at its end alone -> End taken for a cut, 217px, fails; no aspect ratio held (mdPicSize) -> the
+        box takes its new shape before the load, and its cut, beyond the offset read before End, is taken for the
+        layout's and End goes back with it, 217px, fails."""
         page = self.read_near_the_end(init=FRAMES_HELD)
         page.evaluate(
             "(L=>{L.tabIndex=-1; L.focus({preventScroll:true});})(document.querySelector('#left')); window.__framesHeld=true"
@@ -662,7 +668,8 @@ class ShrinkNearTheEnd(AssetsBase):
         browser cuts the offset back to the new end. The pin's line stands where the jump put it, to 2px, also once the
         frames run. Mutations: neither the read where the jump lands (mdShowLines) nor the check before the change
         (mdSpotFresh) -> the spot read before the jump is put back, the line 160px below, fails, and either alone holds
-        it; no aspect ratio held (mdPicSize) -> the offset is cut before the load and read as the jump's, fails."""
+        it; neither an aspect ratio held (mdPicSize) nor the cut check -> the offset is cut before the load and read as
+        the jump's, the line 367px off, fails, and either alone holds it."""
         body = json.dumps(
             {"doc": "nt", "file": str(self.src / "notes" / "plan.md"), "lo": LAST_LINE, "hi": LAST_LINE, "note": "끝"}
         ).encode()
@@ -678,7 +685,8 @@ class ShrinkNearTheEnd(AssetsBase):
         the area, and the image shrinks before the scroll's frame. The line stands where the jump put it, to 2px, also
         once the frames run. The changed place is set on the page (UPD.lines) as a redraw that found it sets it: what is
         read here is the jump, not how a change is found (test_viewer_updates.py). Mutations as for the pin's [보기]:
-        neither the read in mdShowLines nor mdSpotFresh -> 160px, fails; no aspect ratio held -> fails."""
+        neither the read in mdShowLines nor mdSpotFresh -> 160px, fails; neither an aspect ratio held nor the cut check
+        -> 58px, fails."""
         page = self.read_near_the_end(init=FRAMES_HELD)
         page.evaluate(
             "window.__framesHeld=true; UPD.lines.set('nt',{base:[],ranges:[{lo:%d,hi:%d}],at:-1}); updGoNext('nt')"
@@ -730,6 +738,35 @@ TOP_SHARE = (
 )
 # How far down #md the reading spot's element starts, in px.
 SPOT_IN_MD = "MD.spot.el.getBoundingClientRect().top-document.querySelector('#md').getBoundingClientRect().top"
+# The pane's scroll offset, in px.
+PANE_TOP = "document.querySelector('#left').scrollTop"
+
+
+def answer_the_image(test, page, check):
+    """The page's frames held: every held asset answer let go (tall.png's box from 8rem to 900px), check() once it stands
+    at its size, before any frame, and again once the frames run and the page settles."""
+    test.holding = False
+    held, test.hold[:] = list(test.hold), []
+    test.assertTrue(held)
+    page.evaluate("window.__picDone=0")
+    for r in held:
+        r.fulfill(**test.answer(r.request))
+    until(page, "window.__picDone>=1&&!!document.querySelector('#md .md-pic-ok')")
+    check()
+    page.evaluate("window.__framesGo()")
+    settle(page)
+    check()
+
+
+def home_before_the_frame(test, page):
+    """The page's frames held: Home pressed with the focus on the document area (as a search or a link leaves it), the pane
+    at its top and its scroll not read yet - the spot still the line read before."""
+    line = page.evaluate("MD.spot.line")
+    test.assertGreater(line, 0)
+    page.evaluate("(L=>{L.tabIndex=-1; L.focus({preventScroll:true});})(document.querySelector('#left'))")
+    page.keyboard.press("Home")
+    until(page, PANE_TOP + "===0")
+    test.assertEqual(page.evaluate("MD.spot.line"), line)
 
 
 class FontSwap(AssetsBase):
@@ -808,16 +845,7 @@ class FontSwap(AssetsBase):
     def let_the_image_go(self, page, before):
         """tall.png answered before any frame (its box from 8rem to 900px): the line read before the font is back at the
         area's top, also once the frames run."""
-        self.holding = False
-        held, self.hold[:] = list(self.hold), []
-        page.evaluate("window.__picDone=0")
-        for r in held:
-            r.fulfill(**self.answer(r.request))
-        until(page, "window.__picDone>=1&&!!document.querySelector('#md .md-pic-ok')")
-        self.at_the_line_read_before(page, before)
-        page.evaluate("window.__framesGo()")
-        settle(page)
-        self.at_the_line_read_before(page, before)
+        answer_the_image(self, page, lambda: self.at_the_line_read_before(page, before))
 
     def at_the_line_read_before(self, page, before):
         """The line read before the font at the area's top, the top as far down it (its share of the line's height now),
@@ -834,14 +862,28 @@ class FontSwapAbove(FontSwap):
 
     def test_an_image_after_a_fonts_reflow_above_puts_back_the_line_read_before_it(self):
         """The narrow paragraphs above get thousands of px shorter and the pane is cut back to the new end, some lines
-        on. tall.png then loads above: the check before its box changes (mdSpotFresh) finds #md of another height than
-        the spot was read at and keeps the spot, and the put-back after the change (mdSpotBack) brings that line back,
-        as far down it, to 2px. Mutation: no height check (the offset compared alone, the branch before the fix) -> the
-        cut offset is taken for a move and read, the top line five short paragraphs on (L127 for L117), fails; in
-        Firefox with its own fallback face as well (the review's L123, frac 0.41 for 0.68)."""
+        on. tall.png then loads above: the check before its box changes (mdSpotFresh) finds the offset read before
+        beyond what the pane can scroll now and the pane at its end - the cut - and keeps the spot, and the put-back
+        after the change (mdSpotBack) brings that line back, as far down it, to 2px. Mutation: no cut check (the offset
+        compared alone, the branch before the fix) -> the cut offset is taken for a move and read, the top line five
+        short paragraphs on (L127 for L117), fails; in Firefox with its own fallback face as well (the review's L123,
+        frac 0.41 for 0.68)."""
         page, before = self.read_before_the_font()
         self.let_the_font_go(page, before)
         self.let_the_image_go(page, before)
+
+    @unittest.skipIf(sys.platform == "darwin", "Home scrolls no pane on macOS: issue #414")
+    def test_home_after_a_fonts_cut_is_not_undone_by_the_image(self):
+        """The same cut, then Home before any frame: the pane stands at its top, no longer at the end the font cut it
+        back to, so the check before tall.png's change takes that for the key's move and reads the spot there - the pane
+        stays at the top, also once the frames run. Mutations: the cut told by the offset read beyond the pane's end
+        alone, without the pane standing at that end -> the spot read before the font is kept and put back, the pane
+        4,385px down, fails; the height check of the branch before (#md's height compared with the spot's: a font's
+        reflow, the offset not trusted) -> the same, fails."""
+        page, before = self.read_before_the_font()
+        self.let_the_font_go(page, before)
+        home_before_the_frame(self, page)
+        answer_the_image(self, page, lambda: self.assertAlmostEqual(page.evaluate(PANE_TOP), 0, delta=1))
 
 
 class FontSwapBelow(FontSwap):
@@ -856,9 +898,8 @@ class FontSwapBelow(FontSwap):
     def test_an_image_after_a_fonts_reflow_below_puts_back_the_line_read_before_it(self):
         """The narrow paragraphs below get some hundreds of px shorter: the pane is cut back to the new end, some lines
         before the one read, which keeps its place in #md. tall.png then loads at the end, the room to put that line
-        back: the height check keeps the spot and the put-back brings it back, to 2px. Mutations: no height check -> the
-        cut offset is read as a move and an earlier line put back (L61 for L63), fails; the check on the place of the
-        spot's element in #md instead of #md's height -> that place did not move, the same, fails."""
+        back: the cut check keeps the spot and the put-back brings it back, to 2px. Mutation: no cut check -> the cut
+        offset is read as a move and an earlier line put back (L61 for L63), fails."""
         page, before = self.read_before_the_font()
         self.assertLess(before[0], line_of(LATE_FACE_BELOW, "Narrow 1:"))
         at = page.evaluate(SPOT_IN_MD)
@@ -874,6 +915,91 @@ class FontSwapAboveFirefox(FontSwapAbove):
 
 
 class FontSwapBelowFirefox(FontSwapBelow):
+    """The same in Firefox."""
+
+    BROWSER_ENGINE = "firefox"
+
+
+# A tall image, twelve paragraphs, a run of twenty raw HTML blocks - one closed placeholder (mdHtmlRunEl), some 1,600px
+# taller open - and more paragraphs below it.
+HTML_RUN = (
+    "# Fold\n\n![image](img/tall.png)\n\n"
+    + "".join("Paragraph %d.\n\n" % i for i in range(1, 13))
+    + "".join("<div>raw %d</div>\n\n" % i for i in range(1, 21))
+    + "".join("After %d.\n\n" % i for i in range(1, 81))
+)
+
+
+class HtmlRunToggle(AssetsBase):
+    """A run of raw HTML blocks opened or closed (mdHtmlRun) below the reading line: #md gets some 1,600px taller or
+    shorter at the same width and the pane's offset stays, so no scroll's frame reads the spot again. Home is then
+    pressed before any frame (the page's frames held) and tall.png, above the line read before, loads: the pane stays at
+    the top. The browser's scroll anchoring is left as it is."""
+
+    PLAN = HTML_RUN
+
+    @unittest.skipIf(sys.platform == "darwin", "Home scrolls no pane on macOS: issue #414")
+    def test_home_after_a_run_is_opened_is_not_undone_by_an_image(self):
+        """The run opened, then Home and tall.png's load before any frame: the check before the image's change
+        (mdSpotFresh) finds the pane elsewhere than where the spot was read, and that offset not cut back to an end, so
+        it reads the spot at the top and the pane stays there. Mutation: the height check of the branch before (#md's
+        height compared with the spot's: a height the page changed without reading the spot again taken for a web
+        font's reflow) -> the spot read before Home is kept and put back, the pane 1,452px down, fails, in both engines;
+        the branch before the height check passes it (the review's case)."""
+        self.home_after_the_run(open_first=False)
+
+    @unittest.skipIf(sys.platform == "darwin", "Home scrolls no pane on macOS: issue #414")
+    def test_home_after_a_run_is_closed_is_not_undone_by_an_image(self):
+        """The same with the run opened first, the spot read there, and then closed: #md gets shorter, no offset is cut
+        (the pane is far from its end) and Home stays at the top. Same mutation -> 1,452px, fails."""
+        self.home_after_the_run(open_first=True)
+
+    def home_after_the_run(self, open_first):
+        """tall.png held from the start; the run opened first when open_first; the run's button 40px under the area's
+        top and the spot read there by the scroll's frame; the button pressed - the run opens or closes, #md's height
+        moves, the offset and the spot stay; then Home and tall.png's answer before any frame: the pane at its top."""
+        self.holding = True
+        page = self.open(0, init=FRAMES_HELD)
+        until(page, DRAWN, 20)
+        end = time.monotonic() + 10
+        while not self.hold:  # tall.png asked, and held
+            self.assertLess(time.monotonic(), end, "tall.png was never asked for")
+            page.wait_for_timeout(50)
+        settle(page)
+        button = page.locator("#md .md-html-sum")
+        self.assertEqual(button.count(), 1)
+        if open_first:
+            button.click()
+            until(page, "document.querySelector('#md .md-html-sum').getAttribute('aria-expanded')==='true'")
+        page.evaluate(
+            "(L=>{const b=document.querySelector('#md .md-html-sum');"
+            " L.scrollTop+=b.getBoundingClientRect().top-L.getBoundingClientRect().top-40;})(document.querySelector('#left'))"
+        )
+        settle(page)
+        top, height, line = page.evaluate(
+            "[document.querySelector('#left').scrollTop,document.querySelector('#md').getBoundingClientRect().height,"
+            "MD.spot.line]"
+        )
+        self.assertGreater(top, 0)
+        self.assertLess(line, line_of(HTML_RUN, "<div>raw 1<"))
+        button.click()
+        until(
+            page,
+            "document.querySelector('#md .md-html-sum').getAttribute('aria-expanded')==='%s'"
+            % ("false" if open_first else "true"),
+        )
+        settle(page)
+        self.assertGreater(
+            abs(page.evaluate("document.querySelector('#md').getBoundingClientRect().height") - height), 1000
+        )
+        self.assertEqual(page.evaluate(PANE_TOP), top)
+        self.assertEqual(page.evaluate("MD.spot.line"), line)
+        page.evaluate("window.__framesHeld=true")
+        home_before_the_frame(self, page)
+        answer_the_image(self, page, lambda: self.assertAlmostEqual(page.evaluate(PANE_TOP), 0, delta=1))
+
+
+class HtmlRunToggleFirefox(HtmlRunToggle):
     """The same in Firefox."""
 
     BROWSER_ENGINE = "firefox"
@@ -1016,11 +1142,11 @@ class HeadingJump(AssetsBase):
     @unittest.skipIf(sys.platform == "darwin", "Home scrolls no pane on macOS: issue #414")
     def test_an_image_that_loads_on_the_jumps_way_leaves_home_at_the_top(self):
         """The Home of the tests above after one held image has loaded on the jump's way, the frames already held: the
-        jump goes on to its heading (mdGoOn) and the spot is read after that change (mdPicMoved), so when the other
-        images load after Home the check before each (mdSpotFresh) finds the column laid out as the spot was read and
-        takes the pane's top for the key's move. Mutation: no read after an image's change during a jump -> the check
-        finds another layout, as after a font's swap, keeps the spot read before Home and the loads put it back, the
-        pane 398-2,818px below the top, fails. Main and the branch before the layout check pass it."""
+        jump goes on to its heading (mdGoOn) and nothing reads the spot after that change, so when the other images load
+        after Home the check before each (mdSpotFresh) has the column's height moved since the spot was read - and the
+        pane at its top, far from any end: the key's move. Mutation: the height check of the branch before (#md's height
+        compared with the spot's) -> that change is taken for a font's reflow, the spot read before Home kept and put
+        back, the pane 398-2,818px below the top, fails. Main and the branch before the height check pass it."""
         self.home_before_the_frame(lambda r: r.fulfill(**self.answer(r.request)), on_the_way=1)
 
     @unittest.skipIf(sys.platform == "darwin", "Home scrolls no pane on macOS: issue #414")
