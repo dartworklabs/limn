@@ -24,6 +24,9 @@ docs/guide.md (gd) - and the LaTeX manuscript (ms):
 - a link to another registered document goes to it, at its heading, and the browser's back returns - also before that
   document has opened, which then never opens over the entry back returned to; followed while a phone's back layer holds
   the top history entry, it adds none, and back closes the layer;
+- a heading jump whose smooth scroll is moving ends where an arrow key, a wheel or a press on the pane found the pane, and
+  the input's own step goes from there; the write that ends it moves the offset and puts it back at the pane's top and
+  end too (InputEndsAGlide; Firefox's smooth scroll slowed by a preference, so the input always meets it moving);
 - the jump to that heading lands on it though images above it load on the way (HeadingJump); a double click on a link
   still waiting for its document adds one entry, and back between two entries of one address shows the document it names;
 - where this branch meets #409's reading spot and focus and ADR-0029's text documents: an image that loads under the
@@ -148,6 +151,21 @@ PICS_GUIDE = (
     )
     + "## 설치\n\n설치 문단.\n\n"
     + "".join("뒤 문단 %d.\n\n" % i for i in range(1, 60))
+)
+# A document whose heading '아래' stands some 9,000px down, with room below it to come to the pane's top.
+LONG = (
+    "# 위\n\n"
+    + "".join("위 문단 %d.\n\n" % i for i in range(1, 220))
+    + "## 아래\n\n아래 문단.\n\n"
+    + "".join("뒤 문단 %d.\n\n" % i for i in range(1, 40))
+)
+# Where the person's input found the pane - its offset, and whether a heading jump was in flight - read on the window at the
+# first keydown, wheel or pointerdown, before any listener of the viewer's runs (window.__seen). Passive, so the wheel is
+# not held for it.
+INPUT_SEEN = (
+    "(()=>{const L=document.querySelector('#left'); window.__seen=null;"
+    " for(const t of ['keydown','wheel','pointerdown'])"
+    "  addEventListener(t,()=>{if(!window.__seen)window.__seen={top:L.scrollTop,goTo:!!MD.goTo};},{capture:true,passive:true});})()"
 )
 # Where the heading '설치' is in the document pane, in px from the pane's top.
 SETUP_TOP = (
@@ -1054,13 +1072,9 @@ class ErrorOnAJumpThenEnd(AssetsBase):
         until(page, "!document.querySelector('#md .md-pic[data-path=\"notes/img/shrink.png\"]')")
         self.assertTrue(page.evaluate("!!MD.goTo"), "the jump had ended before the image failed")
         self.assertGreater(before - page.evaluate("document.querySelector('#left').scrollHeight"), 2000)
-        # The jump's smooth scroll comes to rest first (the jump itself still in flight: it ends on a frame, mdGoLanded).
-        # End is about what the image's change left, not about a key meeting a smooth scroll that is still running:
-        # Firefox started the jump's scroll at times and not at others, and on CI an End pressed while it ran never
-        # reached the end (run 42148218919).
-        rest = page.evaluate(PANE_AT_REST)
-        self.assertTrue(rest["still"], rest)
-        self.assertTrue(page.evaluate("!!MD.goTo"), "the jump had ended before End")
+        # End meets the jump's smooth scroll however far the engine and the runner have taken it - only asked for, moving
+        # (Chromium here, and Firefox on CI: run 42148218919, before #441) or at rest: the key ends it where it stands
+        # (mdGoStop) and End's own scroll goes on from there. A moving one is InputEndsAGlide's to hold.
         page.evaluate("(L=>{L.tabIndex=-1; L.focus({preventScroll:true});})(document.querySelector('#left'))")
         page.keyboard.press("End")
         until(page, FROM_END + "<1")
@@ -1284,6 +1298,92 @@ class HeadingJump(AssetsBase):
         settle(page)
         self.assertFalse(page.evaluate("!!MD.goTo"))
         self.assertLess(page.evaluate("document.querySelector('#left').scrollTop"), 50)
+
+
+class InputEndsAGlide(AssetsBase):
+    """A heading jump whose smooth scroll is moving - seen moving, not only asked for - ends where the person's input found
+    the pane: a scroll key, a wheel, a press on the pane. The scroll does not go on to the heading afterwards (#441: in
+    Firefox, whose compositor runs that scroll, each input ended the jump (MD.goTo) but not its scroll, which came to rest
+    at the heading - with the key's or the wheel's own step added to it). The jump goes 9,000px down, and Firefox's smooth
+    scroll is slowed (InputEndsAGlideFirefox), so the input comes while it is still far from the heading however slow the
+    runner; each test checks that it did (the input's own event read the pane first, INPUT_SEEN)."""
+
+    PLAN = LONG
+
+    def glide(self):
+        """The viewer on LONG, the input watch installed, the jump to '아래' started and its scroll seen moving; the page and
+        where the jump is going (mdGoTop)."""
+        page = self.open_md()
+        page.evaluate(INPUT_SEEN)
+        page.evaluate("mdGoHeading(MD.heads.findIndex(h=>h.title==='아래'))")
+        until(page, "!!MD.goTo&&document.querySelector('#left').scrollTop>0")
+        return page, page.evaluate("mdGoTop(MD.heads.find(h=>h.title==='아래').el)")
+
+    def ends_where_seen(self, page, dest, step, delta):
+        """The input came while the jump was in flight, far from its heading; the jump is over, and the pane comes to rest
+        step px (the input's own scroll) from where the input found it, give or take delta."""
+        rest = page.evaluate(PANE_AT_REST)
+        seen = page.evaluate("window.__seen")
+        self.assertTrue(seen and seen["goTo"], seen)  # the input met the jump in flight
+        self.assertGreater(dest - seen["top"], 1000, seen)  # still far from its heading
+        self.assertFalse(page.evaluate("!!MD.goTo"))
+        self.assertTrue(rest["still"], rest)
+        self.assertAlmostEqual(rest["top"], seen["top"] + step, delta=delta, msg="the jump went on to %s" % dest)
+
+    def test_a_scroll_key_ends_the_moving_scroll_where_the_key_found_the_pane(self):
+        """ArrowDown with the focus on the document area: the pane comes to rest one key step (40-48px) below where the key
+        found it. Before #441 Firefox's scroll went on to the heading and one step past it - the key's step added to the
+        scroll's destination. Mutation: the stop writes the pane's own offset (mdGoStop before #441) -> the same in
+        Firefox, 8,800px past the key, fails; Chromium passes either way (a write of its own offset ends its scroll)."""
+        page, dest = self.glide()
+        page.evaluate("(L=>{L.tabIndex=-1; L.focus({preventScroll:true});})(document.querySelector('#left'))")
+        page.keyboard.press("ArrowDown")
+        self.ends_where_seen(page, dest, 45, 30)
+
+    def test_a_press_on_the_pane_ends_the_moving_scroll_there(self):
+        """A mouse press on the document area beside the column - no scroll of its own, and nothing there to pick: the pane
+        comes to rest where the press found it, to the pixel. Same mutation -> Firefox's scroll goes on to the heading,
+        fails. Mutation: no write back after the pixel off (mdGoStop) -> the pane rests a pixel from it, fails in both."""
+        page, dest = self.glide()
+        x, y = page.evaluate(
+            "(()=>{const r=document.querySelector('#left').getBoundingClientRect(),"
+            " m=document.querySelector('#md').getBoundingClientRect(); return [(r.left+m.left)/2, r.top+r.height/2];})()"
+        )
+        self.assertGreater(page.evaluate("document.querySelector('#md').getBoundingClientRect().left") - x, 4)
+        page.mouse.move(x, y)
+        page.mouse.down()
+        page.mouse.up()
+        self.ends_where_seen(page, dest, 0, 0.5)
+
+    def test_a_wheel_ends_the_moving_scroll_and_scrolls_from_where_it_found_the_pane(self):
+        """A wheel turned 300px down over the pane: the pane comes to rest 300px below where the wheel found it. Same
+        mutation -> Firefox's scroll goes on to the heading and 300px past it, fails."""
+        page, dest = self.glide()
+        x, y = page.evaluate(
+            "(r=>[r.left+r.width/2,r.top+r.height/2])(document.querySelector('#left').getBoundingClientRect())"
+        )
+        page.mouse.move(x, y)
+        page.mouse.wheel(0, 300)
+        self.ends_where_seen(page, dest, 300, 10)
+
+    def test_the_stop_moves_the_offset_at_the_top_and_at_the_end_too(self):
+        """At the pane's top and at its end, where a pixel one way is no move, the stop's first write still moves the offset
+        and its second puts it back - read as the writes are made (the pane's scrollTo wrapped), a jump marked in flight. A
+        scroll Firefox's compositor has taken while the page still reads the pane at its top or its end - Home's place and
+        End's, CI's two flakes - ends only on a moved offset, and that moment cannot be brought about on cue. Mutation: a
+        pixel up wherever the pane is -> no move at the top, fails; a pixel down wherever -> none at the end, fails."""
+        page = self.open_md()
+        got = page.evaluate(
+            "(()=>{const L=document.querySelector('#left'),own=L.scrollTo,out={}; let w=[];"
+            " L.scrollTo=function(a){own.call(L,a); w.push(L.scrollTop);};"
+            " for(const [k,t] of [['top',0],['end',L.scrollHeight-L.clientHeight]]){"
+            "  L.scrollTop=t; w=[]; MD.goTo={el:MD.heads[1].el,doc:DOC}; mdGoStop(); out[k]=[L.scrollTop,w];}"
+            " L.scrollTo=own; return out;})()"
+        )
+        self.assertGreater(got["end"][0], 1000)
+        for k, (t, writes) in got.items():
+            self.assertTrue(any(abs(w - t) >= 1 for w in writes), (k, t, writes))
+            self.assertEqual(writes[-1], t, (k, writes))
 
 
 class SvgOnItsOwn(AssetsBase):
@@ -2012,6 +2112,14 @@ class HeadingJumpFirefox(HeadingJump):
     """A heading jump that images interrupt on the way, in Firefox."""
 
     BROWSER_ENGINE = "firefox"
+
+
+class InputEndsAGlideFirefox(InputEndsAGlide):
+    """The same in Firefox, its smooth scroll slowed: the spring that drives a script's smooth scroll (CSSOM View
+    scroll-behavior) at 5 instead of 250, so the jump takes some seconds instead of under one."""
+
+    BROWSER_ENGINE = "firefox"
+    FIREFOX_PREFS = {"layout.css.scroll-snap.spring-constant": "5.0"}
 
 
 class SvgOnItsOwnFirefox(SvgOnItsOwn):
