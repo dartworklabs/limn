@@ -198,6 +198,26 @@ function holdCaret(e){const t=/** @type {HTMLInputElement} */(e.target);
   try{t.setSelectionRange(at,at);}catch(err){}}   // a field whose kind has no caret (email, number) refuses it
 document.addEventListener('focusin',()=>{CARET_HELD=null;},true);
 document.addEventListener('keydown',holdCaret,true);
+// A field's scroll keys are the field's, not the pages' (docs/handbook/viewer.md §키와 초점). A key that the host does
+// not give a field goes to the scroller outside it instead: in the reason field the pane scrolled, the reading page
+// changed, the panel redrew for it and the open field went - what was being written in disappeared (#414). Which keys
+// those are is the host's answer, and it differs. PageUp and PageDown are no field's keys anywhere: they moved the
+// pane on both hosts (macOS 958px, Linux 194 and 388; in the panel's note 59 on Linux). Home and End are the field's
+// on Linux and Windows, where they move the caret, and are not on macOS, where the pane scrolled instead (-1104px and
+// +6242). So the page keys are dropped on every host and Home and End only on macOS, where dropping them costs no
+// caret move. Only the default is dropped, so the caret stays where it stands, as it does in every other application
+// on that host. Four cases are left alone: a key that ended a composition is that composition's (§조합을 끝내는 키); a
+// modifier makes them the field's again (Shift+Home selects to the line's start, Meta+Arrow is the host's own caret
+// key - both measured); a field with more than it shows scrolls itself, which is the field's own doing; and anything
+// outside a field, where these keys move the pages as they always have.
+const PAGE_KEYS=new Set(['PageUp','PageDown']);   // outline.js's SCROLL_KEYS also holds the arrows and Space, which stay a field's keys on every host
+/** @param {KeyboardEvent} e */
+function fieldScrollKey(e){const k=e.key;
+  if(!PAGE_KEYS.has(k)&&!(IS_MAC&&(k==='Home'||k==='End')))return;
+  if(e.shiftKey||e.metaKey||e.ctrlKey||e.altKey||imeKey(e)||!typingNow())return;
+  const f=/** @type {HTMLElement} */(document.activeElement); if(f.scrollHeight>f.clientHeight)return;
+  e.preventDefault();}
+document.addEventListener('keydown',fieldScrollKey,true);
 // Whether a text field has focus - a textarea, a text input or editable content - which on a touch screen means the keyboard is up.
 function typingNow(){const a=/** @type {HTMLInputElement} */(document.activeElement); if(!a||a===document.body)return false; if(a.isContentEditable||a.tagName==='TEXTAREA')return true;
   return a.tagName==='INPUT'&&!/^(checkbox|radio|button|submit|reset|range|color|file|image|hidden)$/i.test(a.type||'');}

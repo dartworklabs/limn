@@ -3653,6 +3653,29 @@ class TouchLayoutBands(ViewerBase):
         seen, h = page.evaluate(SHOWN, "#note")
         self.assertEqual(seen, h)
 
+    def test_the_notes_scroll_keys_do_not_move_the_sheet(self):
+        """673x841, the foldable's inner screen and its tablet sheet: Home, End, PageUp and PageDown pressed in the
+        note move the panel's scroller 0px.
+
+        They are the field's keys, not the panel's (docs/handbook/viewer.md §키와 초점). On macOS they are not a
+        field's keys at all, so the browser handed them to the scroller outside it: End moved #right by 410px and
+        PageDown by 182, and the panel slid under the hand that was writing in it (measured 2026-11-06, #414; nothing
+        closed here, unlike the reason field, whose page the same keys scrolled). The caret does not move for them on
+        that host, so this reads the scroller and the field's text, not the caret."""
+        page = self.view({"viewport": {"width": 673, "height": 841}, "is_mobile": True, "has_touch": True})
+        self.compose(page)
+        page.focus("#note")
+        page.keyboard.type("ab")
+        settle(page)
+        sheet = "()=>Math.round(document.querySelector('#right').scrollTop)"
+        at, moved = page.evaluate(sheet), {}
+        for key in ("Home", "End", "PageUp", "PageDown"):
+            page.keyboard.press(key)
+            settle(page)
+            moved[key] = page.evaluate(sheet) - at
+        self.assertEqual(moved, {"Home": 0, "End": 0, "PageUp": 0, "PageDown": 0})
+        self.assertEqual(page.input_value("#note"), "ab")
+
     def test_a_touch_tablet_up_to_1366px_wide_gets_the_side_panel_band(self):
         """1180x820 and 1366x1024 touch were the desktop with 44px buttons: a two-line tool bar, a 240px outline and
         always-open cards left the page 580px at 1180. Now: the side panel between the nav bar and a bottom action row,
