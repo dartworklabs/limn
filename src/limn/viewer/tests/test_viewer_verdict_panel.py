@@ -20,6 +20,7 @@ import helpers_figure
 from helpers import blank_png, ps, split_resp
 from helpers_access import ALICE, BOB, member_add, talk_to
 from helpers_browser import (
+    MAC_PLATFORM,
     MISSES_44,
     VIEWPORTS,
     BrowserBase,
@@ -29,6 +30,7 @@ from helpers_browser import (
     ime_compose,
     ime_end_held,
     ime_key_up,
+    mac_press,
     nothing_follows,
     settle,
 )
@@ -1142,6 +1144,162 @@ class PanelEdges(PanelBase):
         self.assertIn("No verdict", s.inner_text())
         self.assertEqual(s.get_attribute("aria-label"), "p. 1 · PL11 · No verdict · show in the verdict panel")
         self.assertIn("No verdict", page.evaluate(PANEL)["text"])
+
+
+# Where the PDF area stands, the page read, and the reason field if it has the focus: its text, whether it is read-only, its
+# selection.
+STILL = """()=>{const L=document.querySelector('#left'),f=document.activeElement,r=pvIsReasonField(f);
+  return {top:Math.round(L.scrollTop),left:Math.round(L.scrollLeft),page:pvReadingPage(),field:r,
+    text:r?f.value:null,readOnly:r?f.readOnly:null,sel:r?[f.selectionStart,f.selectionEnd]:null};}"""
+# Records, from here on, each keydown's isComposing and, once every handler has had it, whether its default was dropped.
+KEYDOWNS = """()=>{window.__kd=[]; addEventListener('keydown',e=>{window.__kd.push({key:e.key,composing:e.isComposing,
+  dropped:e.defaultPrevented});});}"""
+
+
+class ReasonFieldStill(PanelBase):
+    """A key that would move the pages, pressed in the reason field while a syllable is composing or while its save is out,
+    moves nothing and leaves the field as it was (#452, docs/handbook/viewer.md §키와 초점 **글 칸의 스크롤 키**). The keys
+    are this host's (Playwright's press); MAC makes the viewer and Chromium take them as macOS does from any host
+    (MAC_PLATFORM, mac_press)."""
+
+    MAC = False
+
+    def setUp(self):
+        super().setUp()
+        self.sessions: dict = {}  # a page's CDP session for mac_press
+
+    def on(self, doc="fig", n_open=0, lang="ko", **device):
+        if self.MAC:
+            device = {**(device or WIDE), "init": MAC_PLATFORM}
+        return super().on(doc, n_open, lang, **device)
+
+    def press(self, page, combo):
+        """Press combo on the focused element as this class's host gives it."""
+        if not self.MAC:
+            page.keyboard.press(combo)
+            return
+        if page not in self.sessions:
+            self.sessions[page] = page.context.new_cdp_session(page)
+        mac_press(self.sessions[page], combo)
+
+    def reason(self, page, n):
+        """Page n read, its verdict taken (채택) and its reason field opened with the focus - in the panel or under the page,
+        wherever the line is."""
+        self.to(page, n)
+        line = "#pv-panel" if page.evaluate("!!PV_SIDE") else '#doc .pv[data-page="%d"]' % n
+        page.locator(line + ' button[data-key="채택"]').click()
+        page.wait_for_function("OPEN_ALL.length===1")
+        settle(page)
+        page.locator(line + ' [data-act="pv-reason-open"]').click()
+        page.wait_for_function("()=>pvIsReasonField(document.activeElement)")
+
+    def test_a_scroll_key_mid_syllable_moves_nothing_and_the_syllable_lands(self):
+        """'가' typed in the reason field on page 3, then for each scroll key the host does not give a field (PageUp and
+        PageDown; Home and End as well on macOS) a syllable left composing and the key pressed: the key comes marked
+        composing, the PDF area moves 0px, page 3 is still read and the field keeps the focus - and the composition: the
+        syllable committed after the key lands in place, and so does the next one.
+
+        Unhandled, the browser scrolled with a key marked composing - the viewer left it to the input method, which
+        does not scroll: Home took the area to its top (-2208px at 1920x1080, page 3 to page 1, the field gone) and End
+        to its end, and PageUp and PageDown moved it on both hosts (+194 and +873)."""
+        page = self.on()
+        cdp = page.context.new_cdp_session(page)
+        self.reason(page, 3)
+        page.keyboard.type("가")
+        keys = ("Home", "End", "PageUp", "PageDown") if page.evaluate("IS_MAC") else ("PageUp", "PageDown")
+        page.evaluate(KEYDOWNS)
+        moved, text = {}, "가"
+        syllables = (("ㄴ", "나"), ("ㄷ", "다"), ("ㄹ", "라"), ("ㅁ", "마"))[: len(keys)]
+        for key, (jamo, syllable) in zip(keys, syllables, strict=True):
+            ime_compose(cdp, jamo, syllable)
+            at = page.evaluate(STILL)
+            self.press(page, key)
+            page.wait_for_function(RESTING, polling="raf", timeout=10000)
+            now = page.evaluate(STILL)
+            moved[key] = (now["top"] - at["top"], now["page"], now["field"])
+            ime_commit(cdp, syllable)
+            text += syllable
+        self.assertEqual(moved, dict.fromkeys(keys, (0, 3, True)))
+        self.assertEqual([(k["key"], k["composing"]) for k in page.evaluate("window.__kd")], [(k, True) for k in keys])
+        settle(page)
+        self.assertEqual(page.evaluate(STILL)["text"], text)
+
+    def test_a_moving_key_while_the_reason_is_saved_moves_nothing(self):
+        """'가나' written in the reason field on page 2 and Enter pressed with the save held: the field is read-only and keeps
+        the focus. With the pages zoomed wider than the area (1440x900, 1.6 times the fit) and scrolled halfway sideways,
+        each of the arrows, Space, Shift+Space, Home, End, PageUp and PageDown moves the area 0px either way, and the field
+        stays with its text and its caret where it stood. Shift+Home is left to the field: in a read-only field Shift with a moving key
+        still selects, and it moves nothing outside.
+
+        A read-only field takes no caret key, so Chromium gave these to the area: the arrows 40px (the side ones
+        sideways), Space +715, Shift+Space -715 with the field gone, and Home and End on Linux -1671 and +9684 with the
+        field gone. Firefox moved only the caret."""
+        page = self.on(viewport={"width": 1440, "height": 900})
+        page.evaluate("zoomTo(K*1.6)")
+        settle(page)
+        self.reason(page, 2)
+        page.keyboard.type("가나")
+        self.held_edit = []
+        page.keyboard.press("Enter")
+        page.wait_for_function("()=>pvIsReasonField(document.activeElement)&&document.activeElement.readOnly")
+        page.evaluate("()=>{const L=document.querySelector('#left'); L.scrollLeft=(L.scrollWidth-L.clientWidth)/2;}")
+        page.wait_for_function(RESTING, polling="raf", timeout=10000)
+        first = at = page.evaluate(STILL)
+        self.assertGreater(at["left"], 40, "the pages are not wider than the area")
+        keys = (
+            "ArrowUp",
+            "ArrowDown",
+            "ArrowLeft",
+            "ArrowRight",
+            "Space",
+            "Shift+Space",
+            "Home",
+            "End",
+            "PageUp",
+            "PageDown",
+        )
+        moved = {}
+        for key in keys:
+            self.press(page, key)
+            page.wait_for_function(RESTING, polling="raf", timeout=10000)
+            now = page.evaluate(STILL)
+            moved[key] = (now["top"] - at["top"], now["left"] - at["left"], now["field"], now["sel"])
+            at = now
+        self.assertEqual(moved, dict.fromkeys(keys, (0, 0, True, first["sel"])))
+        self.assertEqual((at["text"], at["readOnly"], at["page"]), ("가나", True, 2))
+        page.evaluate(KEYDOWNS)
+        self.press(page, "Shift+Home")
+        page.wait_for_function(RESTING, polling="raf", timeout=10000)
+        now = page.evaluate(STILL)
+        self.assertEqual(page.evaluate("window.__kd.map(k=>k.dropped)")[-1:], [False])
+        self.assertEqual((now["top"] - at["top"], now["left"] - at["left"], now["field"]), (0, 0, True))
+        self.release(self.held_edit)
+
+
+class ReasonFieldStillMac(ReasonFieldStill):
+    """The same on macOS, from any host: Home and End are no field's keys there either."""
+
+    MAC = True
+
+
+class ReasonFieldStillFirefox(ReasonFieldStill):
+    """The same in Firefox, which moved nothing outside the field in either case; it moved the read-only field's caret."""
+
+    BROWSER_ENGINE = "firefox"
+
+    def test_a_scroll_key_mid_syllable_moves_nothing_and_the_syllable_lands(self):
+        """Playwright drives no input method in Firefox, so this reads the viewer's answer to a keydown marked composing in
+        the reason field: PageUp and PageDown (Home and End as well on macOS) have their default dropped."""
+        page = self.on()
+        self.reason(page, 3)
+        page.keyboard.type("가")
+        keys = ["Home", "End", "PageUp", "PageDown"] if page.evaluate("IS_MAC") else ["PageUp", "PageDown"]
+        dropped = page.evaluate(
+            """keys=>keys.map(k=>{const e=new KeyboardEvent('keydown',{key:k,code:k,isComposing:true,bubbles:true,
+              cancelable:true}); document.activeElement.dispatchEvent(e); return e.defaultPrevented;})""",
+            keys,
+        )
+        self.assertEqual(dropped, [True] * len(keys))
 
 
 class PanelViewer(PanelBase):

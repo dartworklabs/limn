@@ -236,6 +236,9 @@ jobs:
           src/limn/viewer/tests/test_viewer_search.py::SearchInk::test_the_fields_text_is_on_its_neighbours_line_in_fallback_fonts
           src/limn/viewer/tests/test_viewer_doc_overflow.py::WithSearch
           src/limn/viewer/tests/test_viewer_assignee.py::TwoPeopleWithOneName
+          src/limn/viewer/tests/test_viewer_verdict_panel.py::ReasonFieldStill
+          src/limn/viewer/tests/test_viewer_verdict_panel.py::ReasonFieldStillMac
+          src/limn/viewer/tests/test_viewer_suggest.py::SuggestReadOnlyKeys
           src/limn/viewer/tests/test_viewer_input.py::HangulInkInClippingBoxes
           src/limn/viewer/tests/test_viewer_size_alignment.py::LabelInkCentre
           tests/test_browser_font.py::BrowserFontProvision

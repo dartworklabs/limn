@@ -18,6 +18,7 @@ import json
 import re
 import shutil
 import unittest
+from urllib.parse import urlparse
 
 from limn.pins.editing.values import SUGGEST_LINES_MAX
 from limn.pins.lifecycle.rules import CloseRequest
@@ -1002,6 +1003,61 @@ BANDS = {
     "fold inner 841x673": {"viewport": {"width": 841, "height": 673}, "is_mobile": True, "has_touch": True},
     "desktop 1440x900": DESK,
 }
+
+
+# The panel's and the PDF area's scroll, and the suggestion's editor: whether it has the focus and is read-only.
+SHEET_STILL = """()=>{const f=document.querySelector('#c-sg-text');
+  return {right:Math.round(document.querySelector('#right').scrollTop),left:Math.round(document.querySelector('#left').scrollTop),
+    focus:document.activeElement===f,readOnly:f.readOnly};}"""
+# Whether the panel has rested for ten frames (a key's smooth scroll is over).
+SHEET_RESTING = """() => {const R = document.querySelector('#right'), w = window.__rest || (window.__rest = {top: -1, n: 0});
+  if (R.scrollTop === w.top) w.n++; else {w.top = R.scrollTop; w.n = 0;} if (w.n < 10) return false; window.__rest = null; return true;}"""
+
+
+class SuggestReadOnlyKeys(SuggestBase):
+    """The suggestion's editor is read-only until the range's text is read (suggestRead), and a read-only field takes no
+    caret key: a key that would move a scroller moves none there either (#452, docs/handbook/viewer.md §키와 초점 **글 칸의
+    스크롤 키**)."""
+
+    def setUp(self):
+        super().setUp()
+        self.held: list | None = None  # GET /api/snippet held unanswered while not None
+
+    def route(self, route):
+        if self.held is not None and urlparse(route.request.url).path == "/api/snippet":
+            self.held.append(route)
+            return None
+        return super().route(route)
+
+    def test_a_moving_key_in_the_editor_before_its_text_moves_no_sheet(self):
+        """673x841, the foldable's inner screen and its tablet sheet: a pick, the switch pressed with the range's text held
+        so the editor is read-only, the editor focused and the sheet scrolled halfway. The arrows, Space, Shift+Space,
+        Home and End move the sheet 0px and the editor keeps the focus. Chromium gave them to the sheet, which slid under
+        the hand: the arrows 40px, Space +172, Shift+Space -193, Home -193 and End +163 (measured 2026-11-06)."""
+        page = self.view(device={"viewport": {"width": 673, "height": 841}, "is_mobile": True, "has_touch": True})
+        self.compose(page)
+        self.held = []
+        page.click("#c-sg-tg")
+        page.wait_for_function("()=>{const f=document.querySelector('#c-sg-text'); return !!f&&f.readOnly;}")
+        page.focus("#c-sg-text")
+        # The sheet brings a focused field into view 350ms after the focus (layout.js, keepFieldInView). The read is held,
+        # so settle() would wait on it until its limit; this waits that one timer out instead.
+        page.wait_for_timeout(500)
+        page.evaluate("()=>{const R=document.querySelector('#right'); R.scrollTop=(R.scrollHeight-R.clientHeight)/2;}")
+        page.wait_for_function(SHEET_RESTING, polling="raf", timeout=10000)
+        at = page.evaluate(SHEET_STILL)
+        self.assertGreater(at["right"], 40, "the sheet does not scroll")
+        keys = ("ArrowUp", "ArrowDown", "Space", "Shift+Space", "Home", "End")
+        moved = {}
+        for key in keys:
+            page.keyboard.press(key)
+            page.wait_for_function(SHEET_RESTING, polling="raf", timeout=10000)
+            now = page.evaluate(SHEET_STILL)
+            moved[key] = (now["right"] - at["right"], now["left"] - at["left"], now["focus"], now["readOnly"])
+            at = now
+        self.assertEqual(moved, dict.fromkeys(keys, (0, 0, True, True)))
+        for r in self.held:
+            self.forward(r)
 
 
 class SuggestGeometry(SuggestBase):

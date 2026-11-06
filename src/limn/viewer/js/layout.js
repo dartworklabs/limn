@@ -206,16 +206,31 @@ document.addEventListener('keydown',holdCaret,true);
 // on Linux and Windows, where they move the caret, and are not on macOS, where the pane scrolled instead (-1104px and
 // +6242). So the page keys are dropped on every host and Home and End only on macOS, where dropping them costs no
 // caret move. Only the default is dropped, so the caret stays where it stands, as it does in every other application
-// on that host. Four cases are left alone: a key that ended a composition is that composition's (§조합을 끝내는 키); a
-// modifier makes them the field's again (Shift+Home selects to the line's start, Meta+Arrow is the host's own caret
-// key - both measured); a field with more than it shows scrolls itself, which is the field's own doing; and anything
-// outside a field, where these keys move the pages as they always have.
+// on that host.
+// A key pressed while a syllable is composing is dropped too (#452). The browser marks it composing (isComposing, keyCode
+// 229) and still scrolls with it: Home in the reason field with '나' composing took the pane to its top (-2208px at
+// 1920x1080, page 3 to page 1, the field gone), and PageUp and PageDown moved it on Linux as well. The composition is the
+// input method's and is not touched - no text, no commit, no caret: dropping the default leaves it open, and the syllable
+// committed after it and the next one land in place ('가나다'). A key the input method took itself comes as 'Process' and
+// is none of these. A field that is read-only for a while - the reason field while its save is out, the suggestion's
+// editor until the range's text is read - takes no caret key at all, so in Chromium the arrows, Space and Home and End on
+// every host went to the scroller outside it as well: the arrows moved the pane 40px (sideways when the PDF is zoomed
+// wider than the area), Space 715 and Shift+Space back, Home and End on Linux -1671 and +9684 with the field gone, and in
+// the tablet sheet the panel slid under it. There those keys and Space are dropped on every host, Shift+Space with them;
+// Firefox moved only the caret, which the read-only field now keeps as well. Three cases are left alone: a modifier
+// makes them the field's again (Shift+Home selects to the line's start, Meta+Arrow is the host's own caret key - both
+// measured; in a read-only field Shift with a moving key still selects and moves nothing outside, and Ctrl, Alt or Meta
+// make a host's own chord); a field with more than it shows scrolls itself, which is the field's own doing; and
+// anything outside a field, where these keys move the pages as they always have.
 const PAGE_KEYS=new Set(['PageUp','PageDown']);   // outline.js's SCROLL_KEYS also holds the arrows and Space, which stay a field's keys on every host
+const READ_ONLY_KEYS=new Set(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Home','End','PageUp','PageDown',' ']);   // a read-only field's: none moves a caret there
 /** @param {KeyboardEvent} e */
 function fieldScrollKey(e){const k=e.key;
-  if(!PAGE_KEYS.has(k)&&!(IS_MAC&&(k==='Home'||k==='End')))return;
-  if(e.shiftKey||e.metaKey||e.ctrlKey||e.altKey||imeKey(e)||!typingNow())return;
-  const f=/** @type {HTMLElement} */(document.activeElement); if(f.scrollHeight>f.clientHeight)return;
+  if(!READ_ONLY_KEYS.has(k)||e.metaKey||e.ctrlKey||e.altKey||!typingNow())return;
+  const f=/** @type {HTMLInputElement} */(document.activeElement);
+  if(f.readOnly===true){if(e.shiftKey&&k!==' ')return;}   // Shift with a moving key selects, which a read-only field does too
+  else if(e.shiftKey||!(PAGE_KEYS.has(k)||(IS_MAC&&(k==='Home'||k==='End'))))return;
+  if(f.scrollHeight>f.clientHeight)return;
   e.preventDefault();}
 document.addEventListener('keydown',fieldScrollKey,true);
 // Whether a text field has focus - a textarea, a text input or editable content - which on a touch screen means the keyboard is up.
