@@ -14,7 +14,7 @@ from limn.pins.editing.values import ASSIGNEE_AGENT as AGENT_ASSIGNEE
 
 from helpers import add_pin, ps
 from helpers_access import ALICE, BOB, CAROL, actor
-from helpers_browser import BrowserBase, booted, settle
+from helpers_browser import BrowserBase, booted, settle, until
 
 # Every radio group drawn on the page: its words as (key, checked, tabIndex), where key is the word's data-* value.
 GROUPS = """() => [...document.querySelectorAll('[role=radiogroup]')].filter(g => g.getClientRects().length).map(g => ({
@@ -52,6 +52,41 @@ LADDER_TEX = (
 )
 # Each rung of LADDER_TEX's ladder at line 5 and the lines it sets.
 RUNGS = {"raw": (5, 5), "para": (4, 6), "env": (3, 9)}
+# The description box: [armed - the element it waits to show for is the focused one, shown, its text].
+TIP = """[tipEl !== null && tipEl === document.activeElement, !document.querySelector('#tip').hidden,
+  document.querySelector('#tip').textContent]"""
+
+
+def hold_snippets(page):
+    """Hold every source read (GET /api/snippet) on page from now; returns release(), which waits until one is held, then
+    lets them go on, and every later one. The excerpt reads the lines its range lacks this way and draws its panel again,
+    the ladder with it, when they come."""
+    held, gate = [], {"open": False}
+
+    def hold(route):
+        if gate["open"]:
+            return route.fallback()
+        held.append(route)
+
+    def release():
+        until(page, lambda: page.evaluate("1") and held)  # route handlers run inside a Playwright call
+        gate["open"] = True
+        for r in held:
+            r.fallback()
+
+    page.route("**/api/snippet?*", hold)
+    return release
+
+
+def focused(page):
+    """FOCUS, its group named by its id or first class only (a scrolling group's class names its fades too)."""
+    got = page.evaluate(FOCUS)
+    return dict(got, group=got["group"] and got["group"].split()[0])
+
+
+def gone(page, el):
+    """Wait until element handle el has left the document: its group was drawn again."""
+    until(page, lambda: page.evaluate("e => !document.contains(e)", el))
 
 
 class SegmentKeys(BrowserBase):
@@ -519,6 +554,61 @@ class SegmentKeys(BrowserBase):
         steps = [("ArrowRight", "para"), ("End", "env"), ("Home", "raw")]
         self.assertEqual(self.walk(page, "e-levels", steps, chosen), 3)
         self.assert_one_stop_each(page)
+
+    def open_edit_ladder(self, page):
+        """Store a pin on line 5 of LADDER_TEX, open its edit card and wait until the card shows its three rungs."""
+        pid = add_pin({"file": str(self.main), "lo": 5, "hi": 5, "page": 1, "note": "고칠 곳"}, actor(ALICE)).record[
+            "id"
+        ]
+        page.evaluate("loadPins()")
+        settle(page)
+        page.evaluate("id=>openEdit(id)", pid)
+        page.wait_for_function("EDITOR.current&&EDITOR.current.levels.length>2")
+        settle(page)
+
+    def test_a_rung_drawn_again_late_shows_its_description_after_a_key_only(self):
+        """A pick whose range the excerpt lacks lines for draws the ladder again once more when they come back (held here
+        until released), and the focus goes back to the rung in its place. After a click on abstract and the pointer
+        gone, that focus shows no description - it showed one, over the range caption and the overlap's buttons above.
+        After a key it shows the rung's description, as the keyboard's focus does. The composer's and the edit card's
+        ladders alike."""
+        self.main.write_text(LADDER_TEX, encoding="utf-8")
+        for ladder, group in (("#c-levels", "c-levels"), (".e-levels", "e-levels")):
+            with self.subTest(ladder=ladder):
+                page = self.open(0, viewport={"width": 1440, "height": 900})
+                if group == "c-levels":
+                    self.open_ladder(page)
+                else:
+                    self.open_edit_ladder(page)
+                left = page.locator("#left").bounding_box()
+                off = (left["x"] + left["width"] / 2, left["y"] + left["height"] / 2)  # on the page
+                under = "([x, y]) => document.elementFromPoint(x, y).closest('[data-tip]')"
+                self.assertIsNone(page.evaluate(under, off))  # nothing there has a description
+                release = hold_snippets(page)
+                page.click(ladder + " [data-level=env]")
+                page.mouse.move(*off)
+                rung = page.evaluate_handle("document.activeElement")
+                self.assertEqual(focused(page), {"group": group, "at": "env", "checked": True})
+                self.assertFalse(page.evaluate(TIP)[0])
+                release()
+                gone(page, rung)
+                self.assertEqual(focused(page), {"group": group, "at": "env", "checked": True})
+                self.assertFalse(page.evaluate(TIP)[0])  # no description waits to show
+                settle(page)
+                self.assertFalse(page.evaluate(TIP)[1])
+                page.unroute("**/api/snippet?*")
+                # the lines are read again, so the next rung waits on them too
+                page.evaluate("XP_LINES.delete(COMPOSE.current || EDITOR.current)")
+                release = hold_snippets(page)
+                page.keyboard.press("ArrowLeft")
+                rung = page.evaluate_handle("document.activeElement")
+                self.assertEqual(focused(page), {"group": group, "at": "para", "checked": True})
+                release()
+                gone(page, rung)
+                self.assertEqual(focused(page), {"group": group, "at": "para", "checked": True})
+                self.assertTrue(page.evaluate(TIP)[0])
+                settle(page)
+                self.assertEqual(page.evaluate(TIP)[1:], [True, page.evaluate("document.activeElement.dataset.tip")])
 
     def test_a_disabled_word_is_passed_over_in_the_order_the_width_and_the_ladder(self):
         """With the middle word disabled, → from the first passes over it: 최신순 to 번호순, and - the width's 넓게 and the

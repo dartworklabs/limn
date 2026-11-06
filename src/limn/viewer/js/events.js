@@ -142,13 +142,15 @@ function segShown(g){return segOffered(g).filter(w=>w.getClientRects().length);}
 /** Where the focus is among the words g shows (segShown), -1 when it is not on one of them. @param {Element} g */
 function segFocusAt(g){return segShown(g).indexOf(/** @type {HTMLButtonElement} */(document.activeElement));}
 // Three groups draw their words again: the assignee row on every pick and every change of the note (mentions.js assignSeg),
-// the range ladder with every range (levels.js drawLadder - a pick draws it again once more when its overlaps come back) and
-// [더보기]'s size on every pick and relayout (panel-size.js renderSizeSeg). The word with the focus goes with the old words,
-// and the focus would land on the body: an arrow's walk ended there, as did Enter or Space on the chosen word, and the next
-// Tab began again from the page's start. So each draw notes where the focus was (segFocusAt) and puts it back on the word now
-// in place i - the last when there are fewer. A group drawn away (no people left to assign) has none, and the focus stays.
+// the range ladder with every range (levels.js drawLadder - a pick that leaves the excerpt short of lines draws it again
+// once more when they come back, excerpt.js excerptFetch) and [더보기]'s size on every pick and relayout (panel-size.js
+// renderSizeSeg). The word with the focus goes with the old words, and the focus would land on the body: an arrow's walk
+// ended there, as did Enter or Space on the chosen word, and the next Tab began again from the page's start. So each draw
+// notes where the focus was (segFocusAt) and gives it back to the word now in place i - the last when there are fewer - as
+// no new focus: a description shows only after a key (tooltip.js focusGivenBack). A group drawn away (no people left to
+// assign) has none, and the focus stays.
 /** @param {Element} g @param {number} i */
-function segKeep(g,i){if(i<0)return; const ws=segShown(g),w=ws[Math.min(i,ws.length-1)]; if(w)w.focus();}
+function segKeep(g,i){if(i<0)return; const ws=segShown(g),w=ws[Math.min(i,ws.length-1)]; if(w)focusGivenBack(w);}
 /** Keep one Tab stop in radio group g: the chosen word, else the first one on offer. It reads the markup only, not the
  * layout, so a group drawn while its panel is closed holds its one stop before it shows. @param {Element|null} g */
 function segRove(g){if(!g)return; const ws=segOffered(g),on=ws.find(w=>w.getAttribute('aria-checked')==='true')||ws[0];

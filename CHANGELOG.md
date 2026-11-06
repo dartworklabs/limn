@@ -26,11 +26,12 @@
   segments now, as #417 made the others: one Tab stop on the chosen word, and ←/→ (↑/↓), Home and End move and choose
   at once - the list sorts again, the panel or the sheet takes the size, the range becomes the rung's lines. None of the
   three changes the context, so none waits for Enter or Space. The groups that draw their words again - the assignee
-  row, the ladder (once more when a pick's overlaps come back) and the width - give the focus back to the word in the
-  same place after any press: Enter or Space on a rung or a width had dropped it on the page, and the next Tab started
-  from the top. The width control checks the width the panel has in the layout now, open or folded: on a tablet, whose
-  panel starts folded, it checked none, not even the one just chosen, and after a change of layout with [더보기] open
-  it checked the old layout's width.
+  row, the ladder (once more when the excerpt's missing lines come back) and the width - give the focus back to the
+  word in the same place after any press: Enter or Space on a rung or a width had dropped it on the page, and the next
+  Tab started from the top. The focus given back shows the word's description only after a key, as the keyboard's
+  focus does, not after a click. The width control checks the width the panel has in the layout now, open or folded:
+  on a tablet, whose panel starts folded, it checked none, not even the one just chosen, and after a change of layout
+  with [더보기] open it checked the old layout's width.
 - **Tab rests on a mark badge in turn and shows it, passing over only one no scroll can show** (#418). On a tablet or
   phone with the sheet open, Tab put the focus ring on a badge under the sheet, out of sight, and its tooltip floated over
   the sheet. A badge is a Tab stop while the pages can scroll it, up or down within their ends, to where it stands whole
