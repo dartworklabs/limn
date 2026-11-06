@@ -661,12 +661,18 @@ class BrowserBase(ChromiumTestCase):
 
     WHO = ALICE
     PICK: dict = {}
+    # The folder the run's temporary folder is made in; None: tempfile's own. tests/test_browser_base.py sets a folder
+    # reached through a link, as macOS's temporary folder is.
+    TMP_IN: str | None = None
 
     def setUp(self):
         """A fresh 37-line manuscript with a finished two-page build (blank page images), default access settings, and
         a fresh Runtime serving the viewer page built for the "Demo" paper."""
-        self.tmp = tempfile.TemporaryDirectory()
-        root = Path(self.tmp.name)
+        self.tmp = tempfile.TemporaryDirectory(dir=self.TMP_IN)
+        # Resolved as startup resolves --manuscript (limn.server), as helpers.Base does: a temporary folder under a link
+        # (macOS's /var -> /private/var) left the pins' files on the linked path and the documents' registered paths on
+        # the resolved one, so a pin owned none of its commit's lines and its comparison was the whole commit's (#431).
+        root = Path(self.tmp.name).resolve()
         src = root / "ms"
         src.mkdir()
         (src / "main.tex").write_text(DEMO_TEX, encoding="utf-8")
