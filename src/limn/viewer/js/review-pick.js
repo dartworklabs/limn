@@ -28,7 +28,7 @@ function rvCanPick(list){return canConfirmReview()&&list.length>=2&&list.some(rv
 // One result row of pin p (the review section while it picks). Its box is named by its first line (#N · place · page) and
 // described by its explanation. The explanation folds at six lines as a thread post does (msgBody, [더 보기]); the
 // reference and the changed lines are a line under it, each kept whole. A row with no result has its box disabled and
-// offers [카드에서 확인] instead.
+// offers [카드에서 확인] on its first line, beside [변경 보기].
 /** @param {Pin} p @returns {Html} */
 function rvRow(p){const ok=rvShowsResult(p),on=!!RV_PICK&&RV_PICK.has(p.id),first=String(p.note||'').split('\n')[0].trim();
   const at=pinPlace(p).page,page=typeof at==='number'&&!isMdPin(p)?tl('{page}쪽',{page:at}):'';
@@ -37,13 +37,14 @@ function rvRow(p){const ok=rvShowsResult(p),on=!!RV_PICK&&RV_PICK.has(p.id),firs
     suggestBadge(p,true)].filter(t=>!!t&&String(t)!=='');
   const ask=first?fmtText(first,p.mentions):html`<span class="dim">${tr(p.suggest?'(제안 문안만)':verdictOf(p)?'(판정만)':'(메모 없음)')}</span>`;
   const facts=[p.close_ref?String(p.close_ref):'',rvChanged(p)].filter(Boolean),reply=String(p.close_reply||'').trim();
-  const said=!ok?html`<span class="dim">${tr('설명 없이 닫힘')}</span> <button type="button" class="arc-orig-t hit" data-act="rv-card" data-tip="${tr('고르기를 끝내고 이 핀의 카드로 갑니다. 카드에서 결과를 보고 확인하세요')}">${tr('카드에서 확인')}</button>`
+  const card=ok?'':html`<button type="button" class="arc-orig-t rv-act hit" data-act="rv-card" data-tip="${tr('고르기를 끝내고 이 핀의 카드로 갑니다. 카드에서 결과를 보고 확인하세요')}">${tr('카드에서 확인')}</button>`;
+  const said=!ok?html`<span class="dim">${tr('설명 없이 닫힘')}</span>`
     :html`${reply?msgBody(/** @type {ThreadEntry} */({text:reply,mentions:p.mentions}),'rv:'+p.id):html`<div class="dim">${tr('설명 없음')}</div>`}\
 ${facts.length?html`<div class="rv-facts" translate="no">${facts.map((f,i)=>html`${i?' · ':''}<span>${f}</span>`)}</div>`:''}`;
   return html`<div class="rv-row${on?' on':''}${ok?'':' off'}" data-id="${p.id}" data-doc="${pdoc(p)}">\
 <div class="rv-l1"><label class="rv-ck hit"><span class="ck"><input type="checkbox" data-pick="${p.id}"${on?' checked':''}${ok?'':' disabled'} aria-describedby="rv-a-${p.id}">\
 ${ic('check')}${ic('minus')}</span><span class="rv-h"><span class="rv-no">#${p.id}</span> · ${locText(p)}${page?' · '+page:''}</span>${docChip(p)}</label>\
-<button type="button" class="arc-orig-t rv-chg hit" data-act="change" data-tip="${T.change}">${tr('변경 보기')}</button></div>\
+${card}<button type="button" class="arc-orig-t rv-act rv-chg hit" data-act="change" data-tip="${T.change}">${tr('변경 보기')}</button></div>\
 <div class="rv-body">${tags.length?html`<div class="rv-tags">${tags}</div>`:''}\
 <span class="rv-k">${tr('요청')}</span><span class="rv-ask" translate="no">${ask}</span>\
 <span class="rv-k">${tr('설명')}</span><div class="rv-ans" id="rv-a-${p.id}">${said}</div></div></div>`;}

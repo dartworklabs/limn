@@ -30,9 +30,10 @@ label.rv-ck{flex:1;min-width:0;display:flex;align-items:center;gap:var(--space-2
   text-box:trim-both cap alphabetic}
 .rv-h>.rv-no{font-weight:700}
 .rv-ck>.dchip{flex:none}   /* [모든 문서]: the document's chip follows the place on the first line */
-/* [변경 보기]: a link (.arc-orig-t), as an archive row's actions are, on the first line's 24px (a mouse's least press area): a
-   block container trimmed to its cap height (§글자 가운데), so its word is centred on the line as the box is. */
-.rv-row button.rv-chg{flex:none;display:inline-block;align-content:center;min-height:var(--control-h-sm);text-box:trim-both cap alphabetic}
+/* [변경 보기] and a row's [카드에서 확인]: links (.arc-orig-t), as an archive row's actions are, on the first line's 24px (a
+   mouse's least press area): block containers trimmed to their cap height (§글자 가운데), so their words are centred on
+   the line as the box is. */
+.rv-row button.rv-act{flex:none;display:inline-block;align-content:center;min-height:var(--control-h-sm);text-box:trim-both cap alphabetic}   /* not an archive row's 44px on touch (responsive.css): the press area is round it (.hit) */
 .rv-body{display:grid;grid-template-columns:max-content minmax(0,1fr);align-items:baseline;column-gap:var(--space-2);margin-left:calc(var(--check) + var(--space-2))}
 .rv-tags{grid-column:1 / -1;display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1);margin-bottom:var(--space-1)}
 .rv-k{color:var(--muted-foreground);font-size:var(--text-sm);white-space:nowrap}

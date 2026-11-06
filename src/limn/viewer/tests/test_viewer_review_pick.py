@@ -367,7 +367,7 @@ class ReviewPickFlows(ReviewPickBase):
 
     def test_the_keyboard_alone_picks_ticks_confirms_undoes_and_ends(self):
         """Enter on [골라서 확인] picks and puts the focus on [모두 고르기]; Space ticks all; Tab goes to [N건 확인], then
-        through the rows in order - the first row (no result) offers its [변경 보기] and [카드에서 확인], the next its box
+        through the rows in order - the first row (no result) offers [카드에서 확인] and [변경 보기], the next its box
         (Space clears it) and its [변경 보기]; Enter on [N건 확인] confirms and puts the focus on the undo; Enter undoes;
         Esc ends the pick, the focus back on [골라서 확인]."""
         page = self.review_page()
@@ -386,9 +386,9 @@ class ReviewPickFlows(ReviewPickBase):
         self.assertEqual(rows[0], self.bare)
         first = rows[1]
         page.keyboard.press("Tab")
-        self.assertEqual(page.evaluate(here), [self.bare, "change"])
-        page.keyboard.press("Tab")
         self.assertEqual(page.evaluate(here), [self.bare, "rv-card"])
+        page.keyboard.press("Tab")
+        self.assertEqual(page.evaluate(here), [self.bare, "change"])
         page.keyboard.press("Tab")
         self.assertEqual(page.evaluate(here), [first, "box"])
         page.keyboard.press("Space")
@@ -461,6 +461,8 @@ GEOMETRY = """() => {
     out.rows.push({id: +row.dataset.id, row: R(row), box: R(b), h: R(h), chg: R(chg), keys: [...row.querySelectorAll('.rv-k')].map(R),
       ask: R(row.querySelector('.rv-ask')), ans: R(row.querySelector('.rv-ans')), label: R(row.querySelector('label.rv-ck')),
       ink: __m.label(h, b), chgInk: __m.label(chg, b), labelHit: hitH(row.querySelector('label.rv-ck')), chgHit: hitH(chg),
+      card: row.querySelector('[data-act=rv-card]') ? Object.assign(R(row.querySelector('[data-act=rv-card]')),
+        {hit: hitH(row.querySelector('[data-act=rv-card]'))}) : null,
       sw: row.scrollWidth, cw: row.clientWidth});}
   return out;}"""
 # The drawn look of the boxes and the colours they stand in, in the theme on screen. Colours are read through a canvas, so
@@ -559,6 +561,12 @@ class ReviewPickLayout(ReviewPickBase):
                         row["row"]["r"], g["pins"]["r"], delta=TOL, msg=where + ": across the content"
                     )
                     self.assertLessEqual(row["sw"], row["cw"], where + ": nothing wider than the row")
+                    if row["card"]:  # [카드에서 확인] stands on the first line with [변경 보기]
+                        self.assertEqual(row["card"]["h"], 24, where + ": [카드에서 확인] on the first line")
+                        self.assertAlmostEqual(row["card"]["cy"], row["box"]["cy"], delta=TOL, msg=where)
+                        self.assertGreaterEqual(
+                            row["card"]["hit"], need - TOL, where + ": [카드에서 확인]'s press area"
+                        )
                 self.assertAlmostEqual(g["go"]["r"], g["pick"]["r"], delta=TOL, msg=name + ": the head's right edge")
                 self.assertAlmostEqual(abs(g["allInk"]["cap"]), 0, delta=TOL, msg=name + ": [모두 고르기] on its box")
                 self.assertAlmostEqual(abs(g["allInk"]["hangul"]), 0, delta=TOL, msg=name + ": its Hangul")
