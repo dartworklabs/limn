@@ -66,7 +66,8 @@ body.lay-wide .sec-head button:not(.sec-tg){padding-left:var(--space-3);padding-
 /* Tool bar hierarchy (QA 2026-09-24): page/zoom-in/zoom-out/fit-width are bordered navigation controls, [⋯] is a borderless
    utility icon, and [PDF 재빌드] is a rarely used action so it's a faint ghost - if the manuscript is newer than the PDF, updateStaleBadge promotes it to .btn-default.
    [⋯] ends the row (3b of the cross-resolution pass): it replaced the bell, the theme button and [?], the same ghosts, and opens
-   [더보기] as a menu under it (responsive.css, placeMore); it stays tinted while the menu is open. */
+   [더보기] as a menu under it (responsive.css, placeMore); it stays tinted while the menu is open. Its markup is last on this
+   row too (placeBarTools, layout.js), so Tab reaches it last (#418). */
 body.lay-wide #bar1 #btn-more{display:inline-flex;order:1;background:transparent;border-color:transparent;color:var(--muted-foreground)}
 body.lay-wide #bar1 #btn-more[aria-expanded=true]{background:var(--accent);color:var(--foreground)}
 @media (hover:hover){body.lay-wide #bar1 #btn-more:where(:not(:disabled,[aria-disabled="true"])):hover{background:var(--accent);color:var(--foreground)}}

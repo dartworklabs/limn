@@ -514,7 +514,8 @@ body.lay-mid #bar1{position:fixed;left:0;right:0;top:auto;bottom:var(--kb,0px);z
   gap:var(--space-2);padding:var(--mbar-pad) max(var(--edge),env(safe-area-inset-right)) calc(var(--mbar-pad) + env(safe-area-inset-bottom)) max(var(--edge),env(safe-area-inset-left));
   background:var(--sidebar);border-top:1px solid var(--border-seam);border-bottom:0;pointer-events:auto;visibility:visible}
 /* Buttons keep their natural text width (never shrink or grow). Order follows thumb reach: [선택] .... [PDF 재빌드] [⋯] [핀 N].
-   DOM order is shared with the narrow sheet, so only CSS order changes it. */
+   The markup is the narrow sheet's, so CSS order draws this row, and placeBarTools (layout.js) moves the markup into the same
+   order while the band is mid or short, so Tab follows it (#418). */
 body.lay-mid #bar1 button{flex:none;min-width:var(--tb-h);padding:0 var(--space-3);overflow:visible}
 body.lay-mid #bar1 #btn-more{flex:0 0 var(--tb-h);width:var(--tb-h);padding:0}
 @media (pointer:coarse){body.lay-mid #bar1 #btn-more{flex-basis:var(--hit);width:var(--hit)}}   /* a ghost icon: drawn at its hit width, so nothing hangs outside it */

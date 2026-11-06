@@ -38,6 +38,13 @@
   the bar's side edges are 4px instead of 12px; the gap and the icon keep their size, and in Korean the chip keeps its
   words (핀 2 | 검토 1). The bar's hit areas are placed without a transform: a hit test rounded a transformed box's
   fractional edge, and in Firefox [⬚] answered 43.6px at 330 and 331px and the grabber 43px at 331.
+- **Tab crosses the tool bar from left to right in every band** (#418). The bar is one markup, the phone and tablet
+  sheet's, that the other bands draw in their own order with CSS `order`, and Tab follows the markup: on the desktop the
+  first stop was [⋯] at the row's right end, then back to [PDF 재빌드]; on the mid rows (1024x768 and 841x673 by touch,
+  701 to 1099px with a mouse) and the landscape phone's top row it went [핀] [검토] at the right end, back to [⬚ 선택] at
+  the left (touch only), then [⋯], then back left to the status line's actions. When the band changes, the markup now moves into the order that
+  band draws (`placeBarTools`), and back to the sheet's on a sheet; nothing on screen moves, and a control that has the
+  focus keeps it.
 - **An image that loads before a scroll's frame no longer takes the document back** (#435). On the Markdown and text
   surfaces the reading spot is read on a scroll's animation frame; on a renderer too busy to paint an image's load or
   failure came first and put back the spot read before the scroll. Home pressed while a linked document's images loaded
