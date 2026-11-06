@@ -1,20 +1,23 @@
-"""A mark badge a cover is over is no Tab stop, and Tab shows the badge it rests on (docs/handbook/viewer.md §모바일 레이아웃,
-issue #418).
+"""Tab passes over only a mark badge no scroll can show, and shows the badge it rests on (docs/handbook/viewer.md §모바일
+레이아웃, issue #418).
 
 Tab put the focus ring on a badge under the tablet's sheet, where nobody could see it, and its tooltip floated over the sheet.
-Read as the keyboard meets it - which badges a Tab walk through the page stops on - in Chromium and Firefox: a badge under the
-open sheet is passed over, one above it is not; closing the sheet gives the passed-over badges back (but for the one under its
-bar) and opening it takes them away again; a badge scrolled out of the pages' box stays a stop - one scrolled above the pages
-on the tablet, one zoomed past the pages' right edge on the desktop, where the panel stands beside it. The pass also stays
-cheap with hundreds of badges, since a scroll runs it every frame.
+Passing over every badge a cover was over then lost badges the pages could show: with the sheet open, Tab from #3 went to #6,
+past #4 and #5 under the sheet, and the scroll that brought #6 up showed the two it had passed. A badge is a stop while the
+pages can scroll it - up or down, within their ends - to where it stands whole in the pages' box clear of every cover in its
+columns, and Tab brings it there; one under the overlay panel, which runs the pages' height, or at the last page's foot under
+the sheet is passed over. Read as the keyboard meets it, in Chromium and Firefox: Tab and Shift+Tab from #3 meet the badges in
+turn, each seen, on the 200% phone sheet (512 x 384) and the tablet's sheet at 45% and 64%; the sheet open, closed and open
+again; a scroll moves no stop; the badges under the overlay panel; the last page's foot; the desktop zoomed past the pages'
+edge. The pass also stays cheap with hundreds of badges, since a scroll runs it every frame.
 
 The covers are not the panel alone: the status line standing on the sheet (the first visit's line on the tablet's closed
 sheet) and the closed sheet's bar hid badges Tab still rested on, and a badge Tab brought in from out of view was scrolled by
 the browser to the pages' edge, under the sheet, where its focus and description stayed. Every badge a walk rests on is read
 as seen - the topmost element at its centre, a press area drawn past its element's box aside (the status line's and the
 bar's reach 44px over the pages) - forwards and backwards, with the status line up, zoomed in, the sheet at its three heights
-and dragged to the top, the phone's sheet open at a 200% browser zoom; and a focused badge a cover comes over loses its
-description and keeps the focus, or is brought out again when the cover is the sheet a key opened.
+and dragged to the top; and a focused badge a cover comes over loses its description and keeps the focus, or is brought out
+again when the cover is the sheet a key opened.
 """
 
 from helpers import add_pin
@@ -28,19 +31,47 @@ BADGES = """() => {const v = document.querySelector('#left').getBoundingClientRe
   const inside = (r, x, y) => x >= r.left && x < r.right && y >= r.top && y < r.bottom;
   return [...document.querySelectorAll('.mark button.mark-jump')].map(b => {const r = b.getBoundingClientRect(),
     x = r.left + r.width / 2, y = r.top + r.height / 2; return [Number(b.dataset.id), Math.round(y), inside(p, x, y), inside(v, x, y)];});}"""
-# The pin id of the focused badge, or null when the focus is elsewhere.
-FOCUSED = "(() => {const a = document.activeElement; return a && a.matches('.mark button.mark-jump') ? Number(a.dataset.id) : null;})()"
 # The focused badge two frames on (after any scroll the focus set off), or null when the focus is not on one: its pin id, its
 # centre's y, whether it is seen there - the topmost element at its centre whose own box holds that point is the badge (an
 # element answering past its box is a press area drawn out from it, and is passed through) - what is there instead, its
-# tabIndex, and whether the description box stands over it.
+# tabIndex, whether the description box stands over it, and whether its whole box is clear: inside the pages' box and the
+# window and off the boxes of the panel (#right) and the status line (#status-dock).
 SEEN = """async () => {await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
   const a = document.activeElement; if (!a || !a.matches('.mark button.mark-jump')) return null;
   const r = a.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2;
   const own = e => {const q = e.getBoundingClientRect(); return x >= q.left && x < q.right && y >= q.top && y < q.bottom;};
   const h = x >= 0 && y >= 0 && x < innerWidth && y < innerHeight ? document.elementsFromPoint(x, y).find(own) || null : null;
+  const v = document.querySelector('#left').getBoundingClientRect(), off = s => {const e = document.querySelector(s);
+    if (!e || !e.getClientRects().length) return true; const c = e.getBoundingClientRect();
+    return r.bottom <= c.top || r.top >= c.bottom || r.right <= c.left || r.left >= c.right;};
+  const clear = r.top >= Math.max(v.top, 0) && r.bottom <= Math.min(v.bottom, innerHeight) && r.left >= Math.max(v.left, 0)
+    && r.right <= Math.min(v.right, innerWidth) && off('#right') && off('#status-dock');
   return {id: Number(a.dataset.id), y: Math.round(y), seen: !!h && (h === a || a.contains(h)), at: h ? h.id || h.className : null,
-    tab: a.tabIndex, tip: !document.querySelector('#tip').hidden && !!TIP_AT && TIP_AT.el === a};}"""
+    tab: a.tabIndex, tip: !document.querySelector('#tip').hidden && !!TIP_AT && TIP_AT.el === a, clear};}"""
+# The pin ids of the badges in the document's order, the order Tab walks them in.
+ORDER = "[...document.querySelectorAll('.mark button.mark-jump')].map(b => Number(b.dataset.id))"
+# The pin ids of the badges whose centre lies inside the pages' box and inside the panel's (#right) or the status line's
+# (#status-dock) box.
+UNDER = """() => {const v = document.querySelector('#left').getBoundingClientRect();
+  const cs = ['#right', '#status-dock'].map(s => document.querySelector(s)).filter(e => e && e.getClientRects().length)
+    .map(e => e.getBoundingClientRect());
+  const inside = (r, x, y) => x >= r.left && x < r.right && y >= r.top && y < r.bottom;
+  return [...document.querySelectorAll('.mark button.mark-jump')].filter(b => {const r = b.getBoundingClientRect(),
+    x = r.left + r.width / 2, y = r.top + r.height / 2; return inside(v, x, y) && cs.some(c => inside(c, x, y));})
+    .map(b => Number(b.dataset.id));}"""
+# Each badge's tabIndex, in the document's order.
+STOPS = "[...document.querySelectorAll('.mark button.mark-jump')].map(b => b.tabIndex)"
+# Whether each badge, in the document's order, can stand whole above every cover in its columns, below the pages' top, at a
+# scroll the pages reach - the tablet's and the phone's covers (the sheet, its bar, the status line on it) rise from the
+# window's foot, so a cover's top is all that bounds a badge from below. Read independently of list.js.
+REACHABLE = """() => {const L = document.querySelector('#left'), v = L.getBoundingClientRect(), top = Math.max(v.top, 0),
+    max = L.scrollHeight - L.clientHeight;
+  const cs = ['#right', '#status-dock'].map(s => document.querySelector(s)).filter(e => e && e.getClientRects().length)
+    .map(e => e.getBoundingClientRect());
+  return [...document.querySelectorAll('.mark button.mark-jump')].map(b => {const r = b.getBoundingClientRect();
+    const floor = Math.min(Math.min(v.bottom, innerHeight), ...cs.filter(c => c.left < r.right && c.right > r.left).map(c => c.top));
+    const lo = Math.max(r.bottom + L.scrollTop - floor, 0), hi = Math.min(r.top + L.scrollTop - top, max);
+    return lo <= hi + 0.5;});}"""
 # Whether the description box is showing.
 TIP_UP = "!document.querySelector('#tip').hidden"
 PHONE_390 = {"viewport": {"width": 390, "height": 844}, "is_mobile": True, "has_touch": True, "device_scale_factor": 3}
@@ -73,57 +104,57 @@ class CoveredMarks(BrowserBase):
 
     def walk(self, page, presses=60):
         """The pin ids of the badges Tab stops on, in the order met, pressing Tab presses times from the document bar's
-        first control - the pages' badges come after the bar and before the panel."""
+        first control - the pages' badges come after the bar and before the panel. Each is seen where it rests (SEEN)."""
         page.focus("#nav-toc-toggle")
-        met = []
+        met, unseen = [], []
         for _ in range(presses):
             page.keyboard.press("Tab")
-            pid = page.evaluate(FOCUSED)
-            if pid is not None and pid not in met:
-                met.append(pid)
+            s = page.evaluate(SEEN)
+            if s is None:
+                continue
+            if not s["seen"]:
+                unseen.append(s)
+            if s["id"] not in met:
+                met.append(s["id"])
+        self.assertEqual(unseen, [])
         return met
 
-    def test_a_badge_under_the_open_sheet_is_no_tab_stop_until_the_sheet_closes(self):
-        """The tablet with five badges down page 1 and the sheet open: Tab stops on those above the sheet and passes over
-        those under it. Closing the sheet with [핀 N] gives them back but for any under the bar left at the bottom;
-        opening it again takes them away."""
+    def test_tab_meets_every_badge_with_the_sheet_open_closed_and_open_again(self):
+        """The tablet with five badges down page 1 and the sheet open over some of them: Tab meets all five in turn and
+        brings each where it is seen - page 2 below lets the pages scroll every one above the sheet. So it does with the
+        sheet closed by [핀 N], a badge under its bar included, and opened again."""
         ids = self.pins((0.05, 0.25, 0.45, 0.65, 0.85))
         page = self.open(len(ids), **TABLET)
         page.tap("#btn-side")
         settle(page)
         self.assertTrue(page.evaluate("SIDE_OPEN"))
         badges = page.evaluate(BADGES)
-        under = [b[0] for b in badges if b[2] and b[3]]
-        shown = [b[0] for b in badges if b[3] and not b[2]]
-        self.assertTrue(under and shown, badges)  # the sheet covers some badges and leaves others
-        self.assertEqual(self.walk(page), shown)
+        self.assertTrue([b for b in badges if b[2] and b[3]], badges)  # the sheet covers some badges
+        self.assertEqual(self.walk(page), ids)
         page.tap("#btn-side")
         settle(page)
         self.assertFalse(page.evaluate("SIDE_OPEN"))
-        badges = page.evaluate(BADGES)
-        self.assertEqual(self.walk(page), [b[0] for b in badges if b[3] and not b[2]])
-        self.assertTrue(set(under) & set(self.walk(page)), badges)  # the closed sheet uncovers what it covered
+        self.assertEqual(self.walk(page), ids)
         page.tap("#btn-side")
         settle(page)
-        self.assertEqual(self.walk(page), shown)
+        self.assertEqual(self.walk(page), ids)
 
-    def test_the_stops_follow_a_scroll_and_a_badge_scrolled_above_the_pages_stays_one(self):
-        """With the sheet open, the pages scrolled until the fourth badge stands 40 px above the sheet: it has come out
-        from under the sheet and is a stop again, the fifth is still under it and is not, and the first - scrolled above
-        the pages' box, under the document bar - stays a stop: it is the first badge Tab meets."""
+    def test_a_scroll_moves_no_stop(self):
+        """With the sheet open, the pages scrolled until the fourth badge stands 40 px above the sheet, the fifth still
+        under it and the first above the pages' box, under the document bar: all five are stops, as before the scroll -
+        what decides is where a scroll can bring a badge, not where it stands - and Tab meets the first first."""
         ids = self.pins((0.05, 0.25, 0.45, 0.65, 0.85))
         page = self.open(len(ids), **TABLET)
         page.tap("#btn-side")
         settle(page)
-        stops = "[...document.querySelectorAll('.mark button.mark-jump')].map(b=>b.tabIndex)"
-        self.assertEqual(page.evaluate(stops)[3], -1)
+        self.assertEqual(page.evaluate(STOPS), [0] * 5)
         sheet = page.evaluate("document.querySelector('#right').getBoundingClientRect().top")
         page.evaluate("d=>{document.querySelector('#left').scrollTop+=d}", page.evaluate(BADGES)[3][1] - (sheet - 40))
         settle(page)
         badges = page.evaluate(BADGES)
         self.assertEqual([b[3] for b in badges[:4]], [False, True, True, True], badges)  # the first is out of the pages
-        self.assertTrue(badges[4][2] and badges[4][3], badges)  # the fifth is still under the sheet
-        self.assertEqual(page.evaluate(stops), [0, 0, 0, 0, -1])
+        self.assertTrue(badges[4][2] and badges[4][3], badges)  # the fifth is under the sheet
+        self.assertEqual(page.evaluate(STOPS), [0] * 5)
         self.assertEqual(self.walk(page, presses=30)[0], ids[0])
 
     def test_on_the_desktop_a_badge_zoomed_past_the_pages_edge_stays_a_tab_stop(self):
@@ -249,7 +280,7 @@ class CoveredMarksSeen(BrowserBase):
     def tab_onto_the_line(self, page):
         """With the pages at their top, take the first badge of the left column standing below the status line and scroll
         the pages down until its centre is on the line's; put the focus on the badge before it without a scroll and press
-        Tab: the badge Tab rests on, as SEEN reads it, else None."""
+        Tab: that badge's pin id, and the badge Tab rests on, as SEEN reads it, else None."""
         page.evaluate("document.querySelector('#left').scrollTop = 0")
         settle(page)
         k = page.evaluate(
@@ -265,7 +296,7 @@ class CoveredMarksSeen(BrowserBase):
             self.ids[k - 1],
         )
         page.keyboard.press("Tab")
-        return page.evaluate(SEEN)
+        return self.ids[k], page.evaluate(SEEN)
 
     def zoom_in(self, page, steps=3):
         """Press [+] steps times, as the bar's and [더보기]'s zoom-in does."""
@@ -273,11 +304,11 @@ class CoveredMarksSeen(BrowserBase):
             page.evaluate("document.querySelector('[data-act=zoom-in]').click()")
             settle(page)
 
-    def test_tab_rests_on_no_badge_the_status_line_or_a_bar_covers(self):
+    def test_every_badge_tab_rests_on_is_seen_with_the_status_line_up(self):
         """With the status line up - the first visit's line on the tablet's closed sheet - and zoomed in: on the tablet
         (673 x 841, 768 x 1024 zoomed in), the 1024 x 768 touch screen, the phone (390, 320 zoomed in), every badge Tab or
         Shift+Tab rests on is seen. Where the line stands over the pages (the sheets'), a badge scrolled to its middle is
-        no stop: the Tab from the badge before it rests on one that is seen."""
+        a stop all the same: the Tab from the badge before it rests on it, brought out above the line."""
         for name, device, zoom in (
             ("tablet 673", touch(673, 841), 0),
             ("tablet 768 zoomed", touch(768, 1024), 3),
@@ -293,8 +324,8 @@ class CoveredMarksSeen(BrowserBase):
                 self.assert_all_seen(ahead, least=10)
                 self.assert_all_seen(back, least=10)
                 if page.evaluate("document.querySelector('#status-dock').getClientRects().length > 0"):
-                    s = self.tab_onto_the_line(page)
-                    self.assertTrue(s is None or s["seen"], s)
+                    bid, s = self.tab_onto_the_line(page)
+                    self.assertEqual((s["id"], s["seen"], s["clear"]), (bid, True, True), s)
 
     def test_tab_brings_a_badge_out_from_under_the_sheet_at_every_height(self):
         """The tablet's sheet open at 45% and 64%: the badges Tab brings in from out of view below stand above the sheet,
@@ -346,20 +377,100 @@ class CoveredMarksSeen(BrowserBase):
         ahead, back = self.walks(page)
         self.assertEqual((ahead, back), ([], []))
 
-    def test_the_phone_sheet_at_a_200_percent_zoom(self):
-        """1024 x 768 at a 200% browser zoom is a 512 x 384 window with a mouse: the phone's sheet open leaves a strip above
-        its status line. Tab from badge #3, at the top, rests only on badges seen in that strip."""
-        page = self.open_device({"viewport": {"width": 512, "height": 384}})
-        page.click("#btn-side")
+    def steps(self, page, key, n, presses=60):
+        """Press key until it has rested on n badges (other stops between them pass); each, as SEEN reads it."""
+        met = []
+        for _ in range(presses):
+            page.keyboard.press(key)
+            s = page.evaluate(SEEN)
+            if s:
+                met.append(s)
+                if len(met) == n:
+                    break
+        return met
+
+    def test_tab_and_shift_tab_from_3_meet_the_badges_in_turn_with_the_sheet_open(self):
+        """The sheet open over the pages' lower part, the pages at their top and the focus on badge #3: Tab, pressed again
+        and again, meets the badges in the document's order with none passed over - those under the sheet included - and
+        Shift+Tab meets them back to #3; each brought where it stands whole clear of the sheet and its status line, and
+        seen. 1024 x 768 at a 200% browser zoom is a 512 x 384 window with a mouse and the phone's sheet, which leaves a
+        strip above its status line; the tablet's sheet at 45% and 64%. Passing over the badges a cover was over, the phone
+        sheet's walk went from #6 to #19."""
+        for name, device, f in (
+            ("512 x 384, 200%", {"viewport": {"width": 512, "height": 384}}, None),
+            ("tablet, 45%", touch(768, 1024), 0.45),
+            ("tablet, 64%", touch(768, 1024), 0.64),
+        ):
+            with self.subTest(device=name):
+                page = self.open_device(device)
+                if f is None:
+                    page.click("#btn-side")
+                else:
+                    page.tap("#btn-side")
+                    page.evaluate("f => setSheetF(f)", f)
+                settle(page)
+                self.assertTrue(page.evaluate("SIDE_OPEN"))
+                page.evaluate("document.querySelector('#left').scrollTop = 0")
+                settle(page)
+                order = page.evaluate(ORDER)
+                k = order.index(self.ids[2])
+                under = page.evaluate(UNDER)
+                self.assertTrue(set(under) & set(order[k + 1 : k + 25]), under)  # the walk meets badges under a cover
+                page.focus('.mark button.mark-jump[data-id="%d"]' % self.ids[2])
+                ahead = self.steps(page, "Tab", 24)
+                self.assertEqual([m["id"] for m in ahead], order[k + 1 : k + 25])
+                back = self.steps(page, "Shift+Tab", 24)
+                self.assertEqual([m["id"] for m in back], order[k : k + 24][::-1])
+                self.assertEqual([m for m in ahead + back if not (m["seen"] and m["clear"])], [])
+
+    def test_a_badge_no_scroll_brings_above_the_sheet_is_passed_over(self):
+        """The tablet's sheet at 64%: the pages end before the badges at the last page's foot can come above the sheet, and
+        only those are no stops - every badge's stop is what a scroll within the pages' ends allows (REACHABLE). Shift+Tab
+        from the panel, the pages at their end, rests first on the last badge a scroll brings out, seen."""
+        page = self.open_device(touch(768, 1024))
+        page.tap("#btn-side")
+        page.evaluate("setSheetF(0.64)")
         settle(page)
-        page.focus('.mark button.mark-jump[data-id="%d"]' % self.ids[2])
-        self.assert_all_seen(self.walk(page, presses=30), least=10)
+        reach = page.evaluate(REACHABLE)
+        self.assertTrue(any(reach) and not all(reach), reach)
+        self.assertEqual([t >= 0 for t in page.evaluate(STOPS)], reach)
+        order = page.evaluate(ORDER)
+        last = max(i for i, r in enumerate(reach) if r)
+        self.assertGreater(len(order) - 1, last)  # the last badges are passed over
+        page.evaluate("document.querySelector('#left').scrollTop = 1e6")
+        settle(page)
+        page.focus("#btn-side")
+        s = self.steps(page, "Shift+Tab", 1)[0]
+        self.assertEqual((s["id"], s["seen"], s["clear"]), (order[last], True, True), s)
+
+    def test_tab_passes_over_the_badges_under_the_overlay_panel(self):
+        """A 860 x 900 window with a mouse, the overlay panel open over the pages' right side down their whole height: no
+        scroll up or down brings out the badges in its columns, and Tab passes over them; it meets every other badge in
+        the document's order, each seen."""
+        page = self.open_device({"viewport": {"width": 860, "height": 900}})
+        page.evaluate("setSide(true)")
+        settle(page)
+        self.assertTrue(page.evaluate("document.body.classList.contains('mid-overlay')"))
+        under = set(
+            page.evaluate(
+                """() => {const p = document.querySelector('#right').getBoundingClientRect();
+                  return [...document.querySelectorAll('.mark button.mark-jump')].filter(b => {const r = b.getBoundingClientRect();
+                    return r.right > p.left && r.left < p.right;}).map(b => Number(b.dataset.id));}"""
+            )
+        )
+        order = page.evaluate(ORDER)
+        self.assertTrue(under and len(under) < len(order), under)
+        self.from_start(page)
+        met = self.walk(page, presses=80)
+        self.assertEqual(list(dict.fromkeys(m["id"] for m in met)), [i for i in order if i not in under])
+        self.assert_all_seen(met)
 
     def test_a_focused_badge_a_cover_comes_over(self):
         """The tablet, the sheet open, the focus and its description on a badge Tab brought up from below it. The pages
         scrolled back until the badge is under the sheet: its description goes and does not come back, the focus stays on
-        it, and the next Tab rests on a badge that is seen. With the sheet closed, Enter on a badge low on the screen opens
-        the sheet over it: it is brought out above the sheet, still focused."""
+        it - still a stop, since a scroll can show it - and the next Tab rests on the next badge, brought out and seen. With
+        the sheet closed, Enter on a badge low on the screen opens the sheet over it: it is brought out above the sheet,
+        still focused."""
         page = self.open_device(touch(768, 1024))
         page.tap("#btn-side")
         settle(page)
@@ -372,11 +483,12 @@ class CoveredMarksSeen(BrowserBase):
         settle(page)
         page.wait_for_timeout(450)
         under = page.evaluate(SEEN)
-        self.assertEqual((under["id"], under["seen"], under["tab"]), (s["id"], False, -1), under)
+        self.assertEqual((under["id"], under["seen"], under["tab"]), (s["id"], False, 0), under)
         self.assertFalse(page.evaluate(TIP_UP))
+        order = page.evaluate(ORDER)
         page.keyboard.press("Tab")
         nxt = page.evaluate(SEEN)
-        self.assertTrue(nxt is None or nxt["seen"], nxt)
+        self.assertEqual((nxt["id"], nxt["seen"]), (order[order.index(s["id"]) + 1], True), nxt)
         page = self.open_device(touch(768, 1024))
         self.from_start(page)
         low = self.walk_to(page, lambda m: m["y"] > 700)
@@ -389,7 +501,7 @@ class CoveredMarksSeen(BrowserBase):
     def test_a_script_focus_on_a_covered_badge_stays_where_it_is(self):
         """The tablet, the sheet open: a script puts the focus on a badge under the sheet without a scroll (as focusPlace
         does after a save): the pages do not move - only Tab's walk brings a badge out - and no description floats over
-        the sheet for it."""
+        the sheet for it, though the badge is a stop."""
         page = self.open_device(touch(768, 1024))
         page.tap("#btn-side")
         settle(page)
@@ -406,7 +518,7 @@ class CoveredMarksSeen(BrowserBase):
         )
         page.wait_for_timeout(450)
         s = page.evaluate(SEEN)
-        self.assertEqual((s["id"], s["seen"], s["tab"]), (bid, False, -1), s)
+        self.assertEqual((s["id"], s["seen"], s["tab"]), (bid, False, 0), s)
         self.assertEqual(page.evaluate("document.querySelector('#left').scrollTop"), top)
         self.assertFalse(page.evaluate(TIP_UP))
 

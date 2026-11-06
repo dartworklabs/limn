@@ -20,16 +20,19 @@
   [더보기]'s language, which reopens the page, and the phone navigation sheet's [원고 | 변경사항], which changes the view
   and closes the sheet (Home on the chosen 원고 shut it) - are walked without choosing, as tabs with manual activation
   are (WCAG 3.2.2): the keys move the focus, and Enter or Space chooses.
-- **Tab no longer stops on a mark badge the panel, the sheet or the status line covers** (#418). On a tablet or phone
-  with the sheet open, Tab put the focus ring on a badge under the sheet, out of sight, and its tooltip floated over the
-  sheet. A badge whose centre lies under a cover - the panel or sheet, or the status line standing on it (the first
-  visit's line on the tablet's closed sheet) - leaves the tab order until the cover moves or the pages scroll it out; the
-  overlay panel is measured again once it has slid in. A badge scrolled out of the pages (under the document bar, or zoomed past the pages' edge) stays a stop
-  while the pages can bring it to where nothing covers it, and Tab brings it there: the browser had scrolled it only to
-  the pages' edge, under the sheet, where the focus and its description stayed. With the sheet pulled up to the document
-  bar no badge is a stop. A focused badge a scroll takes under a cover loses its description and keeps the focus; one the
-  sheet a key opened comes over is brought out again. The check compares boxes and costs well under a millisecond per
-  scroll frame with hundreds of badges.
+- **Tab rests on a mark badge in turn and shows it, passing over only one no scroll can show** (#418). On a tablet or
+  phone with the sheet open, Tab put the focus ring on a badge under the sheet, out of sight, and its tooltip floated over
+  the sheet. A badge is a Tab stop while the pages can scroll it, up or down within their ends, to where it stands whole
+  in the pages' box clear of every cover in its columns - the panel or sheet, or the status line standing on it (the first
+  visit's line on the tablet's closed sheet) - wherever it stands now, and Tab and Shift+Tab bring it there, 8px clear: the
+  browser had scrolled a badge only to the pages' edge, under the sheet, where the focus and its description stayed. So
+  Tab from #3 goes to #4 and #5 under the sheet, then #6; passing over every badge a cover was over at that moment went
+  from #3 to #6, and the scroll that brought #6 up showed the two it had passed. Passed over are a badge under the overlay
+  panel, which runs the pages' height (measured again once it has slid in), one at the last page's foot that the pages
+  end before bringing above the sheet, and every badge with the sheet pulled up to the document bar. A badge a cover is
+  over shows no description; a focused one a scroll takes under a cover loses it and keeps the focus, and one the sheet a
+  key opened comes over is brought out again. The check compares boxes and costs well under a millisecond per scroll
+  frame with hundreds of badges.
 - **At 320px the sheet bar's [⬚] keeps its 44px press area** (#418). With a pin awaiting review, the left cell was
   narrower than the pin chip and [⬚] together, so [⬚] stood in the grabber's column and answered only 38px. Under 332px
   the bar's side edges are 4px instead of 12px; the gap and the icon keep their size, and in Korean the chip keeps its

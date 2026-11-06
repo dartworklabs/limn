@@ -321,18 +321,23 @@ function markBadgeRoom(pg){const L=$('#left'); if(!L||!pg||!pg.getClientRects().
 function markBadgeSides(){pageNoSides(); const rooms=new Map(); $$('.mark').forEach(m=>{const pg=m.parentElement;
     if(!rooms.has(pg))rooms.set(pg,markBadgeRoom(pg)); const r=rooms.get(pg); if(r)m.classList.toggle('in',markBadgeIn(+m.dataset.fx,r.w,r.pad,r.reach));});
   $$('.sel.pending').forEach(pendingBadgeSide); markHitSides(); markCoverSkip();}   // the pending boxes' '+' badges follow the same rule
-// A badge the panel, the sheet or a bar covers is no stop for the keyboard (docs/handbook/viewer.md §모바일 레이아웃): Tab put
-// the ring on a mark the person could not see, and its tooltip floated over the box that hid it (issue #418). The covers are
-// the boxes drawn over the pages, each where it is laid out (MARK_COVERS): the panel (#right: the sheet, the overlay panel,
-// the closed sheet's bar) and the status line standing on the sheet's top edge (#status-dock, outside the panel so its action
-// can reach up over the pages). The bars that also stand over the pages do so inside the panel's box: the tool bar is the
-// sheet's head, and the phone's search row (#doc-nav at its foot) lies over the closed bar. A badge whose centre lies in the
-// pages' view (#left's box within the window) leaves the tab order while a cover is over that centre. A badge scrolled out of the view keeps its stop only
-// while the pages can scroll it to where no cover is (markShift): Tab brings it there (markReveal). With the sheet pulled up
-// to the document bar nothing can show, and no badge is a stop. The boxes are compared, not hit-tested: a hit test per badge
-// took 15 ms a pass in Chromium with 150 badges on screen, which a scroll pays every frame; the comparison takes under 1 ms.
-// Every box is read before any stop is written, and only a stop that changes is written. A description standing over (or
-// waiting for) a badge that has just left goes with it.
+// A badge no scroll can show is no stop for the keyboard (docs/handbook/viewer.md §모바일 레이아웃): Tab put the ring on a
+// mark the person could not see, and its tooltip floated over the box that hid it (issue #418). The covers are the boxes
+// drawn over the pages, each where it is laid out (MARK_COVERS): the panel (#right: the sheet, the overlay panel, the closed
+// sheet's bar) and the status line standing on the sheet's top edge (#status-dock, outside the panel so its action can reach
+// up over the pages). The bars that also stand over the pages do so inside the panel's box: the tool bar is the sheet's head,
+// and the phone's search row (#doc-nav at its foot) lies over the closed bar. A badge is a stop while the pages can scroll
+// it, up or down within their ends, to where it stands whole in the pages' view (#left's box within the window) clear of
+// every cover in its columns (markShift) - wherever it stands now, so Tab meets the badges under the sheet in turn and
+// brings each out (markReveal). Passing over the badges a cover was over at that moment, Tab from #3 went past #4 and #5 to
+// #6, whose scroll then showed the two it had passed. No stop: a badge under the overlay panel (it runs the pages' height),
+// one at the last page's foot the pages end before bringing above the sheet, every badge with the sheet pulled up to the
+// document bar. A scroll moves a badge and the room it can go to alike, so it moves no stop. A badge whose centre a cover
+// is over now (or one out of view with nowhere to show) is hidden (MARK_HIDDEN): a script's focus or the person's scroll can
+// leave the focus on it, and its description does not show (tooltip.js showTip) - one standing over it goes. The boxes are
+// compared, not hit-tested: a hit test per badge took 15 ms a pass in Chromium with 150 badges on screen, which a scroll
+// pays every frame; the comparison takes under 1 ms. Every box is read before any stop is written, and only a stop that
+// changes is written.
 const MARK_COVERS=['#right','#status-dock'],MARK_EDGE=8;   // MARK_EDGE: px a revealed badge keeps clear of a cover or the view's edge
 /** The pages' view: #left's box within the window. @returns {{left:number,top:number,right:number,bottom:number}} */
 function markView(){const v=$('#left').getBoundingClientRect();
@@ -358,13 +363,14 @@ function markShift(r,v,cs,lo,hi){let spans=[[v.top,v.bottom]];
     if(r.top-dy<t-0.5||r.bottom-dy>b+0.5)continue;   // the pages end before the badge gets there
     if(best===null||Math.abs(dy)<Math.abs(best))best=dy;}
   return best;}
+const MARK_HIDDEN=/** @type {WeakSet<Element>} */(new WeakSet());
 function markCoverSkip(){const L=$('#left'); if(!L)return; const v=markView(),cs=markCoverBoxes(v),lo=-L.scrollTop,hi=L.scrollHeight-L.clientHeight-L.scrollTop;
   const bs=/** @type {HTMLElement[]} */($$('.mark button.mark-jump'));
-  const stops=bs.map(b=>{const r=b.getBoundingClientRect(); if(!r.width)return 0; const cx=r.left+r.width/2,cy=r.top+r.height/2;
-    if(cx>=v.left&&cx<v.right&&cy>=v.top&&cy<v.bottom)return cs.some(c=>cx>=c.left&&cx<c.right&&cy>=c.top&&cy<c.bottom)?-1:0;   // in view: covered or not
-    return markShift(r,v,cs,lo,hi)===null?-1:0;});   // out of view: a stop while the pages can bring it to where it shows
-  bs.forEach((b,i)=>{if(b.tabIndex!==stops[i])b.tabIndex=stops[i];});
-  for(const t of [TIP_AT&&TIP_AT.el,tipEl])if(t instanceof HTMLElement&&t.tabIndex<0&&t.matches('.mark button.mark-jump')){hideTip(); break;}}
+  const at=bs.map(b=>{const r=b.getBoundingClientRect(); if(!r.width)return {stop:0,hid:false}; const cx=r.left+r.width/2,cy=r.top+r.height/2;
+    const stop=markShift(r,v,cs,lo,hi)===null?-1:0;   // a stop while the pages can bring it to where it shows, whether in view or not
+    return {stop,hid:cx>=v.left&&cx<v.right&&cy>=v.top&&cy<v.bottom?cs.some(c=>cx>=c.left&&cx<c.right&&cy>=c.top&&cy<c.bottom):stop<0};});
+  bs.forEach((b,i)=>{const a=at[i]; if(b.tabIndex!==a.stop)b.tabIndex=a.stop; if(a.hid)MARK_HIDDEN.add(b); else MARK_HIDDEN.delete(b);});
+  for(const t of [TIP_AT&&TIP_AT.el,tipEl])if(t&&MARK_HIDDEN.has(t)){hideTip(); break;}}
 // Scrolls the pages to bring badge b to where it shows (markShift), when they can. It shows something, so a jump on its way
 // ends first (pvShow): its settling would glide the pages back.
 /** @param {HTMLElement} b */
@@ -391,7 +397,7 @@ $('#left').addEventListener('focusin',e=>{const b=e.target; if(!MARK_TAB||!(b in
 // description goes - scrolling the pages back would undo the person's own scroll, and moving the focus would lose their place
 // in the Tab order. The next Tab goes on from it.
 function markCoversMoved(){markCoverSkip(); const a=document.activeElement;
-  if(a instanceof HTMLElement&&a.tabIndex<0&&a.matches('.mark button.mark-jump')&&keyInput())markReveal(a);}
+  if(a instanceof HTMLElement&&MARK_HIDDEN.has(a)&&keyInput())markReveal(a);}
 if(window.ResizeObserver){const o=new ResizeObserver(markCoversMoved); for(const s of MARK_COVERS){const e=$(s); if(e)o.observe(e,{box:'border-box'});}}
 // The overlay panel slides in and out by its offset, its size unchanged (responsive.css mid-panel-in, side-panel.css side-in):
 // the observer hears of the panel only while it is still off the pages, so the slide's end asks again.

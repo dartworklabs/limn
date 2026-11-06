@@ -15,8 +15,8 @@ function tipFollow(){if(TIP.hidden||!TIP_AT)return; const e=TIP_AT.el; if(!e.isC
   const r=e.getBoundingClientRect(); if(Math.abs(r.left-TIP_AT.x)>0.5||Math.abs(r.top-TIP_AT.y)>0.5)hideTip();}
 // Shows el's description over it. The box is translate="no": a description is already in the UI language (the translator
 // rewrote the attribute, or the code drew it with tr()), and one that quotes a note ('#38 · 완료') must not be rewritten again.
-// A mark badge a cover is over (out of the Tab order, list.js markCoverSkip) shows none: it would float over the cover.
-function showTip(el){if(el.tabIndex<0&&el.matches('.mark button.mark-jump'))return; showTipText(el,el.dataset.tip||'');}
+// A mark badge a cover is over now (list.js MARK_HIDDEN, markCoverSkip) shows none: it would float over the cover.
+function showTip(el){if(MARK_HIDDEN.has(el))return; showTipText(el,el.dataset.tip||'');}
 // Shows txt over el as its description box (showTip's drawing; statusWhy shows [이유]'s sentence at the line this way). Nothing
 // without a text or for an element no longer in the page. Inside a box marked data-tip-at="left" (the page verdict panel) the
 // description stands left of that box, level with el, so it covers none of the box's own rows - over a word it covered the
