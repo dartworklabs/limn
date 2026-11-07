@@ -177,6 +177,17 @@ class Signatures(FigureTree):
         self.assertNotEqual(now, first)
         self.assertTrue(now.endswith("|%d:%d:%d" % (o.st_mtime_ns, o.st_size, o.st_ino)))
 
+    def test_the_memo_keeps_what_the_map_names_not_its_parse(self):
+        """A map may be up to MAP_MAX_BYTES and parses into a few times its bytes, so the watch remembers per document
+        only the PDF name the parse gave (or None for a rejected map), never the parse itself - by watch_signature and
+        by read_figure_import alike."""
+        self.producer.render()
+        figure.watch_signature(self.doc, self.looks)
+        self.assertEqual([named for _, named in self.looks.seen.values()], ["figures.pdf"])
+        self.producer.render(format="limn-figure-map/2")
+        figure.read_figure_import(self.doc, self.looks)
+        self.assertEqual([named for _, named in self.looks.seen.values()], [None])
+
     def test_two_documents_registering_one_map_share_its_parse(self):
         """The parse is the map's bytes alone, so the memo is keyed by the map's path: fig2, whose folder is the map's
         own, finds the parse fig made and reads the map no more than once."""

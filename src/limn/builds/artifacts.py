@@ -292,13 +292,18 @@ def _inside_folder(base: Path, start: Path, rel: str) -> Path | None:
 
 
 def figure_pdf(doc: BuildDoc, figure_map: FigureMap) -> Path | None:
-    """The PDF figure_map names, resolved from the folder holding doc's map (doc.main) and kept only when it lies inside
-    doc.src (_inside_folder): the one path the import may read, or None. The file need not exist."""
+    """The PDF figure_map names (figure_pdf_named with its pdf): the one path the import may read, or None."""
+    return figure_pdf_named(doc, figure_map.pdf)
+
+
+def figure_pdf_named(doc: BuildDoc, name: str) -> Path | None:
+    """The PDF a map names by name (FigureMap.pdf), resolved from the folder holding doc's map (doc.main) and kept only
+    when it lies inside doc.src (_inside_folder), or None. The file need not exist."""
     try:
         base = doc.src.resolve()
     except (OSError, RuntimeError):
         return None
-    return _inside_folder(base, doc.main.parent, figure_map.pdf)
+    return _inside_folder(base, doc.main.parent, name)
 
 
 def load_build_map(doc: BuildDoc, build: str) -> FigureMap | MapRejected | None:
