@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **A figure map may be up to 16 MiB (was 4 MiB).** A figure repository that keeps every element of its candidate
+  figures wrote more than 4 MB, so it had to thin those pages to their groups, and a pin there landed on a group
+  rather than on the mark drawn. The watch still reads and hashes the map on every tick (a few ms at 16 MiB) and
+  parses it only when it changes. The parsed build maps a run keeps are now bounded by their copies' bytes as well
+  (64 MiB, the newest always kept), not only by their count (16), and the watch now remembers per document only the
+  map's signature and the PDF it names, not the whole parse, so the larger cap cannot hold close to a gigabyte.
+- The agent contract (`pins.md`, HTTP API) is unchanged. `limn-figure-map/1` keeps its format; only its size limit
+  grows.
+
 ## 0.4.54 — 2026-11-07
 
 ### Added

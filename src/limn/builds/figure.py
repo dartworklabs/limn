@@ -78,37 +78,40 @@ class ImportDeferred:
 @dataclass
 class MapLooks:
     """What the watch last learned from each figure document's map: the map's signature (map_signature: its stat and the
-    digest of its bytes) and its parse (None when the map is rejected), kept per map path. The parse is a function of
-    the map's bytes alone (limn.builds.figure_map.parse_map judges no path against a folder), so two documents
-    registering one map share one entry, and the memo can never hold a verdict the filesystem has since changed.
+    digest of its bytes) and the PDF its parse names (FigureMap.pdf; None when the map is rejected), kept per map path.
+    Only that name is kept, not the parse: a map may be up to MAP_MAX_BYTES and a parse holds a few times its bytes, so
+    a parse kept per document would add up across documents, while the watch needs nothing else from it. The parse is
+    a function of the map's bytes alone (limn.builds.figure_map.parse_map judges no path against a folder), so two
+    documents registering one map share one entry, and the memo can never hold a verdict the filesystem has since
+    changed.
 
     Both readers keep it current: watch_signature when a tick finds the map's signature changed, and read_figure_import
     with the parse it has just checked. A deferral's settled signature is built from that same parse by the watch's own
-    rule (_pair_signature), so the next tick computes exactly the settled value (pending_import). Only the map itself is
-    memoised - the PDF it names is resolved fresh (build.figure_pdf) on every tick, per document, even when the map is
-    unchanged, because it can name a symlink inside the folder: the same map can be made to point at a different
-    target, or start pointing at one that did not exist before, without the map's own bytes (and so its signature)
-    ever changing. Caching the once-resolved path would miss both. One per run (limn.builds.service.BuildRequests): a
-    tick reads the map (at most MAP_MAX_BYTES + 1 bytes) to sign it and parses it again only when its signature
-    changed. Startup and the watch thread never look at one document at the same time, and the watch skips a document
-    while it builds; a lost update would only cost one extra read."""
+    rule (_pair_signature), so the next tick computes exactly the settled value (pending_import). Only the map's verdict
+    is memoised - the PDF it names is resolved fresh (build.figure_pdf_named) on every tick, per document, even when the
+    map is unchanged, because it can name a symlink inside the folder: the same map can be made to point at a different
+    target, or start pointing at one that did not exist before, without the map's own bytes (and so its signature) ever
+    changing. Caching the once-resolved path would miss both. One per run (limn.builds.service.BuildRequests): a tick
+    reads the map (at most MAP_MAX_BYTES + 1 bytes) to sign it and parses it again only when its signature changed.
+    Startup and the watch thread never look at one document at the same time, and the watch skips a document while it
+    builds; a lost update would only cost one extra read."""
 
-    seen: dict[Path, tuple[str, FigureMap | None]] = field(default_factory=dict)
+    seen: dict[Path, tuple[str, str | None]] = field(default_factory=dict)
 
     @staticmethod
     def key(D: BuildDoc) -> Path:
         """D's entry: its map's path, the one thing a parse depends on (through the bytes it holds)."""
         return D.main
 
-    def recall(self, D: BuildDoc, signature: str) -> tuple[FigureMap | None] | None:
-        """D's remembered parse, as a 1-tuple, when it was made from the map at this signature; None when D's map at
-        that signature was never parsed (the tuple tells a remembered rejection, (None,), from nothing known)."""
+    def recall(self, D: BuildDoc, signature: str) -> tuple[str | None] | None:
+        """The PDF name D's map at this signature was remembered to give, as a 1-tuple; None when D's map at that
+        signature was never parsed (the tuple tells a remembered rejection, (None,), from nothing known)."""
         known = self.seen.get(self.key(D))
         return (known[1],) if known is not None and known[0] == signature else None
 
-    def remember(self, D: BuildDoc, signature: str, figure_map: FigureMap | None) -> None:
-        """Keep figure_map (None: the map was rejected) as D's parse of its map at signature."""
-        self.seen[self.key(D)] = (signature, figure_map)
+    def remember(self, D: BuildDoc, signature: str, pdf: str | None) -> None:
+        """Keep pdf, the name D's map at signature gives its PDF (FigureMap.pdf; None: the map was rejected)."""
+        self.seen[self.key(D)] = (signature, pdf)
 
 
 def _map_text(text: str) -> str:
@@ -185,7 +188,7 @@ def watch_signature(D: BuildDoc, looks: MapLooks) -> str | None:
 
     The map is read on every call - at most MAP_MAX_BYTES + 1 bytes - and parsed again only when its signature differs
     from the one looks remembers for D. The PDF is only stat'ed: its path is resolved from the (possibly memoised)
-    parsed map on every call (build.figure_pdf) rather than memoised itself - the map may name a symlink inside the
+    name the map gives on every call (build.figure_pdf_named) rather than memoised itself - the map may name a symlink inside the
     folder, and it can be repointed, or start existing, without the map's own signature moving; only a fresh resolve
     sees that. An atomic replacement of either file in the previous version's timestamp tick with the same size moves
     the signature (the inode, and for the map the digest too); an overwrite in place of the PDF in such a tick does
@@ -196,11 +199,12 @@ def watch_signature(D: BuildDoc, looks: MapLooks) -> str | None:
     map_sig = map_signature(got)
     known = looks.recall(D, map_sig)
     if known is not None:
-        (fm,) = known
+        (named,) = known
     else:
         fm = _parsed_map(got.raw)
-        looks.remember(D, map_sig, fm)
-    return _pair_signature(map_sig, build.figure_pdf(D, fm) if fm is not None else None)
+        named = fm.pdf if fm is not None else None
+        looks.remember(D, map_sig, named)
+    return _pair_signature(map_sig, build.figure_pdf_named(D, named) if named is not None else None)
 
 
 def import_due(now: str | None, settled: str | None, missing_pages: bool) -> bool:
@@ -232,15 +236,15 @@ def read_figure_import(D: BuildDoc, looks: MapLooks | None = None) -> FigureImpo
     read: the map's signature (map_signature) from its read, then NO_FILE for a rejected map or a PDF outside; for a
     PDF that could not be read, its stat taken just before the attempt (a PDF that can be stat'ed but not opened keeps
     a real signature); for a PDF that was read, the signature of that read - so pdf_too_large settles its real size and
-    an unchanged oversized file is not re-read. When looks is given, the map's signature and this parse (None when rejected) are
-    remembered there for D, so the next tick judges the map exactly as this read did."""
+    an unchanged oversized file is not re-read. When looks is given, the map's signature and the PDF name this parse gives
+    (None when rejected) are remembered there for D, so the next tick judges the map exactly as this read did."""
     got = _read_file(D.main, MAP_MAX_BYTES)
     if got is None:
         return ImportDeferred("map_missing", str(D.main), None)
     parsed = parse_map(got.raw)
     map_sig = map_signature(got)
     if looks is not None:
-        looks.remember(D, map_sig, parsed if isinstance(parsed, FigureMap) else None)
+        looks.remember(D, map_sig, parsed.pdf if isinstance(parsed, FigureMap) else None)
     if isinstance(parsed, MapRejected):
         detail = "%s: %s" % (parsed.reason, parsed.detail)
         return ImportDeferred("map_rejected", detail, _pair_signature(map_sig, None))
@@ -281,7 +285,7 @@ def pending_import(D: BuildDoc, looks: MapLooks, dpi: int, *, first: bool) -> Fi
     its files did not change but it has no page images at dpi. None when the map is missing, when nothing changed since
     the settled signature, or when the files do not agree - then the deferral's signature is settled and one line
     naming the reason goes to stderr, so no build and no failure is recorded and the next change is looked at. The
-    read refreshes looks with the parse it checked, and the deferral's signature follows watch_signature's rule
+    read refreshes looks with the name the parse it checked gives, and the deferral's signature follows watch_signature's rule
     (read_figure_import), so right after a deferral watch_signature(D, looks) is the settled signature: the next tick
     reads the map to sign it, but parses nothing, opens no PDF and logs nothing until one of the two files changes."""
     now = watch_signature(D, looks)
