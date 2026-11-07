@@ -343,8 +343,8 @@ class BuildMapCache:
     """The parsed maps of one run's figure builds, so a pick, GET /api/pins and every pins.md render do not parse the
     same map copy again. An entry is keyed by the document's state folder (Doc.dir, docs/<key>/), the build name and
     the copy's (mtime_ns, size): the import writes a build's copy once, so an entry stays right, and a copy written
-    again misses. At most MAP_CACHE_MAX entries whose copies come to at most MAP_CACHE_MAX_BYTES, the oldest dropped
-    first (the newest always stays). What an entry holds is a function of the copy's bytes alone (the parse reads no
+    again misses. At most MAP_CACHE_MAX entries whose copies come to at most max_bytes (MAP_CACHE_MAX_BYTES unless the
+    caller gives another budget), the oldest dropped first (the newest always stays). What an entry holds is a function of the copy's bytes alone (the parse reads no
     other file), so an entry can never be stale against the filesystem and a warm cache answers what a cold one does.
     Whoever reads a file a map names decides then whether it may be read.
 
@@ -355,6 +355,7 @@ class BuildMapCache:
     is parsed under its older key, which the next read misses. The composition root makes one per run
     (server.Runtime.figure_maps)."""
 
+    max_bytes: int = MAP_CACHE_MAX_BYTES
     _entries: dict[tuple[str, str, int, int], FigureMap | MapRejected] = field(default_factory=dict)
     _lock: threading.Lock = field(default_factory=threading.Lock)
 
@@ -380,14 +381,13 @@ class BuildMapCache:
         with self._lock:
             self._entries[key] = got
             while len(self._entries) > 1 and (
-                len(self._entries) > MAP_CACHE_MAX or sum(k[3] for k in self._entries) > MAP_CACHE_MAX_BYTES
+                len(self._entries) > MAP_CACHE_MAX or sum(k[3] for k in self._entries) > self.max_bytes
             ):
                 del self._entries[next(iter(self._entries))]
         return got
 
     def held(self) -> int:
-        """How many parsed maps the cache holds now: at most MAP_CACHE_MAX, fewer when their copies pass
-        MAP_CACHE_MAX_BYTES."""
+        """How many parsed maps the cache holds now: at most MAP_CACHE_MAX, fewer when their copies pass max_bytes."""
         with self._lock:
             return len(self._entries)
 
