@@ -26,7 +26,11 @@ from limn.platform.values import is_finite_num, is_int
 
 MAP_FORMAT = "limn-figure-map/1"
 
-MAP_MAX_BYTES = 4 * 1024 * 1024
+# The largest map read. A figure repository of about fifty figures and fourteen thousand elements writes about 4 MB,
+# so this leaves room for one that keeps every element of its candidates. The watch reads and hashes the map on every
+# tick (a few ms at this size) and parses it only when it changes; limn.builds.artifacts.BuildMapCache bounds what
+# the parses held by a run add up to.
+MAP_MAX_BYTES = 16 * 1024 * 1024
 MAP_MAX_ELEMENTS = 5000  # per page
 MAP_MAX_TEXT = 200  # characters of a figure, title, element id, part or label: pins store them
 MAP_MAX_PATH = 1024  # characters of pdf, src.file and impl.file: a pin stores impl.file

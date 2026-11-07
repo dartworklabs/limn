@@ -328,6 +328,9 @@ def build_figure_pdf(
 
 
 MAP_CACHE_MAX = 16  # parsed maps kept per run: the current and previous builds of a few figure documents
+# Map copy bytes kept parsed per run, summed over the entries. A parse holds a few times its copy's bytes, so the count
+# cap alone would let sixteen maps near MAP_MAX_BYTES hold close to a gigabyte; this keeps four of the largest.
+MAP_CACHE_MAX_BYTES = 4 * MAP_MAX_BYTES
 
 
 @dataclass
@@ -335,9 +338,10 @@ class BuildMapCache:
     """The parsed maps of one run's figure builds, so a pick, GET /api/pins and every pins.md render do not parse the
     same map copy again. An entry is keyed by the document's state folder (Doc.dir, docs/<key>/), the build name and
     the copy's (mtime_ns, size): the import writes a build's copy once, so an entry stays right, and a copy written
-    again misses. At most MAP_CACHE_MAX entries, the oldest dropped first. What an entry holds is a function of the
-    copy's bytes alone (the parse reads no other file), so an entry can never be stale against the filesystem and a
-    warm cache answers what a cold one does. Whoever reads a file a map names decides then whether it may be read.
+    again misses. At most MAP_CACHE_MAX entries whose copies come to at most MAP_CACHE_MAX_BYTES, the oldest dropped
+    first (the newest always stays). What an entry holds is a function of the copy's bytes alone (the parse reads no
+    other file), so an entry can never be stale against the filesystem and a warm cache answers what a cold one does.
+    Whoever reads a file a map names decides then whether it may be read.
 
     Request threads share it: every read and write of the entries is under the lock. The entries are frozen
     dataclasses that nothing changes once parsed (FigureMap, MapRejected), so a map handed out stays usable while
@@ -370,12 +374,15 @@ class BuildMapCache:
             return None
         with self._lock:
             self._entries[key] = got
-            while len(self._entries) > MAP_CACHE_MAX:
+            while len(self._entries) > 1 and (
+                len(self._entries) > MAP_CACHE_MAX or sum(k[3] for k in self._entries) > MAP_CACHE_MAX_BYTES
+            ):
                 del self._entries[next(iter(self._entries))]
         return got
 
     def held(self) -> int:
-        """How many parsed maps the cache holds now: at most MAP_CACHE_MAX."""
+        """How many parsed maps the cache holds now: at most MAP_CACHE_MAX, fewer when their copies pass
+        MAP_CACHE_MAX_BYTES."""
         with self._lock:
             return len(self._entries)
 
