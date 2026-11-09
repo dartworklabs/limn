@@ -410,9 +410,28 @@ MATH_LINE = MATH_FIXTURE.split("\n").index("$$") + 1  # the display math's openi
 
 
 class Math(MarkdownBase):
-    """TeX math shows its source, every character of it, and keeps the lines around it; display math is a block, md:math."""
+    """TeX math with no renderer to draw it (ADR-0036 D2's first fallback: the bundle does not load - an old cache, a
+    stripped install, a network error): the source shows, every character of it, the lines around it hold, and display math
+    is a block, md:math - the whole of ADR-0032 D7, which is what the viewer falls back to. The request for
+    /vendor/katex/katex.mjs is refused here, so this is that path and not an accident. The drawn math this fixture gives
+    when the bundle does load is test_viewer_markdown_math.py's."""
 
     MD_TEXT = MATH_FIXTURE
+
+    def route(self, route):
+        """The KaTeX module is refused: no renderer, so math stays as its characters."""
+        if "/vendor/katex/" in route.request.url:
+            return route.abort()
+        return super().route(route)
+
+    def test_no_renderer_leaves_every_formula_as_characters(self):
+        """With the module refused nothing is drawn and no stylesheet is added, so the fixture reads exactly as it did
+        before ADR-0036. Mutation: draw math anyway when the module is missing -> .md-tex appears, fails."""
+        page = self.open_md()
+        self.assertEqual(page.evaluate("document.querySelectorAll('#md .md-tex').length"), 0)
+        self.assertEqual(page.evaluate("document.querySelectorAll('#md .katex').length"), 0)
+        self.assertEqual(page.evaluate("[...document.styleSheets].filter(s=>/katex/.test(s.href||'')).length"), 0)
+        self.assertEqual(page.evaluate("mdRxOf(document.querySelector('#md')).tex"), 0)
 
     def test_math_shows_its_source_and_every_line_is_the_servers(self):
         """Each math span is a code-face element with its source text, delimiters included, and no emphasis takes a '*' or

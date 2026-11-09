@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.4.56 — 2026-11-09
+
+### Added
+
+- **The Markdown screen draws TeX math** (ADR-0036). `$…$`, `$$…$$`, `\(…\)` and a `\[…\]` block were shown as the
+  characters they are written with; a reader of a manuscript full of formulas read TeX. The viewer now draws them with
+  the bundled KaTeX 0.19.1 (`src/limn/vendor/katex/`), which the page fetches - module, stylesheet and the fonts the
+  stylesheet asks for - only when a Markdown document whose text holds math opens. Nothing else asks for a byte of it.
+  **No character disappears:** a formula stays as its source characters, exactly as before, when the module or the
+  stylesheet does not arrive, when KaTeX refuses the TeX, when an inline formula runs over a source line end (one piece
+  is no TeX on its own) or when the formula holds a character that hides or reorders text, which drawn glyphs could
+  neither show nor name. One formula of a document may stay as characters while the rest are drawn.
+
+  **A pin still points at the manuscript.** A drawn formula stands where its characters stood, with the same source
+  lines, so every pin's range, `snippet`, ladder and `md:math` are what they were - a pin saved before this release
+  points at the same lines. The `quote` of a selection over drawn math is the **source TeX**, not the glyphs: each drawn
+  formula gives its `data-tex` back as the quote is read, and a selection that cuts into the middle of a formula takes
+  that formula whole. Inside a drawn display block a single line can no longer be chosen - the block is the smallest
+  thing there, as a one-line `$$ … $$` already was. The rendered compare keeps the source characters, which its block
+  keys and its word diff read.
+
+  The page policy is not widened: KaTeX gives its boxes their sizes through the CSSOM and the stylesheet is a
+  same-origin link, so `'self'` already covered both. One read path is added, `GET /vendor/katex/<name>`
+  (`.mjs`, `.css`, `.woff2`, a leaf name only, a year's immutable cache). The HTTP API, `pins.md` and the stored format
+  do not change.
+
 ## 0.4.55 — 2026-11-07
 
 ### Changed

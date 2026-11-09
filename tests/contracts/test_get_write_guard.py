@@ -30,6 +30,7 @@ FAMILIES = {
     "/pages/page-1.png",
     "/vendor/pdfjs/pdf.min.mjs",
     "/vendor/markdown-it/markdown-it.esm.min.mjs",
+    "/vendor/katex/katex.mjs",
     "/vendor/pretendard/pretendard.css",
 }
 
@@ -515,7 +516,7 @@ def test_read_route_family_inventory():
         for arg in seq.elts
         if isinstance(arg, ast.Constant)
     }
-    assert prefixes == {"/pages/", "/vendor/pdfjs/", "/vendor/markdown-it/", "/vendor/pretendard/"}
+    assert prefixes == {"/pages/", "/vendor/pdfjs/", "/vendor/markdown-it/", "/vendor/katex/", "/vendor/pretendard/"}
     assert all(any(path.startswith(prefix) for path in FAMILIES) for prefix in prefixes)
 
 

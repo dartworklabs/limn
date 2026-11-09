@@ -116,7 +116,7 @@ Python의 비공개 이름은 런타임 접근을 봉인하지 않는다. 검사
 
 ### 2. 서버 런타임은 표준 라이브러리만 쓴다
 
-`pyproject.toml`의 `dependencies = []`가 이 규칙의 실행 정본이다. Python 3.10 이상에서 돈다. 뷰어도 React·Tailwind·빌드 단계·CDN 없이 번들한 PDF.js, markdown-it, Pretendard 글꼴, Lucide만 쓴다. markdown-it은 Markdown 문서를 열 때만 파싱 worker가 같은 출처에서 가져온다(`src/limn/vendor/markdown-it/`, 번들에 든 의존성의 판과 고지는 그 README와 `THIRD_PARTY_NOTICES.md`). 서버는 Markdown을 파싱하지 않는다. 뷰어의 CSS·JS가 여러 조각 파일이어도 번들러나 모듈 로더를 들이지 않는다. 서버가 `parts.txt` 순서대로 조각을 이어 인라인 `<style>`·`<script>` 하나씩으로 내보낸다. 인라인 요소는 속성 없는 꼴로만 쓰고, 페이지 정책이 그 글의 해시로 허용한다(불변식 9). 배포가 패키지 설치 하나로 끝나야 연구실 머신에서 유지할 수 있기 때문이다. 개발 의존성(pytest, pytest-xdist, hypothesis, Playwright, Ruff, ShellCheck, mypy, 그리고 `package.json`의 TypeScript)은 이 규칙과 무관하다. TypeScript는 뷰어 JS의 타입을 검사만 하고 아무것도 만들지 않는다.
+`pyproject.toml`의 `dependencies = []`가 이 규칙의 실행 정본이다. Python 3.10 이상에서 돈다. 뷰어도 React·Tailwind·빌드 단계·CDN 없이 번들한 PDF.js, markdown-it, KaTeX, Pretendard 글꼴, Lucide만 쓴다. markdown-it은 Markdown 문서를 열 때만 파싱 worker가 같은 출처에서 가져온다(`src/limn/vendor/markdown-it/`, 번들에 든 의존성의 판과 고지는 그 README와 `THIRD_PARTY_NOTICES.md`). KaTeX는 **수식이 있는** Markdown 문서를 열 때만 페이지가 같은 출처에서 가져온다(모듈·스타일시트·글꼴, `src/limn/vendor/katex/`). 가져오지 못하면 수식을 쓴 글자 그대로 보인다([ADR-0036](../adr/0036-markdown-drawn-math.md) D1·D2). 서버는 Markdown을 파싱하지 않는다. 뷰어의 CSS·JS가 여러 조각 파일이어도 번들러나 모듈 로더를 들이지 않는다. 서버가 `parts.txt` 순서대로 조각을 이어 인라인 `<style>`·`<script>` 하나씩으로 내보낸다. 인라인 요소는 속성 없는 꼴로만 쓰고, 페이지 정책이 그 글의 해시로 허용한다(불변식 9). 배포가 패키지 설치 하나로 끝나야 연구실 머신에서 유지할 수 있기 때문이다. 개발 의존성(pytest, pytest-xdist, hypothesis, Playwright, Ruff, ShellCheck, mypy, 그리고 `package.json`의 TypeScript)은 이 규칙과 무관하다. TypeScript는 뷰어 JS의 타입을 검사만 하고 아무것도 만들지 않는다.
 
 ### 3. 에이전트 계약은 호환을 깨지 않는다
 

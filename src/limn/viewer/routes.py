@@ -25,11 +25,15 @@ class VendorServing:
 
 # PDF.js caches for a day: --pdfjs-dir can put other files under the same ?v=. markdown-it comes only from the package
 # and the parse worker imports it with its version (?v=), but the worker itself is served no-cache, so a day bounds a
-# stale copy the same way. Pretendard comes only from the package, and every URL the page and its stylesheet name carries
-# the font's version (?v=), so a copy never needs revalidating (docs/handbook/api.md §화면·PDF·정적 파일).
+# stale copy the same way. KaTeX and Pretendard come only from the package, and every URL the page and their stylesheets
+# name carries their version (?v=), so a copy never needs revalidating (docs/handbook/api.md §화면·PDF·정적 파일).
 VENDOR: Mapping[VendorLibrary, VendorServing] = {
     "pdfjs": VendorServing({".mjs": "text/javascript; charset=utf-8"}, "public, max-age=86400"),
     "markdown-it": VendorServing({".mjs": "text/javascript; charset=utf-8"}, "public, max-age=86400"),
+    "katex": VendorServing(
+        {".mjs": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".woff2": "font/woff2"},
+        "public, max-age=31536000, immutable",
+    ),
     "pretendard": VendorServing(
         {".woff2": "font/woff2", ".css": "text/css; charset=utf-8"}, "public, max-age=31536000, immutable"
     ),
@@ -87,8 +91,8 @@ def _vendor(app: ViewerShellApp, library: VendorLibrary, path: str, name: str) -
 
 
 def get(request: GetRequest, app: ViewerShellApp) -> Reply | None:
-    """Serve the viewer shell, its icons, version, service worker, Markdown parse worker, or a bundled PDF.js, markdown-it
-    or Pretendard file (_vendor); None for a path that is not one of them.
+    """Serve the viewer shell, its icons, version, service worker, Markdown parse worker, or a bundled PDF.js, markdown-it,
+    KaTeX or Pretendard file (_vendor); None for a path that is not one of them.
 
     An ICON_ROUTES path answers the run's vendored icon file unchanged, publicly cacheable for a day. The page's links
     carry a content key (?v=), so a new drawing gets a new URL there; only those linked URLs are busted - the bare
@@ -116,6 +120,8 @@ def get(request: GetRequest, app: ViewerShellApp) -> Reply | None:
         return _vendor(app, "pdfjs", path, path[len("/vendor/pdfjs/") :])
     if path.startswith("/vendor/markdown-it/"):
         return _vendor(app, "markdown-it", path, path[len("/vendor/markdown-it/") :])
+    if path.startswith("/vendor/katex/"):
+        return _vendor(app, "katex", path, path[len("/vendor/katex/") :])
     if path.startswith("/vendor/pretendard/"):
         return _vendor(app, "pretendard", path, path[len("/vendor/pretendard/") :])
     return None

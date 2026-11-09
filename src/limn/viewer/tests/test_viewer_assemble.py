@@ -1,6 +1,6 @@
 """limn/viewer/assemble.py: the viewer page as one string, from the viewer folder and the explicit inputs only.
 
-viewer_html() joins index.html with its parts and fills the build-time placeholders (PDF.js and font versions, the logo's
+viewer_html() joins index.html with its parts and fills the build-time placeholders (PDF.js, KaTeX and font versions, the logo's
 inline SVGs and icon key, the icon table, the message table, {{ic:...}} tokens) from its arguments; the run-time ones
 (label, accent) are left for run_page(). These tests drive it with a small viewer folder of their own, so the contract is
 checked apart from the real page; src/limn/viewer/tests/test_viewer_files.py checks the packaged page itself.
@@ -40,8 +40,8 @@ def viewer_folder(root: Path, page: str = PAGE) -> Path:
 
 
 class ViewerHtml(unittest.TestCase):
-    """viewer_html(directory, messages, pdfjs_version=, pretendard_version=, marks=, icon_key=, icons=, version=) -> the
-    page before run_page()."""
+    """viewer_html(directory, messages, pdfjs_version=, katex_version=, pretendard_version=, marks=, icon_key=, icons=,
+    version=) -> the page before run_page()."""
 
     def setUp(self):
         """A fresh viewer folder per test."""
@@ -55,6 +55,7 @@ class ViewerHtml(unittest.TestCase):
             self.dir,
             {"가": "A"} if messages is None else messages,
             pdfjs_version="9.9.9",
+            katex_version="7.7.7",
             pretendard_version="8.8.8",
             marks={"__LIMN_MARK_16__": "<svg id=m/>", "__LIMN_WORDMARK__": "<svg id=w/>"},
             icon_key="0123456789ab",
@@ -110,6 +111,7 @@ class ViewerHtml(unittest.TestCase):
                     broken,
                     {},
                     pdfjs_version="1",
+                    katex_version="1",
                     pretendard_version="1",
                     marks={},
                     icon_key="k",
@@ -125,6 +127,7 @@ class ViewerHtml(unittest.TestCase):
             assemble.VIEWER_DIR,
             {},
             pdfjs_version=assemble.PDFJS_VERSION,
+            katex_version=assemble.KATEX_VERSION,
             pretendard_version=assemble.PRETENDARD_VERSION,
             marks=logo.marks,
             icon_key=logo.key,
