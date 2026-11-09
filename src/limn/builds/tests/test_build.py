@@ -1058,6 +1058,28 @@ class BuildMapCacheReads(unittest.TestCase):
         self.assertIs(self.cache.get(self.fig, names[-1]), last)
         self.assertIsNot(self.cache.get(self.fig, names[0]), first)
 
+    def test_the_oldest_entries_go_first_beyond_the_byte_budget(self):
+        """Copies whose bytes together pass the cache's byte budget drop the oldest entries first, under the count cap."""
+        names = ["pages-202609261000%02d" % i for i in range(3)]
+        for name in names:
+            write_build(self.fig, name, b2_map())
+        size = (self.fig.dir / names[0] / FIGMAP_NAME).stat().st_size
+        cache = BuildMapCache(max_bytes=2 * size)
+        first = cache.get(self.fig, names[0])
+        second = cache.get(self.fig, names[1])
+        third = cache.get(self.fig, names[2])
+        self.assertEqual(cache.held(), 2)
+        self.assertIs(cache.get(self.fig, names[2]), third)
+        self.assertIs(cache.get(self.fig, names[1]), second)
+        self.assertIsNot(cache.get(self.fig, names[0]), first)
+
+    def test_a_copy_larger_than_the_byte_budget_is_still_kept(self):
+        """The newest entry always stays, so a copy over the budget is parsed once while it is unchanged."""
+        cache = BuildMapCache(max_bytes=1)
+        got = cache.get(self.fig, BUILD1)
+        self.assertIs(cache.get(self.fig, BUILD1), got)
+        self.assertEqual(cache.held(), 1)
+
     def test_a_copy_removed_after_it_was_read_is_none_not_the_stale_parse(self):
         """The copy is looked at on every read, so a build whose copy has gone answers None though its entry is held."""
         self.assertIsInstance(self.cache.get(self.fig, BUILD1), FigureMap)

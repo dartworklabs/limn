@@ -1073,7 +1073,7 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 
 **검사.** 서버는 지도를 읽을 때 아래를 이 순서로 본다. 쪽과 요소는 지도에 적힌 순서대로 본다. 처음 어긴 규칙 하나로 지도 전체를 받지 않는다. 괄호 안은 서버 로그에 남는 이유 코드다.
 
-1. 파일이 4 MiB 이하다(`too_large`). 크기는 해석 전에 본다.
+1. 파일이 16 MiB 이하다(`too_large`). 크기는 해석 전에 본다.
 2. UTF-8 JSON이고 같은 키가 두 번 나오지 않는다(`not_json`). 맨 위는 객체다(`bad_shape`).
 3. `format` 이 맞다(`bad_format`).
 4. `pdf` 는 비어 있지 않은 1024자(`MAP_MAX_PATH`) 이하 문자열이고, `pdf_sha256` 은 소문자 16진 64자이고, `pages` 는 목록이다(`bad_shape`).
