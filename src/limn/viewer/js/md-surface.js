@@ -114,13 +114,24 @@ function mdTexStyle(){return new Promise(resolve=>{const link=document.createEle
   link.rel='stylesheet'; link.href='/vendor/katex/katex.css?v='+KATEX_V;
   link.onload=()=>resolve(true); link.onerror=()=>{link.remove(); resolve(false);};
   document.head.appendChild(link);});}
-// The TeX of an inline math token, without its delimiters, or null when it is not to be drawn: a piece of a formula that
-// runs over a source line end (the worker marks a whole one info 'whole', ADR-0032 D8) is no TeX on its own. Pure.
-/** @param {any} c @returns {string|null} */
-function mdTexBody(c){const open=String(c.markup||''),close=MD_TEX_CLOSE[open]||'',s=String(c.content||'');
-  if(c.info!=='whole'||!close||s.length<open.length+close.length+1)return null;
+// The TeX of an inline formula, without its delimiters, or null when what is given is no formula. src is the text to read: a
+// token's own for a formula that fits one source line (the worker marks it info 'whole'), and the pieces put back together
+// for one it cut at a line end (info 'head' on the first piece, mdTexRun). A 'tail' piece is no TeX on its own and is never
+// read alone - its head draws the whole formula and passes it over (mdInline). Pure.
+/** @param {any} c @param {string} [src] @returns {string|null} */
+function mdTexBody(c,src){const open=String(c.markup||''),close=MD_TEX_CLOSE[open]||'';
+  const s=src===undefined?String(c.content||''):src;
+  if((c.info!=='whole'&&c.info!=='head')||!close||s.length<open.length+close.length+1)return null;
   if(!s.startsWith(open)||!s.endsWith(close))return null;
   return s.slice(open.length,s.length-close.length);}
+// One formula's source as written, starting at child `at` of an inline token: that piece, and - when the worker cut the
+// formula at a line end ('head') - every piece after it, joined by the line ends it was cut at. last is the index of the
+// formula's final piece, so the caller knows which children the one formula covers (at itself when nothing was cut). Pure.
+/** @param {any[]} kids @param {number} at @returns {{src:string,last:number}} */
+function mdTexRun(kids,at){const parts=[String(kids[at].content||'')]; let j=at+1;
+  while(kids[at].info==='head'&&j+1<kids.length&&kids[j].type==='softbreak'&&kids[j+1].type==='math_inline'&&kids[j+1].info==='tail'){
+    parts.push(String(kids[j+1].content||'')); j+=2;}
+  return {src:parts.join('\n'),last:j-1};}
 // The TeX of a display math block, without its delimiters, or null when its lines do not open and close one. Pure.
 /** @param {string[]} lines @returns {string|null} */
 function mdTexBlockBody(lines){const s=lines.join('\n').replace(/\n+$/,'');
@@ -146,6 +157,21 @@ function mdTexBox(tag,cls,src,tex,display,cx){
   el.className=cls; el.dataset.tex=src; cx.els+=1+el.querySelectorAll('*').length; cx.tex++;
   if(cx.els>MD_LIMITS.elements)throw MD_OVER;
   return el;}
+// A drawn formula cannot be broken over lines: KaTeX lays it out as one inline-block. One wider than the column reaches
+// past the screen's edge, where the page's own rule (`body` does not scroll sideways) puts it out of reach - characters the
+// reader cannot get to, which is the one thing drawing must not cost. So after a build and after the column changes width,
+// the drawn inline formulas are measured and only those too wide are told to scroll inside themselves, as a display block
+// already does. The others are left alone: a box that scrolls sits on its bottom edge instead of the sentence's baseline,
+// which would lift every formula off its line. The measuring is batched - every class off, then every width read, then the
+// classes on - so the whole document costs two layouts, not two per formula. The width read is the drawn formula's own
+// (.katex, an inline-block), which does not change when the box around it starts scrolling: the pass settles at once.
+function mdTexFit(){const md=$('#md'); if(!md||!MD.tex)return;
+  const boxes=/** @type {HTMLElement[]} */([...md.querySelectorAll('code.md-math.md-tex')]); if(!boxes.length)return;
+  for(const e of boxes)e.classList.remove('md-tex-wide');
+  const wide=boxes.filter(e=>{const b=/** @type {HTMLElement} */(e.closest('p,li,td,th,blockquote')||md),g=getComputedStyle(b);
+    const room=b.clientWidth-parseFloat(g.paddingLeft||'0')-parseFloat(g.paddingRight||'0');   // where the block's own text goes, not the column's padding box
+    return room>0&&(e.querySelector('.katex')||e).getBoundingClientRect().width>room+0.5;});
+  for(const e of wide)e.classList.add('md-tex-wide');}
 // ---------------- Drawing the document
 // A yield to the browser between chunks of the DOM build: a message, not a timer, so a test's frozen clock does not stop it.
 function mdYield(){return new Promise(r=>{const c=new MessageChannel(); c.port1.onmessage=()=>r(undefined); c.port2.postMessage(0);});}
@@ -199,7 +225,7 @@ function mdShow(node){const want=MD.want,shown=mdColumnShown(); MD.want=null; MD
     if(want)MD.spot={doc:DOC,w:0,top:0,el:null,line:want.line,key:'',frac:0,past:0,off:want.off,sel:false,again:true};
     else if(s&&s.doc===DOC&&MD.shown===DOC){s.el=null; s.again=true;}
     else MD.spot=null;}
-  $('#doc').replaceChildren(node); MD.shown=DOC; mdRestore(a);
+  $('#doc').replaceChildren(node); MD.shown=DOC; mdTexFit(); mdRestore(a);
   if(MD_RO)MD_RO.observe(node); mdOutline(); marks(); mdRelevel(); mdSelMark(mdSelShown()); mdStrip(); mdSpotRead(true); updMarks();
   const j=MD.jumpTo; MD.jumpTo=null; if(j&&j.doc===DOC&&j.seq===SWITCHSEQ)mdJump(j.id);   // a jump asked before the draw (mdJump)
   const h=MD.headTo; if(h&&h.doc===DOC){MD.headTo=null; if(h.seq===SWITCHSEQ)mdGoLink(h.id);}}   // a link from another document (mdGoDoc)
@@ -519,12 +545,16 @@ function* mdInline(t,parent,w,cx){const m=mdInlineLines(t),kids=t.children||[];
     if(m.exact)s.dataset.line=String(line); else if(m.lo){s.dataset.lo=String(m.lo); s.dataset.hi=String(m.hi); s.dataset.kind='lines';}
     parent.appendChild(s); return s;};
   let stack=/** @type {HTMLElement[]} */([mk(m.lo)]);
+  // The pieces of a drawn formula still to pass over: its head drew all of them at once (mdTexRun), so they add nothing here.
+  let skip=0;
   for(let i=0;i<kids.length;i++){const c=kids[i],top=stack[stack.length-1];
     switch(c.type){
       case 'text':if(mdPlain(c.content,cx))top.appendChild(document.createTextNode(c.content)); else yield* mdText(top,c.content,w,cx); break;
       case 'code_inline':{const e=mdEl('code',cx); top.appendChild(e); yield* mdText(e,c.content,w,cx); break;}
       case 'softbreak':case 'hardbreak':
-        top.appendChild(c.type==='hardbreak'?mdEl('br',cx):document.createTextNode('\n'));
+        // Inside a drawn formula the line end is already in the box's data-tex (mdInline's math_inline): writing it again
+        // would put it in the quote twice. The line still starts its own span, so what follows the formula is under it.
+        if(!skip)top.appendChild(c.type==='hardbreak'?mdEl('br',cx):document.createTextNode('\n'));
         if(m.exact){const next=[mk(m.lines[i]+1)];
           for(const e of stack.slice(1)){const k=/** @type {HTMLElement} */(e.cloneNode(false)); ++cx.els; next[next.length-1].appendChild(k); next.push(k);}
           stack=next;}
@@ -532,9 +562,18 @@ function* mdInline(t,parent,w,cx){const m=mdInlineLines(t),kids=t.children||[];
       case 'strong_open':case 'em_open':case 's_open':{const e=mdEl(c.type==='strong_open'?'strong':c.type==='em_open'?'em':'s',cx); top.appendChild(e); stack.push(e); break;}
       case 'link_open':{const e=mdLink(mdAttr(c,'href'),cx); top.appendChild(e); stack.push(e); break;}
       // Drawn by KaTeX in a box of its own (mdTexBox, its source TeX on data-tex for the quote), or its TeX as written,
-      // delimiters included (mdMathInline), hidden characters in their boxes; one token per source line either way
-      case 'math_inline':{const drawn=mdTexBox('code','md-math md-tex',String(c.content||''),mdTexBody(c),false,cx);
-        if(drawn){top.appendChild(drawn); break;}
+      // delimiters included (mdMathInline), hidden characters in their boxes; one token per source line when it is not drawn.
+      // A formula the worker cut at a line end is put back together (mdTexRun) and drawn once, in the line it starts in, and
+      // the pieces after it are passed over. Such a box carries the lines it covers itself (data-lo..hi, kind 'lines' - the
+      // formula is the run those lines could not be told apart in), so a pin on it keeps the source TeX for its quote and
+      // gets the formula's own lines for its range (ADR-0036 D3). Undrawn, every piece stays in the line it was written on.
+      case 'math_inline':{
+        if(skip){skip--; break;}
+        const run=mdTexRun(kids,i),drawn=mdTexBox('code','md-math md-tex',run.src,mdTexBody(c,run.src),false,cx);
+        if(drawn){top.appendChild(drawn);
+          if(run.last>i){skip=(run.last-i)/2;
+            if(m.exact){drawn.dataset.lo=String(m.lines[i]); drawn.dataset.hi=String(m.lines[run.last]); drawn.dataset.kind='lines';}}
+          break;}
         const e=mdEl('code',cx); e.className='md-math'; top.appendChild(e); yield* mdText(e,c.content,w,cx); break;}
       case 'strong_close':case 'em_close':case 's_close':case 'link_close':if(stack.length>1)stack.pop(); break;
       case 'image':top.appendChild(yield* mdImage(c,w,cx)); break;
@@ -823,7 +862,11 @@ function mdGoSlug(id){let want=id; try{want=decodeURIComponent(want);}catch(e){}
 // The lines a DOM point is on: its line span's, else its nearest block's range, else null (outside the document).
 function mdRangeAt(node){const e=node&&(node.nodeType===1?/** @type {Element} */(node):node.parentElement); if(!e)return null;
   const md=$('#md'); if(!md||!md.contains(e))return null;
-  const ln=e.closest('[data-line]'); if(ln&&md.contains(ln)){const n=+(/** @type {HTMLElement} */(ln).dataset.line||0); if(n)return {lo:n,hi:n};}
+  // The nearest carrier wins. A drawn formula that was cut at a line end sits inside the span of the line it starts in and
+  // carries the lines it covers itself (mdInline): those are the point's lines, not that one line's.
+  const near=/** @type {HTMLElement|null} */(e.closest('[data-line],[data-lo]'));
+  if(near&&md.contains(near)){const n=+(near.dataset.line||0); if(n)return {lo:n,hi:n};
+    if(near.dataset.lo!==undefined)return {lo:+(near.dataset.lo||0),hi:+(near.dataset.hi||0)};}
   const b=/** @type {HTMLElement|null} */(e.closest('[data-lo]')); return b&&md.contains(b)?{lo:+(b.dataset.lo||0),hi:+(b.dataset.hi||0)}:null;}
 // The block a point belongs to for the ladder's second rung: a table row's table, a list item's or a quote's paragraph's item or
 // quote, else its nearest
@@ -941,7 +984,7 @@ function mdTopBlock(md,e){let x=/** @type {Element|null} */(e); const tx=md.clas
   while(x&&x.parentElement!==md&&!(tx&&x.parentElement&&x.parentElement.classList.contains('tx-src')))x=x.parentElement; return x;}
 // The column reflows when its width changes (a panel, a rotation): the reading spot comes back at once, before the paint
 // (mdSpotKeep), and the badges follow their lines.
-let MD_RO_T=0; const MD_RO=window.ResizeObserver?new ResizeObserver(()=>{mdSpotKeep(); clearTimeout(MD_RO_T); MD_RO_T=setTimeout(()=>{if(isMdDoc())mdMarks();},120);}):null;
+let MD_RO_T=0; const MD_RO=window.ResizeObserver?new ResizeObserver(()=>{mdSpotKeep(); clearTimeout(MD_RO_T); MD_RO_T=setTimeout(()=>{if(isMdDoc()){mdTexFit(); mdMarks();}},120);}):null;
 // Scrolls pin id's first line to the reading depth and flashes its lines (jumpPin's branch, mdShowLines). A jump asked before this
 // document is on screen - [보기] on a pin of another document: switchDoc settles before the source is read and drawn - waits
 // for the draw (mdShow) of this visit; another switch drops it.

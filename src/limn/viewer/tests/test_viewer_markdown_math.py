@@ -3,13 +3,15 @@
 The real viewer against the in-process server (BrowserBase) on a math fixture close to test_viewer_markdown.py's, whose
 Math class refuses the bundle and holds the undrawn side of the same document (ADR-0036 D2's first fallback):
 
-- Drawn: every whole formula is drawn, each in a box carrying its source TeX on data-tex and standing where its
-  characters stood; the formulas that are not drawn keep every character - one KaTeX refuses, one with a character that
-  hides or reorders text, and the two pieces of a formula that runs over a source line end (D2);
-- Lines: the drawn document names every source line that has text, and the display math is one block over its lines, so
-  the drawing changed nothing a pin is saved by (D3);
-- Quote: a drag over a line with drawn math, a drag cutting into the middle of a drawn formula and a tap on a drawn
-  display block all quote the manuscript's TeX, never the glyphs; the saved pin is md:math over the block's lines (D4);
+- Drawn: every formula is drawn, each in a box carrying its source TeX on data-tex and standing where its characters
+  stood - one that the worker cut at a source line end is put back together and drawn once, in the line it starts in,
+  carrying the lines it covers; the formulas that are not drawn keep every character - one KaTeX refuses and one with a
+  character that hides or reorders text (D2);
+- Lines: the drawn document names every source line that has text, the display math is one block over its lines, and a
+  formula over a line end covers both of them, so the drawing changed nothing a pin is saved by (D3);
+- Quote: a drag over a line with drawn math, a drag cutting into the middle of a drawn formula, a tap on a drawn display
+  block and a drag over a formula that runs past a line end all quote the manuscript's TeX, never the glyphs; the saved
+  pin is md:math over the block's lines, and the formula over a line end is saved over both of its lines (D4);
 - Policy: the sent page policy names no new source and admits no inline style (D7) - a violation would fail any browser
   test here through the autouse no_csp_violation fixture;
 - Budget: three thousand formulas pass MD_LIMITS.elements and the document falls back to the source-line view (D6);
@@ -29,7 +31,7 @@ from limn.administration import serve_documents as startup_documents
 from limn.viewer import assemble
 
 from helpers import ps, req
-from helpers_browser import BrowserBase, settle
+from helpers_browser import VIEWPORTS, BrowserBase, settle
 from helpers_figure import BUILD1, viewer_build
 
 DRAWN = "typeof MD!=='undefined'&&MD.shown===DOC&&!!document.querySelector('#md')&&!MD.job"
@@ -78,12 +80,13 @@ DISPLAY_TEX = (
     "$$\n\\mathrm{Gain}(t) = \\frac{\\mathrm{MSE}_{\\text{no-TL}} - "
     "\\mathrm{MSE}_{\\text{arm}}}{\\mathrm{MSE}_{\\text{no-TL}}}\n$$"
 )
-# Every drawn formula, in document order: [its source TeX, the source line it stands on (a block's range, or null for a
-# table cell's inline token, which has no map of its own), its tag].
+# Every drawn formula, in document order: [its source TeX, the source lines it is on, its tag]. A box that carries its own
+# range answers with it - a display block, and an inline formula the worker cut at a line end; otherwise the line span it
+# stands in answers, and null is a table cell's inline token, which has no map of its own.
 BOXES = (
-    "[...document.querySelectorAll('#md .md-tex')].map(e=>{const l=e.closest('[data-line]'),b=e.closest('[data-lo]');"
-    "return [e.getAttribute('data-tex'),l?+l.dataset.line:(b&&b.dataset.kind==='math'?[+b.dataset.lo,+b.dataset.hi]:null),"
-    "e.tagName];})"
+    "[...document.querySelectorAll('#md .md-tex')].map(e=>{const own=e.dataset.lo?[+e.dataset.lo,+e.dataset.hi]:null;"
+    "const l=e.closest('[data-line]');"
+    "return [e.getAttribute('data-tex'),own||(l?+l.dataset.line:null),e.tagName];})"
 )
 # Every formula left as characters, in document order: [its text, the source line it stands on].
 PLAIN = (
@@ -144,11 +147,12 @@ class MathBase(BrowserBase):
 class Drawn(MathBase):
     """What the drawn document holds."""
 
-    def test_every_whole_formula_is_drawn_with_its_source_tex_where_it_stood(self):
-        """The seven whole formulas are drawn, each in a box carrying its source TeX on data-tex, on the line its
-        characters stood on - for display math, one block (a div, not a code box) over its three lines, kind math. The
-        stylesheet comes from this origin at the bundled version. Mutation: leave data-tex off in mdTexBox -> null here
-        and the quote tests fail."""
+    def test_every_formula_is_drawn_with_its_source_tex_where_it_stood(self):
+        """The eight formulas are drawn, each in a box carrying its source TeX on data-tex, on the line its characters
+        stood on - for display math, one block (a div, not a code box) over its three lines, kind math; for the formula
+        the worker cut at a line end, one code box in the line it starts in, carrying both of its lines. The stylesheet
+        comes from this origin at the bundled version. Mutation: leave data-tex off in mdTexBox -> null here and the
+        quote tests fail."""
         page = self.open_md()
         self.assertEqual(
             page.evaluate(BOXES),
@@ -156,14 +160,15 @@ class Drawn(MathBase):
                 ["$t^*$", 3, "CODE"],
                 ["$t^*=\\infty$", 3, "CODE"],
                 [DISPLAY_TEX, [MATH_LINE, MATH_LINE + 2], "DIV"],
+                ["$a_1 +\nb_2$", [PIECES_LINE, PIECES_LINE + 1], "CODE"],
                 ["$x_i$", None, "CODE"],  # a table cell's inline token has no map: its row's range stands for it
                 ["$i$", None, "CODE"],
                 ["$\\Delta_{ij}$", LIST_LINE, "CODE"],
                 ["\\(y_{i,t}\\)", LIST_LINE, "CODE"],
             ],
         )
-        self.assertEqual(page.evaluate("mdRxOf(document.querySelector('#md')).tex"), 7)
-        self.assertEqual(page.evaluate("document.querySelectorAll('#md .md-tex .katex').length"), 7)
+        self.assertEqual(page.evaluate("mdRxOf(document.querySelector('#md')).tex"), 8)
+        self.assertEqual(page.evaluate("document.querySelectorAll('#md .md-tex .katex').length"), 8)
         self.assertEqual(page.evaluate("MD_TEX.state"), "ready")
         self.assertEqual(
             page.evaluate("[...document.styleSheets].map(s=>s.href).filter(h=>h&&h.includes('/vendor/katex/'))"),
@@ -171,16 +176,14 @@ class Drawn(MathBase):
         )
 
     def test_the_formulas_that_are_not_drawn_keep_every_character(self):
-        """ADR-0036 D2: TeX KaTeX refuses, a formula holding a character that hides or reorders text, and each piece of a
-        formula cut at a source line end stay as their source characters in the code face, on their own lines - as they
-        were before this renderer, the hidden character in its box. Mutation: drop the CC_ANY test from mdTexBox -> the
-        reordering character is drawn away and its box is gone, fails."""
+        """ADR-0036 D2: TeX KaTeX refuses and a formula holding a character that hides or reorders text stay as their
+        source characters in the code face, on their own lines - as they were before this renderer, the hidden character
+        in its box. Mutation: drop the CC_ANY test from mdTexBox -> the reordering character is drawn away and its box is
+        gone, fails."""
         page = self.open_md()
         self.assertEqual(
             page.evaluate(PLAIN),
             [
-                ["$a_1 +", PIECES_LINE],
-                ["b_2$", PIECES_LINE + 1],
                 ["$\\thisisnotatexcommand{x}$", REFUSED_LINE],
                 ["$x" + RLO + "y$", HIDDEN_LINE],
             ],
@@ -231,6 +234,17 @@ class Lines(MathBase):
             "hi:+b.dataset.hi,inside:b.querySelectorAll('[data-line],[data-lo]').length};})()"
         )
         self.assertEqual(block, {"tag": "DIV", "lo": MATH_LINE, "hi": MATH_LINE + 2, "inside": 0})
+        # The formula written over a line end stands in the span of the line it starts in, but speaks for both lines:
+        # kind 'lines', the run its two lines could not be told apart in (the same kind an inline token with line ends
+        # that could not be followed already used, mdInline).
+        run = page.evaluate(
+            '(()=>{const e=document.querySelector("#md code.md-tex[data-lo]");'
+            "return {kind:e.dataset.kind,lo:+e.dataset.lo,hi:+e.dataset.hi,"
+            "line:+e.closest('[data-line]').dataset.line,inside:e.querySelectorAll('[data-line],[data-lo]').length};})()"
+        )
+        self.assertEqual(
+            run, {"kind": "lines", "lo": PIECES_LINE, "hi": PIECES_LINE + 1, "line": PIECES_LINE, "inside": 0}
+        )
 
 
 class Quote(MathBase):
@@ -258,6 +272,31 @@ class Quote(MathBase):
         )
         self.assertIn("$t^*$", half)
         self.assertNotIn("∞", half)
+
+    def test_a_formula_past_a_line_end_is_quoted_whole_over_both_its_lines(self):
+        """A formula written over two source lines is one drawn box. A drag inside it quotes the whole formula, both
+        pieces and the delimiters, with the line end between them read as the space a quote makes of every line end (a
+        quote is one line - a drawn display block already reads this way); the pin offered and saved covers both of the
+        lines the formula took, so the quote and the range say the same thing. Mutation: leave the box's data-lo/hi off
+        in mdInline -> the pin covers only the line the formula starts in while its quote holds both lines, fails."""
+        page = self.open_md()
+        page.evaluate(
+            '(()=>{const f=document.querySelector("#md code.md-tex[data-lo]");const r=document.createRange();'
+            "r.selectNodeContents(f.querySelector('.katex-html'));"
+            "const sel=window.getSelection(); sel.removeAllRanges(); sel.addRange(r); mdSelectionPick(null);})()"
+        )
+        page.wait_for_function("COMPOSE.current&&COMPOSE.current.lo>0", timeout=5000)
+        got = page.evaluate("({lo:COMPOSE.current.lo,hi:COMPOSE.current.hi,quote:COMPOSE.current.quote})")
+        self.assertEqual(got["quote"], "$a_1 + b_2$")
+        self.assertEqual((got["lo"], got["hi"]), (PIECES_LINE, PIECES_LINE + 1))
+        n = page.evaluate("PINS.length")
+        page.fill("#note", "두 줄에 걸친 수식")
+        page.click("#btn-save")
+        page.wait_for_function("PINS.length>%d" % n, timeout=8000)
+        rec = self.records()[-1]
+        self.assertEqual((rec["lo"], rec["hi"]), (PIECES_LINE, PIECES_LINE + 1))
+        self.assertIn("$a_1 +", rec["quote"])
+        self.assertIn("b_2$", rec["quote"])
 
     def test_a_tap_on_drawn_display_math_picks_the_block_and_saves_md_math(self):
         """A tap on the drawn block offers the block and the section - the chosen lines are the block's, so that rung
@@ -348,6 +387,74 @@ class Quiet(MathBase):
         self.assertEqual(self.asked, [])
         self.assertEqual(page.evaluate("MD_TEX.state"), "none")
         self.assertEqual(page.evaluate("document.querySelectorAll('#md .md-tex').length"), 0)
+
+
+class Narrow(MathBase):
+    """A drawn formula wider than the column stays reachable on the narrowest screen (ADR-0037 D5)."""
+
+    # One formula far wider than a 320 px column, one that fits, and one of the wide one written over a line end.
+    WIDE = (
+        r"\alpha_1 \beta_2 \gamma_3 \delta_4 \epsilon_5 \zeta_6 \eta_7 \theta_8 "
+        r"\iota_9 \kappa_{10} \lambda_{11} \mu_{12} \nu_{13} \xi_{14} \pi_{15} \rho_{16}"
+    )
+    MD_TEXT = "# 넓은 수식\n\n한 줄: $%s$ 끝.\n\n접은 줄: $%s\n%s$ 끝.\n\n짧은 것: $x_1$ 끝.\n" % (
+        WIDE,
+        WIDE[: WIDE.index(r"\iota_9")].rstrip(),
+        WIDE[WIDE.index(r"\iota_9") :],
+    )
+
+    def test_a_formula_wider_than_the_column_scrolls_inside_itself(self):
+        """On a 320 px screen a drawn inline formula wider than the column - written on one line or over a line end -
+        is given `md-tex-wide`: it is held to the column and scrolls inside itself, so every glyph is reachable, and no
+        part of it is past the screen's edge, where the page (which does not scroll sideways) would put it out of reach.
+        A formula that fits is left alone and keeps the sentence's baseline, which a scrolling box would not.
+
+        Mutation: drop the mdTexFit call from mdShow (or widen its test to every formula) -> either the wide formulas
+        reach past the screen edge, which fails here, or the short formula gets `vertical-align: bottom`, which fails
+        here too. This is the hole 0.4.56 had: it drew such a formula 328 px wide with its right edge at 380 px on a
+        320 px screen."""
+        page = self.open_md(**VIEWPORTS["phone 320x720"])
+        got = page.evaluate(
+            """() => {
+              const md = document.querySelector('#md');
+              const room = Math.round(md.clientWidth), vw = window.innerWidth;
+              return [...md.querySelectorAll('code.md-math.md-tex')].map(e => {
+                const r = e.getBoundingClientRect(), k = e.querySelector('.katex');
+                return {wide: e.classList.contains('md-tex-wide'),
+                        natural: Math.round(k.getBoundingClientRect().width),
+                        w: Math.round(r.width), room, pastScreen: r.right > vw + 1,
+                        scrolls: e.scrollWidth > e.clientWidth + 1,
+                        align: getComputedStyle(e).verticalAlign,
+                        tex: e.dataset.tex.replace(/\\n/g, ' ')};
+              });
+            }"""
+        )
+        self.assertEqual(len(got), 3, got)
+        wide = [g for g in got if g["wide"]]
+        fits = [g for g in got if not g["wide"]]
+        self.assertEqual(len(wide), 2, got)  # the one-line formula and the one written over a line end
+        self.assertEqual(len(fits), 1, got)
+        for g in wide:
+            self.assertGreater(g["natural"], g["room"], g)  # it really is wider than the column
+            self.assertLessEqual(g["w"], g["room"], g)  # yet the box is held to the column
+            self.assertFalse(g["pastScreen"], g)
+            self.assertTrue(g["scrolls"], g)  # so the rest of it can be reached
+        self.assertFalse(fits[0]["scrolls"], fits[0])
+        self.assertEqual(fits[0]["align"], "baseline", fits[0])  # a box that scrolls would sit on its bottom edge
+
+    def test_the_fit_follows_the_column_when_it_gets_wider(self):
+        """The same document on a desktop column: the formulas fit, so none is told to scroll and every one keeps the
+        baseline. Mutation: fit once at build time only and never again (drop mdTexFit from the column's
+        ResizeObserver) -> this still passes, but the pane-collapse case a reader meets does not; the measurement here
+        is what makes the rule depend on the column, not on the build."""
+        page = self.open_md(**VIEWPORTS["desktop 1440x900"])
+        got = page.evaluate(
+            """() => [...document.querySelectorAll('#md code.md-math.md-tex')].map(e => ({
+                 wide: e.classList.contains('md-tex-wide'), align: getComputedStyle(e).verticalAlign}))"""
+        )
+        self.assertEqual(len(got), 3, got)
+        self.assertEqual([g["wide"] for g in got], [False, False, False], got)
+        self.assertEqual({g["align"] for g in got}, {"baseline"}, got)
 
 
 class Compare(MathBase):
