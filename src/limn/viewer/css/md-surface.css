@@ -87,6 +87,9 @@ body.md-surface #left{touch-action:pan-x pan-y pinch-zoom}
    inside its own block rather than widening the column. The MathML copy KaTeX keeps beside the glyphs for a screen reader
    stands in a clipped 1px box: it is left out of a selection, so copying a formula by hand does not take its text twice. */
 .md code.md-math.md-tex{font-family:inherit;font-size:inherit}
+/* Only a drawn formula wider than the column (mdTexFit): it scrolls inside itself instead of reaching past the screen,
+   where the page would put it out of reach. Such a box sits on its bottom edge, so the rule is never given to one that fits. */
+.md code.md-math.md-tex.md-tex-wide{display:inline-block;max-width:100%;overflow-x:auto;overflow-y:hidden;vertical-align:bottom}
 .md .md-math-block.md-tex{margin:0 0 var(--space-3);overflow-x:auto;overflow-y:hidden}
 .md .md-math-block.md-tex .katex-display{margin:0}
 .md .md-tex .katex-mathml{user-select:none;-webkit-user-select:none}

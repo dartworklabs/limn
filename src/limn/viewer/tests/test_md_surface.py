@@ -772,20 +772,32 @@ class MathRule(unittest.TestCase):
 # Inline math the page may draw, and what mdTexBody makes of it (ADR-0036 D2): source -> [[the token's text, its info, the
 # TeX mdTexBody gives or None], ...] in document order. A formula cut at a source line end is a piece, and no piece is TeX
 # on its own, so each piece's TeX is None; a whole one gives its body without the delimiters.
+# Inline math: source -> the math_inline pieces the worker makes ([text, info]) and the formulas the page then draws
+# ([the source as written, the TeX mdTexBody reads from it]). A formula cut at a line end is one formula over several
+# pieces: its head carries the run, its tails draw nothing of their own (ADR-0036 D2).
 DRAWN_INLINE = {
-    "dollars": ("$x_1$", [["$x_1$", "whole", "x_1"]]),
-    "double dollars in a line": ("a $$x$$ b", [["$$x$$", "whole", "x"]]),
-    "backslash parentheses": (r"\(y_2\)", [[r"\(y_2\)", "whole", "y_2"]]),
-    "two in one line": ("$a$ 와 $b$", [["$a$", "whole", "a"], ["$b$", "whole", "b"]]),
-    "over a line end": ("$x +\ny$", [["$x +", "", None], ["y$", "", None]]),
-    "over two line ends": ("$a\nb\nc$", [["$a", "", None], ["b", "", None], ["c$", "", None]]),
-    # a '$' the rule leaves as text, and a whole formula on the next line: the piece test never sees them as one formula
-    "a lone dollar then a formula": ("$a\n$b$", [["$b$", "whole", "b"]]),
+    "dollars": ("$x_1$", [["$x_1$", "whole"]], [["$x_1$", "x_1"]]),
+    "double dollars in a line": ("a $$x$$ b", [["$$x$$", "whole"]], [["$$x$$", "x"]]),
+    "backslash parentheses": (r"\(y_2\)", [[r"\(y_2\)", "whole"]], [[r"\(y_2\)", "y_2"]]),
+    "two in one line": ("$a$ 와 $b$", [["$a$", "whole"], ["$b$", "whole"]], [["$a$", "a"], ["$b$", "b"]]),
+    "over a line end": ("$x +\ny$", [["$x +", "head"], ["y$", "tail"]], [["$x +\ny$", "x +\ny"]]),
+    "over two line ends": (
+        "$a\nb\nc$",
+        [["$a", "head"], ["b", "tail"], ["c$", "tail"]],
+        [["$a\nb\nc$", "a\nb\nc"]],
+    ),
+    # a '$' the rule leaves as text, and a whole formula on the next line: two source lines, but no formula crosses one
+    "a lone dollar then a formula": ("$a\n$b$", [["$b$", "whole"]], [["$b$", "b"]]),
     # a later piece can carry both delimiters: the closer search passes over the second '\\(' and the piece reads as a
-    # whole formula on its own. Only info - which the rule that cut it marks - tells it apart
-    "a later piece that carries both delimiters": ("\\(a\n\\(b\\)", [["\\(a", "", None], ["\\(b\\)", "", None]]),
-    "a formula of one character": ("$x$", [["$x$", "whole", "x"]]),
-    "math in a table cell": ("| a |\n| - |\n| $c_1$ |", [["$c_1$", "whole", "c_1"]]),
+    # whole formula on its own. Only info - which the rule that cut it marks - tells it apart, so the run is the whole
+    # formula and the inner '\\(' stays inside its TeX (where KaTeX, not this rule, decides what to make of it)
+    "a later piece that carries both delimiters": (
+        "\\(a\n\\(b\\)",
+        [["\\(a", "head"], ["\\(b\\)", "tail"]],
+        [["\\(a\n\\(b\\)", "a\n\\(b"]],
+    ),
+    "a formula of one character": ("$x$", [["$x$", "whole"]], [["$x$", "x"]]),
+    "math in a table cell": ("| a |\n| - |\n| $c_1$ |", [["$c_1$", "whole"]], [["$c_1$", "c_1"]]),
 }
 # Display math: source -> the TeX mdTexBlockBody gives for the math_block, or None.
 DRAWN_BLOCK = {
@@ -808,22 +820,49 @@ class DrawnMathRules(unittest.TestCase):
                 self.fail("node required (LIMN_TEST_REQUIRE_NODE=1) but not installed")
             self.skipTest("node not available")
 
-    def test_only_a_whole_inline_formula_gives_tex(self):
-        """Each math_inline token's text, the info the worker marks it with and the TeX mdTexBody gives: a whole formula
-        gives its body without the delimiters, and every piece of one cut at a line end gives none - even one that carries
-        both delimiters. Mutation: mark every piece 'whole' in mdMathInline (or drop the info test from mdTexBody) -> the
-        second piece of 'a later piece that carries both delimiters' gives TeX, fails, and that piece would have been drawn
-        while the first stayed as characters."""
+    def test_an_inline_formula_gives_its_tex_over_as_many_lines_as_it_took(self):
+        """Each math_inline token's text and the info the worker marks it with, then the formulas the page reads from
+        them: mdTexRun puts a cut formula's pieces back together, line ends and all, and mdTexBody takes the delimiters
+        off the run. A formula that fits a line is a run of one. Only a 'whole' or 'head' piece starts a run, so each
+        formula is read once however many lines it took.
+
+        Mutation: mark every piece 'whole' in mdMathInline -> 'over a line end' reads two formulas instead of one, and
+        the second piece of 'a later piece that carries both delimiters' becomes a formula of its own. Mutation: have
+        mdTexRun stop at the head (return {src: kids[at].content, last: at}) -> the cut cases give the head's text as the
+        run and no TeX, so a formula over a line end would go back to being characters."""
         got = worker_node(
             served_global("MD_TEX_CLOSE") + "out={}; for(const [name,src] of Object.entries(%s)){"
-            "const kids=md.parse(src,{}).flatMap(t=>t.children||[]).filter(c=>c.type==='math_inline');"
-            "out[name]=kids.map(c=>[c.content,c.info,mdTexBody(c)]);}"
-            % json.dumps({name: src for name, (src, _) in DRAWN_INLINE.items()}, ensure_ascii=False),
+            "const kids=md.parse(src,{}).flatMap(t=>t.children||[]);"
+            "const pieces=kids.filter(c=>c.type==='math_inline').map(c=>[c.content,c.info]),forms=[];"
+            "for(let i=0;i<kids.length;i++){const c=kids[i];"
+            "if(c.type!=='math_inline'||(c.info!=='whole'&&c.info!=='head'))continue;"
+            "const run=mdTexRun(kids,i); forms.push([run.src,mdTexBody(c,run.src)]);}"
+            "out[name]=[pieces,forms];}"
+            % json.dumps({name: src for name, (src, _, _f) in DRAWN_INLINE.items()}, ensure_ascii=False),
+            "mdTexBody",
+            "mdTexRun",
+        )
+        for name, (_src, pieces, forms) in DRAWN_INLINE.items():
+            with self.subTest(name):
+                self.assertEqual(got[name], [pieces, forms])
+
+    def test_a_tail_piece_on_its_own_draws_nothing(self):
+        """mdTexBody on a piece the worker cut off the end of a formula, asked for alone: none, even when the piece
+        carries both delimiters and would read as a formula on its own. The page never asks - its head swallowed it
+        (mdInline) - but a tail that answered would draw the same formula twice if one ever did."""
+        got = worker_node(
+            served_global("MD_TEX_CLOSE")
+            + "out=%s.map(c=>mdTexBody(c));"
+            % json.dumps(
+                [
+                    {"markup": "\\(", "info": "tail", "content": "\\(b\\)"},
+                    {"markup": "$", "info": "tail", "content": "$b$"},
+                    {"markup": "$", "info": "tail", "content": "y$"},
+                ]
+            ),
             "mdTexBody",
         )
-        for name, (_src, want) in DRAWN_INLINE.items():
-            with self.subTest(name):
-                self.assertEqual(got[name], want)
+        self.assertEqual(got, [None, None, None])
 
     def test_display_math_gives_its_lines_without_the_delimiters(self):
         """mdTexBlockBody on the math_block's content: the opening and closing delimiters off, every inner line as the

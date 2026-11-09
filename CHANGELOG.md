@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.4.57 — 2026-11-09
+
+### Changed
+
+- **A formula written over a source line end is drawn too** (ADR-0037). 0.4.56 left one kind of formula as characters
+  although KaTeX could have drawn it: an inline formula the writer wrapped at a line end (`$a_1 +` ⏎ `b_2$`). The parse
+  worker still cuts such a formula into one token per source line - that is what keeps every line of a paragraph its
+  own - but it now says how it cut (`info` `whole`, `head`, `tail`), and the page joins the pieces back at the line ends
+  they were cut at (`mdTexRun`) and draws the formula once, in the line it starts in. A piece on its own is still never
+  drawn: the second piece of `\(a` ⏎ `\(b\)` carries both delimiters and would otherwise draw the same formula twice.
+- **A drawn formula that covers several lines carries them itself.** Such a box stands in the span of the line it starts
+  in but holds `data-lo`/`data-hi` with `data-kind="lines"`, and the reader of a point's lines (`mdRangeAt`) now follows
+  the **nearest** carrier. So a pin on a formula written over two lines has both of those lines for its range while its
+  quote is the whole source TeX - the range and the quote say the same thing, which is what ADR-0036 D4 asks for. The
+  ladder is unchanged: `lines` is no block kind, so the block rung is still the paragraph the formula stands in.
+- The fallbacks are now only the four where a formula **cannot** be drawn or **must not** be: no module, no stylesheet,
+  KaTeX refuses the TeX, or the formula holds a character that hides or reorders text (ADR-0029 D5). No character
+  disappears in any of them, exactly as before.
+- Saved pins are untouched, and so are the pin format, the API and `pins.md`. What is given up is choosing a single
+  line inside a drawn formula - the same loss drawn display math already had, for the same reason.
+
+### Fixed
+
+- **A drawn inline formula wider than the column no longer runs off the screen** (ADR-0037 D5). KaTeX lays a formula out
+  as one inline-block, which cannot be broken over lines, so one wider than the column reached past the screen's edge -
+  and the viewer's `body` does not scroll sideways, so those glyphs could not be reached at all. 0.4.56 drew such a
+  formula 328 px wide with its right edge at 380 px on a 320 px screen. The drawn inline formulas are now measured after
+  a build and after the column changes width (`mdTexFit`), and only those wider than the text of the block they stand in
+  (a paragraph, a list item, a table cell) are held to it and made to scroll inside themselves, as a display block did. A formula that fits is left alone, because a box that
+  scrolls sits on its bottom edge rather than the sentence's baseline. Found while measuring this release's PoC at
+  320 px; it is why the formulas of the three manuscripts were never affected - the widest was 83% of the column.
+
 ## 0.4.56 — 2026-11-09
 
 ### Added

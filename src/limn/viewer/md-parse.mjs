@@ -79,9 +79,11 @@ function mdFirstAtOrAfter(a, x) {
 // '\[…\]' is display math only on lines of its own (mdMathBlock): in a line it is two escaped brackets, as before. The math
 // may run over line ends (a paragraph's): it becomes one math_inline token per source line, its text as written, delimiters
 // included, with a softbreak between them, so the inline token's line breaks still match its source's line ends and its lines
-// can be told (md-surface.js mdInlineLines, ADR-0025 D7). A formula that needed no cutting carries info 'whole': only such a
-// token is drawn, a piece being no TeX on its own (md-surface.js mdTexBody, ADR-0036 D2). A code span, a link or raw HTML that starts before the delimiter has
-// taken its text already; one inside the math is math, but no delimiter inside a code span closes it (mdMathEnd).
+// can be told (md-surface.js mdInlineLines, ADR-0025 D7). The pieces say how the formula was cut: one that needed no cutting
+// carries info 'whole', one that was cut carries 'head' on the piece it starts in and 'tail' on each piece after it, so the
+// page can put them back together and draw the formula as one (md-surface.js mdTexRun, ADR-0036 D2). A code span, a link or
+// raw HTML that starts before the delimiter has taken its text already; one inside the math is math, but no delimiter inside
+// a code span closes it (mdMathEnd).
 function mdMathInline(state, silent) {
   const s = state.src, at = state.pos, c = s.charCodeAt(at);
   if (c !== 0x24 && c !== 0x5c) return false;
@@ -98,7 +100,7 @@ function mdMathInline(state, silent) {
       if (i) state.push('softbreak', 'br', 0);
       const t = state.push('math_inline', 'code', 0);
       t.content = piece; t.markup = open;
-      if (pieces.length === 1) t.info = 'whole';
+      t.info = pieces.length === 1 ? 'whole' : i ? 'tail' : 'head';
     });
   }
   state.pos = end + close.length;
