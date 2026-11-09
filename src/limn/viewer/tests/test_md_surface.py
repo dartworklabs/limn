@@ -12,13 +12,14 @@ Run: uv run pytest -q src/limn/viewer/tests/test_md_surface.py
 
 import json
 import os
+import re
 import shutil
 import unittest
 from pathlib import Path
 
 import limn
 
-from helpers import extract_js_fn, run_node
+from helpers import HTML, extract_js_fn, run_node
 
 BUNDLE = Path(limn.__file__).resolve().parent / "vendor" / "markdown-it" / "markdown-it.esm.min.mjs"
 WORKER = Path(limn.__file__).resolve().parent / "viewer" / "md-parse.mjs"
@@ -255,6 +256,18 @@ class MarkdownSurfaceRules(unittest.TestCase):
             "mdHref('https://example.org/','null').open];"
         )
         self.assertEqual(got, [None, None, None, None])
+
+
+def served_global(name: str) -> str:
+    """JS that puts the initialiser of the served page's top-level `const NAME=...;` on globalThis under that name.
+
+    A pulled function reads such a table from the page's shared scope, which a node harness lacks; helpers.extract_js_fn
+    brings only core.js's closed sets along, and this one is md-surface.js's. On globalThis (not a `var` inside the
+    harness's own function) so the pulled top-level function resolves it. Raises for a name the page does not declare."""
+    m = re.search(r"^const %s=(.*);$" % re.escape(name), HTML, re.M)
+    if m is None:
+        raise AssertionError("the page declares no top-level const %s" % name)
+    return "globalThis.%s=%s;\n" % (name, m.group(1))
 
 
 def worker_rules() -> str:
@@ -754,6 +767,110 @@ class MathRule(unittest.TestCase):
         for opener, (ms, base_ms) in got.items():
             with self.subTest(opener):
                 self.assertLess(ms, 10 * base_ms + 150, (ms, base_ms))
+
+
+# Inline math the page may draw, and what mdTexBody makes of it (ADR-0036 D2): source -> [[the token's text, its info, the
+# TeX mdTexBody gives or None], ...] in document order. A formula cut at a source line end is a piece, and no piece is TeX
+# on its own, so each piece's TeX is None; a whole one gives its body without the delimiters.
+DRAWN_INLINE = {
+    "dollars": ("$x_1$", [["$x_1$", "whole", "x_1"]]),
+    "double dollars in a line": ("a $$x$$ b", [["$$x$$", "whole", "x"]]),
+    "backslash parentheses": (r"\(y_2\)", [[r"\(y_2\)", "whole", "y_2"]]),
+    "two in one line": ("$a$ 와 $b$", [["$a$", "whole", "a"], ["$b$", "whole", "b"]]),
+    "over a line end": ("$x +\ny$", [["$x +", "", None], ["y$", "", None]]),
+    "over two line ends": ("$a\nb\nc$", [["$a", "", None], ["b", "", None], ["c$", "", None]]),
+    # a '$' the rule leaves as text, and a whole formula on the next line: the piece test never sees them as one formula
+    "a lone dollar then a formula": ("$a\n$b$", [["$b$", "whole", "b"]]),
+    # a later piece can carry both delimiters: the closer search passes over the second '\\(' and the piece reads as a
+    # whole formula on its own. Only info - which the rule that cut it marks - tells it apart
+    "a later piece that carries both delimiters": ("\\(a\n\\(b\\)", [["\\(a", "", None], ["\\(b\\)", "", None]]),
+    "a formula of one character": ("$x$", [["$x$", "whole", "x"]]),
+    "math in a table cell": ("| a |\n| - |\n| $c_1$ |", [["$c_1$", "whole", "c_1"]]),
+}
+# Display math: source -> the TeX mdTexBlockBody gives for the math_block, or None.
+DRAWN_BLOCK = {
+    "one line": ("$$P = Q$$\n", "P = Q"),
+    "three lines": ("$$\nP = Q\n$$\n", "\nP = Q\n"),
+    "brackets": ("\\[\nP = Q\n\\]\n", "\nP = Q\n"),
+    "several inner lines": ("$$\na\nb\n$$\n", "\na\nb\n"),
+    "in a quote": ("> $$\n> a\n> $$\n", "\na\n"),
+}
+
+
+class DrawnMathRules(unittest.TestCase):
+    """What the page may draw: mdTexWanted, mdTexBody and mdTexBlockBody as served, on the parse worker's own tokens
+    (docs/adr/0036-markdown-drawn-math.md D1, D2). Whether a formula is then drawn - the renderer, the element limit, a
+    hidden character in it, TeX KaTeX refuses - is test_viewer_markdown_math.py's."""
+
+    def setUp(self):
+        if not shutil.which("node"):
+            if os.environ.get("LIMN_TEST_REQUIRE_NODE") == "1":
+                self.fail("node required (LIMN_TEST_REQUIRE_NODE=1) but not installed")
+            self.skipTest("node not available")
+
+    def test_only_a_whole_inline_formula_gives_tex(self):
+        """Each math_inline token's text, the info the worker marks it with and the TeX mdTexBody gives: a whole formula
+        gives its body without the delimiters, and every piece of one cut at a line end gives none - even one that carries
+        both delimiters. Mutation: mark every piece 'whole' in mdMathInline (or drop the info test from mdTexBody) -> the
+        second piece of 'a later piece that carries both delimiters' gives TeX, fails, and that piece would have been drawn
+        while the first stayed as characters."""
+        got = worker_node(
+            served_global("MD_TEX_CLOSE") + "out={}; for(const [name,src] of Object.entries(%s)){"
+            "const kids=md.parse(src,{}).flatMap(t=>t.children||[]).filter(c=>c.type==='math_inline');"
+            "out[name]=kids.map(c=>[c.content,c.info,mdTexBody(c)]);}"
+            % json.dumps({name: src for name, (src, _) in DRAWN_INLINE.items()}, ensure_ascii=False),
+            "mdTexBody",
+        )
+        for name, (_src, want) in DRAWN_INLINE.items():
+            with self.subTest(name):
+                self.assertEqual(got[name], want)
+
+    def test_display_math_gives_its_lines_without_the_delimiters(self):
+        """mdTexBlockBody on the math_block's content: the opening and closing delimiters off, every inner line as the
+        block holds it (a quote's markers already left out by the block rule)."""
+        got = worker_node(
+            served_global("MD_TEX_CLOSE")
+            + "out={}; for(const [name,src] of Object.entries(%s)){const t=md.parse(src,{}).find(x=>x.type==='math_block');"
+            "out[name]=t?mdTexBlockBody(String(t.content||'').split('\\n')):null;}"
+            % json.dumps({name: src for name, (src, _) in DRAWN_BLOCK.items()}, ensure_ascii=False),
+            "mdTexBlockBody",
+        )
+        for name, (_src, want) in DRAWN_BLOCK.items():
+            with self.subTest(name):
+                self.assertEqual(got[name], want)
+
+    def test_text_that_is_no_tex_gives_none(self):
+        """mdTexBlockBody is given lines that are not a math block (it is pure, so it can be asked directly): no opener,
+        no closer, nothing between the delimiters."""
+        got = worker_node(
+            served_global("MD_TEX_CLOSE")
+            + "out=%s.map(lines=>mdTexBlockBody(lines));"
+            % json.dumps([["P = Q"], ["$$P = Q"], ["$$"], ["$$$$"], ["\\[a"], [""], ["$$a\\]"]]),
+            "mdTexBlockBody",
+        )
+        self.assertEqual(got, [None, None, None, None, None, None, None])
+
+    def test_the_renderer_is_asked_for_only_by_a_document_that_has_math(self):
+        """mdTexWanted on the worker's tokens: true for a document with inline or display math, false for one with
+        none - including one whose '$' are currency, which the math rules leave as text (ADR-0032 D6). A document
+        without math asks for no bundle at all."""
+        cases = {
+            "inline": ("a $x$ b", True),
+            "display": ("$$\nx\n$$\n", True),
+            "math in a list": ("- $x$\n", True),
+            "math in a table": ("| a |\n| - |\n| $x$ |\n", True),
+            "none": ("a *b* `c`\n\n- d\n", False),
+            "currency": ("$5 and $10 for 1 kg\n", False),
+            "a dollar in code": ("`$x$` is written so\n", False),
+        }
+        got = worker_node(
+            "out={}; for(const [name,src] of Object.entries(%s))out[name]=mdTexWanted(md.parse(src,{}));"
+            % json.dumps({name: src for name, (src, _) in cases.items()}, ensure_ascii=False),
+            "mdTexWanted",
+        )
+        for name, (_src, want) in cases.items():
+            with self.subTest(name):
+                self.assertEqual(got[name], want)
 
 
 if __name__ == "__main__":

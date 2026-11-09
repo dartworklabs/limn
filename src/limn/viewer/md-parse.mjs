@@ -79,7 +79,8 @@ function mdFirstAtOrAfter(a, x) {
 // '\[…\]' is display math only on lines of its own (mdMathBlock): in a line it is two escaped brackets, as before. The math
 // may run over line ends (a paragraph's): it becomes one math_inline token per source line, its text as written, delimiters
 // included, with a softbreak between them, so the inline token's line breaks still match its source's line ends and its lines
-// can be told (md-surface.js mdInlineLines, ADR-0025 D7). A code span, a link or raw HTML that starts before the delimiter has
+// can be told (md-surface.js mdInlineLines, ADR-0025 D7). A formula that needed no cutting carries info 'whole': only such a
+// token is drawn, a piece being no TeX on its own (md-surface.js mdTexBody, ADR-0036 D2). A code span, a link or raw HTML that starts before the delimiter has
 // taken its text already; one inside the math is math, but no delimiter inside a code span closes it (mdMathEnd).
 function mdMathInline(state, silent) {
   const s = state.src, at = state.pos, c = s.charCodeAt(at);
@@ -92,10 +93,12 @@ function mdMathInline(state, silent) {
   if (!tex.trim()) return false;
   if (open === '$' && (/\s/.test(tex[0]) || /\s/.test(tex[tex.length - 1]) || /[0-9]/.test(s[end + 1] || ''))) return false;
   if (!silent) {
-    s.slice(at, end + close.length).split('\n').forEach((piece, i) => {
+    const pieces = s.slice(at, end + close.length).split('\n');
+    pieces.forEach((piece, i) => {
       if (i) state.push('softbreak', 'br', 0);
       const t = state.push('math_inline', 'code', 0);
       t.content = piece; t.markup = open;
+      if (pieces.length === 1) t.info = 'whole';
     });
   }
   state.pos = end + close.length;
@@ -258,7 +261,7 @@ function mdFrontMatter(state, start, end, silent) {
 let md = null, nesting = 0;
 function plain(t) {
   return {type: t.type, tag: t.tag, nesting: t.nesting, map: t.map, content: t.content, info: t.info, hidden: t.hidden,
-    level: t.level, attrs: t.attrs, children: t.children ? t.children.map(plain) : null};
+    level: t.level, markup: t.markup, attrs: t.attrs, children: t.children ? t.children.map(plain) : null};
 }
 self.onmessage = e => {
   const {id, text, limits} = e.data;

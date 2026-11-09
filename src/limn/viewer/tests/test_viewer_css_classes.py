@@ -41,6 +41,11 @@ BUILT_NAMES = {p + v for p, (_, values) in BUILT.items() for v in values}
 KEPT = {
     "badge-default": "a badge variant of the component set (docs/handbook/viewer.md §디자인 토큰과 컴포넌트, 배지)",
     "badge-destructive": "a badge variant of the component set (docs/handbook/viewer.md §디자인 토큰과 컴포넌트, 배지)",
+    # The bundled KaTeX writes these on the math it draws, so no viewer script names them; md-surface.css styles the
+    # two the viewer has a rule for (docs/handbook/viewer.md §수식, ADR-0036). A name that KaTeX stopped writing would
+    # be caught by that section's browser tests, which measure both rules.
+    "katex-display": "written by the bundled KaTeX around display math (src/limn/vendor/katex/)",
+    "katex-mathml": "written by the bundled KaTeX around the MathML copy of a formula (src/limn/vendor/katex/)",
 }
 
 CLASS = re.compile(r"\.(-?[A-Za-z_][\w-]*)")

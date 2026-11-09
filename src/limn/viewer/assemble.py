@@ -10,6 +10,7 @@ here runs at import.
 Placeholders filled here:
 - __APP_CSS__ / __APP_JS__: the parts listed under each marker in parts.txt, joined in order (load_viewer_html).
 - __PDFJS_VERSION__: the vendored PDF.js version, the ?v= that busts the browser cache for /vendor/pdfjs/.
+- __KATEX_VERSION__: the vendored KaTeX version, the ?v= of every /vendor/katex/ URL the Markdown surface asks for.
 - __PRETENDARD_VERSION__: the vendored font's version, the ?v= of the stylesheet link to /vendor/pretendard/.
 - __LIMN_MARK_16__ / __LIMN_WORDMARK__: the Limn logo's inline SVGs (limn.viewer.mark.MARK_SLOTS) - the icon by the label
   in the top bar, the wordmark in the help header and [더보기]'s foot.
@@ -41,8 +42,9 @@ from limn.viewer.mark import FILES as BRAND_FILES, Brand, Icon, brand
 # One entry of the message table: an English string, or plural forms {"one": ..., "other": ...} for a key with {n}.
 Message: TypeAlias = str | dict[str, str]
 # The bundled libraries GET /vendor/<library>/<file> serves: PDF.js (default_pdfjs_dir), the Pretendard font
-# (default_pretendard_dir) and markdown-it (default_markdown_it_dir). Lucide's icons are inlined in the page, never served.
-VendorLibrary: TypeAlias = Literal["pdfjs", "pretendard", "markdown-it"]
+# (default_pretendard_dir), markdown-it (default_markdown_it_dir) and KaTeX (default_katex_dir). Lucide's icons are
+# inlined in the page, never served.
+VendorLibrary: TypeAlias = Literal["pdfjs", "pretendard", "markdown-it", "katex"]
 
 
 def default_pdfjs_dir() -> Path:
@@ -54,6 +56,12 @@ def default_markdown_it_dir() -> Path:
     """Return the package's bundled markdown-it directory: the ESM browser build the Markdown parse worker imports
     (vendor/markdown-it/README.md). There is no run setting for another one."""
     return Path(__file__).resolve().parent.parent / "vendor" / "markdown-it"
+
+
+def default_katex_dir() -> Path:
+    """Return the package's bundled KaTeX directory: the ESM module the page imports to draw a Markdown document's math,
+    its stylesheet and its woff2 fonts (vendor/katex/README.md). There is no run setting for another one."""
+    return Path(__file__).resolve().parent.parent / "vendor" / "katex"
 
 
 def default_pretendard_dir() -> Path:
@@ -76,6 +84,7 @@ def read_viewer() -> "ViewerFiles":
         VIEWER_DIR,
         messages,
         pdfjs_version=PDFJS_VERSION,
+        katex_version=KATEX_VERSION,
         pretendard_version=PRETENDARD_VERSION,
         marks=logo.marks,
         icon_key=logo.key,
@@ -103,6 +112,11 @@ PDFJS_VERSION = "6.3.289"
 # markdown-it parses a Markdown document in the parse worker (vendor/markdown-it/README.md). The version is the ?v= the
 # worker imports it with, which busts the browser cache.
 MARKDOWN_IT_VERSION = "15.0.3"
+
+# KaTeX draws a Markdown document's math in the page (vendor/katex/README.md, ADR-0036 D1). The version is the ?v= of
+# the module the page imports, of the stylesheet it links and of every font that stylesheet names, so a cached copy never
+# needs revalidating.
+KATEX_VERSION = "0.19.1"
 
 # The interface font, Pretendard Variable (vendor/pretendard/README.md). Every URL of it - the stylesheet the page links
 # and each slice the stylesheet names - carries this version as its ?v=, so a cached copy never needs revalidating.
@@ -291,6 +305,7 @@ def viewer_html(
     messages: Mapping[str, Message],
     *,
     pdfjs_version: str,
+    katex_version: str,
     pretendard_version: str,
     marks: Mapping[str, str],
     icon_key: str,
@@ -299,7 +314,7 @@ def viewer_html(
 ) -> str:
     """The viewer page served at GET /, before the run-time placeholders: run_page() fills those per instance.
 
-    The page and its parts come from directory (load_viewer_html); pdfjs_version, pretendard_version, the logo's inline
+    The page and its parts come from directory (load_viewer_html); pdfjs_version, katex_version, pretendard_version, the logo's inline
     SVGs (marks: placeholder -> markup, limn.viewer.mark.Brand.marks, in placeholder order), Limn's version, the favicon
     links' icon_key, the icon table and the message table fill their placeholders, in that order, and every
     {{ic:<name>}} token becomes its icon's <svg>.
@@ -309,6 +324,7 @@ def viewer_html(
     """
     page = load_viewer_html(directory)
     page = page.replace("__PDFJS_VERSION__", pdfjs_version)
+    page = page.replace("__KATEX_VERSION__", katex_version)
     page = page.replace("__PRETENDARD_VERSION__", pretendard_version)
     for placeholder in sorted(marks):
         page = page.replace(placeholder, marks[placeholder])

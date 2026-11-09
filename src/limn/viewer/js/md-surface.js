@@ -38,7 +38,7 @@ const MD={gen:0,doc:/** @type {string|null} */(''),file:'',name:'',lines:/** @ty
   asked:/** @type {number|null} */(null),at:0,limit:/** @type {string|null} */(null),
   heads:/** @type {{level:number,lo:number,el:HTMLElement,title:string,slug:string}[]} */([]),
   worker:/** @type {Worker|null} */(null),job:/** @type {{id:number,resolve:(r:any)=>void,t:ReturnType<typeof setTimeout>}|null} */(null),seq:0,
-  waiting:false,els:0,marked:0,bom:false,shown:/** @type {string|null} */(''),want:/** @type {{line:number,off:number,top:number}|null} */(null),
+  waiting:false,els:0,marked:0,bom:false,tex:/** @type {number|null} */(0),shown:/** @type {string|null} */(''),want:/** @type {{line:number,off:number,top:number}|null} */(null),
   jumpTo:/** @type {{id:number,doc:string|null,seq:number}|null} */(null),
   spot:/** @type {{doc:string|null,w:number,top:number,el:HTMLElement|null,line:number,key:string,frac:number,past:number,off:number|null,sel:boolean,again:boolean}|null} */(null),
   // a heading a link from another document asked for, gone to once this document is drawn in that visit (mdGoDoc), and the
@@ -46,13 +46,15 @@ const MD={gen:0,doc:/** @type {string|null} */(''),file:'',name:'',lines:/** @ty
   headTo:/** @type {{doc:string,id:string,seq:number}|null} */(null),goTo:/** @type {{el:HTMLElement,doc:string|null}|null} */(null)};
 // A draw's render context (MdRx): the source lines it numbers its blocks from (lines), the elements built so far (els), the
 // characters drawn in their boxes (marked), whether the next text drawn may be the file's first, its byte-order mark kept
-// (bom, mdText), and the headings (heads). The renderer reads and writes only these; the document view's context is MD
+// (bom, mdText), the headings (heads), and how many formulas were drawn - a count to draw them on, null not to draw them
+// at all (tex, ADR-0036 D3: the rendered compare keeps the source characters, which its block keys and its word diff read).
+// The renderer reads and writes only these; the document view's context is MD
 // itself (mdRenderAll), and the rendered compare (md-compare.js) builds each side with a context of its own (mdRx).
 /** @typedef {{level:number,lo:number,el:HTMLElement,title:string,slug:string}} MdHead */
-/** @typedef {{lines:string[],els:number,marked:number,bom:boolean,heads:MdHead[]}} MdRx */
-// A fresh render context for lines: nothing built, its first text the file's first.
+/** @typedef {{lines:string[],els:number,marked:number,bom:boolean,heads:MdHead[],tex:number|null}} MdRx */
+// A fresh render context for lines: nothing built, its first text the file's first, its math kept as characters.
 /** @param {string[]} lines @returns {MdRx} */
-function mdRx(lines){return {lines,els:0,marked:0,bom:String(lines[0]||'').charCodeAt(0)===0xfeff,heads:[]};}
+function mdRx(lines){return {lines,els:0,marked:0,bom:String(lines[0]||'').charCodeAt(0)===0xfeff,heads:[],tex:null};}
 // The render context a drawn root was built with (the compare's sides, mdRxKeep); any other root is the document view's, MD.
 const MD_RX=/** @type {WeakMap<Element,MdRx>} */(new WeakMap());
 /** @param {Element} root @param {MdRx} cx */
@@ -79,6 +81,71 @@ function mdParse(text){mdParseStop(null);
 // Ends the parse in flight, if any, with result r (null: taken over), and stops its worker.
 function mdParseStop(r){const j=MD.job; if(!j)return; MD.job=null; clearTimeout(j.t);
   if(MD.worker){MD.worker.terminate(); MD.worker=null;} j.resolve(r);}
+// ---------------- The TeX renderer (ADR-0036, docs/handbook/viewer.md §수식)
+const KATEX_V='__KATEX_VERSION__';
+// MD_TEX: the vendored KaTeX module once the page has it (lib) and how far the one load got (state) - 'none' before it is
+// asked for, 'ready' with both the module and its stylesheet in, 'off' when either did not come. 'off' is final: the math
+// of every document then stays as its source characters, as it did before this renderer (ADR-0036 D2), and nothing is
+// asked for twice.
+const MD_TEX={state:/** @type {'none'|'ready'|'off'} */('none'),lib:/** @type {any} */(null)};
+// The closing delimiter of each opening one the worker's math rules read (MD_MATH in md-parse.mjs).
+const MD_TEX_CLOSE=/** @type {Record<string,string>} */({'$':'$','$$':'$$','\\(':'\\)','\\[':'\\]'});
+// Whether the worker's tokens hold any math at all - whether this document needs the renderer. A document without math
+// (and a PDF or text document) asks for nothing.
+/** @param {any[]} tokens */
+function mdTexWanted(tokens){for(const t of tokens){if(t.type==='math_block')return true;
+    for(const c of t.children||[])if(c.type==='math_inline')return true;}
+  return false;}
+// The renderer, or null when it is not to be had. One attempt per page: the module from this origin (the page imports it,
+// never the parse worker - that one returns tokens and touches no DOM, architecture.md 불변식 9) and its stylesheet, both
+// with the bundle's version, so a cached copy never needs revalidating. Unstyled KaTeX markup is unreadable, so a
+// stylesheet that does not arrive counts as no renderer.
+/** @returns {Promise<any>} */
+async function mdTexReady(){if(MD_TEX.state!=='none')return MD_TEX.lib;
+  MD_TEX.state='off';
+  let mod=/** @type {any} */(null); try{mod=await import('/vendor/katex/katex.mjs?v='+KATEX_V);}catch(e){return null;}
+  const lib=mod&&(mod.default||mod); if(!lib||typeof lib.render!=='function')return null;
+  if(!await mdTexStyle())return null;
+  MD_TEX.lib=lib; MD_TEX.state='ready'; return lib;}
+// The stylesheet, added once; true once the browser has it. A link element pointing at this origin - never an inline
+// style element and never a style attribute, which the page policy admits neither of (viewer.md §페이지 정책).
+/** @returns {Promise<boolean>} */
+function mdTexStyle(){return new Promise(resolve=>{const link=document.createElement('link');
+  link.rel='stylesheet'; link.href='/vendor/katex/katex.css?v='+KATEX_V;
+  link.onload=()=>resolve(true); link.onerror=()=>{link.remove(); resolve(false);};
+  document.head.appendChild(link);});}
+// The TeX of an inline math token, without its delimiters, or null when it is not to be drawn: a piece of a formula that
+// runs over a source line end (the worker marks a whole one info 'whole', ADR-0032 D8) is no TeX on its own. Pure.
+/** @param {any} c @returns {string|null} */
+function mdTexBody(c){const open=String(c.markup||''),close=MD_TEX_CLOSE[open]||'',s=String(c.content||'');
+  if(c.info!=='whole'||!close||s.length<open.length+close.length+1)return null;
+  if(!s.startsWith(open)||!s.endsWith(close))return null;
+  return s.slice(open.length,s.length-close.length);}
+// The TeX of a display math block, without its delimiters, or null when its lines do not open and close one. Pure.
+/** @param {string[]} lines @returns {string|null} */
+function mdTexBlockBody(lines){const s=lines.join('\n').replace(/\n+$/,'');
+  const open=s.startsWith('$$')?'$$':s.startsWith('\\[')?'\\[':'',close=open?MD_TEX_CLOSE[open]:'';
+  if(!open||!s.endsWith(close)||s.length<open.length+close.length+1)return null;
+  return s.slice(open.length,s.length-close.length);}
+// A <tag class=cls> with the TeX of src drawn into it (tex: src without its delimiters) and src on data-tex, or null when
+// it is not drawn - then the caller shows src as characters, as it did before this renderer (ADR-0036 D2). Not drawn when:
+// there is no renderer; the context does not draw math (cx.tex null - the rendered compare keeps the source characters,
+// ADR-0036 D3); the TeX is not whole (tex null); src holds a character that hides or reorders text (CC_ANY, ADR-0029 D5) -
+// drawn glyphs could show neither it nor its box, so such a formula stays as its characters, each in its box; or KaTeX
+// refuses it (throwOnError, so a refusal never draws its own red markup and the style attribute that would carry its
+// colour). The element is built outside mdEl and counted - with everything KaTeX put in it - only once it is used, so a
+// refusal leaves the count where it was (ADR-0036 D6). trust false leaves \href, \url and \includegraphics as characters,
+// so no link or image of KaTeX's own gets past the viewer's allowlists; strict false draws a Korean word in math mode
+// instead of refusing it.
+/** @param {string} tag @param {string} cls @param {string} src @param {string|null} tex @param {boolean} display @param {MdRx} cx @returns {HTMLElement|null} */
+function mdTexBox(tag,cls,src,tex,display,cx){
+  if(cx.tex===null||MD_TEX.state!=='ready'||tex===null||!tex.trim()||CC_ANY.test(src))return null;
+  const el=document.createElement(tag);
+  try{MD_TEX.lib.render(tex,el,{displayMode:display,throwOnError:true,strict:false,trust:false});}
+  catch(e){return null;}
+  el.className=cls; el.dataset.tex=src; cx.els+=1+el.querySelectorAll('*').length; cx.tex++;
+  if(cx.els>MD_LIMITS.elements)throw MD_OVER;
+  return el;}
 // ---------------- Drawing the document
 // A yield to the browser between chunks of the DOM build: a message, not a timer, so a test's frozen clock does not stop it.
 function mdYield(){return new Promise(r=>{const c=new MessageChannel(); c.port1.onmessage=()=>r(undefined); c.port2.postMessage(0);});}
@@ -113,6 +180,9 @@ async function mdBuild(){if(mdFieldBusy()){MD.waiting=true; return;}
   // it back by, so the document would read another character than its source has. The line view keeps it, in its box.
   const res=MD.lines.some(l=>l.includes('\0'))?{ok:false,limit:MD_LIMIT.NUL}:await mdParse(MD.lines.join('\n')); if(stale()||!res)return;
   let root=/** @type {HTMLElement|null} */(null),limit=res.ok?null:String(res.limit||MD_LIMIT.ERROR);
+  // The TeX renderer is fetched before the build, which is synchronous once it starts (mdTexBox): only a document whose
+  // tokens hold math asks for it, and a document that does not get it draws its math as characters (ADR-0036 D1, D2).
+  if(res.ok&&mdTexWanted(res.tokens)){await mdTexReady(); if(stale())return;}
   if(res.ok){root=await mdRenderAll(res.tokens,stale); if(stale())return; if(!root)limit=MD_LIMIT.ELEMENTS;}
   if(!root){MD.heads=[];
     if(MD.lines.length>MD_LIMITS.lines){mdShow(mdNote(tl('이 문서는 원문이 {lines}줄이라 그리지 않습니다(한도 {limit}줄)',{lines:mdCount(MD.lines.length),limit:mdCount(MD_LIMITS.lines)}),MD_LIMIT.LINES)); return;}
@@ -271,7 +341,7 @@ function mdSelSeen(){const e=document.querySelector('#md .md-sel'); if(!e)return
 // draw - then whatever was built is dropped too).
 /** @param {any[]} tokens @param {()=>boolean} stale @returns {Promise<HTMLElement|null>} */
 async function mdRenderAll(tokens,stale){const root=document.createElement('article'); root.className='md'; root.id='md'; root.setAttribute('translate','no'); root.lang='';   // the document's language is not known (docs/handbook/viewer.md §그리기): not the screen's (<html lang>)
-  MD.els=0; MD.marked=0; MD.bom=String(MD.lines[0]||'').charCodeAt(0)===0xfeff; MD.heads=[]; const work=mdRender(root,tokens,MD);
+  MD.els=0; MD.marked=0; MD.tex=0; MD.bom=String(MD.lines[0]||'').charCodeAt(0)===0xfeff; MD.heads=[]; const work=mdRender(root,tokens,MD);
   try{for(const pause of work){void pause; await mdYield(); if(stale())return null;}}
   catch(e){if(e===MD_OVER)return null; throw e;}
   if(MD.marked)root.prepend(txNote('marks',txMarksText(MD.marked)));   // the text surface's notice (text-surface.js), above the first block
@@ -383,12 +453,17 @@ function* mdFront(t,top,w,cx){const box=mdEl('div',cx); box.className='md-front'
   for(let n=lo;n<=hi;n++){const sp=mdEl('span',cx),ln=String(cx.lines[n-1]||''); sp.className='ln'; sp.dataset.line=String(n);
     if(mdPlain(ln,cx))sp.textContent=ln+'\n'; else{yield* mdText(sp,ln,w,cx); sp.appendChild(document.createTextNode('\n'));}   // hidden characters in their boxes, as a code line's
     code.appendChild(sp); if(mdDue(w))yield;}}
-// Display math (the worker's math_block token, mdMathBlock in md-parse.mjs; ADR-0032): its TeX as written, never rendered -
-// a code box over the block's lines (data-lo..hi, kind math - a block of its own, md:math) with each line, its delimiters
-// included, one span (data-line), as a code block's. The lines are the token's (indentation and quote markers left out).
+// Display math (the worker's math_block token, mdMathBlock in md-parse.mjs; ADR-0032, ADR-0036): the block's lines
+// (data-lo..hi, kind math - a block of its own, md:math) either drawn by KaTeX in one box (mdTexBox, with the source TeX on
+// data-tex so a pin's quote is still the TeX, mdRangeText) or, when it is not drawn, its TeX as written in a code box with
+// each line, its delimiters included, one span (data-line), as a code block's. Drawn, the block is the smallest thing that
+// can be chosen in it - one line of it no longer can be (ADR-0036 D3). The lines are the token's (indentation and quote
+// markers left out).
 /** @param {any} t @param {HTMLElement} top @param {{n:number}} w @param {MdRx} cx @returns {Generator<void,void,void>} */
-function* mdMath(t,top,w,cx){const pre=mdEl('pre',cx),code=mdEl('code',cx); pre.className='md-math-block'; mdMap(pre,t,'math',cx); pre.appendChild(code); top.appendChild(pre);
-  const first=t.map?t.map[0]+1:0,lines=String(t.content||'').split('\n');
+function* mdMath(t,top,w,cx){const first=t.map?t.map[0]+1:0,lines=String(t.content||'').split('\n');
+  const box=mdTexBox('div','md-math-block md-tex',String(t.content||''),mdTexBlockBody(lines),true,cx);
+  if(box){mdMap(box,t,'math',cx); top.appendChild(box); return;}
+  const pre=mdEl('pre',cx),code=mdEl('code',cx); pre.className='md-math-block'; mdMap(pre,t,'math',cx); pre.appendChild(code); top.appendChild(pre);
   for(let i=0;i<lines.length;i++){const s=mdEl('span',cx),ln=lines[i]; s.className='ln'; if(first)s.dataset.line=String(first+i);
     if(mdPlain(ln,cx))s.textContent=ln+'\n'; else{yield* mdText(s,ln,w,cx); s.appendChild(document.createTextNode('\n'));}   // hidden characters in their boxes, as a code line's
     code.appendChild(s); if(mdDue(w))yield;}}
@@ -456,7 +531,11 @@ function* mdInline(t,parent,w,cx){const m=mdInlineLines(t),kids=t.children||[];
         break;
       case 'strong_open':case 'em_open':case 's_open':{const e=mdEl(c.type==='strong_open'?'strong':c.type==='em_open'?'em':'s',cx); top.appendChild(e); stack.push(e); break;}
       case 'link_open':{const e=mdLink(mdAttr(c,'href'),cx); top.appendChild(e); stack.push(e); break;}
-      case 'math_inline':{const e=mdEl('code',cx); e.className='md-math'; top.appendChild(e); yield* mdText(e,c.content,w,cx); break;}   // TeX as written, delimiters included (mdMathInline), hidden characters in their boxes; one per source line
+      // Drawn by KaTeX in a box of its own (mdTexBox, its source TeX on data-tex for the quote), or its TeX as written,
+      // delimiters included (mdMathInline), hidden characters in their boxes; one token per source line either way
+      case 'math_inline':{const drawn=mdTexBox('code','md-math md-tex',String(c.content||''),mdTexBody(c),false,cx);
+        if(drawn){top.appendChild(drawn); break;}
+        const e=mdEl('code',cx); e.className='md-math'; top.appendChild(e); yield* mdText(e,c.content,w,cx); break;}
       case 'strong_close':case 'em_close':case 's_close':case 'link_close':if(stack.length>1)stack.pop(); break;
       case 'image':top.appendChild(yield* mdImage(c,w,cx)); break;
       case 'html_inline':{const e=mdEl('code',cx); e.className='md-html-in'; top.appendChild(e); yield* mdText(e,c.content,w,cx); break;}
@@ -950,7 +1029,9 @@ function mdSelectionPick(tapTarget){const s=window.getSelection(),md=$('#md'); i
     const cut=r!==r0&&!md.contains(r0.endContainer);
     if(b.lo>a.hi&&!cut&&mdNothingOfEnd(r)){const prev=b.lo-1; b={lo:Math.max(a.lo,prev),hi:Math.max(a.lo,prev)};}
     let lo=Math.min(a.lo,b.lo),hi=Math.max(a.hi,b.hi); while(hi>lo&&!String(MD.lines[hi-1]||'').trim())hi--;
-    mdPick({lo,hi},mdBlockAt(r.startContainer),mdBlockAt(r.endContainer),r===r0?s.toString():mdRangeText(r),false); return true;}
+    // A document that drew math reads its quote through mdRangeText, where each drawn formula gives back its source TeX;
+    // one that drew none reads the selection's own text, exactly as before (ADR-0036 D4).
+    mdPick({lo,hi},mdBlockAt(r.startContainer),mdBlockAt(r.endContainer),r===r0&&!MD.tex?s.toString():mdRangeText(mdTexWiden(r)),false); return true;}
   if(tapTarget){const t=/** @type {Element} */(tapTarget);
     const rel=/** @type {HTMLElement|null} */(t.closest('#md .md-rel')); if(rel&&LAST_PTR!=='mouse'){mdRelTip(rel); return true;}   // a finger has no hover
     if(t.closest('a,button,[data-act],.md-badges,.md-limit'))return false;
@@ -983,15 +1064,30 @@ function mdDocPart(r,md){if(md.contains(r.commonAncestorContainer))return r; if(
 // child, out of the line's flow, as a block of its own ('x\n\u202e\ny'), and Firefox drops a bidirectional control from
 // innerText altogether. So each box stands in the copy as U+FFF0 - a character of the repertoire, which the document's own
 // text therefore never holds raw - and gets its character back after.
+// A drawn formula (data-tex, ADR-0036 D4) goes the same way, as U+FFF1, and gets its source TeX back: innerText would read
+// the glyphs KaTeX drew (and the MathML copy beside them), and an agent looks for the TeX the manuscript holds. A formula
+// stands in a block or an inline slot as it did on screen, so the blocks around it still read apart.
 /** @param {Range} r */
 function mdRangeText(r){const box=document.createElement('div'),doc=document.createElement('div'); box.className='sr-only';
   box.setAttribute('aria-hidden','true'); doc.className='md'; doc.append(r.cloneContents()); doc.querySelectorAll('.md-badges').forEach(e=>e.remove());
+  const tex=/** @type {string[]} */([]); doc.querySelectorAll('[data-tex]').forEach(e=>{tex.push(e.getAttribute('data-tex')||'');
+    const slot=document.createElement(e.classList.contains('md-math-block')?'div':'span'); slot.textContent='\ufff1'; e.replaceWith(slot);});
   const kept=/** @type {string[]} */([]); doc.querySelectorAll('.cc').forEach(e=>{kept.push(e.textContent||''); e.replaceWith('\ufff0');});
   box.append(doc); document.body.append(box);
-  try{let i=0; return doc.innerText.replace(/\ufff0/g,()=>kept[i++]||'');}finally{box.remove();}}
-// The text element el shows, as mdRangeText reads a range: a tap's quote.
+  try{let i=0,j=0; return doc.innerText.replace(/[\ufff0\ufff1]/g,m=>m==='\ufff0'?(kept[i++]||''):(tex[j++]||''));}finally{box.remove();}}
+// Range r with either end inside a drawn formula moved out to that formula's edge - a clone, the selection itself is never
+// touched - so a selection that cuts into drawn math reads that formula whole, by its source TeX. r itself when neither end
+// is in one.
+/** @param {Range} r @returns {Range} */
+function mdTexWiden(r){const of=(/** @type {Node|null} */n)=>{const e=n&&(n.nodeType===1?/** @type {Element} */(n):n.parentElement);
+    return e?/** @type {HTMLElement|null} */(e.closest('#md [data-tex]')):null;};
+  const a=of(r.startContainer),b=of(r.endContainer); if(!a&&!b)return r;
+  const c=r.cloneRange(); if(a)c.setStartBefore(a); if(b)c.setEndAfter(b); return c;}
+// The text element el shows, as mdRangeText reads a range: a tap's quote. A drawn formula tapped whole is its source TeX -
+// selectNodeContents would leave the element itself, which carries data-tex, outside the range.
 /** @param {Element} el */
-function mdTextOf(el){const r=document.createRange(); r.selectNodeContents(el); return mdRangeText(r);}
+function mdTextOf(el){const tex=el instanceof HTMLElement?el.dataset.tex:undefined; if(tex!==undefined)return tex;
+  const r=document.createRange(); r.selectNodeContents(el); return mdRangeText(r);}
 // Shows a link's description that does not open (a tap on it), until 4s pass or the next press.
 /** @param {HTMLElement} el */
 function mdRelTip(el){showTip(el); const txt=TIP.textContent; setTimeout(()=>{if(!TIP.hidden&&TIP.textContent===txt)hideTip();},4000);}

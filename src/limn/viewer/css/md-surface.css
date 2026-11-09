@@ -80,6 +80,16 @@ body.md-surface #left{touch-action:pan-x pan-y pinch-zoom}
    matter's do, rather than scroll a phone sideways. */
 .md code.md-math{padding:0;background:none;border-radius:0;overflow-wrap:break-word}
 .md pre.md-math-block,.md pre.md-math-block .ln{white-space:pre-wrap;overflow-wrap:anywhere}
+/* Math drawn by the bundled KaTeX (ADR-0036): the box the renderer drew into (.md-tex) carries the source TeX on data-tex,
+   so a pin's quote is still the manuscript's (md-surface.js mdRangeText). An inline formula sits on the sentence's own size
+   and face, KaTeX's stylesheet setting the math face inside it, so '$…$' no longer reads in the code face. Display math is a
+   block on the paragraph's rhythm with no code box - the formula is the block - and a formula too wide for a phone scrolls
+   inside its own block rather than widening the column. The MathML copy KaTeX keeps beside the glyphs for a screen reader
+   stands in a clipped 1px box: it is left out of a selection, so copying a formula by hand does not take its text twice. */
+.md code.md-math.md-tex{font-family:inherit;font-size:inherit}
+.md .md-math-block.md-tex{margin:0 0 var(--space-3);overflow-x:auto;overflow-y:hidden}
+.md .md-math-block.md-tex .katex-display{margin:0}
+.md .md-tex .katex-mathml{user-select:none;-webkit-user-select:none}
 .md .md-html-in{color:var(--muted-foreground)}
 /* The plain source-line view (a limit was hit): numbered lines, the number drawn by CSS so it is never selected with the text. */
 .md-lines .md-limit{margin:0 0 var(--space-3);padding:var(--space-2) var(--space-3);border:1px solid var(--border-strong);border-radius:var(--radius);
