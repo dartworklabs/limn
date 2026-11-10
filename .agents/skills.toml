@@ -1,5 +1,7 @@
 version = 2
 
+# A repo given by name alone is resolved from the skm catalog; its remote is not named in this public repository.
+
 [[repo]]
 name = "agent-chat"
 remote = "git@github.com:dartworklabs/skills-agent-chat.git"
@@ -18,11 +20,9 @@ remote = "git@github.com:dartworklabs/skills-coding.git"
 
 [[repo]]
 name = "design-tokens"
-remote = "git@github.com:bet-lab/skills-design-tokens.git"
 
 [[repo]]
 name = "figma"
-remote = "git@github.com:bet-lab/figma-agent-playbook.git"
 
 [[repo]]
 name = "ui-review"
@@ -30,4 +30,3 @@ remote = "git@github.com:dartworklabs/skills-ui-review.git"
 
 [[repo]]
 name = "writing"
-remote = "git@github.com:betlab-papers/writing-agent-playbook.git"
