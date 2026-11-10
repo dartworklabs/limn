@@ -19,20 +19,18 @@ read in, between two things that are both still in the document. `present` holds
 elements the `absent` queries are about - because a query whose text has gone from the document passes while
 testing nothing. `rows` keeps each document set in two columns on its first page.
 
-What cannot be asked for here is the limitation itself. On a page where a line wider than the column stands
-within one line pitch of body text, the shipped rule stops joining that body's lines on purpose
-(docs/handbook/viewer.md §찾는 규칙, ADR-0017). Writing that as `spans` would demand the rule change; writing it
-as `absent` would make the oracle copy the rule. So the corpus holds the geometry around that shape and leaves
-the shape's own joins out.
+A line wider than the column standing within one line pitch of body text - a download stamp, a rule drawn in
+characters, a page-wide table row - shares the body's block and, on a two-column page, often both columns'. The
+rule gives such a block's lines their column's measure back from the page's gutter (docs/handbook/viewer.md
+§찾는 규칙, ADR-0038), so the sentences around that line are asked for as `spans` like any others (UNDER).
 """
 
 # A plain two-column body with a float caption at the foot of a column. What it tests is the ordinary case: body
 # text in a real two-column measure joins across whatever line breaks TeX chooses, and the caption below does not
 # fuse into the paragraph above it. A `table` without a star is one column wide and `[b]` sends it to the foot of
 # the column, so the caption stands in a block of its own, a long way under the body - this document does NOT
-# hold the shape ADR-0017 measured, and no document here can hold it as a `spans` expectation: on a page where a
-# page-wide line stands within one line pitch of body text, the shipped rule loses those joins on purpose. STAMP
-# holds that geometry with the wide line kept clear of the prose, which is what lets it test an edge rule.
+# hold the shape ADR-0017 measured. UNDER holds it with prose against the wide line, and STAMP with short entries
+# against it, which is what lets the two test an edge rule from both sides.
 BODY = r"""\documentclass[twocolumn,10pt]{article}
 \pagestyle{empty}
 % A short text block, set with a TeX primitive rather than a package, so that a few paragraphs fill the left
@@ -165,6 +163,49 @@ of the page is thin enough to make the check meaningless.
 \end{document}
 """
 
+
+# The shape ADR-0017 measured, as a download stamp makes it: a line wider than the column, set directly under a
+# paragraph at the paragraph's own line spacing, so it stands within one line pitch of the paragraph's last line and
+# shares a block with the whole left column above it - and, reaching across the gutter, with the right column's
+# lines at its height. Held to that block's edges, which span the page, no line in it reaches the right edge and
+# none of the sentences above the stamp is found across a line break; held to their column's measure (ADR-0038)
+# they are. The paragraph's short last line still does not run into the stamp below it.
+UNDER = r"""\documentclass[twocolumn,10pt]{article}
+\pagestyle{empty}
+% A short text block, set with a TeX primitive rather than a package, so that a few paragraphs fill the left
+% column and spill into the right. Without it a document this length is set in one column and tests nothing.
+\textheight=220pt
+\begin{document}
+\section{Readings by the station house}
+The keeper of the quay reads the gauge twice a day and sends the record
+on by the evening post, because the harbour trust wants the tide logged
+before the boats are iced and the hull is washed down for the winter.
+A second sentence carries on about the same gauge, which the keeper has
+read since the year the station house was built and never replaced.
+\par\noindent\makebox[\textwidth][l]{\footnotesize Authorized licensed use limited to the harbour trust. Downloaded in the winter of the year from the archive.}
+\par
+The paragraph below the line goes on about the ledger and the weather,
+so that the column carries running text under the wide line as well as
+above it, and the page is set in two columns rather than in one.
+
+A further paragraph spills into the second column, where it carries on
+about the quay and the gauge at enough length that the right-hand column
+holds running text of its own, which the structural check counts.
+
+
+A paragraph in the right-hand column carries on about the quay, the gauge
+and the keeper, so that the second column is as full as the first and the
+page is set in two columns of running text rather than one and a stub.
+
+Another paragraph keeps the right-hand column going with more words about
+the ledger, the post and the harbour trust, none of which any query asks
+for beyond filling the lines that the column has room to hold.
+
+A last paragraph is here for the same reason, so that neither half of
+the page is thin enough to make the structural check meaningless, and
+then the document ends after a few more words about the inner basin.
+\end{document}
+"""
 
 # The geometry that decides an edge rule, built on purpose. A list of short entries stands on its own, a blank
 # run of vertical space away from the prose above and below, with one line wider than the column immediately
@@ -359,6 +400,27 @@ CASES = (
         ),
         "present": (
             "The gauge and its housing by the door",  # the caption itself: without it the query above is vacuous
+        ),
+    },
+    {
+        "name": "a paragraph with a line wider than the column directly under it",
+        "tex": UNDER,
+        "rows": 8,
+        "spans": (
+            # every sentence above the stamp, and one below it, across the line breaks TeX put in them
+            "sends the record on by the evening post, because the harbour trust",
+            "logged before the boats are iced and the hull is washed down",
+            "about the same gauge, which the keeper has read since the year the station",
+            "washed down for the winter. A second sentence carries on",
+            "goes on about the ledger and the weather, so that the column carries",
+        ),
+        "absent": (
+            # The paragraph's short last line into the stamp under it: the edges hold it (the line ends short of
+            # the column's measure), and the size gate as well, since the stamp is set smaller than the text.
+            "built and never replaced. Authorized licensed",
+        ),
+        "present": (
+            "Authorized licensed use limited",  # the wide line itself: without it the page holds no such shape
         ),
     },
     {
