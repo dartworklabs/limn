@@ -116,7 +116,7 @@ button.xp-row{cursor:pointer;min-width:0;justify-content:stretch}
   color:var(--popover-foreground);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);font-size:var(--text-sm)}
 #sel-pop[hidden]{display:none}
 #sel-pop .sp-head{display:flex;align-items:center;gap:var(--space-2);min-height:var(--control-h-sm);line-height:16px}
-#sel-pop .sp-loc{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-mono);color:var(--primary);text-box:trim-both cap alphabetic;padding-block:var(--space-1)}   /* its cap height on the row's centre (the mono face stood 0.5px under it); the padding keeps the ink inside the box that cuts it */
+#sel-pop .sp-loc{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-mono);color:var(--primary)}
 #sel-pop kbd{flex:none;color:var(--muted-foreground);line-height:16px}
 #sel-pop textarea{display:block;width:100%;min-height:0;margin:var(--space-1) 0 var(--space-2);resize:none}
 #sel-pop .sp-acts{display:flex;align-items:center;gap:var(--space-2)}
