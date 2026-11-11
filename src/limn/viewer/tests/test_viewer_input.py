@@ -6533,6 +6533,105 @@ class DesktopGrid(ViewerBase):
             round(self.view(MOUSE_WIDE).evaluate("document.querySelector('#right').getBoundingClientRect().width")), 348
         )
 
+    def test_the_person_stands_a_step_from_the_avatar_at_the_meta_texts_size(self):
+        """1440x900 and 1400x850, Korean and English: on the meta row the name starts 8px after its avatar, as a comment's
+        writer does after theirs, in the meta text's size (it touched the avatar, 0px, in the body's size, 2px over the
+        row's), and a name longer than the row ends in an ellipsis inside the panel."""
+        for device in (MOUSE_WIDE, DESK):
+            for lang in ("ko", "en"):
+                with self.subTest(w=device["viewport"]["width"], lang=lang):
+                    page = self.view(device, lang=lang, init=NO_PNG_CHIP)
+                    got = page.evaluate(
+                        """() => {const q = s => document.querySelector(s), R = e => e.getBoundingClientRect(), fs = e => getComputedStyle(e).fontSize;
+                          const first = [...document.querySelectorAll('#right .cmt')].find(c => c.querySelector(':scope > .av') && c.querySelector('.nm'));
+                          const out = {gap: R(q('#me .au-n')).left - R(q('#me .av')).right, name: fs(q('#me .au-n')), meta: fs(q('#meta-txt')),
+                            card: first ? R(first.querySelector('.nm')).left - R(first.querySelector(':scope > .av')).right : null};
+                          q('#me .au-n').textContent = 'A name far longer than the three hundred pixels of the side panel could hold on a row';
+                          const me = R(q('#me')), P = R(q('#right')); out.inside = me.right <= P.right - 12 + 0.5 && me.left >= P.left;
+                          out.cut = q('#me .au-n').scrollWidth > q('#me .au-n').clientWidth; return out;}"""
+                    )
+                    self.assertEqual((got["gap"], got["name"]), (8, got["meta"]), got)
+                    self.assertEqual(got["card"], got["gap"], got)
+                    self.assertTrue(got["inside"] and got["cut"], got)
+
+    def test_an_archive_row_starts_on_the_text_line_under_its_sections_chevron(self):
+        """1440x900 and 1400x850: a done row has no box, so its icon stands on the text line, 25px in and under the
+        section's chevron, and its number under the section's name (it stood on the box line, 13px left of its own head);
+        its [답글] still ends on the box line. The Trash's rows, in their dialog, keep their own edge."""
+        pid = add_pin({"file": str(self.main), "lo": 30, "hi": 31, "page": 1, "note": "닫을 핀"}, actor(ALICE)).record[
+            "id"
+        ]
+        store = ps.APP.pin_lifecycle.context().store
+        ps.APP.pin_lifecycle.close_pin(pid, post_authority(store, actor(ALICE), "close", pid), CloseRequest())
+        for device in (MOUSE_WIDE, DESK):
+            with self.subTest(w=device["viewport"]["width"]):
+                page = self.view(device, init=NO_PNG_CHIP)
+                page.click("#done-toggle")
+                page.wait_for_selector("#done-list .arc-row")
+                got = page.evaluate(
+                    """() => {const q = s => document.querySelector(s), R = e => e.getBoundingClientRect();
+                      const P = R(q('#right')), L = P.left + parseFloat(getComputedStyle(q('#right')).borderLeftWidth);
+                      const text = e => {const g = document.createRange(); g.selectNodeContents(e); return g.getBoundingClientRect();};
+                      const row = q('#done-list .arc-row');
+                      return {icon: R(row.querySelector('.arc-l1 > .ic')).left - L, chevron: R(q('#sec-done .sec-tg svg')).left - L,
+                        number: text(row.querySelector('.arc-l1 > .n')).left - L, name: text(q('#done-h')).left - L,
+                        reply: P.right - R(row.querySelector('.b-reply')).right};}"""
+                )
+                self.assertEqual((got["icon"], got["chevron"]), (25, 25), got)
+                self.assertEqual(got["number"], got["name"], got)
+                self.assertEqual(got["reply"], 12, got)
+                page.evaluate("openTrash()")
+                page.wait_for_selector("#trash[open]")
+                self.assertEqual(
+                    page.evaluate("getComputedStyle(document.querySelector('#trash .arc-list')).paddingLeft"), "0px"
+                )
+                self.assertEqual(
+                    page.evaluate(
+                        "(()=>{const d=document.createElement('div');d.className='arc-row';document.querySelector('#trash .arc-list').append(d);"
+                        "const v=getComputedStyle(d).paddingLeft;d.remove();return v;})()"
+                    ),
+                    "0px",
+                )
+
+    def test_a_cards_reply_count_stands_a_step_from_its_icon(self):
+        """1440x900 with a mouse and a 384px phone on touch: a card head's reply count starts 4px after its icon, the step every
+        other icon and its label keep (2px before, the one pair under it)."""
+        pid = add_pin(
+            {"file": str(self.main), "lo": 34, "hi": 35, "page": 1, "note": "답글이 달릴 핀"}, actor(ALICE)
+        ).record["id"]
+        ps.APP.pin_lifecycle.reply_pin(
+            pid, "답글", post_authority(ps.APP.pin_lifecycle.context().store, actor(BOB), "reply", pid)
+        )
+        for device in (MOUSE_WIDE, PHONE):
+            with self.subTest(w=device["viewport"]["width"]):
+                page = self.view(device, init=NO_PNG_CHIP)
+                if device is PHONE:
+                    page.evaluate("setSide(true)")
+                page.wait_for_selector('#right .pin[data-id="%d"] .th-n' % pid, state="visible")
+                settle(page)
+                gap = page.evaluate(
+                    """id => {const th = document.querySelector('#right .pin[data-id="' + id + '"] .th-n'), g = document.createRange();
+                      g.selectNodeContents(th.querySelector('.lbl')); return Math.round((g.getBoundingClientRect().left - th.querySelector('svg').getBoundingClientRect().right) * 100) / 100;}""",
+                    pid,
+                )
+                self.assertEqual(gap, 4)
+
+    def test_the_helps_tables_share_one_key_column(self):
+        """1440x900 and 1400x850, Korean and English: what each key or term does starts on one line down the help - the
+        first column of every table drawn is as wide as the others' (87, 135 and 89px before, each sized by its own keys)."""
+        for device in (MOUSE_WIDE, DESK):
+            for lang in ("ko", "en"):
+                with self.subTest(w=device["viewport"]["width"], lang=lang):
+                    page = self.view(device, lang=lang, init=NO_PNG_CHIP)
+                    page.evaluate("openHelp()")
+                    page.wait_for_selector("#help[open]")
+                    starts = page.evaluate(
+                        """() => [...document.querySelectorAll('#help table')].filter(t => t.getClientRects().length)
+                          .map(t => Math.round(t.rows[0].cells[1].getBoundingClientRect().left * 100) / 100)"""
+                    )
+                    self.assertGreaterEqual(len(starts), 3, starts)
+                    self.assertEqual(len(set(starts)), 1, starts)
+
 
 # The symmetry audit's geometry of the state on screen (the cross-resolution pass), each pair [left or top, right or bottom]:
 # the nav bar's band - under the instance stripe or the safe area, above its line - against its centred controls' boxes, and its

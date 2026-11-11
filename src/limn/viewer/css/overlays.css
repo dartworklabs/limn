@@ -17,6 +17,9 @@ dialog .help-legend+.help-legend{margin-top:var(--space-1)}
 dialog h4{margin:var(--space-4) 0 var(--space-1);font-size:var(--text-base)}
 dialog table{border-collapse:collapse;font-size:var(--text-base);width:100%}
 dialog td{border-top:1px solid var(--border);padding:var(--space-1) var(--space-2);vertical-align:top}
+/* The help's tables share one key column, so what each key does starts on one line down the dialog: sized by its own keys,
+   each table split differently (87, 135 and 89px at 1440). A phone's sheet keeps the split its width allows. */
+body:not(.compact) #help td:first-child{width:10.5em}
 dialog code{font-size:var(--text-sm);word-break:break-all}
 .sw{display:inline-block;width:14px;height:10px;border:2px solid var(--status-open);vertical-align:middle;margin-right:var(--space-1)}
 .sw.w{border-color:var(--warning)}

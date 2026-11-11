@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **Four places in the viewer that stood off its own spacing rules are put on them.** Found by measuring the screens at
+  the seven device sizes, in Korean and English. (1) On the desktop panel's meta row the person's name touched the
+  avatar (0px) and was drawn in the body's 14px beside 12px text: it now stands 8px from the avatar, as a comment's
+  writer does, in the row's 12px, and a name longer than the row ends in an ellipsis. (2) A card head's reply count stood
+  2px from its icon, the one icon and label pair under the 4px every other keeps: 4px. (3) On the desktop panel a done
+  row's icon stood on the box line, 13px left of its own section's chevron: a row without a box now starts on the text
+  line, its icon under the chevron and its number under the section's name. (4) The help's three tables each sized their
+  key column by their own keys (87, 135 and 89px at 1440), so the explanations started at three places: on the desktop's
+  centred help they share one column. No behaviour, wording or control changes, and nothing changes on a phone's sheet
+  but the reply count's 2px. The agent contract is unchanged.
+
 ## 0.4.58 — 2026-11-11
 
 ### Added

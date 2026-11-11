@@ -56,6 +56,7 @@ body.lay-wide #bar1{--stripe-in:max(0px,var(--space-1) - env(safe-area-inset-top
   padding:calc(var(--space-2) + var(--stripe-in) / 2) var(--space-3) calc(var(--space-2) - var(--stripe-in) / 2)}
 body.lay-wide .sec-head{padding-left:var(--space-6)}   /* the chevron's box on the text line: the toggle's -4px margin, 1px border and 4px padding */
 body.lay-wide .sec-head button:not(.sec-tg){padding-left:var(--space-3);padding-right:var(--space-3)}   /* a tool's label ends on the text line */
+body.lay-wide #list .arc-row{padding-left:calc(var(--space-3) + 1px)}   /* an archive row has no box: its icon on the text line, under its section's chevron (it stood on the box line, left of its own head) */
 /* The tool bar is a single height (--tb-h: 28px desktop, 44px touch). The page field is also the same height/text size as the buttons - taking the
    generic input field rule (14px, 6px padding) as-is made it 8px taller than the buttons with larger text, breaking the row's harmony (author feedback 2026-09-23). Icon buttons are square. */
 #bar1>button,#bar1>input{height:var(--tb-h)}
