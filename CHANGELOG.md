@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **Search finds the sentences above a line wider than the column again** (ADR-0038). A line wider than the column
+  standing within one line pitch of body text - a publisher's download stamp at the foot of the page, a rule drawn in
+  characters, a page-wide table row, a caption set right under a paragraph - shared a block with that body, on a
+  two-column page with both columns, and gave the block the page's width: no line in it reached the right edge, so no
+  query crossed any of its line breaks. Each page's own gutter is now read from its lines (`searchGutter`), and in a
+  block holding a line that crosses it, the lines on one side take that column's measure back. Short entries under such
+  a line still stay apart, because the right edge is the whole column's, not the block's longest entry. A pair joins on a
+  column's measure only when both lines were given the same one, so a column's last line does not run into a page-wide
+  line under it, and a page-wide caption still runs on into its short last line. A page whose gutter cannot be told
+  from that page alone (one column nearly empty, fewer than 8 lines, a gap under 8pt) keeps the limitation; no
+  gutter is borrowed from another page, so a result never depends on which page was read first. The pin format, the
+  HTTP API, `pins.md` and stored pins do not change.
+
 ## 0.4.57 — 2026-11-09
 
 ### Changed

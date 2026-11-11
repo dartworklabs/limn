@@ -342,10 +342,17 @@ class SearchLogic(unittest.TestCase):
             )
             segs.append({"text": text, "plain": plain, "box": {"x0": x0, "x1": x1, "y": y, "size": size, "ang": 0}})
         js = (
-            consts("SEARCH_BREAK", "SEARCH_CJK", "SEARCH_EDGE_PT")
+            consts("SEARCH_BREAK", "SEARCH_CJK", "SEARCH_EDGE_PT", "SEARCH_GUTTER")
             + "\n"
             + fns(
-                "searchFold", "searchBlocks", "searchEdges", "searchJoin", "searchFlow", "searchPattern", "searchFind"
+                "searchFold",
+                "searchBlocks",
+                "searchGutter",
+                "searchEdges",
+                "searchJoin",
+                "searchFlow",
+                "searchPattern",
+                "searchFind",
             )
             + (
                 "\nconst F=searchFlow(%s.map(s=>({t:searchFold(s.text).t,end:s.text.trimEnd().slice(-1),plain:s.plain,box:s.box})));"
@@ -447,16 +454,17 @@ class SearchLogic(unittest.TestCase):
     def test_a_line_reaching_into_a_column_leaves_that_columns_joins_alone(self):
         """A two-column page - the left column x 72-290, the right x 322-540, every line full and 15pt apart - with
         one more line on it: a page number between the columns, one wide enough to reach into the left column or into
-        both, a full-width title, a full-width figure caption, or a line of its own wider than the left column. None of
-        them is a line of either column, so in every case a query still crosses the line break inside each column
-        ('in to' on the left, 'cat alog' on the right), and still does not cross from the left column's last line into
-        the right column's first ('harbour master': another column). The last case is a known miss, not a wish: a
-        full-width line one line pitch under the columns stands in their own block - nothing tells it from a line of
-        the paragraph - and widens the measure the joins are held to, so they go."""
+        both, a full-width title, a full-width figure caption, a line of its own wider than the left column, or a
+        full-width line one line pitch under the columns. None of them is a line of either column, so in every case a
+        query still crosses the line break inside each column ('in to' on the left, 'cat alog' on the right), and still
+        does not cross from the left column's last line into the right column's first ('harbour master': another
+        column). The last case is the one the block alone cannot hold: that line is a neighbour of both columns' last
+        lines, so all of them share one block whose edges span the page. The page's gutter gives each column's lines
+        that column's measure back (ADR-0038)."""
         left = [("the boats wait and we stand in", 72, 290, 700), ("to the cold water and do not", 72, 290, 685)]
-        left += [("ice the hull near the harbour", 72, 290, 670)]
+        left += [("ice the hull near the quay and", 72, 290, 670), ("watch the keeper of the harbour", 72, 290, 655)]
         right = [("master of the quay sees the", 322, 540, 700), ("keeper of the gauge write cat", 322, 540, 685)]
-        right += [("alog of the boats at anchor", 322, 540, 670)]
+        right += [("alog of the boats at anchor", 322, 540, 670), ("and the tide in the ledger", 322, 540, 655)]
         cases = {
             "nothing else": (None, 1),
             "a page number between the columns": (("12", 300, 312, 60), 1),
@@ -465,7 +473,7 @@ class SearchLogic(unittest.TestCase):
             "a full-width title": (("Tidal observations", 72, 540, 740, 18), 1),
             "a full-width figure caption": (("Figure 1 the gauge and its housing", 72, 540, 120), 1),
             "a line wider than the left column": (("Table 1 the tide", 72, 300, 400), 1),
-            "a full-width line one pitch under the columns": (("Figure 1 the gauge", 72, 540, 655), 0),
+            "a full-width line one pitch under the columns": (("Figure 1 the gauge", 72, 540, 640), 1),
         }
         for name, (extra, want) in cases.items():
             with self.subTest(case=name):
@@ -474,6 +482,79 @@ class SearchLogic(unittest.TestCase):
                     self.counts(lines, ["in to", "cat alog", "harbour master"]),
                     {"in to": want, "cat alog": want, "harbour master": 0},
                 )
+
+    def test_a_full_width_line_under_the_columns_joins_no_column_but_runs_on_into_its_own_last_line(self):
+        """The same page with the full-width line one pitch under both columns. Each column's last line reaches that
+        column's right edge, and the full-width line starts at the page's left edge one pitch lower - but it starts in
+        the other column or across both, so neither column runs into it, whichever column the page reads it after
+        ('ledger figure', 'harbour figure'). A two-line caption across the page still runs on into its short last line,
+        which stands in one column ('gauge housing'): a pair not both on one column's measure is held to its blocks'
+        edges, as before the gutter was read."""
+        left = [("the boats wait and we stand in", 72, 290, 700), ("to the cold water and do not", 72, 290, 685)]
+        left += [("ice the hull near the quay and", 72, 290, 670), ("watch the keeper of the harbour", 72, 290, 655)]
+        right = [("master of the quay sees the", 322, 540, 700), ("keeper of the gauge write cat", 322, 540, 685)]
+        right += [("alog of the boats at anchor", 322, 540, 670), ("and the tide in the ledger", 322, 540, 655)]
+        caption = [("Figure 1 the gauge", 72, 540, 640)]
+        queries = ["in to", "cat alog", "ledger figure", "harbour figure", "gauge housing"]
+        want = {"in to": 1, "cat alog": 1, "ledger figure": 0, "harbour figure": 0, "gauge housing": 0}
+        self.assertEqual(self.counts(left + right + caption, queries), want)
+        self.assertEqual(self.counts(left + caption + right, queries), want)
+        two = caption + [("housing by the door", 72, 200, 625)]
+        self.assertEqual(self.counts(left + right + two, queries), {**want, "gauge housing": 1})
+
+    def gutter(self, boxes):
+        """searchGutter on a page of these line boxes, each (x0, x1[, ang]) at its own height."""
+        lines = [
+            {"box": {"x0": b[0], "x1": b[1], "y": 700 - 15 * i, "size": 12, "ang": (*b, 0)[2]}}
+            for i, b in enumerate(boxes)
+        ]
+        js = consts("SEARCH_GUTTER") + "\n" + fns("searchGutter") + "\nconsole.log(JSON.stringify(searchGutter(%s)));"
+        return node_json(self, js % json.dumps(lines))
+
+    def test_the_gutter_is_the_white_band_between_two_columns_of_one_page(self):
+        """Full lines in two columns, the left x 72-290 and the right x 322-540: the gutter is the band between them,
+        as wide as it is, and a full-width caption crossing it does not hide it. Each threshold on its own: a band
+        crossed by 2 of 20 lines a column is still the gutter and by 3 is not (a tenth of the peak, 22 or 23); a gap
+        of 8pt is one and of 7pt is not; a right column of 3 lines against 20 on the left holds less than a quarter of
+        the line length; a band whose middle stands 140pt from the text's middle is further than a fifth of the text
+        width (93.6pt) though each side holds about half the line length. Not a gutter either: a page of full
+        single-column lines, a page of seven lines (too few to tell), a band against the text's edge (a column of line
+        numbers beside one column of text), and a two-column page set sideways (only upright lines are read)."""
+        two = [(72, 290)] * 4 + [(322, 540)] * 4
+        many = [(72, 290)] * 20 + [(322, 540)] * 20
+        self.assertEqual(self.gutter(two), [290, 322])
+        self.assertEqual(self.gutter(two + [(72, 540)]), [290, 322])
+        self.assertEqual(self.gutter(many + [(72, 540)] * 2), [290, 322])
+        self.assertEqual(self.gutter(many + [(72, 540)] * 3), None)
+        self.assertEqual(self.gutter([(72, 290)] * 4 + [(298, 540)] * 4), [290, 298])
+        self.assertEqual(self.gutter([(72, 290)] * 4 + [(297, 540)] * 4), None)
+        self.assertEqual(self.gutter([(72, 290)] * 20 + [(322, 540)] * 3), None)
+        self.assertEqual(self.gutter([(72, 150)] * 20 + [(182, 540)] * 4), None)
+        self.assertEqual(self.gutter([(72, 540)] * 8), None)
+        self.assertEqual(self.gutter(two[:3] + two[4:]), None)
+        self.assertEqual(self.gutter([(40, 50)] * 4 + [(72, 540)] * 4), None)
+        self.assertEqual(self.gutter([(*b, 90) for b in two]), None)
+
+    def test_short_entries_under_a_full_width_line_keep_the_columns_measure(self):
+        """A two-column page whose left column holds prose, then - a clear space below - a list of short entries with a
+        full-width line one pitch under the last. That line joins the entries' block to both columns, and on the
+        gutter's side the entries take the column's measure (its full lines end at 290), not the longest entry's: so no
+        entry reaches the right edge and none runs into the next ('conductivity expansion'), as with no full-width line
+        at all, while both columns' prose still joins ('in to', 'cat alog'). A measure taken from the block's own lines
+        on that side would end at the longest entry and join it to the one below (ADR-0017's rejected candidate D)."""
+        lines = [("the boats wait and we stand in", 72, 290, 700), ("to the cold water and do not", 72, 290, 685)]
+        lines += [("ice the hull near the quay and", 72, 290, 670), ("watch the keeper of the harbour", 72, 290, 655)]
+        lines += [("single stage", 72, 130, 600), ("thermal conductivity", 72, 180, 585)]
+        lines += [("expansion valve", 72, 150, 570), ("Downloaded from the archive", 72, 540, 555)]
+        lines += [("master of the quay sees the", 322, 540, 700), ("keeper of the gauge write cat", 322, 540, 685)]
+        lines += [("alog of the boats at anchor", 322, 540, 670), ("and the tide in the ledger", 322, 540, 655)]
+        lines += [("so the trust keeps the record", 322, 540, 640), ("of the winter near the door", 322, 540, 625)]
+        lines += [("where the boats come home to", 322, 540, 610), ("land the catch of the bay", 322, 540, 595)]
+        lines += [("before the tide turns again", 322, 540, 580), ("and the quay is cleared", 322, 540, 565)]
+        self.assertEqual(
+            self.counts(lines, ["in to", "cat alog", "conductivity expansion", "stage thermal", "valve downloaded"]),
+            {"in to": 1, "cat alog": 1, "conductivity expansion": 0, "stage thermal": 0, "valve downloaded": 0},
+        )
 
     def test_a_line_cut_at_a_wide_gap_is_joined_to_nothing(self):
         """A centred table of three cells a row: each row is one line of the page that searchLines cut into its cells
@@ -608,8 +689,9 @@ CORPUS_JS = """
   // Is each page set in two columns? Count, on that page alone, the lines whose box lies wholly in each half of
   // that page's own text area. One count over the pages pooled together would let one page's left column and
   // another page's right column stand in for a two-column page, and a page holding nothing but a float would
-  // pull the middle across. What this cannot do is tell a wide table from two columns - that is the column
-  // inference ADR-0017 leaves open - so it catches a page that stopped being set in two columns, no more.
+  // pull the middle across. What this cannot do is tell a wide table from two columns - it leaves the rule's own
+  // gutter (searchGutter) alone, so that the check does not lean on what it checks - so it catches a page that
+  // stopped being set in two columns, no more.
   const halves = pages.map(items => {
     const boxes = searchLines(items).map(L => L.box).filter(Boolean);
     if (!boxes.length) return [0, 0];
@@ -648,12 +730,13 @@ def corpus_answers(test, case):
             "main": json.dumps(str(vendor / "pdf.min.mjs")),
             "worker": json.dumps(str(vendor / "pdf.worker.min.mjs")),
             "pdf": json.dumps(str(pdf)),
-            "fns": consts("SEARCH_BREAK", "SEARCH_CJK", "SEARCH_EDGE_PT")
+            "fns": consts("SEARCH_BREAK", "SEARCH_CJK", "SEARCH_EDGE_PT", "SEARCH_GUTTER")
             + "\n"
             + fns(
                 "searchFold",
                 "searchLines",
                 "searchBlocks",
+                "searchGutter",
                 "searchEdges",
                 "searchJoin",
                 "searchFlow",

@@ -59,8 +59,10 @@ function searchLines(items){const rows=/** @type {any[][]} */([]); let row=/** @
 // centred and short lines, table rows, \hfill lines, equations, captions, another column).
 // Two lines are consecutive lines of a paragraph when both are plain (searchLines), run the same way at the same font size,
 // the first reaches its column's right edge and starts at the column's left edge or an indent, and the second starts at the
-// left edge or an indent directly below - one line pitch of that font lower (1 to 1.5 font sizes). The column's edges are
-// those of the line's block (searchEdges), within SEARCH_EDGE_PT; an indent is 1 to 2.5 font sizes in from the left edge - a
+// left edge or an indent directly below - one line pitch of that font lower (1 to 1.5 font sizes). The column's edges are the
+// line's (searchEdges), within SEARCH_EDGE_PT; two lines are held to a column's measure only when both were given the same
+// one (col), and otherwise both to their blocks' edges (blk) - so the last line of one column does not run into a page-wide
+// line under it that starts in the other, and a page-wide caption still runs on into its short last line; an indent is 1 to 2.5 font sizes in from the left edge - a
 // paragraph's indented first line, or the margin a list's lines stand at (\leftmargini is 2.5em in LaTeX's standard classes,
 // so a list item's wrapped line stands 2.5 font sizes in, not at the edge). Between two such lines: a line that ends in a
 // hyphen (-, U+2010 or a soft hyphen) was
@@ -84,18 +86,55 @@ function searchBlocks(lines){const blk=/** @type {number[]} */(lines.map(L=>L.bo
       lines.forEach((M,j)=>{const B=M.box; if(blk[j]!==-2||!B||B.ang!==A.ang)return;
         if(B.x0<A.x1&&B.x1>A.x0&&Math.abs(B.y-A.y)<=1.5*Math.max(A.size,B.size)+0.01){blk[j]=k; q.push(j);}});}});
   return blk;}
-// The column edges of each line: the least x0 and the greatest x1 over its block (searchBlocks), or null for a line without
-// geometry. The measure a line is held to is its own block's, not the whole page's: one line reaching into a column - a
-// full-width title or caption, a table or figure wider than the text, a page number - no longer widens the column's edges,
-// which would leave no line in it reaching the right edge and break every join in it. Pure.
-/** @param {any[]} lines @returns {({l:number,r:number}|null)[]} */
+const SEARCH_GUTTER=Object.freeze({MIN:8,MIDDLE:0.2,SIDE:0.25,BAR:0.1});   // searchGutter's thresholds, in PDF points and fractions
+// The white band between a page's two columns, as [x0, x1] in PDF units, or null for a page not set in two columns. Read from
+// the page's own upright lines alone - no other page, so what a page finds never depends on which pages were read before it:
+// count how many lines cover each stretch across the page, and take the widest stretch where that count stays at or under a
+// tenth of its peak (SEARCH_GUTTER.BAR), inside the text, its middle within a fifth of the text width of the text's middle, at
+// least 8pt wide, and with a quarter or more of the page's line length on each side; a page of fewer than 8 upright lines is
+// not read. The band need not be empty: a title, a
+// page-wide caption and a running head cross it. The count changes only where a line starts or ends, so it is read there and
+// a column gap is measured as wide as it is (LaTeX's default \columnsep is 10pt). Pure.
+/** @param {any[]} lines @returns {number[]|null} */
+function searchGutter(lines){const B=lines.map(L=>L.box).filter(b=>b&&b.ang===0); if(B.length<8)return null;
+  const at=[...new Set(B.flatMap(b=>[b.x0,b.x1]))].sort((a,b)=>a-b),lo=at[0],hi=at[at.length-1],d=new Map();
+  B.forEach(b=>{d.set(b.x0,(d.get(b.x0)??0)+1); d.set(b.x1,(d.get(b.x1)??0)-1);});
+  // n[k]: the lines covering the stretch from at[k] to at[k+1] - started at or before at[k] and not yet ended there
+  let c=0; const n=at.slice(0,-1).map(x=>(c+=d.get(x)??0)),bar=Math.max(1,Math.floor(SEARCH_GUTTER.BAR*Math.max(...n)));
+  let best=/** @type {number[]|null} */(null);
+  for(let k=0;k<n.length;){if(n[k]>bar){k++; continue;} let j=k; while(j<n.length&&n[j]<=bar)j++;
+    if(k>0&&j<n.length&&Math.abs((at[k]+at[j])/2-(lo+hi)/2)<=SEARCH_GUTTER.MIDDLE*(hi-lo)&&(!best||at[j]-at[k]>best[1]-best[0]))best=[at[k],at[j]]; k=j;}
+  if(!best||best[1]-best[0]<SEARCH_GUTTER.MIN)return null; const g=best,mid=(g[0]+g[1])/2;
+  const len=(/** @type {(b:any)=>boolean} */f)=>B.filter(f).reduce((s,b)=>s+b.x1-b.x0,0),all=len(()=>true);
+  return len(b=>b.x1<=mid)<SEARCH_GUTTER.SIDE*all||len(b=>b.x0>=mid)<SEARCH_GUTTER.SIDE*all?null:g;}
+// The column edges of each line, or null for a line without geometry. The measure a line is held to is its own block's
+// (searchBlocks), not the whole page's: the least x0 and the greatest x1 over that block. So one line reaching into a column
+// - a full-width title or caption, a table or figure wider than the text, a page number - does not widen the column's edges,
+// which would leave no line in it reaching the right edge and break every join in it.
+// A line wider than a column that stands within one pitch of body text is a neighbour of it, though: then its block holds
+// the body, and on a two-column page often both columns. On a page with a gutter (searchGutter), a block that holds a line
+// crossing the gutter gives each of its lines that stands on one side the edges of that side instead: the left edge of the
+// block's own lines on that side, the right edge of every line on the page standing on that side (the column's measure), both
+// held to the gutter. The column's measure and not the block's, because a list of short entries under such a line would
+// otherwise reach its own longest entry and run into the next entry (ADR-0017's rejected candidate D). The crossing line
+// keeps its block's edges, and a block that crosses nothing is as before. A column's measure says whose it is (col: 0 left,
+// 1 right) and carries the block's edges (blk), for searchJoin. Pure.
+/** @param {any[]} lines @returns {({l:number,r:number,col?:number,blk?:{l:number,r:number}}|null)[]} */
 function searchEdges(lines){const blk=searchBlocks(lines),e=/** @type {{l:number,r:number}[]} */([]);
   lines.forEach((L,i)=>{const k=blk[i]; if(k<0)return; const A=L.box;
     e[k]=e[k]?{l:Math.min(e[k].l,A.x0),r:Math.max(e[k].r,A.x1)}:{l:A.x0,r:A.x1};});
-  return lines.map((L,i)=>blk[i]<0?null:e[blk[i]]);}
+  const out=lines.map((L,i)=>blk[i]<0?null:e[blk[i]]),g=searchGutter(lines); if(!g)return out;
+  // each upright line's side of the gutter: 0 left, 1 right, 2 across it; the measure of each side, held to the gutter
+  const side=lines.map(L=>!L.box||L.box.ang!==0?-1:L.box.x1<=g[1]?0:L.box.x0>=g[0]?1:2),lo=[-Infinity,g[1]],hi=[g[0],Infinity];
+  const col=[0,1].map(s=>Math.max(...lines.filter((L,i)=>side[i]===s).map(L=>Math.min(L.box.x1,hi[s]))));
+  const crossed=new Set(lines.flatMap((L,i)=>side[i]===2&&blk[i]>=0?[blk[i]]:[])),left=new Map();
+  lines.forEach((L,i)=>{const s=side[i]; if(s>1||s<0||!crossed.has(blk[i]))return; const k=blk[i]+':'+s,x=Math.max(L.box.x0,lo[s]);
+    left.set(k,Math.min(left.get(k)??x,x));});
+  return out.map((E,i)=>{const s=side[i]; return s>1||s<0||!crossed.has(blk[i])?E:{l:/** @type {number} */(left.get(blk[i]+':'+s)),r:col[s],col:s,blk:/** @type {{l:number,r:number}} */(E)};});}
 // The break between line a and the next line b, with their column edges ea and eb (searchEdges): a SEARCH_BREAK mark. Pure.
-/** @param {any} a @param {any} b @param {{l:number,r:number}|null} ea @param {{l:number,r:number}|null} eb */
+/** @param {any} a @param {any} b @param {{l:number,r:number,col?:number,blk?:{l:number,r:number}}|null} ea @param {{l:number,r:number,col?:number,blk?:{l:number,r:number}}|null} eb */
 function searchJoin(a,b,ea,eb){const A=a.box,B=b.box; if(!A||!B||!ea||!eb||!a.plain||!b.plain||A.ang!==B.ang||Math.abs(A.size-B.size)>0.1)return SEARCH_BREAK.HARD;
+  if(ea.col!==eb.col){ea=ea.blk??ea; eb=eb.blk??eb;}   // not both on one column's measure: both on their blocks' edges
   const dy=A.y-B.y,starts=(x,e,size)=>x-e.l<=SEARCH_EDGE_PT||(x-e.l>=size&&x-e.l<=2.5*size);
   if(dy<A.size-0.01||dy>1.5*A.size+0.01||ea.r-A.x1>SEARCH_EDGE_PT||!starts(A.x0,ea,A.size)||!starts(B.x0,eb,B.size))return SEARCH_BREAK.HARD;
   if(/[-\u2010\u00AD]/.test(a.end))return SEARCH_BREAK.HYPH;
