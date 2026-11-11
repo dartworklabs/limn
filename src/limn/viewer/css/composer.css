@@ -6,7 +6,7 @@
 #c-path{color:var(--muted-foreground);font-size:var(--text-sm);overflow-wrap:anywhere}   /* a figure element's path before its code lines */
 #c-path:focus-visible{color:var(--foreground);text-decoration:underline}   /* it answers a pointer: the element's box on the page is drawn stronger (figure.js) */
 @media (hover:hover){#c-path:where(:not(:disabled,[aria-disabled="true"])):hover{color:var(--foreground);text-decoration:underline}}
-#c-page{color:var(--muted-foreground);font-size:var(--text-sm)}
+#c-page{color:var(--muted-foreground);font-size:var(--text-sm);text-box:trim-both cap alphabetic}   /* on the location's centre beside it */
 /* The PDF text a drag chose (#c-quote under the location line, a card's .quote above its note, issue #185): an icon and one
    muted line cut with an ellipsis, the whole text in the tooltip; pressed (.open) it wraps in full. The row is its 4px padding
    around 16px lines (24px, the mouse hit); touch draws 20px lines (28px) and answers 44px from the .hit utility, whose box
@@ -39,7 +39,7 @@ button.tg[aria-pressed=true]{border-color:var(--border-strong)}
 .snip-foot button{color:var(--muted-foreground);white-space:nowrap}
 #note{margin-top:var(--space-2)}
 #c-overlap{display:flex;flex-wrap:wrap;gap:var(--space-2);margin:var(--space-2) 0;font-size:var(--text-base)}   /* no box, just text + two buttons */
-#c-overlap>span{flex-basis:100%}
+#c-overlap>span{flex-basis:100%;line-height:round(1.55em,1px)}   /* a whole pixel per line (13px: 20, not 20.15) */
 #c-overlap button{flex:1 1 0;min-width:0}
 /* The action row is fixed to the bottom of the panel (visible while scrolling the list, or with the virtual keyboard up). It hides along with the composer panel closing. */
 #c-actions{flex:none;display:grid;grid-template-columns:1fr 2fr;gap:var(--space-2);padding:var(--space-2) var(--space-3);border-top:1px solid var(--border);background:var(--sidebar);z-index:3}
@@ -103,7 +103,7 @@ button.xp-row{cursor:pointer;min-width:0;justify-content:stretch}
 .xp-fold{padding:var(--space-1) var(--space-2) var(--space-1) calc(var(--space-2) + 3ch + var(--space-2));color:var(--muted-foreground);
   background:color-mix(in srgb,var(--primary) 20%,var(--code))}   /* inside the band, so the same tint and no line */
 .xp-chip{justify-self:center;display:flex;align-items:center;justify-content:center;width:var(--chip);height:var(--chip);
-  margin-top:calc((1.5em - var(--chip)) / 2);border-radius:50%;padding:0;border:0}
+  margin-top:calc((1lh - var(--chip)) / 2);border-radius:50%;padding:0;border:0}   /* on its row's first line (1lh, the row's 18px): by 1.5em a [−], a button in its own 13px, stood 0.75px under a [+] */
 .xp-chip .ic{width:16px;height:16px}
 .xp-chip.add{background:color-mix(in srgb,var(--primary) 16%,transparent);color:var(--primary)}
 .xp-chip.xp-drop{background:var(--popover);color:var(--foreground);box-shadow:inset 0 0 0 1px var(--border-strong)}

@@ -41,6 +41,7 @@ body:not(.lay-wide) #nav-side{display:none}
 #right{width:348px;min-width:280px;max-width:80vw;border-left:1px solid var(--border-seam);background:var(--sidebar);
   display:flex;flex-direction:column;flex:none;min-height:0;touch-action:pan-y pinch-zoom}   /* horizontal drags stay pointer events (the overlay's swipe); pinch keeps the browser's zoom */
 .bar{padding:var(--space-2) var(--space-3);border-bottom:1px solid var(--border-seam);display:flex;gap:var(--space-1);align-items:center;flex-wrap:wrap}
+#meta{line-height:round(1.55em,1px)}   /* a whole pixel per line (12px: 19, not 18.6): at 18.6 the chips' row and the whole list under the meta stood 0.6px between pixels */
 #bar1{flex-wrap:wrap;gap:var(--space-1);padding:var(--space-2);--tb-h:var(--control-h)}   /* wraps to two lines in a narrowed panel - so it never overflows horizontally */
 /* The desktop panel's two x-lines (docs/handbook/viewer.md §패널 정리, 4a of the cross-resolution pass). Boxes stand on the box line,
    12px in from the panel's inner edges, where the cards, the composer and the save row already stood; unboxed text and glyphs on
@@ -56,6 +57,7 @@ body.lay-wide #bar1{--stripe-in:max(0px,var(--space-1) - env(safe-area-inset-top
   padding:calc(var(--space-2) + var(--stripe-in) / 2) var(--space-3) calc(var(--space-2) - var(--stripe-in) / 2)}
 body.lay-wide .sec-head{padding-left:var(--space-6)}   /* the chevron's box on the text line: the toggle's -4px margin, 1px border and 4px padding */
 body.lay-wide .sec-head button:not(.sec-tg){padding-left:var(--space-3);padding-right:var(--space-3)}   /* a tool's label ends on the text line */
+body.lay-wide #list .arc-row{padding-left:calc(var(--space-3) + 1px)}   /* an archive row has no box: its icon on the text line, under its section's chevron (it stood on the box line, left of its own head) */
 /* The tool bar is a single height (--tb-h: 28px desktop, 44px touch). The page field is also the same height/text size as the buttons - taking the
    generic input field rule (14px, 6px padding) as-is made it 8px taller than the buttons with larger text, breaking the row's harmony (author feedback 2026-09-23). Icon buttons are square. */
 #bar1>button,#bar1>input{height:var(--tb-h)}

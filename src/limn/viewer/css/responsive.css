@@ -76,13 +76,14 @@ body.lay-wide #more .more-top{padding-top:var(--space-2)}
 #more .m-l{display:flex;flex-direction:column;justify-content:center;min-height:var(--hit);font-size:var(--text-lg);color:var(--foreground);min-width:0}
 #more .m-l small{font-size:var(--text-sm);color:var(--muted-foreground)}
 #more .m-c{display:flex;align-items:center;gap:var(--space-2);min-width:0}
-#more #m-zoom{min-width:48px;text-align:center;font-variant-numeric:tabular-nums;color:var(--foreground)}
-#more #m-actual{flex:none;font-variant-numeric:tabular-nums}   /* [100%] beside [↔]: a filled button, never read as the figure beside [−] [+] */
+#more #m-zoom{min-width:48px;text-align:center;font-variant-numeric:tabular-nums;color:var(--foreground);text-box:trim-both cap alphabetic}   /* the figure's cap height on [−] [+]'s and [100%]'s centre (0.8px over it as a line box) */
+#more #m-actual{flex:none;height:var(--control-h);font-variant-numeric:tabular-nums}   /* [100%] beside [↔]: a filled button, never read as the figure beside [−] [+] */
 body.revision-open :is(#btn-actual,#m-actual){display:none}   /* the comparison PDF's zoom is against its fitted width: no print size to go to */
 #more #m-actual .lbl{text-box:trim-both cap alphabetic}
 #more .m-row .seg{margin:0;min-width:0}
 #more .m-row .seg button{flex:1 1 0;min-width:0}
 #more #m-theme .ic{width:14px;height:14px}
+#more #m-theme button>span{text-box:trim-both cap alphabetic}   /* the word's cap height on its icon's centre (0.6px over it on a touch screen) */
 @media (max-width:359.98px){#more #m-theme .ic{display:none}}   /* under 360px the theme segments keep their words only */
 #more .more-grid{display:flex;flex-direction:column}
 #more .more-grid button,#more .more-grid .m-sw{width:100%}
@@ -103,7 +104,7 @@ body.revision-open :is(#btn-actual,#m-actual){display:none}   /* the comparison 
    times the version's on any font - and stands on the line as an inline image. It was a 20px block centred on the row, its
    x-height 2.1 times the version's: the version floated 6px above its foot. */
 #more .more-foot{display:flex;align-items:baseline;gap:var(--space-2);min-height:var(--hit);border-top:1px solid var(--border);padding-top:var(--space-1)}
-#more .more-brand{display:inline-block;color:var(--foreground);font-size:var(--text-base);line-height:var(--hit);white-space:nowrap}
+#more .more-brand{display:inline-block;height:var(--hit);color:var(--foreground);font-size:var(--text-base);line-height:var(--hit);white-space:nowrap}   /* its box is the line it asks for: the wordmark's and the version's ink shifts (--ink-word, --ink-ver) grew the line box by 0.7-0.8px, and the menu's bottom edge and a phone's whole sheet stood that far between pixels */
 #more .m-ver{color:var(--muted-foreground);font-variant-numeric:tabular-nums;vertical-align:calc(-1 * var(--ink-ver,0px))}
 #more .more-foot button{gap:var(--space-1)}
 #more .more-foot [data-act=help] .ic{transform:translateY(var(--help-chev,0px))}   /* on [도움말]'s ink centre (footInk) */

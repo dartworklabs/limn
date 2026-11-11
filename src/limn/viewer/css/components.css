@@ -89,7 +89,7 @@ input,textarea{background:var(--field);color:var(--foreground);border:1px solid 
   font:inherit;width:100%}
 input{line-height:var(--line-field)}   /* a whole number of px tall: at 12px x 1.55 the outline's search field was 36.6px and every row under it began between pixels */
 input::placeholder,textarea::placeholder{color:var(--muted-foreground)}
-textarea{resize:vertical;min-height:4.8em}
+textarea{resize:vertical;min-height:4.8em;min-height:round(4.8em,1px);line-height:round(1.55em,1px)}   /* whole pixels (14px: 67 and 22, not 67.2 and 21.7): what follows a note field starts on one */
 input.n{width:58px;text-align:center}
 /* The checkbox (docs/handbook/viewer.md §컴포넌트 규격): shadcn/ui's Checkbox in this system's tokens, the same box in every
    engine - a native box is drawn by the browser and differs in size, colour and tick between Chromium, Firefox and WebKit.

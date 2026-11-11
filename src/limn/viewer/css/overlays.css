@@ -6,7 +6,7 @@
    deeper shadow, so it reads as a box floating over the page, not one cut off at the page's edge. */
 #tip.tip-beside{border:1px solid var(--border-strong);box-shadow:var(--shadow-lg)}
 dialog{background:var(--popover);color:var(--popover-foreground);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);max-width:680px;
-  width:92vw;padding:var(--space-4) var(--space-6);max-height:88vh}
+  width:92vw;padding:var(--space-4) var(--space-6);max-height:88vh;max-height:round(down,88vh,1px)}   /* to a whole pixel: a sheet stands on the screen's bottom, so at 742.72px its top and every row in it fell between pixels */
 dialog[tabindex="-1"]:focus{outline:none}   /* the sheet itself is the first focus (showSheet), with no ring; Tab goes on to [닫기] */
 dialog::backdrop{background:var(--shadow-color)}
 dialog h2{font-size:var(--text-xl);margin:0 0 var(--space-2)}
@@ -15,8 +15,12 @@ dialog .help-steps{margin:0;padding-left:var(--space-5);font-size:var(--text-bas
 dialog .help-legend{font-size:var(--text-base)}
 dialog .help-legend+.help-legend{margin-top:var(--space-1)}
 dialog h4{margin:var(--space-4) 0 var(--space-1);font-size:var(--text-base)}
-dialog table{border-collapse:collapse;font-size:var(--text-base);width:100%}
+dialog :is(h4,li,table,.help-legend){line-height:round(1.55em,1px)}   /* a whole pixel per line (13px: 20, not 20.15): the help's rows and rules stand on whole pixels down the dialog */
+dialog table{border-collapse:separate;border-spacing:0;font-size:var(--text-base);width:100%}   /* separate: a collapsed table hangs half its 1px rule outside itself, and every row stood on a half pixel */
 dialog td{border-top:1px solid var(--border);padding:var(--space-1) var(--space-2);vertical-align:top}
+/* The help's tables share one key column, so what each key does starts on one line down the dialog: sized by its own keys,
+   each table split differently (87, 135 and 89px at 1440). A phone's sheet keeps the split its width allows. */
+body:not(.compact) #help td:first-child{width:10.5em}
 dialog code{font-size:var(--text-sm);word-break:break-all}
 .sw{display:inline-block;width:14px;height:10px;border:2px solid var(--status-open);vertical-align:middle;margin-right:var(--space-1)}
 .sw.w{border-color:var(--warning)}
@@ -40,7 +44,7 @@ dialog .help-legend .st-dot{display:inline-block;vertical-align:middle;margin:0 
 .pl-list{position:relative;display:flex;flex-direction:column;overflow:auto;overscroll-behavior:contain}
 button.pl-row{display:grid;grid-template-columns:44px minmax(0,1fr) 16px;justify-content:stretch;flex:none;gap:var(--space-2);height:var(--control-h);
   padding:0 var(--space-2);background:transparent;border:0;text-align:left;color:var(--foreground);font-size:var(--text-sm)}
-.pl-row .pl-n{font-variant-numeric:tabular-nums}
+.pl-row .pl-n{font-variant-numeric:tabular-nums;text-box:trim-both cap alphabetic}   /* on the check mark's centre */
 .pl-row .pl-s{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted-foreground)}
 /* A page with a verdict carries it before the check ('#42 채택', page-list.js): its row gets the column. */
 button.pl-row:has(>.pl-v){grid-template-columns:44px minmax(0,1fr) auto 16px}

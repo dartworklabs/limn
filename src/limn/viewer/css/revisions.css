@@ -28,7 +28,7 @@ body.lay-narrow #revision-source,body.lay-narrow #revision-pdf,body.lay-narrow #
 #revision-head h2{font-size:var(--text-sm);margin:0;white-space:nowrap}
 #revision-list{min-width:0;flex:1}
 #revision-list select{width:100%;max-width:470px;min-width:0;background:var(--sidebar);font-size:var(--text-sm)}
-#revision-note{color:var(--muted-foreground);font-size:var(--text-xs);padding:var(--space-1) var(--space-4);background:var(--sidebar)}
+#revision-note{color:var(--muted-foreground);font-size:var(--text-xs);line-height:round(1.55em,1px);padding:var(--space-1) var(--space-4);background:var(--sidebar)}
 #revision-file-row{display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-2);padding:var(--space-2) var(--space-3) 0;font-size:var(--text-sm)}
 #revision-file-row select{max-width:min(100%,500px);background:var(--sidebar)}
 /* The source diff's lines - and a card's suggested edit's (.sg-diff, suggest.css) in the same look, always wrapped. */
@@ -49,7 +49,7 @@ body.lay-narrow #revision-source,body.lay-narrow #revision-pdf,body.lay-narrow #
   color:color-mix(in srgb,var(--destructive) 75%,var(--foreground))}
 #revision-controls{display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap;padding:var(--space-1) var(--space-4);background:var(--sidebar);border-bottom:1px solid var(--border-seam)}
 #revision-controls button[aria-pressed=true]{background:var(--accent);color:var(--foreground)}
-#revision-status{font-size:var(--text-xs);color:var(--muted-foreground);padding:var(--space-1) var(--space-4);background:var(--sidebar)}
+#revision-status{font-size:var(--text-xs);line-height:round(1.55em,1px);color:var(--muted-foreground);padding:var(--space-1) var(--space-4);background:var(--sidebar)}
 #revision-warning{font-size:var(--text-xs);color:var(--warning);padding:0 var(--space-4);background:var(--sidebar)}
 #revision-warning summary{cursor:pointer}
 #revision-warning pre{white-space:pre-wrap;max-height:8em;overflow:auto;margin:var(--space-1) 0}
@@ -81,7 +81,7 @@ body.lay-narrow #revision-view[data-format=overlay] #revision-head{display:none}
 .ov-no{position:absolute;top:var(--space-2);left:var(--space-2);color:var(--muted-foreground);font-size:var(--text-xs);background:var(--card);
   padding:1px var(--space-2);border-radius:var(--radius-sm);box-shadow:var(--shadow-sm);line-height:1.5}
 #revision-zoom{display:flex;align-items:center;gap:var(--space-1);margin-left:auto}
-#revision-zoom-value{min-width:4ch;text-align:center;font-size:var(--text-sm);font-variant-numeric:tabular-nums}
+#revision-zoom-value{min-width:4ch;text-align:center;font-size:var(--text-sm);font-variant-numeric:tabular-nums;text-box:trim-both cap alphabetic}   /* the figure on its buttons' centre, as [더보기]'s */
 /* Comparing two commits (issue #188, docs/handbook/viewer.md §변경 보기): the quick range (#revision-range, the one segmented
    control) in the header, and the commit list (#revision-commits) beside the changes - a 304px column on a wide screen, above
    them on the phone (responsive.css). Each row is a commit on one rail, newest first: the range's rows ride a primary rail, its
@@ -97,7 +97,7 @@ body.lay-narrow #revision-view[data-format=overlay] #revision-head{display:none}
 #revision-pane{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column}
 #revision-commits{flex:none;width:304px;display:flex;flex-direction:column;min-height:0;overflow:auto;background:var(--sidebar);
   border-right:1px solid var(--border)}
-.rc-head{padding:var(--space-2) var(--space-3);font-size:var(--text-xs);color:var(--muted-foreground);border-bottom:1px solid var(--border)}
+.rc-head{padding:var(--space-2) var(--space-3);font-size:var(--text-xs);line-height:round(1.55em,1px);color:var(--muted-foreground);border-bottom:1px solid var(--border)}
 .rc-list{display:flex;flex-direction:column}
 button.rc-row{position:relative;display:flex;align-items:stretch;justify-content:flex-start;gap:var(--space-2);width:100%;min-height:var(--row-h);
   padding:0 var(--space-3) 0 0;border:0;border-radius:0;background:transparent;color:var(--foreground);text-align:left;font-weight:400}
