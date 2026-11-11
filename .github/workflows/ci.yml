@@ -329,7 +329,8 @@ jobs:
       # The same apt settings as the browser parts' (see browser.yml).
       - name: Point apt at the main Ubuntu archive
         run: |
-          printf '%s\n' 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          printf '%s\tpriority:%s\n' 'https://archive.ubuntu.com/ubuntu/' 1 'http://azure.archive.ubuntu.com/ubuntu/' 2 \
+            | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
           printf '%s\n' 'Acquire::Retries "3";' 'Acquire::https::Timeout "30";' 'Acquire::http::Timeout "30";' \
             | sudo tee /etc/apt/apt.conf.d/80-ci-timeouts >/dev/null
       - name: Install TeX, Poppler and bubblewrap

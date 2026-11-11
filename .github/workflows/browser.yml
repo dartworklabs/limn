@@ -87,11 +87,14 @@ jobs:
           path: ${{ runner.temp }}/browser-test-font
           key: ${{ steps.test-font.outputs.cache-primary-key }}
       # `install-deps` installs with apt-get. The image lists a regional Azure mirror first, which has served a whole
-      # install at about 30 kB/s; use the main archive only, and give up on a stalled connection after 30 seconds rather
-      # than waiting on it. ci.yml's tex job does the same before its apt-get.
+      # install at about 30 kB/s; put the main archive first, and give up on a stalled connection after 30 seconds
+      # rather than waiting on it. The Azure mirror stays as the second choice: with the main archive alone, a day it
+      # did not resolve (`Temporary failure resolving 'archive.ubuntu.com'`) failed every part before a test ran.
+      # ci.yml's tex job does the same before its apt-get.
       - name: Point apt at the main Ubuntu archive
         run: |
-          printf '%s\n' 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          printf '%s\tpriority:%s\n' 'https://archive.ubuntu.com/ubuntu/' 1 'http://azure.archive.ubuntu.com/ubuntu/' 2 \
+            | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
           printf '%s\n' 'Acquire::Retries "3";' 'Acquire::https::Timeout "30";' 'Acquire::http::Timeout "30";' \
             | sudo tee /etc/apt/apt.conf.d/80-ci-timeouts >/dev/null
       # The Chromium classes run the image's Google Chrome: tests/support/helpers_browser.py takes it before
@@ -152,7 +155,8 @@ jobs:
         run: uv sync --group dev --locked
       - name: Point apt at the main Ubuntu archive
         run: |
-          printf '%s\n' 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          printf '%s\tpriority:%s\n' 'https://archive.ubuntu.com/ubuntu/' 1 'http://azure.archive.ubuntu.com/ubuntu/' 2 \
+            | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
           printf '%s\n' 'Acquire::Retries "3";' 'Acquire::https::Timeout "30";' 'Acquire::http::Timeout "30";' \
             | sudo tee /etc/apt/apt.conf.d/80-ci-timeouts >/dev/null
       - name: Install Firefox and WebKit
