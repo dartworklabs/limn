@@ -600,6 +600,7 @@ function drawOffers(focus){NOTICES.forEach(n=>{
 function drawChips(){NOTICES.forEach(n=>{if(n.place!==NOTICE_PLACE.CHIP)return;
   const k=/** @type {HTMLElement|null} */(document.querySelector('.mark[data-pin="'+n.pin+'"]')||document.querySelector('#doc .pv[data-pin="'+n.pin+'"]'));   // a page verdict line shows its pin instead of a mark
   if(!k){if(!n.pending)offerToLine(n); return;}
+  if(k.classList.contains('mark'))marksShow();   // an undo on a mark shows the marks (marks-hide.js)
   const f=noticeFocus(),e=noticeEl(n,'nt-chip'); if(e.parentNode!==k)k.appendChild(e); e.style.left=''; e.style.right=''; e.style.maxWidth='';
   chipInRoom(e,k); noticeRefocus(f);});
   chipsClearOfBar();}

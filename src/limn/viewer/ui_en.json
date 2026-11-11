@@ -1706,5 +1706,13 @@
  "카드에서 확인": "Confirm from its card",
  "고르기를 끝내고 이 핀의 카드로 갑니다. 카드에서 결과를 보고 확인하세요": "Ends the pick and goes to this pin's card. Look at the result there and confirm",
  "고른 핀을 확인해 완료로 옮깁니다. 6초 안에 되돌릴 수 있습니다": "Confirms the picked pins and moves them to done. You can undo it for 6 seconds",
- "{ids} 다시 닫힘(새 결과를 보고 확인)": "{ids} closed again (look at the new result, then confirm)"
+ "{ids} 다시 닫힘(새 결과를 보고 확인)": "{ids} closed again (look at the new result, then confirm)",
+ "핀 표시": "Pin marks",
+ "핀 표시가 숨겨져 있습니다. 누르면 다시 보입니다 (H)": "The pin marks are hidden. Click to show them again (H)",
+ "누르면 쪽 위의 핀 표시를 숨깁니다. 핀과 카드는 그대로입니다 (H)": "Click to hide the pin marks on the pages. The pins and their cards stay as they are (H)",
+ "핀 표시를 숨겼습니다": "Pin marks hidden",
+ "다시 보이기": "Show again",
+ "쪽 위의 핀 표시를 다시 보입니다 (H)": "Shows the pin marks on the pages again (H)",
+ "핀 표시를 다시 보입니다": "Pin marks shown again",
+ "쪽 위의 핀 표시를 숨기고 다시 보입니다. 누르고 있으면 누르는 동안만 바뀝니다. 핀과 카드는 그대로입니다 (입력 칸 밖에서)": "Hides the pin marks on the pages and shows them again. Held down, it changes them only while it is down. The pins and their cards stay as they are (outside an input field)"
 }

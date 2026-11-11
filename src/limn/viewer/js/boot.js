@@ -76,6 +76,7 @@ function viewerBlocked(){if(!isViewer())return false; bannerNote(undefined,'보�
 // from source. Reads META only and sends nothing.
 function drawMeta(){
   document.body.classList.toggle('no-rebuild',!buildsFromSource(META.kind));   // only a LaTeX document builds from source; a view-only PDF and a figure redraw when their files change
+  document.body.classList.toggle('fig-doc',isFigureKind(META.kind));   // a figure document's marks are a frame with no tint (components.css)
   document.body.classList.toggle('md-surface',isMdDoc()); mdHint();   // a Markdown document: no pages, so the page-only controls hide (md-surface.css)
   $('#left').setAttribute('aria-label',tr(isMdDoc()?(isTextDoc()?'텍스트 문서':'Markdown 문서'):'PDF 쪽'));   // the document area's name says what it holds
   document.body.classList.toggle('role-viewer',isViewer());

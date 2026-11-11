@@ -496,6 +496,7 @@ function jumpPin(id){if(viaDoc(id,jumpPin))return; const p=PINS.find(x=>x.id===i
     opening.then(()=>{if(DOC===k&&visit===SWITCHSEQ)jumpPin(id);});} return;}
   if(document.body.classList.contains('revision-open'))setViewMode(VIEW_MODE.MANUSCRIPT);
   if(jumpPv(id))return;   // a pin its page verdict line shows: the line
+  marksShow();   // the way to a mark shows the marks (marks-hide.js)
   if(LAYOUT===LAYOUT_MODE.NARROW)setSide(false);   // collapsed first so the sheet doesn't cover the page, then measured
   if(isMdDoc()){mdJump(id); return;}   // its first line on the Markdown surface
   const m=/** @type {HTMLElement} */(document.querySelector('.mark[data-pin="'+id+'"]'));
