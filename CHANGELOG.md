@@ -2,7 +2,22 @@
 
 ## Unreleased
 
+### Added
+
+- **The pin marks can be taken off the page for a look at what is under them.** A mark lies over what it marks - a
+  frame, an 8% tint and a badge on a PDF page, a tinted line and a gutter badge on the Markdown and text surfaces - so a
+  pinned figure was seen through its mark, and the only ways to see it bare were to confirm the pin or leave for the
+  changes view. `H` (outside an input field, an open dialog and the changes view) now switches the marks off and on; held for longer than 350 ms it flips
+  them only while it is down. [⋯] has a `핀 표시` (`Pin marks`) switch for a touch screen. While they are off the status
+  line says `핀 표시를 숨겼습니다 [다시 보이기]`, and a card's [보기], which goes to a pin's mark, brings them back. A save's or an append's undo chip
+  stays on show where its mark is, with the marks still off. Off is never stored - a reload shows every mark - and nothing is
+  sent: the pins and their cards are as they were.
+
 ### Changed
+
+- **A figure document's marks no longer tint the figure.** A figure is judged by its colours, and a review mark's 8%
+  tint showed white as `#f3eefc` and a pale yellow `#fff3b0` as `#f3e3b3`. On a figure document a mark is now its 2px
+  frame and badge only. Marks on a LaTeX document and a view-only PDF keep their tint.
 
 - **Search finds the sentences above a line wider than the column again** (ADR-0038). A line wider than the column
   standing within one line pitch of body text - a publisher's download stamp at the foot of the page, a rule drawn in

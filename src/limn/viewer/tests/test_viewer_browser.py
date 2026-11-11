@@ -2357,6 +2357,35 @@ class FigureDocuments(BrowserBase):
         self.assert_box(page, mark, 1, moved)
         self.assertEqual(page.evaluate("s=>[...document.querySelector(s).classList]", mark), ["mark"])
 
+    def test_a_figure_documents_mark_is_a_frame_with_no_tint_over_the_figure(self):
+        """A figure is judged by its colours, so the mark of a pin on a figure document paints nothing over what it
+        marks: its background is transparent and its 2px frame and badge stay. On the manuscript the same mark keeps
+        its tint (test_viewer_marks_hide reads it there)."""
+        page = self.open_fig()
+        pid = self.saved_cell_pin(page, "7월 칸 색 고치기")
+        got = page.evaluate(
+            """s=>{const m=document.querySelector(s),c=getComputedStyle(m);
+            return [c.backgroundColor,c.borderTopWidth,c.borderTopStyle,getComputedStyle(m.querySelector('.mark-jump')).visibility];}""",
+            '.mark[data-pin="%d"]' % pid,
+        )
+        self.assertEqual(got, ["rgba(0, 0, 0, 0)", "2px", "solid", "visible"])
+        self.assertTrue(page.evaluate("document.body.classList.contains('fig-doc')"))
+        # the mark of a pin awaiting review (purple) and of a lost element (warning) are frames too
+        for state in ("rv", "st"):
+            with self.subTest(state=state):
+                self.assertEqual(
+                    page.evaluate(
+                        """([s,c])=>{const m=document.querySelector(s); m.classList.add(c);
+                        const g=getComputedStyle(m).backgroundColor; m.classList.remove(c); return g;}""",
+                        ['.mark[data-pin="%d"]' % pid, state],
+                    ),
+                    "rgba(0, 0, 0, 0)",
+                )
+        page.evaluate("async()=>await switchDoc('ms')")
+        page.wait_for_function("DOC==='ms'", timeout=8000)
+        settle(page)
+        self.assertFalse(page.evaluate("document.body.classList.contains('fig-doc')"))
+
     def test_a_mark_whose_element_moved_to_page_2_is_drawn_and_counted_there(self):
         """The cell moves to page 2: its mark is drawn there, the card's page link says 2쪽, and [보기] brings the mark
         on screen."""

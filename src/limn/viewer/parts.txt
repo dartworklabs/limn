@@ -80,6 +80,7 @@ js/card-parts.js        # what a card is built from: people, badges, claims, @-t
 js/cards.js             # the open and review card, archive and Trash rows, the Trash dialog
 js/review-pick.js       # confirming several pins awaiting review from their result rows (ADR-0035)
 js/list.js              # loading pins, list sections, drawPins, marks on the PDF, jumping to a pin or card
+js/marks-hide.js        # taking the pin marks off the page for a look: the H key (switch, or a look while held), [더보기]'s switch, the reminder
 js/actions.js           # close, confirm, reopen, drop, purge, restore, unclaim
 js/mentions.js          # @-tag autocomplete, preview and the assignee choice
 js/reply.js             # the reply box and its outcome line
