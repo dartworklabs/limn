@@ -3,8 +3,9 @@
 // and text surfaces - so a pinned figure is seen through the mark. To judge how it was fixed the marks can be taken off:
 // - H, pressed and let go, turns them off, and on again; held, it flips them only for as long as it is down (MARKS_HOLD_MS).
 // - [더보기]'s switch [핀 표시] does the same on a touch screen; it closes the sheet so the page shows.
-// While they are off the status line says so and offers [다시 보이기]. They come back by themselves when a mark has
-// something to show: a [보기] that goes to a pin's mark, and a save's or an append's undo chip, which sits on its mark.
+// While they are off the status line says so and offers [다시 보이기]. A card's [보기], which goes to a pin's mark, brings
+// them back. A save's or an append's undo chip sits on its mark and stays on show there, the marks still off
+// (components.css).
 // Off is this page's state only (never stored): a reload shows every mark.
 // Only the marks go. The pins, the cards, the page verdict lines and the selection box are as they were.
 const MARKS={off:false,held:/** @type {{code:string,at:number}|null} */(null)};
@@ -20,19 +21,23 @@ function marksKey(e){if(e.ctrlKey||e.metaKey||e.altKey||e.shiftKey)return false;
 /** @param {boolean} off @param {number} ms @returns {boolean} */
 function marksAfterPress(off,ms){return ms>=MARKS_HOLD_MS?off:!off;}
 // Shows the page with or without its marks, for now: the class the styles read (components.css, md-surface.css). The
-// state itself (MARKS.off), the switch and the reminder are marksSet's.
+// state itself (MARKS.off), the switch and the reminder are marksSet's. A hidden badge gives up the focus.
 /** @param {boolean} off */
-function marksLook(off){document.body.classList.toggle('marks-off',off);}
+function marksLook(off){const a=/** @type {HTMLElement|null} */(document.activeElement);
+  // A badge with the focus would keep it unseen: the focus goes to the document area, as after a search (searchToPage).
+  if(off&&a&&a.closest&&a.closest('.mark,.md-badges')&&!a.closest('.nt-chip'))searchToPage();
+  document.body.classList.toggle('marks-off',off);}
 // Paints [더보기]'s switch from the state: on while the marks show.
 function drawMarksSwitch(){const m=$('#m-marks'); m.setAttribute('aria-checked',String(!MARKS.off));
   m.dataset.tip=MARKS.off?'핀 표시가 숨겨져 있습니다. 누르면 다시 보입니다 (H)':'누르면 쪽 위의 핀 표시를 숨깁니다. 핀과 카드는 그대로입니다 (H)';}
 // Turns the marks off or on for good: the look, the switch, and the status line's reminder - put there when they go off,
-// taken away when they come back. Says the change to a screen reader (the reminder reads itself). No request is sent.
+// taken away when they come back; the line's cap never pushes it off (keep), and closed with its [x] it leaves the marks off
+// with the switch as their trace. Says the change to a screen reader (the reminder reads itself). No request is sent.
 /** @param {boolean} off */
 function marksSet(off){const was=MARKS.off; MARKS.off=off; MARKS.held=null; marksLook(off); drawMarksSwitch();
-  if(off)lineNote('핀 표시를 숨겼습니다',NOTICE_KIND.INFO,{label:'다시 보이기',tip:'쪽 위의 핀 표시를 다시 보입니다 (H)',fn:()=>marksSet(false)},{life:NOTICE_LIFE.STICKY,source:MARKS_SOURCE});
+  if(off)lineNote('핀 표시를 숨겼습니다',NOTICE_KIND.INFO,{label:'다시 보이기',tip:'쪽 위의 핀 표시를 다시 보입니다 (H)',fn:()=>marksSet(false)},{life:NOTICE_LIFE.STICKY,source:MARKS_SOURCE,keep:true});
   else{sourceOk(MARKS_SOURCE); if(was)quietNote('핀 표시를 다시 보입니다');}}
-// The marks come back because one of them has something to show (a [보기], an undo chip). Nothing when they already show.
+// The marks come back because the way leads to one of them (a card's [보기]). Nothing when they already show.
 function marksShow(){if(MARKS.off||MARKS.held)marksSet(false);}
 // The marks key goes down: the marks flip at once, so a look starts with the press. Not in a text field, under a dialog or
 // in the changes view (no marks there), and a repeat of a held key is the same press.

@@ -7,10 +7,10 @@
 - **The pin marks can be taken off the page for a look at what is under them.** A mark lies over what it marks - a
   frame, an 8% tint and a badge on a PDF page, a tinted line and a gutter badge on the Markdown and text surfaces - so a
   pinned figure was seen through its mark, and the only ways to see it bare were to confirm the pin or leave for the
-  changes view. `H` (outside an input field) now switches the marks off and on; held for longer than 350 ms it flips
+  changes view. `H` (outside an input field, an open dialog and the changes view) now switches the marks off and on; held for longer than 350 ms it flips
   them only while it is down. [⋯] has a `핀 표시` (`Pin marks`) switch for a touch screen. While they are off the status
-  line says `핀 표시를 숨겼습니다 [다시 보이기]`, and they come back by themselves when one has something to show: a
-  card's [보기], and a save's or an append's undo chip. Off is never stored - a reload shows every mark - and nothing is
+  line says `핀 표시를 숨겼습니다 [다시 보이기]`, and a card's [보기], which goes to a pin's mark, brings them back. A save's or an append's undo chip
+  stays on show where its mark is, with the marks still off. Off is never stored - a reload shows every mark - and nothing is
   sent: the pins and their cards are as they were.
 
 ### Changed
@@ -33,6 +33,8 @@
   HTTP API, `pins.md` and stored pins do not change.
 
 ## 0.4.57 — 2026-11-09
+
+### Changed
 
 - **A formula written over a source line end is drawn too** (ADR-0037). 0.4.56 left one kind of formula as characters
   although KaTeX could have drawn it: an inline formula the writer wrapped at a line end (`$a_1 +` ⏎ `b_2$`). The parse

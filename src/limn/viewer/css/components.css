@@ -137,6 +137,7 @@ input.n{width:58px;text-align:center}
 body.fig-doc .mark{background:none}
 /* The marks taken off for a look at the page itself (marks-hide.js): not drawn, not pressed, not read. */
 body.marks-off .mark{visibility:hidden}
+body.marks-off .mark>.nt-chip{visibility:visible}   /* an undo keeps its place, where its mark is, and can be pressed */
 /* The badge's number is trimmed to its cap height (text-box), which the button centres in the circle: as a line box the
    digit stood 0.5-0.75px over the middle. */
 .mark button.mark-jump{position:absolute;top:-2px;left:-24px;background:var(--status-open);color:var(--status-open-foreground);border-radius:50%;

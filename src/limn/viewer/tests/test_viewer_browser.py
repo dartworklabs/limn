@@ -2370,6 +2370,17 @@ class FigureDocuments(BrowserBase):
         )
         self.assertEqual(got, ["rgba(0, 0, 0, 0)", "2px", "solid", "visible"])
         self.assertTrue(page.evaluate("document.body.classList.contains('fig-doc')"))
+        # the mark of a pin awaiting review (purple) and of a lost element (warning) are frames too
+        for state in ("rv", "st"):
+            with self.subTest(state=state):
+                self.assertEqual(
+                    page.evaluate(
+                        """([s,c])=>{const m=document.querySelector(s); m.classList.add(c);
+                        const g=getComputedStyle(m).backgroundColor; m.classList.remove(c); return g;}""",
+                        ['.mark[data-pin="%d"]' % pid, state],
+                    ),
+                    "rgba(0, 0, 0, 0)",
+                )
         page.evaluate("async()=>await switchDoc('ms')")
         page.wait_for_function("DOC==='ms'", timeout=8000)
         settle(page)

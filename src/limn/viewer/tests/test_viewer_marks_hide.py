@@ -215,9 +215,9 @@ class MarksHide(BrowserBase):
         self.assertEqual(self.shown(page), {self.one: True, self.two: True})
         self.assertEqual(page.evaluate("LINE.filter(n=>n.title==='핀 표시를 숨겼습니다').length"), 0)
 
-    def test_a_new_pins_undo_chip_brings_the_marks_back(self):
-        """With the marks off a pin is saved: its undo chip sits on its mark, so the marks show again and the chip with
-        them."""
+    def test_a_new_pins_undo_chip_shows_on_its_hidden_mark_and_the_marks_stay_off(self):
+        """With the marks off a pin is saved: its undo chip is shown where its mark is and can be pressed, the marks
+        stay off - also after the pins are read and drawn again - and pressing [되돌리기] takes the pin back."""
         page = self.view()
         self.tap(page)
         box = page.evaluate(
@@ -233,9 +233,51 @@ class MarksHide(BrowserBase):
         page.click("#btn-save")
         page.wait_for_function("OPEN_ALL.some(p=>p.note==='새 핀')", timeout=8000)
         settle(page)
-        self.assertTrue(all(self.shown(page).values()))
-        self.assertEqual(page.evaluate(SWITCH), "true")
+        chip = page.locator(".mark > .nt-chip")
+        self.assertTrue(chip.is_visible())
+        self.assertFalse(any(self.shown(page).values()))
+        page.evaluate("async()=>{await loadPins(); marks();}")
+        settle(page)
+        self.assertEqual(
+            (any(self.shown(page).values()), page.evaluate(SWITCH), chip.is_visible()), (False, "false", True)
+        )
+        chip.locator("button.nt-act").click()
+        page.wait_for_function("!OPEN_ALL.some(p=>p.note==='새 핀')", timeout=8000)
+        self.assertFalse(any(self.shown(page).values()))
+
+    def test_a_chip_already_on_its_mark_stays_when_h_takes_the_marks_off(self):
+        """A pin is saved with the marks on and H pressed inside its undo window: the chip stays shown on its hidden
+        mark."""
+        page = self.view()
+        box = page.evaluate(
+            "(()=>{const r=document.getElementById('p1').getBoundingClientRect();return [r.left,r.top,r.width,r.height];})()"
+        )
+        x, y = box[0] + box[2] * 0.25, box[1] + box[3] * 0.75
+        page.mouse.move(x, y)
+        page.mouse.down()
+        page.mouse.move(x + box[2] * 0.3, y + box[3] * 0.05, steps=6)
+        page.mouse.up()
+        page.wait_for_function("!!COMPOSE.current", timeout=8000)
+        page.locator("#note").fill("새 핀")
+        page.click("#btn-save")
+        page.wait_for_function("OPEN_ALL.some(p=>p.note==='새 핀')", timeout=8000)
+        settle(page)
+        page.evaluate("document.activeElement&&document.activeElement.blur()")
+        self.tap(page)
+        self.assertFalse(any(self.shown(page).values()))
         self.assertTrue(page.locator(".mark > .nt-chip").is_visible())
+
+    def test_a_badge_with_the_focus_gives_it_to_the_document_area_when_the_marks_go(self):
+        """The focus is on a mark's badge and H takes the marks off: the focus is on the PDF area, not on a badge
+        nobody can see; with the marks back the badge is a Tab stop again."""
+        page = self.view()
+        page.focus('.mark[data-pin="%d"] .mark-jump' % self.one)
+        self.tap(page)
+        self.assertEqual(page.evaluate("document.activeElement.id"), "left")
+        self.tap(page)
+        self.assertEqual(
+            page.evaluate("s=>document.querySelector(s).tabIndex", '.mark[data-pin="%d"] .mark-jump' % self.one), 0
+        )
 
     def test_the_switch_in_more_takes_the_marks_off_on_a_phone(self):
         """On a phone [더보기]'s [핀 표시] switch is on; pressed, the sheet closes, the marks are off and the switch off;
