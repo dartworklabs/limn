@@ -192,7 +192,7 @@ body.compact #trash-link{display:none}   /* compact: the Trash is in [⋯], like
 .thread{display:flex;flex-direction:column;gap:var(--space-2)}
 .thread:empty{display:none}
 .msg{display:flex;align-items:flex-start;gap:var(--space-2);font-size:var(--text-base);line-height:1.5}
-:is(.msg,.cmt)>.av{width:20px;height:20px;margin-top:1px}
+:is(.msg,.cmt)>.av{width:20px;height:20px;margin-top:-1px}   /* its centre on the head line's (18px), where the writer's name is: at +1px it stood 2px under the name */
 .msg-b{flex:1;min-width:0}
 /* A card's comment and its thread (docs/handbook/viewer.md §패널 정리 핀 카드, §스레드와 검토). The first comment has a reply's
    shape: the avatar's column, then its head with the note and what belongs to the note, so they stand on the reply text's left
@@ -218,7 +218,7 @@ body.compact #trash-link{display:none}   /* compact: the Trash is in [⋯], like
    what happened on the line under its name and time. */
 .tl .msg.ev{display:flex;padding-left:0;font-size:var(--text-base)}
 .ev-l{color:var(--muted-foreground);font-size:var(--text-sm);overflow-wrap:anywhere}
-.ev-dot{flex:none;display:grid;place-items:center;width:20px;height:20px}
+.ev-dot{flex:none;display:grid;place-items:center;width:20px;height:20px;margin-top:-1px}   /* the dot on its head line's centre, as an avatar */
 .ev-dot::before{content:"";width:10px;height:10px;border-radius:50%;background:var(--muted-foreground)}
 .ev-close .ev-dot::before{background:var(--status-closed)}
 .ev-reopen .ev-dot::before{background:var(--status-warning)}
@@ -248,7 +248,7 @@ button.th-more{align-self:flex-start;color:var(--muted-foreground)}
 @media (hover:hover){.th-n:where(:not(:disabled,[aria-disabled="true"])):hover{background:var(--accent);color:var(--foreground)}}
 .th-n .ic{width:12px;height:12px}
 .reply-box{display:flex;flex-direction:column;gap:var(--space-2);margin-top:var(--space-2)}
-.reply-box textarea{min-height:3.2em}
+.reply-box textarea{min-height:3.2em;min-height:round(3.2em,1px)}   /* a whole pixel (13px: 42, not 41.6) */
 .r-acts{display:grid;grid-template-columns:1fr 2fr;gap:var(--space-2)}
 .pin:has(.reply-box)>.acts{display:none}   /* while the input field is open, its own [취소]/[보내기] act as this card's action row - otherwise the two rows overlapped */
 /* The reply outcome line (docs/handbook/viewer.md §스레드와 검토): on a closed pin, one line under the box says what sending will do -
@@ -271,14 +271,18 @@ button.th-more{align-self:flex-start;color:var(--muted-foreground)}
 .edit .e-cap{margin:0 0 var(--space-1)}   /* the line range (.e-range) never wraps character by character (.rg-cap) */
 .pg-link{color:var(--primary);font-size:var(--text-sm);cursor:pointer}
 .au{display:inline-flex;align-items:center;flex:none}
-/* The person on the meta row (#me, boot.js): the avatar and the name stand --space-2 apart, as a comment's avatar and its
-   writer do, and the name is the size of the meta text beside it. With no rule of its own the name touched the avatar (0px)
-   and took the body's size, 2px over the row's. A name longer than the row ends in an ellipsis. */
-#me{gap:var(--space-2);font-size:var(--text-sm);flex:0 1 auto;min-width:0}
-#me .au-n{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* The person on the meta row (#me, boot.js), at the row's end: the avatar is the chips' height (20px) and stands --space-2
+   from the name, as a comment's avatar and its writer do; the name is the meta text's size, and its cap height stands on the
+   avatar's centre (trimmed, so the row centres the letters, not their line box - the padding keeps a Hangul name's ink inside
+   the box that cuts a long name to an ellipsis). With no rule of its own the name touched the avatar (0px) in the body's size,
+   2px over the row's, on a 22px avatar beside 20px chips. */
+#me{gap:var(--space-2);font-size:var(--text-sm);flex:0 1 auto;min-width:0;margin-left:auto}
+#me .av{width:20px;height:20px}
+#me .au-n{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-box:trim-both cap alphabetic;padding-block:var(--space-1)}
 .av{width:22px;height:22px;border-radius:50%;flex:none;object-fit:cover}
 .av.i{display:inline-flex;align-items:center;justify-content:center;background:var(--primary);color:var(--primary-foreground);
   font-size:var(--text-xs);font-weight:700;font-style:normal}
+.av-l{text-box:trim-both cap alphabetic}   /* the initial's cap height on the circle's centre: as a line box it stood 1px over it */
 .av.agent{background:var(--accent);color:var(--muted-foreground)}
 .av.agent .ic{width:13px;height:13px}
 .me-tag{color:var(--muted-foreground);font-weight:400}

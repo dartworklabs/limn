@@ -3,14 +3,15 @@
 function who(a){if(a&&a.login===LOCAL_LOGIN)return tr(a.name||'로컬/에이전트'); return (a&&(a.name||a.login))||'';}   // the stored local name is Korean ('로컬/에이전트'); shown in the UI language
 const BADPIC=new Set();   // an avatar URL that has already failed is never requested again (otherwise console errors would pile up on every re-render)
 // A person = a photo or an initial circle (primary color); local/agent = a faded circle with a robot icon - distinguishes people from agents at a glance.
+// The initial is in a box of its own (.av-l): trimmed to its cap height, so the circle centres the letter and not its line box.
 function isAgent(a){return !!a&&(a.login===LOCAL_LOGIN||String(a.login).startsWith('agent:'));}
 function avatar(a){if(!a||!(a.name||a.login))return html``; if(isAgent(a))return html`<span class="av i agent" aria-hidden="true">${ic('bot')}</span>`;
   const ini=(who(a).trim()[0]||'?').toUpperCase();
   return a.pic&&!BADPIC.has(a.pic)?html`<img class="av" src="${a.pic}" alt="" referrerpolicy="no-referrer" data-ini="${ini}">`
-    :html`<span class="av i" aria-hidden="true">${ini}</span>`;}
+    :html`<span class="av i" aria-hidden="true"><span class="av-l">${ini}</span></span>`;}
 document.addEventListener('error',e=>{const t=/** @type {HTMLImageElement} */(e.target);
   if(t&&t.tagName==='IMG'&&t.classList.contains('av')){BADPIC.add(t.getAttribute('src')); const s=document.createElement('span');s.className='av i';
-    s.textContent=t.dataset.ini||'?';t.replaceWith(s);}},true);
+    const l=document.createElement('span');l.className='av-l';l.textContent=t.dataset.ini||'?';s.append(l);t.replaceWith(s);}},true);
 /** @param {Pin} p */
 function authorTip(p){let s=tl('작성: {name} · {at}',{name:p.author?who(p.author):tr('기록 전'),at:p.at||'?'});
   if(p.edited_at)s+=' / '+tl('수정: {name} · {at}',{name:who(p.edited_by)||tr('기록 전'),at:p.edited_at}); return s;}

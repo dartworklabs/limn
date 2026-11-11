@@ -54,6 +54,9 @@ button.sec-tg{display:inline-flex;align-items:center;gap:var(--space-1);min-widt
    marker goes under the verdict badge and [답글] stays at the first line's end, never on a line of its own. */
 .arc-head{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1);min-width:0}
 .arc-l1 .n{font-weight:700}
+/* The row's words on one centre, the icon's and [답글]'s: each is its cap height (three sizes and two faces as line boxes put the
+   time 1.1px over the centre and the line range 0.5px under it, 1.7px apart). */
+:is(.arc-l1,.arc-l1b)>:is(.n,.loc,.rt){text-box:trim-both cap alphabetic}
 :is(.arc-l1,.arc-l1b) .loc{font-size:var(--text-sm)}
 .arc-ref{flex:0 1 auto;min-width:0;line-height:16px;padding:0 var(--space-1);max-width:120px;overflow:hidden;text-overflow:ellipsis}
 .arc-t{flex:none;font-size:var(--text-xs);white-space:nowrap}   /* the timestamp is never truncated - it's a short relative time so it's always readable (it used to become '09-24 1...') */

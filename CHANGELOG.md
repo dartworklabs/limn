@@ -4,16 +4,29 @@
 
 ### Changed
 
-- **Four places in the viewer that stood off its own spacing rules are put on them.** Found by measuring the screens at
-  the seven device sizes, in Korean and English. (1) On the desktop panel's meta row the person's name touched the
-  avatar (0px) and was drawn in the body's 14px beside 12px text: it now stands 8px from the avatar, as a comment's
-  writer does, in the row's 12px, and a name longer than the row ends in an ellipsis. (2) A card head's reply count stood
-  2px from its icon, the one icon and label pair under the 4px every other keeps: 4px. (3) On the desktop panel a done
-  row's icon stood on the box line, 13px left of its own section's chevron: a row without a box now starts on the text
-  line, its icon under the chevron and its number under the section's name. (4) The help's three tables each sized their
-  key column by their own keys (87, 135 and 89px at 1440), so the explanations started at three places: on the desktop's
-  centred help they share one column. No behaviour, wording or control changes, and nothing changes on a phone's sheet
-  but the reply count's 2px. The agent contract is unchanged.
+- **The viewer's rows stand on whole pixels and their words on their icons' centres.** The owner found the person's name
+  on the desktop panel off its avatar and the details unsteady; measured at the ink, the cause was mostly one line. The
+  meta text at the top of the panel had an 18.6px line, so the chips' row and the whole pin list under it stood 0.6px
+  between pixels: boxes and icons are drawn on whole pixels and letters where they fall, and the two came apart by up
+  to a pixel in every card. That line is 19px now, and the list is on whole pixels. The same holds for the note field
+  (67 and 22px, not 67.2 and 21.7), the composer's overlap line, the changes view's caption, status and commit head
+  lines, the help's rows (its rules are the cells' own - a collapsed table hung half a pixel outside itself), a
+  dialog's greatest height (a phone's sheet stood on a fraction of 88vh), the section strip (its contents centre in an
+  even 36px) and the [⋯] menu's foot (its bottom edge, and a phone's whole sheet, stood 0.7-0.8px off).
+- **The person on the meta row is a part of the row.** The name touched the avatar (0px) in the body's 14px beside
+  12px text, on a 22px avatar beside 20px chips, 0.7-0.9px over the avatar's centre, right after the review chip.
+  The person now ends the row; the avatar is the chips' 20px; the name stands 8px from it in 12px with its cap height
+  on the avatar's centre; a long name ends in an ellipsis.
+- **A comment's avatar is on its writer's line.** In a card's thread the avatar stood 2px, and a record's dot 1px,
+  under the centre of the name beside it: both are on it. An avatar's initial is on the circle's centre (1px over it).
+- **Smaller ones.** In the [⋯] menu [100%] is as tall as [−] and [+] (19 against 28px) and the zoom figure is on their
+  centre. A done row's number, line range and time are on one centre (the time stood 1.1px over it, the range 0.5px
+  under), and on the desktop panel the row starts on the text line, under its section's chevron (13px left of it
+  before). In the excerpt a [−] stands where a [+] does on its line (0.75px under). A card head's reply count stands
+  4px from its icon (2px). The help's tables share one key column on the centred dialog (87, 135 and 89px before), so
+  the explanations start on one line.
+
+No behaviour, wording or control changes. The agent contract is unchanged.
 
 ## 0.4.58 — 2026-11-11
 

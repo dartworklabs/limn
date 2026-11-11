@@ -2113,12 +2113,12 @@ DESK_1440 = {
         "btn-fit": 44,
         "btn-more": 12,
     },
-    "head": [1093, 108, 347, 32],
-    "toggle": [1113, 113, 22],
-    "chevron": [1118, 117, 14, 14],
-    "card": [1105, 216, 323],  # under the order control and the newest-first day line (§목록 순서): 72px lower
+    "head": [1093, 106, 347, 32],
+    "toggle": [1113, 111, 22],
+    "chevron": [1118, 115, 14, 14],
+    "card": [1105, 214, 323],  # under the order control and the newest-first day line (§목록 순서): 72px lower
     "card_pad": ["8px", "12px", "8px", "12px"],
-    "dot": [1118, 235, 8, 8],
+    "dot": [1118, 233, 8, 8],
     "list": ["0px", "12px", "32px", "12px"],
     "#help": {"x": 380, "width": 680, "pad": ["16px", "24px", "16px", "24px"], "max_height": "792px", "mid": 450},
     "#trash": {"x": 440, "width": 560, "pad": ["16px", "24px", "16px", "24px"], "max_height": "792px", "mid": 450},
@@ -6502,8 +6502,8 @@ class DesktopGrid(ViewerBase):
         the kind row ends in its [제안 수정] switch);
         the tool row's first label, the section chevron and a card's dot start 25px in (13, 13 and 25 before), and the last
         section tool's label ends 25px in (21). A card's note, its first comment's, starts on a reply's text edge, 28px past
-        the text line. The meta's review chip ends 12px in when it stands at the row's end and starts 12px in when it wraps
-        to the row's start; the person starts 12px in when it starts its line."""
+        the text line. The meta's review chip starts 12px in when it wraps to the row's start, and the person ends the row,
+        12px in from the panel's right edge, wherever the chip stands."""
         for device in (MOUSE_WIDE, DESK):
             for lang in ("ko", "en"):
                 with self.subTest(w=device["viewport"]["width"], lang=lang):
@@ -6514,10 +6514,9 @@ class DesktopGrid(ViewerBase):
                         for k in ("barFirst", "metaText", "loc", "note", "kind", "cap", "saveFirst", "card")
                     }
                     right = {k: got[k][1] for k in ("barLast", "copy", "note", "kindEnd", "saveLast", "tool", "card")}
-                    wrapped = got["metaChip"][0] == got["metaText"][0]  # wrapped to the row's start, or at its end
-                    (left if wrapped else right)["metaChip"] = got["metaChip"][0 if wrapped else 1]
-                    if not wrapped:  # the person starts the next line (after a wrapped chip it follows it)
-                        left["metaMe"] = got["metaMe"][0]
+                    if got["metaChip"][0] == got["metaText"][0]:  # the chip wrapped to the row's start
+                        left["metaChip"] = got["metaChip"][0]
+                    right["metaMe"] = got["metaMe"][1]  # the person ends its row
                     self.assertEqual(set(left.values()) | set(right.values()), {12}, (left, right))
                     text = {k: got[k][0] for k in self.TEXT}
                     self.assertEqual(set(text.values()) | {got["toolText"][1]}, {25}, (text, got["toolText"]))
@@ -6533,26 +6532,153 @@ class DesktopGrid(ViewerBase):
             round(self.view(MOUSE_WIDE).evaluate("document.querySelector('#right').getBoundingClientRect().width")), 348
         )
 
-    def test_the_person_stands_a_step_from_the_avatar_at_the_meta_texts_size(self):
-        """1440x900 and 1400x850, Korean and English: on the meta row the name starts 8px after its avatar, as a comment's
-        writer does after theirs, in the meta text's size (it touched the avatar, 0px, in the body's size, 2px over the
-        row's), and a name longer than the row ends in an ellipsis inside the panel."""
+    def test_the_person_ends_the_meta_row_with_the_name_on_the_avatars_centre(self):
+        """1440x900 and 1400x850, Korean and English: on the meta row the person ends the row; the avatar is as tall as the
+        chip beside it and stands on whole pixels; the name starts 8px after it, as a comment's writer does after theirs, in
+        the meta text's size, and its cap height and the avatar's initial are on the avatar's centre (the name touched the
+        avatar, 0px, in the body's size, on a row 0.6px between pixels). A name longer than the row ends in an ellipsis
+        inside the panel."""
         for device in (MOUSE_WIDE, DESK):
             for lang in ("ko", "en"):
                 with self.subTest(w=device["viewport"]["width"], lang=lang):
                     page = self.view(device, lang=lang, init=NO_PNG_CHIP)
                     got = page.evaluate(
                         """() => {const q = s => document.querySelector(s), R = e => e.getBoundingClientRect(), fs = e => getComputedStyle(e).fontSize;
+                          const mid = r => (r.top + r.bottom) / 2;
                           const first = [...document.querySelectorAll('#right .cmt')].find(c => c.querySelector(':scope > .av') && c.querySelector('.nm'));
-                          const out = {gap: R(q('#me .au-n')).left - R(q('#me .av')).right, name: fs(q('#me .au-n')), meta: fs(q('#meta-txt')),
-                            card: first ? R(first.querySelector('.nm')).left - R(first.querySelector(':scope > .av')).right : null};
+                          const av = R(q('#me .av')), P = R(q('#right'));
+                          // a trimmed box is its text's cap height, so its centre is the letters' centre
+                          const out = {gap: R(q('#me .au-n')).left - av.right, name: fs(q('#me .au-n')), meta: fs(q('#meta-txt')),
+                            card: first ? R(first.querySelector('.nm')).left - R(first.querySelector(':scope > .av')).right : null,
+                            avatar: [av.top, av.height], chip: R(q('#rv-chip')).height, end: P.right - R(q('#me')).right,
+                            nameOff: mid(R(q('#me .au-n'))) - mid(av), trimmed: getComputedStyle(q('#me .au-n')).textBoxTrim,
+                            initialOff: q('#me .av-l') ? mid(R(q('#me .av-l'))) - mid(av) : 0, initialTrim: q('#me .av-l') ? getComputedStyle(q('#me .av-l')).textBoxTrim : 'trim-both'};
                           q('#me .au-n').textContent = 'A name far longer than the three hundred pixels of the side panel could hold on a row';
-                          const me = R(q('#me')), P = R(q('#right')); out.inside = me.right <= P.right - 12 + 0.5 && me.left >= P.left;
+                          const me = R(q('#me')); out.inside = me.right <= P.right - 12 + 0.5 && me.left >= P.left + 12 - 0.5;
                           out.cut = q('#me .au-n').scrollWidth > q('#me .au-n').clientWidth; return out;}"""
                     )
-                    self.assertEqual((got["gap"], got["name"]), (8, got["meta"]), got)
+                    self.assertEqual((got["gap"], got["name"], got["end"]), (8, got["meta"], 12), got)
                     self.assertEqual(got["card"], got["gap"], got)
+                    self.assertEqual(got["avatar"][1], got["chip"], got)
+                    self.assertEqual(got["avatar"][0], round(got["avatar"][0]), got)
+                    self.assertIn("trim", got["trimmed"], got)
+                    self.assertIn("trim", got["initialTrim"], got)
+                    self.assertLessEqual(abs(got["nameOff"]), 0.25, got)
+                    self.assertLessEqual(abs(got["initialOff"]), 0.25, got)
                     self.assertTrue(got["inside"] and got["cut"], got)
+
+    def test_a_comments_avatar_and_a_records_dot_stand_on_the_writers_line(self):
+        """1440x900 and 1400x850: in a card's thread the avatar of a comment and the dot of a record have their centre on
+        the centre of the head line beside them, where the writer's name is (the avatar stood 2px and the dot 1px under it),
+        and an avatar's initial is on the circle's centre (1px over it as a line box)."""
+        pid = add_pin(
+            {"file": str(self.main), "lo": 24, "hi": 25, "page": 1, "note": "스레드가 달릴 핀"}, actor(ALICE)
+        ).record["id"]
+        store = ps.APP.pin_lifecycle.context().store
+        ps.APP.pin_lifecycle.reply_pin(pid, "답글", post_authority(store, actor(BOB), "reply", pid))
+        ps.APP.pin_lifecycle.close_pin(
+            pid, post_authority(store, dict(LOCAL_ACTOR), "close", pid), CloseRequest(reply="고침")
+        )
+        ps.APP.pin_lifecycle.reply_pin(pid, "다시 봐 주세요", post_authority(store, actor(ALICE), "reply", pid))
+        for device in (MOUSE_WIDE, DESK):
+            with self.subTest(w=device["viewport"]["width"]):
+                page = self.view(device, init=NO_PNG_CHIP)
+                page.wait_for_selector('#right .pin[data-id="%d"] .thread .msg' % pid)
+                got = page.evaluate(
+                    """id => {const c = document.querySelector('#right .pin[data-id="' + id + '"]'), R = e => e.getBoundingClientRect(), mid = r => (r.top + r.bottom) / 2;
+                      const rows = [...c.querySelectorAll('.cmt, .thread .msg')].map(m => {const g = m.querySelector(':scope > .av, :scope > .ev-dot'), h = m.querySelector('.msg-h');
+                        return g && h ? {k: g.className, off: mid(R(g)) - mid(R(h))} : null;}).filter(Boolean);
+                      const ini = [...c.querySelectorAll('.av-l')].map(l => getComputedStyle(l).textBoxTrim.includes('trim') ? mid(R(l)) - mid(R(l.parentElement)) : 9);
+                      return {rows, ini};}""",
+                    pid,
+                )
+                self.assertGreaterEqual(len(got["rows"]), 3, got)
+                self.assertTrue(
+                    any("ev-dot" in r["k"] for r in got["rows"]) and any("av" in r["k"] for r in got["rows"]), got
+                )
+                self.assertEqual([r["off"] for r in got["rows"]], [0] * len(got["rows"]), got)
+                self.assertTrue(got["ini"] and all(abs(v) <= 0.25 for v in got["ini"]), got)
+
+    def test_the_panel_and_what_opens_from_it_stand_on_whole_pixels(self):
+        """1440x900 and 1400x850: with the review chip on the meta row, every card, badge, button, avatar and dot of the list
+        starts on a whole pixel (the meta's 18.6px line put the chips' row and the whole list 0.6px between pixels); so do
+        the composer's fields and rows under its note, the [⋯] menu's rows and its bottom edge, and the help's rows. In the
+        menu [100%] is as tall as [−] and [+] beside it (19 against 28px), and in the excerpt a [−] stands on the centre of its row's
+        first line, where a [+] does (0.75px under it)."""
+        whole = """sel => [...document.querySelectorAll(sel)].filter(e => e.getClientRects().length).map(e => {const r = e.getBoundingClientRect();
+          return [e.id || e.className, Math.round(r.top * 100) / 100, Math.round(r.bottom * 100) / 100];}).filter(v => v[1] % 1 || v[2] % 1)"""
+        for device in (MOUSE_WIDE, DESK):
+            with self.subTest(w=device["viewport"]["width"]):
+                page = self.view(device, init=NO_PNG_CHIP)
+                self.assertTrue(page.is_visible("#rv-chip"))
+                self.assertEqual(
+                    page.evaluate(
+                        whole,
+                        "#bar2, #rv-chip, #me .av, .sec-head, #list-order, #right .pin, #right .pin .badge, #right .pin button, #right .pin .av, #right .pin .st-dot",
+                    ),
+                    [],
+                )
+                page.evaluate("()=>{LAST_PTR='mouse'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}")
+                page.wait_for_function("COMPOSE.current&&!COMPOSE.picking")
+                settle(page)
+                self.assertEqual(
+                    page.evaluate(
+                        whole,
+                        "#note, #c-kind-row, #c-kind, #c-levels, #c-xp .xp-row, #c-xp .xp-chip, #c-actions button",
+                    ),
+                    [],
+                )
+                chips = page.evaluate(
+                    """() => [...document.querySelectorAll('#c-xp .xp-row')].map(r => {const c = r.querySelector('.xp-chip'), s = getComputedStyle(r); if (!c) return null;
+                      const C = c.getBoundingClientRect(); return [c.tagName, C.top - r.getBoundingClientRect().top, parseFloat(s.paddingTop) + (parseFloat(s.lineHeight) - C.height) / 2];}).filter(Boolean)"""
+                )
+                self.assertIn(
+                    "BUTTON", [k for k, _, _ in chips], chips
+                )  # a [−] is a button, in a button's own text size
+                self.assertEqual(
+                    [got for _, got, _ in chips], [want for _, _, want in chips], chips
+                )  # on its row's first line
+                page.evaluate("discardSelection()")
+                page.evaluate("openMore()")
+                page.wait_for_selector("#more[open]")
+                settle(page)
+                self.assertEqual(
+                    page.evaluate(
+                        whole, "#more, #more .m-row, #more .seg, #more .m-c button, #more .more-grid > *, #more-foot"
+                    ),
+                    [],
+                )
+                heights = page.evaluate(
+                    "[...document.querySelectorAll('#more .m-c button')].filter(e=>e.getClientRects().length).map(e=>e.getBoundingClientRect().height)"
+                )
+                self.assertGreaterEqual(len(heights), 3, heights)
+                self.assertEqual(len(set(heights)), 1, heights)
+                page.evaluate("document.querySelector('#more').close()")
+                page.evaluate("openHelp()")
+                page.wait_for_selector("#help[open]")
+                settle(page)
+                self.assertEqual(page.evaluate(whole, "#help h4, #help table, #help td"), [])
+
+    def test_a_done_rows_words_stand_on_one_centre(self):
+        """1440x900: a done row's number, line range and time - three sizes, two faces - have their cap heights on the
+        centre of the row's icon and [답글] (the time stood 1.1px over it and the range 0.5px under it)."""
+        pid = add_pin({"file": str(self.main), "lo": 26, "hi": 27, "page": 1, "note": "닫을 핀"}, actor(ALICE)).record[
+            "id"
+        ]
+        store = ps.APP.pin_lifecycle.context().store
+        ps.APP.pin_lifecycle.close_pin(pid, post_authority(store, actor(ALICE), "close", pid), CloseRequest())
+        page = self.view(MOUSE_WIDE, init=NO_PNG_CHIP)
+        page.click("#done-toggle")
+        page.wait_for_selector("#done-list .arc-row")
+        got = page.evaluate(
+            """() => {const row = document.querySelector('#done-list .arc-l1'), mid = r => (r.top + r.bottom) / 2;
+              const c = mid(row.querySelector(':scope > .ic').getBoundingClientRect());
+              return {words: [...row.querySelectorAll(':scope > :is(.n, .loc, .rt)')].map(e => [e.className, Math.round((mid(e.getBoundingClientRect()) - c) * 100) / 100, getComputedStyle(e).textBoxTrim]),
+                reply: mid(row.querySelector('.b-reply').getBoundingClientRect()) - c};}"""
+        )
+        self.assertGreaterEqual(len(got["words"]), 3, got)
+        self.assertTrue(all("trim" in t and abs(off) <= 0.25 for _, off, t in got["words"]), got)
+        self.assertEqual(got["reply"], 0, got)
 
     def test_an_archive_row_starts_on_the_text_line_under_its_sections_chevron(self):
         """1440x900 and 1400x850: a done row has no box, so its icon stands on the text line, 25px in and under the

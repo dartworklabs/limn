@@ -155,9 +155,9 @@ body.outline-collapsed #outline-items,body.outline-collapsed #outline-search,bod
 #outline-grip.on,#outline-grip:focus-visible{background:var(--border-strong)}
 @media (hover:hover){#outline-grip:where(:not(:disabled,[aria-disabled="true"])):hover{background:var(--border-strong)}}
 body.outline-collapsed #outline-grip,body.band-phone #outline,body.lay-narrow #outline-grip{display:none}
-#section-strip{display:flex;align-items:center;gap:var(--space-2);height:var(--strip-h);flex:none;padding:0 var(--space-4);background:var(--sidebar);
-  border-bottom:1px solid var(--border-seam);font-size:var(--text-sm);color:var(--muted-foreground)}
-#section-current{color:var(--foreground);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#section-strip{display:flex;align-items:center;gap:var(--space-2);height:var(--strip-h);flex:none;padding:1px var(--space-4) 0;background:var(--sidebar);
+  border-bottom:1px solid var(--border-seam);font-size:var(--text-sm);color:var(--muted-foreground)}   /* 1px over its contents as its rule is 1px under them: they centre in an even 36px, on whole pixels (in 37 the page button and the list under it stood on a half) */
+#section-current{color:var(--foreground);font-weight:600;line-height:var(--line-label);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 body.revision-open #section-strip{display:none}
 body.lay-narrow #section-strip,body.lay-mid #section-strip{display:none}   /* mid: it repeated the nav bar's 원고 tab (38px, diagnosis P4); its page count is #nav-page */
 /* The page count at the nav bar's right end (tablet sheet, mid, short) is a button: it opens the page list (overlays.css) - the

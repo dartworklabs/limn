@@ -25,6 +25,13 @@
       "reason": "A text field's height in lines of its own text (two lines), so it follows the touch text size."
     },
     {
+      "file": "cards.css",
+      "selector": ".reply-box textarea",
+      "property": "min-height",
+      "value": "1px",
+      "reason": "The step of round(3.2em, 1px): the reply field's least height on a whole pixel (13px: 42, not 41.6)."
+    },
+    {
       "file": "components.css",
       "selector": "textarea",
       "property": "min-height",
@@ -32,11 +39,11 @@
       "reason": "A text field's height in lines of its own text (three lines), so it follows the touch text size."
     },
     {
-      "file": "composer.css",
-      "selector": ".xp-chip",
-      "property": "margin-top",
-      "value": "1.5em",
-      "reason": "Centres the chip on its row's first text line, whose line box is 1.5em."
+      "file": "components.css",
+      "selector": "textarea",
+      "property": "min-height",
+      "value": "1px",
+      "reason": "The step of round(4.8em, 1px): the field's least height on a whole pixel (14px: 67, not 67.2), so what follows it starts on one."
     },
     {
       "file": "responsive.css",
