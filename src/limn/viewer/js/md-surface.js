@@ -8,7 +8,8 @@
 //   nesting, block and inline tokens there; elements while the DOM is built here, with a yield to the browser after every
 //   MD_LIMITS.chunk units of work (a token, an inline child, a code line) wherever they fall; the time the worker takes.
 //   Over any of them the screen is the plain source-line view (mdLineView), over MD_LIMITS.lines lines not even that, but a
-//   notice with the count and the limit (mdNotice). Pins, cards and the agent's paths stay as they are.
+//   notice with the count and the limit (mdNotice). Pins, cards and the agent's paths stay as they are. One formula's TeX
+//   is drawn only up to MD_LIMITS.tex characters (mdTexBox): past it that formula alone stays as its characters.
 // - The DOM is built with createElement and textContent only: markdown-it's HTML renderer is never used, so the one innerHTML
 //   sink (markup.js setHtml) stays the only one. Raw HTML is never drawn: a block is a placeholder that keeps its lines, an
 //   inline tag shows as code. A character that would hide or reorder text (hidden-chars.js) stays in the drawn text inside its
@@ -24,7 +25,7 @@
 // - A text selection (a mouse drag, a phone's long-press handles) becomes lines lo..hi; a tap or click on a block picks that
 //   block. The ladder is: the chosen lines -> the block -> the heading's section (mdLevels). Saving is the ordinary POST
 //   /api/pin, with no page, frac or pdf_build (the server drops them for this document anyway, ADR-0025 D2).
-const MD_LIMITS=Object.freeze({nesting:20,blocks:30000,inlines:150000,elements:60000,ms:2000,lines:50000,chunk:2000});
+const MD_LIMITS=Object.freeze({nesting:20,blocks:30000,inlines:150000,elements:60000,ms:2000,lines:50000,chunk:2000,tex:10000});
 // MD: the document drawn (doc, file, name), its source lines and the src_mtime they were read at (mtime: set only by a read
 // that answered, so the light poll, polling.js, sees a failed read as not done), the src_mtime a redraw was last asked for
 // (asked: the light poll asks once per change while that read is on its way, and a failed read clears it), the reading line
@@ -141,7 +142,10 @@ function mdTexBlockBody(lines){const s=lines.join('\n').replace(/\n+$/,'');
 // A <tag class=cls> with the TeX of src drawn into it (tex: src without its delimiters) and src on data-tex, or null when
 // it is not drawn - then the caller shows src as characters, as it did before this renderer (ADR-0036 D2). Not drawn when:
 // there is no renderer; the context does not draw math (cx.tex null - the rendered compare keeps the source characters,
-// ADR-0036 D3); the TeX is not whole (tex null); src holds a character that hides or reorders text (CC_ANY, ADR-0029 D5) -
+// ADR-0036 D3); the TeX is not whole (tex null); the TeX is longer than MD_LIMITS.tex characters - KaTeX lays a formula out
+// in one call that cannot pause or be stopped, and past that length its time grows much faster than the formula (seconds
+// for one of 50,000 characters), which would hold the page still as no other part of the build may (ADR-0039); src holds a
+// character that hides or reorders text (CC_ANY, ADR-0029 D5) -
 // drawn glyphs could show neither it nor its box, so such a formula stays as its characters, each in its box; or KaTeX
 // refuses it (throwOnError, so a refusal never draws its own red markup and the style attribute that would carry its
 // colour). The element is built outside mdEl and counted - with everything KaTeX put in it - only once it is used, so a
@@ -150,7 +154,7 @@ function mdTexBlockBody(lines){const s=lines.join('\n').replace(/\n+$/,'');
 // instead of refusing it.
 /** @param {string} tag @param {string} cls @param {string} src @param {string|null} tex @param {boolean} display @param {MdRx} cx @returns {HTMLElement|null} */
 function mdTexBox(tag,cls,src,tex,display,cx){
-  if(cx.tex===null||MD_TEX.state!=='ready'||tex===null||!tex.trim()||CC_ANY.test(src))return null;
+  if(cx.tex===null||MD_TEX.state!=='ready'||tex===null||!tex.trim()||tex.length>MD_LIMITS.tex||CC_ANY.test(src))return null;
   const el=document.createElement(tag);
   try{MD_TEX.lib.render(tex,el,{displayMode:display,throwOnError:true,strict:false,trust:false});}
   catch(e){return null;}

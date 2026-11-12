@@ -1254,6 +1254,8 @@ LIMIT_CASES = {
     "too many elements": ("![a](b)" * 61_000 + "\n", "elements"),
     # Front matter and display math (ADR-0032): every line of theirs is an element, counted with the rest. Near the line
     # view's limit they are drawn; with the emphasis after them the document is over the element limit and is shown as lines.
+    # The display math here is far past MD_LIMITS.tex, so it is its characters, a line each (ADR-0039) - handed to KaTeX whole
+    # it held the page for seconds; the longest formula that is drawn is the last fixture.
     "front matter near the line limit": ("---\n" + "k: v\n" * 45_000 + "---\n", "drawn"),
     "display math near the line limit": ("$$\n" + "x\n" * 45_000 + "$$\n", "drawn"),
     "front matter over the element limit": (
@@ -1263,6 +1265,7 @@ LIMIT_CASES = {
     "display math over the element limit": ("$$\n" + "x\n" * 40_000 + "$$\n\n" + "*a* " * 22_000 + "\n", "elements"),
     "inline math openers without a close": ("\\(" * 100_000 + "\n", None),
     "display math openers without a close": ("\\[\n" * 8_000, None),
+    "display math at the TeX limit": ("$$" + "x" * 10_000 + "$$\n", "drawn"),
 }
 
 
