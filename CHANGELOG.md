@@ -26,7 +26,20 @@
   4px from its icon (2px). The help's tables share one key column on the centred dialog (87, 135 and 89px before), so
   the explanations start on one line.
 
-No behaviour, wording or control changes. The agent contract is unchanged.
+The alignment changes above change no behaviour, wording or control.
+
+### Fixed
+
+- **One very long formula no longer holds a Markdown document's page still.** KaTeX lays a formula out in one call
+  that cannot pause or be stopped, and past some ten thousand characters its time grows much faster than the formula:
+  one display formula of 45,000 lines (90,000 characters) held the page for 3 seconds on a desktop and for 15 on a
+  slow machine, where a limit fixture's draw then ran past its 15 seconds every few runs. A formula whose TeX is longer
+  than 10,000 characters is no longer handed to KaTeX: that formula alone stays as its source characters - a display
+  formula line by line, each line one that can be chosen - and the rest of the document is drawn as before (ADR-0039).
+  At the limit the slowest formula measured takes 0.03 seconds. The longest of the 763 display formulas in the lab's
+  Markdown documents is 299 characters.
+
+The agent contract is unchanged.
 
 ## 0.4.58 — 2026-11-11
 

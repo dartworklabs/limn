@@ -15,6 +15,8 @@ Math class refuses the bundle and holds the undrawn side of the same document (A
 - Policy: the sent page policy names no new source and admits no inline style (D7) - a violation would fail any browser
   test here through the autouse no_csp_violation fixture;
 - Budget: three thousand formulas pass MD_LIMITS.elements and the document falls back to the source-line view (D6);
+- Long: a formula whose TeX is at MD_LIMITS.tex characters is drawn and one a character longer stays as its characters,
+  line by line, while the formulas around it are drawn (ADR-0039);
 - Quiet: a document without math asks for neither the module nor the stylesheet (D1);
 - Compare: a render context that does not draw math draws none, whatever the document view did (D3);
 - DrawnFirefox, DrawnWebkit, QuoteFirefox: the same in the other two engines.
@@ -362,6 +364,65 @@ class Budget(MathBase):
             page.evaluate("[...document.querySelectorAll('#md .md-src .ln')].map(e=>+e.dataset.line)"),
             list(range(1, len(self.MD_TEXT.splitlines()) + 1)),
         )
+
+
+TEX_LIMIT = (
+    10_000  # MD_LIMITS.tex (docs/handbook/viewer.md §한도와 원문 줄 보기): the characters of one drawn formula's TeX
+)
+
+
+def text_tex(n: int) -> str:
+    """TeX of exactly n characters that KaTeX draws in a dozen elements: one \\text of Hangul."""
+    return "\\text{" + "가" * (n - 7) + "}"
+
+
+class Long(MathBase):
+    """One formula's TeX is drawn up to MD_LIMITS.tex characters (ADR-0039)."""
+
+    AT = "$$" + text_tex(TEX_LIMIT) + "$$"  # line 3: a display formula whose TeX is exactly at the limit
+    OVER = "$$" + text_tex(TEX_LIMIT + 1) + "$$"  # line 5: one character longer
+    ROWS = ["x_{%d} + y_{%d} \\\\" % (i, i) for i in range(1_000)]  # lines 8..1007 of a block over lines 7..1008
+    INLINE = "$" + text_tex(TEX_LIMIT + 1) + "$"
+    MD_TEXT = "\n".join(
+        ["# 긴 수식", "", AT, "", OVER, "", "$$", *ROWS, "$$", "", "줄 안의 " + INLINE + " 와 $t^*$ 뒤.", ""]
+    )
+    LAST = 7 + len(ROWS) + 3  # the paragraph's line
+
+    def test_a_formula_past_the_limit_stays_as_its_characters_and_the_others_are_drawn(self):
+        """KaTeX lays a formula out in one call that cannot pause, and its time grows much faster than the formula past
+        this length, so the page would stand still: a formula at the limit is drawn; one a character over it - a display
+        block on one line, one over a thousand lines, an inline one - stays as its source characters, the block's lines
+        each a line that can be chosen; the short formula after them is drawn, and the document is not the line view.
+        Mutation: drop the length test from mdTexBox -> all five are drawn, fails."""
+        page = self.open_md()
+        self.assertEqual(page.evaluate("MD_LIMITS.tex"), TEX_LIMIT)
+        self.assertEqual(page.evaluate(BOXES), [[self.AT, [3, 3], "DIV"], ["$t^*$", self.LAST, "CODE"]])
+        self.assertEqual(page.evaluate("mdRxOf(document.querySelector('#md')).tex"), 2)
+        blocks = page.evaluate(
+            "[...document.querySelectorAll('#md pre.md-math-block')].map(e=>({kind:e.dataset.kind,lo:+e.dataset.lo,"
+            "hi:+e.dataset.hi,lines:[...e.querySelectorAll('.ln')].map(l=>+l.dataset.line),text:e.textContent}))"
+        )
+        self.assertEqual(
+            blocks,
+            [
+                {"kind": "math", "lo": 5, "hi": 5, "lines": [5], "text": self.OVER + "\n"},
+                {
+                    "kind": "math",
+                    "lo": 7,
+                    "hi": 8 + len(self.ROWS),
+                    "lines": list(range(7, 9 + len(self.ROWS))),
+                    "text": "\n".join(["$$", *self.ROWS, "$$"]) + "\n",
+                },
+            ],
+        )
+        self.assertEqual(
+            page.evaluate(
+                "[...document.querySelectorAll('#md code.md-math:not(.md-tex)')].map(e=>"
+                "[e.textContent,+e.closest('[data-line]').dataset.line])"
+            ),
+            [[self.INLINE, self.LAST]],
+        )
+        self.assertIsNone(page.evaluate("document.querySelector('#md').dataset.limit||null"))
 
 
 class Quiet(MathBase):
