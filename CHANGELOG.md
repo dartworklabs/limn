@@ -36,6 +36,10 @@
   without an answer for that long is kept in the queue under its key instead of failing. The service worker answers from its copy
   when the network has not answered a request it has a copy of in 4s, or an answer on its way stops for 4s, so a tab opened again during a flight opens in
   seconds, not minutes.
+- **Four ways a kept pin or a kept build could go wrong.** A file the cache refused to store is reported as not kept
+  (it was counted as kept, and a build with pages missing was recorded as whole). A write to the queue answers once
+  its transaction has committed, not when its request succeeded. [Save] pressed twice while cut off keeps one pin.
+  A kept pin on a figure document is written with its element, as an online save is.
 - **A drag made while cut off keeps its selection.** The composer's head read `null` for the file and a
   "location failed" banner came with it; it now names the page and shows an `Offline` badge.
 

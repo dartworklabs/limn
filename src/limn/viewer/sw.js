@@ -42,10 +42,12 @@ function cacheKey(request, url, response) {
 }
 // The copy is taken before anything is awaited: the answer goes to the page at the same moment, and a body it has begun
 // reading can no longer be cloned (observed - every copy was refused this way and the cache stayed empty).
+// Answers whether the copy was written: the cache may refuse it (the browser is out of room), and a file reported as
+// kept that is not there leaves a build recorded as whole with pages missing.
 async function keep(request, url, response) {
-  if (!response || !response.ok || response.type === 'opaque' || response.type === 'error') return;
-  let copy; try { copy = response.clone(); } catch (_) { return; }
-  try { const c = await caches.open(CACHE); await c.put(cacheKey(request, url, response), copy); } catch (_) {}
+  if (!response || !response.ok || response.type === 'opaque' || response.type === 'error') return false;
+  let copy; try { copy = response.clone(); } catch (_) { return false; }
+  try { const c = await caches.open(CACHE); await c.put(cacheKey(request, url, response), copy); return true; } catch (_) { return false; }
 }
 // How long the network is waited for when a copy could answer instead, and how long copies then answer without asking.
 // A server that cannot be reached does not always refuse: on a tailnet with no internet behind it a request goes into
@@ -140,7 +142,7 @@ self.addEventListener('message', e => {
       try {
         const r = await fetch(request, { cache: 'no-store' });
         if (!r.ok) { failed.push(u); continue; }
-        await keep(request, url, r); kept++;
+        if (await keep(request, url, r)) kept++; else failed.push(u);
       } catch (_) { failed.push(u); }
     }
     say({ kept, failed });

@@ -59,6 +59,20 @@ class WorkerCopies(LiveBase):
         self.assertEqual([u for u in tab.cache_urls() if u.startswith("/api/")], [])
 
 
+class CacheThatRefuses(LiveBase):
+    """A copy the cache would not take is not a copy."""
+
+    def test_a_file_the_cache_refused_is_reported_as_not_kept(self):
+        """The worker fetched the file and the cache refused to store it. Counted as kept, the build was recorded as
+        whole with that file missing - and following then dropped the last build that was whole."""
+        tab = self.open_live()
+        tab.keep()
+        path = next(u for u in tab.cache_urls() if u.split("?")[0] == "/pdf")
+        self.assertEqual(tab.ask_worker({"type": "keep", "urls": [path]}), {"kept": 1, "failed": []})
+        tab.refuse_cache_writes()
+        self.assertEqual(tab.ask_worker({"type": "keep", "urls": [path]}), {"kept": 0, "failed": [path]})
+
+
 class QueueAcrossReloads(LiveBase):
     """A pin queued with no network is still there when the tab is opened again with none."""
 

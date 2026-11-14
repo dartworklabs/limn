@@ -333,6 +333,40 @@ class QueuedPinsScreen(BrowserBase):
         self.assertEqual([t for t in said if "실패" in t], [], said)
         self.assertNotIn("실패", page.inner_text("#right"))  # nor as a banner in the composer
 
+    def test_two_presses_of_save_while_cut_off_keep_one_pin(self):
+        """[핀 저장] pressed again before the queue has answered the first press: one record, not two under two keys
+        that reconnecting would write as two pins."""
+        page = self.view()
+        page.route("**/api/pick*", lambda route: route.abort())
+        box = page.evaluate(
+            "(()=>{const r=document.getElementById('p1').getBoundingClientRect();return [r.left,r.top,r.width,r.height];})()"
+        )
+        x, y = box[0] + box[2] * 0.25, box[1] + box[3] * 0.3
+        page.mouse.move(x, y)
+        page.mouse.down()
+        page.mouse.move(x + box[2] * 0.3, y + box[3] * 0.05, steps=6)
+        page.mouse.up()
+        page.wait_for_function("!!COMPOSE.current&&COMPOSE.current.offline===true", timeout=8000)
+        page.fill("#note", "pressed twice")
+        kept = page.evaluate(
+            "async () => { const one = savePin(), two = savePin(); await Promise.all([one, two]); return (await offAll()).length; }"
+        )
+        self.assertEqual(kept, 1)
+        self.assertFalse(page.evaluate("COMPOSE.saving"))
+
+    def test_a_write_whose_transaction_is_rolled_back_is_not_a_write(self):
+        """The store's request succeeds and its transaction then aborts (the browser out of room at the commit): the
+        write answers null, as a refused one does, and nothing is in the queue - so [핀 저장] says it failed instead of
+        closing on a pin that is gone."""
+        page = self.view()
+        got = page.evaluate(
+            """async () => {
+              const id = await offIn(OFF_STORE, 'readwrite', s => { const r = s.add({v: 1, note: 'rolled back'});
+                r.addEventListener('success', () => s.transaction.abort()); return r; });
+              return {id, n: (await offAll()).length};}"""
+        )
+        self.assertEqual(got, {"id": None, "n": 0})
+
     def test_a_record_that_may_be_on_the_server_is_not_taken_back(self):
         """Sent once with no answer: its pin may exist, and drawn again it would be made twice. [다시 찍기] leaves the
         record in the queue and the composer empty, and says why; [버리기] still works."""

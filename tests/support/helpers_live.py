@@ -367,6 +367,19 @@ class LiveTab:
         )
         return seen
 
+    def refuse_cache_writes(self):
+        """The worker's cache refuses every write from now on, as a browser out of room does."""
+        self.context.service_workers[0].evaluate(
+            """() => { const open = caches.open.bind(caches);
+              caches.open = async name => { const c = await open(name);
+                return new Proxy(c, {get: (t, k) => k === 'put' ? () => Promise.reject(new Error('QuotaExceededError'))
+                  : typeof t[k] === 'function' ? t[k].bind(t) : t[k]}); }; }"""
+        )
+
+    def ask_worker(self, message, wait=20000):
+        """One question to the worker, as the page asks it (offlineAsk) -> its reply."""
+        return self.page.evaluate("async ([m, ms]) => await offlineAsk(m, ms)", [message, wait])
+
     def stop_polling(self):
         """The light poll stops, so no poll's answer or failure changes what a test is reading."""
         self.page.evaluate("clearInterval(LIGHT_TIMER)")

@@ -141,6 +141,39 @@ class OfflineQueueSend(unittest.TestCase):
         )
         self.assertEqual(got, {"pins": 0, "left": 0})
 
+    def test_a_figure_pick_keeps_its_element(self):
+        """A pin kept on a figure document is written with the element its pick names, as an online save is: the
+        element (id, path, part, box), the element's box as the pin's own, and - where the default rung is the
+        element's - its kind. A pin without it has nothing to follow when the element moves."""
+        figure = "\n".join(extract_js_fn(name) for name in ("isFrac", "elForSave", "elKind", "figureFields", "lvOf"))
+        got = json.loads(
+            run_node(
+                "\n".join(
+                    [
+                        SCOPE,
+                        figure,
+                        *(extract_js_fn(name) for name in FUNCTIONS),
+                        """
+            const axis={id:'ax1',path:['fig','ax1'],part:'axis',frac:[0.3,0.3,0.1,0.1]};
+            const curve={id:'c2',path:['fig','ax1','c2'],part:'curve',frac:[0.4,0.4,0.1,0.1]};
+            QUEUE=[rec(1),rec(2)];
+            ANSWERS={pick:[{page:1,frac:[0.1,0.1,0.2,0.05],quote:'',el:axis},
+              Object.assign(found(10),{el:curve,default_level:'el',levels:[{level:'el',el:curve}]})],pin:[{id:41},{id:42}]};
+            offlineFlush().then(function(){console.log(JSON.stringify(PINS_SENT.map(function(b){
+              return {el:b.el&&b.el.id,path:b.el&&b.el.path,frac:b.frac,kind:b.kind||null,file:b.file||null};})));});
+            """,
+                    ]
+                )
+            )
+        )
+        self.assertEqual(
+            got[0], {"el": "ax1", "path": ["fig", "ax1"], "frac": [0.3, 0.3, 0.1, 0.1], "kind": None, "file": None}
+        )
+        self.assertEqual(got[1]["el"], "c2")
+        self.assertEqual(got[1]["frac"], [0.4, 0.4, 0.1, 0.1])
+        self.assertEqual(got[1]["kind"], "el:curve")
+        self.assertTrue(got[1]["file"])
+
     def test_two_region_pins_on_one_page_are_both_written(self):
         """A view-only PDF, two boxes on page 3, the same note on both - which is ordinary. The duplicate judgment
         reads a region answer by its box as well as its page: a page-only judgment dropped the second pin unwritten."""

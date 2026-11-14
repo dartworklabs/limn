@@ -40,9 +40,13 @@ function offDb(){if(OFF.db)return Promise.resolve(OFF.db);
     rq.onsuccess=()=>{const db=rq.result; db.onversionchange=()=>{try{db.close();}catch(e){} if(OFF.db===db)OFF.db=null;};
       OFF.db=db; res(db);}; rq.onerror=()=>res(null); rq.onblocked=()=>res(null);});}
 /** One operation on a store as a promise; `fn` gets the store and returns its request. @returns {Promise<any>} */
+// A write is done when its transaction has committed, not when its request succeeded: a transaction can still abort
+// after that (the browser out of room at the commit), and the write is rolled back. Answered at the request, a queued
+// pin read as kept, the composer closed on it, and the note was gone. So a write answers null unless it committed.
 function offIn(store,mode,fn){return offDb().then(db=>new Promise(res=>{if(!db){res(null);return;}
-  let rq; try{rq=fn(db.transaction(store,mode).objectStore(store));}catch(e){res(null);return;}
-  rq.onsuccess=()=>res(rq.result); rq.onerror=()=>res(null);}));}
+  let rq,tx; try{tx=db.transaction(store,mode); rq=fn(tx.objectStore(store));}catch(e){res(null);return;}
+  if(mode==='readwrite'){tx.oncomplete=()=>res(rq.result); tx.onabort=()=>res(null); tx.onerror=()=>res(null);}
+  else{rq.onsuccess=()=>res(rq.result); rq.onerror=()=>res(null);}}));}
 /** One operation on the queue. @returns {Promise<any>} */
 function offTx(mode,fn){return offIn(OFF_STORE,mode,fn);}
 /** Every queued record, oldest first - the order they were written is the order they are sent. @returns {Promise<any[]>} */
@@ -582,6 +586,7 @@ function offlineBody(rec,d){
     kind_req:rec.kind_req,assignee:rec.assignee});
     if((rec.mentions||[]).length)region.mentions=rec.mentions;
     if(rec.idem)region.idem=rec.idem;
+    if(d.el)figureFields(region,d.el,null);   // a figure pick: its element, and the element's box as the pin's (as savePin sends one)
     return region;}
   const body=/** @type {Record<string, unknown>} */({file:d.file,name:d.name,page:d.page,lo:d.lo,hi:d.hi,
   raw_lo:d.raw_lo,raw_hi:d.raw_hi,kind:d.kind,via:d.via,score:d.score,fill:d.fill,rival:d.rival,frac:d.frac,
@@ -590,6 +595,10 @@ function offlineBody(rec,d){
   if(d.scope)body.scope=d.scope;
   if((rec.mentions||[]).length)body.mentions=rec.mentions;
   if(rec.idem)body.idem=rec.idem;
+  // A figure pick names its element. Without it the pin has no element to follow: its mark stays where it was drawn
+  // when the element moves, and is never reported lost (pins/listing/projection.py element_marks). The rung is the
+  // answer's default one, the rung an online save of an untouched selection is on.
+  if(d.el){const lv=d.default_level?lvOf(d,d.default_level):null; figureFields(body,d.el,lv&&lv.el?lv:null);}
   return body;}
 // Two boxes are the same box: every number within a millionth of the page, the tolerance a whole-page verdict target
 // is read with (domain.md §판정 대상). Pure.
@@ -605,7 +614,7 @@ function fracSame(a,b){if(!Array.isArray(a)||!Array.isArray(b)||a.length<4||b.le
 // already there when this record was attempted (rec.top, as pvLanded reads its own lost answer): whatever that pin
 // is, it is not the write this record made afterwards.
 /** @param {any} rec @param {any} d @param {Set<number>} claimed @returns {number} */
-function offlineLanded(rec,d,claimed){const f=d.frac||rec.frac;
+function offlineLanded(rec,d,claimed){const f=d.el&&Array.isArray(d.el.frac)?d.el.frac:(d.frac||rec.frac);   // a figure pin's box is its element's (offlineBody)
   const top=typeof rec.top==='number'?rec.top:0;
   const hit=OPEN_ALL.find(p=>p.id>top&&!claimed.has(p.id)&&isMe(p.author)&&pdoc(p)===(rec.doc||DEFAULT_DOC)&&String(p.note||'')===String(rec.note||'')&&
     (d.file?(p.file===d.file&&p.lo===d.lo&&p.hi===d.hi):(!p.file&&p.page===d.page&&fracSame(p.frac,f))));
