@@ -5,12 +5,12 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, NamedTuple, NoReturn
 
-from limn.builds import answer, artifacts as build, input as build_input
+from limn.builds import answer, artifacts as build, holds, input as build_input
 from limn.builds.service import BuildRequests
 from limn.runtime.documents import Doc
 from limn.security.access import PostAuthority
 from limn.web.errors import HTTPError
-from limn.web.parse import Query, parse_flag
+from limn.web.parse import Json, Query, parse_flag
 
 
 def status(doc: Doc, query: Query) -> dict[str, Any]:
@@ -25,6 +25,26 @@ def rebuild(requests: BuildRequests, doc: Doc, query: Query, authority: PostAuth
     if switches.background:
         return answer.rebuild_started_answer(requests.rebuild_async(doc, authority, switches.force))
     return answer.rebuild_answer(requests.rebuild(doc, authority, switches.force), switches.full_log)
+
+
+def hold(
+    requests: BuildRequests, doc: Doc, body: Json, authority: PostAuthority, text: Callable[[object], str]
+) -> tuple[dict[str, object], int]:
+    """POST /api/hold {build, days?}: hold page build `build` of doc for `days` days (default and most
+    holds.MAX_DAYS; 0 releases it) and answer {build, until} (until null once released). 400 bad_pdf_build (the
+    pick's refusal of the same check) for a name that is not a page directory name; 400 bad_days for a length that is
+    not a number from 0 to holds.MAX_DAYS; the pdf_build_gone 404 (with the build on screen) when that build's folder
+    is gone - also for a release."""
+    name = body.get("build")
+    if not build.valid_build_name(name):
+        raise HTTPError(400, "build 는 쪽 폴더 이름(pages 또는 pages-<시각>)이어야 합니다.", reason="bad_pdf_build")
+    days = body.get("days", holds.MAX_DAYS)
+    if not holds.valid_days(days):
+        raise HTTPError(400, "days 는 0 부터 %g 까지의 숫자입니다." % holds.MAX_DAYS, reason="bad_days")
+    if not (doc.dir / name).is_dir():
+        build_gone(name, build.cur_pages(doc).name, text, "쪽 폴더")
+    until = requests.hold(doc, authority, name, float(days))
+    return {"build": name, "until": None if until is None else until.isoformat(timespec="seconds")}, 200
 
 
 def _read(path: Path) -> bytes | None:

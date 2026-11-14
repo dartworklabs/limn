@@ -48,7 +48,8 @@ HTTP 전송 입장을 통과한 API 오류 응답은 `{"error": "<한국어 메�
 | --- | --- | --- |
 | 요청 경계 | `400`·`403`·`413`·`415` | `transfer_encoding`·`bad_content_length`·`body_truncated`·`body_too_large`·`bad_content_type`·`bad_json`·`bad_query`·`duplicate_header`·`bad_host`·`bad_origin`·`invalid_authority` |
 | 인증·입장·역할 | `401`·`403` | `unauthenticated`·`loopback_agent_off`(루프백 에이전트를 끈 인스턴스에 헤더 없는 로컬 요청)·`headerless`·`bad_bearer`·`bad_token`·`not_member`·`not_allowed`·`viewer_only`·`owner_only`·`confirm_by_human`·`verdict_human`(에이전트가 판정 핀을 만듦) |
-| 경로 | `404` | `not_found`(없는 경로·vendor 파일), `pdf_build_gone`(`?build=` 나 `/pages/<빌드>/` 의 빌드가 없음, pick 의 옛 빌드), `pdf_missing`(`?build=` 없이 지금 빌드의 PDF 가 없음) |
+| 경로 | `404` | `not_found`(없는 경로·vendor 파일), `pdf_build_gone`(`?build=` 나 `/pages/<빌드>/` 의 빌드가 없음, pick 의 옛 빌드, `POST /api/hold` 의 빌드가 없음), `pdf_missing`(`?build=` 없이 지금 빌드의 PDF 가 없음) |
+| 빌드 붙잡기 | `400` | `bad_days`(`POST /api/hold` 의 `days` 가 0부터 7까지의 숫자가 아님). 빌드 이름이 틀리면 pick과 같은 `bad_pdf_build` 다 |
 | 문서 | `400`·`404` | `bad_doc`·`doc_mismatch`·`unknown_doc`·`no_source_lines`(보기 전용 문서나 영역 핀에 줄을 보냄. 판정 핀의 편집이면 `verdict_fixed`)·`view_only_no_rebuild`·`not_rendered_in_browser`(쪽으로 보이는 문서에 원문을 물음) |
 | 원문 | `413`·`422` | `source_too_large`(본문에 `bytes`·`limit`)·`source_not_utf8`·`source_unreadable` — `GET /api/source`. `GET /api/revision-source` 는 같은 이름과 `not_a_file` 을 거절이 아니라 `200` 답의 한 쪽 `reason` 으로 준다(§변경 보기와 비교 PDF) |
 | 그림 | `400`·`413`·`415`·`422` | `bad_asset_path`·`asset_too_large`(본문에 `bytes`·`limit`)·`asset_too_many_pixels`(본문에 `width`·`height`·`limit`)·`asset_not_image`·`asset_unreadable` — `GET /api/asset` |
@@ -130,7 +131,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 
 | 역할 | 누가 이 역할인가 | 허용되는 POST |
 | --- | --- | --- |
-| `viewer` | `role` 이 `viewer` 인 사람, `role` 값을 알 수 없는 사람, 그리고 `people.json` 을 쓸 수 없는 동안 헤더로 들어온 모든 사람 | `/api/pick`, `/api/revision-build` 만(상태를 바꾸지 않는 계산). 그 밖은 모두 `403` |
+| `viewer` | `role` 이 `viewer` 인 사람, `role` 값을 알 수 없는 사람, 그리고 `people.json` 을 쓸 수 없는 동안 헤더로 들어온 모든 사람 | `/api/pick`, `/api/revision-build` 만(상태를 바꾸지 않는 계산). 그 밖은 `/api/hold` 를 포함해 모두 `403` |
 | `agent` | 모든 토큰, 헤더 없는 루프백 에이전트, `role` 이 `agent` 인 사람 | `/api/pins/{id}/confirm`, `/api/clear`, `/api/pins/{id}/purge` 를 뺀 전부. 셋은 `403` 이다. 판정 핀(`verdict` 를 단 `POST /api/pin`)도 만들지 못하고, 판정 핀을 지우거나(`/drop`) 되살리지(`/restore`) 못한다(`403 verdict_human`). 본문에 `review` 없이 닫으면 검토 대기로 가고, 답글은 규칙으로 핀을 다시 열지 않는다(§스레드 (답글)) |
 | `editor` | `role` 이 없거나 `editor` 인 사람 | `/api/clear` 와 `/api/pins/{id}/purge` 를 뺀 전부(`403`) |
 | `owner` | `role` 이 `owner` 인 사람, `local` 방식의 루프백 소유자 | 전부 |
@@ -196,7 +197,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 | 방식 | 경로 |
 | --- | --- |
 | `GET` 쿼리 | `/api/meta`, `/api/build`, `/pdf`, `/pages/<쪽>`, `/pages/<빌드>/<쪽>`, `/api/snippet`, `/api/overlaps`, `/api/pins`(그 문서의 핀만 거른다), `/api/revisions`, `/api/revision-diff`, `/api/revision-source`, `/api/outline-labels`, `/api/revision-build`, `/api/revision-pdf` |
-| `POST` 쿼리 또는 JSON 본문 | `/api/pick`, `/api/pin`, `/api/rebuild`, `/api/revision-build` |
+| `POST` 쿼리 또는 JSON 본문 | `/api/pick`, `/api/pin`, `/api/rebuild`, `/api/revision-build`, `/api/hold` |
 
 규칙은 다음과 같다.
 
@@ -253,6 +254,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 | `POST` | `/api/rebuild?force=1` | 강제 재빌드. 남겨 둔 LaTeX 부산물을 지우고 처음부터 빌드하며, 변경 없음으로 끝나지 않는다. 빌드가 비교하지 않는 것(셸 탈출로 돈 프로그램이 읽은 파일, 조건부로 새로 읽게 된 파일)을 바꿨을 때 쓴다. 뷰어는 상태 줄에 뜬 변경 없음 답의 [그래도 빌드]로만 보낸다. `?async=1`·`?log=1` 과 함께 쓸 수 있다 |
 | `POST` | `/api/rebuild?async=1` | PDF 재빌드(비동기). 잠금을 얻으면 데몬 스레드로 같은 빌드 함수를 돌리고 바로 `202 {"state":"running"}` 을 준다. 이미 도는 중이면 `409 {"state":"running","busy":true}`. 진행은 `GET /api/build` 로 폴링한다([build-sync.md](build-sync.md) §비동기 재빌드) |
 | `POST` / `GET` | `/api/rebuild?log=1` / `/api/build?log=1` | [build-sync.md](build-sync.md) §에이전트 응답 다이어트를 끄고 전체 로그 꼬리(4000자)를 그대로 받는다. 뷰어는 오류 패널을 위해 이 플래그를 항상 붙인다 |
+| `POST` | `/api/hold` | 한 빌드의 역변환 자료(PDF·SyncTeX)를 쪽 교체 뒤에도 남기게 붙잡는다([build-sync.md](build-sync.md) §쪽 폴더 보존과 빌드 붙잡기). 뷰어가 오프라인 캐시를 만들 때 그 빌드에 보낸다. 본문은 `{build, days?}` 다. `build` 는 `pages_build` 값(쪽 폴더 이름)이고, `days` 는 0부터 7까지의 숫자(소수 가능)이며 빼면 7이다. `days: 0` 은 놓기다. 응답은 `200 {build, until}` 이고 `until` 은 오프셋이 붙은 ISO 8601 끝 시각, 놓았으면 `null` 이다. 같은 빌드를 다시 보내면 끝 시각을 지금부터 다시 잰다. 이름이 쪽 폴더 이름 모양이 아니면 `400 bad_pdf_build`, `days` 가 틀리면 `400 bad_days`, 그 빌드 폴더가 없으면 `404 {error, reason:"pdf_build_gone", pdf_build_gone:true, pages_build}`(놓기도 같다)다. 붙잡은 빌드의 쪽 이미지는 지운다. 그 빌드를 이름으로 부른 `POST /api/pick`·`POST /api/pin` 은 그대로 되짚고, `/pages/<빌드>/<쪽>` 은 `404` 다. 역할은 핀을 쓸 수 있는 `owner`·`editor`·`agent` 이고 `viewer` 는 `403 viewer_only` 다. 다른 `POST` 와 같이 신원·입장·역할 검사를 거쳐 그 문서에 묶인 권한으로만 쓰고, 쓴 뒤에는 재빌드처럼 요청한 사람을 기록한다(§인증) |
 
 ### 변경 보기와 비교 PDF
 

@@ -240,13 +240,69 @@ def previous_build(names: Iterable[str], current: str) -> str | None:
 
 def previous_pages(D: BuildDoc) -> Path | None:
     """The page directory of the build D showed before the one on screen (previous_build over D's folder), or None
-    when it is not kept or there was none. Lists D.dir; reads no file."""
+    when it is not kept or there was none. A slimmed held directory (is_slimmed) is never the previous build: it kept
+    only its reverse-mapping material, not its page images. Lists D.dir and checks each candidate for the marker."""
     try:
-        names = [entry.name for entry in os.scandir(D.dir) if entry.is_dir(follow_symlinks=False)]
+        names = [
+            entry.name
+            for entry in os.scandir(D.dir)
+            if entry.is_dir(follow_symlinks=False) and not is_slimmed(Path(entry.path))
+        ]
     except OSError:
         return None
     name = previous_build(names, cur_pages(D).name)
     return None if name is None else D.dir / name
+
+
+# A held page directory that is neither current nor previous is slimmed instead of deleted (engine.commit_pages,
+# limn.builds.holds): its page images go, its PDF, SyncTeX, recorder files and figure map stay, so POST /api/pick and
+# POST /api/pin still resolve against it. SLIM_NAME records the pixel size of every page image it had, written
+# before the images are removed; its presence marks the directory as slimmed.
+SLIM_NAME = "slim.json"
+
+
+def is_slimmed(pdir: Path) -> bool:
+    """Is pdir a slimmed held page directory (it holds SLIM_NAME)?"""
+    return (pdir / SLIM_NAME).is_file()
+
+
+def slim_pages(pdir: Path) -> None:
+    """Slim page directory pdir: record each page image's pixel size in SLIM_NAME, then delete page-*.png. Everything
+    else in the directory stays. Already slimmed sizes are kept when no image is left to measure. An image that cannot
+    be measured is left out of the record, as page_list leaves it out."""
+    images = sorted(pdir.glob("page-*.png"))
+    if not images and is_slimmed(pdir):
+        return
+    sizes = []
+    for p in images:
+        try:
+            w, h = png_size(p)
+        except (OSError, struct.error):
+            continue
+        sizes.append({"name": p.name, "w": w, "h": h})
+    atomic_write(pdir / SLIM_NAME, json.dumps({"pages": sizes}))
+    for p in images:
+        with contextlib.suppress(OSError):
+            p.unlink()
+
+
+def page_sizes(pdir: Path, dpi: int) -> list[dict[str, Any]]:
+    """The pages of pdir as page_list gives them ({name, pt_w, pt_h}); for a slimmed directory with no image left, the
+    sizes SLIM_NAME recorded, converted at dpi the way page_list converts an image. Used where a request resolves
+    against a named build (pick, a pin's page check), never for what the screen shows."""
+    pages = page_list(pdir, dpi)
+    if pages or not is_slimmed(pdir):
+        return pages
+    try:
+        rec = json.loads((pdir / SLIM_NAME).read_text(encoding="utf-8"))
+        rows = rec["pages"] if isinstance(rec, dict) and isinstance(rec.get("pages"), list) else []
+    except (OSError, ValueError):
+        return []
+    out = []
+    for row in rows:
+        if isinstance(row, dict) and isinstance(row.get("name"), str) and is_int(row.get("w")) and is_int(row.get("h")):
+            out.append({"name": row["name"], "pt_w": row["w"] * 72.0 / dpi, "pt_h": row["h"] * 72.0 / dpi})
+    return out
 
 
 def build_pdf(D: BuildDoc, name: object) -> Path | None:

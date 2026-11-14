@@ -18,7 +18,7 @@ from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from limn.builds import artifacts as build, png, warm
+from limn.builds import artifacts as build, holds, png, warm
 from limn.builds.artifacts import (
     BUILD_EXCLUDE_DIRS,
     PAGES_DIR_RE,
@@ -846,6 +846,11 @@ def render_pages(
 def commit_pages(D: BuildDoc, newdir: Path, on_swap: Callable[[], None] | None = None) -> str:
     """Swaps the pointer to the new page directory in one shot (atomically), keeps only current+previous, and writes built_at/head. head is the short hash.
 
+    Any other page directory is deleted unless it is held and unexpired (limn.builds.holds): a held one is slimmed
+    instead (artifacts.slim_pages - its page images go, its PDF, SyncTeX and recorder files stay), so a pick against it
+    still resolves. A slimmed directory is never the current one (the pointer only ever names newdir) nor the
+    previous one (artifacts.previous_pages skips it).
+
     on_swap, when given, is called once, right after the pointer names the new directory and before anything else is
     done (the removal of old directories and the call to git can take seconds): the caller's caches that depend on the
     page on screen are dropped there."""
@@ -853,9 +858,14 @@ def commit_pages(D: BuildDoc, newdir: Path, on_swap: Callable[[], None] | None =
     atomic_write(D.dir / "pages.cur", newdir.name)  # a single atomic swap
     if on_swap is not None:
         on_swap()
-    for d in D.dir.iterdir():  # keep only current and previous
+    held = holds.held_builds(D)
+    for d in D.dir.iterdir():  # keep only current and previous, and slim what is held
         if d.is_dir() and PAGES_DIR_RE.fullmatch(d.name) and d.name not in (newdir.name, prev):
-            shutil.rmtree(d, ignore_errors=True)
+            if d.name in held:
+                with contextlib.suppress(OSError):
+                    build.slim_pages(d)
+            else:
+                shutil.rmtree(d, ignore_errors=True)
     atomic_write(D.dir / "built_at.txt", datetime.now().astimezone().isoformat(timespec="seconds"))
     head_short = _published_head(D)
     atomic_write(D.dir / "head.txt", head_short)
