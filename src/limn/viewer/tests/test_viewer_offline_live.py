@@ -1,0 +1,238 @@
+"""The service worker and the tab opened again with no network, in a real browser against the real server on a loopback
+socket (docs/handbook/viewer.md §끊긴 채 보기와 핀 쌓기, docs/handbook/verification.md §실제 소켓의 브라우저 테스트).
+
+BrowserBase serves through request interception on a fake host, which is no secure context, so no worker registers in
+those tests. These run on `http://127.0.0.1:<port>` (tests/support/helpers_live.py), where the worker registers and
+answers, and each fails - not skips - if the worker does not register. The landing needs a real LaTeX build and is
+skipped without latexmk, synctex, pdftotext and pdftoppm (LIMN_TEST_REQUIRE_TEX=1 turns that into a failure).
+
+Each test has its own server, state folder and port. What they assert is what the server holds, what the queue counts and
+what the page draws; the page's internals are read in helpers_live.LiveTab only.
+
+Run: uv run pytest -q src/limn/viewer/tests/test_viewer_offline_live.py
+"""
+
+from pathlib import Path
+
+from limn.builds import artifacts as build
+from limn.builds.artifacts import BuildOk
+
+from helpers import needs_tex, ps
+from helpers_live import PDF_WORDS, LiveBase
+
+CAUGHT_UP = "a note written at 35000 feet"
+
+
+class WorkerCopies(LiveBase):
+    """With no network the page opens from the worker's copy; an API call is never answered from one."""
+
+    def test_the_page_a_kept_file_and_the_pdf_open_with_no_network_and_an_api_call_does_not(self):
+        """Kept online, then cut off and opened again: the page is the real viewer, a static file the page loaded is
+        served from its copy, the PDF and the page images are there, and /api/* is refused - neither kept nor answered
+        from a copy."""
+        tab = self.open_live()
+        built = tab.keep()
+        urls = tab.cache_urls()
+        paths = sorted({u.split("?")[0] for u in urls})
+        self.assertIn("/", paths)
+        self.assertIn("/pdf", paths)
+        self.assertEqual([p for p in paths if p.startswith("/api/")], [], paths)
+        self.assertNotIn("/sw.js", paths)
+        images = [p for p in paths if p.startswith("/pages/")]
+        self.assertEqual(len(images), 2, paths)
+        statics = [u for u in urls if u.split("?")[0] not in ["/", "/pdf", *images]]
+        self.assertTrue(statics, urls)  # PDF.js and its worker, the fonts: what the page loaded from its own origin
+        pdf = next(u for u in urls if u.split("?")[0] == "/pdf")
+        online = {u: tab.fetch(u) for u in [pdf, *statics]}
+        self.assertTrue(all(got["ok"] for got in online.values()), online)
+        tab.cut_off()
+        tab.reopen()
+        self.assertTrue(tab.page.evaluate("!!document.querySelector('#btn-more')"), "the page is the real viewer")
+        self.assertEqual(tab.build(), built)
+        for url, was in online.items():
+            got = tab.fetch(url)
+            self.assertTrue(got["ok"], (url, got))
+            self.assertEqual(got["size"], was["size"], url)
+        for url in ("/api/meta?light=1", "/api/pins?all=1", "/api/meta"):
+            got = tab.fetch(url)
+            self.assertFalse(got["ok"], (url, got))
+        self.assertEqual([u for u in tab.cache_urls() if u.startswith("/api/")], [])
+
+
+class QueueAcrossReloads(LiveBase):
+    """A pin queued with no network is still there when the tab is opened again with none."""
+
+    def test_a_queued_pin_survives_a_reload_with_no_network(self):
+        """A pin saved while cut off is counted; after one reload and another, still with no network, it is still
+        counted, with its note, and the server has not been sent it."""
+        tab = self.open_live()
+        tab.reopen()  # the first visit was not under the worker's control yet; this one is, and its page is kept
+        before = len(self.pins())
+        tab.cut_off()
+        selection = tab.pin_offline("flight note")
+        self.assertTrue(selection["offline"])
+        for _ in range(2):
+            tab.reopen()
+            tab.wait_for("OFF.n===1")
+            records = tab.queue()
+            self.assertEqual([r["note"] for r in records], ["flight note"])
+            self.assertEqual(records[0]["page"], 1)
+            self.assertEqual(records[0]["build"], tab.build())
+        self.assertEqual(len(self.pins()), before)
+
+
+class StoredReads(LiveBase):
+    """A document read the network refuses is answered from the store only where that is meant."""
+
+    def test_a_read_is_answered_from_the_store_while_cut_off_but_a_poll_and_a_write_are_not(self):
+        """Cut off: /api/meta comes back from the answer stored when it was last read, and the screen says it is a stored
+        one; a light poll, a write and a read with nothing stored fail."""
+        tab = self.open_live()
+        tab.wait_for("OFF.boot===false")
+        built = tab.build()
+        meta = tab.read_url("/api/meta")
+        tab.until(lambda: tab.stored(meta), what="boot's stored meta")
+        tab.cut_off()
+        got = tab.api(meta, silent=True)
+        self.assertTrue(got["ok"], got)
+        self.assertEqual((got["data"]["pages_build"], len(got["data"]["pages"])), (built, 2))
+        self.assertTrue(tab.stale_said())
+        for call in (
+            lambda: tab.api("/api/meta?light=1", silent=True),
+            lambda: tab.api("/api/pin", silent=True, method="POST", body={"note": "x"}),
+            lambda: tab.api("/api/build", silent=True),
+        ):
+            got = call()
+            self.assertFalse(got["ok"], got)
+        self.assertIsNone(tab.stored("/api/meta?light=1"))
+
+    def test_a_read_that_fails_while_connected_is_a_failure_that_is_said_not_a_stored_answer(self):
+        """With the viewer connected and its first reads done, a read the network refuses is not answered from the
+        store: it fails, the screen says so, and the screen does not claim to be a stored one."""
+        tab = self.open_live()
+        tab.wait_for("OFF.boot===false")
+        url = tab.read_url("/api/meta")
+        tab.until(lambda: tab.stored(url), what="boot's stored meta")
+        said = tab.notices()
+        tab.fail_api_reads()
+        got = tab.api(url, where="line")
+        self.assertFalse(got["ok"], got)
+        self.assertGreater(tab.notices(), said, "the failure is said")
+        self.assertFalse(tab.stale_said())
+
+    def test_the_first_reads_of_a_visit_are_answered_from_the_store_while_connected(self):
+        """A tab opened again whose first reads the network refuses (the browser itself is online) is drawn from the
+        stored ones; once those are done a read that fails is a failure again."""
+        tab = self.open_live()
+        self.server("POST", "/api/pin", {"file": str(self.main), "lo": 5, "hi": 5, "page": 1, "note": "a stored pin"})
+        tab.reopen()  # this visit reads the pin list, and stores it
+        tab.until(
+            lambda: "a stored pin" in [p["note"] for p in (tab.stored("/api/pins?all=1") or {"data": []})["data"]],
+            what="the stored list",
+        )
+        tab.fail_api_reads_from_the_next_visit()
+        tab.reopen()
+        tab.stop_polling()
+        state = tab.state()
+        self.assertEqual(state["pages"], 2)
+        self.assertIn("a stored pin", state["notes"])
+        self.assertTrue(state["stale"])
+        tab.wait_for("OFF.boot===false")
+        self.assertFalse(tab.api(tab.read_url("/api/meta"), silent=True)["ok"])
+
+    def test_a_refused_answer_is_never_stored(self):
+        """A read the server refuses, which its caller handles itself, is handed to the caller as the refusal it is and
+        is not stored: cut off, the same read fails instead of opening as an empty document. A refusal that follows a
+        stored answer does not replace it."""
+        tab = self.open_live()
+        tab.wait_for("OFF.boot===false")
+        refused = tab.api("/api/source?doc=main", silent=True, expect=[400, 404, 413])
+        self.assertTrue(refused["ok"], refused)
+        self.assertGreaterEqual(refused["status"], 400)
+        self.assertIsNone(tab.stored("/api/source?doc=main"))
+        url = tab.read_url("/api/meta")
+        tab.until(lambda: tab.stored(url), what="boot's stored meta")
+        good = tab.stored(url)
+        tab.answer_reads_with(404, {"error": "gone"})
+        again = tab.api(url, silent=True, expect=[404])
+        self.assertEqual(again["status"], 404, again)
+        tab.answer_reads_with(None)
+        self.assertEqual(tab.stored(url)["data"], good["data"])
+        tab.cut_off()
+        self.assertFalse(tab.api("/api/source?doc=main", silent=True, expect=[400, 404, 413])["ok"])
+
+
+class ReopenedTab(LiveBase):
+    """The whole of a flight: keep the document, lose the network, open the tab again, drag, save."""
+
+    def test_the_reopened_tab_draws_from_stored_reads_and_a_drag_is_queued_with_its_words(self):
+        """Kept, then cut off and opened again: the document and the server's pins are drawn from stored reads and the
+        screen says so; a drag keeps its box and reads the words under it from the kept PDF; saving queues the pin,
+        which survives one more reload and has not been sent."""
+        for note in ("a kept pin", "another kept pin"):
+            self.server("POST", "/api/pin", {"file": str(self.main), "lo": 5, "hi": 5, "page": 1, "note": note})
+        tab = self.open_live()
+        tab.until(lambda: len(tab.state()["notes"]) == 2, what="the pins on the first visit")
+        built = tab.keep()
+        tab.cut_off()
+        tab.reopen()
+        state = tab.state()
+        self.assertEqual((state["build"], state["pages"]), (built, 2))
+        self.assertEqual(sorted(state["notes"]), ["a kept pin", "another kept pin"])
+        self.assertTrue(state["stale"])
+        selection = tab.drag_over_words()
+        self.assertTrue(selection["offline"])
+        self.assertTrue(selection["box"], "the drag keeps its box")
+        self.assertIn(PDF_WORDS, selection["quote"])
+        tab.write_note("saved with no network")
+        tab.wait_for("OFF.n===1")
+        record = tab.queue()[0]
+        self.assertEqual((record["note"], record["page"], record["build"]), ("saved with no network", 1, built))
+        tab.reopen()
+        tab.wait_for("OFF.n===1")
+        self.assertEqual(len(self.pins()), 2, "nothing was sent")
+
+
+class Landing(LiveBase):
+    """The promise end to end, on a real build: the pin lands on the lines it was drawn on."""
+
+    @needs_tex("latexmk", "synctex", "pdftotext", "pdftoppm")
+    def test_a_pin_made_cut_off_lands_once_on_the_lines_of_the_build_it_was_drawn_on(self):
+        """The document is kept, the network lost, a pin made, the manuscript rebuilt twice from the server side, the
+        network back: exactly one pin is written, on the lines an online pick of that drag answers, picked against the
+        held build; the held build's directory has lost its page images and kept its PDF and SyncTeX."""
+        self.assertIsInstance(ps.APP.build_requests.build_all(self.doc), BuildOk)
+        tab = self.open_live()
+        held = tab.keep()
+        self.assertEqual(held, build.cur_pages(self.doc).name)
+        self.assertIn(held, self.holds())
+        tab.cut_off()
+        tab.reopen()
+        tab.pin_offline(CAUGHT_UP, box=(0.2, 0.30, 0.8, 0.36))
+        # What an online pick of this very drag answers: the lines the offline pin has to land on.
+        want = self.server("POST", "/api/pick", tab.queued_drag(held))
+        self.assertTrue(want.get("file") and isinstance(want.get("lo"), int), want)
+        for _ in range(2):  # the rebuilds that used to remove the build
+            self.server("POST", "/api/rebuild?force=1")
+        self.assertNotEqual(self.server("GET", "/api/meta")["pages_build"], held)
+        folder = self.doc.dir / held
+        self.assertTrue(folder.is_dir(), "the held build is still there")
+        self.assertEqual(sorted(folder.glob("page-*.png")), [], "its page images are gone")
+        self.assertTrue((folder / "slim.json").is_file())
+        self.assertTrue(any(folder.glob("*.pdf")), sorted(p.name for p in folder.iterdir()))
+        self.assertTrue(any(folder.glob("*.synctex.gz")), sorted(p.name for p in folder.iterdir()))
+        before = len(self.pins())
+        tab.reconnect()
+        tab.wait_for("OFF.n===0")
+        rows = self.pins()
+        mine = [p for p in rows if p.get("note") == CAUGHT_UP]
+        self.assertEqual(len(mine), 1, [(p["id"], p["note"]) for p in rows])
+        self.assertEqual(len(rows), before + 1)
+        pin = mine[0]
+        self.assertEqual(Path(str(pin["file"])).name, Path(str(want["file"])).name)
+        self.assertEqual((pin["lo"], pin["hi"]), (want["lo"], want["hi"]))
+        self.assertEqual(pin.get("pdf_build"), held, "picked against the build it was drawn on")
+        self.assertTrue(pin.get("quote"), "the server's own quote of those lines")
+        self.assertEqual(tab.unsent(), {"n": 0, "held": 0})
+        tab.until(lambda: CAUGHT_UP in tab.state()["notes"], what="the viewer showing the pin")
+        self.assertIn(CAUGHT_UP, ps.APP.C.pins_md.read_text(encoding="utf-8"), "pins.md has it for the agent")
