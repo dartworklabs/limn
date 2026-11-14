@@ -251,9 +251,9 @@ class KeepsItselfCurrent(LiveBase):
     @needs_tex("latexmk", "synctex", "pdftotext", "pdftoppm")
     def test_a_rebuild_is_followed_without_pressing_again_and_opens_cut_off(self):
         """Kept once; the server rebuilds; nobody presses again. The page follows on its own: the server holds the new
-        build, the old build's copies are gone from the cache, and the old build's hold is not let go - another device
-        may have pins queued on it; it lapses on its own. Cut off and opened again, the new build opens from the
-        worker's copies."""
+        build, the old build's copies are gone from the cache, and this browser's share of the old build's hold is let
+        go - no other device holds it, so the hold ends and nothing piles up. Cut off and opened again, the new build
+        opens from the worker's copies."""
         self.assertIsInstance(ps.APP.build_requests.build_all(self.doc), BuildOk)
         tab = self.open_live()
         old = tab.keep()
@@ -263,8 +263,9 @@ class KeepsItselfCurrent(LiveBase):
             lambda: tab.kept_build(self.doc.key) == new and not tab.kept()["old"], timeout=90, what="the copy following"
         )
         holds = self.holds()
-        self.assertIn(new, holds)
-        self.assertIn(old, holds, "the old build's hold is left to lapse, not let go")
+        me = tab.page.evaluate("async () => await offHolderId()")
+        self.assertEqual(list(holds), [new], "the old build's hold ended with its last share")
+        self.assertEqual(list(holds[new]["holders"]), [me], "the new build is held in this browser's name")
         urls = tab.cache_urls()
         self.assertEqual([u for u in urls if old in u], [], "the old build's copies are gone")
         pdf = [u for u in urls if u.startswith("/pdf") and new in u]
@@ -277,10 +278,28 @@ class KeepsItselfCurrent(LiveBase):
         self.assertTrue(tab.fetch(pdf[0])["ok"], "the new build's PDF comes from the worker's copy")
 
     @needs_tex("latexmk", "synctex", "pdftotext", "pdftoppm")
+    def test_another_device_s_share_keeps_the_old_build_held(self):
+        """A tablet of the same person holds the build this browser kept - it is cut off, with pins queued there. This
+        browser follows the rebuild and lets go of its own share only: the old build stays held, by the tablet."""
+        self.assertIsInstance(ps.APP.build_requests.build_all(self.doc), BuildOk)
+        tab = self.open_live()
+        old = tab.keep()
+        tablet = "tablet-0123456789abcdef"
+        self.server("POST", "/api/hold", {"build": old, "holder": tablet})
+        new = self.rebuild(old)
+        tab.until(
+            lambda: tab.kept_build(self.doc.key) == new and not tab.kept()["old"], timeout=90, what="the copy following"
+        )
+        holds = self.holds()
+        self.assertEqual(list(holds[old]["holders"]), [tablet], "only the tablet's share of the old build is left")
+        self.assertIn(new, holds)
+        self.assertEqual([u for u in tab.cache_urls() if old in u], [], "this device's copies of it are gone")
+
+    @needs_tex("latexmk", "synctex", "pdftotext", "pdftoppm")
     def test_a_build_a_queued_pin_was_drawn_on_stays_held_until_the_pin_is_sent(self):
         """A pin is queued on the kept build and cannot be sent yet (the server is busy). The server rebuilds and the
         page follows: the old build is still held, and its copies stay. Once the pin is sent, the next follow drops its
-        copies; its hold is left to lapse."""
+        copies and lets go of this browser's share of its hold."""
         self.assertIsInstance(ps.APP.build_requests.build_all(self.doc), BuildOk)
         tab = self.open_live()
         old = tab.keep()
@@ -309,7 +328,7 @@ class KeepsItselfCurrent(LiveBase):
         tab.wait_for("OFF.n===0")
         self.assertEqual(len([p for p in self.pins() if p.get("note") == CAUGHT_UP]), 1)
         tab.until(lambda: not tab.kept()["old"], timeout=90, what="the old build's copies dropped")
-        self.assertIn(old, self.holds(), "its hold is left to lapse, not let go")
+        self.assertNotIn(old, self.holds(), "its hold ended once this browser let go")
         self.assertEqual([u for u in tab.cache_urls() if old in u], [])
 
 
@@ -354,8 +373,13 @@ class LostAnswer(LiveBase):
         tab.reconnect()
         tab.until_routed(lambda: lost["n"] == 1 and len(self.pins()) == 1, what="the write reaching the server")
         tab.wait_for("!OFF.flushing")
-        # The hold is released and two builds later the build is gone: a pick against it now answers pdf_build_gone.
-        self.server("POST", "/api/hold", {"build": held, "days": 0})
+        # The hold is released - the browser's own share, the only one - and two builds later the build is gone: a pick
+        # against it now answers pdf_build_gone.
+        self.server(
+            "POST",
+            "/api/hold",
+            {"build": held, "days": 0, "holder": tab.page.evaluate("async () => await offHolderId()")},
+        )
         for _ in range(2):
             self.server("POST", "/api/rebuild?force=1")
         self.assertFalse((self.doc.dir / held).exists(), "the build the pin was drawn on is gone")

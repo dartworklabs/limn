@@ -305,7 +305,9 @@ class QueuedPinsScreen(BrowserBase):
         self.assertTrue(page.is_visible("#m-offline-n"))
         # the next visit reads the record and says so again
         page.reload(wait_until="load")
-        page.wait_for_function("typeof OFF!=='undefined'&&OFF.kept!==undefined&&!document.getElementById('m-offline-n').hidden")
+        page.wait_for_function(
+            "typeof OFF!=='undefined'&&OFF.kept!==undefined&&!document.getElementById('m-offline-n').hidden"
+        )
         self.assertEqual(page.evaluate("document.getElementById('m-offline-n').textContent"), "받아 둠")
 
     def test_a_drag_made_while_cut_off_opens_the_composer_and_reports_no_failure(self):

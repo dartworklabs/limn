@@ -27,6 +27,12 @@ B1, B2, B3, B4 = (
     "pages-20261101130000",
 )
 KEPT = ("main.pdf", "main.synctex.gz", "main.aux", "main.fls", "recipe.json")
+HA, HB = "holder-a-0123456789", "holder-b-0123456789"  # two browsers' holder keys
+
+
+def iso(t):
+    """A stored time, as holds.json keeps it."""
+    return t.isoformat(timespec="seconds")
 
 
 def no_git(*_a, **_k):
@@ -100,7 +106,7 @@ class Retention(AccessBase):
 
     def test_the_ninth_hold_drops_the_one_expiring_soonest(self):
         """Past eight live holds the other one expiring soonest goes; the new one stays even when it is short."""
-        now = datetime.now().astimezone()
+        now = datetime.now().astimezone().replace(microsecond=0)  # stored times keep whole seconds
         names = ["pages-2026110109%04d" % i for i in range(8)]
         for i, name in enumerate(names):
             (self.D.dir / name).mkdir()
@@ -203,12 +209,12 @@ class Retention(AccessBase):
         self.assertEqual(self.stored_holds(), {})
         real = holds.set_hold
 
-        def racing(D, name, days, by, now=None):
+        def racing(D, name, days, by, now=None, holder=holds.ANONYMOUS):
             """The commit that removes the build lands between the HTTP check and the hold."""
             for f in (D.dir / name).iterdir():
                 f.unlink()
             (D.dir / name).rmdir()
-            return real(D, name, days, by, now)
+            return real(D, name, days, by, now, holder)
 
         self.commit(B2)  # B1 becomes previous, so a page folder other than the one removed stays on screen
         with mock.patch.object(holds, "set_hold", racing):
@@ -254,6 +260,216 @@ class Retention(AccessBase):
         self.assertEqual((d["reason"], d["pages_build"]), ("pdf_build_gone", B1))
         self.assertIn("error", d)
         self.assertEqual(self.stored_holds(), {})
+
+    # ------------------------------------------------------------ a hold per holder
+
+    def store(self, body):
+        """Write holds.json as given (an older Limn's file, or a hand edit)."""
+        files.atomic_write(self.D.dir / holds.HOLDS_NAME, json.dumps(body))
+
+    def test_a_named_share_joins_an_older_entry_without_dropping_its_anonymous_share(self):
+        """An entry an older Limn wrote (no holders) is the one share "": a holder joining it keeps that share, the
+        build's until stays the later of the two, and releasing the holder's share leaves the older one holding."""
+        now = datetime.now().astimezone().replace(microsecond=0)  # stored times keep whole seconds
+        old = now + timedelta(days=3)
+        self.store({B1: {"until": iso(old), "at": iso(now), "by": "alice@example.com"}})
+        self.assertEqual(holds.set_hold(self.D, B1, 1, "bob@example.com", now=now, holder=HA), old)
+        stored = self.stored_holds()[B1]
+        self.assertEqual(stored["holders"], {"": iso(old), HA: iso(now + timedelta(days=1))})
+        self.assertEqual(stored["until"], iso(old))
+        self.assertEqual(holds.set_hold(self.D, B1, 0, "bob@example.com", now=now, holder=HA), old)
+        self.assertEqual(self.stored_holds()[B1]["holders"], {"": iso(old)})
+
+    def test_releasing_one_of_two_shares_keeps_the_build_slimmed(self):
+        """Two holders hold B1; one releases: the answer is the other share's end, the entry stays with that share, and
+        later commits slim B1 rather than delete it."""
+        now = datetime.now().astimezone().replace(microsecond=0)  # stored times keep whole seconds
+        holds.set_hold(self.D, B1, 7, "alice@example.com", now=now, holder=HA)
+        holds.set_hold(self.D, B1, 2, "bob@example.com", now=now, holder=HB)
+        until = holds.set_hold(self.D, B1, 0, "alice@example.com", now=now, holder=HA)
+        self.assertEqual(until, now + timedelta(days=2))
+        stored = self.stored_holds()[B1]
+        self.assertEqual(stored["holders"], {HB: iso(now + timedelta(days=2))})
+        self.assertEqual(stored["until"], iso(now + timedelta(days=2)))
+        self.commit(B2)
+        self.commit(B3)
+        self.assertTrue(build.is_slimmed(self.D.dir / B1))
+        for f in KEPT:
+            self.assertTrue((self.D.dir / B1 / f).is_file(), f)
+
+    def test_the_only_share_releasing_lets_the_next_commit_delete(self):
+        """A build held by one holder alone is let go when that holder releases: the entry goes, and the commits that
+        pass it delete the folder instead of slimming it."""
+        holds.set_hold(self.D, B1, 7, "alice@example.com", holder=HA)
+        self.assertIsNone(holds.set_hold(self.D, B1, 0, "alice@example.com", holder=HA))
+        self.assertEqual(self.stored_holds(), {})
+        self.commit(B2)
+        self.commit(B3)
+        self.assertFalse((self.D.dir / B1).exists())
+
+    def test_the_build_ends_with_its_latest_share_not_its_last_set(self):
+        """until is the latest end over the shares: a shorter share set after a longer one does not shorten the build,
+        and moving the longer one earlier does."""
+        now = datetime.now().astimezone().replace(microsecond=0)  # stored times keep whole seconds
+        self.assertEqual(holds.set_hold(self.D, B1, 7, "a", now=now, holder=HA), now + timedelta(days=7))
+        self.assertEqual(holds.set_hold(self.D, B1, 1, "b", now=now, holder=HB), now + timedelta(days=7))
+        self.assertEqual(self.stored_holds()[B1]["until"], iso(now + timedelta(days=7)))
+        self.assertEqual(holds.set_hold(self.D, B1, 0.5, "a", now=now, holder=HA), now + timedelta(days=1))
+        self.assertEqual(self.stored_holds()[B1]["until"], iso(now + timedelta(days=1)))
+
+    def test_releasing_a_share_that_is_not_there_is_no_error(self):
+        """Releasing a holder that holds nothing answers the build's end as it stands, or None when unheld."""
+        now = datetime.now().astimezone().replace(microsecond=0)  # stored times keep whole seconds
+        self.assertIsNone(holds.set_hold(self.D, B1, 0, "a", now=now, holder=HA))
+        holds.set_hold(self.D, B1, 3, "a", now=now, holder=HA)
+        self.assertEqual(holds.set_hold(self.D, B1, 0, "b", now=now, holder=HB), now + timedelta(days=3))
+        self.assertEqual(set(self.stored_holds()[B1]["holders"]), {HA})
+
+    def test_expired_shares_go_and_live_ones_stay(self):
+        """A file mixing ended and live shares is read as the live ones (and rewritten so), with until their latest
+        end; an entry whose shares have all ended is dropped although its stored until is still ahead."""
+        now = datetime.now().astimezone().replace(microsecond=0)  # stored times keep whole seconds
+        past, soon, later = now - timedelta(hours=1), now + timedelta(days=1), now + timedelta(days=5)
+        self.make(B2)
+        self.store(
+            {
+                B1: {"until": iso(later), "at": "", "by": "", "holders": {"": iso(past), HA: iso(soon), HB: iso(past)}},
+                B2: {"until": iso(later), "at": "", "by": "", "holders": {HA: iso(past)}},
+            }
+        )
+        self.assertEqual(holds.held_builds(self.D, now), {B1})
+        stored = self.stored_holds()
+        self.assertEqual(set(stored), {B1})
+        self.assertEqual(stored[B1]["holders"], {HA: iso(soon)})
+        self.assertEqual(stored[B1]["until"], iso(soon))
+
+    def test_malformed_shares_go(self):
+        """A share whose key is neither "" nor a well-formed holder, or whose end is not a time with an offset, is
+        dropped; the well-formed shares of the same entry stay."""
+        now = datetime.now().astimezone().replace(microsecond=0)  # stored times keep whole seconds
+        later = iso(now + timedelta(days=2))
+        self.store(
+            {
+                B1: {
+                    "until": later,
+                    "holders": {
+                        "a" * 15: later,
+                        "a" * 65: later,
+                        "has space 0123456789": later,
+                        "a" * 16: (now + timedelta(days=2)).replace(tzinfo=None).isoformat(),
+                        "b" * 16: 5,
+                        HA: later,
+                    },
+                }
+            }
+        )
+        self.assertEqual(holds.held_builds(self.D, now), {B1})
+        self.assertEqual(self.stored_holds()[B1]["holders"], {HA: later})
+
+    def test_holders_that_is_not_an_object_reads_as_the_older_single_share(self):
+        """An entry whose holders is not an object is read as an older Limn's: the share "" until its until. Its
+        until decides whether it is held; the file is rewritten with the share spelled out."""
+        now = datetime.now().astimezone().replace(microsecond=0)  # stored times keep whole seconds
+        later = iso(now + timedelta(days=2))
+        for holders_value in ([HA], HA, 5, None):
+            with self.subTest(holders=holders_value):
+                self.store({B1: {"until": later, "holders": holders_value}})
+                self.assertEqual(holds.held_builds(self.D, now), {B1})
+                self.assertEqual(self.stored_holds()[B1]["holders"], {"": later})
+        self.store({B1: {"until": iso(now - timedelta(hours=1)), "holders": "x"}})
+        self.assertEqual(holds.held_builds(self.D, now), set())
+        self.assertEqual(self.stored_holds(), {})
+
+    def test_the_seventeenth_share_drops_the_one_expiring_soonest(self):
+        """Past MAX_HOLDERS live shares of one build, the other share expiring soonest goes and the new one stays even
+        when it is short; a full file (8 builds of 16 longest holders) stays well under HOLDS_MAX_BYTES."""
+        now = datetime.now().astimezone().replace(microsecond=0)  # stored times keep whole seconds
+        names = ["h%02d-0123456789abcd" % i for i in range(holds.MAX_HOLDERS)]
+        for i, h in enumerate(names):
+            holds.set_hold(self.D, B1, 7 - i * 0.25, "a", now=now, holder=h)
+        self.assertEqual(set(self.stored_holds()[B1]["holders"]), set(names))
+        newest = "h-new-0123456789abcd"
+        until = holds.set_hold(self.D, B1, 0.1, "a", now=now, holder=newest)
+        self.assertEqual(until, now + timedelta(days=7))
+        kept = self.stored_holds()[B1]["holders"]
+        self.assertEqual(len(kept), holds.MAX_HOLDERS)
+        self.assertNotIn(names[-1], kept)  # 3.25 days: the soonest of the others
+        self.assertIn(newest, kept)
+        # the largest file the limits allow is read whole
+        builds_ = ["pages-2026110109%04d" % i for i in range(holds.MAX_HOLDS)]
+        for name in builds_:
+            (self.D.dir / name).mkdir()
+            for i in range(holds.MAX_HOLDERS):
+                holds.set_hold(self.D, name, 7, "x" * 200, now=now, holder="%02d" % i + "z" * 62)
+        size = (self.D.dir / holds.HOLDS_NAME).stat().st_size
+        self.assertLess(size, holds.HOLDS_MAX_BYTES // 2, size)
+        self.assertEqual(len(holds.held_builds(self.D, now)), holds.MAX_HOLDS)
+        self.assertEqual(len(self.stored_holds()[builds_[-1]]["holders"]), holds.MAX_HOLDERS)
+
+    def test_post_hold_counts_a_hold_per_holder(self):
+        """Over HTTP: two holders hold B1; the answer keeps {build, until}; one releases and the build stays held until
+        the other's end; the other releases and until is null."""
+        code, a = self.hold({"build": B1, "holder": HA})
+        self.assertEqual(code, 200, a)
+        self.assertEqual(set(a), {"build", "until"})
+        code, b = self.hold({"build": B1, "holder": HB, "days": 1})
+        self.assertEqual((code, b["until"]), (200, a["until"]))  # the build's end, the later share's
+        self.assertEqual(set(self.stored_holds()[B1]["holders"]), {HA, HB})
+        code, d = self.hold({"build": B1, "holder": HA, "days": 0})
+        self.assertEqual(code, 200, d)
+        self.assertEqual(d["until"], self.stored_holds()[B1]["holders"][HB])
+        ahead = datetime.fromisoformat(d["until"]) - datetime.now().astimezone()
+        self.assertTrue(timedelta(hours=23) < ahead <= timedelta(days=1), ahead)
+        code, d = self.hold({"build": B1, "holder": HB, "days": 0})
+        self.assertEqual((code, d), (200, {"build": B1, "until": None}))
+        self.assertEqual(self.stored_holds(), {})
+
+    def test_post_hold_without_a_holder_is_the_anonymous_share(self):
+        """A request naming no holder holds and releases the share "", beside a named one."""
+        self.assertEqual(self.hold({"build": B1, "holder": HA})[0], 200)
+        self.assertEqual(self.hold({"build": B1, "days": 2})[0], 200)
+        self.assertEqual(set(self.stored_holds()[B1]["holders"]), {"", HA})
+        code, d = self.hold({"build": B1, "days": 0})
+        self.assertEqual(code, 200, d)
+        self.assertIsNotNone(d["until"])
+        self.assertEqual(set(self.stored_holds()[B1]["holders"]), {HA})
+
+    def test_post_hold_refuses_a_malformed_holder(self):
+        """400 bad_holder for a holder that is not a string of 16..64 characters of [A-Za-z0-9_-]; nothing is
+        stored."""
+        for holder in (
+            "a" * 15,
+            "a" * 65,
+            "",
+            " " * 20,
+            "has space 0123456789",
+            "가" * 16,
+            "a" * 16 + "\n",
+            1234567890123456,
+            None,
+            True,
+            [HA],
+        ):
+            with self.subTest(holder=holder):
+                code, d = self.hold({"build": B1, "holder": holder})
+                self.assertEqual((code, d.get("reason")), (400, "bad_holder"), d)
+        for holder in ("a" * 16, "a" * 64, "A-z_0" * 4):
+            with self.subTest(holder=holder):
+                self.assertEqual(self.hold({"build": B1, "holder": holder, "days": 0})[0], 200)
+        self.assertEqual(self.stored_holds(), {})
+
+    def test_releasing_a_share_of_a_gone_build_is_pdf_build_gone(self):
+        """A release naming a holder on a build whose folder is gone is the pdf_build_gone 404, as before holders."""
+        code, d = self.hold({"build": "pages-19990101000000", "holder": HA, "days": 0})
+        self.assertEqual((code, d.get("reason")), (404, "pdf_build_gone"), d)
+
+    def test_both_meta_forms_say_holds_are_per_holder(self):
+        """hold_holder is true in the full meta body and in the light poll's."""
+        for path in ("/api/meta", "/api/meta?light=1"):
+            with self.subTest(path=path):
+                code, d = self.call("GET", path)
+                self.assertEqual(code, 200, d)
+                self.assertIs(d["hold_holder"], True)
 
     def test_a_viewer_may_not_hold(self):
         """A viewer is refused (403 viewer_only) before anything is stored; an editor and the owner may hold."""

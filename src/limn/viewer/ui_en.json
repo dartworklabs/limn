@@ -1775,5 +1775,6 @@
  "보낸 적이 있어 서버에 이미 있을 수 있습니다 — 연결된 뒤 [지금 반영]으로 확인하세요": "This one was sent before and may already be on the server — once connected, check with [Write now]",
  "오프라인": "Offline",
  "받아 둠": "Kept",
- "연결이 끊긴 채 고른 자리입니다 — 저장하면 쌓아 두었다가, 연결되면 이 PDF로 줄을 찾아 핀으로 씁니다": "Chosen with no connection — saved, it is kept and written as a pin once connected, its lines found on this PDF"
+ "연결이 끊긴 채 고른 자리입니다 — 저장하면 쌓아 두었다가, 연결되면 이 PDF로 줄을 찾아 핀으로 씁니다": "Chosen with no connection — saved, it is kept and written as a pin once connected, its lines found on this PDF",
+ "reason:bad_holder": "The hold's holder must be 16 to 64 letters, digits, _ or -."
 }

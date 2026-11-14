@@ -79,6 +79,7 @@ LIGHT_KEYS = [
     "last_build",
     "build",
     "pin_idem",
+    "hold_holder",
 ]
 
 # The capability table of docs/handbook/domain.md §여러 문서, one column per document kind. A new DocKind value adds its
