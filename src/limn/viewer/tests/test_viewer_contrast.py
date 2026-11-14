@@ -309,6 +309,11 @@ SURFACES = (
 # The Markdown document scene_markdown draws: the muted head line of its front matter (ADR-0032), the muted text of a
 # quote, a raw HTML block's placeholder, an inline tag and an image's stand-in, an inert link, and two raw HTML blocks in a
 # row as one closed run (its button's muted line).
+# Seeds this browser's queue of kept pins through the shipped functions, each record merged over a whole one.
+QUEUE_SEED = """async recs=>{for(const r of recs){const rec=Object.assign({v:1,label:'Demo',doc:DEFAULT_DOC,
+  build:META.pages_build,pt:{w:612,h:792},rect:null,quote:'q',note:'n',kind_req:'fix',assignee:'agent',mentions:[],
+  at:new Date().toISOString(),held:false,why:'',sent:false,place:null},r); await offAdd(rec);} await offlineSync(); return OFF.n;}"""
+
 MD_NOTES = """---
 title: 노트
 ---
@@ -345,6 +350,7 @@ NOT_WALKED: dict[str, tuple[float | None, str]] = {
     ".nt-acts button.nt-x": (ICON, "a message's [x]"),
     ".av.agent": (ICON, "an agent's avatar, a bot icon on --accent"),
     ".pin .card-meta .as-chip .ic": (ICON, "the pressable assignee's pencil"),
+    ".qmark button.qmark-jump": (ICON, "a kept pin's badge on the page: a clock in an icon button"),
     ".quote .q-ic": (ICON, "a quote's icon"),
     ".sec-tg > .ic": (ICON, "a section head's chevron"),
     "body.lay-narrow #bar1 #btn-pos .ic": (ICON, "the phone tool bar's location icon"),
@@ -973,6 +979,39 @@ class ContrastWalk(BrowserBase):
         finally:
             self.no_pins = False
 
+    def scene_queue(self):
+        """The pins kept while cut off (js/offline-ui.js): their marks on the page, one waiting and one held, and their
+        rows in the panel - a waiting one, a held one with its reason, one drawn on another PDF, one with no note, and
+        one on a page the document does not have, whose place is words and no link."""
+        page = self.open(0, **DEVICES[self.device])
+        page.evaluate(
+            QUEUE_SEED,
+            [
+                {"page": 1, "frac": [0.2, 0.2, 0.5, 0.05], "quote": "Line 5 of the text", "note": "a waiting pin"},
+                {
+                    "page": 1,
+                    "frac": [0.2, 0.4, 0.5, 0.05],
+                    "quote": "Line 9",
+                    "note": "held",
+                    "held": True,
+                    "why": "gone",
+                },
+                {
+                    "page": 1,
+                    "frac": [0.2, 0.6, 0.5, 0.05],
+                    "quote": "another PDF",
+                    "note": "",
+                    "build": "pages-20200101000000",
+                },
+                {"page": 9, "frac": [0.2, 0.2, 0.5, 0.05], "quote": "past the document", "note": "no such page"},
+            ],
+        )
+        page.evaluate("setSide(true)")
+        page.wait_for_selector("#queue-rows>.qrow")
+        settle(page)
+        self.look(page, "kept pins")
+        page.context.close()
+
     def walk(self):
         """Run every scene on the desktop and the phone, and the list on the foldable, collecting self.short, self.used,
         self.rules and self.excused."""
@@ -986,6 +1025,7 @@ class ContrastWalk(BrowserBase):
             self.scene_changes()
             self.scene_markdown()
             self.scene_empty()
+            self.scene_queue()
 
 
 class RenderedSecondaryContrast(ContrastWalk):
