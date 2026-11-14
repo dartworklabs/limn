@@ -23,10 +23,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, TypeAlias
 
-from limn.builds import artifacts as build, engine
+from limn.builds import artifacts as build, built_source, engine
 from limn.builds.artifacts import BuildAborted, BuildConfig, BuildDoc, BuildFailed, BuildOk, PagesNotRendered
 from limn.builds.figure_map import DETAIL_TEXT_MAX, MAP_MAX_BYTES, FigureMap, MapRejected, parse_map
-from limn.platform.files import atomic_write
+from limn.platform.files import atomic_write, tree_part
 
 SIG_FILE = "pdf_sig.txt"  # the watch's signature file, shared with view-only PDFs (engine.render_pdf_doc)
 STAGE_DIR = "figure-import"  # private staging folder in the document's state folder; never a page directory name
@@ -312,13 +312,48 @@ def figure_src_hash(pdf_raw: bytes, map_raw: bytes) -> str:
     return hashlib.sha256(pair).hexdigest()[:32]
 
 
+def map_scripts(D: BuildDoc, state: Path, figure_map: FigureMap) -> list[str]:
+    """The drawing scripts figure_map names as an element's src.file, as 'src/a.py' below figure document D's folder
+    with symlinks resolved - the name a pick knows the script by (built_source.source_key) - each once, in map order.
+    Only a script a pick would read lines from is named: one inside D.src once links are resolved, under no dot-named
+    part and not in the state folder `state` (limn.platform.files.tree_part, the rule of
+    limn.pins.location.figure.read_source). impl.file is data nothing opens, so it is never named. Reads file metadata
+    only."""
+    spelled: dict[str, None] = {}  # each path once as the map spells it: a map names one script for many elements
+    for page in figure_map.pages:
+        for el in page.elements:
+            if el.src is not None:
+                spelled.setdefault(el.src.file, None)
+    named: dict[str, None] = {}
+    for file in spelled:
+        rel = tree_part(D.src / file, D.src, state)
+        if rel is not None and rel.parts:
+            named.setdefault(rel.as_posix(), None)
+    return list(named)
+
+
+def source_record(D: BuildDoc, state: Path, figure_map: FigureMap) -> str | None:
+    """The text of the source record of an import of figure_map (limn.builds.built_source): the lines, read now, of
+    the scripts the map names (map_scripts), each opened below D's folder through descriptors that follow no link and
+    kept within the record's size limits. A map numbers the lines of the script as it was rendered; these are the
+    lines of the script as it is when the pair is imported, which is that script unless it was edited between the
+    render and the import. None when D's folder cannot be resolved: the build then has no record."""
+    try:
+        root = D.src.resolve()
+    except (OSError, RuntimeError):
+        return None
+    return built_source.encode(built_source.collect(root, (), map_scripts(D, state, figure_map)))
+
+
 def render_figure_doc(D: BuildDoc, cfg: BuildConfig, ready: FigureImport) -> BuildOk | BuildFailed:
     """The 'build' of figure document D from a verified pair, the figure counterpart of engine.render_pdf_doc. The PDF
     and map bytes are staged in D's state folder (STAGE_DIR), the pages are rendered from the staged PDF at cfg.dpi
-    (engine.render_pages), and the new page directory holds the PDF copy (D.pdf_name) and the map copy
-    (limn.builds.artifacts.FIGMAP_NAME); then pages.cur moves to it (engine.commit_pages). The signature is settled after the
-    commit, or after a failed render, so a pair that cannot be rendered is retried only when a file changes. src_hash
-    is figure_src_hash of the pair. A staging failure is BuildFailed pdf_copy; the staging folder never survives."""
+    (engine.render_pages), and the new page directory holds the PDF copy (D.pdf_name), the map copy
+    (limn.builds.artifacts.FIGMAP_NAME) and the source record (limn.builds.built_source.SOURCE_NAME: the lines of the
+    scripts the map names, source_record); then pages.cur moves to it (engine.commit_pages). The signature is settled
+    after the commit, or after a failed render, so a pair that cannot be rendered is retried only when a file changes.
+    src_hash is figure_src_hash of the pair. A staging failure is BuildFailed pdf_copy; the staging folder never
+    survives."""
     t0 = time.time()
     src_hash = figure_src_hash(ready.pdf_raw, ready.map_raw)
     stage = D.dir / STAGE_DIR
@@ -328,7 +363,12 @@ def render_figure_doc(D: BuildDoc, cfg: BuildConfig, ready: FigureImport) -> Bui
         stage.mkdir(parents=True)
         (stage / D.pdf_name).write_bytes(ready.pdf_raw)
         (stage / build.FIGMAP_NAME).write_bytes(ready.map_raw)
-        newdir = engine.render_pages(D, stage / D.pdf_name, [stage / build.FIGMAP_NAME], cfg.dpi)
+        companions = [stage / build.FIGMAP_NAME]
+        record = source_record(D, cfg.state, ready.figure_map)
+        if record is not None:
+            (stage / built_source.SOURCE_NAME).write_text(record, encoding="utf-8")
+            companions.append(stage / built_source.SOURCE_NAME)
+        newdir = engine.render_pages(D, stage / D.pdf_name, companions, cfg.dpi)
     except OSError as e:
         newdir = PagesNotRendered("pdf_copy", str(e))
     finally:

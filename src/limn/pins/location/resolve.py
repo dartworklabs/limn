@@ -147,7 +147,8 @@ def pick(D: Doc, request: Selection, ctx: PickContext) -> Picked | figure.Picked
     be traced to a manuscript line (PickRefusal).
 
     A figure document is traced through its build's element map first (location.figure.pick_figure, no pdftotext or
-    SyncTeX); when that gives no lines, the region answer carries its element and reason.
+    SyncTeX); when that gives no lines, the region answer carries its element and reason. The map's lines are carried
+    to the script as it is now the same way SyncTeX's are below, from that build's source record.
 
     This is the shell: it runs pdftotext and SyncTeX on the build's PDF, maps SyncTeX's file back to the checkout,
     reads the file and weighs the region's tokens, then lets limn.pins.location.mapping.trace_range choose between the two paths.
@@ -180,6 +181,7 @@ def pick(D: Doc, request: Selection, ctx: PickContext) -> Picked | figure.Picked
             ctx.state,
             ctx.overlaps,
             publication.running,
+            publication.built_lines,
         )
         if isinstance(on_map, figure.PickedElement):
             return on_map

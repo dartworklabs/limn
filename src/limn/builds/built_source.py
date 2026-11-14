@@ -1,36 +1,52 @@
 """The source a build was made from, kept with its pages.
 
-SyncTeX of a build numbers the lines of the files that build read. Once the manuscript is edited, those numbers name
-other text in the files as they are now, and a pick against that build - a pin queued offline, a drag on a PDF older
-than the manuscript - would land on it. So a LaTeX build publishes, next to its PDF and SyncTeX, the lines of the
-manuscript files it read (SOURCE_NAME); a pick carries SyncTeX's range from those lines over to today's
-(limn.pins.location.mapping.carry_range).
+What traces a drag back to code numbers the lines of the files its build read: SyncTeX for a LaTeX build, the element
+map for a figure. Once a file is edited, those numbers name other text in it as it is now, and a pick against that
+build - a pin queued offline, a drag on a PDF older than the manuscript - would land on it. So a build publishes, next
+to its PDF, the lines of the source files it read (SOURCE_NAME); a pick carries a range from those lines over to
+today's (limn.pins.location.mapping.carry_range).
 
     {"format": 1, "files": {"<path below the build root, POSIX>": ["<line>", ...]}}
 
-Only text sources a pick answers lines in are kept (LINE_SUFFIXES), read from the build copy after latexmk ran, each
-through descriptors that follow no link below the copy's root. The record is written into the page folder before the
-folder gets its name, so it is published with the pages, kept when a held folder is slimmed and removed with the
-folder. A folder without one (a build of an older Limn, a figure or view-only document) has no record, and a pick
-against it uses SyncTeX's numbers as they are. See docs/handbook/build-sync.md §빌드가 읽은 원고 줄.
+Two kinds of file are kept (collect). Of the manuscript's source list, the text sources a pick answers lines in
+(LINE_SUFFIXES). And, whatever their suffix, the files the build's own line numbers name: a LaTeX build's SyncTeX
+inputs (synctex_inputs - a .tikz, .pgf, .txt or .ltx its TeX read as input, a listing printed from its file) and the
+scripts a figure's map names. A LaTeX build reads them from the build copy after latexmk ran, a figure import from the
+figure's folder when it imports; each through descriptors that follow no link below the root. The record is written
+into the page folder before the folder gets its name, so it is published with the pages, kept when a held folder is
+slimmed and removed with the folder. A folder without one (a build of an older Limn, a view-only document) has no
+record, and a pick against it uses the numbers as they are. See docs/handbook/build-sync.md §빌드가 읽은 원고 줄.
 """
 
+import gzip
 import io
 import json
 import os
+import re
 import stat
+import zlib
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 
-SOURCE_NAME = "source.json"  # the record, in a LaTeX build's page folder
+SOURCE_NAME = "source.json"  # the record, in the page folder of a LaTeX build or a figure import
 SOURCE_FORMAT = 1
 # The suffixes of the manuscript's source list (artifacts.SRC_TEX_EXTS) a pick answers lines in: a .bib is refused
 # (GeneratedFile) and a .bst is never TeX input.
 LINE_SUFFIXES = (".tex", ".sty", ".cls")
+# Never kept, even when a build's own line numbers name the file: a pick on a bibliography is refused
+# (limn.pins.location.resolve.GeneratedFile), so its lines are never carried.
+REFUSED_SUFFIXES = (".bib", ".bbl")
 FILE_MAX_BYTES = 4 * 1024 * 1024  # a source file larger than this is left out of the record
 TOTAL_MAX_BYTES = 16 * 1024 * 1024  # the bytes of source one record holds; files past it are left out
 # A record larger than this is not read. JSON doubles a backslash, so a full record of LaTeX can near twice its bytes.
 RECORD_MAX_BYTES = 2 * TOTAL_MAX_BYTES + 1024 * 1024
+# The bytes of a SyncTeX file, decompressed, that are scanned for its inputs; a longer one names none. A manuscript of
+# a few hundred pages writes tens of MB, scanned in a fraction of a second.
+SYNCTEX_MAX_BYTES = 256 * 1024 * 1024
+# The bytes of a line still unfinished at the end of a block that the scan carries into the next block. SyncTeX's lines
+# are short; with more than this the file is not SyncTeX's, and the scan stops and names nothing.
+SYNCTEX_LINE_MAX_BYTES = 1024 * 1024
+_SYNCTEX_INPUT = re.compile(rb"^Input:\d+:(.+)$", re.MULTILINE)
 
 
 def text_lines(raw: bytes) -> list[str] | None:
@@ -73,16 +89,22 @@ def read_below(root: Path, rel: str, limit: int) -> bytes | None:
     return None if len(data) > limit else data
 
 
-def collect(root: Path, names: Iterable[str]) -> dict[str, list[str]]:
-    """The lines of the files `names` ('a/b.tex' below root, the build copy) that a record keeps, in name order: those
-    with a suffix of LINE_SUFFIXES (any case) that read_below reads within FILE_MAX_BYTES and that are UTF-8, while the
-    bytes kept stay within TOTAL_MAX_BYTES. A file that does not qualify is left out; a pick on it then uses SyncTeX's
-    numbers as they are."""
+def collect(root: Path, sources: Iterable[str], named: Iterable[str] = ()) -> dict[str, list[str]]:
+    """The lines of the files ('a/b.tex' below root) that a record keeps.
+
+    sources are files of the manuscript's source list: kept when they carry a suffix of LINE_SUFFIXES (any case).
+    named are files the build's own line numbers name - SyncTeX's inputs, the scripts of a figure's map: kept whatever
+    their suffix, except REFUSED_SUFFIXES. Either way a file is kept only when read_below reads it within
+    FILE_MAX_BYTES and it is UTF-8, while the bytes kept stay within TOTAL_MAX_BYTES. The sources are read first, in
+    name order, then the named files in name order, so a bulky named file (a drawing written as .pgf) cannot crowd the
+    manuscript's own text out of the record. A name that is not UTF-8 (a file named in another encoding, which the
+    file system hands over with surrogates) is left out: the record is written as UTF-8 and could not hold it. A file
+    that does not qualify is left out; a pick on it then uses the build's numbers as they are."""
+    first = sorted({rel for rel in sources if _suffix(rel) in LINE_SUFFIXES and _is_utf8(rel)})
+    then = sorted({rel for rel in named if _suffix(rel) not in REFUSED_SUFFIXES and _is_utf8(rel)} - set(first))
     kept: dict[str, list[str]] = {}
     total = 0
-    for rel in sorted(set(names)):
-        if os.path.splitext(rel)[1].lower() not in LINE_SUFFIXES:
-            continue
+    for rel in (*first, *then):
         raw = read_below(root, rel, min(FILE_MAX_BYTES, TOTAL_MAX_BYTES - total))
         lines = None if raw is None else text_lines(raw)
         if raw is None or lines is None:
@@ -90,6 +112,57 @@ def collect(root: Path, names: Iterable[str]) -> dict[str, list[str]]:
         kept[rel] = lines
         total += len(raw)
     return kept
+
+
+def _suffix(rel: str) -> str:
+    """The suffix of the file name rel, lower-cased ('' without one)."""
+    return os.path.splitext(rel)[1].lower()
+
+
+def _is_utf8(rel: str) -> bool:
+    """Whether the name rel can be written as UTF-8: False for one holding a lone surrogate."""
+    try:
+        rel.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
+def synctex_inputs(path: Path) -> tuple[str, ...] | None:
+    """The files the SyncTeX file at path (gzip) lists as its inputs - every "Input:<tag>:<name>" line, which TeX
+    writes for each file it reads as input whatever the suffix - as the names stand there, each once, in the order
+    listed. These are all the files a SyncTeX answer of that build can name.
+
+    None when the path is not a plain file (a link is not followed), is not gzip, cannot be read, leaves more than
+    SYNCTEX_LINE_MAX_BYTES of an unfinished line at the end of a block (the file is read in 1 MiB blocks), or
+    decompresses to more than SYNCTEX_MAX_BYTES: the caller then knows of no input."""
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError:
+        return None
+    names: dict[bytes, None] = {}
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            return None
+        with os.fdopen(descriptor, "rb", closefd=False) as packed, gzip.GzipFile(fileobj=packed) as stream:
+            seen = 0
+            rest = b""
+            while chunk := stream.read(1024 * 1024):
+                seen += len(chunk)
+                data = rest + chunk
+                cut = data.rfind(b"\n") + 1
+                rest = data[cut:]
+                if seen > SYNCTEX_MAX_BYTES or len(rest) > SYNCTEX_LINE_MAX_BYTES:
+                    return None
+                for found in _SYNCTEX_INPUT.finditer(data[:cut]):
+                    names.setdefault(found.group(1), None)
+            for found in _SYNCTEX_INPUT.finditer(rest):
+                names.setdefault(found.group(1), None)
+    except (OSError, EOFError, zlib.error):
+        return None
+    finally:
+        os.close(descriptor)
+    return tuple(os.fsdecode(name) for name in names)
 
 
 def encode(files: Mapping[str, list[str]]) -> str:

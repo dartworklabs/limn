@@ -447,6 +447,34 @@ def _sources_read(D: BuildDoc, scan: Mapping[str, build.ScannedSource], made: wa
     return [rel for rel in scan if rel in read]
 
 
+def _synctex_named(D: BuildDoc, syn: Path) -> list[str]:
+    """The manuscript files this build's SyncTeX file syn names as its inputs (built_source.synctex_inputs), as
+    'a/b.tikz' below the build copy: every file a SyncTeX answer of this build can point at, whatever its suffix - a
+    .tikz, .pgf, .txt or .ltx read with \\input, a listing printed from its file - which the suffixes of the scan
+    (_sources_read) leave out. A name is taken from the folder latexmk ran in when it is relative, and kept when it
+    lies inside the copy - named by where it really lies there, the name a pick knows it by - and the manuscript has a
+    plain file at that path. So a file latexmk or a tool made in the copy alone (an .aux, a .toc) is left out; one the
+    checkout also holds (the leftovers of a compile run there) is named, as a pick on it is answered from that file.
+    Empty when the SyncTeX file names nothing that can be read (built_source.synctex_inputs) or the copy's root cannot
+    be resolved; the record then holds the scan's files alone."""
+    listed = built_source.synctex_inputs(syn)
+    if listed is None:
+        return []
+    try:
+        base = D.build.resolve()
+    except (OSError, RuntimeError):
+        return []
+    named: dict[str, None] = {}
+    for name in listed:
+        try:
+            rel = Path(os.path.join(D.out, name)).resolve().relative_to(base).as_posix()
+        except (ValueError, OSError, RuntimeError):
+            continue
+        if rel != "." and _signature(D.src / rel) is not None:
+            named.setdefault(rel, None)
+    return list(named)
+
+
 def _stored_recipe(folder: Path) -> object:
     """The recipe a page folder holds (warm.RECIPE_NAME) as parsed JSON, or None when it has none, it is not a small plain
     file, or it is not JSON."""
@@ -630,8 +658,9 @@ def _compile(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], Json] | None, for
     )
     notes = {warm.RECIPE_NAME: json.dumps(recipe, ensure_ascii=False)}
     if scan is not None:
-        # The lines SyncTeX numbers: the copy's files as latexmk left them, kept with the pages for later picks.
-        kept = built_source.collect(D.build, _sources_read(D, scan, made))
+        # The lines SyncTeX numbers: the copy's files as latexmk left them, kept with the pages for later picks - the
+        # manuscript's text sources this build read, and whatever else its SyncTeX names as an input.
+        kept = built_source.collect(D.build, _sources_read(D, scan, made), _synctex_named(D, syn))
         notes[built_source.SOURCE_NAME] = built_source.encode(kept)
     newdir = render_pages(D, pdf, extra, cfg.dpi, notes=notes)
     if isinstance(newdir, PagesNotRendered):

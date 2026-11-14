@@ -26,7 +26,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from limn.administration import serve_documents as startup_documents
-from limn.builds import artifacts as build, engine, figure, figure_map as figmap
+from limn.builds import artifacts as build, built_source, engine, figure, figure_map as figmap
 from limn.builds.answer import build_failure_log
 from limn.builds.artifacts import BuildAborted, BuildConfig, BuildFailed, BuildOk, BuildSkipped
 from limn.builds.figure_map import FigureMap
@@ -662,13 +662,96 @@ class Render(FigureTree):
         self.assertIsInstance(res, BuildOk)
         pdir = build.cur_pages(self.doc)
         self.assertEqual((res.build, res.pages, res.log, res.src_mtime), (pdir.name, 1, "", None))
-        self.assertEqual(sorted(p.name for p in pdir.iterdir()), [build.FIGMAP_NAME, "figures.pdf", "page-1.png"])
+        self.assertEqual(
+            sorted(p.name for p in pdir.iterdir()),
+            [build.FIGMAP_NAME, "figures.pdf", "page-1.png", built_source.SOURCE_NAME],
+        )
         self.assertEqual((pdir / "figures.pdf").read_bytes(), self.pdf.read_bytes())
         self.assertEqual((pdir / build.FIGMAP_NAME).read_bytes(), self.map.read_bytes())
         self.assertEqual(res.src_hash, figure.figure_src_hash(self.pdf.read_bytes(), self.map.read_bytes()))
         self.assertEqual(figure.settled_signature(self.doc), figure.watch_signature(self.doc, self.looks))
         self.assertFalse((self.doc.dir / figure.STAGE_DIR).exists())
         self.assertIsInstance(build.load_build_map(self.doc, pdir.name), FigureMap)
+
+    def script(self, rel: str, text: str = "one\ntwo\n") -> Path:
+        """Write text as the file rel below the figure folder, making its folders; its path."""
+        path = self.figs / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+        return path
+
+    def record(self) -> dict:
+        """The files of the source record in the page directory on screen."""
+        text = (build.cur_pages(self.doc) / built_source.SOURCE_NAME).read_text(encoding="utf-8")
+        return json.loads(text)["files"]
+
+    def test_an_import_keeps_the_lines_of_the_scripts_its_map_names(self):
+        """The map's elements are drawn by src/B2_calendar.py and one names lib/components.py as its shared
+        implementation: the record holds the script's lines as they are at the import, and not the implementation,
+        which no pick opens. An edit of the script afterwards does not change what that build kept."""
+        script = self.script("src/B2_calendar.py", "draw()\nmore()\n")
+        self.script("lib/components.py")
+        self.producer.render()
+        self.assertIsInstance(self.imported(), BuildOk)
+        self.assertEqual(self.record(), {"src/B2_calendar.py": ["draw()", "more()"]})
+        script.write_text("edited()\n", encoding="utf-8")
+        pages = build.cur_pages(self.doc)
+        self.assertEqual(built_source.built_lines(pages, "src/B2_calendar.py"), ("draw()", "more()"))
+        self.assertEqual(built_source.source_key(self.doc.src, script), "src/B2_calendar.py")
+
+    def test_a_script_reached_through_a_link_inside_the_folder_is_kept_under_where_it_lies(self):
+        """src/ is a link to code/ in the same folder: the record names the script code/B2_calendar.py, the name a
+        pick resolves it to."""
+        script = self.script("code/B2_calendar.py")
+        (self.figs / "src").symlink_to(self.figs / "code")
+        self.producer.render()
+        self.imported()
+        self.assertEqual(list(self.record()), ["code/B2_calendar.py"])
+        self.assertEqual(
+            built_source.source_key(self.doc.src, self.figs / "src" / "B2_calendar.py"), "code/B2_calendar.py"
+        )
+        self.assertEqual(script.read_text(encoding="utf-8").splitlines(), self.record()["code/B2_calendar.py"])
+
+    def test_a_script_a_pick_would_not_read_is_left_out_of_the_record(self):
+        """A script that is missing, leads out of the figure folder through a link, lies in the state folder or under
+        a dot-named part, or is not UTF-8: the import still lands, and its record holds none of them."""
+        outside = self.root / "outside"
+        outside.mkdir()
+        (outside / "B2_calendar.py").write_text("secret = 1\n", encoding="utf-8")
+        cases: list[Callable[[], object]] = [
+            lambda: None,
+            lambda: (self.figs / "src").symlink_to(outside),  # the map's src/B2_calendar.py is a real file out there
+            lambda: self.script("src/B2_calendar.py").write_bytes(b"\xff\xfe not text\n"),
+        ]
+        for n, arrange in enumerate(cases):
+            with self.subTest(case=n):
+                self.use_tree(self.root / ("tree%d" % n))
+                arrange()
+                self.producer.render()
+                self.assertIsInstance(self.imported(), BuildOk)
+                self.assertEqual(self.record(), {})
+        self.assertEqual(figure.map_scripts(self.doc, self.cfg.state, self.parsed("src/../.git/config")), [])
+
+    def parsed(self, script: str) -> FigureMap:
+        """A one-element map whose element is drawn by the file `script`, as the import parses it - or, for a path the
+        parser refuses, a FigureMap stand-in naming it all the same (map_scripts must not trust the parser alone)."""
+        ref = figmap.SourceRef(script, 1, 1)
+        root = figmap.MapElement("F", None, (0.0, 0.0, 1.0, 1.0), ref, None, None, None)
+        return FigureMap("figures.pdf", "0" * 64, (figmap.MapPage(1, "F", None, (root,)),))
+
+    def test_only_scripts_inside_the_folder_and_outside_dot_names_and_the_state_folder_are_named(self):
+        """map_scripts names a script by where it lies below the folder; nothing under a dot-named part, in a state
+        folder placed inside the figure folder, or outside the folder is named, whatever path the map spells."""
+        self.script("src/a.py")
+        self.script(".hidden/b.py")
+        self.script("state/c.py")
+        named = lambda rel, state=self.cfg.state: figure.map_scripts(self.doc, state, self.parsed(rel))  # noqa: E731
+        self.assertEqual(named("src/a.py"), ["src/a.py"])
+        self.assertEqual(named("src/../src/a.py"), ["src/a.py"])
+        self.assertEqual(named(".hidden/b.py"), [])
+        self.assertEqual(named("../../outside.py"), [])
+        self.assertEqual(named("state/c.py"), ["state/c.py"])
+        self.assertEqual(named("state/c.py", self.figs / "state"), [])
 
     def test_an_unchanged_pair_is_imported_again_only_at_startup_without_pages(self):
         """After an import the watch finds nothing to do, and so does startup - until the page images are gone."""

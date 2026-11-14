@@ -15,6 +15,8 @@ from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 
+from hypothesis import given, settings, strategies as st
+
 from limn.builds import (
     ElementFact,
     ElementSelection,
@@ -31,6 +33,7 @@ from limn.pins.location.figure import (
     PickedElement,
     drag_frac,
     element_rungs,
+    lines_now,
     pick_figure,
     pin_element as to_pin_element,
     read_source,
@@ -167,6 +170,97 @@ class Rungs(unittest.TestCase):
         )
 
 
+class RungsCarried(unittest.TestCase):
+    """The ladder when the map's build kept the script it numbered: every rung is carried to the script as it is now
+    (lines_now)."""
+
+    def test_lines_added_above_move_every_rung_below_them(self):
+        """Three lines put in after line 50: the cell and the strip stand three lines lower, the figure ends three
+        lines later, and each snippet is read from the script as it is now."""
+        now = [*LINES[:50], "new a", "new b", "new c", *LINES[50:]]
+        pg = MapPage(1, "F", None, (ROOT, CAL, JUL))
+        got = element_rungs(select_element(FigureMap("", "", (pg,)), 1, (0.3, 0.3, 0.0, 0.0)), now, LINES)
+        self.assertEqual([(r.level, r.lo, r.hi) for r in got], [("el", 91, 98), ("el2", 83, 100), ("fig", 1, 203)])
+        self.assertEqual(got[0].snippet, snippet(now, 91, 98))
+        self.assertEqual(now[90:98], LINES[87:95])
+
+    def test_the_numbers_are_used_as_they_are_without_a_record_or_on_an_unchanged_script(self):
+        """No record: the map's numbers, when they fit the file. A record equal to the script line for line: the
+        map's numbers too - even for a range of blank lines, which a carry over an edited script would not follow."""
+        self.assertEqual(lines_now(88, 95, LINES, None), (88, 95))
+        self.assertIsNone(lines_now(88, 201, LINES, None))
+        self.assertIsNone(lines_now(0, 5, LINES, None))
+        blank = ["a", "", "", "b"]
+        self.assertEqual(lines_now(2, 3, blank, tuple(blank)), (2, 3))
+        self.assertIsNone(lines_now(2, 3, ["x", *blank], tuple(blank)))
+
+    def test_a_range_the_record_does_not_hold_or_whose_code_is_removed_stands_nowhere(self):
+        """The map's range must fit the kept script, whatever the script holds now; and a range whose lines were
+        removed - its neighbours now touch - has no place: the lines that moved into its numbers are not the answer."""
+        self.assertIsNone(lines_now(88, 95, LINES, LINES[:90]))
+        self.assertIsNone(lines_now(96, 95, LINES, LINES))
+        self.assertIsNone(lines_now(88, 95, [*LINES[:87], *LINES[95:]], LINES))
+        self.assertIsNone(lines_now(88, 95, [*LINES[:87], "", "", *LINES[95:]], LINES), "only blank lines are left")
+
+    def test_code_rewritten_in_place_is_answered_where_it_was_rewritten(self):
+        """Every line of the cell's call indented (none survives the diff) under three lines added higher up: the call
+        is the eight lines that took its place. A one-line call rewritten as two lines is those two lines."""
+        indented = ["    " + line for line in LINES[87:95]]
+        now = [*LINES[:50], "new a", "new b", "new c", *LINES[50:87], *indented, *LINES[95:]]
+        self.assertEqual(lines_now(88, 95, now, LINES), (91, 98))
+        self.assertEqual(now[90:98], indented)
+        self.assertEqual(lines_now(90, 90, [*LINES[:89], "call(", "    wider=True)", *LINES[90:]], LINES), (90, 91))
+
+    def test_a_range_inside_a_larger_rewritten_block_keeps_its_offset_only_when_the_block_kept_its_length(self):
+        """Lines 80-97 all indented, the cell's call (88-95) among them: the block has as many lines as before, so the
+        call is at its offset in it. The same block rewritten with one line more: where the call is in it cannot be
+        told, and it has no place."""
+        indented = ["    " + line for line in LINES[79:97]]
+        self.assertEqual(lines_now(88, 95, [*LINES[:79], *indented, *LINES[97:]], LINES), (88, 95))
+        self.assertEqual(lines_now(88, 95, ["top", *LINES[:79], *indented, *LINES[97:]], LINES), (89, 96))
+        self.assertIsNone(lines_now(88, 95, [*LINES[:79], "with block:", *indented, *LINES[97:]], LINES))
+
+    @given(st.integers(0, 5), st.integers(11, 40), st.integers(0, 6), st.integers(0, 4), st.integers(0, 4))
+    @settings(max_examples=80, deadline=None)
+    def test_a_block_rewritten_line_for_line_keeps_a_range_inside_it_at_its_offset(self, added, lo, length, up, down):
+        """Whatever is added at the top of the script: a block around the range rewritten line for line (every line
+        changed, none added or removed) leaves the range on the rewritten lines at the same offset."""
+        built = LINES[:60]
+        hi = lo + length
+        first, last = lo - up, hi + down  # the rewritten block, 1-based and inclusive
+        changed = ["changed " + line for line in built[first - 1 : last]]
+        now = ["top %d" % i for i in range(added)] + built[: first - 1] + changed + built[last:]
+        span = lines_now(lo, hi, now, built)
+        self.assertEqual(span, (lo + added, hi + added))
+        self.assertEqual(now[span[0] - 1 : span[1]], ["changed " + line for line in built[lo - 1 : hi]])
+
+    def test_a_range_edited_inside_spans_what_is_left_of_it(self):
+        """One line of the cell's call rewritten and one added inside it: the rung spans from the first to the last
+        line of the call that still stands."""
+        now = [*LINES[:90], "rewritten", "added", *LINES[91:]]
+        self.assertEqual(lines_now(88, 95, now, LINES), (88, 96))
+
+    @given(
+        st.integers(min_value=0, max_value=12),
+        st.integers(min_value=0, max_value=30),
+        st.integers(min_value=1, max_value=40),
+        st.integers(min_value=0, max_value=9),
+    )
+    @settings(max_examples=60, deadline=None)
+    def test_lines_added_or_removed_above_a_range_leave_it_on_the_same_code(self, added, removed, lo, length):
+        """Whatever is added at the top of the script or removed above the range, the carried range holds exactly
+        the lines the map's range held."""
+        built = LINES[:60]
+        lo, hi = lo + 10, min(lo + 10 + length, 60)
+        removed = min(removed, lo - 1)
+        now = ["top %d" % i for i in range(added)] + built[removed:]
+        if added == 0 and removed == 0:
+            return
+        span = lines_now(lo, hi, now, built)
+        self.assertIsNotNone(span)
+        self.assertEqual(now[span[0] - 1 : span[1]], built[lo - 1 : hi])
+
+
 def pin_element(page, el):
     """Adapt the map fixture to a completed provider fact before testing pin serialization."""
     return to_pin_element(_element(page, el))
@@ -290,12 +384,23 @@ class SupplierAnswers(unittest.TestCase):
         self.doc = Doc("fig", "그림", "figure", self.figs, self.figs / "out" / "m.json", paths=paths)
 
     def pick(self, selection):
-        """pick_figure for a drag on page 1 of the build `pages` answered with selection; no pin overlaps it and
-        nothing is being redrawn."""
+        """pick_figure for a drag on page 1 of the build `pages` answered with selection; no pin overlaps it, nothing
+        is being redrawn and the build kept no lines of the script."""
         box, size = (0.0, 0.0, 72.0, 48.0), (720.0, 480.0)
         pdir = self.figs / "pages"
         return pick_figure(
-            self.doc, 1, box, size, None, pdir, selection, self.root, self.state, lambda file, lo, hi: [], False
+            self.doc,
+            1,
+            box,
+            size,
+            None,
+            pdir,
+            selection,
+            self.root,
+            self.state,
+            lambda file, lo, hi: [],
+            False,
+            lambda file: None,
         )
 
     def test_the_suppliers_unavailable_answer_falls_back_without_an_element(self):

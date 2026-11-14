@@ -219,3 +219,37 @@ class RealBuild(Base):
         else:
             self.assertEqual(gone["via"], "text", gone)
             self.assertNotEqual((gone["raw_lo"], gone["raw_hi"]), (before["raw_lo"], before["raw_hi"]))
+
+    @needs_tex("latexmk", "pdftoppm", "pdftotext", "synctex")
+    def test_a_pick_in_an_input_file_that_is_not_tex_follows_its_text_after_an_edit(self):
+        """The document's body lies in parts/body.txt, read with \\input: SyncTeX answers lines of that file, and the
+        build kept them although the file is no .tex. Five comment lines added at its top after the build: the same
+        drag answers the same text five lines lower in body.txt, with no stale sentence - not the lines that moved
+        into SyncTeX's numbers."""
+        self.D = ps.APP.docs[0]
+        head, body = TEX.split("\\begin{document}\n")
+        body, tail = body.split("\\end{document}\n")
+        parts = self.src / "parts"
+        parts.mkdir()
+        (parts / "body.txt").write_text(body, encoding="utf-8")
+        self.main.write_text(
+            head + "\\begin{document}\n\\input{parts/body.txt}\n\\end{document}\n" + tail, encoding="utf-8"
+        )
+        self.assertIsInstance(ps.APP.build_requests.build_all(self.D), BuildOk)
+        first = limn_build.cur_pages(self.D).name
+
+        def dragged(answer):
+            """The lines raw_lo..raw_hi of a pick answer, read from parts/body.txt as it is now."""
+            now = (parts / "body.txt").read_text(encoding="utf-8").splitlines()
+            return now[answer["raw_lo"] - 1 : answer["raw_hi"]]
+
+        before = pick(self.drag(first))
+        self.assertEqual((before["file"], before["via"]), (str(parts / "body.txt"), "synctex"), before)
+        text = dragged(before)
+        self.assertTrue(any("unique" in line for line in text), before)
+        (parts / "body.txt").write_text("".join("%% added %d\n" % i for i in range(5)) + body, encoding="utf-8")
+        after = pick(self.drag(first))
+        self.assertEqual((after["file"], after["via"]), (str(parts / "body.txt"), "synctex"), after)
+        self.assertEqual(dragged(after), text)
+        self.assertEqual((after["raw_lo"], after["raw_hi"]), (before["raw_lo"] + 5, before["raw_hi"] + 5))
+        self.assertEqual(after["warn"], "")

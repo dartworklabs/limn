@@ -62,8 +62,9 @@ class BuildOnScreen(Protocol):
 
     @property
     def built_lines(self) -> Callable[[Path], Sequence[str] | None]:
-        """The lines of a manuscript file (its checkout path) as that build read them - the lines its SyncTeX numbers -
-        or None when the build kept no record of the file (an older build, a file it did not read)."""
+        """The lines of a manuscript file (its checkout path) as that build read them - the lines its SyncTeX numbers,
+        or for a figure the lines of a script its element map numbers - or None when the build kept no record of the
+        file (an older build, a file it did not read)."""
         ...
 
 
