@@ -7,6 +7,7 @@
 // order it was written: each record's own coordinates go to POST /api/pick with the build they were drawn on, and its
 // answer to POST /api/pin. A record whose place cannot be found again is kept and counted, never dropped.
 const OFF_DB='limnOffline',OFF_STORE='pins',OFF_STATE='state',OFF_MAX=200;
+const OFF_WROTE='wrote',OFF_WROTE_MAX=500;   // the state key holding the pin numbers this queue wrote, and how many are kept
 // The document reads a reopened tab needs before it can draw anything, and whose last answer is therefore stored. It is
 // every read the boot path makes: the document's meta and the document list, the pin list AND the dropped one (loadPins
 // applies neither snapshot unless both answered - without the second the stored list was fetched and then thrown away),
@@ -36,6 +37,16 @@ function offTx(mode,fn){return offIn(OFF_STORE,mode,fn);}
 /** Every queued record, oldest first - the order they were written is the order they are sent. @returns {Promise<any[]>} */
 function offAll(){return offTx('readonly',s=>s.getAll()).then(v=>Array.isArray(v)?v:[]);}
 function offAdd(rec){return offTx('readwrite',s=>s.add(rec));}
+// The pins this browser's queue has written, kept in the state store (OFF_WROTE, newest last, OFF_WROTE_MAX of them).
+// A record whose answer never came is looked for in the pin list, and a pin that is in here was written by a different
+// record of this queue - it is not this one's, however alike the two are. Without that, a record that lost its answer
+// while a twin of it was written (the same place, the same note) matched the twin's pin and was deleted unwritten.
+/** @returns {Promise<number[]>} */
+function offWrote(){return offIn(OFF_STATE,'readonly',s=>s.get(OFF_WROTE)).then(v=>Array.isArray(v&&v.ids)?v.ids:[]);}
+/** @param {number} id */
+async function offWroteAdd(id){if(typeof id!=='number')return;
+  const ids=await offWrote(); if(ids.includes(id))return;
+  ids.push(id); await offIn(OFF_STATE,'readwrite',s=>s.put({key:OFF_WROTE,ids:ids.slice(-OFF_WROTE_MAX)}));}
 /** Whether this record is still queued - another tab of this browser may have written and dropped it. @returns {Promise<boolean>} */
 function offHas(id){return offTx('readonly',s=>s.getKey(id)).then(v=>v!==null&&v!==undefined);}
 function offPut(rec){return offTx('readwrite',s=>s.put(rec));}
@@ -218,8 +229,8 @@ function fracSame(a,b){if(!Array.isArray(a)||!Array.isArray(b)||a.length<4||b.le
 // A send whose answer was lost is found here instead of written twice - the judgment savePin makes for its own lost
 // answer. A line answer stands on its lines; a region answer stands on its page AND its box, because two region pins
 // on one page are told apart by nothing else, and a page-only judgment deleted a second pin that was never written.
-// A pin an earlier record of this send already answered for is not offered again: two deliberate pins may be alike in
-// every field this reads, and only one of them is that pin.
+// A pin this queue has already written - in this send or any earlier one (offWrote) - is not offered again: two
+// deliberate pins may be alike in every field this reads, and only one of them is that pin.
 /** @param {any} rec @param {any} d @param {Set<number>} claimed @returns {number} */
 function offlineLanded(rec,d,claimed){const f=d.frac||rec.frac;
   const hit=OPEN_ALL.find(p=>!claimed.has(p.id)&&isMe(p.author)&&pdoc(p)===(rec.doc||DEFAULT_DOC)&&String(p.note||'')===String(rec.note||'')&&
@@ -235,7 +246,7 @@ async function offlineFlush(){
   if(OFF.flushing||offlineNow()||viewerBlocked())return;
   OFF.flushing=true;
   const all=await offAll(); if(!all.length){OFF.flushing=false; await offlineSync(); return;}
-  const saved=/** @type {number[]} */([]),claimed=new Set(); let held=0,failed=0;
+  const saved=/** @type {number[]} */([]),claimed=new Set(await offWrote()); let held=0,failed=0;
   try{
     await loadPins();   // what is already there - a lost answer from an earlier send is found, not written twice
     for(const rec of all){
@@ -255,7 +266,7 @@ async function offlineFlush(){
       // sent is written, whatever is there: two pins alike in document, place and note are told apart by nothing this
       // can read, and matching a fresh record against one of them deleted a pin that was never written.
       if(rec.sent){const was=offlineLanded(rec,d,claimed);
-        if(was){claimed.add(was); saved.push(was); await offDel(rec.id); continue;}}   // its pin number, not the record's
+        if(was){claimed.add(was); await offWroteAdd(was); saved.push(was); await offDel(rec.id); continue;}}   // its pin number, not the record's
       // Another tab of this browser shares the queue and may have written this one while the pick was out: a record
       // that is no longer there has been dealt with, and writing it again would make the pin twice.
       if(!(await offHas(rec.id)))continue;
@@ -267,7 +278,7 @@ async function offlineFlush(){
       // that did reach it. Those keep the mark and are looked for in the list instead.
       rec.sent=true; await offPut(rec);
       try{const {data}=await api('/api/pin',{method:'POST',body:offlineBody(rec,d),what:'핀 저장',silent:true});
-        if(data&&typeof data.id==='number')claimed.add(data.id);
+        if(data&&typeof data.id==='number'){claimed.add(data.id); await offWroteAdd(data.id);}
         saved.push(data&&data.id); await offDel(rec.id);}
       catch(e){const x=/** @type {ApiError} */(e);
         const st=x&&x.status||0;

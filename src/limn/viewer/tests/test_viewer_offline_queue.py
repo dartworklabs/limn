@@ -17,6 +17,10 @@ from helpers import extract_js_fn, run_node
 # list the dedup judgment reads, and the messages. Every call is recorded so a test can say what went out and in which order.
 SCOPE = r"""
 var POLL_FAILS=0,DEFAULT_DOC='main',DOC='main',META={label:'inst',pages_build:'pages-20261114T090000',pages:[],built_at:'t'};
+var OFF_STATE='state',OFF_WROTE='wrote',OFF_WROTE_MAX=500,STATE=new Map();
+function offIn(store,mode,fn){const s={put:function(v){STATE.set(v.key,v); return {};},
+  get:function(k){return {result:STATE.get(k)};},delete:function(k){STATE.delete(k); return {};}};
+  const rq=fn(s); return Promise.resolve(rq&&'result' in rq?rq.result:null);}
 var OFF={n:0,held:0,flushing:false,prep:false,db:null};
 var QUEUE=[],PICKS=[],PINS_SENT=[],NOTES=[],LOADS=0,OPEN_ALL=[];
 var NOTICE_KIND={OK:'ok',WARN:'warn',ERR:'err',INFO:'info'},NOTICE_LIFE={TIMER:'timer',CLICK:'click'},NOTICE_PLACE={LINE:'line'};
@@ -57,7 +61,7 @@ function found(lo){return {file:'main.tex',name:'main.tex',page:3,lo:lo,hi:lo+1,
   pdf_build:'pages-20261114T090000'};}
 """
 
-FUNCTIONS = ("offlineBox", "offlineBody", "fracSame", "offlineLanded", "offlineFlush")
+FUNCTIONS = ("offlineBox", "offlineBody", "fracSame", "offlineLanded", "offWrote", "offWroteAdd", "offlineFlush")
 
 
 class OfflineQueueSend(unittest.TestCase):
@@ -190,6 +194,40 @@ class OfflineQueueSend(unittest.TestCase):
         self.assertEqual(got["mark"], True, "a 5xx leaves the record matchable")
         self.assertEqual(got["pins"], 1, "the pin already there is found, not written twice")
         self.assertEqual(got["left"], 0)
+
+    def test_a_pin_this_queue_wrote_is_never_taken_for_another_record_s(self):
+        """The ambiguity that was deleting pins: two records alike in place and note, one written and gone from the
+        queue, the other left with an attempt mark by a 5xx that wrote nothing. The written pin is remembered as this
+        queue's, so the record left is written instead of being matched to it."""
+        got = self._run(
+            """
+            const a=rec(1,'twin'),b=rec(2,'twin');
+            QUEUE=[a,b];
+            ANSWERS={pick:[found(10),found(10),found(10)],pin:[{refuse:500},{id:72},{id:73}]};
+            offlineFlush().then(function(){
+              // What the next read of the list shows: b's pin. a's 5xx wrote nothing, which this cannot know.
+              return offlineFlush().then(function(){
+                console.log(JSON.stringify({pins:PINS_SENT.length,left:QUEUE.length,
+                  wrote:(STATE.get('wrote')||{}).ids}));});});
+            """
+        )
+        self.assertEqual(got["pins"], 3, "the record the 5xx left is written, not matched to the twin's pin")
+        self.assertEqual(got["left"], 0)
+        self.assertEqual(got["wrote"], [72, 73])
+
+    def test_a_lost_answer_is_still_matched_to_its_own_pin(self):
+        """The dedup has to keep working where it is sound: nothing else of this queue wrote that pin."""
+        got = self._run(
+            """
+            const a=rec(1,'alone'); QUEUE=[a];
+            ANSWERS={pick:[found(10),found(10)],pin:[{throw:new Error('network')}]};
+            offlineFlush().then(function(){
+              OPEN_ALL=[{id:80,author:'me',doc:'main',file:'main.tex',lo:10,hi:11,note:'alone'}];
+              return offlineFlush().then(function(){
+                console.log(JSON.stringify({pins:PINS_SENT.length,left:QUEUE.length}));});});
+            """
+        )
+        self.assertEqual(got, {"pins": 1, "left": 0})
 
     def test_an_answer_that_never_came_keeps_the_attempt_mark(self):
         """A tab closed mid-request, or a lost answer: the record stays matchable, or its pin is written twice."""
