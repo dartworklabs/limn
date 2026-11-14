@@ -201,6 +201,89 @@ class OfflineQueueSend(unittest.TestCase):
         self.assertEqual(got, {"pins": 0, "left": 0})
 
 
+STORE_SCOPE = r"""
+var OFF_STATE='state';
+var OFF_READS=['/api/meta','/api/docs','/api/pins','/api/pins/dropped','/api/people','/api/outline-labels','/api/source'];
+var STORE=new Map();
+// Stands in for the one IndexedDB store, keeping put/get as they behave there.
+function offIn(store,mode,fn){const s={put:function(v){STORE.set(v.key,v); return {};},get:function(k){return {result:STORE.get(k)};}};
+  const rq=fn(s); return Promise.resolve(rq&&'result' in rq?rq.result:null);}
+"""
+
+
+class StoredAnswers(unittest.TestCase):
+    """What may be stored for a reopened tab, and what may be served from the store (offline.js offStash/offStashed).
+
+    api() hands its caller the answers it says it expects without throwing, and a read may expect a refusal: a Markdown
+    document past the drawing limit answers 413 with its reason. Such an answer is not the document. Stored, the next
+    visit with no network would open it as a document that simply has nothing in it.
+    """
+
+    def setUp(self):
+        if not shutil.which("node"):
+            self.skipTest("node not available")
+
+    def _run(self, scenario):
+        js = "\n".join([STORE_SCOPE, *(extract_js_fn(n) for n in ("offReadKey", "offStash", "offStashed")), scenario])
+        return json.loads(run_node(js))
+
+    def test_a_successful_answer_is_stored_and_served(self):
+        got = self._run(
+            """
+            offStash('/api/meta',{pages_build:'pages-1'},200);
+            offStashed('/api/meta',null).then(function(v){console.log(JSON.stringify({
+              build:v&&v.data&&v.data.pages_build,status:v&&v.status}));});
+            """
+        )
+        self.assertEqual(got, {"build": "pages-1", "status": 200})
+
+    def test_a_refused_answer_is_never_stored(self):
+        """413 with a reason, 404, any status the server refused with - none of it is the document."""
+        got = self._run(
+            """
+            offStash('/api/source?doc=main',{error:'too_large',reason:'md_too_large'},413);
+            offStash('/api/pins?all=1',{error:'nope'},404);
+            offStashed('/api/source?doc=main',null).then(function(a){
+              return offStashed('/api/pins?all=1',null).then(function(b){
+                console.log(JSON.stringify({source:a,pins:b,kept:STORE.size}));});});
+            """
+        )
+        self.assertEqual(got, {"source": None, "pins": None, "kept": 0})
+
+    def test_a_later_refusal_does_not_replace_the_last_good_answer(self):
+        """The document was read before the trip; a refusal afterwards must not take that copy away."""
+        got = self._run(
+            """
+            offStash('/api/source?doc=main',{text:'the manuscript'},200);
+            offStash('/api/source?doc=main',{error:'too_large'},413);
+            offStashed('/api/source?doc=main',null).then(function(v){console.log(JSON.stringify({
+              text:v&&v.data&&v.data.text,status:v&&v.status}));});
+            """
+        )
+        self.assertEqual(got, {"text": "the manuscript", "status": 200})
+
+    def test_an_answer_with_no_body_is_not_stored(self):
+        got = self._run(
+            """
+            offStash('/api/meta',null,200);
+            offStashed('/api/meta',null).then(function(v){console.log(JSON.stringify({got:v,kept:STORE.size}));});
+            """
+        )
+        self.assertEqual(got, {"got": None, "kept": 0})
+
+    def test_a_light_poll_and_a_write_are_outside_the_store(self):
+        """The light poll has to fail, so the status line says the connection is gone; a write is never a stored read."""
+        got = self._run(
+            """
+            offStash('/api/meta?light=1',{pins_rev:'r2'},200);
+            offStashed('/api/meta?light=1',null).then(function(a){
+              return offStashed('/api/pin',{method:'POST'}).then(function(b){
+                console.log(JSON.stringify({light:a,write:b,kept:STORE.size}));});});
+            """
+        )
+        self.assertEqual(got, {"light": None, "write": None, "kept": 0})
+
+
 class StoredReads(unittest.TestCase):
     """Which reads are stored for a reopened tab with no network (offline.js OFF_READS).
 

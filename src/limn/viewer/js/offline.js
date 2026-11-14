@@ -58,12 +58,20 @@ function offReadKey(url,o){if(o&&o.method&&o.method!=='GET')return null;
   const u=String(url); if(u.indexOf('light=1')>=0)return null;
   const path=u.split('?')[0]; if(!OFF_READS.includes(path))return null;
   return u;}
-/** Stores the answer to a document read, so a later visit with no network can be drawn from it. */
-function offStash(url,data){const key=offReadKey(url,null); if(!key)return;
-  void offIn(OFF_STATE,'readwrite',s=>s.put({key,data,at:Date.now()}));}
-/** The stored answer to a read, or null. @returns {Promise<{data:any,at:number}|null>} */
+// Stores the answer to a document read, so a later visit with no network can be drawn from it. Only an answer the
+// server gave as a success, with a body of its own: a read may hand its caller an error it expects to handle (a
+// Markdown document past the drawing limit answers 413 with its reason, md-surface.js), and that answer is not the
+// document. Stored, it would come back on the next visit as a document that opened and was empty.
+/** @param {string} url @param {any} data @param {number} status */
+function offStash(url,data,status){const key=offReadKey(url,null); if(!key)return;
+  if(!(status>=200&&status<300)||data===null||data===undefined)return;
+  void offIn(OFF_STATE,'readwrite',s=>s.put({key,data,status,at:Date.now()}));}
+/** The stored answer to a read, or null - never one the server refused. @returns {Promise<{data:any,status:number,at:number}|null>} */
 function offStashed(url,o){const key=offReadKey(url,o); if(!key)return Promise.resolve(null);
-  return offIn(OFF_STATE,'readonly',s=>s.get(key)).then(v=>v&&'data' in v?v:null);}
+  return offIn(OFF_STATE,'readonly',s=>s.get(key)).then(v=>{
+    if(!v||!('data' in v))return null;
+    const st=typeof v.status==='number'?v.status:200;
+    return st>=200&&st<300?{data:v.data,status:st,at:v.at}:null;});}
 // Says once per visit that what is on screen was read before the connection went, and when. The pins and the pages are
 // that moment's, not this one's: the status line already says the connection is gone, and this says how old the screen is.
 function offStaleSaid(at){if(OFF.saidStale)return; OFF.saidStale=true;
