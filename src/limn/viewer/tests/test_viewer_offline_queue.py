@@ -6,8 +6,10 @@ the server, and a pin whose place cannot be found again is kept and counted, nev
 """
 
 import json
+import re
 import shutil
 import unittest
+from pathlib import Path
 
 from helpers import extract_js_fn, run_node
 
@@ -173,7 +175,6 @@ class OfflineQueueSend(unittest.TestCase):
         )
         self.assertEqual(got, {"pins": 1, "left": 1})
 
-
     def test_two_sends_started_together_write_each_pin_once(self):
         """Reconnecting fires several triggers in the same tick ('online', the poll's recovery, boot). Both calls must
         not send the same records: the second has to find the send already under way, before any await."""
@@ -198,6 +199,44 @@ class OfflineQueueSend(unittest.TestCase):
             """
         )
         self.assertEqual(got, {"pins": 0, "left": 0})
+
+
+class StoredReads(unittest.TestCase):
+    """Which reads are stored for a reopened tab with no network (offline.js OFF_READS).
+
+    A tab the phone discarded comes back with no network and is drawn from the stored answers. loadPins() reads twice
+    and applies neither snapshot unless both answered, so a read left out of the list does not merely go missing - it
+    throws away the stored list that did answer, and the screen has no pins at all (observed).
+    """
+
+    def off_reads(self):
+        """The paths offline.js stores, read from the shipped source."""
+        src = (Path(__file__).resolve().parent.parent / "js" / "offline.js").read_text(encoding="utf-8")
+        m = re.search(r"const OFF_READS=\[(.*?)\];", src, re.S)
+        self.assertIsNotNone(m, "OFF_READS is not declared as a literal list any more")
+        return set(re.findall(r"'([^']+)'", m.group(1)))
+
+    def test_every_read_loadpins_makes_is_stored(self):
+        """Both of loadPins' reads, whatever they are, have to be in the list."""
+        reads = set(re.findall(r"api\('(/api/[^'?]*)", extract_js_fn("loadPins")))
+        self.assertTrue(reads, "loadPins makes no api() read any more - this test needs rewriting")
+        self.assertLessEqual(reads, self.off_reads(), "a read loadPins makes is not stored for an offline visit")
+
+    def test_the_stored_reads_are_the_boot_path_reads(self):
+        """The list is exactly the boot path's reads. A new one is added here deliberately, with the thought of what a
+        stored answer means for it; a light poll, a build state and every write stay out."""
+        self.assertEqual(
+            self.off_reads(),
+            {
+                "/api/meta",  # the pages, their sizes and the build the pins point at
+                "/api/docs",  # the document tabs
+                "/api/pins",  # the list itself
+                "/api/pins/dropped",  # read by the same loadPins, which applies nothing without it
+                "/api/people",  # the names on the cards
+                "/api/outline-labels",  # the outline
+                "/api/source",  # what a Markdown or text document is drawn from
+            },
+        )
 
 
 if __name__ == "__main__":

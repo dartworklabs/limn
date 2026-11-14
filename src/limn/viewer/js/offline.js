@@ -7,11 +7,13 @@
 // order it was written: each record's own coordinates go to POST /api/pick with the build they were drawn on, and its
 // answer to POST /api/pin. A record whose place cannot be found again is kept and counted, never dropped.
 const OFF_DB='limnOffline',OFF_STORE='pins',OFF_STATE='state',OFF_MAX=200;
-// The document reads a reopened tab needs before it can draw anything, and whose last answer is therefore stored: the
-// document's meta, the document list, the pin list, the people and the outline labels. A light poll (light=1) is not
-// among them - that one has to fail, so the status line says the connection is gone. Nothing else is ever stored, and
-// no answer to a write ever is.
-const OFF_READS=['/api/meta','/api/docs','/api/pins','/api/people','/api/outline-labels'];
+// The document reads a reopened tab needs before it can draw anything, and whose last answer is therefore stored. It is
+// every read the boot path makes: the document's meta and the document list, the pin list AND the dropped one (loadPins
+// applies neither snapshot unless both answered - without the second the stored list was fetched and then thrown away),
+// the people, the outline labels, and the source a Markdown or text document is drawn from. A light poll (light=1) is
+// not among them - that one has to fail, so the status line says the connection is gone. Nothing else is ever stored,
+// and no answer to a write ever is.
+const OFF_READS=['/api/meta','/api/docs','/api/pins','/api/pins/dropped','/api/people','/api/outline-labels','/api/source'];
 const OFF={n:0,held:0,flushing:false,prep:false,saidStale:false,db:/** @type {IDBDatabase|null} */(null)};
 // This browser's queue, opened once per page. A browser that refuses IndexedDB (a private window) answers null, and every
 // caller below falls back to saying the pin could not be kept rather than losing it quietly.
