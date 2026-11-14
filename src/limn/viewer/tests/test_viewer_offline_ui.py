@@ -293,6 +293,29 @@ class QueuedPinsScreen(BrowserBase):
         self.assertEqual(page.input_value("#note"), "쓰는 중")
         self.assertIn("작성 중인 메모가 있습니다", page.evaluate("LINE.map(n=>n.title).join('|')"))
 
+    def test_a_drag_made_while_cut_off_opens_the_composer_and_reports_no_failure(self):
+        """The server cannot be reached: the selection stays, the composer opens on it and says the lines are found
+        later - not '위치 찾기 실패' beside that. Its place names no file (there is none yet) and it is marked as chosen
+        offline, not as a view-only PDF."""
+        page = self.view()
+        page.route("**/api/pick*", lambda route: route.abort())  # the request never reaches the server
+        box = page.evaluate(
+            "(()=>{const r=document.getElementById('p1').getBoundingClientRect();return [r.left,r.top,r.width,r.height];})()"
+        )
+        x, y = box[0] + box[2] * 0.25, box[1] + box[3] * 0.3
+        page.mouse.move(x, y)
+        page.mouse.down()
+        page.mouse.move(x + box[2] * 0.3, y + box[3] * 0.05, steps=6)
+        page.mouse.up()
+        page.wait_for_function("!!COMPOSE.current&&COMPOSE.current.offline===true", timeout=8000)
+        settle(page)
+        self.assertEqual(page.inner_text("#c-loc"), "쪽 1 영역")
+        self.assertEqual(page.inner_text("#c-page"), "오프라인")
+        said = page.evaluate("LINE.map(n=>n.title)")
+        self.assertIn("연결이 끊겨 줄은 뒤에 찾습니다", said)
+        self.assertEqual([t for t in said if "실패" in t], [], said)
+        self.assertNotIn("실패", page.inner_text("#right"))  # nor as a banner in the composer
+
     def test_a_record_that_may_be_on_the_server_is_not_taken_back(self):
         """Sent once with no answer: its pin may exist, and drawn again it would be made twice. [다시 찍기] leaves the
         record in the queue and the composer empty, and says why; [버리기] still works."""

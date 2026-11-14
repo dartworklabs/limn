@@ -28,7 +28,10 @@ async function pick(r){
     if(MID_OVERLAY)relayout();    // composing in the overlay pads the PDF by the panel width (CSS): re-fit now, then reveal the box
     if(LAYOUT!==LAYOUT_MODE.WIDE){$('#right').scrollTop=0; revealBox(COMPOSE.box);}}
   let d;
-  try{d=(await api('/api/pick',{method:'POST',body:r,what:'위치 찾기'})).data;}
+  // A new selection the server cannot be reached for is not a failure: offlinePick opens the composer on it and says
+  // what happens next, so the call does not say '위치 찾기 실패' over that. A re-place and a Markdown or text
+  // document have no such way on, and say it.
+  try{d=(await api('/api/pick',{method:'POST',body:r,what:'위치 찾기',quietUnreached:!rp&&!isMdDoc()})).data;}
   catch(e){if(seq!==PICKSEQ)return; setBusy(false); if(!rp){COMPOSE.picking=false; clearPendingSave();}
     // The server could not be reached (a refusal carries a status): the drag is not lost. Its box stays and the composer
     // opens on a selection with no lines, which [핀 저장] keeps in the queue until the connection is back (offline.js).
@@ -129,10 +132,13 @@ function overlapShort(rel,id){const k={equal:'#{id}{p} 같은 범위',inside:'#{
 // Selection on a view-only PDF: the location is '쪽 N - 영역', and the region's text (pdftotext) is shown in the source field. The range ladder and excerpt are hidden.
 function renderRegionComposer(d){
   $('#composer').classList.add('region');
-  $('#c-loc').textContent=d.name+' · '+tl('쪽 {page} 영역',{page:d.page}); $('#c-loc').dataset.copy=d.name+' 쪽 '+d.page;
+  // A selection made while cut off (offline.js offlinePick) has this shape and no file yet: its lines are found when it is sent.
+  $('#c-loc').textContent=(d.name?d.name+' · ':'')+tl('쪽 {page} 영역',{page:d.page}); $('#c-loc').dataset.copy=(d.name?d.name+' ':'')+'쪽 '+d.page;
   // A figure region: '코드 없는 요소' (element without code lines, its box snapped) or '영역' (map unreadable).
   const pg=$('#c-page'),fb=figRegionBadge(d.el,isFigureKind(META&&META.kind));
-  pg.hidden=false; pg.textContent=fb?fb.t:tr('보기 전용'); pg.dataset.tip=fb?fb.tip:'LaTeX 소스가 없는 PDF입니다 — 줄 번호 없이 쪽·영역과 영역 글자로 핀을 남깁니다';
+  pg.hidden=false; pg.textContent=d.offline?tr('오프라인'):fb?fb.t:tr('보기 전용');
+  pg.dataset.tip=d.offline?'연결이 끊긴 채 고른 자리입니다 — 저장하면 쌓아 두었다가, 연결되면 이 PDF로 줄을 찾아 핀으로 씁니다'
+    :fb?fb.tip:'LaTeX 소스가 없는 PDF입니다 — 줄 번호 없이 쪽·영역과 영역 글자로 핀을 남깁니다';
   $('#c-tag').hidden=true; $('#c-warn').hidden=!d.warn; $('#c-warn').textContent=warnText(d.warn); $('#c-overlap').hidden=true;
   $('#c-levels').replaceChildren(); setCap($('#c-cap'),html``); drawExcerpt(null,$('#c-xp'),false);
   const pre=$('#c-snip'); pre.className='wrap open'; pre.textContent=d.quote?tl('영역 글자: {text}',{text:d.quote}):tr('(이 영역에는 글자가 없습니다)');
