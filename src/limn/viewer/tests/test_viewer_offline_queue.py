@@ -1193,8 +1193,8 @@ class KeptCopyFollows(unittest.TestCase):
         return json.loads(run_node(js))
 
     def test_a_changed_build_is_followed_without_pressing_again(self):
-        """Kept on B1; the server is on B2. The follow fetches B2 whole, holds it, and only then drops B1's copies and
-        lets its hold go - the copy is B2's now, with nothing of B1 left on the device."""
+        """Kept on B1; the server is on B2. The follow fetches B2 whole, holds it, and only then drops B1's copies - the
+        copy is B2's now, with nothing of B1 left on the device. B1's hold is not let go: it lapses on its own."""
         got = self._run(
             """
             KEPT=keptOn('pages-B1'); OFF.kept=copy(KEPT); poll();
@@ -1202,12 +1202,12 @@ class KeptCopyFollows(unittest.TestCase):
             """
         )
         self.assertEqual((got["kept"], got["old"], got["b1"], got["b2"]), ("pages-B2", [], 0, 3))
-        self.assertEqual(got["holds"], ["pages-B2"])
+        self.assertEqual(got["holds"], ["pages-B1", "pages-B2"])
         # Everything of the new build comes before anything of the old goes.
         log = got["log"]
         self.assertLess(log.index("hold pages-B2 7"), log.index("drop 3"), log)
         self.assertLess(log.index("keep 3"), log.index("hold pages-B2 7"), log)
-        self.assertLess(log.index("drop 3"), log.index("hold pages-B1 0"), log)
+        self.assertNotIn("hold pages-B1 0", log)
 
     def test_a_light_poll_sets_a_follow_going_once_the_build_stands_still(self):
         """A build seen moving sets one follow, after OFF_SETTLE_MS; a later poll with nothing new leaves it as it is,
@@ -1302,8 +1302,8 @@ class KeptCopyFollows(unittest.TestCase):
         )
         self.assertEqual(got["first"], {"kept": "pages-B1", "b1": 3})
         self.assertEqual((got["kept"], got["b1"], got["b2"], got["b3"]), ("pages-B3", 0, 0, 3))
-        self.assertEqual(got["holds"], ["pages-B3"])
-        # B2 was never held by this browser, so nothing of it is let go - a hold on it is someone else's.
+        self.assertEqual(got["holds"], ["pages-B1", "pages-B3"])
+        # B2 was never held by this browser, and nothing of any hold is let go.
         self.assertNotIn("hold pages-B2 0", got["log"])
 
     def test_a_server_without_the_hold_route_is_still_followed(self):
@@ -1333,7 +1333,7 @@ class KeptCopyFollows(unittest.TestCase):
 
     def test_an_old_build_a_queued_pin_was_drawn_on_keeps_its_hold_and_its_copies(self):
         """A pin queued on B1 waits. B2 is followed, and B1 stays - held, its copies in the cache - until that pin has
-        gone; the follow after that lets it go."""
+        gone; the follow after that drops its copies (its hold is left to lapse)."""
         got = self._run(
             """
             KEPT=keptOn('pages-B1'); OFF.kept=copy(KEPT); poll();
@@ -1348,7 +1348,7 @@ class KeptCopyFollows(unittest.TestCase):
         self.assertEqual(
             got["first"], {"kept": "pages-B2", "old": ["pages-B1"], "b1": 3, "holds": ["pages-B1", "pages-B2"]}
         )
-        self.assertEqual((got["old"], got["b1"], got["holds"]), ([], 0, ["pages-B2"]))
+        self.assertEqual((got["old"], got["b1"], got["holds"]), ([], 0, ["pages-B1", "pages-B2"]))
 
     def test_a_queue_that_cannot_be_read_lets_nothing_go(self):
         """Read as empty, an unreadable queue would let go the build a waiting pin needs."""
@@ -1372,7 +1372,23 @@ class KeptCopyFollows(unittest.TestCase):
         )
         self.assertEqual((got["kept"], got["old"]), ("pages-B3", ["pages-B1"]))
         self.assertEqual((got["b1"], got["b2"], got["b3"]), (3, 0, 3))
-        self.assertEqual(got["holds"], ["pages-B1", "pages-B3"])
+        self.assertEqual(got["holds"], ["pages-B1", "pages-B2", "pages-B3"])
+        self.assertNotIn("hold pages-B1 0", got["log"])
+
+    def test_a_dropped_build_s_hold_is_never_let_go_nor_asked_again(self):
+        """A hold is the server's, one per build: another device of the same person, cut off, may have pins queued on
+        B1 that this browser cannot see. So B1's copies leave this device, but its hold is neither let go nor asked
+        again - it lapses in 7 days - while B2's is asked again the next day."""
+        got = self._run(
+            """
+            KEPT=keptOn('pages-B1'); OFF.kept=copy(KEPT); poll();
+            offlineFollow().then(function(){LOG.length=0; NOW+=25*3600000;
+              return offlineFollow().then(function(){out();});});
+            """
+        )
+        self.assertEqual((got["kept"], got["old"], got["b1"]), ("pages-B2", [], 0))
+        self.assertEqual(got["log"], ["hold pages-B2 7"])
+        self.assertIn("pages-B1", got["holds"])
 
     def test_holds_are_asked_again_once_a_day(self):
         """A hold answered 23 hours ago is left; at 25 hours it is asked again for 7 days - the build each document
@@ -1417,8 +1433,8 @@ class KeptCopyFollows(unittest.TestCase):
 
     def test_two_tabs_following_at_once_end_as_one_would(self):
         """Without a lock both follow. Tab A reads B2, tab B a moment later reads B3; A's fetch is slower, so A writes
-        last. The newer reading still wins, and every file A fetched is accounted for and dropped: what is left is B3's
-        copies and hold, nothing of B1 or B2 - as one tab following to B3 would leave."""
+        last. The newer reading still wins, and every file A fetched is accounted for and dropped: what is left on the
+        device is B3's copies, nothing of B1 or B2 - as one tab following to B3 would leave."""
         got = self._run(
             """
             delete navigator.locks;
@@ -1432,7 +1448,7 @@ class KeptCopyFollows(unittest.TestCase):
         )
         self.assertEqual((got["kept"], got["old"]), ("pages-B3", []))
         self.assertEqual((got["b1"], got["b2"], got["b3"]), (0, 0, 3))
-        self.assertEqual(got["holds"], ["pages-B3"])
+        self.assertFalse([x for x in got["log"] if x.endswith(" 0")], got["log"])
 
     def test_nothing_is_followed_while_cut_off_or_while_a_pressed_keep_runs(self):
         got = self._run(

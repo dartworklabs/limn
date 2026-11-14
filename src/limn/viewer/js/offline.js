@@ -227,8 +227,11 @@ async function offlinePrepare(){
 // builds not dropped yet (old). While connected, every meta answer says which build each document is on now (offStash ->
 // offlineFollowSeen). A document whose copy is behind is followed: its reads are stored, its new files fetched whole, its
 // new build held - the same as pressing does, for one document, quietly - and only then is it recorded and the old
-// build's copies dropped and its hold let go. An old build a queued pin was drawn on stays, copies and hold alike: that
-// pin lands by that build (offFree). Holds last 7 days and are asked again once a day while the instance is used.
+// build's copies dropped from this device. Its hold on the server is never let go: a hold is the server's, one per
+// build, and another device - the same person's tablet, cut off - may have pins queued on that build which this one
+// cannot see; it simply is not asked again, and lapses in 7 days. An old build a queued pin of this browser was drawn
+// on stays, copies and all, and its hold goes on being asked (offFree): that pin lands by that build. Holds last 7 days
+// and are asked again once a day while the instance is used.
 // Nothing is said on success; failing again and again is said once. An instance never kept fetches nothing - what stays
 // on a device is what its person chose (ADR-0040 D7).
 // OFF_RENEW_MS: a hold asked again after this long. OFF_SETTLE_MS: a change has to stand this long before it is followed,
@@ -265,9 +268,9 @@ function offBehind(kept,seen){const docs=(kept&&kept.docs)||{};
   return Object.keys(seen).filter(k=>{const s=seen[k],e=docs[k];
     if(rendersInBrowser(s.kind))return !e||e.src!==s.src;
     return !!s.build&&(!e||e.build!==s.build);});}
-// The old builds no queued pin was drawn on: those whose copies may be dropped and whose hold may be let go. A record
-// names its document and the build it was drawn on; a record with no document is taken to be drawn on that build in
-// any document - keeping a build too long costs space, letting it go loses the pin's place. Pure.
+// The old builds no queued pin was drawn on: those whose copies may be dropped and whose hold need not be asked again.
+// A record names its document and the build it was drawn on; a record with no document is taken to be drawn on that
+// build in any document - keeping a build too long costs space, dropping it loses the pin's place. Pure.
 /** @param {any[]} old @param {any[]} queue @returns {any[]} */
 function offFree(old,queue){const drawn=(queue||[]).filter(r=>r&&r.build);
   return (old||[]).filter(o=>!drawn.some(r=>r.build===o.build&&(!r.doc||r.doc===o.doc)));}
@@ -297,8 +300,8 @@ function offKeptWith(kept,k,entry){
   out.old=out.old.filter((/** @type {any} */o)=>!(o.doc===k&&o.build===entry.build));
   return out;}
 // The kept record once a follow of document k to build b stopped before b was kept: the files it asked for are noted
-// with the old builds, never held by this browser (unheld), so they are dropped in turn and do not stay on the device
-// unaccounted for. null when there is nothing to note - b is what k keeps. Pure.
+// with the old builds, never held by this browser (unheld - its hold is not asked again), so they are dropped in turn
+// and do not stay on the device unaccounted for. null when there is nothing to note - b is what k keeps. Pure.
 /** @param {any} kept @param {string} k @param {string} b @param {string[]} files @returns {any} */
 function offKeptPart(kept,k,b,files){if(!kept||(kept.docs&&kept.docs[k]&&kept.docs[k].build===b))return null;
   const old=(kept.old||[]).slice(),i=old.findIndex((/** @type {any} */o)=>o.doc===k&&o.build===b);
@@ -382,10 +385,10 @@ async function offFollowDoc(k){let m;
   const h=await offHold(k,b,7); if(!h)return half();   // not held, it may be gone before its pins are sent
   await offKeptSet(v=>offKeptWith(v,k,{build:b,files,at:h.at,seen}));
   return true;}
-// Drops the old builds no queued pin was drawn on - their copies first, then their holds - and asks again the holds
-// that are due. A queue that cannot be read drops nothing: read as empty, it would let go the build a waiting pin needs.
-// Nor does a build the server still shows go (one half fetched waits for the next try, the screen may be drawn from
-// it), and a hold this browser never asked for is not let go. Answers whether everything went.
+// Drops the copies of the old builds no queued pin was drawn on, and asks again the holds that are due. The hold of a
+// dropped build is left to lapse, never let go (days: 0) - another device's queue may need it. A queue that cannot be
+// read drops nothing: read as empty, it would drop the build a waiting pin needs. Nor does a build the server still
+// shows go (one half fetched waits for the next try, the screen may be drawn from it). Answers whether everything went.
 /** @returns {Promise<boolean>} */
 async function offFollowTidy(){let ok=true;
   const kept=await offKept(); if(!kept)return true;
@@ -394,7 +397,6 @@ async function offFollowTidy(){let ok=true;
   for(const o of offFree(kept.old,queue).filter((/** @type {any} */o)=>!shown(o))){if(offlineNow())return false;
     const urls=o.files||[];
     if(urls.length&&!(await offlineAsk({type:'drop',urls}))){ok=false; continue;}
-    if(!o.unheld&&!(await offHold(o.doc,o.build,0))){ok=false; continue;}
     await offKeptSet(v=>v&&{...v,old:(v.old||[]).filter((/** @type {any} */x)=>!(x.doc===o.doc&&x.build===o.build))});}
   for(const h of offRenewDue(await offKept(),Date.now())){if(offlineNow())return false;
     const r=await offHold(h.doc,h.build,7); if(!r){ok=false; continue;}

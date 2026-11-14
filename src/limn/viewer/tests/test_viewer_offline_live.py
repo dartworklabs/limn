@@ -251,8 +251,9 @@ class KeepsItselfCurrent(LiveBase):
     @needs_tex("latexmk", "synctex", "pdftotext", "pdftoppm")
     def test_a_rebuild_is_followed_without_pressing_again_and_opens_cut_off(self):
         """Kept once; the server rebuilds; nobody presses again. The page follows on its own: the server holds the new
-        build and no longer the old, the old build's copies are gone from the cache. Cut off and opened again, the new
-        build opens from the worker's copies."""
+        build, the old build's copies are gone from the cache, and the old build's hold is not let go - another device
+        may have pins queued on it; it lapses on its own. Cut off and opened again, the new build opens from the
+        worker's copies."""
         self.assertIsInstance(ps.APP.build_requests.build_all(self.doc), BuildOk)
         tab = self.open_live()
         old = tab.keep()
@@ -263,7 +264,7 @@ class KeepsItselfCurrent(LiveBase):
         )
         holds = self.holds()
         self.assertIn(new, holds)
-        self.assertNotIn(old, holds)
+        self.assertIn(old, holds, "the old build's hold is left to lapse, not let go")
         urls = tab.cache_urls()
         self.assertEqual([u for u in urls if old in u], [], "the old build's copies are gone")
         pdf = [u for u in urls if u.startswith("/pdf") and new in u]
@@ -278,7 +279,8 @@ class KeepsItselfCurrent(LiveBase):
     @needs_tex("latexmk", "synctex", "pdftotext", "pdftoppm")
     def test_a_build_a_queued_pin_was_drawn_on_stays_held_until_the_pin_is_sent(self):
         """A pin is queued on the kept build and cannot be sent yet (the server is busy). The server rebuilds and the
-        page follows: the old build is still held, and its copies stay. Once the pin is sent, the next follow lets it go."""
+        page follows: the old build is still held, and its copies stay. Once the pin is sent, the next follow drops its
+        copies; its hold is left to lapse."""
         self.assertIsInstance(ps.APP.build_requests.build_all(self.doc), BuildOk)
         tab = self.open_live()
         old = tab.keep()
@@ -306,8 +308,8 @@ class KeepsItselfCurrent(LiveBase):
         tab.send_queue()
         tab.wait_for("OFF.n===0")
         self.assertEqual(len([p for p in self.pins() if p.get("note") == CAUGHT_UP]), 1)
-        tab.until(lambda: not tab.kept()["old"], timeout=90, what="the old build let go")
-        self.assertNotIn(old, self.holds())
+        tab.until(lambda: not tab.kept()["old"], timeout=90, what="the old build's copies dropped")
+        self.assertIn(old, self.holds(), "its hold is left to lapse, not let go")
         self.assertEqual([u for u in tab.cache_urls() if old in u], [])
 
 
