@@ -66,7 +66,8 @@ function offPut(rec){return offTx('readwrite',s=>s.put(rec));}
 function offDel(id){return offTx('readwrite',s=>s.delete(id));}
 // Reads the queue and lets the status line say how many wait and how many of those lost their place.
 async function offlineSync(){const all=await offAll();
-  OFF.n=all.length; OFF.held=all.filter(r=>r&&r.held).length; drawStatus();}
+  OFF.n=all.length; OFF.held=all.filter(r=>r&&r.held).length; drawStatus();
+  offlineUiSync(all);}   // the queued pins on the page and in the panel (offline-ui.js)
 // Whether this tab should keep a pin instead of sending it: the light poll has lost the server (POLL_FAILS, the same
 // judgment the status line's '연결 끊김' uses) or the browser says there is no network at all.
 function offlineNow(){return POLL_FAILS>=2||navigator.onLine===false;}
