@@ -22,7 +22,7 @@ async function api(url,o){o={...(o||{})}; o.source=o.source||(o.method||'GET')+'
   if(r.status>=400&&!(o.expect||[]).includes(r.status)){
     if(!o.silent)apiFailed(o,errText(d)||('HTTP '+r.status),false);
     const err=/** @type {ApiError} */(new Error('HTTP '+r.status)); err.status=r.status; err.data=d; throw err;}
-  sourceOk(o.source); offStash(url,d,r.status);   // a document read the server answered is kept for a later visit with no network
+  sourceOk(o.source); offStash(url,d,r.status,o);   // a document read the server answered is kept for a later visit with no network
   return {status:r.status,data:d};
 }
 // Says that request o failed ('{what} 실패 — {why}'): on the status line when o.where is NOTICE_HOST.LINE, else in a banner at

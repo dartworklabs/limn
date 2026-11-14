@@ -62,16 +62,20 @@ function offReadKey(url,o){if(o&&o.method&&o.method!=='GET')return null;
 // server gave as a success, with a body of its own: a read may hand its caller an error it expects to handle (a
 // Markdown document past the drawing limit answers 413 with its reason, md-surface.js), and that answer is not the
 // document. Stored, it would come back on the next visit as a document that opened and was empty.
-/** @param {string} url @param {any} data @param {number} status */
-function offStash(url,data,status){const key=offReadKey(url,null); if(!key)return;
+/** @param {string} url @param {any} data @param {number} status @param {{method?:string}|null} [o] */
+function offStash(url,data,status,o){const key=offReadKey(url,o||null); if(!key)return;
   if(!(status>=200&&status<300)||data===null||data===undefined)return;
   void offIn(OFF_STATE,'readwrite',s=>s.put({key,data,status,at:Date.now()}));}
 /** The stored answer to a read, or null - never one the server refused. @returns {Promise<{data:any,status:number,at:number}|null>} */
 function offStashed(url,o){const key=offReadKey(url,o); if(!key)return Promise.resolve(null);
   return offIn(OFF_STATE,'readonly',s=>s.get(key)).then(v=>{
     if(!v||!('data' in v))return null;
-    const st=typeof v.status==='number'?v.status:200;
-    return st>=200&&st<300?{data:v.data,status:st,at:v.at}:null;});}
+    // The record has to say for itself that the server answered it with a success. A record that does not say so is
+    // not trusted and is dropped: an earlier build of this viewer stored refusals too, and read as a success they
+    // open a document that is simply empty. A read that finds nothing asks the network, which is the right answer.
+    if(typeof v.status!=='number'||v.status<200||v.status>=300){
+      void offIn(OFF_STATE,'readwrite',s=>s.delete(key)); return null;}
+    return {data:v.data,status:v.status,at:v.at};});}
 // Says once per visit that what is on screen was read before the connection went, and when. The pins and the pages are
 // that moment's, not this one's: the status line already says the connection is gone, and this says how old the screen is.
 function offStaleSaid(at){if(OFF.saidStale)return; OFF.saidStale=true;
@@ -158,9 +162,15 @@ async function offlinePick(r){
 /** @param {Selection} d @param {string} note @param {{kind:string|null,assignee:string|null}} out @param {string[]} mentions @returns {Promise<boolean>} */
 async function offlineQueueSave(d,note,out,mentions){
   if(OFF.n>=OFF_MAX){bannerNote(NOTICE_HOST.COMPOSER,tl('쌓아 둘 수 있는 핀은 {n}개까지입니다 — 연결되면 먼저 반영하세요',{n:OFF_MAX}),NOTICE_KIND.ERR,null,{save:true,source:'offline-queue'}); return false;}
+  // A selection whose lines were already found keeps them (the connection went between the pick and the save, the
+  // usual way a full selection ends up here): it is written as it stands and never picked again. Only a selection
+  // picked while cut off has no lines, and that one carries the box in PDF points for the pick that comes later.
+  const found=!d.offline&&!isRegion(d)&&!!d.file&&typeof d.lo==='number'&&typeof d.hi==='number';
   const rec={v:1,label:META?META.label:'',doc:d.doc||DOC,build:d.pdf_build||(META?META.pages_build:'')||'',
     page:d.page,rect:d.rect||null,frac:d.frac,quote:d.quote||'',note,kind_req:out.kind,assignee:out.assignee,
-    mentions:mentions.slice(),at:new Date().toISOString(),held:false,why:''};
+    mentions:mentions.slice(),at:new Date().toISOString(),held:false,why:'',
+    place:found?{file:d.file,name:d.name,lo:d.lo,hi:d.hi,raw_lo:d.raw_lo,raw_hi:d.raw_hi,kind:d.kind,via:d.via,
+      score:d.score,fill:d.fill,rival:d.rival}:null};
   const id=await offAdd(rec);
   if(id===null){bannerNote(NOTICE_HOST.COMPOSER,tr('핀 저장 실패 — 이 브라우저가 오프라인 보관을 막고 있습니다'),NOTICE_KIND.ERR,null,{save:true,source:'offline-queue'}); return false;}
   await offlineSync();
@@ -199,12 +209,15 @@ async function offlineFlush(){
     await loadPins();   // what is already there - a lost answer from an earlier send is found, not written twice
     for(const rec of all){
       if(offlineNow())break;
-      let d=/** @type {any} */(null);
-      const req={page:rec.page,x0:rec.rect?rec.rect.x0:0,y0:rec.rect?rec.rect.y0:0,x1:rec.rect?rec.rect.x1:0,y1:rec.rect?rec.rect.y1:0,
-        frac:rec.frac,pdf_build:rec.build||undefined,doc:rec.doc||undefined};
-      try{d=(await api('/api/pick',{method:'POST',body:req,what:'위치 찾기',silent:true})).data;}
-      catch(e){failed++; continue;}                       // no answer or a refusal: the record stays for the next send
-      if(!d||d.error){rec.held=true; rec.why=errText(d)||tr('위치를 찾지 못했습니다'); await offPut(rec); held++; continue;}
+      let d=/** @type {any} */(rec.place?{...rec.place,page:rec.page,frac:rec.frac,quote:rec.quote,pdf_build:rec.build}:null);
+      if(!d&&!rec.rect){   // neither a found place nor a box: there is nothing to ask pick about, and a box of zeros
+        rec.held=true; rec.why=tr('위치를 찾지 못했습니다'); await offPut(rec); held++; continue;}   // would place the pin at the page's corner
+      if(!d){
+        const req={page:rec.page,x0:rec.rect.x0,y0:rec.rect.y0,x1:rec.rect.x1,y1:rec.rect.y1,
+          frac:rec.frac,pdf_build:rec.build||undefined,doc:rec.doc||undefined};
+        try{d=(await api('/api/pick',{method:'POST',body:req,what:'위치 찾기',silent:true})).data;}
+        catch(e){failed++; continue;}                     // no answer or a refusal: the record stays for the next send
+        if(!d||d.error){rec.held=true; rec.why=errText(d)||tr('위치를 찾지 못했습니다'); await offPut(rec); held++; continue;}}
       if(offlineLanded(rec,d)){saved.push(rec.id); await offDel(rec.id); continue;}
       // Another tab of this browser shares the queue and may have written this one while the pick was out: a record
       // that is no longer there has been dealt with, and writing it again would make the pin twice.

@@ -113,6 +113,33 @@ class OfflineQueueSend(unittest.TestCase):
         )
         self.assertEqual(got, {"pins": 1, "left": 0})
 
+    def test_a_record_that_already_has_its_lines_is_written_without_picking_again(self):
+        """The connection went between the pick and the save, so the selection reached the queue with its lines. Those
+        lines are what gets written - picking again is both needless and, with no box kept, a pin at the page corner."""
+        got = self._run(
+            """
+            const r=rec(1); r.place={file:'main.tex',name:'main.tex',lo:12,hi:13,raw_lo:12,raw_hi:13,
+              kind:'paragraph',via:'synctex',score:0.8,fill:1,rival:null}; r.rect=null;
+            QUEUE=[r]; ANSWERS={pick:[],pin:[{id:51}]};
+            offlineFlush().then(function(){console.log(JSON.stringify({picks:PICKS.length,
+              pins:PINS_SENT.map(function(b){return [b.file,b.lo,b.hi,b.note];}),left:QUEUE.length}));});
+            """
+        )
+        self.assertEqual(got["picks"], 0)
+        self.assertEqual(got["pins"], [["main.tex", 12, 13, "n1"]])
+        self.assertEqual(got["left"], 0)
+
+    def test_a_record_with_neither_a_place_nor_a_box_is_held_not_placed_at_the_corner(self):
+        """A box of zeros would resolve to the top-left corner of the page and put the pin somewhere nobody chose."""
+        got = self._run(
+            """
+            const r=rec(1); r.rect=null; QUEUE=[r]; ANSWERS={pick:[found(10)],pin:[{id:52}]};
+            offlineFlush().then(function(){console.log(JSON.stringify({picks:PICKS.length,pins:PINS_SENT.length,
+              left:QUEUE.length,held:QUEUE[0]&&QUEUE[0].held}));});
+            """
+        )
+        self.assertEqual(got, {"picks": 0, "pins": 0, "left": 1, "held": True})
+
     def test_a_place_that_cannot_be_found_is_kept_and_counted(self):
         """The build the pin was drawn on is gone: the record stays, marked, with why - and the next send tries again."""
         got = self._run(
@@ -206,7 +233,8 @@ var OFF_STATE='state';
 var OFF_READS=['/api/meta','/api/docs','/api/pins','/api/pins/dropped','/api/people','/api/outline-labels','/api/source'];
 var STORE=new Map();
 // Stands in for the one IndexedDB store, keeping put/get as they behave there.
-function offIn(store,mode,fn){const s={put:function(v){STORE.set(v.key,v); return {};},get:function(k){return {result:STORE.get(k)};}};
+function offIn(store,mode,fn){const s={put:function(v){STORE.set(v.key,v); return {};},
+  get:function(k){return {result:STORE.get(k)};},delete:function(k){STORE.delete(k); return {};}};
   const rq=fn(s); return Promise.resolve(rq&&'result' in rq?rq.result:null);}
 """
 
@@ -270,6 +298,18 @@ class StoredAnswers(unittest.TestCase):
             """
         )
         self.assertEqual(got, {"got": None, "kept": 0})
+
+    def test_a_record_that_does_not_say_it_succeeded_is_dropped_not_trusted(self):
+        """An earlier build of this viewer stored refusals with no status at all. Such a record must not be read as a
+        success - that is the empty document again - and it is dropped so the next read asks the network."""
+        got = self._run(
+            """
+            STORE.set('/api/source?doc=main',{key:'/api/source?doc=main',data:{error:'too_large'},at:1});
+            offStashed('/api/source?doc=main',null).then(function(v){
+              setTimeout(function(){console.log(JSON.stringify({got:v,left:STORE.size}));},0);});
+            """
+        )
+        self.assertEqual(got, {"got": None, "left": 0})
 
     def test_a_light_poll_and_a_write_are_outside_the_store(self):
         """The light poll has to fail, so the status line says the connection is gone; a write is never a stored read."""
