@@ -230,7 +230,13 @@ document.addEventListener('keydown',holdCaret,true);
 // PageUp and PageDown are no field's keys even then: Chromium moves the caret a page and lines it up with each
 // scroller's top, so they moved the pane from anywhere in the field (+226px beside the pages, +576 under them).
 // Firefox moved nothing outside in any of these.
+// A read-only field's PageUp and PageDown with room are scrolled here, a page of the field (#481). Up to Chrome 156 a
+// read-only field moved no caret, and those keys only scrolled the field (+92px of its 106 at the reasons' 40 lines).
+// Chrome 157 moves the caret there as in a writable field - five lines a page - and lines it up with the scrollers
+// outside as well: the pane moved +188px from the middle of the field on either key. So their default is dropped there
+// too, and the field scrolls by Chromium's own page step (7/8 of what it shows), the caret where it stands.
 const PAGE_KEYS=new Set(['PageUp','PageDown']);   // outline.js's SCROLL_KEYS also holds the arrows and Space, which stay a field's keys on every host
+const PAGE_STEP=0.875;   // Chromium's page scroll: 7/8 of what the scroller shows, in whole pixels
 const READ_ONLY_KEYS=new Set(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Home','End','PageUp','PageDown',' ']);   // a read-only field's: none moves a caret there
 const FIELD_UP_KEYS=new Set(['ArrowUp','PageUp','Home']);   // the keys that scroll a field up; Shift+Space too, and the rest of READ_ONLY_KEYS down or sideways
 /** Whether field f can still scroll the way key k (with Shift: shift) scrolls it, short of that end (#455).
@@ -245,7 +251,9 @@ function fieldScrollKey(e){const k=e.key;
   const f=/** @type {HTMLInputElement} */(document.activeElement),ro=f.readOnly===true;
   if(ro){if(e.shiftKey&&k!==' ')return;}   // Shift with a moving key moves nothing outside (Firefox selects, Chromium keeps the selection)
   else if(e.shiftKey||!(PAGE_KEYS.has(k)||(IS_MAC&&(k==='Home'||k==='End'))))return;
-  if((ro||!PAGE_KEYS.has(k))&&f.scrollHeight>f.clientHeight&&fieldRoom(f,k,e.shiftKey))return;
+  if((ro||!PAGE_KEYS.has(k))&&f.scrollHeight>f.clientHeight&&fieldRoom(f,k,e.shiftKey)){
+    if(!ro||!PAGE_KEYS.has(k))return;
+    f.scrollBy({top:(k==='PageUp'?-1:1)*Math.floor(f.clientHeight*PAGE_STEP),behavior:scrollMotion()});}   // #481: the field's page, not the caret's
   e.preventDefault();}
 document.addEventListener('keydown',fieldScrollKey,true);
 // Whether a text field has focus - a textarea, a text input or editable content - which on a touch screen means the keyboard is up.
