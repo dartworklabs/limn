@@ -722,9 +722,12 @@ function offStashed(url){return Promise.resolve(url==='/api/pins?all=1'?{data:['
 var API_WAIT={POLL:8000,READ:8000,PICK:8000,SAVE:10000,SEND:30000},API_OUT=false;   // api.js's own, beside api()
 function offReadKey(url,o){return (!o||!o.method||o.method==='GET')&&url==='/api/pins?all=1'?url:null;}   // the one read with a store here
 // What fetch does: 'down' rejects as a lost connection does, 'up' answers, 'mute' neither - the request waits until
-// its signal ends it, and for ever if it was given none (a tailnet with no internet behind it).
+// its signal ends it, and for ever if it was given none (a tailnet with no internet behind it), 'half' answers with a
+// head whose body never comes (a connection lost while the answer is on its way).
 var NET='down',ASKED=0;
 globalThis.fetch=function(url,init){ASKED++;
+  if(NET==='half')return Promise.resolve({status:200,json:function(){return new Promise(function(res,rej){
+    if(init&&init.signal)init.signal.addEventListener('abort',function(){rej(new Error('ended'));});});}});
   if(NET==='mute')return new Promise(function(res,rej){if(init&&init.signal)init.signal.addEventListener('abort',function(){rej(new Error('ended'));});});
   return NET==='down'?Promise.reject(new TypeError('Failed to fetch'))
   :Promise.resolve({status:200,json:function(){return Promise.resolve(['fresh']);}});};
@@ -790,6 +793,18 @@ class StoredReadsServe(unittest.TestCase):
             """
         )
         self.assertEqual(got, {"first": "stored", "second": "failed", "said": 1})
+
+    def test_a_read_whose_body_never_comes_is_a_read_that_failed(self):
+        """The answer's head arrives and its body does not. The wait covers the body: the read is not an answer with
+        no data - on a visit's first reads the store answers, and connected it is said as the failure it is."""
+        got = self._run(
+            """
+            NET='half'; API_WAIT.READ=20; OFF.boot=true;
+            read().then(function(first){OFF.boot=false; API_OUT=false;
+              return read().then(function(second){console.log(JSON.stringify({first:first,second:second,said:SAID.length,out:API_OUT}));});});
+            """
+        )
+        self.assertEqual(got, {"first": "stored", "second": "failed", "said": 1, "out": True})
 
     def test_once_a_request_went_unanswered_the_first_reads_do_not_ask(self):
         """A visit's first reads are made one after another. After one that got no answer the store answers the rest

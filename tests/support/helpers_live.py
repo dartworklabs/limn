@@ -81,6 +81,8 @@ class LiveBase(BrowserBase):
         # not wait for, and a write handled then would land in a state folder that is being removed.
         self.answering = answering = threading.Event()
         answering.set()
+        self.finishing = finishing = threading.Event()
+        finishing.set()
         over = threading.Event()
 
         class Gated(ps.Handler):
@@ -89,9 +91,17 @@ class LiveBase(BrowserBase):
                 answering.wait()
                 return parsed and not over.is_set()
 
+            def end_headers(self):
+                # The answer's head goes out and its body waits at this gate (stop_finishing): a connection lost
+                # while an answer is on its way.
+                super().end_headers()
+                self.wfile.flush()
+                finishing.wait()
+
         def leave():
             over.set()
             answering.set()
+            finishing.set()
 
         self.httpd = ps.Server(("127.0.0.1", 0), Gated)
         self.serving = threading.Thread(target=self.httpd.serve_forever, daemon=True)
@@ -115,9 +125,15 @@ class LiveBase(BrowserBase):
         and nothing comes back - and it is not what set_offline does, where every request fails at once."""
         self.answering.clear()
 
+    def stop_finishing(self):
+        """The server starts every answer and finishes none: the head arrives and the body never does - a connection
+        lost while an answer is on its way."""
+        self.finishing.clear()
+
     def answer_again(self):
         """The server answers again, the requests left waiting first: one the browser gave up on is still handled."""
         self.answering.set()
+        self.finishing.set()
 
     def write_pdf(self, words=PDF_WORDS):
         """The PDF of the build on screen: one 612x792 page carrying words."""

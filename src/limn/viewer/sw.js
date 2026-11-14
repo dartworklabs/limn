@@ -50,9 +50,12 @@ async function keep(request, url, response) {
 // How long the network is waited for when a copy could answer instead, and how long copies then answer without asking.
 // A server that cannot be reached does not always refuse: on a tailnet with no internet behind it a request goes into
 // the tunnel and nothing comes back for a minute and more, so a tab opened again during a flight waited that long for
-// the page, and again for every file after it. A request that has a copy waits WAIT_MS for the network; when that runs
-// out the copy answers, and for DOWN_MS so does every other copy, at once. A request with no copy waits as it always
-// did - there is nothing else to answer it with - and any answer from the network ends the window.
+// the page, and again for every file after it. A request that has a copy waits WAIT_MS for the network to start
+// answering and WAIT_MS for each piece of the answer after that - a connection lost mid-answer leaves a body that
+// never ends, and an answer already handed to the page cannot be taken back, so the answer is read whole here before
+// it is passed on. When either wait runs out the request is ended and the copy answers, and for DOWN_MS so does every
+// other copy, at once. A request with no copy waits and streams as it always did - there is nothing else to answer it
+// with - and an answer the network gave whole ends the window.
 const WAIT_MS = 4000, DOWN_MS = 20000;
 let downUntil = 0;
 // p's value, or null if it has not settled within ms. A rejection is passed on.
@@ -61,6 +64,19 @@ function within(p, ms) {
     const t = setTimeout(() => resolve(null), ms);
     p.then(v => { clearTimeout(t); resolve(v); }, err => { clearTimeout(t); reject(err); });
   });
+}
+// Response r with its body read to the end, or null when a piece of it did not come within ms of the one before.
+// An answer that has no body (204, 304) is itself.
+async function whole(r, ms) {
+  if (!r.body) return r;
+  const reader = r.body.getReader(), parts = [];
+  for (;;) {
+    const piece = await within(reader.read(), ms);
+    if (!piece) { reader.cancel().catch(() => {}); return null; }
+    if (piece.done) break;
+    parts.push(piece.value);
+  }
+  return new Response(new Blob(parts), { status: r.status, statusText: r.statusText, headers: r.headers });
 }
 self.addEventListener('fetch', e => {
   const request = e.request;
@@ -73,25 +89,27 @@ self.addEventListener('fetch', e => {
   e.respondWith((async () => {
     let copy; try { copy = await caches.match(cacheKey(request, url, null)); } catch (_) {}
     if (copy && Date.now() < downUntil) { written(); return copy; }
-    const net = (async () => {
-      let r = await fetch(request);
+    // Only a request that has a copy is ever ended: its signal is what lets go of a connection that stopped answering.
+    const ctl = copy ? new AbortController() : null;
+    const ask = (req, init) => fetch(req, ctl ? Object.assign({ signal: ctl.signal }, init) : init);
+    const down = () => { downUntil = Date.now() + DOWN_MS; ctl.abort(); written(); return copy; };
+    try {
+      const head = ask(request);
+      let r = copy ? await within(head, WAIT_MS) : await head;
+      if (!r) { head.catch(() => {}); return down(); }
       // A conditional request this worker passed on can be answered 304, which is no body to answer the page with: the
       // kept copy is what 304 says is current. Without one the request is made again for the whole answer.
       if (r.status === 304) {
         const hit = await caches.match(cacheKey(request, url, r));
-        if (hit) { written(); return hit; }
-        r = await fetch(new Request(request.url, { credentials: 'same-origin' }), { cache: 'reload' });
+        if (hit) { downUntil = 0; written(); return hit; }
+        r = await ask(new Request(request.url, { credentials: 'same-origin' }), { cache: 'reload' });
       }
-      keep(request, url, r).then(written, written);   // also when the copy has answered meanwhile: the next visit has this one
+      if (copy) { r = await whole(r, WAIT_MS); if (!r) return down(); }
+      downUntil = 0;
+      keep(request, url, r).then(written, written);
       return r;
-    })();
-    net.then(() => { downUntil = 0; }, () => { written(); });
-    try {
-      const r = copy ? await within(net, WAIT_MS) : await net;
-      if (r) return r;
-      downUntil = Date.now() + DOWN_MS;
-      return copy;
     } catch (err) {
+      written();
       if (copy) return copy;
       if (request.mode === 'navigate') {
         const shell = await caches.match(new Request(self.location.origin + SHELL));

@@ -460,6 +460,17 @@ class ServerThatDoesNotAnswer(LiveBase):
         tab.wait_for("OFF.n===0")
         self.assertEqual([p["note"] for p in self.pins()], [self.NOTE])
 
+    def test_the_tab_opens_again_when_answers_start_and_never_finish(self):
+        """The connection goes while answers are on their way: each has its head and no body. An answer already handed
+        to the page could not be taken back, so the worker reads it whole first, and when a piece does not come it
+        answers from its copy; the page's own reads end at their wait and are answered from the store."""
+        tab = self.open_live()
+        built = tab.keep()
+        self.stop_finishing()
+        tab.reopen()
+        self.assertEqual(tab.build(), built)
+        self.assertTrue(tab.stale_said())
+
     def test_the_tab_opens_again_from_its_copies(self):
         """Reloaded with the server not answering: the worker's copy answers for the page once the network has had its
         wait, the page starts from the stored reads without waiting each of them out, and a drag is kept."""

@@ -34,7 +34,7 @@
   stored answer and a drag's pick 8s, a new pin's save 10s) and then count as unreached; after one unanswered
   request a drag opens at once, without asking. A save sent while the viewer thought it was connected and left
   without an answer for that long is kept in the queue under its key instead of failing. The service worker answers from its copy
-  when the network has not answered a request it has a copy of in 4s, so a tab opened again during a flight opens in
+  when the network has not answered a request it has a copy of in 4s, or an answer on its way stops for 4s, so a tab opened again during a flight opens in
   seconds, not minutes.
 - **A drag made while cut off keeps its selection.** The composer's head read `null` for the file and a
   "location failed" banner came with it; it now names the page and shows an `Offline` badge.
