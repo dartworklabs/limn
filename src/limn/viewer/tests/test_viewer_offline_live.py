@@ -238,6 +238,12 @@ class Landing(LiveBase):
         self.assertIn(CAUGHT_UP, ps.APP.C.pins_md.read_text(encoding="utf-8"), "pins.md has it for the agent")
 
 
+def of_build(url, build):
+    """Is url a copy of that very build's PDF or page? A rebuild within the second is named after the build before it
+    (pages-<time>-1), so the name alone is not looked for inside the address."""
+    return url.startswith("/pages/%s/" % build) or ("build=%s&" % build) in url
+
+
 class KeepsItselfCurrent(LiveBase):
     """A copy kept once keeps itself current while connected: no second press after a rebuild."""
 
@@ -257,7 +263,7 @@ class KeepsItselfCurrent(LiveBase):
         self.assertIsInstance(ps.APP.build_requests.build_all(self.doc), BuildOk)
         tab = self.open_live()
         old = tab.keep()
-        self.assertTrue([u for u in tab.cache_urls() if old in u])
+        self.assertTrue([u for u in tab.cache_urls() if of_build(u, old)])
         new = self.rebuild(old)
         tab.until(
             lambda: tab.kept_build(self.doc.key) == new and not tab.kept()["old"], timeout=90, what="the copy following"
@@ -267,8 +273,8 @@ class KeepsItselfCurrent(LiveBase):
         self.assertEqual(list(holds), [new], "the old build's hold ended with its last share")
         self.assertEqual(list(holds[new]["holders"]), [me], "the new build is held in this browser's name")
         urls = tab.cache_urls()
-        self.assertEqual([u for u in urls if old in u], [], "the old build's copies are gone")
-        pdf = [u for u in urls if u.startswith("/pdf") and new in u]
+        self.assertEqual([u for u in urls if of_build(u, old)], [], "the old build's copies are gone")
+        pdf = [u for u in urls if u.startswith("/pdf") and of_build(u, new)]
         self.assertEqual(len(pdf), 1, urls)
         pages = len(self.server("GET", "/api/meta")["pages"])
         self.assertEqual(len([u for u in urls if u.startswith("/pages/%s/" % new)]), pages, urls)
@@ -293,7 +299,7 @@ class KeepsItselfCurrent(LiveBase):
         holds = self.holds()
         self.assertEqual(list(holds[old]["holders"]), [tablet], "only the tablet's share of the old build is left")
         self.assertIn(new, holds)
-        self.assertEqual([u for u in tab.cache_urls() if old in u], [], "this device's copies of it are gone")
+        self.assertEqual([u for u in tab.cache_urls() if of_build(u, old)], [], "this device's copies of it are gone")
 
     @needs_tex("latexmk", "synctex", "pdftotext", "pdftoppm")
     def test_a_build_a_queued_pin_was_drawn_on_stays_held_until_the_pin_is_sent(self):
@@ -322,14 +328,14 @@ class KeepsItselfCurrent(LiveBase):
         holds = self.holds()
         self.assertIn(old, holds, "the build the queued pin was drawn on is still held")
         self.assertIn(new, holds)
-        self.assertTrue([u for u in tab.cache_urls() if old in u], "and its copies stay")
+        self.assertTrue([u for u in tab.cache_urls() if of_build(u, old)], "and its copies stay")
         tab.page.unroute("**/api/pick")
         tab.send_queue()
         tab.wait_for("OFF.n===0")
         self.assertEqual(len([p for p in self.pins() if p.get("note") == CAUGHT_UP]), 1)
         tab.until(lambda: not tab.kept()["old"], timeout=90, what="the old build's copies dropped")
         self.assertNotIn(old, self.holds(), "its hold ended once this browser let go")
-        self.assertEqual([u for u in tab.cache_urls() if old in u], [])
+        self.assertEqual([u for u in tab.cache_urls() if of_build(u, old)], [])
 
 
 class LostAnswer(LiveBase):
