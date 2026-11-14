@@ -1394,12 +1394,15 @@ class ReasonFieldLong(ReasonFieldKeys):
     def test_a_long_reason_being_saved_moves_no_page_at_its_ends(self):
         """The same field with Enter pressed and its save held, so it is read-only. At its end ArrowDown, PageDown, Space and
         End, at its top ArrowUp, PageUp, Shift+Space and Home: the area moves 0px, page 4 is still read and the field stays,
-        read-only, its scroll where it was. In its middle every one of these is left to the field (Chromium scrolls it that
-        way) and the area still moves 0px.
+        read-only, its scroll where it was. In its middle PageUp and PageDown scroll the field a page that way themselves
+        and every other key is left to the field (Chromium scrolls it that way, or from 157 moves the caret that way), and
+        the area still moves 0px.
 
         Left to the browser at the field's end, Chromium gave them to the area: ArrowDown +40px, PageDown and Space +873
         (Space took the reading page from 4 to 5 and the field went, as the issue had it), End +4034; at its top ArrowUp
-        -40, PageUp and Shift+Space -873 (page 3), Home -3312 (page 1). Firefox moved nothing outside."""
+        -40, PageUp and Shift+Space -873 (page 3), Home -3312 (page 1). Firefox moved nothing outside. In its middle Chrome
+        157 moved the caret five lines on PageUp or PageDown and the area +188px on either (#481); up to 156 it scrolled
+        the field only."""
         page = self.on()
         self.long_reason(page)
         self.held_edit = []
@@ -1409,16 +1412,35 @@ class ReasonFieldLong(ReasonFieldKeys):
         ends = [("end", k) for k in ("ArrowDown", "PageDown", "Space", "End")]
         ends += [("top", k) for k in ("ArrowUp", "PageUp", "Shift+Space", "Home")]
         middle = [("mid", k) for _, k in ends]
-        moved, ways = {}, {}
+        moved, ways, scrolled = {}, {}, {}
         for where, key in ends + middle:
             at, now, dropped = self.pressed(page, where, key)
             moved[where, key] = (now["top"] - at["top"], now["page"], now["field"], now["readOnly"], dropped)
             if not now["field"]:
                 break  # the key took the field away
-            ways[where, key] = now["scroll"] - at["scroll"]
-        want = {**dict.fromkeys(ends, (0, 4, True, True, True)), **dict.fromkeys(middle, (0, 4, True, True, False))}
+            # How far the field scrolled, or failing that how far its caret moved: Chromium up to 156 scrolled a read-only
+            # field with its keys, 157 moves its caret instead and scrolls it only when the caret leaves what it shows.
+            ways[where, key] = (now["scroll"] - at["scroll"]) or (now["caret"] - at["caret"])
+            scrolled[where, key] = (now["scroll"] - at["scroll"], now["caret"] == at["caret"])
+        page_keys = [("mid", "PageDown"), ("mid", "PageUp")]  # the viewer's in the middle too (#481)
+        want = {
+            **dict.fromkeys(ends, (0, 4, True, True, True)),
+            **dict.fromkeys(middle, (0, 4, True, True, False)),
+            **dict.fromkeys(page_keys, (0, 4, True, True, True)),
+        }
         self.assertEqual(moved, want)
         self.assertEqual({c: d for c, d in ways.items() if c in ends}, dict.fromkeys(ends, 0))
+        # On every engine the page keys scroll the field itself 7/8 of its 106px (92, within the 1px the field's scroll is
+        # read rounded to: one macOS run read PageUp's -91), the caret where it stands.
+        self.assertEqual(
+            {
+                c: (abs(d - (-92 if c[1] in UP_KEYS else 92)) <= 1, same)
+                for c, (d, same) in scrolled.items()
+                if c in page_keys
+            },
+            dict.fromkeys(page_keys, (True, True)),
+            scrolled,
+        )
         if self.BROWSER_ENGINE == "chromium":
             self.assertEqual(
                 {c: (d < 0 if c[1] in UP_KEYS else d > 0) for c, d in ways.items() if c in middle},
