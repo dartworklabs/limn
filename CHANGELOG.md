@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.4.61 — 2026-11-15
+
+The agent contract is unchanged: no HTTP path, field or state name and nothing in `pins.md` is added, removed or
+renamed. The line numbers of a figure pick now name the script as it is now, as a manuscript pick's already do.
 
 ### Fixed
 
