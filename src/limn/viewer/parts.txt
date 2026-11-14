@@ -23,6 +23,7 @@ css/verdict-panel.css   # the page verdict panel beside the pages on a wide desk
 css/cards.css           # pin cards: status, links, thread, @-tags, question hint, Trash, @-list, reply outcome
 css/suggest.css         # suggested edits: the kind row's switch, the editor and its line, a card's line diff
 css/list.css            # list sections and the archive rows
+css/offline-ui.css      # the queued pins: their dotted marks on the page, their section and rows in the pin panel
 css/review-pick.css     # the review section picking: its head's pick line and the result rows (ADR-0035)
 css/overlays.css        # tooltip, dialogs, the page list
 css/responsive.css      # mobile/touch, the mid and narrow layouts, reduced motion, the label stripe
