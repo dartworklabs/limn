@@ -36,8 +36,9 @@ class DocumentBuild:
 @dataclass(frozen=True)
 class Publication:
     """Assets and pick status of the selected build, never the mutable current pointer. built_lines answers the lines
-    of a manuscript file (a checkout path) as that build read them, from the build's source record, or None when the
-    build kept none for it; the record is read when asked, not when the publication is bound."""
+    of a manuscript file (a checkout path) as that build read them - a LaTeX build's inputs, a figure import's
+    scripts - from the build's source record, or None when the build kept none for it; the record is read when asked,
+    not when the publication is bound."""
 
     build: str
     pages: Path

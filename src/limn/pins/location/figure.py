@@ -8,6 +8,10 @@ and turns their source spans into the current manuscript's range ladder. This mo
 reads only the chosen element's source file, through the checked-file helpers and only inside the document's folder, and
 never the PDF. What it cannot answer with lines it answers with a FigureFallback, which resolve.pick turns into the
 region answer. No HTTP here: location.http shapes every body.
+
+A map numbers the lines of the script as it was rendered. When the build kept those lines (its source record,
+BuildOnScreen.built_lines), every rung's range is carried over to the script as it is now (mapping.carry_range), so
+an edit made since - with or without a new render - does not put the answer on whatever moved into those numbers.
 """
 
 from collections.abc import Callable, Sequence
@@ -16,7 +20,7 @@ from pathlib import Path
 from typing import Any, Literal, TypeAlias
 
 from limn.pins.element import ElementImpl, PinElement
-from limn.pins.location.mapping import snippet
+from limn.pins.location.mapping import carry_range, snippet
 from limn.pins.needs import ElementChoice, FigureElement, FigureMapUnavailable
 from limn.platform.files import ManuscriptFile, file_in_tree, tex_lines, tree_part
 from limn.runtime.documents import Doc
@@ -95,12 +99,32 @@ def pin_element(el: FigureElement) -> PinElement:
     return PinElement(el.id, el.path, el.label, el.part, impl, el.frac)
 
 
-def element_rungs(pick: ElementChoice, lines: Sequence[str]) -> tuple[Rung, ...]:
+def lines_now(lo: int, hi: int, lines: Sequence[str], built: Sequence[str] | None) -> tuple[int, int] | None:
+    """Where lines lo..hi of a script, as a figure's map numbers them, stand in the script now (`lines`), or None when
+    they name no code there.
+
+    built is the script as the map's build kept it, None when it kept none: the numbers are then used as they are, and
+    stand when they fit the file (1 <= lo <= hi <= len(lines)). With built, the numbers must fit built - a record they
+    do not fit is not the script the map was rendered from - and the range is carried over to lines
+    (mapping.carry_range: the span of its lines still there, None when no line with text is). A script that is still
+    line for line what the build kept keeps the map's numbers."""
+    if built is None:
+        return (lo, hi) if 1 <= lo <= hi <= len(lines) else None
+    if not 1 <= lo <= hi <= len(built):
+        return None
+    if len(built) == len(lines) and all(was == now for was, now in zip(built, lines, strict=True)):
+        return lo, hi
+    carried = carry_range(built, lines, lo, hi)
+    return None if carried is None else (carried.lo, carried.hi)
+
+
+def element_rungs(pick: ElementChoice, lines: Sequence[str], built: Sequence[str] | None = None) -> tuple[Rung, ...]:
     """The range ladder of a map pick in the chosen element's source file, whose current lines are `lines`: one rung per
     ladder element (level names supplied by the build owner), nearest first, for each element whose src names that same file
-    and fits in it (1 <= lo <= hi <= len(lines)). A rung with the same lines as an earlier one merges into it: the
+    and whose lines stand in it now (lines_now: built is that file as the map's build kept it, None when it kept none).
+    A rung with the same lines as an earlier one merges into it: the
     earlier, inner rung stays - its element is the more precise answer - and lists the later level name under merged.
-    Empty when the chosen element itself has no src or its lines do not fit: the pick then falls back to the region."""
+    Empty when the chosen element itself has no src or its lines do not stand: the pick then falls back to the region."""
     chosen = pick.chosen
     if chosen.source is None:
         return ()
@@ -108,14 +132,15 @@ def element_rungs(pick: ElementChoice, lines: Sequence[str]) -> tuple[Rung, ...]
     out: list[Rung] = []
     for level, el in pick.ladder:
         ref = el.source
-        if ref is None or ref[0] != file or not 1 <= ref[1] <= ref[2] <= len(lines):
+        span = lines_now(ref[1], ref[2], lines, built) if ref is not None and ref[0] == file else None
+        if span is None:
             continue
-        same = next((i for i, r in enumerate(out) if (r.lo, r.hi) == (ref[1], ref[2])), None)
+        same = next((i for i, r in enumerate(out) if (r.lo, r.hi) == span), None)
         if same is not None:
             out[same] = replace(out[same], merged=(*out[same].merged, level))
             continue
         name = el.label or el.part or el.id
-        out.append(Rung(level, ref[1], ref[2], name, snippet(lines, ref[1], ref[2]), pin_element(el)))
+        out.append(Rung(level, span[0], span[1], name, snippet(lines, span[0], span[1]), pin_element(el)))
     return tuple(out) if out and out[0].el.id == chosen.id else ()
 
 
@@ -149,14 +174,16 @@ def pick_figure(
     state: Path,
     overlaps: Callable[[str, int, int], list[dict[str, Any]]],
     redrawing: bool,
+    built_lines: Callable[[Path], Sequence[str] | None],
 ) -> PickedElement | FigureFallback:
     """A drag on figure document D's page page_no (box in points, size the page's, frac the viewer's as sent) traced
     through selection, the build owner's answer for that drag on the map of the page directory pdir it was made on:
     the element's lines (PickedElement), or why not (FigureFallback) - no loadable map or no such page in it
     (figure_map_unavailable, no element), or a chosen element whose src is missing, unreadable, outside D.src or
-    longer than its file now (element_without_source, with that element). overlaps gives the stored open pins the
-    default rung overlaps; redrawing says the pages are being redrawn. Reads the chosen element's source file once;
-    never the PDF.
+    names no code that stands in its file now (element_without_source, with that element). overlaps gives the stored
+    open pins the default rung overlaps; redrawing says the pages are being redrawn; built_lines answers the script as
+    that build kept it (BuildOnScreen.built_lines), from which each rung's lines are carried to the script as it is
+    now (lines_now). Reads the chosen element's source file once; never the PDF.
 
     The two answers are told apart by isinstance against this slice's own FigureMapUnavailable
     (limn.pins.needs), which holds for any value with a `reason` member - so an element choice must never have one."""
@@ -165,7 +192,7 @@ def pick_figure(
     pick = selection
     chosen = pick.chosen
     source = read_source(D, chosen.source[0], root, state) if chosen.source is not None else None
-    rungs = element_rungs(pick, source[1]) if source is not None else ()
+    rungs = element_rungs(pick, source[1], built_lines(source[0].path)) if source is not None else ()
     if source is None or not rungs:
         return FigureFallback("element_without_source", pin_element(chosen), chosen.names)
     found, lines = source
