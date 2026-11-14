@@ -374,6 +374,9 @@ chk "... and the replacement is reported" "grep -qF \"the unit's PATH=$T/texlive
 LIMN_UNIT_PATH="/usr/bin:/bin" "$PV" start unit-t --no-serve > /dev/null 2>&1
 env -u LIMN_UNIT_PATH PATH="$T/distro/bin:$PATH" "$PV" start unit-t --no-serve > /dev/null 2>&1
 chk "a unit that reaches only the distribution's TeX takes this shell's other TeX" "grep -q '^Environment=PATH=$T/distro/bin:' '$R'"
+LIMN_UNIT_PATH="$T/distro/bin:$T/tools:/usr/bin:/bin" "$PV" start unit-t --no-serve > /dev/null 2>&1
+env -u LIMN_UNIT_PATH PATH="$T/distro/bin:$PATH" "$PV" start unit-t --no-serve > /dev/null 2>&1
+chk "the same pdflatex keeps the unit's PATH with the directories LIMN_UNIT_PATH added" "grep -qx 'Environment=PATH=$T/distro/bin:$T/tools:/usr/bin:/bin' '$R'"
 LIMN_UNIT_PATH="/opt/tex/bin:/usr/bin:/bin" "$PV" start unit-t --no-serve > /dev/null 2>&1
 chk "LIMN_UNIT_PATH still replaces a kept PATH" "grep -qx 'Environment=PATH=/opt/tex/bin:/usr/bin:/bin' '$R'"
 rm -f "$R"

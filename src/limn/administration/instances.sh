@@ -477,14 +477,15 @@ url_of() { # url_of <tailnet port>
 # (@LIMN_BIN@), the config dir (@LIMN_CONFIG_DIR@), and the unit's PATH (@LIMN_PATH@ — systemd doesn't
 # go through shell rc files, so it can't inherit the TeX path).
 #
-# A unit limn already wrote keeps its PATH when the two PATHs reach different pdflatex binaries and the
-# old one's is not the distribution's: `limn update` run over a non-login SSH shell finds the
+# A unit limn already wrote keeps its PATH unless it reaches only the distribution's pdflatex (or none)
+# and this shell's PATH reaches another: `limn update` run over a non-login SSH shell finds the
 # distribution's pdflatex (no TeX Live on that PATH), and taking that shell's PATH switched every
 # instance's rebuilds to a TeX without the journal classes. The comparison is on the pdflatex each PATH
 # reaches, not on whether it reaches one: every PATH here ends in /usr/bin:/bin, so on a machine with
-# the distribution's TeX each of them reaches some pdflatex. A new PATH is taken for a first unit, when
-# both reach the same pdflatex, when the old one reaches only the distribution's (or none) and this
-# shell's is another, and through LIMN_UNIT_PATH.
+# the distribution's TeX each of them reaches some pdflatex. Both reaching the same pdflatex keeps the
+# old PATH too (it may carry directories LIMN_UNIT_PATH added). A new PATH is taken for a first unit,
+# when the old one reaches only the distribution's pdflatex (or none) and this shell's is another, and
+# through LIMN_UNIT_PATH.
 installed_unit_path() { # the PATH line of the unit limn generated, if there is one
     local f="$USER_UNIT_DIR/limn@.service"
     if [[ ! -f "$f" || -L "$f" ]] || ! grep -q '^# limn:generated' "$f"; then return 0; fi
@@ -519,11 +520,13 @@ unit_path() {
     if [[ -n "$old" && "$old" != "$out" ]]; then
         old_tex=$(tex_on "$old")
         new_tex=$(tex_on "$out")
-        if [[ "$old_tex" != "$new_tex" ]] && ! distro_tex "$old_tex"; then
+        if [[ "$old_tex" == "$new_tex" ]]; then
+            out=$old # same TeX: keep the directories a LIMN_UNIT_PATH may have added after it
+        elif ! distro_tex "$old_tex"; then
             warn "keeping the unit's PATH=$old (pdflatex ${old_tex}); this shell would give PATH=$out" \
                 "(pdflatex ${new_tex:-none}) — set LIMN_UNIT_PATH to change it"
             out=$old
-        elif [[ "$old_tex" != "$new_tex" ]]; then
+        else
             warn "the unit's PATH=$old reaches pdflatex ${old_tex:-none} — replacing it with PATH=$out" \
                 "(pdflatex ${new_tex:-none})"
         fi

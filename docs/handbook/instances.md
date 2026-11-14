@@ -234,7 +234,7 @@ limn add paper2 --manuscript ~/papers/paper2        # 같은 결과를 설정에
 
 - 있던 `PATH`와 이 셸의 `PATH`가 다른 `pdflatex`를 잡고, 있던 쪽이 배포판 폴더(`/usr/bin`, `/bin`)의 것이 아니면 있던 `PATH`를 지킨다. 경고 한 줄이 두 값과 각자의 `pdflatex`를 알린다.
 - 있던 쪽이 배포판의 `pdflatex`만 잡거나 아무것도 잡지 못하면(TeX Live를 지웠거나, 이미 배포판 TeX로 쓰인 유닛) 이 셸의 `PATH`로 바꾸고 경고로 알린다.
-- 둘이 같은 `pdflatex`를 잡으면 이 셸의 `PATH`를 쓴다. 유닛이 처음이면 이 셸의 `PATH`를 쓴다.
+- 둘이 같은 `pdflatex`를 잡으면 있던 `PATH`를 그대로 둔다. `LIMN_UNIT_PATH`로 더한 폴더(래퍼 스크립트 등)를 잃지 않기 위해서다. 유닛이 처음이면 이 셸의 `PATH`를 쓴다.
 - TeX Live를 새 판으로 옮겼는데 옛 판도 남아 있으면 있던 `PATH`가 지켜진다. 그때는 `LIMN_UNIT_PATH`를 주고 `limn start` 또는 `limn update`를 한 번 돌린다.
 
 템플릿의 나머지 설정은 다음과 같다.

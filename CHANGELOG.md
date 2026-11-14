@@ -12,7 +12,8 @@
   `/usr/bin:/bin`). When the unit's PATH and the shell's reach different pdflatex binaries and the unit's is not the
   distribution's (`/usr/bin`, `/bin`), the unit keeps its PATH and a warning names both. A unit that reaches only the
   distribution's TeX, or none, takes the shell's PATH, so a unit already written this way is repaired by the next
-  `limn update` from a login shell. `LIMN_UNIT_PATH` still sets the PATH outright.
+  `limn update` from a login shell. When both reach the same pdflatex the unit keeps its PATH, with any directories
+  `LIMN_UNIT_PATH` added. `LIMN_UNIT_PATH` still sets the PATH outright.
 
 The agent contract is unchanged.
 
