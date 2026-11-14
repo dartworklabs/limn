@@ -60,6 +60,12 @@ class BuildOnScreen(Protocol):
         """Whether that running build is in its LaTeX phase."""
         ...
 
+    @property
+    def built_lines(self) -> Callable[[Path], Sequence[str] | None]:
+        """The lines of a manuscript file (its checkout path) as that build read them - the lines its SyncTeX numbers -
+        or None when the build kept no record of the file (an older build, a file it did not read)."""
+        ...
+
 
 class EstimationFacts(Protocol):
     """What deciding `est` reads of one document's builds (limn.pins.location.position.EstContext), with source

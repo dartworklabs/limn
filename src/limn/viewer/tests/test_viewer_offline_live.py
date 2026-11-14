@@ -251,6 +251,46 @@ class Landing(LiveBase):
         tab.until(lambda: CAUGHT_UP in tab.state()["notes"], what="the viewer showing the pin")
         self.assertIn(CAUGHT_UP, ps.APP.C.pins_md.read_text(encoding="utf-8"), "pins.md has it for the agent")
 
+    def edit_and_rebuild(self, old, new):
+        """Replace old by new in the manuscript, once, as an agent on the server does, and rebuild."""
+        text = self.main.read_text(encoding="utf-8")
+        self.assertIn(old, text)
+        self.main.write_text(text.replace(old, new, 1), encoding="utf-8")
+        self.server("POST", "/api/rebuild?force=1")
+
+    @needs_tex("latexmk", "synctex", "pdftotext", "pdftoppm")
+    def test_a_pin_made_cut_off_lands_on_the_text_it_was_drawn_on_after_the_source_was_edited_above_it(self):
+        """The flight again, and this time the agent works on the manuscript meanwhile: five lines are added above the
+        dragged text and the document is rebuilt, a comment line is added and it is rebuilt again. SyncTeX of the held
+        build still numbers the lines of the source that build read. The pin is written on the lines that hold the
+        dragged text now - six lines lower - not on whatever moved into the old numbers."""
+        self.assertIsInstance(ps.APP.build_requests.build_all(self.doc), BuildOk)
+        tab = self.open_live()
+        held = tab.keep()
+        tab.cut_off()
+        tab.reopen()
+        tab.pin_offline(CAUGHT_UP, box=(0.2, 0.30, 0.8, 0.36))
+        # Asked while the source is still the one the held build read: the lines the drag is on, and their text.
+        want = self.server("POST", "/api/pick", tab.queued_drag(held))
+        self.assertTrue(want.get("file") and isinstance(want.get("raw_lo"), int), want)
+        dragged = self.main.read_text(encoding="utf-8").splitlines()[want["raw_lo"] - 1 : want["raw_hi"]]
+        self.assertTrue(any(line.strip() for line in dragged), want)
+        self.edit_and_rebuild("\\begin{document}\n", "\\begin{document}\nAdded while away.\n\nAnd more.\nAnd more.\n\n")
+        self.edit_and_rebuild("\\documentclass{article}\n", "\\documentclass{article}\n% a comment by the agent\n")
+        self.assertNotEqual(self.server("GET", "/api/meta")["pages_build"], held)
+        self.assertTrue(build.is_slimmed(self.doc.dir / held), "the held build is kept, slimmed")
+        tab.reconnect()
+        tab.wait_for("OFF.n===0")
+        mine = [p for p in self.pins() if p.get("note") == CAUGHT_UP]
+        self.assertEqual(len(mine), 1)
+        pin = mine[0]
+        now = self.main.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(now[pin["raw_lo"] - 1 : pin["raw_hi"]], dragged, "the pin is on the text that was dragged")
+        self.assertEqual((pin["raw_lo"], pin["raw_hi"]), (want["raw_lo"] + 6, want["raw_hi"] + 6))
+        self.assertTrue(pin["lo"] <= pin["raw_lo"] and pin["raw_hi"] <= pin["hi"], pin)
+        self.assertEqual(pin.get("pdf_build"), held, "picked against the build it was drawn on")
+        self.assertEqual(tab.unsent(), {"n": 0, "held": 0})
+
 
 def of_build(url, build):
     """Is url a copy of that very build's PDF or page? A rebuild within the second is named after the build before it
