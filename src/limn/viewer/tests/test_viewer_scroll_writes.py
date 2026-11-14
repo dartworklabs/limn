@@ -70,6 +70,7 @@ OTHERS = {
     ("list.js", "setListOrder"): 1,
     ("mentions.js", "mentionPlace"): 1,
     ("notices.js", "bannerNote"): 1,
+    ("offline-ui.js", "offUiReveal"): 1,
     ("outline.js", "outlineFollow"): 1,
     ("page-list.js", "pageListKey"): 1,
     ("page-list.js", "revealPageRow"): 1,

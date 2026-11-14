@@ -894,6 +894,32 @@ class KeyedSend(unittest.TestCase):
         )
         self.assertEqual(got, {"left": 0, "asked": 1, "writes": [["key-aaaaaaaaaaaaaaaa", 10, False]]})
 
+    def test_a_key_the_server_does_not_know_takes_the_attempt_mark_off(self):
+        """The server says no pin was made by this key, and the place is gone too: the record is held, and it is no
+        longer one that may be on the server - which is what lets [다시 찍기] take it back (offline-ui.js)."""
+        got = self._run(
+            """
+            OFF.idem=true;
+            const a=rec(1); a.idem='key-aaaaaaaaaaaaaaaa'; a.sent=true; QUEUE=[a];
+            ANSWERS={pick:[{error:'pdf_build_gone',pdf_build_gone:true}],pin:[]};
+            offlineFlush().then(function(){console.log(JSON.stringify({left:QUEUE.length,held:QUEUE[0].held,
+              sent:QUEUE[0].sent,asked:PROBES.length,writes:PINS_SENT.length}));});
+            """
+        )
+        self.assertEqual(got, {"left": 1, "held": True, "sent": False, "asked": 1, "writes": 0})
+
+    def test_a_question_with_no_answer_leaves_the_attempt_mark_on(self):
+        """No answer is not 'unknown': the pin may be there, so the record stays one that may be on the server."""
+        got = self._run(
+            """
+            OFF.idem=true; KNOWN='down';
+            const a=rec(1); a.idem='key-aaaaaaaaaaaaaaaa'; a.sent=true; QUEUE=[a];
+            ANSWERS={pick:[found(10)],pin:[]};
+            offlineFlush().then(function(){console.log(JSON.stringify({left:QUEUE.length,sent:QUEUE[0].sent}));});
+            """
+        )
+        self.assertEqual(got, {"left": 1, "sent": True})
+
     def test_a_question_with_no_answer_leaves_the_record_as_it_was(self):
         """Not placed, not held: nothing is known yet."""
         got = self._run(

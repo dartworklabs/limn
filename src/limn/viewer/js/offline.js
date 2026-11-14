@@ -382,7 +382,10 @@ async function offlineFlush(){
       if(keyed&&rec.sent){
         try{const r=await api('/api/pin',{method:'POST',body:{idem:rec.idem,replay_only:true,doc:rec.doc||undefined},what:'핀 저장',silent:true,expect:[409]});
           if(r.status===200&&r.data&&typeof r.data.id==='number'){claimed.add(r.data.id); await offWroteAdd(r.data.id);
-            saved.push(r.data.id); await offDel(rec.id); continue;}}
+            saved.push(r.data.id); await offDel(rec.id); continue;}
+          // The server knows no pin by this key: the attempt never arrived, so its mark comes off. A record then held
+          // for its place is one [다시 찍기] may take back - offline-ui.js refuses a record that may be on the server.
+          if(r.status===409&&(await offHas(rec.id))){rec.sent=false; await offPut(rec);}}
         catch(e){failed++; continue;}}   // no answer to the question either: the record waits, unplaced and unheld
       // Every record is placed afresh. A drag is asked of pick, on the build it was drawn on; the lines of a Markdown
       // or text document are looked for in its source as it reads now. The lines a pick once answered are never

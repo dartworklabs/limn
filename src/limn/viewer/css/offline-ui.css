@@ -1,0 +1,63 @@
+/* ---------------- Queued pins on screen (docs/handbook/viewer.md §끊긴 채 보기와 핀 쌓기, js/offline-ui.js): a pin kept in this
+   browser while cut off is not on the server yet, so it is drawn apart from a saved pin. On the page: a dotted grey frame with
+   a faint tint and, outside its top-left corner like a saved mark's number, a light badge with a clock - it has no number
+   yet. Held back (its place could not be found again): the frame and the badge in the warning colour, the badge a triangle.
+   The state is the icon and the words, never the colour alone. The frame lets every press through, as a saved mark does. */
+.qmark{position:absolute;border:2px dotted var(--muted-foreground);background:color-mix(in srgb,var(--muted-foreground) 6%,transparent);pointer-events:none}
+.qmark.held{border-color:var(--warning);background:color-mix(in srgb,var(--status-warning) 8%,transparent)}
+body.fig-doc .qmark{background:none}   /* a figure is judged by its colours: a frame only, as a saved mark there */
+body.marks-off .qmark{visibility:hidden}   /* taken off with the saved marks for a look at the page (marks-hide.js) */
+.qmark button.qmark-jump{position:absolute;top:-2px;left:-24px;width:var(--pin-badge-size);height:var(--pin-badge-size);min-width:0;min-height:0;padding:0;
+  display:flex;align-items:center;justify-content:center;border:1px solid var(--border-strong);border-radius:50%;background:var(--card);
+  color:var(--muted-foreground);pointer-events:auto;cursor:pointer;box-shadow:var(--shadow-xs)}
+.qmark.held button.qmark-jump{background:var(--warning);border-color:var(--warning);color:var(--warning-foreground)}
+.qmark-jump .ic{width:14px;height:14px}
+/* Its press area: --mark-hit round its centre (24px with a mouse, 44px on touch), as a saved badge's - placed from inside
+   its 1px border, so the inset reaches that 1px further. */
+.qmark button.qmark-jump::after{content:'';position:absolute;inset:calc((var(--pin-badge-size) - var(--mark-hit)) / 2 - 1px)}
+.qmark.in button.qmark-jump{left:0;top:0}   /* no room left of the box on the page: in its own corner */
+.qmark.flash{animation:flash .6s ease-in-out 3}
+
+/* The panel's section, first in the list while the queue has records: the list sections' head, a line saying what these
+   are, and one row per record. A row is a card-sized box with an even dashed border - a thing not yet made, like an undo
+   row's - tinted in the warning colour when held. */
+#sec-queue>.sec-head{border-top:0}
+#sec-queue:not([hidden])+#sec-open>.sec-head{border-top:1px solid var(--border)}
+#sec-queue[hidden]+#sec-open{margin-top:0}   /* hidden, it is still the open pins' sibling: .lsec+.lsec would push them down */
+#list:has(#sec-queue:not([hidden])) #empty{display:none}   /* the first-visit hint says there is nothing yet: there is */
+#queue-say{margin:0 0 var(--space-2);color:var(--muted-foreground);font-size:var(--text-sm);line-height:1.5}
+.q-held-n{gap:var(--space-1);padding:0 var(--space-1);border-radius:var(--radius-lg);line-height:18px;font-size:var(--text-xs);font-weight:600;
+  background:color-mix(in srgb,var(--warning) 16%,transparent);color:var(--foreground)}
+.q-held-n .ic{width:12px;height:12px;color:var(--warning)}
+.qrow{margin:0 0 var(--space-2);padding:var(--space-2) var(--space-3);border:1px dashed var(--border-strong);border-radius:var(--radius-lg);
+  background:var(--card);color:var(--foreground);min-width:0}
+.qrow.held{border-color:var(--warning);background:color-mix(in srgb,var(--warning) 8%,var(--card))}
+.qrow.flash{animation:flash .6s ease-in-out 2}
+.q-head{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-1) var(--space-2);min-width:0}
+.q-st{display:inline-flex;align-items:center;gap:var(--space-1);font-size:var(--text-sm);font-weight:600;color:var(--muted-foreground)}
+.q-st .ic{width:14px;height:14px}
+.qrow.held .q-st{color:var(--foreground)}
+.qrow.held .q-st .ic{color:var(--warning)}
+.q-at,button.q-go{display:inline-flex;align-items:center;gap:var(--space-1);min-width:0;font-size:var(--text-sm)}
+.q-at{color:var(--muted-foreground)}
+/* The place is a link (docs/handbook/viewer.md §뜻과 모양): the primary colour, underlined on hover and focus. */
+button.q-go{min-height:0;padding:0 var(--space-1);margin:0 calc(-1 * var(--space-1));border:0;border-radius:var(--radius);background:transparent;
+  color:var(--primary);font-weight:400;text-underline-offset:3px;position:relative}
+button.q-go:focus-visible{text-decoration:underline}
+@media (hover:hover){button.q-go:where(:not(:disabled,[aria-disabled="true"])):hover{text-decoration:underline;background:transparent}}
+.q-doc{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:16em}
+.q-why{margin:var(--space-1) 0 0;font-size:var(--text-sm);line-height:1.5;overflow-wrap:anywhere}
+.q-old{margin:var(--space-1) 0 0;font-size:var(--text-xs);line-height:1.5;color:var(--muted-foreground)}
+/* The words drawn over (one or two lines) and the note (three): a 3,000-character note is folded, never a wall of text. */
+.q-quote,.q-note{margin:var(--space-1) 0 0;overflow:hidden;overflow-wrap:anywhere;display:-webkit-box;-webkit-box-orient:vertical}
+.q-quote{color:var(--muted-foreground);font-size:var(--text-sm);line-height:1.5;-webkit-line-clamp:2;line-clamp:2}
+.q-note{font-size:var(--text-base);line-height:1.5;white-space:pre-wrap;-webkit-line-clamp:3;line-clamp:3}
+.q-note.dim{color:var(--muted-foreground)}
+.q-acts{display:flex;flex-wrap:wrap;gap:var(--space-2);margin-top:var(--space-2)}
+/* [버리기] is the risky one, so the least seen: a bare destructive word (a card's [삭제]). */
+.q-acts button.q-drop{color:var(--destructive)}
+@media (hover:hover){.q-acts button.q-drop:where(:not(:disabled,[aria-disabled="true"])):hover{background:color-mix(in srgb,var(--destructive) 10%,transparent);color:var(--destructive)}}
+/* Press areas: the place link answers 24px with a mouse and 44px on touch round its drawn size, as a card's page link. */
+@media (pointer:fine){button.q-go::after{content:'';position:absolute;left:50%;top:50%;width:max(100%,24px);height:max(100%,24px);transform:translate(-50%,-50%)}}
+@media (pointer:coarse){button.q-go{min-height:0;min-width:0;padding:0 var(--space-1);font-size:var(--text-sm)}
+  button.q-go::after{content:'';position:absolute;left:50%;top:50%;width:max(100%,var(--hit));height:var(--hit);transform:translate(-50%,-50%)}}
