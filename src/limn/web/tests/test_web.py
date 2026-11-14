@@ -310,6 +310,7 @@ POST_ROUTES = (
     "/api/pick",
     "/api/pin",
     "/api/rebuild",
+    "/api/hold",
     "/api/revision-build",
     "/api/clear",
     *("/api/pins/1/" + act for act in PIN_ACTIONS),

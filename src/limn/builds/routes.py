@@ -10,6 +10,7 @@ from limn.web.parse import Json, Query
 from limn.web.reply import Reply, attachment_disposition, json_reply
 
 POST_PATH = "/api/rebuild"
+HOLD_PATH = "/api/hold"
 
 
 def get(path: str, query: Query, doc: Doc, text: Callable[[object], str]) -> Reply | None:
@@ -34,3 +35,11 @@ def post(
 ) -> tuple[dict[str, object], int]:
     """Answer the registered rebuild POST route for this document."""
     return http.rebuild(requests, doc, query, authority)
+
+
+def post_hold(
+    query: Query, body: Json, doc: Doc, requests: BuildRequests, authority: PostAuthority, text: Callable[[object], str]
+) -> tuple[dict[str, object], int]:
+    """Answer the registered build hold POST route for this document."""
+    del query  # ?doc= is read by the common handler; the hold has no switch of its own
+    return http.hold(requests, doc, body, authority, text)
