@@ -512,7 +512,8 @@ class OfflineQueueSend(unittest.TestCase):
 STORE_SCOPE = r"""
 var OFF_STATE='state',OFF={idem:false};
 var OFF_READS=['/api/meta','/api/docs','/api/pins','/api/pins/dropped','/api/people','/api/outline-labels','/api/source'];
-var STORE=new Map(),FOLLOW_SEEN=[];
+var STORE=new Map(),FOLLOW_SEEN=[],KEPT=null;
+function offKept(){return Promise.resolve(KEPT);}   // the kept record (tested in KeptCopyFollows)
 function offlineFollowSeen(d){FOLLOW_SEEN.push(d);}   // what a meta answer tells the follow (tested in KeptCopyFollows)
 // Stands in for the one IndexedDB store, keeping put/get as they behave there.
 function offIn(store,mode,fn){const s={put:function(v){STORE.set(v.key,v); return {};},
@@ -534,7 +535,8 @@ class StoredAnswers(unittest.TestCase):
             self.skipTest("node not available")
 
     def _run(self, scenario):
-        js = "\n".join([STORE_SCOPE, *(extract_js_fn(n) for n in ("offReadKey", "offStash", "offStashed")), scenario])
+        names = ("offReadKey", "offStash", "offStashed", "offKeptMeta")
+        js = "\n".join([STORE_SCOPE, *(extract_js_fn(n) for n in names), scenario])
         return json.loads(run_node(js))
 
     def test_a_successful_answer_is_stored_and_served(self):
@@ -546,6 +548,60 @@ class StoredAnswers(unittest.TestCase):
             """
         )
         self.assertEqual(got, {"build": "pages-1", "status": 200})
+
+    def test_a_meta_read_is_answered_with_the_build_kept_whole_not_the_last_one_seen(self):
+        """The server moved to B2 and the screen read its meta, but the follow had not fetched B2 when the connection
+        went. A tab opened again is drawn from B1 - every file of it is here - not from B2 with pages missing. Once
+        the follow has kept B2 the last meta read is the answer again."""
+        got = self._run(
+            """
+            const m1={doc:'main',pages_build:'pages-B1',pages:[1,2]},m2={doc:'main',pages_build:'pages-B2',pages:[1,2,3]};
+            offStash('/api/meta?doc=main',m2,200);
+            KEPT={key:'kept',docs:{main:{build:'pages-B1',files:[],at:1,seen:7,meta:m1}},old:[]};
+            offStashed('/api/meta?doc=main',null).then(function(a){
+              KEPT.docs.main={build:'pages-B2',files:[],at:2,seen:9,meta:m2};
+              return offStashed('/api/meta?doc=main',null).then(function(b){
+                console.log(JSON.stringify({a:[a.data.pages_build,a.status,a.at],b:b.data.pages_build}));});});
+            """
+        )
+        self.assertEqual(got, {"a": ["pages-B1", 200, 7], "b": "pages-B2"})
+
+    def test_what_the_kept_build_s_meta_stands_in_for(self):
+        """Only a document this browser keeps on another build than the last meta read, and only with the meta that
+        build was kept with: never for an instance not kept, a document not kept, a Markdown document (no build), a
+        record made before the meta was carried, or a carried meta that is not of the build recorded. A read with no
+        document in its answer is told apart by its address."""
+        got = self._run(
+            """
+            const m1={doc:'main',pages_build:'pages-B1'},last={doc:'main',pages_build:'pages-B2'};
+            const rec=function(e){return {key:'kept',docs:{main:e},old:[]};};
+            const is=function(v){return v?v.data.pages_build:null;};
+            console.log(JSON.stringify({
+              swapped:is(offKeptMeta(rec({build:'pages-B1',meta:m1,seen:3}),'/api/meta?doc=main',last)),
+              same:is(offKeptMeta(rec({build:'pages-B2',meta:last}),'/api/meta?doc=main',last)),
+              never:is(offKeptMeta(null,'/api/meta?doc=main',last)),
+              other:is(offKeptMeta({key:'kept',docs:{rr:{build:'pages-B1',meta:m1}},old:[]},'/api/meta?doc=main',last)),
+              markdown:is(offKeptMeta(rec({build:'',src:5,meta:null}),'/api/meta?doc=main',{doc:'main'})),
+              before:is(offKeptMeta(rec({build:'pages-B1'}),'/api/meta?doc=main',last)),
+              wrong:is(offKeptMeta(rec({build:'pages-B1',meta:{doc:'main',pages_build:'pages-B0'}}),'/api/meta?doc=main',last)),
+              byAddress:is(offKeptMeta(rec({build:'pages-B1',meta:m1}),'/api/meta?x=1&doc=main',{pages_build:'pages-B2'})),
+              noDoc:is(offKeptMeta({key:'kept',docs:{'':{build:'pages-B1',meta:{pages_build:'pages-B1'}}},old:[]},'/api/meta',{pages_build:'pages-B2'}))}));
+            """
+        )
+        self.assertEqual(
+            got,
+            {
+                "swapped": "pages-B1",
+                "same": None,
+                "never": None,
+                "other": None,
+                "markdown": None,
+                "before": None,
+                "wrong": None,
+                "byAddress": "pages-B1",
+                "noDoc": "pages-B1",
+            },
+        )
 
     def test_a_refused_answer_is_never_stored(self):
         """413 with a reason, 404, any status the server refused with - none of it is the document."""
@@ -602,6 +658,21 @@ class StoredAnswers(unittest.TestCase):
             offStash('/api/pins?all=1',[],200,null); seen.push(OFF.idem);          // another read says nothing about it
             offStash('/api/meta?doc=ms',{pages:[]},200,null); seen.push(OFF.idem);  // a meta answer without it: an older server
             offStash('/api/meta',{pin_idem:true},500,null); seen.push(OFF.idem);    // not an answer to go by
+            console.log(JSON.stringify(seen));
+            """
+        )
+        self.assertEqual(got, [True, True, False, False])
+
+    def test_a_meta_answer_says_whether_the_server_counts_a_hold_per_holder(self):
+        """As the key: every meta answer carries it, and one without it is a server with one hold per build - where
+        this browser lets go of nothing."""
+        got = self._run(
+            """
+            const seen=[];
+            offStash('/api/meta?light=1',{hold_holder:true},200,null); seen.push(OFF.holder);
+            offStash('/api/pins?all=1',[],200,null); seen.push(OFF.holder);
+            offStash('/api/meta?doc=ms',{pages:[]},200,null); seen.push(OFF.holder);
+            offStash('/api/meta',{hold_holder:true},500,null); seen.push(OFF.holder);
             console.log(JSON.stringify(seen));
             """
         )
@@ -1107,7 +1178,8 @@ FOLLOW_SCOPE = r"""
 var NOW=1800000000000; Date.now=function(){return NOW;};
 var ONLINE=true; function offlineNow(){return !ONLINE;}
 var DOC='main',OFF_STATE='state';
-var OFF={n:0,held:0,flushing:false,prep:false,following:false,kept:undefined,keptAt:0,seen:{},timer:undefined,fails:0,after:0,failSaid:false};
+var OFF={n:0,held:0,flushing:false,prep:false,following:false,kept:undefined,keptAt:0,seen:{},timer:undefined,fails:0,after:0,failSaid:false,holder:false,me:''};
+var ME='me-aaaaaaaaaaaaaaaa'; function offHolderId(){return Promise.resolve(ME);}   // this browser's name among a build's holders
 var DOC_KIND={MARKDOWN:'markdown',TEXT:'text'}; function rendersInBrowser(k){return k===DOC_KIND.MARKDOWN||k===DOC_KIND.TEXT;}
 var NOTICE_KIND={OK:'ok',WARN:'warn',ERR:'err',INFO:'info'},NOTES=[]; function lineNote(msg,kind,act){NOTES.push({msg:msg,kind:kind,act:!!act}); return {};}
 function offlinePrepare(){}
@@ -1132,7 +1204,9 @@ function offlineAsk(msg){if(WORKER_DOWN)return Promise.resolve(null);
   throw new Error('unexpected ask '+msg.type);}
 var ON_KEEP=null;
 // The server: each document's kind, build and source time now; the holds it has; whether it has the hold route at all.
-var SERVER={main:{kind:'tex',build:'pages-B2',src:2}},HOLDS={},HOLD_ROUTE=true,HOLD_REFUSE=0,DOWN=false;
+// COUNTS: the server counts a hold per holder (SHARES: build -> the holders with a share); else a hold is one per build.
+// LET_GO_DOWN: a hold let go (days 0) gets no answer.
+var SERVER={main:{kind:'tex',build:'pages-B2',src:2}},HOLDS={},HOLD_ROUTE=true,HOLD_REFUSE=0,DOWN=false,COUNTS=false,SHARES={},NAMED=[],LET_GO_DOWN=false;
 function metaOf(k){const s=SERVER[k]; return {doc:k,kind:s.kind,pages_build:s.build,built_at:'at-'+s.build,src_mtime:s.src,
   pages:[{name:'page-1.png'},{name:'page-2.png'}]};}
 function api(url,o){const method=(o&&o.method)||'GET',path=url.split('?')[0];
@@ -1147,6 +1221,12 @@ function api(url,o){const method=(o&&o.method)||'GET',path=url.split('?')[0];
     if(HOLD_REFUSE){const e=new Error('HTTP '+HOLD_REFUSE); e.status=HOLD_REFUSE; return Promise.reject(e);}
     if(!HOLD_ROUTE){if((o.expect||[]).indexOf(404)>=0)return Promise.resolve({status:404,data:{error:'not found',reason:'not_found'}});
       const e=new Error('HTTP 404'); e.status=404; return Promise.reject(e);}   // as api() throws a status it was not told to expect
+    NAMED.push(o.body.holder===undefined?null:o.body.holder);
+    if(d===0&&LET_GO_DOWN)return Promise.reject(new TypeError('Failed to fetch'));
+    if(COUNTS){const h=o.body.holder||'',sh=SHARES[b]=SHARES[b]||{};
+      if(d===0)delete sh[h]; else sh[h]=1;
+      if(Object.keys(sh).length)HOLDS[b]=NOW; else{delete HOLDS[b]; delete SHARES[b];}
+      return Promise.resolve({status:200,data:{build:b,until:HOLDS[b]?'later':null}});}
     if(d===0)delete HOLDS[b]; else HOLDS[b]=NOW;
     return Promise.resolve({status:200,data:{build:b,until:d?'later':null}});}
   throw new Error('unexpected call '+method+' '+url);}
@@ -1160,7 +1240,7 @@ clearTimeout=function(id){if(id)TIMERS[id-1]=null;};
 function pending(){return TIMERS.filter(Boolean);}
 // The record a press of [오프라인으로 받기] leaves for a document on build b, its copies in the cache.
 function keptOn(b,at){const files=offlineDocFiles('main',{pages_build:b,built_at:'at-'+b,pages:[{name:'page-1.png'},{name:'page-2.png'}]});
-  files.forEach(function(u){CACHE.add(u);}); HOLDS[b]=NOW;
+  files.forEach(function(u){CACHE.add(u);}); HOLDS[b]=NOW; if(COUNTS)(SHARES[b]=SHARES[b]||{})[ME]=1;
   return {key:'kept',docs:{main:{build:b,files:files,at:at===undefined?NOW:at,seen:NOW-1}},old:[]};}
 function has(b){return Array.from(CACHE).filter(function(u){return u.indexOf(b)>=0;}).length;}
 function out(extra){console.log(JSON.stringify(Object.assign({kept:KEPT&&KEPT.docs.main?KEPT.docs.main.build:null,
@@ -1224,10 +1304,11 @@ class KeptCopyFollows(unittest.TestCase):
         got = self._run(
             """
             KEPT=keptOn('pages-B1'); OFF.kept=copy(KEPT); poll();
-            offlineFollow().then(function(){out();});
+            offlineFollow().then(function(){out({meta:KEPT.docs.main.meta.pages_build});});
             """
         )
         self.assertEqual((got["kept"], got["old"], got["b1"], got["b2"]), ("pages-B2", [], 0, 3))
+        self.assertEqual(got["meta"], "pages-B2", "the build is recorded with the meta it was kept with")
         self.assertEqual(got["holds"], ["pages-B1", "pages-B2"])
         # Everything of the new build comes before anything of the old goes.
         log = got["log"]
@@ -1401,10 +1482,69 @@ class KeptCopyFollows(unittest.TestCase):
         self.assertEqual(got["holds"], ["pages-B1", "pages-B2", "pages-B3"])
         self.assertNotIn("hold pages-B1 0", got["log"])
 
+    def test_this_browser_lets_go_of_its_own_share_and_another_device_s_keeps_the_build(self):
+        """The server counts a hold per holder. A tablet of the same person, cut off, has pins queued on B1 and its own
+        share of B1's hold. This browser follows to B2: B1's copies leave this device and its own share is let go - by
+        its name - and B1 stays held for the tablet. Nothing of B1 is asked again here."""
+        got = self._run(
+            """
+            COUNTS=true; OFF.holder=true; KEPT=keptOn('pages-B1'); SHARES['pages-B1'].tablet=1; OFF.kept=copy(KEPT); poll();
+            offlineFollow().then(function(){const first=LOG.slice(),named=NAMED.slice(); LOG.length=0; NOW+=25*3600000;
+              return offlineFollow().then(function(){out({first:first,named:named,
+                shares:Object.keys(SHARES['pages-B1']||{})});});});
+            """
+        )
+        self.assertEqual((got["kept"], got["old"], got["b1"]), ("pages-B2", [], 0))
+        self.assertEqual(got["first"][-2:], ["drop 3", "hold pages-B1 0"])
+        self.assertEqual(set(got["named"]), {"me-aaaaaaaaaaaaaaaa"}, "every hold, kept or let go, names this browser")
+        self.assertEqual(got["shares"], ["tablet"])
+        self.assertIn("pages-B1", got["holds"])
+        self.assertEqual(got["log"], ["hold pages-B2 7"], "a day later only the build kept is asked again")
+
+    def test_the_last_share_let_go_ends_the_hold(self):
+        """No other device holds B1: once this browser lets go, the server holds B2 alone - nothing piles up to push
+        another device's hold past the limit."""
+        got = self._run(
+            """
+            COUNTS=true; OFF.holder=true; KEPT=keptOn('pages-B1'); OFF.kept=copy(KEPT); poll();
+            offlineFollow().then(function(){out();});
+            """
+        )
+        self.assertEqual((got["kept"], got["old"], got["b1"], got["holds"]), ("pages-B2", [], 0, ["pages-B2"]))
+
+    def test_a_share_let_go_with_no_answer_is_let_go_on_the_next_try(self):
+        """The copies are gone but the server did not hear the share was let go: the build stays in the old list, the
+        follow counts as not done, and the next one lets go."""
+        got = self._run(
+            """
+            COUNTS=true; OFF.holder=true; KEPT=keptOn('pages-B1'); OFF.kept=copy(KEPT); poll(); LET_GO_DOWN=true;
+            offlineFollow().then(function(){const mid={old:KEPT.old.map(function(o){return o.build;}),fails:OFF.fails,
+                held:Object.keys(HOLDS).sort()};
+              LET_GO_DOWN=false; NOW+=3600000;
+              return offlineFollow().then(function(){out({mid:mid});});});
+            """
+        )
+        self.assertEqual(got["mid"], {"old": ["pages-B1"], "fails": 1, "held": ["pages-B1", "pages-B2"]})
+        self.assertEqual((got["old"], got["holds"]), ([], ["pages-B2"]))
+
+    def test_a_build_half_fetched_was_never_held_here_and_is_not_let_go(self):
+        """A build whose files did not all come was never held by this browser (unheld): its copies go in turn, and no
+        share is let go for it."""
+        got = self._run(
+            """
+            COUNTS=true; OFF.holder=true; KEPT=keptOn('pages-B2');
+            KEPT.old=[{doc:'main',build:'pages-B1',files:[],at:0,unheld:true}]; OFF.kept=copy(KEPT); poll();
+            offlineFollow().then(function(){out();});
+            """
+        )
+        self.assertEqual(got["old"], [])
+        self.assertNotIn("hold pages-B1 0", got["log"])
+
     def test_a_dropped_build_s_hold_is_never_let_go_nor_asked_again(self):
-        """A hold is the server's, one per build: another device of the same person, cut off, may have pins queued on
-        B1 that this browser cannot see. So B1's copies leave this device, but its hold is neither let go nor asked
-        again - it lapses in 7 days - while B2's is asked again the next day."""
+        """A server with one hold per build (it does not say hold_holder): another device of the same person, cut off,
+        may have pins queued on B1 that this browser cannot see, and letting go would take the build from it. So B1's
+        copies leave this device, but its hold is neither let go nor asked again - it lapses in 7 days - while B2's is
+        asked again the next day."""
         got = self._run(
             """
             KEPT=keptOn('pages-B1'); OFF.kept=copy(KEPT); poll();
@@ -1616,10 +1756,21 @@ class PressedKeep(unittest.TestCase):
             FAIL=['pages-R1/page-2'];
             offlinePrepare().then(function(){console.log(JSON.stringify({docs:Object.keys(KEPT.docs).sort(),
               main:KEPT.docs.main.build,old:KEPT.old.map(function(o){return o.build;}),timers:pending().length,
-              held:KEPT.docs.main.at===NOW}));});
+              held:KEPT.docs.main.at===NOW,meta:KEPT.docs.main.meta.pages_build,oldMeta:'meta' in KEPT.old[0]}));});
             """
         )
-        self.assertEqual(got, {"docs": ["main"], "main": "pages-B1", "old": ["pages-B0"], "timers": 1, "held": True})
+        self.assertEqual(
+            got,
+            {
+                "docs": ["main"],
+                "main": "pages-B1",
+                "old": ["pages-B0"],
+                "timers": 1,
+                "held": True,
+                "meta": "pages-B1",  # the meta it was kept with, for a tab opened again with no network
+                "oldMeta": False,
+            },
+        )
 
     def test_a_press_turns_following_on_even_when_nothing_could_be_kept(self):
         """The person chose this instance; the worker failing this time does not unchoose it."""
@@ -1770,6 +1921,40 @@ class OfflineKeys(unittest.TestCase):
         for k in keys:
             self.assertRegex(k, r"^[A-Za-z0-9_-]{16,64}$")
         self.assertEqual(len(set(keys)), 3)
+
+    def test_this_browser_has_one_name_among_a_build_s_holders(self):
+        """Made once, of the shape the server takes, and kept in the state store: every later ask - another tab, another
+        visit - reads the same name. A stored name of another shape is made again. A browser that refuses the store has
+        none, and asks its holds with no name."""
+        js = "\n".join(
+            [
+                """
+                var OFF={me:''},OFF_STATE='state',OFF_HOLDER='holder',STORE=new Map(),DB_DOWN=false;
+                // The state store as IndexedDB answers it: the request's handler runs later, then the transaction ends.
+                function offDb(){if(DB_DOWN)return Promise.resolve(null);
+                  return Promise.resolve({transaction:function(){const tx={objectStore:function(){return {
+                    get:function(k){const rq={result:STORE.get(k)};
+                      setImmediate(function(){rq.onsuccess(); setImmediate(function(){tx.oncomplete();});}); return rq;},
+                    put:function(v){STORE.set(v.key,v);}};}}; return tx;}});}
+                """,
+                extract_js_fn("offlineKey"),
+                extract_js_fn("offHolderId"),
+                """
+                (async function(){
+                  const first=await offHolderId(),stored=STORE.get('holder').id;
+                  OFF.me=''; const again=await offHolderId();                       // another visit
+                  OFF.me=''; STORE.set('holder',{key:'holder',id:'short'}); const remade=await offHolderId();
+                  OFF.me=''; DB_DOWN=true; const none=await offHolderId();
+                  console.log(JSON.stringify({first:first,same:first===stored&&first===again,remade:remade,
+                    kept:STORE.get('holder').id===remade,none:none}));})();
+                """,
+            ]
+        )
+        got = json.loads(run_node(js))
+        self.assertRegex(got["first"], r"^[A-Za-z0-9_-]{16,64}$")
+        self.assertRegex(got["remade"], r"^[A-Za-z0-9_-]{16,64}$")
+        self.assertNotEqual(got["remade"], "short")
+        self.assertEqual((got["same"], got["kept"], got["none"]), (True, True, ""))
 
     def test_a_documents_files_are_the_addresses_the_viewer_asks_for(self):
         """A copy is found again by its address, so these must be the ones vecOpen and pageSrc build (pdf-open.js,
