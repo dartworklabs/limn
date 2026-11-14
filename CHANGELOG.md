@@ -4,6 +4,11 @@
 
 ### Fixed
 
+- **PageUp and PageDown in a reason field being saved move no page (#481).** Chrome 157 moves the caret of a
+  read-only field a page, as in a writable one, and lines it up with the scrollers outside: in the middle of a long
+  reason field whose save was out, either key moved the pages 188px. Up to Chrome 156 they scrolled the field only.
+  The viewer now scrolls such a field a page itself (7/8 of what it shows, as Chromium does) and drops the key's
+  default, so the pages stay and the caret stays where it stands, in every browser.
 - **`limn update` and `limn start` keep the TeX a machine's instances rebuild with.** The systemd unit's PATH was
   taken afresh from whatever shell rendered the unit. Run over a non-login SSH shell (`ssh host limn update`), that
   shell has no TeX Live on its PATH and finds the distribution's pdflatex, so the rewritten unit sent every instance on
