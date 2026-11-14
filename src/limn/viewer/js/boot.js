@@ -24,7 +24,7 @@ async function boot(){i18nStart();
   if(pinsLoaded){LAST_PINS_REV=META.pins_rev; LAST_SRC_MTIME=META.src_sig||META.src_mtime;}
   BUILD.lastSeq=(typeof META.build_seq==='number')?META.build_seq:0;   // the build count this tab has already "seen"
   (META.docs||[]).forEach(d=>DOC_SEQ.set(d.key,d.build_seq));
-  startLightPolling(); startBuildPolling();
+  startLightPolling(); startBuildPolling(); offlineBoot();
   checkDocsSeen();   // what changed since this device last saw each document (updates.js)
   if(DIGEST)pollLight().finally(()=>digestSoon(DIGEST_TAIL_MS));   // the events addressed to me since the last visit
   drawNotify(); if(prefs().notify&&notifySupported()&&notifyPerm()==='granted')notifyRegister();

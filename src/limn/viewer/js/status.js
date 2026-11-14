@@ -33,6 +33,7 @@ function statusList(s){const out=[],b=s.build,running=!!b&&b.state===BUILD_STATE
   if(e&&e.state===BUILD_STATE.FAIL)out.push({kind:STATUS_KIND.FAILED,act:'build-err-reopen'});
   else if(e&&e.state===BUILD_STATE.OK_ERRORS)out.push({kind:STATUS_KIND.ERRORS,n:(e.errors||[]).length,act:'build-err-reopen'});
   if(s.offline)out.push({kind:STATUS_KIND.OFFLINE,act:null});
+  if(s.queued)out.push({kind:STATUS_KIND.QUEUED,n:s.queued,held:s.held||0,act:s.offline?null:'offline-flush'});
   if(s.outdated)out.push({kind:STATUS_KIND.OUTDATED,version:s.outdated,act:'reload'});
   notes.filter(n=>!alert(n)).forEach(n=>out.push({kind:STATUS_KIND.NOTICE,notice:n,act:'notice'}));
   if(running)out.push({kind:{render:STATUS_KIND.RENDERING}[b.phase]||STATUS_KIND.BUILDING,phase:b.phase||'',el:Math.round(b.elapsed_s||0),
@@ -60,6 +61,8 @@ function statusText(item,fit){const long=fit!=='short';
     case STATUS_KIND.FAILED:return [long?tr('빌드 실패 · 이전 PDF를 보는 중'):tr('빌드 실패'),''];
     case STATUS_KIND.ERRORS:return [long?tl('LaTeX 오류 {n}건 · 새 PDF',{n:item.n}):tl('LaTeX 오류 {n}',{n:item.n}),''];
     case STATUS_KIND.OFFLINE:return [long?tr('연결 끊김 · 다시 잇는 중'):tr('연결 끊김'),''];
+    case STATUS_KIND.QUEUED:return [item.held?tl('오프라인 핀 {n}개 · {h}개는 자리를 다시 골라야 합니다',{n:item.n,h:item.held})
+      :long?tl('오프라인 핀 {n}개 · 연결되면 반영합니다',{n:item.n}):tl('오프라인 핀 {n}',{n:item.n}),''];
     case STATUS_KIND.OUTDATED:return [long?tl('Limn {v}(으)로 바뀌었습니다 · 새로 고치면 새 화면을 씁니다',{v:item.version}):tr('Limn 업데이트됨'),''];
     case STATUS_KIND.RENDERING:if(item.progress){const pr=item.progress;
         return long?statusSplit('쪽 그리는 중 · {done}/{total}쪽',pr):statusSplit('쪽 {done}/{total}',pr);}
@@ -83,6 +86,7 @@ function statusIcon(item){const K=STATUS_KIND;
   if(item.kind===K.NOTICE)return html`<span class="st-ic nk-${item.notice.kind}">${noticeIcon(item.notice.kind)}</span>`;
   if(item.kind===K.FAILED||item.kind===K.ERRORS||item.kind===K.SYNC_BLOCKED)return html`<span class="st-ic warn">${ic('triangle-alert')}</span>`;
   if(item.kind===K.OFFLINE)return html`<span class="st-ic">${ic('wifi-off')}</span>`;
+  if(item.kind===K.QUEUED)return html`<span class="st-ic${item.held?' warn':''}">${ic(item.held?'triangle-alert':'clock')}</span>`;
   if(item.kind===K.OUTDATED)return html`<span class="st-ic warn">${ic('refresh-cw')}</span>`;
   if(item.kind===K.STALE)return html`<span class="st-ic"><i class="st-stale"></i></span>`;
   if(item.kind===K.PNG)return html`<span class="st-ic">${ic('image')}</span>`;
@@ -94,14 +98,15 @@ function statusIcon(item){const K=STATUS_KIND;
 // [x] (noticeButtons). The label is a span (.lbl) so CSS can trim it to its cap height.
 function statusAct(item){if(!item.act)return html``; if(item.kind===STATUS_KIND.NOTICE)return noticeButtons(item.notice,true);
   const force=item.act==='rebuild-force',why=item.act==='status-why',reload=item.act==='reload';
-  const name=item.act==='rebuild'?tr('재빌드'):why?tr('이유'):force?tr(T.buildanyway):reload?tr('새로 고침'):tr('보기');
+  const flush=item.act==='offline-flush';
+  const name=item.act==='rebuild'?tr('재빌드'):why?tr('이유'):force?tr(T.buildanyway):reload?tr('새로 고침'):flush?tr('지금 반영'):tr('보기');
   const tip=force?html` data-tip="${T.buildanywaytip}"`:why?html` data-tip="${syncWhyText(STATUS_SYNC)}"`:reload?html` data-tip="${T.reloadtip}"`:'';
   return html`<button class="btn-sm st-act ${item.act==='rebuild'||reload?'btn-default':'btn-secondary'}" data-act="${item.act}"${tip}><span class="lbl">${name}</span></button>`;}
 
 // What the status line is drawn from, gathered from the shell: its messages (LINE), the running build (BUILD.cur) and the last
 // failed one, the light poll's failures, the last meta `sync`, and the chips that already say stale and PNG - plus whether
 // this document and person may rebuild.
-function statusInput(){return {notices:LINE,build:BUILD.cur,buildErr:BUILD.error,offline:POLL_FAILS>=2,outdated:versionOutdated(),sync:STATUS_SYNC,stale:!$('#meta-stale').hidden,
+function statusInput(){return {notices:LINE,build:BUILD.cur,buildErr:BUILD.error,offline:POLL_FAILS>=2,queued:OFF.n,held:OFF.held,outdated:versionOutdated(),sync:STATUS_SYNC,stale:!$('#meta-stale').hidden,
   png:!$('#vec-chip').hidden,canRebuild:!!META&&buildsFromSource(META.kind)&&!isViewer(),unchanged:BUILD.unchanged};}
 
 // The answer to this tab's rebuild that kept the pages (0.4.5: ok, unchanged, the same seq), with [그래도 빌드] for a cold

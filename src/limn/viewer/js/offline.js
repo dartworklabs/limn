@@ -1,0 +1,172 @@
+// ------------------------------------------------ Seeing and pinning while cut off (docs/handbook/viewer.md §끊긴 채 보기와 핀 쌓기)
+// Before leaving the network, [오프라인으로 받기] keeps this build's page (the shell), its PDF and its page images in the
+// service worker's cache and asks the server to hold that build's reverse-mapping material (POST /api/hold). While cut off,
+// a drag keeps its box: pick cannot run, so the selection carries only its page, box, and the words PDF.js reads inside it,
+// and [핀 저장] puts the pin in a queue (IndexedDB limnOffline) instead of on the server. The queue survives a reload, the
+// tab closing and the browser restarting - only this browser sees it. Back on the network the queue is replayed in the
+// order it was written: each record's own coordinates go to POST /api/pick with the build they were drawn on, and its
+// answer to POST /api/pin. A record whose place cannot be found again is kept and counted, never dropped.
+const OFF_DB='limnOffline',OFF_STORE='pins',OFF_MAX=200;
+const OFF={n:0,held:0,flushing:false,prep:false,db:/** @type {IDBDatabase|null} */(null)};
+// This browser's queue, opened once per page. A browser that refuses IndexedDB (a private window) answers null, and every
+// caller below falls back to saying the pin could not be kept rather than losing it quietly.
+/** @returns {Promise<IDBDatabase|null>} */
+function offDb(){if(OFF.db)return Promise.resolve(OFF.db);
+  return new Promise(res=>{let rq; try{rq=indexedDB.open(OFF_DB,1);}catch(e){res(null);return;}
+    rq.onupgradeneeded=()=>{const db=rq.result; if(!db.objectStoreNames.contains(OFF_STORE))db.createObjectStore(OFF_STORE,{keyPath:'id',autoIncrement:true});};
+    rq.onsuccess=()=>{OFF.db=rq.result; res(rq.result);}; rq.onerror=()=>res(null); rq.onblocked=()=>res(null);});}
+/** One store operation as a promise; `fn` gets the store and returns its request. @returns {Promise<any>} */
+function offTx(mode,fn){return offDb().then(db=>new Promise(res=>{if(!db){res(null);return;}
+  let rq; try{rq=fn(db.transaction(OFF_STORE,mode).objectStore(OFF_STORE));}catch(e){res(null);return;}
+  rq.onsuccess=()=>res(rq.result); rq.onerror=()=>res(null);}));}
+/** Every queued record, oldest first - the order they were written is the order they are sent. @returns {Promise<any[]>} */
+function offAll(){return offTx('readonly',s=>s.getAll()).then(v=>Array.isArray(v)?v:[]);}
+function offAdd(rec){return offTx('readwrite',s=>s.add(rec));}
+function offPut(rec){return offTx('readwrite',s=>s.put(rec));}
+function offDel(id){return offTx('readwrite',s=>s.delete(id));}
+// Reads the queue and lets the status line say how many wait and how many of those lost their place.
+async function offlineSync(){const all=await offAll();
+  OFF.n=all.length; OFF.held=all.filter(r=>r&&r.held).length; drawStatus();}
+// Whether this tab should keep a pin instead of sending it: the light poll has lost the server (POLL_FAILS, the same
+// judgment the status line's '연결 끊김' uses) or the browser says there is no network at all.
+function offlineNow(){return POLL_FAILS>=2||navigator.onLine===false;}
+
+// ---------------- The service worker
+// The worker is registered for every visit, not only where notifications are allowed (notify.js asks it for those): it is
+// what answers when the network does not. A browser without one still works online, and says so when asked to prepare.
+/** @returns {Promise<ServiceWorkerRegistration|null>} */
+async function offlineWorker(){if(!('serviceWorker' in navigator))return null;
+  try{return SW_REG||(SW_REG=await navigator.serviceWorker.register('/sw.js',{scope:'/'}));}catch(e){return null;}}
+// One question to the worker, answered on its own port so a replaced worker never leaves this waiting (3s at most).
+/** @param {{type:string,urls?:string[]}} msg @returns {Promise<any>} */
+async function offlineAsk(msg){const reg=await offlineWorker(); if(!reg)return null;
+  let sw=navigator.serviceWorker.controller; if(!sw){try{await navigator.serviceWorker.ready;}catch(e){} sw=navigator.serviceWorker.controller;}
+  if(!sw)return null;
+  return new Promise(res=>{const ch=new MessageChannel(),t=setTimeout(()=>res(null),3000);
+    ch.port1.onmessage=e=>{clearTimeout(t); res(e.data);}; try{sw.postMessage(msg,[ch.port2]);}catch(e){clearTimeout(t); res(null);}});}
+// What this document needs to be readable with no network: the page itself, everything the page has already loaded from this
+// origin (the inlined shell leaves only the vendored PDF.js, fonts, KaTeX and the Markdown worker), and this build's PDF and
+// page images. Nothing is hardcoded, so a change to the vendored files follows along.
+/** @returns {string[]} */
+function offlineUrls(){const out=new Set([location.pathname+location.search]);
+  try{performance.getEntriesByType('resource').forEach(e=>{const u=new URL(e.name,location.href);
+    if(u.origin===location.origin&&!u.pathname.startsWith('/api/')&&u.pathname!=='/sw.js')out.add(u.href);});}catch(e){}
+  if(META){const b=META.pages_build||'';
+    if(b&&!isMdDoc()){out.add(dq('/pdf?build='+encodeURIComponent(b)+'&v='+encodeURIComponent(META.built_at||'')));
+      (META.pages||[]).forEach(p=>out.add(pageSrc(p)));}}
+  return Array.from(out);}
+// [오프라인으로 받기]: keeps this document for reading with no network and asks the server to hold the build its pins will
+// point at. The hold is what makes the queue land on exact lines later; a server without that route (an older Limn) is not a
+// failure - the pins are kept all the same and said to need their place chosen again if the build is gone by then.
+async function offlinePrepare(){
+  if(OFF.prep)return; OFF.prep=true;
+  const note=lineNote('오프라인용으로 받는 중…',NOTICE_KIND.INFO,null,{life:NOTICE_LIFE.CLICK});
+  try{
+    const reg=await offlineWorker();
+    if(!reg){if(note)endNotice(note,false); lineNote('이 브라우저는 오프라인 보기를 지원하지 않습니다',NOTICE_KIND.WARN,null,{}); return;}
+    const urls=offlineUrls(),r=await offlineAsk({type:'keep',urls});
+    if(note)endNotice(note,false);
+    if(!r){lineNote('오프라인용 받기를 마치지 못했습니다 — 다시 시도하세요',NOTICE_KIND.ERR,{label:'다시 시도',fn:()=>{OFF.prep=false; offlinePrepare();}},{}); return;}
+    let held=false;
+    if(META&&META.pages_build&&!isMdDoc()){
+      try{await api(dq('/api/hold'),{method:'POST',body:{build:META.pages_build,days:7},what:'빌드 보류',silent:true,expect:[404]}); held=true;}
+      catch(e){held=false;}}
+    const failed=(r.failed||[]).length;
+    lineNote(failed?tl('오프라인용 {n}개 중 {m}개를 받지 못했습니다 — 연결을 확인하고 다시 받으세요',{n:urls.length,m:failed})
+      :held?tl('오프라인 준비됨 · {n}개 · 이 PDF의 자리를 7일간 지킵니다',{n:r.kept||urls.length})
+      :tl('오프라인 준비됨 · {n}개',{n:r.kept||urls.length}),
+      failed?NOTICE_KIND.WARN:NOTICE_KIND.OK,null,{life:failed?NOTICE_LIFE.CLICK:NOTICE_LIFE.TIMER});
+  }finally{OFF.prep=false;}}
+
+// ---------------- Pinning while cut off
+// The words inside the dragged box, read from the PDF this tab already has open (PDF.js, the same text the search reads).
+// The server's own quote comes from pdftotext at pick time; this one only has to say what was pinned while the answer is
+// still hours away, and the pick's quote replaces it when the pin is written.
+/** @param {number} page @param {{x0:number,y0:number,x1:number,y1:number}} rect @returns {Promise<string>} */
+async function offlineQuote(page,rect){if(!VEC.doc)return '';
+  try{const pg=await VEC.doc.getPage(page),tc=await pg.getTextContent(),vp=pg.getViewport({scale:1}),out=[];
+    (tc.items||[]).forEach((/** @type {any} */it)=>{const t=it.transform; if(!t||typeof it.str!=='string')return;
+      const x=t[4],y=vp.height-t[5];   // PDF.js measures from the bottom; a drag's box from the top, as pick does
+      if(x>=rect.x0-2&&x<=rect.x1+2&&y>=rect.y0-6&&y<=rect.y1+6)out.push(it.str);});
+    return out.join(' ').replace(/\s+/g,' ').trim().slice(0,160);}catch(e){return '';}}
+// A drag whose pick could not be sent: the box stays and the composer opens on a selection with no lines - the same shape a
+// view-only PDF's region selection has (isRegion), so the range ladder, the source snippet, a suggested edit and a verdict
+// are all off, and [핀 저장] has only the page, the box and the words to keep. Its lines are found when the queue is sent.
+/** @param {{page:number,x0:number,y0:number,x1:number,y1:number,frac:number[],pdf_build?:string,doc?:string}} r */
+async function offlinePick(r){
+  const seq=PICKSEQ,rect={x0:r.x0,y0:r.y0,x1:r.x1,y1:r.y1},quote=await offlineQuote(r.page,rect);
+  if(seq!==PICKSEQ)return;   // a newer drag or a cancel owns the composer now
+  const sel=/** @type {any} */({kind:'region',page:r.page,frac:r.frac,quote,file:null,name:null,lo:null,hi:null,
+    pdf:META?META.pages_build:null,pdf_build:r.pdf_build,doc:r.doc||DOC,offline:true,rect,levels:[],overlaps:[],
+    scope:null,env:null,elSel:null,el:null,via:null,score:null,warn:'',snippet:'',n_lines:0,default_level:null});
+  COMPOSE.current=/** @type {Selection} */(sel); COMPOSE.intent++; COMPOSE.picking=false; COMPOSE.dismissedOverlap=null;
+  SNIP_OPEN=false; $('#c-err').hidden=true; $('#c-body').hidden=false; $('#composer').hidden=false;
+  renderComposer(); $('#composer').scrollTop=0;
+  lineNote('연결이 끊겨 줄은 뒤에 찾습니다 — 메모를 쓰고 저장하면 쌓아 둡니다',NOTICE_KIND.INFO,null,{life:NOTICE_LIFE.CLICK,topic:NOTICE_TOPIC.OFFLINE});
+  if(LAST_PTR==='mouse')(selPopOpen()?SEL_POP_FIELD:$('#note')).focus({preventScroll:true});}
+// [핀 저장] with no server: the pin goes to the queue with everything needed to write it later - where it was drawn, on which
+// build, its words, and what the composer asked (the note, its kind, its assignee and the @-tags). Answers whether it was
+// kept; a browser that refuses the queue answers false and the caller says the save failed, so no pin is lost silently.
+/** @param {Selection} d @param {string} note @param {{kind:string|null,assignee:string|null}} out @param {string[]} mentions @returns {Promise<boolean>} */
+async function offlineQueueSave(d,note,out,mentions){
+  if(OFF.n>=OFF_MAX){bannerNote(NOTICE_HOST.COMPOSER,tl('쌓아 둘 수 있는 핀은 {n}개까지입니다 — 연결되면 먼저 반영하세요',{n:OFF_MAX}),NOTICE_KIND.ERR,null,{save:true,source:'offline-queue'}); return false;}
+  const rec={v:1,label:META?META.label:'',doc:d.doc||DOC,build:d.pdf_build||(META?META.pages_build:'')||'',
+    page:d.page,rect:d.rect||null,frac:d.frac,quote:d.quote||'',note,kind_req:out.kind,assignee:out.assignee,
+    mentions:mentions.slice(),at:new Date().toISOString(),held:false,why:''};
+  const id=await offAdd(rec);
+  if(id===null){bannerNote(NOTICE_HOST.COMPOSER,tr('핀 저장 실패 — 이 브라우저가 오프라인 보관을 막고 있습니다'),NOTICE_KIND.ERR,null,{save:true,source:'offline-queue'}); return false;}
+  await offlineSync();
+  undoNote(NOTICE_PLACE.LINE,tl('쌓아 둠 · 오프라인 핀 {n}개 — 연결되면 반영합니다',{n:OFF.n}),
+    {label:'되돌리기',wait:true,fn:async()=>{await offDel(id); await offlineSync(); return true;}},{literal:true});
+  return true;}
+
+// ---------------- Sending the queue
+// The pin body a found place and a kept record make, the same whitelist POST /api/pin takes for a line pin (api.md §핀 추가).
+/** @param {any} rec @param {any} d @returns {Record<string, unknown>} */
+function offlineBody(rec,d){const body=/** @type {Record<string, unknown>} */({file:d.file,name:d.name,page:d.page,lo:d.lo,hi:d.hi,
+  raw_lo:d.raw_lo,raw_hi:d.raw_hi,kind:d.kind,via:d.via,score:d.score,fill:d.fill,rival:d.rival,frac:d.frac,
+  note:rec.note,quote:d.quote||rec.quote||'',pdf_build:d.pdf_build||rec.build||undefined,doc:rec.doc||undefined,
+  kind_req:rec.kind_req,assignee:rec.assignee});
+  if((rec.mentions||[]).length)body.mentions=rec.mentions;
+  return body;}
+// Whether this record is already a pin on the server: mine, on its document, on the same lines, with the same note. A send
+// whose answer was lost is found here instead of written twice - the judgment savePin makes for its own lost answer.
+/** @param {any} rec @param {any} d */
+function offlineLanded(rec,d){return OPEN_ALL.some(p=>isMe(p.author)&&pdoc(p)===(rec.doc||DEFAULT_DOC)&&p.file===d.file&&p.lo===d.lo&&p.hi===d.hi&&String(p.note||'')===String(rec.note||''));}
+// Sends the queue, oldest first: each record's own coordinates and build go to pick, its answer to the pin. A record is
+// dropped only once its pin is on the server. One whose place cannot be found again (the build is gone, or the drag no
+// longer reads as text) is kept and marked, so the count never hides it and the next send tries again.
+async function offlineFlush(){
+  if(OFF.flushing||offlineNow()||viewerBlocked())return;
+  const all=await offAll(); if(!all.length){await offlineSync(); return;}
+  OFF.flushing=true;
+  const saved=/** @type {number[]} */([]); let held=0,failed=0;
+  try{
+    await loadPins();   // what is already there - a lost answer from an earlier send is found, not written twice
+    for(const rec of all){
+      if(offlineNow())break;
+      let d=/** @type {any} */(null);
+      const req={page:rec.page,x0:rec.rect?rec.rect.x0:0,y0:rec.rect?rec.rect.y0:0,x1:rec.rect?rec.rect.x1:0,y1:rec.rect?rec.rect.y1:0,
+        frac:rec.frac,pdf_build:rec.build||undefined,doc:rec.doc||undefined};
+      try{d=(await api('/api/pick',{method:'POST',body:req,what:'위치 찾기',silent:true})).data;}
+      catch(e){failed++; continue;}                       // no answer or a refusal: the record stays for the next send
+      if(!d||d.error){rec.held=true; rec.why=errText(d)||tr('위치를 찾지 못했습니다'); await offPut(rec); held++; continue;}
+      if(offlineLanded(rec,d)){saved.push(rec.id); await offDel(rec.id); continue;}
+      try{const {data}=await api('/api/pin',{method:'POST',body:offlineBody(rec,d),what:'핀 저장',silent:true});
+        saved.push(data&&data.id); await offDel(rec.id);}
+      catch(e){const x=/** @type {ApiError} */(e);
+        if(!x||!x.status){await loadPins(); if(offlineLanded(rec,d)){saved.push(rec.id); await offDel(rec.id); continue;}}
+        failed++;}}
+  }finally{OFF.flushing=false; await offlineSync(); await loadPins();}
+  const ids=saved.filter(n=>typeof n==='number');
+  if(ids.length)lineNote(ids.length<=3?tl('오프라인 핀 저장됨 · #{ids}',{ids:ids.join(', #')}):tl('오프라인 핀 {n}개 저장됨',{n:ids.length}),
+    NOTICE_KIND.OK,null,{life:NOTICE_LIFE.TIMER,literal:true});
+  if(held)lineNote(tl('오프라인 핀 {n}개는 자리를 다시 골라야 합니다 — 그사이 PDF가 바뀌었습니다',{n:held}),NOTICE_KIND.WARN,null,{literal:true});
+  if(failed)lineNote(tl('오프라인 핀 {n}개를 아직 보내지 못했습니다 — 연결되면 다시 보냅니다',{n:failed}),NOTICE_KIND.WARN,
+    {label:'지금 반영',fn:()=>{void offlineFlush();}},{literal:true});}
+
+// Boot: the worker is registered, the queue is counted, and a queue waiting on a live connection is sent right away. The
+// light poll calls offlineFlush() again whenever the connection comes back (polling.js).
+function offlineBoot(){void offlineWorker();
+  void offlineSync().then(()=>{if(OFF.n&&!offlineNow())void offlineFlush();});}
+addEventListener('online',()=>{void offlineFlush();});

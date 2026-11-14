@@ -89,6 +89,16 @@ async function savePin(verdict){
   // up yet is not sent. A pin created by the viewer always records an assignee (otherwise a legacy pin's inference applies).
   const out=assignOutcome(composeAsk(SAVE_MODE.NEW)); body.kind_req=out.kind; body.assignee=out.assignee;
   const mh=mentionHints($('#note')); if(mh.length)body.mentions=mh;
+  // Cut off, or a selection whose lines were never found (offlinePick): the pin goes into this browser's queue and is
+  // written when the connection is back (offline.js §Sending the queue). The composer closes as a save does, so the next
+  // pin can be drawn straight away. A verdict is not kept this way - it is a word of the document's that only the server's
+  // found place can carry - so it says so and keeps the selection for a retry.
+  if(/** @type {any} */(d).offline||offlineNow()){
+    COMPOSE.saving=false; syncComposeSaveButtons();
+    if(verdict){bannerNote(NOTICE_HOST.COMPOSER,tr('연결이 끊겨 판정은 쌓아 둘 수 없습니다 — 연결되면 판정 버튼을 다시 누릅니다'),NOTICE_KIND.ERR,null,{save:true,source:'POST /api/pin'}); return;}
+    const kept=await offlineQueueSave(d,note,out,mh);
+    if(kept){COMPOSE.box=null; cancelSelection(true); if(box)box.remove(); syncDraft(); focusClosed();}
+    return;}
   const sg=isRegion(d)||verdict?null:suggestForSave(SG,suggestOff(d,META?META.kind:undefined)); if(sg)body.suggest=sg;
   if(verdict){body.verdict=verdict; body.kind_req=KIND_REQ.FIX;
     // On a figure document the verdict is the figure's, whatever element the selection names (verdict.js figureVerdictBody).

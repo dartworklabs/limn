@@ -30,6 +30,10 @@ async function pick(r){
   let d;
   try{d=(await api('/api/pick',{method:'POST',body:r,what:'위치 찾기'})).data;}
   catch(e){if(seq!==PICKSEQ)return; setBusy(false); if(!rp){COMPOSE.picking=false; clearPendingSave();}
+    // The server could not be reached (a refusal carries a status): the drag is not lost. Its box stays and the composer
+    // opens on a selection with no lines, which [핀 저장] keeps in the queue until the connection is back (offline.js).
+    const x=/** @type {ApiError} */(e);
+    if(!rp&&!(x&&x.status)&&!isMdDoc()){void offlinePick(r); return;}
     if(rp){bannerRepick();} else {if(COMPOSE.box){COMPOSE.box.remove();COMPOSE.box=null;} if(!COMPOSE.current){$('#composer').hidden=true; applySide();} drawSelPop();} return;}
   if(seq!==PICKSEQ)return;
   setBusy(false); if(!rp)COMPOSE.picking=false;

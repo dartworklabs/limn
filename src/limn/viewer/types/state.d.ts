@@ -56,6 +56,10 @@ interface Selection extends PickAnswer {
   env?: string | null;
   elSel?: PinElement | null;
   rel?: PickOverlap[];
+  // A drag whose pick could not be sent (offline.js offlinePick): it has no lines, and its box in PDF points is kept so
+  // the same coordinates can be sent to pick once the connection is back.
+  offline?: boolean;
+  rect?: { x0: number; y0: number; x1: number; y1: number } | null;
 }
 
 // A pin's location being placed again (repick.js REPICK): the pin, where it was, the drawn box and the new candidate.

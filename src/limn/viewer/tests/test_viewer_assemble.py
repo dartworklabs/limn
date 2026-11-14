@@ -213,11 +213,14 @@ class ServiceWorker(unittest.TestCase):
             (root / "sw.js").write_text("'use strict';\nconst L='__LABEL__';\n", encoding="utf-8")
             self.assertEqual(assemble.service_worker(root), "'use strict';\nconst L='__LABEL__';\n")
 
-    def test_the_packaged_worker_has_no_fetch_handler(self):
-        """The shipped worker handles notifications only - app data and page images are never cached."""
+    def test_the_packaged_worker_keeps_the_document_but_never_the_api(self):
+        """The shipped worker answers notification clicks and keeps this document for reading with no network
+        (docs/handbook/viewer.md §끊긴 채 보기와 핀 쌓기). Pin and meta answers are never kept: a stale list must never
+        read as the current one."""
         sw = assemble.service_worker(assemble.VIEWER_DIR)
         self.assertIn("notificationclick", sw)
-        self.assertNotIn("'fetch'", sw)
+        self.assertIn("addEventListener('fetch'", sw)
+        self.assertIn("startsWith('/api/')", sw)
 
 
 class ServedPage(unittest.TestCase):

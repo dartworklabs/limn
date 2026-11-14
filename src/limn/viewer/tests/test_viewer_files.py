@@ -226,7 +226,8 @@ class ServiceWorkerRoute(Base):
         self.assertIn("clients.openWindow", js)
         # v0.2.2: [되살리기] on a 'dropped' notification
         self.assertIn("postMessage({type:e.action==='restore'?'restore-pin':'open-pin'", js)
-        self.assertNotIn("'fetch'", js)  # doesn't cache app data
+        self.assertIn("addEventListener('fetch'", js)   # keeps the document for reading with no network
+        self.assertIn("startsWith('/api/')", js)        # but never a pin or meta answer: a stale list is not the current one
         code, _, _ = self.get("/sw.js", {"Host": "evil.example"})
         self.assertEqual(code, 403)
         if shutil.which("node"):

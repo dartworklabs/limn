@@ -34,6 +34,8 @@ document.addEventListener('click',e=>{const target=/** @type {HTMLElement} */(e.
     case 'card-toggle':if(id==null)break; if(OPEN_CARDS.has(id))OPEN_CARDS.delete(id); else OPEN_CARDS.add(id); drawPins();break;
     case 'rebuild':rebuild();break; case 'reload':loadPins();break; case 'pdf-download':downloadPdf();break;
     case 'rebuild-force':BUILD.unchanged=null; drawStatus(); rebuild(true); break;   // the status line's [그래도 빌드]: a cold build
+    case 'offline-prepare':void offlinePrepare();break;   // [더보기]'s [오프라인으로 받기] (offline.js)
+    case 'offline-flush':void offlineFlush();break;       // the status line's [지금 반영]: send the kept pins now
     case 'zoom-in':zoomVisiblePdf('in');break; case 'zoom-out':zoomVisiblePdf('out');break; case 'fit':zoomVisiblePdf('fit');break; case 'actual':zoomVisiblePdf('actual');break;
     case 'marks-toggle':marksSet(!MARKS.off);break;   // [더보기]'s [핀 표시] switch (marks-hide.js)
     case 'theme':setTheme(a.dataset.theme); break; case 'lang':switchLang(a.dataset.lang);break; case 'notify-toggle':notifyToggle();break; case 'help':openHelp();break; case 'help-close':$('#help').close();break;

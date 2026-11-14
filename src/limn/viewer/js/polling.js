@@ -48,6 +48,7 @@ async function pollLightOnce(){
   if(k!==DOC||visit!==SWITCHSEQ){if(back)digestSoon(DIGEST_TAIL_MS); return;}  // a return to the same document is a new visit too
   POLL_FAILS=0; $('#conn-lost').hidden=true;
   if(back||was>0||versionDue())checkVersion();
+  if(was>0&&OFF.n)void offlineFlush();   // the connection is back: the pins kept while it was gone are written (offline.js)
   updateStaleBadge(d); updateSyncBadge(d.sync); noteOtherDocs(d.docs);
   // With multiple documents, re-read even if src_sig (per-document src_mtime) changed - another document's manuscript changing shifts that document's pins' lines too.
   const sig=d.src_sig||d.src_mtime;
