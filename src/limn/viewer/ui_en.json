@@ -1737,5 +1737,6 @@
  "지금 반영": "Write now",
  "빌드 보류": "Build hold",
  "오프라인으로 받기": "Keep offline",
- "이 문서를 연결 없이 읽을 수 있게 받아 두고, 지금 PDF의 자리를 7일간 지켜 둡니다. 끊긴 동안 찍은 핀은 쌓였다가 연결되면 반영됩니다": "Keeps this document readable with no connection and holds this PDF's places for 7 days. Pins made while cut off are kept and written once the connection is back"
+ "이 문서를 연결 없이 읽을 수 있게 받아 두고, 지금 PDF의 자리를 7일간 지켜 둡니다. 끊긴 동안 찍은 핀은 쌓였다가 연결되면 반영됩니다": "Keeps this document readable with no connection and holds this PDF's places for 7 days. Pins made while cut off are kept and written once the connection is back",
+ "연결이 없어 {time}에 읽어 둔 화면입니다 — 핀을 찍으면 쌓였다가 연결되면 반영됩니다": "With no connection this is the screen read at {time} — a pin you make is kept and written once the connection is back"
 }

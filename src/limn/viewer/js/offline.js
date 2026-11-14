@@ -6,22 +6,36 @@
 // tab closing and the browser restarting - only this browser sees it. Back on the network the queue is replayed in the
 // order it was written: each record's own coordinates go to POST /api/pick with the build they were drawn on, and its
 // answer to POST /api/pin. A record whose place cannot be found again is kept and counted, never dropped.
-const OFF_DB='limnOffline',OFF_STORE='pins',OFF_MAX=200;
-const OFF={n:0,held:0,flushing:false,prep:false,db:/** @type {IDBDatabase|null} */(null)};
+const OFF_DB='limnOffline',OFF_STORE='pins',OFF_STATE='state',OFF_MAX=200;
+// The document reads a reopened tab needs before it can draw anything, and whose last answer is therefore stored: the
+// document's meta, the document list, the pin list, the people and the outline labels. A light poll (light=1) is not
+// among them - that one has to fail, so the status line says the connection is gone. Nothing else is ever stored, and
+// no answer to a write ever is.
+const OFF_READS=['/api/meta','/api/docs','/api/pins','/api/people','/api/outline-labels'];
+const OFF={n:0,held:0,flushing:false,prep:false,saidStale:false,db:/** @type {IDBDatabase|null} */(null)};
 // This browser's queue, opened once per page. A browser that refuses IndexedDB (a private window) answers null, and every
 // caller below falls back to saying the pin could not be kept rather than losing it quietly.
 /** @returns {Promise<IDBDatabase|null>} */
 function offDb(){if(OFF.db)return Promise.resolve(OFF.db);
-  return new Promise(res=>{let rq; try{rq=indexedDB.open(OFF_DB,1);}catch(e){res(null);return;}
-    rq.onupgradeneeded=()=>{const db=rq.result; if(!db.objectStoreNames.contains(OFF_STORE))db.createObjectStore(OFF_STORE,{keyPath:'id',autoIncrement:true});};
-    rq.onsuccess=()=>{OFF.db=rq.result; res(rq.result);}; rq.onerror=()=>res(null); rq.onblocked=()=>res(null);});}
-/** One store operation as a promise; `fn` gets the store and returns its request. @returns {Promise<any>} */
-function offTx(mode,fn){return offDb().then(db=>new Promise(res=>{if(!db){res(null);return;}
-  let rq; try{rq=fn(db.transaction(OFF_STORE,mode).objectStore(OFF_STORE));}catch(e){res(null);return;}
+  return new Promise(res=>{let rq; try{rq=indexedDB.open(OFF_DB,2);}catch(e){res(null);return;}
+    rq.onupgradeneeded=()=>{const db=rq.result;
+      if(!db.objectStoreNames.contains(OFF_STORE))db.createObjectStore(OFF_STORE,{keyPath:'id',autoIncrement:true});
+      if(!db.objectStoreNames.contains(OFF_STATE))db.createObjectStore(OFF_STATE,{keyPath:'key'});};
+    // A tab left open on an older Limn holds the previous version and would block this one's upgrade, which stops the
+    // queue in both. Each tab lets go when another needs the newer version, and opens again on its next call.
+    rq.onsuccess=()=>{const db=rq.result; db.onversionchange=()=>{try{db.close();}catch(e){} if(OFF.db===db)OFF.db=null;};
+      OFF.db=db; res(db);}; rq.onerror=()=>res(null); rq.onblocked=()=>res(null);});}
+/** One operation on a store as a promise; `fn` gets the store and returns its request. @returns {Promise<any>} */
+function offIn(store,mode,fn){return offDb().then(db=>new Promise(res=>{if(!db){res(null);return;}
+  let rq; try{rq=fn(db.transaction(store,mode).objectStore(store));}catch(e){res(null);return;}
   rq.onsuccess=()=>res(rq.result); rq.onerror=()=>res(null);}));}
+/** One operation on the queue. @returns {Promise<any>} */
+function offTx(mode,fn){return offIn(OFF_STORE,mode,fn);}
 /** Every queued record, oldest first - the order they were written is the order they are sent. @returns {Promise<any[]>} */
 function offAll(){return offTx('readonly',s=>s.getAll()).then(v=>Array.isArray(v)?v:[]);}
 function offAdd(rec){return offTx('readwrite',s=>s.add(rec));}
+/** Whether this record is still queued - another tab of this browser may have written and dropped it. @returns {Promise<boolean>} */
+function offHas(id){return offTx('readonly',s=>s.getKey(id)).then(v=>v!==null&&v!==undefined);}
 function offPut(rec){return offTx('readwrite',s=>s.put(rec));}
 function offDel(id){return offTx('readwrite',s=>s.delete(id));}
 // Reads the queue and lets the status line say how many wait and how many of those lost their place.
@@ -30,6 +44,30 @@ async function offlineSync(){const all=await offAll();
 // Whether this tab should keep a pin instead of sending it: the light poll has lost the server (POLL_FAILS, the same
 // judgment the status line's '연결 끊김' uses) or the browser says there is no network at all.
 function offlineNow(){return POLL_FAILS>=2||navigator.onLine===false;}
+
+// ---------------- The last answer to a document read
+// A tab the phone discarded during a flight is opened again with no network. The worker answers with the page, but the
+// document reads are API calls, which are never cached: without them there is no page list, no PDF build and no pin
+// list, so nothing is drawn and nothing can be dragged. So the last answer to each read of OFF_READS is stored, and a
+// read the network refuses is answered from that store instead of failing - said once on the status line, with when it
+// was read, so a stored list is never taken for the current one.
+/** The store key of a read: its path and query without the cache-busting bits. @returns {string|null} */
+function offReadKey(url,o){if(o&&o.method&&o.method!=='GET')return null;
+  const u=String(url); if(u.indexOf('light=1')>=0)return null;
+  const path=u.split('?')[0]; if(!OFF_READS.includes(path))return null;
+  return u;}
+/** Stores the answer to a document read, so a later visit with no network can be drawn from it. */
+function offStash(url,data){const key=offReadKey(url,null); if(!key)return;
+  void offIn(OFF_STATE,'readwrite',s=>s.put({key,data,at:Date.now()}));}
+/** The stored answer to a read, or null. @returns {Promise<{data:any,at:number}|null>} */
+function offStashed(url,o){const key=offReadKey(url,o); if(!key)return Promise.resolve(null);
+  return offIn(OFF_STATE,'readonly',s=>s.get(key)).then(v=>v&&'data' in v?v:null);}
+// Says once per visit that what is on screen was read before the connection went, and when. The pins and the pages are
+// that moment's, not this one's: the status line already says the connection is gone, and this says how old the screen is.
+function offStaleSaid(at){if(OFF.saidStale)return; OFF.saidStale=true;
+  const d=new Date(at),two=(/** @type {number} */n)=>String(n).padStart(2,'0');
+  lineNote(tl('연결이 없어 {time}에 읽어 둔 화면입니다 — 핀을 찍으면 쌓였다가 연결되면 반영됩니다',
+    {time:two(d.getHours())+':'+two(d.getMinutes())}),NOTICE_KIND.WARN,null,{literal:true});}
 
 // ---------------- The service worker
 // The worker is registered for every visit, not only where notifications are allowed (notify.js asks it for those): it is
@@ -118,6 +156,9 @@ async function offlineQueueSave(d,note,out,mentions){
   await offlineSync();
   undoNote(NOTICE_PLACE.LINE,tl('쌓아 둠 · 오프라인 핀 {n}개 — 연결되면 반영합니다',{n:OFF.n}),
     {label:'되돌리기',wait:true,fn:async()=>{await offDel(id); await offlineSync(); return true;}},{literal:true});
+  // A selection picked while cut off is kept even once the connection is back (it still has no lines). Then there is
+  // nothing to wait for: it goes out now, rather than sitting in the queue until the next reconnect or reload.
+  if(!offlineNow())void offlineFlush();
   return true;}
 
 // ---------------- Sending the queue
@@ -137,9 +178,12 @@ function offlineLanded(rec,d){return OPEN_ALL.some(p=>isMe(p.author)&&pdoc(p)===
 // dropped only once its pin is on the server. One whose place cannot be found again (the build is gone, or the drag no
 // longer reads as text) is kept and marked, so the count never hides it and the next send tries again.
 async function offlineFlush(){
+  // The flag is taken before anything is awaited. Reconnecting fires several triggers within the same tick (the
+  // 'online' event, the light poll's recovery, boot, the status line's [지금 반영]); a flag set after the first await
+  // let two of them read the same records and write every pin twice, since each had read the list before the other wrote.
   if(OFF.flushing||offlineNow()||viewerBlocked())return;
-  const all=await offAll(); if(!all.length){await offlineSync(); return;}
   OFF.flushing=true;
+  const all=await offAll(); if(!all.length){OFF.flushing=false; await offlineSync(); return;}
   const saved=/** @type {number[]} */([]); let held=0,failed=0;
   try{
     await loadPins();   // what is already there - a lost answer from an earlier send is found, not written twice
@@ -152,6 +196,9 @@ async function offlineFlush(){
       catch(e){failed++; continue;}                       // no answer or a refusal: the record stays for the next send
       if(!d||d.error){rec.held=true; rec.why=errText(d)||tr('위치를 찾지 못했습니다'); await offPut(rec); held++; continue;}
       if(offlineLanded(rec,d)){saved.push(rec.id); await offDel(rec.id); continue;}
+      // Another tab of this browser shares the queue and may have written this one while the pick was out: a record
+      // that is no longer there has been dealt with, and writing it again would make the pin twice.
+      if(!(await offHas(rec.id)))continue;
       try{const {data}=await api('/api/pin',{method:'POST',body:offlineBody(rec,d),what:'핀 저장',silent:true});
         saved.push(data&&data.id); await offDel(rec.id);}
       catch(e){const x=/** @type {ApiError} */(e);

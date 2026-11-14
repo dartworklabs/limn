@@ -20,6 +20,7 @@ var QUEUE=[],PICKS=[],PINS_SENT=[],NOTES=[],LOADS=0,OPEN_ALL=[];
 var NOTICE_KIND={OK:'ok',WARN:'warn',ERR:'err',INFO:'info'},NOTICE_LIFE={TIMER:'timer',CLICK:'click'},NOTICE_PLACE={LINE:'line'};
 function offAll(){return Promise.resolve(QUEUE.slice());}
 function offDel(id){QUEUE=QUEUE.filter(function(r){return r.id!==id;}); return Promise.resolve(true);}
+function offHas(id){return Promise.resolve(QUEUE.some(function(r){return r.id===id;}));}
 function offPut(rec){QUEUE=QUEUE.map(function(r){return r.id===rec.id?rec:r;}); return Promise.resolve(true);}
 function offlineSync(){OFF.n=QUEUE.length; OFF.held=QUEUE.filter(function(r){return r.held;}).length; return Promise.resolve();}
 function drawStatus(){}
@@ -171,6 +172,32 @@ class OfflineQueueSend(unittest.TestCase):
             """
         )
         self.assertEqual(got, {"pins": 1, "left": 1})
+
+
+    def test_two_sends_started_together_write_each_pin_once(self):
+        """Reconnecting fires several triggers in the same tick ('online', the poll's recovery, boot). Both calls must
+        not send the same records: the second has to find the send already under way, before any await."""
+        got = self._run(
+            """
+            QUEUE=[rec(1),rec(2)]; ANSWERS={pick:[found(10),found(20)],pin:[{id:41},{id:42}]};
+            Promise.all([offlineFlush(),offlineFlush()]).then(function(){console.log(JSON.stringify({
+              picks:PICKS.length,pins:PINS_SENT.length,left:QUEUE.length}));});
+            """
+        )
+        self.assertEqual(got, {"picks": 2, "pins": 2, "left": 0})
+
+    def test_a_record_another_tab_wrote_meanwhile_is_not_written_again(self):
+        """The queue is shared by this browser's tabs. A record that left while the pick was out has been dealt with."""
+        got = self._run(
+            """
+            QUEUE=[rec(1)]; ANSWERS={pick:[found(10)],pin:[{id:41}]};
+            const realApi=api;
+            api=function(url,o){if(url==='/api/pick')QUEUE=[];   // the other tab wrote and dropped it
+              return realApi(url,o);};
+            offlineFlush().then(function(){console.log(JSON.stringify({pins:PINS_SENT.length,left:QUEUE.length}));});
+            """
+        )
+        self.assertEqual(got, {"pins": 0, "left": 0})
 
 
 if __name__ == "__main__":
