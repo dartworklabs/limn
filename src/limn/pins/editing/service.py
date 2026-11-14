@@ -73,13 +73,13 @@ def add_pin(ctx: PinContext, D: Doc, request: AddRequest, actor: PostAuthority) 
     own order. A refusal writes nothing of its own (a re-sync of the stored pins may still be written, as for any
     transaction). A failed checked manuscript read propagates before any anchor or pin is saved.
 
-    A request with an idempotency key (request.idem, limn.pins.idem) first looks, inside the same transaction that
-    would create the pin, for a pin of this instance that already holds the key - a live pin of any state or document,
-    or a Trash entry still restorable. If one does, the result is PinReplayed with its id and nothing of this request
-    is decided or written: no id, record, notice or pins.md change, whatever its body says. Its suggestion is therefore
-    decided inside the transaction too, after that lookup, against the same snapshot of lines read before the lock; a
-    refusal there writes nothing of its own (a re-sync may still be written, as for a verdict's refusal). A request
-    without a key takes exactly the path it always has."""
+    A request with an idempotency key (request.idem, limn.pins.idem) first looks, under the pin lock it then keeps
+    through the transaction that would create the pin, for a pin of this instance that already holds the key - a live
+    pin of any state or document, as stored, or a Trash entry still restorable. If one does, the result is PinReplayed
+    with its id and no transaction runs: nothing is decided or written - no id, record, re-sync, notice, pins.md or
+    pins_rev change - whatever its body says. Otherwise its suggestion is decided inside the transaction, against the
+    snapshot of lines read before the lock; a refusal there writes nothing of its own (a re-sync may still be written,
+    as for a verdict's refusal). A request without a key takes exactly the path it always has."""
     require_authority(actor, ctx.authority_scope, "add", document_authority_target(D))
     place = request.place
     # Manuscript text is read before taking the pin lock, as it was for line pins before this shared transaction.
@@ -97,18 +97,14 @@ def add_pin(ctx: PinContext, D: Doc, request: AddRequest, actor: PostAuthority) 
     evs: list[Event | None] = []
 
     def fn(pins: list[Pin]) -> tuple[OpenPin | PinReplayed | AddRefusal, bool]:
-        """Answer a key some pin already holds, then decide a keyed request's suggestion and the verdict, if one
-        was asked for, then allocate one id, build either location kind, and queue notices in the same transaction.
+        """Decide a keyed request's suggestion and the verdict, if one was asked for, then allocate one id, build
+        either location kind, and queue notices in the same transaction.
         The build on screen is read once: a pin without pdf_build records the build its whole figure was checked on
         (read with that check, before the lock), not one published in between."""
-        if request.idem is not None:
-            held = _key_holder(ctx, pins, request.idem)
-            if held is not None:
-                return PinReplayed(held), False
-            if suggests:
-                refused = _suggestion_refused(request, D, lines)
-                if refused is not None:
-                    return refused, False
+        if request.idem is not None and suggests:
+            refused = _suggestion_refused(request, D, lines)
+            if refused is not None:
+                return refused, False
         # The viewer echoes pdf_build from pick; an agent request without it uses the current build.
         checked_on = None if reads is None else reads.on_screen
         on_screen = ctx.builds.heading(D).build if checked_on is None else checked_on
@@ -146,7 +142,11 @@ def add_pin(ctx: PinContext, D: Doc, request: AddRequest, actor: PostAuthority) 
             evs.append(ctx.make_event("assigned", pin.record, actor, [request.assignee], text=request.note))
         return pin, True
 
-    with ctx.store.lock:
+    with ctx.store.lock:  # re-entrant: the key lookup and the transaction that creates the pin hold it together
+        if request.idem is not None:
+            held = _key_holder(ctx, ctx.store.read_pins()[0], request.idem)
+            if held is not None:
+                return PinReplayed(held)
         out = ctx.store.transact(fn)[1]
         ctx.emit_events(evs)
     return out
@@ -161,9 +161,9 @@ def _suggestion_refused(request: AddRequest, D: Doc, lines: Sequence[str]) -> Ad
 
 
 def _key_holder(ctx: PinContext, pins: Sequence[Pin], key: str) -> int | None:
-    """The id of the pin that already holds idempotency key `key`: among the live pins of this transaction, then the
-    Trash entries still restorable now (an expired entry, like a purged one, holds no key). Called inside the
-    transaction, under the pin lock every Trash write also holds, so no drop, restore or purge lands in between."""
+    """The id of the pin that already holds idempotency key `key`: among the live pins as stored, then the Trash
+    entries still restorable now (an expired entry, like a purged one, holds no key). Called under the pin lock every
+    pin and Trash write also holds, so no create, drop, restore or purge lands between this lookup and the create."""
     trash, _ = ctx.store.read_dropped()
     return keyed_pin(key, pins, unexpired(trash, ctx.trash_days, ctx.epoch()))
 

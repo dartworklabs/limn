@@ -6,6 +6,7 @@ a socket pair, as the viewer does, and read the state files byte for byte.
 """
 
 import json
+import os
 import threading
 import time
 import unittest
@@ -122,6 +123,21 @@ class Replay(IdemBase):
             self.assertEqual(json.loads(raw), {"id": first["id"], "replay": True})
             self.assertEqual(list(json.loads(raw)), ["id", "replay"])
         self.assertEqual(self.files(), before)
+
+    def test_a_replay_writes_nothing_even_when_the_manuscript_moved(self):
+        """Lines inserted above the pin make its stored range stale, so any pin transaction would write a re-sync. A
+        replay is not one: it answers from the stored pins and leaves every file and pins_rev as they were. The next
+        write that is not a replay re-syncs as always."""
+        pid = self.post(self.body(idem=KEY))[1]["id"]
+        text = self.main.read_text(encoding="utf-8")
+        self.main.write_text("% one\n% two\n" + text, encoding="utf-8")
+        later = time.time() + 5
+        os.utime(self.main, (later, later))
+        before = self.files()
+        self.assertEqual(self.post(self.body(idem=KEY))[1], {"id": pid, "replay": True})
+        self.assertEqual(self.files(), before)
+        self.assertEqual(self.post(self.body(idem=OTHER))[1], {"id": pid + 1})
+        self.assertEqual((self.stored()[0]["lo"], self.stored()[0]["hi"]), (6, 7))  # the re-sync, written now
 
     def test_a_replay_whose_body_differs_still_answers_the_first_pin(self):
         """The first send wins: another note, other lines, a suggestion that would be refused, a verdict an agent may
