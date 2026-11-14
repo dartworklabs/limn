@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from limn.builds import artifacts
+from limn.builds import artifacts, built_source
 from limn.builds.contracts import (
     BuildHeading,
     DocumentBuild,
@@ -230,8 +230,15 @@ class BuildQueries:
         return pages
 
     def publication(self, doc: Doc, name: str, state: Path) -> Publication:
-        """Bind pick assets and status to the requested publication, not pages.cur."""
+        """Bind pick assets and status to the requested publication, not pages.cur. Its built_lines reads that
+        build's source record (built_source) for a manuscript file named by its checkout path."""
         pages = doc.dir / name
+
+        def built_lines(file: Path) -> tuple[str, ...] | None:
+            """The lines of manuscript file `file` as build `name` read it, or None when its record has none."""
+            key = built_source.source_key(doc.src, file)
+            return None if key is None else built_source.built_lines(pages, key)
+
         pdf = artifacts.cur_pdf(doc, pages)
         region = (
             artifacts.build_figure_pdf(doc, name, lambda d, n: self.maps().get(d, n)) if doc.has_element_map else None
@@ -246,6 +253,7 @@ class BuildQueries:
             artifacts.source_newer(doc, state, name) > 2,
             running,
             running and b["phase"] == "latex",
+            built_lines,
         )
 
     def position(self, doc: Doc) -> PositionHistory:

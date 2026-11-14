@@ -22,6 +22,7 @@ BUILD_STORAGE_NAMES = {
     "builds.json",
     "holds.json",
     "slim.json",
+    "source.json",
 }
 
 EntrypointImports: TypeAlias = Mapping[str, set[str]]

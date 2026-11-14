@@ -26,7 +26,7 @@ B1, B2, B3, B4 = (
     "pages-20261101120000",
     "pages-20261101130000",
 )
-KEPT = ("main.pdf", "main.synctex.gz", "main.aux", "main.fls", "recipe.json")
+KEPT = ("main.pdf", "main.synctex.gz", "main.aux", "main.fls", "recipe.json", "source.json")
 HA, HB = "holder-a-0123456789", "holder-b-0123456789"  # two browsers' holder keys
 
 
