@@ -224,9 +224,11 @@ limn add paper2 --manuscript ~/papers/paper2        # 같은 결과를 설정에
 | --- | --- |
 | `@LIMN_BIN@` | 지금 실행 중인 `limn` 실행 파일. uv의 bin 폴더(`~/.local/bin/limn`) 경로를 심링크 해석 없이 쓴다. 업그레이드 뒤에도 살아남는 경로라서다 |
 | `@LIMN_CONFIG_DIR@` | 설정 폴더 |
-| `@LIMN_PATH@` | 유닛 안의 `PATH`. 유닛을 쓰는 셸에서 찾은 `pdflatex`의 폴더를 맨 앞에 두고 `/usr/local/bin:/usr/bin:/bin`을 붙인다. `LIMN_UNIT_PATH`로 바꾼다 |
+| `@LIMN_PATH@` | 유닛 안의 `PATH`. 처음 쓰는 유닛은 그 셸에서 찾은 `pdflatex`의 폴더를 맨 앞에 두고 `/usr/local/bin:/usr/bin:/bin`을 붙인다. 이미 limn이 쓴 유닛이 있으면 그 `PATH`가 아직 `pdflatex`에 닿는 동안 그대로 둔다. `LIMN_UNIT_PATH`로 바꾼다 |
 
 `PATH`를 채우는 이유는 systemd 유닛이 셸 rc 파일을 읽지 않아 대화형 셸의 `PATH`를 물려받지 못하기 때문이다. 이 값이 없으면 재빌드가 배포판의 `pdflatex`를 잡아 저널 클래스(`.cls`)를 못 찾는다.
+
+있는 유닛의 `PATH`를 지키는 이유는 `limn update`·`limn start`를 도는 셸이 늘 대화형 셸은 아니기 때문이다. 비로그인 SSH 셸(`ssh host limn update`)의 `PATH`에는 TeX Live가 없어 배포판의 `pdflatex`가 잡힌다. 그 셸의 값으로 유닛을 다시 쓰면 그 기기의 모든 인스턴스가 다음 재빌드부터 저널 클래스를 못 찾는다. 그래서 새 값은 셋일 때만 쓴다. 유닛이 처음일 때, 있던 `PATH`의 어느 폴더에도 `pdflatex`가 없을 때(TeX Live를 지운 경우), `LIMN_UNIT_PATH`를 준 때다. 지킨 값과 셸의 값이 다르면 경고 한 줄로 둘을 알린다. TeX를 옮겼으면 `LIMN_UNIT_PATH`를 주고 `limn start` 또는 `limn update`를 한 번 돌린다.
 
 템플릿의 나머지 설정은 다음과 같다.
 
@@ -403,7 +405,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/paper2.token)" http://127
 | `LIMN_DATA_ROOT` | `$XDG_DATA_HOME/limn` | 상태 폴더 기본 위치 |
 | `LIMN_SOURCE_DIR` | = 설정 폴더 | `add`가 설정 원본을 쓰는 곳(설정 폴더에 링크) |
 | `LIMN_USER_UNIT_DIR` | `$XDG_CONFIG_HOME/systemd/user` | 유닛 템플릿을 쓰는 곳 |
-| `LIMN_UNIT_PATH` | `pdflatex` 폴더 + `/usr/local/bin:/usr/bin:/bin` | 유닛 안의 `PATH` |
+| `LIMN_UNIT_PATH` | 있는 유닛의 `PATH`, 없으면 `pdflatex` 폴더 + `/usr/local/bin:/usr/bin:/bin` | 유닛 안의 `PATH` |
 | `LIMN_LEDGER`, `LIMN_LEDGER_GEN` | 위 '포트' 절 참고 | 포트 장부(선택) |
 | `LIMN_TS_MIN`, `LIMN_TS_MAX`, `LIMN_LOCAL_OFFSET` | `18005`, `18099`, `100` | 자동 배정 대역 |
 | `LIMN_REPO`, `LIMN_UV` | `git+https://github.com/dartworklabs/limn`, `uv` | `limn update`가 설치할 원본과 쓸 `uv`. SSH로 받으려면 `LIMN_REPO`에 `git+ssh://git@github.com/dartworklabs/limn`을 준다(0.1.0의 기본값, 위 '업데이트와 되돌리기' 참고) |

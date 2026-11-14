@@ -354,6 +354,25 @@ printf 'x\n' > "$T/user-units/limn@.service.foreign"
 cp "$T/user-units/limn@.service.foreign" "$R"
 chk "a unit file limn did not write is not overwritten" "! '$PV' start unit-t --no-serve >/dev/null 2>&1 && [[ \$(cat '$R') == x ]]"
 rm -f "$R" "$T/user-units/limn@.service.foreign"
+# The unit's PATH outlives a shell that finds another pdflatex: `limn update` over a non-login SSH shell sees the
+# distribution's TeX, and taking that PATH switched rebuilds to a TeX without the journal classes.
+mkdir -p "$T/texlive/bin" "$T/distro/bin"
+printf '#!/bin/sh\n' > "$T/texlive/bin/pdflatex"
+printf '#!/bin/sh\n' > "$T/distro/bin/pdflatex"
+chmod +x "$T/texlive/bin/pdflatex" "$T/distro/bin/pdflatex"
+LIMN_UNIT_PATH="$T/texlive/bin:/usr/bin:/bin" "$PV" start unit-t --no-serve > /dev/null 2>&1
+chk "LIMN_UNIT_PATH sets the PATH of a first unit" "grep -qx 'Environment=PATH=$T/texlive/bin:/usr/bin:/bin' '$R'"
+out=$(env -u LIMN_UNIT_PATH PATH="$T/distro/bin:$PATH" "$PV" start unit-t --no-serve 2>&1 > /dev/null)
+chk "a shell that finds another pdflatex keeps the unit's PATH" "grep -qx 'Environment=PATH=$T/texlive/bin:/usr/bin:/bin' '$R'"
+chk "... and says which PATH it kept" "grep -qF \"keeping the unit's PATH=$T/texlive/bin:/usr/bin:/bin\" <<< \"\$out\""
+rm "$T/texlive/bin/pdflatex"
+out=$(env -u LIMN_UNIT_PATH PATH="$T/distro/bin:$PATH" "$PV" start unit-t --no-serve 2>&1 > /dev/null)
+chk "a unit PATH that lost its pdflatex is replaced by this shell's" "grep -q '^Environment=PATH=$T/distro/bin:' '$R'"
+chk "... and the replacement is reported" "grep -qF 'no longer reaches a pdflatex' <<< \"\$out\""
+LIMN_UNIT_PATH="/opt/tex/bin:/usr/bin:/bin" "$PV" start unit-t --no-serve > /dev/null 2>&1
+chk "LIMN_UNIT_PATH still replaces a kept PATH" "grep -qx 'Environment=PATH=/opt/tex/bin:/usr/bin:/bin' '$R'"
+rm -f "$R"
+rm -rf "${T:?}/texlive" "${T:?}/distro"
 
 echo "── 7b. ledger generator (optional) ──"
 cat > "$T/gen.sh" << 'GEN'

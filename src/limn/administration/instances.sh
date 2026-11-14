@@ -476,17 +476,44 @@ url_of() { # url_of <tailnet port>
 # symlink — the package path can change when uv reinstalls the tool). Fields filled in: the executable
 # (@LIMN_BIN@), the config dir (@LIMN_CONFIG_DIR@), and the unit's PATH (@LIMN_PATH@ — systemd doesn't
 # go through shell rc files, so it can't inherit the TeX path).
+#
+# The PATH of a unit limn already wrote is kept while it still reaches a pdflatex: `limn update` run over
+# a non-login SSH shell finds the distribution's pdflatex (no TeX Live on that PATH), and recomputing
+# there silently switched every instance's rebuilds to a TeX without the journal classes. A new PATH is
+# taken only for a first unit, when the old one lost its pdflatex, or through LIMN_UNIT_PATH.
+installed_unit_path() { # the PATH line of the unit limn generated, if there is one
+    local f="$USER_UNIT_DIR/limn@.service"
+    if [[ ! -f "$f" || -L "$f" ]] || ! grep -q '^# limn:generated' "$f"; then return 0; fi
+    sed -n 's/^Environment=PATH=//p' "$f" | head -n 1
+}
+path_has_tex() { # path_has_tex <PATH> — some directory on it holds an executable pdflatex
+    local d dirs
+    IFS=: read -r -a dirs <<< "$1"
+    for d in "${dirs[@]}"; do
+        [[ -n "$d" && -x "$d/pdflatex" && ! -d "$d/pdflatex" ]] && return 0
+    done
+    return 1
+}
 unit_path() {
     if [[ -n "${LIMN_UNIT_PATH:-}" ]]; then
         printf '%s' "$LIMN_UNIT_PATH"
         return
     fi
-    local out="" d tex
+    local out="" d tex old
     tex=$(command -v pdflatex 2> /dev/null || true)
     for d in ${tex:+"$(dirname "$tex")"} /usr/local/bin /usr/bin /bin; do
         case ":$out:" in *":$d:"*) continue ;; esac
         out="${out:+$out:}$d"
     done
+    old=$(installed_unit_path)
+    if [[ -n "$old" && "$old" != "$out" ]]; then
+        if path_has_tex "$old"; then
+            warn "keeping the unit's PATH=$old (this shell would give PATH=$out) — set LIMN_UNIT_PATH to change it"
+            out=$old
+        else
+            warn "the unit's PATH=$old no longer reaches a pdflatex — replacing it with PATH=$out"
+        fi
+    fi
     printf '%s' "$out"
 }
 render_unit() {
