@@ -172,6 +172,25 @@ class OfflineQueueSend(unittest.TestCase):
         self.assertEqual(got["pins"], 3, "the refused one is written on the next send, not swallowed")
         self.assertEqual(got["left"], 0)
 
+    def test_a_server_error_keeps_the_attempt_mark_and_is_looked_for_in_the_list(self):
+        """A 5xx may follow a write that went through - the server wrote the pin and then failed answering, or a
+        gateway timed out over a request that reached it. Clearing the mark would write the pin a second time."""
+        got = self._run(
+            """
+            const a=rec(1,'once'); QUEUE=[a];
+            ANSWERS={pick:[found(10),found(10)],pin:[{refuse:500},{id:95}]};
+            offlineFlush().then(function(){
+              const mark=QUEUE[0]&&QUEUE[0].sent;
+              // The pin had in fact been written; the next send has to find it rather than write it again.
+              OPEN_ALL=[{id:94,author:'me',doc:'main',file:'main.tex',lo:10,hi:11,note:'once'}];
+              return offlineFlush().then(function(){
+                console.log(JSON.stringify({mark:mark,pins:PINS_SENT.length,left:QUEUE.length}));});});
+            """
+        )
+        self.assertEqual(got["mark"], True, "a 5xx leaves the record matchable")
+        self.assertEqual(got["pins"], 1, "the pin already there is found, not written twice")
+        self.assertEqual(got["left"], 0)
+
     def test_an_answer_that_never_came_keeps_the_attempt_mark(self):
         """A tab closed mid-request, or a lost answer: the record stays matchable, or its pin is written twice."""
         got = self._run(

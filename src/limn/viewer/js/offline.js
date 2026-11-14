@@ -260,15 +260,18 @@ async function offlineFlush(){
       // that is no longer there has been dealt with, and writing it again would make the pin twice.
       if(!(await offHas(rec.id)))continue;
       // The attempt is recorded before it is made: a tab closed mid-request never reaches the lines below, and the
-      // record has to stay matchable or its pin is written twice. A refusal takes the mark off again - the server
-      // answered, and the answer was no, so nothing was written and this record must never be matched to someone
-      // else's pin at the same place. Only an answer that never came leaves the mark standing.
+      // record has to stay matchable or its pin is written twice. The mark comes off again only for an answer that
+      // says the request was turned away before anything was written - a refusal of the request itself (4xx: a field
+      // the server would not take, a role that may not write, a conflict). Everything else may be on the server: no
+      // answer at all, a 5xx the server returned after its write went through, a gateway's 502 or 504 over a request
+      // that did reach it. Those keep the mark and are looked for in the list instead.
       rec.sent=true; await offPut(rec);
       try{const {data}=await api('/api/pin',{method:'POST',body:offlineBody(rec,d),what:'핀 저장',silent:true});
         if(data&&typeof data.id==='number')claimed.add(data.id);
         saved.push(data&&data.id); await offDel(rec.id);}
       catch(e){const x=/** @type {ApiError} */(e);
-        if(x&&x.status){rec.sent=false; await offPut(rec); failed++; continue;}   // refused: nothing is on the server
+        const st=x&&x.status||0;
+        if(st>=400&&st<500){rec.sent=false; await offPut(rec); failed++; continue;}   // turned away: nothing is on the server
         await loadPins(); const late=offlineLanded(rec,d,claimed);
         if(late){claimed.add(late); saved.push(late); await offDel(rec.id); continue;}
         failed++;}}
