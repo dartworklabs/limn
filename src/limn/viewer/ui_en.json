@@ -1772,5 +1772,6 @@
  "메모가 이미 바뀌어 되돌리지 않았습니다": "The note has changed since, so it was not taken back",
  "되돌리지 못했습니다 — 이 브라우저가 오프라인 보관을 막고 있습니다": "Could not undo — this browser is blocking offline storage",
  "다른 문서로 옮겨 되돌리지 않았습니다 — 그 문서에서 메모를 지우세요": "Not taken back: you are on another document now — clear the note on that document",
- "보낸 적이 있어 서버에 이미 있을 수 있습니다 — 연결된 뒤 [지금 반영]으로 확인하세요": "This one was sent before and may already be on the server — once connected, check with [Write now]"
+ "보낸 적이 있어 서버에 이미 있을 수 있습니다 — 연결된 뒤 [지금 반영]으로 확인하세요": "This one was sent before and may already be on the server — once connected, check with [Write now]",
+ "reason:bad_holder": "The hold's holder must be 16 to 64 letters, digits, _ or -."
 }

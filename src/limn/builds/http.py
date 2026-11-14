@@ -31,12 +31,14 @@ def rebuild(requests: BuildRequests, doc: Doc, query: Query, authority: PostAuth
 def hold(
     requests: BuildRequests, doc: Doc, body: Json, authority: PostAuthority, text: Callable[[object], str]
 ) -> tuple[dict[str, object], int]:
-    """POST /api/hold {build, days?}: hold page build `build` of doc for `days` days (default holds.MAX_DAYS; a longer
-    ask is capped there, and the answer's until says so; 0 releases it) and answer {build, until} (until null once
-    released). 400 bad_pdf_build (the pick's refusal of the same check) for a name that is not a page directory name;
-    400 not_number for a length that is not a finite number, too_small below 0; the pdf_build_gone 404 (with the build
-    on screen) when that build's folder is gone - also for a release, and also when a commit removes it while the
-    request is being answered (holds.HoldBuildGone)."""
+    """POST /api/hold {build, days?, holder?}: hold page build `build` of doc for `days` days (default holds.MAX_DAYS; a
+    longer ask is capped there; 0 releases) on behalf of `holder` (absent: the anonymous share), and answer
+    {build, until} - until is when the build is held to over all its holders' shares, null once none is left. 400
+    bad_pdf_build (the pick's refusal of the same check) for a name that is not a page directory name; 400 not_number
+    for a length that is not a finite number, too_small below 0; 400 bad_holder for a holder that is not a string of
+    16..64 characters of [A-Za-z0-9_-]; the pdf_build_gone 404 (with the build on screen) when that build's folder is
+    gone - also for a release, and also when a commit removes it while the request is being answered
+    (holds.HoldBuildGone)."""
     name = body.get("build")
     if not build.valid_build_name(name):
         raise HTTPError(400, "build 는 쪽 폴더 이름(pages 또는 pages-<시각>)이어야 합니다.", reason="bad_pdf_build")
@@ -45,9 +47,16 @@ def hold(
         raise HTTPError(400, "days 는 유한한 숫자여야 합니다.", reason="not_number")
     if days < 0:
         raise HTTPError(400, "days 는 0 이상이어야 합니다.", reason="too_small")
+    holder = body.get("holder", holds.ANONYMOUS)
+    if "holder" in body and not holds.is_holder(holder):
+        raise HTTPError(
+            400,
+            "holder 는 %d~%d자의 영문자·숫자·_·- 로 된 문자열이어야 합니다." % (holds.HOLDER_MIN, holds.HOLDER_MAX),
+            reason="bad_holder",
+        )
     cur = build.cur_pages(doc).name
     try:
-        until = requests.hold(doc, authority, name, min(float(days), holds.MAX_DAYS))
+        until = requests.hold(doc, authority, name, min(float(days), holds.MAX_DAYS), holder)
     except holds.HoldBuildGone:
         build_gone(name, cur, text, "쪽 폴더")
     return {"build": name, "until": None if until is None else until.isoformat(timespec="seconds")}, 200

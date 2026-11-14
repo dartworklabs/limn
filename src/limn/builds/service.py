@@ -128,13 +128,16 @@ class BuildRequests:
         require_authority(authority, self.authority_scope, "rebuild", document_authority_target(doc))
         return run.request_rebuild(doc, lambda d: self.build_async(d, force))
 
-    def hold(self, doc: Doc, authority: PostAuthority, name: str, days: float) -> datetime | None:
-        """Hold build `name` of doc for `days` days (0 releases it) and answer until when (POST /api/hold,
-        limn.builds.holds.set_hold). The caller has checked the name and the length; holds.HoldBuildGone when the
-        build directory is not there under the holds lock. The hold records the requester's login, and the request counts as a real change."""
+    def hold(
+        self, doc: Doc, authority: PostAuthority, name: str, days: float, holder: str = holds.ANONYMOUS
+    ) -> datetime | None:
+        """Hold build `name` of doc for `days` days on behalf of `holder` (0 releases that holder's share) and answer
+        until when the build is held, None once no share is left (POST /api/hold, limn.builds.holds.set_hold). The
+        caller has checked the name, the length and the holder; holds.HoldBuildGone when the build directory is not
+        there under the holds lock. The hold records the requester's login, and the request counts as a real change."""
         require_authority(authority, self.authority_scope, "hold", document_authority_target(doc))
         by = authority.get("login")
-        until = holds.set_hold(doc, name, days, by if isinstance(by, str) else "")
+        until = holds.set_hold(doc, name, days, by if isinstance(by, str) else "", holder=holder)
         changed()  # a real change: the handler records the requester, as after a rebuild
         return until
 
