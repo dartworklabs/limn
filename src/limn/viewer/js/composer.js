@@ -31,7 +31,11 @@ async function pick(r){
   // A new selection the server cannot be reached for is not a failure: offlinePick opens the composer on it and says
   // what happens next, so the call does not say '위치 찾기 실패' over that. A re-place and a Markdown or text
   // document have no such way on, and say it.
-  try{d=(await api('/api/pick',{method:'POST',body:r,what:'위치 찾기',quietUnreached:!rp&&!isMdDoc()})).data;}
+  // While the connection is known to be gone, or the last request to end got no answer (API_OUT - the poll has not
+  // counted its two failures yet), the server is not asked at all: each drag would wait out a request that cannot be
+  // answered before its composer opened. And a request that is asked waits no longer than API_WAIT.PICK.
+  try{if(!rp&&!isMdDoc()&&(offlineNow()||API_OUT))throw new Error('cut off');
+    d=(await api('/api/pick',{method:'POST',body:r,what:'위치 찾기',quietUnreached:!rp&&!isMdDoc(),wait:API_WAIT.PICK})).data;}
   catch(e){if(seq!==PICKSEQ)return; setBusy(false); if(!rp){COMPOSE.picking=false; clearPendingSave();}
     // The server could not be reached (a refusal carries a status): the drag is not lost. Its box stays and the composer
     // opens on a selection with no lines, which [핀 저장] keeps in the queue until the connection is back (offline.js).

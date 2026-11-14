@@ -8,6 +8,7 @@ async function boot(){i18nStart();
   applyTheme(); applyLayout();
   // There's no keyboard shortcut on a touch device - "핀 저장 Ctrl+Enter" would just get clipped at phone width.
   setHtml($('#btn-save'),saveBtnLabel());
+  await offlineAskDown();   // a page the worker answered from its copy starts from the stored reads (offline.js)
   await loadDocs(); DOC=initialDoc();
   try{META=(await api(dq('/api/meta'),{what:'화면 정보 읽기',where:NOTICE_HOST.LINE})).data;}catch(e){return;}
   if(META.doc)DOC=META.doc; META_BY.set(DOC,META); loadViews(); const v=VIEW_BY.get(DOC);

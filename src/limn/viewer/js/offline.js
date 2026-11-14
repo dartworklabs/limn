@@ -164,6 +164,14 @@ async function offlineAsk(msg,ms){const reg=await offlineWorker(); if(!reg)retur
   if(!sw)return null;
   return new Promise(res=>{const ch=new MessageChannel(),t=setTimeout(()=>res(null),ms||3000);
     ch.port1.onmessage=e=>{clearTimeout(t); res(e.data);}; try{sw.postMessage(msg,[ch.port2]);}catch(e){clearTimeout(t); res(null);}});}
+// Asks the worker that controls this page whether it is answering from its copies because the network did not (sw.js
+// 'down'), before the visit's first read: this page was then one of those answers, and its reads need not each wait
+// out a request (api.js API_OUT). Only a worker already in control is asked, and for a moment - a first visit, or a
+// browser with no worker, reads as it always did.
+async function offlineAskDown(){const sw='serviceWorker' in navigator?navigator.serviceWorker.controller:null; if(!sw)return;
+  const r=await new Promise(res=>{const ch=new MessageChannel(),t=setTimeout(()=>res(null),300);
+    ch.port1.onmessage=e=>{clearTimeout(t); res(e.data);}; try{sw.postMessage({type:'down'},[ch.port2]);}catch(e){clearTimeout(t); res(null);}});
+  if(r&&r.down===true)API_OUT=true;}
 // What the page needs to open with no network: the page itself and everything it has already loaded from this origin
 // (the inlined shell leaves only the vendored PDF.js, fonts, KaTeX and the Markdown worker). Nothing is hardcoded, so a
 // change to the vendored files follows along.
@@ -340,7 +348,7 @@ function offKeptHeld(kept,k,b,at){if(!kept)return null;
 // (404), a role that may not hold (403). null when there was no answer.
 /** @param {string|null} k @param {string} b @param {number} days @returns {Promise<{at:number,held:boolean}|null>} */
 async function offHold(k,b,days){const holder=(await offHolderId())||undefined;
-  try{const r=await api(dq('/api/hold',k),{method:'POST',body:{build:b,days,holder},what:'빌드 보류',silent:true});
+  try{const r=await api(dq('/api/hold',k),{method:'POST',body:{build:b,days,holder},what:'빌드 보류',silent:true,wait:API_WAIT.SEND});
     return {at:Date.now(),held:r.status===200&&!!r.data&&!!r.data.until};}
   catch(e){const x=/** @type {ApiError} */(e),st=x&&x.status||0; return st>=400&&st<500?{at:Date.now(),held:false}:null;}}
 // This browser's name among the holders of a build: made once and kept in the state store, so every tab and every
@@ -490,8 +498,11 @@ async function offlinePick(r){
 // [핀 저장] with no server: the pin goes to the queue with everything needed to write it later - where it was drawn, on which
 // build, its words, and what the composer asked (the note, its kind, its assignee and the @-tags). Answers whether it was
 // kept; a browser that refuses the queue answers false and the caller says the save failed, so no pin is lost silently.
-/** @param {Selection} d @param {string} note @param {{kind:string|null,assignee:string|null}} out @param {string[]} mentions @returns {Promise<boolean>} */
-async function offlineQueueSave(d,note,out,mentions){
+// tried is given for a save that was sent and got no answer (save.js): the record is kept as one whose write was
+// attempted - under the key the save went with, if it had one, and with the newest pin that stood before it - so the
+// send asks for it before it writes it.
+/** @param {Selection} d @param {string} note @param {{kind:string|null,assignee:string|null}} out @param {string[]} mentions @param {{idem?:string,top:number}} [tried] @returns {Promise<boolean>} */
+async function offlineQueueSave(d,note,out,mentions,tried){
   if(OFF.n>=OFF_MAX){bannerNote(NOTICE_HOST.COMPOSER,tl('쌓아 둘 수 있는 핀은 {n}개까지입니다 — 연결되면 먼저 반영하세요',{n:OFF_MAX}),NOTICE_KIND.ERR,null,{save:true,source:'offline-queue'}); return false;}
   // What the send needs is the drag itself, never the lines a pick once answered: hours pass, the manuscript is edited
   // while the person is away, and those line numbers would be written against text that has moved - a pin that reads
@@ -508,11 +519,11 @@ async function offlineQueueSave(d,note,out,mentions){
   const rec={v:1,label:META?META.label:'',doc:d.doc||DOC,build:d.pdf_build||(META?META.pages_build:'')||'',
     page:d.page,rect:d.rect||null,frac:d.frac,pt:pg?{w:pg.pt_w,h:pg.pt_h}:null,
     quote:d.quote||'',note,kind_req:out.kind,assignee:out.assignee,
-    mentions:mentions.slice(),at:new Date().toISOString(),held:false,why:'',sent:false,
+    mentions:mentions.slice(),at:new Date().toISOString(),held:false,why:'',sent:!!tried,top:tried?tried.top:undefined,
     place:found?{file:d.file,name:d.name,lo:d.lo,hi:d.hi}:null,
     lines:lined?{file:d.file,name:d.name,lo,hi,text:MD.lines.slice(lo-1,hi).join('\n'),
       kind:d.scope?kindFor(d.scope,d.env):d.kind,scope:d.scope?wireScope(d.scope):null}:null,
-    idem:offlineKey()};
+    idem:(tried&&tried.idem)||offlineKey()};
   if(found&&typeof d.page!=='number'&&!lined){   // a line selection whose source this tab no longer holds: nothing to check it against later
     bannerNote(NOTICE_HOST.COMPOSER,tr('핀 저장 실패 — 이 문서의 원문을 다시 읽은 뒤 저장하세요'),NOTICE_KIND.ERR,null,{save:true,source:'offline-queue'}); return false;}
   const id=await offAdd(rec);
@@ -613,7 +624,7 @@ async function offlineFlush(){
   // from is not that: a tab drawn from stored reads has heard nothing this visit and starts sending on the 'online'
   // event, and a server may have been rolled back to a Limn that drops the key it does not know. The answer sets
   // OFF.idem on its way through api() (offStash). No answer means the connection is not there after all.
-  try{await api(dq('/api/meta?light=1'),{what:'상태 확인',silent:true});}
+  try{await api(dq('/api/meta?light=1'),{what:'상태 확인',silent:true,wait:API_WAIT.POLL});}
   catch(e){OFF.flushing=false; return;}
   const saved=/** @type {number[]} */([]),claimed=new Set(await offWrote()); let held=0,failed=0;
   try{
@@ -628,7 +639,7 @@ async function offlineFlush(){
       // nothing whichever way it is answered (api.md POST /api/pin, replay_only).
       const keyed=OFF.idem&&!!rec.idem;
       if(keyed&&rec.sent){
-        try{const r=await api('/api/pin',{method:'POST',body:{idem:rec.idem,replay_only:true,doc:rec.doc||undefined},what:'핀 저장',silent:true,expect:[409]});
+        try{const r=await api('/api/pin',{method:'POST',body:{idem:rec.idem,replay_only:true,doc:rec.doc||undefined},what:'핀 저장',silent:true,expect:[409],wait:API_WAIT.SEND});
           if(r.status===200&&r.data&&typeof r.data.id==='number'){claimed.add(r.data.id); await offWroteAdd(r.data.id);
             saved.push(r.data.id); await offDel(rec.id); continue;}
           // The server knows no pin by this key: the attempt never arrived, so its mark comes off. A record then held
@@ -647,7 +658,7 @@ async function offlineFlush(){
         if(!box){rec.held=true; rec.why=tr('위치를 찾지 못했습니다'); await offPut(rec); held++; continue;}
         const req={page:rec.page,x0:box.x0,y0:box.y0,x1:box.x1,y1:box.y1,
           frac:rec.frac,pdf_build:rec.build||undefined,doc:rec.doc||undefined};
-        try{d=(await api('/api/pick',{method:'POST',body:req,what:'위치 찾기',silent:true})).data;}
+        try{d=(await api('/api/pick',{method:'POST',body:req,what:'위치 찾기',silent:true,wait:API_WAIT.SEND})).data;}
         catch(e){failed++; continue;}                     // no answer or a refusal: the record stays for the next send
         if(!d||d.error){rec.held=true; rec.why=errText(d)||tr('위치를 찾지 못했습니다'); await offPut(rec); held++; continue;}}
       // A server that knows a write by its key needs none of the looking below: the same key is the same pin, so the
@@ -662,7 +673,7 @@ async function offlineFlush(){
       if(keyed){
         if(!(await offHas(rec.id)))continue;
         rec.sent=true; rec.top=pvTopId(); await offPut(rec);
-        try{const {data}=await api('/api/pin',{method:'POST',body:offlineBody(rec,d),what:'핀 저장',silent:true});
+        try{const {data}=await api('/api/pin',{method:'POST',body:offlineBody(rec,d),what:'핀 저장',silent:true,wait:API_WAIT.SEND});
           if(data&&typeof data.id==='number'){claimed.add(data.id); await offWroteAdd(data.id);}
           saved.push(data&&data.id); await offDel(rec.id);}
         catch(e){const x=/** @type {ApiError} */(e),st=x&&x.status||0;
@@ -684,7 +695,7 @@ async function offlineFlush(){
       // answer at all, a 5xx the server returned after its write went through, a gateway's 502 or 504 over a request
       // that did reach it. Those keep the mark and are looked for in the list instead.
       rec.sent=true; rec.top=pvTopId(); await offPut(rec);   // the pins that existed before this write, as savePin notes for its own
-      try{const {data}=await api('/api/pin',{method:'POST',body:offlineBody(rec,d),what:'핀 저장',silent:true});
+      try{const {data}=await api('/api/pin',{method:'POST',body:offlineBody(rec,d),what:'핀 저장',silent:true,wait:API_WAIT.SEND});
         if(data&&typeof data.id==='number'){claimed.add(data.id); await offWroteAdd(data.id);}
         saved.push(data&&data.id); await offDel(rec.id);}
       catch(e){const x=/** @type {ApiError} */(e);

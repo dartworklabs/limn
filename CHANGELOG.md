@@ -27,6 +27,15 @@
 
 ### Fixed
 
+- **A server that does not answer is a server that is cut off.** On a tailnet with no internet behind it (a flight) a
+  request is not refused: it waits, for a minute and more. Everything that told "cut off" from "connected" hung on a
+  request failing, so the light poll counted nothing, a drag's composer stayed busy, a save never ended and no pin
+  reached the queue. The requests that decide it now wait only so long (the light poll, a document read with a
+  stored answer and a drag's pick 8s, a new pin's save 10s) and then count as unreached; after one unanswered
+  request a drag opens at once, without asking. A save sent while the viewer thought it was connected and left
+  without an answer for that long is kept in the queue under its key instead of failing. The service worker answers from its copy
+  when the network has not answered a request it has a copy of in 4s, so a tab opened again during a flight opens in
+  seconds, not minutes.
 - **A drag made while cut off keeps its selection.** The composer's head read `null` for the file and a
   "location failed" banner came with it; it now names the page and shows an `Offline` badge.
 

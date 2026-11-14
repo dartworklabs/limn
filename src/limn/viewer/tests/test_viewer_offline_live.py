@@ -393,3 +393,81 @@ class LostAnswer(LiveBase):
         tab.wait_for("OFF.n===0")
         self.assertEqual(tab.unsent(), {"n": 0, "held": 0}, "not held: the pin was already there")
         self.assertEqual(len([p for p in self.pins() if p.get("note") == CAUGHT_UP]), 1)
+
+
+class ServerThatDoesNotAnswer(LiveBase):
+    """The server is neither refused nor heard from: requests wait. A tailnet with no internet behind it does this, and
+    it is where a flight leaves a device - not the instant failure of a browser that knows it is offline."""
+
+    NOTE = "written while nothing came back"
+
+    def test_the_poll_says_the_connection_is_gone_and_says_it_is_back(self):
+        """A poll left waiting is a poll that failed: two of them and the page keeps pins instead of sending them."""
+        tab = self.open_live()
+        tab.waits(POLL=300)
+        self.stop_answering()
+        tab.wait_for("offlineNow()")
+        self.assertFalse(tab.page.evaluate("document.querySelector('#conn-lost').hidden"))
+        self.answer_again()
+        tab.wait_for("!offlineNow()")
+        self.assertTrue(tab.page.evaluate("document.querySelector('#conn-lost').hidden"))
+
+    def test_a_drag_opens_its_composer_and_the_pin_is_kept(self):
+        """Before the poll has said anything: the drag's request waits no longer than its wait, the composer opens on a
+        selection made cut off, and [핀 저장] keeps it. The next drag does not ask the server at all."""
+        tab = self.open_live()
+        tab.keep()
+        tab.stop_polling()
+        tab.waits(PICK=400, POLL=300)
+        picks = tab.asked("/api/pick")
+        self.stop_answering()
+        selection = tab.drag_over_words()
+        self.assertTrue(selection["offline"], selection)
+        self.assertFalse(tab.lost(), "the poll has not counted a failure: the drag's own request said it")
+        tab.write_note(self.NOTE)
+        tab.wait_for("OFF.n===1")
+        self.assertEqual(len(picks), 1)
+        tab.drag((0.2, 0.5, 0.8, 0.56))
+        self.assertTrue(tab.composer()["offline"])
+        self.assertEqual(len(picks), 1, "the second drag asked nothing of a server that had just not answered")
+        self.answer_again()
+        self.assertEqual(self.pins(), [])
+
+    @needs_tex("latexmk", "synctex", "pdftotext", "pdftoppm")
+    def test_a_save_that_gets_no_answer_is_kept_as_tried_and_written_once(self):
+        """The selection was found while connected and its save goes out as any save does - and nothing comes back. The
+        pin is kept in the queue under the key the save carried, marked as tried; the composer closes. The server then
+        handles the request it had been left with, and the send asks by that key: one pin, and an empty queue."""
+        self.assertIsInstance(ps.APP.build_requests.build_all(self.doc), BuildOk)
+        tab = self.open_live()
+        tab.stop_polling()
+        tab.drag((0.2, 0.30, 0.8, 0.36))
+        selection = tab.composer()
+        self.assertFalse(selection["offline"], selection)
+        tab.waits(SAVE=400, READ=400, POLL=400)
+        saves = tab.asked("/api/pin")
+        self.stop_answering()
+        tab.write_note(self.NOTE)
+        tab.wait_for("OFF.n===1")
+        record = tab.queue()[0]
+        self.assertTrue(record["sent"], record)
+        self.assertEqual(len(saves), 1)
+        self.assertIn('"idem":"%s"' % record["idem"], saves[0])
+        self.assertFalse(tab.save_failure(), "kept, not said as a failed save")
+        self.answer_again()
+        tab.until(lambda: len(self.pins()) == 1, what="the save the server had been left with")
+        tab.send_queue()
+        tab.wait_for("OFF.n===0")
+        self.assertEqual([p["note"] for p in self.pins()], [self.NOTE])
+
+    def test_the_tab_opens_again_from_its_copies(self):
+        """Reloaded with the server not answering: the worker's copy answers for the page once the network has had its
+        wait, the page starts from the stored reads without waiting each of them out, and a drag is kept."""
+        tab = self.open_live()
+        built = tab.keep()
+        self.stop_answering()
+        tab.reopen()
+        self.assertEqual(tab.build(), built)
+        self.assertTrue(tab.stale_said())
+        tab.pin_offline(self.NOTE)
+        self.assertEqual(tab.queued(), 1)

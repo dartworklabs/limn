@@ -84,13 +84,19 @@ def extract_js_fn(name: str) -> str:
 # Stand-ins for the hooks of the viewer's update messages (js/updates.js; notices.js groupNote and the gathering) for a node
 # harness that pulls a function calling them: a group says its view at once through the harness's own lineNote, the gathering
 # and the update checks do nothing. var and function declarations, so a harness may take it more than once.
-JS_UPDATE_STUBS = r"""
+# api.js's waits, for a node harness that pulls a function passing one to a stubbed api() (the light poll, pick()).
+JS_API_WAIT = "var API_WAIT={POLL:8000,READ:8000,PICK:8000,SAVE:10000,SEND:30000},API_OUT=false;\n"
+
+JS_UPDATE_STUBS = (
+    JS_API_WAIT
+    + r"""
 var LIGHT_OK_AT=0,AWAY_MS=120000,DIGEST_TAIL_MS=0,DIGEST=null;
 function digestBegin(){} function digestSoon(){} function awayTitle(){return '';} function checkVersion(){}
 function versionDue(){return false;} function updExpect(){} function updPinMoved(){return false;} function updNewPins(){}
 function checkDocUpdate(){} function updSourceRedrawn(){} function updMarks(){} function seenStore(){return {};} function visitedBefore(){return false;} function checkDocsSeen(){}
 function groupNote(group,data,view){const v=view(data); return lineNote(v.msg,v.kind,v.act,v.o);} function newsWithout(){return ()=>null;}
 """
+)
 
 
 # Stand-ins for the hooks of the offline pin queue (js/offline.js) for a node harness that pulls a function calling
@@ -103,6 +109,11 @@ function offlineNow(){return false;} function offlineBoot(){} function offlineFl
 function offlinePick(){return Promise.resolve();} function offlineQueueSave(){return Promise.resolve(false);}
 function offStash(){} function offStashed(){return Promise.resolve(null);} function offStaleSaid(){}
 function offlineMayServe(){return false;} function offlineBack(){}
+function offReadKey(){return null;} function offlineKey(){return 'key-0123456789abcdef';} function offlineAskDown(){return Promise.resolve();}
+// api.js's own, beside api(): how long a request waits, whether the last one went unanswered, and what an unanswered
+// one does (here: it is said and thrown - nothing is stored to answer it).
+var API_WAIT={POLL:8000,READ:8000,PICK:8000,SAVE:10000,SEND:30000},API_OUT=false;
+function apiUnanswered(url,o,e){API_OUT=true; if(!o.silent&&!o.quietUnreached)apiFailed(o,tr('서버에 닿지 않습니다'),true); return Promise.reject(e);}
 """
 
 

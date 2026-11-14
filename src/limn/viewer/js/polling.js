@@ -22,7 +22,7 @@ function pollHiddenNotify(){
 }
 async function pollHiddenNotifyOnce(){
   let d;
-  try{d=(await api(dq('/api/meta?light=1')+notifyQuery(),{what:'알림 확인',silent:true})).data;}catch(e){return;}
+  try{d=(await api(dq('/api/meta?light=1')+notifyQuery(),{what:'알림 확인',silent:true,wait:API_WAIT.POLL})).data;}catch(e){return;}
   if(document.hidden)notifyHandle(d);   // if the tab came back while waiting, normal polling has already handled it
 }
 // If the tab hides while notifications are on, the slow timer is started; it's stopped when the tab returns or notifications are turned off (avoids duplicate polling).
@@ -39,7 +39,9 @@ const AWAY_MS=120000;
 async function pollLightOnce(){
   let d; const k=DOC,visit=SWITCHSEQ,gap=LIGHT_OK_AT?Date.now()-LIGHT_OK_AT:0,back=gap>=AWAY_MS,lost=POLL_FAILS>=2;
   if(back)digestBegin(awayTitle(gap,lost));
-  try{d=(await api(dq('/api/meta?light=1')+notifyQuery(),{what:'상태 확인',silent:true})).data;}
+  // The poll is what says the connection is gone, so it never waits on a server that does not answer (API_WAIT): one
+  // poll is out at a time, and a poll left waiting counted no failure for as long as the system let it wait.
+  try{d=(await api(dq('/api/meta?light=1')+notifyQuery(),{what:'상태 확인',silent:true,wait:API_WAIT.POLL})).data;}
   catch(e){if(back)digestSoon(); if(k!==DOC||visit!==SWITCHSEQ)return;
     POLL_FAILS++; if(POLL_FAILS===2)announce(tr('연결 끊김 · 다시 잇는 중'),true);   // read out once, as it is lost (rule 1)
     if(POLL_FAILS>=2)$('#conn-lost').hidden=false; return;}

@@ -16,6 +16,7 @@ from helpers import extract_js_fn, run_node
 # The page scope a pulled offline function reads: the queue (an array standing in for IndexedDB), the server (api), the
 # list the dedup judgment reads, and the messages. Every call is recorded so a test can say what went out and in which order.
 SCOPE = r"""
+var API_WAIT={POLL:8000,READ:8000,PICK:8000,SAVE:10000,SEND:30000};   // api.js: how long a request waits (the real waits are test_viewer_offline_live's)
 var POLL_FAILS=0,DEFAULT_DOC='main',DOC='main',META={label:'inst',pages_build:'pages-20261114T090000',pages:[],built_at:'t'};
 var OFF_STATE='state',OFF_WROTE='wrote',OFF_WROTE_MAX=500,STATE=new Map();
 function offIn(store,mode,fn){const s={put:function(v){STATE.set(v.key,v); return {};},
@@ -718,8 +719,14 @@ function endNotice(n){ENDED.push(n.msg);}
 function offStash(){}
 // The store holds one good answer to the pin read.
 function offStashed(url){return Promise.resolve(url==='/api/pins?all=1'?{data:['stored'],status:200,at:0}:null);}
-var NET='down';   // what fetch does: 'down' rejects as a lost connection does, 'up' answers
-globalThis.fetch=function(){return NET==='down'?Promise.reject(new TypeError('Failed to fetch'))
+var API_WAIT={POLL:8000,READ:8000,PICK:8000,SAVE:10000,SEND:30000},API_OUT=false;   // api.js's own, beside api()
+function offReadKey(url,o){return (!o||!o.method||o.method==='GET')&&url==='/api/pins?all=1'?url:null;}   // the one read with a store here
+// What fetch does: 'down' rejects as a lost connection does, 'up' answers, 'mute' neither - the request waits until
+// its signal ends it, and for ever if it was given none (a tailnet with no internet behind it).
+var NET='down',ASKED=0;
+globalThis.fetch=function(url,init){ASKED++;
+  if(NET==='mute')return new Promise(function(res,rej){if(init&&init.signal)init.signal.addEventListener('abort',function(){rej(new Error('ended'));});});
+  return NET==='down'?Promise.reject(new TypeError('Failed to fetch'))
   :Promise.resolve({status:200,json:function(){return Promise.resolve(['fresh']);}});};
 function read(){return api('/api/pins?all=1',{what:'핀 읽기'}).then(function(r){return r.data[0];},function(){return 'failed';});}
 """
@@ -738,7 +745,7 @@ class StoredReadsServe(unittest.TestCase):
             self.skipTest("node not available")
 
     def _run(self, scenario):
-        names = ("offlineNow", "offlineMayServe", "offStaleSaid", "offlineBack", "api")
+        names = ("offlineNow", "offlineMayServe", "offStaleSaid", "offlineBack", "apiUnanswered", "api")
         return json.loads(run_node("\n".join([SERVE_SCOPE, *(extract_js_fn(n) for n in names), scenario])))
 
     def test_a_read_that_fails_while_connected_is_a_failure(self):
@@ -771,6 +778,45 @@ class StoredReadsServe(unittest.TestCase):
             """
         )
         self.assertEqual(got, {"first": "stored", "second": "fresh", "stale": False, "ended": 1, "rev": None})
+
+    def test_a_read_left_waiting_is_ended_at_its_wait_and_is_a_read_that_failed(self):
+        """The server neither refuses nor answers. A read with a stored answer waits API_WAIT.READ and no longer: on a
+        visit's first reads the store answers, and while the viewer is connected the failure is said."""
+        got = self._run(
+            """
+            NET='mute'; API_WAIT.READ=20; OFF.boot=true;
+            read().then(function(first){OFF.boot=false; API_OUT=false;
+              return read().then(function(second){console.log(JSON.stringify({first:first,second:second,said:SAID.length}));});});
+            """
+        )
+        self.assertEqual(got, {"first": "stored", "second": "failed", "said": 1})
+
+    def test_once_a_request_went_unanswered_the_first_reads_do_not_ask(self):
+        """A visit's first reads are made one after another. After one that got no answer the store answers the rest
+        without a request each - until anything answers: then reads ask again."""
+        got = self._run(
+            """
+            OFF.boot=true;
+            read().then(function(){const one=ASKED;
+              return read().then(function(v){const two=ASKED; NET='up';
+                return api('/api/meta?light=1',{silent:true}).then(function(){
+                  return read().then(function(w){console.log(JSON.stringify({one:one,two:two,second:v,after:w,asked:ASKED}));});});});});
+            """
+        )
+        self.assertEqual(got, {"one": 1, "two": 1, "second": "stored", "after": "fresh", "asked": 3})
+
+    def test_a_request_with_no_wait_is_not_ended(self):
+        """A rebuild or a revision's build takes as long as the server needs: only a request given a wait, and a read
+        with a stored answer, is ended. A wait the caller gives ends any request."""
+        got = self._run(
+            """
+            NET='mute'; const seen={};
+            api('/api/rebuild?async=1',{method:'POST',silent:true}).then(function(){seen.slow='answered';},function(){seen.slow='ended';});
+            api('/api/pick',{method:'POST',silent:true,wait:20}).then(function(){seen.pick='answered';},function(){seen.pick='ended';})
+              .then(function(){setTimeout(function(){console.log(JSON.stringify({slow:seen.slow||'waiting',pick:seen.pick,out:API_OUT})); process.exit(0);},60);});
+            """
+        )
+        self.assertEqual(got, {"slow": "waiting", "pick": "ended", "out": True})
 
 
 class OfflineQuote(unittest.TestCase):
@@ -1175,6 +1221,7 @@ def _shipped_const(name):
 # The page scope the follow runs in: the kept record and the queue (stand-ins for the state store and the pins store), the
 # worker's cache, the server (meta per document, holds) and the clock. LOG says what went out, in order.
 FOLLOW_SCOPE = r"""
+var API_WAIT={POLL:8000,READ:8000,PICK:8000,SAVE:10000,SEND:30000};   // api.js: how long a request waits (the real waits are test_viewer_offline_live's)
 var NOW=1800000000000; Date.now=function(){return NOW;};
 var ONLINE=true; function offlineNow(){return !ONLINE;}
 var DOC='main',OFF_STATE='state';

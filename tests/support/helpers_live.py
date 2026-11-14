@@ -75,11 +75,30 @@ class LiveBase(BrowserBase):
         super().setUp()
         self.doc = ps.APP.docs[0]
         self.write_pdf()
-        self.httpd = ps.Server(("127.0.0.1", 0), ps.Handler)
+        # Every request passes this gate once it has been read and before it is handled (stop_answering) - a request on
+        # a connection kept alive as much as one on a new connection. When the test is over the gate is opened for good
+        # and what was left waiting is dropped unhandled (leave): the request threads are daemons the listener does
+        # not wait for, and a write handled then would land in a state folder that is being removed.
+        self.answering = answering = threading.Event()
+        answering.set()
+        over = threading.Event()
+
+        class Gated(ps.Handler):
+            def parse_request(self):
+                parsed = super().parse_request()
+                answering.wait()
+                return parsed and not over.is_set()
+
+        def leave():
+            over.set()
+            answering.set()
+
+        self.httpd = ps.Server(("127.0.0.1", 0), Gated)
         self.serving = threading.Thread(target=self.httpd.serve_forever, daemon=True)
         self.serving.start()
         # Cleanups run last in, first out: the contexts opened later are closed before the listener stops.
         self.addCleanup(self.stop_serving)
+        self.addCleanup(leave)
         self.base = "http://127.0.0.1:%d" % self.httpd.server_address[1]
 
     def stop_serving(self):
@@ -88,6 +107,17 @@ class LiveBase(BrowserBase):
         self.httpd.server_close()
         self.serving.join(10)
         self.assertFalse(self.serving.is_alive(), "the server thread did not stop")
+
+    def stop_answering(self):
+        """The server takes every connection and answers none: a request is neither refused nor answered, and waits.
+
+        This is what a tailnet with no internet behind it does - the name resolves, the request goes into the tunnel
+        and nothing comes back - and it is not what set_offline does, where every request fails at once."""
+        self.answering.clear()
+
+    def answer_again(self):
+        """The server answers again, the requests left waiting first: one the browser gave up on is still handled."""
+        self.answering.set()
 
     def write_pdf(self, words=PDF_WORDS):
         """The PDF of the build on screen: one 612x792 page carrying words."""
@@ -263,6 +293,10 @@ class LiveTab:
         """How many messages the page has shown so far (the status line's and banners')."""
         return self.page.evaluate("NOTICES.size")
 
+    def save_failure(self):
+        """Whether the composer shows a failed save (its banner)."""
+        return self.page.evaluate("(() => { const b = BANNERS.get(NOTICE_HOST.COMPOSER); return !!b && !!b.save; })()")
+
     def fail_api_reads(self, on=True):
         """Make the page's fetch refuse every /api/ call as a failed connection does (a TypeError), while the browser itself
         stays online: a read that fails with the viewer connected, which no network switch can make."""
@@ -300,6 +334,22 @@ class LiveTab:
                 ? Promise.reject(new TypeError('Failed to fetch')) : real.call(window, u, o);
             })()"""
         )
+
+    def waits(self, **ms):
+        """How long this page's requests wait for an answer (api.js API_WAIT: POLL, READ, PICK, SAVE, SEND), in ms."""
+        self.page.evaluate("w => { Object.assign(API_WAIT, w); }", ms)
+
+    def lost(self):
+        """Whether the page says the connection is gone (the light poll's count, which is what queues a save)."""
+        return self.page.evaluate("offlineNow()")
+
+    def asked(self, path):
+        """A list that fills with the bodies of this page's requests to path from now on."""
+        seen: list[str] = []
+        self.page.on(
+            "request", lambda r: seen.append(r.post_data or "") if r.url.split("?")[0].endswith(path) else None
+        )
+        return seen
 
     def stop_polling(self):
         """The light poll stops, so no poll's answer or failure changes what a test is reading."""

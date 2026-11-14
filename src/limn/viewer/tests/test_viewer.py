@@ -29,6 +29,7 @@ import helpers_js
 from helpers import (
     DOCS_DIR,
     HTML,
+    JS_API_WAIT,
     JS_UPDATE_STUBS,
     PKG,
     RULE_CASES,
@@ -4077,6 +4078,7 @@ class FrontendSaveWhilePicking(unittest.TestCase):
             const ASSIGN_NEW={v:'agent',touched:false}; function renderAssignNew(){} function mentionPreview(){}
             function pvTopId(){return 0;}   // the mark a lost save's answer is looked for above (verdict.js)
             function offlineNow(){return false;} function offlinePick(){return Promise.resolve();}   // connected (offline.js)
+            var OFF={idem:false};   // a server that knows no write by its key: the save carries none
             function isMdDoc(){return false;}
             function composeAsk(mode){return {mode};} function assignOutcome(){return {kind:KIND_NEW,assignee:ASSIGN_NEW.v};}
             function setBusy(){} function renderComposer(){} function overlapsFor(){return [];} function applySide(){}
@@ -4113,7 +4115,7 @@ class FrontendSaveWhilePicking(unittest.TestCase):
                 "function renderVerdictRow(){}",  # no verdict words here (verdict.js)
                 extract_js_fn("savePin"),
                 extract_js_fn("cancelSelection"),
-                extract_js_fn("pick"),
+                JS_API_WAIT + extract_js_fn("pick"),
                 extra_body,
             ]
         )
