@@ -361,6 +361,12 @@ async function offlineFlush(){
   if(OFF.flushing||offlineNow()||viewerBlocked())return;
   OFF.flushing=true;
   const all=await offAll(); if(!all.length){OFF.flushing=false; await offlineSync(); return;}
+  // The server is asked what it can do before a way of sending is chosen. What it could do when it was last heard
+  // from is not that: a tab drawn from stored reads has heard nothing this visit and starts sending on the 'online'
+  // event, and a server may have been rolled back to a Limn that drops the key it does not know. The answer sets
+  // OFF.idem on its way through api() (offStash). No answer means the connection is not there after all.
+  try{await api(dq('/api/meta?light=1'),{what:'상태 확인',silent:true});}
+  catch(e){OFF.flushing=false; return;}
   const saved=/** @type {number[]} */([]),claimed=new Set(await offWrote()); let held=0,failed=0;
   try{
     await loadPins();   // what is already there - a lost answer from an earlier send is found, not written twice
@@ -375,7 +381,8 @@ async function offlineFlush(){
       const keyed=OFF.idem&&!!rec.idem;
       if(keyed&&rec.sent){
         try{const r=await api('/api/pin',{method:'POST',body:{idem:rec.idem,replay_only:true,doc:rec.doc||undefined},what:'핀 저장',silent:true,expect:[409]});
-          if(r.status===200&&r.data&&typeof r.data.id==='number'){saved.push(r.data.id); await offDel(rec.id); continue;}}
+          if(r.status===200&&r.data&&typeof r.data.id==='number'){claimed.add(r.data.id); await offWroteAdd(r.data.id);
+            saved.push(r.data.id); await offDel(rec.id); continue;}}
         catch(e){failed++; continue;}}   // no answer to the question either: the record waits, unplaced and unheld
       // Every record is placed afresh. A drag is asked of pick, on the build it was drawn on; the lines of a Markdown
       // or text document are looked for in its source as it reads now. The lines a pick once answered are never
@@ -397,10 +404,15 @@ async function offlineFlush(){
       // The attempt is recorded before it is made (a tab closed mid-request never reaches the lines after it), which
       // is what sends the next visit to the question above. A refusal of the request itself (4xx) says nothing was
       // written: the mark comes off and the record is kept with what the server said.
+      // Both ways of sending keep what the other needs. This one notes the pins that existed before the attempt
+      // (top) and records the pin it writes (offWroteAdd), although it reads neither: a server rolled back to a Limn
+      // without the key sends the next visit to the looking below, and an attempt marked here with no boundary let
+      // any older look-alike answer for it, as a pin written here but not recorded let a twin's pin do.
       if(keyed){
         if(!(await offHas(rec.id)))continue;
-        rec.sent=true; await offPut(rec);
+        rec.sent=true; rec.top=pvTopId(); await offPut(rec);
         try{const {data}=await api('/api/pin',{method:'POST',body:offlineBody(rec,d),what:'핀 저장',silent:true});
+          if(data&&typeof data.id==='number'){claimed.add(data.id); await offWroteAdd(data.id);}
           saved.push(data&&data.id); await offDel(rec.id);}
         catch(e){const x=/** @type {ApiError} */(e),st=x&&x.status||0;
           if(st>=400&&st<500){rec.sent=false; rec.held=true; rec.why=errText(x.data)||('HTTP '+st); await offPut(rec); held++;}

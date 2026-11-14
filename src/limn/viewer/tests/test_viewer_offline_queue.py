@@ -25,6 +25,7 @@ var OFF={n:0,held:0,flushing:false,prep:false,db:null};
 var QUEUE=[],PICKS=[],PINS_SENT=[],PINS_OK=[],NOTES=[],LOADS=0,OPEN_ALL=[],REVIEW_ALL=[],DONE_ALL=[];
 var NOTICE_KIND={OK:'ok',WARN:'warn',ERR:'err',INFO:'info'},NOTICE_LIFE={TIMER:'timer',CLICK:'click'},NOTICE_PLACE={LINE:'line'};
 var SOURCE={};   // the source of each document as the server would read it now: {<doc>: [lines]}
+var SERVER_IDEM,META_DOWN=false,META_ASKED=0;   // what the server says it can do when asked (undefined: says nothing new)
 var KNOWN={},PROBES=[];   // the pins the server has by key ({<idem>: id}, or 'down'), and the keys it was asked about
 function dq(u,k){return u+(u.indexOf('?')<0?'?':'&')+'doc='+encodeURIComponent(k);}
 function offAll(){return Promise.resolve(QUEUE.slice());}
@@ -48,6 +49,10 @@ var ANSWERS={};
 function api(url,o){
   if(url==='/api/pick'){PICKS.push(o.body); const a=ANSWERS.pick.shift();
     if(a&&a.throw)return Promise.reject(a.throw); return Promise.resolve({status:200,data:a});}
+  if(url.indexOf('/api/meta?light=1')===0){META_ASKED++;
+    if(META_DOWN)return Promise.reject(new TypeError('Failed to fetch'));
+    if(typeof SERVER_IDEM==='boolean')OFF.idem=SERVER_IDEM;   // as offStash does with the real answer
+    return Promise.resolve({status:200,data:{pin_idem:OFF.idem}});}
   if(url.indexOf('/api/source?doc=')===0){const k=decodeURIComponent(url.split('doc=')[1]);
     if(SOURCE[k]==='down')return Promise.reject(new TypeError('Failed to fetch'));
     return Promise.resolve({status:200,data:{file:'notes.md',lines:SOURCE[k]||[]}});}
@@ -921,6 +926,76 @@ class KeyedSend(unittest.TestCase):
         )
         self.assertEqual(got["mid"], 1, "the look-alike does not answer for it")
         self.assertEqual((got["left"], got["written"], got["asked"]), (0, [61], 1))
+
+    def test_the_server_is_asked_what_it_can_do_before_a_way_of_sending_is_chosen(self):
+        """What it could do when last heard from is not what it can do now. A tab drawn from stored reads has heard
+        nothing this visit; a server may have been rolled back to a Limn that drops the key."""
+        got = self._run(
+            """
+            // Last heard: keyed. Now: rolled back. The question by key alone must not be put to a server that would
+            // read it as a pin with no place.
+            OFF.idem=true; SERVER_IDEM=false;
+            const a=rec(1); a.idem='key-aaaaaaaaaaaaaaaa'; a.sent=true; a.top=0; QUEUE=[a];
+            ANSWERS={pick:[found(10)],pin:[{id:41}]};
+            offlineFlush().then(function(){
+              // Last heard: nothing (a visit drawn from stored reads). Now: keyed.
+              OFF.idem=false; SERVER_IDEM=true;
+              const b=rec(2); b.idem='key-bbbbbbbbbbbbbbbb'; b.sent=true; QUEUE=[b]; KNOWN['key-bbbbbbbbbbbbbbbb']=77;
+              const before=PROBES.length;
+              return offlineFlush().then(function(){console.log(JSON.stringify({rolledBackAsked:before,
+                keyedAsked:PROBES.length-before,left:QUEUE.length,metaAsked:META_ASKED}));});});
+            """
+        )
+        self.assertEqual(got["rolledBackAsked"], 0, "a server without the key is not asked by the key")
+        self.assertEqual(got["keyedAsked"], 1, "a server with it is, though this visit had not heard so yet")
+        self.assertEqual((got["left"], got["metaAsked"]), (0, 2))
+
+    def test_no_answer_about_what_the_server_can_do_sends_nothing(self):
+        """The connection is not there after all; and the send is free to start again when it is."""
+        got = self._run(
+            """
+            META_DOWN=true; QUEUE=[rec(1)]; ANSWERS={pick:[found(10)],pin:[{id:41}]};
+            offlineFlush().then(function(){const first={picks:PICKS.length,left:QUEUE.length,busy:OFF.flushing};
+              META_DOWN=false;
+              return offlineFlush().then(function(){console.log(JSON.stringify({first:first,left:QUEUE.length}));});});
+            """
+        )
+        self.assertEqual(got["first"], {"picks": 0, "left": 1, "busy": False})
+        self.assertEqual(got["left"], 0)
+
+    def test_a_rolled_back_server_does_not_let_an_older_look_alike_answer_for_a_keyed_attempt(self):
+        """The attempt was made by key and wrote nothing (a 5xx). The server then goes back to a Limn without the key,
+        and the record is looked for in the list. The attempt has to have noted the pins that existed before it, or
+        any older pin like it answers for it and the record is deleted unwritten."""
+        got = self._run(
+            """
+            OFF.idem=true;
+            OPEN_ALL=[{id:40,author:'me',doc:'main',file:'main.tex',lo:10,hi:11,note:'alike'}];   // there before the attempt
+            const a=rec(1,'alike'); a.idem='key-aaaaaaaaaaaaaaaa'; QUEUE=[a];
+            ANSWERS={pick:[found(10),found(10)],pin:[{refuse:500},{id:41}]};
+            offlineFlush().then(function(){const top=QUEUE[0].top;
+              SERVER_IDEM=false;   // rolled back
+              return offlineFlush().then(function(){console.log(JSON.stringify({top:top,written:PINS_OK,left:QUEUE.length}));});});
+            """
+        )
+        self.assertEqual(got["top"], 40, "the keyed attempt notes what existed before it")
+        self.assertEqual((got["written"], got["left"]), ([41], 0))
+
+    def test_a_rolled_back_server_does_not_let_a_twin_s_pin_answer_for_a_keyed_attempt(self):
+        """Two records alike; one written by key, the other's keyed attempt wrote nothing. Looked for after a
+        rollback, the first's pin must be known as this queue's own - the keyed write records it too."""
+        got = self._run(
+            """
+            OFF.idem=true;
+            const a=rec(1,'twin'),b=rec(2,'twin'); a.idem='key-aaaaaaaaaaaaaaaa'; b.idem='key-bbbbbbbbbbbbbbbb';
+            QUEUE=[a,b];
+            ANSWERS={pick:[found(10),found(10),found(10)],pin:[{refuse:500},{id:72},{id:73}]};
+            offlineFlush().then(function(){
+              SERVER_IDEM=false;   // rolled back
+              return offlineFlush().then(function(){console.log(JSON.stringify({written:PINS_OK,left:QUEUE.length}));});});
+            """
+        )
+        self.assertEqual(got, {"written": [72, 73], "left": 0})
 
     def test_a_record_never_sent_is_not_asked_about(self):
         got = self._run(
