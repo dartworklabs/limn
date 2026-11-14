@@ -24,6 +24,8 @@ function offIn(store,mode,fn){const s={put:function(v){STATE.set(v.key,v); retur
 var OFF={n:0,held:0,flushing:false,prep:false,db:null};
 var QUEUE=[],PICKS=[],PINS_SENT=[],PINS_OK=[],NOTES=[],LOADS=0,OPEN_ALL=[],REVIEW_ALL=[],DONE_ALL=[];
 var NOTICE_KIND={OK:'ok',WARN:'warn',ERR:'err',INFO:'info'},NOTICE_LIFE={TIMER:'timer',CLICK:'click'},NOTICE_PLACE={LINE:'line'};
+var SOURCE={};   // the source of each document as the server would read it now: {<doc>: [lines]}
+function dq(u,k){return u+(u.indexOf('?')<0?'?':'&')+'doc='+encodeURIComponent(k);}
 function offAll(){return Promise.resolve(QUEUE.slice());}
 function offDel(id){QUEUE=QUEUE.filter(function(r){return r.id!==id;}); return Promise.resolve(true);}
 function offHas(id){return Promise.resolve(QUEUE.some(function(r){return r.id===id;}));}
@@ -45,6 +47,9 @@ var ANSWERS={};
 function api(url,o){
   if(url==='/api/pick'){PICKS.push(o.body); const a=ANSWERS.pick.shift();
     if(a&&a.throw)return Promise.reject(a.throw); return Promise.resolve({status:200,data:a});}
+  if(url.indexOf('/api/source?doc=')===0){const k=decodeURIComponent(url.split('doc=')[1]);
+    if(SOURCE[k]==='down')return Promise.reject(new TypeError('Failed to fetch'));
+    return Promise.resolve({status:200,data:{file:'notes.md',lines:SOURCE[k]||[]}});}
   if(url==='/api/pin'){PINS_SENT.push(o.body); const a=ANSWERS.pin.shift();
     if(a&&a.refuse){const e=new Error('HTTP '+a.refuse); e.status=a.refuse; return Promise.reject(e);}
     if(a&&a.throw)return Promise.reject(a.throw);
@@ -71,6 +76,8 @@ FUNCTIONS = (
     "offWrote",
     "offWroteAdd",
     "offWroteKeep",
+    "linesWhere",
+    "offlinePlaceLines",
     "offlineFlush",
 )
 
@@ -493,7 +500,7 @@ class OfflineQueueSend(unittest.TestCase):
 
 
 STORE_SCOPE = r"""
-var OFF_STATE='state';
+var OFF_STATE='state',OFF={idem:false};
 var OFF_READS=['/api/meta','/api/docs','/api/pins','/api/pins/dropped','/api/people','/api/outline-labels','/api/source'];
 var STORE=new Map();
 // Stands in for the one IndexedDB store, keeping put/get as they behave there.
@@ -574,6 +581,20 @@ class StoredAnswers(unittest.TestCase):
             """
         )
         self.assertEqual(got, {"got": None, "left": 0})
+
+    def test_a_meta_answer_says_whether_the_server_knows_a_write_by_its_key(self):
+        """Every meta answer, the light poll's included, carries it; an answer without it is an older server."""
+        got = self._run(
+            """
+            const seen=[];
+            offStash('/api/meta?light=1',{pin_idem:true},200,null); seen.push(OFF.idem);
+            offStash('/api/pins?all=1',[],200,null); seen.push(OFF.idem);          // another read says nothing about it
+            offStash('/api/meta?doc=ms',{pages:[]},200,null); seen.push(OFF.idem);  // a meta answer without it: an older server
+            offStash('/api/meta',{pin_idem:true},500,null); seen.push(OFF.idem);    // not an answer to go by
+            console.log(JSON.stringify(seen));
+            """
+        )
+        self.assertEqual(got, [True, True, False, False])
 
     def test_a_light_poll_and_a_write_are_outside_the_store(self):
         """The light poll has to fail, so the status line says the connection is gone; a write is never a stored read."""
@@ -695,6 +716,213 @@ class OfflineQuote(unittest.TestCase):
         )
         self.assertEqual(len(got), 160)
         self.assertTrue(got.endswith("…"))
+
+
+MD_REC = """
+function mdrec(id,lo,text){return {id:id,v:1,label:'inst',doc:'notes',build:'',page:undefined,rect:null,frac:undefined,pt:null,
+  quote:'q',note:'md note',kind_req:'fix',assignee:'agent',mentions:[],at:'t',held:false,why:'',sent:false,place:null,
+  lines:{file:'notes.md',name:'notes.md',lo:lo,hi:lo+text.split('\\n').length-1,text:text,kind:'lines',scope:null},idem:'key-0123456789abcdef'};}
+"""
+
+
+class LinePins(unittest.TestCase):
+    """A Markdown or text document's kept pin: its lines are its place, and they are written where they read the same
+    now (offline.js linesWhere, offlinePlaceLines). Without this such a pin had no box to pick with and was always held."""
+
+    def setUp(self):
+        if not shutil.which("node"):
+            self.skipTest("node not available")
+
+    def _run(self, scenario):
+        js = "\n".join([SCOPE, MD_REC, *(extract_js_fn(name) for name in FUNCTIONS), scenario])
+        return json.loads(run_node(js))
+
+    def test_lines_that_still_read_the_same_are_written_where_they_were(self):
+        got = self._run(
+            """
+            SOURCE.notes=['# T','','first','second','third'];
+            QUEUE=[mdrec(1,3,'first\\nsecond')]; ANSWERS={pick:[],pin:[{id:11}]};
+            offlineFlush().then(function(){console.log(JSON.stringify({picks:PICKS.length,left:QUEUE.length,
+              body:PINS_SENT[0]}));});
+            """
+        )
+        self.assertEqual(got["picks"], 0, "a line pin is not picked from a PDF")
+        self.assertEqual(got["left"], 0)
+        body = got["body"]
+        self.assertEqual(
+            (body["file"], body["lo"], body["hi"], body["kind"], body["note"]), ("notes.md", 3, 4, "lines", "md note")
+        )
+        self.assertNotIn("page", body)
+        self.assertNotIn("frac", body)
+        self.assertNotIn("pdf_build", body)
+
+    def test_lines_pushed_down_by_text_added_above_are_found_again(self):
+        """The common change while away: something was written above. The very lines, standing in one place, are it."""
+        got = self._run(
+            """
+            SOURCE.notes=['# T','','a new paragraph','','first','second','third'];
+            QUEUE=[mdrec(1,3,'first\\nsecond')]; ANSWERS={pick:[],pin:[{id:12}]};
+            offlineFlush().then(function(){console.log(JSON.stringify({lo:PINS_SENT[0].lo,hi:PINS_SENT[0].hi,left:QUEUE.length}));});
+            """
+        )
+        self.assertEqual(got, {"lo": 5, "hi": 6, "left": 0})
+
+    def test_lines_that_changed_are_held_not_written_at_their_old_numbers(self):
+        got = self._run(
+            """
+            SOURCE.notes=['# T','','first, reworded','second','third'];
+            QUEUE=[mdrec(1,3,'first\\nsecond')]; ANSWERS={pick:[],pin:[{id:13}]};
+            offlineFlush().then(function(){console.log(JSON.stringify({pins:PINS_SENT.length,left:QUEUE.length,
+              held:QUEUE[0].held,why:QUEUE[0].why}));});
+            """
+        )
+        self.assertEqual((got["pins"], got["left"], got["held"]), (0, 1, True))
+        self.assertTrue(got["why"])
+
+    def test_lines_that_stand_in_two_places_are_held(self):
+        """Moved, and the same lines appear twice: nothing says which of them the pin was on."""
+        got = self._run(
+            """
+            SOURCE.notes=['x','same','y','same','z'];
+            QUEUE=[mdrec(1,4,'same')]; SOURCE.notes=['new','x','same','y','same','z']; ANSWERS={pick:[],pin:[]};
+            offlineFlush().then(function(){console.log(JSON.stringify({pins:PINS_SENT.length,held:QUEUE[0].held}));});
+            """
+        )
+        self.assertEqual(got, {"pins": 0, "held": True})
+
+    def test_lines_still_at_their_numbers_are_that_place_even_if_they_also_stand_elsewhere(self):
+        """A repeated line (a blank line, a common phrase) is in many places. Where it was pinned is where it is,
+        as long as it still reads the same there - it is only when it has moved that two places leave no answer."""
+        got = self._run(
+            """
+            SOURCE.notes=['x','same','y','same','z'];
+            QUEUE=[mdrec(1,4,'same')]; ANSWERS={pick:[],pin:[{id:14}]};
+            offlineFlush().then(function(){console.log(JSON.stringify({lo:PINS_SENT[0]&&PINS_SENT[0].lo,left:QUEUE.length}));});
+            """
+        )
+        self.assertEqual(got, {"lo": 4, "left": 0})
+
+    def test_a_source_that_cannot_be_asked_for_leaves_the_record_waiting(self):
+        got = self._run(
+            """
+            SOURCE.notes='down'; QUEUE=[mdrec(1,3,'first')]; ANSWERS={pick:[],pin:[]};
+            offlineFlush().then(function(){console.log(JSON.stringify({pins:PINS_SENT.length,left:QUEUE.length,held:QUEUE[0].held}));});
+            """
+        )
+        self.assertEqual(got, {"pins": 0, "left": 1, "held": False})
+
+
+class KeyedSend(unittest.TestCase):
+    """A server that knows a write by its key (meta's pin_idem): the record is sent with its key until an answer comes,
+    and nothing is looked for in the pin list - the looking is what could mistake one pin for another."""
+
+    def setUp(self):
+        if not shutil.which("node"):
+            self.skipTest("node not available")
+
+    def _run(self, scenario):
+        js = "\n".join([SCOPE, *(extract_js_fn(name) for name in FUNCTIONS), scenario])
+        return json.loads(run_node(js))
+
+    def test_the_key_goes_with_every_attempt(self):
+        got = self._run(
+            """
+            const a=rec(1); a.idem='key-aaaaaaaaaaaaaaaa'; QUEUE=[a]; ANSWERS={pick:[found(10)],pin:[{id:41}]};
+            offlineFlush().then(function(){console.log(JSON.stringify({idem:PINS_SENT[0].idem}));});
+            """
+        )
+        self.assertEqual(got, {"idem": "key-aaaaaaaaaaaaaaaa"})
+
+    def test_a_lost_answer_is_simply_sent_again_and_the_replay_ends_it(self):
+        """The first answer never came; the second attempt carries the same key and the server names the same pin."""
+        got = self._run(
+            """
+            OFF.idem=true;
+            const a=rec(1); a.idem='key-aaaaaaaaaaaaaaaa'; QUEUE=[a];
+            // A pin of mine that looks exactly like it is already there: the looking would have taken it for this one.
+            OPEN_ALL=[{id:40,author:'me',doc:'main',file:'main.tex',lo:10,hi:11,note:'n1'}];
+            ANSWERS={pick:[found(10),found(10)],pin:[{throw:new Error('network')},{id:41,replay:true}]};
+            offlineFlush().then(function(){const mid=QUEUE.length;
+              return offlineFlush().then(function(){console.log(JSON.stringify({mid:mid,left:QUEUE.length,
+                keys:PINS_SENT.map(function(b){return b.idem;}),sent:a.sent}));});});
+            """
+        )
+        self.assertEqual(got["mid"], 1, "no answer: the record waits")
+        self.assertEqual(got["left"], 0)
+        self.assertEqual(got["keys"], ["key-aaaaaaaaaaaaaaaa", "key-aaaaaaaaaaaaaaaa"])
+        self.assertFalse(got["sent"], "the attempt mark belongs to the looking, which is not used")
+
+    def test_a_refusal_is_kept_with_what_the_server_said(self):
+        got = self._run(
+            """
+            OFF.idem=true; const a=rec(1); a.idem='key-aaaaaaaaaaaaaaaa'; QUEUE=[a];
+            ANSWERS={pick:[found(10)],pin:[{refuse:403}]};
+            offlineFlush().then(function(){console.log(JSON.stringify({left:QUEUE.length,held:QUEUE[0].held,why:QUEUE[0].why}));});
+            """
+        )
+        self.assertEqual((got["left"], got["held"]), (1, True))
+        self.assertTrue(got["why"])
+
+    def test_a_server_without_the_key_is_still_looked_through(self):
+        """An older Limn drops the field it does not know: the record must not rely on it there."""
+        got = self._run(
+            """
+            const a=rec(1); a.idem='key-aaaaaaaaaaaaaaaa'; a.sent=true; QUEUE=[a];
+            OPEN_ALL=[{id:41,author:'me',doc:'main',file:'main.tex',lo:10,hi:11,note:'n1'}];
+            ANSWERS={pick:[found(10)],pin:[]};
+            offlineFlush().then(function(){console.log(JSON.stringify({pins:PINS_SENT.length,left:QUEUE.length}));});
+            """
+        )
+        self.assertEqual(got, {"pins": 0, "left": 0})
+
+
+class OfflineKeys(unittest.TestCase):
+    """The key a kept pin is sent with (offline.js offlineKey), and the files a document needs (offlineDocFiles)."""
+
+    def setUp(self):
+        if not shutil.which("node"):
+            self.skipTest("node not available")
+
+    def test_a_key_fits_what_the_server_takes_with_or_without_randomuuid(self):
+        js = "\n".join(
+            [
+                extract_js_fn("offlineKey"),
+                """
+                const out=[offlineKey()];
+                globalThis.crypto=undefined; out.push(offlineKey()); out.push(offlineKey());
+                console.log(JSON.stringify(out));
+                """,
+            ]
+        )
+        keys = json.loads(run_node(js))
+        for k in keys:
+            self.assertRegex(k, r"^[A-Za-z0-9_-]{16,64}$")
+        self.assertEqual(len(set(keys)), 3)
+
+    def test_a_documents_files_are_the_addresses_the_viewer_asks_for(self):
+        """A copy is found again by its address, so these must be the ones vecOpen and pageSrc build (pdf-open.js,
+        pages.js) for that document: the PDF with its build and built_at, each page under its build, both with ?doc=."""
+        js = "\n".join(
+            [
+                extract_js_fn("dq"),
+                extract_js_fn("offlineDocFiles"),
+                """
+                var DOC='ms';
+                const m={pages_build:'pages-20261114T090000',built_at:'2026-11-14 09:00:00',pages:[{name:'page-1.png'},{name:'page-2.png'}]};
+                console.log(JSON.stringify({rr:offlineDocFiles('rr',m),none:offlineDocFiles('rr',{pages:[]})}));
+                """,
+            ]
+        )
+        got = json.loads(run_node(js))
+        self.assertEqual(
+            got["rr"],
+            [
+                "/pdf?build=pages-20261114T090000&v=2026-11-14%2009%3A00%3A00&doc=rr",
+                "/pages/pages-20261114T090000/page-1.png?doc=rr",
+                "/pages/pages-20261114T090000/page-2.png?doc=rr",
+            ],
+        )
+        self.assertEqual(got["none"], [])
 
 
 class StoredReads(unittest.TestCase):

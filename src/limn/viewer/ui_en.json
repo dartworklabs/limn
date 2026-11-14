@@ -1719,8 +1719,6 @@
  "이 브라우저는 오프라인 보기를 지원하지 않습니다": "This browser cannot keep the document for offline use",
  "오프라인용 받기를 마치지 못했습니다 — 다시 시도하세요": "The document was not kept for offline use — try again",
  "오프라인용 {n}개 중 {m}개를 받지 못했습니다 — 연결을 확인하고 다시 받으세요": "{m} of {n} files were not kept — check the connection and keep them again",
- "오프라인 준비됨 · {n}개 · 이 PDF의 자리를 7일간 지킵니다": "Ready offline · {n} files · this PDF's places are held for 7 days",
- "오프라인 준비됨 · {n}개": "Ready offline · {n} files",
  "연결이 끊겨 줄은 뒤에 찾습니다 — 메모를 쓰고 저장하면 쌓아 둡니다": "The connection is gone, so the lines are found later — write a note and save to keep it",
  "쌓아 둘 수 있는 핀은 {n}개까지입니다 — 연결되면 먼저 반영하세요": "At most {n} pins can be kept — write them once the connection is back",
  "핀 저장 실패 — 이 브라우저가 오프라인 보관을 막고 있습니다": "Pin not saved — this browser refuses offline storage",
@@ -1728,7 +1726,6 @@
  "위치를 찾지 못했습니다": "Its place was not found",
  "오프라인 핀 저장됨 · #{ids}": "Offline pins saved · #{ids}",
  "오프라인 핀 {n}개 저장됨": "{n} offline pins saved",
- "오프라인 핀 {n}개는 자리를 다시 골라야 합니다 — 그사이 PDF가 바뀌었습니다": "{n} offline pins need their place chosen again — the PDF changed meanwhile",
  "오프라인 핀 {n}개를 아직 보내지 못했습니다 — 연결되면 다시 보냅니다": "{n} offline pins have not been sent yet — they are sent again once the connection is back",
  "오프라인 핀 {n}개 · {h}개는 자리를 다시 골라야 합니다": "{n} offline pins · {h} need their place chosen again",
  "오프라인 핀 {n}개 · 연결되면 반영합니다": "{n} offline pins · written once the connection is back",
@@ -1738,5 +1735,12 @@
  "빌드 보류": "Build hold",
  "오프라인으로 받기": "Keep offline",
  "이 문서를 연결 없이 읽을 수 있게 받아 두고, 지금 PDF의 자리를 7일간 지켜 둡니다. 끊긴 동안 찍은 핀은 쌓였다가 연결되면 반영됩니다": "Keeps this document readable with no connection and holds this PDF's places for 7 days. Pins made while cut off are kept and written once the connection is back",
- "연결이 없어 {time}에 읽어 둔 화면입니다 — 핀을 찍으면 쌓였다가 연결되면 반영됩니다": "With no connection this is the screen read at {time} — a pin you make is kept and written once the connection is back"
+ "연결이 없어 {time}에 읽어 둔 화면입니다 — 핀을 찍으면 쌓였다가 연결되면 반영됩니다": "With no connection this is the screen read at {time} — a pin you make is kept and written once the connection is back",
+ "오프라인용으로 받는 중… {n}/{m}": "Keeping for offline use… {n}/{m}",
+ "오프라인 준비됨 · 문서 {d}개 · 파일 {n}개 · PDF의 자리를 7일간 지킵니다": "Ready offline · {d} documents · {n} files · the PDFs' places are held for 7 days",
+ "오프라인 준비됨 · 문서 {d}개 · 파일 {n}개": "Ready offline · {d} documents · {n} files",
+ "핀 저장 실패 — 이 문서의 원문을 다시 읽은 뒤 저장하세요": "Pin not saved — read this document's source again, then save",
+ "그사이 그 줄들의 글이 바뀌었습니다": "Those lines changed meanwhile",
+ "오프라인 핀 {n}개는 반영하지 못했습니다 — 쌓인 핀 목록에서 까닭을 보고 다시 찍거나 버리세요": "{n} offline pins were not written — see why in the kept pins, then pin again or discard",
+ "연결이 끊겨 제안 수정은 쌓아 둘 수 없습니다 — [제안 수정]을 끄면 메모만 쌓아 둡니다": "A suggested edit cannot be kept while the connection is gone — turn [Suggested edit] off to keep the note alone"
 }

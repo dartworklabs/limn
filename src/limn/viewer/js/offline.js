@@ -15,9 +15,9 @@ const OFF_WROTE='wrote';   // the state key holding the pin numbers this queue w
 // not among them - that one has to fail, so the status line says the connection is gone. Nothing else is ever stored,
 // and no answer to a write ever is.
 const OFF_READS=['/api/meta','/api/docs','/api/pins','/api/pins/dropped','/api/people','/api/outline-labels','/api/source'];
-// boot: this visit's first reads are still under way (cleared by offlineBoot, which boot() calls last). staleNote: the
+// idem: the server said it knows a write by its key (meta's pin_idem, offStash). boot: this visit's first reads are still under way (cleared by offlineBoot, which boot() calls last). staleNote: the
 // status line's message that the screen was drawn from stored reads, while it stands.
-const OFF={n:0,held:0,flushing:false,prep:false,saidStale:false,boot:true,staleNote:/** @type {Notice|null|undefined} */(null),
+const OFF={n:0,held:0,flushing:false,prep:false,saidStale:false,boot:true,idem:false,staleNote:/** @type {Notice|null|undefined} */(null),
   db:/** @type {IDBDatabase|null} */(null)};
 // This browser's queue, opened once per page. A browser that refuses IndexedDB (a private window) answers null, and every
 // caller below falls back to saying the pin could not be kept rather than losing it quietly.
@@ -88,7 +88,11 @@ function offReadKey(url,o){if(o&&o.method&&o.method!=='GET')return null;
 // Markdown document past the drawing limit answers 413 with its reason, md-surface.js), and that answer is not the
 // document. Stored, it would come back on the next visit as a document that opened and was empty.
 /** @param {string} url @param {any} data @param {number} status @param {{method?:string}|null} [o] */
-function offStash(url,data,status,o){const key=offReadKey(url,o||null); if(!key)return;
+function offStash(url,data,status,o){
+  // Every answer the network gives passes here, so this is also where the server says what it can do: a meta answer,
+  // the light poll's included, carries pin_idem when a write is known by its key (api.md POST /api/pin).
+  if(status===200&&data&&String(url).split('?')[0]==='/api/meta')OFF.idem=data.pin_idem===true;
+  const key=offReadKey(url,o||null); if(!key)return;
   if(!(status>=200&&status<300)||data===null||data===undefined)return;
   void offIn(OFF_STATE,'readwrite',s=>s.put({key,data,status,at:Date.now()}));}
 /** The stored answer to a read, or null - never one the server refused. @returns {Promise<{data:any,status:number,at:number}|null>} */
@@ -128,48 +132,76 @@ function offlineBack(){if(!OFF.saidStale)return; OFF.saidStale=false;
 /** @returns {Promise<ServiceWorkerRegistration|null>} */
 async function offlineWorker(){if(!('serviceWorker' in navigator))return null;
   try{return SW_REG||(SW_REG=await navigator.serviceWorker.register('/sw.js',{scope:'/'}));}catch(e){return null;}}
-// One question to the worker, answered on its own port so a replaced worker never leaves this waiting (3s at most).
-/** @param {{type:string,urls?:string[]}} msg @returns {Promise<any>} */
-async function offlineAsk(msg){const reg=await offlineWorker(); if(!reg)return null;
+// One question to the worker, answered on its own port so a replaced worker never leaves this waiting. The wait fits the
+// question: a count comes back at once (3s), files have to be fetched first - over a tailnet from a phone that is not 3s,
+// and a wait that short called a keep that was still going a failure.
+/** @param {{type:string,urls?:string[]}} msg @param {number} [ms] @returns {Promise<any>} */
+async function offlineAsk(msg,ms){const reg=await offlineWorker(); if(!reg)return null;
   let sw=navigator.serviceWorker.controller; if(!sw){try{await navigator.serviceWorker.ready;}catch(e){} sw=navigator.serviceWorker.controller;}
   if(!sw)return null;
-  return new Promise(res=>{const ch=new MessageChannel(),t=setTimeout(()=>res(null),3000);
+  return new Promise(res=>{const ch=new MessageChannel(),t=setTimeout(()=>res(null),ms||3000);
     ch.port1.onmessage=e=>{clearTimeout(t); res(e.data);}; try{sw.postMessage(msg,[ch.port2]);}catch(e){clearTimeout(t); res(null);}});}
-// What this document needs to be readable with no network: the page itself, everything the page has already loaded from this
-// origin (the inlined shell leaves only the vendored PDF.js, fonts, KaTeX and the Markdown worker), and this build's PDF and
-// page images. Nothing is hardcoded, so a change to the vendored files follows along.
+// What the page needs to open with no network: the page itself and everything it has already loaded from this origin
+// (the inlined shell leaves only the vendored PDF.js, fonts, KaTeX and the Markdown worker). Nothing is hardcoded, so a
+// change to the vendored files follows along.
 /** @returns {string[]} */
 function offlineUrls(){const out=new Set([location.pathname+location.search]);
   try{performance.getEntriesByType('resource').forEach(e=>{const u=new URL(e.name,location.href);
     if(u.origin===location.origin&&!u.pathname.startsWith('/api/')&&u.pathname!=='/sw.js')out.add(u.href);});}catch(e){}
-  if(META){const b=META.pages_build||'';
-    if(b&&!isMdDoc()){out.add(dq('/pdf?build='+encodeURIComponent(b)+'&v='+encodeURIComponent(META.built_at||'')));
-      (META.pages||[]).forEach(p=>out.add(pageSrc(p)));}}
   return Array.from(out);}
-// [오프라인으로 받기]: keeps this document for reading with no network and asks the server to hold the build its pins will
-// point at. The hold is what makes the queue land on exact lines later; a server without that route (an older Limn) is not a
-// failure - the pins are kept all the same and said to need their place chosen again if the build is gone by then.
+// The PDF and the page images of document k as its meta m names them - the very addresses the viewer asks for when that
+// document is on screen (pdf-open.js vecOpen, pages.js pageSrc), since a copy is found again by its address. Pure.
+/** @param {string|null} k @param {any} m @returns {string[]} */
+function offlineDocFiles(k,m){const b=(m&&m.pages_build)||'',out=/** @type {string[]} */([]); if(!b)return out;
+  out.push(dq('/pdf?build='+encodeURIComponent(b)+'&v='+encodeURIComponent(m.built_at||''),k));
+  (m.pages||[]).forEach((/** @type {any} */pg)=>out.push(dq('/pages/'+encodeURIComponent(b)+'/'+encodeURIComponent(pg.name),k)));
+  return out;}
+const OFF_KEEP_CHUNK=12,OFF_KEEP_MS=180000;   // files asked of the worker at a time, and how long one such ask may take
+// [오프라인으로 받기]: keeps every document of this instance for reading with no network - a person on a flight moves
+// between them - and asks the server to hold each build its pins will point at. Each document's reads go through api(),
+// which stores their answers (offStash): its meta, its outline labels, and for a Markdown or text document the source it
+// is drawn from. The files go to the worker a few at a time, so the line can say how far it is. The hold is what lets the
+// queue land on exact lines later; a server without that route (an older Limn) is not a failure - the pins are kept all
+// the same, and said to need their place chosen again if the build is gone by then.
 async function offlinePrepare(){
   if(OFF.prep)return; OFF.prep=true;
   const note=lineNote('오프라인용으로 받는 중…',NOTICE_KIND.INFO,null,{life:NOTICE_LIFE.CLICK});
+  const say=(/** @type {string} */t)=>{if(note&&NOTICES.has(note.n)){note.title=t; note.desc=''; drawStatus();}};
   try{
     const reg=await offlineWorker();
     if(!reg){if(note)endNotice(note,false); lineNote('이 브라우저는 오프라인 보기를 지원하지 않습니다',NOTICE_KIND.WARN,null,{}); return;}
-    const urls=offlineUrls(),r=await offlineAsk({type:'keep',urls});
+    const urls=new Set(offlineUrls()),keys=DOCS.length?DOCS.map(d=>d.key):[DOC];
+    let docs=0,held=0,lost=0;
+    for(const k of keys){let m=/** @type {any} */(null);
+      try{m=(await api(dq('/api/meta',k),{what:'화면 정보 읽기',silent:true})).data;}catch(e){lost++; continue;}
+      docs++;
+      const info=k?docInfo(k):null,kind=(m&&m.kind)||(info&&info.kind);
+      if(rendersInBrowser(kind)){
+        try{await api(dq('/api/source',k),{what:'원문 읽기',silent:true,expect:[413]});}catch(e){lost++;}
+        continue;}
+      offlineDocFiles(k,m).forEach(u=>urls.add(u));
+      try{await api(dq('/api/outline-labels',k),{what:'목차 번호 읽기',silent:true});}catch(e){}
+      if(m&&m.pages_build){
+        // Held only when the server says until when. A 404 is handed back, not thrown (expect), and it is not a hold:
+        // an older Limn has no such route, and a build that left while this ran answers pdf_build_gone.
+        try{const r=await api(dq('/api/hold',k),{method:'POST',body:{build:m.pages_build,days:7},what:'빌드 보류',silent:true,expect:[404]});
+          if(r.status===200&&r.data&&r.data.until)held++;}catch(e){}}}
+    // The lists every document shares, as they stand now.
+    for(const u of ['/api/docs','/api/pins?all=1','/api/pins/dropped','/api/people']){
+      try{await api(u,{what:'핀 읽기',silent:true});}catch(e){lost++;}}
+    const all=Array.from(urls); let kept=0,failed=0;
+    for(let i=0;i<all.length;i+=OFF_KEEP_CHUNK){
+      say(tl('오프라인용으로 받는 중… {n}/{m}',{n:i,m:all.length}));
+      const r=await offlineAsk({type:'keep',urls:all.slice(i,i+OFF_KEEP_CHUNK)},OFF_KEEP_MS);
+      if(!r){if(note)endNotice(note,false);
+        lineNote('오프라인용 받기를 마치지 못했습니다 — 다시 시도하세요',NOTICE_KIND.ERR,{label:'다시 시도',fn:()=>{OFF.prep=false; offlinePrepare();}},{}); return;}
+      kept+=r.kept||0; failed+=(r.failed||[]).length;}
     if(note)endNotice(note,false);
-    if(!r){lineNote('오프라인용 받기를 마치지 못했습니다 — 다시 시도하세요',NOTICE_KIND.ERR,{label:'다시 시도',fn:()=>{OFF.prep=false; offlinePrepare();}},{}); return;}
-    let held=false;
-    if(META&&META.pages_build&&!isMdDoc()){
-      // Held only when the server says until when. A 404 is handed back, not thrown (expect), and it is not a hold:
-      // an older Limn has no such route, and a build that left while this ran answers pdf_build_gone.
-      try{const r=await api(dq('/api/hold'),{method:'POST',body:{build:META.pages_build,days:7},what:'빌드 보류',silent:true,expect:[404]});
-        held=r.status===200&&!!(r.data&&r.data.until);}
-      catch(e){held=false;}}
-    const failed=(r.failed||[]).length;
-    lineNote(failed?tl('오프라인용 {n}개 중 {m}개를 받지 못했습니다 — 연결을 확인하고 다시 받으세요',{n:urls.length,m:failed})
-      :held?tl('오프라인 준비됨 · {n}개 · 이 PDF의 자리를 7일간 지킵니다',{n:r.kept||urls.length})
-      :tl('오프라인 준비됨 · {n}개',{n:r.kept||urls.length}),
-      failed?NOTICE_KIND.WARN:NOTICE_KIND.OK,null,{life:failed?NOTICE_LIFE.CLICK:NOTICE_LIFE.TIMER});
+    const bad=failed+lost;
+    lineNote(bad?tl('오프라인용 {n}개 중 {m}개를 받지 못했습니다 — 연결을 확인하고 다시 받으세요',{n:all.length+lost,m:bad})
+      :held?tl('오프라인 준비됨 · 문서 {d}개 · 파일 {n}개 · PDF의 자리를 7일간 지킵니다',{d:docs,n:kept})
+      :tl('오프라인 준비됨 · 문서 {d}개 · 파일 {n}개',{d:docs,n:kept}),
+      bad?NOTICE_KIND.WARN:NOTICE_KIND.OK,null,{life:bad?NOTICE_LIFE.CLICK:NOTICE_LIFE.TIMER});
   }finally{OFF.prep=false;}}
 
 // ---------------- Pinning while cut off
@@ -220,11 +252,21 @@ async function offlineQueueSave(d,note,out,mentions){
   // lines a pick already found are kept only to tell the person what the pin used to point at if its place is lost.
   const pg=META&&META.pages&&META.pages[d.page-1];
   const found=!d.offline&&!isRegion(d)&&!!d.file&&typeof d.lo==='number'&&typeof d.hi==='number';
+  // A Markdown or text document has no page: its lines are the place, and the browser drew them from the source it
+  // holds. The record keeps those lines' own text, so the send can tell whether they still read the same - and find
+  // them again when lines were only added or removed above them.
+  const lined=found&&typeof d.page!=='number'&&MD.doc===(d.doc||DOC);
+  const lo=/** @type {number} */(d.lo),hi=/** @type {number} */(d.hi);
   const rec={v:1,label:META?META.label:'',doc:d.doc||DOC,build:d.pdf_build||(META?META.pages_build:'')||'',
     page:d.page,rect:d.rect||null,frac:d.frac,pt:pg?{w:pg.pt_w,h:pg.pt_h}:null,
     quote:d.quote||'',note,kind_req:out.kind,assignee:out.assignee,
     mentions:mentions.slice(),at:new Date().toISOString(),held:false,why:'',sent:false,
-    place:found?{file:d.file,name:d.name,lo:d.lo,hi:d.hi}:null};
+    place:found?{file:d.file,name:d.name,lo:d.lo,hi:d.hi}:null,
+    lines:lined?{file:d.file,name:d.name,lo,hi,text:MD.lines.slice(lo-1,hi).join('\n'),
+      kind:d.scope?kindFor(d.scope,d.env):d.kind,scope:d.scope?wireScope(d.scope):null}:null,
+    idem:offlineKey()};
+  if(found&&typeof d.page!=='number'&&!lined){   // a line selection whose source this tab no longer holds: nothing to check it against later
+    bannerNote(NOTICE_HOST.COMPOSER,tr('핀 저장 실패 — 이 문서의 원문을 다시 읽은 뒤 저장하세요'),NOTICE_KIND.ERR,null,{save:true,source:'offline-queue'}); return false;}
   const id=await offAdd(rec);
   if(id===null){bannerNote(NOTICE_HOST.COMPOSER,tr('핀 저장 실패 — 이 브라우저가 오프라인 보관을 막고 있습니다'),NOTICE_KIND.ERR,null,{save:true,source:'offline-queue'}); return false;}
   await offlineSync();
@@ -236,6 +278,33 @@ async function offlineQueueSave(d,note,out,mentions){
   return true;}
 
 // ---------------- Sending the queue
+// A key for one write, made when the pin is kept and sent with every attempt at it: the server answers a second attempt
+// with the pin the first one made (api.md POST /api/pin, idem). 16 to 64 characters of [A-Za-z0-9_-]; a UUID where the
+// browser gives one, else time and random digits (a page that is not a secure context has no randomUUID).
+function offlineKey(){try{if(crypto&&typeof crypto.randomUUID==='function')return crypto.randomUUID();}catch(e){}
+  const r=()=>Math.floor(Math.random()*0x100000000).toString(16).padStart(8,'0');
+  return 'k'+Date.now().toString(16)+'-'+r()+r()+r();}
+// Where the kept lines of a Markdown or text document stand in its source now, or null when they no longer do. The
+// same lines at the same numbers are that place. Else the one place in the source where those very lines stand
+// together - text was added or removed above them, the common change - is. Lines that changed, or that stand in two
+// places, have no place this can vouch for. Pure.
+/** @param {string[]} lines the source now @param {{lo:number,text:string}} want the kept lines @returns {{lo:number,hi:number}|null} */
+function linesWhere(lines,want){const text=String(want.text).split('\n'),n=text.length;
+  const same=(/** @type {number} */lo)=>{for(let i=0;i<n;i++)if(lines[lo-1+i]!==text[i])return false; return true;};
+  if(want.lo>=1&&want.lo-1+n<=lines.length&&same(want.lo))return {lo:want.lo,hi:want.lo+n-1};
+  let hit=0,count=0;
+  for(let lo=1;lo+n-1<=lines.length;lo++)if(same(lo)){count++; hit=lo; if(count>1)return null;}
+  return count===1?{lo:hit,hi:hit+n-1}:null;}
+// The place a kept Markdown or text record is written at: its lines as the source reads now (linesWhere), in the shape
+// offlineBody takes. 'net' when the source could not be asked for (the record waits), null when the lines are gone.
+/** @param {any} rec @returns {Promise<any>} */
+async function offlinePlaceLines(rec){let r;
+  try{r=await api(dq('/api/source',rec.doc),{what:'원문 읽기',silent:true,expect:[413]});}
+  catch(e){const x=/** @type {ApiError} */(e),st=x&&x.status||0; return st>=400&&st<500?null:'net';}
+  const lines=r.status===200&&r.data&&Array.isArray(r.data.lines)?r.data.lines.map(String):null;
+  const at=lines?linesWhere(lines,rec.lines):null; if(!at)return null;
+  return {file:rec.lines.file,name:rec.lines.name,lo:at.lo,hi:at.hi,raw_lo:at.lo,raw_hi:at.hi,kind:rec.lines.kind,
+    scope:rec.lines.scope||undefined,quote:rec.quote};}
 // The drag a record holds, in the PDF points pick reads: the box kept with it, or the one its page fractions and that
 // page's size on the build make - the same product selection.js sends when the drag happens. Null when the record has
 // neither, which is the one case nothing can be placed from (a box of zeros would resolve to the page's corner). Pure.
@@ -253,12 +322,15 @@ function offlineBody(rec,d){
     quote:d.quote||rec.quote||'',pdf_build:d.pdf_build||rec.build||undefined,doc:rec.doc||undefined,
     kind_req:rec.kind_req,assignee:rec.assignee});
     if((rec.mentions||[]).length)region.mentions=rec.mentions;
+    if(rec.idem)region.idem=rec.idem;
     return region;}
   const body=/** @type {Record<string, unknown>} */({file:d.file,name:d.name,page:d.page,lo:d.lo,hi:d.hi,
   raw_lo:d.raw_lo,raw_hi:d.raw_hi,kind:d.kind,via:d.via,score:d.score,fill:d.fill,rival:d.rival,frac:d.frac,
   note:rec.note,quote:d.quote||rec.quote||'',pdf_build:d.pdf_build||rec.build||undefined,doc:rec.doc||undefined,
   kind_req:rec.kind_req,assignee:rec.assignee});
+  if(d.scope)body.scope=d.scope;
   if((rec.mentions||[]).length)body.mentions=rec.mentions;
+  if(rec.idem)body.idem=rec.idem;
   return body;}
 // Two boxes are the same box: every number within a millionth of the page, the tolerance a whole-page verdict target
 // is read with (domain.md §판정 대상). Pure.
@@ -294,17 +366,32 @@ async function offlineFlush(){
     await loadPins();   // what is already there - a lost answer from an earlier send is found, not written twice
     for(const rec of all){
       if(offlineNow())break;
-      // Every record is placed by asking pick about the drag it holds, on the build it was drawn on. The lines it may
-      // already carry are never written: the manuscript moves while a person is away, and writing them would anchor
-      // the pin to whatever stands at those numbers now.
-      const box=offlineBox(rec);
-      if(!box){rec.held=true; rec.why=tr('위치를 찾지 못했습니다'); await offPut(rec); held++; continue;}
+      // Every record is placed afresh. A drag is asked of pick, on the build it was drawn on; the lines of a Markdown
+      // or text document are looked for in its source as it reads now. The lines a pick once answered are never
+      // written: the manuscript moves while a person is away, and writing them would anchor the pin to whatever
+      // stands at those numbers now.
       let d=/** @type {any} */(null);
-      const req={page:rec.page,x0:box.x0,y0:box.y0,x1:box.x1,y1:box.y1,
-        frac:rec.frac,pdf_build:rec.build||undefined,doc:rec.doc||undefined};
-      try{d=(await api('/api/pick',{method:'POST',body:req,what:'위치 찾기',silent:true})).data;}
-      catch(e){failed++; continue;}                       // no answer or a refusal: the record stays for the next send
-      if(!d||d.error){rec.held=true; rec.why=errText(d)||tr('위치를 찾지 못했습니다'); await offPut(rec); held++; continue;}
+      if(rec.lines){d=await offlinePlaceLines(rec);
+        if(d==='net'){failed++; continue;}
+        if(!d){rec.held=true; rec.why=tr('그사이 그 줄들의 글이 바뀌었습니다'); await offPut(rec); held++; continue;}}
+      else{const box=offlineBox(rec);
+        if(!box){rec.held=true; rec.why=tr('위치를 찾지 못했습니다'); await offPut(rec); held++; continue;}
+        const req={page:rec.page,x0:box.x0,y0:box.y0,x1:box.x1,y1:box.y1,
+          frac:rec.frac,pdf_build:rec.build||undefined,doc:rec.doc||undefined};
+        try{d=(await api('/api/pick',{method:'POST',body:req,what:'위치 찾기',silent:true})).data;}
+        catch(e){failed++; continue;}                     // no answer or a refusal: the record stays for the next send
+        if(!d||d.error){rec.held=true; rec.why=errText(d)||tr('위치를 찾지 못했습니다'); await offPut(rec); held++; continue;}}
+      // A server that knows a write by its key needs none of the looking below: the same key is the same pin, so the
+      // record is simply sent until an answer comes, and an answer to a second attempt names the pin the first made.
+      // A refusal of the request itself (4xx) is kept with what the server said - it will be refused again as it is.
+      if(OFF.idem&&rec.idem){
+        if(!(await offHas(rec.id)))continue;
+        try{const {data}=await api('/api/pin',{method:'POST',body:offlineBody(rec,d),what:'핀 저장',silent:true});
+          saved.push(data&&data.id); await offDel(rec.id);}
+        catch(e){const x=/** @type {ApiError} */(e),st=x&&x.status||0;
+          if(st>=400&&st<500){rec.held=true; rec.why=errText(x.data)||('HTTP '+st); await offPut(rec); held++;}
+          else failed++;}
+        continue;}
       // Only a record whose write was already attempted can be a pin on the server. A record that has never been
       // sent is written, whatever is there: two pins alike in document, place and note are told apart by nothing this
       // can read, and matching a fresh record against one of them deleted a pin that was never written.
@@ -325,15 +412,15 @@ async function offlineFlush(){
         saved.push(data&&data.id); await offDel(rec.id);}
       catch(e){const x=/** @type {ApiError} */(e);
         const st=x&&x.status||0;
-        if(st>=400&&st<500){rec.sent=false; await offPut(rec); failed++; continue;}   // turned away: nothing is on the server
+        if(st>=400&&st<500){rec.sent=false; rec.held=true; rec.why=errText(x.data)||('HTTP '+st); await offPut(rec); held++; continue;}   // turned away: nothing is on the server
         await loadPins(); const late=offlineLanded(rec,d,claimed);
-        if(late){claimed.add(late); saved.push(late); await offDel(rec.id); continue;}
+        if(late){claimed.add(late); await offWroteAdd(late); saved.push(late); await offDel(rec.id); continue;}
         failed++;}}
   }finally{OFF.flushing=false; try{await offWroteKeep(await offAll());}catch(e){} await offlineSync(); await loadPins();}
   const ids=saved.filter(n=>typeof n==='number');
   if(ids.length)lineNote(ids.length<=3?tl('오프라인 핀 저장됨 · #{ids}',{ids:ids.join(', #')}):tl('오프라인 핀 {n}개 저장됨',{n:ids.length}),
     NOTICE_KIND.OK,null,{life:NOTICE_LIFE.TIMER,literal:true});
-  if(held)lineNote(tl('오프라인 핀 {n}개는 자리를 다시 골라야 합니다 — 그사이 PDF가 바뀌었습니다',{n:held}),NOTICE_KIND.WARN,null,{literal:true});
+  if(held)lineNote(tl('오프라인 핀 {n}개는 반영하지 못했습니다 — 쌓인 핀 목록에서 까닭을 보고 다시 찍거나 버리세요',{n:held}),NOTICE_KIND.WARN,null,{literal:true});
   if(failed)lineNote(tl('오프라인 핀 {n}개를 아직 보내지 못했습니다 — 연결되면 다시 보냅니다',{n:failed}),NOTICE_KIND.WARN,
     {label:'지금 반영',fn:()=>{void offlineFlush();}},{literal:true});}
 

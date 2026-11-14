@@ -96,6 +96,10 @@ async function savePin(verdict){
   if(/** @type {any} */(d).offline||offlineNow()){
     COMPOSE.saving=false; syncComposeSaveButtons();
     if(verdict){bannerNote(NOTICE_HOST.COMPOSER,tr('연결이 끊겨 판정은 쌓아 둘 수 없습니다 — 연결되면 판정 버튼을 다시 누릅니다'),NOTICE_KIND.ERR,null,{save:true,source:'POST /api/pin'}); return;}
+    // A suggested edit is checked against the source when it is written, and the source may not be the one it was
+    // written against by then. It is not kept either: the note alone can be, with the switch off.
+    if(!isRegion(d)&&suggestForSave(SG,suggestOff(d,META?META.kind:undefined))){
+      bannerNote(NOTICE_HOST.COMPOSER,tr('연결이 끊겨 제안 수정은 쌓아 둘 수 없습니다 — [제안 수정]을 끄면 메모만 쌓아 둡니다'),NOTICE_KIND.ERR,null,{save:true,source:'POST /api/pin'}); return;}
     const kept=await offlineQueueSave(d,note,out,mh);
     if(kept){COMPOSE.box=null; cancelSelection(true); if(box)box.remove(); syncDraft(); focusClosed();}
     return;}
