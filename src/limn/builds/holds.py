@@ -12,8 +12,9 @@ Expired and malformed entries are dropped whenever the file is read or written. 
 
 import contextlib
 import json
-import math
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -97,29 +98,42 @@ def _write(D: BuildDoc, holds: dict[str, Hold]) -> None:
     atomic_write(_path(D), json.dumps(body, ensure_ascii=False, indent=1) + "\n")
 
 
-def held_builds(D: BuildDoc, now: datetime | None = None) -> set[str]:
-    """The names of D's builds held and unexpired at `now`. Rewrites the file when it held an expired or malformed
-    entry; a failed rewrite only leaves those entries for the next read to drop."""
+@contextmanager
+def retention(D: BuildDoc, now: datetime | None = None) -> Iterator[set[str]]:
+    """Hold the holds lock while the caller decides which of D's page directories to keep, and give it the names of
+    the builds held and unexpired at `now`. engine.commit_pages deletes and slims inside this block, and set_hold checks
+    that its build is still there under the same lock, so a hold answered 200 is never on a directory that a commit
+    then deletes: either the commit runs first and the hold finds the directory gone (HoldBuildGone), or the hold runs
+    first and the commit sees it. Rewrites the file when it held an expired or malformed entry; a failed rewrite only
+    leaves those entries for the next read to drop."""
     now = now or _now()
     with _LOCK:
         live, dropped = _read(D, now)
         if dropped:
             with contextlib.suppress(OSError):
                 _write(D, live)
-    return set(live)
+        yield set(live)
 
 
-def valid_days(v: object) -> bool:
-    """Is v a hold length the API accepts: a finite JSON number (not a bool) from 0 to MAX_DAYS?"""
-    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and 0 <= v <= MAX_DAYS
+def held_builds(D: BuildDoc, now: datetime | None = None) -> set[str]:
+    """The names of D's builds held and unexpired at `now` (retention, without keeping the lock)."""
+    with retention(D, now) as held:
+        return held
+
+
+class HoldBuildGone(Exception):
+    """set_hold found the build directory gone (a commit removed it after the request was checked)."""
 
 
 def set_hold(D: BuildDoc, name: str, days: float, by: str, now: datetime | None = None) -> datetime | None:
     """Hold build `name` of D for `days` days from now and answer until when; days 0 releases it and answers None.
     Setting a hold that exists moves its end. Past MAX_HOLDS live holds, the other hold expiring soonest is dropped.
-    The caller checks name (valid_build_name), days (valid_days) and that the build directory exists."""
+    Raises HoldBuildGone, storing nothing, when the build directory is not there under the lock (see retention). The
+    caller checks name (valid_build_name) and days (a finite number from 0 to MAX_DAYS)."""
     now = now or _now()
     with _LOCK:
+        if not (D.dir / name).is_dir():
+            raise HoldBuildGone(name)
         live, _dropped = _read(D, now)
         if days <= 0:
             live.pop(name, None)

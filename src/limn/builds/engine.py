@@ -858,14 +858,15 @@ def commit_pages(D: BuildDoc, newdir: Path, on_swap: Callable[[], None] | None =
     atomic_write(D.dir / "pages.cur", newdir.name)  # a single atomic swap
     if on_swap is not None:
         on_swap()
-    held = holds.held_builds(D)
-    for d in D.dir.iterdir():  # keep only current and previous, and slim what is held
-        if d.is_dir() and PAGES_DIR_RE.fullmatch(d.name) and d.name not in (newdir.name, prev):
-            if d.name in held:
-                with contextlib.suppress(OSError):
-                    build.slim_pages(d)
-            else:
-                shutil.rmtree(d, ignore_errors=True)
+    # under the holds lock, so a hold set meanwhile either sees its directory gone or is seen here (holds.retention)
+    with holds.retention(D) as held:
+        for d in D.dir.iterdir():  # keep only current and previous, and slim what is held
+            if d.is_dir() and PAGES_DIR_RE.fullmatch(d.name) and d.name not in (newdir.name, prev):
+                if d.name in held:
+                    with contextlib.suppress(OSError):
+                        build.slim_pages(d)
+                else:
+                    shutil.rmtree(d, ignore_errors=True)
     atomic_write(D.dir / "built_at.txt", datetime.now().astimezone().isoformat(timespec="seconds"))
     head_short = _published_head(D)
     atomic_write(D.dir / "head.txt", head_short)

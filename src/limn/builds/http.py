@@ -7,6 +7,7 @@ from typing import Any, NamedTuple, NoReturn
 
 from limn.builds import answer, artifacts as build, holds, input as build_input
 from limn.builds.service import BuildRequests
+from limn.platform.values import is_finite_num
 from limn.runtime.documents import Doc
 from limn.security.access import PostAuthority
 from limn.web.errors import HTTPError
@@ -30,20 +31,25 @@ def rebuild(requests: BuildRequests, doc: Doc, query: Query, authority: PostAuth
 def hold(
     requests: BuildRequests, doc: Doc, body: Json, authority: PostAuthority, text: Callable[[object], str]
 ) -> tuple[dict[str, object], int]:
-    """POST /api/hold {build, days?}: hold page build `build` of doc for `days` days (default and most
-    holds.MAX_DAYS; 0 releases it) and answer {build, until} (until null once released). 400 bad_pdf_build (the
-    pick's refusal of the same check) for a name that is not a page directory name; 400 bad_days for a length that is
-    not a number from 0 to holds.MAX_DAYS; the pdf_build_gone 404 (with the build on screen) when that build's folder
-    is gone - also for a release."""
+    """POST /api/hold {build, days?}: hold page build `build` of doc for `days` days (default holds.MAX_DAYS; a longer
+    ask is capped there, and the answer's until says so; 0 releases it) and answer {build, until} (until null once
+    released). 400 bad_pdf_build (the pick's refusal of the same check) for a name that is not a page directory name;
+    400 not_number for a length that is not a finite number, too_small below 0; the pdf_build_gone 404 (with the build
+    on screen) when that build's folder is gone - also for a release, and also when a commit removes it while the
+    request is being answered (holds.HoldBuildGone)."""
     name = body.get("build")
     if not build.valid_build_name(name):
         raise HTTPError(400, "build 는 쪽 폴더 이름(pages 또는 pages-<시각>)이어야 합니다.", reason="bad_pdf_build")
     days = body.get("days", holds.MAX_DAYS)
-    if not holds.valid_days(days):
-        raise HTTPError(400, "days 는 0 부터 %g 까지의 숫자입니다." % holds.MAX_DAYS, reason="bad_days")
-    if not (doc.dir / name).is_dir():
-        build_gone(name, build.cur_pages(doc).name, text, "쪽 폴더")
-    until = requests.hold(doc, authority, name, float(days))
+    if not is_finite_num(days):
+        raise HTTPError(400, "days 는 유한한 숫자여야 합니다.", reason="not_number")
+    if days < 0:
+        raise HTTPError(400, "days 는 0 이상이어야 합니다.", reason="too_small")
+    cur = build.cur_pages(doc).name
+    try:
+        until = requests.hold(doc, authority, name, min(float(days), holds.MAX_DAYS))
+    except holds.HoldBuildGone:
+        build_gone(name, cur, text, "쪽 폴더")
     return {"build": name, "until": None if until is None else until.isoformat(timespec="seconds")}, 200
 
 

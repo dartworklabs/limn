@@ -9,6 +9,7 @@ Run: uv run pytest -q src/limn/builds/tests/test_hold.py
 
 import json
 import subprocess
+import threading
 from datetime import datetime, timedelta
 from unittest import mock
 
@@ -100,11 +101,13 @@ class Retention(AccessBase):
     def test_the_ninth_hold_drops_the_one_expiring_soonest(self):
         """Past eight live holds the other one expiring soonest goes; the new one stays even when it is short."""
         now = datetime.now().astimezone()
-        names = ["pages-2026110110%04d" % i for i in range(8)]
+        names = ["pages-2026110109%04d" % i for i in range(8)]
         for i, name in enumerate(names):
+            (self.D.dir / name).mkdir()
             holds.set_hold(self.D, name, 7 - i * 0.5, "alice@example.com", now=now)
         self.assertEqual(set(self.stored_holds()), set(names))
         newest = "pages-20261101200000"
+        (self.D.dir / newest).mkdir()
         holds.set_hold(self.D, newest, 0.25, "bob@example.com", now=now)
         kept = self.stored_holds()
         self.assertEqual(len(kept), holds.MAX_HOLDS)
@@ -168,16 +171,80 @@ class Retention(AccessBase):
         self.assertFalse((self.D.dir / B1).exists())
 
     def test_post_hold_refuses_a_bad_name_or_length(self):
-        """400 bad_pdf_build for a name that is not a page directory name; 400 bad_days for a length outside 0..7 or not a
-        number. Nothing is stored."""
+        """400 bad_pdf_build for a name that is not a page directory name; 400 not_number for a length that is not a
+        finite number, too_small below 0 - codes the viewer already explains. Nothing is stored."""
         for body in ({}, {"build": "../x"}, {"build": "pages-1"}, {"build": 7}):
             with self.subTest(body=body):
                 code, d = self.hold(body)
                 self.assertEqual((code, d.get("reason")), (400, "bad_pdf_build"), d)
-        for days in (-1, 7.5, 8, "3", True, None, [1]):
+        for days, reason in (("3", "not_number"), (True, "not_number"), (None, "not_number"), ([1], "not_number")):
             with self.subTest(days=days):
                 code, d = self.hold({"build": B1, "days": days})
-                self.assertEqual((code, d.get("reason")), (400, "bad_days"), d)
+                self.assertEqual((code, d.get("reason")), (400, reason), d)
+        for days in (-1, -0.5):
+            with self.subTest(days=days):
+                code, d = self.hold({"build": B1, "days": days})
+                self.assertEqual((code, d.get("reason")), (400, "too_small"), d)
+        self.assertEqual(self.stored_holds(), {})
+
+    def test_a_longer_ask_holds_for_seven_days(self):
+        """days past 7 is capped at 7: until is seven days ahead, so the caller learns the real end."""
+        code, d = self.hold({"build": B1, "days": 30})
+        self.assertEqual(code, 200, d)
+        ahead = datetime.fromisoformat(d["until"]) - datetime.now().astimezone()
+        self.assertTrue(timedelta(days=6, hours=23) < ahead <= timedelta(days=7), ahead)
+
+    def test_a_hold_on_a_directory_deleted_after_the_check_stores_nothing(self):
+        """set_hold checks the directory under the holds lock: a build removed after the request's check raises
+        HoldBuildGone and writes no hold, and over HTTP that is the pdf_build_gone 404."""
+        (self.D.dir / B1 / "page-1.png").unlink()
+        with self.assertRaises(holds.HoldBuildGone):
+            holds.set_hold(self.D, "pages-19990101000000", 7, "alice@example.com")
+        self.assertEqual(self.stored_holds(), {})
+        real = holds.set_hold
+
+        def racing(D, name, days, by, now=None):
+            """The commit that removes the build lands between the HTTP check and the hold."""
+            for f in (D.dir / name).iterdir():
+                f.unlink()
+            (D.dir / name).rmdir()
+            return real(D, name, days, by, now)
+
+        self.commit(B2)  # B1 becomes previous, so a page folder other than the one removed stays on screen
+        with mock.patch.object(holds, "set_hold", racing):
+            code, d = self.hold({"build": B1})
+        self.assertEqual((code, d.get("reason"), d.get("pages_build")), (404, "pdf_build_gone", B2), d)
+        self.assertEqual(self.stored_holds(), {})
+
+    def test_a_commit_and_a_hold_do_not_interleave(self):
+        """While a commit decides what to keep (retention), a hold waits; once the commit has deleted the build the
+        hold finds it gone, so a 200 is never answered on a directory the commit removes."""
+        self.commit(B2)
+        self.commit(B3)  # B1, unheld, is deleted here; make it again as a folder the next commit's retention removes
+        self.make(B1)
+        entered = threading.Event()
+        outcome = []
+
+        def hold_now():
+            """The concurrent hold."""
+            entered.wait(5)
+            try:
+                outcome.append(holds.set_hold(self.D, B1, 7, "alice@example.com"))
+            except holds.HoldBuildGone:
+                outcome.append("gone")
+
+        t = threading.Thread(target=hold_now)
+        t.start()
+        with holds.retention(self.D) as held:
+            self.assertNotIn(B1, held)
+            entered.set()
+            t.join(0.3)
+            self.assertTrue(t.is_alive())  # the hold waits for the commit's decision
+            for f in (self.D.dir / B1).iterdir():
+                f.unlink()
+            (self.D.dir / B1).rmdir()
+        t.join(5)
+        self.assertEqual(outcome, ["gone"])
         self.assertEqual(self.stored_holds(), {})
 
     def test_post_hold_on_a_gone_build_is_pdf_build_gone(self):
