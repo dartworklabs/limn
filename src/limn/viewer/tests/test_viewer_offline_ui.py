@@ -304,6 +304,22 @@ class QueuedPinsScreen(BrowserBase):
         self.assertEqual(page.input_value("#note"), "")
         self.assertEqual(page.evaluate(QUEUE), ["되돌릴 메모"])
 
+    def test_redo_undo_on_another_document_leaves_that_documents_note(self):
+        """A take-back's undo pressed after the document changed: the note field is that document's draft, so it is not
+        cleared (even holding the same words) and the record is not put back; the line says why."""
+        page = self.view([{"page": 1, "frac": [0.2, 0.2, 0.5, 0.05], "note": "같은 글"}])
+        page.click("#queue-rows [data-q=redo]")
+        page.wait_for_function("OFF.n===0")
+        settle(page)
+        page.evaluate("DOC='other'")  # as after a switch: the field now holds the other document's draft
+        page.click("#queue-rows [data-q=undo]")
+        settle(page)
+        self.assertEqual(page.input_value("#note"), "같은 글")
+        self.assertEqual(page.evaluate(QUEUE), [])
+        self.assertIn("다른 문서로 옮겨 되돌리지 않았습니다", page.evaluate("LINE.map(n=>n.title).join('|')"))
+        self.assertEqual(page.evaluate("document.querySelectorAll('#queue-rows>[data-undo]').length"), 0)
+        page.evaluate("DOC=DEFAULT_DOC")
+
     def test_a_marks_badge_shows_its_row_and_starts_no_selection(self):
         """A mouse press on a mark's badge never starts a box on the page; its click brings the row into view, flashed."""
         page = self.view(self.three())

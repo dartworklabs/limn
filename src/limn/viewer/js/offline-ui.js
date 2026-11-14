@@ -196,6 +196,10 @@ function offUiUndoEnd(id){const u=OFFUI.undos.get(id); if(!u)return; clearTimeou
 /** @param {number} id */
 async function offUiUndo(id){const u=OFFUI.undos.get(id); if(!u||u.busy)return;
   const n=/** @type {HTMLTextAreaElement} */($('#note')),inIt=!!document.activeElement&&!!document.activeElement.closest&&!!document.activeElement.closest('#queue-rows>[data-undo]');
+  // The composer's note is the document on screen's draft: on another document it is that document's, and clearing it
+  // (and saving the draft) would take a note this record never put there. The take-back is undone only where it was made.
+  if(u.redo&&(DOC||DEFAULT_DOC)!==(u.rec.doc||DEFAULT_DOC)){offUiUndoEnd(id);
+    lineNote('다른 문서로 옮겨 되돌리지 않았습니다 — 그 문서에서 메모를 지우세요',NOTICE_KIND.INFO,null,{life:NOTICE_LIFE.TIMER}); return;}
   if(u.redo&&n.value!==u.text){offUiUndoEnd(id); lineNote('메모가 이미 바뀌어 되돌리지 않았습니다',NOTICE_KIND.INFO,null,{life:NOTICE_LIFE.TIMER}); return;}
   u.busy=true; clearTimeout(u.t); offUiDraw();
   const ok=(await offPut(u.rec))!==null;
