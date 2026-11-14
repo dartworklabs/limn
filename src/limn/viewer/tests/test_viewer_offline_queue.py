@@ -1180,6 +1180,7 @@ var ONLINE=true; function offlineNow(){return !ONLINE;}
 var DOC='main',OFF_STATE='state';
 var OFF={n:0,held:0,flushing:false,prep:false,following:false,kept:undefined,keptAt:0,seen:{},timer:undefined,fails:0,after:0,failSaid:false,holder:false,me:''};
 var ME='me-aaaaaaaaaaaaaaaa'; function offHolderId(){return Promise.resolve(ME);}   // this browser's name among a build's holders
+var SHOWN=0; function offKeptShow(){SHOWN++;}   // [더보기]'s row says the instance is kept (read in the real viewer, test_viewer_offline_ui)
 var DOC_KIND={MARKDOWN:'markdown',TEXT:'text'}; function rendersInBrowser(k){return k===DOC_KIND.MARKDOWN||k===DOC_KIND.TEXT;}
 var NOTICE_KIND={OK:'ok',WARN:'warn',ERR:'err',INFO:'info'},NOTES=[]; function lineNote(msg,kind,act){NOTES.push({msg:msg,kind:kind,act:!!act}); return {};}
 function offlinePrepare(){}

@@ -293,6 +293,21 @@ class QueuedPinsScreen(BrowserBase):
         self.assertEqual(page.input_value("#note"), "쓰는 중")
         self.assertIn("작성 중인 메모가 있습니다", page.evaluate("LINE.map(n=>n.title).join('|')"))
 
+    def test_the_menu_row_says_whether_this_instance_is_kept(self):
+        """Following is silent, so [더보기]'s row is where a person sees it is on: nothing at its end for an instance
+        never kept, '받아 둠' once the kept record exists."""
+        page = self.view()
+        self.assertTrue(page.evaluate("document.getElementById('m-offline-n').hidden"))
+        page.evaluate("async()=>{await offKeptSet(v=>v||{key:OFF_KEPT,docs:{},old:[]});}")
+        page.evaluate("openMore()")
+        settle(page)
+        self.assertEqual(page.inner_text("#m-offline-n"), "받아 둠")
+        self.assertTrue(page.is_visible("#m-offline-n"))
+        # the next visit reads the record and says so again
+        page.reload(wait_until="load")
+        page.wait_for_function("typeof OFF!=='undefined'&&OFF.kept!==undefined&&!document.getElementById('m-offline-n').hidden")
+        self.assertEqual(page.evaluate("document.getElementById('m-offline-n').textContent"), "받아 둠")
+
     def test_a_drag_made_while_cut_off_opens_the_composer_and_reports_no_failure(self):
         """The server cannot be reached: the selection stays, the composer opens on it and says the lines are found
         later - not '위치 찾기 실패' beside that. Its place names no file (there is none yet) and it is marked as chosen

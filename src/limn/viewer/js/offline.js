@@ -268,7 +268,11 @@ function offKeptUpdate(fn){return offDb().then(db=>new Promise(res=>{if(!db){res
     tx.oncomplete=()=>res(out); tx.onerror=()=>res(null); tx.onabort=()=>res(null);}
   catch(e){res(null);}}));}
 /** offKeptUpdate, and this tab's copy of the record follows. @param {(v:any)=>any} fn @returns {Promise<any>} */
-async function offKeptSet(fn){const v=await offKeptUpdate(fn); if(v)OFF.kept=v; return v;}
+async function offKeptSet(fn){const v=await offKeptUpdate(fn); if(v){OFF.kept=v; offKeptShow();} return v;}
+// [더보기]'s [오프라인으로 받기] says whether this instance is kept: '받아 둠' at the row's end once it is. Following is
+// silent, so this is the one place a person can see that it is on - and that an instance was never kept.
+function offKeptShow(){const n=document.getElementById('m-offline-n'); if(!n)return;
+  n.hidden=!OFF.kept; n.textContent=OFF.kept?tr('받아 둠'):'';}
 // What a meta answer says each document is on: the document it answers for and, with several documents, each one's
 // summary - the page build, the source time, the kind. Pure.
 /** @param {any} d @returns {Record<string,{build:string,src:any,kind:any}>} */
@@ -366,7 +370,7 @@ function offFollowCheck(moved){const kept=OFF.kept;
   if(kept===undefined)return;   // not read yet: offlineBoot checks once it is
   // Another tab of this browser may turn following on; this one reads the record again now and then (no request).
   if(kept===null){if(Date.now()-OFF.keptAt>=60000){OFF.keptAt=Date.now();
-    void offKept().then(v=>{if(v){OFF.kept=v; offFollowCheck(true);}});} return;}
+    void offKept().then(v=>{if(v){OFF.kept=v; offKeptShow(); offFollowCheck(true);}});} return;}
   const due=offBehind(kept,OFF.seen).length>0||offRenewDue(kept,Date.now()).length>0||((kept.old||[]).length>0&&OFF.n===0);
   if(!due)return;
   if(moved)OFF.after=0;
@@ -703,5 +707,5 @@ function offlineBoot(){OFF.boot=false;   // the first reads are done: from here 
   void offlineWorker();
   void offlineSync().then(()=>{if(OFF.n&&!offlineNow())void offlineFlush();});
   // A visit starts by comparing the kept copy with what the server shows, once the kept record is read.
-  void offKept().then(v=>{OFF.kept=v; OFF.keptAt=Date.now(); offFollowCheck(true);});}
+  void offKept().then(v=>{OFF.kept=v; OFF.keptAt=Date.now(); offKeptShow(); offFollowCheck(true);});}
 addEventListener('online',()=>{void offlineFlush();});

@@ -1734,7 +1734,7 @@
  "지금 반영": "Write now",
  "빌드 보류": "Build hold",
  "오프라인으로 받기": "Keep offline",
- "이 문서를 연결 없이 읽을 수 있게 받아 두고, 지금 PDF의 자리를 7일간 지켜 둡니다. 끊긴 동안 찍은 핀은 쌓였다가 연결되면 반영됩니다": "Keeps this document readable with no connection and holds this PDF's places for 7 days. Pins made while cut off are kept and written once the connection is back",
+ "이 인스턴스의 문서를 모두 연결 없이 읽을 수 있게 받아 두고, 지금 PDF의 자리를 7일간 지켜 둡니다. 한 번 누르면 연결된 동안 새 판을 스스로 받아 둡니다. 끊긴 동안 찍은 핀은 쌓였다가 연결되면 반영됩니다": "Keeps every document of this instance readable with no connection and holds this PDF's places for 7 days. Pressed once, new builds are kept on their own while connected. Pins made while cut off are kept and written once the connection is back",
  "연결이 없어 {time}에 읽어 둔 화면입니다 — 핀을 찍으면 쌓였다가 연결되면 반영됩니다": "With no connection this is the screen read at {time} — a pin you make is kept and written once the connection is back",
  "오프라인용으로 받는 중… {n}/{m}": "Keeping for offline use… {n}/{m}",
  "오프라인 준비됨 · 문서 {d}개 · 파일 {n}개 · PDF의 자리를 7일간 지킵니다": "Ready offline · {d} documents · {n} files · the PDFs' places are held for 7 days",
@@ -1774,5 +1774,6 @@
  "다른 문서로 옮겨 되돌리지 않았습니다 — 그 문서에서 메모를 지우세요": "Not taken back: you are on another document now — clear the note on that document",
  "보낸 적이 있어 서버에 이미 있을 수 있습니다 — 연결된 뒤 [지금 반영]으로 확인하세요": "This one was sent before and may already be on the server — once connected, check with [Write now]",
  "오프라인": "Offline",
+ "받아 둠": "Kept",
  "연결이 끊긴 채 고른 자리입니다 — 저장하면 쌓아 두었다가, 연결되면 이 PDF로 줄을 찾아 핀으로 씁니다": "Chosen with no connection — saved, it is kept and written as a pin once connected, its lines found on this PDF"
 }
