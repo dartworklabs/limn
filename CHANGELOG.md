@@ -9,6 +9,18 @@
   reason field whose save was out, either key moved the pages 188px. Up to Chrome 156 they scrolled the field only.
   The viewer now scrolls such a field a page itself (7/8 of what it shows, as Chromium does) and drops the key's
   default, so the pages stay and the caret stays where it stands, in every browser.
+- **`limn update` and `limn start` keep the TeX a machine's instances rebuild with.** The systemd unit's PATH was
+  taken afresh from whatever shell rendered the unit. Run over a non-login SSH shell (`ssh host limn update`), that
+  shell has no TeX Live on its PATH and finds the distribution's pdflatex, so the rewritten unit sent every instance on
+  the machine to a TeX without the journal classes: the next rebuild failed with `File 'elsarticle.cls' not found`.
+  The unit is now rewritten by the pdflatex each PATH reaches, not by whether it reaches one (every unit PATH ends in
+  `/usr/bin:/bin`). When the unit's PATH and the shell's reach different pdflatex binaries and the unit's is not the
+  distribution's (`/usr/bin`, `/bin`), the unit keeps its PATH and a warning names both. A unit that reaches only the
+  distribution's TeX, or none, takes the shell's PATH, so a unit already written this way is repaired by the next
+  `limn update` from a login shell. When both reach the same pdflatex the unit keeps its PATH, with any directories
+  `LIMN_UNIT_PATH` added. `LIMN_UNIT_PATH` still sets the PATH outright.
+
+The agent contract is unchanged.
 
 ## 0.4.59 — 2026-11-12
 

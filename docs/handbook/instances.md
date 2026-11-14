@@ -224,9 +224,18 @@ limn add paper2 --manuscript ~/papers/paper2        # 같은 결과를 설정에
 | --- | --- |
 | `@LIMN_BIN@` | 지금 실행 중인 `limn` 실행 파일. uv의 bin 폴더(`~/.local/bin/limn`) 경로를 심링크 해석 없이 쓴다. 업그레이드 뒤에도 살아남는 경로라서다 |
 | `@LIMN_CONFIG_DIR@` | 설정 폴더 |
-| `@LIMN_PATH@` | 유닛 안의 `PATH`. 유닛을 쓰는 셸에서 찾은 `pdflatex`의 폴더를 맨 앞에 두고 `/usr/local/bin:/usr/bin:/bin`을 붙인다. `LIMN_UNIT_PATH`로 바꾼다 |
+| `@LIMN_PATH@` | 유닛 안의 `PATH`. 처음 쓰는 유닛은 그 셸에서 찾은 `pdflatex`의 폴더를 맨 앞에 두고 `/usr/local/bin:/usr/bin:/bin`을 붙인다. 이미 limn이 쓴 유닛이 있으면 아래 규칙으로 그 `PATH`를 지킨다. `LIMN_UNIT_PATH`로 바꾼다 |
 
 `PATH`를 채우는 이유는 systemd 유닛이 셸 rc 파일을 읽지 않아 대화형 셸의 `PATH`를 물려받지 못하기 때문이다. 이 값이 없으면 재빌드가 배포판의 `pdflatex`를 잡아 저널 클래스(`.cls`)를 못 찾는다.
+
+있는 유닛의 `PATH`를 지키는 이유는 `limn update`·`limn start`를 도는 셸이 늘 대화형 셸은 아니기 때문이다. 비로그인 SSH 셸(`ssh host limn update`)의 `PATH`에는 TeX Live가 없어 배포판의 `pdflatex`가 잡힌다. 그 셸의 값으로 유닛을 다시 쓰면 그 기기의 모든 인스턴스가 다음 재빌드부터 저널 클래스를 못 찾는다.
+
+지킬지는 두 `PATH`가 실제로 잡는 `pdflatex`로 정한다. 닿는지 여부로 정하지 않는 것은 모든 유닛 `PATH`가 `/usr/bin:/bin`으로 끝나, 배포판 TeX가 깔린 기기에서는 어느 `PATH`든 무언가에 닿기 때문이다.
+
+- 있던 `PATH`와 이 셸의 `PATH`가 다른 `pdflatex`를 잡고, 있던 쪽이 배포판 폴더(`/usr/bin`, `/bin`)의 것이 아니면 있던 `PATH`를 지킨다. 경고 한 줄이 두 값과 각자의 `pdflatex`를 알린다.
+- 있던 쪽이 배포판의 `pdflatex`만 잡거나 아무것도 잡지 못하면(TeX Live를 지웠거나, 이미 배포판 TeX로 쓰인 유닛) 이 셸의 `PATH`로 바꾸고 경고로 알린다.
+- 둘이 같은 `pdflatex`를 잡으면 있던 `PATH`를 그대로 둔다. `LIMN_UNIT_PATH`로 더한 폴더(래퍼 스크립트 등)를 잃지 않기 위해서다. 유닛이 처음이면 이 셸의 `PATH`를 쓴다.
+- TeX Live를 새 판으로 옮겼는데 옛 판도 남아 있으면 있던 `PATH`가 지켜진다. 그때는 `LIMN_UNIT_PATH`를 주고 `limn start` 또는 `limn update`를 한 번 돌린다.
 
 템플릿의 나머지 설정은 다음과 같다.
 
@@ -403,7 +412,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/paper2.token)" http://127
 | `LIMN_DATA_ROOT` | `$XDG_DATA_HOME/limn` | 상태 폴더 기본 위치 |
 | `LIMN_SOURCE_DIR` | = 설정 폴더 | `add`가 설정 원본을 쓰는 곳(설정 폴더에 링크) |
 | `LIMN_USER_UNIT_DIR` | `$XDG_CONFIG_HOME/systemd/user` | 유닛 템플릿을 쓰는 곳 |
-| `LIMN_UNIT_PATH` | `pdflatex` 폴더 + `/usr/local/bin:/usr/bin:/bin` | 유닛 안의 `PATH` |
+| `LIMN_UNIT_PATH` | `pdflatex` 폴더 + `/usr/local/bin:/usr/bin:/bin`. 있는 유닛의 `PATH`는 §유닛 템플릿의 규칙으로 지킨다 | 유닛 안의 `PATH` |
 | `LIMN_LEDGER`, `LIMN_LEDGER_GEN` | 위 '포트' 절 참고 | 포트 장부(선택) |
 | `LIMN_TS_MIN`, `LIMN_TS_MAX`, `LIMN_LOCAL_OFFSET` | `18005`, `18099`, `100` | 자동 배정 대역 |
 | `LIMN_REPO`, `LIMN_UV` | `git+https://github.com/dartworklabs/limn`, `uv` | `limn update`가 설치할 원본과 쓸 `uv`. SSH로 받으려면 `LIMN_REPO`에 `git+ssh://git@github.com/dartworklabs/limn`을 준다(0.1.0의 기본값, 위 '업데이트와 되돌리기' 참고) |
