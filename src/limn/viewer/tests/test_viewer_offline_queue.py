@@ -512,7 +512,8 @@ class OfflineQueueSend(unittest.TestCase):
 STORE_SCOPE = r"""
 var OFF_STATE='state',OFF={idem:false};
 var OFF_READS=['/api/meta','/api/docs','/api/pins','/api/pins/dropped','/api/people','/api/outline-labels','/api/source'];
-var STORE=new Map();
+var STORE=new Map(),FOLLOW_SEEN=[];
+function offlineFollowSeen(d){FOLLOW_SEEN.push(d);}   // what a meta answer tells the follow (tested in KeptCopyFollows)
 // Stands in for the one IndexedDB store, keeping put/get as they behave there.
 function offIn(store,mode,fn){const s={put:function(v){STORE.set(v.key,v); return {};},
   get:function(k){return {result:STORE.get(k)};},delete:function(k){STORE.delete(k); return {};}};
@@ -605,6 +606,21 @@ class StoredAnswers(unittest.TestCase):
             """
         )
         self.assertEqual(got, [True, True, False, False])
+
+    def test_every_meta_answer_and_only_a_meta_answer_tells_the_follow_what_the_server_shows(self):
+        """A kept copy learns that a document's build moved from the meta answers the viewer already gets - the light
+        poll's above all - so following adds no request of its own. A refusal says nothing about the builds."""
+        got = self._run(
+            """
+            offStash('/api/meta?light=1&doc=main',{doc:'main',pages_build:'pages-2'},200,null);
+            offStash('/api/meta?doc=ms',{doc:'ms',pages_build:'pages-3'},200,null);
+            offStash('/api/pins?all=1',[],200,null);
+            offStash('/api/docs',{docs:[]},200,null);
+            offStash('/api/meta',{error:'x'},500,null);
+            console.log(JSON.stringify(FOLLOW_SEEN.map(function(d){return d.pages_build;})));
+            """
+        )
+        self.assertEqual(got, ["pages-2", "pages-3"])
 
     def test_a_light_poll_and_a_write_are_outside_the_store(self):
         """The light poll has to fail, so the status line says the connection is gone; a write is never a stored read."""
@@ -1049,6 +1065,645 @@ class KeyedSend(unittest.TestCase):
             """
         )
         self.assertEqual(got, {"pins": 0, "left": 0})
+
+
+def _shipped_const(name):
+    """The line of offline.js declaring name - the constants a pulled function reads, as shipped."""
+    src = (Path(__file__).resolve().parent.parent / "js" / "offline.js").read_text(encoding="utf-8")
+    m = re.search(r"^const %s=[^;]*;" % name, src, re.M)
+    assert m, name
+    return m.group(0)
+
+
+# The page scope the follow runs in: the kept record and the queue (stand-ins for the state store and the pins store), the
+# worker's cache, the server (meta per document, holds) and the clock. LOG says what went out, in order.
+FOLLOW_SCOPE = r"""
+var NOW=1800000000000; Date.now=function(){return NOW;};
+var ONLINE=true; function offlineNow(){return !ONLINE;}
+var DOC='main',OFF_STATE='state';
+var OFF={n:0,held:0,flushing:false,prep:false,following:false,kept:undefined,keptAt:0,seen:{},timer:undefined,fails:0,after:0,failSaid:false};
+var DOC_KIND={MARKDOWN:'markdown',TEXT:'text'}; function rendersInBrowser(k){return k===DOC_KIND.MARKDOWN||k===DOC_KIND.TEXT;}
+var NOTICE_KIND={OK:'ok',WARN:'warn',ERR:'err',INFO:'info'},NOTES=[]; function lineNote(msg,kind,act){NOTES.push({msg:msg,kind:kind,act:!!act}); return {};}
+function offlinePrepare(){}
+var copy=function(v){return v==null?null:JSON.parse(JSON.stringify(v));};
+var KEPT=null;   // the state store's kept record, as two tabs of one browser share it
+function offKept(){return Promise.resolve(copy(KEPT));}
+function offKeptUpdate(fn){const v=fn(copy(KEPT)); if(v)KEPT=copy(v); return Promise.resolve(v||null);}
+var QUEUE=[],QUEUE_DOWN=false;   // the pins store; QUEUE_DOWN: the read fails, as IndexedDB answers null
+function offTx(mode,fn){return Promise.resolve(QUEUE_DOWN?null:QUEUE.slice());}
+var CACHE=new Set(),FAIL=[],WORKER_DOWN=false,LOG=[],SLOW=[];
+function later(n,v){return n?new Promise(function(r){setImmediate(r);}).then(function(){return later(n-1,v);}):Promise.resolve(v);}
+function offlineAsk(msg){if(WORKER_DOWN)return Promise.resolve(null);
+  if(msg.type==='keep'&&msg.urls.some(function(u){return SLOW.some(function(f){return u.indexOf(f)>=0;});}))
+    return later(20).then(function(){const s=SLOW; SLOW=[]; return offlineAsk(msg).finally(function(){SLOW=s;});});
+  if(msg.type==='keep'){LOG.push('keep '+msg.urls.length);
+    const failed=msg.urls.filter(function(u){return FAIL.some(function(f){return u.indexOf(f)>=0;});});
+    msg.urls.forEach(function(u){if(failed.indexOf(u)<0)CACHE.add(u);});
+    if(ON_KEEP)ON_KEEP();
+    return Promise.resolve({kept:msg.urls.length-failed.length,failed:failed});}
+  if(msg.type==='drop'){LOG.push('drop '+msg.urls.length); let n=0; msg.urls.forEach(function(u){if(CACHE.delete(u))n++;});
+    return Promise.resolve({dropped:n});}
+  throw new Error('unexpected ask '+msg.type);}
+var ON_KEEP=null;
+// The server: each document's kind, build and source time now; the holds it has; whether it has the hold route at all.
+var SERVER={main:{kind:'tex',build:'pages-B2',src:2}},HOLDS={},HOLD_ROUTE=true,HOLD_REFUSE=0,DOWN=false;
+function metaOf(k){const s=SERVER[k]; return {doc:k,kind:s.kind,pages_build:s.build,built_at:'at-'+s.build,src_mtime:s.src,
+  pages:[{name:'page-1.png'},{name:'page-2.png'}]};}
+function api(url,o){const method=(o&&o.method)||'GET',path=url.split('?')[0];
+  const k=decodeURIComponent((url.split('doc=')[1]||DOC).split('&')[0]);
+  if(DOWN||!ONLINE){LOG.push('down '+path); return Promise.reject(new TypeError('Failed to fetch'));}
+  if(path==='/api/meta'){LOG.push('meta '+k); const d=metaOf(k); offlineFollowSeen(d);   // as offStash hands every meta answer on
+    return Promise.resolve({status:200,data:d});}
+  if(path==='/api/outline-labels')return Promise.resolve({status:200,data:{labels:[]}});
+  if(['/api/docs','/api/pins','/api/pins/dropped','/api/people'].indexOf(path)>=0)return Promise.resolve({status:200,data:[]});
+  if(path==='/api/source'){LOG.push('source '+k); return Promise.resolve({status:200,data:{lines:['x']}});}
+  if(path==='/api/hold'){const b=o.body.build,d=o.body.days; LOG.push('hold '+b+' '+d);
+    if(HOLD_REFUSE){const e=new Error('HTTP '+HOLD_REFUSE); e.status=HOLD_REFUSE; return Promise.reject(e);}
+    if(!HOLD_ROUTE){if((o.expect||[]).indexOf(404)>=0)return Promise.resolve({status:404,data:{error:'not found',reason:'not_found'}});
+      const e=new Error('HTTP 404'); e.status=404; return Promise.reject(e);}   // as api() throws a status it was not told to expect
+    if(d===0)delete HOLDS[b]; else HOLDS[b]=NOW;
+    return Promise.resolve({status:200,data:{build:b,until:d?'later':null}});}
+  throw new Error('unexpected call '+method+' '+url);}
+// navigator.locks as a browser has it: a tab gets the lock unless another holds it (ifAvailable answers null then).
+var LOCK_HELD=false,LOCKED=0;
+Object.defineProperty(globalThis,'navigator',{configurable:true,value:{locks:{request:function(name,opt,cb){
+  if(LOCK_HELD)return Promise.resolve(cb(null)); LOCK_HELD=true; LOCKED++;
+  return Promise.resolve(cb({name:name})).finally(function(){LOCK_HELD=false;});}}}});
+var TIMERS=[]; setTimeout=function(fn,ms){TIMERS.push({fn:fn,ms:ms}); return TIMERS.length;};
+clearTimeout=function(id){if(id)TIMERS[id-1]=null;};
+function pending(){return TIMERS.filter(Boolean);}
+// The record a press of [오프라인으로 받기] leaves for a document on build b, its copies in the cache.
+function keptOn(b,at){const files=offlineDocFiles('main',{pages_build:b,built_at:'at-'+b,pages:[{name:'page-1.png'},{name:'page-2.png'}]});
+  files.forEach(function(u){CACHE.add(u);}); HOLDS[b]=NOW;
+  return {key:'kept',docs:{main:{build:b,files:files,at:at===undefined?NOW:at,seen:NOW-1}},old:[]};}
+function has(b){return Array.from(CACHE).filter(function(u){return u.indexOf(b)>=0;}).length;}
+function out(extra){console.log(JSON.stringify(Object.assign({kept:KEPT&&KEPT.docs.main?KEPT.docs.main.build:null,
+  old:KEPT?KEPT.old.map(function(o){return o.build;}):null,b1:has('pages-B1'),b2:has('pages-B2'),
+  holds:Object.keys(HOLDS).sort(),log:LOG},extra||{})));}
+// A light poll's answer for the document on screen, as offStash hands it on.
+function poll(){offlineFollowSeen({doc:'main',kind:SERVER.main.kind,pages_build:SERVER.main.build,src_mtime:SERVER.main.src});}
+"""
+
+FOLLOW_FUNCTIONS = (
+    "dq",
+    "offlineDocFiles",
+    "offKeptSet",
+    "offSeenIn",
+    "offBehind",
+    "offFree",
+    "offRenewDue",
+    "offKeptWith",
+    "offKeptHeld",
+    "offKeptPart",
+    "offHold",
+    "offlineFollowSeen",
+    "offFollowCheck",
+    "offlineFollow",
+    "offFollowRun",
+    "offFollowDoc",
+    "offFollowTidy",
+    "offFollowDone",
+)
+
+
+class KeptCopyFollows(unittest.TestCase):
+    """A kept copy keeps itself current while connected (offline.js offlineFollow, docs/handbook/viewer.md
+    §끊긴 채 보기와 핀 쌓기 '스스로 최신으로').
+
+    What it protects: a person who pressed [오프라인으로 받기] once flies with the build the server is on, held - without
+    pressing again after every rebuild - and never with less than they had: the old build goes only once the new one is
+    whole, and never while a queued pin was drawn on it.
+    """
+
+    def setUp(self):
+        if not shutil.which("node"):
+            self.skipTest("node not available")
+
+    def _run(self, scenario):
+        consts = "\n".join(_shipped_const(n) for n in ("OFF_KEEP_CHUNK", "OFF_KEPT"))
+        js = "\n".join(
+            [
+                FOLLOW_SCOPE.replace("var OFF_STATE='state';", ""),
+                consts,
+                "var OFF_STATE='state';",
+                *(extract_js_fn(n) for n in FOLLOW_FUNCTIONS),
+                scenario,
+            ]
+        )
+        return json.loads(run_node(js))
+
+    def test_a_changed_build_is_followed_without_pressing_again(self):
+        """Kept on B1; the server is on B2. The follow fetches B2 whole, holds it, and only then drops B1's copies and
+        lets its hold go - the copy is B2's now, with nothing of B1 left on the device."""
+        got = self._run(
+            """
+            KEPT=keptOn('pages-B1'); OFF.kept=copy(KEPT); poll();
+            offlineFollow().then(function(){out();});
+            """
+        )
+        self.assertEqual((got["kept"], got["old"], got["b1"], got["b2"]), ("pages-B2", [], 0, 3))
+        self.assertEqual(got["holds"], ["pages-B2"])
+        # Everything of the new build comes before anything of the old goes.
+        log = got["log"]
+        self.assertLess(log.index("hold pages-B2 7"), log.index("drop 3"), log)
+        self.assertLess(log.index("keep 3"), log.index("hold pages-B2 7"), log)
+        self.assertLess(log.index("drop 3"), log.index("hold pages-B1 0"), log)
+
+    def test_a_light_poll_sets_a_follow_going_once_the_build_stands_still(self):
+        """A build seen moving sets one follow, after OFF_SETTLE_MS; a later poll with nothing new leaves it as it is,
+        and a poll that sees the build move again starts the wait over - a run of builds is followed once, to the last."""
+        got = self._run(
+            """
+            KEPT=keptOn('pages-B1'); OFF.kept=copy(KEPT);
+            poll(); const one=pending().length,ms=pending()[0].ms,first=OFF.timer;
+            poll(); poll(); const still=OFF.timer===first?pending().length:-1;   // the same wait, not one started again
+            SERVER.main.build='pages-B3'; poll(); const again=pending().length;
+            pending()[0].fn();
+            setImmediate(function(){setImmediate(function(){setImmediate(function(){
+              out({one:one,ms:ms,still:still,again:again,b3:has('pages-B3')});});});});
+            """
+        )
+        self.assertEqual((got["one"], got["still"], got["again"]), (1, 1, 1))
+        self.assertGreaterEqual(got["ms"], 5000, "it waits for things to stand still")
+        # Only the last build was fetched.
+        self.assertEqual([x for x in got["log"] if x.startswith("meta")], ["meta main"])
+
+    def test_nothing_is_done_when_nothing_changed(self):
+        """Kept on the build the server is on, its hold fresh: a poll sets nothing going, and a follow asks nothing."""
+        got = self._run(
+            """
+            SERVER.main.build='pages-B1'; KEPT=keptOn('pages-B1'); OFF.kept=copy(KEPT);
+            poll(); poll(); const timers=pending().length;
+            offlineFollow().then(function(){out({timers:timers});});
+            """
+        )
+        self.assertEqual(got["timers"], 0)
+        self.assertEqual(got["log"], [])
+        self.assertEqual((got["kept"], got["b1"]), ("pages-B1", 3))
+
+    def test_an_instance_never_kept_fetches_nothing(self):
+        """No kept record: a poll that sees a new build sets nothing going, and a follow asks the server nothing."""
+        got = self._run(
+            """
+            OFF.kept=null; OFF.keptAt=NOW; poll(); const timers=pending().length;
+            offlineFollow().then(function(){out({timers:timers,cache:CACHE.size});});
+            """
+        )
+        self.assertEqual((got["timers"], got["log"], got["cache"], got["kept"]), (0, [], 0, None))
+
+    def test_a_new_build_half_fetched_leaves_the_old_one_whole(self):
+        """One page of B2 cannot be fetched: B1 stays kept, its copies and its hold untouched, and B2 is not held -
+        a half build is not one to fly with, nor to follow from. What was fetched of B2 is noted with the old builds,
+        never held, and stays while the server still shows B2 (the next try fetches it whole)."""
+        got = self._run(
+            """
+            KEPT=keptOn('pages-B1'); OFF.kept=copy(KEPT); poll(); FAIL=['pages-B2/page-2'];
+            offlineFollow().then(function(){out({fails:OFF.fails});});
+            """
+        )
+        self.assertEqual((got["kept"], got["old"], got["b1"], got["b2"]), ("pages-B1", ["pages-B2"], 3, 2))
+        self.assertEqual(got["holds"], ["pages-B1"])
+        self.assertFalse([x for x in got["log"] if x.startswith("drop") or x.startswith("hold")], got["log"])
+        self.assertEqual(got["fails"], 1)
+
+    def test_a_worker_that_does_not_answer_leaves_the_old_one_whole(self):
+        got = self._run(
+            """
+            KEPT=keptOn('pages-B1'); OFF.kept=copy(KEPT); poll(); WORKER_DOWN=true;
+            offlineFollow().then(function(){out();});
+            """
+        )
+        self.assertEqual((got["kept"], got["b1"], got["holds"]), ("pages-B1", 3, ["pages-B1"]))
+
+    def test_the_connection_lost_while_fetching_leaves_the_old_one_whole_and_is_no_failure(self):
+        """Cut off after the first files: nothing is recorded or dropped, and the next connection tries again without
+        a wait - a flight leaving is not the follow failing."""
+        got = self._run(
+            """
+            KEPT=keptOn('pages-B1'); OFF.kept=copy(KEPT); poll();
+            ON_KEEP=function(){ONLINE=false;};
+            offlineFollow().then(function(){out({fails:OFF.fails,after:OFF.after});});
+            """
+        )
+        self.assertEqual((got["kept"], got["b1"], got["holds"]), ("pages-B1", 3, ["pages-B1"]))
+        self.assertEqual((got["fails"], got["after"]), (0, 0))
+
+    def test_the_build_moving_again_while_fetching_follows_the_last_one(self):
+        """B2's pages are gone by the time they are asked for (two more builds came): B1 stays; the poll that sees B3
+        sets the next follow at once, which keeps B3 and drops B1."""
+        got = self._run(
+            """
+            KEPT=keptOn('pages-B1'); OFF.kept=copy(KEPT); poll(); FAIL=['pages-B2/'];
+            offlineFollow().then(function(){
+              const first={kept:KEPT.docs.main.build,b1:has('pages-B1')};
+              FAIL=[]; SERVER.main.build='pages-B3'; poll();
+              return offlineFollow().then(function(){out({first:first,b3:has('pages-B3'),timers:pending().length});});});
+            """
+        )
+        self.assertEqual(got["first"], {"kept": "pages-B1", "b1": 3})
+        self.assertEqual((got["kept"], got["b1"], got["b2"], got["b3"]), ("pages-B3", 0, 0, 3))
+        self.assertEqual(got["holds"], ["pages-B3"])
+        # B2 was never held by this browser, so nothing of it is let go - a hold on it is someone else's.
+        self.assertNotIn("hold pages-B2 0", got["log"])
+
+    def test_a_server_without_the_hold_route_is_still_followed(self):
+        """An older Limn answers the hold 404: that is no failure. The new build is fetched and kept, the old one's
+        copies dropped; nothing is held because nothing can be."""
+        got = self._run(
+            """
+            KEPT=keptOn('pages-B1'); OFF.kept=copy(KEPT); HOLDS={}; HOLD_ROUTE=false; poll();
+            offlineFollow().then(function(){out({fails:OFF.fails,at:KEPT.docs.main.at});});
+            """
+        )
+        self.assertEqual((got["kept"], got["old"], got["b1"], got["b2"], got["fails"]), ("pages-B2", [], 0, 3, 0))
+        self.assertEqual(got["holds"], [])
+        self.assertIsNotNone(got["at"])
+
+    def test_a_hold_with_no_answer_does_not_record_the_new_build(self):
+        """The files came, the hold got no answer (a 5xx, or the connection): B2 is not recorded and B1 not dropped -
+        a build that is not held may be gone by the time its pins are sent."""
+        got = self._run(
+            """
+            KEPT=keptOn('pages-B1'); OFF.kept=copy(KEPT); poll(); HOLD_REFUSE=503;
+            offlineFollow().then(function(){out();});
+            """
+        )
+        self.assertEqual((got["kept"], got["b1"]), ("pages-B1", 3))
+        self.assertFalse([x for x in got["log"] if x.startswith("drop")], got["log"])
+
+    def test_an_old_build_a_queued_pin_was_drawn_on_keeps_its_hold_and_its_copies(self):
+        """A pin queued on B1 waits. B2 is followed, and B1 stays - held, its copies in the cache - until that pin has
+        gone; the follow after that lets it go."""
+        got = self._run(
+            """
+            KEPT=keptOn('pages-B1'); OFF.kept=copy(KEPT); poll();
+            QUEUE=[{id:1,doc:'main',build:'pages-B1',page:1}];
+            offlineFollow().then(function(){
+              const first={kept:KEPT.docs.main.build,old:KEPT.old.map(function(o){return o.build;}),b1:has('pages-B1'),
+                holds:Object.keys(HOLDS).sort()};
+              QUEUE=[];
+              return offlineFollow().then(function(){out({first:first});});});
+            """
+        )
+        self.assertEqual(
+            got["first"], {"kept": "pages-B2", "old": ["pages-B1"], "b1": 3, "holds": ["pages-B1", "pages-B2"]}
+        )
+        self.assertEqual((got["old"], got["b1"], got["holds"]), ([], 0, ["pages-B2"]))
+
+    def test_a_queue_that_cannot_be_read_lets_nothing_go(self):
+        """Read as empty, an unreadable queue would let go the build a waiting pin needs."""
+        got = self._run(
+            """
+            KEPT=keptOn('pages-B1'); OFF.kept=copy(KEPT); poll(); QUEUE_DOWN=true;
+            offlineFollow().then(function(){out();});
+            """
+        )
+        self.assertEqual((got["kept"], got["old"], got["b1"]), ("pages-B2", ["pages-B1"], 3))
+        self.assertEqual(got["holds"], ["pages-B1", "pages-B2"])
+
+    def test_a_pin_kept_on_an_old_build_while_two_new_builds_pass(self):
+        """A pin on B1 waits through B2 and B3: B1 stays all along; B2, which no pin was drawn on, goes."""
+        got = self._run(
+            """
+            KEPT=keptOn('pages-B1'); OFF.kept=copy(KEPT); QUEUE=[{id:1,doc:'main',build:'pages-B1'}]; poll();
+            offlineFollow().then(function(){SERVER.main.build='pages-B3'; poll();
+              return offlineFollow().then(function(){out({b3:has('pages-B3')});});});
+            """
+        )
+        self.assertEqual((got["kept"], got["old"]), ("pages-B3", ["pages-B1"]))
+        self.assertEqual((got["b1"], got["b2"], got["b3"]), (3, 0, 3))
+        self.assertEqual(got["holds"], ["pages-B1", "pages-B3"])
+
+    def test_holds_are_asked_again_once_a_day(self):
+        """A hold answered 23 hours ago is left; at 25 hours it is asked again for 7 days - the build each document
+        keeps and an old build a queued pin still needs. A poll sets that going on its own."""
+        got = self._run(
+            """
+            SERVER.main.build='pages-B1'; KEPT=keptOn('pages-B1',NOW-23*3600000);
+            KEPT.old=[{doc:'main',build:'pages-B0',files:[],at:NOW-25*3600000}]; QUEUE=[{id:1,doc:'main',build:'pages-B0'}];
+            OFF.n=1; OFF.kept=copy(KEPT); poll(); const early=pending().length;
+            offlineFollow().then(function(){const a=LOG.slice(); LOG.length=0;
+              NOW+=2*3600000; poll(); const late=pending().length;
+              return offlineFollow().then(function(){out({early:early,late:late,a:a,at:KEPT.docs.main.at===NOW});});});
+            """
+        )
+        self.assertEqual(got["a"], ["hold pages-B0 7"], "only the old build's hold was due")
+        self.assertEqual(got["early"], 1)
+        self.assertEqual(got["late"], 1)
+        self.assertEqual(got["log"], ["hold pages-B1 7"])
+        self.assertTrue(got["at"])
+
+    def test_two_follows_started_together_run_once(self):
+        """Reconnecting answers several polls in one tick: the flag is taken before anything is awaited."""
+        got = self._run(
+            """
+            delete navigator.locks;   // this tab's own flag, not the lock among tabs
+            KEPT=keptOn('pages-B1'); OFF.kept=copy(KEPT); poll();
+            Promise.all([offlineFollow(),offlineFollow()]).then(function(){out();});
+            """
+        )
+        self.assertEqual([x for x in got["log"] if x.startswith("meta")], ["meta main"])
+        self.assertEqual(got["kept"], "pages-B2")
+
+    def test_a_follow_another_tab_is_running_is_not_run_again_here(self):
+        """Two tabs of one browser share the cache and the store: while one holds the lock the other does nothing."""
+        got = self._run(
+            """
+            KEPT=keptOn('pages-B1'); OFF.kept=copy(KEPT); poll(); LOCK_HELD=true;
+            offlineFollow().then(function(){out({following:OFF.following});});
+            """
+        )
+        self.assertEqual((got["log"], got["kept"], got["following"]), ([], "pages-B1", False))
+
+    def test_two_tabs_following_at_once_end_as_one_would(self):
+        """Without a lock both follow. Tab A reads B2, tab B a moment later reads B3; A's fetch is slower, so A writes
+        last. The newer reading still wins, and every file A fetched is accounted for and dropped: what is left is B3's
+        copies and hold, nothing of B1 or B2 - as one tab following to B3 would leave."""
+        got = self._run(
+            """
+            delete navigator.locks;
+            KEPT=keptOn('pages-B1'); OFF.kept=copy(KEPT); poll(); SLOW=['pages-B2'];
+            const realApi=api,seq=['pages-B2','pages-B3'];
+            api=function(url,o){if(url.indexOf('/api/meta')===0&&seq.length){SERVER.main.build=seq.shift(); NOW+=1;} return realApi(url,o);};
+            const a=offlineFollow(); OFF.following=false;   // another tab: its own flag
+            const b=offlineFollow();
+            Promise.all([a,b]).then(function(){out({b3:has('pages-B3')});});
+            """
+        )
+        self.assertEqual((got["kept"], got["old"]), ("pages-B3", []))
+        self.assertEqual((got["b1"], got["b2"], got["b3"]), (0, 0, 3))
+        self.assertEqual(got["holds"], ["pages-B3"])
+
+    def test_nothing_is_followed_while_cut_off_or_while_a_pressed_keep_runs(self):
+        got = self._run(
+            """
+            KEPT=keptOn('pages-B1'); OFF.kept=copy(KEPT); poll(); ONLINE=false;
+            offlineFollow().then(function(){ONLINE=true; OFF.prep=true; return offlineFollow();}).then(function(){out();});
+            """
+        )
+        self.assertEqual((got["log"], got["kept"]), ([], "pages-B1"))
+
+    def test_a_press_that_starts_while_following_stops_it_after_the_document_in_hand(self):
+        """Two documents are behind; the person presses [오프라인으로 받기] while the first is fetched. The follow does
+        not go on to the second, nor drop anything: the press does the work now."""
+        got = self._run(
+            """
+            SERVER.rr={kind:'tex',build:'pages-R2',src:1};
+            KEPT=keptOn('pages-B1'); KEPT.docs.rr={build:'pages-R1',files:[],at:NOW,seen:1}; OFF.kept=copy(KEPT);
+            offlineFollowSeen({doc:'main',kind:'tex',pages_build:'pages-B2',docs:[{key:'main',kind:'tex',pages_build:'pages-B2'},
+              {key:'rr',kind:'tex',pages_build:'pages-R2'}]});
+            ON_KEEP=function(){OFF.prep=true; ON_KEEP=null;};
+            offlineFollow().then(function(){out({rr:KEPT.docs.rr.build,fails:OFF.fails});});
+            """
+        )
+        self.assertEqual([x for x in got["log"] if x.startswith("meta")], ["meta main"])
+        self.assertFalse([x for x in got["log"] if x.startswith("drop")], got["log"])
+        self.assertEqual((got["rr"], got["fails"]), ("pages-R1", 0))
+
+    def test_a_document_the_server_no_longer_lists_is_left_as_it_is(self):
+        """rr was kept and is gone from the instance: nothing of it is fetched, dropped or let go."""
+        got = self._run(
+            """
+            KEPT=keptOn('pages-B1'); KEPT.docs.rr={build:'pages-R1',files:['/pages/pages-R1/page-1.png?doc=rr'],at:NOW,seen:1};
+            CACHE.add('/pages/pages-R1/page-1.png?doc=rr'); HOLDS['pages-R1']=NOW; OFF.kept=copy(KEPT);
+            offlineFollowSeen({doc:'main',kind:'tex',pages_build:'pages-B2',docs:[{key:'main',kind:'tex',pages_build:'pages-B2'}]});
+            offlineFollow().then(function(){out({rr:KEPT.docs.rr.build,r1:has('pages-R1')});});
+            """
+        )
+        self.assertEqual((got["rr"], got["r1"]), ("pages-R1", 1))
+        self.assertIn("pages-R1", got["holds"])
+        self.assertFalse([x for x in got["log"] if "rr" in x or "R1" in x], got["log"])
+
+    def test_a_markdown_document_reads_its_source_again_when_it_changes(self):
+        """A Markdown document has no pages: its kept copy is the stored source read, read again when the source time
+        moves, and nothing else is fetched or held."""
+        got = self._run(
+            """
+            SERVER={notes:{kind:'markdown',build:'',src:5}};
+            KEPT={key:'kept',docs:{notes:{build:'',files:[],at:0,src:4,seen:1}},old:[]}; OFF.kept=copy(KEPT);
+            offlineFollowSeen({doc:'notes',kind:'markdown',pages_build:'',src_mtime:5});
+            offlineFollow().then(function(){const first=LOG.slice(); LOG.length=0;
+              offlineFollowSeen({doc:'notes',kind:'markdown',pages_build:'',src_mtime:5});
+              return offlineFollow().then(function(){console.log(JSON.stringify({first:first,then:LOG,src:KEPT.docs.notes.src,
+                timers:pending().length}));});});
+            """
+        )
+        self.assertEqual(got["first"], ["meta notes", "source notes"])
+        self.assertEqual((got["then"], got["src"]), ([], 5))
+
+    def test_a_document_added_to_a_kept_instance_is_kept_too(self):
+        got = self._run(
+            """
+            SERVER.rr={kind:'tex',build:'pages-R1',src:1}; SERVER.main.build='pages-B1';
+            KEPT=keptOn('pages-B1'); OFF.kept=copy(KEPT);
+            offlineFollowSeen({doc:'main',kind:'tex',pages_build:'pages-B1',docs:[{key:'main',kind:'tex',pages_build:'pages-B1'},
+              {key:'rr',kind:'tex',pages_build:'pages-R1'}]});
+            offlineFollow().then(function(){out({rr:KEPT.docs.rr&&KEPT.docs.rr.build,r1:has('pages-R1')});});
+            """
+        )
+        self.assertEqual((got["rr"], got["r1"], got["kept"]), ("pages-R1", 3, "pages-B1"))
+
+    def test_failing_again_and_again_is_said_once_and_waits_longer_each_time(self):
+        """A failed follow waits before the next try, longer each time; the third failure in a row is said, once, with a
+        way to press the keep again. Success is never said."""
+        got = self._run(
+            """
+            KEPT=keptOn('pages-B1'); OFF.kept=copy(KEPT); FAIL=['page-1']; poll();
+            const waits=[]; let p=Promise.resolve();
+            const counts=[];
+            for(let i=0;i<4;i++)p=p.then(function(){return offlineFollow();}).then(function(){waits.push(OFF.after-NOW); NOW=OFF.after; counts.push(NOTES.length);});
+            p.then(function(){FAIL=[]; return offlineFollow().then(function(){
+              out({waits:waits,counts:counts,notes:NOTES,fails:OFF.fails});});});
+            """
+        )
+        w = got["waits"]
+        self.assertTrue(all(b > a for a, b in zip(w, w[1:], strict=False)), w)
+        self.assertEqual(got["counts"], [0, 0, 1, 1], "said at the third failure in a row, and only then")
+        self.assertTrue(got["notes"][0]["act"], "the message offers to keep again")
+        self.assertEqual((got["fails"], len(got["notes"]), got["kept"]), (0, 1, "pages-B2"))
+
+    def test_a_failed_follow_waits_unless_something_new_is_seen(self):
+        """After a failure a poll with nothing new sets nothing going until the wait is over; a new build is a new
+        chance at once."""
+        got = self._run(
+            """
+            KEPT=keptOn('pages-B1'); OFF.kept=copy(KEPT); FAIL=['page-1']; poll();
+            offlineFollow().then(function(){TIMERS.length=0; OFF.timer=undefined;   // the follow's own wait has run
+              poll(); const waiting=pending().length;
+              SERVER.main.build='pages-B3'; poll(); out({waiting:waiting,now:pending().length});});
+            """
+        )
+        self.assertEqual((got["waiting"], got["now"]), (0, 1))
+
+
+class PressedKeep(unittest.TestCase):
+    """[오프라인으로 받기] turns following on, and records each document only once all its files are kept."""
+
+    def setUp(self):
+        if not shutil.which("node"):
+            self.skipTest("node not available")
+
+    def _run(self, scenario):
+        stubs = r"""
+        var DOCS=[{key:'main',kind:'tex'},{key:'rr',kind:'tex'}],NOTICES=new Map(),NOTICE_LIFE={TIMER:'t',CLICK:'c'};
+        function docInfo(k){return DOCS.find(function(d){return d.key===k;})||null;}
+        function offlineWorker(){return Promise.resolve({});} function offlineUrls(){return ['/'];}
+        function endNotice(){} function drawStatus(){}
+        """
+        consts = "\n".join(_shipped_const(n) for n in ("OFF_KEEP_CHUNK", "OFF_KEPT"))
+        js = "\n".join(
+            [
+                FOLLOW_SCOPE.replace("var OFF_STATE='state';", ""),
+                consts,
+                "var OFF_STATE='state';",
+                stubs,
+                *(extract_js_fn(n) for n in (*FOLLOW_FUNCTIONS, "offlinePrepare")),
+                scenario,
+            ]
+        )
+        return json.loads(run_node(js))
+
+    def test_a_press_records_the_documents_kept_whole_and_the_build_kept_before_goes_old(self):
+        """main was kept on B0 and is now on B1; rr's second page cannot be fetched. main is recorded on B1 with B0 among
+        the old builds (dropped by the next follow), and rr is not recorded - it is not kept whole, so a follow will
+        try it again. A follow is set going to drop B0."""
+        got = self._run(
+            """
+            SERVER={main:{kind:'tex',build:'pages-B1',src:1},rr:{kind:'tex',build:'pages-R1',src:1}};
+            KEPT={key:'kept',docs:{main:{build:'pages-B0',files:['/pages/pages-B0/page-1.png?doc=main'],at:1,seen:1}},old:[]};
+            FAIL=['pages-R1/page-2'];
+            offlinePrepare().then(function(){console.log(JSON.stringify({docs:Object.keys(KEPT.docs).sort(),
+              main:KEPT.docs.main.build,old:KEPT.old.map(function(o){return o.build;}),timers:pending().length,
+              held:KEPT.docs.main.at===NOW}));});
+            """
+        )
+        self.assertEqual(got, {"docs": ["main"], "main": "pages-B1", "old": ["pages-B0"], "timers": 1, "held": True})
+
+    def test_a_press_turns_following_on_even_when_nothing_could_be_kept(self):
+        """The person chose this instance; the worker failing this time does not unchoose it."""
+        got = self._run(
+            """
+            SERVER={main:{kind:'tex',build:'pages-B1',src:1},rr:{kind:'tex',build:'pages-R1',src:1}}; WORKER_DOWN=true;
+            offlinePrepare().then(function(){console.log(JSON.stringify({on:!!KEPT,docs:Object.keys(KEPT.docs)}));});
+            """
+        )
+        self.assertEqual(got, {"on": True, "docs": []})
+
+
+class WorkerDrop(unittest.TestCase):
+    """sw.js 'drop': the copies kept under exactly the given addresses go - a document's PDF and page images only."""
+
+    def setUp(self):
+        if not shutil.which("node"):
+            self.skipTest("node not available")
+
+    def test_only_a_documents_own_files_are_dropped_and_only_at_their_exact_address(self):
+        sw = (Path(__file__).resolve().parent.parent / "sw.js").read_text(encoding="utf-8")
+        js = (
+            r"""
+        const L={},store=new Map(),O='http://h';
+        globalThis.self={location:{origin:O},addEventListener:function(t,f){L[t]=f;},skipWaiting:function(){},clients:{claim:function(){}}};
+        globalThis.caches={open:function(){return Promise.resolve({delete:function(r){return Promise.resolve(store.delete(r.url));}});}};
+        ['/','/vendor/pdfjs/pdf.min.mjs?v=1','/pdf?build=B1&v=t&doc=main','/pages/B1/page-1.png?doc=main','/pages/B2/page-1.png?doc=main']
+          .forEach(function(u){store.set(O+u,1);});
+        """
+            + sw
+            + r"""
+        let wait=null;
+        L.message({data:{type:'drop',urls:['/','/vendor/pdfjs/pdf.min.mjs?v=1','/pdf?build=B1&v=t&doc=main',
+            '/pages/B1/page-1.png?doc=main','/pages/B2/page-1.png','http://elsewhere/pages/B2/page-1.png?doc=main']},
+          ports:[{postMessage:function(v){console.log(JSON.stringify({said:v,left:Array.from(store.keys()).map(function(u){return u.slice(O.length);}).sort()}));}}],
+          waitUntil:function(p){wait=p;}});
+        """
+        )
+        got = json.loads(run_node(js))
+        self.assertEqual(got["said"], {"dropped": 2})
+        self.assertEqual(got["left"], ["/", "/pages/B2/page-1.png?doc=main", "/vendor/pdfjs/pdf.min.mjs?v=1"])
+
+
+class KeptRecord(unittest.TestCase):
+    """The pure rules the follow stands on (offline.js offFree, offKeptWith, offBehind)."""
+
+    def setUp(self):
+        if not shutil.which("node"):
+            self.skipTest("node not available")
+
+    def _run(self, scenario):
+        js = "\n".join(
+            [
+                _shipped_const("OFF_KEPT"),
+                "function rendersInBrowser(k){return k==='markdown'||k==='text';}",
+                *(extract_js_fn(n) for n in ("offFree", "offKeptWith", "offKeptPart", "offBehind", "offSeenIn")),
+                scenario,
+            ]
+        )
+        return json.loads(run_node(js))
+
+    def test_a_build_a_queued_pin_was_drawn_on_is_never_free(self):
+        got = self._run(
+            """
+            const old=[{doc:'main',build:'B1'},{doc:'main',build:'B2'},{doc:'rr',build:'B1'},{doc:'rr',build:'R1'}];
+            const free=function(q){return offFree(old,q).map(function(o){return o.doc+':'+o.build;});};
+            console.log(JSON.stringify({
+              none:free([]),
+              mine:free([{doc:'main',build:'B1'}]),
+              other:free([{doc:'rr',build:'R1'}]),
+              nodoc:free([{build:'B1'}]),
+              nobuild:free([{doc:'main',build:''},{doc:'main'}]),
+            }));
+            """
+        )
+        self.assertEqual(got["none"], ["main:B1", "main:B2", "rr:B1", "rr:R1"])
+        self.assertEqual(got["mine"], ["main:B2", "rr:B1", "rr:R1"])
+        self.assertEqual(got["other"], ["main:B1", "main:B2", "rr:B1"])
+        self.assertEqual(got["nodoc"], ["main:B2", "rr:R1"], "a record with no document protects that build anywhere")
+        self.assertEqual(got["nobuild"], ["main:B1", "main:B2", "rr:B1", "rr:R1"])
+
+    def test_the_newer_reading_wins_in_whichever_order_two_tabs_write(self):
+        """Tab A read B2 at 10, tab B read B3 at 20, both from B1. Whichever writes first, B3 is kept and B1 and B2 are
+        both old - so both are dropped, and nothing either tab fetched is left unaccounted for."""
+        got = self._run(
+            """
+            const start={key:'kept',docs:{main:{build:'B1',files:['f1'],at:1,seen:1}},old:[]};
+            const a={build:'B2',files:['f2'],at:10,seen:10},b={build:'B3',files:['f3'],at:20,seen:20};
+            const ab=offKeptWith(offKeptWith(start,'main',a),'main',b),ba=offKeptWith(offKeptWith(start,'main',b),'main',a);
+            const view=function(k){return {cur:k.docs.main.build,old:k.old.map(function(o){return o.build;}).sort()};};
+            const same=offKeptWith(offKeptWith(start,'main',a),'main',{build:'B2',files:['f2'],at:11,seen:11});
+            const again=offKeptWith({key:'kept',docs:{main:b},old:[{doc:'main',build:'B2',files:[],at:0}]},'main',{build:'B2',files:[],at:30,seen:30});
+            console.log(JSON.stringify({ab:view(ab),ba:view(ba),same:view(same),again:view(again)}));
+            """
+        )
+        self.assertEqual(got["ab"], {"cur": "B3", "old": ["B1", "B2"]})
+        self.assertEqual(got["ba"], got["ab"])
+        self.assertEqual(got["same"], {"cur": "B2", "old": ["B1"]}, "the same build twice is one build")
+        self.assertEqual(got["again"], {"cur": "B2", "old": ["B3"]}, "a build kept again is not old")
+
+    def test_a_half_fetched_build_is_noted_old_unless_it_is_the_one_kept(self):
+        """Another tab may keep B2 while this one fails to: B2 is then what main keeps, and noting it old would drop
+        the copies the device is to fly with."""
+        got = self._run(
+            """
+            const kept={key:'kept',docs:{main:{build:'B2',files:['f2'],at:1,seen:1}},old:[]};
+            const part=offKeptPart(kept,'main','B3',['f3']),twice=offKeptPart(part,'main','B3',['f3','g3']);
+            console.log(JSON.stringify({kept:offKeptPart(kept,'main','B2',['f2']),part:part.old,twice:twice.old}));
+            """
+        )
+        self.assertIsNone(got["kept"])
+        self.assertEqual(got["part"], [{"doc": "main", "build": "B3", "files": ["f3"], "at": 0, "unheld": True}])
+        self.assertEqual(got["twice"], [{"doc": "main", "build": "B3", "files": ["f3", "g3"], "at": 0, "unheld": True}])
+
+    def test_what_is_behind(self):
+        got = self._run(
+            """
+            const kept={docs:{main:{build:'B1'},notes:{src:4},same:{build:'S1'}}};
+            const seen=offSeenIn({doc:'main',kind:'tex',pages_build:'B2',docs:[
+              {key:'main',kind:'tex',pages_build:'B2'},{key:'notes',kind:'markdown',pages_build:'',src_mtime:5},
+              {key:'same',kind:'pdf',pages_build:'S1'},{key:'fresh',kind:'tex',pages_build:''},{key:'new',kind:'tex',pages_build:'N1'}]});
+            console.log(JSON.stringify({behind:offBehind(kept,seen),never:offBehind(null,{a:{build:'',kind:'tex'}})}));
+            """
+        )
+        self.assertEqual(sorted(got["behind"]), ["main", "new", "notes"])
+        self.assertEqual(got["never"], [])
 
 
 class OfflineKeys(unittest.TestCase):

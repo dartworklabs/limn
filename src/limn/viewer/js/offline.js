@@ -16,9 +16,15 @@ const OFF_WROTE='wrote';   // the state key holding the pin numbers this queue w
 // and no answer to a write ever is.
 const OFF_READS=['/api/meta','/api/docs','/api/pins','/api/pins/dropped','/api/people','/api/outline-labels','/api/source'];
 // idem: the server said it knows a write by its key (meta's pin_idem, offStash). boot: this visit's first reads are still under way (cleared by offlineBoot, which boot() calls last). staleNote: the
-// status line's message that the screen was drawn from stored reads, while it stands.
+// status line's message that the screen was drawn from stored reads, while it stands. The rest is a kept copy keeping
+// itself current (§Keeping a kept copy current below): following - a follow is running in this tab; kept - the kept
+// record as last read (undefined until read, null for an instance never kept) and keptAt when; seen - what each document
+// is on as the server last said; timer - the follow set to run once things stand still; fails, after - follows that
+// failed in a row and the time before which none is tried again; failSaid - that failure was said this visit.
 const OFF={n:0,held:0,flushing:false,prep:false,saidStale:false,boot:true,idem:false,staleNote:/** @type {Notice|null|undefined} */(null),
-  db:/** @type {IDBDatabase|null} */(null)};
+  db:/** @type {IDBDatabase|null} */(null),following:false,kept:/** @type {any} */(undefined),keptAt:0,
+  seen:/** @type {Record<string,{build:string,src:any,kind:any}>} */({}),timer:/** @type {ReturnType<typeof setTimeout>|undefined} */(undefined),
+  fails:0,after:0,failSaid:false};
 // This browser's queue, opened once per page. A browser that refuses IndexedDB (a private window) answers null, and every
 // caller below falls back to saying the pin could not be kept rather than losing it quietly.
 /** @returns {Promise<IDBDatabase|null>} */
@@ -91,7 +97,8 @@ function offReadKey(url,o){if(o&&o.method&&o.method!=='GET')return null;
 function offStash(url,data,status,o){
   // Every answer the network gives passes here, so this is also where the server says what it can do: a meta answer,
   // the light poll's included, carries pin_idem when a write is known by its key (api.md POST /api/pin).
-  if(status===200&&data&&String(url).split('?')[0]==='/api/meta')OFF.idem=data.pin_idem===true;
+  // A meta answer also says which build each document is on now, which is what keeps a kept copy current (offlineFollowSeen).
+  if(status===200&&data&&String(url).split('?')[0]==='/api/meta'){OFF.idem=data.pin_idem===true; offlineFollowSeen(data);}
   const key=offReadKey(url,o||null); if(!key)return;
   if(!(status>=200&&status<300)||data===null||data===undefined)return;
   void offIn(OFF_STATE,'readwrite',s=>s.put({key,data,status,at:Date.now()}));}
@@ -162,7 +169,9 @@ const OFF_KEEP_CHUNK=12,OFF_KEEP_MS=180000;   // files asked of the worker at a 
 // which stores their answers (offStash): its meta, its outline labels, and for a Markdown or text document the source it
 // is drawn from. The files go to the worker a few at a time, so the line can say how far it is. The hold is what lets the
 // queue land on exact lines later; a server without that route (an older Limn) is not a failure - the pins are kept all
-// the same, and said to need their place chosen again if the build is gone by then.
+// the same, and said to need their place chosen again if the build is gone by then. Pressing it once also turns on
+// following for this instance (offlineFollow): each document kept whole is recorded, and from then on its copy keeps
+// itself current while connected.
 async function offlinePrepare(){
   if(OFF.prep)return; OFF.prep=true;
   const note=lineNote('오프라인용으로 받는 중…',NOTICE_KIND.INFO,null,{life:NOTICE_LIFE.CLICK});
@@ -170,32 +179,39 @@ async function offlinePrepare(){
   try{
     const reg=await offlineWorker();
     if(!reg){if(note)endNotice(note,false); lineNote('이 브라우저는 오프라인 보기를 지원하지 않습니다',NOTICE_KIND.WARN,null,{}); return;}
+    await offKeptSet(v=>v||{key:OFF_KEPT,docs:{},old:[]});   // the person chose this instance: it follows from now on
     const urls=new Set(offlineUrls()),keys=DOCS.length?DOCS.map(d=>d.key):[DOC];
+    const got=/** @type {{k:string,entry:any}[]} */([]);   // each document's entry for the kept record, once its files are known whole
     let docs=0,held=0,lost=0;
-    for(const k of keys){let m=/** @type {any} */(null);
+    for(const k of keys){let m=/** @type {any} */(null); const seen=Date.now();
       try{m=(await api(dq('/api/meta',k),{what:'화면 정보 읽기',silent:true})).data;}catch(e){lost++; continue;}
       docs++;
-      const info=k?docInfo(k):null,kind=(m&&m.kind)||(info&&info.kind);
+      const info=k?docInfo(k):null,kind=(m&&m.kind)||(info&&info.kind),key=(m&&m.doc)||k||'';
       if(rendersInBrowser(kind)){
-        try{await api(dq('/api/source',k),{what:'원문 읽기',silent:true,expect:[413]});}catch(e){lost++;}
+        try{await api(dq('/api/source',k),{what:'원문 읽기',silent:true,expect:[413]}); got.push({k:key,entry:{build:'',files:[],at:0,src:(m&&m.src_mtime)??null,seen}});}
+        catch(e){lost++;}
         continue;}
-      offlineDocFiles(k,m).forEach(u=>urls.add(u));
+      const files=offlineDocFiles(k,m); files.forEach(u=>urls.add(u));
       try{await api(dq('/api/outline-labels',k),{what:'목차 번호 읽기',silent:true});}catch(e){}
       if(m&&m.pages_build){
         // Held only when the server says until when. A 404 is handed back, not thrown (expect), and it is not a hold:
         // an older Limn has no such route, and a build that left while this ran answers pdf_build_gone.
-        try{const r=await api(dq('/api/hold',k),{method:'POST',body:{build:m.pages_build,days:7},what:'빌드 보류',silent:true,expect:[404]});
-          if(r.status===200&&r.data&&r.data.until)held++;}catch(e){}}}
+        const h=await offHold(k,m.pages_build,7); if(h&&h.held)held++;
+        got.push({k:key,entry:{build:m.pages_build,files,at:h?h.at:0,seen}});}}
     // The lists every document shares, as they stand now.
     for(const u of ['/api/docs','/api/pins?all=1','/api/pins/dropped','/api/people']){
       try{await api(u,{what:'핀 읽기',silent:true});}catch(e){lost++;}}
-    const all=Array.from(urls); let kept=0,failed=0;
+    const all=Array.from(urls),missed=new Set(); let kept=0,failed=0;
     for(let i=0;i<all.length;i+=OFF_KEEP_CHUNK){
       say(tl('오프라인용으로 받는 중… {n}/{m}',{n:i,m:all.length}));
       const r=await offlineAsk({type:'keep',urls:all.slice(i,i+OFF_KEEP_CHUNK)},OFF_KEEP_MS);
       if(!r){if(note)endNotice(note,false);
         lineNote('오프라인용 받기를 마치지 못했습니다 — 다시 시도하세요',NOTICE_KIND.ERR,{label:'다시 시도',fn:()=>{OFF.prep=false; offlinePrepare();}},{}); return;}
-      kept+=r.kept||0; failed+=(r.failed||[]).length;}
+      kept+=r.kept||0; failed+=(r.failed||[]).length; (r.failed||[]).forEach((/** @type {string} */u)=>missed.add(u));}
+    // A document is recorded as kept only with every one of its files: a build half kept is not one to follow from.
+    // What it kept before then goes to the old builds, which the next follow drops unless a queued pin was drawn on it.
+    // The meta answers above have already set a follow going (offStash), which drops those old builds.
+    for(const g of got)if(g.k&&!g.entry.files.some((/** @type {string} */u)=>missed.has(u)))await offKeptSet(v=>offKeptWith(v,g.k,g.entry));
     if(note)endNotice(note,false);
     const bad=failed+lost;
     lineNote(bad?tl('오프라인용 {n}개 중 {m}개를 받지 못했습니다 — 연결을 확인하고 다시 받으세요',{n:all.length+lost,m:bad})
@@ -203,6 +219,196 @@ async function offlinePrepare(){
       :tl('오프라인 준비됨 · 문서 {d}개 · 파일 {n}개',{d:docs,n:kept}),
       bad?NOTICE_KIND.WARN:NOTICE_KIND.OK,null,{life:bad?NOTICE_LIFE.CLICK:NOTICE_LIFE.TIMER});
   }finally{OFF.prep=false;}}
+
+// ---------------- Keeping a kept copy current
+// [오프라인으로 받기] pressed once turns this on for the instance - this origin, whose store is this browser's: the state
+// store's OFF_KEPT record says so, with what each document keeps (docs: its build, that build's file addresses, when its
+// hold was last answered and when that build was asked for; a Markdown or text document's source time instead) and the old
+// builds not dropped yet (old). While connected, every meta answer says which build each document is on now (offStash ->
+// offlineFollowSeen). A document whose copy is behind is followed: its reads are stored, its new files fetched whole, its
+// new build held - the same as pressing does, for one document, quietly - and only then is it recorded and the old
+// build's copies dropped and its hold let go. An old build a queued pin was drawn on stays, copies and hold alike: that
+// pin lands by that build (offFree). Holds last 7 days and are asked again once a day while the instance is used.
+// Nothing is said on success; failing again and again is said once. An instance never kept fetches nothing - what stays
+// on a device is what its person chose (ADR-0040 D7).
+// OFF_RENEW_MS: a hold asked again after this long. OFF_SETTLE_MS: a change has to stand this long before it is followed,
+// so a run of builds is followed once, to the last. OFF_RETRY_*: the wait after a failed follow, doubling to the cap.
+// OFF_SAY_AFTER: failures in a row before it is said. OFF_LOCK: the name tabs of this browser follow under, one at a time.
+const OFF_KEPT='kept',OFF_RENEW_MS=86400000,OFF_SETTLE_MS=10000,OFF_RETRY_MS=30000,OFF_RETRY_MAX=1800000,OFF_SAY_AFTER=3,OFF_LOCK='limn-offline-follow';
+/** The kept record, or null for an instance never kept. @returns {Promise<any>} */
+function offKept(){return offIn(OFF_STATE,'readonly',s=>s.get(OFF_KEPT)).then(v=>v&&v.docs?v:null);}
+// Changes the kept record in one transaction, read and written together: two tabs of this browser share it, and a
+// change made between another tab's read and its write would be lost. fn gets the record (or null) and answers the
+// new one, or null to leave it. Answers what was written, or null.
+/** @param {(v:any)=>any} fn @returns {Promise<any>} */
+function offKeptUpdate(fn){return offDb().then(db=>new Promise(res=>{if(!db){res(null);return;}
+  let out=/** @type {any} */(null);
+  try{const tx=db.transaction(OFF_STATE,'readwrite'),st=tx.objectStore(OFF_STATE),rq=st.get(OFF_KEPT);
+    rq.onsuccess=()=>{try{out=fn(rq.result&&rq.result.docs?rq.result:null); if(out)st.put(out);}catch(e){out=null;}};
+    tx.oncomplete=()=>res(out); tx.onerror=()=>res(null); tx.onabort=()=>res(null);}
+  catch(e){res(null);}}));}
+/** offKeptUpdate, and this tab's copy of the record follows. @param {(v:any)=>any} fn @returns {Promise<any>} */
+async function offKeptSet(fn){const v=await offKeptUpdate(fn); if(v)OFF.kept=v; return v;}
+// What a meta answer says each document is on: the document it answers for and, with several documents, each one's
+// summary - the page build, the source time, the kind. Pure.
+/** @param {any} d @returns {Record<string,{build:string,src:any,kind:any}>} */
+function offSeenIn(d){const out=/** @type {Record<string,{build:string,src:any,kind:any}>} */({});
+  if(!d||typeof d!=='object')return out;
+  const put=(/** @type {any} */x,/** @type {any} */k)=>{if(typeof k==='string'&&k)out[k]={build:x.pages_build||'',src:x.src_mtime??null,kind:x.kind||null};};
+  put(d,d.doc); (Array.isArray(d.docs)?d.docs:[]).forEach((/** @type {any} */x)=>{if(x&&typeof x==='object')put(x,x.key);});
+  return out;}
+// The documents whose kept copy is behind what the server shows: a page document on another build (or one not kept yet -
+// a document added to a kept instance is part of it), a Markdown or text document whose source changed. A document with
+// no build has nothing to keep; one the server no longer lists is not looked at. Pure.
+/** @param {any} kept @param {Record<string,{build:string,src:any,kind:any}>} seen @returns {string[]} */
+function offBehind(kept,seen){const docs=(kept&&kept.docs)||{};
+  return Object.keys(seen).filter(k=>{const s=seen[k],e=docs[k];
+    if(rendersInBrowser(s.kind))return !e||e.src!==s.src;
+    return !!s.build&&(!e||e.build!==s.build);});}
+// The old builds no queued pin was drawn on: those whose copies may be dropped and whose hold may be let go. A record
+// names its document and the build it was drawn on; a record with no document is taken to be drawn on that build in
+// any document - keeping a build too long costs space, letting it go loses the pin's place. Pure.
+/** @param {any[]} old @param {any[]} queue @returns {any[]} */
+function offFree(old,queue){const drawn=(queue||[]).filter(r=>r&&r.build);
+  return (old||[]).filter(o=>!drawn.some(r=>r.build===o.build&&(!r.doc||r.doc===o.doc)));}
+// The holds to ask again: of each document's build and each old build still kept, those last answered OFF_RENEW_MS
+// ago or never. Pure.
+/** @param {any} kept @param {number} now @returns {{doc:string,build:string}[]} */
+function offRenewDue(kept,now){const out=/** @type {{doc:string,build:string}[]} */([]); if(!kept)return out;
+  const due=(/** @type {any} */e)=>!!e&&!!e.build&&!e.unheld&&!(now-(e.at||0)<OFF_RENEW_MS);
+  Object.keys(kept.docs||{}).forEach(k=>{if(due(kept.docs[k]))out.push({doc:k,build:kept.docs[k].build});});
+  (kept.old||[]).forEach((/** @type {any} */o)=>{if(due(o))out.push({doc:o.doc,build:o.build});});
+  return out;}
+// The kept record once document k keeps entry. The newer reading wins: entry.seen is when the server was asked for its
+// build, and a follow and a press - or two tabs of a browser without Web Locks - may each bring one; asked later, it
+// saw the server later. The losing build, if it is a different one, goes to the old builds with its files, so whatever
+// a tab fetched is accounted for and dropped in turn - never the build that won, whichever tab fetched it. (Asked in
+// the same millisecond, the later write wins; the next follow sees the server's build and puts it right.) A build kept
+// again leaves the old ones. Pure.
+/** @param {any} kept @param {string} k @param {any} entry @returns {any} */
+function offKeptWith(kept,k,entry){
+  const out={key:OFF_KEPT,docs:{...((kept&&kept.docs)||{})},old:((kept&&kept.old)||[]).slice()};
+  const cur=out.docs[k]||null;
+  const toOld=(/** @type {any} */e)=>{if(!e||!e.build||out.old.some((/** @type {any} */o)=>o.doc===k&&o.build===e.build))return;
+    out.old.push({doc:k,build:e.build,files:e.files||[],at:e.at||0});};
+  if(cur&&(cur.seen||0)>(entry.seen||0)){if(cur.build!==entry.build)toOld(entry); return out;}
+  if(cur&&cur.build!==entry.build)toOld(cur);
+  out.docs[k]=entry;
+  out.old=out.old.filter((/** @type {any} */o)=>!(o.doc===k&&o.build===entry.build));
+  return out;}
+// The kept record once a follow of document k to build b stopped before b was kept: the files it asked for are noted
+// with the old builds, never held by this browser (unheld), so they are dropped in turn and do not stay on the device
+// unaccounted for. null when there is nothing to note - b is what k keeps. Pure.
+/** @param {any} kept @param {string} k @param {string} b @param {string[]} files @returns {any} */
+function offKeptPart(kept,k,b,files){if(!kept||(kept.docs&&kept.docs[k]&&kept.docs[k].build===b))return null;
+  const old=(kept.old||[]).slice(),i=old.findIndex((/** @type {any} */o)=>o.doc===k&&o.build===b);
+  if(i>=0)old[i]={...old[i],files:Array.from(new Set([...(old[i].files||[]),...files]))};
+  else old.push({doc:k,build:b,files:files.slice(),at:0,unheld:true});
+  return {...kept,old};}
+// The kept record with the hold of build b of document k answered at `at`. Pure.
+/** @param {any} kept @param {string} k @param {string} b @param {number} at @returns {any} */
+function offKeptHeld(kept,k,b,at){if(!kept)return null;
+  const out={...kept,docs:{...(kept.docs||{})},old:(kept.old||[]).map((/** @type {any} */o)=>o.doc===k&&o.build===b?{...o,at}:o)};
+  if(out.docs[k]&&out.docs[k].build===b)out.docs[k]={...out.docs[k],at};
+  return out;}
+// Asks the server to hold build b of document k for days (0 lets it go) -> {at, held}: when it answered, and whether it
+// holds the build. A refusal is an answer with nothing held: an older Limn without the route or a build already gone
+// (404), a role that may not hold (403). null when there was no answer.
+/** @param {string|null} k @param {string} b @param {number} days @returns {Promise<{at:number,held:boolean}|null>} */
+async function offHold(k,b,days){
+  try{const r=await api(dq('/api/hold',k),{method:'POST',body:{build:b,days},what:'빌드 보류',silent:true});
+    return {at:Date.now(),held:r.status===200&&!!r.data&&!!r.data.until};}
+  catch(e){const x=/** @type {ApiError} */(e),st=x&&x.status||0; return st>=400&&st<500?{at:Date.now(),held:false}:null;}}
+// A meta answer seen: what each document is on is noted, and a follow is set going when one is due.
+/** @param {any} d */
+function offlineFollowSeen(d){const now=offSeenIn(d); let moved=false;
+  Object.keys(now).forEach(k=>{const was=OFF.seen[k],s=now[k]; if(!was||was.build!==s.build||was.src!==s.src)moved=true; OFF.seen[k]=s;});
+  offFollowCheck(moved);}
+// Sets a follow going when the kept copy is behind, a hold is due, or old builds wait to go with no queued pin left.
+// Nothing at all for an instance never kept, and neither a request nor a store read when nothing is due - this runs on
+// every light poll. moved: something new was seen, which restarts the wait for things to stand still and is a new
+// chance after a failure. A sighting with nothing new leaves a follow already set as it is.
+/** @param {boolean} moved */
+function offFollowCheck(moved){const kept=OFF.kept;
+  if(kept===undefined)return;   // not read yet: offlineBoot checks once it is
+  // Another tab of this browser may turn following on; this one reads the record again now and then (no request).
+  if(kept===null){if(Date.now()-OFF.keptAt>=60000){OFF.keptAt=Date.now();
+    void offKept().then(v=>{if(v){OFF.kept=v; offFollowCheck(true);}});} return;}
+  const due=offBehind(kept,OFF.seen).length>0||offRenewDue(kept,Date.now()).length>0||((kept.old||[]).length>0&&OFF.n===0);
+  if(!due)return;
+  if(moved)OFF.after=0;
+  if(Date.now()<OFF.after)return;
+  if(OFF.timer!==undefined&&!moved)return;
+  clearTimeout(OFF.timer); OFF.timer=setTimeout(()=>{OFF.timer=undefined; void offlineFollow();},OFF_SETTLE_MS);}
+// Follows the kept copy to what the server shows. One at a time in this tab - the flag is taken before anything is
+// awaited, as offlineFlush takes its own, since one meta answer can set it going from several places - and one at a
+// time among this browser's tabs, which share the cache and the store (a Web Lock; a browser without one relies on
+// offKeptWith, which lets two tabs' follows end as one would). Not while cut off or while a pressed keep runs: each
+// document is begun only while neither is so, and nothing is dropped then.
+async function offlineFollow(){
+  if(OFF.following)return;
+  OFF.following=true;
+  try{const locks=typeof navigator!=='undefined'&&navigator.locks;
+    if(locks&&typeof locks.request==='function')await locks.request(OFF_LOCK,{ifAvailable:true},lock=>lock?offFollowRun():undefined);
+    else await offFollowRun();}
+  catch(e){}
+  finally{OFF.following=false;}}
+async function offFollowRun(){let ok=true;
+  const kept=await offKept(); OFF.kept=kept; OFF.keptAt=Date.now();
+  if(!kept)return;
+  for(const k of offBehind(kept,OFF.seen)){if(OFF.prep||offlineNow())break;
+    if(!(await offFollowDoc(k)))ok=false;}
+  if(!OFF.prep&&!offlineNow()&&!(await offFollowTidy()))ok=false;
+  offFollowDone(ok);}
+// Follows document k: its meta and outline labels read (and so stored), the files of the build it is on fetched, and
+// that build held - all of it before it is recorded, so the build it kept stays whole until this one is. A Markdown
+// or text document reads its source again. Answers whether it is done.
+/** @param {string} k @returns {Promise<boolean>} */
+async function offFollowDoc(k){let m;
+  const seen=Date.now();   // when the server was asked: a reading asked later is the newer one (offKeptWith)
+  try{m=(await api(dq('/api/meta',k),{what:'화면 정보 읽기',silent:true})).data;}catch(e){return false;}
+  if(!m)return false;
+  if(rendersInBrowser(m.kind)){
+    try{await api(dq('/api/source',k),{what:'원문 읽기',silent:true,expect:[413]});}catch(e){return false;}
+    await offKeptSet(v=>offKeptWith(v,k,{build:'',files:[],at:0,src:m.src_mtime??null,seen})); return true;}
+  const b=m.pages_build; if(!b)return true;   // nothing to keep
+  try{await api(dq('/api/outline-labels',k),{what:'목차 번호 읽기',silent:true});}catch(e){}
+  const files=offlineDocFiles(k,m);
+  // Half a build is not kept: the one before stays whole, and what was fetched of this one is noted to go in turn.
+  const half=async()=>{await offKeptSet(v=>offKeptPart(v,k,b,files)); return false;};
+  for(let i=0;i<files.length;i+=OFF_KEEP_CHUNK){
+    const r=await offlineAsk({type:'keep',urls:files.slice(i,i+OFF_KEEP_CHUNK)},OFF_KEEP_MS);
+    if(!r||(r.failed||[]).length)return half();}
+  const h=await offHold(k,b,7); if(!h)return half();   // not held, it may be gone before its pins are sent
+  await offKeptSet(v=>offKeptWith(v,k,{build:b,files,at:h.at,seen}));
+  return true;}
+// Drops the old builds no queued pin was drawn on - their copies first, then their holds - and asks again the holds
+// that are due. A queue that cannot be read drops nothing: read as empty, it would let go the build a waiting pin needs.
+// Nor does a build the server still shows go (one half fetched waits for the next try, the screen may be drawn from
+// it), and a hold this browser never asked for is not let go. Answers whether everything went.
+/** @returns {Promise<boolean>} */
+async function offFollowTidy(){let ok=true;
+  const kept=await offKept(); if(!kept)return true;
+  const queue=await offTx('readonly',s=>s.getAll()); if(!Array.isArray(queue))return false;
+  const shown=(/** @type {any} */o)=>!!OFF.seen[o.doc]&&OFF.seen[o.doc].build===o.build;
+  for(const o of offFree(kept.old,queue).filter((/** @type {any} */o)=>!shown(o))){if(offlineNow())return false;
+    const urls=o.files||[];
+    if(urls.length&&!(await offlineAsk({type:'drop',urls}))){ok=false; continue;}
+    if(!o.unheld&&!(await offHold(o.doc,o.build,0))){ok=false; continue;}
+    await offKeptSet(v=>v&&{...v,old:(v.old||[]).filter((/** @type {any} */x)=>!(x.doc===o.doc&&x.build===o.build))});}
+  for(const h of offRenewDue(await offKept(),Date.now())){if(offlineNow())return false;
+    const r=await offHold(h.doc,h.build,7); if(!r){ok=false; continue;}
+    await offKeptSet(v=>offKeptHeld(v,h.doc,h.build,r.at));}
+  return ok;}
+// After a follow: a success clears the failures; a follow the connection cut short is not a failure of its own. A
+// failure waits longer each time before the next try, and is said once a visit when it keeps failing.
+/** @param {boolean} ok */
+function offFollowDone(ok){
+  if(ok){OFF.fails=0; OFF.after=0; return;}
+  if(OFF.prep||offlineNow())return;
+  OFF.fails++; OFF.after=Date.now()+Math.min(OFF_RETRY_MAX,OFF_RETRY_MS*2**(OFF.fails-1));
+  if(OFF.fails>=OFF_SAY_AFTER&&!OFF.failSaid){OFF.failSaid=true;
+    lineNote('오프라인용 받기를 마치지 못했습니다 — 다시 시도하세요',NOTICE_KIND.WARN,{label:'다시 시도',fn:()=>{void offlinePrepare();}},{});}}
 
 // ---------------- Pinning while cut off
 // The words inside the dragged box, read from the PDF this tab already has open (PDF.js, the same text the search reads).
@@ -454,5 +660,7 @@ async function offlineFlush(){
 // light poll calls offlineFlush() again whenever the connection comes back (polling.js).
 function offlineBoot(){OFF.boot=false;   // the first reads are done: from here a read that fails while connected is a failure again
   void offlineWorker();
-  void offlineSync().then(()=>{if(OFF.n&&!offlineNow())void offlineFlush();});}
+  void offlineSync().then(()=>{if(OFF.n&&!offlineNow())void offlineFlush();});
+  // A visit starts by comparing the kept copy with what the server shows, once the kept record is read.
+  void offKept().then(v=>{OFF.kept=v; OFF.keptAt=Date.now(); offFollowCheck(true);});}
 addEventListener('online',()=>{void offlineFlush();});

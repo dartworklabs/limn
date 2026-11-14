@@ -204,6 +204,16 @@ class LiveTab:
         """The build the screen is drawn from."""
         return self.page.evaluate("META.pages_build")
 
+    def kept(self):
+        """The kept record (offline.js OFF_KEPT): what each document keeps ({docs: {key: {build, ...}}}) and the old builds
+        not dropped yet ({old: [{doc, build, ...}]}); None for an instance never kept."""
+        return self.page.evaluate("async () => await offKept()")
+
+    def kept_build(self, doc):
+        """The build the kept record says document doc keeps, or None."""
+        record = self.kept() or {}
+        return ((record.get("docs") or {}).get(doc) or {}).get("build")
+
     def cache_urls(self):
         """The addresses (path and query) the worker has kept copies of, sorted."""
         return self.page.evaluate(
