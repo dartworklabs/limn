@@ -78,6 +78,7 @@ LIGHT_KEYS = [
     "build_seq",
     "last_build",
     "build",
+    "pin_idem",
 ]
 
 # The capability table of docs/handbook/domain.md §여러 문서, one column per document kind. A new DocKind value adds its

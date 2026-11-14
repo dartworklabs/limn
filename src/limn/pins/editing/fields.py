@@ -8,6 +8,7 @@ from collections.abc import Collection
 
 from limn.pins.editing.rules import AskedVerdict, NonStringVerdict
 from limn.pins.editing.values import ASSIGNEE_AGENT, LOCAL_LOGIN, NOTE_MAX, SCOPES, Scope, is_scope
+from limn.pins.idem import IDEM_MAX, IDEM_MIN, is_idem
 from limn.pins.model import KIND_REQS, KindReq, is_kind_req
 from limn.pins.suggestion import Suggestion, without_cr
 from limn.web.errors import InputRejected
@@ -18,6 +19,22 @@ SUGGEST_REFUSAL = (
     "suggest 는 문자열 base·text 두 칸만 가진 객체여야 합니다"
     "(base = 지금 그 줄 범위의 글, text = 그 줄들을 바꿀 글, 줄은 \\n 으로 잇는다)."
 )
+
+
+# The one refusal of a malformed idempotency key (400 bad_idem).
+IDEM_REFUSAL = "idem 은 %d~%d자의 영문자·숫자·_·- 로 된 문자열이어야 합니다." % (IDEM_MIN, IDEM_MAX)
+
+
+def parse_idem(v: object) -> str | None | InputRejected:
+    """A new pin's idempotency key (limn.pins.idem): None when absent or null - a request without a key, exactly as
+    before keys existed - the string when it is a well-formed key, and 400 bad_idem for anything else (an empty or
+    too short or too long string, a character outside [A-Za-z0-9_-], a number or any other JSON value)."""
+    if v is None:
+        return None
+    if not is_idem(v):
+        return InputRejected(IDEM_REFUSAL, "bad_idem")
+    assert isinstance(v, str)  # is_idem holds only for a string
+    return v
 
 
 def parse_note(v: object) -> str | InputRejected:

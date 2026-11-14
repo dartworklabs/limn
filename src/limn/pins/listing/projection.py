@@ -23,6 +23,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any, TypeAlias
 
 from limn.pins.element import element_of
+from limn.pins.idem import IDEM_FIELD
 from limn.pins.location.position import EstContext, epoch, pin_est
 from limn.pins.mentions import addressed_to, fyi_mentions_to
 from limn.pins.model import OpenPin, StateName, TrashedPin, parse_pin, state_of
@@ -54,8 +55,9 @@ def pin_state(r: Row) -> StateName:
 
 def public_record(r: Row, place: tuple[str, str] | None, suggest: SuggestState | None = None) -> Json:
     """A record as the API returns it (docs/handbook/api.md §핀 파일의 위치, ADR-0006): a copy with rev defaulted to 0
-    (a missing or non-integer rev) and without the stored `file_rel` and any stored `rel_path` or `suggest_state`
-    (both are this server's answers, never a value a hand edit or another version left behind). suggest is the
+    (a missing or non-integer rev) and without the stored `idem` (a new pin's idempotency key, limn.pins.idem: a
+    write-side identity no reader is shown), the stored `file_rel` and any stored `rel_path` or `suggest_state` (both
+    are this server's answers, never a value a hand edit or another version left behind). suggest is the
     suggestion's state the edge computed (suggest_view), appended last as `suggest_state` when given. place is where the
     composition root finds a line pin's file under the manuscript root now - (absolute path, path relative to the
     root) - and becomes `file` and `rel_path`; with None (a region pin, or a file it cannot locate) the stored file
@@ -68,6 +70,7 @@ def public_record(r: Row, place: tuple[str, str] | None, suggest: SuggestState |
     changes r."""
     out = dict(r)
     out["rev"] = out["rev"] if is_int(out.get("rev")) else 0
+    out.pop(IDEM_FIELD, None)
     out.pop("file_rel", None)
     out.pop("rel_path", None)
     out.pop("suggest_state", None)

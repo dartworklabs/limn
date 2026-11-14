@@ -18,6 +18,7 @@ from limn.pins.editing.values import (
     is_scope,
 )
 from limn.pins.element import element_of
+from limn.pins.idem import IDEM_FIELD, is_idem
 from limn.pins.location.mapping import VIAS
 from limn.pins.model import Actor, DonePin, KindReq, LineSpan, OpenPin, Pin, Record, ReviewPin, is_kind_req
 from limn.pins.pages import PAGE_FIELDS, page_fields_kept
@@ -519,6 +520,17 @@ SuggestRefusal: TypeAlias = SuggestUnsupported | SuggestRangeTooLong | SuggestTe
 # Why POST /api/pin is refused although its body parsed: its suggestion or its verdict is (the location and fields
 # parsed already).
 AddRefusal: TypeAlias = SuggestRefusal | SuggestBaseChanged | VerdictRefusal
+
+
+@dataclass(frozen=True)
+class PinReplayed:
+    """A new pin's idempotency key (AddRequest.idem) is already held by pin pid - open, closed or in the Trash - so
+    nothing was written: no id was allocated, no record, event or pins.md changed. The first request with the key wins
+    whatever this one's body says (limn.pins.idem)."""
+
+    pid: int
+
+
 EditRefusal: TypeAlias = (
     VerdictFixed
     | ClosedPinReshaped
@@ -845,7 +857,8 @@ class AddRequest:
     suggest has its shape checked only; whether this pin may carry it, and whether its base is what the lines read,
     is decided against the document and the file (decide_new_suggestion) before the pin is written. verdict is the
     one the body asked for, as sent: who may make a verdict pin and whether the document declares that word are
-    decided inside the store transaction (decide_new_verdict)."""
+    decided inside the store transaction (decide_new_verdict). idem is the request's idempotency key
+    (limn.pins.idem), None when it sent none: a pin already holding it is answered instead of a new one (PinReplayed)."""
 
     place: Place
     note: str
@@ -854,9 +867,12 @@ class AddRequest:
     hints: tuple[str, ...] = ()
     suggest: Suggestion | None = None
     verdict: AskedVerdict | None = None
+    idem: str | None = None
 
     def __post_init__(self) -> None:
         """Keep an internally constructed add's place and local fields in the same shapes as parsed input."""
+        if self.idem is not None and not is_idem(self.idem):
+            raise ValueError("idem must be an idempotency key")
         if self.suggest is not None and not isinstance(self.suggest, Suggestion):
             raise ValueError("suggest must be a suggested edit")
         if self.verdict is not None and not isinstance(self.verdict, (str, NonStringVerdict)):
@@ -926,8 +942,9 @@ def new_line_pin(
     request's actor as given), kind_req, the note's @-tags, assignee, the anchor and synced_at the shell captured,
     pdf_build (the one the viewer sent, else the current build; none on a place without pages, LinePlace.pages), doc,
     rev 0, where the file is now (ADR-0006), the
-    request's suggestion when it has one - the shell has accepted it (decide_new_suggestion) by then - and last the
-    verdict decide_new_verdict accepted, when there is one (never with a suggestion).
+    request's suggestion when it has one - the shell has accepted it (decide_new_suggestion) by then - then the
+    verdict decide_new_verdict accepted, when there is one (never with a suggestion), and last the request's
+    idempotency key, when it sent one (_set_idem).
     """
     record = dict(place.fields)
     record.setdefault("kind", "lines")
@@ -949,6 +966,7 @@ def new_line_pin(
         record["suggest"] = request.suggest.to_record()
     if verdict is not None:
         record["verdict"] = verdict
+    _set_idem(record, request)
     return OpenPin.from_record(record)
 
 
@@ -964,8 +982,8 @@ def new_region_pin(
     verdict: str | None = None,
 ) -> OpenPin:
     """A new view-only PDF pin's record: the region, note, at, id, author, kind_req, pdf_build, doc, rev 0, then the
-    note's @-tags and the assignee - the order this kind of pin has always been written in - and last the verdict
-    decide_new_verdict accepted, when there is one. No lines, no anchor, and no suggestion: a request carrying one is
+    note's @-tags and the assignee - the order this kind of pin has always been written in - then the verdict
+    decide_new_verdict accepted, when there is one, and last the request's idempotency key (_set_idem). No lines, no anchor, and no suggestion: a request carrying one is
     a caller's defect (decide_new_suggestion refuses it first) and raises."""
     if request.suggest is not None:
         raise ValueError("a region pin takes no suggested edit")
@@ -981,7 +999,15 @@ def new_region_pin(
         record["assignee"] = request.assignee
     if verdict is not None:
         record["verdict"] = verdict
+    _set_idem(record, request)
     return OpenPin.from_record(record)
+
+
+def _set_idem(record: dict[str, Any], request: AddRequest) -> None:
+    """Store the request's idempotency key last, when it sent one; a request without one writes the record it always
+    has, byte for byte."""
+    if request.idem is not None:
+        record[IDEM_FIELD] = request.idem
 
 
 def _set_mentions(record: dict[str, Any], mentions: Sequence[str]) -> None:
