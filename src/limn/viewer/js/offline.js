@@ -366,6 +366,17 @@ async function offlineFlush(){
     await loadPins();   // what is already there - a lost answer from an earlier send is found, not written twice
     for(const rec of all){
       if(offlineNow())break;
+      // A record whose write was already attempted on a server that knows a write by its key is asked about by the
+      // key alone, before anything is placed. The earlier attempt may have made the pin and lost only its answer -
+      // and by now its place may be gone (the held build expired; the lines were edited, perhaps by the agent that
+      // handled that very pin). Placed first, such a record was held and its key never tried: the pin stood on the
+      // server while the record stayed in the queue, a [다시 찍기] away from being made twice. The question writes
+      // nothing whichever way it is answered (api.md POST /api/pin, replay_only).
+      const keyed=OFF.idem&&!!rec.idem;
+      if(keyed&&rec.sent){
+        try{const r=await api('/api/pin',{method:'POST',body:{idem:rec.idem,replay_only:true,doc:rec.doc||undefined},what:'핀 저장',silent:true,expect:[409]});
+          if(r.status===200&&r.data&&typeof r.data.id==='number'){saved.push(r.data.id); await offDel(rec.id); continue;}}
+        catch(e){failed++; continue;}}   // no answer to the question either: the record waits, unplaced and unheld
       // Every record is placed afresh. A drag is asked of pick, on the build it was drawn on; the lines of a Markdown
       // or text document are looked for in its source as it reads now. The lines a pick once answered are never
       // written: the manuscript moves while a person is away, and writing them would anchor the pin to whatever
@@ -382,14 +393,17 @@ async function offlineFlush(){
         catch(e){failed++; continue;}                     // no answer or a refusal: the record stays for the next send
         if(!d||d.error){rec.held=true; rec.why=errText(d)||tr('위치를 찾지 못했습니다'); await offPut(rec); held++; continue;}}
       // A server that knows a write by its key needs none of the looking below: the same key is the same pin, so the
-      // record is simply sent until an answer comes, and an answer to a second attempt names the pin the first made.
-      // A refusal of the request itself (4xx) is kept with what the server said - it will be refused again as it is.
-      if(OFF.idem&&rec.idem){
+      // record is sent with it until an answer comes, and an answer to a second attempt names the pin the first made.
+      // The attempt is recorded before it is made (a tab closed mid-request never reaches the lines after it), which
+      // is what sends the next visit to the question above. A refusal of the request itself (4xx) says nothing was
+      // written: the mark comes off and the record is kept with what the server said.
+      if(keyed){
         if(!(await offHas(rec.id)))continue;
+        rec.sent=true; await offPut(rec);
         try{const {data}=await api('/api/pin',{method:'POST',body:offlineBody(rec,d),what:'핀 저장',silent:true});
           saved.push(data&&data.id); await offDel(rec.id);}
         catch(e){const x=/** @type {ApiError} */(e),st=x&&x.status||0;
-          if(st>=400&&st<500){rec.held=true; rec.why=errText(x.data)||('HTTP '+st); await offPut(rec); held++;}
+          if(st>=400&&st<500){rec.sent=false; rec.held=true; rec.why=errText(x.data)||('HTTP '+st); await offPut(rec); held++;}
           else failed++;}
         continue;}
       // Only a record whose write was already attempted can be a pin on the server. A record that has never been

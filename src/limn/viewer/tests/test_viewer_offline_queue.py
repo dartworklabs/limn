@@ -25,6 +25,7 @@ var OFF={n:0,held:0,flushing:false,prep:false,db:null};
 var QUEUE=[],PICKS=[],PINS_SENT=[],PINS_OK=[],NOTES=[],LOADS=0,OPEN_ALL=[],REVIEW_ALL=[],DONE_ALL=[];
 var NOTICE_KIND={OK:'ok',WARN:'warn',ERR:'err',INFO:'info'},NOTICE_LIFE={TIMER:'timer',CLICK:'click'},NOTICE_PLACE={LINE:'line'};
 var SOURCE={};   // the source of each document as the server would read it now: {<doc>: [lines]}
+var KNOWN={},PROBES=[];   // the pins the server has by key ({<idem>: id}, or 'down'), and the keys it was asked about
 function dq(u,k){return u+(u.indexOf('?')<0?'?':'&')+'doc='+encodeURIComponent(k);}
 function offAll(){return Promise.resolve(QUEUE.slice());}
 function offDel(id){QUEUE=QUEUE.filter(function(r){return r.id!==id;}); return Promise.resolve(true);}
@@ -50,6 +51,10 @@ function api(url,o){
   if(url.indexOf('/api/source?doc=')===0){const k=decodeURIComponent(url.split('doc=')[1]);
     if(SOURCE[k]==='down')return Promise.reject(new TypeError('Failed to fetch'));
     return Promise.resolve({status:200,data:{file:'notes.md',lines:SOURCE[k]||[]}});}
+  if(url==='/api/pin'&&o.body&&o.body.replay_only){PROBES.push(o.body.idem);
+    if(KNOWN==='down')return Promise.reject(new TypeError('Failed to fetch'));
+    return Promise.resolve(KNOWN[o.body.idem]?{status:200,data:{id:KNOWN[o.body.idem],replay:true}}
+      :{status:409,data:{error:'unknown',reason:'idem_unknown'}});}
   if(url==='/api/pin'){PINS_SENT.push(o.body); const a=ANSWERS.pin.shift();
     if(a&&a.refuse){const e=new Error('HTTP '+a.refuse); e.status=a.refuse; return Promise.reject(e);}
     if(a&&a.throw)return Promise.reject(a.throw);
@@ -833,35 +838,130 @@ class KeyedSend(unittest.TestCase):
         )
         self.assertEqual(got, {"idem": "key-aaaaaaaaaaaaaaaa"})
 
-    def test_a_lost_answer_is_simply_sent_again_and_the_replay_ends_it(self):
-        """The first answer never came; the second attempt carries the same key and the server names the same pin."""
+    def test_a_lost_answer_is_asked_about_by_the_key_and_that_ends_it(self):
+        """The first answer never came, but the write landed. The next visit asks by the key alone and drops the
+        record - without placing it again, and without looking through the pin list for something like it."""
         got = self._run(
             """
             OFF.idem=true;
             const a=rec(1); a.idem='key-aaaaaaaaaaaaaaaa'; QUEUE=[a];
             // A pin of mine that looks exactly like it is already there: the looking would have taken it for this one.
             OPEN_ALL=[{id:40,author:'me',doc:'main',file:'main.tex',lo:10,hi:11,note:'n1'}];
-            ANSWERS={pick:[found(10),found(10)],pin:[{throw:new Error('network')},{id:41,replay:true}]};
-            offlineFlush().then(function(){const mid=QUEUE.length;
-              return offlineFlush().then(function(){console.log(JSON.stringify({mid:mid,left:QUEUE.length,
-                keys:PINS_SENT.map(function(b){return b.idem;}),sent:a.sent}));});});
+            ANSWERS={pick:[found(10)],pin:[{throw:new Error('network')}]};
+            offlineFlush().then(function(){const mid=QUEUE.length,mark=QUEUE[0].sent;
+              KNOWN['key-aaaaaaaaaaaaaaaa']=41;   // it had been written
+              return offlineFlush().then(function(){console.log(JSON.stringify({mid:mid,mark:mark,left:QUEUE.length,
+                writes:PINS_SENT.length,asked:PROBES,picks:PICKS.length}));});});
             """
         )
-        self.assertEqual(got["mid"], 1, "no answer: the record waits")
+        self.assertEqual((got["mid"], got["mark"]), (1, True), "no answer: the record waits, marked as attempted")
         self.assertEqual(got["left"], 0)
-        self.assertEqual(got["keys"], ["key-aaaaaaaaaaaaaaaa", "key-aaaaaaaaaaaaaaaa"])
-        self.assertFalse(got["sent"], "the attempt mark belongs to the looking, which is not used")
+        self.assertEqual(got["writes"], 1, "the pin is not written a second time")
+        self.assertEqual(got["asked"], ["key-aaaaaaaaaaaaaaaa"])
+        self.assertEqual(got["picks"], 1, "and it is not placed again")
+
+    def test_a_pin_that_was_written_is_recovered_even_when_its_place_is_gone(self):
+        """What blocked the recovery: the place is looked for first, and by now it is gone - the held build expired,
+        or the lines were edited by whoever handled that very pin. Held there, the key was never tried and the pin
+        stood on the server while its record stayed in the queue."""
+        got = self._run(
+            """
+            OFF.idem=true;
+            const a=rec(1); a.idem='key-aaaaaaaaaaaaaaaa'; a.sent=true; QUEUE=[a];
+            KNOWN['key-aaaaaaaaaaaaaaaa']=41;
+            ANSWERS={pick:[{error:'pdf_build_gone',pdf_build_gone:true}],pin:[]};
+            offlineFlush().then(function(){console.log(JSON.stringify({left:QUEUE.length,held:OFF.held,
+              picks:PICKS.length,writes:PINS_SENT.length}));});
+            """
+        )
+        self.assertEqual(got, {"left": 0, "held": 0, "picks": 0, "writes": 0})
+
+    def test_an_attempt_that_never_reached_the_server_is_placed_and_written(self):
+        """The key is unknown there: nothing was written, so the record goes on as any other."""
+        got = self._run(
+            """
+            OFF.idem=true;
+            const a=rec(1); a.idem='key-aaaaaaaaaaaaaaaa'; a.sent=true; QUEUE=[a];
+            ANSWERS={pick:[found(10)],pin:[{id:41}]};
+            offlineFlush().then(function(){console.log(JSON.stringify({left:QUEUE.length,asked:PROBES.length,
+              writes:PINS_SENT.map(function(b){return [b.idem,b.lo,!!b.replay_only];})}));});
+            """
+        )
+        self.assertEqual(got, {"left": 0, "asked": 1, "writes": [["key-aaaaaaaaaaaaaaaa", 10, False]]})
+
+    def test_a_question_with_no_answer_leaves_the_record_as_it_was(self):
+        """Not placed, not held: nothing is known yet."""
+        got = self._run(
+            """
+            OFF.idem=true; KNOWN='down';
+            const a=rec(1); a.idem='key-aaaaaaaaaaaaaaaa'; a.sent=true; QUEUE=[a];
+            ANSWERS={pick:[found(10)],pin:[{id:41}]};
+            offlineFlush().then(function(){console.log(JSON.stringify({left:QUEUE.length,held:QUEUE[0].held,
+              picks:PICKS.length,writes:PINS_SENT.length}));});
+            """
+        )
+        self.assertEqual(got, {"left": 1, "held": False, "picks": 0, "writes": 0})
+
+    def test_a_lost_answer_is_never_settled_by_a_pin_that_looks_like_it(self):
+        """Where the server knows the key, the pin list is not looked through at all. A pin of mine that appears
+        meanwhile at the same lines with the same note - from another device, say - is not this record's write, and
+        the looking would have dropped the record on its strength."""
+        got = self._run(
+            """
+            OFF.idem=true; const a=rec(1,'alike'); a.idem='key-aaaaaaaaaaaaaaaa'; QUEUE=[a];
+            ANSWERS={pick:[found(10),found(10)],pin:[{throw:new Error('network')},{id:61}]};
+            const realLoad=loadPins; let reads=0;
+            loadPins=function(){reads++;
+              if(reads===2)OPEN_ALL=[{id:50,author:'me',doc:'main',file:'main.tex',lo:10,hi:11,note:'alike'}];
+              return realLoad();};
+            offlineFlush().then(function(){const mid=QUEUE.length;
+              return offlineFlush().then(function(){console.log(JSON.stringify({mid:mid,left:QUEUE.length,
+                written:PINS_OK,asked:PROBES.length}));});});
+            """
+        )
+        self.assertEqual(got["mid"], 1, "the look-alike does not answer for it")
+        self.assertEqual((got["left"], got["written"], got["asked"]), (0, [61], 1))
+
+    def test_a_record_never_sent_is_not_asked_about(self):
+        got = self._run(
+            """
+            OFF.idem=true; const a=rec(1); a.idem='key-aaaaaaaaaaaaaaaa'; QUEUE=[a];
+            ANSWERS={pick:[found(10)],pin:[{id:41}]};
+            offlineFlush().then(function(){console.log(JSON.stringify({asked:PROBES.length,writes:PINS_SENT.length,left:QUEUE.length}));});
+            """
+        )
+        self.assertEqual(got, {"asked": 0, "writes": 1, "left": 0})
 
     def test_a_refusal_is_kept_with_what_the_server_said(self):
         got = self._run(
             """
             OFF.idem=true; const a=rec(1); a.idem='key-aaaaaaaaaaaaaaaa'; QUEUE=[a];
             ANSWERS={pick:[found(10)],pin:[{refuse:403}]};
-            offlineFlush().then(function(){console.log(JSON.stringify({left:QUEUE.length,held:QUEUE[0].held,why:QUEUE[0].why}));});
+            offlineFlush().then(function(){console.log(JSON.stringify({left:QUEUE.length,held:QUEUE[0].held,why:QUEUE[0].why,
+              sent:QUEUE[0].sent}));});
             """
         )
         self.assertEqual((got["left"], got["held"]), (1, True))
         self.assertTrue(got["why"])
+        self.assertFalse(
+            got["sent"], "the server said no: nothing was written, so there is nothing to ask about next time"
+        )
+
+    def test_a_server_error_is_not_a_refusal(self):
+        """A 5xx may follow a write that went through. The record is not held as refused; it stays marked as
+        attempted, so the next visit asks by the key before doing anything else."""
+        got = self._run(
+            """
+            OFF.idem=true; const a=rec(1); a.idem='key-aaaaaaaaaaaaaaaa'; QUEUE=[a];
+            ANSWERS={pick:[found(10)],pin:[{refuse:502}]};
+            offlineFlush().then(function(){const first={held:QUEUE[0].held,sent:QUEUE[0].sent};
+              KNOWN['key-aaaaaaaaaaaaaaaa']=41;   // the gateway's 502 came back over a write that had landed
+              return offlineFlush().then(function(){console.log(JSON.stringify({first:first,left:QUEUE.length,
+                asked:PROBES.length,writes:PINS_SENT.length}));});});
+            """
+        )
+        self.assertEqual(got["first"], {"held": False, "sent": True})
+        self.assertEqual((got["left"], got["asked"], got["writes"]), (0, 1, 1))
 
     def test_a_server_without_the_key_is_still_looked_through(self):
         """An older Limn drops the field it does not know: the record must not rely on it there."""
