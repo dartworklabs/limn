@@ -29,7 +29,7 @@ Environment=LIMN_CONFIG_DIR=@LIMN_CONFIG_DIR@
 # Put the TeX used for rebuilds first on PATH. systemd units do not read shell rc files, so they do
 # not inherit the interactive PATH; without this, rebuilds pick the distribution's pdflatex and fail
 # to find journal classes (.cls). `limn` fills this with the directory of the pdflatex found in the
-# shell that renders the first unit, and keeps it while it still reaches a pdflatex (override with
+# shell that renders the first unit, and keeps it against a shell that reaches the distribution's pdflatex (override with
 # LIMN_UNIT_PATH).
 Environment=PATH=@LIMN_PATH@
 # With GIT_PULL=1 every rebuild fast-forwards the manuscript checkout to upstream (only when clean

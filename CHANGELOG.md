@@ -7,10 +7,12 @@
 - **`limn update` and `limn start` keep the TeX a machine's instances rebuild with.** The systemd unit's PATH was
   taken afresh from whatever shell rendered the unit. Run over a non-login SSH shell (`ssh host limn update`), that
   shell has no TeX Live on its PATH and finds the distribution's pdflatex, so the rewritten unit sent every instance on
-  the machine to a TeX without the journal classes: the next rebuild failed with `File 'elsarticle.cls' not found`. A
-  unit limn already wrote now keeps its PATH while some directory on it still holds a pdflatex, and a warning names
-  both PATHs when the shell's differs. A new PATH is taken for a first unit, when the old one no longer reaches a
-  pdflatex, or from `LIMN_UNIT_PATH`.
+  the machine to a TeX without the journal classes: the next rebuild failed with `File 'elsarticle.cls' not found`.
+  The unit is now rewritten by the pdflatex each PATH reaches, not by whether it reaches one (every unit PATH ends in
+  `/usr/bin:/bin`). When the unit's PATH and the shell's reach different pdflatex binaries and the unit's is not the
+  distribution's (`/usr/bin`, `/bin`), the unit keeps its PATH and a warning names both. A unit that reaches only the
+  distribution's TeX, or none, takes the shell's PATH, so a unit already written this way is repaired by the next
+  `limn update` from a login shell. `LIMN_UNIT_PATH` still sets the PATH outright.
 
 The agent contract is unchanged.
 
