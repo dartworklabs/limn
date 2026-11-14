@@ -162,15 +162,18 @@ async function offlinePick(r){
 /** @param {Selection} d @param {string} note @param {{kind:string|null,assignee:string|null}} out @param {string[]} mentions @returns {Promise<boolean>} */
 async function offlineQueueSave(d,note,out,mentions){
   if(OFF.n>=OFF_MAX){bannerNote(NOTICE_HOST.COMPOSER,tl('쌓아 둘 수 있는 핀은 {n}개까지입니다 — 연결되면 먼저 반영하세요',{n:OFF_MAX}),NOTICE_KIND.ERR,null,{save:true,source:'offline-queue'}); return false;}
-  // A selection whose lines were already found keeps them (the connection went between the pick and the save, the
-  // usual way a full selection ends up here): it is written as it stands and never picked again. Only a selection
-  // picked while cut off has no lines, and that one carries the box in PDF points for the pick that comes later.
+  // What the send needs is the drag itself, never the lines a pick once answered: hours pass, the manuscript is edited
+  // while the person is away, and those line numbers would be written against text that has moved - a pin that reads
+  // as placed and points elsewhere. So the record carries the box as page fractions (frac, which every drag has) and
+  // the page's size in points on the build it was drawn on, which together rebuild that pick request exactly. The
+  // lines a pick already found are kept only to tell the person what the pin used to point at if its place is lost.
+  const pg=META&&META.pages&&META.pages[d.page-1];
   const found=!d.offline&&!isRegion(d)&&!!d.file&&typeof d.lo==='number'&&typeof d.hi==='number';
   const rec={v:1,label:META?META.label:'',doc:d.doc||DOC,build:d.pdf_build||(META?META.pages_build:'')||'',
-    page:d.page,rect:d.rect||null,frac:d.frac,quote:d.quote||'',note,kind_req:out.kind,assignee:out.assignee,
+    page:d.page,rect:d.rect||null,frac:d.frac,pt:pg?{w:pg.pt_w,h:pg.pt_h}:null,
+    quote:d.quote||'',note,kind_req:out.kind,assignee:out.assignee,
     mentions:mentions.slice(),at:new Date().toISOString(),held:false,why:'',
-    place:found?{file:d.file,name:d.name,lo:d.lo,hi:d.hi,raw_lo:d.raw_lo,raw_hi:d.raw_hi,kind:d.kind,via:d.via,
-      score:d.score,fill:d.fill,rival:d.rival}:null};
+    place:found?{file:d.file,name:d.name,lo:d.lo,hi:d.hi}:null};
   const id=await offAdd(rec);
   if(id===null){bannerNote(NOTICE_HOST.COMPOSER,tr('핀 저장 실패 — 이 브라우저가 오프라인 보관을 막고 있습니다'),NOTICE_KIND.ERR,null,{save:true,source:'offline-queue'}); return false;}
   await offlineSync();
@@ -182,9 +185,25 @@ async function offlineQueueSave(d,note,out,mentions){
   return true;}
 
 // ---------------- Sending the queue
-// The pin body a found place and a kept record make, the same whitelist POST /api/pin takes for a line pin (api.md §핀 추가).
+// The drag a record holds, in the PDF points pick reads: the box kept with it, or the one its page fractions and that
+// page's size on the build make - the same product selection.js sends when the drag happens. Null when the record has
+// neither, which is the one case nothing can be placed from (a box of zeros would resolve to the page's corner). Pure.
+/** @param {any} rec @returns {{x0:number,y0:number,x1:number,y1:number}|null} */
+function offlineBox(rec){if(rec.rect)return rec.rect;
+  const f=rec.frac,pt=rec.pt;
+  if(!Array.isArray(f)||f.length<4||!pt||!(pt.w>0)||!(pt.h>0))return null;
+  return {x0:f[0]*pt.w,y0:f[1]*pt.h,x1:(f[0]+f[2])*pt.w,y1:(f[1]+f[3])*pt.h};}
+// The pin body a found place and a kept record make, the same whitelist POST /api/pin takes (api.md §핀 추가). A pick
+// that answered with no file is a region answer - a view-only PDF, or a figure element with no code behind it - and
+// that pin is its page and box, as savePin sends one.
 /** @param {any} rec @param {any} d @returns {Record<string, unknown>} */
-function offlineBody(rec,d){const body=/** @type {Record<string, unknown>} */({file:d.file,name:d.name,page:d.page,lo:d.lo,hi:d.hi,
+function offlineBody(rec,d){
+  if(!d.file){const region=/** @type {Record<string, unknown>} */({page:d.page,frac:d.frac||rec.frac,note:rec.note,
+    quote:d.quote||rec.quote||'',pdf_build:d.pdf_build||rec.build||undefined,doc:rec.doc||undefined,
+    kind_req:rec.kind_req,assignee:rec.assignee});
+    if((rec.mentions||[]).length)region.mentions=rec.mentions;
+    return region;}
+  const body=/** @type {Record<string, unknown>} */({file:d.file,name:d.name,page:d.page,lo:d.lo,hi:d.hi,
   raw_lo:d.raw_lo,raw_hi:d.raw_hi,kind:d.kind,via:d.via,score:d.score,fill:d.fill,rival:d.rival,frac:d.frac,
   note:rec.note,quote:d.quote||rec.quote||'',pdf_build:d.pdf_build||rec.build||undefined,doc:rec.doc||undefined,
   kind_req:rec.kind_req,assignee:rec.assignee});
@@ -193,7 +212,8 @@ function offlineBody(rec,d){const body=/** @type {Record<string, unknown>} */({f
 // Whether this record is already a pin on the server: mine, on its document, on the same lines, with the same note. A send
 // whose answer was lost is found here instead of written twice - the judgment savePin makes for its own lost answer.
 /** @param {any} rec @param {any} d */
-function offlineLanded(rec,d){return OPEN_ALL.some(p=>isMe(p.author)&&pdoc(p)===(rec.doc||DEFAULT_DOC)&&p.file===d.file&&p.lo===d.lo&&p.hi===d.hi&&String(p.note||'')===String(rec.note||''));}
+function offlineLanded(rec,d){return OPEN_ALL.some(p=>isMe(p.author)&&pdoc(p)===(rec.doc||DEFAULT_DOC)&&String(p.note||'')===String(rec.note||'')&&
+  (d.file?(p.file===d.file&&p.lo===d.lo&&p.hi===d.hi):(!p.file&&p.page===d.page)));}   // a region answer stands on its page, as samePlace reads one
 // Sends the queue, oldest first: each record's own coordinates and build go to pick, its answer to the pin. A record is
 // dropped only once its pin is on the server. One whose place cannot be found again (the build is gone, or the drag no
 // longer reads as text) is kept and marked, so the count never hides it and the next send tries again.
@@ -209,15 +229,17 @@ async function offlineFlush(){
     await loadPins();   // what is already there - a lost answer from an earlier send is found, not written twice
     for(const rec of all){
       if(offlineNow())break;
-      let d=/** @type {any} */(rec.place?{...rec.place,page:rec.page,frac:rec.frac,quote:rec.quote,pdf_build:rec.build}:null);
-      if(!d&&!rec.rect){   // neither a found place nor a box: there is nothing to ask pick about, and a box of zeros
-        rec.held=true; rec.why=tr('위치를 찾지 못했습니다'); await offPut(rec); held++; continue;}   // would place the pin at the page's corner
-      if(!d){
-        const req={page:rec.page,x0:rec.rect.x0,y0:rec.rect.y0,x1:rec.rect.x1,y1:rec.rect.y1,
-          frac:rec.frac,pdf_build:rec.build||undefined,doc:rec.doc||undefined};
-        try{d=(await api('/api/pick',{method:'POST',body:req,what:'위치 찾기',silent:true})).data;}
-        catch(e){failed++; continue;}                     // no answer or a refusal: the record stays for the next send
-        if(!d||d.error){rec.held=true; rec.why=errText(d)||tr('위치를 찾지 못했습니다'); await offPut(rec); held++; continue;}}
+      // Every record is placed by asking pick about the drag it holds, on the build it was drawn on. The lines it may
+      // already carry are never written: the manuscript moves while a person is away, and writing them would anchor
+      // the pin to whatever stands at those numbers now.
+      const box=offlineBox(rec);
+      if(!box){rec.held=true; rec.why=tr('위치를 찾지 못했습니다'); await offPut(rec); held++; continue;}
+      let d=/** @type {any} */(null);
+      const req={page:rec.page,x0:box.x0,y0:box.y0,x1:box.x1,y1:box.y1,
+        frac:rec.frac,pdf_build:rec.build||undefined,doc:rec.doc||undefined};
+      try{d=(await api('/api/pick',{method:'POST',body:req,what:'위치 찾기',silent:true})).data;}
+      catch(e){failed++; continue;}                       // no answer or a refusal: the record stays for the next send
+      if(!d||d.error){rec.held=true; rec.why=errText(d)||tr('위치를 찾지 못했습니다'); await offPut(rec); held++; continue;}
       if(offlineLanded(rec,d)){saved.push(rec.id); await offDel(rec.id); continue;}
       // Another tab of this browser shares the queue and may have written this one while the pick was out: a record
       // that is no longer there has been dealt with, and writing it again would make the pin twice.

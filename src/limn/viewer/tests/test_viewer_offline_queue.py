@@ -45,14 +45,14 @@ function api(url,o){
   throw new Error('unexpected call '+url);
 }
 function rec(id,note){return {id:id,v:1,label:'inst',doc:'main',build:'pages-20261114T090000',page:3,
-  rect:{x0:10,y0:20,x1:110,y1:40},frac:[0.1,0.2,0.3,0.04],quote:'q'+id,note:note||('n'+id),
+  rect:{x0:10,y0:20,x1:110,y1:40},pt:{w:612,h:792},place:null,frac:[0.1,0.2,0.3,0.04],quote:'q'+id,note:note||('n'+id),
   kind_req:'fix',assignee:'agent',mentions:[],at:'2026-11-14T09:00:00Z',held:false,why:''};}
 function found(lo){return {file:'main.tex',name:'main.tex',page:3,lo:lo,hi:lo+1,raw_lo:lo,raw_hi:lo+1,
   kind:'paragraph',via:'synctex',score:0.9,fill:1,rival:null,frac:[0.1,0.2,0.3,0.04],quote:'server quote',
   pdf_build:'pages-20261114T090000'};}
 """
 
-FUNCTIONS = ("offlineBody", "offlineLanded", "offlineFlush")
+FUNCTIONS = ("offlineBox", "offlineBody", "offlineLanded", "offlineFlush")
 
 
 class OfflineQueueSend(unittest.TestCase):
@@ -113,32 +113,72 @@ class OfflineQueueSend(unittest.TestCase):
         )
         self.assertEqual(got, {"pins": 1, "left": 0})
 
-    def test_a_record_that_already_has_its_lines_is_written_without_picking_again(self):
-        """The connection went between the pick and the save, so the selection reached the queue with its lines. Those
-        lines are what gets written - picking again is both needless and, with no box kept, a pin at the page corner."""
+    def test_stored_lines_are_never_written_against_the_current_source(self):
+        """A pick answered before the connection went, and hours of editing followed. Those line numbers now point at
+        other text, so the send asks pick again about the drag itself and writes the lines that come back."""
         got = self._run(
             """
-            const r=rec(1); r.place={file:'main.tex',name:'main.tex',lo:12,hi:13,raw_lo:12,raw_hi:13,
-              kind:'paragraph',via:'synctex',score:0.8,fill:1,rival:null}; r.rect=null;
-            QUEUE=[r]; ANSWERS={pick:[],pin:[{id:51}]};
+            const r=rec(1); r.place={file:'main.tex',name:'main.tex',lo:12,hi:13}; r.rect=null;
+            r.pt={w:612,h:792};
+            QUEUE=[r]; ANSWERS={pick:[found(30)],pin:[{id:51}]};
             offlineFlush().then(function(){console.log(JSON.stringify({picks:PICKS.length,
-              pins:PINS_SENT.map(function(b){return [b.file,b.lo,b.hi,b.note];}),left:QUEUE.length}));});
+              pins:PINS_SENT.map(function(b){return [b.file,b.lo,b.hi];}),left:QUEUE.length}));});
             """
         )
-        self.assertEqual(got["picks"], 0)
-        self.assertEqual(got["pins"], [["main.tex", 12, 13, "n1"]])
+        self.assertEqual(got["picks"], 1)
+        self.assertEqual(got["pins"], [["main.tex", 30, 31]], "the lines pick answered now, not the ones kept")
         self.assertEqual(got["left"], 0)
 
-    def test_a_record_with_neither_a_place_nor_a_box_is_held_not_placed_at_the_corner(self):
-        """A box of zeros would resolve to the top-left corner of the page and put the pin somewhere nobody chose."""
+    def test_a_record_with_no_box_is_picked_from_its_page_fractions(self):
+        """Only the fractions and the page's size on that build were kept - the same product the drag itself sent."""
         got = self._run(
             """
-            const r=rec(1); r.rect=null; QUEUE=[r]; ANSWERS={pick:[found(10)],pin:[{id:52}]};
+            const r=rec(1); r.rect=null; r.pt={w:612,h:792}; r.frac=[0.25,0.5,0.1,0.02];
+            QUEUE=[r]; ANSWERS={pick:[found(10)],pin:[{id:52}]};
+            offlineFlush().then(function(){console.log(JSON.stringify({
+              box:PICKS.map(function(p){return [p.x0,p.y0,p.x1,p.y1];}),pins:PINS_SENT.length}));});
+            """
+        )
+        self.assertEqual(len(got["box"]), 1)
+        for got_v, want in zip(got["box"][0], (0.25 * 612, 0.5 * 792, 0.35 * 612, 0.52 * 792), strict=True):
+            self.assertAlmostEqual(got_v, want, places=6)
+        self.assertEqual(got["pins"], 1)
+
+    def test_a_record_with_neither_a_box_nor_fractions_is_held(self):
+        """A box of zeros would resolve to the page's top-left corner and put the pin somewhere nobody chose."""
+        got = self._run(
+            """
+            const r=rec(1); r.rect=null; r.pt=null; QUEUE=[r]; ANSWERS={pick:[found(10)],pin:[{id:53}]};
             offlineFlush().then(function(){console.log(JSON.stringify({picks:PICKS.length,pins:PINS_SENT.length,
               left:QUEUE.length,held:QUEUE[0]&&QUEUE[0].held}));});
             """
         )
         self.assertEqual(got, {"picks": 0, "pins": 0, "left": 1, "held": True})
+
+    def test_a_region_answer_is_written_as_a_region_pin(self):
+        """A view-only PDF, or a figure element with no code behind it: the pick answers a page and a box, and the pin
+        is that - not a line pin whose file and lines are null."""
+        got = self._run(
+            """
+            const r=rec(1); QUEUE=[r]; ANSWERS={pick:[{page:3,frac:[0.1,0.2,0.3,0.04],quote:'region words',
+              pdf_build:'pages-20261114T090000'}],pin:[{id:54}]};
+            offlineFlush().then(function(){console.log(JSON.stringify({body:PINS_SENT[0],left:QUEUE.length}));});
+            """
+        )
+        self.assertEqual(got["left"], 0)
+        self.assertEqual(
+            got["body"],
+            {
+                "page": 3,
+                "frac": [0.1, 0.2, 0.3, 0.04],
+                "note": "n1",
+                "quote": "region words",
+                "pdf_build": "pages-20261114T090000",
+                "doc": "main",
+                "kind_req": "fix",
+                "assignee": "agent",
+            },
+        )
 
     def test_a_place_that_cannot_be_found_is_kept_and_counted(self):
         """The build the pin was drawn on is gone: the record stays, marked, with why - and the next send tries again."""
