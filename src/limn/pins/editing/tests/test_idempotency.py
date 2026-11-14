@@ -22,7 +22,7 @@ from limn.runtime.documents import Doc
 from limn.web.errors import InputRejected
 
 from helpers import fits, ps, req, split_resp, trash_records
-from helpers_access import ALICE, BOB, AccessBase, actor, talk_to
+from helpers_access import ALICE, BOB, CAROL, TS_HOST, AccessBase, actor, talk_to
 
 KEY = "q-7f3a9c2e1b4d5a6c"  # 18 characters of the allowed alphabet
 OTHER = "q-0000000000000000"
@@ -378,6 +378,81 @@ class Concurrency(IdemBase):
         stored = self.stored()
         self.assertEqual([(r["id"], r["idem"]) for r in stored], [(ids.pop(), KEY)])
         self.assertEqual(ps.APP.C.seq.read_text().strip(), "1")
+
+
+class ReplayOnly(IdemBase):
+    """POST /api/pin {idem, replay_only: true}: only whether the key is held. A viewer asks it for a queued pin whose
+    earlier send may have landed, before it looks for that pin's place again - which may be gone by then."""
+
+    def test_a_held_key_answers_its_pin_and_writes_nothing(self):
+        code, first = self.post(self.body(idem=KEY))
+        self.assertEqual(code, 200, first)
+        before = self.files()
+        code, raw = self.post_raw({"idem": KEY, "replay_only": True})
+        self.assertEqual(code, 200, raw)
+        self.assertEqual(json.loads(raw), {"id": first["id"], "replay": True})
+        self.assertEqual(self.files(), before)
+
+    def test_an_unknown_key_is_409_and_makes_no_pin(self):
+        """Nothing is created: the body has no place, and even one that had a whole pin in it must not make it."""
+        before = self.files()
+        for body in ({"idem": KEY, "replay_only": True}, self.body(idem=KEY, replay_only=True)):
+            with self.subTest(body=sorted(body)):
+                code, d = self.post(body)
+                self.assertEqual(code, 409, d)
+                self.assertEqual(d["reason"], "idem_unknown")
+        self.assertEqual(self.files(), before)
+        self.assertIsNone(before["pins.jsonl"], "no pin file was ever written")
+
+    def test_the_rest_of_the_body_is_not_read(self):
+        """The question is asked for a pin whose place could not be found again: fields that would refuse a new pin
+        (a file outside the tree, a range past the file, a malformed note) do not refuse the question."""
+        code, first = self.post(self.body(idem=KEY))
+        self.assertEqual(code, 200, first)
+        code, d = self.post({"idem": KEY, "replay_only": True, "file": "/etc/passwd", "lo": 99999, "hi": 1, "note": 7})
+        self.assertEqual((code, d), (200, {"id": first["id"], "replay": True}))
+
+    def test_a_question_needs_a_well_formed_key(self):
+        """Without a key, or with a malformed one, it is 400 bad_idem - and null is not a key here either."""
+        for value in [*BAD_KEYS, None]:
+            with self.subTest(value=value):
+                body = {"replay_only": True} if value is None else {"idem": value, "replay_only": True}
+                code, d = self.post(body)
+                self.assertEqual(code, 400, d)
+                self.assertEqual(d["reason"], "bad_idem")
+        code, d = self.post({"idem": None, "replay_only": True})
+        self.assertEqual((code, d["reason"]), (400, "bad_idem"))
+
+    def test_only_the_literal_true_asks_the_question(self):
+        """Any other value is ignored, as the query switches are: the request is a pin to create."""
+        for value in (False, 1, "true", "1", None):
+            with self.subTest(value=value):
+                code, d = self.post(self.body(note="n%r" % (value,), replay_only=value))
+                self.assertEqual(code, 200, d)
+                self.assertNotIn("replay", d)
+
+    def test_a_key_in_the_trash_answers_and_a_purged_one_does_not(self):
+        self.set_people([{"login": "alice@example.com", "name": "Alice Kim", "role": "owner"}])
+        pid = self.post(self.body(idem=KEY), BOB)[1]["id"]
+        self.assertEqual(self.call("POST", "/api/pins/%d/drop" % pid, None, BOB)[1]["ok"], True)
+        self.assertEqual(self.post({"idem": KEY, "replay_only": True}, BOB), (200, {"id": pid, "replay": True}))
+        code, d = self.call("POST", "/api/pins/%d/purge" % pid, None, ALICE)
+        self.assertEqual((code, d["purged"]), (200, pid))
+        code, d = self.post({"idem": KEY, "replay_only": True}, BOB)
+        self.assertEqual((code, d["reason"]), (409, "idem_unknown"))
+
+    def test_a_viewer_may_not_ask(self):
+        """The question needs the authority a new pin needs: it is asked on the way to writing one."""
+        self.set_people(
+            [
+                {"login": "alice@example.com", "name": "Alice", "role": "owner"},
+                {"login": "carol@example.com", "name": "Carol", "role": "viewer"},
+            ]
+        )
+        code, first = self.post(self.body(idem=KEY), ALICE)
+        self.assertEqual(code, 200, first)
+        code, d = self.post({"idem": KEY, "replay_only": True}, dict(CAROL, Host=TS_HOST))
+        self.assertEqual((code, d.get("reason")), (403, "viewer_only"), d)
 
 
 class Capability(IdemBase):

@@ -1742,5 +1742,7 @@
  "핀 저장 실패 — 이 문서의 원문을 다시 읽은 뒤 저장하세요": "Pin not saved — read this document's source again, then save",
  "그사이 그 줄들의 글이 바뀌었습니다": "Those lines changed meanwhile",
  "오프라인 핀 {n}개는 반영하지 못했습니다 — 쌓인 핀 목록에서 까닭을 보고 다시 찍거나 버리세요": "{n} offline pins were not written — see why in the kept pins, then pin again or discard",
- "연결이 끊겨 제안 수정은 쌓아 둘 수 없습니다 — [제안 수정]을 끄면 메모만 쌓아 둡니다": "A suggested edit cannot be kept while the connection is gone — turn [Suggested edit] off to keep the note alone"
+ "연결이 끊겨 제안 수정은 쌓아 둘 수 없습니다 — [제안 수정]을 끄면 메모만 쌓아 둡니다": "A suggested edit cannot be kept while the connection is gone — turn [Suggested edit] off to keep the note alone",
+ "reason:bad_idem": "The idempotency key (idem) must be 16 to 64 letters, digits, _ or -.",
+ "reason:idem_unknown": "No pin was made with this idempotency key (idem)."
 }

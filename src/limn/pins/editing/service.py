@@ -367,6 +367,16 @@ class PinEditing:
         require_authority(actor, ctx.authority_scope, "add", document_authority_target(D))
         return add_pin(ctx, D, request, actor)
 
+    def keyed_pin(self, D: Doc, key: str, actor: PostAuthority) -> int | None:
+        """The id of the pin that already holds idempotency key `key`, or None - the question a viewer asks before it
+        places a queued pin again (POST /api/pin with replay_only). Asked with the authority a new pin needs, and
+        answered under the pin lock from the stored pins and the restorable Trash, as add_pin's own lookup is: nothing
+        is decided or written, whichever way it is answered."""
+        ctx = self.context()
+        require_authority(actor, ctx.authority_scope, "add", document_authority_target(D))
+        with ctx.store.lock:
+            return _key_holder(ctx, ctx.store.read_pins()[0], key)
+
     def edit_pin(
         self,
         pid: int,

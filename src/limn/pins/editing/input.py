@@ -4,6 +4,7 @@ from collections.abc import Collection
 from dataclasses import dataclass, replace
 
 from limn.pins.editing.fields import (
+    IDEM_REFUSAL,
     parse_assignee,
     parse_idem,
     parse_kind_req,
@@ -287,3 +288,15 @@ def _placed_build(loc: Json, sent: str | None, facts: DocumentFacts, pages: bool
         return None
     current = facts.current_build()  # read even when one was sent, as it always has been
     return sent if sent is not None else current
+
+
+def parse_replay_key(d: Json) -> str | InputRejected:
+    """The key of a `replay_only` request (POST /api/pin {idem, replay_only: true}): the well-formed idempotency key,
+    or 400 bad_idem when it is malformed - or absent, since asking which pin holds no key has no meaning. No other
+    field of the body is read: the request creates nothing, so it has no place, note or kind to check."""
+    idem = parse_idem(d.get("idem"))
+    if isinstance(idem, InputRejected):
+        return idem
+    if idem is None:
+        return InputRejected(IDEM_REFUSAL, "bad_idem")
+    return idem
