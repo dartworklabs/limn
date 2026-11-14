@@ -11,6 +11,7 @@ themselves are described in docs/handbook/domain.md.
 import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 from typing import Any, Literal, TypeAlias, get_args
 
 from limn.platform.text import flat as flat, truncate_quote as truncate_quote
@@ -85,6 +86,63 @@ def synctex_range(hits: Sequence[tuple[str, int]]) -> tuple[str, int, int] | Non
     best = max({file for file, _ in hits}, key=lambda file: sum(1 for hit_file, _ in hits if hit_file == file))
     lines = densest(sorted(line for file, line in hits if file == best))
     return best, lines[0], lines[-1]
+
+
+@dataclass(frozen=True)
+class Carried:
+    """Where a range of the lines a build read stands in the file now (carry_range): lo..hi, 1-based and inclusive,
+    from the first to the last of its lines still there. whole: every line of the range is there and they are still
+    next to one another, so lo..hi holds exactly the text the range held."""
+
+    lo: int
+    hi: int
+    whole: bool
+
+
+def carry_range(built: Sequence[str], now: Sequence[str], lo: int, hi: int) -> Carried | None:
+    """Carry lines lo..hi (1-based, inclusive) of built - a file as a build read it - over to now, the same file as it
+    is today, or None when that text no longer stands there.
+
+    SyncTeX numbers the lines of the source its build read. Used on a file edited since, the numbers name whatever
+    moved into their place (observed: five lines added above a paragraph put its pin on the two paragraphs before it).
+    The two line lists are compared as a line diff: a line of built survives when the diff pairs it with an equal line of
+    now, in order, so a repeated line is followed to its own twin. The answer spans the surviving lines of the range,
+    first to last. None when the range names no line of built (lo..hi is cut to 1..len(built) first) or when no line
+    with text survives: a blank line left behind is not the text that was dragged.
+
+    The lines the two files share at their start and end are paired directly; only the stretch between is handed to
+    difflib, whose shortcut for lines repeated all over a long file can miss a pairing but never invents one - a miss
+    reads as a line that did not survive."""
+    lo, hi = max(1, lo), min(hi, len(built))
+    if lo > hi:
+        return None
+    head = 0
+    limit = min(len(built), len(now))
+    while head < limit and built[head] == now[head]:
+        head += 1
+    tail = 0
+    while tail < limit - head and built[len(built) - 1 - tail] == now[len(now) - 1 - tail]:
+        tail += 1
+    mid_end = len(built) - tail  # built[head:mid_end] is the stretch the two files do not plainly share
+    shift = len(now) - len(built)
+    between: dict[int, int] = {}
+    if lo - 1 < mid_end and hi > head:
+        matcher = SequenceMatcher(None, built[head:mid_end], now[head : len(now) - tail])
+        for a, b, size in matcher.get_matching_blocks():
+            for k in range(size):
+                between[head + a + k] = head + b + k
+    places: list[int] = []
+    text = False
+    for i in range(lo - 1, hi):
+        j = i if i < head else i + shift if i >= mid_end else between.get(i)
+        if j is None:
+            continue
+        places.append(j)
+        text = text or bool(built[i].strip())
+    if not text:
+        return None
+    first, last = places[0] + 1, places[-1] + 1
+    return Carried(first, last, len(places) == hi - lo + 1 and last - first == hi - lo)
 
 
 def score_range(tw: TokenWeights, lines: Sequence[str], lo: int, hi: int) -> float:
