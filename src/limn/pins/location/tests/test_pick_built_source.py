@@ -1,5 +1,5 @@
 """A pick on a build whose source was edited since answers where the dragged text stands now
-(docs/handbook/domain.md §역매핑, docs/handbook/build-sync.md §빌드가 읽은 원고 줄).
+(docs/handbook/domain.md §역변환이 두 경로인 이유, docs/handbook/build-sync.md §빌드가 읽은 원고 줄).
 
 SyncTeX of a build numbers the lines of the source that build read. The build keeps those lines (its source record), and
 the pick carries SyncTeX's range over to the file as it is today before anything else uses it. The first class stubs

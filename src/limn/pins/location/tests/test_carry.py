@@ -1,7 +1,8 @@
 """A range of the lines a build was made from, carried over to the file as it is now (mapping.carry_range).
 
 SyncTeX of a build numbers the lines of the source that build read. A pick against a build whose source was edited
-since must answer where that text stands now, or that it stands nowhere (docs/handbook/domain.md §역매핑).
+since must answer where that text stands now, or that it stands nowhere
+(docs/handbook/domain.md §역변환이 두 경로인 이유).
 
 Run: uv run pytest -q src/limn/pins/location/tests/test_carry.py
 """
