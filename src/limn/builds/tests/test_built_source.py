@@ -1,20 +1,22 @@
 """The source a build was made from, kept with its pages (limn.builds.built_source, docs/handbook/build-sync.md §빌드가
-읽은 원고 줄): which files a record keeps and how they are read from the build copy, what a damaged record answers, and
-what a real LaTeX build publishes.
+읽은 원고 줄): which files a record keeps and how they are read from the build copy, which files a SyncTeX file names
+as its inputs, what a damaged record answers, and what a real LaTeX build publishes.
 
 Run: uv run pytest -q src/limn/builds/tests/test_built_source.py
 """
 
+import gzip
 import json
 import os
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from hypothesis import given, settings, strategies as st
 
-from limn.builds import artifacts as build, built_source
+from limn.builds import artifacts as build, built_source, engine
 from limn.builds.artifacts import BuildOk
 from limn.platform.files import ManuscriptFile, file_in_tree, tex_lines
 
@@ -99,6 +101,180 @@ class Collect(Folder):
             self.assertEqual(list(built_source.collect(self.root, ["a.tex", "b.tex", "c.tex"])), ["a.tex"])
         self.assertIsNone(built_source.read_below(self.root, "b.tex", 39))
         self.assertEqual(built_source.read_below(self.root, "b.tex", 40), b"y" * 40)
+
+    def test_named_files_are_kept_whatever_their_suffix_except_a_bibliography(self):
+        """What a build's own line numbers name is kept by content, not by suffix: a .tikz, a .pgf, a .txt, a file
+        without a suffix and a script. A .bib and a .bbl (any case) are never kept - a pick on them is refused - and a
+        file named both ways is kept once."""
+        for rel in ("fig/plot.tikz", "fig/drawn.pgf", "tab/rows.txt", "LICENSE", "code/run.py", "main.tex"):
+            self.put(rel, rel.encode("utf-8") + b"\n")
+        self.put("refs.bib")
+        self.put("main.BBL")
+        named = ["fig/plot.tikz", "fig/drawn.pgf", "tab/rows.txt", "LICENSE", "code/run.py", "refs.bib", "main.BBL"]
+        got = built_source.collect(self.root, ["main.tex"], [*named, "main.tex", "fig/plot.tikz"])
+        self.assertEqual(
+            list(got), ["main.tex", "LICENSE", "code/run.py", "fig/drawn.pgf", "fig/plot.tikz", "tab/rows.txt"]
+        )
+        self.assertEqual(got["fig/plot.tikz"], ["fig/plot.tikz"])
+        self.assertEqual(list(built_source.collect(self.root, named)), [], "a source is still kept by suffix alone")
+
+    def test_a_named_file_that_is_not_text_is_too_large_or_is_a_link_is_left_out(self):
+        """The suffix does not vouch for a named file, so its bytes do: a picture named as an input (not UTF-8), a
+        file over FILE_MAX_BYTES and a link out of the copy are left out, and a dot-named part is never opened."""
+        self.put("fig/photo.tikz", b"\x89PNG\r\n\x1a\n\xff\xfe")
+        self.put("fig/huge.pgf", b"p" * 64)
+        self.put("fig/small.pgf", b"q\n")
+        self.put(".cache/kept.txt")
+        outside = self.root.parent / "outside.txt"
+        outside.write_bytes(b"secret\n")
+        os.symlink(outside, self.root / "linked.txt")
+        named = ["fig/photo.tikz", "fig/huge.pgf", "fig/small.pgf", ".cache/kept.txt", "linked.txt", "missing.tikz"]
+        with mock.patch.object(built_source, "FILE_MAX_BYTES", 32):
+            self.assertEqual(list(built_source.collect(self.root, (), named)), ["fig/small.pgf"])
+
+    def test_the_sources_are_read_before_the_named_files_when_the_total_runs_out(self):
+        """A bulky named file sorts before the manuscript's text by name and still cannot take its room: the sources
+        are read first, and the named files share what is left."""
+        self.put("a_drawing.pgf", b"d" * 30)
+        self.put("b_note.txt", b"n" * 5)
+        self.put("main.tex", b"m" * 10)
+        with mock.patch.object(built_source, "TOTAL_MAX_BYTES", 16):
+            got = built_source.collect(self.root, ["main.tex"], ["a_drawing.pgf", "b_note.txt"])
+        self.assertEqual(list(got), ["main.tex", "b_note.txt"])
+
+
+class SynctexInputs(Folder):
+    """synctex_inputs reads the names a SyncTeX file lists as its inputs, and nothing from a file that is not one."""
+
+    HEAD = b"SyncTeX Version:1\n"
+    TAIL = b"Output:pdf\nContent:\n{1\n[1,10:0,0:0,0,0\n]\n}1\n"
+
+    def synctex(self, body, name="main.synctex.gz"):
+        """A SyncTeX file holding body, gzipped at name below root; its path."""
+        path = self.root / name
+        path.write_bytes(gzip.compress(body))
+        return path
+
+    def test_every_input_line_is_a_name_whatever_its_suffix_each_once_in_order(self):
+        """The inputs listed before the content and those TeX opened later, between the boxes; a name listed twice (an
+        .aux read at the start and the end) is one name; lines that only look alike are not names."""
+        body = (
+            self.HEAD
+            + b"Input:1:/copy/./main.tex\nInput:2:/copy/./fig/plot.tikz\nInput:3:/copy/./main.aux\n"
+            + self.TAIL
+            + b"Input:40:/copy/./tab/rows.txt\n(2,7:10,20:0,0,0\nInput:41:/copy/./main.aux\n"
+            + b"xInput:9:/not/a/name\nInput:nine:/not/a/name\nInput:42:rel/\xed\x95\x9c.ltx\n"
+        )
+        self.assertEqual(
+            built_source.synctex_inputs(self.synctex(body)),
+            ("/copy/./main.tex", "/copy/./fig/plot.tikz", "/copy/./main.aux", "/copy/./tab/rows.txt", "rel/한.ltx"),
+        )
+
+    def test_a_name_is_read_across_a_block_boundary_and_from_a_last_line_without_a_newline(self):
+        """The file is read in 1 MiB blocks: an input line cut by a boundary is still one name, and so is a last line
+        that ends the file without a newline."""
+        filler = b"h1,2:3,4:5,6,7\n"
+        before = filler * ((1024 * 1024 - 10) // len(filler))
+        pad = b"x" * (1024 * 1024 - 10 - len(before) - 1) + b"\n"
+        body = before + pad + b"Input:7:/copy/./fig/over_the_boundary.pgf\n" + filler * 3 + b"Input:8:/copy/last.txt"
+        self.assertEqual(len(before + pad), 1024 * 1024 - 10)
+        self.assertEqual(
+            built_source.synctex_inputs(self.synctex(body)), ("/copy/./fig/over_the_boundary.pgf", "/copy/last.txt")
+        )
+
+    def test_a_file_that_is_not_a_synctex_file_names_nothing(self):
+        """Not gzip, gzip cut short, missing, a folder, a link to a real one, more bytes than SYNCTEX_MAX_BYTES and a
+        line longer than SYNCTEX_LINE_MAX_BYTES: each is None, never a partial list."""
+        body = self.HEAD + b"Input:1:/copy/./main.tex\n" + self.TAIL
+        good = self.synctex(body)
+        self.assertEqual(built_source.synctex_inputs(good), ("/copy/./main.tex",))
+        plain = self.put("plain.synctex.gz", body)
+        cut = self.put("cut.synctex.gz", good.read_bytes()[:-12])
+        (self.root / "dir.synctex.gz").mkdir()
+        os.symlink(good, self.root / "link.synctex.gz")
+        for path in (plain, cut, self.root / "none.synctex.gz", self.root / "dir.synctex.gz"):
+            self.assertIsNone(built_source.synctex_inputs(path), path.name)
+        self.assertIsNone(built_source.synctex_inputs(self.root / "link.synctex.gz"))
+        with mock.patch.object(built_source, "SYNCTEX_MAX_BYTES", len(body) - 1):
+            self.assertIsNone(built_source.synctex_inputs(good))
+        with mock.patch.object(built_source, "SYNCTEX_MAX_BYTES", len(body)):
+            self.assertEqual(built_source.synctex_inputs(good), ("/copy/./main.tex",))
+        with mock.patch.object(built_source, "SYNCTEX_LINE_MAX_BYTES", 8):
+            self.assertIsNone(built_source.synctex_inputs(self.synctex(body + b"a line with no end")))
+
+    @given(
+        st.lists(
+            st.text(alphabet=st.characters(blacklist_categories=("Cs",), blacklist_characters="\n\x00"), min_size=1)
+        )
+    )
+    @settings(max_examples=50, deadline=None)
+    def test_any_names_listed_are_read_back_each_once_in_order(self, listed):
+        """Whatever names a SyncTeX file lists (any characters but a newline), they come back as written, the first
+        time each is listed."""
+        body = b"SyncTeX Version:1\n" + b"".join(
+            b"Input:%d:%s\n" % (n, name.encode("utf-8")) for n, name in enumerate(listed)
+        )
+        self.assertEqual(built_source.synctex_inputs(self.synctex(body)), tuple(dict.fromkeys(listed)))
+
+    @given(st.binary(max_size=400), st.booleans())
+    @settings(max_examples=80, deadline=None)
+    def test_any_bytes_are_answered_with_names_or_none_and_never_raise(self, raw, packed):
+        """Bytes that are no SyncTeX file, gzipped or not: a tuple of names or None, never an exception."""
+        path = self.root / "any.synctex.gz"
+        path.write_bytes(gzip.compress(raw) if packed else raw)
+        got = built_source.synctex_inputs(path)
+        self.assertTrue(got is None or all(isinstance(name, str) for name in got))
+
+
+class NamedByTheBuild(Folder):
+    """Which of the names in a build's SyncTeX file the engine hands to the record (engine._synctex_named): files of
+    the manuscript inside the build copy, by where they lie there."""
+
+    def setUp(self):
+        """A manuscript ms/ and its build copy copy/ holding the same files, latexmk run in copy/paper/."""
+        super().setUp()
+        self.ms = self.root.parent / "ms"
+        for base in (self.ms, self.root):
+            for rel in ("paper/main.tex", "paper/fig/plot.tikz", "shared/rows.txt"):
+                (base / rel).parent.mkdir(parents=True, exist_ok=True)
+                (base / rel).write_text("text\n", encoding="utf-8")
+        self.doc = SimpleNamespace(src=self.ms, build=self.root, out=self.root / "paper")
+
+    def named(self, *names):
+        """engine._synctex_named for a SyncTeX file listing names as its inputs."""
+        body = b"SyncTeX Version:1\n" + b"".join(b"Input:%d:%s\n" % (n, os.fsencode(x)) for n, x in enumerate(names, 1))
+        syn = self.root / "paper" / "main.synctex.gz"
+        syn.write_bytes(gzip.compress(body))
+        return engine._synctex_named(self.doc, syn)
+
+    def test_a_name_inside_the_copy_is_named_by_its_path_there(self):
+        """An absolute name with TeX's /./, a name relative to the folder latexmk ran in and one that climbs out of
+        that folder but stays in the copy; each once."""
+        paper = str(self.root / "paper")
+        got = self.named(paper + "/./main.tex", "fig/plot.tikz", "../shared/rows.txt", paper + "/./fig/plot.tikz")
+        self.assertEqual(got, ["paper/main.tex", "paper/fig/plot.tikz", "shared/rows.txt"])
+
+    def test_a_file_through_a_linked_folder_is_named_by_where_it_lies(self):
+        """paper/tables links to shared/ in the copy: the input paper/tables/rows.txt is shared/rows.txt."""
+        os.symlink(self.root / "shared", self.root / "paper" / "tables")
+        self.assertEqual(self.named("tables/rows.txt"), ["shared/rows.txt"])
+
+    def test_a_name_outside_the_copy_or_not_in_the_manuscript_is_not_named(self):
+        """A class file of the TeX installation, a path that climbs out of the copy, the copy's root, a byproduct
+        latexmk made in the copy that the manuscript does not have, and a manuscript path that is a link there."""
+        (self.root / "paper" / "main.aux").write_text("\\relax\n", encoding="utf-8")
+        (self.root / "paper" / "alias.tex").write_text("text\n", encoding="utf-8")
+        os.symlink(self.ms / "paper" / "main.tex", self.ms / "paper" / "alias.tex")
+        got = self.named(
+            "/usr/share/texmf/tex/latex/base/article.cls", "../../ms/paper/main.tex", "..", "main.aux", "alias.tex"
+        )
+        self.assertEqual(got, [])
+
+    def test_a_synctex_file_that_cannot_be_read_names_nothing(self):
+        """A file that is not gzip: no names, so the record keeps the scan's files alone."""
+        syn = self.root / "paper" / "main.synctex.gz"
+        syn.write_bytes(b"Input:1:main.tex\n")
+        self.assertEqual(engine._synctex_named(self.doc, syn), [])
 
 
 class Lines(Folder):
@@ -217,3 +393,30 @@ class PublishedWithTheBuild(Base):
         self.assertEqual(built_source.built_lines(pages, "sec/intro.tex"), ("Intro words from another file.",))
         key = built_source.source_key(D.src, self.src / "sec" / "intro.tex")
         self.assertEqual(key, "sec/intro.tex")
+
+    @needs_tex("latexmk", "pdftoppm")
+    def test_a_build_keeps_what_its_synctex_names_whatever_the_suffix(self):
+        """main.tex inputs fig/plot.tikz, tab/rows.txt and sec/old.ltx: SyncTeX names each as an input, so the record
+        holds their lines next to main.tex. A .tikz the build never read, a data file it read without making it an
+        input (\\openin) and the .aux latexmk made in the copy are not in it."""
+        for rel, text in (
+            ("fig/plot.tikz", "Words drawn in a tikz file.\n"),
+            ("tab/rows.txt", "Rows kept as plain text.\n"),
+            ("sec/old.ltx", "An old section file.\n"),
+            ("fig/unread.tikz", "Never input.\n"),
+            ("tab/data.csv", "a,b\n"),
+        ):
+            (self.src / rel).parent.mkdir(exist_ok=True)
+            (self.src / rel).write_text(text, encoding="utf-8")
+        reads = (
+            "\\input{fig/plot.tikz}\n\\input{tab/rows.txt}\n\\input{sec/old.ltx}\n"
+            "\\newread\\data \\openin\\data=tab/data.csv \\read\\data to \\row \\closein\\data\n"
+        )
+        self.main.write_text(TEX.replace("\\section{Intro}\n", "\\section{Intro}\n" + reads), encoding="utf-8")
+        D = ps.APP.docs[0]
+        self.assertIsInstance(ps.APP.build_requests.build_all(D), BuildOk)
+        pages = build.cur_pages(D)
+        record = json.loads((pages / built_source.SOURCE_NAME).read_text(encoding="utf-8"))
+        self.assertEqual(sorted(record["files"]), ["fig/plot.tikz", "main.tex", "sec/old.ltx", "tab/rows.txt"])
+        self.assertEqual(built_source.built_lines(pages, "fig/plot.tikz"), ("Words drawn in a tikz file.",))
+        self.assertEqual(list(record["files"])[0], "main.tex", "the manuscript's sources come first")
