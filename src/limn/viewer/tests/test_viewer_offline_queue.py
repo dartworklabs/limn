@@ -34,25 +34,29 @@ function errText(d){return d&&d.error?String(d.error):'';}
 function tr(s){return s;}
 function tl(s,p){return s.replace(/\{(\w+)\}/g,function(_,k){return String(p[k]);});}
 function lineNote(msg,kind){NOTES.push({msg:msg,kind:kind}); return {n:NOTES.length};}
-function loadPins(){LOADS++; return Promise.resolve(true);}
+var WRITTEN=[];
+function loadPins(){LOADS++; OPEN_ALL=OPEN_ALL.concat(WRITTEN.splice(0,WRITTEN.length)); return Promise.resolve(true);}
 // The stubbed server: ANSWERS maps a call to its answer or to the error it throws.
 var ANSWERS={};
 function api(url,o){
   if(url==='/api/pick'){PICKS.push(o.body); const a=ANSWERS.pick.shift();
     if(a&&a.throw)return Promise.reject(a.throw); return Promise.resolve({status:200,data:a});}
   if(url==='/api/pin'){PINS_SENT.push(o.body); const a=ANSWERS.pin.shift();
-    if(a&&a.throw)return Promise.reject(a.throw); return Promise.resolve({status:200,data:a});}
+    if(a&&a.throw)return Promise.reject(a.throw);
+    WRITTEN.push({id:a.id,author:'me',doc:o.body.doc||'main',file:o.body.file||null,lo:o.body.lo,hi:o.body.hi,
+      page:o.body.page,frac:o.body.frac,note:o.body.note});   // as the next list read would show it
+    return Promise.resolve({status:200,data:a});}
   throw new Error('unexpected call '+url);
 }
 function rec(id,note){return {id:id,v:1,label:'inst',doc:'main',build:'pages-20261114T090000',page:3,
-  rect:{x0:10,y0:20,x1:110,y1:40},pt:{w:612,h:792},place:null,frac:[0.1,0.2,0.3,0.04],quote:'q'+id,note:note||('n'+id),
+  rect:{x0:10,y0:20,x1:110,y1:40},pt:{w:612,h:792},place:null,sent:false,frac:[0.1,0.2,0.3,0.04],quote:'q'+id,note:note||('n'+id),
   kind_req:'fix',assignee:'agent',mentions:[],at:'2026-11-14T09:00:00Z',held:false,why:''};}
 function found(lo){return {file:'main.tex',name:'main.tex',page:3,lo:lo,hi:lo+1,raw_lo:lo,raw_hi:lo+1,
   kind:'paragraph',via:'synctex',score:0.9,fill:1,rival:null,frac:[0.1,0.2,0.3,0.04],quote:'server quote',
   pdf_build:'pages-20261114T090000'};}
 """
 
-FUNCTIONS = ("offlineBox", "offlineBody", "offlineLanded", "offlineFlush")
+FUNCTIONS = ("offlineBox", "offlineBody", "fracSame", "offlineLanded", "offlineFlush")
 
 
 class OfflineQueueSend(unittest.TestCase):
@@ -95,12 +99,94 @@ class OfflineQueueSend(unittest.TestCase):
         """A send whose answer was lost earlier is found in the list and the record is dropped, not sent again."""
         got = self._run(
             """
-            QUEUE=[rec(1)]; ANSWERS={pick:[found(10)],pin:[]};
+            const r=rec(1); r.sent=true;   // an earlier send attempted this one and lost the answer
+            QUEUE=[r]; ANSWERS={pick:[found(10)],pin:[]};
             OPEN_ALL=[{id:41,author:'me',doc:'main',file:'main.tex',lo:10,hi:11,note:'n1'}];
             offlineFlush().then(function(){console.log(JSON.stringify({pins:PINS_SENT.length,left:QUEUE.length}));});
             """
         )
         self.assertEqual(got, {"pins": 0, "left": 0})
+
+    def test_two_region_pins_on_one_page_are_both_written(self):
+        """A view-only PDF, two boxes on page 3, the same note on both - which is ordinary. The duplicate judgment
+        reads a region answer by its box as well as its page: a page-only judgment dropped the second pin unwritten."""
+        got = self._run(
+            """
+            const a=rec(1,'same note'),b=rec(2,'same note');
+            a.frac=[0.1,0.1,0.2,0.05]; b.frac=[0.1,0.6,0.2,0.05]; a.rect=null; b.rect=null;
+            QUEUE=[a,b];
+            ANSWERS={pick:[{page:3,frac:[0.1,0.1,0.2,0.05],quote:'top'},{page:3,frac:[0.1,0.6,0.2,0.05],quote:'bottom'}],
+                     pin:[{id:61},{id:62}]};
+            offlineFlush().then(function(){console.log(JSON.stringify({
+              pins:PINS_SENT.map(function(b){return [b.page,b.frac[1],b.note];}),left:QUEUE.length}));});
+            """
+        )
+        self.assertEqual(got["pins"], [[3, 0.1, "same note"], [3, 0.6, "same note"]])
+        self.assertEqual(got["left"], 0)
+
+    def test_a_region_pin_already_written_is_found_by_its_page_and_box(self):
+        """The dedup still has to work where it should: this one's answer was lost on an earlier send."""
+        got = self._run(
+            """
+            const a=rec(1,'note'); a.sent=true; a.rect=null; a.frac=[0.1,0.6,0.2,0.05]; QUEUE=[a];
+            OPEN_ALL=[{id:63,author:'me',doc:'main',page:3,frac:[0.1,0.6,0.2,0.05],note:'note'}];
+            ANSWERS={pick:[{page:3,frac:[0.1,0.6,0.2,0.05],quote:'bottom'}],pin:[]};
+            offlineFlush().then(function(){console.log(JSON.stringify({pins:PINS_SENT.length,left:QUEUE.length,
+              said:NOTES.map(function(n){return n.msg;}).join(' ')}));});
+            """
+        )
+        self.assertEqual(got["pins"], 0)
+        self.assertEqual(got["left"], 0)
+        self.assertIn("#63", got["said"], "the notice names the pin, not the queue record")
+
+    def test_an_attempted_region_record_is_not_matched_to_another_box_on_its_page(self):
+        """Its own write was attempted and the answer lost, so it may be matched - but only to its own box. A pin of
+        mine elsewhere on the same page, with the same note, is a different pin."""
+        got = self._run(
+            """
+            const a=rec(1,'note'); a.sent=true; a.rect=null; a.frac=[0.1,0.6,0.2,0.05]; QUEUE=[a];
+            OPEN_ALL=[{id:91,author:'me',doc:'main',page:3,frac:[0.1,0.1,0.2,0.05],note:'note'}];
+            ANSWERS={pick:[{page:3,frac:[0.1,0.6,0.2,0.05]}],pin:[{id:92}]};
+            offlineFlush().then(function(){console.log(JSON.stringify({pins:PINS_SENT.length,left:QUEUE.length}));});
+            """
+        )
+        self.assertEqual(got, {"pins": 1, "left": 0})
+
+    def test_two_pins_alike_in_every_field_are_both_written(self):
+        """Someone pinned the same paragraph twice with the same note. The second is not the first: one pin on the
+        server answers for one record, and a pin an earlier record answered for is not offered again."""
+        got = self._run(
+            """
+            QUEUE=[rec(1,'twice'),rec(2,'twice')];
+            ANSWERS={pick:[found(10),found(10)],pin:[{id:71},{id:72}]};
+            offlineFlush().then(function(){console.log(JSON.stringify({pins:PINS_SENT.length,left:QUEUE.length}));});
+            """
+        )
+        self.assertEqual(got, {"pins": 2, "left": 0})
+
+    def test_an_interrupted_send_does_not_swallow_the_rest_on_its_next_try(self):
+        """The real way a pin was lost: the connection goes after the first pin, and the next send reads a list that
+        now holds it. The records still waiting were never attempted, so each is written - whatever it resembles."""
+        got = self._run(
+            """
+            const a=rec(1,'same note'),b=rec(2,'same note'),c=rec(3,'same note');
+            a.frac=[0.1,0.1,0.2,0.05]; b.frac=[0.1,0.6,0.2,0.05]; c.frac=[0.1,0.1,0.2,0.05];
+            a.rect=null; b.rect=null; c.rect=null;   // region drags: page and box are all they have
+            QUEUE=[a,b,c];
+            ANSWERS={pick:[{page:3,frac:a.frac},{page:3,frac:b.frac},{page:3,frac:c.frac}],
+                     pin:[{id:81},{id:82},{id:83}]};
+            const realApi=api; let n=0;
+            api=function(url,o){const r=realApi(url,o);
+              if(url==='/api/pin'&&++n===1)POLL_FAILS=2;   // the connection goes right after the first pin is written
+              return r;};
+            offlineFlush().then(function(){POLL_FAILS=0; return offlineFlush();}).then(function(){
+              console.log(JSON.stringify({pins:PINS_SENT.length,left:QUEUE.length,
+                ids:PINS_SENT.map(function(b){return b.frac[1];})}));});
+            """
+        )
+        self.assertEqual(got["pins"], 3, "every pin the person made is written")
+        self.assertEqual(got["left"], 0)
+        self.assertEqual(got["ids"], [0.1, 0.6, 0.1])
 
     def test_someone_elses_pin_on_the_same_lines_is_not_mine(self):
         """The same lines and note by another author is not this record's pin: it is still written."""

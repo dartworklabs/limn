@@ -172,7 +172,7 @@ async function offlineQueueSave(d,note,out,mentions){
   const rec={v:1,label:META?META.label:'',doc:d.doc||DOC,build:d.pdf_build||(META?META.pages_build:'')||'',
     page:d.page,rect:d.rect||null,frac:d.frac,pt:pg?{w:pg.pt_w,h:pg.pt_h}:null,
     quote:d.quote||'',note,kind_req:out.kind,assignee:out.assignee,
-    mentions:mentions.slice(),at:new Date().toISOString(),held:false,why:'',
+    mentions:mentions.slice(),at:new Date().toISOString(),held:false,why:'',sent:false,
     place:found?{file:d.file,name:d.name,lo:d.lo,hi:d.hi}:null};
   const id=await offAdd(rec);
   if(id===null){bannerNote(NOTICE_HOST.COMPOSER,tr('핀 저장 실패 — 이 브라우저가 오프라인 보관을 막고 있습니다'),NOTICE_KIND.ERR,null,{save:true,source:'offline-queue'}); return false;}
@@ -209,11 +209,22 @@ function offlineBody(rec,d){
   kind_req:rec.kind_req,assignee:rec.assignee});
   if((rec.mentions||[]).length)body.mentions=rec.mentions;
   return body;}
-// Whether this record is already a pin on the server: mine, on its document, on the same lines, with the same note. A send
-// whose answer was lost is found here instead of written twice - the judgment savePin makes for its own lost answer.
-/** @param {any} rec @param {any} d */
-function offlineLanded(rec,d){return OPEN_ALL.some(p=>isMe(p.author)&&pdoc(p)===(rec.doc||DEFAULT_DOC)&&String(p.note||'')===String(rec.note||'')&&
-  (d.file?(p.file===d.file&&p.lo===d.lo&&p.hi===d.hi):(!p.file&&p.page===d.page)));}   // a region answer stands on its page, as samePlace reads one
+// Two boxes are the same box: every number within a millionth of the page, the tolerance a whole-page verdict target
+// is read with (domain.md §판정 대상). Pure.
+/** @param {unknown} a @param {unknown} b */
+function fracSame(a,b){if(!Array.isArray(a)||!Array.isArray(b)||a.length<4||b.length<4)return false;
+  for(let i=0;i<4;i++)if(!(Math.abs(a[i]-b[i])<=1e-6))return false; return true;}
+// The pin this record already is on the server, or 0: mine, on its document, at the same place, with the same note.
+// A send whose answer was lost is found here instead of written twice - the judgment savePin makes for its own lost
+// answer. A line answer stands on its lines; a region answer stands on its page AND its box, because two region pins
+// on one page are told apart by nothing else, and a page-only judgment deleted a second pin that was never written.
+// A pin an earlier record of this send already answered for is not offered again: two deliberate pins may be alike in
+// every field this reads, and only one of them is that pin.
+/** @param {any} rec @param {any} d @param {Set<number>} claimed @returns {number} */
+function offlineLanded(rec,d,claimed){const f=d.frac||rec.frac;
+  const hit=OPEN_ALL.find(p=>!claimed.has(p.id)&&isMe(p.author)&&pdoc(p)===(rec.doc||DEFAULT_DOC)&&String(p.note||'')===String(rec.note||'')&&
+    (d.file?(p.file===d.file&&p.lo===d.lo&&p.hi===d.hi):(!p.file&&p.page===d.page&&fracSame(p.frac,f))));
+  return hit?hit.id:0;}
 // Sends the queue, oldest first: each record's own coordinates and build go to pick, its answer to the pin. A record is
 // dropped only once its pin is on the server. One whose place cannot be found again (the build is gone, or the drag no
 // longer reads as text) is kept and marked, so the count never hides it and the next send tries again.
@@ -224,7 +235,7 @@ async function offlineFlush(){
   if(OFF.flushing||offlineNow()||viewerBlocked())return;
   OFF.flushing=true;
   const all=await offAll(); if(!all.length){OFF.flushing=false; await offlineSync(); return;}
-  const saved=/** @type {number[]} */([]); let held=0,failed=0;
+  const saved=/** @type {number[]} */([]),claimed=new Set(); let held=0,failed=0;
   try{
     await loadPins();   // what is already there - a lost answer from an earlier send is found, not written twice
     for(const rec of all){
@@ -240,14 +251,21 @@ async function offlineFlush(){
       try{d=(await api('/api/pick',{method:'POST',body:req,what:'위치 찾기',silent:true})).data;}
       catch(e){failed++; continue;}                       // no answer or a refusal: the record stays for the next send
       if(!d||d.error){rec.held=true; rec.why=errText(d)||tr('위치를 찾지 못했습니다'); await offPut(rec); held++; continue;}
-      if(offlineLanded(rec,d)){saved.push(rec.id); await offDel(rec.id); continue;}
+      // Only a record whose write was already attempted can be a pin on the server. A record that has never been
+      // sent is written, whatever is there: two pins alike in document, place and note are told apart by nothing this
+      // can read, and matching a fresh record against one of them deleted a pin that was never written.
+      if(rec.sent){const was=offlineLanded(rec,d,claimed);
+        if(was){claimed.add(was); saved.push(was); await offDel(rec.id); continue;}}   // its pin number, not the record's
       // Another tab of this browser shares the queue and may have written this one while the pick was out: a record
       // that is no longer there has been dealt with, and writing it again would make the pin twice.
       if(!(await offHas(rec.id)))continue;
+      rec.sent=true; await offPut(rec);   // the attempt is recorded before it is made, so a lost answer stays recoverable
       try{const {data}=await api('/api/pin',{method:'POST',body:offlineBody(rec,d),what:'핀 저장',silent:true});
+        if(data&&typeof data.id==='number')claimed.add(data.id);
         saved.push(data&&data.id); await offDel(rec.id);}
       catch(e){const x=/** @type {ApiError} */(e);
-        if(!x||!x.status){await loadPins(); if(offlineLanded(rec,d)){saved.push(rec.id); await offDel(rec.id); continue;}}
+        if(!x||!x.status){await loadPins(); const late=offlineLanded(rec,d,claimed);
+          if(late){claimed.add(late); saved.push(late); await offDel(rec.id); continue;}}
         failed++;}}
   }finally{OFF.flushing=false; await offlineSync(); await loadPins();}
   const ids=saved.filter(n=>typeof n==='number');
