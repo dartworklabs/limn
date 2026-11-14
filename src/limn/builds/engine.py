@@ -18,7 +18,7 @@ from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from limn.builds import artifacts as build, png, warm
+from limn.builds import artifacts as build, built_source, holds, png, warm
 from limn.builds.artifacts import (
     BUILD_EXCLUDE_DIRS,
     PAGES_DIR_RE,
@@ -425,6 +425,28 @@ def _build_reads(D: BuildDoc, fls_text: str) -> warm.Reads:
     return warm.Reads(frozenset(r for r in found.inside if os.path.isfile(D.src / r)), found.outside)
 
 
+def _sources_read(D: BuildDoc, scan: Mapping[str, build.ScannedSource], made: warm.Reads | None) -> list[str]:
+    """The manuscript files whose lines this build's source record may keep (built_source.collect chooses among them
+    by suffix and size), as 'a/b.tex' below the build copy: of the files the scan before latexmk had - plain files of
+    the copy reached through no link, outside dot folders and the state folder - those the build read. A file read
+    through a linked folder is named by where it really lies in the copy, the name the scan and a pick know it by.
+    Every file of the scan when what the build read is unknown (made is None: no recorder file) or the copy's root
+    cannot be resolved."""
+    if made is None:
+        return list(scan)
+    try:
+        base = D.build.resolve()
+    except (OSError, RuntimeError):
+        return list(scan)
+    read: set[str] = set()
+    for rel in made.inside:
+        try:
+            read.add((D.build / rel).resolve().relative_to(base).as_posix())
+        except (ValueError, OSError, RuntimeError):
+            continue
+    return [rel for rel in scan if rel in read]
+
+
 def _stored_recipe(folder: Path) -> object:
     """The recipe a page folder holds (warm.RECIPE_NAME) as parsed JSON, or None when it has none, it is not a small plain
     file, or it is not JSON."""
@@ -607,6 +629,10 @@ def _compile(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], Json] | None, for
         _cold_digest(D, styles),
     )
     notes = {warm.RECIPE_NAME: json.dumps(recipe, ensure_ascii=False)}
+    if scan is not None:
+        # The lines SyncTeX numbers: the copy's files as latexmk left them, kept with the pages for later picks.
+        kept = built_source.collect(D.build, _sources_read(D, scan, made))
+        notes[built_source.SOURCE_NAME] = built_source.encode(kept)
     newdir = render_pages(D, pdf, extra, cfg.dpi, notes=notes)
     if isinstance(newdir, PagesNotRendered):
         return failed(newdir.kind, newdir.detail)
@@ -791,8 +817,8 @@ def render_pages(
     """Stage one immutable PDF input, render its pages and publish it with companions and notes.
 
     The PDF is copied into the hidden folder before pdfinfo and every page worker open that same copy. Extra
-    companions (SyncTeX, .aux, a figure map) and notes (small text files by name, such as recipe.json) join it
-    before publication. on_snapshot, when supplied, receives the staged fingerprint and opened-source signature.
+    companions (SyncTeX, .aux, a figure map) and notes (text files by name: recipe.json, the source record
+    source.json) join it before publication. on_snapshot, when supplied, receives the staged fingerprint and opened-source signature.
     D's build state turns to phase render with no count, then holds the count of pages drawn (draw_pages) under
     "drawn"; state_snapshot answers it as `progress` while the build runs (completion.render_progress).
     Pages are drawn in parallel (draw_pages, at most `workers` at once, render_workers() by default) into a hidden
@@ -846,6 +872,11 @@ def render_pages(
 def commit_pages(D: BuildDoc, newdir: Path, on_swap: Callable[[], None] | None = None) -> str:
     """Swaps the pointer to the new page directory in one shot (atomically), keeps only current+previous, and writes built_at/head. head is the short hash.
 
+    Any other page directory is deleted unless it is held and unexpired (limn.builds.holds): a held one is slimmed
+    instead (artifacts.slim_pages - its page images go, its PDF, SyncTeX, recorder files and source record stay), so a
+    pick against it still resolves. A slimmed directory is never the current one (the pointer only ever names newdir) nor the
+    previous one (artifacts.previous_pages skips it).
+
     on_swap, when given, is called once, right after the pointer names the new directory and before anything else is
     done (the removal of old directories and the call to git can take seconds): the caller's caches that depend on the
     page on screen are dropped there."""
@@ -853,9 +884,15 @@ def commit_pages(D: BuildDoc, newdir: Path, on_swap: Callable[[], None] | None =
     atomic_write(D.dir / "pages.cur", newdir.name)  # a single atomic swap
     if on_swap is not None:
         on_swap()
-    for d in D.dir.iterdir():  # keep only current and previous
-        if d.is_dir() and PAGES_DIR_RE.fullmatch(d.name) and d.name not in (newdir.name, prev):
-            shutil.rmtree(d, ignore_errors=True)
+    # under the holds lock, so a hold set meanwhile either sees its directory gone or is seen here (holds.retention)
+    with holds.retention(D) as held:
+        for d in D.dir.iterdir():  # keep only current and previous, and slim what is held
+            if d.is_dir() and PAGES_DIR_RE.fullmatch(d.name) and d.name not in (newdir.name, prev):
+                if d.name in held:
+                    with contextlib.suppress(OSError):
+                        build.slim_pages(d)
+                else:
+                    shutil.rmtree(d, ignore_errors=True)
     atomic_write(D.dir / "built_at.txt", datetime.now().astimezone().isoformat(timespec="seconds"))
     head_short = _published_head(D)
     atomic_write(D.dir / "head.txt", head_short)

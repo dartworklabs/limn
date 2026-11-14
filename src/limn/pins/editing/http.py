@@ -12,6 +12,7 @@ from limn.pins.editing.rules import (
     EditRefusal,
     NoteTooLong,
     PinOutsideTree,
+    PinReplayed,
     RangeOutsideFile,
     StaleEdit,
     SuggestBaseChanged,
@@ -69,9 +70,24 @@ class EditingRequests:
 
 
 def add(app: EditingRequests, document: Doc, actor: PostAuthority, body: dict[str, Any]) -> Body:
-    """Parse and create one pin after shared guards and document selection."""
+    """Parse and create one pin after shared guards and document selection - or, for a body with `replay_only: true`,
+    only answer whether its idempotency key is held (replay)."""
+    if body.get("replay_only") is True:
+        return replay(app, document, actor, body)
     request = accepted(editing_input.parse_add(body, app.assignee_people(body), app.document_facts(document)))
     return add_answer(app.pin_editing.add_pin(document, request, actor))
+
+
+def replay(app: EditingRequests, document: Doc, actor: PostAuthority, body: dict[str, Any]) -> Body:
+    """POST /api/pin {idem, replay_only: true}: the pin that already holds the key as {id, replay: true}, or 409
+    idem_unknown when none does. Nothing is created either way and no other field of the body is read - a viewer asks
+    this for a queued pin whose earlier send may have landed, before it looks for the pin's place again, which may be
+    gone by then. 400 bad_idem for a key that is malformed or missing (the question has no meaning without one)."""
+    key = accepted(editing_input.parse_replay_key(body))
+    pid = app.pin_editing.keyed_pin(document, key, actor)
+    if pid is None:
+        raise HTTPError(409, "이 멱등 키(idem)로 만든 핀이 없습니다.", reason="idem_unknown")
+    return {"id": pid, "replay": True}
 
 
 def edit(app: EditingRequests, pid: int, actor: PostAuthority, body: dict[str, Any]) -> Body:
@@ -92,13 +108,16 @@ def edit(app: EditingRequests, pid: int, actor: PostAuthority, body: dict[str, A
     return edit_answer(result, app.public)
 
 
-def add_answer(result: OpenPin | AddRefusal) -> Body:
-    """POST /api/pin: the new pin's id, or the refusal of its suggested edit - 400 for the suggestion's own rules
-    (suggest_refused), 409 suggest_base_changed with `current` when its lines no longer read as its base - or of its
-    verdict (verdict_refused)."""
+def add_answer(result: OpenPin | PinReplayed | AddRefusal) -> Body:
+    """POST /api/pin: the new pin's id - or, when its idempotency key is already held, that pin's id with
+    `replay: true` - or the refusal of its suggested edit - 400 for the suggestion's own rules (suggest_refused), 409
+    suggest_base_changed with `current` when its lines no longer read as its base - or of its verdict
+    (verdict_refused)."""
     match result:
         case OpenPin(core=core):
             return {"id": core.id}
+        case PinReplayed(pid=pid):
+            return {"id": pid, "replay": True}
         case SuggestBaseChanged(current=current):
             raise HTTPError(409, SUGGEST_BASE_CHANGED, reason="suggest_base_changed", current=current)
         case SuggestUnsupported() | SuggestRangeTooLong() | SuggestTextTooLong() | SuggestNoop():

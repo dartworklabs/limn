@@ -31,6 +31,7 @@ PURE_IMPORTS = {
     "limn.pins.suggestion",  # a suggested edit's shape and state; pure, and itself checked below
     "limn.pins.verdict",  # a stored verdict and a pin's whole-page target; pure, and itself checked below
     "limn.pins.pages",  # what a write keeps of a line pin's page fields (ADR-0025 D2); pure, and itself checked below
+    "limn.pins.idem",  # a new pin's idempotency key and its lookup; pure, and itself checked below
     "limn.pins.model",
     "limn.pins.thread",
     "limn.pins.location.position",
@@ -54,6 +55,7 @@ PURE_TEXT_IMPORTS = {
     "typing",
     "re",
     "shlex",
+    "difflib",  # compares two line lists in memory (mapping.carry_range); it opens nothing
     "pathlib",
     "limn.platform.values",
     "limn.platform.text",
@@ -94,6 +96,7 @@ class Purity(unittest.TestCase):
                     "suggestion.py",
                     "verdict.py",
                     "pages.py",
+                    "idem.py",
                 )
             ),
             PINS_DIR.parent / "pins/claims/rules.py",

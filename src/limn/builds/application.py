@@ -115,7 +115,7 @@ def assemble_builds(
     figure_shown: Callable[[], None] = lambda: None,
 ) -> BuildSubsystem:
     """Assemble build reads, commands, routes, and startup without import-time adapters."""
-    from limn.builds.routes import POST_PATH, get, post
+    from limn.builds.routes import HOLD_PATH, POST_PATH, get, post, post_hold
     from limn.web.routes import PostDocRoute, RouteBundle
 
     commands = BuildCommands(requests or BuildRequests(settings, pull, docs, now, describe, figure_shown))
@@ -125,6 +125,12 @@ def assemble_builds(
             PostDocRoute(
                 POST_PATH,
                 lambda request: post(request.query, request.body, request.doc, commands._requests, request.actor),
+            ),
+            PostDocRoute(
+                HOLD_PATH,
+                lambda request: post_hold(
+                    request.query, request.body, request.doc, commands._requests, request.actor, header_text
+                ),
             ),
         ),
     )

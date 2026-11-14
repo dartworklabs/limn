@@ -25,6 +25,7 @@ PURE_IMPORTS = {
     "collections.abc",
     "typing",
     "dataclasses",
+    "difflib",  # compares two line lists in memory (carry_range); it opens nothing
     "limn.platform.values",
     "limn.platform.text",
 }

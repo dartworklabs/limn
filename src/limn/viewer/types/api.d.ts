@@ -306,6 +306,10 @@ interface Meta {
   build_seq: number;
   last_build: LastBuild;
   build: BuildProgress;
+  // The server knows a write by its idempotency key (POST /api/pin idem); absent on an older Limn.
+  pin_idem?: boolean;
+  // The server counts a build hold per holder (POST /api/hold holder); absent on an older Limn.
+  hold_holder?: boolean;
   ev_seq: number;
   n_open?: number;
   n_done?: number;

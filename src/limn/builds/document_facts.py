@@ -77,8 +77,9 @@ class DocumentFacts:
         return tex_lines(path)
 
     def page_count(self, name: str | None) -> int:
-        """Pages of build `name` of D, or of the build on screen when name is None or gone (limn.builds.artifacts.pages_dir_for)."""
-        return len(build.page_list(build.pages_dir_for(self._doc, name), self._dpi))
+        """Pages of build `name` of D, or of the build on screen when name is None or gone (limn.builds.artifacts.pages_dir_for).
+        A slimmed held build counts the pages it recorded (limn.builds.artifacts.page_sizes)."""
+        return len(build.page_sizes(build.pages_dir_for(self._doc, name), self._dpi))
 
     def current_build(self) -> str:
         """The name of D's page directory on screen."""
@@ -90,8 +91,9 @@ class DocumentFacts:
 
     def pick_pages(self, name: str | None) -> tuple[Path, list[tuple[float, float]]] | None:
         """(page directory, [(width, height) in points]) of build `name` of D - or the one on screen for None - or None
-        when name is a page directory of D that is gone."""
+        when name is a page directory of D that is gone. A slimmed held build answers the sizes it recorded
+        (limn.builds.artifacts.page_sizes): its PDF and SyncTeX are still there."""
         if name is not None and not (self._doc.dir / name).is_dir():
             return None
         pdir = build.pages_dir_for(self._doc, name) if name is not None else build.cur_pages(self._doc)
-        return pdir, [(p["pt_w"], p["pt_h"]) for p in build.page_list(pdir, self._dpi)]
+        return pdir, [(p["pt_w"], p["pt_h"]) for p in build.page_sizes(pdir, self._dpi)]

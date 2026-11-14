@@ -75,7 +75,9 @@ def meta(
 ) -> dict[str, Any]:
     """GET /api/meta for document D without the pin counts - exactly the light poll's body: its pages (sized at
     settings.dpi), build markers, staleness (only for a document built from source), the build in progress and the
-    last finished one, the instance settings, who is asking (actor) and the --git-pull status (sync). With several
+    last finished one, the instance settings, who is asking (actor), the --git-pull status (sync) and the capability
+    flags pin_idem (POST /api/pin takes an idempotency key) and hold_holder (POST /api/hold counts a hold per holder).
+    With several
     documents, each one's summary (docs) and a signature of their manuscript mtimes (src_sig). now is the clock the
     manuscript age is measured against."""
 
@@ -111,6 +113,12 @@ def meta(
         "build_seq": facts["build_seq"],
         "last_build": facts["last_build"],
         "build": facts["build"],
+        # POST /api/pin answers a repeated idempotency key with the pin that holds it (docs/handbook/api.md): a viewer
+        # relies on the key only when this is true, and an older server, which lacks the field, ignores the key.
+        "pin_idem": True,
+        # POST /api/hold counts a hold per holder (docs/handbook/api.md): a viewer releases its own share of an old
+        # build only when this is true - on an older server, which lacks the field, a release lets go of every device's.
+        "hold_holder": True,
     }
     if multi:  # staleness/build of other documents - the viewer shows a dot/progress marker on their tabs
         briefs = [doc_brief(d, settings.state, builds) for d in docs]

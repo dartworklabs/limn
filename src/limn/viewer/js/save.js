@@ -89,7 +89,27 @@ async function savePin(verdict){
   // up yet is not sent. A pin created by the viewer always records an assignee (otherwise a legacy pin's inference applies).
   const out=assignOutcome(composeAsk(SAVE_MODE.NEW)); body.kind_req=out.kind; body.assignee=out.assignee;
   const mh=mentionHints($('#note')); if(mh.length)body.mentions=mh;
+  // Cut off, or a selection whose lines were never found (offlinePick): the pin goes into this browser's queue and is
+  // written when the connection is back (offline.js §Sending the queue). The composer closes as a save does, so the next
+  // pin can be drawn straight away. A verdict is not kept this way - it is a word of the document's that only the server's
+  // found place can carry - so it says so and keeps the selection for a retry.
+  // The save stays marked as going until the queue has answered: let go before that, a second press while the store
+  // was still opening kept the same selection twice, under two keys, and reconnecting wrote two pins.
+  if(/** @type {any} */(d).offline||offlineNow()){
+    const done=()=>{COMPOSE.saving=false; syncComposeSaveButtons();};
+    if(verdict){done(); bannerNote(NOTICE_HOST.COMPOSER,tr('연결이 끊겨 판정은 쌓아 둘 수 없습니다 — 연결되면 판정 버튼을 다시 누릅니다'),NOTICE_KIND.ERR,null,{save:true,source:'POST /api/pin'}); return;}
+    // A suggested edit is checked against the source when it is written, and the source may not be the one it was
+    // written against by then. It is not kept either: the note alone can be, with the switch off.
+    if(!isRegion(d)&&suggestForSave(SG,suggestOff(d,META?META.kind:undefined))){done();
+      bannerNote(NOTICE_HOST.COMPOSER,tr('연결이 끊겨 제안 수정은 쌓아 둘 수 없습니다 — [제안 수정]을 끄면 메모만 쌓아 둡니다'),NOTICE_KIND.ERR,null,{save:true,source:'POST /api/pin'}); return;}
+    let kept=false; try{kept=await offlineQueueSave(d,note,out,mh);}finally{done();}
+    if(kept){COMPOSE.box=null; cancelSelection(true); if(box)box.remove(); syncDraft(); focusClosed();}
+    return;}
   const sg=isRegion(d)||verdict?null:suggestForSave(SG,suggestOff(d,META?META.kind:undefined)); if(sg)body.suggest=sg;
+  // A plain pin - no verdict, no suggested edit - is one the queue can keep. It goes with a key where the server knows
+  // a write by its key, so that a save left without an answer can be kept and asked about by that key later instead
+  // of failing here (below).
+  const plain=!verdict&&!sg; if(plain&&OFF.idem)body.idem=offlineKey();
   if(verdict){body.verdict=verdict; body.kind_req=KIND_REQ.FIX;
     // On a figure document the verdict is the figure's, whatever element the selection names (verdict.js figureVerdictBody).
     const fb=figureVerdictBody(d); if(fb)body=Object.assign(fb,{note,doc:body.doc,kind_req:KIND_REQ.FIX,assignee:body.assignee},mh.length?{mentions:mh}:{},{verdict});}
@@ -98,12 +118,30 @@ async function savePin(verdict){
   const question=out.kind===KIND_REQ.QUESTION;
   const top=pvTopId();   // a save whose answer is lost is looked for above it before it is called a failure
   try{let status=0,data=/** @type {any} */(null);
-    try{({status,data}=await api('/api/pin',{method:'POST',body,what:verdict?'판정 저장':'핀 저장',where:NOTICE_HOST.COMPOSER,save:true,expect:sg?[409]:[]}));}
+    const ask={method:'POST',body,what:verdict?'판정 저장':'핀 저장',where:NOTICE_HOST.COMPOSER,save:true,expect:sg?[409]:[],wait:API_WAIT.SAVE,quietUnreached:plain};
+    try{({status,data}=await api('/api/pin',ask));}
     catch(e){const x=/** @type {ApiError} */(e); if(x&&x.status)throw e;
       // No answer: the pin may be on the server - this person's, on this document and place, this note and verdict, newer than
       // any before the press. Then it is a save (its failure banner goes below), not a failure whose [다시 저장] would make it twice.
       await loadPins(); const got=OPEN_ALL.find(p=>p.id>top&&isMe(p.author)&&pdoc(p)===(body.doc||DEFAULT_DOC)&&samePlace(p,d)&&String(p.note||'')===note&&(verdictOf(p)||'')===(verdict||''));
-      if(!got)throw e; status=200; data={id:got.id}; sourceOk('POST /api/pin');}
+      if(!got){
+        // Not there, or the list could not be read either. A save that waited out its time (ended at API_WAIT.SAVE,
+        // an AbortError) met a server that does not answer: the connection went before the poll could say so. A
+        // plain pin is then kept in the queue as one whose write was tried - with the key it went with and the pins
+        // that stood before it - so the send asks whether it arrived before writing it (offline.js §Sending the
+        // queue), and the composer closes as a save does. A save the network refused at once is the failure it
+        // always was, said above the save row with [다시 저장]; so is a pin the queue will not take.
+        if(plain&&x&&x.name==='AbortError'&&await offlineQueueSave(d,note,out,mh,{idem:/** @type {string|undefined} */(body.idem),top})){
+          const failed=BANNERS.get(NOTICE_HOST.COMPOSER); if(failed&&failed.save)endNotice(failed,false);
+          const cleared=composeOwns(d,box,visit,fields),restored=restoredDraftOwns(draft);
+          if(cleared){COMPOSE.box=null; cancelSelection(true); if(box)box.remove(); syncDraft();}
+          else if(restored){cancelSelection(true); syncDraft();}
+          else clearSavedDraft(draft);
+          if(cleared||restored)focusClosed();
+          return;}
+        if(plain&&!BANNERS.get(NOTICE_HOST.COMPOSER))apiFailed({...ask,source:'POST /api/pin'},tr('서버에 닿지 않습니다'),true);   // the queue said why it would not take it, if it did
+        throw e;}
+      status=200; data={id:got.id}; sourceOk('POST /api/pin');}
     if(status===409){suggestSaveRefused(d,data); return;}
     const id=data.id,failed=BANNERS.get(NOTICE_HOST.COMPOSER);
     if(failed&&failed.save)endNotice(failed,false);   // this save went through: its earlier failure is over

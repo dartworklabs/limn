@@ -5,7 +5,7 @@
 // status chips (#status-wide). The line is the compact face of those chips: whenever one of them changes (a MutationObserver
 // on #bar2) it is drawn again from the state they come from. It also carries the messages of notices.js (LINE): background
 // events, first-visit hints and an undo whose place has left the screen - the only items the desktop's line shows besides
-// a rebuild's 'no changes', since its chips say the rest (statusShown).
+// a rebuild's 'no changes', a new Limn and the pins kept while cut off, since its chips say the rest (statusShown).
 let STATUS_SYNC=/** @type {SyncStatus|null} */(null),STATUS_SIG='';   // the last meta `sync`; the drawn item's kind, action and count
 let STATUS_TOP=0;   // the number of the message the line shows (0: none, or another item): lineNote reads out one it does not
 const STATUS_TRANSIENT_MS=6000;   // a passing answer (no changes) stays on the line as long as an undo's window (NOTICE_MS)
@@ -33,6 +33,7 @@ function statusList(s){const out=[],b=s.build,running=!!b&&b.state===BUILD_STATE
   if(e&&e.state===BUILD_STATE.FAIL)out.push({kind:STATUS_KIND.FAILED,act:'build-err-reopen'});
   else if(e&&e.state===BUILD_STATE.OK_ERRORS)out.push({kind:STATUS_KIND.ERRORS,n:(e.errors||[]).length,act:'build-err-reopen'});
   if(s.offline)out.push({kind:STATUS_KIND.OFFLINE,act:null});
+  if(s.queued)out.push({kind:STATUS_KIND.QUEUED,n:s.queued,held:s.held||0,act:s.offline?null:'offline-flush'});
   if(s.outdated)out.push({kind:STATUS_KIND.OUTDATED,version:s.outdated,act:'reload'});
   notes.filter(n=>!alert(n)).forEach(n=>out.push({kind:STATUS_KIND.NOTICE,notice:n,act:'notice'}));
   if(running)out.push({kind:{render:STATUS_KIND.RENDERING}[b.phase]||STATUS_KIND.BUILDING,phase:b.phase||'',el:Math.round(b.elapsed_s||0),
@@ -43,9 +44,11 @@ function statusList(s){const out=[],b=s.build,running=!!b&&b.state===BUILD_STATE
   if(sy===SYNC_STATE.CHECKING||sy===SYNC_STATE.DEFERRED||sy===SYNC_STATE.UPDATING||sy===SYNC_STATE.UPDATED)out.push({kind:STATUS_KIND.SYNC,state:sy,act:null});
   if(s.png)out.push({kind:STATUS_KIND.PNG,act:null});
   return out;}
-// The items a band's line shows of statusList's: all of them on the compact bands; on the desktop (wide) only the messages
-// and a rebuild's 'no changes' - its status chips (#bar2) already show the build, the connection, sync, staleness and PNG. Pure.
-function statusShown(list,wide){return wide?list.filter(i=>i.kind===STATUS_KIND.NOTICE||i.kind===STATUS_KIND.UNCHANGED||i.kind===STATUS_KIND.OUTDATED):list;}
+// The items a band's line shows of statusList's: all of them on the compact bands; on the desktop (wide) only the messages,
+// a rebuild's 'no changes', a new Limn and the pins kept while cut off - its status chips (#bar2) already show the build,
+// the connection, sync, staleness and PNG, but no chip counts the kept pins, so without them the desktop never said there
+// were any. Pure.
+function statusShown(list,wide){return wide?list.filter(i=>i.kind===STATUS_KIND.NOTICE||i.kind===STATUS_KIND.UNCHANGED||i.kind===STATUS_KIND.OUTDATED||i.kind===STATUS_KIND.QUEUED):list;}
 
 // A filled template's text as [label, tail], cut at the template's first placeholder: the words before it (without the
 // separator) are the label, the rest - the numbers - the tail. tl('쪽 {done}/{total}',{done:3,total:9}) is ['쪽', ' 3/9'].
@@ -60,6 +63,8 @@ function statusText(item,fit){const long=fit!=='short';
     case STATUS_KIND.FAILED:return [long?tr('빌드 실패 · 이전 PDF를 보는 중'):tr('빌드 실패'),''];
     case STATUS_KIND.ERRORS:return [long?tl('LaTeX 오류 {n}건 · 새 PDF',{n:item.n}):tl('LaTeX 오류 {n}',{n:item.n}),''];
     case STATUS_KIND.OFFLINE:return [long?tr('연결 끊김 · 다시 잇는 중'):tr('연결 끊김'),''];
+    case STATUS_KIND.QUEUED:return [item.held?tl('오프라인 핀 {n}개 · {h}개는 확인이 필요합니다',{n:item.n,h:item.held})
+      :long?tl('오프라인 핀 {n}개 · 연결되면 반영합니다',{n:item.n}):tl('오프라인 핀 {n}',{n:item.n}),''];
     case STATUS_KIND.OUTDATED:return [long?tl('Limn {v}(으)로 바뀌었습니다 · 새로 고치면 새 화면을 씁니다',{v:item.version}):tr('Limn 업데이트됨'),''];
     case STATUS_KIND.RENDERING:if(item.progress){const pr=item.progress;
         return long?statusSplit('쪽 그리는 중 · {done}/{total}쪽',pr):statusSplit('쪽 {done}/{total}',pr);}
@@ -83,6 +88,7 @@ function statusIcon(item){const K=STATUS_KIND;
   if(item.kind===K.NOTICE)return html`<span class="st-ic nk-${item.notice.kind}">${noticeIcon(item.notice.kind)}</span>`;
   if(item.kind===K.FAILED||item.kind===K.ERRORS||item.kind===K.SYNC_BLOCKED)return html`<span class="st-ic warn">${ic('triangle-alert')}</span>`;
   if(item.kind===K.OFFLINE)return html`<span class="st-ic">${ic('wifi-off')}</span>`;
+  if(item.kind===K.QUEUED)return html`<span class="st-ic${item.held?' warn':''}">${ic(item.held?'triangle-alert':'clock')}</span>`;
   if(item.kind===K.OUTDATED)return html`<span class="st-ic warn">${ic('refresh-cw')}</span>`;
   if(item.kind===K.STALE)return html`<span class="st-ic"><i class="st-stale"></i></span>`;
   if(item.kind===K.PNG)return html`<span class="st-ic">${ic('image')}</span>`;
@@ -94,14 +100,15 @@ function statusIcon(item){const K=STATUS_KIND;
 // [x] (noticeButtons). The label is a span (.lbl) so CSS can trim it to its cap height.
 function statusAct(item){if(!item.act)return html``; if(item.kind===STATUS_KIND.NOTICE)return noticeButtons(item.notice,true);
   const force=item.act==='rebuild-force',why=item.act==='status-why',reload=item.act==='reload';
-  const name=item.act==='rebuild'?tr('재빌드'):why?tr('이유'):force?tr(T.buildanyway):reload?tr('새로 고침'):tr('보기');
+  const flush=item.act==='offline-flush';
+  const name=item.act==='rebuild'?tr('재빌드'):why?tr('이유'):force?tr(T.buildanyway):reload?tr('새로 고침'):flush?tr('지금 반영'):tr('보기');
   const tip=force?html` data-tip="${T.buildanywaytip}"`:why?html` data-tip="${syncWhyText(STATUS_SYNC)}"`:reload?html` data-tip="${T.reloadtip}"`:'';
   return html`<button class="btn-sm st-act ${item.act==='rebuild'||reload?'btn-default':'btn-secondary'}" data-act="${item.act}"${tip}><span class="lbl">${name}</span></button>`;}
 
 // What the status line is drawn from, gathered from the shell: its messages (LINE), the running build (BUILD.cur) and the last
 // failed one, the light poll's failures, the last meta `sync`, and the chips that already say stale and PNG - plus whether
 // this document and person may rebuild.
-function statusInput(){return {notices:LINE,build:BUILD.cur,buildErr:BUILD.error,offline:POLL_FAILS>=2,outdated:versionOutdated(),sync:STATUS_SYNC,stale:!$('#meta-stale').hidden,
+function statusInput(){return {notices:LINE,build:BUILD.cur,buildErr:BUILD.error,offline:POLL_FAILS>=2,queued:OFF.n,held:OFF.held,outdated:versionOutdated(),sync:STATUS_SYNC,stale:!$('#meta-stale').hidden,
   png:!$('#vec-chip').hidden,canRebuild:!!META&&buildsFromSource(META.kind)&&!isViewer(),unchanged:BUILD.unchanged};}
 
 // The answer to this tab's rebuild that kept the pages (0.4.5: ok, unchanged, the same seq), with [그래도 빌드] for a cold

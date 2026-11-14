@@ -5,9 +5,10 @@ import threading
 import time
 import traceback
 from collections.abc import Callable, Sequence
+from datetime import datetime
 from typing import Any
 
-from limn.builds import artifacts as build, engine, figure, run
+from limn.builds import artifacts as build, engine, figure, holds, run
 from limn.builds.artifacts import (
     BuildBusy,
     BuildConfig,
@@ -19,6 +20,7 @@ from limn.builds.artifacts import (
     ViewOnlyNoRebuild,
 )
 from limn.builds.figure import FigureImport
+from limn.platform.effects import changed
 from limn.runtime.config import RunConfig
 from limn.runtime.documents import Doc, document_authority_target
 from limn.security.access import AuthorityScope, PostAuthority, require_authority
@@ -125,6 +127,19 @@ class BuildRequests:
         """Refuse manual rebuild of a view-only document; otherwise start in the background (force as in rebuild)."""
         require_authority(authority, self.authority_scope, "rebuild", document_authority_target(doc))
         return run.request_rebuild(doc, lambda d: self.build_async(d, force))
+
+    def hold(
+        self, doc: Doc, authority: PostAuthority, name: str, days: float, holder: str = holds.ANONYMOUS
+    ) -> datetime | None:
+        """Hold build `name` of doc for `days` days on behalf of `holder` (0 releases that holder's share) and answer
+        until when the build is held, None once no share is left (POST /api/hold, limn.builds.holds.set_hold). The
+        caller has checked the name, the length and the holder; holds.HoldBuildGone when the build directory is not
+        there under the holds lock. The hold records the requester's login, and the request counts as a real change."""
+        require_authority(authority, self.authority_scope, "hold", document_authority_target(doc))
+        by = authority.get("login")
+        until = holds.set_hold(doc, name, days, by if isinstance(by, str) else "", holder=holder)
+        changed()  # a real change: the handler records the requester, as after a rebuild
+        return until
 
     def init_doc(self, doc: Doc, no_build: bool, wait: bool) -> FinishedBuild | BuildStarted | BuildBusy | BuildSkipped:
         """Restore build history and start a needed build, synchronously only when requested. A document with an

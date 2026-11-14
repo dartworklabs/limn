@@ -8,7 +8,7 @@ from typing import Any, Protocol, TypeAlias
 from limn.pins.editing.values import PDF_QUOTE_MAX
 from limn.pins.element import PinElement
 from limn.pins.location import figure, source
-from limn.pins.location.mapping import Traced, norm, snippet, trace_range, truncate_quote
+from limn.pins.location.mapping import Traced, carry_range, norm, snippet, trace_range, truncate_quote
 from limn.pins.location.source import TokenCache
 from limn.pins.needs import BuildAnswers, BuildOnScreen
 from limn.platform.files import ManuscriptFile, file_in_tree, tex_lines
@@ -67,8 +67,10 @@ class Picked:
     """A selection traced to lines of a manuscript file: the file (inside the tree), the page, the range the paths
     agreed on (limn.pins.location.mapping.Traced), the file's line count and the chosen range's text, the viewer's frac as sent, the
     region's printed text as a short quote, the stored open pins that range overlaps, and the page directory it was
-    traced in. stale: the manuscript is newer than that build's PDF (by more than 2 s); building: a LaTeX build is
-    running now. The location feature's HTTP answer turns this into the pick body."""
+    traced in. stale: the manuscript is newer than that build's PDF (by more than 2 s) and the answer is not SyncTeX's
+    range read against that build's own lines and found standing whole in the file now - the one case where a rebuild
+    and a second pick would answer the same lines; building: a LaTeX build is running now. The location feature's HTTP
+    answer turns this into the pick body."""
 
     file: Path
     page: int
@@ -151,6 +153,12 @@ def pick(D: Doc, request: Selection, ctx: PickContext) -> Picked | figure.Picked
     reads the file and weighs the region's tokens, then lets limn.pins.location.mapping.trace_range choose between the two paths.
     The build facts (a manuscript newer than the PDF, a running LaTeX build) and the overlaps are read after that.
 
+    SyncTeX's lines are numbers in the file as that build read it. When the build kept those lines (its source record,
+    BuildOnScreen.built_lines), the range is first carried over to the file as it is now (mapping.carry_range), so an
+    edit made since the build does not put the answer on whatever moved into those numbers. A range whose text is gone
+    leaves SyncTeX without an answer: the text path may still find the words, and NoSourceHere is the answer when it
+    does not. A build without the record (made by an older Limn) is answered with SyncTeX's numbers as they are.
+
     The page directory is the build on screen at drag time (pdf_build, META.pages_build). A drag made after a rebuild
     finishes but before the viewer switches pages uses coordinates from the old layout, so it's traced back
     against that build's PDF and returned as pdf_build in the response - the viewer carries that value
@@ -194,8 +202,16 @@ def pick(D: Doc, request: Selection, ctx: PickContext) -> Picked | figure.Picked
     lines = tex_lines(found)
     if not lines:
         return SourceUnreadable(found.path)
+    # SyncTeX numbers the lines that build read; everything below works on the file as it is now.
+    synctex = (sy[1], sy[2]) if sy else None
+    stands = False
+    built = publication.built_lines(found.path) if synctex is not None else None
+    if synctex is not None and built is not None:
+        carried = carry_range(built, lines, synctex[0], synctex[1])
+        synctex = None if carried is None else (carried.lo, carried.hi)
+        stands = carried is not None and carried.whole
     tw = ctx.tokens.weights(rtext, lines, source.file_key(found))
-    traced = trace_range(tw, lines, (sy[1], sy[2]) if sy else None, ctx.envs)
+    traced = trace_range(tw, lines, synctex, ctx.envs)
     if traced is None:
         return NoSourceHere()
 
@@ -209,7 +225,7 @@ def pick(D: Doc, request: Selection, ctx: PickContext) -> Picked | figure.Picked
         quote=truncate_quote(norm(rtext), PDF_QUOTE_MAX),
         overlaps=ctx.overlaps(str(found), traced.lo, traced.hi),
         pdf_build=pdir.name,
-        stale=publication.stale,
+        stale=publication.stale and not (stands and traced.via == "synctex"),
         building=publication.latex_running,
     )
 

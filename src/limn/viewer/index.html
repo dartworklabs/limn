@@ -81,6 +81,10 @@ document.documentElement.setAttribute('lang',window.LIMN_LANG);
   <div id="list">
     <div id="empty" class="hint" hidden><span class="t-mouse">PDF 위에서 <b>드래그</b>해 영역을 고르면</span><span class="t-touch">PDF를 <b>길게 누르면</b> 그 문단을, <b>[선택]</b>을 켜고 끌면 그 영역을 고르고</span> 그 자리의 <b>원문 줄 번호</b>를 찾아 줍니다.<br>
       범위를 고르고 메모를 달아 핀으로 저장하면, 에이전트가 pins.md 한 장만 읽고 작업합니다.<br><span class="t-mouse"><kbd>?</kbd> 를 누르면 도움말.</span><span class="t-touch">도움말은 [더보기]에 있습니다.</span></div>
+    <section class="lsec" id="sec-queue" aria-labelledby="queue-h" hidden>
+      <div class="sec-head"><button class="sec-tg" id="queue-toggle" aria-expanded="true" aria-controls="queue-body" data-tip="쌓인 핀을 접고 폅니다. 이 브라우저에만 있고 아직 서버에 없는 핀입니다">{{ic:chevron-down}}<span class="sec-name" id="queue-h">쌓인 핀 <span class="badge badge-secondary sec-n">0</span></span></button></div>
+      <div id="queue-body"><p id="queue-say">연결이 없을 때 찍은 핀입니다 — 연결되면 쌓인 순서대로 반영합니다</p><div id="queue-rows"></div></div>
+    </section>
     <section class="lsec" id="sec-open" aria-labelledby="list-h">
       <div class="sec-head"><button class="sec-tg" id="open-toggle" data-act="sec-toggle" data-sec="open" aria-expanded="true" aria-controls="open-body" data-tip="열린 핀을 접고 폅니다. 접어 둔 동안 새로 온 핀 수가 머리에 붙습니다">{{ic:chevron-down}}<span class="sec-name" id="list-h">열린 핀 <span class="badge badge-secondary sec-n">0</span></span></button><span class="sp"></span><button id="btn-reload" class="sec btn-sm" data-act="reload" aria-label="핀 다시 읽기" data-tip="핀 파일을 다시 읽어 목록을 맞춥니다. 에이전트가 완료한 핀이 빠지고, 원고 수정으로 밀린 줄 번호가 다시 맞춰집니다. PDF는 바뀌지 않습니다.">다시 읽기</button><button class="btn-sm tg" id="mention-filter" data-act="mention-filter" aria-pressed="false" hidden data-tip="나를 @태그한 열린·검토 대기 핀만 봅니다(모든 문서). 다시 누르면 전부 봅니다"></button><button class="btn-sm tg" id="all-docs" data-act="all-docs" aria-pressed="false" hidden data-tip="다른 문서의 열린 핀도 함께 봅니다. 카드에 문서 이름이 붙고, #번호·[보기]를 누르면 그 문서로 바꿔 그 자리로 갑니다">모든 문서</button></div>
       <div id="list-order" class="seg" role="radiogroup" aria-label="목록 순서" hidden><button class="on" role="radio" aria-checked="true" data-act="list-order" data-order="new">최신순</button><button role="radio" aria-checked="false" data-act="list-order" data-order="page">위치순</button><button role="radio" aria-checked="false" data-act="list-order" data-order="id">번호순</button></div>
@@ -126,6 +130,7 @@ document.documentElement.setAttribute('lang',window.LIMN_LANG);
     <button id="m-trash" data-act="trash-open" data-close="1" data-tip="삭제한 핀은 30일 동안 휴지통에 있습니다. 같은 번호로 되살릴 수 있습니다">{{ic:trash-2}}<span class="lbl">휴지통</span><span class="m-n" id="m-trash-n">0</span>{{ic:chevron-right}}</button>
     <button id="m-rebuild" data-act="rebuild" data-close="1">{{ic:refresh-cw}}<span class="lbl">PDF 재빌드</span><span class="m-tail" hidden>빌드 중</span></button>
     <button id="m-download" data-act="pdf-download" data-close="1" data-tip="지금 화면의 빌드를 PDF 파일로 내려받습니다. 파일 이름은 문서 이름입니다">{{ic:download}}<span class="lbl">PDF 내려받기</span></button>
+    <button id="m-offline" data-act="offline-prepare" data-close="1" data-tip="이 인스턴스의 문서를 모두 연결 없이 읽을 수 있게 받아 두고, 지금 PDF의 자리를 7일간 지켜 둡니다. 한 번 누르면 연결된 동안 새 판을 스스로 받아 둡니다. 끊긴 동안 찍은 핀은 쌓였다가 연결되면 반영됩니다">{{ic:wifi-off}}<span class="lbl">오프라인으로 받기</span><span class="m-n" id="m-offline-n" hidden></span></button>
   </div>
   <div class="more-foot" id="more-foot"><span class="more-brand">__LIMN_WORDMARK__<span class="m-ver">v__LIMN_VERSION__</span></span><span class="sp"></span><button class="btn-ghost" data-act="help" data-tip="사용법·단축키·용어 설명, pins.md 위치 (?)">도움말{{ic:chevron-right}}</button></div>
 </dialog>

@@ -2,7 +2,55 @@
 
 ## Unreleased
 
+### Added
+
+- **A document can be read, and pinned, while the server is out of reach (ADR-0040).** [Keep offline] in the [⋯] menu
+  keeps every document of the instance on the device: the service worker keeps a copy of same-origin `GET` answers
+  and answers from it only when the network fails (never `/api/*`), and the reads the page boots from are stored in
+  the browser. A tab opened while cut off shows the kept build and says when it was read.
+- **Pins made while cut off wait in the browser and are written on reconnecting.** A queued pin holds the drag (or,
+  in a Markdown or text document, the line and its words), not a line number; the server finds the place in the build
+  the drag was made on. A pin whose place cannot be found is kept with its reason, not dropped. Queued pins show on
+  the page as dotted marks and in a `Kept pins` section of the panel, with [Pin again] and [Discard] (undoable).
+  Done, reply, edit, verdict and suggested edit are not queued.
+- **A kept instance follows new builds by itself.** After one press the row reads `Kept`; while connected, a new build
+  is fetched whole and held before the old copies are dropped, and a build a queued pin points at is left alone.
+- **The server holds a build's reverse-mapping material on request.** `POST /api/hold {build, days?, holder?}` records
+  it in the document's `holds.json` (7 days at most, 8 builds a document, 16 holders a build); a held page folder is
+  slimmed instead of removed (PDF, SyncTeX and records stay, page images go). A hold is counted per holder, so one
+  device letting go leaves another device's queue its build.
+- **The agent contract gains two request fields, one path and two meta flags; nothing is removed or renamed.**
+  `POST /api/pin` takes an optional `idem` key (a repeat answers the first pin's id with `replay: true` and writes
+  nothing) and `{idem, replay_only: true}` to ask only whether that key's pin exists (`409 idem_unknown` if not);
+  `POST /api/hold` is new; `GET /api/meta` says `pin_idem: true` and `hold_holder: true`. `pins.md` is unchanged and
+  does not carry the key.
+
 ### Fixed
+
+- **A pick on a build whose source was edited since lands on the text that was dragged.** SyncTeX of a build numbers
+  the lines of the source that build read; used on the manuscript as it is now, a pin queued offline (or a drag on a
+  PDF older than the manuscript) was written as many lines off as had been added above it - five lines added above a
+  paragraph put its pin on the two paragraphs before it, with only the `rebuild and pick again` warning that a queued
+  pin cannot act on. A LaTeX build now keeps the lines of the files it read in its page folder (`source.json`, kept
+  when a held folder is slimmed), and `POST /api/pick` carries SyncTeX's range over a line diff to where those lines
+  stand now. Text that is gone is answered by the words of the region or refused (`no_source_here`), never at the old
+  numbers. The stale-PDF warning is left out when the carried range stands whole; a build made before this keeps
+  today's behaviour.
+- **A server that does not answer is a server that is cut off.** On a tailnet with no internet behind it (a flight) a
+  request is not refused: it waits, for a minute and more. Everything that told "cut off" from "connected" hung on a
+  request failing, so the light poll counted nothing, a drag's composer stayed busy, a save never ended and no pin
+  reached the queue. The requests that decide it now wait only so long (the light poll, a document read with a
+  stored answer and a drag's pick 8s, a new pin's save 10s) and then count as unreached; after one unanswered
+  request a drag opens at once, without asking. A save sent while the viewer thought it was connected and left
+  without an answer for that long is kept in the queue under its key instead of failing. The service worker answers from its copy
+  when the network has not answered a request it has a copy of in 4s, or an answer on its way stops for 4s, so a tab opened again during a flight opens in
+  seconds, not minutes.
+- **Four ways a kept pin or a kept build could go wrong.** A file the cache refused to store is reported as not kept
+  (it was counted as kept, and a build with pages missing was recorded as whole). A write to the queue answers once
+  its transaction has committed, not when its request succeeded. [Save] pressed twice while cut off keeps one pin.
+  A kept pin on a figure document is written with its element, as an online save is.
+- **A drag made while cut off keeps its selection.** The composer's head read `null` for the file and a
+  "location failed" banner came with it; it now names the page and shows an `Offline` badge.
 
 - **PageUp and PageDown in a reason field being saved move no page (#481).** Chrome 157 moves the caret of a
   read-only field a page, as in a writable one, and lines it up with the scrollers outside: in the middle of a long

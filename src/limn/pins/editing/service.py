@@ -19,10 +19,10 @@ from limn.pins.editing.rules import (
     LinePlace,
     Located,
     PinEdited,
+    PinReplayed,
     RegionPlace,
     SuggestFacts,
     VerdictFacts,
-    VerdictRefusal,
     decide_edit,
     decide_new_suggestion,
     decide_new_verdict,
@@ -32,9 +32,11 @@ from limn.pins.editing.rules import (
     new_region_pin,
 )
 from limn.pins.editing.values import ASSIGNEE_AGENT, NOTE_MAX
+from limn.pins.idem import keyed_pin
 from limn.pins.location.lookup import PinLocation
 from limn.pins.location.mapping import anchor_of, comment_marker
 from limn.pins.model import DonePin, OpenPin, Pin, PinNotFound, Record, Region, ReviewPin
+from limn.pins.retention import unexpired
 from limn.pins.store import pin_index
 from limn.pins.suggestion import Suggestion
 from limn.pins.verdict import verdict_of, whole_figure
@@ -48,7 +50,7 @@ def located(loc: PinLocation | None) -> Located | None:
     return None if loc is None else Located(str(loc.path), loc.rel)
 
 
-def add_pin(ctx: PinContext, D: Doc, request: AddRequest, actor: PostAuthority) -> OpenPin | AddRefusal:
+def add_pin(ctx: PinContext, D: Doc, request: AddRequest, actor: PostAuthority) -> OpenPin | PinReplayed | AddRefusal:
     """Saves a new pin in document D from a parsed POST /api/pin body (limn.pins.editing.input.parse_add) -> the new open pin. A
     LaTeX document gets a line pin with its anchor (which skips the comment lines of the file's kind,
     comment_marker), the author and - since 0.3.2 (ADR-0006) - file_rel next to the absolute file; a view-only
@@ -69,27 +71,40 @@ def add_pin(ctx: PinContext, D: Doc, request: AddRequest, actor: PostAuthority) 
     keeps a word file or map copy that stalls from holding up every other pin operation. Its suggestion, if it sent
     one, is never decided - the verdict decision refuses every such request - so the verdict's refusals come in their
     own order. A refusal writes nothing of its own (a re-sync of the stored pins may still be written, as for any
-    transaction). A failed checked manuscript read propagates before any anchor or pin is saved."""
+    transaction). A failed checked manuscript read propagates before any anchor or pin is saved.
+
+    A request with an idempotency key (request.idem, limn.pins.idem) first looks, under the pin lock it then keeps
+    through the transaction that would create the pin, for a pin of this instance that already holds the key - a live
+    pin of any state or document, as stored, or a Trash entry still restorable. If one does, the result is PinReplayed
+    with its id and no transaction runs: nothing is decided or written - no id, record, re-sync, notice, pins.md or
+    pins_rev change - whatever its body says. Otherwise its suggestion is decided inside the transaction, against the
+    snapshot of lines read before the lock; a refusal there writes nothing of its own (a re-sync may still be written,
+    as for a verdict's refusal). A request without a key takes exactly the path it always has."""
     require_authority(actor, ctx.authority_scope, "add", document_authority_target(D))
     place = request.place
     # Manuscript text is read before taking the pin lock, as it was for line pins before this shared transaction.
     location = ctx.locate({"file": place.file}) if isinstance(place, LinePlace) else None
     lines, mtime = location.source.snapshot_checked() if location is not None else ([], 0.0)
-    if request.suggest is not None and request.verdict is None:
-        decided = decide_new_suggestion(request.suggest, place, D.takes_suggestions, lines)
-        if not isinstance(decided, Suggestion):
-            return decided
+    suggests = request.suggest is not None and request.verdict is None
+    if suggests and request.idem is None:
+        refused = _suggestion_refused(request, D, lines)
+        if refused is not None:
+            return refused
     author = actor.principal.authors_verdicts()
     # A verdict's facts are read before taking the pin lock, so a word file or map copy that stalls holds up only
     # this request.
     reads = None if request.verdict is None else _read_verdict(ctx, D, place, request.verdict, author)
     evs: list[Event | None] = []
 
-    def fn(pins: list[Pin]) -> tuple[OpenPin | VerdictRefusal, bool]:
-        """Decide the verdict, if one was asked for, then allocate one id, build either location kind, and queue
-        notices in the same transaction. The build on screen is read once: a pin without pdf_build records the
-        build its whole figure was checked on (read with that check, before the lock), not one published in
-        between."""
+    def fn(pins: list[Pin]) -> tuple[OpenPin | PinReplayed | AddRefusal, bool]:
+        """Decide a keyed request's suggestion and the verdict, if one was asked for, then allocate one id, build
+        either location kind, and queue notices in the same transaction.
+        The build on screen is read once: a pin without pdf_build records the build its whole figure was checked on
+        (read with that check, before the lock), not one published in between."""
+        if request.idem is not None and suggests:
+            refused = _suggestion_refused(request, D, lines)
+            if refused is not None:
+                return refused, False
         # The viewer echoes pdf_build from pick; an agent request without it uses the current build.
         checked_on = None if reads is None else reads.on_screen
         on_screen = ctx.builds.heading(D).build if checked_on is None else checked_on
@@ -127,10 +142,30 @@ def add_pin(ctx: PinContext, D: Doc, request: AddRequest, actor: PostAuthority) 
             evs.append(ctx.make_event("assigned", pin.record, actor, [request.assignee], text=request.note))
         return pin, True
 
-    with ctx.store.lock:
+    with ctx.store.lock:  # re-entrant: the key lookup and the transaction that creates the pin hold it together
+        if request.idem is not None:
+            held = _key_holder(ctx, ctx.store.read_pins()[0], request.idem)
+            if held is not None:
+                return PinReplayed(held)
         out = ctx.store.transact(fn)[1]
         ctx.emit_events(evs)
     return out
+
+
+def _suggestion_refused(request: AddRequest, D: Doc, lines: Sequence[str]) -> AddRefusal | None:
+    """Why the request's suggestion keeps the pin from being written (decide_new_suggestion against the lines read
+    before the lock), or None when it is accepted."""
+    assert request.suggest is not None
+    decided = decide_new_suggestion(request.suggest, request.place, D.takes_suggestions, lines)
+    return None if isinstance(decided, Suggestion) else decided
+
+
+def _key_holder(ctx: PinContext, pins: Sequence[Pin], key: str) -> int | None:
+    """The id of the pin that already holds idempotency key `key`: among the live pins as stored, then the Trash
+    entries still restorable now (an expired entry, like a purged one, holds no key). Called under the pin lock every
+    pin and Trash write also holds, so no create, drop, restore or purge lands between this lookup and the create."""
+    trash, _ = ctx.store.read_dropped()
+    return keyed_pin(key, pins, unexpired(trash, ctx.trash_days, ctx.epoch()))
 
 
 @dataclass(frozen=True)
@@ -325,11 +360,22 @@ class PinEditing:
 
     context: Callable[[], PinContext]
 
-    def add_pin(self, D: Doc, request: AddRequest, actor: PostAuthority) -> OpenPin | AddRefusal:
-        """Create one pin and emit notices after its transaction, or return why its suggested edit is refused."""
+    def add_pin(self, D: Doc, request: AddRequest, actor: PostAuthority) -> OpenPin | PinReplayed | AddRefusal:
+        """Create one pin and emit notices after its transaction, answer the pin that already holds its idempotency
+        key, or return why its suggested edit or verdict is refused."""
         ctx = self.context()
         require_authority(actor, ctx.authority_scope, "add", document_authority_target(D))
         return add_pin(ctx, D, request, actor)
+
+    def keyed_pin(self, D: Doc, key: str, actor: PostAuthority) -> int | None:
+        """The id of the pin that already holds idempotency key `key`, or None - the question a viewer asks before it
+        places a queued pin again (POST /api/pin with replay_only). Asked with the authority a new pin needs, and
+        answered under the pin lock from the stored pins and the restorable Trash, as add_pin's own lookup is: nothing
+        is decided or written, whichever way it is answered."""
+        ctx = self.context()
+        require_authority(actor, ctx.authority_scope, "add", document_authority_target(D))
+        with ctx.store.lock:
+            return _key_holder(ctx, ctx.store.read_pins()[0], key)
 
     def edit_pin(
         self,

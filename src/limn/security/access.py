@@ -641,6 +641,7 @@ DOCUMENT_OPERATIONS = {
     "/api/pick": "pick",
     "/api/rebuild": "rebuild",
     "/api/revision-build": "revision-build",
+    "/api/hold": "hold",
 }
 READ_PATHS = frozenset(
     {

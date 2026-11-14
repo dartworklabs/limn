@@ -309,7 +309,7 @@ def assemble_application(config: RunConfig, runtime: RunResources) -> ServerAsse
 
     def authority_scope(operation: str) -> access.AuthorityScope:
         """Select the effect owner whose resources authorize this operation."""
-        if operation == "rebuild":
+        if operation in ("rebuild", "hold"):
             return builds.commands.authority_scope
         if operation == "revision-build":
             return revisions.requests.authority_scope

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeAlias
@@ -35,7 +35,9 @@ class DocumentBuild:
 
 @dataclass(frozen=True)
 class Publication:
-    """Assets and pick status of the selected build, never the mutable current pointer."""
+    """Assets and pick status of the selected build, never the mutable current pointer. built_lines answers the lines
+    of a manuscript file (a checkout path) as that build read them, from the build's source record, or None when the
+    build kept none for it; the record is read when asked, not when the publication is bound."""
 
     build: str
     pages: Path
@@ -44,6 +46,7 @@ class Publication:
     stale: bool
     running: bool
     latex_running: bool
+    built_lines: Callable[[Path], Sequence[str] | None]
 
 
 @dataclass(frozen=True)

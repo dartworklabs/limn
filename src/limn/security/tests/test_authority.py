@@ -19,6 +19,7 @@ OPERATIONS = (
     "/api/revision-build",
     "/api/pin",
     "/api/rebuild",
+    "/api/hold",
     *(
         f"/api/pins/7/{action}"
         for action in ("reply", "close", "reopen", "edit", "claim", "unclaim", "drop", "restore", "confirm", "purge")

@@ -472,9 +472,11 @@ class ViewerFlows(BrowserBase):
     def test_sections_toggle_remember_and_count_new(self):
         def flow(page, device, lang):
             heads = page.evaluate(
-                "[...document.querySelectorAll('.sec-tg')].map(b=>[b.id,b.getAttribute('aria-expanded')])"
+                "[...document.querySelectorAll('.lsec:not([hidden]) .sec-tg')].map(b=>[b.id,b.getAttribute('aria-expanded')])"
             )
+            # the kept pins' section (#sec-queue) stands only while this browser keeps some: none here
             self.assertEqual(heads, [["open-toggle", "true"], ["review-toggle", "true"], ["done-toggle", "false"]])
+            self.assertTrue(page.evaluate("document.getElementById('sec-queue').hidden"))
             self.assertFalse(page.is_visible("#done-list"))
             page.click("#open-toggle")
             self.assertEqual(page.get_attribute("#open-toggle", "aria-expanded"), "false")

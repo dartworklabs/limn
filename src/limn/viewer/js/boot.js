@@ -8,6 +8,7 @@ async function boot(){i18nStart();
   applyTheme(); applyLayout();
   // There's no keyboard shortcut on a touch device - "핀 저장 Ctrl+Enter" would just get clipped at phone width.
   setHtml($('#btn-save'),saveBtnLabel());
+  await offlineAskDown();   // a page the worker answered from its copy starts from the stored reads (offline.js)
   await loadDocs(); DOC=initialDoc();
   try{META=(await api(dq('/api/meta'),{what:'화면 정보 읽기',where:NOTICE_HOST.LINE})).data;}catch(e){return;}
   if(META.doc)DOC=META.doc; META_BY.set(DOC,META); loadViews(); const v=VIEW_BY.get(DOC);
@@ -24,7 +25,7 @@ async function boot(){i18nStart();
   if(pinsLoaded){LAST_PINS_REV=META.pins_rev; LAST_SRC_MTIME=META.src_sig||META.src_mtime;}
   BUILD.lastSeq=(typeof META.build_seq==='number')?META.build_seq:0;   // the build count this tab has already "seen"
   (META.docs||[]).forEach(d=>DOC_SEQ.set(d.key,d.build_seq));
-  startLightPolling(); startBuildPolling();
+  startLightPolling(); startBuildPolling(); offlineBoot();
   checkDocsSeen();   // what changed since this device last saw each document (updates.js)
   if(DIGEST)pollLight().finally(()=>digestSoon(DIGEST_TAIL_MS));   // the events addressed to me since the last visit
   drawNotify(); if(prefs().notify&&notifySupported()&&notifyPerm()==='granted')notifyRegister();

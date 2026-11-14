@@ -14,7 +14,16 @@ from typing import TypeAlias
 ENTRY_POINTS = {"limn.server", "limn.cli", "limn.__main__"}
 CAPABILITIES = {"administration", "builds", "collaboration", "documents", "pins", "revisions", "sync", "viewer"}
 BOUNDARIES = {"runtime", "security", "platform", "web"}
-BUILD_STORAGE_NAMES = {"head.txt", "built_at.txt", "built_src_mtime.txt", "pages.cur", "builds.json"}
+BUILD_STORAGE_NAMES = {
+    "head.txt",
+    "built_at.txt",
+    "built_src_mtime.txt",
+    "pages.cur",
+    "builds.json",
+    "holds.json",
+    "slim.json",
+    "source.json",
+}
 
 EntrypointImports: TypeAlias = Mapping[str, set[str]]
 TestExports: TypeAlias = Mapping[str, set[str]]
