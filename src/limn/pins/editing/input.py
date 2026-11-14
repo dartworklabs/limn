@@ -5,6 +5,7 @@ from dataclasses import dataclass, replace
 
 from limn.pins.editing.fields import (
     parse_assignee,
+    parse_idem,
     parse_kind_req,
     parse_note,
     parse_scope,
@@ -65,7 +66,13 @@ def parse_add(d: Json, known: Collection[str], facts: DocumentFacts) -> AddReque
     absent). Whether this pin may carry the suggestion is decided against the document and the file before it is
     written (limn.pins.editing.rules.decide_new_suggestion). Last the verdict, taken as sent (parse_verdict; null is
     absent) - it refuses nothing here, since its refusals come after the role check in their own order, inside the
-    store transaction (limn.pins.editing.rules.decide_new_verdict)."""
+    store transaction (limn.pins.editing.rules.decide_new_verdict).
+
+    The idempotency key `idem` is checked before all of these (parse_idem: 400 bad_idem), so a malformed key is
+    refused before the named file is read; absent or null it is no key and the order above is unchanged."""
+    idem = parse_idem(d.get("idem"))
+    if isinstance(idem, InputRejected):
+        return idem
     place: Place
     if facts.view_only or (facts.has_element_map and all(d.get(k) is None for k in ("file", "lo", "hi"))):
         region = parse_region({k: d[k] for k in REGION_FIELDS + ("file", "lo", "hi", "scope") if k in d}, facts)
@@ -97,7 +104,9 @@ def parse_add(d: Json, known: Collection[str], facts: DocumentFacts) -> AddReque
         if isinstance(sent, InputRejected):
             return sent
         suggest = sent
-    return AddRequest(place, note, kind_req, assignee, tuple(hints), suggest, parse_verdict(d.get("verdict")))
+    return AddRequest(
+        place, note, kind_req, assignee, tuple(hints), suggest, parse_verdict(d.get("verdict")), idem=idem
+    )
 
 
 @dataclass(frozen=True)

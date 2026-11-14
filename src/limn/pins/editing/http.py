@@ -12,6 +12,7 @@ from limn.pins.editing.rules import (
     EditRefusal,
     NoteTooLong,
     PinOutsideTree,
+    PinReplayed,
     RangeOutsideFile,
     StaleEdit,
     SuggestBaseChanged,
@@ -92,13 +93,16 @@ def edit(app: EditingRequests, pid: int, actor: PostAuthority, body: dict[str, A
     return edit_answer(result, app.public)
 
 
-def add_answer(result: OpenPin | AddRefusal) -> Body:
-    """POST /api/pin: the new pin's id, or the refusal of its suggested edit - 400 for the suggestion's own rules
-    (suggest_refused), 409 suggest_base_changed with `current` when its lines no longer read as its base - or of its
-    verdict (verdict_refused)."""
+def add_answer(result: OpenPin | PinReplayed | AddRefusal) -> Body:
+    """POST /api/pin: the new pin's id - or, when its idempotency key is already held, that pin's id with
+    `replay: true` - or the refusal of its suggested edit - 400 for the suggestion's own rules (suggest_refused), 409
+    suggest_base_changed with `current` when its lines no longer read as its base - or of its verdict
+    (verdict_refused)."""
     match result:
         case OpenPin(core=core):
             return {"id": core.id}
+        case PinReplayed(pid=pid):
+            return {"id": pid, "replay": True}
         case SuggestBaseChanged(current=current):
             raise HTTPError(409, SUGGEST_BASE_CHANGED, reason="suggest_base_changed", current=current)
         case SuggestUnsupported() | SuggestRangeTooLong() | SuggestTextTooLong() | SuggestNoop():
