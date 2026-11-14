@@ -26,6 +26,7 @@ Limn은 LaTeX 원고 PDF에서 드래그한 영역을 `.tex` 파일·줄 범위�
 - `pins.md` 형식과 HTTP API(경로·필드·상태 이름)는 다른 저장소의 에이전트가 읽는 계약이다. 더하기만 하고, 바꾸려면 먼저 설계 승인을 받는다.
 - 핀 파일은 `transact()`의 잠금·순서를 거쳐서만 쓴다.
 - 코딩 규칙은 팀 스킬(`code-implement`, `code-testing`, `code-security`)이 기존 코드 관례보다 우선한다.
+- 커밋은 모두 `git commit -s` 로 만들고, 메시지 끝에 `I agree to the Limn CLA (CLA.md).` 줄을 둔다. 이 두 줄이 그 커밋에 대해 [CLA.md](CLA.md)에 동의한다는 표시다([CONTRIBUTING.md](CONTRIBUTING.md) §Contributor license agreement). 올린 커밋은 고쳐 쓸 수 없으므로 처음부터 단다.
 - 코드·주석·docstring·커밋 메시지는 영어, Handbook은 한국어. `README`와 `skill/SKILL`은 영어·한국어 두 벌을 함께 고친다.
 - 앱 이름은 Limn 하나. 실제 이메일·홈 경로·호스트 이름을 넣지 않는다 (`alice@example.com` 형식을 쓴다).
 - 뷰어의 모양이나 조작을 바꾸는 변경은 크기와 무관하게, `main`에 넣기 전에 네 기기군 PoC(전후 비교)를 소유자에게 보인다 ([workflow.md](docs/handbook/workflow.md) §화면 변경은 PoC를 먼저 보인다).
