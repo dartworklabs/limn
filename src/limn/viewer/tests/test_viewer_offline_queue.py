@@ -655,6 +655,48 @@ class StoredReadsServe(unittest.TestCase):
         self.assertEqual(got, {"first": "stored", "second": "fresh", "stale": False, "ended": 1, "rev": None})
 
 
+class OfflineQuote(unittest.TestCase):
+    """The words a drag made with no network lies on, read from the PDF already open (offline.js quoteIn)."""
+
+    def setUp(self):
+        if not shutil.which("node"):
+            self.skipTest("node not available")
+
+    def _run(self, scenario):
+        # A 600 x 800 pt page; an item is where its baseline starts (from the bottom), its width and its height.
+        scope = """
+        function item(str,x,top,w,h){return {str:str,transform:[h,0,0,h,x,800-top-h],width:w,height:h};}
+        var ITEMS=[item('Title of the paper',72,100,300,14),
+                   item('A line that starts at the margin and runs across the page.',72,200,456,10),
+                   item('The line below it.',72,214,120,10),
+                   item('Far below.',72,600,60,10),
+                   item('   ',72,206,10,10)];
+        """
+        return json.loads(run_node("\n".join([scope, extract_js_fn("quoteIn"), scenario])))
+
+    def test_a_line_that_starts_left_of_the_box_and_runs_through_it_is_read(self):
+        """The drag starts inside the text column, not at its margin - as nearly every drag does. Judged by where
+        the line starts, nothing was read and every quote was empty (seen on a live document)."""
+        got = self._run("console.log(JSON.stringify(quoteIn(ITEMS,800,{x0:150,y0:196,x1:400,y1:226})));")
+        self.assertEqual(got, "A line that starts at the margin and runs across the page. The line below it.")
+
+    def test_lines_the_box_is_not_on_are_left_out(self):
+        got = self._run("console.log(JSON.stringify(quoteIn(ITEMS,800,{x0:150,y0:196,x1:400,y1:212})));")
+        self.assertEqual(got, "A line that starts at the margin and runs across the page.")
+
+    def test_a_box_beside_the_text_reads_nothing(self):
+        got = self._run("console.log(JSON.stringify(quoteIn(ITEMS,800,{x0:540,y0:196,x1:590,y1:226})));")
+        self.assertEqual(got, "")
+
+    def test_a_long_quote_is_cut_as_the_server_cuts_its_own(self):
+        got = self._run(
+            "const many=[]; for(let i=0;i<30;i++)many.push(item('0123456789',72,200,400,10));"
+            "console.log(JSON.stringify(quoteIn(many,800,{x0:100,y0:196,x1:300,y1:212})));"
+        )
+        self.assertEqual(len(got), 160)
+        self.assertTrue(got.endswith("…"))
+
+
 class StoredReads(unittest.TestCase):
     """Which reads are stored for a reopened tab with no network (offline.js OFF_READS).
 

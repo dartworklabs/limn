@@ -177,11 +177,20 @@ async function offlinePrepare(){
 // still hours away, and the pick's quote replaces it when the pin is written.
 /** @param {number} page @param {{x0:number,y0:number,x1:number,y1:number}} rect @returns {Promise<string>} */
 async function offlineQuote(page,rect){if(!VEC.doc)return '';
-  try{const {items,vp}=await pageText(VEC.doc,page),out=/** @type {string[]} */([]);   // the one reader of a page's text (search.js)
-    (items||[]).forEach((/** @type {any} */it)=>{const t=it.transform; if(!t||typeof it.str!=='string')return;
-      const x=t[4],y=vp.height-t[5];   // PDF.js measures from the bottom; a drag's box from the top, as pick does
-      if(x>=rect.x0-2&&x<=rect.x1+2&&y>=rect.y0-6&&y<=rect.y1+6)out.push(it.str);});
-    return out.join(' ').replace(/\s+/g,' ').trim().slice(0,160);}catch(e){return '';}}
+  try{const {items,vp}=await pageText(VEC.doc,page);   // the one reader of a page's text (search.js)
+    return quoteIn(items,vp.height,rect);}catch(e){return '';}}
+// The words of a page's text items that a box lies on. The box is in PDF points measured from the page's top, as a
+// drag's is; PDF.js gives each item where its baseline starts, measured from the bottom, and how wide and tall it is.
+// An item counts when its run crosses the box and the middle of its line is inside it. Judged by where the item
+// starts alone, a line that begins at the margin and runs through the box was left out - which is most lines, so
+// the quote came back empty. Cut at 160 characters the way the server cuts its own (159 and an ellipsis). Pure.
+/** @param {any[]} items @param {number} pageH @param {{x0:number,y0:number,x1:number,y1:number}} rect @returns {string} */
+function quoteIn(items,pageH,rect){const out=/** @type {string[]} */([]);
+  (items||[]).forEach(it=>{const t=it&&it.transform; if(!t||typeof it.str!=='string'||!it.str.trim())return;
+    const x=t[4],w=Number(it.width)||0,h=Number(it.height)||Math.hypot(t[2],t[3])||0,mid=pageH-t[5]-h/2;
+    if(x+w>=rect.x0&&x<=rect.x1&&mid>=rect.y0&&mid<=rect.y1)out.push(it.str);});
+  const q=out.join(' ').replace(/\s+/g,' ').trim();
+  return q.length>160?q.slice(0,159)+'…':q;}
 // A drag whose pick could not be sent: the box stays and the composer opens on a selection with no lines - the same shape a
 // view-only PDF's region selection has (isRegion), so the range ladder, the source snippet, a suggested edit and a verdict
 // are all off, and [핀 저장] has only the page, the box and the words to keep. Its lines are found when the queue is sent.
