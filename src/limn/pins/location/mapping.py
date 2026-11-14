@@ -116,21 +116,10 @@ def carry_range(built: Sequence[str], now: Sequence[str], lo: int, hi: int) -> C
     lo, hi = max(1, lo), min(hi, len(built))
     if lo > hi:
         return None
-    head = 0
-    limit = min(len(built), len(now))
-    while head < limit and built[head] == now[head]:
-        head += 1
-    tail = 0
-    while tail < limit - head and built[len(built) - 1 - tail] == now[len(now) - 1 - tail]:
-        tail += 1
+    head, tail = _shared_ends(built, now)
     mid_end = len(built) - tail  # built[head:mid_end] is the stretch the two files do not plainly share
     shift = len(now) - len(built)
-    between: dict[int, int] = {}
-    if lo - 1 < mid_end and hi > head:
-        matcher = SequenceMatcher(None, built[head:mid_end], now[head : len(now) - tail])
-        for a, b, size in matcher.get_matching_blocks():
-            for k in range(size):
-                between[head + a + k] = head + b + k
+    between = _paired_between(built, now, head, tail) if lo - 1 < mid_end and hi > head else {}
     places: list[int] = []
     text = False
     for i in range(lo - 1, hi):
@@ -143,6 +132,40 @@ def carry_range(built: Sequence[str], now: Sequence[str], lo: int, hi: int) -> C
         return None
     first, last = places[0] + 1, places[-1] + 1
     return Carried(first, last, len(places) == hi - lo + 1 and last - first == hi - lo)
+
+
+def _shared_ends(built: Sequence[str], now: Sequence[str]) -> tuple[int, int]:
+    """How many lines built and now share at their start and, of what is left, at their end."""
+    head = 0
+    limit = min(len(built), len(now))
+    while head < limit and built[head] == now[head]:
+        head += 1
+    tail = 0
+    while tail < limit - head and built[len(built) - 1 - tail] == now[len(now) - 1 - tail]:
+        tail += 1
+    return head, tail
+
+
+def _paired_between(built: Sequence[str], now: Sequence[str], head: int, tail: int) -> dict[int, int]:
+    """The line diff of the stretch between the shared ends (_shared_ends): for each line of built there (0-based) that
+    the diff pairs with an equal line of now, that line's 0-based index in now."""
+    paired: dict[int, int] = {}
+    matcher = SequenceMatcher(None, built[head : len(built) - tail], now[head : len(now) - tail])
+    for a, b, size in matcher.get_matching_blocks():
+        for k in range(size):
+            paired[head + a + k] = head + b + k
+    return paired
+
+
+def paired_lines(built: Sequence[str], now: Sequence[str]) -> list[int | None]:
+    """For every line of built - a file as a build read it - the 0-based index of the line of now, the same file as it
+    is today, that the line diff pairs it with, or None for a line that did not survive. The pairing is carry_range's:
+    the lines the two files share at their start and end pair directly, the stretch between through difflib."""
+    head, tail = _shared_ends(built, now)
+    mid_end = len(built) - tail
+    shift = len(now) - len(built)
+    between = _paired_between(built, now, head, tail)
+    return [i if i < head else i + shift if i >= mid_end else between.get(i) for i in range(len(built))]
 
 
 def score_range(tw: TokenWeights, lines: Sequence[str], lo: int, hi: int) -> float:

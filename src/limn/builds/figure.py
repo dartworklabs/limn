@@ -319,14 +319,16 @@ def map_scripts(D: BuildDoc, state: Path, figure_map: FigureMap) -> list[str]:
     part and not in the state folder `state` (limn.platform.files.tree_part, the rule of
     limn.pins.location.figure.read_source). impl.file is data nothing opens, so it is never named. Reads file metadata
     only."""
-    named: dict[str, None] = {}
+    spelled: dict[str, None] = {}  # each path once as the map spells it: a map names one script for many elements
     for page in figure_map.pages:
         for el in page.elements:
-            if el.src is None:
-                continue
-            rel = tree_part(D.src / el.src.file, D.src, state)
-            if rel is not None and rel.parts:
-                named.setdefault(rel.as_posix(), None)
+            if el.src is not None:
+                spelled.setdefault(el.src.file, None)
+    named: dict[str, None] = {}
+    for file in spelled:
+        rel = tree_part(D.src / file, D.src, state)
+        if rel is not None and rel.parts:
+            named.setdefault(rel.as_posix(), None)
     return list(named)
 
 

@@ -9,13 +9,15 @@
   older build (or a drag on a figure not rendered again after an edit) was written as many lines off as had been
   added above the element. A figure import now keeps the lines of the scripts its map names in the page folder
   (`source.json`, as a LaTeX build does), and `POST /api/pick` carries every ladder rung from those lines to where
-  they stand now. An element whose code is gone answers the region with the element, never the lines that moved
-  into its numbers. The answer's fields are unchanged; a build imported before this keeps the map's numbers.
+  they stand now. Code rewritten in place (a call's arguments changed, a block indented) is answered at the lines
+  that took its place; an element whose code was removed answers the region with the element, never the lines that
+  moved into its numbers. The answer's fields are unchanged; a build imported before this keeps the map's numbers.
 - **A pick in an input file that is not `.tex` follows its text too.** SyncTeX names every file TeX reads with
   `\input`, whatever its suffix - a `.tikz`, `.pgf`, `.txt` or `.ltx`, a listing printed from its file - but a build
   kept the lines of `.tex`, `.sty` and `.cls` files only, so a pick in any other input on an older build used the old
   numbers. A LaTeX build now reads the input list of its own SyncTeX file and keeps those files as well (text only,
-  within the same size limits; `.bib` and `.bbl` stay out).
+  within the same size limits; `.bib` and `.bbl` stay out). A source file whose name is not UTF-8 is left out of the
+  record instead of ending the build as `crashed`.
 
 ## 0.4.60 — 2026-11-15
 

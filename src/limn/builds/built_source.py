@@ -43,7 +43,9 @@ RECORD_MAX_BYTES = 2 * TOTAL_MAX_BYTES + 1024 * 1024
 # The bytes of a SyncTeX file, decompressed, that are scanned for its inputs; a longer one names none. A manuscript of
 # a few hundred pages writes tens of MB, scanned in a fraction of a second.
 SYNCTEX_MAX_BYTES = 256 * 1024 * 1024
-SYNCTEX_LINE_MAX_BYTES = 1024 * 1024  # a longer line is not SyncTeX's: the scan stops and names nothing
+# The bytes of a line still unfinished at the end of a block that the scan carries into the next block. SyncTeX's lines
+# are short; with more than this the file is not SyncTeX's, and the scan stops and names nothing.
+SYNCTEX_LINE_MAX_BYTES = 1024 * 1024
 _SYNCTEX_INPUT = re.compile(rb"^Input:\d+:(.+)$", re.MULTILINE)
 
 
@@ -95,10 +97,11 @@ def collect(root: Path, sources: Iterable[str], named: Iterable[str] = ()) -> di
     their suffix, except REFUSED_SUFFIXES. Either way a file is kept only when read_below reads it within
     FILE_MAX_BYTES and it is UTF-8, while the bytes kept stay within TOTAL_MAX_BYTES. The sources are read first, in
     name order, then the named files in name order, so a bulky named file (a drawing written as .pgf) cannot crowd the
-    manuscript's own text out of the record. A file that does not qualify is left out; a pick on it then uses the
-    build's numbers as they are."""
-    first = sorted({rel for rel in sources if _suffix(rel) in LINE_SUFFIXES})
-    then = sorted({rel for rel in named if _suffix(rel) not in REFUSED_SUFFIXES} - set(first))
+    manuscript's own text out of the record. A name that is not UTF-8 (a file named in another encoding, which the
+    file system hands over with surrogates) is left out: the record is written as UTF-8 and could not hold it. A file
+    that does not qualify is left out; a pick on it then uses the build's numbers as they are."""
+    first = sorted({rel for rel in sources if _suffix(rel) in LINE_SUFFIXES and _is_utf8(rel)})
+    then = sorted({rel for rel in named if _suffix(rel) not in REFUSED_SUFFIXES and _is_utf8(rel)} - set(first))
     kept: dict[str, list[str]] = {}
     total = 0
     for rel in (*first, *then):
@@ -116,13 +119,23 @@ def _suffix(rel: str) -> str:
     return os.path.splitext(rel)[1].lower()
 
 
+def _is_utf8(rel: str) -> bool:
+    """Whether the name rel can be written as UTF-8: False for one holding a lone surrogate."""
+    try:
+        rel.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
 def synctex_inputs(path: Path) -> tuple[str, ...] | None:
     """The files the SyncTeX file at path (gzip) lists as its inputs - every "Input:<tag>:<name>" line, which TeX
     writes for each file it reads as input whatever the suffix - as the names stand there, each once, in the order
     listed. These are all the files a SyncTeX answer of that build can name.
 
-    None when the path is not a plain file (a link is not followed), is not gzip, cannot be read, holds a line longer
-    than SYNCTEX_LINE_MAX_BYTES, or decompresses to more than SYNCTEX_MAX_BYTES: the caller then knows of no input."""
+    None when the path is not a plain file (a link is not followed), is not gzip, cannot be read, leaves more than
+    SYNCTEX_LINE_MAX_BYTES of an unfinished line at the end of a block (the file is read in 1 MiB blocks), or
+    decompresses to more than SYNCTEX_MAX_BYTES: the caller then knows of no input."""
     try:
         descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     except OSError:

@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, Literal, TypeAlias
 
 from limn.pins.element import ElementImpl, PinElement
-from limn.pins.location.mapping import carry_range, snippet
+from limn.pins.location.mapping import carry_range, paired_lines, snippet
 from limn.pins.needs import ElementChoice, FigureElement, FigureMapUnavailable
 from limn.platform.files import ManuscriptFile, file_in_tree, tex_lines, tree_part
 from limn.runtime.documents import Doc
@@ -106,8 +106,9 @@ def lines_now(lo: int, hi: int, lines: Sequence[str], built: Sequence[str] | Non
     built is the script as the map's build kept it, None when it kept none: the numbers are then used as they are, and
     stand when they fit the file (1 <= lo <= hi <= len(lines)). With built, the numbers must fit built - a record they
     do not fit is not the script the map was rendered from - and the range is carried over to lines
-    (mapping.carry_range: the span of its lines still there, None when no line with text is). A script that is still
-    line for line what the build kept keeps the map's numbers."""
+    (mapping.carry_range: the span of its lines still there). When no line of it with text is still there, the code
+    was rewritten or removed, and the answer is what took its place (rewritten_place), if that can be told. A script
+    that is still line for line what the build kept keeps the map's numbers."""
     if built is None:
         return (lo, hi) if 1 <= lo <= hi <= len(lines) else None
     if not 1 <= lo <= hi <= len(built):
@@ -115,7 +116,38 @@ def lines_now(lo: int, hi: int, lines: Sequence[str], built: Sequence[str] | Non
     if len(built) == len(lines) and all(was == now for was, now in zip(built, lines, strict=True)):
         return lo, hi
     carried = carry_range(built, lines, lo, hi)
-    return None if carried is None else (carried.lo, carried.hi)
+    return rewritten_place(lo, hi, lines, built) if carried is None else (carried.lo, carried.hi)
+
+
+def rewritten_place(lo: int, hi: int, lines: Sequence[str], built: Sequence[str]) -> tuple[int, int] | None:
+    """Where the code that replaced lines lo..hi of built (1 <= lo <= hi <= len(built)) stands in the script now, for a
+    range none of whose lines with text survived; None when the code was removed or its place cannot be told.
+
+    The range lies in a stretch of built that did not survive, between the nearest surviving line before lo and the
+    nearest after hi (mapping.paired_lines; the file's start or end where there is none); the lines of the script now
+    between those two took its place. No line there: the code was removed, and the answer is None - never the lines
+    that moved into its numbers. As many lines there as the stretch had (an edit in place: the arguments of a call
+    changed, a block indented): the range keeps its offset in the stretch. Otherwise the place is known only when the
+    stretch was the range itself - then all of what replaced it - and not when the range was a part of a larger
+    rewritten block. A place that holds no text is no answer."""
+    pairs = paired_lines(built, lines)
+    before = next((i for i in range(lo - 2, -1, -1) if pairs[i] is not None), None)
+    after = next((i for i in range(hi, len(built)) if pairs[i] is not None), None)
+    was_first = 0 if before is None else before + 1  # the stretch of built, 0-based and inclusive
+    was_last = len(built) - 1 if after is None else after - 1
+    paired_before = None if before is None else pairs[before]
+    paired_after = None if after is None else pairs[after]
+    now_first = 0 if paired_before is None else paired_before + 1  # what took its place, 0-based and inclusive
+    now_last = len(lines) - 1 if paired_after is None else paired_after - 1
+    if now_first > now_last:
+        return None
+    if now_last - now_first == was_last - was_first:
+        first, last = now_first + (lo - 1 - was_first), now_first + (hi - 1 - was_first)
+    elif (was_first, was_last) == (lo - 1, hi - 1):
+        first, last = now_first, now_last
+    else:
+        return None
+    return (first + 1, last + 1) if any(line.strip() for line in lines[first : last + 1]) else None
 
 
 def element_rungs(pick: ElementChoice, lines: Sequence[str], built: Sequence[str] | None = None) -> tuple[Rung, ...]:

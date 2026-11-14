@@ -115,6 +115,18 @@ class FigurePickAfterAScriptEdit(Base):
         self.assertEqual((d["kind"], d["el"]["id"]), ("region", "B2/calendar/m07"))
         self.assertTrue(d["warn"].startswith(PICK_WARNINGS["element_without_source"]))
 
+    def test_a_call_rewritten_in_place_is_answered_at_the_lines_that_took_its_place(self):
+        """Every line of the July cell's call was indented and five lines were added above it: no line of the call
+        survives a line diff, and the answer is still the call - the eight lines standing where it stood - not the
+        region and not the map's numbers."""
+        lines = script_lines()
+        indented = ["    " + line for line in lines[87:95]]
+        now = lines[:ADDED_AT] + ADDED + lines[ADDED_AT:87] + indented + lines[95:]
+        self.script.write_text("\n".join(now) + "\n", encoding="utf-8")
+        d = self.drag(JULY_BOX, BUILD1)
+        self.assertEqual((d["via"], d["el"]["id"], d["lo"], d["hi"]), ("map", "B2/calendar/m07", 93, 100))
+        self.assertEqual(self.code_of(d), indented)
+
     def test_an_outer_rung_whose_code_is_gone_is_left_out_of_the_ladder(self):
         """Every line of the strip outside the cell's call was rewritten and the cell's call kept: the cell's rung and
         the figure's stand; the strip's rung, carried, spans only the cell's lines and merges into the cell's."""

@@ -194,12 +194,45 @@ class RungsCarried(unittest.TestCase):
         self.assertEqual(lines_now(2, 3, blank, tuple(blank)), (2, 3))
         self.assertIsNone(lines_now(2, 3, ["x", *blank], tuple(blank)))
 
-    def test_a_range_the_record_does_not_hold_or_whose_code_is_gone_stands_nowhere(self):
-        """The map's range must fit the kept script, whatever the script holds now; and a range none of whose lines
-        with text is still in the script has no place - the lines that moved into its numbers are not the answer."""
+    def test_a_range_the_record_does_not_hold_or_whose_code_is_removed_stands_nowhere(self):
+        """The map's range must fit the kept script, whatever the script holds now; and a range whose lines were
+        removed - its neighbours now touch - has no place: the lines that moved into its numbers are not the answer."""
         self.assertIsNone(lines_now(88, 95, LINES, LINES[:90]))
         self.assertIsNone(lines_now(96, 95, LINES, LINES))
         self.assertIsNone(lines_now(88, 95, [*LINES[:87], *LINES[95:]], LINES))
+        self.assertIsNone(lines_now(88, 95, [*LINES[:87], "", "", *LINES[95:]], LINES), "only blank lines are left")
+
+    def test_code_rewritten_in_place_is_answered_where_it_was_rewritten(self):
+        """Every line of the cell's call indented (none survives the diff) under three lines added higher up: the call
+        is the eight lines that took its place. A one-line call rewritten as two lines is those two lines."""
+        indented = ["    " + line for line in LINES[87:95]]
+        now = [*LINES[:50], "new a", "new b", "new c", *LINES[50:87], *indented, *LINES[95:]]
+        self.assertEqual(lines_now(88, 95, now, LINES), (91, 98))
+        self.assertEqual(now[90:98], indented)
+        self.assertEqual(lines_now(90, 90, [*LINES[:89], "call(", "    wider=True)", *LINES[90:]], LINES), (90, 91))
+
+    def test_a_range_inside_a_larger_rewritten_block_keeps_its_offset_only_when_the_block_kept_its_length(self):
+        """Lines 80-97 all indented, the cell's call (88-95) among them: the block has as many lines as before, so the
+        call is at its offset in it. The same block rewritten with one line more: where the call is in it cannot be
+        told, and it has no place."""
+        indented = ["    " + line for line in LINES[79:97]]
+        self.assertEqual(lines_now(88, 95, [*LINES[:79], *indented, *LINES[97:]], LINES), (88, 95))
+        self.assertEqual(lines_now(88, 95, ["top", *LINES[:79], *indented, *LINES[97:]], LINES), (89, 96))
+        self.assertIsNone(lines_now(88, 95, [*LINES[:79], "with block:", *indented, *LINES[97:]], LINES))
+
+    @given(st.integers(0, 5), st.integers(11, 40), st.integers(0, 6), st.integers(0, 4), st.integers(0, 4))
+    @settings(max_examples=80, deadline=None)
+    def test_a_block_rewritten_line_for_line_keeps_a_range_inside_it_at_its_offset(self, added, lo, length, up, down):
+        """Whatever is added at the top of the script: a block around the range rewritten line for line (every line
+        changed, none added or removed) leaves the range on the rewritten lines at the same offset."""
+        built = LINES[:60]
+        hi = lo + length
+        first, last = lo - up, hi + down  # the rewritten block, 1-based and inclusive
+        changed = ["changed " + line for line in built[first - 1 : last]]
+        now = ["top %d" % i for i in range(added)] + built[: first - 1] + changed + built[last:]
+        span = lines_now(lo, hi, now, built)
+        self.assertEqual(span, (lo + added, hi + added))
+        self.assertEqual(now[span[0] - 1 : span[1]], ["changed " + line for line in built[lo - 1 : hi]])
 
     def test_a_range_edited_inside_spans_what_is_left_of_it(self):
         """One line of the cell's call rewritten and one added inside it: the rung spans from the first to the last

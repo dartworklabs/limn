@@ -132,6 +132,17 @@ class Collect(Folder):
         with mock.patch.object(built_source, "FILE_MAX_BYTES", 32):
             self.assertEqual(list(built_source.collect(self.root, (), named)), ["fig/small.pgf"])
 
+    def test_a_name_that_is_not_utf_8_is_left_out_so_the_record_can_be_written(self):
+        """A file named in another encoding reaches Python with a lone surrogate in its name (Linux; the scan and
+        SyncTeX's list both hand it over so). Such a name is not kept, whichever way it is named, and the record's
+        text is UTF-8 - before, writing it raised and the build ended as crashed. The read is stood in for, since not
+        every file system takes such a name."""
+        odd = "caf\udce9"
+        with mock.patch.object(built_source, "read_below", return_value=b"text\n"):
+            got = built_source.collect(self.root, ["main.tex", odd + ".tex"], ["plot.tikz", odd + ".tikz"])
+        self.assertEqual(list(got), ["main.tex", "plot.tikz"])
+        self.assertEqual(json.loads(built_source.encode(got).encode("utf-8"))["files"], got)
+
     def test_the_sources_are_read_before_the_named_files_when_the_total_runs_out(self):
         """A bulky named file sorts before the manuscript's text by name and still cannot take its room: the sources
         are read first, and the named files share what is left."""

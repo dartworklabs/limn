@@ -9,7 +9,7 @@ Run: uv run pytest -q src/limn/pins/location/tests/test_carry.py
 
 from hypothesis import given, strategies as st
 
-from limn.pins.location.mapping import Carried, carry_range
+from limn.pins.location.mapping import Carried, carry_range, paired_lines
 
 BUILT = [
     "\\section{Intro}",
@@ -148,3 +148,21 @@ def test_edits_outside_a_range_of_lines_found_nowhere_else_carry_it_whole(sizes,
     got = carry_range(built, now, lo, hi)
     assert got is not None and got.whole
     assert now[got.lo - 1 : got.hi] == body
+
+
+@given(st.lists(LINE, max_size=30), st.lists(LINE, max_size=30), st.integers(1, 30), st.integers(1, 30))
+def test_the_pairing_of_every_line_is_the_one_a_carried_range_spans(built, now, lo, hi):
+    """paired_lines pairs each line of the built file with an equal line of the file now, in order, and a carried range
+    is the span of the pairs of its lines (None when none of them with text has a pair)."""
+    pairs = paired_lines(built, now)
+    assert len(pairs) == len(built)
+    kept = [j for j in pairs if j is not None]
+    assert kept == sorted(set(kept))
+    assert all(built[i] == now[j] for i, j in enumerate(pairs) if j is not None)
+    lo, hi = min(lo, hi), max(lo, hi)
+    inside = [(i, pairs[i]) for i in range(lo - 1, min(hi, len(built))) if pairs[i] is not None]
+    got = carry_range(built, now, lo, hi)
+    if not any(built[i].strip() for i, _ in inside):
+        assert got is None
+    else:
+        assert (got.lo, got.hi) == (inside[0][1] + 1, inside[-1][1] + 1)

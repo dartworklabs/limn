@@ -453,7 +453,8 @@ def _synctex_named(D: BuildDoc, syn: Path) -> list[str]:
     .tikz, .pgf, .txt or .ltx read with \\input, a listing printed from its file - which the suffixes of the scan
     (_sources_read) leave out. A name is taken from the folder latexmk ran in when it is relative, and kept when it
     lies inside the copy - named by where it really lies there, the name a pick knows it by - and the manuscript has a
-    plain file at that path: a file latexmk or a tool made in the copy (an .aux, a .toc) is not part of the manuscript.
+    plain file at that path. So a file latexmk or a tool made in the copy alone (an .aux, a .toc) is left out; one the
+    checkout also holds (the leftovers of a compile run there) is named, as a pick on it is answered from that file.
     Empty when the SyncTeX file names nothing that can be read (built_source.synctex_inputs) or the copy's root cannot
     be resolved; the record then holds the scan's files alone."""
     listed = built_source.synctex_inputs(syn)

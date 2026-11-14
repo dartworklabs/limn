@@ -715,11 +715,12 @@ class Render(FigureTree):
     def test_a_script_a_pick_would_not_read_is_left_out_of_the_record(self):
         """A script that is missing, leads out of the figure folder through a link, lies in the state folder or under
         a dot-named part, or is not UTF-8: the import still lands, and its record holds none of them."""
-        outside = self.root / "outside.py"
-        outside.write_text("secret = 1\n", encoding="utf-8")
+        outside = self.root / "outside"
+        outside.mkdir()
+        (outside / "B2_calendar.py").write_text("secret = 1\n", encoding="utf-8")
         cases: list[Callable[[], object]] = [
             lambda: None,
-            lambda: (self.figs / "src").symlink_to(self.root),
+            lambda: (self.figs / "src").symlink_to(outside),  # the map's src/B2_calendar.py is a real file out there
             lambda: self.script("src/B2_calendar.py").write_bytes(b"\xff\xfe not text\n"),
         ]
         for n, arrange in enumerate(cases):
