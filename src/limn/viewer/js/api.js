@@ -12,17 +12,18 @@ async function api(url,o){o={...(o||{})}; o.source=o.source||(o.method||'GET')+'
   if(o.body!==undefined){init.body=JSON.stringify(o.body);init.headers['Content-Type']='application/json';}
   let r;
   try{r=await fetch(url,init);}catch(e){
-    // A document read the network refused is answered from the last answer stored for it, where there is one
-    // (offline.js §The last answer to a document read): a reopened tab with no network is drawn from it instead of
-    // staying empty. Writes and every other read fail as before.
-    const kept=await offStashed(url,o);
+    // A document read the network refused is answered from the last answer stored for it, where there is one and
+    // only where that is meant (offlineMayServe: this visit's first reads, or a connection known to be gone): a tab
+    // opened again with no network is drawn from it instead of staying empty. Writes, every other read, and a read
+    // that fails while the viewer is connected fail as before.
+    const kept=offlineMayServe()?await offStashed(url,o):null;
     if(kept){offStaleSaid(kept.at); sourceOk(o.source); return {status:kept.status,data:kept.data};}
     if(!o.silent)apiFailed(o,tr('서버에 닿지 않습니다'),true);throw e;}
   let d=null; try{d=await r.json();}catch(e){if(o.signal&&o.signal.aborted)throw e;}   // a body the caller's signal cut off is no answer, not an empty one
   if(r.status>=400&&!(o.expect||[]).includes(r.status)){
     if(!o.silent)apiFailed(o,errText(d)||('HTTP '+r.status),false);
     const err=/** @type {ApiError} */(new Error('HTTP '+r.status)); err.status=r.status; err.data=d; throw err;}
-  sourceOk(o.source); offStash(url,d,r.status,o);   // a document read the server answered is kept for a later visit with no network
+  sourceOk(o.source); offlineBack(); offStash(url,d,r.status,o);   // a document read the server answered is kept for a later visit with no network
   return {status:r.status,data:d};
 }
 // Says that request o failed ('{what} 실패 — {why}'): on the status line when o.where is NOTICE_HOST.LINE, else in a banner at

@@ -15,7 +15,10 @@ const OFF_WROTE='wrote';   // the state key holding the pin numbers this queue w
 // not among them - that one has to fail, so the status line says the connection is gone. Nothing else is ever stored,
 // and no answer to a write ever is.
 const OFF_READS=['/api/meta','/api/docs','/api/pins','/api/pins/dropped','/api/people','/api/outline-labels','/api/source'];
-const OFF={n:0,held:0,flushing:false,prep:false,saidStale:false,db:/** @type {IDBDatabase|null} */(null)};
+// boot: this visit's first reads are still under way (cleared by offlineBoot, which boot() calls last). staleNote: the
+// status line's message that the screen was drawn from stored reads, while it stands.
+const OFF={n:0,held:0,flushing:false,prep:false,saidStale:false,boot:true,staleNote:/** @type {Notice|null|undefined} */(null),
+  db:/** @type {IDBDatabase|null} */(null)};
 // This browser's queue, opened once per page. A browser that refuses IndexedDB (a private window) answers null, and every
 // caller below falls back to saying the pin could not be kept rather than losing it quietly.
 /** @returns {Promise<IDBDatabase|null>} */
@@ -97,12 +100,26 @@ function offStashed(url,o){const key=offReadKey(url,o); if(!key)return Promise.r
     if(typeof v.status!=='number'||v.status<200||v.status>=300){
       void offIn(OFF_STATE,'readwrite',s=>s.delete(key)); return null;}
     return {data:v.data,status:v.status,at:v.at};});}
+// When a read the network refused may be answered from the store: while this visit is still making its first reads
+// (a tab opened again with no network has nothing else to draw from), or while the connection is known to be gone
+// (offlineNow - switching documents during a flight). Never for a read that fails while the viewer is connected: that
+// failure is said and asked again as it always was (a failed pin read's '핀 읽기 실패 [다시 시도]', a Markdown source's
+// note and its re-ask on the next poll). Answered from the store there, it read as a success - the list stayed stale
+// and nothing asked again.
+function offlineMayServe(){return OFF.boot||offlineNow();}
 // Says once per visit that what is on screen was read before the connection went, and when. The pins and the pages are
 // that moment's, not this one's: the status line already says the connection is gone, and this says how old the screen is.
 function offStaleSaid(at){if(OFF.saidStale)return; OFF.saidStale=true;
   const d=new Date(at),two=(/** @type {number} */n)=>String(n).padStart(2,'0');
-  lineNote(tl('연결이 없어 {time}에 읽어 둔 화면입니다 — 핀을 찍으면 쌓였다가 연결되면 반영됩니다',
+  OFF.staleNote=lineNote(tl('연결이 없어 {time}에 읽어 둔 화면입니다 — 핀을 찍으면 쌓였다가 연결되면 반영됩니다',
     {time:two(d.getHours())+':'+two(d.getMinutes())}),NOTICE_KIND.WARN,null,{literal:true});}
+// The server answered again after a screen drawn from stored reads: its message goes, and the pin list is read again
+// whatever revision it was last read at - the stored list is that old moment's, and the light poll compares revisions,
+// so a stored list whose revision happens to equal the server's would otherwise stand unread. Called for every answer
+// the network gives (api); nothing happens unless a stored screen was said.
+function offlineBack(){if(!OFF.saidStale)return; OFF.saidStale=false;
+  if(OFF.staleNote){endNotice(OFF.staleNote,false); OFF.staleNote=null;}
+  LAST_PINS_REV=null;}
 
 // ---------------- The service worker
 // The worker is registered for every visit, not only where notifications are allowed (notify.js asks it for those): it is
@@ -312,6 +329,7 @@ async function offlineFlush(){
 
 // Boot: the worker is registered, the queue is counted, and a queue waiting on a live connection is sent right away. The
 // light poll calls offlineFlush() again whenever the connection comes back (polling.js).
-function offlineBoot(){void offlineWorker();
+function offlineBoot(){OFF.boot=false;   // the first reads are done: from here a read that fails while connected is a failure again
+  void offlineWorker();
   void offlineSync().then(()=>{if(OFF.n&&!offlineNow())void offlineFlush();});}
 addEventListener('online',()=>{void offlineFlush();});

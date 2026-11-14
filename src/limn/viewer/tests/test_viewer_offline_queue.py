@@ -588,6 +588,73 @@ class StoredAnswers(unittest.TestCase):
         self.assertEqual(got, {"light": None, "write": None, "kept": 0})
 
 
+SERVE_SCOPE = r"""
+var POLL_FAILS=0,LAST_PINS_REV='r1',SAID=[],ENDED=[];
+var OFF={boot:false,saidStale:false,staleNote:null};
+var navigator={onLine:true};
+var NOTICE_KIND={WARN:'warn'};
+function tr(s){return s;} function tl(s){return s;}
+function sourceOk(){} function apiFailed(o,why){SAID.push(why);}
+function lineNote(msg){const n={n:1,msg:msg}; return n;}
+function endNotice(n){ENDED.push(n.msg);}
+function offStash(){}
+// The store holds one good answer to the pin read.
+function offStashed(url){return Promise.resolve(url==='/api/pins?all=1'?{data:['stored'],status:200,at:0}:null);}
+var NET='down';   // what fetch does: 'down' rejects as a lost connection does, 'up' answers
+globalThis.fetch=function(){return NET==='down'?Promise.reject(new TypeError('Failed to fetch'))
+  :Promise.resolve({status:200,json:function(){return Promise.resolve(['fresh']);}});};
+function read(){return api('/api/pins?all=1',{what:'핀 읽기'}).then(function(r){return r.data[0];},function(){return 'failed';});}
+"""
+
+
+class StoredReadsServe(unittest.TestCase):
+    """When a stored answer may stand in for a read the network refused (api.js, offline.js offlineMayServe).
+
+    Answered from the store whenever a read failed, a failure while the viewer was connected read as a success: the
+    pin list stayed stale with no '핀 읽기 실패' and nothing asked again, and a Markdown source's note and its re-ask
+    went the same way. The store answers a visit's first reads and a connection known to be gone - nothing else.
+    """
+
+    def setUp(self):
+        if not shutil.which("node"):
+            self.skipTest("node not available")
+
+    def _run(self, scenario):
+        names = ("offlineNow", "offlineMayServe", "offStaleSaid", "offlineBack", "api")
+        return json.loads(run_node("\n".join([SERVE_SCOPE, *(extract_js_fn(n) for n in names), scenario])))
+
+    def test_a_read_that_fails_while_connected_is_a_failure(self):
+        """After the first reads, with the light poll answering: the failure is said, not papered over."""
+        got = self._run("read().then(function(v){console.log(JSON.stringify({got:v,said:SAID.length}));});")
+        self.assertEqual(got, {"got": "failed", "said": 1})
+
+    def test_the_first_reads_of_a_visit_are_answered_from_the_store(self):
+        """A tab opened again with no network: there is nothing else to draw from."""
+        got = self._run(
+            "OFF.boot=true; read().then(function(v){console.log(JSON.stringify({got:v,said:SAID.length,stale:OFF.saidStale}));});"
+        )
+        self.assertEqual(got, {"got": "stored", "said": 0, "stale": True})
+
+    def test_a_connection_known_to_be_gone_is_answered_from_the_store(self):
+        """Two light polls lost, or the browser says there is no network: switching documents during a flight."""
+        for gone in ("POLL_FAILS=2;", "navigator.onLine=false;"):
+            with self.subTest(gone=gone):
+                got = self._run(gone + "read().then(function(v){console.log(JSON.stringify({got:v}));});")
+                self.assertEqual(got, {"got": "stored"})
+
+    def test_the_first_answer_from_the_network_ends_the_stored_screen(self):
+        """Its message goes and the pin list is read again whatever revision it was read at."""
+        got = self._run(
+            """
+            OFF.boot=true;
+            read().then(function(first){OFF.boot=false; NET='up';
+              return read().then(function(second){console.log(JSON.stringify({first:first,second:second,
+                stale:OFF.saidStale,ended:ENDED.length,rev:LAST_PINS_REV}));});});
+            """
+        )
+        self.assertEqual(got, {"first": "stored", "second": "fresh", "stale": False, "ended": 1, "rev": None})
+
+
 class StoredReads(unittest.TestCase):
     """Which reads are stored for a reopened tab with no network (offline.js OFF_READS).
 

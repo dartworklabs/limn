@@ -102,6 +102,7 @@ var OFF={n:0,held:0,flushing:false,prep:false,saidStale:false};
 function offlineNow(){return false;} function offlineBoot(){} function offlineFlush(){return Promise.resolve();}
 function offlinePick(){return Promise.resolve();} function offlineQueueSave(){return Promise.resolve(false);}
 function offStash(){} function offStashed(){return Promise.resolve(null);} function offStaleSaid(){}
+function offlineMayServe(){return false;} function offlineBack(){}
 """
 
 
