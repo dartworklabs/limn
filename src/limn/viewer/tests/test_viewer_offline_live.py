@@ -238,6 +238,81 @@ class Landing(LiveBase):
         self.assertIn(CAUGHT_UP, ps.APP.C.pins_md.read_text(encoding="utf-8"), "pins.md has it for the agent")
 
 
+class KeepsItselfCurrent(LiveBase):
+    """A copy kept once keeps itself current while connected: no second press after a rebuild."""
+
+    def rebuild(self, old):
+        """Rebuild on the server, as an agent there does -> the new build, which differs from old."""
+        self.server("POST", "/api/rebuild?force=1")
+        new = self.server("GET", "/api/meta")["pages_build"]
+        self.assertNotEqual(new, old)
+        return new
+
+    @needs_tex("latexmk", "synctex", "pdftotext", "pdftoppm")
+    def test_a_rebuild_is_followed_without_pressing_again_and_opens_cut_off(self):
+        """Kept once; the server rebuilds; nobody presses again. The page follows on its own: the server holds the new
+        build, the old build's copies are gone from the cache, and the old build's hold is not let go - another device
+        may have pins queued on it; it lapses on its own. Cut off and opened again, the new build opens from the
+        worker's copies."""
+        self.assertIsInstance(ps.APP.build_requests.build_all(self.doc), BuildOk)
+        tab = self.open_live()
+        old = tab.keep()
+        self.assertTrue([u for u in tab.cache_urls() if old in u])
+        new = self.rebuild(old)
+        tab.until(
+            lambda: tab.kept_build(self.doc.key) == new and not tab.kept()["old"], timeout=90, what="the copy following"
+        )
+        holds = self.holds()
+        self.assertIn(new, holds)
+        self.assertIn(old, holds, "the old build's hold is left to lapse, not let go")
+        urls = tab.cache_urls()
+        self.assertEqual([u for u in urls if old in u], [], "the old build's copies are gone")
+        pdf = [u for u in urls if u.startswith("/pdf") and new in u]
+        self.assertEqual(len(pdf), 1, urls)
+        pages = len(self.server("GET", "/api/meta")["pages"])
+        self.assertEqual(len([u for u in urls if u.startswith("/pages/%s/" % new)]), pages, urls)
+        tab.cut_off()
+        tab.reopen()
+        self.assertEqual(tab.build(), new)
+        self.assertTrue(tab.fetch(pdf[0])["ok"], "the new build's PDF comes from the worker's copy")
+
+    @needs_tex("latexmk", "synctex", "pdftotext", "pdftoppm")
+    def test_a_build_a_queued_pin_was_drawn_on_stays_held_until_the_pin_is_sent(self):
+        """A pin is queued on the kept build and cannot be sent yet (the server is busy). The server rebuilds and the
+        page follows: the old build is still held, and its copies stay. Once the pin is sent, the next follow drops its
+        copies; its hold is left to lapse."""
+        self.assertIsInstance(ps.APP.build_requests.build_all(self.doc), BuildOk)
+        tab = self.open_live()
+        old = tab.keep()
+        tab.cut_off()
+        tab.reopen()
+        tab.pin_offline(CAUGHT_UP, box=(0.2, 0.30, 0.8, 0.36))
+        busy = {"n": 0}
+
+        def refuse(route):
+            busy["n"] += 1
+            route.fulfill(status=503, content_type="application/json", body='{"error": "busy"}')
+
+        tab.page.route("**/api/pick", refuse)
+        tab.reconnect()
+        tab.until_routed(lambda: busy["n"] >= 1, what="the send refused")
+        new = self.rebuild(old)
+        tab.until_routed(lambda: tab.kept_build(self.doc.key) == new, timeout=90, what="the copy following")
+        self.assertEqual([o["build"] for o in tab.kept()["old"]], [old])
+        self.assertEqual(tab.unsent()["n"], 1, "the pin still waits")
+        holds = self.holds()
+        self.assertIn(old, holds, "the build the queued pin was drawn on is still held")
+        self.assertIn(new, holds)
+        self.assertTrue([u for u in tab.cache_urls() if old in u], "and its copies stay")
+        tab.page.unroute("**/api/pick")
+        tab.send_queue()
+        tab.wait_for("OFF.n===0")
+        self.assertEqual(len([p for p in self.pins() if p.get("note") == CAUGHT_UP]), 1)
+        tab.until(lambda: not tab.kept()["old"], timeout=90, what="the old build's copies dropped")
+        self.assertIn(old, self.holds(), "its hold is left to lapse, not let go")
+        self.assertEqual([u for u in tab.cache_urls() if old in u], [])
+
+
 class LostAnswer(LiveBase):
     """A write that landed and whose answer was lost: the idempotency key ends it without a second pin."""
 

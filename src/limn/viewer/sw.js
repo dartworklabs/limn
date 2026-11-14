@@ -23,6 +23,11 @@ function cacheable(url) {
   const p = url.pathname;
   return p !== '/sw.js' && !p.startsWith('/api/');
 }
+// Whether this URL is a document's own file - its PDF or a page image - the only copies a page may ask to drop one by
+// one ('drop'). The page and the static files serve every document and are never dropped that way.
+function docFile(url) {
+  return url.pathname === '/pdf' || url.pathname.startsWith('/pages/');
+}
 // Whether this answer is the viewer page itself. The page is one HTML string with every part inlined, and the document
 // it is asked for rides in the query (?doc=), so every such answer is kept under the one shell key - a copy taken by
 // [오프라인으로 받기] on `/?doc=ms` is then what a later navigation to `/` or to another document is answered with.
@@ -78,6 +83,8 @@ self.addEventListener('fetch', e => {
 // waits on a worker that was replaced meanwhile.
 //   {type:'keep', urls}   fetch each URL and keep it; replies {kept, failed:[url...]}
 //   {type:'held', urls}   how many of these are already kept; replies {held}
+//   {type:'drop', urls}   drop the copies kept under exactly these addresses - a document's PDF and page images only,
+//                         never the page or a static file; replies {dropped}
 //   {type:'forget'}       drop every copy; replies {}
 self.addEventListener('message', e => {
   const d = e.data || {}, port = e.ports && e.ports[0];
@@ -104,6 +111,16 @@ self.addEventListener('message', e => {
       if (await caches.match(new Request(url.href))) held++;
     }
     say({ held });
+  })());
+  else if (d.type === 'drop') e.waitUntil((async () => {
+    const urls = Array.isArray(d.urls) ? d.urls : []; let dropped = 0;
+    let c; try { c = await caches.open(CACHE); } catch (_) { say({ dropped }); return; }
+    for (const u of urls) {
+      let url; try { url = new URL(u, self.location.origin); } catch (_) { continue; }
+      if (!docFile(url)) continue;
+      try { if (await c.delete(new Request(url.href))) dropped++; } catch (_) {}
+    }
+    say({ dropped });
   })());
   else if (d.type === 'forget') e.waitUntil((async () => {
     try { await caches.delete(CACHE); } catch (_) {}
