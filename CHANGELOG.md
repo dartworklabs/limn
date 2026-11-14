@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.60 — 2026-11-15
 
 ### Added
 
@@ -42,16 +42,15 @@
   reached the queue. The requests that decide it now wait only so long (the light poll, a document read with a
   stored answer and a drag's pick 8s, a new pin's save 10s) and then count as unreached; after one unanswered
   request a drag opens at once, without asking. A save sent while the viewer thought it was connected and left
-  without an answer for that long is kept in the queue under its key instead of failing. The service worker answers from its copy
-  when the network has not answered a request it has a copy of in 4s, or an answer on its way stops for 4s, so a tab opened again during a flight opens in
-  seconds, not minutes.
+  without an answer for that long is kept in the queue under its key instead of failing. The service worker answers
+  from its copy when the network has not answered a request it has a copy of in 4s, or an answer on its way stops
+  for 4s, so a tab opened again during a flight opens in seconds, not minutes.
 - **Four ways a kept pin or a kept build could go wrong.** A file the cache refused to store is reported as not kept
   (it was counted as kept, and a build with pages missing was recorded as whole). A write to the queue answers once
   its transaction has committed, not when its request succeeded. [Save] pressed twice while cut off keeps one pin.
   A kept pin on a figure document is written with its element, as an online save is.
 - **A drag made while cut off keeps its selection.** The composer's head read `null` for the file and a
   "location failed" banner came with it; it now names the page and shows an `Offline` badge.
-
 - **PageUp and PageDown in a reason field being saved move no page (#481).** Chrome 157 moves the caret of a
   read-only field a page, as in a writable one, and lines it up with the scrollers outside: in the middle of a long
   reason field whose save was out, either key moved the pages 188px. Up to Chrome 156 they scrolled the field only.
@@ -67,8 +66,6 @@
   distribution's TeX, or none, takes the shell's PATH, so a unit already written this way is repaired by the next
   `limn update` from a login shell. When both reach the same pdflatex the unit keeps its PATH, with any directories
   `LIMN_UNIT_PATH` added. `LIMN_UNIT_PATH` still sets the PATH outright.
-
-The agent contract is unchanged.
 
 ## 0.4.59 — 2026-11-12
 
