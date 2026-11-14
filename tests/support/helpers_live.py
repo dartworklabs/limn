@@ -372,6 +372,42 @@ class LiveTab:
             "pdf_build": build,
         }
 
+    def lose_the_next_pin_answer(self):
+        """The next POST /api/pin that creates a pin reaches the server, and its answer never comes back - what a
+        connection that drops mid-request does. The question a viewer asks by key alone (replay_only) passes."""
+        lost = {"n": 0}
+
+        def handler(route):
+            body = route.request.post_data or ""
+            if route.request.method != "POST" or '"replay_only"' in body or lost["n"]:
+                route.continue_()
+                return
+            lost["n"] += 1
+            route.fetch()  # the server handles it and writes the pin
+            route.abort()  # and the browser never hears
+
+        self.page.route("**/api/pin", handler)
+        return lost
+
+    def until_routed(self, check, timeout=30.0, what="the condition"):
+        """until(), for a condition a route handler brings about: each round lets the page run a moment, which is
+        when Playwright's sync API calls the handler. A wait that only sleeps in Python never lets it run, and the
+        request it should answer stays held."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            self.page.wait_for_timeout(100)
+            if check():
+                return
+        raise AssertionError("%s did not come true in %ss" % (what, timeout))
+
+    def send_queue(self):
+        """Send the queue now, as the status line's [지금 반영] does, and wait until that send is over."""
+        self.page.evaluate("async () => { await offlineFlush(); }")
+
+    def record_sent(self):
+        """Whether the first queued record is marked as attempted (the page's own mark; None with an empty queue)."""
+        return self.page.evaluate("async () => { const a = await offAll(); return a.length ? !!a[0].sent : null; }")
+
     def drop_queue(self):
         """Empty the queue without sending it."""
         self.page.evaluate("async () => {for (const r of await offAll()) await offDel(r.id); await offlineSync();}")

@@ -236,3 +236,55 @@ class Landing(LiveBase):
         self.assertEqual(tab.unsent(), {"n": 0, "held": 0})
         tab.until(lambda: CAUGHT_UP in tab.state()["notes"], what="the viewer showing the pin")
         self.assertIn(CAUGHT_UP, ps.APP.C.pins_md.read_text(encoding="utf-8"), "pins.md has it for the agent")
+
+
+class LostAnswer(LiveBase):
+    """A write that landed and whose answer was lost: the idempotency key ends it without a second pin."""
+
+    @needs_tex("latexmk", "synctex", "pdftotext", "pdftoppm")
+    def test_a_write_whose_answer_was_lost_is_found_by_its_key_and_not_made_twice(self):
+        """The queued pin reaches the server and the browser never hears. The record stays, marked as attempted. The
+        next send asks by the key alone, learns the pin exists, and drops the record: one pin on the server, none
+        written twice, and nothing left in the queue."""
+        self.assertIsInstance(ps.APP.build_requests.build_all(self.doc), BuildOk)
+        tab = self.open_live()
+        tab.keep()
+        tab.cut_off()
+        tab.reopen()
+        tab.pin_offline(CAUGHT_UP, box=(0.2, 0.30, 0.8, 0.36))
+        lost = tab.lose_the_next_pin_answer()
+        tab.reconnect()
+        tab.until_routed(lambda: lost["n"] == 1 and len(self.pins()) == 1, what="the write reaching the server")
+        tab.wait_for("!OFF.flushing")
+        self.assertEqual(tab.unsent()["n"], 1, "the browser heard nothing, so the record waits")
+        self.assertTrue(tab.record_sent(), "marked as attempted, which is what sends the next visit to ask by key")
+        tab.send_queue()
+        tab.wait_for("OFF.n===0")
+        rows = [p for p in self.pins() if p.get("note") == CAUGHT_UP]
+        self.assertEqual(len(rows), 1, "the pin is not made a second time")
+        self.assertEqual(tab.unsent(), {"n": 0, "held": 0})
+
+    @needs_tex("latexmk", "synctex", "pdftotext", "pdftoppm")
+    def test_a_written_pin_is_recovered_even_after_its_place_is_gone(self):
+        """The same lost answer, and then the build the pin was drawn on is released and rebuilt away. Looked for
+        first, the place would not be found and the record would be held with its pin standing on the server; asked
+        by the key first, it is simply done."""
+        self.assertIsInstance(ps.APP.build_requests.build_all(self.doc), BuildOk)
+        tab = self.open_live()
+        held = tab.keep()
+        tab.cut_off()
+        tab.reopen()
+        tab.pin_offline(CAUGHT_UP, box=(0.2, 0.30, 0.8, 0.36))
+        lost = tab.lose_the_next_pin_answer()
+        tab.reconnect()
+        tab.until_routed(lambda: lost["n"] == 1 and len(self.pins()) == 1, what="the write reaching the server")
+        tab.wait_for("!OFF.flushing")
+        # The hold is released and two builds later the build is gone: a pick against it now answers pdf_build_gone.
+        self.server("POST", "/api/hold", {"build": held, "days": 0})
+        for _ in range(2):
+            self.server("POST", "/api/rebuild?force=1")
+        self.assertFalse((self.doc.dir / held).exists(), "the build the pin was drawn on is gone")
+        tab.send_queue()
+        tab.wait_for("OFF.n===0")
+        self.assertEqual(tab.unsent(), {"n": 0, "held": 0}, "not held: the pin was already there")
+        self.assertEqual(len([p for p in self.pins() if p.get("note") == CAUGHT_UP]), 1)
