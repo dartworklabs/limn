@@ -861,7 +861,8 @@ class FrontendVector(unittest.TestCase):
 
     def test_no_text_layer(self):
         """No text-selection layer is drawn over a page - a drag there is a region selection. The page's text is read
-        in one place only, for the in-document search (search.js), which draws boxes and no text."""
+        in one place only (search.js pageText): for the in-document search, which draws boxes and no text, and for the
+        words of a selection made with no network (offline.js offlineQuote)."""
         for s in ("TextLayer", "textLayer"):
             self.assertNotIn(s, HTML)
         self.assertEqual(HTML.count(".getTextContent("), 1)
@@ -4075,6 +4076,8 @@ class FrontendSaveWhilePicking(unittest.TestCase):
             let KIND_NEW='fix'; function setKind(k){KIND_NEW=k==='question'?'question':'fix';} function mentionHints(){return [];}
             const ASSIGN_NEW={v:'agent',touched:false}; function renderAssignNew(){} function mentionPreview(){}
             function pvTopId(){return 0;}   // the mark a lost save's answer is looked for above (verdict.js)
+            function offlineNow(){return false;} function offlinePick(){return Promise.resolve();}   // connected (offline.js)
+            function isMdDoc(){return false;}
             function composeAsk(mode){return {mode};} function assignOutcome(){return {kind:KIND_NEW,assignee:ASSIGN_NEW.v};}
             function setBusy(){} function renderComposer(){} function overlapsFor(){return [];} function applySide(){}
             function selectionSnapshot(){return null;} function restoreSelection(){} let MID_OVERLAY=false; function relayout(){}

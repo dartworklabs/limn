@@ -4,7 +4,7 @@ import json
 import shutil
 import unittest
 
-from helpers import JS_UPDATE_STUBS, extract_js_fn, js_esc, js_markup, run_node
+from helpers import JS_OFFLINE_STUBS, JS_UPDATE_STUBS, extract_js_fn, js_esc, js_markup, run_node
 
 
 class PinListLoading(unittest.TestCase):
@@ -334,6 +334,7 @@ class PinListLoading(unittest.TestCase):
                 extract_js_fn("loadPins"),
                 js_esc(),
                 js_markup(),
+                JS_OFFLINE_STUBS,
                 extract_js_fn("boot"),
                 "function isMdDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
                 JS_UPDATE_STUBS + extract_js_fn("pollLightOnce"),
@@ -398,6 +399,7 @@ class PinListLoading(unittest.TestCase):
             [
                 js_esc(),
                 js_markup(),
+                JS_OFFLINE_STUBS,
                 extract_js_fn("boot"),
                 "function isMdDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
                 JS_UPDATE_STUBS + extract_js_fn("pollLightOnce"),

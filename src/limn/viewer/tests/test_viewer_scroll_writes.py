@@ -61,6 +61,7 @@ OTHERS = {
     ("layout.js", "onViewport"): 1,
     ("levels.js", "segReveal"): 3,
     ("md-compare.js", "mdcGo"): 1,
+    ("offline.js", "offlinePick"): 1,
     ("md-surface.js", "mdPick"): 2,
     ("list.js", "gotoPinRef"): 1,
     ("list.js", "gotoReview"): 1,

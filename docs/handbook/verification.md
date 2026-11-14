@@ -228,6 +228,7 @@ CI는 uv `0.12.23`을 쓰고, 패키지 빌드는 Hatchling `1.32.4`를 요구�
 | 실제 테일넷 다중 사용자 접속 | CI 러너가 테일넷에 조인할 수 없다 | `--auth trusted-proxy`와 `src/limn/security/tests/test_access.py`의 헤더 시뮬레이션으로 대조 |
 | 실제 TeX 엔진의 다양한 원고 | TeX Live 전체 설치는 CI에서 너무 무겁다 | 최소 fixture 원고와 `test_cross_engine.py`로 핵심 경로만 확인 |
 | 브라우저 알림(Service Worker) 실기 동작 | 헤드리스 브라우저에서 푸시 알림 환경이 제한된다 | `sw.js` 구문 검사와 `test_notifications.py`의 이벤트 스트림 검사로 분할 |
+| 서비스 워커가 사본으로 답하는 것(끊긴 채 페이지·PDF 열기) | 브라우저 검사 하네스는 요청을 가로채 가짜 호스트로 서빙한다. 보안 컨텍스트가 아니라 워커가 등록되지 않는다 | 큐 전송·저장해 둔 읽기·저장 대상 목록은 `test_viewer_offline_queue.py`가 서빙된 함수를 node로 꺼내 본다. 워커의 사본 응답은 루프백 실제 소켓에 띄운 브라우저로 손으로 확인한다([viewer.md](viewer.md) §끊긴 채 보기와 핀 쌓기) |
 | 뷰어 JS 단위 테스트 프레임워크 | 브라우저 JS 린터나 Jest 같은 별도 러너를 두지 않는다(타입 검사 `tsc`만 둔다, §9) | `test_viewer_source.py`의 AST 토큰 검사와 `test_viewer_browser.py`의 Playwright 통합으로 대체 |
 | Handbook 같은 파일 안의 §참조 | 정규식만으로 같은 파일의 앵커 존재를 완벽히 가리기 어렵다 | PR 리뷰에서 사람이 링크를 직접 클릭해 확인 |
 | private 도우미와 테스트 함수·메서드·fixture의 docstring | docstring 검사(Ruff)는 프로덕션 공개 항목과 테스트 모듈·클래스의 존재만 본다. 기존 테스트 함수의 누락이 많아 테스트 경로에서 `D102`–`D107`을 끈다 | 새로 쓰거나 고친 항목은 리뷰가 docstring의 존재와, 그 설명이 단언과 맞는지 확인한다([code-style-roadmap.md](code-style-roadmap.md) §R9) |

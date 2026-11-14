@@ -93,6 +93,18 @@ function groupNote(group,data,view){const v=view(data); return lineNote(v.msg,v.
 """
 
 
+# Stand-ins for the hooks of the offline pin queue (js/offline.js) for a node harness that pulls a function calling
+# them - api(), savePin(), pick(), boot(), the light poll: the connection is there, nothing is queued, no answer is
+# stored and none is served from the store. var and function declarations, so a harness may take it more than once and
+# one that tests the queue itself declares the real functions after it.
+JS_OFFLINE_STUBS = r"""
+var OFF={n:0,held:0,flushing:false,prep:false,saidStale:false};
+function offlineNow(){return false;} function offlineBoot(){} function offlineFlush(){return Promise.resolve();}
+function offlinePick(){return Promise.resolve();} function offlineQueueSave(){return Promise.resolve(false);}
+function offStash(){} function offStashed(){return Promise.resolve(null);} function offStaleSaid(){}
+"""
+
+
 def js_markup() -> str:
     """The viewer's markup part (js/markup.js: Html, html``, ic(), setHtml()) exactly as served, for node harnesses that
     run functions building markup. It needs esc() (js_esc()) and, to draw an icon, ICONS (js_icons() brings both)."""

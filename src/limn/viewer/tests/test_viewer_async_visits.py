@@ -4,7 +4,7 @@ import json
 import shutil
 import unittest
 
-from helpers import JS_UPDATE_STUBS, extract_js_fn, run_node
+from helpers import JS_OFFLINE_STUBS, JS_UPDATE_STUBS, extract_js_fn, run_node
 
 
 class AsyncDocumentVisits(unittest.TestCase):
@@ -126,6 +126,7 @@ class VisitLocalContinuations(unittest.TestCase):
         """Run the real save continuation with a controlled POST and observable local effects."""
         js = "\n".join(
             [
+                JS_OFFLINE_STUBS,
                 extract_js_fn("captureVisit"),
                 extract_js_fn("currentVisit"),
                 extract_js_fn("composeOwns"),

@@ -142,7 +142,10 @@ async function offlinePrepare(){
     if(!r){lineNote('오프라인용 받기를 마치지 못했습니다 — 다시 시도하세요',NOTICE_KIND.ERR,{label:'다시 시도',fn:()=>{OFF.prep=false; offlinePrepare();}},{}); return;}
     let held=false;
     if(META&&META.pages_build&&!isMdDoc()){
-      try{await api(dq('/api/hold'),{method:'POST',body:{build:META.pages_build,days:7},what:'빌드 보류',silent:true,expect:[404]}); held=true;}
+      // Held only when the server says until when. A 404 is handed back, not thrown (expect), and it is not a hold:
+      // an older Limn has no such route, and a build that left while this ran answers pdf_build_gone.
+      try{const r=await api(dq('/api/hold'),{method:'POST',body:{build:META.pages_build,days:7},what:'빌드 보류',silent:true,expect:[404]});
+        held=r.status===200&&!!(r.data&&r.data.until);}
       catch(e){held=false;}}
     const failed=(r.failed||[]).length;
     lineNote(failed?tl('오프라인용 {n}개 중 {m}개를 받지 못했습니다 — 연결을 확인하고 다시 받으세요',{n:urls.length,m:failed})
@@ -157,8 +160,8 @@ async function offlinePrepare(){
 // still hours away, and the pick's quote replaces it when the pin is written.
 /** @param {number} page @param {{x0:number,y0:number,x1:number,y1:number}} rect @returns {Promise<string>} */
 async function offlineQuote(page,rect){if(!VEC.doc)return '';
-  try{const pg=await VEC.doc.getPage(page),tc=await pg.getTextContent(),vp=pg.getViewport({scale:1}),out=[];
-    (tc.items||[]).forEach((/** @type {any} */it)=>{const t=it.transform; if(!t||typeof it.str!=='string')return;
+  try{const {items,vp}=await pageText(VEC.doc,page),out=/** @type {string[]} */([]);   // the one reader of a page's text (search.js)
+    (items||[]).forEach((/** @type {any} */it)=>{const t=it.transform; if(!t||typeof it.str!=='string')return;
       const x=t[4],y=vp.height-t[5];   // PDF.js measures from the bottom; a drag's box from the top, as pick does
       if(x>=rect.x0-2&&x<=rect.x1+2&&y>=rect.y0-6&&y<=rect.y1+6)out.push(it.str);});
     return out.join(' ').replace(/\s+/g,' ').trim().slice(0,160);}catch(e){return '';}}

@@ -294,14 +294,20 @@ function searchPaint(){const n=SEARCH.hits.length,i=SEARCH.cur?SEARCH.hits.index
 // one page at a time and never while a page is being drawn; each page read adds its hits. Stops when the query is cleared or
 // another document is searched. A page whose text cannot be read is left unread and not tried again for this query (the next
 // query tries it again); the pages after it are still read.
+// Page n's text of PDF document doc: its items and styles, and the page's viewport at scale 1. The one place a page's
+// text is read - the search reads every page through it, and a selection made with no network the page it was drawn
+// on (offline.js offlineQuote). Rejects as PDF.js does when the page cannot be read.
+/** @param {any} doc @param {number} n @returns {Promise<{items:any[],styles:any,vp:any}>} */
+async function pageText(doc,n){const page=await doc.getPage(n),tc=await page.getTextContent(),vp=page.getViewport({scale:1});
+  return {items:tc.items,styles:tc.styles,vp};}
 async function searchRead(){const doc=SEARCH.doc; if(!doc||SEARCH.reading===doc)return; SEARCH.reading=doc;
   const P=searchPages(doc),N=P.length;
   try{for(;;){const from=Math.min(N,Math.max(1,SEARCH.ref.page)); let n=0;
       for(let k=0;k<N&&!n;k++){const c=(from-1+k)%N+1; if(!P[c-1]&&!SEARCH.failed.has(c))n=c;}
       if(!n)return;
       while(VEC.pumping||VEC.cur){await new Promise(r=>setTimeout(r,60)); if(SEARCH.doc!==doc||!SEARCH.q)return;}
-      try{const page=await doc.getPage(n),tc=await page.getTextContent(),vp=page.getViewport({scale:1}),lines=searchLines(tc.items);
-        P[n-1]={items:tc.items,styles:tc.styles,vt:vp.transform,w:vp.width,h:vp.height,lines,flow:searchFlow(lines)};}
+      try{const {items,styles,vp}=await pageText(doc,n),lines=searchLines(items);
+        P[n-1]={items,styles,vt:vp.transform,w:vp.width,h:vp.height,lines,flow:searchFlow(lines)};}
       catch(e){if(VEC.doc!==doc)return; if(SEARCH.doc===doc)SEARCH.failed.add(n);}
       if(SEARCH.doc!==doc||!SEARCH.q)return;
       const more=P[n-1]?searchPageHits(P[n-1],n,SEARCH.re):[]; if(more.length)SEARCH.hits=SEARCH.hits.concat(more).sort(searchOrder);
