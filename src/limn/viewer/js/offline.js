@@ -7,7 +7,7 @@
 // order it was written: each record's own coordinates go to POST /api/pick with the build they were drawn on, and its
 // answer to POST /api/pin. A record whose place cannot be found again is kept and counted, never dropped.
 const OFF_DB='limnOffline',OFF_STORE='pins',OFF_STATE='state',OFF_MAX=200;
-const OFF_WROTE='wrote',OFF_WROTE_MAX=500;   // the state key holding the pin numbers this queue wrote, and how many are kept
+const OFF_WROTE='wrote';   // the state key holding the pin numbers this queue wrote while a record still waits
 // The document reads a reopened tab needs before it can draw anything, and whose last answer is therefore stored. It is
 // every read the boot path makes: the document's meta and the document list, the pin list AND the dropped one (loadPins
 // applies neither snapshot unless both answered - without the second the stored list was fetched and then thrown away),
@@ -46,7 +46,17 @@ function offWrote(){return offIn(OFF_STATE,'readonly',s=>s.get(OFF_WROTE)).then(
 /** @param {number} id */
 async function offWroteAdd(id){if(typeof id!=='number')return;
   const ids=await offWrote(); if(ids.includes(id))return;
-  ids.push(id); await offIn(OFF_STATE,'readwrite',s=>s.put({key:OFF_WROTE,ids:ids.slice(-OFF_WROTE_MAX)}));}
+  ids.push(id); await offIn(OFF_STATE,'readwrite',s=>s.put({key:OFF_WROTE,ids}));}
+// Keeps only what some waiting record can still be confused by. A record is matched only against pins newer than the
+// one it was attempted after (its `top`), so every number at or below the smallest of those tops is past being
+// needed; an empty queue needs none of them. Capping the list by its length instead would drop the very number a
+// record that waited through many writes still needs.
+/** @param {any[]} rest */
+async function offWroteKeep(rest){const ids=await offWrote(); if(!ids.length)return;
+  const tops=rest.map(r=>typeof r.top==='number'?r.top:0);
+  const floor=tops.length?Math.min(...tops):Infinity;
+  const kept=rest.length?ids.filter(id=>id>floor):[];
+  if(kept.length!==ids.length)await offIn(OFF_STATE,'readwrite',s=>s.put({key:OFF_WROTE,ids:kept}));}
 /** Whether this record is still queued - another tab of this browser may have written and dropped it. @returns {Promise<boolean>} */
 function offHas(id){return offTx('readonly',s=>s.getKey(id)).then(v=>v!==null&&v!==undefined);}
 function offPut(rec){return offTx('readwrite',s=>s.put(rec));}
@@ -230,10 +240,13 @@ function fracSame(a,b){if(!Array.isArray(a)||!Array.isArray(b)||a.length<4||b.le
 // answer. A line answer stands on its lines; a region answer stands on its page AND its box, because two region pins
 // on one page are told apart by nothing else, and a page-only judgment deleted a second pin that was never written.
 // A pin this queue has already written - in this send or any earlier one (offWrote) - is not offered again: two
-// deliberate pins may be alike in every field this reads, and only one of them is that pin.
+// deliberate pins may be alike in every field this reads, and only one of them is that pin. Nor is a pin that was
+// already there when this record was attempted (rec.top, as pvLanded reads its own lost answer): whatever that pin
+// is, it is not the write this record made afterwards.
 /** @param {any} rec @param {any} d @param {Set<number>} claimed @returns {number} */
 function offlineLanded(rec,d,claimed){const f=d.frac||rec.frac;
-  const hit=OPEN_ALL.find(p=>!claimed.has(p.id)&&isMe(p.author)&&pdoc(p)===(rec.doc||DEFAULT_DOC)&&String(p.note||'')===String(rec.note||'')&&
+  const top=typeof rec.top==='number'?rec.top:0;
+  const hit=OPEN_ALL.find(p=>p.id>top&&!claimed.has(p.id)&&isMe(p.author)&&pdoc(p)===(rec.doc||DEFAULT_DOC)&&String(p.note||'')===String(rec.note||'')&&
     (d.file?(p.file===d.file&&p.lo===d.lo&&p.hi===d.hi):(!p.file&&p.page===d.page&&fracSame(p.frac,f))));
   return hit?hit.id:0;}
 // Sends the queue, oldest first: each record's own coordinates and build go to pick, its answer to the pin. A record is
@@ -276,7 +289,7 @@ async function offlineFlush(){
       // the server would not take, a role that may not write, a conflict). Everything else may be on the server: no
       // answer at all, a 5xx the server returned after its write went through, a gateway's 502 or 504 over a request
       // that did reach it. Those keep the mark and are looked for in the list instead.
-      rec.sent=true; await offPut(rec);
+      rec.sent=true; rec.top=pvTopId(); await offPut(rec);   // the pins that existed before this write, as savePin notes for its own
       try{const {data}=await api('/api/pin',{method:'POST',body:offlineBody(rec,d),what:'핀 저장',silent:true});
         if(data&&typeof data.id==='number'){claimed.add(data.id); await offWroteAdd(data.id);}
         saved.push(data&&data.id); await offDel(rec.id);}
@@ -286,7 +299,7 @@ async function offlineFlush(){
         await loadPins(); const late=offlineLanded(rec,d,claimed);
         if(late){claimed.add(late); saved.push(late); await offDel(rec.id); continue;}
         failed++;}}
-  }finally{OFF.flushing=false; await offlineSync(); await loadPins();}
+  }finally{OFF.flushing=false; try{await offWroteKeep(await offAll());}catch(e){} await offlineSync(); await loadPins();}
   const ids=saved.filter(n=>typeof n==='number');
   if(ids.length)lineNote(ids.length<=3?tl('오프라인 핀 저장됨 · #{ids}',{ids:ids.join(', #')}):tl('오프라인 핀 {n}개 저장됨',{n:ids.length}),
     NOTICE_KIND.OK,null,{life:NOTICE_LIFE.TIMER,literal:true});

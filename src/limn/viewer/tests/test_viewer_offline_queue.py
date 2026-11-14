@@ -22,7 +22,7 @@ function offIn(store,mode,fn){const s={put:function(v){STATE.set(v.key,v); retur
   get:function(k){return {result:STATE.get(k)};},delete:function(k){STATE.delete(k); return {};}};
   const rq=fn(s); return Promise.resolve(rq&&'result' in rq?rq.result:null);}
 var OFF={n:0,held:0,flushing:false,prep:false,db:null};
-var QUEUE=[],PICKS=[],PINS_SENT=[],NOTES=[],LOADS=0,OPEN_ALL=[];
+var QUEUE=[],PICKS=[],PINS_SENT=[],PINS_OK=[],NOTES=[],LOADS=0,OPEN_ALL=[],REVIEW_ALL=[],DONE_ALL=[];
 var NOTICE_KIND={OK:'ok',WARN:'warn',ERR:'err',INFO:'info'},NOTICE_LIFE={TIMER:'timer',CLICK:'click'},NOTICE_PLACE={LINE:'line'};
 function offAll(){return Promise.resolve(QUEUE.slice());}
 function offDel(id){QUEUE=QUEUE.filter(function(r){return r.id!==id;}); return Promise.resolve(true);}
@@ -48,6 +48,7 @@ function api(url,o){
   if(url==='/api/pin'){PINS_SENT.push(o.body); const a=ANSWERS.pin.shift();
     if(a&&a.refuse){const e=new Error('HTTP '+a.refuse); e.status=a.refuse; return Promise.reject(e);}
     if(a&&a.throw)return Promise.reject(a.throw);
+    PINS_OK.push(a.id);   // the pins that exist, as against the attempts counted in PINS_SENT
     WRITTEN.push({id:a.id,author:'me',doc:o.body.doc||'main',file:o.body.file||null,lo:o.body.lo,hi:o.body.hi,
       page:o.body.page,frac:o.body.frac,note:o.body.note});   // as the next list read would show it
     return Promise.resolve({status:200,data:a});}
@@ -61,7 +62,17 @@ function found(lo){return {file:'main.tex',name:'main.tex',page:3,lo:lo,hi:lo+1,
   pdf_build:'pages-20261114T090000'};}
 """
 
-FUNCTIONS = ("offlineBox", "offlineBody", "fracSame", "offlineLanded", "offWrote", "offWroteAdd", "offlineFlush")
+FUNCTIONS = (
+    "offlineBox",
+    "offlineBody",
+    "fracSame",
+    "pvTopId",
+    "offlineLanded",
+    "offWrote",
+    "offWroteAdd",
+    "offWroteKeep",
+    "offlineFlush",
+)
 
 
 class OfflineQueueSend(unittest.TestCase):
@@ -205,15 +216,52 @@ class OfflineQueueSend(unittest.TestCase):
             QUEUE=[a,b];
             ANSWERS={pick:[found(10),found(10),found(10)],pin:[{refuse:500},{id:72},{id:73}]};
             offlineFlush().then(function(){
-              // What the next read of the list shows: b's pin. a's 5xx wrote nothing, which this cannot know.
+              // The next read of the list shows b's pin. a's 5xx wrote nothing, which this cannot know - so a's own
+              // write has to go out again rather than be answered for by the pin its twin made.
               return offlineFlush().then(function(){
-                console.log(JSON.stringify({pins:PINS_SENT.length,left:QUEUE.length,
-                  wrote:(STATE.get('wrote')||{}).ids}));});});
+                console.log(JSON.stringify({written:PINS_OK,left:QUEUE.length}));});});
             """
         )
-        self.assertEqual(got["pins"], 3, "the record the 5xx left is written, not matched to the twin's pin")
+        self.assertEqual(got["written"], [72, 73], "a's write goes out again instead of claiming b's pin")
         self.assertEqual(got["left"], 0)
-        self.assertEqual(got["wrote"], [72, 73])
+
+    def test_a_pin_that_was_already_there_is_not_this_record_s_write(self):
+        """A record is matched only against pins newer than the write it was attempted after. A pin of mine at the
+        same place with the same note that predates the attempt is some earlier pin, not this record's."""
+        got = self._run(
+            """
+            const a=rec(1,'same'); QUEUE=[a];
+            OPEN_ALL=[{id:40,author:'me',doc:'main',file:'main.tex',lo:10,hi:11,note:'same'}];
+            ANSWERS={pick:[found(10),found(10)],pin:[{throw:new Error('network')},{id:41}]};
+            offlineFlush().then(function(){
+              return offlineFlush().then(function(){
+                console.log(JSON.stringify({pins:PINS_OK.length,left:QUEUE.length,top:a.top}));});});
+            """
+        )
+        self.assertEqual(got["top"], 40, "the attempt notes the pins that existed before it")
+        self.assertEqual(got["pins"], 1, "the record is written; the older pin is not mistaken for its write")
+        self.assertEqual(got["left"], 0)
+
+    def test_the_ledger_keeps_what_a_waiting_record_still_needs(self):
+        """Capping the ledger by length would drop the number a record that waited through many writes still needs, so
+        it is pruned against the records left instead: only numbers above the smallest boundary are kept, and an empty
+        queue keeps none."""
+        got = self._run(
+            """
+            const held=rec(1,'held'); held.rect=null; held.pt=null;   // stays in the queue, nothing can place it
+            const b=rec(2,'twin'),c=rec(3,'twin');
+            QUEUE=[held,b,c];
+            ANSWERS={pick:[found(10),found(20)],pin:[{id:61},{id:62}]};
+            offlineFlush().then(function(){
+              const after=(STATE.get('wrote')||{}).ids;
+              QUEUE=[];   // the waiting record is dealt with by hand
+              return offWroteKeep([]).then(function(){
+                console.log(JSON.stringify({afterSend:after,afterEmpty:(STATE.get('wrote')||{}).ids,
+                  left:QUEUE.length}));});});
+            """
+        )
+        self.assertEqual(got["afterSend"], [61, 62], "kept while a record waits")
+        self.assertEqual(got["afterEmpty"], [], "nothing waits, nothing to remember")
 
     def test_a_lost_answer_is_still_matched_to_its_own_pin(self):
         """The dedup has to keep working where it is sound: nothing else of this queue wrote that pin."""
@@ -222,12 +270,13 @@ class OfflineQueueSend(unittest.TestCase):
             const a=rec(1,'alone'); QUEUE=[a];
             ANSWERS={pick:[found(10),found(10)],pin:[{throw:new Error('network')}]};
             offlineFlush().then(function(){
+              // The write did reach the server; its answer was lost. The next read of the list shows it.
               OPEN_ALL=[{id:80,author:'me',doc:'main',file:'main.tex',lo:10,hi:11,note:'alone'}];
               return offlineFlush().then(function(){
-                console.log(JSON.stringify({pins:PINS_SENT.length,left:QUEUE.length}));});});
+                console.log(JSON.stringify({tries:PINS_SENT.length,written:PINS_OK.length,left:QUEUE.length}));});});
             """
         )
-        self.assertEqual(got, {"pins": 1, "left": 0})
+        self.assertEqual(got, {"tries": 1, "written": 0, "left": 0}, "found, not written a second time")
 
     def test_an_answer_that_never_came_keeps_the_attempt_mark(self):
         """A tab closed mid-request, or a lost answer: the record stays matchable, or its pin is written twice."""
