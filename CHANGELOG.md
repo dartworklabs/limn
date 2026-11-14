@@ -27,6 +27,15 @@
 
 ### Fixed
 
+- **A pick on a build whose source was edited since lands on the text that was dragged.** SyncTeX of a build numbers
+  the lines of the source that build read; used on the manuscript as it is now, a pin queued offline (or a drag on a
+  PDF older than the manuscript) was written as many lines off as had been added above it - five lines added above a
+  paragraph put its pin on the two paragraphs before it, with only the `rebuild and pick again` warning that a queued
+  pin cannot act on. A LaTeX build now keeps the lines of the files it read in its page folder (`source.json`, kept
+  when a held folder is slimmed), and `POST /api/pick` carries SyncTeX's range over a line diff to where those lines
+  stand now. Text that is gone is answered by the words of the region or refused (`no_source_here`), never at the old
+  numbers. The stale-PDF warning is left out when the carried range stands whole; a build made before this keeps
+  today's behaviour.
 - **A server that does not answer is a server that is cut off.** On a tailnet with no internet behind it (a flight) a
   request is not refused: it waits, for a minute and more. Everything that told "cut off" from "connected" hung on a
   request failing, so the light poll counted nothing, a drag's composer stayed busy, a save never ended and no pin

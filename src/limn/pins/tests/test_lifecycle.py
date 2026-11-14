@@ -55,6 +55,7 @@ PURE_TEXT_IMPORTS = {
     "typing",
     "re",
     "shlex",
+    "difflib",  # compares two line lists in memory (mapping.carry_range); it opens nothing
     "pathlib",
     "limn.platform.values",
     "limn.platform.text",

@@ -255,8 +255,8 @@ def previous_pages(D: BuildDoc) -> Path | None:
 
 
 # A held page directory that is neither current nor previous is slimmed instead of deleted (engine.commit_pages,
-# limn.builds.holds): its page images go, its PDF, SyncTeX, recorder files and figure map stay, so POST /api/pick and
-# POST /api/pin still resolve against it. SLIM_NAME records the pixel size of every page image it had, written
+# limn.builds.holds): its page images go, its PDF, SyncTeX, recorder files, source record (limn.builds.built_source)
+# and figure map stay, so POST /api/pick and POST /api/pin still resolve against it. SLIM_NAME records the pixel size of every page image it had, written
 # before the images are removed; its presence marks the directory as slimmed.
 SLIM_NAME = "slim.json"
 
