@@ -2,7 +2,33 @@
 
 ## Unreleased
 
+### Added
+
+- **A document can be read, and pinned, while the server is out of reach (ADR-0040).** [Keep offline] in the [⋯] menu
+  keeps every document of the instance on the device: the service worker keeps a copy of same-origin `GET` answers
+  and answers from it only when the network fails (never `/api/*`), and the reads the page boots from are stored in
+  the browser. A tab opened while cut off shows the kept build and says when it was read.
+- **Pins made while cut off wait in the browser and are written on reconnecting.** A queued pin holds the drag (or,
+  in a Markdown or text document, the line and its words), not a line number; the server finds the place in the build
+  the drag was made on. A pin whose place cannot be found is kept with its reason, not dropped. Queued pins show on
+  the page as dotted marks and in a `Kept pins` section of the panel, with [Pin again] and [Discard] (undoable).
+  Done, reply, edit, verdict and suggested edit are not queued.
+- **A kept instance follows new builds by itself.** After one press the row reads `Kept`; while connected, a new build
+  is fetched whole and held before the old copies are dropped, and a build a queued pin points at is left alone.
+- **The server holds a build's reverse-mapping material on request.** `POST /api/hold {build, days?, holder?}` records
+  it in the document's `holds.json` (7 days at most, 8 builds a document, 16 holders a build); a held page folder is
+  slimmed instead of removed (PDF, SyncTeX and records stay, page images go). A hold is counted per holder, so one
+  device letting go leaves another device's queue its build.
+- **The agent contract gains two request fields, one path and two meta flags; nothing is removed or renamed.**
+  `POST /api/pin` takes an optional `idem` key (a repeat answers the first pin's id with `replay: true` and writes
+  nothing) and `{idem, replay_only: true}` to ask only whether that key's pin exists (`409 idem_unknown` if not);
+  `POST /api/hold` is new; `GET /api/meta` says `pin_idem: true` and `hold_holder: true`. `pins.md` is unchanged and
+  does not carry the key.
+
 ### Fixed
+
+- **A drag made while cut off keeps its selection.** The composer's head read `null` for the file and a
+  "location failed" banner came with it; it now names the page and shows an `Offline` badge.
 
 - **PageUp and PageDown in a reason field being saved move no page (#481).** Chrome 157 moves the caret of a
   read-only field a page, as in a writable one, and lines it up with the scrollers outside: in the middle of a long
