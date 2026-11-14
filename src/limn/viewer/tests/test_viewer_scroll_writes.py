@@ -56,6 +56,7 @@ OTHERS = {
     ("doc-tabs.js", "openDocMenu"): 1,
     ("excerpt.js", "applyRange"): 1,
     ("layout.js", "<top>"): 1,
+    ("layout.js", "fieldScrollKey"): 1,
     ("layout.js", "keepFieldInView"): 2,
     ("layout.js", "noteRowInView"): 1,
     ("layout.js", "onViewport"): 1,
