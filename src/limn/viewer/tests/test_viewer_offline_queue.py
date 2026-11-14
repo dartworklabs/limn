@@ -42,6 +42,7 @@ function api(url,o){
   if(url==='/api/pick'){PICKS.push(o.body); const a=ANSWERS.pick.shift();
     if(a&&a.throw)return Promise.reject(a.throw); return Promise.resolve({status:200,data:a});}
   if(url==='/api/pin'){PINS_SENT.push(o.body); const a=ANSWERS.pin.shift();
+    if(a&&a.refuse){const e=new Error('HTTP '+a.refuse); e.status=a.refuse; return Promise.reject(e);}
     if(a&&a.throw)return Promise.reject(a.throw);
     WRITTEN.push({id:a.id,author:'me',doc:o.body.doc||'main',file:o.body.file||null,lo:o.body.lo,hi:o.body.hi,
       page:o.body.page,frac:o.body.frac,note:o.body.note});   // as the next list read would show it
@@ -151,6 +152,37 @@ class OfflineQueueSend(unittest.TestCase):
             """
         )
         self.assertEqual(got, {"pins": 1, "left": 0})
+
+    def test_a_refused_write_leaves_the_record_unattempted_and_it_is_written_next_time(self):
+        """The server answered, and the answer was no: nothing is on it. The record must not carry an attempt mark,
+        or the next send matches it against a pin at the same place that belongs to another record and deletes it."""
+        got = self._run(
+            """
+            const a=rec(1,'twice'),b=rec(2,'twice');
+            QUEUE=[a,b];
+            ANSWERS={pick:[found(10),found(10),found(10)],pin:[{refuse:400},{id:72},{id:73}]};
+            offlineFlush().then(function(){
+              const left=QUEUE.map(function(r){return {id:r.id,sent:r.sent};});
+              return offlineFlush().then(function(){
+                console.log(JSON.stringify({afterFirst:left,pins:PINS_SENT.length,
+                  ids:PINS_SENT.map(function(x){return x.note;}),left:QUEUE.length}));});});
+            """
+        )
+        self.assertEqual(got["afterFirst"], [{"id": 1, "sent": False}], "a refusal takes the attempt mark off")
+        self.assertEqual(got["pins"], 3, "the refused one is written on the next send, not swallowed")
+        self.assertEqual(got["left"], 0)
+
+    def test_an_answer_that_never_came_keeps_the_attempt_mark(self):
+        """A tab closed mid-request, or a lost answer: the record stays matchable, or its pin is written twice."""
+        got = self._run(
+            """
+            const a=rec(1,'once'); QUEUE=[a];
+            ANSWERS={pick:[found(10)],pin:[{throw:new Error('network')}]};
+            offlineFlush().then(function(){console.log(JSON.stringify({
+              left:QUEUE.length,sent:QUEUE[0]&&QUEUE[0].sent}));});
+            """
+        )
+        self.assertEqual(got, {"left": 1, "sent": True})
 
     def test_two_pins_alike_in_every_field_are_both_written(self):
         """Someone pinned the same paragraph twice with the same note. The second is not the first: one pin on the

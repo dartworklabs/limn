@@ -259,13 +259,18 @@ async function offlineFlush(){
       // Another tab of this browser shares the queue and may have written this one while the pick was out: a record
       // that is no longer there has been dealt with, and writing it again would make the pin twice.
       if(!(await offHas(rec.id)))continue;
-      rec.sent=true; await offPut(rec);   // the attempt is recorded before it is made, so a lost answer stays recoverable
+      // The attempt is recorded before it is made: a tab closed mid-request never reaches the lines below, and the
+      // record has to stay matchable or its pin is written twice. A refusal takes the mark off again - the server
+      // answered, and the answer was no, so nothing was written and this record must never be matched to someone
+      // else's pin at the same place. Only an answer that never came leaves the mark standing.
+      rec.sent=true; await offPut(rec);
       try{const {data}=await api('/api/pin',{method:'POST',body:offlineBody(rec,d),what:'핀 저장',silent:true});
         if(data&&typeof data.id==='number')claimed.add(data.id);
         saved.push(data&&data.id); await offDel(rec.id);}
       catch(e){const x=/** @type {ApiError} */(e);
-        if(!x||!x.status){await loadPins(); const late=offlineLanded(rec,d,claimed);
-          if(late){claimed.add(late); saved.push(late); await offDel(rec.id); continue;}}
+        if(x&&x.status){rec.sent=false; await offPut(rec); failed++; continue;}   // refused: nothing is on the server
+        await loadPins(); const late=offlineLanded(rec,d,claimed);
+        if(late){claimed.add(late); saved.push(late); await offDel(rec.id); continue;}
         failed++;}}
   }finally{OFF.flushing=false; await offlineSync(); await loadPins();}
   const ids=saved.filter(n=>typeof n==='number');
