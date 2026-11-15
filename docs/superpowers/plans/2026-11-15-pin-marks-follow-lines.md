@@ -229,7 +229,7 @@ git commit -s -m "feat(pins): turn a forward lookup into a line pin's mark"
       """One run's line-pin marks, per (document, build). Memory only: nothing is written to disk."""
       cap: int = 2000
       def get(self, doc: str, build: str, pid: int) -> LineMark | None
-      def put(self, doc: str, build: str, pid: int, lo: int, hi: int, mark: LineMark) -> None
+      def put(self, doc: str, build: str, pid: int, lo: int, hi: int, mark: LineMark | None) -> None
       def known(self, doc: str, build: str, pid: int, lo: int, hi: int) -> bool
 
   @dataclass(frozen=True)
@@ -239,11 +239,14 @@ git commit -s -m "feat(pins): turn a forward lookup into a line pin's mark"
       build: str
       sizes: Sequence[tuple[float, float]]
       pdf: Path
-      build_root: Path
       stale_src: bool
 
-  def fill_marks(doc: str, pins: Sequence[Pin], ctx: MarkContext | None, marks: LineMarks, limit: int, deadline: float) -> int
+  def fill_marks(
+      doc: str, pins: Sequence[Pin], locate: Locator, ctx: MarkContext | None,
+      marks: LineMarks, limit: int, deadline: float,
+  ) -> int
   ```
+  `locate`는 `sync_all`이 받는 것과 같은 `Locator`다 — SyncTeX에 넘길 이름은 `locate(pin).rel`, 곧 원고 루트 기준 상대 경로다(빌드 사본의 `Input:` 레코드와 꼬리로 맞는 유일한 값이고, ADR-0006의 옮긴 체크아웃 처리를 함께 받는다).
   `ctx`가 `None`인 것은 그 문서의 쪽을 물을 수 없다는 뜻이다(`pick_pages`가 `None`을 돌려준 경우). `line_mark`에 넘길 쪽 크기는 **1부터 세는** `ctx.sizes[span.page - 1]`로 고른다 — 첫 쪽 크기를 모든 쪽에 쓰지 않는다. `view_box`의 `pages`는 `len(ctx.sizes)`다. `MarkContext`를 만드는 쪽은 Task 5다.
 
 - [ ] **Step 1: 실패 시험을 쓴다** (Review Focus 3)
