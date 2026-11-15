@@ -233,9 +233,10 @@ class FollowedElement(Protocol):
 # box then) -> where it is now. The caller never sees the map.
 FollowElement: TypeAlias = Callable[[str, int, ElementFrac], FollowedElement]
 
-# The mark a line pin has on the build on screen of a document, by (document key, pin number); None when it has none.
-# A lookup in what the writer-side pass kept: asking computes and writes nothing.
-LineMarkOf: TypeAlias = "Callable[[str, int], LineMark | None]"
+# Binds a document's line-pin marks on the build it has on screen, by document key: the build is resolved once, when
+# the lookup is bound, and the lookup it returns answers a pin number's mark or None. Reads what the writer-side pass
+# kept: asking computes and writes nothing.
+LineMarkOf: TypeAlias = "Callable[[str], Callable[[int], LineMark | None]]"
 
 
 class BuildAnswers(Protocol):

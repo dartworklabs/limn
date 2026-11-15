@@ -143,9 +143,14 @@ def element_marks(r: Row, fmap: FollowElement | None) -> Json:
     return {"mark": list(got.frac), "mark_page": got.page, "el_sync": got.sync}
 
 
-def no_line_marks(key: str, pid: int) -> LineMark | None:
-    """No line-mark lookup for an instance that keeps none."""
+def no_line_marks(pid: int) -> LineMark | None:
+    """A lookup that knows no mark: what a document without a build on screen, or an instance that keeps none, has."""
     return None
+
+
+def no_line_maps(key: str) -> Callable[[int], LineMark | None]:
+    """No line-mark lookup for an instance that keeps none."""
+    return no_line_marks
 
 
 def line_marks(r: Row, mark: LineMark | None) -> Json:
@@ -202,7 +207,7 @@ def pins_payload(
     now: float,
     figure_map: Callable[[str], FollowElement | None] = no_figure_maps,
     superseded: Mapping[int, int] | None = None,
-    line_map: LineMarkOf = no_line_marks,
+    line_map: LineMarkOf = no_line_maps,
 ) -> list[Json]:
     """GET /api/pins: the open pins of rows in row order (every pin when allp), each as pin_view() gives it.
 
@@ -214,10 +219,12 @@ def pins_payload(
     once per document, and only for documents with a listed pin, since it reads that document's build history.
     figure_map binds a build-owned element-position query by document key, never a parsed map;
     it is asked at most once per document, and only for a document with a listed pin that carries an el.
-    line_map answers a pin's cached mark on the build on screen, by document key and pin number (a cache lookup:
-    nothing is computed or written here); it is asked once per listed pin that carries no el."""
+    line_map binds a document's cached line-pin marks on the build on screen by document key (a cache lookup: nothing
+    is computed or written here); like est_context it is asked once per document, and only for a document with a
+    listed pin that carries no el, and the lookup it returns is asked once per such pin."""
     ctxs: dict[str, EstContext | None] = {}
     maps: dict[str, FollowElement | None] = {}
+    marks: dict[str, Callable[[int], LineMark | None]] = {}
     out = []
     for r in rows:
         if not (allp or state_of(r) is OpenPin):
@@ -232,7 +239,11 @@ def pins_payload(
                 maps[k] = figure_map(k)
             fmap = maps[k]
         est = pin_est(r, ctx) if ctx is not None else True
-        mark = line_map(k, r["id"]) if r.get("el") is None else None
+        mark = None
+        if r.get("el") is None:
+            if k not in marks:
+                marks[k] = line_map(k)
+            mark = marks[k](r["id"])
         out.append(pin_view(r, show(r), rel.get(r["id"], []), est, k, now, fmap, (superseded or {}).get(r["id"]), mark))
     return out
 

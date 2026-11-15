@@ -1,7 +1,7 @@
 """Run-bound reads behind the pin JSON routes."""
 
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -54,8 +54,8 @@ class ListingDeps(Protocol):
         """The loadable map of the build on screen of the figure document key names, or None."""
         ...
 
-    def line_mark_of(self, key: str, pid: int) -> LineMark | None:
-        """The cached mark of line pin pid on the build on screen of document key, or None."""
+    def line_mark_of(self, key: str) -> Callable[[int], LineMark | None]:
+        """The lookup of cached line-pin marks on the build on screen of document key (the build resolved once)."""
         ...
 
 

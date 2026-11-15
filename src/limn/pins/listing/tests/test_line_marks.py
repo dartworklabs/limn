@@ -31,7 +31,7 @@ class LineMarksProjection(unittest.TestCase):
         self.assertEqual(view.line_marks({"lo": 10, "hi": 12, "el": None}, MARK)["mark_page"], 3)
 
     def test_the_default_lookup_knows_no_mark(self):
-        self.assertIsNone(view.no_line_marks("ms", 1))
+        self.assertIsNone(view.no_line_maps("ms")(1))
 
 
 class LineMarksPayload(unittest.TestCase):
@@ -46,15 +46,35 @@ class LineMarksPayload(unittest.TestCase):
     def test_the_lookup_is_asked_by_document_and_pin_and_only_for_a_pin_without_an_element(self):
         asked = []
 
-        def line_map(key, pid):
-            asked.append((key, pid))
-            return MARK
+        def line_map(key):
+            return lambda pid: asked.append((key, pid)) or MARK
 
         out = view.pins_payload(self.rows(), True, {}, dict, lambda r: "ms", lambda k: None, 0.0, line_map=line_map)
         self.assertEqual(asked, [("ms", 1)])
         self.assertEqual(out[0]["mark"], [0.1, 0.2, 0.3, 0.04])
         self.assertEqual(out[0]["mark_page"], 3)
         self.assertNotIn("mark", out[1])
+
+    def test_the_lookup_is_bound_once_per_document_however_many_line_pins_it_lists(self):
+        bound = []
+
+        def line_map(key):
+            bound.append(key)
+            return lambda pid: MARK
+
+        rows = [{"id": i, "lo": i, "hi": i, "file": "a.tex"} for i in range(1, 6)]
+        rows.append({"id": 9, "lo": 1, "hi": 1, "file": "b.tex"})
+        view.pins_payload(
+            rows,
+            True,
+            {},
+            dict,
+            lambda r: "ms" if r["file"] == "a.tex" else "fig",
+            lambda k: None,
+            0.0,
+            line_map=line_map,
+        )
+        self.assertEqual(bound, ["ms", "fig"])
 
 
 class LineMarksOverHttp(Base):
@@ -77,6 +97,21 @@ class LineMarksOverHttp(Base):
         got = self.listed()
         self.assertEqual((got[a]["mark"], got[a]["mark_page"]), ([0.1, 0.2, 0.3, 0.04], 3))
         self.assertNotIn("mark", got[b])
+
+    def test_a_get_resolves_the_build_on_screen_once_per_document_not_once_per_pin(self):
+        ids = [self.add(4 + i, 4 + i) for i in range(4)]
+        heading = ps.APP.build_view.heading
+        calls = []
+
+        def counting(doc):
+            calls.append(doc.key)
+            return heading(doc)
+
+        # the build bundle is a frozen dataclass, so its field is swapped past __setattr__ and put back
+        object.__setattr__(ps.APP.build_view, "heading", counting)
+        self.addCleanup(object.__setattr__, ps.APP.build_view, "heading", heading)
+        self.assertEqual(len(self.listed()), len(ids))
+        self.assertEqual(calls.count(ps.APP.docs[0].key), 1)
 
     def test_a_mark_of_another_build_is_not_shown(self):
         a = self.add(4, 5)

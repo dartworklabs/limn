@@ -374,7 +374,9 @@ class LineMarks:
         return None if bucket is None else bucket.get(pid)
 
     def get(self, doc: str, build: str, pid: int) -> LineMark | None:
-        """The mark kept for pin pid of doc's build, or None."""
+        """The mark kept for pin pid of doc's build, or None. The stored lines are deliberately not consulted: the mark
+        describes the PDF of that build, which an edit of the manuscript does not change, so a pin whose lines moved keeps
+        its mark until a pass is allowed to run again; the lines only gate re-asking (known)."""
         item = self._entry(doc, build, pid)
         return None if item is None else item[2]
 

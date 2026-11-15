@@ -14,7 +14,12 @@ from limn.pins.editing.http import EditingRequests
 from limn.pins.editing.service import EditScope, PinEditing
 from limn.pins.lifecycle.service import PinLifecycle
 from limn.pins.listing.markdown import PinMarkdown
-from limn.pins.listing.projection import pin_state, public_record as view_public_record, suggest_view
+from limn.pins.listing.projection import (
+    no_line_marks,
+    pin_state,
+    public_record as view_public_record,
+    suggest_view,
+)
 from limn.pins.listing.service import PinListing
 from limn.pins.location.lookup import (
     LineMarks,
@@ -144,11 +149,15 @@ class PinCommands:
         doc = self.doc_by_key(key)
         return None if doc is None else self.build_view.elements(doc)
 
-    def line_mark_of(self, key: str, pid: int) -> LineMark | None:
-        """The mark the cache holds for line pin pid on the build document key has on screen, or None (no such
-        document, never asked, or SyncTeX had nothing). A cache lookup only: it neither computes nor writes."""
+    def line_mark_of(self, key: str) -> Callable[[int], LineMark | None]:
+        """The lookup of the marks the cache holds on the build document key has on screen: it answers a pin number's
+        mark, or None (no such document, never asked, or SyncTeX had nothing). The build is resolved here, once, not per
+        pin (heading reads the build's marker files). A cache lookup only: it neither computes nor writes."""
         doc = self.doc_by_key(key)
-        return None if doc is None else self.line_marks.get(key, self.build_view.heading(doc).build, pid)
+        if doc is None:
+            return no_line_marks
+        build = self.build_view.heading(doc).build
+        return lambda pid: self.line_marks.get(key, build, pid)
 
     def refresh_pins_md(self) -> None:
         """Refresh derived markdown after publication without resynchronizing pins."""
