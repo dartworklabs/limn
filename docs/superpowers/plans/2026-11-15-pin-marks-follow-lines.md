@@ -230,7 +230,7 @@ git commit -s -m "feat(pins): turn a forward lookup into a line pin's mark"
 
   def fill_marks(doc: str, pins: Sequence[Pin], ctx: MarkContext | None, marks: LineMarks, limit: int, deadline: float) -> int
   ```
-  `ctx`가 `None`인 것은 그 문서의 쪽을 물을 수 없다는 뜻이다(`pick_pages`가 `None`을 돌려준 경우).
+  `ctx`가 `None`인 것은 그 문서의 쪽을 물을 수 없다는 뜻이다(`pick_pages`가 `None`을 돌려준 경우). `line_mark`에 넘길 쪽 크기는 **1부터 세는** `ctx.sizes[span.page - 1]`로 고른다 — 첫 쪽 크기를 모든 쪽에 쓰지 않는다. `view_box`의 `pages`는 `len(ctx.sizes)`다. `MarkContext`를 만드는 쪽은 Task 5다.
 
 - [ ] **Step 1: 실패 시험을 쓴다** (Review Focus 3)
 
@@ -348,7 +348,16 @@ git commit -s -m "feat(api): carry a line pin's current mark in GET /api/pins"
 
 **Interfaces:**
 - Consumes: Task 3·4 전부.
-- Produces: `PinMaintenance`에 더하는 `marks: Callable[[], int] = lambda: 0`와 그것을 부르는 자리. 예산 상수 `MARK_LIMIT = 200`, `MARK_SECONDS = 10.0`.
+- Produces:
+  ```python
+  # runtime.py — the glue no other task owns: build one document's MarkContext and fill it
+  def fill_line_marks(self, limit: int = MARK_LIMIT, seconds: float = MARK_SECONDS) -> int
+  # maintenance.py
+  #   PinMaintenance gains  marks: Callable[[], int] = lambda: 0
+  MARK_LIMIT = 200
+  MARK_SECONDS = 10.0
+  ```
+  `fill_line_marks`는 띄운 문서마다 `document_facts.pick_pages(None)`으로 쪽 폴더와 쪽 크기(pt)를 얻고, 기존 원고 변화 감지로 `stale_src`를 얻어 `MarkContext`를 만든 뒤 `fill_marks`를 부른다. `pick_pages`가 `None`이면 그 문서에는 `None`을 넘긴다.
 
 - [ ] **Step 1: 실패 시험을 쓴다** (Review Focus 4)
 
@@ -477,14 +486,14 @@ git commit -s -m "feat(api): tell a pick answer where each level's range stands 
 
 **Interfaces:**
 - Consumes: Task 6의 단계별 `mark`.
-- Produces: 순수 함수 `badgeDrop(frac, dx, dy, pw, ph)` — 핀의 상자를 끌린 만큼 옮긴 새 상자(쪽 안으로 자른다). 최상위 `function`으로 선언하고 전역을 읽지 않는다(`extract_js_fn`으로 시험하기 위해).
+- Produces: 순수 함수 `badgeDrop(frac, dx, dy)` — 핀의 상자를 끌린 만큼 옮긴 새 상자. `dx`·`dy`는 쪽 대비 비율이고, 끝이 쪽을 넘으면 크기를 지킨 채 안으로 자른다. 최상위 `function`으로 선언하고 전역을 읽지 않는다(`extract_js_fn`으로 시험하기 위해).
 
 - [ ] **Step 1: 순수 로직 시험을 쓴다** (`helpers_js` 하네스)
 
 ```python
 def test_a_badge_drop_moves_the_pins_box_by_the_drag_and_stays_on_the_page(self):
-    got = self.run_js(["badgeDrop"], "[badgeDrop([0.1,0.1,0.2,0.05],0.3,0.2,600,800),"
-                                     "badgeDrop([0.9,0.95,0.2,0.1],0.3,0.3,600,800)]")
+    got = self.run_js(["badgeDrop"], "[badgeDrop([0.1,0.1,0.2,0.05],0.3,0.2),"
+                                     "badgeDrop([0.9,0.95,0.2,0.1],0.3,0.3)]")
     self.assertEqual(got[0], [0.4, 0.3, 0.2, 0.05])
     self.assertEqual(got[1], [0.8, 0.9, 0.2, 0.1])   # clamped: the box keeps its size and stays inside
 ```
