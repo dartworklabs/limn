@@ -1,6 +1,7 @@
 """Resolve a PDF drag to a source range or a view-only region."""
 
 import math
+import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -9,6 +10,7 @@ from typing import Any, Protocol, TypeAlias
 from limn.pins.editing.values import PDF_QUOTE_MAX
 from limn.pins.element import PinElement
 from limn.pins.location import figure, source
+from limn.pins.location.lookup import root_relative
 from limn.pins.location.mapping import (
     Traced,
     ViewBox,
@@ -26,6 +28,10 @@ from limn.pins.location.source import TokenCache
 from limn.pins.needs import BuildAnswers, BuildOnScreen
 from limn.platform.files import ManuscriptFile, file_in_tree, tex_lines
 from limn.runtime.documents import Doc, to_source
+
+# The whole budget of one pick's forward lookups, all levels together (a pick is interactive; SyncTeX may hang for its
+# 10 s timeout per call): once spent, no more lookups are asked and the levels without a box answer as a failed lookup.
+LEVEL_MARKS_SECONDS = 2.0
 
 
 class Selection(Protocol):
@@ -250,27 +256,29 @@ def pick(D: Doc, request: Selection, ctx: PickContext) -> Picked | figure.Picked
         building=publication.latex_running,
         marks={}
         if publication.stale
-        else _level_marks(pdf, _rel_name(found.path, ctx.root), traced.levels, request.sizes),
+        else _level_marks(
+            pdf,
+            root_relative(found.path, ctx.root),
+            traced.levels,
+            request.sizes,
+            time.monotonic() + LEVEL_MARKS_SECONDS,
+        ),
     )
 
 
-def _rel_name(path: Path, root: Path) -> str | None:
-    """path as SyncTeX's forward lookup names an input: relative to the manuscript root, POSIX (the one rule fill_marks
-    gets from the pin locator), or None when it is not below the root."""
-    try:
-        return path.resolve().relative_to(root.resolve()).as_posix()
-    except (ValueError, OSError, RuntimeError):
-        return None
-
-
 def _level_marks(
-    pdf: Path, name: str | None, levels: Sequence[Mapping[str, Any]], sizes: Sequence[tuple[float, float]]
+    pdf: Path,
+    name: str | None,
+    levels: Sequence[Mapping[str, Any]],
+    sizes: Sequence[tuple[float, float]],
+    deadline: float,
 ) -> dict[str, LineMark]:
     """Where each ladder level's own lines will stand once saved: its lo..hi asked of SyncTeX's forward lookup on the
     build's PDF, at most two lookups per level (lo, and hi when it differs; a line two levels share is asked once).
 
     A level whose lookup fails - no answer, no usable box, a page without a size - is left out, and nothing here refuses
-    a pick. Only for a build whose lines are the file's lines now (the caller skips a stale build, as fill_marks does).
+    a pick. One monotonic deadline covers all levels, checked before each lookup, so the worst case is the budget plus
+    one call in flight; the boxes found by then are kept. Only for a build whose lines are the file's lines now (the caller skips a stale build, as fill_marks does).
     Runs only in the POST of a pick."""
     marks: dict[str, LineMark] = {}
     if name is None or not sizes:
@@ -279,6 +287,8 @@ def _level_marks(
 
     def box_of(line: int) -> ViewBox | None:
         if line not in asked:
+            if time.monotonic() >= deadline:
+                return None
             hits = source.synctex_view(pdf, line, name)
             asked[line] = None if hits is None else view_box(hits, len(sizes))
         return asked[line]

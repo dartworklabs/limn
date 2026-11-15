@@ -425,3 +425,28 @@ class PickLevelBoxes(Base):
         with mock.patch.object(pick_source, "synctex_view", return_value=[(2, 60.0, 120.0, 300.0, 20.0)]):
             _, answer = self.pick(sizes=())
         self.assertTrue(all("mark" not in level for level in answer["levels"]))
+
+    def test_a_spent_lookup_budget_still_answers_with_no_boxes_and_no_lookup(self):
+        with (
+            mock.patch.object(pick_resolve, "LEVEL_MARKS_SECONDS", 0.0),
+            mock.patch.object(pick_source, "synctex_view", side_effect=AssertionError("budget spent")),
+        ):
+            got, answer = self.pick()
+        self.assertTrue(answer["levels"])
+        self.assertTrue(all("mark" not in level for level in answer["levels"]))
+        self.assertEqual((answer["lo"], answer["hi"]), (got.traced.lo, got.traced.hi))
+
+    def test_the_budget_ends_the_loop_between_lookups_and_keeps_the_boxes_already_found(self):
+        """The clock runs out after the first lookup: only that line was asked, and the level it completed keeps its box."""
+        ticks = iter([0.0, 0.0, 99.0])
+
+        def clock():
+            return next(ticks, 99.0)
+
+        with (
+            mock.patch.object(pick_resolve.time, "monotonic", side_effect=clock),
+            mock.patch.object(pick_source, "synctex_view", return_value=[(1, 1.0, 20.0, 3.0, 4.0)]) as view,
+        ):
+            _, answer = self.pick()
+        self.assertEqual(len(view.call_args_list), 1)
+        self.assertEqual(sum("mark" in level for level in answer["levels"]), 1)

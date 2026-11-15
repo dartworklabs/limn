@@ -86,6 +86,16 @@ def doc_scope(D: BuildRoot | None, root: Path) -> str:
     return "" if rel == "." else rel
 
 
+def root_relative(path: Path, root: Path) -> str | None:
+    """path, symlinks resolved, relative to the manuscript root in POSIX form, or None when it is not below the root or
+    cannot be resolved. The one derivation of the manuscript-root-relative name that SyncTeX's forward lookup is asked
+    by: locate_file (pin marks, via PinLocation.rel) and the pick's level boxes both use it."""
+    try:
+        return path.resolve().relative_to(root.resolve()).as_posix()
+    except (ValueError, OSError, RuntimeError):
+        return None
+
+
 def locate_file(file: object, file_rel: object, root: Path, state: Path, doc: BuildRoot | None) -> PinLocation | None:
     """Where a stored absolute path is under the manuscript root on this machine now, by the one rule of ADR-0006
     (pin_rel_path) - a pin's own `file` (with its file_rel) or a path in its `changes` (none), the tail guess searched
@@ -99,10 +109,7 @@ def locate_file(file: object, file_rel: object, root: Path, state: Path, doc: Bu
     (a tail through such a link or part is skipped for the next one)."""
     if not isinstance(file, str) or not file:
         return None
-    try:
-        under: str | None = Path(file).resolve().relative_to(root.resolve()).as_posix()
-    except (ValueError, OSError, RuntimeError):
-        under = None
+    under = root_relative(Path(file), root)
     scope = doc_scope(doc, root) if under is None else ""  # only a moved record needs its document folder
     rel = pin_rel_path(file, file_rel, under, lambda t: (root / t).is_file() and _within(root / t, root, state), scope)
     if rel is None:
