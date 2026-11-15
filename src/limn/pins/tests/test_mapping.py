@@ -14,7 +14,7 @@ import unittest
 from pathlib import Path
 
 from limn.pins.location import mapping
-from limn.pins.location.mapping import find_level
+from limn.pins.location.mapping import ViewBox, find_level
 
 from helpers import TEX, Base, ps
 
@@ -42,6 +42,34 @@ TABLE_DOC = [
     "After the table.",
     "More text.",
 ]
+
+
+class ForwardBox(unittest.TestCase):
+    """Reducing SyncTeX forward-lookup hits to the one box a line is printed in."""
+
+    def test_view_box_takes_the_first_hits_page_and_unites_that_pages_boxes(self):
+        """Page 2's hit is ignored; the top edge is the baseline minus the height."""
+        hits = [(1, 133.77, 232.19, 343.71, 8.86), (1, 133.77, 241.05, 100.0, 8.86), (2, 10.0, 20.0, 30.0, 8.0)]
+        got = mapping.view_box(hits, 3)
+        self.assertEqual(got.page, 1)
+        for have, want in zip(got.box, (133.77, 223.33, 477.48, 241.05), strict=True):
+            self.assertAlmostEqual(have, want, places=6)
+
+    def test_view_box_refuses_a_page_out_of_range_a_non_finite_number_and_an_empty_box(self):
+        """Nothing trustworthy in: no box out."""
+        self.assertIsNone(mapping.view_box([(4, 1.0, 2.0, 3.0, 4.0)], 3))
+        self.assertIsNone(mapping.view_box([(1, 1.0, float("inf"), 3.0, 4.0)], 3))
+        self.assertIsNone(mapping.view_box([(1, 1.0, 2.0, 0.0, 4.0)], 3))
+        self.assertIsNone(mapping.view_box([], 3))
+
+    def test_span_box_unites_one_page_keeps_lo_across_pages_and_is_none_without_lo(self):
+        """A span's two ends: same page unites, another page keeps the first end, no first end gives nothing."""
+        lo = ViewBox(1, (10.0, 10.0, 20.0, 20.0))
+        same = ViewBox(1, (15.0, 30.0, 25.0, 40.0))
+        other = ViewBox(2, (0.0, 0.0, 5.0, 5.0))
+        self.assertEqual(mapping.span_box(lo, same).box, (10.0, 10.0, 25.0, 40.0))
+        self.assertEqual(mapping.span_box(lo, other), lo)
+        self.assertIsNone(mapping.span_box(None, same))
 
 
 class Purity(unittest.TestCase):

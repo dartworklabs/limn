@@ -47,6 +47,38 @@ def synctex_edit(pdf: Path, page: int, x: float, y: float) -> tuple[str, int] | 
     return None
 
 
+def synctex_view(pdf: Path, line: int, src: str) -> list[tuple[int, float, float, float, float]] | None:
+    """Where SyncTeX prints a source line: its (page, h, v, W, H) records in points (v is the baseline), or None
+    when it gives none, is missing or times out (10 s). `src` is the input path relative to the build root."""
+    try:
+        out = subprocess.run(
+            ["synctex", "view", "-i", "%d:0:%s" % (line, src), "-o", str(pdf)],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        ).stdout
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return None
+    records: list[dict[str, float]] = []
+    for ln in out.splitlines():
+        key, _, value = ln.partition(":")
+        if key not in ("Page", "h", "v", "W", "H"):
+            continue
+        try:
+            number = float(value)
+        except ValueError:
+            continue
+        if key == "Page":
+            records.append({"Page": number})
+        elif records:
+            records[-1][key] = number
+    hits = [
+        (int(r["Page"]), r["h"], r["v"], r["W"], r["H"]) for r in records if all(k in r for k in ("h", "v", "W", "H"))
+    ]
+    return hits or None
+
+
 def by_synctex(pdf: Path, page: int, x0: float, y0: float, x1: float, y1: float) -> tuple[str, int, int] | None:
     """The SyncTeX candidate for a box: (file, lo, hi), or None when no sample point maps anywhere.
 
