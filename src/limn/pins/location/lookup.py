@@ -360,10 +360,11 @@ class LineMarks:
     """One run's line-pin marks, per (document, build). Memory only: nothing is written to disk.
 
     Each entry remembers the lines lo..hi it was computed from, so a pass can tell that a pin's lines moved within the
-    same build. Past cap entries the oldest are dropped."""
+    same build. An empty answer (SyncTeX had nothing for those lines) is kept too, so it is not asked again until the
+    lines move or the build changes. Past cap entries the oldest are dropped."""
 
     cap: int = 2000
-    _items: OrderedDict[tuple[str, str, int], tuple[int, int, LineMark]] = field(
+    _items: OrderedDict[tuple[str, str, int], tuple[int, int, LineMark | None]] = field(
         default_factory=OrderedDict, repr=False
     )
 
@@ -372,8 +373,8 @@ class LineMarks:
         item = self._items.get((doc, build, pid))
         return None if item is None else item[2]
 
-    def put(self, doc: str, build: str, pid: int, lo: int, hi: int, mark: LineMark) -> None:
-        """Keep mark, computed from lines lo..hi, replacing any earlier one of the pin."""
+    def put(self, doc: str, build: str, pid: int, lo: int, hi: int, mark: LineMark | None) -> None:
+        """Keep mark (None: no answer), computed from lines lo..hi, replacing any earlier one of the pin."""
         key = (doc, build, pid)
         self._items[key] = (lo, hi, mark)
         self._items.move_to_end(key)
@@ -381,31 +382,19 @@ class LineMarks:
             self._items.popitem(last=False)
 
     def known(self, doc: str, build: str, pid: int, lo: int, hi: int) -> bool:
-        """Is there a mark for the pin that was computed from these very lines?"""
+        """Was the pin asked about these very lines in this build, whether or not it got a mark?"""
         item = self._items.get((doc, build, pid))
         return item is not None and item[0] == lo and item[1] == hi
 
 
 @dataclass(frozen=True)
 class MarkContext:
-    """What one document's pass needs: the build on screen, its page sizes, its pdf, the build root the SyncTeX
-    names are relative to, and whether the manuscript is newer than that build."""
+    """What one document's pass needs: the build on screen, its page sizes, its pdf, and whether the manuscript is newer than that build."""
 
     build: str
     sizes: Sequence[tuple[float, float]]  # (width, height) in points of page 1, 2, ...
     pdf: Path
-    build_root: Path
     stale_src: bool
-
-
-def _build_name(file: str, build_root: Path) -> str | None:
-    """A pin's absolute file as SyncTeX names it: relative to the build root, POSIX form, or None outside it."""
-    for path, root in ((Path(file), build_root), (Path(file).resolve(), build_root.resolve())):
-        try:
-            return path.relative_to(root).as_posix()
-        except (ValueError, OSError, RuntimeError):
-            continue
-    return None
 
 
 def _line_box(ctx: MarkContext, line: int, name: str) -> ViewBox | None:
@@ -414,7 +403,13 @@ def _line_box(ctx: MarkContext, line: int, name: str) -> ViewBox | None:
 
 
 def fill_marks(
-    doc: str, pins: Sequence[Pin], ctx: MarkContext | None, marks: LineMarks, limit: int, deadline: float
+    doc: str,
+    pins: Sequence[Pin],
+    locate: Locator,
+    ctx: MarkContext | None,
+    marks: LineMarks,
+    limit: int,
+    deadline: float,
 ) -> int:
     """Ask SyncTeX where the open, non-stale line pins of doc are printed in the build ctx.build and keep their marks
     in marks; returns how many it filled. Writes nothing to disk and opens no pin file; call it from writer-side paths
@@ -422,8 +417,8 @@ def fill_marks(
 
     Nothing is asked without a context (the document's pages are unknown) or while the manuscript is newer than the
     build (its lines are no longer the build's). A pin is skipped when marks already hold its mark for the same lines,
-    when its file is not under the build root, or when its page has no finite positive size; one lookup is made for a
-    one-line pin and two for a span. Stops after limit marks or once time.monotonic() reaches deadline."""
+    when the locator cannot place its file, or when its page has no finite positive size; one lookup is made for a
+    one-line pin and two for a span. Stops after limit marks filled or once time.monotonic() reaches deadline."""
     if ctx is None or ctx.stale_src:
         return 0
     filled = 0
@@ -437,21 +432,22 @@ def fill_marks(
                 continue
         if marks.known(doc, ctx.build, pid, span.lo, span.hi):
             continue
-        name = _build_name(span.file, ctx.build_root)
-        if name is None:
+        loc = locate(pin)  # SyncTeX names inputs by the manuscript-relative path, as the build copy is of that tree
+        if loc is None:
             continue
+        name = loc.rel
         lo = _line_box(ctx, span.lo, name)
         hi = lo if span.hi == span.lo else _line_box(ctx, span.hi, name)
         box = span_box(lo, hi)
         if box is None:
+            marks.put(doc, ctx.build, pid, span.lo, span.hi, None)
             continue
         size = ctx.sizes[box.page - 1]
         if not all(math.isfinite(v) and v > 0 for v in size):
+            marks.put(doc, ctx.build, pid, span.lo, span.hi, None)
             continue
         exact = pin.core.page if pin.core.pdf_build == ctx.build else None
         mark = line_mark(box, size, exact)
-        if mark is None:
-            continue
         marks.put(doc, ctx.build, pid, span.lo, span.hi, mark)
-        filled += 1
+        filled += mark is not None
     return filled

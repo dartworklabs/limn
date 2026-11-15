@@ -136,7 +136,7 @@ HIT = [(1, 10.0, 20.0, 30.0, 8.0)]
 class FillMarks(unittest.TestCase):
     """The pass that fills the per-build mark cache (lookup.fill_marks)."""
 
-    root = Path("/ms")
+    root = Path("/ms")  # the manuscript tree; the build runs in a copy elsewhere (/b), so no pin path is under it
     far = float("inf")
 
     def setUp(self):
@@ -158,12 +158,20 @@ class FillMarks(unittest.TestCase):
     def region_pin(self, pid):
         return OpenPin(PinCore(id=pid, place=Region("a.pdf", 1, [0.1, 0.1, 0.2, 0.2])), None, {})
 
+    def locate(self, pin):
+        """The repo's locator, reduced: the path below the manuscript root, or None for a file outside it."""
+        try:
+            rel = Path(pin.core.place.file).relative_to(self.root).as_posix()
+        except ValueError:
+            return None
+        return lookup.PinLocation(rel, mock.Mock())
+
     def ctx(self, stale_src=False, sizes=((600.0, 800.0),), build="b1"):
-        return lookup.MarkContext(build, sizes, Path("/b/main.pdf"), self.root, stale_src)
+        return lookup.MarkContext(build, sizes, Path("/b/main.pdf"), stale_src)
 
     def test_fill_marks_does_nothing_while_the_manuscript_is_newer_than_the_build(self):
         n = lookup.fill_marks(
-            "d", [self.open_pin(1, lo=10, hi=12)], self.ctx(stale_src=True), self.marks, 200, self.far
+            "d", [self.open_pin(1, lo=10, hi=12)], self.locate, self.ctx(stale_src=True), self.marks, 200, self.far
         )
         self.assertEqual(n, 0)
         self.assertIsNone(self.marks.get("d", "b1", 1))
@@ -171,10 +179,10 @@ class FillMarks(unittest.TestCase):
     def test_fill_marks_skips_a_stale_pin_a_closed_pin_and_a_region_pin(self):
         pins = [self.stale_pin(1), self.closed_pin(2), self.region_pin(3)]
         with mock.patch.object(pick_source, "synctex_view", side_effect=AssertionError("no forward lookup")):
-            self.assertEqual(lookup.fill_marks("d", pins, self.ctx(), self.marks, 200, self.far), 0)
+            self.assertEqual(lookup.fill_marks("d", pins, self.locate, self.ctx(), self.marks, 200, self.far), 0)
 
     def test_fill_marks_survives_a_document_whose_pages_are_gone(self):
-        self.assertEqual(lookup.fill_marks("d", [self.open_pin(1)], None, self.marks, 200, self.far), 0)
+        self.assertEqual(lookup.fill_marks("d", [self.open_pin(1)], self.locate, None, self.marks, 200, self.far), 0)
 
     def test_fill_marks_asks_once_for_a_one_line_pin_and_twice_for_a_span(self):
         with mock.patch.object(pick_source, "synctex_view", return_value=HIT) as view:
@@ -188,7 +196,7 @@ class FillMarks(unittest.TestCase):
             )
         self.assertEqual([c[0][1] for c in view.call_args_list], [7, 9, 11])
 
-    def test_fill_marks_passes_the_build_relative_name_not_the_pins_absolute_path(self):
+    def test_fill_marks_passes_the_manuscript_relative_name_for_a_pin_in_a_tree_the_build_is_not_in(self):
         with mock.patch.object(pick_source, "synctex_view", return_value=HIT) as view:
             lookup.fill_marks(
                 "d",
@@ -202,44 +210,64 @@ class FillMarks(unittest.TestCase):
 
     def test_fill_marks_does_not_ask_again_for_a_pin_it_already_has_at_the_same_lines(self):
         with mock.patch.object(pick_source, "synctex_view", return_value=HIT) as view:
-            self.assertEqual(lookup.fill_marks("d", [self.open_pin(1)], self.ctx(), self.marks, 200, self.far), 1)
-            self.assertEqual(lookup.fill_marks("d", [self.open_pin(1)], self.ctx(), self.marks, 200, self.far), 0)
+            self.assertEqual(
+                lookup.fill_marks("d", [self.open_pin(1)], self.locate, self.ctx(), self.marks, 200, self.far), 1
+            )
+            self.assertEqual(
+                lookup.fill_marks("d", [self.open_pin(1)], self.locate, self.ctx(), self.marks, 200, self.far), 0
+            )
             self.assertEqual(view.call_count, 1)
             moved = [self.open_pin(1, lo=4, hi=4)]
-            self.assertEqual(lookup.fill_marks("d", moved, self.ctx(), self.marks, 200, self.far), 1)
+            self.assertEqual(lookup.fill_marks("d", moved, self.locate, self.ctx(), self.marks, 200, self.far), 1)
             self.assertEqual(view.call_count, 2)
 
     def test_fill_marks_converts_with_the_size_of_the_hits_own_page(self):
         sizes = ((600.0, 800.0), (800.0, 600.0))
         with mock.patch.object(pick_source, "synctex_view", return_value=[(2, 100.0, 50.0, 400.0, 50.0)]):
-            lookup.fill_marks("d", [self.open_pin(1)], self.ctx(sizes=sizes), self.marks, 200, self.far)
+            lookup.fill_marks("d", [self.open_pin(1)], self.locate, self.ctx(sizes=sizes), self.marks, 200, self.far)
         mark = self.marks.get("d", "b1", 1)
         self.assertEqual((mark.page, mark.frac), (2, (0.125, 0.0, 0.5, 50.0 / 600.0)))
 
     def test_fill_marks_gives_no_mark_for_a_page_whose_size_is_not_finite_and_positive(self):
         for size in ((float("nan"), 800.0), (600.0, 0.0), (float("inf"), 800.0)):
             with mock.patch.object(pick_source, "synctex_view", return_value=HIT):
-                n = lookup.fill_marks("d", [self.open_pin(1)], self.ctx(sizes=(size,)), self.marks, 200, self.far)
+                n = lookup.fill_marks(
+                    "d", [self.open_pin(1)], self.locate, self.ctx(sizes=(size,)), self.marks, 200, self.far
+                )
             self.assertEqual(n, 0)
             self.assertIsNone(self.marks.get("d", "b1", 1))
 
-    def test_fill_marks_skips_a_file_outside_the_build_root_and_a_lookup_with_no_answer(self):
+    def test_fill_marks_skips_a_pin_the_locator_cannot_place(self):
+        pins = [self.open_pin(1, file="/elsewhere/x.tex")]
+        with mock.patch.object(pick_source, "synctex_view", return_value=HIT) as view:
+            n = lookup.fill_marks("d", pins, self.locate, self.ctx(), self.marks, 200, self.far)
+        self.assertEqual((n, view.call_count), (0, 0))
+
+    def test_fill_marks_remembers_an_empty_answer_until_the_lines_move_or_the_build_changes(self):
+        pin = self.open_pin(2)
         with mock.patch.object(pick_source, "synctex_view", return_value=None) as view:
-            n = lookup.fill_marks(
-                "d",
-                [self.open_pin(1, file="/elsewhere/x.tex"), self.open_pin(2)],
-                self.ctx(),
-                self.marks,
-                200,
-                self.far,
-            )
-        self.assertEqual((n, view.call_count), (0, 1))
+            for _ in range(3):
+                self.assertEqual(lookup.fill_marks("d", [pin], self.locate, self.ctx(), self.marks, 200, self.far), 0)
+            self.assertEqual(view.call_count, 1)
+            self.assertTrue(self.marks.known("d", "b1", 2, 3, 3))
+            self.assertIsNone(self.marks.get("d", "b1", 2))
+            moved = [self.open_pin(2, lo=4, hi=4)]
+            lookup.fill_marks("d", moved, self.locate, self.ctx(), self.marks, 200, self.far)
+            lookup.fill_marks("d", [pin], self.locate, self.ctx(build="b2"), self.marks, 200, self.far)
+            self.assertEqual(view.call_count, 3)
+
+    def test_an_empty_answer_does_not_use_up_the_limit_so_later_pins_still_answer(self):
+        pins = [self.open_pin(1), self.open_pin(2)]
+        with mock.patch.object(pick_source, "synctex_view", side_effect=[None, HIT]):
+            n = lookup.fill_marks("d", pins, self.locate, self.ctx(), self.marks, 1, self.far)
+        self.assertEqual(n, 1)
+        self.assertIsNotNone(self.marks.get("d", "b1", 2))
 
     def test_fill_marks_stops_at_the_limit_and_at_the_deadline(self):
         pins = [self.open_pin(i) for i in (1, 2, 3)]
         with mock.patch.object(pick_source, "synctex_view", return_value=HIT) as view:
-            self.assertEqual(lookup.fill_marks("d", pins, self.ctx(), self.marks, 2, self.far), 2)
-            self.assertEqual(lookup.fill_marks("d", pins, self.ctx(), self.marks, 200, 0.0), 0)
+            self.assertEqual(lookup.fill_marks("d", pins, self.locate, self.ctx(), self.marks, 2, self.far), 2)
+            self.assertEqual(lookup.fill_marks("d", pins, self.locate, self.ctx(), self.marks, 200, 0.0), 0)
             self.assertEqual(view.call_count, 2)
 
     def test_line_marks_drop_the_oldest_entries_past_the_cap(self):
