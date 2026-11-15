@@ -2717,7 +2717,10 @@ class BadgeDrag(BrowserBase):
     [위치 다시 잡기]. The mouse drags a badge from anywhere; a finger only inside the re-place mode for that pin, so the
     badge keeps the gestures it already has (its long-press tooltip, and a box in [선택] mode). The pin carries its own
     box to the drop, the pending box then snaps to where the chosen rung's lines stand in the build on screen, and a
-    verdict pin's badge is not dragged at all."""
+    verdict pin's badge is not dragged at all.
+
+    Creation rides the same rule and is checked here, where the pick stub already carries a rung's mark: the composer's
+    '새 핀' box snaps to that mark too, so what a person confirms before [핀 저장] is where the pin lands."""
 
     WHO = ALICE
     BUILD = "pages-20260925100000"
@@ -2988,6 +2991,48 @@ class BadgeDrag(BrowserBase):
         self.assertEqual(got["page"], "p2", got)
         self.assertTrue(got["inView"], got)
         self.assertGreater(page.evaluate("document.getElementById('left').scrollTop"), before)
+
+    def test_a_new_pins_box_snaps_to_the_mark_it_will_save_before_it_is_saved(self):
+        """What the person sees has to be what gets saved. A new LaTeX pin is stored on its rung's mark (save.js), and a
+        mark derived from lines is a line-shaped block, not the small rectangle that was dragged - so without the snap
+        the composer shows one place and the pin lands on another, on a page the person never looked at where the range
+        crosses a break. The box therefore goes to the mark's page and box and is brought into view there, and the
+        record that follows is the very box that was on screen."""
+        self.PICK = {**self.PICK, "levels": [{**self.PICK["levels"][0], "mark_page": 2}]}
+        page = self.open(1, init=self.NO_COACH)
+        page.locator("#p1").scroll_into_view_if_needed()
+        before = page.evaluate("document.getElementById('left').scrollTop")
+        self.drag_box(page, [0.2, 0.2, 0.25, 0.04])
+        self.assertEqual(self.sel(page), {"page": "p2", "pending": True, "frac": self.MARK})
+        got = page.evaluate(self.IN_VIEW)
+        self.assertEqual(got["page"], "p2", got)
+        self.assertTrue(got["inView"], got)
+        self.assertGreater(page.evaluate("document.getElementById('left').scrollTop"), before)
+        page.locator("#note").fill("본 자리에 저장")
+        page.click("#btn-save")
+        page.wait_for_function("OPEN_ALL.some(p=>p.note==='본 자리에 저장')", timeout=8000)
+        settle(page)
+        rec = find_record(ps.APP.snapshot_pins(), page.evaluate("OPEN_ALL.find(p=>p.note==='본 자리에 저장').id"))
+        self.assertEqual((rec["page"], rec["frac"]), (2, self.MARK))
+
+    def test_changing_the_rung_re_snaps_the_new_pins_box(self):
+        """The snap follows the chosen rung, since the rung is what decides the saved mark: picking the second rung
+        moves the box to that rung's own mark, through the one path every selection change comes down (renderComposer ->
+        renderElement)."""
+        wide = [0.3, 0.1, 0.4, 0.1]
+        self.PICK = {
+            **self.PICK,
+            "levels": [
+                self.PICK["levels"][0],
+                {**self.PICK["levels"][0], "level": "para", "label": "문단", "mark": wide, "mark_page": 1},
+            ],
+        }
+        page = self.open(1, init=self.NO_COACH)
+        self.drag_box(page, [0.2, 0.2, 0.25, 0.04])
+        self.assertEqual(self.sel(page), {"page": "p1", "pending": True, "frac": self.MARK})
+        page.evaluate("()=>{useLevel(COMPOSE.current,'para'); renderComposer();}")
+        settle(page)
+        self.assertEqual(self.sel(page), {"page": "p1", "pending": True, "frac": wide})
 
     def test_a_new_pins_lines_on_another_page_are_saved_on_that_page(self):
         """Creation follows the same page rule as a re-place: a new pin whose chosen rung's lines print on page 2 is stored

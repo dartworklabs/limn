@@ -3005,10 +3005,14 @@ class FrontendFigure(unittest.TestCase):
         line, no box is no error."""
         self.node()
         js = "\n".join(
-            [extract_js_fn(n) for n in ("isFrac", "elName", "elPathText", "drawBox", "snapBox", "renderElement")]
+            [
+                extract_js_fn(n)
+                for n in ("isFrac", "elName", "elPathText", "drawBox", "lvOf", "levelMark", "snapBox", "renderElement")
+            ]
             + [
                 r"""
             function pendingBadgeSide(){}   // the badge's side needs the page on screen (markBadgeRoom); not this test's
+            function revealBox(){}   // bringing a snapped box into view needs the layout; not this test's
             const nodes={'#c-path':{hidden:true,textContent:'',dataset:{},setAttribute(){},matches(){return false;}}}; const $=s=>nodes[s];
             const vals=b=>['left','top','width','height'].map(k=>parseFloat(b.style[k]));
             const cell={id:'B2/c/m07',path:['B2','B2/c','B2/c/m07'],label:'7월',frac:[0.47,0.18,0.07,0.12]};
