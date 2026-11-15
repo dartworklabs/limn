@@ -67,7 +67,7 @@ class RealSynctex(unittest.TestCase):
 
     @needs_tex("pdflatex", "synctex")
     def test_a_body_line_and_a_table_row_get_different_boxes_on_page_one(self):
-        """The body line is a full-width strip; a tabular row is inside the (narrower) table box."""
+        """The body line is a full-width strip; each tabular row has its own row-high box."""
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "main.tex").write_text(TEX, encoding="utf-8")
@@ -79,8 +79,17 @@ class RealSynctex(unittest.TestCase):
                 check=True,
             )
             body = mapping.view_box(pick_source.synctex_view(root / "main.pdf", 3, "main.tex") or [], 1)
-            row = mapping.view_box(pick_source.synctex_view(root / "main.pdf", 9, "main.tex") or [], 1)
+            row = mapping.view_box(pick_source.synctex_view(root / "main.pdf", 10, "main.tex") or [], 1)
+            row2 = mapping.view_box(pick_source.synctex_view(root / "main.pdf", 11, "main.tex") or [], 1)
         self.assertIsNotNone(body)
         self.assertIsNotNone(row)
+        self.assertIsNotNone(row2)
         self.assertEqual((body.page, row.page), (1, 1))
         self.assertNotEqual(body.box, row.box)
+        self.assertEqual(row2.page, 1)
+        # each row gets its own row box: same left edge and width, one row apart, no taller than a row
+        self.assertAlmostEqual(row.box[0], row2.box[0], places=3)
+        self.assertAlmostEqual(row.box[2], row2.box[2], places=3)
+        self.assertLess(row.box[3] - row.box[1], 15)
+        self.assertLess(row2.box[3] - row2.box[1], 15)
+        self.assertAlmostEqual(row2.box[3] - row.box[3], 11.955, places=1)

@@ -45,24 +45,15 @@ def _finite(*values: float) -> bool:
 
 
 def view_box(hits: Sequence[tuple[int, float, float, float, float]], pages: int) -> ViewBox | None:
-    """The one box SyncTeX's forward hits (page, h, v, W, H; v is the baseline) reduce to, or None.
+    """The box of the first usable SyncTeX forward hit (page, h, v, W, H; v is the baseline), or None.
 
-    The first usable hit chooses the page, and only that page's boxes are united: a line that a float or a page break
-    prints in two places has no single box, so the first place stands for it. A hit is unusable on a page outside
-    1..pages, with a non-finite number, or with no width or height."""
-    page = 0
-    box: tuple[float, float, float, float] | None = None
+    Only the first usable hit counts: SyncTeX answers a line with several records (for a table row, the row, the
+    whole table, the row again and the row above), and only the first is the line itself. A hit is unusable on a page
+    outside 1..pages, with a non-finite number, or with no width or height."""
     for p, h, v, w, ht in hits:
-        if not 1 <= p <= pages or not _finite(h, v, w, ht) or w <= 0 or ht <= 0:
-            continue
-        if page and p != page:
-            continue
-        page = p
-        one = (h, v - ht, h + w, v)
-        box = (
-            one if box is None else (min(box[0], one[0]), min(box[1], one[1]), max(box[2], one[2]), max(box[3], one[3]))
-        )
-    return ViewBox(page, box) if box is not None else None
+        if 1 <= p <= pages and _finite(h, v, w, ht) and w > 0 and ht > 0:
+            return ViewBox(p, (h, v - ht, h + w, v))
+    return None
 
 
 def span_box(lo: ViewBox | None, hi: ViewBox | None) -> ViewBox | None:

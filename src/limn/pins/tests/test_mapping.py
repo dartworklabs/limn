@@ -47,12 +47,12 @@ TABLE_DOC = [
 class ForwardBox(unittest.TestCase):
     """Reducing SyncTeX forward-lookup hits to the one box a line is printed in."""
 
-    def test_view_box_takes_the_first_hits_page_and_unites_that_pages_boxes(self):
-        """Page 2's hit is ignored; the top edge is the baseline minus the height."""
+    def test_view_box_takes_the_first_valid_hit_and_drops_the_rest(self):
+        """Later hits, on its page or another, are dropped; the top edge is the baseline minus the height."""
         hits = [(1, 133.77, 232.19, 343.71, 8.86), (1, 133.77, 241.05, 100.0, 8.86), (2, 10.0, 20.0, 30.0, 8.0)]
         got = mapping.view_box(hits, 3)
         self.assertEqual(got.page, 1)
-        for have, want in zip(got.box, (133.77, 223.33, 477.48, 241.05), strict=True):
+        for have, want in zip(got.box, (133.77, 223.33, 477.48, 232.19), strict=True):
             self.assertAlmostEqual(have, want, places=6)
 
     def test_view_box_refuses_a_page_out_of_range_a_non_finite_number_and_an_empty_box(self):
