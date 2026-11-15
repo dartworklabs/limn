@@ -4,13 +4,13 @@
 Run: uv run pytest -q src/limn/pins/listing/tests/test_line_marks.py
 """
 
-import json
 import unittest
 
 from limn.pins.listing import projection as view
 from limn.pins.location.position import LineMark
 
-from helpers import Base, ps, req, split_resp
+from helpers import ps
+from helpers_access import ALICE, AccessBase
 
 MARK = LineMark(3, (0.1, 0.2, 0.3, 0.04))
 
@@ -77,13 +77,13 @@ class LineMarksPayload(unittest.TestCase):
         self.assertEqual(bound, ["ms", "fig"])
 
 
-class LineMarksOverHttp(Base):
+class LineMarksOverHttp(AccessBase):
     """Through the server: a cached mark shows up, and a read changes nothing stored."""
 
     def listed(self):
-        code, _, body = split_resp(self.talk(req("GET", "/api/pins")))
+        code, body = self.call("GET", "/api/pins", headers=ALICE)
         self.assertEqual(code, 200, body)
-        return {p["id"]: p for p in json.loads(body)}
+        return {p["id"]: p for p in body}
 
     def stored(self, pid):
         with ps.APP.RT.pin_lock:
