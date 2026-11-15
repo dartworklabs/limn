@@ -22,9 +22,16 @@ function elPathText(o){const el=o&&o.elSel; if(!el||!Array.isArray(el.path))retu
   return el.path.map(id=>names.get(id)||String(id)).join(' › ');}
 // A figure rung's tooltip text: the whole figure's lines for the page's root (its path is itself), else the element's.
 function rungTip(lv){return Array.isArray(lv.el.path)&&lv.el.path.length<=1?T.fig:T.el;}
-// Puts a pending box (the composer's '새 핀', a re-place's '새 위치') on the element it will pin, so the person sees the
-// mark before saving. An element without a usable box, or no box on screen, leaves the box as dragged.
-function snapBox(box,el){if(!box||!el||!isFrac(el.frac))return; const f=el.frac; drawBox(box,f[0],f[1],f[0]+f[2],f[1]+f[3]); pendingBadgeSide(box);}
+// Puts a pending box (the composer's '새 핀', a re-place's '새 위치') where the mark it will save goes, so the person sees
+// that mark before saving: on a figure document the element it will pin; off one - where there is no element - the box the
+// chosen rung's lines fill in the build on screen (mark, from levelMark). A rung whose lines stand on another page than the
+// drag takes the box to that page, which is where its mark will be. An element with no usable box keeps the element's own
+// behaviour and leaves the box as dragged, as do no element and no mark, a mark whose page is not on screen, and no box.
+/** @param {HTMLElement|null} box @param {PinElement|null} el @param {{page:number,frac:number[]}|null} [mark] */
+function snapBox(box,el,mark){if(!box)return;
+  const m=!el&&mark&&isFrac(mark.frac)?mark:null,f=el&&isFrac(el.frac)?el.frac:m?m.frac:null; if(!f)return;
+  if(m){const pg=document.getElementById('p'+m.page); if(!pg)return; if(pg!==box.parentElement)pg.appendChild(box);}
+  drawBox(box,f[0],f[1],f[0]+f[2],f[1]+f[3]); pendingBadgeSide(box);}
 // The element part of the composer for selection o and its pending box: the path line '#c-path' (hidden when the pick
 // found no element - a manuscript, a view-only PDF, a figure whose map is unreadable) and the snapped box.
 function renderElement(o,box){const line=$('#c-path'),el=o.elSel; line.hidden=!el;

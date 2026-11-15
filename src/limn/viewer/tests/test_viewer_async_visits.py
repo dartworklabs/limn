@@ -423,6 +423,8 @@ class VisitLocalContinuations(unittest.TestCase):
             [
                 extract_js_fn("captureVisit"),
                 extract_js_fn("currentVisit"),
+                extract_js_fn("isFrac"),
+                extract_js_fn("levelMark"),
                 extract_js_fn("applyRepick"),
                 extract_js_fn("rng"),
                 """
@@ -463,6 +465,7 @@ class VisitLocalContinuations(unittest.TestCase):
                         extract_js_fn("isFrac"),
                         extract_js_fn("hasMark"),
                         extract_js_fn("pinPlace"),
+                        extract_js_fn("levelMark"),
                         extract_js_fn("applyRepick"),
                         extract_js_fn("rng"),
                         """
@@ -490,6 +493,8 @@ class VisitLocalContinuations(unittest.TestCase):
                     [
                         extract_js_fn("captureVisit"),
                         extract_js_fn("currentVisit"),
+                        extract_js_fn("isFrac"),
+                        extract_js_fn("levelMark"),
                         extract_js_fn("applyRepick"),
                         extract_js_fn("rng"),
                         """

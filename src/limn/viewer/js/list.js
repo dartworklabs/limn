@@ -447,8 +447,11 @@ function marks(){
     setHtml(m,html`<button type="button" class="mark-jump" translate="no" data-act="mark-jump" data-id="${p.id}" aria-label="${tl('핀 #{id} 카드로 이동',{id:p.id})}" data-tip="${tip}">${p.id}</button>`); el.appendChild(m);});   // the tip carries the note
   markBadgeSides(); drawChips();
 }
-// Clicking a badge scrolls to and flashes the card (never calls pick). The mark box itself has pointer-events:none, so
-// a drag over it still becomes a new selection - only the badge button needs to block mousedown.
+// A press on a badge is the badge's: its click scrolls to and flashes the card, and a drag from it moves the pin (selection.js
+// badgeMove) - never a new selection, since the mark box itself has pointer-events:none and only the badge button is pressed
+// here. The default of that press is what is stopped: the browser would make the drag a text selection over the page and move
+// the focus to the badge. Pointer events are untouched, so the drag still reaches the pointerdown/move/up path, and the click
+// that follows a press that did not move still jumps to the card.
 $('#doc').addEventListener('mousedown',e=>{
   if(e.target.closest('.mark [data-act=mark-jump]')){e.stopPropagation();e.preventDefault();}
 },true);

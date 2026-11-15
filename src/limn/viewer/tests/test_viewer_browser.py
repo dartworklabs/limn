@@ -2698,3 +2698,223 @@ class LineMarksFollowBuild(BrowserBase):
         self.assertEqual(page.evaluate("id=>PINS.find(x=>x.id===id).mark_page", self.pid), None)
         self.assertEqual(page.evaluate("s=>document.querySelector(s).parentNode.id", sel), "p1")
         self.assertIn("est", page.locator(sel).get_attribute("class") or "")
+
+
+class BadgeDrag(BrowserBase):
+    """Dragging a pin's number badge to move the pin: the drop goes through the same banner, confirm and save as
+    [위치 다시 잡기]. The mouse drags a badge from anywhere; a finger only inside the re-place mode for that pin, so the
+    badge keeps the gestures it already has (its long-press tooltip, and a box in [선택] mode). The pin carries its own
+    box to the drop, the pending box then snaps to where the chosen rung's lines stand in the build on screen, and a
+    verdict pin's badge is not dragged at all."""
+
+    WHO = ALICE
+    BUILD = "pages-20260925100000"
+    # First-visit coach marks off, so no hint sits over the badge a test drags.
+    NO_COACH = "try{localStorage.setItem('pinPrefs',JSON.stringify({coach:{touch:1,mouse:1,sel:1}}))}catch(e){}"
+    BOX = [0.1, 0.1, 0.3, 0.05]  # the pin's box on page 1, as the drag that placed it left it
+    MARK = [0.2, 0.62, 0.3, 0.02]  # where the pick says the dropped range's lines stand
+    # The pick every drag in this class is answered with: line 20 as the only rung, carrying its mark on page 1. A test
+    # sets self.PICK to put that mark on page 2 instead - a range across a page break.
+    PICK: dict = {
+        "lo": 20,
+        "hi": 20,
+        "raw_lo": 20,
+        "raw_hi": 20,
+        "default_level": "raw",
+        "levels": [
+            {
+                "level": "raw",
+                "lo": 20,
+                "hi": 20,
+                "n": 1,
+                "label": "드래그한 줄",
+                "snippet": "Line 20 of the demo manuscript.",
+                "mark": MARK,
+                "mark_page": 1,
+            }
+        ],
+    }
+    # The pending box as the page fractions drawBox wrote and the page element holding it; null when there is none.
+    SEL = """() => {const b = document.querySelector('#doc .sel'); if (!b) return null;
+      const n = k => Math.round(parseFloat(b.style[k]) * 1e4) / 1e6;
+      return {page: b.parentElement.id, pending: b.classList.contains('pending'),
+        frac: [n('left'), n('top'), n('width'), n('height')]};}"""
+    # The re-place banner: its words with the spacing collapsed and whether it offers [이 위치로 바꾸기]; null while hidden.
+    BANNER = """() => {const b = document.getElementById('banner'); return b.hidden ? null
+      : {text: b.textContent.replace(/\\s+/g, ' ').trim(), apply: !!b.querySelector('[data-act="rp-apply"]')};}"""
+
+    def setUp(self):
+        """One open line pin of Alice's at BOX on page 1 of the build on screen, so its badge is drawn there."""
+        super().setUp()
+        self.pid = self.pin_at(5, self.BOX, "badge")
+
+    def pin_at(self, line, frac, note, **extra):
+        """An open pin of Alice's on that line of the manuscript at frac on page 1; returns its id."""
+        made = add_pin(
+            {
+                "file": str(self.main),
+                "lo": line,
+                "hi": line,
+                "page": 1,
+                "frac": frac,
+                "pdf_build": self.BUILD,
+                "note": note,
+                **extra,
+            },
+            A,
+        )
+        self.assertTrue(hasattr(made, "record"), made)  # an InputRejected has none: its fields say what was refused
+        return made.record["id"]
+
+    def badge_point(self, page, pid=None):
+        """The viewport point at the middle of that pin's number badge, its page scrolled into view."""
+        page.locator("#p1").scroll_into_view_if_needed()
+        b = page.locator('.mark[data-pin="%d"] [data-act=mark-jump]' % (pid or self.pid)).bounding_box()
+        return b["x"] + b["width"] / 2, b["y"] + b["height"] / 2
+
+    def drag_badge(self, page, dx, dy, pid=None, ready="REPICK&&REPICK.cand"):
+        """A mouse drag from that pin's badge by (dx, dy) CSS px through the real pointer path; waits for ready, if any."""
+        x0, y0 = self.badge_point(page, pid)
+        page.mouse.move(x0, y0)
+        page.mouse.down()
+        page.mouse.move(x0 + dx, y0 + dy, steps=6)
+        page.mouse.up()
+        if ready:
+            page.wait_for_function(ready, timeout=8000)
+        settle(page)
+
+    def drag_badge_touch(self, page, dx, dy, pid=None, ready=None):
+        """A one-finger drag from that pin's badge by (dx, dy) CSS px (helpers_browser.touch_drag); waits for ready."""
+        x0, y0 = self.badge_point(page, pid)
+        touch_drag(page.context.new_cdp_session(page), touch_line(x0, y0, x0 + dx, y0 + dy, 6))
+        if ready:
+            page.wait_for_function(ready, timeout=8000)
+        settle(page)
+
+    def sel(self, page):
+        """The pending box now (SEL)."""
+        return page.evaluate(self.SEL)
+
+    def banner(self, page):
+        """The re-place banner now (BANNER)."""
+        return page.evaluate(self.BANNER)
+
+    def test_a_mouse_drag_on_a_badge_repoints_the_pin_and_snaps_the_box_to_the_new_range(self):
+        """A mouse drag from the badge puts the re-place mode on for that pin and sends its box where it was dropped; the
+        banner compares 지금/새 as [위치 다시 잡기] does, the '새 위치' box snaps to where the chosen rung's lines stand,
+        and [이 위치로 바꾸기] saves that range, page and box onto the pin, its number and note untouched."""
+        page = self.open(1, init=self.NO_COACH)
+        self.drag_badge(page, 120, 80)
+        self.assertEqual(page.evaluate("REPICK&&REPICK.id"), self.pid)
+        banner = self.banner(page)
+        self.assertTrue(banner["apply"], banner)
+        self.assertIn("지금 L5 · 새 L20", banner["text"])
+        self.assertIn("(드래그한 줄)", banner["text"])
+        self.assertEqual(self.sel(page), {"page": "p1", "pending": True, "frac": self.MARK})
+        page.click('#banner [data-act="rp-apply"]')
+        page.wait_for_function("REPICK===null", timeout=8000)
+        settle(page)
+        rec = find_record(ps.APP.snapshot_pins(), self.pid)
+        self.assertEqual((rec["id"], rec["lo"], rec["hi"], rec["page"], rec["note"]), (self.pid, 20, 20, 1, "badge"))
+        self.assertEqual(rec["frac"], self.MARK)
+        self.assertEqual(
+            page.evaluate(
+                "id=>{const m=document.querySelector('.mark[data-pin=\"'+id+'\"]');return [m.parentNode.id,m.style.top];}",
+                self.pid,
+            ),
+            ["p1", "62%"],
+        )
+
+    def test_the_moving_box_is_the_pins_own_box_and_stays_on_the_page(self):
+        """While the button is still down the box is the pin's own, moved by the drag - never a rectangle drawn from the
+        press point - and a drag that would push it off the page slides it back inside with its size kept."""
+        page = self.open(1, init=self.NO_COACH)
+        pg = page.locator("#p1").bounding_box()
+        x0, y0 = self.badge_point(page)
+        page.mouse.move(x0, y0)
+        page.mouse.down()
+        page.mouse.move(x0 + pg["width"] * 0.25, y0 + pg["height"] * 0.1, steps=6)
+        moved = self.sel(page)
+        page.mouse.move(x0 + pg["width"], y0, steps=6)  # past the page's right edge
+        clamped = self.sel(page)
+        page.mouse.up()
+        page.wait_for_function("REPICK&&REPICK.cand", timeout=8000)
+        settle(page)
+        self.assertEqual(moved["frac"][2:], self.BOX[2:])  # the size never changes
+        self.assertAlmostEqual(moved["frac"][0], self.BOX[0] + 0.25, places=2)
+        self.assertAlmostEqual(moved["frac"][1], self.BOX[1] + 0.10, places=2)
+        self.assertEqual(clamped["frac"], [1 - self.BOX[2], self.BOX[1], self.BOX[2], self.BOX[3]])
+
+    def test_a_badge_drag_does_not_jump_to_the_card_and_a_still_press_does(self):
+        """The click that follows a badge drag is swallowed, so the drag leaves no card flashing; a press on the same badge
+        that does not pass TAP_SLOP is still the badge's click, which flashes its card and starts no re-place."""
+        page = self.open(1, init=self.NO_COACH)
+        self.drag_badge(page, 26, 22)
+        self.assertEqual(page.locator(".pin.cur").count(), 0)
+        page.keyboard.press("Escape")
+        page.wait_for_function("REPICK===null", timeout=8000)
+        settle(page)
+        self.assertIsNone(self.sel(page))
+        x0, y0 = self.badge_point(page)
+        page.mouse.move(x0, y0)
+        page.mouse.down()
+        page.mouse.move(x0 + 3, y0 + 2)  # under TAP_SLOP: this press stays the badge's click
+        page.mouse.up()
+        page.wait_for_selector('.pin.cur[data-id="%d"]' % self.pid, timeout=8000)
+        self.assertIsNone(page.evaluate("REPICK"))
+        self.assertIsNone(self.sel(page))
+
+    def test_a_finger_drag_on_a_badge_moves_the_pin_only_inside_repick_mode(self):
+        """On a phone in [선택] mode a finger drag from a badge still draws a new box, as it must - the badges' press areas
+        cover much of a small page's left edge. The same drag inside [위치 다시 잡기] for that very pin moves the pin
+        instead (the mode is turned on through startRepick, which the card's button calls)."""
+        page = self.open(1, lang="ko", init=self.NO_COACH, **DEVICES["phone"])
+        page.click("#btn-select")
+        page.wait_for_function("SELMODE", timeout=8000)
+        settle(page)
+        self.drag_badge_touch(page, 40, 60, ready="COMPOSE.current&&!COMPOSE.picking")
+        self.assertIsNone(page.evaluate("REPICK"))  # a new box, not a move
+        self.assertTrue(page.evaluate("!!COMPOSE.box"))
+        page.evaluate("discardSelection()")
+        settle(page)
+        page.evaluate("id=>openEdit(id)", self.pid)
+        page.wait_for_function("id=>EDITOR.current&&EDITOR.current.id===id", arg=self.pid, timeout=8000)
+        page.evaluate("async()=>await startRepick()")
+        page.wait_for_function("id=>REPICK&&REPICK.id===id", arg=self.pid, timeout=8000)
+        settle(page)
+        self.drag_badge_touch(page, 40, 60, ready="REPICK&&REPICK.cand")
+        self.assertEqual(self.sel(page), {"page": "p1", "pending": True, "frac": self.MARK})
+        self.assertTrue(self.banner(page)["apply"])
+
+    def test_a_verdict_pins_badge_cannot_be_dragged(self):
+        """A verdict pin keeps the place it fixed: its card hides [위치 다시 잡기] and an edit's loc is 400 verdict_fixed,
+        so its badge starts no re-place either - the drag leaves no box and no banner - while the open pin beside it moves."""
+        (ps.APP.C.src / "main.limnverdicts.json").write_text(
+            json.dumps({"format": "limn-verdicts/1", "verdicts": [{"key": "채택"}], "page": False}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        vid = self.pin_at(9, [0.1, 0.3, 0.3, 0.05], "", verdict="채택")
+        page = self.open(2, init=self.NO_COACH)
+        self.assertEqual(page.evaluate("id=>verdictOf(OPEN_ALL.find(p=>p.id===id))", vid), "채택")
+        self.drag_badge(page, 90, 120, pid=vid, ready=None)
+        self.assertIsNone(page.evaluate("REPICK"))
+        self.assertIsNone(self.sel(page))
+        self.assertIsNone(self.banner(page))
+        self.drag_badge(page, 120, 60)  # the open pin's badge, the same drag
+        self.assertEqual(page.evaluate("REPICK.id"), self.pid)
+
+    def test_a_rung_whose_lines_stand_on_another_page_is_saved_on_that_page(self):
+        """The hazard this flow exists to close: a range across a page break prints on a page other than the one dragged
+        on. The '새 위치' box goes to the page the rung's mark names, and the save stores that page with that box - a
+        stored page the forward lookup does not answer is not trusted (position.line_mark, exact_page), so saving the
+        dragged page would make the mark jump off the place just confirmed."""
+        self.PICK = {**self.PICK, "levels": [{**self.PICK["levels"][0], "mark_page": 2}]}
+        page = self.open(1, init=self.NO_COACH)
+        self.drag_badge(page, 60, 40)
+        self.assertEqual(self.sel(page), {"page": "p2", "pending": True, "frac": self.MARK})
+        page.click('#banner [data-act="rp-apply"]')
+        page.wait_for_function("REPICK===null", timeout=8000)
+        settle(page)
+        rec = find_record(ps.APP.snapshot_pins(), self.pid)
+        self.assertEqual((rec["page"], rec["lo"], rec["hi"]), (2, 20, 20))
+        self.assertEqual(rec["frac"], self.MARK)

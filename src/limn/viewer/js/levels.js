@@ -1,5 +1,12 @@
 // ------------------------------------------------ Range levels
 function lvOf(obj,key){return (obj.levels||[]).find(l=>l.level===key||(l.merged||[]).includes(key));}
+// Where a rung's lines stand on the page in the build on screen: {page, frac} read from the rung's `mark` and `mark_page`
+// (POST /api/pick, docs/handbook/api.md), else null - a rung the forward lookup could not place, a figure document's rung,
+// which has an element instead, or no rung at all. GET /api/pins carries the same pair for a saved pin (pinPlace), so what a
+// re-place saves and what the page then draws are the one box.
+/** @param {Rung|null|undefined} lv @returns {{page:number,frac:number[]}|null} */
+function levelMark(lv){const m=lv&&lv.mark,page=lv&&lv.mark_page;
+  return isFrac(m)&&typeof page==='number'&&Number.isInteger(page)&&page>=1?{page,frac:m}:null;}
 // A Markdown document's rungs (md-surface.js mdLevels, ADR-0025 D3): a block is md:<its kind> (the rung's env), a section md:section,
 // and several blocks whole (level blocks) are lines - a pin's scope is one of the server's (wireScope), and blocks is none of them.
 function wireScope(scope){return scope==='blocks'?'lines':scope;}

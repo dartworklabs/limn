@@ -62,12 +62,14 @@ interface Selection extends PickAnswer {
   rect?: { x0: number; y0: number; x1: number; y1: number } | null;
 }
 
-// A pin's location being placed again (repick.js REPICK): the pin, where it was, the drawn box and the new candidate.
+// A pin's location being placed again (repick.js REPICK): the pin, where it was, the drawn box, the new candidate and the
+// pin's revision when the re-place began - what the edit card holds, or the pin's own where a badge drag began it.
 interface Repick {
   id: number;
   from: { lo?: number; hi?: number; page: number; region: boolean };
   box: HTMLElement | null;
   cand: PickAnswer | null;
+  base_rev?: number;
 }
 
 /** A closed nonblank reply keeps its text and the recipient logins selected for tags that remain in that text. */

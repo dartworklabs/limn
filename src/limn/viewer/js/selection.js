@@ -5,7 +5,7 @@
 // handled by this code, two fingers by the app zoom - §PDF 영역 전용 확대).
 // Coordinates are computed as fractions within the page from clientX/Y and getBoundingClientRect on the same
 // basis (the layout viewport), so they stay correct even during a pinch zoom.
-let DRAG=/** @type {{pg:HTMLElement,sx:number,sy:number,id:number,mouse:boolean,cx:number,cy:number,box:HTMLElement|null,badge?:boolean}|null} */(null),
+let DRAG=/** @type {{pg:HTMLElement,sx:number,sy:number,id:number,mouse:boolean,cx:number,cy:number,box:HTMLElement|null,badge?:boolean,move?:{id:number,frac:number[]}|null,began?:boolean}|null} */(null),
   LP=/** @type {{id:number,pg:HTMLElement,cx:number,cy:number,t:ReturnType<typeof setTimeout>}|null} */(null);
 const c01=v=>Math.min(1,Math.max(0,v));
 const LONGPRESS_MS=450,TAP_SLOP=8,QUICK_W=0.07,QUICK_H=0.006,QUICK_FIG=0.004;
@@ -19,7 +19,9 @@ function pendingBadge(box,name){setHtml(box,html`<i aria-hidden="true">${ic('plu
 function pendingBadgeSide(box){const r=markBadgeRoom(box.parentElement); if(r)box.classList.toggle('in',markBadgeIn((parseFloat(box.style.left)||0)/100,r.w,r.pad,r.reach));}
 function drawBox(box,sx,sy,x,y){Object.assign(box.style,{left:Math.min(sx,x)*100+'%',top:Math.min(sy,y)*100+'%',
   width:Math.abs(x-sx)*100+'%',height:Math.abs(y-sy)*100+'%'});}
-function cancelDrag(){if(DRAG&&DRAG.box)DRAG.box.remove(); DRAG=null;}
+// A cancelled drag also ends the re-place mode its own badge turned on (began), so a pinch or a cancelled press leaves the
+// pin where it was and no banner behind.
+function cancelDrag(){if(DRAG&&DRAG.box)DRAG.box.remove(); if(DRAG&&DRAG.began)cancelRepick(); DRAG=null;}
 function cancelLP(){if(LP){clearTimeout(LP.t); LP=null;}}
 // Prevents the default behavior of a mouse press on a page (focus shift, image dragging), as the old mousedown did - the note field's focus is preserved.
 $('#doc').addEventListener('mousedown',e=>{if(e.button===0&&e.target.closest('.pg'))e.preventDefault();});
@@ -33,17 +35,55 @@ let LP_PICKED=/** @type {number|null} */(null),TAP=/** @type {{id:number,x:numbe
 // click always comes before the next press) - unless another hold has taken SWALLOW_CLICK over since, which is not this one's to end.
 let BADGE_HOLD=0;
 window.addEventListener('pointerdown',()=>{if(SWALLOW_CLICK===BADGE_HOLD)SWALLOW_CLICK=0; BADGE_HOLD=0;},true);
+// ------------------------------------------------ A pin's number badge dragged to move the pin
+// The box a badge drag puts the pin's box at: f = the pin's box [x, y, w, h] on its page, moved by dx, dy (fractions of that
+// same page). The box keeps its size and stays on the page - a drop that would push an edge past it slides the box back
+// inside - so a badge drag moves a pin within its page and a drop is never off the page. The moved ends are rounded to six
+// places (under a thousandth of a pixel on any page), so a box put back where it was reads as the fractions it came with and
+// not as their floating-point dust. Pure.
+/** @param {number[]} f @param {number} dx @param {number} dy @returns {number[]} */
+function badgeDrop(f,dx,dy){const w=f[2],h=f[3],r=v=>Math.round(v*1e6)/1e6;
+  return [r(Math.min(Math.max(0,f[0]+dx),Math.max(0,1-w))),r(Math.min(Math.max(0,f[1]+dy),Math.max(0,1-h))),w,h];}
+// How far a press at (cx, cy) has come to (x, y), as fractions of page pg - read on fracAt's basis (the layout viewport), so
+// a pinch zoom leaves it right. A page with no size on screen has moved nothing.
+function fracMove(pg,cx,cy,x,y){const r=pg.getBoundingClientRect();
+  return [r.width?(x-cx)/r.width:0,r.height?(y-cy)/r.height:0];}
+// Where badge drag D has moved the pin's box to, with the pointer at (x, y).
+function badgeAt(D,x,y){const [dx,dy]=fracMove(D.pg,D.cx,D.cy,x,y); return badgeDrop(D.move.frac,dx,dy);}
+// Whether pin p's place may be moved at all - the judgement the edit card makes of [위치 다시 잡기]: a verdict pin keeps the
+// place it fixed (cards.css hides the button, and POST /api/pins/<id>/edit answers 400 verdict_fixed), and a closed or
+// awaiting-review pin keeps where it points (renderEdit hides the button, and an edit is 409). The badge says the same, so
+// no drag ends in a refusal.
+/** @param {Pin} p */
+function markMovable(p){return !verdictOf(p)&&pinState(p)===PIN_STATE.OPEN;}
+// The pin a press on badge button b would move, as {id, frac} - its box where the badge is drawn (pinPlace) - or null when
+// this press moves nothing: a pin whose place is fixed (markMovable), one whose box has no size to move, or a finger outside
+// the re-place mode for that very pin. The badge keeps the two gestures a finger already has on it - the long-press tooltip
+// and, in [선택] mode, starting a box - and the mouse, which had none on it, moves the pin.
+/** @param {HTMLElement} b @param {boolean} mouse */
+function badgeMove(b,mouse){const p=findAnyPin(Number(b.dataset.id)); if(!p||!markMovable(p))return null;
+  if(!mouse&&!(REPICK&&REPICK.id===p.id))return null;
+  const at=pinPlace(p); return isFrac(at.frac)&&at.frac[2]>0&&at.frac[3]>0?{id:p.id,frac:at.frac.slice()}:null;}
+// A badge drag has passed the slop and is moving its pin: with the re-place mode already on for that pin (a finger's, turned
+// on by [위치 다시 잡기]) nothing changes, and a mouse drag turns it on here. began marks the mode as this drag's, so
+// cancelling the drag ends it again. A pin this tab has lost meanwhile (the list was read again mid-drag) has no mode to
+// turn on and nothing to move: the drag goes on as the drawn rectangle it would have been.
+function badgeDragBegin(D){const m=D.move; if(!m||(REPICK&&REPICK.id===m.id))return;
+  repickFromBadge(m.id); if(REPICK)D.began=true; else D.move=null;}
 // A finger in [선택] mode that lands on a pin's number badge - its 44px press area reaches over the page's text - still starts a
 // box (DRAG.badge) once it moves: on a small page the badges' areas covered much of its left edge and no drag could start
-// there. A tap stays the badge's (its click), and a mouse or a finger outside the mode leaves the badge alone as before.
+// there. A tap stays the badge's (its click), and so does a press that never passes TAP_SLOP, with the mouse too: the badge's
+// click is what jumps to its card. A badge drag that moves the pin instead (badgeMove) draws no new box - it carries the
+// pin's own.
 $('#doc').addEventListener('pointerdown',e=>{
   const badge=e.target.closest('.mark [data-act=mark-jump]'),mouse=e.pointerType==='mouse';
-  if(badge&&(mouse||!SELMODE||!e.isPrimary))return;
+  const move=badge&&(mouse||(SELMODE&&e.isPrimary))?badgeMove(badge,mouse):null;
+  if(badge&&!move&&(mouse||!SELMODE||!e.isPrimary))return;
   if(!e.isPrimary){cancelDrag(); cancelLP(); TAP=null; LAST_TAP=null; return;}   // a second finger = a pinch - the box being drawn is discarded
   const pg=e.target.closest('.pg'); if(!pg)return;
   if(mouse&&e.button!==0)return;
   if(mouse||SELMODE){const [sx,sy]=fracAt(pg,e.clientX,e.clientY);
-    DRAG={pg,sx,sy,id:e.pointerId,mouse,cx:e.clientX,cy:e.clientY,box:mouse?newBox(pg):null,badge:!!badge};
+    DRAG={pg,sx,sy,id:e.pointerId,mouse,cx:e.clientX,cy:e.clientY,box:mouse&&!badge?newBox(pg):null,badge:!!badge,move};
     if(!mouse&&!badge){try{pg.setPointerCapture(e.pointerId);}catch(_){}}   // a badge keeps the press until it moves: a tap is its click
     return;}
   cancelLP(); TAP={id:e.pointerId,x:e.clientX,y:e.clientY,t:performance.now()};
@@ -53,7 +93,8 @@ window.addEventListener('pointermove',e=>{
   if(LP&&e.pointerId===LP.id&&Math.hypot(e.clientX-LP.cx,e.clientY-LP.cy)>10)cancelLP();
   if(TAP&&e.pointerId===TAP.id&&Math.hypot(e.clientX-TAP.x,e.clientY-TAP.y)>TAP_SLOP)TAP=null;
   if(!DRAG||e.pointerId!==DRAG.id)return;
-  if(!DRAG.box){if(Math.hypot(e.clientX-DRAG.cx,e.clientY-DRAG.cy)<TAP_SLOP)return; DRAG.box=newBox(DRAG.pg);}
+  if(!DRAG.box){if(Math.hypot(e.clientX-DRAG.cx,e.clientY-DRAG.cy)<TAP_SLOP)return; DRAG.box=newBox(DRAG.pg); if(DRAG.move)badgeDragBegin(DRAG);}
+  if(DRAG.move){const f=badgeAt(DRAG,e.clientX,e.clientY); drawBox(DRAG.box,f[0],f[1],f[0]+f[2],f[1]+f[3]); return;}   // the pin's own box, moved
   const [x,y]=fracAt(DRAG.pg,e.clientX,e.clientY); drawBox(DRAG.box,DRAG.sx,DRAG.sy,x,y);});
 window.addEventListener('pointerup',e=>{
   const off=PRESS_OFF&&PRESS_OFF.id===e.pointerId?PRESS_OFF:null; PRESS_OFF=null;   // this press, if it could be a click-off
@@ -68,7 +109,8 @@ window.addEventListener('pointerup',e=>{
   if(!DRAG||e.pointerId!==DRAG.id)return;
   const D=DRAG; DRAG=null;
   if(!D.box){if(D.badge)return; quickPick(D.pg,e.clientX,e.clientY); SWALLOW_CLICK=Date.now()+400; return;}   // a tap in selection mode = quick selection (on a badge, the badge's)
-  if(D.badge)SWALLOW_CLICK=BADGE_HOLD=Date.now()+400;   // a drag from a badge is a box, never the badge's click as well - held off from its release, which the click follows, however long the drag ran
+  if(D.badge)SWALLOW_CLICK=BADGE_HOLD=Date.now()+400;   // a drag from a badge is a box or a move, never the badge's click as well - held off from its release, which the click follows, however long the drag ran
+  if(D.move){finishBox(D.pg,D.box,badgeAt(D,e.clientX,e.clientY)); return;}   // the pin's box where it was dropped: the same pick, banner, confirm and save as a drawn '새 위치'
   const [x,y]=fracAt(D.pg,e.clientX,e.clientY);
   if(!finishRect(D.pg,D.box,D.sx,D.sy,x,y)&&off&&off.mouse)clickOffNow(off.box);});   // too small for a box: a click
 window.addEventListener('pointercancel',e=>{if(PRESS_OFF&&PRESS_OFF.id===e.pointerId)PRESS_OFF=null; if(LP&&e.pointerId===LP.id)cancelLP(); if(DRAG&&e.pointerId===DRAG.id)cancelDrag();
@@ -124,19 +166,26 @@ function quickPick(pg,cx,cy){const [x,y]=fracAt(pg,cx,cy),b=quickBox(x,y,isFigur
 // an outer one.
 function quickBox(x,y,figure){const w=figure?QUICK_FIG:QUICK_W,h=figure?QUICK_FIG:QUICK_H;
   return [c01(x-w),c01(y-h),c01(x+w),c01(y+h)];}
+// Turns a chosen rectangle f = [x, y, w, h] of page pg into a selection - the composer's '새 핀', or a re-place's '새 위치' -
+// and asks the server for its lines. One path for every way a rectangle is chosen: a drawn drag (finishRect), a quick
+// selection and a pin's own box dropped from its badge, so the banner, the ladder, the confirm and the save that follow are
+// the same for all of them.
+function finishBox(pg,box,f){
+  drawBox(box,f[0],f[1],f[0]+f[2],f[1]+f[3]);
+  box.classList.add('pending');
+  if(REPICK){ if(REPICK.box)REPICK.box.remove(); REPICK.box=box; pendingBadge(box,'새 위치'); }
+  else { if(COMPOSE.box)COMPOSE.box.remove(); COMPOSE.box=box; pendingBadge(box,'새 핀'); }
+  const page=+pg.dataset.page,p=META.pages[page-1],repick=!!REPICK;
+  pick({page,x0:f[0]*p.pt_w,y0:f[1]*p.pt_h,x1:(f[0]+f[2])*p.pt_w,y1:(f[1]+f[3])*p.pt_h,
+    frac:[f[0],f[1],f[2],f[3]],pdf_build:META.pages_build||undefined,doc:DOC||undefined});
+  if(!repick)openSelPop(box);   // a mouse drag's note popover (sel-popover.js); pick() has opened the composer
+}
 // Turns a drawn rectangle into a selection and asks the server for its lines. Returns false, drawing nothing and removing the
 // box, when the rectangle is smaller than a drag (under 0.4% of the page in both directions) - a click, not a selection.
 function finishRect(pg,box,sx,sy,x,y){
   const w=Math.abs(x-sx),h=Math.abs(y-sy);
   if(w<0.004&&h<0.004){box.remove();return false;}
-  drawBox(box,sx,sy,x,y);
-  box.classList.add('pending');
-  if(REPICK){ if(REPICK.box)REPICK.box.remove(); REPICK.box=box; pendingBadge(box,'새 위치'); }
-  else { if(COMPOSE.box)COMPOSE.box.remove(); COMPOSE.box=box; pendingBadge(box,'새 핀'); }
-  const page=+pg.dataset.page,p=META.pages[page-1],repick=!!REPICK;
-  pick({page,x0:Math.min(sx,x)*p.pt_w,y0:Math.min(sy,y)*p.pt_h,x1:Math.max(sx,x)*p.pt_w,y1:Math.max(sy,y)*p.pt_h,
-    frac:[Math.min(sx,x),Math.min(sy,y),w,h],pdf_build:META.pages_build||undefined,doc:DOC||undefined});
-  if(!repick)openSelPop(box);   // a mouse drag's note popover (sel-popover.js); pick() has opened the composer
+  finishBox(pg,box,[Math.min(sx,x),Math.min(sy,y),w,h]);
   return true;}
 // If the sheet/panel covers the selection box, the body scrolls up until the box is visible (compact only; wide: in every layout -
 // the Markdown surface's chosen lines after a reflow, mdSpotKeep). The view's top is 28px into the PDF area, or 8px under the

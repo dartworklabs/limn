@@ -3503,7 +3503,7 @@ class FrontendFigure(unittest.TestCase):
         self.assertLess(
             rp.index("if(isRegion(c))loc="), rp.index("figureFields(loc,repickEl(c),isRegion(c)||!lv.el?null:lv);")
         )
-        self.assertIn("snapBox(R.box,repickEl(c));", extract_js_fn("bannerCompare"))
+        self.assertIn("snapBox(R.box,repickEl(c),levelMark(rung));", extract_js_fn("bannerCompare"))
         self.assertIn("region:!!EDITOR.current.region", extract_js_fn("startRepick"))
         self.assertIn("pinEl:p.el||null", extract_js_fn("openEdit"))
         self.assertIn("(!E.pinEl&&(E.scope||null)!==(E.orig.scope||null))", extract_js_fn("saveEdit"))
@@ -3526,6 +3526,7 @@ class FrontendFigure(unittest.TestCase):
                     "isFrac",
                     "drawBox",
                     "snapBox",
+                    "levelMark",
                     "repickEl",
                     "rng",
                     "bannerCompare",

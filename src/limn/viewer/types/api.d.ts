@@ -373,6 +373,10 @@ interface Rung {
   env?: string;
   el?: PinElement;
   merged?: string[];
+  // Where this rung's lines stand in the build the pick was made on (POST /api/pick only): the box as [x, y, w, h]
+  // fractions of mark_page. Absent when the forward lookup could not place them, and on a figure document's rung.
+  mark?: number[];
+  mark_page?: number;
 }
 
 // An open line pin a not-yet-saved range overlaps (POST /api/pick `overlaps`), and how.

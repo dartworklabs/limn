@@ -4,16 +4,17 @@ function banner(markup){const b=$('#banner'); setHtml(b,markup); b.hidden=false;
 function bannerRepick(err){if(!REPICK)return; const line=err?html`<span class="errline flush">${err}</span>`:'';
   banner(html`<span>${isMdDoc()?tl('핀 #{id} 의 새 위치를 문서에서 고르세요 · Esc 취소',{id:REPICK.id}):tl('핀 #{id} 의 새 위치를 PDF에서 드래그하세요 · Esc 취소',{id:REPICK.id})}</span>${line}<span class="sp"></span><button class="btn-sm" data-act="rp-cancel" data-tip="위치 다시 잡기를 그만둡니다 (Esc)">취소</button>`);}
 // The re-place banner compares the current and the new place (lines as the composer writes them, rng: L9, L3-L5); on a figure
-// the '새 위치' box snaps to the new element, and on the Markdown surface the candidate's lines are marked (mdSelShown). A
+// the '새 위치' box snaps to the new element, off one to where the chosen rung's lines stand in this build (levelMark, which
+// may be another page), and on the Markdown surface the candidate's lines are marked (mdSelShown). A
 // candidate of the other shape (a region for a line pin, lines for a region pin) is dropped and the banner asks for
 // another drag: /edit never changes a pin's shape, so no request it would refuse is offered.
-function bannerCompare(){const R=REPICK,c=R&&R.cand; if(!R||!c)return; const lv=lvOf(c,c.default_level)||c,rg=isRegion(c);
+function bannerCompare(){const R=REPICK,c=R&&R.cand; if(!R||!c)return; const rung=lvOf(c,c.default_level),lv=rung||c,rg=isRegion(c);
   if(rg!==!!R.from.region){R.cand=null; bannerRepick(tr(T.shape)); return;}
   const where=rg?tl('지금 쪽 {from} · 새 쪽 {to} 영역',{from:R.from.page,to:c.page}):tl('지금 {from} · 새 {to}',{from:rng(R.from.lo,R.from.hi),to:rng(lv.lo,lv.hi)});
   const what=rg?(c.quote?String(c.quote).slice(0,40):tr('글자 없는 영역')):(lv.label?levelLabel(lv.label):scopeLabel(c));
   const acts=html`<button class="btn-sm btn-default" data-act="rp-apply" data-tip="번호와 메모는 그대로 두고 위치만 바꿉니다">이 위치로 바꾸기</button><button class="btn-sm" data-act="rp-cancel" data-tip="위치 다시 잡기를 그만둡니다 (Esc)">취소</button>`;
   banner(html`<span class="loc" data-tip="지금 위치 → 새 위치" tabindex="0">${where}</span><span class="dim">(${what})</span><span class="sp"></span>${acts}`);
-  snapBox(R.box,repickEl(c)); mdSelMark(mdSelShown());}   // the Markdown surface marks the candidate's lines as its box
+  snapBox(R.box,repickEl(c),levelMark(rung)); mdSelMark(mdSelShown());}   // the Markdown surface marks the candidate's lines as its box
 // On touch, selection mode is turned on during a re-place, and narrow collapses the sheet to reveal the page (the banner stays visible even on the collapsed sheet).
 async function startRepick(){if(!EDITOR.current)return;
   if(EDITOR.current.doc&&EDITOR.current.doc!==DOC){const E=EDITOR.current,opening=switchDoc(E.doc),visit=SWITCHSEQ;
@@ -21,25 +22,40 @@ async function startRepick(){if(!EDITOR.current)return;
   // Repick clears an unfinished drag or error panel; a completed selection remains available if repick is cancelled.
   if(COMPOSE.picking||(!COMPOSE.current&&!$('#composer').hidden))cancelSelection(false);
   if(REPICK)cancelRepick();
-  REPICK={id:EDITOR.current.id,from:{lo:EDITOR.current.lo,hi:EDITOR.current.hi,page:EDITOR.current.page,region:!!EDITOR.current.region},box:null,cand:null}; bannerRepick();
+  REPICK={id:EDITOR.current.id,from:{lo:EDITOR.current.lo,hi:EDITOR.current.hi,page:EDITOR.current.page,region:!!EDITOR.current.region},box:null,cand:null,base_rev:EDITOR.current.base_rev}; bannerRepick();
   if(MQ_COARSE.matches)setSelMode(true); if(LAYOUT===LAYOUT_MODE.NARROW)setSide(false);}
+// Turns the re-place mode on for pin id from a drag on its number badge that is already moving its box (selection.js
+// badgeDragBegin). It clears an unfinished selection first, as startRepick does, but asks for no drag of its own: the drag
+// under way is the new place. Touch selection mode and the sheet are left as they are - the person is holding the badge, not
+// about to start a drag - and the pin's own revision is the base the drop saves against, there being no edit card to read it
+// from. Does nothing for a pin this tab does not have.
+/** @param {number} id */
+function repickFromBadge(id){const p=findAnyPin(id); if(!p)return;
+  if(COMPOSE.picking||(!COMPOSE.current&&!$('#composer').hidden))cancelSelection(false);
+  if(REPICK)cancelRepick();
+  REPICK={id:p.id,from:{lo:p.lo,hi:p.hi,page:pinPlace(p).page,region:isRegion(p)},box:null,cand:null,base_rev:p.rev||0};
+  bannerRepick();}
 // Cancelling also invalidates an in-flight /api/pick; its continuation must not render a banner for the cleared re-place. The
 // Markdown surface's mark goes back to the composer's selection, if any.
 function cancelRepick(){const was=!!REPICK; if(was)PICKSEQ++; if(REPICK&&REPICK.box)REPICK.box.remove(); REPICK=null; $('#banner').hidden=true; if(was)mdSelMark(mdSelShown());
   if(was){if(!COMPOSE.current)setSelMode(false); if(EDITOR.current&&LAYOUT!==LAYOUT_MODE.WIDE)setSide(true);}}
 // Sends the re-place candidate as the pin's new location (POST /api/pins/<id>/edit with `loc` and the `base_rev` the editor
-// holds). The loc carries the candidate's range, its element and that element's box on a figure, or only the region on a
-// view-only page; one without an element drops the pin's el. On 409 a warning banner on top of the panel says why, and it keeps
+// holds, or the pin's own where a badge drag began the re-place). The loc carries the candidate's range, its element and that
+// element's box on a figure, or only the region on a view-only page; one without an element drops the pin's el.
+// A line candidate whose rung says where its lines stand in this build (levelMark) is saved on that page with that box - the
+// mark the person just confirmed - and not on the page the drag happened on, which for a range across a page break is another
+// page: a stored page the forward lookup does not answer is not trusted, and the mark would jump away from the confirmed
+// place (limn.pins.location.position.line_mark, exact_page). On 409 a warning banner on top of the panel says why, and it keeps
 // the editor's rev current and reloads the pins; on success (silent: the mark moves; read out only) it syncs the open editor
 // with the stored pin. Does nothing without a candidate.
-async function applyRepick(){const R=REPICK; if(!R||!R.cand)return; const c=R.cand,lv=lvOf(c,c.default_level)||c;
+async function applyRepick(){const R=REPICK; if(!R||!R.cand)return; const c=R.cand,rung=lvOf(c,c.default_level),lv=rung||c,mk=levelMark(rung);
   const visit=captureVisit(),E=EDITOR.current;
-  let loc=/** @type {Record<string, unknown>} */({file:c.file,page:c.page,lo:lv.lo,hi:lv.hi,raw_lo:c.raw_lo,raw_hi:c.raw_hi,via:c.via,score:c.score,fill:c.fill,rival:c.rival,frac:c.frac,pdf_build:c.pdf_build||undefined,quote:c.quote,
+  let loc=/** @type {Record<string, unknown>} */({file:c.file,page:mk?mk.page:c.page,lo:lv.lo,hi:lv.hi,raw_lo:c.raw_lo,raw_hi:c.raw_hi,via:c.via,score:c.score,fill:c.fill,rival:c.rival,frac:mk?mk.frac:c.frac,pdf_build:c.pdf_build||undefined,quote:c.quote,
     scope:lv.level||null,kind:lv.level?kindFor(lv.level,lv.env):c.kind});
   if(!loc.scope)delete loc.scope;
   if(isRegion(c))loc={page:c.page,frac:c.frac,quote:c.quote,pdf_build:c.pdf_build||undefined};   // view-only: only the region is re-placed
   figureFields(loc,repickEl(c),isRegion(c)||!lv.el?null:lv);   // a new loc names its element or none: a loc without el drops the pin's el
-  const base=EDITOR.current&&EDITOR.current.id===R.id?EDITOR.current.base_rev:0;
+  const base=EDITOR.current&&EDITOR.current.id===R.id?EDITOR.current.base_rev:(R.base_rev||0);
   try{const {status,data}=await api('/api/pins/'+R.id+'/edit',{method:'POST',body:{loc,base_rev:base},what:'위치 바꾸기',where:NOTICE_HOST.LIST,expect:[409],intent:'loc'});
     if(status===409){bannerNote(NOTICE_HOST.LIST,data&&data.error===PIN_STATE.DONE?'닫힌 핀은 위치를 바꿀 수 없습니다':'다른 쪽이 이 핀을 먼저 바꿨습니다 — 최신 값을 불러왔습니다',NOTICE_KIND.WARN);
       if(EDITOR.current===E&&E&&data.pin)E.base_rev=data.pin.rev;

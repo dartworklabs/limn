@@ -317,6 +317,38 @@ class GestureLogic(unittest.TestCase):
         self.assertEqual([c[:5] + (g,) for c, g in zip(cases, got, strict=True)], cases)
 
 
+class BadgeDragLogic(unittest.TestCase):
+    """badgeDrop(frac, dx, dy) (selection.js): where a drag on a pin's number badge puts the pin's own box."""
+
+    def run_js(self, names, expr):
+        """Evaluate expr (JSON) with the named functions from the shipped source."""
+        js = "\n".join([extract_js_fn(n) for n in names] + ["console.log(JSON.stringify(%s));" % expr])
+        return node_or_skip(self, js)
+
+    def test_a_badge_drop_moves_the_pins_box_by_the_drag_and_stays_on_the_page(self):
+        """The box moves by the drag; a drop that would push an edge past the page slides it back inside, its size kept."""
+        got = self.run_js(
+            ["badgeDrop"], "[badgeDrop([0.1,0.1,0.2,0.05],0.3,0.2),badgeDrop([0.9,0.95,0.2,0.1],0.3,0.3)]"
+        )
+        self.assertEqual(got[0], [0.4, 0.3, 0.2, 0.05])
+        self.assertEqual(got[1], [0.8, 0.9, 0.2, 0.1])  # clamped: the box keeps its size and stays inside
+
+    def test_a_badge_drop_holds_the_box_on_the_page_at_either_end_and_keeps_a_wider_box_at_the_left(self):
+        """A drag off the top or left edge stops at 0; a box wider or taller than the page has nowhere to go but 0."""
+        got = self.run_js(
+            ["badgeDrop"],
+            "[badgeDrop([0.1,0.1,0.2,0.05],-0.4,-0.9),badgeDrop([0.3,0.2,1.4,0.1],0.2,0.5),"
+            "badgeDrop([0.1,0.2,0.2,0.05],0,0)]",
+        )
+        self.assertEqual(got, [[0, 0, 0.2, 0.05], [0, 0.7, 1.4, 0.1], [0.1, 0.2, 0.2, 0.05]])
+
+    def test_a_badge_drop_reads_no_state_of_its_own(self):
+        """The function the harness pulls names nothing from the page's scope, so the drop is the drag's arithmetic alone."""
+        src = extract_js_fn("badgeDrop")
+        for name in ("DRAG", "REPICK", "META", "PINS", "SELMODE", "document", "window"):
+            self.assertNotIn(name, src)
+
+
 class NavLogic(unittest.TestCase):
     """The navigation sheet's pure decisions (docs/handbook/viewer.md §모바일 레이아웃): which page a typed number goes to,
     and what the phone's [본문 3/25 ▾] says."""

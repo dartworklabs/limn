@@ -19,7 +19,7 @@ from unittest import mock
 from limn.administration import serve_documents
 from limn.builds.artifacts import BuildOkWithErrors
 from limn.pins import model
-from limn.pins.location import mapping, range as ranges
+from limn.pins.location import http as pick_http, mapping, position, range as ranges
 from limn.platform import files
 from limn.sync import rules as sync_rules
 
@@ -351,13 +351,18 @@ LATEX = [
 
 def recorded_rungs() -> list[dict]:
     """The ladder rungs the server builds: LaTeX ladders from limn.pins.location.mapping (a paragraph, a float
-    environment, a merged raw rung), a figure script's raw ladder (range.raw_ladder), and the element rungs of the recorded figure picks."""
+    environment, a merged raw rung), a rung as POST /api/pick marks it with where its lines stand, a figure script's raw
+    ladder (range.raw_ladder), and the element rungs of the recorded figure picks."""
     ladders = [
         mapping.compute_levels(LATEX, 6, 6, ["figure"]),
         mapping.compute_levels(LATEX, 2, 2, ["figure"]),
         ranges.raw_ladder(LATEX, 1, 3),
     ]
     rungs = [r for lad in ladders for r in lad["levels"]]
+    # mark/mark_page come from the forward lookup, which only a built PDF with SyncTeX answers (that path is driven in
+    # limn.pins.location.tests.test_forward.PickLevelBoxes). The keys here are written by the same function the answer
+    # uses, so the declaration is still held to what the server writes and not to a shape this test made up.
+    rungs.append(pick_http._marked(rungs[0], position.LineMark(2, (0.1, 0.2, 0.3, 0.04))))
     for entry in json.loads(SNAPSHOTS[1].read_text(encoding="utf-8")):
         if "picks" in entry["step"] and "pins.md" not in entry["step"]:
             rungs += json.loads(entry["body"]).get("levels", [])
