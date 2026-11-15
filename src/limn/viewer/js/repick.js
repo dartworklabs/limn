@@ -5,16 +5,17 @@ function bannerRepick(err){if(!REPICK)return; const line=err?html`<span class="e
   banner(html`<span>${isMdDoc()?tl('핀 #{id} 의 새 위치를 문서에서 고르세요 · Esc 취소',{id:REPICK.id}):tl('핀 #{id} 의 새 위치를 PDF에서 드래그하세요 · Esc 취소',{id:REPICK.id})}</span>${line}<span class="sp"></span><button class="btn-sm" data-act="rp-cancel" data-tip="위치 다시 잡기를 그만둡니다 (Esc)">취소</button>`);}
 // The re-place banner compares the current and the new place (lines as the composer writes them, rng: L9, L3-L5); on a figure
 // the '새 위치' box snaps to the new element, off one to where the chosen rung's lines stand in this build (levelMark, which
-// may be another page), and on the Markdown surface the candidate's lines are marked (mdSelShown). A
+// may be another page - and then the box is brought into view, since the box the person confirms has to be one they can
+// see), and on the Markdown surface the candidate's lines are marked (mdSelShown). A
 // candidate of the other shape (a region for a line pin, lines for a region pin) is dropped and the banner asks for
 // another drag: /edit never changes a pin's shape, so no request it would refuse is offered.
-function bannerCompare(){const R=REPICK,c=R&&R.cand; if(!R||!c)return; const rung=lvOf(c,c.default_level),lv=rung||c,rg=isRegion(c);
+function bannerCompare(){const R=REPICK,c=R&&R.cand; if(!R||!c)return; const rung=lvOf(c,c.default_level),lv=rung||c,mk=levelMark(rung),rg=isRegion(c);
   if(rg!==!!R.from.region){R.cand=null; bannerRepick(tr(T.shape)); return;}
   const where=rg?tl('지금 쪽 {from} · 새 쪽 {to} 영역',{from:R.from.page,to:c.page}):tl('지금 {from} · 새 {to}',{from:rng(R.from.lo,R.from.hi),to:rng(lv.lo,lv.hi)});
   const what=rg?(c.quote?String(c.quote).slice(0,40):tr('글자 없는 영역')):(lv.label?levelLabel(lv.label):scopeLabel(c));
   const acts=html`<button class="btn-sm btn-default" data-act="rp-apply" data-tip="번호와 메모는 그대로 두고 위치만 바꿉니다">이 위치로 바꾸기</button><button class="btn-sm" data-act="rp-cancel" data-tip="위치 다시 잡기를 그만둡니다 (Esc)">취소</button>`;
   banner(html`<span class="loc" data-tip="지금 위치 → 새 위치" tabindex="0">${where}</span><span class="dim">(${what})</span><span class="sp"></span>${acts}`);
-  snapBox(R.box,repickEl(c),levelMark(rung)); mdSelMark(mdSelShown());}   // the Markdown surface marks the candidate's lines as its box
+  snapBox(R.box,repickEl(c),mk); if(mk)revealBox(R.box,true); mdSelMark(mdSelShown());}   // the Markdown surface marks the candidate's lines as its box
 // On touch, selection mode is turned on during a re-place, and narrow collapses the sheet to reveal the page (the banner stays visible even on the collapsed sheet).
 async function startRepick(){if(!EDITOR.current)return;
   if(EDITOR.current.doc&&EDITOR.current.doc!==DOC){const E=EDITOR.current,opening=switchDoc(E.doc),visit=SWITCHSEQ;

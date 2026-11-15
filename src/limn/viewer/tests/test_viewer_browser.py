@@ -32,7 +32,19 @@ from limn.revisions import core as revisions, execution as revision_execution
 from limn.security.access import LOCAL_ACTOR
 
 import helpers_figure
-from helpers import SW_JS, add_pin, blank_png, edit_stored, find_record, minimal_pdf, ps, records, trash_records
+from helpers import (
+    SW_JS,
+    add_pin,
+    blank_png,
+    edit_pin,
+    edit_stored,
+    find_record,
+    minimal_pdf,
+    ps,
+    record_of,
+    records,
+    trash_records,
+)
 from helpers_access import ALICE, BOB, CAROL, REPO_NEW as NEW, REPO_OLD as OLD, actor
 from helpers_authority import post_authority
 from helpers_browser import (
@@ -2918,3 +2930,111 @@ class BadgeDrag(BrowserBase):
         rec = find_record(ps.APP.snapshot_pins(), self.pid)
         self.assertEqual((rec["page"], rec["lo"], rec["hi"]), (2, 20, 20))
         self.assertEqual(rec["frac"], self.MARK)
+
+    # Whether the pending box is inside the document area on screen, with the box's and the area's viewport edges.
+    IN_VIEW = """() => {const b = document.querySelector('#doc .sel'), L = document.getElementById('left');
+      if (!b) return null;
+      const r = b.getBoundingClientRect(), l = L.getBoundingClientRect();
+      return {inView: r.top >= l.top && r.bottom <= l.bottom, page: b.parentElement.id,
+        box: [Math.round(r.top), Math.round(r.bottom)], area: [Math.round(l.top), Math.round(l.bottom)]};}"""
+
+    def drag_box(self, page, frac, ready="COMPOSE.current&&!COMPOSE.picking"):
+        """An ordinary mouse drag across frac [x, y, w, h] of page 1 - a new selection, not a badge drag."""
+        page.locator("#p1").scroll_into_view_if_needed()
+        b = page.locator("#p1").bounding_box()
+        x0, y0 = b["x"] + b["width"] * frac[0], b["y"] + b["height"] * frac[1]
+        page.mouse.move(x0, y0)
+        page.mouse.down()
+        page.mouse.move(x0 + b["width"] * frac[2], y0 + b["height"] * frac[3], steps=5)
+        page.mouse.up()
+        page.wait_for_function(ready, timeout=8000)
+        settle(page)
+
+    def test_escape_during_a_badge_drag_leaves_the_pin_alone_and_opens_no_composer(self):
+        """The banner the drag raises says 'Esc 취소', so Esc has to be that: the re-place ends, the box goes, the pin stays
+        where it was, and the release that follows opens no '새 핀' composer or memo popover over it - the drop must not
+        fall through to the other branch of finishBox once its re-place is gone."""
+        page = self.open(1, init=self.NO_COACH)
+        x0, y0 = self.badge_point(page)
+        page.mouse.move(x0, y0)
+        page.mouse.down()
+        page.mouse.move(x0 + 60, y0 + 40, steps=6)
+        page.wait_for_function("id=>REPICK&&REPICK.id===id", arg=self.pid, timeout=8000)
+        page.keyboard.press("Escape")
+        page.wait_for_function("REPICK===null", timeout=8000)
+        page.mouse.up()
+        settle(page)
+        self.assertIsNone(page.evaluate("REPICK"))
+        self.assertIsNone(page.evaluate("COMPOSE.current"))
+        self.assertIsNone(page.evaluate("COMPOSE.box"))
+        self.assertTrue(page.evaluate("document.getElementById('composer').hidden"))
+        self.assertTrue(page.evaluate("document.getElementById('banner').hidden"))
+        self.assertFalse(page.evaluate("selPopOpen()"))
+        self.assertIsNone(self.sel(page))  # no box left on the page
+        rec = find_record(ps.APP.snapshot_pins(), self.pid)
+        self.assertEqual((rec["lo"], rec["hi"], rec["page"]), (5, 5, 1))
+        self.assertEqual(rec["frac"], self.BOX)
+
+    def test_a_box_snapped_to_another_page_is_brought_into_view(self):
+        """The box the person confirms has to be one they can see. Every page element exists from the boot (buildDoc), so a
+        rung whose mark is on page 2 always takes the box there - far below the drag - and without bringing it into view the
+        box would simply vanish on release, leaving only the banner."""
+        self.PICK = {**self.PICK, "levels": [{**self.PICK["levels"][0], "mark_page": 2}]}
+        page = self.open(1, init=self.NO_COACH)
+        page.locator("#p1").scroll_into_view_if_needed()
+        before = page.evaluate("document.getElementById('left').scrollTop")
+        self.drag_badge(page, 60, 40)
+        got = page.evaluate(self.IN_VIEW)
+        self.assertEqual(got["page"], "p2", got)
+        self.assertTrue(got["inView"], got)
+        self.assertGreater(page.evaluate("document.getElementById('left').scrollTop"), before)
+
+    def test_a_new_pins_lines_on_another_page_are_saved_on_that_page(self):
+        """Creation follows the same page rule as a re-place: a new pin whose chosen rung's lines print on page 2 is stored
+        on page 2 with that box, so the mark the build it was made on shows is not refused by the exact-page check."""
+        self.PICK = {**self.PICK, "levels": [{**self.PICK["levels"][0], "mark_page": 2}]}
+        page = self.open(1, init=self.NO_COACH)
+        self.drag_box(page, [0.2, 0.2, 0.25, 0.04])
+        page.locator("#note").fill("새 핀의 쪽")
+        page.click("#btn-save")
+        page.wait_for_function("OPEN_ALL.some(p=>p.note==='새 핀의 쪽')", timeout=8000)
+        settle(page)
+        rec = find_record(ps.APP.snapshot_pins(), page.evaluate("OPEN_ALL.find(p=>p.note==='새 핀의 쪽').id"))
+        self.assertEqual((rec["page"], rec["lo"], rec["hi"]), (2, 20, 20))
+        self.assertEqual(rec["frac"], self.MARK)
+
+    def test_an_awaiting_review_pins_badge_cannot_be_dragged(self):
+        """A pin awaiting a person's [확인] is drawn on the page but keeps where it points: its card hides
+        [위치 다시 잡기] and an edit's loc is 409, so its badge starts no re-place either."""
+        rid = self.pin_at(13, [0.1, 0.45, 0.3, 0.05], "검토 대기")
+        ps.APP.pin_lifecycle.close_pin(
+            rid,
+            post_authority(ps.APP.pin_lifecycle.context().store, dict(LOCAL_ACTOR), "close", rid),
+            CloseRequest(reply="고쳤습니다"),
+        )
+        page = self.open(1, init=self.NO_COACH)
+        page.wait_for_selector('.mark[data-pin="%d"]' % rid, timeout=8000)
+        self.assertEqual(page.evaluate("id=>pinState(findAnyPin(id))", rid), "review")
+        self.drag_badge(page, 90, 120, pid=rid, ready=None)
+        self.assertIsNone(page.evaluate("REPICK"))
+        self.assertIsNone(self.sel(page))
+        self.drag_badge(page, 120, 60)  # the open pin's badge, the same drag
+        self.assertEqual(page.evaluate("REPICK.id"), self.pid)
+
+    def test_a_pin_edited_since_it_was_made_still_confirms_a_badge_drag(self):
+        """A badge drag has no edit card to read the pin's revision from, so the re-place carries the pin's own: a pin
+        edited once (rev 1) still saves. With rev 0 sent instead the server answers 409 and the pin would not move - and
+        every pin that was ever edited would fail its badge drag's confirm."""
+        edited = edit_pin(self.pid, {"note": "고친 메모", "base_rev": 0}, A)
+        self.assertEqual(record_of(edited)["note"], "고친 메모")
+        self.assertEqual(find_record(ps.APP.snapshot_pins(), self.pid)["rev"], 1)
+        page = self.open(1, init=self.NO_COACH)
+        self.assertEqual(page.evaluate("id=>findAnyPin(id).rev", self.pid), 1)
+        self.drag_badge(page, 120, 80)
+        self.assertEqual(page.evaluate("REPICK.base_rev"), 1)
+        page.click('#banner [data-act="rp-apply"]')
+        page.wait_for_function("REPICK===null", timeout=8000)
+        settle(page)
+        rec = find_record(ps.APP.snapshot_pins(), self.pid)
+        self.assertEqual((rec["lo"], rec["hi"], rec["page"], rec["rev"]), (20, 20, 1, 2))
+        self.assertEqual(page.locator(".nt-warn, .nt-err").count(), 0)

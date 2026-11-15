@@ -78,8 +78,14 @@ async function savePin(verdict){
   // else is a plain pin's save. A change made while the failed request was still out leaves no retry at all (the catch).
   const gen=COMPOSE.intent,rv=COMPOSE.retryVerdict; COMPOSE.retryVerdict=null;
   if(verdict===undefined&&rv&&rv.gen===gen&&rv.sel===d&&KIND_NEW===KIND_REQ.FIX&&!SG.on)verdict=rv.key;
-  let body=/** @type {Record<string, unknown>} */({file:d.file,name:d.name,page:d.page,lo:d.lo,hi:d.hi,raw_lo:d.raw_lo,raw_hi:d.raw_hi,via:d.via,score:d.score,fill:d.fill,rival:d.rival,
-    frac:d.frac,note:note,quote:d.quote,pdf_build:d.pdf_build||undefined});
+  // A new pin is stored on the page its chosen rung's lines stand on, with that box, and not on the page the drag happened
+  // on - the same rule a re-place follows (applyRepick): the lines of a range across a page break print on another page,
+  // and a stored page the forward lookup does not answer is not trusted, so the pin would show no mark on the very build it
+  // was made on (limn.pins.location.position.line_mark, exact_page). Lines set by hand in the excerpt are no rung and have
+  // no mark, and so keep the dragged page.
+  const mk=levelMark(d.scope?lvOf(d,d.scope):null);
+  let body=/** @type {Record<string, unknown>} */({file:d.file,name:d.name,page:mk?mk.page:d.page,lo:d.lo,hi:d.hi,raw_lo:d.raw_lo,raw_hi:d.raw_hi,via:d.via,score:d.score,fill:d.fill,rival:d.rival,
+    frac:mk?mk.frac:d.frac,note:note,quote:d.quote,pdf_build:d.pdf_build||undefined});
   if(d.scope){body.scope=wireScope(d.scope); body.kind=kindFor(d.scope,d.env);} else body.kind=d.kind;
   if(isRegion(d))body={page:d.page,frac:d.frac,note:note,quote:d.quote,pdf_build:d.pdf_build||undefined};   // view-only: page/region only
   figureFields(body,d.elSel,isRegion(d)?null:figRung(d));   // a figure pick: its element as el, the element's box as frac, its kind

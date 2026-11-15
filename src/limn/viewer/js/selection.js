@@ -70,6 +70,11 @@ function badgeMove(b,mouse){const p=findAnyPin(Number(b.dataset.id)); if(!p||!ma
 // turn on and nothing to move: the drag goes on as the drawn rectangle it would have been.
 function badgeDragBegin(D){const m=D.move; if(!m||(REPICK&&REPICK.id===m.id))return;
   repickFromBadge(m.id); if(REPICK)D.began=true; else D.move=null;}
+// Whether the re-place badge drag D carries is gone from under it: Esc (the banner's own way out), the banner's [취소], a
+// cancelled selection or a document switch end the mode while the finger or button is still down. The drag then drops its
+// box and nothing else - without this the drop would fall through to the other branch of finishBox and open a '새 핀'
+// composer over the pin the person was moving, which is the opposite of the cancel they asked for.
+function badgeDragGone(D){return !!D.move&&!(REPICK&&REPICK.id===D.move.id);}
 // A finger in [선택] mode that lands on a pin's number badge - its 44px press area reaches over the page's text - still starts a
 // box (DRAG.badge) once it moves: on a small page the badges' areas covered much of its left edge and no drag could start
 // there. A tap stays the badge's (its click), and so does a press that never passes TAP_SLOP, with the mouse too: the badge's
@@ -94,6 +99,7 @@ window.addEventListener('pointermove',e=>{
   if(TAP&&e.pointerId===TAP.id&&Math.hypot(e.clientX-TAP.x,e.clientY-TAP.y)>TAP_SLOP)TAP=null;
   if(!DRAG||e.pointerId!==DRAG.id)return;
   if(!DRAG.box){if(Math.hypot(e.clientX-DRAG.cx,e.clientY-DRAG.cy)<TAP_SLOP)return; DRAG.box=newBox(DRAG.pg); if(DRAG.move)badgeDragBegin(DRAG);}
+  if(badgeDragGone(DRAG)){if(DRAG.box)DRAG.box.remove(); DRAG=null; return;}   // the re-place ended under the hand: the pin stays where it is
   if(DRAG.move){const f=badgeAt(DRAG,e.clientX,e.clientY); drawBox(DRAG.box,f[0],f[1],f[0]+f[2],f[1]+f[3]); return;}   // the pin's own box, moved
   const [x,y]=fracAt(DRAG.pg,e.clientX,e.clientY); drawBox(DRAG.box,DRAG.sx,DRAG.sy,x,y);});
 window.addEventListener('pointerup',e=>{
@@ -110,6 +116,7 @@ window.addEventListener('pointerup',e=>{
   const D=DRAG; DRAG=null;
   if(!D.box){if(D.badge)return; quickPick(D.pg,e.clientX,e.clientY); SWALLOW_CLICK=Date.now()+400; return;}   // a tap in selection mode = quick selection (on a badge, the badge's)
   if(D.badge)SWALLOW_CLICK=BADGE_HOLD=Date.now()+400;   // a drag from a badge is a box or a move, never the badge's click as well - held off from its release, which the click follows, however long the drag ran
+  if(badgeDragGone(D)){D.box.remove(); return;}   // the re-place ended under the hand (Esc): no pin moved, and no '새 핀' from its drop
   if(D.move){finishBox(D.pg,D.box,badgeAt(D,e.clientX,e.clientY)); return;}   // the pin's box where it was dropped: the same pick, banner, confirm and save as a drawn '새 위치'
   const [x,y]=fracAt(D.pg,e.clientX,e.clientY);
   if(!finishRect(D.pg,D.box,D.sx,D.sy,x,y)&&off&&off.mouse)clickOffNow(off.box);});   // too small for a box: a click

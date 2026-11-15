@@ -3503,7 +3503,7 @@ class FrontendFigure(unittest.TestCase):
         self.assertLess(
             rp.index("if(isRegion(c))loc="), rp.index("figureFields(loc,repickEl(c),isRegion(c)||!lv.el?null:lv);")
         )
-        self.assertIn("snapBox(R.box,repickEl(c),levelMark(rung));", extract_js_fn("bannerCompare"))
+        self.assertIn("snapBox(R.box,repickEl(c),mk); if(mk)revealBox(R.box,true);", extract_js_fn("bannerCompare"))
         self.assertIn("region:!!EDITOR.current.region", extract_js_fn("startRepick"))
         self.assertIn("pinEl:p.el||null", extract_js_fn("openEdit"))
         self.assertIn("(!E.pinEl&&(E.scope||null)!==(E.orig.scope||null))", extract_js_fn("saveEdit"))
@@ -4114,6 +4114,9 @@ class FrontendSaveWhilePicking(unittest.TestCase):
                 extract_js_fn("composeFields"),
                 extract_js_fn("syncComposeSaveButtons"),
                 "function renderVerdictRow(){}",  # no verdict words here (verdict.js)
+                extract_js_fn("isFrac"),
+                extract_js_fn("lvOf"),
+                extract_js_fn("levelMark"),  # where the chosen rung's lines stand: the page a new pin is saved on
                 extract_js_fn("savePin"),
                 extract_js_fn("cancelSelection"),
                 JS_API_WAIT + extract_js_fn("pick"),
