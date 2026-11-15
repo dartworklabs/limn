@@ -2,7 +2,6 @@
 
 import threading
 import time
-import traceback
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -42,7 +41,7 @@ from limn.pins.location.position import EstContext, LineMark, pin_est
 from limn.pins.location.resolve import PickContext
 from limn.pins.location.service import PinLocationService
 from limn.pins.location.source import TokenCache
-from limn.pins.maintenance import MARK_LIMIT, MARK_SECONDS
+from limn.pins.maintenance import MARK_BUILD_SECONDS, MARK_LIMIT, MARK_SECONDS
 from limn.pins.mentions import note_tags as pin_note_tags
 from limn.pins.model import EventType, Pin, Record, TrashedPin
 from limn.pins.needs import BuildAnswers, FollowElement, VerdictKeys
@@ -208,18 +207,13 @@ class PinCommands:
         finally:
             self._mark_pass.release()
 
-    def fill_line_marks_in_background(self) -> None:
-        """Run fill_line_marks on a daemon thread, for the build that just put new pages on screen: the build's caller
-        must not wait for SyncTeX. A failure is reported and the next upkeep run takes the marks."""
-
-        def run() -> None:
-            """The thread body."""
-            try:
-                self.fill_line_marks()
-            except Exception:  # noqa: BLE001 — derived values: the upkeep cycle fills them on its next run
-                traceback.print_exc()
-
-        threading.Thread(target=run, name="line-marks", daemon=True).start()
+    def fill_line_marks_after_build(self) -> None:
+        """The pass a build that just put new pages on screen runs inline, from its latex_built hook: it fills only memory
+        (no pin, no file), so a build the person is already waiting for hides its cost. Its budget is MARK_BUILD_SECONDS
+        (2 s, against the upkeep cycle's MARK_SECONDS of 10 s) with the same MARK_LIMIT, so the build waits about two
+        seconds plus at most one SyncTeX lookup in flight (the deadline is only checked between pins; synctex_view's own
+        10 s timeout is the ceiling). It does not wait for a pass already running: the upkeep cycle fills what this left."""
+        self.fill_line_marks(MARK_LIMIT, MARK_BUILD_SECONDS, wait=False)
 
     def refresh_pins_md(self) -> None:
         """Refresh derived markdown after publication without resynchronizing pins."""

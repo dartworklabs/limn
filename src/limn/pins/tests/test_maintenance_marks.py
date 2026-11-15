@@ -13,7 +13,7 @@ from unittest import mock
 from limn.builds.artifacts import BuildAborted, BuildOk
 from limn.builds.service import BuildRequests
 from limn.pins.location import source as pick_source
-from limn.pins.maintenance import MARK_LIMIT, MARK_SECONDS, PinMaintenance
+from limn.pins.maintenance import MARK_BUILD_SECONDS, MARK_LIMIT, MARK_SECONDS, PinMaintenance
 from limn.pins.runtime import PinCommands
 from limn.runtime.documents import Doc
 from limn.security.access import LOCAL_ACTOR
@@ -116,6 +116,16 @@ class Pass(Base):
             self.assertEqual(ps.APP.fill_line_marks(wait=False), 0)
         self.assertEqual(view.call_count, 0)
 
+    def test_the_build_pass_runs_on_the_calling_thread(self):
+        seen = []
+        with mock.patch.object(
+            pick_source, "synctex_view", side_effect=lambda *a: seen.append(threading.current_thread()) or HIT
+        ):
+            self.add(lo=4, hi=4)
+            ps.APP.fill_line_marks_after_build()
+            self.assertIsNotNone(ps.APP.line_marks.get(self.doc.key, self.build, 1))
+        self.assertEqual(seen, [threading.current_thread()])
+
     def test_the_pass_writes_no_pin(self):
         self.pin_lines(2)
         path = ps.APP.C.state / "pins.jsonl"
@@ -191,12 +201,14 @@ class Upkeep(Base):
 class AfterBuild(Base):
     """A build that puts new pages on screen asks for the marks at once."""
 
-    def test_the_composition_root_fills_marks_when_a_build_lands(self):
-        done = threading.Event()
-        with mock.patch.object(PinCommands, "fill_line_marks", side_effect=lambda *a, **k: done.set() or 0) as fill:
+    def test_the_composition_root_fills_marks_inline_when_a_build_lands(self):
+        with mock.patch.object(PinCommands, "fill_line_marks", return_value=0) as fill:
             ps.APP.build_requests.latex_built()
-            self.assertTrue(done.wait(5))
-        fill.assert_called_once_with()
+        fill.assert_called_once_with(MARK_LIMIT, MARK_BUILD_SECONDS, wait=False)
+
+    def test_the_build_path_has_a_tighter_budget_than_upkeep(self):
+        self.assertEqual((MARK_BUILD_SECONDS, MARK_SECONDS), (2.0, 10.0))
+        self.assertLess(MARK_BUILD_SECONDS, MARK_SECONDS)
 
     def requests(self, hook):
         return BuildRequests(

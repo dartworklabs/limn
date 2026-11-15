@@ -17,6 +17,8 @@ PERIODIC_INTERVAL = 60.0
 # are taken on the next run (the cache remembers what it filled), so a big document makes progress and never starves.
 MARK_LIMIT = 200
 MARK_SECONDS = 10.0
+# The tighter budget of the pass a build runs inline (PinCommands.fill_line_marks_after_build); upkeep takes the rest.
+MARK_BUILD_SECONDS = 2.0
 
 
 def signature(path: Path) -> tuple[int, int, int] | None:

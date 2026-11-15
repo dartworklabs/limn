@@ -230,7 +230,7 @@ def assemble_application(config: RunConfig, runtime: RunResources) -> ServerAsse
         timestamp,
         maps=lambda: resources().figure_maps,
         figure_shown=lambda: pins.commands.refresh_pins_md(),
-        latex_built=lambda: pins.commands.fill_line_marks_in_background(),
+        latex_built=lambda: pins.commands.fill_line_marks_after_build(),
     )
     pins = assemble_pins(
         settings=settings,
