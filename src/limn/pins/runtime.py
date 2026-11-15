@@ -41,7 +41,7 @@ from limn.pins.location.position import EstContext, LineMark, pin_est
 from limn.pins.location.resolve import PickContext
 from limn.pins.location.service import PinLocationService
 from limn.pins.location.source import TokenCache
-from limn.pins.maintenance import MARK_BUILD_SECONDS, MARK_LIMIT, MARK_SECONDS
+from limn.pins.maintenance import MARK_BUILD_SECONDS, MARK_FILL_LIMIT, MARK_SECONDS
 from limn.pins.mentions import note_tags as pin_note_tags
 from limn.pins.model import EventType, Pin, Record, TrashedPin
 from limn.pins.needs import BuildAnswers, FollowElement, VerdictKeys
@@ -168,7 +168,8 @@ class PinCommands:
     def mark_context(self, doc: Doc) -> MarkContext | None:
         """What the pass needs of the build doc has on screen, or None when its pages cannot be asked for (never built, no
         page sizes, or the page directory moved to another build while this was read). `build` is the name
-        line_mark_of resolves for the same document, so what the pass stores is what a listing looks up."""
+        line_mark_of resolves for the same document, so what the pass stores is what a listing looks up. The document
+        itself goes in as the build tree the forward lookup's input names come from (lookup.synctex_name)."""
         build = self.build_view.heading(doc).build
         found = self.document_facts(doc).pick_pages(None)
         if found is None:
@@ -177,12 +178,13 @@ class PinCommands:
         if pages.name != build or not sizes:
             return None
         shown = self.build_view.publication(doc, build, self.C.state)
-        return MarkContext(build, sizes, shown.pdf, shown.stale)
+        return MarkContext(build, sizes, shown.pdf, shown.stale, doc)
 
-    def fill_line_marks(self, limit: int = MARK_LIMIT, seconds: float = MARK_SECONDS, wait: bool = False) -> int:
+    def fill_line_marks(self, fills: int = MARK_FILL_LIMIT, seconds: float = MARK_SECONDS, wait: bool = False) -> int:
         """Fill line_marks for the open line pins of every document with pages and source lines (a LaTeX document: not a
         figure, whose pins the element map follows, and not a Markdown or text document, which has no pages); returns how
-        many marks it filled. It stops after limit marks or `seconds`, whichever comes first, over all documents; the cache
+        many marks it filled. It stops after `fills` marks filled - marks, not pins looked at (fill_marks) - or
+        `seconds`, whichever comes first, over all documents; the cache
         keeps what it filled, so the next call takes the pins after those. It writes no pin and takes no pin lock: call it
         from writer-side paths only (the upkeep cycle, a build), never from a request. By default (wait False) it does nothing
         when another pass is running; wait True waits for it, and the deadline starts only once this pass holds the lock."""
@@ -194,14 +196,14 @@ class PinCommands:
             locate = self.pin_locator()
             filled = 0
             for doc in tuple(self.docs):
-                if filled >= limit or time.monotonic() >= deadline:
+                if filled >= fills or time.monotonic() >= deadline:
                     break
                 if not doc.takes_line_pins or doc.has_element_map or doc.renders_in_browser:
                     continue
                 mine = [pin for pin in pins if self.pin_doc_key(pin.record) == doc.key]
                 if mine:
                     filled += fill_marks(
-                        doc.key, mine, locate, self.mark_context(doc), self.line_marks, limit - filled, deadline
+                        doc.key, mine, locate, self.mark_context(doc), self.line_marks, fills - filled, deadline
                     )
             return filled
         finally:
@@ -211,10 +213,10 @@ class PinCommands:
         """The mark pass of a build that just put new pages on screen, run inline by its latex_built hook after the pins'
         lines were resynced (PinMaintenance.run(marks=...), never alone: a mark must come from the current lines). It fills
         only memory (no pin, no file), so a build the person is already waiting for hides its cost. Its budget is MARK_BUILD_SECONDS
-        (2 s, against the upkeep cycle's MARK_SECONDS of 10 s) with the same MARK_LIMIT, so the build waits about two
+        (2 s, against the upkeep cycle's MARK_SECONDS of 10 s) with the same MARK_FILL_LIMIT, so the build waits about two
         seconds plus at most one SyncTeX lookup in flight (the deadline is only checked between pins; synctex_view's own
         10 s timeout is the ceiling). It does not wait for a pass already running: the upkeep cycle fills what this left."""
-        return self.fill_line_marks(MARK_LIMIT, MARK_BUILD_SECONDS, wait=False)
+        return self.fill_line_marks(MARK_FILL_LIMIT, MARK_BUILD_SECONDS, wait=False)
 
     def refresh_pins_md(self) -> None:
         """Refresh derived markdown after publication without resynchronizing pins."""

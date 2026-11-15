@@ -49,9 +49,13 @@ def synctex_edit(pdf: Path, page: int, x: float, y: float) -> tuple[str, int] | 
 
 def synctex_view(pdf: Path, line: int, src: str) -> list[tuple[int, float, float, float, float]] | None:
     """Where SyncTeX prints a source line: its (page, h, v, W, H) records in points (v is the baseline), or None
-    when it gives none, is missing or times out (10 s). `src` is matched against the `Input:` records of the
-    .synctex file, which hold the build copy's absolute paths, so a manuscript-root-relative name such as
-    "sections/intro.tex" matches by suffix; the manuscript's own absolute path would not match."""
+    when it gives none, is missing or times out (10 s).
+
+    `src` is matched against the `Input:` records of the .synctex file, which hold the folder latexmk ran in followed by
+    the name each file was read under ("<out>/./main.tex", "<out>/../common/defs.tex"). The match is not a suffix match
+    and a normalised path does not answer, so the caller derives `src` by the one measured rule in
+    limn.pins.location.lookup.synctex_name; a manuscript-root-relative name and the manuscript's own absolute path both
+    give "SyncTeX Warning: No tag"."""
     try:
         out = subprocess.run(
             ["synctex", "view", "-i", "%d:0:%s" % (line, src), "-o", str(pdf)],

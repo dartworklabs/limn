@@ -88,12 +88,62 @@ def doc_scope(D: BuildRoot | None, root: Path) -> str:
 
 def root_relative(path: Path, root: Path) -> str | None:
     """path, symlinks resolved, relative to the manuscript root in POSIX form, or None when it is not below the root or
-    cannot be resolved. The one derivation of the manuscript-root-relative name that SyncTeX's forward lookup is asked
-    by: locate_file (pin marks, via PinLocation.rel) and the pick's level boxes both use it."""
+    cannot be resolved: rule 1 of ADR-0006, which locate_file applies to a stored pin path and keeps as
+    PinLocation.rel. It is not the name SyncTeX's forward lookup is asked by - that is synctex_name."""
     try:
         return path.resolve().relative_to(root.resolve()).as_posix()
     except (ValueError, OSError, RuntimeError):
         return None
+
+
+class BuildTree(Protocol):
+    """A document as the forward lookup reads it: the folder a build copies (src), the main file relative to that folder
+    (main_rel) and the folder latexmk runs in (out). limn.runtime.documents.Doc is one."""
+
+    @property
+    def src(self) -> Path:
+        """The build root - the folder a build copies."""
+        ...
+
+    @property
+    def main_rel(self) -> Path:
+        """The main file relative to src."""
+        ...
+
+    @property
+    def out(self) -> Path:
+        """The folder latexmk runs in and the PDF comes out of."""
+        ...
+
+
+def synctex_name(path: Path, tree: BuildTree) -> str | None:
+    """The name SyncTeX's forward lookup answers for the manuscript file `path` of document `tree`: the build copy's
+    path spelled the way the .synctex records spell it. None when path is not below the document's build root - then
+    nothing of it is in the build copy and the .synctex names it nowhere - or when a path cannot be resolved.
+
+    Measured with synctex 1.5 (TeX Live 2026) on a main file in a sub-folder that inputs a sibling folder's file.
+    latexmk runs with its working directory set to Doc.out (limn.builds.engine._compile), and TeX writes every input as
+    that working directory - as the kernel reports it, so with symlinks already resolved - followed by the name the file
+    was read under: "<out>/./main.tex" for the main file, "<out>/./sub/deep.tex" for one below it, and
+    "<out>/../common/defs.tex" for one in a sibling folder.
+
+    Matching is not a suffix match. A record holding "/./" answers for its part after that "/./" under any directory
+    prefix, so "<out>/sub/deep.tex" is answered; a record holding ".." answers only for its own string, so
+    "../common/defs.tex", "common/defs.tex" and the resolved "<build>/common/defs.tex" all give "SyncTeX Warning: No
+    tag". Hence the rule: join the resolved Doc.out with the file's path relative to Doc.out and leave it
+    un-normalised, because the ".." parts are what makes a sibling folder's file answer at all. Resolving Doc.out
+    matters too: a state folder reached through a link (macOS's /var) is recorded as its physical path, and the linked
+    spelling of a ".." record does not answer.
+
+    The one derivation both forward callers use - the mark pass (fill_marks) and a pick's level boxes
+    (limn.pins.location.resolve._level_marks) - so the two can never drift apart again.
+    """
+    try:
+        inside = path.resolve().relative_to(tree.src.resolve()).as_posix()
+        folder = tree.out.resolve()
+    except (ValueError, OSError, RuntimeError):
+        return None
+    return os.path.join(str(folder), os.path.relpath(inside, tree.main_rel.parent.as_posix()))
 
 
 def locate_file(file: object, file_rel: object, root: Path, state: Path, doc: BuildRoot | None) -> PinLocation | None:
@@ -408,12 +458,15 @@ class LineMarks:
 
 @dataclass(frozen=True)
 class MarkContext:
-    """What one document's pass needs: the build on screen, its page sizes, its pdf, and whether the manuscript is newer than that build."""
+    """What one document's pass needs: the build on screen, its page sizes, its pdf, whether the manuscript is newer
+    than that build, and the document's build tree - what each pin file's SyncTeX input name is derived from
+    (synctex_name)."""
 
     build: str
     sizes: Sequence[tuple[float, float]]  # (width, height) in points of page 1, 2, ...
     pdf: Path
     stale_src: bool
+    tree: BuildTree
 
 
 def _line_box(ctx: MarkContext, line: int, name: str) -> ViewBox | None:
@@ -427,7 +480,7 @@ def fill_marks(
     locate: Locator,
     ctx: MarkContext | None,
     marks: LineMarks,
-    limit: int,
+    fills: int,
     deadline: float,
 ) -> int:
     """Ask SyncTeX where the open, non-stale line pins of doc are printed in the build ctx.build and keep their marks
@@ -436,14 +489,19 @@ def fill_marks(
 
     Nothing is asked without a context (the document's pages are unknown) or while the manuscript is newer than the
     build (its lines are no longer the build's). A pin is skipped when marks already hold its mark for the same lines,
-    when the locator cannot place its file, or when its page has no finite positive size; one lookup is made for a
-    one-line pin and two for a span. Stops after limit marks filled or once time.monotonic() reaches deadline."""
+    when the locator cannot place its file, when the file is not in this document's build copy (synctex_name), or when
+    its page has no finite positive size; one lookup is made for a one-line pin and two for a span.
+
+    Stops once `fills` marks have been filled - a count of marks, not of pins looked at: a pin SyncTeX has no box for
+    spends a lookup but no fill, and is not asked again until its lines move (marks.known), so an unanswerable pin
+    cannot starve the pins behind it. Stops too once time.monotonic() reaches deadline, which is only read between
+    pins."""
     if ctx is None or ctx.stale_src:
         return 0
     marks.keep_build(doc, ctx.build)
     filled = 0
     for pin in pins:
-        if filled >= limit or time.monotonic() >= deadline:
+        if filled >= fills or time.monotonic() >= deadline:
             break
         match pin:
             case OpenPin(core=PinCore(id=int(pid), place=LineSpan() as span, stale=stale)) if not stale:
@@ -452,12 +510,16 @@ def fill_marks(
                 continue
         if marks.known(doc, ctx.build, pid, span.lo, span.hi):
             continue
-        loc = locate(pin)  # SyncTeX names inputs by the manuscript-relative path, as the build copy is of that tree
+        loc = locate(pin)
         if loc is None:
             continue
-        name = loc.rel
+        name = synctex_name(loc.path, ctx.tree)  # the build copy's path as the .synctex records spell it
+        if name is None:  # not in this document's build copy: no record names it, so no lookup can answer
+            marks.put(doc, ctx.build, pid, span.lo, span.hi, None)
+            continue
         lo = _line_box(ctx, span.lo, name)
-        hi = lo if span.hi == span.lo else _line_box(ctx, span.hi, name)
+        # span_box(None, hi) is None whatever hi is, so asking about hi after an unanswered lo only spends a subprocess
+        hi = lo if lo is None or span.hi == span.lo else _line_box(ctx, span.hi, name)
         box = span_box(lo, hi)
         if box is None:
             marks.put(doc, ctx.build, pid, span.lo, span.hi, None)

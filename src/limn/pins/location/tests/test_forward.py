@@ -3,10 +3,12 @@
 Run: uv run pytest -q src/limn/pins/location/tests/test_forward.py
 """
 
+import shutil
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from typing import NamedTuple
 from unittest import mock
 
 from limn.pins.location import (
@@ -20,6 +22,7 @@ from limn.pins.location import (
 )
 from limn.pins.location.mapping import ViewBox
 from limn.pins.model import LineSpan, OpenPin, PinCore, Region
+from limn.runtime.documents import Doc, RunPaths
 
 from helpers import Base, needs_tex, ps
 
@@ -28,15 +31,15 @@ class SynctexView(unittest.TestCase):
     """The command asked and how its output is read."""
 
     def test_synctex_view_asks_by_line_and_column_zero_and_reads_every_page_record(self):
-        """The input name is matched by suffix against the .synctex Input: records (the build copy's absolute paths), so it
-        is manuscript-root-relative; every Page: record with its four numbers counts."""
+        """The name goes through as the caller spelled it (lookup.synctex_name derives it); every Page: record with its
+        four numbers counts."""
         out = (
             "SyncTeX result begin\nOutput:main.pdf\nPage:14\nx:1\ny:2\nh:133.77\nv:349.81\nW:343.71\nH:8.86\n"
             "Page:14\nh:1\nv:2\nW:3\nH:4\n"
         )
         with mock.patch.object(pick_source.subprocess, "run", return_value=mock.Mock(stdout=out)) as run:
-            got = pick_source.synctex_view(Path("/b/main.pdf"), 500, "sections/intro.tex")
-        self.assertEqual(run.call_args[0][0][:4], ["synctex", "view", "-i", "500:0:sections/intro.tex"])
+            got = pick_source.synctex_view(Path("/b/main.pdf"), 500, "/b/2nd/../sections/intro.tex")
+        self.assertEqual(run.call_args[0][0][:4], ["synctex", "view", "-i", "500:0:/b/2nd/../sections/intro.tex"])
         self.assertEqual(got, [(14, 133.77, 349.81, 343.71, 8.86), (14, 1.0, 2.0, 3.0, 4.0)])
 
     def test_synctex_view_is_none_when_the_tool_is_missing_times_out_or_gives_no_page(self):
@@ -52,6 +55,76 @@ class SynctexView(unittest.TestCase):
         out = "Page:1\nh:1\nv:2\nH:4\nPage:2\nh:1\nv:2\nW:3\nH:4\n"
         with mock.patch.object(pick_source.subprocess, "run", return_value=mock.Mock(stdout=out)):
             self.assertEqual(pick_source.synctex_view(Path("/b/main.pdf"), 1, "main.tex"), [(2, 1.0, 2.0, 3.0, 4.0)])
+
+
+TREE_MAIN = r"""\documentclass{article}
+\begin{document}
+A body line in the main file, which sits in a sub-folder of the build root.
+\input{../common/defs}
+\input{sub/deep}
+\end{document}
+"""
+TREE_SIBLING = "A line of the sibling folder's file.\n\nA second line of it.\n"
+TREE_BELOW = "A line of the file below the main file's folder.\n"
+
+
+class TreeInputNames(unittest.TestCase):
+    """The input name the forward lookup is asked by, against the real binary, for a document whose main .tex is not
+    directly under --manuscript (the form `limn add` records: `ms=본문:manuscript::<round>/<main>.tex`).
+
+    A mock cannot reach this: latexmk runs in Doc.out, and .synctex names its inputs relative to that folder, so a
+    manuscript-root-relative name - which is what a root document's name happens to be - answers nothing here. Two
+    earlier attempts passed their mocked tests with the wrong rule.
+    """
+
+    @needs_tex("pdflatex", "synctex")
+    def test_a_line_of_the_main_file_and_of_a_sibling_folders_file_both_resolve(self):
+        """Builds manuscript/2nd/main.tex, which inputs manuscript/common/defs.tex (a sibling folder) and
+        manuscript/2nd/sub/deep.tex (below it), exactly as Limn does: the copy at Doc.build, latexmk in Doc.out, the
+        PDF and .synctex.gz then published into a page folder. Every one of the three files answers under
+        lookup.synctex_name, and the sibling folder's name keeps its '..' - normalising it away is what broke it."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            src = root / "manuscript"
+            for rel, text in (
+                ("2nd/main.tex", TREE_MAIN),
+                ("common/defs.tex", TREE_SIBLING),
+                ("2nd/sub/deep.tex", TREE_BELOW),
+            ):
+                (src / rel).parent.mkdir(parents=True, exist_ok=True)
+                (src / rel).write_text(text, encoding="utf-8")
+            paths = RunPaths(root, src / "2nd" / "main.tex", root / "state")
+            D = Doc("ms", "본문", "tex", src=src, main=src / "2nd" / "main.tex", paths=paths)
+            D.build.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(src, D.build)
+            self.assertEqual(D.out, D.build / "2nd")
+            subprocess.run(
+                ["pdflatex", "-synctex=1", "-interaction=nonstopmode", "main.tex"],
+                cwd=D.out,
+                capture_output=True,
+                timeout=120,
+                check=True,
+            )
+            pages = root / "state" / "pages-20261116000000"  # the published build, where pick and the pass read
+            pages.mkdir(parents=True)
+            for suffix in (".pdf", ".synctex.gz"):
+                shutil.copy2(D.out / ("main" + suffix), pages / ("main" + suffix))
+            pdf = pages / "main.pdf"
+            files = ("2nd/main.tex", "common/defs.tex", "2nd/sub/deep.tex")
+            names = {rel: lookup.synctex_name(src / rel, D) for rel in files}
+            boxes = {
+                rel: pick_source.synctex_view(pdf, 3 if rel == "2nd/main.tex" else 1, name)
+                for rel, name in names.items()
+            }
+        for rel, hits in boxes.items():  # what the fix is for: every file of the tree answers
+            self.assertTrue(hits, "%s got no forward answer under %r" % (rel, names[rel]))
+            self.assertIsNotNone(mapping.view_box(hits or [], 1), rel)
+        out = str(D.out.resolve())
+        self.assertEqual(names["2nd/main.tex"], out + "/main.tex")
+        self.assertEqual(names["common/defs.tex"], out + "/../common/defs.tex")  # the '..' is what makes it answer
+        self.assertEqual(names["2nd/sub/deep.tex"], out + "/sub/deep.tex")
+        # a file of the manuscript outside this document's build root is in no record, so it is not asked at all
+        self.assertIsNone(lookup.synctex_name(root / "outside.tex", D))
 
 
 TEX = r"""\documentclass{article}
@@ -142,17 +215,32 @@ class LineMark(unittest.TestCase):
 HIT = [(1, 10.0, 20.0, 30.0, 8.0)]
 
 
-class FillMarks(unittest.TestCase):
-    """The pass that fills the per-build mark cache (lookup.fill_marks)."""
+class Tree(NamedTuple):
+    """A document as lookup.synctex_name reads it (lookup.BuildTree), without a Doc: the build root, the main file
+    relative to it and the folder latexmk ran in."""
 
-    root = Path("/ms")  # the manuscript tree; the build runs in a copy elsewhere (/b), so no pin path is under it
+    src: Path
+    main_rel: Path
+    out: Path
+
+
+class FillMarks(unittest.TestCase):
+    """The pass that fills the per-build mark cache (lookup.fill_marks).
+
+    The document is the standard recorded one, whose main .tex sits in a sub-folder of the build root
+    (`ms=본문:manuscript::2nd/main.tex`), so a pin's input name is never the manuscript-relative one; the build runs in
+    a copy elsewhere (/b), so no pin path is under it.
+    """
+
+    root = Path("/ms")  # the document's build root
+    tree = Tree(Path("/ms"), Path("2nd/main.tex"), Path("/b/2nd"))
     far = float("inf")
 
     def setUp(self):
         self.marks = lookup.LineMarks()
 
     def open_pin(self, pid, lo=3, hi=3, file=None, stale=None, **core):
-        place = LineSpan(file or str(self.root / "main.tex"), lo, hi)
+        place = LineSpan(file or str(self.root / "2nd" / "main.tex"), lo, hi)
         return OpenPin(PinCore(id=pid, place=place, stale=stale, **core), None, {})
 
     def stale_pin(self, pid):
@@ -169,14 +257,15 @@ class FillMarks(unittest.TestCase):
 
     def locate(self, pin):
         """The repo's locator, reduced: the path below the manuscript root, or None for a file outside it."""
+        path = Path(pin.core.place.file)
         try:
-            rel = Path(pin.core.place.file).relative_to(self.root).as_posix()
+            rel = path.relative_to(self.root).as_posix()
         except ValueError:
             return None
-        return lookup.PinLocation(rel, mock.Mock())
+        return lookup.PinLocation(rel, mock.Mock(path=path))
 
     def ctx(self, stale_src=False, sizes=((600.0, 800.0),), build="b1"):
-        return lookup.MarkContext(build, sizes, Path("/b/main.pdf"), stale_src)
+        return lookup.MarkContext(build, sizes, Path("/b/2nd/main.pdf"), stale_src, self.tree)
 
     def test_fill_marks_does_nothing_while_the_manuscript_is_newer_than_the_build(self):
         n = lookup.fill_marks(
@@ -193,6 +282,16 @@ class FillMarks(unittest.TestCase):
     def test_fill_marks_survives_a_document_whose_pages_are_gone(self):
         self.assertEqual(lookup.fill_marks("d", [self.open_pin(1)], self.locate, None, self.marks, 200, self.far), 0)
 
+    def test_fill_marks_does_not_ask_about_hi_once_lo_went_unanswered(self):
+        """span_box(None, hi) is None whatever hi is, so the second lookup could only waste a subprocess - and the
+        deadline is read between pins, not inside one."""
+        with mock.patch.object(pick_source, "synctex_view", return_value=None) as view:
+            n = lookup.fill_marks(
+                "d", [self.open_pin(1, lo=9, hi=11)], self.locate, self.ctx(), self.marks, 200, self.far
+            )
+        self.assertEqual((n, [c[0][1] for c in view.call_args_list]), (0, [9]))
+        self.assertTrue(self.marks.known("d", "b1", 1, 9, 11))
+
     def test_fill_marks_asks_once_for_a_one_line_pin_and_twice_for_a_span(self):
         with mock.patch.object(pick_source, "synctex_view", return_value=HIT) as view:
             lookup.fill_marks(
@@ -206,18 +305,31 @@ class FillMarks(unittest.TestCase):
             )
         self.assertEqual([c[0][1] for c in view.call_args_list], [7, 9, 11])
 
-    def test_fill_marks_passes_the_manuscript_relative_name_for_a_pin_in_a_tree_the_build_is_not_in(self):
+    def test_fill_marks_names_the_input_as_the_synctex_records_do_not_as_the_manuscript_path(self):
+        """lookup.synctex_name: the folder latexmk ran in joined with the file's path relative to it, un-normalised.
+        The manuscript-relative name ('2nd/main.tex', 'common/defs.tex') answers nothing for such a document."""
+        pins = [self.open_pin(1), self.open_pin(2, file=str(self.root / "common/defs.tex"))]
         with mock.patch.object(pick_source, "synctex_view", return_value=HIT) as view:
-            lookup.fill_marks(
+            lookup.fill_marks("d", pins, self.locate, self.ctx(), self.marks, 200, self.far)
+        self.assertEqual([c[0][2] for c in view.call_args_list], ["/b/2nd/main.tex", "/b/2nd/../common/defs.tex"])
+
+    def test_fill_marks_asks_nothing_for_a_file_outside_the_documents_build_root(self):
+        """Nothing of it is in the build copy, so no .synctex record names it: the empty answer is remembered instead of
+        spending a lookup on every pass."""
+        tree = Tree(self.root / "2nd", Path("main.tex"), Path("/b/2nd"))
+        ctx = lookup.MarkContext("b1", ((600.0, 800.0),), Path("/b/2nd/main.pdf"), False, tree)
+        with mock.patch.object(pick_source, "synctex_view", side_effect=AssertionError("no lookup")) as view:
+            n = lookup.fill_marks(
                 "d",
-                [self.open_pin(1, file=str(self.root / "sections/intro.tex"))],
+                [self.open_pin(1, file=str(self.root / "common/defs.tex"))],
                 self.locate,
-                self.ctx(),
+                ctx,
                 self.marks,
                 200,
                 self.far,
             )
-        self.assertEqual(view.call_args[0][2], "sections/intro.tex")
+        self.assertEqual((n, view.call_count), (0, 0))
+        self.assertTrue(self.marks.known("d", "b1", 1, 3, 3))
 
     def test_fill_marks_does_not_ask_again_for_a_pin_it_already_has_at_the_same_lines(self):
         with mock.patch.object(pick_source, "synctex_view", return_value=HIT) as view:
@@ -408,10 +520,13 @@ class PickLevelBoxes(Base):
         self.assertLessEqual(len(asked), 2 * len(levels))
         self.assertEqual(set(asked), {n for lv in levels for n in (lv["lo"], lv["hi"])})
 
-    def test_the_input_name_is_the_manuscript_relative_path(self):
+    def test_the_input_name_is_the_build_copys_path_as_the_synctex_records_spell_it(self):
+        """The one derivation the mark pass uses too (lookup.synctex_name). This fixture's document is the build root
+        itself, so latexmk ran in the copy's own folder; TreeInputNames covers the sub-folder document with the real
+        binary, which is the layout a manuscript-relative name silently failed on."""
         with mock.patch.object(pick_source, "synctex_view", return_value=None) as view:
             self.pick()
-        self.assertEqual({c[0][2] for c in view.call_args_list}, {"main.tex"})
+        self.assertEqual({c[0][2] for c in view.call_args_list}, {str(self.D.out.resolve() / "main.tex")})
         self.assertTrue(view.call_args_list)
 
     def test_a_manuscript_edited_since_the_build_gets_no_boxes_and_no_lookup(self):

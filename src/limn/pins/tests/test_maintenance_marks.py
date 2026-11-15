@@ -11,10 +11,10 @@ import unittest
 from contextlib import redirect_stderr
 from unittest import mock
 
-from limn.builds.artifacts import BuildAborted, BuildOk
+from limn.builds.artifacts import BuildAborted, BuildOk, BuildOkWithErrors
 from limn.builds.service import BuildRequests
 from limn.pins.location import source as pick_source
-from limn.pins.maintenance import MARK_BUILD_SECONDS, MARK_LIMIT, MARK_SECONDS, PinMaintenance
+from limn.pins.maintenance import MARK_BUILD_SECONDS, MARK_FILL_LIMIT, MARK_SECONDS, PinMaintenance
 from limn.pins.runtime import PinCommands
 from limn.runtime.documents import Doc
 from limn.security.access import LOCAL_ACTOR
@@ -55,9 +55,9 @@ class Pass(Base):
     def test_the_pass_stops_at_its_budget_and_takes_the_next_pins_on_the_following_run(self):
         self.pin_lines(5)
         with mock.patch.object(pick_source, "synctex_view", return_value=HIT):
-            first = ps.APP.fill_line_marks(limit=2)
+            first = ps.APP.fill_line_marks(fills=2)
             self.assertEqual((first, self.marked()), (2, [1, 2]))
-            second = ps.APP.fill_line_marks(limit=2)
+            second = ps.APP.fill_line_marks(fills=2)
         # no starvation: it moves on, it does not redo 1 and 2
         self.assertEqual((second, self.marked()), (2, [1, 2, 3, 4]))
 
@@ -68,7 +68,15 @@ class Pass(Base):
         self.assertEqual(view.call_count, 0)
 
     def test_the_budget_is_two_hundred_marks_and_ten_seconds(self):
-        self.assertEqual((MARK_LIMIT, MARK_SECONDS), (200, 10.0))
+        self.assertEqual((MARK_FILL_LIMIT, MARK_SECONDS), (200, 10.0))
+
+    def test_the_budget_counts_marks_filled_not_pins_looked_at(self):
+        """What MARK_FILL_LIMIT's name says: an unanswerable pin spends a lookup and no fill, so a budget of one still
+        reaches the pin behind it instead of being used up by the one in front."""
+        self.pin_lines(2)
+        with mock.patch.object(pick_source, "synctex_view", side_effect=[None, HIT]) as view:
+            self.assertEqual(ps.APP.fill_line_marks(fills=1), 1)
+        self.assertEqual((view.call_count, self.marked()), (2, [2]))
 
     def test_the_budget_is_shared_by_every_document(self):
         (ps.APP.C.src / "other.tex").write_text("x\n" * 20, encoding="utf-8")
@@ -83,8 +91,8 @@ class Pass(Base):
         note = {"file": str(ps.APP.C.src / "other.tex"), "lo": 3, "hi": 3, "page": 1, "note": "o"}
         add_pin(note, dict(LOCAL_ACTOR), doc=other)
         with mock.patch.object(pick_source, "synctex_view", return_value=HIT):
-            self.assertEqual(ps.APP.fill_line_marks(limit=2), 2)
-            self.assertEqual(ps.APP.fill_line_marks(limit=2), 1)
+            self.assertEqual(ps.APP.fill_line_marks(fills=2), 2)
+            self.assertEqual(ps.APP.fill_line_marks(fills=2), 1)
 
     def test_only_a_latex_document_is_asked_not_a_figure_a_markdown_a_text_or_a_view_only_document(self):
         """Real Docs: the kind-to-capability mapping decides, so widening or narrowing the exclusion fails here. Every pin
@@ -285,7 +293,7 @@ class AfterBuild(Base):
     def test_the_composition_root_fills_marks_inline_when_a_build_lands(self):
         with mock.patch.object(PinCommands, "fill_line_marks", return_value=0) as fill:
             ps.APP.build_requests.latex_built()
-        fill.assert_called_once_with(MARK_LIMIT, MARK_BUILD_SECONDS, wait=False)
+        fill.assert_called_once_with(MARK_FILL_LIMIT, MARK_BUILD_SECONDS, wait=False)
 
     def test_the_build_path_has_a_tighter_budget_than_upkeep(self):
         self.assertEqual((MARK_BUILD_SECONDS, MARK_SECONDS), (2.0, 10.0))
@@ -325,6 +333,19 @@ class AfterBuild(Base):
         calls = []
         requests = self.requests(lambda: calls.append(requests.settings and 1))
         with mock.patch.object(requests, "build_step", return_value=self.ok()):
+            requests.tracked(ps.APP.docs[0])
+        self.assertEqual(calls, [1])
+
+    def test_a_latex_build_that_finished_with_errors_calls_the_hook_too(self):
+        """A log with LaTeX errors and a new PDF all the same is a common real outcome (a missing reference, an
+        overfull-turned-error package): those pages are on screen, so their marks must be filled now and not wait for
+        the next upkeep tick up to 60 s away."""
+        calls = []
+        requests = self.requests(lambda: calls.append(1))
+        errored = BuildOkWithErrors(
+            [], "! Undefined control sequence.", 0.1, None, 0.1, "h" * 32, "-", "pages-20260926120000", 1
+        )
+        with mock.patch.object(requests, "build_step", return_value=errored):
             requests.tracked(ps.APP.docs[0])
         self.assertEqual(calls, [1])
 

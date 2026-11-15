@@ -13,9 +13,11 @@ from limn.platform.effects import require_writer
 # A few metadata calls every two seconds keep saved positions fresh without idle content reads.
 CHECK_INTERVAL = 2.0
 PERIODIC_INTERVAL = 60.0
-# One mark pass asks SyncTeX at most this many pins' worth of marks and stops at this many seconds; the pins it left
-# are taken on the next run (the cache remembers what it filled), so a big document makes progress and never starves.
-MARK_LIMIT = 200
+# One mark pass fills at most this many marks and stops at this many seconds. It counts marks, not pins looked at: a
+# pin SyncTeX has no box for spends a lookup but no fill, and the cache remembers that empty answer, so it is not asked
+# again until its lines move. The pins a pass left are taken on the next run, so a big document makes progress and
+# never starves.
+MARK_FILL_LIMIT = 200
 MARK_SECONDS = 10.0
 # The tighter budget of the pass a build runs inline (PinCommands.fill_line_marks_after_build); upkeep takes the rest.
 MARK_BUILD_SECONDS = 2.0

@@ -10,7 +10,7 @@ from typing import Any, Protocol, TypeAlias
 from limn.pins.editing.values import PDF_QUOTE_MAX
 from limn.pins.element import PinElement
 from limn.pins.location import figure, source
-from limn.pins.location.lookup import root_relative
+from limn.pins.location.lookup import synctex_name
 from limn.pins.location.mapping import (
     Traced,
     ViewBox,
@@ -258,7 +258,7 @@ def pick(D: Doc, request: Selection, ctx: PickContext) -> Picked | figure.Picked
         if publication.stale
         else _level_marks(
             pdf,
-            root_relative(found.path, ctx.root),
+            synctex_name(found.path, D),
             traced.levels,
             request.sizes,
             time.monotonic() + LEVEL_MARKS_SECONDS,
@@ -274,7 +274,8 @@ def _level_marks(
     deadline: float,
 ) -> dict[str, LineMark]:
     """Where each ladder level's own lines will stand once saved: its lo..hi asked of SyncTeX's forward lookup on the
-    build's PDF, at most two lookups per level (lo, and hi when it differs; a line two levels share is asked once).
+    build's PDF under the one input name of lookup.synctex_name, at most two lookups per level (lo, and hi when it
+    differs; a line two levels share is asked once).
 
     A level whose lookup fails - no answer, no usable box, a page without a size - is left out, and nothing here refuses
     a pick. One monotonic deadline covers all levels, checked before each lookup, so the worst case is the budget plus
