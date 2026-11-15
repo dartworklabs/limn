@@ -170,6 +170,7 @@ git commit -s -m "feat(pins): read a source line's page and box from SyncTeX for
   def line_mark(span: ViewBox | None, size: tuple[float, float], exact_page: int | None) -> LineMark | None
   ```
   `exact_page`는 그 핀이 **읽고 있는 바로 그 빌드에서 찍혔을 때** 저장된 `page`이고, 아니면 `None`이다.
+  **쪽 안으로 자르는 검사는 여기서 한다** — Task 1의 `view_box`는 쪽 수만 알아 못 했다. 상자를 `(0, 0, pw, ph)`로 자른 뒤 너비나 높이가 남지 않으면 `None`이다.
 
 - [ ] **Step 1: 실패 시험을 쓴다** (Review Focus 1)
 
