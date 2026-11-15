@@ -69,6 +69,7 @@ NEEDS_IMPORTS = {
     "pathlib",
     "typing",
     "limn.pins.element",  # the element box shape; pure (src/limn/pins/tests/test_element.py)
+    "limn.pins.location.position",  # LineMark, what the line-mark lookup answers; under TYPE_CHECKING only
     "limn.runtime.documents",  # Doc, the argument of every build question
     "limn.web.parse",  # DocumentFacts, the boundary type one question answers; under TYPE_CHECKING only (checked below)
 }

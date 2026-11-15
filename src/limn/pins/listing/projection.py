@@ -24,10 +24,10 @@ from typing import Any, TypeAlias
 
 from limn.pins.element import element_of
 from limn.pins.idem import IDEM_FIELD
-from limn.pins.location.position import EstContext, epoch, pin_est
+from limn.pins.location.position import EstContext, LineMark, epoch, pin_est
 from limn.pins.mentions import addressed_to, fyi_mentions_to
 from limn.pins.model import OpenPin, StateName, TrashedPin, parse_pin, state_of
-from limn.pins.needs import FollowElement
+from limn.pins.needs import FollowElement, LineMarkOf
 from limn.pins.suggestion import SuggestState, lines_text, suggest_state, suggestion_of
 from limn.pins.thread import claim_holds
 from limn.platform.values import is_finite_num, is_int, is_num, wire_value
@@ -143,6 +143,20 @@ def element_marks(r: Row, fmap: FollowElement | None) -> Json:
     return {"mark": list(got.frac), "mark_page": got.page, "el_sync": got.sync}
 
 
+def no_line_marks(key: str, pid: int) -> LineMark | None:
+    """No line-mark lookup for an instance that keeps none."""
+    return None
+
+
+def line_marks(r: Row, mark: LineMark | None) -> Json:
+    """The read-time mark of line pin r: {"mark": [x, y, w, h], "mark_page": n} when mark is the one the build on screen
+    gave its lines, else {}. A pin with an el, well-formed or not, is a figure pin whose mark is element_marks's
+    business, so it gets nothing here. Never stored; never changes r."""
+    if mark is None or r.get("el") is not None:
+        return {}
+    return {"mark": list(mark.frac), "mark_page": mark.page}
+
+
 def pin_view(
     r: Row,
     shown: Json,
@@ -152,11 +166,13 @@ def pin_view(
     now: float,
     fmap: FollowElement | None = None,
     superseded_by: int | None = None,
+    line_mark: LineMark | None = None,
 ) -> Json:
     """One GET /api/pins record: shown (r as the API shows it) followed by rel, est, doc, state, addressed and fyi, in
     that order, then superseded_by - only when a newer verdict pin supersedes this one, the number of the pin that is
     its target's current verdict (limn.pins.verdict.superseded_by) - then, for a figure pin with an element on fmap,
-    its document's current map, mark, mark_page and el_sync (element_marks). A claim that holds at epoch now but was
+    its document's current map, mark, mark_page and el_sync (element_marks), or, for a line pin whose lines the build
+    on screen found, its mark and mark_page (line_marks; the same two fields, so the viewer reads one shape). A claim that holds at epoch now but was
     written before claim_ts existed also gets claim_ts, its start epoch read from claimed_at (the viewer's "since
     20:02 (23 min in)"); none when claimed_at is not a readable time. A suggest_state that shown carries
     (public_record) moves to the very end, so it is the last field here as in a change response's pin. Never changes r
@@ -166,6 +182,7 @@ def pin_view(
     if superseded_by is not None:
         rec["superseded_by"] = superseded_by
     rec.update(element_marks(r, fmap))
+    rec.update(line_marks(r, line_mark))
     if claim_holds(r, now) and not is_num(r.get("claim_ts")):
         ts = epoch(r.get("claimed_at"))
         if ts is not None:
@@ -185,6 +202,7 @@ def pins_payload(
     now: float,
     figure_map: Callable[[str], FollowElement | None] = no_figure_maps,
     superseded: Mapping[int, int] | None = None,
+    line_map: LineMarkOf = no_line_marks,
 ) -> list[Json]:
     """GET /api/pins: the open pins of rows in row order (every pin when allp), each as pin_view() gives it.
 
@@ -195,7 +213,9 @@ def pins_payload(
     instance no longer serves it - then est is True (placed on a PDF that is not on screen). est_context is asked
     once per document, and only for documents with a listed pin, since it reads that document's build history.
     figure_map binds a build-owned element-position query by document key, never a parsed map;
-    it is asked at most once per document, and only for a document with a listed pin that carries an el."""
+    it is asked at most once per document, and only for a document with a listed pin that carries an el.
+    line_map answers a pin's cached mark on the build on screen, by document key and pin number (a cache lookup:
+    nothing is computed or written here); it is asked once per listed pin that carries no el."""
     ctxs: dict[str, EstContext | None] = {}
     maps: dict[str, FollowElement | None] = {}
     out = []
@@ -212,7 +232,8 @@ def pins_payload(
                 maps[k] = figure_map(k)
             fmap = maps[k]
         est = pin_est(r, ctx) if ctx is not None else True
-        out.append(pin_view(r, show(r), rel.get(r["id"], []), est, k, now, fmap, (superseded or {}).get(r["id"])))
+        mark = line_map(k, r["id"]) if r.get("el") is None else None
+        out.append(pin_view(r, show(r), rel.get(r["id"], []), est, k, now, fmap, (superseded or {}).get(r["id"]), mark))
     return out
 
 

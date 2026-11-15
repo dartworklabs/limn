@@ -19,6 +19,7 @@ from limn.runtime.documents import Doc
 if TYPE_CHECKING:
     # Named only in an annotation: importing it at run time would load the HTTP parser and the file module with every
     # pure pin module that names a build fact.
+    from limn.pins.location.position import LineMark
     from limn.web.parse import DocumentFacts
 
 # Lines lo..hi (1-based, inclusive) of a file named relative to the figure document's folder: (file, lo, hi).
@@ -231,6 +232,10 @@ class FollowedElement(Protocol):
 # Follows one pinned element on one build's map, bound by the supplier: (element id, the page it was pinned on, its
 # box then) -> where it is now. The caller never sees the map.
 FollowElement: TypeAlias = Callable[[str, int, ElementFrac], FollowedElement]
+
+# The mark a line pin has on the build on screen of a document, by (document key, pin number); None when it has none.
+# A lookup in what the writer-side pass kept: asking computes and writes nothing.
+LineMarkOf: TypeAlias = "Callable[[str, int], LineMark | None]"
 
 
 class BuildAnswers(Protocol):

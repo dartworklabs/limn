@@ -17,6 +17,7 @@ from limn.pins.listing.markdown import PinMarkdown
 from limn.pins.listing.projection import pin_state, public_record as view_public_record, suggest_view
 from limn.pins.listing.service import PinListing
 from limn.pins.location.lookup import (
+    LineMarks,
     Locator as locate_Locator,
     PinLocation,
     est_context,
@@ -28,7 +29,7 @@ from limn.pins.location.lookup import (
     stamp_location as locate_stamp_location,
     sync_all as locate_sync_all,
 )
-from limn.pins.location.position import EstContext, pin_est
+from limn.pins.location.position import EstContext, LineMark, pin_est
 from limn.pins.location.resolve import PickContext
 from limn.pins.location.service import PinLocationService
 from limn.pins.location.source import TokenCache
@@ -83,6 +84,9 @@ class PinCommands:
     # The verdict keys a document declares now (limn.pins.needs.VerdictKeys), the document owner's answer the
     # composition root wires; by default no document declares any.
     verdict_keys: VerdictKeys = lambda doc: ()
+    # The marks line pins have on the build on screen, per document and build: memory only, filled by the writer-side
+    # pass and read by GET /api/pins (line_mark_of).
+    line_marks: LineMarks = field(default_factory=LineMarks)
     pin_lifecycle: PinLifecycle = field(init=False)
     pin_claims: PinClaims = field(init=False)
     pin_trash: PinTrash = field(init=False)
@@ -139,6 +143,12 @@ class PinCommands:
         """Query current element positions without exposing a map to pin services."""
         doc = self.doc_by_key(key)
         return None if doc is None else self.build_view.elements(doc)
+
+    def line_mark_of(self, key: str, pid: int) -> LineMark | None:
+        """The mark the cache holds for line pin pid on the build document key has on screen, or None (no such
+        document, never asked, or SyncTeX had nothing). A cache lookup only: it neither computes nor writes."""
+        doc = self.doc_by_key(key)
+        return None if doc is None else self.line_marks.get(key, self.build_view.heading(doc).build, pid)
 
     def refresh_pins_md(self) -> None:
         """Refresh derived markdown after publication without resynchronizing pins."""

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from limn.pins.listing import projection as view
-from limn.pins.location.position import EstContext
+from limn.pins.location.position import EstContext, LineMark
 from limn.pins.model import Pin, PinNotFound, Record
 from limn.pins.needs import FollowElement
 from limn.pins.retention import expires_ts, unexpired, without_live_shadows
@@ -54,6 +54,10 @@ class ListingDeps(Protocol):
         """The loadable map of the build on screen of the figure document key names, or None."""
         ...
 
+    def line_mark_of(self, key: str, pid: int) -> LineMark | None:
+        """The cached mark of line pin pid on the build on screen of document key, or None."""
+        ...
+
 
 @dataclass(frozen=True)
 class PinListing:
@@ -76,6 +80,7 @@ class PinListing:
             time.time(),
             self.deps.element_follower,
             self.deps.superseded_by_id(pins),
+            self.deps.line_mark_of,
         )
 
     def list_payload(self, allp: bool, doc_key: str | None = None) -> list[Json]:
