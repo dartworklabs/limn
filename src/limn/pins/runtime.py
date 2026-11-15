@@ -169,7 +169,9 @@ class PinCommands:
         """What the pass needs of the build doc has on screen, or None when its pages cannot be asked for (never built, no
         page sizes, or the page directory moved to another build while this was read). `build` is the name
         line_mark_of resolves for the same document, so what the pass stores is what a listing looks up. The document
-        itself goes in as the build tree the forward lookup's input names come from (lookup.synctex_name)."""
+        itself goes in as the build tree the forward lookup's input names come from (lookup.synctex_name), and that
+        build's `built_lines` as the record of which files it read, which gates asking about a file at all
+        (lookup._read_by_build)."""
         build = self.build_view.heading(doc).build
         found = self.document_facts(doc).pick_pages(None)
         if found is None:
@@ -178,7 +180,7 @@ class PinCommands:
         if pages.name != build or not sizes:
             return None
         shown = self.build_view.publication(doc, build, self.C.state)
-        return MarkContext(build, sizes, shown.pdf, shown.stale, doc)
+        return MarkContext(build, sizes, shown.pdf, shown.stale, doc, shown.built_lines)
 
     def fill_line_marks(self, fills: int = MARK_FILL_LIMIT, seconds: float = MARK_SECONDS, wait: bool = False) -> int:
         """Fill line_marks for the open line pins of every document with pages and source lines (a LaTeX document: not a

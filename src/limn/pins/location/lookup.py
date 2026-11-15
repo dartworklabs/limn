@@ -121,10 +121,11 @@ def synctex_name(path: Path, tree: BuildTree) -> str | None:
     path spelled the way the .synctex records spell it. None when path is not below the document's build root - then
     nothing of it is in the build copy and the .synctex names it nowhere - or when a path cannot be resolved.
 
-    Measured with synctex 1.5 (TeX Live 2026) on a main file in a sub-folder that inputs a sibling folder's file.
-    latexmk runs with its working directory set to Doc.out (limn.builds.engine._compile), and TeX writes every input as
-    that working directory - as the kernel reports it, so with symlinks already resolved - followed by the name the file
-    was read under: "<out>/./main.tex" for the main file, "<out>/./sub/deep.tex" for one below it, and
+    Measured with TeX Live 2026 (`synctex` client 1.21, .synctex format Version:1; the utility's own result header
+    prints "version 1.5") on a main file in a sub-folder that inputs a sibling folder's file. latexmk runs with its
+    working directory set to Doc.out (limn.builds.engine._compile), and TeX writes every input as that working
+    directory - as the kernel reports it, so with symlinks already resolved - followed by the name the file was read
+    under: "<out>/./main.tex" for the main file, "<out>/./sub/deep.tex" for one below it, and
     "<out>/../common/defs.tex" for one in a sibling folder.
 
     Matching is not a suffix match. A record holding "/./" answers for its part after that "/./" under any directory
@@ -135,15 +136,23 @@ def synctex_name(path: Path, tree: BuildTree) -> str | None:
     matters too: a state folder reached through a link (macOS's /var) is recorded as its physical path, and the linked
     spelling of a ".." record does not answer.
 
+    Because that prefix is ignored, a name is only as trustworthy as the caller's knowledge that this build read the
+    file: every query ending in a record's post-"/./" tail answers, with that record's box. So "<out>/../2nd/sections/
+    intro.tex" is answered by the record of "<out>/./sections/intro.tex" - another file, the same box (measured). The
+    caller must therefore ask only about files the build read; fill_marks does that, and a pick's file comes from the
+    build's own backward answer, so it is a file the build read by construction.
+
     The one derivation both forward callers use - the mark pass (fill_marks) and a pick's level boxes
     (limn.pins.location.resolve._level_marks) - so the two can never drift apart again.
     """
     try:
         inside = path.resolve().relative_to(tree.src.resolve()).as_posix()
         folder = tree.out.resolve()
+        # inside os.path.relpath's try: with two relative arguments it calls os.getcwd(), which raises for a process
+        # whose working directory was removed - and this function answers None for everything it cannot derive
+        return os.path.join(str(folder), os.path.relpath(inside, tree.main_rel.parent.as_posix()))
     except (ValueError, OSError, RuntimeError):
         return None
-    return os.path.join(str(folder), os.path.relpath(inside, tree.main_rel.parent.as_posix()))
 
 
 def locate_file(file: object, file_rel: object, root: Path, state: Path, doc: BuildRoot | None) -> PinLocation | None:
@@ -459,19 +468,49 @@ class LineMarks:
 @dataclass(frozen=True)
 class MarkContext:
     """What one document's pass needs: the build on screen, its page sizes, its pdf, whether the manuscript is newer
-    than that build, and the document's build tree - what each pin file's SyncTeX input name is derived from
-    (synctex_name)."""
+    than that build, the document's build tree - what each pin file's SyncTeX input name is derived from
+    (synctex_name) - and that build's source record, which says whether it read a given file at all."""
 
     build: str
     sizes: Sequence[tuple[float, float]]  # (width, height) in points of page 1, 2, ...
     pdf: Path
     stale_src: bool
     tree: BuildTree
+    # The lines of a manuscript file as this build read it, None when its record does not hold the file
+    # (limn.builds.built_source.built_lines). Read for membership only; the lines themselves are not used here.
+    built_lines: Callable[[Path], Sequence[str] | None]
 
 
 def _line_box(ctx: MarkContext, line: int, name: str) -> ViewBox | None:
     hits = source.synctex_view(ctx.pdf, line, name)
     return None if hits is None else view_box(hits, len(ctx.sizes))
+
+
+def _read_by_build(ctx: MarkContext) -> Callable[[Path], bool]:
+    """Whether the build on screen read a manuscript file, by its source record - the gate on asking SyncTeX about a
+    file at all. One pass's answer: the record is parsed on the first file asked about and the verdict kept, so a pass
+    over many pins of one file reads it once and the per-pin loop only looks up a dict.
+
+    The forward lookup ignores the directory prefix of a "/./" record (synctex_name), so a query answers for any file
+    whose tail matches one the build read - a pin on `2nd/sections/intro.tex` would be handed the box of
+    `1st/sections/intro.tex` and drawn solid, which is the design's anti-goal 1 (a confident mark in the wrong place is
+    worse than the old dashed mark in the old place). Two files with the same tail under one build root is the ordinary
+    round-folder layout (docs/handbook/instances.md), so this is the gate that makes the name safe to send.
+
+    A build that kept no record of its files at all - a page folder from a release before the record existed - answers
+    None for every file, and this refuses them all. That is deliberate: asking anyway would restore exactly the defect
+    above for those builds, while refusing leaves their pins on their saved coordinates with a dashed mark, which is
+    both the design's documented fallback and the behaviour those pins already have. The next build of that document
+    writes a record, so it heals itself without anyone intervening.
+    """
+    verdict: dict[Path, bool] = {}
+
+    def read(path: Path) -> bool:
+        if path not in verdict:
+            verdict[path] = ctx.built_lines(path) is not None
+        return verdict[path]
+
+    return read
 
 
 def fill_marks(
@@ -489,8 +528,9 @@ def fill_marks(
 
     Nothing is asked without a context (the document's pages are unknown) or while the manuscript is newer than the
     build (its lines are no longer the build's). A pin is skipped when marks already hold its mark for the same lines,
-    when the locator cannot place its file, when the file is not in this document's build copy (synctex_name), or when
-    its page has no finite positive size; one lookup is made for a one-line pin and two for a span.
+    when the locator cannot place its file, when the file is not in this document's build copy (synctex_name), when
+    this build did not read the file (_read_by_build), or when its page has no finite positive size; one lookup is made
+    for a one-line pin and two for a span.
 
     Stops once `fills` marks have been filled - a count of marks, not of pins looked at: a pin SyncTeX has no box for
     spends a lookup but no fill, and is not asked again until its lines move (marks.known), so an unanswerable pin
@@ -499,6 +539,7 @@ def fill_marks(
     if ctx is None or ctx.stale_src:
         return 0
     marks.keep_build(doc, ctx.build)
+    read_by_build = _read_by_build(ctx)
     filled = 0
     for pin in pins:
         if filled >= fills or time.monotonic() >= deadline:
@@ -514,7 +555,9 @@ def fill_marks(
         if loc is None:
             continue
         name = synctex_name(loc.path, ctx.tree)  # the build copy's path as the .synctex records spell it
-        if name is None:  # not in this document's build copy: no record names it, so no lookup can answer
+        # Not in the build copy, or in it but unread by this build: either way no record of this file can answer, and
+        # the forward lookup would hand back another file's box (synctex_name, on the ignored directory prefix).
+        if name is None or not read_by_build(loc.path):
             marks.put(doc, ctx.build, pid, span.lo, span.hi, None)
             continue
         lo = _line_box(ctx, span.lo, name)

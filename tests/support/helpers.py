@@ -32,6 +32,7 @@ from unittest import mock
 
 import pytest
 
+from limn.builds import built_source
 from limn.pins.editing import input as editing_input
 from limn.pins.location import http as location_http
 from limn.pins.model import parse_pin
@@ -696,6 +697,22 @@ def req(method, path, body=b"", headers=None):
         h["Content-Length"] = str(len(body))
     head = "%s %s HTTP/1.1\r\n" % (method, path) + "".join("%s: %s\r\n" % kv for kv in h.items()) + "\r\n"
     return head.encode() + body
+
+
+def built_record(pages: Path, src: Path, *files: Path) -> None:
+    """Publish a build's source record in the page folder `pages`, holding the lines of `files` as that build read
+    them (limn.builds.built_source, docs/handbook/build-sync.md §빌드가 읽은 원고 줄).
+
+    A real build writes this; a test that lays out a page folder by hand has to, because the mark pass reads it to
+    tell whether that build read a file at all before it asks SyncTeX about the file
+    (limn.pins.location.lookup._read_by_build). Without it the pass asks about nothing, as it does for a page folder
+    from a release before the record existed. src is the document's build root, which the record names files below."""
+    kept = {}
+    for file in files:
+        key = built_source.source_key(src, file)
+        if key is not None:
+            kept[key] = file.read_text(encoding="utf-8").splitlines()
+    (pages / built_source.SOURCE_NAME).write_text(built_source.encode(kept), encoding="utf-8")
 
 
 def blank_png(w: int, h: int) -> bytes:

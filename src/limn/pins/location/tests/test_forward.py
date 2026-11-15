@@ -68,6 +68,31 @@ TREE_SIBLING = "A line of the sibling folder's file.\n\nA second line of it.\n"
 TREE_BELOW = "A line of the file below the main file's folder.\n"
 
 
+class Tree(NamedTuple):
+    """A document as lookup.synctex_name reads it (lookup.BuildTree), without a Doc: the build root, the main file
+    relative to it and the folder latexmk ran in."""
+
+    src: Path
+    main_rel: Path
+    out: Path
+
+
+class SynctexNamePure(unittest.TestCase):
+    """lookup.synctex_name's own answers, without a build."""
+
+    tree = Tree(Path("/ms"), Path("2nd/main.tex"), Path("/b/2nd"))
+
+    def test_a_working_directory_that_was_removed_answers_none_and_does_not_raise(self):
+        """os.path.relpath takes two relative paths here, so it calls os.getcwd(), which raises for a process whose
+        working directory is gone. Every other thing this function cannot derive folds to None; so does this, rather
+        than escaping into the mark pass."""
+        with mock.patch.object(lookup.os, "getcwd", side_effect=FileNotFoundError(2, "No such file or directory")):
+            self.assertIsNone(lookup.synctex_name(Path("/ms/2nd/main.tex"), self.tree))
+
+    def test_a_file_outside_the_build_root_answers_none(self):
+        self.assertIsNone(lookup.synctex_name(Path("/elsewhere/main.tex"), self.tree))
+
+
 class TreeInputNames(unittest.TestCase):
     """The input name the forward lookup is asked by, against the real binary, for a document whose main .tex is not
     directly under --manuscript (the form `limn add` records: `ms=본문:manuscript::<round>/<main>.tex`).
@@ -215,21 +240,13 @@ class LineMark(unittest.TestCase):
 HIT = [(1, 10.0, 20.0, 30.0, 8.0)]
 
 
-class Tree(NamedTuple):
-    """A document as lookup.synctex_name reads it (lookup.BuildTree), without a Doc: the build root, the main file
-    relative to it and the folder latexmk ran in."""
-
-    src: Path
-    main_rel: Path
-    out: Path
-
-
 class FillMarks(unittest.TestCase):
     """The pass that fills the per-build mark cache (lookup.fill_marks).
 
     The document is the standard recorded one, whose main .tex sits in a sub-folder of the build root
     (`ms=본문:manuscript::2nd/main.tex`), so a pin's input name is never the manuscript-relative one; the build runs in
-    a copy elsewhere (/b), so no pin path is under it.
+    a copy elsewhere (/b), so no pin path is under it. By default the build is taken to have read every file asked
+    about (`read` below); the tests of the read gate pass their own record.
     """
 
     root = Path("/ms")  # the document's build root
@@ -264,8 +281,15 @@ class FillMarks(unittest.TestCase):
             return None
         return lookup.PinLocation(rel, mock.Mock(path=path))
 
-    def ctx(self, stale_src=False, sizes=((600.0, 800.0),), build="b1"):
-        return lookup.MarkContext(build, sizes, Path("/b/2nd/main.pdf"), stale_src, self.tree)
+    def ctx(self, stale_src=False, sizes=((600.0, 800.0),), build="b1", read=None, tree=None):
+        """A pass context. read is the build's source record as fill_marks reads it - a set of the manuscript paths the
+        build kept lines for; None means it read everything asked about."""
+        lines = (
+            (lambda path: ("a line",))
+            if read is None
+            else (lambda path: ("a line",) if str(path) in {str(p) for p in read} else None)
+        )
+        return lookup.MarkContext(build, sizes, Path("/b/2nd/main.pdf"), stale_src, tree or self.tree, lines)
 
     def test_fill_marks_does_nothing_while_the_manuscript_is_newer_than_the_build(self):
         n = lookup.fill_marks(
@@ -317,19 +341,62 @@ class FillMarks(unittest.TestCase):
         """Nothing of it is in the build copy, so no .synctex record names it: the empty answer is remembered instead of
         spending a lookup on every pass."""
         tree = Tree(self.root / "2nd", Path("main.tex"), Path("/b/2nd"))
-        ctx = lookup.MarkContext("b1", ((600.0, 800.0),), Path("/b/2nd/main.pdf"), False, tree)
         with mock.patch.object(pick_source, "synctex_view", side_effect=AssertionError("no lookup")) as view:
             n = lookup.fill_marks(
                 "d",
                 [self.open_pin(1, file=str(self.root / "common/defs.tex"))],
                 self.locate,
-                ctx,
+                self.ctx(tree=tree),
                 self.marks,
                 200,
                 self.far,
             )
         self.assertEqual((n, view.call_count), (0, 0))
         self.assertTrue(self.marks.known("d", "b1", 1, 3, 3))
+
+    def test_fill_marks_asks_nothing_for_a_file_inside_the_build_root_this_build_did_not_read(self):
+        """The anti-goal this gate exists for. The forward lookup ignores a '/./' record's directory prefix, so
+        '<out>/../2nd/sections/intro.tex' is answered by the record of '<out>/./sections/intro.tex' - another file, the
+        same box - and every later guard passes, so the pin would stand solid on the wrong round's text. Two files with
+        the same tail under one build root is the ordinary round-folder layout, so the build's own record of what it
+        read is what makes the name safe to send."""
+        read_it = self.root / "1st" / "sections" / "intro.tex"
+        never_read = self.root / "2nd" / "sections" / "intro.tex"
+        pins = [self.open_pin(1, file=str(never_read)), self.open_pin(2, file=str(read_it))]
+        with mock.patch.object(pick_source, "synctex_view", return_value=HIT) as view:
+            n = lookup.fill_marks("d", pins, self.locate, self.ctx(read=[read_it]), self.marks, 200, self.far)
+        self.assertEqual(n, 1)  # only the file the build read
+        self.assertEqual([c[0][2] for c in view.call_args_list], ["/b/2nd/../1st/sections/intro.tex"])
+        self.assertIsNone(self.marks.get("d", "b1", 1))
+        self.assertIsNotNone(self.marks.get("d", "b1", 2))
+        self.assertTrue(self.marks.known("d", "b1", 1, 3, 3))  # remembered, so it is not re-asked every pass
+
+    def test_fill_marks_asks_nothing_at_all_when_the_build_kept_no_record_of_its_files(self):
+        """A page folder from a release before the record existed answers None for every file. Asking anyway would hand
+        those builds another file's box, so the ruling is to refuse: their pins keep the saved coordinates and the
+        dashed mark they already have, and the next build of that document writes a record and heals it."""
+        pins = [self.open_pin(1), self.open_pin(2, file=str(self.root / "1st" / "sections" / "intro.tex"))]
+        with mock.patch.object(pick_source, "synctex_view", side_effect=AssertionError("no lookup")) as view:
+            n = lookup.fill_marks("d", pins, self.locate, self.ctx(read=[]), self.marks, 200, self.far)
+        self.assertEqual((n, view.call_count), (0, 0))
+        self.assertTrue(all(self.marks.known("d", "b1", pid, 3, 3) for pid in (1, 2)))
+
+    def test_fill_marks_reads_the_builds_record_once_for_each_file_not_once_for_each_pin(self):
+        """The record is a JSON file parsed on every call, so the pass keeps the verdict: ten pins on one file read it
+        once."""
+        asked = []
+        pins = [self.open_pin(pid) for pid in range(1, 11)]
+        ctx = lookup.MarkContext(
+            "b1",
+            ((600.0, 800.0),),
+            Path("/b/2nd/main.pdf"),
+            False,
+            self.tree,
+            lambda path: asked.append(path) or ("a line",),
+        )
+        with mock.patch.object(pick_source, "synctex_view", return_value=HIT):
+            self.assertEqual(lookup.fill_marks("d", pins, self.locate, ctx, self.marks, 200, self.far), 10)
+        self.assertEqual(len(asked), 1)
 
     def test_fill_marks_does_not_ask_again_for_a_pin_it_already_has_at_the_same_lines(self):
         with mock.patch.object(pick_source, "synctex_view", return_value=HIT) as view:

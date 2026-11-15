@@ -19,7 +19,7 @@ from limn.pins.runtime import PinCommands
 from limn.runtime.documents import Doc
 from limn.security.access import LOCAL_ACTOR
 
-from helpers import Base, add_pin, blank_png, ps
+from helpers import Base, add_pin, blank_png, built_record, ps
 
 HIT = [(1, 100.0, 200.0, 300.0, 10.0)]
 
@@ -34,6 +34,7 @@ class Pass(Base):
         for i in (1, 2):
             (pages / ("page-%d.png" % i)).write_bytes(blank_png(1275, 1650))
         (ps.APP.C.state / "pages.cur").write_text(pages.name)
+        built_record(pages, ps.APP.C.src, ps.APP.C.main)  # as a real build publishes it: the file this build read
         self.doc = ps.APP.docs[0]
         self.build = pages.name
 
@@ -86,6 +87,7 @@ class Pass(Base):
         pages.mkdir(parents=True)
         (pages / "page-1.png").write_bytes(blank_png(1275, 1650))
         (other.dir / "pages.cur").write_text(pages.name)
+        built_record(pages, other.src, other.main)
         self.add(lo=4, hi=4)
         self.add(lo=5, hi=5)
         note = {"file": str(ps.APP.C.src / "other.tex"), "lo": 3, "hi": 3, "page": 1, "note": "o"}
@@ -307,6 +309,7 @@ class AfterBuild(Base):
         pages.mkdir()
         (pages / "page-1.png").write_bytes(blank_png(1275, 1650))
         (ps.APP.C.state / "pages.cur").write_text(pages.name)
+        built_record(pages, ps.APP.C.src, ps.APP.C.main)
         pid = self.add(lo=4, hi=4)
         main = ps.APP.C.main
         main.write_text("inserted\n" * 20 + main.read_text(encoding="utf-8"), encoding="utf-8")
