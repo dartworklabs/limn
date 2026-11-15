@@ -201,7 +201,7 @@ def test_line_mark_is_none_without_a_span_or_a_positive_page_size(self):
 
 - [ ] **Step 3: `LineMark`·`line_mark`를 `position.py`에 넣는다**
 
-순수 함수이고 시계를 읽지 않는다. 비율 변환은 같은 기능의 `figure.drag_frac`을 쓴다.
+순수 함수이고 시계를 읽지 않는다. 비율 변환은 같은 기능의 `mapping.drag_frac`을 쓴다 — `position.py`의 import 화이트리스트가 `figure`를 막아서 시공 중에 `figure.py`에서 `mapping.py`로 옮겼다(Ruling 9).
 
 - [ ] **Step 4: 돌려서 통과를 본다** — Expected: PASS
 
