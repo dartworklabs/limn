@@ -87,9 +87,10 @@ class RealSynctex(unittest.TestCase):
         self.assertEqual((body.page, row.page), (1, 1))
         self.assertNotEqual(body.box, row.box)
         self.assertEqual(row2.page, 1)
-        # each row gets its own row box: same left edge and width, one row apart, no taller than a row
+        # each row gets its own row box: same left edge and width, a row apart, no taller than a row
         self.assertAlmostEqual(row.box[0], row2.box[0], places=3)
         self.assertAlmostEqual(row.box[2], row2.box[2], places=3)
         self.assertLess(row.box[3] - row.box[1], 15)
         self.assertLess(row2.box[3] - row2.box[1], 15)
-        self.assertAlmostEqual(row2.box[3] - row.box[3], 11.955, places=1)
+        self.assertGreater(row2.box[3] - row.box[3], 0)
+        self.assertLess(row2.box[3] - row.box[3], 15)

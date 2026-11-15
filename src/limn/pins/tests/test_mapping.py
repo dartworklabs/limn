@@ -61,6 +61,9 @@ class ForwardBox(unittest.TestCase):
         self.assertIsNone(mapping.view_box([(1, 1.0, float("inf"), 3.0, 4.0)], 3))
         self.assertIsNone(mapping.view_box([(1, 1.0, 2.0, 0.0, 4.0)], 3))
         self.assertIsNone(mapping.view_box([], 3))
+        self.assertIsNone(mapping.view_box([(1, 1.0, float("nan"), 3.0, 4.0)], 3))
+        self.assertIsNone(mapping.view_box([(1, 1.0, 2.0, 3.0, -4.0)], 3))
+        self.assertIsNone(mapping.view_box([(1, 1.0, 2.0, 3.0, 4.0)], 0))
 
     def test_span_box_unites_one_page_keeps_lo_across_pages_and_is_none_without_lo(self):
         """A span's two ends: same page unites, another page keeps the first end, no first end gives nothing."""
