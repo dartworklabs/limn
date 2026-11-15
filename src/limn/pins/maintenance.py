@@ -52,8 +52,10 @@ class PinMaintenance:
         marks replaces the mark pass of this run (the build path passes its own, shorter-budget pass). wait is a separate
         decision: False skips at once when another run is in progress; True (the build path, on a request thread) waits
         at most MARK_BUILD_WAIT_SECONDS for it and then skips this run with a diagnostic. Skipping is safe: the run in
-        progress resyncs and fills marks itself, and the worst outcome is a mark missing for a tick (the old, dotted
-        position), never a mark computed from lines that did not follow the manuscript.
+        progress resyncs and fills marks itself, and the worst outcome is a mark missing for up to a minute (the old,
+        dotted position), never a mark computed from lines that did not follow the manuscript. A pin the pass budget
+        cut off waits as long: this run resets the upkeep cycle's own timers, so the next fill comes with the
+        periodic run, not on the next tick.
 
         Capture source stamps before reading them, so a change during a pass is still pending next tick.
         The JSONL stamp discovers pins added by POST without reading that file on idle ticks.

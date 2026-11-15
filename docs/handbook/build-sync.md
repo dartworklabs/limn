@@ -356,7 +356,9 @@ Limn이 띄우는 git은 모두 [`src/limn/platform/git.py`](../../src/limn/plat
 
 ## 위치 추정 (`est`)
 
-핀 마크는 드래그 당시의 `frac`(쪽 대비 비율)에 고정된다. 원고가 바뀌어 PDF가 다시 빌드되면 그 좌표가 지금 화면의 PDF와 안 맞을 수 있다. 그럴 가능성이 있으면 마크를 점선(`.est`)으로 그린다. **판정은 서버가 하고** `GET /api/pins` 의 `est` 불리언으로 싣는다. 뷰어는 받은 값을 그대로 그린다.
+서버가 마크의 자리를 줄이나 요소에서 도출하지 못한 핀의 마크는 드래그 당시의 `frac`(쪽 대비 비율)에 고정된다. 원고가 바뀌어 PDF가 다시 빌드되면 그 좌표가 지금 화면의 PDF와 안 맞을 수 있다. 그럴 가능성이 있으면 마크를 점선(`.est`)으로 그린다. **판정은 서버가 하고** `GET /api/pins` 의 `est` 불리언으로 싣는다. 뷰어는 받은 값을 그대로 그린다.
+
+도출하는 쪽은 둘이다. 그림 핀은 요소 지도로 따라간다([domain.md](domain.md) §그림 핀의 요소 위치 — 읽을 때 계산한다). LaTeX 줄 핀은 그 줄이 화면 빌드에서 찍힌 쪽·상자를 정방향 SyncTeX로 찾아 따라간다(§줄 핀의 마크를 채우는 패스). 둘 다 서버가 자리를 `mark`·`mark_page`로 주면 뷰어가 `est`를 끄므로 점선이 사라진다. `est` 식은 그대로이고, 아래 판정은 자리를 못 찾은 핀(저장된 좌표)에 선다.
 
 ### 빌드 신원과 핀의 빌드
 
@@ -374,7 +376,19 @@ est = (pin.pdf_build ≠ 지금 빌드 그리고 두 빌드의 src_hash 가 다�
 - 그 빌드를 이력에서 못 찾으면 추정(점선)으로 본다. 모르는 채 실선으로 그리는 편이 더 해롭기 때문이다.
 - `pdf_build` 가 없는 옛 핀은 서버가 epoch 수치로 판정한다. 옛 필드명 `frac_build` 는 `pdf_build` 와 같은 뜻으로 읽는다. 찍은 시각 `at` < `built_at` 이고, 지금 빌드를 시작할 때의 `src_mtime` > `at` 이면 추정이다. `edited_at` 은 보지 않는다.
 
-실행 정본은 [`src/limn/pins/location/position.py`](../../src/limn/pins/location/position.py)의 `pin_est`·`same_source`·`legacy_est`·`est_basis`(순수 판정, 시계를 읽지 않는다)와 문서의 빌드 이력을 한 번 읽어 그 재료(`EstContext`)를 만드는 [`src/limn/pins/location/lookup.py`](../../src/limn/pins/location/lookup.py)의 `est_context`다. `GET /api/pins`가 문서마다 이력을 한 번만, 목록에 핀이 있는 문서만 읽는 것은 [`src/limn/pins/listing/projection.py`](../../src/limn/pins/listing/projection.py)의 `pins_payload`가 정한다.
+실행 정본은 [`src/limn/pins/location/position.py`](../../src/limn/pins/location/position.py)의 `pin_est`·`legacy_est`(순수 판정, 시계를 읽지 않는다), 두 빌드가 같은 원고인지 가리는 [`src/limn/builds/queries.py`](../../src/limn/builds/queries.py)의 `_same_source`와 핀의 기준 빌드를 정하는 같은 파일의 `position_basis`, 문서의 빌드 이력을 한 번 읽어 그 재료(`EstContext`)를 만드는 [`src/limn/pins/location/lookup.py`](../../src/limn/pins/location/lookup.py)의 `est_context`다. `GET /api/pins`가 문서마다 이력을 한 번만, 목록에 핀이 있는 문서만 읽는 것은 [`src/limn/pins/listing/projection.py`](../../src/limn/pins/listing/projection.py)의 `pins_payload`가 정한다.
+
+### 줄 핀의 마크를 채우는 패스
+
+LaTeX 줄 핀의 마크는 정방향 SyncTeX 조회(줄 → 쪽·상자)로 얻는다. 요청마다 `synctex`를 돌리면 GET 계산 슬롯이 2초 폴링에 묶이므로 **GET은 돌리지 않는다.** 패스가 그 빌드의 메모리 캐시를 채우고 GET은 조회만 한다(규칙은 [domain.md](domain.md) §줄 핀의 마크 — 읽을 때 계산한다). 캐시는 문서·빌드마다 2,000항목이고 새 빌드가 올라오면 옛 빌드의 항목을 버린다.
+
+- **패스가 도는 자리는 둘이다.** ① 새 쪽을 화면에 올린 LaTeX 빌드의 뒤(`latex_built` 훅). ② 요청과 독립된 60초 유지 주기(§요청과 독립된 핀 유지). 둘 다 **줄 맞춤을 먼저 하고 그다음 마크를 채운다.** 고치고 바로 재빌드하면 줄 맞춤의 2초 검사가 아직 안 돌아 핀의 `lo`가 수정 전 번호이고, 그 번호로 계산한 마크는 틀린 자리에 실선으로 서기 때문이다. 그래서 빌드 경로는 패스만 부르지 않고 유지 실행(줄 맞춤)에 마크 패스를 얹어 부른다.
+- **핀 저장소 잠금 밖에서 돈다.** 유지 실행은 잠금 안에서 줄 맞춤을 하고, 잠금을 놓고 겹침 방지를 푼 뒤에 마크를 채운다. 패스는 레코드를 쓰지 않으므로 잠금이 필요 없고, 핀 하나가 `synctex` 시간 상한까지 걸려도 핀 쓰기와 다음 유지 실행을 붙잡지 않는다. 줄 맞춤이 실패한 실행은 마크를 채우지 않는다.
+- **예산.** 한 패스는 핀의 마크 200개(`MARK_LIMIT`)나 시간 안에서 멈추고, 못 채운 핀은 다음 패스가 이어 간다(캐시가 채운 것을 기억한다). 유지 주기의 시간은 10초(`MARK_SECONDS`), 빌드 뒤 패스는 2초(`MARK_BUILD_SECONDS`)다. 시간은 핀 사이에서만 재므로 한 번의 조회가 더 걸릴 수 있다(상한은 `synctex` 호출의 시간 초과). 빌드 경로는 이미 도는 유지 실행을 최대 1초(`MARK_BUILD_WAIT_SECONDS`) 기다리고, 그래도 겹치면 이번 실행을 건너뛴다(진단을 남긴다). 도는 실행이 줄 맞춤과 마크를 스스로 하므로 건너뛰어도 안전하다.
+- **늦음.** 재빌드 직후 잠깐은 옛 자리에 점선 마크가 보일 수 있다. 이 늦음은 `pins.md`가 선언한 늦음과 같은 성질이다. 예산이 잘라 낸 핀은 **최대 60초** 기다린다. 빌드 뒤 실행이 유지 주기의 타이머를 새로 시작하므로(`PinMaintenance`의 완료 시각), 다음 채우기는 그 뒤 60초 주기의 실행이 한다. 한 틱이 아니다. 원고를 다시 고치면 2초 검사가 실행을 앞당기고, 재빌드가 새 빌드를 올리면 다시 채운다.
+- **원고가 빌드보다 새로우면 채우지 않는다.** 화면의 PDF가 바뀌지 않았으므로 캐시의 마지막 값이 그대로 선다. 줄을 빌드의 줄로 옮기는 변환은 두지 않는다.
+
+실행 정본은 [`src/limn/pins/maintenance.py`](../../src/limn/pins/maintenance.py)의 `PinMaintenance.run`·예산 상수, [`src/limn/pins/runtime.py`](../../src/limn/pins/runtime.py)의 `fill_line_marks`·`fill_line_marks_after_build`, [`src/limn/pins/location/lookup.py`](../../src/limn/pins/location/lookup.py)의 `fill_marks`다.
 
 ### 기동 때 지금 빌드 등록
 
@@ -446,4 +460,4 @@ est = (pin.pdf_build ≠ 지금 빌드 그리고 두 빌드의 src_hash 가 다�
 
 서버 시작의 문서 준비 뒤 유지 실행을 한 번 하고, 종료 이벤트로 대기를 즉시 깨우는 감시 스레드가 완료 후 60초마다 다시 실행한다. 그 사이에는 이름 붙인 상수 `CHECK_INTERVAL`(2초)마다 열린 문서의 핀이 가리키는 파일·문서 main 파일의 mtime_ns·size·inode만 검사한다. 핀 집합의 추가·변경을 발견하기 위한 `pins.jsonl` stat도 한다. 변화가 없으면 본문 읽기나 pass가 없다. 2초는 유휴 stat 비용을 작게 두면서 보통 몇 초 안에 위치를 저장하려는 값이다. pass 전에 원고 지문을 잡아 실행 도중 변경을 놓치지 않으며 실패하면 마지막 성공 기준으로 다음 검사에 재시도한다. 출처: [ADR-0028](../adr/0028-saved-pin-positions.md) 결정 1–4. 같은 실행의 유지 잠금은 겹친 호출을 건너뛰며, GET은 호출·예약하지 않는다. 핀 저장 잠금 아래 읽기·재동기화·Markdown 렌더·휴지통 만료/그림자 제거를 먼저 준비한다. 바이트가 같은 파일은 교체하지 않고 Markdown의 갱신 시각만 달라진 경우도 그대로 둔다. 원고를 읽지 못하면 빈 파일로 간주하지 않고 해당 상태 파일의 유지 묶음 전체를 건너뛰어 핀·Markdown·휴지통의 원본을 모두 보존한다. 같은 실패의 경고는 제한된 진단으로 한 번만 남기고 다음 주기에 재시도한다. GET은 재동기화 없이 저장된 레코드를 돌려주며, POST는 재동기화나 새 anchor를 위한 읽기가 실패하면 저장 전에 실패한다. 실제 빈 원고는 정상 읽기로 구별한다. 다른 준비 실패도 아무 파일도 바꾸지 않는다. 교체 중 실패하면 보관한 원본 inode로 되돌리고 다음 주기에 재시도한다. 프로세스 중단까지 여러 파일을 한꺼번에 커밋하는 보장은 아니며 다음 실행이 수렴시킨다.
 
-GET은 저장된 위치·rev만 주고 HTTP `/pins.md`도 같은 레코드에서 렌더한다. GET 위치와 HTTP·디스크 `pins.md` 모두 원고 수정 뒤 검사 간격(2초) + 유지 실행 시간만큼 늦을 수 있다. 긴 실행·실패에는 더 늦는다. 뷰어는 이미 light meta의 `pins_rev`, 즉 `pins.jsonl` 변경 때만 핀을 다시 읽으므로 사람이 보는 변화는 작다. 출처: [ADR-0028](../adr/0028-saved-pin-positions.md) 결정 1–4. 유지 작업은 과거 요청 수·신원을 받지 않고 사람 파일을 갱신하지 않는다. 구현은 `pins/maintenance.py`와 `PinStore.maintain()`이다.
+GET은 저장된 위치·rev만 주고 HTTP `/pins.md`도 같은 레코드에서 렌더한다. GET 위치와 HTTP·디스크 `pins.md` 모두 원고 수정 뒤 검사 간격(2초) + 유지 실행 시간만큼 늦을 수 있다. 긴 실행·실패에는 더 늦는다. 뷰어는 이미 light meta의 `pins_rev`, 즉 `pins.jsonl` 변경 때만 핀을 다시 읽으므로 사람이 보는 변화는 작다. 출처: [ADR-0028](../adr/0028-saved-pin-positions.md) 결정 1–4. 유지 작업은 과거 요청 수·신원을 받지 않고 사람 파일을 갱신하지 않는다. 유지 실행은 줄 맞춤이 끝난 뒤 잠금 밖에서 LaTeX 줄 핀의 마크 패스를 한 번 돈다(§줄 핀의 마크를 채우는 패스). 구현은 `pins/maintenance.py`와 `PinStore.maintain()`이다.

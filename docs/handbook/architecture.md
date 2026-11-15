@@ -23,7 +23,7 @@ Limn은 하나의 `dartwork-limn` 배포 안에서 기능 소유권으로 나눈
 
 | 소유권 | 경로 | 함께 바뀌는 것 |
 | --- | --- | --- |
-| 핀 | `pins/` | 모델·레코드·스레드 규칙, `store.py`의 트랜잭션, `context.py`의 실행 협력자, `revision.py`의 비교용 핀 사실. `application.py`와 `runtime.py`가 조회 계약·실행 협력자·경로를 조립한다. `needs.py`는 주입받는 빌드 조회와 그 답에서 읽는 멤버를 Protocol로, 문서 조회의 판정 낱말 조회를 타입으로 선언하고, `notice.py`는 핀이 내보내는 알림 값 `PinNotice`를 소유한다. 만들기·편집은 `editing/`, 처리 중 표시는 `claims/`, 전이는 `lifecycle/`, 삭제·복원은 `trash/`, 조회·Markdown은 `listing/`, 원문·PDF 위치 계산은 `location/` |
+| 핀 | `pins/` | 모델·레코드·스레드 규칙, `store.py`의 트랜잭션, `context.py`의 실행 협력자, `revision.py`의 비교용 핀 사실. `application.py`와 `runtime.py`가 조회 계약·실행 협력자·경로를 조립한다. `needs.py`는 주입받는 빌드 조회와 그 답에서 읽는 멤버를 Protocol로, 문서 조회의 판정 낱말 조회를 타입으로 선언하고, `notice.py`는 핀이 내보내는 알림 값 `PinNotice`를 소유한다. 만들기·편집은 `editing/`, 처리 중 표시는 `claims/`, 전이는 `lifecycle/`, 삭제·복원은 `trash/`, 조회·Markdown은 `listing/`, 원문·PDF 위치 계산은 `location/`(역변환에 더해 줄 핀의 정방향 조회와 빌드별 마크 캐시) |
 | 빌드 | `builds/` | 결과 값(`values.py`), 산출물·이력·원고 지문(`artifacts.py`), 요청 시점의 파일·쪽 사실(`document_facts.py`), 컴파일·재빌드·PDF 감시·그림 지도 파싱(`figure_map.py`)·PDF/지도 가져오기(`figure.py`)와 응답 |
 | 협업 | `collaboration/` | 사람 후보·실제 변경 기록 연결, `events.jsonl`, 멘션 알림·폴링. 핀의 태그·차례 규칙은 핀 소유권에 남고 조립 지점이 주입하는 값·동작으로 받는다. 받는 알림의 필드는 `contracts.py`의 `Notice` Protocol로 선언한다 |
 | 문서 조회 | `documents/` | 문서 탭·meta·목차 응답과 파싱, 문서 옆 판정 낱말 파일의 읽기·파싱과 응답 필드(`verdicts.py`). 브라우저가 그리는 문서의 원문 읽기(`source.py`, `GET /api/source`)와 그 문서가 보이는 원고 트리의 그림 읽기(`assets.py`, `GET /api/asset`: 경로 규칙·형식 시그니처·바이트와 화소 한도·응답 정책, 보낸 그림의 내용 태그를 파일 정체로 기억하는 실행별 표 `AssetTags`). `needs.py`는 주입받는 핀 수 조회·빌드 사실 조회와 그 답에서 읽는 멤버를 Protocol로 선언한다. 실행별 문서 자원은 `runtime/documents.py`가 소유한다 |

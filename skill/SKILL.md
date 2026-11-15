@@ -247,7 +247,7 @@ Send each JSON key, query parameter and singleton security header once. Duplicat
 | --- | --- |
 | `GET /api/version` | `{"name":"limn","version":...}` |
 | `GET /pins.md` | The agent pin table (remote entry point) |
-| `GET /api/pins` | Open pins as JSON (with `rev`). `?all=1` includes closed pins |
+| `GET /api/pins` | Open pins as JSON (with `rev`). `?all=1` includes closed pins. A pin may carry `mark` (`[x, y, w, h]` page fractions) and `mark_page`: where the pin stands on the PDF now. On a figure pin it is the element's place; on a LaTeX line pin it is the block its `lo..hi` lines are printed in on the build on screen, so it can be larger than the region the person dragged. Absent when the server could not place it (a `위치 잃음` pin, a build not yet filled in, no answer), and then `frac` is the stored drag. It is a picture for the viewer, not an address: edit the file and lines in the location column, never coordinates |
 | `POST /api/pins/{id}/claim` | Mark in progress. Body `{"eta_min": 1..240, "ttl_min": 1..120}` (both optional; values above the cap are clamped): estimate and lock |
 | `POST /api/pins/{id}/unclaim` | Release the claim |
 | `POST /api/pins/{id}/close` | Close. Body `{"reply", "ref", "changes", "review"}`; closed by an agent → awaiting review. `changes` (v0.3; optional for the server, always send it) = `[{file, lo, hi}]`, the lines changed for this pin, numbered as in the commit `ref` names |
