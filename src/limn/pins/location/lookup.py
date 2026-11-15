@@ -361,30 +361,40 @@ class LineMarks:
 
     Each entry remembers the lines lo..hi it was computed from, so a pass can tell that a pin's lines moved within the
     same build. An empty answer (SyncTeX had nothing for those lines) is kept too, so it is not asked again until the
-    lines move or the build changes. Past cap entries the oldest are dropped."""
+    lines move or the build changes. The cap holds per (document, build): past it that build's oldest entries are
+    dropped, so one document never evicts another's."""
 
     cap: int = 2000
-    _items: OrderedDict[tuple[str, str, int], tuple[int, int, LineMark | None]] = field(
-        default_factory=OrderedDict, repr=False
+    _items: dict[tuple[str, str], OrderedDict[int, tuple[int, int, LineMark | None]]] = field(
+        default_factory=dict, repr=False
     )
+
+    def _entry(self, doc: str, build: str, pid: int) -> tuple[int, int, LineMark | None] | None:
+        bucket = self._items.get((doc, build))
+        return None if bucket is None else bucket.get(pid)
 
     def get(self, doc: str, build: str, pid: int) -> LineMark | None:
         """The mark kept for pin pid of doc's build, or None."""
-        item = self._items.get((doc, build, pid))
+        item = self._entry(doc, build, pid)
         return None if item is None else item[2]
 
     def put(self, doc: str, build: str, pid: int, lo: int, hi: int, mark: LineMark | None) -> None:
         """Keep mark (None: no answer), computed from lines lo..hi, replacing any earlier one of the pin."""
-        key = (doc, build, pid)
-        self._items[key] = (lo, hi, mark)
-        self._items.move_to_end(key)
-        while len(self._items) > max(self.cap, 0):
-            self._items.popitem(last=False)
+        bucket = self._items.setdefault((doc, build), OrderedDict())
+        bucket[pid] = (lo, hi, mark)
+        bucket.move_to_end(pid)
+        while len(bucket) > max(self.cap, 0):
+            bucket.popitem(last=False)
 
     def known(self, doc: str, build: str, pid: int, lo: int, hi: int) -> bool:
         """Was the pin asked about these very lines in this build, whether or not it got a mark?"""
-        item = self._items.get((doc, build, pid))
+        item = self._entry(doc, build, pid)
         return item is not None and item[0] == lo and item[1] == hi
+
+    def keep_build(self, doc: str, build: str) -> None:
+        """Drop doc's entries for every build but `build`: once a build is on screen, an older one is dead weight."""
+        for key in [k for k in self._items if k[0] == doc and k[1] != build]:
+            del self._items[key]
 
 
 @dataclass(frozen=True)
@@ -421,6 +431,7 @@ def fill_marks(
     one-line pin and two for a span. Stops after limit marks filled or once time.monotonic() reaches deadline."""
     if ctx is None or ctx.stale_src:
         return 0
+    marks.keep_build(doc, ctx.build)
     filled = 0
     for pin in pins:
         if filled >= limit or time.monotonic() >= deadline:

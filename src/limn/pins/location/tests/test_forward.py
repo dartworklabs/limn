@@ -20,7 +20,8 @@ class SynctexView(unittest.TestCase):
     """The command asked and how its output is read."""
 
     def test_synctex_view_asks_by_line_and_column_zero_and_reads_every_page_record(self):
-        """The input is relative to the build root; every Page: record with its four numbers counts."""
+        """The input name is matched by suffix against the .synctex Input: records (the build copy's absolute paths), so it
+        is manuscript-root-relative; every Page: record with its four numbers counts."""
         out = (
             "SyncTeX result begin\nOutput:main.pdf\nPage:14\nx:1\ny:2\nh:133.77\nv:349.81\nW:343.71\nH:8.86\n"
             "Page:14\nh:1\nv:2\nW:3\nH:4\n"
@@ -278,3 +279,32 @@ class FillMarks(unittest.TestCase):
         for pid in (1, 2, 3):
             marks.put("d", "b", pid, 1, 1, mark)
         self.assertEqual([marks.get("d", "b", p) for p in (1, 2, 3)], [None, mark, mark])
+
+    def test_line_marks_cap_each_document_and_build_on_its_own(self):
+        marks = lookup.LineMarks(cap=2)
+        mark = position.LineMark(1, (0.0, 0.0, 0.5, 0.5))
+        for doc in ("a", "b"):
+            for pid in (1, 2):
+                marks.put(doc, "b1", pid, 1, 1, mark)
+        self.assertTrue(all(marks.known(d, "b1", p, 1, 1) for d in ("a", "b") for p in (1, 2)))
+        marks.put("a", "b1", 3, 1, 1, mark)
+        self.assertFalse(marks.known("a", "b1", 1, 1, 1))
+        self.assertTrue(marks.known("b", "b1", 1, 1, 1) and marks.known("b", "b1", 2, 1, 1))
+
+    def test_a_pass_drops_the_documents_entries_of_other_builds_only(self):
+        pins = [self.open_pin(1)]
+        with mock.patch.object(pick_source, "synctex_view", return_value=HIT):
+            lookup.fill_marks("d", pins, self.locate, self.ctx(build="b1"), self.marks, 200, self.far)
+            lookup.fill_marks("e", pins, self.locate, self.ctx(build="b1"), self.marks, 200, self.far)
+            lookup.fill_marks("d", pins, self.locate, self.ctx(build="b2"), self.marks, 200, self.far)
+        self.assertIsNone(self.marks.get("d", "b1", 1))
+        self.assertIsNotNone(self.marks.get("d", "b2", 1))
+        self.assertIsNotNone(self.marks.get("e", "b1", 1))
+
+    def test_fill_marks_trusts_a_stored_page_only_for_the_build_it_was_placed_on(self):
+        on_screen = self.open_pin(1, pdf_build="b1", page=2)  # placed on this very build: its page is exact
+        older = self.open_pin(2, pdf_build="b0", page=2)  # placed on another build: its page proves nothing
+        with mock.patch.object(pick_source, "synctex_view", return_value=HIT):  # SyncTeX says page 1
+            lookup.fill_marks("d", [on_screen, older], self.locate, self.ctx(), self.marks, 200, self.far)
+        self.assertIsNone(self.marks.get("d", "b1", 1))
+        self.assertEqual(self.marks.get("d", "b1", 2).page, 1)
