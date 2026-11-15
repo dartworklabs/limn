@@ -1,14 +1,27 @@
 """Resolve a PDF drag to a source range or a view-only region."""
 
-from collections.abc import Callable, Sequence
-from dataclasses import dataclass, replace
+import math
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Protocol, TypeAlias
 
 from limn.pins.editing.values import PDF_QUOTE_MAX
 from limn.pins.element import PinElement
 from limn.pins.location import figure, source
-from limn.pins.location.mapping import Traced, carry_range, drag_frac, norm, snippet, trace_range, truncate_quote
+from limn.pins.location.mapping import (
+    Traced,
+    ViewBox,
+    carry_range,
+    drag_frac,
+    norm,
+    snippet,
+    span_box,
+    trace_range,
+    truncate_quote,
+    view_box,
+)
+from limn.pins.location.position import LineMark, line_mark
 from limn.pins.location.source import TokenCache
 from limn.pins.needs import BuildAnswers, BuildOnScreen
 from limn.platform.files import ManuscriptFile, file_in_tree, tex_lines
@@ -43,6 +56,11 @@ class Selection(Protocol):
     @property
     def frac(self) -> list[float] | None:
         """The viewer's page-relative box, or None."""
+        ...
+
+    @property
+    def sizes(self) -> Sequence[tuple[float, float]]:
+        """The size of every page of that build, page 1 first; empty when unknown."""
         ...
 
 
@@ -83,6 +101,7 @@ class Picked:
     pdf_build: str
     stale: bool
     building: bool
+    marks: Mapping[str, LineMark] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -229,7 +248,53 @@ def pick(D: Doc, request: Selection, ctx: PickContext) -> Picked | figure.Picked
         pdf_build=pdir.name,
         stale=publication.stale and not (stands and traced.via == "synctex"),
         building=publication.latex_running,
+        marks={}
+        if publication.stale
+        else _level_marks(pdf, _rel_name(found.path, ctx.root), traced.levels, request.sizes),
     )
+
+
+def _rel_name(path: Path, root: Path) -> str | None:
+    """path as SyncTeX's forward lookup names an input: relative to the manuscript root, POSIX (the one rule fill_marks
+    gets from the pin locator), or None when it is not below the root."""
+    try:
+        return path.resolve().relative_to(root.resolve()).as_posix()
+    except (ValueError, OSError, RuntimeError):
+        return None
+
+
+def _level_marks(
+    pdf: Path, name: str | None, levels: Sequence[Mapping[str, Any]], sizes: Sequence[tuple[float, float]]
+) -> dict[str, LineMark]:
+    """Where each ladder level's own lines will stand once saved: its lo..hi asked of SyncTeX's forward lookup on the
+    build's PDF, at most two lookups per level (lo, and hi when it differs; a line two levels share is asked once).
+
+    A level whose lookup fails - no answer, no usable box, a page without a size - is left out, and nothing here refuses
+    a pick. Only for a build whose lines are the file's lines now (the caller skips a stale build, as fill_marks does).
+    Runs only in the POST of a pick."""
+    marks: dict[str, LineMark] = {}
+    if name is None or not sizes:
+        return marks
+    asked: dict[int, ViewBox | None] = {}
+
+    def box_of(line: int) -> ViewBox | None:
+        if line not in asked:
+            hits = source.synctex_view(pdf, line, name)
+            asked[line] = None if hits is None else view_box(hits, len(sizes))
+        return asked[line]
+
+    for level in levels:
+        lo, hi = level["lo"], level["hi"]
+        span = span_box(box_of(lo), box_of(hi) if hi != lo else box_of(lo))
+        if span is None:
+            continue
+        size = sizes[span.page - 1]
+        if not all(math.isfinite(v) and v > 0 for v in size):
+            continue
+        mark = line_mark(span, size, None)
+        if mark is not None:
+            marks[level["level"]] = mark
+    return marks
 
 
 def _pick_region(

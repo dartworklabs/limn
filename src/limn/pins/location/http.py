@@ -6,6 +6,7 @@ from typing import Any, Protocol, TypeAlias
 from limn.pins.location import input as pick_input
 from limn.pins.location.figure import PickedElement, Rung
 from limn.pins.location.mapping import WEAK_SCORE
+from limn.pins.location.position import LineMark
 from limn.pins.location.resolve import (
     GeneratedFile,
     NoSourceHere,
@@ -135,11 +136,21 @@ def _picked_body(p: Picked) -> Body:
         "snippet": p.snippet,
         "frac": p.frac,
         "quote": p.quote,
-        "levels": t.levels,
+        "levels": [_marked(level, p.marks.get(level["level"])) for level in t.levels],
         "default_level": t.default_level,
         "overlaps": p.overlaps,
         "pdf_build": p.pdf_build,
     }
+
+
+def _marked(level: Mapping[str, Any], mark: LineMark | None) -> dict[str, Any]:
+    """A ladder level as the pick answers it: the level itself, plus where its lines will stand on the page (`mark` as
+    [x, y, w, h] page fractions and `mark_page`) when the forward lookup found it. A level without one keeps its keys."""
+    out = dict(level)
+    if mark is not None:
+        out["mark"] = list(mark.frac)
+        out["mark_page"] = mark.page
+    return out
 
 
 def pick_warning(p: Picked) -> str:

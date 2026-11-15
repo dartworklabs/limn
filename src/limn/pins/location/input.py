@@ -12,13 +12,15 @@ from limn.web.parse import PDF_BUILD_REFUSAL, DocumentFacts, Json, Query, int_fi
 
 class PickRequest(NamedTuple):
     """A validated selection: the page directory it is traced in, the page (1-based), the box (x0, y0, x1, y1) in points
-    clamped to the page, the page size (width, height) in points, and the viewer's frac as sent (None if absent)."""
+    clamped to the page, the page size (width, height) in points, the viewer's frac as sent (None if absent), and the
+    size of every page of that build (sizes[0] is page 1; empty when the caller knows only the dragged page)."""
 
     pdir: Path
     page: int
     box: tuple[float, float, float, float]
     size: tuple[float, float]
     frac: list[float] | None
+    sizes: tuple[tuple[float, float], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -54,7 +56,7 @@ def parse_pick(d: Json, facts: DocumentFacts) -> PickRequest | PickBuildGone | I
     frac = d.get("frac")
     if frac is not None and not (isinstance(frac, list) and len(frac) == 4 and all(is_finite_num(v) for v in frac)):
         return InputRejected("frac 은 숫자 4개 목록입니다.", "bad_frac")
-    return PickRequest(pdir, page, (x0, y0, x1, y1), (pw, ph), frac)
+    return PickRequest(pdir, page, (x0, y0, x1, y1), (pw, ph), frac, tuple(pages))
 
 
 def parse_source_range(q: Query, facts: DocumentFacts) -> SourceRange | InputRejected:

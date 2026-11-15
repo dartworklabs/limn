@@ -9,11 +9,19 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from limn.pins.location import lookup, mapping, position, source as pick_source
+from limn.pins.location import (
+    http as location_http,
+    input as location_input,
+    lookup,
+    mapping,
+    position,
+    resolve as pick_resolve,
+    source as pick_source,
+)
 from limn.pins.location.mapping import ViewBox
 from limn.pins.model import LineSpan, OpenPin, PinCore, Region
 
-from helpers import needs_tex
+from helpers import Base, needs_tex, ps
 
 
 class SynctexView(unittest.TestCase):
@@ -308,3 +316,112 @@ class FillMarks(unittest.TestCase):
             lookup.fill_marks("d", [on_screen, older], self.locate, self.ctx(), self.marks, 200, self.far)
         self.assertIsNone(self.marks.get("d", "b1", 1))
         self.assertEqual(self.marks.get("d", "b1", 2).page, 1)
+
+
+class PickLevelBoxes(Base):
+    """A pick answers, for every ladder level, where that level's own lines will stand on the page."""
+
+    def setUp(self):
+        """The fixture's document with a page folder; main.tex line 14 is a table row, so its ladder has two rungs: the
+        line itself (14-14) and the table environment (12-16)."""
+        super().setUp()
+        self.D = ps.APP.docs[0]
+        self.pages = self.D.dir / "pages"
+        self.pages.mkdir(parents=True, exist_ok=True)
+        (self.D.dir / "built_src_mtime.txt").write_text("%f" % (self.main.stat().st_mtime + 60), encoding="utf-8")
+
+    def pick(self, lo=14, hi=14, sizes=((600.0, 800.0), (600.0, 800.0))):
+        """pick_resolve.pick for a box on page 1, SyncTeX's backward answer lo..hi of the build copy's main.tex; returns
+        the Picked value and the pick's body."""
+        request = location_input.PickRequest(
+            self.pages, 1, (10.0, 20.0, 150.0, 60.0), (600.0, 800.0), None, tuple(sizes)
+        )
+        with (
+            mock.patch.object(pick_source, "by_synctex", return_value=(str(self.D.build / "main.tex"), lo, hi)),
+            mock.patch.object(pick_source, "region_text", return_value=""),
+        ):
+            got = pick_resolve.pick(self.D, request, ps.APP.location_service.context())
+        self.assertIsInstance(got, pick_resolve.Picked)
+        return got, location_http.pick_answer(got)
+
+    @staticmethod
+    def hits_by_line(per_line):
+        """A synctex_view stand-in answering from {line: [hits]}, None for any other line."""
+        return lambda pdf, line, src: per_line.get(line)
+
+    def test_every_pick_level_carries_the_box_its_range_will_actually_stand_on(self):
+        """Every rung that gets an answer carries four page fractions and its page."""
+        with mock.patch.object(pick_source, "synctex_view", return_value=[(2, 60.0, 120.0, 300.0, 20.0)]):
+            _, answer = self.pick()
+        levels = answer["levels"]
+        self.assertGreaterEqual(len(levels), 2)
+        for level in levels:
+            self.assertEqual(level["mark_page"], 2)
+            self.assertEqual(level["mark"], [0.1, 0.125, 0.5, 0.025])
+
+    def test_each_level_is_asked_about_its_own_lines_and_not_the_default_levels(self):
+        """Two rungs with different ranges get different boxes: the wider rung's box is the union of its two ends."""
+        got, _ = self.pick()
+        rungs = {lv["level"]: (lv["lo"], lv["hi"]) for lv in got.traced.levels}
+        self.assertEqual(sorted(rungs.values()), [(12, 16), (14, 14)])
+        by_line = {n: [(1, 10.0, 100.0 + 10 * n, 100.0 + n, 8.0)] for lo, hi in rungs.values() for n in (lo, hi)}
+        with mock.patch.object(pick_source, "synctex_view", side_effect=self.hits_by_line(by_line)):
+            got, answer = self.pick()
+        for level in answer["levels"]:
+            lo, hi = level["lo"], level["hi"]
+            top = (100.0 + 10 * lo - 8.0) / 800.0
+            bottom = (100.0 + 10 * hi) / 800.0
+            self.assertAlmostEqual(level["mark"][1], top)
+            self.assertAlmostEqual(level["mark"][1] + level["mark"][3], bottom)
+
+    def test_a_level_whose_forward_lookup_fails_carries_no_box_and_the_pick_still_answers(self):
+        with mock.patch.object(pick_source, "synctex_view", return_value=None):
+            got, answer = self.pick()
+        self.assertTrue(answer["levels"])
+        for level in answer["levels"]:
+            self.assertNotIn("mark", level)
+            self.assertNotIn("mark_page", level)
+        self.assertEqual((answer["lo"], answer["hi"]), (got.traced.lo, got.traced.hi))
+
+    def test_only_the_level_that_fails_loses_its_box(self):
+        """A lookup that answers for one rung's lines and not another's leaves exactly the other rung without a box."""
+        got, _ = self.pick()
+        rungs = got.traced.levels
+        ends = {lv["level"]: {lv["lo"], lv["hi"]} for lv in rungs}
+        first = rungs[0]["level"]
+        only_first = {
+            n: [(1, 10.0, 50.0, 30.0, 8.0)] for n in ends[first] if all(n not in ends[k] for k in ends if k != first)
+        }
+        self.assertTrue(only_first)
+        with mock.patch.object(pick_source, "synctex_view", side_effect=self.hits_by_line(only_first)):
+            _, answer = self.pick()
+        for level in answer["levels"]:
+            self.assertEqual("mark" in level, level["level"] == first, level["level"])
+
+    def test_the_forward_lookups_are_capped_at_two_per_level(self):
+        """No more than lo and hi of each level are asked, and every asked line is an end of some level."""
+        got, _ = self.pick()
+        levels = got.traced.levels
+        with mock.patch.object(pick_source, "synctex_view", return_value=[(1, 1.0, 20.0, 3.0, 4.0)]) as view:
+            self.pick()
+        asked = [c[0][1] for c in view.call_args_list]
+        self.assertLessEqual(len(asked), 2 * len(levels))
+        self.assertEqual(set(asked), {n for lv in levels for n in (lv["lo"], lv["hi"])})
+
+    def test_the_input_name_is_the_manuscript_relative_path(self):
+        with mock.patch.object(pick_source, "synctex_view", return_value=None) as view:
+            self.pick()
+        self.assertEqual({c[0][2] for c in view.call_args_list}, {"main.tex"})
+        self.assertTrue(view.call_args_list)
+
+    def test_a_manuscript_edited_since_the_build_gets_no_boxes_and_no_lookup(self):
+        """The build's SyncTeX numbers are not the file's numbers now, so nothing is asked."""
+        (self.D.dir / "built_src_mtime.txt").write_text("%f" % (self.main.stat().st_mtime - 60), encoding="utf-8")
+        with mock.patch.object(pick_source, "synctex_view", side_effect=AssertionError("no lookup")):
+            _, answer = self.pick()
+        self.assertTrue(all("mark" not in level for level in answer["levels"]))
+
+    def test_a_box_on_a_page_the_request_has_no_size_for_is_dropped(self):
+        with mock.patch.object(pick_source, "synctex_view", return_value=[(2, 60.0, 120.0, 300.0, 20.0)]):
+            _, answer = self.pick(sizes=())
+        self.assertTrue(all("mark" not in level for level in answer["levels"]))

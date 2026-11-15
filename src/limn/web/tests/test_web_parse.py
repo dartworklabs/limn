@@ -790,7 +790,14 @@ class Locations(Tree):
         )
         self.assertEqual(
             got,
-            location_input.PickRequest(self.root / "pages", 2, (10.0, 0.0, 600.0, 40.0), (600.0, 800.0), [0, 0, 1, 1]),
+            location_input.PickRequest(
+                self.root / "pages",
+                2,
+                (10.0, 0.0, 600.0, 40.0),
+                (600.0, 800.0),
+                [0, 0, 1, 1],
+                tuple(self.facts.pick_pages(None)[1]),
+            ),
         )
         self.assertEqual(
             location_input.parse_pick(
