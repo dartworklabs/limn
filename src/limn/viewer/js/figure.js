@@ -27,24 +27,24 @@ function rungTip(lv){return Array.isArray(lv.el.path)&&lv.el.path.length<=1?T.fi
 // chosen rung's lines fill in the build on screen (mark, from levelMark). A rung whose lines stand on another page than the
 // drag takes the box to that page, which is where its mark will be. An element with no usable box keeps the element's own
 // behaviour and leaves the box as dragged, as do no element and no mark, a mark whose page is not on screen, and no box.
-// Returns whether it moved the box onto another page, so the caller can bring it back into view there.
-/** @param {HTMLElement|null} box @param {PinElement|null} el @param {{page:number,frac:number[]}|null} [mark] @returns {boolean} */
-function snapBox(box,el,mark){if(!box)return false;
-  const m=!el&&mark&&isFrac(mark.frac)?mark:null,f=el&&isFrac(el.frac)?el.frac:m?m.frac:null; if(!f)return false;
-  let moved=false;
-  if(m){const pg=document.getElementById('p'+m.page); if(!pg)return false; if(pg!==box.parentElement){pg.appendChild(box); moved=true;}}
-  drawBox(box,f[0],f[1],f[0]+f[2],f[1]+f[3]); pendingBadgeSide(box); return moved;}
+/** @param {HTMLElement|null} box @param {PinElement|null} el @param {{page:number,frac:number[]}|null} [mark] */
+function snapBox(box,el,mark){if(!box)return;
+  const m=!el&&mark&&isFrac(mark.frac)?mark:null,f=el&&isFrac(el.frac)?el.frac:m?m.frac:null; if(!f)return;
+  if(m){const pg=document.getElementById('p'+m.page); if(!pg)return; if(pg!==box.parentElement)pg.appendChild(box);}
+  drawBox(box,f[0],f[1],f[0]+f[2],f[1]+f[3]); pendingBadgeSide(box);}
 // The element part of the composer for selection o and its pending box: the path line '#c-path' (hidden when the pick
 // found no element - a manuscript, a view-only PDF, a figure whose map is unreadable) and the snapped box.
 // Off a figure document the box snaps to the chosen rung's mark, exactly as a re-place's '새 위치' does (bannerCompare):
 // a new LaTeX pin is saved on that mark's page with that box (save.js), so without the snap the person would confirm a
 // small dragged rectangle and get a line-shaped mark elsewhere - on another page where the range crosses one. Every
 // change of the selection (a pick, a rung, lines set by hand, a restore) comes through here, so changing the rung
-// re-snaps; a move onto another page is brought into view, since the box being confirmed has to be one they can see.
+// re-snaps. A snapped box is brought into view whenever there is a mark, not only when the page changed, because the
+// box being confirmed has to be one they can see and a long range's mark lands off-screen on the drag's own page too;
+// revealBox does nothing while the box is already visible. This is bannerCompare's condition, unchanged.
 function renderElement(o,box){const line=$('#c-path'),el=o.elSel; line.hidden=!el;
   if(el){line.textContent=elPathText(o)+' ·'; line.dataset.tip=tl('요소 {id} · 누르면 쪽에서 이 상자를 보입니다',{id:el.id});
     line.setAttribute('aria-description',tr('누르면 쪽에서 고른 요소의 상자를 보입니다'));}
-  if(snapBox(box,el,levelMark(o.scope?lvOf(o,o.scope):null)))revealBox(box,true);
+  const mk=levelMark(o.scope?lvOf(o,o.scope):null); snapBox(box,el,mk); if(mk&&box)revealBox(box,true);
   if(box)box.classList.toggle('hi',!!el&&line.matches(':hover,:focus-visible'));}
 // The path in the composer is also the way to check which element was chosen: the pending box on the page is drawn on it (snapBox), and
 // pointing at the path - the mouse over it, the focus on it - draws that box stronger (.sel.hi); pressing it (a tap on touch, where

@@ -36,6 +36,7 @@ from helpers import (
     SW_JS,
     add_pin,
     blank_png,
+    built_record,
     edit_pin,
     edit_stored,
     find_record,
@@ -2677,6 +2678,7 @@ class LineMarksFollowBuild(BrowserBase):
             (pages / ("page-%d.png" % i)).write_bytes(blank_png(1275, 1650))
         (state / "pages.cur").write_text(self.NEW)
         (state / "built_at.txt").write_text("2026-09-25 11:00:00")
+        built_record(pages, ps.APP.C.src, self.main)  # the pass only asks about files this build's record names
         page.evaluate("async()=>await refreshDoc()")
         page.wait_for_function("b=>META.pages_build===b", arg=self.NEW, timeout=8000)
         settle(page)
@@ -2989,6 +2991,22 @@ class BadgeDrag(BrowserBase):
         self.drag_badge(page, 60, 40)
         got = page.evaluate(self.IN_VIEW)
         self.assertEqual(got["page"], "p2", got)
+        self.assertTrue(got["inView"], got)
+        self.assertGreater(page.evaluate("document.getElementById('left').scrollTop"), before)
+
+    def test_a_box_snapped_far_down_its_own_page_is_brought_into_view_too(self):
+        """A long range's mark can land off-screen on the very page that was dragged, so revealing only when the page
+        changed still leaves the person confirming a box they cannot see. The rung's mark is near the foot of page 1
+        while the drag is at its head; the box goes there and is brought into view, with the page unchanged."""
+        deep = [0.2, 0.93, 0.5, 0.05]
+        self.PICK = {**self.PICK, "levels": [{**self.PICK["levels"][0], "mark": deep, "mark_page": 1}]}
+        page = self.open(1, init=self.NO_COACH)
+        page.locator("#p1").scroll_into_view_if_needed()
+        before = page.evaluate("document.getElementById('left').scrollTop")
+        self.drag_box(page, [0.2, 0.05, 0.25, 0.03])
+        got = page.evaluate(self.IN_VIEW)
+        self.assertEqual(got["page"], "p1", got)  # the same page it was dragged on
+        self.assertEqual(self.sel(page), {"page": "p1", "pending": True, "frac": deep})
         self.assertTrue(got["inView"], got)
         self.assertGreater(page.evaluate("document.getElementById('left').scrollTop"), before)
 
