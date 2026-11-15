@@ -238,7 +238,12 @@ def assemble_pins(
             commands.render_pins_md(commands.read_pins()[0])
 
     view = PinReadView(commands.read_pins, commands.snapshot_pins, commands.pin_doc_key, locate)
-    maintenance = PinMaintenance(commands.pin_store, commands.retention_days, commands.maintenance_files)
+    maintenance = PinMaintenance(
+        commands.pin_store,
+        commands.retention_days,
+        commands.maintenance_files,
+        lambda: commands.fill_line_marks(wait=False),
+    )
     startup = PinStartup(commands.init_seq, render, maintenance.run, maintenance.watch, learn_record_folders)
     counts = PinCountQueries(view.counts_by_document, view.state_counts, lambda: change_token(settings().pins_jsonl))
     return PinSubsystem(

@@ -27,6 +27,7 @@ from limn.administration import serve_documents as startup_documents
 from limn.pins.lifecycle import input as lifecycle_input
 from limn.pins.lifecycle.rules import CloseRequest
 from limn.pins.listing.projection import pin_state
+from limn.pins.location import source as pick_source
 from limn.revisions import core as revisions, execution as revision_execution
 from limn.security.access import LOCAL_ACTOR
 
@@ -2627,3 +2628,73 @@ class FigureOverlay(BrowserBase):
     def src_script(self):
         """The figure's drawing script (helpers_figure.figure_doc's figs/src/B2_calendar.py)."""
         return self.fig.src / "src" / "B2_calendar.py"
+
+
+class LineMarksFollowBuild(BrowserBase):
+    """A line pin's mark follows its lines into the build on screen (the pass of limn.pins.runtime.fill_line_marks, read
+    through GET /api/pins): drawn where the new build prints the lines and solid, or, when SyncTeX had nothing, left on
+    the saved box and dotted."""
+
+    WHO = ALICE
+    OLD = "pages-20260925100000"
+    NEW = "pages-20260925110000"
+    HIT = [(2, 100.0, 300.0, 400.0, 12.0)]  # the new build prints the pinned line on page 2
+
+    def setUp(self):
+        """One pin on page 1 of the first build, as a drag placed it."""
+        super().setUp()
+        self.pid = add_pin(
+            {
+                "file": str(self.main),
+                "lo": 5,
+                "hi": 5,
+                "page": 1,
+                "frac": [0.1, 0.1, 0.3, 0.05],
+                "pdf_build": self.OLD,
+                "note": "n",
+            },
+            A,
+        ).record["id"]
+
+    def rebuild(self, page):
+        """A second build goes on screen (new pages, the pointer moved) and the viewer takes it the way its poll does."""
+        state = ps.APP.C.state
+        pages = state / self.NEW
+        pages.mkdir()
+        for i in (1, 2):
+            (pages / ("page-%d.png" % i)).write_bytes(blank_png(1275, 1650))
+        (state / "pages.cur").write_text(self.NEW)
+        (state / "built_at.txt").write_text("2026-09-25 11:00:00")
+        page.evaluate("async()=>await refreshDoc()")
+        page.wait_for_function("b=>META.pages_build===b", arg=self.NEW, timeout=8000)
+        settle(page)
+
+    def refresh_pins(self, page):
+        """The viewer reads the pin list again."""
+        page.evaluate("async()=>await loadPins()")
+        settle(page)
+
+    def test_a_line_pins_mark_moves_to_the_new_build_and_stops_being_dotted(self):
+        page = self.open(1)
+        self.rebuild(page)
+        sel = ".mark[data-pin='%d']" % self.pid
+        self.assertIn("est", page.locator(sel).get_attribute("class") or "")  # on the saved box of the older build
+        with mock.patch.object(pick_source, "synctex_view", return_value=self.HIT):
+            self.assertEqual(ps.APP.fill_line_marks(), 1)
+        self.refresh_pins(page)
+        mark = page.evaluate("id=>{const p=PINS.find(x=>x.id===id);return [p.mark_page,p.mark];}", self.pid)
+        self.assertEqual(mark[0], 2)
+        self.assertEqual(page.locator(sel).count(), 1)
+        self.assertEqual(page.evaluate("s=>document.querySelector(s).parentNode.id", sel), "p2")
+        self.assertFalse("est" in (page.locator(sel).get_attribute("class") or ""))
+
+    def test_a_pin_the_pass_could_not_follow_keeps_its_saved_box_and_stays_dotted(self):
+        page = self.open(1)
+        self.rebuild(page)
+        with mock.patch.object(pick_source, "synctex_view", return_value=None):
+            self.assertEqual(ps.APP.fill_line_marks(), 0)
+        self.refresh_pins(page)
+        sel = ".mark[data-pin='%d']" % self.pid
+        self.assertEqual(page.evaluate("id=>PINS.find(x=>x.id===id).mark_page", self.pid), None)
+        self.assertEqual(page.evaluate("s=>document.querySelector(s).parentNode.id", sel), "p1")
+        self.assertIn("est", page.locator(sel).get_attribute("class") or "")

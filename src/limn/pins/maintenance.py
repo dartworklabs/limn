@@ -13,6 +13,10 @@ from limn.platform.effects import require_writer
 # A few metadata calls every two seconds keep saved positions fresh without idle content reads.
 CHECK_INTERVAL = 2.0
 PERIODIC_INTERVAL = 60.0
+# One mark pass asks SyncTeX at most this many pins' worth of marks and stops at this many seconds; the pins it left
+# are taken on the next run (the cache remembers what it filled), so a big document makes progress and never starves.
+MARK_LIMIT = 200
+MARK_SECONDS = 10.0
 
 
 def signature(path: Path) -> tuple[int, int, int] | None:
@@ -31,6 +35,9 @@ class PinMaintenance:
     store: Callable[[], PinStore]
     days: int
     sources: Callable[[], Iterable[Path]] = lambda: ()
+    # The pass that fills line pins' marks for the builds on screen (PinCommands.fill_line_marks): memory only, it writes
+    # no pin and takes no lock, so it runs after the store lock is released.
+    marks: Callable[[], int] = lambda: 0
     _running: threading.Lock = field(default_factory=threading.Lock)
     _observed: dict[Path, tuple[int, int, int] | None] = field(default_factory=dict)
     _completed: float = 0.0
@@ -57,6 +64,18 @@ class PinMaintenance:
             diagnostics.emit("pin maintenance:" + type(error).__name__, lambda: message)
         finally:
             self._running.release()
+        # After the store lock and the overlap guard are released: a pass that overshoots its budget must hold up
+        # neither a pin write nor the next upkeep run.
+        self._fill_marks()
+
+    def _fill_marks(self) -> None:
+        """Run the mark pass, outside the pin store lock: SyncTeX may take up to its own timeout per lookup, which no pin
+        write should wait for. A failure is reported and never stops the upkeep."""
+        try:
+            self.marks()
+        except Exception as error:  # noqa: BLE001 — marks are derived and refilled by the next run
+            message = "warning: line mark pass failed: %s" % error
+            diagnostics.emit("pin marks:" + type(error).__name__, lambda: message)
 
     def watch(self, stop: threading.Event, every: float = PERIODIC_INTERVAL) -> None:
         """Check cached source/registry stamps without requests; stop promptly while waiting.

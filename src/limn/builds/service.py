@@ -13,6 +13,7 @@ from limn.builds.artifacts import (
     BuildBusy,
     BuildConfig,
     BuildOk,
+    BuildOkWithErrors,
     BuildSkipped,
     BuildStarted,
     Describe,
@@ -39,16 +40,20 @@ class BuildRequests:
         now: Callable[[], str],
         describe: Describe,
         figure_shown: Callable[[], None] = lambda: None,
+        latex_built: Callable[[], None] = lambda: None,
     ) -> None:
         """Bind run facts as call-time lookups so a new setting or runtime is seen on the next build, and start this
         run's memo of figure maps. figure_shown is the composition root's hook, called once each time an import puts a
-        new build of a figure document on screen (see announce_figure_shown); by default it does nothing."""
+        new build of a figure document on screen (see announce_figure_shown); by default it does nothing. latex_built is the
+        hook called once after each recorded build of a document built from source that put new pages on screen (see
+        tracked); by default it does nothing."""
         self.settings = settings
         self.pull = pull
         self.docs = docs
         self.now = now
         self.describe = describe
         self.figure_shown = figure_shown
+        self.latex_built = latex_built
         self.figure_looks = figure.MapLooks()  # this run's memo of each figure document's map parse (figure.MapLooks)
 
     @property
@@ -70,9 +75,22 @@ class BuildRequests:
         """Run one build of doc (build_step) and commit its status and page history (run.run_tracked). ready is a
         figure document's verified pair (figure.pending_import); without it such a document reads and checks its files
         itself. force is a LaTeX document's forced cold build."""
-        return run.run_tracked(
+        finished = run.run_tracked(
             doc, self.settings().state, lambda: self.build_step(doc, ready, force), self.now(), self.describe
         )
+        if doc.builds_from_source and isinstance(finished, BuildOk | BuildOkWithErrors):
+            self.announce_latex_built()
+        return finished
+
+    def announce_latex_built(self) -> None:
+        """Tell the composition root (latex_built) that a document built from source has a new build on screen, recorded
+        in its history. Called after the build is recorded, so a reader that asks which build is on screen gets this
+        one. The hook only warms derived values for readers, so its failure is printed to stderr and does not fail the
+        build."""
+        try:
+            self.latex_built()
+        except Exception:  # noqa: BLE001 — the build has landed; a failed warm-up must not turn it into a failed build
+            traceback.print_exc(file=sys.stderr)
 
     def build_step(self, doc: Doc, ready: FigureImport | None = None, force: bool = False) -> FinishedBuild:
         """One untracked build of doc, chosen by capability: latexmk for a document built from source (force: cold, no
