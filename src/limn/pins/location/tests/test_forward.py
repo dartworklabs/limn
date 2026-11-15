@@ -189,6 +189,7 @@ class FillMarks(unittest.TestCase):
             lookup.fill_marks(
                 "d",
                 [self.open_pin(1, lo=7, hi=7), self.open_pin(2, lo=9, hi=11)],
+                self.locate,
                 self.ctx(),
                 self.marks,
                 200,
@@ -201,6 +202,7 @@ class FillMarks(unittest.TestCase):
             lookup.fill_marks(
                 "d",
                 [self.open_pin(1, file=str(self.root / "sections/intro.tex"))],
+                self.locate,
                 self.ctx(),
                 self.marks,
                 200,
