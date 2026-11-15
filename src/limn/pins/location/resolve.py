@@ -8,7 +8,7 @@ from typing import Any, Protocol, TypeAlias
 from limn.pins.editing.values import PDF_QUOTE_MAX
 from limn.pins.element import PinElement
 from limn.pins.location import figure, source
-from limn.pins.location.mapping import Traced, carry_range, norm, snippet, trace_range, truncate_quote
+from limn.pins.location.mapping import Traced, carry_range, drag_frac, norm, snippet, trace_range, truncate_quote
 from limn.pins.location.source import TokenCache
 from limn.pins.needs import BuildAnswers, BuildOnScreen
 from limn.platform.files import ManuscriptFile, file_in_tree, tex_lines
@@ -176,7 +176,7 @@ def pick(D: Doc, request: Selection, ctx: PickContext) -> Picked | figure.Picked
             (pw, ph),
             frac,
             pdir,
-            ctx.builds.selection(D, pdir.name, page, figure.drag_frac(box, (pw, ph))),
+            ctx.builds.selection(D, pdir.name, page, drag_frac(box, (pw, ph))),
             ctx.root,
             ctx.state,
             ctx.overlaps,

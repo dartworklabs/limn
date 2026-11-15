@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, Literal, TypeAlias
 
 from limn.pins.element import ElementImpl, PinElement
-from limn.pins.location.mapping import carry_range, drag_frac as drag_frac, paired_lines, snippet
+from limn.pins.location.mapping import carry_range, paired_lines, snippet
 from limn.pins.needs import ElementChoice, FigureElement, FigureMapUnavailable
 from limn.platform.files import ManuscriptFile, file_in_tree, tex_lines, tree_part
 from limn.runtime.documents import Doc

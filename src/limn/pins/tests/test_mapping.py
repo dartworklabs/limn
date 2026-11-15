@@ -14,7 +14,7 @@ import unittest
 from pathlib import Path
 
 from limn.pins.location import mapping
-from limn.pins.location.mapping import ViewBox, find_level
+from limn.pins.location.mapping import ViewBox, drag_frac, find_level
 
 from helpers import TEX, Base, ps
 
@@ -73,6 +73,18 @@ class ForwardBox(unittest.TestCase):
         self.assertEqual(mapping.span_box(lo, same).box, (10.0, 10.0, 25.0, 40.0))
         self.assertEqual(mapping.span_box(lo, other), lo)
         self.assertIsNone(mapping.span_box(None, same))
+
+
+class DragFrac(unittest.TestCase):
+    """drag_frac: the drag in points as page fractions."""
+
+    def test_points_become_page_fractions(self):
+        """A 36 x 24 point drag at (72, 48) on a 720 x 480 page."""
+        self.assertEqual(drag_frac((72.0, 48.0, 108.0, 72.0), (720.0, 480.0)), (0.1, 0.1, 0.05, 0.05))
+
+    def test_a_page_without_size_is_the_origin_point(self):
+        """No size to divide by: the point (0, 0) - the pick then chooses by that point, never raises."""
+        self.assertEqual(drag_frac((1.0, 1.0, 2.0, 2.0), (0.0, 480.0)), (0.0, 0.0, 0.0, 0.0))
 
 
 class Purity(unittest.TestCase):
