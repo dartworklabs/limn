@@ -5,15 +5,19 @@ the current manuscript tree, resynchronizes their anchors, and computes overlaps
 The document, tree, state folder and stored pins arrive as arguments; this module does not read server globals.
 """
 
+import math
 import os
+import time
+from collections import OrderedDict
 from collections.abc import Callable, Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, NamedTuple, Protocol, TypeAlias
 
-from limn.pins.location import position
-from limn.pins.location.mapping import norm, pin_rel_path
-from limn.pins.location.position import EstContext, resync
+from limn.pins.location import position, source
+from limn.pins.location.mapping import ViewBox, norm, pin_rel_path, span_box, view_box
+from limn.pins.location.position import EstContext, LineMark, line_mark, resync
 from limn.pins.model import DonePin, LineSpan, OpenPin, Pin, PinCore, Record, ReviewPin
 from limn.pins.needs import BuildAnswers
 from limn.pins.pages import keep_pages
@@ -346,3 +350,108 @@ def est_context(D: Doc, builds: BuildAnswers) -> EstContext:
     the caller passes it, since this module makes none."""
     facts = builds.position(D)
     return EstContext(facts.cur, facts.exact_builds, facts.built_at, facts.built_src_mtime)
+
+
+# ---------------------------------------------------------------- Line pins' marks for the build on screen
+
+
+@dataclass
+class LineMarks:
+    """One run's line-pin marks, per (document, build). Memory only: nothing is written to disk.
+
+    Each entry remembers the lines lo..hi it was computed from, so a pass can tell that a pin's lines moved within the
+    same build. Past cap entries the oldest are dropped."""
+
+    cap: int = 2000
+    _items: OrderedDict[tuple[str, str, int], tuple[int, int, LineMark]] = field(
+        default_factory=OrderedDict, repr=False
+    )
+
+    def get(self, doc: str, build: str, pid: int) -> LineMark | None:
+        """The mark kept for pin pid of doc's build, or None."""
+        item = self._items.get((doc, build, pid))
+        return None if item is None else item[2]
+
+    def put(self, doc: str, build: str, pid: int, lo: int, hi: int, mark: LineMark) -> None:
+        """Keep mark, computed from lines lo..hi, replacing any earlier one of the pin."""
+        key = (doc, build, pid)
+        self._items[key] = (lo, hi, mark)
+        self._items.move_to_end(key)
+        while len(self._items) > max(self.cap, 0):
+            self._items.popitem(last=False)
+
+    def known(self, doc: str, build: str, pid: int, lo: int, hi: int) -> bool:
+        """Is there a mark for the pin that was computed from these very lines?"""
+        item = self._items.get((doc, build, pid))
+        return item is not None and item[0] == lo and item[1] == hi
+
+
+@dataclass(frozen=True)
+class MarkContext:
+    """What one document's pass needs: the build on screen, its page sizes, its pdf, the build root the SyncTeX
+    names are relative to, and whether the manuscript is newer than that build."""
+
+    build: str
+    sizes: Sequence[tuple[float, float]]  # (width, height) in points of page 1, 2, ...
+    pdf: Path
+    build_root: Path
+    stale_src: bool
+
+
+def _build_name(file: str, build_root: Path) -> str | None:
+    """A pin's absolute file as SyncTeX names it: relative to the build root, POSIX form, or None outside it."""
+    for path, root in ((Path(file), build_root), (Path(file).resolve(), build_root.resolve())):
+        try:
+            return path.relative_to(root).as_posix()
+        except (ValueError, OSError, RuntimeError):
+            continue
+    return None
+
+
+def _line_box(ctx: MarkContext, line: int, name: str) -> ViewBox | None:
+    hits = source.synctex_view(ctx.pdf, line, name)
+    return None if hits is None else view_box(hits, len(ctx.sizes))
+
+
+def fill_marks(
+    doc: str, pins: Sequence[Pin], ctx: MarkContext | None, marks: LineMarks, limit: int, deadline: float
+) -> int:
+    """Ask SyncTeX where the open, non-stale line pins of doc are printed in the build ctx.build and keep their marks
+    in marks; returns how many it filled. Writes nothing to disk and opens no pin file; call it from writer-side paths
+    only, never from a request.
+
+    Nothing is asked without a context (the document's pages are unknown) or while the manuscript is newer than the
+    build (its lines are no longer the build's). A pin is skipped when marks already hold its mark for the same lines,
+    when its file is not under the build root, or when its page has no finite positive size; one lookup is made for a
+    one-line pin and two for a span. Stops after limit marks or once time.monotonic() reaches deadline."""
+    if ctx is None or ctx.stale_src:
+        return 0
+    filled = 0
+    for pin in pins:
+        if filled >= limit or time.monotonic() >= deadline:
+            break
+        match pin:
+            case OpenPin(core=PinCore(id=int(pid), place=LineSpan() as span, stale=stale)) if not stale:
+                pass
+            case _:
+                continue
+        if marks.known(doc, ctx.build, pid, span.lo, span.hi):
+            continue
+        name = _build_name(span.file, ctx.build_root)
+        if name is None:
+            continue
+        lo = _line_box(ctx, span.lo, name)
+        hi = lo if span.hi == span.lo else _line_box(ctx, span.hi, name)
+        box = span_box(lo, hi)
+        if box is None:
+            continue
+        size = ctx.sizes[box.page - 1]
+        if not all(math.isfinite(v) and v > 0 for v in size):
+            continue
+        exact = pin.core.page if pin.core.pdf_build == ctx.build else None
+        mark = line_mark(box, size, exact)
+        if mark is None:
+            continue
+        marks.put(doc, ctx.build, pid, span.lo, span.hi, mark)
+        filled += 1
+    return filled

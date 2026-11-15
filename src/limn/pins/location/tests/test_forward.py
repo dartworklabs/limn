@@ -9,8 +9,9 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from limn.pins.location import mapping, position, source as pick_source
+from limn.pins.location import lookup, mapping, position, source as pick_source
 from limn.pins.location.mapping import ViewBox
+from limn.pins.model import LineSpan, OpenPin, PinCore, Region
 
 from helpers import needs_tex
 
@@ -127,3 +128,123 @@ class LineMark(unittest.TestCase):
         """A box entirely below the page, or with its width cut to nothing, has no mark."""
         self.assertIsNone(position.line_mark(ViewBox(1, (10.0, 900.0, 50.0, 920.0)), (600.0, 800.0), None))
         self.assertIsNone(position.line_mark(ViewBox(1, (-50.0, 10.0, -5.0, 20.0)), (600.0, 800.0), None))
+
+
+HIT = [(1, 10.0, 20.0, 30.0, 8.0)]
+
+
+class FillMarks(unittest.TestCase):
+    """The pass that fills the per-build mark cache (lookup.fill_marks)."""
+
+    root = Path("/ms")
+    far = float("inf")
+
+    def setUp(self):
+        self.marks = lookup.LineMarks()
+
+    def open_pin(self, pid, lo=3, hi=3, file=None, stale=None, **core):
+        place = LineSpan(file or str(self.root / "main.tex"), lo, hi)
+        return OpenPin(PinCore(id=pid, place=place, stale=stale, **core), None, {})
+
+    def stale_pin(self, pid):
+        return self.open_pin(pid, stale=True)
+
+    def closed_pin(self, pid):
+        from limn.pins.model import DonePin  # noqa: PLC0415
+
+        pin = self.open_pin(pid)
+        return mock.Mock(spec=DonePin, core=pin.core)
+
+    def region_pin(self, pid):
+        return OpenPin(PinCore(id=pid, place=Region("a.pdf", 1, [0.1, 0.1, 0.2, 0.2])), None, {})
+
+    def ctx(self, stale_src=False, sizes=((600.0, 800.0),), build="b1"):
+        return lookup.MarkContext(build, sizes, Path("/b/main.pdf"), self.root, stale_src)
+
+    def test_fill_marks_does_nothing_while_the_manuscript_is_newer_than_the_build(self):
+        n = lookup.fill_marks(
+            "d", [self.open_pin(1, lo=10, hi=12)], self.ctx(stale_src=True), self.marks, 200, self.far
+        )
+        self.assertEqual(n, 0)
+        self.assertIsNone(self.marks.get("d", "b1", 1))
+
+    def test_fill_marks_skips_a_stale_pin_a_closed_pin_and_a_region_pin(self):
+        pins = [self.stale_pin(1), self.closed_pin(2), self.region_pin(3)]
+        with mock.patch.object(pick_source, "synctex_view", side_effect=AssertionError("no forward lookup")):
+            self.assertEqual(lookup.fill_marks("d", pins, self.ctx(), self.marks, 200, self.far), 0)
+
+    def test_fill_marks_survives_a_document_whose_pages_are_gone(self):
+        self.assertEqual(lookup.fill_marks("d", [self.open_pin(1)], None, self.marks, 200, self.far), 0)
+
+    def test_fill_marks_asks_once_for_a_one_line_pin_and_twice_for_a_span(self):
+        with mock.patch.object(pick_source, "synctex_view", return_value=HIT) as view:
+            lookup.fill_marks(
+                "d",
+                [self.open_pin(1, lo=7, hi=7), self.open_pin(2, lo=9, hi=11)],
+                self.ctx(),
+                self.marks,
+                200,
+                self.far,
+            )
+        self.assertEqual([c[0][1] for c in view.call_args_list], [7, 9, 11])
+
+    def test_fill_marks_passes_the_build_relative_name_not_the_pins_absolute_path(self):
+        with mock.patch.object(pick_source, "synctex_view", return_value=HIT) as view:
+            lookup.fill_marks(
+                "d",
+                [self.open_pin(1, file=str(self.root / "sections/intro.tex"))],
+                self.ctx(),
+                self.marks,
+                200,
+                self.far,
+            )
+        self.assertEqual(view.call_args[0][2], "sections/intro.tex")
+
+    def test_fill_marks_does_not_ask_again_for_a_pin_it_already_has_at_the_same_lines(self):
+        with mock.patch.object(pick_source, "synctex_view", return_value=HIT) as view:
+            self.assertEqual(lookup.fill_marks("d", [self.open_pin(1)], self.ctx(), self.marks, 200, self.far), 1)
+            self.assertEqual(lookup.fill_marks("d", [self.open_pin(1)], self.ctx(), self.marks, 200, self.far), 0)
+            self.assertEqual(view.call_count, 1)
+            moved = [self.open_pin(1, lo=4, hi=4)]
+            self.assertEqual(lookup.fill_marks("d", moved, self.ctx(), self.marks, 200, self.far), 1)
+            self.assertEqual(view.call_count, 2)
+
+    def test_fill_marks_converts_with_the_size_of_the_hits_own_page(self):
+        sizes = ((600.0, 800.0), (800.0, 600.0))
+        with mock.patch.object(pick_source, "synctex_view", return_value=[(2, 100.0, 50.0, 400.0, 50.0)]):
+            lookup.fill_marks("d", [self.open_pin(1)], self.ctx(sizes=sizes), self.marks, 200, self.far)
+        mark = self.marks.get("d", "b1", 1)
+        self.assertEqual((mark.page, mark.frac), (2, (0.125, 0.0, 0.5, 50.0 / 600.0)))
+
+    def test_fill_marks_gives_no_mark_for_a_page_whose_size_is_not_finite_and_positive(self):
+        for size in ((float("nan"), 800.0), (600.0, 0.0), (float("inf"), 800.0)):
+            with mock.patch.object(pick_source, "synctex_view", return_value=HIT):
+                n = lookup.fill_marks("d", [self.open_pin(1)], self.ctx(sizes=(size,)), self.marks, 200, self.far)
+            self.assertEqual(n, 0)
+            self.assertIsNone(self.marks.get("d", "b1", 1))
+
+    def test_fill_marks_skips_a_file_outside_the_build_root_and_a_lookup_with_no_answer(self):
+        with mock.patch.object(pick_source, "synctex_view", return_value=None) as view:
+            n = lookup.fill_marks(
+                "d",
+                [self.open_pin(1, file="/elsewhere/x.tex"), self.open_pin(2)],
+                self.ctx(),
+                self.marks,
+                200,
+                self.far,
+            )
+        self.assertEqual((n, view.call_count), (0, 1))
+
+    def test_fill_marks_stops_at_the_limit_and_at_the_deadline(self):
+        pins = [self.open_pin(i) for i in (1, 2, 3)]
+        with mock.patch.object(pick_source, "synctex_view", return_value=HIT) as view:
+            self.assertEqual(lookup.fill_marks("d", pins, self.ctx(), self.marks, 2, self.far), 2)
+            self.assertEqual(lookup.fill_marks("d", pins, self.ctx(), self.marks, 200, 0.0), 0)
+            self.assertEqual(view.call_count, 2)
+
+    def test_line_marks_drop_the_oldest_entries_past_the_cap(self):
+        marks = lookup.LineMarks(cap=2)
+        mark = position.LineMark(1, (0.0, 0.0, 0.5, 0.5))
+        for pid in (1, 2, 3):
+            marks.put("d", "b", pid, 1, 1, mark)
+        self.assertEqual([marks.get("d", "b", p) for p in (1, 2, 3)], [None, mark, mark])
