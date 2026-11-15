@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, Literal, TypeAlias
 
 from limn.pins.element import ElementImpl, PinElement
-from limn.pins.location.mapping import carry_range, paired_lines, snippet
+from limn.pins.location.mapping import carry_range, drag_frac as drag_frac, paired_lines, snippet
 from limn.pins.needs import ElementChoice, FigureElement, FigureMapUnavailable
 from limn.platform.files import ManuscriptFile, file_in_tree, tex_lines, tree_part
 from limn.runtime.documents import Doc
@@ -80,15 +80,6 @@ class PickedElement:
     path_names: tuple[str, ...] = ()
     fill: float = 0.0
     rival: bool = False
-
-
-def drag_frac(box: tuple[float, float, float, float], size: tuple[float, float]) -> tuple[float, float, float, float]:
-    """The drag box (x0, y0, x1, y1 in points, already clamped to the page) as page fractions [x, y, w, h]; the point
-    (0, 0) without area when the page has no size to divide by."""
-    (x0, y0, x1, y1), (pw, ph) = box, size
-    if pw <= 0 or ph <= 0:
-        return (0.0, 0.0, 0.0, 0.0)
-    return (x0 / pw, y0 / ph, (x1 - x0) / pw, (y1 - y0) / ph)
 
 
 def pin_element(el: FigureElement) -> PinElement:

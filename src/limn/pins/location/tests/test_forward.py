@@ -9,7 +9,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from limn.pins.location import mapping, source as pick_source
+from limn.pins.location import mapping, position, source as pick_source
+from limn.pins.location.mapping import ViewBox
 
 from helpers import needs_tex
 
@@ -94,3 +95,35 @@ class RealSynctex(unittest.TestCase):
         self.assertLess(row2.box[3] - row2.box[1], 15)
         self.assertGreater(row2.box[3] - row.box[3], 0)
         self.assertLess(row2.box[3] - row.box[3], 15)
+
+
+class LineMark(unittest.TestCase):
+    """One pin's mark: a page and the box as fractions of that page (position.line_mark)."""
+
+    def test_line_mark_converts_points_to_that_pages_fractions(self):
+        got = position.line_mark(ViewBox(2, (150.0, 100.0, 450.0, 120.0)), (600.0, 800.0), None)
+        self.assertEqual((got.page, got.frac), (2, (0.25, 0.125, 0.5, 0.025)))
+
+    def test_line_mark_uses_the_size_of_its_own_page_not_the_first(self):
+        """A landscape page 2: the caller passes that page's size, so a wide page's mark is not squeezed."""
+        got = position.line_mark(ViewBox(2, (0.0, 0.0, 400.0, 100.0)), (800.0, 600.0), None)
+        self.assertEqual(got.frac, (0.0, 0.0, 0.5, 1.0 / 6.0))
+
+    def test_line_mark_distrusts_a_same_build_answer_that_lands_on_another_page(self):
+        span = ViewBox(5, (10.0, 10.0, 20.0, 20.0))
+        self.assertIsNone(position.line_mark(span, (600.0, 800.0), 4))
+        self.assertIsNotNone(position.line_mark(span, (600.0, 800.0), 5))
+
+    def test_line_mark_is_none_without_a_span_or_a_positive_page_size(self):
+        self.assertIsNone(position.line_mark(None, (600.0, 800.0), None))
+        self.assertIsNone(position.line_mark(ViewBox(1, (0.0, 0.0, 1.0, 1.0)), (0.0, 800.0), None))
+
+    def test_line_mark_clamps_the_box_to_the_page_before_dividing(self):
+        """A box that overhangs the page edge is cut back to (0, 0, pw, ph) first."""
+        got = position.line_mark(ViewBox(1, (-10.0, 700.0, 300.0, 900.0)), (600.0, 800.0), None)
+        self.assertEqual(got.frac, (0.0, 0.875, 0.5, 0.125))
+
+    def test_line_mark_is_none_when_clamping_leaves_no_width_or_height(self):
+        """A box entirely below the page, or with its width cut to nothing, has no mark."""
+        self.assertIsNone(position.line_mark(ViewBox(1, (10.0, 900.0, 50.0, 920.0)), (600.0, 800.0), None))
+        self.assertIsNone(position.line_mark(ViewBox(1, (-50.0, 10.0, -5.0, 20.0)), (600.0, 800.0), None))

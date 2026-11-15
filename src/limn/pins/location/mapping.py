@@ -69,6 +69,15 @@ def span_box(lo: ViewBox | None, hi: ViewBox | None) -> ViewBox | None:
     )
 
 
+def drag_frac(box: tuple[float, float, float, float], size: tuple[float, float]) -> tuple[float, float, float, float]:
+    """The drag box (x0, y0, x1, y1 in points, already clamped to the page) as page fractions [x, y, w, h]; the point
+    (0, 0) without area when the page has no size to divide by."""
+    (x0, y0, x1, y1), (pw, ph) = box, size
+    if pw <= 0 or ph <= 0:
+        return (0.0, 0.0, 0.0, 0.0)
+    return (x0 / pw, y0 / ph, (x1 - x0) / pw, (y1 - y0) / ph)
+
+
 # ---------------------------------------------------------------- Line text
 
 

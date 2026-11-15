@@ -19,7 +19,15 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal, TypeAlias
 
-from limn.pins.location.mapping import anchor_holds, anchor_of, anchor_offset, comment_marker, find_line
+from limn.pins.location.mapping import (
+    ViewBox,
+    anchor_holds,
+    anchor_of,
+    anchor_offset,
+    comment_marker,
+    drag_frac,
+    find_line,
+)
 from limn.pins.model import LineSpan, OpenPin, Pin
 from limn.pins.thread import rev_after
 from limn.platform.values import is_finite_num
@@ -282,3 +290,36 @@ def resync(
         out["file"] = path  # the new numbers describe this file
     out["synced_at"] = mtime
     return OpenPin.from_record(out)
+
+
+# ---------------------------------------------------------------- Line mark (the drawn box of a line pin)
+
+
+@dataclass(frozen=True)
+class LineMark:
+    """Where a line pin is drawn: a 1-based page and the box as [x, y, w, h] fractions of that page."""
+
+    page: int
+    frac: tuple[float, float, float, float]
+
+
+def line_mark(span: ViewBox | None, size: tuple[float, float], exact_page: int | None) -> LineMark | None:
+    """The mark of a line pin from its span's box (ViewBox, points, origin at the page's top left), the size (pw, ph)
+    of that same page, and exact_page: the page stored when the pin was read in this very build, or None.
+
+    None when there is no span, when a stored exact_page is not the span's page (the same build answered another page,
+    so the stored answer is not trusted), or when clamping the box to (0, 0, pw, ph) leaves no width or no height. The
+    clamp is done here because only the caller knows the page size; view_box knows the page count alone."""
+    if span is None:
+        return None
+    if exact_page is not None and exact_page != span.page:
+        return None
+    pw, ph = size
+    if pw <= 0 or ph <= 0:
+        return None
+    x0, y0, x1, y1 = span.box
+    x0, y0 = max(0.0, x0), max(0.0, y0)
+    x1, y1 = min(pw, x1), min(ph, y1)
+    if x1 <= x0 or y1 <= y0:
+        return None
+    return LineMark(span.page, drag_frac((x0, y0, x1, y1), (pw, ph)))
