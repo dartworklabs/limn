@@ -62,11 +62,15 @@
 `test_mapping.py`에, 스펙의 값을 그대로 넣는다.
 
 ```python
-def test_view_box_takes_the_first_hits_page_and_unites_that_pages_boxes(self):
+def test_view_box_takes_the_first_valid_hit_and_drops_the_rest(self):
+    # measured: a tabular row's line answers four times - the row, the whole table, the row again, the row
+    # above. Only the first is the line's own box; a union spread the mark over the table (spec 결정 3).
     hits = [(1, 133.77, 232.19, 343.71, 8.86), (1, 133.77, 241.05, 100.0, 8.86), (2, 10.0, 20.0, 30.0, 8.0)]
     got = mapping.view_box(hits, 3)
     self.assertEqual(got.page, 1)
-    self.assertEqual(got.box, (133.77, 223.33, 477.48, 241.05))   # top = v - H, union of page 1 only
+    for a, b in zip(got.box, (133.77, 223.33, 477.48, 232.19), strict=True):  # top = v - H
+        self.assertAlmostEqual(a, b, places=6)
+
 
 def test_view_box_refuses_a_page_out_of_range_a_non_finite_number_and_an_empty_box(self):
     self.assertIsNone(mapping.view_box([(4, 1.0, 2.0, 3.0, 4.0)], 3))
@@ -74,8 +78,13 @@ def test_view_box_refuses_a_page_out_of_range_a_non_finite_number_and_an_empty_b
     self.assertIsNone(mapping.view_box([(1, 1.0, 2.0, 0.0, 4.0)], 3))
     self.assertIsNone(mapping.view_box([], 3))
 
+
 def test_span_box_unites_one_page_keeps_lo_across_pages_and_is_none_without_lo(self):
-    lo, same, other = ViewBox(1, (10.0, 10.0, 20.0, 20.0)), ViewBox(1, (15.0, 30.0, 25.0, 40.0)), ViewBox(2, (0.0, 0.0, 5.0, 5.0))
+    lo, same, other = (
+        ViewBox(1, (10.0, 10.0, 20.0, 20.0)),
+        ViewBox(1, (15.0, 30.0, 25.0, 40.0)),
+        ViewBox(2, (0.0, 0.0, 5.0, 5.0)),
+    )
     self.assertEqual(mapping.span_box(lo, same).box, (10.0, 10.0, 25.0, 40.0))
     self.assertEqual(mapping.span_box(lo, other), lo)
     self.assertIsNone(mapping.span_box(None, same))
@@ -106,6 +115,7 @@ def test_synctex_view_asks_by_line_and_column_zero_and_reads_every_page_record(s
         got = pick_source.synctex_view(Path("/b/main.pdf"), 500, "sections/intro.tex")
     self.assertEqual(run.call_args[0][0][:4], ["synctex", "view", "-i", "500:0:sections/intro.tex"])
     self.assertEqual(got, [(14, 133.77, 349.81, 343.71, 8.86), (14, 1.0, 2.0, 3.0, 4.0)])
+
 
 def test_synctex_view_is_none_when_the_tool_is_missing_times_out_or_gives_no_page(self):
     for boom in (FileNotFoundError(), subprocess.TimeoutExpired("synctex", 10)):
@@ -168,15 +178,18 @@ def test_line_mark_converts_points_to_that_pages_fractions(self):
     got = position.line_mark(ViewBox(2, (150.0, 100.0, 450.0, 120.0)), (600.0, 800.0), None)
     self.assertEqual((got.page, got.frac), (2, (0.25, 0.125, 0.5, 0.025)))
 
+
 def test_line_mark_uses_the_size_of_its_own_page_not_the_first(self):
     # a landscape page 2: the caller passes that page's size, so a wide page's mark is not squeezed
     got = position.line_mark(ViewBox(2, (0.0, 0.0, 400.0, 100.0)), (800.0, 600.0), None)
     self.assertEqual(got.frac, (0.0, 0.0, 0.5, 1.0 / 6.0))
 
+
 def test_line_mark_distrusts_a_same_build_answer_that_lands_on_another_page(self):
     span = ViewBox(5, (10.0, 10.0, 20.0, 20.0))
     self.assertIsNone(position.line_mark(span, (600.0, 800.0), 4))
     self.assertIsNotNone(position.line_mark(span, (600.0, 800.0), 5))
+
 
 def test_line_mark_is_none_without_a_span_or_a_positive_page_size(self):
     self.assertIsNone(position.line_mark(None, (600.0, 800.0), None))
@@ -241,27 +254,37 @@ def test_fill_marks_does_nothing_while_the_manuscript_is_newer_than_the_build(se
     self.assertEqual(n, 0)
     self.assertIsNone(self.marks.get("d", "b1", 1))
 
+
 def test_fill_marks_skips_a_stale_pin_a_closed_pin_and_a_region_pin(self):
     pins = [self.stale_pin(1), self.closed_pin(2), self.region_pin(3)]
     with mock.patch.object(pick_source, "synctex_view", side_effect=AssertionError("no forward lookup")):
         self.assertEqual(lookup.fill_marks("d", pins, self.ctx(), self.marks, 200, self.far), 0)
 
+
 def test_fill_marks_survives_a_document_whose_pages_are_gone(self):
     # pick_pages answered None: the caller passes no context and the pass neither raises nor caches
     self.assertEqual(lookup.fill_marks("d", [self.open_pin(1)], None, self.marks, 200, self.far), 0)
 
+
 def test_fill_marks_asks_once_for_a_one_line_pin_and_twice_for_a_span(self):
     with mock.patch.object(pick_source, "synctex_view", return_value=[(1, 10.0, 20.0, 30.0, 8.0)]) as view:
-        lookup.fill_marks("d", [self.open_pin(1, lo=7, hi=7), self.open_pin(2, lo=9, hi=11)], self.ctx(), self.marks, 200, self.far)
+        lookup.fill_marks(
+            "d", [self.open_pin(1, lo=7, hi=7), self.open_pin(2, lo=9, hi=11)], self.ctx(), self.marks, 200, self.far
+        )
     self.assertEqual([c[0][1] for c in view.call_args_list], [7, 9, 11])
+
 
 def test_fill_marks_passes_the_build_relative_name_not_the_pins_absolute_path(self):
     with mock.patch.object(pick_source, "synctex_view", return_value=[(1, 10.0, 20.0, 30.0, 8.0)]) as view:
-        lookup.fill_marks("d", [self.open_pin(1, file=str(self.root / "sections/intro.tex"))], self.ctx(), self.marks, 200, self.far)
+        lookup.fill_marks(
+            "d", [self.open_pin(1, file=str(self.root / "sections/intro.tex"))], self.ctx(), self.marks, 200, self.far
+        )
     self.assertEqual(view.call_args[0][2], "sections/intro.tex")
 
-def test_fill_marks_does_not_ask_again_for_a_pin_it_already_has_at_the_same_lines(self):
-    ...   # second call makes no synctex_view call; after the pin's lo moves within the same build it asks again
+
+def test_fill_marks_does_not_ask_again_for_a_pin_it_already_has_at_the_same_lines(
+    self,
+): ...  # second call makes no synctex_view call; after the pin's lo moves within the same build it asks again
 ```
 
 - [ ] **Step 2: 돌려서 실패를 본다** — Run: `uv run pytest src/limn/pins/location/tests/test_forward.py -k fill_marks -q` / Expected: FAIL
@@ -307,9 +330,11 @@ def test_a_line_pins_record_carries_the_marks_the_build_found(self):
     got = view.line_marks({"lo": 10, "hi": 12}, LineMark(3, (0.1, 0.2, 0.3, 0.04)))
     self.assertEqual(got, {"mark": [0.1, 0.2, 0.3, 0.04], "mark_page": 3})
 
+
 def test_a_line_pin_without_a_mark_and_a_figure_pin_get_nothing_from_line_marks(self):
     self.assertEqual(view.line_marks({"lo": 10, "hi": 12}, None), {})
     self.assertEqual(view.line_marks({"lo": 10, "hi": 12, "el": {"id": "x"}}, LineMark(3, (0.1, 0.2, 0.3, 0.04))), {})
+
 
 def test_the_payload_leaves_the_record_and_rev_untouched(self):
     before = self.pin(1)["rev"]
@@ -366,29 +391,39 @@ def test_the_mark_pass_runs_outside_the_pin_store_lock(self):
     # a pin write on another thread must not wait on the pass, so probe from a thread
     # (a re-entrant lock would hand itself to the calling thread and hide this)
     store, free = self.store(), []
+
     def probe():
         got = store.lock.acquire(blocking=False)
         if got:
             store.lock.release()
         free.append(got)
+
     def marks():
-        t = threading.Thread(target=probe); t.start(); t.join(); return 0
+        t = threading.Thread(target=probe)
+        t.start()
+        t.join()
+        return 0
+
     PinMaintenance(store=lambda: store, days=7, marks=marks).run()
     self.assertEqual(free, [True])
+
 
 def test_the_pass_stops_at_its_budget_and_takes_the_next_pins_on_the_following_run(self):
     pins = [self.open_pin(i) for i in range(1, 6)]
     first = maintenance_pass(pins, limit=2)
     second = maintenance_pass(pins, limit=2)
     self.assertEqual((first, second), (2, 2))
-    self.assertEqual(self.marked_ids(), [1, 2, 3, 4])   # no starvation: it moves on, it does not redo 1 and 2
+    self.assertEqual(self.marked_ids(), [1, 2, 3, 4])  # no starvation: it moves on, it does not redo 1 and 2
 
-def test_a_new_build_on_screen_fills_the_marks_without_waiting_for_the_periodic_run(self):
-    ...   # the build callback path calls the pass once for that document
+
+def test_a_new_build_on_screen_fills_the_marks_without_waiting_for_the_periodic_run(
+    self,
+): ...  # the build callback path calls the pass once for that document
+
 
 def test_a_failing_pass_does_not_stop_upkeep(self):
     with mock.patch.object(..., side_effect=OSError("boom")):
-        PinMaintenance(...).run()   # no raise; the pins file is still maintained
+        PinMaintenance(...).run()  # no raise; the pins file is still maintained
 ```
 
 - [ ] **Step 2: 돌려서 실패를 본다** — Expected: FAIL
@@ -450,10 +485,12 @@ def test_every_pick_level_carries_the_box_its_range_will_actually_stand_on(self)
     self.assertEqual(answer["levels"][0]["mark_page"], 1)
     self.assertEqual(len(answer["levels"][0]["mark"]), 4)
 
+
 def test_a_level_whose_forward_lookup_fails_carries_no_box_and_the_pick_still_answers(self):
     with mock.patch.object(pick_source, "synctex_view", return_value=None):
         answer = self.pick(lo=10, hi=12)
     self.assertNotIn("mark", answer["levels"][0])
+
 
 def test_the_forward_lookups_are_capped_at_two_per_level(self):
     with mock.patch.object(pick_source, "synctex_view", return_value=[(1, 1.0, 2.0, 3.0, 4.0)]) as view:
@@ -492,10 +529,9 @@ git commit -s -m "feat(api): tell a pick answer where each level's range stands 
 
 ```python
 def test_a_badge_drop_moves_the_pins_box_by_the_drag_and_stays_on_the_page(self):
-    got = self.run_js(["badgeDrop"], "[badgeDrop([0.1,0.1,0.2,0.05],0.3,0.2),"
-                                     "badgeDrop([0.9,0.95,0.2,0.1],0.3,0.3)]")
+    got = self.run_js(["badgeDrop"], "[badgeDrop([0.1,0.1,0.2,0.05],0.3,0.2),badgeDrop([0.9,0.95,0.2,0.1],0.3,0.3)]")
     self.assertEqual(got[0], [0.4, 0.3, 0.2, 0.05])
-    self.assertEqual(got[1], [0.8, 0.9, 0.2, 0.1])   # clamped: the box keeps its size and stays inside
+    self.assertEqual(got[1], [0.8, 0.9, 0.2, 0.1])  # clamped: the box keeps its size and stays inside
 ```
 
 - [ ] **Step 2: 돌려서 실패를 본다** — Run: `uv run pytest src/limn/viewer/tests/test_viewer_input.py -k badgeDrop -q` / Expected: FAIL
