@@ -145,6 +145,8 @@ class PinStartup:
     maintain: Callable[[], None]
     watch: Callable[[threading.Event], None]
     learn_record_folders: Callable[[], None]
+    # A build of a source-built document just landed: resync the pins' lines, then fill their marks within the build budget.
+    after_build: Callable[[], None] = lambda: None
 
 
 @dataclass(frozen=True)
@@ -244,7 +246,14 @@ def assemble_pins(
         commands.maintenance_files,
         lambda: commands.fill_line_marks(wait=False),
     )
-    startup = PinStartup(commands.init_seq, render, maintenance.run, maintenance.watch, learn_record_folders)
+    startup = PinStartup(
+        commands.init_seq,
+        render,
+        maintenance.run,
+        maintenance.watch,
+        learn_record_folders,
+        lambda: maintenance.run(commands.fill_line_marks_after_build),
+    )
     counts = PinCountQueries(view.counts_by_document, view.state_counts, lambda: change_token(settings().pins_jsonl))
     return PinSubsystem(
         counts,

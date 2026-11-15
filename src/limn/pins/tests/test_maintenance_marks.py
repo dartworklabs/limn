@@ -173,6 +173,15 @@ class Upkeep(Base):
         upkeep.run()
         self.assertEqual(seen, [True])
 
+    def test_no_pass_runs_when_the_resync_failed(self):
+        calls = []
+        with (
+            mock.patch("limn.pins.store.PinStore.maintain", side_effect=OSError("x")),
+            mock.patch("limn.pins.maintenance.diagnostics"),
+        ):
+            PinMaintenance(store=ps.APP.pin_store, days=7, marks=lambda: calls.append(1) or 0).run()
+        self.assertEqual(calls, [])
+
     def test_each_run_calls_the_pass_once(self):
         calls = []
         PinMaintenance(store=ps.APP.pin_store, days=7, marks=lambda: calls.append(1) or 0).run()
@@ -190,6 +199,13 @@ class Upkeep(Base):
         cause, message = errors.emit.call_args[0]
         self.assertEqual(cause, "pin marks:OSError")
         self.assertIn("boom", message())
+
+    def test_a_run_given_its_own_pass_uses_it_instead_of_the_upkeep_pass(self):
+        calls = []
+        PinMaintenance(store=ps.APP.pin_store, days=7, marks=lambda: calls.append("upkeep") or 0).run(
+            lambda: calls.append("build") or 0
+        )
+        self.assertEqual(calls, ["build"])
 
     def test_the_composition_root_wires_the_pass_into_upkeep(self):
         """assemble_pins gives the upkeep the writer-side pass (and it does not wait for a pass that is running)."""
@@ -209,6 +225,28 @@ class AfterBuild(Base):
     def test_the_build_path_has_a_tighter_budget_than_upkeep(self):
         self.assertEqual((MARK_BUILD_SECONDS, MARK_SECONDS), (2.0, 10.0))
         self.assertLess(MARK_BUILD_SECONDS, MARK_SECONDS)
+
+    def test_a_build_callback_resyncs_the_lines_before_it_fills_the_marks_in_one_step(self):
+        """The anti-goal is a solid mark on the wrong place: the manuscript is edited so the pin's lines move and the build
+        lands before any upkeep tick. When the callback returns, SyncTeX was asked about the NEW lines only (never the
+        pre-edit ones) and the pin's mark is there, with no second pass."""
+        pages = ps.APP.C.state / "pages-20260925100000"
+        pages.mkdir()
+        (pages / "page-1.png").write_bytes(blank_png(1275, 1650))
+        (ps.APP.C.state / "pages.cur").write_text(pages.name)
+        pid = self.add(lo=4, hi=4)
+        main = ps.APP.C.main
+        main.write_text("inserted\n" * 20 + main.read_text(encoding="utf-8"), encoding="utf-8")
+        asked = []
+
+        def where(pdf, line, name):
+            asked.append(line)
+            return HIT
+
+        with mock.patch.object(pick_source, "synctex_view", side_effect=where):
+            ps.APP.build_requests.latex_built()
+        self.assertEqual(asked, [24])
+        self.assertIsNotNone(ps.APP.line_mark_of(ps.APP.docs[0].key)(pid))
 
     def requests(self, hook):
         return BuildRequests(

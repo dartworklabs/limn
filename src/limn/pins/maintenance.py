@@ -44,15 +44,20 @@ class PinMaintenance:
     _observed: dict[Path, tuple[int, int, int] | None] = field(default_factory=dict)
     _completed: float = 0.0
 
-    def run(self) -> None:
+    def run(self, marks: Callable[[], int] | None = None) -> None:
         """Converge once, keeping originals and the last successful baseline on failure.
+
+        marks replaces the mark pass of this run: the build path passes its own, shorter-budget pass. Such a run waits for
+        an upkeep run in progress instead of skipping, because the caller needs the pins' lines resynced to the
+        manuscript before it fills any mark; the wait is short since the pass itself runs after the guard is released.
 
         Capture source stamps before reading them, so a change during a pass is still pending next tick.
         The JSONL stamp discovers pins added by POST without reading that file on idle ticks.
         """
         require_writer()
-        if not self._running.acquire(blocking=False):
+        if not self._running.acquire(blocking=marks is not None):
             return
+        resynced = False
         try:
             store = self.store()
             with store.lock:
@@ -61,6 +66,7 @@ class PinMaintenance:
                 observed[store.files.pins_jsonl] = signature(store.files.pins_jsonl)
                 self._observed = observed
                 self._completed = time.monotonic()
+            resynced = True
         except Exception as error:  # noqa: BLE001 — upkeep must retry without stopping the listener
             message = "warning: pin maintenance failed: %s" % error
             diagnostics.emit("pin maintenance:" + type(error).__name__, lambda: message)
@@ -68,13 +74,16 @@ class PinMaintenance:
             self._running.release()
         # After the store lock and the overlap guard are released: a pass that overshoots its budget must hold up
         # neither a pin write nor the next upkeep run.
-        self._fill_marks()
+        if (
+            resynced
+        ):  # a mark computed from lines that did not follow the manuscript would stand solid in the wrong place
+            self._fill_marks(marks or self.marks)
 
-    def _fill_marks(self) -> None:
+    def _fill_marks(self, marks: Callable[[], int]) -> None:
         """Run the mark pass, outside the pin store lock: SyncTeX may take up to its own timeout per lookup, which no pin
         write should wait for. A failure is reported and never stops the upkeep."""
         try:
-            self.marks()
+            marks()
         except Exception as error:  # noqa: BLE001 — marks are derived and refilled by the next run
             message = "warning: line mark pass failed: %s" % error
             diagnostics.emit("pin marks:" + type(error).__name__, lambda: message)

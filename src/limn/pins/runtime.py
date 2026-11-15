@@ -207,13 +207,14 @@ class PinCommands:
         finally:
             self._mark_pass.release()
 
-    def fill_line_marks_after_build(self) -> None:
-        """The pass a build that just put new pages on screen runs inline, from its latex_built hook: it fills only memory
-        (no pin, no file), so a build the person is already waiting for hides its cost. Its budget is MARK_BUILD_SECONDS
+    def fill_line_marks_after_build(self) -> int:
+        """The mark pass of a build that just put new pages on screen, run inline by its latex_built hook after the pins'
+        lines were resynced (PinMaintenance.run(marks=...), never alone: a mark must come from the current lines). It fills
+        only memory (no pin, no file), so a build the person is already waiting for hides its cost. Its budget is MARK_BUILD_SECONDS
         (2 s, against the upkeep cycle's MARK_SECONDS of 10 s) with the same MARK_LIMIT, so the build waits about two
         seconds plus at most one SyncTeX lookup in flight (the deadline is only checked between pins; synctex_view's own
         10 s timeout is the ceiling). It does not wait for a pass already running: the upkeep cycle fills what this left."""
-        self.fill_line_marks(MARK_LIMIT, MARK_BUILD_SECONDS, wait=False)
+        return self.fill_line_marks(MARK_LIMIT, MARK_BUILD_SECONDS, wait=False)
 
     def refresh_pins_md(self) -> None:
         """Refresh derived markdown after publication without resynchronizing pins."""
