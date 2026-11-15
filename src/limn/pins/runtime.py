@@ -179,16 +179,16 @@ class PinCommands:
         shown = self.build_view.publication(doc, build, self.C.state)
         return MarkContext(build, sizes, shown.pdf, shown.stale)
 
-    def fill_line_marks(self, limit: int = MARK_LIMIT, seconds: float = MARK_SECONDS, wait: bool = True) -> int:
+    def fill_line_marks(self, limit: int = MARK_LIMIT, seconds: float = MARK_SECONDS, wait: bool = False) -> int:
         """Fill line_marks for the open line pins of every document with pages and source lines (a LaTeX document: not a
         figure, whose pins the element map follows, and not a Markdown or text document, which has no pages); returns how
         many marks it filled. It stops after limit marks or `seconds`, whichever comes first, over all documents; the cache
         keeps what it filled, so the next call takes the pins after those. It writes no pin and takes no pin lock: call it
-        from writer-side paths only (the upkeep cycle, a build), never from a request. With wait False it does nothing when
-        another pass is running, instead of waiting for it."""
-        deadline = time.monotonic() + seconds
+        from writer-side paths only (the upkeep cycle, a build), never from a request. By default (wait False) it does nothing
+        when another pass is running; wait True waits for it, and the deadline starts only once this pass holds the lock."""
         if not self._mark_pass.acquire(blocking=wait):
             return 0
+        deadline = time.monotonic() + seconds  # after the acquire: a caller that waited keeps its whole budget
         try:
             pins = self.read_pins()[0]
             locate = self.pin_locator()

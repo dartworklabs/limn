@@ -252,7 +252,7 @@ def assemble_pins(
         maintenance.run,
         maintenance.watch,
         learn_record_folders,
-        lambda: maintenance.run(commands.fill_line_marks_after_build),
+        lambda: maintenance.run(commands.fill_line_marks_after_build, wait=True),
     )
     counts = PinCountQueries(view.counts_by_document, view.state_counts, lambda: change_token(settings().pins_jsonl))
     return PinSubsystem(

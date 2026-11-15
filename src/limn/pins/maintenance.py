@@ -19,6 +19,8 @@ MARK_LIMIT = 200
 MARK_SECONDS = 10.0
 # The tighter budget of the pass a build runs inline (PinCommands.fill_line_marks_after_build); upkeep takes the rest.
 MARK_BUILD_SECONDS = 2.0
+# How long a build waits for an upkeep run in progress before it leaves the resync and the marks to that run.
+MARK_BUILD_WAIT_SECONDS = 1.0
 
 
 def signature(path: Path) -> tuple[int, int, int] | None:
@@ -44,18 +46,23 @@ class PinMaintenance:
     _observed: dict[Path, tuple[int, int, int] | None] = field(default_factory=dict)
     _completed: float = 0.0
 
-    def run(self, marks: Callable[[], int] | None = None) -> None:
+    def run(self, marks: Callable[[], int] | None = None, wait: bool = False) -> None:
         """Converge once, keeping originals and the last successful baseline on failure.
 
-        marks replaces the mark pass of this run: the build path passes its own, shorter-budget pass. Such a run waits for
-        an upkeep run in progress instead of skipping, because the caller needs the pins' lines resynced to the
-        manuscript before it fills any mark; the wait is short since the pass itself runs after the guard is released.
+        marks replaces the mark pass of this run (the build path passes its own, shorter-budget pass). wait is a separate
+        decision: False skips at once when another run is in progress; True (the build path, on a request thread) waits
+        at most MARK_BUILD_WAIT_SECONDS for it and then skips this run with a diagnostic. Skipping is safe: the run in
+        progress resyncs and fills marks itself, and the worst outcome is a mark missing for a tick (the old, dotted
+        position), never a mark computed from lines that did not follow the manuscript.
 
         Capture source stamps before reading them, so a change during a pass is still pending next tick.
         The JSONL stamp discovers pins added by POST without reading that file on idle ticks.
         """
         require_writer()
-        if not self._running.acquire(blocking=marks is not None):
+        got = self._running.acquire(timeout=MARK_BUILD_WAIT_SECONDS) if wait else self._running.acquire(blocking=False)
+        if not got:
+            if wait:
+                diagnostics.emit("pin maintenance:busy", lambda: "warning: pin maintenance busy: build run skipped")
             return
         resynced = False
         try:

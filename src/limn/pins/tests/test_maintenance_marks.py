@@ -6,6 +6,7 @@ Run: uv run pytest -q src/limn/pins/tests/test_maintenance_marks.py
 
 import io
 import threading
+import time
 import unittest
 from contextlib import redirect_stderr
 from unittest import mock
@@ -85,18 +86,22 @@ class Pass(Base):
             self.assertEqual(ps.APP.fill_line_marks(limit=2), 2)
             self.assertEqual(ps.APP.fill_line_marks(limit=2), 1)
 
-    def test_a_figure_a_markdown_and_a_text_document_are_not_asked(self):
-        figure = mock.Mock(takes_line_pins=True, has_element_map=True, renders_in_browser=False, key="fig")
-        md = mock.Mock(takes_line_pins=True, has_element_map=False, renders_in_browser=True, key="md")
-        pdf = mock.Mock(takes_line_pins=False, has_element_map=False, renders_in_browser=False, key="rv")
+    def test_only_a_latex_document_is_asked_not_a_figure_a_markdown_a_text_or_a_view_only_document(self):
+        """Real Docs: the kind-to-capability mapping decides, so widening or narrowing the exclusion fails here. Every pin
+        is made to belong to the document under test, so only the document's own kind can keep it out."""
+        src, paths = ps.APP.C.src, ps.APP.C.paths
+        kinds = {"tex": True, "figure": False, "markdown": False, "text": False, "pdf": False}
         self.pin_lines(1)
-        with (
-            mock.patch.object(ps.APP.assembly.pins.commands, "docs", [figure, md, pdf]),
-            mock.patch.object(PinCommands, "mark_context") as context,
-            mock.patch.object(pick_source, "synctex_view", side_effect=AssertionError("asked")),
-        ):
-            self.assertEqual(ps.APP.fill_line_marks(), 0)
-        context.assert_not_called()
+        for kind, asked in kinds.items():
+            doc = Doc("d-" + kind, kind, kind, src, src / ("main." + kind), paths=paths)
+            with self.subTest(kind=kind):
+                ps.APP.set_docs([doc])
+                with (
+                    mock.patch.object(ps.APP.assembly.pins.commands, "pin_doc_key", return_value=doc.key),
+                    mock.patch.object(PinCommands, "mark_context", return_value=None) as context,
+                ):
+                    ps.APP.fill_line_marks()
+                self.assertEqual(context.call_count, 1 if asked else 0)
 
     def test_a_document_without_a_build_on_screen_gets_no_context(self):
         (ps.APP.C.state / "pages.cur").unlink()
@@ -125,6 +130,14 @@ class Pass(Base):
             ps.APP.fill_line_marks_after_build()
             self.assertIsNotNone(ps.APP.line_marks.get(self.doc.key, self.build, 1))
         self.assertEqual(seen, [threading.current_thread()])
+
+    def test_the_build_budget_starts_after_the_pass_lock_is_held(self):
+        self.pin_lines(1)
+        held = ps.APP.assembly.pins.commands._mark_pass
+        held.acquire()
+        threading.Timer(0.3, held.release).start()
+        with mock.patch.object(pick_source, "synctex_view", return_value=HIT):
+            self.assertEqual(ps.APP.fill_line_marks(seconds=0.2, wait=True), 1)
 
     def test_the_pass_writes_no_pin(self):
         self.pin_lines(2)
@@ -181,6 +194,58 @@ class Upkeep(Base):
         ):
             PinMaintenance(store=ps.APP.pin_store, days=7, marks=lambda: calls.append(1) or 0).run()
         self.assertEqual(calls, [])
+
+    def hold_guard(self, upkeep, seconds):
+        """Hold upkeep's overlap guard from another thread for `seconds`, as an upkeep run in progress does."""
+        held, release = threading.Event(), threading.Event()
+
+        def hold():
+            with upkeep._running:
+                held.set()
+                release.wait(seconds)
+
+        thread = threading.Thread(target=hold)
+        thread.start()
+        held.wait(5)
+        return thread, release
+
+    def test_a_waiting_run_waits_for_a_run_in_progress_instead_of_skipping(self):
+        calls = []
+        upkeep = PinMaintenance(store=ps.APP.pin_store, days=7)
+        thread, release = self.hold_guard(upkeep, 0.3)
+        started = time.monotonic()
+        upkeep.run(lambda: calls.append(1) or 0, wait=True)
+        thread.join()
+        self.assertEqual(calls, [1])
+        self.assertGreaterEqual(time.monotonic() - started, 0.25)
+
+    def test_a_run_that_does_not_wait_skips_at_once_while_one_is_in_progress(self):
+        calls = []
+        upkeep = PinMaintenance(store=ps.APP.pin_store, days=7)
+        thread, release = self.hold_guard(upkeep, 5)
+        started = time.monotonic()
+        upkeep.run(lambda: calls.append(1) or 0)
+        release.set()
+        thread.join()
+        self.assertEqual(calls, [])
+        self.assertLess(time.monotonic() - started, 0.5)
+
+    def test_a_waiting_run_gives_up_after_the_wait_runs_no_pass_and_says_so(self):
+        calls = []
+        upkeep = PinMaintenance(store=ps.APP.pin_store, days=7)
+        thread, release = self.hold_guard(upkeep, 5)
+        with (
+            mock.patch("limn.pins.maintenance.MARK_BUILD_WAIT_SECONDS", 0.2),
+            mock.patch("limn.pins.maintenance.diagnostics") as errors,
+        ):
+            started = time.monotonic()
+            upkeep.run(lambda: calls.append(1) or 0, wait=True)
+            took = time.monotonic() - started
+        release.set()
+        thread.join()
+        self.assertEqual(calls, [])
+        self.assertTrue(0.15 <= took < 2.0, took)
+        self.assertEqual(errors.emit.call_args[0][0], "pin maintenance:busy")
 
     def test_each_run_calls_the_pass_once(self):
         calls = []
