@@ -5,7 +5,9 @@ import re
 import shutil
 import unittest
 
-from helpers import JS_OFFLINE_STUBS, JS_UPDATE_STUBS, extract_js_fn, run_node
+from helpers import JS_OFFLINE_STUBS, JS_UPDATE_STUBS, extract_js_fn, js_seams_wired, run_node
+
+DOCUMENT_SEAMS = "documents/state-seams.ts"
 
 
 class AsyncDocumentVisits(unittest.TestCase):
@@ -48,6 +50,7 @@ class AsyncDocumentVisits(unittest.TestCase):
         js = "\n".join(
             [
                 JS_UPDATE_STUBS + extract_js_fn("pollLightOnce"),
+                js_seams_wired(DOCUMENT_SEAMS),  # what documents asks the features above it, wired as js/main.ts does
                 "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (documents/state.ts)
                 """
                 let DOC='a',SWITCHSEQ=1,POLL_FAILS=1;
@@ -95,6 +98,7 @@ class AsyncDocumentVisits(unittest.TestCase):
         js = "\n".join(
             [
                 JS_UPDATE_STUBS + extract_js_fn("pollLightOnce"),
+                js_seams_wired(DOCUMENT_SEAMS),  # what documents asks the features above it, wired as js/main.ts does
                 "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (documents/state.ts)
                 """
                 let DOC='a',SWITCHSEQ=1,POLL_FAILS=2;

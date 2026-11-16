@@ -3,7 +3,7 @@ import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { LANG, translateTemplate, translate, translateMessage, TIP_TEXT, josa } from '../platform/i18n.ts';
 import { NOTICES, drawTrashOffers } from '../platform/notices.ts';
 import { hideTip, tipFollow } from '../platform/tooltip.ts';
-import { canConfirmReview, confirmAccessText, isAgentRole } from '../documents/flow-boot.ts';
+import { canConfirmReview, confirmAccessText, isAgentRole } from '../documents/view-meta.ts';
 import { showSheet } from '../layout/flow.ts';
 import { viaTag } from '../composer/view-levels.ts';
 import { isElementLost, lostElementTag, figureRegionBadge, pinPlace } from '../pdf/view-figure.ts';

@@ -4048,7 +4048,7 @@ function docFit() {
   }
   if (fit !== DOC_FIT) {
     DOC_FIT = fit;
-    searchFit();
+    pageNavigation().fitSearch();
   }
   placeDocMenu();
 }
@@ -4133,7 +4133,7 @@ function openDocMenu() {
   const pop = $('#doc-pop'),
     filter = $('#doc-pop-in');
   hideTip();
-  closePageList(false);
+  pageNavigation().closePageList(false);
   filter.hidden = DOCS.length < 9;
   filter.value = '';
   $('#doc-more').setAttribute('aria-expanded', 'true');
@@ -4337,6 +4337,135 @@ function viewerBlocked() {
   bannerNote(undefined, '보기 권한(viewer)만 있는 계정이라 바꿀 수 없습니다', NOTICE_KIND.WARN);
   return true;
 }
+const REVISION_PAGE = 30; // rows of one /api/revisions page (the server's history window is 500, api.md)
+
+// ------------------------------------------------ What documents asks the features above it
+// documents decides which document is open and when it is drawn, saved, left and refreshed; drawing it, its outline
+// and page list, its search, its Markdown lines and the changes view, the drafts and edits on it, its pins and the
+// browser notifications, the verdict's reading line and the queued pins are the features above (pdf, markdown,
+// revisions, composer, pins, verdict, offline). documents may not import them (docs/handbook/viewer.md §모듈 경계), so each need is a seam here: an
+// interface for what documents asks, a registration function and an accessor. js/main.ts registers every seam once, at
+// its top level before boot() runs (no code that runs while the script loads reaches one), and documents calls the
+// registered function at the point, with the arguments and in the order it called the feature function directly. An
+// accessor called before its registration throws, naming the seam.
+
+// The pages of a PDF document (pdf/view-pages.ts, pdf/flow-open.ts, pdf/view-draw.ts): drawing them, their scale and
+// the PDF.js document behind them.
+let PAGE_SURFACE = null;
+// Registers the pages of a PDF document; js/main.ts calls it once.
+function setPageSurface(surface) {
+  PAGE_SURFACE = surface;
+}
+// The registered pages; throws before setPageSurface() has run.
+function pageSurface() {
+  if (!PAGE_SURFACE) throw new Error('setPageSurface() has not run: documents has no pages to draw');
+  return PAGE_SURFACE;
+}
+
+// The ways around a PDF document (pdf/view-outline.ts, pdf/view-page-list.ts, pdf/flow.ts): its outline, its page
+// list and its search, which the navigation sheet, the document menu and a switch use.
+let PAGE_NAVIGATION = null;
+// Registers the outline, the page list and the search; js/main.ts calls it once.
+function setPageNavigation(navigation) {
+  PAGE_NAVIGATION = navigation;
+}
+// The registered outline, page list and search; throws before setPageNavigation() has run.
+function pageNavigation() {
+  if (!PAGE_NAVIGATION) throw new Error('setPageNavigation() has not run: documents has no outline or page list');
+  return PAGE_NAVIGATION;
+}
+
+// What documents reads of the Markdown surface's drawn document and writes into it (markdown/view.ts MARKDOWN_VIEW):
+// which document is drawn and from which source, the line read now and the line count, the source asked for and the
+// line to come back to once it is drawn.
+// A document drawn in the browser from its source (markdown/view.ts; a text document uses the same machinery).
+let MARKDOWN_SURFACE = null;
+// Registers the Markdown surface; js/main.ts calls it once.
+function setMarkdownSurface(surface) {
+  MARKDOWN_SURFACE = surface;
+}
+// The registered Markdown surface; throws before setMarkdownSurface() has run.
+function markdownSurface() {
+  if (!MARKDOWN_SURFACE) throw new Error('setMarkdownSurface() has not run: documents has no Markdown surface');
+  return MARKDOWN_SURFACE;
+}
+
+// What documents writes into the changes view before it opens (revisions/flow.ts REVISION_VIEW): the range to paint
+// and the pin it was opened for.
+// The changes view ([변경 보기], revisions/flow.ts): which view shows, and its commit list.
+let CHANGES_VIEW = null;
+// Registers the changes view; js/main.ts calls it once.
+function setChangesView(view) {
+  CHANGES_VIEW = view;
+}
+// The registered changes view; throws before setChangesView() has run.
+function changesView() {
+  if (!CHANGES_VIEW) throw new Error('setChangesView() has not run: documents has no changes view');
+  return CHANGES_VIEW;
+}
+
+// The work in progress on the page (composer/flow-draft.ts, composer/flow-repick.ts, composer/flow-pick.ts,
+// pins/flow-edit.ts, pins/flow-reply.ts): what a switch keeps, drops or brings back, and what a reload would lose.
+let DOCUMENT_WORK = null;
+// Registers the work in progress; js/main.ts calls it once.
+function setDocumentWork(work) {
+  DOCUMENT_WORK = work;
+}
+// The registered work in progress; throws before setDocumentWork() has run.
+function documentWork() {
+  if (!DOCUMENT_WORK) throw new Error('setDocumentWork() has not run: documents cannot reach the drafts and edits');
+  return DOCUMENT_WORK;
+}
+
+// The open document's pins (pins/flow-list.ts): reading them, the list and their marks on the page.
+let DOCUMENT_PINS = null;
+// Registers the pins; js/main.ts calls it once.
+function setDocumentPins(pins) {
+  DOCUMENT_PINS = pins;
+}
+// The registered pins; throws before setDocumentPins() has run.
+function documentPins() {
+  if (!DOCUMENT_PINS) throw new Error('setDocumentPins() has not run: documents has no pins to read or draw');
+  return DOCUMENT_PINS;
+}
+
+// The events addressed to the viewer (pins/flow-notification.ts), which the light poll carries: whether notifications
+// are on, the poll's query for them, what the poll answered, the cursor of the last one said, and a pin link.
+let PIN_NOTIFICATIONS = null;
+// Registers the notifications and pin links; js/main.ts calls it once.
+function setPinNotifications(notifications) {
+  PIN_NOTIFICATIONS = notifications;
+}
+// The registered notifications and pin links; throws before setPinNotifications() has run.
+function pinNotifications() {
+  if (!PIN_NOTIFICATIONS) throw new Error('setPinNotifications() has not run: documents cannot say the events');
+  return PIN_NOTIFICATIONS;
+}
+
+// What the verdict holds while the pages are built again (verdict/flow-line.ts, verdict/view-panel.ts,
+// verdict/flow-reason.ts): the reading line's page, and a syllable being composed in a reason field.
+let VERDICT_HOLD = null;
+// Registers what the verdict holds; js/main.ts calls it once.
+function setVerdictHold(hold) {
+  VERDICT_HOLD = hold;
+}
+// The registered verdict hold; throws before setVerdictHold() has run.
+function verdictHold() {
+  if (!VERDICT_HOLD) throw new Error('setVerdictHold() has not run: documents cannot hold the reading line');
+  return VERDICT_HOLD;
+}
+
+// The pins queued while cut off (offline/flow.ts OFF, offlineFlush): how many wait and are held back, and their send.
+let OFFLINE_QUEUE = null;
+// Registers the queued pins; js/main.ts calls it once.
+function setOfflineQueue(queue) {
+  OFFLINE_QUEUE = queue;
+}
+// The registered queued pins; throws before setOfflineQueue() has run.
+function offlineQueue() {
+  if (!OFFLINE_QUEUE) throw new Error('setOfflineQueue() has not run: documents has no queued pins');
+  return OFFLINE_QUEUE;
+}
 
 // ------------------------------------------------ The changes view (docs/handbook/viewer.md §변경 보기)
 // REVISION_VIEW: one changes-view visit owns the selected commit, source text and request sequence (seq). overlay is a
@@ -4380,7 +4509,6 @@ const REVISION_VIEW = {
   rangeN: null,
   want: null,
 };
-const REVISION_PAGE = 30; // rows of one /api/revisions page (the server's history window is 500, api.md)
 // the commits [변경 보기] picks a pin's commit among - the server resolves a close_ref among the same
 const REVISION_RECENT = 12;
 const REVISION_PHONE_ROWS = 5; // rows the phone's list shows before [더 보기]
@@ -5826,16 +5954,16 @@ function openNavigationSheet() {
   hideTip();
   drawDocsMenu();
   drawNavigationView();
-  markOutline(); // its rows are drawn already (renderOutline when the outline was read): only the mark moves
+  pageNavigation().markOutline(); // its rows are drawn already (renderOutline when the outline was read): only the mark moves
   const pageCount = META && META.pages ? META.pages.length : 0,
     pageField = $('#ns-page-in');
   pageField.value = '';
-  pageField.placeholder = String(OUTLINE_ACTIVE_PAGE || 1);
+  pageField.placeholder = String(pageNavigation().outlinePage() || 1);
   $('#ns-page-n').textContent = translateTemplate('/ {n}쪽', { n: pageCount });
-  drawSheetPages();
+  pageNavigation().drawSheetPages();
   showSheet(sheet);
-  revealPageRow($('#ns-pages'));
-  tipCutTitles($('#ns-pages'));
+  pageNavigation().revealPageRow($('#ns-pages'));
+  pageNavigation().tipCutTitles($('#ns-pages'));
   revealSheetOutline(sheet);
 }
 // The outline's current section in the open sheet (docs/handbook/viewer.md §모바일 레이아웃): the sheet's outline is
@@ -6114,16 +6242,16 @@ function drawPos() {
   const label =
     isMarkdownDoc() && !isRevisions
       ? // a Markdown document has lines, not pages
-        markdownPositionLabel(
+        markdownSurface().positionLabel(
           shown ? shown.name : '',
-          MARKDOWN_VIEW.at,
-          MARKDOWN_VIEW.lines.length,
+          markdownSurface().reading().at,
+          markdownSurface().reading().lines.length,
           multiDoc(),
           innerWidth >= 400,
         )
       : posLabel(
           shown ? shown.name : '',
-          OUTLINE_ACTIVE_PAGE || 1,
+          pageNavigation().outlinePage() || 1,
           pageCount,
           multiDoc(),
           innerWidth >= 400,
@@ -6142,7 +6270,7 @@ function drawPos() {
 function saveView() {
   if (!DOC || !META) return;
   if (isMarkdownDoc()) {
-    const anchor = MARKDOWN_VIEW.shown === DOC ? readingAnchor() : null;
+    const anchor = markdownSurface().reading().shown === DOC ? markdownSurface().readingAnchor() : null;
     if (anchor) VIEW_BY.set(DOC, { line: anchor.line, off: anchor.off, lay: LAYOUT });
     saveViews();
     return;
@@ -6190,7 +6318,7 @@ function viewScale(view, widest) {
 // saved or default scale (startScale). Returns whether a kept view decided it.
 function applyViewWidth(view) {
   if (view && view.lay === LAYOUT && (LAYOUT === LAYOUT_MODE.WIDE || view.zoomed)) {
-    const scale = viewScale(view, widestPagePoints());
+    const scale = viewScale(view, pageSurface().widestPoints());
     if (scale) {
       setPageScale(scale);
       setZoomed(LAYOUT !== LAYOUT_MODE.WIDE && !!view.zoomed);
@@ -6198,13 +6326,14 @@ function applyViewWidth(view) {
     }
   }
   setZoomed(false);
-  setPageScale(startScale());
+  setPageScale(pageSurface().startScale());
   return false;
 }
 function restoreView(view) {
   if (!view) return;
   if (isMarkdownDoc()) {
-    MARKDOWN_VIEW.want = typeof view.line === 'number' ? { line: view.line, off: +view.off || 0, top: 0 } : null;
+    markdownSurface().reading().want =
+      typeof view.line === 'number' ? { line: view.line, off: +view.off || 0, top: 0 } : null;
     return;
   } // once it is drawn (showDocumentNode)
   restoreAnchor({ page: view.page, frac: view.frac });
@@ -6224,15 +6353,15 @@ async function switchDoc(doc) {
   if (!doc || doc === DOC || !docInfo(doc)) return;
   const seq = setSwitchseq(SWITCHSEQ + 1),
     navigation = NAVGEN;
-  searchLeave(); // the search belongs to the document left (pdf/flow.ts)
+  pageNavigation().leaveSearch(); // the search belongs to the document left (pdf/flow.ts)
   const active = document.activeElement,
     inPages = !!active && !!active.closest && !!active.closest('#left');
-  if (document.body.classList.contains('revision-open')) setViewMode(VIEW_MODE.MANUSCRIPT);
+  if (document.body.classList.contains('revision-open')) changesView().setMode(VIEW_MODE.MANUSCRIPT);
   saveView();
-  parkDraft();
-  cancelRepick();
-  if (COMPOSE.current || !$('#composer').hidden) cancelSelection(false);
-  if (EDITOR.current && !editDirty()) cancelEdit();
+  documentWork().parkDraft();
+  documentWork().cancelRepick();
+  if (COMPOSE.current || !$('#composer').hidden) documentWork().cancelSelection(false);
+  if (EDITOR.current && !documentWork().editDirty()) documentWork().cancelEdit();
   let meta = META_BY.get(doc),
     cached = !!meta;
   if (!meta) {
@@ -6248,14 +6377,14 @@ async function switchDoc(doc) {
         })
       ).data;
     } catch (error) {
-      if (seq === SWITCHSEQ) restoreDraft();
+      if (seq === SWITCHSEQ) documentWork().restoreDraft();
       return;
     } finally {
       if (SWITCH_TO && SWITCH_TO.seq === seq) SWITCH_TO = null;
     }
     if (seq !== SWITCHSEQ) return;
     if (navigation !== NAVGEN) {
-      restoreDraft();
+      documentWork().restoreDraft();
       return;
     }
   }
@@ -6266,7 +6395,7 @@ async function switchDoc(doc) {
   setHash(doc);
   hideTip();
   showDoc(VIEW_BY.get(doc));
-  openDraftDoc();
+  documentWork().openDraft();
   checkDocUpdate(doc, {}); // changed since this device last saw it (documents/flow-updates.ts)
   if (inPages && (!document.activeElement || document.activeElement === document.body)) searchToPage();
   if (cached) {
@@ -6299,18 +6428,18 @@ function showDoc(view) {
   endJumpForScroll();
   drawMeta();
   const hadWidth = applyViewWidth(view);
-  buildDoc();
-  if (!hadWidth) autoFitWidth();
+  pageSurface().build();
+  if (!hadWidth) pageSurface().fitWidth();
   restoreView(view);
   if (!view && $('#left')) $('#left').scrollTop = 0;
   setPins(OPEN_ALL.filter((pin) => pdoc(pin) === DOC));
   setDone(DONE_ALL.filter((pin) => pdoc(pin) === DOC));
-  drawPins();
-  marks();
+  documentPins().draw();
+  documentPins().marks();
   drawDocTabs();
   $('#outline-items').textContent = translate('PDF 목차를 읽는 중입니다.');
-  if (document.body.classList.contains('revision-open')) loadRevisions();
-  openVectorDocument();
+  if (document.body.classList.contains('revision-open')) changesView().load();
+  pageSurface().openVector();
   resetBuildForDoc(); // if a previous document's request is still in flight, queue after it
   docTitle(false);
 }
@@ -6361,80 +6490,7 @@ function viaDoc(id, then) {
 }
 
 // ------------------------------------------------ Document
-// Starts the viewer: language, theme and layout, the document list and meta, pages, pins, this tab's kept draft, the
-// first-visit hint (touch or mouse), polling and notifications, then a pin link from the hash (#doc=&pin=) if there was
-// one.
-async function boot() {
-  i18nStart();
-  // A link /#doc=<key>&pin=<n>[&act=restore] (a notification clicked with no tab open) is read first: the boot below
-  // rewrites the hash to #doc=<key> on an instance with several documents, which would lose pin=.
-  const link = takeLinkHash();
-  applyTheme();
-  applyLayout();
-  // There's no keyboard shortcut on a touch device - "핀 저장 Ctrl+Enter" would just get clipped at phone width.
-  setHtml($('#btn-save'), saveButtonLabel());
-  await offlineAskDown(); // a page the worker answered from its copy starts from the stored reads (offline/flow.ts)
-  await loadDocs();
-  setDoc(initialDoc());
-  try {
-    setMeta((await api(withDocQuery('/api/meta'), { what: '화면 정보 읽기', where: NOTICE_HOST.LINE })).data);
-  } catch (error) {
-    return;
-  }
-  if (META.doc) setDoc(META.doc);
-  META_BY.set(DOC, META);
-  loadViews();
-  const view = VIEW_BY.get(DOC);
-  if (multiDoc()) {
-    setHash(DOC);
-    savePrefs({ lastDoc: DOC });
-  }
-  // A device that was here before hears what came since, gathered into one message (docs/handbook/viewer.md §새 소식).
-  if (visitedBefore()) digestBegin(translate('지난 방문 뒤'));
-  drawMeta();
-  applySideWidth();
-  applyOutlineState();
-  const hadWidth = applyViewWidth(view);
-  buildDoc();
-  if (!hadWidth) autoFitWidth();
-  bootVector();
-  const pinsLoaded = await loadPins();
-  restoreView(view);
-  drawDocTabs();
-  updateSectionStrip();
-  restoreDraft(); // the page count is there before the first scroll (mid shows it in the nav bar)
-  if (isMarkdownDoc())
-    coach(
-      COARSE_POINTER_QUERY.matches ? 'touch' : 'mouse',
-      isTextDoc()
-        ? COARSE_POINTER_QUERY.matches
-          ? '줄을 누르면 그 줄을, 길게 눌러 글을 고르면 그 줄들을 고릅니다'
-          : '누르면 그 줄을, 끌면 그 줄들을 고릅니다' // a text document: a press picks its line
-        : COARSE_POINTER_QUERY.matches
-          ? '블록을 누르면 그 블록을, 길게 눌러 글을 고르면 그 줄을 고릅니다'
-          : '끌면 그 줄을, 누르면 그 블록을 고릅니다',
-    );
-  else if (COARSE_POINTER_QUERY.matches)
-    coach('touch', 'PDF를 길게 누르면 그 문단을 고릅니다 · [선택]을 켜면 끌어서 고릅니다');
-  // a mouse user's first hint how to pin (the PDF also shows a crosshair)
-  else coach('mouse', 'PDF를 끌어서 고칠 곳을 고르세요');
-  // A failed first read has no pin baseline; the light poll must retry even when meta has not changed.
-  if (pinsLoaded) {
-    setLastPinsRevision(META.pins_rev);
-    setLastSrcMtime(META.src_sig || META.src_mtime);
-  }
-  // the build count this tab has already "seen"
-  BUILD.lastSeq = typeof META.build_seq === 'number' ? META.build_seq : 0;
-  (META.docs || []).forEach((entry) => DOC_SEQ.set(entry.key, entry.build_seq));
-  startLightPolling();
-  startBuildPolling();
-  offlineBoot();
-  checkDocsSeen(); // what changed since this device last saw each document (documents/flow-updates.ts)
-  if (DIGEST) pollLight().finally(() => digestSoon(DIGEST_TAIL_MS)); // the events addressed to me since the last visit
-  drawNotify();
-  if (prefs().notify && notifySupported() && notifyPerm() === 'granted') notifyRegister();
-  if (link.pin) openPinFromLink(link.doc || DOC, link.pin, link.restore);
-}
+// The header: the document's meta, its stale and sync badges, the viewer's own name and role.
 function builtAtEpoch(builtAt) {
   const parsed = Date.parse(String(builtAt || '').replace(' ', 'T'));
   return isNaN(parsed) ? null : parsed / 1000;
@@ -6530,7 +6586,7 @@ function drawMeta() {
   // a figure document's marks are a frame with no tint (components.css)
   document.body.classList.toggle('fig-doc', isFigureKind(META.kind));
   document.body.classList.toggle('md-surface', isMarkdownDoc());
-  showMarkdownHint(); // a Markdown document: no pages, so the page-only controls hide (md-surface.css)
+  markdownSurface().showHint(); // a Markdown document: no pages, so the page-only controls hide (md-surface.css)
   // the document area's name says what it holds
   $('#left').setAttribute(
     'aria-label',
@@ -6628,7 +6684,7 @@ let NOTIFY_HIDDEN_TIMER = undefined,
   NOTIFY_HIDDEN_INFLIGHT = null;
 const NOTIFY_HIDDEN_INTERVAL_MS = 20000;
 function pollHiddenNotify() {
-  if (!document.hidden || !notifyOn()) return Promise.resolve();
+  if (!document.hidden || !pinNotifications().on()) return Promise.resolve();
   if (NOTIFY_HIDDEN_INFLIGHT) return NOTIFY_HIDDEN_INFLIGHT;
   NOTIFY_HIDDEN_INFLIGHT = pollHiddenNotifyOnce().finally(() => {
     NOTIFY_HIDDEN_INFLIGHT = null;
@@ -6639,7 +6695,7 @@ async function pollHiddenNotifyOnce() {
   let meta;
   try {
     meta = (
-      await api(withDocQuery('/api/meta?light=1') + notifyQuery(), {
+      await api(withDocQuery('/api/meta?light=1') + pinNotifications().query(), {
         what: '알림 확인',
         silent: true,
         wait: API_WAIT.POLL,
@@ -6648,14 +6704,14 @@ async function pollHiddenNotifyOnce() {
   } catch (error) {
     return;
   }
-  if (document.hidden) notifyHandle(meta); // if the tab came back while waiting, normal polling has already handled it
+  if (document.hidden) pinNotifications().handle(meta); // if the tab came back while waiting, normal polling has already handled it
 }
 // If the tab hides while notifications are on, the slow timer is started; it's stopped when the tab returns or
 // notifications are turned off (no duplicate polling).
 function syncHiddenNotifyTimer() {
   clearInterval(NOTIFY_HIDDEN_TIMER);
   NOTIFY_HIDDEN_TIMER = undefined;
-  if (document.hidden && notifyOn()) {
+  if (document.hidden && pinNotifications().on()) {
     pollHiddenNotify();
     NOTIFY_HIDDEN_TIMER = setInterval(pollHiddenNotify, NOTIFY_HIDDEN_INTERVAL_MS);
   }
@@ -6679,7 +6735,7 @@ async function pollLightOnce() {
   // poll is out at a time, and a poll left waiting would count no failure for as long as the system let it wait.
   try {
     meta = (
-      await api(withDocQuery('/api/meta?light=1') + notifyQuery(), {
+      await api(withDocQuery('/api/meta?light=1') + pinNotifications().query(), {
         what: '상태 확인',
         silent: true,
         wait: API_WAIT.POLL,
@@ -6696,7 +6752,7 @@ async function pollLightOnce() {
   }
   const was = POLL_FAILS;
   LIGHT_OK_AT = Date.now();
-  notifyHandle(meta); // browser notifications - independent of the document (handled first even mid document-switch)
+  pinNotifications().handle(meta); // browser notifications - independent of the document (handled first even mid document-switch)
   if (visitDoc !== DOC || visit !== SWITCHSEQ) {
     if (back) digestSoon(DIGEST_TAIL_MS);
     return;
@@ -6705,7 +6761,7 @@ async function pollLightOnce() {
   $('#conn-lost').hidden = true;
   if (back || was > 0 || versionDue()) checkVersion();
   // the connection is back: the pins kept while it was gone are written (offline/flow.ts)
-  if (was > 0 && OFF.n) void offlineFlush();
+  if (was > 0 && offlineQueue().queued()) void offlineQueue().flush();
   updateStaleBadge(meta);
   updateSyncBadge(meta.sync);
   noteOtherDocs(meta.docs);
@@ -6716,16 +6772,20 @@ async function pollLightOnce() {
   const needsPins = LAST_PINS_REVISION === null || meta.pins_rev !== LAST_PINS_REVISION || sig !== LAST_SRC_MTIME;
   if (sig !== LAST_SRC_MTIME || meta.building || (meta.sync && meta.sync.state === SYNC_STATE.UPDATING))
     expectUpdate(sig !== LAST_SRC_MTIME); // its pins' moves wait for its update message
-  const applied = !needsPins || (await loadPins());
+  const applied = !needsPins || (await documentPins().load());
   if (visitDoc !== DOC || visit !== SWITCHSEQ) return;
   // Its source changed since the last read that answered: the Markdown surface reads and draws it again, asked once per
   // change while that read is on its way (MARKDOWN_VIEW.asked), and again on the next poll if it failed
   // (buildMarkdownDoc clears MARKDOWN_VIEW.asked).
-  if (isMarkdownDoc() && meta.src_mtime !== MARKDOWN_VIEW.mtime && meta.src_mtime !== MARKDOWN_VIEW.asked) {
-    MARKDOWN_VIEW.asked = meta.src_mtime;
-    buildMarkdownDoc();
+  if (
+    isMarkdownDoc() &&
+    meta.src_mtime !== markdownSurface().reading().mtime &&
+    meta.src_mtime !== markdownSurface().reading().asked
+  ) {
+    markdownSurface().reading().asked = meta.src_mtime;
+    markdownSurface().build();
     // a tree image rewritten on disk shows without a reload (markdown/view.ts)
-  } else if (isMarkdownDoc()) void checkTreeImages();
+  } else if (isMarkdownDoc()) void markdownSurface().checkTreeImages();
   if (applied) {
     LAST_PINS_REVISION = meta.pins_rev;
     LAST_SRC_MTIME = sig;
@@ -6788,6 +6848,25 @@ function startLightPolling() {
   window.addEventListener('focus', () => pollLight());
   syncHiddenNotifyTimer(); // catches it right away if already hidden at boot (a rare case) and notifications are on
 }
+
+// Sets LAST_PINS_REVISION, which this module declares, for another module that changes it (ADR-0042 D1); answers the
+// value.
+function setLastPinsRevision(value) {
+  LAST_PINS_REVISION = value;
+  return value;
+}
+// Sets LAST_SRC_MTIME, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+function setLastSrcMtime(value) {
+  LAST_SRC_MTIME = value;
+  return value;
+}
+// Whether this tab should keep a pin instead of sending it: the light poll has lost the server (POLL_FAILS, the same
+// judgment the status line's '연결 끊김' uses) or the browser says there is no network at all.
+function offlineNow() {
+  return POLL_FAILS >= 2 || navigator.onLine === false;
+}
+
+// --------------------------------------- Pins changed elsewhere: what the status line says between two list refreshes
 // A list comparison's group without the pins whose events a message of a higher rank says (groupNote's less): the pins
 // named '<type>:<id>' leave group[field] - numbers or pins - and each of `also` beside them, or null when none is left.
 // Pure.
@@ -7027,7 +7106,6 @@ function notePinChanges(previous, listed, dropped) {
       }),
     );
 }
-
 // Says on the status line when a pin that was awaiting review gets confirmed (done; passing news) or reopened (until
 // [x], with a dot on [핀 N]) elsewhere. An action this tab performed (markMine) is swallowed.
 function noteReviewChanges(previous, listed) {
@@ -7095,22 +7173,6 @@ function noteReviewChanges(previous, listed) {
       merge,
       newsWithout(EVENT_TYPE.REOPENED, 'pins'),
     );
-}
-// Sets LAST_PINS_REVISION, which this module declares, for another module that changes it (ADR-0042 D1); answers the
-// value.
-function setLastPinsRevision(value) {
-  LAST_PINS_REVISION = value;
-  return value;
-}
-// Sets LAST_SRC_MTIME, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setLastSrcMtime(value) {
-  LAST_SRC_MTIME = value;
-  return value;
-}
-// Whether this tab should keep a pin instead of sending it: the light poll has lost the server (POLL_FAILS, the same
-// judgment the status line's '연결 끊김' uses) or the browser says there is no network at all.
-function offlineNow() {
-  return POLL_FAILS >= 2 || navigator.onLine === false;
 }
 
 // ------------------------ Browser notifications (docs/handbook/viewer.md §브라우저 알림) - only while the tab is alive
@@ -7765,9 +7827,9 @@ function verAfter(version, other) {
     ? versionTime > otherTime
     : Number(versionBuild[2] || 0) > Number(otherBuild[2] || 0);
 }
-// Whether this device was here before: it has a seen record or an event cursor (documents/flow-notification.ts).
+// Whether this device was here before: it has a seen record or an event cursor (pins/flow-notification.ts).
 function visitedBefore() {
-  return !!seenStore().v || notifyCursor() !== null;
+  return !!seenStore().v || pinNotifications().cursor() !== null;
 }
 function seenPin() {
   const highest = seenStore().pin;
@@ -7946,8 +8008,8 @@ function shownDocState(doc) {
   // screen: the document list's (noteOtherDocs keeps it fresh) - MARKDOWN_VIEW still holds the lines of one drawn
   // before, as they were when left
   const sourceTime =
-    doc === DOC && MARKDOWN_VIEW.doc === doc && typeof MARKDOWN_VIEW.mtime === 'number'
-      ? MARKDOWN_VIEW.mtime
+    doc === DOC && markdownSurface().reading().doc === doc && typeof markdownSurface().reading().mtime === 'number'
+      ? markdownSurface().reading().mtime
       : doc !== DOC && entry && typeof entry.src_mtime === 'number'
         ? entry.src_mtime
         : source.src_mtime;
@@ -8230,10 +8292,10 @@ function countPinMove(pin, lost) {
 // the view as it opens. Another document is switched to first.
 function openUpdateRange(doc, base, top) {
   const go = () => {
-    REVISION_VIEW.want = { base, top: top || '' };
-    REVISION_VIEW.target = null; // the view opened for a pin shows the message's range now, not that pin's commit
-    if (document.body.classList.contains('revision-open')) loadRevisions();
-    else setViewMode(VIEW_MODE.REVISIONS);
+    changesView().wanted().want = { base, top: top || '' };
+    changesView().wanted().target = null; // the view opened for a pin shows the message's range now, not that pin's commit
+    if (document.body.classList.contains('revision-open')) changesView().load();
+    else changesView().setMode(VIEW_MODE.REVISIONS);
   };
   if (doc === DOC) {
     go();
@@ -8283,7 +8345,11 @@ function tintChangedLines() {
   $$('#md .md-upd').forEach((line) => line.classList.remove('md-upd'));
   const changed = UPDATE_STATE.lines.get(DOC || '');
   if (!changed || !isMarkdownDoc()) return;
-  changed.ranges.forEach((range) => lineLeaves(range.lo, range.hi).forEach((line) => line.classList.add('md-upd')));
+  changed.ranges.forEach((range) =>
+    markdownSurface()
+      .lineLeaves(range.lo, range.hi)
+      .forEach((line) => line.classList.add('md-upd')),
+  );
 }
 // [바뀐 곳]: the next changed place (the first after the last), scrolled to the reading depth and flashed like a pin's
 // lines (showLines: the reading spot is read where it lands).
@@ -8296,8 +8362,8 @@ function goToNextChange(doc) {
   if (!changed || !changed.ranges.length) return;
   changed.at = (changed.at + 1) % changed.ranges.length;
   const range = changed.ranges[changed.at],
-    leaves = lineLeaves(range.lo, range.hi);
-  if (leaves.length) showLines(leaves);
+    leaves = markdownSurface().lineLeaves(range.lo, range.hi);
+  if (leaves.length) markdownSurface().showLines(leaves);
 }
 
 // ---------------- Others' new pins
@@ -8388,7 +8454,11 @@ function newPinsView(news) {
   return {
     msg: (here ? head : translateTemplate('{doc}에 {what}', { doc: name, what: head })) + ' — ' + description,
     kind: NOTICE_KIND.INFO,
-    act: { label: here ? '보기' : '열기', tip: '그 핀으로 갑니다', fn: () => openPinFromLink(news.doc, first.id) },
+    act: {
+      label: here ? '보기' : '열기',
+      tip: '그 핀으로 갑니다',
+      fn: () => pinNotifications().openFromLink(news.doc, first.id),
+    },
     o: {
       literal: true,
       back: !here,
@@ -8452,8 +8522,8 @@ async function checkVersion() {
 // behind an undo is sent first - unless a reply or an edit is being written, which a reload would lose: that is said
 // instead.
 function reloadForUpdate() {
-  const replyField = REPLY && replyNote(REPLY),
-    typing = !!(replyField && replyField.value.trim()) || REPLY_DRAFT.size > 0 || editDirty();
+  const replyField = REPLY && documentWork().replyNote(REPLY),
+    typing = !!(replyField && replyField.value.trim()) || REPLY_DRAFT.size > 0 || documentWork().editDirty();
   if (typing) {
     lineNote('쓰던 답글이나 수정이 있습니다 — 보내거나 저장한 뒤 새로 고치세요', NOTICE_KIND.WARN, null, {
       source: 'reload-typing',
@@ -8738,8 +8808,8 @@ function statusInput() {
     build: BUILD.cur,
     buildErr: BUILD.error,
     offline: POLL_FAILS >= 2,
-    queued: OFF.n,
-    held: OFF.held,
+    queued: offlineQueue().queued(),
+    held: offlineQueue().held(),
     outdated: versionOutdated(),
     sync: STATUS_SYNC,
     stale: !$('#meta-stale').hidden,
@@ -23105,7 +23175,7 @@ function offlineBack() {
 }
 
 // ---------------- The service worker
-// The worker is registered for every visit, not only where notifications are allowed (documents/flow-notification.ts
+// The worker is registered for every visit, not only where notifications are allowed (pins/flow-notification.ts
 // asks it for those): it is what answers when the network does not. A browser without one still works online, and says
 // so when asked to prepare.
 async function offlineWorker() {
@@ -36786,16 +36856,16 @@ async function refreshDoc(meta) {
     META_BY.set(visitDoc, snapshot);
     setMeta(snapshot);
     drawMeta();
-    buildMarkdownDoc();
-    await loadPins();
+    markdownSurface().build();
+    await documentPins().load();
     return;
   } // no pages: the source is drawn again
   // Building the pages again takes the reason field with them: a syllable being composed in it ends first, and the key
   // that ended it lets the field go (isComposingNow), and the spot is read again after the wait. A newer snapshot that
   // came meanwhile wins - applied at once (the same page count) or waiting too: this one is dropped, never put back
   // over it, which would roll the newer build back for good.
-  if (!(META && snapshot.pages.length === META.pages.length) && isComposingNow()) {
-    await afterComposition();
+  if (!(META && snapshot.pages.length === META.pages.length) && verdictHold().composing()) {
+    await verdictHold().afterComposition();
     if (visitDoc !== DOC || seq !== SWITCHSEQ || gen !== REFRESH_GEN) return;
     anchor = topAnchor();
   }
@@ -36808,27 +36878,27 @@ async function refreshDoc(meta) {
   // PDF is opened. A page whose paper size changed (a figure drawn again larger) takes its new width at the same scale
   // (reapplyScale - which leaves the scale alone while the changes view hides the PDF area).
   if (same) {
-    releaseAllVectorPages();
+    pageSurface().releaseVector();
     $$('.pg').forEach((pageElement, index) => {
       const page = META.pages[index];
       pageElement.dataset.ptw = String(page.pt_w);
       pageElement.style.aspectRatio = page.pt_w + ' / ' + page.pt_h;
-      pageElement.querySelector('img').src = pageSrc(page);
+      pageElement.querySelector('img').src = pageSurface().pageSource(page);
     });
-    reapplyScale();
+    pageSurface().reapplyScale();
   } else {
-    setBuildReadingPage(pageUnderReadingLine());
+    verdictHold().holdReadingPage(verdictHold().readingPage());
     try {
-      buildDoc();
+      pageSurface().build();
       restoreAnchor(anchor);
     } finally {
-      setBuildReadingPage(0);
+      verdictHold().holdReadingPage(0);
     }
   } // the reading page held until its spot is back
   restoreAnchor(anchor);
-  openVectorDocument();
-  if (document.body.classList.contains('revision-open')) loadRevisions();
-  await loadPins();
+  pageSurface().openVector();
+  if (document.body.classList.contains('revision-open')) changesView().load();
+  await documentPins().load();
 }
 // On ok_errors|fail, the panel itself is opened right away: it is where a failed build is said (with the pull's line,
 // pullSuffix), and the status line's failure item (compact) and #build-err-chip (the desktop's chips, while the panel
@@ -36968,6 +37038,63 @@ setNoticeFocus({
   isReasonField,
 });
 setNoticeComposer({ saveButtonLabel });
+// The seams documents calls the features above it through (documents/state-seams.ts), registered the same way.
+setPageSurface({
+  build: buildDoc,
+  fitWidth: autoFitWidth,
+  widestPoints: widestPagePoints,
+  startScale,
+  reapplyScale,
+  pageSource: pageSrc,
+  openVector: openVectorDocument,
+  releaseVector: releaseAllVectorPages,
+});
+setPageNavigation({
+  leaveSearch: searchLeave,
+  fitSearch: searchFit,
+  closePageList,
+  outlinePage: () => OUTLINE_ACTIVE_PAGE,
+  markOutline,
+  drawSheetPages,
+  revealPageRow,
+  tipCutTitles,
+});
+setMarkdownSurface({
+  reading: () => MARKDOWN_VIEW,
+  build: buildMarkdownDoc,
+  checkTreeImages,
+  readingAnchor,
+  positionLabel: markdownPositionLabel,
+  showHint: showMarkdownHint,
+  lineLeaves,
+  showLines,
+});
+setChangesView({ wanted: () => REVISION_VIEW, setMode: setViewMode, load: loadRevisions });
+setDocumentWork({
+  parkDraft,
+  restoreDraft,
+  openDraft: openDraftDoc,
+  cancelRepick,
+  cancelSelection,
+  editDirty,
+  cancelEdit,
+  replyNote,
+});
+setDocumentPins({ load: loadPins, draw: drawPins, marks });
+setPinNotifications({
+  on: notifyOn,
+  query: notifyQuery,
+  handle: notifyHandle,
+  cursor: notifyCursor,
+  openFromLink: openPinFromLink,
+});
+setVerdictHold({
+  readingPage: pageUnderReadingLine,
+  holdReadingPage: setBuildReadingPage,
+  composing: isComposingNow,
+  afterComposition,
+});
+setOfflineQueue({ queued: () => OFF.n, held: () => OFF.held, flush: offlineFlush });
 let HELP_BACK = null;
 // Opens help with its head on one ink line (headInk); closing it gives the focus back to what had it.
 function openHelp() {
@@ -37721,4 +37848,78 @@ document.addEventListener('keydown', (event) => {
     openHelp();
   }
 });
+// Starts the viewer: language, theme and layout, the document list and meta, pages, pins, this tab's kept draft, the
+// first-visit hint (touch or mouse), polling and notifications, then a pin link from the hash (#doc=&pin=) if there was
+// one.
+async function boot() {
+  i18nStart();
+  // A link /#doc=<key>&pin=<n>[&act=restore] (a notification clicked with no tab open) is read first: the boot below
+  // rewrites the hash to #doc=<key> on an instance with several documents, which would lose pin=.
+  const link = takeLinkHash();
+  applyTheme();
+  applyLayout();
+  // There's no keyboard shortcut on a touch device - "핀 저장 Ctrl+Enter" would just get clipped at phone width.
+  setHtml($('#btn-save'), saveButtonLabel());
+  await offlineAskDown(); // a page the worker answered from its copy starts from the stored reads (offline/flow.ts)
+  await loadDocs();
+  setDoc(initialDoc());
+  try {
+    setMeta((await api(withDocQuery('/api/meta'), { what: '화면 정보 읽기', where: NOTICE_HOST.LINE })).data);
+  } catch (error) {
+    return;
+  }
+  if (META.doc) setDoc(META.doc);
+  META_BY.set(DOC, META);
+  loadViews();
+  const view = VIEW_BY.get(DOC);
+  if (multiDoc()) {
+    setHash(DOC);
+    savePrefs({ lastDoc: DOC });
+  }
+  // A device that was here before hears what came since, gathered into one message (docs/handbook/viewer.md §새 소식).
+  if (visitedBefore()) digestBegin(translate('지난 방문 뒤'));
+  drawMeta();
+  applySideWidth();
+  applyOutlineState();
+  const hadWidth = applyViewWidth(view);
+  buildDoc();
+  if (!hadWidth) autoFitWidth();
+  bootVector();
+  const pinsLoaded = await loadPins();
+  restoreView(view);
+  drawDocTabs();
+  updateSectionStrip();
+  restoreDraft(); // the page count is there before the first scroll (mid shows it in the nav bar)
+  if (isMarkdownDoc())
+    coach(
+      COARSE_POINTER_QUERY.matches ? 'touch' : 'mouse',
+      isTextDoc()
+        ? COARSE_POINTER_QUERY.matches
+          ? '줄을 누르면 그 줄을, 길게 눌러 글을 고르면 그 줄들을 고릅니다'
+          : '누르면 그 줄을, 끌면 그 줄들을 고릅니다' // a text document: a press picks its line
+        : COARSE_POINTER_QUERY.matches
+          ? '블록을 누르면 그 블록을, 길게 눌러 글을 고르면 그 줄을 고릅니다'
+          : '끌면 그 줄을, 누르면 그 블록을 고릅니다',
+    );
+  else if (COARSE_POINTER_QUERY.matches)
+    coach('touch', 'PDF를 길게 누르면 그 문단을 고릅니다 · [선택]을 켜면 끌어서 고릅니다');
+  // a mouse user's first hint how to pin (the PDF also shows a crosshair)
+  else coach('mouse', 'PDF를 끌어서 고칠 곳을 고르세요');
+  // A failed first read has no pin baseline; the light poll must retry even when meta has not changed.
+  if (pinsLoaded) {
+    setLastPinsRevision(META.pins_rev);
+    setLastSrcMtime(META.src_sig || META.src_mtime);
+  }
+  // the build count this tab has already "seen"
+  BUILD.lastSeq = typeof META.build_seq === 'number' ? META.build_seq : 0;
+  (META.docs || []).forEach((entry) => DOC_SEQ.set(entry.key, entry.build_seq));
+  startLightPolling();
+  startBuildPolling();
+  offlineBoot();
+  checkDocsSeen(); // what changed since this device last saw each document (documents/flow-updates.ts)
+  if (DIGEST) pollLight().finally(() => digestSoon(DIGEST_TAIL_MS)); // the events addressed to me since the last visit
+  drawNotify();
+  if (prefs().notify && notifySupported() && notifyPerm() === 'granted') notifyRegister();
+  if (link.pin) openPinFromLink(link.doc || DOC, link.pin, link.restore);
+}
 boot();

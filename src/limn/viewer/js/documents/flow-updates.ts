@@ -26,18 +26,14 @@ import {
 import { translateTemplate, translate, josaName } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
 import { GROUPS, flushDeferred, groupNote, groupRedraw, lineNote } from '../platform/notices.ts';
-import { REVISION_VIEW, REVISION_PAGE, loadRevisions, setViewMode } from '../revisions/flow.ts';
 import { switchDoc } from './flow-switch.ts';
-import { notifyCursor, openPinFromLink } from './flow-notification.ts';
 import { drawStatus } from './view-status.ts';
-import { MARKDOWN_VIEW, lineLeaves, showLines } from '../markdown/view.ts';
-import { replyNote } from '../pins/flow-reply.ts';
-import { editDirty } from '../pins/flow-edit.ts';
 import { NOTICE_DOT, NOTICE_KIND } from '../platform/tables.ts';
 import { $$ } from '../platform/dom.ts';
 import { VIEW_MODE } from '../app/rules-tables.ts';
 import { who } from '../app/state-people.ts';
-import { isMarkdownDoc, docInfo, withDocQuery, pdoc } from './state.ts';
+import { isMarkdownDoc, docInfo, withDocQuery, pdoc, REVISION_PAGE } from './state.ts';
+import { changesView, documentWork, markdownSurface, pinNotifications } from './state-seams.ts';
 const UPDATE_STATE = {
   moved: new Map() as Map<string, { moved: Set<number>; lost: Set<number> }>,
   lines: new Map() as Map<string, { base: string[]; ranges: { lo: number; hi: number }[]; at: number }>,
@@ -118,9 +114,9 @@ function verAfter(version: string, other: string): boolean {
     ? versionTime > otherTime
     : Number(versionBuild[2] || 0) > Number(otherBuild[2] || 0);
 }
-// Whether this device was here before: it has a seen record or an event cursor (documents/flow-notification.ts).
+// Whether this device was here before: it has a seen record or an event cursor (pins/flow-notification.ts).
 function visitedBefore() {
-  return !!seenStore().v || notifyCursor() !== null;
+  return !!seenStore().v || pinNotifications().cursor() !== null;
 }
 function seenPin(): number | null {
   const highest = seenStore().pin;
@@ -299,8 +295,8 @@ function shownDocState(doc: string): { ver: string; name: string; kind: string }
   // screen: the document list's (noteOtherDocs keeps it fresh) - MARKDOWN_VIEW still holds the lines of one drawn
   // before, as they were when left
   const sourceTime =
-    doc === DOC && MARKDOWN_VIEW.doc === doc && typeof MARKDOWN_VIEW.mtime === 'number'
-      ? MARKDOWN_VIEW.mtime
+    doc === DOC && markdownSurface().reading().doc === doc && typeof markdownSurface().reading().mtime === 'number'
+      ? markdownSurface().reading().mtime
       : doc !== DOC && entry && typeof entry.src_mtime === 'number'
         ? entry.src_mtime
         : source.src_mtime;
@@ -583,10 +579,10 @@ function countPinMove(pin: Pin, lost: boolean): boolean {
 // the view as it opens. Another document is switched to first.
 function openUpdateRange(doc: string, base: string, top?: string) {
   const go = () => {
-    REVISION_VIEW.want = { base, top: top || '' };
-    REVISION_VIEW.target = null; // the view opened for a pin shows the message's range now, not that pin's commit
-    if (document.body.classList.contains('revision-open')) loadRevisions();
-    else setViewMode(VIEW_MODE.REVISIONS);
+    changesView().wanted().want = { base, top: top || '' };
+    changesView().wanted().target = null; // the view opened for a pin shows the message's range now, not that pin's commit
+    if (document.body.classList.contains('revision-open')) changesView().load();
+    else changesView().setMode(VIEW_MODE.REVISIONS);
   };
   if (doc === DOC) {
     go();
@@ -636,7 +632,11 @@ function tintChangedLines() {
   $$('#md .md-upd').forEach((line) => line.classList.remove('md-upd'));
   const changed = UPDATE_STATE.lines.get(DOC || '');
   if (!changed || !isMarkdownDoc()) return;
-  changed.ranges.forEach((range) => lineLeaves(range.lo, range.hi).forEach((line) => line.classList.add('md-upd')));
+  changed.ranges.forEach((range) =>
+    markdownSurface()
+      .lineLeaves(range.lo, range.hi)
+      .forEach((line) => line.classList.add('md-upd')),
+  );
 }
 // [바뀐 곳]: the next changed place (the first after the last), scrolled to the reading depth and flashed like a pin's
 // lines (showLines: the reading spot is read where it lands).
@@ -649,8 +649,8 @@ function goToNextChange(doc: string) {
   if (!changed || !changed.ranges.length) return;
   changed.at = (changed.at + 1) % changed.ranges.length;
   const range = changed.ranges[changed.at],
-    leaves = lineLeaves(range.lo, range.hi);
-  if (leaves.length) showLines(leaves);
+    leaves = markdownSurface().lineLeaves(range.lo, range.hi);
+  if (leaves.length) markdownSurface().showLines(leaves);
 }
 
 // ---------------- Others' new pins
@@ -741,7 +741,11 @@ function newPinsView(news: any) {
   return {
     msg: (here ? head : translateTemplate('{doc}에 {what}', { doc: name, what: head })) + ' — ' + description,
     kind: NOTICE_KIND.INFO,
-    act: { label: here ? '보기' : '열기', tip: '그 핀으로 갑니다', fn: () => openPinFromLink(news.doc, first.id) },
+    act: {
+      label: here ? '보기' : '열기',
+      tip: '그 핀으로 갑니다',
+      fn: () => pinNotifications().openFromLink(news.doc, first.id),
+    },
     o: {
       literal: true,
       back: !here,
@@ -805,8 +809,8 @@ async function checkVersion() {
 // behind an undo is sent first - unless a reply or an edit is being written, which a reload would lose: that is said
 // instead.
 function reloadForUpdate() {
-  const replyField = REPLY && replyNote(REPLY),
-    typing = !!(replyField && replyField.value.trim()) || REPLY_DRAFT.size > 0 || editDirty();
+  const replyField = REPLY && documentWork().replyNote(REPLY),
+    typing = !!(replyField && replyField.value.trim()) || REPLY_DRAFT.size > 0 || documentWork().editDirty();
   if (typing) {
     lineNote('쓰던 답글이나 수정이 있습니다 — 보내거나 저장한 뒤 새로 고치세요', NOTICE_KIND.WARN, null, {
       source: 'reload-typing',

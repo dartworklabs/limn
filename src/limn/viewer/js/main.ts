@@ -18,10 +18,18 @@ import {
   setShowAll,
   setSnipOpen,
   REVIEW_ALL,
+  setDoc,
+  setMeta,
+  META,
+  META_BY,
+  DOC,
+  VIEW_BY,
+  COARSE_POINTER_QUERY,
+  DOC_SEQ,
 } from './app/state.ts';
-import { switchLang } from './platform/i18n.ts';
-import { setTheme } from './platform/prefs.ts';
-import { copyText, setRequestFallback } from './platform/api.ts';
+import { switchLang, i18nStart, translate } from './platform/i18n.ts';
+import { setTheme, applyTheme, savePrefs, prefs } from './platform/prefs.ts';
+import { copyText, setRequestFallback, api } from './platform/api.ts';
 import {
   bannerNote,
   noticeAct,
@@ -30,9 +38,20 @@ import {
   setNoticeFocus,
   setNoticePanel,
   setNoticeStatusLine,
+  digestBegin,
+  DIGEST,
+  digestSoon,
 } from './platform/notices.ts';
 import { TIP, focusGivenBack, hideTip } from './platform/tooltip.ts';
-import { closeDocMenu, multiDoc, toggleDocMenu } from './documents/view-tabs.ts';
+import {
+  closeDocMenu,
+  multiDoc,
+  toggleDocMenu,
+  loadDocs,
+  initialDoc,
+  setHash,
+  drawDocTabs,
+} from './documents/view-tabs.ts';
 import {
   COMPARISON_SCOPE,
   moreRevisions,
@@ -45,20 +64,58 @@ import {
   setRevisionWhole,
   setViewMode,
   showChange,
+  REVISION_VIEW,
+  loadRevisions,
   showRevision,
   toggleRevisionOther,
 } from './revisions/flow.ts';
-import { cycleDoc, openNavigationSheet, switchDoc } from './documents/flow-switch.ts';
-import { boot } from './documents/flow-boot.ts';
-import { notifyToggle } from './documents/flow-notification.ts';
-import { BUILD } from './documents/view-build-chip.ts';
-import { reloadForUpdate } from './documents/flow-updates.ts';
+import {
+  cycleDoc,
+  openNavigationSheet,
+  switchDoc,
+  loadViews,
+  applyViewWidth,
+  restoreView,
+} from './documents/flow-switch.ts';
+import {
+  notifyToggle,
+  takeLinkHash,
+  drawNotify,
+  notifySupported,
+  notifyPerm,
+  notifyRegister,
+  openPinFromLink,
+  notifyOn,
+  notifyQuery,
+  notifyHandle,
+  notifyCursor,
+} from './pins/flow-notification.ts';
+import { BUILD, startBuildPolling } from './documents/view-build-chip.ts';
+import { reloadForUpdate, visitedBefore, checkDocsSeen, DIGEST_TAIL_MS } from './documents/flow-updates.ts';
 import { drawStatus, statusWhy, toggleStatusList, STATUS_TOP, setStatusSig } from './documents/view-status.ts';
-import { sizePreset, toggleOutline } from './layout/flow-panel-size.ts';
-import { actualSize, fitToWidth, goSheetPage, zoom } from './pdf/view-pages.ts';
-import { pickOutline } from './pdf/view-outline.ts';
-import { closePageList, goListedPage, togglePageList } from './pdf/view-page-list.ts';
-import { searchClose, searchGo, searchOpen } from './pdf/flow.ts';
+import { sizePreset, toggleOutline, applySideWidth, applyOutlineState } from './layout/flow-panel-size.ts';
+import {
+  actualSize,
+  fitToWidth,
+  goSheetPage,
+  zoom,
+  buildDoc,
+  autoFitWidth,
+  pageSrc,
+  reapplyScale,
+  startScale,
+  widestPagePoints,
+} from './pdf/view-pages.ts';
+import { pickOutline, updateSectionStrip, OUTLINE_ACTIVE_PAGE, markOutline } from './pdf/view-outline.ts';
+import {
+  closePageList,
+  goListedPage,
+  togglePageList,
+  drawSheetPages,
+  revealPageRow,
+  tipCutTitles,
+} from './pdf/view-page-list.ts';
+import { searchClose, searchGo, searchOpen, searchFit, searchLeave } from './pdf/flow.ts';
 import { revisionPdfActive, revisionZoom } from './revisions/input.ts';
 import { zoomKey } from './pdf/input-zoom.ts';
 import {
@@ -70,10 +127,24 @@ import {
   setSide,
   showSheet,
   toggleSide,
+  applyLayout,
+  coach,
 } from './layout/flow.ts';
 import { applyRange, dropLine, widenTo } from './composer/view-excerpt.ts';
 import { showElementBox } from './pdf/view-figure.ts';
-import { goToAnchor, goToDocLink, toggleHtmlRun } from './markdown/view.ts';
+import {
+  goToAnchor,
+  goToDocLink,
+  toggleHtmlRun,
+  MARKDOWN_VIEW,
+  buildMarkdownDoc,
+  checkTreeImages,
+  lineLeaves,
+  markdownPositionLabel,
+  readingAnchor,
+  showLines,
+  showMarkdownHint,
+} from './markdown/view.ts';
 import { stepChangeGroup } from './revisions/view-rendered-compare.ts';
 import { SUGGEST_OPEN, suggestAct } from './composer/flow-suggest.ts';
 import {
@@ -84,8 +155,9 @@ import {
   setKind,
   toggleQuote,
   COMPOSE,
+  cancelSelection,
 } from './composer/flow-pick.ts';
-import { saveDraftSoon } from './composer/flow-draft.ts';
+import { saveDraftSoon, restoreDraft, parkDraft, openDraftDoc } from './composer/flow-draft.ts';
 import { appendToPin, savePin, saveButtonLabel } from './composer/flow-save.ts';
 import {
   offlineFlush,
@@ -96,6 +168,9 @@ import {
   offStashed,
   offlineBack,
   offlineMayServe,
+  offlineAskDown,
+  offlineBoot,
+  OFF,
 } from './offline/flow.ts';
 import {
   cancelLineVerdict,
@@ -103,9 +178,10 @@ import {
   verdictPress,
   READING_LINE_PAGE,
   pageVerdictsOn,
+  pageUnderReadingLine,
 } from './verdict/flow-line.ts';
-import { actOnReason, focusLine, isReasonField } from './verdict/flow-reason.ts';
-import { goToSummaryPage } from './verdict/view-panel.ts';
+import { actOnReason, focusLine, isReasonField, isComposingNow, afterComposition } from './verdict/flow-reason.ts';
+import { goToSummaryPage, setBuildReadingPage } from './verdict/view-panel.ts';
 import { handPopoverToComposer } from './composer/view-selection-popover.ts';
 import { MESSAGE_OPEN } from './pins/view-card-parts.ts';
 import { ARC_OPEN, openTrash } from './pins/view-cards.ts';
@@ -124,20 +200,37 @@ import {
   toggleSection,
   dropBareDayLines,
   placeRow,
+  marks,
 } from './pins/flow-list.ts';
 import { MARKS, marksSet } from './pins/input-hide-marks.ts';
 import { closePin, confirmPin, dropPin, purgePin, trashRestore, unclaimPin } from './pins/flow-actions.ts';
 import { ASSIGN_NEW, mentionApply, renderAssignEdit, renderAssignNew } from './pins/input-mentions.ts';
-import { closeReply, openReply, renderReplyOutcome, sendReply } from './pins/flow-reply.ts';
-import { cancelEdit, openEdit, renderEdit, saveEdit, EDITOR } from './pins/flow-edit.ts';
+import { closeReply, openReply, renderReplyOutcome, sendReply, replyNote } from './pins/flow-reply.ts';
+import { cancelEdit, openEdit, renderEdit, saveEdit, EDITOR, editDirty } from './pins/flow-edit.ts';
 import { applyRepick, cancelRepick, startRepick } from './composer/flow-repick.ts';
 import { downloadPdf, hideBuildErr, rebuild, showBuildErr } from './documents/flow-rebuild.ts';
 import { NOTICE_HOST, NOTICE_KIND } from './platform/tables.ts';
 import { $, $$ } from './platform/dom.ts';
 import { offeredWords, shownWords, roveSegment } from './platform/segments.ts';
 import { REQUEST_KIND, LAYOUT_MODE } from './app/rules-tables.ts';
-import { isMarkdownDoc, viewerBlocked } from './documents/state.ts';
+import { isMarkdownDoc, viewerBlocked, withDocQuery, isTextDoc } from './documents/state.ts';
 import { useLevel } from './documents/rules.ts';
+import { setHtml } from './platform/markup.ts';
+import { bootVector, openVectorDocument } from './pdf/flow-open.ts';
+import { releaseAllVectorPages } from './pdf/view-draw.ts';
+import {
+  setChangesView,
+  setDocumentPins,
+  setDocumentWork,
+  setMarkdownSurface,
+  setOfflineQueue,
+  setPageNavigation,
+  setPageSurface,
+  setPinNotifications,
+  setVerdictHold,
+} from './documents/state-seams.ts';
+import { setLastPinsRevision, setLastSrcMtime, startLightPolling, pollLight } from './documents/flow-polling.ts';
+import { drawMeta } from './documents/view-meta.ts';
 
 // The seams platform calls the features through (docs/handbook/viewer.md §모듈 경계), each registered here once. This
 // runs before boot() and before any listener can fire (no code that runs while the script loads calls one), so no
@@ -165,6 +258,63 @@ setNoticeFocus({
   isReasonField,
 });
 setNoticeComposer({ saveButtonLabel });
+// The seams documents calls the features above it through (documents/state-seams.ts), registered the same way.
+setPageSurface({
+  build: buildDoc,
+  fitWidth: autoFitWidth,
+  widestPoints: widestPagePoints,
+  startScale,
+  reapplyScale,
+  pageSource: pageSrc,
+  openVector: openVectorDocument,
+  releaseVector: releaseAllVectorPages,
+});
+setPageNavigation({
+  leaveSearch: searchLeave,
+  fitSearch: searchFit,
+  closePageList,
+  outlinePage: () => OUTLINE_ACTIVE_PAGE,
+  markOutline,
+  drawSheetPages,
+  revealPageRow,
+  tipCutTitles,
+});
+setMarkdownSurface({
+  reading: () => MARKDOWN_VIEW,
+  build: buildMarkdownDoc,
+  checkTreeImages,
+  readingAnchor,
+  positionLabel: markdownPositionLabel,
+  showHint: showMarkdownHint,
+  lineLeaves,
+  showLines,
+});
+setChangesView({ wanted: () => REVISION_VIEW, setMode: setViewMode, load: loadRevisions });
+setDocumentWork({
+  parkDraft,
+  restoreDraft,
+  openDraft: openDraftDoc,
+  cancelRepick,
+  cancelSelection,
+  editDirty,
+  cancelEdit,
+  replyNote,
+});
+setDocumentPins({ load: loadPins, draw: drawPins, marks });
+setPinNotifications({
+  on: notifyOn,
+  query: notifyQuery,
+  handle: notifyHandle,
+  cursor: notifyCursor,
+  openFromLink: openPinFromLink,
+});
+setVerdictHold({
+  readingPage: pageUnderReadingLine,
+  holdReadingPage: setBuildReadingPage,
+  composing: isComposingNow,
+  afterComposition,
+});
+setOfflineQueue({ queued: () => OFF.n, held: () => OFF.held, flush: offlineFlush });
 let HELP_BACK = null as HTMLElement | null;
 // Opens help with its head on one ink line (headInk); closing it gives the focus back to what had it.
 function openHelp() {
@@ -918,4 +1068,78 @@ document.addEventListener('keydown', (event) => {
     openHelp();
   }
 });
+// Starts the viewer: language, theme and layout, the document list and meta, pages, pins, this tab's kept draft, the
+// first-visit hint (touch or mouse), polling and notifications, then a pin link from the hash (#doc=&pin=) if there was
+// one.
+async function boot() {
+  i18nStart();
+  // A link /#doc=<key>&pin=<n>[&act=restore] (a notification clicked with no tab open) is read first: the boot below
+  // rewrites the hash to #doc=<key> on an instance with several documents, which would lose pin=.
+  const link = takeLinkHash();
+  applyTheme();
+  applyLayout();
+  // There's no keyboard shortcut on a touch device - "핀 저장 Ctrl+Enter" would just get clipped at phone width.
+  setHtml($('#btn-save'), saveButtonLabel());
+  await offlineAskDown(); // a page the worker answered from its copy starts from the stored reads (offline/flow.ts)
+  await loadDocs();
+  setDoc(initialDoc());
+  try {
+    setMeta((await api(withDocQuery('/api/meta'), { what: '화면 정보 읽기', where: NOTICE_HOST.LINE })).data);
+  } catch (error) {
+    return;
+  }
+  if (META.doc) setDoc(META.doc);
+  META_BY.set(DOC, META);
+  loadViews();
+  const view = VIEW_BY.get(DOC);
+  if (multiDoc()) {
+    setHash(DOC);
+    savePrefs({ lastDoc: DOC });
+  }
+  // A device that was here before hears what came since, gathered into one message (docs/handbook/viewer.md §새 소식).
+  if (visitedBefore()) digestBegin(translate('지난 방문 뒤'));
+  drawMeta();
+  applySideWidth();
+  applyOutlineState();
+  const hadWidth = applyViewWidth(view);
+  buildDoc();
+  if (!hadWidth) autoFitWidth();
+  bootVector();
+  const pinsLoaded = await loadPins();
+  restoreView(view);
+  drawDocTabs();
+  updateSectionStrip();
+  restoreDraft(); // the page count is there before the first scroll (mid shows it in the nav bar)
+  if (isMarkdownDoc())
+    coach(
+      COARSE_POINTER_QUERY.matches ? 'touch' : 'mouse',
+      isTextDoc()
+        ? COARSE_POINTER_QUERY.matches
+          ? '줄을 누르면 그 줄을, 길게 눌러 글을 고르면 그 줄들을 고릅니다'
+          : '누르면 그 줄을, 끌면 그 줄들을 고릅니다' // a text document: a press picks its line
+        : COARSE_POINTER_QUERY.matches
+          ? '블록을 누르면 그 블록을, 길게 눌러 글을 고르면 그 줄을 고릅니다'
+          : '끌면 그 줄을, 누르면 그 블록을 고릅니다',
+    );
+  else if (COARSE_POINTER_QUERY.matches)
+    coach('touch', 'PDF를 길게 누르면 그 문단을 고릅니다 · [선택]을 켜면 끌어서 고릅니다');
+  // a mouse user's first hint how to pin (the PDF also shows a crosshair)
+  else coach('mouse', 'PDF를 끌어서 고칠 곳을 고르세요');
+  // A failed first read has no pin baseline; the light poll must retry even when meta has not changed.
+  if (pinsLoaded) {
+    setLastPinsRevision(META.pins_rev);
+    setLastSrcMtime(META.src_sig || META.src_mtime);
+  }
+  // the build count this tab has already "seen"
+  BUILD.lastSeq = typeof META.build_seq === 'number' ? META.build_seq : 0;
+  (META.docs || []).forEach((entry) => DOC_SEQ.set(entry.key, entry.build_seq));
+  startLightPolling();
+  startBuildPolling();
+  offlineBoot();
+  checkDocsSeen(); // what changed since this device last saw each document (documents/flow-updates.ts)
+  if (DIGEST) pollLight().finally(() => digestSoon(DIGEST_TAIL_MS)); // the events addressed to me since the last visit
+  drawNotify();
+  if (prefs().notify && notifySupported() && notifyPerm() === 'granted') notifyRegister();
+  if (link.pin) openPinFromLink(link.doc || DOC, link.pin, link.restore);
+}
 boot();

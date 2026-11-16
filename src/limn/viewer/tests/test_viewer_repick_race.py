@@ -4,7 +4,9 @@ import json
 import shutil
 import unittest
 
-from helpers import JS_OFFLINE_STUBS, JS_UPDATE_STUBS, extract_js_fn, js_markup, run_node
+from helpers import JS_OFFLINE_STUBS, JS_UPDATE_STUBS, extract_js_fn, js_markup, js_seams_wired, run_node
+
+DOCUMENT_SEAMS = "documents/state-seams.ts"
 
 
 class RepickRequestLifetime(unittest.TestCase):
@@ -56,6 +58,7 @@ class RepickRequestLifetime(unittest.TestCase):
                 JS_OFFLINE_STUBS + extract_js_fn("pick"),  # connected: a selection asks the server (offline/flow.ts)
                 JS_UPDATE_STUBS + extract_js_fn("switchDoc"),
                 "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (documents/state.ts)
+                js_seams_wired(DOCUMENT_SEAMS),  # what documents asks the features above it, wired as js/main.ts does
                 scenario,
             ]
         )

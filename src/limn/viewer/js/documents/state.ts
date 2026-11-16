@@ -60,6 +60,7 @@ function viewerBlocked() {
   bannerNote(undefined, '보기 권한(viewer)만 있는 계정이라 바꿀 수 없습니다', NOTICE_KIND.WARN);
   return true;
 }
+const REVISION_PAGE = 30; // rows of one /api/revisions page (the server's history window is 500, api.md)
 
 export {
   isMarkdownDoc,
@@ -73,4 +74,5 @@ export {
   docKindOf,
   isViewer,
   viewerBlocked,
+  REVISION_PAGE,
 };

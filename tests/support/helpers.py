@@ -156,14 +156,15 @@ def js_const(name: str) -> str:
     return helpers_js.declaration_source(HTML, name)
 
 
-# A seam of platform (docs/handbook/viewer.md §모듈 경계): `let STORE: Kind | null = null;`, `function setKind(x: Kind)`
-# that stores x, and the accessor `function kind(): Kind` that returns it or throws. js/main.ts registers each.
+# A seam (docs/handbook/viewer.md §모듈 경계) - one a lower module calls the features above it through: `let STORE: Kind |
+# null = null;`, `function setKind(x: Kind)` that stores x, and the accessor `function kind(): Kind` that returns it or
+# throws. js/main.ts registers each.
 _SEAM_SETTER = re.compile(r"^function (set\w+)\((\w+): (\w+)\) \{\n  (\w+) = \2;\n\}", re.M)
 
 
 @dataclasses.dataclass(frozen=True)
 class Seam:
-    """One platform seam: its module (under js/), registration function, interface, store and accessor."""
+    """One seam: its module (under js/), registration function, interface, store and accessor."""
 
     module: str
     setter: str
@@ -172,11 +173,15 @@ class Seam:
     accessor: str
 
 
-def platform_seams() -> list[Seam]:
-    """Every seam the platform modules declare, read from their source by the shape above (a setter storing its one
-    argument of an interface type declared in the same module, and the accessor answering that interface)."""
+def viewer_seams() -> list[Seam]:
+    """Every seam the viewer's modules declare (all but the entry point, which registers them), read from their source
+    by the shape above (a setter storing its one argument of an interface type declared in the same module, and the
+    accessor answering that interface)."""
     out = []
-    for path in sorted((VIEWER / "js" / "platform").glob("*.ts")):
+    js = VIEWER / "js"
+    for path in sorted(js.rglob("*.ts")):
+        if path == js / "main.ts":
+            continue
         src = path.read_text(encoding="utf-8")
         for m in _SEAM_SETTER.finditer(src):
             setter, _, interface, store = m.groups()
@@ -184,14 +189,19 @@ def platform_seams() -> list[Seam]:
                 continue
             accessor = re.search(r"^function (\w+)\(\): %s \{" % interface, src, re.M)
             assert accessor, "%s: %s has no accessor" % (path.name, setter)
-            out.append(Seam("platform/" + path.name, setter, interface, store, accessor.group(1)))
+            out.append(Seam(path.relative_to(js).as_posix(), setter, interface, store, accessor.group(1)))
     return out
 
 
+def platform_seams() -> list[Seam]:
+    """The seams the platform modules declare (viewer_seams)."""
+    return [seam for seam in viewer_seams() if seam.module.startswith("platform/")]
+
+
 def js_seam(setter: str) -> str:
-    """A platform seam as the page has it: its store, its registration function and its accessor, for a node harness
-    that runs a platform function calling it. The harness registers it (js_seam_wired, or its own call)."""
-    seam = next(s for s in platform_seams() if s.setter == setter)
+    """A seam as the page has it: its store, its registration function and its accessor, for a node harness that runs a
+    function calling it. The harness registers it (js_seam_wired, or its own call)."""
+    seam = next(s for s in viewer_seams() if s.setter == setter)
     return "\n".join([js_const(seam.store), extract_js_fn(seam.setter), extract_js_fn(seam.accessor)])
 
 
@@ -204,6 +214,13 @@ def js_seam_wired(setter: str, late: bool = False) -> str:
         call = re.sub(r"(?<=[{,\s])(\w+): ([A-Za-z_$][\w$]*)(?=\s*[,}])", r"\1: (...a) => \2(...a)", call)
         call = re.sub(r"(?<=[{,])(\s+)([A-Za-z_$][\w$]*)(?=\s*[,}])", r"\1\2: (...a) => \2(...a)", call)
     return js_seam(setter) + "\n" + call + ";"
+
+
+def js_seams_wired(module: str) -> str:
+    """js_seam_wired(setter, late=True) for every seam of one module (`documents/state-seams.ts`), for a harness that
+    runs functions calling several of them and defines, under the names js/main.ts registers, only the stand-ins the
+    run reaches."""
+    return "\n".join(js_seam_wired(seam.setter, late=True) for seam in viewer_seams() if seam.module == module)
 
 
 def js_fn_body(name: str) -> str:

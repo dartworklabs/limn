@@ -20,21 +20,13 @@ import { html, setHtml } from '../platform/markup.ts';
 import { translate } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
 import { announce, lineNote, sourceOk } from '../platform/notices.ts';
-import { loadRevisions } from '../revisions/flow.ts';
-import { drawMeta } from './flow-boot.ts';
+import { drawMeta } from './view-meta.ts';
 import { BUILD, pollBuild, pullSuffix } from './view-build-chip.ts';
-import { buildDoc, pageSrc, reapplyScale } from '../pdf/view-pages.ts';
-import { openVectorDocument } from '../pdf/flow-open.ts';
-import { releaseAllVectorPages } from '../pdf/view-draw.ts';
-import { buildMarkdownDoc } from '../markdown/view.ts';
-import { pageUnderReadingLine } from '../verdict/flow-line.ts';
-import { isComposingNow, afterComposition } from '../verdict/flow-reason.ts';
-import { setBuildReadingPage } from '../verdict/view-panel.ts';
-import { loadPins } from '../pins/flow-list.ts';
 import { NOTICE_HOST, NOTICE_KIND } from '../platform/tables.ts';
 import { $, $$ } from '../platform/dom.ts';
 import { BUILD_STATE } from '../app/rules-tables.ts';
 import { withDocQuery } from './state.ts';
+import { changesView, documentPins, markdownSurface, pageSurface, verdictHold } from './state-seams.ts';
 function topAnchor(offset?) {
   const scroller = $('#left'),
     scrollerTop = scroller.getBoundingClientRect().top,
@@ -123,16 +115,16 @@ async function refreshDoc(meta?) {
     META_BY.set(visitDoc, snapshot);
     setMeta(snapshot);
     drawMeta();
-    buildMarkdownDoc();
-    await loadPins();
+    markdownSurface().build();
+    await documentPins().load();
     return;
   } // no pages: the source is drawn again
   // Building the pages again takes the reason field with them: a syllable being composed in it ends first, and the key
   // that ended it lets the field go (isComposingNow), and the spot is read again after the wait. A newer snapshot that
   // came meanwhile wins - applied at once (the same page count) or waiting too: this one is dropped, never put back
   // over it, which would roll the newer build back for good.
-  if (!(META && snapshot.pages.length === META.pages.length) && isComposingNow()) {
-    await afterComposition();
+  if (!(META && snapshot.pages.length === META.pages.length) && verdictHold().composing()) {
+    await verdictHold().afterComposition();
     if (visitDoc !== DOC || seq !== SWITCHSEQ || gen !== REFRESH_GEN) return;
     anchor = topAnchor();
   }
@@ -145,27 +137,27 @@ async function refreshDoc(meta?) {
   // PDF is opened. A page whose paper size changed (a figure drawn again larger) takes its new width at the same scale
   // (reapplyScale - which leaves the scale alone while the changes view hides the PDF area).
   if (same) {
-    releaseAllVectorPages();
+    pageSurface().releaseVector();
     $$('.pg').forEach((pageElement, index) => {
       const page = META.pages[index];
       pageElement.dataset.ptw = String(page.pt_w);
       pageElement.style.aspectRatio = page.pt_w + ' / ' + page.pt_h;
-      pageElement.querySelector('img').src = pageSrc(page);
+      pageElement.querySelector('img').src = pageSurface().pageSource(page);
     });
-    reapplyScale();
+    pageSurface().reapplyScale();
   } else {
-    setBuildReadingPage(pageUnderReadingLine());
+    verdictHold().holdReadingPage(verdictHold().readingPage());
     try {
-      buildDoc();
+      pageSurface().build();
       restoreAnchor(anchor);
     } finally {
-      setBuildReadingPage(0);
+      verdictHold().holdReadingPage(0);
     }
   } // the reading page held until its spot is back
   restoreAnchor(anchor);
-  openVectorDocument();
-  if (document.body.classList.contains('revision-open')) loadRevisions();
-  await loadPins();
+  pageSurface().openVector();
+  if (document.body.classList.contains('revision-open')) changesView().load();
+  await documentPins().load();
 }
 // On ok_errors|fail, the panel itself is opened right away: it is where a failed build is said (with the pull's line,
 // pullSuffix), and the status line's failure item (compact) and #build-err-chip (the desktop's chips, while the panel
