@@ -27,16 +27,13 @@ import { translateTemplate, translate, josaName } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
 import { GROUPS, flushDeferred, groupNote, groupRedraw, lineNote } from '../platform/notices.ts';
 import { switchDoc } from './flow-switch.ts';
-import { notifyCursor, openPinFromLink } from '../pins/flow-notification.ts';
 import { drawStatus } from './view-status.ts';
-import { replyNote } from '../pins/flow-reply.ts';
-import { editDirty } from '../pins/flow-edit.ts';
 import { NOTICE_DOT, NOTICE_KIND } from '../platform/tables.ts';
 import { $$ } from '../platform/dom.ts';
 import { VIEW_MODE } from '../app/rules-tables.ts';
 import { who } from '../app/state-people.ts';
 import { isMarkdownDoc, docInfo, withDocQuery, pdoc, REVISION_PAGE } from './state.ts';
-import { changesView, markdownSurface } from './state-seams.ts';
+import { changesView, documentWork, markdownSurface, pinNotifications } from './state-seams.ts';
 const UPDATE_STATE = {
   moved: new Map() as Map<string, { moved: Set<number>; lost: Set<number> }>,
   lines: new Map() as Map<string, { base: string[]; ranges: { lo: number; hi: number }[]; at: number }>,
@@ -119,7 +116,7 @@ function verAfter(version: string, other: string): boolean {
 }
 // Whether this device was here before: it has a seen record or an event cursor (pins/flow-notification.ts).
 function visitedBefore() {
-  return !!seenStore().v || notifyCursor() !== null;
+  return !!seenStore().v || pinNotifications().cursor() !== null;
 }
 function seenPin(): number | null {
   const highest = seenStore().pin;
@@ -744,7 +741,11 @@ function newPinsView(news: any) {
   return {
     msg: (here ? head : translateTemplate('{doc}에 {what}', { doc: name, what: head })) + ' — ' + description,
     kind: NOTICE_KIND.INFO,
-    act: { label: here ? '보기' : '열기', tip: '그 핀으로 갑니다', fn: () => openPinFromLink(news.doc, first.id) },
+    act: {
+      label: here ? '보기' : '열기',
+      tip: '그 핀으로 갑니다',
+      fn: () => pinNotifications().openFromLink(news.doc, first.id),
+    },
     o: {
       literal: true,
       back: !here,
@@ -808,8 +809,8 @@ async function checkVersion() {
 // behind an undo is sent first - unless a reply or an edit is being written, which a reload would lose: that is said
 // instead.
 function reloadForUpdate() {
-  const replyField = REPLY && replyNote(REPLY),
-    typing = !!(replyField && replyField.value.trim()) || REPLY_DRAFT.size > 0 || editDirty();
+  const replyField = REPLY && documentWork().replyNote(REPLY),
+    typing = !!(replyField && replyField.value.trim()) || REPLY_DRAFT.size > 0 || documentWork().editDirty();
   if (typing) {
     lineNote('쓰던 답글이나 수정이 있습니다 — 보내거나 저장한 뒤 새로 고치세요', NOTICE_KIND.WARN, null, {
       source: 'reload-typing',

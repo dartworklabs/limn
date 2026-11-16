@@ -1,6 +1,7 @@
 """What documents asks the features above it (documents/state-seams.ts, docs/handbook/viewer.md §모듈 경계): documents
 decides which document is open and when it is drawn, saved, left and refreshed, and calls the pages, their outline and
-page list, the Markdown surface and the changes view through seams js/main.ts registers.
+page list, the Markdown surface, the changes view, the drafts and edits on the page, the pins and their notifications,
+the verdict's hold on the reading line and the queued pins through seams js/main.ts registers.
 
 test_viewer_platform_seams.py holds that js/main.ts registers every seam once before boot() and that an unregistered one
 throws by name. These tests run documents' own functions under node, wired by js/main.ts's own registration
@@ -172,8 +173,9 @@ function topAnchor(){return {page:1};} function restoreAnchor(){LOG.push(['resto
 function rebuildSources(){return [];} function sourceOk(){}
 function setMeta(v){META=v;} function drawMeta(){LOG.push(['drawMeta']);}
 function isComposingNow(){return false;}
-// the reading page held while the pages are built again (verdict/view-panel.ts; its setter comes with refreshDoc)
+// the reading page held while the pages are built again (verdict/view-panel.ts)
 var BUILD_READING_PAGE=0; function pageUnderReadingLine(){return 4;}
+function setBuildReadingPage(value){BUILD_READING_PAGE=value; return value;}
 function buildDoc(){LOG.push(['build',BUILD_READING_PAGE]);}
 function loadPins(){LOG.push(['loadPins']); return Promise.resolve(true);}
 const IMGS=[{},{}];
@@ -476,6 +478,230 @@ class Meta(unittest.TestCase):
                 ["body", "role-viewer", False],
             ],
         )
+
+
+class LeavingWork(unittest.TestCase):
+    """switchDoc keeps, drops and brings back the work on the page through documentWork, guarded as before."""
+
+    def setUp(self):
+        """Skip without node."""
+        node_or_skip(self)
+
+    def switch(self, setup, then="switchDoc('b')"):
+        # a kept document shows at once, its fresh meta never answering here: the log is read right after the call
+        return run(
+            JS_UPDATE_STUBS,
+            *(extract_js_fn(n) for n in ("switchDoc", "showDoc", "applyViewWidth", "viewScale")),
+            SWITCH_SCOPE,
+            "REVISION_OPEN=false;",
+            setup,
+            "(async()=>{%s; console.log(JSON.stringify(LOG));})();" % then,
+        )
+
+    def test_an_open_composer_is_cancelled_keeping_nothing_and_a_clean_edit_closes(self):
+        """The draft is parked and the re-placing ended, then - a pin being composed - the selection is cancelled with
+        clearNote false, and the edit card, asked whether it holds a change and answering no, is closed."""
+        got = self.switch(
+            "COMPOSE.current={}; EDITOR.current={};"
+            "function cancelSelection(clearNote){LOG.push(['cancelSelection',clearNote]);}"
+            "function editDirty(){LOG.push(['editDirty']); return false;}"
+        )
+        self.assertEqual(
+            got[:7],
+            [["leaveSearch"], ["saveView"], ["parkDraft"], ["cancelRepick"], ["cancelSelection", False], ["editDirty"],
+             ["cancelEdit"]],
+        )  # fmt: skip
+
+    def test_an_edit_with_a_change_stays_open(self):
+        """editDirty's yes keeps the edit card: no cancelEdit."""
+        got = self.switch("EDITOR.current={}; function editDirty(){LOG.push(['editDirty']); return true;}")
+        self.assertIn(["editDirty"], got)
+        self.assertNotIn(["cancelEdit"], got)
+
+    def test_a_failed_read_of_the_document_brings_the_draft_back(self):
+        """A document with no kept meta whose read fails: the parked draft comes back, and nothing is shown."""
+        got = self.switch("function api(){return Promise.reject(new Error('no'));}", then="await switchDoc('c')")
+        self.assertEqual(got, [["leaveSearch"], ["saveView"], ["parkDraft"], ["cancelRepick"], ["restoreDraft"]])
+
+    def test_a_reload_asks_the_reply_box_and_the_edit_card_what_would_be_lost(self):
+        """reloadForUpdate reads the open reply box's field, then asks the edit card - a reply being written stops the
+        reload before the edit card is asked."""
+        got = run(
+            r"""
+            let REPLY={id:1}; const REPLY_DRAFT=new Set(); var NOTICE_KIND={WARN:'warn'};
+            let FIELD={value:''}; function replyNote(reply){LOG.push(['replyNote',reply.id]); return FIELD;}
+            function editDirty(){LOG.push(['editDirty']); return false;}
+            function lineNote(){LOG.push(['said']);} function flushDeferred(){LOG.push(['flush']);}
+            const location={reload(){LOG.push(['reload']);}};
+            """,
+            extract_js_fn("reloadForUpdate"),
+            "reloadForUpdate(); LOG.push(['--']); FIELD={value:'답'}; reloadForUpdate(); console.log(JSON.stringify(LOG));",
+        )
+        self.assertEqual(
+            got, [["replyNote", 1], ["editDirty"], ["flush"], ["reload"], ["--"], ["replyNote", 1], ["said"]]
+        )
+
+
+# The light poll's own state and what it calls besides the seams.
+POLL_SCOPE = r"""
+let DOC='a',SWITCHSEQ=1,LAST_PINS_REVISION='r',LAST_SRC_MTIME='s',POLL_FAILS=0,HIDDEN=false,NOTIFY_HIDDEN_INFLIGHT=null;
+const BUILD={lastSeq:0,timer:null}; const OFF={n:0,held:0};
+const document={get hidden(){return HIDDEN;}};
+function isMarkdownDoc(){return false;} function withDocQuery(u){return u;}
+const ELS={}; function $(sel){return ELS[sel]||(ELS[sel]={hidden:false});}
+function notifyOn(){LOG.push(['on']); return true;} function notifyQuery(){LOG.push(['query']); return '&ev=4';}
+function notifyHandle(meta){LOG.push(['handle',meta.tag]);}
+function offlineFlush(){LOG.push(['flush']); return Promise.resolve();}
+function updateStaleBadge(){LOG.push(['staleBadge']);} function updateSyncBadge(){} function noteOtherDocs(){}
+let APPLIED=true; function loadPins(){LOG.push(['loadPins']); return Promise.resolve(APPLIED);}
+function pollBuild(){} function announce(){}
+let META={tag:'m',pins_rev:'r2',src_sig:'s'};
+function api(url){LOG.push(['api',url]); return Promise.resolve({data:META});}
+"""
+
+
+class LightPoll(unittest.TestCase):
+    """pollLightOnce asks for the events, says them, sends the queued pins back online and reads the pins, each
+    through its seam at its old place, the answers used as before."""
+
+    def setUp(self):
+        """Skip without node."""
+        node_or_skip(self)
+
+    def poll(self, setup, call="pollLightOnce()"):
+        return run(
+            JS_UPDATE_STUBS + extract_js_fn("pollLightOnce"),
+            extract_js_fn("pollHiddenNotify"),
+            extract_js_fn("pollHiddenNotifyOnce"),
+            POLL_SCOPE,
+            setup,
+            "Promise.resolve(%s).then(()=>console.log(JSON.stringify({log:LOG,rev:LAST_PINS_REVISION})));" % call,
+        )
+
+    def test_the_events_are_asked_for_and_said_before_the_visit_is_checked(self):
+        """The query joins the meta's address, the answer's events are said first; then the badge and the pins, whose
+        applied read moves the revision baseline."""
+        got = self.poll("")
+        self.assertEqual(
+            got,
+            {
+                "log": [["query"], ["api", "/api/meta?light=1&ev=4"], ["handle", "m"], ["staleBadge"], ["loadPins"]],
+                "rev": "r2",
+            },
+        )
+
+    def test_a_pin_read_that_did_not_apply_keeps_the_baseline(self):
+        """load()'s false: the revision is read again on the next poll."""
+        self.assertEqual(self.poll("APPLIED=false;")["rev"], "r")
+
+    def test_the_queued_pins_are_sent_when_the_connection_comes_back(self):
+        """After failed polls and with pins queued, flush() runs before the badges; with none queued it does not."""
+        sent = self.poll("POLL_FAILS=1; OFF.n=2;")["log"]
+        none = self.poll("POLL_FAILS=1;")["log"]
+        self.assertEqual(sent[3:5], [["flush"], ["staleBadge"]])
+        self.assertNotIn(["flush"], none)
+
+    def test_a_hidden_tab_asks_for_the_events_only_while_notifications_are_on(self):
+        """pollHiddenNotify asks whether they are on; pollHiddenNotifyOnce joins the query and says the answer while
+        the tab is still hidden."""
+        got = self.poll("HIDDEN=true;", call="pollHiddenNotify()")
+        self.assertEqual(got["log"], [["on"], ["query"], ["api", "/api/meta?light=1&ev=4"], ["handle", "m"]])
+        off = self.poll("HIDDEN=true; function notifyOn(){LOG.push(['on']); return false;}", call="pollHiddenNotify()")
+        self.assertEqual(off["log"], [["on"]])
+
+    def test_the_timer_of_a_hidden_tab_starts_only_while_notifications_are_on(self):
+        """syncHiddenNotifyTimer asks whether they are on before polling and starting its timer."""
+        got = run(
+            POLL_SCOPE,
+            r"""
+            HIDDEN=true; let NOTIFY_HIDDEN_TIMER; const NOTIFY_HIDDEN_INTERVAL_MS=20000;
+            function pollHiddenNotify(){LOG.push(['poll']);}
+            function setInterval(fn,ms){LOG.push(['timer',ms]); return 1;} function clearInterval(){}
+            """,
+            extract_js_fn("syncHiddenNotifyTimer"),
+            "syncHiddenNotifyTimer(); console.log(JSON.stringify(LOG));",
+        )
+        self.assertEqual(got, [["on"], ["poll"], ["timer", 20000]])
+
+
+class PinNews(unittest.TestCase):
+    """The update messages read the notification cursor and open a new pin as its link does."""
+
+    def setUp(self):
+        """Skip without node."""
+        node_or_skip(self)
+
+    def test_a_device_with_a_cursor_was_here_before(self):
+        got = run(
+            "let CURSOR=null; function notifyCursor(){LOG.push(['cursor']); return CURSOR;} function seenStore(){return {};}",
+            extract_js_fn("visitedBefore"),
+            "const before=visitedBefore(); CURSOR=3; console.log(JSON.stringify([before,visitedBefore(),LOG.length]));",
+        )
+        self.assertEqual(got, [False, True, 2])
+
+    def test_a_new_pins_view_opens_the_pin_and_hands_back_what_the_link_returns(self):
+        """[보기]'s fn opens the first new pin of the message's document and returns openPinFromLink's promise."""
+        got = run(
+            r"""
+            let DOC='a'; const GROUPS=new Map(),UPDATE_STATE={top:0}; var NOTICE_KIND={INFO:'info'},NOTICE_DOT={SIDE:'side'};
+            function docInfo(){return {name:'a'};} function setSeenPin(){}
+            const OPENED=Promise.resolve('opened');
+            function openPinFromLink(doc,pin,restore){LOG.push(['openFromLink',doc,pin,restore===undefined]); return OPENED;}
+            """,
+            extract_js_fn("newPinsView"),
+            "const view=newPinsView({doc:'b',pins:[{id:12,who:'x'}]}); const back=view.act.fn();"
+            "console.log(JSON.stringify([LOG,back===OPENED]));",
+        )
+        self.assertEqual(got, [[["openFromLink", "b", 12, True]], True])
+
+
+class ReadingLineHold(unittest.TestCase):
+    """refreshDoc waits for a syllable being composed before it builds the pages, then reads the spot again."""
+
+    def setUp(self):
+        """Skip without node."""
+        node_or_skip(self)
+
+    def test_a_syllable_being_composed_ends_before_the_pages_are_built(self):
+        got = run(
+            REFRESH_SCOPE,
+            r"""
+            var BUILD_READING_PAGE=0; function setBuildReadingPage(value){BUILD_READING_PAGE=value; return value;}
+            function pageUnderReadingLine(){LOG.push(['readingPage']); return 4;}
+            function buildDoc(){LOG.push(['build',BUILD_READING_PAGE]);}
+            function isComposingNow(){LOG.push(['composing']); return true;}
+            function afterComposition(){LOG.push(['afterComposition']); return Promise.resolve();}
+            function topAnchor(){LOG.push(['anchor']); return {page:1};}
+            const SNAPSHOT={pages:[{n:1}]};
+            """,
+            extract_js_fn("refreshDoc"),
+            "refreshDoc(SNAPSHOT).then(()=>console.log(JSON.stringify(LOG.slice(0,7))));",
+        )
+        self.assertEqual(
+            got,
+            [["anchor"], ["composing"], ["afterComposition"], ["anchor"], ["drawMeta"], ["readingPage"], ["build", 4]],
+        )
+
+
+class QueuedPins(unittest.TestCase):
+    """The status line reads how many pins are queued and held back."""
+
+    def setUp(self):
+        """Skip without node."""
+        node_or_skip(self)
+
+    def test_the_status_input_counts_the_queued_and_held_pins(self):
+        got = run(
+            r"""
+            const OFF={n:3,held:1}; const LINE=[],BUILD={cur:null,error:null,unchanged:null};
+            let POLL_FAILS=0,STATUS_SYNC=null,META=null;
+            function versionOutdated(){return false;} function $(){return {hidden:true};}
+            function buildsFromSource(){return false;} function isViewer(){return false;}
+            """,
+            extract_js_fn("statusInput"),
+            "const input=statusInput(); console.log(JSON.stringify([input.queued,input.held]));",
+        )
+        self.assertEqual(got, [3, 1])
 
 
 if __name__ == "__main__":

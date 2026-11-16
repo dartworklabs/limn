@@ -52,7 +52,7 @@ js/platform/tooltip.ts                 # hover/focus tooltips, the touch long-pr
 js/platform/segments.ts                # segmented controls: the words on offer, one Tab stop, the focus kept across a redraw
 js/documents/view-tabs.ts              # several documents: the list, tabs and links
 js/documents/state.ts                  # the open document's facts: entries and their kinds, the pin's document, queries, verdict words, the viewer role
-js/documents/state-seams.ts            # what documents asks the features above it: the pages, their outline and page list, the Markdown surface, the changes view
+js/documents/state-seams.ts            # what documents asks the features above it: the pages, their outline and page list, the Markdown surface, the changes view, the drafts and edits, the pins, notifications, the verdict's hold, the queued pins
 js/revisions/flow.ts                   # the changes view: source diff, comparison PDF, [변경 보기] from a pin
 js/documents/flow-switch.ts            # the documents sheet, remembered view positions, switching documents
 js/documents/view-meta.ts              # the header: meta, stale and sync badges, viewer role

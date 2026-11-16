@@ -1,7 +1,8 @@
 // ------------------------------------------------ What documents asks the features above it
 // documents decides which document is open and when it is drawn, saved, left and refreshed; drawing it, its outline
-// and page list, its search, its Markdown lines and the changes view are the features above (pdf, markdown,
-// revisions). documents may not import them (docs/handbook/viewer.md §모듈 경계), so each need is a seam here: an
+// and page list, its search, its Markdown lines and the changes view, the drafts and edits on it, its pins and the
+// browser notifications, the verdict's reading line and the queued pins are the features above (pdf, markdown,
+// revisions, composer, pins, verdict, offline). documents may not import them (docs/handbook/viewer.md §모듈 경계), so each need is a seam here: an
 // interface for what documents asks, a registration function and an accessor. js/main.ts registers every seam once, at
 // its top level before boot() runs (no code that runs while the script loads reaches one), and documents calls the
 // registered function at the point, with the arguments and in the order it called the feature function directly. An
@@ -142,13 +143,142 @@ function changesView(): ChangesView {
   if (!CHANGES_VIEW) throw new Error('setChangesView() has not run: documents has no changes view');
   return CHANGES_VIEW;
 }
+
+// The work in progress on the page (composer/flow-draft.ts, composer/flow-repick.ts, composer/flow-pick.ts,
+// pins/flow-edit.ts, pins/flow-reply.ts): what a switch keeps, drops or brings back, and what a reload would lose.
+interface DocumentWork {
+  /** Keeps the composer's draft for the document being left. */
+  parkDraft(): void;
+  /** Brings this tab's kept draft back. */
+  restoreDraft(): void;
+  /** Opens the draft kept for the document now open. */
+  openDraft(): void;
+  /** Ends a pin's re-placing. */
+  cancelRepick(): void;
+  /** Ends the selection and closes the composer; clearNote drops its note too. */
+  cancelSelection(clearNote: boolean): void;
+  /** Whether the open edit card holds a change not saved. */
+  editDirty(): boolean;
+  /** Closes the edit card. */
+  cancelEdit(): void;
+  /** The text field of a reply box. */
+  replyNote(reply: ReplyBox): HTMLTextAreaElement;
+}
+let DOCUMENT_WORK: DocumentWork | null = null;
+// Registers the work in progress; js/main.ts calls it once.
+function setDocumentWork(work: DocumentWork) {
+  DOCUMENT_WORK = work;
+}
+// The registered work in progress; throws before setDocumentWork() has run.
+function documentWork(): DocumentWork {
+  if (!DOCUMENT_WORK) throw new Error('setDocumentWork() has not run: documents cannot reach the drafts and edits');
+  return DOCUMENT_WORK;
+}
+
+// The open document's pins (pins/flow-list.ts): reading them, the list and their marks on the page.
+interface DocumentPins {
+  /** Reads the pins; whether the read applied. */
+  load(): Promise<boolean>;
+  /** Draws the pin list. */
+  draw(): void;
+  /** Draws the pins' marks on the document. */
+  marks(): void;
+}
+let DOCUMENT_PINS: DocumentPins | null = null;
+// Registers the pins; js/main.ts calls it once.
+function setDocumentPins(pins: DocumentPins) {
+  DOCUMENT_PINS = pins;
+}
+// The registered pins; throws before setDocumentPins() has run.
+function documentPins(): DocumentPins {
+  if (!DOCUMENT_PINS) throw new Error('setDocumentPins() has not run: documents has no pins to read or draw');
+  return DOCUMENT_PINS;
+}
+
+// The events addressed to the viewer (pins/flow-notification.ts), which the light poll carries: whether notifications
+// are on, the poll's query for them, what the poll answered, the cursor of the last one said, and a pin link.
+interface PinNotifications {
+  /** Whether browser notifications are on on this device. */
+  on(): boolean;
+  /** The light poll's query for the events since the cursor. */
+  query(): string;
+  /** Says the events a light poll's meta carries. */
+  handle(meta: unknown): void;
+  /** The cursor of the last event said, or null when this device has none. */
+  cursor(): number | null;
+  /** Opens a pin of a document, as a link to it does; restore brings it back from the Trash. */
+  openFromLink(doc: unknown, pin: unknown, restore?: unknown): Promise<void>;
+}
+let PIN_NOTIFICATIONS: PinNotifications | null = null;
+// Registers the notifications and pin links; js/main.ts calls it once.
+function setPinNotifications(notifications: PinNotifications) {
+  PIN_NOTIFICATIONS = notifications;
+}
+// The registered notifications and pin links; throws before setPinNotifications() has run.
+function pinNotifications(): PinNotifications {
+  if (!PIN_NOTIFICATIONS) throw new Error('setPinNotifications() has not run: documents cannot say the events');
+  return PIN_NOTIFICATIONS;
+}
+
+// What the verdict holds while the pages are built again (verdict/flow-line.ts, verdict/view-panel.ts,
+// verdict/flow-reason.ts): the reading line's page, and a syllable being composed in a reason field.
+interface VerdictHold {
+  /** The page under the reading line, 0 when none. */
+  readingPage(): number;
+  /** Holds the reading line on a page while the pages are built again; 0 lets it go. */
+  holdReadingPage(page: number): void;
+  /** Whether a syllable is being composed in a reason field. */
+  composing(): boolean;
+  /** Settles once the syllable being composed has ended. */
+  afterComposition(): Promise<void>;
+}
+let VERDICT_HOLD: VerdictHold | null = null;
+// Registers what the verdict holds; js/main.ts calls it once.
+function setVerdictHold(hold: VerdictHold) {
+  VERDICT_HOLD = hold;
+}
+// The registered verdict hold; throws before setVerdictHold() has run.
+function verdictHold(): VerdictHold {
+  if (!VERDICT_HOLD) throw new Error('setVerdictHold() has not run: documents cannot hold the reading line');
+  return VERDICT_HOLD;
+}
+
+// The pins queued while cut off (offline/flow.ts OFF, offlineFlush): how many wait and are held back, and their send.
+interface OfflineQueue {
+  /** How many pins wait to be sent. */
+  queued(): number;
+  /** How many of them are held back. */
+  held(): number;
+  /** Sends the queued pins. */
+  flush(): Promise<void>;
+}
+let OFFLINE_QUEUE: OfflineQueue | null = null;
+// Registers the queued pins; js/main.ts calls it once.
+function setOfflineQueue(queue: OfflineQueue) {
+  OFFLINE_QUEUE = queue;
+}
+// The registered queued pins; throws before setOfflineQueue() has run.
+function offlineQueue(): OfflineQueue {
+  if (!OFFLINE_QUEUE) throw new Error('setOfflineQueue() has not run: documents has no queued pins');
+  return OFFLINE_QUEUE;
+}
 export {
   changesView,
+  documentPins,
+  documentWork,
   markdownSurface,
+  offlineQueue,
   pageNavigation,
   pageSurface,
+  pinNotifications,
   setChangesView,
+  setDocumentPins,
+  setDocumentWork,
   setMarkdownSurface,
+  setOfflineQueue,
   setPageNavigation,
   setPageSurface,
+  setPinNotifications,
+  setVerdictHold,
+  verdictHold,
 };

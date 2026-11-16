@@ -4341,8 +4341,9 @@ const REVISION_PAGE = 30; // rows of one /api/revisions page (the server's histo
 
 // ------------------------------------------------ What documents asks the features above it
 // documents decides which document is open and when it is drawn, saved, left and refreshed; drawing it, its outline
-// and page list, its search, its Markdown lines and the changes view are the features above (pdf, markdown,
-// revisions). documents may not import them (docs/handbook/viewer.md §모듈 경계), so each need is a seam here: an
+// and page list, its search, its Markdown lines and the changes view, the drafts and edits on it, its pins and the
+// browser notifications, the verdict's reading line and the queued pins are the features above (pdf, markdown,
+// revisions, composer, pins, verdict, offline). documents may not import them (docs/handbook/viewer.md §모듈 경계), so each need is a seam here: an
 // interface for what documents asks, a registration function and an accessor. js/main.ts registers every seam once, at
 // its top level before boot() runs (no code that runs while the script loads reaches one), and documents calls the
 // registered function at the point, with the arguments and in the order it called the feature function directly. An
@@ -4401,6 +4402,69 @@ function setChangesView(view) {
 function changesView() {
   if (!CHANGES_VIEW) throw new Error('setChangesView() has not run: documents has no changes view');
   return CHANGES_VIEW;
+}
+
+// The work in progress on the page (composer/flow-draft.ts, composer/flow-repick.ts, composer/flow-pick.ts,
+// pins/flow-edit.ts, pins/flow-reply.ts): what a switch keeps, drops or brings back, and what a reload would lose.
+let DOCUMENT_WORK = null;
+// Registers the work in progress; js/main.ts calls it once.
+function setDocumentWork(work) {
+  DOCUMENT_WORK = work;
+}
+// The registered work in progress; throws before setDocumentWork() has run.
+function documentWork() {
+  if (!DOCUMENT_WORK) throw new Error('setDocumentWork() has not run: documents cannot reach the drafts and edits');
+  return DOCUMENT_WORK;
+}
+
+// The open document's pins (pins/flow-list.ts): reading them, the list and their marks on the page.
+let DOCUMENT_PINS = null;
+// Registers the pins; js/main.ts calls it once.
+function setDocumentPins(pins) {
+  DOCUMENT_PINS = pins;
+}
+// The registered pins; throws before setDocumentPins() has run.
+function documentPins() {
+  if (!DOCUMENT_PINS) throw new Error('setDocumentPins() has not run: documents has no pins to read or draw');
+  return DOCUMENT_PINS;
+}
+
+// The events addressed to the viewer (pins/flow-notification.ts), which the light poll carries: whether notifications
+// are on, the poll's query for them, what the poll answered, the cursor of the last one said, and a pin link.
+let PIN_NOTIFICATIONS = null;
+// Registers the notifications and pin links; js/main.ts calls it once.
+function setPinNotifications(notifications) {
+  PIN_NOTIFICATIONS = notifications;
+}
+// The registered notifications and pin links; throws before setPinNotifications() has run.
+function pinNotifications() {
+  if (!PIN_NOTIFICATIONS) throw new Error('setPinNotifications() has not run: documents cannot say the events');
+  return PIN_NOTIFICATIONS;
+}
+
+// What the verdict holds while the pages are built again (verdict/flow-line.ts, verdict/view-panel.ts,
+// verdict/flow-reason.ts): the reading line's page, and a syllable being composed in a reason field.
+let VERDICT_HOLD = null;
+// Registers what the verdict holds; js/main.ts calls it once.
+function setVerdictHold(hold) {
+  VERDICT_HOLD = hold;
+}
+// The registered verdict hold; throws before setVerdictHold() has run.
+function verdictHold() {
+  if (!VERDICT_HOLD) throw new Error('setVerdictHold() has not run: documents cannot hold the reading line');
+  return VERDICT_HOLD;
+}
+
+// The pins queued while cut off (offline/flow.ts OFF, offlineFlush): how many wait and are held back, and their send.
+let OFFLINE_QUEUE = null;
+// Registers the queued pins; js/main.ts calls it once.
+function setOfflineQueue(queue) {
+  OFFLINE_QUEUE = queue;
+}
+// The registered queued pins; throws before setOfflineQueue() has run.
+function offlineQueue() {
+  if (!OFFLINE_QUEUE) throw new Error('setOfflineQueue() has not run: documents has no queued pins');
+  return OFFLINE_QUEUE;
 }
 
 // ------------------------------------------------ The changes view (docs/handbook/viewer.md §변경 보기)
@@ -6294,10 +6358,10 @@ async function switchDoc(doc) {
     inPages = !!active && !!active.closest && !!active.closest('#left');
   if (document.body.classList.contains('revision-open')) changesView().setMode(VIEW_MODE.MANUSCRIPT);
   saveView();
-  parkDraft();
-  cancelRepick();
-  if (COMPOSE.current || !$('#composer').hidden) cancelSelection(false);
-  if (EDITOR.current && !editDirty()) cancelEdit();
+  documentWork().parkDraft();
+  documentWork().cancelRepick();
+  if (COMPOSE.current || !$('#composer').hidden) documentWork().cancelSelection(false);
+  if (EDITOR.current && !documentWork().editDirty()) documentWork().cancelEdit();
   let meta = META_BY.get(doc),
     cached = !!meta;
   if (!meta) {
@@ -6313,14 +6377,14 @@ async function switchDoc(doc) {
         })
       ).data;
     } catch (error) {
-      if (seq === SWITCHSEQ) restoreDraft();
+      if (seq === SWITCHSEQ) documentWork().restoreDraft();
       return;
     } finally {
       if (SWITCH_TO && SWITCH_TO.seq === seq) SWITCH_TO = null;
     }
     if (seq !== SWITCHSEQ) return;
     if (navigation !== NAVGEN) {
-      restoreDraft();
+      documentWork().restoreDraft();
       return;
     }
   }
@@ -6331,7 +6395,7 @@ async function switchDoc(doc) {
   setHash(doc);
   hideTip();
   showDoc(VIEW_BY.get(doc));
-  openDraftDoc();
+  documentWork().openDraft();
   checkDocUpdate(doc, {}); // changed since this device last saw it (documents/flow-updates.ts)
   if (inPages && (!document.activeElement || document.activeElement === document.body)) searchToPage();
   if (cached) {
@@ -6370,8 +6434,8 @@ function showDoc(view) {
   if (!view && $('#left')) $('#left').scrollTop = 0;
   setPins(OPEN_ALL.filter((pin) => pdoc(pin) === DOC));
   setDone(DONE_ALL.filter((pin) => pdoc(pin) === DOC));
-  drawPins();
-  marks();
+  documentPins().draw();
+  documentPins().marks();
   drawDocTabs();
   $('#outline-items').textContent = translate('PDF 목차를 읽는 중입니다.');
   if (document.body.classList.contains('revision-open')) changesView().load();
@@ -6620,7 +6684,7 @@ let NOTIFY_HIDDEN_TIMER = undefined,
   NOTIFY_HIDDEN_INFLIGHT = null;
 const NOTIFY_HIDDEN_INTERVAL_MS = 20000;
 function pollHiddenNotify() {
-  if (!document.hidden || !notifyOn()) return Promise.resolve();
+  if (!document.hidden || !pinNotifications().on()) return Promise.resolve();
   if (NOTIFY_HIDDEN_INFLIGHT) return NOTIFY_HIDDEN_INFLIGHT;
   NOTIFY_HIDDEN_INFLIGHT = pollHiddenNotifyOnce().finally(() => {
     NOTIFY_HIDDEN_INFLIGHT = null;
@@ -6631,7 +6695,7 @@ async function pollHiddenNotifyOnce() {
   let meta;
   try {
     meta = (
-      await api(withDocQuery('/api/meta?light=1') + notifyQuery(), {
+      await api(withDocQuery('/api/meta?light=1') + pinNotifications().query(), {
         what: '알림 확인',
         silent: true,
         wait: API_WAIT.POLL,
@@ -6640,14 +6704,14 @@ async function pollHiddenNotifyOnce() {
   } catch (error) {
     return;
   }
-  if (document.hidden) notifyHandle(meta); // if the tab came back while waiting, normal polling has already handled it
+  if (document.hidden) pinNotifications().handle(meta); // if the tab came back while waiting, normal polling has already handled it
 }
 // If the tab hides while notifications are on, the slow timer is started; it's stopped when the tab returns or
 // notifications are turned off (no duplicate polling).
 function syncHiddenNotifyTimer() {
   clearInterval(NOTIFY_HIDDEN_TIMER);
   NOTIFY_HIDDEN_TIMER = undefined;
-  if (document.hidden && notifyOn()) {
+  if (document.hidden && pinNotifications().on()) {
     pollHiddenNotify();
     NOTIFY_HIDDEN_TIMER = setInterval(pollHiddenNotify, NOTIFY_HIDDEN_INTERVAL_MS);
   }
@@ -6671,7 +6735,7 @@ async function pollLightOnce() {
   // poll is out at a time, and a poll left waiting would count no failure for as long as the system let it wait.
   try {
     meta = (
-      await api(withDocQuery('/api/meta?light=1') + notifyQuery(), {
+      await api(withDocQuery('/api/meta?light=1') + pinNotifications().query(), {
         what: '상태 확인',
         silent: true,
         wait: API_WAIT.POLL,
@@ -6688,7 +6752,7 @@ async function pollLightOnce() {
   }
   const was = POLL_FAILS;
   LIGHT_OK_AT = Date.now();
-  notifyHandle(meta); // browser notifications - independent of the document (handled first even mid document-switch)
+  pinNotifications().handle(meta); // browser notifications - independent of the document (handled first even mid document-switch)
   if (visitDoc !== DOC || visit !== SWITCHSEQ) {
     if (back) digestSoon(DIGEST_TAIL_MS);
     return;
@@ -6697,7 +6761,7 @@ async function pollLightOnce() {
   $('#conn-lost').hidden = true;
   if (back || was > 0 || versionDue()) checkVersion();
   // the connection is back: the pins kept while it was gone are written (offline/flow.ts)
-  if (was > 0 && OFF.n) void offlineFlush();
+  if (was > 0 && offlineQueue().queued()) void offlineQueue().flush();
   updateStaleBadge(meta);
   updateSyncBadge(meta.sync);
   noteOtherDocs(meta.docs);
@@ -6708,7 +6772,7 @@ async function pollLightOnce() {
   const needsPins = LAST_PINS_REVISION === null || meta.pins_rev !== LAST_PINS_REVISION || sig !== LAST_SRC_MTIME;
   if (sig !== LAST_SRC_MTIME || meta.building || (meta.sync && meta.sync.state === SYNC_STATE.UPDATING))
     expectUpdate(sig !== LAST_SRC_MTIME); // its pins' moves wait for its update message
-  const applied = !needsPins || (await loadPins());
+  const applied = !needsPins || (await documentPins().load());
   if (visitDoc !== DOC || visit !== SWITCHSEQ) return;
   // Its source changed since the last read that answered: the Markdown surface reads and draws it again, asked once per
   // change while that read is on its way (MARKDOWN_VIEW.asked), and again on the next poll if it failed
@@ -7765,7 +7829,7 @@ function verAfter(version, other) {
 }
 // Whether this device was here before: it has a seen record or an event cursor (pins/flow-notification.ts).
 function visitedBefore() {
-  return !!seenStore().v || notifyCursor() !== null;
+  return !!seenStore().v || pinNotifications().cursor() !== null;
 }
 function seenPin() {
   const highest = seenStore().pin;
@@ -8390,7 +8454,11 @@ function newPinsView(news) {
   return {
     msg: (here ? head : translateTemplate('{doc}에 {what}', { doc: name, what: head })) + ' — ' + description,
     kind: NOTICE_KIND.INFO,
-    act: { label: here ? '보기' : '열기', tip: '그 핀으로 갑니다', fn: () => openPinFromLink(news.doc, first.id) },
+    act: {
+      label: here ? '보기' : '열기',
+      tip: '그 핀으로 갑니다',
+      fn: () => pinNotifications().openFromLink(news.doc, first.id),
+    },
     o: {
       literal: true,
       back: !here,
@@ -8454,8 +8522,8 @@ async function checkVersion() {
 // behind an undo is sent first - unless a reply or an edit is being written, which a reload would lose: that is said
 // instead.
 function reloadForUpdate() {
-  const replyField = REPLY && replyNote(REPLY),
-    typing = !!(replyField && replyField.value.trim()) || REPLY_DRAFT.size > 0 || editDirty();
+  const replyField = REPLY && documentWork().replyNote(REPLY),
+    typing = !!(replyField && replyField.value.trim()) || REPLY_DRAFT.size > 0 || documentWork().editDirty();
   if (typing) {
     lineNote('쓰던 답글이나 수정이 있습니다 — 보내거나 저장한 뒤 새로 고치세요', NOTICE_KIND.WARN, null, {
       source: 'reload-typing',
@@ -8740,8 +8808,8 @@ function statusInput() {
     build: BUILD.cur,
     buildErr: BUILD.error,
     offline: POLL_FAILS >= 2,
-    queued: OFF.n,
-    held: OFF.held,
+    queued: offlineQueue().queued(),
+    held: offlineQueue().held(),
     outdated: versionOutdated(),
     sync: STATUS_SYNC,
     stale: !$('#meta-stale').hidden,
@@ -36789,15 +36857,15 @@ async function refreshDoc(meta) {
     setMeta(snapshot);
     drawMeta();
     markdownSurface().build();
-    await loadPins();
+    await documentPins().load();
     return;
   } // no pages: the source is drawn again
   // Building the pages again takes the reason field with them: a syllable being composed in it ends first, and the key
   // that ended it lets the field go (isComposingNow), and the spot is read again after the wait. A newer snapshot that
   // came meanwhile wins - applied at once (the same page count) or waiting too: this one is dropped, never put back
   // over it, which would roll the newer build back for good.
-  if (!(META && snapshot.pages.length === META.pages.length) && isComposingNow()) {
-    await afterComposition();
+  if (!(META && snapshot.pages.length === META.pages.length) && verdictHold().composing()) {
+    await verdictHold().afterComposition();
     if (visitDoc !== DOC || seq !== SWITCHSEQ || gen !== REFRESH_GEN) return;
     anchor = topAnchor();
   }
@@ -36819,18 +36887,18 @@ async function refreshDoc(meta) {
     });
     pageSurface().reapplyScale();
   } else {
-    setBuildReadingPage(pageUnderReadingLine());
+    verdictHold().holdReadingPage(verdictHold().readingPage());
     try {
       pageSurface().build();
       restoreAnchor(anchor);
     } finally {
-      setBuildReadingPage(0);
+      verdictHold().holdReadingPage(0);
     }
   } // the reading page held until its spot is back
   restoreAnchor(anchor);
   pageSurface().openVector();
   if (document.body.classList.contains('revision-open')) changesView().load();
-  await loadPins();
+  await documentPins().load();
 }
 // On ok_errors|fail, the panel itself is opened right away: it is where a failed build is said (with the pull's line,
 // pullSuffix), and the status line's failure item (compact) and #build-err-chip (the desktop's chips, while the panel
@@ -37002,6 +37070,31 @@ setMarkdownSurface({
   showLines,
 });
 setChangesView({ wanted: () => REVISION_VIEW, setMode: setViewMode, load: loadRevisions });
+setDocumentWork({
+  parkDraft,
+  restoreDraft,
+  openDraft: openDraftDoc,
+  cancelRepick,
+  cancelSelection,
+  editDirty,
+  cancelEdit,
+  replyNote,
+});
+setDocumentPins({ load: loadPins, draw: drawPins, marks });
+setPinNotifications({
+  on: notifyOn,
+  query: notifyQuery,
+  handle: notifyHandle,
+  cursor: notifyCursor,
+  openFromLink: openPinFromLink,
+});
+setVerdictHold({
+  readingPage: pageUnderReadingLine,
+  holdReadingPage: setBuildReadingPage,
+  composing: isComposingNow,
+  afterComposition,
+});
+setOfflineQueue({ queued: () => OFF.n, held: () => OFF.held, flush: offlineFlush });
 let HELP_BACK = null;
 // Opens help with its head on one ink line (headInk); closing it gives the focus back to what had it.
 function openHelp() {

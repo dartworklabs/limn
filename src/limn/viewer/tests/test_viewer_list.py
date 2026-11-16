@@ -230,6 +230,7 @@ class PinListLoading(unittest.TestCase):
                 JS_UPDATE_STUBS + extract_js_fn("applyPinLists"),
                 extract_js_fn("loadPins"),
                 JS_UPDATE_STUBS + extract_js_fn("pollLightOnce"),
+                js_seams_wired(DOCUMENT_SEAMS),  # what documents asks the features above it, wired as js/main.ts does
                 "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (documents/state.ts)
                 """
                 let DOC='main',SWITCHSEQ=0,DEFAULT_DOC='main',OPEN_ALL=[{id:0}],REVIEW_ALL=[],DONE_ALL=[],PINS=OPEN_ALL,DONE=[],DROPPED=[];
@@ -280,6 +281,7 @@ class PinListLoading(unittest.TestCase):
                 JS_UPDATE_STUBS + extract_js_fn("applyPinLists"),
                 extract_js_fn("loadPins"),
                 JS_UPDATE_STUBS + extract_js_fn("pollLightOnce"),
+                js_seams_wired(DOCUMENT_SEAMS),  # what documents asks the features above it, wired as js/main.ts does
                 "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (documents/state.ts)
                 """
                 let DOC='main',SWITCHSEQ=0,DEFAULT_DOC='main',OPEN_ALL=[{id:1}],REVIEW_ALL=[],DONE_ALL=[],PINS=OPEN_ALL,DONE=[],DROPPED=[{id:9}];
@@ -340,6 +342,7 @@ class PinListLoading(unittest.TestCase):
                 extract_js_fn("boot"),
                 "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (documents/state.ts)
                 JS_UPDATE_STUBS + extract_js_fn("pollLightOnce"),
+                js_seams_wired(DOCUMENT_SEAMS),  # what documents asks the features above it, wired as js/main.ts does
                 "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (documents/state.ts)
                 """
                 let DOC=null,SWITCHSEQ=0,META=null,DEFAULT_DOC='main',OPEN_ALL=[],REVIEW_ALL=[],DONE_ALL=[],PINS=[],DONE=[],DROPPED=[];
@@ -405,6 +408,7 @@ class PinListLoading(unittest.TestCase):
                 extract_js_fn("boot"),
                 "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (documents/state.ts)
                 JS_UPDATE_STUBS + extract_js_fn("pollLightOnce"),
+                js_seams_wired(DOCUMENT_SEAMS),  # what documents asks the features above it, wired as js/main.ts does
                 "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (documents/state.ts)
                 """
                 let DOC=null,SWITCHSEQ=0,META=null,LAST_PINS_REVISION=null,LAST_SRC_MTIME=null;
@@ -544,6 +548,7 @@ class ViewerPollingVisits(unittest.TestCase):
         js = "\n".join(
             [
                 JS_UPDATE_STUBS + extract_js_fn("pollLightOnce"),
+                js_seams_wired(DOCUMENT_SEAMS),  # what documents asks the features above it, wired as js/main.ts does
                 "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (documents/state.ts)
                 """
                 let DOC='b',SWITCHSEQ=1,LAST_PINS_REVISION='old',LAST_SRC_MTIME='old-src';
@@ -579,6 +584,7 @@ class ViewerPollingVisits(unittest.TestCase):
         js = "\n".join(
             [
                 JS_UPDATE_STUBS + extract_js_fn("pollLightOnce"),
+                js_seams_wired(DOCUMENT_SEAMS),  # what documents asks the features above it, wired as js/main.ts does
                 "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (documents/state.ts)
                 """
                 let DOC='b',SWITCHSEQ=1,LAST_PINS_REVISION='old',LAST_SRC_MTIME='old-src';

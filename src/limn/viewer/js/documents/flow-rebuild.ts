@@ -22,15 +22,11 @@ import { api } from '../platform/api.ts';
 import { announce, lineNote, sourceOk } from '../platform/notices.ts';
 import { drawMeta } from './view-meta.ts';
 import { BUILD, pollBuild, pullSuffix } from './view-build-chip.ts';
-import { pageUnderReadingLine } from '../verdict/flow-line.ts';
-import { isComposingNow, afterComposition } from '../verdict/flow-reason.ts';
-import { setBuildReadingPage } from '../verdict/view-panel.ts';
-import { loadPins } from '../pins/flow-list.ts';
 import { NOTICE_HOST, NOTICE_KIND } from '../platform/tables.ts';
 import { $, $$ } from '../platform/dom.ts';
 import { BUILD_STATE } from '../app/rules-tables.ts';
 import { withDocQuery } from './state.ts';
-import { changesView, markdownSurface, pageSurface } from './state-seams.ts';
+import { changesView, documentPins, markdownSurface, pageSurface, verdictHold } from './state-seams.ts';
 function topAnchor(offset?) {
   const scroller = $('#left'),
     scrollerTop = scroller.getBoundingClientRect().top,
@@ -120,15 +116,15 @@ async function refreshDoc(meta?) {
     setMeta(snapshot);
     drawMeta();
     markdownSurface().build();
-    await loadPins();
+    await documentPins().load();
     return;
   } // no pages: the source is drawn again
   // Building the pages again takes the reason field with them: a syllable being composed in it ends first, and the key
   // that ended it lets the field go (isComposingNow), and the spot is read again after the wait. A newer snapshot that
   // came meanwhile wins - applied at once (the same page count) or waiting too: this one is dropped, never put back
   // over it, which would roll the newer build back for good.
-  if (!(META && snapshot.pages.length === META.pages.length) && isComposingNow()) {
-    await afterComposition();
+  if (!(META && snapshot.pages.length === META.pages.length) && verdictHold().composing()) {
+    await verdictHold().afterComposition();
     if (visitDoc !== DOC || seq !== SWITCHSEQ || gen !== REFRESH_GEN) return;
     anchor = topAnchor();
   }
@@ -150,18 +146,18 @@ async function refreshDoc(meta?) {
     });
     pageSurface().reapplyScale();
   } else {
-    setBuildReadingPage(pageUnderReadingLine());
+    verdictHold().holdReadingPage(verdictHold().readingPage());
     try {
       pageSurface().build();
       restoreAnchor(anchor);
     } finally {
-      setBuildReadingPage(0);
+      verdictHold().holdReadingPage(0);
     }
   } // the reading page held until its spot is back
   restoreAnchor(anchor);
   pageSurface().openVector();
   if (document.body.classList.contains('revision-open')) changesView().load();
-  await loadPins();
+  await documentPins().load();
 }
 // On ok_errors|fail, the panel itself is opened right away: it is where a failed build is said (with the pull's line,
 // pullSuffix), and the status line's failure item (compact) and #build-err-chip (the desktop's chips, while the panel

@@ -5478,7 +5478,7 @@ class FrontendNotify(unittest.TestCase):
         self.assertNotIn("new Notification(", html_without_comments(h))
         self.assertIn(sq("tag:'pin-'+event.pin"), sq(extract_js_fn("notifyShow")))
         self.assertIn(sq("document.visibilityState==='visible'&&document.hasFocus()"), sq(extract_js_fn("notifyShow")))
-        self.assertIn("notifyQuery()", JS_UPDATE_STUBS + extract_js_fn("pollLightOnce"))
+        self.assertIn("pinNotifications().query()", JS_UPDATE_STUBS + extract_js_fn("pollLightOnce"))
         self.assertIn("navigator.serviceWorker.register('/sw.js'", extract_js_fn("notifyRegister"))
 
 

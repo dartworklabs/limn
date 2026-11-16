@@ -37,19 +37,23 @@ import { resetBuildForDoc } from './view-build-chip.ts';
 import { checkDocUpdate } from './flow-updates.ts';
 import { showSheet } from '../layout/flow.ts';
 import { BACK, BACK_SKIP } from '../layout/input.ts';
-import { cancelSelection, COMPOSE } from '../composer/flow-pick.ts';
-import { openDraftDoc, parkDraft, restoreDraft } from '../composer/flow-draft.ts';
+import { COMPOSE } from '../composer/flow-pick.ts';
 import { endJumpForScroll } from '../verdict/flow-line.ts';
-import { drawPins, marks } from '../pins/flow-list.ts';
-import { cancelEdit, editDirty, EDITOR } from '../pins/flow-edit.ts';
-import { cancelRepick } from '../composer/flow-repick.ts';
+import { EDITOR } from '../pins/flow-edit.ts';
 import { refreshDoc, restoreAnchor, topAnchor } from './flow-rebuild.ts';
 import { NOTICE_HOST } from '../platform/tables.ts';
 import { $, $$, searchToPage } from '../platform/dom.ts';
 import { roveSegment } from '../platform/segments.ts';
 import { LAYOUT_MODE, VIEW_MODE } from '../app/rules-tables.ts';
 import { isMarkdownDoc, docInfo, withDocQuery, pdoc } from './state.ts';
-import { changesView, markdownSurface, pageNavigation, pageSurface } from './state-seams.ts';
+import {
+  changesView,
+  documentPins,
+  documentWork,
+  markdownSurface,
+  pageNavigation,
+  pageSurface,
+} from './state-seams.ts';
 function drawDocsMenu() {
   $('#ns-docs').hidden = !multiDoc();
   setHtml(
@@ -475,10 +479,10 @@ async function switchDoc(doc) {
     inPages = !!active && !!active.closest && !!active.closest('#left');
   if (document.body.classList.contains('revision-open')) changesView().setMode(VIEW_MODE.MANUSCRIPT);
   saveView();
-  parkDraft();
-  cancelRepick();
-  if (COMPOSE.current || !$('#composer').hidden) cancelSelection(false);
-  if (EDITOR.current && !editDirty()) cancelEdit();
+  documentWork().parkDraft();
+  documentWork().cancelRepick();
+  if (COMPOSE.current || !$('#composer').hidden) documentWork().cancelSelection(false);
+  if (EDITOR.current && !documentWork().editDirty()) documentWork().cancelEdit();
   let meta = META_BY.get(doc),
     cached = !!meta;
   if (!meta) {
@@ -494,14 +498,14 @@ async function switchDoc(doc) {
         })
       ).data;
     } catch (error) {
-      if (seq === SWITCHSEQ) restoreDraft();
+      if (seq === SWITCHSEQ) documentWork().restoreDraft();
       return;
     } finally {
       if (SWITCH_TO && SWITCH_TO.seq === seq) SWITCH_TO = null;
     }
     if (seq !== SWITCHSEQ) return;
     if (navigation !== NAVGEN) {
-      restoreDraft();
+      documentWork().restoreDraft();
       return;
     }
   }
@@ -512,7 +516,7 @@ async function switchDoc(doc) {
   setHash(doc);
   hideTip();
   showDoc(VIEW_BY.get(doc));
-  openDraftDoc();
+  documentWork().openDraft();
   checkDocUpdate(doc, {}); // changed since this device last saw it (documents/flow-updates.ts)
   if (inPages && (!document.activeElement || document.activeElement === document.body)) searchToPage();
   if (cached) {
@@ -551,8 +555,8 @@ function showDoc(view) {
   if (!view && $('#left')) $('#left').scrollTop = 0;
   setPins(OPEN_ALL.filter((pin) => pdoc(pin) === DOC));
   setDone(DONE_ALL.filter((pin) => pdoc(pin) === DOC));
-  drawPins();
-  marks();
+  documentPins().draw();
+  documentPins().marks();
   drawDocTabs();
   $('#outline-items').textContent = translate('PDF 목차를 읽는 중입니다.');
   if (document.body.classList.contains('revision-open')) changesView().load();

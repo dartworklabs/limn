@@ -6,16 +6,13 @@ import { announce, digestBegin, digestSoon, lineNote } from '../platform/notices
 import { drawDocTabs } from './view-tabs.ts';
 import { switchDoc } from './flow-switch.ts';
 import { updateStaleBadge, updateSyncBadge } from './view-meta.ts';
-import { notifyHandle, notifyOn, notifyQuery } from '../pins/flow-notification.ts';
 import { BUILD, pollBuild } from './view-build-chip.ts';
 import { DIGEST_TAIL_MS, awayTitle, checkDocUpdate, checkVersion, expectUpdate, versionDue } from './flow-updates.ts';
-import { OFF, offlineFlush } from '../offline/flow.ts';
-import { loadPins } from '../pins/flow-list.ts';
 import { NOTICE_KIND } from '../platform/tables.ts';
 import { $ } from '../platform/dom.ts';
 import { BUILD_STATE, SYNC_STATE } from '../app/rules-tables.ts';
 import { isMarkdownDoc, docInfo, withDocQuery } from './state.ts';
-import { markdownSurface } from './state-seams.ts';
+import { documentPins, markdownSurface, offlineQueue, pinNotifications } from './state-seams.ts';
 let LAST_PINS_REVISION = null as string | null,
   LAST_SRC_MTIME = null as string | number | null,
   POLL_FAILS = 0,
@@ -41,7 +38,7 @@ let NOTIFY_HIDDEN_TIMER = undefined as ReturnType<typeof setInterval> | undefine
   NOTIFY_HIDDEN_INFLIGHT = null as Promise<void> | null;
 const NOTIFY_HIDDEN_INTERVAL_MS = 20000;
 function pollHiddenNotify() {
-  if (!document.hidden || !notifyOn()) return Promise.resolve();
+  if (!document.hidden || !pinNotifications().on()) return Promise.resolve();
   if (NOTIFY_HIDDEN_INFLIGHT) return NOTIFY_HIDDEN_INFLIGHT;
   NOTIFY_HIDDEN_INFLIGHT = pollHiddenNotifyOnce().finally(() => {
     NOTIFY_HIDDEN_INFLIGHT = null;
@@ -52,7 +49,7 @@ async function pollHiddenNotifyOnce() {
   let meta;
   try {
     meta = (
-      await api(withDocQuery('/api/meta?light=1') + notifyQuery(), {
+      await api(withDocQuery('/api/meta?light=1') + pinNotifications().query(), {
         what: '알림 확인',
         silent: true,
         wait: API_WAIT.POLL,
@@ -61,14 +58,14 @@ async function pollHiddenNotifyOnce() {
   } catch (error) {
     return;
   }
-  if (document.hidden) notifyHandle(meta); // if the tab came back while waiting, normal polling has already handled it
+  if (document.hidden) pinNotifications().handle(meta); // if the tab came back while waiting, normal polling has already handled it
 }
 // If the tab hides while notifications are on, the slow timer is started; it's stopped when the tab returns or
 // notifications are turned off (no duplicate polling).
 function syncHiddenNotifyTimer() {
   clearInterval(NOTIFY_HIDDEN_TIMER);
   NOTIFY_HIDDEN_TIMER = undefined;
-  if (document.hidden && notifyOn()) {
+  if (document.hidden && pinNotifications().on()) {
     pollHiddenNotify();
     NOTIFY_HIDDEN_TIMER = setInterval(pollHiddenNotify, NOTIFY_HIDDEN_INTERVAL_MS);
   }
@@ -92,7 +89,7 @@ async function pollLightOnce() {
   // poll is out at a time, and a poll left waiting would count no failure for as long as the system let it wait.
   try {
     meta = (
-      await api(withDocQuery('/api/meta?light=1') + notifyQuery(), {
+      await api(withDocQuery('/api/meta?light=1') + pinNotifications().query(), {
         what: '상태 확인',
         silent: true,
         wait: API_WAIT.POLL,
@@ -109,7 +106,7 @@ async function pollLightOnce() {
   }
   const was = POLL_FAILS;
   LIGHT_OK_AT = Date.now();
-  notifyHandle(meta); // browser notifications - independent of the document (handled first even mid document-switch)
+  pinNotifications().handle(meta); // browser notifications - independent of the document (handled first even mid document-switch)
   if (visitDoc !== DOC || visit !== SWITCHSEQ) {
     if (back) digestSoon(DIGEST_TAIL_MS);
     return;
@@ -118,7 +115,7 @@ async function pollLightOnce() {
   $('#conn-lost').hidden = true;
   if (back || was > 0 || versionDue()) checkVersion();
   // the connection is back: the pins kept while it was gone are written (offline/flow.ts)
-  if (was > 0 && OFF.n) void offlineFlush();
+  if (was > 0 && offlineQueue().queued()) void offlineQueue().flush();
   updateStaleBadge(meta);
   updateSyncBadge(meta.sync);
   noteOtherDocs(meta.docs);
@@ -129,7 +126,7 @@ async function pollLightOnce() {
   const needsPins = LAST_PINS_REVISION === null || meta.pins_rev !== LAST_PINS_REVISION || sig !== LAST_SRC_MTIME;
   if (sig !== LAST_SRC_MTIME || meta.building || (meta.sync && meta.sync.state === SYNC_STATE.UPDATING))
     expectUpdate(sig !== LAST_SRC_MTIME); // its pins' moves wait for its update message
-  const applied = !needsPins || (await loadPins());
+  const applied = !needsPins || (await documentPins().load());
   if (visitDoc !== DOC || visit !== SWITCHSEQ) return;
   // Its source changed since the last read that answered: the Markdown surface reads and draws it again, asked once per
   // change while that read is on its way (MARKDOWN_VIEW.asked), and again on the next poll if it failed

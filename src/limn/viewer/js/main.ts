@@ -85,6 +85,10 @@ import {
   notifyPerm,
   notifyRegister,
   openPinFromLink,
+  notifyOn,
+  notifyQuery,
+  notifyHandle,
+  notifyCursor,
 } from './pins/flow-notification.ts';
 import { BUILD, startBuildPolling } from './documents/view-build-chip.ts';
 import { reloadForUpdate, visitedBefore, checkDocsSeen, DIGEST_TAIL_MS } from './documents/flow-updates.ts';
@@ -151,8 +155,9 @@ import {
   setKind,
   toggleQuote,
   COMPOSE,
+  cancelSelection,
 } from './composer/flow-pick.ts';
-import { saveDraftSoon, restoreDraft } from './composer/flow-draft.ts';
+import { saveDraftSoon, restoreDraft, parkDraft, openDraftDoc } from './composer/flow-draft.ts';
 import { appendToPin, savePin, saveButtonLabel } from './composer/flow-save.ts';
 import {
   offlineFlush,
@@ -165,6 +170,7 @@ import {
   offlineMayServe,
   offlineAskDown,
   offlineBoot,
+  OFF,
 } from './offline/flow.ts';
 import {
   cancelLineVerdict,
@@ -172,9 +178,10 @@ import {
   verdictPress,
   READING_LINE_PAGE,
   pageVerdictsOn,
+  pageUnderReadingLine,
 } from './verdict/flow-line.ts';
-import { actOnReason, focusLine, isReasonField } from './verdict/flow-reason.ts';
-import { goToSummaryPage } from './verdict/view-panel.ts';
+import { actOnReason, focusLine, isReasonField, isComposingNow, afterComposition } from './verdict/flow-reason.ts';
+import { goToSummaryPage, setBuildReadingPage } from './verdict/view-panel.ts';
 import { handPopoverToComposer } from './composer/view-selection-popover.ts';
 import { MESSAGE_OPEN } from './pins/view-card-parts.ts';
 import { ARC_OPEN, openTrash } from './pins/view-cards.ts';
@@ -193,12 +200,13 @@ import {
   toggleSection,
   dropBareDayLines,
   placeRow,
+  marks,
 } from './pins/flow-list.ts';
 import { MARKS, marksSet } from './pins/input-hide-marks.ts';
 import { closePin, confirmPin, dropPin, purgePin, trashRestore, unclaimPin } from './pins/flow-actions.ts';
 import { ASSIGN_NEW, mentionApply, renderAssignEdit, renderAssignNew } from './pins/input-mentions.ts';
-import { closeReply, openReply, renderReplyOutcome, sendReply } from './pins/flow-reply.ts';
-import { cancelEdit, openEdit, renderEdit, saveEdit, EDITOR } from './pins/flow-edit.ts';
+import { closeReply, openReply, renderReplyOutcome, sendReply, replyNote } from './pins/flow-reply.ts';
+import { cancelEdit, openEdit, renderEdit, saveEdit, EDITOR, editDirty } from './pins/flow-edit.ts';
 import { applyRepick, cancelRepick, startRepick } from './composer/flow-repick.ts';
 import { downloadPdf, hideBuildErr, rebuild, showBuildErr } from './documents/flow-rebuild.ts';
 import { NOTICE_HOST, NOTICE_KIND } from './platform/tables.ts';
@@ -210,7 +218,17 @@ import { useLevel } from './documents/rules.ts';
 import { setHtml } from './platform/markup.ts';
 import { bootVector, openVectorDocument } from './pdf/flow-open.ts';
 import { releaseAllVectorPages } from './pdf/view-draw.ts';
-import { setChangesView, setMarkdownSurface, setPageNavigation, setPageSurface } from './documents/state-seams.ts';
+import {
+  setChangesView,
+  setDocumentPins,
+  setDocumentWork,
+  setMarkdownSurface,
+  setOfflineQueue,
+  setPageNavigation,
+  setPageSurface,
+  setPinNotifications,
+  setVerdictHold,
+} from './documents/state-seams.ts';
 import { setLastPinsRevision, setLastSrcMtime, startLightPolling, pollLight } from './documents/flow-polling.ts';
 import { drawMeta } from './documents/view-meta.ts';
 
@@ -272,6 +290,31 @@ setMarkdownSurface({
   showLines,
 });
 setChangesView({ wanted: () => REVISION_VIEW, setMode: setViewMode, load: loadRevisions });
+setDocumentWork({
+  parkDraft,
+  restoreDraft,
+  openDraft: openDraftDoc,
+  cancelRepick,
+  cancelSelection,
+  editDirty,
+  cancelEdit,
+  replyNote,
+});
+setDocumentPins({ load: loadPins, draw: drawPins, marks });
+setPinNotifications({
+  on: notifyOn,
+  query: notifyQuery,
+  handle: notifyHandle,
+  cursor: notifyCursor,
+  openFromLink: openPinFromLink,
+});
+setVerdictHold({
+  readingPage: pageUnderReadingLine,
+  holdReadingPage: setBuildReadingPage,
+  composing: isComposingNow,
+  afterComposition,
+});
+setOfflineQueue({ queued: () => OFF.n, held: () => OFF.held, flush: offlineFlush });
 let HELP_BACK = null as HTMLElement | null;
 // Opens help with its head on one ink line (headInk); closing it gives the focus back to what had it.
 function openHelp() {
