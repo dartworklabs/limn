@@ -31,8 +31,8 @@ import { tipFollow } from './tooltip.ts';
 import { STATUS_TOP, drawStatus, setStatusSig, toggleStatusList } from './status.ts';
 import { searchToPage } from './search.ts';
 import { saveBtnLabel } from './save.ts';
-import { PV_READ, pageVerdictsOn } from './verdict.ts';
-import { pvFocusLine, pvIsReasonField } from './verdict-reason.ts';
+import { READING_LINE_PAGE, pageVerdictsOn } from './verdict.ts';
+import { focusLine, isReasonField } from './verdict-reason.ts';
 import { dropBareDayLines, placeRow } from './list.ts';
 import { EDITOR } from './edit.ts';
 import type { Html } from './markup.ts';
@@ -527,11 +527,11 @@ function noticeFocusBack(n: Notice, anyDoc?: boolean): () => void {
     const g = document.activeElement;
     if (!own || (g && g !== document.body) || EDITOR.current || REPLY) return;
     const lines = !!pageVerdictsOn();
-    if (lines ? !pvFocusLine(page || PV_READ) : anyDoc) searchToPage();
+    if (lines ? !focusLine(page || READING_LINE_PAGE) : anyDoc) searchToPage();
   };
 }
 // How long an action's request may go unanswered before its message says so (noticeLate) - the bound a page line's
-// take-back has too (verdict.js PV_DROP_WAIT). A let: the tests shorten it.
+// take-back has too (verdict.js CANCEL_ANSWER_WAIT). A let: the tests shorten it.
 let NOTICE_ACT_WAIT = 8000;
 // [되돌리기], [다시 시도], [보기]… on message num: the message goes and its action runs. An action that sends a request
 // (act.wait: restoring, undoing a close, a delete, a save or an append) keeps its message, busy and with its window stopped,
@@ -654,7 +654,7 @@ document.addEventListener(
   'mousedown',
   (e) => {
     const t = e.target as HTMLElement | null;
-    if (!!t && !!t.closest && !!t.closest('[data-act="notice-act"]') && pvIsReasonField(document.activeElement))
+    if (!!t && !!t.closest && !!t.closest('[data-act="notice-act"]') && isReasonField(document.activeElement))
       e.preventDefault();
   },
   true,
@@ -1321,7 +1321,7 @@ function drawChips() {
 // Keeps a chip where it can be pressed: inside its page, inside what the PDF area shows, and clear of a panel laid over the
 // PDF area (the unfolded foldable's overlay panel while composing). Where the room is narrower than the chip its words give
 // way (ellipsis, .nt-t) - never its [되돌리기] - then it moves left until it fits. A page verdict line's chip stands in the
-// line's row (notices.css), which already keeps out of all of that (sizePv): nothing to move.
+// line's row (notices.css), which already keeps out of all of that (sizePageLines): nothing to move.
 function chipInRoom(e: HTMLElement, k: HTMLElement) {
   if (k.classList.contains('pv')) return;
   const L = $('#left'),
@@ -1383,7 +1383,7 @@ function chipsClearOfBar() {
       offerToLine(n);
   });
 }
-// A page verdict line's chip with no room to stand in (verdict.js pvChipPlace) takes its undo to the status line.
+// A page verdict line's chip with no room to stand in (verdict.js placeLineChips) takes its undo to the status line.
 function chipAway(e: HTMLElement) {
   NOTICES.forEach((n) => {
     if (n.el === e && n.place === NOTICE_PLACE.CHIP) offerToLine(n);

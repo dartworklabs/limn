@@ -24,7 +24,7 @@ declare class CloseWatcher {
 // (mentions.js: the logins, and each one's place in the text with the text and the logins it was worked out for), the field
 // whose text a field mirrors and which keeps its @-tags (sel-popover.js: the note popover's field mirrors the composer's
 // note; mentions.js mentionModel), a copy control's own content and timer while it says '복사됨' (api.js copiedMark), a page
-// verdict line's timer for its pressed word's context (verdict.js pvOnShow).
+// verdict line's timer for its pressed word's context (verdict.js showPressedHint).
 interface HTMLElement {
   _curT?: ReturnType<typeof setTimeout>;
   _flT?: ReturnType<typeof setTimeout>;

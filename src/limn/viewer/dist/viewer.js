@@ -1828,11 +1828,11 @@ function noticeFocusBack(n, anyDoc) {
     const g = document.activeElement;
     if (!own || (g && g !== document.body) || EDITOR.current || REPLY) return;
     const lines = !!pageVerdictsOn();
-    if (lines ? !pvFocusLine(page || PV_READ) : anyDoc) searchToPage();
+    if (lines ? !focusLine(page || READING_LINE_PAGE) : anyDoc) searchToPage();
   };
 }
 // How long an action's request may go unanswered before its message says so (noticeLate) - the bound a page line's
-// take-back has too (verdict.js PV_DROP_WAIT). A let: the tests shorten it.
+// take-back has too (verdict.js CANCEL_ANSWER_WAIT). A let: the tests shorten it.
 let NOTICE_ACT_WAIT = 8000;
 // [되돌리기], [다시 시도], [보기]… on message num: the message goes and its action runs. An action that sends a request
 // (act.wait: restoring, undoing a close, a delete, a save or an append) keeps its message, busy and with its window stopped,
@@ -1955,7 +1955,7 @@ document.addEventListener(
   'mousedown',
   (e) => {
     const t = e.target;
-    if (!!t && !!t.closest && !!t.closest('[data-act="notice-act"]') && pvIsReasonField(document.activeElement))
+    if (!!t && !!t.closest && !!t.closest('[data-act="notice-act"]') && isReasonField(document.activeElement))
       e.preventDefault();
   },
   true,
@@ -2616,7 +2616,7 @@ function drawChips() {
 // Keeps a chip where it can be pressed: inside its page, inside what the PDF area shows, and clear of a panel laid over the
 // PDF area (the unfolded foldable's overlay panel while composing). Where the room is narrower than the chip its words give
 // way (ellipsis, .nt-t) - never its [되돌리기] - then it moves left until it fits. A page verdict line's chip stands in the
-// line's row (notices.css), which already keeps out of all of that (sizePv): nothing to move.
+// line's row (notices.css), which already keeps out of all of that (sizePageLines): nothing to move.
 function chipInRoom(e, k) {
   if (k.classList.contains('pv')) return;
   const L = $('#left'),
@@ -2678,7 +2678,7 @@ function chipsClearOfBar() {
       offerToLine(n);
   });
 }
-// A page verdict line's chip with no room to stand in (verdict.js pvChipPlace) takes its undo to the status line.
+// A page verdict line's chip with no room to stand in (verdict.js placeLineChips) takes its undo to the status line.
 function chipAway(e) {
   NOTICES.forEach((n) => {
     if (n.el === e && n.place === NOTICE_PLACE.CHIP) offerToLine(n);
@@ -5550,7 +5550,7 @@ function switchPending(k) {
 // Redraws the screen from the current META (tab switching), including open and done rows from this document before the background refresh.
 // The build chip, error panel, and auto-polling baseline are switched to that document's values too.
 function showDoc(v) {
-  pvShow();
+  endJumpForScroll();
   drawMeta();
   const hadW = applyViewWidth(v);
   buildDoc();
@@ -8466,7 +8466,7 @@ function buildDoc() {
   MD.shown = '';
   document.body.classList.remove('md-surface'); // a draw of the Markdown surface still on its way stops here
   const doc = $('#doc'),
-    focus = pvReasonHoldFocus();
+    focus = holdReasonFocus();
   doc.replaceChildren();
   COMPOSE.box = null; // a focus in the reason popover comes back with it
   META.pages.forEach((p, i) => {
@@ -8491,7 +8491,7 @@ function buildDoc() {
   marks();
   vecObserve();
   drawZoom();
-  pvReasonFocusBack(focus);
+  restoreReasonFocus(focus);
 }
 // save=false is auto-fit - never saved. If a width fit for a narrow first window persisted into a wider window, the pages would look too small.
 // The scale is never saved in compact (mid/narrow) - so a width fit for a folded screen never overrides the spread/desktop setting.
@@ -8512,7 +8512,7 @@ function fitK() {
   return fitWidth() / ptMax();
 }
 // Sets the scale K within wBounds and gives every page box its own width (pageWidth); saved in wide unless save is false
-// (saveK). The marks' badges follow the new widths (markBadgeSides), and so do the page verdict lines (sizePv), the save
+// (saveK). The marks' badges follow the new widths (markBadgeSides), and so do the page verdict lines (sizePageLines), the save
 // chips (placeChips) and [더보기]'s zoom figure (drawZoom).
 function setK(k, save) {
   const m = ptMax(),
@@ -8521,7 +8521,7 @@ function setK(k, save) {
   K_UNBOUND = false;
   sizePages();
   markBadgeSides();
-  sizePv();
+  sizePageLines();
   placeChips();
   if (save !== false && LAYOUT === LAYOUT_MODE.WIDE) saveK();
   vecInvalidate();
@@ -8710,10 +8710,10 @@ function fitW() {
   restoreAnchor(a);
   L.scrollLeft = 0;
 }
-// Arriving at page n - from the outline, a page field or the page list (goPage) and from a card's [보기] (jumpPin, jumpPv): a
+// Arriving at page n - from the outline, a page field or the page list (goPage) and from a card's [보기] (jumpPin, jumpToPageLine): a
 // figure page, one whose map names its figure body (meta figure_top), at its figure (figureTop); any other page at its top.
 // The same arrival again while the pages rest on that figure goes to the page's top, and once more to the figure
-// (docs/handbook/viewer.md §그림 쪽 도착). Each is a glide (pvGlideTo, pvGlideInto), so the keys wait for it to end.
+// (docs/handbook/viewer.md §그림 쪽 도착). Each is a glide (glideTo, glideInto), so the keys wait for it to end.
 function arrivePage(n) {
   const el = document.getElementById('p' + n);
   if (!el) return;
@@ -8721,34 +8721,34 @@ function arrivePage(n) {
     L = $('#left');
   const pageTop = () => {
     const pg = document.getElementById('p' + n);
-    return pg ? pvIntoTop(pg) : null;
+    return pg ? scrollTopFor(pg) : null;
   };
   if (to === null) {
-    pvGlideInto(el);
+    glideInto(el);
     arrivalWatch(pageTop);
     return;
   }
-  const top = !pvAutoScrolling() && Math.abs(L.scrollTop - to) <= FIGURE_REST_PX;
-  if (top) pvGlideInto(el);
-  else pvGlideTo(to);
+  const top = !isAutoScrolling() && Math.abs(L.scrollTop - to) <= FIGURE_REST_PX;
+  if (top) glideInto(el);
+  else glideTo(to);
   arrivalWatch(top ? pageTop : () => figureTop(n));
 }
 const FIGURE_ROOM_PT = 24; // of the page kept above an arrived figure at most: its label line ('PL18 · 지금 판') has no element
 const FIGURE_REST_PX = 2; // the pages rest on a jump's place within this (a glide ends on or next to its pixel)
 // Every jump of the PDF area - a page, an outline entry's place, a card's [보기]; each glide starts this watch with its place, a
 // function that measures it now - lands where it says once the pages rest. The glide's place is reckoned at its start, and the
-// layout can still move under it: a save's list reload redraws hundreds of lines and stalls the glide past its guard (PV_JUMP
+// layout can still move under it: a save's list reload redraws hundreds of lines and stalls the glide past its guard (JUMP_TARGET
 // lapses after a second), which gives scroll anchoring back, and the anchoring's adjustment left the figure 30-300px off
-// (#345); a line fitted on the way moves the pages after it, and a glide may not be written to (pvLetBlocks). So each time the
+// (#345); a line fitted on the way moves the pages after it, and a glide may not be written to (letLineBlocks). So each time the
 // pages come to rest - after ARRIVAL_REST_MS without a scroll, the glide guard down - it measures the place again and glides the
-// rest (pvGlideTo: the guard and the held anchoring again), at most ARRIVAL_FIXES times, until ARRIVAL_SETTLE_MS after the rest
+// rest (glideTo: the guard and the held anchoring again), at most ARRIVAL_FIXES times, until ARRIVAL_SETTLE_MS after the rest
 // that found nothing to do: each correction counts the window again from its own rest, which is always measured. Counted from
 // the first rest it closed on a correction stopped on its way, whose guard lapses up to two seconds later, and left the figure
 // short by what remained (#357). It only settles what nobody asked
 // for: anything the person does meanwhile - a press, a key, a wheel or a touch anywhere, a window resize - lets it go
 // (arrivalLetGo), for that starts a move of its own (a card's mark, a search hit, a zoom, another page) the watch must not
-// undo; so do the person's scroll (PV_HAND), another document and the pages not shown. A script that scrolls to show something
-// lets it go too, with no input before it (pvShow: a search hit landing as the PDF's text is read, in the middle of a jump); a
+// undo; so do the person's scroll (HAND_ON_PAGES), another document and the pages not shown. A script that scrolls to show something
+// lets it go too, with no input before it (endJumpForScroll: a search hit landing as the PDF's text is read, in the middle of a jump); a
 // script that only keeps what is on screen does not, and may stop the glide: the place moved with it, and the settling goes
 // on. A scroll by anything else, once the pages have rested at the place, lets it go at that rest: the place stayed and the
 // pages left it, which is no layout's doing (at). A new jump replaces it. An instant jump needs no watch: nothing is on its way
@@ -8760,7 +8760,7 @@ let ARRIVAL = null,
   ARRIVAL_TIMER = 0;
 /** @param place - the scrollTop the jump goes to, measured now; null once it is gone */
 function arrivalWatch(place) {
-  ARRIVAL = { place, hand: PV_SCROLL_HAND, doc: DOC, fixes: 0, until: 0, at: null };
+  ARRIVAL = { place, hand: HAND_SCROLL_AT, doc: DOC, fixes: 0, until: 0, at: null };
   arrivalSoon();
 }
 function arrivalSoon() {
@@ -8779,11 +8779,11 @@ function arrivalSettle() {
   const a = ARRIVAL,
     L = $('#left');
   if (!a) return;
-  if (a.hand !== PV_SCROLL_HAND || a.doc !== DOC || !L.getClientRects().length) {
+  if (a.hand !== HAND_SCROLL_AT || a.doc !== DOC || !L.getClientRects().length) {
     ARRIVAL = null;
     return;
   }
-  if (PV_JUMP !== null || pvAutoScrolling()) {
+  if (JUMP_TARGET !== null || isAutoScrolling()) {
     arrivalSoon();
     return;
   } // still on its way
@@ -8810,18 +8810,18 @@ function arrivalSettle() {
   a.fixes++;
   a.until = 0;
   a.at = null;
-  pvGlideTo(to);
+  glideTo(to);
   arrivalSoon();
 }
 // Whether the last jump is still on its way to its place: gliding (the guard, as above) or owed its settling - its watch has
 // neither found the pages at the place nor let it go, and may glide the rest. A stop between scrolls is no rest while either
 // holds, however long: a busy machine's frames come late. An outline pick waits on this before it lets go (outlinePickRest).
 function jumpOnItsWay() {
-  return PV_JUMP !== null || pvAutoScrolling() || (ARRIVAL !== null && ARRIVAL.at === null);
+  return JUMP_TARGET !== null || isAutoScrolling() || (ARRIVAL !== null && ARRIVAL.at === null);
 }
 // A scroll while it watches - the glide's own, an anchoring adjustment, a correction - waits for the next rest; a person's
-// scroll (PV_HAND) lets it go at that rest. So does a change of the pages' column's height, with no scroll at all: a line
-// pass that holds anchoring off (pvHoldView) or a far line drawn at its new height moves what is below it and says nothing
+// scroll (HAND_ON_PAGES) lets it go at that rest. So does a change of the pages' column's height, with no scroll at all: a line
+// pass that holds anchoring off (holdPageView) or a far line drawn at its new height moves what is below it and says nothing
 // to the scroller - the settling must not hang on anchoring to notice.
 $('#left').addEventListener(
   'scroll',
@@ -9569,7 +9569,7 @@ function pickOutline(i) {
     goPage(e.page);
     return;
   }
-  pvGlideTo(top);
+  glideTo(top);
   arrivalWatch(() => outlinePickTop(e));
 }
 // Where a pick scrolls the pages to, as #left's scrollTop: a heading with a place on its page (an XYZ destination below the
@@ -11005,7 +11005,7 @@ function searchReveal(h) {
     L = $('#left');
   if (!s) return;
   if (s.by || s.aside)
-    pvShow(() => {
+    endJumpForScroll(() => {
       const n = searchShift(h);
       return n ? L.scrollTop + n.by : null;
     });
@@ -11440,7 +11440,7 @@ function searchBringBack(to) {
       L = $('#left');
     const off = b.top < a.top + 8 || b.bottom > a.bottom - 8,
       aside = b.left < a.left + 8 || b.right > a.right - 8;
-    if (off || aside) pvShow();
+    if (off || aside) endJumpForScroll();
     if (off) L.scrollTop += b.top - (a.top + (a.bottom - a.top) * 0.3);
     if (aside) L.scrollLeft += (b.left + b.right) / 2 - (a.left + a.right) / 2;
     placeSelPop();
@@ -12435,7 +12435,7 @@ function refit() {
 }
 // Applies settleBand to the window now. Settle: BAND_IN takes the new input. Keep: BAND_IN stays (a pending wait is dropped - the
 // window came back). Wait: (re)starts BAND_SETTLE_MS; when it runs out with no text field focused, BAND_IN takes the window's input,
-// the page re-fits once and the page lines follow (pvSideWant holds them meanwhile). Returns whether the caller may re-fit now.
+// the page re-fits once and the page lines follow (shouldStandBeside holds them meanwhile). Returns whether the caller may re-fit now.
 function bandSettle() {
   const N = bandInput(),
     step = settleBand(BAND_IN, N, typingNow());
@@ -12444,7 +12444,7 @@ function bandSettle() {
   if (step === BAND_STEP.WAIT) {
     BAND_T = setTimeout(() => {
       BAND_T = 0;
-      pvStickSoon();
+      stickSoon();
       if (typingNow()) return;
       setBandIn(bandInput());
       refit();
@@ -13819,7 +13819,7 @@ function revealBox(box, wide) {
     br = box.getBoundingClientRect(),
     { top, bottom } = selRoom();
   if (br.top >= top && br.bottom <= bottom - 8) return;
-  pvShow();
+  endJumpForScroll();
   L.scrollTop += br.top - top - Math.max(0, (bottom - top - br.height) / 3);
 }
 // The part of the document area a chosen place can be seen in, as viewport y's: from 28px under the area's top (or 8px under
@@ -14382,7 +14382,7 @@ function showElementBox() {
   const a = selPopArea(),
     r = b.getBoundingClientRect();
   if (r.top < a.top || r.bottom > a.bottom) {
-    pvShow();
+    endJumpForScroll();
     $('#left').scrollTop += r.top - (a.top + (a.bottom - a.top) * 0.3);
   }
   b.classList.remove('flash');
@@ -16721,7 +16721,7 @@ function mdShowLines(els) {
   const L = $('#left'),
     lr = L.getBoundingClientRect(),
     r = els[0].getBoundingClientRect();
-  pvShow();
+  endJumpForScroll();
   L.scrollTop += r.top - (lr.top + lr.height * 0.3);
   mdSpotRead(true);
   els.forEach((e) => {
@@ -16863,7 +16863,7 @@ function mdGoOn() {
     MD.goTo = null;
     return false;
   }
-  pvShow();
+  endJumpForScroll();
   $('#left').scrollTo({ top: mdGoTop(g.el), behavior: scrollMotion() });
   return true;
 }
@@ -20504,7 +20504,7 @@ async function savePin(verdict) {
     fields = composeFields(); // [되돌리기] takes the pin back and hands this selection and note back for another try
   const draft = savedDraftSnapshot();
   const question = out.kind === KIND_REQ.QUESTION;
-  const top = pvTopId(); // a save whose answer is lost is looked for above it before it is called a failure
+  const top = topPinId(); // a save whose answer is lost is looked for above it before it is called a failure
   try {
     let status = 0,
       data = null;
@@ -21963,7 +21963,7 @@ function fracSame(a, b) {
 // on one page are told apart by nothing else, and a page-only judgment deleted a second pin that was never written.
 // A pin this queue has already written - in this send or any earlier one (offWrote) - is not offered again: two
 // deliberate pins may be alike in every field this reads, and only one of them is that pin. Nor is a pin that was
-// already there when this record was attempted (rec.top, as pvLanded reads its own lost answer): whatever that pin
+// already there when this record was attempted (rec.top, as findLandedVerdict reads its own lost answer): whatever that pin
 // is, it is not the write this record made afterwards.
 function offlineLanded(rec, d, claimed) {
   const f = d.el && Array.isArray(d.el.frac) ? d.el.frac : d.frac || rec.frac; // a figure pin's box is its element's (offlineBody)
@@ -22114,7 +22114,7 @@ async function offlineFlush() {
       if (keyed) {
         if (!(await offHas(rec.id))) continue;
         rec.sent = true;
-        rec.top = pvTopId();
+        rec.top = topPinId();
         await offPut(rec);
         try {
           const { data } = await api('/api/pin', {
@@ -22166,7 +22166,7 @@ async function offlineFlush() {
       // answer at all, a 5xx the server returned after its write went through, a gateway's 502 or 504 over a request
       // that did reach it. Those keep the mark and are looked for in the list instead.
       rec.sent = true;
-      rec.top = pvTopId();
+      rec.top = topPinId();
       await offPut(rec); // the pins that existed before this write, as savePin notes for its own
       try {
         const { data } = await api('/api/pin', {
@@ -22769,470 +22769,505 @@ $('#doc').addEventListener('click', (e) => {
 new MutationObserver(() => offUiDraw()).observe($('#doc'), { childList: true });
 
 // ------------------------------------------------ Verdict pins (docs/handbook/viewer.md §판정 핀, domain.md §판정 핀)
-// A document may declare verdict words (its word file, served as `verdicts` on /api/docs and the full /api/meta). A verdict
-// pin is a pin saved with one of them (`verdict`); its verdict and target are fixed when it is made. The viewer offers the
-// words in two places: the composer's verdict row (#c-verdict-row), which saves the selection and its note as that verdict,
-// and - on a figure document or a view-only PDF whose word file says page: true - a page verdict line, which saves a
-// verdict about the page's whole target and never touches the composer. The words are the manuscript's: they are drawn as
-// text, translate="no", and the names around them are put in the screen's language here.
+// A document may declare verdict words (its word file, served as `verdicts` on /api/docs and the full /api/meta). A
+// verdict pin is a pin saved with one of them (`verdict`); its verdict and target are fixed when it is made. The viewer
+// offers the words in two places: the composer's verdict row (#c-verdict-row), which saves the selection and its note
+// as that verdict, and - on a figure document or a view-only PDF whose word file says page: true - a page verdict line,
+// which saves a verdict about the page's whole target and never touches the composer. The words are the manuscript's:
+// they are drawn as text, translate="no", and the names around them are put in the screen's language here.
 
-const VD_ARM_MS = 4000; // how long a confirm word's first press waits for its second (D9)
-// The verdict words of document doc (default: the one on screen): the full meta's for the document on screen (it is read with
-// the document), else its /api/docs entry's; null without usable words.
+const VERDICT_ARM_MS = 4000; // how long a confirm word's first press waits for its second (D9)
+// The verdict words of document doc (default: the one on screen): the full meta's for the document on screen (it is
+// read with the document), else its /api/docs entry's; null without usable words.
 function docVerdicts(doc) {
-  const k = doc === undefined ? DOC : doc,
-    m = META && (!k || META.doc === k) ? META.verdicts : undefined,
-    d = docInfo(k),
-    v = m || (d && d.verdicts);
-  return v && Array.isArray(v.choices) && v.choices.length ? v : null;
+  const docName = doc === undefined ? DOC : doc,
+    metaVerdicts = META && (!docName || META.doc === docName) ? META.verdicts : undefined,
+    entry = docInfo(docName),
+    verdicts = metaVerdicts || (entry && entry.verdicts);
+  return verdicts && Array.isArray(verdicts.choices) && verdicts.choices.length ? verdicts : null;
 }
-// The page verdict line is drawn for a document whose words say page: true (the server sets it only for a figure document
-// or a view-only PDF): the words, else null.
+// The page verdict line is drawn for a document whose words say page: true (the server sets it only for a figure
+// document or a view-only PDF): the words, else null.
 function pageVerdictsOn() {
   if (isMdDoc()) return null;
-  const v = docVerdicts();
-  return v && v.page ? v : null;
+  const verdicts = docVerdicts();
+  return verdicts && verdicts.page ? verdicts : null;
 } // a Markdown document has no pages
 // Whether this screen may make a verdict pin: a person who edits (a viewer reads, an agent never makes one, D11).
 function canVerdict() {
-  const r = META && META.me && META.me.role;
-  return r !== ROLE.VIEWER && r !== ROLE.AGENT;
+  const role = META && META.me && META.me.role;
+  return role !== ROLE.VIEWER && role !== ROLE.AGENT;
 }
-// A pin's verdict key, or null: a stored value counts only when it is key-shaped, as the server reads it (pins/verdict.py
-// verdict_of: 1-16 letters, digits, '-' or '_'). Pure.
-function verdictOf(p) {
-  const v = p && p.verdict;
-  return typeof v === 'string' && /^[\p{L}\p{N}_-]{1,16}$/u.test(v) ? v : null;
+// A pin's verdict key, or null: a stored value counts only when it is key-shaped, as the server reads it
+// (pins/verdict.py verdict_of: 1-16 letters, digits, '-' or '_'). Pure.
+function verdictOf(pin) {
+  const value = pin && pin.verdict;
+  return typeof value === 'string' && /^[\p{L}\p{N}_-]{1,16}$/u.test(value) ? value : null;
 }
-// The name a verdict key is shown by: its word's label in the word file of document doc (default: the one on screen) - a card
-// of another document under [모든 문서] names its own document's word - else the key itself (a word the file no longer
-// declares stays the pin's verdict).
+// The name a verdict key is shown by: its word's label in the word file of document doc (default: the one on screen) -
+// a card of another document under [모든 문서] names its own document's word - else the key itself (a word the file no
+// longer declares stays the pin's verdict).
 function verdictLabel(key, doc) {
-  const v = docVerdicts(doc),
-    c = v && v.choices.find((x) => x.key === key);
-  return c ? c.label : key;
+  const verdicts = docVerdicts(doc),
+    choice = verdicts && verdicts.choices.find((x) => x.key === key);
+  return choice ? choice.label : key;
 }
-// A card's verdict badge, '판정 채택' (the question badge's shape; the words carry the meaning, no colour of its own), or null.
-function verdictBadge(p) {
-  const k = verdictOf(p);
-  if (!k) return null;
-  return html`<span class="badge badge-verdict" data-tip="${tr('버튼으로 고른 판정입니다. 판정과 대상은 바뀌지 않고 메모만 고칠 수 있습니다')}">${tr('판정')} <span class="vd-w" translate="no">${verdictLabel(k, pdoc(p))}</span></span>`;
+// A card's verdict badge, '판정 채택' (the question badge's shape; the words carry the meaning, no colour of its own),
+// or null.
+function verdictBadge(pin) {
+  const key = verdictOf(pin);
+  if (!key) return null;
+  return html`<span class="badge badge-verdict" data-tip="${tr('버튼으로 고른 판정입니다. 판정과 대상은 바뀌지 않고 메모만 고칠 수 있습니다')}">${tr('판정')} <span class="vd-w" translate="no">${verdictLabel(key, pdoc(pin))}</span></span>`;
 }
 
-// A verdict card's target by name, so a person finds the figure they gave a verdict: on a figure document the figure it is
-// about (figureRootOf) - its title in the map ('[후보] PL26 · …') while the page it is on still shows it, else '그림 <id>'.
-// null for any other pin or document: a view-only PDF's page and a LaTeX range are in the card's head already.
-function verdictTarget(p) {
-  if (!verdictOf(p) || !isFigureKind(docKindOf(pdoc(p)))) return null;
-  const root = figureRootOf(p);
+// A verdict card's target by name, so a person finds the figure they gave a verdict: on a figure document the figure it
+// is about (figureRootOf) - its title in the map ('[후보] PL26 · …') while the page it is on still shows it, else '그림
+// <id>'. null for any other pin or document: a view-only PDF's page and a LaTeX range are in the card's head already.
+function verdictTarget(pin) {
+  if (!verdictOf(pin) || !isFigureKind(docKindOf(pdoc(pin)))) return null;
+  const root = figureRootOf(pin);
   if (!root) return null;
-  const page = figurePageOf(root, p),
-    pg = page && META && (!DOC || pdoc(p) === DOC) ? META.pages[page - 1] : null,
-    title = pg && pg.figure === root && pg.title ? pg.title : '';
+  const page = figurePageOf(root, pin),
+    facts = page && META && (!DOC || pdoc(pin) === DOC) ? META.pages[page - 1] : null,
+    title = facts && facts.figure === root && facts.title ? facts.title : '';
   return html`<span class="vd-target" translate="no" data-tip="${tl('판정 대상 그림 · {id}', { id: root })}">${title || tl('그림 {id}', { id: root })}</span>`;
 }
-// A card's pin with the overlaps its card reports: a verdict pin's overlap with another verdict pin is left out where the page
-// verdict line shows both - the pins of the document on screen whose words say page: true, counted on the same page's line
-// ('#4와 같은 범위' between two verdicts on one figure only repeats the order the line gives). Anywhere no line replaces it
-// (page false, no usable word file, a card of another document under [모든 문서]) the badge stays, as do a verdict pin's
-// overlaps with ordinary pins and ordinary pins' own. The pin itself, or a copy with the shorter rel.
-function pvQuietRel(p) {
-  if (!verdictOf(p) || !p.rel || !p.rel.length || (DOC && pdoc(p) !== DOC) || !pageVerdictsOn()) return p;
-  const t = pageTargetOf(p, META ? META.kind : undefined),
-    list = t ? pageVerdictPins().get(t.page) || [] : [];
-  if (!list.some((x) => x.id === p.id)) return p;
-  const rel = p.rel.filter((x) => !list.some((q) => q.id === x.id));
-  return rel.length === p.rel.length ? p : { ...p, rel };
+// A card's pin with the overlaps its card reports: a verdict pin's overlap with another verdict pin is left out where
+// the page verdict line shows both - the pins of the document on screen whose words say page: true, counted on the same
+// page's line ('#4와 같은 범위' between two verdicts on one figure only repeats the order the line gives). Anywhere no
+// line replaces it (page false, no usable word file, a card of another document under [모든 문서]) the badge stays, as
+// do a verdict pin's overlaps with ordinary pins and ordinary pins' own. The pin itself, or a copy with the shorter
+// rel.
+function dropPageLineOverlaps(pin) {
+  if (!verdictOf(pin) || !pin.rel || !pin.rel.length || (DOC && pdoc(pin) !== DOC) || !pageVerdictsOn()) return pin;
+  const target = pageTargetOf(pin, META ? META.kind : undefined),
+    list = target ? pageVerdictPins().get(target.page) || [] : [];
+  if (!list.some((x) => x.id === pin.id)) return pin;
+  const rel = pin.rel.filter((x) => !list.some((linePin) => linePin.id === x.id));
+  return rel.length === pin.rel.length ? pin : { ...pin, rel };
 }
 
 // ---------------- The page's whole target (domain.md §쪽 전체 대상)
 const WHOLE_PAGE = [0, 0, 1, 1];
-// The figure a figure document's pin is about: the root of its element's path (el.path[0]). A figure document is one figure a
-// page, so a pin on any of its elements is about that figure (ADR-0022 D1). null without an element path.
-function figureRootOf(p) {
-  const el = p.el,
-    r = el && Array.isArray(el.path) ? el.path[0] : null;
-  return typeof r === 'string' && r ? r : null;
+// The figure a figure document's pin is about: the root of its element's path (el.path[0]). A figure document is one
+// figure a page, so a pin on any of its elements is about that figure (ADR-0022 D1). null without an element path.
+function figureRootOf(pin) {
+  const element = pin.el,
+    root = element && Array.isArray(element.path) ? element.path[0] : null;
+  return typeof root === 'string' && root ? root : null;
 }
-// The page figure `root` is on now: by the map's page facts (meta pages[].figure) for the document on screen - null when the
-// build's map no longer has that figure - else, without those facts (another document, a map that does not load), the page
-// pin p's element is on in this build unless the build lost it.
-function figurePageOf(root, p) {
-  const pages = META && (!DOC || pdoc(p) === DOC) && Array.isArray(META.pages) ? META.pages : null;
+// The page figure `root` is on now: by the map's page facts (meta pages[].figure) for the document on screen - null
+// when the build's map does not have that figure - else, without those facts (another document, a map that does not
+// load), the page the pin's element is on in this build unless the build lost it.
+function figurePageOf(root, pin) {
+  const pages = META && (!DOC || pdoc(pin) === DOC) && Array.isArray(META.pages) ? META.pages : null;
   if (pages && pages.some((x) => typeof x.figure === 'string')) {
-    const i = pages.findIndex((x) => x.figure === root);
-    return i >= 0 ? i + 1 : null;
+    const index = pages.findIndex((x) => x.figure === root);
+    return index >= 0 ? index + 1 : null;
   }
-  return elLost(p) ? null : pinPlace(p).page;
+  return elLost(pin) ? null : pinPlace(pin).page;
 }
-// Whether page `page` of the document on screen takes a verdict: every page but one its figure map marks verdict: false (a
-// list, a question or a removed-figure page) - no page line, no composer verdict there.
+// Whether page `page` of the document on screen takes a verdict: every page but one its figure map marks verdict: false
+// (a list, a question or a removed-figure page) - no page line, no composer verdict there.
 function pageTakesVerdict(page) {
-  const pg = META && Array.isArray(META.pages) ? META.pages[page - 1] : null;
-  return !(pg && pg.verdict === false);
+  const facts = META && Array.isArray(META.pages) ? META.pages[page - 1] : null;
+  return !(facts && facts.verdict === false);
 }
 // What a pin's verdict is about when it is a page's whole target, and on which page it is now: on a figure document the
-// figure its element belongs to (figureRootOf: el.path[0], whatever element of it the pin names), on the page that figure is
-// on now (figurePageOf); on a view-only PDF a region pin over the whole page (each frac value within 1e-6 of [0, 0, 1, 1])
-// placed on this PDF (est false). null for any other pin, and always on a LaTeX document. Pure but for the page lookups.
-function pageTargetOf(p, kind) {
+// figure its element belongs to (figureRootOf: el.path[0], whatever element of it the pin names), on the page that
+// figure is on now (figurePageOf); on a view-only PDF a region pin over the whole page (each frac value within 1e-6 of
+// [0, 0, 1, 1]) placed on this PDF (est false). null for any other pin, and always on a LaTeX document. Pure but for
+// the page lookups.
+function pageTargetOf(pin, kind) {
   if (isFigureKind(kind)) {
-    const root = figureRootOf(p),
-      page = root ? figurePageOf(root, p) : null;
+    const root = figureRootOf(pin),
+      page = root ? figurePageOf(root, pin) : null;
     return root && page ? { page, id: root } : null;
   }
-  if (!isViewOnlyKind(kind) || !isRegion(p) || p.est === true || !isFrac(p.frac)) return null;
-  const f = p.frac;
-  return f.every((v, i) => Math.abs(v - WHOLE_PAGE[i]) <= 1e-6) ? { page: p.page, id: 'page ' + p.page } : null;
+  if (!isViewOnlyKind(kind) || !isRegion(pin) || pin.est === true || !isFrac(pin.frac)) return null;
+  const frac = pin.frac;
+  return frac.every((value, index) => Math.abs(value - WHOLE_PAGE[index]) <= 1e-6)
+    ? { page: pin.page, id: 'page ' + pin.page }
+    : null;
 }
 // The kind of document doc: the meta's for the document on screen, else its /api/docs entry's.
 function docKindOf(doc) {
   return (!DOC || doc === DOC) && META ? META.kind : (docInfo(doc) || {}).kind;
 }
-// The target a verdict pin is about, as far as its stored place says it without a project's rules: the page's whole target
-// (pageTargetOf: a figure document's figure, a view-only PDF's whole page) - the page line's targets; else, on a figure
-// document, still its figure (el.path[0]) when the page it is on cannot be told (the figure left the map): one order, on no
-// line; else, on a document that takes line pins (LaTeX, Markdown), its exact lines (file and range) unless their anchor is
-// lost (stale). A key that pins about the same thing share, with whether it is a whole page's; null when the target cannot
-// be resolved (a PDF region that is not its whole page, a figure pin without an element path, a lost line). Lines are only
-// a candidate: the server re-matches an open pin's lines to the text now, never a closed one's, so two pins with the same
-// key are about the same lines only when both are open or both were saved on the same text (sameLines).
-function verdictTargetOf(p, kind) {
-  const t = pageTargetOf(p, kind);
-  if (t) return { key: 'whole ' + t.id, whole: true, page: t.page, lines: null };
+// The target a verdict pin is about, as far as its stored place says it without a project's rules: the page's whole
+// target (pageTargetOf: a figure document's figure, a view-only PDF's whole page) - the page line's targets; else, on a
+// figure document, still its figure (el.path[0]) when the page it is on cannot be told (the figure left the map): one
+// order, on no line; else, on a document that takes line pins (LaTeX, Markdown), its exact lines (file and range)
+// unless their anchor is lost (stale). A key that pins about the same thing share, with whether it is a whole page's;
+// null when the target cannot be resolved (a PDF region that is not its whole page, a figure pin without an element
+// path, a lost line). Lines are only a candidate: the server re-matches an open pin's lines to the text now, never a
+// closed one's, so two pins with the same key are about the same lines only when both are open or both were saved on
+// the same text (sameLines).
+function verdictTargetOf(pin, kind) {
+  const target = pageTargetOf(pin, kind);
+  if (target) return { key: 'whole ' + target.id, whole: true, page: target.page, lines: null };
   if (isFigureKind(kind)) {
-    const root = figureRootOf(p);
-    return root ? { key: 'whole ' + root, whole: false, page: p.page, lines: null } : null;
+    const root = figureRootOf(pin);
+    return root ? { key: 'whole ' + root, whole: false, page: pin.page, lines: null } : null;
   }
   if (
     !isViewOnlyKind(kind) &&
-    !isRegion(p) &&
-    p.file &&
-    typeof p.lo === 'number' &&
-    typeof p.hi === 'number' &&
-    !p.stale
+    !isRegion(pin) &&
+    pin.file &&
+    typeof pin.lo === 'number' &&
+    typeof pin.hi === 'number' &&
+    !pin.stale
   )
     return {
-      key: 'lines ' + p.file + ':' + p.lo + '-' + p.hi,
+      key: 'lines ' + pin.file + ':' + pin.lo + '-' + pin.hi,
       whole: false,
-      page: p.page,
-      lines: { open: pinState(p) === PIN_STATE.OPEN, anchor: anchorKey(p) },
+      page: pin.page,
+      lines: { open: pinState(pin) === PIN_STATE.OPEN, anchor: anchorKey(pin) },
     };
   return null;
 }
-// A line pin's anchor - the text of its first and last lines when it was saved or last re-matched - as one string, or null.
-// It is JSON with every object's keys in one order (jsonSortedKeys), so two anchors are one string exactly when they are the
-// same JSON value, as the server's anchor_key compares them (limn.pins.verdict, #303): a hand-edited offset that is an object
-// is one whatever order its keys were written in, and the list [0] and the string "[0]", or true and 1, stay apart.
-function anchorKey(p) {
-  const a = p.anchor;
-  return a && typeof a.head === 'string' && typeof a.tail === 'string'
-    ? JSON.stringify([a.head, a.tail, a.head_off, a.tail_off], jsonSortedKeys)
+// A line pin's anchor - the text of its first and last lines when it was saved or last re-matched - as one string, or
+// null. It is JSON with every object's keys in one order (jsonSortedKeys), so two anchors are one string exactly when
+// they are the same JSON value, as the server's anchor_key compares them (limn.pins.verdict): a hand-edited offset that
+// is an object is one whatever order its keys were written in, and the list [0] and the string "[0]", or true and 1,
+// stay apart.
+function anchorKey(pin) {
+  const anchor = pin.anchor;
+  return anchor && typeof anchor.head === 'string' && typeof anchor.tail === 'string'
+    ? JSON.stringify([anchor.head, anchor.tail, anchor.head_off, anchor.tail_off], jsonSortedKeys)
     : null;
 }
-// A JSON.stringify replacer that writes each object with its keys sorted - after the integer-like keys, which a JavaScript
-// object always puts first in their numeric order - and an array or any other value as it is.
-function jsonSortedKeys(_k, v) {
-  if (!v || typeof v !== 'object' || Array.isArray(v)) return v;
-  const o = v;
+// A JSON.stringify replacer that writes each object with its keys sorted - after the integer-like keys, which a
+// JavaScript object always puts first in their numeric order - and an array or any other value as it is.
+function jsonSortedKeys(_key, value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+  const object = value;
   return Object.fromEntries(
-    Object.keys(o)
+    Object.keys(object)
       .sort()
-      .map((k) => [k, o[k]]),
+      .map((key) => [key, object[key]]),
   );
 }
-// Whether two pins on the same file and line numbers are about the same lines: both open (their lines are matched to the text
-// now), or both saved on the same text (one anchor). A closed pin's numbers may be from an older text; without a shared
-// anchor it is only its own target - never superseded, never another pin's current verdict.
-function sameLines(a, b) {
-  const x = a.lines,
-    y = b.lines;
+// Whether two pins on the same file and line numbers are about the same lines: both open (their lines are matched to
+// the text now), or both saved on the same text (one anchor). A closed pin's numbers may be from an older text; without
+// a shared anchor it is only its own target - never superseded, never another pin's current verdict.
+function sameLines(first, second) {
+  const x = first.lines,
+    y = second.lines;
   return !x || !y || (x.open && y.open) || (!!x.anchor && x.anchor === y.anchor);
 }
-let VO_CACHE = { lists: [], by: new Map() };
-// The verdict order of document doc (D4, docs/handbook/domain.md §순서): its verdict pins that are not deleted - open, awaiting
-// review (one whose [확인] waits for its undo too: it leaves the review list at once, but it is still a verdict, while the list
-// still has it - applyPinLists) and done - by resolved target (verdictTargetOf), newest (largest number) first, and for every
-// pin its current verdict: its target's newest pin (on lines, the newest that sameLines says is about the same lines). The page
-// verdict line (pageVerdictPins) and a card's '이전 판정' marker (verdictSuperseder) both read this one order, so they never
-// disagree. Built once per change of the lists (an index, not a scan per card).
+let VERDICT_ORDER_CACHE = { lists: [], by: new Map() };
+// The verdict order of document doc (D4, docs/handbook/domain.md §순서): its verdict pins that are not deleted - open,
+// awaiting review (one whose [확인] waits for its undo too: it leaves the review list at once, but it is still a
+// verdict, while the list still has it - applyPinLists) and done - by resolved target (verdictTargetOf), newest
+// (largest number) first, and for every pin its current verdict: its target's newest pin (on lines, the newest that
+// sameLines says is about the same lines). The page verdict line (pageVerdictPins) and a card's '이전 판정' marker
+// (verdictSuperseder) both read this one order, so they never disagree. Built once per change of the lists (an index,
+// not a scan per card).
 function verdictOrder(doc) {
   const lists = [OPEN_ALL, REVIEW_ALL, DONE_ALL, CONFIRMING_PIN.size, META && META.kind, DOCS];
-  if (VO_CACHE.lists.length !== lists.length || VO_CACHE.lists.some((x, i) => x !== lists[i]))
-    VO_CACHE = { lists, by: new Map() };
-  const hit = VO_CACHE.by.get(doc);
+  if (
+    VERDICT_ORDER_CACHE.lists.length !== lists.length ||
+    VERDICT_ORDER_CACHE.lists.some((x, index) => x !== lists[index])
+  )
+    VERDICT_ORDER_CACHE = { lists, by: new Map() };
+  const hit = VERDICT_ORDER_CACHE.by.get(doc);
   if (hit) return hit;
   const kind = docKindOf(doc),
     groups = new Map(),
     seen = new Set();
-  for (const p of OPEN_ALL.concat(REVIEW_ALL, DONE_ALL, [...CONFIRMING_PIN.values()])) {
-    if (seen.has(p.id) || pdoc(p) !== doc || !verdictOf(p)) continue;
-    seen.add(p.id);
-    const t = verdictTargetOf(p, kind);
-    if (!t) continue;
-    const g = groups.get(t.key) || { t, all: [] };
-    g.all.push({ p, t });
-    groups.set(t.key, g);
+  for (const pin of OPEN_ALL.concat(REVIEW_ALL, DONE_ALL, [...CONFIRMING_PIN.values()])) {
+    if (seen.has(pin.id) || pdoc(pin) !== doc || !verdictOf(pin)) continue;
+    seen.add(pin.id);
+    const target = verdictTargetOf(pin, kind);
+    if (!target) continue;
+    const group = groups.get(target.key) || { t: target, all: [] };
+    group.all.push({ p: pin, t: target });
+    groups.set(target.key, group);
   }
   const out = { groups: new Map(), cur: new Map() };
-  groups.forEach((g, key) => {
-    g.all.sort((a, b) => b.p.id - a.p.id);
-    g.all.forEach((x) => {
-      const c = x.t.lines ? g.all.find((y) => y === x || sameLines(x.t, y.t)) : g.all[0];
-      out.cur.set(x.p.id, (c || x).p);
+  groups.forEach((group, key) => {
+    group.all.sort((left, right) => right.p.id - left.p.id);
+    group.all.forEach((x) => {
+      const current = x.t.lines ? group.all.find((y) => y === x || sameLines(x.t, y.t)) : group.all[0];
+      out.cur.set(x.p.id, (current || x).p);
     });
-    const w = g.all.find((x) => x.t.whole); // a whole target's page: the newest pin's that has one
-    out.groups.set(key, { whole: !!w, page: w ? w.t.page : g.t.page, pins: g.all.map((x) => x.p) });
+    const wholeEntry = group.all.find((x) => x.t.whole); // a whole target's page: the newest pin's that has one
+    out.groups.set(key, {
+      whole: !!wholeEntry,
+      page: wholeEntry ? wholeEntry.t.page : group.t.page,
+      pins: group.all.map((x) => x.p),
+    });
   });
-  VO_CACHE.by.set(doc, out);
+  VERDICT_ORDER_CACHE.by.set(doc, out);
   return out;
 }
-// The verdict pins about each page's whole target on the document on screen, in the verdict order (verdictOrder), by page. A
-// page whose pins name two figures (a re-render moved one away) keeps the figure of its newest pin.
+// The verdict pins about each page's whole target on the document on screen, in the verdict order (verdictOrder), by
+// page. A page whose pins name two figures (a re-render moved one away) keeps the figure of its newest pin.
 function pageVerdictPins() {
   const out = new Map();
-  verdictOrder(DOC || DEFAULT_DOC).groups.forEach((g) => {
-    if (!g.whole) return;
-    const had = out.get(g.page);
-    if (!had || had[0].id < g.pins[0].id) out.set(g.page, g.pins);
+  verdictOrder(DOC || DEFAULT_DOC).groups.forEach((group) => {
+    if (!group.whole) return;
+    const had = out.get(group.page);
+    if (!had || had[0].id < group.pins[0].id) out.set(group.page, group.pins);
   });
   return out;
 }
-// The current verdict that supersedes verdict pin p - the newest verdict about p's target when that is not p - or null: p is
-// the current one, not a verdict pin, or its target cannot be resolved.
-function verdictSuperseder(p) {
-  if (!verdictOf(p)) return null;
-  const c = verdictOrder(pdoc(p)).cur.get(p.id);
-  return c && c.id !== p.id ? c : null;
+// The current verdict that supersedes a verdict pin - the newest verdict about its target when that is another pin - or
+// null: the pin is the current one, not a verdict pin, or its target cannot be resolved.
+function verdictSuperseder(pin) {
+  if (!verdictOf(pin)) return null;
+  const current = verdictOrder(pdoc(pin)).cur.get(pin.id);
+  return current && current.id !== pin.id ? current : null;
 }
-// A card's marker for a superseded verdict: '이전 판정 · #4로 대체됨', the number a link (the viewer's link look) to the current
-// verdict's card. Neutral: a badge with no colour of its own - the words carry it. null for a current verdict or another pin.
-function verdictOldMarker(p) {
-  const cur = verdictSuperseder(p);
+// A card's marker for a superseded verdict: '이전 판정 · #4로 대체됨', the number a link (the viewer's link look) to
+// the current verdict's card. Neutral: a badge with no colour of its own - the words carry it. null for a current
+// verdict or another pin.
+function verdictOldMarker(pin) {
+  const cur = verdictSuperseder(pin);
   if (!cur) return null;
-  const S = '\u0001',
+  const mark = '\u0001',
     id = cur.id;
-  const parts = tl('이전 판정 · {ref}{p} 대체됨', { ref: S, p: josaRo(id) }).split(S);
-  const desc = tl('같은 대상에 더 새 판정 #{id}{p} 있습니다 — 에이전트는 가장 새 판정만 실행합니다', {
+  const parts = tl('이전 판정 · {ref}{p} 대체됨', { ref: mark, p: josaRo(id) }).split(mark);
+  const description = tl('같은 대상에 더 새 판정 #{id}{p} 있습니다 — 에이전트는 가장 새 판정만 실행합니다', {
     id,
     p: josa(id, '이', '가'),
   });
-  return html`<span class="badge vd-old" role="note" aria-label="${desc}" data-tip="${desc}">${parts[0]}<span class="pin-ref vd-old-ref hit" role="link" tabindex="0" \
+  return html`<span class="badge vd-old" role="note" aria-label="${description}" data-tip="${description}">${parts[0]}<span class="pin-ref vd-old-ref hit" role="link" tabindex="0" \
 data-act="pin-ref" data-ref="${id}" aria-label="${tl('지금 판정 #{id} 카드로 갑니다', { id })}">#${id}</span>${parts[1] || ''}</span>`;
 }
-// The ids of the pins a page verdict line shows now (drawPageVerdicts): their page-size mark is not drawn and their card's
-// [보기] goes to the line (marks, jumpPin).
-let PV_SHOWN = new Set();
-let PV_KEYS = 0; // the page whose line the keys 1-5 act on (pvKeysPage), 0 for none
+// The ids of the pins a page verdict line shows now (drawPageVerdicts): their page-size mark is not drawn and their
+// card's [보기] goes to the line (marks, jumpPin).
+let SHOWN_ON_PAGE_LINES = new Set();
+let KEYED_PAGE = 0; // the page whose line the keys 1-5 act on (keyedPageFor), 0 for none
 // A pin's state on the line: what the dot would say, in the line's words. The pin is the page target's newest verdict.
-function pvStateWord(p) {
-  const st = pinState(p);
-  if (st === PIN_STATE.REVIEW || CONFIRMING.has(p.id)) return tr('검토 대기');
-  if (st === PIN_STATE.DONE) return tr('처리됨');
-  return claimActive(p) ? tr('처리 중') : tr('처리 대기');
+function verdictStateWord(pin) {
+  const state = pinState(pin);
+  if (state === PIN_STATE.REVIEW || CONFIRMING.has(pin.id)) return tr('검토 대기');
+  if (state === PIN_STATE.DONE) return tr('처리됨');
+  return claimActive(pin) ? tr('처리 중') : tr('처리 대기');
 }
 
 // ---------------- Two presses for a confirm word (D9)
-// The armed first press: the word, where (VD_WHERE) and - on a page line - the page, with the document, build and (in the
-// composer) selection it is bound to; null when nothing is armed.
-let VD_ARM = null;
+// The armed first press: the word, where (VD_WHERE) and - on a page line - the page, with the document, build and (in
+// the composer) selection it is bound to; null when nothing is armed.
+let ARMED_VERDICT = null;
 // What the composer's selection is, for the binding: its page, lines, rung, box and element.
-function vdSelKey() {
-  const d = COMPOSE.current;
-  return d ? JSON.stringify([d.page, d.lo, d.hi, d.scope, d.frac, d.elSel && d.elSel.id]) : '';
+function selectionBindingKey() {
+  const selection = COMPOSE.current;
+  return selection
+    ? JSON.stringify([
+        selection.page,
+        selection.lo,
+        selection.hi,
+        selection.scope,
+        selection.frac,
+        selection.elSel && selection.elSel.id,
+      ])
+    : '';
 }
 // Whether the armed press is this word's button.
-function vdArmedHere(key, where, page) {
-  const a = VD_ARM;
-  return !!a && a.key === key && a.where === where && (where === VD_WHERE.COMPOSER || a.page === page);
+function isArmedHere(key, where, page) {
+  const armed = ARMED_VERDICT;
+  return !!armed && armed.key === key && armed.where === where && (where === VD_WHERE.COMPOSER || armed.page === page);
 }
 // Whether an armed press still holds: the same document, build and (in the composer) selection.
-function vdArmStill(a) {
+function armStillHolds(armed) {
   return (
-    a.doc === DOC && !!META && a.build === META.pages_build && (a.where !== VD_WHERE.COMPOSER || a.sel === vdSelKey())
+    armed.doc === DOC &&
+    !!META &&
+    armed.build === META.pages_build &&
+    (armed.where !== VD_WHERE.COMPOSER || armed.sel === selectionBindingKey())
   );
 }
 // What an armed word says while it waits, with how long it waits: '삭제 — 4초 안에 한 번 더 누르면 저장합니다'.
-function vdArmSaid(label) {
-  return tl('{word} — {sec}초 안에 한 번 더 누르면 저장합니다', { word: label, sec: VD_ARM_MS / 1000 });
+function armedWaitText(label) {
+  return tl('{word} — {sec}초 안에 한 번 더 누르면 저장합니다', { word: label, sec: VERDICT_ARM_MS / 1000 });
 }
-// Arms word key's button: it reads '<낱말> 확정' for VD_ARM_MS, a screen reader hears that the next press saves and within
-// how long (vdArmSaid), and a page line says so beside it (pvLineHtml .pv-arm). kbd: armed by a key (verdictKey), which also
-// lets it go when the reading page changes (pvStick).
+// Arms word key's button: it reads '<낱말> 확정' for VERDICT_ARM_MS, a screen reader hears that the next press saves
+// and within how long (armedWaitText), and a page line says so beside it (pageLineHtml .pv-arm). kbd: armed by a key
+// (verdictKey), which also lets it go when the reading page changes (stickReadingLine).
 function armVerdict(key, where, page, label, kbd) {
   disarmVerdict(false);
-  VD_ARM = {
+  ARMED_VERDICT = {
     key,
     label,
     where,
     page,
     doc: DOC,
     build: META ? META.pages_build : '',
-    sel: where === VD_WHERE.COMPOSER ? vdSelKey() : '',
+    sel: where === VD_WHERE.COMPOSER ? selectionBindingKey() : '',
     kbd: !!kbd,
-    timer: setTimeout(() => disarmVerdict(true, true), VD_ARM_MS),
+    timer: setTimeout(() => disarmVerdict(true, true), VERDICT_ARM_MS),
   };
-  vdRedraw(where);
-  announce(vdArmSaid(label));
+  redrawVerdictButtons(where);
+  announce(armedWaitText(label));
 }
-// Lets an armed press go (Esc, another press, a press elsewhere, a new selection, document or build, the time running out).
-// Nothing keeps saying it waits: when it goes by itself, by Esc or by a press elsewhere (say) a screen reader hears so -
-// '삭제 확정을 풀었습니다' replaces '… 한 번 더 누르면 저장합니다' -, and otherwise (its second press saves, a new document or
-// build) that sentence is taken out of the live region; a description box still up for it closes.
+// Lets an armed press go (Esc, another press, a press elsewhere, a new selection, document or build, the time running
+// out). Nothing keeps saying it waits: when it goes by itself, by Esc or by a press elsewhere (say) a screen reader
+// hears so - '삭제 확정을 풀었습니다' replaces '… 한 번 더 누르면 저장합니다' -, and otherwise (its second press saves,
+// a new document or build) that sentence is taken out of the live region; a description box still up for it closes.
 function disarmVerdict(redraw, say) {
-  const a = VD_ARM;
-  if (!a) return;
-  clearTimeout(a.timer);
-  VD_ARM = null;
-  if (redraw) vdRedraw(a.where);
+  const armed = ARMED_VERDICT;
+  if (!armed) return;
+  clearTimeout(armed.timer);
+  ARMED_VERDICT = null;
+  if (redraw) redrawVerdictButtons(armed.where);
   hideTip();
-  if (say) announce(tl('{word} 확정을 풀었습니다', { word: a.label }));
+  if (say) announce(tl('{word} 확정을 풀었습니다', { word: armed.label }));
   else {
-    const r = $('#sr-news');
-    if (r && r.textContent === vdArmSaid(a.label)) r.textContent = '';
+    const liveRegion = $('#sr-news');
+    if (liveRegion && liveRegion.textContent === armedWaitText(armed.label)) liveRegion.textContent = '';
   }
 }
-function vdRedraw(where) {
+function redrawVerdictButtons(where) {
   if (where === VD_WHERE.COMPOSER) renderVerdictRow();
   else drawPageVerdicts();
 }
-// A press anywhere but on the armed button lets it go; Esc does too, and does nothing else. The click a long press's release
-// ends with is no press (tooltip.js swallows it after this, on the document): it lets nothing go, nor closes the description
-// the long press showed.
+// A press anywhere but on the armed button lets it go; Esc does too, and does nothing else. The click a long press's
+// release ends with is no press (tooltip.ts swallows it after this, on the document): it lets nothing go, nor closes
+// the description the long press showed.
 window.addEventListener(
   'click',
-  (e) => {
-    if (!VD_ARM || Date.now() < SWALLOW_CLICK) return;
-    const b = (e.target).closest('[data-act="verdict-save"],[data-act="pv-save"]');
-    if (!(b && vdArmedHere(b.dataset.key || '', vdWhereOf(b), Number(b.dataset.page) || 0))) disarmVerdict(true, true);
+  (event) => {
+    if (!ARMED_VERDICT || Date.now() < SWALLOW_CLICK) return;
+    const button = (event.target).closest(
+      '[data-act="verdict-save"],[data-act="pv-save"]',
+    );
+    if (!(button && isArmedHere(button.dataset.key || '', whereOfButton(button), Number(button.dataset.page) || 0)))
+      disarmVerdict(true, true);
   },
   true,
 );
 window.addEventListener(
   'keydown',
-  (e) => {
-    if (e.key !== 'Escape' || !VD_ARM || imeKey(e)) return;
-    e.preventDefault();
-    e.stopImmediatePropagation();
+  (event) => {
+    if (event.key !== 'Escape' || !ARMED_VERDICT || imeKey(event)) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
     disarmVerdict(true, true);
   },
   true,
 );
-function vdWhereOf(b) {
-  return b.dataset.act === 'verdict-save' ? VD_WHERE.COMPOSER : VD_WHERE.PAGE;
+function whereOfButton(button) {
+  return button.dataset.act === 'verdict-save' ? VD_WHERE.COMPOSER : VD_WHERE.PAGE;
 }
 
 // One word's button: outline, a confirm word's text in the danger colour, '<낱말> 확정' while armed. The word is the
-// manuscript's, so the button is translate="no" and its name is put in the screen's language here.
-// In the composer it saves (its name says what about: '채택 판정으로 저장 — 3쪽'; its description, that the selection and
-// note become that verdict's pin at once). On a page line it is a toggle: pr says its state (PV_PRESS) - the line's
-// current verdict, or the word a save on the line is for, is pressed (aria-pressed, a filled look; a confirm word the
+// manuscript's, so the button is translate="no" and its name is put in the screen's language here. In the composer it
+// saves (its name says what about: '채택 판정으로 저장 — 3쪽'; its description, that the selection and note become that
+// verdict's pin at once). On a page line it is a toggle: `pressed` says its state (PRESSED_AS) - the line's current
+// verdict, or the word a save on the line is for, is pressed (aria-pressed, a filled look; a confirm word the
 // destructive fill) - and its name stays '채택 판정 — 3쪽' whichever it is. Its description says what a press does: an
 // unpressed word saves that verdict (the current one is replaced), the pressed one takes the person's own open verdict
-// back (as [판정 취소]), and a pressed one that is not theirs or is handled says why it is not taken back here. The word a
-// save is for (SAVING) keeps its box's words but gives a screen reader none (an empty aria-description, which tooltip.js
-// leaves as the drawing code's): the line's status (.pv-busy, role=status) says the save, once. A click presses the word
-// and focuses it at the same moment, so a description that changed then was read with the focus and again as a change -
-// Orca said '이 판정을 저장하는 중입니다 · 단축키 2' twice, 26 ms apart, before the status said '보류 저장 중…'.
-// Off: a composer's button is disabled; a page line's waits (aria-disabled, verdictPress ignores it) before the first list,
-// and right after its word was taken back (PV_TOGGLE_HOLD) - it keeps the focus a keyboard press left on it, which a
-// disabled button would drop to the page.
-// kn: on the line of the page the keys act on (PV_KEYS), the word's key 1-5 - drawn after the word as a key hint (data-kn,
-// generated text on a mouse screen only, so the button's text stays the word) and, on that screen only (PV_KEY_MARKS),
-// said in its description and as aria-keyshortcuts; 0 elsewhere. quiet: drawn without its description (data-tip) - a page
-// line whose save chip stands (pvLineHtml) - so no description box comes over the chip; the name and the keys are still
-// said. A page line's armed word ('삭제 확정') has no description either: its box covered the line's figure name while the
-// word waited for its second press, the button already reads what the box said, and the line says how long it waits
-// beside it (.pv-arm). Either keeps it for a long press (data-tip-press, tooltip.js): hover and focus raise no box, but a
-// long press shows it and its release presses nothing, as on a word at rest - a long press on the pressed word took the
-// verdict back while a chip or the reason popover was up, and one on the armed word saved it (#320).
-// The screen that draws the key marks (components.css .vd-b[data-kn]::after): a mouse's. Only there does a word's description
-// end in '단축키 1' and its button carry aria-keyshortcuts - a phone's long press read '… · 단축키 1' for a key it has none of
-// (#315). The lines are drawn again when that changes (a tablet's keyboard cover with its touchpad taken off), so the
-// description follows the marks.
-const PV_KEY_MARKS = matchMedia('(hover:hover) and (pointer:fine)');
-PV_KEY_MARKS.addEventListener('change', () => {
+// back (as [판정 취소]), and a pressed one that is not theirs or is handled says why it is not taken back here. The
+// word a save is for (SAVING) keeps its box's words but gives a screen reader none (an empty aria-description, which
+// tooltip.ts leaves as the drawing code's): the line's status (.pv-busy, role=status) says the save, once. A click
+// presses the word and focuses it at the same moment, and a screen reader reads a description that changes then twice,
+// with the focus and as a change, before the status. Off: a composer's button is disabled; a page line's waits
+// (aria-disabled, verdictPress ignores it) before the first list, and right after its word was taken back
+// (TAKEN_BACK_HOLD) - it keeps the focus a keyboard press left on it, which a disabled button would drop to the page.
+// keyNumber: on the line of the page the keys act on (KEYED_PAGE), the word's key 1-5 - drawn after the word as a key
+// hint (data-kn, generated text on a mouse screen only, so the button's text stays the word) and, on that screen only
+// (KEY_MARK_SCREEN), said in its description and as aria-keyshortcuts; 0 elsewhere. quiet: drawn without its
+// description (data-tip) - a page line whose save chip stands (pageLineHtml) - so no description box comes over the
+// chip; the name and the keys are still said. A page line's armed word ('삭제 확정') has no description either: its box
+// would cover the line's figure name while the word waits for its second press, the button already reads what the box
+// would say, and the line says how long it waits beside it (.pv-arm). Either keeps it for a long press (data-tip-press,
+// tooltip.ts): hover and focus raise no box, but a long press shows it and its release presses nothing, as on a word at
+// rest - so a long press never takes the pressed word's verdict back while a chip or the reason popover is up, nor
+// saves the armed word. The screen that draws the key marks (components.css .vd-b[data-kn]::after): a mouse's. Only
+// there does a word's description end in '단축키 1' and its button carry aria-keyshortcuts, so a phone's long press
+// never names a key it has none of. The lines are drawn again when that changes (a tablet's keyboard cover with its
+// touchpad taken off), so the description follows the marks.
+const KEY_MARK_SCREEN = matchMedia('(hover:hover) and (pointer:fine)');
+KEY_MARK_SCREEN.addEventListener('change', () => {
   if (META) drawPageVerdicts();
 });
-function vdButton(
-  c,
+function verdictButton(
+  choice,
   where,
   page,
   target,
   off,
-  kn,
+  keyNumber,
   quiet,
-  pr,
+  pressed,
 ) {
-  const armed = vdArmedHere(c.key, where, page),
+  const armed = isArmedHere(choice.key, where, page),
     line = where !== VD_WHERE.COMPOSER,
-    on = line && !!pr && !armed;
-  const said = !!kn && PV_KEY_MARKS.matches; // the key said as well as drawn
+    on = line && !!pressed && !armed;
+  const said = !!keyNumber && KEY_MARK_SCREEN.matches; // the key said as well as drawn
   const name = armed
-    ? tl('{word} 확정 — {sec}초 안에 한 번 더 누르면 저장합니다', { word: c.label, sec: VD_ARM_MS / 1000 })
+    ? tl('{word} 확정 — {sec}초 안에 한 번 더 누르면 저장합니다', { word: choice.label, sec: VERDICT_ARM_MS / 1000 })
     : line
-      ? tl('{word} 판정 — {target}', { word: c.label, target })
-      : tl('{word} 판정으로 저장 — {target}', { word: c.label, target });
-  const fig = where === VD_WHERE.COMPOSER && !!figureVerdictRoot(COMPOSE.current);
+      ? tl('{word} 판정 — {target}', { word: choice.label, target })
+      : tl('{word} 판정으로 저장 — {target}', { word: choice.label, target });
+  const forFigure = where === VD_WHERE.COMPOSER && !!figureVerdictRoot(COMPOSE.current);
   let tip = armed
     ? name
-    : fig
-      ? tl('누르면 메모와 함께 이 그림 전체({target})의 {word} 판정 핀으로 바로 저장합니다', { word: c.label, target })
+    : forFigure
+      ? tl('누르면 메모와 함께 이 그림 전체({target})의 {word} 판정 핀으로 바로 저장합니다', {
+          word: choice.label,
+          target,
+        })
       : where === VD_WHERE.COMPOSER
-        ? tl('누르면 지금 선택과 메모를 {word} 판정 핀으로 바로 저장합니다', { word: c.label })
-        : pr === PV_PRESS.MINE
+        ? tl('누르면 지금 선택과 메모를 {word} 판정 핀으로 바로 저장합니다', { word: choice.label })
+        : pressed === PRESSED_AS.MINE
           ? tr('지금 판정입니다 · 다시 누르면 이 판정을 거둡니다(판정 취소)')
-          : pr === PV_PRESS.OTHER
+          : pressed === PRESSED_AS.OTHER
             ? tr('지금 판정입니다 · 다른 사람의 판정이라 여기서 거두지 않습니다')
-            : pr === PV_PRESS.HANDLED
+            : pressed === PRESSED_AS.HANDLED
               ? tr('지금 판정입니다 · 처리된 판정이라 카드의 [지우기]로 거둡니다')
-              : pr === PV_PRESS.SAVING
+              : pressed === PRESSED_AS.SAVING
                 ? tr('이 판정을 저장하는 중입니다')
                 : tr('누르면 이 쪽의 판정으로 저장합니다 · 다시 누르면 거둡니다');
-  if (said) tip += ' · ' + tl(c.confirm ? '단축키 {key} (두 번)' : '단축키 {key}', { key: kn });
-  return html`<button type="button" class="vd-b hit${c.confirm ? ' vd-confirm' : ''}${armed ? ' armed' : ''}" translate="no" data-act="${where === VD_WHERE.COMPOSER ? 'verdict-save' : 'pv-save'}" \
-data-key="${c.key}" data-page="${page}" aria-label="${name}"${line ? html` aria-pressed="${on ? 'true' : 'false'}"` : ''}${on && pr !== PV_PRESS.SAVING ? html` aria-describedby="pv-on-${page}"` : ''}${on && pr === PV_PRESS.SAVING ? html` aria-description=""` : ''}\
-${quiet || (armed && line) ? html` data-tip-press="${tip}"` : html` data-tip="${tip}"`}${kn ? html` data-kn="${kn}"` : ''}${said ? html` aria-keyshortcuts="${kn}"` : ''}${off ? (line ? html` aria-disabled="true"` : html` disabled`) : ''}>\
-${on ? ic('check') : ''}<span class="lbl">${armed ? tl('{word} 확정', { word: c.label }) : c.label}</span></button>`;
+  if (said) tip += ' · ' + tl(choice.confirm ? '단축키 {key} (두 번)' : '단축키 {key}', { key: keyNumber });
+  return html`<button type="button" class="vd-b hit${choice.confirm ? ' vd-confirm' : ''}${armed ? ' armed' : ''}" translate="no" data-act="${where === VD_WHERE.COMPOSER ? 'verdict-save' : 'pv-save'}" \
+data-key="${choice.key}" data-page="${page}" aria-label="${name}"${line ? html` aria-pressed="${on ? 'true' : 'false'}"` : ''}${on && pressed !== PRESSED_AS.SAVING ? html` aria-describedby="pv-on-${page}"` : ''}${on && pressed === PRESSED_AS.SAVING ? html` aria-description=""` : ''}\
+${quiet || (armed && line) ? html` data-tip-press="${tip}"` : html` data-tip="${tip}"`}${keyNumber ? html` data-kn="${keyNumber}"` : ''}${said ? html` aria-keyshortcuts="${keyNumber}"` : ''}${off ? (line ? html` aria-disabled="true"` : html` disabled`) : ''}>\
+${on ? ic('check') : ''}<span class="lbl">${armed ? tl('{word} 확정', { word: choice.label }) : choice.label}</span></button>`;
 }
-// A page line's word state (vdButton pr): not pressed, or pressed as the person's own open verdict (a press takes it back),
-// someone else's, a handled one (neither is taken back from the line), or the word a save on the line is for (SAVING). A
-// pressed word carries a check before its word and is described by the line's state line (pvOnHint, aria-describedby).
-const PV_PRESS = Object.freeze({ NONE: 0, MINE: 1, OTHER: 2, HANDLED: 3, SAVING: 4 });
+// A page line's word state (verdictButton's `pressed`): not pressed, or pressed as the person's own open verdict (a
+// press takes it back), someone else's, a handled one (neither is taken back from the line), or the word a save on the
+// line is for (SAVING). A pressed word carries a check before its word and is described by the line's state line
+// (pressedWordHint, aria-describedby).
+const PRESSED_AS = Object.freeze({ NONE: 0, MINE: 1, OTHER: 2, HANDLED: 3, SAVING: 4 });
 // Gives the focus back to the button it was on after a redraw (an armed press redraws its buttons).
-function vdRefocus(f) {
-  if (!f || document.contains(f) || !f.dataset || !f.dataset.act) return;
-  const sel = f.dataset.ref
-    ? '#doc .pv [data-act="' + f.dataset.act + '"][data-ref="' + CSS.escape(f.dataset.ref) + '"]' // a line's '#N' link or its earlier link
+function refocusVerdictButton(focused) {
+  if (!focused || document.contains(focused) || !focused.dataset || !focused.dataset.act) return;
+  const selector = focused.dataset.ref
+    ? // a line's '#N' link or its earlier link
+      '#doc .pv [data-act="' + focused.dataset.act + '"][data-ref="' + CSS.escape(focused.dataset.ref) + '"]'
     : '[data-act="' +
-      f.dataset.act +
+      focused.dataset.act +
       '"][data-key="' +
-      CSS.escape(f.dataset.key || '') +
+      CSS.escape(focused.dataset.key || '') +
       '"][data-page="' +
-      (f.dataset.page || '0') +
+      (focused.dataset.page || '0') +
       '"]';
-  const b = document.querySelector(sel);
-  if (b) b.focus({ preventScroll: true });
+  const button = document.querySelector(selector);
+  if (button) button.focus({ preventScroll: true });
 }
 // A press on a verdict button: a confirm word arms on the first press and saves on the second while what it is bound to
-// holds; any other word saves at once - the composer's through savePin, a page line's through pvPress. how: 'key' for a
-// digit key (verdictKey, or one in an empty reason field), 'kb' for a click the keyboard made (Enter or Space on the
-// button); a page line's save from either opens its reason popover with the focus.
-function verdictPress(b, how) {
-  const key = b.dataset.key || '',
-    where = vdWhereOf(b),
-    page = Number(b.dataset.page) || 0,
-    v = docVerdicts(),
-    c = v && v.choices.find((x) => x.key === key);
-  if (!c || b.getAttribute('aria-disabled') === 'true' || viewerBlocked()) return;
+// holds; any other word saves at once - the composer's through savePin, a page line's through pressPageVerdict. how:
+// 'key' for a digit key (verdictKey, or one in an empty reason field), 'kb' for a click the keyboard made (Enter or
+// Space on the button); a page line's save from either opens its reason popover with the focus.
+function verdictPress(button, how) {
+  const key = button.dataset.key || '',
+    where = whereOfButton(button),
+    page = Number(button.dataset.page) || 0,
+    verdicts = docVerdicts(),
+    choice = verdicts && verdicts.choices.find((x) => x.key === key);
+  if (!choice || button.getAttribute('aria-disabled') === 'true' || viewerBlocked()) return;
   if (where !== VD_WHERE.COMPOSER) {
-    pvPress(c, page, how);
+    pressPageVerdict(choice, page, how);
     return;
   }
-  if (c.confirm && !(vdArmedHere(key, where, page) && VD_ARM && vdArmStill(VD_ARM))) {
-    const f = document.activeElement;
-    armVerdict(key, where, page, c.label, how === 'key');
-    vdRefocus(f && f.closest && f.closest('.vd-btns') ? f : null);
+  if (choice.confirm && !(isArmedHere(key, where, page) && ARMED_VERDICT && armStillHolds(ARMED_VERDICT))) {
+    const focused = document.activeElement;
+    armVerdict(key, where, page, choice.label, how === 'key');
+    refocusVerdictButton(focused && focused.closest && focused.closest('.vd-btns') ? focused : null);
     return;
   }
   disarmVerdict(false);
@@ -23240,55 +23275,55 @@ function verdictPress(b, how) {
   renderVerdictRow();
   if (COMPOSE.current) savePin(key);
 } // while the pick runs the row is off (composer.css): nothing is queued
-// A press of word c on page `page`'s line - a toggle (0.4.34):
-// - While a save on the line is out (PV_BUSY) the press is the line's next intent: the last press wins (PV_NEXT) and is
-//   applied when the save is done - a word already current then does nothing. Nothing is dropped and nothing is toggled
-//   off meanwhile: the line ends on the last word pressed.
-// - The pressed word (the line's current verdict): the person's own open verdict is taken back as [판정 취소] does (pvCancelPin,
-//   with its [되돌리기]); anyone else's, or a handled one, is not - the status line says why. Pressing a word never makes a
-//   second pin of the word that is current. Right after it was taken back the same word waits PV_CANCEL_MS
-//   (PV_TOGGLE_HOLD): a double press takes back one verdict and does not save it again.
+// A press of word `choice` on page `page`'s line, a toggle:
+// - While a save on the line is out (SAVING_LINES) the press is the line's next intent: the last press wins
+//   (NEXT_PRESS) and is applied when the save is done - a word already current then does nothing. Nothing is dropped
+//   and nothing is toggled off meanwhile: the line ends on the last word pressed.
+// - The pressed word (the line's current verdict): the person's own open verdict is taken back as [판정 취소] does
+//   (cancelVerdictPin, with its [되돌리기]); anyone else's, or a handled one, is not - the status line says why.
+//   Pressing a word never makes a second pin of the word that is current. Right after it was taken back the same word
+//   waits CANCEL_HOLD_MS (TAKEN_BACK_HOLD): a double press takes back one verdict and does not save it again.
 // - Any other word saves (savePageVerdict), a confirm word on its second press.
-function pvPress(c, page, how) {
-  const key = c.key,
+function pressPageVerdict(choice, page, how) {
+  const key = choice.key,
     where = VD_WHERE.PAGE,
-    armed = vdArmedHere(key, where, page) && !!VD_ARM && vdArmStill(VD_ARM);
+    armed = isArmedHere(key, where, page) && !!ARMED_VERDICT && armStillHolds(ARMED_VERDICT);
   const arm = () => {
-    const f = document.activeElement;
+    const focused = document.activeElement;
     hideTip(); // no box over the armed word (it says its wait beside it)
-    armVerdict(key, where, page, c.label, how === 'key');
-    vdRefocus(f && f.closest && f.closest('.vd-btns') ? f : null);
+    armVerdict(key, where, page, choice.label, how === 'key');
+    refocusVerdictButton(focused && focused.closest && focused.closest('.vd-btns') ? focused : null);
   };
-  if (PV_BUSY.has(pvSlot(page))) {
-    if (c.confirm && !armed) {
+  if (SAVING_LINES.has(pageLineSlot(page))) {
+    if (choice.confirm && !armed) {
       arm();
       return;
     }
     disarmVerdict(false);
     hideTip();
-    PV_NEXT.set(pvSlot(page), { key, how: how || '' });
+    NEXT_PRESS.set(pageLineSlot(page), { key, how: how || '' });
     drawPageVerdicts();
     return;
   }
   const cur = (pageVerdictPins().get(page) || [])[0];
   if (cur && verdictOf(cur) === key) {
-    const h = PV_TOGGLE_HOLD.get(pvSlot(page));
-    if (h && h.key === key && h.until > Date.now()) return;
+    const hold = TAKEN_BACK_HOLD.get(pageLineSlot(page));
+    if (hold && hold.key === key && hold.until > Date.now()) return;
     disarmVerdict(false);
     hideTip();
-    if (pvCanCancel(cur)) {
-      PV_TOGGLE_HOLD.set(pvSlot(page), { key, until: Date.now() + PV_CANCEL_MS });
-      setTimeout(() => drawPageVerdicts(), PV_CANCEL_MS + 20);
-      pvCancelPin(cur.id, page, !!how, how === 'key');
+    if (canCancelVerdict(cur)) {
+      TAKEN_BACK_HOLD.set(pageLineSlot(page), { key, until: Date.now() + CANCEL_HOLD_MS });
+      setTimeout(() => drawPageVerdicts(), CANCEL_HOLD_MS + 20);
+      cancelVerdictPin(cur.id, page, !!how, how === 'key');
       return;
     } // by a key: the focus goes to the line's [되돌리기]
     lineNote(
       tl('지금 판정 #{id} {word} 그대로 · {why} — {target}', {
         id: cur.id,
-        word: c.label,
+        word: choice.label,
         target: pageTargetShort(page),
         why:
-          pvPressOf(cur) === PV_PRESS.HANDLED
+          pressedAsOf(cur) === PRESSED_AS.HANDLED
             ? tr('처리된 판정은 카드의 [지우기]로 거둡니다')
             : tr('다른 사람의 판정은 여기서 거두지 않습니다'),
       }),
@@ -23298,178 +23333,189 @@ function pvPress(c, page, how) {
     );
     return;
   }
-  if (c.confirm && !armed) {
+  if (choice.confirm && !armed) {
     arm();
     return;
   }
   disarmVerdict(false);
-  hideTip(); // the box the press's focus armed: the save chip comes over the line (pvChipWatch)
-  if (how === 'key') PV_KEY_OUT.add(pvSlot(page));
+  hideTip(); // the box the press's focus armed: the save chip comes over the line (CHIP_WATCH)
+  if (how === 'key') KEY_SAVE_OUT.add(pageLineSlot(page));
   savePageVerdict(page, key, !!how);
 }
-// What a line's current verdict p is to this person, as a pressed word (PV_PRESS): their own open one, someone else's, or a
-// handled one (검토 대기, 처리됨, or one whose [확인] waits for its undo).
-function pvPressOf(p) {
-  return pvCanCancel(p)
-    ? PV_PRESS.MINE
-    : pinState(p) !== PIN_STATE.OPEN || CONFIRMING.has(p.id)
-      ? PV_PRESS.HANDLED
-      : PV_PRESS.OTHER;
+// What a line's current verdict is to this person, as a pressed word (PRESSED_AS): their own open one, someone else's,
+// or a handled one (검토 대기, 처리됨, or one whose [확인] waits for its undo).
+function pressedAsOf(pin) {
+  return canCancelVerdict(pin)
+    ? PRESSED_AS.MINE
+    : pinState(pin) !== PIN_STATE.OPEN || CONFIRMING.has(pin.id)
+      ? PRESSED_AS.HANDLED
+      : PRESSED_AS.OTHER;
 }
 
 // ---------------- The composer's verdict row
-// What the selection is, for a button's name: on a figure document the figure it is saved for (figureName), else its page's
-// region, else its file and lines.
-function selTarget(d) {
-  const fr = figureVerdictRoot(d);
-  if (fr) return figureName(d.page, fr);
-  return isRegion(d) ? tl('{page}쪽 영역', { page: d.page }) : d.name + ' ' + rng(d.lo, d.hi);
+// What the selection is, for a button's name: on a figure document the figure it is saved for (figureName), else its
+// page's region, else its file and lines.
+function selectionTargetName(selection) {
+  const figureRoot = figureVerdictRoot(selection);
+  if (figureRoot) return figureName(selection.page, figureRoot);
+  return isRegion(selection)
+    ? tl('{page}쪽 영역', { page: selection.page })
+    : selection.name + ' ' + rng(selection.lo, selection.hi);
 }
-// A figure's name for a person: its title in the map (meta pages[].title, '[후보] PL26 · …'), else '그림 <id>', with its page:
-// '5쪽 · [후보] PL26 · …'. The title is only taken while that page still shows the figure.
+// A figure's name for a person: its title in the map (meta pages[].title, '[후보] PL26 · …'), else '그림 <id>', with
+// its page: '5쪽 · [후보] PL26 · …'. The title is only taken while that page still shows the figure.
 function figureName(page, root) {
-  const pg = META && Array.isArray(META.pages) ? META.pages[page - 1] : null,
-    t = pg && pg.figure === root && pg.title ? pg.title : '';
-  return tl('{page}쪽', { page }) + ' · ' + (t || tl('그림 {id}', { id: root }));
+  const facts = META && Array.isArray(META.pages) ? META.pages[page - 1] : null,
+    title = facts && facts.figure === root && facts.title ? facts.title : '';
+  return tl('{page}쪽', { page }) + ' · ' + (title || tl('그림 {id}', { id: root }));
 }
-// A figure's short name: its map title ('[후보] PL26 · …') while page `page` still shows it, else its id. For the composer's
-// lead, the floating line and the status line's undo, which say which figure a verdict is for before and after the press.
+// A figure's short name: its map title ('[후보] PL26 · …') while page `page` still shows it, else its id. For the
+// composer's lead, the floating line and the status line's undo, which say which figure a verdict is for before and
+// after the press.
 function figureShort(page, root) {
-  const pg = META && Array.isArray(META.pages) ? META.pages[page - 1] : null;
-  return pg && pg.figure === root && pg.title ? pg.title : root;
+  const facts = META && Array.isArray(META.pages) ? META.pages[page - 1] : null;
+  return facts && facts.figure === root && facts.title ? facts.title : root;
 }
-// What page `page`'s verdict is about, by a short name: on a figure document its figure (figureShort of the map's figure),
-// else the page ('7쪽').
+// What page `page`'s verdict is about, by a short name: on a figure document its figure (figureShort of the map's
+// figure), else the page ('7쪽').
 function pageTargetShort(page) {
-  const pg = META && Array.isArray(META.pages) ? META.pages[page - 1] : null;
-  return META && isFigureKind(META.kind) && pg && typeof pg.figure === 'string'
-    ? figureShort(page, pg.figure)
+  const facts = META && Array.isArray(META.pages) ? META.pages[page - 1] : null;
+  return META && isFigureKind(META.kind) && facts && typeof facts.figure === 'string'
+    ? figureShort(page, facts.figure)
     : tl('{page}쪽', { page });
 }
-// The figure a figure document's selection d is about - the root of its element's path - or null: not a figure document,
+// The figure a figure document's selection is about - the root of its element's path - or null: not a figure document,
 // or a pick without an element (a map it could not read).
-function figureVerdictRoot(d) {
-  if (!d || !isFigureKind(docKindOf(d.doc || DOC || ''))) return null;
-  const el = d.elSel || d.el;
-  const r = el && Array.isArray(el.path) ? el.path[0] : null;
-  return typeof r === 'string' && r ? r : null;
+function figureVerdictRoot(selection) {
+  if (!selection || !isFigureKind(docKindOf(selection.doc || DOC || ''))) return null;
+  const element = selection.elSel || selection.el;
+  const root = element && Array.isArray(element.path) ? element.path[0] : null;
+  return typeof root === 'string' && root ? root : null;
 }
-// The pin body of a verdict saved from the composer on a figure document (ADR-0022 D2): a verdict is about the figure, so
-// whatever element the selection names, it is saved as the verdict of the figure - the root of the element's path, the
-// page's whole target, as a page line's press saves it. The root's rung of the pick's ladder when it has one (its lines,
-// element and kind), else a region over the whole page naming the root (an element drawn without code, whose answer has
-// no ladder). null when the selection is not about a figure (figureVerdictRoot): it is saved as it is.
-function figureVerdictBody(d) {
-  const root = figureVerdictRoot(d);
+// The pin body of a verdict saved from the composer on a figure document (ADR-0022 D2): a verdict is about the figure,
+// so whatever element the selection names, it is saved as the verdict of the figure - the root of the element's path,
+// the page's whole target, as a page line's press saves it. The root's rung of the pick's ladder when it has one (its
+// lines, element and kind), else a region over the whole page naming the root (an element drawn without code, whose
+// answer has no ladder). null when the selection is not about a figure (figureVerdictRoot): it is saved as it is.
+function figureVerdictBody(selection) {
+  const root = figureVerdictRoot(selection);
   if (!root) return null;
-  const lv = isRegion(d)
+  const rung = isRegion(selection)
     ? null
-    : (d.levels || []).find(
-        (l) =>
-          !!l.el && Array.isArray(l.el.path) && l.el.path.length === 1 && l.el.path[0] === root && l.el.id === root,
+    : (selection.levels || []).find(
+        (candidate) =>
+          !!candidate.el &&
+          Array.isArray(candidate.el.path) &&
+          candidate.el.path.length === 1 &&
+          candidate.el.path[0] === root &&
+          candidate.el.id === root,
       );
-  if (lv)
+  if (rung)
     return figureFields(
       {
-        file: d.file,
-        name: d.name,
-        page: d.page,
-        lo: lv.lo,
-        hi: lv.hi,
-        raw_lo: d.raw_lo,
-        raw_hi: d.raw_hi,
-        via: d.via,
-        score: d.score,
-        frac: d.frac,
-        quote: d.quote,
-        pdf_build: d.pdf_build || undefined,
-        scope: lv.level,
+        file: selection.file,
+        name: selection.name,
+        page: selection.page,
+        lo: rung.lo,
+        hi: rung.hi,
+        raw_lo: selection.raw_lo,
+        raw_hi: selection.raw_hi,
+        via: selection.via,
+        score: selection.score,
+        frac: selection.frac,
+        quote: selection.quote,
+        pdf_build: selection.pdf_build || undefined,
+        scope: rung.level,
       },
-      lv.el,
-      lv,
+      rung.el,
+      rung,
     );
   return figureFields(
-    { page: d.page, frac: WHOLE_PAGE.slice(), quote: '', pdf_build: d.pdf_build || undefined },
+    { page: selection.page, frac: WHOLE_PAGE.slice(), quote: '', pdf_build: selection.pdf_build || undefined },
     { id: root, path: [root], frac: WHOLE_PAGE.slice() },
     null,
   );
 }
-// The composer's verdict row (#c-verdict-row, after the note and its lines, before the kind row): '판정 바로 저장' and one
-// button per word in file order. Shown for a document with words to a person who may make a verdict pin; its buttons are
-// off, with the reason under them, while the kind is a question or [제안 수정] is on (a verdict pin is a fix request with
-// no suggestion) and while the selection is still being found - really disabled, with the reason, also during a second pick
-// over a selection (pick redraws the row when it starts).
+// The composer's verdict row (#c-verdict-row, after the note and its lines, before the kind row): '판정 바로 저장' and
+// one button per word in file order. Shown for a document with words to a person who may make a verdict pin; its
+// buttons are off, with the reason under them, while the kind is a question or [제안 수정] is on (a verdict pin is a
+// fix request with no suggestion) and while the selection is still being found - really disabled, with the reason, also
+// during a second pick over a selection (pick redraws the row when it starts).
 function renderVerdictRow() {
   const row = $('#c-verdict-row'),
-    v = docVerdicts(),
-    d = COMPOSE.current;
+    verdicts = docVerdicts(),
+    selection = COMPOSE.current;
   dropStaleRetry();
-  // A figure page that takes no verdict (its map says verdict: false - a list or a question page) offers no word either.
+  // A figure page that takes no verdict (its map says verdict: false - a list or a question page) offers no word
+  // either.
   const show =
-    !!v &&
+    !!verdicts &&
     canVerdict() &&
     !$('#composer').hidden &&
-    !(d && isFigureKind(docKindOf(d.doc || DOC || '')) && !pageTakesVerdict(d.page));
+    !(selection && isFigureKind(docKindOf(selection.doc || DOC || '')) && !pageTakesVerdict(selection.page));
   row.hidden = !show;
-  if (VD_ARM && VD_ARM.where === VD_WHERE.COMPOSER && (!show || !vdArmStill(VD_ARM))) disarmVerdict(false);
-  if (!v || !show) return;
+  if (ARMED_VERDICT && ARMED_VERDICT.where === VD_WHERE.COMPOSER && (!show || !armStillHolds(ARMED_VERDICT)))
+    disarmVerdict(false);
+  if (!verdicts || !show) return;
   const why =
-    COMPOSE.picking && !d
+    COMPOSE.picking && !selection
       ? tr('위치를 찾는 중입니다')
       : KIND_NEW === KIND_REQ.QUESTION
         ? tr('질문에는 판정을 붙이지 않습니다 — 아래에서 [수정 요청]을 고릅니다')
         : SG.on
           ? tr('판정을 저장하려면 [제안 수정]을 끕니다')
           : '';
-  const f = document.activeElement,
-    inRow = !!f && row.contains(f);
+  const focused = document.activeElement,
+    inRow = !!focused && row.contains(focused);
   // On a figure document the lead says whose verdict it is - the selected element's figure, by name ('· PL35 … 전체') -
   // whatever element is selected: a panel that shows another figure is still this page's figure's verdict.
-  const fr = d ? figureVerdictRoot(d) : null,
-    S = '\u0001',
-    sp = tl('{name} 전체', { name: S }).split(S);
+  const figureRoot = selection ? figureVerdictRoot(selection) : null,
+    mark = '\u0001',
+    parts = tl('{name} 전체', { name: mark }).split(mark);
   const scope =
-    fr && d
-      ? html`<span class="vd-scope"> · ${sp[0]}<span class="vd-fig" translate="no">${figureShort(d.page, fr)}</span>${sp[1] || ''}</span>`
-      : isFigureKind(docKindOf((d && d.doc) || DOC || '')) && !d
+    figureRoot && selection
+      ? html`<span class="vd-scope"> · ${parts[0]}<span class="vd-fig" translate="no">${figureShort(selection.page, figureRoot)}</span>${parts[1] || ''}</span>`
+      : isFigureKind(docKindOf((selection && selection.doc) || DOC || '')) && !selection
         ? html`<span class="vd-scope"> · ${tr('그림 전체')}</span>`
         : '';
   setHtml(
     row,
-    html`<span id="c-verdict-l" class="vd-l">${tr('판정 바로 저장')}${scope}</span><span class="vd-btns">${v.choices.map((c) => vdButton(c, VD_WHERE.COMPOSER, 0, d ? selTarget(d) : '', !!why || !d || COMPOSE.saving))}</span>\
+    html`<span id="c-verdict-l" class="vd-l">${tr('판정 바로 저장')}${scope}</span><span class="vd-btns">${verdicts.choices.map((choice) => verdictButton(choice, VD_WHERE.COMPOSER, 0, selection ? selectionTargetName(selection) : '', !!why || !selection || COMPOSE.saving))}</span>\
 ${why ? html`<span class="vd-why" id="c-verdict-why">${why}</span>` : ''}`,
   );
   if (why) row.setAttribute('aria-describedby', 'c-verdict-why');
   else row.removeAttribute('aria-describedby');
-  vdWrapFit(row.querySelector('.vd-btns'));
-  if (inRow) vdRefocus(f);
+  fitWrappedWords(row.querySelector('.vd-btns'));
+  if (inRow) refocusVerdictButton(focused);
 }
-// A word group that wraps (the 280px panel in English with a word armed) keeps every button at its own width, left-aligned
-// (.wrapped): stretched to share the row, a lone last word ran across the whole second row. Measured after drawing and when
-// the row's width changes; the class changes how the buttons grow, never where they wrap, so it never measures itself again.
-function vdWrapFit(g) {
-  if (!g) return;
-  const tops = new Set([...g.children].map((b) => Math.round(b.getBoundingClientRect().top)));
-  g.classList.toggle('wrapped', tops.size > 1);
+// A word group that wraps (the 280px panel in English with a word armed) keeps every button at its own width,
+// left-aligned (.wrapped): stretched to share the row, a lone last word would run across the whole second row. Measured
+// after drawing and when the row's width changes; the class changes how the buttons grow, never where they wrap, so it
+// never measures itself again.
+function fitWrappedWords(group) {
+  if (!group) return;
+  const tops = new Set([...group.children].map((button) => Math.round(button.getBoundingClientRect().top)));
+  group.classList.toggle('wrapped', tops.size > 1);
 }
 if (typeof ResizeObserver !== 'undefined') {
   const row = document.getElementById('c-verdict-row');
-  if (row) new ResizeObserver(() => vdWrapFit(row.querySelector('.vd-btns'))).observe(row);
+  if (row) new ResizeObserver(() => fitWrappedWords(row.querySelector('.vd-btns'))).observe(row);
 }
-// A failed verdict save's retry the composer no longer asks for (COMPOSE.intent moved since its press): it goes, and the
-// failure's banner says so (verdictDropped). Run on every redraw of the verdict row, which every such change makes.
+// A failed verdict save's retry that the composer stopped asking for (COMPOSE.intent moved since its press): it goes,
+// and the failure's banner says so (verdictDropped). Run on every redraw of the verdict row, which every such change
+// makes.
 function dropStaleRetry() {
-  const rv = COMPOSE.retryVerdict;
-  if (!rv || rv.gen === COMPOSE.intent) return;
+  const retry = COMPOSE.retryVerdict;
+  if (!retry || retry.gen === COMPOSE.intent) return;
   COMPOSE.retryVerdict = null;
   verdictDropped();
 }
-// The composer's failed-save banner when the verdict it was for is no longer asked for - dropped after the failure, or the
-// intent changed while the request was out (savePin): '핀 저장 실패 — 선택했던 판정은 해제됐습니다 — ...'. [다시 저장] saves the
-// selection as the composer has it, without the verdict; pressing the word again saves the verdict.
+// The composer's failed-save banner when the verdict it was for is not asked for any more - dropped after the failure,
+// or the intent changed while the request was out (savePin): '핀 저장 실패 — 선택했던 판정은 해제됐습니다 — ...'. [다시
+// 저장] saves the selection as the composer has it, without the verdict; pressing the word again saves the verdict.
 function verdictDropped() {
-  const b = BANNERS.get(NOTICE_HOST.COMPOSER);
-  if (!b || !b.save || $('#composer').hidden) return;
+  const banner = BANNERS.get(NOTICE_HOST.COMPOSER);
+  if (!banner || !banner.save || $('#composer').hidden) return;
   bannerNote(
     NOTICE_HOST.COMPOSER,
     tl('{what} 실패', { what: tr('핀 저장') }) +
@@ -23477,39 +23523,44 @@ function verdictDropped() {
       tr('선택했던 판정은 해제됐습니다 — 판정으로 저장하려면 판정 버튼을 다시 누릅니다'),
     NOTICE_KIND.ERR,
     null,
-    { save: true, source: b.source },
+    { save: true, source: banner.source },
   );
 }
-// The undo of a verdict pin's save (D10): the pin goes again - a withdrawn request - and the composer does not come back. When
-// an agent claimed or closed it meanwhile it still goes, and the status line says its run may have started - one
-// sentence with no ' — ', so the folded line shows all of it.
-// A reason draft typed for it is not written to the withdrawn pin; it stays kept, and the status line offers [되돌리기],
-// which brings the verdict back with it ('판정 #42 채택 저장 되돌림 · 쓰던 이유 보관 — <대상>'). Without one the undo is
-// quiet as before - pressing the word again is the same.
+// The undo of a verdict pin's save (D10): the pin goes again - a withdrawn request - and the composer does not come
+// back. When an agent claimed or closed it meanwhile it still goes, and the status line says its run may have started -
+// one sentence with no ' — ', so the folded line shows all of it. A reason draft typed for it is not written to the
+// withdrawn pin; it stays kept, and the status line offers [되돌리기], which brings the verdict back with it ('판정 #42
+// 채택 저장 되돌림 · 쓰던 이유 보관 — <대상>'). Without one the undo says nothing - pressing the word again is the
+// same.
 function verdictUndo(id) {
   const undo = async () => {
     let was = null;
     try {
       was = (await api('/api/pins/' + id, { what: '핀 읽기', silent: true })).data.pin;
-    } catch (e) {}
-    const r = PV_REASON && PV_REASON.id === id ? PV_REASON : null;
-    if (r && pvReasonDirty(r)) rdPut(r.doc, id, r.text, r.base, r.rev, { mode: r.mode, tried: r.tried, from: r.via });
-    PV_WITHDRAWN.add(id);
+    } catch (error) {}
+    const session = REASON_SESSION && REASON_SESSION.id === id ? REASON_SESSION : null;
+    if (session && hasUnsavedReason(session))
+      putDraft(session.doc, id, session.text, session.base, session.rev, {
+        mode: session.mode,
+        tried: session.tried,
+        from: session.via,
+      });
+    WITHDRAWN_PINS.add(id);
     const ok = await dropPin(id, true, undo);
-    if (!ok) PV_WITHDRAWN.delete(id);
-    if (ok && PV_REASON && PV_REASON.id === id) {
-      setPvReason(null);
+    if (!ok) WITHDRAWN_PINS.delete(id);
+    if (ok && REASON_SESSION && REASON_SESSION.id === id) {
+      setReasonSession(null);
       drawPageVerdicts();
     } // a withdrawn verdict takes no reason
-    const d = ok ? rdGet(DOC, id) : null,
-      k = was && verdictOf(was),
-      t = was ? pageTargetOf(was, META ? META.kind : undefined) : null;
-    if (d && k)
+    const draft = ok ? getDraft(DOC, id) : null,
+      key = was && verdictOf(was),
+      target = was ? pageTargetOf(was, META ? META.kind : undefined) : null;
+    if (draft && key)
       lineNote(
         tl('판정 #{id} {word} 저장 되돌림 · 쓰던 이유 보관 — {target}', {
           id,
-          word: verdictLabel(k),
-          target: t ? pageTargetShort(t.page) : '#' + id,
+          word: verdictLabel(key),
+          target: target ? pageTargetShort(target.page) : '#' + id,
         }),
         NOTICE_KIND.OK,
         {
@@ -23517,9 +23568,9 @@ function verdictUndo(id) {
           tip: T.undo,
           wait: true,
           fn: async () => {
-            PV_WITHDRAWN.delete(id);
+            WITHDRAWN_PINS.delete(id);
             const back = await restorePin(id);
-            if (back) pvAfterRestore(id);
+            if (back) afterVerdictRestore(id);
             return back;
           },
         },
@@ -23533,121 +23584,129 @@ function verdictUndo(id) {
 }
 
 // ---------------- The page verdict line (figure documents and view-only PDFs, page: true)
-// The pin body a page verdict saves from the whole page's pick answer d (D7): on a figure document the rung whose element is
-// the page's figure (el.path == [el.id]) - its lines and element - else a region answer whose element is that figure, else
+// The pin body a page verdict saves from the whole page's pick answer (D7): on a figure document the rung whose element
+// is the page's figure (el.path == [el.id]) - its lines and element - else a region answer whose element is that
+// figure, else
 // - the pick chose an element inside the figure: one covering 40% of the page wins a whole-page drag (pick_element) - a
 // region over the whole page naming the figure, the root of that element's path, as the composer's verdict saves it
-// (figureVerdictBody, ADR-0022 D2); on a view-only PDF the region answer as it is. null when a figure page's answer names
-// no element (its map could not be read). Pure but for the figure helpers.
-function pageVerdictBody(d, kind) {
-  const root = (el) => !!el && Array.isArray(el.path) && el.path.length === 1 && el.path[0] === el.id;
+// (figureVerdictBody, ADR-0022 D2); on a view-only PDF the region answer as it is. null when a figure page's answer
+// names no element (its map could not be read). Pure but for the figure helpers.
+function pageVerdictBody(answer, kind) {
+  const root = (element) =>
+    !!element && Array.isArray(element.path) && element.path.length === 1 && element.path[0] === element.id;
   if (isFigureKind(kind)) {
-    const lv = isRegion(d) ? null : (d.levels || []).find((l) => root(l.el));
-    if (lv)
+    const rung = isRegion(answer) ? null : (answer.levels || []).find((candidate) => root(candidate.el));
+    if (rung)
       return figureFields(
         {
-          file: d.file,
-          name: d.name,
-          page: d.page,
-          lo: lv.lo,
-          hi: lv.hi,
-          raw_lo: d.raw_lo,
-          raw_hi: d.raw_hi,
-          via: d.via,
-          score: d.score,
-          frac: d.frac,
-          quote: d.quote,
-          pdf_build: d.pdf_build || undefined,
-          scope: lv.level,
+          file: answer.file,
+          name: answer.name,
+          page: answer.page,
+          lo: rung.lo,
+          hi: rung.hi,
+          raw_lo: answer.raw_lo,
+          raw_hi: answer.raw_hi,
+          via: answer.via,
+          score: answer.score,
+          frac: answer.frac,
+          quote: answer.quote,
+          pdf_build: answer.pdf_build || undefined,
+          scope: rung.level,
         },
-        lv.el,
-        lv,
+        rung.el,
+        rung,
       );
-    if (isRegion(d) && root(d.el))
+    if (isRegion(answer) && root(answer.el))
       return figureFields(
-        { page: d.page, frac: d.frac, quote: d.quote, pdf_build: d.pdf_build || undefined },
-        d.el,
+        { page: answer.page, frac: answer.frac, quote: answer.quote, pdf_build: answer.pdf_build || undefined },
+        answer.el,
         null,
       );
-    const fig = d.el && Array.isArray(d.el.path) ? d.el.path[0] : null;
-    if (typeof fig === 'string' && fig)
+    const figure = answer.el && Array.isArray(answer.el.path) ? answer.el.path[0] : null;
+    if (typeof figure === 'string' && figure)
       return figureFields(
-        { page: d.page, frac: WHOLE_PAGE.slice(), quote: '', pdf_build: d.pdf_build || undefined },
-        { id: fig, path: [fig], frac: WHOLE_PAGE.slice() },
+        { page: answer.page, frac: WHOLE_PAGE.slice(), quote: '', pdf_build: answer.pdf_build || undefined },
+        { id: figure, path: [figure], frac: WHOLE_PAGE.slice() },
         null,
       );
     return null;
   }
-  return isRegion(d) ? { page: d.page, frac: d.frac, quote: d.quote, pdf_build: d.pdf_build || undefined } : null;
+  return isRegion(answer)
+    ? { page: answer.page, frac: answer.frac, quote: answer.quote, pdf_build: answer.pdf_build || undefined }
+    : null;
 }
-// A page line's pending state is keyed by its document and page (pvSlot): a save held on one document's page must not hold,
-// queue or end the same page number's line of another document.
+// A page line's pending state is keyed by its document and page (pageLineSlot): a save held on one document's page must
+// not hold, queue or end the same page number's line of another document.
 /** @param [doc] - default: the document on screen */
-function pvSlot(page, doc) {
+function pageLineSlot(page, doc) {
   return (doc === undefined ? DOC || '' : doc || '') + '\u0001' + page;
 }
-const PV_BUSY = new Map(); // the page lines whose verdict is being saved (pvSlot), with the word it saves
-// The press made on a line while its save was out, by line (pvSlot) - the last one: applied when that save is done (pvPress).
-const PV_NEXT = new Map();
-// The lines whose save out was a digit key's (pvSlot): Enter on any control of that line then means the reason, one intent with
-// the key (pvReasonEnterKey). On the word the focus rests on it pressed that word: a second verdict, over the one being saved.
-const PV_KEY_OUT = new Set();
-// A line whose word was just taken back by pressing it again (pvSlot): that word waits until then (a double press takes back one).
-const PV_TOGGLE_HOLD = new Map();
-// A page line's last failed save, by page: said on the line that was pressed (pvLineHtml) as well as on the status line, until
-// the next press on that line or another document or build. The document and build it was for come with it.
-const PV_ERR = new Map();
-// The reason after a page line's save - its popover, drafts kept per pin, its writes - is verdict-reason.js (PV_REASON).
-// The key marks follow the focus: off on every line while a text field has it - digits typed there are text, the reason
-// field's included (pvKeysPage). (Another document closes the popover through pvReasonSync - or
-// drawPageVerdicts when it has no lines - whose leave saves what was typed.)
-document.addEventListener('focusin', () => pvStickSoon());
-document.addEventListener('focusout', () => pvStickSoon());
-// body.pv-typing while a text field in a page line has the focus (the reason): on a touch screen the keyboard is up, and the
-// line drops its figure's name, its save chip folds to [되돌리기] and the status line over the sheet steps aside
-// (components.css, responsive.css) - line, field, chip and sheet took the whole 55% the keyboard left on a foldable. That
-// line's row is measured again. Read on every focus move and after every drawing of the lines (drawPageVerdicts): a rebuild
-// or a pin deleted elsewhere takes the focused field out of the page, and Chromium sends no focusout for that - the class
-// stayed and hid the status line.
-// Once on, it stays while the reason popover is being used - the focus on one of its buttons, or a press that started in it
-// until that press's click has run (PV_POP_PRESS): a tap on [저장], [접기] or [지우기] took the focus out of the field, the
-// status line came back (24px) and on a phone the line stacked again, so between the touch and its click the button moved
-// 24-85px and the click fell on the popover itself - the first tap was lost. So does a press on the rest of the line while
-// the field folds it: a tap on a word took the focus, the figure's name came back over the words and moved them 22px down
-// under the finger, and the click fell on the line - the word took no first tap (#320). The fold goes once that press is
-// done: its click has run, the browser took it for a scroll (pointercancel), or 500ms after it let go without a click - a
-// long press keeps it as long as it is held, so the words stay under the finger while its description shows. Only the press
-// that holds the fold lets it go (PV_PRESS_HOLD): a new press on the line takes it over and the earlier one's wait goes - a
-// long press's swallowed click left its 500ms wait running, which let the fold go under the next press, between that press's
-// focus and its click. A press whose window loses the focus or is hidden (another app, a tab switch) lets it go at once: let
-// go outside the window, it has no pointerup or pointercancel here, and the fold stayed.
-let PV_POP_PRESS = false;
-let PV_PRESS_HOLD = null; // the press holding the fold: drops its own wait without letting go
-function pvTypingSync() {
-  const a = document.activeElement,
-    l = a && a.closest ? (a.closest('#doc .pv')) : null,
-    b = document.body;
-  const pop = !!a && !!a.closest && !!a.closest('#doc .pv>.pv-pop'),
-    on = (!!l && typingNow()) || (b.classList.contains('pv-typing') && (pop || PV_POP_PRESS));
-  if (b.classList.contains('pv-typing') === on) return;
-  b.classList.toggle('pv-typing', on);
-  const r = l || (document.querySelector('#doc .pv.reading'));
-  if (r) pvFit([r]);
+// the page lines whose verdict is being saved (pageLineSlot), with the word it saves
+const SAVING_LINES = new Map();
+// The press made on a line while its save was out, by line (pageLineSlot) - the last one: applied when that save is
+// done (pressPageVerdict).
+const NEXT_PRESS = new Map();
+// The lines whose save out was a digit key's (pageLineSlot): Enter on any control of that line then means the reason,
+// one intent with the key (openReasonOnEnter). On the word the focus rests on it pressed that word: a second verdict,
+// over the one being saved.
+const KEY_SAVE_OUT = new Set();
+// A line whose word was just taken back by pressing it again (pageLineSlot): that word waits until then (a double press
+// takes back one).
+const TAKEN_BACK_HOLD = new Map();
+// A page line's last failed save, by page: said on the line that was pressed (pageLineHtml) as well as on the status
+// line, until the next press on that line or another document or build. The document and build it was for come with it.
+const LINE_SAVE_ERROR = new Map();
+// The reason after a page line's save - its popover, drafts kept per pin, its writes - is verdict-reason.ts
+// (REASON_SESSION). The key marks follow the focus: off on every line while a text field has it - digits typed there
+// are text, the reason field's included (keyedPageFor). (Another document closes the popover through syncReasonSession
+// - or drawPageVerdicts when it has no lines - whose leave saves what was typed.)
+document.addEventListener('focusin', () => stickSoon());
+document.addEventListener('focusout', () => stickSoon());
+// body.pv-typing while a text field in a page line has the focus (the reason): on a touch screen the keyboard is up,
+// and the line drops its figure's name, its save chip folds to [되돌리기] and the status line over the sheet steps
+// aside (components.css, responsive.css), so line, field, chip and sheet fit in what the keyboard leaves on a foldable.
+// That line's row is measured again. Read on every focus move and after every drawing of the lines (drawPageVerdicts):
+// a rebuild or a pin deleted elsewhere takes the focused field out of the page, and Chromium sends no focusout for
+// that, so without the redraw the class would stay and hide the status line. Once on, it stays while the reason popover
+// is being used - the focus on one of its buttons, or a press that started in it until that press's click has run
+// (POPOVER_PRESS): a tap on [저장], [접기] or [지우기] takes the focus out of the field, and if the status line came
+// back and a phone's line stacked again, the button would move between the touch and its click and the click would fall
+// on the popover itself. So does a press on the rest of the line while the field folds it: the figure's name coming
+// back would move the words down under the finger before the click. The fold goes once that press is done: its click
+// has run, the browser took it for a scroll (pointercancel), or 500ms after it let go without a click - a long press
+// keeps it as long as it is held, so the words stay under the finger while its description shows. Only the press that
+// holds the fold lets it go (FOLD_PRESS_HOLD): a new press on the line takes it over and the earlier one's wait goes,
+// so a long press's swallowed click never lets the fold go under the next press, between that press's focus and its
+// click. A press whose window loses the focus or is hidden (another app, a tab switch) lets it go at once: let go
+// outside the window, it has no pointerup or pointercancel here.
+let POPOVER_PRESS = false;
+let FOLD_PRESS_HOLD = null; // the press holding the fold: drops its own wait without letting go
+function syncTypingFold() {
+  const active = document.activeElement,
+    focusLine = active && active.closest ? (active.closest('#doc .pv')) : null,
+    body = document.body;
+  const pop = !!active && !!active.closest && !!active.closest('#doc .pv>.pv-pop'),
+    on = (!!focusLine && typingNow()) || (body.classList.contains('pv-typing') && (pop || POPOVER_PRESS));
+  if (body.classList.contains('pv-typing') === on) return;
+  body.classList.toggle('pv-typing', on);
+  const line = focusLine || (document.querySelector('#doc .pv.reading'));
+  if (line) fitPageLines([line]);
 }
-document.addEventListener('focusin', pvTypingSync);
-document.addEventListener('focusout', () => setTimeout(pvTypingSync, 0));
+document.addEventListener('focusin', syncTypingFold);
+document.addEventListener('focusout', () => setTimeout(syncTypingFold, 0));
 document.addEventListener(
   'pointerdown',
-  (e) => {
-    const t = e.target;
+  (event) => {
+    const target = event.target;
     if (!(
-      t &&
-      t.closest &&
-      (t.closest('#doc .pv>.pv-pop') || (document.body.classList.contains('pv-typing') && t.closest('#doc .pv')))
+      target &&
+      target.closest &&
+      (target.closest('#doc .pv>.pv-pop') ||
+        (document.body.classList.contains('pv-typing') && target.closest('#doc .pv')))
     ))
       return;
-    if (PV_PRESS_HOLD) PV_PRESS_HOLD(); // an earlier press still waiting: this one holds the fold now
-    PV_POP_PRESS = true;
+    if (FOLD_PRESS_HOLD) FOLD_PRESS_HOLD(); // an earlier press still waiting: this one holds the fold now
+    POPOVER_PRESS = true;
     let timer = undefined;
     const drop = () => {
       clearTimeout(timer);
@@ -23656,15 +23715,15 @@ document.addEventListener(
       window.removeEventListener('pointerup', up, true);
       window.removeEventListener('blur', late);
       document.removeEventListener('visibilitychange', hid);
-      if (PV_PRESS_HOLD === drop) PV_PRESS_HOLD = null;
+      if (FOLD_PRESS_HOLD === drop) FOLD_PRESS_HOLD = null;
     };
     const end = () => {
-      if (PV_PRESS_HOLD !== drop) return;
+      if (FOLD_PRESS_HOLD !== drop) return;
       drop();
       setTimeout(() => {
-        if (PV_PRESS_HOLD) return;
-        PV_POP_PRESS = false;
-        pvTypingSync();
+        if (FOLD_PRESS_HOLD) return;
+        POPOVER_PRESS = false;
+        syncTypingFold();
       }, 0);
     };
     const late = () => end(),
@@ -23675,7 +23734,7 @@ document.addEventListener(
       hid = () => {
         if (document.visibilityState === 'hidden') end();
       }; // late: after the press's own click (window, bubbling: after the viewer's handlers)
-    PV_PRESS_HOLD = drop;
+    FOLD_PRESS_HOLD = drop;
     window.addEventListener('click', late);
     window.addEventListener('pointercancel', late);
     window.addEventListener('pointerup', up, true);
@@ -23685,78 +23744,91 @@ document.addEventListener(
   true,
 );
 // What a press on page `page` of the document on screen saves against: its document, kind, build and page size and its
-// target's name, with the visit it was made in. A save runs on these - not on the document on screen when it runs - so a
-// press made before switching documents is saved, and one queued meanwhile is too (pvPress, savePageVerdict). null when the
-// page is not there.
-function pvSaveCtx(page) {
-  const pg = META && META.pages[page - 1];
-  if (!META || !pg) return null;
+// target's name, with the visit it was made in. A save runs on these - not on the document on screen when it runs - so
+// a press made before switching documents is saved, and one queued meanwhile is too (pressPageVerdict,
+// savePageVerdict). null when the page is not there.
+function pageSaveContext(page) {
+  const facts = META && META.pages[page - 1];
+  if (!META || !facts) return null;
   return {
     doc: DOC,
     kind: META.kind,
     build: META.pages_build || '',
-    w: pg.pt_w,
-    h: pg.pt_h,
+    w: facts.pt_w,
+    h: facts.pt_h,
     target: pageTargetShort(page),
     visit: captureVisit(),
   };
 }
 // The current verdict of page `page` on document doc - one not on screen too: the verdict order holds every document's.
-function pvCurOn(doc, page) {
+function currentVerdictOn(doc, page) {
   if (doc === DOC || (!doc && !DOC)) return (pageVerdictPins().get(page) || [])[0] || null;
   let best = null;
-  verdictOrder(doc || DEFAULT_DOC).groups.forEach((g) => {
-    if (g.whole && g.page === page && (!best || best.id < g.pins[0].id)) best = g.pins[0];
+  verdictOrder(doc || DEFAULT_DOC).groups.forEach((group) => {
+    if (group.whole && group.page === page && (!best || best.id < group.pins[0].id)) best = group.pins[0];
   });
   return best;
 }
-// The largest pin number the lists hold: a verdict whose answer was lost is looked for above it (pvLanded).
-function pvTopId() {
-  return OPEN_ALL.concat(REVIEW_ALL, DONE_ALL).reduce((m, p) => Math.max(m, p.id), 0);
+// The largest pin number the lists hold: a verdict whose answer was lost is looked for above it (findLandedVerdict).
+function topPinId() {
+  return OPEN_ALL.concat(REVIEW_ALL, DONE_ALL).reduce((highest, pin) => Math.max(highest, pin.id), 0);
 }
 // A verdict pin this person saved with word key about page `page` of document doc since pin number top - a save whose
-// answer was lost may have landed: it is read again before the press is called a failure, or pressed again (a duplicate).
-function pvLanded(doc, page, key, top, kind) {
+// answer was lost may have landed: it is read again before the press is called a failure, or pressed again (a
+// duplicate).
+function findLandedVerdict(
+  doc,
+  page,
+  key,
+  top,
+  kind,
+) {
   return (
     OPEN_ALL.find(
-      (p) =>
-        p.id > top &&
-        pdoc(p) === (doc || DEFAULT_DOC) &&
-        verdictOf(p) === key &&
-        isMe(p.author) &&
+      (pin) =>
+        pin.id > top &&
+        pdoc(pin) === (doc || DEFAULT_DOC) &&
+        verdictOf(pin) === key &&
+        isMe(pin.author) &&
         (() => {
-          const t = pageTargetOf(p, kind);
-          return !!t && t.page === page;
+          const target = pageTargetOf(pin, kind);
+          return !!target && target.page === page;
         })(),
     ) || null
   );
 }
-// Saves word key as a verdict about page `page`'s whole target: a pick of the whole page on the build it was pressed on, the
-// body pageVerdictBody makes of it, with no note, saved as a fix request for the agent. The composer's selection and draft
-// stay as they are. The word becomes the page's current verdict - a new pin (the agent runs the newest, D4 and D5); pressing
-// the current word takes it back instead (pvPress). It runs on its press's context (pvSaveCtx): leaving the document while
-// it runs does not drop it - it completes, and its undo is offered on the status line. Saved: '#42 저장됨 [되돌리기]' on the
-// line for NOTICE_MS. An answer lost on the network - or a 5xx, which a server may send after writing - is checked against
-// the list before anything is said (pvLanded): a verdict that landed is a save, not a failure a second press would
-// duplicate (a 500 after the write left the line without the verdict, and the next press made a second one). A refusal or a failure is said on the status
-// line, result first ('판정 저장 실패 · <까닭> — <대상>'), and under the pressed line. While it is out the line says what it
-// saves ('보류 저장 중…') and presses wait in PV_NEXT; the last of them is applied after it - also after a switch away and
-// back, on the document it was pressed on - unless that word is the page's verdict by then. No save opens the reason
-// popover: the line offers [이유 추가], and 'Enter 이유 쓰기' while the keys act on it.
-/** @param [kb] - pressed from the keyboard: the focus goes to the line's way to the reason */
-async function savePageVerdict(page, key, kb, ctx0) {
-  const ctx = ctx0 || pvSaveCtx(page);
-  if (!ctx) return;
-  const slot = pvSlot(page, ctx.doc);
-  if (PV_BUSY.has(slot)) return;
-  const visit = ctx.visit,
-    here = () => DOC === ctx.doc;
+// Saves word key as a verdict about page `page`'s whole target: a pick of the whole page on the build it was pressed
+// on, the body pageVerdictBody makes of it, with no note, saved as a fix request for the agent. The composer's
+// selection and draft stay as they are. The word becomes the page's current verdict - a new pin (the agent runs the
+// newest, D4 and D5); pressing the current word takes it back instead (pressPageVerdict). It runs on its press's
+// context (pageSaveContext): leaving the document while it runs does not drop it - it completes, and its undo is
+// offered on the status line. Saved: '#42 저장됨 [되돌리기]' on the line for NOTICE_MS. An answer lost on the network -
+// or a 5xx, which a server may send after writing - is checked against the list before anything is said
+// (findLandedVerdict): a verdict that landed is a save, not a failure a second press would duplicate. A refusal or a
+// failure is said on the status line, result first ('판정 저장 실패 · <까닭> — <대상>'), and under the pressed line.
+// While it is out the line says what it saves ('보류 저장 중…') and presses wait in NEXT_PRESS; the last of them is
+// applied after it - also after a switch away and back, on the document it was pressed on - unless that word is the
+// page's verdict by then. No save opens the reason popover: the line offers [이유 추가], and 'Enter 이유 쓰기' while
+// the keys act on it.
+/** @param [byKeyboard] - pressed from the keyboard: the focus goes to the line's way to the reason */
+async function savePageVerdict(
+  page,
+  key,
+  byKeyboard,
+  givenContext,
+) {
+  const context = givenContext || pageSaveContext(page);
+  if (!context) return;
+  const slot = pageLineSlot(page, context.doc);
+  if (SAVING_LINES.has(slot)) return;
+  const visit = context.visit,
+    here = () => DOC === context.doc;
   const fail = (text) => {
-    if (here()) PV_ERR.set(page, { text, doc: ctx.doc, build: ctx.build });
+    if (here()) LINE_SAVE_ERROR.set(page, { text, doc: context.doc, build: context.build });
   };
   // Said on the status line with what it was for, result first, and under the pressed line.
   const failed = (why) => {
-    lineNote(tl('판정 저장 실패 · {why} — {target}', { why, target: ctx.target }), NOTICE_KIND.ERR, null, {
+    lineNote(tl('판정 저장 실패 · {why} — {target}', { why, target: context.target }), NOTICE_KIND.ERR, null, {
       source: 'page-verdict',
       literal: true,
     });
@@ -23764,53 +23836,61 @@ async function savePageVerdict(page, key, kb, ctx0) {
   };
   let saved = false,
     got = 0;
-  if (here()) PV_ERR.delete(page);
-  // A key save (a digit, Enter or Space on a word) hands the focus to the line's way to the reason ('Enter 이유 쓰기'), so
-  // Enter there opens it - on the pressed word Enter would take the verdict back - unless the person put the focus anywhere
-  // else meanwhile (another page's word, a '#N' link, the panel): a redraw that puts it back on the same word's button is no move.
+  if (here()) LINE_SAVE_ERROR.delete(page);
+  // A key save (a digit, Enter or Space on a word) hands the focus to the line's way to the reason ('Enter 이유 쓰기'),
+  // so Enter there opens it - on the pressed word Enter would take the verdict back - unless the person put the focus
+  // anywhere else meanwhile (another page's word, a '#N' link, the panel): a redraw that puts it back on the same
+  // word's button is no move.
   let away = false;
-  const moved = (e) => {
-    const t = e.target;
-    if (!(t && t.dataset && t.dataset.act === 'pv-save' && t.dataset.key === key && t.dataset.page === String(page)))
+  const moved = (event) => {
+    const target = event.target;
+    if (!(
+      target &&
+      target.dataset &&
+      target.dataset.act === 'pv-save' &&
+      target.dataset.key === key &&
+      target.dataset.page === String(page)
+    ))
       away = true;
   };
   document.addEventListener('focusin', moved);
-  const before = pvCurOn(ctx.doc, page),
-    prev = before ? before.id : 0,
-    top = pvTopId(); // the verdict a save replaces: a draft kept for it moves on
-  // A new verdict on the line ends the line's offer of a take-back's [되돌리기] (the status line keeps its own): the line
-  // is about the new verdict now, and while the offer lasted its [이유 추가] stepped out (components.css) - the focus a key
-  // save hands it went nowhere, and PageDown no longer scrolled.
-  const f0 = document.activeElement,
-    onUndo = !!f0 && !!f0.closest && !!f0.closest('#doc .pv-undo'); // it goes with the offer: the focus goes to the word being saved
-  PV_LINE_UNDO.delete(slot);
-  PV_BUSY.set(slot, key);
+  const before = currentVerdictOn(context.doc, page),
+    previousId = before ? before.id : 0,
+    top = topPinId(); // the verdict a save replaces: a draft kept for it moves on
+  // A new verdict on the line ends the line's offer of a take-back's [되돌리기] (the status line keeps its own): the
+  // line is about the new verdict, and while the offer lasts its [이유 추가] steps out (components.css), so the focus a
+  // key save hands it would go nowhere.
+  const focusedBefore = document.activeElement,
+    // it goes with the offer: the focus goes to the word being saved
+    onUndo = !!focusedBefore && !!focusedBefore.closest && !!focusedBefore.closest('#doc .pv-undo');
+  LINE_UNDO_OFFERS.delete(slot);
+  SAVING_LINES.set(slot, key);
   drawPageVerdicts();
-  if (onUndo) pvRefocus(page, key);
+  if (onUndo) refocusLineWord(page, key);
   try {
-    const d = (
+    const answer = (
       await api('/api/pick', {
         method: 'POST',
         body: {
           page,
           x0: 0,
           y0: 0,
-          x1: ctx.w,
-          y1: ctx.h,
+          x1: context.w,
+          y1: context.h,
           frac: WHOLE_PAGE.slice(),
-          pdf_build: ctx.build || undefined,
-          doc: ctx.doc || undefined,
+          pdf_build: context.build || undefined,
+          doc: context.doc || undefined,
         },
         what: '판정 저장',
         silent: true,
       })
     ).data;
-    if (d.error) {
-      failed(errText(d));
-      if (d.pdf_build_gone && here()) refreshDoc().catch(() => {});
+    if (answer.error) {
+      failed(errText(answer));
+      if (answer.pdf_build_gone && here()) refreshDoc().catch(() => {});
       return;
     }
-    const body = pageVerdictBody(d, ctx.kind);
+    const body = pageVerdictBody(answer, context.kind);
     if (!body) {
       lineNote('이 그림은 쪽 판정을 받지 못합니다 — 그림 위를 끌어 고른 뒤 판정합니다', NOTICE_KIND.WARN, null, {
         source: 'page-verdict',
@@ -23820,7 +23900,7 @@ async function savePageVerdict(page, key, kb, ctx0) {
     }
     Object.assign(body, {
       note: '',
-      doc: ctx.doc || undefined,
+      doc: context.doc || undefined,
       kind_req: KIND_REQ.FIX,
       assignee: ASSIGNEE_AGENT,
       verdict: key,
@@ -23828,12 +23908,13 @@ async function savePageVerdict(page, key, kb, ctx0) {
     let id = 0;
     try {
       id = (await api('/api/pin', { method: 'POST', body, what: '판정 저장', silent: true })).data.id;
-    } catch (e) {
-      const x = e;
-      if (x && x.status && x.status < 500) throw e; // no answer, or a 5xx (it may have been written first): the list says whether it landed
+    } catch (error) {
+      const x = error;
+      // no answer, or a 5xx (it may have been written first): the list says whether it landed
+      if (x && x.status && x.status < 500) throw error;
       await loadPins();
-      const got = pvLanded(ctx.doc, page, key, top, ctx.kind);
-      if (!got) throw e;
+      const got = findLandedVerdict(context.doc, page, key, top, context.kind);
+      if (!got) throw error;
       id = got.id;
     }
     saved = true;
@@ -23844,190 +23925,205 @@ async function savePageVerdict(page, key, kb, ctx0) {
       NOTICE_PLACE.CHIP,
       tl('#{id} {word} 판정 저장됨 · {target} — 되돌리면 판정을 거둡니다', {
         id,
-        word: verdictLabel(key, ctx.doc),
-        target: ctx.target,
+        word: verdictLabel(key, context.doc),
+        target: context.target,
       }),
       { label: '되돌리기', wait: true, fn: verdictUndo(id) },
-      { pin: id, pending: true, label: tl('#{id} 저장됨 · {word}', { id, word: verdictLabel(key, ctx.doc) }) },
+      { pin: id, pending: true, label: tl('#{id} 저장됨 · {word}', { id, word: verdictLabel(key, context.doc) }) },
     );
-    if (here()) pvReasonAfterSave(page, id, key, !!kb, prev); // the reason popover: a draft on this line moves to the new verdict
+    // the reason popover: a draft on this line moves to the new verdict
+    if (here()) followSaveWithReason(page, id, key, !!byKeyboard, previousId);
     await loadPins();
     settleChip(chip);
-    if (here()) pvOnShow(page);
-  } catch (e) {
-    const x = e;
+    if (here()) showPressedHint(page);
+  } catch (error) {
+    const x = error;
     if (!saved) failed(x && x.status ? (x.data && errText(x.data)) || 'HTTP ' + x.status : tr('서버에 닿지 않습니다'));
   } finally {
     document.removeEventListener('focusin', moved);
-    PV_BUSY.delete(slot);
-    PV_KEY_OUT.delete(slot);
-    // A popover opened by Enter while this save was out: bound to it now if its Enter came after the number was known (the
-    // list still being read), else, the save failed, its text kept as the page's draft.
-    const un = here() && PV_REASON && !PV_REASON.id && PV_REASON.page === page && PV_REASON.doc === ctx.doc;
-    if (un && saved) pvReasonAfterSave(page, got, key, !!kb, prev);
-    else if (!saved && here()) pvReasonUnbound(page);
-    pvReasonSettle(slot, saved ? got : 0, key); // one moved away from meanwhile: written on this verdict wherever the person is now
+    SAVING_LINES.delete(slot);
+    KEY_SAVE_OUT.delete(slot);
+    // A popover opened by Enter while this save was out: bound to it now if its Enter came after the number was known
+    // (the list still being read), else, the save failed, its text kept as the page's draft.
+    const waitingPopover =
+      here() &&
+      REASON_SESSION &&
+      !REASON_SESSION.id &&
+      REASON_SESSION.page === page &&
+      REASON_SESSION.doc === context.doc;
+    if (waitingPopover && saved) followSaveWithReason(page, got, key, !!byKeyboard, previousId);
+    else if (!saved && here()) keepUnboundReason(page);
+    // one moved away from meanwhile: written on this verdict wherever the person is now
+    settleDetachedReason(slot, saved ? got : 0, key);
     drawPageVerdicts();
-    if (currentVisit(visit) && kb && !away) {
-      const c = document.querySelector(
+    if (currentVisit(visit) && byKeyboard && !away) {
+      const reasonOpen = document.querySelector(
         '#doc .pv[data-page="' + page + '"] [data-act="pv-reason-open"]',
       );
-      if (c && saved) c.focus({ preventScroll: true });
-      else pvRefocus(page, key);
-      if (saved && document.activeElement === document.body) pvFocusLine(page); // never left on nothing: the line's own control
-      // The focus the save moved there raises no description box: the press's own description of the pressed word stands
-      // over the words for a few seconds (pvOnShow), and on a one-row line at 1280 the two boxes overlapped by 39px (#308
-      // review). A focus the person moves raises it as before.
+      if (reasonOpen && saved) reasonOpen.focus({ preventScroll: true });
+      else refocusLineWord(page, key);
+      // never left on nothing: the line's own control
+      if (saved && document.activeElement === document.body) focusLine(page);
+      // The focus the save moved there raises no description box: the press's own description of the pressed word
+      // stands over the words for a few seconds (showPressedHint), and on a one-row line the two boxes would overlap. A
+      // focus the person moves raises it.
       if (saved) hideTip();
     }
-    const nx = PV_NEXT.get(slot);
-    PV_NEXT.delete(slot);
-    if (nx) {
-      const cur = pvCurOn(ctx.doc, page); // the last press made meanwhile, on the document it was made on
-      if (!(cur && verdictOf(cur) === nx.key)) {
-        const fresh = here() ? pvSaveCtx(page) : null;
-        if (nx.how === 'key') PV_KEY_OUT.add(slot);
-        savePageVerdict(page, nx.key, !!nx.how, fresh || ctx);
+    const next = NEXT_PRESS.get(slot);
+    NEXT_PRESS.delete(slot);
+    if (next) {
+      const cur = currentVerdictOn(context.doc, page); // the last press made meanwhile, on the document it was made on
+      if (!(cur && verdictOf(cur) === next.key)) {
+        const fresh = here() ? pageSaveContext(page) : null;
+        if (next.how === 'key') KEY_SAVE_OUT.add(slot);
+        savePageVerdict(page, next.key, !!next.how, fresh || context);
       }
     }
-    pvReasonUncancelSettle(slot);
+    settleFailedCancelDraft(slot);
   }
 } // a failed take-back's draft that waited for this save (a next save started just now waits on)
-// The reading line's name for page `page`, in two parts: a short identifier that is never cut - the page and the figure's code,
-// '6쪽 · PL17' (the map title's head before its first ' · ', a leading tag such as '[후보]' moved to the rest; else the figure
-// id) - and the rest of the title, cut first ('[후보] 다섯 비교 쌍의 월별 효과 — …'). Next to the buttons a cut down to '6쪽 · …'
-// no longer said which figure a press decides. A view-only PDF's page is its page alone.
-function pvFigParts(page) {
-  const pg = META && Array.isArray(META.pages) ? META.pages[page - 1] : null,
+// The reading line's name for page `page`, in two parts: a short identifier that is never cut - the page and the
+// figure's code, '6쪽 · PL17' (the map title's head before its first ' · ', a leading tag such as '[후보]' moved to the
+// rest; else the figure id) - and the rest of the title, cut first ('[후보] 다섯 비교 쌍의 월별 효과 — …'), so the name
+// next to the buttons always says which figure a press decides. A view-only PDF's page is its page alone.
+function pageLineName(page) {
+  const facts = META && Array.isArray(META.pages) ? META.pages[page - 1] : null,
     at = tl('{page}쪽', { page });
-  if (!META || !isFigureKind(META.kind) || !pg || typeof pg.figure !== 'string') return { id: at, rest: '' };
-  const t = pg.title ? String(pg.title) : '';
-  if (!t) return { id: at + ' · ' + pg.figure, rest: '' };
-  const i = t.indexOf(' · '),
-    head = i > 0 ? t.slice(0, i) : '',
-    m = /^(\[[^\]]*\])\s*(\S.*)$/.exec(head);
-  if (!head) return { id: at, rest: t };
-  return m
-    ? { id: at + ' · ' + m[2], rest: m[1] + ' ' + t.slice(i + 3) }
-    : { id: at + ' · ' + head, rest: t.slice(i + 3) };
+  if (!META || !isFigureKind(META.kind) || !facts || typeof facts.figure !== 'string') return { id: at, rest: '' };
+  const title = facts.title ? String(facts.title) : '';
+  if (!title) return { id: at + ' · ' + facts.figure, rest: '' };
+  const index = title.indexOf(' · '),
+    head = index > 0 ? title.slice(0, index) : '',
+    match = /^(\[[^\]]*\])\s*(\S.*)$/.exec(head);
+  if (!head) return { id: at, rest: title };
+  return match
+    ? { id: at + ' · ' + match[2], rest: match[1] + ' ' + title.slice(index + 3) }
+    : { id: at + ' · ' + head, rest: title.slice(index + 3) };
 }
-// Gives the focus back to word key's button on page `page`'s line after its save: the pressed button was disabled and redrawn
-// while the request ran, which dropped the focus. Not when the person put the focus somewhere else meanwhile (savePageVerdict
-// watches for that) or it is on something now.
-function pvRefocus(page, key) {
-  const a = document.activeElement;
-  if (a && a !== document.body && document.contains(a)) return;
-  const b = document.querySelector(
+// Gives the focus back to word key's button on page `page`'s line after its save: the pressed button was disabled and
+// redrawn while the request ran, which dropped the focus. Not when the person put the focus somewhere else meanwhile
+// (savePageVerdict watches for that) or it is on something now.
+function refocusLineWord(page, key) {
+  const active = document.activeElement;
+  if (active && active !== document.body && document.contains(active)) return;
+  const button = document.querySelector(
     '#doc .pv[data-page="' + page + '"] [data-act="pv-save"][data-key="' + CSS.escape(key) + '"]',
   );
-  if (b && !b.disabled && b.getAttribute('aria-disabled') !== 'true') b.focus({ preventScroll: true });
+  if (button && !button.disabled && button.getAttribute('aria-disabled') !== 'true')
+    button.focus({ preventScroll: true });
 }
-// ---------------- Taking one's verdict back (#295)
-// Whether the line offers [판정 취소] on verdict pin p, its page's current verdict: the person's own (isMe), still open - not
-// yet handled; a handled one's card still offers [지우기] - to a person who may make a verdict (no agent, D16, nor a
-// viewer). A pin whose [확인] waits for its undo is not open.
-function pvCanCancel(p) {
-  return !!verdictOf(p) && canVerdict() && isMe(p.author) && pinState(p) === PIN_STATE.OPEN && !CONFIRMING.has(p.id);
+// ---------------- Taking one's verdict back
+// Whether the line offers [판정 취소] on a verdict pin, its page's current verdict: the person's own (isMe), still open
+// - not yet handled; a handled one's card still offers [지우기] - to a person who may make a verdict (no agent, D16,
+// nor a viewer). A pin whose [확인] waits for its undo is not open.
+function canCancelVerdict(pin) {
+  return (
+    !!verdictOf(pin) && canVerdict() && isMe(pin.author) && pinState(pin) === PIN_STATE.OPEN && !CONFIRMING.has(pin.id)
+  );
 }
-const PV_CANCEL_MS = 800; // after a cancel on a page, how long that page's next [판정 취소] waits (a double press never takes two)
-const PV_CANCEL_HOLD = new Map(); // line (pvSlot) -> until when its [판정 취소] waits
-// The lines whose take-back is out: Enter and Space on them do nothing until it answers (pvOffPageKey). What the focus rests on is
-// what the line shows meanwhile, the verdict before it: Enter there opened a reason for it, or took that one back too. An answer
-// that does not come must not leave the line deaf: past PV_DROP_WAIT the keys are back and the status line says so; the late
-// answer is still taken (its message, its [되돌리기]), but the focus has moved on by then and stays. The value says whose wait it is.
-const PV_DROP_OUT = new Map();
-let PV_DROP_WAIT = NOTICE_ACT_WAIT; // the bound a status-line action's request has (notices.js noticeAct)
-// A verdict a [되돌리기] brought back (a take-back's, the save chip's): when it is its line's current verdict again its kept reason
-// draft opens (pvReasonRevive); when a newer verdict came meanwhile - someone else's - it is restored but superseded, the
-// status line says so ('판정 #21 채택 되살림 · 지금 판정은 Bob의 #34 보류 — <대상>') and no popover opens over that line - its
-// kept draft, which no line would mark on a verdict that is not current, becomes the page's draft, said with [보기]
-// (pvReasonUncancelDraft).
-function pvAfterRestore(id) {
-  const p = findAnyPin(id),
-    t = p ? pageTargetOf(p, META ? META.kind : undefined) : null,
-    cur = t ? (pageVerdictPins().get(t.page) || [])[0] : null;
-  if (p && t && cur && cur.id !== id) {
-    const ck = verdictOf(cur) || '',
-      k = verdictOf(p) || '';
+// after a cancel on a page, how long that page's next [판정 취소] waits (a double press never takes two)
+const CANCEL_HOLD_MS = 800;
+const CANCEL_HOLD = new Map(); // line (pageLineSlot) -> until when its [판정 취소] waits
+// The lines whose take-back is out: Enter and Space on them do nothing until it answers (stopOffPageKey). What the
+// focus rests on is what the line shows meanwhile, the verdict before it: Enter there would open a reason for it, or
+// take that one back too. An answer that does not come must not leave the line deaf: past CANCEL_ANSWER_WAIT the keys
+// are back and the status line says so; the late answer is still taken (its message, its [되돌리기]), but the focus has
+// moved on by then and stays. The value says whose wait it is.
+const CANCEL_OUT = new Map();
+let CANCEL_ANSWER_WAIT = NOTICE_ACT_WAIT; // the bound a status-line action's request has (notices.ts noticeAct)
+// A verdict a [되돌리기] brought back (a take-back's, the save chip's): when it is its line's current verdict again its
+// kept reason draft opens (reviveReason); when a newer verdict came meanwhile - someone else's - it is restored but
+// superseded, the status line says so ('판정 #21 채택 되살림 · 지금 판정은 Bob의 #34 보류 — <대상>') and no popover
+// opens over that line - its kept draft, which no line would mark on a verdict that is not current, becomes the page's
+// draft, said with [보기] (placeFailedCancelDraft).
+function afterVerdictRestore(id) {
+  const pin = findAnyPin(id),
+    target = pin ? pageTargetOf(pin, META ? META.kind : undefined) : null,
+    cur = target ? (pageVerdictPins().get(target.page) || [])[0] : null;
+  if (pin && target && cur && cur.id !== id) {
+    const currentKey = verdictOf(cur) || '',
+      key = verdictOf(pin) || '';
     lineNote(
       tl('판정 #{id} {word} 되살림 · 지금 판정은 {owner} #{cur} {now} — {target}', {
         id,
-        word: verdictLabel(k),
+        word: verdictLabel(key),
         owner: isMe(cur.author) ? tr('내') : tl('{name}의', { name: who(cur.author) }),
         cur: cur.id,
-        now: verdictLabel(ck),
-        target: pageTargetShort(t.page),
+        now: verdictLabel(currentKey),
+        target: pageTargetShort(target.page),
       }),
       NOTICE_KIND.INFO,
       null,
       { literal: true, life: NOTICE_LIFE.TIMER },
     );
-    pvReasonUncancelDraft(id, t.page, DOC, true);
+    placeFailedCancelDraft(id, target.page, DOC, true);
     return;
   }
-  pvReasonRevive(id);
+  reviveReason(id);
 }
-// The take-backs whose [되돌리기] the line offers too, by line (pvSlot): the pin and its status-line message - the offer lasts
-// as long as that message (its window, or its action).
-const PV_LINE_UNDO = new Map();
+// The take-backs whose [되돌리기] the line offers too, by line (pageLineSlot): the pin and its status-line message -
+// the offer lasts as long as that message (its window, or its action).
+const LINE_UNDO_OFFERS = new Map();
 // The line's [되돌리기]: the status line's action runs (noticeAct), as if pressed there.
-function pvLineUndo(a) {
-  const line = a.closest('.pv'),
+function undoFromLine(control) {
+  const line = control.closest('.pv'),
     page = Number(line && line.getAttribute('data-page')) || 0,
-    u = PV_LINE_UNDO.get(pvSlot(page));
-  if (!u) return;
-  PV_LINE_UNDO.delete(pvSlot(page));
-  if (NOTICES.has(u.n)) noticeAct(u.n);
+    offer = LINE_UNDO_OFFERS.get(pageLineSlot(page));
+  if (!offer) return;
+  LINE_UNDO_OFFERS.delete(pageLineSlot(page));
+  if (NOTICES.has(offer.n)) noticeAct(offer.n);
   drawPageVerdicts();
-  pvFocusLine(page);
+  focusLine(page);
 }
-// [판정 취소] on page `page`'s line - or its pressed word pressed again (pvPress): verdict pin id goes to the Trash as the
-// card's [지우기] sends it (dropPin) - a withdrawn request - and the line shows at once what is current now: the newest
-// earlier verdict about the same target (D4) or '판정 없음'. The status line says so result first ('판정 #17 채택 취소 · 지금
-// 판정 #12 보류 — <대상>', or '… · 남은 판정 없음 — …') with [되돌리기], which restores it (restorePin) and its kept reason
-// draft (pvReasonRevive); one an agent had claimed still goes, and the status line says its run may have started (as the
-// save's undo, verdictUndo). Its reason popover closes with it; what was typed is not written, and stays kept for that
-// [되돌리기]. A failure is said on the status line and the line shows the verdict again, its popover too - or, when something
-// took its place meanwhile, what was typed as a draft its line marks, said with [보기] (pvReasonUncancel). The page's next
-// [판정 취소] waits PV_CANCEL_MS: the same place may now cancel the earlier verdict, which a double press must not reach.
-// A keyboard press leaves the focus on the PDF area, as Esc in the reason field does.
-function pvCancel(b) {
-  const id = Number(b.dataset.ref),
-    page = Number((b.closest('.pv') || b).getAttribute('data-page')) || 0;
-  if (b.getAttribute('aria-disabled') === 'true') return;
-  pvCancelPin(id, page, document.activeElement === b);
+// [판정 취소] on page `page`'s line - or its pressed word pressed again (pressPageVerdict): verdict pin id goes to the
+// Trash as the card's [지우기] sends it (dropPin) - a withdrawn request - and the line shows at once what is current
+// now: the newest earlier verdict about the same target (D4) or '판정 없음'. The status line says so result first
+// ('판정 #17 채택 취소 · 지금 판정 #12 보류 — <대상>', or '… · 남은 판정 없음 — …') with [되돌리기], which restores it
+// (restorePin) and its kept reason draft (reviveReason); one an agent had claimed still goes, and the status line says
+// its run may have started (as the save's undo, verdictUndo). Its reason popover closes with it; what was typed is not
+// written, and stays kept for that [되돌리기]. A failure is said on the status line and the line shows the verdict
+// again, its popover too - or, when something took its place meanwhile, what was typed as a draft its line marks, said
+// with [보기] (bringBackReason). The page's next [판정 취소] waits CANCEL_HOLD_MS: the same place may now cancel the
+// earlier verdict, which a double press must not reach. A keyboard press leaves the focus on the PDF area, as Esc in
+// the reason field does.
+function cancelLineVerdict(button) {
+  const id = Number(button.dataset.ref),
+    page = Number((button.closest('.pv') || button).getAttribute('data-page')) || 0;
+  if (button.getAttribute('aria-disabled') === 'true') return;
+  cancelVerdictPin(id, page, document.activeElement === button);
 }
 /** @param had - the focus was on what was pressed */
 /** @param [byKey] - a digit key: the focus goes to the line from wherever it was */
-async function pvCancelPin(id, page, had, byKey) {
-  const p = OPEN_ALL.find((x) => x.id === id),
+async function cancelVerdictPin(id, page, had, byKey) {
+  const pin = OPEN_ALL.find((x) => x.id === id),
     from = document.activeElement,
     doc = DOC;
-  if (!p || !pvCanCancel(p) || viewerBlocked()) return;
-  const key = verdictOf(p),
-    claimed = claimActive(p),
+  if (!pin || !canCancelVerdict(pin) || viewerBlocked()) return;
+  const key = verdictOf(pin),
+    claimed = claimActive(pin),
     target = pageTargetShort(page);
-  const inField = pvIsReasonField(document.activeElement) && !!PV_REASON && PV_REASON.id === id;
-  PV_CANCEL_HOLD.set(pvSlot(page), Date.now() + PV_CANCEL_MS);
-  setTimeout(() => drawPageVerdicts(), PV_CANCEL_MS + 20);
-  // Its reason popover leaves with the line's verdict, but the session is kept until the server answers: a failed cancel
-  // brings the verdict back and its unsent reason with it, or keeps that as a draft its line marks when something took its
-  // place (pvReasonUncancel); a done one drops it - its draft stays kept (rdPut) for the [되돌리기].
-  const kept = PV_REASON && PV_REASON.id === id ? PV_REASON : null;
+  const inField = isReasonField(document.activeElement) && !!REASON_SESSION && REASON_SESSION.id === id;
+  CANCEL_HOLD.set(pageLineSlot(page), Date.now() + CANCEL_HOLD_MS);
+  setTimeout(() => drawPageVerdicts(), CANCEL_HOLD_MS + 20);
+  // Its reason popover leaves with the line's verdict, but the session is kept until the server answers: a failed
+  // cancel brings the verdict back and its unsent reason with it, or keeps that as a draft its line marks when
+  // something took its place (bringBackReason); a done one drops it - its draft stays kept (putDraft) for the
+  // [되돌리기].
+  const kept = REASON_SESSION && REASON_SESSION.id === id ? REASON_SESSION : null;
   if (kept) {
-    setPvReason(null);
-    if (pvReasonDirty(kept))
-      rdPut(kept.doc, id, kept.text, kept.base, kept.rev, { mode: kept.mode, tried: kept.tried, from: kept.via });
+    setReasonSession(null);
+    if (hasUnsavedReason(kept))
+      putDraft(kept.doc, id, kept.text, kept.base, kept.rev, { mode: kept.mode, tried: kept.tried, from: kept.via });
   }
-  PV_WITHDRAWN.add(id);
-  // The take-back is said on the status line with its [되돌리기], which the line itself also offers for as long (PV_LINE_UNDO):
-  // the status line is far away by Tab.
+  WITHDRAWN_PINS.add(id);
+  // The take-back is said on the status line with its [되돌리기], which the line itself also offers for as long
+  // (LINE_UNDO_OFFERS): the status line is far away by Tab.
   const say = () => {
     const now = (pageVerdictPins().get(page) || [])[0],
-      nk = now && verdictOf(now);
+      nowKey = now && verdictOf(now);
     const rest =
-      now && nk ? tl('지금 판정 #{id} {word}', { id: now.id, word: verdictLabel(nk) }) : tr('남은 판정 없음');
-    const n = lineNote(
+      now && nowKey ? tl('지금 판정 #{id} {word}', { id: now.id, word: verdictLabel(nowKey) }) : tr('남은 판정 없음');
+    const notice = lineNote(
       tl('판정 #{id} {word} 취소 · {rest} — {target}', { id, word: verdictLabel(key), rest, target }),
       NOTICE_KIND.OK,
       {
@@ -24035,59 +24131,64 @@ async function pvCancelPin(id, page, had, byKey) {
         tip: T.undo,
         wait: true,
         fn: async () => {
-          PV_WITHDRAWN.delete(id);
+          WITHDRAWN_PINS.delete(id);
           const ok = await restorePin(id);
-          if (ok) pvAfterRestore(id);
+          if (ok) afterVerdictRestore(id);
           return ok;
         },
       },
       { life: NOTICE_LIFE.TIMER, undo: true, literal: true },
     );
-    // [이유 추가] steps out while the line offers the undo (components.css): a focus on it goes to the [되돌리기] beside it.
-    const f = document.activeElement,
-      onAdd = !!f && !!f.closest && !!f.closest('#doc .pv[data-page="' + page + '"] .pv-ra>.pv-add');
-    if (n) {
-      PV_LINE_UNDO.set(pvSlot(page), { id, n: n.n });
+    // [이유 추가] steps out while the line offers the undo (components.css): a focus on it goes to the [되돌리기]
+    // beside it.
+    const focused = document.activeElement,
+      onAdd = !!focused && !!focused.closest && !!focused.closest('#doc .pv[data-page="' + page + '"] .pv-ra>.pv-add');
+    if (notice) {
+      LINE_UNDO_OFFERS.set(pageLineSlot(page), { id, n: notice.n });
       drawPageVerdicts();
       setTimeout(() => drawPageVerdicts(), NOTICE_MS + NOTICE_HOLD_MAX + 50);
-      const a = document.activeElement,
-        u = document.querySelector('#doc .pv[data-page="' + page + '"] [data-act="pv-undo"]');
-      if (onAdd && u && (a === f || a === document.body || !a)) u.focus({ preventScroll: true });
+      const active = document.activeElement,
+        undoButton = document.querySelector(
+          '#doc .pv[data-page="' + page + '"] [data-act="pv-undo"]',
+        );
+      if (onAdd && undoButton && (active === focused || active === document.body || !active))
+        undoButton.focus({ preventScroll: true });
     }
   };
   hideTip();
   const again = () => {
-    PV_CANCEL_HOLD.delete(pvSlot(page));
+    CANCEL_HOLD.delete(pageLineSlot(page));
     drawPageVerdicts();
-    pvCancelPin(id, page, false);
+    cancelVerdictPin(id, page, false);
   }; // [다시 시도] is a new press: no hold
-  const out = pvSlot(page);
-  PV_DROP_OUT.set(out, id);
+  const out = pageLineSlot(page);
+  CANCEL_OUT.set(out, id);
   let ok = false,
     slow = false;
   const wait = setTimeout(() => {
     slow = true;
-    if (PV_DROP_OUT.get(out) === id) PV_DROP_OUT.delete(out);
+    if (CANCEL_OUT.get(out) === id) CANCEL_OUT.delete(out);
     lineNote('판정 취소의 답이 늦습니다 — 이 줄의 키를 다시 받습니다', NOTICE_KIND.WARN, null, {
       source: 'pv-drop-wait',
       life: NOTICE_LIFE.TIMER,
     });
-  }, PV_DROP_WAIT);
+  }, CANCEL_ANSWER_WAIT);
   try {
     ok = await dropPin(id, false, again, { say, where: NOTICE_HOST.LINE, what: '판정 취소' });
   } finally {
     clearTimeout(wait);
-    if (PV_DROP_OUT.get(out) === id) PV_DROP_OUT.delete(out);
+    if (CANCEL_OUT.get(out) === id) CANCEL_OUT.delete(out);
   }
   if (!ok) {
-    PV_WITHDRAWN.delete(id);
-    pvReasonUncancel(id, page, kept ? kept.doc : doc, kept);
+    WITHDRAWN_PINS.delete(id);
+    bringBackReason(id, page, kept ? kept.doc : doc, kept);
   }
-  // A keyboard press stays on its own page: the line's [되돌리기], else its line (never the PDF area, from which Tab went to the
-  // first page's line). A digit key's take-back takes the focus there from wherever it was - the outline, a card - as a key
-  // save does, unless the person moved it meanwhile: left in the outline, Enter pressed the outline again instead of undoing.
-  // A reason popover that has the focus now is a newer one (the verdict's own left with it): it keeps it - on this line too
-  // (a new verdict's, saved while the take-back was out), where the focus went to the line and the next digit was a verdict key.
+  // A keyboard press stays on its own page: the line's [되돌리기], else its line (never the PDF area, from which Tab
+  // would go to the first page's line). A digit key's take-back takes the focus there from wherever it was - the
+  // outline, a card - as a key save does, unless the person moved it meanwhile: left in the outline, Enter would press
+  // the outline again instead of undoing. A reason popover that has the focus now is a newer one (the verdict's own
+  // left with it): it keeps it - on this line too (a new verdict's, saved while the take-back was out), where moving
+  // the focus to the line would make the next digit a verdict key.
   const at = document.activeElement,
     pop = !!at && !!at.closest && !!at.closest('#doc .pv-pop');
   const lost =
@@ -24098,861 +24199,949 @@ async function pvCancelPin(id, page, had, byKey) {
       !!(at.closest && at.closest('#doc .pv[data-page="' + page + '"]')) ||
       (!!byKey && at === from));
   if ((had || inField) && lost && !slow) {
-    const u = document.querySelector('#doc .pv[data-page="' + page + '"] [data-act="pv-undo"]');
-    if (u) u.focus({ preventScroll: true });
-    else if (!pvFocusLine(page)) searchToPage();
+    const undoButton = document.querySelector(
+      '#doc .pv[data-page="' + page + '"] [data-act="pv-undo"]',
+    );
+    if (undoButton) undoButton.focus({ preventScroll: true });
+    else if (!focusLine(page)) searchToPage();
   }
   if (ok && claimed) lineNote('처리 중이던 판정이라 이미 실행됐을 수 있습니다', NOTICE_KIND.WARN);
 }
-// One page's line: its state - '판정 없음', or the newest verdict pin about its target with its state, its number and word,
-// and who made it and when if that was someone else - its reason (pvReasonInline: a check and its first line, a kept draft, [이유 추가]),
-// [판정 취소] on the person's own while it is open (pvCanCancel), the earlier open verdicts as a link ('이전 판정 N건 · 새
-// 판정으로 대체됨'), and, for a person who may make one, a button per word. The current verdict's word is pressed (a toggle,
-// pvPress); while a save on the line is out, the word it saves - or the last one pressed meanwhile (PV_NEXT) - is pressed
-// instead and the state says '보류 저장 중…'. The reason popover (pvReasonPop) is the line's last child, laid above it.
-/** @param [chip] - the line holds a save chip or its reason popover: it draws no descriptions @param [panel] - the panel beside the pages (verdict-panel.js) */
-function pvLineHtml(page, list, v, chip, panel) {
+// One page's line: its state - '판정 없음', or the newest verdict pin about its target with its state, its number and
+// word, and who made it and when if that was someone else - its reason (inlineReason: a check and its first line, a
+// kept draft, [이유 추가]), [판정 취소] on the person's own while it is open (canCancelVerdict), the earlier open
+// verdicts as a link ('이전 판정 N건 · 새 판정으로 대체됨'), and, for a person who may make one, a button per word. The
+// current verdict's word is pressed (a toggle, pressPageVerdict); while a save on the line is out, the word it saves -
+// or the last one pressed meanwhile (NEXT_PRESS) - is pressed instead and the state says '보류 저장 중…'. The reason
+// popover (reasonPopoverHtml) is the line's last child, laid above it.
+/**
+ * @param [chip] - the line holds a save chip or its reason popover: it draws no descriptions @param [panel] - the panel
+ * beside the pages (verdict-panel.ts)
+ */
+function pageLineHtml(page, list, verdicts, chip, panel) {
   const cur = list && list[0],
-    earlier = list ? list.slice(1).filter((p) => pinState(p) === PIN_STATE.OPEN) : [];
-  // Before the first pin list is applied (PINS_APPLIED_SEQ) the line knows no verdict yet: '판정 읽는 중…', buttons waiting.
+    earlier = list ? list.slice(1).filter((pin) => pinState(pin) === PIN_STATE.OPEN) : [];
+  // Before the first pin list is applied (PINS_APPLIED_SEQ) the line knows no verdict yet: '판정 읽는 중…', buttons
+  // waiting.
   const loading = !PINS_APPLIED_SEQ;
-  const k = cur && verdictOf(cur),
+  const key = cur && verdictOf(cur),
     other = !!cur && !!cur.author && !isMe(cur.author);
-  // One order for every state: '판정 #4 채택 · 처리 대기', then who made it and when if someone else did. The number is a link to
-  // the card (the viewer's link style), the word is bold.
-  // A claimed one names who has it: '처리 중(Agent B)' - the name after it is the pin's author.
-  const S = '\u0001',
+  // One order for every state: '판정 #4 채택 · 처리 대기', then who made it and when if someone else did. The number is
+  // a link to the card (the viewer's link style), the word is bold. A claimed one names who has it: '처리 중(Agent B)'
+  // - the name after it is the pin's author.
+  const mark = '\u0001',
     by = cur && pinState(cur) === PIN_STATE.OPEN && claimActive(cur) && cur.claimed_by ? who(cur.claimed_by) : '',
-    st = cur ? pvStateWord(cur) : '',
-    sp = by ? tl('처리 중({name})', { name: S }).split(S) : [st];
+    state = cur ? verdictStateWord(cur) : '',
+    parts = by ? tl('처리 중({name})', { name: mark }).split(mark) : [state];
   const text =
-    cur && k
+    cur && key
       ? html`<span class="pv-s">${tr('판정')} <span class="pin-ref pv-ref hit" role="link" tabindex="0" data-act="pin-ref" data-ref="${cur.id}" \
-aria-label="${tl('지금 판정 #{id} 카드로 갑니다', { id: cur.id })}" data-tip="${tl('핀 #{id} 로 갑니다', { id: cur.id })}">#${cur.id}</span> <b class="vd-w" translate="no">${verdictLabel(k)}</b></span>\
-<span class="pv-sep" aria-hidden="true">·</span><span class="pv-st">${sp[0]}${by ? html`<span class="pv-by" translate="no">${by}</span>${sp[1] || ''}` : ''}</span>\
+aria-label="${tl('지금 판정 #{id} 카드로 갑니다', { id: cur.id })}" data-tip="${tl('핀 #{id} 로 갑니다', { id: cur.id })}">#${cur.id}</span> <b class="vd-w" translate="no">${verdictLabel(key)}</b></span>\
+<span class="pv-sep" aria-hidden="true">·</span><span class="pv-st">${parts[0]}${by ? html`<span class="pv-by" translate="no">${by}</span>${parts[1] || ''}` : ''}</span>\
 ${other ? html`<span class="pv-sep" aria-hidden="true">·</span><span class="pv-au" translate="no">${who(cur.author)}</span> ${relSpan(cur.at, 'pv-at', '')}` : ''}\
-${pvReasonInline(page, cur)}`
-      : html`<span class="pv-s pv-none">${tr(loading ? '판정 읽는 중…' : '판정 없음')}</span>${loading ? '' : pvReasonInline(page, undefined)}`;
+${inlineReason(page, cur)}`
+      : html`<span class="pv-s pv-none">${tr(loading ? '판정 읽는 중…' : '판정 없음')}</span>${loading ? '' : inlineReason(page, undefined)}`;
   // A save on the line that is out: what it saves - or the last word pressed meanwhile, which comes after it.
-  const slot = pvSlot(page),
-    nx = PV_NEXT.get(slot),
-    sv = PV_BUSY.get(slot),
-    want = nx ? nx.key : sv !== undefined ? sv : k || null;
+  const slot = pageLineSlot(page),
+    next = NEXT_PRESS.get(slot),
+    savingKey = SAVING_LINES.get(slot),
+    want = next ? next.key : savingKey !== undefined ? savingKey : key || null;
   const saving =
-    sv !== undefined
-      ? html`<span class="pv-busy" role="status"><span class="pv-sep" aria-hidden="true">·</span> ${tl('{word} 저장 중…', { word: verdictLabel(want || sv) })}</span>`
+    savingKey !== undefined
+      ? html`<span class="pv-busy" role="status"><span class="pv-sep" aria-hidden="true">·</span> ${tl('{word} 저장 중…', { word: verdictLabel(want || savingKey) })}</span>`
       : '';
   // A confirm word armed on this line says how long it waits, beside it.
-  const armed = !!VD_ARM && VD_ARM.where === VD_WHERE.PAGE && VD_ARM.page === page ? VD_ARM : null;
+  const armed =
+    !!ARMED_VERDICT && ARMED_VERDICT.where === VD_WHERE.PAGE && ARMED_VERDICT.page === page ? ARMED_VERDICT : null;
   const armSay = armed
-    ? html`<span class="pv-arm"><span class="pv-sep" aria-hidden="true">·</span> ${tl('{sec}초 안에 한 번 더 누르면 저장', { sec: VD_ARM_MS / 1000 })}</span>`
+    ? html`<span class="pv-arm"><span class="pv-sep" aria-hidden="true">·</span> ${tl('{sec}초 안에 한 번 더 누르면 저장', { sec: VERDICT_ARM_MS / 1000 })}</span>`
     : '';
-  // [판정 취소]: a text action in the row (the viewer's link look, as the earlier link), after the state. It is its verdict's
-  // own element (data-id): once that verdict goes the next one's is a new one, which a keyboard focus does not carry over.
-  // It waits (aria-disabled) while the page's save is out, the first list is not in, or a cancel on this page just ran.
-  const cn = !!cur && pvCanCancel(cur),
-    cw = PV_BUSY.has(slot) || loading || (PV_CANCEL_HOLD.get(slot) || 0) > Date.now();
+  // [판정 취소]: a text action in the row (the viewer's link look, as the earlier link), after the state. It is its
+  // verdict's own element (data-id): once that verdict goes the next one's is a new one, which a keyboard focus does
+  // not carry over. It waits (aria-disabled) while the page's save is out, the first list is not in, or a cancel on
+  // this page just ran.
+  const canCancel = !!cur && canCancelVerdict(cur),
+    cancelWaits = SAVING_LINES.has(slot) || loading || (CANCEL_HOLD.get(slot) || 0) > Date.now();
   const cancel =
-    cn && cur
+    canCancel && cur
       ? html`<span class="pv-sep pv-cn" aria-hidden="true">·</span><button type="button" class="btn-ghost btn-sm pv-cancel pv-cn hit" data-act="pv-cancel" \
 data-ref="${cur.id}" data-id="${cur.id}" aria-label="${tl('판정 취소 — 내 판정 #{id}', { id: cur.id })}" \
-${pvTipAttr(!!chip, tr('이 판정을 거둡니다. 핀은 휴지통으로 가고, 같은 대상에 앞선 판정이 있으면 그 판정이 다시 지금 판정이 됩니다. 상태 줄의 [되돌리기]가 되살립니다'))}${cw ? html` aria-disabled="true"` : ''}>${tr('판정 취소')}</button>`
+${lineTipAttribute(!!chip, tr('이 판정을 거둡니다. 핀은 휴지통으로 가고, 같은 대상에 앞선 판정이 있으면 그 판정이 다시 지금 판정이 됩니다. 상태 줄의 [되돌리기]가 되살립니다'))}${cancelWaits ? html` aria-disabled="true"` : ''}>${tr('판정 취소')}</button>`
       : '';
-  // The earlier link is short - '이전 2건' ('+2 earlier') - and never cut: where its line is tight (.pv-tight, pvFit) it is
-  // its count alone, '+2' (data-n, components.css). Its name says it whole ('이전 판정 2건 · 새 판정으로 대체됨'), and so does
-  // its tooltip before what it is. The whole words stood in the row and were cut to fit: '1 ea…' on a 620px English line.
-  // A dot sets it off from what comes before it, as the state's other parts are (.pv-ea, gone whenever the link is): right
-  // after [✓ 채택 1]'s key digit on a stacked line, or after [판정 취소], a bare '+2' read as a count of that button's.
-  const ne = earlier.length,
-    eName = tl('이전 판정 {n}건 · 새 판정으로 대체됨', { n: ne });
-  const early = ne
-    ? html`<span class="pv-sep pv-ea" aria-hidden="true">·</span><button type="button" class="btn-ghost btn-sm pv-early hit" data-act="pv-earlier" data-ref="${earlier[0].id}" data-n="${ne}" aria-label="${eName}" \
-${pvTipAttr(!!chip, eName + ' — ' + tr('이 쪽의 더 새 판정으로 대체되어 실행하지 않는 열린 판정 핀입니다. 누르면 그 카드로 갑니다'))}><span class="pv-early-w">${tl('이전 {n}건', { n: ne })}</span></button>`
+  // The earlier link is short - '이전 2건' ('+2 earlier') - and never cut: where its line is tight (.pv-tight,
+  // fitPageLines) it is its count alone, '+2' (data-n, components.css). Its name says it whole ('이전 판정 2건 · 새
+  // 판정으로 대체됨'), and so does its tooltip before what it is; the whole words would stand in the row and be cut to
+  // fit. A dot sets it off from what comes before it, as the state's other parts are (.pv-ea, gone whenever the link
+  // is): right after [✓ 채택 1]'s key digit on a stacked line, or after [판정 취소], a bare '+2' would read as a count
+  // of that button's.
+  const earlierCount = earlier.length,
+    earlierName = tl('이전 판정 {n}건 · 새 판정으로 대체됨', { n: earlierCount });
+  const early = earlierCount
+    ? html`<span class="pv-sep pv-ea" aria-hidden="true">·</span><button type="button" class="btn-ghost btn-sm pv-early hit" data-act="pv-earlier" data-ref="${earlier[0].id}" data-n="${earlierCount}" aria-label="${earlierName}" \
+${lineTipAttribute(!!chip, earlierName + ' — ' + tr('이 쪽의 더 새 판정으로 대체되어 실행하지 않는 열린 판정 핀입니다. 누르면 그 카드로 갑니다'))}><span class="pv-early-w">${tl('이전 {n}건', { n: earlierCount })}</span></button>`
     : '';
-  // The reading page's line - the one that floats - names what it decides: '7쪽 · [후보] PL18 · …' (figureName), cut to fit.
-  // Its two spans are on every line, hidden but on the reading one: the line's children keep their places when the reading
-  // page moves, so the morph (pvMorph) never takes a focused button out of the page. A hidden one holds the identifier, so
-  // every line is fitted as the reading line it may become (pvFit).
-  // The panel beside the pages (verdict-panel.js) names its page and figure whole: the title on rows of its own under the
-  // identifier, kept even when empty, so the words below stand at one height for every page. A view-only PDF has no titles.
-  const rd = PV_READ === page || !!panel,
-    nm = rd ? pvFigParts(page) : { id: pvFigParts(page).id, rest: '' };
+  // The reading page's line - the one that floats - names what it decides: '7쪽 · [후보] PL18 · …' (figureName), cut to
+  // fit. Its two spans are on every line, hidden but on the reading one: the line's children keep their places when the
+  // reading page moves, so the morph (morphNode) never takes a focused button out of the page. A hidden one holds the
+  // identifier, so every line is fitted as the reading line it may become (fitPageLines). The panel beside the pages
+  // (verdict-panel.ts) names its page and figure whole: the title on rows of its own under the identifier, kept even
+  // when empty, so the words below stand at one height for every page. A view-only PDF has no titles.
+  const isReadingLine = READING_LINE_PAGE === page || !!panel,
+    lineName = isReadingLine ? pageLineName(page) : { id: pageLineName(page).id, rest: '' };
   const name = panel
-    ? html`<span class="pv-fig" translate="no"><span class="pv-fig-id">${nm.id}</span>${isFigureKind(META ? META.kind : undefined) ? html`<span class="pv-fig-t">${nm.rest}</span>` : ''}</span><span class="pv-sep pv-fig-sep" aria-hidden="true">·</span>`
-    : html`<span class="pv-fig" translate="no"${rd ? '' : html` hidden`}><span class="pv-fig-id">${nm.id}</span>${nm.rest ? html`<span class="pv-fig-t">${' · ' + nm.rest}</span>` : ''}</span><span class="pv-sep pv-fig-sep" aria-hidden="true"${rd ? '' : html` hidden`}>·</span>`;
-  const keys = PV_KEYS === page,
+    ? html`<span class="pv-fig" translate="no"><span class="pv-fig-id">${lineName.id}</span>${isFigureKind(META ? META.kind : undefined) ? html`<span class="pv-fig-t">${lineName.rest}</span>` : ''}</span><span class="pv-sep pv-fig-sep" aria-hidden="true">·</span>`
+    : html`<span class="pv-fig" translate="no"${isReadingLine ? '' : html` hidden`}><span class="pv-fig-id">${lineName.id}</span>${lineName.rest ? html`<span class="pv-fig-t">${' · ' + lineName.rest}</span>` : ''}</span><span class="pv-sep pv-fig-sep" aria-hidden="true"${isReadingLine ? '' : html` hidden`}>·</span>`;
+  const keys = KEYED_PAGE === page,
     target = tl('{page}쪽', { page }),
-    held = PV_TOGGLE_HOLD.get(slot),
+    held = TAKEN_BACK_HOLD.get(slot),
     hold = held && held.until > Date.now() ? held.key : null;
-  const pr = (key) =>
-    key !== want ? PV_PRESS.NONE : nx || sv !== undefined ? PV_PRESS.SAVING : cur ? pvPressOf(cur) : PV_PRESS.NONE;
-  // In the panel the pressed word's description is its context under the panel (pvOnHint): a hover box over it as well
-  // covered the page's name above the words and said the same again. Only a long press shows it (vdButton quiet).
-  const said = (key) => !!panel && pr(key) !== PV_PRESS.NONE && pr(key) !== PV_PRESS.SAVING;
-  const btns = canVerdict()
-    ? html`<span class="vd-btns">${v.choices.map((c, i) => vdButton(c, VD_WHERE.PAGE, page, target, loading || c.key === hold, keys ? i + 1 : 0, !!chip || said(c.key), pr(c.key)))}</span>`
+  const pressedFor = (key) =>
+    key !== want
+      ? PRESSED_AS.NONE
+      : next || savingKey !== undefined
+        ? PRESSED_AS.SAVING
+        : cur
+          ? pressedAsOf(cur)
+          : PRESSED_AS.NONE;
+  // In the panel the pressed word's description is its context under the panel (pressedWordHint): a hover box over it
+  // as well would cover the page's name above the words and say the same again. Only a long press shows it
+  // (verdictButton's quiet).
+  const said = (key) => !!panel && pressedFor(key) !== PRESSED_AS.NONE && pressedFor(key) !== PRESSED_AS.SAVING;
+  const buttons = canVerdict()
+    ? html`<span class="vd-btns">${verdicts.choices.map((choice, index) => verdictButton(choice, VD_WHERE.PAGE, page, target, loading || choice.key === hold, keys ? index + 1 : 0, !!chip || said(choice.key), pressedFor(choice.key)))}</span>`
     : '';
-  // The line's last failed save, said where it was pressed (PV_ERR) - for the document and build on screen only.
-  const e = PV_ERR.get(page),
-    eo = !!e && e.doc === DOC && !!META && e.build === (META.pages_build || '');
-  const err = html`<span class="pv-err"${eo ? '' : html` hidden`}>${eo && e ? e.text : ''}</span>`; // always there, so the reason field after it keeps its place
-  // A take-back of this line's, while its status-line [되돌리기] lasts: the line offers it too (PV_LINE_UNDO).
-  const lu = PV_LINE_UNDO.get(slot),
+  // The line's last failed save, said where it was pressed (LINE_SAVE_ERROR) - for the document and build on screen
+  // only.
+  const failure = LINE_SAVE_ERROR.get(page),
+    failureShown = !!failure && failure.doc === DOC && !!META && failure.build === (META.pages_build || '');
+  // always there, so the reason field after it keeps its place
+  const err = html`<span class="pv-err"${failureShown ? '' : html` hidden`}>${failureShown && failure ? failure.text : ''}</span>`;
+  // A take-back of this line's, while its status-line [되돌리기] lasts: the line offers it too (LINE_UNDO_OFFERS).
+  const lineUndo = LINE_UNDO_OFFERS.get(slot),
     undo =
-      lu && NOTICES.has(lu.n) && canVerdict()
+      lineUndo && NOTICES.has(lineUndo.n) && canVerdict()
         ? html`<span class="pv-sep pv-un" aria-hidden="true">·</span><button type="button" class="btn-ghost btn-sm pv-undo pv-un hit" \
-data-act="pv-undo" data-id="u${lu.id}" aria-label="${tl('되돌리기 — 거둔 판정 #{id}', { id: lu.id })}">${tr('되돌리기')}</button>`
+data-act="pv-undo" data-id="u${lineUndo.id}" aria-label="${tl('되돌리기 — 거둔 판정 #{id}', { id: lineUndo.id })}">${tr('되돌리기')}</button>`
         : '';
-  if (lu && !undo) PV_LINE_UNDO.delete(slot);
-  const hint = pvOnHint(page, v, want, nx || sv !== undefined ? PV_PRESS.SAVING : cur ? pvPressOf(cur) : PV_PRESS.NONE);
+  if (lineUndo && !undo) LINE_UNDO_OFFERS.delete(slot);
+  const hint = pressedWordHint(
+    page,
+    verdicts,
+    want,
+    next || savingKey !== undefined ? PRESSED_AS.SAVING : cur ? pressedAsOf(cur) : PRESSED_AS.NONE,
+  );
   // In the panel the words come right under the name - one place on the screen for every page, whatever the state under
   // them says - and the Tab order follows the rows: the words, then the state's links and actions.
   if (panel)
-    return html`${name}${btns}<span class="pv-t">${text}${saving}${armSay}${cancel}${undo}${early}</span>${err}${hint}${pvReasonPop(page)}`;
-  return html`${name}<span class="pv-t">${text}${saving}${armSay}${cancel}${undo}${early}</span>${btns}${err}${hint}${pvReasonPop(page)}`;
+    return html`${name}${buttons}<span class="pv-t">${text}${saving}${armSay}${cancel}${undo}${early}</span>${err}${hint}${reasonPopoverHtml(page)}`;
+  return html`${name}<span class="pv-t">${text}${saving}${armSay}${cancel}${undo}${early}</span>${buttons}${err}${hint}${reasonPopoverHtml(page)}`;
 }
-// A line control's description: data-tip, or - on a line that holds a save chip or its reason popover (pvLineHtml chip) -
-// data-tip-press, which only a long press shows (tooltip.js): no box over either, and a long press still presses nothing.
-function pvTipAttr(quiet, tip) {
+// A line control's description: data-tip, or - on a line that holds a save chip or its reason popover (pageLineHtml
+// chip) - data-tip-press, which only a long press shows (tooltip.ts): no box over either, and a long press still
+// presses nothing.
+function lineTipAttribute(quiet, tip) {
   return quiet ? html`data-tip-press="${tip}"` : html`data-tip="${tip}"`;
 }
-// The pressed word's context (P2-3: taking a verdict back by pressing its word again must be found without a hover - a
-// line holding a save chip or a popover draws no descriptions, and touch has none): one short sentence, the pressed word's
+// The pressed word's context (taking a verdict back by pressing its word again must be found without a hover - a line
+// holding a save chip or a popover draws no descriptions, and touch has none): one short sentence, the pressed word's
 // description for assistive technology (aria-describedby="pv-on-<page>") and shown over the word group - never in the
 // line's flow, so the line keeps its height - while the pressed word is hovered or has the keyboard's focus, and for a
-// few seconds after a press made it the line's verdict (.pv-onshow, pvOnShow). '지금 삭제 판정 · 다시 누르면 판정 취소' on the
-// person's own open verdict; someone else's or a handled one says it stays.
-function pvOnHint(page, v, key, pr) {
-  const c = key ? v.choices.find((x) => x.key === key) : null;
-  if (!c || !pr || pr === PV_PRESS.SAVING || !canVerdict()) return '';
+// few seconds after a press made it the line's verdict (.pv-onshow, showPressedHint). '지금 삭제 판정 · 다시 누르면
+// 판정 취소' on the person's own open verdict; someone else's or a handled one says it stays.
+function pressedWordHint(page, verdicts, key, pressed) {
+  const choice = key ? verdicts.choices.find((x) => x.key === key) : null;
+  if (!choice || !pressed || pressed === PRESSED_AS.SAVING || !canVerdict()) return '';
   const say =
-    pr === PV_PRESS.MINE
-      ? tl('지금 {word} 판정 · 다시 누르면 판정 취소', { word: c.label })
-      : pr === PV_PRESS.OTHER
-        ? tl('지금 {word} 판정 · 다른 사람의 판정이라 그대로 둡니다', { word: c.label })
-        : tl('지금 {word} 판정 · 처리된 판정이라 그대로 둡니다', { word: c.label });
+    pressed === PRESSED_AS.MINE
+      ? tl('지금 {word} 판정 · 다시 누르면 판정 취소', { word: choice.label })
+      : pressed === PRESSED_AS.OTHER
+        ? tl('지금 {word} 판정 · 다른 사람의 판정이라 그대로 둡니다', { word: choice.label })
+        : tl('지금 {word} 판정 · 처리된 판정이라 그대로 둡니다', { word: choice.label });
   return html`<span class="pv-onhint" id="pv-on-${page}" translate="no">${say}</span>`;
 }
-// A press made word key page `page`'s verdict: its line shows the pressed word's context for PV_ONSHOW_MS.
-const PV_ONSHOW_MS = 4000;
-function pvOnShow(page) {
-  const l = document.querySelector('#doc .pv[data-page="' + page + '"]');
-  if (!l) return;
-  l.classList.add('pv-onshow');
-  clearTimeout(l._onT);
-  l._onT = setTimeout(() => l.classList.remove('pv-onshow'), PV_ONSHOW_MS);
+// A press made word key page `page`'s verdict: its line shows the pressed word's context for PRESSED_HINT_MS.
+const PRESSED_HINT_MS = 4000;
+function showPressedHint(page) {
+  const line = document.querySelector('#doc .pv[data-page="' + page + '"]');
+  if (!line) return;
+  line.classList.add('pv-onshow');
+  clearTimeout(line._onT);
+  line._onT = setTimeout(() => line.classList.remove('pv-onshow'), PRESSED_HINT_MS);
 }
-// Draws page `page`'s line.
-// The list redraws on every poll and many other changes, so a line is never rewritten: what changed is changed in place
-// (pvMorph) - its words and links, a button's state - and every button, the '#N' link and the earlier link stay the same
-// elements. A press whose down and up straddle a redraw still lands on its button (a rewritten one sent the click to the
-// line), and the focus stays where it was, also on a '#N' whose number just changed. A line whose words are what it shows is
-// left alone. Every verdict pin the line accounts for - the current one and the earlier ones - draws no page-size mark.
-const PV_TEXT = new WeakMap(); // what fillPv last wrote into each line
-function fillPv(el, page, list, v) {
-  el.dataset.page = String(page);
-  el.classList.toggle('reading', PV_READ === page);
+// Draws page `page`'s line. The list redraws on every poll and many other changes, so a line is never rewritten: what
+// changed is changed in place (morphNode) - its words and links, a button's state - and every button, the '#N' link and
+// the earlier link stay the same elements. A press whose down and up straddle a redraw still lands on its button (a
+// rewritten one would send the click to the line), and the focus stays where it was, also on a '#N' whose number just
+// changed. A line whose words are what it shows is left alone. Every verdict pin the line accounts for - the current
+// one and the earlier ones - draws no page-size mark.
+const LINE_TEXT = new WeakMap(); // what fillPageLine last wrote into each line
+function fillPageLine(line, page, list, verdicts) {
+  line.dataset.page = String(page);
+  line.classList.toggle('reading', READING_LINE_PAGE === page);
   const cur = list && list[0];
-  if (cur) el.dataset.pin = String(cur.id);
-  else delete el.dataset.pin;
-  (list || []).forEach((p) => PV_SHOWN.add(p.id));
-  el.setAttribute('role', 'group');
-  el.setAttribute('aria-label', tl('{page}쪽 판정', { page }));
-  const chip = el.querySelector(':scope>.nt-chip'); // a save's undo chip (drawChips) stays on its line; drawChips moves it if it is another pin's
+  if (cur) line.dataset.pin = String(cur.id);
+  else delete line.dataset.pin;
+  (list || []).forEach((pin) => SHOWN_ON_PAGE_LINES.add(pin.id));
+  line.setAttribute('role', 'group');
+  line.setAttribute('aria-label', tl('{page}쪽 판정', { page }));
+  // a save's undo chip (drawChips) stays on its line; drawChips moves it if it is another pin's
+  const chip = line.querySelector(':scope>.nt-chip');
   // While its save chip stands or its reason popover is open the line draws no descriptions: no box over either.
-  const m = pvLineHtml(page, list, v, !!chip || pvReasonOn(page), el.id === 'pv-panel');
-  if (PV_TEXT.get(el) === m.text) return;
-  PV_TEXT.set(el, m.text);
-  // The focused reason field keeps the focus and the caret when the line around it changes shape (its verdict's save landing
-  // while it is typed in: a morph by place can replace it), so what is typed next stays text - never a verdict key.
-  const a = document.activeElement,
-    f = pvIsReasonField(a) && el.contains(a) ? (a) : null,
-    sel = f ? [f.selectionStart, f.selectionEnd] : null;
+  const markup = pageLineHtml(page, list, verdicts, !!chip || isReasonOpenOn(page), line.id === 'pv-panel');
+  if (LINE_TEXT.get(line) === markup.text) return;
+  LINE_TEXT.set(line, markup.text);
+  // The focused reason field keeps the focus and the caret when the line around it changes shape (its verdict's save
+  // landing while it is typed in: a morph by place can replace it), so what is typed next stays text - never a verdict
+  // key.
+  const active = document.activeElement,
+    field = isReasonField(active) && line.contains(active) ? (active) : null,
+    caret = field ? [field.selectionStart, field.selectionEnd] : null;
   if (chip) chip.remove();
   const next = document.createElement('div');
-  setHtml(next, m);
-  pvMorphKids(el, next);
-  if (chip) el.appendChild(chip);
-  el.classList.toggle('pv-pop-open', !!el.querySelector(':scope>.pv-pop'));
-  pvReasonAfterDraw(el);
-  if (f && sel && !f.isConnected) {
-    const g = el.querySelector('.pv-pop .pv-reason[data-id="' + f.dataset.id + '"]');
-    if (g) {
-      g.focus({ preventScroll: true });
-      g.setSelectionRange(sel[0], sel[1]);
+  setHtml(next, markup);
+  morphChildren(line, next);
+  if (chip) line.appendChild(chip);
+  line.classList.toggle('pv-pop-open', !!line.querySelector(':scope>.pv-pop'));
+  fillReasonField(line);
+  if (field && caret && !field.isConnected) {
+    const redrawn = line.querySelector(
+      '.pv-pop .pv-reason[data-id="' + field.dataset.id + '"]',
+    );
+    if (redrawn) {
+      redrawn.focus({ preventScroll: true });
+      redrawn.setSelectionRange(caret[0], caret[1]);
     }
   }
 }
-// Makes a's children b's, keeping every node that is the same kind in the same place (pvMorph). The child that is or holds
-// the reason field stays where it is when b has the same one anywhere: the nodes before and after it are made b's on either
-// side of it. By place alone a node new before it - the pressed word's context, once the save the popover waited for landed -
-// took its place and the field was drawn again: an input method's composition in it ended, and the syllable it committed
-// went into an empty field and was saved as the whole reason (#352).
-function pvMorphKids(a, b) {
-  const ac = [...a.childNodes],
-    bc = [...b.childNodes],
-    i = ac.findIndex(pvHoldsReason),
-    j = i < 0 ? -1 : bc.findIndex((n) => pvSameNode(ac[i], n));
-  if (j < 0) {
-    pvMorphRun(a, ac, bc, null);
+// Makes the target's children the source's, keeping every node that is the same kind in the same place (morphNode). The
+// child that is or holds the reason field stays where it is when the source has the same one anywhere: the nodes before
+// and after it are made the source's on either side of it. By place alone a node new before it (the pressed word's
+// context, once the save the popover waited for lands) would take its place and the field would be drawn again, which
+// ends an input method's composition in it and loses the typed reason.
+function morphChildren(target, source) {
+  const targetChildren = [...target.childNodes],
+    sourceChildren = [...source.childNodes],
+    fieldAt = targetChildren.findIndex(holdsReasonField),
+    sourceFieldAt = fieldAt < 0 ? -1 : sourceChildren.findIndex((node) => canMorph(targetChildren[fieldAt], node));
+  if (sourceFieldAt < 0) {
+    morphChildRun(target, targetChildren, sourceChildren, null);
     return;
   }
-  pvMorphRun(a, ac.slice(0, i), bc.slice(0, j), ac[i]);
-  pvMorph(ac[i], bc[j]);
-  pvMorphRun(a, ac.slice(i + 1), bc.slice(j + 1), null);
+  morphChildRun(
+    target,
+    targetChildren.slice(0, fieldAt),
+    sourceChildren.slice(0, sourceFieldAt),
+    targetChildren[fieldAt],
+  );
+  morphNode(targetChildren[fieldAt], sourceChildren[sourceFieldAt]);
+  morphChildRun(target, targetChildren.slice(fieldAt + 1), sourceChildren.slice(sourceFieldAt + 1), null);
 }
-// Makes the run ac of a's children read as bc, by place: the new nodes past its end go in before `at` (null: at the end), and
-// the old ones past bc's end go.
-function pvMorphRun(a, ac, bc, at) {
-  bc.forEach((n, k) => {
-    if (k < ac.length) pvMorph(ac[k], n);
-    else a.insertBefore(n, at);
+// Makes a run of the parent's children (targetRun) read as sourceRun, by place: the new nodes past its end go in before
+// `at` (null: at the end), and the old ones past the source run's end go.
+function morphChildRun(parent, targetRun, sourceRun, at) {
+  sourceRun.forEach((node, index) => {
+    if (index < targetRun.length) morphNode(targetRun[index], node);
+    else parent.insertBefore(node, at);
   });
-  ac.slice(bc.length).forEach((n) => n.remove());
+  targetRun.slice(sourceRun.length).forEach((node) => node.remove());
 }
-// Whether node n is the reason field or holds it.
-function pvHoldsReason(n) {
-  return n instanceof Element && (pvIsReasonField(n) || !!n.querySelector('.pv-reason'));
+// Whether a node is the reason field or holds it.
+function holdsReasonField(node) {
+  return node instanceof Element && (isReasonField(node) || !!node.querySelector('.pv-reason'));
 }
-// Whether pvMorph keeps node a to read as b: the same kind of node - for an element the same tag, data-act and data-id (a
-// reason field of another pin is another field, never one keeping the first pin's typed text).
-function pvSameNode(a, b) {
+// Whether morphNode keeps a target node to read as the source node: the same kind of node - for an element the same
+// tag, data-act and data-id (a reason field of another pin is another field, never one keeping the first pin's typed
+// text).
+function canMorph(target, source) {
   return (
-    a.nodeType === b.nodeType &&
-    a.nodeName === b.nodeName &&
+    target.nodeType === source.nodeType &&
+    target.nodeName === source.nodeName &&
     !(
-      a instanceof Element &&
-      b instanceof Element &&
-      (a.getAttribute('data-act') !== b.getAttribute('data-act') ||
-        a.getAttribute('data-id') !== b.getAttribute('data-id'))
+      target instanceof Element &&
+      source instanceof Element &&
+      (target.getAttribute('data-act') !== source.getAttribute('data-act') ||
+        target.getAttribute('data-id') !== source.getAttribute('data-id'))
     )
   );
 }
-// Makes node a read as b: the same text, or the same element (pvSameNode) with b's attributes and children; another kind of
-// node takes a's place.
-function pvMorph(a, b) {
-  if (!pvSameNode(a, b)) {
-    (a).replaceWith(b);
+// Makes a target node read as the source node: the same text, or the same element (canMorph) with the source's
+// attributes and children; another kind of node takes the target's place.
+function morphNode(target, source) {
+  if (!canMorph(target, source)) {
+    (target).replaceWith(source);
     return;
   }
-  if (!(a instanceof Element && b instanceof Element)) {
-    if (a.nodeValue !== b.nodeValue) a.nodeValue = b.nodeValue;
+  if (!(target instanceof Element && source instanceof Element)) {
+    if (target.nodeValue !== source.nodeValue) target.nodeValue = source.nodeValue;
     return;
   }
-  [...a.attributes].forEach((x) => {
-    if (!b.hasAttribute(x.name)) a.removeAttribute(x.name);
+  [...target.attributes].forEach((x) => {
+    if (!source.hasAttribute(x.name)) target.removeAttribute(x.name);
   });
-  [...b.attributes].forEach((x) => {
-    if (a.getAttribute(x.name) !== x.value) a.setAttribute(x.name, x.value);
+  [...source.attributes].forEach((x) => {
+    if (target.getAttribute(x.name) !== x.value) target.setAttribute(x.name, x.value);
   });
-  pvMorphKids(a, b);
+  morphChildren(target, source);
 }
-// The width of each line and whether it is one row or stacked - per line. A line is its own page's width, never past what the
-// PDF area shows; a page narrower than the widest has a line as narrow, under it. Where the pages are fitted (no sideways
-// scroll) a line also ends before what lies over the area's right side (pvInsetR: an overlay panel, the closed panel's
-// status box) and still starts where its page does: centred with the room cut on one side, the sticky line was pushed past
-// the page's left edge (1280 x 800 with the panel closed: 36px). A zoomed page's line keeps the room the area shows and
-// stays in view as the page scrolls sideways (sticky). Then each line on its own (pvFit). Measured only while the pages are
-// laid out (the changes view hides them); read and written in batches.
-const PV_MIN_W = 320; // a cut line narrower than this keeps its page's width and lets the sticky edge push it instead
-function sizePv() {
-  const ir = pvInsetR(),
-    L = $('#left'),
+// The width of each line and whether it is one row or stacked - per line. A line is its own page's width, never past
+// what the PDF area shows; a page narrower than the widest has a line as narrow, under it. Where the pages are fitted
+// (no sideways scroll) a line also ends before what lies over the area's right side (measureInsetRight: an overlay
+// panel, the closed panel's status box) and still starts where its page does: centred with the room cut on one side,
+// the sticky line would be pushed past the page's left edge. A zoomed page's line keeps the room the area shows and
+// stays in view as the page scrolls sideways (sticky). Then each line on its own (fitPageLines). Measured only while
+// the pages are laid out (the changes view hides them); read and written in batches. a cut line narrower than this
+// keeps its page's width and lets the sticky edge push it instead
+const MIN_CUT_LINE_WIDTH = 320;
+function sizePageLines() {
+  const insetRight = measureInsetRight(),
+    area = $('#left'),
     lines = $$('#doc .pv');
-  L.style.setProperty('--pv-inset-r', ir + 'px');
-  PV_INSET_R = ir;
+  area.style.setProperty('--pv-inset-r', insetRight + 'px');
+  INSET_RIGHT = insetRight;
   $('#doc').classList.remove('pv-stack');
   if (!lines.length || !lines[0].getClientRects().length) return;
-  // A zoom or a new width took the room across its bar: the lines move at the next frame (pvStick), never here. A zoom restores
-  // its place after this call, and the reading page read before that is not the one being read (verdict-panel.js).
-  if (pvSideWant() !== PV_SIDE) pvStickSoon();
-  if (PV_SIDE) {
-    pvFit(lines);
+  // A zoom or a new width took the room across its bar: the lines move at the next frame (stickReadingLine), never
+  // here. A zoom restores its place after this call, and the reading page read before that is not the one being read
+  // (verdict-panel.ts).
+  if (shouldStandBeside() !== IS_BESIDE_PAGES) stickSoon();
+  if (IS_BESIDE_PAGES) {
+    fitPageLines(lines);
     return;
   } // the panel keeps its own width
-  const room = innerW() - ir,
-    lr = L.getBoundingClientRect(),
-    fitted = L.scrollWidth <= L.clientWidth + 1;
-  const end = lr.left + L.clientLeft + L.clientWidth - parseFloat(getComputedStyle(L).paddingRight) - ir; // the room's right edge on screen
-  const at = lines.map((e) => {
-    const pg = document.getElementById('p' + e.dataset.page),
-      blk = e.parentElement;
-    if (!pg || !blk) return null;
-    const p = pg.getBoundingClientRect();
-    return { w: parseFloat(pg.style.width) || p.width, left: p.left, off: p.left - blk.getBoundingClientRect().left };
+  const room = innerW() - insetRight,
+    areaRect = area.getBoundingClientRect(),
+    fitted = area.scrollWidth <= area.clientWidth + 1;
+  const end =
+    // the room's right edge on screen
+    areaRect.left + area.clientLeft + area.clientWidth - parseFloat(getComputedStyle(area).paddingRight) - insetRight;
+  const at = lines.map((line) => {
+    const pageElement = document.getElementById('p' + line.dataset.page),
+      block = line.parentElement;
+    if (!pageElement || !block) return null;
+    const rect = pageElement.getBoundingClientRect();
+    return {
+      w: parseFloat(pageElement.style.width) || rect.width,
+      left: rect.left,
+      off: rect.left - block.getBoundingClientRect().left,
+    };
   });
-  lines.forEach((e, i) => {
-    const a = at[i];
-    let w = a ? Math.min(a.w, room) : room,
-      ml = '';
-    if (a && fitted && end - a.left < w && end - a.left >= PV_MIN_W) {
-      w = end - a.left;
-      ml = Math.round(a.off) + 'px';
+  lines.forEach((line, index) => {
+    const place = at[index];
+    let width = place ? Math.min(place.w, room) : room,
+      marginLeft = '';
+    if (place && fitted && end - place.left < width && end - place.left >= MIN_CUT_LINE_WIDTH) {
+      width = end - place.left;
+      marginLeft = Math.round(place.off) + 'px';
     }
-    e.style.width = Math.round(w) + 'px';
-    e.style.marginLeft = ml;
+    line.style.width = Math.round(width) + 'px';
+    line.style.marginLeft = marginLeft;
   });
-  pvFit(lines);
+  fitPageLines(lines);
 }
-// The verdict pins saved by a key on this screen (PV_KEY_SAVE, each in turn): their lines (.pv-kw) are fitted at either look of
-// the way to the reason (pvFit). The last key save's alone says 'Enter 이유 쓰기', but one that stopped being it and was
-// fitted again on [이유 추가] alone moved the pages under the next key save.
-const PV_KEY_SAVED = new Set();
-// One row or stacked, decided per line (.pv-stack; P2-7 of the 0.4.33 review: one line with an earlier verdict or a reason
-// stacked every line of the document, 88px over the plot at 1440). Each line is laid out as one row - the figure's title cut
-// first, down to its identifier ('6쪽 · PL17', pvFigParts; --pv-fig-min), then the reason and the earlier link
-// (components.css) - and stacks only when its state's own words, [판정 취소] and its buttons still cannot share the row: the
-// state runs past its share, or the buttons went to a row of their own (a narrow page). On the wide band a line that does not
-// fit first lets the reason go further and the earlier link say its count alone (.pv-tight): a desktop keeps one row, a
-// second row covered the plot. A line narrower than a verdict's state beside its words stacks whatever it shows, so a press never stacks it. A line whose confirm word waits for its second press, or whose save is out, keeps the rows it has (pvRowsHeld): its
-// words moving between the two presses sent the second one elsewhere. The save chip is placed after (pvChipPlace).
-// Read and written in batches.
-// The PDF area does not anchor its scroll for the pass (pvHoldView): the pass grows every line above the reading page and
-// shrinks it back (#doc.pv-measure), and the anchoring followed part of that - the pages went 46px down when a reason
-// opened (#345), and while pinch-zoomed Chromium carried the anchoring of that shrink - the area is the page's root
-// scroller there - into the zoomed view, which went from where it was to the page's top (422 -> 0 at 2x) at every
-// drawing of the lines: a save, a take-back (#320). The pass moves nothing below a line it measures
-// either (pvKeepBlocks): WebKit anchored the growth on the next page's block and not the shrink, so a key save on a phone
-// moved the pages 39px.
-function pvFit(lines) {
-  const panel = lines.find((l) => l.id === 'pv-panel');
+// The verdict pins saved by a key on this screen (LAST_KEY_SAVE, each in turn): their lines (.pv-kw) are fitted at
+// either look of the way to the reason (fitPageLines). The last key save's alone says 'Enter 이유 쓰기', and fitting
+// one again on [이유 추가] alone when it stops being the last would move the pages under the next key save.
+const KEY_SAVED_PINS = new Set();
+// One row or stacked, decided per line (.pv-stack), so one line with an earlier verdict or a reason never stacks every
+// line of the document over the plot. Each line is laid out as one row - the figure's title cut first, down to its
+// identifier ('6쪽 · PL17', pageLineName; --pv-fig-min), then the reason and the earlier link (components.css) - and
+// stacks only when its state's own words, [판정 취소] and its buttons still cannot share the row: the state runs past
+// its share, or the buttons went to a row of their own (a narrow page). On the wide band a line that does not fit first
+// lets the reason go further and the earlier link say its count alone (.pv-tight): a desktop keeps one row, since a
+// second row covers the plot. A line narrower than a verdict's state beside its words stacks whatever it shows, so a
+// press never stacks it. A line whose confirm word waits for its second press, or whose save is out, keeps the rows it
+// has (holdsRows): its words must not move between the two presses, or the second press lands elsewhere. The save chip
+// is placed after (placeLineChips). Read and written in batches. The PDF area does not anchor its scroll for the pass
+// (holdPageView): the pass grows every line above the reading page and shrinks it back (#doc.pv-measure). Anchoring
+// that follows part of it would move the pages down when a reason opens, and while pinch-zoomed Chromium carries the
+// anchoring of the shrink - the area is the page's root scroller there - into the zoomed view, which would jump to the
+// page's top at every drawing of the lines. The pass moves nothing below a line it measures either (keepLineBlocks):
+// WebKit anchors the growth on the next page's block and not the shrink, which would move a phone's pages at a key
+// save.
+function fitPageLines(lines) {
+  const panel = lines.find((line) => line.id === 'pv-panel');
   if (panel) {
-    pvPanelFit(panel);
-    lines = lines.filter((l) => l !== panel);
+    fitPanel(panel);
+    lines = lines.filter((line) => line !== panel);
     if (!lines.length) return;
-  } // the panel: rows down it, never one row (verdict-panel.js)
-  const held = lines.map(pvRowsHeld),
-    D = $('#doc'),
-    hold = pvHoldView(true),
-    kept = pvKeepBlocks(lines);
+  } // the panel: rows down it, never one row (verdict-panel.ts)
+  const held = lines.map(holdsRows),
+    docElement = $('#doc'),
+    hold = holdPageView(true),
+    kept = keepLineBlocks(lines);
   try {
-    pvFarHold(lines); // a line skipped far from the view is laid out to be measured, and keeps its height after (pvFarLetGo)
-    if (PV_KEY_SAVE) PV_KEY_SAVED.add(PV_KEY_SAVE);
-    lines.forEach((l, i) => {
-      l.classList.toggle('pv-kw', PV_KEY_SAVED.has(Number(l.dataset.pin)));
-      if (!held[i]) {
-        l.classList.remove('pv-stack', 'pv-tight', 'pv-early-out');
-        l.style.removeProperty('--pv-t-h');
+    // a line skipped far from the view is laid out to be measured, and keeps its height after (letFarLinesGo)
+    holdFarLines(lines);
+    if (LAST_KEY_SAVE) KEY_SAVED_PINS.add(LAST_KEY_SAVE);
+    lines.forEach((line, index) => {
+      line.classList.toggle('pv-kw', KEY_SAVED_PINS.has(Number(line.dataset.pin)));
+      if (!held[index]) {
+        line.classList.remove('pv-stack', 'pv-tight', 'pv-early-out');
+        line.style.removeProperty('--pv-t-h');
       }
     });
-    // Every line is measured as the reading line (#doc.pv-measure shows each hidden identifier, components.css): a line that
-    // stacked only while it was read shrank when the reading page left (91 -> 32px on a 260px page) and moved the pages.
-    D.classList.add('pv-measure');
+    // Every line is measured as the reading line (#doc.pv-measure shows each hidden identifier, components.css):
+    // otherwise a line that stacks only while it is read would shrink when the reading page leaves, and move the pages.
+    docElement.classList.add('pv-measure');
     // The figure's least width is its identifier's (--pv-fig-min): its title's own text would otherwise count in it.
-    const ids = lines.map((l) => {
-      const e = l.querySelector(':scope>.pv-fig>.pv-fig-id');
-      return e && e.getClientRects().length ? Math.ceil(e.getBoundingClientRect().width) : 0;
+    const ids = lines.map((line) => {
+      const identifier = line.querySelector(':scope>.pv-fig>.pv-fig-id');
+      return identifier && identifier.getClientRects().length ? Math.ceil(identifier.getBoundingClientRect().width) : 0;
     });
-    lines.forEach((l, i) => {
-      const v = ids[i] + 'px';
-      if (l.style.getPropertyValue('--pv-fig-min') !== v) l.style.setProperty('--pv-fig-min', v);
+    lines.forEach((line, index) => {
+      const width = ids[index] + 'px';
+      if (line.style.getPropertyValue('--pv-fig-min') !== width) line.style.setProperty('--pv-fig-min', width);
     });
-    // How far line l's state runs past its share, in px (its parts, also those inside a display: contents span - the reason and
-    // [이유 추가]; 0 or less where it holds), less pvAddCut - a key save's way to the reason is drawn at the wider of its two
-    // looks (--pv-add-w, set below) with the earlier link beside it, which it never shows at once -, or Infinity where the
-    // buttons went to a row of their own. Its row does not hold (tight) past 1px.
-    const past = (l) => {
-      const t = l.querySelector(':scope>.pv-t'),
-        g = l.querySelector(':scope>.vd-btns');
-      if (!t) return -Infinity;
-      const tr = t.getBoundingClientRect();
-      if (g && g.getClientRects().length > 0 && g.getBoundingClientRect().top >= tr.bottom - 1) return Infinity;
-      const r = [...t.querySelectorAll(':scope>*,:scope>*>*')].reduce(
-        (m, c) => (c.getClientRects().length > 0 ? Math.max(m, c.getBoundingClientRect().right) : m),
+    // How far a line's state runs past its share, in px (its parts, also those inside a display: contents span - the
+    // reason and [이유 추가]; 0 or less where it holds), less keySaveStateCut - a key save's way to the reason is drawn
+    // at the wider of its two looks (--pv-add-w, set below) with the earlier link beside it, which it never shows at
+    // once -, or Infinity where the buttons went to a row of their own. Its row does not hold (tight) past 1px.
+    const past = (line) => {
+      const state = line.querySelector(':scope>.pv-t'),
+        group = line.querySelector(':scope>.vd-btns');
+      if (!state) return -Infinity;
+      const stateRect = state.getBoundingClientRect();
+      if (group && group.getClientRects().length > 0 && group.getBoundingClientRect().top >= stateRect.bottom - 1)
+        return Infinity;
+      const right = [...state.querySelectorAll(':scope>*,:scope>*>*')].reduce(
+        (most, child) =>
+          child.getClientRects().length > 0 ? Math.max(most, child.getBoundingClientRect().right) : most,
         -Infinity,
       );
-      return r - tr.right - pvAddCut(l, t, addD);
+      return right - stateRect.right - keySaveStateCut(line, state, addDifference);
     };
-    const tight = (l) => past(l) > 1;
-    // A line too narrow for the state a press brings beside its words stacks whatever it shows now: a press that turned '판정 없음'
-    // into '판정 #26 보류 · 처리 대기 · 이유 추가 · 판정 취소' stacked it then and moved every word under the finger (a phone, a page at
-    // a small zoom: 3 rows, 91px, the words 59px down). That state's width is measured, not guessed (pvStateNeed), and so is
-    // all that shares its row: the words as they are drawn, with the check a press puts on one of them (PV_NEED.check) where
-    // none is pressed yet; the identifier and the dot after it; and the row's gaps between the four (its column gap). The sum
-    // is the row the press brings, to the subpixel. An 8px and a 24px allowance in its place counted the dot (3px) as 8 and
-    // the check as nothing - 5px too much for a resting line, 21px too little for a press: a line within 21px of the bar
-    // stacked under its first press, a Korean one too (#308; the English words are sized for a 620px line, ui_en.json).
-    const need = lines.length ? pvStateNeed(lines[0]) : 0,
+    const tight = (line) => past(line) > 1;
+    // A line too narrow for the state a press brings beside its words stacks whatever it shows now, so a press that
+    // turns '판정 없음' into '판정 #26 보류 · 처리 대기 · 이유 추가 · 판정 취소' never stacks it then and moves every
+    // word under the finger. That state's width is measured, not guessed (measureStateNeed), and so is all that shares
+    // its row: the words as they are drawn, with the check a press puts on one of them (STATE_NEED.check) where none is
+    // pressed yet; the identifier and the dot after it; and the row's gaps between the four (its column gap). The sum
+    // is the row the press brings, to the subpixel: a fixed allowance is too much for a resting line or too little for
+    // a press (the English words are sized for a 620px line, ui_en.json).
+    const need = lines.length ? measureStateNeed(lines[0]) : 0,
       gap = lines.length ? parseFloat(getComputedStyle(lines[0]).columnGap) || 0 : 0;
-    // A key save's line - read, it says 'Enter 이유 쓰기'; at rest, [이유 추가] - lays its way to the reason out at the wider of
-    // the two (the probe's, PV_NEED.add; .pv-kw, components.css #doc.pv-measure), so it is fitted the same whichever page is
-    // read. Fitted on the look it showed, a line within the 40px between them (Korean) stacked only while it was read.
-    const aw = PV_NEED.add,
-      addD = Math.max(0, aw[1] - aw[0]),
-      addW = Math.max(aw[0], aw[1]) + 'px';
-    if (D.style.getPropertyValue('--pv-add-w') !== addW) D.style.setProperty('--pv-add-w', addW);
-    const W = (e) => (e && e.getClientRects().length ? e.getBoundingClientRect().width : 0);
-    const narrow = lines.map((l, i) => {
-      if (held[i]) return false;
-      const g = l.querySelector(':scope>.vd-btns'),
-        f = W(l.querySelector(':scope>.pv-fig>.pv-fig-id'));
-      if (!g || !g.getClientRects().length) return false;
-      const press = g.querySelector(':scope>.vd-b[aria-pressed="true"]') ? 0 : PV_NEED.check,
-        id = f ? f + W(l.querySelector(':scope>.pv-fig-sep')) + 2 * gap : 0;
-      return l.getBoundingClientRect().width < W(g) + press + id + gap + need;
+    // A key save's line - read, it says 'Enter 이유 쓰기'; at rest, [이유 추가] - lays its way to the reason out at the
+    // wider of the two (the probe's, STATE_NEED.add; .pv-kw, components.css #doc.pv-measure), so it is fitted the same
+    // whichever page is read. Fitted on the look it shows, a line within the difference between them would stack only
+    // while it is read.
+    const addWidths = STATE_NEED.add,
+      addDifference = Math.max(0, addWidths[1] - addWidths[0]),
+      addWidth = Math.max(addWidths[0], addWidths[1]) + 'px';
+    if (docElement.style.getPropertyValue('--pv-add-w') !== addWidth)
+      docElement.style.setProperty('--pv-add-w', addWidth);
+    const widthOf = (element) =>
+      element && element.getClientRects().length ? element.getBoundingClientRect().width : 0;
+    const narrow = lines.map((line, index) => {
+      if (held[index]) return false;
+      const group = line.querySelector(':scope>.vd-btns'),
+        identifierWidth = widthOf(line.querySelector(':scope>.pv-fig>.pv-fig-id'));
+      if (!group || !group.getClientRects().length) return false;
+      const press = group.querySelector(':scope>.vd-b[aria-pressed="true"]') ? 0 : STATE_NEED.check,
+        id = identifierWidth ? identifierWidth + widthOf(line.querySelector(':scope>.pv-fig-sep')) + 2 * gap : 0;
+      return line.getBoundingClientRect().width < widthOf(group) + press + id + gap + need;
     });
-    let over = lines.map((l, i) => !held[i] && (narrow[i] || tight(l)));
-    // A tight line whose row holds all but its earlier link's count lets that step out too (.pv-early-out) rather than stack:
-    // the last thing a desktop row gives way, at its bar - a line the person saved by a key over an earlier verdict there
-    // ('+1' beside [이유 추가] at rest, which 'Enter 이유 쓰기' takes the place of while it is read: components.css).
+    let over = lines.map((line, index) => !held[index] && (narrow[index] || tight(line)));
+    // A tight line whose row holds all but its earlier link's count lets that step out too (.pv-early-out) rather than
+    // stack: the last thing a desktop row gives way, at its bar - a line the person saved by a key over an earlier
+    // verdict there ('+1' beside [이유 추가] at rest, which 'Enter 이유 쓰기' takes the place of while it is read:
+    // components.css).
     const out = lines.map(() => false);
-    if (LAYOUT === LAYOUT_MODE.WIDE && over.some((o) => o)) {
-      lines.forEach((l, i) => {
-        if (over[i]) l.classList.add('pv-tight');
+    if (LAYOUT === LAYOUT_MODE.WIDE && over.some((isOver) => isOver)) {
+      lines.forEach((line, index) => {
+        if (over[index]) line.classList.add('pv-tight');
       });
-      over = lines.map((l, i) => {
-        if (!over[i] || narrow[i]) return over[i];
-        const p = past(l);
-        if (p <= 1) return false;
-        const t = l.querySelector(':scope>.pv-t');
-        out[i] = p - pvEarlyRoom(t) + pvAddCut(l, t, addD) <= 1;
-        return !out[i];
+      over = lines.map((line, index) => {
+        if (!over[index] || narrow[index]) return over[index];
+        const overflow = past(line);
+        if (overflow <= 1) return false;
+        const state = line.querySelector(':scope>.pv-t');
+        out[index] = overflow - earlierLinkRoom(state) + keySaveStateCut(line, state, addDifference) <= 1;
+        return !out[index];
       });
-      lines.forEach((l, i) => {
-        if (out[i]) l.classList.add('pv-early-out');
+      lines.forEach((line, index) => {
+        if (out[index]) line.classList.add('pv-early-out');
       });
     }
-    lines.forEach((l, i) => {
-      if (over[i]) l.classList.add('pv-stack');
+    lines.forEach((line, index) => {
+      if (over[index]) line.classList.add('pv-stack');
     });
-    // A stacked line's state rows are the reading line's too: their height, measured here with what only the reading line shows
-    // ([이유 추가], laid out unseen), is the least the state takes (--pv-t-h, components.css). Beside an earlier link a 420px
-    // line's state wrapped to a second row only while it was read, and the line grew by it (91 -> 123px, #308 review).
-    // Where that is more than the state takes now (.pv-t-kept), its rows stand at the top and the room is kept under them: centred
-    // in it, a resting line's state stood 40-65px off its identifier's row (#308 review).
-    const th = lines.map((l, i) => {
-      const t = over[i] ? l.querySelector(':scope>.pv-t') : null;
-      return t ? t.getBoundingClientRect().height : 0;
+    // A stacked line's state rows are the reading line's too: their height, measured here with what only the reading
+    // line shows ([이유 추가], laid out unseen), is the least the state takes (--pv-t-h, components.css), so a line
+    // whose state wraps to a second row only while it is read (beside an earlier link) does not grow when it is read.
+    // Where that is more than the state takes now (.pv-t-kept), its rows stand at the top and the room is kept under
+    // them: centred in it, a resting line's state would stand off its identifier's row.
+    const keptHeights = lines.map((line, index) => {
+      const state = over[index] ? line.querySelector(':scope>.pv-t') : null;
+      return state ? state.getBoundingClientRect().height : 0;
     });
-    D.classList.remove('pv-measure');
-    const nat = lines.map((l, i) =>
-      th[i] ? (l.querySelector(':scope>.pv-t')).getBoundingClientRect().height : 0,
+    docElement.classList.remove('pv-measure');
+    const nat = lines.map((line, index) =>
+      keptHeights[index] ? (line.querySelector(':scope>.pv-t')).getBoundingClientRect().height : 0,
     );
-    lines.forEach((l, i) => {
-      if (held[i]) return;
-      const k = th[i] > nat[i] + 0.5;
-      l.classList.toggle('pv-t-kept', k);
-      if (k) l.style.setProperty('--pv-t-h', th[i] + 'px');
+    lines.forEach((line, index) => {
+      if (held[index]) return;
+      const isKept = keptHeights[index] > nat[index] + 0.5;
+      line.classList.toggle('pv-t-kept', isKept);
+      if (isKept) line.style.setProperty('--pv-t-h', keptHeights[index] + 'px');
     });
-    // The lines' fitted heights, their kept rows included: what moves now is real, and pvLetBlocks keeps the reading page where
-    // it stood. Let go before the rows were kept again, a stacked line above the reading page shrank there and grew back after
-    // the correction, and with the area not anchoring for the pass (pvHoldView) the reading page went down by the rows.
-    pvLetBlocks(kept);
-    pvChipPlace(lines);
-    // A word group that wraps keeps every button at its own width (vdWrapFit), read for every line before any is written.
-    const groups = lines.map((l) => l.querySelector('.vd-btns')),
+    // The lines' fitted heights, their kept rows included: what moves now is real, and letLineBlocks keeps the reading
+    // page where it stood. Let go before the rows are kept again, a stacked line above the reading page would shrink
+    // there and grow back after the correction, and with the area not anchoring for the pass (holdPageView) the reading
+    // page would go down by the rows.
+    letLineBlocks(kept);
+    placeLineChips(lines);
+    // A word group that wraps keeps every button at its own width (fitWrappedWords), read for every line before any is
+    // written.
+    const groups = lines.map((line) => line.querySelector('.vd-btns')),
       wrap = groups.map(
-        (g) => !!g && new Set([...g.children].map((b) => Math.round(b.getBoundingClientRect().top))).size > 1,
+        (group) =>
+          !!group &&
+          new Set([...group.children].map((button) => Math.round(button.getBoundingClientRect().top))).size > 1,
       );
-    groups.forEach((g, i) => {
-      if (g) g.classList.toggle('wrapped', wrap[i]);
+    groups.forEach((group, index) => {
+      if (group) group.classList.toggle('wrapped', wrap[index]);
     });
-    pvFocusStays(lines);
+    keepFocusOnLine(lines);
   } finally {
-    // Also when a step throws: never left measuring, every line keeps the height it is drawn at and may be skipped again
-    // (pvFarLetGo, read once the measure is gone), and the view anchors again only after that - whatever pvFarLetGo does.
-    D.classList.remove('pv-measure');
-    pvLetBlocks(kept);
+    // Also when a step throws: never left measuring, every line keeps the height it is drawn at and may be skipped
+    // again (letFarLinesGo, read once the measure is gone), and the view anchors again only after that - whatever
+    // letFarLinesGo does.
+    docElement.classList.remove('pv-measure');
+    letLineBlocks(kept);
     try {
-      pvFarLetGo(lines);
+      letFarLinesGo(lines);
     } finally {
-      pvHoldView(false, hold);
+      holdPageView(false, hold);
     }
   }
 }
-// Keeps the block of each line pvFit is about to measure at the height it is drawn at, until pvLetBlocks: the pass takes a line's
-// rows off and measures it as the reading line (#doc.pv-measure), and the line may grow inside its block, but the block, and the
-// pages after it, stand still. So the area's scroll anchoring - WebKit's too, which carried the growth and not the shrink - has
-// nothing to follow, while a line whose fitted height does change moves the pages after the pass as it always did. A block's
-// height set, its last line's bottom margin no longer collapses through it: the block carries the space to the next block
-// itself. The last block, with nothing after it, is left alone. Read before any is written; what each had inline is put back.
-function pvKeepBlocks(lines) {
+// Keeps the block of each line fitPageLines is about to measure at the height it is drawn at, until letLineBlocks: the
+// pass takes a line's rows off and measures it as the reading line (#doc.pv-measure), and the line may grow inside its
+// block, but the block, and the pages after it, stand still. So the area's scroll anchoring - WebKit's too, which
+// carries the growth and not the shrink - has nothing to follow, while a line whose fitted height does change moves the
+// pages after the pass. A block's height set, its last line's bottom margin does not collapse through it: the block
+// carries the space to the next block itself. The last block, with nothing after it, is left alone. Read before any is
+// written; what each had inline is put back.
+function keepLineBlocks(lines) {
   const set = new Set();
-  lines.forEach((l) => {
-    const b = l.parentElement;
-    if (b && b.classList.contains('pgw') && b.nextElementSibling) set.add(b);
+  lines.forEach((line) => {
+    const block = line.parentElement;
+    if (block && block.classList.contains('pgw') && block.nextElementSibling) set.add(block);
   });
-  const bs = [...set],
-    at = bs.map((b) => {
-      const r = b.getBoundingClientRect(),
-        n = b.nextElementSibling;
-      return [r.height, n.getBoundingClientRect().top - r.bottom];
+  const blocks = [...set],
+    at = blocks.map((block) => {
+      const rect = block.getBoundingClientRect(),
+        next = block.nextElementSibling;
+      return [rect.height, next.getBoundingClientRect().top - rect.bottom];
     });
   const kept = [];
-  bs.forEach((b, i) => {
-    const [h, g] = at[i];
-    if (!h) return;
-    kept.push([b, b.style.height, b.style.marginBottom]);
-    b.style.height = h + 'px';
-    b.style.marginBottom = g + 'px';
+  blocks.forEach((block, index) => {
+    const [height, gap] = at[index];
+    if (!height) return;
+    kept.push([block, block.style.height, block.style.marginBottom]);
+    block.style.height = height + 'px';
+    block.style.marginBottom = gap + 'px';
   });
   return kept;
 }
-// Lets the blocks pvKeepBlocks held go to their lines' fitted heights, keeping the view by hand: the page under the reading line
-// stands where it stood. A block's height on the anchor's path - the reading page's own block is held too - suppresses the PDF
-// area's scroll anchoring, so every line above that changed its height moved the view with nothing to follow: after a save, a
-// window narrowed under the panel's bar and widened again within a moment read page 70 instead of 75. The area's own anchoring
-// is off for the step, so it adds no correction of its own, and is put back as it was (a pinch-zoom hold's included). A touch
-// screen at its very top stays there, as restoreAnchor keeps it: the space above page 1 is not scrolled away. A jump on its way
-// (PV_JUMP) is left to go on: a script's write ends a smooth scroll where it stands, and a line fitted as a far jump passed it
-// stopped the jump there, a thousand px short of a figure (#357). Every glide has the settling, which measures its place again
-// when it rests and glides what moved (arrivalWatch, arrivalSettle) - unless the person has acted meanwhile, which lets it go.
-function pvLetBlocks(kept) {
+// Lets the blocks keepLineBlocks held go to their lines' fitted heights, keeping the view by hand: the page under the
+// reading line stands where it stood. A block's height on the anchor's path - the reading page's own block is held too
+// - suppresses the PDF area's scroll anchoring, so every line above that changes its height would move the view with
+// nothing to follow. The area's own anchoring is off for the step, so it adds no correction of its own, and is put back
+// as it was (a pinch-zoom hold's included). A touch screen at its very top stays there, as restoreAnchor keeps it: the
+// space above page 1 is not scrolled away. A jump on its way (JUMP_TARGET) is left to go on: a script's write ends a
+// smooth scroll where it stands, so fitting a line as a far jump passes it would stop the jump there, short of its
+// figure. Every glide has the settling, which measures its place again when it rests and glides what moved
+// (arrivalWatch, arrivalSettle) - unless the person has acted meanwhile, which lets it go.
+function letLineBlocks(kept) {
   if (!kept.length) return;
-  const L = $('#left'),
-    a = L.getClientRects().length ? topAnchor(readingDepth(L)) : null;
-  const pg = a ? document.getElementById('p' + a.page) : null,
-    y = pg ? pg.getBoundingClientRect().top : 0,
-    was = L.style.getPropertyValue('overflow-anchor');
-  if (pg) L.style.setProperty('overflow-anchor', 'none');
-  kept.forEach(([b, h, m]) => {
-    b.style.height = h;
-    b.style.marginBottom = m;
+  const area = $('#left'),
+    anchor = area.getClientRects().length ? topAnchor(readingDepth(area)) : null;
+  const pageElement = anchor ? document.getElementById('p' + anchor.page) : null,
+    y = pageElement ? pageElement.getBoundingClientRect().top : 0,
+    was = area.style.getPropertyValue('overflow-anchor');
+  if (pageElement) area.style.setProperty('overflow-anchor', 'none');
+  kept.forEach(([block, height, margin]) => {
+    block.style.height = height;
+    block.style.marginBottom = margin;
   });
   kept.length = 0;
-  if (!pg || !a) return;
-  const d = pg.getBoundingClientRect().top - y;
-  if (Math.abs(d) > 0.5 && !a.atTop && PV_JUMP === null) L.scrollTop += d; // a touch screen's top stays the top (restoreAnchor)
-  void L.offsetHeight;
-  if (was) L.style.setProperty('overflow-anchor', was);
-  else L.style.removeProperty('overflow-anchor');
+  if (!pageElement || !anchor) return;
+  const drift = pageElement.getBoundingClientRect().top - y;
+  // a touch screen's top stays the top (restoreAnchor)
+  if (Math.abs(drift) > 0.5 && !anchor.atTop && JUMP_TARGET === null) area.scrollTop += drift;
+  void area.offsetHeight;
+  if (was) area.style.setProperty('overflow-anchor', was);
+  else area.style.removeProperty('overflow-anchor');
 }
-// Holds the view where it is across pvFit's pass (on) and lets go after it (off, given what on returned): the PDF area does
-// not anchor its scroll (overflow-anchor), and its layout is brought up to date before it anchors again, so the anchor it
-// then takes is where the pass left the pages - never a measure's grown lines. The pass holds the blocks of the lines it
-// measures (pvKeepBlocks), but #doc.pv-measure lays out every line in the document as the reading line, those it does not
-// hold too: a stacked line above the reading page measured a row taller (the key marks on its words) and pushed the reading
-// page down and back within the pass. The anchoring followed part of that - on a 1440 figure document with the pin panel
-// closed, the pages went 46px down when a reason opened and again when it closed, and on a phone 39px (#345) - and while
-// the page is pinch-zoomed Chromium carried a shrink's anchoring into the zoomed view (#320). Nothing the pass does is to
-// move the pages: what moves after it is the lines' fitted heights, which pvLetBlocks lets go with the reading page kept
-// where it stood. On returns the area's own value it replaced, which off puts back (a pass inside a pass leaves the outer
-// one's hold), or null where it held nothing (no PDF area). No scroll of its own, ever.
-function pvHoldView(on, was) {
-  const L = $('#left');
+// Holds the view where it is across fitPageLines's pass (on) and lets go after it (off, given what on returned): the
+// PDF area does not anchor its scroll (overflow-anchor), and its layout is brought up to date before it anchors again,
+// so the anchor it then takes is where the pass left the pages - never a measure's grown lines. The pass holds the
+// blocks of the lines it measures (keepLineBlocks), but #doc.pv-measure lays out every line in the document as the
+// reading line, those it does not hold too: a stacked line above the reading page measures a row taller (the key marks
+// on its words) and pushes the reading page down and back within the pass. Anchoring that follows part of that would
+// move the pages when a reason opens or closes, and while the page is pinch-zoomed Chromium carries a shrink's
+// anchoring into the zoomed view. Nothing the pass does is to move the pages: what moves after it is the lines' fitted
+// heights, which letLineBlocks lets go with the reading page kept where it stood. On returns the area's own value it
+// replaced, which off puts back (a pass inside a pass leaves the outer one's hold), or null where it held nothing (no
+// PDF area). No scroll of its own, ever.
+function holdPageView(on, was) {
+  const area = $('#left');
   if (!on) {
     if (typeof was !== 'string') return null;
-    void L.offsetHeight;
-    if (was) L.style.setProperty('overflow-anchor', was);
-    else L.style.removeProperty('overflow-anchor');
+    void area.offsetHeight;
+    if (was) area.style.setProperty('overflow-anchor', was);
+    else area.style.removeProperty('overflow-anchor');
     return null;
   }
-  if (!L) return null;
-  const prev = L.style.getPropertyValue('overflow-anchor');
-  L.style.setProperty('overflow-anchor', 'none');
-  return prev;
+  if (!area) return null;
+  const previous = area.style.getPropertyValue('overflow-anchor');
+  area.style.setProperty('overflow-anchor', 'none');
+  return previous;
 }
-// The width the state of a person's fresh verdict takes on a line in a row, drawn in a hidden line like line l (its text size,
-// the screen's language and pointer) and kept until those or the next pin number's digits change. Two states follow a
-// press: after a click '판정 #0 <the longest word> · 처리 대기 · 이유 추가 · 판정 취소', and on a mouse screen after a key
-// 'Enter 이유 쓰기' in place of [이유 추가] - the wider of the two is the need, with one more gap of the state's row for a
-// save's words ('· 보류 저장 중…', .pv-busy), which give way down to nothing while the save is out (components.css). The pin
-// number is drawn with as many digits as the next pin's (pvTopId), each a 0. A line narrower than that beside its words
-// and identifier is stacked before any press (pvFit). Measuring the click state alone, a key save near the bar stacked
-// the line under the press, and a second save's words pushed [판정 취소] out of the held row (#308). The probe then draws
-// the longest word pressed and not (its check before it, its weight; one key mark on both): what a press adds to the
-// words, kept as PV_NEED.check - 21px, which a line with no pressed word did not count and lost to its first press.
-// PV_NEED.add: the way to the reason's own width as [이유 추가] and as 'Enter 이유 쓰기' (a mouse screen's; [이유 추가]'s
-// again on a touch one), which every line is fitted at the wider of (pvFit).
-let PV_NEED = { key: '', w: 0, check: 0, add: [0, 0] };
-function pvStateNeed(l) {
-  const v = pageVerdictsOn();
-  if (!v) return 0;
-  const word = v.choices.map((c) => c.label).reduce((a, b) => (b.length > a.length ? b : a), ''),
+// The width the state of a person's fresh verdict takes on a line in a row, drawn in a hidden line like the given one
+// (its text size, the screen's language and pointer) and kept until those or the next pin number's digits change. Two
+// states follow a press: after a click '판정 #0 <the longest word> · 처리 대기 · 이유 추가 · 판정 취소', and on a mouse
+// screen after a key 'Enter 이유 쓰기' in place of [이유 추가] - the wider of the two is the need, with one more gap of
+// the state's row for a save's words ('· 보류 저장 중…', .pv-busy), which give way down to nothing while the save is
+// out (components.css). The pin number is drawn with as many digits as the next pin's (topPinId), each a 0. A line
+// narrower than that beside its words and identifier is stacked before any press (fitPageLines). Measuring the click
+// state alone would let a key save near the bar stack the line under the press, and a second save's words push [판정
+// 취소] out of the held row. The probe then draws the longest word pressed and not (its check before it, its weight;
+// one key mark on both): what a press adds to the words, kept as STATE_NEED.check, which a line with no pressed word
+// counts so its first press does not stack it. STATE_NEED.add: the way to the reason's own width as [이유 추가] and as
+// 'Enter 이유 쓰기' (a mouse screen's; [이유 추가]'s again on a touch one), which every line is fitted at the wider of
+// (fitPageLines).
+let STATE_NEED = { key: '', w: 0, check: 0, add: [0, 0] };
+function measureStateNeed(line) {
+  const verdicts = pageVerdictsOn();
+  if (!verdicts) return 0;
+  const word = verdicts.choices
+      .map((choice) => choice.label)
+      .reduce((longest, label) => (label.length > longest.length ? label : longest), ''),
     fine = matchMedia('(pointer:fine)').matches,
-    num = '#' + '0'.repeat(String(pvTopId() + 1).length);
-  const key = [getComputedStyle(l).fontSize, tr('판정'), word, MQ_COARSE.matches, fine, num].join('|');
-  if (PV_NEED.key === key) return PV_NEED.w;
+    number = '#' + '0'.repeat(String(topPinId() + 1).length);
+  const key = [getComputedStyle(line).fontSize, tr('판정'), word, MQ_COARSE.matches, fine, number].join('|');
+  if (STATE_NEED.key === key) return STATE_NEED.w;
   const probe = document.createElement('div');
   probe.className = 'pv';
   probe.setAttribute('aria-hidden', 'true');
   probe.style.cssText =
-    'position:absolute;left:0;top:0;width:max-content;visibility:hidden;pointer-events:none;--pv-add-w:0px'; // its own width, not the lines' (pvFit)
+    // its own width, not the lines' (fitPageLines)
+    'position:absolute;left:0;top:0;width:max-content;visibility:hidden;pointer-events:none;--pv-add-w:0px';
   $('#doc').appendChild(probe);
-  const state = (kb) => {
+  const state = (byKey) => {
     setHtml(
       probe,
-      html`<span class="pv-t"><span class="pv-s">${tr('판정')} <span class="pin-ref pv-ref hit">${num}</span> <b class="vd-w">${word}</b></span><span class="pv-sep">·</span>\
+      html`<span class="pv-t"><span class="pv-s">${tr('판정')} <span class="pin-ref pv-ref hit">${number}</span> <b class="vd-w">${word}</b></span><span class="pv-sep">·</span>\
 <span class="pv-st">${tr('처리 대기')}</span><span class="pv-ra"><span class="pv-sep">·</span><button type="button" class="btn-ghost btn-sm pv-add hit" tabindex="-1">\
-${kb ? html`<kbd class="pv-kbd">Enter</kbd> ${tr('이유 쓰기')}` : tr('이유 추가')}</button></span>\
+${byKey ? html`<kbd class="pv-kbd">Enter</kbd> ${tr('이유 쓰기')}` : tr('이유 추가')}</button></span>\
 <span class="pv-sep pv-cn">·</span><button type="button" class="btn-ghost btn-sm pv-cancel pv-cn hit" tabindex="-1">${tr('판정 취소')}</button></span>`,
     );
-    const t = probe.firstElementChild,
-      a = t.querySelector('.pv-add');
+    const stateRow = probe.firstElementChild,
+      addButton = stateRow.querySelector('.pv-add');
     return [
-      t.getBoundingClientRect().width + (parseFloat(getComputedStyle(t).columnGap) || 0),
-      a.getBoundingClientRect().width,
+      stateRow.getBoundingClientRect().width + (parseFloat(getComputedStyle(stateRow).columnGap) || 0),
+      addButton.getBoundingClientRect().width,
     ];
   };
-  const sc = state(false),
-    sk = fine ? state(true) : sc,
-    w = Math.ceil(Math.max(sc[0], sk[0]));
+  const clickState = state(false),
+    keyState = fine ? state(true) : clickState,
+    width = Math.ceil(Math.max(clickState[0], keyState[0]));
   setHtml(
     probe,
     html`<span class="vd-btns"><button type="button" class="vd-b" aria-pressed="true" data-kn="1" tabindex="-1">${ic('check')}<span class="lbl">${word}</span></button>\
 <button type="button" class="vd-b" aria-pressed="false" data-kn="1" tabindex="-1"><span class="lbl">${word}</span></button></span>`,
   );
-  const b = [...probe.querySelectorAll('.vd-b')].map((x) => x.getBoundingClientRect().width),
-    check = Math.max(0, b[0] - b[1]);
+  const widths = [...probe.querySelectorAll('.vd-b')].map((x) => x.getBoundingClientRect().width),
+    check = Math.max(0, widths[0] - widths[1]);
   probe.remove();
-  PV_NEED = { key, w, check, add: [sc[1], sk[1]] };
-  return w;
+  STATE_NEED = { key, w: width, check, add: [clickState[1], keyState[1]] };
+  return width;
 }
-// A web font that arrives after the lines were measured - the bundled Pretendard after the fallback face - changes every
-// width: the state's width is measured again and every line fits itself again (sizePv), once each font load is done and
-// when the fonts are ready after boot. Kept from the fallback face, a width near the stacking threshold let the first save
-// still move the words.
-function pvFontsChanged() {
-  PV_NEED = { key: '', w: 0, check: 0, add: [0, 0] };
-  if ($$('#doc .pv').length) sizePv();
+// A web font that arrives after the lines were measured - the bundled Pretendard after the fallback face - changes
+// every width: the state's width is measured again and every line fits itself again (sizePageLines), once each font
+// load is done and when the fonts are ready after boot. Kept from the fallback face, a width near the stacking
+// threshold would let the first save still move the words.
+function refitForFonts() {
+  STATE_NEED = { key: '', w: 0, check: 0, add: [0, 0] };
+  if ($$('#doc .pv').length) sizePageLines();
 }
 if (document.fonts) {
-  document.fonts.addEventListener('loadingdone', pvFontsChanged);
-  document.fonts.addEventListener('loadingerror', pvFontsChanged);
-  document.fonts.ready.then(pvFontsChanged);
+  document.fonts.addEventListener('loadingdone', refitForFonts);
+  document.fonts.addEventListener('loadingerror', refitForFonts);
+  document.fonts.ready.then(refitForFonts);
 }
-// How much less than drawn a key save's line l's state (t) takes at most in a row, while it is fitted (pvFit): with its way to
-// the reason drawn at the wider of its looks (d px more than [이유 추가]: 'Enter 이유 쓰기') and the earlier link beside it -
-// which a tight line shows beside [이유 추가] but not beside 'Enter 이유 쓰기' (components.css) - the more of the two looks
-// takes d less, or the link and its gap less, whichever is less. 0 for any other line, and for one that is not tight: it
-// shows the link beside both.
-function pvAddCut(l, t, d) {
+// How much less than drawn a key save's line's state takes at most in a row, while it is fitted (fitPageLines): with
+// its way to the reason drawn at the wider of its looks (`difference` px more than [이유 추가]: 'Enter 이유 쓰기') and
+// the earlier link beside it - which a tight line shows beside [이유 추가] but not beside 'Enter 이유 쓰기'
+// (components.css) - the more of the two looks takes `difference` less, or the link and its gap less, whichever is
+// less. 0 for any other line, and for one that is not tight: it shows the link beside both.
+function keySaveStateCut(line, state, difference) {
   if (
-    !d ||
-    !l.classList.contains('pv-kw') ||
-    !l.classList.contains('pv-tight') ||
-    !t.querySelector(':scope>.pv-ra>.pv-add')
+    !difference ||
+    !line.classList.contains('pv-kw') ||
+    !line.classList.contains('pv-tight') ||
+    !state.querySelector(':scope>.pv-ra>.pv-add')
   )
     return 0;
-  const e = pvEarlyRoom(t);
-  return e ? Math.min(d, e) : 0;
+  const earlierRoom = earlierLinkRoom(state);
+  return earlierRoom ? Math.min(difference, earlierRoom) : 0;
 }
-// A focus on a control of one of these lines that its fitting just took out - the earlier link stepping out at a tight row's
-// bar (.pv-early-out), or beside 'Enter 이유 쓰기' or [되돌리기] on a row that turned tight (components.css), after a resize, a
-// zoom of the browser or of the pages, or a redraw - moves at once, without a scroll, to the control before it on its line
-// ([판정 취소], 'Enter 이유 쓰기', the '#N' link), else to the line's first. Hidden with the focus on it, the link took the
-// focus away to nothing and the next Tab started from the top (Chromium lets a hidden focus go a moment later: the move is
-// made before that). Every way the fitting hides a control comes through here, and so does a phone's floating line holding
-// [판정 취소] back (pvLean).
-function pvFocusStays(lines) {
-  const a = document.activeElement,
-    l = a && a.closest ? (a.closest('#doc .pv')) : null;
-  if (!a || !l || !lines.includes(l) || (a.getClientRects().length && getComputedStyle(a).visibility !== 'hidden'))
+// A focus on a control of one of these lines that its fitting just took out - the earlier link stepping out at a tight
+// row's bar (.pv-early-out), or beside 'Enter 이유 쓰기' or [되돌리기] on a row that turned tight (components.css),
+// after a resize, a zoom of the browser or of the pages, or a redraw - moves at once, without a scroll, to the control
+// before it on its line ([판정 취소], 'Enter 이유 쓰기', the '#N' link), else to the line's first. Hidden with the
+// focus on it, the link would take the focus away to nothing and the next Tab would start from the top (Chromium lets a
+// hidden focus go a moment later: the move is made before that). Every way the fitting hides a control comes through
+// here, and so does a phone's floating line holding [판정 취소] back (leanFloatingLine).
+function keepFocusOnLine(lines) {
+  const active = document.activeElement,
+    line = active && active.closest ? (active.closest('#doc .pv')) : null;
+  if (
+    !active ||
+    !line ||
+    !lines.includes(line) ||
+    (active.getClientRects().length && getComputedStyle(active).visibility !== 'hidden')
+  )
     return;
-  const cs = [...l.querySelectorAll(PV_TABBABLE)].filter(pvTabStop),
-    before = cs.filter((x) => !!(x.compareDocumentPosition(a) & Node.DOCUMENT_POSITION_FOLLOWING));
-  const to = before.length ? before[before.length - 1] : cs[0];
+  const controls = [...line.querySelectorAll(TABBABLE)].filter(isTabStop),
+    before = controls.filter((x) => !!(x.compareDocumentPosition(active) & Node.DOCUMENT_POSITION_FOLLOWING));
+  const to = before.length ? before[before.length - 1] : controls[0];
   if (to) to.focus({ preventScroll: true });
 }
-// The room state t's earlier link takes in its row as drawn - its width, the dot before it and the gap before each - or 0
-// where it shows none.
-function pvEarlyRoom(t) {
-  const e = t.querySelector(':scope>.pv-early');
-  if (!e || !e.getClientRects().length) return 0;
-  const g = parseFloat(getComputedStyle(t).columnGap) || 0,
-    d = e.previousElementSibling,
-    dw = d && d.classList.contains('pv-ea') && d.getClientRects().length ? d.getBoundingClientRect().width + g : 0;
-  return e.getBoundingClientRect().width + g + dw;
+// The room a state's earlier link takes in its row as drawn - its width, the dot before it and the gap before each - or
+// 0 where it shows none.
+function earlierLinkRoom(state) {
+  const link = state.querySelector(':scope>.pv-early');
+  if (!link || !link.getClientRects().length) return 0;
+  const gap = parseFloat(getComputedStyle(state).columnGap) || 0,
+    dot = link.previousElementSibling,
+    dotWidth =
+      dot && dot.classList.contains('pv-ea') && dot.getClientRects().length
+        ? dot.getBoundingClientRect().width + gap
+        : 0;
+  return link.getBoundingClientRect().width + gap + dotWidth;
 }
-// Whether line l keeps the rows it has now: its confirm word waits for the second press, or its save is out.
-function pvRowsHeld(l) {
-  const p = Number(l.dataset.page) || 0;
-  return (!!VD_ARM && VD_ARM.where === VD_WHERE.PAGE && VD_ARM.page === p) || PV_BUSY.has(pvSlot(p));
+// Whether a line keeps the rows it has now: its confirm word waits for the second press, or its save is out.
+function holdsRows(line) {
+  const page = Number(line.dataset.page) || 0;
+  return (
+    (!!ARMED_VERDICT && ARMED_VERDICT.where === VD_WHERE.PAGE && ARMED_VERDICT.page === page) ||
+    SAVING_LINES.has(pageLineSlot(page))
+  );
 }
-// The save chip on a line ('#42 저장됨 · 채택 [되돌리기]') never changes the line: it is laid over it (notices.css), in room no
-// control or state word of the line takes - never over the figure's identifier, the state, a text action, a word or a focus
-// ring (8px clear of each), nor over the reason popover. The first room that holds it: in a row, between everything before the words and the words; in
-// a stacked line, after the end of the state's last row; then over the figure's title after its identifier (its own row
-// on a stacked line) - words that only describe; its words shown where any room holds them. Its words fold first (.pv-chip-short: its icon and [되돌리기]), then its
-// icon (.pv-chip-bare); where not even [되돌리기] fits anywhere, the undo goes to the status line (chipAway). In the line's
-// flow the chip added a row on a phone (131 -> 251px) and moved the words under a waiting finger, and laid over them it
-// took presses meant for [이유 추가] and [판정 취소]. --pv-chip-r and --pv-chip-y place it from the line's right edge and top.
-const PV_CHIP_WAIT_MS = 3000; // how long a chip with no room waits for its line to settle before its undo goes to the status line
-const PV_CHIP_WAIT_T = new WeakMap();
-function pvChipPlace(lines) {
-  const chips = lines.map((l) => l.querySelector(':scope>.nt-chip'));
-  lines.forEach((l, i) => {
-    if (chips[i]) {
-      l.classList.toggle('pv-chip-short', false);
-      l.classList.toggle('pv-chip-bare', false);
-    } else l.classList.remove('pv-chip-wait');
+// The save chip on a line ('#42 저장됨 · 채택 [되돌리기]') never changes the line: it is laid over it (notices.css), in
+// room no control or state word of the line takes - never over the figure's identifier, the state, a text action, a
+// word or a focus ring (8px clear of each), nor over the reason popover. The first room that holds it: in a row,
+// between everything before the words and the words; in a stacked line, after the end of the state's last row; then
+// over the figure's title after its identifier (its own row on a stacked line) - words that only describe; its words
+// shown where any room holds them. Its words fold first (.pv-chip-short: its icon and [되돌리기]), then its icon
+// (.pv-chip-bare); where not even [되돌리기] fits anywhere, the undo goes to the status line (chipAway). In the line's
+// flow the chip would add a row on a phone and move the words under a waiting finger, and laid over them it would take
+// presses meant for [이유 추가] and [판정 취소]. --pv-chip-r and --pv-chip-y place it from the line's right edge and
+// top. how long a chip with no room waits for its line to settle before its undo goes to the status line
+const CHIP_WAIT_MS = 3000;
+const CHIP_WAIT_TIMERS = new WeakMap();
+function placeLineChips(lines) {
+  const chips = lines.map((line) => line.querySelector(':scope>.nt-chip'));
+  lines.forEach((line, index) => {
+    if (chips[index]) {
+      line.classList.toggle('pv-chip-short', false);
+      line.classList.toggle('pv-chip-bare', false);
+    } else line.classList.remove('pv-chip-wait');
   });
-  const got = lines.map((l, i) => {
-    const c = chips[i];
-    if (!c) return null;
-    const lr = l.getBoundingClientRect(),
-      R = (e) => e.getBoundingClientRect(),
-      shown = (e) => e.getClientRects().length > 0;
-    const words = [...l.querySelectorAll(':scope>.vd-btns>*')].filter(shown).map(R);
-    const parts = [...l.querySelectorAll(':scope>.pv-fig>.pv-fig-id,:scope>.pv-fig-sep,:scope>.pv-t *,:scope>.pv-err')]
-      .filter((e) => shown(e) && !e.closest('.pv-pop'))
-      .map(R);
-    const pop = l.querySelector(':scope>.pv-pop'),
-      keep = parts.concat(words, pop && shown(pop) ? [R(pop)] : []),
-      ch = R(c),
-      gap = parseFloat(getComputedStyle(c).columnGap) || 0,
-      w = (q) => {
-        const e = c.querySelector(q);
-        return e && shown(e) ? R(e).width + gap : 0;
-      }; // a part and the chip's own gap beside it (4px): taken as 8px, the folded chip came out 8px wider than measured and stood 2px from the identifier
-    const sizes = [ch.width, ch.width - w('.nt-t'), ch.width - w('.nt-t') - w('.nt-ic')];
-    // A room on the row through y (a box's middle) from left to right: the room less 8px off every part in that row's height.
+  const got = lines.map((line, index) => {
+    const chip = chips[index];
+    if (!chip) return null;
+    const lineRect = line.getBoundingClientRect(),
+      rectOf = (element) => element.getBoundingClientRect(),
+      shown = (element) => element.getClientRects().length > 0;
+    const words = [...line.querySelectorAll(':scope>.vd-btns>*')].filter(shown).map(rectOf);
+    const parts = [
+      ...line.querySelectorAll(':scope>.pv-fig>.pv-fig-id,:scope>.pv-fig-sep,:scope>.pv-t *,:scope>.pv-err'),
+    ]
+      .filter((element) => shown(element) && !element.closest('.pv-pop'))
+      .map(rectOf);
+    const pop = line.querySelector(':scope>.pv-pop'),
+      keep = parts.concat(words, pop && shown(pop) ? [rectOf(pop)] : []),
+      chipRect = rectOf(chip),
+      gap = parseFloat(getComputedStyle(chip).columnGap) || 0,
+      partWidth = (selector) => {
+        const element = chip.querySelector(selector);
+        return element && shown(element) ? rectOf(element).width + gap : 0;
+      }; // a part and the chip's own gap beside it, as measured: the folded chip is placed at its real width
+    const sizes = [
+      chipRect.width,
+      chipRect.width - partWidth('.nt-t'),
+      chipRect.width - partWidth('.nt-t') - partWidth('.nt-ic'),
+    ];
+    // A room on the row through y (a box's middle) from left to right: the room less 8px off every part in that row's
+    // height.
     const room = (y, left, right) => {
-      const top = y - ch.height / 2,
-        bot = y + ch.height / 2;
-      let a = left,
-        z = right;
+      const top = y - chipRect.height / 2,
+        bot = y + chipRect.height / 2;
+      let start = left,
+        end = right;
       keep
-        .filter((b) => b.top < bot && b.bottom > top)
-        .forEach((b) => {
-          if (b.right <= (a + z) / 2) a = Math.max(a, b.right + 8);
-          else z = Math.min(z, b.left - 8);
+        .filter((box) => box.top < bot && box.bottom > top)
+        .forEach((box) => {
+          if (box.right <= (start + end) / 2) start = Math.max(start, box.right + 8);
+          else end = Math.min(end, box.left - 8);
         });
-      return { a, z, y };
+      return { a: start, z: end, y };
     };
     const rooms = [];
-    const stack = l.classList.contains('pv-stack');
+    const stack = line.classList.contains('pv-stack');
     if (!stack && words.length) {
-      const y = (Math.min(...words.map((b) => b.top)) + Math.max(...words.map((b) => b.bottom))) / 2;
+      const y = (Math.min(...words.map((box) => box.top)) + Math.max(...words.map((box) => box.bottom))) / 2;
       rooms.push(
         room(
           y,
-          parts.filter((b) => b.top < y && b.bottom > y).reduce((m, b) => Math.max(m, b.right), lr.left) + 8,
-          Math.min(...words.map((b) => b.left)) - 8,
+          parts
+            .filter((box) => box.top < y && box.bottom > y)
+            .reduce((most, box) => Math.max(most, box.right), lineRect.left) + 8,
+          Math.min(...words.map((box) => box.left)) - 8,
         ),
       );
     } else {
-      const t = [...l.querySelectorAll(':scope>.pv-t *')]
-        .filter((e) => shown(e) && !e.closest('.pv-pop'))
-        .map(R)
-        .filter((b) => b.height > 0);
-      if (t.length) {
-        const last = Math.max(...t.map((b) => b.top)),
-          row = t.filter((b) => b.bottom > last + 1),
-          y = (Math.min(...row.map((b) => b.top)) + Math.max(...row.map((b) => b.bottom))) / 2;
-        rooms.push(room(y, row.reduce((m, b) => Math.max(m, b.right), lr.left) + 8, lr.right));
+      const stateBoxes = [...line.querySelectorAll(':scope>.pv-t *')]
+        .filter((element) => shown(element) && !element.closest('.pv-pop'))
+        .map(rectOf)
+        .filter((box) => box.height > 0);
+      if (stateBoxes.length) {
+        const last = Math.max(...stateBoxes.map((box) => box.top)),
+          row = stateBoxes.filter((box) => box.bottom > last + 1),
+          y = (Math.min(...row.map((box) => box.top)) + Math.max(...row.map((box) => box.bottom))) / 2;
+        rooms.push(room(y, row.reduce((most, box) => Math.max(most, box.right), lineRect.left) + 8, lineRect.right));
       }
     }
-    const id = l.querySelector(':scope>.pv-fig>.pv-fig-id'),
-      ft = l.querySelector(':scope>.pv-fig>.pv-fig-t');
-    if (id && ft && shown(ft)) {
-      const ir = R(id);
-      rooms.push(room((ir.top + ir.bottom) / 2, ir.right + 8, stack ? lr.right : R(ft).right));
+    const id = line.querySelector(':scope>.pv-fig>.pv-fig-id'),
+      title = line.querySelector(':scope>.pv-fig>.pv-fig-t');
+    if (id && title && shown(title)) {
+      const idRect = rectOf(id);
+      rooms.push(
+        room((idRect.top + idRect.bottom) / 2, idRect.right + 8, stack ? lineRect.right : rectOf(title).right),
+      );
     }
     for (let k = 0; k < 3; k++)
-      for (const r of rooms)
-        if (sizes[k] <= r.z - r.a)
-          return { r: Math.round(lr.right - r.z), y: Math.round(r.y - lr.top), short: k > 0, bare: k > 1 }; // its words where any room holds them
+      for (const candidate of rooms)
+        if (sizes[k] <= candidate.z - candidate.a)
+          return {
+            r: Math.round(lineRect.right - candidate.z),
+            y: Math.round(candidate.y - lineRect.top),
+            short: k > 0,
+            bare: k > 1,
+          }; // its words where any room holds them
     return { away: true };
   });
-  // Going to the status line is for good (chipAway), so it is never decided on a line that is about to change: while its
-  // save is out or a confirm word waits (pvRowsHeld - the chip comes before the save's end, and the line then shows the
-  // new verdict and still '· 보류 저장 중…': on CI 69px of room for a 72px chip that had 146px a moment later, and three
-  // browser tests lost their chip), or while a web font loads (a fresh state's new characters are drawn in a fallback face
-  // until their Pretendard slice arrives). It waits unseen (.pv-chip-wait) and is placed when the line settles - the save's
-  // end redraws the lines (drawPageVerdicts), the fonts' load fits them (pvFontsChanged) - or goes once PV_CHIP_WAIT_MS
-  // have passed since it first had no room.
-  lines.forEach((l, i) => {
-    const g = got[i],
-      c = chips[i];
-    if (!g || !c) return;
-    if (g.away) {
-      const t0 = Number(c.dataset.noRoom) || Date.now();
-      c.dataset.noRoom = String(t0);
+  // Going to the status line is for good (chipAway), so it is never decided on a line that is about to change: while
+  // its save is out or a confirm word waits (holdsRows - the chip comes before the save's end, and the line then shows
+  // the new verdict and still '· 보류 저장 중…', so its room is about to grow), or while a web font loads (a fresh
+  // state's new characters are drawn in a fallback face until their Pretendard slice arrives). It waits unseen
+  // (.pv-chip-wait) and is placed when the line settles - the save's end redraws the lines (drawPageVerdicts), the
+  // fonts' load fits them (refitForFonts) - or goes once CHIP_WAIT_MS have passed since it first had no room.
+  lines.forEach((line, index) => {
+    const placed = got[index],
+      chip = chips[index];
+    if (!placed || !chip) return;
+    if (placed.away) {
+      const firstMiss = Number(chip.dataset.noRoom) || Date.now();
+      chip.dataset.noRoom = String(firstMiss);
       if (
-        (pvRowsHeld(l) || (document.fonts && document.fonts.status === 'loading')) &&
-        Date.now() - t0 < PV_CHIP_WAIT_MS
+        (holdsRows(line) || (document.fonts && document.fonts.status === 'loading')) &&
+        Date.now() - firstMiss < CHIP_WAIT_MS
       ) {
-        l.classList.add('pv-chip-wait');
-        clearTimeout(PV_CHIP_WAIT_T.get(c));
-        PV_CHIP_WAIT_T.set(
-          c,
+        line.classList.add('pv-chip-wait');
+        clearTimeout(CHIP_WAIT_TIMERS.get(chip));
+        CHIP_WAIT_TIMERS.set(
+          chip,
           setTimeout(() => {
-            if (c.isConnected && c.parentElement === l) pvFit([l]);
-          }, PV_CHIP_WAIT_MS + 20),
+            if (chip.isConnected && chip.parentElement === line) fitPageLines([line]);
+          }, CHIP_WAIT_MS + 20),
         );
         return;
       }
-      l.classList.remove('pv-chip-wait');
-      chipAway(c);
+      line.classList.remove('pv-chip-wait');
+      chipAway(chip);
       return;
     }
-    delete c.dataset.noRoom;
-    l.classList.remove('pv-chip-wait');
-    l.style.setProperty('--pv-chip-r', g.r + 'px');
-    l.style.setProperty('--pv-chip-y', g.y + 'px');
-    l.classList.toggle('pv-chip-short', !!g.short);
-    l.classList.toggle('pv-chip-bare', !!g.bare);
+    delete chip.dataset.noRoom;
+    line.classList.remove('pv-chip-wait');
+    line.style.setProperty('--pv-chip-r', placed.r + 'px');
+    line.style.setProperty('--pv-chip-y', placed.y + 'px');
+    line.classList.toggle('pv-chip-short', !!placed.short);
+    line.classList.toggle('pv-chip-bare', !!placed.bare);
   });
 }
-// The reason popover's side (pvPopPlace): above its line, as drawn - unless the room above inside what the PDF area shows
-// (under the section strip) is too short for it while the room below holds it: then under the line (.pv-pop-below). Where
-// neither holds it, the larger side, the popover no taller than that (--pv-pop-max; it scrolls). Near the top an in-place
-// line's popover opened under the strip and the top bar, a five-line reason showing only its last line.
-function pvPopPlace() {
+// The reason popover's side (placePopover): above its line, as drawn - unless the room above inside what the PDF area
+// shows (under the section strip) is too short for it while the room below holds it: then under the line
+// (.pv-pop-below). Where neither holds it, the larger side, the popover no taller than that (--pv-pop-max; it scrolls).
+// So near the top an in-place line's popover never opens under the strip and the top bar.
+function placePopover() {
   const pop = document.querySelector('#doc .pv>.pv-pop');
-  $$('#doc .pv.pv-pop-below').forEach((l) => {
-    if (!pop || l !== pop.parentElement) l.classList.remove('pv-pop-below');
+  $$('#doc .pv.pv-pop-below').forEach((line) => {
+    if (!pop || line !== pop.parentElement) line.classList.remove('pv-pop-below');
   });
   if (!pop) return;
-  const l = pop.parentElement,
-    L = $('#left'),
-    lr = L.getBoundingClientRect();
-  if (l.id === 'pv-panel') {
-    l.classList.remove('pv-pop-below');
-    l.style.removeProperty('--pv-pop-max');
+  const line = pop.parentElement,
+    area = $('#left'),
+    areaRect = area.getBoundingClientRect();
+  if (line.id === 'pv-panel') {
+    line.classList.remove('pv-pop-below');
+    line.style.removeProperty('--pv-pop-max');
     return;
   } // in the panel's flow, under its state
-  let top = Math.max(lr.top, 0);
-  const s = document.getElementById('section-strip');
-  if (s && s.getClientRects().length) {
-    const sr = s.getBoundingClientRect();
-    if (sr.bottom > top && sr.top <= top + 1) top = sr.bottom;
+  let top = Math.max(areaRect.top, 0);
+  const strip = document.getElementById('section-strip');
+  if (strip && strip.getClientRects().length) {
+    const stripRect = strip.getBoundingClientRect();
+    if (stripRect.bottom > top && stripRect.top <= top + 1) top = stripRect.bottom;
   }
   const cover =
     (parseFloat(getComputedStyle(document.body).getPropertyValue('--pv-inset')) || 0) +
-    (parseFloat(L.style.getPropertyValue('--pv-kb-over')) || 0);
-  const bottom = lr.top + L.clientHeight - cover;
-  if (l.style.getPropertyValue('--pv-pop-max')) l.style.removeProperty('--pv-pop-max');
-  const b = l.getBoundingClientRect(),
-    h = pop.offsetHeight,
-    above = b.top - 8 - top,
-    below = bottom - (b.bottom + 8);
-  const under = h > above && (h <= below || below > above);
-  l.classList.toggle('pv-pop-below', under);
-  if (h > Math.max(above, below))
-    l.style.setProperty('--pv-pop-max', Math.max(0, Math.floor(under ? below : above)) + 'px');
+    (parseFloat(area.style.getPropertyValue('--pv-kb-over')) || 0);
+  const bottom = areaRect.top + area.clientHeight - cover;
+  if (line.style.getPropertyValue('--pv-pop-max')) line.style.removeProperty('--pv-pop-max');
+  const lineRect = line.getBoundingClientRect(),
+    height = pop.offsetHeight,
+    above = lineRect.top - 8 - top,
+    below = bottom - (lineRect.bottom + 8);
+  const under = height > above && (height <= below || below > above);
+  line.classList.toggle('pv-pop-below', under);
+  if (height > Math.max(above, below))
+    line.style.setProperty('--pv-pop-max', Math.max(0, Math.floor(under ? below : above)) + 'px');
 }
-// No description box over a line's save chip (#295). The chip ('#42 저장됨 · 채택 [되돌리기]') stands at the line's end above it,
-// where a word's box stands too: the press's own focus armed the box again (tooltip.js armTip), and a resting hand's
-// slight move brought it back after anything had hidden it. While a chip is on a line (drawChips puts it there, its
-// window takes it away) the line's words are drawn without their descriptions (vdButton quiet), so neither hover nor focus
-// has a box to show; a chip that comes closes the box that is up. Its leaving draws the descriptions back. Watched per
-// line (childList only: the chip is a child of the line).
-const PV_CHIP_WATCH =
+// No description box over a line's save chip. The chip ('#42 저장됨 · 채택 [되돌리기]') stands at the line's end above
+// it, where a word's box stands too: the press's own focus arms the box again (tooltip.ts armTip), and a resting hand's
+// slight move would bring it back after anything hid it. While a chip is on a line (drawChips puts it there, its window
+// takes it away) the line's words are drawn without their descriptions (verdictButton quiet), so neither hover nor
+// focus has a box to show; a chip that comes closes the box that is up. Its leaving draws the descriptions back.
+// Watched per line (childList only: the chip is a child of the line).
+const CHIP_WATCH =
   typeof MutationObserver !== 'undefined'
     ? new MutationObserver((recs) => {
-        // Whether a line now holds a chip it did not, or lost one: a chip taken out and put back on the same line (fillPv's morph)
-        // is no change; one moved to another line is a change on both.
+        // Whether a line now holds a chip it did not, or lost one: a chip taken out and put back on the same line
+        // (fillPageLine's morph) is no change; one moved to another line is a change on both.
         const had = new Map();
-        recs.forEach((r) => {
-          const k = (l, v) =>
-            [...l].forEach((n) => {
-              if (n instanceof Element && n.classList.contains('nt-chip')) {
-                const m = had.get(r.target) || new Map();
-                m.set(n, (m.get(n) || 0) + v);
-                had.set(r.target, m);
+        recs.forEach((record) => {
+          const countChips = (nodes, step) =>
+            [...nodes].forEach((node) => {
+              if (node instanceof Element && node.classList.contains('nt-chip')) {
+                const counts = had.get(record.target) || new Map();
+                counts.set(node, (counts.get(node) || 0) + step);
+                had.set(record.target, counts);
               }
             });
-          k(r.addedNodes, 1);
-          k(r.removedNodes, -1);
+          countChips(record.addedNodes, 1);
+          countChips(record.removedNodes, -1);
         });
         let came = false,
           went = false;
-        had.forEach((m) =>
-          m.forEach((d) => {
-            if (d > 0) came = true;
-            else if (d < 0) went = true;
+        had.forEach((counts) =>
+          counts.forEach((change) => {
+            if (change > 0) came = true;
+            else if (change < 0) went = true;
           }),
         );
         if (!came && !went) return;
@@ -24960,42 +25149,45 @@ const PV_CHIP_WATCH =
         drawPageVerdicts();
       })
     : null;
-// Draws the page verdict line under every page after the pages, the pin lists or the build change. Without page verdicts
-// every line goes and the marks draw every pin as before.
+// Draws the page verdict line under every page after the pages, the pin lists or the build change. Without page
+// verdicts every line goes and the marks draw every pin.
 function drawPageVerdicts() {
-  const v = pageVerdictsOn(),
-    f = document.activeElement;
-  const on = !!f && !!f.closest ? (f.closest('.pv')) : null,
+  const verdicts = pageVerdictsOn(),
+    focused = document.activeElement;
+  const on = !!focused && !!focused.closest ? (focused.closest('.pv')) : null,
     had = !!on,
     onPage = on ? Number(on.dataset.page) || 0 : 0;
-  if (VD_ARM && VD_ARM.where === VD_WHERE.PAGE && (!v || !vdArmStill(VD_ARM))) disarmVerdict(false);
-  PV_SHOWN = new Set();
-  // A document with no page lines has no reason field either: a session left from the one before (or from this one before
-  // its words went) closes here, its text saved - pvReasonSync, after this, is never reached for it.
-  if (!v || !META) {
-    if (PV_REASON) pvReasonLeave();
-    $$('#doc .pv,#doc .pv-sum').forEach((e) => e.remove());
-    pvPanelGone();
-    if (PV_SIDE) pvSideApply(false);
-    pvTypingSync();
+  if (ARMED_VERDICT && ARMED_VERDICT.where === VD_WHERE.PAGE && (!verdicts || !armStillHolds(ARMED_VERDICT)))
+    disarmVerdict(false);
+  SHOWN_ON_PAGE_LINES = new Set();
+  // A document with no page lines has no reason field either: a session left from the one before (or from this one
+  // before its words went) closes here, its text saved - syncReasonSession, after this, is never reached for it.
+  if (!verdicts || !META) {
+    if (REASON_SESSION) leaveReason();
+    $$('#doc .pv,#doc .pv-sum').forEach((element) => element.remove());
+    removePanel();
+    if (IS_BESIDE_PAGES) applyBeside(false);
+    syncTypingFold();
     return;
   }
-  const turn = pvSideTurn(); // beside the pages or under them (verdict-panel.js): the reading page holds until the spot is back
+  // beside the pages or under them (verdict-panel.ts): the reading page holds until the spot is back
+  const turn = startBesideTurn();
   try {
-    pvReasonSync();
+    syncReasonSession();
     const map = pageVerdictPins();
-    PV_READ = pvHeldReadingPage();
-    PV_KEYS = pvKeysPage(PV_READ);
-    // Beside the pages: one panel for the reading page, and every page's verdicts are its - none draws a page-size mark.
-    if (PV_SIDE) {
-      $$('#doc .pgw>.pv').forEach((e) => e.remove());
-      map.forEach((list) => list.forEach((p) => PV_SHOWN.add(p.id)));
-      pvPanelFill(map, v);
+    READING_LINE_PAGE = heldReadingPage();
+    KEYED_PAGE = keyedPageFor(READING_LINE_PAGE);
+    // Beside the pages: one panel for the reading page, and every page's verdicts are its - none draws a page-size
+    // mark.
+    if (IS_BESIDE_PAGES) {
+      $$('#doc .pgw>.pv').forEach((element) => element.remove());
+      map.forEach((list) => list.forEach((pin) => SHOWN_ON_PAGE_LINES.add(pin.id)));
+      fillPanel(map, verdicts);
     } else {
-      pvPanelGone();
-      $$('#doc .pg').forEach((pg) => {
-        const page = +pg.dataset.page;
-        let line = pg.nextElementSibling;
+      removePanel();
+      $$('#doc .pg').forEach((pageElement) => {
+        const page = +pageElement.dataset.page;
+        let line = pageElement.nextElementSibling;
         if (!pageTakesVerdict(page)) {
           if (line && line.classList.contains('pv')) line.remove();
           return;
@@ -25003,66 +25195,67 @@ function drawPageVerdicts() {
         if (!line || !line.classList.contains('pv')) {
           line = document.createElement('div');
           line.className = 'pv';
-          pg.after(line);
-          if (PV_CHIP_WATCH) PV_CHIP_WATCH.observe(line, { childList: true });
+          pageElement.after(line);
+          if (CHIP_WATCH) CHIP_WATCH.observe(line, { childList: true });
         }
-        fillPv(line, page, map.get(page), v);
+        fillPageLine(line, page, map.get(page), verdicts);
       });
     }
-    pvSums(map);
-    sizePv();
+    drawSummaries(map);
+    sizePageLines();
   } finally {
-    if (turn) pvSideSettle(turn);
+    if (turn) settleBesideTurn(turn);
   }
-  pvStick();
-  if (had) vdRefocus(f);
-  pvReasonAfterLines(); // a reason field that went from under the focus hands it to its line
-  if (turn) pvSideTurned(turn); // the lines moved: the reading spot, a save chip and the focus come along
-  // The control the focus was on went with this drawing (a take-back shows the verdict before it): its line's, never nothing.
+  stickReadingLine();
+  if (had) refocusVerdictButton(focused);
+  refocusAfterLines(); // a reason field that went from under the focus hands it to its line
+  if (turn) finishBesideTurn(turn); // the lines moved: the reading spot, a save chip and the focus come along
+  // The control the focus was on went with this drawing (a take-back shows the verdict before it): its line's, never
+  // nothing.
   if (had) {
-    const a = document.activeElement;
-    if ((!a || a === document.body) && !pvFocusLine(onPage)) searchToPage();
+    const active = document.activeElement;
+    if ((!active || active === document.body) && !focusLine(onPage)) searchToPage();
   }
-  pvTypingSync();
+  syncTypingFold();
 } // a redraw or a rebuild can take the focused reason field away without a focusout
-// Whether pin p's page verdict line shows it, so its page-size mark is not drawn (marks).
-function pvShows(p) {
-  return PV_SHOWN.has(p.id);
+// Whether a pin's page verdict line shows it, so its page-size mark is not drawn (marks).
+function isShownOnLine(pin) {
+  return SHOWN_ON_PAGE_LINES.has(pin.id);
 }
-// A card's [보기] for a pin a line shows: its page comes into view with the line and the line flashes. A figure page arrives at
-// its figure (arrivePage, §그림 쪽 도착). Any other page and its line are one block (.pgw): centred when it fits the PDF area,
-// else from the page's top - the line then floats at the area's bottom (scrolling to the sticky line itself would follow
-// where it floats, not where it is). Returns whether it did.
-function jumpPv(id) {
-  if (!PV_SHOWN.has(id)) return false;
-  const p = PINS.find((x) => x.id === id) || REVIEW_ALL.find((x) => x.id === id) || DONE.find((x) => x.id === id);
-  const t = p && pageTargetOf(p, META ? META.kind : undefined);
-  if (!t) return false;
+// A card's [보기] for a pin a line shows: its page comes into view with the line and the line flashes. A figure page
+// arrives at its figure (arrivePage, §그림 쪽 도착). Any other page and its line are one block (.pgw): centred when it
+// fits the PDF area, else from the page's top - the line then floats at the area's bottom (scrolling to the sticky line
+// itself would follow where it floats, not where it is). Returns whether it did.
+function jumpToPageLine(id) {
+  if (!SHOWN_ON_PAGE_LINES.has(id)) return false;
+  const pin = PINS.find((x) => x.id === id) || REVIEW_ALL.find((x) => x.id === id) || DONE.find((x) => x.id === id);
+  const target = pin && pageTargetOf(pin, META ? META.kind : undefined);
+  if (!target) return false;
   if (LAYOUT === LAYOUT_MODE.NARROW) setSide(false);
-  const flash = (el) => {
-    el.classList.remove('flash');
-    void el.offsetWidth;
-    el.classList.add('flash');
-    clearTimeout(el._flT);
-    el._flT = setTimeout(() => el.classList.remove('flash'), 1200);
+  const flash = (element) => {
+    element.classList.remove('flash');
+    void element.offsetWidth;
+    element.classList.add('flash');
+    clearTimeout(element._flT);
+    element._flT = setTimeout(() => element.classList.remove('flash'), 1200);
   };
-  const fig = figureTop(t.page) !== null;
-  if (PV_SIDE) {
-    if (!document.getElementById('p' + t.page)) return false;
-    if (fig) arrivePage(t.page);
-    else pvBring(t.page, true);
-    pvFlashOn(t.page);
+  const isFigure = figureTop(target.page) !== null;
+  if (IS_BESIDE_PAGES) {
+    if (!document.getElementById('p' + target.page)) return false;
+    if (isFigure) arrivePage(target.page);
+    else bringPage(target.page, true);
+    flashPanelOn(target.page);
     return true;
-  } // the panel flashes where the page lands (verdict-panel.js)
-  const line = document.querySelector('#doc .pv[data-page="' + t.page + '"]');
+  } // the panel flashes where the page lands (verdict-panel.ts)
+  const line = document.querySelector('#doc .pv[data-page="' + target.page + '"]');
   if (!line) return false;
   const block = line.parentElement,
-    L = $('#left'),
-    how = block.getBoundingClientRect().height <= L.clientHeight ? 'center' : 'start';
-  if (fig) arrivePage(t.page);
+    area = $('#left'),
+    how = block.getBoundingClientRect().height <= area.clientHeight ? 'center' : 'start';
+  if (isFigure) arrivePage(target.page);
   else {
-    pvGlideInto(block, how);
-    arrivalWatch(() => (block.isConnected ? pvIntoTop(block, how) : null));
+    glideInto(block, how);
+    arrivalWatch(() => (block.isConnected ? scrollTopFor(block, how) : null));
   }
   flash(line);
   return true;
@@ -25070,419 +25263,471 @@ function jumpPv(id) {
 
 // ---------------- Lines far from the view (docs/handbook/viewer.md §판정 핀)
 // A line more than a view's height above or below what the PDF area shows is left for the browser to skip (.pv-far:
-// content-visibility:auto, components.css): it is not laid out or painted until it comes near. Each page PDF.js draws for
-// the first time adds its embedded fonts to document.fonts, and every font added makes the browser lay out all the text in
-// the page again: with the far cards already skipped (list.js lazyCards, #305) the 88 lines of a 91-page figure document
-// were about 4,300 of the 7,400 objects laid out at each, and the first wheel scroll through it still had 8-9 long tasks
-// (#322). A skipped line breaks none of the line's rules, because it is never another size than the one it is drawn at:
-// - It stands at its drawn height: --pv-h (the contain-intrinsic-block-size; the line has no padding or border, so its box
-//   is its content box), or the size the browser last drew it at (content-visibility:auto keeps it: contain-intrinsic-size
-//   auto), which is the same. Whatever changes what a line shows or its width fits it again (fillPv, sizePv: pvFit), and
-//   pvFit lays out every line it measures - a skipped one too (pvFarHold) - and keeps its height as it lets go of it
-//   (pvFarLetGo); a line that goes far keeps the height the observer saw instead, where that is the later one. So a skip
-//   never moves the pages and nothing scrolls to make up for one; and every line is still measured as the reading line
-//   (#doc.pv-measure).
-// - Skipping contains a line (paint containment): it draws its parts on whole pixels and clips what reaches past its box (a
-//   focus ring, the pressed word's hint, the reason popover, a save chip). So no line in or near the view is skipped (the
-//   observer's margin), and - whatever the observer said last - neither is the reading line, which floats, a line holding
-//   the focus, its reason popover or a save chip, or a line pvFit is measuring (components.css). A script's measure inside a
-//   skipped line lays it out for the answer (the keys' Tab stops), but the innerText of what is skipped is empty.
+// content-visibility:auto, components.css): it is not laid out or painted until it comes near. Each page PDF.js draws
+// for the first time adds its embedded fonts to document.fonts, and every font added makes the browser lay out all the
+// text in the page again: skipped like the far cards (list.ts lazyCards), the lines far from the view are not laid out
+// at each of those. A skipped line breaks none of the line's rules, because it is never another size than the one it is
+// drawn at:
+// - It stands at its drawn height: --pv-h (the contain-intrinsic-block-size; the line has no padding or border, so its
+//   box is its content box), or the size the browser last drew it at (content-visibility:auto keeps it:
+//   contain-intrinsic-size auto), which is the same. Whatever changes what a line shows or its width fits it again
+//   (fillPageLine, sizePageLines: fitPageLines), and fitPageLines lays out every line it measures - a skipped one too
+//   (holdFarLines) - and keeps its height as it lets go of it (letFarLinesGo); a line that goes far keeps the height
+//   the observer saw instead, where that is the later one. So a skip never moves the pages and nothing scrolls to make
+//   up for one; and every line is still measured as the reading line (#doc.pv-measure).
+// - Skipping contains a line (paint containment): it draws its parts on whole pixels and clips what reaches past its
+//   box (a focus ring, the pressed word's hint, the reason popover, a save chip). So no line in or near the view is
+//   skipped (the observer's margin), and - whatever the observer said last - neither is the reading line, which floats,
+//   a line holding the focus, its reason popover or a save chip, or a line fitPageLines is measuring (components.css).
+//   A script's measure inside a skipped line lays it out for the answer (the keys' Tab stops), but the innerText of
+//   what is skipped is empty.
 // Without IntersectionObserver no line is skipped.
-let PV_FAR_IO = null,
-  PV_FAR_H = -1;
-const PV_FAR_SEEN = new Set(); // the lines the observer watches
-const PV_FIT_AT = new WeakMap(); // when pvFit last kept each line's height (performance.now())
-// The lines pvFit is about to measure are laid out, skipped or not (.pv-fitting).
-function pvFarHold(lines) {
+let FAR_OBSERVER = null,
+  FAR_HEIGHT = -1;
+const FAR_WATCHED = new Set(); // the lines the observer watches
+// when fitPageLines last kept each line's height (performance.now())
+const FITTED_AT = new WeakMap();
+// The lines fitPageLines is about to measure are laid out, skipped or not (.pv-fitting).
+function holdFarLines(lines) {
   if (typeof IntersectionObserver === 'undefined') return;
-  lines.forEach((l) => l.classList.add('pv-fitting'));
+  lines.forEach((line) => line.classList.add('pv-fitting'));
 }
-// pvFit is done with lines: each keeps the height it is drawn at now (one not laid out - the changes view - keeps the one it
-// had), may be skipped again, and is watched - a new line too; a line no longer in the page (another document, a rebuild)
-// is no longer watched. Read before any is written.
-function pvFarLetGo(lines) {
+// fitPageLines is done with lines: each keeps the height it is drawn at now (one not laid out - the changes view -
+// keeps the one it had), may be skipped again, and is watched - a new line too; a line no longer in the page (another
+// document, a rebuild) is no longer watched. Read before any is written.
+function letFarLinesGo(lines) {
   if (typeof IntersectionObserver === 'undefined') return;
-  const h = lines.map((l) => l.getBoundingClientRect().height),
+  const heights = lines.map((line) => line.getBoundingClientRect().height),
     at = performance.now();
-  const L = $('#left'),
-    vh = L.clientHeight;
-  lines.forEach((l, i) => {
-    if (h[i]) {
-      l.style.setProperty('--pv-h', h[i] + 'px');
-      PV_FIT_AT.set(l, at);
+  const area = $('#left'),
+    viewHeight = area.clientHeight;
+  lines.forEach((line, index) => {
+    if (heights[index]) {
+      line.style.setProperty('--pv-h', heights[index] + 'px');
+      FITTED_AT.set(line, at);
     }
-    l.classList.remove('pv-fitting');
+    line.classList.remove('pv-fitting');
   });
-  pvFarWatch(lines, vh);
+  watchFarLines(lines, viewHeight);
 }
-// Watches lines (new ones; one no longer in the page is let go) with an observer whose margin is the PDF area's height vh, in
-// px above and below its view (a percentage would be of its width): it is made again, watching every line, when that height
-// changes.
-function pvFarWatch(lines, vh) {
-  if (!PV_FAR_IO || PV_FAR_H !== vh) {
-    if (PV_FAR_IO) PV_FAR_IO.disconnect();
-    PV_FAR_SEEN.clear();
-    PV_FAR_H = vh;
-    PV_FAR_IO = new IntersectionObserver(pvFarSort, { root: $('#left'), rootMargin: vh + 'px 0px' });
+// Watches lines (new ones; one no longer in the page is let go) with an observer whose margin is the PDF area's height,
+// in px above and below its view (a percentage would be of its width): it is made again, watching every line, when that
+// height changes.
+function watchFarLines(lines, viewHeight) {
+  if (!FAR_OBSERVER || FAR_HEIGHT !== viewHeight) {
+    if (FAR_OBSERVER) FAR_OBSERVER.disconnect();
+    FAR_WATCHED.clear();
+    FAR_HEIGHT = viewHeight;
+    FAR_OBSERVER = new IntersectionObserver(sortFarLines, { root: $('#left'), rootMargin: viewHeight + 'px 0px' });
     lines = $$('#doc .pgw>.pv,#doc .pv-sum');
   } // a line or a summary under a page; never the panel
-  const io = PV_FAR_IO;
-  PV_FAR_SEEN.forEach((l) => {
-    if (!l.isConnected) {
-      io.unobserve(l);
-      PV_FAR_SEEN.delete(l);
+  const io = FAR_OBSERVER;
+  FAR_WATCHED.forEach((line) => {
+    if (!line.isConnected) {
+      io.unobserve(line);
+      FAR_WATCHED.delete(line);
     }
   });
-  lines.forEach((l) => {
-    if (!PV_FAR_SEEN.has(l) && l.isConnected) {
-      io.observe(l);
-      PV_FAR_SEEN.add(l);
+  lines.forEach((line) => {
+    if (!FAR_WATCHED.has(line) && line.isConnected) {
+      io.observe(line);
+      FAR_WATCHED.add(line);
     }
   });
 }
-// The PDF area's height can change with no line fitted again - a window made only shorter while a scale is saved keeps that
-// scale (autoW), so sizePv does not run: the margin follows it here, so far still means a view's height away.
+// The PDF area's height can change with no line fitted again - a window made only shorter while a scale is saved keeps
+// that scale (autoW), so sizePageLines does not run: the margin follows it here, so far still means a view's height
+// away.
 if (window.ResizeObserver && window.IntersectionObserver)
   new ResizeObserver(() => {
-    const vh = $('#left').clientHeight;
-    if (PV_FAR_IO && vh && vh !== PV_FAR_H) pvFarWatch([], vh);
+    const viewHeight = $('#left').clientHeight;
+    if (FAR_OBSERVER && viewHeight && viewHeight !== FAR_HEIGHT) watchFarLines([], viewHeight);
   }).observe($('#left'));
-// The observer's reports: a line that came within a view's height of the PDF area's view is drawn as it is; one that went
-// further is skipped, at the height the observer saw when that is later than pvFit's - not one not laid out (no height to
-// stand at) or no longer in the page.
-function pvFarSort(es) {
-  for (const e of es) {
-    const l = e.target;
-    if (!l.isConnected) continue;
-    if (e.isIntersecting) {
-      l.classList.remove('pv-far');
+// The observer's reports: a line that came within a view's height of the PDF area's view is drawn as it is; one that
+// went further is skipped, at the height the observer saw when that is later than fitPageLines's - not one not laid out
+// (no height to stand at) or no longer in the page.
+function sortFarLines(entries) {
+  for (const entry of entries) {
+    const line = entry.target;
+    if (!line.isConnected) continue;
+    if (entry.isIntersecting) {
+      line.classList.remove('pv-far');
       continue;
     }
-    if (l.classList.contains('pv-far') || !e.boundingClientRect.height) continue;
-    if (e.time > (PV_FIT_AT.get(l) || -1)) l.style.setProperty('--pv-h', e.boundingClientRect.height + 'px');
-    l.classList.add('pv-far');
+    if (line.classList.contains('pv-far') || !entry.boundingClientRect.height) continue;
+    if (entry.time > (FITTED_AT.get(line) || -1))
+      line.style.setProperty('--pv-h', entry.boundingClientRect.height + 'px');
+    line.classList.add('pv-far');
   }
 }
 
 // ---------------- The line that floats, and the keys (docs/handbook/viewer.md §판정 핀)
-// Only the reading page's line floats: the page under the reading line, the one the section strip names and the keys act
-// on (PV_READ). Its line (.reading) is sticky to the PDF area's bottom within its page's block (.pgw, pages.js buildDoc):
-// while its own place is below the area it floats there over the page (.stuck: an edge that sets it off the page), and it
-// names the figure it decides; at the page's end it settles under it. Every other line stays in its place - a next page's
-// line floating as soon as that page's top edge came in showed a second '판정 없음' for a figure not yet in view, and put
-// another figure's buttons under a resting mouse or thumb. It does not float while a selection is being written (the
-// composer has its own verdict row, and the line would cover the selection - or on a phone the sheet) nor over an open
-// phone sheet (CSS). pvStick follows the reading page and marks the floating line; run once a frame while the area scrolls.
-function pvStick() {
-  if (pageVerdictsOn() && pvSideCheck()) return; // the room crossed its bar: drawn again beside or under the pages (verdict-panel.js), which ran this
+// Only the reading page's line floats: the page under the reading line, the one the section strip names and the keys
+// act on (READING_LINE_PAGE). Its line (.reading) is sticky to the PDF area's bottom within its page's block (.pgw,
+// pages.ts buildDoc): while its own place is below the area it floats there over the page (.stuck: an edge that sets it
+// off the page), and it names the figure it decides; at the page's end it settles under it. Every other line stays in
+// its place - a next page's line floating as soon as that page's top edge comes in would show a second '판정 없음' for
+// a figure not yet in view, and put another figure's buttons under a resting mouse or thumb. It does not float while a
+// selection is being written (the composer has its own verdict row, and the line would cover the selection - or on a
+// phone the sheet) nor over an open phone sheet (CSS). stickReadingLine follows the reading page and marks the floating
+// line; run once a frame while the area scrolls.
+function stickReadingLine() {
+  // the room crossed its bar: drawn again beside or under the pages (verdict-panel.ts), which ran this
+  if (pageVerdictsOn() && redrawOnBesideChange()) return;
   const lines = $$('#doc .pv');
   if (!lines.length) return;
-  const L = $('#left'),
-    lr = L.getBoundingClientRect();
-  if (!lr.height) return;
-  const pad = getComputedStyle(L).paddingBottom;
-  if (L.style.getPropertyValue('--pv-pad-b') !== pad) L.style.setProperty('--pv-pad-b', pad); // the end padding a sticky line keeps clear of (components.css)
-  // A keyboard laid over the page without the layout giving way (the visual viewport shorter than the PDF area reaches - an
-  // iPad's Safari, or a band whose PDF area does not follow --kb): the floating line and its popover rise by what it hides.
-  const vv = window.visualViewport,
-    kb = vv && MQ_COARSE.matches ? Math.max(0, Math.round(lr.top + L.clientHeight - (vv.offsetTop + vv.height))) : 0;
-  if (L.style.getPropertyValue('--pv-kb-over') !== kb + 'px') L.style.setProperty('--pv-kb-over', kb + 'px');
-  if (pvInsetR() !== PV_INSET_R) sizePv(); // a panel came over the area, went, or changed its width
-  const at = pvPanelHeld() || pvReadingAt(),
-    r = at && pageTakesVerdict(at) ? at : 0,
-    k = pvKeysPage(r); // a jump's glide: the panel's page held (verdict-panel.js)
-  if (PV_REASON && PV_REASON.page === r) PV_REASON.seen = true;
-  else if (PV_REASON && PV_REASON.seen) pvReasonLeave(); // the reading page left the field's page: moving on
+  const area = $('#left'),
+    areaRect = area.getBoundingClientRect();
+  if (!areaRect.height) return;
+  const pad = getComputedStyle(area).paddingBottom;
+  // the end padding a sticky line keeps clear of (components.css)
+  if (area.style.getPropertyValue('--pv-pad-b') !== pad) area.style.setProperty('--pv-pad-b', pad);
+  // A keyboard laid over the page without the layout giving way (the visual viewport shorter than the PDF area reaches
+  // - an iPad's Safari, or a band whose PDF area does not follow --kb): the floating line and its popover rise by what
+  // it hides.
+  const viewport = window.visualViewport,
+    keyboardOver =
+      viewport && MQ_COARSE.matches
+        ? Math.max(0, Math.round(areaRect.top + area.clientHeight - (viewport.offsetTop + viewport.height)))
+        : 0;
+  if (area.style.getPropertyValue('--pv-kb-over') !== keyboardOver + 'px')
+    area.style.setProperty('--pv-kb-over', keyboardOver + 'px');
+  if (measureInsetRight() !== INSET_RIGHT) sizePageLines(); // a panel came over the area, went, or changed its width
+  const at = heldPanelPage() || pageUnderReadingLine(),
+    readingPage = at && pageTakesVerdict(at) ? at : 0,
+    keyedPage = keyedPageFor(readingPage); // a jump's glide: the panel's page held (verdict-panel.ts)
+  if (REASON_SESSION && REASON_SESSION.page === readingPage) REASON_SESSION.seen = true;
+  else if (REASON_SESSION && REASON_SESSION.seen) leaveReason(); // the reading page left the field's page: moving on
   // A key's armed confirm word belongs to the page it was read on: another reading page lets it go.
-  if (VD_ARM && VD_ARM.kbd && VD_ARM.where === VD_WHERE.PAGE && VD_ARM.page !== r) disarmVerdict(false, true);
-  // The new reading page stays where it is on screen without a scroll: a stacked line keeps the row of the figure's name it
-  // shows while it is the reading line (components.css), so the line the reading page leaves keeps its height. Scrolling the
-  // area by what a line's change moved a page ended a jump's smooth scroll where it was (an outline jump from page 4 to 40
-  // stopped on page 5), and on a phone a slow scroll down then never passed a page's end: the page above came back under the
-  // reading line, the reading page flipped back and the line grew again, 466 times in 14 drags.
-  // Two pages in a row that take no verdict read 0 here, one after the other: the panel names the page, so it asks too.
-  if (r !== PV_READ || k !== PV_KEYS || pvPanelStale(at)) {
-    if (r !== PV_READ) setPvKeyGuard(false); // the person moved on: they are not typing on into a field that went
-    const was = [PV_READ, PV_KEYS];
-    PV_READ = r;
-    PV_KEYS = k;
+  if (ARMED_VERDICT && ARMED_VERDICT.kbd && ARMED_VERDICT.where === VD_WHERE.PAGE && ARMED_VERDICT.page !== readingPage)
+    disarmVerdict(false, true);
+  // The new reading page stays where it is on screen without a scroll: a stacked line keeps the row of the figure's
+  // name it shows while it is the reading line (components.css), so the line the reading page leaves keeps its height.
+  // Scrolling the area by what a line's change moved a page would end a jump's smooth scroll where it is, and on a
+  // phone a slow scroll down would never pass a page's end: the page above would come back under the reading line and
+  // the reading page would flip back and forth. Two pages in a row that take no verdict read 0 here, one after the
+  // other: the panel names the page, so it asks too.
+  if (readingPage !== READING_LINE_PAGE || keyedPage !== KEYED_PAGE || isPanelStale(at)) {
+    // the person moved on: they are not typing on into a field that went
+    if (readingPage !== READING_LINE_PAGE) setKeyGuard(false);
+    const was = [READING_LINE_PAGE, KEYED_PAGE];
+    READING_LINE_PAGE = readingPage;
+    KEYED_PAGE = keyedPage;
     const map = pageVerdictPins(),
-      v = pageVerdictsOn();
-    const re = [];
-    if (v && PV_SIDE) {
-      pvPanelFill(map, v);
-      re.push(pvPanel());
+      verdicts = pageVerdictsOn();
+    const refit = [];
+    if (verdicts && IS_BESIDE_PAGES) {
+      fillPanel(map, verdicts);
+      refit.push(ensurePanel());
     } // the panel shows the new reading page
-    else if (v)
-      new Set([...was, r, k]).forEach((n) => {
-        const e = (n ? document.querySelector('#doc .pv[data-page="' + n + '"]') : null);
-        if (e) {
-          fillPv(e, n, map.get(n), v);
-          re.push(e);
+    else if (verdicts)
+      new Set([...was, readingPage, keyedPage]).forEach((page) => {
+        const line = (page ? document.querySelector('#doc .pv[data-page="' + page + '"]') : null);
+        if (line) {
+          fillPageLine(line, page, map.get(page), verdicts);
+          refit.push(line);
         }
       });
-    if (re.length) pvFit(re); // the reading line names its figure: its row is measured again
-    pvFocusOffPage(r, was[0]);
+    if (refit.length) fitPageLines(refit); // the reading line names its figure: its row is measured again
+    moveFocusOffPage(readingPage, was[0]);
   }
-  pvPanelPlace();
-  pvSumOn();
-  lines.forEach((l) => {
-    if (l.id === 'pv-panel') return; // the panel stands sticky beside the pages: it never floats at their foot
-    const pg = l.previousElementSibling;
-    if (!pg) return;
-    const b = l.getBoundingClientRect(),
-      pb = pg.getBoundingClientRect().bottom;
-    // In its own place it stands 8px under the page; held lower by a reason's room (pvRoomPlace) it floats over the gap and
-    // the next page's top, and is set off as a floating line is - with an edge under it too while it lies over that page
-    // (.pv-over): its band read as the next page's head.
-    const low = pvRoomLow(l, pg, b.top, pb),
-      stuck = (l.classList.contains('reading') && b.bottom > lr.top && b.top < lr.bottom && b.top < pb + 4) || low;
-    l.classList.toggle('stuck', stuck);
-    l.classList.toggle('pv-over', low && pvOverNext(l, b));
-    pvLean(l, pg, b, stuck, L, lr);
+  placePanel();
+  markReadingSummary();
+  lines.forEach((line) => {
+    if (line.id === 'pv-panel') return; // the panel stands sticky beside the pages: it never floats at their foot
+    const pageElement = line.previousElementSibling;
+    if (!pageElement) return;
+    const rect = line.getBoundingClientRect(),
+      pageBottom = pageElement.getBoundingClientRect().bottom;
+    // In its own place it stands 8px under the page; held lower by a reason's room (placePopoverRoom) it floats over
+    // the gap and the next page's top, and is set off as a floating line is - with an edge under it too while it lies
+    // over that page (.pv-over), since its band would read as the next page's head.
+    const low = isHeldLow(line, pageElement, rect.top, pageBottom),
+      stuck =
+        (line.classList.contains('reading') &&
+          rect.bottom > areaRect.top &&
+          rect.top < areaRect.bottom &&
+          rect.top < pageBottom + 4) ||
+        low;
+    line.classList.toggle('stuck', stuck);
+    line.classList.toggle('pv-over', low && reachesNextPage(line, rect));
+    leanFloatingLine(line, pageElement, rect, stuck, area, areaRect);
   });
-  pvPopPlace();
-  if (pvRoomPlace(L, lr)) pvPopPlace();
+  placePopover();
+  if (placePopoverRoom(area, areaRect)) placePopover();
 } // a held line its floating place lifted: the popover's side again
-// Room to read a page's end under its open reason popover (#345). The popover stands above its line, so where the line stands
-// in its place under the page the popover covers the page's end - a figure's caption, written under the plot - and no scroll
-// uncovered it: the line and the popover with it went on with the page. While a popover is open above a line in the pages,
-// that line's block holds a room as tall as what the popover covers there (.pv-roomy, --pv-room: an empty box after the line
-// whose negative margin gives its height back, so no page and no block moves), and the line's top edge is sticky where it
-// stands (its own top). Scrolling on, the line and the popover stay while the page's end comes up from under them by the
-// room, then go on with the page. The line only ever stands lower than its own place, never higher; scrolled back, it goes
-// down with the page as before, and wherever it then stands unheld - lower, or floating - is where it holds next (also when
-// the field's focus folds the line and the page moves on a phone). Held lower it floats over the gap and the next page's
-// top, set off as a floating line is (pvRoomLow). A sticky top wins over the floating bottom, so the top is never lower than
-// the floating place (a keyboard laid over the page raises that). Opening and closing move nothing and nothing scrolls:
-// closed, the room stays while the line stands lower than its place in view - dropping it would lift the line under the
-// eye - and goes once the line is back in its place or out of view. The panel's popover is in the panel's flow, beside
-// the page: it covers nothing.
-const PV_ROOM = new Map(); // line -> the room its block holds (px) and that block
+// Room to read a page's end under its open reason popover. The popover stands above its line, so where the line stands
+// in its place under the page the popover covers the page's end - a figure's caption, written under the plot - and no
+// scroll would uncover it, since the line and the popover with it go on with the page. While a popover is open above a
+// line in the pages, that line's block holds a room as tall as what the popover covers there (.pv-roomy, --pv-room: an
+// empty box after the line whose negative margin gives its height back, so no page and no block moves), and the line's
+// top edge is sticky where it stands (its own top). Scrolling on, the line and the popover stay while the page's end
+// comes up from under them by the room, then go on with the page. The line only ever stands lower than its own place,
+// never higher; scrolled back, it goes down with the page, and wherever it then stands unheld - lower, or floating - is
+// where it holds next (also when the field's focus folds the line and the page moves on a phone). Held lower it floats
+// over the gap and the next page's top, set off as a floating line is (isHeldLow). A sticky top wins over the floating
+// bottom, so the top is never lower than the floating place (a keyboard laid over the page raises that). Opening and
+// closing move nothing and nothing scrolls: closed, the room stays while the line stands lower than its place in view -
+// dropping it would lift the line under the eye - and goes once the line is back in its place or out of view. The
+// panel's popover is in the panel's flow, beside the page: it covers nothing. line -> the room its block holds (px) and
+// that block
+const POPOVER_ROOM = new Map();
 // The gap between a page and its line in its own place: the page's bottom margin and the line's top margin, collapsed.
-function pvOwnGap(l, pg) {
-  const a = parseFloat(getComputedStyle(pg).marginBottom) || 0,
-    b = parseFloat(getComputedStyle(l).marginTop) || 0;
-  return Math.max(a, b, 0) + Math.min(a, b, 0);
+function lineOwnGap(line, pageElement) {
+  const pageMargin = parseFloat(getComputedStyle(pageElement).marginBottom) || 0,
+    lineMargin = parseFloat(getComputedStyle(line).marginTop) || 0;
+  return Math.max(pageMargin, lineMargin, 0) + Math.min(pageMargin, lineMargin, 0);
 }
-// Whether line l (top edge at t, its page's bottom at pb) stands lower than its own place, held there by a reason's room.
-function pvRoomLow(l, pg, t, pb) {
-  return PV_ROOM.has(l) && t > pb + pvOwnGap(l, pg) + 0.5;
+// Whether a line (its top edge at `top`, its page's bottom at `pageBottom`) stands lower than its own place, held there
+// by a reason's room.
+function isHeldLow(line, pageElement, top, pageBottom) {
+  return POPOVER_ROOM.has(line) && top > pageBottom + lineOwnGap(line, pageElement) + 0.5;
 }
-// Whether line l (its box b), with the ring its floating look paints around it, reaches over the next page's top.
-function pvOverNext(l, b) {
-  const blk = l.parentElement,
-    nx = blk && blk.nextElementSibling,
-    np = nx && nx.querySelector(':scope>.pg');
-  if (!np) return false;
+// Whether a line (its box `rect`), with the ring its floating look paints around it, reaches over the next page's top.
+function reachesNextPage(line, rect) {
+  const block = line.parentElement,
+    nextBlock = block && block.nextElementSibling,
+    nextPage = nextBlock && nextBlock.querySelector(':scope>.pg');
+  if (!nextPage) return false;
   return (
-    np.getBoundingClientRect().top < b.bottom + (parseFloat(getComputedStyle(l).getPropertyValue('--pv-ring')) || 0)
+    nextPage.getBoundingClientRect().top <
+    rect.bottom + (parseFloat(getComputedStyle(line).getPropertyValue('--pv-ring')) || 0)
   );
 }
-function pvRoomDrop(l) {
-  const r = PV_ROOM.get(l);
-  PV_ROOM.delete(l);
-  l.style.removeProperty('top');
-  l.classList.remove('pv-over');
-  if (r) {
-    r.blk.classList.remove('pv-roomy');
-    r.blk.style.removeProperty('--pv-room');
+function dropPopoverRoom(line) {
+  const room = POPOVER_ROOM.get(line);
+  POPOVER_ROOM.delete(line);
+  line.style.removeProperty('top');
+  line.classList.remove('pv-over');
+  if (room) {
+    room.blk.classList.remove('pv-roomy');
+    room.blk.style.removeProperty('--pv-room');
   }
 } // its block, also once the line is gone from it (the side panel took it)
-// Whether it lifted a held line (its floating place rose above it): the popover's side is chosen again then (pvStick).
-function pvRoomPlace(L, lr) {
+// Whether it lifted a held line (its floating place rose above it): the popover's side is chosen again then
+// (stickReadingLine).
+function placePopoverRoom(area, areaRect) {
   const pop = document.querySelector('#doc .pv>.pv-pop');
   const open =
     pop && pop.parentElement && pop.parentElement.id !== 'pv-panel' ? (pop.parentElement) : null;
-  if (!open && !PV_ROOM.size) return false;
-  const cs = getComputedStyle(L),
-    top0 = lr.top + L.clientTop + (parseFloat(cs.paddingTop) || 0),
-    end = lr.top + L.clientTop + L.clientHeight - (parseFloat(cs.paddingBottom) || 0); // what a sticky line keeps within
-  PV_ROOM.forEach((r, l) => {
-    if (l === open) return;
-    const pg = l.previousElementSibling;
-    if (!l.isConnected || !pg || l.parentElement !== r.blk) {
-      pvRoomDrop(l);
+  if (!open && !POPOVER_ROOM.size) return false;
+  const style = getComputedStyle(area),
+    top0 = areaRect.top + area.clientTop + (parseFloat(style.paddingTop) || 0),
+    // what a sticky line keeps within
+    end = areaRect.top + area.clientTop + area.clientHeight - (parseFloat(style.paddingBottom) || 0);
+  POPOVER_ROOM.forEach((room, line) => {
+    if (line === open) return;
+    const pageElement = line.previousElementSibling;
+    if (!line.isConnected || !pageElement || line.parentElement !== room.blk) {
+      dropPopoverRoom(line);
       return;
     }
-    const b = l.getBoundingClientRect();
+    const rect = line.getBoundingClientRect();
     if (
-      !pvRoomLow(l, pg, b.top, pg.getBoundingClientRect().bottom) ||
-      b.bottom <= lr.top ||
-      b.top >= lr.top + L.clientHeight
+      !isHeldLow(line, pageElement, rect.top, pageElement.getBoundingClientRect().bottom) ||
+      rect.bottom <= areaRect.top ||
+      rect.top >= areaRect.top + area.clientHeight
     )
-      pvRoomDrop(l);
+      dropPopoverRoom(line);
   });
   if (open) {
-    const pg = open.previousElementSibling,
-      blk = open.parentElement;
-    const want = pop && pg && blk && blk.classList.contains('pgw') ? Math.ceil(-pop.offsetTop - pvOwnGap(open, pg)) : 0; // under its line: 0 or less
-    let had = PV_ROOM.get(open);
-    if (had && had.blk !== blk) {
-      pvRoomDrop(open);
+    const pageElement = open.previousElementSibling,
+      block = open.parentElement;
+    const want =
+      pop && pageElement && block && block.classList.contains('pgw')
+        ? Math.ceil(-pop.offsetTop - lineOwnGap(open, pageElement))
+        : 0; // under its line: 0 or less
+    let had = POPOVER_ROOM.get(open);
+    if (had && had.blk !== block) {
+      dropPopoverRoom(open);
       had = undefined;
     }
-    if (!had && want > 0 && blk) {
-      had = { room: 0, blk };
-      PV_ROOM.set(open, had);
-      blk.classList.add('pv-roomy');
+    if (!had && want > 0 && block) {
+      had = { room: 0, blk: block };
+      POPOVER_ROOM.set(open, had);
+      block.classList.add('pv-roomy');
     }
-    if (had && pg) {
+    if (had && pageElement) {
       if (want > had.room) {
         had.room = want;
         had.blk.style.setProperty('--pv-room', want + 'px');
       } // a taller popover: more room, never less while it is open
-      // Its top is sticky where it stands - and lower where it comes to stand without being held (the page moved down: a
-      // scroll back, or the line growing or shrinking as the field takes the focus), so the room is under it wherever the
-      // person turns to read on.
-      const b = open.getBoundingClientRect(),
-        t = b.top - top0;
-      if (!pvRoomLow(open, pg, b.top, pg.getBoundingClientRect().bottom) && !(parseFloat(open.style.top) >= t))
-        open.style.top = t + 'px';
+      // Its top is sticky where it stands - and lower where it comes to stand without being held (the page moved down:
+      // a scroll back, or the line growing or shrinking as the field takes the focus), so the room is under it wherever
+      // the person turns to read on.
+      const rect = open.getBoundingClientRect(),
+        stickyTop = rect.top - top0;
+      if (
+        !isHeldLow(open, pageElement, rect.top, pageElement.getBoundingClientRect().bottom) &&
+        !(parseFloat(open.style.top) >= stickyTop)
+      )
+        open.style.top = stickyTop + 'px';
     }
   }
   let lifted = false;
-  PV_ROOM.forEach((_, l) => {
-    const bt = getComputedStyle(l).bottom;
-    if (bt === 'auto') return; // a floating line: its top stays above where it floats
-    const most = end - (parseFloat(bt) || 0) - l.getBoundingClientRect().height - top0;
-    if ((parseFloat(l.style.top) || 0) > most) {
-      l.style.top = most + 'px';
+  POPOVER_ROOM.forEach((_, line) => {
+    const bottom = getComputedStyle(line).bottom;
+    if (bottom === 'auto') return; // a floating line: its top stays above where it floats
+    const most = end - (parseFloat(bottom) || 0) - line.getBoundingClientRect().height - top0;
+    if ((parseFloat(line.style.top) || 0) > most) {
+      line.style.top = most + 'px';
       lifted = true;
     }
   });
   return lifted;
 }
-// A phone's floating line holds [판정 취소] back (.pv-lean, components.css): unseen, not pressed, focused or heard - and in
-// its place, so the line keeps its rows whether it floats or stands in its place. Taken out of the row, it let the short
-// earlier link ('이전 1건') rise into its row while the line floated: 131 against 191px in place, and the next page jumped
-// 60px under the finger as the line crossed its page's end. The in-place line and the card still offer it, with its 44px.
-// Hysteresis keeps it from flipping at a page's end: shown, it leans once the line floats; leaning, it is shown again only
-// when the line (its full height, measured when it was last shown) fits in its place under the page. Desktop and every
-// other band: never.
-const PV_FULL_H = new WeakMap();
-function pvLean(l, pg, b, stuck, L, lr) {
+// A phone's floating line holds [판정 취소] back (.pv-lean, components.css): unseen, not pressed, focused or heard -
+// and in its place, so the line keeps its rows whether it floats or stands in its place. Taken out of the row, it would
+// let the short earlier link ('이전 1건') rise into its row while the line floats, and the next page would jump under
+// the finger as the line crosses its page's end. The in-place line and the card still offer it, with its 44px.
+// Hysteresis keeps it from flipping at a page's end: shown, it leans once the line floats; leaning, it is shown again
+// only when the line (its full height, measured when it was last shown) fits in its place under the page. Desktop and
+// every other band: never.
+const FULL_LINE_HEIGHT = new WeakMap();
+function leanFloatingLine(
+  line,
+  pageElement,
+  rect,
+  stuck,
+  area,
+  areaRect,
+) {
   if (
     !document.body.classList.contains('band-phone') ||
-    !l.classList.contains('reading') ||
-    !l.querySelector('.pv-cancel')
+    !line.classList.contains('reading') ||
+    !line.querySelector('.pv-cancel')
   ) {
-    l.classList.remove('pv-lean');
+    line.classList.remove('pv-lean');
     return;
   }
-  const m = PV_FULL_H.get(l) || { h: 0, gap: 8 },
-    pb = pg.getBoundingClientRect().bottom;
-  PV_FULL_H.set(l, m);
-  if (!stuck) m.gap = Math.max(0, b.top - pb);
-  if (!l.classList.contains('pv-lean')) {
-    m.h = b.height;
+  const full = FULL_LINE_HEIGHT.get(line) || { h: 0, gap: 8 },
+    pageBottom = pageElement.getBoundingClientRect().bottom;
+  FULL_LINE_HEIGHT.set(line, full);
+  if (!stuck) full.gap = Math.max(0, rect.top - pageBottom);
+  if (!line.classList.contains('pv-lean')) {
+    full.h = rect.height;
     if (stuck) {
-      l.classList.add('pv-lean');
-      pvFocusStays([l]);
+      line.classList.add('pv-lean');
+      keepFocusOnLine([line]);
     }
     return;
   }
   // Where a floating line's bottom stands: the area's bottom less its end padding and the line's sticky inset.
-  const cs = getComputedStyle(L),
-    limit = lr.top + L.clientHeight - parseFloat(cs.paddingBottom) - (parseFloat(getComputedStyle(l).bottom) || 0);
-  if (pb + m.gap + (m.h || b.height + 64) <= limit) l.classList.remove('pv-lean');
+  const style = getComputedStyle(area),
+    limit =
+      areaRect.top +
+      area.clientHeight -
+      parseFloat(style.paddingBottom) -
+      (parseFloat(getComputedStyle(line).bottom) || 0);
+  if (pageBottom + full.gap + (full.h || rect.height + 64) <= limit) line.classList.remove('pv-lean');
 }
 // What lies over the PDF area's right side, in px in from the area's content edge: a panel laid over it - the unfolded
 // foldable's overlay panel, beside which the pages run on underneath - and its handle's touch area, as for a save chip
-// (chipInRoom). 0 where the panel stands beside the area or at its bottom (a sheet). A line is never wider than the room
-// left of them, and keeps out of them as it floats (sticky right, --pv-inset-r): its words would lie under the panel.
-let PV_INSET_R = 0;
-function pvInsetR() {
-  const L = $('#left'),
-    R = $('#right'),
-    G = $('#grip');
-  if (!L.getClientRects().length) return 0;
-  const lr = L.getBoundingClientRect(),
-    edge = lr.left + L.clientWidth - parseFloat(getComputedStyle(L).paddingRight);
+// (chipInRoom). 0 where the panel stands beside the area or at its bottom (a sheet). A line is never wider than the
+// room left of them, and keeps out of them as it floats (sticky right, --pv-inset-r): its words would lie under the
+// panel.
+let INSET_RIGHT = 0;
+function measureInsetRight() {
+  const area = $('#left'),
+    panel = $('#right'),
+    grip = $('#grip');
+  if (!area.getClientRects().length) return 0;
+  const areaRect = area.getBoundingClientRect(),
+    edge = areaRect.left + area.clientWidth - parseFloat(getComputedStyle(area).paddingRight);
   let right = edge;
-  if (R && R.getClientRects().length) {
-    const rr = R.getBoundingClientRect();
-    if (rr.left > lr.left + 40 && rr.top < lr.bottom - 40) right = Math.min(right, rr.left - 4);
+  if (panel && panel.getClientRects().length) {
+    const panelRect = panel.getBoundingClientRect();
+    if (panelRect.left > areaRect.left + 40 && panelRect.top < areaRect.bottom - 40)
+      right = Math.min(right, panelRect.left - 4);
   }
-  if (G && G.getClientRects().length) {
-    const gr = G.getBoundingClientRect(),
-      reach = Math.max(gr.width, parseFloat(getComputedStyle(G, '::after').width) || 0);
-    if (gr.left > lr.left + 40) right = Math.min(right, gr.right - reach - 4);
+  if (grip && grip.getClientRects().length) {
+    const gripRect = grip.getBoundingClientRect(),
+      reach = Math.max(gripRect.width, parseFloat(getComputedStyle(grip, '::after').width) || 0);
+    if (gripRect.left > areaRect.left + 40) right = Math.min(right, gripRect.right - reach - 4);
   }
   return Math.max(0, Math.round(edge - right));
 }
-// The page under the reading line - the one the section strip and the page count name, readingDepth under the PDF area's
-// top - while the pages are shown and the document has page lines; 0 otherwise. Read from the layout as it is now.
-function pvReadingAt() {
-  if (PV_AT_HELD) return PV_AT_HELD; // the lines are moving beside or under the pages (verdict-panel.js)
-  if (PV_BUILD_AT) return PV_BUILD_AT; // the pages are being built again (refreshDoc)
+// The page under the reading line - the one the section strip and the page count name, readingDepth under the PDF
+// area's top - while the pages are shown and the document has page lines; 0 otherwise. Read from the layout as it is
+// now.
+function pageUnderReadingLine() {
+  if (HELD_READING_PAGE) return HELD_READING_PAGE; // the lines are moving beside or under the pages (verdict-panel.ts)
+  if (BUILD_READING_PAGE) return BUILD_READING_PAGE; // the pages are being built again (refreshDoc)
   if (!pageVerdictsOn() || document.body.classList.contains('revision-open') || !$('#left').getClientRects().length)
     return 0;
-  const a = topAnchor(readingDepth($('#left')));
-  return a ? a.page : 0;
+  const anchor = topAnchor(readingDepth($('#left')));
+  return anchor ? anchor.page : 0;
 }
-// The reading page when it has a line (pageTakesVerdict), else 0: its line floats and names its figure (PV_READ).
-function pvReadingPage() {
-  const n = pvReadingAt();
-  return n && pageTakesVerdict(n) ? n : 0;
+// The reading page when it has a line (pageTakesVerdict), else 0: its line floats and names its figure
+// (READING_LINE_PAGE).
+function readingPageWithLine() {
+  const page = pageUnderReadingLine();
+  return page && pageTakesVerdict(page) ? page : 0;
 }
-// The page the keys 1-5 act on: reading page r while this screen may make a verdict, no selection is being written and no
-// text field has the focus (its digits are text).
-function pvKeysPage(r) {
-  return r && canVerdict() && $('#composer').hidden && !typingNow() ? r : 0;
+// The page the keys 1-5 act on: the reading page while this screen may make a verdict, no selection is being written
+// and no text field has the focus (its digits are text).
+function keyedPageFor(readingPage) {
+  return readingPage && canVerdict() && $('#composer').hidden && !typingNow() ? readingPage : 0;
 }
-let PV_READ = 0; // the reading page with a line: its line floats and names its figure
-let PV_FRAME = 0;
-// Whether element e shows in the PDF area now (any part of it).
-function pvInView(e) {
-  const L = $('#left'),
-    lr = L.getBoundingClientRect(),
-    b = e.getBoundingClientRect();
-  return b.bottom > lr.top && b.top < lr.top + L.clientHeight && b.right > lr.left && b.left < lr.right;
+let READING_LINE_PAGE = 0; // the reading page with a line: its line floats and names its figure
+let STICK_FRAME = 0;
+// Whether an element shows in the PDF area now (any part of it).
+function isInAreaView(element) {
+  const area = $('#left'),
+    areaRect = area.getBoundingClientRect(),
+    rect = element.getBoundingClientRect();
+  return (
+    rect.bottom > areaRect.top &&
+    rect.top < areaRect.top + area.clientHeight &&
+    rect.right > areaRect.left &&
+    rect.left < areaRect.right
+  );
 }
-// The reading page moved from page was to page r while the focus stays on a control of another page's line - was's own line
-// (still in view after a PageDown) or one now out of view (the saved reason's pencil, a word): the focus goes to the PDF area,
-// where Enter opens the reading page's reason and Tab goes to its line. Left there, the next Enter or Space acted on the page
-// the person had left - its reason opened (off-screen) and the text meant for this page went into that page's note. A focus
-// put on a third page's line in view stays: the person went there.
-function pvFocusOffPage(r, was) {
-  const a = document.activeElement,
-    l = a && a.closest ? a.closest('#doc .pv') : null;
-  if (!a || !l || (a.closest && a.closest('.pv-pop'))) return;
-  const n = Number((l).dataset.page);
-  if (n !== r && (n === was || !pvInView(a))) searchToPage();
+// The reading page moved from page `was` to readingPage while the focus stays on a control of another page's line - the
+// left page's own line (still in view after a PageDown) or one now out of view (the saved reason's pencil, a word): the
+// focus goes to the PDF area, where Enter opens the reading page's reason and Tab goes to its line. Left there, the
+// next Enter or Space would act on the page the person left - its reason would open off-screen and the text meant for
+// this page would go into that page's note. A focus put on a third page's line in view stays: the person went there.
+function moveFocusOffPage(readingPage, was) {
+  const active = document.activeElement,
+    line = active && active.closest ? active.closest('#doc .pv') : null;
+  if (!active || !line || (active.closest && active.closest('.pv-pop'))) return;
+  const page = Number((line).dataset.page);
+  if (page !== readingPage && (page === was || !isInAreaView(active))) searchToPage();
 }
-// The line control the focus went to and the reading page then: one focused on the reading page's line that is no longer it
-// is the page the person left (pvOffPageKey), even before the frame that moves the focus (pvFocusOffPage).
-let PV_LINE_FOCUS = null;
-document.addEventListener('focusin', (e) => {
-  const t = e.target;
-  PV_LINE_FOCUS = t && t.closest && t.closest('#doc .pv') ? { el: t, read: PV_READ } : null;
+// The line control the focus went to and the reading page then: one focused on the reading page's line that is no
+// longer it is the page the person left (stopOffPageKey), even before the frame that moves the focus
+// (moveFocusOffPage).
+let LINE_FOCUS = null;
+document.addEventListener('focusin', (event) => {
+  const target = event.target;
+  LINE_FOCUS = target && target.closest && target.closest('#doc .pv') ? { el: target, read: READING_LINE_PAGE } : null;
 });
-// Enter or Space on a control of a line that is not the reading page's - out of view, or the line of the page the person
-// left (focused while it was the reading page) - does not act there (a press read before the focus moved, pvFocusOffPage):
-// the focus goes to the PDF area, and Enter is taken as on the pages - the reading page's reason (pvReasonEnterKey) - while
-// Space is only said.
-function pvOffPageKey(e) {
-  if ((e.key !== 'Enter' && e.key !== ' ') || e.ctrlKey || e.metaKey || e.altKey || imeKey(e)) return;
-  const t = e.target;
-  const l = t && t.closest ? t.closest('#doc .pv') : null;
-  if (!t || !l || (t.closest && t.closest('.pv-pop')) || typingNow()) return;
-  const r = pvReadingAt(),
-    n = Number((l).dataset.page),
-    left = !!PV_LINE_FOCUS && PV_LINE_FOCUS.el === t && PV_LINE_FOCUS.read === n;
-  if (PV_DROP_OUT.has(pvSlot(n))) {
-    e.preventDefault();
-    e.stopImmediatePropagation();
+// Enter or Space on a control of a line that is not the reading page's - out of view, or the line of the page the
+// person left (focused while it was the reading page) - does not act there (a press read before the focus moved,
+// moveFocusOffPage): the focus goes to the PDF area, and Enter is taken as on the pages - the reading page's reason
+// (openReasonOnEnter) - while Space is only said.
+function stopOffPageKey(event) {
+  if ((event.key !== 'Enter' && event.key !== ' ') || event.ctrlKey || event.metaKey || event.altKey || imeKey(event))
+    return;
+  const target = event.target;
+  const line = target && target.closest ? target.closest('#doc .pv') : null;
+  if (!target || !line || (target.closest && target.closest('.pv-pop')) || typingNow()) return;
+  const readingPage = pageUnderReadingLine(),
+    page = Number((line).dataset.page),
+    left = !!LINE_FOCUS && LINE_FOCUS.el === target && LINE_FOCUS.read === page;
+  if (CANCEL_OUT.has(pageLineSlot(page))) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
     return;
   } // its take-back is out
-  if (!r || n === r || (pvInView(t) && !left)) return;
-  e.preventDefault();
-  e.stopImmediatePropagation();
+  if (!readingPage || page === readingPage || (isInAreaView(target) && !left)) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
   searchToPage();
-  if (e.type !== 'keydown') return;
-  if (e.key === 'Enter') {
-    pvReasonEnterPages(e);
+  if (event.type !== 'keydown') return;
+  if (event.key === 'Enter') {
+    openReadingReason(event);
     return;
   }
   lineNote('보이지 않는 쪽의 단추라 누르지 않았습니다 — 읽는 쪽에서 다시 누릅니다', NOTICE_KIND.INFO, null, {
@@ -25490,45 +25735,62 @@ function pvOffPageKey(e) {
     life: NOTICE_LIFE.TIMER,
   });
 }
-addEventListener('keydown', pvOffPageKey, true);
-addEventListener('keyup', pvOffPageKey, true); // keyup: a button's Space acts on its keyup
-function pvStickSoon() {
-  if (!PV_FRAME)
-    PV_FRAME = requestAnimationFrame(() => {
-      PV_FRAME = 0;
-      pvStick();
+addEventListener('keydown', stopOffPageKey, true);
+addEventListener('keyup', stopOffPageKey, true); // keyup: a button's Space acts on its keyup
+function stickSoon() {
+  if (!STICK_FRAME)
+    STICK_FRAME = requestAnimationFrame(() => {
+      STICK_FRAME = 0;
+      stickReadingLine();
     });
 }
-$('#left').addEventListener('scroll', pvStickSoon, { passive: true });
-addEventListener('resize', pvStickSoon);
+$('#left').addEventListener('scroll', stickSoon, { passive: true });
+addEventListener('resize', stickSoon);
 {
-  const vv = window.visualViewport;
-  if (vv) {
-    vv.addEventListener('resize', pvStickSoon);
-    vv.addEventListener('scroll', pvStickSoon);
+  const viewport = window.visualViewport;
+  if (viewport) {
+    viewport.addEventListener('resize', stickSoon);
+    viewport.addEventListener('scroll', stickSoon);
   }
 } // a keyboard over the page
-$('#doc').addEventListener('input', (e) => {
-  const t = e.target;
-  if (t.closest && t.closest('.pv-pop')) pvStickSoon();
+$('#doc').addEventListener('input', (event) => {
+  const target = event.target;
+  if (target.closest && target.closest('.pv-pop')) stickSoon();
 }); // the reason field grows: its side again
-new MutationObserver(pvStickSoon).observe(document.body, { attributes: true, attributeFilter: ['class'] }); // composing, the sheet, the band
+// composing, the sheet, the band
+new MutationObserver(stickSoon).observe(document.body, { attributes: true, attributeFilter: ['class'] });
 if (typeof ResizeObserver !== 'undefined') {
-  const R = document.getElementById('right');
-  if (R) new ResizeObserver(pvStickSoon).observe(R);
+  const panel = document.getElementById('right');
+  if (panel) new ResizeObserver(stickSoon).observe(panel);
 } // the panel's width
-// The keys: 1-5 press the document's verdict words in file order on the line of the page under the reading line, as a press
-// on that button does - a confirm word arms on the first press and saves on the second while its page, document and build
-// hold (verdictPress). The page is read from the layout at the key, not from the last frame: a key right after a scroll
-// across a page's end would otherwise go to the page before - and confirm its armed word. A confirm word armed for another
-// page is let go first. Not in a text field, not while a dialog or a popover is open, not while a selection is being
-// written (the composer is open) or the changes view is shown, not with Ctrl, Alt or Meta (Alt+digit switches documents).
-// On a page that takes no verdict a key says so on the status line, once. The button and its line say the key (vdButton kn).
-function verdictKey(e) {
-  if (e.defaultPrevented || e.repeat || imeKey(e) || e.ctrlKey || e.metaKey || e.altKey || !/^[1-5]$/.test(e.key))
+// The keys: 1-5 press the document's verdict words in file order on the line of the page under the reading line, as a
+// press on that button does - a confirm word arms on the first press and saves on the second while its page, document
+// and build hold (verdictPress). The page is read from the layout at the key, not from the last frame: a key right
+// after a scroll across a page's end would otherwise go to the page before - and confirm its armed word. A confirm word
+// armed for another page is let go first. Not in a text field, not while a dialog or a popover is open, not while a
+// selection is being written (the composer is open) or the changes view is shown, not with Ctrl, Alt or Meta (Alt+digit
+// switches documents). On a page that takes no verdict a key says so on the status line, once. The button and its line
+// say the key (verdictButton's keyNumber).
+function verdictKey(event) {
+  if (
+    event.defaultPrevented ||
+    event.repeat ||
+    imeKey(event) ||
+    event.ctrlKey ||
+    event.metaKey ||
+    event.altKey ||
+    !/^[1-5]$/.test(event.key)
+  )
     return;
-  const t = e.target;
-  if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+  const target = event.target;
+  if (
+    target &&
+    (target.tagName === 'TEXTAREA' ||
+      target.tagName === 'INPUT' ||
+      target.tagName === 'SELECT' ||
+      target.isContentEditable)
+  )
+    return;
   if (
     document.querySelector('dialog[open]') ||
     !$('#page-pop').hidden ||
@@ -25536,296 +25798,312 @@ function verdictKey(e) {
     !$('#composer').hidden
   )
     return;
-  // A card's editor or reply open with the focus outside the pages (on its [저장], say): its keys, not the pages' - a digit
-  // took the focus from it, and the Enter after it then opened nothing (pvReasonEnterPages waits for the editor).
+  // A card's editor or reply open with the focus outside the pages (on its [저장], say): its keys, not the pages' - a
+  // digit would take the focus from it, and the Enter after it would open nothing (openReadingReason waits for the
+  // editor).
   if ((EDITOR.current || REPLY) && !$('#left').contains(document.activeElement)) return;
-  const v = pageVerdictsOn(),
-    n = +e.key,
-    c = v && v.choices[n - 1],
-    at = pvReadingAt();
-  if (!c || !at || !canVerdict()) return;
-  if (pvKeyGuarded(e)) return; // a reason field went from under the typing: its digits are not verdict keys
-  if (pvAutoScrolling()) {
-    e.preventDefault();
-    pvSayGliding();
+  const verdicts = pageVerdictsOn(),
+    digit = +event.key,
+    choice = verdicts && verdicts.choices[digit - 1],
+    at = pageUnderReadingLine();
+  if (!choice || !at || !canVerdict()) return;
+  if (isKeyGuarded(event)) return; // a reason field went from under the typing: its digits are not verdict keys
+  if (isAutoScrolling()) {
+    event.preventDefault();
+    sayGliding();
     return;
   } // a jump still gliding: the reading page is not yet the one asked for
   if (!pageTakesVerdict(at)) {
-    e.preventDefault();
+    event.preventDefault();
     lineNote('이 쪽은 판정을 받지 않습니다', NOTICE_KIND.INFO, null, {
       source: 'verdict-key',
       life: NOTICE_LIFE.TIMER,
     });
     return;
   }
-  if (VD_ARM && VD_ARM.kbd && VD_ARM.where === VD_WHERE.PAGE && VD_ARM.page !== at) disarmVerdict(true, true);
-  // The panel shows the page under the reading line at the key, also before the frame that would show it (verdict-panel.js).
-  if (PV_SIDE && pvPanel().dataset.page !== String(at)) pvStick();
-  const b = document.querySelector(
-    '#doc .pv[data-page="' + at + '"] button[data-act="pv-save"][data-key="' + CSS.escape(c.key) + '"]',
+  if (ARMED_VERDICT && ARMED_VERDICT.kbd && ARMED_VERDICT.where === VD_WHERE.PAGE && ARMED_VERDICT.page !== at)
+    disarmVerdict(true, true);
+  // The panel shows the page under the reading line at the key, also before the frame that would show it
+  // (verdict-panel.ts).
+  if (IS_BESIDE_PAGES && ensurePanel().dataset.page !== String(at)) stickReadingLine();
+  const button = document.querySelector(
+    '#doc .pv[data-page="' + at + '"] button[data-act="pv-save"][data-key="' + CSS.escape(choice.key) + '"]',
   );
-  if (!b) return;
-  e.preventDefault();
-  // A digit pressed with the focus outside the pages (an outline entry, the page list's or the section strip's button, a
-  // document tab, a card) brings the focus to the PDF area at once, as the save's end brings it to the line: left on that
-  // control while the save was out, the Enter typed after the digit pressed it again - the outline jumped, the page field
-  // opened and took the reason's text - instead of opening the reason. The area is a named region (index.html), so a screen
-  // reader says 'PDF 쪽' for the moment it has the focus, not every page's text one after the other. Where the focus came
-  // from is kept: Shift+Tab from the line goes back there (PV_CAME).
-  const a = document.activeElement,
-    L = $('#left');
-  if (a && a !== document.body && a !== L && !L.contains(a)) {
-    pvCame(a);
+  if (!button) return;
+  event.preventDefault();
+  // A digit pressed with the focus outside the pages (an outline entry, the page list's or the section strip's button,
+  // a document tab, a card) brings the focus to the PDF area at once, as the save's end brings it to the line: left on
+  // that control while the save is out, the Enter typed after the digit would press it again instead of opening the
+  // reason. The area is a named region (index.html), so a screen reader says 'PDF 쪽' for the moment it has the focus,
+  // not every page's text one after the other. Where the focus came from is kept: Shift+Tab from the line goes back
+  // there (CAME_FROM).
+  const active = document.activeElement,
+    area = $('#left');
+  if (active && active !== document.body && active !== area && !area.contains(active)) {
+    noteCameFrom(active);
     searchToPage();
   }
-  verdictPress(b, 'key');
+  verdictPress(button, 'key');
 }
 addEventListener('keydown', verdictKey);
-// Whether the pages are gliding where a jump sent them (the outline, the page list, a card's [보기]): the PDF area is scrolling
-// - from a scroll event to its scrollend (where the browser has none, 160ms after the last scroll) - and no wheel, touch,
-// press or scrolling key of the person's came in the 500ms before it began. While it glides the page under the reading line
-// is one it passes, not the one asked for: a verdict key or Enter then would act on a page scrolled past (an outline jump
-// to page 64 saved 보류 on page 12). A scroll the person makes goes on acting at once; an instant jump ends at once.
-let PV_SCROLL_AT = 0,
-  PV_SCROLL_HAND = 0,
-  PV_GLIDE = false,
-  PV_JUMP = null; // PV_JUMP: the scrollTop a jump is going to
-const PV_HAND = () => {
-  PV_SCROLL_HAND = performance.now();
-  PV_GLIDE = false;
-  pvJumpSet(null);
+// Whether the pages are gliding where a jump sent them (the outline, the page list, a card's [보기]): the PDF area is
+// scrolling
+// - from a scroll event to its scrollend (where the browser has none, 160ms after the last scroll) - and no wheel,
+//   touch,
+// press or scrolling key of the person's came in the 500ms before it began. While it glides the page under the reading
+// line is one it passes, not the one asked for: a verdict key or Enter then would act on a page scrolled past. A scroll
+// the person makes goes on acting at once; an instant jump ends at once.
+let LAST_SCROLL_AT = 0,
+  HAND_SCROLL_AT = 0,
+  IS_GLIDING = false,
+  JUMP_TARGET = null; // JUMP_TARGET: the scrollTop a jump is going to
+const HAND_ON_PAGES = () => {
+  HAND_SCROLL_AT = performance.now();
+  IS_GLIDING = false;
+  setJumpTarget(null);
 }; // the person takes the pages over
-// A script is about to scroll the PDF area to show something - a search hit, a mark, a box, a line, another document - so a jump
-// on its way is over: its guard comes down, and its settling, which would glide the pages back, lets go. No input need come
-// before: a search hit lands when the PDF's text has been read. A write that only keeps what is on screen across a layout
-// change does not come here (restoreAnchor, pvLetBlocks, setSelMode, zoomRestore, pvSideSettle): it moves with the place, so the
-// settling stays right. test_viewer_scroll_writes.py holds the list: a new scripted scroll has to be put in it. Given what it
-// shows as a place, the pages settle there when a glide was on its way: the write stops it a frame or two late.
-function pvShow(place) {
+// A script is about to scroll the PDF area to show something - a search hit, a mark, a box, a line, another document -
+// so a jump on its way is over: its guard comes down, and its settling, which would glide the pages back, lets go. No
+// input need come before: a search hit lands when the PDF's text has been read. A write that only keeps what is on
+// screen across a layout change does not come here (restoreAnchor, letLineBlocks, setSelMode, zoomRestore,
+// settleBesideTurn): it moves with the place, so the settling stays right. test_viewer_scroll_writes.py holds the list:
+// a new scripted scroll has to be put in it. Given what it shows as a place, the pages settle there when a glide was on
+// its way: the write stops it a frame or two late.
+function endJumpForScroll(place) {
   arrivalLetGo();
-  if (PV_JUMP === null) return;
-  pvJumpSet(null);
-  PV_GLIDE = false;
+  if (JUMP_TARGET === null) return;
+  setJumpTarget(null);
+  IS_GLIDING = false;
   if (place) arrivalWatch(place);
 }
-// Sets where a jump is going (PV_JUMP, null when none), and while it goes holds the PDF area's scroll anchoring off (#left.pv-glide,
-// frame.css). WebKit ends a smooth scroll at any anchoring adjustment of its scroller, and on the way the lines are drawn again
-// as each page passes under the reading line: on a phone a jump from page 1 to page 105 of a figure document rested at page 89,
-// to page 105 of a generated one at page 4 (#343). The glide's place is reckoned at its start and nothing above it changes size on
-// the way (the lines keep their heights, a far one its drawn one), so there is nothing for anchoring to keep in the meantime.
-// A jump that does not end at its place - the browser stopped it short, a document switch or a rebuild took the pages over, a
-// late scroll end of an earlier scroll came instead of its own - is let go once the pages have been still for a second, as the
-// guard lets it go (pvAutoScrolling): the hold is never left on, which would take anchoring from a line changing height
-// above the view. Checked past settle()'s timer window (IDLE_TIMER_MS) so that a test waiting for quiet does not wait it out.
-let PV_JUMP_TIMER = 0;
-function pvJumpSet(v) {
-  PV_JUMP = v;
-  $('#left').classList.toggle('pv-glide', v !== null);
-  clearTimeout(PV_JUMP_TIMER);
-  if (v !== null) PV_JUMP_TIMER = setTimeout(pvJumpLapse, 1100);
+// Sets where a jump is going (JUMP_TARGET, null when none), and while it goes holds the PDF area's scroll anchoring off
+// (#left.pv-glide, frame.css). WebKit ends a smooth scroll at any anchoring adjustment of its scroller, and on the way
+// the lines are drawn again as each page passes under the reading line, so on a phone a long jump would rest short of
+// its page. The glide's place is reckoned at its start and nothing above it changes size on the way (the lines keep
+// their heights, a far one its drawn one), so there is nothing for anchoring to keep in the meantime. A jump that does
+// not end at its place - the browser stopped it short, a document switch or a rebuild took the pages over, a late
+// scroll end of an earlier scroll came instead of its own - is let go once the pages have been still for a second, as
+// the guard lets it go (isAutoScrolling): the hold is never left on, which would take anchoring from a line changing
+// height above the view. Checked past settle()'s timer window (IDLE_TIMER_MS) so that a test waiting for quiet does not
+// wait it out.
+let JUMP_TIMER = 0;
+function setJumpTarget(target) {
+  JUMP_TARGET = target;
+  $('#left').classList.toggle('pv-glide', target !== null);
+  clearTimeout(JUMP_TIMER);
+  if (target !== null) JUMP_TIMER = setTimeout(lapseJump, 1100);
 }
-function pvJumpLapse() {
-  if (PV_JUMP === null) return;
-  if (performance.now() - PV_SCROLL_AT >= 1000) pvJumpSet(null);
-  else PV_JUMP_TIMER = setTimeout(pvJumpLapse, 1100);
+function lapseJump() {
+  if (JUMP_TARGET === null) return;
+  if (performance.now() - LAST_SCROLL_AT >= 1000) setJumpTarget(null);
+  else JUMP_TIMER = setTimeout(lapseJump, 1100);
 }
-for (const t of ['wheel', 'touchstart', 'touchmove', 'pointerdown'])
-  $('#left').addEventListener(t, PV_HAND, { passive: true, capture: true });
+for (const eventType of ['wheel', 'touchstart', 'touchmove', 'pointerdown'])
+  $('#left').addEventListener(eventType, HAND_ON_PAGES, { passive: true, capture: true });
 $('#left').addEventListener(
   'pointermove',
-  (e) => {
-    if (e.buttons) PV_HAND();
+  (event) => {
+    if (event.buttons) HAND_ON_PAGES();
   },
   { passive: true, capture: true },
 ); // a scroll bar dragged
 // A scrolling key is the person's hand on the pages only where it scrolls them: on the PDF area, on a control in it (a
-// line's word lets the arrows through) or on nothing - not in a text field, and not Space on a button, which it presses.
-// ↓ in the outline's filter or list moves to a result, and the Enter after it started a jump the guard then took for the
-// person's own scroll: a digit pressed while it glided saved on a page passed (PL83 from page 60: 보류 on page 71).
+// line's word lets the arrows through) or on nothing - not in a text field, and not Space on a button, which it
+// presses. ↓ in the outline's filter or list moves to a result, and the Enter after it starts a jump the guard must not
+// take for the person's own scroll, or a digit pressed while it glides would save on a page passed.
 addEventListener(
   'keydown',
-  (e) => {
-    if (!SCROLL_KEYS.has(e.key)) return;
-    const t = e.target;
-    if (!(t === document.body || t === document.documentElement || (t instanceof Element && !!t.closest('#left'))))
+  (event) => {
+    if (!SCROLL_KEYS.has(event.key)) return;
+    const target = event.target;
+    if (!(
+      target === document.body ||
+      target === document.documentElement ||
+      (target instanceof Element && !!target.closest('#left'))
+    ))
       return;
-    if (t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
-    if (e.key === ' ' && t instanceof Element && t.closest('button,[role=button],summary')) return;
-    PV_HAND();
+    if (target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)))
+      return;
+    if (event.key === ' ' && target instanceof Element && target.closest('button,[role=button],summary')) return;
+    HAND_ON_PAGES();
   },
   true,
 );
-const PV_SCROLLEND = 'onscrollend' in window;
+const HAS_SCROLLEND = 'onscrollend' in window;
 $('#left').addEventListener(
   'scroll',
   () => {
-    const t = performance.now();
-    if (PV_JUMP !== null && t - PV_SCROLL_AT > 1000) pvJumpSet(null); // a jump that never got there
-    if (PV_JUMP === null && t - PV_SCROLL_AT > 200) PV_GLIDE = t - PV_SCROLL_HAND > 500;
-    PV_SCROLL_AT = t;
+    const now = performance.now();
+    if (JUMP_TARGET !== null && now - LAST_SCROLL_AT > 1000) setJumpTarget(null); // a jump that never got there
+    if (JUMP_TARGET === null && now - LAST_SCROLL_AT > 200) IS_GLIDING = now - HAND_SCROLL_AT > 500;
+    LAST_SCROLL_AT = now;
   },
   { passive: true },
 ); // a new run of scrolling decides, unless a jump said what it is
-// The end of a jump is at its place: a manual scroll's own end, coming after the jump began, ended the guard in its first frames.
+// The end of a jump is at its place: a manual scroll's own end, coming after the jump began, must not end the guard in
+// its first frames.
 $('#left').addEventListener('scrollend', () => {
-  if (PV_JUMP !== null && Math.abs($('#left').scrollTop - PV_JUMP) > 2) return;
-  pvJumpSet(null);
-  PV_GLIDE = false;
+  if (JUMP_TARGET !== null && Math.abs($('#left').scrollTop - JUMP_TARGET) > 2) return;
+  setJumpTarget(null);
+  IS_GLIDING = false;
 });
-function pvAutoScrolling() {
-  return PV_GLIDE && performance.now() - PV_SCROLL_AT < (PV_SCROLLEND ? 1000 : 160);
+function isAutoScrolling() {
+  return IS_GLIDING && performance.now() - LAST_SCROLL_AT < (HAS_SCROLLEND ? 1000 : 160);
 }
-// Every smooth jump of the PDF area starts here (a page, an outline entry's place, a card's [보기]): it is a glide from now, not
-// from its first scroll event a frame later, in which a digit acted on the page being left, and whatever the hand did just
-// before - a recent wheel made the guard take the jump for the person's own scroll. Nothing to glide (reduced motion, or
-// already there): no guard, no scroll event would end it. Returns how the jump's scroll goes (scrollMotion, read once
-// here, so the guard and the scroll agree).
+// Every smooth jump of the PDF area starts here (a page, an outline entry's place, a card's [보기]): it is a glide from
+// now, not from its first scroll event a frame later, in which a digit would act on the page being left, and whatever
+// the hand did just before - a recent wheel would make the guard take the jump for the person's own scroll. Nothing to
+// glide (reduced motion, or already there): no guard, no scroll event would end it. Returns how the jump's scroll goes
+// (scrollMotion, read once here, so the guard and the scroll agree).
 /** @param to - the scrollTop it goes to */
-function pvGlideArm(to) {
-  const L = $('#left'),
-    top = Math.max(0, Math.min(L.scrollHeight - L.clientHeight, to)),
+function armGlide(to) {
+  const area = $('#left'),
+    top = Math.max(0, Math.min(area.scrollHeight - area.clientHeight, to)),
     how = scrollMotion();
-  if (how === 'smooth' && Math.abs(top - L.scrollTop) > 1) {
-    pvJumpSet(top);
-    PV_GLIDE = true;
-    PV_SCROLL_AT = performance.now();
-  } else if (PV_JUMP !== null) {
-    pvJumpSet(null);
-    PV_GLIDE = false;
+  if (how === 'smooth' && Math.abs(top - area.scrollTop) > 1) {
+    setJumpTarget(top);
+    IS_GLIDING = true;
+    LAST_SCROLL_AT = performance.now();
+  } else if (JUMP_TARGET !== null) {
+    setJumpTarget(null);
+    IS_GLIDING = false;
   } // this scroll replaces a glide in flight (reduced motion turned on during it): its guard goes with it
   return how;
 }
-function pvGlideTo(top) {
-  $('#left').scrollTo({ top, behavior: pvGlideArm(top) });
+function glideTo(top) {
+  $('#left').scrollTo({ top, behavior: armGlide(top) });
 }
-/** The scrollTop that brings el to the top of the PDF area, or its middle to the area's middle (center). */
-function pvIntoTop(el, block) {
-  const L = $('#left'),
-    r = el.getBoundingClientRect(),
-    lr = L.getBoundingClientRect();
+/** The scrollTop that brings an element to the top of the PDF area, or its middle to the area's middle (center). */
+function scrollTopFor(element, block) {
+  const area = $('#left'),
+    rect = element.getBoundingClientRect(),
+    areaRect = area.getBoundingClientRect();
   return (
-    L.scrollTop +
+    area.scrollTop +
     (block === 'center'
-      ? r.top + r.height / 2 - (lr.top + L.clientTop + L.clientHeight / 2)
-      : r.top - lr.top - L.clientTop)
+      ? rect.top + rect.height / 2 - (areaRect.top + area.clientTop + area.clientHeight / 2)
+      : rect.top - areaRect.top - area.clientTop)
   );
 }
-function pvGlideInto(el, block) {
-  el.scrollIntoView({ behavior: pvGlideArm(pvIntoTop(el, block)), block: block || 'start' });
+function glideInto(element, block) {
+  element.scrollIntoView({ behavior: armGlide(scrollTopFor(element, block)), block: block || 'start' });
 }
 // Said once while the pages glide: the key was not taken, press it again once they rest.
-function pvSayGliding() {
+function sayGliding() {
   lineNote('쪽으로 가는 중이라 판정 키를 받지 않았습니다 — 멈춘 뒤 다시 누릅니다', NOTICE_KIND.INFO, null, {
     source: 'verdict-key',
     life: NOTICE_LIFE.TIMER,
   });
 }
-// Tab from the PDF area (where Esc, a moved-on popover or a search leaves the focus) goes to the reading page's line - its
-// first control - not to the first page's line, whose focus scrolled the document there.
-// The focus on nothing (body) counts as on the PDF area after a press there: a press on a page leaves the focus where it was,
-// and Chromium's next Tab starts from the pressed node - which a redrawn canvas had taken away, so it started from the
-// document's first line (page 4 of 91).
-// A reading page with no line (a figure document's list pages, which take no verdict - pageTakesVerdict) or with none of its
-// controls to stop on (a viewer who may not make a verdict, '판정 없음') keeps the pages where they are as well: the Tab goes
-// to the next stop in the pages from that page on - a mark, the next page's line - while it shows whole in the area's view,
-// else on past the pages (pvEdgeStop: the status line's action, the panel's grip), else nowhere (the focus stays). Left to
-// the DOM's order it went to the first line after the pages' start and scrolled them there: from page 1 of a 91-page figure
-// document to page 4, also on first open (#322).
-let PV_PTR_PAGES = false;
+// Tab from the PDF area (where Esc, a moved-on popover or a search leaves the focus) goes to the reading page's line -
+// its first control - not to the first page's line, whose focus would scroll the document there. The focus on nothing
+// (body) counts as on the PDF area after a press there: a press on a page leaves the focus where it was, and Chromium's
+// next Tab starts from the pressed node - which a redrawn canvas may have taken away, so it would start from the
+// document's first line. A reading page with no line (a figure document's list pages, which take no verdict -
+// pageTakesVerdict) or with none of its controls to stop on (a viewer who may not make a verdict, '판정 없음') keeps
+// the pages where they are as well: the Tab goes to the next stop in the pages from that page on - a mark, the next
+// page's line - while it shows whole in the area's view, else on past the pages (findEdgeStop: the status line's
+// action, the panel's grip), else nowhere (the focus stays). Left to the DOM's order it would go to the first line
+// after the pages' start and scroll them there, also on first open.
+let PRESSED_ON_PAGES = false;
 addEventListener(
   'pointerdown',
-  (e) => {
-    const t = e.target;
-    PV_PTR_PAGES = !!t && !!t.closest && !!t.closest('#left') && !t.closest('#doc .pv');
+  (event) => {
+    const target = event.target;
+    PRESSED_ON_PAGES = !!target && !!target.closest && !!target.closest('#left') && !target.closest('#doc .pv');
   },
   true,
 );
-document.addEventListener('focusin', (e) => {
-  const t = e.target;
-  if (t && t !== $('#left')) PV_PTR_PAGES = false;
+document.addEventListener('focusin', (event) => {
+  const target = event.target;
+  if (target && target !== $('#left')) PRESSED_ON_PAGES = false;
 });
-// So does Tab with nothing focused where no stop is drawn before the pages - a phone, whose nav bar, outline and section strip
-// are not: its first Tab after opening went to page 4's line and scrolled there (0 -> 2067px).
-addEventListener('keydown', (e) => {
-  const a = document.activeElement;
-  if (e.key !== 'Tab' || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
-  if (!(a === $('#left') || ((!a || a === document.body) && (PV_PTR_PAGES || !pvEdgeStop(false))))) return;
-  const at = pvReadingAt();
+// So does Tab with nothing focused where no stop is drawn before the pages - a phone, whose nav bar, outline and
+// section strip are not, whose first Tab after opening would otherwise go to a later page's line and scroll there.
+addEventListener('keydown', (event) => {
+  const active = document.activeElement;
+  if (event.key !== 'Tab' || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey || event.defaultPrevented)
+    return;
+  if (!(active === $('#left') || ((!active || active === document.body) && (PRESSED_ON_PAGES || !findEdgeStop(false)))))
+    return;
+  const at = pageUnderReadingLine();
   if (!at) return; // no page lines, or the pages are not shown: the DOM's order scrolls nothing to a line
-  const r = pvReadingPage(),
-    l = r ? document.querySelector('#doc .pv[data-page="' + r + '"]') : null;
-  const c = (
-    l
-      ? [...l.querySelectorAll('a,button,[tabindex="0"]')].find(
+  const readingPage = readingPageWithLine(),
+    line = readingPage ? document.querySelector('#doc .pv[data-page="' + readingPage + '"]') : null;
+  const control = (
+    line
+      ? [...line.querySelectorAll('a,button,[tabindex="0"]')].find(
           (x) => x instanceof HTMLElement && x.getClientRects().length > 0 && !(x).disabled,
         )
       : undefined
   );
-  e.preventDefault();
-  const v = c ? null : pvStopInView(at),
-    to = c || v || pvEdgeStop(true);
-  PV_IN_VIEW = v ? { el: v, visit: captureVisit(), build: (META && META.pages_build) || '' } : null;
+  event.preventDefault();
+  const stopInView = control ? null : findStopInView(at),
+    to = control || stopInView || findEdgeStop(true);
+  STOP_IN_VIEW = stopInView ? { el: stopInView, visit: captureVisit(), build: (META && META.pages_build) || '' } : null;
   if (to) to.focus({ preventScroll: true });
 });
-// The stop in the pages that Tab from the PDF area went to in view, while the reading page had no line to go to (above): a
-// mark, or a later page's line. Shift+Tab from it leaves the pages the way the reading line's first stop does (pvOutStop,
-// below) - the DOM's stop before it is a page above, off the screen, and the focus scrolled the pages there. Let go when the
-// focus leaves the pages, on another document or build, and by the next Tab from the area.
-let PV_IN_VIEW = null;
+// The stop in the pages that Tab from the PDF area went to in view, while the reading page had no line to go to
+// (above): a mark, or a later page's line. Shift+Tab from it leaves the pages the way the reading line's first stop
+// does (findOutStop, below) - the DOM's stop before it is a page above, off the screen, and the focus would scroll the
+// pages there. Let go when the focus leaves the pages, on another document or build, and by the next Tab from the area.
+let STOP_IN_VIEW = null;
 // The first Tab stop in the pages from page `at` on - its own marks, then the next pages' marks and lines in the DOM's
-// order - when that stop shows whole in the PDF area's view (its client box, within the window) and nothing lies over any of
-// it (the status line or the sheet over the area's bottom, a panel laid over its side: what its middle and four points 4px in
-// from its corners hit is it), else null. Hit at its middle alone, a line half under the status line was taken. Reads the
-// page blocks from `at` down to the area's bottom only.
-function pvStopInView(at) {
-  const L = $('#left'),
-    v = L.getBoundingClientRect(),
-    top = Math.max(0, v.top + L.clientTop),
-    left = Math.max(0, v.left + L.clientLeft);
-  const bot = Math.min(innerHeight, v.top + L.clientTop + L.clientHeight),
-    right = Math.min(innerWidth, v.left + L.clientLeft + L.clientWidth);
+// order - when that stop shows whole in the PDF area's view (its client box, within the window) and nothing lies over
+// any of it (the status line or the sheet over the area's bottom, a panel laid over its side: what its middle and four
+// points 4px in from its corners hit is it), else null. Hit at its middle alone, a line half under the status line
+// would be taken. Reads the page blocks from `at` down to the area's bottom only.
+function findStopInView(at) {
+  const area = $('#left'),
+    areaRect = area.getBoundingClientRect(),
+    top = Math.max(0, areaRect.top + area.clientTop),
+    left = Math.max(0, areaRect.left + area.clientLeft);
+  const bot = Math.min(innerHeight, areaRect.top + area.clientTop + area.clientHeight),
+    right = Math.min(innerWidth, areaRect.left + area.clientLeft + area.clientWidth);
   for (
-    let n = at, b = document.querySelector('#doc .pgw[data-page="' + n + '"]');
-    b;
-    b = document.querySelector('#doc .pgw[data-page="' + ++n + '"]')
+    let page = at, block = document.querySelector('#doc .pgw[data-page="' + page + '"]');
+    block;
+    block = document.querySelector('#doc .pgw[data-page="' + ++page + '"]')
   ) {
-    if (b.getBoundingClientRect().top >= bot) return null;
-    const x = [...b.querySelectorAll(PV_TABBABLE)].find(pvTabStop);
+    if (block.getBoundingClientRect().top >= bot) return null;
+    const x = [...block.querySelectorAll(TABBABLE)].find(isTabStop);
     if (!x) continue;
-    const s = x.getBoundingClientRect();
-    if (s.top < top || s.bottom > bot || s.left < left || s.right > right) return null;
-    const ix = Math.min(4, s.width / 4),
-      iy = Math.min(4, s.height / 4),
-      xs = [s.left + ix, (s.left + s.right) / 2, s.right - ix],
-      ys = [s.top + iy, (s.top + s.bottom) / 2, s.bottom - iy];
-    const pts = [
-      [xs[1], ys[1]],
-      [xs[0], ys[0]],
-      [xs[2], ys[0]],
-      [xs[0], ys[2]],
-      [xs[2], ys[2]],
+    const rect = x.getBoundingClientRect();
+    if (rect.top < top || rect.bottom > bot || rect.left < left || rect.right > right) return null;
+    const insetX = Math.min(4, rect.width / 4),
+      insetY = Math.min(4, rect.height / 4),
+      xPoints = [rect.left + insetX, (rect.left + rect.right) / 2, rect.right - insetX],
+      yPoints = [rect.top + insetY, (rect.top + rect.bottom) / 2, rect.bottom - insetY];
+    const points = [
+      [xPoints[1], yPoints[1]],
+      [xPoints[0], yPoints[0]],
+      [xPoints[2], yPoints[0]],
+      [xPoints[0], yPoints[2]],
+      [xPoints[2], yPoints[2]],
     ];
-    return pts.every(([px, py]) => {
-      const h = document.elementFromPoint(px, py);
-      return !!h && (h === x || (!!h.closest && h.closest(PV_TABBABLE) === x));
+    return points.every(([pointX, pointY]) => {
+      const hit = document.elementFromPoint(pointX, pointY);
+      return !!hit && (hit === x || (!!hit.closest && hit.closest(TABBABLE) === x));
     })
       ? x
       : null;
   }
   return null;
 }
-// Tab into the pages from outside them - the outline, the section strip, the panel by Shift+Tab - goes to the reading page's
-// line too (its first control; its last by Shift+Tab), else to the PDF area: the DOM's next stop is the first page's line (or
-// the last page's), whose focus scrolled the document there. Only a Tab across the pages' edge is taken - from the last stop
-// before the PDF area (the section strip's page button, where it shows) or, by Shift+Tab, from the first after it (the
-// panel's) - and that stop is found by walking out from the area to the nearest one (pvEdgeStop), a few elements: every Tab
-// outside the pages read every focusable element of the document and whether it showed (678 on a 91-page figure document).
-const PV_TABBABLE = 'a[href],button,input,select,textarea,summary,[tabindex]';
-// Whether x is a stop of the Tab order now: focusable by Tab, enabled, drawn, not hidden and not in an inert or hidden part.
-function pvTabStop(x) {
+// Tab into the pages from outside them - the outline, the section strip, the panel by Shift+Tab - goes to the reading
+// page's line too (its first control; its last by Shift+Tab), else to the PDF area: the DOM's next stop is the first
+// page's line (or the last page's), whose focus would scroll the document there. Only a Tab across the pages' edge is
+// taken - from the last stop before the PDF area (the section strip's page button, where it shows) or, by Shift+Tab,
+// from the first after it (the panel's) - and that stop is found by walking out from the area to the nearest one
+// (findEdgeStop), a few elements, so a Tab outside the pages never reads every focusable element of the document and
+// whether it shows.
+const TABBABLE = 'a[href],button,input,select,textarea,summary,[tabindex]';
+// Whether an element is a stop of the Tab order now: focusable by Tab, enabled, drawn, not hidden and not in an inert
+// or hidden part.
+function isTabStop(x) {
   return (
     x instanceof HTMLElement &&
-    x.matches(PV_TABBABLE) &&
+    x.matches(TABBABLE) &&
     x.tabIndex >= 0 &&
     !(x).disabled &&
     x.getClientRects().length > 0 &&
@@ -25833,206 +26111,224 @@ function pvTabStop(x) {
     getComputedStyle(x).visibility !== 'hidden'
   );
 }
-// The nearest Tab stop outside the PDF area on one side of it - the last before it, or (after) the first after it - or null.
-// Walks out from the area element by element and passes a part that is not drawn (display: none, hidden, inert) whole.
-function pvEdgeStop(after) {
-  const w = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT, {
-    acceptNode: (n) => {
-      const x = n;
+// The nearest Tab stop outside the PDF area on one side of it - the last before it, or (after) the first after it - or
+// null. Walks out from the area element by element and passes a part that is not drawn (display: none, hidden, inert)
+// whole.
+function findEdgeStop(after) {
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT, {
+    acceptNode: (node) => {
+      const x = node;
       if (
         x.hasAttribute('hidden') ||
         x.hasAttribute('inert') ||
         (!x.getClientRects().length && getComputedStyle(x).display === 'none')
       )
         return NodeFilter.FILTER_REJECT;
-      return pvTabStop(x) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
+      return isTabStop(x) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
     },
   });
-  let n = $('#left');
-  if (after) while (n.lastChild) n = n.lastChild; // from the area's last node the next one is past the area
-  w.currentNode = n;
-  return (after ? w.nextNode() : w.previousNode());
+  let node = $('#left');
+  if (after) while (node.lastChild) node = node.lastChild; // from the area's last node the next one is past the area
+  walker.currentNode = node;
+  return (after ? walker.nextNode() : walker.previousNode());
 }
-// Where the focus came into the pages from, while it is in them: the stop a Tab into the pages was pressed on, or the control a
-// digit key was pressed on (verdictKey) - an outline entry, a document tab, the section strip, the phone's tool bar - with
-// the visit (captureVisit: the document and its switch) and build it was pressed on: a switch - also away and back - or a
-// new build lets it go (pvOutStop), as any focus outside the pages does. Shift+Tab from the reading line goes back there
-// (below).
-let PV_CAME = null;
-function pvCame(el) {
-  PV_CAME = { el, visit: captureVisit(), build: (META && META.pages_build) || '' };
+// Where the focus came into the pages from, while it is in them: the stop a Tab into the pages was pressed on, or the
+// control a digit key was pressed on (verdictKey) - an outline entry, a document tab, the section strip, the phone's
+// tool bar - with the visit (captureVisit: the document and its switch) and build it was pressed on: a switch - also
+// away and back - or a new build lets it go (findOutStop), as any focus outside the pages does. Shift+Tab from the
+// reading line goes back there (below).
+let CAME_FROM = null;
+function noteCameFrom(element) {
+  CAME_FROM = { el: element, visit: captureVisit(), build: (META && META.pages_build) || '' };
 }
-document.addEventListener('focusin', (e) => {
-  const t = e.target;
-  if (t instanceof Element && !t.closest('#left')) {
-    PV_CAME = null;
-    PV_IN_VIEW = null;
+document.addEventListener('focusin', (event) => {
+  const target = event.target;
+  if (target instanceof Element && !target.closest('#left')) {
+    CAME_FROM = null;
+    STOP_IN_VIEW = null;
   }
 });
-// Where Shift+Tab leaves the pages to: where the focus came from (PV_CAME) while it is still a stop of this document and build
-// before the pages - or, where nothing comes before them (a phone: the nav bar, the outline and the section strip are not
-// drawn), one in the tool bar over the sheet (#bar1) -, else the last stop before the pages (pvEdgeStop: the section strip's
-// or the nav bar's page button), else the phone's position button (#btn-pos, which opens its pages as those do). null for
-// none.
-function pvOutStop() {
-  const k = PV_CAME;
-  if (k && !(currentVisit(k.visit) && k.build === ((META && META.pages_build) || ''))) PV_CAME = null;
-  const L = $('#left'),
-    edge = pvEdgeStop(false),
-    c = PV_CAME ? PV_CAME.el : null;
-  if (c && c.isConnected && c.classList.contains('pv-sum')) return c; // the summary whose press brought the focus to the panel (pvSumGo)
+// Where Shift+Tab leaves the pages to: where the focus came from (CAME_FROM) while it is still a stop of this document
+// and build before the pages - or, where nothing comes before them (a phone: the nav bar, the outline and the section
+// strip are not drawn), one in the tool bar over the sheet (#bar1) -, else the last stop before the pages
+// (findEdgeStop: the section strip's or the nav bar's page button), else the phone's position button (#btn-pos, which
+// opens its pages as those do). null for none.
+function findOutStop() {
+  const came = CAME_FROM;
+  if (came && !(currentVisit(came.visit) && came.build === ((META && META.pages_build) || ''))) CAME_FROM = null;
+  const area = $('#left'),
+    edge = findEdgeStop(false),
+    control = CAME_FROM ? CAME_FROM.el : null;
+  // the summary whose press brought the focus to the panel (goToSummaryPage)
+  if (control && control.isConnected && control.classList.contains('pv-sum')) return control;
   if (
-    c &&
-    c.isConnected &&
-    !L.contains(c) &&
-    pvTabStop(c) &&
-    (c.compareDocumentPosition(L) & Node.DOCUMENT_POSITION_FOLLOWING || (!edge && c.closest('#bar1')))
+    control &&
+    control.isConnected &&
+    !area.contains(control) &&
+    isTabStop(control) &&
+    (control.compareDocumentPosition(area) & Node.DOCUMENT_POSITION_FOLLOWING || (!edge && control.closest('#bar1')))
   )
-    return c;
-  const p = $('#btn-pos');
-  return edge || (pvTabStop(p) ? p : null);
+    return control;
+  const positionButton = $('#btn-pos');
+  return edge || (isTabStop(positionButton) ? positionButton : null);
 }
-addEventListener('keydown', (e) => {
-  const a = document.activeElement,
-    L = $('#left');
+addEventListener('keydown', (event) => {
+  const active = document.activeElement,
+    area = $('#left');
   if (
-    e.key !== 'Tab' ||
-    e.ctrlKey ||
-    e.metaKey ||
-    e.altKey ||
-    e.defaultPrevented ||
-    !a ||
-    a === document.body ||
-    !a.closest ||
-    a.closest('#left')
+    event.key !== 'Tab' ||
+    event.ctrlKey ||
+    event.metaKey ||
+    event.altKey ||
+    event.defaultPrevented ||
+    !active ||
+    active === document.body ||
+    !active.closest ||
+    active.closest('#left')
   )
     return;
-  // The focus on the side of the area this Tab leaves from, the area shown with page lines, and the focus on the edge's stop.
+  // The focus on the side of the area this Tab leaves from, the area shown with page lines, and the focus on the edge's
+  // stop.
   if (
     !(
-      a.compareDocumentPosition(L) & (e.shiftKey ? Node.DOCUMENT_POSITION_PRECEDING : Node.DOCUMENT_POSITION_FOLLOWING)
+      active.compareDocumentPosition(area) &
+      (event.shiftKey ? Node.DOCUMENT_POSITION_PRECEDING : Node.DOCUMENT_POSITION_FOLLOWING)
     ) ||
-    !L.getClientRects().length ||
+    !area.getClientRects().length ||
     !document.querySelector('#doc .pv') ||
-    pvEdgeStop(e.shiftKey) !== a
+    findEdgeStop(event.shiftKey) !== active
   )
     return;
-  const r = pvReadingPage(),
-    l = r ? document.querySelector('#doc .pv[data-page="' + r + '"]') : null,
-    cs = l ? [...l.querySelectorAll('a,button,textarea,[tabindex="0"]')].filter(pvTabStop) : [];
-  e.preventDefault();
-  const c = e.shiftKey ? cs[cs.length - 1] : cs[0];
-  pvCame(a);
-  if (c) c.focus({ preventScroll: true });
+  const readingPage = readingPageWithLine(),
+    line = readingPage ? document.querySelector('#doc .pv[data-page="' + readingPage + '"]') : null,
+    controls = line ? [...line.querySelectorAll('a,button,textarea,[tabindex="0"]')].filter(isTabStop) : [];
+  event.preventDefault();
+  const control = event.shiftKey ? controls[controls.length - 1] : controls[0];
+  noteCameFrom(active);
+  if (control) control.focus({ preventScroll: true });
   else searchToPage();
 });
-// Shift+Tab from the reading page's first stop leaves the pages the way the focus came in (pvOutStop): back to where it came
-// from while that is still a stop before the pages - the outline entry or the document tab a digit key was pressed on, the
-// section strip's page button Tab came from - else to the last stop before them, the section strip's page button (a
-// phone's position button). The pages do not move. The reading page's first stop is its line's first control, or - when pins are marked on
-// that page - its first mark's badge, which Shift+Tab from the line reaches first in the DOM's order. The DOM's stop before
-// it is the page before's line: each Shift+Tab scrolled the document a page up, and 80 of them on a 91-page figure
-// document never reached the outline. The earlier pages' lines are reached by PageUp, which makes each the reading page in
-// turn. A line with its reason popover open keeps Tab to itself first (verdict-reason.js, on #doc), and another page's line
-// or mark is left to the DOM's order - but for the stop Tab from the PDF area went to in view while the reading page had no
-// line (PV_IN_VIEW), which leaves the same way.
-addEventListener('keydown', (e) => {
-  if (e.key !== 'Tab' || !e.shiftKey || e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
-  // Beside the pages the panel is the reading line, and it stands after the pages in the DOM (verdict-panel.js): from its first
-  // stop the reading page's marks come next, as they do from a line, and from the first of those the way out.
-  const a = document.activeElement,
-    panel = a && a.closest ? (a.closest('#pv-panel')) : null;
-  const blk = panel || (a && a.closest ? (a.closest('#doc .pgw')) : null),
-    l = panel || (blk && (blk.querySelector(':scope>.pv') || document.getElementById('pv-panel')));
-  const iv = PV_IN_VIEW;
-  if (iv && !(currentVisit(iv.visit) && iv.build === ((META && META.pages_build) || ''))) PV_IN_VIEW = null;
-  if (!(a && PV_IN_VIEW && PV_IN_VIEW.el === a)) {
+// Shift+Tab from the reading page's first stop leaves the pages the way the focus came in (findOutStop): back to where
+// it came from while that is still a stop before the pages - the outline entry or the document tab a digit key was
+// pressed on, the section strip's page button Tab came from - else to the last stop before them, the section strip's
+// page button (a phone's position button). The pages do not move. The reading page's first stop is its line's first
+// control, or - when pins are marked on that page - its first mark's badge, which Shift+Tab from the line reaches first
+// in the DOM's order. The DOM's stop before it is the page before's line: each Shift+Tab would scroll the document a
+// page up and never reach the outline. The earlier pages' lines are reached by PageUp, which makes each the reading
+// page in turn. A line with its reason popover open keeps Tab to itself first (verdict-reason.ts, on #doc), and another
+// page's line or mark is left to the DOM's order - but for the stop Tab from the PDF area went to in view while the
+// reading page had no line (STOP_IN_VIEW), which leaves the same way.
+addEventListener('keydown', (event) => {
+  if (
+    event.key !== 'Tab' ||
+    !event.shiftKey ||
+    event.ctrlKey ||
+    event.metaKey ||
+    event.altKey ||
+    event.defaultPrevented
+  )
+    return;
+  // Beside the pages the panel is the reading line, and it stands after the pages in the DOM (verdict-panel.ts): from
+  // its first stop the reading page's marks come next, as they do from a line, and from the first of those the way out.
+  const active = document.activeElement,
+    panel = active && active.closest ? (active.closest('#pv-panel')) : null;
+  const block = panel || (active && active.closest ? (active.closest('#doc .pgw')) : null),
+    line = panel || (block && (block.querySelector(':scope>.pv') || document.getElementById('pv-panel')));
+  const inView = STOP_IN_VIEW;
+  if (inView && !(currentVisit(inView.visit) && inView.build === ((META && META.pages_build) || '')))
+    STOP_IN_VIEW = null;
+  if (!(active && STOP_IN_VIEW && STOP_IN_VIEW.el === active)) {
     // the stop Tab went to in view (above), on a page with a line or none
-    if (!a || !blk || !l || Number(blk.dataset.page) !== pvReadingPage()) return;
-    const first = [...blk.querySelectorAll(PV_TABBABLE)].find(pvTabStop);
-    if (first !== a) return;
-    const m = panel ? pvMarkStops(Number(panel.dataset.page)) : [];
-    if (m.length) {
-      e.preventDefault();
-      m[m.length - 1].focus();
+    if (!active || !block || !line || Number(block.dataset.page) !== readingPageWithLine()) return;
+    const first = [...block.querySelectorAll(TABBABLE)].find(isTabStop);
+    if (first !== active) return;
+    const marks = panel ? markStops(Number(panel.dataset.page)) : [];
+    if (marks.length) {
+      event.preventDefault();
+      marks[marks.length - 1].focus();
       return;
     }
   }
-  const to = pvOutStop();
+  const to = findOutStop();
   if (!to) return;
-  e.preventDefault();
+  event.preventDefault();
   to.focus({ preventScroll: true });
   if (to.closest('#outline') || to.classList.contains('pv-sum')) {
-    pvShow();
+    endJumpForScroll();
     to.scrollIntoView({ block: 'nearest' });
   }
 }); // an outline entry comes into the outline's view; the pages stay
 
-// ------------------------------------------------ A verdict's reason (docs/handbook/viewer.md §판정 핀 — 판정과 함께 이유)
-// After a save on a page verdict line a person may say why in a short text that becomes the pin's note. It is written in a
-// small popover over the line (.pv-pop: inside the line and laid above it, so it never pushes the page down or makes the
-// floating line taller). No save opens it by itself: the line offers [이유 추가] after a click and, while the keys act on
-// the line, 'Enter 이유 쓰기' - Enter opens it with the focus. Once open, every character typed in it is text, digits too
-// (a data plot's reason often starts with one: '12월 값이 튐'); before it opens the digits are the line's verdict keys. The
-// verdict's saved reason (a check and its first line, a pencil) opens it again to change it or clear it ([지우기]). One
-// popover at a time: the session (PV_REASON) belongs to its pin, document and visit and keeps what is typed. A draft is
-// never lost without a word:
-// - it is kept per pin in this tab (sessionStorage, rd*) and a reload brings it back; leaving the page with one asks first
-//   (beforeunload);
+// -------------------------------------------- A verdict's reason (docs/handbook/viewer.md §판정 핀 — 판정과 함께 이유)
+// After a save on a page verdict line a person may say why in a short text that becomes the pin's note. It is written
+// in a small popover over the line (.pv-pop: inside the line and laid above it, so it never pushes the page down or
+// makes the floating line taller). No save opens it by itself: the line offers [이유 추가] after a click and, while the
+// keys act on the line, 'Enter 이유 쓰기' - Enter opens it with the focus. Once open, every character typed in it is
+// text, digits too (a data plot's reason often starts with one: '12월 값이 튐'); before it opens the digits are the
+// line's verdict keys. The verdict's saved reason (a check and its first line, a pencil) opens it again to change it or
+// clear it ([지우기]). One popover at a time: the session (REASON_SESSION) belongs to its pin, document and visit and
+// keeps what is typed. A draft is never lost without a word:
+// - it is kept per pin in this tab (sessionStorage, getDraft and putDraft) and a reload brings it back; leaving the
+//   page with one asks first (beforeunload);
 // - with text, Esc takes two presses - the first lets the focus go (the keys then change the verdict) and says what the
-//   second does, which drops it; [접기] folds it away behind the line's '초안 있음' (and it stays folded after a reload);
-// - changing the verdict while it is being typed moves it to the new verdict (pvReasonAfterSave);
-// - [되돌리기] of a cancel or of the save chip brings it back with its verdict (pvReasonRevive);
-// - a verdict taken back elsewhere while its reason is being typed leaves the text as its page's draft, said in one line,
-//   and the keys typed after the field went are not verdict keys (pvKeyGuarded);
-// - a write that fails - unreachable, refused, too long, a note changed elsewhere - keeps it, and the line marks it '초안 있음'.
+//   second does, which drops it; [접기] folds it away behind the line's '초안 있음' (and it stays folded after a
+//   reload);
+// - changing the verdict while it is being typed moves it to the new verdict (followSaveWithReason);
+// - [되돌리기] of a cancel or of the save chip brings it back with its verdict (reviveReason);
+// - a verdict taken back elsewhere while its reason is being typed leaves the text as its page's draft, said in one
+//   line, and the keys typed after the field went are not verdict keys (isKeyGuarded);
+// - a write that fails - unreachable, refused, too long, a note changed elsewhere - keeps it, and the line marks it
+//   '초안 있음'.
 // Moving on - the reading page leaving the popover's page after it was there, another save on another page, another
 // document - closes it and writes what was typed, said in one line; a folded draft waits for the person.
 
 // ---------------- Drafts kept per pin (sessionStorage)
-// One record per instance label for this tab: {v:1, d:{<key>: {text, base, rev, mode, folded, at, tried, from}}}. The key is
-// '<doc>:<pin id>' for a verdict's draft, '<doc>:p<page>' for a page's (the draft of a verdict taken back elsewhere, waiting
-// for the next verdict on that page). text: typed and not written yet; base: the reason it was typed over ('' for a new
-// reason); rev: the pin's rev when a saved reason was opened (a change is written against that rev, never a later one); mode:
-// 'replace' (the whole note, against rev) or 'add' (into an empty note, or under someone's); folded: put away with [접기] - it
-// never opens by itself; tried: the session's writes whose answer was lost (ReasonTry) - a folded, reopened or reloaded
-// draft still knows them, or its next write would add a reason that had landed again; from: the parts of its text that
-// were moved off a pin whose reason may still be written there (a write out, a [다시 시도], a write that lost its answer)
-// - every such pin, however often the draft moved on ('a → 쪽 → b', 'a → b → c'; a page's draft is no pin and adds none),
-// each part with its place in the text and that pin's lost writes (ReasonPart). Kept as the last key alone, a write that
-// landed on a afterwards left the copy, which was then written again (#317). A part is a place, not a string: a sentence
-// the person typed again elsewhere in the draft is not it, and the place follows every edit (rdEdit) - an edit inside
-// it makes it no longer that text, and it is let go. Once one of those pins' writes lands with the part's text, the part
-// leaves the copy (pvReasonWrittenOff), its failure does not make the old key again (pvReasonFailed), and a write of the
-// copy waits for one that is out (pvReasonKin) and first settles the lost ones from that pin (pvReasonCheck). An older
-// viewer kept one key, as a string: the whole text. Written on every input; taken out
-// once written, dropped (Esc twice, [지우기]), moved to a new verdict, or when its pin is found gone from the lists
-// (pvReasonRestore).
-const RD_V = 1;
-// A part of a draft's text moved off pin key k: text[s, e) is what k's reason write may put on k, and tried are k's writes
-// whose answer was lost - the evidence that one may have put it there already.
-function rdKey() {
+// One record per instance label for this tab: {v:1, d:{<key>: {text, base, rev, mode, folded, at, tried, from}}}. The
+// key is '<doc>:<pin id>' for a verdict's draft, '<doc>:p<page>' for a page's (the draft of a verdict taken back
+// elsewhere, waiting for the next verdict on that page). text: typed and not written yet; base: the reason it was typed
+// over ('' for a new reason); rev: the pin's rev when a saved reason was opened (a change is written against that rev,
+// never a later one); mode: 'replace' (the whole note, against rev) or 'add' (into an empty note, or under someone's);
+// folded: put away with [접기] - it never opens by itself; tried: the session's writes whose answer was lost
+// (ReasonTry) - a folded, reopened or reloaded draft still knows them, or its next write would add a reason that had
+// landed again; from: the parts of its text that were moved off a pin whose reason may still be written there (a write
+// out, a [다시 시도], a write that lost its answer)
+// - every such pin, however often the draft moved on ('a → 쪽 → b', 'a → b → c'; a page's draft is no pin and adds
+//   none),
+// each part with its place in the text and that pin's lost writes (ReasonPart). Kept as the last key alone, a write
+// that lands on an earlier pin afterwards would leave the copy, to be written again. A part is a place, not a string: a
+// sentence the person typed again elsewhere in the draft is not it, and the place follows every edit (editParts) - an
+// edit inside it makes it no longer that text, and it is let go. Once one of those pins' writes lands with the part's
+// text, the part leaves the copy (takeWrittenText), its failure does not make the old key again (sayReasonFailed), and
+// a write of the copy waits for one that is out (waitForKinWrites) and first settles the lost ones from that pin
+// (checkLostWrites). A stored `from` that is a string is one key whose part is the whole text. Written on every input;
+// taken out once written, dropped (Esc twice, [지우기]), moved to a new verdict, or when its pin is found gone from the
+// lists (restoreKeptDrafts).
+const DRAFT_VERSION = 1;
+// A part of a draft's text moved off pin key k: text[s, e) is what k's reason write may put on k, and tried are k's
+// writes whose answer was lost - the evidence that one may have put it there already.
+function draftStorageKey() {
   return 'limnReason:' + encodeURIComponent((META && META.label) || '');
 }
-function rdAll() {
+function readAllDrafts() {
   try {
-    const o = JSON.parse(sessionStorage.getItem(rdKey()) || 'null');
-    return o && o.v === RD_V && o.d && typeof o.d === 'object' ? o.d : {};
-  } catch (e) {
+    const stored = JSON.parse(sessionStorage.getItem(draftStorageKey()) || 'null');
+    return stored && stored.v === DRAFT_VERSION && stored.d && typeof stored.d === 'object' ? stored.d : {};
+  } catch (error) {
     return {};
   }
 }
-function rdSave(d) {
+function saveAllDrafts(drafts) {
   try {
-    if (Object.keys(d).length) sessionStorage.setItem(rdKey(), JSON.stringify({ v: RD_V, d }));
-    else sessionStorage.removeItem(rdKey());
-  } catch (e) {}
+    if (Object.keys(drafts).length)
+      sessionStorage.setItem(draftStorageKey(), JSON.stringify({ v: DRAFT_VERSION, d: drafts }));
+    else sessionStorage.removeItem(draftStorageKey());
+  } catch (error) {}
 }
 // A verdict's draft key (id a pin number) or a page's (id 'p<page>').
-function rdName(doc, id) {
+function reasonDraftKey(doc, id) {
   return (doc || '') + ':' + id;
 }
-function rdRead(x) {
+function parseDraft(x) {
   return x && typeof x.text === 'string' && x.text.trim()
     ? {
         text: x.text,
@@ -26044,296 +26340,313 @@ function rdRead(x) {
             : 'add',
         folded: !!x.folded,
         at: Number(x.at) || 0,
-        tried: Array.isArray(x.tried) ? x.tried.filter(rdTry) : [],
-        from: rdFromOf(x.from, x.text),
+        tried: Array.isArray(x.tried) ? x.tried.filter(isReasonTry) : [],
+        from: parseDraftParts(x.from, x.text),
       }
     : null;
 }
-// A kept draft's from as its parts that still fit its text (an older viewer kept one key, as a string: the whole text).
-function rdFromOf(x, text) {
+// A kept draft's from as its parts that still fit its text (a string is one key whose part is the whole text).
+function parseDraftParts(x, text) {
   if (typeof x === 'string') return x ? [{ k: x, s: 0, e: text.length, tried: [] }] : [];
   if (!Array.isArray(x)) return [];
   return x
     .filter(
-      (p) =>
-        !!p &&
-        typeof p.k === 'string' &&
-        !!p.k &&
-        Number.isInteger(p.s) &&
-        Number.isInteger(p.e) &&
-        p.s >= 0 &&
-        p.s < p.e &&
-        p.e <= text.length,
+      (part) =>
+        !!part &&
+        typeof part.k === 'string' &&
+        !!part.k &&
+        Number.isInteger(part.s) &&
+        Number.isInteger(part.e) &&
+        part.s >= 0 &&
+        part.s < part.e &&
+        part.e <= text.length,
     )
-    .map((p) => ({ k: p.k, s: p.s, e: p.e, tried: Array.isArray(p.tried) ? p.tried.filter(rdTry) : [] }));
+    .map((part) => ({
+      k: part.k,
+      s: part.s,
+      e: part.e,
+      tried: Array.isArray(part.tried) ? part.tried.filter(isReasonTry) : [],
+    }));
 }
 // Text compared as a reason is written: line breaks as '\n', no space around it (a write sends the draft trimmed).
-function rdNorm(t) {
-  return t.replace(/\r\n?/g, '\n').trim();
+function normalizeReason(text) {
+  return text.replace(/\r\n?/g, '\n').trim();
 }
-// Parts after their text's [ds, de) became n other characters: one before or after it keeps its text (moved by the
-// difference); one it touched inside - typed into, cut, taken away - is no longer that text and goes.
-function rdShift(parts, ds, de, n) {
-  const d = n - (de - ds);
-  return parts.flatMap((p) => (p.e <= ds ? [p] : p.s >= de ? [{ ...p, s: p.s + d, e: p.e + d }] : []));
+// Parts after their text's [start, end) became `length` other characters: one before or after it keeps its text (moved
+// by the difference); one it touched inside - typed into, cut, taken away - is no longer that text and goes.
+function shiftParts(parts, start, end, length) {
+  const delta = length - (end - start);
+  return parts.flatMap((part) =>
+    part.e <= start ? [part] : part.s >= end ? [{ ...part, s: part.s + delta, e: part.e + delta }] : [],
+  );
 }
-// Parts of text `was` in `now`, the field's text after one input, the caret at `caret` (the end of what was typed or pasted,
-// or where a deletion was): what changed is what lies between their longest common start and end - the end no further
-// than the caret, so a letter typed before the same letter is placed where it was typed. (Text typed next to it on its own
-// line keeps its place too: whether that changed its sentence is judged when it would leave, rdLined - a line typed above
-// it is typed before its line break.)
-function rdEdit(parts, was, now, caret) {
+// Parts of text `was` in `now`, the field's text after one input, the caret at `caret` (the end of what was typed or
+// pasted, or where a deletion was): what changed is what lies between their longest common start and end - the end no
+// further than the caret, so a letter typed before the same letter is placed where it was typed. (Text typed next to it
+// on its own line keeps its place too: whether that changed its sentence is judged when it would leave, isOnOwnLines -
+// a line typed above it is typed before its line break.)
+function editParts(parts, was, now, caret) {
   if (!parts.length || was === now) return parts;
   let suf = 0,
     pre = 0;
-  const ms = Math.min(was.length, now.length - Math.min(Math.max(caret, 0), now.length));
-  while (suf < ms && was[was.length - 1 - suf] === now[now.length - 1 - suf]) suf++;
-  const mp = Math.min(was.length, now.length) - suf;
-  while (pre < mp && was[pre] === now[pre]) pre++;
-  return rdShift(parts, pre, was.length - suf, now.length - suf - pre);
+  const suffixLimit = Math.min(was.length, now.length - Math.min(Math.max(caret, 0), now.length));
+  while (suf < suffixLimit && was[was.length - 1 - suf] === now[now.length - 1 - suf]) suf++;
+  const prefixLimit = Math.min(was.length, now.length) - suf;
+  while (pre < prefixLimit && was[pre] === now[pre]) pre++;
+  return shiftParts(parts, pre, was.length - suf, now.length - suf - pre);
 }
-// Whether part p of text t still has its lines to itself: nothing but spaces between each end and a line break or the
-// text's end. Text typed next to it on its line, at either end, or a line break beside it taken away, made its sentence a
-// new one - as an edit inside it does -, which stays whole (RC failure test of 0.4.36: ' 더함' typed after a moved
-// '문장 끝' left only '더함' to be written, without a word, once '문장 끝' was found on the earlier verdict). Spaces typed
-// after it change no sentence.
-function rdLined(t, p) {
-  return /(^|\n)[ \t]*$/.test(t.slice(0, p.s)) && /^[ \t]*(\r?\n|$)/.test(t.slice(p.e));
+// Whether a part of the text still has its lines to itself: nothing but spaces between each end and a line break or the
+// text's end. Text typed next to it on its line, at either end, or a line break beside it taken away, makes its
+// sentence a new one - as an edit inside it does -, which stays whole: a part found written on the earlier verdict
+// never leaves only the words added beside it to be written. Spaces typed after it change no sentence.
+function isOnOwnLines(text, part) {
+  return /(^|\n)[ \t]*$/.test(text.slice(0, part.s)) && /^[ \t]*(\r?\n|$)/.test(text.slice(part.e));
 }
-// Draft x (text and parts) joined under draft pd's on a new line - pd null: x as it is.
-function rdJoin(
-  pd,
+// A draft (text and parts) joined under the draft `under` on a new line - `under` null: the draft as it is.
+function joinDrafts(
+  under,
   x,
 ) {
-  if (!pd) return { text: x.text, from: x.from };
-  const o = pd.text.length + 1;
+  if (!under) return { text: x.text, from: x.from };
+  const offset = under.text.length + 1;
   return {
-    text: pd.text + '\n' + x.text,
-    from: [...pd.from, ...x.from.map((p) => ({ ...p, s: p.s + o, e: p.e + o }))],
+    text: under.text + '\n' + x.text,
+    from: [...under.from, ...x.from.map((part) => ({ ...part, s: part.s + offset, e: part.e + offset }))],
   };
 }
-// Text t (with its parts) less every part moved off pin key k whose text is `written` (rdNorm) and that still has its lines
-// to itself (rdLined) - with the line break that set it apart, the rest kept as it is - or null when none is.
-function rdCut(
-  t,
+// The text (with its parts) less every part moved off pin `key` whose text is `written` (normalizeReason) and that
+// still has its lines to itself (isOnOwnLines) - with the line break that set it apart, the rest kept as it is - or
+// null when none is.
+function cutWrittenParts(
+  text,
   parts,
-  k,
+  key,
   written,
 ) {
-  const n = rdNorm(written);
-  if (!n) return null;
-  let ps = parts,
+  const normalized = normalizeReason(written);
+  if (!normalized) return null;
+  let remaining = parts,
     hit = false;
-  const at = (q) => q.k === k && rdNorm(t.slice(q.s, q.e)) === n && rdLined(t, q);
-  for (let p = ps.find(at); p; p = ps.find(at)) {
+  const at = (candidate) =>
+    candidate.k === key &&
+    normalizeReason(text.slice(candidate.s, candidate.e)) === normalized &&
+    isOnOwnLines(text, candidate);
+  for (let part = remaining.find(at); part; part = remaining.find(at)) {
     hit = true;
-    let s = p.s,
-      e = p.e;
-    const after = /^[ \t]*\r?\n/.exec(t.slice(e)),
-      before = after ? null : /\r?\n[ \t]*$/.exec(t.slice(0, s));
-    if (after) e += after[0].length;
-    else if (before) s -= before[0].length;
-    const q = p;
-    t = t.slice(0, s) + t.slice(e);
-    ps = rdShift(
-      ps.filter((x) => x !== q),
-      s,
-      e,
+    let start = part.s,
+      end = part.e;
+    const after = /^[ \t]*\r?\n/.exec(text.slice(end)),
+      before = after ? null : /\r?\n[ \t]*$/.exec(text.slice(0, start));
+    if (after) end += after[0].length;
+    else if (before) start -= before[0].length;
+    const cutPart = part;
+    text = text.slice(0, start) + text.slice(end);
+    remaining = shiftParts(
+      remaining.filter((x) => x !== cutPart),
+      start,
+      end,
       0,
     );
   }
-  return hit ? { text: t, from: ps } : null;
+  return hit ? { text: text, from: remaining } : null;
 }
 // Whether a stored lost write is one (ReasonTry).
-function rdTry(a) {
+function isReasonTry(value) {
   return (
-    !!a &&
-    typeof a.text === 'string' &&
-    typeof a.rev === 'number' &&
-    typeof a.pre === 'string' &&
-    typeof a.stamp === 'boolean' &&
-    typeof a.post === 'string'
+    !!value &&
+    typeof value.text === 'string' &&
+    typeof value.rev === 'number' &&
+    typeof value.pre === 'string' &&
+    typeof value.stamp === 'boolean' &&
+    typeof value.post === 'string'
   );
 }
 // The draft kept under id (a pin number, or 'p<page>') on document doc, or null.
-function rdGet(doc, id) {
-  return rdRead(rdAll()[rdName(doc, id)]);
+function getDraft(doc, id) {
+  return parseDraft(readAllDrafts()[reasonDraftKey(doc, id)]);
 }
-// Keeps text under id - or drops it when nothing is unsaved (empty, or the reason as it is saved). The parts the draft there
-// had stay unless o names others (and its text is the same); a draft never counts its own key.
-function rdPut(
+// Keeps text under id - or drops it when nothing is unsaved (empty, or the reason as it is saved). The parts the draft
+// there had stay unless `options` names others (and its text is the same); a draft never counts its own key.
+function putDraft(
   doc,
   id,
   text,
   base,
-  rev,
-  o,
+  revision,
+  options,
 ) {
-  const d = rdAll(),
-    k = rdName(doc, id),
-    mode = (o && o.mode) || (base.trim() ? 'replace' : 'add'),
-    was = rdRead(d[k]);
-  const from = rdFromOf(o && o.from !== undefined ? o.from : was && was.text === text ? was.from : [], text).filter(
-    (p) => p.k !== k,
-  );
+  const drafts = readAllDrafts(),
+    key = reasonDraftKey(doc, id),
+    mode = (options && options.mode) || (base.trim() ? 'replace' : 'add'),
+    was = parseDraft(drafts[key]);
+  const from = parseDraftParts(
+    options && options.from !== undefined ? options.from : was && was.text === text ? was.from : [],
+    text,
+  ).filter((part) => part.k !== key);
   if (text.trim() && text.trim() !== base.trim())
-    d[k] = {
+    drafts[key] = {
       text,
       base,
-      rev: rev === undefined ? -1 : rev,
+      rev: revision === undefined ? -1 : revision,
       mode,
-      folded: !!(o && o.folded),
+      folded: !!(options && options.folded),
       at: Date.now(),
-      tried: (o && o.tried) || [],
+      tried: (options && options.tried) || [],
       from,
     };
-  else delete d[k];
-  rdSave(d);
+  else delete drafts[key];
+  saveAllDrafts(drafts);
 }
-// Keeps reason session r's text as its pin's draft (open, not folded), with its lost writes and the parts it came from.
-function rdKeep(r, folded) {
-  rdPut(r.doc, r.id || 'p' + r.page, r.text, r.base, r.rev, {
-    mode: r.mode,
+// Keeps a reason session's text as its pin's draft (open, not folded), with its lost writes and the parts it came from.
+function keepDraft(session, folded) {
+  putDraft(session.doc, session.id || 'p' + session.page, session.text, session.base, session.rev, {
+    mode: session.mode,
     folded: !!folded,
-    tried: r.tried,
-    from: r.via,
+    tried: session.tried,
+    from: session.via,
   });
 } // not bound yet: the page's
-function rdDrop(doc, id) {
-  const d = rdAll(),
-    k = rdName(doc, id);
-  if (k in d) {
-    delete d[k];
-    rdSave(d);
+function dropDraft(doc, id) {
+  const drafts = readAllDrafts(),
+    key = reasonDraftKey(doc, id);
+  if (key in drafts) {
+    delete drafts[key];
+    saveAllDrafts(drafts);
   }
 }
-// The part a draft (text, lost writes) becomes when it is moved off pin key k: all of it, with k's lost writes.
-function rdPart(k, x) {
-  return { k, s: 0, e: x.text.length, tried: x.tried };
+// The part a draft (text, lost writes) becomes when it is moved off pin `key`: all of it, with that pin's lost writes.
+function movedPart(key, x) {
+  return { k: key, s: 0, e: x.text.length, tried: x.tried };
 }
 // The text of a draft that is the person's own: as typed, less - when it changes a saved reason (mode 'replace') - the
 // stamped lines others added under it ('(추가 HH:MM) …') as that saved note (base) held them.
-function rdOwn(mode, text, base) {
+function ownText(mode, text, base) {
   if (mode !== 'replace') return text;
-  const st = /^\(추가 \d{1,2}:\d{2}\) /,
-    theirs = new Set(base.split(/\r?\n/).filter((l) => st.test(l)));
+  const stamp = /^\(추가 \d{1,2}:\d{2}\) /,
+    theirs = new Set(base.split(/\r?\n/).filter((line) => stamp.test(line)));
   return text
     .split('\n')
-    .filter((l) => !(st.test(l.replace(/\r$/, '')) && theirs.has(l.replace(/\r$/, ''))))
+    .filter((line) => !(stamp.test(line.replace(/\r$/, '')) && theirs.has(line.replace(/\r$/, ''))))
     .join('\n');
 }
-// What draft x becomes moved off key k (a pin's, or '' for none) to another verdict, as a new reason: its own text only
-// (rdOwn: the lines others added under a saved reason being changed stay on the verdict they were written on), with the
-// parts it came with (while that text is all of it) and, k a pin, all of it as a part moved off k with k's lost writes.
-function rdOff(
-  k,
+// What a draft becomes moved off `key` (a pin's, or '' for none) to another verdict, as a new reason: its own text only
+// (ownText: the lines others added under a saved reason being changed stay on the verdict they were written on), with
+// the parts it came with (while that text is all of it) and, `key` a pin's, all of it as a part moved off that pin with
+// its lost writes.
+function draftMovedOff(
+  key,
   x,
 ) {
-  const own = rdOwn(x.mode, x.text, x.base);
+  const own = ownText(x.mode, x.text, x.base);
   return {
     text: own,
-    from: [...(own === x.text ? x.from : []), ...(k ? [rdPart(k, { text: own, tried: x.tried })] : [])],
+    from: [...(own === x.text ? x.from : []), ...(key ? [movedPart(key, { text: own, tried: x.tried })] : [])],
   };
 }
 // Moves the draft under from (a pin or a page) to verdict pin id, as a new reason - it was never written on the other -
-// remembering where it came from (rdOff, rdMovedOff). The same whether a popover held it or it was folded or kept: a
-// folded change of a saved reason used to carry others' lines into the new verdict's reason (RC failure test of 0.4.36).
-// A draft with nothing of the person's own stays where it is.
-function rdMove(doc, from, id) {
-  const x = rdGet(doc, from);
+// remembering where it came from (draftMovedOff, draftsMovedOff). The same whether a popover held it or it was folded
+// or kept, so a folded change of a saved reason never carries others' lines into the new verdict's reason. A draft with
+// nothing of the person's own stays where it is.
+function moveDraft(doc, from, id) {
+  const x = getDraft(doc, from);
   if (!x) return null;
-  const m = rdOff(typeof from === 'number' ? rdName(doc, from) : '', x);
-  if (!m.text.trim()) return null;
-  rdDrop(doc, from);
-  rdPut(doc, id, m.text, '', -1, { mode: 'add', folded: x.folded, from: m.from });
+  const moved = draftMovedOff(typeof from === 'number' ? reasonDraftKey(doc, from) : '', x);
+  if (!moved.text.trim()) return null;
+  dropDraft(doc, from);
+  putDraft(doc, id, moved.text, '', -1, { mode: 'add', folded: x.folded, from: moved.from });
   return x;
 }
-// The drafts moved off pin id's key on document doc (rdMove, pvReasonUncancelDraft) while its reason may still be written
-// there, by key.
-function rdMovedOff(doc, id) {
-  const d = rdAll(),
-    k = rdName(doc, id);
-  return Object.keys(d).filter((x) => {
-    const r = rdRead(d[x]);
-    return !!r && r.from.some((p) => p.k === k);
+// The drafts moved off pin id's key on document doc (moveDraft, placeFailedCancelDraft) while its reason may still be
+// written there, by key.
+function draftsMovedOff(doc, id) {
+  const drafts = readAllDrafts(),
+    key = reasonDraftKey(doc, id);
+  return Object.keys(drafts).filter((x) => {
+    const draft = parseDraft(drafts[x]);
+    return !!draft && draft.from.some((part) => part.k === key);
   });
 }
-// Pin id's reason text was written there: the drafts moved off its key lose the parts that are that text (rdCut).
-function rdWrittenOff(doc, id, text) {
-  const d = rdAll(),
-    k = rdName(doc, id);
-  let ch = false;
-  for (const x of Object.keys(d)) {
-    const r = rdRead(d[x]),
-      c = r ? rdCut(r.text, r.from, k, text) : null;
-    if (!r || !c) continue;
-    if (c.text.trim()) d[x] = { ...r, text: c.text, from: c.from };
-    else delete d[x];
-    ch = true;
+// Pin id's reason text was written there: the drafts moved off its key lose the parts that are that text
+// (cutWrittenParts).
+function cutWrittenDrafts(doc, id, text) {
+  const drafts = readAllDrafts(),
+    key = reasonDraftKey(doc, id);
+  let changed = false;
+  for (const x of Object.keys(drafts)) {
+    const draft = parseDraft(drafts[x]),
+      cut = draft ? cutWrittenParts(draft.text, draft.from, key, text) : null;
+    if (!draft || !cut) continue;
+    if (cut.text.trim()) drafts[x] = { ...draft, text: cut.text, from: cut.from };
+    else delete drafts[x];
+    changed = true;
   }
-  if (ch) rdSave(d);
+  if (changed) saveAllDrafts(drafts);
 }
-// Pin key k's write lost its answer (lost write a): every part moved off k keeps it as evidence, stored and in a session -
-// also in the texts a session's field may come back to (pvReasonEvidence).
-function rdTriedOff(doc, id, a) {
-  const d = rdAll(),
-    k = rdName(doc, id),
-    add = (ps) => ps.map((p) => (p.k === k ? { ...p, tried: [...p.tried, a] } : p));
-  let ch = false;
-  for (const x of Object.keys(d)) {
-    const r = rdRead(d[x]);
-    if (r && r.from.some((p) => p.k === k)) {
-      d[x] = { ...r, from: add(r.from) };
-      ch = true;
+// A pin's write lost its answer (`attempt`): every part moved off its key keeps it as evidence, stored and in a session
+// - also in the texts a session's field may come back to (updateEvidence).
+function addLostWrite(doc, id, attempt) {
+  const drafts = readAllDrafts(),
+    key = reasonDraftKey(doc, id),
+    add = (parts) =>
+      parts.map((part) => (part.k === key ? { ...part, tried: [...part.tried, attempt] } : part));
+  let changed = false;
+  for (const x of Object.keys(drafts)) {
+    const draft = parseDraft(drafts[x]);
+    if (draft && draft.from.some((part) => part.k === key)) {
+      drafts[x] = { ...draft, from: add(draft.from) };
+      changed = true;
     }
   }
-  if (ch) rdSave(d);
-  for (const s of pvReasonLive()) if (s.id !== id || s.doc !== doc) pvReasonEvidence(s, k, (t) => [...t, a]);
+  if (changed) saveAllDrafts(drafts);
+  for (const session of liveSessions())
+    if (session.id !== id || session.doc !== doc) updateEvidence(session, key, (tries) => [...tries, attempt]);
 }
 
 // ---------------- The session
-// sid: the popover's own number - its field stays the same element while its draft moves to another verdict, so the focus
-// and an input method's composition stay with it. base: the reason the field opened on ('' for a new one). mode: 'replace'
-// (it changes the saved reason, or puts its text over a newer note the person has seen: the whole note, against rev) or
-// 'add' (a new reason: into an empty note, or under the note someone wrote, read fresh before writing). rev: the pin's rev
-// when the replaced note was read - the change and [지우기] are written against it, so a note changed meanwhile elsewhere
-// is never written over. conflict: that newer note and its rev, once a write found it (the popover shows it whole and
-// offers [그 위에 쓰기], pvReasonReapply). from: the verdict the draft moved from (0 when it did not), said in the popover.
-// escArm: the first Esc (or [닫기]) with text was pressed - 'key' or 'btn' - and the next one drops the draft. saved: the
-// text the session has written; tried: its writes that failed without an answer that says they did not land (they may
-// have), each with the rev it was sent against and what it made of the note (ReasonTry, pvReasonLanded); clearTried: a
-// [지우기] whose answer was lost (the next one reads the note first). id 0: the popover was opened by Enter
-// while its verdict's save was still out (pvReasonOpenPending) - the text waits for the verdict's number (pvReasonAfterSave
-// binds it), and an Enter in it meanwhile saves once it has one (saveWhenBound). onto: the verdict its line changed to while
-// its write was out - that write's outcome is said and settled by pvReasonOnto. via: the parts of its text moved off pins
-// whose reason may still be written there (its draft's from, kept with it by rdKeep and placed again on every input,
-// pvReasonPlace): a write of a part's text there takes that part out of this one (pvReasonWrittenOff). hist: the texts its
-// field held since its text or parts were last set from elsewhere, with their parts (pvReasonPlace).
-// What a session's field held, for its undo and redo (pvReasonPlace).
-// A new reason's write whose answer was lost: text, sent against the pin's rev `rev`, would have made the note pre, then the
-// stamp a note_append puts first when stamp ('(추가 12:30) ', the time the server's), then text, then post.
-let PV_REASON = null;
-let PV_RSEQ = 0;
-// The popovers moved away from (another page, another document, another popover) before their verdict's save answered, by
-// line (pvSlot of the document they were typed on): each stays bound to that save, not to the screen.
-const PV_DETACHED = new Map();
-let PV_LAST_SAVE = 0; // the verdict pin the last save on a page line made: its line offers the way to its reason wherever it is
-let PV_KEY_SAVE = 0; // ...when that save was a key's: its line says 'Enter 이유 쓰기'
-// The pins this person withdrew (the save's undo, [판정 취소], a pressed word pressed again) while a reason for them may still
-// be on its way: its failure, or its finding the pin gone, is no news to them - nothing is said. A failed withdrawal or a
-// restore takes the pin out again.
-const PV_WITHDRAWN = new Set();
-function pvReasonNew(
+// sid: the popover's own number - its field stays the same element while its draft moves to another verdict, so the
+// focus and an input method's composition stay with it. base: the reason the field opened on ('' for a new one). mode:
+// 'replace' (it changes the saved reason, or puts its text over a newer note the person has seen: the whole note,
+// against rev) or 'add' (a new reason: into an empty note, or under the note someone wrote, read fresh before writing).
+// rev: the pin's rev when the replaced note was read - the change and [지우기] are written against it, so a note
+// changed meanwhile elsewhere is never written over. conflict: that newer note and its rev, once a write found it (the
+// popover shows it whole and offers [그 위에 쓰기], writeOverNewer). from: the verdict the draft moved from (0 when it
+// did not), said in the popover. escArm: the first Esc (or [닫기]) with text was pressed - 'key' or 'btn' - and the
+// next one drops the draft. saved: the text the session has written; tried: its writes that failed without an answer
+// that says they did not land (they may have), each with the rev it was sent against and what it made of the note
+// (ReasonTry, hasLanded); clearTried: a [지우기] whose answer was lost (the next one reads the note first). id 0: the
+// popover was opened by Enter while its verdict's save was still out (openPendingReason) - the text waits for the
+// verdict's number (followSaveWithReason binds it), and an Enter in it meanwhile saves once it has one (saveWhenBound).
+// onto: the verdict its line changed to while its write was out - that write's outcome is said and settled by
+// settleWriteOnto. via: the parts of its text moved off pins whose reason may still be written there (its draft's from,
+// kept with it by keepDraft and placed again on every input, placeParts): a write of a part's text there takes that
+// part out of this one (takeWrittenText). hist: the texts its field held since its text or parts were last set from
+// elsewhere, with their parts (placeParts).
+// What a session's field held, for its undo and redo (placeParts).
+// A new reason's write whose answer was lost: text, sent against the pin's rev `rev`, would have made the note pre,
+// then the stamp a note_append puts first when stamp ('(추가 12:30) ', the time the server's), then text, then post.
+let REASON_SESSION = null;
+let SESSION_SEQUENCE = 0;
+// The popovers moved away from (another page, another document, another popover) before their verdict's save answered,
+// by line (pageLineSlot of the document they were typed on): each stays bound to that save, not to the screen.
+const DETACHED_SESSIONS = new Map();
+// the verdict pin the last save on a page line made: its line offers the way to its reason wherever it is
+let LAST_LINE_SAVE = 0;
+let LAST_KEY_SAVE = 0; // ...when that save was a key's: its line says 'Enter 이유 쓰기'
+// The pins this person withdrew (the save's undo, [판정 취소], a pressed word pressed again) while a reason for them
+// may still be on its way: its failure, or its finding the pin gone, is no news to them - nothing is said. A failed
+// withdrawal or a restore takes the pin out again.
+const WITHDRAWN_PINS = new Set();
+function createReasonSession(
   page,
   id,
   key,
   text,
   base,
-  rev,
+  revision,
   mode,
 ) {
   return {
-    sid: ++PV_RSEQ,
+    sid: ++SESSION_SEQUENCE,
     page,
     id,
     key,
@@ -26342,11 +26655,11 @@ function pvReasonNew(
     text,
     base,
     mode: mode || (base.trim() ? 'replace' : 'add'),
-    rev: rev === undefined ? -1 : rev,
+    rev: revision === undefined ? -1 : revision,
     conflict: null,
     from: 0,
     via: [],
-    seen: pvReadingPage() === page,
+    seen: readingPageWithLine() === page,
     listed: false,
     writing: null,
     saved: null,
@@ -26355,74 +26668,75 @@ function pvReasonNew(
     escArm: '',
   };
 }
-// Whether reason session r writes the whole note against its rev (a change of a saved reason, or over a newer note seen).
-function pvReasonEdits(r) {
-  return r.mode === 'replace';
+// Whether a reason session writes the whole note against its rev (a change of a saved reason, or over a newer note
+// seen).
+function replacesWholeNote(session) {
+  return session.mode === 'replace';
 }
-function pvReasonOn(page) {
-  const r = PV_REASON;
-  return !!r && r.page === page && r.doc === DOC && currentVisit(r.visit);
+function isReasonOpenOn(page) {
+  const session = REASON_SESSION;
+  return !!session && session.page === page && session.doc === DOC && currentVisit(session.visit);
 }
 // The pin a reason session is for, from the lists, or undefined.
-function pvReasonPin(id) {
-  return OPEN_ALL.concat(REVIEW_ALL, DONE_ALL).find((p) => p.id === id);
+function findReasonPin(id) {
+  return OPEN_ALL.concat(REVIEW_ALL, DONE_ALL).find((pin) => pin.id === id);
 }
-function pvIsReasonField(t) {
-  return t instanceof HTMLTextAreaElement && t.classList.contains('pv-reason');
+function isReasonField(target) {
+  return target instanceof HTMLTextAreaElement && target.classList.contains('pv-reason');
 }
 // The open popover's field, or null.
-function pvReasonField() {
+function findReasonField() {
   return document.querySelector('#doc .pv-pop .pv-reason');
 }
 // Whether the session's text is something not yet written: not empty, not the reason it opened on, not what it wrote.
-function pvReasonDirty(r) {
-  const t = r.text.trim();
-  return !!t && t !== r.base.trim() && t !== r.saved;
+function hasUnsavedReason(session) {
+  const text = session.text.trim();
+  return !!text && text !== session.base.trim() && text !== session.saved;
 }
 // The current verdict of page `page`'s line on the document on screen, or undefined.
-function pvCurOf(page) {
+function currentLineVerdict(page) {
   return (pageVerdictPins().get(page) || [])[0];
 }
-// Before a line is drawn: a session of another document or visit goes (its text saved, pvReasonLeave); one whose pin left
-// the lists (undone or taken back elsewhere) goes - its text kept as its page's draft, said in one line, and the keys typed
-// after its field went are not verdict keys (pvReasonLost); else it follows its pin to the page that pin's target is on now.
-// Without a session, a document's first lines bring back its newest kept draft (pvReasonRestore).
-function pvReasonSync() {
-  const r = PV_REASON;
-  if (r && (r.doc !== DOC || !currentVisit(r.visit))) {
-    pvReasonLeave();
+// Before a line is drawn: a session of another document or visit goes (its text saved, leaveReason); one whose pin left
+// the lists (undone or taken back elsewhere) goes - its text kept as its page's draft, said in one line, and the keys
+// typed after its field went are not verdict keys (keepLostReason); else it follows its pin to the page that pin's
+// target is on now. Without a session, a document's first lines bring back its newest kept draft (restoreKeptDrafts).
+function syncReasonSession() {
+  const session = REASON_SESSION;
+  if (session && (session.doc !== DOC || !currentVisit(session.visit))) {
+    leaveReason();
     return;
   }
   if (!PINS_APPLIED_SEQ) return;
-  if (!r) {
-    pvReasonRestore();
+  if (!session) {
+    restoreKeptDrafts();
     return;
   }
-  const p = pvReasonPin(r.id);
-  if (!p) {
-    if (r.listed) pvReasonLost(r);
+  const pin = findReasonPin(session.id);
+  if (!pin) {
+    if (session.listed) keepLostReason(session);
     return;
   } // not listed yet right after its save; gone once it was
-  r.listed = true;
-  const t = pageTargetOf(p, META ? META.kind : undefined);
-  if (t) r.page = t.page;
+  session.listed = true;
+  const target = pageTargetOf(pin, META ? META.kind : undefined);
+  if (target) session.page = target.page;
 }
-// The verdict reason session r was for left the lists while it was open - taken back in another tab or by another person, or
-// its save undone elsewhere. What was typed is not lost: it waits as its page's draft ('초안 있음' on the line, moved to the
-// next verdict saved there), the status line says so, and when the field had the focus the line's draft mark takes it and
-// the keys pressed next are not taken as verdict keys - the person was typing text (pvKeyGuard).
-function pvReasonLost(r) {
-  const f = pvReasonField(),
-    had = !!f && document.activeElement === f;
-  PV_REASON = null;
-  if (pvReasonDirty(r) && !PV_WITHDRAWN.has(r.id)) {
-    rdDrop(r.doc, r.id);
-    rdPut(r.doc, 'p' + r.page, r.text, '', -1, { mode: 'add', folded: true, from: r.via });
+// The verdict a reason session was for left the lists while it was open - taken back in another tab or by another
+// person, or its save undone elsewhere. What was typed is not lost: it waits as its page's draft ('초안 있음' on the
+// line, moved to the next verdict saved there), the status line says so, and when the field had the focus the line's
+// draft mark takes it and the keys pressed next are not taken as verdict keys - the person was typing text (KEY_GUARD).
+function keepLostReason(session) {
+  const field = findReasonField(),
+    had = !!field && document.activeElement === field;
+  REASON_SESSION = null;
+  if (hasUnsavedReason(session) && !WITHDRAWN_PINS.has(session.id)) {
+    dropDraft(session.doc, session.id);
+    putDraft(session.doc, 'p' + session.page, session.text, '', -1, { mode: 'add', folded: true, from: session.via });
     lineNote(
       tl('판정 #{id}{p} 다른 곳에서 거둬졌습니다 · 쓰던 이유는 이 쪽의 초안으로 남겼습니다 — {target}', {
-        id: r.id,
-        p: josa(r.id, '이', '가'),
-        target: pvReasonName(r),
+        id: session.id,
+        p: josa(session.id, '이', '가'),
+        target: reasonTargetName(session),
       }),
       NOTICE_KIND.WARN,
       null,
@@ -26430,105 +26744,122 @@ function pvReasonLost(r) {
     );
   }
   if (had) {
-    PV_KEY_GUARD = true;
-    PV_REFOCUS = { page: r.page, sel: '[data-act="pv-reason-open"]' };
+    KEY_GUARD = true;
+    PENDING_REFOCUS = { page: session.page, sel: '[data-act="pv-reason-open"]' };
   }
 }
-// After the lines are drawn (drawPageVerdicts): a focus a session's end owes goes to its line's control (PV_REFOCUS).
-let PV_REFOCUS = null;
-function pvReasonAfterLines() {
-  const w = PV_REFOCUS;
-  if (!w) return;
-  PV_REFOCUS = null;
-  const c = document.querySelector('#doc .pv[data-page="' + w.page + '"] ' + w.sel);
-  if (c) c.focus({ preventScroll: true });
+// After the lines are drawn (drawPageVerdicts): a focus a session's end owes goes to its line's control
+// (PENDING_REFOCUS).
+let PENDING_REFOCUS = null;
+function refocusAfterLines() {
+  const owed = PENDING_REFOCUS;
+  if (!owed) return;
+  PENDING_REFOCUS = null;
+  const control = document.querySelector('#doc .pv[data-page="' + owed.page + '"] ' + owed.sel);
+  if (control) control.focus({ preventScroll: true });
 }
-// A rebuild of the pages (buildDoc) takes the open popover away with them, and a focus in it fell to nothing: what was typed
-// on was lost and a digit saved a verdict (#352 review). Before it, pvReasonHoldFocus notes the focus in the session's
-// popover - its field with the selection, or one of its controls; null when the focus is anywhere else, which the rebuild
-// leaves alone. After it, pvReasonFocusBack gives the focus back to the same place in the popover drawn again, beside the
-// pages or under one - while it is still on nothing. An input method's composition ends with the old field (the session's
-// text holds what it had composed). A popover not drawn again leaves the keys typed on no verdict keys (PV_KEY_GUARD).
-function pvReasonHoldFocus() {
-  const r = PV_REASON,
-    a = document.activeElement,
-    pop = a && a.closest ? a.closest('#doc .pv-pop') : null;
-  if (!r || !a || !pop || pop.getAttribute('data-id') !== 's' + r.sid) return null;
-  if (pvIsReasonField(a))
-    return { sid: r.sid, sel: [a.selectionStart, a.selectionEnd, a.selectionDirection || 'none'], act: '' };
-  return { sid: r.sid, sel: null, act: a.dataset.act || '' };
+// A rebuild of the pages (buildDoc) takes the open popover away with them, and a focus in it would fall to nothing:
+// what is typed on would be lost and a digit would save a verdict. Before it, holdReasonFocus notes the focus in the
+// session's popover - its field with the selection, or one of its controls; null when the focus is anywhere else, which
+// the rebuild leaves alone. After it, restoreReasonFocus gives the focus back to the same place in the popover drawn
+// again, beside the pages or under one - while it is still on nothing. An input method's composition ends with the old
+// field (the session's text holds what it had composed). A popover not drawn again leaves the keys typed on no verdict
+// keys (KEY_GUARD).
+function holdReasonFocus() {
+  const session = REASON_SESSION,
+    active = document.activeElement,
+    pop = active && active.closest ? active.closest('#doc .pv-pop') : null;
+  if (!session || !active || !pop || pop.getAttribute('data-id') !== 's' + session.sid) return null;
+  if (isReasonField(active))
+    return {
+      sid: session.sid,
+      sel: [active.selectionStart, active.selectionEnd, active.selectionDirection || 'none'],
+      act: '',
+    };
+  return { sid: session.sid, sel: null, act: active.dataset.act || '' };
 }
-function pvReasonFocusBack(h) {
-  const a = document.activeElement;
-  if (!h || (a && a !== document.body)) return;
-  const r = PV_REASON,
-    pop = r && r.sid === h.sid ? document.querySelector('#doc .pv-pop[data-id="s' + h.sid + '"]') : null;
-  const c = (
+function restoreReasonFocus(held) {
+  const active = document.activeElement;
+  if (!held || (active && active !== document.body)) return;
+  const session = REASON_SESSION,
+    pop =
+      session && session.sid === held.sid ? document.querySelector('#doc .pv-pop[data-id="s' + held.sid + '"]') : null;
+  const control = (
     !pop
       ? null
-      : h.sel
+      : held.sel
         ? pop.querySelector('.pv-reason')
-        : h.act
-          ? pop.querySelector('[data-act="' + h.act + '"]')
+        : held.act
+          ? pop.querySelector('[data-act="' + held.act + '"]')
           : null
   );
-  if (!c) {
-    PV_KEY_GUARD = true;
+  if (!control) {
+    KEY_GUARD = true;
     return;
   }
-  c.focus({ preventScroll: true });
-  if (h.sel && pvIsReasonField(c)) c.setSelectionRange(h.sel[0], h.sel[1], h.sel[2]);
+  control.focus({ preventScroll: true });
+  if (held.sel && isReasonField(control))
+    control.setSelectionRange(held.sel[0], held.sel[1], held.sel[2]);
 }
-// Once per document in this page's life, when its first lines are drawn: the drafts kept for pins that are gone are let go,
-// one kept for a verdict that is not its line's current one of the person's becomes its page's draft (only that is marked
-// there), and the others wait on their lines ('초안 있음') - none opens by itself: a popover restored on a page far from the reading
-// one opened out of sight, said only to a screen reader. The status line says how many came back, with [보기], which brings
-// the first one's line into view and puts the focus on its mark.
-const PV_RESTORED = new Set();
-function pvReasonRestore() {
+// Once per document in this page's life, when its first lines are drawn: the drafts kept for pins that are gone are let
+// go, one kept for a verdict that is not its line's current one of the person's becomes its page's draft (only that is
+// marked there), and the others wait on their lines ('초안 있음') - none opens by itself: a popover restored on a page
+// far from the reading one would open out of sight, said only to a screen reader. The status line says how many came
+// back, with [보기], which brings the first one's line into view and puts the focus on its mark.
+const RESTORED_DOCS = new Set();
+function restoreKeptDrafts() {
   const doc = DOC || '';
-  if (PV_RESTORED.has(doc) || !META) return;
-  PV_RESTORED.add(doc);
-  const d = rdAll(),
+  if (RESTORED_DOCS.has(doc) || !META) return;
+  RESTORED_DOCS.add(doc);
+  const drafts = readAllDrafts(),
     pre = doc + ':',
     kind = META.kind;
-  let ch = false;
+  let changed = false;
   const pages = new Set();
-  for (const k of Object.keys(d)) {
+  for (const k of Object.keys(drafts)) {
     if (!k.startsWith(pre)) continue;
     const rest = k.slice(pre.length),
-      x = rdRead(d[k]);
+      x = parseDraft(drafts[k]);
     if (!x) continue;
     if (rest.startsWith('p')) {
       pages.add(Number(rest.slice(1)) || 0);
       continue;
     } // a page's draft waits on its line
-    const p = pvReasonPin(Number(rest));
-    if (!p) {
-      delete d[k];
-      ch = true;
+    const pin = findReasonPin(Number(rest));
+    if (!pin) {
+      delete drafts[k];
+      changed = true;
       continue;
     }
-    const t = pageTargetOf(p, kind);
-    if (!t) continue;
-    pages.add(t.page);
-    const cur = pvCurOf(t.page);
-    if (cur && cur.id === p.id && pvCanCancel(cur)) continue;
-    // Not its line's current verdict of the person's (a newer one came, or it was handled): no line marks it - the page's
-    // draft does, so what this says is true.
-    const pk = pre + 'p' + t.page,
-      pd = rdRead(d[pk]);
-    delete d[k];
-    ch = true;
-    // It becomes a part moved off its verdict, with that verdict's lost writes: one may have landed (#317: a reload let them
-    // go, and the page's draft, opened on the newer verdict, wrote a reason already on the earlier one).
-    const m = rdOff(k, x);
-    if (!m.text.trim()) continue;
-    const j = rdJoin(pd, m);
-    d[pk] = { ...x, text: j.text, base: '', rev: -1, mode: 'add', folded: true, tried: [], from: j.from };
+    const target = pageTargetOf(pin, kind);
+    if (!target) continue;
+    pages.add(target.page);
+    const cur = currentLineVerdict(target.page);
+    if (cur && cur.id === pin.id && canCancelVerdict(cur)) continue;
+    // Not its line's current verdict of the person's (a newer one came, or it was handled): no line marks it - the
+    // page's draft does, so what this says is true.
+    const pageKey = pre + 'p' + target.page,
+      pageDraft = parseDraft(drafts[pageKey]);
+    delete drafts[k];
+    changed = true;
+    // It becomes a part moved off its verdict, with that verdict's lost writes: one may have landed, so after a reload
+    // the page's draft, opened on the newer verdict, never writes a reason already on the earlier one.
+    const moved = draftMovedOff(k, x);
+    if (!moved.text.trim()) continue;
+    const joined = joinDrafts(pageDraft, moved);
+    drafts[pageKey] = {
+      ...x,
+      text: joined.text,
+      base: '',
+      rev: -1,
+      mode: 'add',
+      folded: true,
+      tried: [],
+      from: joined.from,
+    };
   }
-  if (ch) rdSave(d);
-  const shown = [...pages].filter((n) => n > 0).sort((a, b) => a - b);
+  if (changed) saveAllDrafts(drafts);
+  const shown = [...pages].filter((page) => page > 0).sort((left, right) => left - right);
   if (!shown.length) return;
   const first = shown[0];
   lineNote(
@@ -26537,123 +26868,131 @@ function pvReasonRestore() {
       target: pageTargetShort(first),
     }),
     NOTICE_KIND.INFO,
-    { label: '보기', fn: () => pvShowLine(first) },
+    { label: '보기', fn: () => showDraftLine(first) },
     { literal: true, source: 'reason-restore' },
   );
 }
-// Brings page `page`'s line into view and puts the focus on its draft's mark ('초안 있음') - before the saved reason, which
-// comes first on the line and opens the popover too - else its reason control (pvFocusLine).
-function pvShowLine(page) {
-  if (PV_SIDE) {
-    pvBring(page);
-    pvStick();
-  } // beside the pages the panel is the line, once the page is read (verdict-panel.js)
-  const l = document.querySelector('#doc .pv[data-page="' + page + '"]');
-  if (!l) return;
-  if (!PV_SIDE) {
-    const blk = (l.parentElement || l);
-    pvShow();
-    blk.scrollIntoView({ block: blk.getBoundingClientRect().height <= $('#left').clientHeight ? 'center' : 'end' });
+// Brings page `page`'s line into view and puts the focus on its draft's mark ('초안 있음') - before the saved reason,
+// which comes first on the line and opens the popover too - else its reason control (focusLine).
+function showDraftLine(page) {
+  if (IS_BESIDE_PAGES) {
+    bringPage(page);
+    stickReadingLine();
+  } // beside the pages the panel is the line, once the page is read (verdict-panel.ts)
+  const line = document.querySelector('#doc .pv[data-page="' + page + '"]');
+  if (!line) return;
+  if (!IS_BESIDE_PAGES) {
+    const block = (line.parentElement || line);
+    endJumpForScroll();
+    block.scrollIntoView({ block: block.getBoundingClientRect().height <= $('#left').clientHeight ? 'center' : 'end' });
   }
   requestAnimationFrame(() => {
-    if (pvIsReasonField(document.activeElement)) return; // the mark was already pressed: its field keeps the focus
-    const m = document.querySelector('#doc .pv[data-page="' + page + '"] .pv-draft');
-    if (m) m.focus({ preventScroll: true });
-    else if (!pvFocusLine(page)) searchToPage();
+    if (isReasonField(document.activeElement)) return; // the mark was already pressed: its field keeps the focus
+    const mark = document.querySelector('#doc .pv[data-page="' + page + '"] .pv-draft');
+    if (mark) mark.focus({ preventScroll: true });
+    else if (!focusLine(page)) searchToPage();
   });
 }
-// A draft that changes a saved reason, opened again after its pin's note changed elsewhere: it knows the newer note at once
-// - unless that note is its own lost write, landed (pvReasonRebase).
-function pvReasonSeeConflict(r, p) {
-  const note = String(p.note || '');
-  pvReasonRebase(r, p);
-  r.conflict =
-    pvReasonEdits(r) && note.trim() !== r.base.trim() ? { note, rev: typeof p.rev === 'number' ? p.rev : -1 } : null;
+// A draft that changes a saved reason, opened again after its pin's note changed elsewhere: it knows the newer note at
+// once
+// - unless that note is its own lost write, landed (rebaseOnLanded).
+function noteReasonConflict(session, pin) {
+  const note = String(pin.note || '');
+  rebaseOnLanded(session, pin);
+  session.conflict =
+    replacesWholeNote(session) && note.trim() !== session.base.trim()
+      ? { note, rev: typeof pin.rev === 'number' ? pin.rev : -1 }
+      : null;
 }
-// Closes the popover. Closed on purpose (back: Esc, Enter after its save, [닫기], [지우기], [접기]) the focus stays on its own
-// page: on the line's reason control ([이유 추가], the saved reason, '초안 있음' - whichever the line shows now), else the
-// pressed word, else the line's first word - never the PDF area, from which the next Tab went to the first page's line and
-// scrolled the document there. Closed by moving on with the focus inside, the focus goes to the PDF area.
-function pvReasonEnd(back) {
-  const r = PV_REASON,
+// Closes the popover. Closed on purpose (back: Esc, Enter after its save, [닫기], [지우기], [접기]) the focus stays on
+// its own page: on the line's reason control ([이유 추가], the saved reason, '초안 있음' - whichever the line shows
+// now), else the pressed word, else the line's first word - never the PDF area, from which the next Tab would go to the
+// first page's line and scroll the document there. Closed by moving on with the focus inside, the focus goes to the PDF
+// area.
+function closeReasonPopover(back) {
+  const session = REASON_SESSION,
     pop = document.querySelector('#doc .pv-pop'),
     had = !!pop && pop.contains(document.activeElement);
-  PV_REASON = null;
+  REASON_SESSION = null;
   drawPageVerdicts();
   if (!back) {
     if (had) searchToPage();
     return;
   }
-  if (!r || !pvFocusLine(r.page)) searchToPage();
+  if (!session || !focusLine(session.page)) searchToPage();
 }
-// Puts the focus on page `page`'s line: its reason control, else its pressed word, else its first word. Returns whether it did.
-function pvFocusLine(page) {
-  const l = document.querySelector('#doc .pv[data-page="' + page + '"]');
-  if (!l) return false;
-  const c = (l.querySelector('[data-act="pv-reason-open"]') ||
-    l.querySelector('.vd-b[aria-pressed="true"]') ||
-    l.querySelector('.vd-b'));
-  if (!c) return false;
-  c.focus({ preventScroll: true });
+// Puts the focus on page `page`'s line: its reason control, else its pressed word, else its first word. Returns whether
+// it did.
+function focusLine(page) {
+  const line = document.querySelector('#doc .pv[data-page="' + page + '"]');
+  if (!line) return false;
+  const control = (line.querySelector('[data-act="pv-reason-open"]') ||
+    line.querySelector('.vd-b[aria-pressed="true"]') ||
+    line.querySelector('.vd-b'));
+  if (!control) return false;
+  control.focus({ preventScroll: true });
   return true;
 }
-// Moving on: the popover closes and what was typed is written as Enter would, said in one line; nothing unsaved just closes.
-// One still waiting for its verdict's number (opened by Enter while the save was out) is kept with that save (PV_DETACHED):
-// its text waits as its page's draft, and the save, when it answers, writes it on the verdict it made (pvReasonSettle).
-function pvReasonLeave() {
-  const r = PV_REASON;
-  if (!r) return;
-  pvReasonEnd(false);
-  if (!r.id) {
-    const s = pvSlot(r.page, r.doc);
-    if (r.text.trim() && PV_BUSY.has(s)) {
-      r.escArm = '';
-      rdKeep(r, true);
-      PV_DETACHED.set(s, r);
+// Moving on: the popover closes and what was typed is written as Enter would, said in one line; nothing unsaved just
+// closes. One still waiting for its verdict's number (opened by Enter while the save was out) is kept with that save
+// (DETACHED_SESSIONS): its text waits as its page's draft, and the save, when it answers, writes it on the verdict it
+// made (settleDetachedReason).
+function leaveReason() {
+  const session = REASON_SESSION;
+  if (!session) return;
+  closeReasonPopover(false);
+  if (!session.id) {
+    const slot = pageLineSlot(session.page, session.doc);
+    if (session.text.trim() && SAVING_LINES.has(slot)) {
+      session.escArm = '';
+      keepDraft(session, true);
+      DETACHED_SESSIONS.set(slot, session);
     }
     return;
   }
-  if (pvReasonDirty(r)) pvReasonCommit(r, r.text.trim(), true);
+  if (hasUnsavedReason(session)) commitReason(session, session.text.trim(), true);
 }
 // The save on line `slot` answered - verdict pin id, or 0 when it failed: a popover moved away from while it was out is
-// bound to that verdict and its text written there, on the document it was typed on, as moving on writes (said in one line);
-// a failed save leaves the text as the page's draft ('초안 있음'), said. (Its text written meanwhile on a verdict it was moved
-// off, pvReasonWrittenOff, leaves nothing to keep or write.)
-function pvReasonSettle(slot, id, key) {
-  const r = PV_DETACHED.get(slot);
-  if (!r) return;
-  PV_DETACHED.delete(slot);
-  if (!r.text.trim()) return;
+// bound to that verdict and its text written there, on the document it was typed on, as moving on writes (said in one
+// line); a failed save leaves the text as the page's draft ('초안 있음'), said. (Its text written meanwhile on a
+// verdict it was moved off, takeWrittenText, leaves nothing to keep or write.)
+function settleDetachedReason(slot, id, key) {
+  const session = DETACHED_SESSIONS.get(slot);
+  if (!session) return;
+  DETACHED_SESSIONS.delete(slot);
+  if (!session.text.trim()) return;
   if (!id) {
     lineNote(
-      tl('판정 저장 실패 · 쓰던 이유는 이 쪽의 초안으로 남겼습니다 — {target}', { target: pvReasonName(r) }),
+      tl('판정 저장 실패 · 쓰던 이유는 이 쪽의 초안으로 남겼습니다 — {target}', { target: reasonTargetName(session) }),
       NOTICE_KIND.WARN,
       null,
       { literal: true },
     );
     return;
   }
-  rdMove(r.doc, 'p' + r.page, id);
-  Object.assign(r, { id, key, base: '', mode: 'add', rev: -1, saveWhenBound: false, listed: false });
-  pvReasonCommit(r, r.text.trim(), true);
+  moveDraft(session.doc, 'p' + session.page, id);
+  Object.assign(session, { id, key, base: '', mode: 'add', rev: -1, saveWhenBound: false, listed: false });
+  commitReason(session, session.text.trim(), true);
 }
-// Opens the popover on page `page`'s line for its current verdict - the person's own open one ([이유 추가], Enter, its saved
-// reason, its kept draft): with that draft (unfolded), else the page's draft (moved to this verdict), else the saved reason
-// to change. Another popover moves on first. A page's draft with no verdict of the person's to take it says so.
-function pvReasonOpen(page, focus) {
-  const cur = pvCurOf(page);
+// Opens the popover on page `page`'s line for its current verdict - the person's own open one ([이유 추가], Enter, its
+// saved reason, its kept draft): with that draft (unfolded), else the page's draft (moved to this verdict), else the
+// saved reason to change. Another popover moves on first. A page's draft with no verdict of the person's to take it
+// says so.
+function openReason(page, focus) {
+  const cur = currentLineVerdict(page);
   if (viewerBlocked()) return;
-  // A save out on this line: the reason is the new verdict's, whose number is coming; the list still has the one it replaces.
-  if (PV_BUSY.has(pvSlot(page))) {
-    pvReasonOpenPending(page);
+  // A save out on this line: the reason is the new verdict's, whose number is coming; the list still has the one it
+  // replaces.
+  if (SAVING_LINES.has(pageLineSlot(page))) {
+    openPendingReason(page);
     return;
   }
-  if (PV_DETACHED.has(pvSlot(page))) {
-    pvReasonOpenPending(page);
+  if (DETACHED_SESSIONS.has(pageLineSlot(page))) {
+    openPendingReason(page);
     return;
   } // its verdict's save is still out: that popover again
-  if (!cur || !pvCanCancel(cur)) {
-    if (rdGet(DOC, 'p' + page))
+  if (!cur || !canCancelVerdict(cur)) {
+    if (getDraft(DOC, 'p' + page))
       lineNote(
         tl('이유를 붙일 내 판정이 없습니다 · 판정을 누르면 이 초안이 그 판정으로 갑니다 — {target}', {
           target: pageTargetShort(page),
@@ -26664,66 +27003,75 @@ function pvReasonOpen(page, focus) {
       );
     return;
   }
-  if (!(PV_REASON && PV_REASON.id === cur.id && pvReasonOn(page))) {
-    pvReasonLeave();
-    if (!rdGet(DOC, cur.id)) rdMove(DOC, 'p' + page, cur.id); // a page's draft goes to the verdict it now has
+  if (!(REASON_SESSION && REASON_SESSION.id === cur.id && isReasonOpenOn(page))) {
+    leaveReason();
+    if (!getDraft(DOC, cur.id)) moveDraft(DOC, 'p' + page, cur.id); // a page's draft goes to the verdict it now has
     const note = String(cur.note || ''),
-      d = rdGet(DOC, cur.id),
-      rev = typeof cur.rev === 'number' ? cur.rev : -1;
-    const r = d
-      ? pvReasonNew(page, cur.id, verdictOf(cur) || '', d.text, d.base, d.rev >= 0 ? d.rev : rev, d.mode)
-      : pvReasonNew(page, cur.id, verdictOf(cur) || '', note, note, rev);
-    if (d) {
-      r.tried = d.tried;
-      r.via = d.from;
+      draft = getDraft(DOC, cur.id),
+      revision = typeof cur.rev === 'number' ? cur.rev : -1;
+    const session = draft
+      ? createReasonSession(
+          page,
+          cur.id,
+          verdictOf(cur) || '',
+          draft.text,
+          draft.base,
+          draft.rev >= 0 ? draft.rev : revision,
+          draft.mode,
+        )
+      : createReasonSession(page, cur.id, verdictOf(cur) || '', note, note, revision);
+    if (draft) {
+      session.tried = draft.tried;
+      session.via = draft.from;
     } // its writes whose answer was lost (one may have landed), and the pins it came from
-    r.listed = true;
-    pvReasonSeeConflict(r, cur);
-    PV_REASON = r;
-    if (d && d.folded) rdKeep(r);
+    session.listed = true;
+    noteReasonConflict(session, cur);
+    REASON_SESSION = session;
+    if (draft && draft.folded) keepDraft(session);
   }
-  PV_KEY_GUARD = false;
+  KEY_GUARD = false;
   hideTip();
   drawPageVerdicts();
-  if (focus) pvReasonFocus();
+  if (focus) focusReasonField();
 }
-// Enter while page `page`'s save is still out (a fast typist: a key, then Enter at once): the Enter is the intent to write, so
-// the popover opens now with the focus, bound to that pending verdict (id 0) - every key after it is text in the field,
-// digits included, never a verdict key - and takes the verdict's number when the save answers (pvReasonAfterSave). A save
-// that fails leaves the text as the page's draft (pvReasonUnbound).
-function pvReasonOpenPending(page) {
-  const s = pvSlot(page),
-    key = PV_BUSY.get(s) || '';
-  if (PV_REASON && pvReasonOn(page)) {
-    pvReasonFocus();
+// Enter while page `page`'s save is still out (a fast typist: a key, then Enter at once): the Enter is the intent to
+// write, so the popover opens now with the focus, bound to that pending verdict (id 0) - every key after it is text in
+// the field, digits included, never a verdict key - and takes the verdict's number when the save answers
+// (followSaveWithReason). A save that fails leaves the text as the page's draft (keepUnboundReason).
+function openPendingReason(page) {
+  const slot = pageLineSlot(page),
+    key = SAVING_LINES.get(slot) || '';
+  if (REASON_SESSION && isReasonOpenOn(page)) {
+    focusReasonField();
     return;
   }
-  pvReasonLeave();
-  const det = PV_DETACHED.get(s);
-  PV_DETACHED.delete(s); // moved away from earlier: the same popover, with its Enter
-  const d = rdGet(DOC, 'p' + page),
-    r = det
-      ? Object.assign(det, { visit: captureVisit(), seen: pvReadingPage() === page })
-      : pvReasonNew(page, 0, key, d ? d.text : '', '', -1, 'add');
-  if (!det && d) r.via = d.from;
-  PV_REASON = r;
-  PV_KEY_GUARD = false;
+  leaveReason();
+  const det = DETACHED_SESSIONS.get(slot);
+  DETACHED_SESSIONS.delete(slot); // moved away from earlier: the same popover, with its Enter
+  const draft = getDraft(DOC, 'p' + page),
+    session = det
+      ? Object.assign(det, { visit: captureVisit(), seen: readingPageWithLine() === page })
+      : createReasonSession(page, 0, key, draft ? draft.text : '', '', -1, 'add');
+  if (!det && draft) session.via = draft.from;
+  REASON_SESSION = session;
+  KEY_GUARD = false;
   hideTip();
   drawPageVerdicts();
-  pvReasonFocus();
+  focusReasonField();
 }
-// Page `page`'s save failed while a popover waited for its number: what was typed stays as the page's draft ('초안 있음'),
-// said in one line, and the popover closes. As when a verdict is taken back while its reason is typed (pvReasonLost): when
-// the field had the focus its line's draft mark takes it and the keys pressed next are not verdict keys (PV_KEY_GUARD) -
-// a digit typed on would have saved a verdict; a focus elsewhere (the search, the composer) stays where it is.
-function pvReasonUnbound(page) {
-  const r = PV_REASON;
-  if (!r || r.id || r.page !== page || r.doc !== DOC) return;
+// Page `page`'s save failed while a popover waited for its number: what was typed stays as the page's draft ('초안
+// 있음'), said in one line, and the popover closes. As when a verdict is taken back while its reason is typed
+// (keepLostReason): when the field had the focus its line's draft mark takes it and the keys pressed next are not
+// verdict keys (KEY_GUARD) - a digit typed on would save a verdict; a focus elsewhere (the search, the composer) stays
+// where it is.
+function keepUnboundReason(page) {
+  const session = REASON_SESSION;
+  if (!session || session.id || session.page !== page || session.doc !== DOC) return;
   const pop = document.querySelector('#doc .pv-pop'),
     had = !!pop && pop.contains(document.activeElement);
-  PV_REASON = null;
-  if (r.text.trim()) {
-    rdPut(r.doc, 'p' + page, r.text, '', -1, { mode: 'add', folded: true, from: r.via });
+  REASON_SESSION = null;
+  if (session.text.trim()) {
+    putDraft(session.doc, 'p' + page, session.text, '', -1, { mode: 'add', folded: true, from: session.via });
     lineNote(
       tl('판정 저장 실패 · 쓰던 이유는 이 쪽의 초안으로 남겼습니다 — {target}', { target: pageTargetShort(page) }),
       NOTICE_KIND.WARN,
@@ -26733,55 +27081,56 @@ function pvReasonUnbound(page) {
   }
   drawPageVerdicts();
   if (!had) return;
-  PV_KEY_GUARD = true;
-  if (!pvFocusLine(page)) searchToPage();
+  KEY_GUARD = true;
+  if (!focusLine(page)) searchToPage();
 }
 // Puts the focus in the open field, its caret at the end.
-function pvReasonFocus() {
-  const f = pvReasonField();
-  if (!f || f.disabled) return;
-  f.focus({ preventScroll: true });
-  const n = f.value.length;
-  f.setSelectionRange(n, n);
+function focusReasonField() {
+  const field = findReasonField();
+  if (!field || field.disabled) return;
+  field.focus({ preventScroll: true });
+  const end = field.value.length;
+  field.setSelectionRange(end, end);
 }
-// A save on page `page`'s line made verdict pin id (savePageVerdict) in place of verdict pin prev (the line's current one
-// before it, 0 for none). A popover open on that line follows it: its draft moves to the new verdict - never written on
-// the one it replaced - and says where it goes now, keeping its field, focus and composition; an empty one stays open for
-// the new verdict. A draft kept for prev without a popover (a failed write, a folded one) or for the page (a verdict taken
-// back elsewhere) moves too, and the line marks it on the new verdict. A popover elsewhere, or one whose write is out,
-// moves on. No save opens one: after a click the line offers [이유 추가]; after a key, 'Enter 이유 쓰기'.
-// A change of a saved reason moves only the person's own text: the lines others added under it ('(추가 HH:MM) …', as the
-// note held them) stay on the verdict they were written on and are not copied as the person's reason (pvReasonOwn); a
-// change that leaves nothing of the person's own is no draft, and an unchanged one moves nothing.
-// A reason ends on one verdict: while prev's reason write is out (PV_WRITES) its draft does not move - that write settles
-// first (pvReasonOnto: written, or found landed, it stays prev's and the status line says so; not landed, the draft moves
-// to the new verdict and prev's [다시 시도] goes). Moved at once, a write that landed or a [다시 시도] afterwards put the
-// reason on both verdicts.
-function pvReasonAfterSave(page, id, key, kb, prev) {
-  const r = PV_REASON;
-  PV_LAST_SAVE = id;
-  PV_KEY_SAVE = kb ? id : 0;
-  if (r && pvReasonOn(page) && !r.writing) {
-    const own = pvReasonOwn(r),
-      dirty = pvReasonDirty(r) && !!own.trim(),
-      from = r.id;
-    // The draft it moves is a part moved off the verdict it leaves, with that verdict's lost writes, as rdMove makes it -
-    // another session's write of it may still land there (moving on, then the draft opened again on that verdict and moved
-    // here) - and keeps the parts it came with (not when others' lines were left out of it: their places changed).
+// A save on page `page`'s line made verdict pin id (savePageVerdict) in place of verdict pin previousId (the line's
+// current one before it, 0 for none). A popover open on that line follows it: its draft moves to the new verdict -
+// never written on the one it replaced - and says where it goes now, keeping its field, focus and composition; an empty
+// one stays open for the new verdict. A draft kept for the previous verdict without a popover (a failed write, a folded
+// one) or for the page (a verdict taken back elsewhere) moves too, and the line marks it on the new verdict. A popover
+// elsewhere, or one whose write is out, moves on. No save opens one: after a click the line offers [이유 추가]; after a
+// key, 'Enter 이유 쓰기'. A change of a saved reason moves only the person's own text: the lines others added under it
+// ('(추가 HH:MM) …', as the note held them) stay on the verdict they were written on and are not copied as the person's
+// reason (ownReasonText); a change that leaves nothing of the person's own is no draft, and an unchanged one moves
+// nothing. A reason ends on one verdict: while the previous verdict's reason write is out (REASON_WRITES) its draft
+// does not move - that write settles first (settleWriteOnto: written, or found landed, it stays the previous verdict's
+// and the status line says so; not landed, the draft moves to the new verdict and its [다시 시도] goes). Moved at once,
+// a write that lands or a [다시 시도] afterwards would put the reason on both verdicts.
+function followSaveWithReason(page, id, key, byKey, previousId) {
+  const session = REASON_SESSION;
+  LAST_LINE_SAVE = id;
+  LAST_KEY_SAVE = byKey ? id : 0;
+  if (session && isReasonOpenOn(page) && !session.writing) {
+    const own = ownReasonText(session),
+      dirty = hasUnsavedReason(session) && !!own.trim(),
+      from = session.id;
+    // The draft it moves is a part moved off the verdict it leaves, with that verdict's lost writes, as moveDraft makes
+    // it - another session's write of it may still land there (moving on, then the draft opened again on that verdict
+    // and moved here) - and keeps the parts it came with (not when others' lines were left out of it: their places
+    // changed).
     if (dirty) {
-      const k0 = from || 'p' + page;
-      r.via = [
-        ...(own === r.text ? r.via : []),
-        ...(from ? [rdPart(rdName(r.doc, from), { text: own, tried: r.tried })] : []),
+      const fromKey = from || 'p' + page;
+      session.via = [
+        ...(own === session.text ? session.via : []),
+        ...(from ? [movedPart(reasonDraftKey(session.doc, from), { text: own, tried: session.tried })] : []),
       ];
-      r.text = own;
-      rdDrop(r.doc, k0);
-      rdPut(DOC, id, own, '', -1, { mode: 'add', from: r.via });
+      session.text = own;
+      dropDraft(session.doc, fromKey);
+      putDraft(DOC, id, own, '', -1, { mode: 'add', from: session.via });
     } else if (from) {
-      r.text = '';
-      r.via = [];
+      session.text = '';
+      session.via = [];
     } // an unbound popover keeps what is typed
-    Object.assign(r, {
+    Object.assign(session, {
       id,
       key,
       base: '',
@@ -26795,359 +27144,398 @@ function pvReasonAfterSave(page, id, key, kb, prev) {
       listed: false,
       escArm: '',
     });
-    if (r.saveWhenBound) {
-      r.saveWhenBound = false;
-      const f = pvReasonField();
-      if (f) setTimeout(() => pvReasonSave(f), 0);
+    if (session.saveWhenBound) {
+      session.saveWhenBound = false;
+      const field = findReasonField();
+      if (field) setTimeout(() => saveReason(field), 0);
     } // its Enter came before the number
     return;
   }
-  if (PV_DETACHED.has(pvSlot(page))) return; // its popover was moved away from: pvReasonSettle writes it; the open one stays
-  const o = prev ? PV_WRITES.get(rdName(DOC, prev)) : null;
-  if (o) {
-    const w = o.r;
-    w.onto = id;
-    o.w.then((ok) => pvReasonOnto(w, ok, page));
+  // its popover was moved away from: settleDetachedReason writes it; the open one stays
+  if (DETACHED_SESSIONS.has(pageLineSlot(page))) return;
+  const outWrite = previousId ? REASON_WRITES.get(reasonDraftKey(DOC, previousId)) : null;
+  if (outWrite) {
+    const writer = outWrite.r;
+    writer.onto = id;
+    outWrite.w.then((ok) => settleWriteOnto(writer, ok, page));
   } // its write settles first
-  else if (!(prev && rdMove(DOC, prev, id))) rdMove(DOC, 'p' + page, id);
-  pvReasonLeave();
+  else if (!(previousId && moveDraft(DOC, previousId, id))) moveDraft(DOC, 'p' + page, id);
+  leaveReason();
 }
-// The text of reason session r that is the person's own: the field's text, less - when it changes a saved reason - the
-// stamped lines others added under it ('(추가 HH:MM) …') as the saved note held them. (A new reason's text is the field's,
-// as typed.)
-function pvReasonOwn(r) {
-  return rdOwn(r.mode, r.text, r.base);
+// The text of a reason session that is the person's own: the field's text, less - when it changes a saved reason - the
+// stamped lines others added under it ('(추가 HH:MM) …') as the saved note held them. (A new reason's text is the
+// field's, as typed.)
+function ownReasonText(session) {
+  return ownText(session.mode, session.text, session.base);
 }
-// The write of reason session r, out while its line's verdict changed to r.onto (pvReasonAfterSave), settled - ok: it was
-// written. Its reason ends on one verdict. Written - or, its answer lost or a 5xx, found landed when the pin is read again
-// (pvReasonLanded) - it stays on r's verdict, now an earlier one, and the status line says so ('이유는 이전 판정 #15 채택에
-// 저장됨 · 지금 판정은 #16 보류'). Not landed (also refused, or the pin gone), its draft moves to the new verdict - or to the
-// page's draft, when that verdict is no longer the line's or already has a draft or a popover - its failure and that
-// [다시 시도] go, and the status line says where it went with [보기] - remembering the pins the draft came from before
-// (from), as every move does, and this verdict while its write may land yet. A read that fails decides nothing: the
-// status line says so with [다시 시도], which reads again. (pvReasonWrite and pvReasonFailed say nothing of such a write themselves.)
-async function pvReasonOnto(r, ok, page) {
-  const to = r.onto,
-    doc = r.doc,
-    src = 'POST /api/pins/' + r.id + '/edit reason';
+// The write of a reason session, out while its line's verdict changed to its `onto` (followSaveWithReason), settled -
+// ok: it was written. Its reason ends on one verdict. Written - or, its answer lost or a 5xx, found landed when the pin
+// is read again (hasLanded) - it stays on the session's verdict, now an earlier one, and the status line says so
+// ('이유는 이전 판정 #15 채택에 저장됨 · 지금 판정은 #16 보류'). Not landed (also refused, or the pin gone), its draft
+// moves to the new verdict - or to the page's draft, when that verdict is no longer the line's or already has a draft
+// or a popover - its failure and that [다시 시도] go, and the status line says where it went with [보기] - remembering
+// the pins the draft came from before (from), as every move does, and this verdict while its write may land yet. A read
+// that fails decides nothing: the status line says so with [다시 시도], which reads again. (writeReason and
+// sayReasonFailed say nothing of such a write themselves.)
+async function settleWriteOnto(session, ok, page) {
+  const to = session.onto,
+    doc = session.doc,
+    src = 'POST /api/pins/' + session.id + '/edit reason';
   if (!to) return;
-  const target = pvNameOn(doc, page, r.id),
+  const target = targetNameOn(doc, page, session.id),
     saved = () => {
-      r.onto = 0;
-      pvReasonSaidOn(doc, page, r.id, r.key);
+      session.onto = 0;
+      saySavedOn(doc, page, session.id, session.key);
     };
   if (ok) {
-    if (r.text.trim()) saved();
-    else r.onto = 0;
+    if (session.text.trim()) saved();
+    else session.onto = 0;
     return;
-  } // nothing of it was left to write: a pin it came from had it (pvReasonCommit)
-  let p = undefined;
+  } // nothing of it was left to write: a pin it came from had it (commitReason)
+  let pin = undefined;
   try {
-    p = (await api('/api/pins/' + r.id, { what: '핀 읽기', silent: true })).data.pin;
-  } catch (e) {
-    const x = e;
+    pin = (await api('/api/pins/' + session.id, { what: '핀 읽기', silent: true })).data.pin;
+  } catch (error) {
+    const x = error;
     if (!x || !x.status || x.status >= 500) {
       lineNote(
         tl('이유 저장 실패 · {why} — {target}', { why: tr('서버에 닿지 않습니다'), target }),
         NOTICE_KIND.ERR,
-        { label: '다시 시도', fn: () => pvReasonOnto(r, false, page) },
+        { label: '다시 시도', fn: () => settleWriteOnto(session, false, page) },
         { source: src, literal: true },
       );
       return;
     }
-    p = null;
+    pin = null;
   }
-  const got = p && !p.dropped_at ? [...r.tried].reverse().find((a) => pvReasonLanded(a, p)) : null;
-  PV_RETRY.delete(r); // its [다시 시도] goes either way (sourceOk)
+  const got =
+    pin && !pin.dropped_at ? [...session.tried].reverse().find((attempt) => hasLanded(attempt, pin)) : null;
+  RETRY_NOTICES.delete(session); // its [다시 시도] goes either way (sourceOk)
   if (got) {
-    r.saved = got.text;
-    r.tried = [];
-    rdDrop(doc, r.id);
+    session.saved = got.text;
+    session.tried = [];
+    dropDraft(doc, session.id);
     sourceOk(src);
-    pvReasonWrittenOff(doc, r.id, r.key, got.text, r);
+    takeWrittenText(doc, session.id, session.key, got.text, session);
     saved();
     if (doc === DOC) loadPins().catch(() => {});
     return;
   }
-  // Not landed - yet: one sent against the rev the pin still has may still be on its way. The draft keeps it as a part moved
-  // off this verdict with that evidence, so a write of it on the new verdict fences it off first (pvReasonCheck, #327).
-  const can = p && !p.dropped_at ? r.tried.filter((a) => a.rev >= (typeof p.rev === 'number' ? p.rev : 0)) : [];
-  r.onto = 0;
-  r.tried = [];
+  // Not landed - yet: one sent against the rev the pin still has may still be on its way. The draft keeps it as a part
+  // moved off this verdict with that evidence, so a write of it on the new verdict fences it off first
+  // (checkLostWrites).
+  const can =
+    pin && !pin.dropped_at
+      ? session.tried.filter((attempt) => attempt.rev >= (typeof pin.rev === 'number' ? pin.rev : 0))
+      : [];
+  session.onto = 0;
+  session.tried = [];
   sourceOk(src);
-  const x = rdGet(doc, r.id) || { text: r.text, base: r.base, mode: r.mode, tried: [], from: r.via };
-  const m = rdOff(can.length ? rdName(doc, r.id) : '', { ...x, tried: can }),
-    text = m.text,
-    via = m.from;
-  rdDrop(doc, r.id);
+  const x = getDraft(doc, session.id) || {
+    text: session.text,
+    base: session.base,
+    mode: session.mode,
+    tried: [],
+    from: session.via,
+  };
+  const moved = draftMovedOff(can.length ? reasonDraftKey(doc, session.id) : '', { ...x, tried: can }),
+    text = moved.text,
+    via = moved.from;
+  dropDraft(doc, session.id);
   if (!text.trim()) return;
-  const open = !!PV_REASON && PV_REASON.doc === doc && PV_REASON.page === page,
-    cur = pvCurOn(doc, page); // it moves with the pins it came from
-  if (cur && cur.id === to && !open && !rdGet(doc, to))
-    rdPut(doc, to, text, '', -1, { mode: 'add', folded: true, from: via });
+  const open = !!REASON_SESSION && REASON_SESSION.doc === doc && REASON_SESSION.page === page,
+    cur = currentVerdictOn(doc, page); // it moves with the pins it came from
+  if (cur && cur.id === to && !open && !getDraft(doc, to))
+    putDraft(doc, to, text, '', -1, { mode: 'add', folded: true, from: via });
   else {
-    const j = rdJoin(rdGet(doc, 'p' + page), { text, from: via });
-    rdPut(doc, 'p' + page, j.text, '', -1, { mode: 'add', folded: true, from: j.from });
+    const joined = joinDrafts(getDraft(doc, 'p' + page), { text, from: via });
+    putDraft(doc, 'p' + page, joined.text, '', -1, { mode: 'add', folded: true, from: joined.from });
   }
   lineNote(
     tl('판정 #{id} 이유는 저장되지 않아 지금 판정의 초안으로 옮겼습니다 · 줄의 [초안 있음]이 엽니다 — {target}', {
-      id: r.id,
+      id: session.id,
       target,
     }),
     NOTICE_KIND.WARN,
-    doc === DOC ? { label: '보기', fn: () => pvShowLine(page) } : null,
+    doc === DOC ? { label: '보기', fn: () => showDraftLine(page) } : null,
     { literal: true, source: 'reason-onto' },
   );
   if (doc === DOC) drawPageVerdicts();
 }
-// A take-back of verdict pin id about page `page` of document doc failed (pvCancelPin): the verdict is back. Its reason
-// popover left with it (kept: that session, or null) and comes back with its text while nothing took its place: no other
-// popover open (a newer session: another page's, the earlier verdict's the line showed meanwhile, a new verdict's, also one
-// still waiting for its verdict's number), the same document and visit, and the verdict is its line's current one again (a
-// save out on the line then moves it to the new verdict, pvReasonAfterSave - unless its own write is out too). Otherwise
-// what was typed - kept as the verdict's draft when it left (pvCancelPin) - is never let go without a word
-// (pvReasonUncancelDraft).
-function pvReasonUncancel(id, page, doc, kept) {
-  const cur = pvCurOn(doc, page),
+// A take-back of verdict pin id about page `page` of document doc failed (cancelVerdictPin): the verdict is back. Its
+// reason popover left with it (kept: that session, or null) and comes back with its text while nothing took its place:
+// no other popover open (a newer session: another page's, the earlier verdict's the line showed meanwhile, a new
+// verdict's, also one still waiting for its verdict's number), the same document and visit, and the verdict is its
+// line's current one again (a save out on the line then moves it to the new verdict, followSaveWithReason - unless its
+// own write is out too). Otherwise what was typed - kept as the verdict's draft when it left (cancelVerdictPin) - is
+// never let go without a word (placeFailedCancelDraft).
+function bringBackReason(id, page, doc, kept) {
+  const cur = currentVerdictOn(doc, page),
     back = !!cur && cur.id === id;
-  if (PV_REASON && PV_REASON.id === id) return; // opened again meanwhile (its line's '초안 있음' came back with it)
+  // opened again meanwhile (its line's '초안 있음' came back with it)
+  if (REASON_SESSION && REASON_SESSION.id === id) return;
   if (
     kept &&
     back &&
-    !PV_REASON &&
+    !REASON_SESSION &&
     doc === DOC &&
     currentVisit(kept.visit) &&
-    !(kept.writing && PV_BUSY.has(pvSlot(page, doc)))
+    !(kept.writing && SAVING_LINES.has(pageLineSlot(page, doc)))
   ) {
-    PV_REASON = kept;
+    REASON_SESSION = kept;
     drawPageVerdicts();
     return;
   }
-  pvReasonUncancelDraft(id, page, doc, !!kept);
+  placeFailedCancelDraft(id, page, doc, !!kept);
 }
-// Where the draft of verdict pin id, back but perhaps no longer current (its take-back failed, or a [되돌리기] restored it
-// under a newer verdict), waits - decided once nothing can still change it: a write of its
-// reason that is out settles first (PV_WRITES: written, there is nothing left to keep; failed, it is the draft again), and a
-// save out on its line answers first (PV_UNCANCEL, pvReasonUncancelSettle: that save decides whether the verdict is still
-// its line's current one). When the verdict is its line's current one it waits there as its draft; when a newer verdict
-// was saved on the line it would wait on no line (a line marks its current verdict's draft only), so it becomes the page's
-// draft, which goes to the verdict it is opened on (pvReasonOpen; joined under a page's draft waiting there already), and
-// remembers that all of it was moved off that verdict, with the verdict's lost writes, and the parts it came with (from):
-// a [다시 시도] of the old write that lands later takes it away, also after it moved on again (pvReasonWrittenOff), and a
-// write of it elsewhere first settles those lost writes (pvReasonCheck). Either way the line
-// marks it '초안 있음' and the status line says so with [보기] (its line in view, the focus on the mark, pvShowLine) - a
-// warning after the take-back's own failure, which stands first with its [다시 시도]. shown: a popover was displaced. A draft
-// kept for the verdict without one (folded, or a failed write) moves the same way and is said too; one that stays on its
-// verdict's line, where it was before, is not.
-const PV_UNCANCEL = new Map();
-function pvReasonUncancelDraft(id, page, doc, shown) {
-  const o = PV_WRITES.get(rdName(doc, id));
-  if (o) {
-    o.w.then(() => pvReasonUncancelDraft(id, page, doc, shown));
+// Where the draft of verdict pin id, back but perhaps no longer current (its take-back failed, or a [되돌리기] restored
+// it under a newer verdict), waits - decided once nothing can still change it: a write of its reason that is out
+// settles first (REASON_WRITES: written, there is nothing left to keep; failed, it is the draft again), and a save out
+// on its line answers first (FAILED_CANCEL_WAITS, settleFailedCancelDraft: that save decides whether the verdict is
+// still its line's current one). When the verdict is its line's current one it waits there as its draft; when a newer
+// verdict was saved on the line it would wait on no line (a line marks its current verdict's draft only), so it becomes
+// the page's draft, which goes to the verdict it is opened on (openReason; joined under a page's draft waiting there
+// already), and remembers that all of it was moved off that verdict, with the verdict's lost writes, and the parts it
+// came with (from): a [다시 시도] of the old write that lands later takes it away, also after it moved on again
+// (takeWrittenText), and a write of it elsewhere first settles those lost writes (checkLostWrites). Either way the line
+// marks it '초안 있음' and the status line says so with [보기] (its line in view, the focus on the mark, showDraftLine)
+// - a warning after the take-back's own failure, which stands first with its [다시 시도]. shown: a popover was
+// displaced. A draft kept for the verdict without one (folded, or a failed write) moves the same way and is said too;
+// one that stays on its verdict's line, where it was before, is not.
+const FAILED_CANCEL_WAITS = new Map();
+function placeFailedCancelDraft(id, page, doc, shown) {
+  const outWrite = REASON_WRITES.get(reasonDraftKey(doc, id));
+  if (outWrite) {
+    outWrite.w.then(() => placeFailedCancelDraft(id, page, doc, shown));
     return;
   }
-  const s = pvSlot(page, doc);
-  if (PV_BUSY.has(s)) {
-    const u = PV_UNCANCEL.get(s);
-    PV_UNCANCEL.set(s, { id, page, doc, shown: shown || (!!u && u.id === id && u.shown) });
+  const slot = pageLineSlot(page, doc);
+  if (SAVING_LINES.has(slot)) {
+    const waiting = FAILED_CANCEL_WAITS.get(slot);
+    FAILED_CANCEL_WAITS.set(slot, { id, page, doc, shown: shown || (!!waiting && waiting.id === id && waiting.shown) });
     return;
   }
-  if (PV_REASON && PV_REASON.id === id) return;
-  const cur = pvCurOn(doc, page),
+  if (REASON_SESSION && REASON_SESSION.id === id) return;
+  const cur = currentVerdictOn(doc, page),
     back = !!cur && cur.id === id,
-    d = rdGet(doc, id);
-  if (!d || (back && !shown)) return;
+    draft = getDraft(doc, id);
+  if (!draft || (back && !shown)) return;
   if (!back) {
-    const m = rdOff(rdName(doc, id), d);
-    rdDrop(doc, id);
-    if (!m.text.trim()) return;
-    const j = rdJoin(rdGet(doc, 'p' + page), m);
-    rdPut(doc, 'p' + page, j.text, '', -1, { mode: 'add', folded: true, from: j.from });
+    const moved = draftMovedOff(reasonDraftKey(doc, id), draft);
+    dropDraft(doc, id);
+    if (!moved.text.trim()) return;
+    const joined = joinDrafts(getDraft(doc, 'p' + page), moved);
+    putDraft(doc, 'p' + page, joined.text, '', -1, { mode: 'add', folded: true, from: joined.from });
   }
-  const target = pvNameOn(doc, page, id);
+  const target = targetNameOn(doc, page, id);
   lineNote(
     back
       ? tl('판정 #{id} 이유는 초안으로 남겼습니다 · 줄의 [초안 있음]이 엽니다 — {target}', { id, target })
       : tl('판정 #{id} 이유는 이 쪽의 초안으로 남겼습니다 · 줄의 [초안 있음]이 엽니다 — {target}', { id, target }),
     NOTICE_KIND.WARN,
-    doc === DOC ? { label: '보기', fn: () => pvShowLine(page) } : null,
+    doc === DOC ? { label: '보기', fn: () => showDraftLine(page) } : null,
     { literal: true, source: 'reason-uncancel' },
   );
   if (doc === DOC) drawPageVerdicts();
 }
-// The save on line `slot` answered (savePageVerdict, after it bound or kept a popover waiting for it): a failed take-back's
-// draft that waited for it is placed now.
-function pvReasonUncancelSettle(slot) {
-  const u = PV_UNCANCEL.get(slot);
-  if (!u) return;
-  PV_UNCANCEL.delete(slot);
-  pvReasonUncancelDraft(u.id, u.page, u.doc, u.shown);
+// The save on line `slot` answered (savePageVerdict, after it bound or kept a popover waiting for it): a failed
+// take-back's draft that waited for it is placed now.
+function settleFailedCancelDraft(slot) {
+  const waiting = FAILED_CANCEL_WAITS.get(slot);
+  if (!waiting) return;
+  FAILED_CANCEL_WAITS.delete(slot);
+  placeFailedCancelDraft(waiting.id, waiting.page, waiting.doc, waiting.shown);
 }
-// [되돌리기] brought verdict pin id back (a cancel's, the save chip's): its kept draft opens again on its line, without the
-// focus - only while it is that line's current verdict (a newer verdict of someone else's keeps the line; verdict.js says so).
-function pvReasonRevive(id) {
-  const d = rdGet(DOC, id),
-    p = pvReasonPin(id);
-  if (!d || !p || (PV_REASON && PV_REASON.id === id)) return;
-  const t = pageTargetOf(p, META ? META.kind : undefined);
-  if (!t) return;
-  const cur = pvCurOf(t.page);
+// [되돌리기] brought verdict pin id back (a cancel's, the save chip's): its kept draft opens again on its line, without
+// the focus - only while it is that line's current verdict (a newer verdict of someone else's keeps the line;
+// verdict.ts says so).
+function reviveReason(id) {
+  const draft = getDraft(DOC, id),
+    pin = findReasonPin(id);
+  if (!draft || !pin || (REASON_SESSION && REASON_SESSION.id === id)) return;
+  const target = pageTargetOf(pin, META ? META.kind : undefined);
+  if (!target) return;
+  const cur = currentLineVerdict(target.page);
   if (!cur || cur.id !== id) return;
-  // A reason being written on another page stays as it is, and where the popover cannot show (the panel beside the pages shows the
-  // reading page alone) none opens: the draft stays this verdict's, marked on its line or summary. Opened, it wrote the other
-  // page's half text and took its field, and its own session wrote on the next verdict saved anywhere.
-  if ((PV_REASON && PV_REASON.page !== t.page) || (PV_SIDE && t.page !== PV_READ)) {
+  // A reason being written on another page stays as it is, and where the popover cannot show (the panel beside the
+  // pages shows the reading page alone) none opens: the draft stays this verdict's, marked on its line or summary.
+  // Opened, it would write the other page's half text and take its field, and its own session would write on the next
+  // verdict saved anywhere.
+  if (
+    (REASON_SESSION && REASON_SESSION.page !== target.page) ||
+    (IS_BESIDE_PAGES && target.page !== READING_LINE_PAGE)
+  ) {
     drawPageVerdicts();
     return;
   }
-  pvReasonLeave();
-  const r = pvReasonNew(t.page, id, verdictOf(p) || '', d.text, d.base, d.rev, d.mode);
-  r.tried = d.tried;
-  r.via = d.from;
-  r.listed = true;
-  pvReasonSeeConflict(r, p);
-  PV_REASON = r;
+  leaveReason();
+  const session = createReasonSession(
+    target.page,
+    id,
+    verdictOf(pin) || '',
+    draft.text,
+    draft.base,
+    draft.rev,
+    draft.mode,
+  );
+  session.tried = draft.tried;
+  session.via = draft.from;
+  session.listed = true;
+  noteReasonConflict(session, pin);
+  REASON_SESSION = session;
   drawPageVerdicts();
 }
 
 // ---------------- Writing
-// The one write of reason session r: text as its pin's note (pvReasonWrite). While a write is out it is that write - Enter
-// and then moving on, another save or another document before the answer start no second one - and text the session has
-// written is not written again. A failed write may be tried again. Resolves with whether the reason is written; once it
-// is, its kept draft goes (unless more was typed meanwhile), so does every other place the text waits to be written - a
-// part moved off the pin's key, the pins it was moved off (pvReasonWrittenOff) - and its lost writes are settled. The write
-// is listed while it is out (PV_WRITES, with its session): a draft is not moved off the key it may still be written for
-// (pvReasonUncancelDraft, pvReasonAfterSave). A reason ends on one verdict, so before text moved off other pins is written
-// here, whatever may still put it there is settled first: a write out from one of those pins, or from a copy moved off
-// this one, answers first (pvReasonKin), and the lost writes of those pins are read from the server (pvReasonCheck) - what
-// landed leaves this text (pvReasonWrittenOff), what may still land is fenced off (pvReasonFence), and only what is left is
-// written, nothing when nothing is. A pin that cannot be read or fenced leaves it unsure: nothing is written, the draft
-// stays and the status line says the write failed, with [다시 시도]. (#317: the moved copy opened, and Enter pressed,
-// before the old verdict's [다시 시도] answered - or its answer was lost after it landed, or a reload let its evidence go -
-// and the reason landed on both verdicts.)
-const PV_WRITES = new Map();
-// The sessions whose failure the status line offers [다시 시도] for (pvReasonFailed), with that message: a write elsewhere of
-// their text takes it out of them and the message goes (pvReasonWrittenOff) - the [다시 시도] would write it a second time.
-const PV_RETRY = new Map();
-function pvReasonCommit(r, text, said) {
-  if (r.saved === text) return Promise.resolve(true);
-  if (!r.writing) {
-    const k = rdName(r.doc, r.id),
-      kin = pvReasonKin(r);
+// The one write of a reason session: text as its pin's note (writeReason). While a write is out it is that write -
+// Enter and then moving on, another save or another document before the answer start no second one - and text the
+// session has written is not written again. A failed write may be tried again. Resolves with whether the reason is
+// written; once it is, its kept draft goes (unless more was typed meanwhile), so does every other place the text waits
+// to be written - a part moved off the pin's key, the pins it was moved off (takeWrittenText) - and its lost writes are
+// settled. The write is listed while it is out (REASON_WRITES, with its session): a draft is not moved off the key it
+// may still be written for (placeFailedCancelDraft, followSaveWithReason). A reason ends on one verdict, so before text
+// moved off other pins is written here, whatever may still put it there is settled first: a write out from one of those
+// pins, or from a copy moved off this one, answers first (waitForKinWrites), and the lost writes of those pins are read
+// from the server (checkLostWrites) - what landed leaves this text (takeWrittenText), what may still land is fenced off
+// (fenceLostWrites), and only what is left is written, nothing when nothing is. A pin that cannot be read or fenced
+// leaves it unsure: nothing is written, the draft stays and the status line says the write failed, with [다시 시도]. So
+// the reason never lands on both verdicts - also when the moved copy is opened and Enter pressed before the old
+// verdict's [다시 시도] answers, when that answer was lost after it landed, or after a reload.
+const REASON_WRITES = new Map();
+// The sessions whose failure the status line offers [다시 시도] for (sayReasonFailed), with that message: a write
+// elsewhere of their text takes it out of them and the message goes (takeWrittenText) - the [다시 시도] would write it
+// a second time.
+const RETRY_NOTICES = new Map();
+function commitReason(session, text, said) {
+  if (session.saved === text) return Promise.resolve(true);
+  if (!session.writing) {
+    const key = reasonDraftKey(session.doc, session.id),
+      kin = waitForKinWrites(session);
     let sent = text;
     const go =
-      kin || r.via.some((p) => p.tried.length)
+      kin || session.via.some((part) => part.tried.length)
         ? (kin || Promise.resolve())
-            .then(() => pvReasonCheck(r))
+            .then(() => checkLostWrites(session))
             .then((sure) => {
-              sent = r.text.trim();
+              sent = session.text.trim();
               if (!sent) return true;
               if (sure !== true) {
-                pvReasonFailed(r, sent, sure);
+                sayReasonFailed(session, sent, sure);
                 return false;
               } // whether it is, or will be, on a pin it came from is not known: kept, not written
-              return pvReasonWrite(r, sent, said);
+              return writeReason(session, sent, said);
             })
-        : pvReasonWrite(r, text, said);
-    const w = go.then((ok) => {
-      r.writing = null;
-      const o = PV_WRITES.get(k);
-      if (o && o.w === w) PV_WRITES.delete(k);
+        : writeReason(session, text, said);
+    const writing = go.then((ok) => {
+      session.writing = null;
+      const outWrite = REASON_WRITES.get(key);
+      if (outWrite && outWrite.w === writing) REASON_WRITES.delete(key);
       if (ok && sent) {
-        r.saved = sent;
-        r.tried = [];
-        PV_RETRY.delete(r);
-        const d = rdGet(r.doc, r.id);
-        if (d && d.text.trim() === sent) rdDrop(r.doc, r.id);
-        pvReasonWrittenOff(r.doc, r.id, r.key, sent, r);
+        session.saved = sent;
+        session.tried = [];
+        RETRY_NOTICES.delete(session);
+        const draft = getDraft(session.doc, session.id);
+        if (draft && draft.text.trim() === sent) dropDraft(session.doc, session.id);
+        takeWrittenText(session.doc, session.id, session.key, sent, session);
       }
       return ok;
     });
-    r.writing = w;
-    PV_WRITES.set(k, { r, w });
+    session.writing = writing;
+    REASON_WRITES.set(key, { r: session, w: writing });
   }
-  return r.writing;
+  return session.writing;
 }
-// The writes out (PV_WRITES) that may put reason session r's text on another verdict - those of the pins it was moved off
-// (r.via) and of the copies moved off its own pin -, all answered (failed ones too), or null when none is out.
-function pvReasonKin(r) {
-  const k = rdName(r.doc, r.id);
-  const ws = [...PV_WRITES]
-    .filter(([x, o]) => o.r !== r && (r.via.some((p) => p.k === x) || o.r.via.some((p) => p.k === k)))
-    .map(([, o]) => o.w.catch(() => false));
-  return ws.length ? Promise.all(ws) : null;
+// The writes out (REASON_WRITES) that may put a reason session's text on another verdict - those of the pins it was
+// moved off (its via) and of the copies moved off its own pin -, all answered (failed ones too), or null when none is
+// out.
+function waitForKinWrites(session) {
+  const key = reasonDraftKey(session.doc, session.id);
+  const writes = [...REASON_WRITES]
+    .filter(
+      ([x, outWrite]) =>
+        outWrite.r !== session &&
+        (session.via.some((part) => part.k === x) || outWrite.r.via.some((part) => part.k === key)),
+    )
+    .map(([, outWrite]) => outWrite.w.catch(() => false));
+  return writes.length ? Promise.all(writes) : null;
 }
-// Before session r writes text moved off other pins: each of those pins whose writes lost their answer (its parts' tried)
-// is read as the server has it now, and every such write is judged by the pin's rev (pvReasonLanded). One that landed with
-// a part's very text put it on that pin: the part leaves r and every other copy, and its failure goes (pvReasonWrittenOff);
-// one the pin's rev is past and that did not land never will, and is let go. One sent against the rev the pin still has
-// may land yet - a request that lost its answer may still be on its way to the server -, so it is fenced off first
-// (pvReasonFence): then it never lands, or it landed first and is judged so, and only then is the copy written (#327: the
-// copy was written, and the old request landed after it). Resolves true when every pin is settled, else with what left one
+// Before a session writes text moved off other pins: each of those pins whose writes lost their answer (its parts'
+// tried) is read as the server has it now, and every such write is judged by the pin's rev (hasLanded). One that landed
+// with a part's very text put it on that pin: the part leaves this session and every other copy, and its failure goes
+// (takeWrittenText); one the pin's rev is past and that did not land never will, and is let go. One sent against the
+// rev the pin still has may land yet - a request that lost its answer may still be on its way to the server -, so it is
+// fenced off first (fenceLostWrites): then it never lands, or it landed first and is judged so, and only then is the
+// copy written - the old request never lands after it. Resolves true when every pin is settled, else with what left one
 // unknown - a read or a fence without an answer, a 5xx, a refusal (null: no answer at all): nothing is decided for it.
-async function pvReasonCheck(r) {
+async function checkLostWrites(session) {
   let sure = true;
-  for (const k of new Set(r.via.filter((p) => p.tried.length).map((p) => p.k))) {
+  for (const k of new Set(session.via.filter((part) => part.tried.length).map((part) => part.k))) {
     const id = Number(k.slice(k.lastIndexOf(':') + 1));
-    let p = null;
+    let fetched = null;
     try {
-      p = (await api('/api/pins/' + id, { what: '핀 읽기', silent: true })).data.pin || null;
-    } catch (e) {
-      const x = e;
+      fetched = (await api('/api/pins/' + id, { what: '핀 읽기', silent: true })).data.pin || null;
+    } catch (error) {
+      const x = error;
       if (!x || !x.status || x.status >= 500) {
         sure = x || null;
         continue;
       }
     }
     for (let fenced = false; ; fenced = true) {
-      const pin = p && !p.dropped_at ? p : null,
-        rev = pin && typeof pin.rev === 'number' ? pin.rev : Infinity;
+      const pin = fetched && !fetched.dropped_at ? fetched : null,
+        revision = pin && typeof pin.rev === 'number' ? pin.rev : Infinity;
       for (;;) {
-        const q = pin
-          ? r.via.find(
-              (q) =>
-                q.k === k &&
-                q.tried.some((a) => rdNorm(a.text) === rdNorm(r.text.slice(q.s, q.e)) && pvReasonLanded(a, pin)),
+        const found = pin
+          ? session.via.find(
+              (part) =>
+                part.k === k &&
+                part.tried.some(
+                  (attempt) =>
+                    normalizeReason(attempt.text) === normalizeReason(session.text.slice(part.s, part.e)) &&
+                    hasLanded(attempt, pin),
+                ),
             )
           : null;
-        if (!q || !pin) break;
-        const a = q.tried.find(
-          (a) => rdNorm(a.text) === rdNorm(r.text.slice(q.s, q.e)) && pvReasonLanded(a, pin),
+        if (!found || !pin) break;
+        const landed = found.tried.find(
+          (attempt) =>
+            normalizeReason(attempt.text) === normalizeReason(session.text.slice(found.s, found.e)) &&
+            hasLanded(attempt, pin),
         );
-        pvReasonWrittenOff(r.doc, id, verdictOf(pin) || '', a.text, null);
-        if (r.via.includes(q)) break;
+        takeWrittenText(session.doc, id, verdictOf(pin) || '', landed.text, null);
+        if (session.via.includes(found)) break;
       } // not taken out (cannot be): stop
-      pvReasonEvidence(r, k, (t) => t.filter((a) => a.rev >= rev));
-      if (!pin || !r.via.some((q) => q.k === k && q.tried.length)) break; // none may land now
+      updateEvidence(session, k, (tries) => tries.filter((attempt) => attempt.rev >= revision));
+      if (!pin || !session.via.some((part) => part.k === k && part.tried.length)) break; // none may land now
       if (fenced) {
         sure = null;
         break;
       } // a fence's 409 brings a newer pin, past them all: never here
-      const f = await pvReasonFence(id, pin);
-      if ('fenced' in f) {
-        pvReasonEvidence(r, k, () => []);
+      const fence = await fenceLostWrites(id, pin);
+      if ('fenced' in fence) {
+        updateEvidence(session, k, () => []);
         break;
       } // none landed, and none can now
-      if ('unknown' in f) {
-        sure = f.unknown;
+      if ('unknown' in fence) {
+        sure = fence.unknown;
         break;
       }
-      p = f.pin;
+      fetched = fence.pin;
     }
   } // something changed the pin first - one of them landing, perhaps: judged again on the pin as it is
   return sure;
 }
-// Fences off what may still land on pin id - read just now as p - of the reason writes that lost their answer: those sent
-// against the rev p has. Its note is written back as it is, against that rev. Accepted, the pin's rev is past every such
-// write, so its request is refused with a 409 when it arrives (an edit's base_rev, docs/handbook/api.md), and none had
-// landed (the rev would not have been p's). Refused with a 409, something changed the pin first - perhaps one of them,
-// landing -, and the answer brings the pin as it is. A pin gone takes none of them. Anything else - no answer, a 5xx,
-// another refusal - decides nothing; a fence whose answer was lost may land later, and is then no lost write's landing
-// unless the note is exactly what that write made (pvReasonLanded). Nothing of the note changes: the pin's edited_at and
-// rev do.
-async function pvReasonFence(
+// Fences off what may still land on pin id - read just now as `pin` - of the reason writes that lost their answer:
+// those sent against the rev it has. Its note is written back as it is, against that rev. Accepted, the pin's rev is
+// past every such write, so its request is refused with a 409 when it arrives (an edit's base_rev,
+// docs/handbook/api.md), and none had landed (the rev would not have been the one read). Refused with a 409, something
+// changed the pin first - perhaps one of them, landing -, and the answer brings the pin as it is. A pin gone takes none
+// of them. Anything else - no answer, a 5xx, another refusal - decides nothing; a fence whose answer was lost may land
+// later, and is then no lost write's landing unless the note is exactly what that write made (hasLanded). Nothing of
+// the note changes: the pin's edited_at and rev do.
+async function fenceLostWrites(
   id,
-  p,
+  pin,
 ) {
   try {
     const { status, data } = await api('/api/pins/' + id + '/edit', {
@@ -27155,106 +27543,113 @@ async function pvReasonFence(
       intent: 'reason-fence',
       silent: true,
       expect: [409],
-      body: { note: String(p.note || ''), base_rev: typeof p.rev === 'number' ? p.rev : 0 },
+      body: { note: String(pin.note || ''), base_rev: typeof pin.rev === 'number' ? pin.rev : 0 },
     });
     if (status !== 409) return { fenced: true };
-    const q = data && data.pin;
-    return q ? { pin: q } : { unknown: null };
-  } catch (e) {
-    const x = e;
+    const answered = data && data.pin;
+    return answered ? { pin: answered } : { unknown: null };
+  } catch (error) {
+    const x = error;
     return x && x.status === 404 ? { pin: null } : { unknown: x || null };
   }
 }
-// Session s's evidence of pin key k's lost writes (ReasonPart.tried) made fn(tried): in its text's parts and in those of the
-// texts its field may come back to (hist, pvReasonPlace).
-function pvReasonEvidence(s, k, fn) {
-  const m = (ps) => ps.map((p) => (p.k === k ? { ...p, tried: fn(p.tried) } : p));
-  s.via = m(s.via);
-  const h = s.hist;
-  if (!h) return;
-  h.last = { text: h.last.text, via: m(h.last.via) };
-  for (const [t, v] of h.seen) h.seen.set(t, m(v));
+// A session's evidence of pin `key`'s lost writes (ReasonPart.tried) made update(tried): in its text's parts and in
+// those of the texts its field may come back to (hist, placeParts).
+function updateEvidence(session, key, update) {
+  const mapParts = (parts) =>
+    parts.map((part) => (part.k === key ? { ...part, tried: update(part.tried) } : part));
+  session.via = mapParts(session.via);
+  const history = session.hist;
+  if (!history) return;
+  history.last = { text: history.last.text, via: mapParts(history.last.via) };
+  for (const [text, parts] of history.seen) history.seen.set(text, mapParts(parts));
 }
-// The sessions that may still write: the open popover, those moved away from while their save is out, those writing, and
-// those whose failure offers [다시 시도].
-function pvReasonLive() {
+// The sessions that may still write: the open popover, those moved away from while their save is out, those writing,
+// and those whose failure offers [다시 시도].
+function liveSessions() {
   return new Set(
-    [PV_REASON, ...PV_DETACHED.values(), ...[...PV_WRITES.values()].map((o) => o.r), ...PV_RETRY.keys()].filter(
-      Boolean,
-    ),
+    [
+      REASON_SESSION,
+      ...DETACHED_SESSIONS.values(),
+      ...[...REASON_WRITES.values()].map((outWrite) => outWrite.r),
+      ...RETRY_NOTICES.keys(),
+    ].filter(Boolean),
   );
 }
-// Pin id (verdict word `word`) of document doc has text as its reason now - session w wrote it, or (w null) a write that lost
-// its answer is found landed. A reason ends on one verdict, so the text leaves every other place it waits to be written:
-// the parts moved off that pin with that text (rdCut) - in the drafts kept (rdWrittenOff) and in the sessions holding one
-// (pvReasonLive), each keeping what else it holds: lines typed around it, another draft joined to it, the same sentence
-// typed again -; and, w's text holding parts moved off other pins (w.via), the sessions of those pins whose text is such a
-// part. The sessions of pin id with that text have it saved. A session left with nothing has nothing to write: its
-// [다시 시도] goes, and the open popover closes (pvReasonTaken).
-function pvReasonWrittenOff(doc, id, word, text, w) {
-  const k = rdName(doc, id),
-    n = rdNorm(text);
-  rdWrittenOff(doc, id, text);
-  for (const s of pvReasonLive()) {
-    if (s === w) continue;
-    if (s.hist) s.hist.landed.push({ doc, id, word, text }); // an undo may bring such a part back (pvReasonFollow)
-    const c = rdCut(s.text, s.via, k, text);
-    if (c) {
-      s.text = c.text.trim() ? c.text : '';
-      s.via = s.text ? c.from : [];
-      if (!s.text) pvReasonGone(s);
-      if (s === PV_REASON) pvReasonTaken(s, doc, id, word, !!s.text);
+// Pin id (verdict word `word`) of document doc has text as its reason now - session `writer` wrote it, or (writer null)
+// a write that lost its answer is found landed. A reason ends on one verdict, so the text leaves every other place it
+// waits to be written: the parts moved off that pin with that text (cutWrittenParts) - in the drafts kept
+// (cutWrittenDrafts) and in the sessions holding one (liveSessions), each keeping what else it holds: lines typed
+// around it, another draft joined to it, the same sentence typed again -; and, the writer's text holding parts moved
+// off other pins (its via), the sessions of those pins whose text is such a part. The sessions of pin id with that text
+// have it saved. A session left with nothing has nothing to write: its [다시 시도] goes, and the open popover closes
+// (closeTakenReason).
+function takeWrittenText(doc, id, word, text, writer) {
+  const key = reasonDraftKey(doc, id),
+    normalized = normalizeReason(text);
+  cutWrittenDrafts(doc, id, text);
+  for (const session of liveSessions()) {
+    if (session === writer) continue;
+    // an undo may bring such a part back (followLanded)
+    if (session.hist) session.hist.landed.push({ doc, id, word, text });
+    const cut = cutWrittenParts(session.text, session.via, key, text);
+    if (cut) {
+      session.text = cut.text.trim() ? cut.text : '';
+      session.via = session.text ? cut.from : [];
+      if (!session.text) emptySession(session);
+      if (session === REASON_SESSION) closeTakenReason(session, doc, id, word, !!session.text);
       continue;
     }
-    if (s === PV_REASON || !s.id || !s.text.trim()) continue;
-    if (rdName(s.doc, s.id) === k && rdNorm(s.text) === n) {
-      s.saved = s.text.trim();
-      s.tried = [];
-      pvReasonGone(s);
+    if (session === REASON_SESSION || !session.id || !session.text.trim()) continue;
+    if (reasonDraftKey(session.doc, session.id) === key && normalizeReason(session.text) === normalized) {
+      session.saved = session.text.trim();
+      session.tried = [];
+      emptySession(session);
     } // its own lost write, found landed
-    else if (w && pvReasonCameFrom(w, s)) pvReasonGone(s);
+    else if (writer && cameFrom(writer, session)) emptySession(session);
   }
 }
-// Session s, left with nothing to write: its text goes and so does its [다시 시도].
-function pvReasonGone(s) {
-  s.text = '';
-  s.via = [];
-  const m = PV_RETRY.get(s);
-  PV_RETRY.delete(s);
-  if (m) endNotice(m, true);
+// A session left with nothing to write: its text goes and so does its [다시 시도].
+function emptySession(session) {
+  session.text = '';
+  session.via = [];
+  const notice = RETRY_NOTICES.get(session);
+  RETRY_NOTICES.delete(session);
+  if (notice) endNotice(notice, true);
 }
-// Whether session s - a verdict's, with text - holds what session w's copy came from: a part of w's text moved off s's pin
-// is s's very text.
-function pvReasonCameFrom(w, s) {
-  const sk = rdName(s.doc, s.id),
-    t = rdNorm(s.text);
-  return w.via.some((p) => p.k === sk && rdNorm(w.text.slice(p.s, p.e)) === t);
+// Whether a session - a verdict's, with text - holds what the copy session came from: a part of the copy's text moved
+// off the session's pin is the session's very text.
+function cameFrom(copy, session) {
+  const sessionKey = reasonDraftKey(session.doc, session.id),
+    text = normalizeReason(session.text);
+  return copy.via.some((part) => part.k === sessionKey && normalizeReason(copy.text.slice(part.s, part.e)) === text);
 }
-// The write of copy session w lost its answer (or met a 5xx): it may have landed on w's verdict, and its [다시 시도] or a
-// later write there settles that (pvReasonBody). The sessions its copy came from have nothing left to write: their
-// [다시 시도] goes - pressed, it put the reason on their verdict too, and w's request landed as well (#327, the order after
-// the fence: w's write is the one that may still land). The open popover is never such a session.
-function pvReasonHandedOn(w) {
-  for (const s of pvReasonLive())
-    if (s !== w && s !== PV_REASON && s.id && s.text.trim() && pvReasonCameFrom(w, s)) pvReasonGone(s);
+// The write of a copy session lost its answer (or met a 5xx): it may have landed on the copy's verdict, and its [다시
+// 시도] or a later write there settles that (reasonEditBody). The sessions its copy came from have nothing left to
+// write: their [다시 시도] goes - pressed, it would put the reason on their verdict too while the copy's request, the
+// one that may still land, lands as well. The open popover is never such a session.
+function handOnCopy(copy) {
+  for (const session of liveSessions())
+    if (session !== copy && session !== REASON_SESSION && session.id && session.text.trim() && cameFrom(copy, session))
+      emptySession(session);
 }
-// The open popover s held a reason that pin id (verdict word `word`) of document doc has just been given, on a verdict s's
-// draft was moved off (pvReasonWrittenOff). With something left - lines typed around it, a draft joined to it - it stays
-// with that, and the status line says the rest went. With nothing left it closes, and the status line says where the
-// reason is, as when a write out at a verdict change lands ('이유는 이전 판정 #15 채택에 저장됨 · 지금 판정은 #16 보류',
-// pvReasonSaidOn): left open, its Enter or moving on wrote the reason on this verdict as well. When the popover had the
-// focus - typed in, or waiting on its Enter (the field disabled, the focus nowhere) - the line's reason control takes it and
-// the keys pressed next are not verdict keys (PV_KEY_GUARD): the person was typing text, or about to.
-function pvReasonTaken(s, doc, id, word, part) {
+// The open popover's session held a reason that pin id (verdict word `word`) of document doc has just been given, on a
+// verdict its draft was moved off (takeWrittenText). With something left - lines typed around it, a draft joined to it
+// - it stays with that, and the status line says the rest went. With nothing left it closes, and the status line says
+// where the reason is, as when a write out at a verdict change lands ('이유는 이전 판정 #15 채택에 저장됨 · 지금 판정은
+// #16 보류', saySavedOn): left open, its Enter or moving on would write the reason on this verdict as well. When the
+// popover had the focus - typed in, or waiting on its Enter (the field disabled, the focus nowhere) - the line's reason
+// control takes it and the keys pressed next are not verdict keys (KEY_GUARD): the person was typing text, or about to.
+function closeTakenReason(session, doc, id, word, part) {
   if (part) {
-    pvRefill(s.page);
-    const l = document.querySelector('#doc .pv[data-page="' + s.page + '"]');
-    if (l) pvReasonAfterDraw(l);
+    refillLine(session.page);
+    const line = document.querySelector('#doc .pv[data-page="' + session.page + '"]');
+    if (line) fillReasonField(line);
     lineNote(
       tl('이유 일부는 이전 판정 #{id} {word}에 저장됨 · 초안에는 나머지를 남겼습니다 — {target}', {
         id,
         word: verdictLabel(word, doc),
-        target: pvReasonName(s),
+        target: reasonTargetName(session),
       }),
       NOTICE_KIND.INFO,
       null,
@@ -27262,31 +27657,31 @@ function pvReasonTaken(s, doc, id, word, part) {
     );
     return;
   }
-  const a = document.activeElement,
+  const active = document.activeElement,
     pop = document.querySelector('#doc .pv-pop'),
-    had = (!!pop && !!a && pop.contains(a)) || (!!s.writing && (!a || a === document.body));
-  PV_REASON = null;
+    had = (!!pop && !!active && pop.contains(active)) || (!!session.writing && (!active || active === document.body));
+  REASON_SESSION = null;
   drawPageVerdicts();
   if (had) {
-    PV_KEY_GUARD = true;
-    if (!pvFocusLine(s.page)) searchToPage();
+    KEY_GUARD = true;
+    if (!focusLine(session.page)) searchToPage();
   }
-  pvReasonSaidOn(doc, s.page, id, word);
+  saySavedOn(doc, session.page, id, word);
 }
-// Says that pin id's reason (verdict word key) was saved, about page `page` of document doc - on an earlier verdict when the
-// line's current verdict is another one now.
-function pvReasonSaidOn(doc, page, id, key) {
-  const target = pvNameOn(doc, page, id),
+// Says that pin id's reason (verdict word key) was saved, about page `page` of document doc - on an earlier verdict
+// when the line's current verdict is another one now.
+function saySavedOn(doc, page, id, key) {
+  const target = targetNameOn(doc, page, id),
     word = verdictLabel(key, doc),
-    now = pvCurOn(doc, page),
-    nk = now ? verdictOf(now) : null;
+    now = currentVerdictOn(doc, page),
+    nowKey = now ? verdictOf(now) : null;
   lineNote(
-    now && nk && now.id !== id
+    now && nowKey && now.id !== id
       ? tl('이유는 이전 판정 #{id} {word}에 저장됨 · 지금 판정은 #{cur} {now} — {target}', {
           id,
           word,
           cur: now.id,
-          now: verdictLabel(nk, doc),
+          now: verdictLabel(nowKey, doc),
           target,
         })
       : tl('이유 저장됨 · 판정 #{id} {word} — {target}', { id, word, target }),
@@ -27295,406 +27690,444 @@ function pvReasonSaidOn(doc, page, id, key) {
     { literal: true, life: NOTICE_LIFE.TIMER },
   );
 }
-// [다시 시도] on a failed reason: the session's draft as it is now (after a failed Enter the field stays open and may have been
-// corrected) written as its one write. A field still open for it waits while it writes, and closes only when what was
-// written is what it holds.
-function pvReasonRetry(r) {
-  const text = r.text.trim();
-  if (!text || r.writing) return;
-  const w = pvReasonCommit(r, text, true);
-  if (PV_REASON === r) drawPageVerdicts();
-  w.then((ok) => {
-    if (PV_REASON !== r) return;
-    if (ok && r.text.trim() === r.saved) pvReasonEnd(false);
+// [다시 시도] on a failed reason: the session's draft as it is now (after a failed Enter the field stays open and may
+// have been corrected) written as its one write. A field still open for it waits while it writes, and closes only when
+// what was written is what it holds.
+function retryReason(session) {
+  const text = session.text.trim();
+  if (!text || session.writing) return;
+  const writing = commitReason(session, text, true);
+  if (REASON_SESSION === session) drawPageVerdicts();
+  writing.then((ok) => {
+    if (REASON_SESSION !== session) return;
+    if (ok && session.text.trim() === session.saved) closeReasonPopover(false);
     else drawPageVerdicts();
   });
 }
-// Where lost write a's text sits in note when the note is what a made of the one it was sent against - its pre, its stamp,
-// its text, its post - with nothing after but lines added under it since (a later note_append's '\n(추가 …', or an agent's
-// '\r\n' one), or nothing at all when `exact` (no change came after it): the text's [start, end], else null.
-function pvReasonTryAt(a, note, exact) {
-  if (!note.startsWith(a.pre)) return null;
-  let i = a.pre.length;
-  if (a.stamp) {
-    const m = /^\(추가 \d{1,2}:\d{2}\) /.exec(note.slice(i));
-    if (!m) return null;
-    i += m[0].length;
+// Where a lost write's text sits in `note` when the note is what the write made of the one it was sent against - its
+// pre, its stamp, its text, its post - with nothing after but lines added under it since (a later note_append's
+// '\n(추가 …', or an agent's '\r\n' one), or nothing at all when `exact` (no change came after it): the text's [start,
+// end], else null.
+function lostWriteAt(attempt, note, exact) {
+  if (!note.startsWith(attempt.pre)) return null;
+  let start = attempt.pre.length;
+  if (attempt.stamp) {
+    const match = /^\(추가 \d{1,2}:\d{2}\) /.exec(note.slice(start));
+    if (!match) return null;
+    start += match[0].length;
   }
-  const end = i + a.text.length;
-  if (note.slice(i, end) !== a.text || note.slice(end, end + a.post.length) !== a.post) return null;
-  const rest = note.slice(end + a.post.length);
-  return !rest || (!exact && /^\r?\n/.test(rest)) ? [i, end] : null;
+  const end = start + attempt.text.length;
+  if (note.slice(start, end) !== attempt.text || note.slice(end, end + attempt.post.length) !== attempt.post)
+    return null;
+  const rest = note.slice(end + attempt.post.length);
+  return !rest || (!exact && /^\r?\n/.test(rest)) ? [start, end] : null;
 }
-// Whether lost write a landed, from pin p as the server reads now. Every reason write is sent against the rev it read
-// (base_rev), so a write lands only as the change right after that rev, or never - a copy still on its way meets a 409 once
-// anything else changed the pin. So: p's rev not past a.rev - it has not landed (a write to try again, against that same rev:
-// one of the two lands at most); past it, it landed when the note is what it made (pvReasonTryAt) and, when that was the only
-// change since, the change was this person's (edited_by) and the note is exactly what it made, with no line under it - that
-// change was it, or another one: someone's note that happens to read the same, or a fence that wrote the note back as it was
-// (pvReasonFence), is not this write. Text the note held already - someone's, or the person's own earlier line - is no sign
-// of it: a reason repeated is a new one. (Two or more changes since leave the note to say it: someone writing the very same
-// text under the same note in that window would read as this write.)
-function pvReasonLanded(a, p) {
-  const rev = typeof p.rev === 'number' ? p.rev : 0,
-    one = rev === a.rev + 1;
-  return rev > a.rev && !!pvReasonTryAt(a, String(p.note || ''), one) && (!one || isMe(p.edited_by));
+// Whether a lost write landed, from the pin as the server reads it now. Every reason write is sent against the rev it
+// read (base_rev), so a write lands only as the change right after that rev, or never - a copy still on its way meets a
+// 409 once anything else changed the pin. So: the pin's rev not past the write's rev - it has not landed (a write to
+// try again, against that same rev: one of the two lands at most); past it, it landed when the note is what it made
+// (lostWriteAt) and, when that was the only change since, the change was this person's (edited_by) and the note is
+// exactly what it made, with no line under it - that change was it, or another one: someone's note that happens to read
+// the same, or a fence that wrote the note back as it was (fenceLostWrites), is not this write. Text the note held
+// already - someone's, or the person's own earlier line - is no sign of it: a reason repeated is a new one. (Two or
+// more changes since leave the note to say it: someone writing the very same text under the same note in that window
+// would read as this write.)
+function hasLanded(attempt, pin) {
+  const revision = typeof pin.rev === 'number' ? pin.rev : 0,
+    one = revision === attempt.rev + 1;
+  return revision > attempt.rev && !!lostWriteAt(attempt, String(pin.note || ''), one) && (!one || isMe(pin.edited_by));
 }
-// The edit that writes text into pin p's note for session r, with what it makes of the note (kept as a lost write when its
-// answer is lost) - or null when p holds it already; p read from the server just before. Replace mode is the whole note
-// against the rev it was read at (r.rev) - never p's later one, which would write over a note changed meanwhile without the
-// server's 409 - also over an empty note the person chose to write over. A new one is sent against p's rev, a note_append
-// too (pvReasonLanded). After a write whose answer was lost (r.tried) the newest one that landed is the reason: its very
-// text is saved already, and a corrected draft takes its place (a corrected reason, not a second one); lost writes that can
-// no longer land (sent against an older rev, not landed) are let go. Otherwise the text goes into an empty note, or under the
-// note someone wrote (note_append).
-function pvReasonBody(
-  r,
+// The edit that writes text into the pin's note for a session, with what it makes of the note (kept as a lost write
+// when its answer is lost) - or null when the pin holds it already; the pin is read from the server just before.
+// Replace mode is the whole note against the rev it was read at (the session's rev) - never the pin's later one, which
+// would write over a note changed meanwhile without the server's 409 - also over an empty note the person chose to
+// write over. A new one is sent against the pin's rev, a note_append too (hasLanded). After a write whose answer was
+// lost (the session's tried) the newest one that landed is the reason: its very text is saved already, and a corrected
+// draft takes its place (a corrected reason, not a second one); lost writes that can no longer land (sent against an
+// older rev, not landed) are let go. Otherwise the text goes into an empty note, or under the note someone wrote
+// (note_append).
+function reasonEditBody(
+  session,
   text,
-  p,
+  pin,
 ) {
-  const note = String(p.note || ''),
-    rev = typeof p.rev === 'number' ? p.rev : 0;
-  if (pvReasonEdits(r)) {
-    const at = r.rev >= 0 ? r.rev : rev;
+  const note = String(pin.note || ''),
+    revision = typeof pin.rev === 'number' ? pin.rev : 0;
+  if (replacesWholeNote(session)) {
+    const at = session.rev >= 0 ? session.rev : revision;
     return note.trim() === text
       ? null
       : { body: { note: text, base_rev: at }, sent: { text, rev: at, pre: '', stamp: false, post: '' } };
   }
-  const got = [...r.tried].reverse().find((a) => pvReasonLanded(a, p));
-  r.tried = r.tried.filter((a) => a === got || a.rev >= rev);
-  const at = got ? pvReasonTryAt(got, note) : null;
+  const got = [...session.tried].reverse().find((attempt) => hasLanded(attempt, pin));
+  session.tried = session.tried.filter((attempt) => attempt === got || attempt.rev >= revision);
+  const at = got ? lostWriteAt(got, note) : null;
   if (got && at) {
     if (got.text === text) return null;
     const pre = note.slice(0, at[0]),
       post = note.slice(at[1]);
-    return { body: { note: pre + text + post, base_rev: rev }, sent: { text, rev, pre, stamp: false, post } };
+    return {
+      body: { note: pre + text + post, base_rev: revision },
+      sent: { text, rev: revision, pre, stamp: false, post },
+    };
   }
   if (!note.trim())
-    return { body: { note: text, base_rev: rev }, sent: { text, rev, pre: '', stamp: false, post: '' } };
-  return { body: { note_append: text, base_rev: rev }, sent: { text, rev, pre: note + '\n', stamp: true, post: '' } };
+    return { body: { note: text, base_rev: revision }, sent: { text, rev: revision, pre: '', stamp: false, post: '' } };
+  return {
+    body: { note_append: text, base_rev: revision },
+    sent: { text, rev: revision, pre: note + '\n', stamp: true, post: '' },
+  };
 }
 const NOTE_APPEND_LIMIT = 2000,
   NOTE_LIMIT = 4000; // the server's (pins/editing): a note_append, a whole note
-// Why edit body b would be refused for its length - said instead of sending it, the draft kept - or ''.
-function pvReasonTooLong(b) {
-  const a = b.note_append,
-    n = b.note,
-    f = (x) => x.toLocaleString('en-US');
-  if (typeof a === 'string' && a.length > NOTE_APPEND_LIMIT)
-    return tl('덧붙일 이유는 {max}자까지입니다(지금 {len}자)', { max: f(NOTE_APPEND_LIMIT), len: f(a.length) });
-  if (typeof n === 'string' && n.length > NOTE_LIMIT)
-    return tl('메모는 {max}자까지입니다(지금 {len}자)', { max: f(NOTE_LIMIT), len: f(n.length) });
+// Why an edit body would be refused for its length - said instead of sending it, the draft kept - or ''.
+function tooLongReason(body) {
+  const append = body.note_append,
+    note = body.note,
+    format = (x) => x.toLocaleString('en-US');
+  if (typeof append === 'string' && append.length > NOTE_APPEND_LIMIT)
+    return tl('덧붙일 이유는 {max}자까지입니다(지금 {len}자)', {
+      max: format(NOTE_APPEND_LIMIT),
+      len: format(append.length),
+    });
+  if (typeof note === 'string' && note.length > NOTE_LIMIT)
+    return tl('메모는 {max}자까지입니다(지금 {len}자)', { max: format(NOTE_LIMIT), len: format(note.length) });
   return '';
 }
-// Writes text as reason session r's pin's note. The pin is read from the server first (a list read a while ago may hold a
-// note someone has emptied, which would add a stamped line to an empty note, or not hold one written since); a note someone
-// wrote meanwhile is kept and a new reason is added to it (note_append), while a replace that finds the note changed since it
-// was read is not written over theirs (pvReasonConflict). A pin that is gone takes nothing. said: the status line says it was
-// saved (moving on, a draft that moved to a new verdict), with the verdict it went to. Each 409 - the pin changed since it
-// was read - brings the pin as it is, and the edit is made again from it, up to PV_REASON_409 times. A write whose answer is
-// lost (or a 5xx) is kept with what it made of the note (r.tried): the next write knows from the pin whether it landed. A
-// failure is said by pvReasonFailed. Returns whether it was written.
-const PV_REASON_409 = 3;
-// A change of a saved reason (session r) whose write landed though its answer was lost - pin p's rev past the one it was
-// sent against and its note exactly what it wrote (pvReasonLanded): the note r changes is that one now, at p's rev. The
-// person's own text is never shown back as a note changed elsewhere ('지금 메모'), and the next Enter writes over it at
-// once. Returns whether it did.
-function pvReasonRebase(r, p) {
-  if (!pvReasonEdits(r) || !r.tried.length) return false;
-  const note = String(p.note || '');
-  const got = [...r.tried].reverse().find((a) => note === a.pre + a.text + a.post && pvReasonLanded(a, p));
+// Writes text as a reason session's pin's note. The pin is read from the server first (a list read a while ago may hold
+// a note someone has emptied, which would add a stamped line to an empty note, or not hold one written since); a note
+// someone wrote meanwhile is kept and a new reason is added to it (note_append), while a replace that finds the note
+// changed since it was read is not written over theirs (keepConflict). A pin that is gone takes nothing. said: the
+// status line says it was saved (moving on, a draft that moved to a new verdict), with the verdict it went to. Each 409
+// - the pin changed since it was read - brings the pin as it is, and the edit is made again from it, up to
+// CONFLICT_RETRIES times. A write whose answer is lost (or a 5xx) is kept with what it made of the note (the session's
+// tried): the next write knows from the pin whether it landed. A failure is said by sayReasonFailed. Returns whether it
+// was written.
+const CONFLICT_RETRIES = 3;
+// A change of a saved reason whose write landed though its answer was lost - the pin's rev past the one it was sent
+// against and its note exactly what it wrote (hasLanded): the note the session changes is that one now, at the pin's
+// rev. The person's own text is never shown back as a note changed elsewhere ('지금 메모'), and the next Enter writes
+// over it at once. Returns whether it did.
+function rebaseOnLanded(session, pin) {
+  if (!replacesWholeNote(session) || !session.tried.length) return false;
+  const note = String(pin.note || '');
+  const got = [...session.tried]
+    .reverse()
+    .find((attempt) => note === attempt.pre + attempt.text + attempt.post && hasLanded(attempt, pin));
   if (!got) return false;
-  r.base = note;
-  r.rev = typeof p.rev === 'number' ? p.rev : r.rev;
-  r.tried = [];
-  r.conflict = null;
+  session.base = note;
+  session.rev = typeof pin.rev === 'number' ? pin.rev : session.rev;
+  session.tried = [];
+  session.conflict = null;
   return true;
 }
-async function pvReasonWrite(r, text, said) {
+async function writeReason(session, text, said) {
   if (viewerBlocked()) return false;
-  let p;
+  let pin;
   try {
-    p = (await api('/api/pins/' + r.id, { what: '핀 읽기', silent: true })).data.pin;
-  } catch (e) {
-    const x = e;
+    pin = (await api('/api/pins/' + session.id, { what: '핀 읽기', silent: true })).data.pin;
+  } catch (error) {
+    const x = error;
     if (!x || !x.status || x.status >= 500) {
-      pvReasonFailed(r, text, x);
+      sayReasonFailed(session, text, x);
       return false;
     }
-    p = undefined;
+    pin = undefined;
   }
-  if (!p || p.dropped_at) {
-    if (!PV_WITHDRAWN.has(r.id))
-      lineNote(tl('핀 #{id} 은 그사이 다른 곳에서 지워졌습니다', { id: r.id }), NOTICE_KIND.WARN);
+  if (!pin || pin.dropped_at) {
+    if (!WITHDRAWN_PINS.has(session.id))
+      lineNote(tl('핀 #{id} 은 그사이 다른 곳에서 지워졌습니다', { id: session.id }), NOTICE_KIND.WARN);
     return false;
   }
-  pvReasonRebase(r, p); // its own lost write, landed, is the note it changes now
-  if (pvReasonEdits(r) && String(p.note || '').trim() !== r.base.trim() && String(p.note || '').trim() !== text) {
-    pvReasonConflict(r, text, p);
+  rebaseOnLanded(session, pin); // its own lost write, landed, is the note it changes now
+  if (
+    replacesWholeNote(session) &&
+    String(pin.note || '').trim() !== session.base.trim() &&
+    String(pin.note || '').trim() !== text
+  ) {
+    keepConflict(session, text, pin);
     return false;
   } // changed since it was read: never sent
-  const url = '/api/pins/' + r.id + '/edit',
-    o = { method: 'POST', intent: 'reason', silent: true }; // silent: pvReasonFailed says a failure, with its target
+  const url = '/api/pins/' + session.id + '/edit',
+    // silent: sayReasonFailed says a failure, with its target
+    options = { method: 'POST', intent: 'reason', silent: true };
   let sent = null; // the write out now, while its answer is awaited
   try {
-    for (let n = 1; ; n++) {
-      const b = pvReasonBody(r, text, p);
-      if (!b) break;
-      const long = pvReasonTooLong(b.body);
+    for (let round = 1; ; round++) {
+      const edit = reasonEditBody(session, text, pin);
+      if (!edit) break;
+      const long = tooLongReason(edit.body);
       if (long) {
-        pvReasonFailed(r, text, null, long);
+        sayReasonFailed(session, text, null, long);
         return false;
       }
-      sent = b.sent;
-      const { status, data } = await api(url, { ...o, body: b.body, expect: n < PV_REASON_409 ? [409] : [] });
+      sent = edit.sent;
+      const { status, data } = await api(url, {
+        ...options,
+        body: edit.body,
+        expect: round < CONFLICT_RETRIES ? [409] : [],
+      });
       sent = null;
       if (status !== 409) break;
-      const q = data && data.pin; // someone changed the pin meanwhile: their note stays
-      if (!q) {
-        pvReasonFailed(r, text, null, tr('그사이 다른 곳에서 메모가 바뀌었습니다'));
+      const answered = data && data.pin; // someone changed the pin meanwhile: their note stays
+      if (!answered) {
+        sayReasonFailed(session, text, null, tr('그사이 다른 곳에서 메모가 바뀌었습니다'));
         return false;
       }
-      if (pvReasonEdits(r)) {
-        pvReasonRebase(r, q);
-        if (String(q.note || '').trim() !== r.base.trim()) {
-          pvReasonConflict(r, text, q);
+      if (replacesWholeNote(session)) {
+        rebaseOnLanded(session, answered);
+        if (String(answered.note || '').trim() !== session.base.trim()) {
+          keepConflict(session, text, answered);
           return false;
         }
-        r.rev = typeof q.rev === 'number' ? q.rev : r.rev;
+        session.rev = typeof answered.rev === 'number' ? answered.rev : session.rev;
       } // only something else changed (a claim, the assignee): the note is the one it was read at
-      p = q;
+      pin = answered;
     }
-  } catch (e) {
-    const x = e;
+  } catch (error) {
+    const x = error;
     if (sent && (!x || !x.status || x.status >= 500)) {
-      r.tried.push(sent);
-      rdTriedOff(r.doc, r.id, sent);
-      pvReasonHandedOn(r);
+      session.tried.push(sent);
+      addLostWrite(session.doc, session.id, sent);
+      handOnCopy(session);
     } // it may have landed - so may the copies moved off it know, and what it was copied from lets it be
-    pvReasonFailed(r, text, x);
+    sayReasonFailed(session, text, x);
     return false;
   }
-  r.conflict = null;
-  sourceOk('POST /api/pins/' + r.id + '/edit reason'); // a failure this write answers goes (also when nothing had to be sent)
-  if (r.onto) {
-    /* its line's verdict changed meanwhile: pvReasonOnto says where it is */
+  session.conflict = null;
+  // a failure this write answers goes (also when nothing had to be sent)
+  sourceOk('POST /api/pins/' + session.id + '/edit reason');
+  if (session.onto) {
+    /* its line's verdict changed meanwhile: settleWriteOnto says where it is */
   } else if (said)
     lineNote(
       tl('이유 저장됨 · 판정 #{id} {word} — {target}', {
-        id: r.id,
-        word: verdictLabel(r.key, r.doc),
-        target: pvReasonName(r),
+        id: session.id,
+        word: verdictLabel(session.key, session.doc),
+        target: reasonTargetName(session),
       }),
       NOTICE_KIND.OK,
       null,
       { life: NOTICE_LIFE.TIMER, literal: true },
     ); // result first: the folded line shows it
-  else quietNote(tl('판정 #{id} 이유를 저장했습니다', { id: r.id }));
-  if (r.doc === DOC) loadPins().catch(() => {});
+  else quietNote(tl('판정 #{id} 이유를 저장했습니다', { id: session.id }));
+  if (session.doc === DOC) loadPins().catch(() => {});
   return true;
 }
-// What a reason session's verdict is about, by a short name for the status line: its page's target while its document is on
-// screen ('PL16'), else its document's name.
-function pvReasonName(r) {
-  return pvNameOn(r.doc, r.page, r.id);
+// What a reason session's verdict is about, by a short name for the status line: its page's target while its document
+// is on screen ('PL16'), else its document's name.
+function reasonTargetName(session) {
+  return targetNameOn(session.doc, session.page, session.id);
 }
 // The same for verdict pin id (0 while it has none) about page `page` of document doc.
-function pvNameOn(doc, page, id) {
+function targetNameOn(doc, page, id) {
   if (doc === DOC) return pageTargetShort(page);
-  const d = doc ? docInfo(doc) : null;
-  return (d && d.name) || (id ? '#' + id : tl('{page}쪽', { page }));
+  const entry = doc ? docInfo(doc) : null;
+  return (entry && entry.name) || (id ? '#' + id : tl('{page}쪽', { page }));
 }
-// A reason that could not be written, said on the status line result first ('이유 저장 실패 · 서버에 닿지 않습니다 — PL16') in
-// place of api()'s line, keyed by the request as api() keys it (a later answer from it clears it). The draft is kept
-// whatever failed (rdPut, with its lost writes) and the line marks it - or the copy moved off the pin's key meanwhile is
-// (rdMovedOff); unless the server refused it (a 4xx would refuse again) or it is too long
-// (why: said before sending) the message offers [다시 시도], which writes the session's draft (pvReasonRetry). Stays until
-// [x] or its action (STICKY), or until a write elsewhere puts its text on another verdict (PV_RETRY, pvReasonWrittenOff).
-// (A write without an answer is remembered by pvReasonWrite, r.tried: it may have landed.) The
-// reason for a pin this person has withdrawn meanwhile goes quietly (PV_WITHDRAWN).
-function pvReasonFailed(r, text, e, why0) {
-  const st = e && typeof e.status === 'number' ? e.status : 0,
-    again = !why0 && (!st || st >= 500);
-  if (!rdMovedOff(r.doc, r.id).length)
-    rdPut(r.doc, r.id, r.text.trim() ? r.text : text, r.base, r.rev, { mode: r.mode, tried: r.tried, from: r.via }); // moved off meanwhile: that copy is the draft
-  if (PV_WITHDRAWN.has(r.id) || r.onto) return; // withdrawn, or its line's verdict changed meanwhile (pvReasonOnto decides)
-  const why = why0 || (st ? (e && e.data && errText(e.data)) || 'HTTP ' + st : tr('서버에 닿지 않습니다'));
-  const n = lineNote(
-    tl('이유 저장 실패 · {why} — {target}', { why, target: pvReasonName(r) }),
+// A reason that could not be written, said on the status line result first ('이유 저장 실패 · 서버에 닿지 않습니다 —
+// PL16') in place of api()'s line, keyed by the request as api() keys it (a later answer from it clears it). The draft
+// is kept whatever failed (putDraft, with its lost writes) and the line marks it - or the copy moved off the pin's key
+// meanwhile is (draftsMovedOff); unless the server refused it (a 4xx would refuse again) or it is too long (why: said
+// before sending) the message offers [다시 시도], which writes the session's draft (retryReason). Stays until [x] or
+// its action (STICKY), or until a write elsewhere puts its text on another verdict (RETRY_NOTICES, takeWrittenText). (A
+// write without an answer is remembered by writeReason, in the session's tried: it may have landed.) The reason for a
+// pin this person has withdrawn meanwhile goes quietly (WITHDRAWN_PINS).
+function sayReasonFailed(session, text, error, why0) {
+  const statusCode = error && typeof error.status === 'number' ? error.status : 0,
+    again = !why0 && (!statusCode || statusCode >= 500);
+  if (!draftsMovedOff(session.doc, session.id).length)
+    putDraft(session.doc, session.id, session.text.trim() ? session.text : text, session.base, session.rev, {
+      mode: session.mode,
+      tried: session.tried,
+      from: session.via,
+    }); // moved off meanwhile: that copy is the draft
+  // withdrawn, or its line's verdict changed meanwhile (settleWriteOnto decides)
+  if (WITHDRAWN_PINS.has(session.id) || session.onto) return;
+  const why =
+    why0 ||
+    (statusCode ? (error && error.data && errText(error.data)) || 'HTTP ' + statusCode : tr('서버에 닿지 않습니다'));
+  const notice = lineNote(
+    tl('이유 저장 실패 · {why} — {target}', { why, target: reasonTargetName(session) }),
     NOTICE_KIND.ERR,
-    again ? { label: '다시 시도', fn: () => pvReasonRetry(r) } : null,
-    { source: 'POST /api/pins/' + r.id + '/edit reason', literal: true },
+    again ? { label: '다시 시도', fn: () => retryReason(session) } : null,
+    { source: 'POST /api/pins/' + session.id + '/edit reason', literal: true },
   );
-  if (again && n) PV_RETRY.set(r, n);
-  else PV_RETRY.delete(r);
-  if (PV_REASON !== r && r.doc === DOC) drawPageVerdicts();
+  if (again && notice) RETRY_NOTICES.set(session, notice);
+  else RETRY_NOTICES.delete(session);
+  if (REASON_SESSION !== session && session.doc === DOC) drawPageVerdicts();
 } // the line marks the draft it keeps
-// A replace found the note changed elsewhere since it was read (newer note q): nothing is written over it. The draft is kept,
-// the popover - when open - shows the newer note whole and offers [그 위에 쓰기] (pvReasonReapply); every further 409 shows
-// the note it found. The status line says so, result first, with [메모 보기] (the pin's card), and the line is read again so
-// it shows the newer note too.
-function pvReasonConflict(r, text, q) {
-  r.conflict = { note: String(q.note || ''), rev: typeof q.rev === 'number' ? q.rev : -1 };
-  if (!rdMovedOff(r.doc, r.id).length)
-    rdPut(r.doc, r.id, r.text.trim() ? r.text : text, r.base, r.rev, { mode: r.mode, tried: r.tried, from: r.via });
-  if (!r.onto)
+// A replace found the note changed elsewhere since it was read (the newer pin): nothing is written over it. The draft
+// is kept, the popover - when open - shows the newer note whole and offers [그 위에 쓰기] (writeOverNewer); every
+// further 409 shows the note it found. The status line says so, result first, with [메모 보기] (the pin's card), and
+// the line is read again so it shows the newer note too.
+function keepConflict(session, text, newer) {
+  session.conflict = { note: String(newer.note || ''), rev: typeof newer.rev === 'number' ? newer.rev : -1 };
+  if (!draftsMovedOff(session.doc, session.id).length)
+    putDraft(session.doc, session.id, session.text.trim() ? session.text : text, session.base, session.rev, {
+      mode: session.mode,
+      tried: session.tried,
+      from: session.via,
+    });
+  if (!session.onto)
     lineNote(
-      tl('이유 저장 안 함 · 그사이 다른 곳에서 메모가 바뀌었습니다 — {target}', { target: pvReasonName(r) }),
+      tl('이유 저장 안 함 · 그사이 다른 곳에서 메모가 바뀌었습니다 — {target}', { target: reasonTargetName(session) }),
       NOTICE_KIND.WARN,
-      { label: '메모 보기', fn: () => gotoPinRef(r.id) },
-      { source: 'POST /api/pins/' + r.id + '/edit reason', literal: true },
+      { label: '메모 보기', fn: () => gotoPinRef(session.id) },
+      { source: 'POST /api/pins/' + session.id + '/edit reason', literal: true },
     );
-  if (r.doc === DOC) {
-    if (PV_REASON === r) pvRefill(r.page);
+  if (session.doc === DOC) {
+    if (REASON_SESSION === session) refillLine(session.page);
     loadPins().catch(() => {});
   }
 }
-// [그 위에 쓰기] in a popover that shows a newer note: the person has read it and puts their text over it - a replace, made
-// from that note and written against its rev (also when it is empty: never an append that needs no rev).
-function pvReasonReapply() {
-  const r = PV_REASON,
-    f = pvReasonField();
-  if (!r || !r.conflict || !f || r.writing) return;
-  r.base = r.conflict.note;
-  r.rev = r.conflict.rev;
-  r.mode = 'replace';
-  r.conflict = null;
-  rdKeep(r);
-  if (!pvReasonDirty(r)) {
-    pvRefill(r.page);
+// [그 위에 쓰기] in a popover that shows a newer note: the person has read it and puts their text over it - a replace,
+// made from that note and written against its rev (also when it is empty: never an append that needs no rev).
+function writeOverNewer() {
+  const session = REASON_SESSION,
+    field = findReasonField();
+  if (!session || !session.conflict || !field || session.writing) return;
+  session.base = session.conflict.note;
+  session.rev = session.conflict.rev;
+  session.mode = 'replace';
+  session.conflict = null;
+  keepDraft(session);
+  if (!hasUnsavedReason(session)) {
+    refillLine(session.page);
     return;
   }
-  pvReasonSave(f);
+  saveReason(field);
 }
-// Enter (or [저장]): the text written as the note and the popover closed. Empty is a skip - a saved reason stays - and the
-// reason as it is saved has nothing to write. While the request is out the field waits (read-only, keeping the focus: disabled it
-// dropped it to nothing and the next digit was a verdict key; the popover says '저장 중…'); a failure leaves the text in it
-// for another Enter.
-async function pvReasonSave(f) {
-  const r = PV_REASON;
-  if (!r || r.writing || f.readOnly) return;
-  r.text = f.value;
-  const text = r.text.trim();
-  if (!r.id) {
+// Enter (or [저장]): the text written as the note and the popover closed. Empty is a skip - a saved reason stays - and
+// the reason as it is saved has nothing to write. While the request is out the field waits (read-only, keeping the
+// focus: disabled, it would drop the focus to nothing and the next digit would be a verdict key; the popover says '저장
+// 중…'); a failure leaves the text in it for another Enter.
+async function saveReason(field) {
+  const session = REASON_SESSION;
+  if (!session || session.writing || field.readOnly) return;
+  session.text = field.value;
+  const text = session.text.trim();
+  if (!session.id) {
     if (text) {
-      r.saveWhenBound = true;
-      rdKeep(r);
-      pvRefill(r.page);
+      session.saveWhenBound = true;
+      keepDraft(session);
+      refillLine(session.page);
     }
     return;
   } // its verdict has no number yet: saved once it has
-  if (!text || text === r.base.trim()) {
-    rdDrop(r.doc, r.id || 'p' + r.page);
-    pvReasonEnd(true);
+  if (!text || text === session.base.trim()) {
+    dropDraft(session.doc, session.id || 'p' + session.page);
+    closeReasonPopover(true);
     return;
   }
-  if (r.conflict) {
-    pvRefill(r.page);
-    pvReasonFocus();
+  if (session.conflict) {
+    refillLine(session.page);
+    focusReasonField();
     return;
   } // the newer note is on screen: [그 위에 쓰기] or [메모 보기] first
-  const w = pvReasonCommit(r, text, !!r.from);
-  f.readOnly = true;
-  pvRefill(r.page);
-  const ok = await w;
-  if (PV_REASON !== r) return; // closed meanwhile (moved on, the undo, another document): its one write had the text
+  const writing = commitReason(session, text, !!session.from);
+  field.readOnly = true;
+  refillLine(session.page);
+  const ok = await writing;
+  // closed meanwhile (moved on, the undo, another document): its one write had the text
+  if (REASON_SESSION !== session) return;
   if (ok) {
-    pvReasonEnd(true);
+    closeReasonPopover(true);
     return;
   }
   drawPageVerdicts();
-  pvReasonFocus();
+  focusReasonField();
 }
-// Esc in the field, or [닫기] (how 'btn'): with nothing unsaved the popover closes. With text the first press lets the focus
-// go to the PDF area - the keys then change the verdict, the draft following - and says that the next one drops it; the
-// next one drops it (the kept draft too).
-function pvReasonEsc(how) {
-  const r = PV_REASON;
-  if (!r || (how === 'key' && r.writing)) return;
-  if (!pvReasonDirty(r)) {
-    rdDrop(r.doc, r.id || 'p' + r.page);
-    pvReasonEnd(true);
+// Esc in the field, or [닫기] (how 'btn'): with nothing unsaved the popover closes. With text the first press lets the
+// focus go to the PDF area - the keys then change the verdict, the draft following - and says that the next one drops
+// it; the next one drops it (the kept draft too).
+function escapeReason(how) {
+  const session = REASON_SESSION;
+  if (!session || (how === 'key' && session.writing)) return;
+  if (!hasUnsavedReason(session)) {
+    dropDraft(session.doc, session.id || 'p' + session.page);
+    closeReasonPopover(true);
     return;
   }
-  if (!r.escArm) {
-    r.escArm = how;
+  if (!session.escArm) {
+    session.escArm = how;
     if (how === 'key') searchToPage();
-    pvRefill(r.page);
+    refillLine(session.page);
     announce(
       how === 'key' ? tr('Esc 한 번 더 누르면 이 이유를 버립니다') : tr('[닫기]를 한 번 더 누르면 이 이유를 버립니다'),
     );
     return;
   }
-  rdDrop(r.doc, r.id || 'p' + r.page);
-  pvReasonEnd(true);
-  announce(tl('판정 #{id} 이유를 버렸습니다', { id: r.id }));
+  dropDraft(session.doc, session.id || 'p' + session.page);
+  closeReasonPopover(true);
+  announce(tl('판정 #{id} 이유를 버렸습니다', { id: session.id }));
 }
-// [접기]: the popover folds away, nothing written - over the plot it hid what the reason is about. The draft stays kept, folded
-// (a reload leaves it folded), and the line marks it '초안 있음', which opens it again and takes the focus. Moving on writes
-// nothing: a folded draft waits for the person.
-function pvReasonFold() {
-  const r = PV_REASON;
-  if (!r || r.writing) return;
-  if (pvReasonDirty(r)) rdKeep(r, true);
-  else rdDrop(r.doc, r.id);
-  PV_REASON = null;
+// [접기]: the popover folds away, nothing written - over the plot it hides what the reason is about. The draft stays
+// kept, folded (a reload leaves it folded), and the line marks it '초안 있음', which opens it again and takes the
+// focus. Moving on writes nothing: a folded draft waits for the person.
+function foldReason() {
+  const session = REASON_SESSION;
+  if (!session || session.writing) return;
+  if (hasUnsavedReason(session)) keepDraft(session, true);
+  else dropDraft(session.doc, session.id);
+  REASON_SESSION = null;
   drawPageVerdicts();
-  const c = document.querySelector(
-    '#doc .pv[data-page="' + r.page + '"] [data-act="pv-reason-open"]',
+  const control = document.querySelector(
+    '#doc .pv[data-page="' + session.page + '"] [data-act="pv-reason-open"]',
   );
-  if (c) c.focus({ preventScroll: true });
-  else pvFocusLine(r.page);
+  if (control) control.focus({ preventScroll: true });
+  else focusLine(session.page);
   announce(tr('이유 초안을 접었습니다 — 줄의 [초안 있음]이 다시 엽니다'));
 }
-// [지우기]: the saved reason goes - the note emptied against the rev the popover read it at - and the status line offers
-// [되돌리기], which writes it back. The popover and its draft stay until the server says it is done. A [지우기] whose answer was
-// lost may have landed: the next one reads the note first, and an empty note is the clear done. A failure keeps both (the
-// status line says it, with [다시 시도] when the server was not reached or failed - 5xx), and a note changed elsewhere
-// meanwhile is not cleared (pvReasonConflict).
-async function pvReasonClear() {
-  const r = PV_REASON;
-  if (!r || r.writing || viewerBlocked() || !pvReasonEdits(r)) return;
-  if (r.conflict) {
-    pvRefill(r.page);
+// [지우기]: the saved reason goes - the note emptied against the rev the popover read it at - and the status line
+// offers [되돌리기], which writes it back. The popover and its draft stay until the server says it is done. A [지우기]
+// whose answer was lost may have landed: the next one reads the note first, and an empty note is the clear done. A
+// failure keeps both (the status line says it, with [다시 시도] when the server was not reached or failed - 5xx), and a
+// note changed elsewhere meanwhile is not cleared (keepConflict).
+async function clearReason() {
+  const session = REASON_SESSION;
+  if (!session || session.writing || viewerBlocked() || !replacesWholeNote(session)) return;
+  if (session.conflict) {
+    refillLine(session.page);
     return;
   }
-  const old = r.base,
-    target = pvReasonName(r),
-    word = verdictLabel(r.key),
-    url = '/api/pins/' + r.id + '/edit',
-    o = { method: 'POST', intent: 'reason', silent: true, expect: [409] };
+  const old = session.base,
+    target = reasonTargetName(session),
+    word = verdictLabel(session.key),
+    url = '/api/pins/' + session.id + '/edit',
+    options = { method: 'POST', intent: 'reason', silent: true, expect: [409] };
   const go = async () => {
     try {
-      if (r.clearTried) {
-        const p = (await api('/api/pins/' + r.id, { what: '핀 읽기', silent: true })).data.pin;
-        if (p && !String(p.note || '').trim()) return 'ok';
+      if (session.clearTried) {
+        const pin = (await api('/api/pins/' + session.id, { what: '핀 읽기', silent: true })).data.pin;
+        if (pin && !String(pin.note || '').trim()) return 'ok';
       }
-      const { status, data } = await api(url, { ...o, body: { note: '', base_rev: r.rev } });
+      const { status, data } = await api(url, { ...options, body: { note: '', base_rev: session.rev } });
       if (status !== 409) return 'ok';
-      const q = data && data.pin;
-      if (!q) return 'gone';
-      if (!String(q.note || '').trim()) return 'ok'; // empty already: the clear that lost its answer landed
-      if (String(q.note || '').trim() !== r.base.trim()) {
-        pvReasonConflict(r, r.text, q);
+      const answered = data && data.pin;
+      if (!answered) return 'gone';
+      if (!String(answered.note || '').trim()) return 'ok'; // empty already: the clear that lost its answer landed
+      if (String(answered.note || '').trim() !== session.base.trim()) {
+        keepConflict(session, session.text, answered);
         return 'conflict';
       }
-      await api(url, { ...o, expect: [], body: { note: '', base_rev: q.rev } });
+      await api(url, { ...options, expect: [], body: { note: '', base_rev: answered.rev } });
       return 'ok';
-    } catch (e) {
-      const x = e,
-        st = x && typeof x.status === 'number' ? x.status : 0;
-      if (!st) r.clearTried = true;
+    } catch (error) {
+      const x = error,
+        statusCode = x && typeof x.status === 'number' ? x.status : 0;
+      if (!statusCode) session.clearTried = true;
       lineNote(
         tl('이유 지우기 실패 · {why} — {target}', {
-          why: st ? (x.data && errText(x.data)) || 'HTTP ' + st : tr('서버에 닿지 않습니다'),
+          why: statusCode ? (x.data && errText(x.data)) || 'HTTP ' + statusCode : tr('서버에 닿지 않습니다'),
           target,
         }),
         NOTICE_KIND.ERR,
-        !st || st >= 500
+        !statusCode || statusCode >= 500
           ? {
               label: '다시 시도',
               fn: () => {
-                if (PV_REASON === r) pvReasonClear();
+                if (REASON_SESSION === session) clearReason();
               },
             }
           : null,
@@ -27703,436 +28136,468 @@ async function pvReasonClear() {
       return 'fail';
     }
   };
-  const w = go();
-  r.writing = w.then((x) => x === 'ok');
-  rdKeep(r);
-  pvRefill(r.page);
-  const res = await w;
-  r.writing = null;
-  if (res === 'ok') {
+  const clearing = go();
+  session.writing = clearing.then((x) => x === 'ok');
+  keepDraft(session);
+  refillLine(session.page);
+  const result = await clearing;
+  session.writing = null;
+  if (result === 'ok') {
     sourceOk('POST ' + url + ' reason');
-    rdDrop(r.doc, r.id);
-    if (PV_REASON === r) pvReasonEnd(true);
+    dropDraft(session.doc, session.id);
+    if (REASON_SESSION === session) closeReasonPopover(true);
     lineNote(
-      tl('판정 #{id} {word} 이유 지움 — {target}', { id: r.id, word, target }),
+      tl('판정 #{id} {word} 이유 지움 — {target}', { id: session.id, word, target }),
       NOTICE_KIND.OK,
-      { label: '되돌리기', tip: T.undo, wait: true, fn: () => pvReasonUnclear(r.id, old) },
+      { label: '되돌리기', tip: T.undo, wait: true, fn: () => undoClearReason(session.id, old) },
       { life: NOTICE_LIFE.TIMER, undo: true, literal: true },
     );
-  } else if (PV_REASON === r) {
+  } else if (REASON_SESSION === session) {
     drawPageVerdicts();
-    pvReasonFocus();
+    focusReasonField();
   }
-  if (r.doc === DOC) await loadPins();
+  if (session.doc === DOC) await loadPins();
 }
 // The undo of [지우기]: the reason written back, unless someone wrote a note meanwhile.
-async function pvReasonUnclear(id, old) {
+async function undoClearReason(id, old) {
   let ok = false;
   try {
-    const p = (await api('/api/pins/' + id, { what: '핀 읽기', where: NOTICE_HOST.LINE })).data.pin;
-    if (p && !String(p.note || '').trim()) {
+    const pin = (await api('/api/pins/' + id, { what: '핀 읽기', where: NOTICE_HOST.LINE })).data.pin;
+    if (pin && !String(pin.note || '').trim()) {
       await api('/api/pins/' + id + '/edit', {
         method: 'POST',
-        body: { note: old, base_rev: p.rev },
+        body: { note: old, base_rev: pin.rev },
         intent: 'reason',
         what: '이유 되돌리기',
         where: NOTICE_HOST.LINE,
       });
       ok = true;
     }
-  } catch (e) {}
+  } catch (error) {}
   await loadPins();
   return ok;
 }
 
 // ---------------- The popover and the line's reason
-// What the popover says of its draft: '저장 중…' while it writes, '저장됨' with a check when its text is the saved reason, '저장 안 됨'
-// when it is not written yet, nothing when empty.
-function pvReasonState(r) {
-  if (r.writing || r.saveWhenBound) return { text: tr('저장 중…'), cls: 'busy' };
-  const t = r.text.trim();
-  if (!t) return { text: '', cls: '' };
-  return t === r.saved || t === r.base.trim()
+// What the popover says of its draft: '저장 중…' while it writes, '저장됨' with a check when its text is the saved
+// reason, '저장 안 됨' when it is not written yet, nothing when empty.
+function popoverState(session) {
+  if (session.writing || session.saveWhenBound) return { text: tr('저장 중…'), cls: 'busy' };
+  const text = session.text.trim();
+  if (!text) return { text: '', cls: '' };
+  return text === session.saved || text === session.base.trim()
     ? { text: tr('저장됨'), cls: 'ok' }
     : { text: tr('저장 안 됨'), cls: 'warn' };
 }
-// What the keys do now, under the field: with a fine pointer and the focus in it, Enter saves (and with nothing typed Esc
-// closes); after a first Esc, what the second does. With touch only the second press of [닫기] is said. The digits are not
-// mentioned: in the field they are text.
-function pvReasonHint(r, focused) {
+// What the keys do now, under the field: with a fine pointer and the focus in it, Enter saves (and with nothing typed
+// Esc closes); after a first Esc, what the second does. With touch only the second press of [닫기] is said. The digits
+// are not mentioned: in the field they are text.
+function popoverHint(session, focused) {
   const fine = matchMedia('(pointer:fine)').matches;
-  if (r.escArm === 'btn') return tr('[닫기]를 한 번 더 누르면 이 이유를 버립니다');
+  if (session.escArm === 'btn') return tr('[닫기]를 한 번 더 누르면 이 이유를 버립니다');
   if (!fine) return '';
-  if (r.escArm) return tr('Esc 한 번 더 누르면 이 이유를 버립니다');
+  if (session.escArm) return tr('Esc 한 번 더 누르면 이 이유를 버립니다');
   if (!focused) return '';
-  return r.text.trim() ? tr('Enter 저장') : tr('Enter 저장') + ' · ' + tr('Esc 닫기');
+  return session.text.trim() ? tr('Enter 저장') : tr('Enter 저장') + ' · ' + tr('Esc 닫기');
 }
 // The popover on page `page`'s line while its session is open there (a person who may make a verdict): a labelled,
-// non-modal group - the field, then one row: whose reason it is ('판정 #16 보류 이유', '판정 #16 보류 · 저장된 이유 수정' when it
-// changes a saved one, '#15 채택에서 옮김' after a move), the draft's state, the keys, and [지우기] (a saved reason), [접기]
-// (a draft, not while it is being written: the popover folds to the line's '초안 있음'), [닫기], [저장]. When a write found
-// the note changed elsewhere, a row above the field shows that note whole (scrolling when long) with [메모 보기] and
-// [그 위에 쓰기]. The keys' line is always there (aria-describedby never points at nothing), empty when there is nothing to
-// say. The field is drawn empty; its text is put in after drawing (pvReasonAfterDraw), never as markup a redraw could put
-// back under the caret or an input method.
-function pvReasonPop(page) {
-  const r = pvReasonOn(page) && canVerdict() ? PV_REASON : null;
-  if (!r) return '';
-  const a = document.activeElement,
-    focused = pvIsReasonField(a) && a.dataset.id === 's' + r.sid,
-    st = pvReasonState(r),
-    hint = pvReasonHint(r, focused);
-  const word = verdictLabel(r.key),
-    who = !r.id
+// non-modal group - the field, then one row: whose reason it is ('판정 #16 보류 이유', '판정 #16 보류 · 저장된 이유
+// 수정' when it changes a saved one, '#15 채택에서 옮김' after a move), the draft's state, the keys, and [지우기] (a
+// saved reason), [접기] (a draft, not while it is being written: the popover folds to the line's '초안 있음'), [닫기],
+// [저장]. When a write found the note changed elsewhere, a row above the field shows that note whole (scrolling when
+// long) with [메모 보기] and [그 위에 쓰기]. The keys' line is always there (aria-describedby never points at nothing),
+// empty when there is nothing to say. The field is drawn empty; its text is put in after drawing (fillReasonField),
+// never as markup a redraw could put back under the caret or an input method.
+function reasonPopoverHtml(page) {
+  const session = isReasonOpenOn(page) && canVerdict() ? REASON_SESSION : null;
+  if (!session) return '';
+  const active = document.activeElement,
+    focused = isReasonField(active) && active.dataset.id === 's' + session.sid,
+    state = popoverState(session),
+    hint = popoverHint(session, focused);
+  const word = verdictLabel(session.key),
+    who = !session.id
       ? tl('{word} 판정 이유 · 판정 저장 중', { word })
-      : pvReasonEdits(r) && r.base.trim()
-        ? tl('판정 #{id} {word} · 저장된 이유 수정', { id: r.id, word })
-        : tl('판정 #{id} {word} 이유', { id: r.id, word });
-  const from = r.from ? pvReasonPin(r.from) : null,
-    moved = r.from
-      ? tl('#{id} {word}에서 옮김', { id: r.from, word: verdictLabel((from && verdictOf(from)) || '') })
+      : replacesWholeNote(session) && session.base.trim()
+        ? tl('판정 #{id} {word} · 저장된 이유 수정', { id: session.id, word })
+        : tl('판정 #{id} {word} 이유', { id: session.id, word });
+  const from = session.from ? findReasonPin(session.from) : null,
+    moved = session.from
+      ? tl('#{id} {word}에서 옮김', { id: session.from, word: verdictLabel((from && verdictOf(from)) || '') })
       : '';
-  const cf = r.conflict
+  const conflictRow = session.conflict
     ? html`<div class="pv-pop-cf" role="alert"><span class="pv-pop-cf-t">${tr('그사이 다른 곳에서 메모가 바뀌었습니다 — 지금 메모')}</span>\
-<div class="pv-pop-cf-note" translate="no" tabindex="0">${r.conflict.note || tr('(빈 메모)')}</div><span class="pv-pop-acts">\
+<div class="pv-pop-cf-note" translate="no" tabindex="0">${session.conflict.note || tr('(빈 메모)')}</div><span class="pv-pop-acts">\
 <button type="button" class="btn-ghost btn-sm hit" data-act="pv-reason-see">${tr('메모 보기')}</button>\
 <button type="button" class="btn-sm hit" data-act="pv-reason-reapply" data-tip="${tr('바뀐 메모를 이 글로 바꿉니다')}">${tr('그 위에 쓰기')}</button></span></div>`
     : '';
-  const desc = hint && !r.writing ? html` aria-describedby="pv-pop-h-${r.sid}"` : ''; // never pointing at a line that says nothing (while it writes)
-  return html`<div class="pv-pop" role="group" data-id="s${r.sid}" aria-labelledby="pv-pop-to-${r.sid}"${desc}>${cf}\
-<textarea class="pv-reason" rows="1" maxlength="4000" autocomplete="off" enterkeyhint="done" data-id="s${r.sid}" data-pin="${r.id}"${r.writing ? html` readonly aria-busy="true"` : ''} \
-placeholder="${tr('이유 (선택)')}" aria-label="${tl('{who} (선택)', { who })}"${desc}></textarea>\
-<div class="pv-pop-f"><span class="pv-pop-to" id="pv-pop-to-${r.sid}" translate="no">${who}${moved ? html`<span class="pv-pop-from"> · ${moved}</span>` : ''}</span>\
-<span class="pv-pop-st${st.cls ? ' ' + st.cls : ''}" aria-live="polite">${st.cls === 'ok' ? ic('check') : ''}${st.text}</span><span class="pv-pop-h" id="pv-pop-h-${r.sid}">${hint}</span>\
+  // never pointing at a line that says nothing (while it writes)
+  const describedBy = hint && !session.writing ? html` aria-describedby="pv-pop-h-${session.sid}"` : '';
+  return html`<div class="pv-pop" role="group" data-id="s${session.sid}" aria-labelledby="pv-pop-to-${session.sid}"${describedBy}>${conflictRow}\
+<textarea class="pv-reason" rows="1" maxlength="4000" autocomplete="off" enterkeyhint="done" data-id="s${session.sid}" data-pin="${session.id}"${session.writing ? html` readonly aria-busy="true"` : ''} \
+placeholder="${tr('이유 (선택)')}" aria-label="${tl('{who} (선택)', { who })}"${describedBy}></textarea>\
+<div class="pv-pop-f"><span class="pv-pop-to" id="pv-pop-to-${session.sid}" translate="no">${who}${moved ? html`<span class="pv-pop-from"> · ${moved}</span>` : ''}</span>\
+<span class="pv-pop-st${state.cls ? ' ' + state.cls : ''}" aria-live="polite">${state.cls === 'ok' ? ic('check') : ''}${state.text}</span><span class="pv-pop-h" id="pv-pop-h-${session.sid}">${hint}</span>\
 <span class="pv-pop-acts">${
-    pvReasonEdits(r) && r.base.trim()
+    replacesWholeNote(session) && session.base.trim()
       ? html`<button type="button" class="btn-ghost btn-sm pv-pop-clear hit" data-act="pv-reason-clear" \
 data-tip="${tr('저장한 이유를 지웁니다. 상태 줄의 [되돌리기]가 되살립니다')}">${tr('지우기')}</button>`
       : ''
   }\
-${pvReasonDirty(r) && !r.writing && r.id ? html`<button type="button" class="btn-ghost btn-sm hit" data-act="pv-reason-fold" data-tip="${tr('초안을 둔 채 접습니다. 줄의 [초안 있음]이 다시 엽니다')}">${tr('접기')}</button>` : ''}\
+${hasUnsavedReason(session) && !session.writing && session.id ? html`<button type="button" class="btn-ghost btn-sm hit" data-act="pv-reason-fold" data-tip="${tr('초안을 둔 채 접습니다. 줄의 [초안 있음]이 다시 엽니다')}">${tr('접기')}</button>` : ''}\
 <button type="button" class="btn-ghost btn-sm hit" data-act="pv-reason-close" data-tip="${tr('닫습니다. 쓰던 이유가 있으면 한 번 더 눌러야 버립니다')}">${tr('닫기')}</button>\
-<button type="button" class="btn-sm pv-pop-save hit" data-act="pv-reason-save"${r.writing || r.conflict ? html` aria-disabled="true"` : ''}>${tr('저장')}</button></span></div></div>`;
+<button type="button" class="btn-sm pv-pop-save hit" data-act="pv-reason-save"${session.writing || session.conflict ? html` aria-disabled="true"` : ''}>${tr('저장')}</button></span></div></div>`;
 }
-// The reason on page `page`'s line, after its state: the saved reason of its current verdict (a check and its first line,
-// .pv-rn) - a button that opens the popover to change it on the person's own open verdict, with a pencil and the name
-// '저장된 이유 수정' -, then (.pv-ra) a kept draft not written yet ('초안 있음', which opens it: a folded popover, a failed
-// write, a reload's other drafts, a page's draft whose verdict went) on any line, or the way to write one for the person's
-// own open verdict without a reason - on the reading line and on the line of the last save (PV_LAST_SAVE): after a key save,
-// while the keys act on the line (a mouse screen), 'Enter 이유 쓰기' (Enter opens it, pvReasonEnterKey); else [이유 추가] - a
-// click save's, as before. Every other line with such a verdict holds that [이유 추가] hidden (the identifier's way, hidden:
-// never shown, focused or heard), which pvFit lays out unseen (#doc.pv-measure, components.css): every line is fitted as the
-// reading line it may become, so becoming it or leaving it never stacks or unstacks a line (#308 review: a line with an
-// earlier link stacked only while read). Every name holds the words the button shows. Nothing for the reason the open
+// The reason on page `page`'s line, after its state: the saved reason of its current verdict (a check and its first
+// line, .pv-rn) - a button that opens the popover to change it on the person's own open verdict, with a pencil and the
+// name '저장된 이유 수정' -, then (.pv-ra) a kept draft not written yet ('초안 있음', which opens it: a folded popover,
+// a failed write, a reload's other drafts, a page's draft whose verdict went) on any line, or the way to write one for
+// the person's own open verdict without a reason - on the reading line and on the line of the last save
+// (LAST_LINE_SAVE): after a key save, while the keys act on the line (a mouse screen), 'Enter 이유 쓰기' (Enter opens
+// it, openReasonOnEnter); else [이유 추가] - a click save's. Every other line with such a verdict holds that [이유
+// 추가] hidden (the identifier's way, hidden: never shown, focused or heard), which fitPageLines lays out unseen
+// (#doc.pv-measure, components.css): every line is fitted as the reading line it may become, so becoming it or leaving
+// it never stacks or unstacks a line. Every name holds the words the button shows. Nothing for the reason the open
 // popover holds.
-function pvReasonInline(page, cur) {
-  const open = pvReasonOn(page) && !!PV_REASON && (!cur || PV_REASON.id === cur.id || !PV_REASON.id),
-    pd = open ? null : rdGet(DOC, 'p' + page);
+function inlineReason(page, cur) {
+  const open = isReasonOpenOn(page) && !!REASON_SESSION && (!cur || REASON_SESSION.id === cur.id || !REASON_SESSION.id),
+    pageDraft = open ? null : getDraft(DOC, 'p' + page);
   const sep = html`<span class="pv-sep" aria-hidden="true">·</span>`;
   const mark = html`<span class="pv-ra">${sep}<button type="button" class="btn-ghost btn-sm pv-draft hit" data-act="pv-reason-open" \
 aria-label="${tr('초안 있음 — 저장 안 된 이유 초안, 누르면 이어 씁니다')}" data-tip="${tr('저장 안 된 이유 초안이 있습니다 — 누르면 이어 씁니다')}">${tr('초안 있음')}</button></span>`;
-  if (!cur) return pd ? mark : '';
-  const mine = pvCanCancel(cur),
+  if (!cur) return pageDraft ? mark : '';
+  const mine = canCancelVerdict(cur),
     note = String(cur.note || ''),
     first = note.split('\n')[0];
-  const d = open ? null : rdGet(DOC, cur.id),
-    draft = !!d && d.text.trim() !== note.trim();
+  const verdictDraft = open ? null : getDraft(DOC, cur.id),
+    draft = !!verdictDraft && verdictDraft.text.trim() !== note.trim();
   const ok = html`<span class="pv-ok" aria-hidden="true">${ic('check')}</span>`;
   const saved = !note
     ? ''
     : mine && !open
       ? html`<span class="pv-rn">${sep}<button type="button" class="btn-ghost btn-sm pv-note hit" data-act="pv-reason-open" translate="no" \
 aria-label="${tl('{note} — 저장된 이유 수정, 판정 #{id}', { id: cur.id, note: first })}" data-tip="${tr('저장된 이유 수정')}">${ok}<span class="pv-note-t">${first}</span>${ic('pencil')}</button></span>`
-      : html`<span class="pv-rn">${sep}<span class="pv-note" translate="no"${open ? '' : html` data-tip="${note}"`}>${ok}${first}</span></span>`; // open: no box over the popover
-  const keys = PV_KEYS === page && PV_KEY_SAVE === cur.id && matchMedia('(pointer:fine)').matches; // a key save: its line says the key
+      : // open: no box over the popover
+        html`<span class="pv-rn">${sep}<span class="pv-note" translate="no"${open ? '' : html` data-tip="${note}"`}>${ok}${first}</span></span>`;
+  // a key save: its line says the key
+  const keys = KEYED_PAGE === page && LAST_KEY_SAVE === cur.id && matchMedia('(pointer:fine)').matches;
   const act =
-    (draft || (pd && !d)) && mine && !open
+    (draft || (pageDraft && !verdictDraft)) && mine && !open
       ? mark
-      : pd && !mine
+      : pageDraft && !mine
         ? mark
         : !mine || open || note
           ? ''
-          : PV_READ === page || PV_LAST_SAVE === cur.id
+          : READING_LINE_PAGE === page || LAST_LINE_SAVE === cur.id
             ? keys
               ? html`<span class="pv-ra">${sep}<button type="button" class="btn-ghost btn-sm pv-add hit" data-act="pv-reason-open" aria-keyshortcuts="Enter" \
 data-tip="${tr('이 판정의 이유를 씁니다. 메모로 붙습니다')}"><kbd class="pv-kbd">Enter</kbd> ${tr('이유 쓰기')}</button></span>`
               : html`<span class="pv-ra">${sep}<button type="button" class="btn-ghost btn-sm pv-add hit" data-act="pv-reason-open" \
 data-tip="${tr('이 판정의 이유를 씁니다. 메모로 붙습니다')}">${tr('이유 추가')}</button></span>`
-            : html`<span class="pv-ra" hidden>${sep}<button type="button" class="btn-ghost btn-sm pv-add hit" tabindex="-1">${tr('이유 추가')}</button></span>`; // no data-act: no focus or press finds it
+            : // no data-act: no focus or press finds it
+              html`<span class="pv-ra" hidden>${sep}<button type="button" class="btn-ghost btn-sm pv-add hit" tabindex="-1">${tr('이유 추가')}</button></span>`;
   return html`${saved}${act}`;
 }
-// After a line is drawn (fillPv): the open field holds the session's text - put in only when it differs and no input method
-// is composing - and its height follows its lines.
-function pvReasonAfterDraw(line) {
-  const r = PV_REASON,
-    f = line.querySelector('.pv-pop .pv-reason');
-  if (!r || !f) return;
-  if (f.value !== r.text && PV_COMPOSING !== f) {
-    const had = document.activeElement === f;
-    f.value = r.text;
+// After a line is drawn (fillPageLine): the open field holds the session's text - put in only when it differs and no
+// input method is composing - and its height follows its lines.
+function fillReasonField(line) {
+  const session = REASON_SESSION,
+    field = line.querySelector('.pv-pop .pv-reason');
+  if (!session || !field) return;
+  if (field.value !== session.text && COMPOSING_FIELD !== field) {
+    const had = document.activeElement === field;
+    field.value = session.text;
     if (had) {
-      const n = f.value.length;
-      f.setSelectionRange(n, n);
+      const end = field.value.length;
+      field.setSelectionRange(end, end);
     }
   }
-  pvReasonGrow(f);
+  growReasonField(field);
 }
 // The field's height: its lines, up to its max-height (CSS), from one line.
-function pvReasonGrow(f) {
-  f.style.height = 'auto';
-  f.style.height = Math.ceil(f.scrollHeight + (f.offsetHeight - f.clientHeight)) + 'px';
+function growReasonField(field) {
+  field.style.height = 'auto';
+  field.style.height = Math.ceil(field.scrollHeight + (field.offsetHeight - field.clientHeight)) + 'px';
 }
 // Page `page`'s line drawn again now: what its popover says follows the field's text and focus.
-function pvRefill(page) {
-  const v = pageVerdictsOn(),
-    e = document.querySelector('#doc .pv[data-page="' + page + '"]');
-  if (v && e) fillPv(e, page, pageVerdictPins().get(page), v);
+function refillLine(page) {
+  const verdicts = pageVerdictsOn(),
+    line = document.querySelector('#doc .pv[data-page="' + page + '"]');
+  if (verdicts && line) fillPageLine(line, page, pageVerdictPins().get(page), verdicts);
 }
 
 // ---------------- Input
-// The reason field an input method is composing in: its value is not put back. The composition ends with its field: a field
-// drawn anew in its place (the pages built again) holds the session's text - while a flag stood, it was left empty and the
-// next input wrote what it held over the reason (#352).
-let PV_COMPOSING = null;
-$('#doc').addEventListener('compositionstart', (e) => {
-  if (pvIsReasonField(e.target)) PV_COMPOSING = e.target;
+// The reason field an input method is composing in: its value is not put back. The composition ends with its field: a
+// field drawn anew in its place (the pages built again) holds the session's text - left empty, the next input would
+// write what it holds over the reason.
+let COMPOSING_FIELD = null;
+$('#doc').addEventListener('compositionstart', (event) => {
+  if (isReasonField(event.target)) COMPOSING_FIELD = event.target;
 });
-// The composition's end settles what it brought back (pvReasonFollow, which waits for it), and what waited for it goes on
-// (pvComposedOver).
-$('#doc').addEventListener('compositionend', (e) => {
-  const f = e.target;
-  if (!pvIsReasonField(f)) return;
-  PV_COMPOSING = null;
-  const r = PV_REASON;
-  if (r && f.dataset.id === 's' + r.sid) {
-    pvReasonFollow(r);
-    if (PV_REASON === r) rdKeep(r);
+// The composition's end settles what it brought back (followLanded, which waits for it), and what waited for it goes on
+// (runComposedWaits).
+$('#doc').addEventListener('compositionend', (event) => {
+  const field = event.target;
+  if (!isReasonField(field)) return;
+  COMPOSING_FIELD = null;
+  const session = REASON_SESSION;
+  if (session && field.dataset.id === 's' + session.sid) {
+    followLanded(session);
+    if (REASON_SESSION === session) keepDraft(session);
   }
-  setTimeout(pvComposedOver, 0);
+  setTimeout(runComposedWaits, 0);
 });
-// Whether an input method is composing a syllable in a reason field in the document, or the key that ended it there still
-// holds it (core.js imeHeldIn). Nothing takes that field away meanwhile: the lines do not move beside or under the pages
-// (pvSideWant) and the pages are not built again (refreshDoc, pvReasonComposed) until it ends and that key lets go. Moved or
-// rebuilt, the field was a new one: the old one's composition ended with it, and the input method's commit landed on top
-// of the text carried over ('묶이는 이유' became '묶이는 이유유', #352); and after the commit, the Enter ibus-hangul hands on
-// and its repeats came to the new field as the viewer's: the reason was written and the popover closed.
-function pvComposingNow() {
-  if (PV_COMPOSING && PV_COMPOSING.isConnected) return true;
-  const f = imeHeldIn();
-  return pvIsReasonField(f) && f.isConnected;
+// Whether an input method is composing a syllable in a reason field in the document, or the key that ended it there
+// still holds it (core.ts imeHeldIn). Nothing takes that field away meanwhile: the lines do not move beside or under
+// the pages (shouldStandBeside) and the pages are not built again (refreshDoc, afterComposition) until it ends and that
+// key lets go. Moved or rebuilt, the field would be a new one: the old one's composition would end with it, the input
+// method's commit would land on top of the text carried over (its last syllable doubled), and the Enter ibus-hangul
+// hands on after the commit, with its repeats, would reach the new field as the viewer's - writing the reason and
+// closing the popover.
+function isComposingNow() {
+  if (COMPOSING_FIELD && COMPOSING_FIELD.isConnected) return true;
+  const field = imeHeldIn();
+  return isReasonField(field) && field.isConnected;
 }
-const PV_COMPOSED_WAIT = []; // what waits for the composition's end (pvReasonComposed)
-const PV_COMPOSED_POLL_MS = 200; // how often a wait looks again: a field taken out of the document ends its composition without the event
-// Resolves once no syllable is being composed in a reason field and the key that ended one has let it go (pvComposingNow) -
-// at once when none is.
-function pvReasonComposed() {
-  return new Promise((res) => {
-    if (!pvComposingNow()) {
-      res();
+const COMPOSED_WAITS = []; // what waits for the composition's end (afterComposition)
+// how often a wait looks again: a field taken out of the document ends its composition without the event
+const COMPOSED_POLL_MS = 200;
+// Resolves once no syllable is being composed in a reason field and the key that ended one has let it go
+// (isComposingNow) - at once when none is.
+function afterComposition() {
+  return new Promise((resolve) => {
+    if (!isComposingNow()) {
+      resolve();
       return;
     }
     const go = () => {
-        clearInterval(t);
-        res();
+        clearInterval(timer);
+        resolve();
       },
-      t = setInterval(() => {
-        if (!pvComposingNow()) go();
-      }, PV_COMPOSED_POLL_MS);
-    PV_COMPOSED_WAIT.push(go);
+      timer = setInterval(() => {
+        if (!isComposingNow()) go();
+      }, COMPOSED_POLL_MS);
+    COMPOSED_WAITS.push(go);
   });
 }
-// After a composition ended, unless another began meanwhile or the key that ended it still holds the field: the rebuilds
-// that waited go on, and the lines move if the room crossed its bar while it lasted. Held, it looks again once that key
-// lets the field go (core.js IME_ON_FREE): up, another key, forgotten, or IME_HOLD_MS with no event of its own.
-function pvComposedOver() {
-  if (pvComposingNow()) return;
-  PV_COMPOSED_WAIT.splice(0).forEach((go) => go());
-  if (pageVerdictsOn()) pvSideCheck();
+// After a composition ended, unless another began meanwhile or the key that ended it still holds the field: the
+// rebuilds that waited go on, and the lines move if the room crossed its bar while it lasted. Held, it looks again once
+// that key lets the field go (core.ts IME_ON_FREE): up, another key, forgotten, or IME_HOLD_MS with no event of its
+// own.
+function runComposedWaits() {
+  if (isComposingNow()) return;
+  COMPOSED_WAITS.splice(0).forEach((go) => go());
+  if (pageVerdictsOn()) redrawOnBesideChange();
 }
-IME_ON_FREE.push(pvComposedOver);
-// Every input keeps the draft (rdPut), with the parts moved into it placed where they are now (pvReasonPlace) - a part
-// brought back whose text has landed on its pin meanwhile leaves at once (pvReasonFollow), or once an input method's
+IME_ON_FREE.push(runComposedWaits);
+// Every input keeps the draft (putDraft), with the parts moved into it placed where they are now (placeParts) - a part
+// brought back whose text has landed on its pin meanwhile leaves at once (followLanded), or once an input method's
 // composition ends - and lets a first Esc go; the line follows its emptiness (the state).
-$('#doc').addEventListener('input', (e) => {
-  const f = e.target;
-  if (!pvIsReasonField(f)) return;
-  const r = PV_REASON;
-  if (!r || f.dataset.id !== 's' + r.sid) return;
-  const was = r.text;
-  r.text = f.value;
-  r.via = pvReasonPlace(r, was, f.selectionEnd);
-  r.escArm = '';
-  if (PV_COMPOSING !== f) pvReasonFollow(r);
-  rdKeep(r);
-  pvReasonGrow(f);
-  pvRefill(r.page);
+$('#doc').addEventListener('input', (event) => {
+  const field = event.target;
+  if (!isReasonField(field)) return;
+  const session = REASON_SESSION;
+  if (!session || field.dataset.id !== 's' + session.sid) return;
+  const was = session.text;
+  session.text = field.value;
+  session.via = placeParts(session, was, field.selectionEnd);
+  session.escArm = '';
+  if (COMPOSING_FIELD !== field) followLanded(session);
+  keepDraft(session);
+  growReasonField(field);
+  refillLine(session.page);
 });
-// The parts of session r's text once an input made it r.text from `was`, the caret at `caret`. A text the field held before
-// - back by an undo or a redo, a paste or a typed letter taken back, a composition given up - has the parts it had then: an
-// edit inside a part lets it go (rdEdit), and the undo that put the text back left it with none, so the text was no longer
-// known as moved off its pin, and a write that landed there left it in the copy, to be written twice (#327). The undo
-// and redo records are the texts kept (hist.seen, the newest parts for each text), with their parts - their lost writes
-// kept up to date (pvReasonEvidence) and the writes that landed meanwhile on the pins they came from (hist.landed,
-// pvReasonFollow) -, since the session's text or parts were last set from elsewhere: opened, moved to a new verdict, a part
-// taken out. What the field held before that is not this session's to come back to with those parts - a part taken out
-// because its text landed on its pin and typed back is a new reason, as it is when it is typed again (and the browser lets
-// the field's own undo records go when its text is set). Any other text is placed by rdEdit. Texts with parts are kept
-// until then, however many: one let go, the undo past it brought the text back without its part again. Texts without
-// one go oldest first past PV_HIST_CHARS characters - one missed is placed by rdEdit, which may keep a part the text had
-// meanwhile, never invents one.
-const PV_HIST_CHARS = 200000;
-function pvReasonPlace(r, was, caret) {
+// The parts of a session's text once an input made it its text from `was`, the caret at `caret`. A text the field held
+// before - back by an undo or a redo, a paste or a typed letter taken back, a composition given up - has the parts it
+// had then: an edit inside a part lets it go (editParts), so without these records the undo that puts the text back
+// would leave it with none, the text would not be known as moved off its pin, and a write that lands there would leave
+// it in the copy, to be written twice. The undo and redo records are the texts kept (hist.seen, the newest parts for
+// each text), with their parts - their lost writes kept up to date (updateEvidence) and the writes that landed
+// meanwhile on the pins they came from (hist.landed, followLanded) -, since the session's text or parts were last set
+// from elsewhere: opened, moved to a new verdict, a part taken out. What the field held before that is not this
+// session's to come back to with those parts - a part taken out because its text landed on its pin and typed back is a
+// new reason, as it is when it is typed again (and the browser lets the field's own undo records go when its text is
+// set). Any other text is placed by editParts. Texts with parts are kept until then, however many: letting one go, the
+// undo past it would bring the text back without its part again. Texts without one go oldest first past HISTORY_CHARS
+// characters - one missed is placed by editParts, which may keep a part the text had meanwhile, never invents one.
+const HISTORY_CHARS = 200000;
+function placeParts(session, was, caret) {
   const same = (x, y) =>
-    x.length === y.length && x.every((p, i) => p.k === y[i].k && p.s === y[i].s && p.e === y[i].e);
-  let h = r.hist;
-  if (!h || h.last.text !== was || !same(h.last.via, r.via)) {
-    h = { last: { text: was, via: r.via }, seen: new Map(), size: 0, landed: [] };
-    pvHistKeep(h, was, r.via);
+    x.length === y.length &&
+    x.every((part, index) => part.k === y[index].k && part.s === y[index].s && part.e === y[index].e);
+  let history = session.hist;
+  if (!history || history.last.text !== was || !same(history.last.via, session.via)) {
+    history = { last: { text: was, via: session.via }, seen: new Map(), size: 0, landed: [] };
+    keepHistory(history, was, session.via);
   }
-  const back = h.seen.get(r.text),
-    via = back !== undefined ? back : rdEdit(r.via, was, r.text, caret);
-  pvHistKeep(h, r.text, via);
-  h.last = { text: r.text, via };
-  r.hist = h;
+  const back = history.seen.get(session.text),
+    via = back !== undefined ? back : editParts(session.via, was, session.text, caret);
+  keepHistory(history, session.text, via);
+  history.last = { text: session.text, via };
+  session.hist = history;
   return via;
 }
-// Record h keeps text with its parts, as the newest; past PV_HIST_CHARS it lets the oldest texts without a part go.
-function pvHistKeep(h, text, via) {
-  if (h.seen.has(text)) {
-    h.size -= text.length;
-    h.seen.delete(text);
+// A history keeps text with its parts, as the newest; past HISTORY_CHARS it lets the oldest texts without a part go.
+function keepHistory(history, text, via) {
+  if (history.seen.has(text)) {
+    history.size -= text.length;
+    history.seen.delete(text);
   }
-  h.seen.set(text, via);
-  h.size += text.length;
-  for (const [t, v] of h.seen) {
-    if (h.size <= PV_HIST_CHARS) break;
-    if (v.length || t === text) continue;
-    h.seen.delete(t);
-    h.size -= t.length;
+  history.seen.set(text, via);
+  history.size += text.length;
+  for (const [keptText, keptParts] of history.seen) {
+    if (history.size <= HISTORY_CHARS) break;
+    if (keptParts.length || keptText === text) continue;
+    history.seen.delete(keptText);
+    history.size -= keptText.length;
   }
 }
-// After an input, session r's text holds a part whose very text landed on the pin it was moved off while the part was not
-// in the text (an edit inside it had let it go, and an undo brought it back, pvReasonPlace): the part leaves now, as it
-// would have then (pvReasonWrittenOff) - with something left the popover keeps that and says the rest went, with nothing
-// left it closes and says where the reason is (pvReasonTaken). Left in, Enter wrote it on this verdict as well. Never while
-// an input method composes (its composition passing through that text closed the popover under it): at its end, on the
-// text it committed.
-function pvReasonFollow(r) {
-  const h = r.hist;
-  if (!h || !h.landed.length) return;
-  for (const L of h.landed) {
-    const c = rdCut(r.text, r.via, rdName(L.doc, L.id), L.text);
-    if (!c) continue;
-    r.text = c.text.trim() ? c.text : '';
-    r.via = r.text ? c.from : [];
-    if (!r.text) pvReasonGone(r);
-    if (r === PV_REASON) pvReasonTaken(r, L.doc, L.id, L.word, !!r.text);
+// After an input, a session's text holds a part whose very text landed on the pin it was moved off while the part was
+// not in the text (an edit inside it had let it go, and an undo brought it back, placeParts): the part leaves now, as
+// it would have then (takeWrittenText) - with something left the popover keeps that and says the rest went, with
+// nothing left it closes and says where the reason is (closeTakenReason). Left in, Enter would write it on this verdict
+// as well. Never while an input method composes (its composition passing through that text would close the popover
+// under it): at its end, on the text it committed.
+function followLanded(session) {
+  const history = session.hist;
+  if (!history || !history.landed.length) return;
+  for (const landedWrite of history.landed) {
+    const cut = cutWrittenParts(
+      session.text,
+      session.via,
+      reasonDraftKey(landedWrite.doc, landedWrite.id),
+      landedWrite.text,
+    );
+    if (!cut) continue;
+    session.text = cut.text.trim() ? cut.text : '';
+    session.via = session.text ? cut.from : [];
+    if (!session.text) emptySession(session);
+    if (session === REASON_SESSION)
+      closeTakenReason(session, landedWrite.doc, landedWrite.id, landedWrite.word, !!session.text);
     return;
   }
 }
-// Keys in the field: Enter saves (Shift+Enter is a new line), Esc closes or takes two presses with text. Every other key is
-// the field's own - digits included. Nothing while an input method composes. Esc on the popover's buttons ([접기], [닫기],
-// [저장], [지우기]) is the field's Esc: it did nothing there.
-$('#doc').addEventListener('keydown', (e) => {
-  const t = e.target;
+// Keys in the field: Enter saves (Shift+Enter is a new line), Esc closes or takes two presses with text. Every other
+// key is the field's own - digits included. Nothing while an input method composes. Esc on the popover's buttons
+// ([접기], [닫기], [저장], [지우기]) is the field's Esc.
+$('#doc').addEventListener('keydown', (event) => {
+  const target = event.target;
   if (
-    e.key === 'Escape' &&
-    !pvIsReasonField(t) &&
-    PV_REASON &&
-    t &&
-    t.closest &&
-    t.closest('#doc .pv-pop') &&
-    !e.ctrlKey &&
-    !e.metaKey &&
-    !e.altKey
+    event.key === 'Escape' &&
+    !isReasonField(target) &&
+    REASON_SESSION &&
+    target &&
+    target.closest &&
+    target.closest('#doc .pv-pop') &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.altKey
   ) {
-    e.preventDefault();
-    e.stopPropagation();
+    event.preventDefault();
+    event.stopPropagation();
     hideTip();
-    pvReasonEsc('key');
+    escapeReason('key');
     return;
   }
 });
-$('#doc').addEventListener('keydown', (e) => {
-  const f = e.target;
-  if (!pvIsReasonField(f)) return;
-  if (imeKey(e)) {
-    if (imeTail(e)) e.preventDefault();
+$('#doc').addEventListener('keydown', (event) => {
+  const field = event.target;
+  if (!isReasonField(field)) return;
+  if (imeKey(event)) {
+    if (imeTail(event)) event.preventDefault();
     return;
   } // the Enter that ended a composition adds no new line either
-  if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
-    e.preventDefault();
-    e.stopPropagation();
-    pvReasonSave(f);
+  if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
+    event.preventDefault();
+    event.stopPropagation();
+    saveReason(field);
     return;
   }
-  if (e.key === 'Escape') {
-    e.preventDefault();
-    e.stopPropagation();
-    pvReasonEsc('key');
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    event.stopPropagation();
+    escapeReason('key');
   }
 });
-// While a popover is open, Tab and Shift+Tab keep to it and its line, from anywhere in either: past the last control (the
-// popover's) the focus goes to the line's first, and before the first (the line's) to the popover's last. The DOM's next
-// or previous stop is another page's line, whose focus scrolled the reading page away and closed the popover, writing what
-// was being edited.
-$('#doc').addEventListener('keydown', (e) => {
-  if (e.key !== 'Tab' || e.ctrlKey || e.metaKey || e.altKey) return;
-  const t = e.target,
-    line = t && t.closest ? t.closest('#doc .pv') : null;
+// While a popover is open, Tab and Shift+Tab keep to it and its line, from anywhere in either: past the last control
+// (the popover's) the focus goes to the line's first, and before the first (the line's) to the popover's last. The
+// DOM's next or previous stop is another page's line, whose focus would scroll the reading page away and close the
+// popover, writing what is being edited.
+$('#doc').addEventListener('keydown', (event) => {
+  if (event.key !== 'Tab' || event.ctrlKey || event.metaKey || event.altKey) return;
+  const target = event.target,
+    line = target && target.closest ? target.closest('#doc .pv') : null;
   const pop = line && line.querySelector(':scope>.pv-pop');
   if (!line || !pop) return;
   const vis = (x) =>
     x instanceof HTMLElement && x.getClientRects().length > 0 && !(x).disabled;
   const all = [...line.querySelectorAll('a,button,textarea,[tabindex="0"]')].filter(vis);
   if (all.length < 2) return;
-  if (!e.shiftKey && t === all[all.length - 1]) {
-    e.preventDefault();
+  if (!event.shiftKey && target === all[all.length - 1]) {
+    event.preventDefault();
     (all[0]).focus({ preventScroll: true });
-  } else if (e.shiftKey && t === all[0]) {
-    e.preventDefault();
+  } else if (event.shiftKey && target === all[0]) {
+    event.preventDefault();
     (all[all.length - 1]).focus({ preventScroll: true });
   }
 });
 // The field's focus changes what it says (the keys). The popover stays open while the focus is anywhere inside it - Tab
 // from the field to its buttons included - and an empty one closes when the focus leaves it for somewhere else (a press
 // on its own buttons never closes it, even where a press does not move the focus).
-let PV_POP_DOWN = 0; // performance.now() of the last press inside a popover
+let POPOVER_PRESS_AT = 0; // performance.now() of the last press inside a popover
 $('#doc').addEventListener(
   'pointerdown',
-  (e) => {
-    const t = e.target;
-    if (t && t.closest && t.closest('.pv-pop')) PV_POP_DOWN = performance.now();
+  (event) => {
+    const target = event.target;
+    if (target && target.closest && target.closest('.pv-pop')) POPOVER_PRESS_AT = performance.now();
   },
   true,
 );
-$('#doc').addEventListener('focusin', (e) => {
-  if (!pvIsReasonField(e.target) || !PV_REASON) return;
-  PV_REASON.escArm = '';
-  pvRefill(PV_REASON.page);
+$('#doc').addEventListener('focusin', (event) => {
+  if (!isReasonField(event.target) || !REASON_SESSION) return;
+  REASON_SESSION.escArm = '';
+  refillLine(REASON_SESSION.page);
 });
-$('#doc').addEventListener('focusout', (e) => {
-  const t = e.target,
-    pop = t && t.closest ? t.closest('.pv-pop') : null;
+$('#doc').addEventListener('focusout', (event) => {
+  const target = event.target,
+    pop = target && target.closest ? target.closest('.pv-pop') : null;
   if (!pop) return;
-  const rel = e.relatedTarget;
+  const rel = event.relatedTarget;
   if (rel && pop.contains(rel)) return;
   setTimeout(() => {
-    const r = PV_REASON;
-    if (!r || pop.getAttribute('data-id') !== 's' + r.sid || !pop.isConnected || pop.contains(document.activeElement))
+    const session = REASON_SESSION;
+    if (
+      !session ||
+      pop.getAttribute('data-id') !== 's' + session.sid ||
+      !pop.isConnected ||
+      pop.contains(document.activeElement)
+    )
       return;
-    const f = pvReasonField();
-    if (f && !f.disabled && !f.value.trim() && !r.writing && performance.now() - PV_POP_DOWN > 600) {
-      pvReasonEnd(false);
+    const field = findReasonField();
+    if (
+      field &&
+      !field.disabled &&
+      !field.value.trim() &&
+      !session.writing &&
+      performance.now() - POPOVER_PRESS_AT > 600
+    ) {
+      closeReasonPopover(false);
       return;
     }
-    pvRefill(r.page);
+    refillLine(session.page);
   }, 0);
 });
-// The second Esc after a first one from the field (the focus is then on the PDF area): it drops the draft - unless something
-// on top answers Esc first (a dialog, a popover, the composer, an edit or a reply).
-function pvReasonEscKey(e) {
-  if (e.key !== 'Escape' || e.defaultPrevented || !PV_REASON || PV_REASON.escArm !== 'key' || typingNow()) return;
+// The second Esc after a first one from the field (the focus is then on the PDF area): it drops the draft - unless
+// something on top answers Esc first (a dialog, a popover, the composer, an edit or a reply).
+function dropOnSecondEsc(event) {
+  if (
+    event.key !== 'Escape' ||
+    event.defaultPrevented ||
+    !REASON_SESSION ||
+    REASON_SESSION.escArm !== 'key' ||
+    typingNow()
+  )
+    return;
   if (
     document.querySelector('dialog[open]') ||
     !$('#page-pop').hidden ||
@@ -28142,45 +28607,56 @@ function pvReasonEscKey(e) {
     REPLY
   )
     return;
-  e.preventDefault();
-  e.stopImmediatePropagation();
-  pvReasonEsc('key');
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  escapeReason('key');
 }
-document.addEventListener('keydown', pvReasonEscKey);
-// Enter on the pages - the focus on the PDF area, the page itself or nothing - opens the reading page's reason popover with
-// the focus, for the person's own open current verdict there ('Enter 이유 쓰기' on its line). A control's own Enter stays its
-// own, and so does anything on top (a dialog, a popover, the composer, an edit or a reply). Not while the pages are still
-// gliding to where a jump sends them (pvAutoScrolling): the reading page is not yet the one asked for. While that page's
-// save is still out the popover opens bound to it (pvReasonOpenPending) - a key and Enter at once is one intent.
-function pvReasonEnterKey(e) {
+document.addEventListener('keydown', dropOnSecondEsc);
+// Enter on the pages - the focus on the PDF area, the page itself or nothing - opens the reading page's reason popover
+// with the focus, for the person's own open current verdict there ('Enter 이유 쓰기' on its line). A control's own
+// Enter stays its own, and so does anything on top (a dialog, a popover, the composer, an edit or a reply). Not while
+// the pages are still gliding to where a jump sends them (isAutoScrolling): the reading page is not yet the one asked
+// for. While that page's save is still out the popover opens bound to it (openPendingReason) - a key and Enter at once
+// is one intent.
+function openReasonOnEnter(event) {
   if (
-    e.key !== 'Enter' ||
-    e.defaultPrevented ||
-    imeKey(e) ||
-    e.ctrlKey ||
-    e.metaKey ||
-    e.altKey ||
-    e.shiftKey ||
-    e.repeat
+    event.key !== 'Enter' ||
+    event.defaultPrevented ||
+    imeKey(event) ||
+    event.ctrlKey ||
+    event.metaKey ||
+    event.altKey ||
+    event.shiftKey ||
+    event.repeat
   )
     return;
-  const t = e.target,
-    L = $('#left');
-  // On a control of the line whose digit key's save is out the Enter is that intent too: the focus may rest on any of them.
-  const l = !!t && !!t.closest && !t.closest('.pv-pop') ? (t.closest('#doc .pv')) : null,
-    n = l ? Number(l.dataset.page) || 0 : 0;
-  if (n && PV_KEY_OUT.has(pvSlot(n)) && n === pvReadingAt()) {
-    e.preventDefault();
-    e.stopImmediatePropagation();
-    pvReasonOpenPending(n);
+  const target = event.target,
+    area = $('#left');
+  // On a control of the line whose digit key's save is out the Enter is that intent too: the focus may rest on any of
+  // them.
+  const line =
+      !!target && !!target.closest && !target.closest('.pv-pop')
+        ? (target.closest('#doc .pv'))
+        : null,
+    page = line ? Number(line.dataset.page) || 0 : 0;
+  if (page && KEY_SAVE_OUT.has(pageLineSlot(page)) && page === pageUnderReadingLine()) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    openPendingReason(page);
     return;
   }
-  if (!(t === document.body || t === L || t === $('#doc') || (!!t && !!t.closest && !!t.closest('#doc .pg')))) return;
-  pvReasonEnterPages(e);
+  if (!(
+    target === document.body ||
+    target === area ||
+    target === $('#doc') ||
+    (!!target && !!target.closest && !!target.closest('#doc .pg'))
+  ))
+    return;
+  openReadingReason(event);
 }
-// Enter taken as pressed on the pages (pvReasonEnterKey, or one on an off-screen line's control, pvOffPageKey): the reading
-// page's reason - its popover, or a pending one while its save is out.
-function pvReasonEnterPages(e) {
+// Enter taken as pressed on the pages (openReasonOnEnter, or one on an off-screen line's control, stopOffPageKey): the
+// reading page's reason - its popover, or a pending one while its save is out.
+function openReadingReason(event) {
   if (
     document.querySelector('dialog[open]') ||
     !$('#page-pop').hidden ||
@@ -28191,33 +28667,33 @@ function pvReasonEnterPages(e) {
     !canVerdict()
   )
     return;
-  const page = pvReadingAt();
+  const page = pageUnderReadingLine();
   if (!page || !pageTakesVerdict(page)) return;
-  if (PV_BUSY.has(pvSlot(page))) {
-    e.preventDefault();
-    e.stopImmediatePropagation();
-    pvReasonOpenPending(page);
+  if (SAVING_LINES.has(pageLineSlot(page))) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    openPendingReason(page);
     return;
   } // the save is out: the Enter is the intent to write
-  const cur = pvCurOf(page);
-  if (!cur || !pvCanCancel(cur)) return;
-  e.preventDefault();
-  e.stopImmediatePropagation();
-  if (pvAutoScrolling()) {
-    pvSayGliding();
+  const cur = currentLineVerdict(page);
+  if (!cur || !canCancelVerdict(cur)) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  if (isAutoScrolling()) {
+    sayGliding();
     return;
   }
-  pvReasonOpen(page, true);
+  openReason(page, true);
 }
-document.addEventListener('keydown', pvReasonEnterKey);
-// After a focused reason field went from under the person (its verdict taken back elsewhere), the keys they go on typing
-// are not verdict keys: one would save a verdict they never chose (and the text is in its page's draft). It lasts until
-// they press something on purpose - a press of the pointer, Esc, or opening the popover again.
-let PV_KEY_GUARD = false;
-// Whether verdict key e falls under that guard - said once on the status line when it does.
-function pvKeyGuarded(e) {
-  if (!PV_KEY_GUARD) return false;
-  e.preventDefault();
+document.addEventListener('keydown', openReasonOnEnter);
+// After a focused reason field went from under the person (its verdict taken back elsewhere), the keys they go on
+// typing are not verdict keys: one would save a verdict they never chose (and the text is in its page's draft). It
+// lasts until they press something on purpose - a press of the pointer, Esc, or opening the popover again.
+let KEY_GUARD = false;
+// Whether a verdict key falls under that guard - said once on the status line when it does.
+function isKeyGuarded(event) {
+  if (!KEY_GUARD) return false;
+  event.preventDefault();
   lineNote(
     '이유 칸이 닫혀 숫자를 판정으로 받지 않았습니다 — Esc를 누르거나 쪽을 누른 뒤 다시 누릅니다',
     NOTICE_KIND.INFO,
@@ -28229,661 +28705,707 @@ function pvKeyGuarded(e) {
 addEventListener(
   'pointerdown',
   () => {
-    PV_KEY_GUARD = false;
+    KEY_GUARD = false;
   },
   true,
 );
 addEventListener(
   'keydown',
-  (e) => {
-    if (e.key === 'Escape') PV_KEY_GUARD = false;
+  (event) => {
+    if (event.key === 'Escape') KEY_GUARD = false;
   },
   true,
 );
-// A popover's buttons and the line's reason (events.js).
-function pvReasonAct(a) {
-  const act = a.dataset.act,
-    line = a.closest('.pv'),
+// A popover's buttons and the line's reason (events.ts).
+function actOnReason(control) {
+  const act = control.dataset.act,
+    line = control.closest('.pv'),
     page = Number(line && line.getAttribute('data-page')) || 0;
   if (act === 'pv-reason-open') {
-    pvReasonOpen(page, true);
+    openReason(page, true);
     return;
   }
   if (act === 'pv-reason-close') {
-    pvReasonEsc('btn');
+    escapeReason('btn');
     return;
   }
   if (act === 'pv-reason-clear') {
-    pvReasonClear();
+    clearReason();
     return;
   }
   if (act === 'pv-reason-fold') {
-    pvReasonFold();
+    foldReason();
     return;
   }
   if (act === 'pv-reason-reapply') {
-    pvReasonReapply();
+    writeOverNewer();
     return;
   }
   if (act === 'pv-reason-see') {
-    if (PV_REASON) gotoPinRef(PV_REASON.id, true);
+    if (REASON_SESSION) gotoPinRef(REASON_SESSION.id, true);
     return;
   }
-  const f = pvReasonField();
-  if (act === 'pv-reason-save' && f) pvReasonSave(f);
+  const field = findReasonField();
+  if (act === 'pv-reason-save' && field) saveReason(field);
 }
 // Whether this tab holds a reason not written yet that the person can see: the open popover's, a kept draft for the
-// current verdict of a line on screen or a page's draft (the line marks either), or one of another document. A withdrawn
-// verdict's draft waits for its [되돌리기], and one for a verdict that is no longer current is not on any line: neither asks.
-function pvUnsaved() {
-  if (PV_REASON && pvReasonDirty(PV_REASON)) return true;
+// current verdict of a line on screen or a page's draft (the line marks either), or one of another document. A
+// withdrawn verdict's draft waits for its [되돌리기], and one for a verdict that is no longer current is not on any
+// line: neither asks.
+function hasUnsavedDrafts() {
+  if (REASON_SESSION && hasUnsavedReason(REASON_SESSION)) return true;
   if (!META) return false;
-  const d = rdAll(),
+  const drafts = readAllDrafts(),
     kind = META.kind;
-  return Object.keys(d).some((k) => {
-    const i = k.lastIndexOf(':'),
-      doc = k.slice(0, i),
-      rest = k.slice(i + 1);
+  return Object.keys(drafts).some((key) => {
+    const colon = key.lastIndexOf(':'),
+      doc = key.slice(0, colon),
+      rest = key.slice(colon + 1);
     if (doc !== (DOC || '')) return true;
     if (rest.startsWith('p')) return true;
     const id = Number(rest),
-      p = pvReasonPin(id),
-      t = p && !PV_WITHDRAWN.has(id) ? pageTargetOf(p, kind) : null,
-      cur = t ? pvCurOf(t.page) : null;
+      pin = findReasonPin(id),
+      target = pin && !WITHDRAWN_PINS.has(id) ? pageTargetOf(pin, kind) : null,
+      cur = target ? currentLineVerdict(target.page) : null;
     return !!cur && cur.id === id;
   });
 }
-// Leaving the page (a reload, closing the tab, another address) with a reason not written yet asks first. The draft is kept
-// either way for this tab: a reload brings it back.
-addEventListener('beforeunload', (e) => {
-  if (!pvUnsaved()) return;
-  e.preventDefault();
-  e.returnValue = '';
+// Leaving the page (a reload, closing the tab, another address) with a reason not written yet asks first. The draft is
+// kept either way for this tab: a reload brings it back.
+addEventListener('beforeunload', (event) => {
+  if (!hasUnsavedDrafts()) return;
+  event.preventDefault();
+  event.returnValue = '';
 });
-// Sets PV_COMPOSING, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setPvComposing(v) {
-  PV_COMPOSING = v;
-  return v;
+// Sets COMPOSING_FIELD, which this module declares, for another module that changes it (ADR-0042 D1); answers the
+// value.
+function setComposingField(value) {
+  COMPOSING_FIELD = value;
+  return value;
 }
-// Sets PV_KEY_GUARD, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setPvKeyGuard(v) {
-  PV_KEY_GUARD = v;
-  return v;
+// Sets KEY_GUARD, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+function setKeyGuard(value) {
+  KEY_GUARD = value;
+  return value;
 }
-// Sets PV_REASON, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setPvReason(v) {
-  PV_REASON = v;
-  return v;
+// Sets REASON_SESSION, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+function setReasonSession(value) {
+  REASON_SESSION = value;
+  return value;
 }
 
-// ------------------------------------------------ The page verdict panel beside the pages (docs/handbook/viewer.md §판정 패널, #329)
+// ---------------------------------------- The page verdict panel beside the pages (docs/handbook/viewer.md §판정 패널)
 // On a wide desktop whose PDF area leaves room right of the pages, the page verdict line is one panel in that margin
-// (#pv-panel, --pv-panel-w wide, --pv-panel-gap off the page) instead of a line under every page: the reading page's line
-// (PV_READ, the page under the 160px reading line that the section strip and the keys name), drawn again (fillPv) when the
-// reading page changes, its parts in rows down the panel (the name, the words, the state, the reason) - the words stand at
-// one place on the screen for every page. Under each page a one-row summary (.pv-sum: '6쪽 · PL17 · 판정 #7 채택 · 처리
-// 대기') says its verdict, the reading page's in bold, and a press brings that page to the panel. Every block (.pgw) is a
-// grid [margin | page | margin] whose right margin holds the panel: the page stays centred while both margins hold it and
-// moves left only by what the right one lacks. Where the room is short (a narrower window, the pin panel opened, a zoomed
-// page) the lines go back under the pages as before, with hysteresis (PV_SIDE_ENTER, PV_SIDE_EXIT) so a width at the bar
-// does not flip it. The wide band only: the foldable and phone bands never take it. The line's words, keys, focus, save
-// chip and reason are the line's own (verdict.js, verdict-reason.js); this part decides when, places the panel and draws
-// the summaries.
+// (#pv-panel, --pv-panel-w wide, --pv-panel-gap off the page) instead of a line under every page: the reading page's
+// line (READING_LINE_PAGE, the page under the 160px reading line that the section strip and the keys name), drawn again
+// (fillPageLine) when the reading page changes, its parts in rows down the panel (the name, the words, the state, the
+// reason) - the words stand at one place on the screen for every page. Under each page a one-row summary (.pv-sum: '6쪽
+// · PL17 · 판정 #7 채택 · 처리 대기') says its verdict, the reading page's in bold, and a press brings that page to the
+// panel. Every block (.pgw) is a grid [margin | page | margin] whose right margin holds the panel: the page stays
+// centred while both margins hold it and moves left only by what the right one lacks. Where the room is short (a
+// narrower window, the pin panel opened, a zoomed page) the lines go back under the pages, with hysteresis
+// (PANEL_ENTER_ROOM, PANEL_EXIT_ROOM) so a width at the bar does not flip it. The wide band only: the foldable and
+// phone bands never take it. The line's words, keys, focus, save chip and reason are the line's own (verdict.ts,
+// verdict-reason.ts); this part decides when, places the panel and draws the summaries.
 
-// The panel's room in px, as the CSS draws it (verdict-panel.css --pv-panel-w, --pv-panel-gap): the margin right of a page
-// holds the panel and its gap, and the left margin keeps at least PV_SIDE_LEFT. The lines go beside the pages when the PDF
-// area's inner width less the page's is PV_SIDE_ENTER or more, and back under them below PV_SIDE_EXIT; in between they
-// stay as they are.
-const PV_SIDE_W = 280,
-  PV_SIDE_GAP = 24,
-  PV_SIDE_LEFT = 24,
-  PV_SIDE_HYST = 32;
-const PV_SIDE_EXIT = PV_SIDE_W + PV_SIDE_GAP + PV_SIDE_LEFT,
-  PV_SIDE_ENTER = PV_SIDE_EXIT + PV_SIDE_HYST;
-let PV_SIDE = false; // the lines stand beside the pages now: one panel, a summary under each page
-// The room the PDF area leaves beside the pages: its inner width less the widest page's width at the scale on screen - below 0
-// for a page wider than the area - or null while the area is not drawn (the changes view): the lines then stay as they are.
-// One width for the whole document, so the reading page never decides it and scrolling never turns the panel on or off. The
-// widest, not the most common: a wider page's block took the panel's margin past the area, the column grew with it, and every
-// page moved right under the panel. With it every page stands beside the panel, on one axis (verdict-panel.css).
-function pvSideRoom() {
-  const L = $('#left');
-  if (!META || !Array.isArray(META.pages) || !META.pages.length || !L.getClientRects().length) return null;
+// The panel's room in px, as the CSS draws it (verdict-panel.css --pv-panel-w, --pv-panel-gap): the margin right of a
+// page holds the panel and its gap, and the left margin keeps at least PANEL_LEFT_MARGIN. The lines go beside the pages
+// when the PDF area's inner width less the page's is PANEL_ENTER_ROOM or more, and back under them below
+// PANEL_EXIT_ROOM; in between they stay as they are.
+const PANEL_WIDTH = 280,
+  PANEL_GAP = 24,
+  PANEL_LEFT_MARGIN = 24,
+  PANEL_HYSTERESIS = 32;
+const PANEL_EXIT_ROOM = PANEL_WIDTH + PANEL_GAP + PANEL_LEFT_MARGIN,
+  PANEL_ENTER_ROOM = PANEL_EXIT_ROOM + PANEL_HYSTERESIS;
+let IS_BESIDE_PAGES = false; // the lines stand beside the pages now: one panel, a summary under each page
+// The room the PDF area leaves beside the pages: its inner width less the widest page's width at the scale on screen -
+// below 0 for a page wider than the area - or null while the area is not drawn (the changes view): the lines then stay
+// as they are. One width for the whole document, so the reading page never decides it and scrolling never turns the
+// panel on or off. The widest, not the most common: a wider page's block would take the panel's margin past the area,
+// the column would grow with it, and every page would move right under the panel. With it every page stands beside the
+// panel, on one axis (verdict-panel.css).
+function measureBesideRoom() {
+  const area = $('#left');
+  if (!META || !Array.isArray(META.pages) || !META.pages.length || !area.getClientRects().length) return null;
   return innerW() - pageWidth(ptMax(), K);
 }
 // Whether the lines should stand beside the pages: the wide band, a document with page lines, and the room - with
-// hysteresis around the bar. They stay as they are while the band settles (BAND_T): moved at the old band's new width they
-// stack, the space under a page grows, and the re-fit that follows took its spot from there and left the page read up to 200px
-// off (#356). bandSettle looks again once the band has settled.
-function pvSideWant() {
-  if (pvComposingNow() || BAND_T) return PV_SIDE; // a syllable being composed in the reason keeps the lines where they are until it ends and its key lets the field go
+// hysteresis around the bar. They stay as they are while the band settles (BAND_T): moved at the old band's new width
+// they would stack, the space under a page would grow, and the re-fit that follows would take its spot from there and
+// leave the page read off its place. bandSettle looks again once the band has settled.
+function shouldStandBeside() {
+  // a syllable being composed in the reason keeps the lines where they are until it ends and its key lets the field go
+  if (isComposingNow() || BAND_T) return IS_BESIDE_PAGES;
   if (LAYOUT !== LAYOUT_MODE.WIDE || !pageVerdictsOn()) return false;
-  const r = pvSideRoom();
-  if (r === null) return PV_SIDE;
-  return PV_SIDE ? r >= PV_SIDE_EXIT : r >= PV_SIDE_ENTER;
+  const room = measureBesideRoom();
+  if (room === null) return IS_BESIDE_PAGES;
+  return IS_BESIDE_PAGES ? room >= PANEL_EXIT_ROOM : room >= PANEL_ENTER_ROOM;
 }
-// Sets PV_SIDE and the body's class for it (body.pv-beside). No drawing.
-function pvSideApply(on) {
-  PV_SIDE = on;
+// Sets IS_BESIDE_PAGES and the body's class for it (body.pv-beside). No drawing.
+function applyBeside(on) {
+  IS_BESIDE_PAGES = on;
   document.body.classList.toggle('pv-beside', on);
 }
-// Whether the room crossed its bar since the lines were drawn (pvStick: a resize, the pin panel, a zoom, the frame after it): they
-// are drawn again, beside or under the pages. Whether it did.
-function pvSideCheck() {
-  if (pvSideWant() === PV_SIDE) return false;
+// Whether the room crossed its bar since the lines were drawn (stickReadingLine: a resize, the pin panel, a zoom, the
+// frame after it): they are drawn again, beside or under the pages. Whether it did.
+function redrawOnBesideChange() {
+  if (shouldStandBeside() === IS_BESIDE_PAGES) return false;
   drawPageVerdicts();
   return true;
 }
-// The reading page held while the lines move (pvSideTurn to pvSideSettle), 0 otherwise: read from the layout between the two it
-// was another page - the blocks change their height, by 4px a page, and only the settling puts the spot back - and a reason
-// being typed moved on: its half text was written and the digits after it were verdict keys. A var: pvReadingAt reads it.
-var PV_AT_HELD = 0;
+// The reading page held while the lines move (startBesideTurn to settleBesideTurn), 0 otherwise: read from the layout
+// between the two it would be another page - the blocks change their height, and only the settling puts the spot back -
+// and a reason being typed would move on, its half text written and the digits after it taken as verdict keys. A var:
+// pageUnderReadingLine reads it.
+var HELD_READING_PAGE = 0;
 // The reading page held while the pages are built again (refreshDoc), until the reading spot is back: read from the new
-// column before that, it was a neighbour, and the reason being typed on the panel was moved on from - written and closed (#352).
-var PV_BUILD_AT = 0;
-// Before the lines are drawn (drawPageVerdicts): follows the room. When it crossed its bar every line goes and new ones come, so
-// what the person has must be carried over: the reading page, the point of it under the reading line, and the focus. Null
-// when the lines stay where they are. A composition cannot cross: its field goes, and with it its end.
-function pvSideTurn() {
-  const on = pvSideWant();
-  if (on === PV_SIDE) return null;
-  const L = $('#left'),
-    a = document.activeElement,
-    f = pvIsReasonField(a) ? (a) : null,
-    at = pvReadingAt();
+// column before that, it would be a neighbour, and the reason being typed on the panel would be moved on from - written
+// and closed.
+var BUILD_READING_PAGE = 0;
+// Before the lines are drawn (drawPageVerdicts): follows the room. When it crossed its bar every line goes and new ones
+// come, so what the person has must be carried over: the reading page, the point of it under the reading line, and the
+// focus. Null when the lines stay where they are. A composition cannot cross: its field goes, and with it its end.
+function startBesideTurn() {
+  const on = shouldStandBeside();
+  if (on === IS_BESIDE_PAGES) return null;
+  const area = $('#left'),
+    active = document.activeElement,
+    field = isReasonField(active) ? (active) : null,
+    at = pageUnderReadingLine();
   const keep = {
-    spot: L.scrollTop > 0 ? topAnchor(readingDepth(L)) : null,
-    inLine: !!a && !!a.closest && !!a.closest('#doc .pv'),
-    caret: f ? [f.selectionStart, f.selectionEnd] : null,
-    popAct: (!!a && !!a.closest && !!a.closest('#doc .pv-pop') && !f && a.dataset.act) || '',
-    ctl: pvControlOf(a),
+    spot: area.scrollTop > 0 ? topAnchor(readingDepth(area)) : null,
+    inLine: !!active && !!active.closest && !!active.closest('#doc .pv'),
+    caret: field ? [field.selectionStart, field.selectionEnd] : null,
+    popAct: (!!active && !!active.closest && !!active.closest('#doc .pv-pop') && !field && active.dataset.act) || '',
+    ctl: describeControl(active),
   };
-  if (f) setPvComposing(null);
-  PV_AT_HELD = at;
-  pvSideApply(on);
+  if (field) setComposingField(null);
+  HELD_READING_PAGE = at;
+  applyBeside(on);
   return keep;
 }
-// The lines have moved and are fitted: the point that was under the reading line is there again, so the page in view does not
-// shift and the reading page is the one held (a rounded scroll position may fall a pixel off a page's edge: taken back). A
-// reading line in the space above the page (the spot's gap) stands that far above it again, as far as the new space keeps it
-// past the page before, or that page would be the one read. The space changes with the lines, so the page before moves by
-// the difference: the page read is the one held.
-function pvSideSettle(k) {
-  PV_AT_HELD = 0;
-  const a = k.spot,
-    pg = a ? document.getElementById('p' + a.page) : null;
-  if (!a || !pg) return;
-  const L = $('#left'),
-    y = () => L.getBoundingClientRect().top + readingDepth(L),
-    r = pg.getBoundingClientRect(),
-    up = document.getElementById('p' + (a.page - 1)),
-    room = up ? r.top - up.getBoundingClientRect().bottom : Infinity,
-    gap = Math.min(a.gap, Math.max(0, room - 2));
-  L.scrollTop += r.top + a.frac * r.height - gap - y();
-  const b = pg.getBoundingClientRect();
-  if (b.bottom <= y()) L.scrollTop -= 2;
-  else if (!gap && b.top > y()) L.scrollTop += 2;
+// The lines have moved and are fitted: the point that was under the reading line is there again, so the page in view
+// does not shift and the reading page is the one held (a rounded scroll position may fall a pixel off a page's edge:
+// taken back). A reading line in the space above the page (the spot's gap) stands that far above it again, as far as
+// the new space keeps it past the page before, or that page would be the one read. The space changes with the lines, so
+// the page before moves by the difference: the page read is the one held.
+function settleBesideTurn(kept) {
+  HELD_READING_PAGE = 0;
+  const spot = kept.spot,
+    pageElement = spot ? document.getElementById('p' + spot.page) : null;
+  if (!spot || !pageElement) return;
+  const area = $('#left'),
+    y = () => area.getBoundingClientRect().top + readingDepth(area),
+    rect = pageElement.getBoundingClientRect(),
+    up = document.getElementById('p' + (spot.page - 1)),
+    room = up ? rect.top - up.getBoundingClientRect().bottom : Infinity,
+    gap = Math.min(spot.gap, Math.max(0, room - 2));
+  area.scrollTop += rect.top + spot.frac * rect.height - gap - y();
+  const settled = pageElement.getBoundingClientRect();
+  if (settled.bottom <= y()) area.scrollTop -= 2;
+  else if (!gap && settled.top > y()) area.scrollTop += 2;
 }
-// After the lines moved: a save chip stands on its pin's new line (drawChips, else its undo goes to the status line), and the reason
-// field that had the focus has it again with its caret, or the popover's button its focus - what is typed next stays text,
-// never a verdict key. Any other control focused on a line has the focus on the same control of its moved line (pvControlAgain).
-// A focus on another page's line, which the panel does not show, goes to the PDF area, not to nothing.
-function pvSideTurned(k) {
+// After the lines moved: a save chip stands on its pin's new line (drawChips, else its undo goes to the status line),
+// and the reason field that had the focus has it again with its caret, or the popover's button its focus - what is
+// typed next stays text, never a verdict key. Any other control focused on a line has the focus on the same control of
+// its moved line (findControlAgain). A focus on another page's line, which the panel does not show, goes to the PDF
+// area, not to nothing.
+function finishBesideTurn(kept) {
   drawChips();
-  const g = k.caret ? pvReasonField() : null;
-  if (g && k.caret) {
-    g.focus({ preventScroll: true });
-    g.setSelectionRange(k.caret[0], k.caret[1]);
+  const field = kept.caret ? findReasonField() : null;
+  if (field && kept.caret) {
+    field.focus({ preventScroll: true });
+    field.setSelectionRange(kept.caret[0], kept.caret[1]);
     return;
   }
-  const b = (
-    k.popAct ? document.querySelector('#doc .pv-pop [data-act="' + k.popAct + '"]') : null
+  const button = (
+    kept.popAct ? document.querySelector('#doc .pv-pop [data-act="' + kept.popAct + '"]') : null
   );
-  if (b) {
-    b.focus({ preventScroll: true });
+  if (button) {
+    button.focus({ preventScroll: true });
     return;
   }
-  const a = document.activeElement;
-  if (!k.inLine || (a && a !== document.body)) return;
-  const c = pvControlAgain(k.ctl);
-  if (c) {
-    c.focus({ preventScroll: true });
+  const active = document.activeElement;
+  if (!kept.inLine || (active && active !== document.body)) return;
+  const control = findControlAgain(kept.ctl);
+  if (control) {
+    control.focus({ preventScroll: true });
     return;
   }
   searchToPage();
 }
-// A control focused on a line, as the lines move (pvSideTurn): its line's page and what names it among that line's controls -
-// its action and, where several share one, its word (data-key), the pin it leads to (data-ref), its id or its message (a save
-// chip's button, data-n). null for none, the reason field and the popover's buttons (carried on their own).
-function pvControlOf(
-  a,
+// A control focused on a line, as the lines move (startBesideTurn): its line's page and what names it among that line's
+// controls - its action and, where several share one, its word (data-key), the pin it leads to (data-ref), its id or
+// its message (a save chip's button, data-n). null for none, the reason field and the popover's buttons (carried on
+// their own).
+function describeControl(
+  element,
 ) {
-  if (!(a instanceof HTMLElement) || !a.closest || a.closest('.pv-pop') || pvIsReasonField(a)) return null;
-  const l = a.closest('#doc .pv');
-  const act = a.dataset.act || '';
-  if (!l || !act) return null;
+  if (!(element instanceof HTMLElement) || !element.closest || element.closest('.pv-pop') || isReasonField(element))
+    return null;
+  const line = element.closest('#doc .pv');
+  const act = element.dataset.act || '';
+  if (!line || !act) return null;
   return {
-    page: l.dataset.page || '',
+    page: line.dataset.page || '',
     act,
-    key: a.dataset.key || '',
-    ref: a.dataset.ref || '',
-    id: a.dataset.id || '',
-    n: a.dataset.n || '',
+    key: element.dataset.key || '',
+    ref: element.dataset.ref || '',
+    id: element.dataset.id || '',
+    n: element.dataset.n || '',
   };
 }
-// The same control on the moved line of that page - beside the pages or under one - shown, or null (the panel shows another
-// page now). The focus lands there: on the PDF area it lost its place, and Enter on [이유 추가] no longer wrote the reason.
-function pvControlAgain(c) {
-  const l = c ? document.querySelector('#doc .pv[data-page="' + CSS.escape(c.page) + '"]') : null;
-  if (!c || !l) return null;
+// The same control on the moved line of that page - beside the pages or under one - shown, or null (the panel shows
+// another page now). The focus lands there: on the PDF area it would lose its place, and Enter on [이유 추가] would not
+// write the reason.
+function findControlAgain(described) {
+  const line = described ? document.querySelector('#doc .pv[data-page="' + CSS.escape(described.page) + '"]') : null;
+  if (!described || !line) return null;
   return (
-    ([...l.querySelectorAll('[data-act="' + CSS.escape(c.act) + '"]')].find(
-      (e) =>
-        e instanceof HTMLElement &&
-        (e.dataset.key || '') === c.key &&
-        (e.dataset.ref || '') === c.ref &&
-        (e.dataset.id || '') === c.id &&
-        (e.dataset.n || '') === c.n &&
-        e.getClientRects().length > 0,
+    ([...line.querySelectorAll('[data-act="' + CSS.escape(described.act) + '"]')].find(
+      (element) =>
+        element instanceof HTMLElement &&
+        (element.dataset.key || '') === described.key &&
+        (element.dataset.ref || '') === described.ref &&
+        (element.dataset.id || '') === described.id &&
+        (element.dataset.n || '') === described.n &&
+        element.getClientRects().length > 0,
     )) || null
   );
 }
 
 // ---------------- The panel
-// The panel (#pv-panel): a page verdict line of its own, in the last child of the pages' column (#pv-panel-at) - so every
-// '#doc .pv[data-page]' look-up of the reading page's line finds it, the DOM's Tab from its last control leaves the pages (to
-// the pin panel), and a rebuild of the column (buildDoc) takes it away with the pages. #pv-panel-at has no height and is
-// sticky to the PDF area's top, so the panel stays in view while it stays in the area's scroll chain: PageDown, the arrows,
-// Home and End on one of its controls and a wheel over it move the pages, by the browser's own steps, as on a line under a
-// page. Fixed to the window it was out of that chain: after a key save the keys and the wheel moved nothing, and the next
-// digit changed the same page's verdict.
-function pvPanel() {
-  let p = document.getElementById('pv-panel');
-  if (!p) {
+// The panel (#pv-panel): a page verdict line of its own, in the last child of the pages' column (#pv-panel-at) - so
+// every '#doc .pv[data-page]' look-up of the reading page's line finds it, the DOM's Tab from its last control leaves
+// the pages (to the pin panel), and a rebuild of the column (buildDoc) takes it away with the pages. #pv-panel-at has
+// no height and is sticky to the PDF area's top, so the panel stays in view while it stays in the area's scroll chain:
+// PageDown, the arrows, Home and End on one of its controls and a wheel over it move the pages, by the browser's own
+// steps, as on a line under a page. Fixed to the window it would be out of that chain: after a key save the keys and
+// the wheel would move nothing, and the next digit would change the same page's verdict.
+function ensurePanel() {
+  let panel = document.getElementById('pv-panel');
+  if (!panel) {
     const at = document.createElement('div');
     at.id = 'pv-panel-at';
-    p = document.createElement('div');
-    p.id = 'pv-panel';
-    p.className = 'pv pv-panel pv-stack';
-    p.dataset.tipAt = 'left'; // its descriptions stand left of it (tooltip.js)
-    at.appendChild(p);
+    panel = document.createElement('div');
+    panel.id = 'pv-panel';
+    panel.className = 'pv pv-panel pv-stack';
+    panel.dataset.tipAt = 'left'; // its descriptions stand left of it (tooltip.ts)
+    at.appendChild(panel);
     $('#doc').appendChild(at);
-    if (PV_CHIP_WATCH) PV_CHIP_WATCH.observe(p, { childList: true });
+    if (CHIP_WATCH) CHIP_WATCH.observe(panel, { childList: true });
   }
-  return p;
+  return panel;
 }
-function pvPanelGone() {
+function removePanel() {
   const at = document.getElementById('pv-panel-at');
   if (at) at.remove();
 }
-// Fills the panel with the reading page's line (PV_READ). A page that takes no verdict (a list page, a comparison board)
-// names itself in one form whatever its title looks like - the page ('2쪽') on the name's row and the map's whole title, if
-// it has one, on the title's row (pvQuietTitle) - and says it takes none, without words. The verdict pages' split of a title
-// at its first ' · ' (pvFigParts) put a board's '비교판' beside its page and left a list page's title out. A save chip on the
-// panel for a pin of another page goes to the status line with its undo (chipAway), as a chip whose mark is not drawn does:
-// the panel no longer shows the verdict it undoes.
-function pvPanelFill(map, v) {
-  const p = pvPanel(),
-    r = PV_READ,
-    at = pvPanelHeld() || pvReadingAt(),
-    list = r ? map.get(r) || [] : [];
-  pvPanelLeave(p, at);
-  const chip = p.querySelector(':scope>.nt-chip');
-  if (chip && !list.some((x) => x.id === pvChipPin(chip))) chipAway(chip);
-  if (r) {
-    p.classList.remove('pv-quiet');
-    fillPv(p, r, map.get(r), v);
-    pvPanelPlace();
-    pvPanelArrived(r);
+// Fills the panel with the reading page's line (READING_LINE_PAGE). A page that takes no verdict (a list page, a
+// comparison board) names itself in one form whatever its title looks like - the page ('2쪽') on the name's row and the
+// map's whole title, if it has one, on the title's row (quietPageTitle) - and says it takes none, without words. The
+// verdict pages' split of a title at its first ' · ' (pageLineName) would put a board's '비교판' beside its page and
+// leave a list page's title out. A save chip on the panel for a pin of another page goes to the status line with its
+// undo (chipAway), as a chip whose mark is not drawn does: the panel does not show the verdict it undoes.
+function fillPanel(map, verdicts) {
+  const panel = ensurePanel(),
+    readingPage = READING_LINE_PAGE,
+    at = heldPanelPage() || pageUnderReadingLine(),
+    list = readingPage ? map.get(readingPage) || [] : [];
+  leavePanelPage(panel, at);
+  const chip = panel.querySelector(':scope>.nt-chip');
+  if (chip && !list.some((x) => x.id === pinOfChip(chip))) chipAway(chip);
+  if (readingPage) {
+    panel.classList.remove('pv-quiet');
+    fillPageLine(panel, readingPage, map.get(readingPage), verdicts);
+    placePanel();
+    flashOnArrival(readingPage);
     return;
   }
-  PV_TEXT.delete(p);
-  p.classList.add('pv-quiet');
-  p.classList.remove('reading');
-  p.dataset.page = String(at || 0);
-  delete p.dataset.pin;
-  p.setAttribute('role', 'group');
-  p.setAttribute('aria-label', at ? tl('{page}쪽 판정', { page: at }) : tr('판정'));
-  const t = at ? pvQuietTitle(at) : '';
+  LINE_TEXT.delete(panel);
+  panel.classList.add('pv-quiet');
+  panel.classList.remove('reading');
+  panel.dataset.page = String(at || 0);
+  delete panel.dataset.pin;
+  panel.setAttribute('role', 'group');
+  panel.setAttribute('aria-label', at ? tl('{page}쪽 판정', { page: at }) : tr('판정'));
+  const title = at ? quietPageTitle(at) : '';
   setHtml(
-    p,
-    html`<span class="pv-fig" translate="no"><span class="pv-fig-id">${at ? tl('{page}쪽', { page: at }) : ''}</span>${t ? html`<span class="pv-fig-t">${t}</span>` : ''}</span>\
+    panel,
+    html`<span class="pv-fig" translate="no"><span class="pv-fig-id">${at ? tl('{page}쪽', { page: at }) : ''}</span>${title ? html`<span class="pv-fig-t">${title}</span>` : ''}</span>\
 <span class="pv-t"><span class="pv-s pv-none">${tr('이 쪽은 판정을 받지 않습니다')}</span></span>`,
   );
-  pvPanelPlace();
-  pvPanelArrived(at);
+  placePanel();
+  flashOnArrival(at);
 }
-// The title the map gives page `page` of a figure document, whole ('' for none, or for a view-only PDF, which has no map).
-function pvQuietTitle(page) {
-  const pg = META && isFigureKind(META.kind) && Array.isArray(META.pages) ? META.pages[page - 1] : null;
-  return pg && pg.title ? String(pg.title) : '';
+// The title the map gives page `page` of a figure document, whole ('' for none, or for a view-only PDF, which has no
+// map).
+function quietPageTitle(page) {
+  const facts = META && isFigureKind(META.kind) && Array.isArray(META.pages) ? META.pages[page - 1] : null;
+  return facts && facts.title ? String(facts.title) : '';
 }
-// Whether the panel shows another page than the one under the reading line (at, verdict or none). Under the pages: never.
-function pvPanelStale(at) {
-  const p = document.getElementById('pv-panel');
-  return PV_SIDE && !!p && p.dataset.page !== String(at);
+// Whether the panel shows another page than the one under the reading line (at, verdict or none). Under the pages:
+// never.
+function isPanelStale(at) {
+  const panel = document.getElementById('pv-panel');
+  return IS_BESIDE_PAGES && !!panel && panel.dataset.page !== String(at);
 }
-// The panel is about to show another page than p's: what the person has on it stays with the page they left. An open reason is
-// moved on from as the reading page leaves it (pvReasonLeave), and a focus on a control goes to the PDF area, as one on a left
-// line's does (pvFocusOffPage). This must come before the filling: the morph keeps the element and hands it to the new
-// page, so Enter or Space on '채택' pressed the next page's word, and a control that goes left the focus on nothing.
-function pvPanelLeave(p, at) {
-  if (p.dataset.page === String(at)) return;
-  if (PV_REASON && PV_REASON.seen && PV_REASON.page !== at) pvReasonLeave();
-  const a = document.activeElement;
-  if (!!a && p.contains(a)) searchToPage();
+// The panel is about to show another page than the one it shows: what the person has on it stays with the page they
+// left. An open reason is moved on from as the reading page leaves it (leaveReason), and a focus on a control goes to
+// the PDF area, as one on a left line's does (moveFocusOffPage). This must come before the filling: the morph keeps the
+// element and hands it to the new page, so Enter or Space on '채택' would press the next page's word, and a control
+// that goes would leave the focus on nothing.
+function leavePanelPage(panel, at) {
+  if (panel.dataset.page === String(at)) return;
+  if (REASON_SESSION && REASON_SESSION.seen && REASON_SESSION.page !== at) leaveReason();
+  const active = document.activeElement;
+  if (!!active && panel.contains(active)) searchToPage();
 }
-// The pin save chip e is for (its notice's), 0 for none.
-function pvChipPin(e) {
+// The pin a save chip is for (its notice's), 0 for none.
+function pinOfChip(chip) {
   let pin = 0;
-  NOTICES.forEach((n) => {
-    if (n.el === e) pin = n.pin || 0;
+  NOTICES.forEach((notice) => {
+    if (notice.el === chip) pin = notice.pin || 0;
   });
   return pin;
 }
-// The panel's place: --pv-panel-gap right of the widest page on the reading page's axis (page 1 before there is one) - one
-// place for pages of every width - its top at the PDF area's top
-// padding, where #pv-panel-at sticks: it stands at the column's end, and the inset from the bottom of what a sticky box may
-// use (the area less its padding) to that top pulls it up, so its height stays nothing. Taller than the area shows (a short
-// window, a long conflict note in the popover) - or reaching down to a card over the area (pvPanelFoot) - the panel scrolls
-// inside (.pv-tall). Only then: a scroller clips what stands
-// outside it, the pressed word's context under the panel, and that context's box would bring a scroll bar with it. Once a
-// frame with pvStick.
-function pvPanelPlace() {
-  const p = document.getElementById('pv-panel'),
+// The panel's place: --pv-panel-gap right of the widest page on the reading page's axis (page 1 before there is one) -
+// one place for pages of every width - its top at the PDF area's top padding, where #pv-panel-at sticks: it stands at
+// the column's end, and the inset from the bottom of what a sticky box may use (the area less its padding) to that top
+// pulls it up, so its height stays nothing. Taller than the area shows (a short window, a long conflict note in the
+// popover) - or reaching down to a card over the area (findPanelFoot) - the panel scrolls inside (.pv-tall). Only then:
+// a scroller clips what stands outside it, the pressed word's context under the panel, and that context's box would
+// bring a scroll bar with it. Once a frame with stickReadingLine.
+function placePanel() {
+  const panel = document.getElementById('pv-panel'),
     at = document.getElementById('pv-panel-at');
-  if (!p || !at || !PV_SIDE) return;
-  const L = $('#left'),
-    lr = L.getBoundingClientRect(),
-    cs = getComputedStyle(L);
-  const n = Number(p.dataset.page) || pvReadingAt() || 1,
-    pg = document.getElementById('p' + n) || document.getElementById('p1');
-  if (!pg) return;
-  const pt = parseFloat(cs.paddingTop),
-    inset = Math.max(0, L.clientHeight - pt - parseFloat(cs.paddingBottom)) + 'px';
+  if (!panel || !at || !IS_BESIDE_PAGES) return;
+  const area = $('#left'),
+    areaRect = area.getBoundingClientRect(),
+    style = getComputedStyle(area);
+  const page = Number(panel.dataset.page) || pageUnderReadingLine() || 1,
+    pageElement = document.getElementById('p' + page) || document.getElementById('p1');
+  if (!pageElement) return;
+  const paddingTop = parseFloat(style.paddingTop),
+    inset = Math.max(0, area.clientHeight - paddingTop - parseFloat(style.paddingBottom)) + 'px';
   if (at.style.bottom !== inset) at.style.bottom = inset;
-  const g = pg.getBoundingClientRect(),
-    right = g.left + (g.width + pageWidth(ptMax(), K)) / 2;
+  const rect = pageElement.getBoundingClientRect(),
+    right = rect.left + (rect.width + pageWidth(ptMax(), K)) / 2;
   const x =
-    Math.round(Math.min(right + PV_SIDE_GAP, lr.left + L.clientWidth - PV_SIDE_W) - at.getBoundingClientRect().left) +
-    'px';
-  if (p.style.left !== x) p.style.left = x;
-  const foot = pvPanelFoot(lr.top + pt, lr.top + L.clientHeight, at.getBoundingClientRect().left + parseFloat(x));
-  const room = Math.max(0, Math.floor(foot - lr.top - pt - PV_SIDE_GAP)),
-    was = p.classList.contains('pv-tall'),
-    tall = (was ? p.scrollHeight + 2 : p.offsetHeight) > room,
-    h = tall ? room + 'px' : '';
-  if (tall !== was) p.classList.toggle('pv-tall', tall);
-  if (p.style.maxHeight !== h) p.style.maxHeight = h;
+    Math.round(
+      Math.min(right + PANEL_GAP, areaRect.left + area.clientWidth - PANEL_WIDTH) - at.getBoundingClientRect().left,
+    ) + 'px';
+  if (panel.style.left !== x) panel.style.left = x;
+  const foot = findPanelFoot(
+    areaRect.top + paddingTop,
+    areaRect.top + area.clientHeight,
+    at.getBoundingClientRect().left + parseFloat(x),
+  );
+  const room = Math.max(0, Math.floor(foot - areaRect.top - paddingTop - PANEL_GAP)),
+    was = panel.classList.contains('pv-tall'),
+    tall = (was ? panel.scrollHeight + 2 : panel.offsetHeight) > room,
+    height = tall ? room + 'px' : '';
+  if (tall !== was) panel.classList.toggle('pv-tall', tall);
+  if (panel.style.maxHeight !== height) panel.style.maxHeight = height;
 }
-// How far down the panel may reach, in the window's px: the PDF area's bottom (bottom), or the top of a card laid over the area's
-// right side under the panel - with the pin panel closed its tool bar, a banner and the status line float at the area's
-// bottom right (side-panel.css) - whichever is higher, so a tall panel scrolls above them. Over its bottom, the status
-// line's hint covered the reason field's last line and its focus ring. top: the panel's top; left: its left edge.
-const PV_OVER_AREA = ['bar2', 'banner', 'status-wide'];
-function pvPanelFoot(top, bottom, left) {
+// How far down the panel may reach, in the window's px: the PDF area's bottom (bottom), or the top of a card laid over
+// the area's right side under the panel - with the pin panel closed its tool bar, a banner and the status line float at
+// the area's bottom right (side-panel.css) - whichever is higher, so a tall panel scrolls above them. Over its bottom,
+// the status line's hint would cover the reason field's last line and its focus ring. top: the panel's top; left: its
+// left edge.
+const OVER_AREA_IDS = ['bar2', 'banner', 'status-wide'];
+function findPanelFoot(top, bottom, left) {
   let foot = bottom;
-  for (const id of PV_OVER_AREA) {
-    const e = document.getElementById(id);
-    if (!e || !e.getClientRects().length) continue;
-    const r = e.getBoundingClientRect();
-    if (r.height && r.left < left + PV_SIDE_W && r.right > left && r.top > top && r.top < foot) foot = r.top;
+  for (const id of OVER_AREA_IDS) {
+    const element = document.getElementById(id);
+    if (!element || !element.getClientRects().length) continue;
+    const rect = element.getBoundingClientRect();
+    if (rect.height && rect.left < left + PANEL_WIDTH && rect.right > left && rect.top > top && rect.top < foot)
+      foot = rect.top;
   }
   return foot;
 }
-// The panel's line is laid out in rows (.pv-stack: the name, the words, the state, the reason) and never measured for one row:
-// there is room for each part's whole width, so nothing gives way. Its save chip and the reason popover stand in its flow
-// under the state (verdict-panel.css): the words above never move.
-function pvPanelFit(l) {
-  l.classList.remove('pv-tight', 'pv-early-out', 'pv-t-kept', 'pv-chip-short', 'pv-chip-bare', 'pv-chip-wait', 'pv-kw');
-  l.classList.add('pv-stack');
-  l.style.removeProperty('--pv-t-h');
-  l.style.removeProperty('--pv-chip-r');
-  l.style.removeProperty('--pv-chip-y');
-  l.style.width = '';
-  l.style.marginLeft = '';
-  const g = l.querySelector(':scope>.vd-btns');
-  if (g) vdWrapFit(g);
-  pvFocusStays([l]);
+// The panel's line is laid out in rows (.pv-stack: the name, the words, the state, the reason) and never measured for
+// one row: there is room for each part's whole width, so nothing gives way. Its save chip and the reason popover stand
+// in its flow under the state (verdict-panel.css): the words above never move.
+function fitPanel(panel) {
+  panel.classList.remove(
+    'pv-tight',
+    'pv-early-out',
+    'pv-t-kept',
+    'pv-chip-short',
+    'pv-chip-bare',
+    'pv-chip-wait',
+    'pv-kw',
+  );
+  panel.classList.add('pv-stack');
+  panel.style.removeProperty('--pv-t-h');
+  panel.style.removeProperty('--pv-chip-r');
+  panel.style.removeProperty('--pv-chip-y');
+  panel.style.width = '';
+  panel.style.marginLeft = '';
+  const group = panel.querySelector(':scope>.vd-btns');
+  if (group) fitWrappedWords(group);
+  keepFocusOnLine([panel]);
 }
-// Brings page `page` to the reading place: its top at the PDF area's top padding when the page reaches past the reading line
-// (readingDepth), else centred on that line - so the reading page is that page. smooth: a glide (a card's [보기]).
-function pvBring(page, smooth) {
-  const at = pvBringTop(page);
+// Brings page `page` to the reading place: its top at the PDF area's top padding when the page reaches past the reading
+// line (readingDepth), else centred on that line - so the reading page is that page. smooth: a glide (a card's [보기]).
+function bringPage(page, smooth) {
+  const at = bringScrollTop(page);
   if (at === null) return;
   if (smooth) {
-    pvGlideTo(at);
-    arrivalWatch(() => pvBringTop(page));
+    glideTo(at);
+    arrivalWatch(() => bringScrollTop(page));
   } else {
-    pvShow();
+    endJumpForScroll();
     $('#left').scrollTop = at;
   }
 }
 /** The scrollTop of that reading place, or null without the page. */
-function pvBringTop(page) {
-  const L = $('#left'),
-    pg = document.getElementById('p' + page);
-  if (!pg) return null;
-  const lr = L.getBoundingClientRect(),
-    r = pg.getBoundingClientRect(),
-    pad = parseFloat(getComputedStyle(L).paddingTop),
-    d = readingDepth(L);
-  const top = r.height > d - pad + 24 ? pad : d - r.height / 2;
-  return L.scrollTop + r.top - lr.top - top;
+function bringScrollTop(page) {
+  const area = $('#left'),
+    pageElement = document.getElementById('p' + page);
+  if (!pageElement) return null;
+  const areaRect = area.getBoundingClientRect(),
+    rect = pageElement.getBoundingClientRect(),
+    pad = parseFloat(getComputedStyle(area).paddingTop),
+    depth = readingDepth(area);
+  const top = rect.height > depth - pad + 24 ? pad : depth - rect.height / 2;
+  return area.scrollTop + rect.top - areaRect.top - top;
 }
 
 // ---------------- The summary under each page
 // The summary's words: what its row says, for its name.
-function pvSumSay(page, list) {
+function summaryLabel(page, list) {
   const cur = list && list[0],
-    k = cur && verdictOf(cur);
+    key = cur && verdictOf(cur);
   return (
-    pvFigParts(page).id +
+    pageLineName(page).id +
     ' · ' +
-    (cur && k ? tr('판정') + ' #' + cur.id + ' ' + verdictLabel(k) + ' · ' + pvStateWord(cur) : tr('판정 없음'))
+    (cur && key
+      ? tr('판정') + ' #' + cur.id + ' ' + verdictLabel(key) + ' · ' + verdictStateWord(cur)
+      : tr('판정 없음'))
   );
 }
-// '6쪽 · PL17 · 판정 #7 채택 · 처리 대기' (or '판정 없음') under every page that takes a verdict, and '초안 있음' where a reason
-// draft waits for that page - a line would mark it, and the panel shows only the reading page: one row of one height whatever
-// it says, so neither a verdict changing it nor the reading page changing moves the pages. A press brings that page to the
-// panel (pvSumGo). Not a Tab stop - the keyboard has the panel, and PageDown brings the next page to it.
-function pvSumHtml(page, list) {
+// '6쪽 · PL17 · 판정 #7 채택 · 처리 대기' (or '판정 없음') under every page that takes a verdict, and '초안 있음' where
+// a reason draft waits for that page - a line would mark it, and the panel shows only the reading page: one row of one
+// height whatever it says, so neither a verdict changing it nor the reading page changing moves the pages. A press
+// brings that page to the panel (goToSummaryPage). Not a Tab stop - the keyboard has the panel, and PageDown brings the
+// next page to it.
+function summaryHtml(page, list) {
   const cur = list && list[0],
-    k = cur && verdictOf(cur),
+    key = cur && verdictOf(cur),
     sep = html`<span class="pv-sep" aria-hidden="true">·</span>`;
-  const st =
-    cur && k
-      ? html`${tr('판정')} #${cur.id} <b class="vd-w" translate="no">${verdictLabel(k)}</b>${sep}${pvStateWord(cur)}`
+  const state =
+    cur && key
+      ? html`${tr('판정')} #${cur.id} <b class="vd-w" translate="no">${verdictLabel(key)}</b>${sep}${verdictStateWord(cur)}`
       : html`<span class="pv-none">${tr('판정 없음')}</span>`;
-  const d = cur && pvCanCancel(cur) ? rdGet(DOC, cur.id) : null,
-    draft = !!rdGet(DOC, 'p' + page) || (!!d && !!cur && d.text.trim() !== String(cur.note || '').trim());
-  return html`<span class="pv-sum-id" translate="no">${pvFigParts(page).id}</span>${sep}<span class="pv-sum-s">${st}${draft ? html`${sep}<span class="pv-sum-draft">${tr('초안 있음')}</span>` : ''}</span>`;
+  const ownDraft = cur && canCancelVerdict(cur) ? getDraft(DOC, cur.id) : null,
+    draft =
+      !!getDraft(DOC, 'p' + page) || (!!ownDraft && !!cur && ownDraft.text.trim() !== String(cur.note || '').trim());
+  return html`<span class="pv-sum-id" translate="no">${pageLineName(page).id}</span>${sep}<span class="pv-sum-s">${state}${draft ? html`${sep}<span class="pv-sum-draft">${tr('초안 있음')}</span>` : ''}</span>`;
 }
-// Draws (beside the pages) or takes away (under them) every page's summary, after its page. New rows are watched for being
-// far from the view (pvFarWatch: a far row is skipped like a far line).
-function pvSums(map) {
+// Draws (beside the pages) or takes away (under them) every page's summary, after its page. New rows are watched for
+// being far from the view (watchFarLines: a far row is skipped like a far line).
+function drawSummaries(map) {
   const made = [];
-  $$('#doc .pgw').forEach((b) => {
-    const page = Number((b).dataset.page) || 0;
-    let s = b.querySelector(':scope>.pv-sum');
-    if (!PV_SIDE || !pageTakesVerdict(page)) {
-      if (s) s.remove();
+  $$('#doc .pgw').forEach((block) => {
+    const page = Number((block).dataset.page) || 0;
+    let summary = block.querySelector(':scope>.pv-sum');
+    if (!IS_BESIDE_PAGES || !pageTakesVerdict(page)) {
+      if (summary) summary.remove();
       return;
     }
-    if (!s) {
-      s = document.createElement('button');
-      s.setAttribute('type', 'button');
-      s.className = 'pv-sum';
-      s.tabIndex = -1;
-      s.dataset.act = 'pv-sum';
-      s.dataset.page = String(page);
-      b.appendChild(s);
-      made.push(s);
+    if (!summary) {
+      summary = document.createElement('button');
+      summary.setAttribute('type', 'button');
+      summary.className = 'pv-sum';
+      summary.tabIndex = -1;
+      summary.dataset.act = 'pv-sum';
+      summary.dataset.page = String(page);
+      block.appendChild(summary);
+      made.push(summary);
     }
-    const m = pvSumHtml(page, map.get(page));
-    if (s.dataset.t !== m.text) {
-      s.dataset.t = m.text;
-      setHtml(s, m);
+    const markup = summaryHtml(page, map.get(page));
+    if (summary.dataset.t !== markup.text) {
+      summary.dataset.t = markup.text;
+      setHtml(summary, markup);
     }
-    const say = tl('{state} · 판정 패널로', { state: pvSumSay(page, map.get(page)) });
-    s.setAttribute('aria-label', say);
-    s.dataset.tipPress = say;
+    const say = tl('{state} · 판정 패널로', { state: summaryLabel(page, map.get(page)) });
+    summary.setAttribute('aria-label', say);
+    summary.dataset.tipPress = say;
   });
-  if (made.length && typeof IntersectionObserver !== 'undefined') pvFarWatch(made, $('#left').clientHeight);
-  pvSumOn();
+  if (made.length && typeof IntersectionObserver !== 'undefined') watchFarLines(made, $('#left').clientHeight);
+  markReadingSummary();
 }
 // The reading page's summary is bold (.on): the page the panel shows - a weight, never a height.
-function pvSumOn() {
-  const r = String(PV_SIDE ? PV_READ || 0 : 0);
-  $$('#doc .pv-sum.on').forEach((e) => {
-    if ((e).dataset.page !== r) e.classList.remove('on');
+function markReadingSummary() {
+  const readingPage = String(IS_BESIDE_PAGES ? READING_LINE_PAGE || 0 : 0);
+  $$('#doc .pv-sum.on').forEach((element) => {
+    if ((element).dataset.page !== readingPage) element.classList.remove('on');
   });
-  const s = document.querySelector('#doc .pv-sum[data-page="' + r + '"]');
-  if (s) s.classList.add('on');
+  const summary = document.querySelector('#doc .pv-sum[data-page="' + readingPage + '"]');
+  if (summary) summary.classList.add('on');
 }
-// A press on page `page`'s summary: the page comes to the reading place, the panel shows it at once, and the focus goes to the
-// panel's pressed word, else its first (pvFocusLine); the panel flashes.
-function pvSumGo(a) {
-  const page = Number(a.dataset.page) || 0;
+// A press on page `page`'s summary: the page comes to the reading place, the panel shows it at once, and the focus goes
+// to the panel's pressed word, else its first (focusLine); the panel flashes.
+function goToSummaryPage(summary) {
+  const page = Number(summary.dataset.page) || 0;
   if (!document.getElementById('p' + page)) return;
-  pvCame(a);
-  pvBring(page);
-  pvStick();
-  const p = document.getElementById('pv-panel');
-  if (!p || p.dataset.page !== String(page)) return;
-  pvFocusLine(page);
-  pvFlash(p);
+  noteCameFrom(summary);
+  bringPage(page);
+  stickReadingLine();
+  const panel = document.getElementById('pv-panel');
+  if (!panel || panel.dataset.page !== String(page)) return;
+  focusLine(page);
+  flashPanel(panel);
 }
 // ---------------- A jump's glide
-// A jump to a far page (the outline, the page list, a card's [보기]) glides past every page between, and the digits and Enter
-// wait meanwhile (pvAutoScrolling). The panel keeps the page it shows and is filled once, where the jump lands: filled for
-// every page passed it changed 57 times in 1.3s. The reading page it shows (PV_READ), the bold summary, an open reason and
-// the keys' page wait with it; the section strip names the pages passed as ever. pvStick asks: the page held, or 0 when
-// nothing is (under the pages, at rest, a panel that names no page). The glide's end - its scrollend, else the guard's own
-// end - draws the panel again, so at rest the panel, the section strip and the keys name one page.
-let PV_HOLD_T = undefined;
-function pvPanelHeld() {
-  if (!PV_SIDE || !pvAutoScrolling()) return 0;
-  const p = document.getElementById('pv-panel'),
-    n = p ? Number(p.dataset.page) || 0 : 0;
-  if (!n) return 0;
-  clearTimeout(PV_HOLD_T);
-  PV_HOLD_T = setTimeout(
-    pvStickSoon,
-    Math.min(1000, Math.max(0, (PV_SCROLLEND ? 1000 : 160) - (performance.now() - PV_SCROLL_AT)) + 16),
+// A jump to a far page (the outline, the page list, a card's [보기]) glides past every page between, and the digits and
+// Enter wait meanwhile (isAutoScrolling). The panel keeps the page it shows and is filled once, where the jump lands:
+// filled for every page passed it would change many times a second. The reading page it shows (READING_LINE_PAGE), the
+// bold summary, an open reason and the keys' page wait with it; the section strip names the pages passed.
+// stickReadingLine asks: the page held, or 0 when nothing is (under the pages, at rest, a panel that names no page).
+// The glide's end - its scrollend, else the guard's own end - draws the panel again, so at rest the panel, the section
+// strip and the keys name one page.
+let HOLD_TIMER = undefined;
+function heldPanelPage() {
+  if (!IS_BESIDE_PAGES || !isAutoScrolling()) return 0;
+  const panel = document.getElementById('pv-panel'),
+    page = panel ? Number(panel.dataset.page) || 0 : 0;
+  if (!page) return 0;
+  clearTimeout(HOLD_TIMER);
+  HOLD_TIMER = setTimeout(
+    stickSoon,
+    Math.min(1000, Math.max(0, (HAS_SCROLLEND ? 1000 : 160) - (performance.now() - LAST_SCROLL_AT)) + 16),
   );
-  return n;
+  return page;
 }
 $('#left').addEventListener('scrollend', () => {
-  if (PV_SIDE) pvStickSoon();
-}); // after verdict.js's, which ends the guard
-// The reading page with a line as the lines are drawn (drawPageVerdicts): the held one while a glide holds the panel - a list
-// read again on the way filled it with a page passed - else the page under the reading line (pvReadingPage).
-function pvHeldReadingPage() {
-  const h = pvPanelHeld();
-  return h ? (pageTakesVerdict(h) ? h : 0) : pvReadingPage();
+  if (IS_BESIDE_PAGES) stickSoon();
+}); // after verdict.ts's, which ends the guard
+// The reading page with a line as the lines are drawn (drawPageVerdicts): the held one while a glide holds the panel -
+// a list read again on the way would fill it with a page passed - else the page under the reading line
+// (readingPageWithLine).
+function heldReadingPage() {
+  const held = heldPanelPage();
+  return held ? (pageTakesVerdict(held) ? held : 0) : readingPageWithLine();
 }
-// The panel flashes for a card's [보기] once it shows page `page`: at once when it does, else when a glide lands and fills it
-// (pvPanelArrived) - flashed as the glide began, it lit the page being left and was over before the landing. The wait is
-// bounded (PV_FLASH_WAIT_MS): a hand that takes the pages over and stays on the page shown fills nothing, and a later visit
-// to the card's page must not flash.
-let PV_FLASH_AT = { page: 0, until: 0 };
-const PV_FLASH_WAIT_MS = 3000;
-function pvFlashOn(page) {
-  const p = document.getElementById('pv-panel');
-  PV_FLASH_AT = { page: 0, until: 0 };
-  if (p && p.dataset.page === String(page)) {
-    pvFlash(p);
+// The panel flashes for a card's [보기] once it shows page `page`: at once when it does, else when a glide lands and
+// fills it (flashOnArrival) - flashed as the glide begins, it would light the page being left and be over before the
+// landing. The wait is bounded (FLASH_WAIT_MS): a hand that takes the pages over and stays on the page shown fills
+// nothing, and a later visit to the card's page must not flash.
+let FLASH_WAIT = { page: 0, until: 0 };
+const FLASH_WAIT_MS = 3000;
+function flashPanelOn(page) {
+  const panel = document.getElementById('pv-panel');
+  FLASH_WAIT = { page: 0, until: 0 };
+  if (panel && panel.dataset.page === String(page)) {
+    flashPanel(panel);
     return;
   }
-  PV_FLASH_AT = { page, until: performance.now() + PV_FLASH_WAIT_MS };
+  FLASH_WAIT = { page, until: performance.now() + FLASH_WAIT_MS };
 }
-// The panel was filled with page `page` (pvPanelFill): the first filling at rest after a flash was asked for ends the wait, and
-// flashes if it is that page (a hand that took the pages elsewhere lands on another).
-function pvPanelArrived(page) {
-  const w = PV_FLASH_AT;
-  if (!w.page || pvAutoScrolling()) return;
-  PV_FLASH_AT = { page: 0, until: 0 };
-  const p = document.getElementById('pv-panel');
-  if (w.page === page && performance.now() < w.until && p) pvFlash(p);
+// The panel was filled with page `page` (fillPanel): the first filling at rest after a flash was asked for ends the
+// wait, and flashes if it is that page (a hand that took the pages elsewhere lands on another).
+function flashOnArrival(page) {
+  const waiting = FLASH_WAIT;
+  if (!waiting.page || isAutoScrolling()) return;
+  FLASH_WAIT = { page: 0, until: 0 };
+  const panel = document.getElementById('pv-panel');
+  if (waiting.page === page && performance.now() < waiting.until && panel) flashPanel(panel);
 }
-function pvFlash(p) {
-  p.classList.remove('flash');
-  void p.offsetWidth;
-  p.classList.add('flash');
-  clearTimeout(p._flT);
-  p._flT = setTimeout(() => p.classList.remove('flash'), 1200);
+function flashPanel(panel) {
+  panel.classList.remove('flash');
+  void panel.offsetWidth;
+  panel.classList.add('flash');
+  clearTimeout(panel._flT);
+  panel._flT = setTimeout(() => panel.classList.remove('flash'), 1200);
 }
 // ---------------- Keys the panel needs of its own
-// The panel stands after the pages in the DOM, so what stands on the reading page comes by hand. Its Tab stops: its marks.
-function pvMarkStops(page) {
-  const b = document.querySelector('#doc .pgw[data-page="' + page + '"]');
-  return b ? ([...b.querySelectorAll(PV_TABBABLE)].filter(pvTabStop)) : [];
+// The panel stands after the pages in the DOM, so what stands on the reading page comes by hand. Its Tab stops: its
+// marks.
+function markStops(page) {
+  const block = document.querySelector('#doc .pgw[data-page="' + page + '"]');
+  return block ? ([...block.querySelectorAll(TABBABLE)].filter(isTabStop)) : [];
 }
-// Tab from the reading page's last mark, or from a summary a person went back to, goes to the panel: the DOM's next stop is a later
-// page's mark, whose focus scrolled the pages there.
-addEventListener('keydown', (e) => {
-  if (e.key !== 'Tab' || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented || !PV_SIDE) return;
-  const a = document.activeElement,
-    r = pvReadingPage(),
-    m = r ? pvMarkStops(r) : [];
-  if (!a || !(a === m[m.length - 1] || a.classList.contains('pv-sum'))) return;
-  const f = [...pvPanel().querySelectorAll(PV_TABBABLE)].find(pvTabStop);
-  if (f) {
-    e.preventDefault();
-    f.focus({ preventScroll: true });
+// Tab from the reading page's last mark, or from a summary a person went back to, goes to the panel: the DOM's next
+// stop is a later page's mark, whose focus would scroll the pages there.
+addEventListener('keydown', (event) => {
+  if (
+    event.key !== 'Tab' ||
+    event.shiftKey ||
+    event.ctrlKey ||
+    event.metaKey ||
+    event.altKey ||
+    event.defaultPrevented ||
+    !IS_BESIDE_PAGES
+  )
+    return;
+  const active = document.activeElement,
+    readingPage = readingPageWithLine(),
+    marks = readingPage ? markStops(readingPage) : [];
+  if (!active || !(active === marks[marks.length - 1] || active.classList.contains('pv-sum'))) return;
+  const first = [...ensurePanel().querySelectorAll(TABBABLE)].find(isTabStop);
+  if (first) {
+    event.preventDefault();
+    first.focus({ preventScroll: true });
   }
 });
-// Esc on a control of the panel hands the focus to the PDF area: from there the page keys and Tab work as anywhere on the pages.
-// A confirm word's Esc lets it go first, and the reason popover's Esc is its own.
-addEventListener('keydown', (e) => {
-  if (e.key !== 'Escape' || e.defaultPrevented || !PV_SIDE) return;
-  const a = document.activeElement;
-  if (!a || !a.closest || !a.closest('#pv-panel') || a.closest('.pv-pop')) return;
-  e.preventDefault();
+// Esc on a control of the panel hands the focus to the PDF area: from there the page keys and Tab work as anywhere on
+// the pages. A confirm word's Esc lets it go first, and the reason popover's Esc is its own.
+addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape' || event.defaultPrevented || !IS_BESIDE_PAGES) return;
+  const active = document.activeElement;
+  if (!active || !active.closest || !active.closest('#pv-panel') || active.closest('.pv-pop')) return;
+  event.preventDefault();
   searchToPage();
 });
-// A tall panel (.pv-tall) scrolls inside. A control the keyboard focuses there comes whole into its view, focus ring and all:
-// the reason popover's Tab loop focuses without scrolling (verdict-reason.js), so its first word and last control stayed out of
-// sight; the browser's own Tab scrolls only the control's edge to the panel's, which cut the ring; and the popover's rows
-// change as the focus moves (the field's keys row), after the browser scrolled. A press is left where it is: it is in view, and
-// moving the panel under the pointer put the caret of a click in the field somewhere else.
-function pvPanelReveal() {
-  const p = document.getElementById('pv-panel'),
-    a = document.activeElement;
+// A tall panel (.pv-tall) scrolls inside. A control the keyboard focuses there comes whole into its view, focus ring
+// and all: the reason popover's Tab loop focuses without scrolling (verdict-reason.ts), which would leave its first
+// word and last control out of sight; the browser's own Tab scrolls only the control's edge to the panel's, which cuts
+// the ring; and the popover's rows change as the focus moves (the field's keys row), after the browser scrolled. A
+// press is left where it is: it is in view, and moving the panel under the pointer would put the caret of a click in
+// the field somewhere else.
+function revealFocused() {
+  const panel = document.getElementById('pv-panel'),
+    active = document.activeElement;
   if (
-    !p ||
-    !PV_SIDE ||
-    !p.classList.contains('pv-tall') ||
-    !(a instanceof HTMLElement) ||
-    !p.contains(a) ||
-    !a.matches(':focus-visible') ||
+    !panel ||
+    !IS_BESIDE_PAGES ||
+    !panel.classList.contains('pv-tall') ||
+    !(active instanceof HTMLElement) ||
+    !panel.contains(active) ||
+    !active.matches(':focus-visible') ||
     document.documentElement.dataset.input === 'pointer'
   )
     return;
-  const c = getComputedStyle(a),
-    m = (parseFloat(c.outlineWidth) || 0) + Math.max(0, parseFloat(c.outlineOffset) || 0) + PV_RING_ROOM,
-    b = p.getBoundingClientRect(),
-    r = a.getBoundingClientRect();
-  const top = b.top + p.clientTop,
-    bottom = top + p.clientHeight;
-  if (r.top - m < top || r.height + 2 * m > p.clientHeight) p.scrollTop -= top - (r.top - m);
-  else if (r.bottom + m > bottom) p.scrollTop += r.bottom + m - bottom;
+  const style = getComputedStyle(active),
+    margin = (parseFloat(style.outlineWidth) || 0) + Math.max(0, parseFloat(style.outlineOffset) || 0) + RING_ROOM,
+    panelRect = panel.getBoundingClientRect(),
+    rect = active.getBoundingClientRect();
+  const top = panelRect.top + panel.clientTop,
+    bottom = top + panel.clientHeight;
+  if (rect.top - margin < top || rect.height + 2 * margin > panel.clientHeight)
+    panel.scrollTop -= top - (rect.top - margin);
+  else if (rect.bottom + margin > bottom) panel.scrollTop += rect.bottom + margin - bottom;
 }
-const PV_RING_ROOM = 2; // px kept clear past a revealed control's focus ring
-$('#doc').addEventListener('focusin', (e) => {
-  const t = e.target;
-  if (t && t.closest && t.closest('#pv-panel.pv-tall')) requestAnimationFrame(pvPanelReveal);
+const RING_ROOM = 2; // px kept clear past a revealed control's focus ring
+$('#doc').addEventListener('focusin', (event) => {
+  const target = event.target;
+  if (target && target.closest && target.closest('#pv-panel.pv-tall')) requestAnimationFrame(revealFocused);
 });
 // The PDF area's width changes with no window resize (the outline folded or dragged): the room is read again.
 if (typeof ResizeObserver !== 'undefined')
   new ResizeObserver(() => {
-    if (LAYOUT === LAYOUT_MODE.WIDE && pageVerdictsOn()) pvStickSoon();
+    if (LAYOUT === LAYOUT_MODE.WIDE && pageVerdictsOn()) stickSoon();
   }).observe($('#left'));
-// Sets PV_BUILD_AT, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setPvBuildAt(v) {
-  PV_BUILD_AT = v;
-  return v;
+// Sets BUILD_READING_PAGE, which this module declares, for another module that changes it (ADR-0042 D1); answers the
+// value.
+function setBuildReadingPage(value) {
+  BUILD_READING_PAGE = value;
+  return value;
 }
 
 // ------------------------------------------------ The note popover by the selection box (docs/handbook/viewer.md §패널 정리 '선택 상자 곁 메모', #192)
@@ -29566,7 +30088,7 @@ function threadHtml(p, wide) {
  * UI words inside those regions are translated before rendering. */
 /** Render a pin's request, status and available actions; confirmation is offered only to a person with write access. */
 function card(p) {
-  p = pvQuietRel(p); // no overlap badge between two verdicts about one page target (verdict.js)
+  p = dropPageLineOverlaps(p); // no overlap badge between two verdicts about one page target (verdict.js)
   const loc = 'L' + p.lo + '-L' + p.hi,
     name =
       p.name ||
@@ -30056,7 +30578,7 @@ $('#trash').addEventListener('close', () => {
 $('#trash').addEventListener('keydown', (e) => {
   if (e.key !== 'Tab' || e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
   const d = $('#trash');
-  const all = [...d.querySelectorAll(PV_TABBABLE)].filter(pvTabStop),
+  const all = [...d.querySelectorAll(TABBABLE)].filter(isTabStop),
     a = document.activeElement,
     i = all.indexOf(a);
   const to = !all.length
@@ -30639,7 +31161,7 @@ async function loadPins() {
   if (seq < PINS_APPLIED_SEQ) return false;
   loadPeople();
   // All-document lists drive notices; only the current document's open and done pins drive its marks and rows.
-  PINS_APPLIED_SEQ = seq; // before the redraw it makes: a page verdict line stops reading '판정 읽는 중…' with this list (pvLineHtml)
+  PINS_APPLIED_SEQ = seq; // before the redraw it makes: a page verdict line stops reading '판정 읽는 중…' with this list (pageLineHtml)
   applyPinLists(d, dropped, derivePinLists(d, DOC, DEFAULT_DOC, CONFIRMING));
   return true;
 }
@@ -31362,7 +31884,7 @@ function markCoverSkip() {
     }
 }
 // Scrolls the pages to bring badge b to where it shows (markShift), when they can. It shows something, so a jump on its way
-// ends first (pvShow): its settling would glide the pages back.
+// ends first (endJumpForScroll): its settling would glide the pages back.
 function markReveal(b) {
   const L = $('#left'),
     v = markView(),
@@ -31370,7 +31892,7 @@ function markReveal(b) {
   if (!r.width) return;
   const dy = markShift(r, v, markCoverBoxes(v), -L.scrollTop, L.scrollHeight - L.clientHeight - L.scrollTop);
   if (!dy) return;
-  pvShow();
+  endJumpForScroll();
   L.scrollBy({ top: dy, behavior: 'instant' });
 }
 // Tab and Shift+Tab bring the badge they reach to where it shows. The browser scrolls a focused control into the pages' box
@@ -31487,7 +32009,7 @@ function markHitSides() {
 // pin (pinPlace), else where it was pinned, then decides each badge's side (markBadgeSides) and puts a save's or an append's
 // undo chip back on its mark (drawChips). A pin without a usable box or page draws nothing.
 /** Draw native, named pin badge buttons at the current mark coordinates, preserving mark and undo-chip geometry. */
-// A pin a page verdict line shows (pvShows) draws no page-size box: the line under its page says it (drawPageVerdicts, first).
+// A pin a page verdict line shows (isShownOnLine) draws no page-size box: the line under its page says it (drawPageVerdicts, first).
 function marks() {
   if (isMdDoc()) {
     mdMarks();
@@ -31502,7 +32024,7 @@ function marks() {
     const at = pinPlace(p),
       el = document.getElementById('p' + at.page);
     if (!el || !isFrac(at.frac)) return;
-    if (pvShows(p)) return;
+    if (isShownOnLine(p)) return;
     const est = isEstimated(p) && !hasMark(p),
       lost = p.stale || elLost(p);
     const m = document.createElement('div');
@@ -31661,7 +32183,7 @@ function jumpPin(id) {
     return;
   }
   if (document.body.classList.contains('revision-open')) setViewMode(VIEW_MODE.MANUSCRIPT);
-  if (jumpPv(id)) return; // a pin its page verdict line shows: the line
+  if (jumpToPageLine(id)) return; // a pin its page verdict line shows: the line
   marksShow(); // the way to a mark shows the marks (marks-hide.js)
   if (LAYOUT === LAYOUT_MODE.NARROW) setSide(false); // collapsed first so the sheet doesn't cover the page, then measured
   if (isMdDoc()) {
@@ -31673,7 +32195,7 @@ function jumpPin(id) {
     const L = $('#left'),
       lr = L.getBoundingClientRect(),
       mr = m.getBoundingClientRect();
-    pvShow();
+    endJumpForScroll();
     L.scrollTop += mr.top - (lr.top + lr.height * 0.3);
     m.classList.remove('flash');
     void m.offsetWidth;
@@ -31947,7 +32469,7 @@ async function reopenPin(id) {
 // with [되돌리기] for NOTICE_MS; it waits in the Trash. A failure puts the card back. undoSave = the save chip's [되돌리기]:
 // silent, as the composer comes back with the selection - and again = what that failure's [다시 시도] runs (the whole undo, so
 // the composer comes back too). o.say: the caller says the drop and offers its undo where it was pressed (a page line's
-// [판정 취소], verdict.js pvCancel), o.where is where a failure is said and o.what what it names. Resolves with whether the pin was deleted.
+// [판정 취소], verdict.js cancelLineVerdict), o.where is where a failure is said and o.what what it names. Resolves with whether the pin was deleted.
 async function dropPin(
   id,
   undoSave,
@@ -33705,10 +34227,10 @@ async function refreshDoc(meta) {
     return;
   } // no pages: the source is drawn again
   // Building the pages again takes the reason field with them: a syllable being composed in it ends first, and the key that
-  // ended it lets the field go (pvComposingNow), and the spot is read again after the wait. A newer snapshot that came meanwhile wins - applied at once (the same page
+  // ended it lets the field go (isComposingNow), and the spot is read again after the wait. A newer snapshot that came meanwhile wins - applied at once (the same page
   // count) or waiting too: this one is dropped, never put back over it (a newer build was rolled back for good, #352 review).
-  if (!(META && m.pages.length === META.pages.length) && pvComposingNow()) {
-    await pvReasonComposed();
+  if (!(META && m.pages.length === META.pages.length) && isComposingNow()) {
+    await afterComposition();
     if (k !== DOC || seq !== SWITCHSEQ || gen !== REFRESH_GEN) return;
     a = topAnchor();
   }
@@ -33730,12 +34252,12 @@ async function refreshDoc(meta) {
     });
     reapplyK();
   } else {
-    setPvBuildAt(pvReadingAt());
+    setBuildReadingPage(pageUnderReadingLine());
     try {
       buildDoc();
       restoreAnchor(a);
     } finally {
-      setPvBuildAt(0);
+      setBuildReadingPage(0);
     }
   } // the reading page held until its spot is back
   restoreAnchor(a);
@@ -33989,7 +34511,7 @@ document.addEventListener('click', (e) => {
       gotoPinRef(Number(a.dataset.ref), e.detail === 0);
       break;
     case 'pv-cancel':
-      pvCancel(a);
+      cancelLineVerdict(a);
       break; // a page line's [판정 취소] on the person's own open verdict (verdict.js)
     case 'pv-reason-open':
     case 'pv-reason-save':
@@ -33998,13 +34520,13 @@ document.addEventListener('click', (e) => {
     case 'pv-reason-fold':
     case 'pv-reason-reapply':
     case 'pv-reason-see':
-      pvReasonAct(a);
+      actOnReason(a);
       break;
     case 'pv-sum':
-      pvSumGo(a);
+      goToSummaryPage(a);
       break; // a page's summary beside the verdict panel brings that page to it (verdict-panel.js)
     case 'pv-undo':
-      pvLineUndo(a);
+      undoFromLine(a);
       break; // a take-back's [되돌리기] on its line (verdict.js)   // a page line's reason and its popover (verdict-reason.js)
     case 'pop-more':
       selPopMore();

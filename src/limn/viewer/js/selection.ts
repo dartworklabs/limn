@@ -12,7 +12,7 @@ import { SWALLOW_CLICK, setSwallowClick } from './tooltip.ts';
 import { fitK, zoomTo } from './pages.ts';
 import { isMdDoc } from './md-surface.ts';
 import { COMPOSE, discardSelection, pick } from './composer.ts';
-import { pvShow } from './verdict.ts';
+import { endJumpForScroll } from './verdict.ts';
 import { SEL_POP, openSelPop, selPopOpen } from './sel-popover.ts';
 import { markBadgeIn, markBadgeRoom } from './list.ts';
 import { EDITOR } from './edit.ts';
@@ -355,7 +355,7 @@ function revealBox(box: HTMLElement | null, wide?: boolean) {
     br = box.getBoundingClientRect(),
     { top, bottom } = selRoom();
   if (br.top >= top && br.bottom <= bottom - 8) return;
-  pvShow();
+  endJumpForScroll();
   L.scrollTop += br.top - top - Math.max(0, (bottom - top - br.height) / 3);
 }
 // The part of the document area a chosen place can be seen in, as viewport y's: from 28px under the area's top (or 8px under

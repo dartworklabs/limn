@@ -3277,7 +3277,7 @@ PICK_STOPPED = """([i, growing]) => {
   const last = [...document.querySelectorAll('#doc .pgw')].pop();
   let n = 0, down = 0;
   const grow = () => {last.style.paddingBottom = (n++ % 2) + 'px';
-    if (PV_JUMP !== null || pvAutoScrolling()) down = 0; else if (!down) down = performance.now();
+    if (JUMP_TARGET !== null || isAutoScrolling()) down = 0; else if (!down) down = performance.now();
     if (!down || performance.now() - down < 2 * OUTLINE_PICK_SETTLE_MS) requestAnimationFrame(grow);};
   const stop = () => {if (document.getElementById('p7').getBoundingClientRect().top < L.getBoundingClientRect().top) return;
     L.removeEventListener('scroll', stop); const a = topAnchor();
@@ -3290,7 +3290,7 @@ PICK_STOPPED = """([i, growing]) => {
 
 class HitInAJump(SearchBase):
     """A search's first hit is shown when the PDF's text has been read as far as it, with no input before it, and that can be in
-    the middle of a jump the person started meanwhile (pages.js arrivalSettle, pvShow)."""
+    the middle of a jump the person started meanwhile (pages.js arrivalSettle, endJumpForScroll)."""
 
     def setUp(self):
         """Fourteen long pages, so the jump from page 1 to page 14 is far."""
@@ -3314,7 +3314,7 @@ class HitInAJump(SearchBase):
         page.wait_for_function(COUNTED, timeout=20000)
         page.wait_for_function("()=>SEARCH.cur&&SEARCH.cur.page===2")
         settle(page)
-        self.assertIsNone(page.evaluate("()=>PV_JUMP"))
+        self.assertIsNone(page.evaluate("()=>JUMP_TARGET"))
         self.assertTrue(all(b["shows"] for b in self.current(page)["boxes"]), self.current(page))
 
 

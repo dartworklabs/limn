@@ -4,7 +4,7 @@ Each page PDF.js draws for the first time adds its embedded fonts to document.fo
 browser lay out all the text in the page again. With the far pin cards already skipped (#305) that was every page verdict
 line: the 88 lines of a 91-page figure document were about 4,300 of the 7,400 objects laid out at each font, and the
 first wheel scroll through it still had 8-9 long tasks. The lines more than a view's height from the PDF area's view are
-now left for the browser to skip (content-visibility:auto) at the height each is drawn at (verdict.js pvFarSort).
+now left for the browser to skip (content-visibility:auto) at the height each is drawn at (verdict.js sortFarLines).
 
 The cost is held by a count, not a duration, as test_viewer_list_scroll holds the cards' (helpers_trace): the layout
 objects the browser lays out after a font is added, read from a Chrome trace, against the same with every line drawn and
@@ -192,7 +192,7 @@ class ManyLinesWhileThePdfScrolls(SixtyFigurePages):
                 self.assertEqual(moved, [], "pages that moved")
 
     def skipped(self, page, n):
-        """Wait until page n's line is skipped: a line drawn for a measure (HEIGHTS, pvFit) is skipped again a frame
+        """Wait until page n's line is skipped: a line drawn for a measure (HEIGHTS, fitPageLines) is skipped again a frame
         after the browser has seen it out of view, so its standing height is the one it is skipped at."""
         from playwright.sync_api import TimeoutError as PlaywrightTimeout  # the module loads without Playwright
 
@@ -216,7 +216,7 @@ class ManyLinesWhileThePdfScrolls(SixtyFigurePages):
         self.assertEqual(page.evaluate(HEIGHTS), [], "lines that stand at another height than they are drawn at")
         self.skipped(page, n)
         before = page.evaluate("s => document.querySelector(s).getBoundingClientRect().height", line)
-        page.evaluate("s => {const l = document.querySelector(s); l.style.width = '300px'; pvFit([l]);}", line)
+        page.evaluate("s => {const l = document.querySelector(s); l.style.width = '300px'; fitPageLines([l]);}", line)
         settle(page)
         self.skipped(page, n)
         got = page.evaluate(
@@ -231,7 +231,7 @@ class ManyLinesWhileThePdfScrolls(SixtyFigurePages):
             page.evaluate("s => getComputedStyle(document.querySelector(s)).contentVisibility", line), "visible"
         )
         page.evaluate("document.activeElement.blur()")
-        page.evaluate("sizePv()")
+        page.evaluate("sizePageLines()")
         page.evaluate("s => document.querySelector(s).parentElement.scrollIntoView({block: 'center'})", line)
         settle(page)
         self.assertTrue(page.evaluate(DRAWN, n), "the line scrolled to is skipped")
@@ -247,7 +247,7 @@ class ManyLinesWhileThePdfScrolls(SixtyFigurePages):
         page.evaluate("setK(K, true)")  # a saved scale: a new window size keeps it
         settle(page)
         self.assertIsNotNone(page.evaluate("savedK()"))
-        margin = "() => [document.querySelector('#left').clientHeight, PV_FAR_IO.rootMargin]"
+        margin = "() => [document.querySelector('#left').clientHeight, FAR_OBSERVER.rootMargin]"
         h, m = page.evaluate(margin)
         self.assertEqual(m, "%dpx 0px %dpx 0px" % (h, h))
         page.set_viewport_size({"width": 1400, "height": 550})

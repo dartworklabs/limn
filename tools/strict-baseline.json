@@ -559,10 +559,7 @@
       "src/limn/viewer/js/revisions.ts": 3,
       "src/limn/viewer/js/sel-popover.ts": 1,
       "src/limn/viewer/js/status.ts": 4,
-      "src/limn/viewer/js/tooltip.ts": 3,
-      "src/limn/viewer/js/verdict-panel.ts": 3,
-      "src/limn/viewer/js/verdict-reason.ts": 13,
-      "src/limn/viewer/js/verdict.ts": 24
+      "src/limn/viewer/js/tooltip.ts": 3
     },
     "limn/no-imported-state-write": {
       "src/limn/viewer/js/actions.ts": 1,
@@ -646,9 +643,6 @@
       "src/limn/viewer/js/text-surface.ts": 71,
       "src/limn/viewer/js/tooltip.ts": 52,
       "src/limn/viewer/js/updates.ts": 120,
-      "src/limn/viewer/js/verdict-panel.ts": 135,
-      "src/limn/viewer/js/verdict-reason.ts": 450,
-      "src/limn/viewer/js/verdict.ts": 681,
       "src/limn/viewer/js/zoom.ts": 26
     },
     "no-restricted-globals": {

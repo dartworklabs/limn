@@ -147,7 +147,7 @@ class DisabledHover(BrowserBase):
     def test_a_reason_save_held_on_a_conflict_says_not_allowed(self):
         """A reason popover's [저장] is held (aria-disabled) while it writes, and while a newer note found by a write waits
         to be read ([그 위에 쓰기]): the first waits on the viewer - the busy pointer - the second on the person -
-        not-allowed. Read on the popover's markup planted on the page (verdict-reason.js pvReasonPop draws it)."""
+        not-allowed. Read on the popover's markup planted on the page (verdict-reason.js reasonPopoverHtml draws it)."""
         page = self.open(0, viewport={"width": 1440, "height": 900})
         page.evaluate(
             """() => {for (const cf of [false, true]) {const pv = document.createElement('div'); pv.className = 'pv';

@@ -72,7 +72,7 @@ import { pendingBadgeSide } from './selection.ts';
 import { elLost, hasMark, isFrac, pinPlace } from './figure.ts';
 import { isMdDoc, mdJump, mdMarks } from './md-surface.ts';
 import { COMPOSE, recomputeOverlap, renderOverlapBanner } from './composer.ts';
-import { drawPageVerdicts, jumpPv, pvShow, pvShows } from './verdict.ts';
+import { drawPageVerdicts, jumpToPageLine, endJumpForScroll, isShownOnLine } from './verdict.ts';
 import { mentionsMe, who } from './card-parts.ts';
 import { card, dayName, doneCard, drawTrash, openTrash, timeParts } from './cards.ts';
 import { rvDraw } from './review-pick.ts';
@@ -220,7 +220,7 @@ async function loadPins() {
   if (seq < PINS_APPLIED_SEQ) return false;
   loadPeople();
   // All-document lists drive notices; only the current document's open and done pins drive its marks and rows.
-  PINS_APPLIED_SEQ = seq; // before the redraw it makes: a page verdict line stops reading '판정 읽는 중…' with this list (pvLineHtml)
+  PINS_APPLIED_SEQ = seq; // before the redraw it makes: a page verdict line stops reading '판정 읽는 중…' with this list (pageLineHtml)
   applyPinLists(d, dropped, derivePinLists(d, DOC, DEFAULT_DOC, CONFIRMING));
   return true;
 }
@@ -943,7 +943,7 @@ function markCoverSkip() {
     }
 }
 // Scrolls the pages to bring badge b to where it shows (markShift), when they can. It shows something, so a jump on its way
-// ends first (pvShow): its settling would glide the pages back.
+// ends first (endJumpForScroll): its settling would glide the pages back.
 function markReveal(b: HTMLElement) {
   const L = $('#left'),
     v = markView(),
@@ -951,7 +951,7 @@ function markReveal(b: HTMLElement) {
   if (!r.width) return;
   const dy = markShift(r, v, markCoverBoxes(v), -L.scrollTop, L.scrollHeight - L.clientHeight - L.scrollTop);
   if (!dy) return;
-  pvShow();
+  endJumpForScroll();
   L.scrollBy({ top: dy, behavior: 'instant' });
 }
 // Tab and Shift+Tab bring the badge they reach to where it shows. The browser scrolls a focused control into the pages' box
@@ -1068,7 +1068,7 @@ function markHitSides() {
 // pin (pinPlace), else where it was pinned, then decides each badge's side (markBadgeSides) and puts a save's or an append's
 // undo chip back on its mark (drawChips). A pin without a usable box or page draws nothing.
 /** Draw native, named pin badge buttons at the current mark coordinates, preserving mark and undo-chip geometry. */
-// A pin a page verdict line shows (pvShows) draws no page-size box: the line under its page says it (drawPageVerdicts, first).
+// A pin a page verdict line shows (isShownOnLine) draws no page-size box: the line under its page says it (drawPageVerdicts, first).
 function marks() {
   if (isMdDoc()) {
     mdMarks();
@@ -1083,7 +1083,7 @@ function marks() {
     const at = pinPlace(p),
       el = document.getElementById('p' + at.page);
     if (!el || !isFrac(at.frac)) return;
-    if (pvShows(p)) return;
+    if (isShownOnLine(p)) return;
     const est = isEstimated(p) && !hasMark(p),
       lost = p.stale || elLost(p);
     const m = document.createElement('div');
@@ -1242,7 +1242,7 @@ function jumpPin(id) {
     return;
   }
   if (document.body.classList.contains('revision-open')) setViewMode(VIEW_MODE.MANUSCRIPT);
-  if (jumpPv(id)) return; // a pin its page verdict line shows: the line
+  if (jumpToPageLine(id)) return; // a pin its page verdict line shows: the line
   marksShow(); // the way to a mark shows the marks (marks-hide.js)
   if (LAYOUT === LAYOUT_MODE.NARROW) setSide(false); // collapsed first so the sheet doesn't cover the page, then measured
   if (isMdDoc()) {
@@ -1254,7 +1254,7 @@ function jumpPin(id) {
     const L = $('#left'),
       lr = L.getBoundingClientRect(),
       mr = m.getBoundingClientRect();
-    pvShow();
+    endJumpForScroll();
     L.scrollTop += mr.top - (lr.top + lr.height * 0.3);
     m.classList.remove('flash');
     void m.offsetWidth;

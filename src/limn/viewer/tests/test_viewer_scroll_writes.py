@@ -1,7 +1,7 @@
 """Every scripted scroll in the viewer's JavaScript, sorted by what it does to a jump of the PDF area (docs/handbook/viewer.md §그림 쪽 도착).
 
 A jump's settling (pages.js arrivalSettle) glides the pages back to its place when they rest elsewhere, so it has to know why
-they moved. A write that shows something ends the jump first (SHOWS: pvShow, no input need come before it: a search hit lands
+they moved. A write that shows something ends the jump first (SHOWS: endJumpForScroll, no input need come before it: a search hit lands
 when the PDF's text has been read). A write that keeps what is on screen across a layout change moves with the place (KEEPS). A
 new scripted scroll fails here until it is put in one of these lists, so that nobody adds one the settling would undo.
 
@@ -19,7 +19,7 @@ JS = Path(__file__).resolve().parents[1] / "js"
 WRITE = re.compile(r"\.scroll(?:Top|Left)\s*[-+]?=(?!=)|\.scrollTo\(|\.scrollBy\(|\.scrollIntoView\(")
 FUNCTION = re.compile(r"^(?:async\s+)?function\s+(\w+)")
 
-# (file, function: <top> outside any): how many writes. pvShow comes before each of them.
+# (file, function: <top> outside any): how many writes. endJumpForScroll comes before each of them.
 SHOWS = {
     ("doc-switch.ts", "showDoc"): 1,
     ("figure.ts", "showElementBox"): 1,
@@ -30,8 +30,8 @@ SHOWS = {
     ("search.ts", "searchBringBack"): 3,
     ("search.ts", "searchReveal"): 2,
     ("selection.ts", "revealBox"): 1,
-    ("verdict-panel.ts", "pvBring"): 1,
-    ("verdict-reason.ts", "pvShowLine"): 1,
+    ("verdict-panel.ts", "bringPage"): 1,
+    ("verdict-reason.ts", "showDraftLine"): 1,
     ("verdict.ts", "<top>"): 1,
 }
 # They hold what is on screen where it stands while the layout changes; the settling measures the place after them.
@@ -44,11 +44,11 @@ KEEPS = {
     ("pages.ts", "fitW"): 1,
     ("pages.ts", "zoomRestore"): 2,
     ("rebuild.ts", "restoreAnchor"): 2,
-    ("verdict-panel.ts", "pvSideSettle"): 3,
-    ("verdict.ts", "pvLetBlocks"): 1,
+    ("verdict-panel.ts", "settleBesideTurn"): 3,
+    ("verdict.ts", "letLineBlocks"): 1,
 }
 # The jump's own glide.
-GLIDES = {("verdict.ts", "pvGlideInto"): 1, ("verdict.ts", "pvGlideTo"): 1}
+GLIDES = {("verdict.ts", "glideInto"): 1, ("verdict.ts", "glideTo"): 1}
 # Another scroller than the PDF area: the pin panel and its cards, a sheet, a menu, a list, the changes view, a field.
 OTHERS = {
     ("cards.ts", "openTrash"): 1,
@@ -84,7 +84,7 @@ OTHERS = {
     ("revision-zoom.ts", "restoreRevisionAnchor"): 2,
     ("revisions.ts", "revHighlight"): 1,
     ("revisions.ts", "scrollOverlayTo"): 1,
-    ("verdict-panel.ts", "pvPanelReveal"): 2,
+    ("verdict-panel.ts", "revealFocused"): 2,
 }
 
 
@@ -116,23 +116,23 @@ class ScrollWrites(unittest.TestCase):
         self.assertEqual(
             dict(found),
             {**SHOWS, **KEEPS, **GLIDES, **OTHERS},
-            "put the scripted scroll in SHOWS (pvShow first), KEEPS, GLIDES or OTHERS",
+            "put the scripted scroll in SHOWS (endJumpForScroll first), KEEPS, GLIDES or OTHERS",
         )
 
     def test_a_write_that_shows_something_ends_the_jump_first(self):
-        """pvShow stands before each write of SHOWS, in its function."""
+        """endJumpForScroll stands before each write of SHOWS, in its function."""
         for name, where, before in writes():
             if (name, where) in SHOWS:
                 with self.subTest(write="%s %s" % (name, where)):
-                    self.assertIn("pvShow(", before)
+                    self.assertIn("endJumpForScroll(", before)
 
     def test_a_scripted_scroll_asks_for_motion_as_the_setting_is_now(self):
-        """Every scripted scroll's behavior is at once ('auto', 'instant') or scrollMotion() - itself or through pvGlideArm,
+        """Every scripted scroll's behavior is at once ('auto', 'instant') or scrollMotion() - itself or through armGlide,
         which returns it - read at the scroll, never a smooth one fixed in the code or a value kept from load: a reduced
         motion setting changed with the page open reaches every scroll (#418). The CSS sets no smooth scroll-behavior,
         which a script's 'auto' would follow. Mutation: mdcGo's literal 'smooth' (before #418), or a const read at load,
         fails."""
-        allowed = ("'auto'", "'instant'", "scrollMotion()", "pvGlideArm(", "land?'auto':scrollMotion()")
+        allowed = ("'auto'", "'instant'", "scrollMotion()", "armGlide(", "land?'auto':scrollMotion()")
         paths = sorted(JS.glob("*.ts"))
         for path, text in zip(paths, helpers_js.module_texts(paths), strict=True):
             for m in re.finditer(r"\bbehavior\s*:\s*", text):

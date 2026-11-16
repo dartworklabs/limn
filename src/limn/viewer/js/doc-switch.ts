@@ -50,7 +50,7 @@ import { BACK, BACK_SKIP } from './gestures.ts';
 import { MD, isMdDoc, mdAnchor, mdPosLabel } from './md-surface.ts';
 import { COMPOSE, cancelSelection } from './composer.ts';
 import { openDraftDoc, parkDraft, restoreDraft } from './draft.ts';
-import { pvShow } from './verdict.ts';
+import { endJumpForScroll } from './verdict.ts';
 import { drawPins, marks } from './list.ts';
 import { EDITOR, cancelEdit, editDirty } from './edit.ts';
 import { cancelRepick } from './repick.ts';
@@ -514,7 +514,7 @@ function switchPending(k: string) {
 // Redraws the screen from the current META (tab switching), including open and done rows from this document before the background refresh.
 // The build chip, error panel, and auto-polling baseline are switched to that document's values too.
 function showDoc(v) {
-  pvShow();
+  endJumpForScroll();
   drawMeta();
   const hadW = applyViewWidth(v);
   buildDoc();

@@ -32,9 +32,9 @@ import { elLost, elLostTag, figRegionBadge, pinPlace } from './figure.ts';
 import { isMdPin } from './md-surface.ts';
 import { suggestBadge, suggestView } from './suggest.ts';
 import {
-  PV_TABBABLE,
-  pvQuietRel,
-  pvTabStop,
+  TABBABLE,
+  dropPageLineOverlaps,
+  isTabStop,
   verdictBadge,
   verdictOf,
   verdictOldMarker,
@@ -77,7 +77,7 @@ import type { Html } from './markup.ts';
  * UI words inside those regions are translated before rendering. */
 /** Render a pin's request, status and available actions; confirmation is offered only to a person with write access. */
 function card(p: Pin) {
-  p = pvQuietRel(p); // no overlap badge between two verdicts about one page target (verdict.js)
+  p = dropPageLineOverlaps(p); // no overlap badge between two verdicts about one page target (verdict.js)
   const loc = 'L' + p.lo + '-L' + p.hi,
     name =
       p.name ||
@@ -567,7 +567,7 @@ $('#trash').addEventListener('close', () => {
 $('#trash').addEventListener('keydown', (e) => {
   if (e.key !== 'Tab' || e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
   const d = $('#trash');
-  const all = [...d.querySelectorAll(PV_TABBABLE)].filter(pvTabStop) as HTMLElement[],
+  const all = [...d.querySelectorAll(TABBABLE)].filter(isTabStop) as HTMLElement[],
     a = document.activeElement,
     i = all.indexOf(a as HTMLElement);
   const to = !all.length

@@ -1276,7 +1276,7 @@ class FrontendMobileLogic(unittest.TestCase):
             let SHOW_ALL=false, DOCS=[], DOC='main', DEFAULT_DOC='main'; function docInfo(){return null;}
             let LAYOUT='mid', REPLY=null, META=null; const THREAD_OPEN=new Set(), MQ_COARSE={matches:true};
             function suggestBadge(){return null;} function suggestView(){return null;}   // these pins carry no suggested edit (suggest.js)
-            function verdictOf(){return null;} function verdictBadge(){return null;} function pvQuietRel(p){return p;} function verdictOldMarker(){return null;} function verdictTarget(){return null;}   // ...and no verdict (verdict.js)
+            function verdictOf(){return null;} function verdictBadge(){return null;} function dropPageLineOverlaps(p){return p;} function verdictOldMarker(){return null;} function verdictTarget(){return null;}   // ...and no verdict (verdict.js)
             function isMdPin(){return false;}   // ...and are on a document with pages (md-surface.js)
             """,
                 extract_js_fn("rng"),
@@ -3269,7 +3269,7 @@ class FrontendFigure(unittest.TestCase):
             [
                 r"""
             const DOC='d', DEFAULT_DOC='d', markBadgeSides=()=>{}, drawChips=()=>{}; let PINS=[], REVIEW_ALL=[]; const drawn=[];
-            const drawPageVerdicts=()=>{}, pvShows=()=>false;   // no page verdict line on this document (verdict.js)
+            const drawPageVerdicts=()=>{}, isShownOnLine=()=>false;   // no page verdict line on this document (verdict.js)
             const isMdDoc=()=>false;   // and it has pages (md-surface.js)
             const $$=()=>[]; const esc=s=>String(s);
             const page1={appendChild:m=>drawn.push([m.dataset.pin,m.className,m.style.left,m.style.width])};
@@ -4085,7 +4085,7 @@ class FrontendSaveWhilePicking(unittest.TestCase):
             let LAYOUT='wide', LAST_PTR='mouse', SNIP_OPEN=false, PINS=[], DOC=undefined, SWITCHSEQ=0; const EDITOR={current:null,saving:false};
             let KIND_NEW='fix'; function setKind(k){KIND_NEW=k==='question'?'question':'fix';} function mentionHints(){return [];}
             const ASSIGN_NEW={v:'agent',touched:false}; function renderAssignNew(){} function mentionPreview(){}
-            function pvTopId(){return 0;}   // the mark a lost save's answer is looked for above (verdict.js)
+            function topPinId(){return 0;}   // the mark a lost save's answer is looked for above (verdict.js)
             function offlineNow(){return false;} function offlinePick(){return Promise.resolve();}   // connected (offline.js)
             var OFF={idem:false};   // a server that knows no write by its key: the save carries none
             function isMdDoc(){return false;}
@@ -4677,7 +4677,7 @@ class FrontendReview(unittest.TestCase):
             let SHOW_ALL=false, DOCS=[], DOC='main', DEFAULT_DOC='main', LAYOUT='wide', REPLY=null; function docInfo(){return null;}
             const THREAD_OPEN=new Set(), MQ_COARSE={matches:false};
             function suggestBadge(){return null;} function suggestView(){return null;}   // these pins carry no suggested edit (suggest.js)
-            function verdictOf(){return null;} function verdictBadge(){return null;} function pvQuietRel(p){return p;} function verdictOldMarker(){return null;} function verdictTarget(){return null;}   // ...and no verdict (verdict.js)
+            function verdictOf(){return null;} function verdictBadge(){return null;} function dropPageLineOverlaps(p){return p;} function verdictOldMarker(){return null;} function verdictTarget(){return null;}   // ...and no verdict (verdict.js)
             function isMdPin(){return false;}   // ...and are on a document with pages (md-surface.js)
             """,
                 extract_js_fn("rng"),

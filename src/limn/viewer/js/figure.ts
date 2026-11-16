@@ -9,7 +9,7 @@ import { tl, tr } from './i18n.ts';
 import { drawBox, pendingBadgeSide } from './selection.ts';
 import { lvOf } from './levels.ts';
 import { COMPOSE } from './composer.ts';
-import { pvShow } from './verdict.ts';
+import { endJumpForScroll } from './verdict.ts';
 import { selPopArea } from './sel-popover.ts';
 
 // Whether f is a page box [x, y, w, h] of four finite numbers - the shape of a pin's frac and an element's frac.
@@ -88,7 +88,7 @@ function showElementBox() {
   const a = selPopArea(),
     r = b.getBoundingClientRect();
   if (r.top < a.top || r.bottom > a.bottom) {
-    pvShow();
+    endJumpForScroll();
     $('#left').scrollTop += r.top - (a.top + (a.bottom - a.top) * 0.3);
   }
   b.classList.remove('flash');

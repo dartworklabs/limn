@@ -79,7 +79,7 @@ import { revealBox, selRoom } from './selection.ts';
 import { lvOf, rng, useLevel } from './levels.ts';
 import { isTextDoc, srcLines, txHint, txLevels, txMarksText, txNamesText, txNote, txView } from './text-surface.ts';
 import { COMPOSE, focusFell, focusHold, imeOpen, overlapsFor, renderComposer, setBusy } from './composer.ts';
-import { pvShow, renderVerdictRow } from './verdict.ts';
+import { endJumpForScroll, renderVerdictRow } from './verdict.ts';
 import { marks } from './list.ts';
 import { bannerCompare } from './repick.ts';
 const MD_LIMITS = Object.freeze({
@@ -2347,7 +2347,7 @@ function mdShowLines(els: HTMLElement[]) {
   const L = $('#left'),
     lr = L.getBoundingClientRect(),
     r = els[0].getBoundingClientRect();
-  pvShow();
+  endJumpForScroll();
   L.scrollTop += r.top - (lr.top + lr.height * 0.3);
   mdSpotRead(true);
   els.forEach((e) => {
@@ -2489,7 +2489,7 @@ function mdGoOn() {
     MD.goTo = null;
     return false;
   }
-  pvShow();
+  endJumpForScroll();
   $('#left').scrollTo({ top: mdGoTop(g.el), behavior: scrollMotion() });
   return true;
 }

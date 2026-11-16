@@ -176,7 +176,7 @@ async function reopenPin(id: number): Promise<boolean> {
 // with [되돌리기] for NOTICE_MS; it waits in the Trash. A failure puts the card back. undoSave = the save chip's [되돌리기]:
 // silent, as the composer comes back with the selection - and again = what that failure's [다시 시도] runs (the whole undo, so
 // the composer comes back too). o.say: the caller says the drop and offers its undo where it was pressed (a page line's
-// [판정 취소], verdict.js pvCancel), o.where is where a failure is said and o.what what it names. Resolves with whether the pin was deleted.
+// [판정 취소], verdict.js cancelLineVerdict), o.where is where a failure is said and o.what what it names. Resolves with whether the pin was deleted.
 async function dropPin(
   id: number | null,
   undoSave: boolean,

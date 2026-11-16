@@ -86,9 +86,9 @@ import {
 import { saveDraftSoon } from './draft.ts';
 import { appendToPin, savePin } from './save.ts';
 import { offlineFlush, offlinePrepare } from './offline.ts';
-import { pvCancel, pvLineUndo, verdictPress } from './verdict.ts';
-import { pvReasonAct } from './verdict-reason.ts';
-import { pvSumGo } from './verdict-panel.ts';
+import { cancelLineVerdict, undoFromLine, verdictPress } from './verdict.ts';
+import { actOnReason } from './verdict-reason.ts';
+import { goToSummaryPage } from './verdict-panel.ts';
 import { selPopMore } from './sel-popover.ts';
 import { MSG_OPEN } from './card-parts.ts';
 import { ARC_OPEN, openTrash } from './cards.ts';
@@ -257,7 +257,7 @@ document.addEventListener('click', (e) => {
       gotoPinRef(Number(a.dataset.ref), e.detail === 0);
       break;
     case 'pv-cancel':
-      pvCancel(a);
+      cancelLineVerdict(a);
       break; // a page line's [판정 취소] on the person's own open verdict (verdict.js)
     case 'pv-reason-open':
     case 'pv-reason-save':
@@ -266,13 +266,13 @@ document.addEventListener('click', (e) => {
     case 'pv-reason-fold':
     case 'pv-reason-reapply':
     case 'pv-reason-see':
-      pvReasonAct(a);
+      actOnReason(a);
       break;
     case 'pv-sum':
-      pvSumGo(a);
+      goToSummaryPage(a);
       break; // a page's summary beside the verdict panel brings that page to it (verdict-panel.js)
     case 'pv-undo':
-      pvLineUndo(a);
+      undoFromLine(a);
       break; // a take-back's [되돌리기] on its line (verdict.js)   // a page line's reason and its popover (verdict-reason.js)
     case 'pop-more':
       selPopMore();

@@ -59,7 +59,7 @@ WHERE = """n => {const L = document.querySelector('#left'), pg = document.getEle
     r = pg.getBoundingClientRect(), a = selPopArea(), p = document.getElementById('pv-panel');
   const room = typeof m.figure_top === 'number' ? Math.max(8, Math.min(24 * r.height / m.pt_h, (m.figure_top - (m.figure_above || 0)) * r.height)) : null;
   return {top: L.scrollTop, arrive: figureTop(n), fig: typeof m.figure_top === 'number' ? r.top + m.figure_top * r.height - a.top : null,
-    page: r.top - L.getBoundingClientRect().top - L.clientTop, room, reading: pvReadingPage(), keys: pvKeysPage(pvReadingPage()),
+    page: r.top - L.getBoundingClientRect().top - L.clientTop, room, reading: readingPageWithLine(), keys: keyedPageFor(readingPageWithLine()),
     count: document.getElementById('nav-page').textContent, panel: p ? +p.dataset.page : null};}"""
 # The line of page n made 60px taller, as a redraw with more in it makes it. By its height and not by padding: a line has none,
 # so the height it is skipped at (--pv-h, verdict.js §Lines far from the view) is its whole box. A padded line stood 60px taller
@@ -69,12 +69,14 @@ LINE_GROWS = """n => {const l = document.querySelector('#doc .pv[data-page="' + 
 # The next glide of the pages, as it passes the middle of its way - in the scroll event, so with the glide still running, on
 # its last event at the latest - sets off what moves the pages under it (window.__grew: by how much): MOVERS.
 ON_THE_WAY = """move => {const L = document.querySelector('#left'), from = L.scrollTop;
-  const pass = () => {if (PV_JUMP === null || Math.abs(PV_JUMP - L.scrollTop) > Math.abs(PV_JUMP - from) / 2) return;
+  const pass = () => {if (JUMP_TARGET === null || Math.abs(JUMP_TARGET - L.scrollTop) > Math.abs(JUMP_TARGET - from) / 2) return;
     L.removeEventListener('scroll', pass); const h = document.getElementById('p2').getBoundingClientRect().top + L.scrollTop;
     (0, eval)(move); window.__grew = document.getElementById('p2').getBoundingClientRect().top + L.scrollTop - h;};
   L.addEventListener('scroll', pass);}"""
-# A real fitting pass over page 1's line, narrowed so that it stacks: pvFit holds the blocks and lets them go by pvLetBlocks.
-A_PASS = """{const l = document.querySelector('#doc .pv[data-page="1"]'); l.style.width = '120px'; pvFit([l]);}"""
+# A real fitting pass over page 1's line, narrowed so that it stacks: fitPageLines holds the blocks and lets them go by letLineBlocks.
+A_PASS = (
+    """{const l = document.querySelector('#doc .pv[data-page="1"]'); l.style.width = '120px'; fitPageLines([l]);}"""
+)
 # With the panel beside the pages no line is under them to fit: the space under page 1 grows.
 A_BLOCK = """document.getElementById('p1').parentElement.style.paddingBottom = '60px';"""
 # Sets the jump expression off and makes a line above it taller while it starts: the jump reckoned its place before.
@@ -163,7 +165,7 @@ class FigurePages(BrowserBase):
 
     def to_top(self, page):
         """The pages at the document's top, as a hand puts them (no arrival watching)."""
-        page.evaluate("()=>{PV_HAND(); document.querySelector('#left').scrollTop = 0;}")
+        page.evaluate("()=>{HAND_ON_PAGES(); document.querySelector('#left').scrollTop = 0;}")
         self.rest(page)
 
     def page_list(self, page, n):
@@ -246,17 +248,17 @@ class EveryJump(FigurePages):
         self.assertLessEqual(abs(page.evaluate(WHERE, 6)["page"]), 2)
 
     def test_a_card_s_view_under_the_pages_and_beside_them(self):
-        """A card's [보기] of page 6's verdict: its block where jumpPv puts it; with the panel beside the pages, the reading
-        place (pvBring)."""
+        """A card's [보기] of page 6's verdict: its block where jumpToPageLine puts it; with the panel beside the pages, the reading
+        place (bringPage)."""
         pid = self.verdict(6, "보류")
         wanted = {
-            "under": "()=>pvIntoTop(document.querySelector('#doc .pv[data-page=\"6\"]').parentElement)",
-            "beside": "()=>pvBringTop(6)",
+            "under": "()=>scrollTopFor(document.querySelector('#doc .pv[data-page=\"6\"]').parentElement)",
+            "beside": "()=>bringScrollTop(6)",
         }
         for name, device in (("under", SIZES["desktop 1440x900"]), ("beside", WIDE)):
             with self.subTest(side=name):
                 page = self.on(device, n_open=1)
-                self.assertEqual(page.evaluate("()=>PV_SIDE"), name == "beside")
+                self.assertEqual(page.evaluate("()=>IS_BESIDE_PAGES"), name == "beside")
                 self.fitted_on_the_way(page, A_BLOCK if name == "beside" else A_PASS)
                 page.evaluate("id=>jumpPin(id)", pid)
                 self.rest(page)
@@ -270,7 +272,7 @@ class EveryJump(FigurePages):
     def test_a_document_without_figures_by_its_page_and_by_an_outline_place(self):
         """A view-only PDF: its page 2, and a place on it from an outline entry (pickOutline's own glide), each end there."""
         for name, go, want in (
-            ("page", "goPage(2)", "pvIntoTop(document.getElementById('p2'))"),
+            ("page", "goPage(2)", "scrollTopFor(document.getElementById('p2'))"),
             (
                 "place",
                 "OUTLINE_ENTRIES=[{page:2,frac:0.3,title:'x',level:0}]; pickOutline(0)",
@@ -302,18 +304,18 @@ class EveryJump(FigurePages):
         self.to_top(page)
         page.evaluate("""() => {const L = document.querySelector('#left'), l = document.querySelector('#doc .pv[data-page="2"]');
           L.scrollTop += document.getElementById('p7').getBoundingClientRect().top - L.getBoundingClientRect().top - L.clientTop;
-          l.style.width = '120px'; pvFit([l]);}""")
+          l.style.width = '120px'; fitPageLines([l]);}""")
         self.rest(page)
         self.assertLessEqual(abs(page.evaluate(WHERE, 7)["page"]), 2)
 
     def test_what_a_script_shows_on_the_way_ends_the_jump(self):
-        """In the middle of a jump a script shows something higher up (pvShow, as a search hit that lands then does; the hit
+        """In the middle of a jump a script shows something higher up (endJumpForScroll, as a search hit that lands then does; the hit
         itself is in test_viewer_search.py): no input came, and neither the jump nor its settling takes the pages from there."""
         page = self.on(SIZES["desktop 1440x900"])
-        page.evaluate(ON_THE_WAY, "pvShow(); document.querySelector('#left').scrollTop = 300;")
+        page.evaluate(ON_THE_WAY, "endJumpForScroll(); document.querySelector('#left').scrollTop = 300;")
         page.evaluate("()=>goPage(6)")
         self.rest(page)
-        self.assertEqual(page.evaluate("()=>[ARRIVAL, PV_JUMP]"), [None, None])
+        self.assertEqual(page.evaluate("()=>[ARRIVAL, JUMP_TARGET]"), [None, None])
         self.assertGreater(page.evaluate(WHERE, 6)["page"], 1000)  # a write stops a glide a frame or two late
 
     def test_a_write_that_keeps_the_view_on_the_way_does_not_end_the_jump(self):
@@ -345,15 +347,15 @@ class EveryJump(FigurePages):
 
 
 # A jump set off and the pages read in the same task: where they stood, where they stand at once, and whether a glide is on
-# its way (PV_JUMP). An instant jump has moved the pages before the call returns; a smooth one has not yet.
+# its way (JUMP_TARGET). An instant jump has moved the pages before the call returns; a smooth one has not yet.
 JUMP_NOW = """go => {const L = document.querySelector('#left'), from = L.scrollTop; (0, eval)(go);
-  return {from, now: L.scrollTop, glide: PV_JUMP !== null};}"""
+  return {from, now: L.scrollTop, glide: JUMP_TARGET !== null};}"""
 
 
 class MotionSetLive(FigurePages):
     """prefers-reduced-motion changed while the viewer is open (#418) reaches the next jump of the pages: a page from the
-    page field (a figure's arrival, pvGlideTo), an outline entry's place (pvGlideTo) and a card's [보기] (a page without a
-    figure, pvGlideInto) are instant with the setting on - the pages there before the call returns, no glide guard - and
+    page field (a figure's arrival, glideTo), an outline entry's place (glideTo) and a card's [보기] (a page without a
+    figure, glideInto) are instant with the setting on - the pages there before the call returns, no glide guard - and
     glide again with it off. The viewer read the setting once, at load (core.js's SMOOTH), so a setting turned on later
     left every jump gliding and one turned off left them instant."""
 
@@ -388,17 +390,17 @@ class MotionSetLive(FigurePages):
     def test_an_instant_jump_that_replaces_a_glide_in_flight_lets_go_of_its_guard(self):
         """A glide to page 6 under way, the setting turned on, then a jump to page 3: the pages are there at once and the
         glide's guard is gone with the glide it replaced - a verdict key is taken, not refused as during a glide. Mutation:
-        no letting go in pvGlideArm when the jump is instant -> the old glide's PV_JUMP and PV_GLIDE stay (scrollend checks
-        the old destination), pvAutoScrolling() is true and the key is refused, fails (found in review)."""
+        no letting go in armGlide when the jump is instant -> the old glide's JUMP_TARGET and IS_GLIDING stay (scrollend checks
+        the old destination), isAutoScrolling() is true and the key is refused, fails (found in review)."""
         page = self.on(dict(SIZES["desktop 1440x900"], reduced_motion="no-preference"))
         page.evaluate("goPage(6)")
         page.wait_for_function(
-            "PV_JUMP!==null && document.querySelector('#left').scrollTop>20"
-            " && Math.abs(document.querySelector('#left').scrollTop-PV_JUMP)>100"
+            "JUMP_TARGET!==null && document.querySelector('#left').scrollTop>20"
+            " && Math.abs(document.querySelector('#left').scrollTop-JUMP_TARGET)>100"
         )
         page.emulate_media(reduced_motion="reduce")
         got = page.evaluate(
-            "()=>{goPage(3); return {jump: PV_JUMP, glide: PV_GLIDE, auto: pvAutoScrolling(),"
+            "()=>{goPage(3); return {jump: JUMP_TARGET, glide: IS_GLIDING, auto: isAutoScrolling(),"
             " off: Math.abs(document.querySelector('#left').scrollTop-figureTop(3))};}"
         )
         self.assertEqual((got["jump"], got["glide"], got["auto"]), (None, False, False), got)
@@ -518,8 +520,8 @@ class FigureArrival(FigurePages):
         rest too and glides the rest. It closed first, and the figure stayed short by what remained (#357)."""
         page = self.on(SIZES["desktop 1440x900"])
         page.evaluate(
-            """() => {const glide = pvGlideTo, L = document.querySelector('#left'); let n = 0;
-              pvGlideTo = to => {glide(to); if (++n === 2) {L.scrollTop = L.scrollTop; PV_SCROLL_AT += 1000;}};}"""
+            """() => {const glide = glideTo, L = document.querySelector('#left'); let n = 0;
+              glideTo = to => {glide(to); if (++n === 2) {L.scrollTop = L.scrollTop; LAST_SCROLL_AT += 1000;}};}"""
         )
         page.evaluate(JUMP_AS_A_LINE_GROWS, ["goPage(4)", 2])
         self.rest(page)
@@ -535,7 +537,7 @@ class FigureArrival(FigurePages):
             """() => {const L = document.querySelector('#left'), l = document.querySelector('#doc .pv[data-page="1"]');
               window.__ends = []; L.addEventListener('scrollend', () => __ends.push(L.scrollTop));
               const pass = () => {if (L.scrollTop < 2000) return; L.removeEventListener('scroll', pass);
-                l.style.width = '200px'; pvFit([l]); window.__grew = l.getBoundingClientRect().height;};
+                l.style.width = '200px'; fitPageLines([l]); window.__grew = l.getBoundingClientRect().height;};
               L.addEventListener('scroll', pass); goPage(4);}"""
         )
         self.rest(page)
@@ -546,7 +548,7 @@ class FigureArrival(FigurePages):
 
     def test_a_line_above_that_grows_after_the_rest_with_anchoring_held_off_is_followed(self):
         """Page 4's figure reached and at rest; then the line of page 2 grows by 60px with scroll anchoring held off on the
-        PDF area, as a line pass does (pvHoldView) - nothing scrolls. The arrival notices the column's height change and
+        PDF area, as a line pass does (holdPageView) - nothing scrolls. The arrival notices the column's height change and
         settles on the figure again; it does not hang on an anchoring scroll to notice. The settling's two seconds count from
         the growth here, whatever the checks of the first arrival cost a busy machine."""
         page = self.on(SIZES["desktop 1440x900"])
@@ -616,7 +618,7 @@ class FigureArrival(FigurePages):
         and the panel shows that page."""
         pid = self.verdict(2, "채택")
         page = self.on(WIDE, n_open=1)
-        self.assertTrue(page.evaluate("()=>PV_SIDE"))
+        self.assertTrue(page.evaluate("()=>IS_BESIDE_PAGES"))
         self.page_list(page, 4)
         where = page.evaluate(WHERE, 4)
         self.at_figure(where, 4)

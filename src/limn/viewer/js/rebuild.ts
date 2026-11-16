@@ -33,9 +33,9 @@ import { buildDoc, pageSrc, reapplyK } from './pages.ts';
 import { vecOpen } from './pdf-open.ts';
 import { vecReleaseAll } from './pdf-draw.ts';
 import { mdBuild } from './md-surface.ts';
-import { pvReadingAt } from './verdict.ts';
-import { pvComposingNow, pvReasonComposed } from './verdict-reason.ts';
-import { setPvBuildAt } from './verdict-panel.ts';
+import { pageUnderReadingLine } from './verdict.ts';
+import { isComposingNow, afterComposition } from './verdict-reason.ts';
+import { setBuildReadingPage } from './verdict-panel.ts';
 import { loadPins } from './list.ts';
 function topAnchor(off?) {
   const L = $('#left'),
@@ -125,10 +125,10 @@ async function refreshDoc(meta?) {
     return;
   } // no pages: the source is drawn again
   // Building the pages again takes the reason field with them: a syllable being composed in it ends first, and the key that
-  // ended it lets the field go (pvComposingNow), and the spot is read again after the wait. A newer snapshot that came meanwhile wins - applied at once (the same page
+  // ended it lets the field go (isComposingNow), and the spot is read again after the wait. A newer snapshot that came meanwhile wins - applied at once (the same page
   // count) or waiting too: this one is dropped, never put back over it (a newer build was rolled back for good, #352 review).
-  if (!(META && m.pages.length === META.pages.length) && pvComposingNow()) {
-    await pvReasonComposed();
+  if (!(META && m.pages.length === META.pages.length) && isComposingNow()) {
+    await afterComposition();
     if (k !== DOC || seq !== SWITCHSEQ || gen !== REFRESH_GEN) return;
     a = topAnchor();
   }
@@ -150,12 +150,12 @@ async function refreshDoc(meta?) {
     });
     reapplyK();
   } else {
-    setPvBuildAt(pvReadingAt());
+    setBuildReadingPage(pageUnderReadingLine());
     try {
       buildDoc();
       restoreAnchor(a);
     } finally {
-      setPvBuildAt(0);
+      setBuildReadingPage(0);
     }
   } // the reading page held until its spot is back
   restoreAnchor(a);
