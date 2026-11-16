@@ -443,7 +443,7 @@ class PageLine(VerdictBase):
         saves them as the page's verdict."""
         page = self.on("fig")
         page.evaluate(
-            "p=>{LAST_PTR='mouse'; pick({doc:'fig',page:1,pdf_build:META.pages_build,x0:p[0]*META.pages[0].pt_w,y0:p[1]*META.pages[0].pt_h,"
+            "p=>{LAST_POINTER='mouse'; pick({doc:'fig',page:1,pdf_build:META.pages_build,x0:p[0]*META.pages[0].pt_w,y0:p[1]*META.pages[0].pt_h,"
             "x1:(p[0]+p[2])*META.pages[0].pt_w,y1:(p[1]+p[3])*META.pages[0].pt_h,frac:p});}",
             list(helpers_figure.CELL_DRAG),
         )
@@ -579,7 +579,7 @@ class PageLine(VerdictBase):
         self.assertEqual(page.locator('#page-pop-list .pl-row[data-page="2"] .pl-v').count(), 0)
         self.assertEqual(page.locator('.pin[data-id="%d"] .tags .badge-verdict' % a).inner_text(), "판정 채택")
         self.assertEqual(self.call("POST", "/api/pins/%d/close" % a, {}, ALICE)[0], 200)
-        page.evaluate("SEC.done=true")
+        page.evaluate("SECTION_OPEN.done=true")
         self.reload(page)
         self.assertEqual(page.locator('.arc-row[data-id="%d"] .badge-verdict' % a).inner_text(), "판정 채택")
         self.assertIn("처리됨", page.evaluate(LINE, 1)["text"])
@@ -721,7 +721,7 @@ class Touch(VerdictBase):
         five = {**WORDS, "verdicts": WORDS["verdicts"] + [{"key": "수정"}, {"key": "이동"}]}
         self.word_files["ms"].write_text(json.dumps(five, ensure_ascii=False), encoding="utf-8")
         page = self.on("ms", viewport={"width": 320, "height": 720}, is_mobile=True, has_touch=True)
-        page.evaluate("LAST_PTR='touch'; pick({page:1,x0:10,y0:10,x1:200,y1:60})")
+        page.evaluate("LAST_POINTER='touch'; pick({page:1,x0:10,y0:10,x1:200,y1:60})")
         page.wait_for_function("COMPOSE.current&&!COMPOSE.picking")
         settle(page)
         page.locator("#c-verdict-row").scroll_into_view_if_needed()
@@ -747,7 +747,7 @@ class Touch(VerdictBase):
         for w, h in ((320, 720), (390, 844), (344, 882), (768, 1024), (673, 841), (841, 673), (1024, 768)):
             with self.subTest(w=w, h=h):
                 page = self.on("ms", viewport={"width": w, "height": h}, is_mobile=True, has_touch=True)
-                page.evaluate("LAST_PTR='touch'; pick({page:1,x0:10,y0:10,x1:200,y1:60})")
+                page.evaluate("LAST_POINTER='touch'; pick({page:1,x0:10,y0:10,x1:200,y1:60})")
                 page.wait_for_function("COMPOSE.current&&!COMPOSE.picking")
                 settle(page)
                 page.focus("#note")
@@ -802,7 +802,7 @@ class ReviewFixes(VerdictBase):
         newer = self.press_page(page, 1, "채택")
         self.assertEqual(self.call("POST", "/api/pins/%d/close" % newer, {"reply": "done"}, AGENT)[0], 200)
         self.reload(page)
-        page.evaluate("()=>{SEC.review=true; setSide(true); drawPins();}")
+        page.evaluate("()=>{SECTION_OPEN.review=true; setSide(true); drawPins();}")
         page.locator('#review-pins .pin[data-id="%d"] [data-act="confirm"]' % newer).click()
         settle(page)
         self.assertTrue(page.evaluate("id=>!REVIEW_ALL.some(p=>p.id===id)&&CONFIRMING.has(id)", newer))
@@ -940,7 +940,7 @@ class ReviewFixes(VerdictBase):
         for pid in (a, b):
             self.assertFalse([t for t in page.evaluate(badges, pid) if "범위" in t or "겹침" in t], pid)
         page.evaluate(
-            "p=>{LAST_PTR='mouse'; pick({doc:'fig',page:1,pdf_build:META.pages_build,x0:p[0]*META.pages[0].pt_w,y0:p[1]*META.pages[0].pt_h,"
+            "p=>{LAST_POINTER='mouse'; pick({doc:'fig',page:1,pdf_build:META.pages_build,x0:p[0]*META.pages[0].pt_w,y0:p[1]*META.pages[0].pt_h,"
             "x1:(p[0]+p[2])*META.pages[0].pt_w,y1:(p[1]+p[3])*META.pages[0].pt_h,frac:p});}",
             list(helpers_figure.CELL_DRAG),
         )
@@ -961,12 +961,12 @@ class ReviewFixes(VerdictBase):
         self.assertNotIn("(판정만)", page.locator(card).inner_text())
         self.assertEqual(page.locator(card + " .tags .badge-verdict").inner_text(), "판정 채택")
         self.assertEqual(self.call("POST", "/api/pins/%d/close" % a, {"reply": "done"}, AGENT)[0], 200)
-        page.evaluate("SEC.review=true")
+        page.evaluate("SECTION_OPEN.review=true")
         self.reload(page)
         self.assertEqual(page.locator("#review-pins " + card + " .note").count(), 0)
         self.assertNotIn("(판정만)", page.locator("#review-pins " + card).inner_text())
         self.assertEqual(self.call("POST", "/api/pins/%d/confirm" % a, {}, ALICE)[0], 200)
-        page.evaluate("SEC.done=true")
+        page.evaluate("SECTION_OPEN.done=true")
         self.reload(page)
         self.assertNotIn("(판정만)", page.locator('.arc-row[data-id="%d"]' % a).inner_text())
 
@@ -1153,7 +1153,7 @@ OLD = """id=>{const m=[...document.querySelectorAll('.pin[data-id="'+id+'"] .vd-
 
 
 def ro(n):
-    """'로' or '으로' after number n read in Korean (verdict.js josaRo)."""
+    """'로' or '으로' after number n read in Korean (verdict.js josaToward)."""
     return "으로" if str(n)[-1] in "036" else "로"
 
 
@@ -1294,7 +1294,7 @@ class SupersededMarker(VerdictBase):
         for w, h, more in ((320, 720, touch), (344, 882, touch), (390, 844, touch), (841, 673, touch), (1400, 850, {})):
             with self.subTest(width=w):
                 page = self.on("rv", n_open=1, viewport={"width": w, "height": h}, **more)
-                page.evaluate("()=>{SEC.done=true; setSide(true); drawPins();}")
+                page.evaluate("()=>{SECTION_OPEN.done=true; setSide(true); drawPins();}")
                 settle(page)
                 self.assertEqual(page.evaluate(OLD, a)["ref"], b)
                 got = page.evaluate(
@@ -1342,7 +1342,7 @@ class SupersededMarker(VerdictBase):
         old, new = self.pins()[a], self.pins()[b]
         self.assertEqual((old["lo"], old["hi"]), (new["lo"], new["hi"]))  # the same numbers...
         self.assertNotEqual(old["anchor"], new["anchor"])  # ...on other text
-        page.evaluate("SEC.review=true")
+        page.evaluate("SECTION_OPEN.review=true")
         self.reload(page)
         self.assertIsNone(page.evaluate(OLD, a))
         self.assertEqual(
@@ -1359,7 +1359,7 @@ class SupersededMarker(VerdictBase):
         newer = self.press_page(page, 1, "채택")
         self.assertEqual(self.call("POST", "/api/pins/%d/close" % newer, {"reply": "done"}, AGENT)[0], 200)
         self.reload(page)
-        page.evaluate("()=>{SEC.review=true; setSide(true); drawPins();}")
+        page.evaluate("()=>{SECTION_OPEN.review=true; setSide(true); drawPins();}")
         page.locator('#review-pins .pin[data-id="%d"] [data-act="confirm"]' % newer).click()
         settle(page)
         self.assertEqual(self.call("POST", "/api/pins/%d/drop" % newer, {}, ALICE)[0], 200)
@@ -1390,7 +1390,7 @@ class SupersededMarker(VerdictBase):
         newer = self.press_page(page, 1, "채택")
         self.assertEqual(self.call("POST", "/api/pins/%d/close" % newer, {"reply": "done"}, AGENT)[0], 200)
         self.reload(page)
-        page.evaluate("()=>{SEC.review=true; setSide(true); drawPins();}")
+        page.evaluate("()=>{SECTION_OPEN.review=true; setSide(true); drawPins();}")
         page.locator('#review-pins .pin[data-id="%d"] [data-act="confirm"]' % newer).click()
         settle(page)
         self.reload(page)
@@ -1429,7 +1429,7 @@ class SupersededMarker(VerdictBase):
         newer = self.press_page(page, 1, "채택")
         self.assertEqual(self.call("POST", "/api/pins/%d/close" % newer, {"reply": "done"}, AGENT)[0], 200)
         self.reload(page)
-        page.evaluate("()=>{SEC.review=true; setSide(true); drawPins();}")
+        page.evaluate("()=>{SECTION_OPEN.review=true; setSide(true); drawPins();}")
         self.assertEqual(page.evaluate(OLD, older)["ref"], newer)
         page.locator('#review-pins .pin[data-id="%d"] [data-act="confirm"]' % newer).click()
         settle(page)
@@ -1456,11 +1456,11 @@ class SupersededMarker(VerdictBase):
         self.assertEqual(page.evaluate(OLD, a)["ref"], b)
         self.assertIsNone(page.evaluate(OLD, b))
         self.assertEqual(self.call("POST", "/api/pins/%d/close" % a, {"reply": "done"}, AGENT)[0], 200)
-        page.evaluate("SEC.review=true")
+        page.evaluate("SECTION_OPEN.review=true")
         self.reload(page)
         self.assertEqual(page.evaluate(OLD, a)["ref"], b)  # the review card
         self.assertEqual(self.call("POST", "/api/pins/%d/confirm" % a, {}, ALICE)[0], 200)
-        page.evaluate("SEC.done=true")
+        page.evaluate("SECTION_OPEN.done=true")
         self.reload(page)
         self.assertEqual(page.evaluate(OLD, a)["ref"], b)  # the done row
         self.PICK = {"lo": 20, "hi": 21, "raw_lo": 20, "raw_hi": 21, "levels": [], "default_level": "raw"}
@@ -1536,7 +1536,7 @@ class FunctionalUiFixes(VerdictBase):
                 for _ in range(5):
                     page.keyboard.press("Control+Equal")
                 settle(page)
-                self.assertGreater(page.evaluate("K/fitK()"), 2)
+                self.assertGreater(page.evaluate("PAGE_SCALE/fitScale()"), 2)
                 page.evaluate(
                     """()=>{const l=document.querySelector('#doc .pv[data-page="1"]'), L=document.querySelector('#left');
                       L.scrollTop+=l.getBoundingClientRect().top-L.getBoundingClientRect().top-300;}"""
@@ -1696,7 +1696,7 @@ class FunctionalUiFixes(VerdictBase):
         self.open_composer(page)
         self.held_pick = []
         page.evaluate(
-            "()=>{LAST_PTR='mouse'; pick({page:1,x0:10,y0:80,x1:200,y1:120});}"
+            "()=>{LAST_POINTER='mouse'; pick({page:1,x0:10,y0:80,x1:200,y1:120});}"
         )  # not awaited: its answer is held
         page.wait_for_function("COMPOSE.picking")
         got = page.evaluate(
@@ -1857,9 +1857,9 @@ class RetestFixes(VerdictBase):
                 page.wait_for_function("n=>OPEN_ALL.length===n", arg=len(before) + 1)
                 settle(page)
                 (pid,) = set(self.pins()) - before
-                page.evaluate("zoomTo(K*2.5)")
+                page.evaluate("zoomTo(PAGE_SCALE*2.5)")
                 settle(page)
-                self.assertGreater(page.evaluate("K/fitK()"), 2.2)
+                self.assertGreater(page.evaluate("PAGE_SCALE/fitScale()"), 2.2)
                 for frac in (0, 0.5, 1):
                     page.evaluate(
                         """([id,f])=>{const L=document.querySelector('#left'); L.scrollLeft=(L.scrollWidth-L.clientWidth)*f;
@@ -2064,7 +2064,7 @@ class FloatingLine(VerdictBase):
 
     def tall(self, page):
         """Page 2 drawn taller than the PDF area (150% of the print size)."""
-        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        page.evaluate("setScale(POINT_PX*1.5,false); ZOOMED=true")
         settle(page)
         got = page.evaluate(FLOAT, 2)
         self.assertGreater(got["page"]["bottom"] - got["page"]["top"], got["area"]["bottom"] - got["area"]["top"] + 200)
@@ -2119,10 +2119,10 @@ class FloatingLine(VerdictBase):
         # the July cell (drawn low on page 1 in this build) pinned from the composer at three times the print size - page 1
         # then taller than the area - its mark scrolled 30px under the floating line's top: the mark's save chip, drawn
         # over the line, stays pressable
-        page.evaluate("setK(PT_PX*3,false)")
+        page.evaluate("setScale(POINT_PX*3,false)")
         settle(page)
         page.evaluate(
-            "p=>{LAST_PTR='mouse'; pick({doc:'fig',page:1,pdf_build:META.pages_build,x0:p[0]*META.pages[0].pt_w,y0:p[1]*META.pages[0].pt_h,"
+            "p=>{LAST_POINTER='mouse'; pick({doc:'fig',page:1,pdf_build:META.pages_build,x0:p[0]*META.pages[0].pt_w,y0:p[1]*META.pages[0].pt_h,"
             "x1:(p[0]+p[2])*META.pages[0].pt_w,y1:(p[1]+p[3])*META.pages[0].pt_h,frac:p});}",
             [0.48, 0.72, 0.04, 0.08],
         )
@@ -2157,7 +2157,7 @@ class FloatingLine(VerdictBase):
         self.tall(page)
         self.assertTrue(self.at(page, "top")["stuck"])
         page.evaluate(
-            "p=>{LAST_PTR='mouse'; pick({doc:'fig',page:2,pdf_build:META.pages_build,x0:50,y0:50,x1:300,y1:120,frac:[0.08,0.06,0.5,0.15]});}"
+            "p=>{LAST_POINTER='mouse'; pick({doc:'fig',page:2,pdf_build:META.pages_build,x0:50,y0:50,x1:300,y1:120,frac:[0.08,0.06,0.5,0.15]});}"
         )
         page.wait_for_function("COMPOSE.current&&!COMPOSE.picking")
         settle(page)
@@ -2283,7 +2283,7 @@ class LineLayout(VerdictBase):
 
     def tall(self, page):
         """Page 2 drawn taller than the PDF area (150% of the print size), its top in view: its line floats."""
-        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        page.evaluate("setScale(POINT_PX*1.5,false); ZOOMED=true")
         settle(page)
         page.evaluate(SCROLL, [2, "top"])
         settle(page)
@@ -2428,7 +2428,7 @@ class LineLayout(VerdictBase):
         short; with no room for [되돌리기] the undo is on the status line. Rows narrower and narrower (review of #302 and the
         RC review: the chip hid the current verdict, then [이유 추가] and [판정 취소])."""
         page = self.on("fig", viewport={"width": 1920, "height": 1080})
-        page.evaluate("setK(PT_PX*2,false); ZOOMED=true")  # a line wide enough for the chip with its words
+        page.evaluate("setScale(POINT_PX*2,false); ZOOMED=true")  # a line wide enough for the chip with its words
         settle(page)
         # No message's window runs: this is about the chip's place, and the hundreds of widths below outlast its 6 s on a busy
         # machine, which left no chip and no undo on the status line.
@@ -2477,7 +2477,7 @@ class FoldablePortrait(VerdictBase):
     """882 x 1104 touch (the folded-open foldable in portrait, the tablet sheet band)."""
 
     def tall(self, page):
-        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        page.evaluate("setScale(POINT_PX*1.5,false); ZOOMED=true")
         settle(page)
         page.evaluate(SCROLL, [2, "top"])
         settle(page)
@@ -2610,7 +2610,7 @@ class RcLayoutFixes(VerdictBase):
     scroll."""
 
     def tall(self, page, n=2):
-        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        page.evaluate("setScale(POINT_PX*1.5,false); ZOOMED=true")
         settle(page)
         page.evaluate(SCROLL, [n, "top"])
         settle(page)
@@ -2658,7 +2658,7 @@ class RcLayoutFixes(VerdictBase):
                 if device:
                     page.evaluate("setSide(false)")
                     settle(page)
-                page.evaluate("z=>{setK(PT_PX*z,false); ZOOMED=true}", zoom)
+                page.evaluate("z=>{setScale(POINT_PX*z,false); ZOOMED=true}", zoom)
                 settle(page)
                 page.evaluate(SCROLL, [2, "top"])
                 settle(page)
@@ -2698,7 +2698,7 @@ class RcLayoutFixes(VerdictBase):
                 for sel in ('[data-act="pv-reason-open"]', ".pv-cancel"):
                     self.assertTrue(page.evaluate(ON_TOP, '#doc .pv[data-page="1"] ' + sel), sel)
         page = self.on("fig")
-        page.evaluate("setK(PT_PX*2,false); ZOOMED=true")
+        page.evaluate("setScale(POINT_PX*2,false); ZOOMED=true")
         settle(page)
         self.press_page(page, 2, "보류")
         chip = '#doc .pv[data-page="2"]>.nt-chip'
@@ -2728,7 +2728,7 @@ class RcLayoutFixes(VerdictBase):
         """An in-place line 40px under the PDF area's top: its popover opens under it, wholly inside what the area shows,
         five lines of reason in view (it opened above, under the top bar, its last line alone in view)."""
         page = self.on("fig")
-        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        page.evaluate("setScale(POINT_PX*1.5,false); ZOOMED=true")
         settle(page)
         page.evaluate(
             """()=>{const A=document.querySelector('#left'),l=document.querySelector('#doc .pv[data-page="1"]'); A.scrollTop+=l.getBoundingClientRect().top-(A.getBoundingClientRect().top+40);}"""
@@ -2898,7 +2898,7 @@ class RcLayoutFixes(VerdictBase):
         [판정 취소] hold one row, the earlier link out. Beside the earlier link the line stacked under the press (the RC's
         merge of its layout and logic fixes). The take-back's [되돌리기] is test_reason_add_yields_to_the_lines_undo_..."""
         page = self.on("fig")
-        page.evaluate("w=>{setK(w/META.pages[1].pt_w,false); ZOOMED=true}", 560)
+        page.evaluate("w=>{setScale(w/META.pages[1].pt_w,false); ZOOMED=true}", 560)
         settle(page)
         page.evaluate(SCROLL, [2, "top"])
         settle(page)
@@ -2924,7 +2924,7 @@ class RcLayoutFixes(VerdictBase):
         (ps.APP.C.state / "pins.seq").write_text("99\n", encoding="utf-8")
         page = self.on("fig", viewport={"width": 1280, "height": 800})
         page.evaluate("setSide(true)")
-        page.evaluate("w=>{setK(w/META.pages[1].pt_w,false); ZOOMED=true}", 620)
+        page.evaluate("w=>{setScale(w/META.pages[1].pt_w,false); ZOOMED=true}", 620)
         settle(page)
         page.evaluate(SCROLL, [2, "top"])
         settle(page)
@@ -2984,7 +2984,7 @@ class RcLayoutFixes2(VerdictBase):
                 page = self.on("fig", **device)
                 page.evaluate("setSide(false)")
                 settle(page)
-                page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+                page.evaluate("setScale(POINT_PX*1.5,false); ZOOMED=true")
                 settle(page)
                 page.evaluate(SCROLL, [2, "top"])
                 settle(page)
@@ -3034,7 +3034,7 @@ class RcLayoutFixes2(VerdictBase):
             0.4,
             0.35,
         ):  # the largest zoom at which page 2's line is narrower than that state
-            page.evaluate("z=>{setK(PT_PX*z,false); ZOOMED=true}", zoom)
+            page.evaluate("z=>{setScale(POINT_PX*z,false); ZOOMED=true}", zoom)
             settle(page)
             if page.evaluate(
                 """()=>document.querySelector('#doc .pv[data-page="2"]').classList.contains('pv-stack')"""
@@ -3068,7 +3068,7 @@ class RcLayoutFixes2(VerdictBase):
         page = self.on("fig", n_open=0, viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
         for k in range(10):
             page.evaluate(
-                "k=>{LAST_PTR='touch'; pick({doc:'fig',page:1,pdf_build:META.pages_build,x0:20,y0:20+k*8,x1:200,y1:26+k*8,frac:[0.05,0.05+k*0.02,0.4,0.015]});}",
+                "k=>{LAST_POINTER='touch'; pick({doc:'fig',page:1,pdf_build:META.pages_build,x0:20,y0:20+k*8,x1:200,y1:26+k*8,frac:[0.05,0.05+k*0.02,0.4,0.015]});}",
                 k,
             )
             page.wait_for_function("COMPOSE.current&&!COMPOSE.picking")
@@ -3099,7 +3099,7 @@ class RcLayoutFixes2(VerdictBase):
         page = self.on("fig", viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
         page.evaluate("setSide(false)")
         page.evaluate(
-            "()=>{setK(K*2.5,false); ZOOMED=true; document.querySelector('#left').scrollTop=0;}"
+            "()=>{setScale(PAGE_SCALE*2.5,false); ZOOMED=true; document.querySelector('#left').scrollTop=0;}"
         )  # page 1 taller than the reading depth
         settle(page)
         page.evaluate("stickReadingLine()")
@@ -3182,7 +3182,7 @@ class Keys(VerdictBase):
         """Page 2 under the reading line: its buttons carry the keys (data-kn 1-3, aria-keyshortcuts, '단축키 N' in the
         tip, the confirm word's '(두 번)'), page 1's none. 2 saves 보류 about page 2's figure (B3)."""
         page = self.on("fig")
-        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        page.evaluate("setScale(POINT_PX*1.5,false); ZOOMED=true")
         self.reading(page, 2)
         keys = """n=>[...document.querySelectorAll('#doc .pv[data-page="'+n+'"] button.vd-b')].map(b=>[b.dataset.kn||null,b.getAttribute('aria-keyshortcuts'),b.dataset.tip])"""
         self.assertEqual([k[:2] for k in page.evaluate(keys, 2)], [["1", "1"], ["2", "2"], ["3", "3"]])
@@ -3202,7 +3202,7 @@ class Keys(VerdictBase):
         drawn after them, no description ends in '단축키 N' and no button carries aria-keyshortcuts - a long press on a
         phone read '… · 단축키 1' for a key it has none of (#315). The test above holds the desktop's."""
         page = self.on("fig", viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
-        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        page.evaluate("setScale(POINT_PX*1.5,false); ZOOMED=true")
         self.reading(page, 2)
         got = page.evaluate(
             """()=>[...document.querySelectorAll('#doc .pv[data-page="2"] button.vd-b')].map(b=>[b.dataset.kn||null,
@@ -3218,7 +3218,7 @@ class Keys(VerdictBase):
     def test_a_confirm_word_takes_its_key_twice(self):
         """3 (삭제, a confirm word) arms the button - '삭제 확정' - and saves nothing; 3 again saves 삭제."""
         page = self.on("fig")
-        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        page.evaluate("setScale(POINT_PX*1.5,false); ZOOMED=true")
         self.reading(page, 2)
         page.keyboard.press("3")
         settle(page)
@@ -3238,7 +3238,7 @@ class Keys(VerdictBase):
         """1 typed into the page field, pressed with the help open, and pressed with a selection's composer open saves
         nothing; the key hints go while the composer is open."""
         page = self.on("fig")
-        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        page.evaluate("setScale(POINT_PX*1.5,false); ZOOMED=true")
         self.reading(page, 2)
         page.focus("#jump")
         page.keyboard.press("1")
@@ -3250,7 +3250,7 @@ class Keys(VerdictBase):
         settle(page)
         page.evaluate("document.querySelector('#help').close()")
         page.evaluate(
-            "p=>{LAST_PTR='mouse'; pick({doc:'fig',page:2,pdf_build:META.pages_build,x0:50,y0:50,x1:300,y1:120,frac:[0.08,0.06,0.5,0.15]});}"
+            "p=>{LAST_POINTER='mouse'; pick({doc:'fig',page:2,pdf_build:META.pages_build,x0:50,y0:50,x1:300,y1:120,frac:[0.08,0.06,0.5,0.15]});}"
         )
         page.wait_for_function("COMPOSE.current&&!COMPOSE.picking")
         page.evaluate("document.activeElement.blur()")
@@ -3265,7 +3265,7 @@ class Keys(VerdictBase):
         """3 arms 삭제 on page 1; the area scrolls to page 2 and 3 comes before the next frame: nothing is saved - page 1's
         armed word is not confirmed - and the key arms page 2's 삭제."""
         page = self.on("fig")
-        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        page.evaluate("setScale(POINT_PX*1.5,false); ZOOMED=true")
         self.reading(page, 1)
         page.keyboard.press("3")
         settle(page)
@@ -3287,7 +3287,7 @@ class Keys(VerdictBase):
     def test_a_keys_armed_word_goes_when_the_reading_page_changes(self):
         """3 arms 삭제 on page 1; scrolling page 2 under the reading line lets it go - 3 then arms page 2, saving nothing."""
         page = self.on("fig")
-        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        page.evaluate("setScale(POINT_PX*1.5,false); ZOOMED=true")
         self.reading(page, 1)
         page.keyboard.press("3")
         settle(page)
@@ -3336,7 +3336,7 @@ class FigureTarget(VerdictBase):
         note, and page 1's line shows it. The row's lead names the figure ('· Deployment calendar 전체')."""
         page = self.on("fig")
         page.evaluate(
-            "p=>{LAST_PTR='mouse'; pick({doc:'fig',page:1,pdf_build:META.pages_build,x0:p[0]*META.pages[0].pt_w,y0:p[1]*META.pages[0].pt_h,"
+            "p=>{LAST_POINTER='mouse'; pick({doc:'fig',page:1,pdf_build:META.pages_build,x0:p[0]*META.pages[0].pt_w,y0:p[1]*META.pages[0].pt_h,"
             "x1:(p[0]+p[2])*META.pages[0].pt_w,y1:(p[1]+p[3])*META.pages[0].pt_h,frac:p});}",
             list(helpers_figure.CELL_DRAG),
         )
@@ -3395,7 +3395,9 @@ class LineDetails(VerdictBase):
         """채택 on page 1's line, then 보류 on page 2's: one chip on the pages, on page 2's line; page 1's undo went to the
         status line, still offered, and names the figure in its title ('#N 채택 판정 저장됨 · Deployment calendar')."""
         page = self.on("fig")
-        page.evaluate("setK(PT_PX*2,false); ZOOMED=true")  # page 2's line wide enough to hold a chip (placeLineChips)
+        page.evaluate(
+            "setScale(POINT_PX*2,false); ZOOMED=true"
+        )  # page 2's line wide enough to hold a chip (placeLineChips)
         settle(page)
         one = self.press_page(page, 1, "채택")
         self.press_page(page, 2, "보류")
@@ -3435,7 +3437,7 @@ class LineDetails(VerdictBase):
         heights = "sel=>[...document.querySelectorAll(sel)].map(b=>Math.round(b.getBoundingClientRect().height))"
         self.assertEqual(page.evaluate(heights, '#doc .pv[data-page="1"] button.vd-b'), [44, 44, 44])
         page.evaluate(
-            "LAST_PTR='touch'; pick({doc:'fig',page:2,pdf_build:META.pages_build,x0:50,y0:50,x1:300,y1:120,frac:[0.08,0.06,0.5,0.15]})"
+            "LAST_POINTER='touch'; pick({doc:'fig',page:2,pdf_build:META.pages_build,x0:50,y0:50,x1:300,y1:120,frac:[0.08,0.06,0.5,0.15]})"
         )
         page.wait_for_function("COMPOSE.current&&!COMPOSE.picking")
         settle(page)
@@ -3454,14 +3456,14 @@ class LineDetails(VerdictBase):
         page = self.on("fig")
         self.assertIsNotNone(page.evaluate(LINE, 1))
         self.assertIsNone(page.evaluate(LINE, 2))
-        pick2 = "LAST_PTR='mouse'; pick({doc:'fig',page:2,pdf_build:META.pages_build,x0:50,y0:50,x1:300,y1:120,frac:[0.08,0.06,0.5,0.15]})"
+        pick2 = "LAST_POINTER='mouse'; pick({doc:'fig',page:2,pdf_build:META.pages_build,x0:50,y0:50,x1:300,y1:120,frac:[0.08,0.06,0.5,0.15]})"
         page.evaluate(pick2)
         page.wait_for_function("COMPOSE.current&&!COMPOSE.picking")
         settle(page)
         self.assertTrue(page.evaluate("document.querySelector('#c-verdict-row').hidden"))
         page.keyboard.press("Escape")
         page.evaluate(
-            "p=>{LAST_PTR='mouse'; pick({doc:'fig',page:1,pdf_build:META.pages_build,x0:p[0]*META.pages[0].pt_w,y0:p[1]*META.pages[0].pt_h,"
+            "p=>{LAST_POINTER='mouse'; pick({doc:'fig',page:1,pdf_build:META.pages_build,x0:p[0]*META.pages[0].pt_w,y0:p[1]*META.pages[0].pt_h,"
             "x1:(p[0]+p[2])*META.pages[0].pt_w,y1:(p[1]+p[3])*META.pages[0].pt_h,frac:p});}",
             list(helpers_figure.CELL_DRAG),
         )
@@ -3539,7 +3541,7 @@ class Reason(VerdictBase):
         """2 on the reading page saves 보류 and opens nothing - the line offers 'Enter 이유 쓰기'. Enter opens the popover with
         the focus; '3번 패널 범례' typed there is text, its leading digit too, and Enter saves it as the new pin's note."""
         page = self.on("fig")
-        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        page.evaluate("setScale(POINT_PX*1.5,false); ZOOMED=true")
         page.evaluate(SCROLL, [2, "top"])
         settle(page)
         page.keyboard.press("2")
@@ -3608,7 +3610,7 @@ class Reason(VerdictBase):
         layout 300px shorter), the field and the line's words are on screen and pressable."""
         page = self.on("fig", viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
         page.evaluate("setSide(false)")
-        page.evaluate("setK(PT_PX*1.2,false); ZOOMED=true")
+        page.evaluate("setScale(POINT_PX*1.2,false); ZOOMED=true")
         page.evaluate(SCROLL, [2, "top"])
         settle(page)
         self.press_page(page, 2, "채택")
@@ -3655,7 +3657,7 @@ class Reason(VerdictBase):
         the popover closes, '범례' is page 2's pin's note ('이유 저장됨 · 판정 #1 보류 — Review flow'), the focus is on the
         PDF area and page 1's line has the keys."""
         page = self.on("fig")
-        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        page.evaluate("setScale(POINT_PX*1.5,false); ZOOMED=true")
         page.evaluate(SCROLL, [2, "top"])
         settle(page)
         page.keyboard.press("2")
@@ -3721,7 +3723,7 @@ class Reason(VerdictBase):
             "()=>{const R=document.documentElement.style,h=document.documentElement.clientHeight; R.setProperty('--kb','300px'); R.setProperty('--vvh',(h-300)+'px');}"
         )
         settle(page)  # the PDF area 300px shorter re-fits the pages first; the zoom chosen after it stays (ZOOMED)
-        page.evaluate("setK(PT_PX*1.2,false); ZOOMED=true")
+        page.evaluate("setScale(POINT_PX*1.2,false); ZOOMED=true")
         settle(page)
         page.evaluate(SCROLL, [2, "mid"])
         settle(page)
@@ -3736,7 +3738,7 @@ class Reason(VerdictBase):
     def test_the_floating_edge_shows_in_the_light_theme(self):
         """The floating line's 1px separator is the strong border, not the PDF area's own grey."""
         page = self.on("fig")
-        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        page.evaluate("setScale(POINT_PX*1.5,false); ZOOMED=true")
         page.evaluate(SCROLL, [2, "mid"])
         settle(page)
         got = page.evaluate(
@@ -3782,7 +3784,7 @@ class ReasonRoom(VerdictBase):
         """Page 1 at 150% of the print size, its end 300px above the area's bottom (the line in its place under it, clear
         of a touch screen's sheet bar), 보류 saved and the reason popover open; what ROOM_AT read just before and just
         after it opened."""
-        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        page.evaluate("setScale(POINT_PX*1.5,false); ZOOMED=true")
         settle(page)
         page.evaluate(SCROLL, [1, "end"])
         self.scroll(page, 200)
@@ -3869,7 +3871,7 @@ class ReasonRoom(VerdictBase):
             with self.subTest(how=how):
                 page = self.on("fig", viewport={"width": 1440, "height": 700})
                 page.evaluate("setSide(false)")
-                page.evaluate("setK(560/META.pages[1].pt_w,false); ZOOMED=true")
+                page.evaluate("setScale(560/META.pages[1].pt_w,false); ZOOMED=true")
                 settle(page)
                 # Each page as pdf.js draws it: the PNG under the canvas hidden (.drawn, §벡터 렌더링), so nothing inside a
                 # page is a scroll anchor candidate (the canvas is out of the flow) and the area anchors on a page's block.
@@ -3920,7 +3922,7 @@ class ReasonRoom(VerdictBase):
         page = self.on("fig", viewport={"width": 800, "height": 700})  # under the pages: no room for the panel
         page.evaluate("setSide(false)")
         add_test_style(page, "#doc.pv-measure .pv:not(.reading)>.pv-t{padding-top:23px}")
-        page.evaluate("setK(420/META.pages[0].pt_w,false); ZOOMED=true")  # page 1 420px wide: its line stacks
+        page.evaluate("setScale(420/META.pages[0].pt_w,false); ZOOMED=true")  # page 1 420px wide: its line stacks
         settle(page)
         page.evaluate(
             """()=>{const L=document.querySelector('#left'),lr=L.getBoundingClientRect(),r=document.getElementById('p2').getBoundingClientRect();
@@ -3947,7 +3949,7 @@ class ReasonRoom(VerdictBase):
         """The line floating at the area's bottom over page 1, its end below the area: the popover opens with nothing moving, and scrolled down
         until the page's end comes up to the popover's top, the line and the popover still stand where they floated."""
         page = self.on("fig")
-        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        page.evaluate("setScale(POINT_PX*1.5,false); ZOOMED=true")
         settle(page)
         page.evaluate(SCROLL, [1, "end"])
         self.scroll(page, -250)  # the page's end 150px under the area's bottom
@@ -3996,7 +3998,7 @@ class ReasonRoom(VerdictBase):
         self.scroll(page, round(opened["page"] - opened["pop"]))
         self.assertTrue(page.evaluate("()=>!!document.querySelector('#doc .pgw.pv-roomy')"))
         room = page.evaluate(
-            "()=>innerW()-pageWidth(ptMax(),K)"
+            "()=>pdfAreaInnerWidth()-pageWidth(widestPagePoints(),PAGE_SCALE)"
         )  # the room beside the pages (verdict-panel.js measureBesideRoom)
         size = page.viewport_size
         page.set_viewport_size({"width": int(size["width"] + 420 - room), "height": size["height"]})
@@ -4240,7 +4242,7 @@ class Cancel(VerdictBase):
           const b=c.getBoundingClientRect(); return c.getClientRects().length&&getComputedStyle(c).visibility!=='hidden'?{h:b.height}:false;}"""
         phone = self.on("fig", viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
         phone.evaluate("setSide(false)")
-        phone.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        phone.evaluate("setScale(POINT_PX*1.5,false); ZOOMED=true")
         phone.evaluate(SCROLL, [2, "top"])
         settle(phone)
         self.press_page(phone, 2, "채택")
@@ -4272,7 +4274,7 @@ class Cancel(VerdictBase):
         self.assertTrue(all(b == c and a[1] == c[1] for a, b, c in states), states)
         self.assertEqual(states[-1][2], [True, True])
         desk = self.on("fig", n_open=1)
-        desk.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        desk.evaluate("setScale(POINT_PX*1.5,false); ZOOMED=true")
         desk.evaluate(SCROLL, [2, "mid"])
         settle(desk)
         self.assertTrue(desk.evaluate(FLOAT, 2)["stuck"])
@@ -4286,7 +4288,7 @@ class Cancel(VerdictBase):
         floating line keeps its height throughout."""
         phone = self.on("fig", viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
         phone.evaluate("setSide(false)")
-        phone.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        phone.evaluate("setScale(POINT_PX*1.5,false); ZOOMED=true")
         phone.evaluate(SCROLL, [2, "top"])
         settle(phone)
         a = self.press_page(phone, 2, "채택")
@@ -4557,7 +4559,7 @@ class ReasonRaces(VerdictBase):
                 self.edits = []
                 page = self.on("fig")
                 if case == "another page":
-                    page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+                    page.evaluate("setScale(POINT_PX*1.5,false); ZOOMED=true")
                     page.evaluate(SCROLL, [2, "top"])
                     settle(page)
                 n = 2 if case == "another page" else 1
@@ -7266,7 +7268,7 @@ class RcFixes(VerdictBase):
         """(2) Page 2 read (zoomed, taller than the area), the focus on the PDF area: Tab goes to page 2's line, and the
         pages do not scroll."""
         page = self.on("fig")
-        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        page.evaluate("setScale(POINT_PX*1.5,false); ZOOMED=true")
         page.evaluate(SCROLL, [2, "top"])
         settle(page)
         page.evaluate("searchToPage()")
@@ -7279,7 +7281,7 @@ class RcFixes(VerdictBase):
         """(3) A smooth jump from page 1 to page 2 under way: 2 is not taken (nothing saved, the status line says why);
         once the pages rest, 2 saves 보류 on page 2. The glide is held open while 2 is pressed (GLIDE_HELD)."""
         page = self.on("fig", clock=clock_now())
-        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        page.evaluate("setScale(POINT_PX*1.5,false); ZOOMED=true")
         settle(page)
         at = page.evaluate("LAST_SCROLL_AT")
         clock_still(page)  # the hand's last touch (none: the page's start) over a second ago when the scroll begins
@@ -7355,7 +7357,7 @@ class RcFixes(VerdictBase):
         """(6) A draft folded with [접기], then a reload: the popover does not open - the line says '초안 있음' - and reading
         another page and back sends nothing."""
         page = self.on("fig")
-        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        page.evaluate("setScale(POINT_PX*1.5,false); ZOOMED=true")
         settle(page)
         pid = self.press_page(page, 1, "채택")
         open_reason(page, 1)
@@ -7373,7 +7375,7 @@ class RcFixes(VerdictBase):
         self.assertTrue(
             page.evaluate("()=>LINE.some(n=>n.title==='저장 안 된 이유 초안 1건 · 줄의 [초안 있음]이 엽니다')")
         )
-        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        page.evaluate("setScale(POINT_PX*1.5,false); ZOOMED=true")
         page.evaluate(SCROLL, [2, "top"])
         settle(page)
         page.evaluate(SCROLL, [1, "top"])
@@ -7702,7 +7704,7 @@ class RcRound2(VerdictBase):
         """(P1-B) A reason saved on page 1 leaves the focus on its pencil; the pages scroll to page 2 (tall, zoomed): the
         focus goes to the PDF area, and Enter opens page 2's reason - typed text goes to page 2, page 1's note stays."""
         page = self.on("fig")
-        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        page.evaluate("setScale(POINT_PX*1.5,false); ZOOMED=true")
         settle(page)
         a = self.press_page(page, 1, "채택")
         b = self.press_page(page, 2, "보류")
@@ -7729,7 +7731,7 @@ class RcRound2(VerdictBase):
         """(P1-B, the race) The focus on page 1's pencil, the pages scrolled to page 2 and Enter at once (before a frame):
         page 1's reason does not open off-screen - page 2's does."""
         page = self.on("fig")
-        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        page.evaluate("setScale(POINT_PX*1.5,false); ZOOMED=true")
         settle(page)
         a = self.press_page(page, 1, "채택")
         self.press_page(page, 2, "보류")
@@ -7755,7 +7757,7 @@ class RcRound2(VerdictBase):
         the pages to page 2. Enter there opens no popover off-screen (page 2 has no verdict); 1 then Enter 30ms later saves
         채택 on page 2 and writes the text typed next as its reason - page 1's note stays."""
         page = self.on("fig")
-        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        page.evaluate("setScale(POINT_PX*1.5,false); ZOOMED=true")
         settle(page)
         page.evaluate(SCROLL, [1, "top"])
         settle(page)
@@ -7793,7 +7795,7 @@ class RcRound2(VerdictBase):
         """(1) Page 2 zoomed and read; a press on the page, a press on the margin beside it and the focus sent off a line
         scrolled away each leave the focus on the PDF area or on nothing: Tab goes to page 2's line, without scrolling."""
         page = self.on("fig")
-        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        page.evaluate("setScale(POINT_PX*1.5,false); ZOOMED=true")
         settle(page)
         self.press_page(page, 1, "채택")
         self.press_page(page, 2, "보류")
@@ -7870,7 +7872,7 @@ class RcRound2(VerdictBase):
         """(5) The popover open on page 2 (read): Shift+Tab from the line's first control goes to the popover's last, not
         the previous page; the popover stays with its draft."""
         page = self.on("fig")
-        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        page.evaluate("setScale(POINT_PX*1.5,false); ZOOMED=true")
         settle(page)
         self.press_page(page, 2, "보류")
         page.evaluate(SCROLL, [2, "top"])
@@ -8009,7 +8011,7 @@ class RcRound3(VerdictBase):
                 for pid in list(self.pins()):
                     self.call("POST", "/api/pins/%d/drop" % pid, {})
                 page = self.on("fig")
-                page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+                page.evaluate("setScale(POINT_PX*1.5,false); ZOOMED=true")
                 settle(page)
                 page.evaluate(SCROLL, [1, "top"])
                 settle(page)
@@ -8057,7 +8059,7 @@ class RcRound3(VerdictBase):
         for race in (False, True):
             with self.subTest(race=race):
                 page = self.on("fig")
-                page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+                page.evaluate("setScale(POINT_PX*1.5,false); ZOOMED=true")
                 settle(page)
                 page.evaluate(SCROLL, [1, "top"])
                 settle(page)
@@ -8099,7 +8101,7 @@ class RcRound3(VerdictBase):
         """(5) Page 2 zoomed and read; Tab from the section strip's page button goes to page 2's line - not to page 1's,
         which scrolled there - and the pages stay where they are."""
         page = self.on("fig")
-        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        page.evaluate("setScale(POINT_PX*1.5,false); ZOOMED=true")
         settle(page)
         self.press_page(page, 1, "채택")
         self.press_page(page, 2, "보류")
@@ -8146,7 +8148,7 @@ class RcRound4(VerdictBase):
     def tall(self, page):
         """Page 1 zoomed to more than two screens on the phone, the pages at their top, the lines stacked."""
         page.evaluate("setSide(false)")
-        page.evaluate("()=>{setK(K*2.5,false); ZOOMED=true; document.querySelector('#left').scrollTop=0;}")
+        page.evaluate("()=>{setScale(PAGE_SCALE*2.5,false); ZOOMED=true; document.querySelector('#left').scrollTop=0;}")
         settle(page)
         page.evaluate("stickReadingLine()")
         settle(page)
@@ -8215,7 +8217,7 @@ class RcRound4(VerdictBase):
                       const frame=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
                       const read=async n=>{const p=document.getElementById('p'+n); L.scrollTop+=p.getBoundingClientRect().top-L.getBoundingClientRect().top-(n===1?0:2);
                         await frame(); stickReadingLine(); await frame(); const l=l1(); return [READING_LINE_PAGE,!!l&&l.classList.contains('pv-stack'),Math.round((l||b1()).getBoundingClientRect().height)];};
-                      for(let w=260;w<=760;w+=12){setK(w/META.pages[0].pt_w,false); ZOOMED=true; await frame();
+                      for(let w=260;w<=760;w+=12){setScale(w/META.pages[0].pt_w,false); ZOOMED=true; await frame();
                         const a=await read(1),b=await read(2); if(a[0]!==1||b[0]!==2)continue; if(a[1]!==b[1]||a[2]!==b[2])out.push([w,a,b]);}
                       return out;}"""
                 )
@@ -8316,7 +8318,7 @@ class EdgeKeys(VerdictBase):
         first control goes back to that button - not to page 1's line, which scrolled the pages there (80 of them on 91
         pages never reached the outline) - and the pages do not move. Shift+Tab from a later control stays on the line."""
         page = self.on("fig")
-        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        page.evaluate("setScale(POINT_PX*1.5,false); ZOOMED=true")
         settle(page)
         page.evaluate(SCROLL, [2, "top"])
         settle(page)
@@ -8342,7 +8344,7 @@ class EdgeKeys(VerdictBase):
         code, made = self.call("POST", "/api/pin", {**body, "kind_req": "fix", "assignee": "agent"})
         self.assertEqual(code, 200, made)
         page = self.on("rv", n_open=1)
-        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        page.evaluate("setScale(POINT_PX*1.5,false); ZOOMED=true")
         settle(page)
         page.evaluate(SCROLL, [2, "top"])
         settle(page)
@@ -8401,7 +8403,7 @@ class EdgeKeys(VerdictBase):
         Shift+Tab from the line goes back to [더보기]."""
         page = self.on("fig", **self.PHONE)
         page.evaluate("setSide(false)")
-        page.evaluate("()=>{setK(K*2.5,false); ZOOMED=true;}")
+        page.evaluate("()=>{setScale(PAGE_SCALE*2.5,false); ZOOMED=true;}")
         settle(page)
         page.evaluate(SCROLL, [2, "top"])
         settle(page)
@@ -8469,7 +8471,7 @@ class EdgeKeys(VerdictBase):
         scroll. The page's clock stands still from before the ↓ (clock_still): a ↓ taken for the hand would be 0 ms
         before the glide's first scroll, which is held open while 2 is pressed (GLIDE_HELD)."""
         page = self.on("fig", clock=clock_now())
-        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        page.evaluate("setScale(POINT_PX*1.5,false); ZOOMED=true")
         settle(page)
         hand = page.evaluate("HAND_SCROLL_AT")
         clock_still(page)
@@ -8559,7 +8561,7 @@ class EdgeKeys(VerdictBase):
         helpers_figure.viewer_build(self.fig, helpers_figure.BUILD2, fmap)
         page = self.on("fig")
         self.assertIsNone(page.evaluate(LINE, 1))
-        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        page.evaluate("setScale(POINT_PX*1.5,false); ZOOMED=true")
         settle(page)
         page.evaluate(SCROLL, [1, "top"])
         settle(page)
@@ -8584,7 +8586,7 @@ class EdgeKeys(VerdictBase):
         # Page 1 (landscape) a fifth of the area tall, read, and page 2 (portrait) with its line whole under it: Tab goes to
         # that line, and nothing moves.
         page.evaluate(
-            "()=>{setK(0.22*document.querySelector('#left').clientHeight/META.pages[0].pt_h,false); ZOOMED=true; document.querySelector('#left').scrollTop=0;}"
+            "()=>{setScale(0.22*document.querySelector('#left').clientHeight/META.pages[0].pt_h,false); ZOOMED=true; document.querySelector('#left').scrollTop=0;}"
         )
         settle(page)
         self.assertEqual(page.evaluate("pageUnderReadingLine()"), 1)
@@ -8605,7 +8607,7 @@ class EdgeKeys(VerdictBase):
         fmap["pages"][0]["verdict"] = False
         helpers_figure.viewer_build(self.fig, helpers_figure.BUILD2, fmap)
         page = self.on("fig", viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
-        page.evaluate("()=>{setK(K*5,false); ZOOMED=true; document.querySelector('#left').scrollTop=0;}")
+        page.evaluate("()=>{setScale(PAGE_SCALE*5,false); ZOOMED=true; document.querySelector('#left').scrollTop=0;}")
         settle(page)
         page.evaluate("stickReadingLine()")
         settle(page)
@@ -8623,7 +8625,7 @@ class EdgeKeys(VerdictBase):
         self.assertEqual(got, [False, False, round(top)])
 
     # Page 1 (landscape) f of the area tall at the top, read, page 2 (portrait) and its line under it.
-    SMALL = """f=>{setK(f*document.querySelector('#left').clientHeight/META.pages[0].pt_h,false); ZOOMED=true; document.querySelector('#left').scrollTop=0;}"""
+    SMALL = """f=>{setScale(f*document.querySelector('#left').clientHeight/META.pages[0].pt_h,false); ZOOMED=true; document.querySelector('#left').scrollTop=0;}"""
     # A box over part of page 2's line's first control - its bottom or right 30% (sides), never its middle - or none.
     COVER = """side=>{let c=document.getElementById('vd-test-cover'); if(c)c.remove(); if(!side)return;
       const b=document.querySelector('#doc .pv[data-page="2"] .vd-b').getBoundingClientRect(); c=document.createElement('div'); c.id='vd-test-cover';
@@ -8678,7 +8680,7 @@ class EdgeKeys(VerdictBase):
         code, made = self.call("POST", "/api/pin", body)
         self.assertEqual(code, 200, made)
         page = self.on("fig", n_open=1)
-        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        page.evaluate("setScale(POINT_PX*1.5,false); ZOOMED=true")
         settle(page)
         page.evaluate(SCROLL, [2, "top"])
         settle(page)
@@ -8734,7 +8736,7 @@ def row_clipped(row):
 # 1px at a time), and the line's width there.
 BAR = """async n=>{const frame=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
   const l=()=>document.querySelector('#doc .pv[data-page="'+n+'"]'),pt=META.pages[n-1].pt_w;
-  const stacked=async w=>{setK(w/pt,false); ZOOMED=true; await frame(); sizePageLines(); return l().classList.contains('pv-stack');};
+  const stacked=async w=>{setScale(w/pt,false); ZOOMED=true; await frame(); sizePageLines(); return l().classList.contains('pv-stack');};
   let w=760; while(w>300&&!(await stacked(w)))w-=10; while(await stacked(w))w+=1;
   return {w,line:l().getBoundingClientRect().width};}"""
 
@@ -8746,7 +8748,7 @@ SWEEP_READ = """async()=>{const L=document.querySelector('#left'),l2=()=>documen
   const read=async n=>{const p=document.getElementById('p'+n); L.scrollTop+=p.getBoundingClientRect().top-L.getBoundingClientRect().top-(n===1?0:2);
     await frame(); stickReadingLine(); await frame(); const b=l2().getBoundingClientRect(),s=l2().querySelector('.pv-s').getBoundingClientRect();
     return [READING_LINE_PAGE,l2().classList.contains('pv-stack'),Math.round(b.height),Math.round(b.width),Math.round(s.top-b.top)];};
-  for(let w=400;w<=720;w+=8){setK(w/META.pages[1].pt_w,false); ZOOMED=true; await frame();
+  for(let w=400;w<=720;w+=8){setScale(w/META.pages[1].pt_w,false); ZOOMED=true; await frame();
     const a=await read(1),b=await read(2); if(a[0]!==1||b[0]!==2)continue; seen.add(a[1]); if(a.slice(1).join()!==b.slice(1).join())bad.push([w,a,b]);}
   return {bad,seen:[...seen]};}"""
 # SWEEP_READ set off without waiting for it, its promise kept as window.__sweep (page.evaluate('()=>window.__sweep') waits for
@@ -8782,7 +8784,7 @@ class LinePolish(VerdictBase):
                 page = self.on("fig", **dev)
                 page.evaluate("setSide(false)")
                 if dev:
-                    page.evaluate("()=>{setK(K*2.5,false); ZOOMED=true;}")
+                    page.evaluate("()=>{setScale(PAGE_SCALE*2.5,false); ZOOMED=true;}")
                 page.evaluate(
                     self.TITLES, ["[후보] PL17 · 다섯 비교 쌍의 월별 효과", "[후보] PL18 · 다섯 쌍의 월별 중앙값"]
                 )
@@ -8826,7 +8828,9 @@ class LinePolish(VerdictBase):
                 page = self.on("fig", lang="en", viewport={"width": w, "height": h})
                 page.evaluate("setSide(true)")
                 settle(page)
-                page.evaluate("()=>{setK((innerW()-measureInsetRight())/META.pages[1].pt_w,false); ZOOMED=true;}")
+                page.evaluate(
+                    "()=>{setScale((pdfAreaInnerWidth()-measureInsetRight())/META.pages[1].pt_w,false); ZOOMED=true;}"
+                )
                 page.evaluate(self.TITLES, self.LONG)
                 settle(page)
                 if w == 1280:
@@ -8958,7 +8962,9 @@ class LinePolish(VerdictBase):
                 page = self.on("fig", n_open=1 + min(n, 1), lang="en", viewport={"width": w, "height": h})
                 page.evaluate("setSide(true)")
                 settle(page)
-                page.evaluate("()=>{setK((innerW()-measureInsetRight())/META.pages[1].pt_w,false); ZOOMED=true;}")
+                page.evaluate(
+                    "()=>{setScale((pdfAreaInnerWidth()-measureInsetRight())/META.pages[1].pt_w,false); ZOOMED=true;}"
+                )
                 page.evaluate(self.TITLES, self.LONG)
                 settle(page)
                 if not n:
@@ -8999,13 +9005,13 @@ class LinePolish(VerdictBase):
         widths = page.evaluate(
             """async()=>{const frame=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
               const l=()=>document.querySelector('#doc .pv[data-page="2"]'),pt=META.pages[1].pt_w; let shown=0;
-              for(let w=760;w>300;w-=1){setK(w/pt,false); ZOOMED=true; await frame(); sizePageLines();
+              for(let w=760;w>300;w-=1){setScale(w/pt,false); ZOOMED=true; await frame(); sizePageLines();
                 const c=l().classList; if(c.contains('pv-stack'))return [shown,0];
                 if(c.contains('pv-early-out'))return [shown,w]; shown=w;}
               return [shown,0];}"""
         )
         self.assertTrue(widths[0] and widths[1], widths)
-        zoom = "w=>{setK(w/META.pages[1].pt_w,false); ZOOMED=true; sizePageLines();}"
+        zoom = "w=>{setScale(w/META.pages[1].pt_w,false); ZOOMED=true; sizePageLines();}"
         page.evaluate(zoom, widths[0])
         settle(page)
         page.evaluate(SCROLL, [2, "top"])
@@ -9053,7 +9059,7 @@ class LinePolish(VerdictBase):
             """async()=>{const frame=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
               const L=document.querySelector('#left'),l=()=>document.querySelector('#doc .pv[data-page="2"]'),pt=META.pages[1].pt_w;
               for(let w=Math.round(document.getElementById('p2').getBoundingClientRect().width);w>300;w-=2){
-                const e=l().querySelector('.pv-early'); e.focus({preventScroll:true}); setK(w/pt,false); ZOOMED=true; await frame();
+                const e=l().querySelector('.pv-early'); e.focus({preventScroll:true}); setScale(w/pt,false); ZOOMED=true; await frame();
                 const p=document.getElementById('p2'); L.scrollTop+=p.getBoundingClientRect().top-L.getBoundingClientRect().top; stickReadingLine(); await frame(); await frame();
                 if(l().classList.contains('pv-stack')||!e.getClientRects().length)return {w,kbd:!!l().querySelector('.pv-kbd'),tight:l().classList.contains('pv-tight'),
                   stack:l().classList.contains('pv-stack'),focus:document.activeElement===document.body?'body':(document.activeElement.dataset||{}).act||null,
@@ -9101,7 +9107,7 @@ class LinePolish(VerdictBase):
                 page = self.on("fig", n_open=2, lang=lang, **self.PHONE)
                 page.evaluate("setSide(false)")
                 page.evaluate(  # page 1 (landscape) two and a half areas tall
-                    "()=>{const L=document.querySelector('#left'); setK(2.5*L.clientHeight/META.pages[0].pt_h,false); ZOOMED=true; L.scrollTop=0;}"
+                    "()=>{const L=document.querySelector('#left'); setScale(2.5*L.clientHeight/META.pages[0].pt_h,false); ZOOMED=true; L.scrollTop=0;}"
                 )
                 settle(page)
                 page.evaluate("stickReadingLine()")
@@ -9141,7 +9147,9 @@ class LinePolish(VerdictBase):
                 page = self.on("fig", lang="en", viewport={"width": w, "height": h})
                 page.evaluate("setSide(true)")
                 settle(page)
-                page.evaluate("()=>{setK((innerW()-measureInsetRight())/META.pages[1].pt_w,false); ZOOMED=true;}")
+                page.evaluate(
+                    "()=>{setScale((pdfAreaInnerWidth()-measureInsetRight())/META.pages[1].pt_w,false); ZOOMED=true;}"
+                )
                 page.evaluate(self.TITLES, self.LONG)
                 settle(page)
                 page.evaluate(SCROLL, [2, "top"])
@@ -9206,7 +9214,7 @@ class ChipFontWait(VerdictBase):
 
     def saved_then_squeezed(self):
         page = self.on("fig")
-        page.evaluate("setK(PT_PX*2,false); ZOOMED=true")
+        page.evaluate("setScale(POINT_PX*2,false); ZOOMED=true")
         settle(page)
         page.evaluate(
             "()=>{armNotice=()=>{};}"
@@ -9238,7 +9246,7 @@ class ChipFontWait(VerdictBase):
         later - it went to the status line for good. Squeezed to no room while the save is out: it waits; the save's end
         redraws the lines and it is on its line."""
         page = self.on("fig")
-        page.evaluate("setK(PT_PX*2,false); ZOOMED=true")
+        page.evaluate("setScale(POINT_PX*2,false); ZOOMED=true")
         settle(page)
         self.press_page(page, 2, "보류")
         self.assertEqual(page.evaluate(self.STATE, None), [True, False, False])
@@ -9276,7 +9284,7 @@ class TouchDetails(VerdictBase):
         floats), or its end at the area's middle (its line in its place under it)."""
         page = self.on("fig", **PHONE)
         page.evaluate("setSide(false)")
-        page.evaluate("setK(PT_PX*1.5,false); ZOOMED=true")
+        page.evaluate("setScale(POINT_PX*1.5,false); ZOOMED=true")
         settle(page)
         if in_place:
             page.evaluate(MIDDLE_END, n)

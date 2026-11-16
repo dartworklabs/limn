@@ -135,7 +135,7 @@ class SeenFlows(BrowserBase):
 
     def compose(self, page, note):
         """A selection on page 1 with note typed in, its draft stored."""
-        page.evaluate("LAST_PTR='mouse'; pick({page:1,x0:10,y0:10,x1:200,y1:60})")
+        page.evaluate("LAST_POINTER='mouse'; pick({page:1,x0:10,y0:10,x1:200,y1:60})")
         page.wait_for_function("COMPOSE.current&&COMPOSE.current.lo", timeout=8000)
         page.fill("#note", note)
         page.wait_for_function("DRAFT.timer===0", timeout=8000)
@@ -377,7 +377,7 @@ class SeenFlows(BrowserBase):
                 settle(page)
                 self.assertTrue(self.line_has(page, "검토 대기로 넘어왔습니다"))
                 self.assertTrue(page.evaluate("document.body.classList.contains('dot-rv')"))
-                page.evaluate("setSide(true); SEC.review=true; OPEN_CARDS.add(%d); drawPins()" % pid)
+                page.evaluate("setSide(true); SECTION_OPEN.review=true; OPEN_CARDS.add(%d); drawPins()" % pid)
                 settle(page)
                 page.click('#review-pins [data-id="%d"] [data-act=confirm]' % pid)
                 page.locator("#review-pins .nt-row [data-act=notice-x]").click()  # sends the confirm now
@@ -469,7 +469,7 @@ class SeenFlows(BrowserBase):
         pid = self.pin(5, "답할 핀")
         self.agent_close(pid)
         page = self.view("desktop")
-        page.evaluate("setSide(true); SEC.review=true; OPEN_CARDS.add(%d); drawPins()" % pid)
+        page.evaluate("setSide(true); SECTION_OPEN.review=true; OPEN_CARDS.add(%d); drawPins()" % pid)
         settle(page)
         card = '#review-pins .pin[data-id="%d"]' % pid
         page.click(card + " .acts [data-act=reply-open]")

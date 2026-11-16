@@ -56,7 +56,7 @@ RESTING = """() => {const L = document.querySelector('#left'), w = window.__rest
 # free area's top (px), the room the arrival keeps above the figure, and the page the reading line, the page count, the
 # keys and the panel name.
 WHERE = """n => {const L = document.querySelector('#left'), pg = document.getElementById('p' + n), m = META.pages[n - 1],
-    r = pg.getBoundingClientRect(), a = selPopArea(), p = document.getElementById('pv-panel');
+    r = pg.getBoundingClientRect(), a = popoverFreeArea(), p = document.getElementById('pv-panel');
   const room = typeof m.figure_top === 'number' ? Math.max(8, Math.min(24 * r.height / m.pt_h, (m.figure_top - (m.figure_above || 0)) * r.height)) : null;
   return {top: L.scrollTop, arrive: figureTop(n), fig: typeof m.figure_top === 'number' ? r.top + m.figure_top * r.height - a.top : null,
     page: r.top - L.getBoundingClientRect().top - L.clientTop, room, reading: readingPageWithLine(), keys: keyedPageFor(readingPageWithLine()),
@@ -239,10 +239,10 @@ class EveryJump(FigurePages):
                     page.context.close()
 
     def test_the_navigation_sheet_s_page_field_on_a_phone(self):
-        """The phone's page field (navGo) ends at page 6's top."""
+        """The phone's page field (goSheetPage) ends at page 6's top."""
         page = self.on(VIEWPORTS["phone 390x844"])
         self.fitted_on_the_way(page)
-        page.evaluate("()=>{$('#ns-page-in').value='6'; navGo();}")
+        page.evaluate("()=>{$('#ns-page-in').value='6'; goSheetPage();}")
         self.rest(page)
         self.grew(page)
         self.assertLessEqual(abs(page.evaluate(WHERE, 6)["page"]), 2)
@@ -476,7 +476,7 @@ class FigureArrival(FigurePages):
         arrival keeps no more room than the page has above the body, so the page's top stays under the free area's top
         and the reading line, the page count and the keys are on page 5, not on page 4 above it."""
         page = self.on(SIZES["fold inner 841x673"])
-        page.evaluate("()=>zoomTo(K*10)")
+        page.evaluate("()=>zoomTo(PAGE_SCALE*10)")
         settle(page)
         self.page_list(page, TOP_BODY)
         where = page.evaluate(WHERE, TOP_BODY)
@@ -632,7 +632,7 @@ class FigureArrival(FigurePages):
     def test_a_phone_arrives_at_the_figure_from_its_navigation_sheet(self):
         """Smoke: on a phone the navigation sheet's page field arrives at page 3's figure and the reading line is there."""
         page = self.on(VIEWPORTS["phone 390x844"])
-        page.evaluate("()=>{$('#ns-page-in').value='3'; navGo();}")
+        page.evaluate("()=>{$('#ns-page-in').value='3'; goSheetPage();}")
         self.rest(page)
         where = page.evaluate(WHERE, 3)
         self.assertLessEqual(abs(where["top"] - where["arrive"]), 2, where)

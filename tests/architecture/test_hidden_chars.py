@@ -1,7 +1,7 @@
 """The viewer and pins.md name the same characters as hiding or reordering text (ADR-0029 D5, D7).
 
 The viewer marks them wherever it shows a source's or a suggestion's text (src/limn/viewer/js/hidden-chars.ts
-CC_RANGES), and pins.md flags a suggestion that adds one to its base (limn.pins.suggestion.HIDDEN_RANGES). The two
+HIDDEN_RANGES), and pins.md flags a suggestion that adds one to its base (limn.pins.suggestion.HIDDEN_RANGES). The two
 languages keep their own copy of the table; this test keeps the copies equal, and checks the Python one over every code
 point, so a character the person is warned about is the one the agent is told to confirm.
 """
@@ -20,12 +20,12 @@ PART = Path(__file__).resolve().parents[2] / "src" / "limn" / "viewer" / "js" / 
 
 
 class HiddenCharacterTables(unittest.TestCase):
-    """CC_RANGES against HIDDEN_RANGES."""
+    """The viewer's HIDDEN_RANGES against limn.pins.suggestion.HIDDEN_RANGES."""
 
     @unittest.skipUnless(shutil.which("node"), "node is not installed")
     def test_the_viewer_table_is_the_pins_md_table(self):
-        """CC_RANGES, evaluated as the page evaluates it, is HIDDEN_RANGES range for range."""
-        js = module_code(module_text(PART)) + "\nconsole.log(JSON.stringify(CC_RANGES));"
+        """The viewer's HIDDEN_RANGES, evaluated as the page evaluates it, is the pins.md table range for range."""
+        js = module_code(module_text(PART)) + "\nconsole.log(JSON.stringify(HIDDEN_RANGES));"
         out = subprocess.run(["node", "-"], input=js, capture_output=True, text=True, check=True).stdout
         self.assertEqual([tuple(r) for r in json.loads(out)], list(HIDDEN_RANGES))
 

@@ -785,7 +785,7 @@ class OrderControl(TimelineFixture):
         self.close(pid)
         page = self.show(0)
         self.assertTrue(page.locator("#list-order").is_visible())
-        page.evaluate("toggleSec('open',false)")
+        page.evaluate("toggleSection('open',false)")
         self.assertTrue(page.locator("#list-order").is_visible())
         store = ps.APP.pin_lifecycle.context().store
         ps.APP.pin_lifecycle.confirm_pin(pid, post_authority(store, actor(ALICE), "confirm", pid))

@@ -44,8 +44,8 @@ def node_json(test, js):
 
 
 STUBS = """
-function tr(s){return s;}
-function tl(s,p){return s.replace(/\\{(\\w+)\\}/g,function(_,k){return String(p[k]);});}
+function translate(s){return s;}
+function translateTemplate(s,p){return s.replace(/\\{(\\w+)\\}/g,function(_,k){return String(p[k]);});}
 """
 
 

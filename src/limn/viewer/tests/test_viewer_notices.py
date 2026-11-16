@@ -42,9 +42,9 @@ class PureRules(unittest.TestCase):
     def test_a_message_splits_into_title_and_description_at_the_first_dash_else_the_first_dot(self):
         """'— ' wins over ' · ' (a notification's title keeps its '핀 #10 · 본문'); one without either is all title."""
         got = self.run_js(
-            ["msgSplit"],
+            ["splitMessage"],
             "console.log(JSON.stringify(['핀 #3 저장됨 · pins.md 갱신','핀 저장 실패 — 서버에 닿지 않습니다','복사함',"
-            "'핀 #10 · 본문 — 서준님이 불렀습니다: 봐 주세요',null].map(msgSplit)));",
+            "'핀 #10 · 본문 — 서준님이 불렀습니다: 봐 주세요',null].map(splitMessage)));",
         )
         self.assertEqual(
             got,
@@ -193,7 +193,7 @@ class NoticeFlows(BrowserBase):
 
     def compose(self, page, note):
         """A selection on page 1 (the test server answers the pick) with note typed in."""
-        page.evaluate("LAST_PTR='mouse'; pick({page:1,x0:10,y0:10,x1:200,y1:60})")
+        page.evaluate("LAST_POINTER='mouse'; pick({page:1,x0:10,y0:10,x1:200,y1:60})")
         page.wait_for_function("COMPOSE.current&&COMPOSE.current.lo", timeout=8000)
         page.fill("#note", note)
 
@@ -334,7 +334,7 @@ class NoticeFlows(BrowserBase):
         # the close the card shows happened long ago, so the close made below (now) is another one (done_at differs)
         edit_stored(lambda rows: [r.update(done_at="2020-01-01 00:00:00") for r in rows if r["id"] == pid])
         page = self.view(screen, init=SEEN + ";" + COUNT_CONFIRMS)
-        page.evaluate("setSide(true); SEC.review=true; OPEN_CARDS.add(%d); drawPins()" % pid)
+        page.evaluate("setSide(true); SECTION_OPEN.review=true; OPEN_CARDS.add(%d); drawPins()" % pid)
         settle(page)
         page.click('#review-pins [data-id="%d"] [data-act=confirm]' % pid)
         row = page.locator("#review-pins .nt-row")
@@ -534,7 +534,7 @@ class SelectBarStaysClear(BrowserBase):
         """A save's chip on the phone, then the select mode on and the page scrolled so the new mark is under the bar: the
         chip leaves the PDF for the status line with its [되돌리기], and nothing meets the bar."""
         page = self.open(0, init=SEEN, **SCREENS["phone"])
-        page.evaluate("LAST_PTR='mouse'; pick({page:1,x0:10,y0:10,x1:200,y1:60})")
+        page.evaluate("LAST_POINTER='mouse'; pick({page:1,x0:10,y0:10,x1:200,y1:60})")
         page.wait_for_function("COMPOSE.current&&COMPOSE.current.lo", timeout=8000)
         page.fill("#note", "선택 막대 아래로 가는 칩")
         page.click("#btn-save")

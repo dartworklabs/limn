@@ -42,12 +42,12 @@ BIB = ["@article{a,", "  title = {T},", "}", "", "@book{b,", "  title = {U},", "
 
 def served_parts() -> str:
     """The two modules exactly as the page's script serves them (each module's code is in the script byte for byte, its
-    types, import and export statements taken out), after the markup module ccHtml builds with and md-surface.js's mdSnippet,
+    types, import and export statements taken out), after the markup module markHiddenHtml builds with and md-surface.js's lineSnippet,
     which a rung's snippet comes from."""
     parts = [module_code(text) for text in module_texts([VIEWER / name for name in PARTS])]
     for name, text in zip(PARTS, parts, strict=True):
         assert text in HTML, name  # the build joins the modules' code byte for byte (tools/build_viewer.mjs)
-    return "\n".join([js_esc(), js_markup(), extract_js_fn("mdSnippet"), *parts])
+    return "\n".join([js_esc(), js_markup(), extract_js_fn("lineSnippet"), *parts])
 
 
 @unittest.skipUnless(shutil.which("node"), "node is not installed")
@@ -59,9 +59,9 @@ class TextSurfacePure(unittest.TestCase):
         return json.loads(run_node(served_parts() + "\nconsole.log(JSON.stringify(%s));" % body))
 
     def blocks(self, lines, picks):
-        """txIndentBlock of lines for each [lo, hi] in picks, as [lo, hi] or None."""
+        """indentBlockAround of lines for each [lo, hi] in picks, as [lo, hi] or None."""
         got = self.run_js(
-            "%s.map(([a,b])=>{const r=txIndentBlock(%s,a,b); return r&&[r.lo,r.hi];})"
+            "%s.map(([a,b])=>{const r=indentBlockAround(%s,a,b); return r&&[r.lo,r.hi];})"
             % (json.dumps(picks), json.dumps(lines))
         )
         return [tuple(r) if r else None for r in got]
@@ -70,14 +70,14 @@ class TextSurfacePure(unittest.TestCase):
         """Tabs advance to the next multiple of four; a blank line has no indentation. The hang is the indentation,
         rounded down to a tab stop only on a line holding a tab, and at most sixteen."""
         got = self.run_js(
-            "['abc','  a','\\ta',' \\ta','   ','\\t\\t\\t\\t\\tx','      x'].map(l=>[txCols(l),txHang(l)])"
+            "['abc','  a','\\ta',' \\ta','   ','\\t\\t\\t\\t\\tx','      x'].map(l=>[indentColumns(l),hangColumns(l)])"
         )
         self.assertEqual(got, [[0, 0], [2, 2], [4, 4], [4, 4], [-1, 0], [20, 16], [6, 6]])
 
     def test_paragraph_widens_to_blank_lines_and_counts_runs(self):
         """A line's paragraph is its run of non-blank lines; a range over a blank line meets two."""
         lines = json.dumps(PY)
-        got = self.run_js("[[7,7],[2,2],[8,10],[16,16]].map(([a,b])=>txParagraph(%s,a,b))" % lines)
+        got = self.run_js("[[7,7],[2,2],[8,10],[16,16]].map(([a,b])=>paragraphAround(%s,a,b))" % lines)
         self.assertEqual(
             got, [{"lo": 6, "hi": 8, "n": 1}, None, {"lo": 6, "hi": 14, "n": 2}, {"lo": 16, "hi": 16, "n": 1}]
         )
@@ -87,7 +87,7 @@ class TextSurfacePure(unittest.TestCase):
         a top-level line that heads nothing has no block."""
         lines = json.dumps(PY)
         got = self.run_js(
-            "[[6,6],[7,7],[12,12],[11,11],[3,3],[1,1],[16,16]].map(([a,b])=>txIndentBlock(%s,a,b))" % lines
+            "[[6,6],[7,7],[12,12],[11,11],[3,3],[1,1],[16,16]].map(([a,b])=>indentBlockAround(%s,a,b))" % lines
         )
         self.assertEqual(
             got,
@@ -104,7 +104,7 @@ class TextSurfacePure(unittest.TestCase):
 
     def test_a_bib_entry_is_one_block(self):
         """An entry's first line heads its fields, and its closing brace at the header's depth belongs to it."""
-        got = self.run_js("[1,2].map(n=>txIndentBlock(%s,n,n))" % json.dumps(BIB))
+        got = self.run_js("[1,2].map(n=>indentBlockAround(%s,n,n))" % json.dumps(BIB))
         self.assertEqual(got, [{"lo": 1, "hi": 3, "title": "@article{a,"}] * 2)
 
     def test_a_call_or_assignment_spelt_like_a_closing_word_is_not_a_closing_line(self):
@@ -143,8 +143,8 @@ class TextSurfacePure(unittest.TestCase):
         """The indent rung's label is '블록 · ' and at most twelve characters of the header, a hidden character's name
         whole (never cut inside it, never the raw character); a header of twelve or fewer characters is not cut."""
         got = self.run_js(
-            "(()=>{globalThis.MD={lines:['def \\u202echeck(x):','    return x','def ok():','    pass']};"
-            "return [txLevels({lo:1,hi:1}),txLevels({lo:3,hi:3})].map(ls=>ls.find(l=>l.level==='indent').label);})()"
+            "(()=>{globalThis.MARKDOWN_VIEW={lines:['def \\u202echeck(x):','    return x','def ok():','    pass']};"
+            "return [textLevels({lo:1,hi:1}),textLevels({lo:3,hi:3})].map(ls=>ls.find(l=>l.level==='indent').label);})()"
         )
         self.assertEqual(got, ["블록 · def ⟨U+202E⟩…", "블록 · def ok():"])
         self.assertNotIn("‮", "".join(got))
@@ -152,23 +152,26 @@ class TextSurfacePure(unittest.TestCase):
 
 @unittest.skipUnless(shutil.which("node"), "node is not installed")
 class HiddenCharacters(unittest.TestCase):
-    """The repertoire (CC_RANGES), its exceptions (ccKept) and its forms (ccPlain, ccClip, ccHtml, ccAdded), under node."""
+    """The repertoire (HIDDEN_RANGES), its exceptions (isKeptInSequence) and its forms (markHiddenPlain, clipMarkedText, markHiddenHtml,
+    countAddedHidden), under node."""
 
     def run_js(self, body: str):
         """Evaluate body (an expression) with the served parts; its JSON value."""
         return json.loads(run_node(served_parts() + "\nconsole.log(JSON.stringify(%s));" % body))
 
     def names(self, cases):
-        """For each [text, first] the names of the characters ccFind marks."""
+        """For each [text, first] the names of the characters findHidden marks."""
         return self.run_js(
-            "%s.map(([s,f])=>ccFind(s,f).map(c=>ccName(c.ch.codePointAt(0))))" % json.dumps(cases, ensure_ascii=False)
+            "%s.map(([s,f])=>findHidden(s,f).map(c=>hiddenName(c.ch.codePointAt(0))))"
+            % json.dumps(cases, ensure_ascii=False)
         )
 
     def test_the_repertoire_is_the_unicode_properties_it_names(self):
-        """Over every code point, CC_RE (built from CC_RANGES) matches exactly Default_Ignorable_Code_Point, Bidi_Control,
-        a control but tab and line feed, U+2028, U+2029 and U+FFF9-U+FFFB - as the engine's own Unicode tables have them."""
+        """Over every code point, HIDDEN_PATTERN (built from HIDDEN_RANGES) matches exactly Default_Ignorable_Code_Point,
+        Bidi_Control, a control but tab and line feed, U+2028, U+2029 and U+FFF9-U+FFFB - as the engine's own Unicode
+        tables have them."""
         got = self.run_js(
-            "(()=>{const di=/\\p{Default_Ignorable_Code_Point}|\\p{Bidi_Control}|\\p{Cc}/u,re=new RegExp('^'+CC_RE.source+'$','u'),bad=[];"
+            "(()=>{const di=/\\p{Default_Ignorable_Code_Point}|\\p{Bidi_Control}|\\p{Cc}/u,re=new RegExp('^'+HIDDEN_PATTERN.source+'$','u'),bad=[];"
             "for(let c=0;c<=0x10ffff;c++){if(c>=0xd800&&c<=0xdfff)continue; const s=String.fromCodePoint(c);"
             "const want=(di.test(s)&&c!==9&&c!==10)||c===0x2028||c===0x2029||(c>=0xfff9&&c<=0xfffb);"
             "if(re.test(s)!==want)bad.push(c.toString(16));} return bad.slice(0,20);})()"
@@ -256,11 +259,11 @@ class HiddenCharacters(unittest.TestCase):
         )
 
     def test_the_plain_form_names_each_character_and_the_clip_never_cuts_a_name(self):
-        """ccPlain puts each name in angle brackets; ccClip counts a name whole, adds '…' only when it cut, and never splits
+        """markHiddenPlain puts each name in angle brackets; clipMarkedText counts a name whole, adds '…' only when it cut, and never splits
         a surrogate pair."""
         got = self.run_js(
-            "[ccPlain('if a\\u202e b'),ccClip('\\u202eabcdefghijklmnop',12),ccClip('abcdefghij\\u202ek',12),ccClip('short',12),"
-            "ccClip('\\u{1F600}'.repeat(14),12),ccClip('abcdefghijkl',12)]"
+            "[markHiddenPlain('if a\\u202e b'),clipMarkedText('\\u202eabcdefghijklmnop',12),clipMarkedText('abcdefghij\\u202ek',12),clipMarkedText('short',12),"
+            "clipMarkedText('\\u{1F600}'.repeat(14),12),clipMarkedText('abcdefghijkl',12)]"
         )
         self.assertEqual(
             got,
@@ -275,9 +278,9 @@ class HiddenCharacters(unittest.TestCase):
         )
 
     def test_the_markup_keeps_the_character_inside_its_isolating_box(self):
-        """ccHtml escapes the text and puts each marked character in a .sr-only child of a .cc box named by it - as its code
+        """markHiddenHtml escapes the text and puts each marked character in a .sr-only child of a .cc box named by it - as its code
         point (data-cp) for setHtml to put in as text, never raw in the markup, where the HTML parser loses a NUL or a CR."""
-        got = self.run_js("[ccHtml('<b>\\u202e&').text,ccHtml('a\\u0000b\\rc').text]")
+        got = self.run_js("[markHiddenHtml('<b>\\u202e&').text,markHiddenHtml('a\\u0000b\\rc').text]")
         self.assertEqual(
             got,
             [
@@ -291,8 +294,8 @@ class HiddenCharacters(unittest.TestCase):
         """Per name, the text's count less the base's, in the order the text first has them; kept sequences count
         nothing."""
         got = self.run_js(
-            "[ccAdded('a\\u202eb\\nc\\u200b\\u202e','a\\u202eb\\nc'),ccAdded('x\\u202e','x\\u202e'),"
-            "ccAdded('\\u{1F468}\\u200d\\u{1F469}',''),ccAdded('x\\u{E0041}\\u{E0041}','x')]"
+            "[countAddedHidden('a\\u202eb\\nc\\u200b\\u202e','a\\u202eb\\nc'),countAddedHidden('x\\u202e','x\\u202e'),"
+            "countAddedHidden('\\u{1F468}\\u200d\\u{1F469}',''),countAddedHidden('x\\u{E0041}\\u{E0041}','x')]"
         )
         self.assertEqual(got, [[["U+202E", 1], ["U+200B", 1]], [], [], [["U+E0041", 2]]])
 

@@ -52,8 +52,8 @@ dates, before/after numbers and progress notes go in the pull request or the CHA
   precedence over conventions found in the existing code. Their Limn boundaries and verification coverage
   are in [docs/handbook/code-style-roadmap.md](docs/handbook/code-style-roadmap.md).
 - UI strings go through the viewer's message table (Korean and English, `src/limn/viewer/ui_en.json`). The Korean
-  text in the template is the key. Strings built at run time use `tl('<Korean template>', {params})` with
-  `{name}` slots, e.g. `tl('{n}쪽', {n: 3})`; the English value may be plural forms `{"one": ..., "other": ...}`
+  text in the template is the key. Strings built at run time use `translateTemplate('<Korean template>', {params})` with
+  `{name}` slots, e.g. `translateTemplate('{n}쪽', {n: 3})`; the English value may be plural forms `{"one": ..., "other": ...}`
   chosen by `n`. `src/limn/viewer/tests/test_i18n.py` fails on a template without a translation and on Hangul left in the
   English chrome.
 - **The agent contract is stable.** `pins.md` (its columns, markers and Korean header words) and the

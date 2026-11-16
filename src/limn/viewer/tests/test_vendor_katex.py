@@ -220,9 +220,9 @@ class VendorKatex(Base):
             ["/vendor/katex/katex.css", "/vendor/katex/katex.mjs"],
         )
         script = sq(files.script)
-        self.assertIn(sq("'/vendor/katex/katex.mjs?v='+KATEX_V"), script)
-        self.assertIn(sq("'/vendor/katex/katex.css?v='+KATEX_V"), script)
-        self.assertIn(sq("const KATEX_V='%s';" % V), script)
+        self.assertIn(sq("'/vendor/katex/katex.mjs?v='+KATEX_VERSION"), script)
+        self.assertIn(sq("'/vendor/katex/katex.css?v='+KATEX_VERSION"), script)
+        self.assertIn(sq("const KATEX_VERSION='%s';" % V), script)
 
 
 class KatexInventory(unittest.TestCase):

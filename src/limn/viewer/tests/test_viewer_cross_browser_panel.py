@@ -58,7 +58,7 @@ BLOCKS = """() => {const d = document.querySelector('#doc').getBoundingClientRec
 LOAD_TREE = """async ([tree, pages]) => {
   const items = rows => rows.map(([title, page, kids]) => ({title, dest: [page], items: items(kids)}));
   const doc = {numPages: pages, getOutline: async () => items(tree), getDestination: async () => null, getPageIndex: async () => 0};
-  VEC.doc = doc; await loadOutline(doc, ++VEC.gen); return OUTLINE_ENTRIES.length;}"""
+  VECTOR_PDF.doc = doc; await loadOutline(doc, ++VECTOR_PDF.gen); return OUTLINE_ENTRIES.length;}"""
 VIEW = """const box = document.querySelector('#outline'), o = box.getBoundingClientRect(),
   edge = document.querySelector('#outline-find').getBoundingClientRect().bottom;"""
 # The marked row against the outline panel, and what must stay as it was: the pages' scroll, the window's and the focus.

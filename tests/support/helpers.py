@@ -118,8 +118,8 @@ JS_UPDATE_STUBS = (
     + r"""
 var LIGHT_OK_AT=0,AWAY_MS=120000,DIGEST_TAIL_MS=0,DIGEST=null;
 function digestBegin(){} function digestSoon(){} function awayTitle(){return '';} function checkVersion(){}
-function versionDue(){return false;} function updExpect(){} function updPinMoved(){return false;} function updNewPins(){}
-function checkDocUpdate(){} function updSourceRedrawn(){} function updMarks(){} function seenStore(){return {};} function visitedBefore(){return false;} function checkDocsSeen(){}
+function versionDue(){return false;} function expectUpdate(){} function countPinMove(){return false;} function noteNewPins(){}
+function checkDocUpdate(){} function compareRedrawnSource(){} function tintChangedLines(){} function seenStore(){return {};} function visitedBefore(){return false;} function checkDocsSeen(){}
 function groupNote(group,data,view){const v=view(data); return lineNote(v.msg,v.kind,v.act,v.o);} function newsWithout(){return ()=>null;}
 """
 )
@@ -139,7 +139,7 @@ function offReadKey(){return null;} function offlineKey(){return 'key-0123456789
 // api.js's own, beside api(): how long a request waits, whether the last one went unanswered, and what an unanswered
 // one does (here: it is said and thrown - nothing is stored to answer it).
 var API_WAIT={POLL:8000,READ:8000,PICK:8000,SAVE:10000,SEND:30000},API_OUT=false;
-function apiUnanswered(url,o,e){API_OUT=true; if(!o.silent&&!o.quietUnreached)apiFailed(o,tr('서버에 닿지 않습니다'),true); return Promise.reject(e);}
+function apiUnanswered(url,o,e){API_OUT=true; if(!o.silent&&!o.quietUnreached)apiFailed(o,translate('서버에 닿지 않습니다'),true); return Promise.reject(e);}
 """
 
 
@@ -179,19 +179,19 @@ def sq(js: str, fragment: bool = False) -> str:
 
 
 def js_markup() -> str:
-    """The viewer's markup module (js/markup.ts: Html, html``, ic(), setHtml()) as served (helpers_js.module_text, module_code), for node harnesses that
+    """The viewer's markup module (js/markup.ts: Html, html``, lucideIcon(), setHtml()) as served (helpers_js.module_text, module_code), for node harnesses that
     run functions building markup. It needs esc() (js_esc()) and, to draw an icon, ICONS (js_icons() brings both)."""
     return helpers_js.module_code(helpers_js.module_text(VIEWER / "js" / "markup.ts"))
 
 
 def js_hidden_chars() -> str:
-    """The viewer's hidden-character module (js/hidden-chars.ts: the repertoire, ccHtml, ccPlain, ...) as served (module_text, module_code), for
-    node harnesses that run a function showing a source's or a suggestion's text. ccHtml needs js_markup() and js_esc()."""
+    """The viewer's hidden-character module (js/hidden-chars.ts: the repertoire, markHiddenHtml, markHiddenPlain, ...) as served (module_text, module_code), for
+    node harnesses that run a function showing a source's or a suggestion's text. markHiddenHtml needs js_markup() and js_esc()."""
     return helpers_js.module_code(helpers_js.module_text(VIEWER / "js" / "hidden-chars.ts"))
 
 
 def js_icons() -> str:
-    """The viewer's Lucide icon table (ICONS) with the markup part that draws it (ic(), html``) — included together when
+    """The viewer's Lucide icon table (ICONS) with the markup part that draws it (lucideIcon(), html``) — included together when
     running icon-drawing functions like card()/archiveRow() under node. Brings no esc(); add js_esc() if the harness
     has none."""
     return js_const("ICONS") + "\n" + js_markup()
@@ -205,7 +205,7 @@ def js_esc() -> str:
 
 def js_thread() -> str:
     """The native thread and card context renderers; callers supply actors, icons, and viewer state."""
-    ev, st, mo = js_const("EV_LABEL"), js_const("ST_NAME"), js_const("MSG_OPEN")
+    ev, st, mo = js_const("EVENT_LABEL"), js_const("CARD_STATE_NAME"), js_const("MESSAGE_OPEN")
     return "\n".join(
         [ev, st, mo, "let PEOPLE=[];", extract_js_fn("hasRef")]
         + [
@@ -218,7 +218,7 @@ def js_thread() -> str:
                 "timeAgo",
                 "stampText",
                 "stampSpan",
-                "msgBody",
+                "messageBody",
                 "isAgent",
                 "isQuestion",
                 "assigneeOf",
@@ -228,25 +228,25 @@ def js_thread() -> str:
                 "assignChip",
                 "cardMetadata",
                 "isViewer",
-                "stDot",
+                "stateDot",
                 "reopenedTurn",
                 "threadOf",
                 "allMentions",
                 "replyCount",
-                "msgText",
-                "msgHtml",
+                "entryText",
+                "messageHtml",
                 "nodeAvatar",
                 "whoWhen",
                 "noteHead",
-                "tlMsg",
+                "timelineEntry",
                 "threadHtml",
                 "pinState",
                 "isMe",
                 "reviewerLabel",
                 "peopleName",
-                "mentionToks",
+                "mentionTokensOf",
                 "mentionAfterWord",
-                "reEsc",
+                "escapeRegExp",
                 "meLogin",
                 "pinRefExists",
                 "pinRefGone",
@@ -261,14 +261,14 @@ def js_thread() -> str:
 
 
 def js_i18n(lang: str = "ko") -> str:
-    """The viewer's message functions tr()/tl()/trMsg()/errText() with the language fixed - pulled functions call
+    """The viewer's message functions translate()/translateTemplate()/translateMessage()/errText() with the language fixed - pulled functions call
     them for every UI string and API error, so a node harness needs them. Korean (the source) unless lang='en'."""
     return "\n".join(
         [
             "var LANG=%s,I18N_EN=%s;" % (json.dumps(lang), json.dumps(UI_EN, ensure_ascii=False)),
-            extract_js_fn("tr"),
-            extract_js_fn("tl"),
-            extract_js_fn("trMsg"),
+            extract_js_fn("translate"),
+            extract_js_fn("translateTemplate"),
+            extract_js_fn("translateMessage"),
             extract_js_fn("errText"),
         ]
     )
@@ -428,12 +428,12 @@ def run_node(js: str, tz: str = None):
     (MAX_ARG_STRLEN), and a harness that inlines a corpus passes that.
 
     If tz is given, run in that timezone — used to directly verify that isEstimated no
-    longer reads the wall clock (the frac_build path). The Korean tr()/tl() are prepended unless the
+    longer reads the wall clock (the frac_build path). The Korean translate()/translateTemplate() are prepended unless the
     script defines its own (see js_i18n)."""
     node = shutil.which("node")
     if not node:
         return None
-    if "function tl(" not in js:
+    if "function translateTemplate(" not in js:
         js = js_i18n() + "\n" + js
     env = dict(os.environ)
     if tz is not None:

@@ -23,24 +23,24 @@ class RepickRequestLifetime(unittest.TestCase):
                 let PICKSEQ=0,REPICK={id:7,from:{lo:1,hi:1,page:1},box:null,cand:null};
                 let DOC='main',SWITCHSEQ=0,NAVGEN=0; const COMPOSE={current:null,box:null,picking:false,pendingSave:false,dismissedOverlap:null}; const EDITOR={current:null,saving:false};
                 let LAYOUT='wide',MID_OVERLAY=false;
-                const MQ_COARSE={matches:false},VIEW_BY=new Map(),META_BY=new Map([['other',{pages:[]}]]);
+                const COARSE_POINTER_QUERY={matches:false},VIEW_BY=new Map(),META_BY=new Map([['other',{pages:[]}]]);
                 const document={body:{classList:{contains(){return false;}}}};
                 const els={'#composer':{hidden:true},'#banner':{hidden:true}};
                 function $(s){return els[s]||(els[s]={hidden:true});}
-                let busy=false,clears=0; function setBusy(on){busy=on;} function banner(){} function setSelMode(){} function setSide(){}
+                let busy=false,clears=0; function setBusy(on){busy=on;} function banner(){} function setSelectMode(){} function setSide(){}
                 function saveView(){} function searchLeave(){} function parkDraft(){} function openDraftDoc(){} function restoreDraft(){}
                 function savePrefs(){} function setHash(){} function hideTip(){}
                 function showDoc(){} function editDirty(){return false;}
                 function docInfo(k){return k==='other';}
-                function dq(path,k){return path+'?doc='+k;}
-                function clearPendingSave(){COMPOSE.pendingSave=false;clears++;} function applySide(){} function applySheet(){} function tl(s){return s;}
+                function withDocQuery(path,k){return path+'?doc='+k;}
+                function clearPendingSave(){COMPOSE.pendingSave=false;clears++;} function applySide(){} function applySheet(){} function translateTemplate(s){return s;}
                 function saveDraftSoon(){} function endTopic(){} function renderVerdictRow(){}   // the verdict row (verdict.js)
-                function closeSelPop(){} function drawSelPop(){} function selPopOpen(){return false;}   // the note popover by the box (sel-popover.js)
-                function mdSelMark(){} function mdSelShown(){return null;}   // the chosen lines on the Markdown surface (md-surface.js)
+                function closeSelectionPopover(){} function drawSelectionPopover(){} function isSelectionPopoverOpen(){return false;}   // the note popover by the box (sel-popover.js)
+                function markChosenLines(){} function shownChoice(){return null;}   // the chosen lines on the Markdown surface (md-surface.js)
                 function errText(d){return d.error;}
-                function lvOf(){return null;} function isRegion(){return false;}
+                function levelOf(){return null;} function isRegion(){return false;}
                 function scopeLabel(){return '';} function levelLabel(){return '';}
-                function esc(s){return String(s);} function tr(s){return s;}
+                function esc(s){return String(s);} function translate(s){return s;}
                 const pending=[];
                 function api(url){if(url==='/api/pick')return new Promise((resolve,reject)=>pending.push({resolve,reject}));
                   return Promise.resolve({data:{pages:[]}});}
@@ -55,7 +55,7 @@ class RepickRequestLifetime(unittest.TestCase):
                 extract_js_fn("startRepick"),
                 JS_OFFLINE_STUBS + extract_js_fn("pick"),  # connected: a new selection asks the server (offline.js)
                 JS_UPDATE_STUBS + extract_js_fn("switchDoc"),
-                "function isMdDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
+                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
                 scenario,
             ]
         )

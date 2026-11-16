@@ -14,7 +14,7 @@ body.selmode .pg{touch-action:none}
 /* The select mode (docs/handbook/viewer.md §모바일 레이아웃 선택 모드). While it is on (body.selmode), the PDF area (#sel-mode, laid
    over #left in #pdf-center) draws a thin accent frame and, 8px under its top, the mode bar: the dashed square, '선택 중 · 끌면
    영역 · 탭하면 문단' and [끝내기]. The bar floats over the pages, which scroll under it, and #left reserves the bar's height
-   above page 1 (--sel-bar-h, setSelMode), so at the top page 1's first line is never under it. The area is the part of the
+   above page 1 (--sel-bar-h, setSelectMode), so at the top page 1's first line is never under it. The area is the part of the
    PDF nothing else covers: under the phone's instance stripe (or its notch), under the wide section strip, above the sheet
    and its status line, left of an overlay panel and its 8px handle. The frame lets every press through to the pages; the
    bar takes only its own. The live region (#sel-sr) stays drawn, so it is read as the mode turns on.
@@ -31,7 +31,7 @@ body.mid-overlay.side-open #sel-mode{right:calc(var(--side-w,330px) + 8px)}
 body.selmode #sel-mode{box-shadow:inset 0 0 0 2px var(--primary)}
 #sel-bar{display:none;position:absolute;top:var(--space-2);left:var(--edge);right:var(--edge);width:fit-content;margin:0 auto;padding:var(--space-1);
   align-items:center;border-radius:var(--radius-lg);background:var(--primary);color:var(--primary-foreground);box-shadow:var(--shadow);
-  font-size:var(--text-lg);line-height:18px;pointer-events:auto;min-width:var(--sel-bar-w,0px)}   /* whole-pixel sides (selBarWidth) */
+  font-size:var(--text-lg);line-height:18px;pointer-events:auto;min-width:var(--sel-bar-w,0px)}   /* whole-pixel sides (selectModeBarWidth) */
 body.selmode #sel-bar{display:flex}
 #sel-bar .sb-ic{display:flex;flex:none;align-items:center;justify-content:center;width:var(--control-h-lg);height:var(--control-h-lg)}
 #sel-bar .sb-ic .ic{width:18px;height:18px}
@@ -193,7 +193,7 @@ body.revision-open :is(#btn-actual,#m-actual){display:none}   /* the comparison 
   #grip.hit::after{left:auto;right:0;transform:translateY(-50%)}
   #outline-grip.hit::after{left:0;transform:translateY(-50%)}
   /* ...and the PDF scroller keeps the page out of that box, so a swipe or a long press at the page's right edge scrolls or
-     picks instead of grabbing the handle (the page fits the padded width, innerW and fitWidth): beside the open side panel, 40px of right
+     picks instead of grabbing the handle (the page fits the padded width, pdfAreaInnerWidth and fitWidth): beside the open side panel, 40px of right
      padding (the hit's 36px plus 4); over the overlay panel while composing, the panel width plus the 8px bar plus the same 40px (below, after that rule); in
      wide (and its collapsed rail), 48px. The outline handle's hit (38px past its bar) ends inside #left's 44px left padding.
      Beside the side panel the left matches it, so the fitted page stays in the middle of its column (UX audit R3). */
@@ -719,13 +719,13 @@ body:not(.compact) :is(#help,#trash,#more) .ns-grab{display:none}
 #nav-sheet-h{margin:0;font-size:var(--text-xl)}
 #nav-sheet>:is(section,#ns-page){border-top:1px solid var(--border);margin:0;padding:var(--space-2) 0}
 /* Open, the sheet is a column: what stands above the outline keeps its size, and the outline's rows take what is left and scroll on
-   their own (navSheetReveal makes the list whole rows tall), so turning to the current section moves nothing above them. */
+   their own (revealSheetOutline makes the list whole rows tall), so turning to the current section moves nothing above them. */
 #nav-sheet[open]{display:flex;flex-direction:column}
 #nav-sheet[open]>*{flex:none}
 #nav-sheet[open]>#ns-outline:not([hidden]){flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
 #nav-sheet[open] #ns-outline>.ns-oh{flex:none}
 #nav-sheet[open] #ns-outline-items{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;align-content:start;grid-auto-rows:max-content}   /* rows as tall as their content: sized by the column, a clamped name (overflow hidden) would let a row shrink to 44px and clip its lines */
-/* Where the sheet must scroll as well (navSheetFit), it steps by whole rows, and the current document's row - with one document, the
+/* Where the sheet must scroll as well (fitNavigationSheet), it steps by whole rows, and the current document's row - with one document, the
    view, which then stands for it - stays pinned under the head over what the step brought there (--ns-head-h: the head's height,
    the search row with it). */
 #nav-sheet[open] #ns-docs .dm-item.on,#nav-sheet[open] #ns-docs[hidden]~#ns-view{position:sticky;top:var(--ns-head-h,0px);z-index:1}   /* over what it is pinned on, the positioned page list included */

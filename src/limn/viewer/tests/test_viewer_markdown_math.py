@@ -14,8 +14,8 @@ Math class refuses the bundle and holds the undrawn side of the same document (A
   pin is md:math over the block's lines, and the formula over a line end is saved over both of its lines (D4);
 - Policy: the sent page policy names no new source and admits no inline style (D7) - a violation would fail any browser
   test here through the autouse no_csp_violation fixture;
-- Budget: three thousand formulas pass MD_LIMITS.elements and the document falls back to the source-line view (D6);
-- Long: a formula whose TeX is at MD_LIMITS.tex characters is drawn and one a character longer stays as its characters,
+- Budget: three thousand formulas pass MARKDOWN_LIMITS.elements and the document falls back to the source-line view (D6);
+- Long: a formula whose TeX is at MARKDOWN_LIMITS.tex characters is drawn and one a character longer stays as its characters,
   line by line, while the formulas around it are drawn (ADR-0039);
 - Quiet: a document without math asks for neither the module nor the stylesheet (D1);
 - Compare: a render context that does not draw math draws none, whatever the document view did (D3);
@@ -36,9 +36,11 @@ from helpers import ps, req
 from helpers_browser import VIEWPORTS, BrowserBase, settle
 from helpers_figure import BUILD1, viewer_build
 
-DRAWN = "typeof MD!=='undefined'&&MD.shown===DOC&&!!document.querySelector('#md')&&!MD.job"
+DRAWN = (
+    "typeof MARKDOWN_VIEW!=='undefined'&&MARKDOWN_VIEW.shown===DOC&&!!document.querySelector('#md')&&!MARKDOWN_VIEW.job"
+)
 # The renderer has answered: it is ready, or it is off for good (ADR-0036 D2).
-SETTLED = "typeof MD_TEX!=='undefined'&&MD_TEX.state!=='none'"
+SETTLED = "typeof TEX_RENDERER!=='undefined'&&TEX_RENDERER.state!=='none'"
 ORIGIN = "http://viewer.test"
 RLO = "‮"  # U+202E, one of the characters that reorder text (ADR-0029 D5): a formula holding one is never drawn
 # The math fixture: the lab's t-star pair; currency, escaped dollars and a code span, which are no math; display math over
@@ -133,11 +135,11 @@ class MathBase(BrowserBase):
         return [json.loads(ln) for ln in f.read_text(encoding="utf-8").splitlines() if ln.strip()]
 
     def quote_over(self, page, js_range):
-        """The quote the surface's own pick builds over the range js_range gives: the selection is set, mdSelectionPick
+        """The quote the surface's own pick builds over the range js_range gives: the selection is set, pickSelection
         runs as a mouse release runs it, and the composer's quote is read."""
         page.evaluate(
             "(()=>{const r=%s,sel=window.getSelection(); sel.removeAllRanges(); sel.addRange(r);"
-            "mdSelectionPick(null);})()" % js_range
+            "pickSelection(null);})()" % js_range
         )
         page.wait_for_function("COMPOSE.current&&COMPOSE.current.lo>0", timeout=5000)
         quote = page.evaluate("COMPOSE.current.quote")
@@ -153,7 +155,7 @@ class Drawn(MathBase):
         """The eight formulas are drawn, each in a box carrying its source TeX on data-tex, on the line its characters
         stood on - for display math, one block (a div, not a code box) over its three lines, kind math; for the formula
         the worker cut at a line end, one code box in the line it starts in, carrying both of its lines. The stylesheet
-        comes from this origin at the bundled version. Mutation: leave data-tex off in mdTexBox -> null here and the
+        comes from this origin at the bundled version. Mutation: leave data-tex off in drawTexBox -> null here and the
         quote tests fail."""
         page = self.open_md()
         self.assertEqual(
@@ -169,9 +171,9 @@ class Drawn(MathBase):
                 ["\\(y_{i,t}\\)", LIST_LINE, "CODE"],
             ],
         )
-        self.assertEqual(page.evaluate("mdRxOf(document.querySelector('#md')).tex"), 8)
+        self.assertEqual(page.evaluate("renderContextOf(document.querySelector('#md')).tex"), 8)
         self.assertEqual(page.evaluate("document.querySelectorAll('#md .md-tex .katex').length"), 8)
-        self.assertEqual(page.evaluate("MD_TEX.state"), "ready")
+        self.assertEqual(page.evaluate("TEX_RENDERER.state"), "ready")
         self.assertEqual(
             page.evaluate("[...document.styleSheets].map(s=>s.href).filter(h=>h&&h.includes('/vendor/katex/'))"),
             ["%s/vendor/katex/katex.css?v=%s" % (ORIGIN, assemble.KATEX_VERSION)],
@@ -180,7 +182,7 @@ class Drawn(MathBase):
     def test_the_formulas_that_are_not_drawn_keep_every_character(self):
         """ADR-0036 D2: TeX KaTeX refuses and a formula holding a character that hides or reorders text stay as their
         source characters in the code face, on their own lines - as they were before this renderer, the hidden character
-        in its box. Mutation: drop the CC_ANY test from mdTexBox -> the reordering character is drawn away and its box is
+        in its box. Mutation: drop the ANY_HIDDEN test from drawTexBox -> the reordering character is drawn away and its box is
         gone, fails."""
         page = self.open_md()
         self.assertEqual(
@@ -226,7 +228,7 @@ class Lines(MathBase):
         """Drawing changes what is on screen, never which source lines the screen claims: every line that has text is
         named by a line span or a block's range, as it is in the undrawn document (test_viewer_markdown.py Math), and the
         display math is one block over exactly its three lines. Inside that block no line can be chosen any more - it is
-        the smallest thing there, as a one-line '$$ … $$' already was. Mutation: leave mdMap off the drawn block -> its
+        the smallest thing there, as a one-line '$$ … $$' already was. Mutation: leave mapLines off the drawn block -> its
         lines are claimed by nothing, fails."""
         page = self.open_md()
         lines = self.md.read_bytes().decode("utf-8").splitlines()
@@ -238,7 +240,7 @@ class Lines(MathBase):
         self.assertEqual(block, {"tag": "DIV", "lo": MATH_LINE, "hi": MATH_LINE + 2, "inside": 0})
         # The formula written over a line end stands in the span of the line it starts in, but speaks for both lines:
         # kind 'lines', the run its two lines could not be told apart in (the same kind an inline token with line ends
-        # that could not be followed already used, mdInline).
+        # that could not be followed already used, drawInline).
         run = page.evaluate(
             '(()=>{const e=document.querySelector("#md code.md-tex[data-lo]");'
             "return {kind:e.dataset.kind,lo:+e.dataset.lo,hi:+e.dataset.hi,"
@@ -255,7 +257,7 @@ class Quote(MathBase):
     def test_a_drag_over_drawn_math_quotes_the_source_tex(self):
         """The whole line, and a drag that starts inside the drawn formula: both quote the line's own text with each
         formula as its source TeX, never the glyphs KaTeX drew or the MathML beside them. Mutation: take the [data-tex]
-        substitution out of mdRangeText -> the quote holds the glyphs and not '$t^*$', fails; take mdTexWiden out -> the
+        substitution out of rangeText -> the quote holds the glyphs and not '$t^*$', fails; take widenToFormulas out -> the
         half drag's quote loses the formula."""
         page = self.open_md()
         whole = self.quote_over(
@@ -280,12 +282,12 @@ class Quote(MathBase):
         pieces and the delimiters, with the line end between them read as the space a quote makes of every line end (a
         quote is one line - a drawn display block already reads this way); the pin offered and saved covers both of the
         lines the formula took, so the quote and the range say the same thing. Mutation: leave the box's data-lo/hi off
-        in mdInline -> the pin covers only the line the formula starts in while its quote holds both lines, fails."""
+        in drawInline -> the pin covers only the line the formula starts in while its quote holds both lines, fails."""
         page = self.open_md()
         page.evaluate(
             '(()=>{const f=document.querySelector("#md code.md-tex[data-lo]");const r=document.createRange();'
             "r.selectNodeContents(f.querySelector('.katex-html'));"
-            "const sel=window.getSelection(); sel.removeAllRanges(); sel.addRange(r); mdSelectionPick(null);})()"
+            "const sel=window.getSelection(); sel.removeAllRanges(); sel.addRange(r); pickSelection(null);})()"
         )
         page.wait_for_function("COMPOSE.current&&COMPOSE.current.lo>0", timeout=5000)
         got = page.evaluate("({lo:COMPOSE.current.lo,hi:COMPOSE.current.hi,quote:COMPOSE.current.quote})")
@@ -353,9 +355,9 @@ class Budget(MathBase):
     MD_TEXT = "# 많은 수식\n\n" + ("".join("$x_{%d}$ " % i for i in range(20)) + "\n\n") * 150
 
     def test_three_thousand_formulas_pass_the_limit_and_fall_back_to_the_source_lines(self):
-        """Three thousand formulas are past MD_LIMITS.elements (60,000): the document becomes the
+        """Three thousand formulas are past MARKDOWN_LIMITS.elements (60,000): the document becomes the
         plain source-line view with every source line in it, and says which limit it hit, as a document of too many
-        elements already did. Mutation: leave the drawn elements out of the count in mdTexBox -> the document is drawn
+        elements already did. Mutation: leave the drawn elements out of the count in drawTexBox -> the document is drawn
         past the limit, fails."""
         page = self.open_md()
         self.assertEqual(page.evaluate("document.querySelector('#md').dataset.limit"), "elements")
@@ -366,9 +368,7 @@ class Budget(MathBase):
         )
 
 
-TEX_LIMIT = (
-    10_000  # MD_LIMITS.tex (docs/handbook/viewer.md §한도와 원문 줄 보기): the characters of one drawn formula's TeX
-)
+TEX_LIMIT = 10_000  # MARKDOWN_LIMITS.tex (docs/handbook/viewer.md §한도와 원문 줄 보기): the characters of one drawn formula's TeX
 
 
 def text_tex(n: int) -> str:
@@ -377,7 +377,7 @@ def text_tex(n: int) -> str:
 
 
 class Long(MathBase):
-    """One formula's TeX is drawn up to MD_LIMITS.tex characters (ADR-0039)."""
+    """One formula's TeX is drawn up to MARKDOWN_LIMITS.tex characters (ADR-0039)."""
 
     AT = "$$" + text_tex(TEX_LIMIT) + "$$"  # line 3: a display formula whose TeX is exactly at the limit
     OVER = "$$" + text_tex(TEX_LIMIT + 1) + "$$"  # line 5: one character longer
@@ -393,11 +393,11 @@ class Long(MathBase):
         this length, so the page would stand still: a formula at the limit is drawn; one a character over it - a display
         block on one line, one over a thousand lines, an inline one - stays as its source characters, the block's lines
         each a line that can be chosen; the short formula after them is drawn, and the document is not the line view.
-        Mutation: drop the length test from mdTexBox -> all five are drawn, fails."""
+        Mutation: drop the length test from drawTexBox -> all five are drawn, fails."""
         page = self.open_md()
-        self.assertEqual(page.evaluate("MD_LIMITS.tex"), TEX_LIMIT)
+        self.assertEqual(page.evaluate("MARKDOWN_LIMITS.tex"), TEX_LIMIT)
         self.assertEqual(page.evaluate(BOXES), [[self.AT, [3, 3], "DIV"], ["$t^*$", self.LAST, "CODE"]])
-        self.assertEqual(page.evaluate("mdRxOf(document.querySelector('#md')).tex"), 2)
+        self.assertEqual(page.evaluate("renderContextOf(document.querySelector('#md')).tex"), 2)
         blocks = page.evaluate(
             "[...document.querySelectorAll('#md pre.md-math-block')].map(e=>({kind:e.dataset.kind,lo:+e.dataset.lo,"
             "hi:+e.dataset.hi,lines:[...e.querySelectorAll('.ln')].map(l=>+l.dataset.line),text:e.textContent}))"
@@ -440,13 +440,13 @@ class Quiet(MathBase):
         return super().route(route)
 
     def test_neither_the_module_nor_the_stylesheet_is_asked_for(self):
-        """Mutation: ask for the renderer whatever the document holds (drop the mdTexWanted test in mdBuild) -> two
+        """Mutation: ask for the renderer whatever the document holds (drop the hasMath test in buildMarkdownDoc) -> two
         requests, fails."""
         page = self.open(0)
         page.wait_for_function(DRAWN, timeout=20000)
         settle(page)
         self.assertEqual(self.asked, [])
-        self.assertEqual(page.evaluate("MD_TEX.state"), "none")
+        self.assertEqual(page.evaluate("TEX_RENDERER.state"), "none")
         self.assertEqual(page.evaluate("document.querySelectorAll('#md .md-tex').length"), 0)
 
 
@@ -470,7 +470,7 @@ class Narrow(MathBase):
         part of it is past the screen's edge, where the page (which does not scroll sideways) would put it out of reach.
         A formula that fits is left alone and keeps the sentence's baseline, which a scrolling box would not.
 
-        Mutation: drop the mdTexFit call from mdShow (or widen its test to every formula) -> either the wide formulas
+        Mutation: drop the fitWideFormulas call from showDocumentNode (or widen its test to every formula) -> either the wide formulas
         reach past the screen edge, which fails here, or the short formula gets `vertical-align: bottom`, which fails
         here too. This is the hole 0.4.56 had: it drew such a formula 328 px wide with its right edge at 380 px on a
         320 px screen."""
@@ -505,7 +505,7 @@ class Narrow(MathBase):
 
     def test_the_fit_follows_the_column_when_it_gets_wider(self):
         """The same document on a desktop column: the formulas fit, so none is told to scroll and every one keeps the
-        baseline. Mutation: fit once at build time only and never again (drop mdTexFit from the column's
+        baseline. Mutation: fit once at build time only and never again (drop fitWideFormulas from the column's
         ResizeObserver) -> this still passes, but the pane-collapse case a reader meets does not; the measurement here
         is what makes the rule depend on the column, not on the build."""
         page = self.open_md(**VIEWPORTS["desktop 1440x900"])
@@ -522,14 +522,14 @@ class Compare(MathBase):
     """A render context that does not draw math draws none (ADR-0036 D3)."""
 
     def test_a_context_of_its_own_keeps_the_source_characters(self):
-        """The rendered compare builds each side with mdRx, whose tex is null: its block keys and its word diff read the
-        drawn text, and a formula's TeX is what a reader compares between two revisions. Mutation: give mdRx a count
+        """The rendered compare builds each side with newRenderContext, whose tex is null: its block keys and its word diff read the
+        drawn text, and a formula's TeX is what a reader compares between two revisions. Mutation: give newRenderContext a count
         instead of null -> the compare draws formulas and the display math block has no lines to compare, fails."""
         page = self.open_md()
         self.assertGreater(page.evaluate("document.querySelectorAll('#md .md-tex').length"), 0)
         got = page.evaluate(
-            "(()=>{const cx=mdRx(['$x$']);"
-            "return {tex:cx.tex,box:mdTexBox('code','md-math md-tex','$x$','x',false,cx),els:cx.els};})()"
+            "(()=>{const cx=newRenderContext(['$x$']);"
+            "return {tex:cx.tex,box:drawTexBox('code','md-math md-tex','$x$','x',false,cx),els:cx.els};})()"
         )
         self.assertEqual(got, {"tex": None, "box": None, "els": 0})
 

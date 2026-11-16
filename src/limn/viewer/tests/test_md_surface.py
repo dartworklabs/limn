@@ -2,7 +2,7 @@
 docs/superpowers/specs/2026-10-24-html-document-surface.md §결정 5·6), and the parse worker's own rules - front matter and
 TeX math kept as written (docs/adr/0032).
 
-The served mdInlineLines and mdHref run under node on the token stream of the vendored markdown-it
+The served inlineLines and linkHref run under node on the token stream of the vendored markdown-it
 (src/limn/vendor/markdown-it/), configured as the parse worker configures it (src/limn/viewer/md-parse.mjs), so the parser
 is the one the viewer loads. The browser behaviour - the DOM these rules label, picks, marks, limits - is in
 test_viewer_markdown.py.
@@ -50,7 +50,7 @@ CASES = {
     "setext heading": ("Title\nmore\n===\n\nafter", [{"Title": 1, "more": 2}, {"after": 5}]),
 }
 
-# href -> what mdHref opens with the viewer at ORIGIN: 'web', 'mail', 'anchor' or None (inert).
+# href -> what linkHref opens with the viewer at ORIGIN: 'web', 'mail', 'anchor' or None (inert).
 HREFS = {
     "https://example.org/a": "web",
     "HTTPS://Example.org": "web",
@@ -105,7 +105,7 @@ HREFS = {
 
 
 class MarkdownSurfaceRules(unittest.TestCase):
-    """mdInlineLines and mdHref, as served, on the vendored markdown-it's tokens."""
+    """inlineLines and linkHref, as served, on the vendored markdown-it's tokens."""
 
     def setUp(self):
         """Skip without node, unless LIMN_TEST_REQUIRE_NODE=1 makes that a failure."""
@@ -119,12 +119,12 @@ class MarkdownSurfaceRules(unittest.TestCase):
         (the same with linkify on, which the viewer leaves off) and `out`, whose JSON is the answer."""
         js = "\n".join(
             [
-                extract_js_fn("mdInlineLines"),
-                extract_js_fn("mdHostKey"),
-                extract_js_fn("mdSameOrigin"),
-                extract_js_fn("mdIpv6"),
-                extract_js_fn("mdLoopback"),
-                extract_js_fn("mdHref"),
+                extract_js_fn("inlineLines"),
+                extract_js_fn("hostKey"),
+                extract_js_fn("isSameOrigin"),
+                extract_js_fn("ipv6Groups"),
+                extract_js_fn("isLoopbackHost"),
+                extract_js_fn("linkHref"),
                 "const {pathToFileURL}=require('node:url');",
                 "(async()=>{const MarkdownIt=(await import(pathToFileURL(%s).href)).default;" % json.dumps(str(BUNDLE)),
                 "const md=MarkdownIt({html:true,linkify:false,typographer:false,maxNesting:20}); let out=null;",
@@ -142,7 +142,7 @@ class MarkdownSurfaceRules(unittest.TestCase):
         got = self.node(
             "const cases=%s; out={};"
             "for(const [name,src] of Object.entries(cases)){out[name]=md.parse(src,{}).filter(t=>t.type==='inline').map(t=>{"
-            "const m=mdInlineLines(t); return {exact:m.exact,lo:m.lo,hi:m.hi,"
+            "const m=inlineLines(t); return {exact:m.exact,lo:m.lo,hi:m.hi,"
             "pieces:(t.children||[]).map((c,i)=>c.type==='text'||c.type==='code_inline'?[c.content,m.lines[i]]:null).filter(Boolean)};});}"
             % json.dumps({name: src for name, (src, _) in CASES.items()}, ensure_ascii=False)
         )
@@ -165,40 +165,41 @@ class MarkdownSurfaceRules(unittest.TestCase):
 
     def test_a_table_cell_takes_its_row(self):
         """markdown-it maps no table cell's inline token, only each row (tr_open): a cell's text is not exact and carries no
-        range of its own, so a pick in it falls to its row's one line (mdRangeAt's nearest block)."""
+        range of its own, so a pick in it falls to its row's one line (linesAt's nearest block)."""
         got = self.node(
             "const toks=md.parse('| h | i |\\n| - | - |\\n| a | b |\\n| c | d |',{});"
             "out={rows:toks.filter(t=>t.type==='tr_open').map(t=>[t.map[0]+1,t.map[1]]),"
-            "cells:toks.filter(t=>t.type==='inline').map(t=>{const m=mdInlineLines(t); return [m.exact,m.lo];})};"
+            "cells:toks.filter(t=>t.type==='inline').map(t=>{const m=inlineLines(t); return [m.exact,m.lo];})};"
         )
         self.assertEqual(got["rows"], [[1, 1], [3, 3], [4, 4]])
         self.assertEqual(got["cells"], [[False, 0]] * 6)
 
     def test_links_open_only_through_the_allowlist(self):
-        """mdHref opens another origin's http(s) URL (as parsed), mailto and an in-document heading; every other href -
+        """linkHref opens another origin's http(s) URL (as parsed), mailto and an in-document heading; every other href -
         another scheme, a relative or scheme-relative path, the viewer's own origin, a loopback host, a URL with
         credentials - is inert."""
         got = self.node(
-            "out=Object.fromEntries(%s.map(h=>[h,mdHref(h,%s).open]));" % (json.dumps(list(HREFS)), json.dumps(ORIGIN))
+            "out=Object.fromEntries(%s.map(h=>[h,linkHref(h,%s).open]));"
+            % (json.dumps(list(HREFS)), json.dumps(ORIGIN))
         )
         self.assertEqual(got, HREFS)
 
     def test_a_link_is_followed_as_it_was_checked(self):
-        """A raw 'https:/api/meta' resolves against the page to the viewer's own origin; mdHref parses it alone, checks that and
+        """A raw 'https:/api/meta' resolves against the page to the viewer's own origin; linkHref parses it alone, checks that and
         hands back exactly that URL, which is what the link element is given."""
-        got = self.node("out=mdHref('https:/api/meta',%s);" % json.dumps(ORIGIN))
+        got = self.node("out=linkHref('https:/api/meta',%s);" % json.dumps(ORIGIN))
         self.assertEqual(got, {"open": "web", "href": "https://api/meta"})
 
     def test_markdown_it_lets_other_schemes_through_so_the_renderer_must_gate_every_link_token(self):
         """markdown-it's validateLink is a denylist: an ordinary link, an autolink and a reference link to ftp:, a custom
-        scheme or a data: image all become link tokens. mdHref keeps every one of them inert."""
+        scheme or a data: image all become link tokens. linkHref keeps every one of them inert."""
         src = (
             "[a](ftp://example.org/f) <ftp://example.org/g> [c][r] [d](myapp://open) [e](data:image/png;base64,AAAA)"
             " [f](javascript:alert(1))\n\n[r]: myapp://ref"
         )
         got = self.node(
             "out=md.parse(%s,{}).flatMap(t=>t.children||[]).filter(c=>c.type==='link_open')"
-            ".map(c=>[c.attrGet('href'),c.markup,mdHref(c.attrGet('href'),%s).open]);"
+            ".map(c=>[c.attrGet('href'),c.markup,linkHref(c.attrGet('href'),%s).open]);"
             % (json.dumps(src), json.dumps(ORIGIN))
         )
         self.assertEqual(
@@ -213,7 +214,7 @@ class MarkdownSurfaceRules(unittest.TestCase):
         )
 
     def test_a_trailing_dot_or_other_spelling_of_limn_stays_inert_in_every_kind_of_link(self):
-        """The hosts mdHref refuses, spelt as Limn's Host check still admits them (a trailing dot, capitals, the viewer's
+        """The hosts linkHref refuses, spelt as Limn's Host check still admits them (a trailing dot, capitals, the viewer's
         host with a dot), reach the gate through every link token markdown-it makes - an inline link, a reference link
         and an autolink - and each stays inert, while another origin in the same tokens opens. The viewer leaves linkify
         off, so a bare URL is no link; with it on, linkify-it ends a bare URL's host at a trailing dot (the rest is text)
@@ -230,7 +231,7 @@ class MarkdownSurfaceRules(unittest.TestCase):
         paras = ["[i](%s) [r][r%d] <%s> bare %s\n\n[r%d]: %s" % (h, n, h, h, n, h) for n, h in enumerate(cases)]
         got = self.node(
             "const paras=%s,origin=%s; const links=(m,src)=>m.parse(src,{}).flatMap(t=>t.children||[])"
-            ".filter(c=>c.type==='link_open').map(c=>[c.markup,c.attrGet('href'),mdHref(c.attrGet('href'),origin).open]);"
+            ".filter(c=>c.type==='link_open').map(c=>[c.markup,c.attrGet('href'),linkHref(c.attrGet('href'),origin).open]);"
             "out=paras.map(src=>({viewer:links(md,src),linkify:links(mdLinkify,src)}));"
             % (json.dumps(paras), json.dumps(ORIGIN))
         )
@@ -250,10 +251,10 @@ class MarkdownSurfaceRules(unittest.TestCase):
         """A viewer opened at its host with a trailing dot (or in capitals) still refuses its own origin without the dot,
         and one whose origin does not parse ('null') opens no web link at all."""
         got = self.node(
-            "out=[mdHref('https://limn.example.ts.net:18020/api/meta','https://limn.example.ts.net.:18020').open,"
-            "mdHref('https://limn.example.ts.net:18020/api/meta','https://LIMN.example.ts.net:18020').open,"
-            "mdHref('https://limn.example.ts.net:443/','https://limn.example.ts.net').open,"
-            "mdHref('https://example.org/','null').open];"
+            "out=[linkHref('https://limn.example.ts.net:18020/api/meta','https://limn.example.ts.net.:18020').open,"
+            "linkHref('https://limn.example.ts.net:18020/api/meta','https://LIMN.example.ts.net:18020').open,"
+            "linkHref('https://limn.example.ts.net:443/','https://limn.example.ts.net').open,"
+            "linkHref('https://example.org/','null').open];"
         )
         self.assertEqual(got, [None, None, None, None])
 
@@ -607,7 +608,7 @@ class MathRule(unittest.TestCase):
 
     def test_math_over_a_line_end_keeps_every_later_piece_on_its_line(self):
         """Inline math that runs over line ends is one piece per source line with a line break between: the inline token
-        stays exact (mdInlineLines, ADR-0025 D7) and every piece - the math's and the text after it - is on the line it is
+        stays exact (inlineLines, ADR-0025 D7) and every piece - the math's and the text after it - is on the line it is
         written on."""
         cases = {
             "dollars": ("a $x_1 +\ny_2$ b\nc", [["a ", 1], ["$x_1 +", 1], ["y_2$", 2], [" b", 2], ["c", 3]]),
@@ -622,10 +623,10 @@ class MathRule(unittest.TestCase):
         }
         got = worker_node(
             "out={}; for(const [name,src] of Object.entries(%s)){const t=md.parse(src,{}).find(t=>t.type==='inline');"
-            "const m=mdInlineLines(t); out[name]={exact:m.exact,pieces:t.children.map((c,i)=>[c.content,m.lines[i]])"
+            "const m=inlineLines(t); out[name]={exact:m.exact,pieces:t.children.map((c,i)=>[c.content,m.lines[i]])"
             ".filter(([c],i)=>t.children[i].type!=='softbreak')};}"
             % json.dumps({name: src for name, (src, _) in cases.items()}, ensure_ascii=False),
-            "mdInlineLines",
+            "inlineLines",
         )
         for name, (src, want) in cases.items():
             lines = src.split("\n")
@@ -770,11 +771,11 @@ class MathRule(unittest.TestCase):
                 self.assertLess(ms, 10 * base_ms + 150, (ms, base_ms))
 
 
-# Inline math the page may draw, and what mdTexBody makes of it (ADR-0036 D2): source -> [[the token's text, its info, the
-# TeX mdTexBody gives or None], ...] in document order. A formula cut at a source line end is a piece, and no piece is TeX
+# Inline math the page may draw, and what inlineTexBody makes of it (ADR-0036 D2): source -> [[the token's text, its info, the
+# TeX inlineTexBody gives or None], ...] in document order. A formula cut at a source line end is a piece, and no piece is TeX
 # on its own, so each piece's TeX is None; a whole one gives its body without the delimiters.
 # Inline math: source -> the math_inline pieces the worker makes ([text, info]) and the formulas the page then draws
-# ([the source as written, the TeX mdTexBody reads from it]). A formula cut at a line end is one formula over several
+# ([the source as written, the TeX inlineTexBody reads from it]). A formula cut at a line end is one formula over several
 # pieces: its head carries the run, its tails draw nothing of their own (ADR-0036 D2).
 DRAWN_INLINE = {
     "dollars": ("$x_1$", [["$x_1$", "whole"]], [["$x_1$", "x_1"]]),
@@ -800,7 +801,7 @@ DRAWN_INLINE = {
     "a formula of one character": ("$x$", [["$x$", "whole"]], [["$x$", "x"]]),
     "math in a table cell": ("| a |\n| - |\n| $c_1$ |", [["$c_1$", "whole"]], [["$c_1$", "c_1"]]),
 }
-# Display math: source -> the TeX mdTexBlockBody gives for the math_block, or None.
+# Display math: source -> the TeX blockTexBody gives for the math_block, or None.
 DRAWN_BLOCK = {
     "one line": ("$$P = Q$$\n", "P = Q"),
     "three lines": ("$$\nP = Q\n$$\n", "\nP = Q\n"),
@@ -811,7 +812,7 @@ DRAWN_BLOCK = {
 
 
 class DrawnMathRules(unittest.TestCase):
-    """What the page may draw: mdTexWanted, mdTexBody and mdTexBlockBody as served, on the parse worker's own tokens
+    """What the page may draw: hasMath, inlineTexBody and blockTexBody as served, on the parse worker's own tokens
     (docs/adr/0036-markdown-drawn-math.md D1, D2). Whether a formula is then drawn - the renderer, the element limit, a
     hidden character in it, TeX KaTeX refuses - is test_viewer_markdown_math.py's."""
 
@@ -823,37 +824,37 @@ class DrawnMathRules(unittest.TestCase):
 
     def test_an_inline_formula_gives_its_tex_over_as_many_lines_as_it_took(self):
         """Each math_inline token's text and the info the worker marks it with, then the formulas the page reads from
-        them: mdTexRun puts a cut formula's pieces back together, line ends and all, and mdTexBody takes the delimiters
+        them: inlineTexRun puts a cut formula's pieces back together, line ends and all, and inlineTexBody takes the delimiters
         off the run. A formula that fits a line is a run of one. Only a 'whole' or 'head' piece starts a run, so each
         formula is read once however many lines it took.
 
         Mutation: mark every piece 'whole' in mdMathInline -> 'over a line end' reads two formulas instead of one, and
         the second piece of 'a later piece that carries both delimiters' becomes a formula of its own. Mutation: have
-        mdTexRun stop at the head (return {src: kids[at].content, last: at}) -> the cut cases give the head's text as the
+        inlineTexRun stop at the head (return {src: kids[at].content, last: at}) -> the cut cases give the head's text as the
         run and no TeX, so a formula over a line end would go back to being characters."""
         got = worker_node(
-            served_global("MD_TEX_CLOSE") + "out={}; for(const [name,src] of Object.entries(%s)){"
+            served_global("TEX_CLOSE") + "out={}; for(const [name,src] of Object.entries(%s)){"
             "const kids=md.parse(src,{}).flatMap(t=>t.children||[]);"
             "const pieces=kids.filter(c=>c.type==='math_inline').map(c=>[c.content,c.info]),forms=[];"
             "for(let i=0;i<kids.length;i++){const c=kids[i];"
             "if(c.type!=='math_inline'||(c.info!=='whole'&&c.info!=='head'))continue;"
-            "const run=mdTexRun(kids,i); forms.push([run.src,mdTexBody(c,run.src)]);}"
+            "const run=inlineTexRun(kids,i); forms.push([run.src,inlineTexBody(c,run.src)]);}"
             "out[name]=[pieces,forms];}"
             % json.dumps({name: src for name, (src, _, _f) in DRAWN_INLINE.items()}, ensure_ascii=False),
-            "mdTexBody",
-            "mdTexRun",
+            "inlineTexBody",
+            "inlineTexRun",
         )
         for name, (_src, pieces, forms) in DRAWN_INLINE.items():
             with self.subTest(name):
                 self.assertEqual(got[name], [pieces, forms])
 
     def test_a_tail_piece_on_its_own_draws_nothing(self):
-        """mdTexBody on a piece the worker cut off the end of a formula, asked for alone: none, even when the piece
+        """inlineTexBody on a piece the worker cut off the end of a formula, asked for alone: none, even when the piece
         carries both delimiters and would read as a formula on its own. The page never asks - its head swallowed it
-        (mdInline) - but a tail that answered would draw the same formula twice if one ever did."""
+        (drawInline) - but a tail that answered would draw the same formula twice if one ever did."""
         got = worker_node(
-            served_global("MD_TEX_CLOSE")
-            + "out=%s.map(c=>mdTexBody(c));"
+            served_global("TEX_CLOSE")
+            + "out=%s.map(c=>inlineTexBody(c));"
             % json.dumps(
                 [
                     {"markup": "\\(", "info": "tail", "content": "\\(b\\)"},
@@ -861,37 +862,37 @@ class DrawnMathRules(unittest.TestCase):
                     {"markup": "$", "info": "tail", "content": "y$"},
                 ]
             ),
-            "mdTexBody",
+            "inlineTexBody",
         )
         self.assertEqual(got, [None, None, None])
 
     def test_display_math_gives_its_lines_without_the_delimiters(self):
-        """mdTexBlockBody on the math_block's content: the opening and closing delimiters off, every inner line as the
+        """blockTexBody on the math_block's content: the opening and closing delimiters off, every inner line as the
         block holds it (a quote's markers already left out by the block rule)."""
         got = worker_node(
-            served_global("MD_TEX_CLOSE")
+            served_global("TEX_CLOSE")
             + "out={}; for(const [name,src] of Object.entries(%s)){const t=md.parse(src,{}).find(x=>x.type==='math_block');"
-            "out[name]=t?mdTexBlockBody(String(t.content||'').split('\\n')):null;}"
+            "out[name]=t?blockTexBody(String(t.content||'').split('\\n')):null;}"
             % json.dumps({name: src for name, (src, _) in DRAWN_BLOCK.items()}, ensure_ascii=False),
-            "mdTexBlockBody",
+            "blockTexBody",
         )
         for name, (_src, want) in DRAWN_BLOCK.items():
             with self.subTest(name):
                 self.assertEqual(got[name], want)
 
     def test_text_that_is_no_tex_gives_none(self):
-        """mdTexBlockBody is given lines that are not a math block (it is pure, so it can be asked directly): no opener,
+        """blockTexBody is given lines that are not a math block (it is pure, so it can be asked directly): no opener,
         no closer, nothing between the delimiters."""
         got = worker_node(
-            served_global("MD_TEX_CLOSE")
-            + "out=%s.map(lines=>mdTexBlockBody(lines));"
+            served_global("TEX_CLOSE")
+            + "out=%s.map(lines=>blockTexBody(lines));"
             % json.dumps([["P = Q"], ["$$P = Q"], ["$$"], ["$$$$"], ["\\[a"], [""], ["$$a\\]"]]),
-            "mdTexBlockBody",
+            "blockTexBody",
         )
         self.assertEqual(got, [None, None, None, None, None, None, None])
 
     def test_the_renderer_is_asked_for_only_by_a_document_that_has_math(self):
-        """mdTexWanted on the worker's tokens: true for a document with inline or display math, false for one with
+        """hasMath on the worker's tokens: true for a document with inline or display math, false for one with
         none - including one whose '$' are currency, which the math rules leave as text (ADR-0032 D6). A document
         without math asks for no bundle at all."""
         cases = {
@@ -904,9 +905,9 @@ class DrawnMathRules(unittest.TestCase):
             "a dollar in code": ("`$x$` is written so\n", False),
         }
         got = worker_node(
-            "out={}; for(const [name,src] of Object.entries(%s))out[name]=mdTexWanted(md.parse(src,{}));"
+            "out={}; for(const [name,src] of Object.entries(%s))out[name]=hasMath(md.parse(src,{}));"
             % json.dumps({name: src for name, (src, _) in cases.items()}, ensure_ascii=False),
-            "mdTexWanted",
+            "hasMath",
         )
         for name, (_src, want) in cases.items():
             with self.subTest(name):

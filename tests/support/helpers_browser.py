@@ -82,8 +82,8 @@ IDLE_WATCH = (
 # ends) and the boot done with PDF.js, on two frames in a row, so that a requestAnimationFrame callback queued behind the
 # first check has run too. An animation on an element the browser skips (inside content-visibility: auto far from the view,
 # as a far page line) is not waited for: Firefox keeps it running at its first frame until the element is drawn again.
-# The boot imports PDF.js (vecBoot, in the same task as META's arrival), which is neither a fetch nor a timer. The open that
-# follows takes a new VEC.gen and forgets the outline, so what a test drew or loaded before it went: an outline's rows, a
+# The boot imports PDF.js (bootVector, in the same task as META's arrival), which is neither a fetch nor a timer. The open that
+# follows takes a new VECTOR_PDF.gen and forgets the outline, so what a test drew or loaded before it went: an outline's rows, a
 # stand-in document. Once it has the module or has given up on it, the viewer starts no open of its own.
 QUIET = """() => {
   const idle = window.__limnIdle;
@@ -860,7 +860,7 @@ class BrowserBase(ChromiumTestCase):
 
     def open_composer(self, page):
         """Drag a region on page 1 with the mouse and wait until the composer shows its resolved lines."""
-        page.evaluate("LAST_PTR='mouse'; pick({page:1,x0:10,y0:10,x1:200,y1:60})")
+        page.evaluate("LAST_POINTER='mouse'; pick({page:1,x0:10,y0:10,x1:200,y1:60})")
         page.wait_for_selector("#composer:not([hidden])", timeout=8000)
         page.wait_for_function("COMPOSE.current&&COMPOSE.current.lo", timeout=8000)
 

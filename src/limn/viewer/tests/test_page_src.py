@@ -22,11 +22,11 @@ class PageSrc(unittest.TestCase):
             self.skipTest("node not available")
 
     def test_a_page_url_names_the_build_on_screen_and_falls_back_without_one(self):
-        """With META.pages_build the URL is /pages/<build>/<page> (with ?doc= from dq); without one it is the old
+        """With META.pages_build the URL is /pages/<build>/<page> (with ?doc= from withDocQuery); without one it is the old
         /pages/<page>?v=<built_at>."""
         js = "\n".join(
             [
-                "const dq=u=>u+(u.includes('?')?'&':'?')+'doc=b'; let META;",
+                "const withDocQuery=u=>u+(u.includes('?')?'&':'?')+'doc=b'; let META;",
                 extract_js_fn("pageSrc"),
                 "META={pages_build:'pages-20261001120000',built_at:'2026-10-01T12:00:00+09:00'};"
                 "const a=pageSrc({name:'page-01.png'});"

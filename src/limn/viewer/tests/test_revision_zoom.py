@@ -82,7 +82,7 @@ class RevisionZoom(BrowserBase):
         """Zoom stays bounded, rerenders and leaves manuscript settings alone."""
         page = self.comparison()
         self.assertEqual(page.locator("#revision-zoom").count(), 1)
-        before = page.evaluate("({k:K,prefs:{...localStorage}})")
+        before = page.evaluate("({k:PAGE_SCALE,prefs:{...localStorage}})")
         requests = []
         page.on("request", lambda request: requests.append(request.url))
         self.assertEqual(page.locator("#revision-zoom-value").inner_text(), "100%")
@@ -102,7 +102,7 @@ class RevisionZoom(BrowserBase):
                 page.click("#revision-zoom-out")
         self.assertEqual(page.locator("#revision-zoom-value").inner_text(), "50%")
         self.assertFalse(page.locator("#revision-zoom-out").is_enabled())
-        self.assertEqual(page.evaluate("({k:K,prefs:{...localStorage}})"), before)
+        self.assertEqual(page.evaluate("({k:PAGE_SCALE,prefs:{...localStorage}})"), before)
         self.assertFalse(any("revision-pdf?" in url or "revision-build?" in url for url in requests))
 
     def test_input_preservation_and_commit_reset(self):
@@ -174,7 +174,7 @@ class RevisionZoom(BrowserBase):
         self.assertEqual(page.locator("#revision-pdf").get_by_text("소스 diff를 확인").count(), 0)
         page.evaluate("revisionZoomTo(5);setViewMode('manuscript')")
         self.assertEqual(page.locator(".revision-page canvas").count(), 0)
-        self.assertTrue(page.evaluate("REV_PDF.tasks.size===0"))
+        self.assertTrue(page.evaluate("COMPARISON_PDF.tasks.size===0"))
 
     def test_desktop_zoom_buttons_follow_the_row_button_standard(self):
         """With a mouse the zoom buttons are the row's standard buttons (docs/handbook/viewer.md §컴포넌트 규격): as
@@ -258,13 +258,13 @@ class RevisionZoom(BrowserBase):
     def test_shared_zoom_buttons_route_to_visible_comparison(self):
         """Existing zoom actions must not change an invisible manuscript."""
         page = self.comparison()
-        width = page.evaluate("K")
+        width = page.evaluate("PAGE_SCALE")
         page.locator('[data-act="zoom-in"]:visible').first.click()
         self.assertEqual(page.locator("#revision-zoom-value").inner_text(), "120%")
-        self.assertEqual(page.evaluate("K"), width)
+        self.assertEqual(page.evaluate("PAGE_SCALE"), width)
         page.click("#revision-source-tab")
         page.locator('[data-act="zoom-in"]:visible').first.click()
-        self.assertEqual(page.evaluate("K"), width)
+        self.assertEqual(page.evaluate("PAGE_SCALE"), width)
 
     def test_pages_keep_their_sizes_on_paper_and_100_is_not_offered(self):
         """The comparison's landscape pages (792pt) take the zoomed width and its portrait pages (612pt) their share of it,
@@ -272,13 +272,13 @@ class RevisionZoom(BrowserBase):
         manuscript's [100%] (print size) is not offered here: the tool bar's zoom button and [더보기]'s [100%] are hidden,
         and Ctrl/Cmd 1 changes nothing."""
         page = self.comparison()
-        k = page.evaluate("K")
+        k = page.evaluate("PAGE_SCALE")
         boxes = page.evaluate(
             "[...document.querySelectorAll('.revision-page')].slice(0,2).map(p=>{const r=p.getBoundingClientRect();"
             "return [r.width,r.left+r.width/2];})"
         )
         (portrait, mid1), (landscape, mid2) = boxes
-        self.assertAlmostEqual(landscape, page.evaluate("RZ.fit"), delta=1)
+        self.assertAlmostEqual(landscape, page.evaluate("REVISION_ZOOM.fit"), delta=1)
         self.assertAlmostEqual(portrait / landscape, 612 / 792, places=2)
         self.assertAlmostEqual(mid1, mid2, delta=1)
         self.assertFalse(page.locator("#btn-actual").is_visible())
@@ -290,7 +290,7 @@ class RevisionZoom(BrowserBase):
         page.evaluate("document.activeElement&&document.activeElement.blur()")
         page.keyboard.press("Control+1")
         self.assertEqual(page.locator("#revision-zoom-value").inner_text(), "120%")
-        self.assertEqual(page.evaluate("K"), k)
+        self.assertEqual(page.evaluate("PAGE_SCALE"), k)
         page.click("#view-manuscript")
         self.assertTrue(page.locator("#btn-actual").is_visible())
 
@@ -301,15 +301,17 @@ class RevisionZoom(BrowserBase):
         page.click("#view-revisions")
         page.wait_for_function("document.querySelector('#revision-status').textContent.includes('소스 diff에서')")
         self.assertFalse(page.locator("#revision-zoom-in").is_enabled())
-        self.assertTrue(page.evaluate("REV_PDF.loading===null&&REV_PDF.doc===null"))
+        self.assertTrue(page.evaluate("COMPARISON_PDF.loading===null&&COMPARISON_PDF.doc===null"))
 
     def test_resize_preserves_the_reading_point_at_the_new_center(self):
         """Width and height-only resize keep the same page point visibly centered."""
         page = self.comparison(viewport={"width": 1400, "height": 850})
         page.evaluate("revisionZoomTo(2);document.querySelector('#revision-pdf').scrollTop=5000")
         # the page under the centre depends on the comparison's width (the commit list takes 304px beside it, #188)
-        page.wait_for_function("RZ.anchor&&Number(RZ.anchor.el.dataset.page)>2")
-        point = page.evaluate("({page:RZ.anchor.el.dataset.page,fx:RZ.anchor.fx,fy:RZ.anchor.fy})")
+        page.wait_for_function("REVISION_ZOOM.anchor&&Number(REVISION_ZOOM.anchor.el.dataset.page)>2")
+        point = page.evaluate(
+            "({page:REVISION_ZOOM.anchor.el.dataset.page,fx:REVISION_ZOOM.anchor.fx,fy:REVISION_ZOOM.anchor.fy})"
+        )
         for size in ({"width": 1400, "height": 400}, {"width": 600, "height": 350}):
             page.set_viewport_size(size)
             page.wait_for_function(

@@ -15,11 +15,11 @@ import {
   DONE,
   DONE_ALL,
   KIND_NEW,
-  KIND_REQ,
+  REQUEST_KIND,
   LAYOUT,
   LAYOUT_MODE,
   META,
-  MQ_COARSE,
+  COARSE_POINTER_QUERY,
   NOTICE_HOST,
   NOTICE_KIND,
   NOTICE_LIFE,
@@ -30,8 +30,8 @@ import {
   REPLY,
   REVIEW_ALL,
   ROLE,
-  T,
-  VD_WHERE,
+  TIP_TEXT,
+  VERDICT_PLACE,
   captureVisit,
   currentVisit,
   imeKey,
@@ -39,9 +39,9 @@ import {
   isViewOnlyKind,
   scrollMotion,
 } from './core.ts';
-import { html, ic, setHtml } from './markup.ts';
-import { errText, tl, tr } from './i18n.ts';
-import { SEC_SEEN } from './prefs.ts';
+import { html, lucideIcon, setHtml } from './markup.ts';
+import { errText, translateTemplate, translate } from './i18n.ts';
+import { SECTION_SEEN } from './prefs.ts';
 import { api } from './api.ts';
 import {
   BANNERS,
@@ -63,14 +63,14 @@ import { docInfo, isRegion, pdoc } from './doc-tabs.ts';
 import { findAnyPin } from './revisions.ts';
 import { viewerBlocked } from './boot.ts';
 import { pinState } from './polling.ts';
-import { arrivalLetGo, arrivalWatch, arrivePage, figureTop, innerW } from './pages.ts';
+import { arrivalLetGo, arrivalWatch, arrivePage, figureTop, pdfAreaInnerWidth } from './pages.ts';
 import { SCROLL_KEYS, readingDepth } from './outline.ts';
 import { searchToPage } from './search.ts';
 import { setSide, typingNow } from './layout.ts';
-import { rng } from './levels.ts';
-import { elLost, figureFields, isFrac, pinPlace } from './figure.ts';
-import { isMdDoc } from './md-surface.ts';
-import { SG } from './suggest.ts';
+import { lineRange } from './levels.ts';
+import { isElementLost, figureFields, isFrac, pinPlace } from './figure.ts';
+import { isMarkdownDoc } from './md-surface.ts';
+import { SUGGEST_DRAFT } from './suggest.ts';
 import { COMPOSE } from './composer.ts';
 import { savePin } from './save.ts';
 import {
@@ -125,7 +125,7 @@ import {
   markReadingSummary,
   drawSummaries,
 } from './verdict-panel.ts';
-import { claimActive, josa, josaRo, who } from './card-parts.ts';
+import { claimActive, josa, josaToward, who } from './card-parts.ts';
 import { relSpan } from './cards.ts';
 import { PINS_APPLIED_SEQ, isMe, loadPins } from './list.ts';
 import { CONFIRMING, CONFIRMING_PIN, dropPin, restorePin } from './actions.ts';
@@ -145,7 +145,7 @@ function docVerdicts(doc?: string | null): DocVerdicts | null {
 // The page verdict line is drawn for a document whose words say page: true (the server sets it only for a figure
 // document or a view-only PDF): the words, else null.
 function pageVerdictsOn(): DocVerdicts | null {
-  if (isMdDoc()) return null;
+  if (isMarkdownDoc()) return null;
   const verdicts = docVerdicts();
   return verdicts && verdicts.page ? verdicts : null;
 } // a Markdown document has no pages
@@ -173,7 +173,7 @@ function verdictLabel(key: string, doc?: string | null): string {
 function verdictBadge(pin: Pin) {
   const key = verdictOf(pin);
   if (!key) return null;
-  return html`<span class="badge badge-verdict" data-tip="${tr('버튼으로 고른 판정입니다. 판정과 대상은 바뀌지 않고 메모만 고칠 수 있습니다')}">${tr('판정')} <span class="vd-w" translate="no">${verdictLabel(key, pdoc(pin))}</span></span>`;
+  return html`<span class="badge badge-verdict" data-tip="${translate('버튼으로 고른 판정입니다. 판정과 대상은 바뀌지 않고 메모만 고칠 수 있습니다')}">${translate('판정')} <span class="vd-w" translate="no">${verdictLabel(key, pdoc(pin))}</span></span>`;
 }
 
 // A verdict card's target by name, so a person finds the figure they gave a verdict: on a figure document the figure it
@@ -186,7 +186,7 @@ function verdictTarget(pin: Pin) {
   const page = figurePageOf(root, pin),
     facts = page && META && (!DOC || pdoc(pin) === DOC) ? META.pages[page - 1] : null,
     title = facts && facts.figure === root && facts.title ? facts.title : '';
-  return html`<span class="vd-target" translate="no" data-tip="${tl('판정 대상 그림 · {id}', { id: root })}">${title || tl('그림 {id}', { id: root })}</span>`;
+  return html`<span class="vd-target" translate="no" data-tip="${translateTemplate('판정 대상 그림 · {id}', { id: root })}">${title || translateTemplate('그림 {id}', { id: root })}</span>`;
 }
 // A card's pin with the overlaps its card reports: a verdict pin's overlap with another verdict pin is left out where
 // the page verdict line shows both - the pins of the document on screen whose words say page: true, counted on the same
@@ -221,7 +221,7 @@ function figurePageOf(root: string, pin: Pin): number | null {
     const index = pages.findIndex((x) => x.figure === root);
     return index >= 0 ? index + 1 : null;
   }
-  return elLost(pin) ? null : pinPlace(pin).page;
+  return isElementLost(pin) ? null : pinPlace(pin).page;
 }
 // Whether page `page` of the document on screen takes a verdict: every page but one its figure map marks verdict: false
 // (a list, a question or a removed-figure page) - no page line, no composer verdict there.
@@ -384,13 +384,16 @@ function verdictOldMarker(pin: Pin) {
   if (!cur) return null;
   const mark = '\u0001',
     id = cur.id;
-  const parts = tl('이전 판정 · {ref}{p} 대체됨', { ref: mark, p: josaRo(id) }).split(mark);
-  const description = tl('같은 대상에 더 새 판정 #{id}{p} 있습니다 — 에이전트는 가장 새 판정만 실행합니다', {
-    id,
-    p: josa(id, '이', '가'),
-  });
+  const parts = translateTemplate('이전 판정 · {ref}{p} 대체됨', { ref: mark, p: josaToward(id) }).split(mark);
+  const description = translateTemplate(
+    '같은 대상에 더 새 판정 #{id}{p} 있습니다 — 에이전트는 가장 새 판정만 실행합니다',
+    {
+      id,
+      p: josa(id, '이', '가'),
+    },
+  );
   return html`<span class="badge vd-old" role="note" aria-label="${description}" data-tip="${description}">${parts[0]}<span class="pin-ref vd-old-ref hit" role="link" tabindex="0" \
-data-act="pin-ref" data-ref="${id}" aria-label="${tl('지금 판정 #{id} 카드로 갑니다', { id })}">#${id}</span>${parts[1] || ''}</span>`;
+data-act="pin-ref" data-ref="${id}" aria-label="${translateTemplate('지금 판정 #{id} 카드로 갑니다', { id })}">#${id}</span>${parts[1] || ''}</span>`;
 }
 // The ids of the pins a page verdict line shows now (drawPageVerdicts): their page-size mark is not drawn and their
 // card's [보기] goes to the line (marks, jumpPin).
@@ -399,14 +402,14 @@ let KEYED_PAGE = 0; // the page whose line the keys 1-5 act on (keyedPageFor), 0
 // A pin's state on the line: what the dot would say, in the line's words. The pin is the page target's newest verdict.
 function verdictStateWord(pin: Pin) {
   const state = pinState(pin);
-  if (state === PIN_STATE.REVIEW || CONFIRMING.has(pin.id)) return tr('검토 대기');
-  if (state === PIN_STATE.DONE) return tr('처리됨');
-  return claimActive(pin) ? tr('처리 중') : tr('처리 대기');
+  if (state === PIN_STATE.REVIEW || CONFIRMING.has(pin.id)) return translate('검토 대기');
+  if (state === PIN_STATE.DONE) return translate('처리됨');
+  return claimActive(pin) ? translate('처리 중') : translate('처리 대기');
 }
 
 // ---------------- Two presses for a confirm word (D9)
-// The armed first press: the word, where (VD_WHERE) and - on a page line - the page, with the document, build and (in
-// the composer) selection it is bound to; null when nothing is armed.
+// The armed first press: the word, where (VERDICT_PLACE) and - on a page line - the page, with the document, build and
+// (in the composer) selection it is bound to; null when nothing is armed.
 let ARMED_VERDICT = null as {
   key: string;
   label: string;
@@ -435,7 +438,9 @@ function selectionBindingKey() {
 // Whether the armed press is this word's button.
 function isArmedHere(key: string, where: string, page: number) {
   const armed = ARMED_VERDICT;
-  return !!armed && armed.key === key && armed.where === where && (where === VD_WHERE.COMPOSER || armed.page === page);
+  return (
+    !!armed && armed.key === key && armed.where === where && (where === VERDICT_PLACE.COMPOSER || armed.page === page)
+  );
 }
 // Whether an armed press still holds: the same document, build and (in the composer) selection.
 function armStillHolds(armed) {
@@ -443,12 +448,15 @@ function armStillHolds(armed) {
     armed.doc === DOC &&
     !!META &&
     armed.build === META.pages_build &&
-    (armed.where !== VD_WHERE.COMPOSER || armed.sel === selectionBindingKey())
+    (armed.where !== VERDICT_PLACE.COMPOSER || armed.sel === selectionBindingKey())
   );
 }
 // What an armed word says while it waits, with how long it waits: '삭제 — 4초 안에 한 번 더 누르면 저장합니다'.
 function armedWaitText(label: string) {
-  return tl('{word} — {sec}초 안에 한 번 더 누르면 저장합니다', { word: label, sec: VERDICT_ARM_MS / 1000 });
+  return translateTemplate('{word} — {sec}초 안에 한 번 더 누르면 저장합니다', {
+    word: label,
+    sec: VERDICT_ARM_MS / 1000,
+  });
 }
 // Arms word key's button: it reads '<낱말> 확정' for VERDICT_ARM_MS, a screen reader hears that the next press saves
 // and within how long (armedWaitText), and a page line says so beside it (pageLineHtml .pv-arm). kbd: armed by a key
@@ -462,7 +470,7 @@ function armVerdict(key: string, where: string, page: number, label: string, kbd
     page,
     doc: DOC,
     build: META ? META.pages_build : '',
-    sel: where === VD_WHERE.COMPOSER ? selectionBindingKey() : '',
+    sel: where === VERDICT_PLACE.COMPOSER ? selectionBindingKey() : '',
     kbd: !!kbd,
     timer: setTimeout(() => disarmVerdict(true, true), VERDICT_ARM_MS),
   };
@@ -480,14 +488,14 @@ function disarmVerdict(redraw: boolean, say?: boolean) {
   ARMED_VERDICT = null;
   if (redraw) redrawVerdictButtons(armed.where);
   hideTip();
-  if (say) announce(tl('{word} 확정을 풀었습니다', { word: armed.label }));
+  if (say) announce(translateTemplate('{word} 확정을 풀었습니다', { word: armed.label }));
   else {
     const liveRegion = $('#sr-news');
     if (liveRegion && liveRegion.textContent === armedWaitText(armed.label)) liveRegion.textContent = '';
   }
 }
 function redrawVerdictButtons(where: string) {
-  if (where === VD_WHERE.COMPOSER) renderVerdictRow();
+  if (where === VERDICT_PLACE.COMPOSER) renderVerdictRow();
   else drawPageVerdicts();
 }
 // A press anywhere but on the armed button lets it go; Esc does too, and does nothing else. The click a long press's
@@ -516,7 +524,7 @@ window.addEventListener(
   true,
 );
 function whereOfButton(button: HTMLElement) {
-  return button.dataset.act === 'verdict-save' ? VD_WHERE.COMPOSER : VD_WHERE.PAGE;
+  return button.dataset.act === 'verdict-save' ? VERDICT_PLACE.COMPOSER : VERDICT_PLACE.PAGE;
 }
 
 // One word's button: outline, a confirm word's text in the danger colour, '<낱말> 확정' while armed. The word is the
@@ -561,38 +569,42 @@ function verdictButton(
   pressed?: number,
 ) {
   const armed = isArmedHere(choice.key, where, page),
-    line = where !== VD_WHERE.COMPOSER,
+    line = where !== VERDICT_PLACE.COMPOSER,
     on = line && !!pressed && !armed;
   const said = !!keyNumber && KEY_MARK_SCREEN.matches; // the key said as well as drawn
   const name = armed
-    ? tl('{word} 확정 — {sec}초 안에 한 번 더 누르면 저장합니다', { word: choice.label, sec: VERDICT_ARM_MS / 1000 })
+    ? translateTemplate('{word} 확정 — {sec}초 안에 한 번 더 누르면 저장합니다', {
+        word: choice.label,
+        sec: VERDICT_ARM_MS / 1000,
+      })
     : line
-      ? tl('{word} 판정 — {target}', { word: choice.label, target })
-      : tl('{word} 판정으로 저장 — {target}', { word: choice.label, target });
-  const forFigure = where === VD_WHERE.COMPOSER && !!figureVerdictRoot(COMPOSE.current);
+      ? translateTemplate('{word} 판정 — {target}', { word: choice.label, target })
+      : translateTemplate('{word} 판정으로 저장 — {target}', { word: choice.label, target });
+  const forFigure = where === VERDICT_PLACE.COMPOSER && !!figureVerdictRoot(COMPOSE.current);
   let tip = armed
     ? name
     : forFigure
-      ? tl('누르면 메모와 함께 이 그림 전체({target})의 {word} 판정 핀으로 바로 저장합니다', {
+      ? translateTemplate('누르면 메모와 함께 이 그림 전체({target})의 {word} 판정 핀으로 바로 저장합니다', {
           word: choice.label,
           target,
         })
-      : where === VD_WHERE.COMPOSER
-        ? tl('누르면 지금 선택과 메모를 {word} 판정 핀으로 바로 저장합니다', { word: choice.label })
+      : where === VERDICT_PLACE.COMPOSER
+        ? translateTemplate('누르면 지금 선택과 메모를 {word} 판정 핀으로 바로 저장합니다', { word: choice.label })
         : pressed === PRESSED_AS.MINE
-          ? tr('지금 판정입니다 · 다시 누르면 이 판정을 거둡니다(판정 취소)')
+          ? translate('지금 판정입니다 · 다시 누르면 이 판정을 거둡니다(판정 취소)')
           : pressed === PRESSED_AS.OTHER
-            ? tr('지금 판정입니다 · 다른 사람의 판정이라 여기서 거두지 않습니다')
+            ? translate('지금 판정입니다 · 다른 사람의 판정이라 여기서 거두지 않습니다')
             : pressed === PRESSED_AS.HANDLED
-              ? tr('지금 판정입니다 · 처리된 판정이라 카드의 [지우기]로 거둡니다')
+              ? translate('지금 판정입니다 · 처리된 판정이라 카드의 [지우기]로 거둡니다')
               : pressed === PRESSED_AS.SAVING
-                ? tr('이 판정을 저장하는 중입니다')
-                : tr('누르면 이 쪽의 판정으로 저장합니다 · 다시 누르면 거둡니다');
-  if (said) tip += ' · ' + tl(choice.confirm ? '단축키 {key} (두 번)' : '단축키 {key}', { key: keyNumber });
-  return html`<button type="button" class="vd-b hit${choice.confirm ? ' vd-confirm' : ''}${armed ? ' armed' : ''}" translate="no" data-act="${where === VD_WHERE.COMPOSER ? 'verdict-save' : 'pv-save'}" \
+                ? translate('이 판정을 저장하는 중입니다')
+                : translate('누르면 이 쪽의 판정으로 저장합니다 · 다시 누르면 거둡니다');
+  if (said)
+    tip += ' · ' + translateTemplate(choice.confirm ? '단축키 {key} (두 번)' : '단축키 {key}', { key: keyNumber });
+  return html`<button type="button" class="vd-b hit${choice.confirm ? ' vd-confirm' : ''}${armed ? ' armed' : ''}" translate="no" data-act="${where === VERDICT_PLACE.COMPOSER ? 'verdict-save' : 'pv-save'}" \
 data-key="${choice.key}" data-page="${page}" aria-label="${name}"${line ? html` aria-pressed="${on ? 'true' : 'false'}"` : ''}${on && pressed !== PRESSED_AS.SAVING ? html` aria-describedby="pv-on-${page}"` : ''}${on && pressed === PRESSED_AS.SAVING ? html` aria-description=""` : ''}\
 ${quiet || (armed && line) ? html` data-tip-press="${tip}"` : html` data-tip="${tip}"`}${keyNumber ? html` data-kn="${keyNumber}"` : ''}${said ? html` aria-keyshortcuts="${keyNumber}"` : ''}${off ? (line ? html` aria-disabled="true"` : html` disabled`) : ''}>\
-${on ? ic('check') : ''}<span class="lbl">${armed ? tl('{word} 확정', { word: choice.label }) : choice.label}</span></button>`;
+${on ? lucideIcon('check') : ''}<span class="lbl">${armed ? translateTemplate('{word} 확정', { word: choice.label }) : choice.label}</span></button>`;
 }
 // A page line's word state (verdictButton's `pressed`): not pressed, or pressed as the person's own open verdict (a
 // press takes it back), someone else's, a handled one (neither is taken back from the line), or the word a save on the
@@ -626,7 +638,7 @@ function verdictPress(button: HTMLElement, how?: string) {
     verdicts = docVerdicts(),
     choice = verdicts && verdicts.choices.find((x) => x.key === key);
   if (!choice || button.getAttribute('aria-disabled') === 'true' || viewerBlocked()) return;
-  if (where !== VD_WHERE.COMPOSER) {
+  if (where !== VERDICT_PLACE.COMPOSER) {
     pressPageVerdict(choice, page, how);
     return;
   }
@@ -652,7 +664,7 @@ function verdictPress(button: HTMLElement, how?: string) {
 // - Any other word saves (savePageVerdict), a confirm word on its second press.
 function pressPageVerdict(choice: VerdictChoice, page: number, how?: string) {
   const key = choice.key,
-    where = VD_WHERE.PAGE,
+    where = VERDICT_PLACE.PAGE,
     armed = isArmedHere(key, where, page) && !!ARMED_VERDICT && armStillHolds(ARMED_VERDICT);
   const arm = () => {
     const focused = document.activeElement as HTMLElement | null;
@@ -684,14 +696,14 @@ function pressPageVerdict(choice: VerdictChoice, page: number, how?: string) {
       return;
     } // by a key: the focus goes to the line's [되돌리기]
     lineNote(
-      tl('지금 판정 #{id} {word} 그대로 · {why} — {target}', {
+      translateTemplate('지금 판정 #{id} {word} 그대로 · {why} — {target}', {
         id: cur.id,
         word: choice.label,
         target: pageTargetShort(page),
         why:
           pressedAsOf(cur) === PRESSED_AS.HANDLED
-            ? tr('처리된 판정은 카드의 [지우기]로 거둡니다')
-            : tr('다른 사람의 판정은 여기서 거두지 않습니다'),
+            ? translate('처리된 판정은 카드의 [지우기]로 거둡니다')
+            : translate('다른 사람의 판정은 여기서 거두지 않습니다'),
       }),
       NOTICE_KIND.INFO,
       null,
@@ -725,15 +737,15 @@ function selectionTargetName(selection: Selection) {
   const figureRoot = figureVerdictRoot(selection);
   if (figureRoot) return figureName(selection.page, figureRoot);
   return isRegion(selection)
-    ? tl('{page}쪽 영역', { page: selection.page })
-    : selection.name + ' ' + rng(selection.lo, selection.hi);
+    ? translateTemplate('{page}쪽 영역', { page: selection.page })
+    : selection.name + ' ' + lineRange(selection.lo, selection.hi);
 }
 // A figure's name for a person: its title in the map (meta pages[].title, '[후보] PL26 · …'), else '그림 <id>', with
 // its page: '5쪽 · [후보] PL26 · …'. The title is only taken while that page still shows the figure.
 function figureName(page: number, root: string) {
   const facts = META && Array.isArray(META.pages) ? META.pages[page - 1] : null,
     title = facts && facts.figure === root && facts.title ? facts.title : '';
-  return tl('{page}쪽', { page }) + ' · ' + (title || tl('그림 {id}', { id: root }));
+  return translateTemplate('{page}쪽', { page }) + ' · ' + (title || translateTemplate('그림 {id}', { id: root }));
 }
 // A figure's short name: its map title ('[후보] PL26 · …') while page `page` still shows it, else its id. For the
 // composer's lead, the floating line and the status line's undo, which say which figure a verdict is for before and
@@ -748,7 +760,7 @@ function pageTargetShort(page: number) {
   const facts = META && Array.isArray(META.pages) ? META.pages[page - 1] : null;
   return META && isFigureKind(META.kind) && facts && typeof facts.figure === 'string'
     ? figureShort(page, facts.figure)
-    : tl('{page}쪽', { page });
+    : translateTemplate('{page}쪽', { page });
 }
 // The figure a figure document's selection is about - the root of its element's path - or null: not a figure document,
 // or a pick without an element (a map it could not read).
@@ -820,16 +832,16 @@ function renderVerdictRow() {
     !$('#composer').hidden &&
     !(selection && isFigureKind(docKindOf(selection.doc || DOC || '')) && !pageTakesVerdict(selection.page));
   row.hidden = !show;
-  if (ARMED_VERDICT && ARMED_VERDICT.where === VD_WHERE.COMPOSER && (!show || !armStillHolds(ARMED_VERDICT)))
+  if (ARMED_VERDICT && ARMED_VERDICT.where === VERDICT_PLACE.COMPOSER && (!show || !armStillHolds(ARMED_VERDICT)))
     disarmVerdict(false);
   if (!verdicts || !show) return;
   const why =
     COMPOSE.picking && !selection
-      ? tr('위치를 찾는 중입니다')
-      : KIND_NEW === KIND_REQ.QUESTION
-        ? tr('질문에는 판정을 붙이지 않습니다 — 아래에서 [수정 요청]을 고릅니다')
-        : SG.on
-          ? tr('판정을 저장하려면 [제안 수정]을 끕니다')
+      ? translate('위치를 찾는 중입니다')
+      : KIND_NEW === REQUEST_KIND.QUESTION
+        ? translate('질문에는 판정을 붙이지 않습니다 — 아래에서 [수정 요청]을 고릅니다')
+        : SUGGEST_DRAFT.on
+          ? translate('판정을 저장하려면 [제안 수정]을 끕니다')
           : '';
   const focused = document.activeElement as HTMLElement | null,
     inRow = !!focused && row.contains(focused);
@@ -837,16 +849,16 @@ function renderVerdictRow() {
   // whatever element is selected: a panel that shows another figure is still this page's figure's verdict.
   const figureRoot = selection ? figureVerdictRoot(selection) : null,
     mark = '\u0001',
-    parts = tl('{name} 전체', { name: mark }).split(mark);
+    parts = translateTemplate('{name} 전체', { name: mark }).split(mark);
   const scope =
     figureRoot && selection
       ? html`<span class="vd-scope"> · ${parts[0]}<span class="vd-fig" translate="no">${figureShort(selection.page, figureRoot)}</span>${parts[1] || ''}</span>`
       : isFigureKind(docKindOf((selection && selection.doc) || DOC || '')) && !selection
-        ? html`<span class="vd-scope"> · ${tr('그림 전체')}</span>`
+        ? html`<span class="vd-scope"> · ${translate('그림 전체')}</span>`
         : '';
   setHtml(
     row,
-    html`<span id="c-verdict-l" class="vd-l">${tr('판정 바로 저장')}${scope}</span><span class="vd-btns">${verdicts.choices.map((choice) => verdictButton(choice, VD_WHERE.COMPOSER, 0, selection ? selectionTargetName(selection) : '', !!why || !selection || COMPOSE.saving))}</span>\
+    html`<span id="c-verdict-l" class="vd-l">${translate('판정 바로 저장')}${scope}</span><span class="vd-btns">${verdicts.choices.map((choice) => verdictButton(choice, VERDICT_PLACE.COMPOSER, 0, selection ? selectionTargetName(selection) : '', !!why || !selection || COMPOSE.saving))}</span>\
 ${why ? html`<span class="vd-why" id="c-verdict-why">${why}</span>` : ''}`,
   );
   if (why) row.setAttribute('aria-describedby', 'c-verdict-why');
@@ -884,9 +896,9 @@ function verdictDropped() {
   if (!banner || !banner.save || $('#composer').hidden) return;
   bannerNote(
     NOTICE_HOST.COMPOSER,
-    tl('{what} 실패', { what: tr('핀 저장') }) +
+    translateTemplate('{what} 실패', { what: translate('핀 저장') }) +
       ' — ' +
-      tr('선택했던 판정은 해제됐습니다 — 판정으로 저장하려면 판정 버튼을 다시 누릅니다'),
+      translate('선택했던 판정은 해제됐습니다 — 판정으로 저장하려면 판정 버튼을 다시 누릅니다'),
     NOTICE_KIND.ERR,
     null,
     { save: true, source: banner.source },
@@ -923,7 +935,7 @@ function verdictUndo(id: number): () => Promise<boolean> {
       target = was ? pageTargetOf(was, META ? META.kind : undefined) : null;
     if (draft && key)
       lineNote(
-        tl('판정 #{id} {word} 저장 되돌림 · 쓰던 이유 보관 — {target}', {
+        translateTemplate('판정 #{id} {word} 저장 되돌림 · 쓰던 이유 보관 — {target}', {
           id,
           word: verdictLabel(key),
           target: target ? pageTargetShort(target.page) : '#' + id,
@@ -931,7 +943,7 @@ function verdictUndo(id: number): () => Promise<boolean> {
         NOTICE_KIND.OK,
         {
           label: '되돌리기',
-          tip: T.undo,
+          tip: TIP_TEXT.undo,
           wait: true,
           fn: async () => {
             WITHDRAWN_PINS.delete(id);
@@ -1202,11 +1214,16 @@ async function savePageVerdict(
   };
   // Said on the status line with what it was for, result first, and under the pressed line.
   const failed = (why: string) => {
-    lineNote(tl('판정 저장 실패 · {why} — {target}', { why, target: context.target }), NOTICE_KIND.ERR, null, {
-      source: 'page-verdict',
-      literal: true,
-    });
-    fail(tl('{what} 실패', { what: tr('판정 저장') }) + ' — ' + why);
+    lineNote(
+      translateTemplate('판정 저장 실패 · {why} — {target}', { why, target: context.target }),
+      NOTICE_KIND.ERR,
+      null,
+      {
+        source: 'page-verdict',
+        literal: true,
+      },
+    );
+    fail(translateTemplate('{what} 실패', { what: translate('판정 저장') }) + ' — ' + why);
   };
   let saved = false,
     got = 0;
@@ -1269,13 +1286,13 @@ async function savePageVerdict(
       lineNote('이 그림은 쪽 판정을 받지 못합니다 — 그림 위를 끌어 고른 뒤 판정합니다', NOTICE_KIND.WARN, null, {
         source: 'page-verdict',
       });
-      fail(tr('이 그림은 쪽 판정을 받지 못합니다 — 그림 위를 끌어 고른 뒤 판정합니다'));
+      fail(translate('이 그림은 쪽 판정을 받지 못합니다 — 그림 위를 끌어 고른 뒤 판정합니다'));
       return;
     }
     Object.assign(body, {
       note: '',
       doc: context.doc || undefined,
-      kind_req: KIND_REQ.FIX,
+      kind_req: REQUEST_KIND.FIX,
       assignee: ASSIGNEE_AGENT,
       verdict: key,
     });
@@ -1294,16 +1311,20 @@ async function savePageVerdict(
     saved = true;
     got = id;
     sourceOk('page-verdict');
-    if (SEC_SEEN.open) SEC_SEEN.open.add(id); // my own new pin is never 'new' on a collapsed header
+    if (SECTION_SEEN.open) SECTION_SEEN.open.add(id); // my own new pin is never 'new' on a collapsed header
     const chip = undoNote(
       NOTICE_PLACE.CHIP,
-      tl('#{id} {word} 판정 저장됨 · {target} — 되돌리면 판정을 거둡니다', {
+      translateTemplate('#{id} {word} 판정 저장됨 · {target} — 되돌리면 판정을 거둡니다', {
         id,
         word: verdictLabel(key, context.doc),
         target: context.target,
       }),
       { label: '되돌리기', wait: true, fn: verdictUndo(id) },
-      { pin: id, pending: true, label: tl('#{id} 저장됨 · {word}', { id, word: verdictLabel(key, context.doc) }) },
+      {
+        pin: id,
+        pending: true,
+        label: translateTemplate('#{id} 저장됨 · {word}', { id, word: verdictLabel(key, context.doc) }),
+      },
     );
     // the reason popover: a draft on this line moves to the new verdict
     if (here()) followSaveWithReason(page, id, key, !!byKeyboard, previousId);
@@ -1312,7 +1333,8 @@ async function savePageVerdict(
     if (here()) showPressedHint(page);
   } catch (error) {
     const x = error as ApiError;
-    if (!saved) failed(x && x.status ? (x.data && errText(x.data)) || 'HTTP ' + x.status : tr('서버에 닿지 않습니다'));
+    if (!saved)
+      failed(x && x.status ? (x.data && errText(x.data)) || 'HTTP ' + x.status : translate('서버에 닿지 않습니다'));
   } finally {
     document.removeEventListener('focusin', moved);
     SAVING_LINES.delete(slot);
@@ -1362,7 +1384,7 @@ async function savePageVerdict(
 // next to the buttons always says which figure a press decides. A view-only PDF's page is its page alone.
 function pageLineName(page: number): { id: string; rest: string } {
   const facts = META && Array.isArray(META.pages) ? META.pages[page - 1] : null,
-    at = tl('{page}쪽', { page });
+    at = translateTemplate('{page}쪽', { page });
   if (!META || !isFigureKind(META.kind) || !facts || typeof facts.figure !== 'string') return { id: at, rest: '' };
   const title = facts.title ? String(facts.title) : '';
   if (!title) return { id: at + ' · ' + facts.figure, rest: '' };
@@ -1418,10 +1440,10 @@ function afterVerdictRestore(id: number) {
     const currentKey = verdictOf(cur) || '',
       key = verdictOf(pin) || '';
     lineNote(
-      tl('판정 #{id} {word} 되살림 · 지금 판정은 {owner} #{cur} {now} — {target}', {
+      translateTemplate('판정 #{id} {word} 되살림 · 지금 판정은 {owner} #{cur} {now} — {target}', {
         id,
         word: verdictLabel(key),
-        owner: isMe(cur.author) ? tr('내') : tl('{name}의', { name: who(cur.author) }),
+        owner: isMe(cur.author) ? translate('내') : translateTemplate('{name}의', { name: who(cur.author) }),
         cur: cur.id,
         now: verdictLabel(currentKey),
         target: pageTargetShort(target.page),
@@ -1496,13 +1518,15 @@ async function cancelVerdictPin(id: number, page: number, had: boolean, byKey?: 
     const now = (pageVerdictPins().get(page) || [])[0],
       nowKey = now && verdictOf(now);
     const rest =
-      now && nowKey ? tl('지금 판정 #{id} {word}', { id: now.id, word: verdictLabel(nowKey) }) : tr('남은 판정 없음');
+      now && nowKey
+        ? translateTemplate('지금 판정 #{id} {word}', { id: now.id, word: verdictLabel(nowKey) })
+        : translate('남은 판정 없음');
     const notice = lineNote(
-      tl('판정 #{id} {word} 취소 · {rest} — {target}', { id, word: verdictLabel(key), rest, target }),
+      translateTemplate('판정 #{id} {word} 취소 · {rest} — {target}', { id, word: verdictLabel(key), rest, target }),
       NOTICE_KIND.OK,
       {
         label: '되돌리기',
-        tip: T.undo,
+        tip: TIP_TEXT.undo,
         wait: true,
         fn: async () => {
           WITHDRAWN_PINS.delete(id);
@@ -1606,15 +1630,15 @@ function pageLineHtml(page: number, list: Pin[] | undefined, verdicts: DocVerdic
   const mark = '\u0001',
     by = cur && pinState(cur) === PIN_STATE.OPEN && claimActive(cur) && cur.claimed_by ? who(cur.claimed_by) : '',
     state = cur ? verdictStateWord(cur) : '',
-    parts = by ? tl('처리 중({name})', { name: mark }).split(mark) : [state];
+    parts = by ? translateTemplate('처리 중({name})', { name: mark }).split(mark) : [state];
   const text =
     cur && key
-      ? html`<span class="pv-s">${tr('판정')} <span class="pin-ref pv-ref hit" role="link" tabindex="0" data-act="pin-ref" data-ref="${cur.id}" \
-aria-label="${tl('지금 판정 #{id} 카드로 갑니다', { id: cur.id })}" data-tip="${tl('핀 #{id} 로 갑니다', { id: cur.id })}">#${cur.id}</span> <b class="vd-w" translate="no">${verdictLabel(key)}</b></span>\
+      ? html`<span class="pv-s">${translate('판정')} <span class="pin-ref pv-ref hit" role="link" tabindex="0" data-act="pin-ref" data-ref="${cur.id}" \
+aria-label="${translateTemplate('지금 판정 #{id} 카드로 갑니다', { id: cur.id })}" data-tip="${translateTemplate('핀 #{id} 로 갑니다', { id: cur.id })}">#${cur.id}</span> <b class="vd-w" translate="no">${verdictLabel(key)}</b></span>\
 <span class="pv-sep" aria-hidden="true">·</span><span class="pv-st">${parts[0]}${by ? html`<span class="pv-by" translate="no">${by}</span>${parts[1] || ''}` : ''}</span>\
 ${other ? html`<span class="pv-sep" aria-hidden="true">·</span><span class="pv-au" translate="no">${who(cur.author)}</span> ${relSpan(cur.at, 'pv-at', '')}` : ''}\
 ${inlineReason(page, cur)}`
-      : html`<span class="pv-s pv-none">${tr(loading ? '판정 읽는 중…' : '판정 없음')}</span>${loading ? '' : inlineReason(page, undefined)}`;
+      : html`<span class="pv-s pv-none">${translate(loading ? '판정 읽는 중…' : '판정 없음')}</span>${loading ? '' : inlineReason(page, undefined)}`;
   // A save on the line that is out: what it saves - or the last word pressed meanwhile, which comes after it.
   const slot = pageLineSlot(page),
     next = NEXT_PRESS.get(slot),
@@ -1622,13 +1646,13 @@ ${inlineReason(page, cur)}`
     want = next ? next.key : savingKey !== undefined ? savingKey : key || null;
   const saving =
     savingKey !== undefined
-      ? html`<span class="pv-busy" role="status"><span class="pv-sep" aria-hidden="true">·</span> ${tl('{word} 저장 중…', { word: verdictLabel(want || savingKey) })}</span>`
+      ? html`<span class="pv-busy" role="status"><span class="pv-sep" aria-hidden="true">·</span> ${translateTemplate('{word} 저장 중…', { word: verdictLabel(want || savingKey) })}</span>`
       : '';
   // A confirm word armed on this line says how long it waits, beside it.
   const armed =
-    !!ARMED_VERDICT && ARMED_VERDICT.where === VD_WHERE.PAGE && ARMED_VERDICT.page === page ? ARMED_VERDICT : null;
+    !!ARMED_VERDICT && ARMED_VERDICT.where === VERDICT_PLACE.PAGE && ARMED_VERDICT.page === page ? ARMED_VERDICT : null;
   const armSay = armed
-    ? html`<span class="pv-arm"><span class="pv-sep" aria-hidden="true">·</span> ${tl('{sec}초 안에 한 번 더 누르면 저장', { sec: VERDICT_ARM_MS / 1000 })}</span>`
+    ? html`<span class="pv-arm"><span class="pv-sep" aria-hidden="true">·</span> ${translateTemplate('{sec}초 안에 한 번 더 누르면 저장', { sec: VERDICT_ARM_MS / 1000 })}</span>`
     : '';
   // [판정 취소]: a text action in the row (the viewer's link look, as the earlier link), after the state. It is its
   // verdict's own element (data-id): once that verdict goes the next one's is a new one, which a keyboard focus does
@@ -1639,8 +1663,8 @@ ${inlineReason(page, cur)}`
   const cancel =
     canCancel && cur
       ? html`<span class="pv-sep pv-cn" aria-hidden="true">·</span><button type="button" class="btn-ghost btn-sm pv-cancel pv-cn hit" data-act="pv-cancel" \
-data-ref="${cur.id}" data-id="${cur.id}" aria-label="${tl('판정 취소 — 내 판정 #{id}', { id: cur.id })}" \
-${lineTipAttribute(!!chip, tr('이 판정을 거둡니다. 핀은 휴지통으로 가고, 같은 대상에 앞선 판정이 있으면 그 판정이 다시 지금 판정이 됩니다. 상태 줄의 [되돌리기]가 되살립니다'))}${cancelWaits ? html` aria-disabled="true"` : ''}>${tr('판정 취소')}</button>`
+data-ref="${cur.id}" data-id="${cur.id}" aria-label="${translateTemplate('판정 취소 — 내 판정 #{id}', { id: cur.id })}" \
+${lineTipAttribute(!!chip, translate('이 판정을 거둡니다. 핀은 휴지통으로 가고, 같은 대상에 앞선 판정이 있으면 그 판정이 다시 지금 판정이 됩니다. 상태 줄의 [되돌리기]가 되살립니다'))}${cancelWaits ? html` aria-disabled="true"` : ''}>${translate('판정 취소')}</button>`
       : '';
   // The earlier link is short - '이전 2건' ('+2 earlier') - and never cut: where its line is tight (.pv-tight,
   // fitPageLines) it is its count alone, '+2' (data-n, components.css). Its name says it whole ('이전 판정 2건 · 새
@@ -1649,10 +1673,10 @@ ${lineTipAttribute(!!chip, tr('이 판정을 거둡니다. 핀은 휴지통으�
   // is): right after [✓ 채택 1]'s key digit on a stacked line, or after [판정 취소], a bare '+2' would read as a count
   // of that button's.
   const earlierCount = earlier.length,
-    earlierName = tl('이전 판정 {n}건 · 새 판정으로 대체됨', { n: earlierCount });
+    earlierName = translateTemplate('이전 판정 {n}건 · 새 판정으로 대체됨', { n: earlierCount });
   const early = earlierCount
     ? html`<span class="pv-sep pv-ea" aria-hidden="true">·</span><button type="button" class="btn-ghost btn-sm pv-early hit" data-act="pv-earlier" data-ref="${earlier[0].id}" data-n="${earlierCount}" aria-label="${earlierName}" \
-${lineTipAttribute(!!chip, earlierName + ' — ' + tr('이 쪽의 더 새 판정으로 대체되어 실행하지 않는 열린 판정 핀입니다. 누르면 그 카드로 갑니다'))}><span class="pv-early-w">${tl('이전 {n}건', { n: earlierCount })}</span></button>`
+${lineTipAttribute(!!chip, earlierName + ' — ' + translate('이 쪽의 더 새 판정으로 대체되어 실행하지 않는 열린 판정 핀입니다. 누르면 그 카드로 갑니다'))}><span class="pv-early-w">${translateTemplate('이전 {n}건', { n: earlierCount })}</span></button>`
     : '';
   // The reading page's line - the one that floats - names what it decides: '7쪽 · [후보] PL18 · …' (figureName), cut to
   // fit. Its two spans are on every line, hidden but on the reading one: the line's children keep their places when the
@@ -1666,7 +1690,7 @@ ${lineTipAttribute(!!chip, earlierName + ' — ' + tr('이 쪽의 더 새 판정
     ? html`<span class="pv-fig" translate="no"><span class="pv-fig-id">${lineName.id}</span>${isFigureKind(META ? META.kind : undefined) ? html`<span class="pv-fig-t">${lineName.rest}</span>` : ''}</span><span class="pv-sep pv-fig-sep" aria-hidden="true">·</span>`
     : html`<span class="pv-fig" translate="no"${isReadingLine ? '' : html` hidden`}><span class="pv-fig-id">${lineName.id}</span>${lineName.rest ? html`<span class="pv-fig-t">${' · ' + lineName.rest}</span>` : ''}</span><span class="pv-sep pv-fig-sep" aria-hidden="true"${isReadingLine ? '' : html` hidden`}>·</span>`;
   const keys = KEYED_PAGE === page,
-    target = tl('{page}쪽', { page }),
+    target = translateTemplate('{page}쪽', { page }),
     held = TAKEN_BACK_HOLD.get(slot),
     hold = held && held.until > Date.now() ? held.key : null;
   const pressedFor = (key: string) =>
@@ -1682,7 +1706,7 @@ ${lineTipAttribute(!!chip, earlierName + ' — ' + tr('이 쪽의 더 새 판정
   // (verdictButton's quiet).
   const said = (key: string) => !!panel && pressedFor(key) !== PRESSED_AS.NONE && pressedFor(key) !== PRESSED_AS.SAVING;
   const buttons = canVerdict()
-    ? html`<span class="vd-btns">${verdicts.choices.map((choice, index) => verdictButton(choice, VD_WHERE.PAGE, page, target, loading || choice.key === hold, keys ? index + 1 : 0, !!chip || said(choice.key), pressedFor(choice.key)))}</span>`
+    ? html`<span class="vd-btns">${verdicts.choices.map((choice, index) => verdictButton(choice, VERDICT_PLACE.PAGE, page, target, loading || choice.key === hold, keys ? index + 1 : 0, !!chip || said(choice.key), pressedFor(choice.key)))}</span>`
     : '';
   // The line's last failed save, said where it was pressed (LINE_SAVE_ERROR) - for the document and build on screen
   // only.
@@ -1695,7 +1719,7 @@ ${lineTipAttribute(!!chip, earlierName + ' — ' + tr('이 쪽의 더 새 판정
     undo =
       lineUndo && NOTICES.has(lineUndo.n) && canVerdict()
         ? html`<span class="pv-sep pv-un" aria-hidden="true">·</span><button type="button" class="btn-ghost btn-sm pv-undo pv-un hit" \
-data-act="pv-undo" data-id="u${lineUndo.id}" aria-label="${tl('되돌리기 — 거둔 판정 #{id}', { id: lineUndo.id })}">${tr('되돌리기')}</button>`
+data-act="pv-undo" data-id="u${lineUndo.id}" aria-label="${translateTemplate('되돌리기 — 거둔 판정 #{id}', { id: lineUndo.id })}">${translate('되돌리기')}</button>`
         : '';
   if (lineUndo && !undo) LINE_UNDO_OFFERS.delete(slot);
   const hint = pressedWordHint(
@@ -1727,10 +1751,10 @@ function pressedWordHint(page: number, verdicts: DocVerdicts, key: string | null
   if (!choice || !pressed || pressed === PRESSED_AS.SAVING || !canVerdict()) return '';
   const say =
     pressed === PRESSED_AS.MINE
-      ? tl('지금 {word} 판정 · 다시 누르면 판정 취소', { word: choice.label })
+      ? translateTemplate('지금 {word} 판정 · 다시 누르면 판정 취소', { word: choice.label })
       : pressed === PRESSED_AS.OTHER
-        ? tl('지금 {word} 판정 · 다른 사람의 판정이라 그대로 둡니다', { word: choice.label })
-        : tl('지금 {word} 판정 · 처리된 판정이라 그대로 둡니다', { word: choice.label });
+        ? translateTemplate('지금 {word} 판정 · 다른 사람의 판정이라 그대로 둡니다', { word: choice.label })
+        : translateTemplate('지금 {word} 판정 · 처리된 판정이라 그대로 둡니다', { word: choice.label });
   return html`<span class="pv-onhint" id="pv-on-${page}" translate="no">${say}</span>`;
 }
 // A press made word key page `page`'s verdict: its line shows the pressed word's context for PRESSED_HINT_MS.
@@ -1757,7 +1781,7 @@ function fillPageLine(line: HTMLElement, page: number, list: Pin[] | undefined, 
   else delete line.dataset.pin;
   (list || []).forEach((pin) => SHOWN_ON_PAGE_LINES.add(pin.id));
   line.setAttribute('role', 'group');
-  line.setAttribute('aria-label', tl('{page}쪽 판정', { page }));
+  line.setAttribute('aria-label', translateTemplate('{page}쪽 판정', { page }));
   // a save's undo chip (drawChips) stays on its line; drawChips moves it if it is another pin's
   const chip = line.querySelector(':scope>.nt-chip');
   // While its save chip stands or its reason popover is open the line draws no descriptions: no box over either.
@@ -1882,7 +1906,7 @@ function sizePageLines() {
     fitPageLines(lines);
     return;
   } // the panel keeps its own width
-  const room = innerW() - insetRight,
+  const room = pdfAreaInnerWidth() - insetRight,
     areaRect = area.getBoundingClientRect(),
     fitted = area.scrollWidth <= area.clientWidth + 1;
   const end =
@@ -2195,7 +2219,14 @@ function measureStateNeed(line: HTMLElement) {
       .reduce((longest, label) => (label.length > longest.length ? label : longest), ''),
     fine = matchMedia('(pointer:fine)').matches,
     number = '#' + '0'.repeat(String(topPinId() + 1).length);
-  const key = [getComputedStyle(line).fontSize, tr('판정'), word, MQ_COARSE.matches, fine, number].join('|');
+  const key = [
+    getComputedStyle(line).fontSize,
+    translate('판정'),
+    word,
+    COARSE_POINTER_QUERY.matches,
+    fine,
+    number,
+  ].join('|');
   if (STATE_NEED.key === key) return STATE_NEED.w;
   const probe = document.createElement('div');
   probe.className = 'pv';
@@ -2207,10 +2238,10 @@ function measureStateNeed(line: HTMLElement) {
   const state = (byKey: boolean) => {
     setHtml(
       probe,
-      html`<span class="pv-t"><span class="pv-s">${tr('판정')} <span class="pin-ref pv-ref hit">${number}</span> <b class="vd-w">${word}</b></span><span class="pv-sep">·</span>\
-<span class="pv-st">${tr('처리 대기')}</span><span class="pv-ra"><span class="pv-sep">·</span><button type="button" class="btn-ghost btn-sm pv-add hit" tabindex="-1">\
-${byKey ? html`<kbd class="pv-kbd">Enter</kbd> ${tr('이유 쓰기')}` : tr('이유 추가')}</button></span>\
-<span class="pv-sep pv-cn">·</span><button type="button" class="btn-ghost btn-sm pv-cancel pv-cn hit" tabindex="-1">${tr('판정 취소')}</button></span>`,
+      html`<span class="pv-t"><span class="pv-s">${translate('판정')} <span class="pin-ref pv-ref hit">${number}</span> <b class="vd-w">${word}</b></span><span class="pv-sep">·</span>\
+<span class="pv-st">${translate('처리 대기')}</span><span class="pv-ra"><span class="pv-sep">·</span><button type="button" class="btn-ghost btn-sm pv-add hit" tabindex="-1">\
+${byKey ? html`<kbd class="pv-kbd">Enter</kbd> ${translate('이유 쓰기')}` : translate('이유 추가')}</button></span>\
+<span class="pv-sep pv-cn">·</span><button type="button" class="btn-ghost btn-sm pv-cancel pv-cn hit" tabindex="-1">${translate('판정 취소')}</button></span>`,
     );
     const stateRow = probe.firstElementChild as HTMLElement,
       addButton = stateRow.querySelector('.pv-add') as HTMLElement;
@@ -2224,7 +2255,7 @@ ${byKey ? html`<kbd class="pv-kbd">Enter</kbd> ${tr('이유 쓰기')}` : tr('이
     width = Math.ceil(Math.max(clickState[0], keyState[0]));
   setHtml(
     probe,
-    html`<span class="vd-btns"><button type="button" class="vd-b" aria-pressed="true" data-kn="1" tabindex="-1">${ic('check')}<span class="lbl">${word}</span></button>\
+    html`<span class="vd-btns"><button type="button" class="vd-b" aria-pressed="true" data-kn="1" tabindex="-1">${lucideIcon('check')}<span class="lbl">${word}</span></button>\
 <button type="button" class="vd-b" aria-pressed="false" data-kn="1" tabindex="-1"><span class="lbl">${word}</span></button></span>`,
   );
   const widths = [...probe.querySelectorAll('.vd-b')].map((x) => x.getBoundingClientRect().width),
@@ -2301,7 +2332,7 @@ function earlierLinkRoom(state: Element): number {
 function holdsRows(line: HTMLElement) {
   const page = Number(line.dataset.page) || 0;
   return (
-    (!!ARMED_VERDICT && ARMED_VERDICT.where === VD_WHERE.PAGE && ARMED_VERDICT.page === page) ||
+    (!!ARMED_VERDICT && ARMED_VERDICT.where === VERDICT_PLACE.PAGE && ARMED_VERDICT.page === page) ||
     SAVING_LINES.has(pageLineSlot(page))
   );
 }
@@ -2531,7 +2562,7 @@ function drawPageVerdicts() {
   const on = !!focused && !!focused.closest ? (focused.closest('.pv') as HTMLElement | null) : null,
     had = !!on,
     onPage = on ? Number(on.dataset.page) || 0 : 0;
-  if (ARMED_VERDICT && ARMED_VERDICT.where === VD_WHERE.PAGE && (!verdicts || !armStillHolds(ARMED_VERDICT)))
+  if (ARMED_VERDICT && ARMED_VERDICT.where === VERDICT_PLACE.PAGE && (!verdicts || !armStillHolds(ARMED_VERDICT)))
     disarmVerdict(false);
   SHOWN_ON_PAGE_LINES = new Set();
   // A document with no page lines has no reason field either: a session left from the one before (or from this one
@@ -2710,8 +2741,8 @@ function watchFarLines(lines: HTMLElement[], viewHeight: number) {
   });
 }
 // The PDF area's height can change with no line fitted again - a window made only shorter while a scale is saved keeps
-// that scale (autoW), so sizePageLines does not run: the margin follows it here, so far still means a view's height
-// away.
+// that scale (autoFitWidth), so sizePageLines does not run: the margin follows it here, so far still means a view's
+// height away.
 if (window.ResizeObserver && window.IntersectionObserver)
   new ResizeObserver(() => {
     const viewHeight = $('#left').clientHeight;
@@ -2761,7 +2792,7 @@ function stickReadingLine() {
   // it hides.
   const viewport = window.visualViewport,
     keyboardOver =
-      viewport && MQ_COARSE.matches
+      viewport && COARSE_POINTER_QUERY.matches
         ? Math.max(0, Math.round(areaRect.top + area.clientHeight - (viewport.offsetTop + viewport.height)))
         : 0;
   if (area.style.getPropertyValue('--pv-kb-over') !== keyboardOver + 'px')
@@ -2773,7 +2804,12 @@ function stickReadingLine() {
   if (REASON_SESSION && REASON_SESSION.page === readingPage) REASON_SESSION.seen = true;
   else if (REASON_SESSION && REASON_SESSION.seen) leaveReason(); // the reading page left the field's page: moving on
   // A key's armed confirm word belongs to the page it was read on: another reading page lets it go.
-  if (ARMED_VERDICT && ARMED_VERDICT.kbd && ARMED_VERDICT.where === VD_WHERE.PAGE && ARMED_VERDICT.page !== readingPage)
+  if (
+    ARMED_VERDICT &&
+    ARMED_VERDICT.kbd &&
+    ARMED_VERDICT.where === VERDICT_PLACE.PAGE &&
+    ARMED_VERDICT.page !== readingPage
+  )
     disarmVerdict(false, true);
   // The new reading page stays where it is on screen without a scroll: a stacked line keeps the row of the figure's
   // name it shows while it is the reading line (components.css), so the line the reading page leaves keeps its height.
@@ -3195,7 +3231,7 @@ function verdictKey(event: KeyboardEvent) {
     });
     return;
   }
-  if (ARMED_VERDICT && ARMED_VERDICT.kbd && ARMED_VERDICT.where === VD_WHERE.PAGE && ARMED_VERDICT.page !== at)
+  if (ARMED_VERDICT && ARMED_VERDICT.kbd && ARMED_VERDICT.where === VERDICT_PLACE.PAGE && ARMED_VERDICT.page !== at)
     disarmVerdict(true, true);
   // The panel shows the page under the reading line at the key, also before the frame that would show it
   // (verdict-panel.ts).
@@ -3239,7 +3275,7 @@ const HAND_ON_PAGES = () => {
 // A script is about to scroll the PDF area to show something - a search hit, a mark, a box, a line, another document -
 // so a jump on its way is over: its guard comes down, and its settling, which would glide the pages back, lets go. No
 // input need come before: a search hit lands when the PDF's text has been read. A write that only keeps what is on
-// screen across a layout change does not come here (restoreAnchor, letLineBlocks, setSelMode, zoomRestore,
+// screen across a layout change does not come here (restoreAnchor, letLineBlocks, setSelectMode, zoomRestore,
 // settleBesideTurn): it moves with the place, so the settling stays right. test_viewer_scroll_writes.py holds the list:
 // a new scripted scroll has to be put in it. Given what it shows as a place, the pages settle there when a glide was on
 // its way: the write stops it a frame or two late.

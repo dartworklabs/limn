@@ -31,7 +31,9 @@ from helpers import ps
 from helpers_browser import BrowserBase, settle, until
 from helpers_figure import BUILD1, viewer_build
 
-DRAWN = "typeof MD!=='undefined'&&MD.shown===DOC&&!!document.querySelector('#md')&&!MD.job"
+DRAWN = (
+    "typeof MARKDOWN_VIEW!=='undefined'&&MARKDOWN_VIEW.shown===DOC&&!!document.querySelector('#md')&&!MARKDOWN_VIEW.job"
+)
 RLO, LRI, PDI, ZWSP, ZWJ, WJ, BOM = "‮", "⁦", "⁩", "​", "‍", "⁠", "﻿"
 TROJAN = 'if role != "admin' + RLO + " " + LRI + "# skip check" + PDI + " " + LRI + '":'
 LINES = [
@@ -108,7 +110,7 @@ class Display(HiddenBase):
         the code line's four, the HTML placeholder's, the decoded entity's and the alt text's - and none for the file's
         first byte-order mark or the emoji's joiners. Each is an isolating span; the notice counts them; each line's text
         is its source's characters; on the code line and the paragraph the boxes stand left to right in source order.
-        Mutation: draw text nodes unmarked in mdText (if(true) for the CC_ANY test) -> fails."""
+        Mutation: draw text nodes unmarked in drawText (if(true) for the ANY_HIDDEN test) -> fails."""
         page = self.open_md()
         boxes = page.evaluate(BOXES)
         self.assertEqual(
@@ -162,7 +164,7 @@ class Display(HiddenBase):
             ),
             0,
         )
-        lines = page.evaluate("mdLineEls().map(e=>+(e.dataset.line||e.dataset.lo))")
+        lines = page.evaluate("lineElements().map(e=>+(e.dataset.line||e.dataset.lo))")
         self.assertEqual(lines, sorted(lines))
         page.locator("#md [data-line='5']").click()
         until(page, "COMPOSE.current&&COMPOSE.current.lo===5")
@@ -172,7 +174,7 @@ class Display(HiddenBase):
 
     def test_the_outline_and_the_strip_name_a_headings_characters_as_text(self):
         """The heading's outline row and the section strip read its override and isolates as ⟨U+…⟩, with no raw character;
-        the heading's slug and its in-document link still work. Mutation: give mdOutline the raw title -> fails."""
+        the heading's slug and its in-document link still work. Mutation: give drawOutline the raw title -> fails."""
         page = self.open_md()
         row = page.evaluate("[...document.querySelectorAll('#outline-items .ol-name')].map(e=>e.textContent)")
         self.assertEqual(row, ["제목⟨U+202E⟩뒤집힘 ⟨U+2066⟩끝⟨U+2069⟩"])
@@ -219,7 +221,7 @@ class FrontAndMath(HiddenBase):
         """Boxes on the front matter line (override and pop), in the inline math (override) and on the display math line
         (zero-width space); each line's text is its source's; a tap on the front matter line quotes that line's exact
         characters and not the head line the viewer writes; a tap on the display math quotes its line's. Mutations: give
-        mdFront, mdMath or the math_inline case its text with textContent again -> that line's boxes are missing,
+        drawFrontMatter, drawMathBlock or the math_inline case its text with textContent again -> that line's boxes are missing,
         fails."""
         page = self.open_md()
         self.assertEqual(page.evaluate(BOXES), [[2, "U+202E"], [2, "U+2069"], [5, "U+202E"], [8, "U+200B"]])
@@ -249,25 +251,25 @@ class FrontAndMathFirefox(FrontAndMath):
 
 
 class Budget(HiddenBase):
-    """Boxes are elements: they count against MD_LIMITS.elements, and the build pauses among them."""
+    """Boxes are elements: they count against MARKDOWN_LIMITS.elements, and the build pauses among them."""
 
     DOC_TEXT = "# 한도\n\n" + ("a" + ZWSP) * 20_000 + "\n"
 
     def test_boxes_within_the_limit_are_drawn_with_pauses_and_past_it_the_line_view_names_them(self):
-        """20,000 zero-width spaces in one paragraph: drawn (no data-limit), every one a box, under MD_LIMITS.elements
-        elements, with a pause to the browser at least every MD_LIMITS.chunk of them. 40,000: past the limit, the line view
+        """20,000 zero-width spaces in one paragraph: drawn (no data-limit), every one a box, under MARKDOWN_LIMITS.elements
+        elements, with a pause to the browser at least every MARKDOWN_LIMITS.chunk of them. 40,000: past the limit, the line view
         (data-limit elements) names every one as ⟨U+200B⟩ in plain text, no box, its notice saying so. Mutation: count no
-        element for a box in mdBox -> 40,000 boxes are drawn, fails."""
+        element for a box in markedBox -> 40,000 boxes are drawn, fails."""
         page = self.open_md()
         got = page.evaluate(
             "(()=>{const md=document.querySelector('#md');return {limit:md.dataset.limit||null,boxes:md.querySelectorAll('.cc').length,"
-            "els:md.querySelectorAll('*').length,max:MD_LIMITS.elements};})()"
+            "els:md.querySelectorAll('*').length,max:MARKDOWN_LIMITS.elements};})()"
         )
         self.assertEqual((got["limit"], got["boxes"]), (None, 20_000))
         self.assertLess(got["els"], got["max"])
         pauses = page.evaluate(
-            "(async()=>{const y=mdYield; let n=0; window.mdYield=()=>{n++; return y();};"
-            "const res=await mdParse(MD.lines.join('\\n')); await mdRenderAll(res.tokens,()=>false); window.mdYield=y; return n;})()"
+            "(async()=>{const y=yieldToBrowser; let n=0; window.yieldToBrowser=()=>{n++; return y();};"
+            "const res=await parseMarkdown(MARKDOWN_VIEW.lines.join('\\n')); await renderDocument(res.tokens,()=>false); window.yieldToBrowser=y; return n;})()"
         )
         self.assertGreaterEqual(pauses, 20_000 // 2_000)
         self.md.write_text("# 한도\n\n" + ("a" + ZWSP) * 40_000 + "\n", encoding="utf-8")
@@ -292,15 +294,15 @@ class AltBudget(HiddenBase):
 
     def test_a_long_alt_text_yields_and_a_newer_draw_stops_it(self):
         """10,000 zero-width spaces in the alt text of a remote image (one inline child): all drawn as boxes in its
-        .md-img, with a pause to the browser at least every MD_LIMITS.chunk of them; a build whose draw goes stale at its
-        first pause stops there, with fewer than half of the boxes built. Mutation: draw the alt text with mdTextNow (no
+        .md-img, with a pause to the browser at least every MARKDOWN_LIMITS.chunk of them; a build whose draw goes stale at its
+        first pause stops there, with fewer than half of the boxes built. Mutation: draw the alt text with drawTextNow (no
         pause) -> no pause inside it and every box built before the stale draw stops, fails."""
         page = self.open_md()
         self.assertEqual(page.evaluate("document.querySelectorAll('#md .md-img .cc').length"), 10_000)
         got = page.evaluate(
-            "(async()=>{const y=mdYield; let n=0; window.mdYield=()=>{n++; return y();};"
-            "const res=await mdParse(MD.lines.join('\\n')); await mdRenderAll(res.tokens,()=>false); const pauses=n; n=0;"
-            "const root=await mdRenderAll(res.tokens,()=>n>0); window.mdYield=y; return {pauses,stopped:root===null,built:MD.marked};})()"
+            "(async()=>{const y=yieldToBrowser; let n=0; window.yieldToBrowser=()=>{n++; return y();};"
+            "const res=await parseMarkdown(MARKDOWN_VIEW.lines.join('\\n')); await renderDocument(res.tokens,()=>false); const pauses=n; n=0;"
+            "const root=await renderDocument(res.tokens,()=>n>0); window.yieldToBrowser=y; return {pauses,stopped:root===null,built:MARKDOWN_VIEW.marked};})()"
         )
         self.assertGreaterEqual(got["pauses"], 10_000 // 2_000)
         self.assertTrue(got["stopped"])
@@ -344,7 +346,7 @@ class Nul(HiddenBase):
         each as U+FFFD with no box, so the document is the line view (data-limit nul) under a line saying why; each NUL is
         a box named ␀ on its own line, the notice counts three, no U+FFFD is drawn, each line's text is its source's, a
         selection of line 3 copies the U+0000, and a click on it picks line 3 with the U+0000 in the pin's quote.
-        Mutation: drop the NUL test before mdParse in mdBuild -> the drawn document shows U+FFFD and no box, fails."""
+        Mutation: drop the NUL test before parseMarkdown in buildMarkdownDoc -> the drawn document shows U+FFFD and no box, fails."""
         page = self.open_md()
         lines = self.DOC_TEXT.split("\n")
         got = page.evaluate(

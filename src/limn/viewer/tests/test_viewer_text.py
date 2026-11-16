@@ -35,7 +35,7 @@ from helpers_browser import BrowserBase, settle, until
 from helpers_figure import BUILD1, viewer_build
 
 # Resolves when the text document on screen is drawn (its view or a notice) and no draw is waiting.
-DRAWN = "typeof MD!=='undefined'&&MD.shown===DOC&&!!document.querySelector('#md')"
+DRAWN = "typeof MARKDOWN_VIEW!=='undefined'&&MARKDOWN_VIEW.shown===DOC&&!!document.querySelector('#md')"
 COACH_SEEN = "try{localStorage.setItem('pinPrefs',JSON.stringify({coach:{touch:1,mouse:1,sel:1}}));}catch(e){}"
 # Trojan Source (CVE-2021-42574): drawn as it is, line 3 reads as a comparison followed by a comment; in the source the
 # "comment" is inside the string. Line 6 heads a block whose header holds an override too.
@@ -159,12 +159,12 @@ class Limits(TextBase):
     TEXT = "a​" * 100_000 + "\nlast\n"
 
     def test_past_the_element_limit_the_view_names_them_as_text(self):
-        """The view is the names view (data-limit elements): no box, under MD_LIMITS.elements elements, line 1 names every
+        """The view is the names view (data-limit elements): no box, under MARKDOWN_LIMITS.elements elements, line 1 names every
         character as ⟨U+200B⟩ in plain text, line 2 is there, and the notice says why and that a copy gives the names."""
         page = self.open_tx()
         got = page.evaluate(
             "(()=>{const md=document.querySelector('#md'),l=md.querySelector(\"[data-line='1']\");"
-            "return {limit:md.dataset.limit,boxes:md.querySelectorAll('.cc').length,els:md.querySelectorAll('*').length,max:MD_LIMITS.elements,"
+            "return {limit:md.dataset.limit,boxes:md.querySelectorAll('.cc').length,els:md.querySelectorAll('*').length,max:MARKDOWN_LIMITS.elements,"
             "head:l.textContent.slice(0,22),count:(l.textContent.match(/\\u27e8U\\+200B\\u27e9/g)||[]).length,raw:l.textContent.includes('\\u200b'),"
             "last:md.querySelector(\"[data-line='2']\").textContent,note:md.querySelector('.tx-note[data-note=marks]').textContent};})()"
         )
@@ -176,15 +176,15 @@ class Limits(TextBase):
         self.assertIn("이름이 복사됩니다", got["note"])
 
     def test_the_build_pauses_inside_the_line_and_stops_for_a_newer_draw(self):
-        """txView yields to the browser at least once per MD_LIMITS.chunk characters of the repertoire inside one line:
+        """buildTextView yields to the browser at least once per MARKDOWN_LIMITS.chunk characters of the repertoire inside one line:
         over 20,000 of them, within the element limit, it draws every box; over 100,000 it ends in the names view; and a
         draw that turns stale after its third pause returns null at that pause."""
         page = self.open_tx()
         got = page.evaluate(
-            "(async()=>{const y=mdYield,keep=MD.lines; let n=0; window.mdYield=()=>{n++; return y();};"
-            "MD.lines=['a\\u200b'.repeat(20000)]; const b=await txView(()=>false,{}); const boxed=n; n=0; MD.lines=keep;"
-            "const v=await txView(()=>false,{}); const full=n; n=0; let k=0; const s=await txView(()=>++k>3,{});"
-            "window.mdYield=y; return {boxed,boxes:b&&b.querySelectorAll('.cc').length,boxLimit:b&&b.dataset.limit||null,"
+            "(async()=>{const y=yieldToBrowser,keep=MARKDOWN_VIEW.lines; let n=0; window.yieldToBrowser=()=>{n++; return y();};"
+            "MARKDOWN_VIEW.lines=['a\\u200b'.repeat(20000)]; const b=await buildTextView(()=>false,{}); const boxed=n; n=0; MARKDOWN_VIEW.lines=keep;"
+            "const v=await buildTextView(()=>false,{}); const full=n; n=0; let k=0; const s=await buildTextView(()=>++k>3,{});"
+            "window.yieldToBrowser=y; return {boxed,boxes:b&&b.querySelectorAll('.cc').length,boxLimit:b&&b.dataset.limit||null,"
             "full,limit:v&&v.dataset.limit,stale:s,pauses:n};})()"
         )
         self.assertEqual((got["boxes"], got["boxLimit"]), (20_000, None))
@@ -195,18 +195,18 @@ class Limits(TextBase):
 
 class MixedLimits(TextBase):
     """A line of 6,000 zero-width spaces and 49,999 plain lines after it: within the file's limits, but its boxes and its line
-    spans together pass MD_LIMITS.elements."""
+    spans together pass MARKDOWN_LIMITS.elements."""
 
     TEXT = "\u200b" * 6_000 + "\n" + "x\n" * 49_999
 
     def test_every_line_counts_against_the_element_limit(self):
-        """The view is the names view (data-limit elements, no box), under MD_LIMITS.elements elements, with all 50,000
+        """The view is the names view (data-limit elements, no box), under MARKDOWN_LIMITS.elements elements, with all 50,000
         lines on screen and line 1 naming its 6,000 characters as text."""
         page = self.open_tx()
         got = page.evaluate(
             "(()=>{const md=document.querySelector('#md'),l=md.querySelector(\"[data-line='1']\");"
             "return {limit:md.dataset.limit||null,boxes:md.querySelectorAll('.cc').length,els:md.querySelectorAll('*').length,"
-            "max:MD_LIMITS.elements,lines:md.querySelectorAll('.ln').length,count:(l.textContent.match(/\\u27e8U\\+200B\\u27e9/g)||[]).length};})()"
+            "max:MARKDOWN_LIMITS.elements,lines:md.querySelectorAll('.ln').length,count:(l.textContent.match(/\\u27e8U\\+200B\\u27e9/g)||[]).length};})()"
         )
         self.assertEqual((got["limit"], got["boxes"], got["lines"], got["count"]), ("elements", 0, 50_000, 6_000))
         self.assertLess(got["els"], got["max"])
@@ -272,7 +272,7 @@ class Suggestions(TextBase):
         page = self.open_tx()
         self.pick_line(page, 3)
         page.click("#c-sg-tg")
-        page.wait_for_function("SG.base!=null", timeout=5000)
+        page.wait_for_function("SUGGEST_DRAFT.base!=null", timeout=5000)
         settle(page)
         state = (
             "(()=>{const e=document.querySelector('#c-sg-cc');"
@@ -302,7 +302,7 @@ class Suggestions(TextBase):
         page = self.open_tx()
         self.pick_line(page, 5)
         page.click("#c-sg-tg")
-        page.wait_for_function("SG.base!=null", timeout=5000)
+        page.wait_for_function("SUGGEST_DRAFT.base!=null", timeout=5000)
         settle(page)
         state = (
             "(()=>{const e=document.querySelector('#c-sg-cc');"
@@ -496,7 +496,7 @@ class Touch(PickBase):
         """A long press makes a selection with no mouseup: a selection from `def save` into `fig.savefig`, as the handles
         leave it, is picked once it has rested (0.5 s) - lines 9-10 at the chosen-lines rung."""
         page = self.open_tx(**PHONE)
-        self.assertTrue(page.evaluate("MQ_COARSE.matches"))
+        self.assertTrue(page.evaluate("COARSE_POINTER_QUERY.matches"))
         page.evaluate(
             "(()=>{const ln=t=>[...document.querySelectorAll('#md .ln')].find(e=>e.textContent.includes(t)).firstChild,"
             "r=document.createRange(); r.setStart(ln('def save'),0); r.setEnd(ln('fig.savefig'),8);"
@@ -549,7 +549,7 @@ class Redrawing(PickBase):
         page = self.open_tx()
         page.evaluate("document.querySelector(\"#md [data-line='120']\").scrollIntoView({block:'start'})")
         settle(page)
-        before = page.evaluate("mdReadingLine()")
+        before = page.evaluate("readingLine()")
         self.assertGreater(before, 100)
         self.write(self.TEXT.replace("line_150 = 150", "line_150 = 'changed'"))
         page.evaluate("pollLightOnce()")
@@ -557,7 +557,7 @@ class Redrawing(PickBase):
             "document.querySelector(\"#md [data-line='150']\").textContent.includes(\"'changed'\")", timeout=8000
         )
         settle(page)
-        self.assertLessEqual(abs(page.evaluate("mdReadingLine()") - before), 1)
+        self.assertLessEqual(abs(page.evaluate("readingLine()") - before), 1)
 
 
 def ax_name(page, selector):
@@ -670,8 +670,8 @@ TABLET_PORTRAIT = {"viewport": {"width": 673, "height": 841}, "is_mobile": True,
 
 
 class ReadingSpot(TextBase):
-    """The text surface draws through the Markdown surface's column (#md, mdShow), so a change of its width keeps the line at
-    the top of the document area as a Markdown document does (mdSpotKeep, #409): its long lines wrap differently at every
+    """The text surface draws through the Markdown surface's column (#md, showDocumentNode), so a change of its width keeps the line at
+    the top of the document area as a Markdown document does (keepReadingSpot, #409): its long lines wrap differently at every
     width, and the scroll offset alone would stand on other lines."""
 
     TEXT = "".join(

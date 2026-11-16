@@ -36,11 +36,13 @@ def note(intro, item="", cell="대상 누적", row="", pic="v1", moved=False):
     return "# 노트\n\n" + intro + "\n\n" + (TERMS + "\n" + body if moved else body + "\n" + TERMS)
 
 
-DRAWN = "typeof MD!=='undefined'&&MD.shown===DOC&&!!document.querySelector('#md')&&!MD.job"
-COMPARED = (
-    "REV.format===DIFF_FORMAT.RENDERED&&!!document.querySelector('#revision-rendered .mdc-frame')&&MDC.key===revKey()"
+DRAWN = (
+    "typeof MARKDOWN_VIEW!=='undefined'&&MARKDOWN_VIEW.shown===DOC&&!!document.querySelector('#md')&&!MARKDOWN_VIEW.job"
 )
-SOURCED = "REV.format===DIFF_FORMAT.SOURCE&&REV.sourceCommit===revKey()&&!!REV.target"
+COMPARED = "REVISION_VIEW.format===DIFF_FORMAT.RENDERED&&!!document.querySelector('#revision-rendered .mdc-frame')&&RENDERED_COMPARE.key===revisionKey()"
+SOURCED = (
+    "REVISION_VIEW.format===DIFF_FORMAT.SOURCE&&REVISION_VIEW.sourceCommit===revisionKey()&&!!REVISION_VIEW.target"
+)
 
 
 class CompareBase(BrowserBase):
@@ -245,17 +247,17 @@ class RangeDisplay(CompareBase):
 
     def test_a_range_keeps_the_rendered_compare_and_paints_its_commits(self):
         """Every kind at once; the list paints the range's commits (the source diff's answer read beside the compare) and
-        the status line says the range's commits and files with the blocks it changed. Mutation: leave REV.rangeN out of
-        mdcStatus (the two ends only) -> the line has no '커밋 4개', fails."""
+        the status line says the range's commits and files with the blocks it changed. Mutation: leave REVISION_VIEW.rangeN out of
+        sayCompareStatus (the two ends only) -> the line has no '커밋 4개', fails."""
         page = self.open_compare()
         page.evaluate("setRevisionRange(RANGE_MODE.FROM)")
         page.locator("#revision-commits .rc-row").nth(3).click()
-        until(page, COMPARED + "&&!!REV.base&&REV.rangeIds!==null&&!!REV.rangeN", 15)
+        until(page, COMPARED + "&&!!REVISION_VIEW.base&&REVISION_VIEW.rangeIds!==null&&!!REVISION_VIEW.rangeN", 15)
         settle(page)
         kinds = sorted({k for k, _, _ in self.marks(page)})
         self.assertEqual(kinds, ["del", "ins", "mod", "move"])
         self.assertEqual(page.evaluate("document.querySelectorAll('#revision-commits .rc-row.in').length"), 4)
-        self.assertEqual(page.evaluate("REV.format"), "rendered")
+        self.assertEqual(page.evaluate("REVISION_VIEW.format"), "rendered")
         status = page.evaluate("document.getElementById('revision-status').textContent")
         self.assertIn("커밋 4개 · 파일 1개", status)
         self.assertIn("바뀐 블록", status)
@@ -287,10 +289,10 @@ class PinBlocks(CompareBase):
         DIFF_FORMAT.RENDERED in loadRevisions (the PoC's A) -> the format is rendered and the source diff never loads,
         fails."""
         page = self.pin_view(self.table_pin())
-        self.assertEqual(page.evaluate("REV.commit"), self.c[2])
+        self.assertEqual(page.evaluate("REVISION_VIEW.commit"), self.c[2])
         got = page.evaluate(
             "(()=>{const r=document.getElementById('revision-rendered-tab'),s=document.getElementById('revision-source-tab');"
-            "return {format:REV.format,mode:REV.scope&&REV.scope.mode,other:!document.getElementById('revision-other-toggle').hidden,"
+            "return {format:REVISION_VIEW.format,mode:REVISION_VIEW.scope&&REVISION_VIEW.scope.mode,other:!document.getElementById('revision-other-toggle').hidden,"
             "rendered:[r.hidden,r.getAttribute('aria-pressed'),r.nextElementSibling===s],source:s.getAttribute('aria-pressed'),"
             "drawn:!!document.querySelector('#revision-rendered .mdc-frame'),pane:document.getElementById('revision-rendered').hidden};})()"
         )
@@ -311,7 +313,7 @@ class PinBlocks(CompareBase):
     def test_its_rendered_compare_rings_the_pins_blocks_and_says_it_is_the_whole_commit(self):
         """[그린 비교]: the two table rows (one changed, one added) are ringed, the list item the same commit added is
         marked too (the whole commit), and the guide line says so and points back at [소스 diff]. Mutation: drop the
-        whole-commit sentence from mdcTarget -> fails."""
+        whole-commit sentence from ringPinBlocks -> fails."""
         page = self.pin_rendered(self.table_pin())
         rows = page.evaluate(
             "[...document.querySelectorAll('#revision-rendered .mdc-pin')].map(e=>[e.tagName,e.dataset.mdc])"
@@ -322,7 +324,7 @@ class PinBlocks(CompareBase):
         self.assertIn("보라 테두리", guide)
         self.assertIn("그린 비교는 커밋 전체입니다", guide)
         page.click("#revision-source-tab")
-        until(page, "REV.format===DIFF_FORMAT.SOURCE", 5)
+        until(page, "REVISION_VIEW.format===DIFF_FORMAT.SOURCE", 5)
         self.assertNotIn("그린 비교는", page.evaluate("document.getElementById('revision-pin').textContent"))
 
 
@@ -334,7 +336,7 @@ class Layout(CompareBase):
         page = self.open_compare(viewport={"width": 344, "height": 882}, is_mobile=True, has_touch=True)
         page.evaluate("setRevisionRange(RANGE_MODE.FROM)")
         page.locator("#revision-commits .rc-row").nth(3).click()
-        until(page, COMPARED + "&&!!REV.base", 15)
+        until(page, COMPARED + "&&!!REVISION_VIEW.base", 15)
         settle(page)
         widths = page.evaluate(
             "[document.documentElement.scrollWidth,document.documentElement.clientWidth,"
@@ -555,8 +557,8 @@ class HiddenFrontMath(OneNote):
         """Marks in order: the front matter (its title line taken out and added), the paragraph (the old character's box
         put back struck through, the new one's added), the display math (its line), the paragraph whose formula became
         code (the formatting changed); the hidden-character notice counts the two boxes. Mutations: leave the box out of
-        mdcShape and mdcToks (as the screen reader's words) -> the paragraph is the same block, fails; take .md-front out
-        of MDC_UNIT -> the front matter is not marked, fails; name code by its tag alone in mdcInl -> the last paragraph is
+        inlineShape and unitWords (as the screen reader's words) -> the paragraph is the same block, fails; take .md-front out
+        of UNIT_SELECTOR -> the front matter is not marked, fails; name code by its tag alone in inlineName -> the last paragraph is
         the same block, fails."""
         page = self.open_compare()
         self.assertEqual(
@@ -567,7 +569,7 @@ class HiddenFrontMath(OneNote):
             "const words=s=>q(s).map(e=>{const c=e.cloneNode(true);c.querySelectorAll('.sr-only').forEach(x=>x.remove());return c.textContent;});"
             "return {front:[q('.md-front[data-mdc=mod]').length,words('.md-front del.mdc-w'),words('.md-front ins.mdc-w')],"
             "boxes:[q('p del.mdc-w .cc').map(e=>e.dataset.cc),q('p ins.mdc-w .cc').map(e=>e.dataset.cc)],"
-            "names:[ccName(0x200b),ccName(0x2060)],"
+            "names:[hiddenName(0x200b),hiddenName(0x2060)],"
             "math:[q('pre.md-math-block[data-mdc=mod]').length,words('pre.md-math-block del.mdc-w'),words('pre.md-math-block ins.mdc-w')],"
             "code:q('[data-mdc]').map(e=>e.dataset.mdcWhy||'')[3],"
             "notice:q('.mdc-info').map(e=>e.textContent).join('|')};})()"
@@ -602,12 +604,18 @@ class SidePastLimit(OneNote):
 
     def test_a_side_past_one_mebibyte_sends_the_reader_to_the_source_diff(self):
         """The new side is source_too_large: the pane holds a status note naming its size and the limit, and its [소스 diff
-        보기] opens the source diff. Mutation: let mdcShow draw a side without lines as an empty document (skip its
+        보기] opens the source diff. Mutation: let showRenderedCompare draw a side without lines as an empty document (skip its
         reason) -> no note, fails."""
         page = self.open(0)
-        until(page, "typeof MD!=='undefined'&&MD.shown===DOC&&!!document.querySelector('#md')", 20)
+        until(
+            page, "typeof MARKDOWN_VIEW!=='undefined'&&MARKDOWN_VIEW.shown===DOC&&!!document.querySelector('#md')", 20
+        )
         page.evaluate("setViewMode(VIEW_MODE.REVISIONS)")
-        until(page, "REV.format===DIFF_FORMAT.RENDERED&&!!document.querySelector('#revision-rendered .mdc-note')", 15)
+        until(
+            page,
+            "REVISION_VIEW.format===DIFF_FORMAT.RENDERED&&!!document.querySelector('#revision-rendered .mdc-note')",
+            15,
+        )
         note = page.locator("#revision-rendered .mdc-note")
         self.assertEqual(note.get_attribute("role"), "status")
         text = note.text_content()
@@ -615,7 +623,7 @@ class SidePastLimit(OneNote):
         self.assertIn("한도 1 MiB", text)
         self.assertIn("그려 비교하지 않습니다", page.locator("#revision-rendered").aria_snapshot())
         note.get_by_role("button", name="소스 diff 보기").click()
-        until(page, "REV.format===DIFF_FORMAT.SOURCE&&REV.sourceCommit===revKey()", 15)
+        until(page, "REVISION_VIEW.format===DIFF_FORMAT.SOURCE&&REVISION_VIEW.sourceCommit===revisionKey()", 15)
         self.assertEqual(
             page.evaluate("document.getElementById('revision-source-tab').getAttribute('aria-pressed')"), "true"
         )
@@ -646,7 +654,7 @@ class TabsAndFocus(CompareBase):
         self.assertEqual(page.locator("#revision-status").get_attribute("role"), "status")
         source.focus()
         page.keyboard.press("Enter")
-        until(page, "REV.format===DIFF_FORMAT.SOURCE&&REV.sourceCommit===revKey()", 15)
+        until(page, "REVISION_VIEW.format===DIFF_FORMAT.SOURCE&&REVISION_VIEW.sourceCommit===revisionKey()", 15)
         self.assertEqual(page.evaluate("document.activeElement&&document.activeElement.id"), "revision-source-tab")
         rendered.focus()
         page.keyboard.press("Enter")
@@ -666,26 +674,33 @@ class BuildPauses(OneNote):
 
     def test_the_compare_builds_with_its_own_context_and_pauses_like_the_document_view(self):
         """Both sides are built with a render context of their own: the document view's lines, element count, headings
-        and marked count are what they were, and the build yields to the browser every MD_LIMITS.chunk units of work
-        (thousands of units per side, so several pauses). Mutations: build the sides with MD as their context in
-        mdcBuild -> MD's headings and count change, fails; drain mdRender without a yield -> no pause, fails."""
+        and marked count are what they were, and the build yields to the browser every MARKDOWN_LIMITS.chunk units of work
+        (thousands of units per side, so several pauses). Mutations: build the sides with MARKDOWN_VIEW as their context in
+        buildSide -> MARKDOWN_VIEW's headings and count change, fails; drain renderTokens without a yield -> no pause, fails."""
         page = self.open(0)
         until(page, DRAWN, 20)
         settle(page)
         before = page.evaluate(
-            "(()=>{window.__keep={lines:MD.lines,heads:MD.heads,head:MD.heads[0].el};"
-            "return [MD.lines.length,MD.els,MD.marked,MD.heads.length,MD.bom];})()"
+            "(()=>{window.__keep={lines:MARKDOWN_VIEW.lines,heads:MARKDOWN_VIEW.heads,head:MARKDOWN_VIEW.heads[0].el};"
+            "return [MARKDOWN_VIEW.lines.length,MARKDOWN_VIEW.els,MARKDOWN_VIEW.marked,MARKDOWN_VIEW.heads.length,MARKDOWN_VIEW.bom];})()"
         )
-        page.evaluate("(()=>{const y=mdYield;window.__n=0;window.mdYield=()=>{window.__n++;return y();};})()")
+        page.evaluate(
+            "(()=>{const y=yieldToBrowser;window.__n=0;window.yieldToBrowser=()=>{window.__n++;return y();};})()"
+        )
         page.evaluate("setViewMode(VIEW_MODE.REVISIONS)")
         until(page, COMPARED, 30)
         self.assertEqual([(k, t) for k, t, _ in self.marks(page)], [("mod", "P")])
         self.assertGreaterEqual(page.evaluate("window.__n"), 6)
-        self.assertEqual(page.evaluate("[MD.lines.length,MD.els,MD.marked,MD.heads.length,MD.bom]"), before)
+        self.assertEqual(
+            page.evaluate(
+                "[MARKDOWN_VIEW.lines.length,MARKDOWN_VIEW.els,MARKDOWN_VIEW.marked,MARKDOWN_VIEW.heads.length,MARKDOWN_VIEW.bom]"
+            ),
+            before,
+        )
         # the very arrays and heading the document view drew, still in article#md - not a side's like them
         self.assertEqual(
             page.evaluate(
-                "[MD.lines===__keep.lines,MD.heads===__keep.heads,MD.heads[0].el===__keep.head,!!MD.heads[0].el.closest('#md')]"
+                "[MARKDOWN_VIEW.lines===__keep.lines,MARKDOWN_VIEW.heads===__keep.heads,MARKDOWN_VIEW.heads[0].el===__keep.head,!!MARKDOWN_VIEW.heads[0].el.closest('#md')]"
             ),
             [True, True, True, True],
         )
@@ -702,7 +717,7 @@ class Rewrapped(OneNote):
 
     def test_a_paragraph_wrapped_on_other_source_lines_is_the_same_block(self):
         """No block is marked and the compare says both versions draw the same (the exact change is in the source
-        diff). Mutation: count the renderer's line spans as structure in mdcShape -> the paragraph is changed in place,
+        diff). Mutation: count the renderer's line spans as structure in inlineShape -> the paragraph is changed in place,
         fails."""
         page = self.open_compare()
         self.assertEqual(self.marks(page), [])
@@ -725,7 +740,7 @@ class DeletedNestedList(OneNote):
     def test_a_deleted_item_keeps_its_nested_list_and_a_deleted_table_is_one_table(self):
         """The child is drawn in a list inside its deleted parent, one level down, not beside it; the loose list's deleted
         paragraph is an item of its own, not a second paragraph of the kept one; the deleted header row and body row are
-        one table. Mutation: judge a deleted block's box by the tag of its parent alone (mdcPlace before this change) ->
+        one table. Mutation: judge a deleted block's box by the tag of its parent alone (placeTakenOut before this change) ->
         the child is a sibling of its parent, the loose item's paragraph joins the item before it and the table is two,
         fails."""
         page = self.open_compare()
@@ -767,7 +782,7 @@ class DeletedListImage(OneNote):
 
     def test_a_deleted_list_items_image_loads_or_falls_back_as_in_the_document_view(self):
         """The image that loads gets its size (md-pic-ok), and the one the server does not give becomes its alt text
-        (.md-img), as the document view draws them (ADR-0031 D8). Mutation: deep-clone the item in mdcOwn (cloneNode(true)
+        (.md-img), as the document view draws them (ADR-0031 D8). Mutation: deep-clone the item in ownElement (cloneNode(true)
         drops the image's load and error handlers) -> the missing image stays an empty box, fails."""
         page = self.open_compare()
         want = [[True, ""], [False, "그림: 없는 설명"]]
@@ -798,8 +813,8 @@ class RewrappedInsideInline(OneNote):
         return [REWRAP_INLINE.format(s=" "), REWRAP_INLINE.format(s="\n")]
 
     def test_a_line_break_inside_formatting_or_a_link_is_the_same_block(self):
-        """No block is marked. Mutations: no merging of runs in mdcShape -> the bold, strikethrough, link and formula paragraphs
-        are changed in place, fails; count every link element's target in mdcRefs -> the link paragraph is, fails; merge
+        """No block is marked. Mutations: no merging of runs in inlineShape -> the bold, strikethrough, link and formula paragraphs
+        are changed in place, fails; count every link element's target in unitReferences -> the link paragraph is, fails; merge
         a formula's pieces only when nothing lies between (as an emphasis's) -> the formula's paragraph is, fails."""
         page = self.open_compare()
         self.assertEqual(self.marks(page), [])
@@ -817,7 +832,7 @@ class TableAlignment(OneNote):
 
     def test_a_columns_new_alignment_changes_its_rows_and_says_so(self):
         """Both rows are changed in place, each saying the alignment changed, no word marked. Mutation: leave the cell's
-        md-al-* class out of mdcShape -> both rows are the same, fails."""
+        md-al-* class out of inlineShape -> both rows are the same, fails."""
         page = self.open_compare()
         self.assertEqual([(k, t) for k, t, _ in self.marks(page)], [("mod", "TR"), ("mod", "TR")])
         self.assertEqual(
@@ -840,7 +855,7 @@ class AltRewrapped(OneNote):
 
     def test_an_alt_text_rewrapped_is_the_same_alt_text(self):
         """The paragraph is changed in place for its formatting, not for its alt text (drawn with its white space folded).
-        Mutation: compare the alt texts as written (no folding in mdcUnits) -> its tip says the alt text changed, fails."""
+        Mutation: compare the alt texts as written (no folding in compareUnits) -> its tip says the alt text changed, fails."""
         page = self.open_compare()
         self.assertEqual([(k, t) for k, t, _ in self.marks(page)], [("mod", "P")])
         self.assertEqual(
@@ -879,10 +894,10 @@ class ChildBlockRefs(OneNote):
         """The image and the link belong to the quote's paragraph and the table's row: the paragraph is taken out and added
         (another image), the row is changed in place with its link marked, and both items stay as they were. Then the
         bold item is changed in place for its formatting, not for the alt text its quote's image got. Mutations: count a
-        list item's images and links up to the next list item (closest('li')) in mdcRefs -> the items are taken out and
+        list item's images and links up to the next list item (closest('li')) in unitReferences -> the items are taken out and
         added or changed, fails; take its alt texts the same way -> the bold item says its alt text changed, fails. The
         rewritten item is changed in place and its table's rows are taken out and added, no link marked as retargeted.
-        Mutation: mark every link below a list item in mdcLinkMarks -> the added row's link says its target changed,
+        Mutation: mark every link below a list item in markChangedLinks -> the added row's link says its target changed,
         fails."""
         page = self.open_compare()
         self.show(page, self.c[1])
@@ -921,7 +936,7 @@ class BoxesSplit(OneNote):
     def test_a_quote_or_list_split_in_two_or_joined_is_a_change_but_new_bullets_are_not(self):
         """Every bullet changed draws the same document: nothing is marked. The split marks the two paragraphs and the
         two items as changed in place, each saying the quote or list split in two, no word marked; the join says they
-        joined into one, in Korean and in English. Mutation: drop mdcRegroup from mdcOps -> the split and the join draw
+        joined into one, in Korean and in English. Mutation: drop markRegroups from blockOps -> the split and the join draw
         'the same', fails."""
         page = self.open_compare()
         self.assertEqual(self.marks(page), [])
@@ -973,7 +988,7 @@ class TablesJoined(OneNote):
     def test_tables_joined_or_split_show_as_their_header_row_alone(self):
         """The split adds the second table's header row and the join takes it out: that row is the change, the body rows
         beside it are not marked, and nothing says a quote or list split or joined - a table's boxes are not regrouped
-        (mdcRegroup, MDC_REGROUP). Mutation: regroup every box (MDC_REGROUP matching any tag) -> the join marks both body
+        (markRegroups, REGROUP_BOX_TAGS). Mutation: regroup every box (REGROUP_BOX_TAGS matching any tag) -> the join marks both body
         rows changed in place, 'quotes or lists joined into one', and the split both, fails."""
         page = self.open_compare()
         whys = "[...document.querySelectorAll('#revision-rendered [data-mdc]')].map(e=>e.dataset.mdcWhy||'')"
@@ -1007,19 +1022,23 @@ class UpdateMessageRange(CompareBase):
     def opened(self, page, shown):
         """The view once the message's range is shown in format shown: [format, rendered pane hidden, source pane hidden,
         [그린 비교] pressed, [소스 diff] pressed]."""
-        ends = "REV.base===%s&&REV.commit===%s" % (json.dumps(self.c[2]), json.dumps(self.c[4]))
-        until(page, (COMPARED if shown == "rendered" else SOURCED.replace("&&!!REV.target", "")) + "&&" + ends, 15)
+        ends = "REVISION_VIEW.base===%s&&REVISION_VIEW.commit===%s" % (json.dumps(self.c[2]), json.dumps(self.c[4]))
+        until(
+            page,
+            (COMPARED if shown == "rendered" else SOURCED.replace("&&!!REVISION_VIEW.target", "")) + "&&" + ends,
+            15,
+        )
         settle(page)
         return page.evaluate(
-            "[REV.format,document.getElementById('revision-rendered').hidden,document.getElementById('revision-source').hidden,"
+            "[REVISION_VIEW.format,document.getElementById('revision-rendered').hidden,document.getElementById('revision-source').hidden,"
             "document.getElementById('revision-rendered-tab').getAttribute('aria-pressed'),"
             "document.getElementById('revision-source-tab').getAttribute('aria-pressed')]"
         )
 
     def test_from_the_document_the_messages_commits_open_in_the_rendered_compare(self):
         """From the document view: the range is drawn and compared - the picture's commit and the moved section, nothing
-        else. Mutation: open the message's range in the source diff (REV.format=DIFF_FORMAT.SOURCE before showRange in
-        loadRevisions' REV.want branch, the rule §새 소식 used to state) -> fails."""
+        else. Mutation: open the message's range in the source diff (REVISION_VIEW.format=DIFF_FORMAT.SOURCE before showRange in
+        loadRevisions' REVISION_VIEW.want branch, the rule §새 소식 used to state) -> fails."""
         page = self.open(0, init=self.seen())
         until(page, DRAWN, 20)
         self.press_message(page)
@@ -1037,6 +1056,6 @@ class UpdateMessageRange(CompareBase):
         open a Markdown range in [그린 비교] whatever the tab (showRange) -> fails."""
         page = self.open_compare(init=self.seen())
         page.click("#revision-source-tab")
-        until(page, "REV.format===DIFF_FORMAT.SOURCE&&REV.sourceCommit===revKey()", 15)
+        until(page, "REVISION_VIEW.format===DIFF_FORMAT.SOURCE&&REVISION_VIEW.sourceCommit===revisionKey()", 15)
         self.press_message(page)
         self.assertEqual(self.opened(page, "source"), ["source", True, False, "false", "true"])

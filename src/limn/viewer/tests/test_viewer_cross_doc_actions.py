@@ -25,18 +25,18 @@ class CrossDocumentActionLifetime(unittest.TestCase):
                 let LAYOUT='wide',scrolls=0,links=0,banners=0,cardJumps=0,restores=0,trashOpens=0; function scrollMotion(){return 'smooth';}
                 const VIEW_BY=new Map(),META_BY=new Map([
                   ['other',{pages:[],pages_build:'same'}],['third',{pages:[],pages_build:'same'}]]);
-                const OPEN_CARDS=new Set(),SEC={done:false};
+                const OPEN_CARDS=new Set(),SECTION_OPEN={done:false};
                 const document={body:{classList:{contains(){return false;}}},
                   querySelector(){return null;},getElementById(){return {scrollIntoView(){scrolls++;}}}};
                 function $(s){return {hidden:true};}
                 function docInfo(k){return k==='other'||k==='third';}
-                function pdoc(p){return p.doc;} function dq(path,k){return path+'?doc='+k;}
+                function pdoc(p){return p.doc;} function withDocQuery(path,k){return path+'?doc='+k;}
                 function saveView(){} function searchLeave(){} function parkDraft(){} function openDraftDoc(){} function restoreDraft(){}
                 function cancelRepick(){REPICK=null;} function cancelSelection(){}
                 function editDirty(){return !!EDITOR.current;} function cancelEdit(){}
                 function savePrefs(){} function setHash(){} function hideTip(){} function showDoc(){}
                 function drawMeta(){} function refreshDoc(){} function isRegion(){return false;}
-                function setSide(){} function setSelMode(){} function drawPins(){}
+                function setSide(){} function setSelectMode(){} function drawPins(){}
                 function viaDoc(){return false;} function setViewMode(){}
                 function isViewer(){return false;} function restorePin(){restores++;} function openTrash(){trashOpens++;}
                 function jumpToCard(){cardJumps++;} function jumpPin(){links++;}
@@ -44,7 +44,7 @@ class CrossDocumentActionLifetime(unittest.TestCase):
                 function pinState(){return 'open';}
                 function bannerRepick(){banners++;}
                 const frames=[]; function requestAnimationFrame(fn){frames.push(fn);}
-                const MQ_COARSE={matches:false};
+                const COARSE_POINTER_QUERY={matches:false};
                 let firstOtherResolve=null,otherReads=0,loadPinsResolve=null,holdPins=false,loaded=true;
                 function loadPins(){return holdPins?new Promise(resolve=>{loadPinsResolve=resolve;}):Promise.resolve(loaded);}
                 function loadPinsNow(){return loadPins();}   // loaded: the list shows a read asked since the call
@@ -57,7 +57,7 @@ class CrossDocumentActionLifetime(unittest.TestCase):
                 }
                 """,
                 JS_UPDATE_STUBS + extract_js_fn("switchDoc"),
-                "function isMdDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
+                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
                 *(extract_js_fn(name) for name in functions),
                 scenario,
             ]

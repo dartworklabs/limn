@@ -221,7 +221,7 @@ class FunctionExtraction(unittest.TestCase):
         still ends at the function's own closing brace (the last character) and holds the whole body."""
         body = extract_js_fn("card")
         self.assertTrue(body.endswith("}"))
-        self.assertIn(sq("function card(p){"), sq(body))
+        self.assertIn(sq("function card(pin){"), sq(body))
         self.assertIn("${head}${body}</div>`;\n}", body)
 
     def test_the_tables_a_function_reads_come_with_it(self):
@@ -277,7 +277,7 @@ class DeadAndDoubledFunctions(unittest.TestCase):
         reported as unreferenced."""
         sources = part_sources()
         src = sources["js/mentions.ts"]
-        call = re.search(r"\n\s*(r\.bad\s*=\s*mentionBadSettled\([^;]*\);)", src)
+        call = re.search(r"\n\s*(scan\.bad\s*=\s*mentionBadSettled\([^;]*\);)", src)
         self.assertIsNotNone(call)
         sources["js/mentions.ts"] = src.replace(
             call.group(0), " // the same hints " + " ".join(call.group(1).split()), 1
@@ -370,14 +370,14 @@ SERVER_SETS = {
     "REVISION_STATE": lambda: written_states(PKG / "revisions/jobs.py"),
     "SCOPE_MODE": lambda: set(get_args(scope.ScopeMode)),
     "SCOPE_SOURCE": lambda: set(get_args(scope.ScopeSource)),
-    "THREAD_EV": lambda: set(get_args(model.ThreadEv)),
+    "THREAD_EVENT": lambda: set(get_args(model.ThreadEv)),
     "RANGE_REL": lambda: set(get_args(position.RangeRel)) | {"equal"},  # selection_rel adds 'equal' to RangeRel
-    "KIND_REQ": lambda: set(get_args(model.KindReq)),
+    "REQUEST_KIND": lambda: set(get_args(model.KindReq)),
     "ROLE": lambda: set(access.ROLES),
     "EVENT_TYPE": lambda: set(get_args(events.EventType)),
     "VIA": lambda: set(get_args(mapping.Via)),
     "DOC_KIND": lambda: set(get_args(documents.DocKind)),
-    "EL_SYNC": lambda: set(get_args(figure_map.ElSync)),
+    "ELEMENT_SYNC": lambda: set(get_args(figure_map.ElSync)),
     "SUGGEST_STATE": lambda: set(get_args(suggestion.SuggestState)),
     "LOCAL_LOGIN": lambda: {access.LOCAL_LOGIN},
     "ASSIGNEE_AGENT": lambda: {edit.ASSIGNEE_AGENT},
@@ -404,10 +404,10 @@ VIEWER_SETS = {
     "NOTICE_LIFE",
     "NOTICE_DOT",
     "NOTICE_TOPIC",
-    "VD_WHERE",
+    "VERDICT_PLACE",
     "LIST_ORDER",
     "STAMP_FORM",
-    "MD_LIMIT",
+    "MARKDOWN_LIMIT",
 }
 
 
@@ -432,8 +432,8 @@ def unknown_members(sources: dict[str, str]) -> list[str]:
 
 def raw_state_reads(sources: dict[str, str]) -> list[str]:
     """Every place sources read a pin's state around pinState(): a `.done` / `.review` property read outside pinState's
-    own body, and a pinState(...) call compared with a string literal. SEC and SEC_SEEN (the list sections, keyed by
-    state name) and T (the tooltip texts) have such properties too and are not pins."""
+    own body, and a pinState(...) call compared with a string literal. SECTION_OPEN and SECTION_SEEN (the list sections, keyed by
+    state name) and TIP_TEXT (the tooltip texts) have such properties too and are not pins."""
     out = []
     for part, src in sources.items():
         own = next((f for f in helpers_js.top_level_functions(src) if f.name == "pinState"), None)
@@ -441,7 +441,7 @@ def raw_state_reads(sources: dict[str, str]) -> list[str]:
         for j, t in enumerate(toks[1:], 1):
             inside = own is not None and own.start <= t.start < own.end
             flag = t.text in ("done", "review") and toks[j - 1].text in (".", "?.") and not inside
-            if flag and toks[j - 2].text not in ("SEC", "SEC_SEEN", "T"):
+            if flag and toks[j - 2].text not in ("SECTION_OPEN", "SECTION_SEEN", "TIP_TEXT"):
                 out.append("%s: %s.%s" % (part, toks[j - 2].text, t.text))
             if t.text == "pinState" and toks[j - 1].text not in (".", "function"):
                 close = helpers_js.matching_bracket(toks, j + 1)
@@ -481,9 +481,9 @@ class ClosedSets(unittest.TestCase):
 
     def test_markup_values_are_members(self):
         """The changes view's tabs, the view switch and the composer's kind buttons send their data-* value into code
-        that compares it with DIFF_FORMAT, VIEW_MODE and KIND_REQ."""
+        that compares it with DIFF_FORMAT, VIEW_MODE and REQUEST_KIND."""
         page = (VIEWER / "index.html").read_text(encoding="utf-8")
-        for attr, name in (("data-format", "DIFF_FORMAT"), ("data-mode", "VIEW_MODE"), ("data-kind", "KIND_REQ")):
+        for attr, name in (("data-format", "DIFF_FORMAT"), ("data-mode", "VIEW_MODE"), ("data-kind", "REQUEST_KIND")):
             with self.subTest(attr):
                 found = set(re.findall(r'%s="([^"]*)"' % attr, page))
                 self.assertTrue(found)

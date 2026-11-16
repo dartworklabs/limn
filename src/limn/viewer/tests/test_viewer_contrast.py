@@ -693,19 +693,19 @@ class ContrastWalk(BrowserBase):
         hovered trash row."""
         page = self.open(2, **DEVICES[self.device])
         page.evaluate(
-            "ids=>{setSide(true); SEC.done=true; SEC.review=true; ids.forEach(i=>OPEN_CARDS.add(i)); drawPins();}",
+            "ids=>{setSide(true); SECTION_OPEN.done=true; SECTION_OPEN.review=true; ids.forEach(i=>OPEN_CARDS.add(i)); drawPins();}",
             [self.thread, self.review, self.suggested, self.warned],
         )
         settle(page)
         self.look(page, "list")
         self.look(page, "warning line", '.pin[data-id="%d"] .sg-warn' % self.warned)
-        page.evaluate("rvPick(true)")
+        page.evaluate("setReviewPicking(true)")
         # the box's label: its press area, 44px round the box on touch
         page.click('#review-pins label.rv-ck:has(input[data-pick="%d"])' % self.review)
         page.wait_for_selector('#review-pins .rv-row.on[data-id="%d"]' % self.review)
         settle(page)
         self.look(page, "review rows picking, one ticked", "#sec-review")
-        page.evaluate("rvPick(false)")
+        page.evaluate("setReviewPicking(false)")
         settle(page)
         card = '#review-pins .pin[data-id="%d"]' % self.review
         page.click(card + " .acts [data-act=reply-open]")
@@ -834,7 +834,7 @@ class ContrastWalk(BrowserBase):
             self.look(page, "selection popover", "#sel-pop")
             page.click("#sel-pop [data-act=pop-more]")
         else:
-            page.evaluate("()=>{LAST_PTR='touch'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}")
+            page.evaluate("()=>{LAST_POINTER='touch'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}")
         page.wait_for_function("COMPOSE.current&&COMPOSE.current.lo&&document.querySelector('#c-xp .xp-row.ctx')")
         settle(page)
         self.look(page, "composer")
@@ -901,7 +901,7 @@ class ContrastWalk(BrowserBase):
             settle(page)
         ptr = "mouse" if self.device == "desktop" else "touch"
         page.evaluate(
-            "p=>{LAST_PTR=p; pick({doc:'rv',page:1,pdf_build:META.pages_build,x0:60,y0:60,x1:300,y1:120,frac:[0.1,0.08,0.4,0.08]});}",
+            "p=>{LAST_POINTER=p; pick({doc:'rv',page:1,pdf_build:META.pages_build,x0:60,y0:60,x1:300,y1:120,frac:[0.1,0.08,0.4,0.08]});}",
             ptr,
         )
         page.wait_for_function("COMPOSE.current&&!COMPOSE.picking&&!document.querySelector('#c-sg-why').hidden")
@@ -911,7 +911,7 @@ class ContrastWalk(BrowserBase):
         page.keyboard.press("Escape")
         self.show_doc(page, "fig")
         page.evaluate(
-            "p=>{LAST_PTR='%s'; pick({doc:'fig',page:1,pdf_build:META.pages_build,x0:p[0]*META.pages[0].pt_w,"
+            "p=>{LAST_POINTER='%s'; pick({doc:'fig',page:1,pdf_build:META.pages_build,x0:p[0]*META.pages[0].pt_w,"
             "y0:p[1]*META.pages[0].pt_h,x1:(p[0]+p[2])*META.pages[0].pt_w,y1:(p[1]+p[3])*META.pages[0].pt_h,frac:p});}"
             % ptr,
             list(helpers_figure.CELL_DRAG),
@@ -933,7 +933,7 @@ class ContrastWalk(BrowserBase):
             page.click("#btn-pos")
             page.locator("#nav-sheet [data-mode=revisions]").click()
         page.wait_for_function(
-            "REV.rowsDoc===DOC&&REV.commit!==''&&document.querySelector('#revision-commits .rc-row.in')"
+            "REVISION_VIEW.rowsDoc===DOC&&REVISION_VIEW.commit!==''&&document.querySelector('#revision-commits .rc-row.in')"
         )
         settle(page)
         self.look(page, "changes", "#revision-view")
@@ -961,7 +961,10 @@ class ContrastWalk(BrowserBase):
         page = self.open(2, **DEVICES[self.device])
         for key, state in (("nt", "Markdown document"), ("dp", "Markdown source lines")):
             page.evaluate("k=>switchDoc(k)", key)
-            page.wait_for_function("k=>DOC===k&&MD.shown===k&&!MD.job&&!!document.querySelector('article#md')", arg=key)
+            page.wait_for_function(
+                "k=>DOC===k&&MARKDOWN_VIEW.shown===k&&!MARKDOWN_VIEW.job&&!!document.querySelector('article#md')",
+                arg=key,
+            )
             settle(page)
             self.look(page, state, "#doc")
         page.context.close()

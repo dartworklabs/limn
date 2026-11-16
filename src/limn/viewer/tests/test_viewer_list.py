@@ -59,7 +59,7 @@ class PinListLoading(unittest.TestCase):
                 """
                 let DOC='main',DEFAULT_DOC='main',OPEN_ALL=[],REVIEW_ALL=[],DONE_ALL=[],PINS=[],DONE=[],DROPPED=[];
                 let REPLY=null,COMPOSE={current:null},PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0; const CONFIRMING=new Set(),CONFIRMING_PIN=new Map(); const EDITOR={current:null,saving:false};
-                const SEC_SEEN={open:null,review:null,done:null},calls=[],reads=[],said=[];
+                const SECTION_SEEN={open:null,review:null,done:null},calls=[],reads=[],said=[];
                 let firstTrash;
                 function api(url){
                   if(url==='/api/pins?all=1')return Promise.resolve({data:reads.shift()});
@@ -72,7 +72,7 @@ class PinListLoading(unittest.TestCase):
                 function loadPeople(){} function pdoc(p){return p.doc||DEFAULT_DOC;}
                 function notePinChanges(prev,rows){calls.push(['diff',prev.map(p=>p.id),rows.map(p=>p.id)]);}
                 function noteReviewChanges(prev,rows){calls.push(['review',prev.map(p=>p.id),rows.map(p=>p.id)]);}
-                function lineNote(msg){said.push(msg);} function tl(s){return s;}
+                function lineNote(msg){said.push(msg);} function translateTemplate(s){return s;}
                 function drawPins(){calls.push(['draw',OPEN_ALL.map(p=>p.id)]);}
                 function marks(){} function drawDocTabs(){} function docTitle(){}
                 function recomputeOverlap(){} function renderOverlapBanner(){} function closeReply(){}
@@ -103,7 +103,7 @@ class PinListLoading(unittest.TestCase):
                 """
                 let DOC='main',DEFAULT_DOC='main',OPEN_ALL=[],REVIEW_ALL=[],DONE_ALL=[],PINS=[],DONE=[],DROPPED=[];
                 let REPLY=null,COMPOSE={current:null},PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0; const CONFIRMING=new Set(),CONFIRMING_PIN=new Map(); const EDITOR={current:null,saving:false};
-                const SEC_SEEN={open:null,review:null,done:null},calls=[];
+                const SECTION_SEEN={open:null,review:null,done:null},calls=[];
                 let firstPins,pinReads=0,trashReads=0,peopleReads=0;
                 function api(url){
                   if(url==='/api/pins?all=1'){
@@ -147,7 +147,7 @@ class PinListLoading(unittest.TestCase):
     PINS_HARNESS = """
         let DOC='main',SWITCHSEQ=0,DEFAULT_DOC='main',OPEN_ALL=[],REVIEW_ALL=[],DONE_ALL=[],PINS=[],DONE=[],DROPPED=[];
         let REPLY=null,COMPOSE={current:null},PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0; const CONFIRMING=new Set(),CONFIRMING_PIN=new Map(); const EDITOR={current:null,saving:false};
-        const SEC_SEEN={open:null,review:null,done:null},SEC={done:false},OPEN_CARDS=new Set(),drawn=[],pending=[];
+        const SECTION_SEEN={open:null,review:null,done:null},SECTION_OPEN={done:false},OPEN_CARDS=new Set(),drawn=[],pending=[];
         let jumps=0;
         function api(url){
           if(url==='/api/pins?all=1')return new Promise((resolve,reject)=>pending.push({resolve,reject}));
@@ -228,12 +228,12 @@ class PinListLoading(unittest.TestCase):
                 JS_UPDATE_STUBS + extract_js_fn("applyPinLists"),
                 extract_js_fn("loadPins"),
                 JS_UPDATE_STUBS + extract_js_fn("pollLightOnce"),
-                "function isMdDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
+                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
                 """
                 let DOC='main',SWITCHSEQ=0,DEFAULT_DOC='main',OPEN_ALL=[{id:0}],REVIEW_ALL=[],DONE_ALL=[],PINS=OPEN_ALL,DONE=[],DROPPED=[];
                 let REPLY=null,COMPOSE={current:null},PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0; const CONFIRMING=new Set(),CONFIRMING_PIN=new Map(); const EDITOR={current:null,saving:false};
-                let LAST_PINS_REV='old',LAST_SRC_MTIME='old-src',POLL_FAILS=0; const BUILD={lastSeq:0,timer:null};
-                const SEC_SEEN={open:new Set(),review:new Set(),done:new Set()},drawn=[];
+                let LAST_PINS_REVISION='old',LAST_SRC_MTIME='old-src',POLL_FAILS=0; const BUILD={lastSeq:0,timer:null};
+                const SECTION_SEEN={open:new Set(),review:new Set(),done:new Set()},drawn=[];
                 const document={hidden:false};
                 let pinReads=0,firstTrash;
                 function api(url){
@@ -246,7 +246,7 @@ class PinListLoading(unittest.TestCase):
                   if(url==='/api/meta?light=1')return Promise.resolve({data:{pins_rev:'new',src_sig:'new-src',build_seq:0}});
                   throw Error(url);
                 }
-                function dq(url){return url;} function notifyQuery(){return '';}
+                function withDocQuery(url){return url;} function notifyQuery(){return '';}
                 function notifyHandle(){} function updateStaleBadge(){} function updateSyncBadge(){}
                 function noteOtherDocs(){} function loadPeople(){} function pollBuild(){}
                 function $(sel){return {hidden:true};}
@@ -258,7 +258,7 @@ class PinListLoading(unittest.TestCase):
                 setImmediate(async()=>{
                   await pollLightOnce();
                   firstTrash({data:{dropped:[]}}); await old;
-                  console.log(JSON.stringify({open:OPEN_ALL.map(p=>p.id),rev:LAST_PINS_REV,
+                  console.log(JSON.stringify({open:OPEN_ALL.map(p=>p.id),rev:LAST_PINS_REVISION,
                     src:LAST_SRC_MTIME,drawn}));
                 });
                 """,
@@ -278,12 +278,12 @@ class PinListLoading(unittest.TestCase):
                 JS_UPDATE_STUBS + extract_js_fn("applyPinLists"),
                 extract_js_fn("loadPins"),
                 JS_UPDATE_STUBS + extract_js_fn("pollLightOnce"),
-                "function isMdDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
+                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
                 """
                 let DOC='main',SWITCHSEQ=0,DEFAULT_DOC='main',OPEN_ALL=[{id:1}],REVIEW_ALL=[],DONE_ALL=[],PINS=OPEN_ALL,DONE=[],DROPPED=[{id:9}];
                 let REPLY=null,COMPOSE={current:null},PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0; const CONFIRMING=new Set(),CONFIRMING_PIN=new Map(); const EDITOR={current:null,saving:false};
-                let LAST_PINS_REV='old',LAST_SRC_MTIME='old-src',POLL_FAILS=0; const BUILD={lastSeq:0,timer:null};
-                const SEC_SEEN={open:new Set(),review:new Set(),done:new Set()},drawn=[];
+                let LAST_PINS_REVISION='old',LAST_SRC_MTIME='old-src',POLL_FAILS=0; const BUILD={lastSeq:0,timer:null};
+                const SECTION_SEEN={open:new Set(),review:new Set(),done:new Set()},drawn=[];
                 const document={hidden:false};let pinReads=0,trashReads=0;
                 function api(url){
                   if(url==='/api/meta?light=1')return Promise.resolve({data:{pins_rev:'new',src_sig:'new-src',build_seq:0}});
@@ -294,7 +294,7 @@ class PinListLoading(unittest.TestCase):
                   }
                   throw Error(url);
                 }
-                function dq(url){return url;} function notifyQuery(){return '';}
+                function withDocQuery(url){return url;} function notifyQuery(){return '';}
                 function notifyHandle(){} function updateStaleBadge(){} function updateSyncBadge(){}
                 function noteOtherDocs(){} function loadPeople(){} function pollBuild(){}
                 function $(sel){return {hidden:true};}
@@ -305,10 +305,10 @@ class PinListLoading(unittest.TestCase):
                 (async()=>{
                   await pollLightOnce();
                   const first={open:OPEN_ALL.map(p=>p.id),dropped:DROPPED.map(p=>p.id),
-                    rev:LAST_PINS_REV,src:LAST_SRC_MTIME,drawn:drawn.slice()};
+                    rev:LAST_PINS_REVISION,src:LAST_SRC_MTIME,drawn:drawn.slice()};
                   await pollLightOnce();
                   console.log(JSON.stringify({first,after:{open:OPEN_ALL.map(p=>p.id),
-                    dropped:DROPPED.map(p=>p.id),rev:LAST_PINS_REV,src:LAST_SRC_MTIME,
+                    dropped:DROPPED.map(p=>p.id),rev:LAST_PINS_REVISION,src:LAST_SRC_MTIME,
                     drawn},pinReads,trashReads}));
                 })();
                 """,
@@ -336,17 +336,17 @@ class PinListLoading(unittest.TestCase):
                 js_markup(),
                 JS_OFFLINE_STUBS,
                 extract_js_fn("boot"),
-                "function isMdDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
+                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
                 JS_UPDATE_STUBS + extract_js_fn("pollLightOnce"),
-                "function isMdDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
+                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
                 """
                 let DOC=null,SWITCHSEQ=0,META=null,DEFAULT_DOC='main',OPEN_ALL=[],REVIEW_ALL=[],DONE_ALL=[],PINS=[],DONE=[],DROPPED=[];
                 let REPLY=null,COMPOSE={current:null},PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0; const CONFIRMING=new Set(),CONFIRMING_PIN=new Map(); const EDITOR={current:null,saving:false};
-                let LAST_PINS_REV=null,LAST_SRC_MTIME=null,POLL_FAILS=0; const BUILD={lastSeq:null,timer:null};
+                let LAST_PINS_REVISION=null,LAST_SRC_MTIME=null,POLL_FAILS=0; const BUILD={lastSeq:null,timer:null};
                 const META_BY=new Map(),VIEW_BY=new Map(),DOC_SEQ=new Map();
-                const SEC_SEEN={open:null,review:null,done:null},MQ_COARSE={matches:false};
+                const SECTION_SEEN={open:null,review:null,done:null},COARSE_POINTER_QUERY={matches:false};
                 const document={hidden:false};
-                function isMdDoc(){return false;}   // the document has pages (md-surface.js)
+                function isMarkdownDoc(){return false;}   // the document has pages (md-surface.js)
                 let pinReads=0;
                 function api(url){
                   if(url==='/api/meta'||url==='/api/meta?light=1')
@@ -358,15 +358,15 @@ class PinListLoading(unittest.TestCase):
                   if(url==='/api/pins/dropped')return Promise.resolve({data:{dropped:[]}});
                   throw Error(url);
                 }
-                function dq(url){return url;} function notifyQuery(){return '';}
+                function withDocQuery(url){return url;} function notifyQuery(){return '';}
                 function $(sel){return {hidden:true,innerHTML:''};}
                 function i18nStart(){} function takeLinkHash(){return {};}
                 function applyTheme(){} function applyLayout(){} function initDiffWrap(){}
-                function saveBtnLabel(){return html`save`;} async function loadDocs(){}
+                function saveButtonLabel(){return html`save`;} async function loadDocs(){}
                 function initialDoc(){return 'main';} function multiDoc(){return false;}
                 function loadViews(){} function drawMeta(){} function applySideWidth(){}
                 function applyOutlineState(){} function applyViewWidth(){return false;}
-                function buildDoc(){} function autoW(){} function vecBoot(){}
+                function buildDoc(){} function autoFitWidth(){} function bootVector(){}
                 function restoreView(){} function drawDocTabs(){} function restoreDraft(){} function updateSectionStrip(){}
                 function coach(){} function startLightPolling(){} function startBuildPolling(){}
                 function drawNotify(){} function prefs(){return {};}
@@ -376,9 +376,9 @@ class PinListLoading(unittest.TestCase):
                 function notifyHandle(){} function updateStaleBadge(){} function updateSyncBadge(){}
                 function noteOtherDocs(){} function pollBuild(){}
                 (async()=>{
-                  await boot(); const before={rev:LAST_PINS_REV,src:LAST_SRC_MTIME,open:OPEN_ALL.map(p=>p.id)};
+                  await boot(); const before={rev:LAST_PINS_REVISION,src:LAST_SRC_MTIME,open:OPEN_ALL.map(p=>p.id)};
                   await pollLightOnce();
-                  console.log(JSON.stringify({before,after:{rev:LAST_PINS_REV,src:LAST_SRC_MTIME,
+                  console.log(JSON.stringify({before,after:{rev:LAST_PINS_REVISION,src:LAST_SRC_MTIME,
                     open:OPEN_ALL.map(p=>p.id)},pinReads}));
                 })();
                 """,
@@ -401,25 +401,25 @@ class PinListLoading(unittest.TestCase):
                 js_markup(),
                 JS_OFFLINE_STUBS,
                 extract_js_fn("boot"),
-                "function isMdDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
+                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
                 JS_UPDATE_STUBS + extract_js_fn("pollLightOnce"),
-                "function isMdDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
+                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
                 """
-                let DOC=null,SWITCHSEQ=0,META=null,LAST_PINS_REV=null,LAST_SRC_MTIME=null;
+                let DOC=null,SWITCHSEQ=0,META=null,LAST_PINS_REVISION=null,LAST_SRC_MTIME=null;
                 let POLL_FAILS=0; const BUILD={lastSeq:null,timer:null};
-                const META_BY=new Map(),VIEW_BY=new Map(),DOC_SEQ=new Map(),MQ_COARSE={matches:false};
+                const META_BY=new Map(),VIEW_BY=new Map(),DOC_SEQ=new Map(),COARSE_POINTER_QUERY={matches:false};
                 const document={hidden:false}; let pinReads=0;
                 function api(url){return Promise.resolve({data:{doc:'main',pins_rev:'r1',src_sig:'s1',
                   build_seq:0,docs:[]}});}
-                function dq(url){return url;} function notifyQuery(){return '';}
+                function withDocQuery(url){return url;} function notifyQuery(){return '';}
                 function $(sel){return {hidden:true,innerHTML:''};}
                 function i18nStart(){} function takeLinkHash(){return {};}
                 function applyTheme(){} function applyLayout(){} function initDiffWrap(){}
-                function saveBtnLabel(){return html`save`;} async function loadDocs(){}
+                function saveButtonLabel(){return html`save`;} async function loadDocs(){}
                 function initialDoc(){return 'main';} function multiDoc(){return false;}
                 function loadViews(){} function drawMeta(){} function applySideWidth(){}
                 function applyOutlineState(){} function applyViewWidth(){return false;}
-                function buildDoc(){} function autoW(){} function vecBoot(){}
+                function buildDoc(){} function autoFitWidth(){} function bootVector(){}
                 function restoreView(){} function drawDocTabs(){} function restoreDraft(){} function updateSectionStrip(){}
                 function coach(){} function startLightPolling(){} function startBuildPolling(){}
                 function drawNotify(){} function prefs(){return {};}
@@ -427,7 +427,7 @@ class PinListLoading(unittest.TestCase):
                 function notifyHandle(){} function updateStaleBadge(){} function updateSyncBadge(){}
                 function noteOtherDocs(){} function pollBuild(){}
                 (async()=>{await boot(); await pollLightOnce();
-                  console.log(JSON.stringify({rev:LAST_PINS_REV,src:LAST_SRC_MTIME,pinReads}));})();
+                  console.log(JSON.stringify({rev:LAST_PINS_REVISION,src:LAST_SRC_MTIME,pinReads}));})();
                 """,
             ]
         )
@@ -438,7 +438,7 @@ class PinListLoading(unittest.TestCase):
         js = "\n".join(
             [
                 JS_UPDATE_STUBS + extract_js_fn("switchDoc"),
-                "function isMdDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
+                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
                 extract_js_fn("showDoc"),
                 extract_js_fn("resetBuildForDoc"),
                 """
@@ -454,11 +454,11 @@ class PinListLoading(unittest.TestCase):
                 function pdoc(p){return p.doc||'a';}
                 function saveView(){} function searchLeave(){} function parkDraft(){} function openDraftDoc(){} function restoreDraft(){}
                 function cancelRepick(){} function savePrefs(){} function setHash(){}
-                function hideTip(){} function drawMeta(){} function buildDoc(){} function autoW(){} function endJumpForScroll(){}
+                function hideTip(){} function drawMeta(){} function buildDoc(){} function autoFitWidth(){} function endJumpForScroll(){}
                 function restoreView(){} function applyViewWidth(){return false;}
                 function drawPins(){drawn.push(DONE.map(p=>p.id));}
-                function marks(){} function drawDocTabs(){} function vecOpen(){} function pollBuild(){}
-                function docTitle(){} function tr(s){return s;}
+                function marks(){} function drawDocTabs(){} function openVectorDocument(){} function pollBuild(){}
+                function docTitle(){} function translate(s){return s;}
                 function api(){return new Promise(()=>{});}
                 switchDoc('b');
                 console.log(JSON.stringify({doc:DOC,open:PINS.map(p=>p.id),done:DONE.map(p=>p.id),drawn}));
@@ -477,11 +477,11 @@ class PinListLoading(unittest.TestCase):
                 const META_BY=new Map(),pending=[],painted=[];
                 const document={body:{classList:{contains:()=>false}}};
                 function topAnchor(){return null;}
-                function dq(u){return u;}
+                function withDocQuery(u){return u;}
                 function api(){return new Promise(resolve=>pending.push(resolve));}
                 function drawMeta(){painted.push(META.pages[0].id);}
-                function vecReleaseAll(){} function $$(){return [];}
-                function restoreAnchor(){} function vecOpen(){} function loadPins(){return Promise.resolve();}
+                function releaseAllVectorPages(){} function $$(){return [];}
+                function restoreAnchor(){} function openVectorDocument(){} function loadPins(){return Promise.resolve();}
                 (async()=>{
                   const stale=refreshDoc();
                   DOC='a'; SWITCHSEQ++;
@@ -501,7 +501,7 @@ class PinListLoading(unittest.TestCase):
         js = "\n".join(
             [
                 JS_UPDATE_STUBS + extract_js_fn("switchDoc"),
-                "function isMdDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
+                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
                 extract_js_fn("refreshDoc"),
                 """
                 let DOC='a',SWITCHSEQ=0,NAVGEN=0,META={pages:[{id:'a'}]},COMPOSE={current:null},REFRESH_GEN=0; const EDITOR={current:null,saving:false};
@@ -514,10 +514,10 @@ class PinListLoading(unittest.TestCase):
                 function cancelRepick(){} function savePrefs(){} function setHash(){}
                 function hideTip(){} function showDoc(){} function drawMeta(){}
                 function topAnchor(){return null;} function restoreAnchor(){}
-                function vecReleaseAll(){} function $$(){return [];}
-                function vecOpen(){} function loadPins(){return Promise.resolve();}
+                function releaseAllVectorPages(){} function $$(){return [];}
+                function openVectorDocument(){} function loadPins(){return Promise.resolve();}
                 function rebuildSources(){return [];} function sourceOk(){}   // a refresh ends a failed rebuild's error
-                function dq(u,k){return u+(k||DOC);}
+                function withDocQuery(u,k){return u+(k||DOC);}
                 function api(url){requests.push(url);return Promise.resolve({data:{pages:[{id:'new'}],pages_build:'v2'}});}
                 (async()=>{await switchDoc('b');console.log(JSON.stringify({requests,build:META.pages_build}));})();
                 """,
@@ -539,13 +539,13 @@ class ViewerPollingVisits(unittest.TestCase):
         js = "\n".join(
             [
                 JS_UPDATE_STUBS + extract_js_fn("pollLightOnce"),
-                "function isMdDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
+                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
                 """
-                let DOC='b',SWITCHSEQ=1,LAST_PINS_REV='old',LAST_SRC_MTIME='old-src';
+                let DOC='b',SWITCHSEQ=1,LAST_PINS_REVISION='old',LAST_SRC_MTIME='old-src';
                 let POLL_FAILS=0; const BUILD={lastSeq:0,timer:null};
                 const document={hidden:false},seen=[];
                 let resolveMeta;
-                function dq(u){return u;} function notifyQuery(){return '';}
+                function withDocQuery(u){return u;} function notifyQuery(){return '';}
                 function api(){return new Promise(resolve=>{resolveMeta=resolve;});}
                 function $(sel){return {hidden:true};}
                 function notifyHandle(){seen.push('notify');}
@@ -559,7 +559,7 @@ class ViewerPollingVisits(unittest.TestCase):
                   DOC='b'; SWITCHSEQ++;
                   resolveMeta({data:{pins_rev:'new',src_sig:'new-src',build_seq:1}});
                   await old;
-                  console.log(JSON.stringify({seen,rev:LAST_PINS_REV,src:LAST_SRC_MTIME}));
+                  console.log(JSON.stringify({seen,rev:LAST_PINS_REVISION,src:LAST_SRC_MTIME}));
                 })();
                 """,
             ]
@@ -574,13 +574,13 @@ class ViewerPollingVisits(unittest.TestCase):
         js = "\n".join(
             [
                 JS_UPDATE_STUBS + extract_js_fn("pollLightOnce"),
-                "function isMdDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
+                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
                 """
-                let DOC='b',SWITCHSEQ=1,LAST_PINS_REV='old',LAST_SRC_MTIME='old-src';
+                let DOC='b',SWITCHSEQ=1,LAST_PINS_REVISION='old',LAST_SRC_MTIME='old-src';
                 let POLL_FAILS=0; const BUILD={lastSeq:0,timer:null};
                 const document={hidden:false},seen=[];
                 let resolvePins;
-                function dq(u){return u;} function notifyQuery(){return '';}
+                function withDocQuery(u){return u;} function notifyQuery(){return '';}
                 function api(){return Promise.resolve({data:{pins_rev:'new',src_sig:'new-src',build_seq:1}});}
                 function $(sel){return {hidden:true};}
                 function notifyHandle(){} function updateStaleBadge(){}
@@ -593,7 +593,7 @@ class ViewerPollingVisits(unittest.TestCase):
                   DOC='a'; SWITCHSEQ++;
                   DOC='b'; SWITCHSEQ++;
                   resolvePins(true); await old;
-                  console.log(JSON.stringify({seen,rev:LAST_PINS_REV,src:LAST_SRC_MTIME}));
+                  console.log(JSON.stringify({seen,rev:LAST_PINS_REVISION,src:LAST_SRC_MTIME}));
                 })();
                 """,
             ]
@@ -609,7 +609,7 @@ class ViewerPollingVisits(unittest.TestCase):
                 let DOC='b',SWITCHSEQ=1; const BUILD={timer:null,booted:false,lastSeq:3};
                 const seen=[],DOC_SEQ=new Map(),document={hidden:false};
                 let resolveBuild;
-                function dq(u){return u;}
+                function withDocQuery(u){return u;}
                 function api(){return new Promise(resolve=>{resolveBuild=resolve;});}
                 function $(sel){return {hidden:true,disabled:false};}
                 function showBuildErr(){seen.push('error');}
@@ -637,7 +637,7 @@ class ViewerPollingVisits(unittest.TestCase):
                 BUILD.error=null;
                 const seen=[],DOC_SEQ=new Map(),BUILD_ERR_BY=new Map(),META={pages:[1]};
                 let resolveRefresh;
-                function dq(u){return u;}
+                function withDocQuery(u){return u;}
                 function api(){return Promise.resolve({data:{state:'ok',seq:4,elapsed_s:1}});}
                 function $(sel){return {hidden:true,disabled:false};}
                 function refreshDoc(){return new Promise(resolve=>{resolveRefresh=resolve;});}

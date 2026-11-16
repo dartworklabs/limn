@@ -107,7 +107,7 @@ class ReviewPickBase(BrowserBase):
         """The viewer as Alice with the pin panel and the review section open, recording its confirms (RECORD_CONFIRMS);
         clock, an aware datetime, puts the page on Playwright's clock from that instant (BrowserBase.open)."""
         page = self.open(0, init=SEEN + RECORD_CONFIRMS, clock=clock, **(device or DEVICES["desktop"]))
-        page.evaluate("setSide(true); SEC.review=true; drawPins()")
+        page.evaluate("setSide(true); SECTION_OPEN.review=true; drawPins()")
         settle(page)
         return page
 
@@ -178,7 +178,7 @@ class ReviewPickFlows(ReviewPickBase):
         page.wait_for_selector('#review-pins .pin.card[data-id="%d"]' % self.p1)
         self.assertFalse(page.is_visible("#review-pick"))
         self.assertFalse(page.is_visible("#rv-bar"))
-        self.assertEqual(page.evaluate("RV_PICK"), None)
+        self.assertEqual(page.evaluate("REVIEW_PICK"), None)
 
     def test_collapsing_the_section_ends_the_pick_and_picking_opens_it_again(self):
         """Folding the section away while picking ends the pick (its rows are not there to read, so [N건 확인] goes too);
@@ -188,10 +188,10 @@ class ReviewPickFlows(ReviewPickBase):
         self.tick(page, self.p1)
         page.click("#review-toggle")
         settle(page)
-        self.assertEqual(page.evaluate("[RV_PICK, SEC.review]"), [None, False])
+        self.assertEqual(page.evaluate("[REVIEW_PICK, SECTION_OPEN.review]"), [None, False])
         self.assertFalse(page.is_visible("#rv-bar"))
         self.pick(page)
-        self.assertEqual(page.evaluate("[SEC.review, prefs().sec.review, RV_PICK.size]"), [True, True, 0])
+        self.assertEqual(page.evaluate("[SECTION_OPEN.review, prefs().sec.review, REVIEW_PICK.size]"), [True, True, 0])
         self.assertEqual(page.locator("#review-pins .rv-row").count(), 5)
 
     def test_pick_all_ticks_every_row_with_a_result_and_a_partial_pick_shows_half_ticked(self):
@@ -222,7 +222,7 @@ class ReviewPickFlows(ReviewPickBase):
         page.click("#rv-go")
         page.wait_for_selector(".nt:has-text('핀 2건 확인')")
         self.assertTrue(page.evaluate("document.activeElement.matches('.nt .nt-act')"))
-        self.assertEqual(page.evaluate("RV_PICK&&RV_PICK.size"), 0)
+        self.assertEqual(page.evaluate("REVIEW_PICK&&REVIEW_PICK.size"), 0)
         self.assertEqual(page.locator("#review-pins .rv-row").count(), 3)
         shown = page.evaluate(
             """() => {const n = document.querySelector('#review-pins .nt').getBoundingClientRect(),
@@ -284,7 +284,7 @@ class ReviewPickFlows(ReviewPickBase):
         self.pick(page)
         page.click('#review-pins .rv-row[data-id="%d"] [data-act=rv-card]' % self.bare)
         settle(page)
-        self.assertEqual(page.evaluate("RV_PICK"), None)
+        self.assertEqual(page.evaluate("REVIEW_PICK"), None)
         got = page.evaluate(
             """id => {const a = document.activeElement, r = a.getBoundingClientRect(),
               s = document.querySelector('#right').getBoundingClientRect();
@@ -364,7 +364,7 @@ class ReviewPickFlows(ReviewPickBase):
 
     def test_a_confirm_left_unanswered_holds_back_neither_the_others_nor_the_banner(self):
         """One confirm the network never answers, one that fails at once and one that goes through: the failed pin is back
-        in the list by the next list read, while the held one is still out; after RV_SEND_MS (15s, on the page's clock) the
+        in the list by the next list read, while the held one is still out; after CONFIRM_SEND_MS (15s, on the page's clock) the
         held one is given up, and one error banner names both as not sent and offers [다시 시도]."""
         self.unreached.add(self.p1)
         self.held.add(self.p2)
@@ -514,7 +514,7 @@ class ReviewPickFlows(ReviewPickBase):
             page.keyboard.press("Escape")
         page.keyboard.press("Escape")
         settle(page)
-        self.assertEqual(page.evaluate("[document.activeElement.id, RV_PICK]"), ["review-pick", None])
+        self.assertEqual(page.evaluate("[document.activeElement.id, REVIEW_PICK]"), ["review-pick", None])
         self.assertEqual(page.get_attribute("#review-pick", "aria-pressed"), "false")
         self.assertEqual(page.evaluate("CONFIRMS.length"), 0)
 
@@ -586,7 +586,7 @@ class ReviewPickFlows(ReviewPickBase):
         got = page.evaluate(
             """id => {const r = document.querySelector('#review-pins .rv-row[data-id="' + id + '"]').getBoundingClientRect(),
               s = document.querySelector('#list').getBoundingClientRect(), a = document.activeElement;
-              return [r.top >= s.top && r.bottom <= s.bottom, a.matches('.rv-row[data-id="' + id + '"] input[data-pick]'), !!RV_PICK];}""",
+              return [r.top >= s.top && r.bottom <= s.bottom, a.matches('.rv-row[data-id="' + id + '"] input[data-pick]'), !!REVIEW_PICK];}""",
             far,
         )
         self.assertEqual(got, [True, True, True])
@@ -601,10 +601,10 @@ class ReviewPickFlows(ReviewPickBase):
         page.wait_for_selector("#tip:not([hidden])", timeout=5000)
         page.keyboard.press("Escape")
         settle(page)
-        self.assertEqual(page.evaluate("[TIP.hidden, RV_PICK!==null]"), [True, True])
+        self.assertEqual(page.evaluate("[TIP.hidden, REVIEW_PICK!==null]"), [True, True])
         page.keyboard.press("Escape")
         settle(page)
-        self.assertEqual(page.evaluate("RV_PICK"), None)
+        self.assertEqual(page.evaluate("REVIEW_PICK"), None)
 
     def test_a_redraw_keeps_the_focus_on_the_same_of_two_pin_references(self):
         """An explanation naming two pins has two #N links of one kind; the redraw gives the focus back to the one that had
@@ -809,7 +809,7 @@ class ReviewPickLayout(ReviewPickBase):
 
 
 class ReviewPickOutcome(unittest.TestCase):
-    """rvOutcome and rvSaid under node with the real i18n: what each answer of one confirm means, and the banner for a
+    """confirmOutcome and confirmsBanner under node with the real i18n: what each answer of one confirm means, and the banner for a
     send whose confirms did not all go through."""
 
     def setUp(self):
@@ -820,14 +820,14 @@ class ReviewPickOutcome(unittest.TestCase):
             self.skipTest("node not available")
 
     def run_js(self, lang, expr):
-        """The JSON value of expr, run after the real rvOutcome, rvSaid, pinState and the i18n of lang."""
+        """The JSON value of expr, run after the real confirmOutcome, confirmsBanner, pinState and the i18n of lang."""
         js = "\n".join(
             [
                 js_i18n(lang),
                 extract_js_fn("pinState"),
-                helpers_js.module_declaration(open_review_pick(), "RV_OUT"),
-                extract_js_fn("rvOutcome"),
-                extract_js_fn("rvSaid"),
+                helpers_js.module_declaration(open_review_pick(), "CONFIRM_OUTCOME"),
+                extract_js_fn("confirmOutcome"),
+                extract_js_fn("confirmsBanner"),
                 "console.log(JSON.stringify(%s));" % expr,
             ]
         )
@@ -840,12 +840,12 @@ class ReviewPickOutcome(unittest.TestCase):
         [다시 시도] sends again."""
         got = self.run_js(
             "ko",
-            """[rvOutcome({status:200,data:{ok:true}}), rvOutcome({status:409,data:{error:'open'}}),
-              rvOutcome({status:409,data:{error:'conflict',pin:{state:'review'}}}),
-              rvOutcome({status:409,data:{error:'conflict',pin:{state:'done'}}}),
-              rvOutcome({status:409,data:{error:'conflict'}}), rvOutcome({status:200,data:{ok:false,pin:null}}),
-              rvOutcome({status:200,data:null}),
-              rvOutcome(null,{status:403,data:{error:'확인은 사람이 합니다'}}), rvOutcome(null,{})]""",
+            """[confirmOutcome({status:200,data:{ok:true}}), confirmOutcome({status:409,data:{error:'open'}}),
+              confirmOutcome({status:409,data:{error:'conflict',pin:{state:'review'}}}),
+              confirmOutcome({status:409,data:{error:'conflict',pin:{state:'done'}}}),
+              confirmOutcome({status:409,data:{error:'conflict'}}), confirmOutcome({status:200,data:{ok:false,pin:null}}),
+              confirmOutcome({status:200,data:null}),
+              confirmOutcome(null,{status:403,data:{error:'확인은 사람이 합니다'}}), confirmOutcome(null,{})]""",
         )
         self.assertEqual(
             got,
@@ -867,9 +867,9 @@ class ReviewPickOutcome(unittest.TestCase):
         a closed-again, reopened, gone or refused pin a warning, and pins only done by a person meanwhile an info."""
         got = self.run_js(
             "ko",
-            """[rvSaid([{id:1,out:'ok'},{id:2,out:'ok'}]),
-              rvSaid([{id:1,out:'ok'},{id:2,out:'closed-again'},{id:3,out:'reopened'},{id:4,out:'unreached'}]),
-              rvSaid([{id:1,out:'ok'},{id:5,out:'refused',why:'거절'}]), rvSaid([{id:1,out:'ok'},{id:6,out:'done'}])]""",
+            """[confirmsBanner([{id:1,out:'ok'},{id:2,out:'ok'}]),
+              confirmsBanner([{id:1,out:'ok'},{id:2,out:'closed-again'},{id:3,out:'reopened'},{id:4,out:'unreached'}]),
+              confirmsBanner([{id:1,out:'ok'},{id:5,out:'refused',why:'거절'}]), confirmsBanner([{id:1,out:'ok'},{id:6,out:'done'}])]""",
         )
         self.assertIsNone(got[0])
         self.assertEqual(
@@ -905,7 +905,7 @@ class ReviewPickOutcome(unittest.TestCase):
 
     def test_the_banner_reads_in_english(self):
         """The same banner in English through the table, with one dash: the banner shows what is before it as its title."""
-        got = self.run_js("en", "rvSaid([{id:1,out:'ok'},{id:2,out:'closed-again'},{id:4,out:'unreached'}])")
+        got = self.run_js("en", "confirmsBanner([{id:1,out:'ok'},{id:2,out:'closed-again'},{id:4,out:'unreached'}])")
         self.assertEqual(
             got["msg"],
             "Confirmed 1 of 3 — #2 closed again (look at the new result, then confirm) · #4 not sent (the server could not be reached)",

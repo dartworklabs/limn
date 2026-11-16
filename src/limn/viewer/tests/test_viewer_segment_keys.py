@@ -53,7 +53,7 @@ LADDER_TEX = (
 # Each rung of LADDER_TEX's ladder at line 5 and the lines it sets.
 RUNGS = {"raw": (5, 5), "para": (4, 6), "env": (3, 9)}
 # The description box: [armed - the element it waits to show for is the focused one, shown, its text].
-TIP = """[tipEl !== null && tipEl === document.activeElement, !document.querySelector('#tip').hidden,
+TIP = """[armedTipElement !== null && armedTipElement === document.activeElement, !document.querySelector('#tip').hidden,
   document.querySelector('#tip').textContent]"""
 # Narrows the scroll box (a selector) to its widest word and 24px: its words overflow it, and each fits it whole. The
 # assignee row draws its box anew on every pick, so the row around it is narrowed by as much.
@@ -435,7 +435,7 @@ class SegmentKeys(BrowserBase):
         heights = {"0": 0.45, "1": 0.64, "2": 1}
 
         def drawn(i):
-            self.assertEqual(page.evaluate("sheetF()"), heights[i])
+            self.assertEqual(page.evaluate("sheetFraction()"), heights[i])
             self.assertEqual(
                 page.evaluate("getComputedStyle(document.documentElement).getPropertyValue('--sheet-f')"),
                 str(heights[i]),
@@ -611,7 +611,7 @@ class SegmentKeys(BrowserBase):
                 self.assertFalse(page.evaluate(TIP)[1])
                 page.unroute("**/api/snippet?*")
                 # the lines are read again, so the next rung waits on them too
-                page.evaluate("XP_LINES.delete(COMPOSE.current || EDITOR.current)")
+                page.evaluate("EXCERPT_LINES.delete(COMPOSE.current || EDITOR.current)")
                 release = hold_snippets(page)
                 page.keyboard.press("ArrowLeft")
                 rung = page.evaluate_handle("document.activeElement")
@@ -671,7 +671,7 @@ class SegmentKeys(BrowserBase):
         """A mouse press on the 2px gap between two rungs of the edit card's and the composer's ladder gives the focus to
         the chosen rung, not to the ladder's scroll box (tabindex -1) - so the next Tab goes on to the card's next control,
         as from a rung. From the focused box Firefox's Tab began again at the page's start (#nav-toc-toggle; found in
-        review). Mutation: no segBoxFocus -> the box keeps the focus, and in Firefox Tab leaves the card, fails."""
+        review). Mutation: no passLadderBoxFocus -> the box keeps the focus, and in Firefox Tab leaves the card, fails."""
         self.main.write_text(LADDER_TEX, encoding="utf-8")
         for ladder, holder in ((".e-levels", ".edit"), ("#c-levels", "#composer")):
             with self.subTest(ladder=ladder):

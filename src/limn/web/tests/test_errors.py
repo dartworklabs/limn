@@ -431,13 +431,13 @@ class ErrText(unittest.TestCase):
     """errText(): the viewer's one way to show an API error body (node runs the real function from the viewer script)."""
 
     def run_js(self, lang, body):
-        """Run the viewer's real tr/tl/trMsg/errText under node in lang and return the JSON of body."""
+        """Run the viewer's real translate/translateTemplate/translateMessage/errText under node in lang and return the JSON of body."""
         js = "\n".join(
             [
                 "var LANG=%s,I18N_EN=%s;" % (json.dumps(lang), json.dumps(UI_EN, ensure_ascii=False)),
-                extract_js_fn("tr"),
-                extract_js_fn("tl"),
-                extract_js_fn("trMsg"),
+                extract_js_fn("translate"),
+                extract_js_fn("translateTemplate"),
+                extract_js_fn("translateMessage"),
                 extract_js_fn("errText"),
                 "console.log(JSON.stringify(%s));" % body,
             ]

@@ -31,7 +31,7 @@ interface EditCard {
   overwrite?: boolean; // the person chose [내 메모로 덮어쓰기] after seeing theirs
 }
 
-// A suggested edit being written (suggest.js; the composer's SG, an edit card's sg): whether its editor is on, the text it
+// A suggested edit being written (suggest.js; the composer's SUGGEST_DRAFT, an edit card's sg): whether its editor is on, the text it
 // holds, the text it was filled from (base, null before the first fill) and the lines that base is (file, lo, hi), the
 // suggestion the pin had when its edit card opened (had), the current text a 409 answered with and the lines it is
 // (current), the lines being read now ('file:lo-hi', reading) and the last read that failed: its lines, whether it was
@@ -157,7 +157,7 @@ interface Deferred {
   cancel: () => void;
 }
 
-// The pin the changes view was opened for (revisions.js REV.target), and how the commit was chosen for it (via, and
+// The pin the changes view was opened for (revisions.js REVISION_VIEW.target), and how the commit was chosen for it (via, and
 // tokOf, the commit id its close reference names).
 interface RevTarget {
   id: number;
@@ -173,10 +173,10 @@ interface RevTarget {
   hit?: boolean;
   near?: boolean;
   tokOf?: string;
-  mdcMsg?: string;   // the rendered compare's line about the pin's blocks (md-compare.js mdcTarget)
+  mdcMsg?: string;   // the rendered compare's line about the pin's blocks (md-compare.js ringPinBlocks)
 }
 
-// The changes view's quick range (revisions.js REV.range, issue #188): mode is a RANGE_MODE value, start and end the
+// The changes view's quick range (revisions.js REVISION_VIEW.range, issue #188): mode is a RANGE_MODE value, start and end the
 // commits it spans (start the older; equal for one commit), endSet whether the end was chosen (pressed after the start, or
 // named by an update message), base the commit an update message's range is compared from (its last seen commit).
 interface RevRange {

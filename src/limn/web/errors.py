@@ -108,7 +108,7 @@ REOPEN_SCRIPT = (
 
 
 def ui_text(key: str, lang: str, messages: Messages, **params: object) -> str:
-    """One message from the viewer's table, filled in (the server-side twin of the viewer's tl()).
+    """One message from the viewer's table, filled in (the server-side twin of the viewer's translateTemplate()).
 
     In ko the Korean key is the text; in en it is the table's entry (its "other" form when plural), or the key
     itself when the table has none. Each {name} placeholder is replaced by str(params[name]).

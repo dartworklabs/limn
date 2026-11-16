@@ -26,8 +26,8 @@ def transient_ms() -> str:
 
 
 def tooltip_table() -> str:
-    """The viewer's `const T={...};` (core.js) as the page declares it."""
-    return js_const("T")
+    """The viewer's `const TIP_TEXT={...};` (core.js) as the page declares it."""
+    return js_const("TIP_TEXT")
 
 
 class UnchangedAnswer(unittest.TestCase):
@@ -56,7 +56,7 @@ class UnchangedAnswer(unittest.TestCase):
             const BUILD={timer:null,error:null,lastSeq:5,booted:true,inflight:null,asked:false};
             const DOC_SEQ=new Map(), BUILD_ERR_BY=new Map();
             const chip={hidden:false,textContent:''}, btn={disabled:false}; const $=s=>s==='#build-chip'?chip:btn;
-            const dq=u=>u; const pullSuffix=()=>''; const hideBuildErr=()=>{}; const showBuildErr=()=>{};
+            const withDocQuery=u=>u; const pullSuffix=()=>''; const hideBuildErr=()=>{}; const showBuildErr=()=>{};
             const api=async()=>REPLY; const refreshDoc=async()=>{REFRESHES++;};
             const lineNote=(m,k,a)=>{SAID.push([m,k,a?a.label:null]);};
             const setInterval=()=>1, clearInterval=()=>{}, pollBuild=()=>{};
@@ -120,7 +120,7 @@ class UnchangedAnswer(unittest.TestCase):
                 js_i18n("ko"),
                 r"""
             let DOC='a', SWITCHSEQ=1; const URLS=[]; const BUILD={inflight:null,asked:false};
-            const dq=u=>u; const lineNote=()=>{}; const $=()=>({hidden:false}); let polls=0;
+            const withDocQuery=u=>u; const lineNote=()=>{}; const $=()=>({hidden:false}); let polls=0;
             const api=async(u,o)=>{URLS.push([u,o.method]); return {status:202};}; const pollBuild=async()=>{polls++;};""",
                 extract_js_fn("rebuild"),
                 "(async()=>{await rebuild(true); await rebuild(); console.log(JSON.stringify({urls:URLS,polls}));})();",
