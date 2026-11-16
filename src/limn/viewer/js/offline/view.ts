@@ -18,12 +18,12 @@ import { setKind } from '../composer/flow-pick.ts';
 import { saveDraftSoon } from '../composer/flow-draft.ts';
 import { OFF, offDel, offPut, offlineSync } from './flow.ts';
 import { marksShow } from '../pins/input-hide-marks.ts';
-import { ASSIGN_NEW, renderAssignNew } from '../pins/input-mentions.ts';
-import { autoGrow } from '../pins/flow-edit.ts';
+import { ASSIGN_NEW, renderAssignNew } from '../composer/input-mentions.ts';
 import { NOTICE_KIND, NOTICE_LIFE } from '../platform/tables.ts';
 import { $, $$ } from '../platform/dom.ts';
 import { REQUEST_KIND, LAYOUT_MODE } from '../app/rules-tables.ts';
 import { isMarkdownDoc, docInfo } from '../documents/state.ts';
+import { autoGrow } from '../composer/view-text.ts';
 /** A record just dropped ([버리기]) or taken back ([다시 찍기], redo: its note text is in the composer), standing as
  * its undo row until its window ends: NOTICE_MS from `from` (its start, again when a mouse leaves it), held while a
  * mouse is on the row (hover), never past NOTICE_HOLD_MAX beyond its first window (`at`).

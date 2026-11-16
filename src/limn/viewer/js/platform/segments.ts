@@ -17,7 +17,7 @@ function segmentFocusAt(group: Element) {
   return shownWords(group).indexOf(document.activeElement as HTMLButtonElement);
 }
 // Three groups draw their words again: the assignee row on every pick and every change of the note
-// (pins/input-mentions.ts assigneeRowHtml), the range ladder with every range (composer/view-levels.ts drawLadder - a
+// (composer/input-mentions.ts assigneeRowHtml), the range ladder with every range (composer/view-levels.ts drawLadder - a
 // pick that leaves the excerpt short of lines draws it again once more when they come back, composer/view-excerpt.ts
 // excerptFetch) and [더보기]'s size on every pick and relayout (layout/flow-panel-size.ts renderSizeSegment). The word
 // with the focus goes with the old words, and the focus would land on the body: an arrow's walk would end there, as

@@ -16,6 +16,7 @@ import {
   setComposePendingSave,
   setComposeRetryVerdict,
   setComposeSaving,
+  topPinId,
 } from '../app/state.ts';
 import { html, setHtml } from '../platform/markup.ts';
 import { errText, translateTemplate, translate } from '../platform/i18n.ts';
@@ -57,14 +58,13 @@ import {
   figureShort,
   figureVerdictBody,
   figureVerdictRoot,
-  topPinId,
   renderVerdictRow,
   verdictDropped,
   verdictUndo,
 } from '../verdict/flow-line.ts';
 import { loadPins } from '../pins/flow-list.ts';
 import { dropPin } from '../pins/flow-actions.ts';
-import { assignOutcome, composeAsk, mentionHints } from '../pins/input-mentions.ts';
+import { assignOutcome, composeAsk, mentionHints } from './input-mentions.ts';
 import { NOTICE_HOST, NOTICE_KIND, NOTICE_PLACE } from '../platform/tables.ts';
 import { $ } from '../platform/dom.ts';
 import { REQUEST_KIND, SAVE_MODE } from '../app/rules-tables.ts';

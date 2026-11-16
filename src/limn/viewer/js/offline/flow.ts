@@ -21,6 +21,7 @@ import {
   setComposeDismissedOverlap,
   setComposeIntent,
   setComposePicking,
+  topPinId,
 } from '../app/state.ts';
 import { errText, translateTemplate, translate } from '../platform/i18n.ts';
 import { API_WAIT, api, setApiOut } from '../platform/api.ts';
@@ -35,7 +36,6 @@ import { figureFields } from '../pdf/view-figure.ts';
 import { MARKDOWN_VIEW } from '../markdown/view.ts';
 import { renderComposer } from '../composer/flow-pick.ts';
 import { offlineUiSync } from './view.ts';
-import { topPinId } from '../verdict/flow-line.ts';
 import { SELECTION_POPOVER_FIELD, isSelectionPopoverOpen } from '../composer/view-selection-popover.ts';
 import { loadPins } from '../pins/flow-list.ts';
 import { NOTICE_HOST, NOTICE_KIND, NOTICE_LIFE, NOTICE_PLACE, NOTICE_TOPIC } from '../platform/tables.ts';

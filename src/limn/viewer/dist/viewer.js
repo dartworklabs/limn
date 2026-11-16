@@ -742,6 +742,10 @@ function setEditAssignee(card, assignee) {
 function setEditRequestKind(card, kind) {
   card.kind_req = kind;
 }
+// The largest pin number the lists hold: a verdict whose answer was lost is looked for above it (findLandedVerdict).
+function topPinId() {
+  return OPEN_ALL.concat(REVIEW_ALL, DONE_ALL).reduce((highest, pin) => Math.max(highest, pin.id), 0);
+}
 
 // ------------------------------------------------ People
 // Who a login is (a name, an agent or a human) and whether it is the viewer themself, read from the page's shared
@@ -832,6 +836,27 @@ function focusHold(target) {
     target.addEventListener('blur', () => target.removeAttribute('tabindex'), { once: true });
   }
   target.focus({ preventScroll: true });
+}
+// Tab into the pages from outside them - the outline, the section strip, the panel by Shift+Tab - goes to the reading
+// page's line too (its first control; its last by Shift+Tab), else to the PDF area: the DOM's next stop is the first
+// page's line (or the last page's), whose focus would scroll the document there. Only a Tab across the pages' edge is
+// taken - from the last stop before the PDF area (the section strip's page button, where it shows) or, by Shift+Tab,
+// from the first after it (the panel's) - and that stop is found by walking out from the area to the nearest one
+// (findEdgeStop), a few elements, so a Tab outside the pages never reads every focusable element of the document and
+// whether it shows.
+const TABBABLE = 'a[href],button,input,select,textarea,summary,[tabindex]';
+// Whether an element is a stop of the Tab order now: focusable by Tab, enabled, drawn, not hidden and not in an inert
+// or hidden part.
+function isTabStop(x) {
+  return (
+    x instanceof HTMLElement &&
+    x.matches(TABBABLE) &&
+    x.tabIndex >= 0 &&
+    !(x).disabled &&
+    x.getClientRects().length > 0 &&
+    !x.closest('[inert],[hidden]') &&
+    getComputedStyle(x).visibility !== 'hidden'
+  );
 }
 
 // -------------------------------------- Markup: html``, lucideIcon() and setHtml(), the one way the viewer writes HTML
@@ -3788,7 +3813,7 @@ function segmentFocusAt(group) {
   return shownWords(group).indexOf(document.activeElement);
 }
 // Three groups draw their words again: the assignee row on every pick and every change of the note
-// (pins/input-mentions.ts assigneeRowHtml), the range ladder with every range (composer/view-levels.ts drawLadder - a
+// (composer/input-mentions.ts assigneeRowHtml), the range ladder with every range (composer/view-levels.ts drawLadder - a
 // pick that leaves the excerpt short of lines draws it again once more when they come back, composer/view-excerpt.ts
 // excerptFetch) and [더보기]'s size on every pick and relayout (layout/flow-panel-size.ts renderSizeSegment). The word
 // with the focus goes with the old words, and the focus would land on the body: an arrow's walk would end there, as
@@ -22380,7 +22405,7 @@ function drawComposerQuote(selection) {
 // When a selection ends via save/cancel/append, selection mode is turned off (scrolling resumes) and the narrow sheet
 // collapses (the body comes forward again). The composer panel's pin kind (fix request / question). Reverts to fix
 // request on save or discard (the default for the next pin). The kind says what the note is, not who handles it: the
-// assignee does not follow it (pins/input-mentions.ts).
+// assignee does not follow it (composer/input-mentions.ts).
 function setKind(kind) {
   const was = KIND_NEW;
   setKindNew(kind === REQUEST_KIND.QUESTION ? REQUEST_KIND.QUESTION : REQUEST_KIND.FIX);
@@ -26503,10 +26528,6 @@ function currentVerdictOn(doc, page) {
   });
   return best;
 }
-// The largest pin number the lists hold: a verdict whose answer was lost is looked for above it (findLandedVerdict).
-function topPinId() {
-  return OPEN_ALL.concat(REVIEW_ALL, DONE_ALL).reduce((highest, pin) => Math.max(highest, pin.id), 0);
-}
 // A verdict pin this person saved with word key about page `page` of document doc since pin number top - a save whose
 // answer was lost may have landed: it is read again before the press is called a failure, or pressed again (a
 // duplicate).
@@ -28755,27 +28776,6 @@ function findStopInView(at) {
       : null;
   }
   return null;
-}
-// Tab into the pages from outside them - the outline, the section strip, the panel by Shift+Tab - goes to the reading
-// page's line too (its first control; its last by Shift+Tab), else to the PDF area: the DOM's next stop is the first
-// page's line (or the last page's), whose focus would scroll the document there. Only a Tab across the pages' edge is
-// taken - from the last stop before the PDF area (the section strip's page button, where it shows) or, by Shift+Tab,
-// from the first after it (the panel's) - and that stop is found by walking out from the area to the nearest one
-// (findEdgeStop), a few elements, so a Tab outside the pages never reads every focusable element of the document and
-// whether it shows.
-const TABBABLE = 'a[href],button,input,select,textarea,summary,[tabindex]';
-// Whether an element is a stop of the Tab order now: focusable by Tab, enabled, drawn, not hidden and not in an inert
-// or hidden part.
-function isTabStop(x) {
-  return (
-    x instanceof HTMLElement &&
-    x.matches(TABBABLE) &&
-    x.tabIndex >= 0 &&
-    !(x).disabled &&
-    x.getClientRects().length > 0 &&
-    !x.closest('[inert],[hidden]') &&
-    getComputedStyle(x).visibility !== 'hidden'
-  );
 }
 // The nearest Tab stop outside the PDF area on one side of it - the last before it, or (after) the first after it - or
 // null. Walks out from the area element by element and passes a part that is not drawn (display: none, hidden, inert)
@@ -32105,7 +32105,7 @@ function setBuildReadingPage(value) {
 // location, a note field, [자세히 →] and [저장], so the note can be written where the eye already is. The field is the
 // composer's note - one value, edited from either place - and [저장] and Ctrl/⌘+Enter take savePin(), the composer's
 // own path, so the saved chip with its undo and every rule of §알림 자리 hold unchanged. '@' in the field offers the
-// composer's @-list by the field; a pick's tag is kept on the composer's note (pins/input-mentions.ts mentionModel).
+// composer's @-list by the field; a pick's tag is kept on the composer's note (composer/input-mentions.ts mentionModel).
 // [자세히 →] hands over to the composer in the panel, which keeps the kind, the range and the overlap. Esc and a short
 // click off the box cancel the selection as they do without it; a press on the popover is a press inside the box
 // (pressOutsideSelection). Touch and the phone keep the composer alone (it is a sheet).
@@ -32212,7 +32212,7 @@ function placeSelectionPopover() {
 }
 // One note: what is typed here is the composer's note (its @-tag preview, assignee row, question hint and draft
 // follow), and what is typed in the composer shows here (a name picked there from the @-list too:
-// pins/input-mentions.ts mentionMirror).
+// composer/input-mentions.ts mentionMirror).
 SELECTION_POPOVER_FIELD.addEventListener('input', () => {
   const noteField = $('#note');
   noteField.value = SELECTION_POPOVER_FIELD.value;
@@ -32251,6 +32251,22 @@ function avatar(person) {
   return person.pic && !FAILED_AVATARS.has(person.pic)
     ? html`<img class="av" src="${person.pic}" alt="" referrerpolicy="no-referrer" data-ini="${initial}">`
     : html`<span class="av i" aria-hidden="true"><span class="av-l">${initial}</span></span>`;
+}
+
+// ------------------------------------------------ The text fields a pin is written in
+// The composer's note, an edit card's note and a reply share these: the field's height follows its text, and a card's
+// quote line stays open across redraws.
+// The cards whose quote line is open ('<doc>:<id>', toggleQuote), kept across redraws.
+const QUOTE_OPEN = new Set();
+// The note field of an edit card (openEdit puts exactly one in every card).
+function editNote(card) {
+  return card.el.querySelector('.e-note');
+}
+// Grows a note or reply field with its text, from three lines to twelve.
+function autoGrow(field) {
+  field.style.height = 'auto';
+  const lineHeight = 20;
+  field.style.height = Math.min(12 * lineHeight, Math.max(3 * lineHeight, field.scrollHeight + 2)) + 'px';
 }
 
 /** Native pin-card markup, including participant text, state badges and threads.
@@ -32567,19 +32583,6 @@ function mentionTokensOf(logins) {
   });
   return out.sort((left, right) => right.t.length - left.t.length || left.k - right.k);
 } // for a tie in text length, full name > login > first word
-// Whether the '@' at text[index] continues a word, so it is no tag - the server's rule: the character before it is a
-// letter or digit of any script (Python's str.isalnum(): Unicode L*/N*, so 'é@' and '김@' too) or one of '._-'. That
-// character is a whole code point, as Python reads it: an astral letter before '@' is two UTF-16 units.
-function mentionAfterWord(text, index) {
-  if (index <= 0) return false;
-  const lowUnit = text.charCodeAt(index - 1),
-    highUnit = index > 1 ? text.charCodeAt(index - 2) : 0;
-  const before =
-    lowUnit >= 0xdc00 && lowUnit <= 0xdfff && highUnit >= 0xd800 && highUnit <= 0xdbff
-      ? text.slice(index - 2, index)
-      : text[index - 1];
-  return /^[\p{L}\p{N}._-]$/u.test(before);
-}
 function escapeRegExp(text) {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -32678,8 +32681,6 @@ function hasRef(value) {
   return !!value && String(value).trim() !== '' && String(value).trim() !== '-';
 }
 const EVENT_LABEL = { close: '닫음', reopen: '다시 엶', confirm: '확인', assign: '담당 바꿈' };
-// The cards whose quote line is open ('<doc>:<id>', toggleQuote), kept across redraws.
-const QUOTE_OPEN = new Set();
 // A card's quote line, right above its note: the composer's line for the pin's saved quote (shownQuote, quoteInner),
 // folded to one line with the whole text as its tooltip until it is pressed. null when the pin shows no quote.
 function cardQuote(pin) {
@@ -35454,6 +35455,19 @@ async function unclaimPin(id) {
 // composer/view-selection-popover.ts) offers the same list, and its tags are kept on the field it mirrors, which sends
 // them (mentionModel). There is no external notification. The open @-list: its field, the '@word' it was drawn for
 // (where its '@' is, q the letters after it), its people and the highlighted row.
+// Whether the '@' at text[index] continues a word, so it is no tag - the server's rule: the character before it is a
+// letter or digit of any script (Python's str.isalnum(): Unicode L*/N*, so 'é@' and '김@' too) or one of '._-'. That
+// character is a whole code point, as Python reads it: an astral letter before '@' is two UTF-16 units.
+function mentionAfterWord(text, index) {
+  if (index <= 0) return false;
+  const lowUnit = text.charCodeAt(index - 1),
+    highUnit = index > 1 ? text.charCodeAt(index - 2) : 0;
+  const before =
+    lowUnit >= 0xdc00 && lowUnit <= 0xdfff && highUnit >= 0xd800 && highUnit <= 0xdbff
+      ? text.slice(index - 2, index)
+      : text[index - 1];
+  return /^[\p{L}\p{N}._-]$/u.test(before);
+}
 
 const MENTION = {
   ta: null,
@@ -36401,10 +36415,6 @@ function syncEditSaveButton() {
   const button = EDITOR.current && EDITOR.current.el.querySelector('.b-esave');
   if (button) (button).disabled = EDITOR.saving;
 }
-// The note field of an edit card (openEdit puts exactly one in every card).
-function editNote(card) {
-  return card.el.querySelector('.e-note');
-}
 // Opens the edit card for pin `id` (the pin's document is switched to first) and focuses its note: builds the card
 // markup, records the pin's current values as the editor's baseline (EDITOR.current, including a figure pin's element)
 // and loads the snippet and range ladder. An edit already open on that pin is left as it is.
@@ -36511,11 +36521,6 @@ function editDirty() {
     card.assignee !== card.orig.assignee ||
     suggestForEdit(card.sg, suggestOff(card, editDocKind(card))) !== undefined
   );
-}
-function autoGrow(field) {
-  field.style.height = 'auto';
-  const lineHeight = 20;
-  field.style.height = Math.min(12 * lineHeight, Math.max(3 * lineHeight, field.scrollHeight + 2)) + 'px';
 }
 document.addEventListener('input', (event) => {
   const target = event.target;

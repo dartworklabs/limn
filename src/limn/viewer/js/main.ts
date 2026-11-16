@@ -247,7 +247,7 @@ import {
 } from './pins/flow-list.ts';
 import { MARKS, marksSet } from './pins/input-hide-marks.ts';
 import { closePin, confirmPin, dropPin, purgePin, trashRestore, unclaimPin } from './pins/flow-actions.ts';
-import { ASSIGN_NEW, mentionApply, renderAssignEdit, renderAssignNew } from './pins/input-mentions.ts';
+import { ASSIGN_NEW, mentionApply, renderAssignEdit, renderAssignNew } from './composer/input-mentions.ts';
 import { closeReply, openReply, renderReplyOutcome, sendReply, replyNote } from './pins/flow-reply.ts';
 import { cancelEdit, openEdit, renderEdit, saveEdit, editDirty } from './pins/flow-edit.ts';
 import { applyRepick, cancelRepick, startRepick, bannerCompare } from './composer/flow-repick.ts';

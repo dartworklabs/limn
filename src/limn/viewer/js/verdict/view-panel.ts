@@ -21,7 +21,6 @@ import { BAND_TIMER, topAnchor } from '../layout/flow.ts';
 import {
   CHIP_WATCH,
   READING_LINE_PAGE,
-  TABBABLE,
   LINE_TEXT,
   drawPageVerdicts,
   fillPageLine,
@@ -36,7 +35,6 @@ import {
   verdictStateWord,
   stickReadingLine,
   stickSoon,
-  isTabStop,
   fitWrappedWords,
 } from './flow-line.ts';
 import {
@@ -49,7 +47,7 @@ import {
   getDraft,
   setComposingField,
 } from './flow-reason.ts';
-import { $, $$, searchToPage } from '../platform/dom.ts';
+import { $, $$, searchToPage, TABBABLE, isTabStop } from '../platform/dom.ts';
 import { LAYOUT_MODE } from '../app/rules-tables.ts';
 import { verdictOf } from '../app/rules-pins.ts';
 import { verdictLabel, pageVerdictsOn } from '../documents/state.ts';

@@ -279,13 +279,13 @@ class DeadAndDoubledFunctions(unittest.TestCase):
         self.assertEqual(sorted(self.unreferenced(part_sources())), sorted(ENTRY_POINTS))
 
     def test_a_call_lost_to_a_comment_is_caught(self):
-        """The pins/input-mentions.ts accident planted again: with the call turned into comment text, mentionBadSettled is
+        """The composer/input-mentions.ts accident planted again: with the call turned into comment text, mentionBadSettled is
         reported as unreferenced."""
         sources = part_sources()
-        src = sources["js/pins/input-mentions.ts"]
+        src = sources["js/composer/input-mentions.ts"]
         call = re.search(r"\n\s*(scan\.bad\s*=\s*mentionBadSettled\([^;]*\);)", src)
         self.assertIsNotNone(call)
-        sources["js/pins/input-mentions.ts"] = src.replace(
+        sources["js/composer/input-mentions.ts"] = src.replace(
             call.group(0), " // the same hints " + " ".join(call.group(1).split()), 1
         )
         self.assertIn("mentionBadSettled", self.unreferenced(sources))

@@ -56,10 +56,8 @@ import {
   drawSelectionPopover,
   isSelectionPopoverOpen,
 } from './view-selection-popover.ts';
-import { QUOTE_OPEN } from '../pins/view-card-parts.ts';
 import { loadPins } from '../pins/flow-list.ts';
-import { ASSIGN_NEW, renderAssignNew } from '../pins/input-mentions.ts';
-import { autoGrow } from '../pins/flow-edit.ts';
+import { ASSIGN_NEW, renderAssignNew } from './input-mentions.ts';
 import { banner, bannerCompare, bannerRepick, cancelRepick } from './flow-repick.ts';
 import { refreshDoc } from '../documents/flow-rebuild.ts';
 import type { Html } from '../platform/markup.ts';
@@ -72,6 +70,7 @@ import { isMarkdownDoc, isRegion } from '../documents/state.ts';
 import { offlineNow } from '../documents/flow-polling.ts';
 import { useLevel } from '../documents/rules.ts';
 import { imeOpen } from '../platform/composition.ts';
+import { QUOTE_OPEN, autoGrow } from './view-text.ts';
 
 /** Capture editable composer fields by value - the suggested edit's switch, text and base among them; derived overlap
  * and snippet updates do not count as new input. */
@@ -518,7 +517,7 @@ function drawComposerQuote(selection: Selection | null) {
 // When a selection ends via save/cancel/append, selection mode is turned off (scrolling resumes) and the narrow sheet
 // collapses (the body comes forward again). The composer panel's pin kind (fix request / question). Reverts to fix
 // request on save or discard (the default for the next pin). The kind says what the note is, not who handles it: the
-// assignee does not follow it (pins/input-mentions.ts).
+// assignee does not follow it (composer/input-mentions.ts).
 function setKind(kind) {
   const was = KIND_NEW;
   setKindNew(kind === REQUEST_KIND.QUESTION ? REQUEST_KIND.QUESTION : REQUEST_KIND.FIX);

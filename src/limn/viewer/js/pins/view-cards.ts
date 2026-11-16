@@ -9,14 +9,7 @@ import { viaTag } from '../composer/view-levels.ts';
 import { isElementLost, lostElementTag, figureRegionBadge, pinPlace } from '../pdf/view-figure.ts';
 import { isMarkdownPin } from '../markdown/view.ts';
 import { suggestBadge, suggestView } from '../composer/flow-suggest.ts';
-import {
-  TABBABLE,
-  dropPageLineOverlaps,
-  isTabStop,
-  verdictBadge,
-  verdictOldMarker,
-  verdictTarget,
-} from '../verdict/flow-line.ts';
+import { dropPageLineOverlaps, verdictBadge, verdictOldMarker, verdictTarget } from '../verdict/flow-line.ts';
 import {
   addressedTag,
   authorTip,
@@ -45,7 +38,7 @@ import { listDropped, reviewerLabel } from './flow-list.ts';
 import { PURGING } from './flow-actions.ts';
 import type { Html } from '../platform/markup.ts';
 import { NOTICE_PLACE, UI_LANG } from '../platform/tables.ts';
-import { $, $$ } from '../platform/dom.ts';
+import { $, $$, TABBABLE, isTabStop } from '../platform/dom.ts';
 import { CARD_DOT, ELEMENT_SYNC, LAYOUT_MODE, PIN_STATE, RANGE_REL, ROLE, STAMP_FORM } from '../app/rules-tables.ts';
 import { pinState, verdictOf, lineRange } from '../app/rules-pins.ts';
 import { who, isMe } from '../app/state-people.ts';

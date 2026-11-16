@@ -77,7 +77,7 @@ import { card, dayName, doneCard, drawTrash, openTrash, timeParts } from './view
 import { drawReviewPick } from './flow-review-pick.ts';
 import { marksShow } from './input-hide-marks.ts';
 import { CONFIRMING, CONFIRMING_PIN, PURGING } from './flow-actions.ts';
-import { renderAssignNew } from './input-mentions.ts';
+import { renderAssignNew } from '../composer/input-mentions.ts';
 import { closeReply, renderReplyOutcome, replyNote } from './flow-reply.ts';
 import { editDirty, renderEdit } from './flow-edit.ts';
 import type { Html } from '../platform/markup.ts';
