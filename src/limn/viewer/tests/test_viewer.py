@@ -1293,7 +1293,7 @@ class FrontendMobileLogic(unittest.TestCase):
             let SHOW_ALL=false, DOCS=[], DOC='main', DEFAULT_DOC='main'; function docInfo(){return null;}
             let LAYOUT='mid', REPLY=null, META=null; const THREAD_OPEN=new Set(), COARSE_POINTER_QUERY={matches:true};
             function suggestBadge(){return null;} function suggestView(){return null;}   // these pins carry no suggested edit (composer/flow-suggest.ts)
-            function verdictOf(){return null;} function verdictBadge(){return null;} function dropPageLineOverlaps(p){return p;} function verdictOldMarker(){return null;} function verdictTarget(){return null;}   // ...and no verdict (verdict/flow-line.ts)
+            function verdictOf(){return null;} function verdictBadge(){return null;} function dropPageLineOverlaps(p){return p;} function verdictOldMarker(){return null;} function verdictTarget(){return null;}   // ...and no verdict (verdict/view-pins.ts)
             function isMarkdownPin(){return false;}   // ...and are on a document with pages (markdown/view.ts)
             """,
                 extract_js_fn("lineRange"),
@@ -4753,7 +4753,7 @@ class FrontendReview(unittest.TestCase):
             let SHOW_ALL=false, DOCS=[], DOC='main', DEFAULT_DOC='main', LAYOUT='wide', REPLY=null; function docInfo(){return null;}
             const THREAD_OPEN=new Set(), COARSE_POINTER_QUERY={matches:false};
             function suggestBadge(){return null;} function suggestView(){return null;}   // these pins carry no suggested edit (composer/flow-suggest.ts)
-            function verdictOf(){return null;} function verdictBadge(){return null;} function dropPageLineOverlaps(p){return p;} function verdictOldMarker(){return null;} function verdictTarget(){return null;}   // ...and no verdict (verdict/flow-line.ts)
+            function verdictOf(){return null;} function verdictBadge(){return null;} function dropPageLineOverlaps(p){return p;} function verdictOldMarker(){return null;} function verdictTarget(){return null;}   // ...and no verdict (verdict/view-pins.ts)
             function isMarkdownPin(){return false;}   // ...and are on a document with pages (markdown/view.ts)
             """,
                 extract_js_fn("lineRange"),

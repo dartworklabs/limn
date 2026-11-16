@@ -45,13 +45,9 @@ import {
   KEYED_PAGE,
   KEY_SAVE_OUT,
   READING_LINE_PAGE,
-  canVerdict,
   drawPageVerdicts,
   fillPageLine,
-  pageTakesVerdict,
-  pageTargetOf,
   pageTargetShort,
-  pageVerdictPins,
   canCancelVerdict,
   currentVerdictOn,
   pageUnderReadingLine,
@@ -68,6 +64,7 @@ import { verdictOf } from '../app/rules-pins.ts';
 import { isMe } from '../app/state-people.ts';
 import { docInfo, verdictLabel, viewerBlocked, pageVerdictsOn } from '../documents/state.ts';
 import { isAutoScrolling, endJumpForScroll } from '../layout/flow-scroll.ts';
+import { canVerdict, pageTakesVerdict, pageTargetOf, pageVerdictPins } from './view-pins.ts';
 
 // ---------------- Drafts kept per pin (sessionStorage)
 // One record per instance label for this tab: {v:1, d:{<key>: {text, base, rev, mode, folded, at, tried, from}}}. The

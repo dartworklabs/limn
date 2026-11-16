@@ -205,17 +205,12 @@ import {
   pageUnderReadingLine,
   stickSoon,
   sizePageLines,
-  pageVerdictPins,
   renderVerdictRow,
   figureVerdictBody,
   figureVerdictRoot,
   figureShort,
   verdictUndo,
   verdictDropped,
-  verdictBadge,
-  verdictTarget,
-  verdictOldMarker,
-  dropPageLineOverlaps,
   drawPageVerdicts,
   isShownOnLine,
   jumpToPageLine,
@@ -296,6 +291,13 @@ import { setLastPinsRevision, setLastSrcMtime, startLightPolling, pollLight } fr
 import { drawMeta } from './documents/view-meta.ts';
 import { renderEdit, editDirty } from './pins/view-edit.ts';
 import { cancelRepick, bannerCompare } from './composer/flow-repick-banner.ts';
+import {
+  pageVerdictPins,
+  verdictBadge,
+  verdictTarget,
+  verdictOldMarker,
+  dropPageLineOverlaps,
+} from './verdict/view-pins.ts';
 
 // The seams platform calls the features through (docs/handbook/viewer.md §모듈 경계), each registered here once. This
 // runs before boot() and before any listener can fire (no code that runs while the script loads calls one), so no

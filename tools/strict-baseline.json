@@ -103,9 +103,10 @@
       "src/limn/viewer/js/revisions/input.ts": 7,
       "src/limn/viewer/js/revisions/view-rendered-compare.ts": 49,
       "src/limn/viewer/js/text/view.ts": 1,
-      "src/limn/viewer/js/verdict/flow-line.ts": 96,
+      "src/limn/viewer/js/verdict/flow-line.ts": 91,
       "src/limn/viewer/js/verdict/flow-reason.ts": 47,
-      "src/limn/viewer/js/verdict/view-panel.ts": 16
+      "src/limn/viewer/js/verdict/view-panel.ts": 16,
+      "src/limn/viewer/js/verdict/view-pins.ts": 5
     },
     "@typescript-eslint/no-explicit-any": {
       "src/limn/viewer/js/composer/flow-draft.ts": 1,
@@ -266,9 +267,10 @@
       "src/limn/viewer/js/revisions/input.ts": 25,
       "src/limn/viewer/js/revisions/view-rendered-compare.ts": 42,
       "src/limn/viewer/js/text/view.ts": 4,
-      "src/limn/viewer/js/verdict/flow-line.ts": 94,
+      "src/limn/viewer/js/verdict/flow-line.ts": 91,
       "src/limn/viewer/js/verdict/flow-reason.ts": 64,
-      "src/limn/viewer/js/verdict/view-panel.ts": 9
+      "src/limn/viewer/js/verdict/view-panel.ts": 9,
+      "src/limn/viewer/js/verdict/view-pins.ts": 3
     },
     "@typescript-eslint/no-unsafe-call": {
       "src/limn/viewer/js/app/rules-pins.ts": 1,
@@ -330,9 +332,10 @@
       "src/limn/viewer/js/revisions/input.ts": 25,
       "src/limn/viewer/js/revisions/view-rendered-compare.ts": 16,
       "src/limn/viewer/js/text/view.ts": 1,
-      "src/limn/viewer/js/verdict/flow-line.ts": 68,
+      "src/limn/viewer/js/verdict/flow-line.ts": 67,
       "src/limn/viewer/js/verdict/flow-reason.ts": 22,
-      "src/limn/viewer/js/verdict/view-panel.ts": 10
+      "src/limn/viewer/js/verdict/view-panel.ts": 10,
+      "src/limn/viewer/js/verdict/view-pins.ts": 1
     },
     "@typescript-eslint/no-unsafe-member-access": {
       "src/limn/viewer/js/app/rules-pins.ts": 11,
@@ -403,9 +406,10 @@
       "src/limn/viewer/js/revisions/input.ts": 104,
       "src/limn/viewer/js/revisions/view-rendered-compare.ts": 119,
       "src/limn/viewer/js/text/view.ts": 7,
-      "src/limn/viewer/js/verdict/flow-line.ts": 198,
+      "src/limn/viewer/js/verdict/flow-line.ts": 195,
       "src/limn/viewer/js/verdict/flow-reason.ts": 111,
-      "src/limn/viewer/js/verdict/view-panel.ts": 28
+      "src/limn/viewer/js/verdict/view-panel.ts": 28,
+      "src/limn/viewer/js/verdict/view-pins.ts": 3
     },
     "@typescript-eslint/no-unsafe-return": {
       "src/limn/viewer/js/app/state-people.ts": 3,
@@ -455,9 +459,10 @@
       "src/limn/viewer/js/revisions/flow.ts": 6,
       "src/limn/viewer/js/revisions/view-rendered-compare.ts": 12,
       "src/limn/viewer/js/text/view.ts": 2,
-      "src/limn/viewer/js/verdict/flow-line.ts": 17,
+      "src/limn/viewer/js/verdict/flow-line.ts": 14,
       "src/limn/viewer/js/verdict/flow-reason.ts": 9,
-      "src/limn/viewer/js/verdict/view-panel.ts": 1
+      "src/limn/viewer/js/verdict/view-panel.ts": 1,
+      "src/limn/viewer/js/verdict/view-pins.ts": 3
     },
     "@typescript-eslint/switch-exhaustiveness-check": {
       "src/limn/viewer/js/main.ts": 1

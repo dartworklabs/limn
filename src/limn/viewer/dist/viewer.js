@@ -25658,14 +25658,10 @@ $('#doc').addEventListener('click', (event) => {
 // pages, and which records this document and build draw has changed - both are drawn again.
 new MutationObserver(() => offUiDraw()).observe($('#doc'), { childList: true });
 
-// ------------------------------------------------ Verdict pins (docs/handbook/viewer.md §판정 핀, domain.md §판정 핀)
-// A document may declare verdict words (its word file, served as `verdicts` on /api/docs and the full /api/meta). A
-// verdict pin is a pin saved with one of them (`verdict`); its verdict and target are fixed when it is made. The viewer
-// offers the words in two places: the composer's verdict row (#c-verdict-row), which saves the selection and its note
-// as that verdict, and - on a figure document or a view-only PDF whose word file says page: true - a page verdict line,
-// which saves a verdict about the page's whole target and never touches the composer. The words are the manuscript's:
-// they are drawn as text, translate="no", and the names around them are put in the screen's language here.
-
+// ------------------------------------------------ A verdict pin, as the lists draw it (domain.md §판정 핀)
+// Who may make a verdict, what a verdict pin is about - its page's whole target, or a figure - and where it stands
+// among the verdicts of one target (the current one, the ones it replaced), with the badges and marks that say so.
+// verdict/flow-line.ts draws the composer's verdict row and the page verdict lines from these.
 const VERDICT_ARM_MS = 4000; // how long a confirm word's first press waits for its second (D9)
 // Whether this screen may make a verdict pin: a person who edits (a viewer reads, an agent never makes one, D11).
 function canVerdict() {
@@ -25679,7 +25675,6 @@ function verdictBadge(pin) {
   if (!key) return null;
   return html`<span class="badge badge-verdict" data-tip="${translate('버튼으로 고른 판정입니다. 판정과 대상은 바뀌지 않고 메모만 고칠 수 있습니다')}">${translate('판정')} <span class="vd-w" translate="no">${verdictLabel(key, pdoc(pin))}</span></span>`;
 }
-
 // A verdict card's target by name, so a person finds the figure they gave a verdict: on a figure document the figure it
 // is about (figureRootOf) - its title in the map ('[후보] PL26 · …') while the page it is on still shows it, else '그림
 // <id>'. null for any other pin or document: a view-only PDF's page and a LaTeX range are in the card's head already.
@@ -25706,7 +25701,6 @@ function dropPageLineOverlaps(pin) {
   const rel = pin.rel.filter((x) => !list.some((linePin) => linePin.id === x.id));
   return rel.length === pin.rel.length ? pin : { ...pin, rel };
 }
-
 // ---------------- The page's whole target (domain.md §쪽 전체 대상)
 const WHOLE_PAGE = [0, 0, 1, 1];
 // The figure a figure document's pin is about: the root of its element's path (el.path[0]). A figure document is one
@@ -25895,10 +25889,6 @@ function verdictOldMarker(pin) {
   return html`<span class="badge vd-old" role="note" aria-label="${description}" data-tip="${description}">${parts[0]}<span class="pin-ref vd-old-ref hit" role="link" tabindex="0" \
 data-act="pin-ref" data-ref="${id}" aria-label="${translateTemplate('지금 판정 #{id} 카드로 갑니다', { id })}">#${id}</span>${parts[1] || ''}</span>`;
 }
-// The ids of the pins a page verdict line shows now (drawPageVerdicts): their page-size mark is not drawn and their
-// card's [보기] goes to the line (marks, jumpPin).
-let SHOWN_ON_PAGE_LINES = new Set();
-let KEYED_PAGE = 0; // the page whose line the keys 1-5 act on (keyedPageFor), 0 for none
 // A pin's state on the line: what the dot would say, in the line's words. The pin is the page target's newest verdict.
 function verdictStateWord(pin) {
   const state = pinState(pin);
@@ -25906,6 +25896,19 @@ function verdictStateWord(pin) {
   if (state === PIN_STATE.DONE) return translate('처리됨');
   return claimActive(pin) ? translate('처리 중') : translate('처리 대기');
 }
+
+// ------------------------------------------------ Verdict pins (docs/handbook/viewer.md §판정 핀, domain.md §판정 핀)
+// A document may declare verdict words (its word file, served as `verdicts` on /api/docs and the full /api/meta). A
+// verdict pin is a pin saved with one of them (`verdict`); its verdict and target are fixed when it is made. The viewer
+// offers the words in two places: the composer's verdict row (#c-verdict-row), which saves the selection and its note
+// as that verdict, and - on a figure document or a view-only PDF whose word file says page: true - a page verdict line,
+// which saves a verdict about the page's whole target and never touches the composer. The words are the manuscript's:
+// they are drawn as text, translate="no", and the names around them are put in the screen's language here.
+
+// The ids of the pins a page verdict line shows now (drawPageVerdicts): their page-size mark is not drawn and their
+// card's [보기] goes to the line (marks, jumpPin).
+let SHOWN_ON_PAGE_LINES = new Set();
+let KEYED_PAGE = 0; // the page whose line the keys 1-5 act on (keyedPageFor), 0 for none
 
 // ---------------- Two presses for a confirm word (D9)
 // The armed first press: the word, where (VERDICT_PLACE) and - on a page line - the page, with the document, build and

@@ -126,7 +126,7 @@ class SupersessionParity(BrowserBase):
 
 
 class AnchorParity(unittest.TestCase):
-    """The viewer's anchorKey (verdict/flow-line.ts, under node) and the server's anchor_key (limn.pins.verdict) on the same stored
+    """The viewer's anchorKey (verdict/view-pins.ts, under node) and the server's anchor_key (limn.pins.verdict) on the same stored
     anchors: one anchor to the one exactly when one to the other, and both as the definition says - the same JSON value,
     a number as the double the viewer parses it to."""
 

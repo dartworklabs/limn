@@ -23,7 +23,6 @@ import {
   LINE_TEXT,
   drawPageVerdicts,
   fillPageLine,
-  pageTakesVerdict,
   noteCameFrom,
   canCancelVerdict,
   watchFarLines,
@@ -31,7 +30,6 @@ import {
   keepFocusOnLine,
   pageUnderReadingLine,
   readingPageWithLine,
-  verdictStateWord,
   stickReadingLine,
   stickSoon,
   fitWrappedWords,
@@ -59,6 +57,7 @@ import {
   endJumpForScroll,
 } from '../layout/flow-scroll.ts';
 import { readingDepth } from '../pdf/view-page-jump.ts';
+import { pageTakesVerdict, verdictStateWord } from './view-pins.ts';
 
 // The panel's room in px, as the CSS draws it (verdict-panel.css --pv-panel-w, --pv-panel-gap): the margin right of a
 // page holds the panel and its gap, and the left margin keeps at least PANEL_LEFT_MARGIN. The lines go beside the pages
