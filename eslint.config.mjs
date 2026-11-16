@@ -238,7 +238,7 @@ const languageOptions = {
   ecmaVersion: 2024,
   sourceType: 'module',
   parser: tseslint.parser,
-  parserOptions: { project: './tsconfig.json', tsconfigRootDir: import.meta.dirname },
+  parserOptions: { project: './tsconfig.strict.json', tsconfigRootDir: import.meta.dirname },
   globals: {
     ...globals.browser,
     // Filled by the server in the built script (limn/viewer/assemble.py viewer_script); declared for tsc in

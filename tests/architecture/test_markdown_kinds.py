@@ -16,7 +16,7 @@ from pathlib import Path
 import helpers_js
 
 ROOT = Path(__file__).resolve().parents[2]
-SURFACE = ROOT / "src" / "limn" / "viewer" / "js" / "md-surface.js"
+SURFACE = ROOT / "src" / "limn" / "viewer" / "js" / "md-surface.ts"
 API = ROOT / "docs" / "handbook" / "api.md"
 TAUGHT = (
     ROOT / "docs" / "handbook" / "viewer.md",

@@ -26,7 +26,7 @@ from limn.viewer import assemble
 from helpers import HTML, SCRIPT, SW_JS, VIEWER, VIEWER_FILES, Base, page_for, req, split_resp, sq, viewer_text
 from helpers_js import inline_scripts, module_code, module_texts, strip_results
 
-EXT = {"__APP_CSS__": ".css", "__APP_JS__": ".js"}
+EXT = {"__APP_CSS__": ".css", "__APP_JS__": ".ts"}
 
 
 def script_errors(scripts: list[str], module: bool = False) -> list[str] | None:
@@ -153,8 +153,8 @@ class ViewerFiles(unittest.TestCase):
             with self.subTest(page=page), tempfile.TemporaryDirectory() as d:
                 broken = Path(d)
                 (broken / "index.html").write_text(page, encoding="utf-8")
-                (broken / "parts.txt").write_text("__APP_CSS__\ncss/a.css\n__APP_JS__\njs/a.js\n", encoding="utf-8")
-                for name, text in (("css/a.css", "body{}\n"), ("js/a.js", "boot();\n")):
+                (broken / "parts.txt").write_text("__APP_CSS__\ncss/a.css\n__APP_JS__\njs/a.ts\n", encoding="utf-8")
+                for name, text in (("css/a.css", "body{}\n"), ("js/a.ts", "boot();\n")):
                     (broken / name).parent.mkdir(exist_ok=True)
                     (broken / name).write_text(text, encoding="utf-8")
                 with self.assertRaises(ValueError):
@@ -165,14 +165,14 @@ class ViewerFiles(unittest.TestCase):
         any marker, an unknown or repeated marker, a marker with no parts or missing, a part listed twice, a path
         that could leave the viewer folder."""
         cases = {
-            "part before a marker": "css/a.css\n__APP_CSS__\ncss/b.css\n__APP_JS__\njs/a.js\n",
-            "unknown marker": "__APP_CSS__\ncss/a.css\n__APP_JS__\njs/a.js\n__APP_X__\njs/b.js\n",
-            "repeated marker": "__APP_CSS__\ncss/a.css\n__APP_JS__\njs/a.js\n__APP_CSS__\ncss/b.css\n",
-            "marker without parts": "__APP_CSS__\n__APP_JS__\njs/a.js\n",
-            "missing marker": "__APP_JS__\njs/a.js\n",
-            "part twice": "__APP_CSS__\ncss/a.css\n__APP_JS__\njs/a.js\njs/a.js\n",
-            "path out of the folder": "__APP_CSS__\n../a.css\n__APP_JS__\njs/a.js\n",
-            "absolute path": "__APP_CSS__\n/etc/a.css\n__APP_JS__\njs/a.js\n",
+            "part before a marker": "css/a.css\n__APP_CSS__\ncss/b.css\n__APP_JS__\njs/a.ts\n",
+            "unknown marker": "__APP_CSS__\ncss/a.css\n__APP_JS__\njs/a.ts\n__APP_X__\njs/b.ts\n",
+            "repeated marker": "__APP_CSS__\ncss/a.css\n__APP_JS__\njs/a.ts\n__APP_CSS__\ncss/b.css\n",
+            "marker without parts": "__APP_CSS__\n__APP_JS__\njs/a.ts\n",
+            "missing marker": "__APP_JS__\njs/a.ts\n",
+            "part twice": "__APP_CSS__\ncss/a.css\n__APP_JS__\njs/a.ts\njs/a.ts\n",
+            "path out of the folder": "__APP_CSS__\n../a.css\n__APP_JS__\njs/a.ts\n",
+            "absolute path": "__APP_CSS__\n/etc/a.css\n__APP_JS__\njs/a.ts\n",
         }
         for why, text in cases.items():
             with self.subTest(why), tempfile.TemporaryDirectory() as d:
@@ -185,11 +185,11 @@ class ViewerFiles(unittest.TestCase):
         each part is for."""
         with tempfile.TemporaryDirectory() as d:
             (Path(d) / "parts.txt").write_text(
-                "# order\n\n__APP_CSS__   # style\ncss/a.css  # tokens\n\n__APP_JS__\njs/a.js\njs/b.js # last\n",
+                "# order\n\n__APP_CSS__   # style\ncss/a.css  # tokens\n\n__APP_JS__\njs/a.ts\njs/b.ts # last\n",
                 encoding="utf-8",
             )
             self.assertEqual(
-                assemble.viewer_manifest(Path(d)), {"__APP_CSS__": ("css/a.css",), "__APP_JS__": ("js/a.js", "js/b.js")}
+                assemble.viewer_manifest(Path(d)), {"__APP_CSS__": ("css/a.css",), "__APP_JS__": ("js/a.ts", "js/b.ts")}
             )
 
 

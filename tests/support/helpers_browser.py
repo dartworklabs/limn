@@ -291,7 +291,7 @@ def line_to_end(page):
 # The editing commands below are the host's, not the viewer's: the browser runs them, so the chord is the platform's.
 # A Control chord does nothing at all on macOS - the caret stays and the letters land wherever it already was - which
 # is a pass only where the test wanted that place anyway. The viewer's own shortcuts stay Control: it reads
-# ctrlKey || metaKey (src/limn/viewer/js/events.js), so one chord covers both hosts there.
+# ctrlKey || metaKey (src/limn/viewer/js/events.ts), so one chord covers both hosts there.
 def undo_edit(page):
     """Undo the focused text field's last edit with the browser host's native chord."""
     page.keyboard.press("Meta+z" if sys.platform == "darwin" else "Control+z")
@@ -414,7 +414,7 @@ def ime_key_press(cdp, key, at=None, repeat=False, *, code=None, shift=False):
 
 
 # A macOS host, as far as the viewer and Chromium can tell from another one. The viewer reads the host from
-# navigator.platform (IS_MAC, src/limn/viewer/js/core.js): MAC_PLATFORM is the init script that makes it MacIntel. Chromium
+# navigator.platform (IS_MAC, src/limn/viewer/js/core.ts): MAC_PLATFORM is the init script that makes it MacIntel. Chromium
 # takes a key as macOS binds it when the key comes with the Cocoa command it is bound to there - what Playwright sends on a
 # macOS host (its macEditingCommands), and what mac_press sends from any host: Home then scrolls the document instead of
 # moving the caret (issues #414, #452). Only the keys the tests press; Space is bound to no command.

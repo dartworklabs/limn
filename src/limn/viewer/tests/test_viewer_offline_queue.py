@@ -1261,7 +1261,7 @@ class KeyedSend(unittest.TestCase):
 
 def _shipped_const(name):
     """The line of offline.js declaring name - the constants a pulled function reads, as shipped."""
-    src = (Path(__file__).resolve().parent.parent / "js" / "offline.js").read_text(encoding="utf-8")
+    src = helpers_js.module_text(Path(__file__).resolve().parent.parent / "js" / "offline.ts")
     return helpers_js.module_declaration(src, name)
 
 
@@ -2087,7 +2087,7 @@ class StoredReads(unittest.TestCase):
 
     def off_reads(self):
         """The paths offline.js stores, read from the shipped source."""
-        src = (Path(__file__).resolve().parent.parent / "js" / "offline.js").read_text(encoding="utf-8")
+        src = helpers_js.module_text(Path(__file__).resolve().parent.parent / "js" / "offline.ts")
         try:
             init = helpers_js.statement_init(helpers_js.module_declaration(src, "OFF_READS"), "OFF_READS")
         except (LookupError, ValueError):

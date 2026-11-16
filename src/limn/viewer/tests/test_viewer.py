@@ -765,7 +765,7 @@ class FrontendMobileStructure(unittest.TestCase):
             sq("if(LAST_PTR==='mouse')(selPopOpen()?SEL_POP_FIELD:$('#note')).focus("), sq(js_fn_body("pick"))
         )
         self.assertIn(
-            sq("if(touchRecent()||MQ_NOHOVER.matches)return; const t=/** @type {HTMLElement} */(e.target); armTip("),
+            sq("if(touchRecent()||MQ_NOHOVER.matches)return; const t=e.target; armTip("),
             SCRIPT_SQ,
         )
         # devices without hover don't show the focus tooltip either (QA phone: the tooltip stayed stuck over the list after a tap),
@@ -865,7 +865,7 @@ class FrontendVector(unittest.TestCase):
         for s in ("TextLayer", "textLayer"):
             self.assertNotIn(s, HTML)
         self.assertEqual(HTML.count(".getTextContent("), 1)
-        self.assertIn(".getTextContent(", (PKG / "viewer" / "js" / "search.js").read_text(encoding="utf-8"))
+        self.assertIn(".getTextContent(", (PKG / "viewer" / "js" / "search.ts").read_text(encoding="utf-8"))
 
 
 class FrontendVectorLogic(unittest.TestCase):
@@ -1461,9 +1461,7 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         tag = re.search(r'<div id="grip"[^>]*>', HTML).group(0)
         for part in ('role="separator"', 'aria-orientation="vertical"', 'tabindex="0"', 'aria-controls="right"'):
             self.assertIn(part, tag)
-        self.assertIn(
-            sq("(function(){const g=$('#grip');\n  let D=/** @type {", True), SCRIPT_SQ
-        )  # the handle's own drag state
+        self.assertIn(sq("(function(){const g=$('#grip');\n  let D=", True), SCRIPT_SQ)  # the handle's own drag state
         self.assertIn("g.setPointerCapture(e.pointerId)", HTML)
         self.assertNotIn(sq("$('#grip').addEventListener('mousedown'"), SCRIPT_SQ)  # no old mouse-only path remains
         self.assertNotIn("body.compact #grip{display:none}", HTML)  # still visible in mid too
@@ -2661,7 +2659,7 @@ class FrontendDocs(unittest.TestCase):
         i = body.index("if(multiDoc()&&!inField){")
         self.assertIn("e.key==='PageUp'||e.key==='PageDown'", body[i:])
         self.assertIn("/^Digit[1-9]$/.test(e.code||'')", body[i:])
-        self.assertLess(body.index(sq("const t=/** @type {HTMLElement} */(e.target),inField=")), i)
+        self.assertLess(body.index(sq("const t=e.target,inField=")), i)
 
     def test_view_memory_and_pdfjs_cache_are_bounded(self):
         self.assertIn(sq("const VEC_CACHE_MAX=3;"), SCRIPT_SQ)
@@ -3073,8 +3071,8 @@ class FrontendFigure(unittest.TestCase):
         for fn in ("elPathText", "snapBox", "renderElement"):
             self.assertNotIn("api(", extract_js_fn(fn), fn)
         parts = (PKG / "viewer" / "parts.txt").read_text(encoding="utf-8")
-        self.assertLess(parts.index("js/levels.js"), parts.index("js/figure.js"))
-        self.assertLess(parts.index("js/figure.js"), parts.index("js/composer.js"))
+        self.assertLess(parts.index("js/levels.ts"), parts.index("js/figure.ts"))
+        self.assertLess(parts.index("js/figure.ts"), parts.index("js/composer.ts"))
 
     def test_a_figure_region_is_named_by_what_the_map_found_and_a_view_only_region_keeps_its_name(self):
         """figRegionBadge: an element without code lines reads '코드 없는 요소', a figure region without an element

@@ -278,7 +278,7 @@ class ObviousErrors(unittest.TestCase):
         self.assertNotIn("그대로 넣는다(", SUGGEST_LEGEND)
         self.assertNotIn("`suggest.text` 로 글자 그대로 바꾼다(§제안 수정 핀)", SKILL_KO.read_text(encoding="utf-8"))
         self.assertNotIn("`suggest.text` verbatim (§Suggested-edit pins)", SKILL_MD.read_text(encoding="utf-8"))
-        for path in ("index.html", "js/suggest.js"):
+        for path in ("index.html", "js/suggest.ts"):
             text = (SKILL_MD.parents[1] / "src" / "limn" / "viewer" / path).read_text(encoding="utf-8")
             self.assertNotIn("글자 그대로 넣습니다", text)
 

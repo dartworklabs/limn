@@ -173,7 +173,7 @@ VIEWER_DIR = Path(__file__).resolve().parents[1]
 # and the refusal page (limn.web.errors).
 PAGE_SOURCES = [
     VIEWER_DIR / "index.html",
-    *sorted((VIEWER_DIR / "js").glob("*.js")),
+    *sorted((VIEWER_DIR / "js").glob("*.ts")),
     VIEWER_DIR / "assemble.py",
     VIEWER_DIR.parent / "web" / "errors.py",
 ]
@@ -398,7 +398,7 @@ def refusals(text: str, kind: str) -> list[tuple[int, str]]:
 
 def refused_in(path: Path) -> list[str]:
     """'<file>:<line> <what>' for each refused piece of markup or call in path."""
-    kind = {".js": "js", ".html": "html", ".py": "py"}[path.suffix]
+    kind = {".js": "js", ".ts": "js", ".html": "html", ".py": "py"}[path.suffix]
     return ["%s:%d %s" % (path.name, line, what) for line, what in refusals(path.read_text(encoding="utf-8"), kind)]
 
 

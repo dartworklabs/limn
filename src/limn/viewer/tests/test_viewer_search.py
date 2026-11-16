@@ -258,7 +258,7 @@ def fns(*names):
 
 def consts(*names):
     """The statements of search.js that declare the named constants, whole and as written, joined."""
-    src = (Path(__file__).resolve().parents[1] / "js" / "search.js").read_text(encoding="utf-8")
+    src = helpers_js.module_text(Path(__file__).resolve().parents[1] / "js" / "search.ts")
     return "\n".join(dict.fromkeys(helpers_js.module_declaration(src, n) for n in names))
 
 

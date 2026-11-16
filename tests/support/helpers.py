@@ -74,7 +74,9 @@ SW_JS = VIEWER_FILES.service_worker
 # The script as sq() reads it, for the tests that look for a piece of code in it.
 SCRIPT_SQ = helpers_js.squash(SCRIPT)
 # The viewer's closed-set tables (core.js: PIN_STATE, BUILD_STATE, LOCAL_LOGIN, ...), which extract_js_fn brings along.
-VIEWER_CLOSED_SETS = helpers_js.closed_sets((PKG / "viewer" / "js" / "core.js").read_text(encoding="utf-8"))
+# Read from core.ts as written: a closed-set table carries no type annotation (its frozen type is inferred), so its TypeScript
+# reads as the script does, and no node is needed to import this module.
+VIEWER_CLOSED_SETS = helpers_js.closed_sets((PKG / "viewer" / "js" / "core.ts").read_text(encoding="utf-8"))
 
 
 def extract_js_fn(name: str) -> str:
@@ -162,15 +164,15 @@ def sq(js: str, fragment: bool = False) -> str:
 
 
 def js_markup() -> str:
-    """The viewer's markup module (js/markup.js: Html, html``, ic(), setHtml()) as served (helpers_js.module_code), for node harnesses that
+    """The viewer's markup module (js/markup.ts: Html, html``, ic(), setHtml()) as served (helpers_js.module_text, module_code), for node harnesses that
     run functions building markup. It needs esc() (js_esc()) and, to draw an icon, ICONS (js_icons() brings both)."""
-    return helpers_js.module_code((VIEWER / "js" / "markup.js").read_text(encoding="utf-8"))
+    return helpers_js.module_code(helpers_js.module_text(VIEWER / "js" / "markup.ts"))
 
 
 def js_hidden_chars() -> str:
-    """The viewer's hidden-character module (js/hidden-chars.js: the repertoire, ccHtml, ccPlain, ...) as served (module_code), for
+    """The viewer's hidden-character module (js/hidden-chars.ts: the repertoire, ccHtml, ccPlain, ...) as served (module_text, module_code), for
     node harnesses that run a function showing a source's or a suggestion's text. ccHtml needs js_markup() and js_esc()."""
-    return helpers_js.module_code((VIEWER / "js" / "hidden-chars.js").read_text(encoding="utf-8"))
+    return helpers_js.module_code(helpers_js.module_text(VIEWER / "js" / "hidden-chars.ts"))
 
 
 def js_icons() -> str:

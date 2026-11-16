@@ -17,7 +17,7 @@ import unittest
 from helpers import HTML, VIEWER, extract_js_fn, js_esc, js_markup, run_node
 from helpers_js import module_code, module_texts
 
-PARTS = ("js/hidden-chars.js", "js/text-surface.js")
+PARTS = ("js/hidden-chars.ts", "js/text-surface.ts")
 
 PY = [
     "import os",  # 1

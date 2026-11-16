@@ -160,7 +160,7 @@ class TreeReferenceRules(unittest.TestCase):
 
     def test_the_viewers_image_suffixes_are_the_servers(self):
         """The suffixes mdImgPath loads are the ones GET /api/asset serves - the served constant, read from the file."""
-        src = (Path(limn.__file__).resolve().parent / "viewer" / "js" / "md-surface.js").read_text(encoding="utf-8")
+        src = helpers_js.module_text(Path(limn.__file__).resolve().parent / "viewer" / "js" / "md-surface.ts")
         init = helpers_js.statement_init(helpers_js.module_declaration(src, "MD_IMG_EXT"), "MD_IMG_EXT")
         self.assertTrue(init.startswith("Object.freeze("), init)
         exts = re.findall(r"'([^']+)'", init)

@@ -9,7 +9,7 @@ const ICONS = __LUCIDE_JSON__;
 const esc = (t) =>
   String(t == null ? '' : t).replace(
     /[&<>"']/g,
-    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
+    (c) => (({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }))[c],
   );
 const IS_MAC = /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent || '');
 // Reduced motion (live, not only at load): read where it acts and never kept, so a setting changed with the page open
@@ -18,7 +18,6 @@ const MQ_REDUCED = matchMedia('(prefers-reduced-motion: reduce)');
 // How a scripted scroll moves - a jump of the pages, a heading, a card, a change group: smoothly, or at once ('auto': nothing
 // sets a smooth scroll-behavior, and responsive.css holds it auto) while reduced motion is asked for. Asked at each scroll:
 // read once at load (a const), a setting turned on later left every jump gliding and one turned off left them instant (#418).
-/** @returns {ScrollBehavior} */
 function scrollMotion() {
   return MQ_REDUCED.matches ? 'auto' : 'smooth';
 }
@@ -165,19 +164,16 @@ function buildsFromSource(kind) {
 // Whether a document of this `kind` is drawn by the browser from its source (the server's renders_in_browser,
 // limn.runtime.documents.Doc.renders_in_browser): a Markdown one and a text one (ADR-0029). It has no pages - #doc holds its
 // column (md-surface.js) - and its line pins carry no page.
-/** @param {string|undefined} kind */
 function rendersInBrowser(kind) {
   return kind === DOC_KIND.MARKDOWN || kind === DOC_KIND.TEXT;
 }
 // Whether a document drawn in the browser is shown line for line, as its source is, rather than parsed and drawn as Markdown: a
 // text document (plain text or source code, ADR-0029). The one place this is asked.
-/** @param {string|undefined} kind */
 function showsSourceLines(kind) {
   return kind === DOC_KIND.TEXT;
 }
 // Whether a document of this `kind` is view-only - its pins are pages and regions, never lines (the server's view_only,
 // limn.runtime.documents.Doc.view_only): only a view-only PDF. Every other kind takes line pins.
-/** @param {string|undefined} kind */
 function isViewOnlyKind(kind) {
   return kind === DOC_KIND.PDF;
 }
@@ -221,35 +217,36 @@ function isViewOnlyKind(kind) {
 // this long.
 const IME_TAIL_MS = 100,
   IME_HOLD_MS = 2500;
-/** The last key the input method took in the open composition (marked composing), not up since: its field, its physical key (imeCode) and its name (imeName); null when there is none. @type {{el:EventTarget|null,code:string,name:string}|null} */
+/** The last key the input method took in the open composition (marked composing), not up since: its field, its physical key (imeCode) and its name (imeName); null when there is none. */
 let IME_PRESSED = null;
-/** The last composition a key ended: its field, its time, that key - its physical key and its name, from the key the input method took and the keydown it handed on ('' where the browser named none) - and the first keydown after it (null until one comes). Ends with that key's keyup, another key, or what forgets it. @type {{el:EventTarget|null,at:number,code:string,name:string,key:KeyboardEvent|null}|null} */
-let IME_END = null;
+/** The last composition a key ended: its field, its time, that key - its physical key and its name, from the key the input method took and the keydown it handed on ('' where the browser named none) - and the first keydown after it (null until one comes). Ends with that key's keyup, another key, or what forgets it. */
+let IME_END =
+  null;
 /** While this timer runs (not 0), IME_END's key holds its field (imeHeldIn): IME_HOLD_MS from that key's last keydown. */
 let IME_HOLD_T = 0;
-/** What looks again once that key lets its field go (imeFree): run after the event, so it reads the state the event left. @type {(()=>void)[]} */
+/** What looks again once that key lets its field go (imeFree): run after the event, so it reads the state the event left. */
 const IME_ON_FREE = [];
-/** Key event e's physical key (code); '' when the browser does not name it: no code, or 'Unidentified'. @param {KeyboardEvent} e */
+/** Key event e's physical key (code); '' when the browser does not name it: no code, or 'Unidentified'. */
 function imeCode(e) {
   const c = e.code;
   return c && c !== 'Unidentified' ? c : '';
 }
-/** Key event e's name (key); '' for a key the input method took ('Process') or one the browser does not name ('Unidentified'). @param {KeyboardEvent} e */
+/** Key event e's name (key); '' for a key the input method took ('Process') or one the browser does not name ('Unidentified'). */
 function imeName(e) {
   const k = e.key;
   return k && k !== 'Process' && k !== 'Unidentified' ? k : '';
 }
-/** Whether keyup e may be key k's (IME_PRESSED, IME_END): the same physical key, or any where either has none. @param {KeyboardEvent} e @param {{code:string}} k */
+/** Whether keyup e may be key k's (IME_PRESSED, IME_END): the same physical key, or any where either has none. */
 function imeUp(e, k) {
   const c = imeCode(e);
   return !k.code || !c || c === k.code;
 }
-/** Whether keydown e repeats key k (IME_END) held down: the same physical key, or, where either has none, the same name. @param {KeyboardEvent} e @param {{code:string,name:string}} k */
+/** Whether keydown e repeats key k (IME_END) held down: the same physical key, or, where either has none, the same name. */
 function imeRepeat(e, k) {
   const c = imeCode(e);
   return e.repeat && (k.code && c ? c === k.code : !!k.name && e.key === k.name);
 }
-/** Whether el is a node taken out of the document. @param {EventTarget|null} el */
+/** Whether el is a node taken out of the document. */
 function imeGone(el) {
   return el instanceof Node && !el.isConnected;
 }
@@ -344,27 +341,27 @@ addEventListener(
 );
 /** Whether keydown e is the Enter or Esc that ended a composition (above): the first keydown after it, in its window, or a
  * repeat of that key while it is held - in the field the composition ended in, or wherever the focus went once that field
- * was taken out of the document. @param {KeyboardEvent} e */
+ * was taken out of the document. */
 function imeTail(e) {
   const r = IME_END;
   if (!r || (e.key !== 'Enter' && e.key !== 'Escape') || (r.el !== e.target && !imeGone(r.el))) return false;
   return (r.key === e && e.timeStamp - r.at <= IME_TAIL_MS) || imeRepeat(e, r);
 }
-/** The field a key ended a composition in while that key holds it (IME_END, IME_HOLD_T, above), else null. @returns {EventTarget|null} */
+/** The field a key ended a composition in while that key holds it (IME_END, IME_HOLD_T, above), else null. */
 function imeHeldIn() {
   return IME_END && IME_HOLD_T ? IME_END.el : null;
 }
 /** Whether keydown e is the input method's, not the viewer's: a key while it composes, or the key that ended its
- * composition (imeTail). Every key handler that acts on Enter or Esc in or near a text field asks this first. @param {KeyboardEvent} e */
+ * composition (imeTail). Every key handler that acts on Enter or Esc in or near a text field asks this first. */
 function imeKey(e) {
   return e.isComposing || e.keyCode === 229 || imeTail(e);
 }
 // META is null only until boot() reads /api/meta; nothing reads it before.
-let META = /** @type {Meta} */ (/** @type {unknown} */ (null)),
-  PINS = /** @type {Pin[]} */ ([]),
-  DONE = /** @type {Pin[]} */ ([]),
-  DROPPED = /** @type {Pin[]} */ ([]),
-  REPICK = /** @type {Repick|null} */ (null),
+let META = null,
+  PINS = [],
+  DONE = [],
+  DROPPED = [],
+  REPICK = null,
   PICKSEQ = 0;
 // K: the scale of the document on screen, CSS px per PDF point (pages.js §page sizes); 0 until its first pages are built.
 let SNIP_OPEN = false,
@@ -376,9 +373,9 @@ const MQ_COARSE = matchMedia('(pointer:coarse)');
 const MQ_NOHOVER = matchMedia('(hover:none)');
 let OUTLINE_MID_OPEN = false,
   MID_OVERLAY = false;
-let LAYOUT = /** @type {string|null} */ (null),
-  BAND = /** @type {string|null} */ (null),
-  BAND_IN = /** @type {{w:number,h:number,coarse:boolean}|null} */ (null),
+let LAYOUT = null,
+  BAND = null,
+  BAND_IN = null,
   SIDE_OPEN = true,
   SELMODE = false,
   ZOOMED = false,
@@ -388,27 +385,27 @@ const OPEN_CARDS = new Set(); // ids of pin cards expanded in compact
 // Pin kind/thread (docs/handbook/viewer.md §스레드와 검토): KIND_NEW = the composer panel's kind (fix|question), REPLY = the open reply/reopen
 // input field {id,mode,el} (holds onto the DOM like EDITOR.current does, and re-inserts it in place when the list redraws), THREAD_OPEN = cards with the thread fully expanded,
 // REPLY_DRAFT = a closed input field's text and selected recipient hints ('reply:12').
-let KIND_NEW = /** @type {string} */ (KIND_REQ.FIX),
-  REPLY = /** @type {ReplyBox|null} */ (null);
+let KIND_NEW = KIND_REQ.FIX,
+  REPLY = null;
 // @-tags (docs/handbook/viewer.md §@태그): PEOPLE = /api/people (people recorded on a real change or added as members + pin authors/actors), PEOPLE_KNOWN = that list
 // has arrived (until then no tag resolves, which says nothing about the note), MENTION_ONLY = viewing only "pins that called me".
-let PEOPLE = /** @type {PersonSeen[]} */ ([]),
+let PEOPLE = [],
   PEOPLE_KNOWN = false,
   MENTION_ONLY = false;
 const THREAD_OPEN = new Set();
-/** Closed reply drafts keyed by pin; these snapshots stay within the current page. @type {Map<string, ReplyDraft>} */
+/** Closed reply drafts keyed by pin; these snapshots stay within the current page. */
 const REPLY_DRAFT = new Map();
-/** Latest reply visit for each pin, including visits closed empty or already sent. @type {Map<number, number>} */
+/** Latest reply visit for each pin, including visits closed empty or already sent. */
 const REPLY_VISITS = new Map();
 // Multiple documents (§Multiple documents, docs/handbook/domain.md §여러 문서): DOCS = the /api/docs list, DOC = the current document key, DEFAULT_DOC = the first
 // document that a legacy pin with no doc field belongs to. OPEN_ALL = open pins across all documents (PINS is the subset for the current document - marks/overlap/editing only look at PINS).
 // META_BY = per-document meta cache (instant tab switching), VIEW_BY = per-document viewed position/zoom, BUILD_ERR_BY = per-document last build error,
 // DOC_SEQ = another document's finished-build count (used to notice a build that finished in the background).
-let DOCS = /** @type {DocEntry[]} */ ([]),
-  DOC = /** @type {string|null} */ (null),
+let DOCS = [],
+  DOC = null,
   DEFAULT_DOC = 'main',
-  OPEN_ALL = /** @type {Pin[]} */ ([]),
-  DONE_ALL = /** @type {Pin[]} */ ([]),
+  OPEN_ALL = [],
+  DONE_ALL = [],
   SHOW_ALL = false,
   SWITCHSEQ = 0;
 // NAVGEN = the history traversals so far (the browser's back or forward, not the back layer's own entry): a document switch
@@ -423,7 +420,7 @@ function currentVisit(visit) {
   return DOC === visit.doc && SWITCHSEQ === visit.seq;
 }
 // Awaiting review (a pin closed by an agent, waiting for a person's [확인], pinState(p)===PIN_STATE.REVIEW). Never put into DONE_ALL - drawn separately from the done archive.
-let REVIEW_ALL = /** @type {Pin[]} */ ([]);
+let REVIEW_ALL = [];
 const META_BY = new Map(),
   VIEW_BY = new Map(),
   BUILD_ERR_BY = new Map(),
@@ -487,193 +484,161 @@ const T = {
     '이 탭을 새로 읽어 서버의 새 Limn 화면을 씁니다. 작성 패널의 글과 읽던 자리는 남고, 쓰던 답글·수정이 있으면 먼저 알립니다',
 };
 // Sets BAND, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof BAND} T @param {T} v @returns {T} */
 function setBand(v) {
   BAND = v;
   return v;
 }
 // Sets BAND_IN, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof BAND_IN} T @param {T} v @returns {T} */
 function setBandIn(v) {
   BAND_IN = v;
   return v;
 }
 // Sets DEFAULT_DOC, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof DEFAULT_DOC} T @param {T} v @returns {T} */
 function setDefaultDoc(v) {
   DEFAULT_DOC = v;
   return v;
 }
 // Sets DOC, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof DOC} T @param {T} v @returns {T} */
 function setDoc(v) {
   DOC = v;
   return v;
 }
 // Sets DOCS, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof DOCS} T @param {T} v @returns {T} */
 function setDocs(v) {
   DOCS = v;
   return v;
 }
 // Sets DONE, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof DONE} T @param {T} v @returns {T} */
 function setDone(v) {
   DONE = v;
   return v;
 }
 // Sets DONE_ALL, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof DONE_ALL} T @param {T} v @returns {T} */
 function setDoneAll(v) {
   DONE_ALL = v;
   return v;
 }
 // Sets DROPPED, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof DROPPED} T @param {T} v @returns {T} */
 function setDropped(v) {
   DROPPED = v;
   return v;
 }
 // Sets K, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof K} T @param {T} v @returns {T} */
 function setKState(v) {
   K = v;
   return v;
 }
 // Sets KIND_NEW, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof KIND_NEW} T @param {T} v @returns {T} */
 function setKindNew(v) {
   KIND_NEW = v;
   return v;
 }
 // Sets LAST_PTR, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof LAST_PTR} T @param {T} v @returns {T} */
 function setLastPtr(v) {
   LAST_PTR = v;
   return v;
 }
 // Sets LAST_TOUCH_T, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof LAST_TOUCH_T} T @param {T} v @returns {T} */
 function setLastTouchT(v) {
   LAST_TOUCH_T = v;
   return v;
 }
 // Sets LAYOUT, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof LAYOUT} T @param {T} v @returns {T} */
 function setLayout(v) {
   LAYOUT = v;
   return v;
 }
 // Sets MENTION_ONLY, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof MENTION_ONLY} T @param {T} v @returns {T} */
 function setMentionOnly(v) {
   MENTION_ONLY = v;
   return v;
 }
 // Sets META, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof META} T @param {T} v @returns {T} */
 function setMeta(v) {
   META = v;
   return v;
 }
 // Sets MID_OVERLAY, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof MID_OVERLAY} T @param {T} v @returns {T} */
 function setMidOverlay(v) {
   MID_OVERLAY = v;
   return v;
 }
 // Sets NAVGEN, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof NAVGEN} T @param {T} v @returns {T} */
 function setNavgen(v) {
   NAVGEN = v;
   return v;
 }
 // Sets OPEN_ALL, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof OPEN_ALL} T @param {T} v @returns {T} */
 function setOpenAll(v) {
   OPEN_ALL = v;
   return v;
 }
 // Sets OUTLINE_MID_OPEN, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof OUTLINE_MID_OPEN} T @param {T} v @returns {T} */
 function setOutlineMidOpen(v) {
   OUTLINE_MID_OPEN = v;
   return v;
 }
 // Sets PEOPLE, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof PEOPLE} T @param {T} v @returns {T} */
 function setPeople(v) {
   PEOPLE = v;
   return v;
 }
 // Sets PEOPLE_KNOWN, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof PEOPLE_KNOWN} T @param {T} v @returns {T} */
 function setPeopleKnown(v) {
   PEOPLE_KNOWN = v;
   return v;
 }
 // Sets PICKSEQ, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof PICKSEQ} T @param {T} v @returns {T} */
 function setPickseq(v) {
   PICKSEQ = v;
   return v;
 }
 // Sets PINS, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof PINS} T @param {T} v @returns {T} */
 function setPins(v) {
   PINS = v;
   return v;
 }
 // Sets REPICK, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof REPICK} T @param {T} v @returns {T} */
 function setRepick(v) {
   REPICK = v;
   return v;
 }
 // Sets REPLY, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof REPLY} T @param {T} v @returns {T} */
 function setReply(v) {
   REPLY = v;
   return v;
 }
 // Sets REVIEW_ALL, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof REVIEW_ALL} T @param {T} v @returns {T} */
 function setReviewAll(v) {
   REVIEW_ALL = v;
   return v;
 }
 // Sets SELMODE, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof SELMODE} T @param {T} v @returns {T} */
 function setSelmodeState(v) {
   SELMODE = v;
   return v;
 }
 // Sets SHOW_ALL, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof SHOW_ALL} T @param {T} v @returns {T} */
 function setShowAll(v) {
   SHOW_ALL = v;
   return v;
 }
 // Sets SIDE_OPEN, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof SIDE_OPEN} T @param {T} v @returns {T} */
 function setSideOpen(v) {
   SIDE_OPEN = v;
   return v;
 }
 // Sets SNIP_OPEN, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof SNIP_OPEN} T @param {T} v @returns {T} */
 function setSnipOpen(v) {
   SNIP_OPEN = v;
   return v;
 }
 // Sets SWITCHSEQ, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof SWITCHSEQ} T @param {T} v @returns {T} */
 function setSwitchseq(v) {
   SWITCHSEQ = v;
   return v;
 }
 // Sets ZOOMED, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof ZOOMED} T @param {T} v @returns {T} */
 function setZoomed(v) {
   ZOOMED = v;
   return v;
@@ -700,7 +665,6 @@ class Html {
 // anything else as escaped text (esc()), so false reads "false" (an aria-pressed value), not nothing. Write a
 // condition as c?x:''. Values must sit in element content or a quoted attribute; esc() does not make an unquoted
 // attribute or a URL attribute safe. Called as a function rather than a tag, it throws a TypeError.
-/** @param {TemplateStringsArray} parts @param {...unknown} values @returns {Html} */
 function html(parts, ...values) {
   if (!Array.isArray(parts) || !Array.isArray(parts.raw)) throw new TypeError('html is a template tag: html`...`');
   let out = parts[0];
@@ -761,8 +725,7 @@ function setHtml(el, markup) {
 // ties the two and checks this one against the engine's own Unicode properties.
 // A character a legitimate sequence needs is left as it is (ccKept). Nothing else is: a tag sequence (a subdivision flag)
 // shows its tags by name.
-/** @typedef {import('./markup.js').Html} Html */
-/** @type {ReadonlyArray<readonly [number,number]>} */
+
 const CC_RANGES = Object.freeze(
   [
     [0x00, 0x08],
@@ -785,7 +748,7 @@ const CC_RANGES = Object.freeze(
     [0x1bca0, 0x1bca3],
     [0x1d173, 0x1d17a],
     [0xe0000, 0xe0fff],
-  ].map((r) => Object.freeze(/** @type {[number,number]} */ (r))),
+  ].map((r) => Object.freeze(r)),
 );
 // The repertoire as one regular expression over code points (a supplementary character is one match, never two halves).
 const CC_RE = new RegExp(
@@ -804,14 +767,12 @@ const CC_PICTO = /\p{Extended_Pictographic}/u,
   CC_MONGOLIAN = /\p{sc=Mongolian}/u;
 // The name a marked character shows: a C0 control's picture (the U+2400 block), DEL's, else its code point (U+202E,
 // U+E0041). Pure.
-/** @param {number} c */
 function ccName(c) {
   if (c < 0x20) return String.fromCodePoint(0x2400 + c);
   if (c === 0x7f) return '␡';
   return 'U+' + c.toString(16).toUpperCase().padStart(4, '0');
 }
 // The code point just before index i of s (a surrogate pair whole), or -1 at its start; and the one at index i, or -1 past it.
-/** @param {string} s @param {number} i */
 function ccBefore(s, i) {
   if (i <= 0) return -1;
   const lo = s.charCodeAt(i - 1);
@@ -821,11 +782,9 @@ function ccBefore(s, i) {
   }
   return lo;
 }
-/** @param {string} s @param {number} i */
 function ccAt(s, i) {
   return i < s.length ? (s.codePointAt(i) ?? -1) : -1;
 }
-/** @param {number} c @param {RegExp} re */
 function ccIn(c, re) {
   return c >= 0 && re.test(String.fromCodePoint(c));
 }
@@ -839,7 +798,7 @@ function ccIn(c, re) {
 // - a Mongolian free variation selector after a Mongolian letter;
 // - the Hangul choseong filler before a real jungseong, the jungseong filler after a real choseong (old Hangul written in
 //   conjoining jamo). The two fillers together, U+3164 and U+FFA0 are always marked: they draw nothing at all.
-// Pure. @param {string} s @param {number} i @param {number} c @param {boolean} first
+// Pure.
 function ccKept(s, i, c, first) {
   const p = ccBefore(s, i),
     n = ccAt(s, i + (c > 0xffff ? 2 : 1));
@@ -860,7 +819,6 @@ function ccKept(s, i, c, first) {
 }
 // Every character of s in the repertoire, in order: {at, ch} for one that is marked, null for one that is kept (ccKept) -
 // so a caller can count the work either costs and pause within a long line. first: s is line 1 of a file. A generator.
-/** @param {string} s @param {boolean} [first] @returns {Generator<{at:number,ch:string}|null>} */
 function* ccScan(s, first) {
   const str = String(s);
   if (!CC_ANY.test(str)) return; // most lines hold none: one native test
@@ -871,14 +829,13 @@ function* ccScan(s, first) {
     yield ccKept(str, m.index, c, !!first) ? null : { at: m.index, ch: m[0] };
   }
 }
-// The marked characters of s, in order: [{at, ch}]. Pure. @param {string} s @param {boolean} [first]
+// The marked characters of s, in order: [{at, ch}]. Pure.
 function ccFind(s, first) {
   const out = [];
   for (const c of ccScan(s, first)) if (c) out.push(c);
   return out;
 }
 // s with each marked character as its name in angle brackets: plain text that never reads in another order than s. Pure.
-/** @param {string} s @param {boolean} [first] */
 function ccPlain(s, first) {
   const str = String(s);
   let out = '',
@@ -891,7 +848,6 @@ function ccPlain(s, first) {
 }
 // s as plain text cut to at most max characters of what it shows, a marked character's name counted whole and never cut, with
 // '…' when it was cut. Reads no more of s than max + 2 characters (one past the cut keeps a joiner's context). Pure.
-/** @param {string} s @param {number} max */
 function ccClip(s, max) {
   let head = '',
     k = 0;
@@ -899,7 +855,7 @@ function ccClip(s, max) {
     if (++k > max + 2) break;
     head += ch;
   }
-  const pieces = /** @type {string[]} */ ([]);
+  const pieces = [];
   let at = 0;
   for (const c of ccFind(head)) {
     pieces.push(...head.slice(at, c.at), '\u27e8' + ccName(c.ch.codePointAt(0) || 0) + '\u27e9');
@@ -918,9 +874,8 @@ function ccClip(s, max) {
 }
 // How many marked characters of each name text holds more than base: [[name, count]] by first appearance in text, [] when it
 // adds none - what a suggestion's draft puts in that its lines do not have. Each line is read on its own, as a diff shows it. Pure.
-/** @param {string} text @param {string} base @returns {[string,number][]} */
 function ccAdded(text, base) {
-  const count = (/** @type {string} */ t) => {
+  const count = (t) => {
     const m = new Map();
     for (const ln of String(t).split('\n'))
       for (const c of ccFind(ln)) {
@@ -931,7 +886,7 @@ function ccAdded(text, base) {
   };
   const a = count(text),
     b = count(base),
-    out = /** @type {[string,number][]} */ ([]);
+    out = [];
   for (const [k, n] of a) {
     const d = n - (b.get(k) || 0);
     if (d > 0) out.push([k, d]);
@@ -940,7 +895,6 @@ function ccAdded(text, base) {
 }
 // A marked character ch as its box: an isolating span showing its name, the character itself in a .sr-only child - it takes no
 // room, and a copy of the text keeps it.
-/** @param {string} ch @returns {HTMLElement} */
 function ccBox(ch) {
   const e = document.createElement('span');
   e.className = 'cc';
@@ -954,7 +908,6 @@ function ccBox(ch) {
 // s as Html: its text, each marked character as its box (ccBox's markup) with the character not in the markup but as its code
 // point (data-cp), which setHtml puts in as text - the HTML parser drops a NUL and turns a CR into a line feed, so a box built
 // from markup would show ␀ and copy nothing. Pure.
-/** @param {string} s @returns {Html} */
 function ccHtml(s) {
   const str = String(s),
     out = [];
@@ -1083,7 +1036,7 @@ function i18nTree(root) {
 // Checks the current language in [더보기]'s language segment, then in English translates the page once and everything drawn or
 // changed after it (text nodes and UI attributes), leaving user text alone (i18nUser).
 function i18nStart() {
-  for (const r of /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll('#m-lang [role=radio]'))) {
+  for (const r of document.querySelectorAll('#m-lang [role=radio]')) {
     const on = r.dataset.lang === LANG;
     r.setAttribute('aria-checked', String(on));
     r.classList.toggle('on', on);
@@ -1096,7 +1049,7 @@ function i18nStart() {
       if (m.type === 'childList') m.addedNodes.forEach(i18nTree);
       else if (m.type === 'characterData') i18nText(m.target);
       else if (m.type === 'attributes' && m.target.nodeType === 1 && !i18nUser(m.target)) {
-        const el = /** @type {Element} */ (m.target),
+        const el = m.target,
           name = m.attributeName || '',
           v = el.getAttribute(name);
         if (v) {
@@ -1171,17 +1124,14 @@ function secNewCount(seen, ids) {
 }
 let SEC = secState(prefs().sec);
 const SEC_SEEN = {
-  open: /** @type {Set<number>|null} */ (null),
-  review: /** @type {Set<number>|null} */ (null),
-  done: /** @type {Set<number>|null} */ (null),
+  open: null,
+  review: null,
+  done: null,
 };
 // The pin list's order (docs/handbook/viewer.md §목록 순서): one choice for this browser across documents, remembered in
 // pinPrefs.order. Returns the saved value when it names an order, else the default: newest first.
-/** @param {unknown} saved @returns {string} */
 function listOrderOf(saved) {
-  return Object.values(LIST_ORDER).includes(/** @type {any} */ (saved))
-    ? /** @type {string} */ (saved)
-    : LIST_ORDER.NEW;
+  return Object.values(LIST_ORDER).includes(saved) ? (saved) : LIST_ORDER.NEW;
 }
 let ORDER = listOrderOf(prefs().order);
 
@@ -1217,7 +1167,6 @@ function setTheme(t) {
 }
 
 // Sets ORDER, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof ORDER} T @param {T} v @returns {T} */
 function setOrder(v) {
   ORDER = v;
   return v;
@@ -1251,11 +1200,10 @@ function setOrder(v) {
 // answer - any answer - takes API_OUT down.
 const API_WAIT = { POLL: 8000, READ: 8000, PICK: 8000, SAVE: 10000, SEND: 30000 };
 let API_OUT = false;
-/** @returns {Promise<{status: number, data: any}>} */
 async function api(url, o) {
   o = { ...(o || {}) };
   o.source = o.source || (o.method || 'GET') + ' ' + url + (o.intent ? ' ' + o.intent : '');
-  const init = /** @type {RequestInit&{headers:Record<string,string>}} */ ({ method: o.method || 'GET', headers: {} });
+  const init = { method: o.method || 'GET', headers: {} };
   if (o.keepalive) init.keepalive = true;
   if (o.signal) init.signal = o.signal;
   if (o.body !== undefined) {
@@ -1272,7 +1220,7 @@ async function api(url, o) {
     }
   }
   const wait = o.wait || (read ? API_WAIT.READ : 0);
-  let timer = /** @type {ReturnType<typeof setTimeout>|undefined} */ (undefined);
+  let timer = undefined;
   const ctl = wait ? new AbortController() : null;
   if (ctl) {
     const end = () => ctl.abort();
@@ -1304,7 +1252,7 @@ async function api(url, o) {
   API_OUT = false;
   if (r.status >= 400 && !(o.expect || []).includes(r.status)) {
     if (!o.silent) apiFailed(o, errText(d) || 'HTTP ' + r.status, false);
-    const err = /** @type {ApiError} */ (new Error('HTTP ' + r.status));
+    const err = new Error('HTTP ' + r.status);
     err.status = r.status;
     err.data = d;
     throw err;
@@ -1319,7 +1267,6 @@ async function api(url, o) {
 // (offlineMayServe: this visit's first reads, or a connection known to be gone): a tab opened again with no network is
 // drawn from it instead of staying empty. Writes, every other read, and a read that fails while the viewer is
 // connected fail as before.
-/** @param {string} url @param {any} o @param {unknown} e @returns {Promise<{status: number, data: any}>} */
 async function apiUnanswered(url, o, e) {
   if (!(o.signal && o.signal.aborted)) API_OUT = true; // ended by its caller is not unanswered
   const kept = offlineMayServe() ? await offStashed(url, o) : null;
@@ -1334,8 +1281,11 @@ async function apiUnanswered(url, o, e) {
 // Says that request o failed ('{what} 실패 — {why}'): on the status line when o.where is NOTICE_HOST.LINE, else in a banner at
 // that host (bannerNote), keyed by its source. [다시 시도] (o.retry) only when the server could not be reached - a refusal
 // would refuse again.
-/** @param {{what?:string,where?:string,retry?:()=>void,save?:boolean,source?:string}} o @param {string} why @param {boolean} unreachable */
-function apiFailed(o, why, unreachable) {
+function apiFailed(
+  o,
+  why,
+  unreachable,
+) {
   const msg = tl('{what} 실패', { what: tr(o.what || '요청').replace(/…$/, '') }) + ' — ' + why;
   const act = unreachable && o.retry ? { label: '다시 시도', fn: o.retry } : null,
     source = o.source || '';
@@ -1344,7 +1294,6 @@ function apiFailed(o, why, unreachable) {
 }
 // Copies s to the clipboard (a textarea and execCommand where the Clipboard API is refused). Said where it happened: the
 // control that copied (el) reads '복사됨' with a check for a moment (copiedMark), and it is read out politely.
-/** @param {string} s @param {HTMLElement|null} [el] */
 async function copyText(s, el) {
   try {
     await navigator.clipboard.writeText(s);
@@ -1365,7 +1314,6 @@ const COPIED_MS = 1500; // how long a copy control says it copied
 // Control el says it copied: a check and '복사됨' in place of what it shows, never narrower than it was, for COPIED_MS; then
 // what it showed comes back. A second copy meanwhile starts the moment again. Its name (aria-label) stays: the copy is read
 // out by copyText.
-/** @param {HTMLElement} el */
 function copiedMark(el) {
   if (el._copiedT) clearTimeout(el._copiedT);
   else {
@@ -1384,7 +1332,6 @@ function copiedMark(el) {
 }
 
 // Sets API_OUT, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof API_OUT} T @param {T} v @returns {T} */
 function setApiOut(v) {
   API_OUT = v;
   return v;
@@ -1402,31 +1349,29 @@ function setApiOut(v) {
 //   chip that leads to it ([핀 N], [검토 M]) until the person looks there.
 // - An undo lives its full NOTICE_MS window, or until the person dismisses or uses it; other presses never end it (rule 2).
 // Every message is a Notice in NOTICES, numbered n; its buttons carry data-act="notice-act"/"notice-x" and data-n.
-/** @typedef {import('./markup.js').Html} Html */
+
 const NOTICE_MS = 6000; // the undo window: a deferred send goes when it ends (deferred()), and a save's chip stays as long
 const NOTICE_HOLD_MAX = 30000; // a hold (a mouse on it, the '+N' list open) stretches a window by at most this: a send always goes
 const PV_CHIP_HOLD_MAX = 4000; // ...and a page verdict line's save chip by at most this: a mouse resting by the words kept it up for 30s
 const LINE_MAX = 5; // the status line keeps five messages besides its undos (lineCap); its '+N' lists the rest
-const NOTICES = /** @type {Map<number,Notice>} */ (new Map());
-const LINE = /** @type {Notice[]} */ ([]); // the status line's messages, newest first
-const BANNERS = /** @type {Map<string,Notice>} */ (new Map()); // NOTICE_HOST -> its one banner
+const NOTICES = new Map();
+const LINE = []; // the status line's messages, newest first
+const BANNERS = new Map(); // NOTICE_HOST -> its one banner
 let NOTICE_SEQ = 0;
 // A message's lead icon by its kind (noticeIcon).
-const NOTICE_IC = /** @type {Record<string,()=>Html>} */ ({
+const NOTICE_IC = {
   [NOTICE_KIND.OK]: () => ic('circle-check'),
   [NOTICE_KIND.WARN]: () => ic('triangle-alert'),
   [NOTICE_KIND.ERR]: () => ic('circle-x'),
   [NOTICE_KIND.INFO]: () => ic('info'),
-});
+};
 // The lead icon of a message of kind (NOTICE_KIND); an unknown kind draws the success one.
-/** @param {string} kind @returns {Html} */
 function noticeIcon(kind) {
   return (NOTICE_IC[kind] || NOTICE_IC[NOTICE_KIND.OK])();
 }
 
 // A message as [title, description]: everything before the first ' — ' (else the first ' · ') is the title, so the title of
 // '핀 #10 · 본문 — 서준님이 불렀습니다: …' is '핀 #10 · 본문'. A message without either is all title. Pure.
-/** @param {unknown} msg @returns {[string,string]} */
 function msgSplit(msg) {
   const s = String(msg == null ? '' : msg),
     m = /^(.+?) — (.+)$/.exec(s) || /^(.+?) · (.+)$/.exec(s);
@@ -1438,10 +1383,13 @@ function msgSplit(msg) {
 // (the browser-notification path 2, the list comparison 1). Among shown messages younger than 8 seconds that share a key: a
 // higher rank holding every key suppresses the new one ({skip:true}); a lower rank is replaced by it (drop). The same rank is
 // the same path and so another event (a second review request after a reopen): never suppressed. No keys, no check. Pure.
-/** @template {{at:number,keys:string[],rank:number}} T @param {T[]} shown @param {string[]} keys @param {number} rank @param {number} now
- * @returns {{skip:boolean,drop:T[]}} */
-function noticeDupe(shown, keys, rank, now) {
-  const drop = /** @type {T[]} */ ([]);
+function noticeDupe(
+  shown,
+  keys,
+  rank,
+  now,
+) {
+  const drop = [];
   if (!keys || !keys.length) return { skip: false, drop };
   for (const x of shown) {
     if (now - x.at > 8000 || !x.keys.length || !keys.some((k) => x.keys.includes(k))) continue;
@@ -1454,7 +1402,6 @@ function noticeDupe(shown, keys, rank, now) {
 // Where a banner goes (a NOTICE_HOST): the Trash while it is open as a modal - the page under it is inert, so a banner there
 // could be neither read nor dismissed - else the host the call names, else the composer while one is open, else the top of
 // the panel. Pure.
-/** @param {string|undefined} want @param {{trashOpen:boolean,composerOpen:boolean}} v @returns {string} */
 function bannerHost(want, v) {
   if (v.trashOpen) return NOTICE_HOST.TRASH;
   if (want) return want;
@@ -1463,7 +1410,6 @@ function bannerHost(want, v) {
 // Whether a banner host is on screen now (rule 1): the Trash while it is open; the composer while one is open in the shown
 // panel (the phone's unfolded sheet); the list and the review section while the panel is shown. A banner whose host is not
 // goes to the status line instead (bannerNote). Pure.
-/** @param {string} host @param {{sideOpen:boolean,trashOpen:boolean,composerOpen:boolean}} v @returns {boolean} */
 function bannerShown(host, v) {
   if (host === NOTICE_HOST.TRASH) return v.trashOpen;
   if (host === NOTICE_HOST.COMPOSER) return v.sideOpen && v.composerOpen;
@@ -1472,7 +1418,6 @@ function bannerShown(host, v) {
 
 // Whether an undo can be shown where its action happened; if not it goes to the status line. A row or a card note needs the
 // panel open and its section expanded, a Trash row the Trash open; a chip waits for its mark (drawChips). Pure.
-/** @param {string} place @param {{sideOpen:boolean,secOpen:boolean,trashOpen:boolean}} v @returns {boolean} */
 function offerSeen(place, v) {
   if (place === NOTICE_PLACE.TRASH) return v.trashOpen;
   if (place === NOTICE_PLACE.ROW || place === NOTICE_PLACE.CARD) return v.sideOpen && v.secOpen;
@@ -1481,16 +1426,14 @@ function offerSeen(place, v) {
 
 // The dot a background message puts on a chip (a NOTICE_DOT, or '' for none): [검토 M]'s always; [핀 N]'s only while the
 // panel is closed - an open panel already shows the list. Pure.
-/** @param {string} want @param {boolean} sideOpen @returns {string} */
 function noticeDot(want, sideOpen) {
   return want === NOTICE_DOT.SIDE && sideOpen ? '' : want || '';
 }
 
 // Registers a new message from its fields; msg is split into its title and description (msgSplit).
-/** @param {Partial<Notice>&{msg:string}} o @returns {Notice} */
 function makeNotice(o) {
   const [title, desc] = msgSplit(o.msg);
-  const n = /** @type {Notice} */ ({
+  const n = {
     n: ++NOTICE_SEQ,
     place: o.place || NOTICE_PLACE.LINE,
     host: o.host || '',
@@ -1528,14 +1471,13 @@ function makeNotice(o) {
     back: !!o.back,
     dots: o.dots || [],
     onEnd: o.onEnd || null,
-  });
+  };
   NOTICES.set(n.n, n);
   return n;
 }
 
 // Reads text out politely (#sr-news: a silent success, an undo drawn where it happened, an info banner) or assertively
 // (#sr-alert: an error on the status line). The same text twice in a row is read again: the region is emptied first.
-/** @param {string} text @param {boolean} [assertive] */
 function announce(text, assertive) {
   const r = $(assertive ? '#sr-alert' : '#sr-news');
   if (!r || !text) return;
@@ -1548,7 +1490,6 @@ function announce(text, assertive) {
 }
 
 // A success with nothing to undo: nothing is drawn - the change itself is on screen - but it is read out as before.
-/** @param {string} msg */
 function quietNote(msg) {
   announce(trMsg(msg));
 }
@@ -1563,7 +1504,6 @@ function quietNote(msg) {
 // has one replaces it - and when its words are the same it is that one, kept and not said again. Past LINE_MAX the oldest
 // information leaves, then the oldest error, never an undo (lineCap). Any other message is read out by the line when it
 // shows it, else - another one holds the line - politely (#sr-news).
-/** @param {string} msg @param {string} kind @param {NoticeAct|null} [act] @param {Partial<Notice>} [o] @returns {Notice|null} */
 function lineNote(msg, kind, act, o) {
   o = o || {};
   const keys = o.keys || [],
@@ -1608,31 +1548,26 @@ function lineCap() {
     const kept = LINE.filter((n) => !isUndo(n) && !n.keep);
     if (kept.length <= LINE_MAX) return;
     const rest = kept.filter((n) => n !== LINE[0]),
-      oldest = (/** @type {Notice[]} */ a) =>
-        a.reduce((/** @type {Notice|null} */ m, x) => (!m || x.at <= m.at ? x : m), null);
-    endNotice(/** @type {Notice} */ (oldest(rest.filter((n) => !n.alert)) || oldest(rest)), false);
+      oldest = (a) => a.reduce((m, x) => (!m || x.at <= m.at ? x : m), null);
+    endNotice((oldest(rest.filter((n) => !n.alert)) || oldest(rest)), false);
   }
 }
 // Whether message n offers an undo: made as one (undoNote, a discarded selection) or holding a deferred send (gone).
-/** @param {Notice} n @returns {boolean} */
 function isUndo(n) {
   return n.undo || !!n.gone;
 }
 // Whether message n already says text (its title and description, as msgSplit cuts it) as kind.
-/** @param {Notice} n @param {string} text @param {string} kind @returns {boolean} */
 function sameWords(n, text, kind) {
   const [t, d] = msgSplit(text);
   return n.kind === kind && n.title === t && n.desc === d;
 }
 // The message an error source has standing (one at most - a repeat replaces it), or null. A source is a request (its method
 // and URL, which names its pin and document, with what it asks of that URL - api()'s intent) or a named one.
-/** @param {string} source @returns {Notice|null} */
 function sourceEntry(source) {
   for (const n of NOTICES.values()) if (n.source === source) return n;
   return null;
 }
 // Source succeeded - its request was answered, or a build of its document came: its error is no longer true and goes.
-/** @param {string} source */
 function sourceOk(source) {
   if (source)
     NOTICES.forEach((n) => {
@@ -1645,8 +1580,13 @@ function sourceOk(source) {
 // composer's button then reads [다시 저장]. A host not on screen now (bannerShown) - the Trash closed, the panel collapsed,
 // the phone's sheet folded - gets nothing: the message goes to the status line instead, ERR and WARN as alerts, with the dot
 // on the chip that leads there ([검토 M] for the review section's, else [핀 N]). Returns the message drawn.
-/** @param {string|undefined} host @param {string} msg @param {string} kind @param {NoticeAct|null} [act] @param {Partial<Notice>} [o] @returns {Notice|null} */
-function bannerNote(host, msg, kind, act, o) {
+function bannerNote(
+  host,
+  msg,
+  kind,
+  act,
+  o,
+) {
   o = o || {};
   const v = { sideOpen: SIDE_OPEN, trashOpen: $('#trash').open, composerOpen: !$('#composer').hidden },
     h = bannerHost(host, v);
@@ -1686,12 +1626,11 @@ function bannerNote(host, msg, kind, act, o) {
 // chip's short text; the whole message is what is read out), life (TIMER: NOTICE_MS, unless given - rule 2, no other press
 // ends it), gone, pending (a chip whose mark comes only with the next list reload: settleChip). act.tip defaults to T.undo;
 // act.wait = its action sends a request, and the undo stays until that is answered (noticeAct).
-/** @param {string} place @param {string} msg @param {NoticeAct} act @param {Partial<Notice>} o @returns {Notice} */
 function undoNote(place, msg, act, o) {
   const a = { tip: T.undo, ...act },
     life = o.life || NOTICE_LIFE.TIMER;
   if (!offerSeen(place, { sideOpen: SIDE_OPEN, secOpen: !o.sec || !!SEC[o.sec], trashOpen: $('#trash').open }))
-    return /** @type {Notice} */ (lineNote(msg, NOTICE_KIND.OK, a, { ...o, life, undo: true })); // no keys: never suppressed
+    return lineNote(msg, NOTICE_KIND.OK, a, { ...o, life, undo: true }); // no keys: never suppressed
   const n = makeNotice({ ...o, life, undo: true, msg: trMsg(msg), kind: NOTICE_KIND.OK, act: a, place });
   // One save chip on the pages at a time, the newest: an earlier one takes its undo to the status line (offerToLine), as a
   // chip whose mark went does - several pages each showing a chip read as several things to answer.
@@ -1704,7 +1643,6 @@ function undoNote(place, msg, act, o) {
 }
 
 // Whether an undo row stands in list section sec ('open', 'review'): drawPins keeps that section shown while one does.
-/** @param {string} sec @returns {boolean} */
 function offersIn(sec) {
   for (const n of NOTICES.values()) if (n.place === NOTICE_PLACE.ROW && n.sec === sec) return true;
   return false;
@@ -1712,22 +1650,19 @@ function offersIn(sec) {
 
 // The id of the element drawn just before pin id's in box (both matching sel: '.pin.card', '.arc-row'), or null - where a
 // row left in its place goes. Reads the page.
-/** @param {HTMLElement} box @param {string} sel @param {number|null} id @returns {number|null} */
 function drawnBefore(box, sel, id) {
   const c = box.querySelector(sel + '[data-id="' + id + '"]');
   let p = c && c.previousElementSibling;
   while (p && !p.matches(sel)) p = p.previousElementSibling;
-  return p ? Number(/** @type {HTMLElement} */ (p).dataset.id) : null;
+  return p ? Number((p).dataset.id) : null;
 }
 
 // A message's text as one line: its title, then ' · ' and its description.
-/** @param {Notice} n */
 function noticeText(n) {
   return n.title + (n.desc ? ' · ' + n.desc : '');
 }
 
 // Draws a new offer in its place now; its place's own redraw keeps it there (drawPins, marks, drawTrash).
-/** @param {Notice} n */
 function drawOffer(n) {
   if (n.place === NOTICE_PLACE.CHIP) drawChips();
   else if (n.place === NOTICE_PLACE.TRASH) drawTrashOffers();
@@ -1740,7 +1675,6 @@ function drawOffer(n) {
 // send it holds) forever. Not held by the focus, which a reply sent with Ctrl+Enter puts on its [되돌리기], so the send would
 // wait for the focus to move; stopped while its action's request is out (busy, noticeAct). CLICK and STICKY ones wait for
 // the press listener below, [x] or their action.
-/** @param {Notice} n */
 function armNotice(n) {
   if (n.life !== NOTICE_LIFE.TIMER) return;
   clearTimeout(n.timer);
@@ -1762,7 +1696,6 @@ function armNotice(n) {
 }
 // Whether message n's window is held now: one on the status line while the line is (lineHeld); one drawn in place while a
 // mouse is on its element - still in the page and under the pointer, so no hold outlives what was hovered.
-/** @param {Notice} n @returns {boolean} */
 function noticeHeld(n) {
   if (n.place === NOTICE_PLACE.LINE) return lineHeld();
   return n.hover && !!n.el && n.el.isConnected && n.el.matches(':hover');
@@ -1787,18 +1720,16 @@ function releaseLine() {
 }
 // A mouse moves over the line: the hover starts with a real movement (realMove), never with the line drawn under a resting
 // pointer - that would hold every undo appearing there. A touch never holds: its pointer leaves as it lifts.
-/** @param {{pointerType?:string,movementX?:number,movementY?:number,clientX?:number,clientY?:number}} e */
 function lineHoverIn(e) {
   if (LINE_HOVER || !e || !realMove(e)) return;
   LINE_HOVER = true;
   holdLine();
 }
 // The pointer's position at the last move the page saw (document pointermove, after the element's own listener has run).
-let PT_LAST = /** @type {{x:number,y:number}|null} */ (null);
+let PT_LAST = null;
 // Whether pointer move e is a mouse really moving: a non-zero delta, by its own movement or against the last position seen.
 // A move the browser makes up under a resting pointer when the page changes under it has neither, so a message drawn under
 // a still pointer is not hovered until the mouse moves over it.
-/** @param {{pointerType?:string,movementX?:number,movementY?:number,clientX?:number,clientY?:number}} e @returns {boolean} */
 function realMove(e) {
   if (e.pointerType !== 'mouse') return false;
   if (e.movementX || e.movementY) return true;
@@ -1819,7 +1750,6 @@ function lineHoverOut() {
   releaseLine();
 }
 // The line shows (drawStatus) or hides: hidden - nothing to show, or moved to another band - it holds nothing.
-/** @param {boolean} shown */
 function lineVisible(shown) {
   if (!shown) lineHoverOut();
 }
@@ -1834,7 +1764,6 @@ $('#status-list').addEventListener('close', releaseLine);
 // Takes a message away from its store and the screen. acted = its own action ended it: gone does not run (the action replaces
 // it). acted or seen ([x]) = the person has read it: its dot goes unless another message still holds it (dotHeld). One
 // leaving the line ends the line's hover (lineHoverOut). Idempotent.
-/** @param {Notice} n @param {boolean} acted @param {boolean} [seen] */
 function endNotice(n, acted, seen) {
   if (!NOTICES.has(n.n)) return;
   NOTICES.delete(n.n);
@@ -1871,17 +1800,14 @@ function endNotice(n, acted, seen) {
   }
 }
 // The chips message n marks: its dot, or a gathered message's dots (digestEnd). Pure.
-/** @param {Notice} n @returns {string[]} */
 function noticeDots(n) {
   return n.dots && n.dots.length ? n.dots : n.dot ? [n.dot] : [];
 }
-/** @param {Notice} n @param {string} d @returns {boolean} */
 function holdsDot(n, d) {
   return noticeDots(n).includes(d);
 }
 // Whether a message still marks chip d: one on the line (a gathered line by what it holds), or one being gathered (DIGEST),
 // whose dot went on as it was gathered (digestHold) and stays until it is said or seen.
-/** @param {string} d @returns {boolean} */
 function dotHeld(d) {
   return LINE.some((x) => holdsDot(x, d)) || (!!DIGEST && digestDots([...DIGEST.items.values()]).includes(d));
 }
@@ -1893,11 +1819,10 @@ function dotHeld(d) {
 // out of the pages: there a digit is the pages' verdict key (verdictKey shuts them for a focus outside the pages), and a person
 // in the middle of a reply did not ask for that. anyDoc: on a document without page lines too. An action's press goes without
 // it, for the action may put the focus where it wants; the window's end and [x] have no action.
-/** @param {Notice} n @param {boolean} [anyDoc] @returns {()=>void} */
 function noticeFocusBack(n, anyDoc) {
-  const f = /** @type {HTMLElement|null} */ (document.activeElement);
+  const f = document.activeElement;
   const own = !!f && !!f.closest && !!f.closest('[data-act^="notice-"][data-n="' + n.n + '"]');
-  const l = own && f ? /** @type {HTMLElement|null} */ (f.closest('#doc .pv')) : null,
+  const l = own && f ? (f.closest('#doc .pv')) : null,
     page = l ? Number(l.dataset.page) || 0 : 0;
   return () => {
     const g = document.activeElement;
@@ -1917,7 +1842,6 @@ let NOTICE_ACT_WAIT = 8000;
 // message's own button: a redraw giving the focus back to that button, or the focus falling to nothing as the button goes -
 // the action's own redraw may take it away before its answer resolves - is not a move): then back() does not run, and the
 // action is told (run.away(), save.js) so that it takes no focus either.
-/** @param {number} num */
 function noticeAct(num) {
   const n = NOTICES.get(num);
   if (!n || n.busy) return;
@@ -1946,12 +1870,12 @@ function noticeAct(num) {
     late = true;
     noticeLate(n, a);
   }, NOTICE_ACT_WAIT);
-  const seen = (/** @type {FocusEvent} */ e) => {
-    const t = /** @type {HTMLElement|null} */ (e.target);
+  const seen = (e) => {
+    const t = e.target;
     if (!t || !t.closest || !t.closest('[data-act="notice-act"][data-n="' + n.n + '"]')) moved = true;
   };
   document.addEventListener('focusin', seen, true);
-  /** @type {NoticeRun} */ const run = { away: () => late && moved };
+  const run = { away: () => late && moved };
   Promise.resolve(a.fn(run))
     .catch(() => false)
     .then(() => {
@@ -1965,7 +1889,6 @@ function noticeAct(num) {
 // noticeAct's question for an action run without its watch - a failure's [다시 시도], which is no waiting action, running an
 // undo again (save.js): away() = its answer is late (NOTICE_ACT_WAIT) and the person has put the focus somewhere since. The
 // watch starts once the press's own work is done (its message going, back()), so the focus that work moves is not counted.
-/** @returns {NoticeRun&{stop:()=>void}} */
 function focusRun() {
   const at = Date.now();
   let moved = false,
@@ -1995,7 +1918,6 @@ const NOTICE_LATE_SRC = 'notice-late:';
 // chip, a row, the Trash, or the message gone by its [x] - the status line says it in one message of its own
 // (NOTICE_LATE_SRC), which goes with the answer as the message does (noticeAct). Either way one message per action:
 // nothing is said twice. The line is not locked meanwhile, so there is nothing to give back.
-/** @param {Notice} n @param {NoticeAct} a */
 function noticeLate(n, a) {
   const what =
     tr(
@@ -2032,14 +1954,13 @@ function noticeLate(n, a) {
 document.addEventListener(
   'mousedown',
   (e) => {
-    const t = /** @type {HTMLElement|null} */ (e.target);
+    const t = e.target;
     if (!!t && !!t.closest && !!t.closest('[data-act="notice-act"]') && pvIsReasonField(document.activeElement))
       e.preventDefault();
   },
   true,
 );
 // [x] on message num: it goes as read (with its dot), and what it held runs (gone: a deferred send goes now).
-/** @param {number} num */
 function noticeClose(num) {
   const n = NOTICES.get(num);
   if (!n) return;
@@ -2048,7 +1969,6 @@ function noticeClose(num) {
   back();
 }
 // A hint goes once the person does what it says (NOTICE_TOPIC.PICK: a selection was made; SIDE: the panel was opened).
-/** @param {string} topic */
 function endTopic(topic) {
   NOTICES.forEach((n) => {
     if (n.topic === topic) endNotice(n, false, true);
@@ -2057,7 +1977,6 @@ function endTopic(topic) {
 // The person looks where a dot points (the panel opened, the review section gone to): that dot goes, with the panel open the
 // hint on how to open it, and with the review section the messages about pins sent to review (seen) - on the line and
 // folded in a gathered line (foldedGone), which [펼치기] would otherwise put back with the dot.
-/** @param {string} dot */
 function noticeSeen(dot) {
   if (dot === NOTICE_DOT.RV) {
     LINE.slice().forEach((n) => {
@@ -2073,7 +1992,6 @@ function noticeSeen(dot) {
 }
 // The gathering under way (DIGEST) loses the messages test picks (by their options), as seen: never said - their groups
 // go with them when no message of theirs stands, and what each held for its end runs, as for a message seen on the line.
-/** @param {(o:any)=>boolean} test */
 function gatheredGone(test) {
   if (!DIGEST) return;
   for (const [g, a] of [...DIGEST.items]) {
@@ -2086,14 +2004,12 @@ function gatheredGone(test) {
   }
 }
 // The pins a message's keys say were sent to review ('review_requested:<id>', noticeDupe's keys). Pure.
-/** @param {string[]} keys @returns {number[]} */
 function reviewPins(keys) {
   const p = EVENT_TYPE.REVIEW_REQUESTED + ':';
   return keys.filter((k) => k.startsWith(p)).map((k) => Number(k.slice(p.length)));
 }
 // Whether a message about pins sent to review is stale: it names some, and none of them awaits review any more (confirmed,
 // reopened or deleted - here or elsewhere). inReview = the ids awaiting review. Pure.
-/** @param {string[]} keys @param {number[]} inReview @returns {boolean} */
 function reviewNewsStale(keys, inReview) {
   const ids = reviewPins(keys);
   return ids.length > 0 && !ids.some((i) => inReview.includes(i));
@@ -2126,12 +2042,14 @@ function dropStaleReview() {
 // it takes its events out of the group's message, which says the rest in place (noticeLess) - the others stay. Such a
 // message coming by growing its own group's message does the same, and a group's message folded in a gathered line not yet
 // unfolded, or still being gathered, gives way as one on the line does (newsDupe, foldedLess, gatheredLess).
-/** @typedef {(d:any)=>{msg:string,kind:string,act:NoticeAct|null,o:Partial<Notice>}} GroupView */
-/** @typedef {(d:any,keys:string[])=>any} GroupLess */
-const GROUPS = /** @type {Map<string,{data:any,n:Notice|null,view:GroupView,less:GroupLess|null}>} */ (new Map());
-/** @param {string} group @param {any} data @param {GroupView} view @param {((a:any,b:any)=>any)|null} [merge]
- * @param {GroupLess|null} [less] @returns {Notice|null} */
-function groupNote(group, data, view, merge, less) {
+const GROUPS = new Map();
+function groupNote(
+  group,
+  data,
+  view,
+  merge,
+  less,
+) {
   const g = GROUPS.get(group);
   if (less) {
     const o = view(data).o || {},
@@ -2162,7 +2080,6 @@ function groupNote(group, data, view, merge, less) {
 }
 // The keys among keys that a message of a higher rank than rank already says: one on the line or folded in a gathered line
 // (foldedNews), younger than noticeDupe's window, or one gathered (DIGEST).
-/** @param {string[]} keys @param {number} rank @returns {string[]} */
 function keysHeld(keys, rank) {
   const now = Date.now(),
     gathered = DIGEST ? [...DIGEST.items.values()].map((a) => a[3] || {}).filter((o) => (o.rank || 1) > rank) : [],
@@ -2179,7 +2096,6 @@ function keysHeld(keys, rank) {
 // unfolded (foldedNews) or in the gathering under way (gatheredDupe) - so it is not said again (noticeDupe's skip); else
 // each of a lower rank that says some of them gives way (its drop): it says the rest in place (noticeLess, foldedLess,
 // gatheredLess) or goes.
-/** @param {string[]} keys @param {number} rank @param {Notice|null} except @returns {boolean} */
 function newsDupe(keys, rank, except) {
   const now = Date.now(),
     line = noticeDupe(
@@ -2199,9 +2115,8 @@ function newsDupe(keys, rank, except) {
 // The gathering under way (DIGEST) as noticeDupe compares the line - a gathering is shorter than its window: skip when a
 // gathered message of a higher rank says every one of keys; else drop names each gathered group of a lower rank that says
 // some of them. except: the group of the message that says keys. Pure but for DIGEST.
-/** @param {string[]} keys @param {number} rank @param {string} except @returns {{skip:boolean,drop:string[]}} */
 function gatheredDupe(keys, rank, except) {
-  const drop = /** @type {string[]} */ ([]);
+  const drop = [];
   if (!DIGEST || !keys.length) return { skip: false, drop };
   for (const [g, a] of DIGEST.items) {
     const x = a[3] || {},
@@ -2216,7 +2131,6 @@ function gatheredDupe(keys, rank, except) {
 // Gathered group g gives way to a message of a higher rank that says the events of keys, as noticeLess on the line: a group
 // that can leave them out (less) stays gathered with the rest; with nothing left, or a group that cannot, it leaves the
 // gathering, never said - its group with it, and what it held for its end runs, as for a folded message (foldedGone).
-/** @param {string} g @param {string[]} keys */
 function gatheredLess(g, keys) {
   const d = DIGEST,
     a = d ? d.items.get(g) : undefined;
@@ -2237,7 +2151,6 @@ function gatheredLess(g, keys) {
 // Group's message says its data again wherever it stands - on the line (regroup), gathered (DIGEST) or folded in a gathered
 // line not yet unfolded (which then says what it holds, digestRetitle) - for what its view reads besides its data (a
 // document's moved pins and changed lines, updates.js). Whether it stands anywhere.
-/** @param {string} group @returns {boolean} */
 function groupRedraw(group) {
   const g = GROUPS.get(group);
   if (!g) return false;
@@ -2261,7 +2174,6 @@ function groupRedraw(group) {
 }
 // The messages gathered lines not yet unfolded hold (digestNote's items), as noticeDupe compares them: each with its keys
 // and rank, as old as its gathered line (at), and where it is held (line, item).
-/** @returns {{at:number,keys:string[],rank:number,line:Notice,item:any[]}[]} */
 function foldedNews() {
   return LINE.flatMap((n) =>
     (n.items || []).map((a) => {
@@ -2273,7 +2185,6 @@ function foldedNews() {
 // Folded message f gives way to a message of a higher rank that says the events of keys, as noticeLess on the line: its
 // group that can leave them out (less) says the rest in the gathered line; with nothing left, or a group that cannot, it
 // leaves the gathered line, not seen (foldedGone). The line says what is left (digestRetitle).
-/** @param {{line:Notice,item:any[]}} f @param {string[]} keys */
 function foldedLess(f, keys) {
   const items = f.line.items || [],
     i = items.indexOf(f.item),
@@ -2293,7 +2204,6 @@ function foldedLess(f, keys) {
 // Folded message f leaves its gathered line, as a message leaving the line does: its group ends with it, what it held for
 // its end runs (seen: as read - a review request whose pins left review, or the review section seen), and the line says
 // and marks what is left (digestRetitle).
-/** @param {{line:Notice,item:any[]}} f @param {boolean} seen */
 function foldedGone(f, seen) {
   const items = f.line.items || [],
     i = items.indexOf(f.item),
@@ -2308,7 +2218,6 @@ function foldedGone(f, seen) {
 // Message x gives way to a message of a higher rank that says the events of keys (noticeDupe's drop): a group's message
 // that can leave them out (less) says the rest in place - not as news again: neither moved, nor read out, nor its window
 // started again - and one with nothing left, or that cannot, goes.
-/** @param {Notice} x @param {string[]} keys */
 function noticeLess(x, keys) {
   const g = x.group ? GROUPS.get(x.group) : undefined,
     rest = g && g.n === x && g.less ? g.less(g.data, keys) : null;
@@ -2321,7 +2230,6 @@ function noticeLess(x, keys) {
 }
 // Where news (a message of a group) stands on the line: right behind the last undo still standing - an undo lives its window
 // where it can be pressed (rule 2), and news arriving meanwhile must not hide it behind '+N' - else first.
-/** @returns {number} */
 function newsSlot() {
   let i = 0;
   LINE.forEach((x, j) => {
@@ -2333,8 +2241,11 @@ function newsSlot() {
 // (politely, unless quiet) when its words changed - by the line's own live region (.st-sr, drawStatus) when the line shows
 // it, else by #sr-news, never by both, as lineNote reads a first message - and a passing one's window starts again.
 // still: it says less than before (noticeLess) and stays where it is, its window running on, not read out.
-/** @param {Notice} n @param {{msg:string,kind:string,act:NoticeAct|null,o:Partial<Notice>}} v @param {boolean} [still] */
-function regroup(n, v, still) {
+function regroup(
+  n,
+  v,
+  still,
+) {
   const o = v.o || {},
     [t, d] = msgSplit(o.literal ? String(v.msg) : trMsg(v.msg));
   const same = n.title === t && n.desc === d && n.kind === v.kind;
@@ -2372,24 +2283,19 @@ function regroup(n, v, still) {
 // event addressed to me, the list comparison) - and its dots are put on at once. The screen's own messages (a restored draft,
 // a hint), an error, an undo, a message with an error source or one that asks not to (digest:false) are said as they come -
 // an error where it can be seen now (rule 1).
-let DIGEST = /** @type {{title:string,items:Map<string,any[]>,timer:ReturnType<typeof setTimeout>|undefined}|null} */ (
-  null
-);
+let DIGEST = null;
 const DIGEST_MAX_MS = 8000; // a gathering never lasts longer than this, whatever it waits for
-/** @param {string} title */
 function digestBegin(title) {
   if (DIGEST) return;
   DIGEST = { title, items: new Map(), timer: setTimeout(digestEnd, DIGEST_MAX_MS) };
 }
 // Ends the gathering ms from now (at once without ms): what the first poll set going has come by then.
-/** @param {number} [ms] */
 function digestSoon(ms) {
   const d = DIGEST;
   if (!d) return;
   clearTimeout(d.timer);
   d.timer = setTimeout(digestEnd, ms || 0);
 }
-/** @param {string} msg @param {string} kind @param {NoticeAct|null|undefined} act @param {Partial<Notice>} o @returns {boolean} */
 function digestHold(msg, kind, act, o) {
   const d = DIGEST;
   if (!d || !o.group || o.digest === false || o.undo || o.gone || o.source || o.alert || kind === NOTICE_KIND.ERR)
@@ -2417,14 +2323,12 @@ function digestEnd() {
   else if (items.length) digestNote(d.title, items);
 }
 // The words a gathered message is named by in the gathered line: its brief (o.brief), else its title. Pure.
-/** @param {any[]} a @returns {string} */
 function digestBrief(a) {
   const o = a[3] || {};
   return o.brief || msgSplit(o.literal ? String(a[0]) : trMsg(a[0]))[0];
 }
 // The gathered line's description: each brief once, in the order they came, with how many - a brief that ends in a count
 // ('새 핀 1', one per document) adds its count up ('새 핀 2'), any other counts how many said it ('나를 부름 2'). Pure.
-/** @param {string[]} briefs @returns {string} */
 function digestLine(briefs) {
   const seen = new Map();
   briefs.forEach((b) => {
@@ -2436,7 +2340,6 @@ function digestLine(briefs) {
   });
   return [...seen].map(([b, v]) => (v.n > 1 || v.counted ? b + ' ' + v.n : b)).join(' · ');
 }
-/** @param {string} title @param {any[][]} items */
 function digestNote(title, items) {
   items = [...items.filter((a) => !(a[3] || {}).back), ...items.filter((a) => !!(a[3] || {}).back)]; // this document's news first
   const dots = digestDots(items);
@@ -2471,7 +2374,6 @@ function digestNote(title, items) {
 // A gathered line went other than by [펼치기] (its [x]: seen): the groups it held end with it - each of their messages has
 // gone, so what a group's end checks (no other new-pins message, updates.js) sees them gone - and then what each held for
 // its end runs, as seen.
-/** @param {any[][]} items @param {boolean} seen */
 function digestClosed(items, seen) {
   items.forEach((a) => {
     const g = (a[3] || {}).group,
@@ -2485,7 +2387,6 @@ function digestClosed(items, seen) {
 }
 // Puts gathered message a on the line as it would have come - behind what the line says (back), or, unfolded by [펼치기], in
 // front; a group's message is that group's again.
-/** @param {any[]} a @param {boolean} back */
 function digestReplay(a, back) {
   const o = a[3] || {},
     n = lineNote(a[0], a[1], a[2], { ...o, digest: false, back: back || !!o.back });
@@ -2494,7 +2395,6 @@ function digestReplay(a, back) {
 }
 // Takes group's gathered message out of a gathered line not yet unfolded, so the group's new event merges into it and is
 // said on its own (groupNote); the line says what is left. Whether there was one.
-/** @param {string} group @returns {boolean} */
 function digestTake(group) {
   for (const n of NOTICES.values()) {
     const items = n.items;
@@ -2508,14 +2408,12 @@ function digestTake(group) {
   return false;
 }
 // The chips the gathered messages items mark (digestNote's dots): each one's dot once. Pure but for SIDE_OPEN.
-/** @param {any[][]} items @returns {string[]} */
 function digestDots(items) {
   return [...new Set(items.map((a) => noticeDot((a[3] || {}).dot || '', SIDE_OPEN)).filter(Boolean))];
 }
 // Gathered line n says what it holds now (digestTake, foldedLess, foldedGone): each brief once with how many, and the dots
 // of those alone - one left stays a gathered line naming it - or, holding nothing more, it goes (nothing it held runs for
 // its end: what took them out did).
-/** @param {Notice} n */
 function digestRetitle(n) {
   const items = n.items || [];
   if (!items.length) {
@@ -2537,7 +2435,7 @@ function digestRetitle(n) {
 document.addEventListener(
   'click',
   (e) => {
-    const t = /** @type {HTMLElement} */ (e.target);
+    const t = e.target;
     NOTICES.forEach((n) => {
       if (n.life !== NOTICE_LIFE.CLICK) return;
       const own =
@@ -2554,7 +2452,6 @@ document.addEventListener(
 // out again): status icon, title and description (already in the UI language, so translate="no"), its action, and [x] -
 // none on a chip, which goes by itself. ERR and WARN banners are alerts. A TIMER message holds while a mouse is on it - from
 // a real movement over it (realMove), not from being drawn under a resting pointer - until the pointer leaves (armNotice).
-/** @param {Notice} n @param {string} cls @returns {HTMLElement} */
 function noticeEl(n, cls) {
   if (n.el) return n.el;
   const e = document.createElement('div');
@@ -2594,7 +2491,6 @@ function noticeEl(n, cls) {
 }
 // A message's buttons: its action (with its description, if any; aria-busy while its request is out) and, with close, [x]
 // named '알림 닫기'.
-/** @param {Notice} n @param {boolean} close @returns {Html} */
 function noticeButtons(n, close) {
   const a = n.act,
     tip = a && a.tip ? html` data-tip="${a.tip}"` : '',
@@ -2604,12 +2500,10 @@ ${close ? html`<button type="button" class="btn-icon btn-sm btn-ghost nt-x" data
 }
 
 // The focused element inside a drawn message, if any: a redraw that detaches it gives the focus back (noticeRefocus).
-/** @returns {HTMLElement|null} */
 function noticeFocus() {
-  const a = /** @type {HTMLElement|null} */ (document.activeElement);
+  const a = document.activeElement;
   return a && a.closest && a.closest('.nt') ? a : null;
 }
-/** @param {HTMLElement|null} a */
 function noticeRefocus(a) {
   if (a && document.contains(a) && document.activeElement !== a) a.focus({ preventScroll: true });
 }
@@ -2663,7 +2557,6 @@ new MutationObserver(() => {
 // undo is undone and it goes - unless it holds a deferred send, whose card stays out until the send. A note goes above its
 // card's buttons (or a done pin's row's end); a note whose card is not drawn moves to the status line (offerToLine).
 // focus = what noticeFocus() saw before the redraw.
-/** @param {HTMLElement|null} [focus] */
 function drawOffers(focus) {
   NOTICES.forEach((n) => {
     if (n.place === NOTICE_PLACE.ROW) {
@@ -2703,10 +2596,8 @@ function drawOffers(focus) {
 function drawChips() {
   NOTICES.forEach((n) => {
     if (n.place !== NOTICE_PLACE.CHIP) return;
-    const k = /** @type {HTMLElement|null} */ (
-      document.querySelector('.mark[data-pin="' + n.pin + '"]') ||
-        document.querySelector('#doc .pv[data-pin="' + n.pin + '"]')
-    ); // a page verdict line shows its pin instead of a mark
+    const k = (document.querySelector('.mark[data-pin="' + n.pin + '"]') ||
+      document.querySelector('#doc .pv[data-pin="' + n.pin + '"]')); // a page verdict line shows its pin instead of a mark
     if (!k) {
       if (!n.pending) offerToLine(n);
       return;
@@ -2726,7 +2617,6 @@ function drawChips() {
 // PDF area (the unfolded foldable's overlay panel while composing). Where the room is narrower than the chip its words give
 // way (ellipsis, .nt-t) - never its [되돌리기] - then it moves left until it fits. A page verdict line's chip stands in the
 // line's row (notices.css), which already keeps out of all of that (sizePv): nothing to move.
-/** @param {HTMLElement} e @param {HTMLElement} k */
 function chipInRoom(e, k) {
   if (k.classList.contains('pv')) return;
   const L = $('#left'),
@@ -2759,8 +2649,10 @@ function chipInRoom(e, k) {
   else if (under > 0) e.style.left = Math.round(e.offsetLeft + under) + 'px';
 }
 // Whether two boxes (left, top, right, bottom) overlap by more than a touching edge. Pure.
-/** @param {{left:number,top:number,right:number,bottom:number}} a @param {{left:number,top:number,right:number,bottom:number}} b */
-function boxesMeet(a, b) {
+function boxesMeet(
+  a,
+  b,
+) {
   return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
 }
 // A chip never sits under the select mode's bar (#sel-bar, over the top of the PDF area while the mode is on): one whose box
@@ -2787,7 +2679,6 @@ function chipsClearOfBar() {
   });
 }
 // A page verdict line's chip with no room to stand in (verdict.js pvChipPlace) takes its undo to the status line.
-/** @param {HTMLElement} e */
 function chipAway(e) {
   NOTICES.forEach((n) => {
     if (n.el === e && n.place === NOTICE_PLACE.CHIP) offerToLine(n);
@@ -2822,7 +2713,6 @@ $('#left').addEventListener(
 );
 new MutationObserver(chipsClearOfBar).observe(document.body, { attributes: true, attributeFilter: ['class'] }); // body.selmode comes and goes
 // The list reload after a save or an append has run: a chip whose mark did not come goes to the status line (drawChips).
-/** @param {Notice|null} n */
 function settleChip(n) {
   if (!n || !NOTICES.has(n.n) || n.place !== NOTICE_PLACE.CHIP) return;
   n.pending = false;
@@ -2831,7 +2721,6 @@ function settleChip(n) {
 // Moves an undo whose place left the screen to the status line, with the same action, what it holds (gone) and life; a TIMER
 // one gets a window of its own there. A pressed one (busy: its request is out) does not move - it is offered nowhere else,
 // and goes when the request is answered (noticeAct); the place it left was its own doing (a save's chip and its mark).
-/** @param {Notice} n */
 function offerToLine(n) {
   if (n.busy) return;
   const act = n.act,
@@ -2876,12 +2765,11 @@ $('#trash').addEventListener('close', () => {
 // sees a reply or a permanent delete that was taken back. note = the undo drawn for it, which an early commit takes away. Its
 // own bound is the guard: whatever holds or moves its undo, it is sent NOTICE_MS + NOTICE_HOLD_MAX after it was made at the
 // latest. Runs once, cancels once, never both.
-const DEFERRED = /** @type {Set<Deferred>} */ (new Set());
-/** @param {()=>void} commit @param {()=>void} undo @returns {Deferred} */
+const DEFERRED = new Set();
 function deferred(commit, undo) {
   let done = false;
   const bound = setTimeout(() => d.run(), NOTICE_MS + NOTICE_HOLD_MAX);
-  const d = /** @type {Deferred} */ ({
+  const d = {
     note: null,
     run: () => {
       if (done) return;
@@ -2898,12 +2786,11 @@ function deferred(commit, undo) {
       DEFERRED.delete(d);
       undo();
     },
-  });
+  };
   DEFERRED.add(d);
   return d;
 }
 // Draws deferred send d's undo (undoNote, a TIMER life): its end sends, its [되돌리기] cancels. Returns it.
-/** @param {Deferred} d @param {string} place @param {string} msg @param {Partial<Notice>} o @returns {Notice} */
 function deferredNote(d, place, msg, o) {
   const n = undoNote(
     place,
@@ -2925,9 +2812,9 @@ document.addEventListener('visibilitychange', () => {
 
 // ------------------------------------------------ Tooltip
 const TIP = $('#tip');
-let tipT = /** @type {ReturnType<typeof setTimeout>|undefined} */ (undefined),
-  tipEl = /** @type {HTMLElement|null} */ (null),
-  TIPXY = /** @type {number[]|null} */ (null);
+let tipT = undefined,
+  tipEl = null,
+  TIPXY = null;
 document.addEventListener(
   'mousemove',
   (e) => {
@@ -2936,7 +2823,7 @@ document.addEventListener(
   { passive: true },
 );
 // The element the showing box was placed on and where it stood then (showTipText), for tipFollow.
-let TIP_AT = /** @type {{el:Element,x:number,y:number}|null} */ (null);
+let TIP_AT = null;
 // The tooltip box is a manual popover, so it is drawn in the top layer: a modal sheet (the navigation sheet, [더보기]) is in the top
 // layer too and would cover a box that only has a z-index. A browser without popovers draws it as it always did.
 function tipShown(on) {
@@ -2982,10 +2869,9 @@ function showTip(el) {
 // beside the box (the gap is narrower than any description), so it draws an edge (.tip-beside, overlays.css): without one it
 // read as a box cut off at the page's edge, in the dark theme most. A description that ends in a URL el names (data-tip-url: a
 // link or an image of a Markdown document) has that URL in a span of its own (.tip-url), the one part that may break anywhere.
-/** @param {HTMLElement} el @param {string} txt */
 function showTipText(el, txt) {
   if (!txt || !document.contains(el)) return;
-  const box = /** @type {HTMLElement|null} */ (el.closest('[data-tip-at="left"]')),
+  const box = el.closest('[data-tip-at="left"]'),
     url = el.dataset.tipUrl || '';
   if (url && txt.endsWith(url)) {
     const u = document.createElement('span');
@@ -3010,7 +2896,7 @@ function showTipText(el, txt) {
     cx = r.left + r.width / 2;
   // A control in a Trash row has its box beside the row's controls, inside that row: over it the box covered the row
   // before's note line and buttons (under it, the next row's). Where the row leaves it no room, it goes over as anywhere.
-  const row = /** @type {HTMLElement|null} */ (el.closest('#trash-list .arc-row')),
+  const row = el.closest('#trash-list .arc-row'),
     acts = row && row.querySelector('.arc-acts');
   if (row && acts) {
     const w = row.getBoundingClientRect(),
@@ -3077,7 +2963,7 @@ document.addEventListener('keydown', inputFromKey, true);
 const keyInput = () => document.documentElement.dataset.input === 'key';
 document.addEventListener('mouseover', (e) => {
   if (touchRecent() || MQ_NOHOVER.matches) return;
-  const t = /** @type {HTMLElement} */ (e.target);
+  const t = e.target;
   armTip(t.closest ? t.closest('[data-tip]') : null);
 });
 // Puts the focus back on el, which the page drew again in place of the control that had it (segKeep, events.js). It is no
@@ -3085,7 +2971,6 @@ document.addEventListener('mouseover', (e) => {
 // with the mouse is drawn again once more when the excerpt's lines come back (excerptFetch); by then the pointer had gone
 // elsewhere, and the box the focus given back armed stood over the range caption and the overlap's buttons (#438).
 let FOCUS_GIVEN_BACK = false;
-/** @param {HTMLElement} el */
 function focusGivenBack(el) {
   FOCUS_GIVEN_BACK = true;
   try {
@@ -3100,7 +2985,7 @@ function focusGivenBack(el) {
 // hover, and Tab there reached a control whose explanation nothing could show. A focus that follows a tap stays without one.
 // A focus the page gives back itself (focusGivenBack) arms the box only when the keyboard had the focus there.
 document.addEventListener('focusin', (e) => {
-  const t = /** @type {HTMLElement} */ (e.target);
+  const t = e.target;
   if (FOCUS_GIVEN_BACK && !keyInput()) return;
   if ((t && t.tagName === 'TEXTAREA') || (!keyInput() && (touchRecent() || MQ_NOHOVER.matches))) {
     if (Date.now() >= SWALLOW_CLICK) hideTip();
@@ -3113,7 +2998,6 @@ document.addEventListener('focusin', (e) => {
 // its Esc here, before the dialog: the key dispatch leaves an open dialog's Esc to the browser, whose close request took the
 // box, the sheet and the focused control at once. Its default is prevented so the dialog stays; the next Esc closes it. While
 // typing in a field the Esc goes on as before, as the key dispatch lets a field's Esc go on past the box.
-/** @param {KeyboardEvent} e */
 function tipEscKey(e) {
   if (e.key !== 'Escape') return;
   if (TIP.hidden) {
@@ -3135,9 +3019,7 @@ document.addEventListener('keydown', tipEscKey, true);
 // release: the click went through and took the line's verdict back (#320). A long press is the same press in every state.
 // While a long press's description is up the page is html.tip-press: a verdict line's context over its words, which says the
 // same, steps aside for it (verdict-reason.css).
-let PRESS = /** @type {{el:HTMLElement,x:number,y:number,t:ReturnType<typeof setTimeout>,shown?:boolean}|null} */ (
-    null
-  ),
+let PRESS = null,
   SWALLOW_CLICK = 0,
   TIP_HOLD = 0; // TIP_HOLD: the SWALLOW_CLICK a long press's release armed (0 for none)
 /** Find a touch tooltip target while preserving native input menus and paragraph selection outside pin badges. */
@@ -3232,7 +3114,7 @@ document.addEventListener(
 );
 document.addEventListener('contextmenu', (e) => {
   if (LAST_PTR === 'mouse') return;
-  const t = /** @type {HTMLElement} */ (e.target);
+  const t = e.target;
   if (t && t.closest && (t.closest('.pg') || pressTarget(t))) e.preventDefault();
 });
 document.addEventListener('input', hideTip, true);
@@ -3277,10 +3159,10 @@ const TIP_FOCUS = 'button,a[href],input,select,textarea,summary,[tabindex]',
   TIP_SEL = '[data-tip],[data-tip-press]',
   TIP_READ = '.badge:not(.as-chip,.tip-shown),.tip-read';
 // The descriptions this part wrote, so one the drawing code wrote is told apart and left alone.
-const TIP_WROTE = /** @type {WeakMap<Element,string>} */ (new WeakMap());
+const TIP_WROTE = new WeakMap();
 /** What tip says beyond name: '' when it is the name, the rest after the name and a separator when it starts with them, else tip
  * (whitespace collapsed). The name's words may be set apart by a colon in the tip ('담당 Bob Park' in '담당: Bob Park — …').
- * Pure. @param {string} tip @param {string} name */
+ * Pure. */
 function tipDescText(tip, name) {
   const t = String(tip || '')
       .replace(/\s+/g, ' ')
@@ -3296,12 +3178,12 @@ function tipDescText(tip, name) {
   const m = new RegExp(head + ' ?[:\u2014\u00b7] (.+)$').exec(t);
   return m ? m[1] : t;
 }
-/** el's own name as a screen reader hears it: its aria-label, else its words. @param {Element} el */
+/** el's own name as a screen reader hears it: its aria-label, else its words. */
 function tipOwnName(el) {
   const l = el.getAttribute('aria-label');
   return l && l.trim() ? l : el.textContent || '';
 }
-/** Puts el's explanation where a screen reader finds it (above), or takes away the copy of one that went. @param {Element} el */
+/** Puts el's explanation where a screen reader finds it (above), or takes away the copy of one that went. */
 function tipDescribe(el) {
   const tip = el.getAttribute('data-tip') || el.getAttribute('data-tip-press') || '';
   if (el.matches(TIP_FOCUS)) {
@@ -3330,10 +3212,10 @@ function tipDescribe(el) {
   }
   if (el.getAttribute('data-tip-sr') !== ': ' + d) el.setAttribute('data-tip-sr', ': ' + d);
 }
-/** tipDescribe for node and everything under it that has an explanation. @param {Node} node */
+/** tipDescribe for node and everything under it that has an explanation. */
 function tipDescribeTree(node) {
   if (node.nodeType !== 1) return;
-  const el = /** @type {Element} */ (node);
+  const el = node;
   if (el.matches(TIP_SEL)) tipDescribe(el);
   for (const e of el.querySelectorAll(TIP_SEL)) tipDescribe(e);
 }
@@ -3343,11 +3225,11 @@ new MutationObserver((ms) => {
   for (const m of ms) {
     const t = m.target;
     if (m.type === 'attributes') {
-      tipDescribe(/** @type {Element} */ (t));
+      tipDescribe(t);
       continue;
     }
     if (m.type === 'childList') m.addedNodes.forEach(tipDescribeTree);
-    const host = t.nodeType === 1 ? /** @type {Element} */ (t) : t.parentElement;
+    const host = t.nodeType === 1 ? (t) : t.parentElement;
     const owner = host && host.closest(TIP_SEL);
     if (owner) tipDescribe(owner);
   }
@@ -3360,21 +3242,19 @@ new MutationObserver((ms) => {
 });
 tipDescribeTree(document.body);
 // Sets SWALLOW_CLICK, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof SWALLOW_CLICK} T @param {T} v @returns {T} */
 function setSwallowClick(v) {
   SWALLOW_CLICK = v;
   return v;
 }
 
 // ------------------------------------------------ Multiple documents - list/tabs/links (docs/handbook/domain.md §여러 문서)
-/** @typedef {import('./markup.js').Html} Html */
+
 function multiDoc() {
   return DOCS.length > 1;
 }
 function docInfo(k) {
   return DOCS.find((d) => d.key === k) || null;
 }
-/** @param {Pin} p */
 function pdoc(p) {
   return (p && p.doc) || DEFAULT_DOC;
 }
@@ -3456,25 +3336,15 @@ function docLinkInner(d) {
   return html`<span class="lbl">${d.name}</span>${count}`;
 }
 // What a link's or a popover row's inside was last drawn from, so a redraw that changes nothing writes nothing.
-const DOC_DRAWN = /** @type {WeakMap<Element,string>} */ (new WeakMap());
+const DOC_DRAWN = new WeakMap();
 // Sets the inside of el to markup m, drawn from key - unless it was drawn from key already. el itself stays: one that has the
 // focus keeps it, and no focusout or focusin is sent.
-/**
- * @param {Element} el
- * @param {Html} m
- * @param {string} key
- */
 function docInner(el, m, key) {
   if (DOC_DRAWN.get(el) === key) return;
   setHtml(el, m);
   DOC_DRAWN.set(el, key);
 }
 // Sets attribute a of el to v when it is not v already (an unchanged write still reaches the MutationObservers).
-/**
- * @param {Element} el
- * @param {string} a
- * @param {string} v
- */
 function setAttr(el, a, v) {
   if (el.getAttribute(a) !== v) el.setAttribute(a, v);
 }
@@ -3493,10 +3363,10 @@ function drawDocTabs() {
   if (DOC) box.value = DOC;
   const row = $('#doc-links'),
     more = $('#doc-more'),
-    had = /** @type {HTMLElement|null} */ (document.activeElement),
-    old = /** @type {HTMLElement[]} */ ([...row.querySelectorAll(':scope>[data-doc]')]);
+    had = document.activeElement,
+    old = [...row.querySelectorAll(':scope>[data-doc]')];
   const same = old.length === DOCS.length && old.every((a, i) => a.dataset.doc === DOCS[i].key);
-  let was = /** @type {string|null|undefined} */ (null);
+  let was = null;
   if (!same) {
     was = had && had !== more && row.contains(had) ? had.dataset.doc : null;
     old.forEach((a) => a.remove());
@@ -3504,7 +3374,7 @@ function drawDocTabs() {
     setHtml(links, html`${DOCS.map((d) => html`<button translate="no" data-act="doc" data-doc="${d.key}"></button>`)}`);
     more.before(...links.children);
   }
-  /** @type {HTMLElement[]} */ ([...row.querySelectorAll(':scope>[data-doc]')]).forEach((a, i) => {
+  ([...row.querySelectorAll(':scope>[data-doc]')]).forEach((a, i) => {
     const d = DOCS[i];
     setAttr(a, 'aria-current', d.key === DOC ? 'page' : 'false');
     setAttr(a, 'title', docTip(d));
@@ -3513,9 +3383,7 @@ function drawDocTabs() {
   drawPos();
   docFit();
   const back = was
-    ? /** @type {HTMLElement[]} */ ([...row.querySelectorAll(':scope>[data-doc]')]).find(
-        (a) => a.dataset.doc === was && !a.hidden,
-      )
+    ? ([...row.querySelectorAll(':scope>[data-doc]')]).find((a) => a.dataset.doc === was && !a.hidden)
     : null;
   if (back) back.focus({ preventScroll: true });
   if ($('#nav-sheet').open) drawDocsMenu();
@@ -3570,8 +3438,8 @@ function docFit() {
   const row = $('#doc-links'),
     more = $('#doc-more'),
     nav = $('#doc-nav'),
-    lbl = /** @type {HTMLElement} */ (more.querySelector('.lbl')),
-    tabs = /** @type {HTMLElement[]} */ ([...row.querySelectorAll(':scope>[data-doc]')]),
+    lbl = more.querySelector('.lbl'),
+    tabs = [...row.querySelectorAll(':scope>[data-doc]')],
     px = (v) => parseFloat(v) || 0,
     had = document.activeElement;
   let fit = '',
@@ -3582,7 +3450,7 @@ function docFit() {
     const cs = getComputedStyle(nav),
       rs = getComputedStyle(row);
     // its whole width: laid out for the moment as it would stand unshrunk (up to its max-width), to the fraction of a pixel
-    const whole = (/** @type {HTMLElement} */ k) => {
+    const whole = (k) => {
       k.style.flex = 'none';
       const x = k.getBoundingClientRect().width;
       k.style.flex = '';
@@ -3590,7 +3458,7 @@ function docFit() {
     };
     let used = 0,
       n = 0;
-    for (const k of /** @type {HTMLElement[]} */ ([...nav.children])) {
+    for (const k of [...nav.children]) {
       if (k === row || !k.getClientRects().length) continue;
       const m = getComputedStyle(k);
       n++;
@@ -3619,12 +3487,12 @@ function docFit() {
       gap = px(rs.columnGap),
       seen = new Map(),
       was = more.hidden;
-    const as = (/** @type {string} */ mode, /** @type {string} */ text) => {
+    const as = (mode, text) => {
       more.dataset.fit = mode;
       lbl.textContent = text;
       more.style.maxWidth = '';
     };
-    const width = (/** @type {string} */ mode, /** @type {string} */ text) => {
+    const width = (mode, text) => {
       as(mode, text);
       more.hidden = false;
       const x = more.getBoundingClientRect().width + mm;
@@ -3708,7 +3576,7 @@ document.fonts.addEventListener('loadingdone', docFit);
 $('#doc-links').addEventListener(
   'scroll',
   (e) => {
-    const r = /** @type {HTMLElement} */ (e.currentTarget);
+    const r = e.currentTarget;
     if (r.scrollTop || r.scrollLeft) {
       r.scrollTop = 0;
       r.scrollLeft = 0;
@@ -3725,13 +3593,13 @@ $('#doc-links').addEventListener(
 // what changed - so a focused row keeps its node and the focus, and the filter and the list's scroll stay.
 function drawDocMenu() {
   const list = $('#doc-pop-list'),
-    old = /** @type {HTMLElement[]} */ ([...list.children]);
+    old = [...list.children];
   if (!(old.length === DOCS.length && old.every((r, i) => r.dataset.doc === DOCS[i].key)))
     setHtml(
       list,
       html`${DOCS.map((d) => html`<button class="dp-row" role="option" data-act="doc" data-doc="${d.key}"></button>`)}`,
     );
-  /** @type {HTMLElement[]} */ ([...list.children]).forEach((r, i) => {
+  ([...list.children]).forEach((r, i) => {
     const d = DOCS[i],
       on = d.key === DOC,
       st = d.building ? 'spin' : d.stale_build ? 'dot' : '';
@@ -3749,9 +3617,9 @@ function drawDocMenu() {
 // Shows the rows whose document's name or path holds the field's text (case folded, as the outline's search), and says so
 // when none does.
 function docMenuFilter() {
-  const q = /** @type {HTMLInputElement} */ ($('#doc-pop-in')).value.trim().toLowerCase();
+  const q = ($('#doc-pop-in')).value.trim().toLowerCase();
   let n = 0;
-  for (const r of /** @type {HTMLElement[]} */ ([...$('#doc-pop-list').children])) {
+  for (const r of [...$('#doc-pop-list').children]) {
     const d = docInfo(r.dataset.doc || '');
     r.hidden = !!q && !(d && (d.name + ' ' + d.path).toLowerCase().includes(q));
     if (!r.hidden) n++;
@@ -3762,7 +3630,7 @@ function docMenuFilter() {
 // keyboard comes up - and a list without it get the current document's row, scrolled into view.
 function openDocMenu() {
   const pop = $('#doc-pop'),
-    f = /** @type {HTMLInputElement} */ ($('#doc-pop-in'));
+    f = $('#doc-pop-in');
   hideTip();
   closePageList(false);
   f.hidden = DOCS.length < 9;
@@ -3771,7 +3639,7 @@ function openDocMenu() {
   pop.hidden = false;
   drawDocMenu();
   placeDocMenu();
-  const row = /** @type {HTMLElement|null} */ ($('#doc-pop-list [aria-selected=true]'));
+  const row = $('#doc-pop-list [aria-selected=true]');
   if (row) row.scrollIntoView({ block: 'nearest' });
   const to = !f.hidden && !MQ_COARSE.matches ? f : row || pop;
   to.focus({ preventScroll: true });
@@ -3812,13 +3680,11 @@ function toggleDocMenu() {
 // lands on. Null when the button is the bar's last.
 function docMenuNext() {
   const more = $('#doc-more'),
-    stops = /** @type {HTMLElement[]} */ ([
-      ...$('#doc-nav').querySelectorAll('button,input,select,a[href],[tabindex]'),
-    ]).filter(
+    stops = ([...$('#doc-nav').querySelectorAll('button,input,select,a[href],[tabindex]')]).filter(
       (e) =>
         e === more ||
         (e.tabIndex >= 0 &&
-          !(/** @type {HTMLButtonElement} */ (e).disabled) &&
+          !(e).disabled &&
           e.getClientRects().length > 0 &&
           getComputedStyle(e).visibility !== 'hidden'),
     );
@@ -3838,10 +3704,10 @@ $('#doc-more').addEventListener('keydown', (e) => {
   }
 });
 $('#doc-pop').addEventListener('keydown', (e) => {
-  const t = /** @type {HTMLElement} */ (e.target),
+  const t = e.target,
     f = $('#doc-pop-in');
   if (imeKey(e)) return;
-  const rows = /** @type {HTMLElement[]} */ ([...$('#doc-pop-list').children]).filter((r) => !r.hidden),
+  const rows = ([...$('#doc-pop-list').children]).filter((r) => !r.hidden),
     field = !f.hidden;
   if (e.altKey && !e.ctrlKey && !e.metaKey && /^Digit[1-9]$/.test(e.code || '')) {
     const d = DOCS[+e.code.slice(5) - 1];
@@ -3898,13 +3764,13 @@ $('#doc-pop-in').addEventListener('input', docMenuFilter);
 // shuts it; a press anywhere outside them shuts it too (the press still does what it does). Focus that goes nowhere (the
 // window losing it) leaves it open.
 $('#doc-pop').addEventListener('focusout', (e) => {
-  const to = /** @type {Node|null} */ (e.relatedTarget);
+  const to = e.relatedTarget;
   if (to && !$('#doc-pop').contains(to) && !$('#doc-more').contains(to)) closeDocMenu(false);
 });
 document.addEventListener(
   'pointerdown',
   (e) => {
-    const t = /** @type {Node} */ (e.target);
+    const t = e.target;
     if (!$('#doc-pop').hidden && !$('#doc-pop').contains(t) && !$('#doc-more').contains(t)) closeDocMenu(false);
   },
   true,
@@ -3922,34 +3788,34 @@ addEventListener('resize', placeDocMenu);
 // counts (the rendered compare's status line takes them, md-compare.js mdcStatus).
 const REV = {
   seq: 0,
-  files: /** @type {{name:string,text:string}[]} */ ([]),
+  files: [],
   whole: '',
   commit: '',
   sourceCommit: '',
-  format: /** @type {string} */ (DIFF_FORMAT.PDF),
-  scope: /** @type {any} */ (null),
+  format: DIFF_FORMAT.PDF,
+  scope: null,
   other: '',
-  target: /** @type {RevTarget|null} */ (null),
+  target: null,
   pdfCommit: '',
-  back: /** @type {string|null} */ (null),
-  overlay: /** @type {RevisionOverlay|null} */ (null),
-  side: /** @type {string} */ (OVERLAY_SIDE.CUR),
+  back: null,
+  overlay: null,
+  side: OVERLAY_SIDE.CUR,
   history: false,
   base: '',
-  rows: /** @type {RevisionRow[]} */ ([]),
+  rows: [],
   rowsDoc: '',
   more: false,
-  range: /** @type {RevRange} */ ({ mode: RANGE_MODE.ONE, start: '', end: '', endSet: false }),
-  seen: /** @type {RevSeen|null} */ (null),
-  seenState: /** @type {string} */ (SEEN_STATE.NONE),
+  range: { mode: RANGE_MODE.ONE, start: '', end: '', endSet: false },
+  seen: null,
+  seenState: SEEN_STATE.NONE,
   seenN: 0,
-  seenIds: /** @type {Set<string>} */ (new Set()),
-  rangeIds: /** @type {string[]|null} */ (null),
+  seenIds: new Set(),
+  rangeIds: null,
   rangeBase: '',
   listOpen: false,
   rangeLine: '',
-  rangeN: /** @type {{commits:number,files:number}|null} */ (null),
-  want: /** @type {{base:string,top:string}|null} */ (null),
+  rangeN: null,
+  want: null,
 };
 const REVISION_PAGE = 30; // rows of one /api/revisions page (the server's history window is 500, api.md)
 const REVISION_RECENT = 12; // the commits [변경 보기] picks a pin's commit among - the server resolves a close_ref among the same
@@ -3958,9 +3824,9 @@ const REVISION_PHONE_ROWS = 5; // rows the phone's list shows before [더 보기
 // ({mode:'pin'|'commit', source, hunks, other, ...}); REV_PDF holds the comparison PDF's toggle - whole commit or only this pin.
 const REV_SCOPE = { whole: false, partial: false, fallback: false };
 const REV_PDF = {
-  doc: /** @type {any} */ (null),
-  loading: /** @type {any} */ (null),
-  observer: /** @type {IntersectionObserver|null} */ (null),
+  doc: null,
+  loading: null,
+  observer: null,
   tasks: new Set(),
 };
 function revisionFiles(patch) {
@@ -3982,12 +3848,12 @@ function revisionFiles(patch) {
 function renderRevisionDiff(patch) {
   const lines = String(patch || '').split('\n');
   if (lines[lines.length - 1] === '') lines.pop();
-  let oldLine = /** @type {number|null} */ (null),
-    newLine = /** @type {number|null} */ (null),
+  let oldLine = null,
+    newLine = null,
     inHunk = false;
   return html`${lines.map((line) => {
     let kind = 'meta',
-      number = /** @type {number|string} */ ('');
+      number = '';
     if (line.startsWith('diff --git ')) {
       kind = 'file';
       inHunk = false;
@@ -4210,7 +4076,7 @@ async function loadRevisions() {
     return;
   }
   if (seq !== REV.seq || k !== DOC) return;
-  const rows = /** @type {RevisionRow[]} */ (data.available ? data.revisions : []),
+  const rows = (data.available ? data.revisions : []),
     kept = REV.range;
   REV.rows = rows;
   REV.rowsDoc = k || '';
@@ -4279,7 +4145,7 @@ async function loadRevisions() {
   const want = REV.want;
   REV.want = null;
   if (want && want.base && !fig) {
-    const at = (/** @type {string} */ id) => rows.findIndex((r) => r.id === id || r.id.startsWith(id)),
+    const at = (id) => rows.findIndex((r) => r.id === id || r.id.startsWith(id)),
       i = at(want.base),
       j = want.top ? at(want.top) : 0;
     const top = j >= 0 ? rows[j].id : want.top,
@@ -4318,8 +4184,7 @@ async function loadRevisions() {
 // list's positions do not show (a merged line, a base on another line, a pull that merged older commits).
 
 /** The range after a row press (id): in [이 커밋만] that commit alone; otherwise that commit to the newest - except that, right
- * after such a press, a newer row ends the range there, and the start pressed again is that commit alone. Pure.
- * @param {{id:string}[]} rows @param {RevRange} rg @param {string} id @returns {RevRange} */
+ * after such a press, a newer row ends the range there, and the start pressed again is that commit alone. Pure. */
 function rangePress(rows, rg, id) {
   const at = (x) => rows.findIndex((r) => r.id === x),
     newest = rows.length ? rows[0].id : id;
@@ -4331,8 +4196,7 @@ function rangePress(rows, rg, id) {
   return { mode: RANGE_MODE.FROM, start: id, end: newest, endSet: false };
 }
 /** The range after a segment press: [마지막으로 본 뒤] the last-seen commit to the newest; [이 커밋부터] the commit in focus to
- * the newest; [이 커밋만] the commit in focus alone (the newest after [마지막으로 본 뒤]). Pure.
- * @param {{id:string}[]} rows @param {RevRange} rg @param {string} mode @param {RevSeen|null} seen @returns {RevRange} */
+ * the newest; [이 커밋만] the commit in focus alone (the newest after [마지막으로 본 뒤]). Pure. */
 function rangeMode(rows, rg, mode, seen) {
   const newest = rows.length ? rows[0].id : rg.end;
   if (mode === RANGE_MODE.LAST) return { mode, start: newest, end: newest, endSet: false };
@@ -4342,9 +4206,12 @@ function rangeMode(rows, rg, mode, seen) {
 /** What a range asks the server: {commit, base}, base '' for one commit against its first parent. [마지막으로 본 뒤] compares
  * the last-seen commit with the newest; [이 커밋부터] the start's first parent with the end - a start that is the end, or a
  * root commit (no parent), is that commit alone - or, for the range an update message opened, its base (the last seen
- * commit, rg.base) with the end. Pure. @param {{id:string,parents:string[]}[]} rows @param {RevRange} rg
- * @param {RevSeen|null} seen @returns {{commit:string,base:string}} */
-function rangeRequest(rows, rg, seen) {
+ * commit, rg.base) with the end. Pure. */
+function rangeRequest(
+  rows,
+  rg,
+  seen,
+) {
   if (rg.mode === RANGE_MODE.LAST && seen) return { commit: rg.end, base: seen.id };
   if (rg.mode === RANGE_MODE.FROM && rg.base) return { commit: rg.end, base: rg.base };
   if (rg.mode !== RANGE_MODE.FROM || rg.start === rg.end) return { commit: rg.start, base: '' };
@@ -4352,14 +4219,13 @@ function rangeRequest(rows, rg, seen) {
   return s && s.parents.length ? { commit: rg.end, base: s.parents[0] } : { commit: rg.start, base: '' };
 }
 /** The commits the list paints for request req: one commit itself; a range the commits the server's answer names (ids,
- * its commit_ids), none while that answer is unknown. Pure. @param {{commit:string,base:string}} req
- * @param {string[]|null} ids @returns {string[]} */
+ * its commit_ids), none while that answer is unknown. Pure. */
 function paintedIds(req, ids) {
   return req.base ? (ids || []).slice() : [req.commit];
 }
 /** The rows of merged lines: those between a merge and its first parent, when that parent is loaded. Pages come in ancestry
  * order (the server's --topo-order), so a merged line's commits sit right below their merge; a merge whose first parent is
- * not loaded marks nothing. Pure. @param {{id:string,parents:string[]}[]} rows @returns {Set<string>} */
+ * not loaded marks nothing. Pure. */
 function sideRows(rows) {
   const out = new Set();
   rows.forEach((r, i) => {
@@ -4377,7 +4243,6 @@ function revKey() {
 // only when [변경 PDF] is pressed, whatever format was shown), one commit as a list choice always opened (format undefined:
 // the comparison PDF of a LaTeX document, the format shown of a figure document). A Markdown document keeps the tab shown,
 // for a range too: its rendered compare builds nothing (md-compare.js).
-/** @param {RevRange} rg @param {string} [format] */
 function showRange(rg, format) {
   REV.range = rg;
   const q = rangeRequest(REV.rows, rg, REV.seen);
@@ -4405,7 +4270,7 @@ function drawRange() {
     rg = REV.range,
     st = REV.seenState;
   $('#revision-range').hidden = !rows.length;
-  for (const b of /** @type {HTMLButtonElement[]} */ ($$('#revision-range [role=radio]'))) {
+  for (const b of $$('#revision-range [role=radio]')) {
     const on = b.dataset.range === rg.mode;
     b.setAttribute('aria-checked', String(on));
     b.classList.toggle('on', on);
@@ -4428,7 +4293,6 @@ function drawRange() {
   renderCommitList();
 }
 // A commit's time as the list shows it: MM-DD HH:MM of its ISO commit time (the committer's own clock), else its date.
-/** @param {RevisionRow} r */
 function rowWhen(r) {
   const t = String(r.time || '');
   return /^\d{4}-\d\d-\d\dT\d\d:\d\d/.test(t) ? t.slice(5, 10) + ' ' + t.slice(11, 16) : String(r.date || '');
@@ -4447,7 +4311,7 @@ function renderCommitList() {
     box.replaceChildren();
     return;
   }
-  const focused = /** @type {HTMLElement|null} */ (document.activeElement),
+  const focused = document.activeElement,
     refocus = focused && focused.classList.contains('rc-row') ? focused.dataset.commit : null;
   const inside = new Set(paintedIds({ commit: REV.commit, base: REV.base }, REV.rangeIds)),
     side = sideRows(rows),
@@ -4489,10 +4353,9 @@ ${fresh.has(r.id) ? html`<span class="rc-tag">새로</span>` : ''}</button>`;
     html`<div class="rc-head">${tr(hint)}</div><div class="rc-list">${items}</div>\
 ${more ? html`<button id="revision-more" class="btn-ghost" data-act="revision-more">${ic('chevron-down')}<span>${more}</span></button>` : ''}`,
   );
-  for (const el of /** @type {HTMLElement[]} */ ($$('#revision-commits [data-i]')))
-    el.hidden = Number(el.dataset.i) >= cut;
+  for (const el of $$('#revision-commits [data-i]')) el.hidden = Number(el.dataset.i) >= cut;
   if (refocus) {
-    const again = /** @type {HTMLElement|null} */ (box.querySelector('.rc-row[data-commit="' + refocus + '"]'));
+    const again = box.querySelector('.rc-row[data-commit="' + refocus + '"]');
     if (again) again.focus();
   }
 }
@@ -4509,7 +4372,6 @@ async function moreRevisions() {
 }
 // Reads the next page (up to limit rows) of document k's window onto REV.rows; whether it did. Nothing when the list is
 // another document's or was replaced meanwhile.
-/** @param {string} k @param {number} limit */
 async function moreRows(k, limit) {
   if (!REV.more || !REV.rows.length) return false;
   const last = REV.rows[REV.rows.length - 1].id;
@@ -4533,7 +4395,6 @@ async function moreRows(k, limit) {
 // This browser's last-seen commit per document (localStorage limnRevSeen: {<doc>:{id, at}}). No server state: another
 // browser or device keeps its own. The server says what it is (resolveSeen): how many commits it compares with the newest,
 // or that it is no longer in the history. A record is never overwritten until the server has answered for it.
-/** @returns {Record<string,RevSeen>} */
 function revSeenAll() {
   try {
     const v = JSON.parse(localStorage.getItem('limnRevSeen') || '{}');
@@ -4542,13 +4403,11 @@ function revSeenAll() {
     return {};
   }
 }
-/** @param {string} k @returns {RevSeen|null} */
 function revSeen(k) {
   const v = revSeenAll()[k];
   return v && typeof v.id === 'string' ? { id: v.id, at: String(v.at || '') } : null;
 }
 // Takes the document's record for this visit: none, the newest commit itself (0 new, nothing to ask), or one to ask about.
-/** @param {RevSeen|null} seen @param {RevisionRow[]} rows */
 function openSeen(seen, rows) {
   REV.seen = seen;
   REV.seenIds = new Set();
@@ -4559,15 +4418,14 @@ function openSeen(seen, rows) {
 // the commit is not in this document's history (or shares none with it) is a record the history no longer has; base_too_old
 // is a record still in the history but older than the window (SEEN_STATE.OLD, kept); any other failure leaves the record
 // unread, and so kept.
-/** @param {any} r the /api/revision-diff answer with base */
+/** @param r the /api/revision-diff answer with base */
 function seenAnswered(r) {
   REV.seenState = SEEN_STATE.OK;
   REV.seenN = Number(r.commits) || 0;
   REV.seenIds = new Set(r.commit_ids || []);
 }
-/** @param {unknown} e */
 function seenFailed(e) {
-  const d = /** @type {any} */ (e && /** @type {ApiError} */ (e).data),
+  const d = (e && (e).data),
     why = d && d.reason;
   REV.seenState =
     why === 'base_too_old'
@@ -4577,7 +4435,6 @@ function seenFailed(e) {
         : SEEN_STATE.ERROR;
 }
 // Asks the server about the last-seen commit when the view does not open on its range (a pin's [변경 보기], a figure's overlay).
-/** @param {string} k @param {string} newest */
 async function resolveSeen(k, newest) {
   const seen = REV.seen;
   if (!seen) return;
@@ -4622,7 +4479,7 @@ addEventListener('pagehide', () => {
 });
 /** A newly selected commit (or range, from base) starts with fit width. Without a format a LaTeX document shows its
  * comparison PDF and a figure document stays in the format it shows (choosing a commit in its source diff keeps the source
- * diff). @param {string} id @param {string} [format] @param {string} [base] */
+ * diff). */
 async function showRevision(id, format, base) {
   RZ.ratio = 1;
   ++REV.seq;
@@ -4656,8 +4513,7 @@ async function showRevision(id, format, base) {
 /** The overlay's pages: each page of the build on screen paired with the same page of the previous build, as the box that
  * holds both ({page, ratio, pt} - pt its width in points) and each image's name and share of that box in percent ({name, w,
  * h}; null when that build has no such page). The box is as wide and as tall as the larger of the two, and each image keeps
- * its own size from the top left, so a figure that grew or shrank is never stretched to the other. Pure.
- * @param {RevisionOverlay} ov */
+ * its own size from the top left, so a figure that grew or shrank is never stretched to the other. Pure. */
 function overlayPages(ov) {
   const cur = ov.pages || [],
     prev = ov.prev_pages || [],
@@ -4680,8 +4536,7 @@ function buildStamp(name) {
     m = /^pages-\d{4}(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(?:-(\d+))?$/.exec(s);
   return m ? m[1] + '-' + m[2] + ' ' + m[3] + ':' + m[4] + ':' + m[5] + (m[6] ? ' (' + m[6] + ')' : '') : s;
 }
-/** The overlay's status line: which two builds it lays one over the other, or that there is no previous build.
- * @param {RevisionOverlay} ov */
+/** The overlay's status line: which two builds it lays one over the other, or that there is no previous build. */
 function overlayStatus(ov) {
   if (!ov.prev_build) return tr('이전 빌드가 없습니다 — 그림을 다시 가져오면 직전 빌드와 겹쳐 볼 수 있습니다.');
   return tl('직전 빌드 {prev} → 지금 {cur} · {n}쪽 · [이전]·[지금]으로 같은 자리를 바꿔 봅니다', {
@@ -4691,7 +4546,6 @@ function overlayStatus(ov) {
   });
 }
 // Takes a document's two builds from /api/revisions (null: not a figure document) and draws them anew, the current one shown.
-/** @param {RevisionOverlay|null} ov */
 function setRevisionOverlay(ov) {
   REV.overlay = ov;
   REV.side = OVERLAY_SIDE.CUR;
@@ -4728,7 +4582,7 @@ ${side(pg.prev, ov.prev_build, 'ov-prev', tl('이전 {page}쪽', { page: pg.page
       ['img.ov-cur', pg.cur],
       ['img.ov-prev', pg.prev],
     ]) {
-      const img = /** @type {HTMLElement|null} */ (d.querySelector(sel));
+      const img = d.querySelector(sel);
       if (img && x) {
         img.style.width = x.w + '%';
         img.style.height = x.h + '%';
@@ -4741,7 +4595,7 @@ ${side(pg.prev, ov.prev_build, 'ov-prev', tl('이전 {page}쪽', { page: pg.page
 function drawRevisionSide() {
   const ov = REV.overlay,
     none = !ov || !ov.prev_build;
-  for (const b of /** @type {HTMLButtonElement[]} */ ($$('#revision-side [role=radio]'))) {
+  for (const b of $$('#revision-side [role=radio]')) {
     const on = b.dataset.side === REV.side;
     b.setAttribute('aria-checked', String(on));
     b.classList.toggle('on', on);
@@ -4821,7 +4675,7 @@ async function loadRevisionSource(id, seq, k) {
     if (tg) revHighlight(tg);
   } catch (e) {
     if (revisionCurrent(seq, k, id)) {
-      const why = e && /** @type {ApiError} */ (e).data ? errText(/** @type {ApiError} */ (e).data) : '';
+      const why = e && (e).data ? errText((e).data) : '';
       out.textContent = why
         ? tl('소스 변경 내용을 읽지 못했습니다: {error}', { error: why })
         : tr('소스 변경 내용을 읽지 못했습니다.');
@@ -4838,7 +4692,7 @@ async function loadRevisionSource(id, seq, k) {
 }
 // A range's summary on the status line (its source diff): the two ends, the commits and files in it, the merge base when the
 // base was on another line, and a warning when the range is wide enough for its comparison PDF to fail (more than 60
-// manuscript files, or a diff cut at the server's limit). @param {any} r the /api/revision-diff answer with base
+// manuscript files, or a diff cut at the server's limit). @param r the /api/revision-diff answer with base
 function rangeSummary(r) {
   const files = Array.isArray(r.files) ? r.files : [];
   let t = tl('{base} → {head} · 커밋 {commits}개 · 파일 {files}개', {
@@ -4858,7 +4712,6 @@ function rangeSummary(r) {
 // The comparison PDF (latexdiff) has no SyncTeX mapping, so it only moves to roughly the pin's page.
 // The commit a close reference names among revs (the window's rows, in order) - the server's _ref_commit rule: a 7-40 digit
 // hash in every row, a PR number only in the first `recent` rows (REVISION_RECENT; a #N deeper is another PR's). Pure.
-/** @param {unknown} ref @param {{id:string,subject?:string}[]} revs @param {number} [recent] */
 function matchRevision(ref, revs, recent) {
   const text = String(ref || '');
   for (const m of text.matchAll(/\b[0-9a-f]{7,40}\b/g)) {
@@ -5016,7 +4869,7 @@ function revTargetActs() {
 }
 function revHighlight(tg) {
   const rows = $$('#revision-diff .rd-line');
-  let first = /** @type {Element|null} */ (null);
+  let first = null;
   rows.forEach((el) => {
     if (!(el.classList.contains('rd-add') || el.classList.contains('rd-context'))) return;
     const n = +el.querySelector('.rd-no').textContent;
@@ -5031,7 +4884,7 @@ function revHighlight(tg) {
     const f = pinFileIndex(REV.files, tg.file);
     if (f < 0) tg.hit = false;
     else {
-      let best = /** @type {Element|null} */ (null),
+      let best = null,
         dist = Infinity;
       rows.forEach((el) => {
         const n = +el.querySelector('.rd-no').textContent;
@@ -5104,7 +4957,6 @@ const REVISION_BUSY_WAITS = 240; // times a comparison asks again, a second apar
 // Asks for the comparison. A document builds one at a time, and opening this view starts the newest commit's: a press on another
 // commit while it runs is answered busy, and waits for it here, saying so, instead of stopping on that answer. Null: the view
 // moved on while it waited; leaving for the source diff stops the waiting too, and coming back asks again (REV.pdfCommit).
-/** @param {Record<string,unknown>} body @param {number} seq @param {string} k @param {string} id */
 async function revisionStart(body, seq, k, id) {
   const box = $('#revision-status'),
     waiting = tr('앞선 비교 PDF가 끝나는 대로 이 비교 PDF를 만듭니다. 원고와 핀은 그대로 사용할 수 있습니다.');
@@ -5119,7 +4971,7 @@ async function revisionStart(body, seq, k, id) {
     try {
       return (await api('/api/revision-build', { method: 'POST', body, what: '비교 PDF 만들기', silent: true })).data;
     } catch (e) {
-      const answer = /** @type {{reason?:string}|undefined} */ (/** @type {ApiError} */ (e).data);
+      const answer = (e).data;
       if (!answer || answer.reason !== 'busy' || waits >= REVISION_BUSY_WAITS) throw e;
       if (left()) return null;
       box.textContent = waiting;
@@ -5224,13 +5076,13 @@ async function loadRevisionPdf(id, seq, k) {
   } catch (e) {
     if (revisionCurrent(seq, k, id)) {
       clearRevisionPdf();
-      const data = /** @type {any} */ (e && /** @type {ApiError} */ (e).data);
+      const data = (e && (e).data);
       statusBox.textContent = tl('비교 PDF: {error} 소스 diff에서 변경 내용을 확인할 수 있습니다.', {
         error:
           data && data.error
             ? errText(data)
-            : e && /** @type {Error} */ (e).message
-              ? /** @type {Error} */ (e).message
+            : e && (e).message
+              ? (e).message
               : tr('표시하지 못했습니다.'),
       });
     }
@@ -5277,11 +5129,11 @@ function openNavSheet() {
 function navSheetReveal(d) {
   const rows = navSheetRows(),
     cur = $('#ns-outline-items').querySelector(':scope>.ol-active');
-  navSheetFit(d, cur ? rows.indexOf(/** @type {HTMLElement} */ (cur)) : 0, true);
+  navSheetFit(d, cur ? rows.indexOf(cur) : 0, true);
 }
-/** @returns {HTMLElement[]} the rows of the sheet's outline (the unread entries' note is not one) */
+/** @returns the rows of the sheet's outline (the unread entries' note is not one) */
 function navSheetRows() {
-  return /** @type {HTMLElement[]} */ ([...$('#ns-outline-items').querySelectorAll(':scope>button')]);
+  return [...$('#ns-outline-items').querySelectorAll(':scope>button')];
 }
 let NAV_SHEET_H = 0; // the open sheet's height as last fitted to the screen: a filter's fewer results keep it, so the top does not move
 /** Fits the open sheet d to its outline's row `at` (docs/handbook/viewer.md §모바일 레이아웃). The open sheet is a column whose top
@@ -5293,14 +5145,13 @@ let NAV_SHEET_H = 0; // the open sheet's height as last fitted to the screen: a 
  * its top stands where it stood on any page; a filter's results keep the height the sheet had (refit). Only where the documents
  * leave not even that (many documents on a small screen) does the sheet itself scroll, by whole parts, with the current row of the
  * documents (else the view) pinned under the head over what the step brought there (navSheetStep). Fitted again after a filter's
- * results (from the first, or the current section when the filter is emptied) and when the sheet's height changes.
- * @param {HTMLElement} d @param {number} at @param {boolean} centre @param {boolean} [refit] */
+ * results (from the first, or the current section when the filter is emptied) and when the sheet's height changes. */
 function navSheetFit(d, at, centre, refit = false) {
-  const list = /** @type {HTMLElement} */ ($('#ns-outline-items')),
-    sec = /** @type {HTMLElement} */ ($('#ns-outline'));
-  const pages = /** @type {HTMLElement} */ ($('#ns-pages')),
-    head = /** @type {HTMLElement} */ (d.querySelector('.ns-head')),
-    R = (/** @type {Element} */ e) => e.getBoundingClientRect();
+  const list = $('#ns-outline-items'),
+    sec = $('#ns-outline');
+  const pages = $('#ns-pages'),
+    head = d.querySelector('.ns-head'),
+    R = (e) => e.getBoundingClientRect();
   list.style.maxHeight =
     list.style.minHeight =
     sec.style.flex =
@@ -5312,7 +5163,7 @@ function navSheetFit(d, at, centre, refit = false) {
   d.scrollTop = 0;
   d.style.setProperty('--ns-head-h', head.offsetHeight + 'px');
   // rows in their list's content: [{top, bottom}], measured with the lists at their own size
-  const geoOf = (/** @type {HTMLElement} */ box, /** @type {Element[]} */ rows) => {
+  const geoOf = (box, rows) => {
     const o = R(box).top - box.scrollTop;
     return rows.map((r) => {
       const b = R(r);
@@ -5340,15 +5191,13 @@ function navSheetFit(d, at, centre, refit = false) {
   pages.style.display = 'none';
   const room = maxH - d.offsetHeight;
   list.style.maxHeight = pages.style.display = '';
-  const span = (/** @type {[number,number]|null} */ w, /** @type {{top:number,bottom:number}[]} */ g) =>
+  const span = (w, g) =>
     w ? g[w[1]].bottom - g[w[0]].top : 0;
-  const least = (/** @type {number} */ m) =>
-    /** @type {[number,number]} */ (
-      centre
-        ? [Math.max(0, i - Math.floor((m - 1) / 2)), Math.min(n, i + Math.ceil((m - 1) / 2))]
-        : [i, Math.min(n, i + m - 1)]
-    );
-  const pagesOf = (/** @type {number} */ m) => span(navSheetSpan(pgeo, pc, m), pgeo),
+  const least = (m) =>
+    (centre
+      ? [Math.max(0, i - Math.floor((m - 1) / 2)), Math.min(n, i + Math.ceil((m - 1) / 2))]
+      : [i, Math.min(n, i + m - 1)]);
+  const pagesOf = (m) => span(navSheetSpan(pgeo, pc, m), pgeo),
     most = Math.min(5, pageRows.length);
   const plan = show
     ? navSheetShare(room, pagesOf, most, span(least(3), geo), span(least(1), geo))
@@ -5389,9 +5238,7 @@ function navSheetFit(d, at, centre, refit = false) {
   const need = d.scrollHeight - d.clientHeight;
   if (need <= 0) return;
   const top = R(head).bottom,
-    keep = /** @type {HTMLElement} */ (
-      d.querySelector('#ns-docs:not([hidden]) .dm-item.on') || d.querySelector('#ns-view')
-    ),
+    keep = (d.querySelector('#ns-docs:not([hidden]) .dm-item.on') || d.querySelector('#ns-view')),
     K = R(keep);
   const parts = [
     ...d.querySelectorAll('#ns-docs,#ns-docs .dm-item,#ns-view,#ns-page,#ns-pages,#ns-outline,#ns-outline>.ns-oh'),
@@ -5409,16 +5256,20 @@ function navSheetFit(d, at, centre, refit = false) {
 }
 /** How the page list and the outline share the room under the sheet's fixed part (all heights in px): the most page rows, up to
  * `most`, that leave the outline three rows (three), then - short of that - one page row and the outline one (one), then no page
- * row; null when not even one outline row fits. pagesOf(m) is the height of m page rows around the current one. Pure.
- * @param {number} room @param {(m:number)=>number} pagesOf @param {number} most @param {number} three @param {number} one
- * @returns {{pages:number}|null} */
-function navSheetShare(room, pagesOf, most, three, one) {
+ * row; null when not even one outline row fits. pagesOf(m) is the height of m page rows around the current one. Pure. */
+function navSheetShare(
+  room,
+  pagesOf,
+  most,
+  three,
+  one,
+) {
   for (let m = most; m >= Math.min(1, most); m--) if (room - pagesOf(m) >= three - 0.5) return { pages: m };
   for (const m of [Math.min(1, most), 0]) if (room - pagesOf(m) >= one - 0.5) return { pages: m };
   return null;
 }
 /** The m rows of a list of equal rows around c (rows: their tops and bottoms, in order), as near the middle as the ends allow; null
- * for none. Pure. @param {{top:number,bottom:number}[]} rows @param {number} c @param {number} m @returns {[number,number]|null} */
+ * for none. Pure. */
 function navSheetSpan(rows, c, m) {
   if (m <= 0 || !rows.length) return null;
   const a = Math.max(0, Math.min(c - Math.floor((m - 1) / 2), rows.length - m));
@@ -5429,7 +5280,7 @@ function navSheetSpan(rows, c, m) {
 for (const t of [window.visualViewport, window])
   if (t)
     t.addEventListener('resize', () => {
-      const d = /** @type {HTMLDialogElement} */ ($('#nav-sheet'));
+      const d = $('#nav-sheet');
       if (d.open)
         requestAnimationFrame(() => {
           if (!d.open) return;
@@ -5451,16 +5302,20 @@ for (const t of [window.visualViewport, window])
 // The sheet's filter has drawn its list again (outline.js): fitted from the first result, keeping the sheet's height - or, emptied, back
 // at the current section.
 function navSheetFiltered() {
-  const d = /** @type {HTMLDialogElement} */ ($('#nav-sheet'));
+  const d = $('#nav-sheet');
   if (!d.open) return;
   if ($('#ns-outline-search').value.trim()) navSheetFit(d, 0, false, true);
   else navSheetReveal(d);
 }
 /** The outline rows the sheet shows (rows: their tops and bottoms in the list, in order; c: the row to show): the most whole rows
  * around c that fit in room, taken one at a time on the side that has fewer, so c stands near the middle - or, down, below c
- * first and above only when the list ends; c alone when no more fit. Pure.
- * @param {{top:number,bottom:number}[]} rows @param {number} c @param {number} room @param {boolean} [down] @returns {[number,number]} */
-function navSheetWindow(rows, c, room, down = false) {
+ * first and above only when the list ends; c alone when no more fit. Pure. */
+function navSheetWindow(
+  rows,
+  c,
+  room,
+  down = false,
+) {
   let a = c,
     b = c;
   for (;;) {
@@ -5476,10 +5331,10 @@ function navSheetWindow(rows, c, room, down = false) {
  * reaches the head, a step stops on a part's top, so the head cuts none. Once it is pinned, a step stops where a part starts right
  * under it, and the parts between lie wholly behind it or the head; past what holds it, the pinned row has gone under the head and
  * a step stops on a part's top again. The least such step, in whole px since the sheet scrolls in them; the last part when there
- * is none. Pure. @param {number[]} parts @param {number} need @param {{top:number,height:number,end:number}|null} [pin] */
+ * is none. Pure. */
 function navSheetStep(parts, need, pin = null) {
   let best = Infinity;
-  const ok = (/** @type {number} */ s) => s >= need - 0.5 && s < best;
+  const ok = (s) => s >= need - 0.5 && s < best;
   for (const p of parts) {
     if (!pin || p <= pin.top + 0.5 || pin.end - p <= 0.5) {
       if (ok(p)) best = p;
@@ -5686,9 +5541,8 @@ async function switchDoc(k) {
   }
 }
 // The switch waiting for its document's meta (switchDoc), or null.
-let SWITCH_TO = /** @type {{k:string,seq:number,nav:number}|null} */ (null);
+let SWITCH_TO = null;
 // Whether a switch to document k is on its way and still the one that will open: the newest switch, no history traversal since.
-/** @param {string} k */
 function switchPending(k) {
   const s = SWITCH_TO;
   return !!s && s.k === k && s.seq === SWITCHSEQ && s.nav === NAVGEN;
@@ -5954,7 +5808,7 @@ function drawMeta() {
         .replace('T', ' ');
   $('#meta-built').textContent = built;
   $('#meta-built-w').hidden = !built; // a Markdown document is never built
-  const me = META.me || /** @type {Me} */ ({});
+  const me = META.me || ({});
   setHtml($('#me'), html`${avatar(me)}<span class="au-n" translate="no">${who(me)}</span>`);
   $('#me').dataset.tip = tl('지금 이 화면을 쓰는 사람: {name}. 핀을 저장·수정·완료하면 이 이름으로 기록됩니다', {
     name: (isAgent(me) ? who(me) : me.name || '') + (me.login && me.login !== LOCAL_LOGIN ? ' (' + me.login + ')' : ''),
@@ -5987,11 +5841,11 @@ function commitShown(h) {
 }
 
 // ------------------------------------------------ Auto sync - lightweight meta polling (docs/handbook/build-sync.md §자동 동기화 (가벼운 meta 폴링))
-let LAST_PINS_REV = /** @type {string|null} */ (null),
-  LAST_SRC_MTIME = /** @type {string|number|null} */ (null),
+let LAST_PINS_REV = null,
+  LAST_SRC_MTIME = null,
   POLL_FAILS = 0,
-  LIGHT_TIMER = /** @type {ReturnType<typeof setInterval>|undefined} */ (undefined),
-  LIGHT_INFLIGHT = /** @type {Promise<void>|null} */ (null);
+  LIGHT_TIMER = undefined,
+  LIGHT_INFLIGHT = null;
 // Single-flight: same pattern as pollBuild - even if visibilitychange/focus/the 5-second timer overlap and
 // call this together (e.g. focus returning at the same moment as a tab switch), /api/meta and loadPins only go out once (observed defect: overlapping calls fired loadPins 3 times).
 function pollLight() {
@@ -6005,8 +5859,8 @@ function pollLight() {
 // While the tab is hidden, the list is never redrawn (observed defect: a hidden tab received no notifications at all), but if notifications
 // are on (notifyOn), a light (slow - the browser throttles it anyway) /api/meta?light=1 call is still made just to surface events as notifications.
 // This is a notification-only branch splitting off at the same point as pollLight's document.hidden bailout - it never touches the screen.
-let NOTIFY_HIDDEN_TIMER = /** @type {ReturnType<typeof setInterval>|undefined} */ (undefined),
-  NOTIFY_HIDDEN_INFLIGHT = /** @type {Promise<void>|null} */ (null);
+let NOTIFY_HIDDEN_TIMER = undefined,
+  NOTIFY_HIDDEN_INFLIGHT = null;
 const NOTIFY_HIDDEN_INTERVAL_MS = 20000;
 function pollHiddenNotify() {
   if (!document.hidden || !notifyOn()) return Promise.resolve();
@@ -6152,16 +6006,13 @@ function startLightPolling() {
 // This tab's own close/drop/reopen/restore already said so where it happened, so the next loadPins()'s
 // A list comparison's group without the pins whose events a message of a higher rank says (groupNote's less): the pins named
 // '<type>:<id>' leave data[field] - numbers or pins - and each of also beside them, or null when none is left. Pure.
-/** @param {string} type @param {string} field @param {...string} also @returns {(d:any,keys:string[])=>any} */
 function newsWithout(type, field, ...also) {
   return (d, keys) => {
-    const keep = d[field].map(
-      (/** @type {any} */ x) => !keys.includes(type + ':' + (typeof x === 'number' ? x : x.id)),
-    );
+    const keep = d[field].map((x) => !keys.includes(type + ':' + (typeof x === 'number' ? x : x.id)));
     if (!keep.some(Boolean)) return null;
     const out = { ...d };
     [field, ...also].forEach((f) => {
-      out[f] = d[f].filter((/** @type {any} */ _, /** @type {number} */ i) => keep[i]);
+      out[f] = d[f].filter((_, i) => keep[i]);
     });
     return out;
   };
@@ -6206,14 +6057,14 @@ function notePinChanges(prev, d, dropped) {
   });
   // Each kind of change is one message however many pins and polls it spans (groupNote): up to three pins by number, more
   // as a count with the first numbers after it ('핀 12개가 완료되었습니다 — #3, #5, #8 외 9개').
-  const ids = (/** @type {number[]} */ a) =>
+  const ids = (a) =>
     a
       .slice(0, 3)
       .map((i) => '#' + i)
       .join(', ') + (a.length > 3 ? ' ' + tl('외 {n}개', { n: a.length - 3 }) : '');
-  const some = (/** @type {number[]} */ a, one, many) =>
+  const some = (a, one, many) =>
     a.length <= 3 ? tl(one, { ids: a.join(', #'), n: a.length }) : tl(many, { n: a.length }) + ' — ' + ids(a);
-  const merge = (/** @type {any} */ a, /** @type {any} */ b) => ({ ...b, ids: [...new Set([...a.ids, ...b.ids])] });
+  const merge = (a, b) => ({ ...b, ids: [...new Set([...a.ids, ...b.ids])] });
   if (closed.length)
     groupNote(
       'done',
@@ -6312,7 +6163,7 @@ function notePinChanges(prev, d, dropped) {
   // A pin that lost its place asks for a new one: said on its own, and counted in its document's update message.
   lost.forEach((p) => updPinMoved(p, true));
   gone.forEach((p) => updPinMoved(p, true));
-  const each = (/** @type {number[]} */ a, one, many) =>
+  const each = (a, one, many) =>
     a.length === 1 ? tl(one, { id: a[0] }) : tl(many, { n: a.length }) + ' — ' + ids(a);
   if (lost.length)
     groupNote(
@@ -6352,24 +6203,20 @@ function notePinChanges(prev, d, dropped) {
               ? tl('#{id} 줄 {delta} 이동', { id: ms[0].id, delta: ms[0].delta })
               : tl('핀 {n}개 줄 이동', { n: g.moves.length }) +
                 ' — ' +
-                ms.map(/** @param {any} x */ (x) => '#' + x.id + ' ' + x.delta).join(', '),
+                ms.map((x) => '#' + x.id + ' ' + x.delta).join(', '),
           kind: NOTICE_KIND.OK,
           act: null,
           o: { life: NOTICE_LIFE.TIMER, literal: true },
         };
       },
       (a, b) => ({
-        moves: [
-          ...a.moves.filter(/** @param {any} x */ (x) => !b.moves.some(/** @param {any} y */ (y) => y.id === x.id)),
-          ...b.moves,
-        ],
+        moves: [...a.moves.filter((x) => !b.moves.some((y) => y.id === x.id)), ...b.moves],
       }),
     );
 }
 
 // Says on the status line when a pin that was awaiting review gets confirmed (done; passing news) or reopened (until [x], with
 // a dot on [핀 N]) elsewhere. An action this tab performed (markMine) is swallowed.
-/** @param {Pin} p */
 function pinState(p) {
   return (p && p.state) || (p && p.done ? (p.review ? PIN_STATE.REVIEW : PIN_STATE.DONE) : PIN_STATE.OPEN);
 }
@@ -6390,7 +6237,7 @@ function noteReviewChanges(prev, d) {
     });
   });
   // Each is one message however many pins (groupNote): one pin with who did it, more as a count.
-  const text = (/** @type {{id:number,by:string}[]} */ a, one, many) =>
+  const text = (a, one, many) =>
     a.length === 1
       ? tl(one, { id: a[0].id }) + (a[0].by ? ' · ' + a[0].by : '')
       : tl(many, { n: a.length }) +
@@ -6400,7 +6247,7 @@ function noteReviewChanges(prev, d) {
           .map((x) => '#' + x.id)
           .join(', ') +
         (a.length > 3 ? ' ' + tl('외 {n}개', { n: a.length - 3 }) : '');
-  const merge = (/** @type {any} */ a, /** @type {any} */ b) => ({
+  const merge = (a, b) => ({
     pins: [...a.pins, ...b.pins.filter((x) => !a.pins.some((y) => y.id === x.id))],
   });
   if (ok.length)
@@ -6440,13 +6287,11 @@ function noteReviewChanges(prev, d) {
     );
 }
 // Sets LAST_PINS_REV, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof LAST_PINS_REV} T @param {T} v @returns {T} */
 function setLastPinsRev(v) {
   LAST_PINS_REV = v;
   return v;
 }
 // Sets LAST_SRC_MTIME, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof LAST_SRC_MTIME} T @param {T} v @returns {T} */
 function setLastSrcMtime(v) {
   LAST_SRC_MTIME = v;
   return v;
@@ -6462,7 +6307,7 @@ function setLastSrcMtime(v) {
 // the pin number, so the same pin collapses into one slot. If the tab is visible and focused, the status line says it instead.
 // This only works in a secure context (an https tailnet address, or http://127.0.0.1/localhost) - the browser blocks plain http on other hosts.
 const NOTIFY_RANK = { dropped: 6, assigned: 5, mention: 4, reopened: 3, review_requested: 2, replied: 1 };
-let SW_REG = /** @type {ServiceWorkerRegistration|null} */ (null);
+let SW_REG = null;
 function notifySupported() {
   return !!(window.isSecureContext && 'serviceWorker' in navigator && 'Notification' in window);
 }
@@ -6475,8 +6320,7 @@ function notifyOn() {
 // The cursor this tab last set, kept in memory too: a browser whose storage refuses (a SecurityError on reading it, a full
 // quota on writing) still has one for this visit - the boot goes on, and an event is said once - and the newer of the two
 // is the cursor, so another tab's advance in storage counts as well.
-let NOTIFY_CURSOR_MEM = /** @type {number|null} */ (null);
-/** @returns {number|null} */
+let NOTIFY_CURSOR_MEM = null;
 function notifyCursor() {
   let v = NaN;
   try {
@@ -6485,13 +6329,11 @@ function notifyCursor() {
   const m = NOTIFY_CURSOR_MEM;
   return isNaN(v) ? m : m !== null && m > v ? m : v;
 }
-/** @param {number} v */
 function setNotifyCursor(v) {
   const c = notifyCursor();
   if (c == null || v > c) putNotifyCursor(v);
 }
 // Puts the cursor at v, backwards too (the server's events started again): in memory and, where it may, in storage.
-/** @param {number} v */
 function putNotifyCursor(v) {
   NOTIFY_CURSOR_MEM = v;
   try {
@@ -6562,11 +6404,11 @@ async function notifyShow(e) {
     await reg.showNotification(t.title, {
       body: t.body,
       tag: 'pin-' + e.pin,
-      icon: /** @type {HTMLLinkElement} */ (
-        document.querySelector('link[rel=apple-touch-icon]') ||
+      icon: (
+        (document.querySelector('link[rel=apple-touch-icon]') ||
           document.querySelector('link[rel=icon]') || {
             href: undefined,
-          }
+          })
       ).href,
       actions: e.type === EVENT_TYPE.DROPPED && !isViewer() ? [{ action: 'restore', title: tr('되살리기') }] : [], // [되살리기] on "X deleted your pin" (the service worker hands it to this tab)
       data: { pin: e.pin, doc: e.doc, url: '/#doc=' + encodeURIComponent(e.doc || '') + '&pin=' + e.pin },
@@ -6577,13 +6419,11 @@ async function notifyShow(e) {
 // agent closing twelve of my pins one by one is one message that grows. One pin says what its notification says, with
 // [열기] (a deleted one [되살리기], a viewer's [열기]); more say how many, their numbers and who, with [보기] for review
 // requests (the review section), the Trash for deleted ones, else [열기] on the newest.
-/** @param {any} e */
 function notifyLine(e) {
   groupNote('ev:' + e.type, { evs: [e] }, notifyLineView, (a, b) => ({
-    evs: [...a.evs.filter(/** @param {any} x */ (x) => x.pin !== b.evs[0].pin), ...b.evs],
+    evs: [...a.evs.filter((x) => x.pin !== b.evs[0].pin), ...b.evs],
   }));
 }
-/** @param {{evs:any[]}} g */
 function notifyLineView(g) {
   const evs = g.evs,
     e = evs[evs.length - 1],
@@ -6601,14 +6441,16 @@ function notifyLineView(g) {
       ? { label: '보기', tip: '검토 대기 핀으로 갑니다', fn: gotoReview }
       : { label: '열기', tip: '그 핀으로 갑니다', fn: () => openPinFromLink(e.doc, e.pin) };
   const many =
-    /** @type {Record<string,string>} */ ({
-      mention: '나를 부른 핀 {n}개',
-      review_requested: '핀 {n}개가 검토 대기로 넘어왔습니다',
-      replied: '답글이 달린 핀 {n}개',
-      reopened: '핀 {n}개 다시 열림',
-      assigned: '나에게 맡긴 핀 {n}개',
-      dropped: '핀 {n}개가 삭제됨',
-    })[e.type] || '소식 {n}개';
+    (
+      {
+        mention: '나를 부른 핀 {n}개',
+        review_requested: '핀 {n}개가 검토 대기로 넘어왔습니다',
+        replied: '답글이 달린 핀 {n}개',
+        reopened: '핀 {n}개 다시 열림',
+        assigned: '나에게 맡긴 핀 {n}개',
+        dropped: '핀 {n}개가 삭제됨',
+      }
+    )[e.type] || '소식 {n}개';
   const ids =
       evs
         .slice(0, 3)
@@ -6633,7 +6475,6 @@ function notifyLineView(g) {
 }
 // The chip an event's message marks (a NOTICE_DOT, or ''): a review request [검토 M], which counts every document; anything
 // else on this document (here) [핀 N]; another document's nothing - its pins are not in this panel. Pure.
-/** @param {string} type @param {boolean} here @returns {string} */
 function notifyDot(type, here) {
   return type === EVENT_TYPE.REVIEW_REQUESTED ? NOTICE_DOT.RV : here ? NOTICE_DOT.SIDE : '';
 }
@@ -6747,7 +6588,6 @@ async function notifyToggle() {
   quietNote('이 기기에서 브라우저 알림을 켰습니다 — 나를 부르거나 내 핀에 일이 생기면 알립니다');
 }
 // Says text on the line under the notification switch until it is drawn again (drawNotify), and reads it out.
-/** @param {string} text */
 function notifyWhy(text) {
   const w = $('#m-notify-why');
   w.textContent = text;
@@ -6814,7 +6654,6 @@ window.addEventListener('hashchange', () => {
   if (l.pin) openPinFromLink(l.doc, l.pin, l.restore);
 });
 // Sets SW_REG, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof SW_REG} T @param {T} v @returns {T} */
 function setSwReg(v) {
   SW_REG = v;
   return v;
@@ -6832,14 +6671,14 @@ function setSwReg(v) {
 // BUILD.cur is the running build's last /api/build answer (null when none runs): the status line reads its phase and seconds.
 // BUILD.unchanged is {pull} while the status line answers an unchanged rebuild of this tab (buildUnchanged), else null.
 const BUILD = {
-  timer: /** @type {ReturnType<typeof setInterval>|null} */ (null),
-  error: /** @type {any} */ (null),
-  lastSeq: /** @type {number|null} */ (null),
+  timer: null,
+  error: null,
+  lastSeq: null,
   booted: false,
-  inflight: /** @type {Promise<void>|null} */ (null),
+  inflight: null,
   asked: false,
-  cur: /** @type {BuildStatus|null} */ (null),
-  unchanged: /** @type {{pull:string}|null} */ (null),
+  cur: null,
+  unchanged: null,
 };
 // Reset the visible build controls and baseline when a different document takes the screen.
 function resetBuildForDoc() {
@@ -6999,13 +6838,13 @@ function startBuildPolling() {
 // - this page is older than the Limn the server runs now (GET /api/version): a status item with [새로 고침] (status.js);
 // - back after a while, what came meanwhile is said as one message (notices.js digestBegin, polling.js).
 const UPD = {
-  moved: /** @type {Map<string,{moved:Set<number>,lost:Set<number>}>} */ (new Map()),
-  lines: /** @type {Map<string,{base:string[],ranges:{lo:number,hi:number}[],at:number}>} */ (new Map()),
+  moved: new Map(),
+  lines: new Map(),
   expect: 0,
   expectAt: 0,
-  seenAt: /** @type {Map<string,number>} */ (new Map()),
-  top: /** @type {number|null} */ (null),
-  checking: /** @type {Map<string,{ver:string,again:boolean}>} */ (new Map()),
+  seenAt: new Map(),
+  top: null,
+  checking: new Map(),
 }; // document -> the check reading its history: its version, and whether a call left it to that check
 const UPD_EXPECT_MS = 120000; // after a source change is seen, how long its pins' moves wait for the document's update message
 const DIGEST_TAIL_MS = 2500; // how long a gathering waits after its poll for the build and the update it set going
@@ -7015,8 +6854,7 @@ const LINE_DIFF_MAX = 500; // edit steps the line comparison tries before callin
 // ver names what a document showed (its build on screen, or a drawn document's source mtime), rev its newest commit then (''
 // without history); pin the highest pin number whose arrival was said. Another browser or device keeps its own. A browser
 // whose storage refuses (a SecurityError, a full quota) keeps it in memory for this visit (SEEN_MEM) from the first refusal.
-let SEEN_MEM = /** @type {string|null} */ (null);
-/** @returns {{v?:number,pin?:number,docs?:Record<string,{ver:string,rev:string}>}} */
+let SEEN_MEM = null;
 function seenStore() {
   let raw = SEEN_MEM;
   if (raw === null)
@@ -7032,7 +6870,6 @@ function seenStore() {
     return {};
   }
 }
-/** @param {{v?:number,pin?:number,docs?:Record<string,{ver:string,rev:string}>}} all */
 function seenSave(all) {
   all.v = 1;
   const raw = JSON.stringify(all);
@@ -7046,14 +6883,12 @@ function seenSave(all) {
     SEEN_MEM = raw;
   }
 }
-/** @param {string} k @returns {{ver:string,rev:string}|null} */
 function seenDoc(k) {
   const d = (seenStore().docs || {})[k];
   return d && typeof d.ver === 'string' ? { ver: d.ver, rev: String(d.rev || '') } : null;
 }
 // Records rec as what document k showed when seen - unless the record kept already names a later version (verAfter): another
 // tab of this browser saw a newer one meanwhile, and an old tab dismissing its older message never takes that back.
-/** @param {string} k @param {{ver:string,rev:string}} rec */
 function setSeenDoc(k, rec) {
   const all = seenStore(),
     was = (all.docs || {})[k];
@@ -7064,7 +6899,6 @@ function setSeenDoc(k, rec) {
 // Whether version a (limnSeen's ver) is later than b: a drawn document's source mtime ('src:<seconds>') by its number, a
 // built one's build id ('build:pages-<YYYYMMDDHHMMSS>[-<n>]', the server's names) by its time and then its count. Versions
 // of different kinds are not ordered (false). Pure.
-/** @param {string} a @param {string} b @returns {boolean} */
 function verAfter(a, b) {
   const src = /^src:(.+)$/,
     bld = /^build:pages(?:-(\d{14})(?:-(\d+))?)?$/,
@@ -7082,12 +6916,10 @@ function verAfter(a, b) {
 function visitedBefore() {
   return !!seenStore().v || notifyCursor() !== null;
 }
-/** @returns {number|null} */
 function seenPin() {
   const n = seenStore().pin;
   return typeof n === 'number' ? n : null;
 }
-/** @param {number} n */
 function setSeenPin(n) {
   const all = seenStore();
   if (typeof all.pin === 'number' && all.pin >= n) return;
@@ -7097,7 +6929,6 @@ function setSeenPin(n) {
 
 // ---------------- Pure rules
 // The PR number a commit subject names: a merge commit's 'Merge pull request #12 …', a squash merge's '… (#12)'; 0 for none.
-/** @param {unknown} subject @returns {number} */
 function prOf(subject) {
   const s = String(subject || ''),
     m = /^Merge pull request #(\d+)/.exec(s) || /\(#(\d+)\)\s*$/.exec(s);
@@ -7109,14 +6940,13 @@ function prOf(subject) {
 // no rows (no history). unknown: which of them are new cannot be told - the rows are not known (null: what the shown build
 // carries is not known, shownRows) or no commit was known as seen ('') - so none is named, and top is the newest of the rows
 // known ('' for none). Pure.
-/** @param {{id:string,subject:string,author?:string,time?:string}[]|null} rows @param {string} seen */
 function describeCommits(rows, seen) {
   const top = rows && rows.length ? rows[0].id : '',
     none = {
       n: 0,
       more: false,
-      prs: /** @type {number[]} */ ([]),
-      authors: /** @type {string[]} */ ([]),
+      prs: [],
+      authors: [],
       subject: '',
       time: '',
       top,
@@ -7141,7 +6971,6 @@ function describeCommits(rows, seen) {
 // Where the lines now (b) differ from the lines before (a): the changed lines of b as ranges {lo, hi} (1-based, in order); a
 // place where lines only went away is the line after it (the last line at the end). Common heads and tails are set aside, the
 // middle is compared line by line (Myers) up to max edit steps, past that the whole middle is one place. Pure.
-/** @param {string[]} a @param {string[]} b @param {number} max @returns {{lo:number,hi:number}[]} */
 function lineChanges(a, b, max) {
   let p = 0;
   while (p < a.length && p < b.length && a[p] === b[p]) p++;
@@ -7152,7 +6981,7 @@ function lineChanges(a, b, max) {
     N = A.length,
     M = B.length;
   if (!N && !M) return [];
-  const at = (/** @type {number} */ i) => Math.max(1, Math.min(b.length, i));
+  const at = (i) => Math.max(1, Math.min(b.length, i));
   if (!M) return [{ lo: at(p + 1), hi: at(p + 1) }];
   if (!N) return [{ lo: p + 1, hi: p + M }];
   const lim = Math.min(N + M, max),
@@ -7217,14 +7046,13 @@ function lineChanges(a, b, max) {
   return out;
 }
 // The pins in rows numbered above top, not made by me (my login): the new ones others made. Pure.
-/** @param {Pin[]} rows @param {number} top @param {string} me @returns {Pin[]} */
 function freshPins(rows, top, me) {
   return (rows || [])
     .filter((p) => p.id > top && !(p.author && me && p.author.login === me))
     .sort((a, b) => a.id - b.id);
 }
 // How long a person was away, as the gathered message's title says it: minutes, hours, then days. Pure but for tl().
-/** @param {number} ms @param {boolean} lost the connection was what was gone @returns {string} */
+/** @param lost the connection was what was gone */
 function awayTitle(ms, lost) {
   const m = Math.max(1, Math.round(ms / 60000)),
     t =
@@ -7239,12 +7067,11 @@ function awayTitle(ms, lost) {
 // ---------------- A document changed
 // The document k as it shows now - its name, kind and ver (what limnSeen keeps) - from its meta on screen or its entry in the
 // document list; null before it is known.
-/** @param {string} k @returns {{ver:string,name:string,kind:string}|null} */
 function updDocState(k) {
   const m = k === DOC ? META : META_BY.get(k),
     d = docInfo(k),
     kind = (d && d.kind) || (m && m.kind) || '',
-    src = /** @type {any} */ (m || d);
+    src = (m || d);
   if (!src) return null;
   // a drawn document on screen: its source as last read (MD.mtime), not the meta it was opened with; off screen: the
   // document list's (noteOtherDocs keeps it fresh) - MD still holds the lines of one drawn before, as they were when left
@@ -7264,11 +7091,10 @@ function updDocState(k) {
   return ver ? { ver, name: (d && d.name) || (m && m.doc_name) || k, kind } : null;
 }
 // Document k's commits, newest first ([] without history), or null when they could not be read.
-/** @param {string} k @returns {Promise<RevisionRow[]|null>} */
 async function docRows(k) {
   try {
     const r = (await api(dq('/api/revisions?limit=' + REVISION_PAGE, k), { what: '변경사항 읽기', silent: true })).data;
-    return r.available ? /** @type {RevisionRow[]} */ (r.revisions || []) : [];
+    return r.available ? ((r.revisions || [])) : [];
   } catch (e) {
     return null;
   }
@@ -7277,10 +7103,12 @@ async function docRows(k) {
 // git or unknown) and whether the checkout has moved past it (stale_build: its sources changed since); a drawn document shows
 // the checkout's source ({head:'', behind:false}). From the meta on screen or kept, else the document's light meta; null when
 // that shows another build than now's (a newer one came meanwhile) or cannot be read.
-/** @param {string} k @param {{ver:string,kind:string}} now @returns {Promise<{head:string,behind:boolean}|null>} */
-async function docBuild(k, now) {
+async function docBuild(
+  k,
+  now,
+) {
   if (rendersInBrowser(now.kind)) return { head: '', behind: false };
-  let m = /** @type {any} */ (k === DOC ? META : META_BY.get(k));
+  let m = (k === DOC ? META : META_BY.get(k));
   if (!m || 'build:' + m.pages_build !== now.ver) {
     try {
       m = (await api(dq('/api/meta?light=1', k), { what: '상태 확인', silent: true })).data;
@@ -7297,7 +7125,6 @@ async function docBuild(k, now) {
 // the document's files - all of them, unless the build is behind the checkout (behind): then which of them it carries is not
 // known (null) - the reads say neither where the build's commit stands among them nor which of them it lacks, and a guess
 // would name a commit it had already as new. A drawn document: all. Pure.
-/** @param {RevisionRow[]} rows @param {string} head @param {boolean} behind @returns {RevisionRow[]|null} */
 function shownRows(rows, head, behind) {
   const i = head ? rows.findIndex((r) => r.id.startsWith(head)) : -1;
   return i >= 0 ? rows.slice(i) : behind && rows.length ? null : rows;
@@ -7317,7 +7144,6 @@ function shownRows(rows, head, behind) {
 // stays - this answer may name an older commit - and one of an earlier version makes it a change to say. A history (or a
 // build) that could not be read is not known, never an empty one: the check gives up, records nothing and asks again for
 // the calls it stood for.
-/** @param {string} k @param {{mine?:boolean}} ctx */
 async function checkDocUpdate(k, ctx) {
   if (!k) return;
   const now = updDocState(k);
@@ -7404,7 +7230,6 @@ function checkDocsSeen() {
 // else [변경 보기] when there are commits (the changes view on just them, or as it opens when which are new is not known),
 // [열기] for another document - whose message stands behind this one's (back) - none otherwise. It is seen - limnSeen takes
 // it - once it goes by [x] or its action; a message pushed off the line is not seen and comes again on the next visit.
-/** @param {any} d */
 function docUpdateView(d) {
   const k = d.key,
     c = d.commits,
@@ -7423,7 +7248,7 @@ function docUpdateView(d) {
       parts.push(
         c.prs
           .slice(0, 3)
-          .map(/** @param {number} n */ (n) => 'PR #' + n)
+          .map((n) => 'PR #' + n)
           .join(', ') + (c.prs.length > 3 ? ' …' : ''),
       );
     if (c.authors.length)
@@ -7472,7 +7297,7 @@ function docUpdateView(d) {
       keep: true,
       back: !here,
       brief: title,
-      onEnd: (/** @type {boolean} */ acted, /** @type {boolean} */ seen) => {
+      onEnd: (acted, seen) => {
         if (acted || seen) docUpdateSeen(k, d);
       },
     },
@@ -7481,7 +7306,6 @@ function docUpdateView(d) {
 // Document k's update message has been seen: limnSeen takes what it said, and its moved pins and changed lines go
 // (updForget). A record of the message's own version is another tab's - the message is said only while the record names
 // an earlier one (checkDocUpdate) - and stays: that tab read the history too, perhaps after a commit this message missed.
-/** @param {string} k @param {any} d */
 function docUpdateSeen(k, d) {
   const was = seenDoc(k);
   if (!was || was.ver !== d.ver) setSeenDoc(k, { ver: d.ver, rev: d.top });
@@ -7489,7 +7313,6 @@ function docUpdateSeen(k, d) {
 }
 // What this tab kept for a change of document k that is seen - its moved pins and its tinted lines - goes. Moves that come
 // after this belong to no message that is due (updPinMoved).
-/** @param {string} k */
 function updForget(k) {
   UPD.moved.delete(k);
   UPD.seenAt.set(k, Date.now());
@@ -7497,7 +7320,6 @@ function updForget(k) {
 }
 // A source or a build is changing (polling.js): for UPD_EXPECT_MS its pins' moves wait for its document's update message.
 // fresh: a source changed now - the wait starts now, so a message seen before it does not end it (updPinMoved).
-/** @param {boolean} [fresh] */
 function updExpect(fresh) {
   const t = Date.now();
   if (fresh || UPD.expect < t) UPD.expectAt = t;
@@ -7508,7 +7330,6 @@ function updExpect(fresh) {
 // that message a late move (a maintenance save of the moved place, ADR-0028) is said on its own, not taken into a message
 // that has gone. Returns whether a moved pin is said there (its own message is then left out); a lost pin is always said on
 // its own as well, for it asks for a new place.
-/** @param {Pin} p @param {boolean} lost @returns {boolean} */
 function updPinMoved(p, lost) {
   const k = pdoc(p),
     g = GROUPS.get('upd:' + k),
@@ -7527,7 +7348,6 @@ function updPinMoved(p, lost) {
 // (the newest it named - the shown build's, not the checkout's newest: a checkout ahead of the pages, or a commit come
 // since the message, is not in it), the list painting just them (revisions.js REV.want); without base, the view as it
 // opens. Another document is switched to first.
-/** @param {string} k @param {string} base @param {string} [top] */
 function openUpdateRange(k, base, top) {
   const go = () => {
     REV.want = { base, top: top || '' };
@@ -7554,7 +7374,6 @@ function openUpdateRange(k, base, top) {
 // first stays tinted and counted beside the new one; a return to the document compares what it draws now. A change this
 // device has seen already - its message dismissed while the document was off screen, or in another tab - is no base: the
 // lines it drew are not compared, so no tint stands that no message would take away.
-/** @param {string} k @param {string[]|null} before @param {string[]} now */
 function updSourceRedrawn(k, before, now) {
   const u = UPD.lines.get(k),
     seen = seenDoc(k),
@@ -7586,7 +7405,6 @@ function updMarks() {
 }
 // [바뀐 곳]: the next changed place (the first after the last), scrolled to the reading depth and flashed like a pin's lines
 // (mdShowLines: the reading spot is read where it lands).
-/** @param {string} k */
 function updGoNext(k) {
   if (k !== DOC) {
     switchDoc(k);
@@ -7603,7 +7421,6 @@ function updGoNext(k) {
 // ---------------- Others' new pins
 // Each pin snapshot (list.js applyPinLists): pins others made since the highest number this tab - or, on the first snapshot,
 // this device (limnSeen.pin) - had seen, one message per document. The first visit of a device says nothing.
-/** @param {Pin[]} rows */
 function updNewPins(rows) {
   const me = (META && META.me && META.me.login) || '',
     max = (rows || []).reduce((m, p) => Math.max(m, p.id), 0);
@@ -7624,7 +7441,6 @@ function updNewPins(rows) {
   if (fresh.length) announceNewPins(fresh);
   else if (![...GROUPS.keys()].some((g) => g.startsWith('new:'))) setSeenPin(UPD.top);
 }
-/** @param {Pin[]} pins */
 function announceNewPins(pins) {
   const by = new Map();
   pins.forEach((p) => {
@@ -7654,10 +7470,7 @@ function announceNewPins(pins) {
       newPinsView,
       (a, b) => ({
         doc: a.doc,
-        pins: [
-          ...a.pins,
-          ...b.pins.filter(/** @param {any} x */ (x) => !a.pins.some(/** @param {any} y */ (y) => y.id === x.id)),
-        ],
+        pins: [...a.pins, ...b.pins.filter((x) => !a.pins.some((y) => y.id === x.id))],
       }),
     ),
   );
@@ -7665,7 +7478,6 @@ function announceNewPins(pins) {
 // What a document's new-pins message says: one pin by its number, who made it, where and the start of its memo ('새 핀 #14 —
 // Bob Park · 3쪽 · 서론 첫 문장…', a verdict pin '새 판정 #15 — … · 채택'); more as a count with their numbers and makers.
 // Another document's names it ('부록에 새 핀 2개'). [보기] opens the first; on this document it marks [핀 N].
-/** @param {any} d */
 function newPinsView(d) {
   const here = d.doc === DOC,
     ps = d.pins,
@@ -7680,11 +7492,11 @@ function newPinsView(d) {
     ? [p.who, p.place, p.verdict || p.note].filter(Boolean).join(' · ')
     : ps
         .slice(0, 3)
-        .map(/** @param {any} x */ (x) => '#' + x.id)
+        .map((x) => '#' + x.id)
         .join(', ') +
       (ps.length > 3 ? ' ' + tl('외 {n}개', { n: ps.length - 3 }) : '') +
       ' · ' +
-      [...new Set(ps.map(/** @param {any} x */ (x) => x.who))].slice(0, 2).join(', ');
+      [...new Set(ps.map((x) => x.who))].slice(0, 2).join(', ');
   return {
     msg: (here ? head : tl('{doc}에 {what}', { doc: name, what: head })) + ' — ' + desc,
     kind: NOTICE_KIND.INFO,
@@ -7693,9 +7505,9 @@ function newPinsView(d) {
       literal: true,
       back: !here,
       dot: here ? NOTICE_DOT.SIDE : '',
-      keys: ps.map(/** @param {any} x */ (x) => 'new:' + x.id),
+      keys: ps.map((x) => 'new:' + x.id),
       brief: tl('새 핀 {n}', { n: ps.length }),
-      onEnd: (/** @type {boolean} */ acted, /** @type {boolean} */ seen) => {
+      onEnd: (acted, seen) => {
         if ((acted || seen) && ![...GROUPS.keys()].some((g) => g.startsWith('new:'))) setSeenPin(UPD.top || 0);
       },
     },
@@ -7770,7 +7582,7 @@ function reloadForUpdate() {
 // on #bar2) it is drawn again from the state they come from. It also carries the messages of notices.js (LINE): background
 // events, first-visit hints and an undo whose place has left the screen - the only items the desktop's line shows besides
 // a rebuild's 'no changes', a new Limn and the pins kept while cut off, since its chips say the rest (statusShown).
-let STATUS_SYNC = /** @type {SyncStatus|null} */ (null),
+let STATUS_SYNC = null,
   STATUS_SIG = ''; // the last meta `sync`; the drawn item's kind, action and count
 let STATUS_TOP = 0; // the number of the message the line shows (0: none, or another item): lineNote reads out one it does not
 const STATUS_TRANSIENT_MS = 6000; // a passing answer (no changes) stays on the line as long as an undo's window (NOTICE_MS)
@@ -7797,6 +7609,7 @@ function statusProgress(pr) {
 // its text needs; act is the data-act of its one action, or null - [재빌드] and [그래도 빌드] (rebuild-force, a cold build)
 // only where canRebuild (a LaTeX document and a person who may build). The phase whose work can
 // be counted - the page render, whose progress field gives pages done of total - is looked up, not compared. Pure.
+// One item of the status line (statusList), by its kind.
 function statusList(s) {
   const out = [],
     b = s.build,
@@ -7804,7 +7617,7 @@ function statusList(s) {
     e = s.buildErr,
     sy = s.sync && s.sync.state;
   const notes = s.notices || [],
-    alert = (/** @type {Notice} */ n) => !!n.alert || n.kind === NOTICE_KIND.ERR;
+    alert = (n) => !!n.alert || n.kind === NOTICE_KIND.ERR;
   notes.filter(alert).forEach((n) => out.push({ kind: STATUS_KIND.NOTICE, notice: n, act: 'notice' }));
   if (e && e.state === BUILD_STATE.FAIL) out.push({ kind: STATUS_KIND.FAILED, act: 'build-err-reopen' });
   else if (e && e.state === BUILD_STATE.OK_ERRORS)
@@ -8118,22 +7931,20 @@ function drawStatus() {
 
 // The button of the line or its '+N' list that has the keyboard focus, as its data-act and data-n ('' for an item's own
 // action), or null: the line's redraw gives the focus back to it (refocusStatus).
-/** @returns {{act:string,n:string}|null} */
 function statusFocus() {
-  const a = /** @type {HTMLElement|null} */ (document.activeElement);
+  const a = document.activeElement;
   return a && a.closest && a.closest('#status,#status-list') && a.dataset.act
     ? { act: a.dataset.act, n: a.dataset.n || '' }
     : null;
 }
 // Puts the focus back on the button f named (statusFocus) when a redraw replaced it: in the open '+N' list, else on the line.
-/** @param {{act:string,n:string}|null} f */
 function refocusStatus(f) {
   if (!f) return;
   const a = document.activeElement;
   if (a && a !== document.body && document.contains(a)) return;
   const sel = '[data-act="' + f.act + '"]' + (f.n ? '[data-n="' + f.n + '"]' : ''),
     l = $('#status-list');
-  const b = /** @type {HTMLElement|null} */ ((l.open && l.querySelector(sel)) || $('#status').querySelector(sel));
+  const b = ((l.open && l.querySelector(sel)) || $('#status').querySelector(sel));
   if (b) b.focus({ preventScroll: true });
 }
 // The line follows the focus: when it leaves a message's button, the line shows again what comes first.
@@ -8156,14 +7967,12 @@ function drawStatusList(list) {
 }
 // The sentence [이유] of blocked main sync explains: main sync is blocked, why (SYNC_REASON), and that the previous PDF may be
 // showing. Only tr/tl beyond its argument.
-/** @param {SyncStatus|null} s */
 function syncWhyText(s) {
   const r = (s && s.reason) || '';
   return tr('main 동기화 막힘') + ' — ' + tr(SYNC_REASON[r] || r) + ' · ' + tr('기존 PDF가 보일 수 있습니다');
 }
 // [이유] of blocked main sync: its sentence (syncWhyText, also the button's description) shown right at the button - or,
 // pressed in the '+N' list, which has just folded, at the line - and read out.
-/** @param {HTMLElement} btn */
 function statusWhy(btn) {
   const text = syncWhyText(STATUS_SYNC);
   showTipText(btn.getClientRects().length ? btn : $('#status'), text);
@@ -8196,14 +8005,13 @@ $('#status-list').addEventListener('close', () => {
   const a = document.activeElement,
     s = $('#status');
   if (a && a !== document.body && !$('#status-list').contains(a)) return;
-  const b = /** @type {HTMLElement|null} */ (s.querySelector('[data-act="status-more"]') || s.querySelector('button'));
+  const b = (s.querySelector('[data-act="status-more"]') || s.querySelector('button'));
   if (b) b.focus({ preventScroll: true });
 });
 // Which side of the status line the '+N' list opens on, for a list h px tall with room px free above and below the line
 // (to 8px off the edge of the window's visible part): its own side - over the line, or under it when the line is the short band's top row
 // (under) - where the whole list fits there, else the other side where it fits, else the side with more room, where the list
 // is cut to that room and scrolls. True for over the line. Pure.
-/** @param {number} h @param {number} above @param {number} below @param {boolean} under */
 function statusListUp(h, above, below, under) {
   if (h <= (under ? below : above)) return !under;
   if (h <= (under ? above : below)) return under;
@@ -8260,7 +8068,7 @@ function placeStatusList() {
   const above = at - vt - 4 - 8,
     below = vb - ab - 4 - 8,
     h = d.scrollHeight + d.offsetHeight - d.clientHeight;
-  const row = /** @type {HTMLElement|null} */ (d.querySelector('.st-row')),
+  const row = d.querySelector('.st-row'),
     one = h - $('#status-list-rows').offsetHeight + (row ? row.offsetHeight : 0); // a row, its padding, border
   const up = statusListUp(h, above, below, BAND === LAYOUT_BAND.SHORT),
     room = Math.floor(Math.min(Math.max(up ? above : below, one), vb - vt - 16));
@@ -8291,7 +8099,7 @@ addEventListener('resize', placeStatusListSoon);
 // inside it, then draws it. An open '+N' list folds: it was placed for the old band.
 function placeStatus() {
   const s = $('#status'),
-    a = /** @type {HTMLElement} */ (document.activeElement),
+    a = document.activeElement,
     had = s.contains(a);
   if ($('#status-list').open) $('#status-list').close();
   lineVisible(false); // moved out from under the pointer: no hover is left holding its windows
@@ -8322,13 +8130,11 @@ if (window.ResizeObserver)
     );
   }).observe($('#right'), { box: 'border-box' });
 // Sets STATUS_SIG, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof STATUS_SIG} T @param {T} v @returns {T} */
 function setStatusSig(v) {
   STATUS_SIG = v;
   return v;
 }
 // Sets STATUS_SYNC, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof STATUS_SYNC} T @param {T} v @returns {T} */
 function setStatusSync(v) {
   STATUS_SYNC = v;
   return v;
@@ -8451,7 +8257,7 @@ function curSideW() {
   return Math.round($('#right').getBoundingClientRect().width);
 }
 // The width last shown and its bounds - the handle's ARIA value while the panel is open (gripAria).
-let SIDE_SHOWN = /** @type {{w:number,min:number,max:number}|null} */ (null);
+let SIDE_SHOWN = null;
 // Shows a panel width without saving it: #right, --side-w, and the handle's ARIA while the panel is open.
 function showSideW(w, b) {
   $('#right').style.width = w + 'px';
@@ -8596,7 +8402,6 @@ function sizePreset(i) {
   setSideWidth(sideBounds(LAYOUT, innerWidth).presets[i]);
 }
 // Sets SHEET_KEPT, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof SHEET_KEPT} T @param {T} v @returns {T} */
 function setSheetKept(v) {
   SHEET_KEPT = v;
   return v;
@@ -8736,10 +8541,7 @@ function pageWidthVars() {
   const m = ptMax();
   $('#doc').style.setProperty('--pg-max', pageWidth(m, K) + 'px');
   $$('#doc .pgw>.pg').forEach((e) => {
-    /** @type {HTMLElement} */ (e.parentElement).style.setProperty(
-      '--pg-w',
-      /** @type {HTMLElement} */ (e).style.width,
-    );
+    (e.parentElement).style.setProperty('--pg-w', (e).style.width);
   });
 }
 // Whether the pages stand at a scale K that no PDF-area width has bounded since their sizes changed (reapplyK). Only the changes
@@ -8841,7 +8643,7 @@ function pageNoSides() {
   const ws = pgs.map((pg) => pg.getBoundingClientRect().width),
     widest = Math.max(...ws);
   pgs.forEach((pg, i) => {
-    const no = /** @type {HTMLElement|null} */ (pg.querySelector('.no'));
+    const no = pg.querySelector('.no');
     if (no) pg.classList.toggle('no-out', (widest - ws[i]) / 2 >= no.offsetWidth + 8);
   });
 }
@@ -8862,7 +8664,7 @@ function zoomAnchor(cx, cy) {
     cx = lr.left + L.clientWidth / 2;
     cy = lr.top + L.clientHeight / 2;
   }
-  let best = /** @type {{pg:HTMLElement,r:DOMRect}|null} */ (null),
+  let best = null,
     bd = Infinity;
   for (const pg of $$('.pg')) {
     const r = pg.getBoundingClientRect(),
@@ -8912,7 +8714,6 @@ function fitW() {
 // figure page, one whose map names its figure body (meta figure_top), at its figure (figureTop); any other page at its top.
 // The same arrival again while the pages rest on that figure goes to the page's top, and once more to the figure
 // (docs/handbook/viewer.md §그림 쪽 도착). Each is a glide (pvGlideTo, pvGlideInto), so the keys wait for it to end.
-/** @param {number} n */
 function arrivePage(n) {
   const el = document.getElementById('p' + n);
   if (!el) return;
@@ -8955,12 +8756,9 @@ const FIGURE_REST_PX = 2; // the pages rest on a jump's place within this (a gli
 const ARRIVAL_REST_MS = 120,
   ARRIVAL_SETTLE_MS = 2000,
   ARRIVAL_FIXES = 3;
-let ARRIVAL =
-    /** @type {{place:()=>number|null,hand:number,doc:string|null,fixes:number,until:number,at:number|null}|null} */ (
-      null
-    ),
+let ARRIVAL = null,
   ARRIVAL_TIMER = 0;
-/** @param {()=>number|null} place - the scrollTop the jump goes to, measured now; null once it is gone */
+/** @param place - the scrollTop the jump goes to, measured now; null once it is gone */
 function arrivalWatch(place) {
   ARRIVAL = { place, hand: PV_SCROLL_HAND, doc: DOC, fixes: 0, until: 0, at: null };
   arrivalSoon();
@@ -9040,7 +8838,6 @@ new ResizeObserver(() => {
 // OUTLINE_PICK_GAP px - or null for a page without a figure body. In page points, so the room is the label line's at every
 // zoom. Room past the page's top would stand the page below the reading line at a large zoom: the line would read the page
 // before it.
-/** @param {number} n */
 function figureTop(n) {
   const pg = document.getElementById('p' + n),
     m = META && META.pages ? META.pages[n - 1] : null;
@@ -9093,20 +8890,20 @@ const VEC_PIX_CAP = 16777216,
   VEC_DT_MARGIN = 0.25;
 // PDF.js has no type declarations here, so its library, document and render task are `any`.
 const VEC = {
-  lib: /** @type {any} */ (null),
-  doc: /** @type {any} */ (null),
-  build: /** @type {string|null} */ (null),
+  lib: null,
+  doc: null,
+  build: null,
   gen: 0,
-  failed: /** @type {string|null} */ (null),
-  io: /** @type {IntersectionObserver|null} */ (null),
+  failed: null,
+  io: null,
   near: new Set(),
   st: new Map(),
-  cur: /** @type {{n:number,task:any}|null} */ (null),
+  cur: null,
   pumping: false,
   timer: 0,
-  stats: /** @type {{n:number,kind:string,ms:number,w:number,h:number}[]} */ ([]),
-  tFirst: /** @type {number|null} */ (null),
-  tDoc: /** @type {number|null} */ (null),
+  stats: [],
+  tFirst: null,
+  tDoc: null,
   cache: new Map(),
 };
 // Multiple documents: holds up to VEC_CACHE_MAX recently opened PDF document objects keyed by 'document|build' - switching tabs back
@@ -9225,6 +9022,9 @@ async function vecOpen() {
 // How much of a PDF's outline the viewer reads (docs/handbook/viewer.md §모바일 레이아웃): the first OUTLINE_MAX_ENTRIES entries in outline
 // order, down to level OUTLINE_MAX_DEPTH (0 is the top level, so five levels). What is left unread is counted (OUTLINE_CUT) and said at
 // the end of the outline and of its filter's results (outlineCutNote) - never dropped without a word.
+
+// One row of the outline: a PDF outline item (loadOutline, its number and page label from mergeOutlineLabels) or a Markdown
+// heading (md-surface.ts mdOutline). up is the index of the entry it sits under (-1 at the top).
 const OUTLINE_MAX_ENTRIES = 2000,
   OUTLINE_MAX_DEPTH = 4;
 const OUTLINE_BATCH = 100; // sibling entries whose destinations are resolved at once (each is a round trip to the PDF.js worker)
@@ -9242,7 +9042,7 @@ function outlineCount(item) {
 }
 // Which document and build the entries in OUTLINE_ENTRIES were read for (outlineForget drops them when another document comes on
 // screen; the page list names a figure's pages by them only while they are those of the build on screen, outlineOnScreen).
-let OUTLINE_DOC = /** @type {string|null} */ (null),
+let OUTLINE_DOC = null,
   OUTLINE_BUILD = '';
 async function loadOutline(doc, gen) {
   const k = DOC,
@@ -9359,7 +9159,7 @@ function mergeOutlineLabels(entries, labels) {
   let cursor = 0;
   return entries.map((entry) => {
     const title = norm(entry.title);
-    let matched = /** @type {any} */ (null);
+    let matched = null;
     if (title)
       for (let i = cursor; i < labels.length; i++) {
         const label = labels[i];
@@ -9444,7 +9244,7 @@ function outlineGroupName(e) {
 // title another entry has too under another group - a figure listed under its status and under the manuscript figure that holds
 // it. Entries that differ in number or title tell themselves apart, and a title said twice under one group, or at the top, has no
 // group to say. Over all the entries, not the rows found, so a row reads the same whatever is typed. Memoised on the entries.
-let OUTLINE_GROUPED = /** @type {{for:object[]|null,set:Set<number>}} */ ({ for: null, set: new Set() });
+let OUTLINE_GROUPED = { for: null, set: new Set() };
 function outlineGrouped(entries) {
   if (OUTLINE_GROUPED.for === entries) return OUTLINE_GROUPED.set;
   const norm = (s) =>
@@ -9455,7 +9255,7 @@ function outlineGrouped(entries) {
       .toLowerCase(); // as mergeOutlineLabels reads a title
   const under = new Map(),
     several = new Set(),
-    set = /** @type {Set<number>} */ (new Set());
+    set = new Set();
   entries.forEach((e) => {
     const key = norm((e.number || '') + ' ' + e.title),
       up = typeof e.up === 'number' ? e.up : -1;
@@ -9521,7 +9321,7 @@ let OUTLINE_MARKED = -1,
   OUTLINE_OVER = false,
   OUTLINE_HANDLED = -Infinity,
   OUTLINE_SHOWN = false, // the mouse is over the panel; when they last handled it; the panel is on screen
-  OUTLINE_AIM = /** @type {{top:number,at:number}|null} */ (null); // where a smooth follow is heading, and since when
+  OUTLINE_AIM = null; // where a smooth follow is heading, and since when
 // Where the list (scrollTop st, view height h, content height sh) scrolls to bring a row at [top, bottom] of its content into view:
 // null when the row stands m px clear of both edges - else the nearest place where it does (less on a view too short for that, and a
 // row taller than the view by its top). The view's top edge is cover px down: the filter's band stays there, so a row is only in
@@ -9539,7 +9339,7 @@ function outlineRevealTop(st, h, sh, top, bottom, m, head, cover = 0, near = top
   const room = Math.max(0, Math.min(m, (h - cover - (bottom - top)) / 2)),
     edge = st + cover;
   if (top >= edge + room - 0.5 && bottom <= st + h - room + 0.5) return null;
-  const fits = (/** @type {number} */ l) => l < top - room && bottom + room - l <= h - cover;
+  const fits = (l) => l < top - room && bottom + room - l <= h - cover;
   const up = top < edge + room || bottom - top > h - cover,
     want = up ? Math.min(top - room, fits(near) ? near : top, fits(group) ? group : top) - cover : bottom - h + room;
   const to = Math.round(Math.max(0, Math.min(sh - h, up && want <= head && bottom + room <= h + 0.5 ? 0 : want)));
@@ -9554,7 +9354,7 @@ function outlineFiltered() {
 // on a row. Neither a focus left in an empty filter holds anything - a tap on the pages does not take it away, so the outline would
 // wait for good - nor a row a mouse pressed, which keeps the focus after its pick: reading on must not leave the outline behind.
 function outlineHeld() {
-  const a = /** @type {HTMLElement|null} */ (document.activeElement);
+  const a = document.activeElement;
   const onRow = !!a && !!a.closest && !!a.closest('#outline-items');
   return (
     outlineFiltered() ||
@@ -9569,7 +9369,7 @@ function outlineHeld() {
  * read as noise. One read of the row's place, at a move of the mark. A glide reckons from where a glide under way is heading
  * (OUTLINE_AIM); a jump lands at once, so it reckons from where the list is. Held back (outlineHeld), it is owed until they let go. A panel closed or
  * absent has nothing to show: it starts at the current row when it opens.
- * @param {boolean} [open] the panel has just come on screen: nobody has the list in hand yet, whatever the pointer rests on */
+ * @param [open] the panel has just come on screen: nobody has the list in hand yet, whatever the pointer rests on */
 function outlineFollow(open) {
   if (document.body.classList.contains('outline-collapsed') || BAND === LAYOUT_BAND.PHONE) return;
   if (open ? outlineFiltered() : outlineHeld()) {
@@ -9592,11 +9392,11 @@ function outlineFollow(open) {
     at = !jump && OUTLINE_AIM && now - OUTLINE_AIM.at < OUTLINE_FOLLOW_FLIGHT_MS ? OUTLINE_AIM.top : st;
   // Where the rows OUTLINE_FOLLOW_ROWS_UP above a row start (the first row's top when there are fewer), and the section head of the
   // current row (its entry's up): read in the same pass as the row, so no further layout.
-  const over = (/** @type {Element} */ b) => {
+  const over = (b) => {
     for (let k = 0; k < OUTLINE_FOLLOW_ROWS_UP && b.previousElementSibling; k++) b = b.previousElementSibling;
     return b.getBoundingClientRect().top - from;
   };
-  const e = OUTLINE_ENTRIES[Number(/** @type {HTMLElement} */ (row).dataset.index)],
+  const e = OUTLINE_ENTRIES[Number((row).dataset.index)],
     sec = e && e.up >= 0 ? list.querySelector('[data-index="' + e.up + '"]') : null;
   // The tablet sheet's bar and the status line on it stand over the overlay's foot (frame.css: the overlay runs to the screen's
   // bottom): what they cover is out of view, so the view is that much shorter and so is what the list can scroll to bring a row up.
@@ -9623,7 +9423,6 @@ function outlineFollow(open) {
 // it (#status-dock) where they are drawn across the panel. Only the tablet sheet's overlay has them there, and only it pads its
 // foot to match (responsive.css). Elsewhere it is 0: a collapsed #right in mid or short is a transparent frame whose floating
 // banner can reach across the panel without covering what lies below it, and nothing there pads the list for it.
-/** @param {DOMRect} o */
 function outlineFoot(o) {
   if (BAND !== LAYOUT_BAND.TABLET_SHEET) return 0;
   let foot = 0;
@@ -9746,7 +9545,7 @@ function outlineIndexAt(entries, page, frac) {
 // go before it is reached, so that a later visit to its page by hand shows that page's own entry: when the reader takes
 // over (a wheel, a touch, a press on the pages or the scroll bar, a scrolling key), when the window changes size, when
 // another pick replaces it, and when the pages have come to rest short of its page (outlinePickRest).
-let OUTLINE_PINNED = /** @type {{page:number,index:number,reached:boolean}|null} */ (null),
+let OUTLINE_PINNED = null,
   OUTLINE_PICK_WAIT = 0;
 const OUTLINE_PICK_SETTLE_MS = 250; // a smooth scroll moves the pages every frame; this long without a scroll, the pick looks whether they rest
 const OUTLINE_PICK_GAP = 8; // px between the top of the free PDF area and a picked heading
@@ -9786,7 +9585,6 @@ function outlinePickTop(e) {
 // #left's scrollTop that puts the place `frac` down page pg `gap` px under the top of the free PDF area (selPopArea: under the
 // section strip, the instance band or the select mode's bar) - lower when it stands near its page's bottom, so that the
 // reading line (readingDepth) still falls on its page and the strip names it - as far as the pages scroll.
-/** @param {HTMLElement} pg @param {number} frac @param {number} gap */
 function spotTop(pg, frac, gap) {
   const L = $('#left'),
     r = pg.getBoundingClientRect(),
@@ -9871,17 +9669,16 @@ function updateSectionStrip() {
 // an input method is composing with (Korean typing commits its last syllable with Enter) is the method's, not ours. A key that
 // moves the focus here makes the keyboard the input the focus ring answers (html[data-input], tooltip.js): a field is clicked
 // with the mouse and typed in, and the first ↓ must show where the focus went.
-/** @param {HTMLElement} box @returns {HTMLElement[]} the result rows (the unread-entries note is not one) */
+/** @returns the result rows (the unread-entries note is not one) */
 function outlineRows(box) {
-  return /** @type {HTMLElement[]} */ ([...box.querySelectorAll('button[data-act="outline-page"]')]);
+  return [...box.querySelectorAll('button[data-act="outline-page"]')];
 }
-/** @param {HTMLElement} field @param {HTMLElement} box @param {HTMLElement} sr */
 function outlineFilter(field, box, sr) {
-  const fieldEl = /** @type {HTMLInputElement} */ (field),
+  const fieldEl = field,
     keyed = () => {
       document.documentElement.dataset.input = 'key';
     },
-    mine = (/** @type {KeyboardEvent} */ e) => !(imeKey(e) || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey);
+    mine = (e) => !(imeKey(e) || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey);
   field.addEventListener('input', () => {
     outlineList(box, fieldEl.value);
     outlineSay(box, fieldEl.value, sr);
@@ -9897,9 +9694,9 @@ function outlineFilter(field, box, sr) {
     if (e.key === 'Enter') first.click();
   }); // the focus first: choosing in the sheet closes it and gives the focus back to where it was
   box.addEventListener('keydown', (e) => {
-    const row = /** @type {HTMLElement|null} */ (
-      e.target && /** @type {HTMLElement} */ (e.target).closest
-        ? /** @type {HTMLElement} */ (e.target).closest('button[data-act="outline-page"]')
+    const row = (
+      e.target && (e.target).closest
+        ? (e.target).closest('button[data-act="outline-page"]')
         : null
     );
     if (!row || !mine(e)) return;
@@ -9924,7 +9721,6 @@ function outlineFilter(field, box, sr) {
 }
 // What a screen reader is told after each keystroke of a filter (a polite status): how many results, or that there are none; nothing
 // while the field is empty. The unread-entries note is not a result.
-/** @param {HTMLElement} box @param {string} q @param {HTMLElement} sr */
 function outlineSay(box, q, sr) {
   const n = outlineRows(box).length,
     t = !String(q || '').trim() ? '' : n ? tl('결과 {n}개', { n }) : tr('찾은 장·절이 없습니다.');
@@ -10036,31 +9832,26 @@ addEventListener('keydown', (e) => {
 });
 addEventListener('resize', dropOutlinePick);
 // Sets OUTLINE_BUILD, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof OUTLINE_BUILD} T @param {T} v @returns {T} */
 function setOutlineBuild(v) {
   OUTLINE_BUILD = v;
   return v;
 }
 // Sets OUTLINE_CUT, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof OUTLINE_CUT} T @param {T} v @returns {T} */
 function setOutlineCut(v) {
   OUTLINE_CUT = v;
   return v;
 }
 // Sets OUTLINE_DOC, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof OUTLINE_DOC} T @param {T} v @returns {T} */
 function setOutlineDoc(v) {
   OUTLINE_DOC = v;
   return v;
 }
 // Sets OUTLINE_ENTRIES, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof OUTLINE_ENTRIES} T @param {T} v @returns {T} */
 function setOutlineEntries(v) {
   OUTLINE_ENTRIES = v;
   return v;
 }
 // Sets OUTLINE_SELECTED, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof OUTLINE_SELECTED} T @param {T} v @returns {T} */
 function setOutlineSelected(v) {
   OUTLINE_SELECTED = v;
   return v;
@@ -10144,12 +9935,12 @@ function pageRowsHtml(n, cur) {
 }
 // Scrolls list so that its selected row sits in the middle of the list's box (as far as the list can scroll).
 function revealPageRow(list) {
-  const r = /** @type {HTMLElement|null} */ (list.querySelector('[aria-selected=true]'));
+  const r = list.querySelector('[aria-selected=true]');
   if (!r) return;
   list.scrollTop = r.offsetTop - (list.clientHeight - r.offsetHeight) / 2;
 }
 
-let PAGE_LIST_FROM = /** @type {HTMLElement|null} */ (null); // the page count that opened the popover; null while it is shut
+let PAGE_LIST_FROM = null; // the page count that opened the popover; null while it is shut
 // Opens the popover under the page count `from`, listing the pages with the current one in view. A mouse or keyboard gets the
 // page field focused, so typing a number still works at once; touch gets the current row focused, so no keyboard comes up.
 function openPageList(from) {
@@ -10165,7 +9956,7 @@ function openPageList(from) {
   pop.hidden = false;
   drawPopRows();
   revealPageRow(list);
-  const row = /** @type {HTMLElement|null} */ (list.querySelector('[aria-selected=true]'));
+  const row = list.querySelector('[aria-selected=true]');
   (MQ_COARSE.matches && row ? row : f).focus({ preventScroll: true });
 }
 // Draws the popover's rows - for the page on screen, the names and titles as they are now - and what depends on them: the wider list
@@ -10183,9 +9974,9 @@ function drawPopRows() {
 function keepRowFocus(list, draw) {
   const a = document.activeElement,
     row = a && list.contains(a) ? a.closest('.pl-row') : null,
-    page = row && /** @type {HTMLElement} */ (row).dataset.page;
+    page = row && (row).dataset.page;
   draw();
-  const again = page ? /** @type {HTMLElement|null} */ (list.querySelector('.pl-row[data-page="' + page + '"]')) : null;
+  const again = page ? (list.querySelector('.pl-row[data-page="' + page + '"]')) : null;
   if (again) again.focus({ preventScroll: true });
 }
 // A figure document's row whose title the row cuts short (an ellipsis) carries the whole title as its description: hovering shows it,
@@ -10193,8 +9984,8 @@ function keepRowFocus(list, draw) {
 // to the page). A title that fits carries none. Needs the rows laid out.
 function tipCutTitles(list) {
   if (pageListNamed()) return;
-  for (const s of /** @type {NodeListOf<HTMLElement>} */ (list.querySelectorAll('.pl-s'))) {
-    const row = /** @type {HTMLElement} */ (s.closest('.pl-row'));
+  for (const s of list.querySelectorAll('.pl-s')) {
+    const row = s.closest('.pl-row');
     if (s.scrollWidth > s.clientWidth + 0.5) row.dataset.tip = s.textContent || '';
     else delete row.dataset.tip;
   }
@@ -10260,15 +10051,15 @@ function drawSheetPages() {
 // Keys in a page list (the popover's and the sheet's): ↓/↑ move one row, Home/End to the ends - from the page field ↓/↑ go to
 // the current page's row; Enter on a row is its click, Enter in the field goes to the typed page (clamped to 1..n).
 function pageListKey(e) {
-  const t = /** @type {HTMLElement} */ (e.target);
+  const t = e.target;
   if (imeKey(e)) return;
   if (t.id === 'page-pop-in') {
     if (e.key === 'Enter') {
       e.preventDefault();
-      const p = clampPage(/** @type {HTMLInputElement} */ (t).value, pageCount());
+      const p = clampPage((t).value, pageCount());
       if (p !== null) goListedPage(p);
     } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-      const r = /** @type {HTMLElement|null} */ ($('#page-pop-list [aria-selected=true]'));
+      const r = $('#page-pop-list [aria-selected=true]');
       if (r) {
         e.preventDefault();
         r.focus();
@@ -10276,9 +10067,9 @@ function pageListKey(e) {
     }
     return;
   }
-  const row = /** @type {HTMLElement|null} */ (t.closest('.pl-row'));
+  const row = t.closest('.pl-row');
   if (!row) return;
-  const rows = /** @type {HTMLElement[]} */ ([.../** @type {HTMLElement} */ (row.parentElement).children]),
+  const rows = [...(row.parentElement).children],
     i = rows.indexOf(row);
   const to = { ArrowDown: i + 1, ArrowUp: i - 1, Home: 0, End: rows.length - 1 }[e.key];
   if (to === undefined) return;
@@ -10293,7 +10084,7 @@ $('#ns-pages').addEventListener('keydown', pageListKey);
 document.addEventListener(
   'click',
   (e) => {
-    const t = /** @type {Node} */ (e.target);
+    const t = e.target;
     if (!$('#page-pop').hidden && !$('#page-pop').contains(t) && !(PAGE_LIST_FROM && PAGE_LIST_FROM.contains(t)))
       closePageList(false);
   },
@@ -10368,7 +10159,7 @@ function vecObserve() {
   const io = (VEC.io = new IntersectionObserver(
     (es) => {
       es.forEach((en) => {
-        const n = Number(/** @type {HTMLElement} */ (en.target).dataset.page);
+        const n = Number((en.target).dataset.page);
         if (en.isIntersecting) VEC.near.add(n);
         else {
           VEC.near.delete(n);
@@ -10451,7 +10242,7 @@ function vecNextJob() {
     top = lr.top,
     bot = lr.top + L.clientHeight,
     cy = (top + bot) / 2;
-  const list = [];
+  const list = []; // vis: a boolean, subtracted to sort
   VEC.near.forEach((n) => {
     const pg = document.getElementById('p' + n);
     if (!pg) return;
@@ -10509,7 +10300,7 @@ async function vecRun(job) {
     cv = document.createElement('canvas');
   let scale,
     tf,
-    reg = /** @type {{x:number,y:number,w:number,h:number}|null} */ (null);
+    reg = null;
   // Width and height are fit independently (the transform's vertical scale) - the page box's aspect ratio comes from
   // the PNG pixel dimensions and differs from the PDF page's aspect ratio by less than 0.1%. Since PNG was also drawn
   // filling that same box, this is needed for the canvas's text to land at the same % position it did for PNG.
@@ -10538,7 +10329,7 @@ async function vecRun(job) {
   } catch (e) {
     if (VEC.cur && VEC.cur.task === task) VEC.cur = null;
     vecDrop(cv);
-    if (e && /** @type {Error} */ (e).name === 'RenderingCancelledException') return;
+    if (e && (e).name === 'RenderingCancelledException') return;
     if (gen === VEC.gen) vecFail('쪽을 그리지 못했습니다', e);
     return;
   }
@@ -10562,7 +10353,7 @@ async function vecRun(job) {
     pg.classList.add('drawn');
     if (VEC.tFirst === null) VEC.tFirst = performance.now();
   } else {
-    const r = /** @type {{x:number,y:number,w:number,h:number}} */ (reg); // a detail job always measured its region above
+    const r = reg; // a detail job always measured its region above
     vecDrop(s.dt);
     s.dt = cv;
     s.reg = r;
@@ -10625,7 +10416,6 @@ $('#left').addEventListener(
 // full-width forms unfolded), lower case, curly quotes and dashes as ' " and -, soft hyphens and zero-width marks dropped, every
 // run of white space one space; control characters dropped (the flow's break marks, searchFlow, never come from a page). Returns {t, at}: the folded text and, for each of its UTF-16 units, the index in s where the
 // cluster it came from starts, then s.length - so a match in t maps back to a run of s. Pure.
-/** @param {string} s @returns {{t:string,at:number[]}} */
 function searchFold(s) {
   const plain = { '\u2018': "'", '\u2019': "'", '\u201A': "'", '\u201C': '"', '\u201D': '"', '\u201E': '"' },
     t = [],
@@ -10647,7 +10437,7 @@ function searchFold(s) {
     for (let k = 0; k < p.length; k++) {
       if (p[k] === ' ' && t[t.length - 1] === ' ') continue;
       t.push(p[k]);
-      at.push(/** @type {number} */ (m.index));
+      at.push(m.index);
     }
   }
   at.push(s.length);
@@ -10662,10 +10452,9 @@ function searchFold(s) {
 // where it stands in PDF units measured in its own direction - {x0, x1 along the line, y: across it, up being +, size: font
 // size, ang: the line's angle in whole degrees}, so a page set sideways reads as an upright one - or null for text that is
 // skewed, mirrored or of mixed directions. Blank pieces are left out. Pure.
-/** @param {any[]} items */
 function searchLines(items) {
-  const rows = /** @type {any[][]} */ ([]);
-  let row = /** @type {any[]} */ ([]);
+  const rows = [];
+  let row = [];
   items.forEach((it, i) => {
     if (typeof it.str !== 'string') return;
     const T = Array.isArray(it.transform) && it.transform.length === 6 ? it.transform : [0, 0, 0, 0, 0, 0];
@@ -10692,12 +10481,12 @@ function searchLines(items) {
     }
   });
   if (row.length) rows.push(row);
-  const lines = /** @type {any[]} */ ([]);
+  const lines = [];
   rows.forEach((r) => {
-    const mine = /** @type {any[]} */ ([]);
+    const mine = [];
     let raw = '',
-      parts = /** @type {{i:number,from:number}[]} */ ([]),
-      g = /** @type {any} */ (null);
+      parts = [],
+      g = null;
     const end = () => {
       if (raw.trim()) {
         const f = searchFold(raw);
@@ -10767,9 +10556,8 @@ const SEARCH_EDGE_PT = 3; // how near a column's edge a line ends or starts to c
 // lines - a paragraph and the paragraphs touching it - or one column of a table; a title, a figure, a caption or a table
 // wider than the column, and a page number below the text, stand in blocks of their own, a line pitch away from the body.
 // Returns each line's block, numbered from 0 in the order the lines come, and -1 for a line without geometry. Pure.
-/** @param {any[]} lines @returns {number[]} */
 function searchBlocks(lines) {
-  const blk = /** @type {number[]} */ (lines.map((L) => (L.box ? -2 : -1)));
+  const blk = lines.map((L) => (L.box ? -2 : -1));
   let n = 0; // -2: in no block yet
   lines.forEach((L, i) => {
     if (blk[i] !== -2) return;
@@ -10777,7 +10565,7 @@ function searchBlocks(lines) {
       q = [i];
     blk[i] = k;
     while (q.length) {
-      const A = lines[/** @type {number} */ (q.pop())].box;
+      const A = lines[q.pop()].box;
       lines.forEach((M, j) => {
         const B = M.box;
         if (blk[j] !== -2 || !B || B.ang !== A.ang) return;
@@ -10799,7 +10587,6 @@ const SEARCH_GUTTER = Object.freeze({ MIN: 8, MIDDLE: 0.2, SIDE: 0.25, BAR: 0.1 
 // not read. The band need not be empty: a title, a
 // page-wide caption and a running head cross it. The count changes only where a line starts or ends, so it is read there and
 // a column gap is measured as wide as it is (LaTeX's default \columnsep is 10pt). Pure.
-/** @param {any[]} lines @returns {number[]|null} */
 function searchGutter(lines) {
   const B = lines.map((L) => L.box).filter((b) => b && b.ang === 0);
   if (B.length < 8) return null;
@@ -10815,7 +10602,7 @@ function searchGutter(lines) {
   let c = 0;
   const n = at.slice(0, -1).map((x) => (c += d.get(x) ?? 0)),
     bar = Math.max(1, Math.floor(SEARCH_GUTTER.BAR * Math.max(...n)));
-  let best = /** @type {number[]|null} */ (null);
+  let best = null;
   for (let k = 0; k < n.length;) {
     if (n[k] > bar) {
       k++;
@@ -10835,7 +10622,7 @@ function searchGutter(lines) {
   if (!best || best[1] - best[0] < SEARCH_GUTTER.MIN) return null;
   const g = best,
     mid = (g[0] + g[1]) / 2;
-  const len = (/** @type {(b:any)=>boolean} */ f) => B.filter(f).reduce((s, b) => s + b.x1 - b.x0, 0),
+  const len = (f) => B.filter(f).reduce((s, b) => s + b.x1 - b.x0, 0),
     all = len(() => true);
   return len((b) => b.x1 <= mid) < SEARCH_GUTTER.SIDE * all || len((b) => b.x0 >= mid) < SEARCH_GUTTER.SIDE * all
     ? null
@@ -10853,10 +10640,9 @@ function searchGutter(lines) {
 // otherwise reach its own longest entry and run into the next entry (ADR-0017's rejected candidate D). The crossing line
 // keeps its block's edges, and a block that crosses nothing is as before. A column's measure says whose it is (col: 0 left,
 // 1 right) and carries the block's edges (blk), for searchJoin. Pure.
-/** @param {any[]} lines @returns {({l:number,r:number,col?:number,blk?:{l:number,r:number}}|null)[]} */
 function searchEdges(lines) {
   const blk = searchBlocks(lines),
-    e = /** @type {{l:number,r:number}[]} */ ([]);
+    e = [];
   lines.forEach((L, i) => {
     const k = blk[i];
     if (k < 0) return;
@@ -10887,16 +10673,20 @@ function searchEdges(lines) {
     return s > 1 || s < 0 || !crossed.has(blk[i])
       ? E
       : {
-          l: /** @type {number} */ (left.get(blk[i] + ':' + s)),
+          l: left.get(blk[i] + ':' + s),
           r: col[s],
           col: s,
-          blk: /** @type {{l:number,r:number}} */ (E),
+          blk: E,
         };
   });
 }
 // The break between line a and the next line b, with their column edges ea and eb (searchEdges): a SEARCH_BREAK mark. Pure.
-/** @param {any} a @param {any} b @param {{l:number,r:number,col?:number,blk?:{l:number,r:number}}|null} ea @param {{l:number,r:number,col?:number,blk?:{l:number,r:number}}|null} eb */
-function searchJoin(a, b, ea, eb) {
+function searchJoin(
+  a,
+  b,
+  ea,
+  eb,
+) {
   const A = a.box,
     B = b.box;
   if (!A || !B || !ea || !eb || !a.plain || !b.plain || A.ang !== B.ang || Math.abs(A.size - B.size) > 0.1)
@@ -10924,10 +10714,9 @@ function searchJoin(a, b, ea, eb) {
 // A page's lines as one flow of text, so a query may run over a line's end: each line's folded text (searchLines), trimmed,
 // joined to the next by the mark of how they meet (searchJoin). Returns {t, rows}: the flow and, for each line, where it starts
 // in the flow (at), how many folded characters the trim took off its head (cut) and its trimmed length (n). Pure.
-/** @param {any[]} lines */
 function searchFlow(lines) {
   let t = '';
-  const rows = /** @type {{at:number,cut:number,n:number}[]} */ ([]),
+  const rows = [],
     edges = searchEdges(lines);
   lines.forEach((L, i) => {
     const body = L.t.trim();
@@ -10941,7 +10730,6 @@ function searchFlow(lines) {
 // or a CJK one; between two characters there may be a CJK break, a HYPH break (with the line's hyphen before it, or after the
 // hyphen when the query types it) or a DASH break. A SPACE break is crossed only by a typed space and a HARD one never. null for
 // an empty query. Pure.
-/** @param {string} q @returns {RegExp|null} */
 function searchPattern(q) {
   const cs = [...q];
   if (!cs.length) return null;
@@ -10958,13 +10746,12 @@ function searchPattern(q) {
 }
 // Where pattern re matches in flow F, left to right and without overlap. Each hit is its pieces [line, from, to] - one for
 // every line it lies on, from-to in that line's folded text - in reading order; nothing without a pattern. Pure.
-/** @param {{t:string,rows:{at:number,cut:number,n:number}[]}} F @param {RegExp|null} re @returns {number[][][]} */
 function searchFind(F, re) {
-  const out = /** @type {number[][][]} */ ([]);
+  const out = [];
   if (!re) return out;
   let k = 0;
   for (const m of F.t.matchAll(re)) {
-    const s = /** @type {number} */ (m.index),
+    const s = m.index,
       e = s + m[0].length,
       ps = [];
     while (k < F.rows.length - 1 && F.rows[k + 1].at <= s) k++;
@@ -10980,7 +10767,6 @@ function searchFind(F, re) {
 }
 // The hit after (d=1) or before (d=-1) hit i of n, wrapping at both ends; from no current hit (i<0) the first or the last;
 // -1 with no hits. Pure.
-/** @param {number} i @param {number} n @param {number} d */
 function searchStep(i, n, d) {
   if (!n) return -1;
   if (i < 0) return d > 0 ? 0 : n - 1;
@@ -10988,7 +10774,6 @@ function searchStep(i, n, d) {
 }
 // The field's width in the nav bar for `room` px left beside its neighbours: its full width, else the room in whole pixels
 // down to its minimum, else 0 - it folds to the magnifier rather than squeeze them. Pure.
-/** @param {number} room @param {number} full @param {number} min */
 function searchWidth(room, full, min) {
   return room >= full ? full : room >= min ? Math.floor(room) : 0;
 }
@@ -10996,8 +10781,16 @@ function searchWidth(room, full, min) {
 // is vt: along the item's direction by the measured share of its width (measure(text, family) in any unit - the item's own
 // width scales it, as PDF.js's text layer does), across it from the font's ascent to its descent (style; 0.8 and -0.2 when the
 // font gives none). A turned item gives the bounding box of its turned run. Pure.
-/** @param {any} it @param {any} style @param {number[]} vt @param {number} pw @param {number} ph @param {number} s @param {number} e @param {(text:string,family:string)=>number} measure */
-function searchBox(it, style, vt, pw, ph, s, e, measure) {
+function searchBox(
+  it,
+  style,
+  vt,
+  pw,
+  ph,
+  s,
+  e,
+  measure,
+) {
   const T = it.transform,
     fam = style.fontFamily || 'sans-serif';
   const m = [
@@ -11029,8 +10822,10 @@ function searchBox(it, style, vt, pw, ph, s, e, measure) {
 // Whether keydown e is the search shortcut: Cmd on an Apple platform (mac) and Ctrl elsewhere, alone, with the key that types
 // f - whatever its place on the layout (Dvorak's f is the physical Y key; its physical F key types u and is not it). A key
 // that types no Latin letter (a Hangul jamo, an input method's 'Process') counts by its place: the physical F key. Pure.
-/** @param {{key?:string,code?:string,ctrlKey?:boolean,metaKey?:boolean,altKey?:boolean,shiftKey?:boolean}} e @param {boolean} mac */
-function searchKey(e, mac) {
+function searchKey(
+  e,
+  mac,
+) {
   if (e.altKey || e.shiftKey || (mac ? !e.metaKey || e.ctrlKey : !e.ctrlKey || e.metaKey)) return false;
   const k = String(e.key || '');
   return /^\p{Script=Latin}$/u.test(k) ? k.toLowerCase() === 'f' : e.code === 'KeyF';
@@ -11047,21 +10842,21 @@ function searchKey(e, mac) {
 // each open document's pages as read ({items, styles, vt, w, h, lines, flow}; null until read).
 const SEARCH = {
   q: '',
-  re: /** @type {RegExp|null} */ (null),
-  doc: /** @type {any} */ (null),
-  hits: /** @type {any[]} */ ([]),
-  cur: /** @type {any} */ (null),
+  re: null,
+  doc: null,
+  hits: [],
+  cur: null,
   ref: { page: 1, line: 0, a: 0 },
-  reading: /** @type {any} */ (null),
+  reading: null,
   failed: new Set(),
   composing: false,
   open: false,
-  back: /** @type {HTMLElement|null} */ (null),
+  back: null,
   away: false,
   side: false,
   ink: 0,
   near: new Set(),
-  io: /** @type {IntersectionObserver|null} */ (null),
+  io: null,
   text: new WeakMap(),
 };
 // The pages of document doc as read so far, index 0 for page 1 (null = not read yet); kept until the document is closed.
@@ -11080,23 +10875,20 @@ function searchPageHits(P, n, re) {
     line: pieces[0][0],
     a: pieces[0][1],
     pieces,
-    boxes: /** @type {number[][]|null} */ (null),
+    boxes: null,
   }));
 }
 // The width of text in a generic font family, in an arbitrary unit (a shared canvas): searchBox()'s measure.
-let SEARCH_CTX = /** @type {CanvasRenderingContext2D|null} */ (null);
-/** @param {string} text @param {string} family */
+let SEARCH_CTX = null;
 function searchMeasure(text, family) {
-  const c = /** @type {CanvasRenderingContext2D} */ (
-    SEARCH_CTX || (SEARCH_CTX = document.createElement('canvas').getContext('2d'))
-  );
+  const c = (SEARCH_CTX ||
+    (SEARCH_CTX = document.createElement('canvas').getContext('2d')));
   c.font = '100px ' + family;
   return c.measureText(text).width;
 }
 // The box of one piece of a hit - characters a to b of line `line`'s folded text - on read page P, as fractions [x, y, w, h]:
 // the union of its run in each text item of the line. The folded run maps back to the line's own characters through the
 // line's map, to the end of the last character's cluster - both letters of a ligature are the ligature's box.
-/** @param {any} P @param {number[]} piece */
 function searchPieceBox(P, [line, a, b]) {
   const L = P.lines[line];
   let k = b;
@@ -11153,7 +10945,7 @@ function searchWatch() {
   const io = (SEARCH.io = new IntersectionObserver(
     (es) => {
       for (const en of es) {
-        const n = Number(/** @type {HTMLElement} */ (en.target).dataset.page);
+        const n = Number((en.target).dataset.page);
         if (en.isIntersecting) SEARCH.near.add(n);
         else SEARCH.near.delete(n);
         searchDrawPage(n);
@@ -11288,7 +11080,6 @@ function searchPaint() {
 // Page n's text of PDF document doc: its items and styles, and the page's viewport at scale 1. The one place a page's
 // text is read - the search reads every page through it, and a selection made with no network the page it was drawn
 // on (offline.js offlineQuote). Rejects as PDF.js does when the page cannot be read.
-/** @param {any} doc @param {number} n @returns {Promise<{items:any[],styles:any,vp:any}>} */
 async function pageText(doc, n) {
   const page = await doc.getPage(n),
     tc = await page.getTextContent(),
@@ -11340,7 +11131,7 @@ const SEARCH_JAMO = /[\u1100-\u11FF\u3131-\u318E\uA960-\uA97F\uD7B0-\uD7FF]/;
 // only begun). The current hit is looked for from the hit that was last current - through queries that had none - and from
 // the page on screen when the search starts from an empty field or on another document. No query, or no PDF: no hits.
 function searchRun() {
-  const f = /** @type {HTMLInputElement} */ ($('#search-q')),
+  const f = $('#search-q'),
     doc = VEC.doc;
   let v = f.value;
   if (SEARCH.composing) {
@@ -11413,7 +11204,7 @@ function searchFit() {
     px = (v) => parseFloat(v) || 0;
   let used = 0,
     n = 0;
-  for (const k of /** @type {HTMLElement[]} */ ([...nav.children])) {
+  for (const k of [...nav.children]) {
     if (k === s || !k.getClientRects().length) continue;
     const m = getComputedStyle(k);
     let w = k.getBoundingClientRect().width;
@@ -11451,8 +11242,8 @@ function searchCover() {
   const s = $('#doc-search'),
     nav = $('#doc-nav'),
     box = $('#search-box'),
-    kids = /** @type {HTMLElement[]} */ ([...nav.children]).filter((k) => k !== s);
-  const right = (/** @type {HTMLElement} */ k) =>
+    kids = ([...nav.children]).filter((k) => k !== s);
+  const right = (k) =>
     k.getBoundingClientRect().right + Math.min(0, parseFloat(getComputedStyle(k).marginRight) || 0);
   if (s.style.getPropertyValue('--search-span')) s.style.removeProperty('--search-span'); // the natural box first: the span is worked out from it
   s.classList.remove('search-squeezed');
@@ -11468,9 +11259,9 @@ function searchCover() {
   if (!b) return; // closed: nothing is measured
   const cs = getComputedStyle(nav),
     gap = parseFloat(cs.columnGap) || 0,
-    keep = /** @type {HTMLElement[]} */ ([]),
-    off = /** @type {HTMLElement[]} */ ([]),
-    left = /** @type {HTMLElement[]} */ ([]);
+    keep = [],
+    off = [],
+    left = [];
   // Each neighbour before the search in the bar is left in place (it ends a gap short of the field), kept (the status line)
   // or taken off - also one the bar has squeezed to no width (a long status line at rest does that to the document links),
   // which would come back under the field as soon as the status is shortened.
@@ -11504,7 +11295,7 @@ function searchCover() {
   s.style.setProperty('--search-span', '0px');
   const least = box.getBoundingClientRect().width; // min-width:min-content holds it there
   while (span < least && left.length > 1) {
-    const m = /** @type {HTMLElement} */ (left.pop());
+    const m = left.pop();
     m.classList.replace('search-left', 'search-covered');
     span = s.getBoundingClientRect().right - edge();
   } // the first (the outline toggle) stays
@@ -11554,8 +11345,7 @@ function searchInk() {
   if (window.CSS && CSS.supports('text-box-trim', 'trim-both')) {
     const R = row.getBoundingClientRect(),
       O = own.getBoundingClientRect();
-    const base =
-        /** @type {Element} */ (p.firstElementChild).getBoundingClientRect().bottom - p.getBoundingClientRect().top,
+    const base = (p.firstElementChild).getBoundingClientRect().bottom - p.getBoundingClientRect().top,
       stands = q.getBoundingClientRect().top - SEARCH.ink + base;
     ink =
       getComputedStyle(row).fontSize === getComputedStyle(own).fontSize
@@ -11595,7 +11385,6 @@ function searchShow() {
 } // the box is laid out only now where it was folded
 // Remembers what had the focus as the field is entered from outside it: element a, or nothing when that is the page, the
 // magnifier (which leads here) or a control of a sheet that closes for the search. Moving inside the field changes nothing.
-/** @param {Element|null} a */
 function searchFrom(a) {
   if (a && $('#search-box').contains(a)) return;
   SEARCH.back =
@@ -11609,7 +11398,7 @@ function searchFrom(a) {
 // without the focus in its field.
 function searchOpen() {
   const s = $('#doc-search'),
-    q = /** @type {HTMLInputElement} */ ($('#search-q')),
+    q = $('#search-q'),
     was = SEARCH.open,
     from = document.activeElement;
   if (s.hidden) return false;
@@ -11639,13 +11428,11 @@ function searchHide() {
 }
 // Whether element e is on screen to take the focus: in the document, laid out, and not hidden by visibility - a popover
 // that is hidden that way keeps its boxes.
-/** @param {HTMLElement} e */
 function searchShown(e) {
   return document.contains(e) && e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden';
 }
 // Brings what the search was opened from back into view when it went out of it meanwhile: the note popover with its selection
 // box (scrolled back to where [보기] puts a mark) or the composer's field in its panel.
-/** @param {HTMLElement} to */
 function searchBringBack(to) {
   if ($('#sel-pop').contains(to) && SEL_POP_BOX) {
     const b = SEL_POP_BOX.getBoundingClientRect(),
@@ -11674,7 +11461,7 @@ function searchToPage() {
 // in the closed field.
 function searchClose(back) {
   const s = $('#doc-search'),
-    q = /** @type {HTMLInputElement} */ ($('#search-q')),
+    q = $('#search-q'),
     had = s.contains(document.activeElement),
     to = SEARCH.back,
     was = SEARCH.open;
@@ -11699,7 +11486,7 @@ function searchClose(back) {
 // Another build is on screen (vecOpen): the query, its hits and the reading of the old text end; the field stays open while it
 // has the focus, else it folds away with the bar whole again.
 function searchClear() {
-  /** @type {HTMLInputElement} */ ($('#search-q')).value = '';
+  ($('#search-q')).value = '';
   searchRun();
   if (SEARCH.open && !$('#doc-search').contains(document.activeElement)) searchHide();
 }
@@ -11726,15 +11513,15 @@ $('#search-box').addEventListener('focusin', (e) => {
     SEARCH.away = false;
     return;
   }
-  const from = /** @type {Element|null} */ (e.relatedTarget);
+  const from = e.relatedTarget;
   if (!(from && $('#search-box').contains(from))) searchFrom(from);
   if (e.target === $('#search-q')) searchShow();
 });
 $('#doc-search').addEventListener('focusout', (e) => {
-  const to = /** @type {Node|null} */ (e.relatedTarget);
+  const to = e.relatedTarget;
   if (to && $('#doc-search').contains(to)) return;
   if (!document.hasFocus()) {
-    SEARCH.away = $('#search-box').contains(/** @type {Node} */ (e.target));
+    SEARCH.away = $('#search-box').contains(e.target);
     return;
   } // the window lost the focus, not the field
   if (SEARCH.open && !SEARCH.q) searchHide();
@@ -11744,8 +11531,8 @@ $('#doc-search').addEventListener('focusout', (e) => {
 document.addEventListener(
   'pointerdown',
   (e) => {
-    if (!SEARCH.open || SEARCH.q || $('#doc-search').contains(/** @type {Node} */ (e.target))) return;
-    const a = /** @type {HTMLElement|null} */ (document.activeElement);
+    if (!SEARCH.open || SEARCH.q || $('#doc-search').contains(e.target)) return;
+    const a = document.activeElement;
     searchHide();
     if (a && $('#doc-search').contains(a)) a.blur();
   },
@@ -11769,7 +11556,6 @@ $('#doc-search').addEventListener('keydown', (e) => {
 });
 // The shortcut (searchKey): the field takes the focus instead of the browser's find, which finds nothing in a canvas. Pressed
 // again in the field, under a sheet, or where the search is not offered, it is the browser's.
-/** @param {KeyboardEvent} e */
 function searchShortcut(e) {
   if (!searchKey(e, IS_MAC) || isMdDoc()) return; // a Markdown document is searched with the browser's find
   if (document.activeElement === $('#search-q') || document.querySelector('dialog[open]')) return;
@@ -11798,8 +11584,8 @@ new MutationObserver(() => requestAnimationFrame(searchFit)).observe($('#status'
 document.fonts.addEventListener('loadingdone', searchFit);
 
 /** Comparison-only geometry and rendering; no manuscript preference writes.
- * @typedef {{el:HTMLElement,page:any,base:{width:number,height:number},canvas:HTMLCanvasElement|null,task:any}} RevisionPage
- * @typedef {{el:HTMLElement,fx:number,fy:number,x:number,y:number}} RevisionAnchor
+ *
+ *
  */
 const RZ = {
   ratio: 1,
@@ -11809,8 +11595,8 @@ const RZ = {
   busy: 0,
   frame: 0,
   repaint: false,
-  pages: /** @type {RevisionPage[]} */ ([]),
-  anchor: /** @type {RevisionAnchor|null} */ (null),
+  pages: [],
+  anchor: null,
   resetInput: () => {},
 };
 
@@ -11871,7 +11657,7 @@ function revisionAnchor(x, y) {
     br = box.getBoundingClientRect();
   x = x ?? br.left + box.clientWidth / 2;
   y = y ?? br.top + box.clientHeight / 2;
-  let nearest = /** @type {HTMLElement|null} */ (null),
+  let nearest = null,
     distance = Infinity;
   for (const item of RZ.pages) {
     const r = item.el.getBoundingClientRect(),
@@ -11956,7 +11742,7 @@ function revisionZoom(action) {
 /** Obtain page geometry without allocating canvases; abandon stale PDF visits. */
 async function mountRevisionPdf(pdf, seq, k, id) {
   const gen = RZ.gen,
-    pages = /** @type {RevisionPage[]} */ ([]);
+    pages = [];
   for (let n = 1; n <= pdf.numPages; n++) {
     const page = await pdf.getPage(n);
     if (gen !== RZ.gen || !revisionCurrent(seq, k, id)) return;
@@ -12065,9 +11851,9 @@ async function paintRevisionPdf() {
   const box = $('#revision-pdf');
   let frame = 0,
     acc = 1,
-    point = /** @type {number[]|null} */ (null);
-  let gesture = /** @type {{ratio:number,anchor:RevisionAnchor|null}|null} */ (null);
-  let touch = /** @type {{distance:number,ratio:number,anchor:RevisionAnchor|null}|null} */ (null);
+    point = null;
+  let gesture = null;
+  let touch = null;
   /** Apply the composed wheel gesture only to the current comparison. */
   const flush = () => {
     frame = 0;
@@ -12204,10 +11990,10 @@ function wheelFactor(dy, mode) {
 (function () {
   const L = $('#left');
   let acc = 1,
-    pt = /** @type {number[]|null} */ (null),
+    pt = null,
     raf = 0,
-    G = /** @type {{k:number}|null} */ (null),
-    TP = /** @type {{d:number,k:number,a:ReturnType<typeof zoomAnchor>}|null} */ (null);
+    G = null,
+    TP = null;
   const flush = () => {
     raf = 0;
     if (acc === 1 || !pt) return;
@@ -12256,7 +12042,7 @@ function wheelFactor(dy, mode) {
   const mid = (a, b) => [(a.clientX + b.clientX) / 2, (a.clientY + b.clientY) / 2];
   const dist = (a, b) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) || 1;
   let tr = 0,
-    last = /** @type {{d:number,m:number[]}|null} */ (null);
+    last = null;
   const apply = () => {
     tr = 0;
     if (!TP || !last) return;
@@ -12414,10 +12200,10 @@ function applyLayout() {
 // halves, still one group, follow [⋯]. A control that has the focus keeps it.
 function placeBarTools() {
   const bar = $('#bar1'),
-    l = /** @type {HTMLElement} */ (bar.querySelector('.bar-l')),
-    r = /** @type {HTMLElement} */ (bar.querySelector('.bar-r'));
+    l = bar.querySelector('.bar-l'),
+    r = bar.querySelector('.bar-r');
   const sel = $('#btn-select'),
-    a = /** @type {HTMLElement|null} */ (document.activeElement),
+    a = document.activeElement,
     had = !!a && bar.contains(a);
   if (LAYOUT === LAYOUT_MODE.MID) {
     if (bar.firstElementChild !== sel) bar.prepend(sel);
@@ -12531,7 +12317,7 @@ function setSide(open, remember, slide) {
 // The panel's slide (0.18s; none with reduced motion, and none beside the document at 901-1099px, where the page re-fits instead).
 // While it slides out the body keeps side-open, so the layout does not jump until it is gone.
 const SLIDE_MS = 180;
-let SIDE_SLIDE = /** @type {{kind:string,t:ReturnType<typeof setTimeout>}|null} */ (null);
+let SIDE_SLIDE = null;
 // The slide's length for this layout in ms: 0 with reduced motion, beside the document (901-1099px) and for the narrow sheet.
 function slideMs() {
   return MQ_REDUCED.matches || !(LAYOUT === LAYOUT_MODE.WIDE || MID_OVERLAY) ? 0 : SLIDE_MS;
@@ -12709,7 +12495,7 @@ function onViewport() {
   }
 }
 document.addEventListener('focusin', (e) => {
-  const t = /** @type {HTMLElement} */ (e.target);
+  const t = e.target;
   if (LAYOUT !== LAYOUT_MODE.WIDE && t && t.tagName === 'TEXTAREA' && $('#right').contains(t))
     setTimeout(() => {
       if (BAND === LAYOUT_BAND.TABLET_SHEET) keepFieldInView();
@@ -12727,10 +12513,9 @@ document.addEventListener('focusin', (e) => {
 // lost everything up to then (macOS Chromium at the tablet sheet, #431; a mouse press never had it, because a click
 // takes the selection into the field with the focus). It is done on the key and not on the focus because a tap's own
 // caret lands after focusin - and once per turn in the field, before that key is handled, so the key itself lands.
-let CARET_HELD = /** @type {EventTarget|null} */ (null); // the field whose caret has been put since it took the focus
-/** @param {KeyboardEvent} e */
+let CARET_HELD = null; // the field whose caret has been put since it took the focus
 function holdCaret(e) {
-  const t = /** @type {HTMLInputElement} */ (e.target);
+  const t = e.target;
   if (!t || t === CARET_HELD || typeof t.setSelectionRange !== 'function') return;
   CARET_HELD = t;
   const at = t.selectionStart;
@@ -12798,8 +12583,7 @@ const READ_ONLY_KEYS = new Set([
   ' ',
 ]); // a read-only field's: none moves a caret there
 const FIELD_UP_KEYS = new Set(['ArrowUp', 'PageUp', 'Home']); // the keys that scroll a field up; Shift+Space too, and the rest of READ_ONLY_KEYS down or sideways
-/** Whether field f can still scroll the way key k (with Shift: shift) scrolls it, short of that end (#455).
- * @param {HTMLElement} f @param {string} k @param {boolean} shift */
+/** Whether field f can still scroll the way key k (with Shift: shift) scrolls it, short of that end (#455). */
 function fieldRoom(f, k, shift) {
   if (k === 'ArrowLeft') return f.scrollLeft > 0;
   if (k === 'ArrowRight') return f.scrollLeft + f.clientWidth < f.scrollWidth - 1;
@@ -12807,11 +12591,10 @@ function fieldRoom(f, k, shift) {
     ? f.scrollTop > 0
     : f.scrollTop + f.clientHeight < f.scrollHeight - 1;
 }
-/** @param {KeyboardEvent} e */
 function fieldScrollKey(e) {
   const k = e.key;
   if (!READ_ONLY_KEYS.has(k) || e.metaKey || e.ctrlKey || e.altKey || !typingNow()) return;
-  const f = /** @type {HTMLInputElement} */ (document.activeElement),
+  const f = document.activeElement,
     ro = f.readOnly === true;
   if (ro) {
     if (e.shiftKey && k !== ' ') return;
@@ -12826,7 +12609,7 @@ function fieldScrollKey(e) {
 document.addEventListener('keydown', fieldScrollKey, true);
 // Whether a text field has focus - a textarea, a text input or editable content - which on a touch screen means the keyboard is up.
 function typingNow() {
-  const a = /** @type {HTMLInputElement} */ (document.activeElement);
+  const a = document.activeElement;
   if (!a || a === document.body) return false;
   if (a.isContentEditable || a.tagName === 'TEXTAREA') return true;
   return (
@@ -12913,7 +12696,6 @@ function noteRowInView() {
 
 // A first-visit hint (docs/handbook/viewer.md §알림 자리): shown once per device and key (pinPrefs.coach remembers it), on the
 // status line until [x] or until the person does what it says - picks ('touch', 'mouse') or opens the panel ('side').
-/** @param {string} key @param {string} text */
 function coach(key, text) {
   const seen = Object.assign({}, prefs().coach || {});
   if (seen[key]) return;
@@ -12937,7 +12719,7 @@ function setSelMode(on) {
   document.body.classList.toggle('selmode', SELMODE);
   const b = $('#btn-select');
   b.setAttribute('aria-pressed', String(SELMODE));
-  /** @type {HTMLElement} */ (b.querySelector('.lbl')).textContent = tr(SELMODE ? '선택 중' : '선택');
+  (b.querySelector('.lbl')).textContent = tr(SELMODE ? '선택 중' : '선택');
   $('#sel-sr').textContent = SELMODE ? $('#sel-bar-t').textContent : '';
   if (SELMODE) selBarFit();
   else if ($('#sel-bar').contains(document.activeElement)) b.focus({ preventScroll: true });
@@ -13046,11 +12828,9 @@ function footInk() {
 }
 // The ink of s in el's font as {a, d}: how far it rises above and reaches below the baseline (px), from the canvas's text
 // metrics read at 64 times the size, because the canvas rounds them to whole pixels.
-let INK_CTX = /** @type {CanvasRenderingContext2D|null} */ (null); // inkMetrics()'s canvas context, made on first use
+let INK_CTX = null; // inkMetrics()'s canvas context, made on first use
 function inkMetrics(el, s) {
-  const c = /** @type {CanvasRenderingContext2D} */ (
-      INK_CTX || (INK_CTX = document.createElement('canvas').getContext('2d'))
-    ),
+  const c = (INK_CTX || (INK_CTX = document.createElement('canvas').getContext('2d'))),
     S = 64,
     cs = getComputedStyle(el);
   c.font = cs.fontStyle + ' ' + cs.fontWeight + ' ' + parseFloat(cs.fontSize) * S + 'px ' + cs.fontFamily;
@@ -13108,9 +12888,7 @@ $('#nav-sheet').addEventListener('close', () => {
 // handle (double-click with a mouse) cycles the presets. Keys follow gripKey() (WAI-ARIA window splitter).
 (function () {
   const g = $('#grip');
-  let D = /** @type {{id:number,x:number,w:number,rail:boolean,moved:boolean,mouse:boolean,zone:string|null}|null} */ (
-    null
-  );
+  let D = null;
   // The drag's cues: the handle turns primary once it stops at the minimum; the collapse preview fades the panel's contents
   // (never #right itself - see §펼친 화면 레이아웃) and the blocked zone shows not-allowed.
   const cue = (zone, rail) => {
@@ -13221,7 +12999,7 @@ $('#nav-sheet').addEventListener('close', () => {
 // Outline width is independent of the right work panel's handle. While dragging, only the width changes; the PDF position is restored when it ends.
 (function () {
   const g = $('#outline-grip');
-  let D = /** @type {{id:number,x:number,w:number}|null} */ (null);
+  let D = null;
   g.addEventListener('pointerdown', (e) => {
     if (
       LAYOUT === LAYOUT_MODE.NARROW ||
@@ -13321,10 +13099,7 @@ function dragSheetTo(h) {
 (function () {
   const g = $('#sheet-grip'),
     bar = $('#bar1');
-  let D =
-    /** @type {{id:number,x:number,y:number,h:number,moved:boolean,lazy:boolean,el:HTMLElement,pts:{y:number,t:number}[]}|null} */ (
-      null
-    );
+  let D = null;
   // grab = the drag owns the pointer (capture, cues); down = the handle grabs at once, the tool bar only once the move is vertical
   // (lazy - its buttons keep their taps); end = settle by sheetRelease(), or a handle tap.
   const grab = (e) => {
@@ -13421,7 +13196,7 @@ function dragSheetTo(h) {
 // vertical, the box at scrollTop 0, not in a text field or a nested scroller - and from then on the move is the sheet's
 // (preventDefault). ok(e) filters the touchstart; onMove(dy) follows; onEnd(dy, v) settles (dy null = cancelled; v px/ms, down +).
 function pullDown(box, ok, onStart, onMove, onEnd) {
-  let P = /** @type {{x:number,y:number,on:boolean,pts:{y:number,t:number}[]}|null} */ (null);
+  let P = null;
   box.addEventListener(
     'touchstart',
     (e) => {
@@ -13540,10 +13315,7 @@ function dismissOutcome(d, size, v) {
 (function () {
   const R = $('#right'),
     SKIP = '.seg,pre.nowrap,textarea,input,select,#grip,#bar1';
-  let S =
-    /** @type {{id:number,x:number,y:number,t:number,axis:string|null,w:number,pts:{x:number,t:number}[]}|null} */ (
-      null
-    );
+  let S = null;
   // setX moves the panel (and handle) by px through --swipe-x; settle ends a swipe - 'close' slides it out and collapses it
   // (remembered), 'back' springs it back - and always leaves --swipe-x at 0.
   const setX = (px) => document.documentElement.style.setProperty('--swipe-x', Math.round(px) + 'px');
@@ -13620,7 +13392,7 @@ function dismissOutcome(d, size, v) {
 // CloseWatcher stands for it (Chrome on Android routes back there; modal dialogs have their own); without CloseWatcher, one history
 // entry does (popstate). Closing the layer any other way removes it again, so back never has a dead press, and document
 // switches never add entries (they replace the hash). Mouse devices have no system back, so nothing is registered there.
-let BACK = /** @type {{kind:string,w?:CloseWatcher}|null} */ (null),
+let BACK = null,
   BACK_SKIP = false;
 // Which layer covers the document for a band (overlay = MID_OVERLAY): an open bottom-sheet dialog on top (dialogOpen - the
 // caller passes it only without CloseWatcher, where a modal dialog takes the back gesture itself), then the outline overlay
@@ -13684,7 +13456,7 @@ function disarmBack() {
 // The back gesture's action: close the open sheet dialog or the outline overlay, or collapse the sheet or overlay panel
 // (remembered, with the slide).
 function closeTopLayer() {
-  const d = /** @type {HTMLDialogElement} */ (sheetDialog()),
+  const d = sheetDialog(),
     k = backLayer(BAND, MID_OVERLAY, SIDE_OPEN, OUTLINE_MID_OPEN, !!d);
   if (k === 'dialog') d.close();
   else if (k === 'outline') toggleOutline();
@@ -13702,7 +13474,7 @@ window.addEventListener('popstate', () => {
     return;
   }
   BACK = null;
-  const d = /** @type {HTMLDialogElement} */ (document.querySelector('dialog[open]'));
+  const d = document.querySelector('dialog[open]');
   if (d) {
     d.close();
     syncBackLayer();
@@ -13718,11 +13490,8 @@ window.addEventListener('popstate', () => {
 // handled by this code, two fingers by the app zoom - §PDF 영역 전용 확대).
 // Coordinates are computed as fractions within the page from clientX/Y and getBoundingClientRect on the same
 // basis (the layout viewport), so they stay correct even during a pinch zoom.
-let DRAG =
-    /** @type {{pg:HTMLElement,sx:number,sy:number,id:number,mouse:boolean,cx:number,cy:number,box:HTMLElement|null,badge?:boolean}|null} */ (
-      null
-    ),
-  LP = /** @type {{id:number,pg:HTMLElement,cx:number,cy:number,t:ReturnType<typeof setTimeout>}|null} */ (null);
+let DRAG = null,
+  LP = null;
 const c01 = (v) => Math.min(1, Math.max(0, v));
 const LONGPRESS_MS = 450,
   TAP_SLOP = 8,
@@ -13776,9 +13545,9 @@ $('#doc').addEventListener('mousedown', (e) => {
 // A quick selection made by a long-press or a [선택]-mode tap opens the panel or sheet under the finger, and the click that follows
 // the touch would land on it (it opened edits, switched the kind, focused the note) - that one click is swallowed (SWALLOW_CLICK).
 // LP_PICKED = the pointer whose long-press already picked. TAP/LAST_TAP = double-tap zoom (touch, outside [선택] mode).
-let LP_PICKED = /** @type {number|null} */ (null),
-  TAP = /** @type {{id:number,x:number,y:number,t:number}|null} */ (null),
-  LAST_TAP = /** @type {{t:number,x:number,y:number}|null} */ (null);
+let LP_PICKED = null,
+  TAP = null,
+  LAST_TAP = null;
 // BADGE_HOLD = the SWALLOW_CLICK a drag from a badge armed at its release (0 for none). A pen's drag is followed by a click, but a
 // finger's is not, so the hold would outlive the gesture and swallow the next tap, on another badge: the next press retires it (a
 // click always comes before the next press) - unless another hold has taken SWALLOW_CLICK over since, which is not this one's to end.
@@ -13919,8 +13688,8 @@ window.addEventListener('pointercancel', (e) => {
 // so the first tap of a double tap does not close the composer under the zoom. PRESS_OFF is the press that may become one (set on
 // pointerdown, resolved on pointerup); CLICKOFF_T the finger's wait.
 const CLICKOFF_WAIT_MS = 350;
-let PRESS_OFF = /** @type {{id:number,mouse:boolean,x:number,y:number,box:HTMLElement|null}|null} */ (null),
-  CLICKOFF_T = /** @type {ReturnType<typeof setTimeout>|null} */ (null);
+let PRESS_OFF = null,
+  CLICKOFF_T = null;
 // Whether the point (x, y) lies in one of rects ({left, top, right, bottom}), each grown by pad px. Pure.
 function hitsAny(rects, x, y, pad) {
   return rects.some((r) => x >= r.left - pad && x <= r.right + pad && y >= r.top - pad && y <= r.bottom + pad);
@@ -13934,7 +13703,7 @@ function selectionOpen() {
 // ignore the pointer, so the page is what the press lands on).
 /** Whether a primary press can cancel the open selection; pin badge buttons, controls and marks never cancel it. */
 function pressOutsideSelection(e) {
-  const t = /** @type {Element} */ (e.target);
+  const t = e.target;
   if (!selectionOpen()) return false;
   if (isMdDoc() && t.closest('#md')) return false; // a press on the Markdown surface picks (md-surface.js), never cancels
   if (t.closest('.mark [data-act=mark-jump],button,a,input,textarea,select,[data-act],[role=button],#sel-pop'))
@@ -14044,7 +13813,6 @@ function finishRect(pg, box, sx, sy, x, y) {
 // If the sheet/panel covers the selection box, the body scrolls up until the box is visible (compact only; wide: in every layout -
 // the Markdown surface's chosen lines after a reflow, mdSpotKeep). The view's top is 28px into the PDF area, or 8px under the
 // select mode's bar while it shows, so the box never stays under the bar (selRoom).
-/** @param {HTMLElement|null} box @param {boolean} [wide] */
 function revealBox(box, wide) {
   if (!box || (LAYOUT === LAYOUT_MODE.WIDE && !wide) || !document.contains(box)) return;
   const L = $('#left'),
@@ -14056,7 +13824,6 @@ function revealBox(box, wide) {
 }
 // The part of the document area a chosen place can be seen in, as viewport y's: from 28px under the area's top (or 8px under
 // the select mode's bar) down to the area's bottom - or to the sheet's top, where the narrow sheet is open over it.
-/** @returns {{top:number,bottom:number}} */
 function selRoom() {
   const lr = $('#left').getBoundingClientRect(),
     bar = $('#sel-bar');
@@ -14211,7 +13978,6 @@ function segReveal(seg) {
 // Where a scroll box w wide over content `full` wide, now at `at`, stands to show the segment from l to r whole and clear of
 // the edge fades: the nearest place that leaves SEG_FADE on each side of it, or the segment centred when the box has no room
 // for both; never past either end. Pure.
-/** @param {number} l @param {number} r @param {number} w @param {number} full @param {number} at @returns {number} */
 function segWholeAt(l, r, w, full, at) {
   const end = Math.max(0, full - w),
     fits = r - l + 2 * SEG_FADE <= w;
@@ -14229,7 +13995,7 @@ function segFade(seg) {
   const over = seg.scrollWidth - seg.clientWidth;
   seg.classList.toggle('fade-l', over > 1 && seg.scrollLeft > 1);
   seg.classList.toggle('fade-r', over > 1 && over - seg.scrollLeft > 1);
-  const on = seg.dataset.reveal === 'whole' ? /** @type {HTMLElement|null} */ (seg.querySelector('.on')) : null;
+  const on = seg.dataset.reveal === 'whole' ? (seg.querySelector('.on')) : null;
   if (!on) return;
   const S = seg.getBoundingClientRect(),
     O = on.getBoundingClientRect(),
@@ -14240,7 +14006,7 @@ function segFade(seg) {
 document.addEventListener(
   'scroll',
   (e) => {
-    const t = /** @type {HTMLElement} */ (e.target);
+    const t = e.target;
     if (t && t.classList && t.classList.contains('seg')) segFade(t);
   },
   true,
@@ -14258,7 +14024,7 @@ function useLevel(o, key) {
   o.snippet = lv.snippet;
   if (lv.el) o.elSel = lv.el;
 }
-let snipT = /** @type {ReturnType<typeof setTimeout>|undefined} */ (undefined);
+let snipT = undefined;
 // Refreshes the text of a range set in the excerpt only while its selection still owns the visit or its edit card survives.
 function refetchSnip(o, after) {
   const visit = captureVisit();
@@ -14304,7 +14070,7 @@ const VIA_HIDE = 90,
   VIA_WARN = 30,
   VIA_SURE_SCORE = 75,
   VIA_SURE_FILL = 95;
-/** Whether a map pick that is under VIA_HIDE is surely the element the drag meant (see above). @param {any} p @param {number} pct */
+/** Whether a map pick that is under VIA_HIDE is surely the element the drag meant (see above). */
 function mapSure(p, pct) {
   return (
     p.via === VIA.MAP &&
@@ -14364,6 +14130,7 @@ function dropLine(lo, hi, k) {
 // The rows the excerpt draws round lo..hi in a file of n lines, top to bottom: a dimmed line above (none above line 1), the
 // band - folded to its first two and last two lines round {kind:'fold', n} when longer than five and not opened - and a
 // dimmed line below (none past line n). Each row is {k, kind:'ctx'|'on', edge} (edge: an end of a band of two or more). Pure.
+// One row of the excerpt (excerptRows).
 function excerptRows(lo, hi, n, open) {
   const out = [],
     c = hi - lo + 1,
@@ -14457,7 +14224,7 @@ function excerptFocusTarget(btns, was, o) {
 // takes the focused '+' or '−' puts the focus on its successor (excerptFocusTarget), so a keyboard keeps its place.
 function drawExcerpt(o, box, isEdit) {
   const on = !!o && !o.region && !isRegion(o);
-  const f = /** @type {HTMLElement} */ (document.activeElement),
+  const f = document.activeElement,
     had = box.contains(f) && f.dataset.act ? { act: f.dataset.act, line: Number(f.dataset.line) } : null;
   box.hidden = !on;
   if (!on) {
@@ -14540,7 +14307,6 @@ function applyRange(o, r, anchor) {
 // the pin will get - and the location line names its path. The selection keeps the element it shows as elSel.
 
 // Whether f is a page box [x, y, w, h] of four finite numbers - the shape of a pin's frac and an element's frac.
-/** @param {unknown} f @returns {f is number[]} */
 function isFrac(f) {
   return Array.isArray(f) && f.length === 4 && f.every((v) => typeof v === 'number' && Number.isFinite(v));
 }
@@ -14599,17 +14365,16 @@ function renderElement(o, box) {
 // pointing at the path - the mouse over it, the focus on it - draws that box stronger (.sel.hi); pressing it (a tap on touch, where
 // nothing hovers) brings the box into view if it is out of it and flashes it (.sel.flash), as [보기] does a pin's mark. Quiet: the
 // path stays the muted label it was and answers only to a pointer that comes to it.
-/** @param {boolean} on */
 function showElementHi(on) {
   const b = COMPOSE.box;
   if (b && b.isConnected) b.classList.toggle('hi', on);
 }
-for (const [ev, on] of /** @type {[string,boolean][]} */ ([
+for (const [ev, on] of [
   ['mouseenter', true],
   ['focus', true],
   ['mouseleave', false],
   ['blur', false],
-]))
+])
   $('#c-path').addEventListener(ev, () => showElementHi(on));
 function showElementBox() {
   const b = COMPOSE.box;
@@ -14673,7 +14438,6 @@ function repickEl(c) {
   return (lv && lv.el) || c.el || null;
 }
 // Whether the server found this figure pin's element in the current build: the read-time `mark` box on `mark_page`.
-/** @param {Pin} p */
 function hasMark(p) {
   return isFrac(p.mark) && typeof p.mark_page === 'number' && Number.isInteger(p.mark_page) && p.mark_page >= 1;
 }
@@ -14681,17 +14445,14 @@ function hasMark(p) {
 // it, else the page and box the pin was placed on - a manuscript pin, a view-only pin, a figure pin whose element was
 // lost or whose map is unreadable. The box can be null (a stored box that is not finite reads null as a whole): the caller
 // draws nothing for it.
-/** @param {Pin} p */
 function pinPlace(p) {
-  return hasMark(p) ? { page: /** @type {number} */ (p.mark_page), frac: p.mark } : { page: p.page, frac: p.frac };
+  return hasMark(p) ? { page: p.mark_page, frac: p.mark } : { page: p.page, frac: p.frac };
 }
 // Whether a figure pin's element is gone from the current build's map (`el_sync` lost) - shown like a lost line.
-/** @param {Pin} p */
 function elLost(p) {
   return !!p && p.el_sync === EL_SYNC.LOST;
 }
 // The card badge of a lost element ('요소 잃음', the warning look of '위치 잃음'), or ''.
-/** @param {Pin} p */
 function elLostTag(p) {
   return elLost(p)
     ? html`<span class="badge badge-warning" data-tip="${tr(T.ellost)}">${ic('triangle-alert')}${tr('요소 잃음')}</span>`
@@ -14746,33 +14507,31 @@ const MD_LIMITS = Object.freeze({
 // redraw while hidden, mdSpotKeep; top tells a pane moved since, mdSpotFresh).
 const MD = {
   gen: 0,
-  doc: /** @type {string|null} */ (''),
+  doc: '',
   file: '',
   name: '',
-  lines: /** @type {string[]} */ ([]),
-  mtime: /** @type {number|null} */ (null),
-  asked: /** @type {number|null} */ (null),
+  lines: [],
+  mtime: null,
+  asked: null,
   at: 0,
-  limit: /** @type {string|null} */ (null),
-  heads: /** @type {{level:number,lo:number,el:HTMLElement,title:string,slug:string}[]} */ ([]),
-  worker: /** @type {Worker|null} */ (null),
-  job: /** @type {{id:number,resolve:(r:any)=>void,t:ReturnType<typeof setTimeout>}|null} */ (null),
+  limit: null,
+  heads: [],
+  worker: null,
+  job: null,
   seq: 0,
   waiting: false,
   els: 0,
   marked: 0,
   bom: false,
-  tex: /** @type {number|null} */ (0),
-  shown: /** @type {string|null} */ (''),
-  want: /** @type {{line:number,off:number,top:number}|null} */ (null),
-  jumpTo: /** @type {{id:number,doc:string|null,seq:number}|null} */ (null),
-  spot: /** @type {{doc:string|null,w:number,top:number,el:HTMLElement|null,line:number,key:string,frac:number,past:number,off:number|null,sel:boolean,again:boolean}|null} */ (
-    null
-  ),
+  tex: 0,
+  shown: '',
+  want: null,
+  jumpTo: null,
+  spot: null,
   // a heading a link from another document asked for, gone to once this document is drawn in that visit (mdGoDoc), and the
   // heading a jump in flight is going to (mdGoHeading: an image that gets its size moves the destination, not the reading spot)
-  headTo: /** @type {{doc:string,id:string,seq:number}|null} */ (null),
-  goTo: /** @type {{el:HTMLElement,doc:string|null}|null} */ (null),
+  headTo: null,
+  goTo: null,
 };
 // A draw's render context (MdRx): the source lines it numbers its blocks from (lines), the elements built so far (els), the
 // characters drawn in their boxes (marked), whether the next text drawn may be the file's first, its byte-order mark kept
@@ -14780,20 +14539,15 @@ const MD = {
 // at all (tex, ADR-0036 D3: the rendered compare keeps the source characters, which its block keys and its word diff read).
 // The renderer reads and writes only these; the document view's context is MD
 // itself (mdRenderAll), and the rendered compare (md-compare.js) builds each side with a context of its own (mdRx).
-/** @typedef {{level:number,lo:number,el:HTMLElement,title:string,slug:string}} MdHead */
-/** @typedef {{lines:string[],els:number,marked:number,bom:boolean,heads:MdHead[],tex:number|null}} MdRx */
 // A fresh render context for lines: nothing built, its first text the file's first, its math kept as characters.
-/** @param {string[]} lines @returns {MdRx} */
 function mdRx(lines) {
   return { lines, els: 0, marked: 0, bom: String(lines[0] || '').charCodeAt(0) === 0xfeff, heads: [], tex: null };
 }
 // The render context a drawn root was built with (the compare's sides, mdRxKeep); any other root is the document view's, MD.
-const MD_RX = /** @type {WeakMap<Element,MdRx>} */ (new WeakMap());
-/** @param {Element} root @param {MdRx} cx */
+const MD_RX = new WeakMap();
 function mdRxKeep(root, cx) {
   MD_RX.set(root, cx);
 }
-/** @param {Element|null} e @returns {MdRx} */
 function mdRxOf(e) {
   const root = e && e.closest('.md');
   return (root && MD_RX.get(root)) || MD;
@@ -14802,7 +14556,6 @@ function mdRxOf(e) {
 function isMdDoc() {
   return !!META && rendersInBrowser(META.kind);
 }
-/** @param {Pin} p */
 function isMdPin(p) {
   const d = docInfo(pdoc(p));
   return !!d && rendersInBrowser(d.kind);
@@ -14811,7 +14564,6 @@ function isMdPin(p) {
 // Parses text in the worker within MD_LIMITS -> {ok:true,tokens} or {ok:false,limit} (MD_LIMIT), or null when a newer parse
 // took the worker over. The worker is started the first time and kept; one that runs past MD_LIMITS.ms, fails to load or is
 // taken over is stopped (terminate) and a new one starts next time.
-/** @param {string} text @returns {Promise<any>} */
 function mdParse(text) {
   mdParseStop(null);
   return new Promise((resolve) => {
@@ -14863,12 +14615,11 @@ const KATEX_V = '__KATEX_VERSION__';
 // asked for, 'ready' with both the module and its stylesheet in, 'off' when either did not come. 'off' is final: the math
 // of every document then stays as its source characters, as it did before this renderer (ADR-0036 D2), and nothing is
 // asked for twice.
-const MD_TEX = { state: /** @type {'none'|'ready'|'off'} */ ('none'), lib: /** @type {any} */ (null) };
+const MD_TEX = { state: 'none', lib: null };
 // The closing delimiter of each opening one the worker's math rules read (MD_MATH in md-parse.mjs).
-const MD_TEX_CLOSE = /** @type {Record<string,string>} */ ({ $: '$', $$: '$$', '\\(': '\\)', '\\[': '\\]' });
+const MD_TEX_CLOSE = { $: '$', $$: '$$', '\\(': '\\)', '\\[': '\\]' };
 // Whether the worker's tokens hold any math at all - whether this document needs the renderer. A document without math
 // (and a PDF or text document) asks for nothing.
-/** @param {any[]} tokens */
 function mdTexWanted(tokens) {
   for (const t of tokens) {
     if (t.type === 'math_block') return true;
@@ -14880,11 +14631,10 @@ function mdTexWanted(tokens) {
 // never the parse worker - that one returns tokens and touches no DOM, architecture.md 불변식 9) and its stylesheet, both
 // with the bundle's version, so a cached copy never needs revalidating. Unstyled KaTeX markup is unreadable, so a
 // stylesheet that does not arrive counts as no renderer.
-/** @returns {Promise<any>} */
 async function mdTexReady() {
   if (MD_TEX.state !== 'none') return MD_TEX.lib;
   MD_TEX.state = 'off';
-  let mod = /** @type {any} */ (null);
+  let mod = null;
   try {
     mod = await import('/vendor/katex/katex.mjs?v=' + KATEX_V);
   } catch (e) {
@@ -14899,7 +14649,6 @@ async function mdTexReady() {
 }
 // The stylesheet, added once; true once the browser has it. A link element pointing at this origin - never an inline
 // style element and never a style attribute, which the page policy admits neither of (viewer.md §페이지 정책).
-/** @returns {Promise<boolean>} */
 function mdTexStyle() {
   return new Promise((resolve) => {
     const link = document.createElement('link');
@@ -14917,7 +14666,6 @@ function mdTexStyle() {
 // token's own for a formula that fits one source line (the worker marks it info 'whole'), and the pieces put back together
 // for one it cut at a line end (info 'head' on the first piece, mdTexRun). A 'tail' piece is no TeX on its own and is never
 // read alone - its head draws the whole formula and passes it over (mdInline). Pure.
-/** @param {any} c @param {string} [src] @returns {string|null} */
 function mdTexBody(c, src) {
   const open = String(c.markup || ''),
     close = MD_TEX_CLOSE[open] || '';
@@ -14929,7 +14677,6 @@ function mdTexBody(c, src) {
 // One formula's source as written, starting at child `at` of an inline token: that piece, and - when the worker cut the
 // formula at a line end ('head') - every piece after it, joined by the line ends it was cut at. last is the index of the
 // formula's final piece, so the caller knows which children the one formula covers (at itself when nothing was cut). Pure.
-/** @param {any[]} kids @param {number} at @returns {{src:string,last:number}} */
 function mdTexRun(kids, at) {
   const parts = [String(kids[at].content || '')];
   let j = at + 1;
@@ -14946,7 +14693,6 @@ function mdTexRun(kids, at) {
   return { src: parts.join('\n'), last: j - 1 };
 }
 // The TeX of a display math block, without its delimiters, or null when its lines do not open and close one. Pure.
-/** @param {string[]} lines @returns {string|null} */
 function mdTexBlockBody(lines) {
   const s = lines.join('\n').replace(/\n+$/, '');
   const open = s.startsWith('$$') ? '$$' : s.startsWith('\\[') ? '\\[' : '',
@@ -14967,8 +14713,14 @@ function mdTexBlockBody(lines) {
 // refusal leaves the count where it was (ADR-0036 D6). trust false leaves \href, \url and \includegraphics as characters,
 // so no link or image of KaTeX's own gets past the viewer's allowlists; strict false draws a Korean word in math mode
 // instead of refusing it.
-/** @param {string} tag @param {string} cls @param {string} src @param {string|null} tex @param {boolean} display @param {MdRx} cx @returns {HTMLElement|null} */
-function mdTexBox(tag, cls, src, tex, display, cx) {
+function mdTexBox(
+  tag,
+  cls,
+  src,
+  tex,
+  display,
+  cx,
+) {
   if (
     cx.tex === null ||
     MD_TEX.state !== 'ready' ||
@@ -15002,11 +14754,11 @@ function mdTexBox(tag, cls, src, tex, display, cx) {
 function mdTexFit() {
   const md = $('#md');
   if (!md || !MD.tex) return;
-  const boxes = /** @type {HTMLElement[]} */ ([...md.querySelectorAll('code.md-math.md-tex')]);
+  const boxes = [...md.querySelectorAll('code.md-math.md-tex')];
   if (!boxes.length) return;
   for (const e of boxes) e.classList.remove('md-tex-wide');
   const wide = boxes.filter((e) => {
-    const b = /** @type {HTMLElement} */ (e.closest('p,li,td,th,blockquote') || md),
+    const b = (e.closest('p,li,td,th,blockquote') || md),
       g = getComputedStyle(b);
     const room = b.clientWidth - parseFloat(g.paddingLeft || '0') - parseFloat(g.paddingRight || '0'); // where the block's own text goes, not the column's padding box
     return room > 0 && (e.querySelector('.katex') || e).getBoundingClientRect().width > room + 0.5;
@@ -15025,10 +14777,10 @@ function mdYield() {
 // Whether a redraw would take a text field from under the person typing in it: a field inside #doc that is composing, or held
 // by the key that ended its composition (imeHeldIn, core.js §조합을 끝내는 키).
 function mdFieldBusy() {
-  const a = /** @type {HTMLElement|null} */ (document.activeElement),
+  const a = document.activeElement,
     held = imeHeldIn();
   const doc = $('#doc'),
-    inDoc = (/** @type {any} */ n) => n instanceof Node && doc.contains(n);
+    inDoc = (n) => n instanceof Node && doc.contains(n);
   return inDoc(held) || (!!a && inDoc(a) && a !== doc && MD_COMPOSING.has(a));
 }
 const MD_COMPOSING = new Set();
@@ -15140,7 +14892,7 @@ async function mdBuild() {
     ? { ok: false, limit: MD_LIMIT.NUL }
     : await mdParse(MD.lines.join('\n'));
   if (stale() || !res) return;
-  let root = /** @type {HTMLElement|null} */ (null),
+  let root = null,
     limit = res.ok ? null : String(res.limit || MD_LIMIT.ERROR);
   // The TeX renderer is fetched before the build, which is synchronous once it starts (mdTexBox): only a document whose
   // tokens hold math asks for it, and a document that does not get it draws its math as characters (ADR-0036 D1, D2).
@@ -15167,7 +14919,7 @@ async function mdBuild() {
       );
       return;
     }
-    root = await mdLineView(/** @type {string} */ (limit), stale);
+    root = await mdLineView(limit, stale);
     if (!root || stale()) return;
   }
   mdShow(root);
@@ -15177,7 +14929,6 @@ async function mdBuild() {
 // outline, the strip and the chosen lines. While the column is hidden (under the changes view) nothing can be measured: the
 // spot read before it was hidden (MD.spot, or the view a return asks for) is kept as its line and marked to be put back on
 // that line's new element once the column is shown, at whatever width (mdSpotKeep).
-/** @param {HTMLElement} node */
 function mdShow(node) {
   const want = MD.want,
     shown = mdColumnShown();
@@ -15232,7 +14983,7 @@ function mdRelevel() {
   const d = COMPOSE.current;
   if (!d || REPICK || isRegion(d) || d.doc !== DOC || d.file !== MD.file || !$('#md.md-lines')) return;
   if ((d.levels || []).every((l) => l.level === 'raw' && l.lo === d.lo && l.hi === d.hi)) return;
-  const r = { lo: /** @type {number} */ (d.lo), hi: /** @type {number} */ (d.hi) };
+  const r = { lo: d.lo, hi: d.hi };
   d.levels = mdLevels(r, null, null);
   d.raw_lo = r.lo;
   d.raw_hi = r.hi;
@@ -15247,7 +14998,6 @@ function mdWait(text) {
   return w;
 }
 // A notice in the document's place (a limit hit before anything could be drawn, or a source not read): data-limit names the limit.
-/** @param {string} text @param {string} limit */
 function mdNote(text, limit) {
   const n = document.createElement('div');
   n.className = 'md-note';
@@ -15269,7 +15019,6 @@ function mdCount(n) {
 // that was hit - each marked character in its box, or past MD_LIMITS.elements every one by its name (srcLines, as the text
 // surface draws its lines), with the notice that says which. Pins, the composer and suggested edits work as ever; the ladder
 // has the chosen lines only. null when a newer draw came (stale) while it was built.
-/** @param {string} limit @param {()=>boolean} stale @returns {Promise<HTMLElement|null>} */
 async function mdLineView(limit, stale) {
   const r = await srcLines(mdLineSpan, 'md-src', stale);
   if (!r) return null;
@@ -15291,7 +15040,6 @@ async function mdLineView(limit, stale) {
   return root;
 }
 // The line view's span for line n (srcLines fills it).
-/** @param {string} ln @param {number} n */
 function mdLineSpan(ln, n) {
   const s = document.createElement('span');
   s.className = 'ln';
@@ -15323,10 +15071,9 @@ function mdLimitText(limit) {
 // precedes what it holds and stands no lower - so the one at a height is found by halving (mdAt), never by measuring them all.
 function mdLineEls() {
   const md = $('#md');
-  return md ? /** @type {HTMLElement[]} */ ([...md.querySelectorAll('[data-line],[data-lo]')]) : [];
+  return md ? ([...md.querySelectorAll('[data-line],[data-lo]')]) : [];
 }
 // The last of els whose top is at or above y (viewport px), or null before the first. O(log n) measures.
-/** @param {HTMLElement[]} els @param {number} y */
 function mdAt(els, y) {
   let lo = 0,
     hi = els.length - 1,
@@ -15376,7 +15123,6 @@ function mdRestore(a) {
 // While the column is not laid out (hidden under the changes view, or 0 wide) nothing is read: the spot read before stays -
 // a redraw there too (mdShow) - for mdSpotKeep to put back once the column is shown again. A spot a hidden redraw left to be
 // put back (again) is not read over before that, even at its width: the scroll the column's showing makes is not the person's.
-/** @param {boolean} [force] */
 function mdSpotRead(force) {
   const md = $('#md'),
     L = $('#left');
@@ -15409,18 +15155,16 @@ function mdSpotRead(force) {
 // The element that stands for spot s's line now: its element if still drawn, else the one a redraw drew for that line - the
 // same kind (a line span, a block starting there), else the first that carries the line (mdLeaves), else - the line is gone,
 // the source got shorter - the nearest line kept before it (mdSpotNear). null: the very top.
-/** @param {NonNullable<typeof MD.spot>} s */
 function mdSpotEl(s) {
   if (s.el && s.el.isConnected) return s.el;
   if (!s.line) return null;
   const md = $('#md'),
     k = s.key === 'lo' ? 'data-lo' : 'data-line',
-    e = /** @type {HTMLElement|null} */ (md && md.querySelector('[' + k + '="' + s.line + '"]'));
+    e = (md && md.querySelector('[' + k + '="' + s.line + '"]'));
   return e || mdLeaves(s.line, s.line)[0] || mdSpotNear(s.line);
 }
 // The last line element that starts at or before line n (mdLineEls are in document order, their first lines never going
 // back), or null when none does.
-/** @param {number} n */
 function mdSpotNear(n) {
   const els = mdLineEls();
   let at = -1;
@@ -15431,7 +15175,6 @@ function mdSpotNear(n) {
   return at < 0 ? null : els[at];
 }
 // Whether element e carries line n: a line span of n, or a block whose lines lo..hi hold n.
-/** @param {HTMLElement} e @param {number} n */
 function mdCarries(e, n) {
   if (e.dataset.line) return +e.dataset.line === n;
   const lo = +(e.dataset.lo || 0),
@@ -15464,7 +15207,7 @@ function mdSpotKeep() {
     const d = r.top + into - L.getBoundingClientRect().top;
     if (Math.abs(d) >= 0.5) L.scrollTop += d;
   }
-  if (s.sel) revealBox(/** @type {HTMLElement|null} */ (document.querySelector('#md .md-sel')), true);
+  if (s.sel) revealBox(document.querySelector('#md .md-sel'), true);
   mdSpotRead(true);
 }
 // Something above the reading spot changed its height while the width stood - an image that got its size or gave way to its
@@ -15507,7 +15250,6 @@ function mdSpotFresh() {
   if (Math.abs(L.scrollTop - s.top) >= 1) mdSpotRead(true);
 }
 // Whether the document column is laid out at width w (#md's): shown (#left has boxes - not under the changes view) and wider than 0.
-/** @param {number} w */
 function mdLaidOut(w) {
   return w > 0 && mdColumnShown();
 }
@@ -15525,7 +15267,6 @@ function mdSelSeen() {
 // Builds article#md from the worker's tokens (mdRender, with MD as its render context), with a yield to the browser and a
 // check for a newer draw whenever mdRender pauses, or null when the elements built pass MD_LIMITS.elements (stale(): a newer
 // draw - then whatever was built is dropped too).
-/** @param {any[]} tokens @param {()=>boolean} stale @returns {Promise<HTMLElement|null>} */
 async function mdRenderAll(tokens, stale) {
   const root = document.createElement('article');
   root.className = 'md';
@@ -15555,7 +15296,6 @@ async function mdRenderAll(tokens, stale) {
 // one block of a raw HTML run - counted on one counter (w, mdDue) wherever they fall: one paragraph of 120,000 inline tokens
 // or one code block of 30,000 lines pauses inside itself. Two or more raw HTML blocks in a row are one run (mdHtmlRunEl).
 // cx is the draw's render context (MdRx): its lines, its element count, its marked characters and its headings.
-/** @param {HTMLElement} root @param {any[]} tokens @param {MdRx} cx @returns {Generator<void,void,void>} */
 function* mdRender(root, tokens, cx) {
   const r = mdRenderer(root, cx),
     w = { n: 0 };
@@ -15571,7 +15311,6 @@ function* mdRender(root, tokens, cx) {
   }
 }
 // One unit of work on counter w: true when MD_LIMITS.chunk of them have been done since the last pause (and the count restarts).
-/** @param {{n:number}} w */
 function mdDue(w) {
   if (++w.n < MD_LIMITS.chunk) return false;
   w.n = 0;
@@ -15579,7 +15318,6 @@ function mdDue(w) {
 }
 const MD_OVER = { over: true }; // thrown by mdEl past MD_LIMITS.elements
 // One element of the drawn document, counted against MD_LIMITS.elements on render context cx.
-/** @param {string} tag @param {MdRx} cx @returns {HTMLElement} */
 function mdEl(tag, cx) {
   if (++cx.els > MD_LIMITS.elements) throw MD_OVER;
   return document.createElement(tag);
@@ -15593,20 +15331,17 @@ function mdEl(tag, cx) {
 // one native test (mdPlain). The byte-order mark that starts the file is kept as on the text surface (ccKept's first): line 1
 // is then a paragraph (the mark is no indent, no '#', no '<'), so the mark is the first text drawn (the render context's bom).
 // A marked character's box, counted on render context cx.
-/** @param {string} ch @param {MdRx} cx @returns {HTMLElement} */
 function mdBox(ch, cx) {
   if ((cx.els += 2) > MD_LIMITS.elements) throw MD_OVER;
   cx.marked++;
   return ccBox(ch);
 }
 // Whether s goes in as one text node: no character of the repertoire, nor a draw whose first text is still to come (cx.bom).
-/** @param {string} s @param {MdRx} cx */
 function mdPlain(s, cx) {
   return !cx.bom && !CC_ANY.test(s);
 }
 // Text s into parent, each marked character in its box, pausing (w: mdRender's counter) after every MD_LIMITS.chunk units; w
 // null: no pause. cx is the draw's render context.
-/** @param {Node} parent @param {string} s @param {{n:number}|null} w @param {MdRx} cx @returns {Generator<void,void,void>} */
 function* mdText(parent, s, w, cx) {
   const str = String(s),
     first = cx.bom && str.charCodeAt(0) === 0xfeff;
@@ -15625,13 +15360,11 @@ function* mdText(parent, s, w, cx) {
   }
   if (at < str.length) parent.appendChild(document.createTextNode(str.slice(at)));
 }
-/** @param {Node} parent @param {string} s @param {MdRx} cx */
 function mdTextNow(parent, s, cx) {
   for (const pause of mdText(parent, s, null, cx)) void pause;
 } // w null: it never pauses
 // Text s into parent once the document is drawn (an image's alt text when it fails), counted on the render context of the
 // draw it is in (mdRxOf): boxes while MD_LIMITS.elements holds them, else the names as plain text (ccPlain).
-/** @param {Node} parent @param {string} s @param {MdRx} cx */
 function mdTextLate(parent, s, cx) {
   if (cx.els + 2 * ccFind(s).length > MD_LIMITS.elements) {
     parent.appendChild(document.createTextNode(ccPlain(s)));
@@ -15639,7 +15372,6 @@ function mdTextLate(parent, s, cx) {
   }
   mdTextNow(parent, s, cx);
 }
-/** @param {any} t @param {string} name @returns {string|null} */
 function mdAttr(t, name) {
   const a = (t && t.attrs) || [];
   for (const x of a) if (x[0] === name) return String(x[1]);
@@ -15647,7 +15379,6 @@ function mdAttr(t, name) {
 }
 // The lines lo..hi of a block token's map, its trailing blank lines (of render context cx's lines) left out (a loose list
 // item's map runs over them).
-/** @param {any} t @param {MdRx} cx @returns {{lo:number,hi:number}|null} */
 function mdSpan(t, cx) {
   if (!t.map) return null;
   let lo = t.map[0] + 1,
@@ -15655,7 +15386,6 @@ function mdSpan(t, cx) {
   while (hi > lo && !String(cx.lines[hi - 1] || '').trim()) hi--;
   return { lo, hi };
 }
-/** @param {HTMLElement} el @param {any} t @param {string} kind @param {MdRx} cx */
 function mdMap(el, t, kind, cx) {
   const s = mdSpan(t, cx);
   if (!s) return;
@@ -15675,10 +15405,8 @@ const MD_KIND = {
 };
 // A renderer into root for markdown-it's token stream, one token at a time: block tokens nest by `nesting`, an inline token's
 // children are drawn by mdInline. A paragraph markdown-it hides (a tight list's) puts its text straight into the list item.
-/** @param {HTMLElement} root @param {MdRx} cx */
 function mdRenderer(root, cx) {
   const stack = [root];
-  /** @param {any} t @param {{n:number}} w @returns {Generator<void,void,void>} */
   function* token(t, w) {
     const top = stack[stack.length - 1];
     if (t.nesting === 1) {
@@ -15765,7 +15493,6 @@ function mdRenderer(root, cx) {
     if (t.type === 'html_block') top.appendChild(mdHtmlBox(t, cx));
   }
   // A run of raw HTML blocks in a row (mdHtmlRunEl), or each block on its own when one has no lines.
-  /** @param {any[]} ts @param {{n:number}} w @returns {Generator<void,void,void>} */
   function* run(ts, w) {
     const spans = ts.map((x) => mdSpan(x, cx));
     if (spans.some((s) => !s)) {
@@ -15777,11 +15504,11 @@ function mdRenderer(root, cx) {
     }
     const el = mdHtmlRunEl(
         ts.length,
-        /** @type {{lo:number,hi:number}} */ (spans[0]).lo,
-        /** @type {{lo:number,hi:number}} */ (spans[spans.length - 1]).hi,
+        (spans[0]).lo,
+        (spans[spans.length - 1]).hi,
         cx,
       ),
-      body = /** @type {HTMLElement} */ (el.lastChild);
+      body = el.lastChild;
     stack[stack.length - 1].appendChild(el);
     for (const t of ts) {
       const b = mdHtmlBox(t, cx);
@@ -15797,7 +15524,6 @@ function mdRenderer(root, cx) {
 // screen's language naming it, and its inner lines one span each (data-line) in a code box. The lines are the server's
 // (cx.lines), drawn as text: YAML is never parsed, so nothing in it links, loads or is markup. It is no heading: the
 // outline, the strip and the sections skip it.
-/** @param {any} t @param {HTMLElement} top @param {{n:number}} w @param {MdRx} cx @returns {Generator<void,void,void>} */
 function* mdFront(t, top, w, cx) {
   const box = mdEl('div', cx);
   box.className = 'md-front';
@@ -15835,7 +15561,6 @@ function* mdFront(t, top, w, cx) {
 // each line, its delimiters included, one span (data-line), as a code block's. Drawn, the block is the smallest thing that
 // can be chosen in it - one line of it no longer can be (ADR-0036 D3). The lines are the token's (indentation and quote
 // markers left out).
-/** @param {any} t @param {HTMLElement} top @param {{n:number}} w @param {MdRx} cx @returns {Generator<void,void,void>} */
 function* mdMath(t, top, w, cx) {
   const first = t.map ? t.map[0] + 1 : 0,
     lines = String(t.content || '').split('\n');
@@ -15866,7 +15591,6 @@ function* mdMath(t, top, w, cx) {
   }
 }
 // A raw HTML block's placeholder: its lines (it takes a pin), their count and its first line as code, never the HTML itself.
-/** @param {any} t @param {MdRx} cx @returns {HTMLElement} */
 function mdHtmlBox(t, cx) {
   const box = mdEl('div', cx);
   mdMap(box, t, 'html', cx);
@@ -15896,7 +15620,6 @@ function mdHtmlBox(t, cx) {
 // pin. Only what is on screen carries lines (data-lo/hi): closed, the run stands for all its lines as one HTML block; open, each
 // block for its own (mdHtmlHold keeps the other's in data-r-lo/hi). So the marks, the picks, the ladder and the reading line
 // read whatever is shown and nothing hidden.
-/** @param {number} n @param {number} lo @param {number} hi @param {MdRx} cx @returns {HTMLElement} */
 function mdHtmlRunEl(n, lo, hi, cx) {
   const el = mdEl('div', cx);
   el.className = 'md-html-run';
@@ -15904,7 +15627,7 @@ function mdHtmlRunEl(n, lo, hi, cx) {
   el.dataset.rHi = String(hi);
   el.dataset.kind = 'html';
   mdHtmlHold(el, true);
-  const b = /** @type {HTMLButtonElement} */ (mdEl('button', cx));
+  const b = mdEl('button', cx);
   b.type = 'button';
   b.className = 'md-html-sum';
   b.dataset.act = 'md-html-run';
@@ -15920,7 +15643,6 @@ function mdHtmlRunEl(n, lo, hi, cx) {
   return el;
 }
 // Shows (on) or hides (off) element e's lines: data-lo/hi from its kept data-r-lo/hi, or none.
-/** @param {HTMLElement} e @param {boolean} on */
 function mdHtmlHold(e, on) {
   if (!e.dataset.rLo) {
     e.dataset.rLo = e.dataset.lo || '';
@@ -15936,14 +15658,13 @@ function mdHtmlHold(e, on) {
 }
 // Opens or closes the run of raw HTML blocks whose button btn is (data-act md-html-run), then draws the marks, the chosen lines
 // and the strip again over what is shown.
-/** @param {HTMLElement} btn */
 function mdHtmlRun(btn) {
-  const run = /** @type {HTMLElement|null} */ (btn.closest('.md-html-run')),
-    body = run && /** @type {HTMLElement|null} */ (run.querySelector('.md-html-body'));
+  const run = btn.closest('.md-html-run'),
+    body = run && (run.querySelector('.md-html-body'));
   if (!run || !body) return;
   const open = btn.getAttribute('aria-expanded') !== 'true';
   mdHtmlHold(run, !open);
-  body.querySelectorAll('.md-html').forEach((e) => mdHtmlHold(/** @type {HTMLElement} */ (e), open));
+  body.querySelectorAll('.md-html').forEach((e) => mdHtmlHold(e, open));
   body.hidden = !open;
   btn.setAttribute('aria-expanded', String(open));
   mdMarks();
@@ -15958,8 +15679,6 @@ function mdHtmlRun(btn) {
 // over a line end swallows it, and every child after it would be labelled one line early; markdown-it gives inline children no
 // source offsets to recover from that. So exact is true only when the breaks and the line ends of t.content are as many, and
 // then lines[i] is child i's line; otherwise the caller gives the whole token one range, lo..hi (its first to last line).
-/** @param {{map?:number[]|null,content?:string,children?:{type:string}[]|null}} t
-    @returns {{exact:boolean,lo:number,hi:number,lines:number[]}} */
 function mdInlineLines(t) {
   const lo = t.map ? t.map[0] + 1 : 0,
     ends = (String(t.content || '').match(/\n/g) || []).length;
@@ -15976,11 +15695,10 @@ function mdInlineLines(t) {
 // one, so the text after the break is under its own line. Not exact: one span with the token's whole range (data-lo/data-hi,
 // kind 'lines'), so a selection inside it takes all of those lines - never a wrong one, and never a suggestion's wrong base.
 // A table cell's inline token has no map: its span carries nothing and the row's range stands for it.
-/** @param {any} t @param {HTMLElement} parent @param {{n:number}} w @param {MdRx} cx @returns {Generator<void,void,void>} */
 function* mdInline(t, parent, w, cx) {
   const m = mdInlineLines(t),
     kids = t.children || [];
-  const mk = (/** @type {number} */ line) => {
+  const mk = (line) => {
     const s = mdEl('span', cx);
     s.className = 'ln';
     if (m.exact) s.dataset.line = String(line);
@@ -15992,7 +15710,7 @@ function* mdInline(t, parent, w, cx) {
     parent.appendChild(s);
     return s;
   };
-  let stack = /** @type {HTMLElement[]} */ ([mk(m.lo)]);
+  let stack = [mk(m.lo)];
   // The pieces of a drawn formula still to pass over: its head drew all of them at once (mdTexRun), so they add nothing here.
   let skip = 0;
   for (let i = 0; i < kids.length; i++) {
@@ -16017,7 +15735,7 @@ function* mdInline(t, parent, w, cx) {
         if (m.exact) {
           const next = [mk(m.lines[i] + 1)];
           for (const e of stack.slice(1)) {
-            const k = /** @type {HTMLElement} */ (e.cloneNode(false));
+            const k = e.cloneNode(false);
             ++cx.els;
             next[next.length - 1].appendChild(k);
             next.push(k);
@@ -16107,7 +15825,6 @@ function* mdInline(t, parent, w, cx) {
 //   re-syncs pins, / records the visit), a loopback host (on the server's machine that is Limn again, as the local agent).
 // Both checks compare hosts by one spelling (mdHostKey), the destination's and the viewer's alike: 'localhost.:18920' and
 // 'x.ts.net.:18020' are Limn again (its Host check reads a name with its trailing dots dropped), not another origin.
-/** @param {unknown} raw @param {string} origin @returns {{open:'web'|'mail'|'anchor'|null,href:string,id?:string}} */
 function mdHref(raw, origin) {
   const h = String(raw == null ? '' : raw).trim();
   if (/^#[^#]*$/.test(h)) return { open: 'anchor', href: h, id: h.slice(1) };
@@ -16136,7 +15853,6 @@ function mdHostKey(host) {
 // Whether URL u has the viewer page's origin (location.origin): scheme, host by one spelling (mdHostKey) and port (the URL
 // parser leaves a default port out of both). An origin that does not parse ('null') counts as the same: every link is
 // inert rather than one let through unchecked. Pure.
-/** @param {URL} u @param {string} origin */
 function mdSameOrigin(u, origin) {
   let v;
   try {
@@ -16165,7 +15881,6 @@ function mdLoopback(host) {
 }
 // An IPv6 address in the URL parser's form (hex groups, one '::' at most, no brackets) -> its eight 16-bit groups; null for
 // anything else. Pure.
-/** @param {string} h @returns {number[]|null} */
 function mdIpv6(h) {
   if (!/^[0-9a-f:]+$/.test(h) || !h.includes(':')) return null;
   const parts = h.split('::');
@@ -16185,9 +15900,10 @@ function mdIpv6(h) {
 // (base null), {bad:true} for a dot-named part ('.git', '.env'), a backslash, a control character or an escape that does not
 // decode; null for no relative reference at all (a scheme, '//host', '#…' alone, nothing). A leading '/' is the tree's root,
 // as GitHub reads it in a repository; '?…' is dropped. The server checks again what it is asked (GET /api/asset).
-/** @param {unknown} ref @param {string|null} base
-    @returns {{path:string,frag:string,out?:undefined,bad?:undefined}|{out:true,bad?:undefined,path?:undefined}|{bad:true,out?:undefined,path?:undefined}|null} */
-function mdRelPath(ref, base) {
+function mdRelPath(
+  ref,
+  base,
+) {
   const h = String(ref == null ? '' : ref).trim();
   if (!h || h.startsWith('#') || h.startsWith('//') || /^[a-z][a-z0-9+.-]*:/i.test(h)) return null;
   const hash = h.indexOf('#'),
@@ -16219,7 +15935,6 @@ function mdRelPath(ref, base) {
 }
 // The image suffixes GET /api/asset serves (limn.documents.assets.ASSET_TYPES), and whether tree path p has one. Pure.
 const MD_IMG_EXT = Object.freeze(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg']);
-/** @param {string} p */
 function mdIsImg(p) {
   const m = /\.([A-Za-z0-9]+)$/.exec(p);
   return !!m && MD_IMG_EXT.includes(m[1].toLowerCase());
@@ -16232,7 +15947,6 @@ function mdBase() {
 }
 // The address an image of the tree loads from: this origin's read-only GET /api/asset, built here from the checked path and
 // never from the document's text. Pure.
-/** @param {string|null} doc @param {string} path */
 function mdAssetUrl(doc, path) {
   return '/api/asset?doc=' + encodeURIComponent(String(doc || '')) + '&path=' + encodeURIComponent(path);
 }
@@ -16240,8 +15954,10 @@ function mdAssetUrl(doc, path) {
 // 'remote' (http(s) or '//host': the third party would learn who opened the document, and when, from where), 'data' (the page
 // policy has no data: images), 'out' (above the tree's root, a dot-named part), 'type' (no image suffix), 'other' (any other
 // scheme, nothing).
-/** @param {unknown} raw @param {string|null} base @returns {{path:string,why?:undefined}|{why:'remote'|'data'|'out'|'type'|'other',path?:undefined}} */
-function mdImgPath(raw, base) {
+function mdImgPath(
+  raw,
+  base,
+) {
   const h = String(raw == null ? '' : raw).trim();
   if (/^(https?:)?\/\//i.test(h)) return { why: 'remote' };
   if (/^data:/i.test(h)) return { why: 'data' };
@@ -16254,9 +15970,12 @@ function mdImgPath(raw, base) {
 // registered document whose path it names ({open:'doc', key, id: its '#…', name}) or an image of the tree ({open:'asset',
 // href: its tree path, opened in a new tab through GET /api/asset); else inert ({open:null}) with why: 'out' (it leaves the
 // tree) or 'unregistered' (a file of the tree that is no document here) or '' (mdHref's own refusals).
-/** @param {unknown} raw @param {string} origin @param {string|null} base @param {{key:string,path?:string,name?:string}[]} docs
-    @returns {{open:'web'|'mail'|'anchor'|'doc'|'asset'|null,href:string,id?:string,key?:string,name?:string,why?:string}} */
-function mdTarget(raw, origin, base, docs) {
+function mdTarget(
+  raw,
+  origin,
+  base,
+  docs,
+) {
   const r = mdHref(raw, origin);
   if (r.open) return r;
   const rel = mdRelPath(raw, base);
@@ -16271,14 +15990,13 @@ function mdTarget(raw, origin, base, docs) {
 // box that keeps a place for it (12rem x 8rem, CSS) until its size is known - at once when an earlier draw learned it
 // (MD_PIC_SIZE) - and once it loads the reading spot is put back (mdPicLoad), so an image above the reading line never moves
 // the text being read. Anything else is the image's alt text, with why it is not loaded in the tip.
-/** @param {any} c @param {{n:number}} w @param {MdRx} cx @returns {Generator<void,HTMLElement,void>} */
 function* mdImage(c, w, cx) {
   const raw = String(mdAttr(c, 'src') || ''),
     alt = String(c.content || mdAttr(c, 'alt') || ''),
     r = mdImgPath(raw, mdBase());
   if (r.path) {
     const box = mdEl('span', cx),
-      img = /** @type {HTMLImageElement} */ (mdEl('img', cx));
+      img = mdEl('img', cx);
     box.className = 'md-pic';
     box.dataset.path = r.path;
     img.alt = alt;
@@ -16311,15 +16029,14 @@ function* mdImage(c, w, cx) {
   return e;
 }
 // The natural size of each tree image this tab has loaded, by tree path: a redraw or a return to the document keeps their places.
-const MD_PIC_SIZE = /** @type {Map<string,{w:number,h:number}>} */ (new Map());
+const MD_PIC_SIZE = new Map();
 // An image has loaded: its size is kept (MD_PIC_SIZE) and given to its box, and the reading spot (MD.spot, as mdSpotRead last
 // read it, or read again just before the change when the pane was moved since: mdSpotFresh) is put back (mdSpotBack) - only an image above it moves anything. During a jump to a heading (mdGoHeading) the spot is a
 // point the scroll passes on its way: the jump goes on to its heading's new place instead (mdGoOn, mdPicMoved). A box drawn at a size an earlier load learned is checked too:
 // the file may have changed since (a new size under the same path), and then it is resized and the spot put back as for a
 // first load. Only a size that held changes nothing. The marks follow through the column's ResizeObserver (MD_RO).
-/** @param {Event} e */
 function mdPicLoad(e) {
-  const img = /** @type {HTMLImageElement} */ (e.target),
+  const img = e.target,
     box = img.parentElement;
   if (!box) return;
   void mdPicSeen(img.getAttribute('src') || '');
@@ -16356,7 +16073,6 @@ function mdPicMoved() {
 // (mdPicCheck), would change shape outside mdPicLoad - a document's end cut back before mdSpotFresh, which takes that cut
 // for the layout's and undoes with it a move to that end made before (End). Held to w / h, the box changes only here,
 // after the check. 0 x 0 (no natural size): none of the three.
-/** @param {HTMLImageElement} img @param {number} w @param {number} h */
 function mdPicSize(img, w, h) {
   if (w && h) {
     img.width = w;
@@ -16391,18 +16107,16 @@ const MD_PIC_CHECK = {
   last: -Infinity,
   busy: false,
   asked: 0,
-  at: /** @type {Map<string,Map<string,number>>} */ (new Map()),
+  at: new Map(),
 };
-const MD_PIC_TAG = /** @type {Map<string,string>} */ (new Map()); // an address -> the ETag of the picture an image at it shows
-const MD_PIC_VER = /** @type {Map<string,string>} */ (new Map()); // doc + '\n' + tree path -> the version its address carries
+const MD_PIC_TAG = new Map(); // an address -> the ETag of the picture an image at it shows
+const MD_PIC_VER = new Map(); // doc + '\n' + tree path -> the version its address carries
 const MD_PIC_KEEP = 256; // the most entries either map keeps, the oldest dropped first
 // The address the tree image at path loads from now: mdAssetUrl's, with the version a check found (MD_PIC_VER).
-/** @param {string|null} doc @param {string} path */
 function mdPicUrl(doc, path) {
   const v = MD_PIC_VER.get(String(doc || '') + '\n' + path);
   return mdAssetUrl(doc, path) + (v ? '&v=' + encodeURIComponent(v) : '');
 }
-/** @param {Map<string,string>} map @param {string} k @param {string} v */
 function mdPicKeep(map, k, v) {
   map.delete(k);
   map.set(k, v);
@@ -16414,7 +16128,6 @@ function mdPicKeep(map, k, v) {
 }
 // The ETag GET url answers with (cache: the fetch's cache mode), or '' for none - a refusal, no answer, nothing cached for
 // 'only-if-cached'. Its body is not read.
-/** @param {string} url @param {RequestCache} cache @returns {Promise<string>} */
 async function mdPicTag(url, cache) {
   try {
     const r = await fetch(url, { cache, credentials: 'same-origin', mode: 'same-origin' }),
@@ -16427,14 +16140,12 @@ async function mdPicTag(url, cache) {
 }
 // A tree image has loaded from address url: the tag of the picture it shows, from the answer the <img> left in the cache,
 // unless a check already knows it (MD_PIC_TAG). Nothing cached: it stays unknown (mdPicCheck).
-/** @param {string} url */
 async function mdPicSeen(url) {
   if (!url || MD_PIC_TAG.has(url)) return;
   const t = await mdPicTag(url, 'only-if-cached');
   if (t && !MD_PIC_TAG.has(url)) mdPicKeep(MD_PIC_TAG, url, t);
 }
 // One check of the tree images near the document area (the header above): how many were given a new address.
-/** @returns {Promise<number>} */
 async function mdPicCheck() {
   const now = performance.now(),
     k = DOC;
@@ -16449,9 +16160,9 @@ async function mdPicCheck() {
   )
     return 0;
   const lr = $('#left').getBoundingClientRect(),
-    near = /** @type {{img:HTMLImageElement,d:number}[]} */ ([]),
+    near = [],
     shown = new Set();
-  for (const img of /** @type {HTMLImageElement[]} */ ([...document.querySelectorAll('#md .md-pic img')])) {
+  for (const img of [...document.querySelectorAll('#md .md-pic img')]) {
     const p = img.parentElement && img.parentElement.dataset.path;
     if (p) shown.add(p);
     if (!img.complete || !img.naturalWidth) continue;
@@ -16468,8 +16179,7 @@ async function mdPicCheck() {
   if (!near.length) return 0;
   // Nearest first; among images as near (every visible one is at 0) the one asked longest ago first, a never-asked one
   // before all, so past six visible images the checks take turns instead of asking the same six every time.
-  const asked = (/** @type {HTMLImageElement} */ i) =>
-    at.get((i.parentElement && i.parentElement.dataset.path) || '') || 0;
+  const asked = (i) => at.get((i.parentElement && i.parentElement.dataset.path) || '') || 0;
   near.sort((a, b) => a.d - b.d || asked(a.img) - asked(b.img));
   MD_PIC_CHECK.busy = true;
   MD_PIC_CHECK.last = now;
@@ -16499,7 +16209,7 @@ async function mdPicCheck() {
       const next = mdPicUrl(k, path);
       mdPicKeep(MD_PIC_TAG, next, tag);
       if (next === url) continue; // unknown, but already at that tag's address: taken as showing it
-      for (const b of /** @type {HTMLElement[]} */ ([...document.querySelectorAll('#md .md-pic')]))
+      for (const b of [...document.querySelectorAll('#md .md-pic')])
         if (b.dataset.path === path) {
           const i = b.querySelector('img');
           if (i && i.getAttribute('src') !== next) i.src = next;
@@ -16513,9 +16223,8 @@ async function mdPicCheck() {
 }
 // An image the server would not give (not there, not that format, outside the tree behind a link, too large): its alt text,
 // as for an image that is never loaded, saying so in the tip.
-/** @param {Event} e */
 function mdPicError(e) {
-  const img = /** @type {HTMLImageElement} */ (e.target),
+  const img = e.target,
     box = img.parentElement;
   if (!box || !box.isConnected) return;
   const s = document.createElement('span'),
@@ -16537,11 +16246,10 @@ function mdPicError(e) {
 // goes to the heading it names (data-act md-anchor: a click or Enter, the global key handler asking imeKey first); another
 // registered document is data-act md-doc (mdGoDoc), the same way; an image of the tree opens in a new tab from GET /api/asset;
 // anything else is inert text with its target, and why, in the tip.
-/** @param {unknown} href @param {MdRx} cx @returns {HTMLElement} */
 function mdLink(href, cx) {
   const r = mdTarget(href, location.origin, mdBase(), DOCS);
   if (r.open === 'web' || r.open === 'mail') {
-    const a = /** @type {HTMLAnchorElement} */ (mdEl('a', cx));
+    const a = mdEl('a', cx);
     a.href = r.href;
     a.target = '_blank';
     a.rel = 'noopener noreferrer';
@@ -16570,7 +16278,7 @@ function mdLink(href, cx) {
     return a;
   }
   if (r.open === 'asset') {
-    const a = /** @type {HTMLAnchorElement} */ (mdEl('a', cx)),
+    const a = mdEl('a', cx),
       u = mdAssetUrl(DOC, r.href);
     a.className = 'md-asset';
     a.href = u;
@@ -16606,7 +16314,6 @@ function mdLink(href, cx) {
 // top (a sheet on a phone, gestures.js) no entry is added, as a tab switch adds none; the layer's entry must stay the top one.
 // Followed again while the switch it started still waits for that document (a double click, switchPending), it adds no
 // second entry and starts no second switch: it only names the heading to go to.
-/** @param {HTMLElement} a */
 function mdGoDoc(a) {
   const k = String(a.dataset.doc || ''),
     id = String(a.dataset.anchor || ''),
@@ -16629,7 +16336,6 @@ function mdGoDoc(a) {
 // that is open or being opened (a draft the switch brought back, typed into while the source was on its way), a pick on
 // its way, or an input method's composition - focusPlace's guards; a link without a heading (a text document has none)
 // leaves the focus on the document area.
-/** @param {string} id */
 function mdGoLink(id) {
   const i = id ? mdGoSlug(id) : -1,
     L = $('#left');
@@ -16648,11 +16354,9 @@ function mdSlug(s) {
 }
 // An in-document link to '#id': the first heading whose slug is id (or id percent-decoded), as GitHub numbers repeats
 // (slug, slug-1, ...). Nothing when no heading has it.
-/** @param {HTMLElement} a */
 function mdGoAnchor(a) {
   mdGoSlug(String(a.dataset.anchor || ''));
 }
-/** @param {string} id @returns {number} */
 function mdGoSlug(id) {
   let want = id;
   try {
@@ -16673,32 +16377,32 @@ function mdGoSlug(id) {
 // ---------------- Picking: selection -> lines, and the ladder
 // The lines a DOM point is on: its line span's, else its nearest block's range, else null (outside the document).
 function mdRangeAt(node) {
-  const e = node && (node.nodeType === 1 ? /** @type {Element} */ (node) : node.parentElement);
+  const e = node && (node.nodeType === 1 ? (node) : node.parentElement);
   if (!e) return null;
   const md = $('#md');
   if (!md || !md.contains(e)) return null;
   // The nearest carrier wins. A drawn formula that was cut at a line end sits inside the span of the line it starts in and
   // carries the lines it covers itself (mdInline): those are the point's lines, not that one line's.
-  const near = /** @type {HTMLElement|null} */ (e.closest('[data-line],[data-lo]'));
+  const near = e.closest('[data-line],[data-lo]');
   if (near && md.contains(near)) {
     const n = +(near.dataset.line || 0);
     if (n) return { lo: n, hi: n };
     if (near.dataset.lo !== undefined) return { lo: +(near.dataset.lo || 0), hi: +(near.dataset.hi || 0) };
   }
-  const b = /** @type {HTMLElement|null} */ (e.closest('[data-lo]'));
+  const b = e.closest('[data-lo]');
   return b && md.contains(b) ? { lo: +(b.dataset.lo || 0), hi: +(b.dataset.hi || 0) } : null;
 }
 // The block a point belongs to for the ladder's second rung: a table row's table, a list item's or a quote's paragraph's item or
 // quote, else its nearest
 // block (a run of text whose lines could not be told - kind 'lines', mdInline - stands for the block it is in).
 function mdBlockAt(node) {
-  const e = node && (node.nodeType === 1 ? /** @type {Element} */ (node) : node.parentElement);
+  const e = node && (node.nodeType === 1 ? (node) : node.parentElement);
   if (!e) return null;
-  let b = /** @type {HTMLElement|null} */ (e.closest('#md [data-lo]'));
+  let b = e.closest('#md [data-lo]');
   if (b && b.dataset.kind === 'lines' && b.parentElement)
-    b = /** @type {HTMLElement|null} */ (b.parentElement.closest('#md [data-lo]'));
+    b = b.parentElement.closest('#md [data-lo]');
   if (!b) return null;
-  if (b.dataset.kind === 'row') b = /** @type {HTMLElement|null} */ (b.closest('table[data-lo]')) || b;
+  if (b.dataset.kind === 'row') b = (b.closest('table[data-lo]')) || b;
   else if (
     b.dataset.kind === 'paragraph' &&
     b.parentElement &&
@@ -16707,7 +16411,7 @@ function mdBlockAt(node) {
     b = b.parentElement; // a list item's or a quote's own paragraph is that block
   // A heading or a rule is no block of its own (ADR-0025 D3's block kinds): the block it stands in, if any, is.
   while (b && !MD_BLOCK_KINDS.includes(b.dataset.kind || ''))
-    b = b.parentElement ? /** @type {HTMLElement|null} */ (b.parentElement.closest('#md [data-lo]')) : null;
+    b = b.parentElement ? (b.parentElement.closest('#md [data-lo]')) : null;
   return b;
 }
 // The block kinds a block rung takes (its pin kind is md:<kind>, ADR-0025 D3; front, math: ADR-0032) and their names on the ladder.
@@ -16718,10 +16422,10 @@ const MD_BLOCK_SEL = MD_BLOCK_KINDS.map((k) => '[data-lo][data-kind="' + k + '"]
 function mdBlocksIn(lo, hi) {
   const md = $('#md');
   if (!md) return [];
-  const meets = (/** @type {HTMLElement} */ e) => +(e.dataset.lo || 0) <= hi && +(e.dataset.hi || 0) >= lo;
-  return /** @type {HTMLElement[]} */ ([...md.querySelectorAll(MD_BLOCK_SEL)]).filter((e) => {
+  const meets = (e) => +(e.dataset.lo || 0) <= hi && +(e.dataset.hi || 0) >= lo;
+  return ([...md.querySelectorAll(MD_BLOCK_SEL)]).filter((e) => {
     if (!meets(e)) return false;
-    const up = /** @type {HTMLElement|null} */ (e.parentElement && e.parentElement.closest(MD_BLOCK_SEL));
+    const up = (e.parentElement && e.parentElement.closest(MD_BLOCK_SEL));
     return !(up && md.contains(up) && meets(up));
   });
 }
@@ -16745,7 +16449,7 @@ function mdSnippet(lo, hi) {
 // The section around lines lo..hi: from the nearest heading at or above lo to the line before the next heading of the same or a
 // higher level (the file's end when none), its trailing blank lines left out. null above the first heading, or when hi is past it.
 function mdSection(lo, hi) {
-  let h = /** @type {{level:number,lo:number,title:string}|null} */ (null);
+  let h = null;
   for (const x of MD.heads) {
     if (x.lo <= lo) h = x;
     else break;
@@ -16768,10 +16472,9 @@ function mdSection(lo, hi) {
 // rung carries its block kind as env (kindFor: md:<kind>). A tap (tapped) picks its block: when the block is no more than the
 // tapped lines (an HTML block, a one-line paragraph) its rung stands first and the chosen lines merge into it, so the pin is
 // md:<kind> as any other tapped block's - merged the other way, the tap's block was saved as lines.
-/** @param {{lo:number,hi:number}} r @param {HTMLElement|null} b0 @param {HTMLElement|null} b1 @param {boolean} [tapped] */
 function mdLevels(r, b0, b1, tapped) {
   if (isTextDoc()) return txLevels(r); // a text document's rungs come from its lines alone
-  const ls = /** @type {any[]} */ ([]);
+  const ls = [];
   const add = (level, label, lo, hi, env) => {
     const same = ls.find((l) => l.lo === lo && l.hi === hi);
     if (same) {
@@ -16815,26 +16518,24 @@ function mdPick(r, b0, b1, quote, tapped) {
   const head = tapped && MD.heads.some((h) => h.lo === r.lo && h.lo === r.hi);
   const def =
     tapped && !isTextDoc() && lvOf({ levels }, head ? 'section' : 'block') ? (head ? 'section' : 'block') : 'raw'; // a tap on a text document picks its line
-  const sel = /** @type {Selection} */ (
-    /** @type {unknown} */ ({
-      doc: DOC,
-      file: MD.file,
-      name: MD.name,
-      lo: r.lo,
-      hi: r.hi,
-      raw_lo: r.lo,
-      raw_hi: r.hi,
-      kind: 'lines',
-      score: null,
-      warn: null,
-      snippet: mdSnippet(r.lo, r.hi),
-      levels,
-      default_level: def,
-      n_lines: MD.lines.length,
-      quote: q,
-      overlaps: [],
-    })
-  );
+  const sel = {
+    doc: DOC,
+    file: MD.file,
+    name: MD.name,
+    lo: r.lo,
+    hi: r.hi,
+    raw_lo: r.lo,
+    raw_hi: r.hi,
+    kind: 'lines',
+    score: null,
+    warn: null,
+    snippet: mdSnippet(r.lo, r.hi),
+    levels,
+    default_level: def,
+    n_lines: MD.lines.length,
+    quote: q,
+    overlaps: [],
+  };
   if (REPICK) {
     REPICK.cand = sel;
     bannerCompare();
@@ -16861,12 +16562,11 @@ function mdPick(r, b0, b1, quote, tapped) {
   renderVerdictRow();
   $('#composer').scrollTop = 0;
   if (LAYOUT !== LAYOUT_MODE.WIDE) $('#right').scrollTop = 0;
-  revealBox(/** @type {HTMLElement|null} */ (document.querySelector('#md .md-sel'))); // the chosen lines out from under the sheet (compact), as a PDF box is
+  revealBox(document.querySelector('#md .md-sel')); // the chosen lines out from under the sheet (compact), as a PDF box is
   if (LAST_PTR === 'mouse') $('#note').focus({ preventScroll: true });
 }
 // The ladder of an edit card on a pin of this document: its lines' rungs from the drawn document (mdLevels), or none when the
 // document on screen is another or is not drawn (the line view, a notice) - the card then keeps the lines it has.
-/** @param {{doc?:string|null,lo?:number|null,hi?:number|null}} E */
 function mdEditLevels(E) {
   if (!isMdDoc() || E.doc !== DOC || typeof E.lo !== 'number' || typeof E.hi !== 'number') return null;
   const a = mdLeaves(E.lo, E.lo)[0],
@@ -16877,7 +16577,6 @@ function mdEditLevels(E) {
 }
 // What the document marks as chosen: a re-place's candidate while there is one - the lines of the rung its banner names
 // (bannerCompare), as the PDF surface draws its box - else the composer's selection (null: nothing).
-/** @returns {{file?:string,lo?:number|null,hi?:number|null,kind?:string}|null} */
 function mdSelShown() {
   const c = REPICK && REPICK.cand;
   if (!c) return COMPOSE.current;
@@ -16886,11 +16585,10 @@ function mdSelShown() {
 }
 // The chosen lines drawn on the document: their line spans and blocks get .md-sel (null clears), and the reading spot learns
 // whether they are on screen (mdSpotKeep brings them back after a reflow only then).
-/** @param {{file?:string,lo?:number|null,hi?:number|null,kind?:string,pdf?:string}|null} d */
 function mdSelMark(d) {
   $$('#md .md-sel').forEach((e) => e.classList.remove('md-sel'));
   if (d && isMdDoc() && d.file === MD.file && !isRegion(d))
-    mdLeaves(/** @type {number} */ (d.lo), /** @type {number} */ (d.hi)).forEach((e) => e.classList.add('md-sel'));
+    mdLeaves(d.lo, d.hi).forEach((e) => e.classList.add('md-sel'));
   if (MD.spot && MD.spot.doc === DOC && mdColumnShown()) MD.spot.sel = mdSelSeen();
 } // hidden, nothing is on screen: what was stays
 // The elements that stand for lines lo..hi: each line span in range, and each block in range that has no line spans of its own
@@ -16900,11 +16598,11 @@ function mdLeaves(lo, hi) {
   const md = $('#md');
   if (!md) return [];
   const lines = [...md.querySelectorAll('[data-line]')].filter((e) => {
-    const n = +(/** @type {HTMLElement} */ (e).dataset.line || 0);
+    const n = +((e).dataset.line || 0);
     return n >= lo && n <= hi;
   });
   const blocks = [...md.querySelectorAll('[data-lo]')].filter((e) => {
-    const h = /** @type {HTMLElement} */ (e),
+    const h = e,
       a = +(h.dataset.lo || 0),
       b = +(h.dataset.hi || 0);
     return a <= hi && b >= lo && !h.querySelector('[data-line],[data-lo]');
@@ -16914,7 +16612,7 @@ function mdLeaves(lo, hi) {
     const row = e.closest('tr[data-lo]');
     out.add(row && md.contains(row) ? row : e);
   }
-  return /** @type {HTMLElement[]} */ ([...out]);
+  return [...out];
 }
 // ---------------- Pins on the document
 // The marks of the pins on screen (marks()' branch): each pin's lines get .md-pin (review .rv, lost .st), and the first of them a
@@ -16929,11 +16627,11 @@ function mdMarks() {
   md.querySelectorAll('.md-pin').forEach((e) => e.classList.remove('md-pin', 'rv', 'st'));
   const pins = PINS.concat(REVIEW_ALL.filter((p) => pdoc(p) === DOC))
     .filter((p) => !isRegion(p) && typeof p.lo === 'number' && typeof p.hi === 'number')
-    .sort((a, b) => /** @type {number} */ (a.lo) - /** @type {number} */ (b.lo) || a.id - b.id);
-  const rows = /** @type {Map<number,HTMLElement>} */ (new Map()),
+    .sort((a, b) => (a.lo) - (b.lo) || a.id - b.id);
+  const rows = new Map(),
     top = md.getBoundingClientRect().top;
   for (const p of pins) {
-    const leaves = mdLeaves(/** @type {number} */ (p.lo), /** @type {number} */ (p.hi));
+    const leaves = mdLeaves(p.lo, p.hi);
     if (!leaves.length) continue;
     const rv = pinState(p) === PIN_STATE.REVIEW,
       lost = !!p.stale;
@@ -16970,7 +16668,7 @@ function mdMarks() {
       '#' +
       p.id +
       ' · ' +
-      rng(/** @type {number} */ (p.lo), /** @type {number} */ (p.hi)) +
+      rng(p.lo, p.hi) +
       ' · ' +
       (n ? (n.length > 60 ? n.slice(0, 60) + '…' : n) : tr('(메모 없음)'));
     box.appendChild(b);
@@ -16980,9 +16678,8 @@ function mdMarks() {
 // still, so it stands in the gutter as before and no block's text (a quote, a tap's block) takes its number. A text
 // document's lines are all one block (.tx-src, text-surface.js), so there the layer goes before e's line span itself, a
 // sibling of the lines and in no line's text: before the whole text, every badge would be read before the first line.
-/** @param {HTMLElement} md @param {Element} e @returns {Element|null} */
 function mdTopBlock(md, e) {
-  let x = /** @type {Element|null} */ (e);
+  let x = e;
   const tx = md.classList.contains('tx');
   while (x && x.parentElement !== md && !(tx && x.parentElement && x.parentElement.classList.contains('tx-src')))
     x = x.parentElement;
@@ -17020,7 +16717,6 @@ function mdJump(id) {
 // [보기] (mdJump) and [바뀐 곳] (updGoNext, updates.js) - and reads the reading spot where that put the pane: the page's own
 // jump is over at once, so its place is the spot before the scroll's frame reads it (as a heading jump's once it lands,
 // mdGoLanded). A width that changes before that frame puts back the jump's place (mdSpotKeep), not the one read before it.
-/** @param {HTMLElement[]} els */
 function mdShowLines(els) {
   const L = $('#left'),
     lr = L.getBoundingClientRect(),
@@ -17102,7 +16798,6 @@ $('#left').addEventListener(
 );
 // posLabel's shape for this document: [L37/164 ▾] - the reading line's source line of the file's lines, '–' for what is not
 // known yet - with the document's name as posLabel puts it. Pure but for tl.
-/** @param {string} doc @param {number} line @param {number} n @param {boolean} multi @param {boolean} wide */
 function mdPosLabel(doc, line, n, multi, wide) {
   const name = multi && wide ? doc : '',
     p = line || '–',
@@ -17117,7 +16812,7 @@ function mdPosLabel(doc, line, n, multi, wide) {
 }
 // The empty list's help (#empty) speaks of dragging on the PDF; this document gets its own words, and a PDF document the page's
 // own back (kept as served).
-let MD_HINT_PDF = /** @type {Node[]|null} */ (null);
+let MD_HINT_PDF = null;
 function mdHint() {
   const e = $('#empty');
   if (!e) return;
@@ -17145,7 +16840,6 @@ function mdHint() {
 // Goes to heading i: the pane scrolls (smoothly unless reduced motion is asked for) until the heading stands 8px under its top.
 // The jump is kept in flight (MD.goTo) until it lands there (mdGoLanded) or the person scrolls: an image that gets its size
 // on the way - a lazy one the scroll passes - moves the heading, and the jump goes on to its new place (mdGoOn).
-/** @param {number} i */
 function mdGoHeading(i) {
   const h = MD.heads[i];
   if (!h) return;
@@ -17156,7 +16850,6 @@ function mdGoHeading(i) {
   mdGoLanded();
 }
 // The scroll top that puts element el 8px under the pane's top, within what the pane can scroll.
-/** @param {HTMLElement} el */
 function mdGoTop(el) {
   const L = $('#left'),
     t = L.scrollTop + el.getBoundingClientRect().top - L.getBoundingClientRect().top - 8;
@@ -17246,14 +16939,14 @@ function mdSelectionPick(tapTarget) {
     return true;
   }
   if (tapTarget) {
-    const t = /** @type {Element} */ (tapTarget);
-    const rel = /** @type {HTMLElement|null} */ (t.closest('#md .md-rel'));
+    const t = tapTarget;
+    const rel = t.closest('#md .md-rel');
     if (rel && LAST_PTR !== 'mouse') {
       mdRelTip(rel);
       return true;
     } // a finger has no hover
     if (t.closest('a,button,[data-act],.md-badges,.md-limit')) return false;
-    const b = /** @type {HTMLElement|null} */ (t.closest('#md [data-lo],#md [data-line]'));
+    const b = t.closest('#md [data-lo],#md [data-line]');
     if (!b) return false;
     const head = MD.heads.find((h) => h.el === t.closest('#md h1,#md h2,#md h3,#md h4,#md h5,#md h6'));
     const r = head
@@ -17271,7 +16964,6 @@ function mdSelectionPick(tapTarget) {
 // next block inside it to end at, and a drag may start above it. One end must be in the document: a selection with both ends
 // outside it (select-all, one made in the side panel) is no pick, as before - null, as for one that does not reach it or one
 // that, cut back, takes nothing of it (from above the document to its very start).
-/** @param {Range} r @param {HTMLElement} md */
 function mdDocPart(r, md) {
   if (md.contains(r.commonAncestorContainer)) return r;
   if (!md.contains(r.startContainer) && !md.contains(r.endContainer)) return null;
@@ -17300,7 +16992,6 @@ function mdDocPart(r, md) {
 // A drawn formula (data-tex, ADR-0036 D4) goes the same way, as U+FFF1, and gets its source TeX back: innerText would read
 // the glyphs KaTeX drew (and the MathML copy beside them), and an agent looks for the TeX the manuscript holds. A formula
 // stands in a block or an inline slot as it did on screen, so the blocks around it still read apart.
-/** @param {Range} r */
 function mdRangeText(r) {
   const box = document.createElement('div'),
     doc = document.createElement('div');
@@ -17309,14 +17000,14 @@ function mdRangeText(r) {
   doc.className = 'md';
   doc.append(r.cloneContents());
   doc.querySelectorAll('.md-badges').forEach((e) => e.remove());
-  const tex = /** @type {string[]} */ ([]);
+  const tex = [];
   doc.querySelectorAll('[data-tex]').forEach((e) => {
     tex.push(e.getAttribute('data-tex') || '');
     const slot = document.createElement(e.classList.contains('md-math-block') ? 'div' : 'span');
     slot.textContent = '\ufff1';
     e.replaceWith(slot);
   });
-  const kept = /** @type {string[]} */ ([]);
+  const kept = [];
   doc.querySelectorAll('.cc').forEach((e) => {
     kept.push(e.textContent || '');
     e.replaceWith('\ufff0');
@@ -17334,11 +17025,10 @@ function mdRangeText(r) {
 // Range r with either end inside a drawn formula moved out to that formula's edge - a clone, the selection itself is never
 // touched - so a selection that cuts into drawn math reads that formula whole, by its source TeX. r itself when neither end
 // is in one.
-/** @param {Range} r @returns {Range} */
 function mdTexWiden(r) {
-  const of = (/** @type {Node|null} */ n) => {
-    const e = n && (n.nodeType === 1 ? /** @type {Element} */ (n) : n.parentElement);
-    return e ? /** @type {HTMLElement|null} */ (e.closest('#md [data-tex]')) : null;
+  const of = (n) => {
+    const e = n && (n.nodeType === 1 ? (n) : n.parentElement);
+    return e ? (e.closest('#md [data-tex]')) : null;
   };
   const a = of(r.startContainer),
     b = of(r.endContainer);
@@ -17350,7 +17040,6 @@ function mdTexWiden(r) {
 }
 // The text element el shows, as mdRangeText reads a range: a tap's quote. A drawn formula tapped whole is its source TeX -
 // selectNodeContents would leave the element itself, which carries data-tex, outside the range.
-/** @param {Element} el */
 function mdTextOf(el) {
   const tex = el instanceof HTMLElement ? el.dataset.tex : undefined;
   if (tex !== undefined) return tex;
@@ -17359,7 +17048,6 @@ function mdTextOf(el) {
   return mdRangeText(r);
 }
 // Shows a link's description that does not open (a tap on it), until 4s pass or the next press.
-/** @param {HTMLElement} el */
 function mdRelTip(el) {
   showTip(el);
   const txt = TIP.textContent;
@@ -17369,7 +17057,7 @@ function mdRelTip(el) {
 }
 // Whether range r takes no visible character of the line (or block) its end is in.
 function mdNothingOfEnd(r) {
-  const e = r.endContainer.nodeType === 1 ? /** @type {Element} */ (r.endContainer) : r.endContainer.parentElement;
+  const e = r.endContainer.nodeType === 1 ? (r.endContainer) : r.endContainer.parentElement;
   if (!e) return false;
   const host = e.closest('[data-line]') || e.closest('[data-lo]');
   if (!host) return false;
@@ -17437,7 +17125,6 @@ function isTextDoc() {
 }
 // ---------------- Lines, columns and blocks: pure but for tl/tr
 // The columns a line's leading whitespace spans, tabs to the next multiple of tab, or -1 for a blank line (only whitespace).
-/** @param {string} line @param {number} [tab] */
 function txCols(line, tab) {
   const t = tab || TX_TAB;
   let c = 0;
@@ -17450,7 +17137,6 @@ function txCols(line, tab) {
 }
 // How far a wrapped line's continuation hangs, in columns, at most TX_HANG_MAX: its indentation, rounded down to a tab stop when
 // the line holds a tab - the first line then starts on a stop, so each tab lands where it does in an editor.
-/** @param {string} line */
 function txHang(line) {
   const c = txCols(line);
   if (c <= 0) return 0;
@@ -17458,9 +17144,8 @@ function txHang(line) {
 }
 // The paragraph of lines lo..hi (1-based, inclusive): the lines widened to the blank lines around them, and how many
 // paragraphs - runs of non-blank lines - they meet. null when lo..hi holds only blank lines.
-/** @param {string[]} lines @param {number} lo @param {number} hi */
 function txParagraph(lines, lo, hi) {
-  const blank = (/** @type {number} */ n) => !String(lines[n - 1] || '').trim();
+  const blank = (n) => !String(lines[n - 1] || '').trim();
   let a = lo,
     b = hi;
   while (a <= b && blank(a)) a++;
@@ -17487,9 +17172,8 @@ const TX_CLOSER = /^(?:[\]\)}]|(?:end|fi|done|esac)\s*(?:$|[;,)<>|&]|#|--|%|\/\/
 // before the next non-blank line no deeper than the header, taking that line too when it closes the block (TX_CLOSER), less
 // trailing blank lines. {lo,hi,title} - title is the header's text - or null when no such header is found (an unindented
 // paragraph of prose, a file's top level).
-/** @param {string[]} lines @param {number} lo @param {number} hi */
 function txIndentBlock(lines, lo, hi) {
-  const col = (/** @type {number} */ n) => txCols(String(lines[n - 1] || ''));
+  const col = (n) => txCols(String(lines[n - 1] || ''));
   let m = Infinity;
   for (let k = lo; k <= hi; k++) {
     const c = col(k);
@@ -17526,17 +17210,10 @@ function txIndentBlock(lines, lo, hi) {
 // The ladder for lines r of the text on screen: the chosen lines, then their paragraph (or the paragraphs they meet, saved as
 // lines) and their indented block, the shorter first; a rung with the range of one before it merges into that one (as mdLevels
 // does). Array.prototype.sort is stable, so rungs of one length keep that order.
-/** @param {{lo:number,hi:number}} r */
 function txLevels(r) {
-  const ls = /** @type {any[]} */ ([]),
+  const ls = [],
     lines = MD.lines;
-  const add = (
-    /** @type {string} */ level,
-    /** @type {string} */ label,
-    /** @type {number} */ lo,
-    /** @type {number} */ hi,
-    /** @type {string|null} */ tip,
-  ) => {
+  const add = (level, label, lo, hi, tip) => {
     const same = ls.find((l) => l.lo === lo && l.hi === hi);
     if (same) {
       (same.merged = same.merged || []).push(level);
@@ -17557,7 +17234,6 @@ function txLevels(r) {
 } // widening: the smaller of the paragraph and the block first
 // ---------------- Drawing
 // Line n's span (ln its text): the hang of its continuation (txHang) through CSSOM, no text yet.
-/** @param {string} ln @param {number} n */
 function txSpan(ln, n) {
   const s = document.createElement('span');
   s.className = 'ln';
@@ -17570,7 +17246,6 @@ function txSpan(ln, n) {
 // box (ccBox), the text ending in "\n" so that a selection's text keeps its line ends. Within MD_LIMITS (the header above):
 // past MD_LIMITS.elements it gives the names view instead; null when a newer draw came (stale) at a yield.
 // ends: /api/source's line_ends.
-/** @param {()=>boolean} stale @param {Record<string,number>|undefined} ends @returns {Promise<HTMLElement|null>} */
 async function txView(stale, ends) {
   const r = await srcLines(txSpan, 'tx-src', stale);
   if (!r) return null;
@@ -17585,9 +17260,11 @@ async function txView(stale, ends) {
 // reorders the line; a copy of it gives the names, not the characters (txNamesText says so). A yield to the browser after
 // every MD_LIMITS.chunk units of work (a line, a character of the repertoire), within a long line too. -> {body, marked (how
 // many characters it marked), names (the names form)}, or null when a newer draw came (stale) at a yield.
-/** @param {(ln:string,n:number)=>HTMLElement} span @param {string} cls @param {()=>boolean} stale
-    @returns {Promise<{body:HTMLElement,marked:number,names:boolean}|null>} */
-async function srcLines(span, cls, stale) {
+async function srcLines(
+  span,
+  cls,
+  stale,
+) {
   const lines = MD.lines,
     w = { n: 0 };
   for (const names of [false, true]) {
@@ -17637,11 +17314,9 @@ async function srcLines(span, cls, stale) {
   return null;
 } // never reached: the names form has no limit to pass
 // What the notice above the lines says of the characters marked: n boxes, or the names form for n of them.
-/** @param {number} n */
 function txMarksText(n) {
   return tl('보이지 않거나 글 순서를 바꾸는 문자 {n}개를 이름으로 표시했습니다', { n: mdCount(n) });
 }
-/** @param {number} n */
 function txNamesText(n) {
   return tl(
     '보이지 않거나 글 순서를 바꾸는 문자가 {n}개라 이름을 글자로 보입니다(그릴 요소 한도 {max}개). 이 보기에서 복사하면 그 문자 대신 이름이 복사됩니다',
@@ -17650,7 +17325,6 @@ function txNamesText(n) {
 }
 // A notice above a document's text (kind: its data-note - 'marks', 'ends'): out of the text, never selected or copied with it, in
 // the viewer's words and so in the screen's language. A Markdown document's notice is the same element (mdRenderAll, mdLineView).
-/** @param {string} kind @param {string} text */
 function txNote(kind, text) {
   const n = document.createElement('div');
   n.className = 'md-limit tx-note';
@@ -17662,7 +17336,6 @@ function txNote(kind, text) {
 }
 // article#md round the lines (body): the notices above them - what was marked (marks, '' for none) and the line ends that are
 // not LF or CRLF (txEndsText) - and the limit the view hit (limit, its data-limit; null for none).
-/** @param {HTMLElement} body @param {Record<string,number>|undefined} ends @param {string} marks @param {string|null} limit */
 function txRoot(body, ends, marks, limit) {
   const root = document.createElement('article');
   root.className = 'md tx';
@@ -17682,7 +17355,6 @@ function txRoot(body, ends, marks, limit) {
 // The notice for the line ends of the source that are not LF or CRLF (ends: {name: count}, /api/source line_ends - 'U+000C',
 // 'U+2028', a lone CR as 'U+000D'), or '' when there are none. Limn numbers lines past them; an editor or git that counts LF
 // alone does not, and a copy joins the lines with LF.
-/** @param {Record<string,number>|undefined} ends */
 function txEndsText(ends) {
   const e = Object.entries(ends || {}).filter(([k, n]) => /^U\+[0-9A-F]{4,6}$/.test(k) && Number(n) > 0);
   if (!e.length) return '';
@@ -17722,14 +17394,14 @@ function txHint() {
 const MDC = {
   seq: 0,
   key: '',
-  worker: /** @type {Worker|null} */ (null),
-  job: /** @type {{id:number,resolve:(r:any)=>void,t:ReturnType<typeof setTimeout>}|null} */ (null),
-  stops: /** @type {HTMLElement[][]} */ ([]),
+  worker: null,
+  job: null,
+  stops: [],
   at: -1,
-  ro: /** @type {ResizeObserver|null} */ (null),
-  root: /** @type {HTMLElement|null} */ (null),
+  ro: null,
+  root: null,
   line: '',
-  said: /** @type {{r:any,c:{ins:number,del:number,mod:number,move:number}|null}|null} */ (null),
+  said: null,
 };
 const MDC_DIFF_CELLS = 4e6; // the most cells one block or word comparison fills; past it the blocks between the common ends are all changed
 // The most steps one compare spends matching (every subsequence's table cells) and pairing (the words of each pair of blocks it
@@ -17745,7 +17417,6 @@ function mdcDrawn() {
   return isMdDoc() && !isTextDoc();
 }
 // ---------------- Parsing both sides, apart from the Markdown surface's own worker
-/** @param {string} text @returns {Promise<any>} */
 function mdcParse(text) {
   mdcParseStop(null);
   return new Promise((resolve) => {
@@ -17779,7 +17450,6 @@ function mdcParse(text) {
     });
   });
 }
-/** @param {any} r */
 function mdcParseStop(r) {
   const j = MDC.job;
   if (!j) return;
@@ -17797,7 +17467,6 @@ function mdcParseStop(r) {
 // live() asked after each: null past MD_LIMITS.elements, or once live() is false (a newer compare). Ids go (a heading's: the
 // surface keeps them), and an in-document heading or another document is a word here, so the view never leaves for the
 // manuscript.
-/** @param {any[]} tokens @param {string[]} lines @param {()=>boolean} live @returns {Promise<HTMLElement|null>} */
 async function mdcBuild(tokens, lines, live) {
   const root = document.createElement('div'),
     cx = mdRx(lines);
@@ -17817,7 +17486,7 @@ async function mdcBuild(tokens, lines, live) {
   mdRxKeep(root, cx); // an image that fails later draws its alt text on this side's count (mdPicError)
   root.querySelectorAll('[id]').forEach((e) => e.removeAttribute('id'));
   root.querySelectorAll('[data-act="md-anchor"],[data-act="md-doc"]').forEach((e) => {
-    const x = /** @type {HTMLElement} */ (e);
+    const x = e;
     delete x.dataset.act;
     x.removeAttribute('role');
     x.removeAttribute('tabindex');
@@ -17826,10 +17495,8 @@ async function mdcBuild(tokens, lines, live) {
   return root;
 }
 // ---------------- Blocks and their keys
-/** @typedef {{el:HTMLElement,tag:string,key:string,text:string,pics:string,shape:string,box:string,grp:unknown[],alts:string,lo:number,hi:number}} MdcUnit */
 // Whether element e is a block another unit stands for: a list, a nested paragraph or code, a quote, a table - a tight list
 // item's own text leaves these out.
-/** @param {Element} e */
 function mdcNested(e) {
   return /^(UL|OL|P|PRE|BLOCKQUOTE|TABLE|DIV|H[1-6]|HR)$/.test(e.tagName);
 }
@@ -17837,15 +17504,13 @@ function mdcNested(e) {
 // block (mdcNested) - its nested list, a quote or a table in it are units of their own, wherever they sit below it. The one
 // boundary of a list item's text (mdcText), its structure (mdcShape), its words (mdcToks), its images, links and alt texts
 // (mdcRefs, mdcUnits) and its marked links (mdcLinkMarks). Pure over the DOM.
-/** @param {HTMLElement} el @param {Element} e */
 function mdcOwnPart(el, e) {
   if (el.tagName !== 'LI') return true;
-  for (let a = /** @type {Element|null} */ (e); a && a !== el; a = a.parentElement) if (mdcNested(a)) return false;
+  for (let a = e; a && a !== el; a = a.parentElement) if (mdcNested(a)) return false;
   return true;
 }
 // Whether element e (one MDC_UNIT matches) is a unit: not a loose list item (its paragraphs are units of their own), not a raw
 // HTML block inside a run (the run is one), not the code box of the front matter (the front matter is one).
-/** @param {Element} e */
 function mdcIsUnit(e) {
   return (
     !(e.tagName === 'LI' && [...e.children].some((c) => c.tagName === 'P')) &&
@@ -17855,18 +17520,15 @@ function mdcIsUnit(e) {
 }
 // A unit's kind as its tag: display math (MATH) and the front matter (FRONT) apart from a code block and a raw HTML block, so
 // none of them pairs with another. Pure over the DOM.
-/** @param {HTMLElement} el */
 function mdcTag(el) {
   return el.classList.contains('md-front') ? 'FRONT' : el.classList.contains('md-math-block') ? 'MATH' : el.tagName;
 }
 // Whether a unit of tag is a block of lines (a code block, display math, the front matter): its lines, spaces and all, are its
 // words. Pure.
-/** @param {string} tag */
 function mdcLined(tag) {
   return tag === 'PRE' || tag === 'MATH' || tag === 'FRONT';
 }
 // The lines of a block of lines, each as it is (without its line end). Pure over the DOM.
-/** @param {HTMLElement} el */
 function mdcLines(el) {
   return [...el.querySelectorAll('.ln')].map((l) => String(l.textContent || '').replace(/\n$/, ''));
 }
@@ -17882,15 +17544,14 @@ function mdcLines(el) {
 // nothing is not in it (mdcShape): the line spans, the copies of an emphasis or a link it opens again after a line break
 // inside it, an inline formula's code box per source line - a paragraph rewrapped, inside bold, a link or a formula too, is
 // the same block. An alt text is compared with its white space folded, as it is drawn.
-/** @param {HTMLElement} root @returns {MdcUnit[]} */
 function mdcUnits(root) {
-  const out = /** @type {MdcUnit[]} */ ([]);
+  const out = [];
   for (const x of root.querySelectorAll(MDC_UNIT)) {
-    const el = /** @type {HTMLElement} */ (x);
+    const el = x;
     if (!mdcIsUnit(el)) continue;
     const tag = mdcTag(el),
       text = mdcText(el, tag),
-      cont = /** @type {Set<Element>} */ (new Set()),
+      cont = new Set(),
       shape = mdcShape(el, tag, cont);
     const grp = mdcBoxEls(el, root),
       refs = mdcRefs(el, 'a,[data-anchor],.md-rel', cont),
@@ -17907,20 +17568,17 @@ function mdcUnits(root) {
   return out;
 }
 // The boxes unit el sits in below the drawn root, outermost first: the elements. Pure over the DOM.
-/** @param {HTMLElement} el @param {HTMLElement} root @returns {Element[]} */
 function mdcBoxEls(el, root) {
   const out = [];
   for (let a = el.parentElement; a && a !== root; a = a.parentElement) out.unshift(a);
   return out;
 }
 // Those boxes (mdcBoxEls) as one string: each box's tag, a numbered list's with the number it starts at (OL5). Pure over the DOM.
-/** @param {Element[]} grp */
 function mdcBoxes(grp) {
   return grp.map((a) => (a.tagName === 'OL' ? 'OL' + (a.getAttribute('start') || '1') : a.tagName)).join('>');
 }
 // The name an inline element goes by in a block's structure (mdcShape) and a word's place (mdcToks): its tag, and for code
 // its kind too (inline math and an inline HTML tag are code boxes of their own). Pure over the DOM.
-/** @param {Element} e */
 function mdcInl(e) {
   return e.tagName.toLowerCase() + (e.tagName === 'CODE' && e.className ? '.' + e.className : '');
 }
@@ -17934,18 +17592,17 @@ function mdcInl(e) {
 // between them. So a paragraph wrapped on other lines, inside bold, a link or a formula too, reads the same. A link's copy
 // goes in cont (when given), so it is not counted twice (mdcRefs). A block of lines' shape is its language (a code block's
 // fence's info word) and its lines exactly as they are (mdcCode). Pure over the DOM but for cont.
-/** @param {HTMLElement} el @param {string} tag @param {Set<Element>} [cont] */
 function mdcShape(el, tag, cont) {
   if (mdcLined(tag)) return mdcCode(tag === 'PRE' ? el.dataset.lang || '' : '', mdcLines(el));
-  const out = /** @type {(string|{t:string,to:string})[]} */ ([]);
-  const walk = (/** @type {Node} */ n) => {
+  const out = [];
+  const walk = (n) => {
     for (const c of n.childNodes) {
       if (c.nodeType === 3) {
         if (c.nodeValue) out.push(c.nodeValue);
         continue;
       }
       if (c.nodeType !== 1) continue;
-      const e = /** @type {HTMLElement} */ (c);
+      const e = c;
       if ((el.tagName === 'LI' && mdcNested(e)) || e.classList.contains('sr-only')) continue;
       if (e.classList.contains('cc')) {
         out.push('\u0002cc ' + (e.textContent || '') + '\u0003');
@@ -17962,8 +17619,7 @@ function mdcShape(el, tag, cont) {
       }
       const to = mdcRun(e) ? '\u0001' + mdcTo(e) : t === 'code.md-math' ? '' : null;
       let j = out.length - 1;
-      if (t === 'code.md-math')
-        while (j >= 0 && typeof out[j] === 'string' && !/\S/.test(/** @type {string} */ (out[j]))) j--; // a formula's pieces: one line end apart
+      if (t === 'code.md-math') while (j >= 0 && typeof out[j] === 'string' && !/\S/.test(out[j])) j--; // a formula's pieces: one line end apart
       const last = out[j];
       if (to !== null && typeof last === 'object' && last.t === t && last.to === to) {
         out.splice(j, 1);
@@ -17989,12 +17645,10 @@ function mdcShape(el, tag, cont) {
 }
 // Whether inline element e is one the renderer opens again after a line break inside it (mdInline's stack): an emphasis, a
 // strikethrough, a link - an inert one (.md-rel) too. Pure over the DOM.
-/** @param {HTMLElement} e */
 function mdcRun(e) {
   return /^(STRONG|EM|S|A)$/.test(e.tagName) || (e.tagName === 'SPAN' && e.classList.contains('md-rel'));
 }
 // Where a link element points (its target, as mdcRefs names it; '' for an emphasis). Pure over the DOM.
-/** @param {HTMLElement} e */
 function mdcTo(e) {
   return e.dataset.tipUrl || e.getAttribute('href') || e.dataset.anchor || '';
 }
@@ -18002,12 +17656,10 @@ function mdcTo(e) {
 // and all, serialized without ambiguity (JSON after a marker no other shape starts with) - so a code block whose body or
 // language changed is another block, an empty fence ([]) is not one holding a blank line (['']), and no character in a
 // language or a line can make two different blocks read alike. Pure.
-/** @param {string} lang @param {string[]} lines */
 function mdcCode(lang, lines) {
   return '\u0002pre\u0003' + JSON.stringify([lang, lines]);
 }
 // The language a code block's shape (mdcCode) carries, '' for any other shape. Pure.
-/** @param {string} shape */
 function mdcLang(shape) {
   if (!shape.startsWith('\u0002pre\u0003')) return '';
   try {
@@ -18018,7 +17670,6 @@ function mdcLang(shape) {
 }
 // What changed in a block changed in place, beyond the words marked in it: its own change (mdcWhyOwn), then the boxes split
 // or joined at it (how, mdcRegroup's) - '' when only its words changed (the marked words say what). Pure.
-/** @param {MdcUnit} o @param {MdcUnit} n @param {string[]} [how] */
 function mdcWhy(o, n, how) {
   const box = (how || []).map((h) => (h === 'split' ? tr('인용·목록이 둘로 갈라짐') : tr('인용·목록이 하나로 합쳐짐')));
   return [mdcWhyOwn(o, n), ...box].filter(Boolean).join(' · ');
@@ -18026,7 +17677,6 @@ function mdcWhy(o, n, how) {
 // What changed in a block changed in place whose text stayed: its inline structure, an image's alt text, a table cell's
 // alignment, the list numbering, the boxes it sits in, a block of lines' language or spaces - '' when its words changed (the
 // marked words say what). Pure.
-/** @param {MdcUnit} o @param {MdcUnit} n */
 function mdcWhyOwn(o, n) {
   if (o.text !== n.text) return '';
   if (o.alts !== n.alts) return tr('그림 대체 글이 바뀜');
@@ -18042,22 +17692,20 @@ function mdcWhyOwn(o, n) {
   return '';
 }
 // A shape (mdcShape) without its table cells' alignment. Pure.
-/** @param {string} shape */
 function mdcUnaligned(shape) {
   return shape.replace(/(\u0002t[dh]) (?:left|right|center)\u0003/g, '$1\u0003');
 }
 // A unit's own text: a table row's cells joined with ' | ', a list item's without its nested blocks, a block of lines' lines,
 // whitespace folded; a hidden character is in it (its box keeps it for the screen reader).
-/** @param {HTMLElement} el @param {string} tag */
 function mdcText(el, tag) {
   if (el.tagName === 'TR')
     return [...el.children].map((c) => (c.textContent || '').replace(/\s+/g, ' ').trim()).join(' | ');
   if (mdcLined(tag)) return mdcLines(el).join('\n').replace(/\s+/g, ' ').trim();
   let s = '';
-  const walk = (/** @type {Node} */ n) => {
+  const walk = (n) => {
     for (const c of n.childNodes) {
       if (c.nodeType === 3) s += c.nodeValue;
-      else if (c.nodeType === 1 && !(el.tagName === 'LI' && mdcNested(/** @type {Element} */ (c)))) walk(c);
+      else if (c.nodeType === 1 && !(el.tagName === 'LI' && mdcNested(c))) walk(c);
     }
   };
   walk(el);
@@ -18066,11 +17714,10 @@ function mdcText(el, tag) {
 // What a unit's images (sel '.md-pic,.md-img': tree path or alt text) or links (their targets) point at, in order - its own
 // (mdcOwnPart: not those of a quote, a table or a list nested in a list item, which are in those blocks' keys); a link the
 // renderer opened again after a line break inside it (skip, from mdcShape) is the link before it, not counted again.
-/** @param {HTMLElement} el @param {string} sel @param {Set<Element>} [skip] */
 function mdcRefs(el, sel, skip) {
   const out = [];
   for (const x of el.querySelectorAll(sel)) {
-    const e = /** @type {HTMLElement} */ (x);
+    const e = x;
     if (!mdcOwnPart(el, e) || (skip && skip.has(e))) continue;
     out.push(e.dataset.path || e.dataset.tipUrl || e.getAttribute('href') || e.dataset.anchor || e.textContent || '');
   }
@@ -18078,8 +17725,6 @@ function mdcRefs(el, sel, skip) {
 }
 // ---------------- Comparing sequences
 // A compare's work budget (MDC_WORK steps), spent by mdcLcs, mdcOps and mdcWordMarks.
-/** @typedef {{left:number}} MdcBudget */
-/** @returns {MdcBudget} */
 function mdcBudget() {
   return { left: MDC_WORK };
 }
@@ -18087,8 +17732,12 @@ function mdcBudget() {
 // its common ends taken first, and within each gap the deletions before the insertions. Its table's cells are spent from
 // budget (when given); past MDC_DIFF_CELLS or what the budget has left the middle is all deleted and inserted (never a wrong
 // match) and the budget is spent out, so the compare pairs nothing more. Pure but for the budget.
-/** @template T @param {T[]} a @param {T[]} b @param {(x:T,y:T)=>boolean} eq @param {MdcBudget} [budget] @returns {{t:string,a:number,b:number}[]} */
-function mdcLcs(a, b, eq, budget) {
+function mdcLcs(
+  a,
+  b,
+  eq,
+  budget,
+) {
   const ops = [];
   let s = 0;
   while (s < a.length && s < b.length && eq(a[s], b[s])) s++;
@@ -18137,13 +17786,11 @@ function mdcLcs(a, b, eq, budget) {
   return ops;
 }
 // The words and marks of a text (pure): letters and digits together, every other visible character alone.
-/** @param {string} s */
 function mdcWordsOf(s) {
   return String(s).match(/[\p{L}\p{N}_]+|[^\s\p{L}\p{N}_]/gu) || [];
 }
 // How alike two texts are, from their words (mdcWordsOf, found once per block however many blocks it is weighed against):
 // twice the words they share over all their words (1 for two empty texts). Pure.
-/** @param {string[]} a @param {string[]} b */
 function mdcSimWords(a, b) {
   if (!a.length && !b.length) return 1;
   const m = new Map();
@@ -18166,14 +17813,13 @@ const MDC_MOVE_MIN = 6; // the fewest characters a block taken out and an identi
 // it was, {t:'to'} where it is now). A heading moves at any length, any other block from MDC_MOVE_MIN characters. Weighing a
 // pair spends its words from budget; once it is spent no more pairs are weighed - the rest stay taken out and added. Last, two
 // kept blocks a quote or list split or joined between are changed in place too (mdcRegroup, their ops' how).
-/** @param {MdcUnit[]} ou @param {MdcUnit[]} nu @param {MdcBudget} [budget] */
 function mdcOps(ou, nu, budget) {
   budget = budget || mdcBudget();
   const raw = mdcLcs(ou, nu, (x, y) => x.key === y.key, budget),
     out = [];
   let i = 0;
   const words = new Map(),
-    wordsOf = (/** @type {MdcUnit} */ u) => {
+    wordsOf = (u) => {
       let w = words.get(u);
       if (!w) {
         w = mdcWordsOf(u.text);
@@ -18248,7 +17894,7 @@ function mdcOps(ou, nu, budget) {
     if (o.t !== 'del') return;
     const l = added.get(ou[o.a].key);
     if (!l || !l.length) return;
-    const k = /** @type {number} */ (l.shift()),
+    const k = l.shift(),
       to = out[k];
     o.t = 'from';
     o.b = to.b;
@@ -18269,12 +17915,11 @@ function mdcOps(ou, nu, budget) {
 // changing. A table cannot: the second of two tables starts with a header row of its own, so a split or a join adds,
 // takes out or changes that row (th cells for td), and that row says it - two tables joined are not "quotes or lists".
 // Pure over the units' boxes (grp: which boxes, by identity; box: their kinds, one for each) but for the ops it marks.
-/** @param {MdcUnit[]} ou @param {MdcUnit[]} nu @param {{t:string,a:number,b:number,how?:string[]}[]} ops */
 function mdcRegroup(ou, nu, ops) {
   const kept = ops.filter((o) => o.t === 'eq' || o.t === 'mod'),
-    memo = /** @type {Map<MdcUnit,{g:unknown,t:string}[]>} */ (new Map());
+    memo = new Map();
   // a unit's quote and list boxes, outermost first: each box (by identity) and its kind (a numbered list's start aside)
-  const own = (/** @type {MdcUnit} */ u) => {
+  const own = (u) => {
     let r = memo.get(u);
     if (r) return r;
     const k = u.box ? u.box.split('>') : [];
@@ -18287,7 +17932,7 @@ function mdcRegroup(ou, nu, ops) {
     return r;
   };
   // how many of those boxes two units of one side share from the outside in
-  const shared = (/** @type {MdcUnit} */ x, /** @type {MdcUnit} */ y) => {
+  const shared = (x, y) => {
     const a = own(x),
       b = own(y);
     let d = 0;
@@ -18295,7 +17940,7 @@ function mdcRegroup(ou, nu, ops) {
     return d;
   };
   // the kinds of a unit's d outermost quote and list boxes, null when it sits in fewer
-  const kinds = (/** @type {MdcUnit} */ u, /** @type {number} */ d) => {
+  const kinds = (u, d) => {
     const k = own(u);
     return k.length >= d
       ? k
@@ -18304,11 +17949,11 @@ function mdcRegroup(ou, nu, ops) {
           .join('>')
       : null;
   };
-  const alike = (/** @type {MdcUnit} */ o, /** @type {MdcUnit} */ n, /** @type {number} */ d) => {
+  const alike = (o, n, d) => {
     const k = kinds(o, d);
     return k !== null && k === kinds(n, d);
   };
-  const mark = (/** @type {{t:string,how?:string[]}} */ o, /** @type {string} */ how) => {
+  const mark = (o, how) => {
     if (o.t === 'eq') o.t = 'mod';
     const l = o.how || (o.how = []);
     if (!l.includes(how)) l.push(how);
@@ -18334,29 +17979,27 @@ function mdcRegroup(ou, nu, ops) {
 // A word of a unit: a run of a text node (node, s..e), or a whole element (el) - a hidden character's box, or in a block of
 // lines one line. w is what it reads (a box's character, a line's text), f the inline elements it sits in below the unit (so a
 // word that only became bold is another word), sp whether white space came before it (so taken-out words put back keep it).
-/** @typedef {{node:Text|null,el:HTMLElement|null,s:number,e:number,w:string,f:string,sp:boolean}} MdcTok */
 // The words of a unit as they sit in its DOM (a list item's own text only); a block of lines' lines are its words. Pure over
 // the DOM.
-/** @param {HTMLElement} el @returns {MdcTok[]} */
 function mdcToks(el) {
-  const out = /** @type {MdcTok[]} */ ([]);
+  const out = [];
   let sp = false;
   if (mdcLined(mdcTag(el))) {
     for (const ln of el.querySelectorAll('.ln')) {
-      const x = /** @type {HTMLElement} */ (ln);
+      const x = ln;
       out.push({ node: null, el: x, s: 0, e: 0, w: String(x.textContent || '').replace(/\n$/, ''), f: '', sp: true });
     }
     return out;
   }
-  const walk = (/** @type {Node} */ n, /** @type {string} */ f) => {
+  const walk = (n, f) => {
     for (const c of n.childNodes) {
       if (c.nodeType === 3) {
         const v = String(c.nodeValue || '');
         let at = 0;
         for (const m of v.matchAll(/[\p{L}\p{N}_]+|[^\s\p{L}\p{N}_]/gu)) {
-          const s = /** @type {number} */ (m.index);
+          const s = m.index;
           if (/\s/.test(v.slice(at, s))) sp = true;
-          out.push({ node: /** @type {Text} */ (c), el: null, s, e: s + m[0].length, w: m[0], f, sp });
+          out.push({ node: c, el: null, s, e: s + m[0].length, w: m[0], f, sp });
           sp = false;
           at = s + m[0].length;
         }
@@ -18364,7 +18007,7 @@ function mdcToks(el) {
         continue;
       }
       if (c.nodeType !== 1) continue;
-      const e = /** @type {HTMLElement} */ (c);
+      const e = c;
       if ((el.tagName === 'LI' && mdcNested(e)) || e.classList.contains('sr-only')) continue;
       if (e.classList.contains('cc')) {
         out.push({ node: null, el: e, s: 0, e: 0, w: e.textContent || '', f, sp });
@@ -18382,18 +18025,16 @@ function mdcToks(el) {
 // text node is wrapped where it is; a hidden character's box is wrapped whole; a line of a block of lines has its content
 // wrapped, and a taken-out line comes back as a line of its own. Edits in a text node run from its end to its start, so the
 // offsets still to come stay right. Past the compare's budget the block stays marked as changed with no words marked.
-/** @param {HTMLElement} oldEl @param {HTMLElement} newEl @param {MdcBudget} [budget] */
 function mdcWordMarks(oldEl, newEl, budget) {
   if (budget && budget.left <= 0) return;
   const a = mdcToks(oldEl),
     b = mdcToks(newEl),
     ops = mdcLcs(a, b, (x, y) => x.w === y.w && x.f === y.f, budget),
     lined = mdcLined(mdcTag(newEl));
-  /** @type {{node:Text,s:number,e:number,kind:string,text?:string}[]} */
   const edits = [];
-  /** @type {{el:HTMLElement,kind:string}[]} */ const wraps = [];
-  /** @type {{at:HTMLElement|null,after:boolean,text:string}[]} */ const puts = [];
-  const mark = (/** @type {MdcTok[]} */ ts, /** @type {string} */ kind) => {
+  const wraps = [];
+  const puts = [];
+  const mark = (ts, kind) => {
     let k = 0;
     while (k < ts.length) {
       const t = ts[k];
@@ -18408,11 +18049,11 @@ function mdcWordMarks(oldEl, newEl, budget) {
       k = j + 1;
     }
   };
-  let gone = /** @type {MdcTok[]} */ ([]);
+  let gone = [];
   // the taken-out words before new word bAt (or after the last one), as one struck-through run: a block of lines' as lines of
   // their own; other words with the white space they had between them, and a space after the run when the word it goes
   // before has one before it (before the run when it goes after the last word and had one before it)
-  const flushGone = (/** @type {number} */ bAt) => {
+  const flushGone = (bAt) => {
     if (!gone.length) return;
     const at = b[bAt],
       last = b[b.length - 1];
@@ -18470,13 +18111,13 @@ function mdcWordMarks(oldEl, newEl, budget) {
     for (const x of l) {
       if (x.kind === 'put') {
         const rest = node.splitText(x.s);
-        /** @type {Node} */ (rest.parentNode).insertBefore(mdcEl('del', x.text || ''), rest);
+        (rest.parentNode).insertBefore(mdcEl('del', x.text || ''), rest);
         continue;
       }
       const mid = node.splitText(x.s);
       mid.splitText(x.e - x.s);
       const w = mdcEl(x.kind === 'ins' ? 'ins' : 'del', '');
-      /** @type {Node} */ (mid.parentNode).insertBefore(w, mid);
+      (mid.parentNode).insertBefore(w, mid);
       w.appendChild(mid);
     }
   }
@@ -18499,7 +18140,7 @@ function mdcWordMarks(oldEl, newEl, budget) {
     const end = x.el.lastChild,
       nl =
         end && end.nodeType === 3 && /\n$/.test(String(end.nodeValue || ''))
-          ? /** @type {Text} */ (end).splitText(String(end.nodeValue).length - 1)
+          ? (end).splitText(String(end.nodeValue).length - 1)
           : null;
     w.append(...[...x.el.childNodes].filter((c) => c !== nl));
     x.el.insertBefore(w, nl);
@@ -18508,11 +18149,10 @@ function mdcWordMarks(oldEl, newEl, budget) {
 // A link of a block changed in place whose target the other side's block does not have: marked like an added (new side) or a
 // taken-out word (old side), its tip saying the target changed - a link's words can stay while where it goes changes. A list
 // item's own links only (mdcOwnPart): a nested block's are that block's.
-/** @param {HTMLElement} oldEl @param {HTMLElement} newEl */
 function mdcLinkMarks(oldEl, newEl) {
   const sel = 'a,.md-rel,[data-anchor]',
-    to = (/** @type {Element} */ e) => {
-      const x = /** @type {HTMLElement} */ (e);
+    to = (e) => {
+      const x = e;
       return x.dataset.tipUrl || x.getAttribute('href') || x.dataset.anchor || '';
     };
   const olds = [...oldEl.querySelectorAll(sel)].filter((e) => mdcOwnPart(oldEl, e)),
@@ -18523,7 +18163,7 @@ function mdcLinkMarks(oldEl, newEl) {
     const t = to(e);
     if (t && !ot.has(t)) {
       e.classList.add('mdc-wl');
-      /** @type {HTMLElement} */ (e).dataset.tip = tl('링크 대상이 바뀜 · {to}', { to: ccPlain(t) });
+      (e).dataset.tip = tl('링크 대상이 바뀜 · {to}', { to: ccPlain(t) });
     }
   }
   for (const e of olds) {
@@ -18532,7 +18172,6 @@ function mdcLinkMarks(oldEl, newEl) {
   }
 }
 // A word mark (ins, del) holding text, each character that would hide or reorder it in its box (ccHtml), as the drawn text has.
-/** @param {string} tag @param {string} text */
 function mdcEl(tag, text) {
   const e = document.createElement(tag);
   e.className = 'mdc-w';
@@ -18542,7 +18181,6 @@ function mdcEl(tag, text) {
 // ---------------- Laying the marks
 // Marks unit element el as a change of kind (ins, del, mod, move): its tint and, for a screen reader, the kind before its text.
 // why, for a block changed in place whose words stayed, says what did change - read with the kind and shown as its tip.
-/** @param {HTMLElement} el @param {string} kind @param {string} [why] */
 function mdcMark(el, kind, why) {
   el.classList.add('mdc-' + kind);
   el.dataset.mdc = kind;
@@ -18564,15 +18202,12 @@ function mdcMark(el, kind, why) {
 // The element a taken-out list item leaves behind in one column: its own text, without the nested blocks (units of their own,
 // put back into it when they are taken out too, mdcPlace). Its own nodes are moved, never copied: an image keeps the load and
 // error handlers the renderer gave it (mdImage), so it gets its size or falls back to its alt text as in the document view.
-/** @param {MdcUnit} u */
 function mdcOwn(u) {
   if (u.el.tagName !== 'LI') return u.el;
-  const c = /** @type {HTMLElement} */ (u.el.cloneNode(false));
-  for (const x of [...u.el.childNodes])
-    if (!(x.nodeType === 1 && mdcNested(/** @type {Element} */ (x)))) c.appendChild(x);
+  const c = u.el.cloneNode(false);
+  for (const x of [...u.el.childNodes]) if (!(x.nodeType === 1 && mdcNested(x))) c.appendChild(x);
   return c;
 }
-/** @param {Element} e @param {Element} root */
 function mdcBox(e, root) {
   const p = e.parentElement;
   return !p || p === root ? 'root' : p.tagName;
@@ -18581,26 +18216,22 @@ function mdcBox(e, root) {
 // kept as it was or changed in place stands for its old self, and so does each box it sits in for the old block's box at the
 // same height while their tags agree (mdcPair); a block taken out, a moved block's old place and the shallow copy of a box made
 // for them stand for what they were put back for (mdcPlace). A moved block's new place stands for nothing on the old side.
-/** @typedef {Map<Element,Element[]>} MdcBoxes */
-/** @param {MdcBoxes} boxes @param {Element} o @param {Element} n */
 function mdcStand(boxes, o, n) {
   const l = boxes.get(o);
   if (!l) boxes.set(o, [n]);
   else if (!l.includes(n)) l.push(n);
 }
-/** @param {MdcBoxes} boxes @param {HTMLElement} o @param {HTMLElement} n @param {HTMLElement} oroot @param {HTMLElement} nroot */
 function mdcPair(boxes, o, n, oroot, nroot) {
   for (
-    let a = /** @type {Element|null} */ (o), b = /** @type {Element|null} */ (n);
+    let a = o, b = n;
     a && b && a !== oroot && b !== nroot && a.tagName === b.tagName;
     a = a.parentElement, b = b.parentElement
   )
     mdcStand(boxes, a, b);
 }
 // The child of box that holds e (e itself, or the box's child it sits in), or null when e is not inside box.
-/** @param {Element} e @param {Element} box */
 function mdcChildOf(e, box) {
-  let x = /** @type {Element|null} */ (e);
+  let x = e;
   while (x && x.parentElement !== box) x = x.parentElement;
   return x;
 }
@@ -18611,20 +18242,27 @@ function mdcChildOf(e, box) {
 // holds prev, else before the part that holds next, else at its end. A box is judged by what it stands for, never by its tag
 // alone: a nested list is not the list around it, and a list item's paragraph does not join the item before it. Returns el, the
 // next block's prev.
-/** @param {HTMLElement} el @param {HTMLElement} ref @param {HTMLElement} oroot @param {HTMLElement|null} prev @param {HTMLElement|null} next @param {HTMLElement} root @param {MdcBoxes} boxes */
-function mdcPlace(el, ref, oroot, prev, next, root, boxes) {
+function mdcPlace(
+  el,
+  ref,
+  oroot,
+  prev,
+  next,
+  root,
+  boxes,
+) {
   mdcStand(boxes, ref, el);
-  let node = /** @type {HTMLElement} */ (el),
+  let node = el,
     a = ref.parentElement;
   for (; a && a !== oroot && !boxes.has(a); a = a.parentElement) {
-    const c = /** @type {HTMLElement} */ (a.cloneNode(false));
+    const c = a.cloneNode(false);
     delete c.dataset.lo;
     delete c.dataset.hi;
     c.appendChild(node);
     mdcStand(boxes, a, c);
     node = c;
   }
-  const l = a && a !== oroot ? /** @type {Element[]} */ (boxes.get(a)) : [root],
+  const l = a && a !== oroot ? (boxes.get(a)) : [root],
     box = l.find((b) => !!prev && b.contains(prev)) || l.find((b) => !!next && b.contains(next)) || l[0];
   const p = prev && prev !== box ? mdcChildOf(prev, box) : null,
     q = !p && next ? mdcChildOf(next, box) : null;
@@ -18634,7 +18272,6 @@ function mdcPlace(el, ref, oroot, prev, next, root, boxes) {
   return el;
 }
 // A moved block's place on the side it left: a slim line that says where it went.
-/** @param {MdcUnit} u @param {MdcUnit} to */
 function mdcGhost(u, to) {
   const p = u.el.parentElement,
     tag = p && /^(UL|OL)$/.test(p.tagName) ? 'li' : p && /^(TBODY|THEAD)$/.test(p.tagName) ? 'tr' : 'div',
@@ -18645,7 +18282,7 @@ function mdcGhost(u, to) {
   const t = tl('여기 있던 블록을 L{line}로 옮김', { line: to.lo }),
     box = tag === 'tr' ? document.createElement('td') : g;
   if (tag === 'tr') {
-    /** @type {HTMLTableCellElement} */ (box).colSpan = Math.max(1, u.el.children.length);
+    (box).colSpan = Math.max(1, u.el.children.length);
     g.appendChild(box);
   }
   box.textContent = t;
@@ -18654,17 +18291,23 @@ function mdcGhost(u, to) {
 // ---------------- The column
 // The new side, with each block taken out put back where it was (struck through), each moved block's old place a slim line,
 // the words of a block changed in place marked inside it. Returns the column.
-/** @param {HTMLElement} oroot @param {HTMLElement} nroot @param {MdcUnit[]} ou @param {MdcUnit[]} nu @param {any[]} ops @param {MdcBudget} [budget] */
-function mdcInline(oroot, nroot, ou, nu, ops, budget) {
-  let prev = /** @type {HTMLElement|null} */ (null);
-  const next = (/** @type {number} */ k) => {
+function mdcInline(
+  oroot,
+  nroot,
+  ou,
+  nu,
+  ops,
+  budget,
+) {
+  let prev = null;
+  const next = (k) => {
     for (let x = k + 1; x < ops.length; x++) {
       const o = ops[x];
       if (o.t !== 'del' && o.t !== 'from') return nu[o.b].el;
     }
     return null;
   };
-  const boxes = /** @type {MdcBoxes} */ (new Map());
+  const boxes = new Map();
   for (const o of ops) if (o.t === 'eq' || o.t === 'mod') mdcPair(boxes, ou[o.a].el, nu[o.b].el, oroot, nroot); // before anything moves
   ops.forEach((o, k) => {
     if (o.t === 'eq') {
@@ -18724,9 +18367,9 @@ function mdcChips() {
   layer.className = 'mdc-chips';
   layer.setAttribute('aria-hidden', 'true');
   const top = root.getBoundingClientRect().top;
-  const items = /** @type {{y:number,cls:string,text:string}[]} */ ([]);
+  const items = [];
   for (const x of root.querySelectorAll('[data-mdc],.mdc-pin')) {
-    const e = /** @type {HTMLElement} */ (x),
+    const e = x,
       r = e.getBoundingClientRect();
     if (!r.height) continue;
     if (e.classList.contains('mdc-pin')) items.push({ y: r.top - top, cls: 'pin', text: e.dataset.mdcPin || '' });
@@ -18746,10 +18389,9 @@ function mdcChips() {
   root.appendChild(layer);
 }
 // The unit elements of a drawn side in document order, as mdcUnits takes them (and a moved block's old place, ghosts).
-/** @param {HTMLElement} root @param {boolean} ghosts @returns {HTMLElement[]} */
 function mdcUnitEls(root, ghosts) {
   return [...root.querySelectorAll(MDC_UNIT + (ghosts ? ',.mdc-ghost' : ''))]
-    .map((x) => /** @type {HTMLElement} */ (x))
+    .map((x) => x)
     .filter(mdcIsUnit);
 }
 // ---------------- Showing a compare
@@ -18759,11 +18401,10 @@ function mdcUnitEls(root, ghosts) {
 // s + (g - g0), absent when the two agree - the last pair the line after the last git line, after the last screen line,
 // when the last git line holds several; n the side's line count. Line a's first screen line to the last before line b+1's.
 // Pure.
-/** @param {number[][]|null|undefined} map @param {number} n @param {number[]} range @returns {number[]} */
 function mdcGitRange(map, n, range) {
   const [a, b] = range;
   if (!map || !map.length) return [a, b];
-  const at = (/** @type {number} */ g) => {
+  const at = (g) => {
     let s = g;
     for (const [g0, s0] of map) {
       if (g0 > g) break;
@@ -18776,10 +18417,9 @@ function mdcGitRange(map, n, range) {
 }
 // The change groups in order: runs of marked blocks (a moved block's old place too) with nothing unchanged between them. The
 // navigator steps through them.
-/** @param {HTMLElement} root */
 function mdcStops(root) {
-  const stops = /** @type {HTMLElement[][]} */ ([]);
-  let cur = /** @type {HTMLElement[]|null} */ (null);
+  const stops = [];
+  let cur = null;
   for (const e of mdcUnitEls(root, true)) {
     const marked = !!e.dataset.mdc || e.classList.contains('mdc-ghost');
     if (marked) {
@@ -18802,11 +18442,10 @@ function mdcDrawNav() {
     : MDC.at < 0
       ? tl('바뀐 곳 {n}곳', { n })
       : tl('바뀐 곳 {at}/{n}', { at: MDC.at + 1, n });
-  /** @type {HTMLButtonElement} */ ($('#mdc-prev')).disabled = MDC.at <= 0;
-  /** @type {HTMLButtonElement} */ ($('#mdc-next')).disabled = MDC.at >= n - 1;
+  ($('#mdc-prev')).disabled = MDC.at <= 0;
+  ($('#mdc-next')).disabled = MDC.at >= n - 1;
 }
 // Goes to change group i: brings its first block to a third of the pane's height and, with ring, rings the group for a moment.
-/** @param {number} i @param {boolean} [ring] */
 function mdcGo(i, ring) {
   const g = MDC.stops[i];
   if (!g) return;
@@ -18819,7 +18458,6 @@ function mdcGo(i, ring) {
     p = pane.getBoundingClientRect();
   pane.scrollTo({ top: pane.scrollTop + r.top - p.top - Math.round(pane.clientHeight / 3), behavior: scrollMotion() });
 }
-/** @param {number} d */
 function mdcStep(d) {
   if (!MDC.stops.length) return;
   mdcGo(Math.min(MDC.stops.length - 1, Math.max(0, MDC.at + d)), true);
@@ -18842,7 +18480,6 @@ function mdcClear() {
   $('#revision-nav').hidden = true;
 }
 // A notice in the compare's place (a side that cannot be drawn, a limit), with the way to the source diff.
-/** @param {string} text */
 function mdcNote(text) {
   const n = document.createElement('div');
   n.className = 'md-note mdc-note';
@@ -18854,7 +18491,6 @@ function mdcNote(text) {
   return n;
 }
 // Why a side carries no lines (GET /api/revision-source's reason), in a line.
-/** @param {any} side @param {string} which */
 function mdcSideWhy(side, which) {
   switch (side && side.reason) {
     case 'source_too_large':
@@ -18873,8 +18509,10 @@ function mdcSideWhy(side, which) {
 }
 // Parses and draws one side's lines (null: the file is not on that side - an empty document), as the document view draws a
 // document: a NUL in the source is not parsed (MD_LIMIT.NUL). {root} or {why}; {root:null,why:''} once live() is false.
-/** @param {string[]|null} lines @param {()=>boolean} live @returns {Promise<{root:HTMLElement|null,why?:string}>} */
-async function mdcSide(lines, live) {
+async function mdcSide(
+  lines,
+  live,
+) {
   if (!lines) return { root: await mdcBuild([], [], live) };
   if (lines.some((l) => l.includes('\0'))) return { root: null, why: mdLimitText(MD_LIMIT.NUL) };
   const res = await mdcParse(lines.join('\n'));
@@ -18886,7 +18524,6 @@ async function mdcSide(lines, live) {
 // Shows the rendered compare of commit id (from base for a range) in #revision-rendered, for the visit seq of document k: reads
 // both sides, draws and compares them, lays them out in one column, rings a pin's blocks when the view was opened for one
 // ([변경 보기], then [그린 비교]), and says on the status line what changed.
-/** @param {string} id @param {string} base @param {number} seq @param {string|null} k */
 async function mdcShow(id, base, seq, k) {
   const pane = $('#revision-rendered'),
     key = revKey(),
@@ -18924,7 +18561,7 @@ async function mdcShow(id, base, seq, k) {
     scope = sc && sc.data ? { ...(sc.data.scope || {}), whole: String(sc.data.diff || '') } : null;
   } catch (e) {
     if (live()) {
-      const why = e && /** @type {ApiError} */ (e).data ? errText(/** @type {ApiError} */ (e).data) : '';
+      const why = e && (e).data ? errText((e).data) : '';
       pane.replaceChildren(
         mdcNote(why ? tl('두 판을 읽지 못했습니다: {error}', { error: why }) : tr('두 판을 읽지 못했습니다.')),
       );
@@ -19026,7 +18663,6 @@ async function mdcShow(id, base, seq, k) {
   if (REV.target) revTargetNote();
 }
 // A line above the compare: a status, read when it comes, unless status is false - then a standing note, read in its place.
-/** @param {string} text @param {boolean} [status] */
 function mdcInfo(text, status) {
   const d = document.createElement('div');
   d.className = 'mdc-info';
@@ -19036,7 +18672,6 @@ function mdcInfo(text, status) {
 }
 // The status line of a compare: its two sides - a range's with the commits and files its source diff counted (REV.rangeN,
 // once that answer is in) - and what changed. Kept (MDC.said) so the range's counts can join it when they come (mdcRestatus).
-/** @param {any} r @param {{ins:number,del:number,mod:number,move:number}|null} c */
 function mdcStatus(r, c) {
   MDC.said = { r, c };
   const ends = (r.base ? String(r.base).slice(0, 8) : tr('없음')) + ' → ' + String(r.id || '').slice(0, 8),
@@ -19076,7 +18711,7 @@ function mdcRestatus() {
 // first. The compare is the whole commit's (ADR-0031 D6: the pin-only side is a later step), so when the pin owns part of it
 // the line says so and points at [소스 diff], which shows the pin's hunks alone. Returns the change group to open at (-1:
 // none), and leaves on the pin the line the guide says (tg.mdcMsg).
-/** @param {RevTarget|null} tg @param {any} scope @param {MdcUnit[]} nu @param {any} side the new side GET /api/revision-source gave */
+/** @param side the new side GET /api/revision-source gave */
 function mdcTarget(tg, scope, nu, side) {
   const t = REV.target;
   if (t && !tg) t.mdcMsg = tl('핀 #{id}의 커밋을 볼 때만 핀 자리를 표시합니다', { id: t.id });
@@ -19086,7 +18721,7 @@ function mdcTarget(tg, scope, nu, side) {
   const lo = tg.lo || 0,
     map = side && side.git_line_starts,
     n = side && side.lines ? side.lines.length : 0,
-    hunks = (/** @type {string} */ d) => hunkRanges(d).map((r) => mdcGitRange(map, n, r));
+    hunks = (d) => hunkRanges(d).map((r) => mdcGitRange(map, n, r));
   const part = !!scope && scope.mode === SCOPE_MODE.PIN,
     ranges = part ? hunks(scope.diff) : scope && scope.hunks > 0 ? hunks(scope.whole) : [[lo, tg.hi || lo]];
   const meets = nu.filter((u) => u.lo && ranges.some(([a, b]) => u.hi >= a && u.lo <= b) && u.el.isConnected);
@@ -19119,7 +18754,6 @@ function mdcTarget(tg, scope, nu, side) {
 // Until the text is edited it follows the range - a new pick, a rung, the excerpt's + and − - and once edited a range change
 // keeps it and one line offers to read the new range's lines. A card shows a suggestion as a line diff of base -> text in the
 // changes view's source-diff look, folded past five rows as the excerpt's band is.
-/** @typedef {import('./markup.js').Html} Html */
 
 const SUGGEST_LINES = 80; // the most lines a suggestion may replace (limn.pins.editing.values.SUGGEST_LINES_MAX, the snippet's cap)
 const SUGGEST_FOLD = 5; // a card's diff folds past this many rows to its first two and last two
@@ -19134,7 +18768,7 @@ const SUGGEST_WHY = {
   long: ['제안 수정은 80줄까지', '제안 수정은 80줄까지의 범위만 바꿉니다. 범위를 줄이면 켤 수 있습니다'],
 };
 
-/** A draft with nothing in it: off, empty, never filled. @returns {SuggestDraft} */
+/** A draft with nothing in it: off, empty, never filled. */
 function suggestDraft() {
   return {
     on: false,
@@ -19151,12 +18785,12 @@ function suggestDraft() {
 }
 const SG = suggestDraft(); // the composer's draft; an open edit card keeps its own (EditCard.sg)
 /** A copy of draft sg to keep (a discard's undo, the tab's stored draft): what it holds, without a read under way or its
- * failure. @param {SuggestDraft} sg @returns {SuggestDraft} */
+ * failure. */
 function suggestCopy(sg) {
   return { ...sg, had: sg.had && { ...sg.had }, current: sg.current && { ...sg.current }, reading: '', fail: null };
 }
 /** The draft an edit card of pin p opens with: on and filled with the pin's suggestion when it has one (had keeps it, to tell
- * what a save changes), else an empty draft. @param {Pin} p @returns {SuggestDraft} */
+ * what a save changes), else an empty draft. */
 function suggestOfPin(p) {
   const d = suggestDraft(),
     s = p.suggest;
@@ -19176,31 +18810,30 @@ function suggestOfPin(p) {
 // Why o - a pick or an edit card - can carry no suggested edit (SUGGEST_OFF), or null when it can: a view-only PDF, a figure
 // document, an area (a region pick or pin, or no lines), or a range of more than SUGGEST_LINES lines. docKind is the document's
 // kind; an unknown one is a LaTeX document. Pure.
-/** @param {{kind?:string,file?:string,pdf?:string,region?:boolean,lo?:number,hi?:number}|null} o @param {string|undefined} docKind @returns {string|null} */
-function suggestOff(o, docKind) {
+function suggestOff(
+  o,
+  docKind,
+) {
   if (docKind === DOC_KIND.PDF) return SUGGEST_OFF.PDF;
   if (isFigureKind(docKind)) return SUGGEST_OFF.FIGURE;
   if (!o || o.region || isRegion(o) || o.lo == null || o.hi == null) return SUGGEST_OFF.REGION;
   return o.hi - o.lo + 1 > SUGGEST_LINES ? SUGGEST_OFF.LONG : null;
 }
-/** Whether draft sg holds a text other than the one it was filled from (a draft never filled is not edited). Pure.
- * @param {SuggestDraft} sg @returns {boolean} */
+/** Whether draft sg holds a text other than the one it was filled from (a draft never filled is not edited). Pure. */
 function suggestEdited(sg) {
   return sg.base != null && sg.text !== sg.base;
 }
-/** The lines o is, as a draft records them: 'file:lo-hi'. Pure. @param {{file?:string|null,lo?:number,hi?:number}} o @returns {string} */
+/** The lines o is, as a draft records them: 'file:lo-hi'. Pure. */
 function suggestKey(o) {
   return String(o.file) + ':' + o.lo + '-' + o.hi;
 }
-/** Whether o's lines are not the ones draft sg's base was read from. Pure.
- * @param {SuggestDraft} sg @param {{file?:string|null,lo?:number,hi?:number}|null} o @returns {boolean} */
+/** Whether o's lines are not the ones draft sg's base was read from. Pure. */
 function suggestMoved(sg, o) {
   return sg.base != null && !!o && suggestKey(sg) !== suggestKey(o);
 }
 // What a new pin's save sends as `suggest` for draft sg on a selection that is `off`: {base, text} when the editor is on, was
 // filled and holds another text; null otherwise (nothing to suggest, or a selection that can carry none). A range over
 // SUGGEST_LINES still sends it: the server's refusal (suggest_too_long) says why on the save row, and the draft stays. Pure.
-/** @param {SuggestDraft} sg @param {string|null} off @returns {PinSuggest|null} */
 function suggestForSave(sg, off) {
   if (!sg.on || sg.base == null || (off && off !== SUGGEST_OFF.LONG) || sg.text === sg.base) return null;
   return { base: sg.base, text: sg.text };
@@ -19208,7 +18841,6 @@ function suggestForSave(sg, off) {
 // What an edit's save sends as `suggest` for card draft sg: undefined (the stored suggestion stays as it is), null (remove it)
 // or {base, text}. Switched off, or left with the source's own text, removes the pin's suggestion and sends nothing when it
 // had none; the pin's own base and text send nothing; a draft not filled yet sends nothing. Pure.
-/** @param {SuggestDraft} sg @param {string|null} off @returns {PinSuggest|null|undefined} */
 function suggestForEdit(sg, off) {
   const had = sg.had;
   if (!sg.on) return had ? null : undefined;
@@ -19219,14 +18851,13 @@ function suggestForEdit(sg, off) {
 }
 
 // The lines of a suggestion's string: an empty text is no line (it deletes the range); a base always has its range's lines.
-// Pure. @param {string} s @param {boolean} isText @returns {string[]}
+// Pure.
 function suggestLines(s, isText) {
   return isText && s === '' ? [] : String(s).split('\n');
 }
 // A line diff of base -> text, top to bottom: rows {k:'ctx'|'del'|'add', t: the line, n: its number} - a base line numbered
 // from lo as it is in the file, a text line from lo as it would be after the change; in a changed run the deleted lines come
 // first. The longest common subsequence of whole lines. Pure.
-/** @param {string} base @param {string} text @param {number} lo @returns {{k:string,t:string,n:number}[]} */
 function suggestDiff(base, text, lo) {
   const a = suggestLines(base, false),
     b = suggestLines(text, true),
@@ -19255,8 +18886,10 @@ function suggestDiff(base, text, lo) {
 }
 // The rows a diff shows: all of them when open or no more than SUGGEST_FOLD, else the first two and the last two round
 // {k:'fold', n} for the rows between - the excerpt's fold. Pure.
-/** @param {{k:string,t:string,n:number}[]} rows @param {boolean} open @returns {{k:string,t:string,n:number}[]} */
-function suggestFold(rows, open) {
+function suggestFold(
+  rows,
+  open,
+) {
   if (open || rows.length <= SUGGEST_FOLD) return rows;
   return [rows[0], rows[1], { k: 'fold', t: '', n: rows.length - 4 }, rows[rows.length - 2], rows[rows.length - 1]];
 }
@@ -19264,7 +18897,6 @@ function suggestFold(rows, open) {
 // '+', '-' or ' ' mark, so a change never rests on colour alone. The lines are the manuscript's text (translate="no"), each
 // character that would hide or reorder it in its box (ccHtml), whatever the document's kind: a suggestion that puts one in
 // never reads as another text than the one an agent will apply.
-/** @param {{k:string,t:string,n:number}[]} rows @returns {Html} */
 function suggestDiffHtml(rows) {
   return html`<div class="sg-diff" translate="no">${rows.map((r) =>
     r.k === 'fold'
@@ -19275,7 +18907,6 @@ function suggestDiffHtml(rows) {
 // What draft sg's text holds of the characters that would hide or reorder text (hidden-chars.js), which the editor (a
 // textarea) shows as the browser does - unseen, or the text reordered: the ones it adds to its base ([[name, count]], ccAdded)
 // and how many it has in all; null when it has none. Pure.
-/** @param {SuggestDraft} sg @returns {{added:[string,number][],n:number}|null} */
 function suggestHidden(sg) {
   if (sg.base == null) return null;
   let n = 0;
@@ -19285,7 +18916,6 @@ function suggestHidden(sg) {
 // The line under the editor for h, what suggestHidden found in draft sg on lines from lo, as Html: the characters the draft
 // adds, with the draft's added lines that hold them in the diff look - each character in its box - so the person sees where
 // they are; or, when it only keeps its base's, how many. pins.md flags an added one for the agent too.
-/** @param {SuggestDraft} sg @param {{added:[string,number][],n:number}} h @param {number} lo @returns {Html} */
 function suggestHiddenHtml(sg, h, lo) {
   if (!h.added.length)
     return html`<span>${tl('원문에 있던, 보이지 않거나 글 순서를 바꾸는 문자 {n}개가 제안 문안에 그대로 있습니다. 이 칸에서는 보이지 않습니다', { n: h.n })}</span>`;
@@ -19302,7 +18932,6 @@ function suggestHiddenHtml(sg, h, lo) {
 const SG_OPEN = new Set(); // the cards whose suggestion diff is unfolded ('<doc>:<id>'), kept across redraws
 // A card's suggested edit, after its note: the diff of base -> text, folded past SUGGEST_FOLD rows with [제안 펼치기 · N줄]
 // under it to unfold. null when the pin has none.
-/** @param {Pin} p @returns {Html|null} */
 function suggestView(p) {
   const s = p.suggest;
   if (!s) return null;
@@ -19322,14 +18951,17 @@ ${open ? tr('제안 접기') : tr('제안 펼치기') + ' · ' + tl('{n}줄', { 
 // that card's editor, as the card's [수정] does (an icon alone on touch). A viewer cannot edit, so has no action and reads
 // the first part alone. The warning badge's explanation, said on screen for everyone, short enough for one line in the
 // desktop panel and at 320px. null for a ready suggestion or a pin that is not open (a closed pin is not re-synced). Pure.
-/** @param {string|undefined} st @param {string} pinSt @param {boolean} viewer @returns {{reason:string|null,edit:boolean}|null} */
-function suggestWarn(st, pinSt, viewer) {
+function suggestWarn(
+  st,
+  pinSt,
+  viewer,
+) {
   if (pinSt !== PIN_STATE.OPEN) return null;
   if (st === SUGGEST_STATE.CHANGED) return { reason: null, edit: !viewer };
   if (st === SUGGEST_STATE.UNKNOWN) return { reason: '원문과 대조 불가', edit: false };
   return null;
 }
-/** suggestWarn's line for p, in the screen's language; null when it has none. @param {Pin} p @returns {Html|null} */
+/** suggestWarn's line for p, in the screen's language; null when it has none. */
 function suggestWarnLine(p) {
   const w = suggestWarn(p.suggest_state, pinState(p), isViewer());
   if (!w) return null;
@@ -19344,7 +18976,6 @@ ${tr('수정해서 원문에 맞추기')}</button>`
 // one whose suggestion was applied reads as changed. null without a suggestion. The two warning badges are .tip-shown: the
 // card's line over the diff (suggestWarnLine) says what their explanation says, so they carry no words for a screen reader
 // (tooltip.js); their explanation box stays.
-/** @param {Pin} p @param {boolean} closed @returns {Html|null} */
 function suggestBadge(p, closed) {
   if (!p.suggest) return null;
   const st = closed ? SUGGEST_STATE.READY : p.suggest_state;
@@ -19360,7 +18991,6 @@ function suggestBadge(p, closed) {
 // when `fill` - then redraws its owner. Only while owns() (the selection or the edit card is still on screen), o still has
 // those lines and, for a fill, the text was not typed meanwhile: otherwise the next draw decides again. A failure keeps the
 // draft and says why on its line (fail), with [원문 다시 읽기].
-/** @param {SuggestDraft} sg @param {any} o @param {boolean} fill @param {()=>boolean} owns @param {()=>void} redraw */
 async function suggestRead(sg, o, fill, owns, redraw) {
   const key = suggestKey(o),
     was = sg.text;
@@ -19368,7 +18998,7 @@ async function suggestRead(sg, o, fill, owns, redraw) {
   sg.reading = key;
   sg.fail = null;
   redraw();
-  let text = /** @type {string|null} */ (null),
+  let text = null,
     fail = '';
   try {
     const { status, data } = await api(
@@ -19404,7 +19034,6 @@ async function suggestRead(sg, o, fill, owns, redraw) {
 // Keeps draft sg on o's lines while its text is the source's own: an editor turned on and never filled, or not edited since
 // and now on other lines, reads them as its text and base. Nothing while off, on a selection that can carry no suggestion,
 // during a read, or after a read of these lines failed (its [원문 다시 읽기] tries again).
-/** @param {SuggestDraft} sg @param {any} o @param {string|null} off @param {()=>boolean} owns @param {()=>void} redraw */
 function suggestFollow(sg, o, off, owns, redraw) {
   if (!sg.on || off || sg.reading) return;
   if (sg.fail && sg.fail.key === suggestKey(o)) return;
@@ -19412,7 +19041,6 @@ function suggestFollow(sg, o, off, owns, redraw) {
 }
 // [지금 원문으로 맞추기]: draft sg keeps its text and takes the current lines of o as its base - the text a 409 answered with
 // when it is o's lines, else read now.
-/** @param {SuggestDraft} sg @param {any} o @param {()=>boolean} owns @param {()=>void} redraw */
 function suggestRebase(sg, o, owns, redraw) {
   const c = sg.current;
   sg.current = null;
@@ -19432,9 +19060,13 @@ function suggestRebase(sg, o, owns, redraw) {
 // suggest_state is `state`. While its draft keeps the pin's own base, an edit card of a pin the agent will not apply says so
 // first ('에이전트는 넣지 않음', `warn`: drawn in the warning colour, as on the card): 'changed' with the rebase that ends it, 'unknown' with
 // why. A rebase or a new range's source is a new base, and the line goes, as the card's will once it is saved.
-/** @param {SuggestDraft} sg @param {any} o @param {string|null} off @param {boolean} isEdit @param {string|undefined} state
- * @returns {{msg:string,act:{act:string,label:string,tip:string}|null,warn?:boolean}|null} */
-function suggestLine(sg, o, off, isEdit, state) {
+function suggestLine(
+  sg,
+  o,
+  off,
+  isEdit,
+  state,
+) {
   const reload = {
     act: 'sg-reload',
     label: '원문 다시 불러오기',
@@ -19474,7 +19106,6 @@ function suggestLine(sg, o, off, isEdit, state) {
   return null;
 }
 // Grows a suggestion editor to its text, from two lines up to twelve (then it scrolls).
-/** @param {HTMLTextAreaElement} ta */
 function suggestGrow(ta) {
   if (ta.hidden || !ta.getClientRects().length) return;
   const cs = getComputedStyle(ta),
@@ -19490,10 +19121,14 @@ function suggestGrow(ta) {
 // diff of the current source -> the text. A range over
 // SUGGEST_LINES keeps the switch while it is on, so it can be switched off. The editor is read-only until its first fill. The
 // line is a polite live region, so it is written only when what it says changes (typing redraws it on every key).
-/** @param {SuggestDraft} sg @param {any} o @param {string|null} off
- * @param {{tg:HTMLElement,why:HTMLElement,box:HTMLElement,ta:HTMLTextAreaElement,line:HTMLElement,cc:HTMLElement,cur:HTMLElement}} els
- * @param {boolean} isEdit @param {string|undefined} state */
-function drawSuggest(sg, o, off, els, isEdit, state) {
+function drawSuggest(
+  sg,
+  o,
+  off,
+  els,
+  isEdit,
+  state,
+) {
   const shown = !off || (off === SUGGEST_OFF.LONG && sg.on);
   els.tg.hidden = !shown;
   els.tg.setAttribute('aria-checked', String(sg.on));
@@ -19546,7 +19181,7 @@ function composerSuggestEls() {
     tg: $('#c-sg-tg'),
     why: $('#c-sg-why'),
     box: $('#c-sg'),
-    ta: /** @type {HTMLTextAreaElement} */ ($('#c-sg-text')),
+    ta: $('#c-sg-text'),
     line: $('#c-sg-note'),
     cc: $('#c-sg-cc'),
     cur: $('#c-sg-cur'),
@@ -19555,7 +19190,6 @@ function composerSuggestEls() {
 // Draws the composer's suggestion for selection d (renderComposer and renderRegionComposer call it on every draw) and keeps an
 // unedited draft on d's lines. A read's answer redraws it, the overlap notice ([덧붙이기] waits on an edited suggestion) and the
 // stored draft. The tablet sheet's height follows the editor as it opens, fills, grows and closes (applySheet, tabletLift).
-/** @param {Selection} d */
 function renderSuggest(d) {
   const off = suggestOff(d, META ? META.kind : undefined),
     owns = () => COMPOSE.current === d;
@@ -19578,26 +19212,25 @@ function suggestPending() {
 // Empties the composer's draft (a save, a discard without undo, another document) and its editor.
 function suggestClear() {
   Object.assign(SG, suggestDraft());
-  const ta = /** @type {HTMLTextAreaElement} */ ($('#c-sg-text'));
+  const ta = $('#c-sg-text');
   ta.value = '';
   ta.style.height = '';
 }
 
 // ---------------- An edit card's draft (EditCard.sg)
 // The kind of edit card E's document (an unknown one is LaTeX).
-/** @param {EditCard} E @returns {string|undefined} */
 function editDocKind(E) {
   const d = docInfo(E.doc);
   return d ? d.kind : E.doc === DOC && META ? META.kind : undefined;
 }
-/** Edit card E's suggestion elements. @param {EditCard} E */
+/** Edit card E's suggestion elements. */
 function editSuggestEls(E) {
-  const q = (s) => /** @type {HTMLElement} */ (E.el.querySelector(s));
+  const q = (s) => E.el.querySelector(s);
   return {
     tg: q('.e-sg-row .sg-tg'),
     why: q('.e-sg-row .sg-why'),
     box: q('.e-sg'),
-    ta: /** @type {HTMLTextAreaElement} */ (q('.e-sg-text')),
+    ta: q('.e-sg-text'),
     line: q('.e-sg .sg-note'),
     cc: q('.e-sg .sg-cc'),
     cur: q('.e-sg .sg-cur'),
@@ -19605,13 +19238,12 @@ function editSuggestEls(E) {
 }
 // Draws edit card E's suggestion (renderEdit): the switch and the editor on an open pin; a closed pin's suggestion read-only
 // (its diff, no switch), as it can only take memo edits.
-/** @param {EditCard} E */
 function renderEditSuggest(E) {
   const pin = findAnyPin(E.id),
     closed = !!pin && pinState(pin) !== PIN_STATE.OPEN,
     els = editSuggestEls(E);
-  const row = /** @type {HTMLElement} */ (E.el.querySelector('.e-sg-row')),
-    ro = /** @type {HTMLElement} */ (E.el.querySelector('.e-sg-ro'));
+  const row = E.el.querySelector('.e-sg-row'),
+    ro = E.el.querySelector('.e-sg-ro');
   row.hidden = closed;
   const view = closed && pin ? suggestView(pin) : null;
   ro.hidden = !view;
@@ -19630,7 +19262,6 @@ function renderEditSuggest(E) {
   suggestFollow(E.sg, E, off, owns, redraw);
 }
 // The draft and the selection or card an editor control belongs to: the open edit card's when el is inside it, else the composer's.
-/** @param {HTMLElement} el @returns {{sg:SuggestDraft,o:any,owns:()=>boolean,redraw:()=>void}|null} */
 function suggestOwner(el) {
   if (el.closest('.edit')) {
     const E = EDITOR.current;
@@ -19660,7 +19291,6 @@ function suggestOwner(el) {
 }
 // The editor's controls: the switch, [원문 다시 불러오기] (fill from the range's lines) and [지금 원문으로 맞추기] (rebase), for the
 // draft el belongs to.
-/** @param {HTMLElement} el @param {string} act */
 function suggestAct(el, act) {
   const w = suggestOwner(el);
   if (!w) return;
@@ -19685,7 +19315,7 @@ function suggestAct(el, act) {
 // Typing in an editor: its draft takes the text; the line under it and - in the composer - the overlap notice and the tab's
 // draft follow.
 document.addEventListener('input', (e) => {
-  const t = /** @type {HTMLTextAreaElement} */ (e.target);
+  const t = e.target;
   if (!t.classList || !t.classList.contains('sg-text')) return;
   const w = suggestOwner(t);
   if (!w) return;
@@ -19699,16 +19329,16 @@ document.addEventListener('input', (e) => {
 // (pick, cancelSelection, restoreSelection, restoreDraft), its rung or lines (the 'level' press, applyRange), the kind
 // (setKind) and the [제안 수정] switch (suggestAct). retryVerdict: the verdict a failed save carried, the selection it was bound
 // to and the intent it was pressed with; the failure's [다시 저장] saves it again only while that intent is unchanged (savePin).
-/** @typedef {import('./markup.js').Html} Html */
+
 const COMPOSE = {
-  current: /** @type {Selection|null} */ (null),
-  box: /** @type {HTMLElement|null} */ (null),
+  current: null,
+  box: null,
   picking: false,
   pendingSave: false,
   saving: false,
-  dismissedOverlap: /** @type {string|null} */ (null),
+  dismissedOverlap: null,
   intent: 0,
-  retryVerdict: /** @type {{key:string,sel:Selection,gen:number}|null} */ (null),
+  retryVerdict: null,
 };
 /** Capture editable composer fields by value - the suggested edit's switch, text and base among them; derived overlap and
  * snippet updates do not count as new input. */
@@ -19788,7 +19418,7 @@ async function pick(r) {
     }
     // The server could not be reached (a refusal carries a status): the drag is not lost. Its box stays and the composer
     // opens on a selection with no lines, which [핀 저장] keeps in the queue until the connection is back (offline.js).
-    const x = /** @type {ApiError} */ (e);
+    const x = e;
     if (!rp && !(x && x.status) && !isMdDoc()) {
       void offlinePick(r);
       return;
@@ -19844,7 +19474,7 @@ async function pick(r) {
     bannerCompare();
     return;
   }
-  const sel = /** @type {Selection} */ (d);
+  const sel = d;
   COMPOSE.current = sel;
   COMPOSE.intent++;
   sel.scope = null;
@@ -19931,7 +19561,6 @@ function recomputeOverlap() {
 }
 // The open pin the composer's note may join instead of becoming a pin: the overlap its notice offers [덧붙이기] for - or
 // null without one, and once the author chose [따로 저장] for it.
-/** @returns {{id:number,lo:number,hi:number,rel:string}|null} */
 function appendTarget() {
   const d = COMPOSE.current,
     ov = d ? pickOverlap(d.overlaps) : null;
@@ -20040,7 +19669,7 @@ function renderComposer() {
     pgn +
     (sc ? ' · ' + sc : '') +
     ' · ' +
-    tl('{n}줄', { n: /** @type {number} */ (d.hi) - /** @type {number} */ (d.lo) + 1 }) +
+    tl('{n}줄', { n: (d.hi) - (d.lo) + 1 }) +
     ' · ' +
     tl('드래그한 줄 {range}', { range: rng(d.raw_lo, d.raw_hi) });
   const v = viaTag(d),
@@ -20076,13 +19705,15 @@ function renderComposer() {
 // ---------------- The PDF text a drag chose (docs/handbook/viewer.md §패널 정리 '드래그한 글자', issue #185)
 // The selection whose quote line is open, or null: a new pick is a new object, so it starts folded, while a range change
 // (the same object) keeps it open.
-let QUOTE_SEL = /** @type {Selection|null} */ (null);
+let QUOTE_SEL = null;
 // What a pick or a pin shows of its quote (the dragged PDF text, whitespace-normalized by the server): the text trimmed, or ''
 // for none - no text (a tap or a long press), a region (a view-only PDF or a figure region shows its text as the source
 // already) or a line of a figure document (its quote is the element's name, which the location line names). A document of
 // an unknown kind is a LaTeX one. Pure.
-/** @param {{kind?:string,file?:string,pdf?:string,quote?:string}|null} p @param {string|undefined} docKind @returns {string} */
-function shownQuote(p, docKind) {
+function shownQuote(
+  p,
+  docKind,
+) {
   if (!p || isRegion(p) || isFigureKind(docKind)) return '';
   return String(p.quote || '').trim();
 }
@@ -20090,14 +19721,12 @@ function shownQuote(p, docKind) {
 // translate="no", so the name is put in the screen's language here (tr); it says where the text was chosen - in the PDF, or
 // in a document drawn in the browser (md: Markdown or text), which has none. A character in the text that would hide or
 // reorder it is in its box (ccHtml), and its tooltip names it (ccPlain). CSS cuts the text to one line until it is opened.
-/** @param {string} q @param {boolean} md @returns {Html} */
 function quoteInner(q, md) {
   return html`<span class="q-ic" aria-hidden="true">${ic('text-quote')}</span><span class="sr-only">${tr(md ? '문서에서 고른 글자' : 'PDF에서 고른 글자')}: </span><span class="q-t">${ccHtml(q)}</span>`;
 }
 // Opens or folds a quote line (the composer's #c-quote or a card's .quote) where it is, without redrawing, so the focus stays
 // on it. Open, the whole text is on screen and the tooltip that repeated it goes; folded, it comes back. The state is kept
 // for the next draw: the composer's per selection (QUOTE_SEL), a card's per pin (QUOTE_OPEN).
-/** @param {HTMLElement} el */
 function toggleQuote(el) {
   const open = el.getAttribute('aria-expanded') !== 'true',
     t = el.querySelector('.q-t');
@@ -20115,7 +19744,6 @@ function toggleQuote(el) {
 }
 // The composer's quote line, right under the location line: shown for a LaTeX line pick with text, open if it was opened for
 // this selection. Nothing, and no gap, otherwise.
-/** @param {Selection|null} d */
 function drawComposerQuote(d) {
   const el = $('#c-quote'),
     q = shownQuote(d, META ? META.kind : undefined);
@@ -20221,7 +19849,6 @@ function selectionSnapshot() {
 // composer when they still belong to the pages on screen (same document and build; the box if its page is still there). Never over
 // a newer selection - that one wins. When only the note can come back (the PDF changed), the status line says so.
 // Returns whether anything came back. focus false: the note field does not take the focus (a late undo's answer, save.js).
-/** @param {boolean} [focus] */
 function restoreSelection(snap, focus) {
   if (!snap || COMPOSE.current || COMPOSE.picking || REPICK || !$('#composer').hidden) return false;
   const n = $('#note');
@@ -20266,7 +19893,7 @@ function focusClosed() {
 // The element an input method's composition is open in (compositionstart, not ended since), else null. A composition is over
 // once its element ends it, loses the focus (blur), leaves the document - a field drawn away with no compositionend (a switch
 // of documents, a rebuild) - or a new one starts elsewhere; imeOpen() reads the last two at the moment it is asked.
-let IME_EL = /** @type {Element|null} */ (null);
+let IME_EL = null;
 addEventListener(
   'compositionstart',
   (e) => {
@@ -20307,18 +19934,21 @@ function focusFell() {
 // one in a composer opened since (a save's answer and the pins it reloads come later): with closed - the visit and the
 // composer's intent just after the close (focusClosed) - nothing moves unless both are still those, no composer or pick is
 // open and no input method's composition is (imeOpen).
-/** @param {Selection|null|undefined} d @param {number|null} id @param {{visit:{doc:string|null,seq:number},intent:number}} [closed] */
-function focusPlace(d, id, closed) {
+function focusPlace(
+  d,
+  id,
+  closed,
+) {
   if (closed && !(currentVisit(closed.visit) && COMPOSE.intent === closed.intent)) return;
   if (COMPOSE.current || COMPOSE.picking || !$('#composer').hidden || imeOpen() || !focusFell()) return;
-  const mark = /** @type {HTMLElement|null} */ (
+  const mark = (
     id ? document.querySelector('#doc [data-act="mark-jump"][data-id="' + id + '"]') : null
   );
   if (mark && mark.getClientRects().length) {
     mark.focus({ preventScroll: true });
     return;
   }
-  let at = /** @type {HTMLElement|null} */ (null);
+  let at = null;
   if (d && (d.doc || DOC) === DOC) {
     if (isMdDoc()) {
       const n = typeof d.raw_lo === 'number' ? d.raw_lo : d.lo;
@@ -20329,7 +19959,6 @@ function focusPlace(d, id, closed) {
 }
 // Focuses el without scrolling; an element that takes no focus of its own takes it for as long as it has it (tabindex -1,
 // dropped on blur), as the PDF area does for a search (searchToPage).
-/** @param {HTMLElement} el */
 function focusHold(el) {
   if (!el.hasAttribute('tabindex')) {
     el.tabIndex = -1;
@@ -20367,16 +19996,15 @@ function discardSelection() {
 // clears it; a discard clears it once its undo window is over (DRAFT.holds has that document's undo). Only this tab sees it.
 // The tab owns the debounce timer and the active document's draft key; a discard's undo holds its own document's key.
 const DRAFT = {
-  timer: /** @type {ReturnType<typeof setTimeout>|0} */ (0),
+  timer: 0,
   ready: false,
   holds: new Map(),
-  key: /** @type {string|null} */ (null),
-  origin: /** @type {{key:string|null,value:string|null,current:Selection|null}|null} */ (null),
+  key: null,
+  origin: null,
 };
 // Keep a discarded draft until its undo (note, on the status line) leaves, unless a newer draft replaced it first.
-/** @param {Notice} note */
 function holdDraftUntil(note) {
-  let value = /** @type {string|null} */ (null);
+  let value = null;
   try {
     if (DRAFT.key) value = sessionStorage.getItem(DRAFT.key);
   } catch (e) {}
@@ -20529,8 +20157,8 @@ document.addEventListener('visibilitychange', () => {
 // document is drawn before they come) is newer than the kept one and stays: only the kept note comes into it, when its field
 // is still empty, and the kept selection and suggested edit are dropped.
 function restoreDraft() {
-  let rec = /** @type {any} */ (null),
-    raw = /** @type {string|null} */ (null);
+  let rec = null,
+    raw = null;
   const k = META ? draftKey(META.label, DOC) : null;
   DRAFT.origin = null;
   try {
@@ -20624,7 +20252,7 @@ async function appendToPin(id, text) {
   // The hints go along, as on a new pin and an edit: the pin's own first (its note's tags), then the ones picked for this
   // text - without them a name two people share would tag nobody, while the preview line named whom it tells.
   const mh = [...new Set((prior.mentions || []).concat(mentionHints($('#note'))))],
-    body = /** @type {Record<string, unknown>} */ ({ note_append: text, base_rev: prior.rev || 0 });
+    body = { note_append: text, base_rev: prior.rev || 0 };
   if (mh.length) body.mentions = mh;
   try {
     const { status, data } = await api('/api/pins/' + id + '/edit', {
@@ -20676,17 +20304,16 @@ async function appendToPin(id, text) {
  * also waits while a suggested edit is written (it is saved with a new pin only, renderOverlapBanner). */
 function syncComposeSaveButtons() {
   document.querySelectorAll('#btn-save,[data-act="overlap-append"],[data-act="pop-save"]').forEach((b) => {
-    /** @type {HTMLButtonElement} */ (b).disabled = COMPOSE.saving;
+    (b).disabled = COMPOSE.saving;
   });
   if (suggestPending())
     document.querySelectorAll('[data-act="overlap-append"]').forEach((b) => {
-      /** @type {HTMLButtonElement} */ (b).disabled = true;
+      (b).disabled = true;
     });
   renderVerdictRow();
 } // the verdict buttons wait for the request too, and come back when it ends - a selection picked meanwhile included
 // Undo of an append: the note goes back to what it was before (base_rev = the append's revision). Silent - the card shows it.
 // Resolves with whether it went back (its chip waits for it, noticeAct).
-/** @param {number} id @param {string} note @param {number} rev @returns {Promise<boolean>} */
 async function undoAppend(id, note, rev) {
   let ok = false;
   try {
@@ -20744,13 +20371,11 @@ function clearPendingSave() {
 // not bring the composer back (verdictUndo, D10).
 // Whether stored pin p stands where selection d was saved: on the same page - or, for a selection with no page (a Markdown
 // document's lines, ADR-0025 D2), on the same lines of the same file with no page either. Pure.
-/** @param {Pin} p @param {{page?:number|null,file?:string|null,lo?:number|null,hi?:number|null}} d */
 function samePlace(p, d) {
   if (typeof d.page === 'number') return p.page === d.page;
   return p.page == null && p.file === d.file && p.lo === d.lo && p.hi === d.hi;
 }
-/** Save the submitted selection once, preserving any later edits as a draft and offering undo for the created pin.
- * @param {string} [verdict] */
+/** Save the submitted selection once, preserving any later edits as a draft and offering undo for the created pin. */
 async function savePin(verdict) {
   if (COMPOSE.saving) return;
   if (!COMPOSE.current) {
@@ -20772,7 +20397,7 @@ async function savePin(verdict) {
   COMPOSE.retryVerdict = null;
   if (verdict === undefined && rv && rv.gen === gen && rv.sel === d && KIND_NEW === KIND_REQ.FIX && !SG.on)
     verdict = rv.key;
-  let body = /** @type {Record<string, unknown>} */ ({
+  let body = {
     file: d.file,
     name: d.name,
     page: d.page,
@@ -20788,7 +20413,7 @@ async function savePin(verdict) {
     note: note,
     quote: d.quote,
     pdf_build: d.pdf_build || undefined,
-  });
+  };
   if (d.scope) {
     body.scope = wireScope(d.scope);
     body.kind = kindFor(d.scope, d.env);
@@ -20811,7 +20436,7 @@ async function savePin(verdict) {
   // found place can carry - so it says so and keeps the selection for a retry.
   // The save stays marked as going until the queue has answered: let go before that, a second press while the store
   // was still opening kept the same selection twice, under two keys, and reconnecting wrote two pins.
-  if (/** @type {any} */ (d).offline || offlineNow()) {
+  if ((d).offline || offlineNow()) {
     const done = () => {
       COMPOSE.saving = false;
       syncComposeSaveButtons();
@@ -20882,7 +20507,7 @@ async function savePin(verdict) {
   const top = pvTopId(); // a save whose answer is lost is looked for above it before it is called a failure
   try {
     let status = 0,
-      data = /** @type {any} */ (null);
+      data = null;
     const ask = {
       method: 'POST',
       body,
@@ -20896,7 +20521,7 @@ async function savePin(verdict) {
     try {
       ({ status, data } = await api('/api/pin', ask));
     } catch (e) {
-      const x = /** @type {ApiError} */ (e);
+      const x = e;
       if (x && x.status) throw e;
       // No answer: the pin may be on the server - this person's, on this document and place, this note and verdict, newer than
       // any before the press. Then it is a save (its failure banner goes below), not a failure whose [다시 저장] would make it twice.
@@ -20921,7 +20546,7 @@ async function savePin(verdict) {
           plain &&
           x &&
           x.name === 'AbortError' &&
-          (await offlineQueueSave(d, note, out, mh, { idem: /** @type {string|undefined} */ (body.idem), top }))
+          (await offlineQueueSave(d, note, out, mh, { idem: body.idem, top }))
         ) {
           const failed = BANNERS.get(NOTICE_HOST.COMPOSER);
           if (failed && failed.save) endNotice(failed, false);
@@ -20968,7 +20593,6 @@ async function savePin(verdict) {
     } else clearSavedDraft(draft);
     const after = cleared || restored ? focusClosed() : null; // a composer opened while the pins reload keeps the focus (focusPlace)
     if (SEC_SEEN.open) SEC_SEEN.open.add(id); // my own new pin is never 'new' on a collapsed header
-    /** @type {(run?:NoticeRun)=>Promise<boolean>} */
     const undo = verdict
       ? verdictUndo(id)
       : async (run) => {
@@ -21030,7 +20654,6 @@ async function savePin(verdict) {
 // suggestion's base no longer reads as the selection's lines (suggest_base_changed), the editor shows the lines' current text
 // against the draft and the banner over the save row offers [지금 원문으로 맞추기] (the draft keeps its text and takes that text as
 // its base); any other 409 is said as the failure it is. Either way the save row reads [다시 저장].
-/** @param {Selection} d @param {any} data */
 function suggestSaveRefused(d, data) {
   const source = 'POST /api/pin',
     head = tl('{what} 실패', { what: tr('핀 저장') });
@@ -21045,8 +20668,8 @@ function suggestSaveRefused(d, data) {
     SG.current = {
       text: String(data.current || ''),
       file: d.file || null,
-      lo: /** @type {number} */ (d.lo),
-      hi: /** @type {number} */ (d.hi),
+      lo: d.lo,
+      hi: d.hi,
     };
     renderSuggest(d);
   }
@@ -21121,13 +20744,13 @@ const OFF = {
   saidStale: false,
   boot: true,
   idem: false,
-  staleNote: /** @type {Notice|null|undefined} */ (null),
-  db: /** @type {IDBDatabase|null} */ (null),
+  staleNote: null,
+  db: null,
   following: false,
-  kept: /** @type {any} */ (undefined),
+  kept: undefined,
   keptAt: 0,
-  seen: /** @type {Record<string,{build:string,src:any,kind:any}>} */ ({}),
-  timer: /** @type {ReturnType<typeof setTimeout>|undefined} */ (undefined),
+  seen: {},
+  timer: undefined,
   fails: 0,
   after: 0,
   failSaid: false,
@@ -21136,7 +20759,6 @@ const OFF = {
 };
 // This browser's queue, opened once per page. A browser that refuses IndexedDB (a private window) answers null, and every
 // caller below falls back to saying the pin could not be kept rather than losing it quietly.
-/** @returns {Promise<IDBDatabase|null>} */
 function offDb() {
   if (OFF.db) return Promise.resolve(OFF.db);
   return new Promise((res) => {
@@ -21170,7 +20792,7 @@ function offDb() {
     rq.onblocked = () => res(null);
   });
 }
-/** One operation on a store as a promise; `fn` gets the store and returns its request. @returns {Promise<any>} */
+/** One operation on a store as a promise; `fn` gets the store and returns its request. */
 // A write is done when its transaction has committed, not when its request succeeded: a transaction can still abort
 // after that (the browser out of room at the commit), and the write is rolled back. Answered at the request, a queued
 // pin read as kept, the composer closed on it, and the note was gone. So a write answers null unless it committed.
@@ -21201,11 +20823,11 @@ function offIn(store, mode, fn) {
       }),
   );
 }
-/** One operation on the queue. @returns {Promise<any>} */
+/** One operation on the queue. */
 function offTx(mode, fn) {
   return offIn(OFF_STORE, mode, fn);
 }
-/** Every queued record, oldest first - the order they were written is the order they are sent. @returns {Promise<any[]>} */
+/** Every queued record, oldest first - the order they were written is the order they are sent. */
 function offAll() {
   return offTx('readonly', (s) => s.getAll()).then((v) => (Array.isArray(v) ? v : []));
 }
@@ -21216,11 +20838,9 @@ function offAdd(rec) {
 // A record whose answer never came is looked for in the pin list, and a pin that is in here was written by a different
 // record of this queue - it is not this one's, however alike the two are. Without that, a record that lost its answer
 // while a twin of it was written (the same place, the same note) matched the twin's pin and was deleted unwritten.
-/** @returns {Promise<number[]>} */
 function offWrote() {
   return offIn(OFF_STATE, 'readonly', (s) => s.get(OFF_WROTE)).then((v) => (Array.isArray(v && v.ids) ? v.ids : []));
 }
-/** @param {number} id */
 async function offWroteAdd(id) {
   if (typeof id !== 'number') return;
   const ids = await offWrote();
@@ -21232,7 +20852,6 @@ async function offWroteAdd(id) {
 // one it was attempted after (its `top`), so every number at or below the smallest of those tops is past being
 // needed; an empty queue needs none of them. Capping the list by its length instead would drop the very number a
 // record that waited through many writes still needs.
-/** @param {any[]} rest */
 async function offWroteKeep(rest) {
   const ids = await offWrote();
   if (!ids.length) return;
@@ -21241,7 +20860,7 @@ async function offWroteKeep(rest) {
   const kept = rest.length ? ids.filter((id) => id > floor) : [];
   if (kept.length !== ids.length) await offIn(OFF_STATE, 'readwrite', (s) => s.put({ key: OFF_WROTE, ids: kept }));
 }
-/** Whether this record is still queued - another tab of this browser may have written and dropped it. @returns {Promise<boolean>} */
+/** Whether this record is still queued - another tab of this browser may have written and dropped it. */
 function offHas(id) {
   return offTx('readonly', (s) => s.getKey(id)).then((v) => v !== null && v !== undefined);
 }
@@ -21271,7 +20890,7 @@ function offlineNow() {
 // list, so nothing is drawn and nothing can be dragged. So the last answer to each read of OFF_READS is stored, and a
 // read the network refuses is answered from that store instead of failing - said once on the status line, with when it
 // was read, so a stored list is never taken for the current one.
-/** The store key of a read: its path and query without the cache-busting bits. @returns {string|null} */
+/** The store key of a read: its path and query without the cache-busting bits. */
 function offReadKey(url, o) {
   if (o && o.method && o.method !== 'GET') return null;
   const u = String(url);
@@ -21284,7 +20903,6 @@ function offReadKey(url, o) {
 // server gave as a success, with a body of its own: a read may hand its caller an error it expects to handle (a
 // Markdown document past the drawing limit answers 413 with its reason, md-surface.js), and that answer is not the
 // document. Stored, it would come back on the next visit as a document that opened and was empty.
-/** @param {string} url @param {any} data @param {number} status @param {{method?:string}|null} [o] */
 function offStash(url, data, status, o) {
   // Every answer the network gives passes here, so this is also where the server says what it can do: a meta answer,
   // the light poll's included, carries pin_idem when a write is known by its key (api.md POST /api/pin).
@@ -21300,7 +20918,7 @@ function offStash(url, data, status, o) {
   if (!(status >= 200 && status < 300) || data === null || data === undefined) return;
   void offIn(OFF_STATE, 'readwrite', (s) => s.put({ key, data, status, at: Date.now() }));
 }
-/** The stored answer to a read, or null - never one the server refused. @returns {Promise<{data:any,status:number,at:number}|null>} */
+/** The stored answer to a read, or null - never one the server refused. */
 function offStashed(url, o) {
   const key = offReadKey(url, o);
   if (!key) return Promise.resolve(null);
@@ -21326,7 +20944,7 @@ function offStashed(url, o) {
 // build recorded as kept has every file here (offKeptWith is written only then) and carries the meta it was read with.
 // null when there is nothing to put in its place: an instance never kept, a document not kept, a Markdown or text
 // document (it has no build), a record from before the meta was carried, or the same build. Pure.
-/** @param {any} kept the kept record @param {string} key the read's address @param {any} last the last meta read @returns {{data:any,status:number,at:number}|null} */
+/** @param kept the kept record @param key the read's address @param last the last meta read */
 function offKeptMeta(kept, key, last) {
   if (!kept || !kept.docs || !last || typeof last !== 'object') return null;
   const q = key.indexOf('?') >= 0 ? key.slice(key.indexOf('?') + 1) : '';
@@ -21350,7 +20968,7 @@ function offStaleSaid(at) {
   if (OFF.saidStale) return;
   OFF.saidStale = true;
   const d = new Date(at),
-    two = (/** @type {number} */ n) => String(n).padStart(2, '0');
+    two = (n) => String(n).padStart(2, '0');
   OFF.staleNote = lineNote(
     tl('연결이 없어 {time}에 읽어 둔 화면입니다 — 핀을 찍으면 쌓였다가 연결되면 반영됩니다', {
       time: two(d.getHours()) + ':' + two(d.getMinutes()),
@@ -21377,7 +20995,6 @@ function offlineBack() {
 // ---------------- The service worker
 // The worker is registered for every visit, not only where notifications are allowed (notify.js asks it for those): it is
 // what answers when the network does not. A browser without one still works online, and says so when asked to prepare.
-/** @returns {Promise<ServiceWorkerRegistration|null>} */
 async function offlineWorker() {
   if (!('serviceWorker' in navigator)) return null;
   try {
@@ -21389,7 +21006,6 @@ async function offlineWorker() {
 // One question to the worker, answered on its own port so a replaced worker never leaves this waiting. The wait fits the
 // question: a count comes back at once (3s), files have to be fetched first - over a tailnet from a phone that is not 3s,
 // and a wait that short called a keep that was still going a failure.
-/** @param {{type:string,urls?:string[]}} msg @param {number} [ms] @returns {Promise<any>} */
 async function offlineAsk(msg, ms) {
   const reg = await offlineWorker();
   if (!reg) return null;
@@ -21442,7 +21058,6 @@ async function offlineAskDown() {
 // What the page needs to open with no network: the page itself and everything it has already loaded from this origin
 // (its script /viewer.js, the vendored PDF.js, fonts, KaTeX and the Markdown worker). Nothing is hardcoded, so a
 // change to the vendored files follows along.
-/** @returns {string[]} */
 function offlineUrls() {
   const out = new Set([location.pathname + location.search]);
   try {
@@ -21455,13 +21070,12 @@ function offlineUrls() {
 }
 // The PDF and the page images of document k as its meta m names them - the very addresses the viewer asks for when that
 // document is on screen (pdf-open.js vecOpen, pages.js pageSrc), since a copy is found again by its address. Pure.
-/** @param {string|null} k @param {any} m @returns {string[]} */
 function offlineDocFiles(k, m) {
   const b = (m && m.pages_build) || '',
-    out = /** @type {string[]} */ ([]);
+    out = [];
   if (!b) return out;
   out.push(dq('/pdf?build=' + encodeURIComponent(b) + '&v=' + encodeURIComponent(m.built_at || ''), k));
-  (m.pages || []).forEach((/** @type {any} */ pg) =>
+  (m.pages || []).forEach((pg) =>
     out.push(dq('/pages/' + encodeURIComponent(b) + '/' + encodeURIComponent(pg.name), k)),
   );
   return out;
@@ -21480,7 +21094,7 @@ async function offlinePrepare() {
   if (OFF.prep) return;
   OFF.prep = true;
   const note = lineNote('오프라인용으로 받는 중…', NOTICE_KIND.INFO, null, { life: NOTICE_LIFE.CLICK });
-  const say = (/** @type {string} */ t) => {
+  const say = (t) => {
     if (note && NOTICES.has(note.n)) {
       note.title = t;
       note.desc = '';
@@ -21497,12 +21111,12 @@ async function offlinePrepare() {
     await offKeptSet((v) => v || { key: OFF_KEPT, docs: {}, old: [] }); // the person chose this instance: it follows from now on
     const urls = new Set(offlineUrls()),
       keys = DOCS.length ? DOCS.map((d) => d.key) : [DOC];
-    const got = /** @type {{k:string,entry:any}[]} */ ([]); // each document's entry for the kept record, once its files are known whole
+    const got = []; // each document's entry for the kept record, once its files are known whole
     let docs = 0,
       held = 0,
       lost = 0;
     for (const k of keys) {
-      let m = /** @type {any} */ (null);
+      let m = null;
       const seen = Date.now();
       try {
         m = (await api(dq('/api/meta', k), { what: '화면 정보 읽기', silent: true })).data;
@@ -21569,13 +21183,13 @@ async function offlinePrepare() {
       }
       kept += r.kept || 0;
       failed += (r.failed || []).length;
-      (r.failed || []).forEach((/** @type {string} */ u) => missed.add(u));
+      (r.failed || []).forEach((u) => missed.add(u));
     }
     // A document is recorded as kept only with every one of its files: a build half kept is not one to follow from.
     // What it kept before then goes to the old builds, which the next follow drops unless a queued pin was drawn on it.
     // The meta answers above have already set a follow going (offStash), which drops those old builds.
     for (const g of got)
-      if (g.k && !g.entry.files.some((/** @type {string} */ u) => missed.has(u)))
+      if (g.k && !g.entry.files.some((u) => missed.has(u)))
         await offKeptSet((v) => offKeptWith(v, g.k, g.entry));
     if (note) endNotice(note, false);
     const bad = failed + lost;
@@ -21623,14 +21237,13 @@ const OFF_KEPT = 'kept',
   OFF_RETRY_MAX = 1800000,
   OFF_SAY_AFTER = 3,
   OFF_LOCK = 'limn-offline-follow';
-/** The kept record, or null for an instance never kept. @returns {Promise<any>} */
+/** The kept record, or null for an instance never kept. */
 function offKept() {
   return offIn(OFF_STATE, 'readonly', (s) => s.get(OFF_KEPT)).then((v) => (v && v.docs ? v : null));
 }
 // Changes the kept record in one transaction, read and written together: two tabs of this browser share it, and a
 // change made between another tab's read and its write would be lost. fn gets the record (or null) and answers the
 // new one, or null to leave it. Answers what was written, or null.
-/** @param {(v:any)=>any} fn @returns {Promise<any>} */
 function offKeptUpdate(fn) {
   return offDb().then(
     (db) =>
@@ -21639,7 +21252,7 @@ function offKeptUpdate(fn) {
           res(null);
           return;
         }
-        let out = /** @type {any} */ (null);
+        let out = null;
         try {
           const tx = db.transaction(OFF_STATE, 'readwrite'),
             st = tx.objectStore(OFF_STATE),
@@ -21661,7 +21274,7 @@ function offKeptUpdate(fn) {
       }),
   );
 }
-/** offKeptUpdate, and this tab's copy of the record follows. @param {(v:any)=>any} fn @returns {Promise<any>} */
+/** offKeptUpdate, and this tab's copy of the record follows. */
 async function offKeptSet(fn) {
   const v = await offKeptUpdate(fn);
   if (v) {
@@ -21680,16 +21293,15 @@ function offKeptShow() {
 }
 // What a meta answer says each document is on: the document it answers for and, with several documents, each one's
 // summary - the page build, the source time, the kind. Pure.
-/** @param {any} d @returns {Record<string,{build:string,src:any,kind:any}>} */
 function offSeenIn(d) {
-  const out = /** @type {Record<string,{build:string,src:any,kind:any}>} */ ({});
+  const out = {};
   if (!d || typeof d !== 'object') return out;
-  const put = (/** @type {any} */ x, /** @type {any} */ k) => {
+  const put = (x, k) => {
     if (typeof k === 'string' && k)
       out[k] = { build: x.pages_build || '', src: x.src_mtime ?? null, kind: x.kind || null };
   };
   put(d, d.doc);
-  (Array.isArray(d.docs) ? d.docs : []).forEach((/** @type {any} */ x) => {
+  (Array.isArray(d.docs) ? d.docs : []).forEach((x) => {
     if (x && typeof x === 'object') put(x, x.key);
   });
   return out;
@@ -21697,7 +21309,6 @@ function offSeenIn(d) {
 // The documents whose kept copy is behind what the server shows: a page document on another build (or one not kept yet -
 // a document added to a kept instance is part of it), a Markdown or text document whose source changed. A document with
 // no build has nothing to keep; one the server no longer lists is not looked at. Pure.
-/** @param {any} kept @param {Record<string,{build:string,src:any,kind:any}>} seen @returns {string[]} */
 function offBehind(kept, seen) {
   const docs = (kept && kept.docs) || {};
   return Object.keys(seen).filter((k) => {
@@ -21710,22 +21321,20 @@ function offBehind(kept, seen) {
 // The old builds no queued pin was drawn on: those whose copies may be dropped and whose hold need not be asked again.
 // A record names its document and the build it was drawn on; a record with no document is taken to be drawn on that
 // build in any document - keeping a build too long costs space, dropping it loses the pin's place. Pure.
-/** @param {any[]} old @param {any[]} queue @returns {any[]} */
 function offFree(old, queue) {
   const drawn = (queue || []).filter((r) => r && r.build);
   return (old || []).filter((o) => !drawn.some((r) => r.build === o.build && (!r.doc || r.doc === o.doc)));
 }
 // The holds to ask again: of each document's build and each old build still kept, those last answered OFF_RENEW_MS
 // ago or never. Pure.
-/** @param {any} kept @param {number} now @returns {{doc:string,build:string}[]} */
 function offRenewDue(kept, now) {
-  const out = /** @type {{doc:string,build:string}[]} */ ([]);
+  const out = [];
   if (!kept) return out;
-  const due = (/** @type {any} */ e) => !!e && !!e.build && !e.unheld && !(now - (e.at || 0) < OFF_RENEW_MS);
+  const due = (e) => !!e && !!e.build && !e.unheld && !(now - (e.at || 0) < OFF_RENEW_MS);
   Object.keys(kept.docs || {}).forEach((k) => {
     if (due(kept.docs[k])) out.push({ doc: k, build: kept.docs[k].build });
   });
-  (kept.old || []).forEach((/** @type {any} */ o) => {
+  (kept.old || []).forEach((o) => {
     if (due(o)) out.push({ doc: o.doc, build: o.build });
   });
   return out;
@@ -21736,12 +21345,11 @@ function offRenewDue(kept, now) {
 // a tab fetched is accounted for and dropped in turn - never the build that won, whichever tab fetched it. (Asked in
 // the same millisecond, the later write wins; the next follow sees the server's build and puts it right.) A build kept
 // again leaves the old ones. Pure.
-/** @param {any} kept @param {string} k @param {any} entry @returns {any} */
 function offKeptWith(kept, k, entry) {
   const out = { key: OFF_KEPT, docs: { ...((kept && kept.docs) || {}) }, old: ((kept && kept.old) || []).slice() };
   const cur = out.docs[k] || null;
-  const toOld = (/** @type {any} */ e) => {
-    if (!e || !e.build || out.old.some((/** @type {any} */ o) => o.doc === k && o.build === e.build)) return;
+  const toOld = (e) => {
+    if (!e || !e.build || out.old.some((o) => o.doc === k && o.build === e.build)) return;
     out.old.push({ doc: k, build: e.build, files: e.files || [], at: e.at || 0 });
   };
   if (cur && (cur.seen || 0) > (entry.seen || 0)) {
@@ -21750,29 +21358,27 @@ function offKeptWith(kept, k, entry) {
   }
   if (cur && cur.build !== entry.build) toOld(cur);
   out.docs[k] = entry;
-  out.old = out.old.filter((/** @type {any} */ o) => !(o.doc === k && o.build === entry.build));
+  out.old = out.old.filter((o) => !(o.doc === k && o.build === entry.build));
   return out;
 }
 // The kept record once a follow of document k to build b stopped before b was kept: the files it asked for are noted
 // with the old builds, never held by this browser (unheld - its hold is not asked again), so they are dropped in turn
 // and do not stay on the device unaccounted for. null when there is nothing to note - b is what k keeps. Pure.
-/** @param {any} kept @param {string} k @param {string} b @param {string[]} files @returns {any} */
 function offKeptPart(kept, k, b, files) {
   if (!kept || (kept.docs && kept.docs[k] && kept.docs[k].build === b)) return null;
   const old = (kept.old || []).slice(),
-    i = old.findIndex((/** @type {any} */ o) => o.doc === k && o.build === b);
+    i = old.findIndex((o) => o.doc === k && o.build === b);
   if (i >= 0) old[i] = { ...old[i], files: Array.from(new Set([...(old[i].files || []), ...files])) };
   else old.push({ doc: k, build: b, files: files.slice(), at: 0, unheld: true });
   return { ...kept, old };
 }
 // The kept record with the hold of build b of document k answered at `at`. Pure.
-/** @param {any} kept @param {string} k @param {string} b @param {number} at @returns {any} */
 function offKeptHeld(kept, k, b, at) {
   if (!kept) return null;
   const out = {
     ...kept,
     docs: { ...(kept.docs || {}) },
-    old: (kept.old || []).map((/** @type {any} */ o) => (o.doc === k && o.build === b ? { ...o, at } : o)),
+    old: (kept.old || []).map((o) => (o.doc === k && o.build === b ? { ...o, at } : o)),
   };
   if (out.docs[k] && out.docs[k].build === b) out.docs[k] = { ...out.docs[k], at };
   return out;
@@ -21780,7 +21386,6 @@ function offKeptHeld(kept, k, b, at) {
 // Asks the server to hold build b of document k for days (0 lets it go) -> {at, held}: when it answered, and whether it
 // holds the build. A refusal is an answer with nothing held: an older Limn without the route or a build already gone
 // (404), a role that may not hold (403). null when there was no answer.
-/** @param {string|null} k @param {string} b @param {number} days @returns {Promise<{at:number,held:boolean}|null>} */
 async function offHold(k, b, days) {
   const holder = (await offHolderId()) || undefined;
   try {
@@ -21793,7 +21398,7 @@ async function offHold(k, b, days) {
     });
     return { at: Date.now(), held: r.status === 200 && !!r.data && !!r.data.until };
   } catch (e) {
-    const x = /** @type {ApiError} */ (e),
+    const x = e,
       st = (x && x.status) || 0;
     return st >= 400 && st < 500 ? { at: Date.now(), held: false } : null;
   }
@@ -21802,7 +21407,6 @@ async function offHold(k, b, days) {
 // visit of this browser holds and lets go as one holder, and another device - which has its own - is never let go by
 // this one. Read and made in one transaction: two tabs starting together must end with one name. '' when the store
 // is refused; a hold is then asked with no name, as an older viewer asked it.
-/** @returns {Promise<string>} */
 function offHolderId() {
   if (OFF.me) return Promise.resolve(OFF.me);
   return offDb().then(
@@ -21838,7 +21442,6 @@ function offHolderId() {
   );
 }
 // A meta answer seen: what each document is on is noted, and a follow is set going when one is due.
-/** @param {any} d */
 function offlineFollowSeen(d) {
   const now = offSeenIn(d);
   let moved = false;
@@ -21854,7 +21457,6 @@ function offlineFollowSeen(d) {
 // Nothing at all for an instance never kept, and neither a request nor a store read when nothing is due - this runs on
 // every light poll. moved: something new was seen, which restarts the wait for things to stand still and is a new
 // chance after a failure. A sighting with nothing new leaves a follow already set as it is.
-/** @param {boolean} moved */
 function offFollowCheck(moved) {
   const kept = OFF.kept;
   if (kept === undefined) return; // not read yet: offlineBoot checks once it is
@@ -21920,7 +21522,6 @@ async function offFollowRun() {
 // Follows document k: its meta and outline labels read (and so stored), the files of the build it is on fetched, and
 // that build held - all of it before it is recorded, so the build it kept stays whole until this one is. A Markdown
 // or text document reads its source again. Answers whether it is done.
-/** @param {string} k @returns {Promise<boolean>} */
 async function offFollowDoc(k) {
   let m;
   const seen = Date.now(); // when the server was asked: a reading asked later is the newer one (offKeptWith)
@@ -21964,15 +21565,14 @@ async function offFollowDoc(k) {
 // queue may need that build. A queue that cannot be
 // read drops nothing: read as empty, it would drop the build a waiting pin needs. Nor does a build the server still
 // shows go (one half fetched waits for the next try, the screen may be drawn from it). Answers whether everything went.
-/** @returns {Promise<boolean>} */
 async function offFollowTidy() {
   let ok = true;
   const kept = await offKept();
   if (!kept) return true;
   const queue = await offTx('readonly', (s) => s.getAll());
   if (!Array.isArray(queue)) return false;
-  const shown = (/** @type {any} */ o) => !!OFF.seen[o.doc] && OFF.seen[o.doc].build === o.build;
-  for (const o of offFree(kept.old, queue).filter((/** @type {any} */ o) => !shown(o))) {
+  const shown = (o) => !!OFF.seen[o.doc] && OFF.seen[o.doc].build === o.build;
+  for (const o of offFree(kept.old, queue).filter((o) => !shown(o))) {
     if (offlineNow()) return false;
     const urls = o.files || [];
     if (urls.length && !(await offlineAsk({ type: 'drop', urls }))) {
@@ -21988,8 +21588,7 @@ async function offFollowTidy() {
       continue;
     }
     await offKeptSet(
-      (v) =>
-        v && { ...v, old: (v.old || []).filter((/** @type {any} */ x) => !(x.doc === o.doc && x.build === o.build)) },
+      (v) => v && { ...v, old: (v.old || []).filter((x) => !(x.doc === o.doc && x.build === o.build)) },
     );
   }
   for (const h of offRenewDue(await offKept(), Date.now())) {
@@ -22005,7 +21604,6 @@ async function offFollowTidy() {
 }
 // After a follow: a success clears the failures; a follow the connection cut short is not a failure of its own. A
 // failure waits longer each time before the next try, and is said once a visit when it keeps failing.
-/** @param {boolean} ok */
 function offFollowDone(ok) {
   if (ok) {
     OFF.fails = 0;
@@ -22035,7 +21633,6 @@ function offFollowDone(ok) {
 // The words inside the dragged box, read from the PDF this tab already has open (PDF.js, the same text the search reads).
 // The server's own quote comes from pdftotext at pick time; this one only has to say what was pinned while the answer is
 // still hours away, and the pick's quote replaces it when the pin is written.
-/** @param {number} page @param {{x0:number,y0:number,x1:number,y1:number}} rect @returns {Promise<string>} */
 async function offlineQuote(page, rect) {
   if (!VEC.doc) return '';
   try {
@@ -22050,9 +21647,8 @@ async function offlineQuote(page, rect) {
 // An item counts when its run crosses the box and the middle of its line is inside it. Judged by where the item
 // starts alone, a line that begins at the margin and runs through the box was left out - which is most lines, so
 // the quote came back empty. Cut at 160 characters the way the server cuts its own (159 and an ellipsis). Pure.
-/** @param {any[]} items @param {number} pageH @param {{x0:number,y0:number,x1:number,y1:number}} rect @returns {string} */
 function quoteIn(items, pageH, rect) {
-  const out = /** @type {string[]} */ ([]);
+  const out = [];
   (items || []).forEach((it) => {
     const t = it && it.transform;
     if (!t || typeof it.str !== 'string' || !it.str.trim()) return;
@@ -22068,13 +21664,12 @@ function quoteIn(items, pageH, rect) {
 // A drag whose pick could not be sent: the box stays and the composer opens on a selection with no lines - the same shape a
 // view-only PDF's region selection has (isRegion), so the range ladder, the source snippet, a suggested edit and a verdict
 // are all off, and [핀 저장] has only the page, the box and the words to keep. Its lines are found when the queue is sent.
-/** @param {{page:number,x0:number,y0:number,x1:number,y1:number,frac:number[],pdf_build?:string,doc?:string}} r */
 async function offlinePick(r) {
   const seq = PICKSEQ,
     rect = { x0: r.x0, y0: r.y0, x1: r.x1, y1: r.y1 },
     quote = await offlineQuote(r.page, rect);
   if (seq !== PICKSEQ) return; // a newer drag or a cancel owns the composer now
-  const sel = /** @type {any} */ ({
+  const sel = {
     kind: 'region',
     page: r.page,
     frac: r.frac,
@@ -22100,8 +21695,8 @@ async function offlinePick(r) {
     snippet: '',
     n_lines: 0,
     default_level: null,
-  });
-  COMPOSE.current = /** @type {Selection} */ (sel);
+  };
+  COMPOSE.current = sel;
   COMPOSE.intent++;
   COMPOSE.picking = false;
   COMPOSE.dismissedOverlap = null;
@@ -22123,8 +21718,13 @@ async function offlinePick(r) {
 // tried is given for a save that was sent and got no answer (save.js): the record is kept as one whose write was
 // attempted - under the key the save went with, if it had one, and with the newest pin that stood before it - so the
 // send asks for it before it writes it.
-/** @param {Selection} d @param {string} note @param {{kind:string|null,assignee:string|null}} out @param {string[]} mentions @param {{idem?:string,top:number}} [tried] @returns {Promise<boolean>} */
-async function offlineQueueSave(d, note, out, mentions, tried) {
+async function offlineQueueSave(
+  d,
+  note,
+  out,
+  mentions,
+  tried,
+) {
   if (OFF.n >= OFF_MAX) {
     bannerNote(
       NOTICE_HOST.COMPOSER,
@@ -22146,8 +21746,8 @@ async function offlineQueueSave(d, note, out, mentions, tried) {
   // holds. The record keeps those lines' own text, so the send can tell whether they still read the same - and find
   // them again when lines were only added or removed above them.
   const lined = found && typeof d.page !== 'number' && MD.doc === (d.doc || DOC);
-  const lo = /** @type {number} */ (d.lo),
-    hi = /** @type {number} */ (d.hi);
+  const lo = d.lo,
+    hi = d.hi;
   const rec = {
     v: 1,
     label: META ? META.label : '',
@@ -22242,11 +21842,11 @@ function offlineKey() {
 // same lines at the same numbers are that place. Else the one place in the source where those very lines stand
 // together - text was added or removed above them, the common change - is. Lines that changed, or that stand in two
 // places, have no place this can vouch for. Pure.
-/** @param {string[]} lines the source now @param {{lo:number,text:string}} want the kept lines @returns {{lo:number,hi:number}|null} */
+/** @param lines the source now @param want the kept lines */
 function linesWhere(lines, want) {
   const text = String(want.text).split('\n'),
     n = text.length;
-  const same = (/** @type {number} */ lo) => {
+  const same = (lo) => {
     for (let i = 0; i < n; i++) if (lines[lo - 1 + i] !== text[i]) return false;
     return true;
   };
@@ -22263,13 +21863,12 @@ function linesWhere(lines, want) {
 }
 // The place a kept Markdown or text record is written at: its lines as the source reads now (linesWhere), in the shape
 // offlineBody takes. 'net' when the source could not be asked for (the record waits), null when the lines are gone.
-/** @param {any} rec @returns {Promise<any>} */
 async function offlinePlaceLines(rec) {
   let r;
   try {
     r = await api(dq('/api/source', rec.doc), { what: '원문 읽기', silent: true, expect: [413] });
   } catch (e) {
-    const x = /** @type {ApiError} */ (e),
+    const x = e,
       st = (x && x.status) || 0;
     return st >= 400 && st < 500 ? null : 'net';
   }
@@ -22291,7 +21890,6 @@ async function offlinePlaceLines(rec) {
 // The drag a record holds, in the PDF points pick reads: the box kept with it, or the one its page fractions and that
 // page's size on the build make - the same product selection.js sends when the drag happens. Null when the record has
 // neither, which is the one case nothing can be placed from (a box of zeros would resolve to the page's corner). Pure.
-/** @param {any} rec @returns {{x0:number,y0:number,x1:number,y1:number}|null} */
 function offlineBox(rec) {
   if (rec.rect) return rec.rect;
   const f = rec.frac,
@@ -22302,10 +21900,9 @@ function offlineBox(rec) {
 // The pin body a found place and a kept record make, the same whitelist POST /api/pin takes (api.md §핀 추가). A pick
 // that answered with no file is a region answer - a view-only PDF, or a figure element with no code behind it - and
 // that pin is its page and box, as savePin sends one.
-/** @param {any} rec @param {any} d @returns {Record<string, unknown>} */
 function offlineBody(rec, d) {
   if (!d.file) {
-    const region = /** @type {Record<string, unknown>} */ ({
+    const region = {
       page: d.page,
       frac: d.frac || rec.frac,
       note: rec.note,
@@ -22314,13 +21911,13 @@ function offlineBody(rec, d) {
       doc: rec.doc || undefined,
       kind_req: rec.kind_req,
       assignee: rec.assignee,
-    });
+    };
     if ((rec.mentions || []).length) region.mentions = rec.mentions;
     if (rec.idem) region.idem = rec.idem;
     if (d.el) figureFields(region, d.el, null); // a figure pick: its element, and the element's box as the pin's (as savePin sends one)
     return region;
   }
-  const body = /** @type {Record<string, unknown>} */ ({
+  const body = {
     file: d.file,
     name: d.name,
     page: d.page,
@@ -22340,7 +21937,7 @@ function offlineBody(rec, d) {
     doc: rec.doc || undefined,
     kind_req: rec.kind_req,
     assignee: rec.assignee,
-  });
+  };
   if (d.scope) body.scope = d.scope;
   if ((rec.mentions || []).length) body.mentions = rec.mentions;
   if (rec.idem) body.idem = rec.idem;
@@ -22355,7 +21952,6 @@ function offlineBody(rec, d) {
 }
 // Two boxes are the same box: every number within a millionth of the page, the tolerance a whole-page verdict target
 // is read with (domain.md §판정 대상). Pure.
-/** @param {unknown} a @param {unknown} b */
 function fracSame(a, b) {
   if (!Array.isArray(a) || !Array.isArray(b) || a.length < 4 || b.length < 4) return false;
   for (let i = 0; i < 4; i++) if (!(Math.abs(a[i] - b[i]) <= 1e-6)) return false;
@@ -22369,7 +21965,6 @@ function fracSame(a, b) {
 // deliberate pins may be alike in every field this reads, and only one of them is that pin. Nor is a pin that was
 // already there when this record was attempted (rec.top, as pvLanded reads its own lost answer): whatever that pin
 // is, it is not the write this record made afterwards.
-/** @param {any} rec @param {any} d @param {Set<number>} claimed @returns {number} */
 function offlineLanded(rec, d, claimed) {
   const f = d.el && Array.isArray(d.el.frac) ? d.el.frac : d.frac || rec.frac; // a figure pin's box is its element's (offlineBody)
   const top = typeof rec.top === 'number' ? rec.top : 0;
@@ -22411,7 +22006,7 @@ async function offlineFlush() {
     OFF.flushing = false;
     return;
   }
-  const saved = /** @type {number[]} */ ([]),
+  const saved = [],
     claimed = new Set(await offWrote());
   let held = 0,
     failed = 0;
@@ -22458,7 +22053,7 @@ async function offlineFlush() {
       // or text document are looked for in its source as it reads now. The lines a pick once answered are never
       // written: the manuscript moves while a person is away, and writing them would anchor the pin to whatever
       // stands at those numbers now.
-      let d = /** @type {any} */ (null);
+      let d = null;
       if (rec.lines) {
         d = await offlinePlaceLines(rec);
         if (d === 'net') {
@@ -22536,7 +22131,7 @@ async function offlineFlush() {
           saved.push(data && data.id);
           await offDel(rec.id);
         } catch (e) {
-          const x = /** @type {ApiError} */ (e),
+          const x = e,
             st = (x && x.status) || 0;
           if (st >= 400 && st < 500) {
             rec.sent = false;
@@ -22588,7 +22183,7 @@ async function offlineFlush() {
         saved.push(data && data.id);
         await offDel(rec.id);
       } catch (e) {
-        const x = /** @type {ApiError} */ (e);
+        const x = e;
         const st = (x && x.status) || 0;
         if (st >= 400 && st < 500) {
           rec.sent = false;
@@ -22680,17 +22275,16 @@ addEventListener('online', () => {
 /** A record just dropped ([버리기]) or taken back ([다시 찍기], redo: its note text went to the composer), standing as its undo
  * row until its window ends: NOTICE_MS from `from` (its start, again when a mouse leaves it), held while a mouse is on the row
  * (hover), never past NOTICE_HOLD_MAX beyond its first window (`at`).
- * @typedef {{rec:any,redo:boolean,text:string,at:number,from:number,t:ReturnType<typeof setTimeout>|undefined,busy:boolean,hover:boolean}} OffUiUndo */
+ *  */
 const OFFUI = {
-  all: /** @type {any[]} */ ([]),
+  all: [],
   open: true,
-  undos: /** @type {Map<number,OffUiUndo>} */ (new Map()),
-  flashT: /** @type {ReturnType<typeof setTimeout>|0} */ (0),
+  undos: new Map(),
+  flashT: 0,
 };
 
 // Whether frac is a box on the page: four finite numbers, the box inside the page with some size. A record from another
 // version of this viewer, or one written by hand, must not draw a frame off the page. Pure.
-/** @param {unknown} f @returns {boolean} */
 function offUiFrac(f) {
   if (!Array.isArray(f) || f.length < 4) return false;
   if (!f.slice(0, 4).every((v) => typeof v === 'number' && Number.isFinite(v))) return false;
@@ -22702,7 +22296,6 @@ function offUiFrac(f) {
 // here, on the build on screen - its box is that build's - and on a page this document has), `old` (here, drawn on another
 // build: listed, not drawn). doc is the document on screen, defaultDoc the one a record with no document belongs to, build
 // the build on screen, nPages its page count. Pure.
-/** @param {any[]} all @param {string} doc @param {string} defaultDoc @param {string} build @param {number} nPages */
 function offUiRows(all, doc, defaultDoc, build, nPages) {
   const rows = (Array.isArray(all) ? all : [])
     .filter((r) => r && typeof r === 'object')
@@ -22726,7 +22319,6 @@ function offUiRows(all, doc, defaultDoc, build, nPages) {
 }
 // Why a held record is held: the reason it carries, or - an empty one - the reason a held record always has (offline.js
 // writes this one when it has no other). '' for a record that waits. Pure but for tr.
-/** @param {any} rec @returns {string} */
 function offUiWhy(rec) {
   if (!rec || !rec.held) return '';
   const w = String(rec.why || '').trim();
@@ -22734,7 +22326,6 @@ function offUiWhy(rec) {
 }
 // Where a record was pinned, as the row and the mark's tip say it: '3쪽', a line pin's 'intro.md 12–14줄' (one line:
 // '12줄'), '' when it says neither. Pure but for tl.
-/** @param {any} rec @returns {string} */
 function offUiPlace(rec) {
   const L = rec && rec.lines;
   if (rec && rec.page == null && L && typeof L === 'object') {
@@ -22753,7 +22344,6 @@ function offUiPlace(rec) {
   return rec && Number.isInteger(rec.page) && rec.page >= 1 ? tl('{page}쪽', { page: rec.page }) : '';
 }
 // A one-line excerpt of text: its white space folded, cut at n characters with an ellipsis. Pure.
-/** @param {unknown} s @param {number} n @returns {string} */
 function offUiClip(s, n) {
   const t = String(s == null ? '' : s)
     .replace(/\s+/g, ' ')
@@ -22761,7 +22351,7 @@ function offUiClip(s, n) {
   return t.length > n ? t.slice(0, n - 1) + '…' : t;
 }
 
-/** @param {any[]} all every queued record, oldest first (offline.js offAll) */
+/** @param all every queued record, oldest first (offline.js offAll) */
 function offlineUiSync(all) {
   OFFUI.all = Array.isArray(all) ? all : [];
   offUiDraw();
@@ -22780,7 +22370,6 @@ function offUiDraw() {
 // The marks: one dotted frame per queued record drawn on the page on screen, under the saved pins' marks' own layer
 // (they are drawn into the same page box, after them). The frame lets every press through to the page, as a saved mark
 // does - a drag over it is a new selection; only its badge takes a press, which brings the panel's row into view.
-/** @param {ReturnType<typeof offUiRows>} rows */
 function offUiMarks(rows) {
   $$('.qmark').forEach((m) => m.remove());
   rows.forEach((r) => {
@@ -22816,7 +22405,6 @@ function offUiMarks(rows) {
 // whenever there is a connection to send on.
 // A record dropped or taken back a moment ago keeps its place in the order as its undo row (offUiUndoRow) while that lasts,
 // so the section stays while one stands even with the queue empty.
-/** @param {ReturnType<typeof offUiRows>} rows */
 function offUiList(rows) {
   const sec = $('#sec-queue');
   if (!sec) return;
@@ -22834,7 +22422,7 @@ function offUiList(rows) {
   );
   $('#queue-toggle').setAttribute('aria-expanded', String(OFFUI.open));
   $('#queue-body').hidden = !OFFUI.open;
-  const here = (/** @type {any} */ rec) => ((rec.doc || DEFAULT_DOC) === (DOC || DEFAULT_DOC) ? 0 : 1);
+  const here = (rec) => ((rec.doc || DEFAULT_DOC) === (DOC || DEFAULT_DOC) ? 0 : 1);
   const items = rows
     .map((r) => ({ rec: r.rec, h: offUiRow(r) }))
     .concat(undos.map((u) => ({ rec: u.rec, h: offUiUndoRow(u) })))
@@ -22845,7 +22433,6 @@ function offUiList(rows) {
 // One row: its state (a clock and '대기', or a triangle and '보류' with its reason - words, never the colour alone), where
 // it was pinned (a link to that page; another document's row names that document and goes there), the words it was drawn
 // over, its note, and its two actions. A long note is folded to three lines by CSS; the whole of it stays in the row.
-/** @param {ReturnType<typeof offUiRows>[number]} r */
 function offUiRow(r) {
   const rec = r.rec,
     id = rec.id,
@@ -22875,7 +22462,6 @@ ${q ? html`<p class="q-quote" translate="no">${q}</p>` : ''}\
 // The undo of a drop or a take-back, in the row's place (docs/handbook/viewer.md §알림 자리, an undo stays where the action
 // was): the dashed undo row of the list, its words, [되돌리기] (busy while the record is put back) and [x]. The status line
 // is not its place: there the kept pins' own count comes before every message, so the undo stood behind '+N'.
-/** @param {OffUiUndo} u */
 function offUiUndoRow(u) {
   const id = u.rec.id,
     place = offUiPlace(u.rec),
@@ -22889,28 +22475,24 @@ function offUiUndoRow(u) {
 
 // The keyboard focus on one of the section's buttons, as its action and record, so a redraw gives it back (a redraw comes
 // whenever the queue is read, which another tab or a send may cause at any time).
-/** @returns {{q:string,id:string}|null} */
 function offUiFocus() {
-  const a = /** @type {HTMLElement|null} */ (document.activeElement);
+  const a = document.activeElement;
   return a && a.closest && a.closest('#sec-queue') && a.dataset.q ? { q: a.dataset.q, id: a.dataset.qid || '' } : null;
 }
-/** @param {{q:string,id:string}|null} f */
 function offUiFocusBack(f) {
   if (!f) return;
   const a = document.activeElement;
   if (a && a !== document.body && document.contains(a)) return;
-  const b = /** @type {HTMLElement|null} */ (
-    $('#sec-queue').querySelector('[data-q="' + f.q + '"]' + (f.id ? '[data-qid="' + f.id + '"]' : ''))
+  const b = $('#sec-queue').querySelector(
+    '[data-q="' + f.q + '"]' + (f.id ? '[data-qid="' + f.id + '"]' : ''),
   );
   if (b) b.focus({ preventScroll: true });
 }
 
-/** @param {number} id @returns {any} */
 function offUiRec(id) {
   return OFFUI.all.find((r) => r && r.id === id) || null;
 }
 // Shows the row of record id in the panel: opens the panel and the section, scrolls the row into view and flashes it.
-/** @param {number} id */
 function offUiReveal(id) {
   setSide(true);
   if (!OFFUI.open) {
@@ -22918,7 +22500,7 @@ function offUiReveal(id) {
     offUiDraw();
   }
   requestAnimationFrame(() => {
-    const row = /** @type {HTMLElement|null} */ (document.querySelector('.qrow[data-qid="' + id + '"]'));
+    const row = document.querySelector('.qrow[data-qid="' + id + '"]');
     if (!row) return;
     row.scrollIntoView({ behavior: scrollMotion(), block: 'nearest' });
     row.classList.remove('flash');
@@ -22929,7 +22511,6 @@ function offUiReveal(id) {
   });
 }
 // A row's place: this document's page (and its mark, flashed), or another document, switched to.
-/** @param {any} rec */
 function offUiGo(rec) {
   const k = rec.doc || DEFAULT_DOC;
   if (k !== (DOC || DEFAULT_DOC)) {
@@ -22939,7 +22520,7 @@ function offUiGo(rec) {
   if (LAYOUT === LAYOUT_MODE.NARROW) setSide(false); // the sheet folds first so the page is not under it
   marksShow();
   arrivePage(rec.page);
-  const m = /** @type {HTMLElement|null} */ (document.querySelector('.qmark[data-qid="' + rec.id + '"]'));
+  const m = document.querySelector('.qmark[data-qid="' + rec.id + '"]');
   if (m) {
     m.classList.remove('flash');
     void m.offsetWidth;
@@ -22948,7 +22529,6 @@ function offUiGo(rec) {
 }
 // [버리기]: the record goes now and is never sent. Its undo row stands in its place (offUiUndoRow) and puts the record back
 // as it was - its key is its id, so it takes its place in the order again.
-/** @param {any} rec @param {HTMLElement} btn */
 async function offUiDrop(rec, btn) {
   if (offUiBusy()) return;
   const had = document.activeElement === btn;
@@ -22962,7 +22542,6 @@ async function offUiDrop(rec, btn) {
 // the next drag (or join the selection already open). A note already being written is not overwritten: the person saves
 // or discards it first. Another document's record switches to that document first - its draft is that document's.
 // A record that may already be a pin on the server (sent, no answer) is not taken back.
-/** @param {any} rec @param {HTMLElement} btn */
 async function offUiRedo(rec, btn) {
   if (offUiBusy()) return;
   const k = rec.doc || DEFAULT_DOC,
@@ -22984,7 +22563,7 @@ async function offUiRedo(rec, btn) {
     await switchDoc(k);
     if ((DOC || DEFAULT_DOC) !== k) return;
   }
-  const n = /** @type {HTMLTextAreaElement} */ ($('#note')),
+  const n = $('#note'),
     text = String(rec.note || '');
   if (n.value.trim() && n.value.trim() !== text.trim()) {
     lineNote('작성 중인 메모가 있습니다 — 저장하거나 버린 뒤 다시 찍으세요', NOTICE_KIND.WARN, null, {
@@ -23018,18 +22597,16 @@ function offUiBusy() {
 }
 
 // ---------------- The undo rows' windows
-/** @param {any} rec @param {boolean} redo @param {string} text */
 function offUiUndoStart(rec, redo, text) {
   const old = OFFUI.undos.get(rec.id);
   if (old) clearTimeout(old.t);
   const now = Date.now(),
-    u = /** @type {OffUiUndo} */ ({ rec, redo, text, at: now, from: now, t: undefined, busy: false, hover: false });
+    u = { rec, redo, text, at: now, from: now, t: undefined, busy: false, hover: false };
   OFFUI.undos.set(rec.id, u);
   offUiArm(u);
 }
 // The row's window: NOTICE_MS, or - while a mouse is on it - until it leaves, but never past NOTICE_HOLD_MAX beyond the
 // first window (notices.js armNotice, the same rule for every undo). Stopped while its record is being put back.
-/** @param {OffUiUndo} u */
 function offUiArm(u) {
   clearTimeout(u.t);
   u.t = undefined;
@@ -23042,7 +22619,6 @@ function offUiArm(u) {
   );
 }
 // The window is over (or [x]): the row goes. A focus on it goes to the row now in its place's neighbourhood, else the head.
-/** @param {number} id */
 function offUiUndoEnd(id) {
   const u = OFFUI.undos.get(id);
   if (!u) return;
@@ -23051,24 +22627,22 @@ function offUiUndoEnd(id) {
   const a = document.activeElement,
     row = a && a.closest ? a.closest('#queue-rows>[data-undo]') : null,
     inIt = !!row && row.getAttribute('data-qid') === String(id);
-  const sib =
-    inIt && row ? /** @type {HTMLElement|null} */ (row.nextElementSibling || row.previousElementSibling) : null;
+  const sib = inIt && row ? ((row.nextElementSibling || row.previousElementSibling)) : null;
   offUiDraw();
   if (inIt) {
-    const b = /** @type {HTMLElement|null} */ (
-      (sib && sib.isConnected && sib.querySelector('button')) || (!$('#sec-queue').hidden && $('#queue-toggle')) || null
-    );
+    const b = ((sib && sib.isConnected && sib.querySelector('button')) ||
+      (!$('#sec-queue').hidden && $('#queue-toggle')) ||
+      null);
     if (b) b.focus({ preventScroll: true });
   }
 }
 // [되돌리기]: the record goes back into the queue as it was. A take-back's note leaves the composer with it - unless it is no
 // longer the same note there (written on, or already saved with a drag): then the record would make a second pin, so it is
 // not put back and the line says why.
-/** @param {number} id */
 async function offUiUndo(id) {
   const u = OFFUI.undos.get(id);
   if (!u || u.busy) return;
-  const n = /** @type {HTMLTextAreaElement} */ ($('#note')),
+  const n = $('#note'),
     inIt =
       !!document.activeElement &&
       !!document.activeElement.closest &&
@@ -23105,22 +22679,19 @@ async function offUiUndo(id) {
     return;
   }
   if (inIt) {
-    const b = /** @type {HTMLElement|null} */ (
-      $('#sec-queue').querySelector('.qrow[data-qid="' + id + '"] [data-q="' + (u.redo ? 'redo' : 'drop') + '"]')
+    const b = $('#sec-queue').querySelector(
+      '.qrow[data-qid="' + id + '"] [data-q="' + (u.redo ? 'redo' : 'drop') + '"]',
     );
     if (b) b.focus({ preventScroll: true });
   }
 }
-/** @param {number} id */
 function offUiFocusUndo(id) {
-  const b = /** @type {HTMLElement|null} */ (
-    $('#sec-queue').querySelector('[data-undo][data-qid="' + id + '"] [data-q="undo"]')
-  );
+  const b = $('#sec-queue').querySelector('[data-undo][data-qid="' + id + '"] [data-q="undo"]');
   if (b) b.focus({ preventScroll: true });
 }
 
 $('#sec-queue').addEventListener('click', (e) => {
-  const b = /** @type {HTMLElement|null} */ (/** @type {HTMLElement} */ (e.target).closest('button'));
+  const b = (e.target).closest('button');
   if (!b) return;
   if (b.id === 'queue-toggle') {
     OFFUI.open = !OFFUI.open;
@@ -23148,7 +22719,7 @@ $('#queue-rows').addEventListener(
   'pointermove',
   (e) => {
     if (e.pointerType !== 'mouse') return;
-    const r = /** @type {HTMLElement|null} */ (/** @type {HTMLElement} */ (e.target).closest('[data-undo]'));
+    const r = (e.target).closest('[data-undo]');
     const u = r ? OFFUI.undos.get(Number(r.dataset.qid)) : undefined;
     if (u && !u.hover) {
       u.hover = true;
@@ -23158,9 +22729,9 @@ $('#queue-rows').addEventListener(
   { passive: true },
 );
 $('#queue-rows').addEventListener('pointerout', (e) => {
-  const r = /** @type {HTMLElement|null} */ (/** @type {HTMLElement} */ (e.target).closest('[data-undo]'));
+  const r = (e.target).closest('[data-undo]');
   if (!r) return;
-  const to = /** @type {Node|null} */ (e.relatedTarget);
+  const to = e.relatedTarget;
   if (to && r.contains(to)) return;
   const u = OFFUI.undos.get(Number(r.dataset.qid));
   if (u && u.hover) {
@@ -23174,14 +22745,14 @@ $('#queue-rows').addEventListener('pointerout', (e) => {
 $('#doc').addEventListener(
   'pointerdown',
   (e) => {
-    if (/** @type {HTMLElement} */ (e.target).closest('.qmark-jump')) e.stopPropagation();
+    if ((e.target).closest('.qmark-jump')) e.stopPropagation();
   },
   true,
 );
 $('#doc').addEventListener(
   'mousedown',
   (e) => {
-    if (/** @type {HTMLElement} */ (e.target).closest('.qmark-jump')) {
+    if ((e.target).closest('.qmark-jump')) {
       e.stopPropagation();
       e.preventDefault();
     }
@@ -23189,7 +22760,7 @@ $('#doc').addEventListener(
   true,
 );
 $('#doc').addEventListener('click', (e) => {
-  const b = /** @type {HTMLElement|null} */ (/** @type {HTMLElement} */ (e.target).closest('.qmark-jump'));
+  const b = (e.target).closest('.qmark-jump');
   if (!b) return;
   offUiReveal(Number(b.dataset.qid));
 });
@@ -23208,7 +22779,6 @@ new MutationObserver(() => offUiDraw()).observe($('#doc'), { childList: true });
 const VD_ARM_MS = 4000; // how long a confirm word's first press waits for its second (D9)
 // The verdict words of document doc (default: the one on screen): the full meta's for the document on screen (it is read with
 // the document), else its /api/docs entry's; null without usable words.
-/** @param {string|null} [doc] @returns {DocVerdicts|null} */
 function docVerdicts(doc) {
   const k = doc === undefined ? DOC : doc,
     m = META && (!k || META.doc === k) ? META.verdicts : undefined,
@@ -23218,7 +22788,6 @@ function docVerdicts(doc) {
 }
 // The page verdict line is drawn for a document whose words say page: true (the server sets it only for a figure document
 // or a view-only PDF): the words, else null.
-/** @returns {DocVerdicts|null} */
 function pageVerdictsOn() {
   if (isMdDoc()) return null;
   const v = docVerdicts();
@@ -23231,7 +22800,6 @@ function canVerdict() {
 }
 // A pin's verdict key, or null: a stored value counts only when it is key-shaped, as the server reads it (pins/verdict.py
 // verdict_of: 1-16 letters, digits, '-' or '_'). Pure.
-/** @param {Pin|null|undefined} p @returns {string|null} */
 function verdictOf(p) {
   const v = p && p.verdict;
   return typeof v === 'string' && /^[\p{L}\p{N}_-]{1,16}$/u.test(v) ? v : null;
@@ -23239,14 +22807,12 @@ function verdictOf(p) {
 // The name a verdict key is shown by: its word's label in the word file of document doc (default: the one on screen) - a card
 // of another document under [모든 문서] names its own document's word - else the key itself (a word the file no longer
 // declares stays the pin's verdict).
-/** @param {string} key @param {string|null} [doc] @returns {string} */
 function verdictLabel(key, doc) {
   const v = docVerdicts(doc),
     c = v && v.choices.find((x) => x.key === key);
   return c ? c.label : key;
 }
 // A card's verdict badge, '판정 채택' (the question badge's shape; the words carry the meaning, no colour of its own), or null.
-/** @param {Pin} p */
 function verdictBadge(p) {
   const k = verdictOf(p);
   if (!k) return null;
@@ -23256,7 +22822,6 @@ function verdictBadge(p) {
 // A verdict card's target by name, so a person finds the figure they gave a verdict: on a figure document the figure it is
 // about (figureRootOf) - its title in the map ('[후보] PL26 · …') while the page it is on still shows it, else '그림 <id>'.
 // null for any other pin or document: a view-only PDF's page and a LaTeX range are in the card's head already.
-/** @param {Pin} p */
 function verdictTarget(p) {
   if (!verdictOf(p) || !isFigureKind(docKindOf(pdoc(p)))) return null;
   const root = figureRootOf(p);
@@ -23271,7 +22836,6 @@ function verdictTarget(p) {
 // ('#4와 같은 범위' between two verdicts on one figure only repeats the order the line gives). Anywhere no line replaces it
 // (page false, no usable word file, a card of another document under [모든 문서]) the badge stays, as do a verdict pin's
 // overlaps with ordinary pins and ordinary pins' own. The pin itself, or a copy with the shorter rel.
-/** @param {Pin} p @returns {Pin} */
 function pvQuietRel(p) {
   if (!verdictOf(p) || !p.rel || !p.rel.length || (DOC && pdoc(p) !== DOC) || !pageVerdictsOn()) return p;
   const t = pageTargetOf(p, META ? META.kind : undefined),
@@ -23285,7 +22849,6 @@ function pvQuietRel(p) {
 const WHOLE_PAGE = [0, 0, 1, 1];
 // The figure a figure document's pin is about: the root of its element's path (el.path[0]). A figure document is one figure a
 // page, so a pin on any of its elements is about that figure (ADR-0022 D1). null without an element path.
-/** @param {Pin} p @returns {string|null} */
 function figureRootOf(p) {
   const el = p.el,
     r = el && Array.isArray(el.path) ? el.path[0] : null;
@@ -23294,7 +22857,6 @@ function figureRootOf(p) {
 // The page figure `root` is on now: by the map's page facts (meta pages[].figure) for the document on screen - null when the
 // build's map no longer has that figure - else, without those facts (another document, a map that does not load), the page
 // pin p's element is on in this build unless the build lost it.
-/** @param {string} root @param {Pin} p @returns {number|null} */
 function figurePageOf(root, p) {
   const pages = META && (!DOC || pdoc(p) === DOC) && Array.isArray(META.pages) ? META.pages : null;
   if (pages && pages.some((x) => typeof x.figure === 'string')) {
@@ -23305,7 +22867,6 @@ function figurePageOf(root, p) {
 }
 // Whether page `page` of the document on screen takes a verdict: every page but one its figure map marks verdict: false (a
 // list, a question or a removed-figure page) - no page line, no composer verdict there.
-/** @param {number} page */
 function pageTakesVerdict(page) {
   const pg = META && Array.isArray(META.pages) ? META.pages[page - 1] : null;
   return !(pg && pg.verdict === false);
@@ -23314,7 +22875,6 @@ function pageTakesVerdict(page) {
 // figure its element belongs to (figureRootOf: el.path[0], whatever element of it the pin names), on the page that figure is
 // on now (figurePageOf); on a view-only PDF a region pin over the whole page (each frac value within 1e-6 of [0, 0, 1, 1])
 // placed on this PDF (est false). null for any other pin, and always on a LaTeX document. Pure but for the page lookups.
-/** @param {Pin} p @param {string|undefined} kind @returns {{page:number,id:string}|null} */
 function pageTargetOf(p, kind) {
   if (isFigureKind(kind)) {
     const root = figureRootOf(p),
@@ -23326,7 +22886,6 @@ function pageTargetOf(p, kind) {
   return f.every((v, i) => Math.abs(v - WHOLE_PAGE[i]) <= 1e-6) ? { page: p.page, id: 'page ' + p.page } : null;
 }
 // The kind of document doc: the meta's for the document on screen, else its /api/docs entry's.
-/** @param {string} doc @returns {string|undefined} */
 function docKindOf(doc) {
   return (!DOC || doc === DOC) && META ? META.kind : (docInfo(doc) || {}).kind;
 }
@@ -23338,7 +22897,6 @@ function docKindOf(doc) {
 // be resolved (a PDF region that is not its whole page, a figure pin without an element path, a lost line). Lines are only
 // a candidate: the server re-matches an open pin's lines to the text now, never a closed one's, so two pins with the same
 // key are about the same lines only when both are open or both were saved on the same text (sameLines).
-/** @param {Pin} p @param {string|undefined} kind @returns {VerdictTarget|null} */
 function verdictTargetOf(p, kind) {
   const t = pageTargetOf(p, kind);
   if (t) return { key: 'whole ' + t.id, whole: true, page: t.page, lines: null };
@@ -23366,7 +22924,6 @@ function verdictTargetOf(p, kind) {
 // It is JSON with every object's keys in one order (jsonSortedKeys), so two anchors are one string exactly when they are the
 // same JSON value, as the server's anchor_key compares them (limn.pins.verdict, #303): a hand-edited offset that is an object
 // is one whatever order its keys were written in, and the list [0] and the string "[0]", or true and 1, stay apart.
-/** @param {Pin} p @returns {string|null} */
 function anchorKey(p) {
   const a = p.anchor;
   return a && typeof a.head === 'string' && typeof a.tail === 'string'
@@ -23375,10 +22932,9 @@ function anchorKey(p) {
 }
 // A JSON.stringify replacer that writes each object with its keys sorted - after the integer-like keys, which a JavaScript
 // object always puts first in their numeric order - and an array or any other value as it is.
-/** @param {string} _k @param {unknown} v @returns {unknown} */
 function jsonSortedKeys(_k, v) {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return v;
-  const o = /** @type {Record<string,unknown>} */ (v);
+  const o = v;
   return Object.fromEntries(
     Object.keys(o)
       .sort()
@@ -23388,20 +22944,18 @@ function jsonSortedKeys(_k, v) {
 // Whether two pins on the same file and line numbers are about the same lines: both open (their lines are matched to the text
 // now), or both saved on the same text (one anchor). A closed pin's numbers may be from an older text; without a shared
 // anchor it is only its own target - never superseded, never another pin's current verdict.
-/** @param {VerdictTarget} a @param {VerdictTarget} b */
 function sameLines(a, b) {
   const x = a.lines,
     y = b.lines;
   return !x || !y || (x.open && y.open) || (!!x.anchor && x.anchor === y.anchor);
 }
-let VO_CACHE = /** @type {{lists:unknown[],by:Map<string,VerdictOrder>}} */ ({ lists: [], by: new Map() });
+let VO_CACHE = { lists: [], by: new Map() };
 // The verdict order of document doc (D4, docs/handbook/domain.md §순서): its verdict pins that are not deleted - open, awaiting
 // review (one whose [확인] waits for its undo too: it leaves the review list at once, but it is still a verdict, while the list
 // still has it - applyPinLists) and done - by resolved target (verdictTargetOf), newest (largest number) first, and for every
 // pin its current verdict: its target's newest pin (on lines, the newest that sameLines says is about the same lines). The page
 // verdict line (pageVerdictPins) and a card's '이전 판정' marker (verdictSuperseder) both read this one order, so they never
 // disagree. Built once per change of the lists (an index, not a scan per card).
-/** @param {string} doc @returns {VerdictOrder} */
 function verdictOrder(doc) {
   const lists = [OPEN_ALL, REVIEW_ALL, DONE_ALL, CONFIRMING_PIN.size, META && META.kind, DOCS];
   if (VO_CACHE.lists.length !== lists.length || VO_CACHE.lists.some((x, i) => x !== lists[i]))
@@ -23409,7 +22963,7 @@ function verdictOrder(doc) {
   const hit = VO_CACHE.by.get(doc);
   if (hit) return hit;
   const kind = docKindOf(doc),
-    groups = /** @type {Map<string,{t:VerdictTarget,all:{p:Pin,t:VerdictTarget}[]}>} */ (new Map()),
+    groups = new Map(),
     seen = new Set();
   for (const p of OPEN_ALL.concat(REVIEW_ALL, DONE_ALL, [...CONFIRMING_PIN.values()])) {
     if (seen.has(p.id) || pdoc(p) !== doc || !verdictOf(p)) continue;
@@ -23420,7 +22974,7 @@ function verdictOrder(doc) {
     g.all.push({ p, t });
     groups.set(t.key, g);
   }
-  const out = /** @type {VerdictOrder} */ ({ groups: new Map(), cur: new Map() });
+  const out = { groups: new Map(), cur: new Map() };
   groups.forEach((g, key) => {
     g.all.sort((a, b) => b.p.id - a.p.id);
     g.all.forEach((x) => {
@@ -23435,9 +22989,8 @@ function verdictOrder(doc) {
 }
 // The verdict pins about each page's whole target on the document on screen, in the verdict order (verdictOrder), by page. A
 // page whose pins name two figures (a re-render moved one away) keeps the figure of its newest pin.
-/** @returns {Map<number,Pin[]>} */
 function pageVerdictPins() {
-  const out = /** @type {Map<number,Pin[]>} */ (new Map());
+  const out = new Map();
   verdictOrder(DOC || DEFAULT_DOC).groups.forEach((g) => {
     if (!g.whole) return;
     const had = out.get(g.page);
@@ -23447,7 +23000,6 @@ function pageVerdictPins() {
 }
 // The current verdict that supersedes verdict pin p - the newest verdict about p's target when that is not p - or null: p is
 // the current one, not a verdict pin, or its target cannot be resolved.
-/** @param {Pin} p @returns {Pin|null} */
 function verdictSuperseder(p) {
   if (!verdictOf(p)) return null;
   const c = verdictOrder(pdoc(p)).cur.get(p.id);
@@ -23455,7 +23007,6 @@ function verdictSuperseder(p) {
 }
 // A card's marker for a superseded verdict: '이전 판정 · #4로 대체됨', the number a link (the viewer's link look) to the current
 // verdict's card. Neutral: a badge with no colour of its own - the words carry it. null for a current verdict or another pin.
-/** @param {Pin} p */
 function verdictOldMarker(p) {
   const cur = verdictSuperseder(p);
   if (!cur) return null;
@@ -23471,10 +23022,9 @@ data-act="pin-ref" data-ref="${id}" aria-label="${tl('지금 판정 #{id} 카드
 }
 // The ids of the pins a page verdict line shows now (drawPageVerdicts): their page-size mark is not drawn and their card's
 // [보기] goes to the line (marks, jumpPin).
-let PV_SHOWN = /** @type {Set<number>} */ (new Set());
+let PV_SHOWN = new Set();
 let PV_KEYS = 0; // the page whose line the keys 1-5 act on (pvKeysPage), 0 for none
 // A pin's state on the line: what the dot would say, in the line's words. The pin is the page target's newest verdict.
-/** @param {Pin} p */
 function pvStateWord(p) {
   const st = pinState(p);
   if (st === PIN_STATE.REVIEW || CONFIRMING.has(p.id)) return tr('검토 대기');
@@ -23485,17 +23035,13 @@ function pvStateWord(p) {
 // ---------------- Two presses for a confirm word (D9)
 // The armed first press: the word, where (VD_WHERE) and - on a page line - the page, with the document, build and (in the
 // composer) selection it is bound to; null when nothing is armed.
-let VD_ARM =
-  /** @type {{key:string,label:string,where:string,page:number,doc:string|null,build:string,sel:string,kbd:boolean,timer:ReturnType<typeof setTimeout>}|null} */ (
-    null
-  );
+let VD_ARM = null;
 // What the composer's selection is, for the binding: its page, lines, rung, box and element.
 function vdSelKey() {
   const d = COMPOSE.current;
   return d ? JSON.stringify([d.page, d.lo, d.hi, d.scope, d.frac, d.elSel && d.elSel.id]) : '';
 }
 // Whether the armed press is this word's button.
-/** @param {string} key @param {string} where @param {number} page */
 function vdArmedHere(key, where, page) {
   const a = VD_ARM;
   return !!a && a.key === key && a.where === where && (where === VD_WHERE.COMPOSER || a.page === page);
@@ -23507,14 +23053,12 @@ function vdArmStill(a) {
   );
 }
 // What an armed word says while it waits, with how long it waits: '삭제 — 4초 안에 한 번 더 누르면 저장합니다'.
-/** @param {string} label */
 function vdArmSaid(label) {
   return tl('{word} — {sec}초 안에 한 번 더 누르면 저장합니다', { word: label, sec: VD_ARM_MS / 1000 });
 }
 // Arms word key's button: it reads '<낱말> 확정' for VD_ARM_MS, a screen reader hears that the next press saves and within
 // how long (vdArmSaid), and a page line says so beside it (pvLineHtml .pv-arm). kbd: armed by a key (verdictKey), which also
 // lets it go when the reading page changes (pvStick).
-/** @param {string} key @param {string} where @param {number} page @param {string} label @param {boolean} [kbd] */
 function armVerdict(key, where, page, label, kbd) {
   disarmVerdict(false);
   VD_ARM = {
@@ -23535,7 +23079,6 @@ function armVerdict(key, where, page, label, kbd) {
 // Nothing keeps saying it waits: when it goes by itself, by Esc or by a press elsewhere (say) a screen reader hears so -
 // '삭제 확정을 풀었습니다' replaces '… 한 번 더 누르면 저장합니다' -, and otherwise (its second press saves, a new document or
 // build) that sentence is taken out of the live region; a description box still up for it closes.
-/** @param {boolean} redraw @param {boolean} [say] */
 function disarmVerdict(redraw, say) {
   const a = VD_ARM;
   if (!a) return;
@@ -23549,7 +23092,6 @@ function disarmVerdict(redraw, say) {
     if (r && r.textContent === vdArmSaid(a.label)) r.textContent = '';
   }
 }
-/** @param {string} where */
 function vdRedraw(where) {
   if (where === VD_WHERE.COMPOSER) renderVerdictRow();
   else drawPageVerdicts();
@@ -23561,9 +23103,7 @@ window.addEventListener(
   'click',
   (e) => {
     if (!VD_ARM || Date.now() < SWALLOW_CLICK) return;
-    const b = /** @type {HTMLElement|null} */ (
-      /** @type {HTMLElement} */ (e.target).closest('[data-act="verdict-save"],[data-act="pv-save"]')
-    );
+    const b = (e.target).closest('[data-act="verdict-save"],[data-act="pv-save"]');
     if (!(b && vdArmedHere(b.dataset.key || '', vdWhereOf(b), Number(b.dataset.page) || 0))) disarmVerdict(true, true);
   },
   true,
@@ -23578,7 +23118,6 @@ window.addEventListener(
   },
   true,
 );
-/** @param {HTMLElement} b */
 function vdWhereOf(b) {
   return b.dataset.act === 'verdict-save' ? VD_WHERE.COMPOSER : VD_WHERE.PAGE;
 }
@@ -23615,8 +23154,16 @@ const PV_KEY_MARKS = matchMedia('(hover:hover) and (pointer:fine)');
 PV_KEY_MARKS.addEventListener('change', () => {
   if (META) drawPageVerdicts();
 });
-/** @param {VerdictChoice} c @param {string} where @param {number} page @param {string} target @param {boolean} off @param {number} [kn] @param {boolean} [quiet] @param {number} [pr] */
-function vdButton(c, where, page, target, off, kn, quiet, pr) {
+function vdButton(
+  c,
+  where,
+  page,
+  target,
+  off,
+  kn,
+  quiet,
+  pr,
+) {
   const armed = vdArmedHere(c.key, where, page),
     line = where !== VD_WHERE.COMPOSER,
     on = line && !!pr && !armed;
@@ -23653,7 +23200,6 @@ ${on ? ic('check') : ''}<span class="lbl">${armed ? tl('{word} 확정', { word: 
 // pressed word carries a check before its word and is described by the line's state line (pvOnHint, aria-describedby).
 const PV_PRESS = Object.freeze({ NONE: 0, MINE: 1, OTHER: 2, HANDLED: 3, SAVING: 4 });
 // Gives the focus back to the button it was on after a redraw (an armed press redraws its buttons).
-/** @param {HTMLElement|null} f */
 function vdRefocus(f) {
   if (!f || document.contains(f) || !f.dataset || !f.dataset.act) return;
   const sel = f.dataset.ref
@@ -23665,14 +23211,13 @@ function vdRefocus(f) {
       '"][data-page="' +
       (f.dataset.page || '0') +
       '"]';
-  const b = /** @type {HTMLElement|null} */ (document.querySelector(sel));
+  const b = document.querySelector(sel);
   if (b) b.focus({ preventScroll: true });
 }
 // A press on a verdict button: a confirm word arms on the first press and saves on the second while what it is bound to
 // holds; any other word saves at once - the composer's through savePin, a page line's through pvPress. how: 'key' for a
 // digit key (verdictKey, or one in an empty reason field), 'kb' for a click the keyboard made (Enter or Space on the
 // button); a page line's save from either opens its reason popover with the focus.
-/** @param {HTMLElement} b @param {string} [how] */
 function verdictPress(b, how) {
   const key = b.dataset.key || '',
     where = vdWhereOf(b),
@@ -23685,7 +23230,7 @@ function verdictPress(b, how) {
     return;
   }
   if (c.confirm && !(vdArmedHere(key, where, page) && VD_ARM && vdArmStill(VD_ARM))) {
-    const f = /** @type {HTMLElement|null} */ (document.activeElement);
+    const f = document.activeElement;
     armVerdict(key, where, page, c.label, how === 'key');
     vdRefocus(f && f.closest && f.closest('.vd-btns') ? f : null);
     return;
@@ -23704,13 +23249,12 @@ function verdictPress(b, how) {
 //   second pin of the word that is current. Right after it was taken back the same word waits PV_CANCEL_MS
 //   (PV_TOGGLE_HOLD): a double press takes back one verdict and does not save it again.
 // - Any other word saves (savePageVerdict), a confirm word on its second press.
-/** @param {VerdictChoice} c @param {number} page @param {string} [how] */
 function pvPress(c, page, how) {
   const key = c.key,
     where = VD_WHERE.PAGE,
     armed = vdArmedHere(key, where, page) && !!VD_ARM && vdArmStill(VD_ARM);
   const arm = () => {
-    const f = /** @type {HTMLElement|null} */ (document.activeElement);
+    const f = document.activeElement;
     hideTip(); // no box over the armed word (it says its wait beside it)
     armVerdict(key, where, page, c.label, how === 'key');
     vdRefocus(f && f.closest && f.closest('.vd-btns') ? f : null);
@@ -23765,7 +23309,6 @@ function pvPress(c, page, how) {
 }
 // What a line's current verdict p is to this person, as a pressed word (PV_PRESS): their own open one, someone else's, or a
 // handled one (검토 대기, 처리됨, or one whose [확인] waits for its undo).
-/** @param {Pin} p */
 function pvPressOf(p) {
   return pvCanCancel(p)
     ? PV_PRESS.MINE
@@ -23777,7 +23320,6 @@ function pvPressOf(p) {
 // ---------------- The composer's verdict row
 // What the selection is, for a button's name: on a figure document the figure it is saved for (figureName), else its page's
 // region, else its file and lines.
-/** @param {Selection} d */
 function selTarget(d) {
   const fr = figureVerdictRoot(d);
   if (fr) return figureName(d.page, fr);
@@ -23785,7 +23327,6 @@ function selTarget(d) {
 }
 // A figure's name for a person: its title in the map (meta pages[].title, '[후보] PL26 · …'), else '그림 <id>', with its page:
 // '5쪽 · [후보] PL26 · …'. The title is only taken while that page still shows the figure.
-/** @param {number} page @param {string} root */
 function figureName(page, root) {
   const pg = META && Array.isArray(META.pages) ? META.pages[page - 1] : null,
     t = pg && pg.figure === root && pg.title ? pg.title : '';
@@ -23793,14 +23334,12 @@ function figureName(page, root) {
 }
 // A figure's short name: its map title ('[후보] PL26 · …') while page `page` still shows it, else its id. For the composer's
 // lead, the floating line and the status line's undo, which say which figure a verdict is for before and after the press.
-/** @param {number} page @param {string} root */
 function figureShort(page, root) {
   const pg = META && Array.isArray(META.pages) ? META.pages[page - 1] : null;
   return pg && pg.figure === root && pg.title ? pg.title : root;
 }
 // What page `page`'s verdict is about, by a short name: on a figure document its figure (figureShort of the map's figure),
 // else the page ('7쪽').
-/** @param {number} page */
 function pageTargetShort(page) {
   const pg = META && Array.isArray(META.pages) ? META.pages[page - 1] : null;
   return META && isFigureKind(META.kind) && pg && typeof pg.figure === 'string'
@@ -23809,7 +23348,6 @@ function pageTargetShort(page) {
 }
 // The figure a figure document's selection d is about - the root of its element's path - or null: not a figure document,
 // or a pick without an element (a map it could not read).
-/** @param {Selection|null} d @returns {string|null} */
 function figureVerdictRoot(d) {
   if (!d || !isFigureKind(docKindOf(d.doc || DOC || ''))) return null;
   const el = d.elSel || d.el;
@@ -23821,7 +23359,6 @@ function figureVerdictRoot(d) {
 // page's whole target, as a page line's press saves it. The root's rung of the pick's ladder when it has one (its lines,
 // element and kind), else a region over the whole page naming the root (an element drawn without code, whose answer has
 // no ladder). null when the selection is not about a figure (figureVerdictRoot): it is saved as it is.
-/** @param {Selection} d @returns {Record<string, unknown>|null} */
 function figureVerdictBody(d) {
   const root = figureVerdictRoot(d);
   if (!root) return null;
@@ -23884,7 +23421,7 @@ function renderVerdictRow() {
         : SG.on
           ? tr('판정을 저장하려면 [제안 수정]을 끕니다')
           : '';
-  const f = /** @type {HTMLElement|null} */ (document.activeElement),
+  const f = document.activeElement,
     inRow = !!f && row.contains(f);
   // On a figure document the lead says whose verdict it is - the selected element's figure, by name ('· PL35 … 전체') -
   // whatever element is selected: a panel that shows another figure is still this page's figure's verdict.
@@ -23910,7 +23447,6 @@ ${why ? html`<span class="vd-why" id="c-verdict-why">${why}</span>` : ''}`,
 // A word group that wraps (the 280px panel in English with a word armed) keeps every button at its own width, left-aligned
 // (.wrapped): stretched to share the row, a lone last word ran across the whole second row. Measured after drawing and when
 // the row's width changes; the class changes how the buttons grow, never where they wrap, so it never measures itself again.
-/** @param {Element|null} g */
 function vdWrapFit(g) {
   if (!g) return;
   const tops = new Set([...g.children].map((b) => Math.round(b.getBoundingClientRect().top)));
@@ -23947,7 +23483,6 @@ function verdictDropped() {
 // The undo of a verdict pin's save (D10): the pin goes again - a withdrawn request - and the composer does not come back. When
 // an agent claimed or closed it meanwhile it still goes, and the status line says its run may have started - one
 // sentence with no ' — ', so the folded line shows all of it.
-/** @param {number} id @returns {()=>Promise<boolean>} */
 // A reason draft typed for it is not written to the withdrawn pin; it stays kept, and the status line offers [되돌리기],
 // which brings the verdict back with it ('판정 #42 채택 저장 되돌림 · 쓰던 이유 보관 — <대상>'). Without one the undo is
 // quiet as before - pressing the word again is the same.
@@ -24004,7 +23539,6 @@ function verdictUndo(id) {
 // region over the whole page naming the figure, the root of that element's path, as the composer's verdict saves it
 // (figureVerdictBody, ADR-0022 D2); on a view-only PDF the region answer as it is. null when a figure page's answer names
 // no element (its map could not be read). Pure but for the figure helpers.
-/** @param {any} d @param {string|undefined} kind @returns {Record<string, unknown>|null} */
 function pageVerdictBody(d, kind) {
   const root = (el) => !!el && Array.isArray(el.path) && el.path.length === 1 && el.path[0] === el.id;
   if (isFigureKind(kind)) {
@@ -24048,21 +23582,21 @@ function pageVerdictBody(d, kind) {
 }
 // A page line's pending state is keyed by its document and page (pvSlot): a save held on one document's page must not hold,
 // queue or end the same page number's line of another document.
-/** @param {number} page @param {string|null} [doc] - default: the document on screen */
+/** @param [doc] - default: the document on screen */
 function pvSlot(page, doc) {
   return (doc === undefined ? DOC || '' : doc || '') + '\u0001' + page;
 }
-const PV_BUSY = /** @type {Map<string,string>} */ (new Map()); // the page lines whose verdict is being saved (pvSlot), with the word it saves
+const PV_BUSY = new Map(); // the page lines whose verdict is being saved (pvSlot), with the word it saves
 // The press made on a line while its save was out, by line (pvSlot) - the last one: applied when that save is done (pvPress).
-const PV_NEXT = /** @type {Map<string,{key:string,how:string}>} */ (new Map());
+const PV_NEXT = new Map();
 // The lines whose save out was a digit key's (pvSlot): Enter on any control of that line then means the reason, one intent with
 // the key (pvReasonEnterKey). On the word the focus rests on it pressed that word: a second verdict, over the one being saved.
-const PV_KEY_OUT = /** @type {Set<string>} */ (new Set());
+const PV_KEY_OUT = new Set();
 // A line whose word was just taken back by pressing it again (pvSlot): that word waits until then (a double press takes back one).
-const PV_TOGGLE_HOLD = /** @type {Map<string,{key:string,until:number}>} */ (new Map());
+const PV_TOGGLE_HOLD = new Map();
 // A page line's last failed save, by page: said on the line that was pressed (pvLineHtml) as well as on the status line, until
 // the next press on that line or another document or build. The document and build it was for come with it.
-const PV_ERR = /** @type {Map<number,{text:string,doc:string|null,build:string}>} */ (new Map());
+const PV_ERR = new Map();
 // The reason after a page line's save - its popover, drafts kept per pin, its writes - is verdict-reason.js (PV_REASON).
 // The key marks follow the focus: off on every line while a text field has it - digits typed there are text, the reason
 // field's included (pvKeysPage). (Another document closes the popover through pvReasonSync - or
@@ -24088,16 +23622,16 @@ document.addEventListener('focusout', () => pvStickSoon());
 // focus and its click. A press whose window loses the focus or is hidden (another app, a tab switch) lets it go at once: let
 // go outside the window, it has no pointerup or pointercancel here, and the fold stayed.
 let PV_POP_PRESS = false;
-let PV_PRESS_HOLD = /** @type {(()=>void)|null} */ (null); // the press holding the fold: drops its own wait without letting go
+let PV_PRESS_HOLD = null; // the press holding the fold: drops its own wait without letting go
 function pvTypingSync() {
-  const a = /** @type {HTMLElement|null} */ (document.activeElement),
-    l = a && a.closest ? /** @type {HTMLElement|null} */ (a.closest('#doc .pv')) : null,
+  const a = document.activeElement,
+    l = a && a.closest ? (a.closest('#doc .pv')) : null,
     b = document.body;
   const pop = !!a && !!a.closest && !!a.closest('#doc .pv>.pv-pop'),
     on = (!!l && typingNow()) || (b.classList.contains('pv-typing') && (pop || PV_POP_PRESS));
   if (b.classList.contains('pv-typing') === on) return;
   b.classList.toggle('pv-typing', on);
-  const r = l || /** @type {HTMLElement|null} */ (document.querySelector('#doc .pv.reading'));
+  const r = l || (document.querySelector('#doc .pv.reading'));
   if (r) pvFit([r]);
 }
 document.addEventListener('focusin', pvTypingSync);
@@ -24105,7 +23639,7 @@ document.addEventListener('focusout', () => setTimeout(pvTypingSync, 0));
 document.addEventListener(
   'pointerdown',
   (e) => {
-    const t = /** @type {HTMLElement|null} */ (e.target);
+    const t = e.target;
     if (!(
       t &&
       t.closest &&
@@ -24114,7 +23648,7 @@ document.addEventListener(
       return;
     if (PV_PRESS_HOLD) PV_PRESS_HOLD(); // an earlier press still waiting: this one holds the fold now
     PV_POP_PRESS = true;
-    let timer = /** @type {ReturnType<typeof setTimeout>|undefined} */ (undefined);
+    let timer = undefined;
     const drop = () => {
       clearTimeout(timer);
       window.removeEventListener('click', late);
@@ -24154,7 +23688,6 @@ document.addEventListener(
 // target's name, with the visit it was made in. A save runs on these - not on the document on screen when it runs - so a
 // press made before switching documents is saved, and one queued meanwhile is too (pvPress, savePageVerdict). null when the
 // page is not there.
-/** @param {number} page @returns {{doc:string|null,kind:string|undefined,build:string,w:number,h:number,target:string,visit:any}|null} */
 function pvSaveCtx(page) {
   const pg = META && META.pages[page - 1];
   if (!META || !pg) return null;
@@ -24169,10 +23702,9 @@ function pvSaveCtx(page) {
   };
 }
 // The current verdict of page `page` on document doc - one not on screen too: the verdict order holds every document's.
-/** @param {string|null} doc @param {number} page @returns {Pin|null} */
 function pvCurOn(doc, page) {
   if (doc === DOC || (!doc && !DOC)) return (pageVerdictPins().get(page) || [])[0] || null;
-  let best = /** @type {Pin|null} */ (null);
+  let best = null;
   verdictOrder(doc || DEFAULT_DOC).groups.forEach((g) => {
     if (g.whole && g.page === page && (!best || best.id < g.pins[0].id)) best = g.pins[0];
   });
@@ -24184,7 +23716,6 @@ function pvTopId() {
 }
 // A verdict pin this person saved with word key about page `page` of document doc since pin number top - a save whose
 // answer was lost may have landed: it is read again before the press is called a failure, or pressed again (a duplicate).
-/** @param {string|null} doc @param {number} page @param {string} key @param {number} top @param {string|undefined} kind @returns {Pin|null} */
 function pvLanded(doc, page, key, top, kind) {
   return (
     OPEN_ALL.find(
@@ -24212,7 +23743,7 @@ function pvLanded(doc, page, key, top, kind) {
 // saves ('보류 저장 중…') and presses wait in PV_NEXT; the last of them is applied after it - also after a switch away and
 // back, on the document it was pressed on - unless that word is the page's verdict by then. No save opens the reason
 // popover: the line offers [이유 추가], and 'Enter 이유 쓰기' while the keys act on it.
-/** @param {number} page @param {string} key @param {boolean} [kb] - pressed from the keyboard: the focus goes to the line's way to the reason @param {ReturnType<typeof pvSaveCtx>} [ctx0] */
+/** @param [kb] - pressed from the keyboard: the focus goes to the line's way to the reason */
 async function savePageVerdict(page, key, kb, ctx0) {
   const ctx = ctx0 || pvSaveCtx(page);
   if (!ctx) return;
@@ -24220,11 +23751,11 @@ async function savePageVerdict(page, key, kb, ctx0) {
   if (PV_BUSY.has(slot)) return;
   const visit = ctx.visit,
     here = () => DOC === ctx.doc;
-  const fail = (/** @type {string} */ text) => {
+  const fail = (text) => {
     if (here()) PV_ERR.set(page, { text, doc: ctx.doc, build: ctx.build });
   };
   // Said on the status line with what it was for, result first, and under the pressed line.
-  const failed = (/** @type {string} */ why) => {
+  const failed = (why) => {
     lineNote(tl('판정 저장 실패 · {why} — {target}', { why, target: ctx.target }), NOTICE_KIND.ERR, null, {
       source: 'page-verdict',
       literal: true,
@@ -24239,7 +23770,7 @@ async function savePageVerdict(page, key, kb, ctx0) {
   // else meanwhile (another page's word, a '#N' link, the panel): a redraw that puts it back on the same word's button is no move.
   let away = false;
   const moved = (e) => {
-    const t = /** @type {HTMLElement} */ (e.target);
+    const t = e.target;
     if (!(t && t.dataset && t.dataset.act === 'pv-save' && t.dataset.key === key && t.dataset.page === String(page)))
       away = true;
   };
@@ -24298,7 +23829,7 @@ async function savePageVerdict(page, key, kb, ctx0) {
     try {
       id = (await api('/api/pin', { method: 'POST', body, what: '판정 저장', silent: true })).data.id;
     } catch (e) {
-      const x = /** @type {ApiError} */ (e);
+      const x = e;
       if (x && x.status && x.status < 500) throw e; // no answer, or a 5xx (it may have been written first): the list says whether it landed
       await loadPins();
       const got = pvLanded(ctx.doc, page, key, top, ctx.kind);
@@ -24324,7 +23855,7 @@ async function savePageVerdict(page, key, kb, ctx0) {
     settleChip(chip);
     if (here()) pvOnShow(page);
   } catch (e) {
-    const x = /** @type {ApiError} */ (e);
+    const x = e;
     if (!saved) failed(x && x.status ? (x.data && errText(x.data)) || 'HTTP ' + x.status : tr('서버에 닿지 않습니다'));
   } finally {
     document.removeEventListener('focusin', moved);
@@ -24338,8 +23869,8 @@ async function savePageVerdict(page, key, kb, ctx0) {
     pvReasonSettle(slot, saved ? got : 0, key); // one moved away from meanwhile: written on this verdict wherever the person is now
     drawPageVerdicts();
     if (currentVisit(visit) && kb && !away) {
-      const c = /** @type {HTMLElement|null} */ (
-        document.querySelector('#doc .pv[data-page="' + page + '"] [data-act="pv-reason-open"]')
+      const c = document.querySelector(
+        '#doc .pv[data-page="' + page + '"] [data-act="pv-reason-open"]',
       );
       if (c && saved) c.focus({ preventScroll: true });
       else pvRefocus(page, key);
@@ -24366,7 +23897,6 @@ async function savePageVerdict(page, key, kb, ctx0) {
 // '6쪽 · PL17' (the map title's head before its first ' · ', a leading tag such as '[후보]' moved to the rest; else the figure
 // id) - and the rest of the title, cut first ('[후보] 다섯 비교 쌍의 월별 효과 — …'). Next to the buttons a cut down to '6쪽 · …'
 // no longer said which figure a press decides. A view-only PDF's page is its page alone.
-/** @param {number} page @returns {{id:string,rest:string}} */
 function pvFigParts(page) {
   const pg = META && Array.isArray(META.pages) ? META.pages[page - 1] : null,
     at = tl('{page}쪽', { page });
@@ -24384,14 +23914,11 @@ function pvFigParts(page) {
 // Gives the focus back to word key's button on page `page`'s line after its save: the pressed button was disabled and redrawn
 // while the request ran, which dropped the focus. Not when the person put the focus somewhere else meanwhile (savePageVerdict
 // watches for that) or it is on something now.
-/** @param {number} page @param {string} key */
 function pvRefocus(page, key) {
   const a = document.activeElement;
   if (a && a !== document.body && document.contains(a)) return;
-  const b = /** @type {HTMLButtonElement|null} */ (
-    document.querySelector(
-      '#doc .pv[data-page="' + page + '"] [data-act="pv-save"][data-key="' + CSS.escape(key) + '"]',
-    )
+  const b = document.querySelector(
+    '#doc .pv[data-page="' + page + '"] [data-act="pv-save"][data-key="' + CSS.escape(key) + '"]',
   );
   if (b && !b.disabled && b.getAttribute('aria-disabled') !== 'true') b.focus({ preventScroll: true });
 }
@@ -24399,24 +23926,22 @@ function pvRefocus(page, key) {
 // Whether the line offers [판정 취소] on verdict pin p, its page's current verdict: the person's own (isMe), still open - not
 // yet handled; a handled one's card still offers [지우기] - to a person who may make a verdict (no agent, D16, nor a
 // viewer). A pin whose [확인] waits for its undo is not open.
-/** @param {Pin} p */
 function pvCanCancel(p) {
   return !!verdictOf(p) && canVerdict() && isMe(p.author) && pinState(p) === PIN_STATE.OPEN && !CONFIRMING.has(p.id);
 }
 const PV_CANCEL_MS = 800; // after a cancel on a page, how long that page's next [판정 취소] waits (a double press never takes two)
-const PV_CANCEL_HOLD = /** @type {Map<string,number>} */ (new Map()); // line (pvSlot) -> until when its [판정 취소] waits
+const PV_CANCEL_HOLD = new Map(); // line (pvSlot) -> until when its [판정 취소] waits
 // The lines whose take-back is out: Enter and Space on them do nothing until it answers (pvOffPageKey). What the focus rests on is
 // what the line shows meanwhile, the verdict before it: Enter there opened a reason for it, or took that one back too. An answer
 // that does not come must not leave the line deaf: past PV_DROP_WAIT the keys are back and the status line says so; the late
 // answer is still taken (its message, its [되돌리기]), but the focus has moved on by then and stays. The value says whose wait it is.
-const PV_DROP_OUT = /** @type {Map<string,number>} */ (new Map());
+const PV_DROP_OUT = new Map();
 let PV_DROP_WAIT = NOTICE_ACT_WAIT; // the bound a status-line action's request has (notices.js noticeAct)
 // A verdict a [되돌리기] brought back (a take-back's, the save chip's): when it is its line's current verdict again its kept reason
 // draft opens (pvReasonRevive); when a newer verdict came meanwhile - someone else's - it is restored but superseded, the
 // status line says so ('판정 #21 채택 되살림 · 지금 판정은 Bob의 #34 보류 — <대상>') and no popover opens over that line - its
 // kept draft, which no line would mark on a verdict that is not current, becomes the page's draft, said with [보기]
 // (pvReasonUncancelDraft).
-/** @param {number} id */
 function pvAfterRestore(id) {
   const p = findAnyPin(id),
     t = p ? pageTargetOf(p, META ? META.kind : undefined) : null,
@@ -24444,9 +23969,8 @@ function pvAfterRestore(id) {
 }
 // The take-backs whose [되돌리기] the line offers too, by line (pvSlot): the pin and its status-line message - the offer lasts
 // as long as that message (its window, or its action).
-const PV_LINE_UNDO = /** @type {Map<string,{id:number,n:number}>} */ (new Map());
+const PV_LINE_UNDO = new Map();
 // The line's [되돌리기]: the status line's action runs (noticeAct), as if pressed there.
-/** @param {HTMLElement} a */
 function pvLineUndo(a) {
   const line = a.closest('.pv'),
     page = Number(line && line.getAttribute('data-page')) || 0,
@@ -24467,21 +23991,20 @@ function pvLineUndo(a) {
 // took its place meanwhile, what was typed as a draft its line marks, said with [보기] (pvReasonUncancel). The page's next
 // [판정 취소] waits PV_CANCEL_MS: the same place may now cancel the earlier verdict, which a double press must not reach.
 // A keyboard press leaves the focus on the PDF area, as Esc in the reason field does.
-/** @param {HTMLElement} b */
 function pvCancel(b) {
   const id = Number(b.dataset.ref),
     page = Number((b.closest('.pv') || b).getAttribute('data-page')) || 0;
   if (b.getAttribute('aria-disabled') === 'true') return;
   pvCancelPin(id, page, document.activeElement === b);
 }
-/** @param {number} id @param {number} page @param {boolean} had - the focus was on what was pressed */
-/** @param {number} id @param {number} page @param {boolean} had @param {boolean} [byKey] - a digit key: the focus goes to the line from wherever it was */
+/** @param had - the focus was on what was pressed */
+/** @param [byKey] - a digit key: the focus goes to the line from wherever it was */
 async function pvCancelPin(id, page, had, byKey) {
   const p = OPEN_ALL.find((x) => x.id === id),
     from = document.activeElement,
     doc = DOC;
   if (!p || !pvCanCancel(p) || viewerBlocked()) return;
-  const key = /** @type {string} */ (verdictOf(p)),
+  const key = verdictOf(p),
     claimed = claimActive(p),
     target = pageTargetShort(page);
   const inField = pvIsReasonField(document.activeElement) && !!PV_REASON && PV_REASON.id === id;
@@ -24521,16 +24044,14 @@ async function pvCancelPin(id, page, had, byKey) {
       { life: NOTICE_LIFE.TIMER, undo: true, literal: true },
     );
     // [이유 추가] steps out while the line offers the undo (components.css): a focus on it goes to the [되돌리기] beside it.
-    const f = /** @type {HTMLElement|null} */ (document.activeElement),
+    const f = document.activeElement,
       onAdd = !!f && !!f.closest && !!f.closest('#doc .pv[data-page="' + page + '"] .pv-ra>.pv-add');
     if (n) {
       PV_LINE_UNDO.set(pvSlot(page), { id, n: n.n });
       drawPageVerdicts();
       setTimeout(() => drawPageVerdicts(), NOTICE_MS + NOTICE_HOLD_MAX + 50);
       const a = document.activeElement,
-        u = /** @type {HTMLElement|null} */ (
-          document.querySelector('#doc .pv[data-page="' + page + '"] [data-act="pv-undo"]')
-        );
+        u = document.querySelector('#doc .pv[data-page="' + page + '"] [data-act="pv-undo"]');
       if (onAdd && u && (a === f || a === document.body || !a)) u.focus({ preventScroll: true });
     }
   };
@@ -24567,7 +24088,7 @@ async function pvCancelPin(id, page, had, byKey) {
   // save does, unless the person moved it meanwhile: left in the outline, Enter pressed the outline again instead of undoing.
   // A reason popover that has the focus now is a newer one (the verdict's own left with it): it keeps it - on this line too
   // (a new verdict's, saved while the take-back was out), where the focus went to the line and the next digit was a verdict key.
-  const at = /** @type {HTMLElement|null} */ (document.activeElement),
+  const at = document.activeElement,
     pop = !!at && !!at.closest && !!at.closest('#doc .pv-pop');
   const lost =
     !pop &&
@@ -24577,9 +24098,7 @@ async function pvCancelPin(id, page, had, byKey) {
       !!(at.closest && at.closest('#doc .pv[data-page="' + page + '"]')) ||
       (!!byKey && at === from));
   if ((had || inField) && lost && !slow) {
-    const u = /** @type {HTMLElement|null} */ (
-      document.querySelector('#doc .pv[data-page="' + page + '"] [data-act="pv-undo"]')
-    );
+    const u = document.querySelector('#doc .pv[data-page="' + page + '"] [data-act="pv-undo"]');
     if (u) u.focus({ preventScroll: true });
     else if (!pvFocusLine(page)) searchToPage();
   }
@@ -24591,7 +24110,7 @@ async function pvCancelPin(id, page, had, byKey) {
 // 판정으로 대체됨'), and, for a person who may make one, a button per word. The current verdict's word is pressed (a toggle,
 // pvPress); while a save on the line is out, the word it saves - or the last one pressed meanwhile (PV_NEXT) - is pressed
 // instead and the state says '보류 저장 중…'. The reason popover (pvReasonPop) is the line's last child, laid above it.
-/** @param {number} page @param {Pin[]|undefined} list @param {DocVerdicts} v @param {boolean} [chip] - the line holds a save chip or its reason popover: it draws no descriptions @param {boolean} [panel] - the panel beside the pages (verdict-panel.js) */
+/** @param [chip] - the line holds a save chip or its reason popover: it draws no descriptions @param [panel] - the panel beside the pages (verdict-panel.js) */
 function pvLineHtml(page, list, v, chip, panel) {
   const cur = list && list[0],
     earlier = list ? list.slice(1).filter((p) => pinState(p) === PIN_STATE.OPEN) : [];
@@ -24665,11 +24184,11 @@ ${pvTipAttr(!!chip, eName + ' — ' + tr('이 쪽의 더 새 판정으로 대체
     target = tl('{page}쪽', { page }),
     held = PV_TOGGLE_HOLD.get(slot),
     hold = held && held.until > Date.now() ? held.key : null;
-  const pr = (/** @type {string} */ key) =>
+  const pr = (key) =>
     key !== want ? PV_PRESS.NONE : nx || sv !== undefined ? PV_PRESS.SAVING : cur ? pvPressOf(cur) : PV_PRESS.NONE;
   // In the panel the pressed word's description is its context under the panel (pvOnHint): a hover box over it as well
   // covered the page's name above the words and said the same again. Only a long press shows it (vdButton quiet).
-  const said = (/** @type {string} */ key) => !!panel && pr(key) !== PV_PRESS.NONE && pr(key) !== PV_PRESS.SAVING;
+  const said = (key) => !!panel && pr(key) !== PV_PRESS.NONE && pr(key) !== PV_PRESS.SAVING;
   const btns = canVerdict()
     ? html`<span class="vd-btns">${v.choices.map((c, i) => vdButton(c, VD_WHERE.PAGE, page, target, loading || c.key === hold, keys ? i + 1 : 0, !!chip || said(c.key), pr(c.key)))}</span>`
     : '';
@@ -24694,7 +24213,6 @@ data-act="pv-undo" data-id="u${lu.id}" aria-label="${tl('되돌리기 — 거둔
 }
 // A line control's description: data-tip, or - on a line that holds a save chip or its reason popover (pvLineHtml chip) -
 // data-tip-press, which only a long press shows (tooltip.js): no box over either, and a long press still presses nothing.
-/** @param {boolean} quiet @param {string} tip */
 function pvTipAttr(quiet, tip) {
   return quiet ? html`data-tip-press="${tip}"` : html`data-tip="${tip}"`;
 }
@@ -24704,7 +24222,6 @@ function pvTipAttr(quiet, tip) {
 // line's flow, so the line keeps its height - while the pressed word is hovered or has the keyboard's focus, and for a
 // few seconds after a press made it the line's verdict (.pv-onshow, pvOnShow). '지금 삭제 판정 · 다시 누르면 판정 취소' on the
 // person's own open verdict; someone else's or a handled one says it stays.
-/** @param {number} page @param {DocVerdicts} v @param {string|null} key @param {number} pr */
 function pvOnHint(page, v, key, pr) {
   const c = key ? v.choices.find((x) => x.key === key) : null;
   if (!c || !pr || pr === PV_PRESS.SAVING || !canVerdict()) return '';
@@ -24718,22 +24235,20 @@ function pvOnHint(page, v, key, pr) {
 }
 // A press made word key page `page`'s verdict: its line shows the pressed word's context for PV_ONSHOW_MS.
 const PV_ONSHOW_MS = 4000;
-/** @param {number} page */
 function pvOnShow(page) {
-  const l = /** @type {HTMLElement|null} */ (document.querySelector('#doc .pv[data-page="' + page + '"]'));
+  const l = document.querySelector('#doc .pv[data-page="' + page + '"]');
   if (!l) return;
   l.classList.add('pv-onshow');
   clearTimeout(l._onT);
   l._onT = setTimeout(() => l.classList.remove('pv-onshow'), PV_ONSHOW_MS);
 }
 // Draws page `page`'s line.
-/** @param {HTMLElement} el @param {number} page @param {Pin[]|undefined} list @param {DocVerdicts} v */
 // The list redraws on every poll and many other changes, so a line is never rewritten: what changed is changed in place
 // (pvMorph) - its words and links, a button's state - and every button, the '#N' link and the earlier link stay the same
 // elements. A press whose down and up straddle a redraw still lands on its button (a rewritten one sent the click to the
 // line), and the focus stays where it was, also on a '#N' whose number just changed. A line whose words are what it shows is
 // left alone. Every verdict pin the line accounts for - the current one and the earlier ones - draws no page-size mark.
-const PV_TEXT = /** @type {WeakMap<HTMLElement,string>} */ (new WeakMap()); // what fillPv last wrote into each line
+const PV_TEXT = new WeakMap(); // what fillPv last wrote into each line
 function fillPv(el, page, list, v) {
   el.dataset.page = String(page);
   el.classList.toggle('reading', PV_READ === page);
@@ -24751,7 +24266,7 @@ function fillPv(el, page, list, v) {
   // The focused reason field keeps the focus and the caret when the line around it changes shape (its verdict's save landing
   // while it is typed in: a morph by place can replace it), so what is typed next stays text - never a verdict key.
   const a = document.activeElement,
-    f = pvIsReasonField(a) && el.contains(a) ? /** @type {HTMLTextAreaElement} */ (a) : null,
+    f = pvIsReasonField(a) && el.contains(a) ? (a) : null,
     sel = f ? [f.selectionStart, f.selectionEnd] : null;
   if (chip) chip.remove();
   const next = document.createElement('div');
@@ -24761,9 +24276,7 @@ function fillPv(el, page, list, v) {
   el.classList.toggle('pv-pop-open', !!el.querySelector(':scope>.pv-pop'));
   pvReasonAfterDraw(el);
   if (f && sel && !f.isConnected) {
-    const g = /** @type {HTMLTextAreaElement|null} */ (
-      el.querySelector('.pv-pop .pv-reason[data-id="' + f.dataset.id + '"]')
-    );
+    const g = el.querySelector('.pv-pop .pv-reason[data-id="' + f.dataset.id + '"]');
     if (g) {
       g.focus({ preventScroll: true });
       g.setSelectionRange(sel[0], sel[1]);
@@ -24775,7 +24288,6 @@ function fillPv(el, page, list, v) {
 // side of it. By place alone a node new before it - the pressed word's context, once the save the popover waited for landed -
 // took its place and the field was drawn again: an input method's composition in it ended, and the syllable it committed
 // went into an empty field and was saved as the whole reason (#352).
-/** @param {Node} a @param {Node} b */
 function pvMorphKids(a, b) {
   const ac = [...a.childNodes],
     bc = [...b.childNodes],
@@ -24791,7 +24303,6 @@ function pvMorphKids(a, b) {
 }
 // Makes the run ac of a's children read as bc, by place: the new nodes past its end go in before `at` (null: at the end), and
 // the old ones past bc's end go.
-/** @param {Node} a @param {ChildNode[]} ac @param {ChildNode[]} bc @param {Node|null} at */
 function pvMorphRun(a, ac, bc, at) {
   bc.forEach((n, k) => {
     if (k < ac.length) pvMorph(ac[k], n);
@@ -24800,13 +24311,11 @@ function pvMorphRun(a, ac, bc, at) {
   ac.slice(bc.length).forEach((n) => n.remove());
 }
 // Whether node n is the reason field or holds it.
-/** @param {Node} n */
 function pvHoldsReason(n) {
   return n instanceof Element && (pvIsReasonField(n) || !!n.querySelector('.pv-reason'));
 }
 // Whether pvMorph keeps node a to read as b: the same kind of node - for an element the same tag, data-act and data-id (a
 // reason field of another pin is another field, never one keeping the first pin's typed text).
-/** @param {Node} a @param {Node} b */
 function pvSameNode(a, b) {
   return (
     a.nodeType === b.nodeType &&
@@ -24821,10 +24330,9 @@ function pvSameNode(a, b) {
 }
 // Makes node a read as b: the same text, or the same element (pvSameNode) with b's attributes and children; another kind of
 // node takes a's place.
-/** @param {Node} a @param {Node} b */
 function pvMorph(a, b) {
   if (!pvSameNode(a, b)) {
-    /** @type {ChildNode} */ (a).replaceWith(b);
+    (a).replaceWith(b);
     return;
   }
   if (!(a instanceof Element && b instanceof Element)) {
@@ -24889,7 +24397,7 @@ function sizePv() {
 // The verdict pins saved by a key on this screen (PV_KEY_SAVE, each in turn): their lines (.pv-kw) are fitted at either look of
 // the way to the reason (pvFit). The last key save's alone says 'Enter 이유 쓰기', but one that stopped being it and was
 // fitted again on [이유 추가] alone moved the pages under the next key save.
-const PV_KEY_SAVED = /** @type {Set<number>} */ (new Set());
+const PV_KEY_SAVED = new Set();
 // One row or stacked, decided per line (.pv-stack; P2-7 of the 0.4.33 review: one line with an earlier verdict or a reason
 // stacked every line of the document, 88px over the plot at 1440). Each line is laid out as one row - the figure's title cut
 // first, down to its identifier ('6쪽 · PL17', pvFigParts; --pv-fig-min), then the reason and the earlier link
@@ -24906,7 +24414,6 @@ const PV_KEY_SAVED = /** @type {Set<number>} */ (new Set());
 // drawing of the lines: a save, a take-back (#320). The pass moves nothing below a line it measures
 // either (pvKeepBlocks): WebKit anchored the growth on the next page's block and not the shrink, so a key save on a phone
 // moved the pages 39px.
-/** @param {HTMLElement[]} lines */
 function pvFit(lines) {
   const panel = lines.find((l) => l.id === 'pv-panel');
   if (panel) {
@@ -24944,7 +24451,7 @@ function pvFit(lines) {
     // [이유 추가]; 0 or less where it holds), less pvAddCut - a key save's way to the reason is drawn at the wider of its two
     // looks (--pv-add-w, set below) with the earlier link beside it, which it never shows at once -, or Infinity where the
     // buttons went to a row of their own. Its row does not hold (tight) past 1px.
-    const past = (/** @type {HTMLElement} */ l) => {
+    const past = (l) => {
       const t = l.querySelector(':scope>.pv-t'),
         g = l.querySelector(':scope>.vd-btns');
       if (!t) return -Infinity;
@@ -24956,7 +24463,7 @@ function pvFit(lines) {
       );
       return r - tr.right - pvAddCut(l, t, addD);
     };
-    const tight = (/** @type {HTMLElement} */ l) => past(l) > 1;
+    const tight = (l) => past(l) > 1;
     // A line too narrow for the state a press brings beside its words stacks whatever it shows now: a press that turned '판정 없음'
     // into '판정 #26 보류 · 처리 대기 · 이유 추가 · 판정 취소' stacked it then and moved every word under the finger (a phone, a page at
     // a small zoom: 3 rows, 91px, the words 59px down). That state's width is measured, not guessed (pvStateNeed), and so is
@@ -24974,7 +24481,7 @@ function pvFit(lines) {
       addD = Math.max(0, aw[1] - aw[0]),
       addW = Math.max(aw[0], aw[1]) + 'px';
     if (D.style.getPropertyValue('--pv-add-w') !== addW) D.style.setProperty('--pv-add-w', addW);
-    const W = (/** @type {Element|null} */ e) => (e && e.getClientRects().length ? e.getBoundingClientRect().width : 0);
+    const W = (e) => (e && e.getClientRects().length ? e.getBoundingClientRect().width : 0);
     const narrow = lines.map((l, i) => {
       if (held[i]) return false;
       const g = l.querySelector(':scope>.vd-btns'),
@@ -24997,7 +24504,7 @@ function pvFit(lines) {
         if (!over[i] || narrow[i]) return over[i];
         const p = past(l);
         if (p <= 1) return false;
-        const t = /** @type {HTMLElement} */ (l.querySelector(':scope>.pv-t'));
+        const t = l.querySelector(':scope>.pv-t');
         out[i] = p - pvEarlyRoom(t) + pvAddCut(l, t, addD) <= 1;
         return !out[i];
       });
@@ -25019,7 +24526,7 @@ function pvFit(lines) {
     });
     D.classList.remove('pv-measure');
     const nat = lines.map((l, i) =>
-      th[i] ? /** @type {HTMLElement} */ (l.querySelector(':scope>.pv-t')).getBoundingClientRect().height : 0,
+      th[i] ? (l.querySelector(':scope>.pv-t')).getBoundingClientRect().height : 0,
     );
     lines.forEach((l, i) => {
       if (held[i]) return;
@@ -25059,9 +24566,8 @@ function pvFit(lines) {
 // nothing to follow, while a line whose fitted height does change moves the pages after the pass as it always did. A block's
 // height set, its last line's bottom margin no longer collapses through it: the block carries the space to the next block
 // itself. The last block, with nothing after it, is left alone. Read before any is written; what each had inline is put back.
-/** @param {HTMLElement[]} lines @returns {[HTMLElement,string,string][]} */
 function pvKeepBlocks(lines) {
-  /** @type {Set<HTMLElement>} */ const set = new Set();
+  const set = new Set();
   lines.forEach((l) => {
     const b = l.parentElement;
     if (b && b.classList.contains('pgw') && b.nextElementSibling) set.add(b);
@@ -25069,10 +24575,10 @@ function pvKeepBlocks(lines) {
   const bs = [...set],
     at = bs.map((b) => {
       const r = b.getBoundingClientRect(),
-        n = /** @type {Element} */ (b.nextElementSibling);
+        n = b.nextElementSibling;
       return [r.height, n.getBoundingClientRect().top - r.bottom];
     });
-  /** @type {[HTMLElement,string,string][]} */ const kept = [];
+  const kept = [];
   bs.forEach((b, i) => {
     const [h, g] = at[i];
     if (!h) return;
@@ -25091,7 +24597,6 @@ function pvKeepBlocks(lines) {
 // (PV_JUMP) is left to go on: a script's write ends a smooth scroll where it stands, and a line fitted as a far jump passed it
 // stopped the jump there, a thousand px short of a figure (#357). Every glide has the settling, which measures its place again
 // when it rests and glides what moved (arrivalWatch, arrivalSettle) - unless the person has acted meanwhile, which lets it go.
-/** @param {[HTMLElement,string,string][]} kept */
 function pvLetBlocks(kept) {
   if (!kept.length) return;
   const L = $('#left'),
@@ -25123,7 +24628,6 @@ function pvLetBlocks(kept) {
 // move the pages: what moves after it is the lines' fitted heights, which pvLetBlocks lets go with the reading page kept
 // where it stood. On returns the area's own value it replaced, which off puts back (a pass inside a pass leaves the outer
 // one's hold), or null where it held nothing (no PDF area). No scroll of its own, ever.
-/** @param {boolean} on @param {string|null} [was] @returns {string|null} */
 function pvHoldView(on, was) {
   const L = $('#left');
   if (!on) {
@@ -25151,7 +24655,6 @@ function pvHoldView(on, was) {
 // PV_NEED.add: the way to the reason's own width as [이유 추가] and as 'Enter 이유 쓰기' (a mouse screen's; [이유 추가]'s
 // again on a touch one), which every line is fitted at the wider of (pvFit).
 let PV_NEED = { key: '', w: 0, check: 0, add: [0, 0] };
-/** @param {HTMLElement} l */
 function pvStateNeed(l) {
   const v = pageVerdictsOn();
   if (!v) return 0;
@@ -25166,7 +24669,7 @@ function pvStateNeed(l) {
   probe.style.cssText =
     'position:absolute;left:0;top:0;width:max-content;visibility:hidden;pointer-events:none;--pv-add-w:0px'; // its own width, not the lines' (pvFit)
   $('#doc').appendChild(probe);
-  const state = (/** @type {boolean} */ kb) => {
+  const state = (kb) => {
     setHtml(
       probe,
       html`<span class="pv-t"><span class="pv-s">${tr('판정')} <span class="pin-ref pv-ref hit">${num}</span> <b class="vd-w">${word}</b></span><span class="pv-sep">·</span>\
@@ -25174,8 +24677,8 @@ function pvStateNeed(l) {
 ${kb ? html`<kbd class="pv-kbd">Enter</kbd> ${tr('이유 쓰기')}` : tr('이유 추가')}</button></span>\
 <span class="pv-sep pv-cn">·</span><button type="button" class="btn-ghost btn-sm pv-cancel pv-cn hit" tabindex="-1">${tr('판정 취소')}</button></span>`,
     );
-    const t = /** @type {HTMLElement} */ (probe.firstElementChild),
-      a = /** @type {HTMLElement} */ (t.querySelector('.pv-add'));
+    const t = probe.firstElementChild,
+      a = t.querySelector('.pv-add');
     return [
       t.getBoundingClientRect().width + (parseFloat(getComputedStyle(t).columnGap) || 0),
       a.getBoundingClientRect().width,
@@ -25213,7 +24716,6 @@ if (document.fonts) {
 // which a tight line shows beside [이유 추가] but not beside 'Enter 이유 쓰기' (components.css) - the more of the two looks
 // takes d less, or the link and its gap less, whichever is less. 0 for any other line, and for one that is not tight: it
 // shows the link beside both.
-/** @param {HTMLElement} l @param {Element} t @param {number} d @returns {number} */
 function pvAddCut(l, t, d) {
   if (
     !d ||
@@ -25232,10 +24734,9 @@ function pvAddCut(l, t, d) {
 // focus away to nothing and the next Tab started from the top (Chromium lets a hidden focus go a moment later: the move is
 // made before that). Every way the fitting hides a control comes through here, and so does a phone's floating line holding
 // [판정 취소] back (pvLean).
-/** @param {HTMLElement[]} lines */
 function pvFocusStays(lines) {
-  const a = /** @type {HTMLElement|null} */ (document.activeElement),
-    l = a && a.closest ? /** @type {HTMLElement|null} */ (a.closest('#doc .pv')) : null;
+  const a = document.activeElement,
+    l = a && a.closest ? (a.closest('#doc .pv')) : null;
   if (!a || !l || !lines.includes(l) || (a.getClientRects().length && getComputedStyle(a).visibility !== 'hidden'))
     return;
   const cs = [...l.querySelectorAll(PV_TABBABLE)].filter(pvTabStop),
@@ -25245,7 +24746,6 @@ function pvFocusStays(lines) {
 }
 // The room state t's earlier link takes in its row as drawn - its width, the dot before it and the gap before each - or 0
 // where it shows none.
-/** @param {Element} t @returns {number} */
 function pvEarlyRoom(t) {
   const e = t.querySelector(':scope>.pv-early');
   if (!e || !e.getClientRects().length) return 0;
@@ -25255,7 +24755,6 @@ function pvEarlyRoom(t) {
   return e.getBoundingClientRect().width + g + dw;
 }
 // Whether line l keeps the rows it has now: its confirm word waits for the second press, or its save is out.
-/** @param {HTMLElement} l */
 function pvRowsHeld(l) {
   const p = Number(l.dataset.page) || 0;
   return (!!VD_ARM && VD_ARM.where === VD_WHERE.PAGE && VD_ARM.page === p) || PV_BUSY.has(pvSlot(p));
@@ -25268,11 +24767,10 @@ function pvRowsHeld(l) {
 // icon (.pv-chip-bare); where not even [되돌리기] fits anywhere, the undo goes to the status line (chipAway). In the line's
 // flow the chip added a row on a phone (131 -> 251px) and moved the words under a waiting finger, and laid over them it
 // took presses meant for [이유 추가] and [판정 취소]. --pv-chip-r and --pv-chip-y place it from the line's right edge and top.
-/** @param {HTMLElement[]} lines */
 const PV_CHIP_WAIT_MS = 3000; // how long a chip with no room waits for its line to settle before its undo goes to the status line
-const PV_CHIP_WAIT_T = /** @type {WeakMap<HTMLElement,number>} */ (new WeakMap());
+const PV_CHIP_WAIT_T = new WeakMap();
 function pvChipPlace(lines) {
-  const chips = lines.map((l) => /** @type {HTMLElement|null} */ (l.querySelector(':scope>.nt-chip')));
+  const chips = lines.map((l) => l.querySelector(':scope>.nt-chip'));
   lines.forEach((l, i) => {
     if (chips[i]) {
       l.classList.toggle('pv-chip-short', false);
@@ -25283,8 +24781,8 @@ function pvChipPlace(lines) {
     const c = chips[i];
     if (!c) return null;
     const lr = l.getBoundingClientRect(),
-      R = (/** @type {Element} */ e) => e.getBoundingClientRect(),
-      shown = (/** @type {Element} */ e) => e.getClientRects().length > 0;
+      R = (e) => e.getBoundingClientRect(),
+      shown = (e) => e.getClientRects().length > 0;
     const words = [...l.querySelectorAll(':scope>.vd-btns>*')].filter(shown).map(R);
     const parts = [...l.querySelectorAll(':scope>.pv-fig>.pv-fig-id,:scope>.pv-fig-sep,:scope>.pv-t *,:scope>.pv-err')]
       .filter((e) => shown(e) && !e.closest('.pv-pop'))
@@ -25293,13 +24791,12 @@ function pvChipPlace(lines) {
       keep = parts.concat(words, pop && shown(pop) ? [R(pop)] : []),
       ch = R(c),
       gap = parseFloat(getComputedStyle(c).columnGap) || 0,
-      w = (/** @type {string} */ q) => {
+      w = (q) => {
         const e = c.querySelector(q);
         return e && shown(e) ? R(e).width + gap : 0;
       }; // a part and the chip's own gap beside it (4px): taken as 8px, the folded chip came out 8px wider than measured and stood 2px from the identifier
     const sizes = [ch.width, ch.width - w('.nt-t'), ch.width - w('.nt-t') - w('.nt-ic')];
     // A room on the row through y (a box's middle) from left to right: the room less 8px off every part in that row's height.
-    /** @param {number} y @param {number} left @param {number} right */
     const room = (y, left, right) => {
       const top = y - ch.height / 2,
         bot = y + ch.height / 2;
@@ -25393,12 +24890,12 @@ function pvChipPlace(lines) {
 // neither holds it, the larger side, the popover no taller than that (--pv-pop-max; it scrolls). Near the top an in-place
 // line's popover opened under the strip and the top bar, a five-line reason showing only its last line.
 function pvPopPlace() {
-  const pop = /** @type {HTMLElement|null} */ (document.querySelector('#doc .pv>.pv-pop'));
+  const pop = document.querySelector('#doc .pv>.pv-pop');
   $$('#doc .pv.pv-pop-below').forEach((l) => {
     if (!pop || l !== pop.parentElement) l.classList.remove('pv-pop-below');
   });
   if (!pop) return;
-  const l = /** @type {HTMLElement} */ (pop.parentElement),
+  const l = pop.parentElement,
     L = $('#left'),
     lr = L.getBoundingClientRect();
   if (l.id === 'pv-panel') {
@@ -25439,7 +24936,7 @@ const PV_CHIP_WATCH =
         // is no change; one moved to another line is a change on both.
         const had = new Map();
         recs.forEach((r) => {
-          const k = (/** @type {NodeList} */ l, v) =>
+          const k = (l, v) =>
             [...l].forEach((n) => {
               if (n instanceof Element && n.classList.contains('nt-chip')) {
                 const m = had.get(r.target) || new Map();
@@ -25467,8 +24964,8 @@ const PV_CHIP_WATCH =
 // every line goes and the marks draw every pin as before.
 function drawPageVerdicts() {
   const v = pageVerdictsOn(),
-    f = /** @type {HTMLElement|null} */ (document.activeElement);
-  const on = !!f && !!f.closest ? /** @type {HTMLElement|null} */ (f.closest('.pv')) : null,
+    f = document.activeElement;
+  const on = !!f && !!f.closest ? (f.closest('.pv')) : null,
     had = !!on,
     onPage = on ? Number(on.dataset.page) || 0 : 0;
   if (VD_ARM && VD_ARM.where === VD_WHERE.PAGE && (!v || !vdArmStill(VD_ARM))) disarmVerdict(false);
@@ -25498,7 +24995,7 @@ function drawPageVerdicts() {
       pvPanelGone();
       $$('#doc .pg').forEach((pg) => {
         const page = +pg.dataset.page;
-        let line = /** @type {HTMLElement|null} */ (pg.nextElementSibling);
+        let line = pg.nextElementSibling;
         if (!pageTakesVerdict(page)) {
           if (line && line.classList.contains('pv')) line.remove();
           return;
@@ -25529,7 +25026,6 @@ function drawPageVerdicts() {
   pvTypingSync();
 } // a redraw or a rebuild can take the focused reason field away without a focusout
 // Whether pin p's page verdict line shows it, so its page-size mark is not drawn (marks).
-/** @param {Pin} p */
 function pvShows(p) {
   return PV_SHOWN.has(p.id);
 }
@@ -25537,7 +25033,6 @@ function pvShows(p) {
 // its figure (arrivePage, §그림 쪽 도착). Any other page and its line are one block (.pgw): centred when it fits the PDF area,
 // else from the page's top - the line then floats at the area's bottom (scrolling to the sticky line itself would follow
 // where it floats, not where it is). Returns whether it did.
-/** @param {number} id */
 function jumpPv(id) {
   if (!PV_SHOWN.has(id)) return false;
   const p = PINS.find((x) => x.id === id) || REVIEW_ALL.find((x) => x.id === id) || DONE.find((x) => x.id === id);
@@ -25559,9 +25054,9 @@ function jumpPv(id) {
     pvFlashOn(t.page);
     return true;
   } // the panel flashes where the page lands (verdict-panel.js)
-  const line = /** @type {HTMLElement|null} */ (document.querySelector('#doc .pv[data-page="' + t.page + '"]'));
+  const line = document.querySelector('#doc .pv[data-page="' + t.page + '"]');
   if (!line) return false;
-  const block = /** @type {HTMLElement} */ (line.parentElement),
+  const block = line.parentElement,
     L = $('#left'),
     how = block.getBoundingClientRect().height <= L.clientHeight ? 'center' : 'start';
   if (fig) arrivePage(t.page);
@@ -25593,12 +25088,11 @@ function jumpPv(id) {
 //   the focus, its reason popover or a save chip, or a line pvFit is measuring (components.css). A script's measure inside a
 //   skipped line lays it out for the answer (the keys' Tab stops), but the innerText of what is skipped is empty.
 // Without IntersectionObserver no line is skipped.
-let PV_FAR_IO = /** @type {IntersectionObserver|null} */ (null),
+let PV_FAR_IO = null,
   PV_FAR_H = -1;
-const PV_FAR_SEEN = /** @type {Set<HTMLElement>} */ (new Set()); // the lines the observer watches
-const PV_FIT_AT = /** @type {WeakMap<HTMLElement,number>} */ (new WeakMap()); // when pvFit last kept each line's height (performance.now())
+const PV_FAR_SEEN = new Set(); // the lines the observer watches
+const PV_FIT_AT = new WeakMap(); // when pvFit last kept each line's height (performance.now())
 // The lines pvFit is about to measure are laid out, skipped or not (.pv-fitting).
-/** @param {HTMLElement[]} lines */
 function pvFarHold(lines) {
   if (typeof IntersectionObserver === 'undefined') return;
   lines.forEach((l) => l.classList.add('pv-fitting'));
@@ -25606,7 +25100,6 @@ function pvFarHold(lines) {
 // pvFit is done with lines: each keeps the height it is drawn at now (one not laid out - the changes view - keeps the one it
 // had), may be skipped again, and is watched - a new line too; a line no longer in the page (another document, a rebuild)
 // is no longer watched. Read before any is written.
-/** @param {HTMLElement[]} lines */
 function pvFarLetGo(lines) {
   if (typeof IntersectionObserver === 'undefined') return;
   const h = lines.map((l) => l.getBoundingClientRect().height),
@@ -25625,7 +25118,6 @@ function pvFarLetGo(lines) {
 // Watches lines (new ones; one no longer in the page is let go) with an observer whose margin is the PDF area's height vh, in
 // px above and below its view (a percentage would be of its width): it is made again, watching every line, when that height
 // changes.
-/** @param {HTMLElement[]} lines @param {number} vh */
 function pvFarWatch(lines, vh) {
   if (!PV_FAR_IO || PV_FAR_H !== vh) {
     if (PV_FAR_IO) PV_FAR_IO.disconnect();
@@ -25658,10 +25150,9 @@ if (window.ResizeObserver && window.IntersectionObserver)
 // The observer's reports: a line that came within a view's height of the PDF area's view is drawn as it is; one that went
 // further is skipped, at the height the observer saw when that is later than pvFit's - not one not laid out (no height to
 // stand at) or no longer in the page.
-/** @param {IntersectionObserverEntry[]} es */
 function pvFarSort(es) {
   for (const e of es) {
-    const l = /** @type {HTMLElement} */ (e.target);
+    const l = e.target;
     if (!l.isConnected) continue;
     if (e.isIntersecting) {
       l.classList.remove('pv-far');
@@ -25717,16 +25208,14 @@ function pvStick() {
     PV_KEYS = k;
     const map = pageVerdictPins(),
       v = pageVerdictsOn();
-    const re = /** @type {HTMLElement[]} */ ([]);
+    const re = [];
     if (v && PV_SIDE) {
       pvPanelFill(map, v);
       re.push(pvPanel());
     } // the panel shows the new reading page
     else if (v)
       new Set([...was, r, k]).forEach((n) => {
-        const e = /** @type {HTMLElement|null} */ (
-          n ? document.querySelector('#doc .pv[data-page="' + n + '"]') : null
-        );
+        const e = (n ? document.querySelector('#doc .pv[data-page="' + n + '"]') : null);
         if (e) {
           fillPv(e, n, map.get(n), v);
           re.push(e);
@@ -25739,7 +25228,7 @@ function pvStick() {
   pvSumOn();
   lines.forEach((l) => {
     if (l.id === 'pv-panel') return; // the panel stands sticky beside the pages: it never floats at their foot
-    const pg = /** @type {HTMLElement|null} */ (l.previousElementSibling);
+    const pg = l.previousElementSibling;
     if (!pg) return;
     const b = l.getBoundingClientRect(),
       pb = pg.getBoundingClientRect().bottom;
@@ -25769,21 +25258,18 @@ function pvStick() {
 // closed, the room stays while the line stands lower than its place in view - dropping it would lift the line under the
 // eye - and goes once the line is back in its place or out of view. The panel's popover is in the panel's flow, beside
 // the page: it covers nothing.
-const PV_ROOM = /** @type {Map<HTMLElement,{room:number,blk:HTMLElement}>} */ (new Map()); // line -> the room its block holds (px) and that block
+const PV_ROOM = new Map(); // line -> the room its block holds (px) and that block
 // The gap between a page and its line in its own place: the page's bottom margin and the line's top margin, collapsed.
-/** @param {HTMLElement} l @param {HTMLElement} pg */
 function pvOwnGap(l, pg) {
   const a = parseFloat(getComputedStyle(pg).marginBottom) || 0,
     b = parseFloat(getComputedStyle(l).marginTop) || 0;
   return Math.max(a, b, 0) + Math.min(a, b, 0);
 }
 // Whether line l (top edge at t, its page's bottom at pb) stands lower than its own place, held there by a reason's room.
-/** @param {HTMLElement} l @param {HTMLElement} pg @param {number} t @param {number} pb */
 function pvRoomLow(l, pg, t, pb) {
   return PV_ROOM.has(l) && t > pb + pvOwnGap(l, pg) + 0.5;
 }
 // Whether line l (its box b), with the ring its floating look paints around it, reaches over the next page's top.
-/** @param {HTMLElement} l @param {DOMRect} b */
 function pvOverNext(l, b) {
   const blk = l.parentElement,
     nx = blk && blk.nextElementSibling,
@@ -25793,7 +25279,6 @@ function pvOverNext(l, b) {
     np.getBoundingClientRect().top < b.bottom + (parseFloat(getComputedStyle(l).getPropertyValue('--pv-ring')) || 0)
   );
 }
-/** @param {HTMLElement} l */
 function pvRoomDrop(l) {
   const r = PV_ROOM.get(l);
   PV_ROOM.delete(l);
@@ -25805,20 +25290,17 @@ function pvRoomDrop(l) {
   }
 } // its block, also once the line is gone from it (the side panel took it)
 // Whether it lifted a held line (its floating place rose above it): the popover's side is chosen again then (pvStick).
-/** @param {HTMLElement} L @param {DOMRect} lr @returns {boolean} */
 function pvRoomPlace(L, lr) {
-  const pop = /** @type {HTMLElement|null} */ (document.querySelector('#doc .pv>.pv-pop'));
+  const pop = document.querySelector('#doc .pv>.pv-pop');
   const open =
-    pop && pop.parentElement && pop.parentElement.id !== 'pv-panel'
-      ? /** @type {HTMLElement} */ (pop.parentElement)
-      : null;
+    pop && pop.parentElement && pop.parentElement.id !== 'pv-panel' ? (pop.parentElement) : null;
   if (!open && !PV_ROOM.size) return false;
   const cs = getComputedStyle(L),
     top0 = lr.top + L.clientTop + (parseFloat(cs.paddingTop) || 0),
     end = lr.top + L.clientTop + L.clientHeight - (parseFloat(cs.paddingBottom) || 0); // what a sticky line keeps within
   PV_ROOM.forEach((r, l) => {
     if (l === open) return;
-    const pg = /** @type {HTMLElement|null} */ (l.previousElementSibling);
+    const pg = l.previousElementSibling;
     if (!l.isConnected || !pg || l.parentElement !== r.blk) {
       pvRoomDrop(l);
       return;
@@ -25832,7 +25314,7 @@ function pvRoomPlace(L, lr) {
       pvRoomDrop(l);
   });
   if (open) {
-    const pg = /** @type {HTMLElement|null} */ (open.previousElementSibling),
+    const pg = open.previousElementSibling,
       blk = open.parentElement;
     const want = pop && pg && blk && blk.classList.contains('pgw') ? Math.ceil(-pop.offsetTop - pvOwnGap(open, pg)) : 0; // under its line: 0 or less
     let had = PV_ROOM.get(open);
@@ -25878,8 +25360,7 @@ function pvRoomPlace(L, lr) {
 // Hysteresis keeps it from flipping at a page's end: shown, it leans once the line floats; leaning, it is shown again only
 // when the line (its full height, measured when it was last shown) fits in its place under the page. Desktop and every
 // other band: never.
-const PV_FULL_H = /** @type {WeakMap<HTMLElement,{h:number,gap:number}>} */ (new WeakMap());
-/** @param {HTMLElement} l @param {HTMLElement} pg @param {DOMRect} b @param {boolean} stuck @param {HTMLElement} L @param {DOMRect} lr */
+const PV_FULL_H = new WeakMap();
 function pvLean(l, pg, b, stuck, L, lr) {
   if (
     !document.body.classList.contains('band-phone') ||
@@ -25947,14 +25428,12 @@ function pvReadingPage() {
 }
 // The page the keys 1-5 act on: reading page r while this screen may make a verdict, no selection is being written and no
 // text field has the focus (its digits are text).
-/** @param {number} r */
 function pvKeysPage(r) {
   return r && canVerdict() && $('#composer').hidden && !typingNow() ? r : 0;
 }
 let PV_READ = 0; // the reading page with a line: its line floats and names its figure
 let PV_FRAME = 0;
 // Whether element e shows in the PDF area now (any part of it).
-/** @param {Element} e */
 function pvInView(e) {
   const L = $('#left'),
     lr = L.getBoundingClientRect(),
@@ -25966,33 +25445,31 @@ function pvInView(e) {
 // where Enter opens the reading page's reason and Tab goes to its line. Left there, the next Enter or Space acted on the page
 // the person had left - its reason opened (off-screen) and the text meant for this page went into that page's note. A focus
 // put on a third page's line in view stays: the person went there.
-/** @param {number} r @param {number} was */
 function pvFocusOffPage(r, was) {
-  const a = /** @type {HTMLElement|null} */ (document.activeElement),
+  const a = document.activeElement,
     l = a && a.closest ? a.closest('#doc .pv') : null;
   if (!a || !l || (a.closest && a.closest('.pv-pop'))) return;
-  const n = Number(/** @type {HTMLElement} */ (l).dataset.page);
+  const n = Number((l).dataset.page);
   if (n !== r && (n === was || !pvInView(a))) searchToPage();
 }
 // The line control the focus went to and the reading page then: one focused on the reading page's line that is no longer it
 // is the page the person left (pvOffPageKey), even before the frame that moves the focus (pvFocusOffPage).
-let PV_LINE_FOCUS = /** @type {{el:Element,read:number}|null} */ (null);
+let PV_LINE_FOCUS = null;
 document.addEventListener('focusin', (e) => {
-  const t = /** @type {HTMLElement|null} */ (e.target);
+  const t = e.target;
   PV_LINE_FOCUS = t && t.closest && t.closest('#doc .pv') ? { el: t, read: PV_READ } : null;
 });
 // Enter or Space on a control of a line that is not the reading page's - out of view, or the line of the page the person
 // left (focused while it was the reading page) - does not act there (a press read before the focus moved, pvFocusOffPage):
 // the focus goes to the PDF area, and Enter is taken as on the pages - the reading page's reason (pvReasonEnterKey) - while
 // Space is only said.
-/** @param {KeyboardEvent} e */
 function pvOffPageKey(e) {
   if ((e.key !== 'Enter' && e.key !== ' ') || e.ctrlKey || e.metaKey || e.altKey || imeKey(e)) return;
-  const t = /** @type {HTMLElement|null} */ (e.target);
+  const t = e.target;
   const l = t && t.closest ? t.closest('#doc .pv') : null;
   if (!t || !l || (t.closest && t.closest('.pv-pop')) || typingNow()) return;
   const r = pvReadingAt(),
-    n = Number(/** @type {HTMLElement} */ (l).dataset.page),
+    n = Number((l).dataset.page),
     left = !!PV_LINE_FOCUS && PV_LINE_FOCUS.el === t && PV_LINE_FOCUS.read === n;
   if (PV_DROP_OUT.has(pvSlot(n))) {
     e.preventDefault();
@@ -26032,7 +25509,7 @@ addEventListener('resize', pvStickSoon);
   }
 } // a keyboard over the page
 $('#doc').addEventListener('input', (e) => {
-  const t = /** @type {HTMLElement} */ (e.target);
+  const t = e.target;
   if (t.closest && t.closest('.pv-pop')) pvStickSoon();
 }); // the reason field grows: its side again
 new MutationObserver(pvStickSoon).observe(document.body, { attributes: true, attributeFilter: ['class'] }); // composing, the sheet, the band
@@ -26047,11 +25524,10 @@ if (typeof ResizeObserver !== 'undefined') {
 // page is let go first. Not in a text field, not while a dialog or a popover is open, not while a selection is being
 // written (the composer is open) or the changes view is shown, not with Ctrl, Alt or Meta (Alt+digit switches documents).
 // On a page that takes no verdict a key says so on the status line, once. The button and its line say the key (vdButton kn).
-/** @param {KeyboardEvent} e */
 function verdictKey(e) {
   if (e.defaultPrevented || e.repeat || imeKey(e) || e.ctrlKey || e.metaKey || e.altKey || !/^[1-5]$/.test(e.key))
     return;
-  const t = /** @type {HTMLElement|null} */ (e.target);
+  const t = e.target;
   if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.isContentEditable)) return;
   if (
     document.querySelector('dialog[open]') ||
@@ -26085,10 +25561,8 @@ function verdictKey(e) {
   if (VD_ARM && VD_ARM.kbd && VD_ARM.where === VD_WHERE.PAGE && VD_ARM.page !== at) disarmVerdict(true, true);
   // The panel shows the page under the reading line at the key, also before the frame that would show it (verdict-panel.js).
   if (PV_SIDE && pvPanel().dataset.page !== String(at)) pvStick();
-  const b = /** @type {HTMLElement|null} */ (
-    document.querySelector(
-      '#doc .pv[data-page="' + at + '"] button[data-act="pv-save"][data-key="' + CSS.escape(c.key) + '"]',
-    )
+  const b = document.querySelector(
+    '#doc .pv[data-page="' + at + '"] button[data-act="pv-save"][data-key="' + CSS.escape(c.key) + '"]',
   );
   if (!b) return;
   e.preventDefault();
@@ -26098,7 +25572,7 @@ function verdictKey(e) {
   // opened and took the reason's text - instead of opening the reason. The area is a named region (index.html), so a screen
   // reader says 'PDF 쪽' for the moment it has the focus, not every page's text one after the other. Where the focus came
   // from is kept: Shift+Tab from the line goes back there (PV_CAME).
-  const a = /** @type {HTMLElement|null} */ (document.activeElement),
+  const a = document.activeElement,
     L = $('#left');
   if (a && a !== document.body && a !== L && !L.contains(a)) {
     pvCame(a);
@@ -26115,7 +25589,7 @@ addEventListener('keydown', verdictKey);
 let PV_SCROLL_AT = 0,
   PV_SCROLL_HAND = 0,
   PV_GLIDE = false,
-  PV_JUMP = /** @type {number|null} */ (null); // PV_JUMP: the scrollTop a jump is going to
+  PV_JUMP = null; // PV_JUMP: the scrollTop a jump is going to
 const PV_HAND = () => {
   PV_SCROLL_HAND = performance.now();
   PV_GLIDE = false;
@@ -26127,7 +25601,6 @@ const PV_HAND = () => {
 // change does not come here (restoreAnchor, pvLetBlocks, setSelMode, zoomRestore, pvSideSettle): it moves with the place, so the
 // settling stays right. test_viewer_scroll_writes.py holds the list: a new scripted scroll has to be put in it. Given what it
 // shows as a place, the pages settle there when a glide was on its way: the write stops it a frame or two late.
-/** @param {()=>number|null} [place] */
 function pvShow(place) {
   arrivalLetGo();
   if (PV_JUMP === null) return;
@@ -26145,7 +25618,6 @@ function pvShow(place) {
 // guard lets it go (pvAutoScrolling): the hold is never left on, which would take anchoring from a line changing height
 // above the view. Checked past settle()'s timer window (IDLE_TIMER_MS) so that a test waiting for quiet does not wait it out.
 let PV_JUMP_TIMER = 0;
-/** @param {number|null} v */
 function pvJumpSet(v) {
   PV_JUMP = v;
   $('#left').classList.toggle('pv-glide', v !== null);
@@ -26208,7 +25680,7 @@ function pvAutoScrolling() {
 // before - a recent wheel made the guard take the jump for the person's own scroll. Nothing to glide (reduced motion, or
 // already there): no guard, no scroll event would end it. Returns how the jump's scroll goes (scrollMotion, read once
 // here, so the guard and the scroll agree).
-/** @param {number} to - the scrollTop it goes to @returns {ScrollBehavior} */
+/** @param to - the scrollTop it goes to */
 function pvGlideArm(to) {
   const L = $('#left'),
     top = Math.max(0, Math.min(L.scrollHeight - L.clientHeight, to)),
@@ -26223,12 +25695,10 @@ function pvGlideArm(to) {
   } // this scroll replaces a glide in flight (reduced motion turned on during it): its guard goes with it
   return how;
 }
-/** @param {number} top */
 function pvGlideTo(top) {
   $('#left').scrollTo({ top, behavior: pvGlideArm(top) });
 }
-/** The scrollTop that brings el to the top of the PDF area, or its middle to the area's middle (center).
- * @param {Element} el @param {'start'|'center'} [block] */
+/** The scrollTop that brings el to the top of the PDF area, or its middle to the area's middle (center). */
 function pvIntoTop(el, block) {
   const L = $('#left'),
     r = el.getBoundingClientRect(),
@@ -26240,7 +25710,6 @@ function pvIntoTop(el, block) {
       : r.top - lr.top - L.clientTop)
   );
 }
-/** @param {Element} el @param {'start'|'center'} [block] */
 function pvGlideInto(el, block) {
   el.scrollIntoView({ behavior: pvGlideArm(pvIntoTop(el, block)), block: block || 'start' });
 }
@@ -26266,13 +25735,13 @@ let PV_PTR_PAGES = false;
 addEventListener(
   'pointerdown',
   (e) => {
-    const t = /** @type {HTMLElement|null} */ (e.target);
+    const t = e.target;
     PV_PTR_PAGES = !!t && !!t.closest && !!t.closest('#left') && !t.closest('#doc .pv');
   },
   true,
 );
 document.addEventListener('focusin', (e) => {
-  const t = /** @type {HTMLElement|null} */ (e.target);
+  const t = e.target;
   if (t && t !== $('#left')) PV_PTR_PAGES = false;
 });
 // So does Tab with nothing focused where no stop is drawn before the pages - a phone, whose nav bar, outline and section strip
@@ -26285,13 +25754,10 @@ addEventListener('keydown', (e) => {
   if (!at) return; // no page lines, or the pages are not shown: the DOM's order scrolls nothing to a line
   const r = pvReadingPage(),
     l = r ? document.querySelector('#doc .pv[data-page="' + r + '"]') : null;
-  const c = /** @type {HTMLElement|undefined} */ (
+  const c = (
     l
       ? [...l.querySelectorAll('a,button,[tabindex="0"]')].find(
-          (x) =>
-            x instanceof HTMLElement &&
-            x.getClientRects().length > 0 &&
-            !(/** @type {HTMLButtonElement} */ (x).disabled),
+          (x) => x instanceof HTMLElement && x.getClientRects().length > 0 && !(x).disabled,
         )
       : undefined
   );
@@ -26305,13 +25771,12 @@ addEventListener('keydown', (e) => {
 // mark, or a later page's line. Shift+Tab from it leaves the pages the way the reading line's first stop does (pvOutStop,
 // below) - the DOM's stop before it is a page above, off the screen, and the focus scrolled the pages there. Let go when the
 // focus leaves the pages, on another document or build, and by the next Tab from the area.
-let PV_IN_VIEW = /** @type {{el:HTMLElement,visit:{doc:string|null,seq:number},build:string}|null} */ (null);
+let PV_IN_VIEW = null;
 // The first Tab stop in the pages from page `at` on - its own marks, then the next pages' marks and lines in the DOM's
 // order - when that stop shows whole in the PDF area's view (its client box, within the window) and nothing lies over any of
 // it (the status line or the sheet over the area's bottom, a panel laid over its side: what its middle and four points 4px in
 // from its corners hit is it), else null. Hit at its middle alone, a line half under the status line was taken. Reads the
 // page blocks from `at` down to the area's bottom only.
-/** @param {number} at @returns {HTMLElement|null} */
 function pvStopInView(at) {
   const L = $('#left'),
     v = L.getBoundingClientRect(),
@@ -26357,13 +25822,12 @@ function pvStopInView(at) {
 // outside the pages read every focusable element of the document and whether it showed (678 on a 91-page figure document).
 const PV_TABBABLE = 'a[href],button,input,select,textarea,summary,[tabindex]';
 // Whether x is a stop of the Tab order now: focusable by Tab, enabled, drawn, not hidden and not in an inert or hidden part.
-/** @param {Element|null} x @returns {x is HTMLElement} */
 function pvTabStop(x) {
   return (
     x instanceof HTMLElement &&
     x.matches(PV_TABBABLE) &&
     x.tabIndex >= 0 &&
-    !(/** @type {HTMLButtonElement} */ (x).disabled) &&
+    !(x).disabled &&
     x.getClientRects().length > 0 &&
     !x.closest('[inert],[hidden]') &&
     getComputedStyle(x).visibility !== 'hidden'
@@ -26371,11 +25835,10 @@ function pvTabStop(x) {
 }
 // The nearest Tab stop outside the PDF area on one side of it - the last before it, or (after) the first after it - or null.
 // Walks out from the area element by element and passes a part that is not drawn (display: none, hidden, inert) whole.
-/** @param {boolean} after @returns {HTMLElement|null} */
 function pvEdgeStop(after) {
   const w = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT, {
     acceptNode: (n) => {
-      const x = /** @type {Element} */ (n);
+      const x = n;
       if (
         x.hasAttribute('hidden') ||
         x.hasAttribute('inert') ||
@@ -26385,18 +25848,17 @@ function pvEdgeStop(after) {
       return pvTabStop(x) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
     },
   });
-  let n = /** @type {Node} */ ($('#left'));
+  let n = $('#left');
   if (after) while (n.lastChild) n = n.lastChild; // from the area's last node the next one is past the area
   w.currentNode = n;
-  return /** @type {HTMLElement|null} */ (after ? w.nextNode() : w.previousNode());
+  return (after ? w.nextNode() : w.previousNode());
 }
 // Where the focus came into the pages from, while it is in them: the stop a Tab into the pages was pressed on, or the control a
 // digit key was pressed on (verdictKey) - an outline entry, a document tab, the section strip, the phone's tool bar - with
 // the visit (captureVisit: the document and its switch) and build it was pressed on: a switch - also away and back - or a
 // new build lets it go (pvOutStop), as any focus outside the pages does. Shift+Tab from the reading line goes back there
 // (below).
-let PV_CAME = /** @type {{el:HTMLElement,visit:{doc:string|null,seq:number},build:string}|null} */ (null);
-/** @param {HTMLElement} el */
+let PV_CAME = null;
 function pvCame(el) {
   PV_CAME = { el, visit: captureVisit(), build: (META && META.pages_build) || '' };
 }
@@ -26431,7 +25893,7 @@ function pvOutStop() {
   return edge || (pvTabStop(p) ? p : null);
 }
 addEventListener('keydown', (e) => {
-  const a = /** @type {HTMLElement|null} */ (document.activeElement),
+  const a = document.activeElement,
     L = $('#left');
   if (
     e.key !== 'Tab' ||
@@ -26478,9 +25940,9 @@ addEventListener('keydown', (e) => {
   if (e.key !== 'Tab' || !e.shiftKey || e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
   // Beside the pages the panel is the reading line, and it stands after the pages in the DOM (verdict-panel.js): from its first
   // stop the reading page's marks come next, as they do from a line, and from the first of those the way out.
-  const a = /** @type {HTMLElement|null} */ (document.activeElement),
-    panel = a && a.closest ? /** @type {HTMLElement|null} */ (a.closest('#pv-panel')) : null;
-  const blk = panel || (a && a.closest ? /** @type {HTMLElement|null} */ (a.closest('#doc .pgw')) : null),
+  const a = document.activeElement,
+    panel = a && a.closest ? (a.closest('#pv-panel')) : null;
+  const blk = panel || (a && a.closest ? (a.closest('#doc .pgw')) : null),
     l = panel || (blk && (blk.querySelector(':scope>.pv') || document.getElementById('pv-panel')));
   const iv = PV_IN_VIEW;
   if (iv && !(currentVisit(iv.visit) && iv.build === ((META && META.pages_build) || ''))) PV_IN_VIEW = null;
@@ -26547,14 +26009,11 @@ addEventListener('keydown', (e) => {
 // once written, dropped (Esc twice, [지우기]), moved to a new verdict, or when its pin is found gone from the lists
 // (pvReasonRestore).
 const RD_V = 1;
-/** @typedef {{text:string,base:string,rev:number,mode:string,folded:boolean,at:number,tried:ReasonTry[],from:ReasonPart[]}} ReasonDraft */
 // A part of a draft's text moved off pin key k: text[s, e) is what k's reason write may put on k, and tried are k's writes
 // whose answer was lost - the evidence that one may have put it there already.
-/** @typedef {{k:string,s:number,e:number,tried:ReasonTry[]}} ReasonPart */
 function rdKey() {
   return 'limnReason:' + encodeURIComponent((META && META.label) || '');
 }
-/** @returns {Record<string,ReasonDraft>} */
 function rdAll() {
   try {
     const o = JSON.parse(sessionStorage.getItem(rdKey()) || 'null');
@@ -26563,7 +26022,6 @@ function rdAll() {
     return {};
   }
 }
-/** @param {Record<string,ReasonDraft>} d */
 function rdSave(d) {
   try {
     if (Object.keys(d).length) sessionStorage.setItem(rdKey(), JSON.stringify({ v: RD_V, d }));
@@ -26571,11 +26029,9 @@ function rdSave(d) {
   } catch (e) {}
 }
 // A verdict's draft key (id a pin number) or a page's (id 'p<page>').
-/** @param {string|null} doc @param {number|string} id */
 function rdName(doc, id) {
   return (doc || '') + ':' + id;
 }
-/** @param {any} x @returns {ReasonDraft|null} */
 function rdRead(x) {
   return x && typeof x.text === 'string' && x.text.trim()
     ? {
@@ -26594,7 +26050,6 @@ function rdRead(x) {
     : null;
 }
 // A kept draft's from as its parts that still fit its text (an older viewer kept one key, as a string: the whole text).
-/** @param {unknown} x @param {string} text @returns {ReasonPart[]} */
 function rdFromOf(x, text) {
   if (typeof x === 'string') return x ? [{ k: x, s: 0, e: text.length, tried: [] }] : [];
   if (!Array.isArray(x)) return [];
@@ -26613,13 +26068,11 @@ function rdFromOf(x, text) {
     .map((p) => ({ k: p.k, s: p.s, e: p.e, tried: Array.isArray(p.tried) ? p.tried.filter(rdTry) : [] }));
 }
 // Text compared as a reason is written: line breaks as '\n', no space around it (a write sends the draft trimmed).
-/** @param {string} t */
 function rdNorm(t) {
   return t.replace(/\r\n?/g, '\n').trim();
 }
 // Parts after their text's [ds, de) became n other characters: one before or after it keeps its text (moved by the
 // difference); one it touched inside - typed into, cut, taken away - is no longer that text and goes.
-/** @param {ReasonPart[]} parts @param {number} ds @param {number} de @param {number} n @returns {ReasonPart[]} */
 function rdShift(parts, ds, de, n) {
   const d = n - (de - ds);
   return parts.flatMap((p) => (p.e <= ds ? [p] : p.s >= de ? [{ ...p, s: p.s + d, e: p.e + d }] : []));
@@ -26629,7 +26082,6 @@ function rdShift(parts, ds, de, n) {
 // than the caret, so a letter typed before the same letter is placed where it was typed. (Text typed next to it on its own
 // line keeps its place too: whether that changed its sentence is judged when it would leave, rdLined - a line typed above
 // it is typed before its line break.)
-/** @param {ReasonPart[]} parts @param {string} was @param {string} now @param {number} caret @returns {ReasonPart[]} */
 function rdEdit(parts, was, now, caret) {
   if (!parts.length || was === now) return parts;
   let suf = 0,
@@ -26645,13 +26097,14 @@ function rdEdit(parts, was, now, caret) {
 // new one - as an edit inside it does -, which stays whole (RC failure test of 0.4.36: ' 더함' typed after a moved
 // '문장 끝' left only '더함' to be written, without a word, once '문장 끝' was found on the earlier verdict). Spaces typed
 // after it change no sentence.
-/** @param {string} t @param {ReasonPart} p */
 function rdLined(t, p) {
   return /(^|\n)[ \t]*$/.test(t.slice(0, p.s)) && /^[ \t]*(\r?\n|$)/.test(t.slice(p.e));
 }
 // Draft x (text and parts) joined under draft pd's on a new line - pd null: x as it is.
-/** @param {{text:string,from:ReasonPart[]}|null} pd @param {{text:string,from:ReasonPart[]}} x @returns {{text:string,from:ReasonPart[]}} */
-function rdJoin(pd, x) {
+function rdJoin(
+  pd,
+  x,
+) {
   if (!pd) return { text: x.text, from: x.from };
   const o = pd.text.length + 1;
   return {
@@ -26661,13 +26114,17 @@ function rdJoin(pd, x) {
 }
 // Text t (with its parts) less every part moved off pin key k whose text is `written` (rdNorm) and that still has its lines
 // to itself (rdLined) - with the line break that set it apart, the rest kept as it is - or null when none is.
-/** @param {string} t @param {ReasonPart[]} parts @param {string} k @param {string} written @returns {{text:string,from:ReasonPart[]}|null} */
-function rdCut(t, parts, k, written) {
+function rdCut(
+  t,
+  parts,
+  k,
+  written,
+) {
   const n = rdNorm(written);
   if (!n) return null;
   let ps = parts,
     hit = false;
-  const at = (/** @type {ReasonPart} */ q) => q.k === k && rdNorm(t.slice(q.s, q.e)) === n && rdLined(t, q);
+  const at = (q) => q.k === k && rdNorm(t.slice(q.s, q.e)) === n && rdLined(t, q);
   for (let p = ps.find(at); p; p = ps.find(at)) {
     hit = true;
     let s = p.s,
@@ -26688,7 +26145,6 @@ function rdCut(t, parts, k, written) {
   return hit ? { text: t, from: ps } : null;
 }
 // Whether a stored lost write is one (ReasonTry).
-/** @param {any} a @returns {a is ReasonTry} */
 function rdTry(a) {
   return (
     !!a &&
@@ -26700,14 +26156,19 @@ function rdTry(a) {
   );
 }
 // The draft kept under id (a pin number, or 'p<page>') on document doc, or null.
-/** @param {string|null} doc @param {number|string} id @returns {ReasonDraft|null} */
 function rdGet(doc, id) {
   return rdRead(rdAll()[rdName(doc, id)]);
 }
 // Keeps text under id - or drops it when nothing is unsaved (empty, or the reason as it is saved). The parts the draft there
 // had stay unless o names others (and its text is the same); a draft never counts its own key.
-/** @param {string|null} doc @param {number|string} id @param {string} text @param {string} base @param {number} [rev] @param {{mode?:string,folded?:boolean,tried?:ReasonTry[],from?:ReasonPart[]}} [o] */
-function rdPut(doc, id, text, base, rev, o) {
+function rdPut(
+  doc,
+  id,
+  text,
+  base,
+  rev,
+  o,
+) {
   const d = rdAll(),
     k = rdName(doc, id),
     mode = (o && o.mode) || (base.trim() ? 'replace' : 'add'),
@@ -26730,7 +26191,6 @@ function rdPut(doc, id, text, base, rev, o) {
   rdSave(d);
 }
 // Keeps reason session r's text as its pin's draft (open, not folded), with its lost writes and the parts it came from.
-/** @param {ReasonSession} r @param {boolean} [folded] */
 function rdKeep(r, folded) {
   rdPut(r.doc, r.id || 'p' + r.page, r.text, r.base, r.rev, {
     mode: r.mode,
@@ -26739,7 +26199,6 @@ function rdKeep(r, folded) {
     from: r.via,
   });
 } // not bound yet: the page's
-/** @param {string|null} doc @param {number|string} id */
 function rdDrop(doc, id) {
   const d = rdAll(),
     k = rdName(doc, id);
@@ -26749,13 +26208,11 @@ function rdDrop(doc, id) {
   }
 }
 // The part a draft (text, lost writes) becomes when it is moved off pin key k: all of it, with k's lost writes.
-/** @param {string} k @param {{text:string,tried:ReasonTry[]}} x @returns {ReasonPart} */
 function rdPart(k, x) {
   return { k, s: 0, e: x.text.length, tried: x.tried };
 }
 // The text of a draft that is the person's own: as typed, less - when it changes a saved reason (mode 'replace') - the
 // stamped lines others added under it ('(추가 HH:MM) …') as that saved note (base) held them.
-/** @param {string} mode @param {string} text @param {string} base */
 function rdOwn(mode, text, base) {
   if (mode !== 'replace') return text;
   const st = /^\(추가 \d{1,2}:\d{2}\) /,
@@ -26768,8 +26225,10 @@ function rdOwn(mode, text, base) {
 // What draft x becomes moved off key k (a pin's, or '' for none) to another verdict, as a new reason: its own text only
 // (rdOwn: the lines others added under a saved reason being changed stay on the verdict they were written on), with the
 // parts it came with (while that text is all of it) and, k a pin, all of it as a part moved off k with k's lost writes.
-/** @param {string} k @param {{text:string,base:string,mode:string,tried:ReasonTry[],from:ReasonPart[]}} x @returns {{text:string,from:ReasonPart[]}} */
-function rdOff(k, x) {
+function rdOff(
+  k,
+  x,
+) {
   const own = rdOwn(x.mode, x.text, x.base);
   return {
     text: own,
@@ -26780,7 +26239,6 @@ function rdOff(k, x) {
 // remembering where it came from (rdOff, rdMovedOff). The same whether a popover held it or it was folded or kept: a
 // folded change of a saved reason used to carry others' lines into the new verdict's reason (RC failure test of 0.4.36).
 // A draft with nothing of the person's own stays where it is.
-/** @param {string|null} doc @param {number|string} from @param {number} id @returns {ReasonDraft|null} */
 function rdMove(doc, from, id) {
   const x = rdGet(doc, from);
   if (!x) return null;
@@ -26792,7 +26250,6 @@ function rdMove(doc, from, id) {
 }
 // The drafts moved off pin id's key on document doc (rdMove, pvReasonUncancelDraft) while its reason may still be written
 // there, by key.
-/** @param {string|null} doc @param {number} id @returns {string[]} */
 function rdMovedOff(doc, id) {
   const d = rdAll(),
     k = rdName(doc, id);
@@ -26802,7 +26259,6 @@ function rdMovedOff(doc, id) {
   });
 }
 // Pin id's reason text was written there: the drafts moved off its key lose the parts that are that text (rdCut).
-/** @param {string|null} doc @param {number} id @param {string} text */
 function rdWrittenOff(doc, id, text) {
   const d = rdAll(),
     k = rdName(doc, id);
@@ -26819,11 +26275,10 @@ function rdWrittenOff(doc, id, text) {
 }
 // Pin key k's write lost its answer (lost write a): every part moved off k keeps it as evidence, stored and in a session -
 // also in the texts a session's field may come back to (pvReasonEvidence).
-/** @param {string|null} doc @param {number} id @param {ReasonTry} a */
 function rdTriedOff(doc, id, a) {
   const d = rdAll(),
     k = rdName(doc, id),
-    add = (/** @type {ReasonPart[]} */ ps) => ps.map((p) => (p.k === k ? { ...p, tried: [...p.tried, a] } : p));
+    add = (ps) => ps.map((p) => (p.k === k ? { ...p, tried: [...p.tried, a] } : p));
   let ch = false;
   for (const x of Object.keys(d)) {
     const r = rdRead(d[x]);
@@ -26854,25 +26309,29 @@ function rdTriedOff(doc, id, a) {
 // whose reason may still be written there (its draft's from, kept with it by rdKeep and placed again on every input,
 // pvReasonPlace): a write of a part's text there takes that part out of this one (pvReasonWrittenOff). hist: the texts its
 // field held since its text or parts were last set from elsewhere, with their parts (pvReasonPlace).
-/** @typedef {{sid:number,page:number,id:number,key:string,doc:string|null,visit:any,text:string,base:string,mode:string,rev:number,conflict:{note:string,rev:number}|null,from:number,via:ReasonPart[],seen:boolean,listed:boolean,writing:Promise<boolean>|null,saved:string|null,tried:ReasonTry[],clearTried:boolean,escArm:string,saveWhenBound?:boolean,onto?:number,hist?:ReasonHist}} ReasonSession */
 // What a session's field held, for its undo and redo (pvReasonPlace).
-/** @typedef {{last:{text:string,via:ReasonPart[]},seen:Map<string,ReasonPart[]>,size:number,landed:{doc:string|null,id:number,word:string,text:string}[]}} ReasonHist */
 // A new reason's write whose answer was lost: text, sent against the pin's rev `rev`, would have made the note pre, then the
 // stamp a note_append puts first when stamp ('(추가 12:30) ', the time the server's), then text, then post.
-/** @typedef {{text:string,rev:number,pre:string,stamp:boolean,post:string}} ReasonTry */
-let PV_REASON = /** @type {ReasonSession|null} */ (null);
+let PV_REASON = null;
 let PV_RSEQ = 0;
 // The popovers moved away from (another page, another document, another popover) before their verdict's save answered, by
 // line (pvSlot of the document they were typed on): each stays bound to that save, not to the screen.
-const PV_DETACHED = /** @type {Map<string,ReasonSession>} */ (new Map());
+const PV_DETACHED = new Map();
 let PV_LAST_SAVE = 0; // the verdict pin the last save on a page line made: its line offers the way to its reason wherever it is
 let PV_KEY_SAVE = 0; // ...when that save was a key's: its line says 'Enter 이유 쓰기'
 // The pins this person withdrew (the save's undo, [판정 취소], a pressed word pressed again) while a reason for them may still
 // be on its way: its failure, or its finding the pin gone, is no news to them - nothing is said. A failed withdrawal or a
 // restore takes the pin out again.
-const PV_WITHDRAWN = /** @type {Set<number>} */ (new Set());
-/** @param {number} page @param {number} id @param {string} key @param {string} text @param {string} base @param {number} [rev] @param {string} [mode] @returns {ReasonSession} */
-function pvReasonNew(page, id, key, text, base, rev, mode) {
+const PV_WITHDRAWN = new Set();
+function pvReasonNew(
+  page,
+  id,
+  key,
+  text,
+  base,
+  rev,
+  mode,
+) {
   return {
     sid: ++PV_RSEQ,
     page,
@@ -26897,36 +26356,30 @@ function pvReasonNew(page, id, key, text, base, rev, mode) {
   };
 }
 // Whether reason session r writes the whole note against its rev (a change of a saved reason, or over a newer note seen).
-/** @param {ReasonSession} r */
 function pvReasonEdits(r) {
   return r.mode === 'replace';
 }
-/** @param {number} page */
 function pvReasonOn(page) {
   const r = PV_REASON;
   return !!r && r.page === page && r.doc === DOC && currentVisit(r.visit);
 }
 // The pin a reason session is for, from the lists, or undefined.
-/** @param {number} id */
 function pvReasonPin(id) {
   return OPEN_ALL.concat(REVIEW_ALL, DONE_ALL).find((p) => p.id === id);
 }
-/** @param {unknown} t @returns {t is HTMLTextAreaElement} */
 function pvIsReasonField(t) {
   return t instanceof HTMLTextAreaElement && t.classList.contains('pv-reason');
 }
 // The open popover's field, or null.
 function pvReasonField() {
-  return /** @type {HTMLTextAreaElement|null} */ (document.querySelector('#doc .pv-pop .pv-reason'));
+  return document.querySelector('#doc .pv-pop .pv-reason');
 }
 // Whether the session's text is something not yet written: not empty, not the reason it opened on, not what it wrote.
-/** @param {ReasonSession} r */
 function pvReasonDirty(r) {
   const t = r.text.trim();
   return !!t && t !== r.base.trim() && t !== r.saved;
 }
 // The current verdict of page `page`'s line on the document on screen, or undefined.
-/** @param {number} page */
 function pvCurOf(page) {
   return (pageVerdictPins().get(page) || [])[0];
 }
@@ -26958,7 +26411,6 @@ function pvReasonSync() {
 // its save undone elsewhere. What was typed is not lost: it waits as its page's draft ('초안 있음' on the line, moved to the
 // next verdict saved there), the status line says so, and when the field had the focus the line's draft mark takes it and
 // the keys pressed next are not taken as verdict keys - the person was typing text (pvKeyGuard).
-/** @param {ReasonSession} r */
 function pvReasonLost(r) {
   const f = pvReasonField(),
     had = !!f && document.activeElement === f;
@@ -26983,12 +26435,12 @@ function pvReasonLost(r) {
   }
 }
 // After the lines are drawn (drawPageVerdicts): a focus a session's end owes goes to its line's control (PV_REFOCUS).
-let PV_REFOCUS = /** @type {{page:number,sel:string}|null} */ (null);
+let PV_REFOCUS = null;
 function pvReasonAfterLines() {
   const w = PV_REFOCUS;
   if (!w) return;
   PV_REFOCUS = null;
-  const c = /** @type {HTMLElement|null} */ (document.querySelector('#doc .pv[data-page="' + w.page + '"] ' + w.sel));
+  const c = document.querySelector('#doc .pv[data-page="' + w.page + '"] ' + w.sel);
   if (c) c.focus({ preventScroll: true });
 }
 // A rebuild of the pages (buildDoc) takes the open popover away with them, and a focus in it fell to nothing: what was typed
@@ -26997,24 +26449,21 @@ function pvReasonAfterLines() {
 // leaves alone. After it, pvReasonFocusBack gives the focus back to the same place in the popover drawn again, beside the
 // pages or under one - while it is still on nothing. An input method's composition ends with the old field (the session's
 // text holds what it had composed). A popover not drawn again leaves the keys typed on no verdict keys (PV_KEY_GUARD).
-/** @typedef {{sid:number,sel:[number,number,string]|null,act:string}} ReasonFocus */
-/** @returns {ReasonFocus|null} */
 function pvReasonHoldFocus() {
   const r = PV_REASON,
-    a = /** @type {HTMLElement|null} */ (document.activeElement),
+    a = document.activeElement,
     pop = a && a.closest ? a.closest('#doc .pv-pop') : null;
   if (!r || !a || !pop || pop.getAttribute('data-id') !== 's' + r.sid) return null;
   if (pvIsReasonField(a))
     return { sid: r.sid, sel: [a.selectionStart, a.selectionEnd, a.selectionDirection || 'none'], act: '' };
   return { sid: r.sid, sel: null, act: a.dataset.act || '' };
 }
-/** @param {ReasonFocus|null} h */
 function pvReasonFocusBack(h) {
   const a = document.activeElement;
   if (!h || (a && a !== document.body)) return;
   const r = PV_REASON,
     pop = r && r.sid === h.sid ? document.querySelector('#doc .pv-pop[data-id="s' + h.sid + '"]') : null;
-  const c = /** @type {HTMLElement|null} */ (
+  const c = (
     !pop
       ? null
       : h.sel
@@ -27028,15 +26477,14 @@ function pvReasonFocusBack(h) {
     return;
   }
   c.focus({ preventScroll: true });
-  if (h.sel && pvIsReasonField(c))
-    c.setSelectionRange(h.sel[0], h.sel[1], /** @type {'forward'|'backward'|'none'} */ (h.sel[2]));
+  if (h.sel && pvIsReasonField(c)) c.setSelectionRange(h.sel[0], h.sel[1], h.sel[2]);
 }
 // Once per document in this page's life, when its first lines are drawn: the drafts kept for pins that are gone are let go,
 // one kept for a verdict that is not its line's current one of the person's becomes its page's draft (only that is marked
 // there), and the others wait on their lines ('초안 있음') - none opens by itself: a popover restored on a page far from the reading
 // one opened out of sight, said only to a screen reader. The status line says how many came back, with [보기], which brings
 // the first one's line into view and puts the focus on its mark.
-const PV_RESTORED = /** @type {Set<string>} */ (new Set());
+const PV_RESTORED = new Set();
 function pvReasonRestore() {
   const doc = DOC || '';
   if (PV_RESTORED.has(doc) || !META) return;
@@ -27045,7 +26493,7 @@ function pvReasonRestore() {
     pre = doc + ':',
     kind = META.kind;
   let ch = false;
-  const pages = /** @type {Set<number>} */ (new Set());
+  const pages = new Set();
   for (const k of Object.keys(d)) {
     if (!k.startsWith(pre)) continue;
     const rest = k.slice(pre.length),
@@ -27095,29 +26543,27 @@ function pvReasonRestore() {
 }
 // Brings page `page`'s line into view and puts the focus on its draft's mark ('초안 있음') - before the saved reason, which
 // comes first on the line and opens the popover too - else its reason control (pvFocusLine).
-/** @param {number} page */
 function pvShowLine(page) {
   if (PV_SIDE) {
     pvBring(page);
     pvStick();
   } // beside the pages the panel is the line, once the page is read (verdict-panel.js)
-  const l = /** @type {HTMLElement|null} */ (document.querySelector('#doc .pv[data-page="' + page + '"]'));
+  const l = document.querySelector('#doc .pv[data-page="' + page + '"]');
   if (!l) return;
   if (!PV_SIDE) {
-    const blk = /** @type {HTMLElement} */ (l.parentElement || l);
+    const blk = (l.parentElement || l);
     pvShow();
     blk.scrollIntoView({ block: blk.getBoundingClientRect().height <= $('#left').clientHeight ? 'center' : 'end' });
   }
   requestAnimationFrame(() => {
     if (pvIsReasonField(document.activeElement)) return; // the mark was already pressed: its field keeps the focus
-    const m = /** @type {HTMLElement|null} */ (document.querySelector('#doc .pv[data-page="' + page + '"] .pv-draft'));
+    const m = document.querySelector('#doc .pv[data-page="' + page + '"] .pv-draft');
     if (m) m.focus({ preventScroll: true });
     else if (!pvFocusLine(page)) searchToPage();
   });
 }
 // A draft that changes a saved reason, opened again after its pin's note changed elsewhere: it knows the newer note at once
 // - unless that note is its own lost write, landed (pvReasonRebase).
-/** @param {ReasonSession} r @param {Pin} p */
 function pvReasonSeeConflict(r, p) {
   const note = String(p.note || '');
   pvReasonRebase(r, p);
@@ -27128,7 +26574,6 @@ function pvReasonSeeConflict(r, p) {
 // page: on the line's reason control ([이유 추가], the saved reason, '초안 있음' - whichever the line shows now), else the
 // pressed word, else the line's first word - never the PDF area, from which the next Tab went to the first page's line and
 // scrolled the document there. Closed by moving on with the focus inside, the focus goes to the PDF area.
-/** @param {boolean} back */
 function pvReasonEnd(back) {
   const r = PV_REASON,
     pop = document.querySelector('#doc .pv-pop'),
@@ -27142,15 +26587,12 @@ function pvReasonEnd(back) {
   if (!r || !pvFocusLine(r.page)) searchToPage();
 }
 // Puts the focus on page `page`'s line: its reason control, else its pressed word, else its first word. Returns whether it did.
-/** @param {number} page */
 function pvFocusLine(page) {
   const l = document.querySelector('#doc .pv[data-page="' + page + '"]');
   if (!l) return false;
-  const c = /** @type {HTMLElement|null} */ (
-    l.querySelector('[data-act="pv-reason-open"]') ||
-      l.querySelector('.vd-b[aria-pressed="true"]') ||
-      l.querySelector('.vd-b')
-  );
+  const c = (l.querySelector('[data-act="pv-reason-open"]') ||
+    l.querySelector('.vd-b[aria-pressed="true"]') ||
+    l.querySelector('.vd-b'));
   if (!c) return false;
   c.focus({ preventScroll: true });
   return true;
@@ -27177,7 +26619,6 @@ function pvReasonLeave() {
 // bound to that verdict and its text written there, on the document it was typed on, as moving on writes (said in one line);
 // a failed save leaves the text as the page's draft ('초안 있음'), said. (Its text written meanwhile on a verdict it was moved
 // off, pvReasonWrittenOff, leaves nothing to keep or write.)
-/** @param {string} slot @param {number} id @param {string} key */
 function pvReasonSettle(slot, id, key) {
   const r = PV_DETACHED.get(slot);
   if (!r) return;
@@ -27199,7 +26640,6 @@ function pvReasonSettle(slot, id, key) {
 // Opens the popover on page `page`'s line for its current verdict - the person's own open one ([이유 추가], Enter, its saved
 // reason, its kept draft): with that draft (unfolded), else the page's draft (moved to this verdict), else the saved reason
 // to change. Another popover moves on first. A page's draft with no verdict of the person's to take it says so.
-/** @param {number} page @param {boolean} focus */
 function pvReasonOpen(page, focus) {
   const cur = pvCurOf(page);
   if (viewerBlocked()) return;
@@ -27251,7 +26691,6 @@ function pvReasonOpen(page, focus) {
 // the popover opens now with the focus, bound to that pending verdict (id 0) - every key after it is text in the field,
 // digits included, never a verdict key - and takes the verdict's number when the save answers (pvReasonAfterSave). A save
 // that fails leaves the text as the page's draft (pvReasonUnbound).
-/** @param {number} page */
 function pvReasonOpenPending(page) {
   const s = pvSlot(page),
     key = PV_BUSY.get(s) || '';
@@ -27277,7 +26716,6 @@ function pvReasonOpenPending(page) {
 // said in one line, and the popover closes. As when a verdict is taken back while its reason is typed (pvReasonLost): when
 // the field had the focus its line's draft mark takes it and the keys pressed next are not verdict keys (PV_KEY_GUARD) -
 // a digit typed on would have saved a verdict; a focus elsewhere (the search, the composer) stays where it is.
-/** @param {number} page */
 function pvReasonUnbound(page) {
   const r = PV_REASON;
   if (!r || r.id || r.page !== page || r.doc !== DOC) return;
@@ -27319,7 +26757,6 @@ function pvReasonFocus() {
 // first (pvReasonOnto: written, or found landed, it stays prev's and the status line says so; not landed, the draft moves
 // to the new verdict and prev's [다시 시도] goes). Moved at once, a write that landed or a [다시 시도] afterwards put the
 // reason on both verdicts.
-/** @param {number} page @param {number} id @param {string} key @param {boolean} kb @param {number} prev */
 function pvReasonAfterSave(page, id, key, kb, prev) {
   const r = PV_REASON;
   PV_LAST_SAVE = id;
@@ -27378,7 +26815,6 @@ function pvReasonAfterSave(page, id, key, kb, prev) {
 // The text of reason session r that is the person's own: the field's text, less - when it changes a saved reason - the
 // stamped lines others added under it ('(추가 HH:MM) …') as the saved note held them. (A new reason's text is the field's,
 // as typed.)
-/** @param {ReasonSession} r */
 function pvReasonOwn(r) {
   return rdOwn(r.mode, r.text, r.base);
 }
@@ -27390,7 +26826,6 @@ function pvReasonOwn(r) {
 // [다시 시도] go, and the status line says where it went with [보기] - remembering the pins the draft came from before
 // (from), as every move does, and this verdict while its write may land yet. A read that fails decides nothing: the
 // status line says so with [다시 시도], which reads again. (pvReasonWrite and pvReasonFailed say nothing of such a write themselves.)
-/** @param {ReasonSession} r @param {boolean} ok @param {number} page */
 async function pvReasonOnto(r, ok, page) {
   const to = r.onto,
     doc = r.doc,
@@ -27406,11 +26841,11 @@ async function pvReasonOnto(r, ok, page) {
     else r.onto = 0;
     return;
   } // nothing of it was left to write: a pin it came from had it (pvReasonCommit)
-  let p = /** @type {Pin|null|undefined} */ (undefined);
+  let p = undefined;
   try {
     p = (await api('/api/pins/' + r.id, { what: '핀 읽기', silent: true })).data.pin;
   } catch (e) {
-    const x = /** @type {ApiError} */ (e);
+    const x = e;
     if (!x || !x.status || x.status >= 500) {
       lineNote(
         tl('이유 저장 실패 · {why} — {target}', { why: tr('서버에 닿지 않습니다'), target }),
@@ -27422,7 +26857,7 @@ async function pvReasonOnto(r, ok, page) {
     }
     p = null;
   }
-  const got = p && !p.dropped_at ? [...r.tried].reverse().find((a) => pvReasonLanded(a, /** @type {Pin} */ (p))) : null;
+  const got = p && !p.dropped_at ? [...r.tried].reverse().find((a) => pvReasonLanded(a, p)) : null;
   PV_RETRY.delete(r); // its [다시 시도] goes either way (sourceOk)
   if (got) {
     r.saved = got.text;
@@ -27472,7 +26907,6 @@ async function pvReasonOnto(r, ok, page) {
 // save out on the line then moves it to the new verdict, pvReasonAfterSave - unless its own write is out too). Otherwise
 // what was typed - kept as the verdict's draft when it left (pvCancelPin) - is never let go without a word
 // (pvReasonUncancelDraft).
-/** @param {number} id @param {number} page @param {string|null} doc @param {ReasonSession|null} kept */
 function pvReasonUncancel(id, page, doc, kept) {
   const cur = pvCurOn(doc, page),
     back = !!cur && cur.id === id;
@@ -27505,8 +26939,7 @@ function pvReasonUncancel(id, page, doc, kept) {
 // warning after the take-back's own failure, which stands first with its [다시 시도]. shown: a popover was displaced. A draft
 // kept for the verdict without one (folded, or a failed write) moves the same way and is said too; one that stays on its
 // verdict's line, where it was before, is not.
-const PV_UNCANCEL = /** @type {Map<string,{id:number,page:number,doc:string|null,shown:boolean}>} */ (new Map());
-/** @param {number} id @param {number} page @param {string|null} doc @param {boolean} shown */
+const PV_UNCANCEL = new Map();
 function pvReasonUncancelDraft(id, page, doc, shown) {
   const o = PV_WRITES.get(rdName(doc, id));
   if (o) {
@@ -27544,7 +26977,6 @@ function pvReasonUncancelDraft(id, page, doc, shown) {
 }
 // The save on line `slot` answered (savePageVerdict, after it bound or kept a popover waiting for it): a failed take-back's
 // draft that waited for it is placed now.
-/** @param {string} slot */
 function pvReasonUncancelSettle(slot) {
   const u = PV_UNCANCEL.get(slot);
   if (!u) return;
@@ -27553,7 +26985,6 @@ function pvReasonUncancelSettle(slot) {
 }
 // [되돌리기] brought verdict pin id back (a cancel's, the save chip's): its kept draft opens again on its line, without the
 // focus - only while it is that line's current verdict (a newer verdict of someone else's keeps the line; verdict.js says so).
-/** @param {number} id */
 function pvReasonRevive(id) {
   const d = rdGet(DOC, id),
     p = pvReasonPin(id);
@@ -27594,11 +27025,10 @@ function pvReasonRevive(id) {
 // stays and the status line says the write failed, with [다시 시도]. (#317: the moved copy opened, and Enter pressed,
 // before the old verdict's [다시 시도] answered - or its answer was lost after it landed, or a reload let its evidence go -
 // and the reason landed on both verdicts.)
-const PV_WRITES = /** @type {Map<string,{r:ReasonSession,w:Promise<boolean>}>} */ (new Map());
+const PV_WRITES = new Map();
 // The sessions whose failure the status line offers [다시 시도] for (pvReasonFailed), with that message: a write elsewhere of
 // their text takes it out of them and the message goes (pvReasonWrittenOff) - the [다시 시도] would write it a second time.
-const PV_RETRY = /** @type {Map<ReasonSession,Notice>} */ (new Map());
-/** @param {ReasonSession} r @param {string} text @param {boolean} said @returns {Promise<boolean>} */
+const PV_RETRY = new Map();
 function pvReasonCommit(r, text, said) {
   if (r.saved === text) return Promise.resolve(true);
   if (!r.writing) {
@@ -27640,7 +27070,6 @@ function pvReasonCommit(r, text, said) {
 }
 // The writes out (PV_WRITES) that may put reason session r's text on another verdict - those of the pins it was moved off
 // (r.via) and of the copies moved off its own pin -, all answered (failed ones too), or null when none is out.
-/** @param {ReasonSession} r @returns {Promise<unknown>|null} */
 function pvReasonKin(r) {
   const k = rdName(r.doc, r.id);
   const ws = [...PV_WRITES]
@@ -27656,16 +27085,15 @@ function pvReasonKin(r) {
 // (pvReasonFence): then it never lands, or it landed first and is judged so, and only then is the copy written (#327: the
 // copy was written, and the old request landed after it). Resolves true when every pin is settled, else with what left one
 // unknown - a read or a fence without an answer, a 5xx, a refusal (null: no answer at all): nothing is decided for it.
-/** @param {ReasonSession} r @returns {Promise<true|ApiError|null>} */
 async function pvReasonCheck(r) {
-  let sure = /** @type {true|ApiError|null} */ (true);
+  let sure = true;
   for (const k of new Set(r.via.filter((p) => p.tried.length).map((p) => p.k))) {
     const id = Number(k.slice(k.lastIndexOf(':') + 1));
-    let p = /** @type {Pin|null} */ (null);
+    let p = null;
     try {
       p = (await api('/api/pins/' + id, { what: '핀 읽기', silent: true })).data.pin || null;
     } catch (e) {
-      const x = /** @type {ApiError} */ (e);
+      const x = e;
       if (!x || !x.status || x.status >= 500) {
         sure = x || null;
         continue;
@@ -27683,8 +27111,8 @@ async function pvReasonCheck(r) {
             )
           : null;
         if (!q || !pin) break;
-        const a = /** @type {ReasonTry} */ (
-          q.tried.find((a) => rdNorm(a.text) === rdNorm(r.text.slice(q.s, q.e)) && pvReasonLanded(a, pin))
+        const a = q.tried.find(
+          (a) => rdNorm(a.text) === rdNorm(r.text.slice(q.s, q.e)) && pvReasonLanded(a, pin),
         );
         pvReasonWrittenOff(r.doc, id, verdictOf(pin) || '', a.text, null);
         if (r.via.includes(q)) break;
@@ -27717,8 +27145,10 @@ async function pvReasonCheck(r) {
 // another refusal - decides nothing; a fence whose answer was lost may land later, and is then no lost write's landing
 // unless the note is exactly what that write made (pvReasonLanded). Nothing of the note changes: the pin's edited_at and
 // rev do.
-/** @param {number} id @param {Pin} p @returns {Promise<{fenced:true}|{pin:Pin|null}|{unknown:ApiError|null}>} */
-async function pvReasonFence(id, p) {
+async function pvReasonFence(
+  id,
+  p,
+) {
   try {
     const { status, data } = await api('/api/pins/' + id + '/edit', {
       method: 'POST',
@@ -27731,15 +27161,14 @@ async function pvReasonFence(id, p) {
     const q = data && data.pin;
     return q ? { pin: q } : { unknown: null };
   } catch (e) {
-    const x = /** @type {ApiError} */ (e);
+    const x = e;
     return x && x.status === 404 ? { pin: null } : { unknown: x || null };
   }
 }
 // Session s's evidence of pin key k's lost writes (ReasonPart.tried) made fn(tried): in its text's parts and in those of the
 // texts its field may come back to (hist, pvReasonPlace).
-/** @param {ReasonSession} s @param {string} k @param {(t:ReasonTry[])=>ReasonTry[]} fn */
 function pvReasonEvidence(s, k, fn) {
-  const m = (/** @type {ReasonPart[]} */ ps) => ps.map((p) => (p.k === k ? { ...p, tried: fn(p.tried) } : p));
+  const m = (ps) => ps.map((p) => (p.k === k ? { ...p, tried: fn(p.tried) } : p));
   s.via = m(s.via);
   const h = s.hist;
   if (!h) return;
@@ -27749,12 +27178,10 @@ function pvReasonEvidence(s, k, fn) {
 // The sessions that may still write: the open popover, those moved away from while their save is out, those writing, and
 // those whose failure offers [다시 시도].
 function pvReasonLive() {
-  return /** @type {Set<ReasonSession>} */ (
-    new Set(
-      [PV_REASON, ...PV_DETACHED.values(), ...[...PV_WRITES.values()].map((o) => o.r), ...PV_RETRY.keys()].filter(
-        Boolean,
-      ),
-    )
+  return new Set(
+    [PV_REASON, ...PV_DETACHED.values(), ...[...PV_WRITES.values()].map((o) => o.r), ...PV_RETRY.keys()].filter(
+      Boolean,
+    ),
   );
 }
 // Pin id (verdict word `word`) of document doc has text as its reason now - session w wrote it, or (w null) a write that lost
@@ -27764,7 +27191,6 @@ function pvReasonLive() {
 // typed again -; and, w's text holding parts moved off other pins (w.via), the sessions of those pins whose text is such a
 // part. The sessions of pin id with that text have it saved. A session left with nothing has nothing to write: its
 // [다시 시도] goes, and the open popover closes (pvReasonTaken).
-/** @param {string|null} doc @param {number} id @param {string} word @param {string} text @param {ReasonSession|null} w */
 function pvReasonWrittenOff(doc, id, word, text, w) {
   const k = rdName(doc, id),
     n = rdNorm(text);
@@ -27790,7 +27216,6 @@ function pvReasonWrittenOff(doc, id, word, text, w) {
   }
 }
 // Session s, left with nothing to write: its text goes and so does its [다시 시도].
-/** @param {ReasonSession} s */
 function pvReasonGone(s) {
   s.text = '';
   s.via = [];
@@ -27800,7 +27225,6 @@ function pvReasonGone(s) {
 }
 // Whether session s - a verdict's, with text - holds what session w's copy came from: a part of w's text moved off s's pin
 // is s's very text.
-/** @param {ReasonSession} w @param {ReasonSession} s */
 function pvReasonCameFrom(w, s) {
   const sk = rdName(s.doc, s.id),
     t = rdNorm(s.text);
@@ -27810,7 +27234,6 @@ function pvReasonCameFrom(w, s) {
 // later write there settles that (pvReasonBody). The sessions its copy came from have nothing left to write: their
 // [다시 시도] goes - pressed, it put the reason on their verdict too, and w's request landed as well (#327, the order after
 // the fence: w's write is the one that may still land). The open popover is never such a session.
-/** @param {ReasonSession} w */
 function pvReasonHandedOn(w) {
   for (const s of pvReasonLive())
     if (s !== w && s !== PV_REASON && s.id && s.text.trim() && pvReasonCameFrom(w, s)) pvReasonGone(s);
@@ -27822,11 +27245,10 @@ function pvReasonHandedOn(w) {
 // pvReasonSaidOn): left open, its Enter or moving on wrote the reason on this verdict as well. When the popover had the
 // focus - typed in, or waiting on its Enter (the field disabled, the focus nowhere) - the line's reason control takes it and
 // the keys pressed next are not verdict keys (PV_KEY_GUARD): the person was typing text, or about to.
-/** @param {ReasonSession} s @param {string|null} doc @param {number} id @param {string} word @param {boolean} part */
 function pvReasonTaken(s, doc, id, word, part) {
   if (part) {
     pvRefill(s.page);
-    const l = /** @type {HTMLElement|null} */ (document.querySelector('#doc .pv[data-page="' + s.page + '"]'));
+    const l = document.querySelector('#doc .pv[data-page="' + s.page + '"]');
     if (l) pvReasonAfterDraw(l);
     lineNote(
       tl('이유 일부는 이전 판정 #{id} {word}에 저장됨 · 초안에는 나머지를 남겼습니다 — {target}', {
@@ -27853,7 +27275,6 @@ function pvReasonTaken(s, doc, id, word, part) {
 }
 // Says that pin id's reason (verdict word key) was saved, about page `page` of document doc - on an earlier verdict when the
 // line's current verdict is another one now.
-/** @param {string|null} doc @param {number} page @param {number} id @param {string} key */
 function pvReasonSaidOn(doc, page, id, key) {
   const target = pvNameOn(doc, page, id),
     word = verdictLabel(key, doc),
@@ -27877,7 +27298,6 @@ function pvReasonSaidOn(doc, page, id, key) {
 // [다시 시도] on a failed reason: the session's draft as it is now (after a failed Enter the field stays open and may have been
 // corrected) written as its one write. A field still open for it waits while it writes, and closes only when what was
 // written is what it holds.
-/** @param {ReasonSession} r */
 function pvReasonRetry(r) {
   const text = r.text.trim();
   if (!text || r.writing) return;
@@ -27892,7 +27312,6 @@ function pvReasonRetry(r) {
 // Where lost write a's text sits in note when the note is what a made of the one it was sent against - its pre, its stamp,
 // its text, its post - with nothing after but lines added under it since (a later note_append's '\n(추가 …', or an agent's
 // '\r\n' one), or nothing at all when `exact` (no change came after it): the text's [start, end], else null.
-/** @param {ReasonTry} a @param {string} note @param {boolean} [exact] @returns {number[]|null} */
 function pvReasonTryAt(a, note, exact) {
   if (!note.startsWith(a.pre)) return null;
   let i = a.pre.length;
@@ -27915,7 +27334,6 @@ function pvReasonTryAt(a, note, exact) {
 // (pvReasonFence), is not this write. Text the note held already - someone's, or the person's own earlier line - is no sign
 // of it: a reason repeated is a new one. (Two or more changes since leave the note to say it: someone writing the very same
 // text under the same note in that window would read as this write.)
-/** @param {ReasonTry} a @param {Pin} p */
 function pvReasonLanded(a, p) {
   const rev = typeof p.rev === 'number' ? p.rev : 0,
     one = rev === a.rev + 1;
@@ -27929,8 +27347,11 @@ function pvReasonLanded(a, p) {
 // text is saved already, and a corrected draft takes its place (a corrected reason, not a second one); lost writes that can
 // no longer land (sent against an older rev, not landed) are let go. Otherwise the text goes into an empty note, or under the
 // note someone wrote (note_append).
-/** @param {ReasonSession} r @param {string} text @param {Pin} p @returns {{body:Record<string, unknown>,sent:ReasonTry|null}|null} */
-function pvReasonBody(r, text, p) {
+function pvReasonBody(
+  r,
+  text,
+  p,
+) {
   const note = String(p.note || ''),
     rev = typeof p.rev === 'number' ? p.rev : 0;
   if (pvReasonEdits(r)) {
@@ -27955,11 +27376,10 @@ function pvReasonBody(r, text, p) {
 const NOTE_APPEND_LIMIT = 2000,
   NOTE_LIMIT = 4000; // the server's (pins/editing): a note_append, a whole note
 // Why edit body b would be refused for its length - said instead of sending it, the draft kept - or ''.
-/** @param {Record<string, unknown>} b */
 function pvReasonTooLong(b) {
   const a = b.note_append,
     n = b.note,
-    f = (/** @type {number} */ x) => x.toLocaleString('en-US');
+    f = (x) => x.toLocaleString('en-US');
   if (typeof a === 'string' && a.length > NOTE_APPEND_LIMIT)
     return tl('덧붙일 이유는 {max}자까지입니다(지금 {len}자)', { max: f(NOTE_APPEND_LIMIT), len: f(a.length) });
   if (typeof n === 'string' && n.length > NOTE_LIMIT)
@@ -27979,7 +27399,6 @@ const PV_REASON_409 = 3;
 // sent against and its note exactly what it wrote (pvReasonLanded): the note r changes is that one now, at p's rev. The
 // person's own text is never shown back as a note changed elsewhere ('지금 메모'), and the next Enter writes over it at
 // once. Returns whether it did.
-/** @param {ReasonSession} r @param {Pin} p */
 function pvReasonRebase(r, p) {
   if (!pvReasonEdits(r) || !r.tried.length) return false;
   const note = String(p.note || '');
@@ -27991,14 +27410,13 @@ function pvReasonRebase(r, p) {
   r.conflict = null;
   return true;
 }
-/** @param {ReasonSession} r @param {string} text @param {boolean} said @returns {Promise<boolean>} */
 async function pvReasonWrite(r, text, said) {
   if (viewerBlocked()) return false;
   let p;
   try {
     p = (await api('/api/pins/' + r.id, { what: '핀 읽기', silent: true })).data.pin;
   } catch (e) {
-    const x = /** @type {ApiError} */ (e);
+    const x = e;
     if (!x || !x.status || x.status >= 500) {
       pvReasonFailed(r, text, x);
       return false;
@@ -28017,7 +27435,7 @@ async function pvReasonWrite(r, text, said) {
   } // changed since it was read: never sent
   const url = '/api/pins/' + r.id + '/edit',
     o = { method: 'POST', intent: 'reason', silent: true }; // silent: pvReasonFailed says a failure, with its target
-  let sent = /** @type {ReasonTry|null} */ (null); // the write out now, while its answer is awaited
+  let sent = null; // the write out now, while its answer is awaited
   try {
     for (let n = 1; ; n++) {
       const b = pvReasonBody(r, text, p);
@@ -28047,7 +27465,7 @@ async function pvReasonWrite(r, text, said) {
       p = q;
     }
   } catch (e) {
-    const x = /** @type {ApiError} */ (e);
+    const x = e;
     if (sent && (!x || !x.status || x.status >= 500)) {
       r.tried.push(sent);
       rdTriedOff(r.doc, r.id, sent);
@@ -28077,12 +27495,10 @@ async function pvReasonWrite(r, text, said) {
 }
 // What a reason session's verdict is about, by a short name for the status line: its page's target while its document is on
 // screen ('PL16'), else its document's name.
-/** @param {ReasonSession} r */
 function pvReasonName(r) {
   return pvNameOn(r.doc, r.page, r.id);
 }
 // The same for verdict pin id (0 while it has none) about page `page` of document doc.
-/** @param {string|null} doc @param {number} page @param {number} id */
 function pvNameOn(doc, page, id) {
   if (doc === DOC) return pageTargetShort(page);
   const d = doc ? docInfo(doc) : null;
@@ -28096,7 +27512,6 @@ function pvNameOn(doc, page, id) {
 // [x] or its action (STICKY), or until a write elsewhere puts its text on another verdict (PV_RETRY, pvReasonWrittenOff).
 // (A write without an answer is remembered by pvReasonWrite, r.tried: it may have landed.) The
 // reason for a pin this person has withdrawn meanwhile goes quietly (PV_WITHDRAWN).
-/** @param {ReasonSession} r @param {string} text @param {ApiError|null} e @param {string} [why0] */
 function pvReasonFailed(r, text, e, why0) {
   const st = e && typeof e.status === 'number' ? e.status : 0,
     again = !why0 && (!st || st >= 500);
@@ -28118,7 +27533,6 @@ function pvReasonFailed(r, text, e, why0) {
 // the popover - when open - shows the newer note whole and offers [그 위에 쓰기] (pvReasonReapply); every further 409 shows
 // the note it found. The status line says so, result first, with [메모 보기] (the pin's card), and the line is read again so
 // it shows the newer note too.
-/** @param {ReasonSession} r @param {string} text @param {Pin} q */
 function pvReasonConflict(r, text, q) {
   r.conflict = { note: String(q.note || ''), rev: typeof q.rev === 'number' ? q.rev : -1 };
   if (!rdMovedOff(r.doc, r.id).length)
@@ -28156,7 +27570,6 @@ function pvReasonReapply() {
 // reason as it is saved has nothing to write. While the request is out the field waits (read-only, keeping the focus: disabled it
 // dropped it to nothing and the next digit was a verdict key; the popover says '저장 중…'); a failure leaves the text in it
 // for another Enter.
-/** @param {HTMLTextAreaElement} f */
 async function pvReasonSave(f) {
   const r = PV_REASON;
   if (!r || r.writing || f.readOnly) return;
@@ -28195,7 +27608,6 @@ async function pvReasonSave(f) {
 // Esc in the field, or [닫기] (how 'btn'): with nothing unsaved the popover closes. With text the first press lets the focus
 // go to the PDF area - the keys then change the verdict, the draft following - and says that the next one drops it; the
 // next one drops it (the kept draft too).
-/** @param {string} how */
 function pvReasonEsc(how) {
   const r = PV_REASON;
   if (!r || (how === 'key' && r.writing)) return;
@@ -28227,8 +27639,8 @@ function pvReasonFold() {
   else rdDrop(r.doc, r.id);
   PV_REASON = null;
   drawPageVerdicts();
-  const c = /** @type {HTMLElement|null} */ (
-    document.querySelector('#doc .pv[data-page="' + r.page + '"] [data-act="pv-reason-open"]')
+  const c = document.querySelector(
+    '#doc .pv[data-page="' + r.page + '"] [data-act="pv-reason-open"]',
   );
   if (c) c.focus({ preventScroll: true });
   else pvFocusLine(r.page);
@@ -28269,7 +27681,7 @@ async function pvReasonClear() {
       await api(url, { ...o, expect: [], body: { note: '', base_rev: q.rev } });
       return 'ok';
     } catch (e) {
-      const x = /** @type {ApiError} */ (e),
+      const x = e,
         st = x && typeof x.status === 'number' ? x.status : 0;
       if (!st) r.clearTried = true;
       lineNote(
@@ -28314,7 +27726,6 @@ async function pvReasonClear() {
   if (r.doc === DOC) await loadPins();
 }
 // The undo of [지우기]: the reason written back, unless someone wrote a note meanwhile.
-/** @param {number} id @param {string} old @returns {Promise<boolean>} */
 async function pvReasonUnclear(id, old) {
   let ok = false;
   try {
@@ -28337,7 +27748,6 @@ async function pvReasonUnclear(id, old) {
 // ---------------- The popover and the line's reason
 // What the popover says of its draft: '저장 중…' while it writes, '저장됨' with a check when its text is the saved reason, '저장 안 됨'
 // when it is not written yet, nothing when empty.
-/** @param {ReasonSession} r @returns {{text:string,cls:string}} */
 function pvReasonState(r) {
   if (r.writing || r.saveWhenBound) return { text: tr('저장 중…'), cls: 'busy' };
   const t = r.text.trim();
@@ -28349,7 +27759,6 @@ function pvReasonState(r) {
 // What the keys do now, under the field: with a fine pointer and the focus in it, Enter saves (and with nothing typed Esc
 // closes); after a first Esc, what the second does. With touch only the second press of [닫기] is said. The digits are not
 // mentioned: in the field they are text.
-/** @param {ReasonSession} r @param {boolean} focused */
 function pvReasonHint(r, focused) {
   const fine = matchMedia('(pointer:fine)').matches;
   if (r.escArm === 'btn') return tr('[닫기]를 한 번 더 누르면 이 이유를 버립니다');
@@ -28366,7 +27775,6 @@ function pvReasonHint(r, focused) {
 // [그 위에 쓰기]. The keys' line is always there (aria-describedby never points at nothing), empty when there is nothing to
 // say. The field is drawn empty; its text is put in after drawing (pvReasonAfterDraw), never as markup a redraw could put
 // back under the caret or an input method.
-/** @param {number} page */
 function pvReasonPop(page) {
   const r = pvReasonOn(page) && canVerdict() ? PV_REASON : null;
   if (!r) return '';
@@ -28417,7 +27825,6 @@ ${pvReasonDirty(r) && !r.writing && r.id ? html`<button type="button" class="btn
 // reading line it may become, so becoming it or leaving it never stacks or unstacks a line (#308 review: a line with an
 // earlier link stacked only while read). Every name holds the words the button shows. Nothing for the reason the open
 // popover holds.
-/** @param {number} page @param {Pin|undefined} cur */
 function pvReasonInline(page, cur) {
   const open = pvReasonOn(page) && !!PV_REASON && (!cur || PV_REASON.id === cur.id || !PV_REASON.id),
     pd = open ? null : rdGet(DOC, 'p' + page);
@@ -28456,10 +27863,9 @@ data-tip="${tr('이 판정의 이유를 씁니다. 메모로 붙습니다')}">${
 }
 // After a line is drawn (fillPv): the open field holds the session's text - put in only when it differs and no input method
 // is composing - and its height follows its lines.
-/** @param {HTMLElement} line */
 function pvReasonAfterDraw(line) {
   const r = PV_REASON,
-    f = /** @type {HTMLTextAreaElement|null} */ (line.querySelector('.pv-pop .pv-reason'));
+    f = line.querySelector('.pv-pop .pv-reason');
   if (!r || !f) return;
   if (f.value !== r.text && PV_COMPOSING !== f) {
     const had = document.activeElement === f;
@@ -28472,16 +27878,14 @@ function pvReasonAfterDraw(line) {
   pvReasonGrow(f);
 }
 // The field's height: its lines, up to its max-height (CSS), from one line.
-/** @param {HTMLTextAreaElement} f */
 function pvReasonGrow(f) {
   f.style.height = 'auto';
   f.style.height = Math.ceil(f.scrollHeight + (f.offsetHeight - f.clientHeight)) + 'px';
 }
 // Page `page`'s line drawn again now: what its popover says follows the field's text and focus.
-/** @param {number} page */
 function pvRefill(page) {
   const v = pageVerdictsOn(),
-    e = /** @type {HTMLElement|null} */ (document.querySelector('#doc .pv[data-page="' + page + '"]'));
+    e = document.querySelector('#doc .pv[data-page="' + page + '"]');
   if (v && e) fillPv(e, page, pageVerdictPins().get(page), v);
 }
 
@@ -28489,7 +27893,7 @@ function pvRefill(page) {
 // The reason field an input method is composing in: its value is not put back. The composition ends with its field: a field
 // drawn anew in its place (the pages built again) holds the session's text - while a flag stood, it was left empty and the
 // next input wrote what it held over the reason (#352).
-let PV_COMPOSING = /** @type {HTMLTextAreaElement|null} */ (null);
+let PV_COMPOSING = null;
 $('#doc').addEventListener('compositionstart', (e) => {
   if (pvIsReasonField(e.target)) PV_COMPOSING = e.target;
 });
@@ -28517,11 +27921,10 @@ function pvComposingNow() {
   const f = imeHeldIn();
   return pvIsReasonField(f) && f.isConnected;
 }
-const PV_COMPOSED_WAIT = /** @type {(()=>void)[]} */ ([]); // what waits for the composition's end (pvReasonComposed)
+const PV_COMPOSED_WAIT = []; // what waits for the composition's end (pvReasonComposed)
 const PV_COMPOSED_POLL_MS = 200; // how often a wait looks again: a field taken out of the document ends its composition without the event
 // Resolves once no syllable is being composed in a reason field and the key that ended one has let it go (pvComposingNow) -
 // at once when none is.
-/** @returns {Promise<void>} */
 function pvReasonComposed() {
   return new Promise((res) => {
     if (!pvComposingNow()) {
@@ -28578,9 +27981,8 @@ $('#doc').addEventListener('input', (e) => {
 // one go oldest first past PV_HIST_CHARS characters - one missed is placed by rdEdit, which may keep a part the text had
 // meanwhile, never invents one.
 const PV_HIST_CHARS = 200000;
-/** @param {ReasonSession} r @param {string} was @param {number} caret @returns {ReasonPart[]} */
 function pvReasonPlace(r, was, caret) {
-  const same = (/** @type {ReasonPart[]} */ x, /** @type {ReasonPart[]} */ y) =>
+  const same = (x, y) =>
     x.length === y.length && x.every((p, i) => p.k === y[i].k && p.s === y[i].s && p.e === y[i].e);
   let h = r.hist;
   if (!h || h.last.text !== was || !same(h.last.via, r.via)) {
@@ -28595,7 +27997,6 @@ function pvReasonPlace(r, was, caret) {
   return via;
 }
 // Record h keeps text with its parts, as the newest; past PV_HIST_CHARS it lets the oldest texts without a part go.
-/** @param {ReasonHist} h @param {string} text @param {ReasonPart[]} via */
 function pvHistKeep(h, text, via) {
   if (h.seen.has(text)) {
     h.size -= text.length;
@@ -28616,7 +28017,6 @@ function pvHistKeep(h, text, via) {
 // left it closes and says where the reason is (pvReasonTaken). Left in, Enter wrote it on this verdict as well. Never while
 // an input method composes (its composition passing through that text closed the popover under it): at its end, on the
 // text it committed.
-/** @param {ReasonSession} r */
 function pvReasonFollow(r) {
   const h = r.hist;
   if (!h || !h.landed.length) return;
@@ -28634,7 +28034,7 @@ function pvReasonFollow(r) {
 // the field's own - digits included. Nothing while an input method composes. Esc on the popover's buttons ([접기], [닫기],
 // [저장], [지우기]) is the field's Esc: it did nothing there.
 $('#doc').addEventListener('keydown', (e) => {
-  const t = /** @type {HTMLElement} */ (e.target);
+  const t = e.target;
   if (
     e.key === 'Escape' &&
     !pvIsReasonField(t) &&
@@ -28678,20 +28078,20 @@ $('#doc').addEventListener('keydown', (e) => {
 // was being edited.
 $('#doc').addEventListener('keydown', (e) => {
   if (e.key !== 'Tab' || e.ctrlKey || e.metaKey || e.altKey) return;
-  const t = /** @type {HTMLElement} */ (e.target),
+  const t = e.target,
     line = t && t.closest ? t.closest('#doc .pv') : null;
   const pop = line && line.querySelector(':scope>.pv-pop');
   if (!line || !pop) return;
-  const vis = (/** @type {Element} */ x) =>
-    x instanceof HTMLElement && x.getClientRects().length > 0 && !(/** @type {HTMLButtonElement} */ (x).disabled);
+  const vis = (x) =>
+    x instanceof HTMLElement && x.getClientRects().length > 0 && !(x).disabled;
   const all = [...line.querySelectorAll('a,button,textarea,[tabindex="0"]')].filter(vis);
   if (all.length < 2) return;
   if (!e.shiftKey && t === all[all.length - 1]) {
     e.preventDefault();
-    /** @type {HTMLElement} */ (all[0]).focus({ preventScroll: true });
+    (all[0]).focus({ preventScroll: true });
   } else if (e.shiftKey && t === all[0]) {
     e.preventDefault();
-    /** @type {HTMLElement} */ (all[all.length - 1]).focus({ preventScroll: true });
+    (all[all.length - 1]).focus({ preventScroll: true });
   }
 });
 // The field's focus changes what it says (the keys). The popover stays open while the focus is anywhere inside it - Tab
@@ -28701,7 +28101,7 @@ let PV_POP_DOWN = 0; // performance.now() of the last press inside a popover
 $('#doc').addEventListener(
   'pointerdown',
   (e) => {
-    const t = /** @type {HTMLElement} */ (e.target);
+    const t = e.target;
     if (t && t.closest && t.closest('.pv-pop')) PV_POP_DOWN = performance.now();
   },
   true,
@@ -28712,10 +28112,10 @@ $('#doc').addEventListener('focusin', (e) => {
   pvRefill(PV_REASON.page);
 });
 $('#doc').addEventListener('focusout', (e) => {
-  const t = /** @type {HTMLElement} */ (e.target),
+  const t = e.target,
     pop = t && t.closest ? t.closest('.pv-pop') : null;
   if (!pop) return;
-  const rel = /** @type {Node|null} */ (e.relatedTarget);
+  const rel = e.relatedTarget;
   if (rel && pop.contains(rel)) return;
   setTimeout(() => {
     const r = PV_REASON;
@@ -28731,7 +28131,6 @@ $('#doc').addEventListener('focusout', (e) => {
 });
 // The second Esc after a first one from the field (the focus is then on the PDF area): it drops the draft - unless something
 // on top answers Esc first (a dialog, a popover, the composer, an edit or a reply).
-/** @param {KeyboardEvent} e */
 function pvReasonEscKey(e) {
   if (e.key !== 'Escape' || e.defaultPrevented || !PV_REASON || PV_REASON.escArm !== 'key' || typingNow()) return;
   if (
@@ -28753,7 +28152,6 @@ document.addEventListener('keydown', pvReasonEscKey);
 // own, and so does anything on top (a dialog, a popover, the composer, an edit or a reply). Not while the pages are still
 // gliding to where a jump sends them (pvAutoScrolling): the reading page is not yet the one asked for. While that page's
 // save is still out the popover opens bound to it (pvReasonOpenPending) - a key and Enter at once is one intent.
-/** @param {KeyboardEvent} e */
 function pvReasonEnterKey(e) {
   if (
     e.key !== 'Enter' ||
@@ -28766,11 +28164,10 @@ function pvReasonEnterKey(e) {
     e.repeat
   )
     return;
-  const t = /** @type {HTMLElement|null} */ (e.target),
+  const t = e.target,
     L = $('#left');
   // On a control of the line whose digit key's save is out the Enter is that intent too: the focus may rest on any of them.
-  const l =
-      !!t && !!t.closest && !t.closest('.pv-pop') ? /** @type {HTMLElement|null} */ (t.closest('#doc .pv')) : null,
+  const l = !!t && !!t.closest && !t.closest('.pv-pop') ? (t.closest('#doc .pv')) : null,
     n = l ? Number(l.dataset.page) || 0 : 0;
   if (n && PV_KEY_OUT.has(pvSlot(n)) && n === pvReadingAt()) {
     e.preventDefault();
@@ -28783,7 +28180,6 @@ function pvReasonEnterKey(e) {
 }
 // Enter taken as pressed on the pages (pvReasonEnterKey, or one on an off-screen line's control, pvOffPageKey): the reading
 // page's reason - its popover, or a pending one while its save is out.
-/** @param {KeyboardEvent} e */
 function pvReasonEnterPages(e) {
   if (
     document.querySelector('dialog[open]') ||
@@ -28819,7 +28215,6 @@ document.addEventListener('keydown', pvReasonEnterKey);
 // they press something on purpose - a press of the pointer, Esc, or opening the popover again.
 let PV_KEY_GUARD = false;
 // Whether verdict key e falls under that guard - said once on the status line when it does.
-/** @param {KeyboardEvent} e */
 function pvKeyGuarded(e) {
   if (!PV_KEY_GUARD) return false;
   e.preventDefault();
@@ -28846,7 +28241,6 @@ addEventListener(
   true,
 );
 // A popover's buttons and the line's reason (events.js).
-/** @param {HTMLElement} a */
 function pvReasonAct(a) {
   const act = a.dataset.act,
     line = a.closest('.pv'),
@@ -28907,19 +28301,16 @@ addEventListener('beforeunload', (e) => {
   e.returnValue = '';
 });
 // Sets PV_COMPOSING, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof PV_COMPOSING} T @param {T} v @returns {T} */
 function setPvComposing(v) {
   PV_COMPOSING = v;
   return v;
 }
 // Sets PV_KEY_GUARD, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof PV_KEY_GUARD} T @param {T} v @returns {T} */
 function setPvKeyGuard(v) {
   PV_KEY_GUARD = v;
   return v;
 }
 // Sets PV_REASON, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof PV_REASON} T @param {T} v @returns {T} */
 function setPvReason(v) {
   PV_REASON = v;
   return v;
@@ -28955,7 +28346,6 @@ let PV_SIDE = false; // the lines stand beside the pages now: one panel, a summa
 // One width for the whole document, so the reading page never decides it and scrolling never turns the panel on or off. The
 // widest, not the most common: a wider page's block took the panel's margin past the area, the column grew with it, and every
 // page moved right under the panel. With it every page stands beside the panel, on one axis (verdict-panel.css).
-/** @returns {number|null} */
 function pvSideRoom() {
   const L = $('#left');
   if (!META || !Array.isArray(META.pages) || !META.pages.length || !L.getClientRects().length) return null;
@@ -28973,7 +28363,6 @@ function pvSideWant() {
   return PV_SIDE ? r >= PV_SIDE_EXIT : r >= PV_SIDE_ENTER;
 }
 // Sets PV_SIDE and the body's class for it (body.pv-beside). No drawing.
-/** @param {boolean} on */
 function pvSideApply(on) {
   PV_SIDE = on;
   document.body.classList.toggle('pv-beside', on);
@@ -28999,8 +28388,8 @@ function pvSideTurn() {
   const on = pvSideWant();
   if (on === PV_SIDE) return null;
   const L = $('#left'),
-    a = /** @type {HTMLElement|null} */ (document.activeElement),
-    f = pvIsReasonField(a) ? /** @type {HTMLTextAreaElement} */ (a) : null,
+    a = document.activeElement,
+    f = pvIsReasonField(a) ? (a) : null,
     at = pvReadingAt();
   const keep = {
     spot: L.scrollTop > 0 ? topAnchor(readingDepth(L)) : null,
@@ -29019,7 +28408,6 @@ function pvSideTurn() {
 // reading line in the space above the page (the spot's gap) stands that far above it again, as far as the new space keeps it
 // past the page before, or that page would be the one read. The space changes with the lines, so the page before moves by
 // the difference: the page read is the one held.
-/** @param {NonNullable<ReturnType<typeof pvSideTurn>>} k */
 function pvSideSettle(k) {
   PV_AT_HELD = 0;
   const a = k.spot,
@@ -29040,7 +28428,6 @@ function pvSideSettle(k) {
 // field that had the focus has it again with its caret, or the popover's button its focus - what is typed next stays text,
 // never a verdict key. Any other control focused on a line has the focus on the same control of its moved line (pvControlAgain).
 // A focus on another page's line, which the panel does not show, goes to the PDF area, not to nothing.
-/** @param {NonNullable<ReturnType<typeof pvSideTurn>>} k */
 function pvSideTurned(k) {
   drawChips();
   const g = k.caret ? pvReasonField() : null;
@@ -29049,7 +28436,7 @@ function pvSideTurned(k) {
     g.setSelectionRange(k.caret[0], k.caret[1]);
     return;
   }
-  const b = /** @type {HTMLElement|null} */ (
+  const b = (
     k.popAct ? document.querySelector('#doc .pv-pop [data-act="' + k.popAct + '"]') : null
   );
   if (b) {
@@ -29068,10 +28455,11 @@ function pvSideTurned(k) {
 // A control focused on a line, as the lines move (pvSideTurn): its line's page and what names it among that line's controls -
 // its action and, where several share one, its word (data-key), the pin it leads to (data-ref), its id or its message (a save
 // chip's button, data-n). null for none, the reason field and the popover's buttons (carried on their own).
-/** @param {Element|null} a @returns {{page:string,act:string,key:string,ref:string,id:string,n:string}|null} */
-function pvControlOf(a) {
+function pvControlOf(
+  a,
+) {
   if (!(a instanceof HTMLElement) || !a.closest || a.closest('.pv-pop') || pvIsReasonField(a)) return null;
-  const l = /** @type {HTMLElement|null} */ (a.closest('#doc .pv'));
+  const l = a.closest('#doc .pv');
   const act = a.dataset.act || '';
   if (!l || !act) return null;
   return {
@@ -29085,22 +28473,19 @@ function pvControlOf(a) {
 }
 // The same control on the moved line of that page - beside the pages or under one - shown, or null (the panel shows another
 // page now). The focus lands there: on the PDF area it lost its place, and Enter on [이유 추가] no longer wrote the reason.
-/** @param {ReturnType<typeof pvControlOf>} c @returns {HTMLElement|null} */
 function pvControlAgain(c) {
   const l = c ? document.querySelector('#doc .pv[data-page="' + CSS.escape(c.page) + '"]') : null;
   if (!c || !l) return null;
   return (
-    /** @type {HTMLElement|undefined} */ (
-      [...l.querySelectorAll('[data-act="' + CSS.escape(c.act) + '"]')].find(
-        (e) =>
-          e instanceof HTMLElement &&
-          (e.dataset.key || '') === c.key &&
-          (e.dataset.ref || '') === c.ref &&
-          (e.dataset.id || '') === c.id &&
-          (e.dataset.n || '') === c.n &&
-          e.getClientRects().length > 0,
-      )
-    ) || null
+    ([...l.querySelectorAll('[data-act="' + CSS.escape(c.act) + '"]')].find(
+      (e) =>
+        e instanceof HTMLElement &&
+        (e.dataset.key || '') === c.key &&
+        (e.dataset.ref || '') === c.ref &&
+        (e.dataset.id || '') === c.id &&
+        (e.dataset.n || '') === c.n &&
+        e.getClientRects().length > 0,
+    )) || null
   );
 }
 
@@ -29113,7 +28498,7 @@ function pvControlAgain(c) {
 // page. Fixed to the window it was out of that chain: after a key save the keys and the wheel moved nothing, and the next
 // digit changed the same page's verdict.
 function pvPanel() {
-  let p = /** @type {HTMLElement|null} */ (document.getElementById('pv-panel'));
+  let p = document.getElementById('pv-panel');
   if (!p) {
     const at = document.createElement('div');
     at.id = 'pv-panel-at';
@@ -29137,14 +28522,13 @@ function pvPanelGone() {
 // at its first ' · ' (pvFigParts) put a board's '비교판' beside its page and left a list page's title out. A save chip on the
 // panel for a pin of another page goes to the status line with its undo (chipAway), as a chip whose mark is not drawn does:
 // the panel no longer shows the verdict it undoes.
-/** @param {Map<number,Pin[]>} map @param {DocVerdicts} v */
 function pvPanelFill(map, v) {
   const p = pvPanel(),
     r = PV_READ,
     at = pvPanelHeld() || pvReadingAt(),
     list = r ? map.get(r) || [] : [];
   pvPanelLeave(p, at);
-  const chip = /** @type {HTMLElement|null} */ (p.querySelector(':scope>.nt-chip'));
+  const chip = p.querySelector(':scope>.nt-chip');
   if (chip && !list.some((x) => x.id === pvChipPin(chip))) chipAway(chip);
   if (r) {
     p.classList.remove('pv-quiet');
@@ -29170,13 +28554,11 @@ function pvPanelFill(map, v) {
   pvPanelArrived(at);
 }
 // The title the map gives page `page` of a figure document, whole ('' for none, or for a view-only PDF, which has no map).
-/** @param {number} page @returns {string} */
 function pvQuietTitle(page) {
   const pg = META && isFigureKind(META.kind) && Array.isArray(META.pages) ? META.pages[page - 1] : null;
   return pg && pg.title ? String(pg.title) : '';
 }
 // Whether the panel shows another page than the one under the reading line (at, verdict or none). Under the pages: never.
-/** @param {number} at */
 function pvPanelStale(at) {
   const p = document.getElementById('pv-panel');
   return PV_SIDE && !!p && p.dataset.page !== String(at);
@@ -29185,7 +28567,6 @@ function pvPanelStale(at) {
 // moved on from as the reading page leaves it (pvReasonLeave), and a focus on a control goes to the PDF area, as one on a left
 // line's does (pvFocusOffPage). This must come before the filling: the morph keeps the element and hands it to the new
 // page, so Enter or Space on '채택' pressed the next page's word, and a control that goes left the focus on nothing.
-/** @param {HTMLElement} p @param {number} at */
 function pvPanelLeave(p, at) {
   if (p.dataset.page === String(at)) return;
   if (PV_REASON && PV_REASON.seen && PV_REASON.page !== at) pvReasonLeave();
@@ -29193,7 +28574,6 @@ function pvPanelLeave(p, at) {
   if (!!a && p.contains(a)) searchToPage();
 }
 // The pin save chip e is for (its notice's), 0 for none.
-/** @param {HTMLElement} e @returns {number} */
 function pvChipPin(e) {
   let pin = 0;
   NOTICES.forEach((n) => {
@@ -29241,7 +28621,6 @@ function pvPanelPlace() {
 // bottom right (side-panel.css) - whichever is higher, so a tall panel scrolls above them. Over its bottom, the status
 // line's hint covered the reason field's last line and its focus ring. top: the panel's top; left: its left edge.
 const PV_OVER_AREA = ['bar2', 'banner', 'status-wide'];
-/** @param {number} top @param {number} bottom @param {number} left @returns {number} */
 function pvPanelFoot(top, bottom, left) {
   let foot = bottom;
   for (const id of PV_OVER_AREA) {
@@ -29255,7 +28634,6 @@ function pvPanelFoot(top, bottom, left) {
 // The panel's line is laid out in rows (.pv-stack: the name, the words, the state, the reason) and never measured for one row:
 // there is room for each part's whole width, so nothing gives way. Its save chip and the reason popover stand in its flow
 // under the state (verdict-panel.css): the words above never move.
-/** @param {HTMLElement} l */
 function pvPanelFit(l) {
   l.classList.remove('pv-tight', 'pv-early-out', 'pv-t-kept', 'pv-chip-short', 'pv-chip-bare', 'pv-chip-wait', 'pv-kw');
   l.classList.add('pv-stack');
@@ -29270,7 +28648,6 @@ function pvPanelFit(l) {
 }
 // Brings page `page` to the reading place: its top at the PDF area's top padding when the page reaches past the reading line
 // (readingDepth), else centred on that line - so the reading page is that page. smooth: a glide (a card's [보기]).
-/** @param {number} page @param {boolean} [smooth] */
 function pvBring(page, smooth) {
   const at = pvBringTop(page);
   if (at === null) return;
@@ -29282,7 +28659,7 @@ function pvBring(page, smooth) {
     $('#left').scrollTop = at;
   }
 }
-/** The scrollTop of that reading place, or null without the page. @param {number} page @returns {number|null} */
+/** The scrollTop of that reading place, or null without the page. */
 function pvBringTop(page) {
   const L = $('#left'),
     pg = document.getElementById('p' + page);
@@ -29297,7 +28674,6 @@ function pvBringTop(page) {
 
 // ---------------- The summary under each page
 // The summary's words: what its row says, for its name.
-/** @param {number} page @param {Pin[]|undefined} list */
 function pvSumSay(page, list) {
   const cur = list && list[0],
     k = cur && verdictOf(cur);
@@ -29311,7 +28687,6 @@ function pvSumSay(page, list) {
 // draft waits for that page - a line would mark it, and the panel shows only the reading page: one row of one height whatever
 // it says, so neither a verdict changing it nor the reading page changing moves the pages. A press brings that page to the
 // panel (pvSumGo). Not a Tab stop - the keyboard has the panel, and PageDown brings the next page to it.
-/** @param {number} page @param {Pin[]|undefined} list */
 function pvSumHtml(page, list) {
   const cur = list && list[0],
     k = cur && verdictOf(cur),
@@ -29326,12 +28701,11 @@ function pvSumHtml(page, list) {
 }
 // Draws (beside the pages) or takes away (under them) every page's summary, after its page. New rows are watched for being
 // far from the view (pvFarWatch: a far row is skipped like a far line).
-/** @param {Map<number,Pin[]>} map */
 function pvSums(map) {
-  const made = /** @type {HTMLElement[]} */ ([]);
+  const made = [];
   $$('#doc .pgw').forEach((b) => {
-    const page = Number(/** @type {HTMLElement} */ (b).dataset.page) || 0;
-    let s = /** @type {HTMLElement|null} */ (b.querySelector(':scope>.pv-sum'));
+    const page = Number((b).dataset.page) || 0;
+    let s = b.querySelector(':scope>.pv-sum');
     if (!PV_SIDE || !pageTakesVerdict(page)) {
       if (s) s.remove();
       return;
@@ -29362,14 +28736,13 @@ function pvSums(map) {
 function pvSumOn() {
   const r = String(PV_SIDE ? PV_READ || 0 : 0);
   $$('#doc .pv-sum.on').forEach((e) => {
-    if (/** @type {HTMLElement} */ (e).dataset.page !== r) e.classList.remove('on');
+    if ((e).dataset.page !== r) e.classList.remove('on');
   });
   const s = document.querySelector('#doc .pv-sum[data-page="' + r + '"]');
   if (s) s.classList.add('on');
 }
 // A press on page `page`'s summary: the page comes to the reading place, the panel shows it at once, and the focus goes to the
 // panel's pressed word, else its first (pvFocusLine); the panel flashes.
-/** @param {HTMLElement} a */
 function pvSumGo(a) {
   const page = Number(a.dataset.page) || 0;
   if (!document.getElementById('p' + page)) return;
@@ -29388,7 +28761,7 @@ function pvSumGo(a) {
 // the keys' page wait with it; the section strip names the pages passed as ever. pvStick asks: the page held, or 0 when
 // nothing is (under the pages, at rest, a panel that names no page). The glide's end - its scrollend, else the guard's own
 // end - draws the panel again, so at rest the panel, the section strip and the keys name one page.
-let PV_HOLD_T = /** @type {ReturnType<typeof setTimeout>|undefined} */ (undefined);
+let PV_HOLD_T = undefined;
 function pvPanelHeld() {
   if (!PV_SIDE || !pvAutoScrolling()) return 0;
   const p = document.getElementById('pv-panel'),
@@ -29416,7 +28789,6 @@ function pvHeldReadingPage() {
 // to the card's page must not flash.
 let PV_FLASH_AT = { page: 0, until: 0 };
 const PV_FLASH_WAIT_MS = 3000;
-/** @param {number} page */
 function pvFlashOn(page) {
   const p = document.getElementById('pv-panel');
   PV_FLASH_AT = { page: 0, until: 0 };
@@ -29428,7 +28800,6 @@ function pvFlashOn(page) {
 }
 // The panel was filled with page `page` (pvPanelFill): the first filling at rest after a flash was asked for ends the wait, and
 // flashes if it is that page (a hand that took the pages elsewhere lands on another).
-/** @param {number} page */
 function pvPanelArrived(page) {
   const w = PV_FLASH_AT;
   if (!w.page || pvAutoScrolling()) return;
@@ -29436,7 +28807,6 @@ function pvPanelArrived(page) {
   const p = document.getElementById('pv-panel');
   if (w.page === page && performance.now() < w.until && p) pvFlash(p);
 }
-/** @param {HTMLElement} p */
 function pvFlash(p) {
   p.classList.remove('flash');
   void p.offsetWidth;
@@ -29446,20 +28816,19 @@ function pvFlash(p) {
 }
 // ---------------- Keys the panel needs of its own
 // The panel stands after the pages in the DOM, so what stands on the reading page comes by hand. Its Tab stops: its marks.
-/** @param {number} page @returns {HTMLElement[]} */
 function pvMarkStops(page) {
   const b = document.querySelector('#doc .pgw[data-page="' + page + '"]');
-  return b ? /** @type {HTMLElement[]} */ ([...b.querySelectorAll(PV_TABBABLE)].filter(pvTabStop)) : [];
+  return b ? ([...b.querySelectorAll(PV_TABBABLE)].filter(pvTabStop)) : [];
 }
 // Tab from the reading page's last mark, or from a summary a person went back to, goes to the panel: the DOM's next stop is a later
 // page's mark, whose focus scrolled the pages there.
 addEventListener('keydown', (e) => {
   if (e.key !== 'Tab' || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented || !PV_SIDE) return;
-  const a = /** @type {HTMLElement|null} */ (document.activeElement),
+  const a = document.activeElement,
     r = pvReadingPage(),
     m = r ? pvMarkStops(r) : [];
   if (!a || !(a === m[m.length - 1] || a.classList.contains('pv-sum'))) return;
-  const f = /** @type {HTMLElement|undefined} */ ([...pvPanel().querySelectorAll(PV_TABBABLE)].find(pvTabStop));
+  const f = [...pvPanel().querySelectorAll(PV_TABBABLE)].find(pvTabStop);
   if (f) {
     e.preventDefault();
     f.focus({ preventScroll: true });
@@ -29503,7 +28872,7 @@ function pvPanelReveal() {
 }
 const PV_RING_ROOM = 2; // px kept clear past a revealed control's focus ring
 $('#doc').addEventListener('focusin', (e) => {
-  const t = /** @type {HTMLElement|null} */ (e.target);
+  const t = e.target;
   if (t && t.closest && t.closest('#pv-panel.pv-tall')) requestAnimationFrame(pvPanelReveal);
 });
 // The PDF area's width changes with no window resize (the outline folded or dragged): the room is read again.
@@ -29512,7 +28881,6 @@ if (typeof ResizeObserver !== 'undefined')
     if (LAYOUT === LAYOUT_MODE.WIDE && pageVerdictsOn()) pvStickSoon();
   }).observe($('#left'));
 // Sets PV_BUILD_AT, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-/** @template {typeof PV_BUILD_AT} T @param {T} v @returns {T} */
 function setPvBuildAt(v) {
   PV_BUILD_AT = v;
   return v;
@@ -29527,18 +28895,22 @@ function setPvBuildAt(v) {
 // which keeps the kind, the range and the overlap. Esc and a short click off the box cancel the selection as before; a press
 // on the popover is a press inside the box (pressOutsideSelection). Touch and the phone keep the composer alone (it is a sheet).
 const SEL_POP = $('#sel-pop'),
-  SEL_POP_FIELD = /** @type {HTMLTextAreaElement} */ (SEL_POP.querySelector('textarea')),
+  SEL_POP_FIELD = SEL_POP.querySelector('textarea'),
   SEL_POP_GAP = 8;
-SEL_POP_FIELD._mirrorOf = /** @type {HTMLTextAreaElement} */ ($('#note')); // its @-tags are the note's, which saves them
+SEL_POP_FIELD._mirrorOf = $('#note'); // its @-tags are the note's, which saves them
 // The box the popover belongs to; null while it is closed.
-let SEL_POP_BOX = /** @type {HTMLElement|null} */ (null);
+let SEL_POP_BOX = null;
 // Where a w x h popover goes for a box in the free area (rectangles {left, top, right, bottom}), gap px from the box and from
 // the area's edges: below the box with its left edge, above it when below has no room, at the area's foot when neither side
 // has room; moved left to stay inside the area's right edge, never past its left. Not shown when the box is outside the area
 // (scrolled away). Whole pixels, so its text is drawn crisp. Pure.
-/** @param {{left:number,top:number,right:number,bottom:number}} box @param {{left:number,top:number,right:number,bottom:number}} area
- * @param {number} w @param {number} h @param {number} gap @returns {{left:number,top:number,side:string,shown:boolean}} */
-function popPlace(box, area, w, h, gap) {
+function popPlace(
+  box,
+  area,
+  w,
+  h,
+  gap,
+) {
   const below = box.bottom + gap + h <= area.bottom - gap,
     above = box.top - gap - h >= area.top + gap;
   const top =
@@ -29572,7 +28944,6 @@ function selPopWanted() {
   return LAYOUT !== LAYOUT_MODE.NARROW && LAST_PTR === 'mouse' && !REPICK;
 }
 // Opens the popover for the box a mouse drag just drew (finishRect): the field takes the composer's note and the focus.
-/** @param {HTMLElement} box */
 function openSelPop(box) {
   if (!selPopWanted()) return;
   SEL_POP_BOX = box;
@@ -29608,7 +28979,7 @@ function drawSelPop() {
     ? tr('찾는 중')
     : isRegion(d)
       ? tl('쪽 {page} 영역', { page: d.page })
-      : d.name + ' ' + rng(/** @type {number} */ (d.lo), /** @type {number} */ (d.hi));
+      : d.name + ' ' + rng(d.lo, d.hi);
   SEL_POP_FIELD.placeholder = $('#note').placeholder;
   SEL_POP.hidden = false;
   placeSelPop();
@@ -29640,7 +29011,7 @@ function placeSelPop() {
 // One note: what is typed here is the composer's note (its @-tag preview, assignee row, question hint and draft follow), and
 // what is typed in the composer shows here (a name picked there from the @-list too: mentions.js mentionMirror).
 SEL_POP_FIELD.addEventListener('input', () => {
-  const n = /** @type {HTMLTextAreaElement} */ ($('#note'));
+  const n = $('#note');
   n.value = SEL_POP_FIELD.value;
   mentionEdited(n, SEL_POP_FIELD.selectionStart);
   autoGrow(n);
@@ -29649,11 +29020,11 @@ SEL_POP_FIELD.addEventListener('input', () => {
   saveDraftSoon();
 });
 $('#note').addEventListener('input', () => {
-  const v = /** @type {HTMLTextAreaElement} */ ($('#note')).value;
+  const v = ($('#note')).value;
   if (selPopOpen() && SEL_POP_FIELD.value !== v) SEL_POP_FIELD.value = v;
 });
 SEL_POP_FIELD.addEventListener('focus', () => {
-  SEL_POP_FIELD.value = /** @type {HTMLTextAreaElement} */ ($('#note')).value;
+  SEL_POP_FIELD.value = ($('#note')).value;
 });
 // [자세히 →]: the composer in the panel takes over with the focus in its note; the popover does not come back for this selection.
 function selPopMore() {
@@ -29666,7 +29037,6 @@ $('#left').addEventListener('scroll', placeSelPop, { passive: true });
 addEventListener('resize', placeSelPop);
 new ResizeObserver(placeSelPop).observe($('#doc')); // a zoom moves the box with its page
 
-/** @typedef {import('./markup.js').Html} Html */
 /** Native pin-card markup, including participant text, state badges and threads.
  * User-provided names and notes enter markup only through the escaping Html template. */
 function who(a) {
@@ -29690,7 +29060,7 @@ function avatar(a) {
 document.addEventListener(
   'error',
   (e) => {
-    const t = /** @type {HTMLImageElement} */ (e.target);
+    const t = e.target;
     if (t && t.tagName === 'IMG' && t.classList.contains('av')) {
       BADPIC.add(t.getAttribute('src'));
       const s = document.createElement('span');
@@ -29704,7 +29074,6 @@ document.addEventListener(
   },
   true,
 );
-/** @param {Pin} p */
 function authorTip(p) {
   let s = tl('작성: {name} · {at}', { name: p.author ? who(p.author) : tr('기록 전'), at: p.at || '?' });
   if (p.edited_at) s += ' / ' + tl('수정: {name} · {at}', { name: who(p.edited_by) || tr('기록 전'), at: p.edited_at });
@@ -29722,7 +29091,6 @@ function josa(n, c, v) {
 // The particle after a name: c after a final consonant, v after a vowel. A Hangul name by its last syllable's final; a Latin
 // one by how its end is read - a vowel letter (and a silent e) reads as a vowel, a consonant as one ('Bob이', 'Alice가'),
 // a lone capital as its letter's Korean name ('Agent B가', 'Team L이'); a digit as its Korean reading (josa). Pure.
-/** @param {string} name @param {string} c @param {string} v */
 function josaName(name, c, v) {
   const s = String(name || '').trim(),
     ch = s.slice(-1);
@@ -29757,7 +29125,7 @@ function relBadge(rel, p) {
   if (insides.length) {
     const span = (x) => {
       const o = byId.get(x.id);
-      return o ? /** @type {number} */ (o.hi) - /** @type {number} */ (o.lo) : Number.MAX_SAFE_INTEGER;
+      return o ? (o.hi) - (o.lo) : Number.MAX_SAFE_INTEGER;
     }; // rel names line pins
     const best = insides.reduce((a, b) => {
       const sa = span(a),
@@ -29775,7 +29143,6 @@ function relBadge(rel, p) {
 }
 // The in-progress marker (docs/handbook/api.md §처리 중 표시 (claim)). claim_until is epoch seconds, compared independent of the browser's timezone (numbers
 // instead of a wall-clock string, for the same reason as docs/handbook/build-sync.md §위치 추정). The viewer never places a claim (agent-only) - it only offers [풀기].
-/** @param {Pin} p */
 function claimActive(p) {
   return typeof p.claim_until === 'number' && p.claim_until > Date.now() / 1000;
 }
@@ -29791,7 +29158,6 @@ function hhmm(ms) {
   const d = new Date(ms);
   return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
 }
-/** @param {Pin} p @param {number} [now] */
 function claimInfo(p, now) {
   now = now == null ? Date.now() : now;
   const w = who(p.claimed_by) || '?',
@@ -29799,7 +29165,7 @@ function claimInfo(p, now) {
   const tail =
     ' · ' +
     tl('잠금 자동 해제 {time}(그 뒤에는 다른 쪽이 잡을 수 있습니다). 에이전트가 멈췄으면 [풀기]', {
-      time: hhmm(/** @type {number} */ (p.claim_until) * 1000),
+      time: hhmm((p.claim_until) * 1000),
     }); // claimInfo runs for an active claim (claimActive)
   const head = tl('처리하는 쪽: {name}', { name: w }) + (st ? ' · ' + tl('시작 {time}', { time: hhmm(st) }) : '');
   if (typeof p.eta_ts === 'number') {
@@ -29827,11 +29193,9 @@ function claimInfo(p, now) {
     };
   return { t: tr('처리 중'), late: false, tip: head + tail };
 }
-/** @param {Pin} p @param {number} [now] */
 function claimLabel(p, now) {
   return claimInfo(p, now).t;
 }
-/** @param {Pin} p */
 function claimTag(p) {
   const c = claimInfo(p);
   return html`<span class="badge badge-claimed${c.late ? ' late' : ''}" data-claim="${p.id}" data-tip="${c.tip}">${ic('clock')}<span class="ct">${c.t}</span></span>`;
@@ -29856,11 +29220,9 @@ function tickClaims() {
 setInterval(tickClaims, 30000);
 // A card's location text: 'L12-L18' for a LaTeX pin, '영역' for a view-only PDF's pin (the page is a separate field). The copy format is 'file L12-L18' / 'x.pdf 쪽 3'; a
 // region's page is the one its mark is on in the current build (pinPlace), which a figure pin's element can move.
-/** @param {Pin} p */
 function locText(p) {
   return isRegion(p) ? tr('영역') : rng(p.lo, p.hi);
 }
-/** @param {Pin} p */
 function locCopy(p) {
   const name =
     p.name ||
@@ -29871,7 +29233,6 @@ function locCopy(p) {
 }
 // The document chip attached to a card header when viewing all documents. Another document's is dashed-bordered - clicking it switches to that document.
 // The name is user text (translate="no"); its description's UI words are translated here.
-/** @param {Pin} p */
 function docChip(p) {
   if (!(SHOW_ALL && multiDoc())) return html``;
   const d = docInfo(pdoc(p)),
@@ -29883,12 +29244,10 @@ function docChip(p) {
 }
 // Thread (docs/handbook/viewer.md §스레드와 검토): replies and state-transition records (close/reopen/confirm) form a single line of history, built with html``.
 // wide shows the last 3, compact shows only the last 1, expanded via [이전 N건] (THREAD_OPEN). The input field (REPLY) is inserted in place like EDITOR.current.
-/** @param {Pin} p */
 function isQuestion(p) {
   return !!p && p.kind_req === KIND_REQ.QUESTION;
 }
 // The current assignee - the recorded value (p.assignee); for a legacy pin without one, the person the server inferred (the first of p.addressed); if neither, the agent.
-/** @param {Pin} p */
 function assigneeOf(p) {
   if (!p) return ASSIGNEE_AGENT;
   if (p.assignee) return p.assignee;
@@ -29896,7 +29255,6 @@ function assigneeOf(p) {
   return a.length ? a[0] : ASSIGNEE_AGENT;
 }
 // The words for an assignee: the agent, me, a person's name, and '미지정' for a record without one.
-/** @param {string|null|undefined} a @returns {string} */
 function assigneeWord(a) {
   return !a ? tr('미지정') : a === ASSIGNEE_AGENT ? tr('에이전트') : a === meLogin() ? tr('나') : peopleName(a);
 }
@@ -29906,8 +29264,7 @@ function assigneeWord(a) {
  * can be pressed (pressable: under a mouse); read-only viewers, other participants and every touch card retain
  * readable text. The pressable one ends in a pencil, so it does not look like the one that only reads. Names remain
  * escaped. The label and the name are elements of their own (.as-l, .as-n), so each
- * line can be trimmed to its cap height: a trim does not reach a bare text in the chip's flex row.
- * @param {Pin} p @param {boolean} pressable @returns {Html} */
+ * line can be trimmed to its cap height: a trim does not reach a bare text in the chip's flex row. */
 function assignChip(p, pressable) {
   if (p.assignee === ASSIGNEE_AGENT)
     return html`<span class="cm-i as-chip sr-only">${tr('담당')} ${assigneeWord(p.assignee)}</span>`;
@@ -29933,8 +29290,7 @@ function assignChip(p, pressable) {
  * in an ellipsis. In an open card the question, review, claim, reopen and location badges already say the kind and
  * the status (a drawn card-meta-context is not shown there), so the line shows the assignee alone, or nothing
  * (hide-open). The caller supplies the same status word the native badges are built from, and whether the assignee
- * can be a button there (assignChip).
- * @param {Pin} p @param {string} statusLabel @param {boolean} pressable @returns {Html} */
+ * can be a button there (assignChip). */
 function cardMetadata(p, statusLabel, pressable) {
   const question = isQuestion(p),
     open = statusLabel === '열림',
@@ -29968,7 +29324,6 @@ function stDot(st) {
   return html`<span class="st-dot${st === CARD_DOT.OPEN ? '' : ' ' + st}" role="img" aria-label="${t}" data-tip="${t}"></span>`;
 }
 // Did the current round start with a reopen (a pin that returned from review)? True if the thread's last close/reopen record is a reopen.
-/** @param {Pin} p */
 function reopenedTurn(p) {
   const th = threadOf(p);
   for (let i = th.length - 1; i >= 0; i--) {
@@ -29977,16 +29332,13 @@ function reopenedTurn(p) {
   }
   return null;
 }
-/** @param {Pin} p */
 function threadOf(p) {
   const th = p && p.thread;
   return Array.isArray(th) ? th : [];
 }
-/** @param {Pin} p */
 function replyCount(p) {
   return threadOf(p).filter((m) => !m.ev).length;
 }
-/** @param {ThreadEntry} m */
 function msgText(m) {
   return fmtText(m.text, m.mentions);
 }
@@ -30091,14 +29443,12 @@ function pinRefGone(id) {
 // (p.addressed, which the server counts only for the current round via thread_round) - the old version scanned the
 // entire thread (threadOf(p).some(...)) and had a defect where an @-tag from an old round kept a pin marked "called me"
 // even after reopening (observed). addressed_to() only has a value on question pins.
-/** @param {Pin} p */
 function mentionsMe(p) {
   const me = META && META.me;
   if (!me || !me.login || me.login === LOCAL_LOGIN) return false;
   return (p.addressed || []).includes(me.login);
 }
 // The badges of a question pin that calls people: '나를 부름', and the others' names (user text, translate="no").
-/** @param {Pin} p */
 function addressedTag(p) {
   const to = p.addressed || [];
   if (!to.length) return null;
@@ -30114,7 +29464,6 @@ function addressedTag(p) {
   return html`${self}${rest}`;
 }
 // A fix pin's FYI @-tags (never skipped) - kept separate from p.addressed (question-pin only) and sent in p.fyi instead.
-/** @param {Pin} p */
 function fyiTag(p) {
   const to = p.fyi || [];
   if (!to.length) return null;
@@ -30130,7 +29479,6 @@ const EV_LABEL = { close: '닫음', reopen: '다시 엶', confirm: '확인', ass
 const QUOTE_OPEN = new Set();
 // A card's quote line, right above its note: the composer's line for the pin's saved quote (shownQuote, quoteInner), folded to
 // one line with the whole text as its tooltip until it is pressed. null when the pin shows no quote.
-/** @param {Pin} p @returns {Html|null} */
 function cardQuote(p) {
   const q = shownQuote(p, (docInfo(pdoc(p)) || {}).kind);
   if (!q) return null;
@@ -30144,7 +29492,6 @@ function cardQuote(p) {
 const MSG_OPEN = new Set();
 // A thread entry's text (user text, translate="no") clamped at 6 lines with [더 보기]/[접기] when long; key ('id:index') keeps
 // it open across redraws (MSG_OPEN), and without a key it is drawn whole with no button.
-/** @param {ThreadEntry} m */
 function msgBody(m, key) {
   const long = String(m.text || '').length > 280 || String(m.text || '').split('\n').length > 6,
     open = !key || MSG_OPEN.has(key);
@@ -30155,7 +29502,6 @@ function msgBody(m, key) {
   return html`<div class="msg-t${long && !open ? ' clamp' : ''}" translate="no">${msgText(m)}</div>${more}`;
 }
 // One entry of an archive row's thread: a post (avatar, author, time, text) or a state record (who, what, reference, time, optional text).
-/** @param {ThreadEntry} m */
 function msgHtml(m, key) {
   const by = m.by || {},
     nm = who(by) || '?',
@@ -30166,7 +29512,6 @@ function msgHtml(m, key) {
 }
 // A node of a card's timeline: the person's avatar, or for no recorded person an empty circle in its place, so the column, the
 // line and the indent of the text hold.
-/** @param {Person|null|undefined} a @returns {Html} */
 function nodeAvatar(a) {
   return who(a) ? avatar(a) : html`<span class="av none" aria-hidden="true"></span>`;
 }
@@ -30174,7 +29519,6 @@ function nodeAvatar(a) {
 // line is short, its whole text staying the element's text and its description (tip), and '(나)' and the time are never cut.
 // The name and its tip are user text: the element holding both is translate="no", so a person named '완료' is not 'Done' in
 // either; '(나)' and the tip's own words are translated here. cls marks a name with no recorded person.
-/** @param {string} name @param {boolean} mine @param {string} tip @param {Html|string} time @param {string} [cls] @returns {Html} */
 function whoWhen(name, mine, tip, time, cls) {
   const me = mine ? html`<span class="me-tag"> ${tr('(나)')}</span>` : ''; // the space is the text's; drawn, the margin is
   return html`<span class="who"><b class="${cls || ''}" translate="no" data-tip="${tip}"><span class="nm">${name}</span>${me}</b>${time}</span>`;
@@ -30182,7 +29526,6 @@ function whoWhen(name, mine, tip, time, cls) {
 // The head of a card's first comment, a reply's: who wrote the note ('기록 전' for a pin from before authors were recorded), when,
 // and when it was last edited, which takes the next line where the first has no room. The name's description also says who
 // edited it.
-/** @param {Pin} p @returns {Html} */
 function noteHead(p) {
   const nm = who(p.author);
   return html`<div class="msg-h note-h">${whoWhen(nm || tr('기록 전'), isMe(p.author), authorTip(p), p.at ? stampSpan(p.at, STAMP_FORM.BOTH) : '', nm ? '' : 'old')}\
@@ -30190,7 +29533,7 @@ ${p.edited_at ? stampSpan(p.edited_at, STAMP_FORM.EDITED) : ''}</div>`;
 }
 // One entry of a card's timeline: a post (avatar, then name and time over its text) or a state record (a dot in the avatar's
 // place, then name and time, what happened and its reference on the next line, any text under them).
-/** @param {ThreadEntry} m @param {string} key - keeps a long post open across redraws (msgBody) @returns {Html} */
+/** @param key - keeps a long post open across redraws (msgBody) */
 function tlMsg(m, key) {
   const by = m.by || {},
     nm = who(by) || '?';
@@ -30203,7 +29546,6 @@ function tlMsg(m, key) {
 // The thread of p as Html (empty without entries): the last 3 entries in wide, the last 1 elsewhere, unless THREAD_OPEN
 // holds p; the button that shows the rest or folds them, in a row the timeline passes (.th-row); and the reply slot when p's
 // reply box is open.
-/** @param {Pin} p */
 function threadHtml(p, wide) {
   const th = threadOf(p),
     keep = wide ? 3 : 1,
@@ -30219,12 +29561,10 @@ function threadHtml(p, wide) {
   return more || msgs.length || slot ? html`<div class="thread">${more}${msgs}${slot}</div>` : html``;
 }
 
-/** @typedef {import('./markup.js').Html} Html */
 /** Native active/review cards and archive rows preserve their state-specific actions.
  * Notes and participant names use escaping Html templates and disable browser translation;
  * UI words inside those regions are translated before rendering. */
-/** Render a pin's request, status and available actions; confirmation is offered only to a person with write access.
- * @param {Pin} p */
+/** Render a pin's request, status and available actions; confirmation is offered only to a person with write access. */
 function card(p) {
   p = pvQuietRel(p); // no overlap badge between two verdicts about one page target (verdict.js)
   const loc = 'L' + p.lo + '-L' + p.hi,
@@ -30369,7 +29709,7 @@ function card(p) {
   // the note beside the avatar's column. The thread follows it, and .tl-on draws the timeline through them (cards.css). The edit
   // card takes the note's place under the same head, with no thread: comment('') is the head alone.
   const comment = (
-    /** @type {Html|string} */ body,
+    body,
   ) => html`<div class="tl${body && !folded && threadOf(p).length ? ' tl-on' : ''}"><div class="cmt">${nodeAvatar(p.author)}\
 <div class="cmt-b">${noteHead(p)}${body}</div></div>${body ? threadHtml(p, LAYOUT === LAYOUT_MODE.WIDE) : ''}</div>`;
   const head = html`<div class="row head">${dot}${go}<span class="n go" role="button" tabindex="0" data-act="view" data-tip="${T.n}">#${p.id}</span>${docChip(p)}\
@@ -30439,7 +29779,6 @@ function relSpan(s, cls, tip) {
 }
 // A stored time as its wall-clock parts and the instant they name on this device ({y, mo, d, md:'MM-DD', hm:'HH:MM', t}), or null
 // for a string that is no time. Pure but for the device's time zone.
-/** @param {string|null|undefined} s */
 function timeParts(s) {
   const m = /^(\d{4})-(\d\d)-(\d\d)[ T](\d\d):(\d\d)/.exec(String(s || ''));
   if (!m) return null;
@@ -30454,21 +29793,19 @@ function timeParts(s) {
 }
 // The absolute part of a comment's time: 'MM-DD HH:MM', with the year ('2025-09-25 00:01') when it is not now's. A string that is
 // no time comes back as it is. now is injected by tests.
-/** @param {string|null|undefined} s @param {number} [now] @returns {string} */
 function timeAbs(s, now) {
   const p = timeParts(s);
   if (!p) return String(s || '');
   return (p.y === new Date(now == null ? Date.now() : now).getFullYear() ? '' : p.y + '-') + p.md + ' ' + p.hm;
 }
 // The relative part of a comment's time, relTime's words, for a time less than seven days old; else ''. now is injected by tests.
-/** @param {string|null|undefined} s @param {number} [now] @returns {string} */
 function timeAgo(s, now) {
   const p = timeParts(s);
   return p && (now == null ? Date.now() : now) - p.t < 7 * 24 * 60 * 60000 ? relTime(s, now) : '';
 }
 // What a comment's time says (docs/handbook/viewer.md §뜻과 모양): BOTH '14시간 전 · 11-01 20:41', only the absolute part from
 // seven days on; EDITED the same after '수정'; SHORT, a folded card's preview, the relative part if any, else the absolute.
-/** @param {string|null|undefined} s @param {string} form - a STAMP_FORM value @param {number} [now] @returns {string} */
+/** @param form - a STAMP_FORM value */
 function stampText(s, form, now) {
   const ago = timeAgo(s, now),
     abs = timeAbs(s, now);
@@ -30477,13 +29814,12 @@ function stampText(s, form, now) {
   return form === STAMP_FORM.EDITED ? tl('수정 {time}', { time: both }) : both;
 }
 // A comment's time as Html: stampText's words, kept current by tickRel, with the whole stored string as its description.
-/** @param {string|null|undefined} s @param {string} form - a STAMP_FORM value @param {string} [cls] @returns {Html} */
+/** @param form - a STAMP_FORM value */
 function stampSpan(s, form, cls) {
   return html`<span class="rt ts${cls ? ' ' + cls : ''}" data-at="${s || ''}" data-form="${form}" data-tip="${s || '?'}">${stampText(s, form)}</span>`;
 }
 // The name of the day a stored time falls on, as a day line of the list says it: 오늘, 어제, '10월 31일', and '2025년 9월 25일' in another
 // year; '' for a string that is no time. A time ahead of this device's clock counts as today. now is injected by tests.
-/** @param {string|null|undefined} s @param {number} [now] @returns {string} */
 function dayName(s, now) {
   const p = timeParts(s);
   if (!p) return '';
@@ -30515,7 +29851,6 @@ function arcTime(s) {
 }
 // The location span of an archive row (done or trashed pin): 'L12-L18' for lines, '쪽 N 영역' for a region, N being the page
 // its mark is on now (pinPlace); the copy text carries the same.
-/** @param {Pin} p */
 function arcLoc(p) {
   const name =
     p.name ||
@@ -30530,7 +29865,6 @@ function arcLine(key, text, tip, logins) {
   const open = ARC_OPEN.has(key);
   return html`<span class="arc-reply${open ? ' open' : ''}" translate="no" role="button" tabindex="0" data-act="arc-toggle" data-key="${key}" aria-expanded="${open}" data-tip="${trMsg(tip)}">${fmtText(text, logins)}</span>`;
 }
-/** @param {Pin} p */
 function allMentions(p) {
   const out = (p.mentions || []).slice();
   threadOf(p).forEach((m) =>
@@ -30546,7 +29880,6 @@ function allMentions(p) {
 // its first line is icon, #N, '판정 보류' and '이전 판정 · #12로 대체됨' (one block, .arc-head, that wraps inside itself on
 // the narrowest widths) with [답글] at its end, and the location, reference and time go on a line of their own under it
 // (.arc-l1b) - in every width, so one pin's facts never scatter.
-/** @param {Pin} p */
 function doneCard(p) {
   const ref = hasRef(p.close_ref)
     ? html`<span class="badge arc-ref" data-tip="닫을 때 남긴 참조 — 같은 값이면 같은 처리에 딸린 핀입니다">${p.close_ref}</span>`
@@ -30603,7 +29936,6 @@ function isOwner() {
 }
 // A Trash row: #N, location, when and by whom it was deleted and the days left, the note as one expandable line (user text),
 // and [되살리기] (not for a viewer) and [영구 삭제] (the owner only) after the two lines.
-/** @param {Pin} p */
 function droppedCard(p) {
   const line = p.note
     ? arcLine('d:' + p.id, p.note, '삭제한 핀의 메모 — 누르면 펼치고 접습니다', p.mentions)
@@ -30636,7 +29968,7 @@ function drawTrash() {
   const L = TRASH_ALL ? DROPPED : listDropped(),
     box = $('#trash-list');
   if (!box) return;
-  const a = /** @type {HTMLElement|null} */ (document.activeElement),
+  const a = document.activeElement,
     spot = a && a !== box && box.contains(a) ? trashSpot(box, a) : null;
   $('#trash-note').textContent = tl(
     '삭제한 핀은 {n}일 동안 여기 있다가 저절로 지워집니다. 되살리면 같은 번호로 돌아옵니다',
@@ -30657,13 +29989,10 @@ function drawTrash() {
 } // a box over a row drawn anew stands over nothing
 // Where focused element a stands in the Trash's list before a redraw: its row's pin (null in an undo row), its action, and the
 // rows' pins in order with its row's place among them.
-/** @param {HTMLElement} box @param {HTMLElement} a @returns {{id:number|null,act:string,ids:number[],at:number}} */
 function trashSpot(box, a) {
-  const row = /** @type {HTMLElement|null} */ (a.closest('.arc-row[data-id]')),
+  const row = a.closest('.arc-row[data-id]'),
     id = row ? Number(row.dataset.id) : null;
-  const ids = [...box.querySelectorAll('.arc-row[data-id]')].map((r) =>
-    Number(/** @type {HTMLElement} */ (r).dataset.id),
-  );
+  const ids = [...box.querySelectorAll('.arc-row[data-id]')].map((r) => Number((r).dataset.id));
   return { id, act: a.dataset.act || '', ids, at: id == null ? -1 : ids.indexOf(id) };
 }
 // A redraw took the focus out of the Trash's list (setHtml; restorePin's list reload after its answer): it comes back - to
@@ -30671,13 +30000,15 @@ function trashSpot(box, a) {
 // row is still there (a [되살리기] that failed), else, the row gone (restored, purged, gone elsewhere), to the undo row in its
 // place, the next row's [되살리기], the one before's, and last the Trash's [닫기] - never to nothing, which left Tab and
 // Esc to start from the page's top. A focus the person moved out of the list meanwhile is not here to come back (drawTrash).
-/** @param {HTMLElement} box @param {{id:number|null,act:string,ids:number[],at:number}} k @param {HTMLElement} a */
-function trashRefocus(box, k, a) {
-  const btn = (/** @type {number} */ id, /** @type {string} */ act) => {
+function trashRefocus(
+  box,
+  k,
+  a,
+) {
+  const btn = (id, act) => {
     const r = box.querySelector('.arc-row[data-id="' + id + '"]');
-    return /** @type {HTMLElement|null} */ (
-      r && (r.querySelector('[data-act="' + act + '"]') || r.querySelector('[data-act="restore"]'))
-    );
+    return (r &&
+      (r.querySelector('[data-act="' + act + '"]') || r.querySelector('[data-act="restore"]')));
   };
   let t = a.isConnected ? a : null;
   if (!t && k.id != null) {
@@ -30694,7 +30025,7 @@ function trashRefocus(box, k, a) {
       t = btn(o, 'restore');
     }
   }
-  if (!t) t = /** @type {HTMLElement|null} */ ($('#trash').querySelector('[data-act="trash-close"]'));
+  if (!t) t = $('#trash').querySelector('[data-act="trash-close"]');
   if (t) t.focus();
 }
 function openTrash(flashId) {
@@ -30708,7 +30039,7 @@ function openTrash(flashId) {
   }
   if (flashId != null)
     requestAnimationFrame(() => {
-      const el = /** @type {HTMLElement} */ (document.querySelector('#trash .arc-row[data-id="' + flashId + '"]'));
+      const el = document.querySelector('#trash .arc-row[data-id="' + flashId + '"]');
       if (!el) return;
       el.scrollIntoView({ block: 'nearest' });
       el.classList.remove('flash');
@@ -30725,9 +30056,9 @@ $('#trash').addEventListener('close', () => {
 $('#trash').addEventListener('keydown', (e) => {
   if (e.key !== 'Tab' || e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
   const d = $('#trash');
-  const all = /** @type {HTMLElement[]} */ ([...d.querySelectorAll(PV_TABBABLE)].filter(pvTabStop)),
+  const all = [...d.querySelectorAll(PV_TABBABLE)].filter(pvTabStop),
     a = document.activeElement,
-    i = all.indexOf(/** @type {HTMLElement} */ (a));
+    i = all.indexOf(a);
   const to = !all.length
     ? null
     : e.shiftKey
@@ -30755,22 +30086,19 @@ $('#trash').addEventListener('click', (e) => {
 // the rows whose result they have read and confirms them together with [N건 확인] in the section head's second line
 // (#rv-bar). Each confirm is the one-pin route with the done_at the row showed when it was ticked, so a pin closed again
 // since is refused (409 conflict) instead of confirmed (ADR-0013). docs/handbook/viewer.md §스레드와 검토 has the rules.
-/** @typedef {import('./markup.js').Html} Html */
 
 // The ticked rows while the review section picks: pin id -> the done_at its row showed when it was ticked ('' for a close
 // with none). null while the section shows cards.
-let RV_PICK = /** @type {Map<number,string>|null} */ (null);
+let RV_PICK = null;
 
 // Whether pin p's row shows a result a person can have read: the agent's explanation or the lines it changed. A row without
 // one cannot be ticked - that pin is confirmed from its card (ADR-0035 D2). Pure.
-/** @param {Pin} p @returns {boolean} */
 function rvShowsResult(p) {
   return !!String(p.close_reply || '').trim() || (Array.isArray(p.changes) && p.changes.length > 0);
 }
 
 // The changed lines of p's close, short: '바뀐 줄 L33-L35', with the file's name first when the first range is in another
 // file than the pin's, and '+N' for the ranges after it. '' when the close names none. Pure.
-/** @param {Pin} p @returns {string} */
 function rvChanged(p) {
   const c = Array.isArray(p.changes) ? p.changes : [];
   if (!c.length) return '';
@@ -30786,7 +30114,7 @@ function rvChanged(p) {
 }
 
 // Whether the review section may pick now: a person who may confirm, two or more listed pins and one row with a result.
-/** @param {Pin[]} list the review pins the section lists @returns {boolean} */
+/** @param list the review pins the section lists */
 function rvCanPick(list) {
   return canConfirmReview() && list.length >= 2 && list.some(rvShowsResult);
 }
@@ -30795,7 +30123,6 @@ function rvCanPick(list) {
 // described by its explanation. The explanation folds at six lines as a thread post does (msgBody, [더 보기]); the
 // reference and the changed lines are a line under it, each kept whole. A row with no result has its box disabled and
 // offers [카드에서 확인] on its first line, beside [변경 보기].
-/** @param {Pin} p @returns {Html} */
 function rvRow(p) {
   const ok = rvShowsResult(p),
     on = !!RV_PICK && RV_PICK.has(p.id),
@@ -30823,7 +30150,7 @@ function rvRow(p) {
     : html`<button type="button" class="arc-orig-t rv-act hit" data-act="rv-card" data-tip="${tr('고르기를 끝내고 이 핀의 카드로 갑니다. 카드에서 결과를 보고 확인하세요')}">${tr('카드에서 확인')}</button>`;
   const said = !ok
     ? html`<span class="dim">${tr('설명 없이 닫힘')}</span>`
-    : html`${reply ? msgBody(/** @type {ThreadEntry} */ ({ text: reply, mentions: p.mentions }), 'rv:' + p.id) : html`<div class="dim">${tr('설명 없음')}</div>`}\
+    : html`${reply ? msgBody({ text: reply, mentions: p.mentions }, 'rv:' + p.id) : html`<div class="dim">${tr('설명 없음')}</div>`}\
 ${facts.length ? html`<div class="rv-facts" translate="no">${facts.map((f, i) => html`${i ? ' · ' : ''}<span>${f}</span>`)}</div>` : ''}`;
   return html`<div class="rv-row${on ? ' on' : ''}${ok ? '' : ' off'}" data-id="${p.id}" data-doc="${pdoc(p)}">\
 <div class="rv-l1"><label class="rv-ck hit"><span class="ck"><input type="checkbox" data-pick="${p.id}"${on ? ' checked' : ''}${ok ? '' : ' disabled'} aria-describedby="rv-a-${p.id}">\
@@ -30836,7 +30163,7 @@ ${card}<button type="button" class="arc-orig-t rv-act rv-chg hit" data-act="chan
 
 // The head's second line while the section picks: [모두 고르기 (N)] (half-ticked while some are) and [N건 확인]. Hidden
 // while it does not pick.
-/** @param {Pin[]} list the review pins the section lists */
+/** @param list the review pins the section lists */
 function rvBar(list) {
   const bar = $('#rv-bar');
   bar.hidden = !RV_PICK;
@@ -30853,17 +30180,16 @@ function rvBar(list) {
 <span class="lbl">${tl('모두 고르기 ({n})', { n: can.length })}</span></label><span class="sp"></span>\
 <button type="button" class="btn-sm btn-soft rv-go" id="rv-go" data-act="rv-go"${n ? '' : ' disabled'} data-tip="${tr('고른 핀을 확인해 완료로 옮깁니다. 6초 안에 되돌릴 수 있습니다')}">${n ? tl('{n}건 확인', { n }) : tr('확인')}</button>`,
   );
-  /** @type {HTMLInputElement} */ ($('#rv-all')).indeterminate = n > 0 && !all;
+  ($('#rv-all')).indeterminate = n > 0 && !all;
 }
 
 // What has the focus in the picking section, as a redraw can find it again: a row's box, or a control of the row by its
 // data-act and its place among the row's controls of that act (two #N in an explanation are both 'pin-ref'), or one of
 // the bar's controls by its id. null when the focus is elsewhere.
-/** @returns {{sel:string,i:number}|null} */
 function rvFocusKeep() {
-  const a = /** @type {HTMLElement|null} */ (document.activeElement);
+  const a = document.activeElement;
   if (!a || !a.closest) return null;
-  const row = /** @type {HTMLElement|null} */ (a.closest('.rv-row[data-id]')),
+  const row = a.closest('.rv-row[data-id]'),
     at = row ? '.rv-row[data-id="' + row.dataset.id + '"] ' : '';
   if (row && a.matches('input[data-pick]')) return { sel: at + 'input[data-pick]', i: 0 };
   if (row && a.dataset.act) {
@@ -30874,19 +30200,13 @@ function rvFocusKeep() {
 }
 // Gives the focus back after a redraw to what rvFocusKeep found (k: the same place among its kind, else the first), or -
 // that gone or disabled - to [골라서 확인], else to the section's toggle. Only when the redraw dropped the focus to the page.
-/** @param {{sel:string,i:number}|null} k */
 function rvFocusBack(k) {
   const a = document.activeElement;
   if (!k || (a && a !== document.body)) return;
   const all = document.querySelectorAll(k.sel),
-    el = /** @type {HTMLElement|null} */ (all[Math.max(0, k.i)] || all[0] || null),
-    pick = /** @type {HTMLElement} */ ($('#review-pick'));
-  const to =
-    el && !(/** @type {HTMLInputElement} */ (el).disabled)
-      ? el
-      : !pick.hidden
-        ? pick
-        : /** @type {HTMLElement} */ ($('#review-toggle'));
+    el = (all[Math.max(0, k.i)] || all[0] || null),
+    pick = $('#review-pick');
+  const to = el && !(el).disabled ? el : !pick.hidden ? pick : ($('#review-toggle'));
   to.focus({ preventScroll: true });
 }
 
@@ -30894,13 +30214,12 @@ function rvFocusBack(k) {
 // the section lists. A pick that can no longer be (one pin left, no row with a result, no right to confirm) or whose rows
 // are folded away (the section collapsed) ends here, and a tick on a pin that left the list or lost its result goes.
 // Returns whether it drew rows (else drawPins draws the cards).
-/** @param {Pin[]} list @returns {boolean} */
 function rvDraw(list) {
   const can = rvCanPick(list),
     keep = RV_PICK ? rvFocusKeep() : null;
   if (RV_PICK && (!can || !SEC.review)) {
     RV_PICK = null;
-    if (keep) /** @type {HTMLElement} */ ($('#review-toggle')).focus({ preventScroll: true });
+    if (keep) ($('#review-toggle')).focus({ preventScroll: true });
   } // the cards drawn next hold no focus
   if (RV_PICK) {
     const listed = new Map(list.map((p) => [p.id, p]));
@@ -30910,7 +30229,7 @@ function rvDraw(list) {
     }
   }
   // The head's toggle keeps its name, as [모든 문서] does: pressed, it is filled and leads with a check.
-  const b = /** @type {HTMLElement} */ ($('#review-pick'));
+  const b = $('#review-pick');
   b.hidden = !can;
   b.setAttribute('aria-pressed', String(!!RV_PICK));
   setHtml(b, html`${RV_PICK ? ic('check') : ''}${tr('골라서 확인')}`);
@@ -30923,7 +30242,6 @@ function rvDraw(list) {
 
 // Starts (on) or ends picking. Starting opens a collapsed section (and keeps it open, as [검토 M] does), brings the section
 // to the top of the list and gives the focus to [모두 고르기]; ending gives it back to [골라서 확인].
-/** @param {boolean} on */
 function rvPick(on) {
   RV_PICK = on ? new Map() : null;
   if (on && !SEC.review) {
@@ -30932,26 +30250,22 @@ function rvPick(on) {
   }
   drawPins();
   if (on) $('#sec-review').scrollIntoView({ block: 'start' }); // the section, not its head: a stuck head is where it is shown already and would not scroll
-  const f = /** @type {HTMLElement|null} */ (on ? $('#rv-all') : $('#review-pick'));
+  const f = (on ? $('#rv-all') : $('#review-pick'));
   if (f && f.getClientRects().length) f.focus({ preventScroll: true });
 }
 
 // [카드에서 확인] on a row with no result: the pick ends and the list goes to that pin's card, unfolded, the focus on its [확인].
-/** @param {number} id */
 function rvToCard(id) {
   rvPick(false);
   OPEN_CARDS.add(id);
   drawPins();
   jumpToCard(id);
-  const c = /** @type {HTMLElement|null} */ (
-    document.querySelector('#review-pins .pin[data-id="' + id + '"] [data-act=confirm]')
-  );
+  const c = document.querySelector('#review-pins .pin[data-id="' + id + '"] [data-act=confirm]');
   if (c) c.focus({ preventScroll: true });
 }
 
 // A box was ticked or cleared: a row's records the done_at its row shows now (ADR-0035 D3); [모두 고르기] ticks every row with
 // a result the section lists, or clears them.
-/** @param {HTMLInputElement} box */
 function rvTick(box) {
   if (!RV_PICK) return;
   const list = listReviewShown();
@@ -30968,7 +30282,6 @@ function rvTick(box) {
 }
 
 // The review pins the section lists now - the same filter drawPins uses ([나를 부른 핀], else the document or [모든 문서]).
-/** @returns {Pin[]} */
 function listReviewShown() {
   return MENTION_ONLY ? REVIEW_ALL.filter(mentionsMe) : listReview();
 }
@@ -30984,7 +30297,7 @@ function rvConfirm() {
       return pin && !CONFIRMING.has(id) ? { pin, at } : null;
     })
     .filter((x) => !!x)
-    .map((x) => /** @type {{pin:Pin,at:string}} */ (x));
+    .map((x) => x);
   if (!items.length) return;
   const where = new Map(items.map((x) => [x.pin.id, REVIEW_ALL.indexOf(x.pin)])),
     ticks = new Map(items.map((x) => [x.pin.id, x.at]));
@@ -31009,16 +30322,15 @@ function rvConfirm() {
   });
   const sec = $('#sec-review');
   if (!sec.hidden) sec.scrollIntoView({ block: 'start' }); // the undo row is the section's first
-  const u = /** @type {HTMLElement|null} */ (n.el && n.el.querySelector('.nt-act'));
+  const u = (n.el && n.el.querySelector('.nt-act'));
   if (u && document.contains(u)) u.focus({ preventScroll: true });
-  else /** @type {HTMLElement} */ ($('#review-toggle')).focus({ preventScroll: true });
+  else ($('#review-toggle')).focus({ preventScroll: true });
 }
 
 // The undo of [N건 확인]: each pin comes back as the latest list has it (CONFIRMING_PIN) at the place it had. While the
 // section picks - also a new pick started meanwhile - their ticks join the ticks it has, and the focus goes to [N건 확인];
 // otherwise they come back as cards and the focus goes to [골라서 확인]. A pin gone from that list meanwhile is not brought
 // back; one deleted elsewhere is said so.
-/** @param {{pin:Pin,at:string}[]} items @param {Map<number,number>} where @param {Map<number,string>} ticks */
 function rvUndo(items, where, ticks) {
   const back = [],
     lost = [];
@@ -31037,9 +30349,8 @@ function rvUndo(items, where, ticks) {
   if (RV_PICK) for (const p of back) RV_PICK.set(p.id, ticks.get(p.id) || '');
   drawPins();
   marks();
-  const to = /** @type {HTMLElement|null} */ (RV_PICK ? $('#rv-go') : $('#review-pick')); // the undo row that had the focus is gone
-  if (to && to.getClientRects().length && !(/** @type {HTMLButtonElement} */ (to).disabled))
-    to.focus({ preventScroll: true });
+  const to = (RV_PICK ? $('#rv-go') : $('#review-pick')); // the undo row that had the focus is gone
+  if (to && to.getClientRects().length && !(to).disabled) to.focus({ preventScroll: true });
   if (lost.length)
     lineNote(
       tl('핀 {ids} 은 그사이 다른 곳에서 지워졌습니다', { ids: lost.map((i) => '#' + i).join(', ') }),
@@ -31062,7 +30373,6 @@ const RV_OUT = Object.freeze({
 });
 // The outcome of one confirm from its answer: status and body of an answered request (409 expected), or the error api()
 // threw (an ApiError with a status for a refusal, none when the server was not reached). Pure.
-/** @param {{status:number,data:any}|null} r @param {ApiError|null} [err] @returns {{out:string,why?:string}} */
 function rvOutcome(r, err) {
   if (err)
     return err.status
@@ -31082,7 +30392,6 @@ const RV_SEND_MS = 15000;
 // and lets the pin go back to the lists as soon as it is answered, whatever the others do: off CONFIRMING, the next list
 // read shows it where the server has it. No answer within RV_SEND_MS ends the request as unreached - a retry of one that
 // did reach the server answers as already done, with the same done_at. Resolves with its outcome (rvOutcome).
-/** @param {Pin} pin @param {string} at @returns {Promise<{out:string,why?:string}>} */
 function rvSendOne(pin, at) {
   const stop = new AbortController(),
     bound = setTimeout(() => stop.abort(), RV_SEND_MS);
@@ -31096,7 +30405,7 @@ function rvSendOne(pin, at) {
   })
     .then(
       (r) => rvOutcome(r),
-      (e) => rvOutcome(null, /** @type {ApiError} */ (e)),
+      (e) => rvOutcome(null, e),
     )
     .then((o) => {
       clearTimeout(bound);
@@ -31110,7 +30419,6 @@ function rvSendOne(pin, at) {
 // all) and, once each is answered or given up, says what came of them: all done is said quietly; anything refused is one
 // banner on top of the review section that names each pin with why (rvSaid). The list is read again alongside, not
 // before: a read the network holds would keep the banner and its [다시 시도] unsaid.
-/** @param {{pin:Pin,at:string}[]} items */
 async function rvSend(items) {
   const outs = await Promise.all(items.map(({ pin, at }) => rvSendOne(pin, at)));
   loadPins();
@@ -31138,10 +30446,9 @@ async function rvSend(items) {
 // the pins and why, joined by ' · ' (one dash: the banner shows what is before it as its title and the rest as its
 // description). ERR when a pin did not reach the server, WARN when one was closed again, reopened, gone or refused, INFO
 // when the rest were only done by a person meanwhile. Pure.
-/** @param {{id:number,out:string,why?:string}[]} res @returns {{msg:string,kind:string}|null} */
 function rvSaid(res) {
-  const of = (/** @type {string} */ k) => res.filter((r) => r.out === k),
-    ids = (/** @type {{id:number}[]} */ l) => l.map((r) => '#' + r.id).join(', ');
+  const of = (k) => res.filter((r) => r.out === k),
+    ids = (l) => l.map((r) => '#' + r.id).join(', ');
   const ok = of(RV_OUT.OK).length;
   if (ok === res.length) return null;
   const refused = of(RV_OUT.REFUSED),
@@ -31170,9 +30477,8 @@ function rvSaid(res) {
 // being sent again, or one the lists read since show done or open, is left out; one the lists have not shown again yet
 // (their read still out) is sent, and the server answers by the done_at as it would have. Resolves once they are answered
 // and said, so the banner's button stays busy until then (noticeAct).
-/** @param {{pin:Pin,at:string}[]} items @returns {Promise<void>} */
 function rvRetry(items) {
-  const moved = (/** @type {number} */ id) => [DONE_ALL, OPEN_ALL].some((l) => l.some((p) => p.id === id));
+  const moved = (id) => [DONE_ALL, OPEN_ALL].some((l) => l.some((p) => p.id === id));
   const still = items.filter((x) => !CONFIRMING.has(x.pin.id) && !moved(x.pin.id));
   if (!still.length) return Promise.resolve();
   for (const { pin } of still) {
@@ -31187,9 +30493,8 @@ function rvRetry(items) {
 }
 
 // A box's change (a click on it or its label, Space on it) ticks or clears it.
-/** @param {Event} e */
 function rvChange(e) {
-  const t = /** @type {HTMLInputElement} */ (e.target);
+  const t = e.target;
   if (t && t.type === 'checkbox' && t.closest && t.closest('#sec-review')) rvTick(t);
 }
 document.addEventListener('change', rvChange);
@@ -31197,7 +30502,7 @@ document.addEventListener('change', rvChange);
 // ------------------------------------------------ Pin list: loading pins, list sections, marks on the PDF, jumping to a pin or card
 // If the people list changes (a new person/name), the list is redrawn - the very first render can show a login instead of a name -
 // and so is the composer's assignee row: a draft restored at boot is read before the list arrives, when none of its tags resolves yet.
-/** @typedef {import('./markup.js').Html} Html */
+
 async function loadPeople() {
   try {
     const r = (await api('/api/people', { what: '사람 목록', silent: true })).data;
@@ -31343,7 +30648,6 @@ async function loadPins() {
 // overtook it did - and false only when none since the call has applied (the read failed and said so). loadPins' own
 // answer is false when overtaken, the light poll's cue to read that revision again (docs/handbook/build-sync.md §자동
 // 동기화 (가벼운 meta 폴링)), so a caller that waits for the list itself reads it with this.
-/** @returns {Promise<boolean>} */
 async function loadPinsNow() {
   const since = PINS_LOAD_SEQ;
   await loadPins();
@@ -31368,7 +30672,7 @@ function listReview() {
 // interface language), or removed where the label is hidden (the portrait phone's 36px icon, a stepped-down sheet bar).
 function holdSelectWidth() {
   const b = $('#btn-select'),
-    l = /** @type {HTMLElement} */ (b.querySelector('.lbl'));
+    l = b.querySelector('.lbl');
   b.style.removeProperty('--sel-w');
   if (!b.getClientRects().length || getComputedStyle(l).display === 'none') return;
   const pressed = b.getAttribute('aria-pressed') || 'false',
@@ -31443,7 +30747,6 @@ function isMe(a) {
   const me = META && META.me;
   return !!(a && me && me.login && me.login !== LOCAL_LOGIN && a.login === me.login);
 }
-/** @param {Pin} p */
 function reviewerLabel(p) {
   if (!p.author || !(p.author.name || p.author.login)) return tr('확인 필요');
   return isMe(p.author) ? tr('내 확인 차례') : tl('{name}님 확인 필요', { name: who(p.author) });
@@ -31509,7 +30812,7 @@ function drawPins() {
     document.activeElement &&
     EDITOR.current.el.contains(document.activeElement) &&
     document.activeElement.matches('.e-note,.e-sg-text')
-      ? /** @type {HTMLTextAreaElement} */ (document.activeElement)
+      ? (document.activeElement)
       : null;
   const eta = ef,
     efocus = eta ? [eta.selectionStart, eta.selectionEnd] : null,
@@ -31599,10 +30902,10 @@ function drawPins() {
 // now, then line, then height on the page for a region, which has no line; pins of several documents stand document by document,
 // since page numbers mean nothing across them. A pin with no page (a Markdown document's, ADR-0025 D2) is ordered by its lines
 // alone - its page counts as 0. LIST_ORDER.ID: as the server lists them.
-/** @param {Pin[]} list @param {string} order - a LIST_ORDER value @returns {Pin[]} */
+/** @param order - a LIST_ORDER value */
 function orderPins(list, order) {
   if (order === LIST_ORDER.ID) return list;
-  const key = (/** @type {Pin} */ p) => {
+  const key = (p) => {
     if (order === LIST_ORDER.NEW) {
       const t = timeParts(p.at);
       return [t ? -t.t : Infinity, -p.id];
@@ -31634,7 +30937,6 @@ function orderPins(list, order) {
 // whose card has left gets an empty slot where its pin stands in that order, under its day's line, which stays while the row
 // does if the pin was that day's only card (drawOffers puts the row in the slot). In the server's order the row follows the card
 // drawn before it, as it always did.
-/** @param {Pin[]} list @param {string} sec @returns {Html} */
 function cardRows(list, sec) {
   const now = Date.now(),
     slots = new Map();
@@ -31657,7 +30959,6 @@ function cardRows(list, sec) {
 // page order always), else before the one after it when that is, else, its day having nothing else, under a line made for it
 // between the two, which stays while the row does (dropBareDayLines). In the server's order, or for a row that does not know
 // its pin, it follows the card drawn before it (prev), else it goes first.
-/** @param {HTMLElement} box @param {Notice} n @param {HTMLElement} e */
 function placeRow(box, n, e) {
   const prev = n.prev != null ? box.querySelector('.pin.card[data-id="' + n.prev + '"]') : null;
   if (!n.rec || ORDER === LIST_ORDER.ID) {
@@ -31665,9 +30966,9 @@ function placeRow(box, n, e) {
     else box.prepend(e);
     return;
   }
-  const drawn = /** @type {Map<Pin,Element>} */ (new Map());
+  const drawn = new Map();
   for (const el of box.children) {
-    const h = /** @type {HTMLElement} */ (el),
+    const h = el,
       o = h.matches('.pin.card')
         ? findAnyPin(Number(h.dataset.id))
         : h.matches('.nt-row')
@@ -31680,23 +30981,23 @@ function placeRow(box, n, e) {
     before = order[i - 1],
     after = order[i + 1],
     now = Date.now();
-  const day = (/** @type {Pin|undefined} */ p) => (p && ORDER === LIST_ORDER.NEW ? dayName(p.at, now) : ''),
+  const day = (p) => (p && ORDER === LIST_ORDER.NEW ? dayName(p.at, now) : ''),
     d = day(n.rec);
   if (before && day(before) === d) {
-    /** @type {Element} */ (drawn.get(before)).after(e);
+    (drawn.get(before)).after(e);
     return;
   }
   if (after && day(after) === d) {
-    /** @type {Element} */ (drawn.get(after)).before(e);
+    (drawn.get(after)).before(e);
     return;
   }
   const l = document.createElement('div');
   l.className = 'day-line';
   l.append(document.createElement('span'));
-  /** @type {HTMLElement} */ (l.firstChild).textContent = d;
-  if (before) /** @type {Element} */ (drawn.get(before)).after(l);
+  (l.firstChild).textContent = d;
+  if (before) (drawn.get(before)).after(l);
   else if (after) {
-    const a = /** @type {Element} */ (drawn.get(after)),
+    const a = drawn.get(after),
       over = a.previousElementSibling;
     (over && over.matches('.day-line') ? over : a).before(l);
   } else box.prepend(l);
@@ -31711,12 +31012,11 @@ function dropBareDayLines() {
   }
 }
 // [최신순 | 위치순 | 번호순]: shown while the open or review section shows a card, the list's order checked.
-/** @param {boolean} any */
 function drawOrderControl(any) {
   const c = $('#list-order');
   c.hidden = !any;
   for (const b of c.querySelectorAll('button')) {
-    const on = /** @type {HTMLElement} */ (b).dataset.order === ORDER;
+    const on = (b).dataset.order === ORDER;
     b.classList.toggle('on', on);
     b.setAttribute('aria-checked', String(on));
   }
@@ -31724,7 +31024,7 @@ function drawOrderControl(any) {
 } // the group's one Tab stop is the order now chosen (events.js)
 // A press on the order control: the list is drawn in order o, remembered for this browser, with the control where it stood under
 // the pointer - a card kept in place (lazyCards) would scroll it away - and its button keeps the focus (it is not redrawn).
-/** @param {string|undefined} o - a LIST_ORDER value */
+/** @param o - a LIST_ORDER value */
 function setListOrder(o) {
   const next = listOrderOf(o);
   if (next === ORDER) return;
@@ -31754,18 +31054,17 @@ function setListOrder(o) {
 // as the card comes near: the browser's scroll anchoring keeps the view where it stands as it grows or shrinks. A draw
 // makes new elements, which that anchoring cannot hold, so a row in the view before it (listKeep) is put back where it
 // stood: its cards may stand at other heights than the ones they replace.
-let LAZY_IO = /** @type {IntersectionObserver|null} */ (null),
-  LAZY_ROOT = /** @type {HTMLElement|null} */ (null),
+let LAZY_IO = null,
+  LAZY_ROOT = null,
   LAZY_W = 0,
   LAZY_H = -1;
 // After a draw: the first row kept (listKeep) that is still drawn in the section it was in is put back where it stood - a row
 // whose pin a poll moved to another section (검토 대기, 완료) or deleted gives way to the next, and with none left nothing is
 // put back: followed into its new section, the view jumped past every card still open. Then every new card is sorted.
-/** @param {{sel:string,sec:string,top:number}[]} keep */
 function lazyCards(keep) {
   const S = listScroller();
   for (const a of keep) {
-    const r = /** @type {HTMLElement|null} */ (document.querySelector(a.sel));
+    const r = document.querySelector(a.sel);
     if (!r || !r.getClientRects().length || listSection(r) !== a.sec) continue;
     const moved = r.getBoundingClientRect().top - a.top;
     if (Math.abs(moved) >= 0.5) S.scrollTop += moved;
@@ -31792,10 +31091,9 @@ function lazyWatch() {
 // The observer's reports: a card that came within a view's height of the list's view is drawn as it is; one that went
 // further is skipped at the height it has now - not a card that is not laid out (the panel folded: no height to stand at),
 // being edited or holding the reply box.
-/** @param {IntersectionObserverEntry[]} es */
 function lazySort(es) {
   for (const e of es) {
-    const c = /** @type {HTMLElement} */ (e.target);
+    const c = e.target;
     if (e.isIntersecting) {
       c.classList.remove('lazy');
       continue;
@@ -31843,8 +31141,7 @@ if (window.ResizeObserver) {
 document.fonts.addEventListener('loadingdone', (e) => {
   if (!$$('#list .pin.card.lazy').length) return;
   const ff = getComputedStyle($('#list')).fontFamily;
-  if (/** @type {FontFaceSetLoadEvent} */ (e).fontfaces.some((f) => ff.includes(f.family.replace(/^["']|["']$/g, ''))))
-    lazyAgain();
+  if ((e).fontfaces.some((f) => ff.includes(f.family.replace(/^["']|["']$/g, '')))) lazyAgain();
 });
 // The box the list scrolls in: the list itself, or in compact the panel (#right), which holds the tool bar above it.
 function listScroller() {
@@ -31853,15 +31150,12 @@ function listScroller() {
 // The cards and archive rows in the list's view, top first, each with its section and its top: the rows lazyCards may put
 // back. None while the list is at its top (the browser does not anchor there either: what a draw adds above it shows) or is
 // not laid out.
-/** @returns {{sel:string,sec:string,top:number}[]} */
 function listKeep() {
   const S = listScroller(),
     out = [];
   if (!S.scrollTop || !S.getClientRects().length) return out;
   const R = S.getBoundingClientRect();
-  for (const r of /** @type {HTMLElement[]} */ (
-    $$('#list .pin[data-id],#list .arc-row[data-id],#list .rv-row[data-id]')
-  )) {
+  for (const r of $$('#list .pin[data-id],#list .arc-row[data-id],#list .rv-row[data-id]')) {
     if (!r.getClientRects().length) continue;
     const b = r.getBoundingClientRect();
     if (b.bottom <= R.top) continue;
@@ -31880,7 +31174,6 @@ function listKeep() {
   return out;
 }
 // The section a row is drawn in: open (#pins), awaiting review (#review-pins) or done (#done-list).
-/** @param {Element} r */
 function listSection(r) {
   const s = r.closest('#pins,#review-pins,#done-list');
   return s ? s.id : '';
@@ -31889,10 +31182,9 @@ function listSection(r) {
 // again (a poll, someone's change, the list read after a [지우기] whose focus went to the card beside): drawn anew, it fell
 // to the page and the next Tab started over. Text fields keep theirs above; a card gone leaves the focus where it fell, and a
 // focus that is somewhere again (a notice's, drawOffers) stays there.
-/** @returns {{el:HTMLElement,id:string,act:string,i:number}|null} */
 function cardFocusKeep() {
-  const a = /** @type {HTMLElement|null} */ (document.activeElement),
-    c = a && a.closest ? /** @type {HTMLElement|null} */ (a.closest('#list .pin[data-id]')) : null;
+  const a = document.activeElement,
+    c = a && a.closest ? (a.closest('#list .pin[data-id]')) : null;
   const act = a && a.dataset ? a.dataset.act || '' : '';
   if (!a || !c || !act || a.matches('textarea,input')) return null;
   return {
@@ -31902,7 +31194,6 @@ function cardFocusKeep() {
     i: [...c.querySelectorAll('[data-act="' + CSS.escape(act) + '"]')].indexOf(a),
   };
 }
-/** @param {{el:HTMLElement,id:string,act:string,i:number}|null} k */
 function cardFocusBack(k) {
   const a = document.activeElement;
   if (!k || (a && a !== document.body)) return;
@@ -31912,14 +31203,13 @@ function cardFocusBack(k) {
   } // the edit card or the reply, put back in its slot
   const c = document.querySelector('#list .pin[data-id="' + CSS.escape(k.id) + '"]'),
     same = c ? c.querySelectorAll('[data-act="' + CSS.escape(k.act) + '"]') : null;
-  const b = /** @type {HTMLElement|null} */ (same && (same[Math.max(0, k.i)] || same[0]));
+  const b = (same && (same[Math.max(0, k.i)] || same[0]));
   if (b) b.focus({ preventScroll: true });
 }
 // Location estimation (.est, dashed) is judged by the server and carried as est in /api/pins (pin_est - comparing the
 // manuscript fingerprint of the build the pin was placed on with the current build). Back when the viewer judged this by
 // wall clock, it was wrong across the board with browser timezone, a note-only edited_at, and a pin placed on a stale
 // PDF (confirmed by independent verification). The viewer just renders the value it's given.
-/** @param {Pin} p */
 function isEstimated(p) {
   return p.est === true;
 }
@@ -31934,7 +31224,6 @@ function markBadgeIn(fx, w, pad, reach) {
 // Page pg's room: the room left of it in the PDF scroller, in scroll coordinates (a horizontal scroll does not count), its
 // width, and the badge's reach for the primary pointer: {pad, w, reach}. Pages have their own widths and a narrower page is
 // centred, so each page has its own margin. null for a page that is not laid out (the changes view hides the pages).
-/** @param {Element|null} pg */
 function markBadgeRoom(pg) {
   const L = $('#left');
   if (!L || !pg || !pg.getClientRects().length) return null;
@@ -31981,7 +31270,7 @@ function markBadgeSides() {
 // changes is written.
 const MARK_COVERS = ['#right', '#status-dock'],
   MARK_EDGE = 8; // MARK_EDGE: px a revealed badge keeps clear of a cover or the view's edge
-/** The pages' view: #left's box within the window. @returns {{left:number,top:number,right:number,bottom:number}} */
+/** The pages' view: #left's box within the window. */
 function markView() {
   const v = $('#left').getBoundingClientRect();
   return {
@@ -31991,7 +31280,7 @@ function markView() {
     bottom: Math.min(v.bottom, innerHeight),
   };
 }
-/** The covers' boxes laid out over view v, each cut to it. @param {{left:number,top:number,right:number,bottom:number}} v */
+/** The covers' boxes laid out over view v, each cut to it. */
 function markCoverBoxes(v) {
   const out = [];
   for (const s of MARK_COVERS) {
@@ -32010,9 +31299,13 @@ function markCoverBoxes(v) {
 // in r's columns, the scroll kept within [lo, hi] (what the pages can still scroll up and down): the least such distance, null
 // where no part can hold it. A badge wholly in such a part already is 0 - it is not moved, as the browser leaves a control in
 // view - and one brought in stands MARK_EDGE px clear of that part's ends where the part has the room. Pure.
-/** @param {{left:number,top:number,right:number,bottom:number}} r @param {{left:number,top:number,right:number,bottom:number}} v
- * @param {{left:number,top:number,right:number,bottom:number}[]} cs @param {number} lo @param {number} hi @returns {number|null} */
-function markShift(r, v, cs, lo, hi) {
+function markShift(
+  r,
+  v,
+  cs,
+  lo,
+  hi,
+) {
   let spans = [[v.top, v.bottom]];
   for (const c of cs) {
     if (c.right <= r.left || c.left >= r.right) continue;
@@ -32023,7 +31316,7 @@ function markShift(r, v, cs, lo, hi) {
     );
   }
   const h = r.bottom - r.top;
-  let best = /** @type {number|null} */ (null);
+  let best = null;
   for (const [t, b] of spans) {
     if (b - t < h) continue;
     const e = r.top >= t && r.bottom <= b ? 0 : Math.min(MARK_EDGE, (b - t - h) / 2);
@@ -32033,7 +31326,7 @@ function markShift(r, v, cs, lo, hi) {
   }
   return best;
 }
-const MARK_HIDDEN = /** @type {WeakSet<Element>} */ (new WeakSet());
+const MARK_HIDDEN = new WeakSet();
 function markCoverSkip() {
   const L = $('#left');
   if (!L) return;
@@ -32041,7 +31334,7 @@ function markCoverSkip() {
     cs = markCoverBoxes(v),
     lo = -L.scrollTop,
     hi = L.scrollHeight - L.clientHeight - L.scrollTop;
-  const bs = /** @type {HTMLElement[]} */ ($$('.mark button.mark-jump'));
+  const bs = $$('.mark button.mark-jump');
   const at = bs.map((b) => {
     const r = b.getBoundingClientRect();
     if (!r.width) return { stop: 0, hid: false };
@@ -32070,7 +31363,6 @@ function markCoverSkip() {
 }
 // Scrolls the pages to bring badge b to where it shows (markShift), when they can. It shows something, so a jump on its way
 // ends first (pvShow): its settling would glide the pages back.
-/** @param {HTMLElement} b */
 function markReveal(b) {
   const L = $('#left'),
     v = markView(),
@@ -32087,7 +31379,6 @@ function markReveal(b) {
 // focus that arrives while MARK_TAB is set is the walk's; a focus a script puts on a badge (focusPlace, without a scroll) is
 // left where it is. The focus events come before the browser's own scroll for the focus, which then finds the badge in view.
 let MARK_TAB = false;
-/** @param {KeyboardEvent} e */
 function markTabKey(e) {
   if (e.key !== 'Tab') return;
   MARK_TAB = true;
@@ -32174,7 +31465,7 @@ function markHitRooms(boxes, reach) {
 // Badges that are not laid out (the changes view hides the pages) have no boxes to read: nothing is set, and setViewMode
 // measures when the pages show again.
 function markHitSides() {
-  const bs = /** @type {HTMLElement[]} */ ($$('.mark button.mark-jump'));
+  const bs = $$('.mark button.mark-jump');
   if (bs.some((b) => !b.getClientRects().length)) return;
   const rooms = markHitRooms(
     bs.map((b) => {
@@ -32281,9 +31572,7 @@ function revealCard(id) {
 }
 function jumpToCard(id) {
   if (secOpenFor(id)) drawPins();
-  const el = /** @type {HTMLElement} */ (
-    document.querySelector('.pin[data-id="' + id + '"],.rv-row[data-id="' + id + '"]')
-  );
+  const el = document.querySelector('.pin[data-id="' + id + '"],.rv-row[data-id="' + id + '"]');
   if (!el) return; // a result row while the review section picks
   el.scrollIntoView({ behavior: scrollMotion(), block: 'nearest' });
   $$('.pin.cur').forEach((x) => {
@@ -32296,7 +31585,7 @@ function jumpToCard(id) {
   el._curT = setTimeout(() => el.classList.remove('cur', 'flash'), 1200);
 }
 // A '#12' link in text: expands and scrolls to that pin's card/archive row, then flashes it. If it's on another document, '모든 문서' is turned on.
-/** @param {number} id @param {boolean} [focus] - by keyboard: the focus goes to the card (its number) */
+/** @param [focus] - by keyboard: the focus goes to the card (its number) */
 function gotoPinRef(id, focus) {
   const p = findAnyPin(id);
   if (!p) {
@@ -32314,8 +31603,8 @@ function gotoPinRef(id, focus) {
   setSide(true);
   drawPins();
   requestAnimationFrame(() => {
-    const el = /** @type {HTMLElement} */ (
-      document.querySelector('.pin[data-id="' + id + '"],.arc-row[data-id="' + id + '"],.rv-row[data-id="' + id + '"]')
+    const el = document.querySelector(
+      '.pin[data-id="' + id + '"],.arc-row[data-id="' + id + '"],.rv-row[data-id="' + id + '"]',
     );
     if (!el) return;
     el.scrollIntoView({ behavior: scrollMotion(), block: 'nearest' });
@@ -32329,7 +31618,6 @@ function gotoPinRef(id, focus) {
 }
 // The pin id beside the card that holds control a - the next card in its section, else the one before - or null: where the
 // focus goes when that card leaves by a keyboard press ([삭제], [지우기]).
-/** @param {HTMLElement} a @returns {number|null} */
 function cardNeighbour(a) {
   const c = a.closest('.pin.card');
   if (!c) return null;
@@ -32337,24 +31625,21 @@ function cardNeighbour(a) {
   while (n && !n.matches('.pin.card')) n = n.nextElementSibling;
   let b = c.previousElementSibling;
   while (b && !b.matches('.pin.card')) b = b.previousElementSibling;
-  const t = /** @type {HTMLElement|null} */ (n || b);
+  const t = (n || b);
   return t ? Number(t.dataset.id) : null;
 }
 // Puts the focus on pin id's card - its number (a button) - when it is drawn.
-/** @param {number} id */
 function focusCard(id) {
-  const n = /** @type {HTMLElement|null} */ (
-    document.querySelector(
-      '.pin[data-id="' +
-        id +
-        '"] .n.go,.arc-row[data-id="' +
-        id +
-        '"] .n,.rv-row[data-id="' +
-        id +
-        '"] input:not(:disabled),.rv-row[data-id="' +
-        id +
-        '"] .rv-act',
-    )
+  const n = document.querySelector(
+    '.pin[data-id="' +
+      id +
+      '"] .n.go,.arc-row[data-id="' +
+      id +
+      '"] .n,.rv-row[data-id="' +
+      id +
+      '"] input:not(:disabled),.rv-row[data-id="' +
+      id +
+      '"] .rv-act',
   );
   if (n) n.focus({ preventScroll: true });
 } // a result row (review-pick.js): its box, or its first link when the box is off
@@ -32383,7 +31668,7 @@ function jumpPin(id) {
     mdJump(id);
     return;
   } // its first line on the Markdown surface
-  const m = /** @type {HTMLElement} */ (document.querySelector('.mark[data-pin="' + id + '"]'));
+  const m = document.querySelector('.mark[data-pin="' + id + '"]');
   if (m) {
     const L = $('#left'),
       lr = L.getBoundingClientRect(),
@@ -32398,7 +31683,6 @@ function jumpPin(id) {
   }
 }
 // Hovering a card highlights its mark, along with any overlapping counterpart marks.
-/** @param {Pin} p */
 function markIdsFor(p) {
   return [p.id].concat((p.rel || []).map((x) => x.id));
 }
@@ -32433,12 +31717,11 @@ $('#pins').addEventListener('mouseout', (e) => {
 // (components.css).
 // Off is this page's state only (never stored): a reload shows every mark.
 // Only the marks go. The pins, the cards, the page verdict lines and the selection box are as they were.
-const MARKS = { off: false, held: /** @type {{code:string,at:number}|null} */ (null) };
+const MARKS = { off: false, held: null };
 const MARKS_HOLD_MS = 350; // a press this long is a look, not a switch
 const MARKS_SOURCE = 'marks-off'; // the status line's one reminder (sourceEntry)
 // Whether keydown e is the marks key: the key that types h, alone, whatever its place on the layout. A key that types no
 // Latin letter (a Hangul jamo, an input method's 'Process') counts by its place: the physical H key. Pure.
-/** @param {{key?:string,code?:string,ctrlKey?:boolean,metaKey?:boolean,altKey?:boolean,shiftKey?:boolean}} e @returns {boolean} */
 function marksKey(e) {
   if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return false;
   const k = e.key || '';
@@ -32446,15 +31729,13 @@ function marksKey(e) {
 }
 // What a press of the marks key that lasted ms does to the marks, off or not before it: a short one switches them, a long
 // one was only a look and leaves them as they were. Returns whether they are off after it. Pure.
-/** @param {boolean} off @param {number} ms @returns {boolean} */
 function marksAfterPress(off, ms) {
   return ms >= MARKS_HOLD_MS ? off : !off;
 }
 // Shows the page with or without its marks, for now: the class the styles read (components.css, md-surface.css). The
 // state itself (MARKS.off), the switch and the reminder are marksSet's. A hidden badge gives up the focus.
-/** @param {boolean} off */
 function marksLook(off) {
-  const a = /** @type {HTMLElement|null} */ (document.activeElement);
+  const a = document.activeElement;
   // A badge with the focus would keep it unseen: the focus goes to the document area, as after a search (searchToPage).
   if (off && a && a.closest && a.closest('.mark,.md-badges') && !a.closest('.nt-chip')) searchToPage();
   document.body.classList.toggle('marks-off', off);
@@ -32470,7 +31751,6 @@ function drawMarksSwitch() {
 // Turns the marks off or on for good: the look, the switch, and the status line's reminder - put there when they go off,
 // taken away when they come back; the line's cap never pushes it off (keep), and closed with its [x] it leaves the marks off
 // with the switch as their trace. Says the change to a screen reader (the reminder reads itself). No request is sent.
-/** @param {boolean} off */
 function marksSet(off) {
   const was = MARKS.off;
   MARKS.off = off;
@@ -32495,10 +31775,9 @@ function marksShow() {
 }
 // The marks key goes down: the marks flip at once, so a look starts with the press. Not in a text field, under a dialog or
 // in the changes view (no marks there), and a repeat of a held key is the same press.
-/** @param {KeyboardEvent} e */
 function marksKeyDown(e) {
   if (e.isComposing || !marksKey(e)) return;
-  const t = /** @type {HTMLElement|null} */ (e.target),
+  const t = e.target,
     inField =
       !!t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.isContentEditable);
   if (inField || document.querySelector('dialog[open]') || document.body.classList.contains('revision-open')) return;
@@ -32508,7 +31787,6 @@ function marksKeyDown(e) {
   marksLook(!MARKS.off);
 }
 // The marks key comes up: a short press was a switch, a long one a look (marksAfterPress).
-/** @param {KeyboardEvent} e */
 function marksKeyUp(e) {
   const h = MARKS.held;
   if (!h || e.code !== h.code) return;
@@ -32573,7 +31851,7 @@ async function closePin(id) {
 // review section (confirmConflict).
 const CONFIRMING = new Set();
 // The pins whose [확인] waits for its undo, by id: off the review list meanwhile, but a page verdict line still counts them (verdict.js).
-const CONFIRMING_PIN = /** @type {Map<number,Pin>} */ (new Map());
+const CONFIRMING_PIN = new Map();
 // The warning for a confirm answered 409 'conflict', chosen by the pin that 409 carries: still awaiting review means it
 // was closed again - look at the new result, then confirm; any other state (a person closed it straight to done) has
 // nothing to confirm. A body without the pin (an older server) keeps the closed-again warning.
@@ -32584,12 +31862,10 @@ function confirmConflictText(id, pin) {
 }
 // What kind of banner that 409 conflict is, by the same rule as its text: closed again is a WARN that still asks for a look
 // ([변경 보기]); already done by a person is INFO with nothing to do. Pure.
-/** @param {Pin|null|undefined} pin @returns {string} */
 function confirmConflictKind(pin) {
   return pin && pinState(pin) !== PIN_STATE.REVIEW ? NOTICE_KIND.INFO : NOTICE_KIND.WARN;
 }
 // Says a confirm answered 409 'conflict' in a banner on top of the review section (confirmConflictText, confirmConflictKind).
-/** @param {number} id @param {Pin|null|undefined} pin */
 function confirmConflict(id, pin) {
   const kind = confirmConflictKind(pin);
   bannerNote(
@@ -32656,7 +31932,6 @@ function confirmPin(id) {
 }
 // Undo of [완료] (its row's [되돌리기]) - the viewer has no [다시 열기] button any more; a reply reopens by the server rule.
 // Silent: the card comes back. Resolves with whether the pin was reopened (the row waits for it, noticeAct).
-/** @param {number} id @returns {Promise<boolean>} */
 async function reopenPin(id) {
   let ok = false;
   try {
@@ -32673,8 +31948,12 @@ async function reopenPin(id) {
 // silent, as the composer comes back with the selection - and again = what that failure's [다시 시도] runs (the whole undo, so
 // the composer comes back too). o.say: the caller says the drop and offers its undo where it was pressed (a page line's
 // [판정 취소], verdict.js pvCancel), o.where is where a failure is said and o.what what it names. Resolves with whether the pin was deleted.
-/** @param {number|null} id @param {boolean} undoSave @param {()=>unknown} [again] @param {{say?:()=>void,where?:string,what?:string}} [o] @returns {Promise<boolean>} */
-async function dropPin(id, undoSave, again, o) {
+async function dropPin(
+  id,
+  undoSave,
+  again,
+  o,
+) {
   const was = OPEN_ALL,
     applied = PINS_APPLIED_SEQ,
     prev = drawnBefore($('#pins'), '.pin.card', id),
@@ -32701,7 +31980,7 @@ async function dropPin(id, undoSave, again, o) {
     });
     ok = true;
   } catch (e) {
-    const x = /** @type {ApiError} */ (e);
+    const x = e;
     lost = !x || !x.status;
     if (PINS_APPLIED_SEQ === applied) {
       const old = was.find((p) => p.id === id);
@@ -32769,7 +32048,6 @@ function purgePin(id) {
 // Resolves with whether it was restored: a message whose action this is stays until then (noticeAct); a failure says itself
 // where it can be seen (bannerNote: the status line while the panel is closed). settled runs once the request is answered,
 // before the list reload (trashRestore's bound is the request's).
-/** @param {number|null} id @param {()=>void} [settled] @returns {Promise<boolean>} */
 async function restorePin(id, settled) {
   let ok = false;
   try {
@@ -32795,10 +32073,9 @@ async function restorePin(id, settled) {
 // out to where it can be seen, as the Trash's undo rows go to the status line. It goes when the request is answered - not
 // after the list reload, so a failure's banner, which takes its place, is never taken with it - and a focus on it (its [x])
 // goes to the row's [되살리기] (the reload then moves it on, trashRefocus), else into the Trash, else to the pages.
-/** @param {number|null} id */
 async function trashRestore(id) {
   const src = NOTICE_LATE_SRC + 'restore:' + id,
-    trash = /** @type {HTMLDialogElement} */ ($('#trash'));
+    trash = $('#trash');
   const say = () => {
     const t = tr('되살리기의 답이 늦습니다') + ' · ' + tl('핀 #{id}', { id });
     const m = bannerNote(NOTICE_HOST.LIST, t, NOTICE_KIND.WARN, null, { literal: true, source: src });
@@ -32826,11 +32103,9 @@ async function trashRestore(id) {
     if (!had) return;
     const L = $('#trash-list'),
       b = trash.open
-        ? /** @type {HTMLElement|null} */ (
-            L.querySelector('.arc-row[data-id="' + id + '"] [data-act="restore"]') ||
-              L.querySelector('[data-act="restore"]') ||
-              trash.querySelector('[data-act="trash-close"]')
-          )
+        ? ((L.querySelector('.arc-row[data-id="' + id + '"] [data-act="restore"]') ||
+            L.querySelector('[data-act="restore"]') ||
+            trash.querySelector('[data-act="trash-close"]')))
         : null;
     if (b) b.focus();
     else searchToPage();
@@ -32860,12 +32135,12 @@ async function unclaimPin(id) {
 // its tags are kept on the field it mirrors, which sends them (mentionModel). There is no external notification.
 // The open @-list: its field, the '@word' it was drawn for (where its '@' is, q the letters after it), its people and the
 // highlighted row.
-/** @typedef {import('./markup.js').Html} Html */
+
 const MENTION = {
-  ta: /** @type {HTMLTextAreaElement|null} */ (null),
+  ta: null,
   start: 0,
   q: '',
-  items: /** @type {PersonSeen[]} */ ([]),
+  items: [],
   sel: 0,
 };
 function mentionQuery(ta) {
@@ -32893,7 +32168,6 @@ function mentionMatches(q, people, meLogin) {
 }
 // The hints a send carries: the logins of the field's tags that are tags in its text now (an '@name' right after a letter
 // is none, as for the server; typing a new tag right before an old one makes one for a moment), in text order.
-/** @param {HTMLTextAreaElement|null} ta @returns {string[]} */
 function mentionHints(ta) {
   if (!ta) return [];
   const v = ta.value;
@@ -32908,7 +32182,6 @@ function mentionHints(ta) {
 // The field's tags for the text it holds. When its text or its logins were set from outside (a draft, a stored pin, a
 // reply's draft) the tags are worked out again from the logins, which are in text order: each takes the next '@name' of
 // its name that no earlier one took.
-/** @param {HTMLTextAreaElement} ta @returns {MentionTag[]} */
 function mentionTags(ta) {
   if (ta._tags && ta._tagsFor === ta.value && ta._tagsFrom === ta._mentions) return ta._tags;
   ta._tags = mentionBind(
@@ -32921,10 +32194,9 @@ function mentionTags(ta) {
 }
 // Each of picks ({login, tok}) bound to the first '@name' (tok) in text that a tag can start at and no earlier pick took;
 // a pick whose name is not there is dropped. Pure.
-/** @param {{login:string,tok:string}[]} picks @param {string} text @returns {MentionTag[]} */
 function mentionBind(picks, text) {
   const taken = new Set(),
-    out = /** @type {MentionTag[]} */ ([]);
+    out = [];
   for (const p of picks) {
     let i = text.indexOf(p.tok);
     while (i >= 0 && (taken.has(i) || mentionAfterWord(text, i))) i = text.indexOf(p.tok, i + 1);
@@ -32941,10 +32213,9 @@ function mentionBind(picks, text) {
 // typed into, is dropped - its person is no longer named there - and a tag after it moves by what the edit added or took
 // away. A tag whose '@name' is not where it moved to is dropped too; one that a letter now precedes stays (it is no tag
 // until that letter goes: mentionHints). Pure.
-/** @param {MentionTag[]} tags @param {string} old @param {string} now @param {number} caret @returns {MentionTag[]} */
 function mentionShift(tags, old, now, caret) {
   const m = Math.min(old.length, now.length);
-  const span = (/** @type {number} */ tail) => {
+  const span = (tail) => {
     let p = 0,
       s = 0;
     while (s < m && s < tail && old[old.length - 1 - s] === now[now.length - 1 - s]) s++;
@@ -32962,7 +32233,6 @@ function mentionShift(tags, old, now, caret) {
     .filter((t) => now.startsWith(t.tok, t.at));
 }
 // How many characters old and now share from their start. Pure.
-/** @param {string} old @param {string} now @returns {number} */
 function mentionCommonStart(old, now) {
   let p = 0;
   const m = Math.min(old.length, now.length);
@@ -32971,21 +32241,14 @@ function mentionCommonStart(old, now) {
 }
 // Follows an edit of ta's text (an input event, or the note popover's text copied in): its tags move with the edit or
 // drop out, and its logins become theirs. caret is where the edit left the caret.
-/** @param {HTMLTextAreaElement} ta @param {number} [caret] */
 function mentionEdited(ta, caret) {
   const known = ta._tags && ta._tagsFrom === ta._mentions && ta._tagsFor != null;
   const tags = known
-    ? mentionShift(
-        /** @type {MentionTag[]} */ (ta._tags),
-        /** @type {string} */ (ta._tagsFor),
-        ta.value,
-        caret == null ? ta.selectionStart : caret,
-      )
+    ? mentionShift(ta._tags, ta._tagsFor, ta.value, caret == null ? ta.selectionStart : caret)
     : mentionTags(ta);
   mentionKeep(ta, tags);
 }
 // Stores tags as ta's own for its present text, with the logins they name (in text order) as ta._mentions.
-/** @param {HTMLTextAreaElement} ta @param {MentionTag[]} tags */
 function mentionKeep(ta, tags) {
   ta._tags = tags;
   ta._tagsFor = ta.value;
@@ -32993,13 +32256,11 @@ function mentionKeep(ta, tags) {
 }
 // The field that keeps ta's tags and sends them: the field ta mirrors (ta._mirrorOf, whose text ta's own listener keeps equal
 // to ta's), else ta itself.
-/** @param {HTMLTextAreaElement} ta @returns {HTMLTextAreaElement} */
 function mentionModel(ta) {
   return ta._mirrorOf || ta;
 }
 // Shows m's text in each field that mirrors it. A mirror's own listeners copy only what is typed in m (an input event), and
 // a pick writes m's text from code.
-/** @param {HTMLTextAreaElement} m */
 function mentionMirror(m) {
   document.querySelectorAll('textarea').forEach((f) => {
     if (f._mirrorOf === m && f.value !== m.value) f.value = m.value;
@@ -33027,26 +32288,29 @@ function mentionClose() {
 // ('not a registered person'). Since text can't be colored inside a textarea, this is previewed here instead - so it's
 // known before saving whether a tag will actually become a notification. It is the server's resolve_mentions() step for
 // step (tests/viewer/test_mentions_parity.py runs one corpus through both): hit is what the server records, in first-seen order.
-/** @param {string} text @param {Iterable<string>} [hints] @returns {{hit:string[],bad:string[]}} */
 function mentionScan(text, hints) {
   return mentionResolve(text, hints || [], PEOPLE, false);
 }
 // mentionScan's reading over an explicit list of people. A name several people share tags those of them the hints name: in
 // the server's order (by login), or with byHint in the hints' own order - the order the text names them (mentionRemember),
 // which is what decides who was tagged first (assignOutcome). Pure.
-/** @param {string} text @param {Iterable<string>} hints @param {PersonSeen[]} people @param {boolean} byHint @returns {{hit:string[],bad:string[]}} */
-function mentionResolve(text, hints, people, byHint) {
+function mentionResolve(
+  text,
+  hints,
+  people,
+  byHint,
+) {
   text = String(text || '');
   const toks = mentionTokens(people),
     order = [...hints],
     hs = new Set(order);
-  const hit = /** @type {string[]} */ ([]),
-    bad = /** @type {string[]} */ ([]),
+  const hit = [],
+    bad = [],
     low = text.toLowerCase();
   for (let i = 0; i < text.length; i++) {
     if (text[i] !== '@' || mentionAfterWord(text, i)) continue;
     const rest = low.slice(i + 1);
-    let got = /** @type {string[]|null} */ (null);
+    let got = null;
     for (const x of toks) {
       if (!rest.startsWith(x.t)) continue;
       const nx = rest.charAt(x.t.length);
@@ -33091,8 +32355,13 @@ function mentionTokens(people) {
 // The colleagues a note tags, in the order it first names them - whom an assignee row offers. A colleague is a resolved
 // @-tag that is not me (the server drops a tag of its author too), so an unresolved word, a tag taken out of the text and a
 // tag of myself are nobody. keep (an edit card's stored assignee) stays offered after its tag left the note. Pure.
-/** @param {string} text @param {Iterable<string>} hints @param {PersonSeen[]} people @param {string|null} me @param {string} [keep] @returns {string[]} */
-function assignPeople(text, hints, people, me, keep) {
+function assignPeople(
+  text,
+  hints,
+  people,
+  me,
+  keep,
+) {
   const out = mentionResolve(text, hints, people, true).hit.filter((l) => l !== me);
   if (keep && keep !== ASSIGNEE_AGENT && !out.includes(keep)) out.push(keep);
   return out;
@@ -33107,8 +32376,6 @@ function assignPeople(text, hints, people, me, keep) {
 // - SAVE_MODE.APPEND, the note joins an existing pin: that pin's assignee (stored) and kind stay as they are, there is nobody
 //   to choose (people is empty), and every colleague the note tags is told.
 // Pure.
-/** @param {{text:string,kind:string,hints:string[],people:PersonSeen[],me:string|null,mode:string,pick:{v:string,touched:boolean},stored?:string|null}} q
- *  @returns {{mode:string,kind:string|null,people:string[],assignee:string|null,told:string[],kept:boolean}} */
 function assignOutcome(q) {
   const tagged = assignPeople(q.text, q.hints, q.people, q.me);
   if (q.mode === SAVE_MODE.APPEND)
@@ -33118,9 +32385,8 @@ function assignOutcome(q) {
   return { mode: q.mode, kind: q.kind, people: tagged, assignee, told: tagged.filter((l) => l !== assignee), kept };
 }
 // assignOutcome's inputs as the composer holds them at this moment, for a save in mode; an append reads the pin it joins.
-/** @param {string} mode @returns {Parameters<typeof assignOutcome>[0]} */
 function composeAsk(mode) {
-  const ta = /** @type {HTMLTextAreaElement} */ ($('#note')),
+  const ta = $('#note'),
     ov = mode === SAVE_MODE.APPEND ? appendTarget() : null,
     p = ov ? PINS.find((x) => x.id === ov.id) : null;
   return {
@@ -33136,12 +32402,10 @@ function composeAsk(mode) {
 }
 // A person's name where the reader must tell people apart (an assignee row, the composer's preview line): the name, with the
 // login beside it for a name another known person shares - as the @-list shows every person (.ml).
-/** @param {string} login @returns {Html} */
 function personLabel(login) {
   return nameShared(login) ? html`${peopleName(login)} <span class="ml">${login}</span>` : html`${peopleName(login)}`;
 }
 // Whether another known person has login's displayed name.
-/** @param {string} login @returns {boolean} */
 function nameShared(login) {
   const nm = peopleName(login);
   return PEOPLE.some((p) => p.login !== login && p.name === nm);
@@ -33150,7 +32414,6 @@ function nameShared(login) {
 // The track scrolls sideways inside the row when it is longer (.lad, the range ladder's rule), so every name reads in full;
 // its scroll box is out of the Tab order as the ladder's is (levels.js drawLadder).
 // A segment's words are in .as-t, trimmed to their cap height like the row's label, so the two share one centre in any font.
-/** @param {string[]} people @param {string} value @param {string} act @returns {Html} */
 function assignSeg(people, value, act) {
   if (!people.length) return html``;
   const opt = (v, label, tip) =>
@@ -33186,12 +32449,12 @@ function renderAssignNew() {
   if (!ta || !box) return;
   const o = assignOutcome(composeAsk(SAVE_MODE.NEW));
   if (PEOPLE_KNOWN) {
-    ASSIGN_NEW.v = /** @type {string} */ (o.assignee);
+    ASSIGN_NEW.v = o.assignee;
     ASSIGN_NEW.touched = o.kept;
   }
   if (o.people.length && !appendTarget()) {
     const at = segFocusAt(box);
-    setHtml(box, assignSeg(o.people, /** @type {string} */ (o.assignee), 'assign-new'));
+    setHtml(box, assignSeg(o.people, o.assignee, 'assign-new'));
     box.hidden = false;
     segRove(box);
     segKeep(box, at);
@@ -33209,7 +32472,7 @@ function renderAssignEdit() {
   const E = EDITOR.current;
   if (!E) return;
   const ta = editNote(E),
-    box = /** @type {HTMLElement} */ (E.el.querySelector('.e-assign'));
+    box = E.el.querySelector('.e-assign');
   if (!ta || !box) return;
   const ppl = assignPeople(ta.value, mentionHints(ta), PEOPLE, meLogin(), E.assignee);
   if (!ppl.length) {
@@ -33239,7 +32502,7 @@ function mentionPreview(ta) {
   if (!box || !box.classList.contains('m-preview')) return;
   const r = mentionScan(ta.value, mentionHints(ta)),
     me = meLogin(); // the same hints the save/send carries
-  const f = /** @type {HTMLTextAreaElement|null} */ (document.activeElement); // ta, or a field that mirrors it, being typed in
+  const f = document.activeElement; // ta, or a field that mirrors it, being typed in
   r.bad = mentionBadSettled(r.bad, ta.value, f && mentionModel(f) === ta ? mentionQuery(f) : null);
   if (!r.hit.length && !r.bad.length) {
     box.hidden = true;
@@ -33257,7 +32520,7 @@ function mentionPreview(ta) {
     ? html`<span class="m-lab">${ic('at-sign')}알림</span>${told.map((l) => html`<span class="mention${l === me ? ' me' : ''}">${personLabel(l)}${l === me ? ' ' + tr('(나 — 알림 없음)') : ''}</span>`)}`
     : '';
   const assigns = o
-    ? html`<span class="m-lab">${tr(join ? '따로 저장하면 담당' : '담당')}</span>${name(/** @type {string} */ (o.assignee))}`
+    ? html`<span class="m-lab">${tr(join ? '따로 저장하면 담당' : '담당')}</span>${name(o.assignee)}`
     : html``;
   const head = !o
     ? hits
@@ -33329,7 +32592,7 @@ function mentionPlace() {
   pop.style.left = Math.max(4, Math.min(r.left, innerWidth - w - 4)) + 'px';
   if (at.max == null) return;
   pop.style.maxHeight = at.max + 'px';
-  const s = /** @type {HTMLElement|null} */ (pop.querySelector('[aria-selected=true]'));
+  const s = pop.querySelector('[aria-selected=true]');
   pop.scrollTop = s ? Math.min(s.offsetTop, Math.max(was, s.offsetTop + s.offsetHeight - pop.clientHeight)) : was;
 }
 // The action row of that input field that the @-list must never cover: reply/reopen [취소][보내기], edit [저장], the note
@@ -33354,9 +32617,13 @@ function mentionTop(r, g, h, top, bot) {
 // The @-list's spot by the note popover's field, whose action row g ([자세히 →][저장]) it never covers: mentionTop's spot
 // when one of (1)-(3) holds all h px of the list (max null). Otherwise (a short window) not mentionTop's (4), which covers
 // the field and that row, but the roomiest of (1)-(3), the list cut to its room (max px; the list scrolls). Pure.
-/** @param {{top:number,bottom:number}} r @param {{top:number,bottom:number}|null} g @param {number} h @param {number} top
- *  @param {number} bot @returns {{top:number,max:number|null}} */
-function mentionRoom(r, g, h, top, bot) {
+function mentionRoom(
+  r,
+  g,
+  h,
+  top,
+  bot,
+) {
   const gap = 4,
     lim = g && g.top >= r.bottom ? Math.min(bot, g.top) : bot;
   // Each spot's room, and its edge: the list's top there, or (up) its bottom.
@@ -33417,7 +32684,7 @@ const isMentionField = (t) =>
   (t.id === 'note' || t.classList.contains('e-note') || t.classList.contains('r-text') || !!t._mirrorOf);
 // A mirror field's own listener has copied its text and the edit into its model (sel-popover.js); here it only gets the list.
 document.addEventListener('input', (e) => {
-  const t = /** @type {HTMLTextAreaElement} */ (e.target);
+  const t = e.target;
   if (!isMentionField(t)) return;
   if (mentionModel(t) !== t) {
     mentionUpdate(t);
@@ -33470,7 +32737,7 @@ window.addEventListener(
 // now ends, or closes when there is none.
 ['keyup', 'click', 'focusout'].forEach((t) =>
   document.addEventListener(t, (e) => {
-    const f = /** @type {HTMLTextAreaElement} */ (e.target);
+    const f = e.target;
     if (!isMentionField(f)) return;
     if (t !== 'focusout' && MENTION.ta === f && !mentionCurrent()) mentionUpdate(f);
     setTimeout(() => mentionPreview(mentionModel(f)), 0);
@@ -33503,7 +32770,6 @@ function isHuman() {
 }
 // Mirrors limn.pins.lifecycle.rules.reopens_on_reply(): an open pin never changes; an explicit override (true/false) wins; otherwise a person's reply
 // on a closed pin reopens it unless it tags a person or the pin is a question. mentioned = the post's resolved @-tags without me.
-/** @param {Pin} p @param {boolean} human @param {string[]} mentioned @param {boolean|null} [override] */
 function replyReopens(p, human, mentioned, override) {
   if (pinState(p) === PIN_STATE.OPEN) return false;
   if (override !== undefined && override !== null) return !!override;
@@ -33513,7 +32779,6 @@ function replyReopens(p, human, mentioned, override) {
 // The outcome line: {text, toggle}, or null for an open pin (a reply never changes it). toggle names the one rare override the box
 // offers: 'keep' ([상태 유지], reopen:false) where the rule would reopen, 'reopen' ([다시 열기], reopen:true) where it keeps a closed pin
 // as it is. flip = that toggle is pressed.
-/** @param {Pin|null} p @param {boolean} human @param {string[]} mentioned @param {boolean} flip */
 function replyPreview(p, human, mentioned, flip) {
   if (!p || pinState(p) === PIN_STATE.OPEN) return null;
   const m = mentioned || [];
@@ -33534,7 +32799,6 @@ function replyPreview(p, human, mentioned, flip) {
   return { text: tl('보내면 {names}에게 알림이 가고 상태는 그대로입니다', { names }), toggle };
 }
 // The empty box's placeholder says the same outcome as the line under it would for a reply without @-tags.
-/** @param {Pin|null} p @param {boolean} human @param {boolean} flip */
 function replyPlaceholder(p, human, flip) {
   const closed = !!p && pinState(p) !== PIN_STATE.OPEN,
     def = closed && replyReopens(p, human, []);
@@ -33562,7 +32826,6 @@ function replyMentioned(ta) {
     (l) => l !== me && (PEOPLE.find((x) => x.login === l) || {}).role !== ROLE.AGENT,
   );
 }
-/** @param {Pin|null} p */
 function replyEl(p) {
   const el = document.createElement('div');
   el.className = 'reply-box';
@@ -33577,14 +32840,13 @@ function replyEl(p) {
   return el;
 }
 // The text field of reply box R (replyEl puts exactly one in every box).
-/** @param {ReplyBox} R @returns {HTMLTextAreaElement} */
 function replyNote(R) {
-  return /** @type {HTMLTextAreaElement} */ (R.el.querySelector('textarea'));
+  return R.el.querySelector('textarea');
 }
 function renderReplyOutcome() {
   const R = REPLY;
   if (!R) return;
-  const box = /** @type {HTMLElement} */ (R.el.querySelector('.r-outcome')),
+  const box = R.el.querySelector('.r-outcome'),
     ta = replyNote(R);
   if (!box || !ta) return;
   const p = findAnyPin(R.id),
@@ -33604,12 +32866,9 @@ function renderReplyOutcome() {
   } // the rule changed direction (a tag added/removed): the override resets
   R.toggle = pv.toggle;
   box.hidden = false;
-  /** @type {HTMLElement} */ (box.querySelector('.r-out-t')).textContent = pv.text;
-  box.classList.toggle(
-    'reopen',
-    replyReopens(/** @type {Pin} */ (p), isHuman(), ment, R.flip ? pv.toggle === 'reopen' : undefined),
-  );
-  const k = /** @type {HTMLElement} */ (box.querySelector('[data-act=reply-flip]')),
+  (box.querySelector('.r-out-t')).textContent = pv.text;
+  box.classList.toggle('reopen', replyReopens(p, isHuman(), ment, R.flip ? pv.toggle === 'reopen' : undefined));
+  const k = box.querySelector('[data-act=reply-flip]'),
     keep = pv.toggle === 'keep';
   k.textContent = tr(keep ? '상태 유지' : '다시 열기');
   k.dataset.tip = tr(
@@ -33633,7 +32892,7 @@ function openReply(id) {
   OPEN_CARDS.add(id);
   setSide(true);
   drawPins();
-  const ta = replyNote(/** @type {ReplyBox} */ (REPLY)),
+  const ta = replyNote(REPLY),
     draft = REPLY_DRAFT.get('reply:' + id);
   ta.value = draft ? draft.text : '';
   ta._mentions = new Set(draft ? draft.mentions : []);
@@ -33641,7 +32900,7 @@ function openReply(id) {
   mentionPreview(ta);
   renderReplyOutcome();
   ta.focus();
-  /** @type {ReplyBox} */ (REPLY).el.scrollIntoView({ block: 'nearest' });
+  (REPLY).el.scrollIntoView({ block: 'nearest' });
 }
 /** Keep a nonblank reply's text and only the recipient hints its remaining tags carry; optionally redraw after closing. */
 function closeReply(redraw) {
@@ -33658,7 +32917,7 @@ function sendReply() {
   if (!R || viewerBlocked()) return;
   const ta = replyNote(R),
     text = ta.value.trim();
-  const rerr = /** @type {HTMLElement} */ (R.el.querySelector('.r-err'));
+  const rerr = R.el.querySelector('.r-err');
   if (!text) {
     rerr.textContent = tr('답글이 비어 있습니다');
     rerr.hidden = false;
@@ -33685,7 +32944,7 @@ function sendReply() {
     }
     REPLY_DRAFT.set('reply:' + id, { text, mentions: mh });
     openReply(id);
-    const e = REPLY && REPLY.id === id ? /** @type {HTMLElement} */ (REPLY.el.querySelector('.r-err')) : null;
+    const e = REPLY && REPLY.id === id ? (REPLY.el.querySelector('.r-err')) : null;
     if (REPLY && REPLY.id === id) {
       const t = replyNote(REPLY);
       t._mentions = new Set(mh);
@@ -33727,7 +32986,7 @@ function sendReply() {
           if (note) bannerNote(NOTICE_HOST.LIST, note, NOTICE_KIND.WARN);
         }
       } catch (e) {
-        const err = /** @type {ApiError} */ (e); // silent above: the box's own line says it, once
+        const err = e; // silent above: the box's own line says it, once
         back(
           err.status
             ? tr('보내지 못했습니다') + ' — ' + (errText(err.data) || 'HTTP ' + err.status)
@@ -33746,12 +33005,12 @@ function sendReply() {
   );
   // Keyboard users (Ctrl+Enter) land on [되돌리기], so Enter undoes; the reply still goes when its undo does.
   const b = document.querySelector('[data-act="notice-act"][data-n="' + n.n + '"]');
-  if (b) /** @type {HTMLElement} */ (b).focus({ preventScroll: true });
+  if (b) (b).focus({ preventScroll: true });
 }
 
 // ------------------------------------------------ Edit
 // The active edit card and its save request share a lifetime; a dirty card may remain visible across document switches.
-const EDITOR = { current: /** @type {EditCard|null} */ (null), saving: false };
+const EDITOR = { current: null, saving: false };
 // A dirty edit card survives document switches, so only replacement or cancellation revokes its pending response.
 function editorOwns(card) {
   return EDITOR.current === card;
@@ -33773,12 +33032,11 @@ function editFields(E) {
 /** Reflect the editor's shared request lifetime on whichever card is currently visible. */
 function syncEditSaveButton() {
   const b = EDITOR.current && EDITOR.current.el.querySelector('.b-esave');
-  if (b) /** @type {HTMLButtonElement} */ (b).disabled = EDITOR.saving;
+  if (b) (b).disabled = EDITOR.saving;
 }
 // The note field of edit card E (openEdit puts exactly one in every card).
-/** @param {EditCard} E @returns {HTMLTextAreaElement} */
 function editNote(E) {
-  return /** @type {HTMLTextAreaElement} */ (E.el.querySelector('.e-note'));
+  return E.el.querySelector('.e-note');
 }
 // Opens the edit card for pin `id` (the pin's document is switched to first) and focuses its note: builds the card markup,
 // records the pin's current values as the editor's baseline (EDITOR.current, including a figure pin's element) and loads the
@@ -33814,7 +33072,7 @@ placeholder="이 줄들을 바꿀 글 (비우면 이 줄들을 지웁니다)" da
 <button class="btn-sm b-ecancel" data-act="ecancel" data-tip="${T.ecancel}">취소</button>\
 <button class="btn-sm btn-default b-esave" data-act="esave" data-tip="${T.esave}">저장</button></div>`,
   );
-  const ta = /** @type {HTMLTextAreaElement} */ (el.querySelector('.e-note'));
+  const ta = el.querySelector('.e-note');
   ta.value = p.note || '';
   ta._mentions = new Set(p.mentions || []);
   autoGrow(ta);
@@ -33886,7 +33144,7 @@ function autoGrow(ta) {
   ta.style.height = Math.min(12 * lh, Math.max(3 * lh, ta.scrollHeight + 2)) + 'px';
 }
 document.addEventListener('input', (e) => {
-  const t = /** @type {HTMLElement} */ (e.target);
+  const t = e.target;
   if (t.classList && (t.classList.contains('e-note') || t.classList.contains('r-text') || t.id === 'note')) autoGrow(t);
 });
 async function editSnip(withLevels) {
@@ -33940,7 +33198,7 @@ function renderEdit() {
   if (!E) return;
   const el = E.el;
   syncEditSaveButton();
-  /** @type {NodeListOf<HTMLElement>} */ (el.querySelectorAll('.e-kind button')).forEach((b) => {
+  (el.querySelectorAll('.e-kind button')).forEach((b) => {
     const on = b.dataset.kind === (E.kind_req || KIND_REQ.FIX);
     b.classList.toggle('on', on);
     b.setAttribute('aria-checked', String(on));
@@ -33953,7 +33211,7 @@ function renderEdit() {
       : rangeCap(E, true),
   );
   drawLadder(el.querySelector('.e-levels'), E, true);
-  const pre = /** @type {HTMLElement} */ (el.querySelector('.e-snip'));
+  const pre = el.querySelector('.e-snip');
   pre.className = 'e-snip wrap';
   pre.textContent = snipText(E.snippet, false);
   renderAssignEdit();
@@ -33962,10 +33220,10 @@ function renderEdit() {
   qHint(el.querySelector('.e-qhint'), editNote(E).value, E.kind_req);
   const pin = findAnyPin(E.id),
     closed = !!pin && pinState(pin) !== PIN_STATE.OPEN;
-  /** @type {HTMLElement} */ (el.querySelector('.b-repick')).hidden = closed;
+  (el.querySelector('.b-repick')).hidden = closed;
   if (closed) {
-    /** @type {HTMLElement} */ (el.querySelector('.e-levels')).hidden = true;
-    /** @type {HTMLElement} */ (el.querySelector('.e-xp')).hidden = true;
+    (el.querySelector('.e-levels')).hidden = true;
+    (el.querySelector('.e-xp')).hidden = true;
   }
 }
 function cancelEdit() {
@@ -34129,7 +33387,6 @@ async function saveEdit() {
 }
 // A rival edit wrote another note while card E was open (E.theirs): the banner shows that note whole and offers
 // [내 메모로 덮어쓰기]; the card keeps the person's text, and [저장] alone does not write over theirs.
-/** @param {EditCard} E */
 function editTheirs(E) {
   const theirs = E.theirs == null ? '' : E.theirs;
   bannerNote(
@@ -34153,14 +33410,13 @@ function editTheirs(E) {
 // An edit the server answered 409 suggest_base_changed: nothing was saved and card E keeps its draft. The editor shows the lines'
 // current text against the draft and the list's banner offers [지금 원문으로 맞추기] (the draft keeps its text and takes that text as
 // its base); then [저장] again.
-/** @param {EditCard} E @param {any} data */
 function editSuggestRefused(E, data) {
   if (editorOwns(E)) {
     E.sg.current = {
       text: String(data.current || ''),
       file: E.file || null,
-      lo: /** @type {number} */ (E.lo),
-      hi: /** @type {number} */ (E.hi),
+      lo: E.lo,
+      hi: E.hi,
     };
     renderEdit();
   }
@@ -34282,7 +33538,7 @@ async function applyRepick() {
     lv = lvOf(c, c.default_level) || c;
   const visit = captureVisit(),
     E = EDITOR.current;
-  let loc = /** @type {Record<string, unknown>} */ ({
+  let loc = {
     file: c.file,
     page: c.page,
     lo: lv.lo,
@@ -34298,7 +33554,7 @@ async function applyRepick() {
     quote: c.quote,
     scope: lv.level || null,
     kind: lv.level ? kindFor(lv.level, lv.env) : c.kind,
-  });
+  };
   if (!loc.scope) delete loc.scope;
   if (isRegion(c)) loc = { page: c.page, frac: c.frac, quote: c.quote, pdf_build: c.pdf_build || undefined }; // view-only: only the region is re-placed
   figureFields(loc, repickEl(c), isRegion(c) || !lv.el ? null : lv); // a new loc names its element or none: a loc without el drops the pin's el
@@ -34347,9 +33603,7 @@ async function applyRepick() {
     quietNote(
       tl('핀 #{id} 위치를 {where} 로 바꿨습니다', {
         id: p.id,
-        where: isRegion(p)
-          ? tl('쪽 {page} 영역', { page: pinPlace(p).page })
-          : rng(/** @type {number} */ (p.lo), /** @type {number} */ (p.hi)),
+        where: isRegion(p) ? tl('쪽 {page} 영역', { page: pinPlace(p).page }) : rng(p.lo, p.hi),
       }),
     );
     await loadPins();
@@ -34408,7 +33662,7 @@ function restoreAnchor(a) {
 // it is hidden there is no spot to read, and a build that changes the pages' sizes meanwhile (refreshDoc) moves the scroll offset the
 // column keeps to another place. keepSpot() takes it as the view opens; returnToSpot() puts the column back on it when the pages
 // show again - only if the offset left it by a pixel or more, so a visit that changed nothing leaves the column exactly where it was.
-let SPOT = /** @type {{a:NonNullable<ReturnType<typeof topAnchor>>,doc:string|null}|null} */ (null);
+let SPOT = null;
 function keepSpot() {
   const a = topAnchor();
   SPOT = a ? { a, doc: DOC } : null;
@@ -34493,7 +33747,6 @@ async function refreshDoc(meta) {
 // pullSuffix), and the status line's failure item (compact) and #build-err-chip (the desktop's chips, while the panel is not on
 // screen: syncBuildErrChip) keep a way to open it again as long as BUILD.error exists. say = a build this visit watched has
 // just failed: its title is read out as an alert too (rule 1) - the desktop's panel and chip are no live region.
-/** @param {any} r @param {boolean} [say] */
 function showBuildErr(r, say) {
   BUILD.error = r;
   if (DOC) BUILD_ERR_BY.set(DOC, r);
@@ -34518,13 +33771,11 @@ function showBuildErr(r, say) {
 // The error sources of document k's rebuild (notices.js sourceEntry): the requests rebuild() sends, plain and forced
 // (api's source is the method and URL). A failed [PDF 재빌드] says itself under its own; an answered one clears it, and so
 // does a later build of that document, which refreshDoc shows.
-/** @param {string|null} k @returns {string[]} */
 function rebuildSources(k) {
   return ['/api/rebuild?async=1', '/api/rebuild?async=1&force=1'].map((u) => 'POST ' + dq(u, k || undefined));
 }
 // The title of build r's failure (fail) or its LaTeX errors (ok_errors), with the pull's line: the error panel's, and what
 // showBuildErr reads out.
-/** @param {any} r @returns {string} */
 function buildErrTitle(r) {
   return (
     tr(
@@ -34594,12 +33845,12 @@ function downloadPdf() {
 }
 
 // ------------------------------------------------ Help
-let HELP_BACK = /** @type {HTMLElement|null} */ (null);
+let HELP_BACK = null;
 // Opens help with its head on one ink line (headInk); closing it gives the focus back to what had it.
 function openHelp() {
   const d = $('#help');
   if (d.open) return;
-  HELP_BACK = /** @type {HTMLElement|null} */ (document.activeElement);
+  HELP_BACK = document.activeElement;
   hideTip();
   showSheet(d);
   headInk();
@@ -34629,18 +33880,18 @@ function openTappedCard(t) {
   drawPins();
 }
 document.addEventListener('click', (e) => {
-  const target = /** @type {HTMLElement} */ (e.target);
-  const cp = /** @type {HTMLElement} */ (target.closest('[data-copy]'));
+  const target = e.target;
+  const cp = target.closest('[data-copy]');
   if (cp) {
     copyText(cp.dataset.copy || '', cp);
     return;
   }
-  const a = /** @type {HTMLElement} */ (target.closest('[data-act]'));
+  const a = target.closest('[data-act]');
   if (!a) {
     openTappedCard(target);
     return;
   }
-  const host = /** @type {HTMLElement} */ (a.closest('[data-id]')),
+  const host = a.closest('[data-id]'),
     id = host ? Number(host.dataset.id) : null,
     inEdit = !!a.closest('.edit');
   const fromMore = !!a.closest('#more');
@@ -35109,19 +34360,17 @@ $('#revision-file').addEventListener('change', renderRevisionFile);
 // focus walks such a group the stop goes with it, so Tab leaves from where the focus is in one step; when the focus leaves,
 // the stop goes back to the chosen word (segManualLeft).
 const SEG_STEP = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 };
-/** The words of radio group g that can take the focus: neither disabled nor hidden. @param {Element} g */
+/** The words of radio group g that can take the focus: neither disabled nor hidden. */
 function segOffered(g) {
-  return /** @type {HTMLButtonElement[]} */ ([...g.querySelectorAll('[role=radio]')]).filter(
-    (w) => !w.disabled && !w.hidden,
-  );
+  return ([...g.querySelectorAll('[role=radio]')]).filter((w) => !w.disabled && !w.hidden);
 }
-/** The words of g on offer that are laid out - the ones a key walks. @param {Element} g */
+/** The words of g on offer that are laid out - the ones a key walks. */
 function segShown(g) {
   return segOffered(g).filter((w) => w.getClientRects().length);
 }
-/** Where the focus is among the words g shows (segShown), -1 when it is not on one of them. @param {Element} g */
+/** Where the focus is among the words g shows (segShown), -1 when it is not on one of them. */
 function segFocusAt(g) {
-  return segShown(g).indexOf(/** @type {HTMLButtonElement} */ (document.activeElement));
+  return segShown(g).indexOf(document.activeElement);
 }
 // Three groups draw their words again: the assignee row on every pick and every change of the note (mentions.js assignSeg),
 // the range ladder with every range (levels.js drawLadder - a pick that leaves the excerpt short of lines draws it again
@@ -35131,7 +34380,6 @@ function segFocusAt(g) {
 // notes where the focus was (segFocusAt) and gives it back to the word now in place i - the last when there are fewer - as
 // no new focus: a description shows only after a key (tooltip.js focusGivenBack). A group drawn away (no people left to
 // assign) has none, and the focus stays.
-/** @param {Element} g @param {number} i */
 function segKeep(g, i) {
   if (i < 0) return;
   const ws = segShown(g),
@@ -35139,7 +34387,7 @@ function segKeep(g, i) {
   if (w) focusGivenBack(w);
 }
 /** Keep one Tab stop in radio group g: the chosen word, else the first one on offer. It reads the markup only, not the
- * layout, so a group drawn while its panel is closed holds its one stop before it shows. @param {Element|null} g */
+ * layout, so a group drawn while its panel is closed holds its one stop before it shows. */
 function segRove(g) {
   if (!g) return;
   const ws = segOffered(g),
@@ -35148,13 +34396,13 @@ function segRove(g) {
 }
 for (const g of $$('[role=radiogroup]')) segRove(g); // the groups in the page's markup; a drawn one calls segRove itself
 document.addEventListener('keydown', (e) => {
-  const t = /** @type {HTMLElement} */ (e.target);
+  const t = e.target;
   if (imeKey(e) || e.ctrlKey || e.metaKey || e.altKey) return;
   if (!t || !t.closest || t.getAttribute('role') !== 'radio') return;
   const g = t.closest('[role=radiogroup]');
   if (!g) return;
   const ws = segShown(g),
-    i = ws.indexOf(/** @type {HTMLButtonElement} */ (t));
+    i = ws.indexOf(t);
   if (i < 0) return;
   const step = SEG_STEP[e.key];
   const to =
@@ -35179,11 +34427,10 @@ document.addEventListener('keydown', (e) => {
   segRove(g);
 });
 // The focus has left a group walked without choosing: its stop is the chosen word again, where Tab and Shift+Tab come back to.
-/** @param {FocusEvent} e */
 function segManualLeft(e) {
-  const t = /** @type {HTMLElement} */ (e.target),
+  const t = e.target,
     g = t && t.closest ? t.closest('[role=radiogroup][data-seg-manual]') : null;
-  const to = /** @type {Node|null} */ (e.relatedTarget);
+  const to = e.relatedTarget;
   if (g && !(to && g.contains(to))) segRove(g);
 }
 document.addEventListener('focusout', segManualLeft);
@@ -35191,9 +34438,8 @@ document.addEventListener('focusout', segManualLeft);
 // a press on it - the gap between two words, its edge - still gives it the focus, and from a focused box with tabindex -1
 // Firefox's next Tab began again at the page's start. So the focus such a press gives the box goes on to the group's one
 // stop (segRove's word) as no new focus (focusGivenBack: no description), and Tab leaves from there, as from a word.
-/** @param {FocusEvent} e */
 function segBoxFocus(e) {
-  const b = /** @type {HTMLElement} */ (e.target);
+  const b = e.target;
   if (!b || !b.matches || !b.matches('.seg.lad[tabindex="-1"]')) return;
   const g = b.matches('[role=radiogroup]') ? b : b.querySelector('[role=radiogroup]') || b,
     ws = segOffered(g),
@@ -35204,7 +34450,7 @@ document.addEventListener('focusin', segBoxFocus);
 
 document.addEventListener('keydown', (e) => {
   if (imeKey(e)) return; // an input method's key, the Enter or Esc that ended its composition too (core.js)
-  const t = /** @type {HTMLElement} */ (e.target),
+  const t = e.target,
     inField = t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.isContentEditable);
   // Ctrl(Cmd) + = / - / 0 zooms/fits just the PDF page instead of the browser zoom. Left to the browser inside an input field.
   if ((e.ctrlKey || e.metaKey) && !e.altKey && !inField && !isMdDoc()) {

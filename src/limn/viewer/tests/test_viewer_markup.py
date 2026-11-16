@@ -22,7 +22,7 @@ import helpers_js
 from helpers import VIEWER, extract_js_fn, js_esc, js_icons, run_node
 
 PARTS = assemble.viewer_manifest(VIEWER)["__APP_JS__"]
-MARKUP_PART = "js/markup.js"
+MARKUP_PART = "js/markup.ts"
 
 SINK_PROPS = frozenset(["innerHTML", "outerHTML"])
 SINK_CALLS = frozenset(["insertAdjacentHTML", "createContextualFragment", "write", "writeln"])
@@ -171,7 +171,7 @@ class MarkupSource(unittest.TestCase):
     def test_checks_catch_each_injected_violation(self):
         """Each rule rejects a planted break and accepts the legal form beside it."""
         legal = "setHtml(a,html`<b>${x}</b>`); const t=`${y}`+z; o.html=1; f(o.html); o.esc=1;"
-        self.assertEqual(markup_misuse({"js/a.js": legal}), [])
+        self.assertEqual(markup_misuse({"js/a.ts": legal}), [])
         self.assertEqual(sink_writes(legal + " el.innerHTML; s=el.innerHTML;"), 0)
         for bad, rule in [
             ("x=new Html(s);", "new Html outside markup.js"),
@@ -182,7 +182,7 @@ class MarkupSource(unittest.TestCase):
             ("x='<i>'+html`<b>${html`<u>`}</b>`;", "html`` joined with '+'"),
         ]:
             with self.subTest(bad=bad):
-                self.assertEqual(markup_misuse({"js/a.js": bad}), ["js/a.js: %s" % rule])
+                self.assertEqual(markup_misuse({"js/a.ts": bad}), ["js/a.ts: %s" % rule])
         for bad in (
             "el.innerHTML=s;",
             "el.outerHTML+=s;",

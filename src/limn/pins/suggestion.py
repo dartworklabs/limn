@@ -44,7 +44,7 @@ class Suggestion:
 # The characters that would hide or reorder text (docs/adr/0029-text-documents.md D7), by code point, as inclusive ranges:
 # Unicode's Default_Ignorable_Code_Point, every C0 and C1 control but the tab and the line feed, U+2028, U+2029 and the
 # interlinear annotation characters (the Bidi_Control marks are among the first). The viewer marks the same table
-# (src/limn/viewer/js/hidden-chars.js CC_RANGES, with exceptions for sequences that need one); a test ties the two.
+# (src/limn/viewer/js/hidden-chars.ts CC_RANGES, with exceptions for sequences that need one); a test ties the two.
 HIDDEN_RANGES: tuple[tuple[int, int], ...] = (
     (0x00, 0x08),
     (0x0B, 0x1F),
