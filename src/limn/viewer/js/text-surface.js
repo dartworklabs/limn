@@ -16,6 +16,11 @@
 //   same stop as in an editor whose tabs are TX_TAB columns wide.
 // - The ladder is: the chosen lines -> the paragraph between blank lines (para, or the paragraphs the lines meet: blocks, saved
 //   as lines) -> the indented block the lines head or stand in (indent). txLevels reads the server's lines alone.
+import { $, MD_LIMIT, META, showsSourceLines } from './core.js';
+import { html, setHtml } from './markup.js';
+import { ccBox, ccClip, ccName, ccScan } from './hidden-chars.js';
+import { tl, tr } from './i18n.js';
+import { MD, MD_LIMITS, mdCount, mdDue, mdSnippet, mdYield } from './md-surface.js';
 const TX_TAB=4;           // the columns a tab spans (CSS tab-size of the view, and txCols)
 const TX_HANG_MAX=16;     // the most columns a wrapped line's continuation hangs: a phone keeps room for the text
 const TX_LABEL=12;        // the most characters of a block's header its rung's label shows
@@ -100,7 +105,7 @@ async function srcLines(span,cls,stale){const lines=MD.lines,w={n:0};
       for(const c of ccScan(ln,i===0)){if(mdDue(w)){await mdYield(); if(stale())return null;}
         if(!c)continue;
         if(names)out+=ln.slice(at,c.at)+'\u27e8'+ccName(c.ch.codePointAt(0)||0)+'\u27e9';
-        else{if((els+=2)>MD_LIMITS.elements){over=true; break;} if(c.at>at)s.append(ln.slice(at,c.at)); s.append(ccBox(c.ch));}
+        else {if((els+=2)>MD_LIMITS.elements){over=true; break;} if(c.at>at)s.append(ln.slice(at,c.at)); s.append(ccBox(c.ch));}
         at=c.at+c.ch.length; marked++;}
       if(over)break;
       if(names)s.textContent=out+ln.slice(at)+'\n'; else s.append(ln.slice(at)+'\n');
@@ -139,3 +144,4 @@ function txEndsText(ends){const e=Object.entries(ends||{}).filter(([k,n])=>/^U\+
 function txHint(){const e=$('#empty'); if(!e)return;
   setHtml(e,html`<span class="t-mouse"><b>${tr('줄을 누르면')}</b> ${tr('그 줄을,')} ${tr('글을')} <b>${tr('끌어')}</b> ${tr('고르면 그 줄들을 고르고')}</span><span class="t-touch"><b>${tr('줄을 누르면')}</b> ${tr('그 줄을,')} <b>${tr('길게 눌러')}</b> ${tr('글을 고르면 그 줄들을 고르고')}</span> ${tr('그 자리의')} <b>${tr('원문 줄 번호')}</b>${tr('가 핀의 위치가 됩니다.')}<br>
     ${tr('메모를 달아 핀으로 저장하면, 에이전트가 pins.md 한 장만 읽고 작업합니다.')}<br><span class="t-mouse"><kbd>?</kbd> ${tr('를 누르면 도움말.')}</span><span class="t-touch">${tr('도움말은 [더보기]에 있습니다.')}</span>`);}
+export { isTextDoc, srcLines, txHint, txLevels, txMarksText, txNamesText, txNote, txView };

@@ -24,7 +24,8 @@ PAGE = (
     '<link href="/favicon.ico?v=__ICON_KEY__"><link rel="stylesheet" href="/f.css?v=__PRETENDARD_VERSION__">'
     '<script src="/viewer.js?v=__VIEWER_JS_KEY__"></script></html>'
 )
-# The script's parts: placeholders in the first, an icon token in the second.
+# The script's modules: placeholders in the first, an icon token in the second. The built script (dist/viewer.js) is
+# their text joined, as tools/build_viewer.mjs writes it for modules with no import or export.
 SCRIPT_PARTS = (
     "const V='__PDFJS_VERSION__',W='__KATEX_VERSION__';const ICONS=__LUCIDE_JSON__;const I18N_EN=__UI_EN_JSON__;\nf();\n",
     "g({{ic:a}});\n",
@@ -33,9 +34,11 @@ ICONS = {"x": '<path d="M1 1"/>', "a": '<path d="M2 2"/>'}
 
 
 def viewer_folder(root: Path, page: str = PAGE) -> Path:
-    """A minimal viewer folder under root: index.html, one CSS part, two JS parts and their manifest."""
+    """A minimal viewer folder under root: index.html, one CSS part, two JS modules, their manifest and the built script."""
     (root / "css").mkdir()
     (root / "js").mkdir()
+    (root / "dist").mkdir()
+    (root / "dist" / "viewer.js").write_text("".join(SCRIPT_PARTS), encoding="utf-8")
     (root / "index.html").write_text(page, encoding="utf-8")
     (root / "css" / "a.css").write_text("b{}\n", encoding="utf-8")
     (root / "js" / "one.js").write_text(SCRIPT_PARTS[0], encoding="utf-8")
@@ -83,8 +86,8 @@ class ViewerHtml(unittest.TestCase):
     def test_every_build_time_placeholder_is_filled_from_the_arguments(self):
         """The exact page: the stylesheet parts joined in order, the script's key, the font version, each logo placeholder
         its markup, Limn's version ([더보기]'s foot), the icon key and the page's icon tokens - and the run-time __LABEL__
-        left for run_page(). The exact script: its parts joined in order, the PDF.js and KaTeX versions, both JSON tables
-        (sorted) and the icon token inside a part replaced."""
+        left for run_page(). The exact script: the built script (dist/viewer.js) with the PDF.js and KaTeX versions, both JSON
+        tables (sorted) and the icon token inside it replaced."""
         svg = lambda name: assemble.icon_svg(name, ICONS)  # noqa: E731 - a local shorthand
         page = (
             "<html><style>b{}\n</style><title>__LABEL__</title>"
@@ -131,13 +134,14 @@ class ViewerHtml(unittest.TestCase):
             self.script(icons={"x": ICONS["x"]})
 
     def test_a_malformed_folder_raises(self):
-        """A missing manifest (OSError), a template without its stylesheet marker or with the script's (ValueError) fails
-        at assembly."""
+        """A missing manifest or built script (OSError), a template without its stylesheet marker or with the script's
+        (ValueError) fails at assembly."""
+        (self.dir / "dist" / "viewer.js").unlink()
+        with self.assertRaises(OSError):
+            self.script()
         (self.dir / "parts.txt").unlink()
         with self.assertRaises(OSError):
             self.html()
-        with self.assertRaises(OSError):
-            self.script()
         for page in (PAGE.replace("__APP_CSS__", ""), PAGE.replace("</html>", "<script>__APP_JS__</script></html>")):
             with self.subTest(page=page[-60:]), tempfile.TemporaryDirectory() as d:
                 broken = viewer_folder(Path(d), page)

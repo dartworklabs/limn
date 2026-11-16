@@ -12,6 +12,14 @@
 //   While the opened field lies over its neighbours in the bar they are taken off it whole (searchCover).
 // - Ends with: Esc or [검색 닫기] (cleared, focus back), another document or a new build (searchClear, from vecOpen), the changes
 //   view and a PDF that cannot be read (searchOffer hides it).
+import { $, $$, BAND, IS_MAC, LAYOUT_BAND, MID_OVERLAY, SIDE_OPEN, imeKey } from './core.js';
+import { tl, tr } from './i18n.js';
+import { VEC } from './pdf-open.js';
+import { relayout, setSide } from './layout.js';
+import { isMdDoc } from './md-surface.js';
+import { pvShow } from './verdict.js';
+import { SEL_POP_BOX, placeSelPop, selPopArea } from './sel-popover.js';
+import { topAnchor } from './rebuild.js';
 
 // The text as it is matched: Unicode NFKC (Hangul jamo composed, a letter and its combining mark joined, ligatures and
 // full-width forms unfolded), lower case, curly quotes and dashes as ' " and -, soft hyphens and zero-width marks dropped, every
@@ -49,7 +57,7 @@ function searchLines(items){const rows=/** @type {any[][]} */([]); let row=/** @
     r.forEach(p=>{if(p.it.str.trim()){
         if(g&&g.ok&&p.ok&&p.ang===g.ang&&p.x-g.x1>g.size)end();   // a gap wider than the font: another piece
         if(!g)g={ok:p.ok,x0:p.x,x1:p.x+p.w,y:p.y,size:p.size,ang:p.ang};
-        else{g.ok=g.ok&&p.ok&&p.ang===g.ang; if(g.ok){g.x0=Math.min(g.x0,p.x); g.x1=Math.max(g.x1,p.x+p.w); g.size=Math.max(g.size,p.size);}}}
+        else {g.ok=g.ok&&p.ok&&p.ang===g.ang; if(g.ok){g.x0=Math.min(g.x0,p.x); g.x1=Math.max(g.x1,p.x+p.w); g.size=Math.max(g.size,p.size);}}}
       if(p.it.str){parts.push({i:p.i,from:raw.length}); raw+=p.it.str;}});
     end(); if(mine.length>1)mine.forEach(L=>{L.plain=false;}); lines.push(...mine);});
   return lines;}
@@ -527,3 +535,5 @@ if(window.ResizeObserver){const o=new ResizeObserver(()=>requestAnimationFrame(s
 // watched as it is drawn too.
 new MutationObserver(()=>requestAnimationFrame(searchFit)).observe($('#status'),{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['hidden']});
 document.fonts.addEventListener('loadingdone',searchFit);
+export { SEARCH, pageText, searchClear, searchClose, searchFit, searchGo, searchLeave, searchOffer, searchOpen,
+  searchToPage };

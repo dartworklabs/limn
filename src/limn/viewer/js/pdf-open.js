@@ -8,6 +8,13 @@
 // - When zoom changes, the existing canvas is stretched via CSS to stay visible while a debounced redraw happens (no flicker).
 // - If pdf.js/the PDF fails to load or render, the canvas is torn down, falling back to the PNG <img>, and the status chip (#vec-chip) reports it.
 // No text-selection layer is added - since dragging means selecting a region, it would conflict with text selection.
+import { $, DOC, META } from './core.js';
+import { tl } from './i18n.js';
+import { dq } from './doc-tabs.js';
+import { loadOutline, outlineForget } from './outline.js';
+import { vecCancel, vecClose, vecFail, vecSchedule } from './pdf-draw.js';
+import { searchClear, searchOffer } from './search.js';
+import { isMdDoc } from './md-surface.js';
 const PDFJS_V='__PDFJS_VERSION__';
 const VEC_PIX_CAP=16777216, VEC_KEEP='150% 0px', VEC_DT_MARGIN=0.25;
 // PDF.js has no type declarations here, so its library, document and render task are `any`.
@@ -60,3 +67,4 @@ async function vecOpen(){
   if(old&&old!==doc&&!vecCached(old))vecClose(old);
   vecSchedule(0);
 }
+export { PDFJS_V, VEC, VEC_DT_MARGIN, VEC_KEEP, VEC_PIX_CAP, vecBoot, vecForget, vecOpen };

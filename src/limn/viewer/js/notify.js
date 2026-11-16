@@ -7,6 +7,22 @@
 // came since the last (at most the server's 20 newest). Display always goes through the service worker's showNotification() (Chrome on Android blocks new Notification()); tag is
 // the pin number, so the same pin collapses into one slot. If the tab is visible and focused, the status line says it instead.
 // This only works in a secure context (an https tailnet address, or http://127.0.0.1/localhost) - the browser blocks plain http on other hosts.
+import { $, DOC, DROPPED, EVENT_TYPE, LOCAL_LOGIN, META, NOTICE_DOT, NOTICE_KIND, NOTIFY_STATE, OPEN_CARDS, PIN_STATE,
+  SWITCHSEQ } from './core.js';
+import { tl, tr } from './i18n.js';
+import { SEC, prefs, savePrefs } from './prefs.js';
+import { api } from './api.js';
+import { announce, groupNote, quietNote } from './notices.js';
+import { docInfo, dq, hashDoc } from './doc-tabs.js';
+import { findAnyPin } from './revisions.js';
+import { switchDoc } from './doc-switch.js';
+import { isViewer } from './boot.js';
+import { pinState, syncHiddenNotifyTimer } from './polling.js';
+import { setSide } from './layout.js';
+import { who } from './card-parts.js';
+import { openTrash } from './cards.js';
+import { drawPins, gotoReview, jumpPin, jumpToCard, loadPinsNow } from './list.js';
+import { restorePin } from './actions.js';
 const NOTIFY_RANK={dropped:6,assigned:5,mention:4,reopened:3,review_requested:2,replied:1};
 let SW_REG=/** @type {ServiceWorkerRegistration|null} */(null);
 function notifySupported(){return !!(window.isSecureContext&&'serviceWorker' in navigator&&'Notification' in window);}
@@ -133,3 +149,8 @@ async function openPinFromLink(doc,pin,restore){if(!pin)return; if(doc&&doc!==DO
 if('serviceWorker' in navigator)navigator.serviceWorker.addEventListener('message',e=>{const d=e.data||{};
   if(d.type==='open-pin')openPinFromLink(d.doc,+d.pin); else if(d.type==='restore-pin'&&!isViewer())restorePin(+d.pin);});
 window.addEventListener('hashchange',()=>{const l=takeLinkHash(); if(l.pin)openPinFromLink(l.doc,l.pin,l.restore);});
+// Sets SW_REG, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof SW_REG} T @param {T} v @returns {T} */
+function setSwReg(v){SW_REG=v; return v;}
+export { SW_REG, drawNotify, notifyCursor, notifyHandle, notifyOn, notifyPerm, notifyQuery, notifyRegister,
+  notifySupported, notifyToggle, openPinFromLink, setSwReg, takeLinkHash };

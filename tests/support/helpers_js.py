@@ -476,6 +476,29 @@ def closed_sets(src: str) -> dict[str, ClosedSet]:
     return out
 
 
+# The module syntax the viewer's ES modules carry (docs/adr/0042-viewer-es-modules.md): the named imports at the top, a
+# bare import the build puts in, and the export list at the end - one statement each, possibly over several lines.
+_MODULE_SYNTAX = re.compile(r"^(?:import \{[^}]*\} from '[^']+';|import '[^']+';|export \{[^}]*\};)\n", re.M)
+
+
+def module_code(src: str) -> str:
+    """A viewer module's text as the build puts it into the script: its import and export statements taken out, every
+    other byte as written - so a node harness can run a module's code as a classic script."""
+    return _MODULE_SYNTAX.sub("", src)
+
+
+# A setter the ES modules declare for a binding another module changes (ADR-0042 D1): `function setX(v){X=v; return v;}`.
+_SETTER = re.compile(r"^function (set\w+)\(v\)\{(\w+)=v; return v;\}$", re.M)
+
+
+def setter_prelude(page: str, js: str) -> str:
+    """The setters js calls, as the page declares them: a pulled function that changes another module's binding calls
+    that module's setter, which a node harness that declares the binding itself does not have. Function declarations,
+    so pulling several functions that bring the same setter is still a valid script. '' when js calls none."""
+    used = references(js)
+    return "".join(m.group(0) + "\n" for m in _SETTER.finditer(page) if m.group(1) in used)
+
+
 def closed_set_prelude(sets: dict[str, ClosedSet], js: str) -> str:
     """`var` declarations of the closed sets js names, for a node harness that runs pulled functions on their own: a
     function reads PIN_STATE or LOCAL_LOGIN from the page's shared scope, which the harness does not have. `var` (not

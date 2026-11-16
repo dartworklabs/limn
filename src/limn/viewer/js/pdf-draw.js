@@ -1,4 +1,8 @@
 // Closes one document - PDFDocumentProxy has no destroy of its own; loadingTask frees the worker-side resources too.
+import { $, $$ } from './core.js';
+import { tl, tr } from './i18n.js';
+import { VEC, VEC_DT_MARGIN, VEC_KEEP, VEC_PIX_CAP, vecForget } from './pdf-open.js';
+import { searchOffer } from './search.js';
 function vecClose(doc){if(!doc)return; try{doc.loadingTask.destroy();}catch(e){}}
 function vecFail(msg,err){
   VEC.failed=msg; VEC.gen++; vecCancel(); vecReleaseAll();
@@ -66,7 +70,7 @@ async function vecRun(job){
   // the PNG pixel dimensions and differs from the PDF page's aspect ratio by less than 0.1%. Since PNG was also drawn
   // filling that same box, this is needed for the canvas's text to land at the same % position it did for PNG.
   if(job.kind==='base'){cv.width=t.bw; cv.height=t.bh; scale=t.bw/vp1.width; tf=[1,0,0,t.bh/(vp1.height*scale),0,0];}
-  else{const v=vecVisible(pg,VEC_DT_MARGIN); if(!v)return; let k=t.k;
+  else {const v=vecVisible(pg,VEC_DT_MARGIN); if(!v)return; let k=t.k;
     if(v.w*v.h*k*k>VEC_PIX_CAP)k=Math.sqrt(VEC_PIX_CAP/(v.w*v.h));
     scale=t.cw*k/vp1.width; cv.width=Math.max(1,Math.round(v.w*k)); cv.height=Math.max(1,Math.round(v.h*k));
     tf=[1,0,0,t.ch*k/(vp1.height*scale),-v.x*k,-v.y*k];
@@ -86,7 +90,7 @@ async function vecRun(job){
   const s=vecState(n);
   if(job.kind==='base'){vecDrop(s.base); s.base=cv; s.bw=t.bw; s.bh=t.bh; s.stale=false; cv.className='vb';
     pg.prepend(cv); pg.classList.add('drawn'); if(VEC.tFirst===null)VEC.tFirst=performance.now();}
-  else{const r=/** @type {{x:number,y:number,w:number,h:number}} */(reg);   // a detail job always measured its region above
+  else {const r=/** @type {{x:number,y:number,w:number,h:number}} */(reg);   // a detail job always measured its region above
     vecDrop(s.dt); s.dt=cv; s.reg=r; s.dtCw=t.cw; s.dtK=t.k; cv.className='dt';
     Object.assign(cv.style,{left:r.x*100+'%',top:r.y*100+'%',width:r.w*100+'%',height:r.h*100+'%'});
     if(s.base)s.base.after(cv); else pg.prepend(cv);}
@@ -97,3 +101,4 @@ $('#left').addEventListener('scroll',()=>{if(VEC.doc)vecSchedule(120);},{passive
   matchMedia('(resolution: '+(window.devicePixelRatio||1)+'dppx)').addEventListener('change',()=>{vecInvalidate(); watchDpr();},{once:true});})();
 {const vv=window.visualViewport; if(vv)vv.addEventListener('resize',()=>{if(VEC.doc)vecSchedule(300);});}
 
+export { vecCancel, vecClose, vecFail, vecInvalidate, vecObserve, vecReleaseAll, vecSchedule, vecTarget };

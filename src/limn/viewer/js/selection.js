@@ -5,6 +5,17 @@
 // handled by this code, two fingers by the app zoom - §PDF 영역 전용 확대).
 // Coordinates are computed as fractions within the page from clientX/Y and getBoundingClientRect on the same
 // basis (the layout viewport), so they stay correct even during a pinch zoom.
+import { $, DOC, K, LAYOUT, LAYOUT_MODE, META, REPICK, REPLY, SELMODE, SIDE_OPEN, isFigureKind } from './core.js';
+import { html, ic, setHtml } from './markup.js';
+import { tr } from './i18n.js';
+import { SWALLOW_CLICK, setSwallowClick } from './tooltip.js';
+import { fitK, zoomTo } from './pages.js';
+import { isMdDoc } from './md-surface.js';
+import { COMPOSE, discardSelection, pick } from './composer.js';
+import { pvShow } from './verdict.js';
+import { SEL_POP, openSelPop, selPopOpen } from './sel-popover.js';
+import { markBadgeIn, markBadgeRoom } from './list.js';
+import { EDITOR } from './edit.js';
 let DRAG=/** @type {{pg:HTMLElement,sx:number,sy:number,id:number,mouse:boolean,cx:number,cy:number,box:HTMLElement|null,badge?:boolean}|null} */(null),
   LP=/** @type {{id:number,pg:HTMLElement,cx:number,cy:number,t:ReturnType<typeof setTimeout>}|null} */(null);
 const c01=v=>Math.min(1,Math.max(0,v));
@@ -32,7 +43,7 @@ let LP_PICKED=/** @type {number|null} */(null),TAP=/** @type {{id:number,x:numbe
 // finger's is not, so the hold would outlive the gesture and swallow the next tap, on another badge: the next press retires it (a
 // click always comes before the next press) - unless another hold has taken SWALLOW_CLICK over since, which is not this one's to end.
 let BADGE_HOLD=0;
-window.addEventListener('pointerdown',()=>{if(SWALLOW_CLICK===BADGE_HOLD)SWALLOW_CLICK=0; BADGE_HOLD=0;},true);
+window.addEventListener('pointerdown',()=>{if(SWALLOW_CLICK===BADGE_HOLD)setSwallowClick(0); BADGE_HOLD=0;},true);
 // A finger in [선택] mode that lands on a pin's number badge - its 44px press area reaches over the page's text - still starts a
 // box (DRAG.badge) once it moves: on a small page the badges' areas covered much of its left edge and no drag could start
 // there. A tap stays the badge's (its click), and a mouse or a finger outside the mode leaves the badge alone as before.
@@ -59,7 +70,7 @@ window.addEventListener('pointerup',e=>{
   const off=PRESS_OFF&&PRESS_OFF.id===e.pointerId?PRESS_OFF:null; PRESS_OFF=null;   // this press, if it could be a click-off
   const picked=LP_PICKED===e.pointerId;   // a long press has already picked: its release is no tap
   if(LP&&e.pointerId===LP.id)cancelLP();
-  if(picked){LP_PICKED=null; SWALLOW_CLICK=Date.now()+400;}
+  if(picked){LP_PICKED=null; setSwallowClick(Date.now()+400);}
   let tapped=false,doubled=false;   // touch outside [선택] mode: the press stayed under TAP_SLOP, and a double tap
   if(TAP&&e.pointerId===TAP.id){const tp=TAP,now=performance.now(); TAP=null; tapped=!picked;
     if(now-tp.t<300){const cur={t:now,x:e.clientX,y:e.clientY}; if(isDoubleTap(LAST_TAP,cur)){LAST_TAP=null; doubled=true; clickOffStop(); doubleTapZoom(cur.x,cur.y);} else LAST_TAP=cur;}}
@@ -67,8 +78,8 @@ window.addEventListener('pointerup',e=>{
   if(off&&off.mouse&&!(DRAG&&e.pointerId===DRAG.id)&&Math.hypot(e.clientX-off.x,e.clientY-off.y)<TAP_SLOP)clickOffNow(off.box);   // a press off the pages
   if(!DRAG||e.pointerId!==DRAG.id)return;
   const D=DRAG; DRAG=null;
-  if(!D.box){if(D.badge)return; quickPick(D.pg,e.clientX,e.clientY); SWALLOW_CLICK=Date.now()+400; return;}   // a tap in selection mode = quick selection (on a badge, the badge's)
-  if(D.badge)SWALLOW_CLICK=BADGE_HOLD=Date.now()+400;   // a drag from a badge is a box, never the badge's click as well - held off from its release, which the click follows, however long the drag ran
+  if(!D.box){if(D.badge)return; quickPick(D.pg,e.clientX,e.clientY); setSwallowClick(Date.now()+400); return;}   // a tap in selection mode = quick selection (on a badge, the badge's)
+  if(D.badge)setSwallowClick(BADGE_HOLD=Date.now()+400);   // a drag from a badge is a box, never the badge's click as well - held off from its release, which the click follows, however long the drag ran
   const [x,y]=fracAt(D.pg,e.clientX,e.clientY);
   if(!finishRect(D.pg,D.box,D.sx,D.sy,x,y)&&off&&off.mouse)clickOffNow(off.box);});   // too small for a box: a click
 window.addEventListener('pointercancel',e=>{if(PRESS_OFF&&PRESS_OFF.id===e.pointerId)PRESS_OFF=null; if(LP&&e.pointerId===LP.id)cancelLP(); if(DRAG&&e.pointerId===DRAG.id)cancelDrag();
@@ -101,7 +112,7 @@ $('#left').addEventListener('pointerdown',e=>{
   PRESS_OFF=e.isPrimary&&pressOutsideSelection(e)
     ?{id:e.pointerId,mouse:e.pointerType==='mouse',x:e.clientX,y:e.clientY,box:COMPOSE.box}:null;});
 // Cancels the selection the press began on, if it is still the one open and still the thing to close.
-function clickOffNow(box){if(!selectionOpen()||COMPOSE.box!==box)return; discardSelection(); SWALLOW_CLICK=Date.now()+400;}   // the panel may move under the click that follows
+function clickOffNow(box){if(!selectionOpen()||COMPOSE.box!==box)return; discardSelection(); setSwallowClick(Date.now()+400);}   // the panel may move under the click that follows
 function clickOffStop(){if(CLICKOFF_T!==null){clearTimeout(CLICKOFF_T); CLICKOFF_T=null;}}
 function clickOffSoon(box){clickOffStop(); CLICKOFF_T=setTimeout(()=>{CLICKOFF_T=null; clickOffNow(box);},CLICKOFF_WAIT_MS);}
 // Double-tap on the PDF (touch, outside [선택] mode - the browser's own double-tap zoom is off there): a second tap within 300ms
@@ -151,3 +162,4 @@ function revealBox(box,wide){if(!box||(LAYOUT===LAYOUT_MODE.WIDE&&!wide)||!docum
 function selRoom(){const lr=$('#left').getBoundingClientRect(),bar=$('#sel-bar');
   let bottom=lr.bottom; if(LAYOUT===LAYOUT_MODE.NARROW&&SIDE_OPEN)bottom=Math.min(bottom,$('#right').getBoundingClientRect().top);
   return {top:Math.max(lr.top+28,bar.getClientRects().length?bar.getBoundingClientRect().bottom+8:0),bottom};}
+export { LONGPRESS_MS, cancelDrag, cancelLP, drawBox, newBox, pendingBadge, pendingBadgeSide, revealBox, selRoom };

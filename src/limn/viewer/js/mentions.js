@@ -7,6 +7,17 @@
 // its tags are kept on the field it mirrors, which sends them (mentionModel). There is no external notification.
 // The open @-list: its field, the '@word' it was drawn for (where its '@' is, q the letters after it), its people and the
 // highlighted row.
+import { $, ASSIGNEE_AGENT, KIND_NEW, META, PEOPLE, PEOPLE_KNOWN, PINS, SAVE_MODE, imeKey, imeTail } from './core.js';
+import { html, ic, setHtml } from './markup.js';
+import { tl, tr } from './i18n.js';
+import { segReveal } from './levels.js';
+import { appendTarget, qHint } from './composer.js';
+import { saveDraftSoon } from './draft.js';
+import { avatar, meLogin, mentionAfterWord, peopleName } from './card-parts.js';
+import { renderReplyOutcome } from './reply.js';
+import { EDITOR, autoGrow, editNote } from './edit.js';
+import { segFocusAt, segKeep, segRove } from './events.js';
+/** @typedef {import('./markup.js').Html} Html */
 const MENTION={ta:/** @type {HTMLTextAreaElement|null} */(null),start:0,q:'',items:/** @type {PersonSeen[]} */([]),sel:0};
 function mentionQuery(ta){const pos=ta.selectionStart; if(pos==null||pos!==ta.selectionEnd)return null;
   const m=/(^|[^\p{L}\p{N}._@-])@([^\s@]{0,30})$/u.exec(ta.value.slice(0,pos)); return m?{start:pos-m[2].length-1,q:m[2]}:null;}
@@ -94,7 +105,7 @@ function mentionResolve(text,hints,people,byHint){text=String(text||''); const t
       const nx=rest.charAt(x.t.length); if(/[a-z0-9]$/.test(x.t)&&/[a-z0-9_]/.test(nx))continue;
       const pick=x.lg.length===1?x.lg:byHint?order.filter(l=>x.lg.includes(l)):x.lg.filter(l=>hs.has(l)); if(pick.length){got=pick;break;}}
     if(got)got.forEach(l=>{if(!hit.includes(l))hit.push(l);});
-    else{const w=/^[^\s@]{1,30}/.exec(text.slice(i+1)); if(w&&!bad.includes(w[0]))bad.push(w[0]);}}
+    else {const w=/^[^\s@]{1,30}/.exec(text.slice(i+1)); if(w&&!bad.includes(w[0]))bad.push(w[0]);}}
   return {hit,bad};}
 // The server's mention_tokens(): [{t, lg:[login...]}], longest first. The candidates of a person are the full name, the
 // login, the login before '@' and the name's first word (when it has several), lower-cased; a candidate shorter than two
@@ -161,7 +172,7 @@ function renderAssignNew(){const ta=$('#note'),box=$('#c-assign'); if(!ta||!box)
   const o=assignOutcome(composeAsk(SAVE_MODE.NEW)); if(PEOPLE_KNOWN){ASSIGN_NEW.v=/** @type {string} */(o.assignee); ASSIGN_NEW.touched=o.kept;}
   if(o.people.length&&!appendTarget()){const at=segFocusAt(box); setHtml(box,assignSeg(o.people,/** @type {string} */(o.assignee),'assign-new')); box.hidden=false;
     segRove(box); segKeep(box,at); segReveal(box.querySelector('.as-seg'));}   // one Tab stop, and the focus kept (events.js)
-  else{box.hidden=true; box.replaceChildren();}
+  else {box.hidden=true; box.replaceChildren();}
   mentionPreview(ta);}
 // The edit card's assignee row: the stored assignee stays pressed until the author changes it - a stored pin never takes the
 // new pin's default.
@@ -276,3 +287,5 @@ window.addEventListener('keydown',e=>{if(!MENTION.ta||e.target!==MENTION.ta||$('
 document.addEventListener('focusout',e=>{if(e.target===MENTION.ta)setTimeout(()=>{if(document.activeElement!==MENTION.ta)mentionClose();},150);});
 $('#mention-pop').addEventListener('pointerdown',e=>e.preventDefault());
 
+export { ASSIGN_NEW, MENTION, assignOutcome, composeAsk, mentionApply, mentionClose, mentionEdited, mentionHints,
+  mentionPlace, mentionPreview, mentionScan, nameShared, personLabel, renderAssignEdit, renderAssignNew };

@@ -20,7 +20,8 @@ Placeholders filled in the page (viewer_html):
 - __ICON_KEY__: the content key of the icon files (limn.viewer.mark.Brand.key), the ?v= of the favicon links.
 - {{ic:<name>}}: one icon as an inline <svg> (icon_svg), the same markup the JS ic() builds.
 
-Placeholders filled in the script (viewer_script, GET /viewer.js):
+Placeholders filled in the script (viewer_script, GET /viewer.js: dist/viewer.js, which tools/build_viewer.mjs builds from
+the ES modules under js/ and the repository keeps):
 - __PDFJS_VERSION__ / __KATEX_VERSION__: as in the page, for the modules the script import()s.
 - __LUCIDE_JSON__: the icon table, for the viewer's JS ic().
 - __UI_EN_JSON__: the ko -> en message table (ui_en.json), for the viewer's I18N_EN.
@@ -111,11 +112,13 @@ def read_viewer() -> "ViewerFiles":
 VIEWER_DIR = Path(__file__).resolve().parent  # this package's folder: index.html, parts.txt, css/, js/
 BRAND_DIR = VIEWER_DIR / "brand"
 # The manifest's sections: the stylesheet parts (__APP_CSS__, also the marker index.html carries in its one <style>) and
-# the script's parts (__APP_JS__, in the order they run), which viewer_script joins into the script GET /viewer.js serves.
+# the script's ES modules (__APP_JS__, in the order they run), which tools/build_viewer.mjs builds into VIEWER_SCRIPT.
 VIEWER_MARKERS = ("__APP_CSS__", "__APP_JS__")
 PAGE_MARKERS = ("__APP_CSS__",)
 VIEWER_MANIFEST = "parts.txt"  # the ordered list of parts, beside index.html
 VIEWER_PART_RE = re.compile(r"[a-z0-9-]+/[a-z0-9-]+\.[a-z]+")  # folder/name.ext: never leaves the viewer folder
+# The built script GET /viewer.js serves (load_viewer_script): tools/build_viewer.mjs writes it, the repository keeps it.
+VIEWER_SCRIPT = "dist/viewer.js"
 # The service worker GET /sw.js serves, beside index.html. A script of its own, never a part of the page.
 SERVICE_WORKER = "sw.js"
 # The Markdown parse worker GET /md-parse.mjs serves, beside index.html: a module worker of its own (md_worker).
@@ -300,10 +303,11 @@ def load_viewer_html(directory: Path) -> str:
 
 
 def load_viewer_script(directory: Path) -> str:
-    """The viewer's script before its placeholders are filled: the parts parts.txt lists under __APP_JS__, joined in that
-    order, byte for byte - one classic script whose parts share a single scope. A missing or malformed file is a
+    """The viewer's script before its placeholders are filled: directory/dist/viewer.js, the one classic script
+    tools/build_viewer.mjs builds from the ES modules parts.txt lists under __APP_JS__ (docs/adr/0042-viewer-es-modules.md).
+    The built file is committed, so serving needs no build step and no Node. A missing file or a marker in it is a
     packaging defect and raises (OSError / ValueError)."""
-    text = "".join((directory / name).read_text(encoding="utf-8") for name in viewer_manifest(directory)["__APP_JS__"])
+    text = (directory / VIEWER_SCRIPT).read_text(encoding="utf-8")
     if any(m in text for m in VIEWER_MARKERS):
         raise ValueError("a viewer template marker must not appear in the script")
     return text

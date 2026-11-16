@@ -6,6 +6,17 @@
 // on #bar2) it is drawn again from the state they come from. It also carries the messages of notices.js (LINE): background
 // events, first-visit hints and an undo whose place has left the screen - the only items the desktop's line shows besides
 // a rebuild's 'no changes', a new Limn and the pins kept while cut off, since its chips say the rest (statusShown).
+import { $, BAND, BUILD_STATE, LAYOUT, LAYOUT_BAND, LAYOUT_MODE, META, NOTICE_KIND, STATUS_KIND, SYNC_STATE, T,
+  buildsFromSource } from './core.js';
+import { html, ic, setHtml } from './markup.js';
+import { tl, tr } from './i18n.js';
+import { LINE, announce, holdLine, lineVisible, noticeButtons, noticeIcon } from './notices.js';
+import { hideTip, showTipText } from './tooltip.js';
+import { SYNC_REASON, isViewer } from './boot.js';
+import { POLL_FAILS } from './polling.js';
+import { BUILD, pullSuffix } from './build-chip.js';
+import { versionOutdated } from './updates.js';
+import { OFF } from './offline.js';
 let STATUS_SYNC=/** @type {SyncStatus|null} */(null),STATUS_SIG='';   // the last meta `sync`; the drawn item's kind, action and count
 let STATUS_TOP=0;   // the number of the message the line shows (0: none, or another item): lineNote reads out one it does not
 const STATUS_TRANSIENT_MS=6000;   // a passing answer (no changes) stays on the line as long as an undo's window (NOTICE_MS)
@@ -151,7 +162,7 @@ function drawStatus(){const box=$('#status'),sr=box.querySelector('.st-sr'),body
   refocusStatus(f);
   const bar=box.querySelector('.st-bar'); if(!bar)return; const {done,total}=top.progress||{},pct=top.progress?Math.round(done/total*100):null;
   bar.classList.toggle('indet',pct===null); bar.querySelector('i').style.width=pct===null?'':pct+'%';
-  if(pct===null){bar.removeAttribute('aria-valuenow');} else{bar.setAttribute('aria-valuemin','0'); bar.setAttribute('aria-valuemax','100'); bar.setAttribute('aria-valuenow',String(pct));}}
+  if(pct===null){bar.removeAttribute('aria-valuenow');} else {bar.setAttribute('aria-valuemin','0'); bar.setAttribute('aria-valuemax','100'); bar.setAttribute('aria-valuenow',String(pct));}}
 
 // The button of the line or its '+N' list that has the keyboard focus, as its data-act and data-n ('' for an item's own
 // action), or null: the line's redraw gives the focus back to it (refocusStatus).
@@ -220,7 +231,7 @@ function placeStatusList(){const d=$('#status-list'); if(!d.open)return;
   // narrowed to it where it is narrower: a phone zoomed in had the list run past both sides of what it showed.
   const vl=vv?vv.offsetLeft:0,vr=vv?vl+vv.width:innerWidth; d.style.left=''; d.style.right=''; const cs=getComputedStyle(d),max=parseFloat(cs.maxWidth);
   let L0,R0; if(LAYOUT===LAYOUT_MODE.WIDE){R0=r.right+parseFloat(cs.paddingRight)+parseFloat(cs.borderRightWidth); L0=Math.max(8,R0-max);}
-  else{const bl=parseFloat(cs.left),br=innerWidth-parseFloat(cs.right),bw=Math.min(max,br-bl); L0=bl+(br-bl-bw)/2; R0=L0+bw;}
+  else {const bl=parseFloat(cs.left),br=innerWidth-parseFloat(cs.right),bw=Math.min(max,br-bl); L0=bl+(br-bl-bw)/2; R0=L0+bw;}
   const w=Math.min(R0-L0,vr-vl-16),L=Math.min(Math.max(L0,vl+8),vr-8-w);
   d.style.left=Math.round(L)+'px'; d.style.right=Math.round(innerWidth-L-w)+'px';
   const at=Math.min(Math.max(r.top,vt),vb),ab=Math.min(Math.max(r.bottom,vt),vb);   // the line's edges, held inside the visible part
@@ -249,3 +260,11 @@ function placeStatus(){const s=$('#status'),a=/** @type {HTMLElement} */(documen
 new MutationObserver(()=>drawStatus()).observe($('#bar2'),{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['hidden']});
 // The dock sits on the sheet's top edge: the sheet's height (with the keyboard's --kb under it) is its bottom.
 if(window.ResizeObserver)new ResizeObserver(()=>{document.documentElement.style.setProperty('--sheet-h',Math.round($('#right').getBoundingClientRect().height)+'px');}).observe($('#right'),{box:'border-box'});
+// Sets STATUS_SIG, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof STATUS_SIG} T @param {T} v @returns {T} */
+function setStatusSig(v){STATUS_SIG=v; return v;}
+// Sets STATUS_SYNC, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof STATUS_SYNC} T @param {T} v @returns {T} */
+function setStatusSync(v){STATUS_SYNC=v; return v;}
+export { STATUS_TOP, buildUnchanged, drawStatus, placeStatus, setStatusSig, setStatusSync, statusWhy,
+  toggleStatusList };

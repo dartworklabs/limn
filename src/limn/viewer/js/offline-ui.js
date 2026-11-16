@@ -6,6 +6,22 @@
 // The panel's section lists every record with its place, words, note and state, and two actions: [버리기] (its undo on
 // the status line, since the row is gone) and [다시 찍기] (the record leaves the queue and its note waits in the composer
 // for the next drag, the draft's own behaviour, draft.js). Nothing here writes to the server.
+import { $, $$, DEFAULT_DOC, DOC, KIND_REQ, LAYOUT, LAYOUT_MODE, META, NOTICE_KIND, NOTICE_LIFE, T,
+  scrollMotion } from './core.js';
+import { html, ic, setHtml } from './markup.js';
+import { tl, tr } from './i18n.js';
+import { NOTICE_HOLD_MAX, NOTICE_MS, announce, lineNote, noticeIcon } from './notices.js';
+import { docInfo } from './doc-tabs.js';
+import { switchDoc } from './doc-switch.js';
+import { arrivePage } from './pages.js';
+import { setSide } from './layout.js';
+import { isMdDoc } from './md-surface.js';
+import { setKind } from './composer.js';
+import { saveDraftSoon } from './draft.js';
+import { OFF, offDel, offPut, offlineSync } from './offline.js';
+import { marksShow } from './marks-hide.js';
+import { ASSIGN_NEW, renderAssignNew } from './mentions.js';
+import { autoGrow } from './edit.js';
 /** A record just dropped ([버리기]) or taken back ([다시 찍기], redo: its note text went to the composer), standing as its undo
  * row until its window ends: NOTICE_MS from `from` (its start, again when a mouse leaves it), held while a mouse is on the row
  * (hover), never past NOTICE_HOLD_MAX beyond its first window (`at`).
@@ -236,3 +252,4 @@ $('#doc').addEventListener('click',e=>{const b=/** @type {HTMLElement|null} */(/
 // The pages are drawn again (a new build, a zoom that rebuilds them, another document): the marks go with the old pages,
 // and which records this document and build draw has changed - both are drawn again.
 new MutationObserver(()=>offUiDraw()).observe($('#doc'),{childList:true});
+export { offlineUiSync };

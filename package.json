@@ -1,12 +1,16 @@
 {
   "name": "limn-viewer-dev",
   "private": true,
-  "description": "Development tools for the Limn viewer: type checking of its JS parts only. The viewer has no build step and the server installs none of this.",
+  "description": "Development tools for the Limn viewer: the build of its one script from its ES modules (tools/build_viewer.mjs) and its checks. The built script is committed; installing or serving Limn needs none of this.",
   "license": "AGPL-3.0-only",
+  "type": "module",
   "scripts": {
+    "build": "node tools/build_viewer.mjs",
+    "build:check": "node tools/build_viewer.mjs --check",
     "typecheck": "tsc -p ."
   },
   "devDependencies": {
+    "rollup": "4.67.3",
     "typescript": "7.0.2"
   }
 }

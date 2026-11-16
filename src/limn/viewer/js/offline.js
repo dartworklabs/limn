@@ -6,6 +6,26 @@
 // tab closing and the browser restarting - only this browser sees it. Back on the network the queue is replayed in the
 // order it was written: each record's own coordinates go to POST /api/pick with the build they were drawn on, and its
 // answer to POST /api/pin. A record whose place cannot be found again is kept and counted, never dropped.
+import { $, DEFAULT_DOC, DOC, DOCS, LAST_PTR, META, NOTICE_HOST, NOTICE_KIND, NOTICE_LIFE, NOTICE_PLACE, NOTICE_TOPIC,
+  OPEN_ALL, PICKSEQ, rendersInBrowser, setSnipOpen } from './core.js';
+import { errText, tl, tr } from './i18n.js';
+import { API_WAIT, api, setApiOut } from './api.js';
+import { NOTICES, bannerNote, endNotice, lineNote, undoNote } from './notices.js';
+import { docInfo, dq, isRegion, pdoc } from './doc-tabs.js';
+import { viewerBlocked } from './boot.js';
+import { POLL_FAILS, setLastPinsRev } from './polling.js';
+import { SW_REG, setSwReg } from './notify.js';
+import { drawStatus } from './status.js';
+import { VEC } from './pdf-open.js';
+import { pageText } from './search.js';
+import { kindFor, lvOf, wireScope } from './levels.js';
+import { figureFields } from './figure.js';
+import { MD } from './md-surface.js';
+import { COMPOSE, renderComposer } from './composer.js';
+import { offlineUiSync } from './offline-ui.js';
+import { pvTopId } from './verdict.js';
+import { SEL_POP_FIELD, selPopOpen } from './sel-popover.js';
+import { isMe, loadPins } from './list.js';
 const OFF_DB='limnOffline',OFF_STORE='pins',OFF_STATE='state',OFF_MAX=200;
 const OFF_WROTE='wrote';   // the state key holding the pin numbers this queue wrote while a record still waits
 // The document reads a reopened tab needs before it can draw anything, and whose last answer is therefore stored. It is
@@ -46,7 +66,7 @@ function offDb(){if(OFF.db)return Promise.resolve(OFF.db);
 function offIn(store,mode,fn){return offDb().then(db=>new Promise(res=>{if(!db){res(null);return;}
   let rq,tx; try{tx=db.transaction(store,mode); rq=fn(tx.objectStore(store));}catch(e){res(null);return;}
   if(mode==='readwrite'){tx.oncomplete=()=>res(rq.result); tx.onabort=()=>res(null); tx.onerror=()=>res(null);}
-  else{rq.onsuccess=()=>res(rq.result); rq.onerror=()=>res(null);}}));}
+  else {rq.onsuccess=()=>res(rq.result); rq.onerror=()=>res(null);}}));}
 /** One operation on the queue. @returns {Promise<any>} */
 function offTx(mode,fn){return offIn(OFF_STORE,mode,fn);}
 /** Every queued record, oldest first - the order they were written is the order they are sent. @returns {Promise<any[]>} */
@@ -151,14 +171,14 @@ function offStaleSaid(at){if(OFF.saidStale)return; OFF.saidStale=true;
 // the network gives (api); nothing happens unless a stored screen was said.
 function offlineBack(){if(!OFF.saidStale)return; OFF.saidStale=false;
   if(OFF.staleNote){endNotice(OFF.staleNote,false); OFF.staleNote=null;}
-  LAST_PINS_REV=null;}
+  setLastPinsRev(null);}
 
 // ---------------- The service worker
 // The worker is registered for every visit, not only where notifications are allowed (notify.js asks it for those): it is
 // what answers when the network does not. A browser without one still works online, and says so when asked to prepare.
 /** @returns {Promise<ServiceWorkerRegistration|null>} */
 async function offlineWorker(){if(!('serviceWorker' in navigator))return null;
-  try{return SW_REG||(SW_REG=await navigator.serviceWorker.register('/sw.js',{scope:'/'}));}catch(e){return null;}}
+  try{return SW_REG||(setSwReg(await navigator.serviceWorker.register('/sw.js',{scope:'/'})));}catch(e){return null;}}
 // One question to the worker, answered on its own port so a replaced worker never leaves this waiting. The wait fits the
 // question: a count comes back at once (3s), files have to be fetched first - over a tailnet from a phone that is not 3s,
 // and a wait that short called a keep that was still going a failure.
@@ -175,7 +195,7 @@ async function offlineAsk(msg,ms){const reg=await offlineWorker(); if(!reg)retur
 async function offlineAskDown(){const sw='serviceWorker' in navigator?navigator.serviceWorker.controller:null; if(!sw)return;
   const r=await new Promise(res=>{const ch=new MessageChannel(),t=setTimeout(()=>res(null),300);
     ch.port1.onmessage=e=>{clearTimeout(t); res(e.data);}; try{sw.postMessage({type:'down'},[ch.port2]);}catch(e){clearTimeout(t); res(null);}});
-  if(r&&r.down===true)API_OUT=true;}
+  if(r&&r.down===true)setApiOut(true);}
 // What the page needs to open with no network: the page itself and everything it has already loaded from this origin
 // (its script /viewer.js, the vendored PDF.js, fonts, KaTeX and the Markdown worker). Nothing is hardcoded, so a
 // change to the vendored files follows along.
@@ -495,7 +515,7 @@ async function offlinePick(r){
     pdf:META?META.pages_build:null,pdf_build:r.pdf_build,doc:r.doc||DOC,offline:true,rect,levels:[],overlaps:[],
     scope:null,env:null,elSel:null,el:null,via:null,score:null,warn:'',snippet:'',n_lines:0,default_level:null});
   COMPOSE.current=/** @type {Selection} */(sel); COMPOSE.intent++; COMPOSE.picking=false; COMPOSE.dismissedOverlap=null;
-  SNIP_OPEN=false; $('#c-err').hidden=true; $('#c-body').hidden=false; $('#composer').hidden=false;
+  setSnipOpen(false); $('#c-err').hidden=true; $('#c-body').hidden=false; $('#composer').hidden=false;
   renderComposer(); $('#composer').scrollTop=0;
   lineNote('연결이 끊겨 줄은 뒤에 찾습니다 — 메모를 쓰고 저장하면 쌓아 둡니다',NOTICE_KIND.INFO,null,{life:NOTICE_LIFE.CLICK,topic:NOTICE_TOPIC.OFFLINE});
   if(LAST_PTR==='mouse')(selPopOpen()?SEL_POP_FIELD:$('#note')).focus({preventScroll:true});}
@@ -663,7 +683,7 @@ async function offlineFlush(){
       if(rec.lines){d=await offlinePlaceLines(rec);
         if(d==='net'){failed++; continue;}
         if(!d){rec.held=true; rec.why=tr('그사이 그 줄들의 글이 바뀌었습니다'); await offPut(rec); held++; continue;}}
-      else{const box=offlineBox(rec);
+      else {const box=offlineBox(rec);
         if(!box){rec.held=true; rec.why=tr('위치를 찾지 못했습니다'); await offPut(rec); held++; continue;}
         const req={page:rec.page,x0:box.x0,y0:box.y0,x1:box.x1,y1:box.y1,
           frac:rec.frac,pdf_build:rec.build||undefined,doc:rec.doc||undefined};
@@ -729,3 +749,5 @@ function offlineBoot(){OFF.boot=false;   // the first reads are done: from here 
   // A visit starts by comparing the kept copy with what the server shows, once the kept record is read.
   void offKept().then(v=>{OFF.kept=v; OFF.keptAt=Date.now(); offKeptShow(); offFollowCheck(true);});}
 addEventListener('online',()=>{void offlineFlush();});
+export { OFF, offDel, offPut, offReadKey, offStaleSaid, offStash, offStashed, offlineAskDown, offlineBack, offlineBoot,
+  offlineFlush, offlineKey, offlineMayServe, offlineNow, offlinePick, offlinePrepare, offlineQueueSave, offlineSync };

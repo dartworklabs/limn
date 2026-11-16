@@ -14,6 +14,8 @@ from pathlib import Path
 
 from limn.pins.suggestion import HIDDEN_RANGES, Suggestion, hidden_added
 
+from helpers_js import module_code
+
 PART = Path(__file__).resolve().parents[2] / "src" / "limn" / "viewer" / "js" / "hidden-chars.js"
 
 
@@ -23,7 +25,7 @@ class HiddenCharacterTables(unittest.TestCase):
     @unittest.skipUnless(shutil.which("node"), "node is not installed")
     def test_the_viewer_table_is_the_pins_md_table(self):
         """CC_RANGES, evaluated as the page evaluates it, is HIDDEN_RANGES range for range."""
-        js = PART.read_text(encoding="utf-8") + "\nconsole.log(JSON.stringify(CC_RANGES));"
+        js = module_code(PART.read_text(encoding="utf-8")) + "\nconsole.log(JSON.stringify(CC_RANGES));"
         out = subprocess.run(["node", "-"], input=js, capture_output=True, text=True, check=True).stdout
         self.assertEqual([tuple(r) for r in json.loads(out)], list(HIDDEN_RANGES))
 

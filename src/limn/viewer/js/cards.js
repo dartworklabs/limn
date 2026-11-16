@@ -1,3 +1,26 @@
+import { $, $$, CARD_DOT, DROPPED, EL_SYNC, LAYOUT, LAYOUT_MODE, META, MQ_COARSE, NOTICE_PLACE, OPEN_CARDS, PIN_STATE,
+  RANGE_REL, REPLY, ROLE, STAMP_FORM, T, UI_LANG, isFigureKind } from './core.js';
+import { html, ic, setHtml } from './markup.js';
+import { LANG, tl, tr, trMsg } from './i18n.js';
+import { NOTICES, drawTrashOffers } from './notices.js';
+import { hideTip, tipFollow } from './tooltip.js';
+import { docInfo, isRegion, pdoc } from './doc-tabs.js';
+import { canConfirmReview, confirmAccessText, isAgentRole, isViewer } from './boot.js';
+import { pinState } from './polling.js';
+import { showSheet } from './layout.js';
+import { rng, viaTag } from './levels.js';
+import { elLost, elLostTag, figRegionBadge, pinPlace } from './figure.js';
+import { isMdPin } from './md-surface.js';
+import { suggestBadge, suggestView } from './suggest.js';
+import { PV_TABBABLE, pvQuietRel, pvTabStop, verdictBadge, verdictOf, verdictOldMarker,
+  verdictTarget } from './verdict.js';
+import { addressedTag, authorTip, avatar, cardMetadata, cardQuote, claimActive, claimTag, docChip, fmtText, fyiTag,
+  hasRef, isQuestion, josa, locCopy, locText, msgHtml, nodeAvatar, noteHead, relBadge, reopenedTurn, replyCount, stDot,
+  threadHtml, threadOf, who } from './card-parts.js';
+import { isMe, listDropped, reviewerLabel } from './list.js';
+import { PURGING } from './actions.js';
+import { EDITOR } from './edit.js';
+/** @typedef {import('./markup.js').Html} Html */
 /** Native active/review cards and archive rows preserve their state-specific actions.
  * Notes and participant names use escaping Html templates and disable browser translation;
  * UI words inside those regions are translated before rendering. */
@@ -8,7 +31,7 @@ function card(p){p=pvQuietRel(p);   // no overlap badge between two verdicts abo
   if(p.stale)tags.push(html`<span class="badge badge-warning" data-tip="${T.stale}">${ic('triangle-alert')}위치 잃음</span>`);
   // A figure pin whose element is where it was (el_sync ok) has no '줄 +N 이동': its code lines shifted, but the pin is the element, whose
   // mark and path have not moved. A moved or lost element, and a pin with no element (no el_sync), show it.
-  else{const m=/^moved ([+-]\d+)$/.exec(p.sync||''); if(m&&p.el_sync!==EL_SYNC.OK)tags.push(html`<span class="badge" data-tip="${
+  else {const m=/^moved ([+-]\d+)$/.exec(p.sync||''); if(m&&p.el_sync!==EL_SYNC.OK)tags.push(html`<span class="badge" data-tip="${
     tl('원고가 고쳐져 {n}줄 밀렸고, 핀을 찍을 때 떠 둔 첫·끝 문장으로 새 위치를 다시 찾았습니다',{n:m[1].replace('+','')})}">${ic('move-vertical')}${tl('줄 {delta} 이동',{delta:m[1]})}</span>`);}
   const lostEl=elLostTag(p); if(lostEl)tags.push(lostEl);   // a figure pin whose element the re-rendered map no longer has
   const claimed=claimActive(p);
@@ -263,3 +286,4 @@ $('#trash').addEventListener('keydown',e=>{if(e.key!=='Tab'||e.ctrlKey||e.metaKe
   if(to){e.preventDefault(); to.focus();}});
 $('#trash').addEventListener('click',e=>{const d=$('#trash'); if(e.target!==d)return; const r=d.getBoundingClientRect();
   if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)d.close();});
+export { ARC_OPEN, card, dayName, doneCard, drawTrash, openTrash, relSpan, stampSpan, timeParts };

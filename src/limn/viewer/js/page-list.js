@@ -3,6 +3,15 @@
 // the tablet sheet: #nav-page) opens a popover (#page-pop): a page field on top and one row per page below it, each with the
 // sections that start on that page. The phone's navigation sheet carries the same rows under its page field (#ns-pages).
 // Choosing a row goes there at once - there is no confirm step.
+import { $, DOC, META, MQ_COARSE, VIEW_MODE, buildsFromSource, imeKey, isFigureKind } from './core.js';
+import { html, ic, setHtml } from './markup.js';
+import { tl } from './i18n.js';
+import { hideTip } from './tooltip.js';
+import { docInfo } from './doc-tabs.js';
+import { setViewMode } from './revisions.js';
+import { clampPage, goPage } from './pages.js';
+import { OUTLINE_ACTIVE_PAGE, OUTLINE_ENTRIES, outlineOnScreen } from './outline.js';
+import { pageVerdictPins, pageVerdictsOn, verdictLabel, verdictOf } from './verdict.js';
 
 // The names a row shows for each of n pages, index 0 for page 1: the top-level headings that start on the page joined with
 // ' · ' ('1 Introduction · 2 Related work'), else the one the page continues ('… 2 Related work'); '' before the first heading.
@@ -109,3 +118,4 @@ $('#ns-pages').addEventListener('keydown',pageListKey);
 document.addEventListener('click',e=>{const t=/** @type {Node} */(e.target);
   if(!$('#page-pop').hidden&&!$('#page-pop').contains(t)&&!(PAGE_LIST_FROM&&PAGE_LIST_FROM.contains(t)))closePageList(false);},true);
 addEventListener('resize',placePageList);
+export { closePageList, drawSheetPages, goListedPage, refreshPageLists, revealPageRow, tipCutTitles, togglePageList };

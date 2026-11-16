@@ -85,7 +85,7 @@ def extract_js_fn(name: str) -> str:
     tables come along because a pulled function reads them from the page's shared scope, which a node harness lacks.
     """
     fn = helpers_js.function_source(HTML, name)
-    return helpers_js.closed_set_prelude(VIEWER_CLOSED_SETS, fn) + fn
+    return helpers_js.closed_set_prelude(VIEWER_CLOSED_SETS, fn) + helpers_js.setter_prelude(HTML, fn) + fn
 
 
 # Stand-ins for the hooks of the viewer's update messages (js/updates.js; notices.js groupNote and the gathering) for a node
@@ -125,15 +125,15 @@ function apiUnanswered(url,o,e){API_OUT=true; if(!o.silent&&!o.quietUnreached)ap
 
 
 def js_markup() -> str:
-    """The viewer's markup part (js/markup.js: Html, html``, ic(), setHtml()) exactly as served, for node harnesses that
+    """The viewer's markup module (js/markup.js: Html, html``, ic(), setHtml()) as served (helpers_js.module_code), for node harnesses that
     run functions building markup. It needs esc() (js_esc()) and, to draw an icon, ICONS (js_icons() brings both)."""
-    return (VIEWER / "js" / "markup.js").read_text(encoding="utf-8")
+    return helpers_js.module_code((VIEWER / "js" / "markup.js").read_text(encoding="utf-8"))
 
 
 def js_hidden_chars() -> str:
-    """The viewer's hidden-character part (js/hidden-chars.js: the repertoire, ccHtml, ccPlain, ...) exactly as served, for
+    """The viewer's hidden-character module (js/hidden-chars.js: the repertoire, ccHtml, ccPlain, ...) as served (module_code), for
     node harnesses that run a function showing a source's or a suggestion's text. ccHtml needs js_markup() and js_esc()."""
-    return (VIEWER / "js" / "hidden-chars.js").read_text(encoding="utf-8")
+    return helpers_js.module_code((VIEWER / "js" / "hidden-chars.js").read_text(encoding="utf-8"))
 
 
 def js_icons() -> str:

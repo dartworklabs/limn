@@ -573,7 +573,9 @@ class FrontendStructure(unittest.TestCase):
         body = m.group(1)
         self.assertIn("/api/pins/dropped", body)
         applied = JS_UPDATE_STUBS + extract_js_fn("applyPinLists")
-        self.assertIn("DROPPED=dropped", applied)
+        self.assertIn(
+            "setDropped(dropped)", applied
+        )  # DROPPED is core.js's: list.js changes it through its setter (ADR-0042 D1)
         self.assertIn("notePinChanges(prevOpen,rows,dropped)", applied)
 
     def test_draw_pins_counts_the_trash(self):
@@ -4760,7 +4762,9 @@ class FrontendReview(unittest.TestCase):
         )
         self.assertIn('class="r-outcome"', body)
         self.assertIn('data-act="reply-flip"', body)
-        self.assertIn("REPLY={id,flip:false,toggle:null,el:replyEl(p)}", extract_js_fn("openReply"))
+        self.assertIn(
+            "setReply({id,flip:false,toggle:null,el:replyEl(p)})", extract_js_fn("openReply")
+        )  # through core.js's setter (ADR-0042 D1)
 
 
 # ---------------------------------------------------------------- [변경 보기] (docs/handbook/viewer.md §변경 보기)

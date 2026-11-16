@@ -18,6 +18,24 @@
 // - a write that fails - unreachable, refused, too long, a note changed elsewhere - keeps it, and the line marks it '초안 있음'.
 // Moving on - the reading page leaving the popover's page after it was there, another save on another page, another
 // document - closes it and writes what was typed, said in one line; a folded draft waits for the person.
+import { $, DOC, DONE_ALL, IME_ON_FREE, META, NOTICE_HOST, NOTICE_KIND, NOTICE_LIFE, OPEN_ALL, REPLY, REVIEW_ALL, T,
+  captureVisit, currentVisit, imeHeldIn, imeKey, imeTail } from './core.js';
+import { html, ic } from './markup.js';
+import { errText, tl, tr } from './i18n.js';
+import { api } from './api.js';
+import { announce, endNotice, lineNote, quietNote, sourceOk } from './notices.js';
+import { hideTip } from './tooltip.js';
+import { docInfo } from './doc-tabs.js';
+import { viewerBlocked } from './boot.js';
+import { searchToPage } from './search.js';
+import { typingNow } from './layout.js';
+import { PV_BUSY, PV_KEYS, PV_KEY_OUT, PV_READ, canVerdict, drawPageVerdicts, fillPv, pageTakesVerdict, pageTargetOf,
+  pageTargetShort, pageVerdictPins, pageVerdictsOn, pvAutoScrolling, pvCanCancel, pvCurOn, pvReadingAt, pvReadingPage,
+  pvSayGliding, pvShow, pvSlot, pvStick, verdictLabel, verdictOf } from './verdict.js';
+import { PV_SIDE, pvBring, pvSideCheck } from './verdict-panel.js';
+import { josa } from './card-parts.js';
+import { PINS_APPLIED_SEQ, gotoPinRef, isMe, loadPins } from './list.js';
+import { EDITOR } from './edit.js';
 
 // ---------------- Drafts kept per pin (sessionStorage)
 // One record per instance label for this tab: {v:1, d:{<key>: {text, base, rev, mode, folded, at, tried, from}}}. The key is
@@ -422,7 +440,7 @@ async function pvReasonOnto(r,ok,page){const to=r.onto,doc=r.doc,src='POST /api/
   rdDrop(doc,r.id); if(!text.trim())return;
   const open=!!PV_REASON&&PV_REASON.doc===doc&&PV_REASON.page===page,cur=pvCurOn(doc,page);   // it moves with the pins it came from
   if(cur&&cur.id===to&&!open&&!rdGet(doc,to))rdPut(doc,to,text,'',-1,{mode:'add',folded:true,from:via});
-  else{const j=rdJoin(rdGet(doc,'p'+page),{text,from:via}); rdPut(doc,'p'+page,j.text,'',-1,{mode:'add',folded:true,from:j.from});}
+  else {const j=rdJoin(rdGet(doc,'p'+page),{text,from:via}); rdPut(doc,'p'+page,j.text,'',-1,{mode:'add',folded:true,from:j.from});}
   lineNote(tl('판정 #{id} 이유는 저장되지 않아 지금 판정의 초안으로 옮겼습니다 · 줄의 [초안 있음]이 엽니다 — {target}',{id:r.id,target}),NOTICE_KIND.WARN,
     doc===DOC?{label:'보기',fn:()=>pvShowLine(page)}:null,{literal:true,source:'reason-onto'});
   if(doc===DOC)drawPageVerdicts();}
@@ -1058,3 +1076,17 @@ function pvUnsaved(){if(PV_REASON&&pvReasonDirty(PV_REASON))return true; if(!MET
 // Leaving the page (a reload, closing the tab, another address) with a reason not written yet asks first. The draft is kept
 // either way for this tab: a reload brings it back.
 addEventListener('beforeunload',e=>{if(!pvUnsaved())return; e.preventDefault(); e.returnValue='';});
+// Sets PV_COMPOSING, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof PV_COMPOSING} T @param {T} v @returns {T} */
+function setPvComposing(v){PV_COMPOSING=v; return v;}
+// Sets PV_KEY_GUARD, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof PV_KEY_GUARD} T @param {T} v @returns {T} */
+function setPvKeyGuard(v){PV_KEY_GUARD=v; return v;}
+// Sets PV_REASON, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof PV_REASON} T @param {T} v @returns {T} */
+function setPvReason(v){PV_REASON=v; return v;}
+export { PV_KEY_SAVE, PV_REASON, PV_WITHDRAWN, pvComposingNow, pvFocusLine, pvIsReasonField, pvKeyGuarded, pvReasonAct,
+  pvReasonAfterDraw, pvReasonAfterLines, pvReasonAfterSave, pvReasonComposed, pvReasonDirty, pvReasonEnterPages,
+  pvReasonField, pvReasonFocusBack, pvReasonHoldFocus, pvReasonInline, pvReasonLeave, pvReasonOn, pvReasonPop,
+  pvReasonRevive, pvReasonSettle, pvReasonSync, pvReasonUnbound, pvReasonUncancel, pvReasonUncancelDraft,
+  pvReasonUncancelSettle, rdGet, rdPut, setPvComposing, setPvKeyGuard, setPvReason };

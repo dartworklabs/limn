@@ -1,4 +1,14 @@
 // ------------------------------------------------ Range levels
+import { T, UI_LANG, VIA, captureVisit, currentVisit } from './core.js';
+import { html, setHtml } from './markup.js';
+import { LANG, tl, tr } from './i18n.js';
+import { api } from './api.js';
+import { dq } from './doc-tabs.js';
+import { elName, rungTip } from './figure.js';
+import { isMdDoc } from './md-surface.js';
+import { COMPOSE } from './composer.js';
+import { EDITOR } from './edit.js';
+import { segFocusAt, segKeep, segRove } from './events.js';
 function lvOf(obj,key){return (obj.levels||[]).find(l=>l.level===key||(l.merged||[]).includes(key));}
 // A Markdown document's rungs (md-surface.js mdLevels, ADR-0025 D3): a block is md:<its kind> (the rung's env), a section md:section,
 // and several blocks whole (level blocks) are lines - a pin's scope is one of the server's (wireScope), and blocks is none of them.
@@ -116,3 +126,5 @@ function viaTag(p){if(!p.via||p.score==null||(p.via===VIA.SYNCTEX&&!p.score&&!p.
     :map?tl('드래그한 영역 중 {pct}%가 이 요소 안에 있습니다.',{pct}):tl('드래그와 맞는 정도는 {pct}%입니다.',{pct});
   const check=lines?tr('원문 칸에서 고칠 곳이 이 줄들에 들어 있는지 확인하세요.'):map?tr('고른 상자가 고칠 곳을 덮는지 확인하세요.'):tr('고칠 곳이 이 범위에 들어 있는지 확인하세요.');
   return {t:tr('위치 불확실'),tip:[how,match,...(low?[tr('위치가 많이 어긋났을 수 있습니다.')]:[]),check].join(' '),low};}
+export { drawLadder, kindFor, levelLabel, lvOf, rangeCap, refetchSnip, rng, scopeLabel, segReveal, setCap, snipText,
+  useLevel, viaTag, wireScope };
