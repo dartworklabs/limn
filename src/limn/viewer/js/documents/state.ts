@@ -61,7 +61,13 @@ function viewerBlocked() {
   return true;
 }
 const REVISION_PAGE = 30; // rows of one /api/revisions page (the server's history window is 500, api.md)
-
+// The page verdict line is drawn for a document whose words say page: true (the server sets it only for a figure
+// document or a view-only PDF): the words, else null.
+function pageVerdictsOn(): DocVerdicts | null {
+  if (isMarkdownDoc()) return null;
+  const verdicts = docVerdicts();
+  return verdicts && verdicts.page ? verdicts : null;
+} // a Markdown document has no pages
 export {
   isMarkdownDoc,
   isTextDoc,
@@ -75,4 +81,5 @@ export {
   isViewer,
   viewerBlocked,
   REVISION_PAGE,
+  pageVerdictsOn,
 };

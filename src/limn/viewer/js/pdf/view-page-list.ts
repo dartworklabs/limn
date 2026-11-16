@@ -10,11 +10,11 @@ import { hideTip } from '../platform/tooltip.ts';
 import { setViewMode } from '../revisions/flow.ts';
 import { clampPage, goPage } from './view-pages.ts';
 import { OUTLINE_ACTIVE_PAGE, OUTLINE_ENTRIES, outlineOnScreen } from './view-outline.ts';
-import { pageVerdictPins, pageVerdictsOn } from '../verdict/flow-line.ts';
+import { pageVerdictPins } from '../verdict/flow-line.ts';
 import { $ } from '../platform/dom.ts';
 import { VIEW_MODE } from '../app/rules-tables.ts';
 import { verdictOf } from '../app/rules-pins.ts';
-import { docInfo, verdictLabel } from '../documents/state.ts';
+import { docInfo, verdictLabel, pageVerdictsOn } from '../documents/state.ts';
 
 // The names a row shows for each of pageTotal pages, index 0 for page 1: the top-level headings that start on the page
 // joined with ' · ' ('1 Introduction · 2 Related work'), else the one the page continues ('… 2 Related work'); ''

@@ -25,12 +25,12 @@ import { SWALLOW_CLICK, setSwallowClick } from '../platform/tooltip.ts';
 import { fitScale, zoomTo } from './view-pages.ts';
 import { discardSelection, pick } from '../composer/flow-pick.ts';
 import { SELECTION_POPOVER, openSelectionPopover, isSelectionPopoverOpen } from '../composer/view-selection-popover.ts';
-import { markBadgeIn, markBadgeRoom } from '../pins/flow-list.ts';
 import { $ } from '../platform/dom.ts';
 import { LAYOUT_MODE } from '../app/rules-tables.ts';
 import { isMarkdownDoc } from '../documents/state.ts';
 import { LONGPRESS_MS } from '../layout/input.ts';
 import { endJumpForScroll } from '../layout/flow-scroll.ts';
+import { markBadgeIn, markBadgeRoom } from './view-badges.ts';
 let DRAG = null as {
     pg: HTMLElement;
     sx: number;

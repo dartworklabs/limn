@@ -4412,6 +4412,13 @@ function viewerBlocked() {
   return true;
 }
 const REVISION_PAGE = 30; // rows of one /api/revisions page (the server's history window is 500, api.md)
+// The page verdict line is drawn for a document whose words say page: true (the server sets it only for a figure
+// document or a view-only PDF): the words, else null.
+function pageVerdictsOn() {
+  if (isMarkdownDoc()) return null;
+  const verdicts = docVerdicts();
+  return verdicts && verdicts.page ? verdicts : null;
+} // a Markdown document has no pages
 
 // ------------------------------------------------ What documents asks the features above it
 // documents decides which document is open and when it is drawn, saved, left and refreshed; drawing it, its outline
@@ -10145,6 +10152,102 @@ $('#ns-page-in').addEventListener('keydown', (event) => {
     goSheetPage();
   }
 });
+
+// ------------------------------------------------ The PDF area's free part: what nothing covers over the pages
+// The part of the PDF area nothing covers (the select mode's frame, #sel-mode: under the section strip, above a sheet,
+// left of an overlay panel and its handle), inside #left's scrollbar and under the select mode's bar while it shows.
+function popoverFreeArea() {
+  const leftPane = $('#left'),
+    paneRect = leftPane.getBoundingClientRect(),
+    frameRect = $('#sel-mode').getBoundingClientRect(),
+    bar = $('#sel-bar');
+  const area = {
+    left: Math.max(paneRect.left, frameRect.left),
+    top: Math.max(paneRect.top, frameRect.top),
+    right: Math.min(paneRect.left + leftPane.clientLeft + leftPane.clientWidth, frameRect.right),
+    bottom: Math.min(paneRect.top + leftPane.clientTop + leftPane.clientHeight, frameRect.bottom),
+  };
+  if (bar.getClientRects().length) area.top = Math.max(area.top, bar.getBoundingClientRect().bottom);
+  return area;
+}
+
+// ----------------------------------- Mark badges on the pages: inside or beside a mark, and how far a press reaches
+// Whether a mark's number badge goes inside the mark (docs/handbook/viewer.md §모바일 레이아웃): markLeft is the mark's
+// left as a fraction of the page, pageWidth the page width, pad the room left of the page in the PDF scroller (its
+// margin) and reach how far the badge hangs left of the mark (28px on touch, 24px with a mouse). Only when the margin
+// and the offset together are short of the reach would the badge be clipped, and only then does it sit in the mark's
+// top-left corner - inside, it covers the text the mark points at. Pure.
+function markBadgeIn(markLeft, pageWidth, pad, reach) {
+  return markLeft * pageWidth + pad < reach;
+}
+// A page's room: the room left of it in the PDF scroller, in scroll coordinates (a horizontal scroll does not count),
+// its width, and the badge's reach for the primary pointer: {pad, w, reach}. Pages have their own widths and a narrower
+// page is centred, so each page has its own margin. null for a page that is not laid out (the changes view hides the
+// pages).
+function markBadgeRoom(page) {
+  const pane = $('#left');
+  if (!pane || !page || !page.getClientRects().length) return null;
+  const rect = page.getBoundingClientRect();
+  return {
+    pad: rect.left - pane.getBoundingClientRect().left - pane.clientLeft + pane.scrollLeft,
+    w: rect.width,
+    reach: COARSE_POINTER_QUERY.matches ? 28 : 24,
+  };
+}
+// How far each mark badge's press area may reach on each side (docs/handbook/viewer.md §모바일 레이아웃): boxes are the
+// badges' drawn boxes {x,y,w,h} in one coordinate space and reach the press area's full size. Two badges whose press
+// areas would overlap split the gap between their drawn boxes in half, along the axis on which their centres are
+// further apart - so a press goes to the nearer badge, and a badge with no close neighbour keeps its whole area.
+// Returns one {t,r,b,l} per box: the room in px on that side, or null where no neighbour limits it; 0 where the drawn
+// boxes touch or overlap. Pure.
+function markHitRooms(boxes, reach) {
+  const rooms = boxes.map(() => ({ t: null, r: null, b: null, l: null }));
+  const cut = (room, side, value) => {
+    room[side] = room[side] === null ? value : Math.min(room[side], value);
+  };
+  boxes.forEach((box, index) => {
+    for (let j = index + 1; j < boxes.length; j++) {
+      const other = boxes[j];
+      const apartX = other.x + other.w / 2 - (box.x + box.w / 2),
+        apartY = other.y + other.h / 2 - (box.y + box.h / 2);
+      if (Math.abs(apartX) >= reach || Math.abs(apartY) >= reach) continue;
+      if (Math.abs(apartY) >= Math.abs(apartX)) {
+        const room = Math.max(0, (Math.abs(apartY) - (box.h + other.h) / 2) / 2);
+        cut(rooms[index], apartY >= 0 ? 'b' : 't', room);
+        cut(rooms[j], apartY >= 0 ? 't' : 'b', room);
+      } else {
+        const room = Math.max(0, (Math.abs(apartX) - (box.w + other.w) / 2) / 2);
+        cut(rooms[index], apartX >= 0 ? 'r' : 'l', room);
+        cut(rooms[j], apartX >= 0 ? 'l' : 'r', room);
+      }
+    }
+  });
+  return rooms;
+}
+// Gives every drawn badge its sides' room (markHitRooms) as --room-t/-r/-b/-l, which the badge's ::after caps its reach
+// by (components.css); a side no neighbour limits has no property and reaches the whole way. The boxes are read in the
+// viewport, so badges on two pages are neighbours too; the press area is the touch one, 44px (a mouse's 24px lies
+// inside it). Badges that are not laid out (the changes view hides the pages) have no boxes to read: nothing is set,
+// and setViewMode measures when the pages show again.
+function markHitSides() {
+  const badges = $$('.mark button.mark-jump');
+  if (badges.some((badge) => !badge.getClientRects().length)) return;
+  const rooms = markHitRooms(
+    badges.map((badge) => {
+      const rect = badge.getBoundingClientRect();
+      return { x: rect.left, y: rect.top, w: rect.width, h: rect.height };
+    }),
+    44,
+  );
+  badges.forEach((badge, index) => {
+    const room = rooms[index],
+      px = (value) => (value === null ? '' : value + 'px'); // '' takes the property off
+    badge.style.setProperty('--room-t', px(room.t));
+    badge.style.setProperty('--room-r', px(room.r));
+    badge.style.setProperty('--room-b', px(room.b));
+    badge.style.setProperty('--room-l', px(room.l));
+  });
+}
 
 // ------------------------------------------------ Vector rendering (PDF.js) - docs/handbook/viewer.md §벡터 렌더링
 // Each page draws the PDF directly onto a canvas. Backing size = page CSS size x devicePixelRatio (x the browser's
@@ -19207,6 +19310,103 @@ document.addEventListener('selectionchange', () => {
     if (selection && !selection.isCollapsed) pickSelection(null);
   }, 500);
 });
+// The source lines on screen (MARKDOWN_VIEW.lines) as line spans in a new div of class className - span(text, line)
+// makes the empty span of line number line - for the text surface (buildTextView) and the Markdown surface's line view
+// (lineView). Each marked character (platform/hidden-chars.ts) is its box (hiddenBox) while the elements drawn stay
+// within MARKDOWN_LIMITS.elements: one a line, two a box, counted on every line, not only on a box (plain lines after a
+// line of boxes). Past it, the names form: each line one span whose text has every marked character as its name in
+// angle brackets ('⟨U+200B⟩', markHiddenPlain's form) - one element a line, never a raw character that reorders the
+// line; a copy of it gives the names, not the characters (namesViewText says so). A yield to the browser after every
+// MARKDOWN_LIMITS.chunk units of work (a line, a character of the repertoire), within a long line too. -> {body, marked
+// (how many characters it marked), names (the names form)}, or null when a newer draw came (stale) at a yield. The
+// names form has no limit to pass, so the loop always returns from it.
+async function srcLines(
+  span,
+  className,
+  stale,
+) {
+  const lines = MARKDOWN_VIEW.lines,
+    work = { n: 0 };
+  for (const names of [false, true]) {
+    const body = document.createElement('div');
+    body.className = className;
+    let elements = 0,
+      marked = 0,
+      over = false;
+    for (let i = 0; i < lines.length && !over; i++) {
+      const text = lines[i],
+        lineSpan = span(text, i + 1);
+      let at = 0,
+        out = '';
+      if (!names && ++elements > MARKDOWN_LIMITS.elements) {
+        over = true;
+        break;
+      }
+      for (const hidden of scanHidden(text, i === 0)) {
+        if (isPauseDue(work)) {
+          await yieldToBrowser();
+          if (stale()) return null;
+        }
+        if (!hidden) continue;
+        if (names) out += text.slice(at, hidden.at) + '\u27e8' + hiddenName(hidden.ch.codePointAt(0) || 0) + '\u27e9';
+        else {
+          if ((elements += 2) > MARKDOWN_LIMITS.elements) {
+            over = true;
+            break;
+          }
+          if (hidden.at > at) lineSpan.append(text.slice(at, hidden.at));
+          lineSpan.append(hiddenBox(hidden.ch));
+        }
+        at = hidden.at + hidden.ch.length;
+        marked++;
+      }
+      if (over) break;
+      if (names) lineSpan.textContent = out + text.slice(at) + '\n';
+      else lineSpan.append(text.slice(at) + '\n');
+      body.appendChild(lineSpan);
+      if (isPauseDue(work)) {
+        await yieldToBrowser();
+        if (stale()) return null;
+      }
+    }
+    if (!over) return { body, marked, names };
+  }
+  return null;
+}
+// What the notice above the lines says of the characters marked: count boxes, or the names form for count of them.
+function markedCharactersText(count) {
+  return translateTemplate('보이지 않거나 글 순서를 바꾸는 문자 {n}개를 이름으로 표시했습니다', {
+    n: formatCount(count),
+  });
+}
+function namesViewText(count) {
+  return translateTemplate(
+    '보이지 않거나 글 순서를 바꾸는 문자가 {n}개라 이름을 글자로 보입니다(그릴 요소 한도 {max}개). 이 보기에서 복사하면 그 문자 대신 이름이 복사됩니다',
+    { n: formatCount(count), max: formatCount(MARKDOWN_LIMITS.elements) },
+  );
+}
+// A notice above a document's text (kind: its data-note - 'marks', 'ends'): out of the text, never selected or copied
+// with it, in the viewer's words and so in the screen's language. A Markdown document's notice is the same element
+// (renderDocument, lineView).
+function textNotice(kind, text) {
+  const notice = document.createElement('div');
+  notice.className = 'md-limit tx-note';
+  notice.dataset.note = kind;
+  notice.setAttribute('role', 'status');
+  notice.textContent = text;
+  notice.lang = document.documentElement.lang;
+  return notice;
+}
+// The empty list's help (#empty) for a text document: a line is picked by a press, lines by a drag.
+function showTextHint() {
+  const help = $('#empty');
+  if (!help) return;
+  setHtml(
+    help,
+    html`<span class="t-mouse"><b>${translate('줄을 누르면')}</b> ${translate('그 줄을,')} ${translate('글을')} <b>${translate('끌어')}</b> ${translate('고르면 그 줄들을 고르고')}</span><span class="t-touch"><b>${translate('줄을 누르면')}</b> ${translate('그 줄을,')} <b>${translate('길게 눌러')}</b> ${translate('글을 고르면 그 줄들을 고르고')}</span> ${translate('그 자리의')} <b>${translate('원문 줄 번호')}</b>${translate('가 핀의 위치가 됩니다.')}<br>
+    ${translate('메모를 달아 핀으로 저장하면, 에이전트가 pins.md 한 장만 읽고 작업합니다.')}<br><span class="t-mouse"><kbd>?</kbd> ${translate('를 누르면 도움말.')}</span><span class="t-touch">${translate('도움말은 [더보기]에 있습니다.')}</span>`,
+  );
+}
 
 // ------------------------------------------------ The text surface (docs/handbook/viewer.md §텍스트 화면, ADR-0029)
 // A text document (showsSourceLines: kind "text" - plain text or source code) is drawn in the browser as the Markdown
@@ -19387,93 +19587,6 @@ async function buildTextView(
   if (drawn.names) return textArticle(drawn.body, ends, namesViewText(drawn.marked), MARKDOWN_LIMIT.ELEMENTS);
   return textArticle(drawn.body, ends, drawn.marked ? markedCharactersText(drawn.marked) : '', null);
 }
-// The source lines on screen (MARKDOWN_VIEW.lines) as line spans in a new div of class className - span(text, line)
-// makes the empty span of line number line - for the text surface (buildTextView) and the Markdown surface's line view
-// (lineView). Each marked character (platform/hidden-chars.ts) is its box (hiddenBox) while the elements drawn stay
-// within MARKDOWN_LIMITS.elements: one a line, two a box, counted on every line, not only on a box (plain lines after a
-// line of boxes). Past it, the names form: each line one span whose text has every marked character as its name in
-// angle brackets ('⟨U+200B⟩', markHiddenPlain's form) - one element a line, never a raw character that reorders the
-// line; a copy of it gives the names, not the characters (namesViewText says so). A yield to the browser after every
-// MARKDOWN_LIMITS.chunk units of work (a line, a character of the repertoire), within a long line too. -> {body, marked
-// (how many characters it marked), names (the names form)}, or null when a newer draw came (stale) at a yield. The
-// names form has no limit to pass, so the loop always returns from it.
-async function srcLines(
-  span,
-  className,
-  stale,
-) {
-  const lines = MARKDOWN_VIEW.lines,
-    work = { n: 0 };
-  for (const names of [false, true]) {
-    const body = document.createElement('div');
-    body.className = className;
-    let elements = 0,
-      marked = 0,
-      over = false;
-    for (let i = 0; i < lines.length && !over; i++) {
-      const text = lines[i],
-        lineSpan = span(text, i + 1);
-      let at = 0,
-        out = '';
-      if (!names && ++elements > MARKDOWN_LIMITS.elements) {
-        over = true;
-        break;
-      }
-      for (const hidden of scanHidden(text, i === 0)) {
-        if (isPauseDue(work)) {
-          await yieldToBrowser();
-          if (stale()) return null;
-        }
-        if (!hidden) continue;
-        if (names) out += text.slice(at, hidden.at) + '\u27e8' + hiddenName(hidden.ch.codePointAt(0) || 0) + '\u27e9';
-        else {
-          if ((elements += 2) > MARKDOWN_LIMITS.elements) {
-            over = true;
-            break;
-          }
-          if (hidden.at > at) lineSpan.append(text.slice(at, hidden.at));
-          lineSpan.append(hiddenBox(hidden.ch));
-        }
-        at = hidden.at + hidden.ch.length;
-        marked++;
-      }
-      if (over) break;
-      if (names) lineSpan.textContent = out + text.slice(at) + '\n';
-      else lineSpan.append(text.slice(at) + '\n');
-      body.appendChild(lineSpan);
-      if (isPauseDue(work)) {
-        await yieldToBrowser();
-        if (stale()) return null;
-      }
-    }
-    if (!over) return { body, marked, names };
-  }
-  return null;
-}
-// What the notice above the lines says of the characters marked: count boxes, or the names form for count of them.
-function markedCharactersText(count) {
-  return translateTemplate('보이지 않거나 글 순서를 바꾸는 문자 {n}개를 이름으로 표시했습니다', {
-    n: formatCount(count),
-  });
-}
-function namesViewText(count) {
-  return translateTemplate(
-    '보이지 않거나 글 순서를 바꾸는 문자가 {n}개라 이름을 글자로 보입니다(그릴 요소 한도 {max}개). 이 보기에서 복사하면 그 문자 대신 이름이 복사됩니다',
-    { n: formatCount(count), max: formatCount(MARKDOWN_LIMITS.elements) },
-  );
-}
-// A notice above a document's text (kind: its data-note - 'marks', 'ends'): out of the text, never selected or copied
-// with it, in the viewer's words and so in the screen's language. A Markdown document's notice is the same element
-// (renderDocument, lineView).
-function textNotice(kind, text) {
-  const notice = document.createElement('div');
-  notice.className = 'md-limit tx-note';
-  notice.dataset.note = kind;
-  notice.setAttribute('role', 'status');
-  notice.textContent = text;
-  notice.lang = document.documentElement.lang;
-  return notice;
-}
 // article#md round the lines (body): the notices above them - what was marked (marks, '' for none) and the line ends
 // that are not LF or CRLF (lineEndsText) - and the limit the view hit (limit, its data-limit; null for none).
 function textArticle(body, ends, marks, limit) {
@@ -19504,16 +19617,6 @@ function lineEndsText(ends) {
   return translateTemplate(
     '줄 끝 {n}곳이 LF가 아닙니다({kinds}). Limn은 거기서 줄을 나누므로, 줄 번호가 LF만 세는 편집기·git과 다를 수 있고 복사하면 LF로 바뀝니다',
     { n: formatCount(total), kinds: oddEnds.map(([name, count]) => name + ' ' + formatCount(count)).join(', ') },
-  );
-}
-// The empty list's help (#empty) for a text document: a line is picked by a press, lines by a drag.
-function showTextHint() {
-  const help = $('#empty');
-  if (!help) return;
-  setHtml(
-    help,
-    html`<span class="t-mouse"><b>${translate('줄을 누르면')}</b> ${translate('그 줄을,')} ${translate('글을')} <b>${translate('끌어')}</b> ${translate('고르면 그 줄들을 고르고')}</span><span class="t-touch"><b>${translate('줄을 누르면')}</b> ${translate('그 줄을,')} <b>${translate('길게 눌러')}</b> ${translate('글을 고르면 그 줄들을 고르고')}</span> ${translate('그 자리의')} <b>${translate('원문 줄 번호')}</b>${translate('가 핀의 위치가 됩니다.')}<br>
-    ${translate('메모를 달아 핀으로 저장하면, 에이전트가 pins.md 한 장만 읽고 작업합니다.')}<br><span class="t-mouse"><kbd>?</kbd> ${translate('를 누르면 도움말.')}</span><span class="t-touch">${translate('도움말은 [더보기]에 있습니다.')}</span>`,
   );
 }
 
@@ -25306,13 +25409,6 @@ new MutationObserver(() => offUiDraw()).observe($('#doc'), { childList: true });
 // they are drawn as text, translate="no", and the names around them are put in the screen's language here.
 
 const VERDICT_ARM_MS = 4000; // how long a confirm word's first press waits for its second (D9)
-// The page verdict line is drawn for a document whose words say page: true (the server sets it only for a figure
-// document or a view-only PDF): the words, else null.
-function pageVerdictsOn() {
-  if (isMarkdownDoc()) return null;
-  const verdicts = docVerdicts();
-  return verdicts && verdicts.page ? verdicts : null;
-} // a Markdown document has no pages
 // Whether this screen may make a verdict pin: a person who edits (a viewer reads, an agent never makes one, D11).
 function canVerdict() {
   const role = META && META.me && META.me.role;
@@ -31920,22 +32016,6 @@ function popPlace(
     shown: box.bottom > area.top && box.top < area.bottom,
   };
 }
-// The part of the PDF area nothing covers (the select mode's frame, #sel-mode: under the section strip, above a sheet,
-// left of an overlay panel and its handle), inside #left's scrollbar and under the select mode's bar while it shows.
-function popoverFreeArea() {
-  const leftPane = $('#left'),
-    paneRect = leftPane.getBoundingClientRect(),
-    frameRect = $('#sel-mode').getBoundingClientRect(),
-    bar = $('#sel-bar');
-  const area = {
-    left: Math.max(paneRect.left, frameRect.left),
-    top: Math.max(paneRect.top, frameRect.top),
-    right: Math.min(paneRect.left + leftPane.clientLeft + leftPane.clientWidth, frameRect.right),
-    bottom: Math.min(paneRect.top + leftPane.clientTop + leftPane.clientHeight, frameRect.bottom),
-  };
-  if (bar.getClientRects().length) area.top = Math.max(area.top, bar.getBoundingClientRect().bottom);
-  return area;
-}
 // Whether this selection gets the popover: a mouse drag outside the phone layout, not a re-place.
 function wantsSelectionPopover() {
   return LAYOUT !== LAYOUT_MODE.NARROW && LAST_POINTER === 'mouse' && !REPICK;
@@ -34348,28 +34428,6 @@ function cardFocusBack(kept) {
 function isEstimated(pin) {
   return pin.est === true;
 }
-// Whether a mark's number badge goes inside the mark (docs/handbook/viewer.md §모바일 레이아웃): markLeft is the mark's
-// left as a fraction of the page, pageWidth the page width, pad the room left of the page in the PDF scroller (its
-// margin) and reach how far the badge hangs left of the mark (28px on touch, 24px with a mouse). Only when the margin
-// and the offset together are short of the reach would the badge be clipped, and only then does it sit in the mark's
-// top-left corner - inside, it covers the text the mark points at. Pure.
-function markBadgeIn(markLeft, pageWidth, pad, reach) {
-  return markLeft * pageWidth + pad < reach;
-}
-// A page's room: the room left of it in the PDF scroller, in scroll coordinates (a horizontal scroll does not count),
-// its width, and the badge's reach for the primary pointer: {pad, w, reach}. Pages have their own widths and a narrower
-// page is centred, so each page has its own margin. null for a page that is not laid out (the changes view hides the
-// pages).
-function markBadgeRoom(page) {
-  const pane = $('#left');
-  if (!pane || !page || !page.getClientRects().length) return null;
-  const rect = page.getBoundingClientRect();
-  return {
-    pad: rect.left - pane.getBoundingClientRect().left - pane.clientLeft + pane.scrollLeft,
-    w: rect.width,
-    reach: COARSE_POINTER_QUERY.matches ? 28 : 24,
-  };
-}
 // Re-decides every page number's place (pageNoSides) and every drawn mark's badge side for its page's width and margin
 // now (a zoom, a re-fit or a band change moves both), then how far each badge's press area reaches (markHitSides: the
 // badges' distances follow the same width). A mark on a page that is not laid out keeps its side until the page shows
@@ -34587,60 +34645,6 @@ $('#left').addEventListener(
   },
   { passive: true },
 );
-// How far each mark badge's press area may reach on each side (docs/handbook/viewer.md §모바일 레이아웃): boxes are the
-// badges' drawn boxes {x,y,w,h} in one coordinate space and reach the press area's full size. Two badges whose press
-// areas would overlap split the gap between their drawn boxes in half, along the axis on which their centres are
-// further apart - so a press goes to the nearer badge, and a badge with no close neighbour keeps its whole area.
-// Returns one {t,r,b,l} per box: the room in px on that side, or null where no neighbour limits it; 0 where the drawn
-// boxes touch or overlap. Pure.
-function markHitRooms(boxes, reach) {
-  const rooms = boxes.map(() => ({ t: null, r: null, b: null, l: null }));
-  const cut = (room, side, value) => {
-    room[side] = room[side] === null ? value : Math.min(room[side], value);
-  };
-  boxes.forEach((box, index) => {
-    for (let j = index + 1; j < boxes.length; j++) {
-      const other = boxes[j];
-      const apartX = other.x + other.w / 2 - (box.x + box.w / 2),
-        apartY = other.y + other.h / 2 - (box.y + box.h / 2);
-      if (Math.abs(apartX) >= reach || Math.abs(apartY) >= reach) continue;
-      if (Math.abs(apartY) >= Math.abs(apartX)) {
-        const room = Math.max(0, (Math.abs(apartY) - (box.h + other.h) / 2) / 2);
-        cut(rooms[index], apartY >= 0 ? 'b' : 't', room);
-        cut(rooms[j], apartY >= 0 ? 't' : 'b', room);
-      } else {
-        const room = Math.max(0, (Math.abs(apartX) - (box.w + other.w) / 2) / 2);
-        cut(rooms[index], apartX >= 0 ? 'r' : 'l', room);
-        cut(rooms[j], apartX >= 0 ? 'l' : 'r', room);
-      }
-    }
-  });
-  return rooms;
-}
-// Gives every drawn badge its sides' room (markHitRooms) as --room-t/-r/-b/-l, which the badge's ::after caps its reach
-// by (components.css); a side no neighbour limits has no property and reaches the whole way. The boxes are read in the
-// viewport, so badges on two pages are neighbours too; the press area is the touch one, 44px (a mouse's 24px lies
-// inside it). Badges that are not laid out (the changes view hides the pages) have no boxes to read: nothing is set,
-// and setViewMode measures when the pages show again.
-function markHitSides() {
-  const badges = $$('.mark button.mark-jump');
-  if (badges.some((badge) => !badge.getClientRects().length)) return;
-  const rooms = markHitRooms(
-    badges.map((badge) => {
-      const rect = badge.getBoundingClientRect();
-      return { x: rect.left, y: rect.top, w: rect.width, h: rect.height };
-    }),
-    44,
-  );
-  badges.forEach((badge, index) => {
-    const room = rooms[index],
-      px = (value) => (value === null ? '' : value + 'px'); // '' takes the property off
-    badge.style.setProperty('--room-t', px(room.t));
-    badge.style.setProperty('--room-r', px(room.r));
-    badge.style.setProperty('--room-b', px(room.b));
-    badge.style.setProperty('--room-l', px(room.l));
-  });
-}
 // Draws one mark per open or awaiting-review pin of this document on its page: where the pin's element is now for a
 // figure pin (pinPlace), else where it was pinned, then decides each badge's side (markBadgeSides) and puts a save's or
 // an append's undo chip back on its mark (drawChips). A pin without a usable box or page draws nothing.

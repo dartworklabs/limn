@@ -61,6 +61,7 @@ import {
   findHidden,
   markHiddenPlain,
   scanHidden,
+  hiddenName,
 } from '../platform/hidden-chars.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
@@ -83,15 +84,7 @@ import {
 import { applySide, setSide } from '../layout/flow.ts';
 import { BACK } from '../layout/input.ts';
 import { revealBox, selectionRoom } from '../pdf/input-selection.ts';
-import {
-  srcLines,
-  showTextHint,
-  textLevels,
-  markedCharactersText,
-  namesViewText,
-  textNotice,
-  buildTextView,
-} from '../text/view.ts';
+import { textLevels, buildTextView } from '../text/view.ts';
 import { renderComposer, setBusy } from '../composer/flow-pick.ts';
 import { imeOpen } from '../platform/composition.ts';
 import { renderVerdictRow } from '../verdict/flow-line.ts';
@@ -2943,6 +2936,104 @@ document.addEventListener('selectionchange', () => {
     if (selection && !selection.isCollapsed) pickSelection(null);
   }, 500);
 });
+// The source lines on screen (MARKDOWN_VIEW.lines) as line spans in a new div of class className - span(text, line)
+// makes the empty span of line number line - for the text surface (buildTextView) and the Markdown surface's line view
+// (lineView). Each marked character (platform/hidden-chars.ts) is its box (hiddenBox) while the elements drawn stay
+// within MARKDOWN_LIMITS.elements: one a line, two a box, counted on every line, not only on a box (plain lines after a
+// line of boxes). Past it, the names form: each line one span whose text has every marked character as its name in
+// angle brackets ('⟨U+200B⟩', markHiddenPlain's form) - one element a line, never a raw character that reorders the
+// line; a copy of it gives the names, not the characters (namesViewText says so). A yield to the browser after every
+// MARKDOWN_LIMITS.chunk units of work (a line, a character of the repertoire), within a long line too. -> {body, marked
+// (how many characters it marked), names (the names form)}, or null when a newer draw came (stale) at a yield. The
+// names form has no limit to pass, so the loop always returns from it.
+async function srcLines(
+  span: (text: string, line: number) => HTMLElement,
+  className: string,
+  stale: () => boolean,
+): Promise<{ body: HTMLElement; marked: number; names: boolean } | null> {
+  const lines = MARKDOWN_VIEW.lines,
+    work = { n: 0 };
+  for (const names of [false, true]) {
+    const body = document.createElement('div');
+    body.className = className;
+    let elements = 0,
+      marked = 0,
+      over = false;
+    for (let i = 0; i < lines.length && !over; i++) {
+      const text = lines[i],
+        lineSpan = span(text, i + 1);
+      let at = 0,
+        out = '';
+      if (!names && ++elements > MARKDOWN_LIMITS.elements) {
+        over = true;
+        break;
+      }
+      for (const hidden of scanHidden(text, i === 0)) {
+        if (isPauseDue(work)) {
+          await yieldToBrowser();
+          if (stale()) return null;
+        }
+        if (!hidden) continue;
+        if (names) out += text.slice(at, hidden.at) + '\u27e8' + hiddenName(hidden.ch.codePointAt(0) || 0) + '\u27e9';
+        else {
+          if ((elements += 2) > MARKDOWN_LIMITS.elements) {
+            over = true;
+            break;
+          }
+          if (hidden.at > at) lineSpan.append(text.slice(at, hidden.at));
+          lineSpan.append(hiddenBox(hidden.ch));
+        }
+        at = hidden.at + hidden.ch.length;
+        marked++;
+      }
+      if (over) break;
+      if (names) lineSpan.textContent = out + text.slice(at) + '\n';
+      else lineSpan.append(text.slice(at) + '\n');
+      body.appendChild(lineSpan);
+      if (isPauseDue(work)) {
+        await yieldToBrowser();
+        if (stale()) return null;
+      }
+    }
+    if (!over) return { body, marked, names };
+  }
+  return null;
+}
+// What the notice above the lines says of the characters marked: count boxes, or the names form for count of them.
+function markedCharactersText(count: number) {
+  return translateTemplate('보이지 않거나 글 순서를 바꾸는 문자 {n}개를 이름으로 표시했습니다', {
+    n: formatCount(count),
+  });
+}
+function namesViewText(count: number) {
+  return translateTemplate(
+    '보이지 않거나 글 순서를 바꾸는 문자가 {n}개라 이름을 글자로 보입니다(그릴 요소 한도 {max}개). 이 보기에서 복사하면 그 문자 대신 이름이 복사됩니다',
+    { n: formatCount(count), max: formatCount(MARKDOWN_LIMITS.elements) },
+  );
+}
+// A notice above a document's text (kind: its data-note - 'marks', 'ends'): out of the text, never selected or copied
+// with it, in the viewer's words and so in the screen's language. A Markdown document's notice is the same element
+// (renderDocument, lineView).
+function textNotice(kind: string, text: string) {
+  const notice = document.createElement('div');
+  notice.className = 'md-limit tx-note';
+  notice.dataset.note = kind;
+  notice.setAttribute('role', 'status');
+  notice.textContent = text;
+  notice.lang = document.documentElement.lang;
+  return notice;
+}
+// The empty list's help (#empty) for a text document: a line is picked by a press, lines by a drag.
+function showTextHint() {
+  const help = $('#empty');
+  if (!help) return;
+  setHtml(
+    help,
+    html`<span class="t-mouse"><b>${translate('줄을 누르면')}</b> ${translate('그 줄을,')} ${translate('글을')} <b>${translate('끌어')}</b> ${translate('고르면 그 줄들을 고르고')}</span><span class="t-touch"><b>${translate('줄을 누르면')}</b> ${translate('그 줄을,')} <b>${translate('길게 눌러')}</b> ${translate('글을 고르면 그 줄들을 고르고')}</span> ${translate('그 자리의')} <b>${translate('원문 줄 번호')}</b>${translate('가 핀의 위치가 됩니다.')}<br>
+    ${translate('메모를 달아 핀으로 저장하면, 에이전트가 pins.md 한 장만 읽고 작업합니다.')}<br><span class="t-mouse"><kbd>?</kbd> ${translate('를 누르면 도움말.')}</span><span class="t-touch">${translate('도움말은 [더보기]에 있습니다.')}</span>`,
+  );
+}
+
 export {
   MARKDOWN_VIEW,
   MARKDOWN_LIMITS,
@@ -2977,4 +3068,9 @@ export {
   updateMarkdownStrip,
   waitLine,
   yieldToBrowser,
+  srcLines,
+  textNotice,
+  namesViewText,
+  markedCharactersText,
+  showTextHint,
 };

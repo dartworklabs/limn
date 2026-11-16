@@ -39,7 +39,6 @@ import {
   restateCompareStatus,
   showRenderedCompare,
 } from './view-rendered-compare.ts';
-import { markHitSides } from '../pins/flow-list.ts';
 import { keepSpot, returnToSpot } from '../documents/flow-rebuild.ts';
 import { $, $$ } from '../platform/dom.ts';
 import { roveSegment } from '../platform/segments.ts';
@@ -58,6 +57,7 @@ import {
 import { pinState, lineRange } from '../app/rules-pins.ts';
 import { isMe } from '../app/state-people.ts';
 import { isMarkdownDoc, docInfo, withDocQuery, isRegion, pdoc, REVISION_PAGE } from '../documents/state.ts';
+import { markHitSides } from '../pdf/view-badges.ts';
 const REVISION_VIEW = {
   seq: 0,
   files: [] as { name: string; text: string }[],

@@ -19,6 +19,7 @@ import { LAYOUT_MODE } from '../app/rules-tables.ts';
 import { lineRange } from '../app/rules-pins.ts';
 import { isRegion } from '../documents/state.ts';
 import { LAST_POINTER } from '../platform/tooltip.ts';
+import { popoverFreeArea } from '../pdf/view-area.ts';
 const SELECTION_POPOVER = $('#sel-pop'),
   SELECTION_POPOVER_FIELD = SELECTION_POPOVER.querySelector('textarea') as HTMLTextAreaElement,
   SELECTION_POPOVER_GAP = 8;
@@ -49,22 +50,6 @@ function popPlace(
     side: below || !above ? 'below' : 'above',
     shown: box.bottom > area.top && box.top < area.bottom,
   };
-}
-// The part of the PDF area nothing covers (the select mode's frame, #sel-mode: under the section strip, above a sheet,
-// left of an overlay panel and its handle), inside #left's scrollbar and under the select mode's bar while it shows.
-function popoverFreeArea() {
-  const leftPane = $('#left'),
-    paneRect = leftPane.getBoundingClientRect(),
-    frameRect = $('#sel-mode').getBoundingClientRect(),
-    bar = $('#sel-bar');
-  const area = {
-    left: Math.max(paneRect.left, frameRect.left),
-    top: Math.max(paneRect.top, frameRect.top),
-    right: Math.min(paneRect.left + leftPane.clientLeft + leftPane.clientWidth, frameRect.right),
-    bottom: Math.min(paneRect.top + leftPane.clientTop + leftPane.clientHeight, frameRect.bottom),
-  };
-  if (bar.getClientRects().length) area.top = Math.max(area.top, bar.getBoundingClientRect().bottom);
-  return area;
 }
 // Whether this selection gets the popover: a mouse drag outside the phone layout, not a re-place.
 function wantsSelectionPopover() {
@@ -174,7 +159,6 @@ export {
   drawSelectionPopover,
   openSelectionPopover,
   placeSelectionPopover,
-  popoverFreeArea,
   handPopoverToComposer,
   isSelectionPopoverOpen,
 };

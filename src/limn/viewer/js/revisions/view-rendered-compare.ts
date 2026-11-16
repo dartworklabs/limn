@@ -27,8 +27,8 @@ import {
   keepRenderContext,
   waitLine,
   yieldToBrowser,
+  markedCharactersText,
 } from '../markdown/view.ts';
-import { markedCharactersText } from '../text/view.ts';
 import { $ } from '../platform/dom.ts';
 import { DIFF_FORMAT, LAYOUT_MODE, MARKDOWN_LIMIT, SCOPE_MODE, SCOPE_SOURCE } from '../app/rules-tables.ts';
 import { isMarkdownDoc, isTextDoc, withDocQuery } from '../documents/state.ts';

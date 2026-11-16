@@ -16,11 +16,12 @@ import { BAND, IS_MAC, MID_OVERLAY, SIDE_OPEN, imeKey } from '../app/state.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import { VECTOR_PDF } from './flow-open.ts';
 import { relayout, setSide, topAnchor } from '../layout/flow.ts';
-import { SELECTION_POPOVER_BOX, placeSelectionPopover, popoverFreeArea } from '../composer/view-selection-popover.ts';
+import { SELECTION_POPOVER_BOX, placeSelectionPopover } from '../composer/view-selection-popover.ts';
 import { $, $$, searchToPage } from '../platform/dom.ts';
 import { LAYOUT_BAND } from '../app/rules-tables.ts';
 import { isMarkdownDoc } from '../documents/state.ts';
 import { endJumpForScroll } from '../layout/flow-scroll.ts';
+import { popoverFreeArea } from './view-area.ts';
 
 // The text as it is matched: Unicode NFKC (Hangul jamo composed, a letter and its combining mark joined, ligatures and
 // full-width forms unfolded), lower case, curly quotes and dashes as ' " and -, soft hyphens and zero-width marks

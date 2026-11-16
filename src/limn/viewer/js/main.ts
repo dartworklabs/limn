@@ -195,7 +195,6 @@ import {
   undoFromLine,
   verdictPress,
   READING_LINE_PAGE,
-  pageVerdictsOn,
   pageUnderReadingLine,
   stickSoon,
 } from './verdict/flow-line.ts';
@@ -234,7 +233,7 @@ import { NOTICE_HOST, NOTICE_KIND } from './platform/tables.ts';
 import { $, $$ } from './platform/dom.ts';
 import { offeredWords, shownWords, roveSegment } from './platform/segments.ts';
 import { REQUEST_KIND, LAYOUT_MODE } from './app/rules-tables.ts';
-import { isMarkdownDoc, viewerBlocked, withDocQuery, isTextDoc } from './documents/state.ts';
+import { isMarkdownDoc, viewerBlocked, withDocQuery, isTextDoc, pageVerdictsOn } from './documents/state.ts';
 import { useLevel } from './documents/rules.ts';
 import { setHtml } from './platform/markup.ts';
 import { bootVector, openVectorDocument } from './pdf/flow-open.ts';
