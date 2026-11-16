@@ -1,12 +1,13 @@
 'use strict';
-const $ = (s) => document.querySelector(s);
-const $$ = (s) => Array.from(document.querySelectorAll(s));
+const $ = (selector) => document.querySelector(selector);
+const $$ = (selector) => Array.from(document.querySelectorAll(selector));
 // Lucide icons (vendor/lucide/README.md), drawn by ic() in markup.js.
 const ICONS = __LUCIDE_JSON__;
-const esc = (t) =>
-  String(t == null ? '' : t).replace(
+const esc = (text) =>
+  String(text == null ? '' : text).replace(
     /[&<>"']/g,
-    (c) => (({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }) as Record<string, string>)[c],
+    (character) =>
+      (({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }) as Record<string, string>)[character],
   );
 const IS_MAC = /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent || '');
 // Reduced motion (live, not only at load): read where it acts and never kept, so a setting changed with the page open
@@ -220,51 +221,51 @@ let IME_PRESSED: { el: EventTarget | null; code: string; name: string } | null =
 let IME_END: { el: EventTarget | null; at: number; code: string; name: string; key: KeyboardEvent | null } | null =
   null;
 /** While this timer runs (not 0), IME_END's key holds its field (imeHeldIn): IME_HOLD_MS from that key's last keydown. */
-let IME_HOLD_T = 0;
+let IME_HOLD_TIMER = 0;
 /** What looks again once that key lets its field go (imeFree): run after the event, so it reads the state the event left. */
 const IME_ON_FREE: (() => void)[] = [];
 /** Key event e's physical key (code); '' when the browser does not name it: no code, or 'Unidentified'. */
-function imeCode(e: KeyboardEvent) {
-  const c = e.code;
-  return c && c !== 'Unidentified' ? c : '';
+function imeCode(event: KeyboardEvent) {
+  const code = event.code;
+  return code && code !== 'Unidentified' ? code : '';
 }
 /** Key event e's name (key); '' for a key the input method took ('Process') or one the browser does not name ('Unidentified'). */
-function imeName(e: KeyboardEvent) {
-  const k = e.key;
-  return k && k !== 'Process' && k !== 'Unidentified' ? k : '';
+function imeName(event: KeyboardEvent) {
+  const name = event.key;
+  return name && name !== 'Process' && name !== 'Unidentified' ? name : '';
 }
 /** Whether keyup e may be key k's (IME_PRESSED, IME_END): the same physical key, or any where either has none. */
-function imeUp(e: KeyboardEvent, k: { code: string }) {
-  const c = imeCode(e);
-  return !k.code || !c || c === k.code;
+function imeUp(event: KeyboardEvent, pressed: { code: string }) {
+  const code = imeCode(event);
+  return !pressed.code || !code || code === pressed.code;
 }
 /** Whether keydown e repeats key k (IME_END) held down: the same physical key, or, where either has none, the same name. */
-function imeRepeat(e: KeyboardEvent, k: { code: string; name: string }) {
-  const c = imeCode(e);
-  return e.repeat && (k.code && c ? c === k.code : !!k.name && e.key === k.name);
+function imeRepeat(event: KeyboardEvent, pressed: { code: string; name: string }) {
+  const code = imeCode(event);
+  return event.repeat && (pressed.code && code ? code === pressed.code : !!pressed.name && event.key === pressed.name);
 }
 /** Whether el is a node taken out of the document. */
-function imeGone(el: EventTarget | null) {
-  return el instanceof Node && !el.isConnected;
+function imeGone(target: EventTarget | null) {
+  return target instanceof Node && !target.isConnected;
 }
 // That key came again: it holds its field IME_HOLD_MS more.
 function imeHold() {
-  clearTimeout(IME_HOLD_T);
-  IME_HOLD_T = setTimeout(() => {
-    IME_HOLD_T = 0;
+  clearTimeout(IME_HOLD_TIMER);
+  IME_HOLD_TIMER = setTimeout(() => {
+    IME_HOLD_TIMER = 0;
     imeFree();
   }, IME_HOLD_MS);
 }
 function imeFree() {
   setTimeout(() => {
-    for (const f of IME_ON_FREE) f();
+    for (const lookAgain of IME_ON_FREE) lookAgain();
   }, 0);
 }
 function imeEnd() {
   if (!IME_END) return;
   IME_END = null;
-  clearTimeout(IME_HOLD_T);
-  IME_HOLD_T = 0;
+  clearTimeout(IME_HOLD_TIMER);
+  IME_HOLD_TIMER = 0;
   imeFree();
 }
 function imeForget() {
@@ -274,12 +275,12 @@ function imeForget() {
 addEventListener('compositionstart', imeForget, true);
 addEventListener(
   'compositionend',
-  (e) => {
-    const p = IME_PRESSED;
+  (event) => {
+    const pressed = IME_PRESSED;
     imeEnd();
     IME_PRESSED = null;
-    if (p && p.el === e.target) {
-      IME_END = { el: e.target, at: e.timeStamp, code: p.code, name: p.name, key: null };
+    if (pressed && pressed.el === event.target) {
+      IME_END = { el: event.target, at: event.timeStamp, code: pressed.code, name: pressed.name, key: null };
       imeHold();
     }
   },
@@ -287,9 +288,9 @@ addEventListener(
 );
 addEventListener(
   'keyup',
-  (e) => {
-    if (IME_PRESSED && imeUp(e, IME_PRESSED)) IME_PRESSED = null;
-    if (IME_END && imeUp(e, IME_END)) imeEnd();
+  (event) => {
+    if (IME_PRESSED && imeUp(event, IME_PRESSED)) IME_PRESSED = null;
+    if (IME_END && imeUp(event, IME_END)) imeEnd();
   },
   true,
 );
@@ -297,11 +298,11 @@ addEventListener(
 // task that blurred it is done, when a field drawn anew has taken its place.
 addEventListener(
   'blur',
-  (e) => {
-    const t = e.target;
-    if (t instanceof Node)
+  (event) => {
+    const target = event.target;
+    if (target instanceof Node)
       queueMicrotask(() => {
-        if (t.isConnected) imeForget();
+        if (target.isConnected) imeForget();
       });
     else imeForget();
   },
@@ -317,41 +318,43 @@ document.addEventListener('visibilitychange', () => {
 // box (the reason field, the @-list) its handler takes the newline away too (imeTail).
 addEventListener(
   'keydown',
-  (e) => {
-    const r = IME_END;
-    if (r) {
-      if (!r.key) {
-        r.key = e;
-        if (imeTail(e)) {
-          r.code = imeCode(e) || r.code;
-          r.name = e.key;
+  (event) => {
+    const ended = IME_END;
+    if (ended) {
+      if (!ended.key) {
+        ended.key = event;
+        if (imeTail(event)) {
+          ended.code = imeCode(event) || ended.code;
+          ended.name = event.key;
         }
       }
-      if (imeTail(e) || imeRepeat(e, r))
+      if (imeTail(event) || imeRepeat(event, ended))
         imeHold(); // that key, handed on or held
-      else if (!e.isComposing && e.keyCode !== 229) imeEnd();
+      else if (!event.isComposing && event.keyCode !== 229) imeEnd();
     }
-    if (e.key === 'Escape' && imeTail(e)) e.preventDefault();
-    if (e.isComposing || e.keyCode === 229) IME_PRESSED = { el: e.target, code: imeCode(e), name: imeName(e) };
+    if (event.key === 'Escape' && imeTail(event)) event.preventDefault();
+    if (event.isComposing || event.keyCode === 229)
+      IME_PRESSED = { el: event.target, code: imeCode(event), name: imeName(event) };
   },
   true,
 );
 /** Whether keydown e is the Enter or Esc that ended a composition (above): the first keydown after it, in its window, or a
  * repeat of that key while it is held - in the field the composition ended in, or wherever the focus went once that field
  * was taken out of the document. */
-function imeTail(e: KeyboardEvent) {
-  const r = IME_END;
-  if (!r || (e.key !== 'Enter' && e.key !== 'Escape') || (r.el !== e.target && !imeGone(r.el))) return false;
-  return (r.key === e && e.timeStamp - r.at <= IME_TAIL_MS) || imeRepeat(e, r);
+function imeTail(event: KeyboardEvent) {
+  const ended = IME_END;
+  if (!ended || (event.key !== 'Enter' && event.key !== 'Escape') || (ended.el !== event.target && !imeGone(ended.el)))
+    return false;
+  return (ended.key === event && event.timeStamp - ended.at <= IME_TAIL_MS) || imeRepeat(event, ended);
 }
 /** The field a key ended a composition in while that key holds it (IME_END, IME_HOLD_T, above), else null. */
 function imeHeldIn(): EventTarget | null {
-  return IME_END && IME_HOLD_T ? IME_END.el : null;
+  return IME_END && IME_HOLD_TIMER ? IME_END.el : null;
 }
 /** Whether keydown e is the input method's, not the viewer's: a key while it composes, or the key that ended its
  * composition (imeTail). Every key handler that acts on Enter or Esc in or near a text field asks this first. */
-function imeKey(e: KeyboardEvent) {
-  return e.isComposing || e.keyCode === 229 || imeTail(e);
+function imeKey(event: KeyboardEvent) {
+  return event.isComposing || event.keyCode === 229 || imeTail(event);
 }
 // META is null only until boot() reads /api/meta; nothing reads it before.
 let META = null as unknown as Meta,
@@ -481,164 +484,164 @@ const T = {
     '이 탭을 새로 읽어 서버의 새 Limn 화면을 씁니다. 작성 패널의 글과 읽던 자리는 남고, 쓰던 답글·수정이 있으면 먼저 알립니다',
 };
 // Sets BAND, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setBand<T extends typeof BAND>(v: T): T {
-  BAND = v;
-  return v;
+function setBand<Value extends typeof BAND>(value: Value): Value {
+  BAND = value;
+  return value;
 }
 // Sets BAND_IN, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setBandIn<T extends typeof BAND_IN>(v: T): T {
-  BAND_IN = v;
-  return v;
+function setBandIn<Value extends typeof BAND_IN>(value: Value): Value {
+  BAND_IN = value;
+  return value;
 }
 // Sets DEFAULT_DOC, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setDefaultDoc<T extends typeof DEFAULT_DOC>(v: T): T {
-  DEFAULT_DOC = v;
-  return v;
+function setDefaultDoc<Value extends typeof DEFAULT_DOC>(value: Value): Value {
+  DEFAULT_DOC = value;
+  return value;
 }
 // Sets DOC, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setDoc<T extends typeof DOC>(v: T): T {
-  DOC = v;
-  return v;
+function setDoc<Value extends typeof DOC>(value: Value): Value {
+  DOC = value;
+  return value;
 }
 // Sets DOCS, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setDocs<T extends typeof DOCS>(v: T): T {
-  DOCS = v;
-  return v;
+function setDocs<Value extends typeof DOCS>(value: Value): Value {
+  DOCS = value;
+  return value;
 }
 // Sets DONE, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setDone<T extends typeof DONE>(v: T): T {
-  DONE = v;
-  return v;
+function setDone<Value extends typeof DONE>(value: Value): Value {
+  DONE = value;
+  return value;
 }
 // Sets DONE_ALL, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setDoneAll<T extends typeof DONE_ALL>(v: T): T {
-  DONE_ALL = v;
-  return v;
+function setDoneAll<Value extends typeof DONE_ALL>(value: Value): Value {
+  DONE_ALL = value;
+  return value;
 }
 // Sets DROPPED, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setDropped<T extends typeof DROPPED>(v: T): T {
-  DROPPED = v;
-  return v;
+function setDropped<Value extends typeof DROPPED>(value: Value): Value {
+  DROPPED = value;
+  return value;
 }
 // Sets K, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setKState<T extends typeof K>(v: T): T {
-  K = v;
-  return v;
+function setKState<Value extends typeof K>(value: Value): Value {
+  K = value;
+  return value;
 }
 // Sets KIND_NEW, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setKindNew<T extends typeof KIND_NEW>(v: T): T {
-  KIND_NEW = v;
-  return v;
+function setKindNew<Value extends typeof KIND_NEW>(value: Value): Value {
+  KIND_NEW = value;
+  return value;
 }
 // Sets LAST_PTR, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setLastPtr<T extends typeof LAST_PTR>(v: T): T {
-  LAST_PTR = v;
-  return v;
+function setLastPtr<Value extends typeof LAST_PTR>(value: Value): Value {
+  LAST_PTR = value;
+  return value;
 }
 // Sets LAST_TOUCH_T, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setLastTouchT<T extends typeof LAST_TOUCH_T>(v: T): T {
-  LAST_TOUCH_T = v;
-  return v;
+function setLastTouchT<Value extends typeof LAST_TOUCH_T>(value: Value): Value {
+  LAST_TOUCH_T = value;
+  return value;
 }
 // Sets LAYOUT, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setLayout<T extends typeof LAYOUT>(v: T): T {
-  LAYOUT = v;
-  return v;
+function setLayout<Value extends typeof LAYOUT>(value: Value): Value {
+  LAYOUT = value;
+  return value;
 }
 // Sets MENTION_ONLY, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setMentionOnly<T extends typeof MENTION_ONLY>(v: T): T {
-  MENTION_ONLY = v;
-  return v;
+function setMentionOnly<Value extends typeof MENTION_ONLY>(value: Value): Value {
+  MENTION_ONLY = value;
+  return value;
 }
 // Sets META, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setMeta<T extends typeof META>(v: T): T {
-  META = v;
-  return v;
+function setMeta<Value extends typeof META>(value: Value): Value {
+  META = value;
+  return value;
 }
 // Sets MID_OVERLAY, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setMidOverlay<T extends typeof MID_OVERLAY>(v: T): T {
-  MID_OVERLAY = v;
-  return v;
+function setMidOverlay<Value extends typeof MID_OVERLAY>(value: Value): Value {
+  MID_OVERLAY = value;
+  return value;
 }
 // Sets NAVGEN, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setNavgen<T extends typeof NAVGEN>(v: T): T {
-  NAVGEN = v;
-  return v;
+function setNavgen<Value extends typeof NAVGEN>(value: Value): Value {
+  NAVGEN = value;
+  return value;
 }
 // Sets OPEN_ALL, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setOpenAll<T extends typeof OPEN_ALL>(v: T): T {
-  OPEN_ALL = v;
-  return v;
+function setOpenAll<Value extends typeof OPEN_ALL>(value: Value): Value {
+  OPEN_ALL = value;
+  return value;
 }
 // Sets OUTLINE_MID_OPEN, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setOutlineMidOpen<T extends typeof OUTLINE_MID_OPEN>(v: T): T {
-  OUTLINE_MID_OPEN = v;
-  return v;
+function setOutlineMidOpen<Value extends typeof OUTLINE_MID_OPEN>(value: Value): Value {
+  OUTLINE_MID_OPEN = value;
+  return value;
 }
 // Sets PEOPLE, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setPeople<T extends typeof PEOPLE>(v: T): T {
-  PEOPLE = v;
-  return v;
+function setPeople<Value extends typeof PEOPLE>(value: Value): Value {
+  PEOPLE = value;
+  return value;
 }
 // Sets PEOPLE_KNOWN, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setPeopleKnown<T extends typeof PEOPLE_KNOWN>(v: T): T {
-  PEOPLE_KNOWN = v;
-  return v;
+function setPeopleKnown<Value extends typeof PEOPLE_KNOWN>(value: Value): Value {
+  PEOPLE_KNOWN = value;
+  return value;
 }
 // Sets PICKSEQ, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setPickseq<T extends typeof PICKSEQ>(v: T): T {
-  PICKSEQ = v;
-  return v;
+function setPickseq<Value extends typeof PICKSEQ>(value: Value): Value {
+  PICKSEQ = value;
+  return value;
 }
 // Sets PINS, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setPins<T extends typeof PINS>(v: T): T {
-  PINS = v;
-  return v;
+function setPins<Value extends typeof PINS>(value: Value): Value {
+  PINS = value;
+  return value;
 }
 // Sets REPICK, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setRepick<T extends typeof REPICK>(v: T): T {
-  REPICK = v;
-  return v;
+function setRepick<Value extends typeof REPICK>(value: Value): Value {
+  REPICK = value;
+  return value;
 }
 // Sets REPLY, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setReply<T extends typeof REPLY>(v: T): T {
-  REPLY = v;
-  return v;
+function setReply<Value extends typeof REPLY>(value: Value): Value {
+  REPLY = value;
+  return value;
 }
 // Sets REVIEW_ALL, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setReviewAll<T extends typeof REVIEW_ALL>(v: T): T {
-  REVIEW_ALL = v;
-  return v;
+function setReviewAll<Value extends typeof REVIEW_ALL>(value: Value): Value {
+  REVIEW_ALL = value;
+  return value;
 }
 // Sets SELMODE, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setSelmodeState<T extends typeof SELMODE>(v: T): T {
-  SELMODE = v;
-  return v;
+function setSelmodeState<Value extends typeof SELMODE>(value: Value): Value {
+  SELMODE = value;
+  return value;
 }
 // Sets SHOW_ALL, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setShowAll<T extends typeof SHOW_ALL>(v: T): T {
-  SHOW_ALL = v;
-  return v;
+function setShowAll<Value extends typeof SHOW_ALL>(value: Value): Value {
+  SHOW_ALL = value;
+  return value;
 }
 // Sets SIDE_OPEN, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setSideOpen<T extends typeof SIDE_OPEN>(v: T): T {
-  SIDE_OPEN = v;
-  return v;
+function setSideOpen<Value extends typeof SIDE_OPEN>(value: Value): Value {
+  SIDE_OPEN = value;
+  return value;
 }
 // Sets SNIP_OPEN, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setSnipOpen<T extends typeof SNIP_OPEN>(v: T): T {
-  SNIP_OPEN = v;
-  return v;
+function setSnipOpen<Value extends typeof SNIP_OPEN>(value: Value): Value {
+  SNIP_OPEN = value;
+  return value;
 }
 // Sets SWITCHSEQ, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setSwitchseq<T extends typeof SWITCHSEQ>(v: T): T {
-  SWITCHSEQ = v;
-  return v;
+function setSwitchseq<Value extends typeof SWITCHSEQ>(value: Value): Value {
+  SWITCHSEQ = value;
+  return value;
 }
 // Sets ZOOMED, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setZoomed<T extends typeof ZOOMED>(v: T): T {
-  ZOOMED = v;
-  return v;
+function setZoomed<Value extends typeof ZOOMED>(value: Value): Value {
+  ZOOMED = value;
+  return value;
 }
 export {
   $,

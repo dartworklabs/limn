@@ -79,17 +79,17 @@ class PureRules(unittest.TestCase):
         )
 
     def test_the_commits_above_the_last_seen_one_name_their_prs_authors_and_newest_subject(self):
-        """describeCommits and prOf: a squash merge's '(#12)' and a merge commit's 'Merge pull request #13' are PR numbers;
+        """describeCommits and pullRequestOf: a squash merge's '(#12)' and a merge commit's 'Merge pull request #13' are PR numbers;
         the commits counted are those above the last seen one (a prefix of it will do), all of them when it is not among
         the rows (more); a merge commit's own subject gives way to the commit under it; no seen commit, or rows not known
         (null), names none and says so (unknown); no rows (no history), nothing."""
         got = node_json(
-            ["prOf", "describeCommits"],
+            ["pullRequestOf", "describeCommits"],
             """const rows=[{id:'m1',subject:'Merge pull request #13 from bob/x',author:'Bob Park',time:'t3'},
               {id:'c2',subject:'Fix the axis names',author:'Bob Park',time:'t2'},
               {id:'c1',subject:'Shorten the introduction (#12)',author:'Carol Lee',time:'t1'},
               {id:'c0abcdef',subject:'Initial',author:'A',time:'t0'}];
-            console.log(JSON.stringify([prOf('Title (#7)'),prOf('Merge pull request #9 from a/b'),prOf('No PR'),
+            console.log(JSON.stringify([pullRequestOf('Title (#7)'),pullRequestOf('Merge pull request #9 from a/b'),pullRequestOf('No PR'),
               describeCommits(rows,'c0a'),describeCommits(rows,'zzz'),describeCommits(rows,''),describeCommits(rows.slice(2),'c0abcdef'),
               describeCommits(null,'c0a'),describeCommits([],'c0a')]));""",
         )
@@ -121,11 +121,11 @@ class PureRules(unittest.TestCase):
         Mutation: start from the snapshot's highest only -> #80 is said as new, fails."""
         got = node_json(
             ["freshPins", "updNewPins"],
-            """const META={me:{login:'me'}},UPD={top:null},GROUPS=new Map(),said=[]; let pin=100;
+            """const META={me:{login:'me'}},UPDATE_STATE={top:null},GROUPS=new Map(),said=[]; let pin=100;
             function seenPin(){return pin;} function setSeenPin(n){if(pin<n)pin=n;} function announceNewPins(ps){said.push(ps.map(p=>p.id));}
             const p=(id,login)=>({id,author:{login}}),rows=[...Array(50)].map((_,i)=>p(i+1,'bob'));
             updNewPins(rows); updNewPins([...rows,p(80,'bob')]); updNewPins([...rows,p(80,'bob'),p(101,'bob')]);
-            console.log(JSON.stringify({said,top:UPD.top,pin}));""",
+            console.log(JSON.stringify({said,top:UPDATE_STATE.top,pin}));""",
         )
         self.assertEqual(got, {"said": [[101]], "top": 101, "pin": 100})
 
@@ -140,8 +140,8 @@ class PureRules(unittest.TestCase):
         -> the version is never recorded, fails."""
         got = node_json(
             ["describeCommits", "shownRows", "docBuild", "verAfter", "checkDocUpdate", "updSourceRedrawn"],
-            """const DOC='nt',META_BY=new Map(),GROUPS=new Map(),UPD={checking:new Map(),lines:new Map()}; let META=null,rec=null,state=null,reads=0,go=null;
-            function rendersInBrowser(kind){return kind==='md';} function updDocState(){return state;} function seenDoc(){return rec;}
+            """const DOC='nt',META_BY=new Map(),GROUPS=new Map(),UPDATE_STATE={checking:new Map(),lines:new Map()}; let META=null,rec=null,state=null,reads=0,go=null;
+            function rendersInBrowser(kind){return kind==='md';} function shownDocState(){return state;} function seenDoc(){return rec;}
             function setSeenDoc(k,r){rec=r;} function dq(u){return u;} let down=0;
             async function api(){if(down>0){down--; throw new Error('the light meta failed');} return {data:{pages_build:'p2',head:'',stale_build:false}};}
             function docUpdateView(){} function groupNote(){} let gate=true;
@@ -171,11 +171,11 @@ class PureRules(unittest.TestCase):
         call left to it is not asked again, fails; record nothing on a failed read -> the first visit leaves no version
         seen, fails."""
         got = node_json(
-            ["prOf", "describeCommits", "shownRows", "docBuild", "verAfter", "checkDocUpdate"],
-            """const DOC='nt',META_BY=new Map(),GROUPS=new Map(),UPD={checking:new Map()},said=[]; let META=null,rec=null,fail=0,reads=0,gate=false,go=null;
-            function rendersInBrowser(k){return k==='md';} function updDocState(){return {ver:'src:200',name:'노트',kind:'md'};}
+            ["pullRequestOf", "describeCommits", "shownRows", "docBuild", "verAfter", "checkDocUpdate"],
+            """const DOC='nt',META_BY=new Map(),GROUPS=new Map(),UPDATE_STATE={checking:new Map()},said=[]; let META=null,rec=null,fail=0,reads=0,gate=false,go=null;
+            function rendersInBrowser(k){return k==='md';} function shownDocState(){return {ver:'src:200',name:'노트',kind:'md'};}
             function seenDoc(){return rec;} function setSeenDoc(k,r){rec=r;} function dq(u){return u;}
-            async function api(){throw new Error('not asked');} function docUpdateView(){} function updForget(){}
+            async function api(){throw new Error('not asked');} function docUpdateView(){} function forgetUpdate(){}
             function groupNote(g,d){said.push({n:d.commits.n,unknown:d.commits.unknown,history:d.history});}
             const B={id:'bbbb2222',subject:'Fix the axis (#13)',author:'Bob Park',time:'t'},A={id:'aaaa1111',subject:'Initial',author:'A',time:'t'};
             async function docRows(){reads++; if(gate)await new Promise(r=>{go=r;}); if(fail>0){fail--; return null;} return [B,A];}
@@ -197,13 +197,13 @@ class PureRules(unittest.TestCase):
         """Seen src:100; this tab checks src:200 (its lines tinted), a second call is left to that check, another tab
         dismisses src:200's message meanwhile, and the history read fails. What this device has seen is read again
         before anything asks again: src:200 is seen, so nothing is said and this tab's tint and counted moves go
-        (updForget). Mutation: ask again first -> the asking stops at the record and the tint stays, fails."""
+        (forgetUpdate). Mutation: ask again first -> the asking stops at the record and the tint stays, fails."""
         got = node_json(
-            ["prOf", "describeCommits", "shownRows", "docBuild", "verAfter", "checkDocUpdate"],
-            """const DOC='nt',META_BY=new Map(),GROUPS=new Map(),UPD={checking:new Map()},said=[],forgot=[]; let META=null,rec=null,go=null;
-            function rendersInBrowser(k){return k==='md';} function updDocState(){return {ver:'src:200',name:'노트',kind:'md'};}
+            ["pullRequestOf", "describeCommits", "shownRows", "docBuild", "verAfter", "checkDocUpdate"],
+            """const DOC='nt',META_BY=new Map(),GROUPS=new Map(),UPDATE_STATE={checking:new Map()},said=[],forgot=[]; let META=null,rec=null,go=null;
+            function rendersInBrowser(k){return k==='md';} function shownDocState(){return {ver:'src:200',name:'노트',kind:'md'};}
             function seenDoc(){return rec;} function setSeenDoc(k,r){rec=r;} function dq(u){return u;}
-            async function api(){throw new Error('not asked');} function docUpdateView(){} function updForget(k){forgot.push(k);}
+            async function api(){throw new Error('not asked');} function docUpdateView(){} function forgetUpdate(k){forgot.push(k);}
             function groupNote(g,d){said.push(d.ver);}
             async function docRows(){await new Promise(r=>{go=r;}); return null;}
             const idle=async()=>{for(let i=0;i<5;i++)await new Promise(r=>setTimeout(r,0));};
@@ -228,7 +228,7 @@ class PureRules(unittest.TestCase):
                 "seenDoc",
                 "setSeenDoc",
                 "verAfter",
-                "prOf",
+                "pullRequestOf",
                 "describeCommits",
                 "shownRows",
                 "docBuild",
@@ -236,10 +236,10 @@ class PureRules(unittest.TestCase):
                 "docUpdateSeen",
             ],
             """let SEEN_MEM=null; const M=new Map(); const localStorage={getItem:k=>M.has(k)?M.get(k):null,setItem:(k,v)=>M.set(k,String(v))};
-            const DOC='nt',META_BY=new Map(),GROUPS=new Map(),UPD={checking:new Map()},said=[],forgot=[]; let META=null,meanwhile=null;
-            function rendersInBrowser(k){return k==='md';} function updDocState(){return {ver:'src:200',name:'노트',kind:'md'};}
+            const DOC='nt',META_BY=new Map(),GROUPS=new Map(),UPDATE_STATE={checking:new Map()},said=[],forgot=[]; let META=null,meanwhile=null;
+            function rendersInBrowser(k){return k==='md';} function shownDocState(){return {ver:'src:200',name:'노트',kind:'md'};}
             function dq(u){return u;} async function api(){throw new Error('not asked');} function docUpdateView(){}
-            function updForget(k){forgot.push(k);} function groupNote(g,d){said.push(d.ver);}
+            function forgetUpdate(k){forgot.push(k);} function groupNote(g,d){said.push(d.ver);}
             const A={id:'aaaa1111',subject:'Initial',author:'A',time:'t'};
             async function docRows(){const rows=[A]; if(meanwhile){meanwhile(); meanwhile=null;} return rows;}   // another tab writes before the answer lands
             const other=rec=>()=>{const all=JSON.parse(M.get('limnSeen')||'{}'); all.v=1; all.docs={...(all.docs||{}),nt:rec}; M.set('limnSeen',JSON.stringify(all));};
@@ -269,9 +269,9 @@ class PureRules(unittest.TestCase):
         the next build names none (unknown), never a commit the first had already as new (B's PR #12 here); a build at
         such a commit, still behind, after a known one names none either and leaves no commit as seen."""
         got = node_json(
-            ["prOf", "describeCommits", "shownRows", "docBuild", "verAfter", "checkDocUpdate"],
-            """const DOC='ms',META_BY=new Map(),GROUPS=new Map(),UPD={checking:new Map()},said=[]; let META=null,rec=null,state=null,ROWS=[];
-            function rendersInBrowser(){return false;} function updDocState(){return state;} function seenDoc(){return rec;}
+            ["pullRequestOf", "describeCommits", "shownRows", "docBuild", "verAfter", "checkDocUpdate"],
+            """const DOC='ms',META_BY=new Map(),GROUPS=new Map(),UPDATE_STATE={checking:new Map()},said=[]; let META=null,rec=null,state=null,ROWS=[];
+            function rendersInBrowser(){return false;} function shownDocState(){return state;} function seenDoc(){return rec;}
             function setSeenDoc(k,r){rec=r;} async function docRows(){return ROWS;} function dq(u){return u;}
             async function api(){throw new Error('not asked');} function docUpdateView(){}
             function groupNote(g,d){said.push({n:d.commits.n,prs:d.commits.prs,top:d.top,unknown:d.commits.unknown});}
@@ -300,8 +300,8 @@ class PureRules(unittest.TestCase):
         build is known and only the order of versions keeps the older one from being said."""
         got = node_json(
             ["describeCommits", "shownRows", "docBuild", "verAfter", "checkDocUpdate"],
-            """const DOC='nt',META_BY=new Map(),GROUPS=new Map(),UPD={checking:new Map()},said=[]; let META=null,rec=null,state=null,reads=0;
-            function rendersInBrowser(k){return k==='md';} function updDocState(){return state;} function seenDoc(){return rec;}
+            """const DOC='nt',META_BY=new Map(),GROUPS=new Map(),UPDATE_STATE={checking:new Map()},said=[]; let META=null,rec=null,state=null,reads=0;
+            function rendersInBrowser(k){return k==='md';} function shownDocState(){return state;} function seenDoc(){return rec;}
             function setSeenDoc(k,r){rec=r;} async function docRows(){reads++; return [];} function dq(u){return u;}
             async function api(){throw new Error('not asked');} function docUpdateView(){}
             function groupNote(g,d){said.push(d.ver);}
@@ -327,15 +327,15 @@ class PureRules(unittest.TestCase):
     def test_what_another_tab_saw_while_the_history_was_read_is_what_counts(self):
         """checkDocUpdate reads what this device has seen again once the history has answered (another tab writes the
         same limnSeen). Seen A, build C shows: another tab seeing C itself or a later build D meanwhile leaves nothing to
-        say - what this tab kept for the change goes (updForget) - and one seeing B, between them, leaves C alone to say,
+        say - what this tab kept for the change goes (forgetUpdate) - and one seeing B, between them, leaves C alone to say,
         counted from B's commit."""
         got = node_json(
-            ["prOf", "describeCommits", "shownRows", "docBuild", "verAfter", "checkDocUpdate"],
-            """const DOC='ms',META_BY=new Map(),GROUPS=new Map(),UPD={checking:new Map()}; let META=null,rec=null,later=null,said=[],forgot=[];
+            ["pullRequestOf", "describeCommits", "shownRows", "docBuild", "verAfter", "checkDocUpdate"],
+            """const DOC='ms',META_BY=new Map(),GROUPS=new Map(),UPDATE_STATE={checking:new Map()}; let META=null,rec=null,later=null,said=[],forgot=[];
             function rendersInBrowser(){return false;} function seenDoc(){return rec;} function setSeenDoc(k,r){rec=r;}
-            function updDocState(){return {ver:'build:pages-20261105120000',name:'본문',kind:'tex'};}
+            function shownDocState(){return {ver:'build:pages-20261105120000',name:'본문',kind:'tex'};}
             function dq(u){return u;} async function api(){throw new Error('not asked');} function docUpdateView(){}
-            function updForget(k){forgot.push(k);}
+            function forgetUpdate(k){forgot.push(k);}
             function groupNote(g,d){said.push({n:d.commits.n,prs:d.commits.prs,seenRev:d.seenRev,top:d.top});}
             const C=(id,subject)=>({id,subject,author:'Bob Park',time:'t'});
             const A=C('aaaa1111aaaa','Initial'),B=C('bbbb2222bbbb','Update introduction (#12)'),Cc=C('cccc3333cccc','Fix the axis (#13)');
@@ -450,7 +450,7 @@ class PureRules(unittest.TestCase):
 
 # The notice store with its groups and gathering, pulled as served, on a fake clock (as test_viewer_notices_store).
 GROUP_FNS = [
-    "msgSplit", "noticeDupe", "noticeDot", "makeNotice", "lineNote", "endNotice", "noticeText", "armNotice", "noticeHeld",
+    "splitMessage", "noticeDupe", "noticeDot", "makeNotice", "lineNote", "endNotice", "noticeText", "armNotice", "noticeHeld",
     "lineHeld", "holdLine", "releaseLine", "lineHoverOut", "lineVisible", "noticeAct", "noticeClose", "noticeFocusBack",
     "sourceEntry", "sourceOk", "isUndo", "lineCap", "sameWords", "noticeDots", "holdsDot", "groupNote", "regroup",
     "digestBegin", "digestSoon", "digestHold", "digestEnd", "digestBrief", "digestLine", "digestNote", "digestReplay",
@@ -663,20 +663,20 @@ class Grouping(unittest.TestCase):
         got = self.run_store(
             "\n".join(extract_js_fn(n) for n in UPDATE_VIEW_FNS)
             + """
-            const DOC='nt',UPD={moved:new Map(),lines:new Map(),seenAt:new Map(),expect:0,expectAt:0},LINE_DIFF_MAX=500,out={};
-            function pdoc(p){return p.doc;} function switchDoc(){} function updGoNext(){} function openUpdateRange(){} function docUpdateSeen(){}
-            function updMarks(){} function seenDoc(){return null;} function updDocState(){return null;} function checkDocUpdate(){}
+            const DOC='nt',UPDATE_STATE={moved:new Map(),lines:new Map(),seenAt:new Map(),expect:0,expectAt:0},LINE_DIFF_MAX=500,out={};
+            function pdoc(p){return p.doc;} function switchDoc(){} function goToNextChange(){} function openUpdateRange(){} function docUpdateSeen(){}
+            function updMarks(){} function seenDoc(){return null;} function shownDocState(){return null;} function checkDocUpdate(){}
             const data={key:'nt',name:'노트',kind:'md',ver:'src:200',seenRev:'a',top:'b',history:true,
               commits:{n:1,more:false,prs:[12],authors:['Bob Park'],subject:'서론 다듬기',time:'',top:'b',unknown:false}};
             const kv=g=>({msg:'#'+g.ids.join(', #')+' 완료',kind:NOTICE_KIND.OK,act:null,o:{brief:'완료 '+g.ids.length}});
             digestBegin('지난 방문 뒤'); groupNote('upd:nt',data,docUpdateView,null);
             out.held=updPinMoved({id:5,doc:'nt'},false); digestEnd(); out.gathered=said();
-            LINE.slice().forEach(n=>endNotice(n,true)); GROUPS.clear(); UPD.moved.clear(); tick(9000);
+            LINE.slice().forEach(n=>endNotice(n,true)); GROUPS.clear(); UPDATE_STATE.moved.clear(); tick(9000);
             digestBegin('지난 방문 뒤'); groupNote('upd:nt',data,docUpdateView,null); groupNote('done',{ids:[4]},kv,null); digestEnd();
             out.foldedHeld=[updPinMoved({id:5,doc:'nt'},false),updPinMoved({id:6,doc:'nt'},false)];
             noticeAct(LINE.find(n=>n.items).n); out.folded=said().sort();
-            LINE.slice().forEach(n=>endNotice(n,true)); GROUPS.clear(); UPD.moved.clear(); tick(9000);
-            UPD.lines.set('nt',{base:['a','b','c'],ranges:[{lo:1,hi:1}],at:-1});
+            LINE.slice().forEach(n=>endNotice(n,true)); GROUPS.clear(); UPDATE_STATE.moved.clear(); tick(9000);
+            UPDATE_STATE.lines.set('nt',{base:['a','b','c'],ranges:[{lo:1,hi:1}],at:-1});
             digestBegin('지난 방문 뒤'); groupNote('upd:nt',data,docUpdateView,null); groupNote('done',{ids:[7]},kv,null); digestEnd();
             updSourceRedrawn('nt',null,['A','b','C']); out.places=said(); noticeAct(LINE.find(n=>n.items).n); out.unfolded=said().sort();
             console.log(JSON.stringify(out));"""
@@ -776,7 +776,7 @@ class Grouping(unittest.TestCase):
         got = self.run_store(
             extract_js_fn("newPinsView")
             + """
-            const DOC='nt',UPD={top:2}; let seen=1; const ended=[];
+            const DOC='nt',UPDATE_STATE={top:2}; let seen=1; const ended=[];
             function setSeenPin(n){seen=n;} function docInfo(){return {name:'노트'};} function openPinFromLink(){}
             digestBegin('지난 방문 뒤');
             groupNote('new:nt',{doc:'nt',pins:[{id:2,who:'Bob Park',place:'L3',note:'새 지적'}]},newPinsView,null);
@@ -889,15 +889,17 @@ class UpdateFlows(BrowserBase):
         until(page, "!!seenDoc('nt')&&LIGHT_INFLIGHT===null")
         first = SOURCE.replace("첫 문단이다.", "고친 첫 문단이다.")
         change(first)
-        until(page, "UPD.lines.has('nt')")
+        until(page, "UPDATE_STATE.lines.has('nt')")
         change(first.replace("끝 문단이다.", "고친 끝 문단이다."))
-        self.assertEqual(page.evaluate("UPD.lines.get('nt').ranges"), [{"lo": 3, "hi": 3}, {"lo": 11, "hi": 11}])
+        self.assertEqual(
+            page.evaluate("UPDATE_STATE.lines.get('nt').ranges"), [{"lo": 3, "hi": 3}, {"lo": 11, "hi": 11}]
+        )
         self.assertIn("바뀐 곳 2", page.evaluate("LINE.find(n=>n.group==='upd:nt').desc"))
         tinted = "[...document.querySelectorAll('#md .md-upd')].map(e=>e.textContent.trim())"
         self.assertEqual(sorted(page.evaluate(tinted)), ["고친 끝 문단이다.", "고친 첫 문단이다."])
         page.evaluate("noticeClose(LINE.find(n=>n.group==='upd:nt').n)")
         change(first.replace("끝 문단이다.", "고친 끝 문단이다.").replace("- 둘\n", "- 둘 반\n"))
-        self.assertEqual(page.evaluate("UPD.lines.get('nt').ranges"), [{"lo": 8, "hi": 8}])
+        self.assertEqual(page.evaluate("UPDATE_STATE.lines.get('nt').ranges"), [{"lo": 8, "hi": 8}])
 
     def test_a_markdown_document_left_behind_says_its_change_and_a_return_after_seeing_it_says_nothing(self):
         """Read on the Markdown document, then on the manuscript: the note's source changes while it is off screen, and
@@ -933,7 +935,7 @@ class UpdateFlows(BrowserBase):
         self.assertEqual(said, ["노트가 바뀌었습니다", "커밋 없이 파일이 바뀌었습니다", "열기"])
         to("nt")
         drawn(first)
-        until(page, "UPD.lines.has('nt')")
+        until(page, "UPDATE_STATE.lines.has('nt')")
         said = page.evaluate("(()=>{const n=LINE.find(x=>x.group==='upd:nt'); return [n.desc,n.act&&n.act.label];})()")
         self.assertEqual(said, ["커밋 없이 파일이 바뀌었습니다 · 바뀐 곳 1", "바뀐 곳"])
         tinted = "[...document.querySelectorAll('#md .md-upd')].map(e=>e.textContent.trim())"
@@ -949,7 +951,7 @@ class UpdateFlows(BrowserBase):
         page.wait_for_timeout(300)
         self.assertEqual(self.line(page), [t for t in self.line(page) if "바뀌었습니다" not in t])
         self.assertEqual(page.evaluate(tinted), [])
-        self.assertFalse(page.evaluate("UPD.lines.has('nt')"))
+        self.assertFalse(page.evaluate("UPDATE_STATE.lines.has('nt')"))
 
     def test_a_change_another_tab_saw_past_while_this_one_read_its_history_is_not_said(self):
         """Two tabs of one browser on the note. Its source changes (B): tab A draws it and reads the note's history to say
@@ -996,7 +998,7 @@ class UpdateFlows(BrowserBase):
         settle(a)
         tinted = "document.querySelectorAll('#md .md-upd').length"
         self.assertEqual(self.line(a), [t for t in self.line(a) if "바뀌었습니다" not in t])
-        self.assertEqual((a.evaluate(tinted), a.evaluate("UPD.lines.has('nt')")), (0, False))
+        self.assertEqual((a.evaluate(tinted), a.evaluate("UPDATE_STATE.lines.has('nt')")), (0, False))
         a.evaluate("pollLight()")
         until(a, lambda: drawn(a, second))
         settle(a)
@@ -1080,7 +1082,7 @@ class UpdateFlows(BrowserBase):
         until(page, "OPEN_ALL.some(p=>p.id===%d&&p.lo===5)" % pid)
         settle(page)
         self.assertIn("#%d 줄 +2 이동" % pid, self.line(page))
-        self.assertFalse(page.evaluate("UPD.moved.has('nt')"))
+        self.assertFalse(page.evaluate("UPDATE_STATE.moved.has('nt')"))
 
     def test_a_browser_whose_storage_refuses_still_boots_and_keeps_what_it_saw_in_memory(self):
         """Storage throws a SecurityError on reading and writing the event cursor, and refuses writing limnSeen (a full

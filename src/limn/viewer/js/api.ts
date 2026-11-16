@@ -31,140 +31,141 @@ import { bannerNote, lineNote, quietNote, sourceOk } from './notices.ts';
 import { offReadKey, offStaleSaid, offStash, offStashed, offlineBack, offlineMayServe } from './offline.ts';
 const API_WAIT = { POLL: 8000, READ: 8000, PICK: 8000, SAVE: 10000, SEND: 30000 };
 let API_OUT = false;
-async function api(url, o): Promise<{ status: number; data: any }> {
-  o = { ...(o || {}) };
-  o.source = o.source || (o.method || 'GET') + ' ' + url + (o.intent ? ' ' + o.intent : '');
-  const init = { method: o.method || 'GET', headers: {} } as RequestInit & { headers: Record<string, string> };
-  if (o.keepalive) init.keepalive = true;
-  if (o.signal) init.signal = o.signal;
-  if (o.body !== undefined) {
-    init.body = JSON.stringify(o.body);
+async function api(url, options): Promise<{ status: number; data: any }> {
+  options = { ...(options || {}) };
+  options.source =
+    options.source || (options.method || 'GET') + ' ' + url + (options.intent ? ' ' + options.intent : '');
+  const init = { method: options.method || 'GET', headers: {} } as RequestInit & { headers: Record<string, string> };
+  if (options.keepalive) init.keepalive = true;
+  if (options.signal) init.signal = options.signal;
+  if (options.body !== undefined) {
+    init.body = JSON.stringify(options.body);
     init.headers['Content-Type'] = 'application/json';
   }
-  const read = !!offReadKey(url, o);
+  const read = !!offReadKey(url, options);
   if (read && API_OUT && offlineMayServe()) {
-    const kept = await offStashed(url, o);
+    const kept = await offStashed(url, options);
     if (kept) {
       offStaleSaid(kept.at);
-      sourceOk(o.source);
+      sourceOk(options.source);
       return { status: kept.status, data: kept.data };
     }
   }
-  const wait = o.wait || (read ? API_WAIT.READ : 0);
+  const wait = options.wait || (read ? API_WAIT.READ : 0);
   let timer = undefined as ReturnType<typeof setTimeout> | undefined;
-  const ctl = wait ? new AbortController() : null;
-  if (ctl) {
-    const end = () => ctl.abort();
+  const controller = wait ? new AbortController() : null;
+  if (controller) {
+    const end = () => controller.abort();
     timer = setTimeout(end, wait);
-    init.signal = ctl.signal;
-    if (o.signal) {
-      if (o.signal.aborted) end();
-      else o.signal.addEventListener('abort', end, { once: true });
+    init.signal = controller.signal;
+    if (options.signal) {
+      if (options.signal.aborted) end();
+      else options.signal.addEventListener('abort', end, { once: true });
     }
   } // the caller's signal still ends it
-  let r;
+  let response;
   try {
-    r = await fetch(url, init);
-  } catch (e) {
+    response = await fetch(url, init);
+  } catch (error) {
     clearTimeout(timer);
-    return apiUnanswered(url, o, e);
+    return apiUnanswered(url, options, error);
   }
-  let d = null;
+  let body = null;
   try {
-    d = await r.json();
-  } catch (e) {
-    if (o.signal && o.signal.aborted) {
+    body = await response.json();
+  } catch (error) {
+    if (options.signal && options.signal.aborted) {
       clearTimeout(timer);
-      throw e;
+      throw error;
     } // a body the caller's signal cut off is no answer, not an empty one
-    if (ctl && ctl.signal.aborted) return apiUnanswered(url, o, e);
+    if (controller && controller.signal.aborted) return apiUnanswered(url, options, error);
   } // nor is one the wait ran out on
   clearTimeout(timer);
   API_OUT = false;
-  if (r.status >= 400 && !(o.expect || []).includes(r.status)) {
-    if (!o.silent) apiFailed(o, errText(d) || 'HTTP ' + r.status, false);
-    const err = new Error('HTTP ' + r.status) as ApiError;
-    err.status = r.status;
-    err.data = d;
+  if (response.status >= 400 && !(options.expect || []).includes(response.status)) {
+    if (!options.silent) apiFailed(options, errText(body) || 'HTTP ' + response.status, false);
+    const err = new Error('HTTP ' + response.status) as ApiError;
+    err.status = response.status;
+    err.data = body;
     throw err;
   }
-  sourceOk(o.source);
+  sourceOk(options.source);
   offlineBack();
-  offStash(url, d, r.status, o); // a document read the server answered is kept for a later visit with no network
-  return { status: r.status, data: d };
+  offStash(url, body, response.status, options); // a document read the server answered is kept for a later visit with no network
+  return { status: response.status, data: body };
 }
 // A request that got no answer - refused by the network, or ended at its wait.
 // A document read is answered from the last answer stored for it, where there is one and only where that is meant
 // (offlineMayServe: this visit's first reads, or a connection known to be gone): a tab opened again with no network is
 // drawn from it instead of staying empty. Writes, every other read, and a read that fails while the viewer is
 // connected fail as before.
-async function apiUnanswered(url: string, o: any, e: unknown): Promise<{ status: number; data: any }> {
-  if (!(o.signal && o.signal.aborted)) API_OUT = true; // ended by its caller is not unanswered
-  const kept = offlineMayServe() ? await offStashed(url, o) : null;
+async function apiUnanswered(url: string, options: any, error: unknown): Promise<{ status: number; data: any }> {
+  if (!(options.signal && options.signal.aborted)) API_OUT = true; // ended by its caller is not unanswered
+  const kept = offlineMayServe() ? await offStashed(url, options) : null;
   if (kept) {
     offStaleSaid(kept.at);
-    sourceOk(o.source);
+    sourceOk(options.source);
     return { status: kept.status, data: kept.data };
   }
-  if (!o.silent && !o.quietUnreached) apiFailed(o, tr('서버에 닿지 않습니다'), true);
-  throw e;
+  if (!options.silent && !options.quietUnreached) apiFailed(options, tr('서버에 닿지 않습니다'), true);
+  throw error;
 }
 // Says that request o failed ('{what} 실패 — {why}'): on the status line when o.where is NOTICE_HOST.LINE, else in a banner at
 // that host (bannerNote), keyed by its source. [다시 시도] (o.retry) only when the server could not be reached - a refusal
 // would refuse again.
 function apiFailed(
-  o: { what?: string; where?: string; retry?: () => void; save?: boolean; source?: string },
+  options: { what?: string; where?: string; retry?: () => void; save?: boolean; source?: string },
   why: string,
   unreachable: boolean,
 ) {
-  const msg = tl('{what} 실패', { what: tr(o.what || '요청').replace(/…$/, '') }) + ' — ' + why;
-  const act = unreachable && o.retry ? { label: '다시 시도', fn: o.retry } : null,
-    source = o.source || '';
-  if (o.where === NOTICE_HOST.LINE) lineNote(msg, NOTICE_KIND.ERR, act, { source });
-  else bannerNote(o.where, msg, NOTICE_KIND.ERR, act, { save: !!o.save, source });
+  const message = tl('{what} 실패', { what: tr(options.what || '요청').replace(/…$/, '') }) + ' — ' + why;
+  const act = unreachable && options.retry ? { label: '다시 시도', fn: options.retry } : null,
+    source = options.source || '';
+  if (options.where === NOTICE_HOST.LINE) lineNote(message, NOTICE_KIND.ERR, act, { source });
+  else bannerNote(options.where, message, NOTICE_KIND.ERR, act, { save: !!options.save, source });
 }
 // Copies s to the clipboard (a textarea and execCommand where the Clipboard API is refused). Said where it happened: the
 // control that copied (el) reads '복사됨' with a check for a moment (copiedMark), and it is read out politely.
-async function copyText(s: string, el?: HTMLElement | null) {
+async function copyText(text: string, control?: HTMLElement | null) {
   try {
-    await navigator.clipboard.writeText(s);
-  } catch (e) {
-    const ta = document.createElement('textarea');
-    ta.value = s;
-    document.body.appendChild(ta);
-    ta.select();
+    await navigator.clipboard.writeText(text);
+  } catch (error) {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    document.body.appendChild(textarea);
+    textarea.select();
     try {
       document.execCommand('copy');
-    } catch (e2) {}
-    ta.remove();
+    } catch (commandError) {}
+    textarea.remove();
   }
-  quietNote(tl('복사함: {text}', { text: s }));
-  if (el) copiedMark(el);
+  quietNote(tl('복사함: {text}', { text: text }));
+  if (control) copiedMark(control);
 }
 const COPIED_MS = 1500; // how long a copy control says it copied
 // Control el says it copied: a check and '복사됨' in place of what it shows, never narrower than it was, for COPIED_MS; then
 // what it showed comes back. A second copy meanwhile starts the moment again. Its name (aria-label) stays: the copy is read
 // out by copyText.
-function copiedMark(el: HTMLElement) {
-  if (el._copiedT) clearTimeout(el._copiedT);
+function copiedMark(control: HTMLElement) {
+  if (control._copiedT) clearTimeout(control._copiedT);
   else {
-    el._copied = [...el.childNodes];
-    el.style.minWidth = Math.ceil(el.getBoundingClientRect().width) + 'px';
+    control._copied = [...control.childNodes];
+    control.style.minWidth = Math.ceil(control.getBoundingClientRect().width) + 'px';
   }
-  el.classList.add('copied');
-  setHtml(el, html`${ic('check')}<span class="lbl">${tr('복사됨')}</span>`);
-  el._copiedT = setTimeout(() => {
-    el.classList.remove('copied');
-    el.replaceChildren(...(el._copied || []));
-    el._copied = undefined;
-    el._copiedT = undefined;
-    el.style.minWidth = '';
+  control.classList.add('copied');
+  setHtml(control, html`${ic('check')}<span class="lbl">${tr('복사됨')}</span>`);
+  control._copiedT = setTimeout(() => {
+    control.classList.remove('copied');
+    control.replaceChildren(...(control._copied || []));
+    control._copied = undefined;
+    control._copiedT = undefined;
+    control.style.minWidth = '';
   }, COPIED_MS);
 }
 
 // Sets API_OUT, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setApiOut<T extends typeof API_OUT>(v: T): T {
-  API_OUT = v;
-  return v;
+function setApiOut<Value extends typeof API_OUT>(value: Value): Value {
+  API_OUT = value;
+  return value;
 }
 export { API_OUT, API_WAIT, api, apiFailed, copyText, setApiOut };

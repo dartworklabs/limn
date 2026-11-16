@@ -37,9 +37,9 @@ const STATUS_TRANSIENT_MS = 6000; // a passing answer (no changes) stays on the 
 // A build's countable progress {done, total}: integers with total > 0 and 0 <= done <= total, else null - as if the field were
 // missing (GET /api/build `progress`: the pages drawn of the PDF's while a render runs, null otherwise, absent from an older
 // server; without it the bar does not know its end, docs/handbook/build-sync.md §진행 폴링). Pure.
-function statusProgress(pr) {
-  if (!pr || typeof pr !== 'object') return null;
-  const { done, total } = pr;
+function statusProgress(progress) {
+  if (!progress || typeof progress !== 'object') return null;
+  const { done, total } = progress;
   return Number.isInteger(done) && Number.isInteger(total) && total > 0 && done >= 0 && done <= total
     ? { done, total }
     : null;
@@ -77,45 +77,58 @@ type StatusItem =
   | { kind: 'stale'; act: string | null }
   | { kind: 'sync'; state: string; act: null }
   | { kind: 'png'; act: null };
-function statusList(s) {
+function statusList(input) {
   const out: StatusItem[] = [],
-    b = s.build,
-    running = !!b && b.state === BUILD_STATE.RUNNING,
-    e = s.buildErr,
-    sy = s.sync && s.sync.state;
-  const notes = s.notices || [],
-    alert = (n: Notice) => !!n.alert || n.kind === NOTICE_KIND.ERR;
-  notes.filter(alert).forEach((n) => out.push({ kind: STATUS_KIND.NOTICE, notice: n, act: 'notice' }));
-  if (e && e.state === BUILD_STATE.FAIL) out.push({ kind: STATUS_KIND.FAILED, act: 'build-err-reopen' });
-  else if (e && e.state === BUILD_STATE.OK_ERRORS)
-    out.push({ kind: STATUS_KIND.ERRORS, n: (e.errors || []).length, act: 'build-err-reopen' });
-  if (s.offline) out.push({ kind: STATUS_KIND.OFFLINE, act: null });
-  if (s.queued)
-    out.push({ kind: STATUS_KIND.QUEUED, n: s.queued, held: s.held || 0, act: s.offline ? null : 'offline-flush' });
-  if (s.outdated) out.push({ kind: STATUS_KIND.OUTDATED, version: s.outdated, act: 'reload' });
-  notes.filter((n) => !alert(n)).forEach((n) => out.push({ kind: STATUS_KIND.NOTICE, notice: n, act: 'notice' }));
+    build = input.build,
+    running = !!build && build.state === BUILD_STATE.RUNNING,
+    buildError = input.buildErr,
+    syncState = input.sync && input.sync.state;
+  const notes = input.notices || [],
+    alert = (notice: Notice) => !!notice.alert || notice.kind === NOTICE_KIND.ERR;
+  notes.filter(alert).forEach((notice) => out.push({ kind: STATUS_KIND.NOTICE, notice: notice, act: 'notice' }));
+  if (buildError && buildError.state === BUILD_STATE.FAIL)
+    out.push({ kind: STATUS_KIND.FAILED, act: 'build-err-reopen' });
+  else if (buildError && buildError.state === BUILD_STATE.OK_ERRORS)
+    out.push({ kind: STATUS_KIND.ERRORS, n: (buildError.errors || []).length, act: 'build-err-reopen' });
+  if (input.offline) out.push({ kind: STATUS_KIND.OFFLINE, act: null });
+  if (input.queued)
+    out.push({
+      kind: STATUS_KIND.QUEUED,
+      n: input.queued,
+      held: input.held || 0,
+      act: input.offline ? null : 'offline-flush',
+    });
+  if (input.outdated) out.push({ kind: STATUS_KIND.OUTDATED, version: input.outdated, act: 'reload' });
+  notes
+    .filter((notice) => !alert(notice))
+    .forEach((notice) => out.push({ kind: STATUS_KIND.NOTICE, notice: notice, act: 'notice' }));
   if (running)
     out.push({
-      kind: { render: STATUS_KIND.RENDERING }[b.phase] || STATUS_KIND.BUILDING,
-      phase: b.phase || '',
-      el: Math.round(b.elapsed_s || 0),
-      last: b.last_s ? Math.round(b.last_s) : 0,
-      progress: statusProgress(b.progress),
+      kind: { render: STATUS_KIND.RENDERING }[build.phase] || STATUS_KIND.BUILDING,
+      phase: build.phase || '',
+      el: Math.round(build.elapsed_s || 0),
+      last: build.last_s ? Math.round(build.last_s) : 0,
+      progress: statusProgress(build.progress),
       act: null,
     });
-  if (sy === SYNC_STATE.BLOCKED || sy === SYNC_STATE.ERROR)
-    out.push({ kind: STATUS_KIND.SYNC_BLOCKED, reason: s.sync.reason || '', act: 'status-why' });
-  if (s.unchanged && !running)
-    out.push({ kind: STATUS_KIND.UNCHANGED, pull: s.unchanged.pull || '', act: s.canRebuild ? 'rebuild-force' : null });
-  if (s.stale && !running && !s.unchanged) out.push({ kind: STATUS_KIND.STALE, act: s.canRebuild ? 'rebuild' : null });
+  if (syncState === SYNC_STATE.BLOCKED || syncState === SYNC_STATE.ERROR)
+    out.push({ kind: STATUS_KIND.SYNC_BLOCKED, reason: input.sync.reason || '', act: 'status-why' });
+  if (input.unchanged && !running)
+    out.push({
+      kind: STATUS_KIND.UNCHANGED,
+      pull: input.unchanged.pull || '',
+      act: input.canRebuild ? 'rebuild-force' : null,
+    });
+  if (input.stale && !running && !input.unchanged)
+    out.push({ kind: STATUS_KIND.STALE, act: input.canRebuild ? 'rebuild' : null });
   if (
-    sy === SYNC_STATE.CHECKING ||
-    sy === SYNC_STATE.DEFERRED ||
-    sy === SYNC_STATE.UPDATING ||
-    sy === SYNC_STATE.UPDATED
+    syncState === SYNC_STATE.CHECKING ||
+    syncState === SYNC_STATE.DEFERRED ||
+    syncState === SYNC_STATE.UPDATING ||
+    syncState === SYNC_STATE.UPDATED
   )
-    out.push({ kind: STATUS_KIND.SYNC, state: sy, act: null });
-  if (s.png) out.push({ kind: STATUS_KIND.PNG, act: null });
+    out.push({ kind: STATUS_KIND.SYNC, state: syncState, act: null });
+  if (input.png) out.push({ kind: STATUS_KIND.PNG, act: null });
   return out;
 }
 // The items a band's line shows of statusList's: all of them on the compact bands; on the desktop (wide) only the messages,
@@ -125,22 +138,22 @@ function statusList(s) {
 function statusShown(list, wide) {
   return wide
     ? list.filter(
-        (i) =>
-          i.kind === STATUS_KIND.NOTICE ||
-          i.kind === STATUS_KIND.UNCHANGED ||
-          i.kind === STATUS_KIND.OUTDATED ||
-          i.kind === STATUS_KIND.QUEUED,
+        (item) =>
+          item.kind === STATUS_KIND.NOTICE ||
+          item.kind === STATUS_KIND.UNCHANGED ||
+          item.kind === STATUS_KIND.OUTDATED ||
+          item.kind === STATUS_KIND.QUEUED,
       )
     : list;
 }
 
 // A filled template's text as [label, tail], cut at the template's first placeholder: the words before it (without the
 // separator) are the label, the rest - the numbers - the tail. tl('쪽 {done}/{total}',{done:3,total:9}) is ['쪽', ' 3/9'].
-function statusSplit(key, p) {
-  const tpl = tl(key, {}),
-    i = tpl.indexOf('{'),
-    head = (i < 0 ? tpl : tpl.slice(0, i)).replace(/[\s·]+$/, ''),
-    full = tl(key, p);
+function statusSplit(key, values) {
+  const template = tl(key, {}),
+    brace = template.indexOf('{'),
+    head = (brace < 0 ? template : template.slice(0, brace)).replace(/[\s·]+$/, ''),
+    full = tl(key, values);
   return [head, full.slice(head.length)];
 }
 
@@ -150,8 +163,8 @@ function statusText(item, fit) {
   const long = fit !== 'short';
   switch (item.kind) {
     case STATUS_KIND.NOTICE: {
-      const n = item.notice;
-      return [long && n.desc ? n.title + ' · ' + n.desc : n.title, ''];
+      const notice = item.notice;
+      return [long && notice.desc ? notice.title + ' · ' + notice.desc : notice.title, ''];
     } // already in the UI language
     case STATUS_KIND.FAILED:
       return [long ? tr('빌드 실패 · 이전 PDF를 보는 중') : tr('빌드 실패'), ''];
@@ -177,8 +190,10 @@ function statusText(item, fit) {
       ];
     case STATUS_KIND.RENDERING:
       if (item.progress) {
-        const pr = item.progress;
-        return long ? statusSplit('쪽 그리는 중 · {done}/{total}쪽', pr) : statusSplit('쪽 {done}/{total}', pr);
+        const progress = item.progress;
+        return long
+          ? statusSplit('쪽 그리는 중 · {done}/{total}쪽', progress)
+          : statusSplit('쪽 {done}/{total}', progress);
       }
     // falls through: no progress field - the seconds, as for any other phase
     case STATUS_KIND.BUILDING: {
@@ -187,8 +202,11 @@ function statusText(item, fit) {
           item.phase
         ] || '재빌드 중',
       ).replace(/…$/, '');
-      const s = tl('{s}초', { s: item.el });
-      return [name, long ? ' · ' + s + (item.last ? ' ' + tl('(지난번 {s}초)', { s: item.last }) : '') : ' ' + s];
+      const seconds = tl('{s}초', { s: item.el });
+      return [
+        name,
+        long ? ' · ' + seconds + (item.last ? ' ' + tl('(지난번 {s}초)', { s: item.last }) : '') : ' ' + seconds,
+      ];
     }
     case STATUS_KIND.SYNC_BLOCKED:
       return [
@@ -224,18 +242,18 @@ function statusText(item, fit) {
 // blocked sync, the lost-connection icon, a spinner while work runs (a check once main sync is applied), an 8px warning dot
 // for a stale PDF, the image icon for PNG.
 function statusIcon(item) {
-  const K = STATUS_KIND;
-  if (item.kind === K.NOTICE)
+  const kinds = STATUS_KIND;
+  if (item.kind === kinds.NOTICE)
     return html`<span class="st-ic nk-${item.notice.kind}">${noticeIcon(item.notice.kind)}</span>`;
-  if (item.kind === K.FAILED || item.kind === K.ERRORS || item.kind === K.SYNC_BLOCKED)
+  if (item.kind === kinds.FAILED || item.kind === kinds.ERRORS || item.kind === kinds.SYNC_BLOCKED)
     return html`<span class="st-ic warn">${ic('triangle-alert')}</span>`;
-  if (item.kind === K.OFFLINE) return html`<span class="st-ic">${ic('wifi-off')}</span>`;
-  if (item.kind === K.QUEUED)
+  if (item.kind === kinds.OFFLINE) return html`<span class="st-ic">${ic('wifi-off')}</span>`;
+  if (item.kind === kinds.QUEUED)
     return html`<span class="st-ic${item.held ? ' warn' : ''}">${ic(item.held ? 'triangle-alert' : 'clock')}</span>`;
-  if (item.kind === K.OUTDATED) return html`<span class="st-ic warn">${ic('refresh-cw')}</span>`;
-  if (item.kind === K.STALE) return html`<span class="st-ic"><i class="st-stale"></i></span>`;
-  if (item.kind === K.PNG) return html`<span class="st-ic">${ic('image')}</span>`;
-  if (item.kind === K.UNCHANGED || (item.kind === K.SYNC && item.state === SYNC_STATE.UPDATED))
+  if (item.kind === kinds.OUTDATED) return html`<span class="st-ic warn">${ic('refresh-cw')}</span>`;
+  if (item.kind === kinds.STALE) return html`<span class="st-ic"><i class="st-stale"></i></span>`;
+  if (item.kind === kinds.PNG) return html`<span class="st-ic">${ic('image')}</span>`;
+  if (item.kind === kinds.UNCHANGED || (item.kind === kinds.SYNC && item.state === SYNC_STATE.UPDATED))
     return html`<span class="st-ic">${ic('check')}</span>`;
   return html`<span class="st-ic"><i class="spin"></i></span>`;
 }
@@ -295,8 +313,8 @@ function statusInput() {
 // The answer to this tab's rebuild that kept the pages (0.4.5: ok, unchanged, the same seq), with [그래도 빌드] for a cold
 // build: the status line says it on every band - the desktop's line under its chips too - for STATUS_TRANSIENT_MS, then shows
 // what it showed before; a build that starts, a document switch or [그래도 빌드] ends it sooner.
-function buildUnchanged(b) {
-  const mark = { pull: pullSuffix(b) };
+function buildUnchanged(build) {
+  const mark = { pull: pullSuffix(build) };
   BUILD.unchanged = mark;
   drawStatus();
   setTimeout(() => {
@@ -319,19 +337,20 @@ function buildUnchanged(b) {
 // build runs. body.has-status says a line is up (the sheet joins it).
 function drawStatus() {
   const box = $('#status'),
-    sr = box.querySelector('.st-sr'),
+    spoken = box.querySelector('.st-sr'),
     body = box.querySelector('.st-body'),
     running = !!BUILD.cur;
-  const f = statusFocus();
+  const focused = statusFocus();
   let list = statusShown(statusList(statusInput()), LAYOUT === LAYOUT_MODE.WIDE);
-  const held = f && f.n ? list.findIndex((i) => !!i.notice && String(i.notice.n) === f.n) : -1;
+  const held =
+    focused && focused.n ? list.findIndex((item) => !!item.notice && String(item.notice.n) === focused.n) : -1;
   if (held > 0) list = [list[held], ...list.slice(0, held), ...list.slice(held + 1)];
   const top = list[0];
   STATUS_TOP = top && top.notice ? top.notice.n : 0;
-  const m = $('#m-rebuild');
-  if (m) {
-    m.disabled = running;
-    const tail = m.querySelector('.m-tail');
+  const rebuildRow = $('#m-rebuild');
+  if (rebuildRow) {
+    rebuildRow.disabled = running;
+    const tail = rebuildRow.querySelector('.m-tail');
     if (tail) tail.hidden = !running;
   }
   document.body.classList.toggle('has-status', !!top);
@@ -345,7 +364,7 @@ function drawStatus() {
       body.replaceChildren();
       STATUS_SIG = '';
     }
-    sr.textContent = '';
+    spoken.textContent = '';
     lineVisible(false);
     return;
   } // hidden: it holds nothing
@@ -370,49 +389,50 @@ function drawStatus() {
       : '';
     setHtml(body, html`${statusIcon(top)}<span class="st-tx" aria-hidden="true"></span>${more}${statusAct(top)}${bar}`);
   }
-  const tx = box.querySelector('.st-tx'),
+  const textSpan = box.querySelector('.st-tx'),
     long = statusText(top, 'long'),
     short = statusText(top, 'short');
-  tx.textContent = BAND === LAYOUT_BAND.SHORT ? short[0] + short[1] : long[0] + long[1]; // the short band's one row always takes the short text
-  if (tx.scrollWidth > tx.clientWidth) tx.textContent = short[0] + short[1];
+  textSpan.textContent = BAND === LAYOUT_BAND.SHORT ? short[0] + short[1] : long[0] + long[1]; // the short band's one row always takes the short text
+  if (textSpan.scrollWidth > textSpan.clientWidth) textSpan.textContent = short[0] + short[1];
   const said = top.notice
     ? top.notice.alert
     : top.kind === STATUS_KIND.FAILED || top.kind === STATUS_KIND.ERRORS || top.kind === STATUS_KIND.OFFLINE; // OUTDATED is read out politely here
   const say = said || (top.notice && top.notice.quiet) ? '' : long[0];
-  if (sr.textContent !== say) sr.textContent = say; // a quiet one (a moved undo) was said when it came
-  refocusStatus(f);
+  if (spoken.textContent !== say) spoken.textContent = say; // a quiet one (a moved undo) was said when it came
+  refocusStatus(focused);
   const bar = box.querySelector('.st-bar');
   if (!bar) return;
   const { done, total } = top.progress || {},
-    pct = top.progress ? Math.round((done / total) * 100) : null;
-  bar.classList.toggle('indet', pct === null);
-  bar.querySelector('i').style.width = pct === null ? '' : pct + '%';
-  if (pct === null) {
+    percent = top.progress ? Math.round((done / total) * 100) : null;
+  bar.classList.toggle('indet', percent === null);
+  bar.querySelector('i').style.width = percent === null ? '' : percent + '%';
+  if (percent === null) {
     bar.removeAttribute('aria-valuenow');
   } else {
     bar.setAttribute('aria-valuemin', '0');
     bar.setAttribute('aria-valuemax', '100');
-    bar.setAttribute('aria-valuenow', String(pct));
+    bar.setAttribute('aria-valuenow', String(percent));
   }
 }
 
 // The button of the line or its '+N' list that has the keyboard focus, as its data-act and data-n ('' for an item's own
 // action), or null: the line's redraw gives the focus back to it (refocusStatus).
 function statusFocus(): { act: string; n: string } | null {
-  const a = document.activeElement as HTMLElement | null;
-  return a && a.closest && a.closest('#status,#status-list') && a.dataset.act
-    ? { act: a.dataset.act, n: a.dataset.n || '' }
+  const active = document.activeElement as HTMLElement | null;
+  return active && active.closest && active.closest('#status,#status-list') && active.dataset.act
+    ? { act: active.dataset.act, n: active.dataset.n || '' }
     : null;
 }
 // Puts the focus back on the button f named (statusFocus) when a redraw replaced it: in the open '+N' list, else on the line.
-function refocusStatus(f: { act: string; n: string } | null) {
-  if (!f) return;
-  const a = document.activeElement;
-  if (a && a !== document.body && document.contains(a)) return;
-  const sel = '[data-act="' + f.act + '"]' + (f.n ? '[data-n="' + f.n + '"]' : ''),
-    l = $('#status-list');
-  const b = ((l.open && l.querySelector(sel)) || $('#status').querySelector(sel)) as HTMLElement | null;
-  if (b) b.focus({ preventScroll: true });
+function refocusStatus(focused: { act: string; n: string } | null) {
+  if (!focused) return;
+  const active = document.activeElement;
+  if (active && active !== document.body && document.contains(active)) return;
+  const selector = '[data-act="' + focused.act + '"]' + (focused.n ? '[data-n="' + focused.n + '"]' : ''),
+    listDialog = $('#status-list');
+  const button = ((listDialog.open && listDialog.querySelector(selector)) ||
+    $('#status').querySelector(selector)) as HTMLElement | null;
+  if (button) button.focus({ preventScroll: true });
 }
 // The line follows the focus: when it leaves a message's button, the line shows again what comes first.
 $('#status').addEventListener('focusout', () =>
@@ -426,23 +446,23 @@ $('#status').addEventListener('focusout', () =>
 function drawStatusList(list) {
   setHtml(
     $('#status-list-rows'),
-    html`${list.map((it) => {
-      const t = statusText(it, 'long');
-      return html`<div class="st-row">${statusIcon(it)}<span class="st-row-t" translate="no">${t[0] + t[1]}</span>${statusAct(it)}</div>`;
+    html`${list.map((item) => {
+      const text = statusText(item, 'long');
+      return html`<div class="st-row">${statusIcon(item)}<span class="st-row-t" translate="no">${text[0] + text[1]}</span>${statusAct(item)}</div>`;
     })}`,
   );
 }
 // The sentence [이유] of blocked main sync explains: main sync is blocked, why (SYNC_REASON), and that the previous PDF may be
 // showing. Only tr/tl beyond its argument.
-function syncWhyText(s: SyncStatus | null) {
-  const r = (s && s.reason) || '';
-  return tr('main 동기화 막힘') + ' — ' + tr(SYNC_REASON[r] || r) + ' · ' + tr('기존 PDF가 보일 수 있습니다');
+function syncWhyText(sync: SyncStatus | null) {
+  const reason = (sync && sync.reason) || '';
+  return tr('main 동기화 막힘') + ' — ' + tr(SYNC_REASON[reason] || reason) + ' · ' + tr('기존 PDF가 보일 수 있습니다');
 }
 // [이유] of blocked main sync: its sentence (syncWhyText, also the button's description) shown right at the button - or,
 // pressed in the '+N' list, which has just folded, at the line - and read out.
-function statusWhy(btn: HTMLElement) {
+function statusWhy(button: HTMLElement) {
   const text = syncWhyText(STATUS_SYNC);
-  showTipText(btn.getClientRects().length ? btn : $('#status'), text);
+  showTipText(button.getClientRects().length ? button : $('#status'), text);
   announce(text);
 }
 // Opens the '+N' list beside the status line (placeStatusList), or folds it on a second press.
@@ -450,17 +470,17 @@ function statusWhy(btn: HTMLElement) {
 // Shown first, the focus showModal gives its first row came where the list stood before it was placed, and on a phone
 // zoomed in on the line the view moved to that row - the line went out of sight.
 function toggleStatusList() {
-  const d = $('#status-list');
-  if (d.open) {
-    d.close();
+  const dialog = $('#status-list');
+  if (dialog.open) {
+    dialog.close();
     return;
   }
   drawStatusList(statusShown(statusList(statusInput()), LAYOUT === LAYOUT_MODE.WIDE));
   hideTip();
-  d.setAttribute('open', '');
+  dialog.setAttribute('open', '');
   placeStatusList();
-  d.removeAttribute('open');
-  d.showModal();
+  dialog.removeAttribute('open');
+  dialog.showModal();
   holdLine();
 }
 // The list folded (Esc, an outside press, the back gesture, a row's action) and the focus is still in it, or nowhere: the
@@ -469,19 +489,19 @@ function toggleStatusList() {
 // view, and the next Tab started from the top. It goes to the line's '+N' now, else to the line's first control; a focus
 // the row's action put elsewhere stays.
 $('#status-list').addEventListener('close', () => {
-  const a = document.activeElement,
-    s = $('#status');
-  if (a && a !== document.body && !$('#status-list').contains(a)) return;
-  const b = (s.querySelector('[data-act="status-more"]') || s.querySelector('button')) as HTMLElement | null;
-  if (b) b.focus({ preventScroll: true });
+  const active = document.activeElement,
+    line = $('#status');
+  if (active && active !== document.body && !$('#status-list').contains(active)) return;
+  const button = (line.querySelector('[data-act="status-more"]') || line.querySelector('button')) as HTMLElement | null;
+  if (button) button.focus({ preventScroll: true });
 });
 // Which side of the status line the '+N' list opens on, for a list h px tall with room px free above and below the line
 // (to 8px off the edge of the window's visible part): its own side - over the line, or under it when the line is the short band's top row
 // (under) - where the whole list fits there, else the other side where it fits, else the side with more room, where the list
 // is cut to that room and scrolls. True for over the line. Pure.
-function statusListUp(h: number, above: number, below: number, under: boolean) {
-  if (h <= (under ? below : above)) return !under;
-  if (h <= (under ? above : below)) return under;
+function statusListUp(height: number, above: number, below: number, under: boolean) {
+  if (height <= (under ? below : above)) return !under;
+  if (height <= (under ? above : below)) return under;
   return above >= below;
 }
 // Puts the open '+N' list 4px off the status line on the side statusListUp picks, and lets it grow only to 8px off the
@@ -499,49 +519,49 @@ function statusListUp(h: number, above: number, below: number, under: boolean) {
 // one that leaves - a list opened over the line with two rows got more and kept scrolling in that room), when the
 // window or its visible part changes size or moves; a band change folds it (placeStatus).
 function placeStatusList() {
-  const d = $('#status-list');
-  if (!d.open) return;
-  const vv = window.visualViewport,
-    vt = vv ? vv.offsetTop : 0,
-    vb = vv ? vt + vv.height : innerHeight,
-    r = $('#status').getBoundingClientRect();
+  const dialog = $('#status-list');
+  if (!dialog.open) return;
+  const viewport = window.visualViewport,
+    viewTop = viewport ? viewport.offsetTop : 0,
+    viewBottom = viewport ? viewTop + viewport.height : innerHeight,
+    lineRect = $('#status').getBoundingClientRect();
   // On the desktop the list's right edge follows the line's - its rows' [되돌리기] and [x] under the line's own - and it
   // reaches left from there: centred in the window it stood about 350px left of the line, over the PDF. Elsewhere the line
   // spans the bar and the list is centred over it (responsive.css). Either box is then held 8px inside the visible part,
   // narrowed to it where it is narrower: a phone zoomed in had the list run past both sides of what it showed.
-  const vl = vv ? vv.offsetLeft : 0,
-    vr = vv ? vl + vv.width : innerWidth;
-  d.style.left = '';
-  d.style.right = '';
-  const cs = getComputedStyle(d),
-    max = parseFloat(cs.maxWidth);
-  let L0, R0;
+  const viewLeft = viewport ? viewport.offsetLeft : 0,
+    viewRight = viewport ? viewLeft + viewport.width : innerWidth;
+  dialog.style.left = '';
+  dialog.style.right = '';
+  const style = getComputedStyle(dialog),
+    max = parseFloat(style.maxWidth);
+  let baseLeft, baseRight;
   if (LAYOUT === LAYOUT_MODE.WIDE) {
-    R0 = r.right + parseFloat(cs.paddingRight) + parseFloat(cs.borderRightWidth);
-    L0 = Math.max(8, R0 - max);
+    baseRight = lineRect.right + parseFloat(style.paddingRight) + parseFloat(style.borderRightWidth);
+    baseLeft = Math.max(8, baseRight - max);
   } else {
-    const bl = parseFloat(cs.left),
-      br = innerWidth - parseFloat(cs.right),
-      bw = Math.min(max, br - bl);
-    L0 = bl + (br - bl - bw) / 2;
-    R0 = L0 + bw;
+    const barLeft = parseFloat(style.left),
+      barRight = innerWidth - parseFloat(style.right),
+      barWidth = Math.min(max, barRight - barLeft);
+    baseLeft = barLeft + (barRight - barLeft - barWidth) / 2;
+    baseRight = baseLeft + barWidth;
   }
-  const w = Math.min(R0 - L0, vr - vl - 16),
-    L = Math.min(Math.max(L0, vl + 8), vr - 8 - w);
-  d.style.left = Math.round(L) + 'px';
-  d.style.right = Math.round(innerWidth - L - w) + 'px';
-  const at = Math.min(Math.max(r.top, vt), vb),
-    ab = Math.min(Math.max(r.bottom, vt), vb); // the line's edges, held inside the visible part
-  const above = at - vt - 4 - 8,
-    below = vb - ab - 4 - 8,
-    h = d.scrollHeight + d.offsetHeight - d.clientHeight;
-  const row = d.querySelector('.st-row') as HTMLElement | null,
-    one = h - $('#status-list-rows').offsetHeight + (row ? row.offsetHeight : 0); // a row, its padding, border
-  const up = statusListUp(h, above, below, BAND === LAYOUT_BAND.SHORT),
-    room = Math.floor(Math.min(Math.max(up ? above : below, one), vb - vt - 16));
-  d.style.setProperty('--sl-room', room + 'px');
-  d.style.top = up ? 'auto' : Math.round(Math.min(ab + 4, vb - 8 - room)) + 'px';
-  d.style.bottom = up ? Math.round(innerHeight - Math.max(at - 4, vt + 8 + room)) + 'px' : 'auto';
+  const width = Math.min(baseRight - baseLeft, viewRight - viewLeft - 16),
+    left = Math.min(Math.max(baseLeft, viewLeft + 8), viewRight - 8 - width);
+  dialog.style.left = Math.round(left) + 'px';
+  dialog.style.right = Math.round(innerWidth - left - width) + 'px';
+  const lineTop = Math.min(Math.max(lineRect.top, viewTop), viewBottom),
+    lineBottom = Math.min(Math.max(lineRect.bottom, viewTop), viewBottom); // the line's edges, held inside the visible part
+  const above = lineTop - viewTop - 4 - 8,
+    below = viewBottom - lineBottom - 4 - 8,
+    height = dialog.scrollHeight + dialog.offsetHeight - dialog.clientHeight;
+  const row = dialog.querySelector('.st-row') as HTMLElement | null,
+    one = height - $('#status-list-rows').offsetHeight + (row ? row.offsetHeight : 0); // a row, its padding, border
+  const up = statusListUp(height, above, below, BAND === LAYOUT_BAND.SHORT),
+    room = Math.floor(Math.min(Math.max(up ? above : below, one), viewBottom - viewTop - 16));
+  dialog.style.setProperty('--sl-room', room + 'px');
+  dialog.style.top = up ? 'auto' : Math.round(Math.min(lineBottom + 4, viewBottom - 8 - room)) + 'px';
+  dialog.style.bottom = up ? Math.round(innerHeight - Math.max(lineTop - 4, viewTop + 8 + room)) + 'px' : 'auto';
 }
 // placeStatusList at the next frame, once for all the changes before it: the line is drawn by then.
 let STATUS_LIST_PLACE = 0;
@@ -554,10 +574,10 @@ function placeStatusListSoon() {
 }
 addEventListener('resize', placeStatusListSoon);
 {
-  const vv = window.visualViewport;
-  if (vv) {
-    vv.addEventListener('resize', placeStatusListSoon);
-    vv.addEventListener('scroll', placeStatusListSoon);
+  const viewport = window.visualViewport;
+  if (viewport) {
+    viewport.addEventListener('resize', placeStatusListSoon);
+    viewport.addEventListener('scroll', placeStatusListSoon);
   }
 }
 
@@ -565,19 +585,19 @@ addEventListener('resize', placeStatusListSoon);
 // switch, the mid action row's middle, the desktop's line under its status chips (#status-wide) - keeping a focus that was
 // inside it, then draws it. An open '+N' list folds: it was placed for the old band.
 function placeStatus() {
-  const s = $('#status'),
-    a = document.activeElement as HTMLElement,
-    had = s.contains(a);
+  const line = $('#status'),
+    active = document.activeElement as HTMLElement,
+    had = line.contains(active);
   if ($('#status-list').open) $('#status-list').close();
   lineVisible(false); // moved out from under the pointer: no hover is left holding its windows
   if (BAND === LAYOUT_BAND.SHORT) {
-    if (s.previousElementSibling !== $('#view-switch')) $('#view-switch').after(s);
+    if (line.previousElementSibling !== $('#view-switch')) $('#view-switch').after(line);
   } else if (LAYOUT === LAYOUT_MODE.MID) {
-    if (s.parentNode !== $('#status-slot')) $('#status-slot').appendChild(s);
+    if (line.parentNode !== $('#status-slot')) $('#status-slot').appendChild(line);
   } else if (LAYOUT === LAYOUT_MODE.WIDE) {
-    if (s.parentNode !== $('#status-wide')) $('#status-wide').appendChild(s);
-  } else if (s.parentNode !== $('#status-dock')) $('#status-dock').appendChild(s);
-  if (had && a.focus) a.focus({ preventScroll: true });
+    if (line.parentNode !== $('#status-wide')) $('#status-wide').appendChild(line);
+  } else if (line.parentNode !== $('#status-dock')) $('#status-dock').appendChild(line);
+  if (had && active.focus) active.focus({ preventScroll: true });
   STATUS_SIG = '';
   drawStatus();
 }
@@ -597,14 +617,14 @@ if (window.ResizeObserver)
     );
   }).observe($('#right'), { box: 'border-box' });
 // Sets STATUS_SIG, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setStatusSig<T extends typeof STATUS_SIG>(v: T): T {
-  STATUS_SIG = v;
-  return v;
+function setStatusSig<Value extends typeof STATUS_SIG>(value: Value): Value {
+  STATUS_SIG = value;
+  return value;
 }
 // Sets STATUS_SYNC, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setStatusSync<T extends typeof STATUS_SYNC>(v: T): T {
-  STATUS_SYNC = v;
-  return v;
+function setStatusSync<Value extends typeof STATUS_SYNC>(value: Value): Value {
+  STATUS_SYNC = value;
+  return value;
 }
 export {
   STATUS_TOP,

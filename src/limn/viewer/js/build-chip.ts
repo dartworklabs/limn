@@ -61,33 +61,33 @@ function resetBuildForDoc() {
   if (BUILD.inflight) BUILD.inflight.then(() => pollBuild());
   else pollBuild();
 }
-function buildChipText(b) {
+function buildChipText(build) {
   const label =
     { pull: '원격 main 당겨오는 중', copy: '원고 복사 중', latex: 'LaTeX 컴파일 중', render: '쪽 그리는 중' }[
-      b.phase
+      build.phase
     ] || '재빌드 중';
-  const el = Math.round(b.elapsed_s || 0),
-    last = b.last_s ? ' ' + tl('(지난번 {s}초)', { s: Math.round(b.last_s) }) : '';
-  return tr(label) + ' · ' + tl('{s}초', { s: el }) + last;
+  const elapsed = Math.round(build.elapsed_s || 0),
+    last = build.last_s ? ' ' + tl('(지난번 {s}초)', { s: Math.round(build.last_s) }) : '';
+  return tr(label) + ' · ' + tl('{s}초', { s: elapsed }) + last;
 }
 // --git-pull (docs/handbook/build-sync.md §재빌드 전 원격 main 당겨오기): appends one line about the pull result to the
 // build's completion (the status line's message, or the error panel's title). ok gets the applied commit range,
 // skipped/error just the reason - up_to_date has nothing worth reporting, so nothing is appended.
-function pullSuffix(b) {
-  const p = b && b.pull;
-  if (!p || !p.state) return '';
-  if (p.state === PULL_STATE.OK)
+function pullSuffix(build) {
+  const pull = build && build.pull;
+  if (!pull || !pull.state) return '';
+  if (pull.state === PULL_STATE.OK)
     return (
       ' · ' +
       tl('원격 반영 {range}', {
-        range: String(p.head_before || '?').slice(0, 7) + '..' + String(p.head_after || '?').slice(0, 7),
+        range: String(pull.head_before || '?').slice(0, 7) + '..' + String(pull.head_after || '?').slice(0, 7),
       })
     );
-  if (p.state === PULL_STATE.SKIPPED || p.state === PULL_STATE.ERROR)
+  if (pull.state === PULL_STATE.SKIPPED || pull.state === PULL_STATE.ERROR)
     return (
       ' · ' +
-      tl(p.state === PULL_STATE.ERROR ? 'git pull 실패({reason})' : 'git pull 건너뜀({reason})', {
-        reason: p.reason || '?',
+      tl(pull.state === PULL_STATE.ERROR ? 'git pull 실패({reason})' : 'git pull 건너뜀({reason})', {
+        reason: pull.reason || '?',
       })
     );
   return '';
@@ -109,21 +109,21 @@ function pollBuild() {
 // rebuild (buildUnchanged). A reply that arrives after a document switch is dropped. Resolves with nothing and never throws; a
 // failed request is ignored (the next poll retries).
 async function pollBuildOnce() {
-  let b;
-  const k = DOC,
+  let build;
+  const visitDoc = DOC,
     visit = SWITCHSEQ;
   try {
-    b = (await api(dq('/api/build?log=1'), { what: '빌드 상태', silent: true })).data;
-  } catch (e) {
+    build = (await api(dq('/api/build?log=1'), { what: '빌드 상태', silent: true })).data;
+  } catch (error) {
     return;
   }
-  if (k !== DOC || visit !== SWITCHSEQ) return; // showDoc queries again after a switch, including a return to this key
+  if (visitDoc !== DOC || visit !== SWITCHSEQ) return; // showDoc queries again after a switch, including a return to this key
   const chip = $('#build-chip');
-  if (b.state === BUILD_STATE.RUNNING) {
-    BUILD.cur = b;
+  if (build.state === BUILD_STATE.RUNNING) {
+    BUILD.cur = build;
     BUILD.unchanged = null;
     chip.hidden = false;
-    chip.textContent = buildChipText(b);
+    chip.textContent = buildChipText(build);
     $('#btn-rebuild').disabled = true;
     if (!BUILD.timer) BUILD.timer = setInterval(pollBuild, 1000);
     BUILD.booted = true;
@@ -136,45 +136,45 @@ async function pollBuildOnce() {
     clearInterval(BUILD.timer);
     BUILD.timer = null;
   } // polling stops once there's nothing left to watch
-  const seq = typeof b.seq === 'number' ? b.seq : 0;
+  const seq = typeof build.seq === 'number' ? build.seq : 0;
   const booted = BUILD.booted;
   BUILD.booted = true;
   if (BUILD.lastSeq === null) BUILD.lastSeq = seq;
-  if (seq === BUILD.lastSeq && BUILD.asked && b.unchanged === true) {
+  if (seq === BUILD.lastSeq && BUILD.asked && build.unchanged === true) {
     BUILD.asked = false;
-    buildUnchanged(b);
+    buildUnchanged(build);
   } else if (seq !== BUILD.lastSeq) {
     // This tab's own rebuild that pulled nothing new is an answer to it (the 6 s line below); any other new build on screen -
     // a merge pulled, another session's rebuild, a figure or PDF that came again - is the document's update (updates.js).
-    const mine = BUILD.asked && !(b.pull && b.pull.state === PULL_STATE.OK);
+    const mine = BUILD.asked && !(build.pull && build.pull.state === PULL_STATE.OK);
     BUILD.lastSeq = seq;
     BUILD.asked = false; // claimed before the await - so the same completion is never processed twice
-    DOC_SEQ.set(k, seq);
+    DOC_SEQ.set(visitDoc, seq);
     try {
       await refreshDoc();
-    } catch (e) {}
-    if (k !== DOC || visit !== SWITCHSEQ) return;
-    const secs = Math.round(b.elapsed_s || 0);
-    if (b.state === BUILD_STATE.OK) {
+    } catch (error) {}
+    if (visitDoc !== DOC || visit !== SWITCHSEQ) return;
+    const seconds = Math.round(build.elapsed_s || 0);
+    if (build.state === BUILD_STATE.OK) {
       if (mine)
         lineNote(
           tr(!buildsFromSource(META.kind) ? 'PDF가 바뀌어 쪽을 새로 그렸습니다' : 'PDF 재빌드 완료') +
             ' · ' +
             tl('{n}쪽', { n: META.pages.length }) +
             ' · ' +
-            tl('{s}초', { s: secs }) +
-            pullSuffix(b),
+            tl('{s}초', { s: seconds }) +
+            pullSuffix(build),
           NOTICE_KIND.OK,
           null,
           { life: NOTICE_LIFE.TIMER },
         );
       BUILD.error = null;
-      BUILD_ERR_BY.delete(k);
+      BUILD_ERR_BY.delete(visitDoc);
       hideBuildErr();
-    } else if (b.state === BUILD_STATE.OK_ERRORS || b.state === BUILD_STATE.FAIL) showBuildErr(b, true); // its panel opens and it is read out; the line and the chips keep the failure
-    if (b.state !== BUILD_STATE.FAIL) checkDocUpdate(k || '', { mine }); // a failed build left the pages as they were
-  } else if (!booted && (b.state === BUILD_STATE.FAIL || b.state === BUILD_STATE.OK_ERRORS)) {
-    showBuildErr(b); // a freshly opened tab - a build that already failed just opens the panel/chip (leaves a way to look at it again)
+    } else if (build.state === BUILD_STATE.OK_ERRORS || build.state === BUILD_STATE.FAIL) showBuildErr(build, true); // its panel opens and it is read out; the line and the chips keep the failure
+    if (build.state !== BUILD_STATE.FAIL) checkDocUpdate(visitDoc || '', { mine }); // a failed build left the pages as they were
+  } else if (!booted && (build.state === BUILD_STATE.FAIL || build.state === BUILD_STATE.OK_ERRORS)) {
+    showBuildErr(build); // a freshly opened tab - a build that already failed just opens the panel/chip (leaves a way to look at it again)
   }
 }
 function startBuildPolling() {

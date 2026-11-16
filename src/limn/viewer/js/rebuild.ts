@@ -37,22 +37,22 @@ import { pageUnderReadingLine } from './verdict.ts';
 import { isComposingNow, afterComposition } from './verdict-reason.ts';
 import { setBuildReadingPage } from './verdict-panel.ts';
 import { loadPins } from './list.ts';
-function topAnchor(off?) {
-  const L = $('#left'),
-    lt = L.getBoundingClientRect().top,
-    top = lt + (off || 0),
-    atTop = MQ_COARSE.matches && L.scrollTop <= 0,
-    edge = off ? 0 : 1;
-  for (const pg of $$('.pg')) {
-    const r = pg.getBoundingClientRect();
-    if (r.bottom > top + edge)
+function topAnchor(offset?) {
+  const scroller = $('#left'),
+    scrollerTop = scroller.getBoundingClientRect().top,
+    top = scrollerTop + (offset || 0),
+    atTop = MQ_COARSE.matches && scroller.scrollTop <= 0,
+    edge = offset ? 0 : 1;
+  for (const pageElement of $$('.pg')) {
+    const rect = pageElement.getBoundingClientRect();
+    if (rect.bottom > top + edge)
       return {
-        page: +pg.dataset.page,
-        frac: Math.max(0, (top - r.top) / r.height),
-        gap: Math.max(0, r.top - top),
+        page: +pageElement.dataset.page,
+        frac: Math.max(0, (top - rect.top) / rect.height),
+        gap: Math.max(0, rect.top - top),
         atTop,
-        y: r.top - lt,
-        h: r.height,
+        y: rect.top - scrollerTop,
+        h: rect.height,
       };
   }
   return null;
@@ -64,19 +64,19 @@ function topAnchor(off?) {
 // Nothing is written when the spot's page stands where it stood at the same height: Chromium ends a smooth scroll at any write
 // of the offset, the same one too, and the band settling 200ms into a jump from the phone's sheet - the keyboard had held it -
 // stopped the glide from page 105 to page 80 on page 103 (#346).
-function restoreAnchor(a) {
-  if (!a) return;
-  const L = $('#left');
-  if (a.atTop) {
-    if (L.scrollTop > 0) L.scrollTop = 0;
+function restoreAnchor(anchor) {
+  if (!anchor) return;
+  const scroller = $('#left');
+  if (anchor.atTop) {
+    if (scroller.scrollTop > 0) scroller.scrollTop = 0;
     return;
   }
-  const pg = document.getElementById('p' + a.page);
-  if (!pg) return;
-  const r = pg.getBoundingClientRect(),
-    lt = L.getBoundingClientRect().top;
-  if (Math.abs(r.top - lt - a.y) < 0.5 && Math.abs(r.height - a.h) < 0.5) return;
-  L.scrollTop += r.top - lt + a.frac * r.height - (a.gap || 0);
+  const pageElement = document.getElementById('p' + anchor.page);
+  if (!pageElement) return;
+  const rect = pageElement.getBoundingClientRect(),
+    scrollerTop = scroller.getBoundingClientRect().top;
+  if (Math.abs(rect.top - scrollerTop - anchor.y) < 0.5 && Math.abs(rect.height - anchor.h) < 0.5) return;
+  scroller.scrollTop += rect.top - scrollerTop + anchor.frac * rect.height - (anchor.gap || 0);
 }
 // The manuscript's reading spot (topAnchor) at the moment the changes view hid it, with its document, kept for the way back: while
 // it is hidden there is no spot to read, and a build that changes the pages' sizes meanwhile (refreshDoc) moves the scroll offset the
@@ -84,24 +84,24 @@ function restoreAnchor(a) {
 // show again - only if the offset left it by a pixel or more, so a visit that changed nothing leaves the column exactly where it was.
 let SPOT = null as { a: NonNullable<ReturnType<typeof topAnchor>>; doc: string | null } | null;
 function keepSpot() {
-  const a = topAnchor();
-  SPOT = a ? { a, doc: DOC } : null;
+  const anchor = topAnchor();
+  SPOT = anchor ? { a: anchor, doc: DOC } : null;
 }
 function returnToSpot() {
-  const s = SPOT;
+  const spot = SPOT;
   SPOT = null;
-  if (!s || s.doc !== DOC || !$('#left').getClientRects().length) return;
+  if (!spot || spot.doc !== DOC || !$('#left').getClientRects().length) return;
   const now = topAnchor(),
-    pg = document.getElementById('p' + s.a.page);
+    pageElement = document.getElementById('p' + spot.a.page);
   if (
     now &&
-    pg &&
-    now.page === s.a.page &&
-    now.atTop === s.a.atTop &&
-    Math.abs(now.frac - s.a.frac) * pg.getBoundingClientRect().height < 1
+    pageElement &&
+    now.page === spot.a.page &&
+    now.atTop === spot.a.atTop &&
+    Math.abs(now.frac - spot.a.frac) * pageElement.getBoundingClientRect().height < 1
   )
     return;
-  restoreAnchor(s.a);
+  restoreAnchor(spot.a);
 }
 // Apply a supplied meta snapshot, or fetch one for the current document. A switch away and back invalidates an
 // in-flight refresh even when the document key matches again; its old pages must not replace the new visit. A failed read
@@ -109,16 +109,16 @@ function returnToSpot() {
 // completed build, one met on returning to the document or on a pick): a failed request to rebuild it is over (rebuildSources).
 let REFRESH_GEN = 0; // the meta snapshots refreshDoc has had to apply, counted (a waiting one is dropped once a newer one came)
 async function refreshDoc(meta?) {
-  let a = topAnchor();
-  const k = DOC,
+  let anchor = topAnchor();
+  const visitDoc = DOC,
     seq = SWITCHSEQ;
-  const m =
+  const snapshot =
     meta === undefined ? (await api(dq('/api/meta'), { what: '화면 정보 읽기', where: NOTICE_HOST.LINE })).data : meta;
-  if (k !== DOC || seq !== SWITCHSEQ) return;
+  if (visitDoc !== DOC || seq !== SWITCHSEQ) return;
   const gen = ++REFRESH_GEN;
-  if (rendersInBrowser(m.kind)) {
-    META_BY.set(k, m);
-    setMeta(m);
+  if (rendersInBrowser(snapshot.kind)) {
+    META_BY.set(visitDoc, snapshot);
+    setMeta(snapshot);
     drawMeta();
     mdBuild();
     await loadPins();
@@ -127,38 +127,38 @@ async function refreshDoc(meta?) {
   // Building the pages again takes the reason field with them: a syllable being composed in it ends first, and the key that
   // ended it lets the field go (isComposingNow), and the spot is read again after the wait. A newer snapshot that came meanwhile wins - applied at once (the same page
   // count) or waiting too: this one is dropped, never put back over it (a newer build was rolled back for good, #352 review).
-  if (!(META && m.pages.length === META.pages.length) && isComposingNow()) {
+  if (!(META && snapshot.pages.length === META.pages.length) && isComposingNow()) {
     await afterComposition();
-    if (k !== DOC || seq !== SWITCHSEQ || gen !== REFRESH_GEN) return;
-    a = topAnchor();
+    if (visitDoc !== DOC || seq !== SWITCHSEQ || gen !== REFRESH_GEN) return;
+    anchor = topAnchor();
   }
-  rebuildSources(k).forEach(sourceOk);
-  META_BY.set(k, m);
-  const same = META && m.pages.length === META.pages.length;
-  setMeta(m);
+  rebuildSources(visitDoc).forEach(sourceOk);
+  META_BY.set(visitDoc, snapshot);
+  const same = META && snapshot.pages.length === META.pages.length;
+  setMeta(snapshot);
   drawMeta();
   // The canvas was drawn from the old PDF - it's torn down to show the new PNG first, then redrawn once the new build's PDF is opened.
   // A page whose paper size changed (a figure drawn again larger) takes its new width at the same scale (reapplyK - which leaves
   // the scale alone while the changes view hides the PDF area).
   if (same) {
     vecReleaseAll();
-    $$('.pg').forEach((pg, i) => {
-      const p = META.pages[i];
-      pg.dataset.ptw = String(p.pt_w);
-      pg.style.aspectRatio = p.pt_w + ' / ' + p.pt_h;
-      pg.querySelector('img').src = pageSrc(p);
+    $$('.pg').forEach((pageElement, index) => {
+      const page = META.pages[index];
+      pageElement.dataset.ptw = String(page.pt_w);
+      pageElement.style.aspectRatio = page.pt_w + ' / ' + page.pt_h;
+      pageElement.querySelector('img').src = pageSrc(page);
     });
     reapplyK();
   } else {
     setBuildReadingPage(pageUnderReadingLine());
     try {
       buildDoc();
-      restoreAnchor(a);
+      restoreAnchor(anchor);
     } finally {
       setBuildReadingPage(0);
     }
   } // the reading page held until its spot is back
-  restoreAnchor(a);
+  restoreAnchor(anchor);
   vecOpen();
   if (document.body.classList.contains('revision-open')) loadRevisions();
   await loadPins();
@@ -167,40 +167,42 @@ async function refreshDoc(meta?) {
 // pullSuffix), and the status line's failure item (compact) and #build-err-chip (the desktop's chips, while the panel is not on
 // screen: syncBuildErrChip) keep a way to open it again as long as BUILD.error exists. say = a build this visit watched has
 // just failed: its title is read out as an alert too (rule 1) - the desktop's panel and chip are no live region.
-function showBuildErr(r: any, say?: boolean) {
-  BUILD.error = r;
-  if (DOC) BUILD_ERR_BY.set(DOC, r);
-  const b = $('#build-err');
-  const title = buildErrTitle(r);
+function showBuildErr(build: any, say?: boolean) {
+  BUILD.error = build;
+  if (DOC) BUILD_ERR_BY.set(DOC, build);
+  const panel = $('#build-err');
+  const title = buildErrTitle(build);
   if (say) announce(title, true);
-  const log = String(r.log_tail || r.log || '')
+  const log = String(build.log_tail || build.log || '')
     .split('\n')
     .slice(-20)
     .join('\n');
   const close = html`<button class="btn-sm" data-act="err-close" data-tip="이 알림을 닫습니다(다시 보기는 위 배지로)">닫기</button>`;
-  const errors = (r.errors || []).map(
-    (e) => html`<div class="dim">${e.line ? 'L' + e.line + ' · ' : ''}${e.msg}</div>`,
+  const errors = (build.errors || []).map(
+    (error) => html`<div class="dim">${error.line ? 'L' + error.line + ' · ' : ''}${error.msg}</div>`,
   );
   setHtml(
-    b,
+    panel,
     html`<div class="row"><b>${title}</b><span class="sp"></span>${close}</div>${errors}<pre class="nowrap">${log}</pre>`,
   );
-  b.hidden = false;
+  panel.hidden = false;
   syncBuildErrChip();
 }
 // The error sources of document k's rebuild (notices.js sourceEntry): the requests rebuild() sends, plain and forced
 // (api's source is the method and URL). A failed [PDF 재빌드] says itself under its own; an answered one clears it, and so
 // does a later build of that document, which refreshDoc shows.
-function rebuildSources(k: string | null): string[] {
-  return ['/api/rebuild?async=1', '/api/rebuild?async=1&force=1'].map((u) => 'POST ' + dq(u, k || undefined));
+function rebuildSources(doc: string | null): string[] {
+  return ['/api/rebuild?async=1', '/api/rebuild?async=1&force=1'].map((url) => 'POST ' + dq(url, doc || undefined));
 }
 // The title of build r's failure (fail) or its LaTeX errors (ok_errors), with the pull's line: the error panel's, and what
 // showBuildErr reads out.
-function buildErrTitle(r: any): string {
+function buildErrTitle(build: any): string {
   return (
     tr(
-      r.state === BUILD_STATE.FAIL ? '빌드 실패 — 화면은 이전 PDF입니다' : 'PDF를 재빌드했지만 LaTeX 오류가 있습니다',
-    ) + pullSuffix(r)
+      build.state === BUILD_STATE.FAIL
+        ? '빌드 실패 — 화면은 이전 PDF입니다'
+        : 'PDF를 재빌드했지만 LaTeX 오류가 있습니다',
+    ) + pullSuffix(build)
   );
 }
 // Closes the build error panel; its chip stays while the error does (syncBuildErrChip).
@@ -221,7 +223,7 @@ function syncBuildErrChip() {
 // [그래도 빌드] of an unchanged rebuild passes it) asks for ?force=1: a cold build that never ends unchanged. A rebuild already
 // running elsewhere (409) is a warning on the status line; a failed request an error there, with [다시 시도].
 async function rebuild(force?) {
-  const k = DOC,
+  const visitDoc = DOC,
     visit = SWITCHSEQ;
   try {
     const { status } = await api(dq('/api/rebuild?async=1' + (force === true ? '&force=1' : '')), {
@@ -231,7 +233,7 @@ async function rebuild(force?) {
       retry: () => rebuild(force),
       expect: [409],
     });
-    if (k !== DOC || visit !== SWITCHSEQ) return;
+    if (visitDoc !== DOC || visit !== SWITCHSEQ) return;
     if (status === 409) {
       lineNote('이미 다른 곳에서 PDF를 재빌드하는 중입니다 — 끝난 뒤 다시 누르세요', NOTICE_KIND.WARN);
       return;
@@ -242,12 +244,12 @@ async function rebuild(force?) {
     if (BUILD.inflight) {
       try {
         await BUILD.inflight;
-      } catch (e) {}
+      } catch (error) {}
     }
-    if (k !== DOC || visit !== SWITCHSEQ) return;
+    if (visitDoc !== DOC || visit !== SWITCHSEQ) return;
     BUILD.asked = true;
     await pollBuild();
-  } catch (e) {}
+  } catch (error) {}
 }
 
 // [더보기]'s [PDF 내려받기]: saves the PDF of the build on screen (META.pages_build) of this document as a file. The server names it
@@ -255,13 +257,13 @@ async function rebuild(force?) {
 // the download attribute is the browser's own save, so the page stays where it is. Nothing is sent when no build is on screen.
 function downloadPdf() {
   if (!META || !META.pages_build) return;
-  const a = document.createElement('a');
-  a.href = dq('/pdf?build=' + encodeURIComponent(META.pages_build) + '&download=1');
-  a.download = '';
-  a.hidden = true;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
+  const link = document.createElement('a');
+  link.href = dq('/pdf?build=' + encodeURIComponent(META.pages_build) + '&download=1');
+  link.download = '';
+  link.hidden = true;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
 }
 export {
   downloadPdf,

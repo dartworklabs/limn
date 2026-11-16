@@ -25,101 +25,105 @@ import type { Html } from './markup.ts';
 function multiDoc() {
   return DOCS.length > 1;
 }
-function docInfo(k) {
-  return DOCS.find((d) => d.key === k) || null;
+function docInfo(doc) {
+  return DOCS.find((entry) => entry.key === doc) || null;
 }
-function pdoc(p: Pin) {
-  return (p && p.doc) || DEFAULT_DOC;
+function pdoc(pin: Pin) {
+  return (pin && pin.doc) || DEFAULT_DOC;
 }
-function isRegion(p) {
-  return !!p && (p.kind === 'region' || (!p.file && !!p.pdf));
+function isRegion(pin) {
+  return !!pin && (pin.kind === 'region' || (!pin.file && !!pin.pdf));
 }
 // Appends ?doc=<key> to a document-scoped path (the server treats it as the first document if absent).
-function dq(u, k?) {
-  k = k || DOC;
-  if (!k) return u;
-  return u + (u.indexOf('?') < 0 ? '?' : '&') + 'doc=' + encodeURIComponent(k);
+function dq(path, doc?) {
+  doc = doc || DOC;
+  if (!doc) return path;
+  return path + (path.indexOf('?') < 0 ? '?' : '&') + 'doc=' + encodeURIComponent(doc);
 }
 function hashDoc() {
-  const m = /(?:^#|[#&])doc=([a-z0-9-]{1,24})(?:&|$)/.exec(location.hash || '');
-  return m ? m[1] : null;
+  const match = /(?:^#|[#&])doc=([a-z0-9-]{1,24})(?:&|$)/.exec(location.hash || '');
+  return match ? match[1] : null;
 }
 // Puts #doc=<key> in the address (several documents only) without a new history entry, keeping the entry's state - the back
 // layer's pushed entry must stay recognizable after a document switch.
-function setHash(k) {
+function setHash(doc) {
   if (!multiDoc()) return;
-  const h = '#doc=' + k;
-  if (location.hash !== h) history.replaceState(history.state, '', location.pathname + location.search + h);
+  const hash = '#doc=' + doc;
+  if (location.hash !== hash) history.replaceState(history.state, '', location.pathname + location.search + hash);
 }
 // The document shown first: URL hash (link sharing/reload) > the last document viewed on this device > the first document.
 function initialDoc() {
-  const h = hashDoc();
-  if (h && docInfo(h)) return h;
-  const l = prefs().lastDoc;
-  if (l && docInfo(l)) return l;
+  const fromHash = hashDoc();
+  if (fromHash && docInfo(fromHash)) return fromHash;
+  const last = prefs().lastDoc;
+  if (last && docInfo(last)) return last;
   return DOCS.length ? DOCS[0].key : null;
 }
 async function loadDocs() {
   try {
-    const r = (await api('/api/docs', { what: '문서 목록', silent: true })).data;
-    setDocs(Array.isArray(r.docs) ? r.docs : []);
-    setDefaultDoc(r.default || (DOCS[0] && DOCS[0].key) || 'main');
-  } catch (e) {
+    const answer = (await api('/api/docs', { what: '문서 목록', silent: true })).data;
+    setDocs(Array.isArray(answer.docs) ? answer.docs : []);
+    setDefaultDoc(answer.default || (DOCS[0] && DOCS[0].key) || 'main');
+  } catch (error) {
     setDocs([]);
   }
   document.body.classList.toggle('docs-multi', multiDoc());
   $('#all-docs').hidden = !multiDoc();
 }
-function docCount(k) {
-  return OPEN_ALL.filter((p) => pdoc(p) === k).length;
+function docCount(doc) {
+  return OPEN_ALL.filter((pin) => pdoc(pin) === doc).length;
 }
 // A document's build state in the documents lists: a spinner while it builds, else a dot when its manuscript is newer than its
 // PDF; null for neither.
-function docState(d) {
-  return d.building
+function docState(entry) {
+  return entry.building
     ? html`<span class="spin" aria-label="빌드 중"></span>`
-    : d.stale_build
+    : entry.stale_build
       ? html`<span class="ddot" aria-label="원고 수정됨"></span>`
       : null;
 }
 // A document's marks in the documents list: its build state (docState), view-only 'PDF', figure '그림', and its open-pin count.
-function docBadge(d) {
-  const n = docCount(d.key);
-  const pdf = d.view_only ? html`<span class="badge dvo" aria-label="보기 전용">PDF</span>` : '';
-  const fig = isFigureKind(d.kind)
+function docBadge(entry) {
+  const openCount = docCount(entry.key);
+  const pdf = entry.view_only ? html`<span class="badge dvo" aria-label="보기 전용">PDF</span>` : '';
+  const figure = isFigureKind(entry.kind)
     ? html`<span class="badge dfig" aria-label="${tr('그림 문서')}">${tr('그림')}</span>`
     : '';
-  return html`${docState(d)}${pdf}${fig}<span class="badge badge-secondary dcnt${n ? '' : ' z'}" aria-label="${tl('열린 핀 {n}', { n })}">${n}</span>`;
+  return html`${docState(entry)}${pdf}${figure}<span class="badge badge-secondary dcnt${openCount ? '' : ' z'}" aria-label="${tl('열린 핀 {n}', { n: openCount })}">${openCount}</span>`;
 }
 // A document link's description: name, path, what kind of document it is, and its build state. The link is user text
 // (translate="no", the name), so the UI words are translated here.
-function docTip(d) {
+function docTip(entry) {
   return (
-    d.name +
+    entry.name +
     ' · ' +
-    d.path +
-    (d.view_only ? tr(' · 보기 전용 PDF(줄 번호 없이 쪽·영역으로 핀을 남깁니다)') : '') +
-    (isFigureKind(d.kind) ? ' · ' + tr('그림 문서(드래그하면 요소와 그 요소를 그린 코드 줄을 찾습니다)') : '') +
-    (d.building ? tr(' · 빌드 중') : d.stale_build ? tr(' · 원고가 이 PDF보다 새롭습니다(그 탭에서 [PDF 재빌드])') : '')
+    entry.path +
+    (entry.view_only ? tr(' · 보기 전용 PDF(줄 번호 없이 쪽·영역으로 핀을 남깁니다)') : '') +
+    (isFigureKind(entry.kind) ? ' · ' + tr('그림 문서(드래그하면 요소와 그 요소를 그린 코드 줄을 찾습니다)') : '') +
+    (entry.building
+      ? tr(' · 빌드 중')
+      : entry.stale_build
+        ? tr(' · 원고가 이 PDF보다 새롭습니다(그 탭에서 [PDF 재빌드])')
+        : '')
   );
 }
 // The marks of a document link: its name (.lbl, trimmed to its cap height by CSS as the view tabs' words) and page count.
-function docLinkInner(d) {
-  const count = d.n_pages ? html`<span class="doc-link-count">${tl('{n}쪽', { n: d.n_pages })}</span>` : '';
-  return html`<span class="lbl">${d.name}</span>${count}`;
+function docLinkInner(entry) {
+  const count = entry.n_pages ? html`<span class="doc-link-count">${tl('{n}쪽', { n: entry.n_pages })}</span>` : '';
+  return html`<span class="lbl">${entry.name}</span>${count}`;
 }
 // What a link's or a popover row's inside was last drawn from, so a redraw that changes nothing writes nothing.
 const DOC_DRAWN = new WeakMap() as WeakMap<Element, string>;
 // Sets the inside of el to markup m, drawn from key - unless it was drawn from key already. el itself stays: one that has the
 // focus keeps it, and no focusout or focusin is sent.
-function docInner(el: Element, m: Html, key: string) {
-  if (DOC_DRAWN.get(el) === key) return;
-  setHtml(el, m);
-  DOC_DRAWN.set(el, key);
+function docInner(element: Element, markup: Html, key: string) {
+  if (DOC_DRAWN.get(element) === key) return;
+  setHtml(element, markup);
+  DOC_DRAWN.set(element, key);
 }
 // Sets attribute a of el to v when it is not v already (an unchanged write still reaches the MutationObservers).
-function setAttr(el: Element, a: string, v: string) {
-  if (el.getAttribute(a) !== v) el.setAttribute(a, v);
+function setAttributeIfChanged(element: Element, name: string, value: string) {
+  if (element.getAttribute(name) !== value) element.setAttribute(name, value);
 }
 // Draws the document choosers: the select, the nav bar's links, the phone's position button (drawPos), an open navigation
 // sheet's rows and an open documents popover's. A document's name is user text (translate="no"); the UI words beside it (build
@@ -131,32 +135,37 @@ function drawDocTabs() {
   const box = $('#doc-select');
   setHtml(
     box,
-    html`${DOCS.map((d) => html`<option translate="no" value="${d.key}">${d.name}${d.building ? tr(' · 빌드 중') : d.stale_build ? tr(' · 원고 수정됨') : ''}</option>`)}`,
+    html`${DOCS.map((entry) => html`<option translate="no" value="${entry.key}">${entry.name}${entry.building ? tr(' · 빌드 중') : entry.stale_build ? tr(' · 원고 수정됨') : ''}</option>`)}`,
   );
   if (DOC) box.value = DOC;
   const row = $('#doc-links'),
     more = $('#doc-more'),
     had = document.activeElement as HTMLElement | null,
     old = [...row.querySelectorAll(':scope>[data-doc]')] as HTMLElement[];
-  const same = old.length === DOCS.length && old.every((a, i) => a.dataset.doc === DOCS[i].key);
+  const same = old.length === DOCS.length && old.every((link, index) => link.dataset.doc === DOCS[index].key);
   let was = null as string | null | undefined;
   if (!same) {
     was = had && had !== more && row.contains(had) ? had.dataset.doc : null;
-    old.forEach((a) => a.remove());
+    old.forEach((link) => link.remove());
     const links = document.createElement('div');
-    setHtml(links, html`${DOCS.map((d) => html`<button translate="no" data-act="doc" data-doc="${d.key}"></button>`)}`);
+    setHtml(
+      links,
+      html`${DOCS.map((entry) => html`<button translate="no" data-act="doc" data-doc="${entry.key}"></button>`)}`,
+    );
     more.before(...links.children);
   }
-  ([...row.querySelectorAll(':scope>[data-doc]')] as HTMLElement[]).forEach((a, i) => {
-    const d = DOCS[i];
-    setAttr(a, 'aria-current', d.key === DOC ? 'page' : 'false');
-    setAttr(a, 'title', docTip(d));
-    docInner(a, docLinkInner(d), d.name + '\u0001' + (d.n_pages || ''));
+  ([...row.querySelectorAll(':scope>[data-doc]')] as HTMLElement[]).forEach((link, index) => {
+    const entry = DOCS[index];
+    setAttributeIfChanged(link, 'aria-current', entry.key === DOC ? 'page' : 'false');
+    setAttributeIfChanged(link, 'title', docTip(entry));
+    docInner(link, docLinkInner(entry), entry.name + '\u0001' + (entry.n_pages || ''));
   });
   drawPos();
   docFit();
   const back = was
-    ? ([...row.querySelectorAll(':scope>[data-doc]')] as HTMLElement[]).find((a) => a.dataset.doc === was && !a.hidden)
+    ? ([...row.querySelectorAll(':scope>[data-doc]')] as HTMLElement[]).find(
+        (link) => link.dataset.doc === was && !link.hidden,
+      )
     : null;
   if (back) back.focus({ preventScroll: true });
   if ($('#nav-sheet').open) drawDocsMenu();
@@ -168,24 +177,24 @@ function drawDocTabs() {
 // else the first k in order with [+N] after them (moreW(N): its width saying N), k as large as fits, and the current
 // document's link (index cur, -1 for none) always among them: when it would be hidden it takes the k-th place. None ([]) when
 // not even one link and [+N] fit: the row is then a single chooser (docFit). Pure.
-function docTabsShown(w, gap, cur, room, moreW) {
-  const n = w.length,
-    all = w.map((_, i) => i),
-    width = (a) => a.reduce((s, i) => s + w[i], 0) + gap * Math.max(0, a.length - 1),
+function docTabsShown(widths, gap, current, room, moreWidth) {
+  const count = widths.length,
+    all = widths.map((_, index) => index),
+    width = (indices) => indices.reduce((sum, index) => sum + widths[index], 0) + gap * Math.max(0, indices.length - 1),
     fits = (x) => x <= room + 0.01;
   if (fits(width(all))) return all;
-  for (let k = n - 1; k >= 1; k--) {
-    const a = all.slice(0, k);
-    if (cur >= k) a[k - 1] = cur;
-    if (fits(width(a) + gap + moreW(n - k))) return a;
+  for (let shownCount = count - 1; shownCount >= 1; shownCount--) {
+    const shown = all.slice(0, shownCount);
+    if (current >= shownCount) shown[shownCount - 1] = current;
+    if (fits(width(shown) + gap + moreWidth(count - shownCount))) return shown;
   }
   return [];
 }
 // How the chooser stands when no link and [+N] fit together: 'name' - the current document's name, shortened to an ellipsis
 // as room needs - when room holds the whole name or at least the chooser's own width (chrome: padding, gap, chevron) and three
 // em of name; else 'icon'. Pure.
-function docChooser(room, full, chrome, em) {
-  return room + 0.01 >= Math.min(full, chrome + 3 * em) ? 'name' : 'icon';
+function docChooser(room, full, chrome, fontSize) {
+  return room + 0.01 >= Math.min(full, chrome + 3 * fontSize) ? 'name' : 'icon';
 }
 let DOC_FIT = ''; // the row's last fit: a measure that changes nothing writes nothing and re-fits nothing
 // Fits the nav bar's document row to the room the bar leaves it, down a ladder in which nothing is ever cut:
@@ -210,114 +219,116 @@ let DOC_FIT = ''; // the row's last fit: a measure that changes nothing writes n
 function docFit() {
   const row = $('#doc-links'),
     more = $('#doc-more'),
-    nav = $('#doc-nav'),
-    lbl = more.querySelector('.lbl') as HTMLElement,
+    bar = $('#doc-nav'),
+    label = more.querySelector('.lbl') as HTMLElement,
     tabs = [...row.querySelectorAll(':scope>[data-doc]')] as HTMLElement[],
-    px = (v) => parseFloat(v) || 0,
+    pixels = (value) => parseFloat(value) || 0,
     had = document.activeElement;
   let fit = '',
     drop = false;
-  const st = $('#status');
-  st.classList.remove('st-words-off'); // measured with its words; dropped again below when they do not fit
+  const statusLine = $('#status');
+  statusLine.classList.remove('st-words-off'); // measured with its words; dropped again below when they do not fit
   if (row.getClientRects().length && tabs.length > 1) {
-    const cs = getComputedStyle(nav),
-      rs = getComputedStyle(row);
+    const barStyle = getComputedStyle(bar),
+      rowStyle = getComputedStyle(row);
     // its whole width: laid out for the moment as it would stand unshrunk (up to its max-width), to the fraction of a pixel
-    const whole = (k: HTMLElement) => {
-      k.style.flex = 'none';
-      const x = k.getBoundingClientRect().width;
-      k.style.flex = '';
+    const whole = (control: HTMLElement) => {
+      control.style.flex = 'none';
+      const x = control.getBoundingClientRect().width;
+      control.style.flex = '';
       return x;
     };
     let used = 0,
-      n = 0;
-    for (const k of [...nav.children] as HTMLElement[]) {
-      if (k === row || !k.getClientRects().length) continue;
-      const m = getComputedStyle(k);
-      n++;
-      if (k.id === 'doc-search') {
-        used += px(getComputedStyle($('#search-open')).width);
+      controls = 0;
+    for (const control of [...bar.children] as HTMLElement[]) {
+      if (control === row || !control.getClientRects().length) continue;
+      const style = getComputedStyle(control);
+      controls++;
+      if (control.id === 'doc-search') {
+        used += pixels(getComputedStyle($('#search-open')).width);
         continue;
       } // its margin is the bar's one flexible gap
-      if (k.id === 'paper-identity' || k.id === 'status') used += whole(k);
-      else used += k.getBoundingClientRect().width;
-      if (!k.matches('#nav-page,#nav-side')) used += px(m.marginLeft) + px(m.marginRight);
+      if (control.id === 'paper-identity' || control.id === 'status') used += whole(control);
+      else used += control.getBoundingClientRect().width;
+      if (!control.matches('#nav-page,#nav-side')) used += pixels(style.marginLeft) + pixels(style.marginRight);
     } // those two stand after the flexible gap
     const room =
-      nav.clientWidth -
-      px(cs.paddingLeft) -
-      px(cs.paddingRight) -
-      px(cs.columnGap) * n -
+      bar.clientWidth -
+      pixels(barStyle.paddingLeft) -
+      pixels(barStyle.paddingRight) -
+      pixels(barStyle.columnGap) * controls -
       used -
-      px(rs.marginLeft) -
-      px(rs.marginRight);
-    tabs.forEach((a) => {
-      a.hidden = false;
+      pixels(rowStyle.marginLeft) -
+      pixels(rowStyle.marginRight);
+    tabs.forEach((link) => {
+      link.hidden = false;
     });
-    const ms = getComputedStyle(more),
-      mm = px(ms.marginLeft) + px(ms.marginRight); // the button's width counts its margins (frame.css)
-    const w = tabs.map((a) => a.getBoundingClientRect().width),
-      gap = px(rs.columnGap),
+    const moreStyle = getComputedStyle(more),
+      moreMargins = pixels(moreStyle.marginLeft) + pixels(moreStyle.marginRight); // the button's width counts its margins (frame.css)
+    const widths = tabs.map((link) => link.getBoundingClientRect().width),
+      gap = pixels(rowStyle.columnGap),
       seen = new Map(),
       was = more.hidden;
-    const as = (mode: string, text: string) => {
+    const showAs = (mode: string, text: string) => {
       more.dataset.fit = mode;
-      lbl.textContent = text;
+      label.textContent = text;
       more.style.maxWidth = '';
     };
     const width = (mode: string, text: string) => {
-      as(mode, text);
+      showAs(mode, text);
       more.hidden = false;
-      const x = more.getBoundingClientRect().width + mm;
+      const x = more.getBoundingClientRect().width + moreMargins;
       more.hidden = was;
       return x;
     };
-    const moreW = (N) => {
-      if (!seen.has(N)) seen.set(N, width('more', '+' + N));
-      return seen.get(N);
+    const moreWidth = (count) => {
+      if (!seen.has(count)) seen.set(count, width('more', '+' + count));
+      return seen.get(count);
     };
-    const cur = Math.max(
+    const currentIndex = Math.max(
         0,
-        tabs.findIndex((a) => a.dataset.doc === DOC),
+        tabs.findIndex((link) => link.dataset.doc === DOC),
       ),
-      d = docInfo(tabs[cur].dataset.doc || '') || DOCS[cur];
-    const shown = docTabsShown(w, gap, cur, room, moreW),
-      N = tabs.length - shown.length;
+      currentEntry = docInfo(tabs[currentIndex].dataset.doc || '') || DOCS[currentIndex];
+    const shown = docTabsShown(widths, gap, currentIndex, room, moreWidth),
+      hiddenCount = tabs.length - shown.length;
     let mode = 'more',
       cap = '';
     if (!shown.length) {
-      const full = width('name', d.name),
+      const full = width('name', currentEntry.name),
         chrome = width('name', '');
-      mode = docChooser(room, full, chrome, px(getComputedStyle(lbl).fontSize));
-      if (mode === 'name' && full > room) cap = Math.floor(room - mm) + 'px';
-      drop = mode === 'icon' && nav.contains(st) && width('icon', '') > room + 0.5;
+      mode = docChooser(room, full, chrome, pixels(getComputedStyle(label).fontSize));
+      if (mode === 'name' && full > room) cap = Math.floor(room - moreMargins) + 'px';
+      drop = mode === 'icon' && bar.contains(statusLine) && width('icon', '') > room + 0.5;
     } // the short band's status line gives way: all its words
-    tabs.forEach((a, i) => {
-      a.hidden = !shown.includes(i);
+    tabs.forEach((link, index) => {
+      link.hidden = !shown.includes(index);
     });
-    as(mode, mode === 'more' ? '+' + N : mode === 'name' ? d.name : '');
+    showAs(mode, mode === 'more' ? '+' + hiddenCount : mode === 'name' ? currentEntry.name : '');
     more.style.maxWidth = cap;
     if (mode === 'more') {
-      more.setAttribute('aria-label', tl('+{n} 문서 더 보기', { n: N }));
+      more.setAttribute('aria-label', tl('+{n} 문서 더 보기', { n: hiddenCount }));
       more.removeAttribute('title');
     } else {
-      more.setAttribute('aria-label', d.name + ' — ' + tl('문서 {n}개 중 고르기', { n: DOCS.length }));
-      more.setAttribute('title', docTip(d));
+      more.setAttribute('aria-label', currentEntry.name + ' — ' + tl('문서 {n}개 중 고르기', { n: DOCS.length }));
+      more.setAttribute('title', docTip(currentEntry));
     }
-    more.hidden = mode === 'more' && !N;
-    fit = [mode, shown.map((i) => tabs[i].dataset.doc).join(), N, cap, d.name, drop].join('|');
+    more.hidden = mode === 'more' && !hiddenCount;
+    fit = [mode, shown.map((index) => tabs[index].dataset.doc).join(), hiddenCount, cap, currentEntry.name, drop].join(
+      '|',
+    );
   } else {
-    tabs.forEach((a) => {
-      a.hidden = false;
+    tabs.forEach((link) => {
+      link.hidden = false;
     });
     more.hidden = true;
   }
-  st.classList.toggle('st-words-off', drop);
+  statusLine.classList.toggle('st-words-off', drop);
   const lost =
     had instanceof HTMLElement && (row.contains(had) ? had.hidden : !more.hidden ? false : $('#doc-pop').contains(had));
   if (more.hidden) closeDocMenu(false);
   if (lost) {
-    const to = more.hidden ? tabs.find((a) => a.getAttribute('aria-current') === 'page') : more;
+    const to = more.hidden ? tabs.find((link) => link.getAttribute('aria-current') === 'page') : more;
     if (to) to.focus({ preventScroll: true });
   }
   if (fit !== DOC_FIT) {
@@ -337,10 +348,10 @@ function docFitSoon() {
     });
 }
 if (window.ResizeObserver) {
-  const o = new ResizeObserver(docFitSoon);
-  o.observe($('#doc-nav'));
-  o.observe($('#status'));
-  for (const k of $$('#doc-nav>*')) if (k.id !== 'doc-links') o.observe(k);
+  const observer = new ResizeObserver(docFitSoon);
+  observer.observe($('#doc-nav'));
+  observer.observe($('#status'));
+  for (const control of $$('#doc-nav>*')) if (control.id !== 'doc-links') observer.observe(control);
 }
 document.fonts.addEventListener('loadingdone', docFit);
 // The row is a scroll box only for how it is painted (frame.css): it never scrolls. The current link's bar reaches 1px under
@@ -348,11 +359,11 @@ document.fonts.addEventListener('loadingdone', docFit);
 // Firefox give the row a Tab stop of its own, a ring round all the links (index.html takes it out of the Tab order).
 $('#doc-links').addEventListener(
   'scroll',
-  (e) => {
-    const r = e.currentTarget as HTMLElement;
-    if (r.scrollTop || r.scrollLeft) {
-      r.scrollTop = 0;
-      r.scrollLeft = 0;
+  (event) => {
+    const row = event.currentTarget as HTMLElement;
+    if (row.scrollTop || row.scrollLeft) {
+      row.scrollTop = 0;
+      row.scrollLeft = 0;
     }
   },
   { passive: true },
@@ -367,22 +378,22 @@ $('#doc-links').addEventListener(
 function drawDocMenu() {
   const list = $('#doc-pop-list'),
     old = [...list.children] as HTMLElement[];
-  if (!(old.length === DOCS.length && old.every((r, i) => r.dataset.doc === DOCS[i].key)))
+  if (!(old.length === DOCS.length && old.every((row, index) => row.dataset.doc === DOCS[index].key)))
     setHtml(
       list,
-      html`${DOCS.map((d) => html`<button class="dp-row" role="option" data-act="doc" data-doc="${d.key}"></button>`)}`,
+      html`${DOCS.map((entry) => html`<button class="dp-row" role="option" data-act="doc" data-doc="${entry.key}"></button>`)}`,
     );
-  ([...list.children] as HTMLElement[]).forEach((r, i) => {
-    const d = DOCS[i],
-      on = d.key === DOC,
-      st = d.building ? 'spin' : d.stale_build ? 'dot' : '';
-    r.classList.toggle('on', on);
-    setAttr(r, 'aria-selected', String(on));
-    setAttr(r, 'tabindex', on ? '0' : '-1');
+  ([...list.children] as HTMLElement[]).forEach((row, index) => {
+    const entry = DOCS[index],
+      on = entry.key === DOC,
+      state = entry.building ? 'spin' : entry.stale_build ? 'dot' : '';
+    row.classList.toggle('on', on);
+    setAttributeIfChanged(row, 'aria-selected', String(on));
+    setAttributeIfChanged(row, 'tabindex', on ? '0' : '-1');
     docInner(
-      r,
-      html`<span class="dp-c">${on ? ic('check') : ''}</span><span class="dp-n"><span class="dp-t" translate="no">${d.name}</span>${docState(d)}</span><span class="dp-p">${d.n_pages ? tl('{n}쪽', { n: d.n_pages }) : ''}</span><span class="dp-k">${i < 9 ? 'Alt+' + (i + 1) : ''}</span>`,
-      [d.name, d.n_pages || '', on, st, LANG].join('\u0001'),
+      row,
+      html`<span class="dp-c">${on ? ic('check') : ''}</span><span class="dp-n"><span class="dp-t" translate="no">${entry.name}</span>${docState(entry)}</span><span class="dp-p">${entry.n_pages ? tl('{n}쪽', { n: entry.n_pages }) : ''}</span><span class="dp-k">${index < 9 ? 'Alt+' + (index + 1) : ''}</span>`,
+      [entry.name, entry.n_pages || '', on, state, LANG].join('\u0001'),
     );
   });
   docMenuFilter();
@@ -390,31 +401,31 @@ function drawDocMenu() {
 // Shows the rows whose document's name or path holds the field's text (case folded, as the outline's search), and says so
 // when none does.
 function docMenuFilter() {
-  const q = ($('#doc-pop-in') as HTMLInputElement).value.trim().toLowerCase();
-  let n = 0;
-  for (const r of [...$('#doc-pop-list').children] as HTMLElement[]) {
-    const d = docInfo(r.dataset.doc || '');
-    r.hidden = !!q && !(d && (d.name + ' ' + d.path).toLowerCase().includes(q));
-    if (!r.hidden) n++;
+  const query = ($('#doc-pop-in') as HTMLInputElement).value.trim().toLowerCase();
+  let shown = 0;
+  for (const row of [...$('#doc-pop-list').children] as HTMLElement[]) {
+    const entry = docInfo(row.dataset.doc || '');
+    row.hidden = !!query && !(entry && (entry.name + ' ' + entry.path).toLowerCase().includes(query));
+    if (!row.hidden) shown++;
   }
-  $('#doc-pop-none').hidden = n > 0;
+  $('#doc-pop-none').hidden = shown > 0;
 }
 // Opens the popover under its button. A mouse or a keyboard gets the focus in the filter when there is one; touch - no
 // keyboard comes up - and a list without it get the current document's row, scrolled into view.
 function openDocMenu() {
   const pop = $('#doc-pop'),
-    f = $('#doc-pop-in') as HTMLInputElement;
+    filter = $('#doc-pop-in') as HTMLInputElement;
   hideTip();
   closePageList(false);
-  f.hidden = DOCS.length < 9;
-  f.value = '';
+  filter.hidden = DOCS.length < 9;
+  filter.value = '';
   $('#doc-more').setAttribute('aria-expanded', 'true');
   pop.hidden = false;
   drawDocMenu();
   placeDocMenu();
   const row = $('#doc-pop-list [aria-selected=true]') as HTMLElement | null;
   if (row) row.scrollIntoView({ block: 'nearest' });
-  const to = !f.hidden && !MQ_COARSE.matches ? f : row || pop;
+  const to = !filter.hidden && !MQ_COARSE.matches ? filter : row || pop;
   to.focus({ preventScroll: true });
 }
 // Puts the open popover under its button, its left edge on the button's and inside the window by 8px, and lets it grow down to
@@ -428,10 +439,10 @@ function placeDocMenu() {
     closeDocMenu(false);
     return;
   }
-  const r = more.getBoundingClientRect(),
-    top = Math.round(r.bottom) + 4,
-    w = pop.offsetWidth;
-  pop.style.left = Math.max(8, Math.min(Math.round(r.left), innerWidth - 8 - w)) + 'px';
+  const rect = more.getBoundingClientRect(),
+    top = Math.round(rect.bottom) + 4,
+    width = pop.offsetWidth;
+  pop.style.left = Math.max(8, Math.min(Math.round(rect.left), innerWidth - 8 - width)) + 'px';
   pop.style.top = top + 'px';
   pop.style.setProperty('--dp-room', Math.max(0, innerHeight - 8 - top) + 'px');
 }
@@ -454,12 +465,12 @@ function toggleDocMenu() {
 function docMenuNext() {
   const more = $('#doc-more'),
     stops = ([...$('#doc-nav').querySelectorAll('button,input,select,a[href],[tabindex]')] as HTMLElement[]).filter(
-      (e) =>
-        e === more ||
-        (e.tabIndex >= 0 &&
-          !(e as HTMLButtonElement).disabled &&
-          e.getClientRects().length > 0 &&
-          getComputedStyle(e).visibility !== 'hidden'),
+      (stop) =>
+        stop === more ||
+        (stop.tabIndex >= 0 &&
+          !(stop as HTMLButtonElement).disabled &&
+          stop.getClientRects().length > 0 &&
+          getComputedStyle(stop).visibility !== 'hidden'),
     );
   return stops[stops.indexOf(more) + 1] || null;
 }
@@ -470,37 +481,37 @@ function docMenuNext() {
 // out - the popover shuts and the focus goes to the bar's next stop after the button; Shift+Tab goes back: from a row to the
 // filter, from the filter (or a row with no filter) out to the button, the popover shut. Esc is the viewer's (events.js): it
 // shuts the popover with the focus on the button.
-$('#doc-more').addEventListener('keydown', (e) => {
-  if (e.key === 'ArrowDown' && !e.altKey) {
-    e.preventDefault();
+$('#doc-more').addEventListener('keydown', (event) => {
+  if (event.key === 'ArrowDown' && !event.altKey) {
+    event.preventDefault();
     if ($('#doc-pop').hidden) openDocMenu();
   }
 });
-$('#doc-pop').addEventListener('keydown', (e) => {
-  const t = e.target as HTMLElement,
-    f = $('#doc-pop-in');
-  if (imeKey(e)) return;
-  const rows = ([...$('#doc-pop-list').children] as HTMLElement[]).filter((r) => !r.hidden),
-    field = !f.hidden;
-  if (e.altKey && !e.ctrlKey && !e.metaKey && /^Digit[1-9]$/.test(e.code || '')) {
-    const d = DOCS[+e.code.slice(5) - 1];
-    e.preventDefault();
-    e.stopPropagation();
-    if (d) {
+$('#doc-pop').addEventListener('keydown', (event) => {
+  const target = event.target as HTMLElement,
+    filter = $('#doc-pop-in');
+  if (imeKey(event)) return;
+  const rows = ([...$('#doc-pop-list').children] as HTMLElement[]).filter((row) => !row.hidden),
+    field = !filter.hidden;
+  if (event.altKey && !event.ctrlKey && !event.metaKey && /^Digit[1-9]$/.test(event.code || '')) {
+    const entry = DOCS[+event.code.slice(5) - 1];
+    event.preventDefault();
+    event.stopPropagation();
+    if (entry) {
       closeDocMenu(true);
-      switchDoc(d.key);
+      switchDoc(entry.key);
     }
     return;
   }
-  if (e.key === 'Tab' && !e.ctrlKey && !e.altKey && !e.metaKey) {
-    e.preventDefault();
-    if (e.shiftKey) {
-      if (t !== f && field) f.focus();
+  if (event.key === 'Tab' && !event.ctrlKey && !event.altKey && !event.metaKey) {
+    event.preventDefault();
+    if (event.shiftKey) {
+      if (target !== filter && field) filter.focus();
       else closeDocMenu(true);
       return;
     }
-    if (t === f && rows.length) {
-      (rows.find((r) => r.classList.contains('on')) || rows[0]).focus();
+    if (target === filter && rows.length) {
+      (rows.find((row) => row.classList.contains('on')) || rows[0]).focus();
       return;
     }
     const next = docMenuNext();
@@ -508,43 +519,44 @@ $('#doc-pop').addEventListener('keydown', (e) => {
     if (next) next.focus();
     return;
   }
-  if (t === f) {
-    if (e.key === 'ArrowDown' && rows.length) {
-      e.preventDefault();
-      (rows.find((r) => r.classList.contains('on')) || rows[0]).focus();
-    } else if (e.key === 'Enter' && rows.length) {
-      e.preventDefault();
+  if (target === filter) {
+    if (event.key === 'ArrowDown' && rows.length) {
+      event.preventDefault();
+      (rows.find((row) => row.classList.contains('on')) || rows[0]).focus();
+    } else if (event.key === 'Enter' && rows.length) {
+      event.preventDefault();
       rows[0].click();
     }
     return;
   }
-  const i = rows.indexOf(t);
-  if (i < 0) return;
-  if (e.key === 'ArrowUp' && i === 0 && field) {
-    e.preventDefault();
-    f.focus();
+  const index = rows.indexOf(target);
+  if (index < 0) return;
+  if (event.key === 'ArrowUp' && index === 0 && field) {
+    event.preventDefault();
+    filter.focus();
     return;
   }
-  const to = { ArrowDown: i + 1, ArrowUp: i - 1, Home: 0, End: rows.length - 1 }[e.key];
+  const to = { ArrowDown: index + 1, ArrowUp: index - 1, Home: 0, End: rows.length - 1 }[event.key];
   if (to === undefined) return;
-  e.preventDefault();
-  const r = rows[Math.max(0, Math.min(rows.length - 1, to))];
-  r.focus();
-  r.scrollIntoView({ block: 'nearest' });
+  event.preventDefault();
+  const row = rows[Math.max(0, Math.min(rows.length - 1, to))];
+  row.focus();
+  row.scrollIntoView({ block: 'nearest' });
 });
 $('#doc-pop-in').addEventListener('input', docMenuFilter);
 // The focus moving to a control outside the popover and its button (a click on another control, a shortcut that moves it)
 // shuts it; a press anywhere outside them shuts it too (the press still does what it does). Focus that goes nowhere (the
 // window losing it) leaves it open.
-$('#doc-pop').addEventListener('focusout', (e) => {
-  const to = e.relatedTarget as Node | null;
+$('#doc-pop').addEventListener('focusout', (event) => {
+  const to = event.relatedTarget as Node | null;
   if (to && !$('#doc-pop').contains(to) && !$('#doc-more').contains(to)) closeDocMenu(false);
 });
 document.addEventListener(
   'pointerdown',
-  (e) => {
-    const t = e.target as Node;
-    if (!$('#doc-pop').hidden && !$('#doc-pop').contains(t) && !$('#doc-more').contains(t)) closeDocMenu(false);
+  (event) => {
+    const target = event.target as Node;
+    if (!$('#doc-pop').hidden && !$('#doc-pop').contains(target) && !$('#doc-more').contains(target))
+      closeDocMenu(false);
   },
   true,
 );

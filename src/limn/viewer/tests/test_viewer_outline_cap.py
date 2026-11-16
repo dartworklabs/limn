@@ -163,23 +163,23 @@ class OutlineLogic(unittest.TestCase):
         self.assertEqual(got, [None, 1004, None, None, None, None])
 
     def test_the_sheet_shows_whole_outline_rows_around_the_current_one(self):
-        """navSheetWindow(rows, c, room): the most whole rows around c that fit in room, one at a time on the side with fewer -
+        """outlineWindow(rows, c, room): the most whole rows around c that fit in room, one at a time on the side with fewer -
         five of ten 44px rows around the sixth, the first five at the top, the last five at the end, c alone in less than a row,
         no part row from what is left over, all of a short list, rows of two heights - and, down, from c on (above only at the
-        end). navSheetStep(parts, need, pin): where the sheet stops when it must scroll too - the first part's top at or past
+        end). sheetScrollStep(parts, need, pin): where the sheet stops when it must scroll too - the first part's top at or past
         need, the last when none is; with a row pinned under the head, where a part starts right under that row (the documents'
         row of 62px, the one document's view of 44px), on a part's top before it is pinned and again once its list has gone."""
         got = self.run_js(
-            ["navSheetWindow", "navSheetStep"],
+            ["outlineWindow", "sheetScrollStep"],
             """(()=>{const even=n=>Array.from({length:n},(_,i)=>({top:48*i,bottom:48*i+44}));
               const mixed=[{top:0,bottom:44},{top:48,bottom:112},{top:116,bottom:160},{top:164,bottom:228},{top:232,bottom:276},{top:280,bottom:324}];
-              return [navSheetWindow(even(10),5,236),navSheetWindow(even(10),0,236),navSheetWindow(even(10),9,236),navSheetWindow(even(10),5,30),
-                navSheetWindow(even(10),5,239),navSheetWindow(even(3),1,1000),navSheetWindow(mixed,2,200),
-                navSheetStep([0,30,96,162,230],98),navSheetStep([0,30,96,162,230],96),navSheetStep([0,30,96,162,230],95.6),
-                navSheetStep([0,30,96,162,230],300),navSheetStep([],10),
-                navSheetWindow(even(10),2,236,true),navSheetWindow(even(10),8,236,true),
-                navSheetStep([0,30,96,162,230],98,{top:30,height:62,end:226}),navSheetStep([10,62,124,184,414],60,{top:10,height:44,end:Infinity}),
-                navSheetStep([0,30,96,162,230,282],240,{top:30,height:62,end:226}),navSheetStep([0,30,96,162,230],20,{top:30,height:62,end:226})];})()""",
+              return [outlineWindow(even(10),5,236),outlineWindow(even(10),0,236),outlineWindow(even(10),9,236),outlineWindow(even(10),5,30),
+                outlineWindow(even(10),5,239),outlineWindow(even(3),1,1000),outlineWindow(mixed,2,200),
+                sheetScrollStep([0,30,96,162,230],98),sheetScrollStep([0,30,96,162,230],96),sheetScrollStep([0,30,96,162,230],95.6),
+                sheetScrollStep([0,30,96,162,230],300),sheetScrollStep([],10),
+                outlineWindow(even(10),2,236,true),outlineWindow(even(10),8,236,true),
+                sheetScrollStep([0,30,96,162,230],98,{top:30,height:62,end:226}),sheetScrollStep([10,62,124,184,414],60,{top:10,height:44,end:Infinity}),
+                sheetScrollStep([0,30,96,162,230,282],240,{top:30,height:62,end:226}),sheetScrollStep([0,30,96,162,230],20,{top:30,height:62,end:226})];})()""",
         )
         self.assertEqual(
             got,
@@ -188,17 +188,17 @@ class OutlineLogic(unittest.TestCase):
         )
 
     def test_the_page_list_and_the_outline_share_the_room_in_whole_rows(self):
-        """navSheetShare(room, pagesOf, most, three, one): the most page rows (44px, up to five) that leave the outline three
+        """shareSheetRoom(room, pagesOf, most, three, one): the most page rows (44px, up to five) that leave the outline three
         rows (148px); short of that the current page's row and one outline row (52px), then no page row; nothing when not even
-        an outline row fits; a document without a page list gives it all to the outline. navSheetSpan(rows, c, m): m rows
+        an outline row fits; a document without a page list gives it all to the outline. rowsAround(rows, c, m): m rows
         around c, as near the middle as the list's ends allow - the last five at the end, the first five at the start."""
         got = self.run_js(
-            ["navSheetShare", "navSheetSpan"],
+            ["shareSheetRoom", "rowsAround"],
             """(()=>{const pg=m=>44*m, even=n=>Array.from({length:n},(_,i)=>({top:44*i,bottom:44*i+44}));
-              return [navSheetShare(400,pg,5,148,52),navSheetShare(300,pg,5,148,52),navSheetShare(196,pg,5,148,52),navSheetShare(120,pg,5,148,52),
-                navSheetShare(60,pg,5,148,52),navSheetShare(40,pg,5,148,52),navSheetShare(400,pg,2,148,52),navSheetShare(100,pg,0,148,52),
-                navSheetSpan(even(14),13,5),navSheetSpan(even(14),0,5),navSheetSpan(even(14),6,5),navSheetSpan(even(3),1,5),
-                navSheetSpan(even(14),6,0),navSheetSpan([],0,3)];})()""",
+              return [shareSheetRoom(400,pg,5,148,52),shareSheetRoom(300,pg,5,148,52),shareSheetRoom(196,pg,5,148,52),shareSheetRoom(120,pg,5,148,52),
+                shareSheetRoom(60,pg,5,148,52),shareSheetRoom(40,pg,5,148,52),shareSheetRoom(400,pg,2,148,52),shareSheetRoom(100,pg,0,148,52),
+                rowsAround(even(14),13,5),rowsAround(even(14),0,5),rowsAround(even(14),6,5),rowsAround(even(3),1,5),
+                rowsAround(even(14),6,0),rowsAround([],0,3)];})()""",
         )
         self.assertEqual(
             got,

@@ -152,7 +152,8 @@ class TextSurfacePure(unittest.TestCase):
 
 @unittest.skipUnless(shutil.which("node"), "node is not installed")
 class HiddenCharacters(unittest.TestCase):
-    """The repertoire (CC_RANGES), its exceptions (ccKept) and its forms (ccPlain, ccClip, ccHtml, ccAdded), under node."""
+    """The repertoire (HIDDEN_RANGES), its exceptions (isKeptInSequence) and its forms (ccPlain, ccClip, ccHtml,
+    ccAdded), under node."""
 
     def run_js(self, body: str):
         """Evaluate body (an expression) with the served parts; its JSON value."""
@@ -165,10 +166,11 @@ class HiddenCharacters(unittest.TestCase):
         )
 
     def test_the_repertoire_is_the_unicode_properties_it_names(self):
-        """Over every code point, CC_RE (built from CC_RANGES) matches exactly Default_Ignorable_Code_Point, Bidi_Control,
-        a control but tab and line feed, U+2028, U+2029 and U+FFF9-U+FFFB - as the engine's own Unicode tables have them."""
+        """Over every code point, HIDDEN_PATTERN (built from HIDDEN_RANGES) matches exactly Default_Ignorable_Code_Point,
+        Bidi_Control, a control but tab and line feed, U+2028, U+2029 and U+FFF9-U+FFFB - as the engine's own Unicode
+        tables have them."""
         got = self.run_js(
-            "(()=>{const di=/\\p{Default_Ignorable_Code_Point}|\\p{Bidi_Control}|\\p{Cc}/u,re=new RegExp('^'+CC_RE.source+'$','u'),bad=[];"
+            "(()=>{const di=/\\p{Default_Ignorable_Code_Point}|\\p{Bidi_Control}|\\p{Cc}/u,re=new RegExp('^'+HIDDEN_PATTERN.source+'$','u'),bad=[];"
             "for(let c=0;c<=0x10ffff;c++){if(c>=0xd800&&c<=0xdfff)continue; const s=String.fromCodePoint(c);"
             "const want=(di.test(s)&&c!==9&&c!==10)||c===0x2028||c===0x2029||(c>=0xfff9&&c<=0xfffb);"
             "if(re.test(s)!==want)bad.push(c.toString(16));} return bad.slice(0,20);})()"

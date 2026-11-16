@@ -116,11 +116,11 @@ import { downloadPdf, hideBuildErr, rebuild, showBuildErr } from './rebuild.ts';
 let HELP_BACK = null as HTMLElement | null;
 // Opens help with its head on one ink line (headInk); closing it gives the focus back to what had it.
 function openHelp() {
-  const d = $('#help');
-  if (d.open) return;
+  const dialog = $('#help');
+  if (dialog.open) return;
   HELP_BACK = document.activeElement as HTMLElement | null;
   hideTip();
-  showSheet(d);
+  showSheet(dialog);
   headInk();
 }
 $('#help').addEventListener('close', () => {
@@ -141,32 +141,32 @@ function zoomVisiblePdf(action) {
 }
 // compact: a click on a collapsed card that hit nothing of its own opens the card, as its preview line and chevron do (the card's
 // 44px links and chips keep their own action). wide cards are always open.
-function openTappedCard(t) {
-  const c = t && t.closest && t.closest('.pin.card:not(.open):not(.editing)');
-  if (!c || LAYOUT === LAYOUT_MODE.WIDE || t.closest('[data-copy],button,input,textarea')) return;
-  OPEN_CARDS.add(+c.dataset.id);
+function openTappedCard(target) {
+  const card = target && target.closest && target.closest('.pin.card:not(.open):not(.editing)');
+  if (!card || LAYOUT === LAYOUT_MODE.WIDE || target.closest('[data-copy],button,input,textarea')) return;
+  OPEN_CARDS.add(+card.dataset.id);
   drawPins();
 }
-document.addEventListener('click', (e) => {
-  const target = e.target as HTMLElement;
-  const cp = target.closest('[data-copy]') as HTMLElement;
-  if (cp) {
-    copyText(cp.dataset.copy || '', cp);
+document.addEventListener('click', (event) => {
+  const target = event.target as HTMLElement;
+  const copier = target.closest('[data-copy]') as HTMLElement;
+  if (copier) {
+    copyText(copier.dataset.copy || '', copier);
     return;
   }
-  const a = target.closest('[data-act]') as HTMLElement;
-  if (!a) {
+  const control = target.closest('[data-act]') as HTMLElement;
+  if (!control) {
     openTappedCard(target);
     return;
   }
-  const host = a.closest('[data-id]') as HTMLElement,
+  const host = control.closest('[data-id]') as HTMLElement,
     id = host ? Number(host.dataset.id) : null,
-    inEdit = !!a.closest('.edit');
-  const fromMore = !!a.closest('#more');
-  if (fromMore && (a.dataset.close || a.dataset.act === 'help')) $('#more').close();
-  if (a.closest('#status-list')) $('#status-list').close(); // a row's action folds the status list
-  if (a.dataset.close && a.closest('#nav-sheet')) $('#nav-sheet').close(); // a destination in the navigation sheet: go there, the sheet closes
-  switch (a.dataset.act) {
+    inEdit = !!control.closest('.edit');
+  const fromMore = !!control.closest('#more');
+  if (fromMore && (control.dataset.close || control.dataset.act === 'help')) $('#more').close();
+  if (control.closest('#status-list')) $('#status-list').close(); // a row's action folds the status list
+  if (control.dataset.close && control.closest('#nav-sheet')) $('#nav-sheet').close(); // a destination in the navigation sheet: go there, the sheet closes
+  switch (control.dataset.act) {
     case 'side':
       toggleSide();
       break;
@@ -184,7 +184,7 @@ document.addEventListener('click', (e) => {
       $('#more').close();
       break;
     case 'size-preset':
-      sizePreset(Number(a.dataset.i));
+      sizePreset(Number(control.dataset.i));
       break;
     case 'card-toggle':
       if (id == null) break;
@@ -228,10 +228,10 @@ document.addEventListener('click', (e) => {
       marksSet(!MARKS.off);
       break; // [더보기]'s [핀 표시] switch (marks-hide.js)
     case 'theme':
-      setTheme(a.dataset.theme);
+      setTheme(control.dataset.theme);
       break;
     case 'lang':
-      switchLang(a.dataset.lang);
+      switchLang(control.dataset.lang);
       break;
     case 'notify-toggle':
       notifyToggle();
@@ -251,13 +251,13 @@ document.addEventListener('click', (e) => {
       break;
     case 'verdict-save':
     case 'pv-save':
-      verdictPress(a, e.detail === 0 ? 'kb' : undefined);
+      verdictPress(control, event.detail === 0 ? 'kb' : undefined);
       break; // a verdict word's button: the composer's row or a page verdict line (verdict.js)
     case 'pv-earlier':
-      gotoPinRef(Number(a.dataset.ref), e.detail === 0);
+      gotoPinRef(Number(control.dataset.ref), event.detail === 0);
       break;
     case 'pv-cancel':
-      cancelLineVerdict(a);
+      cancelLineVerdict(control);
       break; // a page line's [판정 취소] on the person's own open verdict (verdict.js)
     case 'pv-reason-open':
     case 'pv-reason-save':
@@ -266,13 +266,13 @@ document.addEventListener('click', (e) => {
     case 'pv-reason-fold':
     case 'pv-reason-reapply':
     case 'pv-reason-see':
-      actOnReason(a);
+      actOnReason(control);
       break;
     case 'pv-sum':
-      goToSummaryPage(a);
+      goToSummaryPage(control);
       break; // a page's summary beside the verdict panel brings that page to it (verdict-panel.js)
     case 'pv-undo':
-      undoFromLine(a);
+      undoFromLine(control);
       break; // a take-back's [되돌리기] on its line (verdict.js)   // a page line's reason and its popover (verdict-reason.js)
     case 'pop-more':
       selPopMore();
@@ -283,40 +283,41 @@ document.addEventListener('click', (e) => {
         bannerNote(NOTICE_HOST.COMPOSER, '메모를 먼저 써야 덧붙일 수 있습니다', NOTICE_KIND.WARN);
         break;
       }
-      appendToPin(Number(a.dataset.oid), text);
+      appendToPin(Number(control.dataset.oid), text);
       break;
     }
     case 'overlap-separate':
-      COMPOSE.dismissedOverlap = a.dataset.key || null;
+      COMPOSE.dismissedOverlap = control.dataset.key || null;
       renderOverlapBanner();
       break;
     case 'copy-cur':
-      if (COMPOSE.current) copyText(COMPOSE.current.name + ' L' + COMPOSE.current.lo + '-L' + COMPOSE.current.hi, a);
+      if (COMPOSE.current)
+        copyText(COMPOSE.current.name + ' L' + COMPOSE.current.lo + '-L' + COMPOSE.current.hi, control);
       break;
     case 'expand':
       setSnipOpen(!SNIP_OPEN);
       renderComposer();
       break;
     case 'quote':
-      toggleQuote(a);
+      toggleQuote(control);
       break; // the dragged PDF text's line: open in full, or fold back to one line
     case 'sg-toggle':
     case 'sg-reload':
     case 'sg-rebase':
-      suggestAct(a, String(a.dataset.act));
+      suggestAct(control, String(control.dataset.act));
       break; // a suggested edit's switch and line (suggest.js)
     case 'sg-fold': {
-      const k = a.dataset.key;
-      if (!k) break;
-      if (SG_OPEN.has(k)) SG_OPEN.delete(k);
-      else SG_OPEN.add(k);
+      const key = control.dataset.key;
+      if (!key) break;
+      if (SG_OPEN.has(key)) SG_OPEN.delete(key);
+      else SG_OPEN.add(key);
       drawPins();
       break;
     } // a card's suggestion diff
     case 'level': {
-      const o = inEdit ? EDITOR.current : COMPOSE.current;
-      if (!o) break;
-      useLevel(o, a.dataset.level);
+      const draft = inEdit ? EDITOR.current : COMPOSE.current;
+      if (!draft) break;
+      useLevel(draft, control.dataset.level);
       if (!inEdit) {
         COMPOSE.intent++;
         recomputeOverlap();
@@ -325,15 +326,17 @@ document.addEventListener('click', (e) => {
       break;
     }
     case 'xp-to': {
-      const o = inEdit ? EDITOR.current : COMPOSE.current,
-        k = Number(a.dataset.line);
-      if (o && o.lo != null && o.hi != null) applyRange(o, widenTo(o.lo, o.hi, k), k < o.lo ? o.hi : o.lo);
+      const draft = inEdit ? EDITOR.current : COMPOSE.current,
+        line = Number(control.dataset.line);
+      if (draft && draft.lo != null && draft.hi != null)
+        applyRange(draft, widenTo(draft.lo, draft.hi, line), line < draft.lo ? draft.hi : draft.lo);
       break;
     } // the excerpt: widen to a dimmed line
     case 'xp-drop': {
-      const o = inEdit ? EDITOR.current : COMPOSE.current,
-        k = Number(a.dataset.line);
-      if (o && o.lo != null && o.hi != null) applyRange(o, dropLine(o.lo, o.hi, k), k === o.lo ? o.hi : o.lo);
+      const draft = inEdit ? EDITOR.current : COMPOSE.current,
+        line = Number(control.dataset.line);
+      if (draft && draft.lo != null && draft.hi != null)
+        applyRange(draft, dropLine(draft.lo, draft.hi, line), line === draft.lo ? draft.hi : draft.lo);
       break;
     } // ...or drop an end line
     case 'view':
@@ -343,9 +346,9 @@ document.addEventListener('click', (e) => {
       openEdit(id);
       break;
     case 'doc': {
-      const inMenu = !!a.closest('#nav-sheet');
-      if (a.closest('#doc-pop')) closeDocMenu(true);
-      switchDoc(a.dataset.doc);
+      const inMenu = !!control.closest('#nav-sheet');
+      if (control.closest('#doc-pop')) closeDocMenu(true);
+      switchDoc(control.dataset.doc);
       if (inMenu) $('#nav-sheet').close();
       break;
     }
@@ -369,13 +372,13 @@ document.addEventListener('click', (e) => {
       navGo();
       break;
     case 'page-list':
-      togglePageList(a);
+      togglePageList(control);
       break;
     case 'page-go':
-      goListedPage(Number(a.dataset.page));
+      goListedPage(Number(control.dataset.page));
       break;
     case 'view-mode':
-      setViewMode(a.dataset.mode);
+      setViewMode(control.dataset.mode);
       break;
     case 'search-open':
       searchOpen();
@@ -397,25 +400,25 @@ document.addEventListener('click', (e) => {
       break;
     case 'outline-page':
       if (outlineOverlay() && OUTLINE_MID_OPEN) toggleOutline();
-      pickOutline(Number(a.dataset.index));
+      pickOutline(Number(control.dataset.index));
       break;
     case 'revision':
-      showRevision(a.dataset.commit || '');
+      showRevision(control.dataset.commit || '');
       break;
     case 'revision-format':
-      setRevisionFormat(a.dataset.format);
+      setRevisionFormat(control.dataset.format);
       break;
     case 'revision-side':
-      setRevisionSide(a.dataset.side);
+      setRevisionSide(control.dataset.side);
       break;
     case 'mdc-step':
-      mdcStep(Number(a.dataset.step) || 0);
+      mdcStep(Number(control.dataset.step) || 0);
       break;
     case 'revision-row':
-      pressRevisionRow(a.dataset.commit);
+      pressRevisionRow(control.dataset.commit);
       break;
     case 'revision-range':
-      setRevisionRange(a.dataset.range);
+      setRevisionRange(control.dataset.range);
       break;
     case 'revision-more':
       moreRevisions();
@@ -438,31 +441,31 @@ document.addEventListener('click', (e) => {
       if (id != null) rvToCard(id);
       break; // confirming from result rows (review-pick.js)
     case 'list-order':
-      setListOrder(a.dataset.order);
+      setListOrder(control.dataset.order);
       break;
     case 'mention-pick':
-      mentionApply(Number(a.dataset.i));
+      mentionApply(Number(control.dataset.i));
       break;
     case 'pin-ref':
-      gotoPinRef(Number(a.dataset.ref), e.detail === 0);
+      gotoPinRef(Number(control.dataset.ref), event.detail === 0);
       break; // by keyboard the focus goes to the card
     case 'assign-new':
-      ASSIGN_NEW.v = a.dataset.v || 'agent';
+      ASSIGN_NEW.v = control.dataset.v || 'agent';
       ASSIGN_NEW.touched = true;
       renderAssignNew();
       saveDraftSoon();
       break;
     case 'assign-edit':
       if (EDITOR.current) {
-        EDITOR.current.assignee = a.dataset.v || 'agent';
+        EDITOR.current.assignee = control.dataset.v || 'agent';
         renderAssignEdit();
       }
       break;
     case 'msg-more': {
-      const k = a.dataset.key;
-      if (!k) break;
-      if (MSG_OPEN.has(k)) MSG_OPEN.delete(k);
-      else MSG_OPEN.add(k);
+      const key = control.dataset.key;
+      if (!key) break;
+      if (MSG_OPEN.has(key)) MSG_OPEN.delete(key);
+      else MSG_OPEN.add(key);
       drawPins();
       break;
     }
@@ -470,7 +473,7 @@ document.addEventListener('click', (e) => {
       toggleRevisionOther();
       break;
     case 'revision-zoom':
-      revisionZoom(a.dataset.zoom);
+      revisionZoom(control.dataset.zoom);
       break;
     case 'revision-whole':
       setRevisionWhole(!REV_SCOPE.whole);
@@ -483,9 +486,9 @@ document.addEventListener('click', (e) => {
       closePin(id);
       break;
     case 'drop': {
-      const nb = e.detail === 0 ? cardNeighbour(a) : null;
+      const neighbour = event.detail === 0 ? cardNeighbour(control) : null;
       dropPin(id, false);
-      if (nb !== null) focusCard(nb);
+      if (neighbour !== null) focusCard(neighbour);
       break;
     } // by keyboard the focus goes to the card beside
     case 'restore':
@@ -498,19 +501,19 @@ document.addEventListener('click', (e) => {
       unclaimPin(id);
       break;
     case 'kind': {
-      const fromHint = !!a.closest('#c-qhint');
-      setKind(a.dataset.kind);
+      const fromHint = !!control.closest('#c-qhint');
+      setKind(control.dataset.kind);
       // [질문으로 보내기] hides itself (qHint), which would drop focus to <body> and make Ctrl+Enter do nothing - back to the memo.
       if (fromHint) {
-        const n = $('#note');
-        n.focus({ preventScroll: true });
-        n.setSelectionRange(n.value.length, n.value.length);
+        const note = $('#note');
+        note.focus({ preventScroll: true });
+        note.setSelectionRange(note.value.length, note.value.length);
       }
       break;
     }
     case 'e-kind':
       if (EDITOR.current) {
-        EDITOR.current.kind_req = a.dataset.kind === KIND_REQ.QUESTION ? KIND_REQ.QUESTION : KIND_REQ.FIX;
+        EDITOR.current.kind_req = control.dataset.kind === KIND_REQ.QUESTION ? KIND_REQ.QUESTION : KIND_REQ.FIX;
         renderEdit();
       }
       break;
@@ -525,7 +528,7 @@ document.addEventListener('click', (e) => {
       break;
     case 'confirm': {
       if (id == null) break;
-      const inGuide = !!a.closest('#revision-pin,#revision-acts'); // before confirmPin redraws the guide line
+      const inGuide = !!control.closest('#revision-pin,#revision-acts'); // before confirmPin redraws the guide line
       confirmPin(id);
       if (inGuide) revBack();
       break;
@@ -549,10 +552,10 @@ document.addEventListener('click', (e) => {
       drawPins();
       break;
     case 'arc-toggle': {
-      const k = a.dataset.key;
-      if (!k) break;
-      if (ARC_OPEN.has(k)) ARC_OPEN.delete(k);
-      else ARC_OPEN.add(k);
+      const key = control.dataset.key;
+      if (!key) break;
+      if (ARC_OPEN.has(key)) ARC_OPEN.delete(key);
+      else ARC_OPEN.add(key);
       drawPins();
       break;
     }
@@ -563,13 +566,13 @@ document.addEventListener('click', (e) => {
       cancelEdit();
       break;
     case 'md-anchor':
-      mdGoAnchor(a);
+      mdGoAnchor(control);
       break; // an in-document #heading link of the Markdown surface
     case 'md-doc':
-      mdGoDoc(a);
+      mdGoDoc(control);
       break; // a link to another registered document (md-surface.js, ADR-0030)
     case 'md-html-run':
-      mdHtmlRun(a);
+      mdHtmlRun(control);
       break; // a run of raw HTML blocks opens or closes (md-surface.js)
     case 'repick':
       startRepick();
@@ -581,7 +584,7 @@ document.addEventListener('click', (e) => {
       applyRepick();
       break;
     case 'sec-toggle':
-      toggleSec(a.dataset.sec);
+      toggleSec(control.dataset.sec);
       break;
     case 'trash-open':
       openTrash();
@@ -602,20 +605,20 @@ document.addEventListener('click', (e) => {
       toggleStatusList();
       break;
     case 'status-why':
-      statusWhy(a);
+      statusWhy(control);
       break;
     case 'notice-act':
-      noticeAct(Number(a.dataset.n));
+      noticeAct(Number(control.dataset.n));
       break;
     case 'notice-x':
-      noticeClose(Number(a.dataset.n));
+      noticeClose(Number(control.dataset.n));
       break;
     case 'reload':
       reloadForUpdate();
       break;
   }
 });
-$('#doc-select').addEventListener('change', (e) => switchDoc(e.target.value));
+$('#doc-select').addEventListener('change', (event) => switchDoc(event.target.value));
 $('#revision-file').addEventListener('change', renderRevisionFile);
 // A segmented control is a radio group (docs/handbook/viewer.md §디자인 토큰과 컴포넌트): the whole group is one Tab stop, the
 // arrows move inside it and Home/End go to its ends. The one stop is a roving tabindex - the chosen word is the one Tab
@@ -627,18 +630,20 @@ $('#revision-file').addEventListener('change', renderRevisionFile);
 // activation are (WCAG 3.2.2): the keys only move the focus, and Enter or Space - the word's own press - chooses. While the
 // focus walks such a group the stop goes with it, so Tab leaves from where the focus is in one step; when the focus leaves,
 // the stop goes back to the chosen word (segManualLeft).
-const SEG_STEP = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 };
+const SEGMENT_STEP = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 };
 /** The words of radio group g that can take the focus: neither disabled nor hidden. */
-function segOffered(g: Element) {
-  return ([...g.querySelectorAll('[role=radio]')] as HTMLButtonElement[]).filter((w) => !w.disabled && !w.hidden);
+function offeredWords(group: Element) {
+  return ([...group.querySelectorAll('[role=radio]')] as HTMLButtonElement[]).filter(
+    (word) => !word.disabled && !word.hidden,
+  );
 }
 /** The words of g on offer that are laid out - the ones a key walks. */
-function segShown(g: Element) {
-  return segOffered(g).filter((w) => w.getClientRects().length);
+function shownWords(group: Element) {
+  return offeredWords(group).filter((word) => word.getClientRects().length);
 }
 /** Where the focus is among the words g shows (segShown), -1 when it is not on one of them. */
-function segFocusAt(g: Element) {
-  return segShown(g).indexOf(document.activeElement as HTMLButtonElement);
+function segFocusAt(group: Element) {
+  return shownWords(group).indexOf(document.activeElement as HTMLButtonElement);
 }
 // Three groups draw their words again: the assignee row on every pick and every change of the note (mentions.js assignSeg),
 // the range ladder with every range (levels.js drawLadder - a pick that leaves the excerpt short of lines draws it again
@@ -648,226 +653,240 @@ function segFocusAt(g: Element) {
 // notes where the focus was (segFocusAt) and gives it back to the word now in place i - the last when there are fewer - as
 // no new focus: a description shows only after a key (tooltip.js focusGivenBack). A group drawn away (no people left to
 // assign) has none, and the focus stays.
-function segKeep(g: Element, i: number) {
-  if (i < 0) return;
-  const ws = segShown(g),
-    w = ws[Math.min(i, ws.length - 1)];
-  if (w) focusGivenBack(w);
+function segKeep(group: Element, index: number) {
+  if (index < 0) return;
+  const words = shownWords(group),
+    word = words[Math.min(index, words.length - 1)];
+  if (word) focusGivenBack(word);
 }
 /** Keep one Tab stop in radio group g: the chosen word, else the first one on offer. It reads the markup only, not the
  * layout, so a group drawn while its panel is closed holds its one stop before it shows. */
-function segRove(g: Element | null) {
-  if (!g) return;
-  const ws = segOffered(g),
-    on = ws.find((w) => w.getAttribute('aria-checked') === 'true') || ws[0];
-  for (const w of ws) w.tabIndex = w === on ? 0 : -1;
+function segRove(group: Element | null) {
+  if (!group) return;
+  const words = offeredWords(group),
+    on = words.find((word) => word.getAttribute('aria-checked') === 'true') || words[0];
+  for (const word of words) word.tabIndex = word === on ? 0 : -1;
 }
-for (const g of $$('[role=radiogroup]')) segRove(g); // the groups in the page's markup; a drawn one calls segRove itself
-document.addEventListener('keydown', (e) => {
-  const t = e.target as HTMLElement;
-  if (imeKey(e) || e.ctrlKey || e.metaKey || e.altKey) return;
-  if (!t || !t.closest || t.getAttribute('role') !== 'radio') return;
-  const g = t.closest('[role=radiogroup]');
-  if (!g) return;
-  const ws = segShown(g),
-    i = ws.indexOf(t as HTMLButtonElement);
-  if (i < 0) return;
-  const step = SEG_STEP[e.key];
+for (const group of $$('[role=radiogroup]')) segRove(group); // the groups in the page's markup; a drawn one calls segRove itself
+document.addEventListener('keydown', (event) => {
+  const target = event.target as HTMLElement;
+  if (imeKey(event) || event.ctrlKey || event.metaKey || event.altKey) return;
+  if (!target || !target.closest || target.getAttribute('role') !== 'radio') return;
+  const group = target.closest('[role=radiogroup]');
+  if (!group) return;
+  const words = shownWords(group),
+    index = words.indexOf(target as HTMLButtonElement);
+  if (index < 0) return;
+  const step = SEGMENT_STEP[event.key];
   const to =
     step !== undefined
-      ? (i + step + ws.length) % ws.length
-      : e.key === 'Home'
+      ? (index + step + words.length) % words.length
+      : event.key === 'Home'
         ? 0
-        : e.key === 'End'
-          ? ws.length - 1
+        : event.key === 'End'
+          ? words.length - 1
           : -1;
   if (to < 0) return;
-  e.preventDefault();
-  const w = ws[to];
-  if (g.hasAttribute('data-seg-manual')) {
-    for (const x of segOffered(g)) x.tabIndex = x === w ? 0 : -1;
-    w.focus();
+  event.preventDefault();
+  const word = words[to];
+  if (group.hasAttribute('data-seg-manual')) {
+    for (const offered of offeredWords(group)) offered.tabIndex = offered === word ? 0 : -1;
+    word.focus();
     return;
   } // the focus only
-  w.tabIndex = 0;
-  w.focus();
-  if (w.getAttribute('aria-checked') !== 'true') w.click(); // a group the press draws again keeps the focus (segKeep)
-  segRove(g);
+  word.tabIndex = 0;
+  word.focus();
+  if (word.getAttribute('aria-checked') !== 'true') word.click(); // a group the press draws again keeps the focus (segKeep)
+  segRove(group);
 });
 // The focus has left a group walked without choosing: its stop is the chosen word again, where Tab and Shift+Tab come back to.
-function segManualLeft(e: FocusEvent) {
-  const t = e.target as HTMLElement,
-    g = t && t.closest ? t.closest('[role=radiogroup][data-seg-manual]') : null;
-  const to = e.relatedTarget as Node | null;
-  if (g && !(to && g.contains(to))) segRove(g);
+function leaveManualSegment(event: FocusEvent) {
+  const target = event.target as HTMLElement,
+    group = target && target.closest ? target.closest('[role=radiogroup][data-seg-manual]') : null;
+  const to = event.relatedTarget as Node | null;
+  if (group && !(to && group.contains(to))) segRove(group);
 }
-document.addEventListener('focusout', segManualLeft);
+document.addEventListener('focusout', leaveManualSegment);
 // A ladder's scroll box (.seg.lad) is no Tab stop (tabindex="-1": Firefox makes a box that overflows one of its own), but
 // a press on it - the gap between two words, its edge - still gives it the focus, and from a focused box with tabindex -1
 // Firefox's next Tab began again at the page's start. So the focus such a press gives the box goes on to the group's one
 // stop (segRove's word) as no new focus (focusGivenBack: no description), and Tab leaves from there, as from a word.
-function segBoxFocus(e: FocusEvent) {
-  const b = e.target as HTMLElement;
-  if (!b || !b.matches || !b.matches('.seg.lad[tabindex="-1"]')) return;
-  const g = b.matches('[role=radiogroup]') ? b : b.querySelector('[role=radiogroup]') || b,
-    ws = segOffered(g),
-    w = ws.find((x) => x.tabIndex === 0) || ws[0];
-  if (w) focusGivenBack(w);
+function passLadderBoxFocus(event: FocusEvent) {
+  const box = event.target as HTMLElement;
+  if (!box || !box.matches || !box.matches('.seg.lad[tabindex="-1"]')) return;
+  const group = box.matches('[role=radiogroup]') ? box : box.querySelector('[role=radiogroup]') || box,
+    words = offeredWords(group),
+    word = words.find((offered) => offered.tabIndex === 0) || words[0];
+  if (word) focusGivenBack(word);
 }
-document.addEventListener('focusin', segBoxFocus);
+document.addEventListener('focusin', passLadderBoxFocus);
 
-document.addEventListener('keydown', (e) => {
-  if (imeKey(e)) return; // an input method's key, the Enter or Esc that ended its composition too (core.js)
-  const t = e.target as HTMLElement,
-    inField = t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.isContentEditable);
+document.addEventListener('keydown', (event) => {
+  if (imeKey(event)) return; // an input method's key, the Enter or Esc that ended its composition too (core.js)
+  const target = event.target as HTMLElement,
+    inField =
+      target &&
+      (target.tagName === 'TEXTAREA' ||
+        target.tagName === 'INPUT' ||
+        target.tagName === 'SELECT' ||
+        target.isContentEditable);
   // Ctrl(Cmd) + = / - / 0 zooms/fits just the PDF page instead of the browser zoom. Left to the browser inside an input field.
-  if ((e.ctrlKey || e.metaKey) && !e.altKey && !inField && !isMdDoc()) {
-    const z = zoomKey(e); // a Markdown document's text zooms with the browser
-    if (z) {
+  if ((event.ctrlKey || event.metaKey) && !event.altKey && !inField && !isMdDoc()) {
+    const zoomAction = zoomKey(event); // a Markdown document's text zooms with the browser
+    if (zoomAction) {
       if (document.body.classList.contains('revision-open')) {
         if (!revisionPdfActive()) return;
       }
-      e.preventDefault();
-      zoomVisiblePdf(z);
+      event.preventDefault();
+      zoomVisiblePdf(zoomAction);
       return;
     }
   }
   // Document switching (multiple documents): Ctrl+PgUp/PgDn is previous/next, Alt+1...9 is that index (e.code - Option+digit on Mac produces a different character).
   // The selector uses default keyboard handling. Global shortcuts are never used inside an input field.
   if (multiDoc() && !inField) {
-    if (e.ctrlKey && !e.altKey && !e.metaKey && (e.key === 'PageUp' || e.key === 'PageDown')) {
-      e.preventDefault();
+    if (event.ctrlKey && !event.altKey && !event.metaKey && (event.key === 'PageUp' || event.key === 'PageDown')) {
+      event.preventDefault();
       closePageList(false);
-      closeDocMenu($('#doc-pop').contains(t));
-      cycleDoc(e.key === 'PageDown' ? 1 : -1);
+      closeDocMenu($('#doc-pop').contains(target));
+      cycleDoc(event.key === 'PageDown' ? 1 : -1);
       return;
     }
-    if (e.altKey && !e.ctrlKey && !e.metaKey && /^Digit[1-9]$/.test(e.code || '')) {
-      const d = DOCS[+e.code.slice(5) - 1];
-      if (d) {
-        e.preventDefault();
+    if (event.altKey && !event.ctrlKey && !event.metaKey && /^Digit[1-9]$/.test(event.code || '')) {
+      const entry = DOCS[+event.code.slice(5) - 1];
+      if (entry) {
+        event.preventDefault();
         closePageList(false);
-        closeDocMenu($('#doc-pop').contains(t));
-        switchDoc(d.key);
+        closeDocMenu($('#doc-pop').contains(target));
+        switchDoc(entry.key);
       }
       return;
     }
   }
   // Ctrl(Cmd)+\ opens and collapses the pin panel at every width (docs/handbook/viewer.md §패널 폭과 시트 높이) - not inside a text field.
-  if ((e.ctrlKey || e.metaKey) && !e.altKey && !inField && (e.code === 'Backslash' || e.key === '\\')) {
-    e.preventDefault();
+  if (
+    (event.ctrlKey || event.metaKey) &&
+    !event.altKey &&
+    !inField &&
+    (event.code === 'Backslash' || event.key === '\\')
+  ) {
+    event.preventDefault();
     toggleSide();
     return;
   }
-  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+  if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
     if (
-      t &&
-      (t.id === 'note' ||
-        t.id === 'c-sg-text' ||
-        (t.closest && t.closest('#sel-pop')) ||
-        (t.closest && t.closest('#composer') && !$('#composer').hidden && !inField))
+      target &&
+      (target.id === 'note' ||
+        target.id === 'c-sg-text' ||
+        (target.closest && target.closest('#sel-pop')) ||
+        (target.closest && target.closest('#composer') && !$('#composer').hidden && !inField))
     ) {
-      e.preventDefault();
+      event.preventDefault();
       if (!viewerBlocked()) savePin();
-    } else if (t && t.classList && (t.classList.contains('e-note') || t.classList.contains('e-sg-text'))) {
-      e.preventDefault();
+    } else if (
+      target &&
+      target.classList &&
+      (target.classList.contains('e-note') || target.classList.contains('e-sg-text'))
+    ) {
+      event.preventDefault();
       saveEdit();
-    } else if (t && t.classList && t.classList.contains('r-text')) {
-      e.preventDefault();
+    } else if (target && target.classList && target.classList.contains('r-text')) {
+      event.preventDefault();
       sendReply();
     }
     return;
   }
-  if (e.key === 'Enter' && t && t.dataset && t.dataset.copy !== undefined && !inField) {
-    copyText(t.dataset.copy, t);
+  if (event.key === 'Enter' && target && target.dataset && target.dataset.copy !== undefined && !inField) {
+    copyText(target.dataset.copy, target);
     return;
   }
   // A span with role=button (a card's #number) is also activated by Enter/Space - sent through the same data-act path as a click.
   if (
-    (e.key === 'Enter' || e.key === ' ') &&
-    t &&
-    t.getAttribute &&
-    /^(button|link)$/.test(t.getAttribute('role') || '') &&
-    t.dataset &&
-    t.dataset.act &&
+    (event.key === 'Enter' || event.key === ' ') &&
+    target &&
+    target.getAttribute &&
+    /^(button|link)$/.test(target.getAttribute('role') || '') &&
+    target.dataset &&
+    target.dataset.act &&
     !inField
   ) {
-    e.preventDefault();
-    t.click();
+    event.preventDefault();
+    target.click();
     return;
   }
-  if (e.key === 'Escape') {
+  if (event.key === 'Escape') {
     if ($('#help').open || $('#more').open || $('#nav-sheet').open || $('#trash').open || $('#status-list').open)
       return;
     if (!$('#page-pop').hidden) {
-      e.preventDefault();
+      event.preventDefault();
       closePageList(true);
       return;
     } // the page list first: it floats over everything below
     if (!$('#doc-pop').hidden) {
-      e.preventDefault();
+      event.preventDefault();
       closeDocMenu(true);
       return;
     } // so does the documents popover
     if (!TIP.hidden) {
       hideTip();
       if (!inField) {
-        e.preventDefault();
+        event.preventDefault();
         return;
       }
     }
     // Each Esc closes the top thing only; a handled Esc is not also a close request (the back-gesture layer's CloseWatcher).
     if (outlineOverlay() && OUTLINE_MID_OPEN) {
-      e.preventDefault();
+      event.preventDefault();
       toggleOutline();
       return;
     }
     if (REPICK) {
-      e.preventDefault();
+      event.preventDefault();
       cancelRepick();
       return;
     }
     if (REPLY) {
-      e.preventDefault();
+      event.preventDefault();
       closeReply();
       return;
     }
     if (EDITOR.current) {
-      e.preventDefault();
+      event.preventDefault();
       cancelEdit();
       return;
     }
     if (COMPOSE.current || !$('#composer').hidden) {
-      e.preventDefault();
+      event.preventDefault();
       discardSelection();
       return;
     }
     if (SELMODE) {
-      e.preventDefault();
+      event.preventDefault();
       setSelMode(false);
       return;
     } // a keyboard ends the select mode as [끝내기] does
-    if (RV_PICK && t && t.closest && t.closest('#sec-review')) {
-      e.preventDefault();
+    if (RV_PICK && target && target.closest && target.closest('#sec-review')) {
+      event.preventDefault();
       rvPick(false);
       return;
     } // the review section's pick, from inside it (review-pick.js)
     // The 701-900px overlay panel covers the document: Esc collapses it (a selection above was cancelled first).
     if (LAYOUT === LAYOUT_MODE.MID && MID_OVERLAY && SIDE_OPEN) {
-      e.preventDefault();
+      event.preventDefault();
       setSide(false, true, true);
       focusSideToggle();
       return;
     }
     if (document.body.classList.contains('revision-open')) {
-      e.preventDefault();
+      event.preventDefault();
       revBack();
       return;
     } // Esc in [변경 보기] = [원고로]
     return;
   }
-  if (e.key === '?' && !inField && !e.metaKey && !e.ctrlKey && !e.altKey) {
-    e.preventDefault();
+  if (event.key === '?' && !inField && !event.metaKey && !event.ctrlKey && !event.altKey) {
+    event.preventDefault();
     openHelp();
   }
 });

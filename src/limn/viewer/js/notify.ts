@@ -51,64 +51,67 @@ function notifyOn() {
 // is the cursor, so another tab's advance in storage counts as well.
 let NOTIFY_CURSOR_MEM = null as number | null;
 function notifyCursor(): number | null {
-  let v = NaN;
+  let stored = NaN;
   try {
-    v = parseInt(localStorage.getItem('pinNotifyCursor') || '', 10);
-  } catch (e) {}
-  const m = NOTIFY_CURSOR_MEM;
-  return isNaN(v) ? m : m !== null && m > v ? m : v;
+    stored = parseInt(localStorage.getItem('pinNotifyCursor') || '', 10);
+  } catch (error) {}
+  const remembered = NOTIFY_CURSOR_MEM;
+  return isNaN(stored) ? remembered : remembered !== null && remembered > stored ? remembered : stored;
 }
-function setNotifyCursor(v: number) {
-  const c = notifyCursor();
-  if (c == null || v > c) putNotifyCursor(v);
+function setNotifyCursor(cursor: number) {
+  const current = notifyCursor();
+  if (current == null || cursor > current) putNotifyCursor(cursor);
 }
 // Puts the cursor at v, backwards too (the server's events started again): in memory and, where it may, in storage.
-function putNotifyCursor(v: number) {
-  NOTIFY_CURSOR_MEM = v;
+function putNotifyCursor(cursor: number) {
+  NOTIFY_CURSOR_MEM = cursor;
   try {
-    localStorage.setItem('pinNotifyCursor', String(v));
-  } catch (e) {}
+    localStorage.setItem('pinNotifyCursor', String(cursor));
+  } catch (error) {}
 }
 function notifyQuery() {
   if (isLocalIdentity()) return '';
-  const c = notifyCursor();
-  return c == null ? '' : '&ev=' + c;
+  const cursor = notifyCursor();
+  return cursor == null ? '' : '&ev=' + cursor;
 }
 // Picks what to notify about (a pure function): after the cursor, addressed to me (to), not my own doing. One per pin - mention > reopen > awaiting review > reply, ties go to the later one.
-function pickNotifications(evs, me, cursor) {
+function pickNotifications(events, me, cursor) {
   const login = me && me.login;
   if (!login || login === LOCAL_LOGIN) return [];
   const by = new Map();
-  (evs || []).forEach((e) => {
-    if (!(e.seq > (cursor == null ? -1 : cursor))) return;
-    if (!NOTIFY_RANK[e.type]) return;
-    if (!(e.to || []).includes(login) || (e.by && e.by.login === login)) return;
-    const o = by.get(e.pin);
+  (events || []).forEach((event) => {
+    if (!(event.seq > (cursor == null ? -1 : cursor))) return;
+    if (!NOTIFY_RANK[event.type]) return;
+    if (!(event.to || []).includes(login) || (event.by && event.by.login === login)) return;
+    const chosen = by.get(event.pin);
     if (
-      !o ||
-      NOTIFY_RANK[e.type] > NOTIFY_RANK[o.type] ||
-      (NOTIFY_RANK[e.type] === NOTIFY_RANK[o.type] && e.seq > o.seq)
+      !chosen ||
+      NOTIFY_RANK[event.type] > NOTIFY_RANK[chosen.type] ||
+      (NOTIFY_RANK[event.type] === NOTIFY_RANK[chosen.type] && event.seq > chosen.seq)
     )
-      by.set(e.pin, e);
+      by.set(event.pin, event);
   });
-  return Array.from(by.values()).sort((a, b) => a.seq - b.seq);
+  return Array.from(by.values()).sort((earlier, later) => earlier.seq - later.seq);
 }
-function notifyText(e) {
-  const nm = who(e.by) || tr('누군가'),
-    ex = String(e.excerpt || '')
+function notifyText(event) {
+  const name = who(event.by) || tr('누군가'),
+    excerpt = String(event.excerpt || '')
       .split('\n')[0]
       .slice(0, 80),
-    q = { name: nm, text: ex };
+    values = { name: name, text: excerpt };
   const body =
     {
-      mention: tl('{name}님이 불렀습니다: {text}', q),
-      review_requested: tl('검토 대기: {text}', { text: ex || tr('설명 없이 닫힘') }),
-      replied: tl('{name}님 답글: {text}', q),
-      reopened: ex ? tl('{name}님이 다시 열었습니다: {text}', q) : tl('{name}님이 다시 열었습니다', q),
-      assigned: tl('{name}님이 담당으로 지정했습니다: {text}', q),
-      dropped: tl('{name}님이 삭제했습니다: {text}', q),
-    }[e.type] || ex;
-  return { title: tl('핀 #{id}', { id: e.pin }) + ' · ' + (e.doc_name || e.doc || (META && META.label) || ''), body };
+      mention: tl('{name}님이 불렀습니다: {text}', values),
+      review_requested: tl('검토 대기: {text}', { text: excerpt || tr('설명 없이 닫힘') }),
+      replied: tl('{name}님 답글: {text}', values),
+      reopened: excerpt ? tl('{name}님이 다시 열었습니다: {text}', values) : tl('{name}님이 다시 열었습니다', values),
+      assigned: tl('{name}님이 담당으로 지정했습니다: {text}', values),
+      dropped: tl('{name}님이 삭제했습니다: {text}', values),
+    }[event.type] || excerpt;
+  return {
+    title: tl('핀 #{id}', { id: event.pin }) + ' · ' + (event.doc_name || event.doc || (META && META.label) || ''),
+    body,
+  };
 }
 // Shows one event: a status-line message while this tab has focus, or with the switch off (the message waits on the line
 // for the person to come back), else a system notification. notifyText() already speaks
@@ -122,25 +125,29 @@ const NOTIFY_BRIEF = {
   assigned: '담당 지정',
   dropped: '삭제됨',
 };
-async function notifyShow(e) {
-  const t = notifyText(e);
+async function notifyShow(event) {
+  const shown = notifyText(event);
   if (!notifyOn() || (document.visibilityState === 'visible' && document.hasFocus())) {
-    notifyLine(e);
+    notifyLine(event);
     return;
   }
   try {
-    const reg = SW_REG || (await navigator.serviceWorker.ready);
-    await reg.showNotification(t.title, {
-      body: t.body,
-      tag: 'pin-' + e.pin,
+    const registration = SW_REG || (await navigator.serviceWorker.ready);
+    await registration.showNotification(shown.title, {
+      body: shown.body,
+      tag: 'pin-' + event.pin,
       icon: (
         (document.querySelector('link[rel=apple-touch-icon]') ||
           document.querySelector('link[rel=icon]') || {
             href: undefined,
           }) as HTMLLinkElement
       ).href,
-      actions: e.type === EVENT_TYPE.DROPPED && !isViewer() ? [{ action: 'restore', title: tr('되살리기') }] : [], // [되살리기] on "X deleted your pin" (the service worker hands it to this tab)
-      data: { pin: e.pin, doc: e.doc, url: '/#doc=' + encodeURIComponent(e.doc || '') + '&pin=' + e.pin },
+      actions: event.type === EVENT_TYPE.DROPPED && !isViewer() ? [{ action: 'restore', title: tr('되살리기') }] : [], // [되살리기] on "X deleted your pin" (the service worker hands it to this tab)
+      data: {
+        pin: event.pin,
+        doc: event.doc,
+        url: '/#doc=' + encodeURIComponent(event.doc || '') + '&pin=' + event.pin,
+      },
     });
   } catch (err) {}
 }
@@ -148,27 +155,27 @@ async function notifyShow(e) {
 // agent closing twelve of my pins one by one is one message that grows. One pin says what its notification says, with
 // [열기] (a deleted one [되살리기], a viewer's [열기]); more say how many, their numbers and who, with [보기] for review
 // requests (the review section), the Trash for deleted ones, else [열기] on the newest.
-function notifyLine(e: any) {
-  groupNote('ev:' + e.type, { evs: [e] }, notifyLineView, (a, b) => ({
-    evs: [...a.evs.filter((x: any) => x.pin !== b.evs[0].pin), ...b.evs],
+function notifyLine(event: any) {
+  groupNote('ev:' + event.type, { evs: [event] }, notifyLineView, (older, newer) => ({
+    evs: [...older.evs.filter((x: any) => x.pin !== newer.evs[0].pin), ...newer.evs],
   }));
 }
-function notifyLineView(g: { evs: any[] }) {
-  const evs = g.evs,
-    e = evs[evs.length - 1],
-    n = evs.length,
-    one = n === 1,
-    t = notifyText(e),
-    drop = e.type === EVENT_TYPE.DROPPED;
+function notifyLineView(group: { evs: any[] }) {
+  const events = group.evs,
+    latest = events[events.length - 1],
+    count = events.length,
+    one = count === 1,
+    shown = notifyText(latest),
+    drop = latest.type === EVENT_TYPE.DROPPED;
   const act = drop
     ? isViewer()
-      ? { label: '열기', tip: '휴지통에서 봅니다', fn: () => openPinFromLink(e.doc, e.pin) }
+      ? { label: '열기', tip: '휴지통에서 봅니다', fn: () => openPinFromLink(latest.doc, latest.pin) }
       : one
-        ? { label: '되살리기', tip: '휴지통에서 같은 번호로 되살립니다', wait: true, fn: () => restorePin(e.pin) }
-        : { label: '휴지통', tip: '지운 핀을 휴지통에서 봅니다', fn: () => openTrash(e.pin) }
-    : e.type === EVENT_TYPE.REVIEW_REQUESTED && !one
+        ? { label: '되살리기', tip: '휴지통에서 같은 번호로 되살립니다', wait: true, fn: () => restorePin(latest.pin) }
+        : { label: '휴지통', tip: '지운 핀을 휴지통에서 봅니다', fn: () => openTrash(latest.pin) }
+    : latest.type === EVENT_TYPE.REVIEW_REQUESTED && !one
       ? { label: '보기', tip: '검토 대기 핀으로 갑니다', fn: gotoReview }
-      : { label: '열기', tip: '그 핀으로 갑니다', fn: () => openPinFromLink(e.doc, e.pin) };
+      : { label: '열기', tip: '그 핀으로 갑니다', fn: () => openPinFromLink(latest.doc, latest.pin) };
   const many =
     (
       {
@@ -179,26 +186,26 @@ function notifyLineView(g: { evs: any[] }) {
         assigned: '나에게 맡긴 핀 {n}개',
         dropped: '핀 {n}개가 삭제됨',
       } as Record<string, string>
-    )[e.type] || '소식 {n}개';
+    )[latest.type] || '소식 {n}개';
   const ids =
-      evs
+      events
         .slice(0, 3)
         .map((x) => '#' + x.pin)
-        .join(', ') + (n > 3 ? ' ' + tl('외 {n}개', { n: n - 3 }) : ''),
-    names = [...new Set(evs.map((x) => who(x.by)).filter(Boolean))].slice(0, 2).join(', ');
+        .join(', ') + (count > 3 ? ' ' + tl('외 {n}개', { n: count - 3 }) : ''),
+    names = [...new Set(events.map((x) => who(x.by)).filter(Boolean))].slice(0, 2).join(', ');
   return {
-    msg: one ? t.title + ' — ' + t.body : tl(many, { n }) + ' — ' + ids + (names ? ' · ' + names : ''),
+    msg: one ? shown.title + ' — ' + shown.body : tl(many, { n: count }) + ' — ' + ids + (names ? ' · ' + names : ''),
     kind: drop ? NOTICE_KIND.WARN : NOTICE_KIND.OK,
     act,
     o: {
-      keys: evs.map((x) => x.type + ':' + x.pin),
+      keys: events.map((x) => x.type + ':' + x.pin),
       rank: 2,
       literal: true,
       dot: notifyDot(
-        e.type,
-        evs.some((x) => !x.doc || x.doc === DOC),
+        latest.type,
+        events.some((x) => !x.doc || x.doc === DOC),
       ),
-      brief: tr(NOTIFY_BRIEF[e.type] || '소식') + (one ? '' : ' ' + n),
+      brief: tr(NOTIFY_BRIEF[latest.type] || '소식') + (one ? '' : ' ' + count),
     },
   };
 }
@@ -207,20 +214,20 @@ function notifyLineView(g: { evs: any[] }) {
 function notifyDot(type: string, here: boolean): string {
   return type === EVENT_TYPE.REVIEW_REQUESTED ? NOTICE_DOT.RV : here ? NOTICE_DOT.SIDE : '';
 }
-function notifyHandle(d) {
-  if (!d || typeof d.ev_seq !== 'number') return;
+function notifyHandle(meta) {
+  if (!meta || typeof meta.ev_seq !== 'number') return;
   if (isLocalIdentity()) return; // no event is ever addressed to a local identity
-  const c = notifyCursor();
-  if (c == null) {
-    setNotifyCursor(d.ev_seq);
+  const cursor = notifyCursor();
+  if (cursor == null) {
+    setNotifyCursor(meta.ev_seq);
     return;
   } // first time enabled in this browser - never floods with a backlog of past events
-  if (!Array.isArray(d.events)) {
-    if (d.ev_seq < c) putNotifyCursor(d.ev_seq);
+  if (!Array.isArray(meta.events)) {
+    if (meta.ev_seq < cursor) putNotifyCursor(meta.ev_seq);
     return;
   }
-  const list = pickNotifications(d.events, META && META.me, notifyCursor()); // only what's after it, if another tab just advanced the cursor
-  const top = d.events.reduce((m, e) => Math.max(m, e.seq || 0), c);
+  const list = pickNotifications(meta.events, META && META.me, notifyCursor()); // only what's after it, if another tab just advanced the cursor
+  const top = meta.events.reduce((highest, event) => Math.max(highest, event.seq || 0), cursor);
   setNotifyCursor(top);
   list.forEach(notifyShow);
 }
@@ -229,7 +236,7 @@ async function notifyRegister() {
   try {
     SW_REG = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
     return SW_REG;
-  } catch (e) {
+  } catch (error) {
     return null;
   }
 }
@@ -242,17 +249,17 @@ function isLocalIdentity() {
 function notifyState() {
   if (isLocalIdentity()) return NOTIFY_STATE.LOCAL;
   if (!notifySupported()) return NOTIFY_STATE.UNSUPPORTED;
-  const pm = notifyPerm();
-  if (pm === 'denied') return NOTIFY_STATE.BLOCKED;
-  return prefs().notify && pm === 'granted' ? NOTIFY_STATE.ON : NOTIFY_STATE.OFF;
+  const permission = notifyPerm();
+  if (permission === 'denied') return NOTIFY_STATE.BLOCKED;
+  return prefs().notify && permission === 'granted' ? NOTIFY_STATE.ON : NOTIFY_STATE.OFF;
 }
 // Draws the notification control for this device's state (notifyState): [더보기]'s switch - on every layout since the desktop's
 // bell went with its [⋯] (3b of the cross-resolution pass) - on only when on, and off and disabled where it cannot turn on
 // (blocked, unsupported, a local identity) with the reason on a line under it. The state is never in the switch's name
 // ('브라우저 알림').
 function drawNotify() {
-  const st = notifyState(),
-    m = $('#m-notify');
+  const state = notifyState(),
+    toggle = $('#m-notify');
   const tip = {
     on: '이 기기에서 켜져 있습니다. 누르면 끕니다',
     off: '누르면 이 기기에서 켭니다(브라우저가 허용을 묻습니다)',
@@ -260,73 +267,73 @@ function drawNotify() {
       '브라우저가 이 사이트의 알림을 막았습니다. 주소창 왼쪽 자물쇠(사이트 설정) → 알림 → 허용으로 바꾼 뒤 다시 누르세요',
     unsupported: '브라우저 알림은 https(테일넷 주소)나 http://127.0.0.1·localhost 에서만 됩니다',
     local: '테일넷 주소로 열면 켤 수 있습니다',
-  }[st];
+  }[state];
   const why =
-    st === NOTIFY_STATE.BLOCKED
+    state === NOTIFY_STATE.BLOCKED
       ? tr('브라우저가 막았습니다 — 주소창 자물쇠 → 알림 → 허용')
-      : st === NOTIFY_STATE.UNSUPPORTED
+      : state === NOTIFY_STATE.UNSUPPORTED
         ? tr('https 테일넷 주소나 http://127.0.0.1에서만 됩니다')
-        : st === NOTIFY_STATE.LOCAL
+        : state === NOTIFY_STATE.LOCAL
           ? tr('테일넷 주소로 열면 켤 수 있습니다')
           : '';
-  m.setAttribute('aria-checked', String(st === NOTIFY_STATE.ON));
-  m.disabled = !!why;
-  m.dataset.tip = tip;
-  const w = $('#m-notify-why');
-  w.textContent = why;
-  w.hidden = !why;
+  toggle.setAttribute('aria-checked', String(state === NOTIFY_STATE.ON));
+  toggle.disabled = !!why;
+  toggle.dataset.tip = tip;
+  const whyLine = $('#m-notify-why');
+  whyLine.textContent = why;
+  whyLine.hidden = !why;
 }
 // [더보기]'s notification switch: off when on; on (asking the browser's permission from within this press) when off. Where it
 // cannot turn on, the switch is disabled and the line under it (#m-notify-why) says why (drawNotify), so a press there changes
 // nothing; a permission not given says so on that line too (blocked: drawNotify's reason; no choice made: notifyWhy). Turning
 // it on or off is silent - the switch shows it - and read out.
 async function notifyToggle() {
-  const st = notifyState();
-  if (st === NOTIFY_STATE.LOCAL || st === NOTIFY_STATE.UNSUPPORTED || st === NOTIFY_STATE.BLOCKED) {
+  const state = notifyState();
+  if (state === NOTIFY_STATE.LOCAL || state === NOTIFY_STATE.UNSUPPORTED || state === NOTIFY_STATE.BLOCKED) {
     drawNotify();
     return;
   }
-  if (st === NOTIFY_STATE.ON) {
+  if (state === NOTIFY_STATE.ON) {
     savePrefs({ notify: false });
     drawNotify();
     syncHiddenNotifyTimer();
     quietNote('이 기기의 브라우저 알림을 껐습니다');
     return;
   }
-  let pm = notifyPerm();
-  if (pm !== 'granted') {
+  let permission = notifyPerm();
+  if (permission !== 'granted') {
     try {
-      pm = await Notification.requestPermission();
-    } catch (e) {
-      pm = 'denied';
+      permission = await Notification.requestPermission();
+    } catch (error) {
+      permission = 'denied';
     }
   } // only ever asked from within this click
-  if (pm !== 'granted') {
+  if (permission !== 'granted') {
     drawNotify();
-    notifyWhy(pm === 'denied' ? $('#m-notify-why').textContent : tr('알림 허용을 고르지 않았습니다'));
+    notifyWhy(permission === 'denied' ? $('#m-notify-why').textContent : tr('알림 허용을 고르지 않았습니다'));
     return;
   }
   await notifyRegister();
   savePrefs({ notify: true });
   try {
-    const d = (await api(dq('/api/meta?light=1'), { silent: true })).data;
-    if (notifyCursor() == null) setNotifyCursor(d.ev_seq);
-  } catch (e) {}
+    const meta = (await api(dq('/api/meta?light=1'), { silent: true })).data;
+    if (notifyCursor() == null) setNotifyCursor(meta.ev_seq);
+  } catch (error) {}
   drawNotify();
   syncHiddenNotifyTimer();
   quietNote('이 기기에서 브라우저 알림을 켰습니다 — 나를 부르거나 내 핀에 일이 생기면 알립니다');
 }
 // Says text on the line under the notification switch until it is drawn again (drawNotify), and reads it out.
 function notifyWhy(text: string) {
-  const w = $('#m-notify-why');
-  w.textContent = text;
-  w.hidden = false;
+  const whyLine = $('#m-notify-why');
+  whyLine.textContent = text;
+  whyLine.hidden = false;
   announce(text);
 }
 // Clicking a notification (service worker -> postMessage, or a new tab's #doc=<key>&pin=<number>) switches to that document and opens that pin.
 function hashPin() {
-  const m = /(?:^#|[#&])pin=(\d{1,9})(?:&|$)/.exec(location.hash || '');
-  return m ? +m[1] : null;
+  const match = /(?:^#|[#&])pin=(\d{1,9})(?:&|$)/.exec(location.hash || '');
+  return match ? +match[1] : null;
 }
 // Reads a one-shot pin link (#doc=<key>&pin=<n>[&act=restore]) and removes pin=/act= from the address right away, so a
 // reload never repeats it (a reload of an &act=restore link restored a pin someone had deleted again - PR #11 review).
@@ -349,43 +356,43 @@ async function openPinFromLink(doc, pin, restore?) {
     if (DOC !== doc || visit !== SWITCHSEQ) return;
   }
   const visit = SWITCHSEQ,
-    k = DOC;
+    visitDoc = DOC;
   const now = await loadPinsNow();
-  if (!now || DOC !== k || visit !== SWITCHSEQ) return;
+  if (!now || DOC !== visitDoc || visit !== SWITCHSEQ) return;
   if (restore && !isViewer() && !findAnyPin(pin) && DROPPED.some((x) => x.id === pin)) {
     await restorePin(pin);
-    if (DOC !== k || visit !== SWITCHSEQ) return;
+    if (DOC !== visitDoc || visit !== SWITCHSEQ) return;
   }
-  const p = findAnyPin(pin);
-  if (!p) {
+  const found = findAnyPin(pin);
+  if (!found) {
     if (DROPPED.some((x) => x.id === pin)) openTrash(pin);
     return;
   }
-  if (pinState(p) === PIN_STATE.DONE) {
+  if (pinState(found) === PIN_STATE.DONE) {
     SEC.done = true;
   }
   OPEN_CARDS.add(pin);
   setSide(true);
   drawPins();
-  if (pinState(p) !== PIN_STATE.DONE) jumpPin(pin);
+  if (pinState(found) !== PIN_STATE.DONE) jumpPin(pin);
   requestAnimationFrame(() => {
-    if (DOC === k && visit === SWITCHSEQ) jumpToCard(pin);
+    if (DOC === visitDoc && visit === SWITCHSEQ) jumpToCard(pin);
   });
 }
 if ('serviceWorker' in navigator)
-  navigator.serviceWorker.addEventListener('message', (e) => {
-    const d = e.data || {};
-    if (d.type === 'open-pin') openPinFromLink(d.doc, +d.pin);
-    else if (d.type === 'restore-pin' && !isViewer()) restorePin(+d.pin);
+  navigator.serviceWorker.addEventListener('message', (event) => {
+    const message = event.data || {};
+    if (message.type === 'open-pin') openPinFromLink(message.doc, +message.pin);
+    else if (message.type === 'restore-pin' && !isViewer()) restorePin(+message.pin);
   });
 window.addEventListener('hashchange', () => {
-  const l = takeLinkHash();
-  if (l.pin) openPinFromLink(l.doc, l.pin, l.restore);
+  const link = takeLinkHash();
+  if (link.pin) openPinFromLink(link.doc, link.pin, link.restore);
 });
 // Sets SW_REG, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setSwReg<T extends typeof SW_REG>(v: T): T {
-  SW_REG = v;
-  return v;
+function setSwReg<Value extends typeof SW_REG>(value: Value): Value {
+  SW_REG = value;
+  return value;
 }
 export {
   SW_REG,

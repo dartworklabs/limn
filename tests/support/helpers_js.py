@@ -705,7 +705,7 @@ def module_code(src: str) -> str:
 
 # A setter the ES modules declare for a binding another module changes (ADR-0042 D1): `function setX(v){X=v; return v;}`,
 # in whatever layout (squash() reads it as the one line it would be).
-_SETTER = re.compile(r"function (set\w+)\(v\)\{(\w+)=v;return v;\}")
+_SETTER = re.compile(r"function (set\w+)\((\w+)\)\{(\w+)=\2;return \2;\}")
 
 
 def setter_prelude(page: str, js: str) -> str:

@@ -742,7 +742,7 @@ class StoredAnswers(unittest.TestCase):
 
 
 SERVE_SCOPE = r"""
-var POLL_FAILS=0,LAST_PINS_REV='r1',SAID=[],ENDED=[];
+var POLL_FAILS=0,LAST_PINS_REVISION='r1',SAID=[],ENDED=[];
 var OFF={boot:false,saidStale:false,staleNote:null};
 var navigator={onLine:true};
 var NOTICE_KIND={WARN:'warn'};
@@ -811,7 +811,7 @@ class StoredReadsServe(unittest.TestCase):
             OFF.boot=true;
             read().then(function(first){OFF.boot=false; NET='up';
               return read().then(function(second){console.log(JSON.stringify({first:first,second:second,
-                stale:OFF.saidStale,ended:ENDED.length,rev:LAST_PINS_REV}));});});
+                stale:OFF.saidStale,ended:ENDED.length,rev:LAST_PINS_REVISION}));});});
             """
         )
         self.assertEqual(got, {"first": "stored", "second": "fresh", "stale": False, "ended": 1, "rev": None})

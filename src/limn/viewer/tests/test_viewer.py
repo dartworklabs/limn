@@ -479,8 +479,8 @@ class FrontendStructure(unittest.TestCase):
 
     def test_light_poll_kicks_off_build_polling_when_running_or_seq_changed(self):
         body = sq(js_fn_body("pollLightOnce"))
-        self.assertIn("d.build&&d.build.state===BUILD_STATE.RUNNING", body)
-        self.assertIn("d.build_seq!==BUILD.lastSeq", body)
+        self.assertIn("meta.build&&meta.build.state===BUILD_STATE.RUNNING", body)
+        self.assertIn("meta.build_seq!==BUILD.lastSeq", body)
         self.assertIn("pollBuild()", body)
 
     def test_light_poll_is_single_flight(self):
@@ -512,7 +512,7 @@ class FrontendStructure(unittest.TestCase):
               function $(sel){return sel==='#nav-sheet'?docsMenu:{};}
               let detached=false;
               function switchDoc(k){detached=true;}   // 캐시된 문서: 동기로 끝나며 a 를 떼어낸 것을 흉내
-              const a={dataset:{doc:'ms'},closest(sel){return (!detached&&sel==='#nav-sheet')?{}:null;}};
+              const control={dataset:{doc:'ms'},closest(sel){return (!detached&&sel==='#nav-sheet')?{}:null;}};
               switch('doc'){case 'doc':{%s}}
               out.closed=docsMenu.closed;
               console.log(JSON.stringify(out));
@@ -623,7 +623,7 @@ class FrontendClaimUI(unittest.TestCase):
         """The pull phase has its words, and a build's completion carries the pull's line (pullSuffix)."""
         self.assertIn("원격 main 당겨오는 중", HTML)
         self.assertIn("function pullSuffix(", HTML)
-        self.assertIn("pullSuffix(b)", HTML)
+        self.assertIn("pullSuffix(build)", HTML)
 
 
 # Mobile (Galaxy Z Fold 7 etc.) — docs/handbook/viewer.md §모바일 레이아웃. Measured live with Playwright; here we
@@ -765,7 +765,7 @@ class FrontendMobileStructure(unittest.TestCase):
             sq("if(LAST_PTR==='mouse')(selPopOpen()?SEL_POP_FIELD:$('#note')).focus("), sq(js_fn_body("pick"))
         )
         self.assertIn(
-            sq("if(touchRecent()||MQ_NOHOVER.matches)return; const t=e.target; armTip("),
+            sq("if(touchRecent()||MQ_NOHOVER.matches)return; const target=event.target; armTip("),
             SCRIPT_SQ,
         )
         # devices without hover don't show the focus tooltip either (QA phone: the tooltip stayed stuck over the list after a tap),
@@ -1000,9 +1000,12 @@ class FrontendZoom(unittest.TestCase):
     def test_keyboard_zoom_skips_inputs(self):
         """Only modifier shortcuts outside fields reach the visible PDF's controller."""
         body = sq(js_listener_body("document", "keydown", "inField"))
-        self.assertIn("if((e.ctrlKey||e.metaKey)&&!e.altKey&&!inField&&!isMdDoc()){const z=zoomKey(e);", body)
-        self.assertIn("e.preventDefault();zoomVisiblePdf(z)", body)
-        self.assertLess(body.index("inField="), body.index("zoomKey(e)"))
+        self.assertIn(
+            "if((event.ctrlKey||event.metaKey)&&!event.altKey&&!inField&&!isMdDoc()){const zoomAction=zoomKey(event);",
+            body,
+        )
+        self.assertIn("event.preventDefault();zoomVisiblePdf(zoomAction)", body)
+        self.assertLess(body.index("inField="), body.index("zoomKey(event)"))
 
     def test_zoom_bounds_and_anchor(self):
         """The scale is bounded by the fitted width and the print size of the widest page, and a zoom keeps the point
@@ -1494,7 +1497,7 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         self.assertIn("var(--sheet-f,.64)", HTML)
         more = HTML[HTML.index('<dialog id="more"') : HTML.index('<dialog id="help"')]
         self.assertIn('id="m-size"', more)
-        self.assertIn(sq("case 'size-preset':sizePreset(Number(a.dataset.i))"), SCRIPT_SQ)
+        self.assertIn(sq("case 'size-preset':sizePreset(Number(control.dataset.i))"), SCRIPT_SQ)
         self.assertIn(sq("renderSizeSeg(); placeMore(); showSheet(d)"), SCRIPT_SQ)
 
     def test_actions_row_is_fixed_at_panel_bottom_outside_composer(self):
@@ -1962,14 +1965,14 @@ class FrontendSemanticAudit(unittest.TestCase):
         )
         self.assertEqual(json.loads(run_node(js)), [False, True, True, False, False, False])
         self.assertIn(
-            sq("o:{keys:evs.map(x=>x.type+':'+x.pin),rank:2,literal:true,"), sq(extract_js_fn("notifyLineView"))
+            sq("o:{keys:events.map(x=>x.type+':'+x.pin),rank:2,literal:true,"), sq(extract_js_fn("notifyLineView"))
         )
         self.assertIn(
-            sq("{keys:g.ids.map(i=>EVENT_TYPE.REVIEW_REQUESTED+':'+i),"),
+            sq("{keys:group.ids.map(id=>EVENT_TYPE.REVIEW_REQUESTED+':'+id),"),
             sq(JS_UPDATE_STUBS + extract_js_fn("notePinChanges")),
         )
         self.assertIn(
-            sq("{keys:g.pins.map(x=>EVENT_TYPE.REOPENED+':'+x.id),"),
+            sq("{keys:group.pins.map(x=>EVENT_TYPE.REOPENED+':'+x.id),"),
             sq(JS_UPDATE_STUBS + extract_js_fn("noteReviewChanges")),
         )
 
@@ -2360,7 +2363,9 @@ class PinNumberJump(unittest.TestCase):
         '1쪽' (16px) and 'L4-L5' only got min-height - their centred hit areas overlapped 4-8px apart, so '1쪽' answered
         16x38 (input diagnosis P6). Real boxes cannot overlap; the live check is PhoneTouchSizes."""
         src = HTML
-        self.assertIn(sq("/^(button|link)$/.test(t.getAttribute('role')||'')&&t.dataset&&t.dataset.act"), SCRIPT_SQ)
+        self.assertIn(
+            sq("/^(button|link)$/.test(target.getAttribute('role')||'')&&target.dataset&&target.dataset.act"), SCRIPT_SQ
+        )
         css = src[src.index("<style>") : src.index("</style>")]
         coarse = css[css.index("@media (pointer:coarse){") :]
         coarse = coarse[: coarse.index("\n}")]
@@ -2484,7 +2489,7 @@ class FrontendDocs(unittest.TestCase):
         self.assertIn(sq("box.value=DOC"), sq(body))
         self.assertIn("DOCS.map", body)
         self.assertIn(
-            sq("setAttr(a,'aria-current',"), sq(body)
+            sq("setAttributeIfChanged(link,'aria-current',"), sq(body)
         )  # the current document's link is marked (updated in place)
 
     def test_default_theme_is_light(self):
@@ -2657,9 +2662,9 @@ class FrontendDocs(unittest.TestCase):
     def test_switch_shortcuts_skip_input_fields(self):
         body = sq(js_listener_body("document", "keydown", "inField"))
         i = body.index("if(multiDoc()&&!inField){")
-        self.assertIn("e.key==='PageUp'||e.key==='PageDown'", body[i:])
-        self.assertIn("/^Digit[1-9]$/.test(e.code||'')", body[i:])
-        self.assertLess(body.index(sq("const t=e.target,inField=")), i)
+        self.assertIn("event.key==='PageUp'||event.key==='PageDown'", body[i:])
+        self.assertIn("/^Digit[1-9]$/.test(event.code||'')", body[i:])
+        self.assertLess(body.index(sq("const target=event.target,inField=")), i)
 
     def test_view_memory_and_pdfjs_cache_are_bounded(self):
         self.assertIn(sq("const VEC_CACHE_MAX=3;"), SCRIPT_SQ)
@@ -2668,10 +2673,10 @@ class FrontendDocs(unittest.TestCase):
         self.assertIn("vecClose(d)", put)
         sw = JS_UPDATE_STUBS + extract_js_fn("switchDoc")
         self.assertIn("saveView();", sw)
-        self.assertIn("setHash(k)", sw)
-        self.assertIn(sq("savePrefs({lastDoc:k})"), sq(sw))
+        self.assertIn("setHash(doc)", sw)
+        self.assertIn(sq("savePrefs({lastDoc:doc})"), sq(sw))
         show = extract_js_fn("showDoc")
-        self.assertIn("restoreView(v)", show)
+        self.assertIn("restoreView(view)", show)
         self.assertIn("vecOpen()", show)
 
     def test_cross_doc_card_actions_switch_first(self):
@@ -2827,7 +2832,9 @@ class FrontendFigure(unittest.TestCase):
                 if fn != "noteOtherDocs":  # another document's finished build is its update message (docUpdateView)
                     self.assertRegex(extract_js_fn(fn), r"buildsFromSource\(|isFigureKind\(")
         self.assertIn(
-            sq("isFigureKind(d.kind)?' · '+tr('그림 문서(드래그하면 요소와 그 요소를 그린 코드 줄을 찾습니다)'):''"),
+            sq(
+                "isFigureKind(entry.kind)?' · '+tr('그림 문서(드래그하면 요소와 그 요소를 그린 코드 줄을 찾습니다)'):''"
+            ),
             sq(extract_js_fn("docTip")),
         )
 
@@ -3217,7 +3224,7 @@ class FrontendFigure(unittest.TestCase):
         self.assertIn(sq("const lostEl=elLostTag(p); if(lostEl)tags.push(lostEl);"), sq(c))
         self.assertIn(sq("figRegionBadge(p.el,isFigureKind((docInfo(pdoc(p))||{}).kind))"), sq(c))
         self.assertIn("arrivePage(pinPlace(p).page)", extract_js_fn("jumpPin"))  # its page now, by its figure
-        self.assertIn("p.el_sync===EL_SYNC.LOST", sq(JS_UPDATE_STUBS + extract_js_fn("notePinChanges")))
+        self.assertIn("pin.el_sync===EL_SYNC.LOST", sq(JS_UPDATE_STUBS + extract_js_fn("notePinChanges")))
 
     def test_a_pin_of_an_unknown_via_gets_a_neutral_hint_not_the_synctex_one(self):
         """A `via` this page does not know is named as it came, in a tooltip that claims no method and no meaning for the
@@ -4632,7 +4639,7 @@ class FrontendThread(unittest.TestCase):
         self.assertIn("setKind(KIND_REQ.FIX)", extract_js_fn("cancelSelection"))
         self.assertIn(sq("KIND_NEW===KIND_REQ.QUESTION?'무엇이 궁금한지 적어 주세요'"), sq(extract_js_fn("setKind")))
         self.assertIn(
-            sq("if(REPLY){e.preventDefault();closeReply();return;}"), SCRIPT_SQ
+            sq("if(REPLY){event.preventDefault();closeReply();return;}"), SCRIPT_SQ
         )  # Esc closes the input field first
         self.assertIn('id="c-kind"', HTML)
         send = extract_js_fn("sendReply")
@@ -4922,8 +4929,8 @@ class FrontendMentions(unittest.TestCase):
                     "assignSeg",
                     "segReveal",
                     "segFade",
-                    "segOffered",
-                    "segShown",
+                    "offeredWords",
+                    "shownWords",
                     "segFocusAt",
                     "segKeep",
                     "segRove",
@@ -5419,15 +5426,15 @@ class FrontendNotify(unittest.TestCase):
         self.assertRegex(h, r'<button id="m-notify" role="switch" aria-checked="false"')
         self.assertIn('id="m-notify-why"', h)
         self.assertIn(
-            sq("m.setAttribute('aria-checked',String(st===NOTIFY_STATE.ON))"), sq(extract_js_fn("drawNotify"))
+            sq("toggle.setAttribute('aria-checked',String(state===NOTIFY_STATE.ON))"), sq(extract_js_fn("drawNotify"))
         )
         self.assertNotIn('id="btn-notify"', h)  # the desktop's bell went with its [⋯]: the switch is the one control
         tog = extract_js_fn("notifyToggle")
         self.assertIn("Notification.requestPermission()", tog)
         self.assertEqual(html_without_comments(h).count("requestPermission("), 1)  # only asked on the click path
-        self.assertIn("reg.showNotification(", extract_js_fn("notifyShow"))
+        self.assertIn("registration.showNotification(", extract_js_fn("notifyShow"))
         self.assertNotIn("new Notification(", html_without_comments(h))
-        self.assertIn(sq("tag:'pin-'+e.pin"), sq(extract_js_fn("notifyShow")))
+        self.assertIn(sq("tag:'pin-'+event.pin"), sq(extract_js_fn("notifyShow")))
         self.assertIn(sq("document.visibilityState==='visible'&&document.hasFocus()"), sq(extract_js_fn("notifyShow")))
         self.assertIn("notifyQuery()", JS_UPDATE_STUBS + extract_js_fn("pollLightOnce"))
         self.assertIn("navigator.serviceWorker.register('/sw.js'", extract_js_fn("notifyRegister"))
@@ -5542,11 +5549,11 @@ class ViewerMarkup(unittest.TestCase):
     def test_system_notification_for_a_deleted_pin_offers_restore(self):
         # a hidden tab gets a system notification: [되살리기] is a notification action the service worker hands to the tab
         self.assertIn(
-            sq("actions:e.type===EVENT_TYPE.DROPPED&&!isViewer()?[{action:'restore',title:tr('되살리기')}]:[]"),
+            sq("actions:event.type===EVENT_TYPE.DROPPED&&!isViewer()?[{action:'restore',title:tr('되살리기')}]:[]"),
             sq(extract_js_fn("notifyShow")),
         )
         self.assertIn(sq("e.action==='restore'"), sq(SW_JS))
-        self.assertIn(sq("d.type==='restore-pin'"), SCRIPT_SQ)
+        self.assertIn(sq("message.type==='restore-pin'"), SCRIPT_SQ)
 
 
 class ViewerFunctions(unittest.TestCase):
@@ -5635,10 +5642,10 @@ class ViewerFunctions(unittest.TestCase):
         js = "\n".join(
             [
                 "const SEC_DEFAULT={open:true,review:true,done:false};",
-                extract_js_fn("secState"),
+                extract_js_fn("readSectionsExpanded"),
                 extract_js_fn("secNewCount"),
                 r"""
-            console.log(JSON.stringify([secState(undefined), secState({done:true}), secState({open:false,x:1,review:'no'}),
+            console.log(JSON.stringify([readSectionsExpanded(undefined), readSectionsExpanded({done:true}), readSectionsExpanded({open:false,x:1,review:'no'}),
               secNewCount(new Set([1,2]),[1,2,3,4]), secNewCount(new Set([1,2]),[2]), secNewCount(null,[1])]));""",
             ]
         )

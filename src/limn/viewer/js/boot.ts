@@ -58,13 +58,13 @@ async function boot() {
   setDoc(initialDoc());
   try {
     setMeta((await api(dq('/api/meta'), { what: '화면 정보 읽기', where: NOTICE_HOST.LINE })).data);
-  } catch (e) {
+  } catch (error) {
     return;
   }
   if (META.doc) setDoc(META.doc);
   META_BY.set(DOC, META);
   loadViews();
-  const v = VIEW_BY.get(DOC);
+  const view = VIEW_BY.get(DOC);
   if (multiDoc()) {
     setHash(DOC);
     savePrefs({ lastDoc: DOC });
@@ -74,12 +74,12 @@ async function boot() {
   drawMeta();
   applySideWidth();
   applyOutlineState();
-  const hadW = applyViewWidth(v);
+  const hadWidth = applyViewWidth(view);
   buildDoc();
-  if (!hadW) autoW();
+  if (!hadWidth) autoW();
   vecBoot();
   const pinsLoaded = await loadPins();
-  restoreView(v);
+  restoreView(view);
   drawDocTabs();
   updateSectionStrip();
   restoreDraft(); // the page count is there before the first scroll (mid shows it in the nav bar)
@@ -102,7 +102,7 @@ async function boot() {
     setLastSrcMtime(META.src_sig || META.src_mtime);
   }
   BUILD.lastSeq = typeof META.build_seq === 'number' ? META.build_seq : 0; // the build count this tab has already "seen"
-  (META.docs || []).forEach((d) => DOC_SEQ.set(d.key, d.build_seq));
+  (META.docs || []).forEach((entry) => DOC_SEQ.set(entry.key, entry.build_seq));
   startLightPolling();
   startBuildPolling();
   offlineBoot();
@@ -112,31 +112,31 @@ async function boot() {
   if (prefs().notify && notifySupported() && notifyPerm() === 'granted') notifyRegister();
   if (link.pin) openPinFromLink(link.doc || DOC, link.pin, link.restore);
 }
-function builtAtEpoch(s) {
-  const t = Date.parse(String(s || '').replace(' ', 'T'));
-  return isNaN(t) ? null : t / 1000;
+function builtAtEpoch(builtAt) {
+  const parsed = Date.parse(String(builtAt || '').replace(' ', 'T'));
+  return isNaN(parsed) ? null : parsed / 1000;
 }
 // The "manuscript modified" badge - judged only from numbers the server provides (stale_build, src_age_s), independent of the browser's clock/timezone.
 // Only a legacy response with no stale_build falls back to comparing src_mtime/build_src_mtime (both server epochs).
-function updateStaleBadge(m) {
+function updateStaleBadge(meta) {
   const badge = $('#meta-stale'),
-    btn = $('#btn-rebuild');
+    rebuildButton = $('#btn-rebuild');
   let stale;
-  if (typeof m.stale_build === 'boolean') stale = m.stale_build;
+  if (typeof meta.stale_build === 'boolean') stale = meta.stale_build;
   else {
-    const ref = typeof m.build_src_mtime === 'number' ? m.build_src_mtime : builtAtEpoch(META && META.built_at);
-    stale = ref != null && typeof m.src_mtime === 'number' && m.src_mtime > ref + 2;
+    const ref = typeof meta.build_src_mtime === 'number' ? meta.build_src_mtime : builtAtEpoch(META && META.built_at);
+    stale = ref != null && typeof meta.src_mtime === 'number' && meta.src_mtime > ref + 2;
   }
   if (!stale) {
     badge.hidden = true;
-    btn.classList.remove('btn-default');
+    rebuildButton.classList.remove('btn-default');
     return;
   }
-  const age = typeof m.src_age_s === 'number' ? m.src_age_s : Date.now() / 1000 - m.src_mtime;
-  const mins = Math.max(0, Math.round(age / 60));
+  const age = typeof meta.src_age_s === 'number' ? meta.src_age_s : Date.now() / 1000 - meta.src_mtime;
+  const minutes = Math.max(0, Math.round(age / 60));
   badge.hidden = false;
-  badge.textContent = tl('원고 수정됨 · {n}분 전', { n: mins });
-  btn.classList.add('btn-default');
+  badge.textContent = tl('원고 수정됨 · {n}분 전', { n: minutes });
+  rebuildButton.classList.add('btn-default');
 }
 const SYNC_REASON = {
   not_git: 'Git 저장소가 아닙니다',
@@ -153,29 +153,31 @@ const SYNC_REASON = {
 };
 // The main sync badge (--git-pull) from a meta's `sync` {state, reason}: hidden when off or current, a warning when blocked or
 // failed. It also keeps s for the status line (STATUS_SYNC), which words the same state on compact bands.
-function updateSyncBadge(s) {
-  setStatusSync(s || null);
-  const b = $('#meta-sync');
-  if (!b) return;
-  if (!s || s.state === SYNC_STATE.DISABLED || s.state === SYNC_STATE.CURRENT) {
-    b.hidden = true;
+function updateSyncBadge(sync) {
+  setStatusSync(sync || null);
+  const badge = $('#meta-sync');
+  if (!badge) return;
+  if (!sync || sync.state === SYNC_STATE.DISABLED || sync.state === SYNC_STATE.CURRENT) {
+    badge.hidden = true;
     return;
   }
-  b.hidden = false;
-  b.classList.toggle('badge-warning', s.state === SYNC_STATE.BLOCKED || s.state === SYNC_STATE.ERROR);
-  const reason = tr(SYNC_REASON[s.reason] || s.reason || '');
-  b.textContent = tr(
-    s.state === SYNC_STATE.UPDATING
+  badge.hidden = false;
+  badge.classList.toggle('badge-warning', sync.state === SYNC_STATE.BLOCKED || sync.state === SYNC_STATE.ERROR);
+  const reason = tr(SYNC_REASON[sync.reason] || sync.reason || '');
+  badge.textContent = tr(
+    sync.state === SYNC_STATE.UPDATING
       ? '최신 main PDF 반영 중'
-      : s.state === SYNC_STATE.UPDATED
+      : sync.state === SYNC_STATE.UPDATED
         ? '최신 main 반영됨'
-        : s.state === SYNC_STATE.DEFERRED
+        : sync.state === SYNC_STATE.DEFERRED
           ? '빌드 뒤 main 확인'
-          : s.state === SYNC_STATE.CHECKING
+          : sync.state === SYNC_STATE.CHECKING
             ? 'main 확인 중'
             : 'main 동기화 확인 필요',
   );
-  b.dataset.tip = reason ? b.textContent + ' · ' + reason + ' · ' + tr('기존 PDF가 보일 수 있습니다') : b.textContent;
+  badge.dataset.tip = reason
+    ? badge.textContent + ' · ' + reason + ' · ' + tr('기존 PDF가 보일 수 있습니다')
+    : badge.textContent;
 }
 function isViewer() {
   return !!(typeof META !== 'undefined' && META && META.me && META.me.role === ROLE.VIEWER);
@@ -217,10 +219,10 @@ function drawMeta() {
   // A Markdown document has no PDF: its file is the tab's source, 'Markdown' its form, and no build time (nor its ' · ').
   $('#meta-main').textContent = META.main;
   $('#meta-main').dataset.tip = tr(isMdDoc() ? '이 탭의 원문 파일' : 'PDF를 만든 최상위 원고 파일');
-  const tx = isMdDoc() && isTextDoc(); // a text document's form is 텍스트 (text-surface.js)
-  $('#meta-pages').textContent = tx ? tr('텍스트') : isMdDoc() ? 'Markdown' : tl('{n}쪽', { n: META.pages.length });
+  const isText = isMdDoc() && isTextDoc(); // a text document's form is 텍스트 (text-surface.js)
+  $('#meta-pages').textContent = isText ? tr('텍스트') : isMdDoc() ? 'Markdown' : tl('{n}쪽', { n: META.pages.length });
   $('#meta-pages').dataset.tip = tr(
-    tx
+    isText
       ? '브라우저가 원문 줄을 그대로 보이는 문서 형식'
       : isMdDoc()
         ? '브라우저가 원문에서 그리는 문서 형식'
@@ -250,22 +252,22 @@ function drawMeta() {
 // piece keeps its words together and the lines break only between pieces; a piece longer than the line (a long file name)
 // breaks after / . _ - (<wbr>), never cut - it was one line cut at '…', its rest only in a 500ms long-press tip (UX audit P4.2).
 // The words are the viewer's (tr/tl), the names the user's: #more-info is translate="no".
-function moreInfo(m, me) {
-  const built = String(m.built_at || '')
+function moreInfo(meta, me) {
+  const built = String(meta.built_at || '')
     .slice(5, 16)
     .replace('T', ' ');
-  const piece = (t) =>
-    html`<span class="mc">${String(t)
+  const piece = (text) =>
+    html`<span class="mc">${String(text)
       .split(/([/._-])/)
-      .map((s, i) => (i % 2 ? html`${s}<wbr>` : s))}</span>`;
-  const line = (a) => a.filter(Boolean).map((t, i) => (i ? html` · ${piece(t)}` : piece(t)));
-  return html`${line([m.main, tl('{n}쪽', { n: m.pages.length }), commitShown(m.head)])}<br>${line([built && built !== '?' ? built + ' ' + tr('빌드') : '', tl('나: {name}', { name: who(me) })])}`;
+      .map((part, index) => (index % 2 ? html`${part}<wbr>` : part))}</span>`;
+  const line = (texts) => texts.filter(Boolean).map((text, index) => (index ? html` · ${piece(text)}` : piece(text)));
+  return html`${line([meta.main, tl('{n}쪽', { n: meta.pages.length }), commitShown(meta.head)])}<br>${line([built && built !== '?' ? built + ' ' + tr('빌드') : '', tl('나: {name}', { name: who(me) })])}`;
 }
 // The commit a meta names, or '' when it names none: the server sends '-' for a manuscript outside Git and nothing before
 // the first build. The meta lines leave that piece out with its separator - they read 'main.tex · 2쪽 · -'. Pure.
-function commitShown(h) {
-  const s = String(h == null ? '' : h).trim();
-  return s === '-' || s === '?' ? '' : s;
+function commitShown(head) {
+  const text = String(head == null ? '' : head).trim();
+  return text === '-' || text === '?' ? '' : text;
 }
 export {
   SYNC_REASON,

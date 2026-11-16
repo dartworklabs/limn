@@ -42,9 +42,9 @@ class PureRules(unittest.TestCase):
     def test_a_message_splits_into_title_and_description_at_the_first_dash_else_the_first_dot(self):
         """'— ' wins over ' · ' (a notification's title keeps its '핀 #10 · 본문'); one without either is all title."""
         got = self.run_js(
-            ["msgSplit"],
+            ["splitMessage"],
             "console.log(JSON.stringify(['핀 #3 저장됨 · pins.md 갱신','핀 저장 실패 — 서버에 닿지 않습니다','복사함',"
-            "'핀 #10 · 본문 — 서준님이 불렀습니다: 봐 주세요',null].map(msgSplit)));",
+            "'핀 #10 · 본문 — 서준님이 불렀습니다: 봐 주세요',null].map(splitMessage)));",
         )
         self.assertEqual(
             got,
