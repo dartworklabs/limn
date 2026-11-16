@@ -23,7 +23,7 @@ import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import { revealSegment } from '../composer/view-levels.ts';
 import { appendTarget, syncQuestionHint } from '../composer/flow-pick.ts';
-import { saveDraftSoon } from '../composer/state.ts';
+import { saveDraftSoon } from '../composer/flow-draft.ts';
 import { avatar, meLogin, mentionAfterWord, peopleName } from './view-card-parts.ts';
 import { renderReplyOutcome } from './flow-reply.ts';
 import { EDITOR, autoGrow, editNote } from './flow-edit.ts';

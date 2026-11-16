@@ -9,7 +9,7 @@ import { withDocQuery, isRegion, pdoc } from '../documents/view-tabs.ts';
 import { findAnyPin } from '../revisions/flow.ts';
 import { viaDoc } from '../documents/flow-switch.ts';
 import { viewerBlocked } from '../documents/flow-boot.ts';
-import { pinState } from '../documents/api.ts';
+import { pinState } from '../documents/flow-polling.ts';
 import { drawLadder, kindFor, levelOf, rangeCap, setCap, snipText, wireScope } from '../composer/view-levels.ts';
 import { drawExcerpt } from '../composer/view-excerpt.ts';
 import { pinPlace } from '../pdf/view-figure.ts';

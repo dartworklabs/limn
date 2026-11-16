@@ -27,7 +27,7 @@ import { bannerNote, deferred, deferredNote, lineNote, quietNote } from '../plat
 import { pdoc } from '../documents/view-tabs.ts';
 import { showChange } from '../revisions/flow.ts';
 import { canConfirmReview } from '../documents/flow-boot.ts';
-import { markMine, pinState } from '../documents/api.ts';
+import { markMine, pinState } from '../documents/flow-polling.ts';
 import { lineRange } from '../composer/view-levels.ts';
 import { pinPlace } from '../pdf/view-figure.ts';
 import { isMarkdownPin } from '../markdown/view.ts';
@@ -35,7 +35,7 @@ import { suggestBadge } from '../composer/flow-suggest.ts';
 import { verdictBadge, verdictOf, verdictOldMarker, verdictTarget } from '../verdict/flow-line.ts';
 import { docChip, fmtText, isQuestion, locText, mentionsMe, messageBody } from './view-card-parts.ts';
 import { drawPins, jumpToCard, listReview, loadPins, marks, orderPins } from './flow-list.ts';
-import { CONFIRMING, CONFIRMING_PIN } from './api.ts';
+import { CONFIRMING, CONFIRMING_PIN } from './flow-actions.ts';
 import type { Html } from '../platform/markup.ts';
 
 // The ticked rows while the review section picks: pin id -> the done_at its row showed when it was ticked ('' for a

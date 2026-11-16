@@ -13,7 +13,7 @@ import { isRegion } from '../documents/view-tabs.ts';
 import { applySide, setSide } from '../layout/flow.ts';
 import { lineRange } from './view-levels.ts';
 import { COMPOSE, syncQuestionHint } from './flow-pick.ts';
-import { saveDraftSoon } from './state.ts';
+import { saveDraftSoon } from './flow-draft.ts';
 import { MENTION, mentionClose, mentionEdited, mentionPlace, renderAssignNew } from '../pins/input-mentions.ts';
 import { autoGrow } from '../pins/flow-edit.ts';
 const SELECTION_POPOVER = $('#sel-pop'),

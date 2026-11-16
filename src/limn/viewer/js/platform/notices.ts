@@ -31,7 +31,7 @@ import { SECTION_OPEN } from './prefs.ts';
 import { tipFollow } from './tooltip.ts';
 import { STATUS_TOP, drawStatus, setStatusSig, toggleStatusList } from '../documents/view-status.ts';
 import { searchToPage } from '../pdf/flow.ts';
-import { saveButtonLabel } from '../composer/api.ts';
+import { saveButtonLabel } from '../composer/flow-save.ts';
 import { READING_LINE_PAGE, pageVerdictsOn } from '../verdict/flow-line.ts';
 import { focusLine, isReasonField } from '../verdict/flow-reason.ts';
 import { dropBareDayLines, placeRow } from '../pins/flow-list.ts';

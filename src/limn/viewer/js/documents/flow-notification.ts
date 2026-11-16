@@ -31,12 +31,12 @@ import { docInfo, withDocQuery, hashDoc } from './view-tabs.ts';
 import { findAnyPin } from '../revisions/flow.ts';
 import { switchDoc } from './flow-switch.ts';
 import { isViewer } from './flow-boot.ts';
-import { pinState, syncHiddenNotifyTimer } from './api.ts';
+import { pinState, syncHiddenNotifyTimer } from './flow-polling.ts';
 import { setSide } from '../layout/flow.ts';
 import { who } from '../pins/view-card-parts.ts';
 import { openTrash } from '../pins/view-cards.ts';
 import { drawPins, gotoReview, jumpPin, jumpToCard, loadPinsNow } from '../pins/flow-list.ts';
-import { restorePin } from '../pins/api.ts';
+import { restorePin } from '../pins/flow-actions.ts';
 const NOTIFY_RANK = { dropped: 6, assigned: 5, mention: 4, reopened: 3, review_requested: 2, replied: 1 };
 let WORKER_REGISTRATION = null as ServiceWorkerRegistration | null;
 function notifySupported() {

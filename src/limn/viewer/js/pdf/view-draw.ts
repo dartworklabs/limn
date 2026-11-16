@@ -4,7 +4,13 @@
 // out of reach.
 import { $, $$ } from '../app/state.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
-import { VECTOR_PDF, VECTOR_DETAIL_MARGIN, VECTOR_KEEP_MARGIN, VECTOR_PIXEL_CAP, forgetVectorDocument } from './api.ts';
+import {
+  VECTOR_PDF,
+  VECTOR_DETAIL_MARGIN,
+  VECTOR_KEEP_MARGIN,
+  VECTOR_PIXEL_CAP,
+  forgetVectorDocument,
+} from './flow-open.ts';
 import { searchOffer } from './flow.ts';
 // Closes one document - PDFDocumentProxy has no destroy of its own; loadingTask frees the worker-side resources too.
 function closeVectorDocument(doc) {

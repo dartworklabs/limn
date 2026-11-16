@@ -74,7 +74,7 @@ import { TIP_AT, hideTip, keyInput, armedTipElement } from '../platform/tooltip.
 import { docInfo, drawDocTabs, multiDoc, pdoc } from '../documents/view-tabs.ts';
 import { REVISION_VIEW, findAnyPin, drawPinGuideActions, setViewMode } from '../revisions/flow.ts';
 import { docTitle, switchDoc, viaDoc } from '../documents/flow-switch.ts';
-import { notePinChanges, noteReviewChanges, pinState } from '../documents/api.ts';
+import { notePinChanges, noteReviewChanges, pinState } from '../documents/flow-polling.ts';
 import { noteNewPins } from '../documents/flow-updates.ts';
 import { arrivePage, pageNoSides } from '../pdf/view-pages.ts';
 import { applySide, setSide } from '../layout/flow.ts';
@@ -87,7 +87,7 @@ import { mentionsMe, who } from './view-card-parts.ts';
 import { card, dayName, doneCard, drawTrash, openTrash, timeParts } from './view-cards.ts';
 import { drawReviewPick } from './flow-review-pick.ts';
 import { marksShow } from './input-hide-marks.ts';
-import { CONFIRMING, CONFIRMING_PIN, PURGING } from './api.ts';
+import { CONFIRMING, CONFIRMING_PIN, PURGING } from './flow-actions.ts';
 import { renderAssignNew } from './input-mentions.ts';
 import { closeReply, renderReplyOutcome, replyNote } from './flow-reply.ts';
 import { EDITOR, editDirty, renderEdit } from './flow-edit.ts';

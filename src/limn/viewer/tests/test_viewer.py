@@ -866,7 +866,7 @@ class FrontendVector(unittest.TestCase):
     def test_no_text_layer(self):
         """No text-selection layer is drawn over a page - a drag there is a region selection. The page's text is read
         in one place only (pdf/flow.ts pageText): for the in-document search, which draws boxes and no text, and for the
-        words of a selection made with no network (offline/api.ts offlineQuote)."""
+        words of a selection made with no network (offline/flow.ts offlineQuote)."""
         for s in ("TextLayer", "textLayer"):
             self.assertNotIn(s, HTML)
         self.assertEqual(HTML.count(".getTextContent("), 1)
@@ -4128,7 +4128,7 @@ class FrontendSaveWhilePicking(unittest.TestCase):
             let KIND_NEW='fix'; function setKind(k){KIND_NEW=k==='question'?'question':'fix';} function mentionHints(){return [];}
             const ASSIGN_NEW={v:'agent',touched:false}; function renderAssignNew(){} function mentionPreview(){}
             function topPinId(){return 0;}   // the mark a lost save's answer is looked for above (verdict/flow-line.ts)
-            function offlineNow(){return false;} function offlinePick(){return Promise.resolve();}   // connected (offline/api.ts)
+            function offlineNow(){return false;} function offlinePick(){return Promise.resolve();}   // connected (offline/flow.ts)
             var OFF={idem:false};   // a server that knows no write by its key: the save carries none
             function isMarkdownDoc(){return false;}
             function composeAsk(mode){return {mode};} function assignOutcome(){return {kind:KIND_NEW,assignee:ASSIGN_NEW.v};}

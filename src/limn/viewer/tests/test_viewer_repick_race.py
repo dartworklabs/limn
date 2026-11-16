@@ -53,7 +53,7 @@ class RepickRequestLifetime(unittest.TestCase):
                 extract_js_fn("cancelRepick"),
                 extract_js_fn("cancelSelection"),
                 extract_js_fn("startRepick"),
-                JS_OFFLINE_STUBS + extract_js_fn("pick"),  # connected: a new selection asks the server (offline/api.ts)
+                JS_OFFLINE_STUBS + extract_js_fn("pick"),  # connected: a selection asks the server (offline/flow.ts)
                 JS_UPDATE_STUBS + extract_js_fn("switchDoc"),
                 "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (markdown/view.ts)
                 scenario,

@@ -55,8 +55,8 @@ import {
   restoreSelection,
   selectionSnapshot,
 } from './flow-pick.ts';
-import { clearSavedDraft, restoredDraftOwns, saveDraftSoon, savedDraftSnapshot, syncDraft } from './state.ts';
-import { OFF, offlineKey, offlineNow, offlineQueueSave } from '../offline/api.ts';
+import { clearSavedDraft, restoredDraftOwns, saveDraftSoon, savedDraftSnapshot, syncDraft } from './flow-draft.ts';
+import { OFF, offlineKey, offlineNow, offlineQueueSave } from '../offline/flow.ts';
 import {
   figureShort,
   figureVerdictBody,
@@ -69,7 +69,7 @@ import {
   verdictUndo,
 } from '../verdict/flow-line.ts';
 import { isMe, loadPins } from '../pins/flow-list.ts';
-import { dropPin } from '../pins/api.ts';
+import { dropPin } from '../pins/flow-actions.ts';
 import { assignOutcome, composeAsk, mentionHints } from '../pins/input-mentions.ts';
 /**
  * Append once to the displayed pin revision; conflicts keep the draft, and undo can restore only that verified prior

@@ -26,10 +26,10 @@ import { translateTemplate, translate } from '../platform/i18n.ts';
 import { LINE, announce, holdLine, lineVisible, noticeButtons, noticeIcon } from '../platform/notices.ts';
 import { hideTip, showTipText } from '../platform/tooltip.ts';
 import { SYNC_REASON, isViewer } from './flow-boot.ts';
-import { POLL_FAILS } from './api.ts';
+import { POLL_FAILS } from './flow-polling.ts';
 import { BUILD, pullSuffix } from './view-build-chip.ts';
 import { versionOutdated } from './flow-updates.ts';
-import { OFF } from '../offline/api.ts';
+import { OFF } from '../offline/flow.ts';
 let STATUS_SYNC = null as SyncStatus | null,
   STATUS_SIG = ''; // the last meta `sync`; the drawn item's kind, action and count
 // the number of the message the line shows (0: none, or another item): lineNote reads out one it does not

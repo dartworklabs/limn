@@ -56,7 +56,7 @@ interface Selection extends PickAnswer {
   env?: string | null;
   elSel?: PinElement | null;
   rel?: PickOverlap[];
-  // A drag whose pick could not be sent (offline/api.ts offlinePick): it has no lines, and its box in PDF points is kept so
+  // A drag whose pick could not be sent (offline/flow.ts offlinePick): it has no lines, and its box in PDF points is kept so
   // the same coordinates can be sent to pick once the connection is back.
   offline?: boolean;
   rect?: { x0: number; y0: number; x1: number; y1: number } | null;

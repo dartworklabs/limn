@@ -36,7 +36,7 @@ import {
 } from '../platform/notices.ts';
 import { pdoc } from '../documents/view-tabs.ts';
 import { findAnyPin, showChange } from '../revisions/flow.ts';
-import { markMine, pinState } from '../documents/api.ts';
+import { markMine, pinState } from '../documents/flow-polling.ts';
 import { drawStatus } from '../documents/view-status.ts';
 import { searchToPage } from '../pdf/flow.ts';
 import { drawTrash } from './view-cards.ts';

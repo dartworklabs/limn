@@ -2,7 +2,7 @@ import { $, DIFF_FORMAT } from '../app/state.ts';
 import { translateTemplate } from '../platform/i18n.ts';
 import { REVISION_VIEW, COMPARISON_PDF, drawPinGuide, revisionCurrent } from './flow.ts';
 import { ZOOM_STEP } from '../pdf/view-pages.ts';
-import { VECTOR_PIXEL_CAP } from '../pdf/api.ts';
+import { VECTOR_PIXEL_CAP } from '../pdf/flow-open.ts';
 import { canvasBackingTarget } from '../pdf/view-draw.ts';
 import { wheelFactor } from '../pdf/input-zoom.ts';
 // ------------------------------------------------ The comparison PDF's zoom (docs/handbook/viewer.md §변경 보기)

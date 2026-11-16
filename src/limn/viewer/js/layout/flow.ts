@@ -52,7 +52,7 @@ import {
   applySideWidth,
   renderSizeSegment,
   setSheetKept,
-} from './state.ts';
+} from './flow-panel-size.ts';
 import { autoFitWidth, drawZoom } from '../pdf/view-pages.ts';
 import { updateSectionStrip } from '../pdf/view-outline.ts';
 import { SEARCH } from '../pdf/flow.ts';

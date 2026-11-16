@@ -62,7 +62,7 @@ import { SWALLOW_CLICK, hideTip } from '../platform/tooltip.ts';
 import { docInfo, isRegion, pdoc } from '../documents/view-tabs.ts';
 import { findAnyPin } from '../revisions/flow.ts';
 import { viewerBlocked } from '../documents/flow-boot.ts';
-import { pinState } from '../documents/api.ts';
+import { pinState } from '../documents/flow-polling.ts';
 import { arrivalLetGo, arrivalWatch, arrivePage, figureTop, pdfAreaInnerWidth } from '../pdf/view-pages.ts';
 import { SCROLL_KEYS, readingDepth } from '../pdf/view-outline.ts';
 import { searchToPage } from '../pdf/flow.ts';
@@ -72,7 +72,7 @@ import { isElementLost, figureFields, isFrac, pinPlace } from '../pdf/view-figur
 import { isMarkdownDoc } from '../markdown/view.ts';
 import { SUGGEST_DRAFT } from '../composer/flow-suggest.ts';
 import { COMPOSE } from '../composer/flow-pick.ts';
-import { savePin } from '../composer/api.ts';
+import { savePin } from '../composer/flow-save.ts';
 import {
   LAST_KEY_SAVE,
   REASON_SESSION,
@@ -128,7 +128,7 @@ import {
 import { claimActive, josa, josaToward, who } from '../pins/view-card-parts.ts';
 import { relSpan } from '../pins/view-cards.ts';
 import { PINS_APPLIED_SEQ, isMe, loadPins } from '../pins/flow-list.ts';
-import { CONFIRMING, CONFIRMING_PIN, dropPin, restorePin } from '../pins/api.ts';
+import { CONFIRMING, CONFIRMING_PIN, dropPin, restorePin } from '../pins/flow-actions.ts';
 import { EDITOR } from '../pins/flow-edit.ts';
 import { refreshDoc, topAnchor } from '../documents/flow-rebuild.ts';
 

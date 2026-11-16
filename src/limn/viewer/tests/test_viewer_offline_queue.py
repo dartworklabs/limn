@@ -1,4 +1,4 @@
-"""The queue of pins made while cut off, and how it is sent (js/offline/api.ts).
+"""The queue of pins made while cut off, and how it is sent (js/offline/flow.ts).
 
 The served functions are pulled and run under node with the queue and the server stubbed, so what these tests exercise
 is the shipped code. What they protect is the one promise of the feature: a kept pin is dropped only once its pin is on
@@ -560,7 +560,7 @@ function offIn(store,mode,fn){const s={put:function(v){STORE.set(v.key,v); retur
 
 
 class StoredAnswers(unittest.TestCase):
-    """What may be stored for a reopened tab, and what may be served from the store (offline/api.ts offStash/offStashed).
+    """What may be stored for a reopened tab, and what may be served from the store (offline/flow.ts offStash/offStashed).
 
     api() hands its caller the answers it says it expects without throwing, and a read may expect a refusal: a Markdown
     document past the drawing limit answers 413 with its reason. Such an answer is not the document. Stored, the next
@@ -772,7 +772,7 @@ function read(){return api('/api/pins?all=1',{what:'핀 읽기'}).then(function(
 
 
 class StoredReadsServe(unittest.TestCase):
-    """When a stored answer may stand in for a read the network refused (platform/api.ts, offline/api.ts offlineMayServe).
+    """When a stored answer may stand in for a read the network refused (platform/api.ts, offline/flow.ts offlineMayServe).
 
     Answered from the store whenever a read failed, a failure while the viewer was connected read as a success: the
     pin list stayed stale with no '핀 읽기 실패' and nothing asked again, and a Markdown source's note and its re-ask
@@ -871,7 +871,7 @@ class StoredReadsServe(unittest.TestCase):
 
 
 class OfflineQuote(unittest.TestCase):
-    """The words a drag made with no network lies on, read from the PDF already open (offline/api.ts quoteIn)."""
+    """The words a drag made with no network lies on, read from the PDF already open (offline/flow.ts quoteIn)."""
 
     def setUp(self):
         if not shutil.which("node"):
@@ -921,7 +921,7 @@ function mdrec(id,lo,text){return {id:id,v:1,label:'inst',doc:'notes',build:'',p
 
 class LinePins(unittest.TestCase):
     """A Markdown or text document's kept pin: its lines are its place, and they are written where they read the same
-    now (offline/api.ts linesWhere, offlinePlaceLines). Without this such a pin had no box to pick with and was always held."""
+    now (offline/flow.ts linesWhere, offlinePlaceLines). Without this such a pin had no box to pick with and was always held."""
 
     def setUp(self):
         if not shutil.which("node"):
@@ -1262,8 +1262,8 @@ class KeyedSend(unittest.TestCase):
 
 
 def _shipped_const(name):
-    """The line of offline/api.ts declaring name - the constants a pulled function reads, as shipped."""
-    src = helpers_js.module_text(Path(__file__).resolve().parent.parent / "js" / "offline" / "api.ts")
+    """The line of offline/flow.ts declaring name - the constants a pulled function reads, as shipped."""
+    src = helpers_js.module_text(Path(__file__).resolve().parent.parent / "js" / "offline" / "flow.ts")
     return helpers_js.module_declaration(src, name)
 
 
@@ -1370,7 +1370,7 @@ FOLLOW_FUNCTIONS = (
 
 
 class KeptCopyFollows(unittest.TestCase):
-    """A kept copy keeps itself current while connected (offline/api.ts offlineFollow, docs/handbook/viewer.md
+    """A kept copy keeps itself current while connected (offline/flow.ts offlineFollow, docs/handbook/viewer.md
     §끊긴 채 보기와 핀 쌓기 '스스로 최신으로').
 
     What it protects: a person who pressed [오프라인으로 받기] once flies with the build the server is on, held - without
@@ -1912,7 +1912,7 @@ class WorkerDrop(unittest.TestCase):
 
 
 class KeptRecord(unittest.TestCase):
-    """The pure rules the follow stands on (offline/api.ts offFree, offKeptWith, offBehind)."""
+    """The pure rules the follow stands on (offline/flow.ts offFree, offKeptWith, offBehind)."""
 
     def setUp(self):
         if not shutil.which("node"):
@@ -1997,7 +1997,7 @@ class KeptRecord(unittest.TestCase):
 
 
 class OfflineKeys(unittest.TestCase):
-    """The key a kept pin is sent with (offline/api.ts offlineKey), and the files a document needs (offlineDocFiles)."""
+    """The key a kept pin is sent with (offline/flow.ts offlineKey), and the files a document needs (offlineDocFiles)."""
 
     def setUp(self):
         if not shutil.which("node"):
@@ -2054,7 +2054,7 @@ class OfflineKeys(unittest.TestCase):
         self.assertEqual((got["same"], got["kept"], got["none"]), (True, True, ""))
 
     def test_a_documents_files_are_the_addresses_the_viewer_asks_for(self):
-        """A copy is found again by its address, so these must be the ones openVectorDocument and pageSrc build (pdf/api.ts,
+        """A copy is found again by its address, so these must be the ones openVectorDocument and pageSrc build (pdf/flow-open.ts,
         pdf/view-pages.ts) for that document: the PDF with its build and built_at, each page under its build, both with ?doc=."""
         js = "\n".join(
             [
@@ -2080,7 +2080,7 @@ class OfflineKeys(unittest.TestCase):
 
 
 class StoredReads(unittest.TestCase):
-    """Which reads are stored for a reopened tab with no network (offline/api.ts OFF_READS).
+    """Which reads are stored for a reopened tab with no network (offline/flow.ts OFF_READS).
 
     A tab the phone discarded comes back with no network and is drawn from the stored answers. loadPins() reads twice
     and applies neither snapshot unless both answered, so a read left out of the list does not merely go missing - it
@@ -2088,8 +2088,8 @@ class StoredReads(unittest.TestCase):
     """
 
     def off_reads(self):
-        """The paths offline/api.ts stores, read from the shipped source."""
-        src = helpers_js.module_text(Path(__file__).resolve().parent.parent / "js" / "offline" / "api.ts")
+        """The paths offline/flow.ts stores, read from the shipped source."""
+        src = helpers_js.module_text(Path(__file__).resolve().parent.parent / "js" / "offline" / "flow.ts")
         try:
             init = helpers_js.statement_init(helpers_js.module_declaration(src, "OFF_READS"), "OFF_READS")
         except (LookupError, ValueError):

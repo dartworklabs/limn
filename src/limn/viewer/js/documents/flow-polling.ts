@@ -33,11 +33,11 @@ import {
   versionDue,
 } from './flow-updates.ts';
 import { MARKDOWN_VIEW, isMarkdownDoc, buildMarkdownDoc, checkTreeImages } from '../markdown/view.ts';
-import { OFF, offlineFlush } from '../offline/api.ts';
+import { OFF, offlineFlush } from '../offline/flow.ts';
 import { josa, josaName, who } from '../pins/view-card-parts.ts';
 import { openTrash } from '../pins/view-cards.ts';
 import { gotoReview, loadPins } from '../pins/flow-list.ts';
-import { restorePin } from '../pins/api.ts';
+import { restorePin } from '../pins/flow-actions.ts';
 let LAST_PINS_REVISION = null as string | null,
   LAST_SRC_MTIME = null as string | number | null,
   POLL_FAILS = 0,

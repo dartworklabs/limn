@@ -24,7 +24,7 @@ import { translateTemplate, translate } from '../platform/i18n.ts';
 import { docInfo, isRegion, multiDoc, pdoc } from '../documents/view-tabs.ts';
 import { findAnyPin } from '../revisions/flow.ts';
 import { isViewer } from '../documents/flow-boot.ts';
-import { pinState } from '../documents/api.ts';
+import { pinState } from '../documents/flow-polling.ts';
 import { lineRange } from '../composer/view-levels.ts';
 import { pinPlace } from '../pdf/view-figure.ts';
 import { isMarkdownPin } from '../markdown/view.ts';

@@ -39,8 +39,8 @@ import { API_OUT, API_WAIT, api } from '../platform/api.ts';
 import { endTopic, lineNote } from '../platform/notices.ts';
 import { hideTip } from '../platform/tooltip.ts';
 import { isRegion } from '../documents/view-tabs.ts';
-import { pinState } from '../documents/api.ts';
-import { applySheet } from '../layout/state.ts';
+import { pinState } from '../documents/flow-polling.ts';
+import { applySheet } from '../layout/flow-panel-size.ts';
 import { applySide, relayout, setSelectMode, setSide } from '../layout/flow.ts';
 import { revealBox } from '../pdf/input-selection.ts';
 import { drawLadder, rangeCap, lineRange, scopeLabel, setCap, snipText, useLevel, viaTag } from './view-levels.ts';
@@ -56,9 +56,9 @@ import {
   suggestEdited,
   suggestPending,
 } from './flow-suggest.ts';
-import { holdDraftUntil, saveDraftSoon, syncDraft } from './state.ts';
-import { clearPendingSave, savePin, syncComposeSaveButtons } from './api.ts';
-import { offlineNow, offlinePick } from '../offline/api.ts';
+import { holdDraftUntil, saveDraftSoon, syncDraft } from './flow-draft.ts';
+import { clearPendingSave, savePin, syncComposeSaveButtons } from './flow-save.ts';
+import { offlineNow, offlinePick } from '../offline/flow.ts';
 import { renderVerdictRow } from '../verdict/flow-line.ts';
 import {
   SELECTION_POPOVER_FIELD,

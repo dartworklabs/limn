@@ -17,7 +17,7 @@ import { docInfo, withDocQuery } from '../documents/view-tabs.ts';
 import { setViewMode } from '../revisions/flow.ts';
 import { drawPos, refitFilteredSheet } from '../documents/flow-switch.ts';
 import { arrivalWatch, goPage, jumpOnItsWay } from './view-pages.ts';
-import { VECTOR_PDF } from './api.ts';
+import { VECTOR_PDF } from './flow-open.ts';
 import { refreshPageLists } from './view-page-list.ts';
 import { isMarkdownDoc, goToHeading, updateMarkdownStrip } from '../markdown/view.ts';
 import { glideTo } from '../verdict/flow-line.ts';

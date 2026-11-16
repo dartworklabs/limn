@@ -479,7 +479,7 @@ class ChangedOnDisk(AssetsBase):
         check finds the tag learned when it loaded (noteShownTag) and changes nothing. near.png is then rewritten 200x700 (400px taller); the light poll (pollLight) asks it again, loads it from
         its address with &v=<its new tag>, and the heading stays where it was in the pane, to 2px (the browser's scroll
         anchoring off, as in ReadingSpot). A check of the unchanged image gives no new address. A redraw (the source
-        edited) draws the new picture again, at its new address. Mutations: drop the light poll's checkTreeImages (documents/api.ts)
+        edited) draws the new picture again, at its new address. Mutations: drop the light poll's checkTreeImages (documents/flow-polling.ts)
         -> the image never changes, fails; draw a redraw's image at assetUrl instead of imageUrl -> the old picture
         comes back, fails."""
         page = self.open_md()

@@ -45,7 +45,7 @@ import {
   sideBounds,
   snapSide,
   toggleOutline,
-} from './state.ts';
+} from './flow-panel-size.ts';
 import {
   SLIDE_MS,
   applySide,

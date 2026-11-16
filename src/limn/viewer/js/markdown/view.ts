@@ -70,7 +70,7 @@ import { endTopic } from '../platform/notices.ts';
 import { TIP, hideTip, showTip } from '../platform/tooltip.ts';
 import { docInfo, withDocQuery, isRegion, pdoc } from '../documents/view-tabs.ts';
 import { drawPos, switchDoc, switchPending } from '../documents/flow-switch.ts';
-import { pinState } from '../documents/api.ts';
+import { pinState } from '../documents/flow-polling.ts';
 import { tintChangedLines, compareRedrawnSource } from '../documents/flow-updates.ts';
 import {
   OUTLINE_SELECTED,

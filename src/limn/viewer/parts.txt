@@ -48,14 +48,14 @@ js/documents/view-tabs.ts              # several documents: the list, tabs and l
 js/revisions/flow.ts                   # the changes view: source diff, comparison PDF, [변경 보기] from a pin
 js/documents/flow-switch.ts            # the documents sheet, remembered view positions, switching documents
 js/documents/flow-boot.ts              # boot() and the header: meta, stale and sync badges, viewer role
-js/documents/api.ts                    # meta polling, other documents' builds, status-line messages for pins changed elsewhere
+js/documents/flow-polling.ts           # meta polling, other documents' builds, status-line messages for pins changed elsewhere
 js/documents/flow-notification.ts      # browser notifications and pin links (#doc=&pin=)
 js/documents/view-build-chip.ts        # build progress polling and its chip
 js/documents/flow-updates.ts           # what came while viewing: a document's update, others' new pins, a new Limn, the seen record
 js/documents/view-status.ts            # the status line: its items, text, progress bar and place per band
-js/layout/state.ts                     # outline width, panel width and sheet height, their presets
+js/layout/flow-panel-size.ts           # outline width, panel width and sheet height, their presets
 js/pdf/view-pages.ts                   # the page elements, page width and zoom steps, page jump
-js/pdf/api.ts                          # PDF.js: loading, the document cache, opening the current build
+js/pdf/flow-open.ts                    # PDF.js: loading, the document cache, opening the current build
 js/pdf/view-outline.ts                 # the PDF outline and the section strip
 js/pdf/view-page-list.ts               # the page list: the page counts' popover and the navigation sheet's page rows
 js/pdf/view-draw.ts                    # PDF.js: canvases, what to draw next, rendering pages
@@ -73,9 +73,9 @@ js/text/view.ts                        # the text surface: a text document's lin
 js/revisions/view-rendered-compare.ts  # the rendered compare of a Markdown document ([그린 비교]): both sides drawn, compared block by block and word by word
 js/composer/flow-suggest.ts            # suggested edits: the draft, its switch and editor (composer, edit card), a card's badge and line diff
 js/composer/flow-pick.ts               # pick() and the composer: overlap banner, kind, question hint, discard and restore
-js/composer/state.ts                   # the composer draft kept per tab (sessionStorage)
-js/composer/api.ts                     # saving a pin, appending to one, the queued save
-js/offline/api.ts                      # seeing and pinning while cut off: the service worker's copies, the pin queue (IndexedDB), its send
+js/composer/flow-draft.ts              # the composer draft kept per tab (sessionStorage)
+js/composer/flow-save.ts               # saving a pin, appending to one, the queued save
+js/offline/flow.ts                     # seeing and pinning while cut off: the service worker's copies, the pin queue (IndexedDB), its send
 js/offline/view.ts                     # the queued pins on screen: their marks on the page, their rows in the panel
 js/verdict/flow-line.ts                # verdict pins: the composer's verdict row, the page verdict line, a confirm word's two presses, the card badge
 js/verdict/flow-reason.ts              # a page verdict's reason: its popover over the line, drafts kept per pin (sessionStorage), its writes
@@ -86,7 +86,7 @@ js/pins/view-cards.ts                  # the open and review card, archive and T
 js/pins/flow-review-pick.ts            # confirming several pins awaiting review from their result rows (ADR-0035)
 js/pins/flow-list.ts                   # loading pins, list sections, drawPins, marks on the PDF, jumping to a pin or card
 js/pins/input-hide-marks.ts            # taking the pin marks off the page for a look: the H key (switch, or a look while held), [더보기]'s switch, the reminder
-js/pins/api.ts                         # close, confirm, reopen, drop, purge, restore, unclaim
+js/pins/flow-actions.ts                # close, confirm, reopen, drop, purge, restore, unclaim
 js/pins/input-mentions.ts              # @-tag autocomplete, preview and the assignee choice
 js/pins/flow-reply.ts                  # the reply box and its outcome line
 js/pins/flow-edit.ts                   # the edit card

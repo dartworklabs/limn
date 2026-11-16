@@ -27,7 +27,7 @@ import { api } from '../platform/api.ts';
 import { DIGEST, bannerNote, digestBegin, digestSoon } from '../platform/notices.ts';
 import { withDocQuery, drawDocTabs, initialDoc, loadDocs, multiDoc, setHash } from './view-tabs.ts';
 import { applyViewWidth, loadViews, restoreView } from './flow-switch.ts';
-import { pollLight, setLastPinsRevision, setLastSrcMtime, startLightPolling } from './api.ts';
+import { pollLight, setLastPinsRevision, setLastSrcMtime, startLightPolling } from './flow-polling.ts';
 import {
   drawNotify,
   notifyPerm,
@@ -39,16 +39,16 @@ import {
 import { BUILD, startBuildPolling } from './view-build-chip.ts';
 import { DIGEST_TAIL_MS, checkDocsSeen, visitedBefore } from './flow-updates.ts';
 import { setStatusSync } from './view-status.ts';
-import { applyOutlineState, applySideWidth } from '../layout/state.ts';
+import { applyOutlineState, applySideWidth } from '../layout/flow-panel-size.ts';
 import { autoFitWidth, buildDoc } from '../pdf/view-pages.ts';
-import { bootVector } from '../pdf/api.ts';
+import { bootVector } from '../pdf/flow-open.ts';
 import { updateSectionStrip } from '../pdf/view-outline.ts';
 import { applyLayout, coach } from '../layout/flow.ts';
 import { isMarkdownDoc, showMarkdownHint } from '../markdown/view.ts';
 import { isTextDoc } from '../text/view.ts';
-import { restoreDraft } from '../composer/state.ts';
-import { saveButtonLabel } from '../composer/api.ts';
-import { offlineAskDown, offlineBoot } from '../offline/api.ts';
+import { restoreDraft } from '../composer/flow-draft.ts';
+import { saveButtonLabel } from '../composer/flow-save.ts';
+import { offlineAskDown, offlineBoot } from '../offline/flow.ts';
 import { avatar, isAgent, who } from '../pins/view-card-parts.ts';
 import { loadPins } from '../pins/flow-list.ts';
 import { isHuman } from '../pins/flow-reply.ts';

@@ -29,7 +29,7 @@ import { api } from '../platform/api.ts';
 import { bannerNote, deferred, deferredNote, lineNote } from '../platform/notices.ts';
 import { findAnyPin } from '../revisions/flow.ts';
 import { viewerBlocked } from '../documents/flow-boot.ts';
-import { markMine, pinState } from '../documents/api.ts';
+import { markMine, pinState } from '../documents/flow-polling.ts';
 import { setSide } from '../layout/flow.ts';
 import { meLogin, peopleName } from './view-card-parts.ts';
 import { drawPins, loadPins } from './flow-list.ts';

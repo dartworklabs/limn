@@ -125,7 +125,7 @@ function groupNote(group,data,view){const v=view(data); return lineNote(v.msg,v.
 )
 
 
-# Stand-ins for the hooks of the offline pin queue (js/offline/api.ts) for a node harness that pulls a function calling
+# Stand-ins for the hooks of the offline pin queue (js/offline/flow.ts) for a node harness that pulls a function calling
 # them - api(), savePin(), pick(), boot(), the light poll: the connection is there, nothing is queued, no answer is
 # stored and none is served from the store. var and function declarations, so a harness may take it more than once and
 # one that tests the queue itself declares the real functions after it.

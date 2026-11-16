@@ -25,7 +25,7 @@ import { NOTICES, drawTrashOffers } from '../platform/notices.ts';
 import { hideTip, tipFollow } from '../platform/tooltip.ts';
 import { docInfo, isRegion, pdoc } from '../documents/view-tabs.ts';
 import { canConfirmReview, confirmAccessText, isAgentRole, isViewer } from '../documents/flow-boot.ts';
-import { pinState } from '../documents/api.ts';
+import { pinState } from '../documents/flow-polling.ts';
 import { showSheet } from '../layout/flow.ts';
 import { lineRange, viaTag } from '../composer/view-levels.ts';
 import { isElementLost, lostElementTag, figureRegionBadge, pinPlace } from '../pdf/view-figure.ts';
@@ -68,7 +68,7 @@ import {
   who,
 } from './view-card-parts.ts';
 import { isMe, listDropped, reviewerLabel } from './flow-list.ts';
-import { PURGING } from './api.ts';
+import { PURGING } from './flow-actions.ts';
 import { EDITOR } from './flow-edit.ts';
 import type { Html } from '../platform/markup.ts';
 

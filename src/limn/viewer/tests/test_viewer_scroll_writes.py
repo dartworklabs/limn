@@ -64,7 +64,7 @@ OTHERS = {
     ("layout/flow.ts", "onViewport"): 1,
     ("composer/view-levels.ts", "revealSegment"): 3,
     ("revisions/view-rendered-compare.ts", "goToChangeGroup"): 1,
-    ("offline/api.ts", "offlinePick"): 1,
+    ("offline/flow.ts", "offlinePick"): 1,
     ("markdown/view.ts", "pickLines"): 2,
     ("pins/flow-list.ts", "gotoPinRef"): 1,
     ("pins/flow-list.ts", "gotoReview"): 1,

@@ -30,7 +30,7 @@ import { loadRevisions } from '../revisions/flow.ts';
 import { drawMeta } from './flow-boot.ts';
 import { BUILD, pollBuild, pullSuffix } from './view-build-chip.ts';
 import { buildDoc, pageSrc, reapplyScale } from '../pdf/view-pages.ts';
-import { openVectorDocument } from '../pdf/api.ts';
+import { openVectorDocument } from '../pdf/flow-open.ts';
 import { releaseAllVectorPages } from '../pdf/view-draw.ts';
 import { buildMarkdownDoc } from '../markdown/view.ts';
 import { pageUnderReadingLine } from '../verdict/flow-line.ts';

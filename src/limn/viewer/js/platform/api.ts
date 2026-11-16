@@ -27,7 +27,7 @@ import { NOTICE_HOST, NOTICE_KIND } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from './markup.ts';
 import { errText, translateTemplate, translate } from './i18n.ts';
 import { bannerNote, lineNote, quietNote, sourceOk } from './notices.ts';
-import { offReadKey, offStaleSaid, offStash, offStashed, offlineBack, offlineMayServe } from '../offline/api.ts';
+import { offReadKey, offStaleSaid, offStash, offStashed, offlineBack, offlineMayServe } from '../offline/flow.ts';
 const API_WAIT = { POLL: 8000, READ: 8000, PICK: 8000, SAVE: 10000, SEND: 30000 };
 let API_OUT = false;
 async function api(url, options): Promise<{ status: number; data: any }> {

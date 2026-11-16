@@ -51,7 +51,7 @@ import { notifyToggle } from './documents/flow-notification.ts';
 import { BUILD } from './documents/view-build-chip.ts';
 import { reloadForUpdate } from './documents/flow-updates.ts';
 import { drawStatus, statusWhy, toggleStatusList } from './documents/view-status.ts';
-import { sizePreset, toggleOutline } from './layout/state.ts';
+import { sizePreset, toggleOutline } from './layout/flow-panel-size.ts';
 import { actualSize, fitToWidth, goSheetPage, zoom } from './pdf/view-pages.ts';
 import { pickOutline } from './pdf/view-outline.ts';
 import { closePageList, goListedPage, togglePageList } from './pdf/view-page-list.ts';
@@ -83,9 +83,9 @@ import {
   setKind,
   toggleQuote,
 } from './composer/flow-pick.ts';
-import { saveDraftSoon } from './composer/state.ts';
-import { appendToPin, savePin } from './composer/api.ts';
-import { offlineFlush, offlinePrepare } from './offline/api.ts';
+import { saveDraftSoon } from './composer/flow-draft.ts';
+import { appendToPin, savePin } from './composer/flow-save.ts';
+import { offlineFlush, offlinePrepare } from './offline/flow.ts';
 import { cancelLineVerdict, undoFromLine, verdictPress } from './verdict/flow-line.ts';
 import { actOnReason } from './verdict/flow-reason.ts';
 import { goToSummaryPage } from './verdict/view-panel.ts';
@@ -107,7 +107,7 @@ import {
   toggleSection,
 } from './pins/flow-list.ts';
 import { MARKS, marksSet } from './pins/input-hide-marks.ts';
-import { closePin, confirmPin, dropPin, purgePin, trashRestore, unclaimPin } from './pins/api.ts';
+import { closePin, confirmPin, dropPin, purgePin, trashRestore, unclaimPin } from './pins/flow-actions.ts';
 import { ASSIGN_NEW, mentionApply, renderAssignEdit, renderAssignNew } from './pins/input-mentions.ts';
 import { closeReply, openReply, renderReplyOutcome, sendReply } from './pins/flow-reply.ts';
 import { EDITOR, cancelEdit, openEdit, renderEdit, saveEdit } from './pins/flow-edit.ts';
