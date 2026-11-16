@@ -48,7 +48,7 @@ def viewer_folder(root: Path, page: str = PAGE) -> Path:
 
 
 class ViewerHtml(unittest.TestCase):
-    """viewer_html(directory, messages, pdfjs_version=, katex_version=, pretendard_version=, marks=, icon_key=, icons=,
+    """viewer_html(directory, pdfjs_version=, katex_version=, pretendard_version=, marks=, icon_key=, icons=,
     version=, script_key=) -> the page before run_page(); viewer_script(directory, messages, pdfjs_version=,
     katex_version=, icons=) -> the script GET /viewer.js serves."""
 
@@ -58,11 +58,10 @@ class ViewerHtml(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.dir = viewer_folder(Path(self.tmp.name))
 
-    def html(self, messages=None, icons=ICONS):
+    def html(self, icons=ICONS):
         """The assembled test page with fixed inputs."""
         return assemble.viewer_html(
             self.dir,
-            {"가": "A"} if messages is None else messages,
             pdfjs_version="9.9.9",
             katex_version="7.7.7",
             pretendard_version="8.8.8",
@@ -148,7 +147,6 @@ class ViewerHtml(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     assemble.viewer_html(
                         broken,
-                        {},
                         pdfjs_version="1",
                         katex_version="1",
                         pretendard_version="1",
@@ -173,7 +171,6 @@ class ViewerHtml(unittest.TestCase):
         )
         out = assemble.viewer_html(
             assemble.VIEWER_DIR,
-            {},
             pdfjs_version=assemble.PDFJS_VERSION,
             katex_version=assemble.KATEX_VERSION,
             pretendard_version=assemble.PRETENDARD_VERSION,

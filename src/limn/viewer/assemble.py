@@ -89,7 +89,6 @@ def read_viewer() -> "ViewerFiles":
     script = viewer_script(VIEWER_DIR, messages, pdfjs_version=PDFJS_VERSION, katex_version=KATEX_VERSION, icons=LUCIDE)
     template = viewer_html(
         VIEWER_DIR,
-        messages,
         pdfjs_version=PDFJS_VERSION,
         katex_version=KATEX_VERSION,
         pretendard_version=PRETENDARD_VERSION,
@@ -363,7 +362,6 @@ def md_worker(directory: Path, markdown_it_version: str) -> str:
 
 def viewer_html(
     directory: Path,
-    messages: Mapping[str, Message],
     *,
     pdfjs_version: str,
     katex_version: str,
@@ -380,8 +378,7 @@ def viewer_html(
     viewer_script's answer), pdfjs_version, katex_version, pretendard_version, the logo's inline SVGs (marks: placeholder
     -> markup, limn.viewer.mark.Brand.marks, in placeholder order), Limn's version and the favicon links' icon_key fill
     their placeholders, in that order, and every {{ic:<name>}} token becomes its icon's <svg> (icons is the table).
-    messages is not in the page (the script carries it); it stays an argument so the page and the script are made from
-    the same table. Raises like load_viewer_html, and KeyError for an icon token the table lacks.
+    The message table is not in the page: the script carries it (viewer_script). Raises like load_viewer_html, and KeyError for an icon token the table lacks.
     """
     page = load_viewer_html(directory)
     page = page.replace("__VIEWER_JS_KEY__", script_key)

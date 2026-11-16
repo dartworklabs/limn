@@ -57,7 +57,7 @@ def inline_hashes(page: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
     blocks the page's own script. That is a packaging defect in Limn's own page: a run changes only an
     escaped label, a #rrggbb accent and ko/en, and web/tests/test_csp.py reads the packaged page under such runs."""
     external = _EXTERNAL.findall(page)
-    found = _INLINE.findall(_EXTERNAL.sub("", page))
+    found: list[tuple[str, str]] = _INLINE.findall(_EXTERNAL.sub("", page))
     if len(found) + len(external) != len(_OPENING.findall(page)) or any(_AMBIGUOUS.search(text) for _, text in found):
         raise ValueError("an inline <script>/<style> of the page cannot be hashed as the browser reads it")
     scripts = dict.fromkeys(_digest(text) for kind, text in found if kind == "script")
